@@ -4,9 +4,13 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
-- Initial public release preparation
-- GPL-3.0-or-later licensing
-- CI, release automation, and installer scaffolding
+- Ongoing development
+
+## [0.1.1]
+
+- Fix CI and release workflows for published binaries
+- Keep installer and release automation aligned with the public GitHub repository
+- Support maintainer-only internal validation from a sibling checkout
 
 ## [0.1.0]
 
