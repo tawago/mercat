@@ -2,7 +2,39 @@
 
 A fast terminal markdown viewer written in Zig.
 
-`mdv` is licensed under `GPL-3.0-or-later`.
+[![CI](https://github.com/tawago/mdv/actions/workflows/ci.yml/badge.svg)](https://github.com/tawago/mdv/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/tawago/mdv)](https://github.com/tawago/mdv/releases)
+[![License: GPL-3.0-or-later](https://img.shields.io/badge/license-GPL--3.0--or--later-blue.svg)](LICENSE)
+
+## Installation
+
+### Homebrew
+
+```bash
+brew tap tawago/homebrew-mdv
+brew install mdv
+```
+
+### Installer Script
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/tawago/mdv/main/install.sh | bash
+```
+
+### Direct Download
+
+Release archives are published at:
+
+`https://github.com/tawago/mdv/releases`
+
+### Build From Source
+
+Requires Zig 0.15.1+.
+
+```bash
+zig build -Doptimize=ReleaseFast
+# Binary at ./zig-out/bin/mdv
+```
 
 ## Features
 
@@ -14,50 +46,13 @@ A fast terminal markdown viewer written in Zig.
 - **Stdin support**: `cat file.md | mdv -`
 - **GFM support**: Tables, task lists, fenced code blocks, strikethrough
 
-## Installation
-
-Requires Zig 0.15.1+.
-
-```bash
-zig build -Doptimize=ReleaseFast
-# Binary at ./zig-out/bin/mdv
-```
-
-Prebuilt releases and an installer script are part of the release workflow.
-
-### Installer Script
-
-Installer command:
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/tawago/mdv/main/install.sh | bash
-```
-
-### Homebrew
-
-```bash
-brew tap tawago/homebrew-mdv
-brew install mdv
-```
-
-### Direct Download
-
-Release archives are published at:
-
-`https://github.com/tawago/mdv/releases`
-
-## Releases
-
-Public releases are intended to include:
-
-- source builds from this repository
-- prebuilt release archives
-- the installer script in `install.sh`
-- Homebrew installation via `tawago/homebrew-mdv`
-
 ## Usage
 
 ```bash
+# TUI mode
+mdv -t README.md           # View file in TUI
+mdv -t .                   # Browse directory (WIP)
+
 # CLI mode
 mdv README.md              # Render to stdout
 mdv -p README.md           # Pipe through pager
@@ -65,9 +60,6 @@ mdv -w 80 README.md        # Fixed width
 mdv --style dark README.md # Force dark theme
 cat file.md | mdv -        # Read from stdin
 
-# TUI mode
-mdv -t README.md           # View file in TUI
-mdv -t .                   # Browse directory (WIP)
 ```
 
 ## TUI Key Bindings
@@ -104,11 +96,9 @@ Environment overrides: `MDV_THEME`, `MDV_WIDTH`
 
 ## Status
 
-**Complete**: CLI rendering, TUI pager, themes, config, editor integration, stdin/pager support.
-
 **In Progress**: Mermaid ASCII diagram rendering.
 
-**Planned**: TUI file browser, in-document search, file watching.
+**Planned**: more TUI features, in-document search, file watching.
 
 ## Development
 
