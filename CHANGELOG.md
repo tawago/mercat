@@ -6,6 +6,11 @@ All notable changes to this project will be documented in this file.
 
 - Ongoing development
 
+## [0.1.2]
+
+- Automate Homebrew tap updates after successful tagged releases
+- Improve README install ordering and add project badges
+
 ## [0.1.1]
 
 - Fix CI and release workflows for published binaries
