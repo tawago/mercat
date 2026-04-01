@@ -101,60 +101,60 @@ jobs:
 
           mkdir -p "$workdir/tap/Formula"
 
-          cat <<EOF | sed 's/^          //' > "$workdir/tap/${FORMULA_PATH}"
-          class Mdv < Formula
-            desc "Fast terminal markdown viewer with Mermaid diagram support"
-            homepage "https://github.com/tawago/mdv"
-            version "${version}"
-            license "GPL-3.0-or-later"
-
-            on_macos do
-              on_arm do
-                url "https://github.com/tawago/mdv/releases/download/v#{version}/mdv-darwin-aarch64.tar.gz"
-                sha256 "${darwin_arm_sha}"
-              end
-
-              on_intel do
-                url "https://github.com/tawago/mdv/releases/download/v#{version}/mdv-darwin-x86_64.tar.gz"
-                sha256 "${darwin_x86_sha}"
-              end
-            end
-
-            on_linux do
-              on_arm do
-                url "https://github.com/tawago/mdv/releases/download/v#{version}/mdv-linux-aarch64.tar.gz"
-                sha256 "${linux_arm_sha}"
-              end
-
-              on_intel do
-                url "https://github.com/tawago/mdv/releases/download/v#{version}/mdv-linux-x86_64.tar.gz"
-                sha256 "${linux_x86_sha}"
-              end
-            end
-
-            def install
-              bin.install "mdv"
-            end
-
-            test do
-              assert_match version.to_s, shell_output("#{bin}/mdv --version")
-            end
-          end
-          EOF
+          {
+            printf '%s\n' 'class Mdv < Formula'
+            printf '%s\n' '  desc "Fast terminal markdown viewer with Mermaid diagram support"'
+            printf '%s\n' '  homepage "https://github.com/tawago/mdv"'
+            printf '%s\n' "  version \"${version}\""
+            printf '%s\n' '  license "GPL-3.0-or-later"'
+            printf '\n'
+            printf '%s\n' '  on_macos do'
+            printf '%s\n' '    on_arm do'
+            printf '%s\n' '      url "https://github.com/tawago/mdv/releases/download/v#{version}/mdv-darwin-aarch64.tar.gz"'
+            printf '%s\n' "      sha256 \"${darwin_arm_sha}\""
+            printf '%s\n' '    end'
+            printf '\n'
+            printf '%s\n' '    on_intel do'
+            printf '%s\n' '      url "https://github.com/tawago/mdv/releases/download/v#{version}/mdv-darwin-x86_64.tar.gz"'
+            printf '%s\n' "      sha256 \"${darwin_x86_sha}\""
+            printf '%s\n' '    end'
+            printf '%s\n' '  end'
+            printf '\n'
+            printf '%s\n' '  on_linux do'
+            printf '%s\n' '    on_arm do'
+            printf '%s\n' '      url "https://github.com/tawago/mdv/releases/download/v#{version}/mdv-linux-aarch64.tar.gz"'
+            printf '%s\n' "      sha256 \"${linux_arm_sha}\""
+            printf '%s\n' '    end'
+            printf '\n'
+            printf '%s\n' '    on_intel do'
+            printf '%s\n' '      url "https://github.com/tawago/mdv/releases/download/v#{version}/mdv-linux-x86_64.tar.gz"'
+            printf '%s\n' "      sha256 \"${linux_x86_sha}\""
+            printf '%s\n' '    end'
+            printf '%s\n' '  end'
+            printf '\n'
+            printf '%s\n' '  def install'
+            printf '%s\n' '    bin.install "mdv"'
+            printf '%s\n' '  end'
+            printf '\n'
+            printf '%s\n' '  test do'
+            printf '%s\n' '    assert_match version.to_s, shell_output("#{bin}/mdv --version")'
+            printf '%s\n' '  end'
+            printf '%s\n' 'end'
+          } > "$workdir/tap/${FORMULA_PATH}"
 
           if [ ! -f "$workdir/tap/README.md" ]; then
-            cat <<'EOF' | sed 's/^            //' > "$workdir/tap/README.md"
-            # homebrew-mdv
-
-            Homebrew tap for `mdv`.
-
-            ## Install
-
-            ```bash
-            brew tap tawago/homebrew-mdv
-            brew install mdv
-            ```
-            EOF
+            {
+              printf '%s\n' '# homebrew-mdv'
+              printf '\n'
+              printf '%s\n' 'Homebrew tap for `mdv`.'
+              printf '\n'
+              printf '%s\n' '## Install'
+              printf '\n'
+              printf '%s\n' '```bash'
+              printf '%s\n' 'brew tap tawago/homebrew-mdv'
+              printf '%s\n' 'brew install mdv'
+              printf '%s\n' '```'
+            } > "$workdir/tap/README.md"
           fi
 
           cd "$workdir/tap"
