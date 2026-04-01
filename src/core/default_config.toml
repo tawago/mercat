@@ -1,0 +1,17 @@
+[general]
+editor = "vim"
+pager = "less -R"
+
+[display]
+theme = "auto"
+syntax_theme = "default"
+width = 0
+line_numbers = false
+
+[mermaid]
+enabled = true
+style = "rounded"
+
+[files]
+show_hidden = false
+extensions = ["md", "markdown", "mdown", "mkd"]

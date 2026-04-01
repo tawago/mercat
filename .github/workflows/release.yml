@@ -1,0 +1,56 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - v*
+
+permissions:
+  contents: write
+
+jobs:
+  build-release:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: x86_64-linux-musl
+            artifact: mdv-linux-x86_64.tar.gz
+          - os: ubuntu-latest
+            target: aarch64-linux-musl
+            artifact: mdv-linux-aarch64.tar.gz
+          - os: macos-latest
+            target: x86_64-macos
+            artifact: mdv-darwin-x86_64.tar.gz
+          - os: macos-latest
+            target: aarch64-macos
+            artifact: mdv-darwin-aarch64.tar.gz
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Zig
+        uses: mlugg/setup-zig@v2
+        with:
+          version: 0.15.1
+
+      - name: Build release binary
+        run: zig build -Doptimize=ReleaseSafe -Dtarget=${{ matrix.target }}
+
+      - name: Package archive and checksum
+        shell: bash
+        run: |
+          mkdir -p dist
+          cp zig-out/bin/mdv dist/mdv
+          tar -C dist -czf ${{ matrix.artifact }} mdv
+          shasum -a 256 ${{ matrix.artifact }} > ${{ matrix.artifact }}.sha256
+
+      - name: Publish release assets
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            ${{ matrix.artifact }}
+            ${{ matrix.artifact }}.sha256
