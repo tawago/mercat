@@ -4,3 +4,7 @@ zig-out/
 
 # Optional local maintainer wiring for internal validation
 .internal-tests/
+
+# Local AI assistant guidance
+CLAUDE.md
+.claude/

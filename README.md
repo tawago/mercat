@@ -110,8 +110,3 @@ zig build test
 
 The public repository keeps contributor-facing tests. Maintainers may also run additional internal validation before releases.
 
-When an internal test checkout is available, maintainers can point the build at it explicitly:
-
-```bash
-zig build -Dinternal-tests-dir=../mdv-internal-tests test-all
-```
