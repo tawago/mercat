@@ -11,6 +11,8 @@ permissions:
 jobs:
   build-release:
     runs-on: ${{ matrix.os }}
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
     strategy:
       fail-fast: false
       matrix:
@@ -37,8 +39,12 @@ jobs:
         with:
           version: 0.15.1
 
+      - name: Install QEMU for foreign build helpers
+        if: matrix.target == 'aarch64-linux-musl'
+        run: sudo apt-get update && sudo apt-get install -y qemu-user-static
+
       - name: Build release binary
-        run: zig build -Doptimize=ReleaseSafe -Dtarget=${{ matrix.target }}
+        run: zig build -Doptimize=ReleaseSafe -Dtarget=${{ matrix.target }} -fqemu
 
       - name: Package archive and checksum
         shell: bash

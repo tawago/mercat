@@ -9,6 +9,8 @@ on:
 jobs:
   build-and-test:
     runs-on: ${{ matrix.os }}
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
     strategy:
       fail-fast: false
       matrix:
@@ -26,10 +28,10 @@ jobs:
           version: 0.15.1
 
       - name: Build
-        run: zig build
+        run: zig build -Doptimize=ReleaseSafe
 
       - name: Run public tests
-        run: zig build test
+        run: zig build -Doptimize=ReleaseSafe test
 
       - name: Verify version output
-        run: zig build run -- --version
+        run: zig build -Doptimize=ReleaseSafe run -- --version
