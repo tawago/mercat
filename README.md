@@ -35,7 +35,16 @@ curl -fsSL https://raw.githubusercontent.com/tawago/mdv/main/install.sh | bash
 
 ### Homebrew
 
-Homebrew distribution is planned via a separate tap repository.
+```bash
+brew tap tawago/homebrew-mdv
+brew install mdv
+```
+
+### Direct Download
+
+Release archives are published at:
+
+`https://github.com/tawago/mdv/releases`
 
 ## Releases
 
@@ -44,7 +53,7 @@ Public releases are intended to include:
 - source builds from this repository
 - prebuilt release archives
 - the installer script in `install.sh`
-- Homebrew installation via a separate tap
+- Homebrew installation via `tawago/homebrew-mdv`
 
 ## Usage
 
@@ -109,4 +118,3 @@ zig build test
 ```
 
 The public repository keeps contributor-facing tests. Maintainers may also run additional internal validation before releases.
-
