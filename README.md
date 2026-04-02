@@ -12,7 +12,7 @@ A fast terminal markdown viewer written in Zig.
 
 ```bash
 brew tap tawago/homebrew-mdv
-brew install mdv
+brew install tawago/homebrew-mdv/mdv 
 ```
 
 ### Installer Script
