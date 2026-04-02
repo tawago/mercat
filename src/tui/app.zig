@@ -274,10 +274,14 @@ fn toVaxisSegments(allocator: std.mem.Allocator, line: render_model.Line, active
     const palette = theme.palette(active_theme, syntax_theme);
     const segments = try allocator.alloc(vaxis.Segment, line.spans.len);
     for (line.spans, 0..) |span, index| {
-        segments[index] = .{
+        var segment: vaxis.Segment = .{
             .text = span.text,
             .style = theme.vaxisStyle(theme.token(palette, span.style)),
         };
+        if (span.url) |url| {
+            segment.link = .{ .uri = url };
+        }
+        segments[index] = segment;
     }
     return segments;
 }

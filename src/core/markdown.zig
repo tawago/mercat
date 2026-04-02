@@ -23,8 +23,25 @@ pub fn parse(allocator: std.mem.Allocator, source: []const u8) !Document {
         blocks.deinit(allocator);
     }
 
-    try collectBlocks(allocator, &blocks, root);
+    try collectBlocksWithSource(allocator, &blocks, root, source);
     return .{ .blocks = try blocks.toOwnedSlice(allocator) };
+}
+
+fn collectBlocksWithSource(allocator: std.mem.Allocator, blocks: *std.ArrayList(Block), node: *koino.nodes.AstNode, source: []const u8) !void {
+    var child = node.first_child;
+    while (child) |current| : (child = current.next) {
+        switch (current.data.value) {
+            .Heading => |heading| try appendHeadingBlock(allocator, blocks, current, heading),
+            .Paragraph => try appendParagraphBlockWithSource(allocator, blocks, current, source),
+            .CodeBlock => |code| try appendCodeBlock(allocator, blocks, code),
+            .HtmlBlock => |html| try appendHtmlBlock(allocator, blocks, html),
+            .ThematicBreak => try blocks.append(allocator, .thematic_break),
+            .BlockQuote => try appendBlockQuote(allocator, blocks, current),
+            .Table => try appendTable(allocator, blocks, current),
+            .List => |list| try appendList(allocator, blocks, current, list),
+            else => if (current.first_child != null) try collectBlocksWithSource(allocator, blocks, current, source),
+        }
+    }
 }
 
 fn collectBlocks(allocator: std.mem.Allocator, blocks: *std.ArrayList(Block), node: *koino.nodes.AstNode) !void {
@@ -54,6 +71,58 @@ fn appendHeadingBlock(allocator: std.mem.Allocator, blocks: *std.ArrayList(Block
     try blocks.append(allocator, .{ .heading = .{ .level = heading.level, .content = content } });
 }
 
+fn appendParagraphBlockWithSource(allocator: std.mem.Allocator, blocks: *std.ArrayList(Block), node: *koino.nodes.AstNode, source: []const u8) !void {
+    const content = try collectInlines(allocator, node);
+    errdefer freeInlines(allocator, content);
+    if (content.len == 0) {
+        allocator.free(content);
+        return;
+    }
+
+    // Detect leading indentation from source using start_line
+    var indent: u8 = 0;
+    const start_line = node.data.start_line;
+
+    var line_start: usize = 0;
+    var current_line: usize = 0;
+
+    // Find the start of the target line
+    for (source, 0..) |char, idx| {
+        if (current_line == start_line) {
+            line_start = idx;
+            break;
+        }
+        if (char == '\n') {
+            current_line += 1;
+        }
+    }
+
+    // Count leading spaces on that line
+    var spaces: u8 = 0;
+    var idx = line_start;
+    while (idx < source.len) : (idx += 1) {
+        const char = source[idx];
+        if (char == ' ') {
+            spaces += 1;
+        } else if (char == '\t') {
+            spaces +|= 4;
+        } else if (char == '\n' or char == '\r') {
+            // Empty line
+            break;
+        } else {
+            // Hit non-whitespace content
+            break;
+        }
+    }
+    // Only count indentation if it's less than 4 spaces (not a code block)
+    if (spaces < 4) {
+        indent = @min(spaces, 255);
+    }
+
+
+    try blocks.append(allocator, .{ .paragraph = .{ .content = content, .indent = indent } });
+}
+
 fn appendParagraphBlock(allocator: std.mem.Allocator, blocks: *std.ArrayList(Block), node: *koino.nodes.AstNode) !void {
     const content = try collectInlines(allocator, node);
     errdefer freeInlines(allocator, content);
@@ -61,7 +130,7 @@ fn appendParagraphBlock(allocator: std.mem.Allocator, blocks: *std.ArrayList(Blo
         allocator.free(content);
         return;
     }
-    try blocks.append(allocator, .{ .paragraph = content });
+    try blocks.append(allocator, .{ .paragraph = .{ .content = content, .indent = 0 } });
 }
 
 fn appendCodeBlock(allocator: std.mem.Allocator, blocks: *std.ArrayList(Block), code: koino.nodes.NodeCodeBlock) !void {
@@ -80,13 +149,66 @@ fn appendHtmlBlock(allocator: std.mem.Allocator, blocks: *std.ArrayList(Block), 
 }
 
 fn appendBlockQuote(allocator: std.mem.Allocator, blocks: *std.ArrayList(Block), node: *koino.nodes.AstNode) !void {
-    const content = try collectBlockQuoteInlines(allocator, node);
-    errdefer freeInlines(allocator, content);
-    if (content.len == 0) {
-        allocator.free(content);
+    const result = try collectBlockQuoteBlocks(allocator, node, 1);
+    errdefer {
+        for (result.blocks) |block| block.deinit(allocator);
+        allocator.free(result.blocks);
+    }
+    if (result.blocks.len == 0) {
+        allocator.free(result.blocks);
         return;
     }
-    try blocks.append(allocator, .{ .blockquote = content });
+    try blocks.append(allocator, .{ .blockquote = result });
+}
+
+const BlockQuoteBlocksResult = struct {
+    blocks: []Block,
+    depth: u8,
+};
+
+fn collectBlockQuoteBlocks(allocator: std.mem.Allocator, node: *koino.nodes.AstNode, depth: u8) !Block.BlockQuote {
+    var result: std.ArrayList(Block) = .empty;
+    errdefer {
+        for (result.items) |block| block.deinit(allocator);
+        result.deinit(allocator);
+    }
+
+    var child = node.first_child;
+    while (child) |current| : (child = current.next) {
+        switch (current.data.value) {
+            .Heading => |heading| {
+                try appendHeadingBlock(allocator, &result, current, heading);
+            },
+            .Paragraph => {
+                try appendParagraphBlock(allocator, &result, current);
+            },
+            .CodeBlock => |code| {
+                try appendCodeBlock(allocator, &result, code);
+            },
+            .HtmlBlock => |html| {
+                try appendHtmlBlock(allocator, &result, html);
+            },
+            .ThematicBreak => {
+                try result.append(allocator, .thematic_break);
+            },
+            .BlockQuote => {
+                const nested = try collectBlockQuoteBlocks(allocator, current, depth + 1);
+                try result.append(allocator, .{ .blockquote = nested });
+            },
+            .Table => {
+                try appendTable(allocator, &result, current);
+            },
+            .List => |list| {
+                try appendList(allocator, &result, current, list);
+            },
+            else => {},
+        }
+    }
+
+    return .{
+        .blocks = try result.toOwnedSlice(allocator),
+        .depth = depth,
+    };
 }
 
 fn collectBlockQuoteInlines(allocator: std.mem.Allocator, node: *koino.nodes.AstNode) ![]Inline {
@@ -667,7 +789,7 @@ test "parses paragraph with inline styles" {
         var doc = try parse(allocator, "Hello *emphasis* world");
         defer doc.deinit(allocator);
         var found = false;
-        for (doc.blocks[0].paragraph) |inline_| {
+        for (doc.blocks[0].paragraph.content) |inline_| {
             if (inline_ == .emphasis) found = true;
         }
         try std.testing.expect(found);
@@ -678,7 +800,7 @@ test "parses paragraph with inline styles" {
         var doc = try parse(allocator, "Hello **strong** world");
         defer doc.deinit(allocator);
         var found = false;
-        for (doc.blocks[0].paragraph) |inline_| {
+        for (doc.blocks[0].paragraph.content) |inline_| {
             if (inline_ == .strong) found = true;
         }
         try std.testing.expect(found);
@@ -689,7 +811,7 @@ test "parses paragraph with inline styles" {
         var doc = try parse(allocator, "Hello `code` world");
         defer doc.deinit(allocator);
         var found = false;
-        for (doc.blocks[0].paragraph) |inline_| {
+        for (doc.blocks[0].paragraph.content) |inline_| {
             if (inline_ == .code) found = true;
         }
         try std.testing.expect(found);
@@ -700,7 +822,7 @@ test "parses paragraph with inline styles" {
         var doc = try parse(allocator, "Hello [link](url) world");
         defer doc.deinit(allocator);
         var found = false;
-        for (doc.blocks[0].paragraph) |inline_| {
+        for (doc.blocks[0].paragraph.content) |inline_| {
             if (inline_ == .link) found = true;
         }
         try std.testing.expect(found);
@@ -720,4 +842,43 @@ test "parses thematic breaks and html blocks" {
     try std.testing.expect(doc.blocks[0] == .html_block);
     try std.testing.expect(doc.blocks[1] == .thematic_break);
     try std.testing.expectEqualStrings("<aside>raw html</aside>", doc.blocks[0].html_block);
+}
+
+test "preserves paragraph indentation" {
+    const allocator = std.testing.allocator;
+
+    // Test 3-space indentation
+    {
+        var doc = try parse(allocator, "   Indented paragraph");
+        defer doc.deinit(allocator);
+        try std.testing.expectEqual(@as(usize, 1), doc.blocks.len);
+        try std.testing.expect(doc.blocks[0] == .paragraph);
+        try std.testing.expectEqual(@as(u8, 3), doc.blocks[0].paragraph.indent);
+    }
+
+    // Test no indentation
+    {
+        var doc = try parse(allocator, "Normal paragraph");
+        defer doc.deinit(allocator);
+        try std.testing.expectEqual(@as(usize, 1), doc.blocks.len);
+        try std.testing.expect(doc.blocks[0] == .paragraph);
+        try std.testing.expectEqual(@as(u8, 0), doc.blocks[0].paragraph.indent);
+    }
+
+    // Test 1-space indentation
+    {
+        var doc = try parse(allocator, " Single space indent");
+        defer doc.deinit(allocator);
+        try std.testing.expectEqual(@as(usize, 1), doc.blocks.len);
+        try std.testing.expect(doc.blocks[0] == .paragraph);
+        try std.testing.expectEqual(@as(u8, 1), doc.blocks[0].paragraph.indent);
+    }
+
+    // Test that 4 spaces becomes code block, not indented paragraph
+    {
+        var doc = try parse(allocator, "    Code block");
+        defer doc.deinit(allocator);
+        try std.testing.expectEqual(@as(usize, 1), doc.blocks.len);
+        try std.testing.expect(doc.blocks[0] == .fenced_code);
+    }
 }

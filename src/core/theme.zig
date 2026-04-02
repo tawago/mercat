@@ -38,6 +38,7 @@ pub const Palette = struct {
     muted: StyleToken,
     emphasis: StyleToken,
     strong: StyleToken,
+    strong_emphasis: StyleToken,
     code: StyleToken,
     code_block: StyleToken,
     code_block_keyword: StyleToken,
@@ -50,6 +51,8 @@ pub const Palette = struct {
     code_comment: StyleToken,
     quote: StyleToken,
     link: StyleToken,
+    strikethrough: StyleToken,
+    image_alt: StyleToken,
 };
 
 pub fn palette(theme: config.Theme, syntax_theme: config.SyntaxTheme) Palette {
@@ -72,6 +75,7 @@ fn darkPalette(syntax_theme: config.SyntaxTheme) Palette {
             .muted = .{ .fg_index = 244 },
             .emphasis = .{ .fg_index = 188, .italic = true },
             .strong = .{ .fg_index = 231, .bold = true },
+            .strong_emphasis = .{ .fg_index = 231, .bold = true, .italic = true },
             .code = .{ .fg_index = 114 },
             .code_block = .{ .fg_index = 250, .bg_index = 236 },
             .code_block_keyword = .{ .fg_index = 141, .bold = true, .bg_index = 236 },
@@ -84,6 +88,8 @@ fn darkPalette(syntax_theme: config.SyntaxTheme) Palette {
             .code_comment = .{ .fg_index = 243 },
             .quote = .{ .fg_index = 109 },
             .link = .{ .fg_index = 117, .underline = true },
+            .strikethrough = .{ .fg_index = 244, .strikethrough = true },
+            .image_alt = .{ .fg_index = 213 },
         },
         .classic => .{
             .heading1 = .{ .fg_index = 81, .bold = true },
@@ -96,6 +102,7 @@ fn darkPalette(syntax_theme: config.SyntaxTheme) Palette {
             .muted = .{ .fg_index = 244 },
             .emphasis = .{ .fg_index = 188, .italic = true },
             .strong = .{ .fg_index = 231, .bold = true },
+            .strong_emphasis = .{ .fg_index = 231, .bold = true, .italic = true },
             .code = .{ .fg_index = 114 },
             .code_block = .{ .fg_index = 114, .bg_index = 236 },
             .code_block_keyword = .{ .fg_index = 81, .bold = true, .bg_index = 236 },
@@ -108,6 +115,8 @@ fn darkPalette(syntax_theme: config.SyntaxTheme) Palette {
             .code_comment = .{ .fg_index = 243 },
             .quote = .{ .fg_index = 109 },
             .link = .{ .fg_index = 117, .underline = true },
+            .strikethrough = .{ .fg_index = 244, .strikethrough = true },
+            .image_alt = .{ .fg_index = 213 },
         },
     };
 }
@@ -125,6 +134,7 @@ fn lightPalette(syntax_theme: config.SyntaxTheme) Palette {
             .muted = .{ .fg_index = 245 },
             .emphasis = .{ .fg_index = 60, .italic = true },
             .strong = .{ .fg_index = 18, .bold = true },
+            .strong_emphasis = .{ .fg_index = 18, .bold = true, .italic = true },
             .code = .{ .fg_index = 28 },
             .code_block = .{ .fg_index = 239, .bg_index = 254 },
             .code_block_keyword = .{ .fg_index = 97, .bold = true, .bg_index = 254 },
@@ -137,6 +147,8 @@ fn lightPalette(syntax_theme: config.SyntaxTheme) Palette {
             .code_comment = .{ .fg_index = 246 },
             .quote = .{ .fg_index = 60 },
             .link = .{ .fg_index = 27, .underline = true },
+            .strikethrough = .{ .fg_index = 245, .strikethrough = true },
+            .image_alt = .{ .fg_index = 213 },
         },
         .classic => .{
             .heading1 = .{ .fg_index = 25, .bold = true },
@@ -149,6 +161,7 @@ fn lightPalette(syntax_theme: config.SyntaxTheme) Palette {
             .muted = .{ .fg_index = 245 },
             .emphasis = .{ .fg_index = 60, .italic = true },
             .strong = .{ .fg_index = 18, .bold = true },
+            .strong_emphasis = .{ .fg_index = 18, .bold = true, .italic = true },
             .code = .{ .fg_index = 28 },
             .code_block = .{ .fg_index = 28, .bg_index = 254 },
             .code_block_keyword = .{ .fg_index = 25, .bold = true, .bg_index = 254 },
@@ -161,6 +174,8 @@ fn lightPalette(syntax_theme: config.SyntaxTheme) Palette {
             .code_comment = .{ .fg_index = 246 },
             .quote = .{ .fg_index = 60 },
             .link = .{ .fg_index = 27, .underline = true },
+            .strikethrough = .{ .fg_index = 245, .strikethrough = true },
+            .image_alt = .{ .fg_index = 213 },
         },
     };
 }
@@ -179,6 +194,7 @@ pub fn token(palette_value: Palette, style: render_model.SpanStyle) StyleToken {
         .muted => palette_value.muted,
         .emphasis => palette_value.emphasis,
         .strong => palette_value.strong,
+        .strong_emphasis => palette_value.strong_emphasis,
         .code => palette_value.code,
         .code_block => palette_value.code_block,
         .code_block_keyword => palette_value.code_block_keyword,
@@ -191,6 +207,8 @@ pub fn token(palette_value: Palette, style: render_model.SpanStyle) StyleToken {
         .code_comment => palette_value.code_comment,
         .quote => palette_value.quote,
         .link => palette_value.link,
+        .strikethrough => palette_value.strikethrough,
+        .image_alt => palette_value.image_alt,
     };
 }
 

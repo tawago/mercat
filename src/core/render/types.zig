@@ -34,6 +34,7 @@ pub const SpanStyle = enum {
     muted,
     emphasis,
     strong,
+    strong_emphasis,
     code,
     code_block,
     code_block_keyword,
@@ -46,6 +47,8 @@ pub const SpanStyle = enum {
     code_comment,
     quote,
     link,
+    strikethrough,
+    image_alt,
 };
 
 /// A span of styled text. This is the shared abstraction used by both
@@ -54,13 +57,17 @@ pub const SpanStyle = enum {
 pub const Span = struct {
     text: []const u8,
     style: SpanStyle,
+    url: ?[]const u8 = null,
 };
 
 pub const Line = struct {
     spans: []Span,
 
     pub fn deinit(self: Line, allocator: std.mem.Allocator) void {
-        for (self.spans) |span| allocator.free(span.text);
+        for (self.spans) |span| {
+            allocator.free(span.text);
+            if (span.url) |url| allocator.free(url);
+        }
         allocator.free(self.spans);
     }
 };

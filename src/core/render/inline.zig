@@ -9,12 +9,16 @@ const SpanStyle = types.SpanStyle;
 pub const InlineToken = struct {
     text: []const u8,
     style: SpanStyle,
+    url: ?[]const u8 = null,
 };
 
 pub fn inlinesToTokens(allocator: std.mem.Allocator, inlines: []const Inline) ![]InlineToken {
     var tokens: std.ArrayList(InlineToken) = .empty;
     errdefer {
-        for (tokens.items) |token| allocator.free(token.text);
+        for (tokens.items) |token| {
+            allocator.free(token.text);
+            if (token.url) |url| allocator.free(url);
+        }
         tokens.deinit(allocator);
     }
 
@@ -31,26 +35,34 @@ pub fn appendInlineTokens(allocator: std.mem.Allocator, tokens: *std.ArrayList(I
         .code => |text| try tokens.append(allocator, .{ .text = try allocator.dupe(u8, text), .style = .code }),
         .html => |text| try tokens.append(allocator, .{ .text = try allocator.dupe(u8, text), .style = .muted }),
         .emphasis => |children| {
-            for (children) |child| try appendInlineTokens(allocator, tokens, child, .emphasis);
+            const style: SpanStyle = if (parent_style == .strong) .strong_emphasis else .emphasis;
+            for (children) |child| try appendInlineTokens(allocator, tokens, child, style);
         },
         .strong => |children| {
-            for (children) |child| try appendInlineTokens(allocator, tokens, child, .strong);
+            const style: SpanStyle = if (parent_style == .emphasis) .strong_emphasis else .strong;
+            for (children) |child| try appendInlineTokens(allocator, tokens, child, style);
         },
         .strikethrough => |children| {
-            for (children) |child| try appendInlineTokens(allocator, tokens, child, .muted);
+            for (children) |child| try appendInlineTokens(allocator, tokens, child, .strikethrough);
         },
         .link => |link| {
-            // Render link text, then URL in angle brackets
-            for (link.text) |child| try appendInlineTokens(allocator, tokens, child, .body);
+            // Collect link text tokens, then attach the URL so the text itself is
+            // the OSC 8 hyperlink anchor in capable terminals.
+            const start = tokens.items.len;
+            for (link.text) |child| try appendInlineTokens(allocator, tokens, child, .link);
+            // Attach URL to every link-text token so the full text is clickable.
+            for (tokens.items[start..]) |*tok| {
+                tok.url = try allocator.dupe(u8, link.url);
+            }
+            // Append visible " <url>" suffix as fallback for non-OSC-8 terminals.
             const url_text = try std.fmt.allocPrint(allocator, " <{s}>", .{link.url});
-            try tokens.append(allocator, .{ .text = url_text, .style = .link });
+            try tokens.append(allocator, .{ .text = url_text, .style = .link, .url = try allocator.dupe(u8, link.url) });
         },
         .image => |image| {
-            // Render as ![alt](url)
-            try tokens.append(allocator, .{ .text = try allocator.dupe(u8, "!["), .style = .muted });
-            for (image.alt) |child| try appendInlineTokens(allocator, tokens, child, .body);
-            const url_part = try std.fmt.allocPrint(allocator, "]({s})", .{image.url});
-            try tokens.append(allocator, .{ .text = url_part, .style = .muted });
+            // Render as [Image: alt]
+            try tokens.append(allocator, .{ .text = try allocator.dupe(u8, "[Image: "), .style = .image_alt });
+            for (image.alt) |child| try appendInlineTokens(allocator, tokens, child, .image_alt);
+            try tokens.append(allocator, .{ .text = try allocator.dupe(u8, "]"), .style = .image_alt });
         },
         .soft_break, .line_break => {
             try tokens.append(allocator, .{ .text = try allocator.dupe(u8, " "), .style = parent_style });
@@ -91,7 +103,7 @@ pub fn inlineDisplayWidth(inline_: Inline) usize {
         .strong => |children| inlinesDisplayWidth(children),
         .strikethrough => |children| inlinesDisplayWidth(children),
         .link => |link| inlinesDisplayWidth(link.text) + 3 + link.url.len, // " <url>"
-        .image => |image| 2 + inlinesDisplayWidth(image.alt) + 2 + image.url.len, // "![alt](url)"
+        .image => |image| 8 + inlinesDisplayWidth(image.alt) + 1, // "[Image: alt]"
         .soft_break, .line_break => 1,
     };
 }
@@ -132,6 +144,9 @@ pub fn appendInlineText(allocator: std.mem.Allocator, buffer: *std.ArrayList(u8)
 }
 
 pub fn freeTokens(allocator: std.mem.Allocator, tokens: []const InlineToken) void {
-    for (tokens) |token| allocator.free(token.text);
+    for (tokens) |token| {
+        allocator.free(token.text);
+        if (token.url) |url| allocator.free(url);
+    }
     allocator.free(tokens);
 }
