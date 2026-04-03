@@ -7,7 +7,7 @@ pub fn build(b: *std.Build) void {
     const internal_tests_dir = b.option([]const u8, "internal-tests-dir", "Path to the internal test checkout");
     const koino_dep = b.dependency("koino", .{ .target = target, .optimize = optimize });
     const vaxis_dep = b.dependency("vaxis", .{ .target = target, .optimize = optimize });
-    options.addOption([]const u8, "version", "0.1.3");
+    options.addOption([]const u8, "version", "0.1.4");
     const has_internal_tests = blk: {
         std.fs.cwd().access(pathString(b, internal_tests_dir, "src/test/snapshot.zig"), .{}) catch break :blk false;
         std.fs.cwd().access(pathString(b, internal_tests_dir, "src/test/mermaid_cases.zig"), .{}) catch break :blk false;
