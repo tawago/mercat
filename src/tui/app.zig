@@ -20,6 +20,7 @@ const Event = union(enum) {
     key_press: vaxis.Key,
     winsize: vaxis.Winsize,
     focus_in,
+    mouse: vaxis.Mouse,
 };
 
 pub const App = struct {
@@ -99,7 +100,16 @@ pub const App = struct {
 
         try self.loop.start();
         try self.vx.enterAltScreen(writer);
+
+        // Detect Apple Terminal and enable legacy SGR mode for color support
+        if (std.posix.getenv("TERM_PROGRAM")) |prg| {
+            if (std.mem.eql(u8, prg, "Apple_Terminal")) {
+                self.vx.sgr = .legacy;
+            }
+        }
+
         try self.vx.queryTerminal(writer, 1 * std.time.ns_per_s);
+        try self.vx.setMouseMode(writer, true);
 
         try self.pager.resize(self.vx.window().width, self.vx.window().height -| 1);
 
@@ -118,6 +128,19 @@ pub const App = struct {
                 .focus_in => {
                     try self.pager.resize(self.vx.window().width, self.vx.window().height -| 1);
                     self.needs_redraw = true;
+                },
+                .mouse => |mouse| {
+                    switch (mouse.button) {
+                        .wheel_up => {
+                            self.pager.lineUp();
+                            self.needs_redraw = true;
+                        },
+                        .wheel_down => {
+                            self.pager.lineDown();
+                            self.needs_redraw = true;
+                        },
+                        else => {},
+                    }
                 },
             }
         }
