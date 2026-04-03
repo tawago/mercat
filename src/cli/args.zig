@@ -12,7 +12,7 @@ pub const help_text =
     \\
     \\Options:
     \\  -h, --help           Show this help and exit
-    \\  -V, --version        Show version and exit
+    \\  -v, -V, --version    Show version and exit
     \\  -w, --width <n>      Override wrap width (0 uses terminal width)
     \\      --style <name>   Select theme: auto, dark, light
     \\      --no-heading-markers
@@ -85,7 +85,7 @@ pub fn parse(allocator: std.mem.Allocator, argv: []const []const u8) ParseError!
         const arg = argv[index];
 
         if (std.mem.eql(u8, arg, "-h") or std.mem.eql(u8, arg, "--help")) return error.ShowHelp;
-        if (std.mem.eql(u8, arg, "-V") or std.mem.eql(u8, arg, "--version")) return error.ShowVersion;
+        if (std.mem.eql(u8, arg, "-v") or std.mem.eql(u8, arg, "-V") or std.mem.eql(u8, arg, "--version")) return error.ShowVersion;
 
         if (std.mem.eql(u8, arg, "-p") or std.mem.eql(u8, arg, "--pager")) {
             if (result.mode == .tui) return error.IncompatibleModes;
