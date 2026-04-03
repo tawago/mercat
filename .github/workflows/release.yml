@@ -4,15 +4,52 @@ on:
   push:
     tags:
       - v*
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to release (e.g., 0.1.3)'
+        required: true
+        type: string
 
 permissions:
   contents: write
 
 jobs:
+  prepare-release:
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    outputs:
+      tag: v${{ inputs.version }}
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Update version in build.zig
+        run: |
+          sed -i 's/options.addOption(\[\]const u8, "version", "[^"]*");/options.addOption([]const u8, "version", "${{ inputs.version }}");/' build.zig
+
+      - name: Update version in build.zig.zon
+        run: |
+          sed -i 's/\.version = "[^"]*",/.version = "${{ inputs.version }}",/' build.zig.zon
+
+      - name: Commit and tag
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add build.zig build.zig.zon
+          git commit -m "Prepare ${{ inputs.version }} release"
+          git tag "v${{ inputs.version }}"
+          git push origin main --tags
+
   build-release:
+    needs: [prepare-release]
+    if: always() && (needs.prepare-release.result == 'success' || needs.prepare-release.result == 'skipped')
     runs-on: ${{ matrix.os }}
     env:
       FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+      RELEASE_TAG: ${{ needs.prepare-release.outputs.tag || github.ref_name }}
     strategy:
       fail-fast: false
       matrix:
@@ -33,6 +70,8 @@ jobs:
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
+        with:
+          ref: ${{ env.RELEASE_TAG }}
 
       - name: Set up Zig
         uses: mlugg/setup-zig@v2
@@ -57,18 +96,20 @@ jobs:
       - name: Publish release assets
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ env.RELEASE_TAG }}
           files: |
             ${{ matrix.artifact }}
             ${{ matrix.artifact }}.sha256
 
   update-homebrew-tap:
     runs-on: ubuntu-latest
-    needs: build-release
-    if: ${{ needs.build-release.result == 'success' }}
+    needs: [prepare-release, build-release]
+    if: always() && needs.build-release.result == 'success'
     env:
       FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
       TAP_REPO: tawago/homebrew-mdv
       FORMULA_PATH: Formula/mdv.rb
+      RELEASE_TAG: ${{ needs.prepare-release.outputs.tag || github.ref_name }}
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
@@ -76,7 +117,6 @@ jobs:
       - name: Update Homebrew tap
         env:
           HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
-          RELEASE_TAG: ${{ github.ref_name }}
         shell: bash
         run: |
           set -euo pipefail
