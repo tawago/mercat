@@ -14,13 +14,16 @@ const Options = types.Options;
 const SpanStyle = types.SpanStyle;
 const Builder = builder_mod.Builder;
 
+const bullet_shapes = [_][]const u8{ "\u{2022} ", "\u{25E6} ", "\u{2023} " };
+// • (bullet), ◦ (white bullet), ‣ (triangular bullet)
+
 pub fn renderBlock(allocator: std.mem.Allocator, builder: *Builder, block: Block, options: Options) !void {
     const content_width = options.width -| options.left_padding;
     switch (block) {
         .heading => |h| try renderHeading(allocator, builder, h, content_width, options.show_heading_markers),
         .paragraph => |p| try renderParagraph(allocator, builder, p.content, content_width, .body, p.indent),
-        .unordered_list_item => |item| try renderListItem(allocator, builder, item, content_width, "\u{2022} "),
-        .ordered_list_item => |item| try renderListItem(allocator, builder, item, content_width, item.marker),
+        .unordered_list_item => |item| try renderListItem(allocator, builder, item, content_width, "\u{2022} ", 0),
+        .ordered_list_item => |item| try renderListItem(allocator, builder, item, content_width, item.marker, 0),
         .task_list_item => |item| {
             const marker = if (item.checked) "[x] " else "[ ] ";
             try renderTaskItem(allocator, builder, item.content, content_width, marker);
@@ -86,8 +89,18 @@ pub fn renderParagraph(allocator: std.mem.Allocator, builder: *Builder, inlines:
     }
 }
 
-pub fn renderListItem(allocator: std.mem.Allocator, builder: *Builder, item: Block.ListItem, width: usize, display_marker: []const u8) anyerror!void {
-    const continuation = try repeatSpaces(allocator, unicode.displayWidth(display_marker));
+pub fn renderListItem(allocator: std.mem.Allocator, builder: *Builder, item: Block.ListItem, width: usize, display_marker: []const u8, depth: u8) anyerror!void {
+    const indent_count = @as(usize, depth) * 2;
+    const indent = try repeatSpaces(allocator, indent_count);
+    defer allocator.free(indent);
+
+    const first_prefix = try std.mem.concat(allocator, u8, &.{ indent, display_marker });
+    defer allocator.free(first_prefix);
+
+    const continuation_spaces = try repeatSpaces(allocator, unicode.displayWidth(display_marker));
+    defer allocator.free(continuation_spaces);
+
+    const continuation = try std.mem.concat(allocator, u8, &.{ indent, continuation_spaces });
     defer allocator.free(continuation);
 
     // Render main content
@@ -97,7 +110,7 @@ pub fn renderListItem(allocator: std.mem.Allocator, builder: *Builder, item: Blo
         if (inline_ == .soft_break or inline_ == .line_break) {
             if (i > start) {
                 if (!first) try builder.newline();
-                const prefix = if (first) display_marker else continuation;
+                const prefix = if (first) first_prefix else continuation;
                 try wrap.renderWrappedInlines(allocator, builder, item.content[start..i], width, .body, prefix, .muted, continuation, .muted);
                 first = false;
             }
@@ -106,18 +119,21 @@ pub fn renderListItem(allocator: std.mem.Allocator, builder: *Builder, item: Blo
     }
     if (start < item.content.len) {
         if (!first) try builder.newline();
-        const prefix = if (first) display_marker else continuation;
+        const prefix = if (first) first_prefix else continuation;
         try wrap.renderWrappedInlines(allocator, builder, item.content[start..], width, .body, prefix, .muted, continuation, .muted);
     } else if (first and item.content.len == 0) {
-        try builder.appendSpan(.muted, display_marker);
+        try builder.appendSpan(.muted, first_prefix);
     }
 
     // Render nested items
     for (item.nested) |nested| {
         try builder.newline();
         switch (nested) {
-            .unordered_list_item => |n| try renderListItem(allocator, builder, n, width -| 2, "\u{2022} "),
-            .ordered_list_item => |n| try renderListItem(allocator, builder, n, width -| 2, n.marker),
+            .unordered_list_item => |n| {
+                const nested_bullet = bullet_shapes[(depth + 1) % bullet_shapes.len];
+                try renderListItem(allocator, builder, n, width, nested_bullet, depth + 1);
+            },
+            .ordered_list_item => |n| try renderListItem(allocator, builder, n, width, n.marker, depth + 1),
             .blockquote => |bq| try renderBlockQuoteWithPrefix(allocator, builder, bq, width -| unicode.displayWidth(continuation), continuation),
             else => {},
         }
@@ -187,8 +203,8 @@ pub fn renderBlockQuote(allocator: std.mem.Allocator, builder: *Builder, bq: Blo
         switch (block) {
             .heading => |h| try renderHeading(allocator, builder, h, content_width, true),
             .paragraph => |p| try renderParagraph(allocator, builder, p.content, content_width, .body, p.indent),
-            .unordered_list_item => |item| try renderListItem(allocator, builder, item, content_width, "\u{2022} "),
-            .ordered_list_item => |item| try renderListItem(allocator, builder, item, content_width, item.marker),
+            .unordered_list_item => |item| try renderListItem(allocator, builder, item, content_width, "\u{2022} ", 0),
+            .ordered_list_item => |item| try renderListItem(allocator, builder, item, content_width, item.marker, 0),
             .task_list_item => |item| {
                 const marker = if (item.checked) "[x] " else "[ ] ";
                 try renderTaskItem(allocator, builder, item.content, content_width, marker);
@@ -291,8 +307,8 @@ pub fn renderBlockQuoteWithPrefix(allocator: std.mem.Allocator, builder: *Builde
         switch (block) {
             .heading => |h| try renderHeading(allocator, builder, h, content_width, true),
             .paragraph => |p| try renderParagraph(allocator, builder, p.content, content_width, .body, p.indent),
-            .unordered_list_item => |item| try renderListItem(allocator, builder, item, content_width, "\u{2022} "),
-            .ordered_list_item => |item| try renderListItem(allocator, builder, item, content_width, item.marker),
+            .unordered_list_item => |item| try renderListItem(allocator, builder, item, content_width, "\u{2022} ", 0),
+            .ordered_list_item => |item| try renderListItem(allocator, builder, item, content_width, item.marker, 0),
             .fenced_code => |code| try renderCodeBlock(allocator, builder, code, content_width),
             .html_block => |html| try builder.appendSpan(.muted, html),
             .thematic_break => {

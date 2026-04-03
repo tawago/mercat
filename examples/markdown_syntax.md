@@ -44,6 +44,8 @@ This is a sentence with a footnote[^1].
 - Item 2
   - Nested item 2.1
   - Nested item 2.2
+    - Nested item 3.1
+    - Nested item 3.2
 - Item 3
 
 ### Ordered Lists

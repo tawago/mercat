@@ -214,3 +214,47 @@ test "table respects terminal width with inline code" {
         try std.testing.expect(w <= terminal_width);
     }
 }
+
+test "nested lists have indentation and varying bullet shapes" {
+    const allocator = std.testing.allocator;
+
+    var document = try markdown.parse(allocator,
+        \\- Level 1
+        \\  - Level 2
+        \\    - Level 3
+    );
+    defer document.deinit(allocator);
+
+    var rendered = try renderDocument(allocator, document, .{
+        .width = 80,
+        .left_padding = 2,
+        .show_heading_markers = true,
+    });
+    defer rendered.deinit(allocator);
+
+    // Should have 3 lines for 3 list items
+    try std.testing.expectEqual(@as(usize, 3), rendered.lines.len);
+
+    // Check bullet shapes cycle: • (level 1), ◦ (level 2), ‣ (level 3)
+    // Level 1: padding + "• "
+    try std.testing.expect(std.mem.indexOf(u8, rendered.lines[0].spans[0].text, "\u{2022}") != null);
+    // Level 2: should have ◦ (white bullet)
+    var found_white_bullet = false;
+    for (rendered.lines[1].spans) |span| {
+        if (std.mem.indexOf(u8, span.text, "\u{25E6}") != null) found_white_bullet = true;
+    }
+    try std.testing.expect(found_white_bullet);
+    // Level 3: should have ‣ (triangular bullet)
+    var found_triangular = false;
+    for (rendered.lines[2].spans) |span| {
+        if (std.mem.indexOf(u8, span.text, "\u{2023}") != null) found_triangular = true;
+    }
+    try std.testing.expect(found_triangular);
+
+    // Check indentation increases (level 2 has more leading spaces than level 1)
+    const line1_prefix = rendered.lines[0].spans[0].text;
+    const line2_prefix = rendered.lines[1].spans[0].text;
+    const line3_prefix = rendered.lines[2].spans[0].text;
+    try std.testing.expect(line2_prefix.len > line1_prefix.len);
+    try std.testing.expect(line3_prefix.len > line2_prefix.len);
+}
