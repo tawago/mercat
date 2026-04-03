@@ -29,6 +29,21 @@ pub fn writeStyled(allocator: std.mem.Allocator, buffer: *std.ArrayList(u8), sty
     try buffer.appendSlice(allocator, reset);
 }
 
+/// Writes text as an OSC 8 hyperlink with optional styling.
+/// OSC 8 format: ESC ] 8 ; params ; URI ST text ESC ] 8 ; ; ST
+pub fn writeHyperlink(allocator: std.mem.Allocator, buffer: *std.ArrayList(u8), url: []const u8, text: []const u8, token: theme.StyleToken) !void {
+    // OSC 8 hyperlink start
+    try buffer.appendSlice(allocator, "\x1b]8;;");
+    try buffer.appendSlice(allocator, url);
+    try buffer.appendSlice(allocator, "\x1b\\");
+
+    // Write the text with styling
+    try writeTokenStyled(allocator, buffer, token, text);
+
+    // OSC 8 hyperlink end
+    try buffer.appendSlice(allocator, "\x1b]8;;\x1b\\");
+}
+
 /// Writes text with ANSI styling based on a StyleToken.
 /// This is the CLI equivalent of theme.vaxisStyle() used by the TUI.
 pub fn writeTokenStyled(allocator: std.mem.Allocator, buffer: *std.ArrayList(u8), token: theme.StyleToken, text: []const u8) !void {

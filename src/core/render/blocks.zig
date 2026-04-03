@@ -18,7 +18,7 @@ pub fn renderBlock(allocator: std.mem.Allocator, builder: *Builder, block: Block
     const content_width = options.width -| options.left_padding;
     switch (block) {
         .heading => |h| try renderHeading(allocator, builder, h, content_width, options.show_heading_markers),
-        .paragraph => |inlines| try renderParagraph(allocator, builder, inlines, content_width, .body),
+        .paragraph => |p| try renderParagraph(allocator, builder, p.content, content_width, .body, p.indent),
         .unordered_list_item => |item| try renderListItem(allocator, builder, item, content_width, "\u{2022} "),
         .ordered_list_item => |item| try renderListItem(allocator, builder, item, content_width, item.marker),
         .task_list_item => |item| {
@@ -27,9 +27,13 @@ pub fn renderBlock(allocator: std.mem.Allocator, builder: *Builder, block: Block
         },
         .fenced_code => |code| try renderCodeBlock(allocator, builder, code, content_width),
         .html_block => |html| try builder.appendSpan(.muted, html),
-        .thematic_break => try builder.appendSpan(.muted, "\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}"),
+        .thematic_break => {
+            const hr_text = try repeatChar(allocator, content_width);
+            defer allocator.free(hr_text);
+            try builder.appendSpan(.muted, hr_text);
+        },
         .table => |table| try table_mod.renderTable(allocator, builder, table, content_width),
-        .blockquote => |inlines| try renderBlockQuote(allocator, builder, inlines, content_width),
+        .blockquote => |bq| try renderBlockQuote(allocator, builder, bq, content_width, options.left_padding),
     }
 }
 
@@ -55,27 +59,34 @@ pub fn renderHeading(allocator: std.mem.Allocator, builder: *Builder, heading: B
     try wrap.renderWrappedInlines(allocator, builder, heading.content, width, heading_style, prefix, heading_style, prefix, heading_style);
 }
 
-pub fn renderParagraph(allocator: std.mem.Allocator, builder: *Builder, inlines: []const Inline, width: usize, prefix_style: SpanStyle) !void {
+pub fn renderParagraph(allocator: std.mem.Allocator, builder: *Builder, inlines: []const Inline, width: usize, prefix_style: SpanStyle, indent: u8) !void {
+    // Create indent prefix if needed
+    const indent_prefix = if (indent > 0)
+        try repeatSpaces(allocator, indent)
+    else
+        "";
+    defer if (indent > 0) allocator.free(indent_prefix);
+
     // Split by soft_break/line_break for multi-line paragraphs
     var start: usize = 0;
     for (inlines, 0..) |inline_, i| {
         if (inline_ == .soft_break or inline_ == .line_break) {
             if (i > start) {
                 if (start > 0) try builder.newline();
-                try wrap.renderWrappedInlines(allocator, builder, inlines[start..i], width, .body, "", prefix_style, "", prefix_style);
+                try wrap.renderWrappedInlines(allocator, builder, inlines[start..i], width, .body, indent_prefix, prefix_style, "", prefix_style);
             }
             start = i + 1;
         }
     }
     if (start < inlines.len) {
         if (start > 0) try builder.newline();
-        try wrap.renderWrappedInlines(allocator, builder, inlines[start..], width, .body, "", prefix_style, "", prefix_style);
+        try wrap.renderWrappedInlines(allocator, builder, inlines[start..], width, .body, indent_prefix, prefix_style, "", prefix_style);
     } else if (start == 0 and inlines.len == 0) {
         // Empty paragraph
     }
 }
 
-pub fn renderListItem(allocator: std.mem.Allocator, builder: *Builder, item: Block.ListItem, width: usize, display_marker: []const u8) !void {
+pub fn renderListItem(allocator: std.mem.Allocator, builder: *Builder, item: Block.ListItem, width: usize, display_marker: []const u8) anyerror!void {
     const continuation = try repeatSpaces(allocator, unicode.displayWidth(display_marker));
     defer allocator.free(continuation);
 
@@ -104,11 +115,10 @@ pub fn renderListItem(allocator: std.mem.Allocator, builder: *Builder, item: Blo
     // Render nested items
     for (item.nested) |nested| {
         try builder.newline();
-        const nested_indent = try std.fmt.allocPrint(allocator, "  {s}", .{display_marker});
-        defer allocator.free(nested_indent);
         switch (nested) {
             .unordered_list_item => |n| try renderListItem(allocator, builder, n, width -| 2, "\u{2022} "),
             .ordered_list_item => |n| try renderListItem(allocator, builder, n, width -| 2, n.marker),
+            .blockquote => |bq| try renderBlockQuoteWithPrefix(allocator, builder, bq, width -| unicode.displayWidth(continuation), continuation),
             else => {},
         }
     }
@@ -140,24 +150,184 @@ pub fn renderTaskItem(allocator: std.mem.Allocator, builder: *Builder, content: 
     }
 }
 
-pub fn renderBlockQuote(allocator: std.mem.Allocator, builder: *Builder, inlines: []const Inline, width: usize) !void {
-    var start: usize = 0;
-    var first = true;
-    for (inlines, 0..) |inline_, i| {
-        if (inline_ == .soft_break or inline_ == .line_break) {
-            if (i > start) {
-                if (!first) try builder.newline();
-                const prefix = if (first) "> " else "  ";
-                try wrap.renderWrappedInlines(allocator, builder, inlines[start..i], width, .quote, prefix, .quote, prefix, .quote);
-                first = false;
+pub fn renderBlockQuote(allocator: std.mem.Allocator, builder: *Builder, bq: Block.BlockQuote, width: usize, left_padding: usize) !void {
+    // Build the prefix with left padding, then stacked "▎" characters (U+258E, 3 bytes UTF-8)
+    const prefix_bytes = left_padding + bq.depth * 3 + 1; // left_padding + 3 bytes per "▎" + 1 for space
+    const prefix = try allocator.alloc(u8, prefix_bytes);
+    defer allocator.free(prefix);
+
+    // Add left padding first
+    @memset(prefix[0..left_padding], ' ');
+
+    // Then add the "▎" characters
+    for (0..bq.depth) |i| {
+        @memcpy(prefix[left_padding + i*3..][0..3], "\u{258E}");
+    }
+    prefix[left_padding + bq.depth * 3] = ' ';
+
+    const content_width = width -| (prefix.len);
+
+    // Render each block inside the blockquote with the prefix
+    var first_block = true;
+    for (bq.blocks) |block| {
+        if (!first_block) try builder.newline();
+        first_block = false;
+
+        // Check if this is a blockquote - nested blockquotes handle their own prefixing
+        if (block == .blockquote) {
+            const nested_bq = block.blockquote;
+            try renderBlockQuote(allocator, builder, nested_bq, width, left_padding);
+            continue;
+        }
+
+        // Record the starting line count
+        const initial_line_count = builder.lines.items.len;
+
+        // Render the block - this adds new lines to builder
+        switch (block) {
+            .heading => |h| try renderHeading(allocator, builder, h, content_width, true),
+            .paragraph => |p| try renderParagraph(allocator, builder, p.content, content_width, .body, p.indent),
+            .unordered_list_item => |item| try renderListItem(allocator, builder, item, content_width, "\u{2022} "),
+            .ordered_list_item => |item| try renderListItem(allocator, builder, item, content_width, item.marker),
+            .task_list_item => |item| {
+                const marker = if (item.checked) "[x] " else "[ ] ";
+                try renderTaskItem(allocator, builder, item.content, content_width, marker);
+            },
+            .fenced_code => |code| try renderCodeBlock(allocator, builder, code, content_width),
+            .html_block => |html| try builder.appendSpan(.muted, html),
+            .thematic_break => {
+                const hr_text = try repeatChar(allocator, content_width);
+                defer allocator.free(hr_text);
+                try builder.appendSpan(.muted, hr_text);
+            },
+            .table => |table| try table_mod.renderTable(allocator, builder, table, content_width),
+            else => {},
+        }
+
+        // Finalize current line if it has content
+        if (builder.current.items.len > 0) {
+            try builder.newline();
+        }
+
+        // Prefix the newly added lines
+        const final_line_count = builder.lines.items.len;
+        for (initial_line_count..final_line_count) |line_idx| {
+            var line = &builder.lines.items[line_idx];
+
+            // Create a new spans array with the blockquote prefix replacing the left padding
+            var new_spans: std.ArrayList(types.Span) = .empty;
+            defer new_spans.deinit(allocator);
+
+            // Check if the first span is just padding (spaces) - if so, replace it with the blockquote prefix
+            const is_padding_span = blk: {
+                if (line.spans.len == 0) break :blk false;
+                const first_span_text = line.spans[0].text;
+                for (first_span_text) |ch| {
+                    if (ch != ' ') break :blk false;
+                }
+                break :blk true;
+            };
+
+            if (is_padding_span) {
+                // Replace the padding span with the blockquote prefix
+                try new_spans.append(allocator, .{ .style = .quote, .text = try allocator.dupe(u8, prefix) });
+                // Add remaining spans
+                for (line.spans[1..]) |span| {
+                    try new_spans.append(allocator, .{ .style = span.style, .text = try allocator.dupe(u8, span.text), .url = if (span.url) |url| try allocator.dupe(u8, url) else null });
+                }
+            } else {
+                // No padding span found, just prepend the blockquote prefix
+                try new_spans.append(allocator, .{ .style = .quote, .text = try allocator.dupe(u8, prefix) });
+                for (line.spans) |span| {
+                    try new_spans.append(allocator, .{ .style = span.style, .text = try allocator.dupe(u8, span.text), .url = if (span.url) |url| try allocator.dupe(u8, url) else null });
+                }
             }
-            start = i + 1;
+
+            // Free the old spans and assign the new ones
+            for (line.spans) |span| {
+                allocator.free(span.text);
+                if (span.url) |url| allocator.free(url);
+            }
+            allocator.free(line.spans);
+            line.spans = try new_spans.toOwnedSlice(allocator);
         }
     }
-    if (start < inlines.len) {
-        if (!first) try builder.newline();
-        const prefix = if (first) "> " else "  ";
-        try wrap.renderWrappedInlines(allocator, builder, inlines[start..], width, .quote, prefix, .quote, prefix, .quote);
+}
+
+/// Renders a blockquote with a custom base prefix (for blockquotes inside list items)
+pub fn renderBlockQuoteWithPrefix(allocator: std.mem.Allocator, builder: *Builder, bq: Block.BlockQuote, width: usize, base_prefix: []const u8) anyerror!void {
+    // Build the prefix: base_prefix + stacked "▎" characters + space
+    const prefix_bytes = base_prefix.len + bq.depth * 3 + 1;
+    const prefix = try allocator.alloc(u8, prefix_bytes);
+    defer allocator.free(prefix);
+
+    // Copy base prefix first
+    @memcpy(prefix[0..base_prefix.len], base_prefix);
+
+    // Then add the "▎" characters
+    for (0..bq.depth) |i| {
+        @memcpy(prefix[base_prefix.len + i*3..][0..3], "\u{258E}");
+    }
+    prefix[base_prefix.len + bq.depth * 3] = ' ';
+
+    const content_width = width -| (bq.depth * 3 + 1);
+
+    // Render each block inside the blockquote
+    var first_block = true;
+    for (bq.blocks) |block| {
+        if (!first_block) try builder.newline();
+        first_block = false;
+
+        if (block == .blockquote) {
+            const nested_bq = block.blockquote;
+            try renderBlockQuoteWithPrefix(allocator, builder, nested_bq, width, base_prefix);
+            continue;
+        }
+
+        // Record the starting line count
+        const initial_line_count = builder.lines.items.len;
+
+        // Render the block
+        switch (block) {
+            .heading => |h| try renderHeading(allocator, builder, h, content_width, true),
+            .paragraph => |p| try renderParagraph(allocator, builder, p.content, content_width, .body, p.indent),
+            .unordered_list_item => |item| try renderListItem(allocator, builder, item, content_width, "\u{2022} "),
+            .ordered_list_item => |item| try renderListItem(allocator, builder, item, content_width, item.marker),
+            .fenced_code => |code| try renderCodeBlock(allocator, builder, code, content_width),
+            .html_block => |html| try builder.appendSpan(.muted, html),
+            .thematic_break => {
+                const hr_text = try repeatChar(allocator, content_width);
+                defer allocator.free(hr_text);
+                try builder.appendSpan(.muted, hr_text);
+            },
+            else => {},
+        }
+
+        // Finalize current line
+        if (builder.current.items.len > 0) {
+            try builder.newline();
+        }
+
+        // Prefix the newly added lines
+        const final_line_count = builder.lines.items.len;
+        for (initial_line_count..final_line_count) |line_idx| {
+            var line = &builder.lines.items[line_idx];
+
+            var new_spans: std.ArrayList(types.Span) = .empty;
+            defer new_spans.deinit(allocator);
+
+            try new_spans.append(allocator, .{ .style = .quote, .text = try allocator.dupe(u8, prefix) });
+            for (line.spans) |span| {
+                try new_spans.append(allocator, .{ .style = span.style, .text = try allocator.dupe(u8, span.text), .url = if (span.url) |url| try allocator.dupe(u8, url) else null });
+            }
+
+            for (line.spans) |span| {
+                allocator.free(span.text);
+                if (span.url) |url| allocator.free(url);
+            }
+            allocator.free(line.spans);
+            line.spans = try new_spans.toOwnedSlice(allocator);
+        }
     }
 }
 
@@ -252,6 +422,18 @@ pub fn renderCodeBlockFallback(allocator: std.mem.Allocator, builder: *Builder, 
 fn repeatSpaces(allocator: std.mem.Allocator, count: usize) ![]u8 {
     const buffer = try allocator.alloc(u8, count);
     @memset(buffer, ' ');
+    return buffer;
+}
+
+fn repeatChar(allocator: std.mem.Allocator, count: usize) ![]u8 {
+    const dash = "\u{2500}"; // "─" character (3 bytes in UTF-8: E2 94 80)
+    const buffer = try allocator.alloc(u8, count * dash.len);
+    var offset: usize = 0;
+    var i: usize = 0;
+    while (i < count) : (i += 1) {
+        @memcpy(buffer[offset .. offset + dash.len], dash);
+        offset += dash.len;
+    }
     return buffer;
 }
 

@@ -61,7 +61,7 @@ pub const BlockTag = enum {
 
 pub const Block = union(enum) {
     heading: Heading,
-    paragraph: []Inline,
+    paragraph: Paragraph,
     unordered_list_item: ListItem,
     ordered_list_item: ListItem,
     task_list_item: TaskItem,
@@ -69,11 +69,16 @@ pub const Block = union(enum) {
     html_block: []const u8,
     thematic_break,
     table: Table,
-    blockquote: []Inline,
+    blockquote: BlockQuote,
 
     pub const Heading = struct {
         level: u8,
         content: []Inline,
+    };
+
+    pub const Paragraph = struct {
+        content: []Inline,
+        indent: u8 = 0,
     };
 
     pub const ListItem = struct {
@@ -103,13 +108,18 @@ pub const Block = union(enum) {
         cells: [][]Inline,
     };
 
+    pub const BlockQuote = struct {
+        blocks: []Block,
+        depth: u8,
+    };
+
     pub fn deinit(self: Block, allocator: std.mem.Allocator) void {
         switch (self) {
             .heading => |h| {
                 freeInlines(allocator, h.content);
             },
-            .paragraph => |inlines| {
-                freeInlines(allocator, inlines);
+            .paragraph => |p| {
+                freeInlines(allocator, p.content);
             },
             .unordered_list_item, .ordered_list_item => |item| {
                 allocator.free(item.marker);
@@ -136,8 +146,9 @@ pub const Block = union(enum) {
                 allocator.free(table.rows);
                 allocator.free(table.alignments);
             },
-            .blockquote => |inlines| {
-                freeInlines(allocator, inlines);
+            .blockquote => |bq| {
+                for (bq.blocks) |block| block.deinit(allocator);
+                allocator.free(bq.blocks);
             },
         }
     }

@@ -19,13 +19,20 @@ pub const Builder = struct {
     }
 
     pub fn deinit(self: *Builder) void {
-        for (self.current.items) |span| self.allocator.free(span.text);
+        for (self.current.items) |span| {
+            self.allocator.free(span.text);
+            if (span.url) |url| self.allocator.free(url);
+        }
         self.current.deinit(self.allocator);
         for (self.lines.items) |line| line.deinit(self.allocator);
         self.lines.deinit(self.allocator);
     }
 
     pub fn appendSpan(self: *Builder, style: SpanStyle, text: []const u8) !void {
+        try self.appendSpanWithUrl(style, text, null);
+    }
+
+    pub fn appendSpanWithUrl(self: *Builder, style: SpanStyle, text: []const u8, url: ?[]const u8) !void {
         if (text.len == 0) return;
         if (self.current.items.len == 0 and self.left_padding != 0) {
             const padding = try self.allocator.alloc(u8, self.left_padding);
@@ -33,14 +40,22 @@ pub const Builder = struct {
             defer self.allocator.free(padding);
             try self.current.append(self.allocator, .{ .text = try self.allocator.dupe(u8, padding), .style = .body });
         }
-        if (self.current.items.len != 0 and self.current.items[self.current.items.len - 1].style == style) {
+        const can_merge = if (self.current.items.len != 0) blk: {
+            const last = &self.current.items[self.current.items.len - 1];
+            const urls_match = (last.url == null and url == null) or
+                             (last.url != null and url != null and std.mem.eql(u8, last.url.?, url.?));
+            break :blk last.style == style and urls_match;
+        } else false;
+
+        if (can_merge) {
             const last = &self.current.items[self.current.items.len - 1];
             const joined = try std.fmt.allocPrint(self.allocator, "{s}{s}", .{ last.text, text });
             self.allocator.free(last.text);
             last.text = joined;
             return;
         }
-        try self.current.append(self.allocator, .{ .text = try self.allocator.dupe(u8, text), .style = style });
+        const duped_url = if (url) |u| try self.allocator.dupe(u8, u) else null;
+        try self.current.append(self.allocator, .{ .text = try self.allocator.dupe(u8, text), .style = style, .url = duped_url });
     }
 
     pub fn newline(self: *Builder) !void {

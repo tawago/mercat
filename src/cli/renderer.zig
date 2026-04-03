@@ -23,7 +23,12 @@ pub fn renderDocument(allocator: std.mem.Allocator, document: markdown.Document,
     for (rendered.lines, 0..) |line, line_index| {
         if (line_index != 0) try buffer.append(allocator, '\n');
         for (line.spans) |span| {
-            try ansi.writeTokenStyled(allocator, &buffer, theme.token(options.palette, span.style), span.text);
+            const token = theme.token(options.palette, span.style);
+            if (span.url) |url| {
+                try ansi.writeHyperlink(allocator, &buffer, url, span.text, token);
+            } else {
+                try ansi.writeTokenStyled(allocator, &buffer, token, span.text);
+            }
         }
     }
 

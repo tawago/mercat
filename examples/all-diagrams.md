@@ -556,14 +556,14 @@ graph TD
 ```mermaid
 flowchart TB
     subgraph Browser["Browser (localhost)"]
-        FE["Neo Frontend<br/>:9001"]
-        LP["OIDC Login Page<br/>:9002/interaction/*"]
+        FE["Web App<br/>:9000"]
+        LP["Auth Login Page<br/>:5921/interaction/*"]
     end
 
     subgraph Docker["Docker Compose"]
-        OIDC["OIDC Provider<br/>:9002"]
-        BE["Neo Backend<br/>:9000"]
-        PG[("PostgreSQL<br/>:5433")]
+        OIDC["Auth Provider<br/>:5921"]
+        BE["API Server<br/>:3424"]
+        PG[("PostgreSQL<br/>:5432")]
     end
 
     subgraph Files["Configuration Files"]
@@ -589,9 +589,9 @@ flowchart TB
 ```mermaid
 sequenceDiagram
     participant U as User
-    participant F as Frontend :9001
-    participant O as OIDC Provider :9002
-    participant B as Backend :9000
+    participant F as Frontend :9000
+    participant O as Auth Provider :5921
+    participant B as Backend :3424
 
     U->>F: Visit protected route
     F->>F: Check auth state (none)
@@ -611,7 +611,7 @@ sequenceDiagram
     F->>B: API request + Bearer token
     B->>O: Fetch /.well-known/jwks.json
     B->>B: Validate token signature
-    B->>B: Extract tenant_id, permissions
+    B->>B: Extract org_id, permissions
     B->>F: API response
     F->>U: Update UI
 ```
@@ -620,12 +620,12 @@ sequenceDiagram
 
 ```mermaid
 graph LR
-    subgraph oidc-provider/
+    subgraph auth-service/
         INDEX[src/index.ts<br/>Entry point]
         PROV[src/provider.ts<br/>Provider config]
         CFG[src/config/]
         ADAPT[src/adapters/account.ts]
-        CLAIMS[src/claims/auth0-claims.ts]
+        CLAIMS[src/claims/custom-claims.ts]
         INTER[src/interactions/]
         VIEWS[views/*.ejs]
         DATA[data/users.yaml]
@@ -639,14 +639,14 @@ graph LR
     INTER --> VIEWS
     ADAPT --> DATA
 
-    subgraph frontend/
+    subgraph web-app/
         AUTH[contexts/auth-context.tsx]
         ROUTES[routes/_authenticated/]
     end
 
     AUTH -.->|OIDC flow| PROV
 
-    subgraph backend/
+    subgraph api-server/
         COMPOSE[docker-compose.yaml]
         VALID[JWT validation]
     end

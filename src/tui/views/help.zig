@@ -14,6 +14,7 @@ pub const HelpView = struct {
             "b           page up",
             "g / Home    top",
             "G / End     bottom",
+            "f / Enter   follow footnote link",
             "? / h       toggle help",
         };
     }
