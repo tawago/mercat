@@ -149,6 +149,9 @@ pub const App = struct {
             .page_down => self.pager.pageDown(),
             .top => self.pager.toTop(),
             .bottom => self.pager.toBottom(),
+            .follow_link => {
+                _ = self.pager.followFootnoteLink();
+            },
             .none => return false,
         }
         self.clearStatusMessage();

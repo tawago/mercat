@@ -1,5 +1,6 @@
 const std = @import("std");
 const koino = @import("koino");
+const preprocess = @import("preprocess.zig");
 pub const document = @import("document.zig");
 
 pub const Inline = document.Inline;
@@ -8,7 +9,11 @@ pub const BlockTag = document.BlockTag;
 pub const Document = document.Document;
 
 pub fn parse(allocator: std.mem.Allocator, source: []const u8) !Document {
-    const root = try koino.parse(allocator, source, .{
+    // Apply extended-syntax pre-processing before handing off to koino.
+    const preprocessed = try preprocess.preprocess(allocator, source);
+    defer allocator.free(preprocessed);
+
+    const root = try koino.parse(allocator, preprocessed, .{
         .extensions = .{
             .table = true,
             .strikethrough = true,
@@ -23,7 +28,7 @@ pub fn parse(allocator: std.mem.Allocator, source: []const u8) !Document {
         blocks.deinit(allocator);
     }
 
-    try collectBlocksWithSource(allocator, &blocks, root, source);
+    try collectBlocksWithSource(allocator, &blocks, root, preprocessed);
     return .{ .blocks = try blocks.toOwnedSlice(allocator) };
 }
 
@@ -80,11 +85,16 @@ fn appendParagraphBlockWithSource(allocator: std.mem.Allocator, blocks: *std.Arr
     }
 
     // Detect leading indentation from source using start_line
+    // koino's start_line is 1-indexed
     var indent: u8 = 0;
     const start_line = node.data.start_line;
+    if (start_line == 0) {
+        try blocks.append(allocator, .{ .paragraph = .{ .content = content, .indent = 0 } });
+        return;
+    }
 
     var line_start: usize = 0;
-    var current_line: usize = 0;
+    var current_line: usize = 1; // 1-indexed to match koino
 
     // Find the start of the target line
     for (source, 0..) |char, idx| {
@@ -536,6 +546,11 @@ fn collectListItemContent(allocator: std.mem.Allocator, item_node: *koino.nodes.
                 // Collect nested list as blocks
                 try appendNestedList(allocator, &nested, current, nested_list);
             },
+            .BlockQuote => {
+                // Collect blockquote as a nested block
+                const bq = try collectBlockQuoteBlocks(allocator, current, 1);
+                try nested.append(allocator, .{ .blockquote = bq });
+            },
             else => {
                 const collected = try collectBlockInlines(allocator, current);
                 defer allocator.free(collected);
@@ -881,4 +896,32 @@ test "preserves paragraph indentation" {
         try std.testing.expectEqual(@as(usize, 1), doc.blocks.len);
         try std.testing.expect(doc.blocks[0] == .fenced_code);
     }
+}
+
+test "strikethrough preprocessing converts to unicode" {
+    const allocator = std.testing.allocator;
+    var doc = try parse(allocator, "~~hello~~");
+    defer doc.deinit(allocator);
+    
+    // After preprocessing, ~~hello~~ becomes h̶e̶l̶l̶o̶ (text with combining chars)
+    // Koino should see this as plain text, not strikethrough
+    try std.testing.expectEqual(@as(usize, 1), doc.blocks.len);
+    const para = doc.blocks[0].paragraph;
+    
+    // Check the text contains the combining character U+0336
+    var has_combining = false;
+    for (para.content) |inline_| {
+        if (inline_ == .text) {
+            const text = inline_.text;
+            // U+0336 is encoded as 0xCC 0xB6 in UTF-8
+            if (std.mem.indexOf(u8, text, "\xcc\xb6") != null) {
+                has_combining = true;
+            }
+        }
+        // Should NOT be strikethrough inline (that would mean koino processed it)
+        if (inline_ == .strikethrough) {
+            std.debug.print("ERROR: Found strikethrough inline - preprocessing failed\n", .{});
+        }
+    }
+    try std.testing.expect(has_combining);
 }

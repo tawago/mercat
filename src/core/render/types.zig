@@ -49,6 +49,9 @@ pub const SpanStyle = enum {
     link,
     strikethrough,
     image_alt,
+    superscript,
+    subscript,
+    highlight,
 };
 
 /// A span of styled text. This is the shared abstraction used by both

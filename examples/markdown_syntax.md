@@ -32,6 +32,10 @@ Next line starts here.
 
 `Inline code`
 
+## Footnotes (if supported)
+
+This is a sentence with a footnote[^1].
+
 ## Lists
 
 ### Unordered Lists
@@ -218,7 +222,7 @@ Term 2
 
 ## Superscript and Subscript (if supported)
 
-E=mc^2
+E=mc^2^
 
 H~2~O
 
@@ -229,9 +233,6 @@ The HTML specification is maintained by the W3C.
 *[HTML]: Hyper Text Markup Language
 *[W3C]: World Wide Web Consortium
 
-## Footnotes (if supported)
-
-This is a sentence with a footnote[^1].
 
 [^1]: This is the footnote content.
 

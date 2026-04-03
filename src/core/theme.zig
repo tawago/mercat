@@ -53,6 +53,9 @@ pub const Palette = struct {
     link: StyleToken,
     strikethrough: StyleToken,
     image_alt: StyleToken,
+    superscript: StyleToken,
+    subscript: StyleToken,
+    highlight: StyleToken,
 };
 
 pub fn palette(theme: config.Theme, syntax_theme: config.SyntaxTheme) Palette {
@@ -90,6 +93,9 @@ fn darkPalette(syntax_theme: config.SyntaxTheme) Palette {
             .link = .{ .fg_index = 117, .underline = true },
             .strikethrough = .{ .fg_index = 244, .strikethrough = true },
             .image_alt = .{ .fg_index = 213 },
+            .superscript = .{ .fg_index = 153 },
+            .subscript = .{ .fg_index = 152 },
+            .highlight = .{ .fg_index = 227, .bold = true },
         },
         .classic => .{
             .heading1 = .{ .fg_index = 81, .bold = true },
@@ -117,6 +123,9 @@ fn darkPalette(syntax_theme: config.SyntaxTheme) Palette {
             .link = .{ .fg_index = 117, .underline = true },
             .strikethrough = .{ .fg_index = 244, .strikethrough = true },
             .image_alt = .{ .fg_index = 213 },
+            .superscript = .{ .fg_index = 153 },
+            .subscript = .{ .fg_index = 152 },
+            .highlight = .{ .fg_index = 227, .bold = true },
         },
     };
 }
@@ -149,6 +158,9 @@ fn lightPalette(syntax_theme: config.SyntaxTheme) Palette {
             .link = .{ .fg_index = 27, .underline = true },
             .strikethrough = .{ .fg_index = 245, .strikethrough = true },
             .image_alt = .{ .fg_index = 213 },
+            .superscript = .{ .fg_index = 26 },
+            .subscript = .{ .fg_index = 31 },
+            .highlight = .{ .fg_index = 130, .bold = true },
         },
         .classic => .{
             .heading1 = .{ .fg_index = 25, .bold = true },
@@ -176,6 +188,9 @@ fn lightPalette(syntax_theme: config.SyntaxTheme) Palette {
             .link = .{ .fg_index = 27, .underline = true },
             .strikethrough = .{ .fg_index = 245, .strikethrough = true },
             .image_alt = .{ .fg_index = 213 },
+            .superscript = .{ .fg_index = 26 },
+            .subscript = .{ .fg_index = 31 },
+            .highlight = .{ .fg_index = 130, .bold = true },
         },
     };
 }
@@ -209,6 +224,9 @@ pub fn token(palette_value: Palette, style: render_model.SpanStyle) StyleToken {
         .link => palette_value.link,
         .strikethrough => palette_value.strikethrough,
         .image_alt => palette_value.image_alt,
+        .superscript => palette_value.superscript,
+        .subscript => palette_value.subscript,
+        .highlight => palette_value.highlight,
     };
 }
 

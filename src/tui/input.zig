@@ -12,6 +12,7 @@ pub const Action = enum {
     page_down,
     top,
     bottom,
+    follow_link,
 };
 
 pub fn mapKey(key: vaxis.Key) Action {
@@ -27,5 +28,6 @@ pub fn mapKey(key: vaxis.Key) Action {
     if (key.matches('G', .{})) return .bottom;
     if (key.matches(vaxis.Key.home, .{})) return .top;
     if (key.matches(vaxis.Key.end, .{})) return .bottom;
+    if (key.matches('f', .{}) or key.matches(vaxis.Key.enter, .{})) return .follow_link;
     return .none;
 }
