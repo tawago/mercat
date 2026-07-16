@@ -6,7 +6,9 @@
 //! tokens — the parser handles label interiors itself.
 //!
 //! Edges match greedily as full operators (`-->`, `---`, `==>`, `===`,
-//! `-.->`, `-.-`, `~~~`); the inline-label form `-- text -->` is handled too.
+//! `-.->`, `-.-`, `~~~`); the inline-label forms `-- text -->` and the
+//! tight variants without spaces (`-.text.->`, `--text-->`, `==text==>`)
+//! are handled too.
 
 const std = @import("std");
 
@@ -301,12 +303,15 @@ pub const Lexer = struct {
         return tok;
     }
 
-    /// True when the cursor sits on whitespace that could precede an
-    /// inline edge label (`-- text -->`). Requires at least one space and
-    /// then a non-newline, non-connector character.
+    /// True when the cursor could sit at the start of an inline edge label,
+    /// either after whitespace (`-- text -->`) or tight against the opening
+    /// run (`-.text.->`). Excludes '|' so the pipe-label form (`---|text|`)
+    /// keeps its bail path, and newlines so an unterminated run still bails.
+    /// guarded-by: lexer_test.zig "tight inline label on a dotted edge"
     fn atInlineLabel(self: *Lexer) bool {
         if (self.pos >= self.source.len) return false;
-        return self.source[self.pos] == ' ' or self.source[self.pos] == '\t';
+        const c = self.source[self.pos];
+        return c != '\n' and c != '\r' and c != '|';
     }
 
     /// Consume `   label   <connector-run><arrow>` for the inline-label

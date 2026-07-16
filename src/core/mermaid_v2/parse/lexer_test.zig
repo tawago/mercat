@@ -183,6 +183,52 @@ test "inline edge label keeps an embedded dash intact" {
     try t.expectEqual(TokenKind.eof, lx.next().kind);
 }
 
+test "tight inline label on a dotted edge" {
+    // Mermaid accepts labels tight against the connector runs: `A-.text.->B`
+    // is the same edge as `A -. text .-> B`. The opening run here is just
+    // "-." with no arrow, so the lexer must probe for the label even though
+    // no whitespace follows.
+    var lx = Lexer.init("A -.narrates.-> B\n");
+    try t.expectEqualStrings("A", lx.next().text);
+    const e = lx.next();
+    try t.expectEqual(TokenKind.edge_dotted, e.kind);
+    try t.expect(e.edge_label != null);
+    try t.expectEqualStrings("narrates", e.edge_label.?);
+    try t.expectEqualStrings("B", lx.next().text);
+
+    // Labels with interior spaces and dashes stay intact in the tight form.
+    var lx2 = Lexer.init("A -.captured as-we-build.-> B");
+    _ = lx2.next();
+    const e2 = lx2.next();
+    try t.expectEqual(TokenKind.edge_dotted, e2.kind);
+    try t.expectEqualStrings("captured as-we-build", e2.edge_label.?);
+
+    // Tight solid and thick variants take the same path.
+    var lx3 = Lexer.init("A --text--> B");
+    _ = lx3.next();
+    const e3 = lx3.next();
+    try t.expectEqual(TokenKind.edge_solid, e3.kind);
+    try t.expectEqualStrings("text", e3.edge_label.?);
+
+    var lx4 = Lexer.init("A ==text==> B");
+    _ = lx4.next();
+    const e4 = lx4.next();
+    try t.expectEqual(TokenKind.edge_thick, e4.kind);
+    try t.expectEqualStrings("text", e4.edge_label.?);
+
+    // A short run with no closing connector before end-of-line still bails:
+    // "--" followed by an identifier is not an edge.
+    var lx5 = Lexer.init("A --B\n");
+    _ = lx5.next();
+    try t.expect(lx5.next().kind != TokenKind.edge_solid);
+
+    // The pipe-label form keeps its own path: a short run before '|' bails
+    // rather than swallowing the pipe text as an inline label.
+    var lx6 = Lexer.init("A --|text| B\n");
+    _ = lx6.next();
+    try t.expect(lx6.next().kind != TokenKind.edge_solid);
+}
+
 test "solo CR (old Mac line ending) emits a newline token but does not bump the line counter" {
     // Only CRLF collapses into a single line-incrementing newline; a lone
     // '\r' with no following '\n' still tokenizes as .newline (advanceRaw
