@@ -38,7 +38,10 @@ const fanBusBar = t1.fanBusBar;
 // Controlled 2x2 fixture: S1->T1 (e0), S1->T2 (e1), S2->T2 (e2).
 const c22_nodes = [_]sg.Node{ node(0, "S1"), node(1, "S2"), node(2, "T1"), node(3, "T2") };
 
-fn controlledJoins(members: []const pb.EdgeId, ports: []const pb.TerminalPort, memberships: []const pb.RealizedEdgeMembership) pb.RealizedJoins {
+// comptime params: the returned literal must be a static constant — with
+// runtime params the `&.{...}` array is a function-frame temporary and the
+// returned slices dangle (CI-only signal-6 crash in vc.validate).
+fn controlledJoins(comptime members: []const pb.EdgeId, comptime ports: []const pb.TerminalPort, comptime memberships: []const pb.RealizedEdgeMembership) pb.RealizedJoins {
     return .{
         .selected_joins = &.{.{ .id = 0, .proposal = 0, .permission_group = 0, .members = members }},
         .memberships = memberships,
