@@ -66,10 +66,13 @@ jobs:
           # SDKROOT exported explicitly — the current runner image breaks
           # Zig's automatic libSystem/SDK discovery (undefined libSystem
           # symbols when linking the build runner itself).
-          - os: macos-latest
+          # Pinned to macos-15: the macos-latest image's newer Xcode SDK is
+          # not parseable by Zig 0.15.1 (libSystem symbols resolve to nothing
+          # even with SDKROOT set). Revisit the pin when bumping Zig.
+          - os: macos-15
             target: x86_64-macos
             artifact: mercat-darwin-x86_64.tar.gz
-          - os: macos-latest
+          - os: macos-15
             target: aarch64-macos
             artifact: mercat-darwin-aarch64.tar.gz
 
