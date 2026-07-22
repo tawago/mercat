@@ -291,7 +291,7 @@ test "png file output emits nothing to stdout and re-export replaces the file at
     try requireBinary();
     const allocator = testing.allocator;
 
-    var tmp = testing.tmpDir(.{});
+    var tmp = testing.tmpDir(.{ .iterate = true });
     defer tmp.cleanup();
     try writeTmpFile(&tmp, "g.mmd", sample_mermaid);
     const in_path = try tmpPath(allocator, &tmp, "g.mmd");
@@ -326,7 +326,7 @@ test "png export of an uncovered glyph fails without leaving a file" {
     try requireBinary();
     const allocator = testing.allocator;
 
-    var tmp = testing.tmpDir(.{});
+    var tmp = testing.tmpDir(.{ .iterate = true });
     defer tmp.cleanup();
     // U+1F4A9 is not in JetBrains Mono → MissingGlyph at paint time.
     try writeTmpFile(&tmp, "emoji.md", "# Oops \u{1F4A9}\n");

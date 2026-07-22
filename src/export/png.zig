@@ -479,7 +479,7 @@ test "missing glyph fails and writeFile leaves no file" {
     var doc = try buildDoc(allocator, .{ .lines = &lines }, &face, .monochrome);
     defer doc.deinit(allocator);
 
-    var tmp = testing.tmpDir(.{});
+    var tmp = testing.tmpDir(.{ .iterate = true });
     defer tmp.cleanup();
     const path = try tmp.dir.realpathAlloc(allocator, ".");
     defer allocator.free(path);
@@ -506,7 +506,7 @@ test "writeFile atomically creates a decodable PNG" {
     var doc = try buildDoc(allocator, .{ .lines = &lines }, &face, .monochrome);
     defer doc.deinit(allocator);
 
-    var tmp = testing.tmpDir(.{});
+    var tmp = testing.tmpDir(.{ .iterate = true });
     defer tmp.cleanup();
     const dir_path = try tmp.dir.realpathAlloc(allocator, ".");
     defer allocator.free(dir_path);
