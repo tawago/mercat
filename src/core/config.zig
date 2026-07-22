@@ -1,7 +1,15 @@
 const std = @import("std");
+const prim = @import("prim");
 
 pub const Theme = enum { auto, dark, light };
 pub const SyntaxTheme = enum { default, classic };
+/// Subgraph frame-border notation (owner ruling 2026-07-19): `bridge`
+/// (default) draws the frame solid and bridges crossing edges; `cross`
+/// reproduces the legacy junction-weld render. The shared mermaid_v2
+/// vocabulary (`prim.SubgraphEdges`, itself std-only pure data) is stored
+/// directly here — no config-local twin — so it flows to the render options
+/// with no enum translation, matching how `ForceLayout` is handled. (`Theme`
+/// keeps a config-local enum only because it has no downstream twin to share.)
 
 pub const Config = struct {
     general: General = .{},
@@ -33,6 +41,7 @@ pub const Config = struct {
     pub const Mermaid = struct {
         enabled: bool = true,
         style: []const u8 = "",
+        subgraph_edges: prim.SubgraphEdges = .bridge,
     };
 
     pub const Files = struct {
@@ -73,15 +82,15 @@ fn openConfigFile(path: []const u8) !std.fs.File {
 pub fn resolveConfigPath(allocator: std.mem.Allocator) ![]u8 {
     if (std.process.getEnvVarOwned(allocator, "XDG_CONFIG_HOME")) |xdg| {
         defer allocator.free(xdg);
-        return std.fs.path.join(allocator, &.{ xdg, "mdv", "config.toml" });
+        return std.fs.path.join(allocator, &.{ xdg, "mercat", "config.toml" });
     } else |_| {}
 
     if (std.process.getEnvVarOwned(allocator, "HOME")) |home| {
         defer allocator.free(home);
-        return std.fs.path.join(allocator, &.{ home, ".config", "mdv", "config.toml" });
+        return std.fs.path.join(allocator, &.{ home, ".config", "mercat", "config.toml" });
     } else |_| {}
 
-    return allocator.dupe(u8, ".config/mdv/config.toml");
+    return allocator.dupe(u8, ".config/mercat/config.toml");
 }
 
 fn parseTomlLike(allocator: std.mem.Allocator, source: []const u8) !Config {
@@ -154,6 +163,7 @@ fn assignValue(allocator: std.mem.Allocator, cfg: *Config, section: []const u8, 
     if (std.mem.eql(u8, section, "mermaid")) {
         if (std.mem.eql(u8, key, "enabled")) cfg.mermaid.enabled = parseBool(value);
         if (std.mem.eql(u8, key, "style")) try replaceString(allocator, &cfg.mermaid.style, stripQuotes(value));
+        if (std.mem.eql(u8, key, "subgraph_edges")) cfg.mermaid.subgraph_edges = try parseSubgraphEdges(stripQuotes(value));
         return;
     }
 
@@ -201,6 +211,12 @@ fn parseSyntaxTheme(value: []const u8) !SyntaxTheme {
     return error.InvalidSyntaxTheme;
 }
 
+fn parseSubgraphEdges(value: []const u8) !prim.SubgraphEdges {
+    if (std.mem.eql(u8, value, "bridge")) return .bridge;
+    if (std.mem.eql(u8, value, "cross")) return .cross;
+    return error.InvalidSubgraphEdges;
+}
+
 fn parseBool(value: []const u8) bool {
     return std.mem.eql(u8, value, "true");
 }
@@ -218,22 +234,28 @@ fn replaceString(allocator: std.mem.Allocator, target: *[]const u8, value: []con
 }
 
 fn applyEnvOverrides(cfg: *Config) void {
-    const width = std.process.getEnvVarOwned(std.heap.page_allocator, "MDV_WIDTH") catch null;
+    const width = std.process.getEnvVarOwned(std.heap.page_allocator, "MERCAT_WIDTH") catch null;
     defer if (width) |value| std.heap.page_allocator.free(value);
     if (width) |value| {
         cfg.display.width = std.fmt.parseUnsigned(usize, value, 10) catch cfg.display.width;
     }
 
-    const theme = std.process.getEnvVarOwned(std.heap.page_allocator, "MDV_THEME") catch null;
+    const theme = std.process.getEnvVarOwned(std.heap.page_allocator, "MERCAT_THEME") catch null;
     defer if (theme) |value| std.heap.page_allocator.free(value);
     if (theme) |value| {
         cfg.display.theme = parseTheme(value) catch cfg.display.theme;
     }
 
-    const syntax_theme = std.process.getEnvVarOwned(std.heap.page_allocator, "MDV_SYNTAX_THEME") catch null;
+    const syntax_theme = std.process.getEnvVarOwned(std.heap.page_allocator, "MERCAT_SYNTAX_THEME") catch null;
     defer if (syntax_theme) |value| std.heap.page_allocator.free(value);
     if (syntax_theme) |value| {
         cfg.display.syntax_theme = parseSyntaxTheme(value) catch cfg.display.syntax_theme;
+    }
+
+    const subgraph_edges = std.process.getEnvVarOwned(std.heap.page_allocator, "MERCAT_SUBGRAPH_EDGES") catch null;
+    defer if (subgraph_edges) |value| std.heap.page_allocator.free(value);
+    if (subgraph_edges) |value| {
+        cfg.mermaid.subgraph_edges = parseSubgraphEdges(value) catch cfg.mermaid.subgraph_edges;
     }
 }
 
@@ -246,6 +268,8 @@ test "parses default config" {
     try std.testing.expectEqualStrings("vim", cfg.general.editor);
     try std.testing.expect(cfg.mermaid.enabled);
     try std.testing.expect(cfg.display.heading_markers);
+    // Frame-solid bridging is the default notation (owner ruling 2026-07-19).
+    try std.testing.expectEqual(prim.SubgraphEdges.bridge, cfg.mermaid.subgraph_edges);
 }
 
 test "overrides config values from file content" {
@@ -261,6 +285,8 @@ test "overrides config values from file content" {
         \\width = 88
         \\[general]
         \\editor = "nvim"
+        \\[mermaid]
+        \\subgraph_edges = "cross"
         ,
     );
 
@@ -268,4 +294,24 @@ test "overrides config values from file content" {
     try std.testing.expectEqual(SyntaxTheme.classic, cfg.display.syntax_theme);
     try std.testing.expectEqual(@as(usize, 88), cfg.display.width);
     try std.testing.expectEqualStrings("nvim", cfg.general.editor);
+    try std.testing.expectEqual(prim.SubgraphEdges.cross, cfg.mermaid.subgraph_edges);
+}
+
+test "subgraph_edges parses both notations; bridge round-trips; invalid errors" {
+    // `bridge` and `cross` map to the two enum tags.
+    try std.testing.expectEqual(prim.SubgraphEdges.bridge, try parseSubgraphEdges("bridge"));
+    try std.testing.expectEqual(prim.SubgraphEdges.cross, try parseSubgraphEdges("cross"));
+    // An unrecognized value errors — the env-override path
+    // (MERCAT_SUBGRAPH_EDGES, `parseSubgraphEdges(value) catch <old>`) therefore
+    // keeps the prior value rather than corrupting it.
+    try std.testing.expectError(error.InvalidSubgraphEdges, parseSubgraphEdges("weld"));
+
+    // File parse of the explicit default value round-trips to `.bridge`.
+    var cfg = try parseTomlLike(std.testing.allocator, default_config_text);
+    defer cfg.deinit(std.testing.allocator);
+    try applyTomlLike(std.testing.allocator, &cfg,
+        \\[mermaid]
+        \\subgraph_edges = "bridge"
+    );
+    try std.testing.expectEqual(prim.SubgraphEdges.bridge, cfg.mermaid.subgraph_edges);
 }

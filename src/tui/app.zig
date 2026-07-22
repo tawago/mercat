@@ -4,12 +4,22 @@ const markdown = @import("../core/markdown.zig");
 const config = @import("../core/config.zig");
 const render_model = @import("../core/render_model.zig");
 const theme = @import("../core/theme.zig");
+const mermaid_types = @import("../core/mermaid/types.zig");
+const SubgraphEdges = @import("prim").SubgraphEdges;
 const editor = @import("../platform/editor.zig");
 const PagerView = @import("views/pager.zig").PagerView;
 const HelpView = @import("views/help.zig").HelpView;
 const input = @import("input.zig");
 const statusbar = @import("widgets/statusbar.zig");
 const args = @import("../cli/args.zig");
+const clipboard = @import("../platform/clipboard.zig");
+const unicode = @import("../lib/unicode.zig");
+
+/// How long a copy confirmation toast stays visible.
+const toast_duration_ms: i64 = 1400;
+
+/// Maximum display columns of copied-text preview shown in the toast.
+const copy_preview_cols: usize = 40;
 
 const ViewMode = enum {
     pager,
@@ -22,6 +32,26 @@ const Event = union(enum) {
     focus_in,
     mouse: vaxis.Mouse,
 };
+
+fn isMermaidFile(input_source: args.Input) bool {
+    return switch (input_source) {
+        .file => |path| std.mem.endsWith(u8, path, ".mmd"),
+        else => false,
+    };
+}
+
+fn parseContent(allocator: std.mem.Allocator, content: []const u8, input_source: args.Input) !markdown.Document {
+    if (isMermaidFile(input_source)) {
+        const language = try allocator.dupe(u8, "mermaid");
+        errdefer allocator.free(language);
+        const code = try allocator.dupe(u8, content);
+        errdefer allocator.free(code);
+        const blocks = try allocator.alloc(markdown.Block, 1);
+        blocks[0] = .{ .fenced_code = .{ .language = language, .code = code } };
+        return .{ .blocks = blocks };
+    }
+    return markdown.parse(allocator, content);
+}
 
 pub const App = struct {
     allocator: std.mem.Allocator,
@@ -43,6 +73,17 @@ pub const App = struct {
     status_message: ?[]const u8,
     needs_redraw: bool,
 
+    // Mermaid layout override
+    mermaid_layout: mermaid_types.ForceLayout,
+
+    // Subgraph frame-border notation (config value; a later live toggle may
+    // mutate it, mirroring `mermaid_layout`).
+    mermaid_subgraph_edges: SubgraphEdges,
+
+    // Copy confirmation toast (top-right overlay, auto-dismissed after a delay).
+    toast_message: ?[]u8,
+    toast_deadline_ms: i64,
+
     pub fn init(
         allocator: std.mem.Allocator,
         title: []const u8,
@@ -52,6 +93,8 @@ pub const App = struct {
         active_theme: config.Theme,
         syntax_theme: config.SyntaxTheme,
         show_heading_markers: bool,
+        initial_layout: mermaid_types.ForceLayout,
+        initial_subgraph_edges: SubgraphEdges,
     ) !App {
         var self: App = undefined;
         self.allocator = allocator;
@@ -71,20 +114,25 @@ pub const App = struct {
         self.current_content = try allocator.dupe(u8, initial_content);
         errdefer allocator.free(self.current_content);
 
-        self.current_document = try markdown.parse(allocator, self.current_content);
+        self.current_document = try parseContent(allocator, self.current_content, input_source);
         errdefer self.current_document.deinit(allocator);
 
-        self.pager = PagerView.init(allocator, title, &self.current_document, active_theme, syntax_theme, show_heading_markers);
+        self.mermaid_layout = initial_layout;
+        self.mermaid_subgraph_edges = initial_subgraph_edges;
+        self.pager = PagerView.init(allocator, title, &self.current_document, active_theme, syntax_theme, show_heading_markers, initial_layout, initial_subgraph_edges);
 
         self.view_mode = .pager;
         self.status_message = null;
         self.needs_redraw = true;
+        self.toast_message = null;
+        self.toast_deadline_ms = 0;
 
         return self;
     }
 
     pub fn deinit(self: *App) void {
         self.clearStatusMessage();
+        self.clearToast();
         self.pager.deinit();
         self.current_document.deinit(self.allocator);
         self.allocator.free(self.current_content);
@@ -119,7 +167,12 @@ pub const App = struct {
                 self.needs_redraw = false;
             }
 
-            const event = self.loop.nextEvent();
+            const event = self.waitEvent() orelse {
+                // No event before the toast's deadline — dismiss it.
+                self.clearToast();
+                self.needs_redraw = true;
+                continue;
+            };
             switch (event) {
                 .winsize => |ws| try self.handleResize(ws),
                 .key_press => |key| {
@@ -129,19 +182,7 @@ pub const App = struct {
                     try self.pager.resize(self.vx.window().width, self.vx.window().height -| 1);
                     self.needs_redraw = true;
                 },
-                .mouse => |mouse| {
-                    switch (mouse.button) {
-                        .wheel_up => {
-                            self.pager.lineUp();
-                            self.needs_redraw = true;
-                        },
-                        .wheel_down => {
-                            self.pager.lineDown();
-                            self.needs_redraw = true;
-                        },
-                        else => {},
-                    }
-                },
+                .mouse => |mouse| try self.handleMouse(mouse),
             }
         }
 
@@ -152,6 +193,18 @@ pub const App = struct {
         self.loop.tty = &self.tty;
         self.loop.vaxis = &self.vx;
         try self.loop.init();
+    }
+
+    /// Block for the next event. While a toast is showing, poll instead so the
+    /// loop can wake to dismiss it; returns null when the toast's deadline
+    /// passes with no event.
+    fn waitEvent(self: *App) ?Event {
+        if (self.toast_message == null) return self.loop.nextEvent();
+        while (true) {
+            if (self.loop.tryEvent()) |event| return event;
+            if (std.time.milliTimestamp() >= self.toast_deadline_ms) return null;
+            std.Thread.sleep(30 * std.time.ns_per_ms);
+        }
     }
 
     fn handleKeyPress(self: *App, key: vaxis.Key) !bool {
@@ -166,6 +219,16 @@ pub const App = struct {
                 try self.handleReload();
                 return false;
             },
+            .cycle_layout => {
+                self.mermaid_layout = self.mermaid_layout.next();
+                try self.handleLayoutChange();
+                return false;
+            },
+            .toggle_subgraph_edges => {
+                self.mermaid_subgraph_edges = self.mermaid_subgraph_edges.next();
+                try self.handleSubgraphEdgesChange();
+                return false;
+            },
             .line_up => self.pager.lineUp(),
             .line_down => self.pager.lineDown(),
             .page_up => self.pager.pageUp(),
@@ -175,11 +238,126 @@ pub const App = struct {
             .follow_link => {
                 _ = self.pager.followFootnoteLink();
             },
+            .clear_selection => self.pager.clearSelection(),
             .none => return false,
         }
         self.clearStatusMessage();
         self.needs_redraw = true;
         return false;
+    }
+
+    fn handleMouse(self: *App, mouse: vaxis.Mouse) !void {
+        const content_height = self.vx.window().height -| 1;
+        switch (mouse.button) {
+            .wheel_up => {
+                self.pager.lineUp();
+                self.needs_redraw = true;
+            },
+            .wheel_down => {
+                self.pager.lineDown();
+                self.needs_redraw = true;
+            },
+            .left => {
+                const col: usize = if (mouse.col < 0) 0 else @intCast(mouse.col);
+                const row: usize = if (mouse.row < 0) 0 else @intCast(mouse.row);
+                switch (mouse.type) {
+                    .press => {
+                        self.pager.beginSelectionAt(row, col);
+                        self.clearStatusMessage();
+                        self.needs_redraw = true;
+                    },
+                    .drag => {
+                        // Auto-scroll when the drag reaches the top/bottom edge.
+                        if (mouse.row <= 0) {
+                            self.pager.lineUp();
+                        } else if (content_height > 0 and mouse.row >= @as(i16, @intCast(content_height - 1))) {
+                            self.pager.lineDown();
+                        }
+                        self.pager.extendSelectionAt(row, col);
+                        self.needs_redraw = true;
+                    },
+                    .release => {
+                        try self.copySelection();
+                        self.needs_redraw = true;
+                    },
+                    else => {},
+                }
+            },
+            else => {},
+        }
+    }
+
+    /// Overpaint reverse-video on the selected cells of the just-drawn `row`.
+    fn highlightRow(self: *App, root: vaxis.Window, row: usize) void {
+        const range = self.pager.selectionRangeForRow(row) orelse return;
+        const cy: u16 = @intCast(row);
+        var col: usize = range.start;
+        while (col < range.end) : (col += 1) {
+            const cx: u16 = @intCast(col);
+            if (root.readCell(cx, cy)) |cell| {
+                var highlighted = cell;
+                highlighted.style.reverse = true;
+                root.writeCell(cx, cy, highlighted);
+            }
+        }
+    }
+
+    fn copySelection(self: *App) !void {
+        const text = try self.pager.selectedText(self.allocator);
+        defer self.allocator.free(text);
+        if (text.len == 0) return;
+
+        const writer = self.tty.writer();
+        clipboard.writeOsc52(writer, self.allocator, text) catch {};
+        clipboard.writeNative(self.allocator, text);
+        writer.flush() catch {};
+
+        try self.showCopyToast(text);
+    }
+
+    /// Show a top-right toast previewing the copied text, e.g. `Copied "hi …"`.
+    fn showCopyToast(self: *App, text: []const u8) !void {
+        const message = try formatCopyPreview(self.allocator, text);
+        self.clearToast();
+        self.toast_message = message;
+        self.toast_deadline_ms = std.time.milliTimestamp() + toast_duration_ms;
+    }
+
+    fn clearToast(self: *App) void {
+        if (self.toast_message) |message| {
+            self.allocator.free(message);
+            self.toast_message = null;
+        }
+    }
+
+    /// Draw the copy toast as a soft, themed panel in the top-right corner.
+    fn drawToast(self: *App, root: vaxis.Window) void {
+        const message = self.toast_message orelse return;
+        // Box width = text + one space of padding each side + two borders.
+        const width = @min(root.width -| 2, unicode.displayWidth(message) + 4);
+        const height: usize = 3;
+        if (width < 3 or root.height < height) return;
+
+        const style = theme.toastStyle(self.pager.active_theme);
+        const x_off = root.width -| width;
+
+        // Fill the panel background, draw the rounded border over it, then print
+        // the text directly onto the root window. (Printing onto the bordered
+        // child window does not render reliably in this vaxis version.)
+        const panel = root.child(.{ .x_off = x_off, .y_off = 0, .width = width, .height = height });
+        panel.fill(.{ .style = style.fill });
+        _ = root.child(.{
+            .x_off = x_off,
+            .y_off = 0,
+            .width = width,
+            .height = height,
+            .border = .{ .where = .all, .glyphs = .single_rounded, .style = style.border },
+        });
+        _ = root.print(&.{.{ .text = message, .style = style.text }}, .{
+            .row_offset = 1,
+            .col_offset = x_off + 1,
+            .wrap = .none,
+        });
     }
 
     fn handleResize(self: *App, ws: vaxis.Winsize) !void {
@@ -195,11 +373,13 @@ pub const App = struct {
                 self.clearStatusMessage();
                 const writer = self.tty.writer();
                 self.loop.stop();
+                try self.vx.setMouseMode(writer, false);
                 try self.vx.exitAltScreen(writer);
                 try editor.openFile(self.allocator, self.editor_command, path);
                 try self.loop.start();
                 try self.vx.enterAltScreen(writer);
                 try self.vx.queryTerminal(writer, 1 * std.time.ns_per_s);
+                try self.vx.setMouseMode(writer, true);
 
                 try self.reloadDocument(path);
                 try self.setStatusMessage(try std.fmt.allocPrint(self.allocator, "Reloaded {s}", .{std.fs.path.basename(path)}), true);
@@ -226,12 +406,26 @@ pub const App = struct {
         }
     }
 
+    fn handleLayoutChange(self: *App) !void {
+        self.pager.mermaid_layout = self.mermaid_layout;
+        try self.pager.reload();
+        try self.setStatusMessage(try std.fmt.allocPrint(self.allocator, "Layout: {s}", .{self.mermaid_layout.displayName()}), true);
+        self.needs_redraw = true;
+    }
+
+    fn handleSubgraphEdgesChange(self: *App) !void {
+        self.pager.mermaid_subgraph_edges = self.mermaid_subgraph_edges;
+        try self.pager.reload();
+        try self.setStatusMessage(try std.fmt.allocPrint(self.allocator, "Subgraph edges: {s}", .{self.mermaid_subgraph_edges.displayName()}), true);
+        self.needs_redraw = true;
+    }
+
     fn reloadDocument(self: *App, path: []const u8) !void {
         const reloaded = try std.fs.cwd().readFileAlloc(self.allocator, path, std.math.maxInt(usize));
         self.allocator.free(self.current_content);
         self.current_content = reloaded;
         self.current_document.deinit(self.allocator);
-        self.current_document = try markdown.parse(self.allocator, self.current_content);
+        self.current_document = try parseContent(self.allocator, self.current_content, self.input_source);
         self.pager.document = &self.current_document;
         self.pager.width = self.vx.window().width;
         self.pager.viewport.setMetrics(self.vx.window().height -| 1, self.pager.viewport.total);
@@ -267,10 +461,11 @@ pub const App = struct {
                     .col_offset = 0,
                     .wrap = .none,
                 });
+                self.highlightRow(root, row);
             }
         }
 
-        const status_text = try statusbar.format(self.allocator, self.pager.title, root.width, self.pager.viewport, self.view_mode == .help, self.status_message);
+        const status_text = try statusbar.format(self.allocator, self.pager.title, root.width, self.pager.viewport, self.view_mode == .help, self.status_message, self.mermaid_layout);
         defer self.allocator.free(status_text);
         const status_style: vaxis.Style = .{ .reverse = true };
         _ = root.print(&.{.{ .text = status_text, .style = status_style }}, .{
@@ -283,6 +478,8 @@ pub const App = struct {
             drawHelp(root);
         }
 
+        self.drawToast(root);
+
         const writer = self.tty.writer();
         try self.vx.render(writer);
         try writer.flush();
@@ -290,8 +487,12 @@ pub const App = struct {
 };
 
 /// Entry point for TUI mode - creates and runs the App
-pub fn run(allocator: std.mem.Allocator, title: []const u8, input_source: args.Input, initial_content: []const u8, editor_command: []const u8, active_theme: config.Theme, syntax_theme: config.SyntaxTheme, show_heading_markers: bool) !void {
-    var app = try App.init(allocator, title, input_source, initial_content, editor_command, active_theme, syntax_theme, show_heading_markers);
+pub fn run(allocator: std.mem.Allocator, title: []const u8, input_source: args.Input, initial_content: []const u8, editor_command: []const u8, active_theme: config.Theme, syntax_theme: config.SyntaxTheme, show_heading_markers: bool, initial_layout: mermaid_types.ForceLayout, initial_subgraph_edges: SubgraphEdges) !void {
+    var app = try App.init(allocator, title, input_source, initial_content, editor_command, active_theme, syntax_theme, show_heading_markers, initial_layout, initial_subgraph_edges);
+    // Fix self-referential pointer invalidated by struct return copy.
+    // App.init() stores &self.current_document where self is a local; after
+    // the return-by-value copy into app, that pointer is stale.
+    app.pager.document = &app.current_document;
     defer app.deinit();
     try app.run();
 }
@@ -316,6 +517,49 @@ fn syncPagerSize(pager: *PagerView, width: usize, height: usize) !bool {
     if (pager.width == width and pager.viewport.height == height) return false;
     try pager.resize(width, height);
     return true;
+}
+
+/// Build the toast label previewing copied `text`, e.g. `Copied "hello …"`.
+/// Runs of whitespace (including line breaks) collapse to a single space, and
+/// the preview is truncated to `copy_preview_cols` display columns with a
+/// trailing ` …`. Caller owns the returned slice.
+fn formatCopyPreview(allocator: std.mem.Allocator, text: []const u8) ![]u8 {
+    var preview: std.ArrayList(u8) = .empty;
+    defer preview.deinit(allocator);
+
+    var cols: usize = 0;
+    var index: usize = 0;
+    var truncated = false;
+    while (index < text.len) {
+        const glyph = unicode.nextGlyph(text, index);
+        index += glyph.bytes.len;
+        const is_space = glyph.bytes.len == 1 and switch (glyph.bytes[0]) {
+            ' ', '\t', '\n', '\r' => true,
+            else => false,
+        };
+        if (is_space) {
+            // Collapse runs of whitespace (incl. line breaks) to one space,
+            // dropping any leading whitespace.
+            if (preview.items.len == 0 or preview.items[preview.items.len - 1] == ' ') continue;
+            try preview.append(allocator, ' ');
+            cols += 1;
+        } else {
+            if (cols + glyph.width > copy_preview_cols) {
+                truncated = true;
+                break;
+            }
+            try preview.appendSlice(allocator, glyph.bytes);
+            cols += glyph.width;
+        }
+    }
+    if (preview.items.len > 0 and preview.items[preview.items.len - 1] == ' ') {
+        preview.items.len -= 1;
+    }
+
+    return std.fmt.allocPrint(allocator, "Copied \"{s}{s}\"", .{
+        preview.items,
+        if (truncated) " …" else "",
+    });
 }
 
 fn drawHelp(root: vaxis.Window) void {
@@ -359,7 +603,7 @@ test "toVaxisSegments borrows render-model span text" {
 test "initLoop binds loop to app-owned tty and vaxis" {
     const allocator = std.testing.allocator;
 
-    var app = try App.init(allocator, "fixture", .none, "# Title\n", "vim", .dark, .default, true);
+    var app = try App.init(allocator, "fixture", .none, "# Title\n", "vim", .dark, .default, true, .auto, .bridge);
     defer app.deinit();
 
     try app.initLoop();
@@ -375,7 +619,7 @@ test "syncPagerSize reflows when draw detects width change" {
     );
     defer document.deinit(allocator);
 
-    var pager = PagerView.init(allocator, "fixture", &document, .dark, .default, true);
+    var pager = PagerView.init(allocator, "fixture", &document, .dark, .default, true, .auto, .bridge);
     defer pager.deinit();
 
     try pager.resize(60, 5);
@@ -386,4 +630,27 @@ test "syncPagerSize reflows when draw detects width change" {
     try std.testing.expect(changed);
     try std.testing.expectEqual(@as(usize, 20), pager.width);
     try std.testing.expect(pager.lines.len > original_line_count);
+}
+
+test "formatCopyPreview quotes short text" {
+    const allocator = std.testing.allocator;
+    const message = try formatCopyPreview(allocator, "hello");
+    defer allocator.free(message);
+    try std.testing.expectEqualStrings("Copied \"hello\"", message);
+}
+
+test "formatCopyPreview collapses whitespace and drops leading padding" {
+    const allocator = std.testing.allocator;
+    const message = try formatCopyPreview(allocator, "  first\nsecond\t third  ");
+    defer allocator.free(message);
+    try std.testing.expectEqualStrings("Copied \"first second third\"", message);
+}
+
+test "formatCopyPreview truncates long text with an ellipsis" {
+    const allocator = std.testing.allocator;
+    const long = "a" ** 60;
+    const message = try formatCopyPreview(allocator, long);
+    defer allocator.free(message);
+    const expected = "Copied \"" ++ ("a" ** copy_preview_cols) ++ " …\"";
+    try std.testing.expectEqualStrings(expected, message);
 }

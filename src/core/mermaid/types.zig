@@ -63,21 +63,23 @@ pub const NodeShape = enum {
         if (!unicode_mode) return ascii_box;
 
         return switch (self) {
-            .rectangle, .asymmetric, .subroutine => unicode_square,
+            .rectangle => unicode_square,
             .rounded => unicode_rounded,
             .stadium => unicode_stadium,
-            .cylinder => unicode_rounded, // Cylinder uses special rendering
+            .cylinder => unicode_cylinder,
             .circle => unicode_circle,
             .diamond => unicode_diamond,
-            .hexagon => unicode_square, // Use square for hexagon (complex shape)
-            else => unicode_square,
+            .hexagon => unicode_hexagon,
+            .subroutine => unicode_subroutine,
+            .asymmetric => unicode_asymmetric,
+            .parallelogram, .parallelogram_alt, .trapezoid, .trapezoid_alt => unicode_square,
         };
     }
 
     /// Check if shape needs special rendering (not standard box)
     pub fn needsSpecialRendering(self: NodeShape) bool {
         return switch (self) {
-            .diamond, .circle, .cylinder => true,
+            .diamond, .circle, .cylinder, .hexagon, .parallelogram, .parallelogram_alt, .trapezoid, .trapezoid_alt, .stadium, .subroutine, .asymmetric => true,
             else => false,
         };
     }
@@ -88,6 +90,7 @@ pub const EdgeStyle = enum {
     solid, // ---
     dotted, // -.-
     thick, // ===
+    dashed, // - - (for back-edges in cyclic graphs)
 };
 
 /// Arrow head styles
@@ -129,12 +132,17 @@ pub const Edge = struct {
     reversed: bool = false,
     // For edges that span multiple layers
     dummy_nodes: ?[][]const u8 = null,
+    // True if 'from' is a subgraph ID (not a regular node).
+    from_is_subgraph: bool = false,
+    // True if 'to' is a subgraph ID (not a regular node).
+    to_is_subgraph: bool = false,
 };
 
 /// A subgraph/cluster containing nodes
 pub const Subgraph = struct {
     id: []const u8,
     label: ?[]const u8,
+    parent_id: ?[]const u8 = null,
     node_ids: std.ArrayList([]const u8),
     allocator: Allocator,
     // Bounding box (calculated during layout)
@@ -143,10 +151,11 @@ pub const Subgraph = struct {
     width: ?u32 = null,
     height: ?u32 = null,
 
-    pub fn init(allocator: Allocator, id: []const u8, label: ?[]const u8) Subgraph {
+    pub fn init(allocator: Allocator, id: []const u8, label: ?[]const u8, parent_id: ?[]const u8) Subgraph {
         return .{
             .id = id,
             .label = label,
+            .parent_id = parent_id,
             .node_ids = .empty,
             .allocator = allocator,
         };
@@ -291,31 +300,71 @@ pub const unicode_rounded: BoxChars = .{
 };
 
 pub const unicode_diamond: BoxChars = .{
-    .top_left = '<',
-    .top_right = '>',
-    .bottom_left = '<',
-    .bottom_right = '>',
-    .horizontal = 0x2500, // ─
-    .vertical = ' ', // No vertical sides for diamond
-};
-
-// Stadium shape: 〔 TEXT 〕
-pub const unicode_stadium: BoxChars = .{
-    .top_left = 0x3014, // 〔
-    .top_right = 0x3015, // 〕
-    .bottom_left = 0x3014, // 〔
-    .bottom_right = 0x3015, // 〕
+    .top_left = 0x25C7, // ◇
+    .top_right = 0x25C7, // ◇
+    .bottom_left = 0x25C7, // ◇
+    .bottom_right = 0x25C7, // ◇
     .horizontal = 0x2500, // ─
     .vertical = 0x2502, // │
 };
 
-// Circle shape: ⏜ TEXT ⏝
+// Stadium shape: uses rounded corners ╭╮╰╯
+pub const unicode_stadium: BoxChars = .{
+    .top_left = 0x256D, // ╭
+    .top_right = 0x256E, // ╮
+    .bottom_left = 0x2570, // ╰
+    .bottom_right = 0x256F, // ╯
+    .horizontal = 0x2500, // ─
+    .vertical = 0x2502, // │
+};
+
+// Circle shape: ╱─╲ │ │ ╲─╱
 pub const unicode_circle: BoxChars = .{
-    .top_left = 0x23DC, // ⏜
-    .top_right = 0x23DC, // ⏜
-    .bottom_left = 0x23DD, // ⏝
-    .bottom_right = 0x23DD, // ⏝
-    .horizontal = ' ',
+    .top_left = 0x2571, // ╱
+    .top_right = 0x2572, // ╲
+    .bottom_left = 0x2572, // ╲
+    .bottom_right = 0x2571, // ╱
+    .horizontal = 0x2500, // ─
+    .vertical = 0x2502, // │
+};
+
+// Hexagon shape: ╱─╲ < > ╲─╱
+pub const unicode_hexagon: BoxChars = .{
+    .top_left = 0x2571, // ╱
+    .top_right = 0x2572, // ╲
+    .bottom_left = 0x2572, // ╲
+    .bottom_right = 0x2571, // ╱
+    .horizontal = 0x2500, // ─
+    .vertical = 0x2502, // │ (< > used for sides)
+};
+
+// Cylinder shape: ╭═╮ │ │ ╰─╯
+pub const unicode_cylinder: BoxChars = .{
+    .top_left = 0x256D, // ╭
+    .top_right = 0x256E, // ╮
+    .bottom_left = 0x2570, // ╰
+    .bottom_right = 0x256F, // ╯
+    .horizontal = 0x2550, // ═ (for top)
+    .vertical = 0x2502, // │
+};
+
+// Subroutine: ┌─┬─┬─┐ │ │ │ │ └─┴─┴─┘
+pub const unicode_subroutine: BoxChars = .{
+    .top_left = 0x250C, // ┌
+    .top_right = 0x2510, // ┐
+    .bottom_left = 0x2514, // └
+    .bottom_right = 0x2518, // ┘
+    .horizontal = 0x2500, // ─
+    .vertical = 0x2502, // │
+};
+
+// Asymmetric (flag): right side uses >
+pub const unicode_asymmetric: BoxChars = .{
+    .top_left = 0x250C, // ┌
+    .top_right = '>', // >
+    .bottom_left = 0x2514, // └
+    .bottom_right = '>', // >
+    .horizontal = 0x2500, // ─
     .vertical = 0x2502, // │
 };
 
@@ -326,6 +375,46 @@ pub const ascii_box: BoxChars = .{
     .bottom_right = '+',
     .horizontal = '-',
     .vertical = '|',
+};
+
+/// Box drawing style selection for ASCII-specific rendering
+pub const BoxDrawingStyle = enum {
+    standard, // ─ │ ┌ ┐ └ ┘
+    rounded, // ╭ ╮ ╰ ╯ (rounded corners)
+    heavy, // ━ ┃ ┏ ┓ ┗ ┛ (heavy/thick lines)
+    double, // ═ ║ ╔ ╗ ╚ ╝ (double lines)
+    ascii, // - | + (simple ASCII)
+
+    /// Get BoxChars for this style
+    pub fn getBoxChars(self: BoxDrawingStyle) BoxChars {
+        return switch (self) {
+            .standard => unicode_square,
+            .rounded => unicode_rounded,
+            .heavy => box_chars_heavy,
+            .double => box_chars_double,
+            .ascii => ascii_box,
+        };
+    }
+};
+
+/// Heavy box-drawing characters (━ ┃ ┏ ┓ ┗ ┛ ┣ ┫ ┳ ┻ ╋)
+pub const box_chars_heavy: BoxChars = .{
+    .top_left = 0x250F, // ┏
+    .top_right = 0x2513, // ┓
+    .bottom_left = 0x2517, // ┗
+    .bottom_right = 0x251B, // ┛
+    .horizontal = 0x2501, // ━
+    .vertical = 0x2503, // ┃
+};
+
+/// Double box-drawing characters (═ ║ ╔ ╗ ╚ ╝ ╠ ╣ ╦ ╩ ╬)
+pub const box_chars_double: BoxChars = .{
+    .top_left = 0x2554, // ╔
+    .top_right = 0x2557, // ╗
+    .bottom_left = 0x255A, // ╚
+    .bottom_right = 0x255D, // ╝
+    .horizontal = 0x2550, // ═
+    .vertical = 0x2551, // ║
 };
 
 // Arrow characters - use filled triangles for better visibility
@@ -369,9 +458,16 @@ pub const LineChars = struct {
     pub const tee_down: u21 = 0x252C; // ┬
     pub const cross: u21 = 0x253C; // ┼
 
-    // Dotted variants
+    // Dotted variants (triple dash)
     pub const horizontal_dotted: u21 = 0x2504; // ┄
     pub const vertical_dotted: u21 = 0x2506; // ┆
+
+    // Dashed variants (quadruple dash - visually distinct from dotted)
+    pub const horizontal_dashed: u21 = 0x2508; // ┈
+    pub const vertical_dashed: u21 = 0x250A; // ┊
+
+    // Thick/double edge junction (down through horizontal): ╥
+    pub const tee_down_double: u21 = 0x2565; // ╥
 
     // Thick variants
     pub const horizontal_thick: u21 = 0x2501; // ━
@@ -411,7 +507,169 @@ pub const Rect = struct {
     }
 };
 
+/// Heuristic for crossing reduction in layered graph layout
+pub const CrossingReductionHeuristic = enum {
+    /// Median (default): O(n log n)/layer, 3-approx; good performance + stability
+    median,
+    /// Barycenter: O(n)/layer, O(√n)-approx; often better empirically, less stable
+    barycenter,
+};
+
+/// Force a specific layout algorithm regardless of automatic selection
+pub const ForceLayout = enum {
+    /// Automatic selection (default): tree → force-directed → Sugiyama
+    auto,
+    /// Force Sugiyama layered layout (best for DAGs)
+    sugiyama,
+    /// Force Reingold-Tilford tree layout (best for trees)
+    tree,
+    /// Force force-directed layout (Kamada-Kawai for small graphs, Fruchterman-Reingold otherwise)
+    force,
+
+    /// Returns user-friendly name for status bar display
+    pub fn displayName(self: ForceLayout) []const u8 {
+        return switch (self) {
+            .auto => "auto",
+            .sugiyama => "sugiyama",
+            .tree => "tree",
+            .force => "force",
+        };
+    }
+
+    /// Cycle to next layout algorithm
+    pub fn next(self: ForceLayout) ForceLayout {
+        return switch (self) {
+            .auto => .sugiyama,
+            .sugiyama => .tree,
+            .tree => .force,
+            .force => .auto,
+        };
+    }
+};
+
 /// Render options
+/// Which layout algorithm was actually selected during rendering
+pub const LayoutAlgorithm = enum {
+    sugiyama,
+    reingold_tilford,
+    fruchterman_reingold,
+    kamada_kawai,
+    stress_majorization,
+    dominance_drawing,
+    layered_bfs, // used by state diagrams
+    unknown,
+
+    /// Returns true if this algorithm produces layered output directly
+    pub fn isLayered(self: LayoutAlgorithm) bool {
+        return switch (self) {
+            .sugiyama, .reingold_tilford, .layered_bfs => true,
+            .fruchterman_reingold, .kamada_kawai, .stress_majorization, .dominance_drawing, .unknown => false,
+        };
+    }
+};
+
+/// Stages of width fitting, in escalation order
+/// Each stage attempts to fit the diagram within max_width
+pub const FitStage = enum {
+    natural, // No fitting needed - natural layout fits
+    label_wrap, // Wrapped labels to 2 lines
+    direction_switch, // Switched layout direction (TD ↔ LR)
+    spacing_compress, // Compressed spacing to minimum
+    label_truncate, // Truncated labels with ellipsis
+    overflow, // Could not fit - fallback required
+
+    pub fn description(self: FitStage) []const u8 {
+        return switch (self) {
+            .natural => "natural fit",
+            .label_wrap => "labels wrapped",
+            .direction_switch => "direction switched",
+            .spacing_compress => "spacing compressed",
+            .label_truncate => "labels truncated",
+            .overflow => "overflow (fallback)",
+        };
+    }
+};
+
+/// Normalized node layout information for downstream stages
+/// This provides a consistent interface regardless of which layout algorithm was used
+pub const LayoutNode = struct {
+    id: []const u8,
+    x: i32,
+    y: i32,
+    width: u32,
+    height: u32,
+    layer: ?u32 = null, // Assigned by layered algorithms or inferred from coordinates
+    order: ?u32 = null, // Position within layer
+};
+
+/// Normalized layout result produced by all flowchart layout algorithms
+/// This is the contract between layout and downstream stages (routing, compaction, canvas)
+pub const LayoutResult = struct {
+    allocator: Allocator,
+
+    /// Final node coordinates for all non-dummy nodes
+    nodes: std.ArrayList(LayoutNode),
+
+    /// Layer structure - non-null for layered algorithms, inferred for free-placement
+    /// Each inner slice contains node indices in order within that layer
+    layers: ?[][]usize = null,
+
+    /// Indices into the original edge list for edges that were reversed during cycle breaking
+    /// These should be rendered as dashed back-edges
+    back_edges: std.ArrayList(usize),
+
+    /// Metadata about the layout process
+    algorithm_used: LayoutAlgorithm = .unknown,
+    is_tree: bool = false,
+    is_cyclic: bool = false,
+    crossing_reduction_iterations: u32 = 0,
+
+    /// Width fitting metadata
+    fit_stage: FitStage = .natural,
+    original_direction: ?Direction = null, // Set if direction was switched
+    natural_width: u32 = 0, // Width before any fitting
+    final_width: u32 = 0, // Width after fitting
+
+    pub fn init(allocator: Allocator) LayoutResult {
+        return .{
+            .allocator = allocator,
+            .nodes = .empty,
+            .back_edges = .empty,
+        };
+    }
+
+    pub fn deinit(self: *LayoutResult) void {
+        self.nodes.deinit(self.allocator);
+        self.back_edges.deinit(self.allocator);
+        if (self.layers) |layers| {
+            for (layers) |layer| {
+                self.allocator.free(layer);
+            }
+            self.allocator.free(layers);
+        }
+    }
+
+    /// Add a node to the layout result
+    pub fn addNode(self: *LayoutResult, node: LayoutNode) !void {
+        try self.nodes.append(self.allocator, node);
+    }
+
+    /// Record a back-edge (reversed during cycle breaking)
+    pub fn addBackEdge(self: *LayoutResult, edge_index: usize) !void {
+        try self.back_edges.append(self.allocator, edge_index);
+    }
+
+    /// Get a node by ID
+    pub fn getNode(self: *const LayoutResult, id: []const u8) ?*const LayoutNode {
+        for (self.nodes.items) |*node| {
+            if (std.mem.eql(u8, node.id, id)) {
+                return node;
+            }
+        }
+        return null;
+    }
+};
+
 pub const RenderOptions = struct {
     max_width: u32 = 120,
     unicode_mode: bool = true,
@@ -419,6 +677,19 @@ pub const RenderOptions = struct {
     horizontal_spacing: u32 = 8, // Increased for labels
     vertical_spacing: u32 = 3, // Space for: line with label, line, arrow
     max_label_width: ?u32 = null,
+    /// Crossing reduction heuristic (default: median)
+    crossing_reduction_heuristic: CrossingReductionHeuristic = .median,
+    /// Box drawing style (standard, rounded, heavy, double, ascii)
+    box_drawing_style: BoxDrawingStyle = .standard,
+    /// Force a specific layout algorithm (default: auto)
+    force_layout: ForceLayout = .auto,
+    /// Subgraph frame-border notation (owner ruling 2026-07-19; bridge default)
+    subgraph_edges: @import("prim").SubgraphEdges = .bridge,
+    /// Aspect ratio correction for terminal cells (visual_x = grid_x * aspect_ratio_x)
+    aspect_ratio_x: f32 = 1.0, // Set to 2.0 for typical 2:1 terminal cell aspect ratio
+    aspect_ratio_y: f32 = 1.0,
+    /// Emit debug block showing layout decisions
+    debug_mermaid: bool = false,
 };
 
 pub const CompactionLevel = enum {
@@ -444,6 +715,24 @@ pub const RenderResult = struct {
     height: u32,
     is_fallback: bool = false,
     fallback_reason: ?[]const u8 = null,
+    /// Which layout algorithm was used (set by layout phase)
+    algorithm_used: LayoutAlgorithm = .unknown,
+    /// Number of nodes in the graph (0 for non-flowchart types)
+    node_count: u32 = 0,
+    /// Number of edges in the graph (0 for non-flowchart types)
+    edge_count: u32 = 0,
+    /// Whether the graph was detected as a tree
+    is_tree: bool = false,
+    /// Whether the graph contains cycles
+    is_cyclic: bool = false,
+    /// Whether width constraint triggered compaction
+    width_constraint_triggered: bool = false,
+    /// Crossing reduction iterations used (Sugiyama only)
+    crossing_reduction_iterations: u32 = 0,
+    /// Which width fitting stage succeeded
+    fit_stage: FitStage = .natural,
+    /// Original direction if switched for width fitting
+    original_direction: ?Direction = null,
 };
 
 // =====================================================

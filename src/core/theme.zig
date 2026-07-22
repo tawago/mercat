@@ -230,6 +230,31 @@ pub fn token(palette_value: Palette, style: render_model.SpanStyle) StyleToken {
     };
 }
 
+/// Styling for the copy-confirmation toast: a soft panel with a subtle green
+/// rounded border and readable text, tuned per light/dark mode so it reads as a
+/// gentle confirmation rather than a harsh reverse-video block.
+pub const ToastStyle = struct {
+    fill: vaxis.Style,
+    border: vaxis.Style,
+    text: vaxis.Style,
+};
+
+pub fn toastStyle(theme: config.Theme) ToastStyle {
+    // Track the theme's own panel (code-block background) and body text so the
+    // toast stays in sync with the palette; only the green accent is bespoke.
+    const active = palette(theme, .default);
+    const bg: vaxis.Color = if (active.code_block.bg_index) |index| .{ .index = index } else .default;
+    const accent: u8 = switch (theme) {
+        .light => 65,
+        .dark, .auto => 108,
+    };
+    return .{
+        .fill = .{ .bg = bg },
+        .border = .{ .fg = .{ .index = accent }, .bg = bg },
+        .text = .{ .fg = .{ .index = active.body.fg_index }, .bg = bg, .bold = true },
+    };
+}
+
 /// Converts a StyleToken to vaxis.Style for TUI rendering.
 /// The CLI equivalent is ansi.writeTokenStyled() which emits ANSI escape codes.
 pub fn vaxisStyle(token_value: StyleToken) vaxis.Style {

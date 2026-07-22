@@ -2,8 +2,8 @@
 
 set -euo pipefail
 
-repo="${MDV_REPO:-tawago/mdv}"
-install_dir="${MDV_INSTALL_DIR:-$HOME/.local/bin}"
+repo="${MERCAT_REPO:-tawago/mercat}"
+install_dir="${MERCAT_INSTALL_DIR:-$HOME/.local/bin}"
 
 need_cmd() {
     command -v "$1" >/dev/null 2>&1 || {
@@ -58,7 +58,7 @@ need_cmd tar
 os="$(detect_os)"
 arch="$(detect_arch)"
 
-artifact="mdv-${os}-${arch}.tar.gz"
+artifact="mercat-${os}-${arch}.tar.gz"
 download_base="https://github.com/${repo}/releases/latest/download"
 
 tmpdir="$(mktemp -d)"
@@ -80,9 +80,9 @@ curl -fsSL "$checksum_url" -o "$tmpdir/$artifact.sha256"
 
 mkdir -p "$install_dir"
 tar -xzf "$tmpdir/$artifact" -C "$tmpdir"
-install "$tmpdir/mdv" "$install_dir/mdv"
+install "$tmpdir/mercat" "$install_dir/mercat"
 
-printf 'Installed mdv to %s/mdv\n' "$install_dir"
+printf 'Installed mercat to %s/mercat\n' "$install_dir"
 
 case ":$PATH:" in
     *":$install_dir:"*) ;;

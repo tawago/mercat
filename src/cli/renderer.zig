@@ -3,27 +3,52 @@ const markdown = @import("../core/markdown.zig");
 const render_model = @import("../core/render_model.zig");
 const theme = @import("../core/theme.zig");
 const ansi = @import("../lib/ansi.zig");
+const mermaid_types = @import("../core/mermaid/types.zig");
 
 pub const Options = struct {
     width: usize,
     palette: theme.Palette,
     show_heading_markers: bool = true,
+    mermaid_box_style: mermaid_types.BoxDrawingStyle = .standard,
+    mermaid_crossing_heuristic: mermaid_types.CrossingReductionHeuristic = .median,
+    mermaid_force_layout: mermaid_types.ForceLayout = .auto,
+    mermaid_aspect_ratio: f32 = 1.0,
+    mermaid_debug: bool = false,
+    mermaid_subgraph_edges: @import("prim").SubgraphEdges = .bridge,
 };
 
 pub fn renderDocument(allocator: std.mem.Allocator, document: markdown.Document, options: Options) ![]u8 {
     var rendered = try render_model.renderDocument(allocator, document, .{
         .width = options.width,
         .show_heading_markers = options.show_heading_markers,
+        .mermaid_box_style = options.mermaid_box_style,
+        .mermaid_crossing_heuristic = options.mermaid_crossing_heuristic,
+        .mermaid_force_layout = options.mermaid_force_layout,
+        .mermaid_aspect_ratio = options.mermaid_aspect_ratio,
+        .mermaid_debug = options.mermaid_debug,
+        .mermaid_subgraph_edges = options.mermaid_subgraph_edges,
     });
     defer rendered.deinit(allocator);
 
+    return serialize(allocator, rendered, options.palette);
+}
+
+/// Serialize an already-rendered value to ANSI-styled terminal bytes. This is
+/// the terminal backend of the format dispatch: `main.zig` calls
+/// `render_model.renderDocument()` once and hands the owned `Rendered` here so
+/// the semantic layout is not recomputed per format.
+pub fn serialize(
+    allocator: std.mem.Allocator,
+    rendered: render_model.Rendered,
+    palette: theme.Palette,
+) ![]u8 {
     var buffer: std.ArrayList(u8) = .empty;
     errdefer buffer.deinit(allocator);
 
     for (rendered.lines, 0..) |line, line_index| {
         if (line_index != 0) try buffer.append(allocator, '\n');
         for (line.spans) |span| {
-            const token = theme.token(options.palette, span.style);
+            const token = theme.token(palette, span.style);
             if (span.url) |url| {
                 try ansi.writeHyperlink(allocator, &buffer, url, span.text, token);
             } else {

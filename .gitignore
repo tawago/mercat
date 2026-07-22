@@ -1,10 +1,29 @@
+.DS_Store
+.env
+
 # Zig build artifacts
 .zig-cache/
 zig-out/
 
-# Optional local maintainer wiring for internal validation
-.internal-tests/
-
-# Local AI assistant guidance
+# Local AI assistant state
 CLAUDE.md
+AGENTS.md
 .claude/
+.opencode/
+
+# Local maintainer working state (private evaluation suite)
+.internal-tests/
+eval/
+harness/
+design/
+decoder-runs/
+docs/
+old/
+loop.md
+td-lr-abstraction-refactor.md
+
+# Python bytecode
+__pycache__/
+
+# Local forwarder to private tooling
+scripts/judge-loop.sh

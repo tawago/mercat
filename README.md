@@ -1,9 +1,9 @@
-# mdv
+# mercat — cat for markdown, with mermaids
 
-A fast terminal markdown viewer written in Zig.
+A fast terminal markdown viewer with best-in-class mermaid diagram rendering, written in Zig.
 
-[![CI](https://github.com/tawago/mdv/actions/workflows/ci.yml/badge.svg)](https://github.com/tawago/mdv/actions/workflows/ci.yml)
-[![Release](https://img.shields.io/github/v/release/tawago/mdv)](https://github.com/tawago/mdv/releases)
+[![CI](https://github.com/tawago/mercat/actions/workflows/ci.yml/badge.svg)](https://github.com/tawago/mercat/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/tawago/mercat)](https://github.com/tawago/mercat/releases)
 [![License: GPL-3.0-or-later](https://img.shields.io/badge/license-GPL--3.0--or--later-blue.svg)](LICENSE)
 
 ## Installation
@@ -11,21 +11,20 @@ A fast terminal markdown viewer written in Zig.
 ### Homebrew
 
 ```bash
-brew tap tawago/homebrew-mdv
-brew install tawago/homebrew-mdv/mdv 
+brew install tawago/tap/mercat
 ```
 
 ### Installer Script
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/tawago/mdv/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/tawago/mercat/main/install.sh | bash
 ```
 
 ### Direct Download
 
 Release archives are published at:
 
-`https://github.com/tawago/mdv/releases`
+`https://github.com/tawago/mercat/releases`
 
 ### Build From Source
 
@@ -33,7 +32,7 @@ Requires Zig 0.15.1+.
 
 ```bash
 zig build -Doptimize=ReleaseFast
-# Binary at ./zig-out/bin/mdv
+# Binary at ./zig-out/bin/mercat
 ```
 
 ## Features
@@ -43,22 +42,22 @@ zig build -Doptimize=ReleaseFast
 - **Editor integration**: Press `e` to edit in $EDITOR, auto-reloads on return
 - **Themes**: Dark, light, and auto (terminal background detection)
 - **Pager support**: Pipe through $PAGER or `less -R`
-- **Stdin support**: `cat file.md | mdv -`
+- **Stdin support**: `cat file.md | mercat -`
 - **GFM support**: Tables, task lists, fenced code blocks, strikethrough
 
 ## Usage
 
 ```bash
 # TUI mode
-mdv -t README.md           # View file in TUI
-mdv -t .                   # Browse directory (WIP)
+mercat -t README.md           # View file in TUI
+mercat -t .                   # Browse directory (WIP)
 
 # CLI mode
-mdv README.md              # Render to stdout
-mdv -p README.md           # Pipe through pager
-mdv -w 80 README.md        # Fixed width
-mdv --style dark README.md # Force dark theme
-cat file.md | mdv -        # Read from stdin
+mercat README.md              # Render to stdout
+mercat -p README.md           # Pipe through pager
+mercat -w 80 README.md        # Fixed width
+mercat --style dark README.md # Force dark theme
+cat file.md | mercat -        # Read from stdin
 
 ```
 
@@ -76,7 +75,7 @@ cat file.md | mdv -        # Read from stdin
 
 ## Configuration
 
-Config file: `~/.config/mdv/config.toml`
+Config file: `~/.config/mercat/config.toml`
 
 ```toml
 [general]
@@ -92,7 +91,7 @@ heading_markers = true
 extensions = ["md", "markdown", "mdown", "mkd"]
 ```
 
-Environment overrides: `MDV_THEME`, `MDV_WIDTH`
+Environment overrides: `MERCAT_THEME`, `MERCAT_WIDTH`
 
 ## Status
 

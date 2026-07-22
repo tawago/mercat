@@ -2,6 +2,7 @@ const std = @import("std");
 const markdown = @import("../markdown.zig");
 const highlight = @import("../highlight.zig");
 const mermaid = @import("../mermaid/render.zig");
+const mermaid_types = @import("../mermaid/types.zig");
 const types = @import("types.zig");
 const builder_mod = @import("builder.zig");
 const wrap = @import("wrap.zig");
@@ -13,6 +14,11 @@ const Inline = markdown.Inline;
 const Options = types.Options;
 const SpanStyle = types.SpanStyle;
 const Builder = builder_mod.Builder;
+const BoxDrawingStyle = mermaid_types.BoxDrawingStyle;
+const CrossingReductionHeuristic = mermaid_types.CrossingReductionHeuristic;
+const ForceLayout = mermaid_types.ForceLayout;
+const SubgraphEdges = @import("prim").SubgraphEdges;
+const FitStage = mermaid_types.FitStage;
 
 const bullet_shapes = [_][]const u8{ "\u{2022} ", "\u{25E6} ", "\u{2023} " };
 // • (bullet), ◦ (white bullet), ‣ (triangular bullet)
@@ -28,7 +34,7 @@ pub fn renderBlock(allocator: std.mem.Allocator, builder: *Builder, block: Block
             const marker = if (item.checked) "[x] " else "[ ] ";
             try renderTaskItem(allocator, builder, item.content, content_width, marker);
         },
-        .fenced_code => |code| try renderCodeBlock(allocator, builder, code, content_width),
+        .fenced_code => |code| try renderCodeBlock(allocator, builder, code, content_width, options.mermaid_box_style, options.mermaid_crossing_heuristic, options.mermaid_force_layout, options.mermaid_aspect_ratio, options.mermaid_debug, options.mermaid_subgraph_edges),
         .html_block => |html| try builder.appendSpan(.muted, html),
         .thematic_break => {
             const hr_text = try repeatChar(allocator, content_width);
@@ -209,7 +215,7 @@ pub fn renderBlockQuote(allocator: std.mem.Allocator, builder: *Builder, bq: Blo
                 const marker = if (item.checked) "[x] " else "[ ] ";
                 try renderTaskItem(allocator, builder, item.content, content_width, marker);
             },
-            .fenced_code => |code| try renderCodeBlock(allocator, builder, code, content_width),
+            .fenced_code => |code| try renderCodeBlock(allocator, builder, code, content_width, .standard, .median, .auto, 1.0, false, .bridge),
             .html_block => |html| try builder.appendSpan(.muted, html),
             .thematic_break => {
                 const hr_text = try repeatChar(allocator, content_width);
@@ -309,7 +315,7 @@ pub fn renderBlockQuoteWithPrefix(allocator: std.mem.Allocator, builder: *Builde
             .paragraph => |p| try renderParagraph(allocator, builder, p.content, content_width, .body, p.indent),
             .unordered_list_item => |item| try renderListItem(allocator, builder, item, content_width, "\u{2022} ", 0),
             .ordered_list_item => |item| try renderListItem(allocator, builder, item, content_width, item.marker, 0),
-            .fenced_code => |code| try renderCodeBlock(allocator, builder, code, content_width),
+            .fenced_code => |code| try renderCodeBlock(allocator, builder, code, content_width, .standard, .median, .auto, 1.0, false, .bridge),
             .html_block => |html| try builder.appendSpan(.muted, html),
             .thematic_break => {
                 const hr_text = try repeatChar(allocator, content_width);
@@ -347,10 +353,10 @@ pub fn renderBlockQuoteWithPrefix(allocator: std.mem.Allocator, builder: *Builde
     }
 }
 
-pub fn renderCodeBlock(allocator: std.mem.Allocator, builder: *Builder, code: Block.CodeBlock, content_width: usize) !void {
+pub fn renderCodeBlock(allocator: std.mem.Allocator, builder: *Builder, code: Block.CodeBlock, content_width: usize, box_style: BoxDrawingStyle, crossing_heuristic: CrossingReductionHeuristic, force_layout: ForceLayout, aspect_ratio: f32, debug_mermaid: bool, subgraph_edges: SubgraphEdges) !void {
     // Check if this is a mermaid block
     if (std.mem.eql(u8, code.language, "mermaid")) {
-        try renderMermaidBlock(allocator, builder, code.code, content_width);
+        try renderMermaidBlock(allocator, builder, code.code, content_width, box_style, crossing_heuristic, force_layout, aspect_ratio, debug_mermaid, subgraph_edges);
         return;
     }
 
@@ -386,21 +392,112 @@ pub fn renderCodeBlock(allocator: std.mem.Allocator, builder: *Builder, code: Bl
     try builder.appendSpan(.muted, "```");
 }
 
-pub fn renderMermaidBlock(allocator: std.mem.Allocator, builder: *Builder, source: []const u8, content_width: usize) !void {
+pub fn renderMermaidBlock(allocator: std.mem.Allocator, builder: *Builder, source: []const u8, content_width: usize, box_style: BoxDrawingStyle, crossing_heuristic: CrossingReductionHeuristic, force_layout: ForceLayout, aspect_ratio: f32, debug_mermaid: bool, subgraph_edges: SubgraphEdges) !void {
     const result = mermaid.render(allocator, source, .{
         .max_width = @intCast(content_width),
         .unicode_mode = true,
+        .box_drawing_style = box_style,
+        .crossing_reduction_heuristic = crossing_heuristic,
+        .force_layout = force_layout,
+        .aspect_ratio_x = aspect_ratio,
+        .debug_mermaid = debug_mermaid,
+        .subgraph_edges = subgraph_edges,
     }) catch {
         try renderCodeBlockFallback(allocator, builder, "mermaid", source);
         return;
     };
 
     if (result.is_fallback) {
+        // A pipeline error (parse/layout/raster/paint) is a renderer bug,
+        // not an "unsupported diagram". Surface it with a visible banner so
+        // a silent raw-DSL echo can never masquerade as a clean render. We
+        // still print the source below the banner so no information is lost.
+        // Genuinely unsupported diagram types keep the bare fence (no
+        // banner) — those are an expected, non-buggy passthrough.
+        if (result.fallback_reason) |reason| {
+            if (std.mem.startsWith(u8, reason, "v2 ")) {
+                const banner = try std.fmt.allocPrint(allocator, "<PARSE ERROR: {s}>", .{reason});
+                defer allocator.free(banner);
+                try builder.appendSpan(.muted, banner);
+                try builder.newline();
+            }
+        }
         try renderCodeBlockFallback(allocator, builder, "mermaid", source);
         return;
     }
 
     defer allocator.free(result.output);
+
+    if (debug_mermaid) {
+        const algo_name = switch (result.algorithm_used) {
+            .sugiyama => "Sugiyama",
+            .reingold_tilford => "Reingold-Tilford",
+            .fruchterman_reingold => "Fruchterman-Reingold",
+            .kamada_kawai => "Kamada-Kawai",
+            .stress_majorization => "Stress Majorization",
+            .dominance_drawing => "Dominance Drawing",
+            .layered_bfs => "Layered BFS",
+            .unknown => "Unknown",
+        };
+        try builder.appendSpan(.muted, "---debug-mermaid---");
+        try builder.newline();
+        const algo_line = try std.fmt.allocPrint(allocator, "Algorithm: {s}", .{algo_name});
+        defer allocator.free(algo_line);
+        try builder.appendSpan(.muted, algo_line);
+        try builder.newline();
+        const nodes_line = try std.fmt.allocPrint(allocator, "Nodes: {d}", .{result.node_count});
+        defer allocator.free(nodes_line);
+        try builder.appendSpan(.muted, nodes_line);
+        try builder.newline();
+        const edges_line = try std.fmt.allocPrint(allocator, "Edges: {d}", .{result.edge_count});
+        defer allocator.free(edges_line);
+        try builder.appendSpan(.muted, edges_line);
+        try builder.newline();
+        const tree_line = try std.fmt.allocPrint(allocator, "Tree detected: {s}", .{if (result.is_tree) "yes" else "no"});
+        defer allocator.free(tree_line);
+        try builder.appendSpan(.muted, tree_line);
+        try builder.newline();
+        const cyclic_line = try std.fmt.allocPrint(allocator, "Cyclic: {s}", .{if (result.is_cyclic) "yes" else "no"});
+        defer allocator.free(cyclic_line);
+        try builder.appendSpan(.muted, cyclic_line);
+        try builder.newline();
+        const width_line = try std.fmt.allocPrint(allocator, "Width constraint triggered: {s}", .{if (result.width_constraint_triggered) "yes" else "no"});
+        defer allocator.free(width_line);
+        try builder.appendSpan(.muted, width_line);
+        try builder.newline();
+        if (result.fit_stage != .natural) {
+            const fit_line = try std.fmt.allocPrint(allocator, "Fit stage: {s}", .{result.fit_stage.description()});
+            defer allocator.free(fit_line);
+            try builder.appendSpan(.muted, fit_line);
+            try builder.newline();
+        }
+        if (result.original_direction) |orig_dir| {
+            const dir_name = switch (orig_dir) {
+                .TD => "TD",
+                .TB => "TB",
+                .LR => "LR",
+                .RL => "RL",
+                .BT => "BT",
+            };
+            const dir_line = try std.fmt.allocPrint(allocator, "Original direction: {s} (switched for width)", .{dir_name});
+            defer allocator.free(dir_line);
+            try builder.appendSpan(.muted, dir_line);
+            try builder.newline();
+        }
+        if (result.crossing_reduction_iterations > 0) {
+            const cr_line = try std.fmt.allocPrint(allocator, "Crossing reduction iterations: {d}", .{result.crossing_reduction_iterations});
+            defer allocator.free(cr_line);
+            try builder.appendSpan(.muted, cr_line);
+            try builder.newline();
+        }
+        try builder.appendSpan(.muted, "---debug-mermaid---");
+        try builder.newline();
+    }
+
+    // Mermaid diagrams handle their own layout - disable left_padding
+    const saved_padding = builder.left_padding;
+    builder.left_padding = 0;
+    defer builder.left_padding = saved_padding;
 
     var diagram_lines = std.mem.splitScalar(u8, result.output, '\n');
     var first = true;

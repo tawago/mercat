@@ -1,12 +1,14 @@
 const std = @import("std");
 const viewport = @import("viewport.zig");
+const mermaid_types = @import("../../core/mermaid/types.zig");
 
-pub fn format(allocator: std.mem.Allocator, title: []const u8, width: usize, view: viewport.Viewport, in_help: bool, status_message: ?[]const u8) ![]u8 {
+pub fn format(allocator: std.mem.Allocator, title: []const u8, width: usize, view: viewport.Viewport, in_help: bool, status_message: ?[]const u8, layout: mermaid_types.ForceLayout) ![]u8 {
     const short_title = baseName(title);
+    const layout_str = layout.displayName();
     const meta = try std.fmt.allocPrint(
         allocator,
-        " {d}-{d}/{d} {d}%  e edit  r reload  ? {s} ",
-        .{ if (view.total == 0) 0 else view.top + 1, view.visibleEnd(), view.total, view.progressPercent(), if (in_help) "back" else "help" },
+        " {d}-{d}/{d} {d}%  e edit  r reload  l {s}  ? {s} ",
+        .{ if (view.total == 0) 0 else view.top + 1, view.visibleEnd(), view.total, view.progressPercent(), layout_str, if (in_help) "back" else "help" },
     );
     defer allocator.free(meta);
 
@@ -41,9 +43,10 @@ test "formats status line" {
     view.setMetrics(10, 30);
     view.lineDown(5);
 
-    const text = try format(allocator, "/tmp/README.md", 64, view, false, null);
+    const text = try format(allocator, "/tmp/README.md", 64, view, false, null, .auto);
     defer allocator.free(text);
 
     try std.testing.expect(std.mem.indexOf(u8, text, "README.md") != null);
     try std.testing.expect(std.mem.indexOf(u8, text, "6-15/30") != null);
+    try std.testing.expect(std.mem.indexOf(u8, text, "l auto") != null);
 }

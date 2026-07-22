@@ -11,6 +11,11 @@ line_numbers = false
 [mermaid]
 enabled = true
 style = "rounded"
+# How an edge that crosses a subgraph frame border is drawn:
+#   "bridge" (default) — frame stays solid, the edge bridges across it
+#   "cross"            — legacy junction weld (a tee/cross on the border)
+# Override for one run with MERCAT_SUBGRAPH_EDGES=bridge|cross.
+subgraph_edges = "bridge"
 
 [files]
 show_hidden = false

@@ -88,7 +88,7 @@ pub const Parser = struct {
 
             // Check for subgraph
             if (self.consumeKeyword("subgraph")) {
-                try self.parseSubgraph(&graph);
+                try self.parseSubgraph(&graph, null);
                 continue;
             }
 
@@ -112,6 +112,61 @@ pub const Parser = struct {
             try self.parseStatement(&graph);
         }
 
+        // Post-process: detect subgraph-level edges.
+        // An edge endpoint is a subgraph ID if it matches a subgraph.id
+        // and either (a) has no corresponding real node definition, or
+        // (b) has a node whose label == id (auto-generated placeholder).
+        if (graph.subgraphs.items.len > 0) {
+            // Build set of subgraph IDs.
+            var sg_ids = std.StringHashMap(void).init(self.allocator);
+            defer sg_ids.deinit();
+            for (graph.subgraphs.items) |*sg| {
+                try sg_ids.put(sg.id, {});
+            }
+            // Check each edge.
+            for (graph.edges.items) |*edge| {
+                if (sg_ids.contains(edge.from)) {
+                    // Check if "from" is purely a subgraph ref (placeholder node).
+                    if (graph.nodes.get(edge.from)) |node| {
+                        if (std.mem.eql(u8, node.label, edge.from)) {
+                            edge.from_is_subgraph = true;
+                        }
+                    }
+                }
+                if (sg_ids.contains(edge.to)) {
+                    if (graph.nodes.get(edge.to)) |node| {
+                        if (std.mem.eql(u8, node.label, edge.to)) {
+                            edge.to_is_subgraph = true;
+                        }
+                    }
+                }
+            }
+            // Remove placeholder nodes that are purely subgraph refs.
+            var to_remove: std.ArrayListUnmanaged([]const u8) = .empty;
+            defer to_remove.deinit(self.allocator);
+            for (graph.node_order.items) |nid| {
+                if (sg_ids.contains(nid)) {
+                    if (graph.nodes.get(nid)) |node| {
+                        if (std.mem.eql(u8, node.label, nid)) {
+                            try to_remove.append(self.allocator, nid);
+                        }
+                    }
+                }
+            }
+            for (to_remove.items) |nid| {
+                _ = graph.nodes.remove(nid);
+                // Remove from node_order.
+                var i: usize = 0;
+                while (i < graph.node_order.items.len) {
+                    if (std.mem.eql(u8, graph.node_order.items[i], nid)) {
+                        _ = graph.node_order.orderedRemove(i);
+                    } else {
+                        i += 1;
+                    }
+                }
+            }
+        }
+
         return graph;
     }
 
@@ -124,18 +179,31 @@ pub const Parser = struct {
         return .TD; // Default
     }
 
-    fn parseSubgraph(self: *Parser, graph: *Graph) !void {
+    fn parseSubgraph(self: *Parser, graph: *Graph, parent_id: ?[]const u8) !void {
         self.skipWhitespace();
 
         // Parse subgraph ID
+        // Handle case where subgraph is given a quoted title with no bracket ID,
+        // e.g.: subgraph "My Group"
+        // In that case, treat the quoted string as the label and generate a synthetic ID.
+        var label: ?[]const u8 = null;
         const id_start = self.pos;
-        while (!self.isAtEnd() and !self.isWhitespace(self.current()) and self.current() != '[' and self.current() != '\n') {
-            self.advance();
+        if (!self.isAtEnd() and self.current() == '"') {
+            self.advance(); // consume opening quote
+            const quoted_start = self.pos;
+            while (!self.isAtEnd() and self.current() != '"' and self.current() != '\n') {
+                self.advance();
+            }
+            label = self.source[quoted_start..self.pos];
+            if (!self.isAtEnd() and self.current() == '"') self.advance(); // consume closing quote
+        } else {
+            while (!self.isAtEnd() and !self.isWhitespace(self.current()) and self.current() != '[' and self.current() != '\n') {
+                self.advance();
+            }
         }
         const id = self.source[id_start..self.pos];
 
         // Parse optional label in brackets
-        var label: ?[]const u8 = null;
         self.skipWhitespace();
         if (self.current() == '[') {
             self.advance();
@@ -156,7 +224,7 @@ pub const Parser = struct {
             if (!self.isAtEnd()) self.advance(); // consume ']'
         }
 
-        var subgraph = Subgraph.init(self.allocator, id, label);
+        var subgraph = Subgraph.init(self.allocator, id, label, parent_id);
         errdefer subgraph.deinit();
 
         self.skipToNextLine();
@@ -166,10 +234,17 @@ pub const Parser = struct {
             self.skipWhitespaceAndComments();
             if (self.isAtEnd()) break;
 
-            if (self.peekKeyword("end")) break;
-            if (self.peekKeyword("subgraph")) {
-                // Nested subgraph - for now, skip nested
-                try self.parseSubgraph(graph);
+            if (self.consumeKeyword("end")) { self.skipToNextLine(); break; }
+            if (self.consumeKeyword("subgraph")) {
+                try self.parseSubgraph(graph, id);
+                continue;
+            }
+            // Subgraph-local direction directive (e.g. `direction TB`).
+            // We parse and discard it — per-subgraph direction override is not
+            // yet implemented, so ignoring it is better than creating a phantom
+            // node named "direction".
+            if (self.peekKeyword("direction")) {
+                self.skipToNextLine();
                 continue;
             }
 
@@ -202,7 +277,8 @@ pub const Parser = struct {
 
         self.skipWhitespace();
 
-        // Check for edge(s)
+        // Check for edge(s). Chained syntax `A --> B --> C` creates A→B then B→C.
+        var current_source_id = first_node.id;
         while (!self.isAtEnd() and !self.isLineEnd()) {
             self.skipWhitespace();
             if (self.isLineEnd()) break;
@@ -212,8 +288,9 @@ pub const Parser = struct {
 
             self.skipWhitespace();
 
-            // Parse edge label if present (|label| syntax)
-            var label: ?[]const u8 = null;
+            // Parse edge label: pipe syntax |label| takes priority;
+            // fall back to embedded label already extracted by parseEdgeOperator.
+            var label: ?[]const u8 = edge_info.embedded_label;
             if (self.current() == '|') {
                 self.advance();
                 const label_start = self.pos;
@@ -238,15 +315,18 @@ pub const Parser = struct {
             const target_node = try self.parseNodeDef();
             try graph.addNode(target_node);
 
-            // Add edge
+            // Add edge from current source to this target
             try graph.addEdge(.{
-                .from = first_node.id,
+                .from = current_source_id,
                 .to = target_node.id,
                 .label = label,
                 .style = edge_info.style,
                 .arrow_start = edge_info.arrow_start,
                 .arrow_end = edge_info.arrow_end,
             });
+
+            // Advance source for the next edge in the chain
+            current_source_id = target_node.id;
         }
 
         self.skipToNextLine();
@@ -256,6 +336,9 @@ pub const Parser = struct {
         style: EdgeStyle,
         arrow_start: ArrowHead,
         arrow_end: ArrowHead,
+        /// Label embedded inside the edge syntax, e.g. `--label-->`.
+        /// Distinct from the `|label|` syntax handled in parseStatement.
+        embedded_label: ?[]const u8 = null,
     };
 
     fn parseEdgeOperator(self: *Parser) ?EdgeInfo {
@@ -271,6 +354,7 @@ pub const Parser = struct {
         // <--> bidirectional
         // o--o circles
         // x--x crosses
+        // --label--> embedded label (mermaid "text on edge" syntax)
 
         var arrow_start: ArrowHead = .none;
         var arrow_end: ArrowHead = .none;
@@ -304,6 +388,33 @@ pub const Parser = struct {
             return null;
         }
 
+        // Check for embedded label: --label--> or --label--
+        // If the next character is not an arrow/circle/cross/space/newline,
+        // scan for a closing dash sequence to extract the embedded label.
+        var embedded_label: ?[]const u8 = null;
+        if (!self.isAtEnd() and self.current() != '>' and self.current() != 'o' and
+            self.current() != 'x' and !self.isWhitespace(self.current()) and
+            !self.isLineEnd() and self.current() != '|')
+        {
+            // Scan ahead: label ends at the next '-' that begins a closing dash sequence
+            const label_start = self.pos;
+            while (!self.isAtEnd() and !self.isLineEnd()) {
+                if (self.current() == '-') break; // start of closing dashes
+                self.advance();
+            }
+            const label_end = self.pos;
+            if (label_end > label_start) {
+                var lbl = self.source[label_start..label_end];
+                // Trim trailing whitespace from label
+                while (lbl.len > 0 and (lbl[lbl.len - 1] == ' ' or lbl[lbl.len - 1] == '\t')) {
+                    lbl = lbl[0 .. lbl.len - 1];
+                }
+                if (lbl.len > 0) embedded_label = lbl;
+            }
+            // Consume the closing dash sequence (e.g. `--` or `-`)
+            while (self.matchChar('-')) {}
+        }
+
         // Check end arrow/modifier
         if (self.matchChar('>')) {
             arrow_end = .arrow;
@@ -322,6 +433,7 @@ pub const Parser = struct {
             .style = style,
             .arrow_start = arrow_start,
             .arrow_end = arrow_end,
+            .embedded_label = embedded_label,
         };
     }
 
@@ -2215,4 +2327,84 @@ test "parse state diagram direction" {
     defer diagram.deinit();
 
     try testing.expectEqual(Direction.LR, diagram.direction);
+}
+
+test "parse subgraph-level edges" {
+    const testing = std.testing;
+
+    const source =
+        \\flowchart TB
+        \\    subgraph one
+        \\    a1-->a2
+        \\    end
+        \\    subgraph two
+        \\    b1-->b2
+        \\    end
+        \\    one --> two
+    ;
+
+    var graph = try Parser.parse(testing.allocator, source);
+    defer graph.deinit();
+
+    // Should have 4 nodes: a1, a2, b1, b2
+    // "one" and "two" should be removed as they're subgraph refs
+    try testing.expectEqual(@as(usize, 4), graph.node_order.items.len);
+    try testing.expect(graph.nodes.get("one") == null);
+    try testing.expect(graph.nodes.get("two") == null);
+
+    // Should have 3 edges: a1-->a2, b1-->b2, one-->two
+    try testing.expectEqual(@as(usize, 3), graph.edges.items.len);
+
+    // The subgraph-level edge should be marked
+    var found_sg_edge = false;
+    for (graph.edges.items) |e| {
+        if (std.mem.eql(u8, e.from, "one") and std.mem.eql(u8, e.to, "two")) {
+            try testing.expect(e.from_is_subgraph);
+            try testing.expect(e.to_is_subgraph);
+            found_sg_edge = true;
+        }
+    }
+    try testing.expect(found_sg_edge);
+}
+
+test "parse subgraph-level edges fixture" {
+    const testing = std.testing;
+
+    const source =
+        \\flowchart TB
+        \\    c1-->a2
+        \\    subgraph one
+        \\    a1-->a2
+        \\    end
+        \\    subgraph two
+        \\    b1-->b2
+        \\    end
+        \\    subgraph three
+        \\    c1-->c2
+        \\    end
+        \\    one --> two
+        \\    three --> two
+        \\    two --> c2
+    ;
+
+    var graph = try Parser.parse(testing.allocator, source);
+    defer graph.deinit();
+
+    // Should have 6 nodes: a1, a2, b1, b2, c1, c2
+    // "one", "two", "three" should be removed as they're subgraph refs
+    try testing.expectEqual(@as(usize, 6), graph.node_order.items.len);
+    try testing.expect(graph.nodes.get("one") == null);
+    try testing.expect(graph.nodes.get("two") == null);
+    try testing.expect(graph.nodes.get("three") == null);
+
+    // Count subgraph-level edges
+    var sg_edge_count: usize = 0;
+    for (graph.edges.items) |e| {
+        if (e.from_is_subgraph or e.to_is_subgraph) {
+            sg_edge_count += 1;
+        }
+    }
+    // one --> two, three --> two are pure sg edges (both endpoints are subgraphs)
+    // two --> c2 has from_is_subgraph=true (two is subgraph), to_is_subgraph=false (c2 is node)
+    try testing.expectEqual(@as(usize, 3), sg_edge_count);
 }

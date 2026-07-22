@@ -758,7 +758,7 @@ fn freeInlines(allocator: std.mem.Allocator, inlines: []Inline) void {
 
 test "parses headings lists fences and tables" {
     const fixture =
-        \\# mdv
+        \\# mercat
         \\
         \\- [x] Parse task lists
         \\- Parse headings

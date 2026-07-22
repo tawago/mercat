@@ -1,0 +1,34 @@
+JetBrains Mono font pin
+=======================
+
+Source repository : https://github.com/JetBrains/JetBrainsMono
+Release / version : v2.304 (latest stable release as of pin date)
+Release asset     : JetBrainsMono-2.304.zip
+File              : fonts/ttf/JetBrainsMono-Regular.ttf (extracted)
+Retrieved         : 2026-07-13
+
+SHA-256 (JetBrainsMono-Regular.ttf):
+  a0bf60ef0f83c5ed4d7a75d45838548b1f6873372dfac88f71804491898d138f
+
+Byte length: 273900
+
+Download URL:
+  https://github.com/JetBrains/JetBrainsMono/releases/download/v2.304/JetBrainsMono-2.304.zip
+
+Geometric code-point coverage (TSD §4.3) verified against the font cmap
+(format 12). All five required renderer-owned code points map to non-.notdef
+glyph indices:
+
+  U+25B2 BLACK UP-POINTING TRIANGLE     -> glyph 1233
+  U+25B6 BLACK RIGHT-POINTING TRIANGLE  -> glyph 1234
+  U+25BC BLACK DOWN-POINTING TRIANGLE   -> glyph 1235
+  U+25C0 BLACK LEFT-POINTING TRIANGLE   -> glyph 1236
+  U+25C7 WHITE DIAMOND                  -> glyph 1221
+
+(JetBrains Mono v1.0.3 lacks all five per the S-1 finding; v2.304 contains
+them, satisfying the "v2.305 or later" intent via the glyph-sheet enforcement
+point.)
+
+License: SIL Open Font License 1.1. Full text in OFL.txt.
+The font-init self-test (src/export/font.zig) re-hashes the embedded bytes and
+compares against the SHA-256 above at runtime.

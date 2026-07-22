@@ -1,10 +1,10 @@
 # Contributing
 
-Thanks for working on `mdv`.
+Thanks for working on `mercat`.
 
 ## Development Setup
 
-`mdv` currently targets Zig `0.15.1`.
+`mercat` currently targets Zig `0.15.1`.
 
 ```bash
 zig build
@@ -13,15 +13,14 @@ zig build test
 
 ## Scope Of Public Tests
 
-The public repository keeps contributor-facing tests that should be enough to validate normal changes.
-
-Maintainers may also run additional internal validation before merging or releasing changes.
-
-If you maintain the internal validation checkout locally, point the build at it explicitly instead of copying files into this repository:
+The public repository keeps contributor-facing tests that should be enough to validate normal changes:
 
 ```bash
-zig build -Dinternal-tests-dir=../mdv-internal-tests test-all
+zig build
+zig build test
 ```
+
+Maintainers may also run additional internal validation before merging or releasing changes. That validation lives in a separate private checkout and is not required for public contributions.
 
 ## Pull Requests
 

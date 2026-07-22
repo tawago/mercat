@@ -1,0 +1,19 @@
+stb_truetype.h vendoring pin
+============================
+
+Source repository : https://github.com/nothings/stb
+Pinned commit     : 6e9f34d5429cf16790ec43c9bac3f1ee4ad1f760
+                    (last commit that touched stb_truetype.h as of pin date)
+File              : stb_truetype.h
+Library version   : v1.26 (per the file header banner)
+Retrieved         : 2026-07-13
+SHA-256 (file)    : ecd30b05e0dd4fea3a13c26810dd9e1992dc379049482c393d5a19e6b5090aab
+
+Raw download URL:
+  https://raw.githubusercontent.com/nothings/stb/6e9f34d5429cf16790ec43c9bac3f1ee4ad1f760/stb_truetype.h
+
+License: public domain OR MIT (dual). Full text in LICENSE.txt (also vendored
+from the same pinned commit).
+
+The single STB_TRUETYPE_IMPLEMENTATION translation unit lives at
+src/export/font_stb.c. No Zig source defines the implementation macro.

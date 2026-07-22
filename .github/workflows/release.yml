@@ -56,16 +56,16 @@ jobs:
         include:
           - os: ubuntu-latest
             target: x86_64-linux-musl
-            artifact: mdv-linux-x86_64.tar.gz
+            artifact: mercat-linux-x86_64.tar.gz
           - os: ubuntu-latest
             target: aarch64-linux-musl
-            artifact: mdv-linux-aarch64.tar.gz
+            artifact: mercat-linux-aarch64.tar.gz
           - os: macos-latest
             target: x86_64-macos
-            artifact: mdv-darwin-x86_64.tar.gz
+            artifact: mercat-darwin-x86_64.tar.gz
           - os: macos-latest
             target: aarch64-macos
-            artifact: mdv-darwin-aarch64.tar.gz
+            artifact: mercat-darwin-aarch64.tar.gz
 
     steps:
       - name: Check out repository
@@ -89,8 +89,8 @@ jobs:
         shell: bash
         run: |
           mkdir -p dist
-          cp zig-out/bin/mdv dist/mdv
-          tar -C dist -czf ${{ matrix.artifact }} mdv
+          cp zig-out/bin/mercat dist/mercat
+          tar -C dist -czf ${{ matrix.artifact }} mercat
           shasum -a 256 ${{ matrix.artifact }} > ${{ matrix.artifact }}.sha256
 
       - name: Publish release assets
@@ -107,8 +107,8 @@ jobs:
     if: always() && needs.build-release.result == 'success'
     env:
       FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
-      TAP_REPO: tawago/homebrew-mdv
-      FORMULA_PATH: Formula/mdv.rb
+      TAP_REPO: tawago/homebrew-tap
+      FORMULA_PATH: Formula/mercat.rb
       RELEASE_TAG: ${{ needs.prepare-release.outputs.tag || github.ref_name }}
     steps:
       - name: Check out repository
@@ -127,12 +127,12 @@ jobs:
           fi
 
           version="${RELEASE_TAG#v}"
-          release_base="https://github.com/tawago/mdv/releases/download/${RELEASE_TAG}"
+          release_base="https://github.com/tawago/mercat/releases/download/${RELEASE_TAG}"
 
-          darwin_arm_sha="$(curl -fsSL "${release_base}/mdv-darwin-aarch64.tar.gz.sha256" | cut -d' ' -f1)"
-          darwin_x86_sha="$(curl -fsSL "${release_base}/mdv-darwin-x86_64.tar.gz.sha256" | cut -d' ' -f1)"
-          linux_arm_sha="$(curl -fsSL "${release_base}/mdv-linux-aarch64.tar.gz.sha256" | cut -d' ' -f1)"
-          linux_x86_sha="$(curl -fsSL "${release_base}/mdv-linux-x86_64.tar.gz.sha256" | cut -d' ' -f1)"
+          darwin_arm_sha="$(curl -fsSL "${release_base}/mercat-darwin-aarch64.tar.gz.sha256" | cut -d' ' -f1)"
+          darwin_x86_sha="$(curl -fsSL "${release_base}/mercat-darwin-x86_64.tar.gz.sha256" | cut -d' ' -f1)"
+          linux_arm_sha="$(curl -fsSL "${release_base}/mercat-linux-aarch64.tar.gz.sha256" | cut -d' ' -f1)"
+          linux_x86_sha="$(curl -fsSL "${release_base}/mercat-linux-x86_64.tar.gz.sha256" | cut -d' ' -f1)"
 
           workdir="$(mktemp -d)"
           trap 'rm -rf "$workdir"' EXIT
@@ -142,57 +142,56 @@ jobs:
           mkdir -p "$workdir/tap/Formula"
 
           {
-            printf '%s\n' 'class Mdv < Formula'
+            printf '%s\n' 'class Mercat < Formula'
             printf '%s\n' '  desc "Fast terminal markdown viewer with Mermaid diagram support"'
-            printf '%s\n' '  homepage "https://github.com/tawago/mdv"'
+            printf '%s\n' '  homepage "https://github.com/tawago/mercat"'
             printf '%s\n' "  version \"${version}\""
             printf '%s\n' '  license "GPL-3.0-or-later"'
             printf '\n'
             printf '%s\n' '  on_macos do'
             printf '%s\n' '    on_arm do'
-            printf '%s\n' '      url "https://github.com/tawago/mdv/releases/download/v#{version}/mdv-darwin-aarch64.tar.gz"'
+            printf '%s\n' '      url "https://github.com/tawago/mercat/releases/download/v#{version}/mercat-darwin-aarch64.tar.gz"'
             printf '%s\n' "      sha256 \"${darwin_arm_sha}\""
             printf '%s\n' '    end'
             printf '\n'
             printf '%s\n' '    on_intel do'
-            printf '%s\n' '      url "https://github.com/tawago/mdv/releases/download/v#{version}/mdv-darwin-x86_64.tar.gz"'
+            printf '%s\n' '      url "https://github.com/tawago/mercat/releases/download/v#{version}/mercat-darwin-x86_64.tar.gz"'
             printf '%s\n' "      sha256 \"${darwin_x86_sha}\""
             printf '%s\n' '    end'
             printf '%s\n' '  end'
             printf '\n'
             printf '%s\n' '  on_linux do'
             printf '%s\n' '    on_arm do'
-            printf '%s\n' '      url "https://github.com/tawago/mdv/releases/download/v#{version}/mdv-linux-aarch64.tar.gz"'
+            printf '%s\n' '      url "https://github.com/tawago/mercat/releases/download/v#{version}/mercat-linux-aarch64.tar.gz"'
             printf '%s\n' "      sha256 \"${linux_arm_sha}\""
             printf '%s\n' '    end'
             printf '\n'
             printf '%s\n' '    on_intel do'
-            printf '%s\n' '      url "https://github.com/tawago/mdv/releases/download/v#{version}/mdv-linux-x86_64.tar.gz"'
+            printf '%s\n' '      url "https://github.com/tawago/mercat/releases/download/v#{version}/mercat-linux-x86_64.tar.gz"'
             printf '%s\n' "      sha256 \"${linux_x86_sha}\""
             printf '%s\n' '    end'
             printf '%s\n' '  end'
             printf '\n'
             printf '%s\n' '  def install'
-            printf '%s\n' '    bin.install "mdv"'
+            printf '%s\n' '    bin.install "mercat"'
             printf '%s\n' '  end'
             printf '\n'
             printf '%s\n' '  test do'
-            printf '%s\n' '    assert_match version.to_s, shell_output("#{bin}/mdv --version")'
+            printf '%s\n' '    assert_match version.to_s, shell_output("#{bin}/mercat --version")'
             printf '%s\n' '  end'
             printf '%s\n' 'end'
           } > "$workdir/tap/${FORMULA_PATH}"
 
           if [ ! -f "$workdir/tap/README.md" ]; then
             {
-              printf '%s\n' '# homebrew-mdv'
+              printf '%s\n' '# homebrew-tap'
               printf '\n'
-              printf '%s\n' 'Homebrew tap for `mdv`.'
+              printf '%s\n' 'Homebrew tap for `mercat`.'
               printf '\n'
               printf '%s\n' '## Install'
               printf '\n'
               printf '%s\n' '```bash'
-              printf '%s\n' 'brew tap tawago/homebrew-mdv'
-              printf '%s\n' 'brew install mdv'
+              printf '%s\n' 'brew install tawago/tap/mercat'
               printf '%s\n' '```'
             } > "$workdir/tap/README.md"
           fi
@@ -207,5 +206,5 @@ jobs:
           fi
 
           git add "$FORMULA_PATH" README.md
-          git commit -m "Update mdv formula to ${version}"
+          git commit -m "Update mercat formula to ${version}"
           git push origin main

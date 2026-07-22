@@ -6,6 +6,13 @@ All notable changes to this project will be documented in this file.
 
 - Ongoing development
 
+## [0.2.0]
+
+- **Complete rewrite of the flowchart renderer** (`mermaid_v2`): new parse → semantic graph → sketch → raster → paint pipeline with width-budget candidate selection
+- Project renamed from `mdv` to `mercat`; the installed binary is now `mercat`
+- Config path moved to `~/.config/mercat/config.toml` (the old `~/.config/mdv/` location is no longer read)
+- Environment variables renamed `MDV_*` → `MERCAT_*` (e.g. `MERCAT_THEME`, `MERCAT_WIDTH`, `MERCAT_SYNTAX_THEME`)
+
 ## [0.1.2]
 
 - Automate Homebrew tap updates after successful tagged releases

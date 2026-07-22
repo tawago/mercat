@@ -1,8 +1,8 @@
 .{
-    .name = .mdv,
-    .version = "0.1.4",
+    .name = .mercat,
+    .version = "0.2.0",
     .minimum_zig_version = "0.15.1",
-    .fingerprint = 0x7b9fbcb54ac0dae,
+    .fingerprint = 0xf453b7b757b381ee,
     .dependencies = .{
         .koino = .{
             .url = "git+https://github.com/kivikakk/koino#0f10363e02ff575b008f219e54dc30ef8fad55db",
@@ -18,5 +18,7 @@
         "build.zig.zon",
         "src",
         "config",
+        "assets",
+        "vendor",
     },
 }
