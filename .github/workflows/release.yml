@@ -214,11 +214,13 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
-          if git diff --quiet; then
+          git add "$FORMULA_PATH" README.md
+          # git diff --quiet misses untracked files (a freshly created
+          # formula), so detect staged changes instead.
+          if git diff --cached --quiet; then
             echo "Homebrew tap already up to date"
             exit 0
           fi
 
-          git add "$FORMULA_PATH" README.md
           git commit -m "Update mercat formula to ${version}"
           git push origin main
