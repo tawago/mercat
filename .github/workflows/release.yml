@@ -60,10 +60,14 @@ jobs:
           - os: ubuntu-latest
             target: aarch64-linux-musl
             artifact: mercat-linux-aarch64.tar.gz
-          - os: macos-latest
+          # Darwin targets are cross-compiled from Linux: Zig bundles the
+          # libSystem stubs it needs, and the GitHub macOS runner images have
+          # repeatedly broken Zig's SDK discovery (undefined libSystem symbols
+          # when linking the build runner itself).
+          - os: ubuntu-latest
             target: x86_64-macos
             artifact: mercat-darwin-x86_64.tar.gz
-          - os: macos-latest
+          - os: ubuntu-latest
             target: aarch64-macos
             artifact: mercat-darwin-aarch64.tar.gz
 
