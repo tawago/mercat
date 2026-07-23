@@ -86,7 +86,7 @@ pager = "less -R"
 theme = "auto"       # auto, dark, light
 width = 0            # 0 = terminal width
 heading_markers = true
-# YAML front matter display: panel (default), dim, compact, table, raw, hidden
+# YAML front matter display: panel (default), dim, compact, raw, hidden
 frontmatter = "panel"
 
 [files]

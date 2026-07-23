@@ -21,6 +21,8 @@ pub const help_text =
     \\      --style <name>   Select theme: auto, dark, light
     \\      --no-heading-markers
     \\                      Hide leading # markers in headings
+    \\      --frontmatter <s>
+    \\                      Front matter display: panel (default), dim, compact, raw, hidden
     \\      --box-style <s>  Mermaid box style: standard, rounded, heavy, double, ascii
     \\      --crossing-heuristic <h>
     \\                      Mermaid crossing reduction: median (default), barycenter
@@ -42,6 +44,7 @@ pub const ParseError = std.mem.Allocator.Error || error{
     MissingValue,
     InvalidWidth,
     InvalidStyle,
+    InvalidFrontmatterStyle,
     InvalidBoxStyle,
     InvalidCrossingHeuristic,
     InvalidLayout,
@@ -75,6 +78,7 @@ pub const Parsed = struct {
     width: ?usize = null,
     style: ?ThemeOverride = null,
     heading_markers: ?bool = null,
+    frontmatter: ?config.FrontmatterStyle = null,
     pager: bool = false,
     box_style: ?BoxDrawingStyle = null,
     crossing_heuristic: ?CrossingReductionHeuristic = null,
@@ -122,6 +126,10 @@ pub const Parsed = struct {
     pub fn effectiveHeadingMarkers(self: Parsed, config_value: bool) bool {
         return self.heading_markers orelse config_value;
     }
+
+    pub fn effectiveFrontmatter(self: Parsed, config_value: config.FrontmatterStyle) config.FrontmatterStyle {
+        return self.frontmatter orelse config_value;
+    }
 };
 
 pub fn parse(allocator: std.mem.Allocator, argv: []const []const u8) ParseError!Parsed {
@@ -168,6 +176,13 @@ pub fn parse(allocator: std.mem.Allocator, argv: []const []const u8) ParseError!
 
         if (std.mem.eql(u8, arg, "--heading-markers")) {
             result.heading_markers = true;
+            continue;
+        }
+
+        if (std.mem.eql(u8, arg, "--frontmatter")) {
+            index += 1;
+            if (index >= argv.len) return error.MissingValue;
+            result.frontmatter = std.meta.stringToEnum(config.FrontmatterStyle, argv[index]) orelse return error.InvalidFrontmatterStyle;
             continue;
         }
 
@@ -339,6 +354,20 @@ test "supports heading marker override" {
     defer parsed.deinit(allocator);
 
     try std.testing.expectEqual(@as(?bool, false), parsed.heading_markers);
+}
+
+test "parses frontmatter style flag and rejects invalid values" {
+    const allocator = std.testing.allocator;
+    const argv = [_][]const u8{ "mercat", "--frontmatter", "compact", "README.md" };
+    const parsed = try parse(allocator, &argv);
+    defer parsed.deinit(allocator);
+    try std.testing.expectEqual(config.FrontmatterStyle.compact, parsed.frontmatter.?);
+    // Flag wins over config; absent flag falls back to config.
+    try std.testing.expectEqual(config.FrontmatterStyle.compact, parsed.effectiveFrontmatter(.panel));
+    try std.testing.expectEqual(config.FrontmatterStyle.dim, (Parsed{}).effectiveFrontmatter(.dim));
+
+    const bad = [_][]const u8{ "mercat", "--frontmatter", "table", "README.md" };
+    try std.testing.expectError(error.InvalidFrontmatterStyle, parse(allocator, &bad));
 }
 
 test "rejects pager plus tui" {

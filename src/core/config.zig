@@ -7,10 +7,9 @@ pub const SyntaxTheme = enum { default, classic };
 ///   panel   — banded card with half-block caps (default)
 ///   dim     — chrome-free muted key/value list
 ///   compact — single status-bar-like line of key:value pairs
-///   table   — boxed two-column table
 ///   raw     — verbatim YAML including the `---` fences
 ///   hidden  — stripped entirely
-pub const FrontmatterStyle = enum { panel, dim, compact, table, raw, hidden };
+pub const FrontmatterStyle = enum { panel, dim, compact, raw, hidden };
 /// Subgraph frame-border notation (owner ruling 2026-07-19): `bridge`
 /// (default) draws the frame solid and bridges crossing edges; `cross`
 /// reproduces the legacy junction-weld render. The shared mermaid_v2
@@ -324,7 +323,6 @@ test "frontmatter style parses every notation; invalid errors" {
     try std.testing.expectEqual(FrontmatterStyle.panel, try parseFrontmatterStyle("panel"));
     try std.testing.expectEqual(FrontmatterStyle.dim, try parseFrontmatterStyle("dim"));
     try std.testing.expectEqual(FrontmatterStyle.compact, try parseFrontmatterStyle("compact"));
-    try std.testing.expectEqual(FrontmatterStyle.table, try parseFrontmatterStyle("table"));
     try std.testing.expectEqual(FrontmatterStyle.raw, try parseFrontmatterStyle("raw"));
     try std.testing.expectEqual(FrontmatterStyle.hidden, try parseFrontmatterStyle("hidden"));
     // The env-override path (`catch <old>`) keeps the prior value on typos.

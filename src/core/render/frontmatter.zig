@@ -3,11 +3,9 @@ const config = @import("../config.zig");
 const markdown = @import("../markdown.zig");
 const types = @import("types.zig");
 const builder_mod = @import("builder.zig");
-const table_mod = @import("table.zig");
 const unicode = @import("../../lib/unicode.zig");
 
 const Block = markdown.Block;
-const Inline = markdown.Inline;
 const Builder = builder_mod.Builder;
 const SpanStyle = types.SpanStyle;
 
@@ -19,7 +17,6 @@ pub fn render(allocator: std.mem.Allocator, builder: *Builder, fm: Block.FrontMa
         .panel => try renderKeyValues(allocator, builder, fm, width, .panel),
         .dim => try renderKeyValues(allocator, builder, fm, width, .dim),
         .compact => try renderCompact(allocator, builder, fm, width),
-        .table => try renderAsTable(allocator, builder, fm, width),
         .raw => try renderRaw(builder, fm),
         // Hidden front matter is skipped in render_model before dispatch so it
         // leaves no blank lines; reaching here emits nothing as a backstop.
@@ -141,35 +138,6 @@ fn renderCompact(allocator: std.mem.Allocator, builder: *Builder, fm: Block.Fron
         used += pair_width;
         first = false;
     }
-}
-
-fn renderAsTable(allocator: std.mem.Allocator, builder: *Builder, fm: Block.FrontMatter, width: usize) !void {
-    if (fm.entries.len == 0) return;
-
-    // Build a synthetic two-column table over slices borrowed from the block;
-    // renderTable only reads, so the scaffolding is freed manually here and
-    // Block.deinit is never involved.
-    const rows = try allocator.alloc(Block.TableRow, fm.entries.len);
-    // Initialize before any fallible work so the cleanup never frees
-    // undefined `cells` slices when a mid-loop allocation fails.
-    for (rows) |*row| row.cells = &.{};
-    defer {
-        for (rows) |row| if (row.cells.len != 0) allocator.free(row.cells);
-        allocator.free(rows);
-    }
-    var cell_inlines = try allocator.alloc([2]Inline, fm.entries.len);
-    defer allocator.free(cell_inlines);
-
-    for (fm.entries, 0..) |entry, index| {
-        cell_inlines[index] = .{ .{ .text = entry.key }, .{ .text = entry.value } };
-        const row_cells = try allocator.alloc([]Inline, 2);
-        row_cells[0] = cell_inlines[index][0..1];
-        row_cells[1] = cell_inlines[index][1..2];
-        rows[index] = .{ .cells = row_cells };
-    }
-
-    var alignments = [_]Block.Table.Alignment{ .left, .left };
-    try table_mod.renderTable(allocator, builder, .{ .rows = rows, .alignments = &alignments }, width);
 }
 
 fn renderRaw(builder: *Builder, fm: Block.FrontMatter) !void {
