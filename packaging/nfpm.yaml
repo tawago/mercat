@@ -1,0 +1,15 @@
+# nfpm manifest: builds .deb/.rpm from the release binary.
+# VERSION and NFPM_ARCH are injected by .github/workflows/release.yml.
+name: mercat
+arch: ${NFPM_ARCH}
+platform: linux
+version: ${VERSION}
+section: utils
+priority: optional
+maintainer: tawago <business@gentrifiednobody.com>
+description: Fast terminal markdown viewer with Mermaid diagram support
+homepage: https://github.com/tawago/mercat
+license: GPL-3.0-or-later
+contents:
+  - src: ./dist/mercat
+    dst: /usr/bin/mercat

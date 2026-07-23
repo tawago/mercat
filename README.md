@@ -14,6 +14,18 @@ A fast terminal markdown viewer with best-in-class mermaid diagram rendering, wr
 brew install tawago/tap/mercat
 ```
 
+Works on both macOS and Linux.
+
+### Debian/Ubuntu and Fedora/RHEL
+
+`.deb` and `.rpm` packages are attached to each
+[release](https://github.com/tawago/mercat/releases):
+
+```bash
+sudo apt install ./mercat_<version>_amd64.deb   # Debian/Ubuntu
+sudo dnf install ./mercat-<version>.x86_64.rpm  # Fedora/RHEL
+```
+
 ### Installer Script
 
 ```bash
