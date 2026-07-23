@@ -209,9 +209,11 @@ fn initDefaults(allocator: std.mem.Allocator) !Config {
         extensions[index] = try allocator.dupe(u8, extension);
     }
 
-    const default_bullets = [_][]const u8{ "\u{2022}", "\u{25E6}", "\u{2023}" };
-    var bullets = try allocator.alloc([]const u8, default_bullets.len);
-    for (default_bullets, 0..) |glyph, index| {
+    // Dupe every heap-owned Display string from a default-constructed Display's
+    // own defaults, so this init cannot drift from the struct field defaults.
+    const default_display = Config.Display{};
+    var bullets = try allocator.alloc([]const u8, default_display.bullet_glyphs.len);
+    for (default_display.bullet_glyphs, 0..) |glyph, index| {
         bullets[index] = try allocator.dupe(u8, glyph);
     }
 
@@ -223,12 +225,13 @@ fn initDefaults(allocator: std.mem.Allocator) !Config {
         // Every heap-owned Display string is allocated here so deinit() can free
         // them uniformly (see Config.deinit).
         .display = .{
-            .quote_bar = try allocator.dupe(u8, "\u{258E}"),
+            .quote_bar = try allocator.dupe(u8, default_display.quote_bar),
             .bullet_glyphs = bullets,
-            .hr_glyph = try allocator.dupe(u8, "\u{2500}"),
-            .task_checked = try allocator.dupe(u8, "[x]"),
-            .task_todo = try allocator.dupe(u8, "[ ]"),
-            .heading_prefix = try allocator.dupe(u8, "#"),
+            .hr_glyph = try allocator.dupe(u8, default_display.hr_glyph),
+            .task_checked = try allocator.dupe(u8, default_display.task_checked),
+            .task_todo = try allocator.dupe(u8, default_display.task_todo),
+            .heading_prefix = try allocator.dupe(u8, default_display.heading_prefix),
+            .table_border_set = default_display.table_border_set,
         },
         .mermaid = .{
             .enabled = true,

@@ -456,7 +456,7 @@ pub const App = struct {
         if (self.view_mode == .pager) {
             var row: usize = 0;
             while (row < content_height and self.pager.viewport.top + row < self.pager.lines.len) : (row += 1) {
-                const segments = try toVaxisSegments(self.allocator, self.pager.lines[self.pager.viewport.top + row], self.pager.active_theme, self.pager.syntax_theme, self.pager.theme_overrides);
+                const segments = try toVaxisSegments(self.allocator, self.pager.lines[self.pager.viewport.top + row], self.pager.palette);
                 defer self.allocator.free(segments);
                 _ = root.print(segments, .{
                     .row_offset = @intCast(row),
@@ -499,8 +499,7 @@ pub fn run(allocator: std.mem.Allocator, title: []const u8, input_source: args.I
     try app.run();
 }
 
-fn toVaxisSegments(allocator: std.mem.Allocator, line: render_model.Line, active_theme: config.Theme, syntax_theme: config.SyntaxTheme, theme_overrides: config.ThemeOverrides) ![]vaxis.Segment {
-    const palette = theme.palette(active_theme, syntax_theme, theme_overrides);
+fn toVaxisSegments(allocator: std.mem.Allocator, line: render_model.Line, palette: theme.Palette) ![]vaxis.Segment {
     const segments = try allocator.alloc(vaxis.Segment, line.spans.len);
     for (line.spans, 0..) |span, index| {
         var segment: vaxis.Segment = .{
@@ -596,7 +595,7 @@ test "toVaxisSegments borrows render-model span text" {
     var rendered = try render_model.renderDocument(allocator, document, .{ .width = 20 });
     defer rendered.deinit(allocator);
 
-    const segments = try toVaxisSegments(allocator, rendered.lines[0], .dark, .default, .{});
+    const segments = try toVaxisSegments(allocator, rendered.lines[0], theme.palette(.dark, .default, .{}));
     defer allocator.free(segments);
 
     try std.testing.expectEqual(@intFromPtr(rendered.lines[0].spans[0].text.ptr), @intFromPtr(segments[0].text.ptr));

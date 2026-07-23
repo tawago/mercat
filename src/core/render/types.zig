@@ -21,15 +21,21 @@ const config = @import("../config.zig");
 /// byte-identically. The renderer appends the trailing space after bullet and
 /// checkbox markers, so these strings never include it.
 pub const Glyphs = struct {
-    quote_bar: []const u8 = "\u{258E}",
-    bullet_glyphs: []const []const u8 = &.{ "\u{2022}", "\u{25E6}", "\u{2023}" },
-    hr_glyph: []const u8 = "\u{2500}",
-    task_checked: []const u8 = "[x]",
-    task_todo: []const u8 = "[ ]",
-    heading_prefix: []const u8 = "#",
-    table_horizontal: []const u8 = "\u{2500}",
-    table_vertical: []const u8 = "\u{2502}",
-    table_cross: []const u8 = "\u{253c}",
+    // Single source of truth: derive every default from config.Display's own
+    // defaults so the two structs cannot drift apart. The table triple defaults
+    // from the default border set expanded to its concrete glyphs.
+    const default_display = config.Config.Display{};
+    const default_border = default_display.table_border_set.glyphs();
+
+    quote_bar: []const u8 = default_display.quote_bar,
+    bullet_glyphs: []const []const u8 = default_display.bullet_glyphs,
+    hr_glyph: []const u8 = default_display.hr_glyph,
+    task_checked: []const u8 = default_display.task_checked,
+    task_todo: []const u8 = default_display.task_todo,
+    heading_prefix: []const u8 = default_display.heading_prefix,
+    table_horizontal: []const u8 = default_border.horizontal,
+    table_vertical: []const u8 = default_border.vertical,
+    table_cross: []const u8 = default_border.cross,
 
     /// Project a loaded `[display]` config onto the render-side glyph set,
     /// expanding the table_border_set enum into its concrete triple.
@@ -143,29 +149,6 @@ pub const Rendered = struct {
         allocator.free(self.lines);
     }
 };
-
-test "Glyphs defaults match config.Display defaults field-by-field" {
-    // The render-side Glyphs struct and config.Config.Display each carry their
-    // own copy of the structural-glyph defaults. This locks the two duplicated
-    // default sets in sync so they cannot silently drift apart.
-    const g: Glyphs = .{};
-    const d: config.Config.Display = .{};
-
-    try std.testing.expectEqualStrings(d.quote_bar, g.quote_bar);
-    try std.testing.expectEqualStrings(d.hr_glyph, g.hr_glyph);
-    try std.testing.expectEqualStrings(d.task_checked, g.task_checked);
-    try std.testing.expectEqualStrings(d.task_todo, g.task_todo);
-    try std.testing.expectEqualStrings(d.heading_prefix, g.heading_prefix);
-    try std.testing.expectEqual(d.bullet_glyphs.len, g.bullet_glyphs.len);
-    for (d.bullet_glyphs, g.bullet_glyphs) |dg, gg| {
-        try std.testing.expectEqualStrings(dg, gg);
-    }
-    // The default table border set expands to the render-side triple.
-    const triple = d.table_border_set.glyphs();
-    try std.testing.expectEqualStrings(triple.horizontal, g.table_horizontal);
-    try std.testing.expectEqualStrings(triple.vertical, g.table_vertical);
-    try std.testing.expectEqualStrings(triple.cross, g.table_cross);
-}
 
 test "Line.displayWidth sums span display widths" {
     var spans = [_]Span{

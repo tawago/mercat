@@ -58,14 +58,17 @@ pub const Palette = struct {
     subscript: StyleToken,
     highlight: StyleToken,
     // Structural slots (Issue 17 Layer 1b). Field names must match
-    // config.ThemeOverrides exactly (see palette() merge).
-    list_marker: StyleToken,
-    table_border: StyleToken,
-    table_header: StyleToken,
-    task_checkbox_done: StyleToken,
-    task_checkbox_todo: StyleToken,
-    hr: StyleToken,
-    code_fence_banner: StyleToken,
+    // config.ThemeOverrides exactly (see palette() merge). The constructor arms
+    // omit these; palette() stamps them from the legacy borrowed slots after the
+    // switch (before the override merge). The placeholder default only lets the
+    // arm literals omit them — it is never observed.
+    list_marker: StyleToken = .{ .fg_index = 0 }, // stamped by palette()
+    table_border: StyleToken = .{ .fg_index = 0 }, // stamped by palette()
+    table_header: StyleToken = .{ .fg_index = 0 }, // stamped by palette()
+    task_checkbox_done: StyleToken = .{ .fg_index = 0 }, // stamped by palette()
+    task_checkbox_todo: StyleToken = .{ .fg_index = 0 }, // stamped by palette()
+    hr: StyleToken = .{ .fg_index = 0 }, // stamped by palette()
+    code_fence_banner: StyleToken = .{ .fg_index = 0 }, // stamped by palette()
 };
 
 pub fn palette(theme: config.Theme, syntax_theme: config.SyntaxTheme, overrides: config.ThemeOverrides) Palette {
@@ -73,6 +76,17 @@ pub fn palette(theme: config.Theme, syntax_theme: config.SyntaxTheme, overrides:
         .dark, .auto => darkPalette(syntax_theme),
         .light => lightPalette(syntax_theme),
     };
+    // Stamp the structural slots from their legacy borrowed tokens, once, before
+    // the override merge (guarded-by: theme_test "structural slot defaults equal
+    // their legacy borrowed tokens"). Keeps the four constructor arms free of the
+    // seven repeated entries while preserving byte-parity.
+    pal.list_marker = pal.muted;
+    pal.table_border = pal.muted;
+    pal.task_checkbox_done = pal.muted;
+    pal.task_checkbox_todo = pal.muted;
+    pal.hr = pal.muted;
+    pal.code_fence_banner = pal.muted;
+    pal.table_header = pal.body;
     // Comptime-checked merge: every ThemeOverrides field name must name a
     // Palette field (else `@field(&pal, ...)` fails to compile). Each non-null
     // attribute stamps over the base token.
@@ -121,13 +135,6 @@ fn darkPalette(syntax_theme: config.SyntaxTheme) Palette {
             .superscript = .{ .fg_index = 153 },
             .subscript = .{ .fg_index = 152 },
             .highlight = .{ .fg_index = 227, .bold = true },
-            .list_marker = .{ .fg_index = 244 },
-            .table_border = .{ .fg_index = 244 },
-            .table_header = .{ .fg_index = 252 },
-            .task_checkbox_done = .{ .fg_index = 244 },
-            .task_checkbox_todo = .{ .fg_index = 244 },
-            .hr = .{ .fg_index = 244 },
-            .code_fence_banner = .{ .fg_index = 244 },
         },
         .classic => .{
             .heading1 = .{ .fg_index = 81, .bold = true },
@@ -158,13 +165,6 @@ fn darkPalette(syntax_theme: config.SyntaxTheme) Palette {
             .superscript = .{ .fg_index = 153 },
             .subscript = .{ .fg_index = 152 },
             .highlight = .{ .fg_index = 227, .bold = true },
-            .list_marker = .{ .fg_index = 244 },
-            .table_border = .{ .fg_index = 244 },
-            .table_header = .{ .fg_index = 252 },
-            .task_checkbox_done = .{ .fg_index = 244 },
-            .task_checkbox_todo = .{ .fg_index = 244 },
-            .hr = .{ .fg_index = 244 },
-            .code_fence_banner = .{ .fg_index = 244 },
         },
     };
 }
@@ -200,13 +200,6 @@ fn lightPalette(syntax_theme: config.SyntaxTheme) Palette {
             .superscript = .{ .fg_index = 26 },
             .subscript = .{ .fg_index = 31 },
             .highlight = .{ .fg_index = 130, .bold = true },
-            .list_marker = .{ .fg_index = 245 },
-            .table_border = .{ .fg_index = 245 },
-            .table_header = .{ .fg_index = 236 },
-            .task_checkbox_done = .{ .fg_index = 245 },
-            .task_checkbox_todo = .{ .fg_index = 245 },
-            .hr = .{ .fg_index = 245 },
-            .code_fence_banner = .{ .fg_index = 245 },
         },
         .classic => .{
             .heading1 = .{ .fg_index = 25, .bold = true },
@@ -237,13 +230,6 @@ fn lightPalette(syntax_theme: config.SyntaxTheme) Palette {
             .superscript = .{ .fg_index = 26 },
             .subscript = .{ .fg_index = 31 },
             .highlight = .{ .fg_index = 130, .bold = true },
-            .list_marker = .{ .fg_index = 245 },
-            .table_border = .{ .fg_index = 245 },
-            .table_header = .{ .fg_index = 236 },
-            .task_checkbox_done = .{ .fg_index = 245 },
-            .task_checkbox_todo = .{ .fg_index = 245 },
-            .hr = .{ .fg_index = 245 },
-            .code_fence_banner = .{ .fg_index = 245 },
         },
     };
 }

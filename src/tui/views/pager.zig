@@ -2,6 +2,7 @@ const std = @import("std");
 const config = @import("../../core/config.zig");
 const markdown = @import("../../core/markdown.zig");
 const render_model = @import("../../core/render_model.zig");
+const theme = @import("../../core/theme.zig");
 const mermaid_types = @import("../../core/mermaid/types.zig");
 const SubgraphEdges = @import("prim").SubgraphEdges;
 const Viewport = @import("../widgets/viewport.zig").Viewport;
@@ -22,6 +23,9 @@ pub const PagerView = struct {
     active_theme: config.Theme,
     syntax_theme: config.SyntaxTheme,
     theme_overrides: config.ThemeOverrides = .{},
+    /// Merged palette, resolved once at init from the theme inputs above. Row
+    /// painting (toVaxisSegments) reads this instead of rebuilding it per line.
+    palette: theme.Palette,
     glyphs: render_model.Glyphs = .{},
     show_heading_markers: bool = true,
     mermaid_layout: mermaid_types.ForceLayout = .auto,
@@ -45,6 +49,7 @@ pub const PagerView = struct {
             .active_theme = active_theme,
             .syntax_theme = syntax_theme,
             .theme_overrides = theme_overrides,
+            .palette = theme.palette(active_theme, syntax_theme, theme_overrides),
             .glyphs = glyphs,
             .show_heading_markers = show_heading_markers,
             .mermaid_layout = mermaid_layout,
