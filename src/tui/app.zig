@@ -84,6 +84,9 @@ pub const App = struct {
     toast_message: ?[]u8,
     toast_deadline_ms: i64,
 
+    // Front matter metadata overlay (top-right panel toggled with `m`).
+    show_metadata: bool,
+
     pub fn init(
         allocator: std.mem.Allocator,
         title: []const u8,
@@ -93,6 +96,7 @@ pub const App = struct {
         active_theme: config.Theme,
         syntax_theme: config.SyntaxTheme,
         show_heading_markers: bool,
+        frontmatter_style: config.FrontmatterStyle,
         initial_layout: mermaid_types.ForceLayout,
         initial_subgraph_edges: SubgraphEdges,
     ) !App {
@@ -120,12 +124,14 @@ pub const App = struct {
         self.mermaid_layout = initial_layout;
         self.mermaid_subgraph_edges = initial_subgraph_edges;
         self.pager = PagerView.init(allocator, title, &self.current_document, active_theme, syntax_theme, show_heading_markers, initial_layout, initial_subgraph_edges);
+        self.pager.frontmatter_style = frontmatter_style;
 
         self.view_mode = .pager;
         self.status_message = null;
         self.needs_redraw = true;
         self.toast_message = null;
         self.toast_deadline_ms = 0;
+        self.show_metadata = false;
 
         return self;
     }
@@ -222,6 +228,10 @@ pub const App = struct {
             .cycle_layout => {
                 self.mermaid_layout = self.mermaid_layout.next();
                 try self.handleLayoutChange();
+                return false;
+            },
+            .toggle_metadata => {
+                try self.handleToggleMetadata();
                 return false;
             },
             .toggle_subgraph_edges => {
@@ -360,6 +370,87 @@ pub const App = struct {
         });
     }
 
+    /// The document's front matter block, if any (always the first block).
+    fn frontMatter(self: *App) ?markdown.Block.FrontMatter {
+        for (self.current_document.blocks) |block| {
+            if (block == .frontmatter) return block.frontmatter;
+        }
+        return null;
+    }
+
+    fn handleToggleMetadata(self: *App) !void {
+        if (self.frontMatter() == null) {
+            try self.setStatusMessage("No front matter metadata in this document.", false);
+            self.needs_redraw = true;
+            return;
+        }
+        self.show_metadata = !self.show_metadata;
+        self.clearStatusMessage();
+        self.needs_redraw = true;
+    }
+
+    /// Draw the front matter metadata panel in the top-right corner: one
+    /// `key  value` row per entry, aligned on the key column. `frame_allocator`
+    /// must outlive `vx.render()` — vaxis stores borrowed grapheme slices in
+    /// screen cells, so the row buffers are read at render time.
+    fn drawMetadata(self: *App, root: vaxis.Window, frame_allocator: std.mem.Allocator) !void {
+        if (!self.show_metadata) return;
+        const fm = self.frontMatter() orelse return;
+
+        var key_width: usize = 0;
+        var row_width: usize = 0;
+        for (fm.entries) |entry| key_width = @max(key_width, unicode.displayWidth(entry.key));
+        for (fm.entries) |entry| {
+            const w = if (entry.key.len == 0)
+                unicode.displayWidth(entry.value)
+            else
+                key_width + 2 + unicode.displayWidth(entry.value);
+            row_width = @max(row_width, w);
+        }
+
+        // Text + one space padding each side + two border columns.
+        const width: u16 = @intCast(@min(root.width -| 2, row_width + 4));
+        const height: u16 = @intCast(@min(@as(usize, root.height) -| 2, fm.entries.len + 2));
+        if (width < 5 or height < 3) return;
+
+        const style = theme.metadataPanelStyle(self.pager.active_theme);
+        const x_off = root.width -| width;
+
+        const panel = root.child(.{ .x_off = x_off, .y_off = 0, .width = width, .height = height });
+        panel.fill(.{ .style = style.fill });
+        _ = root.child(.{
+            .x_off = x_off,
+            .y_off = 0,
+            .width = width,
+            .height = height,
+            .border = .{ .where = .all, .glyphs = .single_rounded, .style = style.border },
+        });
+
+        var key_style = style.text;
+        key_style.dim = true;
+        const inner_width = width -| 4;
+        for (fm.entries, 0..) |entry, index| {
+            if (index + 2 >= height) break;
+            var line: std.ArrayList(u8) = .empty;
+            if (entry.key.len != 0) {
+                try line.appendSlice(frame_allocator, entry.key);
+                var pad = key_width + 2 - unicode.displayWidth(entry.key);
+                while (pad > 0) : (pad -= 1) try line.append(frame_allocator, ' ');
+            }
+            try line.appendSlice(frame_allocator, entry.value);
+            const clipped = clipToWidth(line.items, inner_width);
+            const key_cols = if (entry.key.len == 0) 0 else @min(entry.key.len, clipped.len);
+            _ = root.print(&.{
+                .{ .text = clipped[0..key_cols], .style = key_style },
+                .{ .text = clipped[key_cols..], .style = style.text },
+            }, .{
+                .row_offset = @intCast(index + 1),
+                .col_offset = x_off + 2,
+                .wrap = .none,
+            });
+        }
+    }
+
     fn handleResize(self: *App, ws: vaxis.Winsize) !void {
         const writer = self.tty.writer();
         try self.vx.resize(self.allocator, writer, ws);
@@ -478,6 +569,11 @@ pub const App = struct {
             drawHelp(root);
         }
 
+        // Frame-scoped storage for text handed to vaxis: screen cells borrow
+        // the bytes until `vx.render` below has emitted them.
+        var frame_arena = std.heap.ArenaAllocator.init(self.allocator);
+        defer frame_arena.deinit();
+        try self.drawMetadata(root, frame_arena.allocator());
         self.drawToast(root);
 
         const writer = self.tty.writer();
@@ -487,8 +583,8 @@ pub const App = struct {
 };
 
 /// Entry point for TUI mode - creates and runs the App
-pub fn run(allocator: std.mem.Allocator, title: []const u8, input_source: args.Input, initial_content: []const u8, editor_command: []const u8, active_theme: config.Theme, syntax_theme: config.SyntaxTheme, show_heading_markers: bool, initial_layout: mermaid_types.ForceLayout, initial_subgraph_edges: SubgraphEdges) !void {
-    var app = try App.init(allocator, title, input_source, initial_content, editor_command, active_theme, syntax_theme, show_heading_markers, initial_layout, initial_subgraph_edges);
+pub fn run(allocator: std.mem.Allocator, title: []const u8, input_source: args.Input, initial_content: []const u8, editor_command: []const u8, active_theme: config.Theme, syntax_theme: config.SyntaxTheme, show_heading_markers: bool, frontmatter_style: config.FrontmatterStyle, initial_layout: mermaid_types.ForceLayout, initial_subgraph_edges: SubgraphEdges) !void {
+    var app = try App.init(allocator, title, input_source, initial_content, editor_command, active_theme, syntax_theme, show_heading_markers, frontmatter_style, initial_layout, initial_subgraph_edges);
     // Fix self-referential pointer invalidated by struct return copy.
     // App.init() stores &self.current_document where self is a local; after
     // the return-by-value copy into app, that pointer is stale.
@@ -562,6 +658,19 @@ fn formatCopyPreview(allocator: std.mem.Allocator, text: []const u8) ![]u8 {
     });
 }
 
+/// Clip `text` to at most `max_cols` display columns on a glyph boundary.
+fn clipToWidth(text: []const u8, max_cols: usize) []const u8 {
+    var cols: usize = 0;
+    var index: usize = 0;
+    while (index < text.len) {
+        const glyph = unicode.nextGlyph(text, index);
+        if (cols + glyph.width > max_cols) break;
+        cols += glyph.width;
+        index += glyph.bytes.len;
+    }
+    return text[0..index];
+}
+
 fn drawHelp(root: vaxis.Window) void {
     const help_lines = HelpView.lines();
     const width = @min(root.width -| 4, HelpView.width() + 4);
@@ -603,7 +712,7 @@ test "toVaxisSegments borrows render-model span text" {
 test "initLoop binds loop to app-owned tty and vaxis" {
     const allocator = std.testing.allocator;
 
-    var app = try App.init(allocator, "fixture", .none, "# Title\n", "vim", .dark, .default, true, .auto, .bridge);
+    var app = try App.init(allocator, "fixture", .none, "# Title\n", "vim", .dark, .default, true, .panel, .auto, .bridge);
     defer app.deinit();
 
     try app.initLoop();

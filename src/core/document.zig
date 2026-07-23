@@ -47,6 +47,7 @@ pub const Inline = union(enum) {
 };
 
 pub const BlockTag = enum {
+    frontmatter,
     heading,
     paragraph,
     unordered_list_item,
@@ -60,6 +61,7 @@ pub const BlockTag = enum {
 };
 
 pub const Block = union(enum) {
+    frontmatter: FrontMatter,
     heading: Heading,
     paragraph: Paragraph,
     unordered_list_item: ListItem,
@@ -70,6 +72,18 @@ pub const Block = union(enum) {
     thematic_break,
     table: Table,
     blockquote: BlockQuote,
+
+    /// YAML front matter metadata block (always the document's first block
+    /// when present). `entries` slices point into `raw`.
+    pub const FrontMatter = struct {
+        raw: []const u8,
+        entries: []Entry,
+
+        pub const Entry = struct {
+            key: []const u8,
+            value: []const u8,
+        };
+    };
 
     pub const Heading = struct {
         level: u8,
@@ -115,6 +129,10 @@ pub const Block = union(enum) {
 
     pub fn deinit(self: Block, allocator: std.mem.Allocator) void {
         switch (self) {
+            .frontmatter => |fm| {
+                allocator.free(fm.entries);
+                allocator.free(fm.raw);
+            },
             .heading => |h| {
                 freeInlines(allocator, h.content);
             },
@@ -155,6 +173,7 @@ pub const Block = union(enum) {
 
     pub fn tag(self: Block) BlockTag {
         return switch (self) {
+            .frontmatter => .frontmatter,
             .heading => .heading,
             .paragraph => .paragraph,
             .unordered_list_item => .unordered_list_item,

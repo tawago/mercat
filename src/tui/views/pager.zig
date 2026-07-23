@@ -22,6 +22,7 @@ pub const PagerView = struct {
     active_theme: config.Theme,
     syntax_theme: config.SyntaxTheme,
     show_heading_markers: bool = true,
+    frontmatter_style: config.FrontmatterStyle = .panel,
     mermaid_layout: mermaid_types.ForceLayout = .auto,
     /// Subgraph frame-border notation (config value; a later live toggle may
     /// mutate it, mirroring `mermaid_layout`).
@@ -164,6 +165,7 @@ pub const PagerView = struct {
         var rendered = try render_model.renderDocument(self.allocator, self.document.*, .{
             .width = if (self.width == 0) 80 else self.width,
             .show_heading_markers = self.show_heading_markers,
+            .frontmatter_style = self.frontmatter_style,
             .mermaid_force_layout = self.mermaid_layout,
             .mermaid_subgraph_edges = self.mermaid_subgraph_edges,
         });

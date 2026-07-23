@@ -7,6 +7,15 @@ theme = "auto"
 syntax_theme = "default"
 width = 0
 line_numbers = false
+# How YAML front matter (--- metadata at the top of a file) is displayed:
+#   "panel" (default) — banded metadata card
+#   "dim"             — muted key/value list, no chrome
+#   "compact"         — one status-bar-like line of key:value pairs
+#   "table"           — boxed two-column table
+#   "raw"             — verbatim YAML including the --- fences
+#   "hidden"          — stripped entirely
+# Override for one run with MERCAT_FRONTMATTER=<style>.
+frontmatter = "panel"
 
 [mermaid]
 enabled = true

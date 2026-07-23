@@ -165,7 +165,7 @@ pub fn main() !void {
         // flag is cleared on return so a later CLI invocation still prints.
         tui_active.store(true, .monotonic);
         defer tui_active.store(false, .monotonic);
-        try tui.run(allocator, inputTitle(parsed.input), parsed.input, content, loaded_config.general.editor, active_theme, loaded_config.display.syntax_theme, show_heading_markers, parsed.force_layout orelse .auto, loaded_config.mermaid.subgraph_edges);
+        try tui.run(allocator, inputTitle(parsed.input), parsed.input, content, loaded_config.general.editor, active_theme, loaded_config.display.syntax_theme, show_heading_markers, loaded_config.display.frontmatter, parsed.force_layout orelse .auto, loaded_config.mermaid.subgraph_edges);
         return;
     }
 
@@ -179,6 +179,7 @@ pub fn main() !void {
     var rendered = try render_model.renderDocument(allocator, document, .{
         .width = render_width,
         .show_heading_markers = show_heading_markers,
+        .frontmatter_style = loaded_config.display.frontmatter,
         .mermaid_box_style = parsed.box_style orelse .standard,
         .mermaid_crossing_heuristic = parsed.crossing_heuristic orelse .median,
         .mermaid_force_layout = parsed.force_layout orelse .auto,

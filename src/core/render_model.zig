@@ -16,15 +16,89 @@ pub fn renderDocument(allocator: std.mem.Allocator, document: markdown.Document,
     builder.left_padding = options.left_padding;
     defer builder.deinit();
 
-    for (document.blocks, 0..) |block, index| {
-        if (index != 0) {
+    var previous: ?markdown.Block = null;
+    for (document.blocks) |block| {
+        // Hidden front matter is skipped before spacing so the document
+        // starts flush at its first real block.
+        if (block == .frontmatter and options.frontmatter_style == .hidden) continue;
+        if (previous) |prev| {
             try builder.newline();
-            if (!blocks.isCompactBlockPair(document.blocks[index - 1], block)) try builder.newline();
+            if (!blocks.isCompactBlockPair(prev, block)) try builder.newline();
         }
         try blocks.renderBlock(allocator, &builder, block, options);
+        previous = block;
     }
 
     return .{ .lines = try builder.finish() };
+}
+
+test "front matter never renders as headings (issue #9 regression)" {
+    const allocator = std.testing.allocator;
+    var document = try markdown.parse(allocator,
+        \\---
+        \\title: Test
+        \\author: Foo
+        \\---
+        \\
+        \\# Real Heading
+    );
+    defer document.deinit(allocator);
+
+    // The metadata lands in a frontmatter block, not a heading + thematic break.
+    try std.testing.expect(document.blocks[0] == .frontmatter);
+    try std.testing.expectEqual(@as(usize, 2), document.blocks[0].frontmatter.entries.len);
+
+    var rendered = try renderDocument(allocator, document, .{ .width = 60 });
+    defer rendered.deinit(allocator);
+
+    var heading_spans: usize = 0;
+    var saw_cap = false;
+    var saw_key = false;
+    for (rendered.lines) |line| {
+        for (line.spans) |span| {
+            if (span.style == .heading1 or span.style == .heading2) heading_spans += 1;
+            if (span.style == .frontmatter_cap) saw_cap = true;
+            if (span.style == .frontmatter_key and std.mem.indexOf(u8, span.text, "title") != null) saw_key = true;
+        }
+    }
+    // Only "# Real Heading" is a heading; the panel carries the metadata.
+    try std.testing.expectEqual(@as(usize, 1), heading_spans);
+    try std.testing.expect(saw_cap);
+    try std.testing.expect(saw_key);
+}
+
+test "hidden front matter leaves no leading blank lines" {
+    const allocator = std.testing.allocator;
+    var document = try markdown.parse(allocator,
+        \\---
+        \\title: Test
+        \\---
+        \\# Real Heading
+    );
+    defer document.deinit(allocator);
+
+    var rendered = try renderDocument(allocator, document, .{ .width = 60, .frontmatter_style = .hidden });
+    defer rendered.deinit(allocator);
+
+    try std.testing.expectEqual(@as(usize, 1), rendered.lines.len);
+    try std.testing.expect(std.mem.indexOf(u8, rendered.lines[0].spans[1].text, "Real Heading") != null);
+    for (rendered.lines) |line| {
+        for (line.spans) |span| try std.testing.expect(std.mem.indexOf(u8, span.text, "title") == null);
+    }
+}
+
+test "mid-document thematic break is untouched by front matter handling" {
+    const allocator = std.testing.allocator;
+    var document = try markdown.parse(allocator,
+        \\# Heading
+        \\
+        \\---
+        \\
+        \\after
+    );
+    defer document.deinit(allocator);
+    try std.testing.expect(document.blocks[0] == .heading);
+    try std.testing.expect(document.blocks[1] == .thematic_break);
 }
 
 test "renders styled lines for heading and paragraph" {
