@@ -221,7 +221,7 @@ pub const App = struct {
                 self.view_mode = if (self.view_mode == .help) .pager else .help;
                 // Keep overlays mutually exclusive so neither paints over the
                 // other (z-order): opening help closes the metadata overlay.
-                if (self.view_mode == .help) self.metadata.visible = false;
+                if (self.view_mode == .help) try self.setMetadataVisible(false);
             },
             .edit => {
                 try self.handleEdit();
@@ -417,15 +417,25 @@ pub const App = struct {
             self.needs_redraw = true;
             return;
         }
-        self.metadata.visible = !self.metadata.visible;
+        try self.setMetadataVisible(!self.metadata.visible);
         if (self.metadata.visible) {
-            self.metadata.scroll = 0;
             // Keep overlays mutually exclusive (z-order): opening metadata
             // dismisses the help dialog.
             self.view_mode = .pager;
         }
         self.clearStatusMessage();
         self.needs_redraw = true;
+    }
+
+    /// Show or hide the metadata overlay, keeping the document canvas in sync:
+    /// while the overlay presents the front matter, the inline block is
+    /// suppressed so the same data is not shown twice.
+    fn setMetadataVisible(self: *App, visible: bool) !void {
+        if (self.metadata.visible == visible) return;
+        self.metadata.visible = visible;
+        if (visible) self.metadata.scroll = 0;
+        self.pager.suppress_frontmatter = visible;
+        try self.pager.reload();
     }
 
     fn handleResize(self: *App, ws: vaxis.Winsize) !void {
@@ -728,6 +738,26 @@ test "toggle metadata opens the overlay for visible front matter" {
 
     try app.handleToggleMetadata();
     try std.testing.expect(app.metadata.visible);
+}
+
+test "opening the metadata overlay hides the inline front matter and closing restores it" {
+    const allocator = std.testing.allocator;
+    const content = "---\ntitle: Shown\n---\n# Body\n";
+    var app = try App.init(allocator, "fixture", .none, content, "vim", .dark, .default, true, .panel, .auto, .bridge);
+    defer app.deinit();
+
+    try app.pager.resize(60, 20);
+    const lines_with_frontmatter = app.pager.lines.len;
+
+    try app.handleToggleMetadata();
+    try std.testing.expect(app.metadata.visible);
+    try std.testing.expect(app.pager.suppress_frontmatter);
+    // The inline panel is gone from the canvas while the overlay shows it.
+    try std.testing.expect(app.pager.lines.len < lines_with_frontmatter);
+
+    try app.handleToggleMetadata();
+    try std.testing.expect(!app.pager.suppress_frontmatter);
+    try std.testing.expectEqual(lines_with_frontmatter, app.pager.lines.len);
 }
 
 test "toggle metadata is refused when the document has no front matter" {
