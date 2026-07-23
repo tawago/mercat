@@ -3,6 +3,13 @@ const prim = @import("prim");
 
 pub const Theme = enum { auto, dark, light };
 pub const SyntaxTheme = enum { default, classic };
+/// How YAML front matter at the top of a document is displayed (issue #9):
+///   panel   — banded card with half-block caps (default)
+///   dim     — chrome-free muted key/value list
+///   compact — single status-bar-like line of key:value pairs
+///   raw     — verbatim YAML including the `---` fences
+///   hidden  — stripped entirely
+pub const FrontmatterStyle = enum { panel, dim, compact, raw, hidden };
 /// Subgraph frame-border notation (owner ruling 2026-07-19): `bridge`
 /// (default) draws the frame solid and bridges crossing edges; `cross`
 /// reproduces the legacy junction-weld render. The shared mermaid_v2
@@ -36,6 +43,7 @@ pub const Config = struct {
         width: usize = 0,
         line_numbers: bool = false,
         heading_markers: bool = true,
+        frontmatter: FrontmatterStyle = .panel,
     };
 
     pub const Mermaid = struct {
@@ -157,6 +165,7 @@ fn assignValue(allocator: std.mem.Allocator, cfg: *Config, section: []const u8, 
         if (std.mem.eql(u8, key, "width")) cfg.display.width = try std.fmt.parseUnsigned(usize, value, 10);
         if (std.mem.eql(u8, key, "line_numbers")) cfg.display.line_numbers = parseBool(value);
         if (std.mem.eql(u8, key, "heading_markers")) cfg.display.heading_markers = parseBool(value);
+        if (std.mem.eql(u8, key, "frontmatter")) cfg.display.frontmatter = try parseFrontmatterStyle(stripQuotes(value));
         return;
     }
 
@@ -217,6 +226,10 @@ fn parseSubgraphEdges(value: []const u8) !prim.SubgraphEdges {
     return error.InvalidSubgraphEdges;
 }
 
+fn parseFrontmatterStyle(value: []const u8) !FrontmatterStyle {
+    return std.meta.stringToEnum(FrontmatterStyle, value) orelse error.InvalidFrontmatterStyle;
+}
+
 fn parseBool(value: []const u8) bool {
     return std.mem.eql(u8, value, "true");
 }
@@ -252,6 +265,12 @@ fn applyEnvOverrides(cfg: *Config) void {
         cfg.display.syntax_theme = parseSyntaxTheme(value) catch cfg.display.syntax_theme;
     }
 
+    const fm_style = std.process.getEnvVarOwned(std.heap.page_allocator, "MERCAT_FRONTMATTER") catch null;
+    defer if (fm_style) |value| std.heap.page_allocator.free(value);
+    if (fm_style) |value| {
+        cfg.display.frontmatter = parseFrontmatterStyle(value) catch cfg.display.frontmatter;
+    }
+
     const subgraph_edges = std.process.getEnvVarOwned(std.heap.page_allocator, "MERCAT_SUBGRAPH_EDGES") catch null;
     defer if (subgraph_edges) |value| std.heap.page_allocator.free(value);
     if (subgraph_edges) |value| {
@@ -268,6 +287,7 @@ test "parses default config" {
     try std.testing.expectEqualStrings("vim", cfg.general.editor);
     try std.testing.expect(cfg.mermaid.enabled);
     try std.testing.expect(cfg.display.heading_markers);
+    try std.testing.expectEqual(FrontmatterStyle.panel, cfg.display.frontmatter);
     // Frame-solid bridging is the default notation (owner ruling 2026-07-19).
     try std.testing.expectEqual(prim.SubgraphEdges.bridge, cfg.mermaid.subgraph_edges);
 }
@@ -282,6 +302,7 @@ test "overrides config values from file content" {
         \\[display]
         \\theme = "dark"
         \\syntax_theme = "classic"
+        \\frontmatter = "dim"
         \\width = 88
         \\[general]
         \\editor = "nvim"
@@ -295,6 +316,53 @@ test "overrides config values from file content" {
     try std.testing.expectEqual(@as(usize, 88), cfg.display.width);
     try std.testing.expectEqualStrings("nvim", cfg.general.editor);
     try std.testing.expectEqual(prim.SubgraphEdges.cross, cfg.mermaid.subgraph_edges);
+    try std.testing.expectEqual(FrontmatterStyle.dim, cfg.display.frontmatter);
+}
+
+test "frontmatter style parses every notation; invalid errors" {
+    try std.testing.expectEqual(FrontmatterStyle.panel, try parseFrontmatterStyle("panel"));
+    try std.testing.expectEqual(FrontmatterStyle.dim, try parseFrontmatterStyle("dim"));
+    try std.testing.expectEqual(FrontmatterStyle.compact, try parseFrontmatterStyle("compact"));
+    try std.testing.expectEqual(FrontmatterStyle.raw, try parseFrontmatterStyle("raw"));
+    try std.testing.expectEqual(FrontmatterStyle.hidden, try parseFrontmatterStyle("hidden"));
+    // The env-override path (`catch <old>`) keeps the prior value on typos.
+    try std.testing.expectError(error.InvalidFrontmatterStyle, parseFrontmatterStyle("fancy"));
+}
+
+test "frontmatter: file value is stripped of quotes before enum parse, quoted and bare both apply" {
+    // The TOML-like parser hands the raw right-hand side to assignValue: a
+    // double-quoted scalar keeps its quotes (`"compact"`), a bare word does not
+    // (`raw`). Both must reach the same enum tag, proving stripQuotes runs
+    // ahead of parseFrontmatterStyle on the file path.
+    var quoted = try parseTomlLike(std.testing.allocator, default_config_text);
+    defer quoted.deinit(std.testing.allocator);
+    try applyTomlLike(std.testing.allocator, &quoted,
+        \\[display]
+        \\frontmatter = "compact"
+    );
+    try std.testing.expectEqual(FrontmatterStyle.compact, quoted.display.frontmatter);
+
+    var bare = try parseTomlLike(std.testing.allocator, default_config_text);
+    defer bare.deinit(std.testing.allocator);
+    try applyTomlLike(std.testing.allocator, &bare,
+        \\[display]
+        \\frontmatter = raw
+    );
+    try std.testing.expectEqual(FrontmatterStyle.raw, bare.display.frontmatter);
+}
+
+test "frontmatter: invalid value in a config file surfaces the error instead of defaulting" {
+    // Unlike the env-override path (`catch <old>`), the file path propagates a
+    // bad value as error.InvalidFrontmatterStyle rather than silently keeping
+    // the default. The style must stay untouched when the error is returned.
+    var cfg = try parseTomlLike(std.testing.allocator, default_config_text);
+    defer cfg.deinit(std.testing.allocator);
+
+    try std.testing.expectError(error.InvalidFrontmatterStyle, applyTomlLike(std.testing.allocator, &cfg,
+        \\[display]
+        \\frontmatter = "fancy"
+    ));
+    try std.testing.expectEqual(FrontmatterStyle.panel, cfg.display.frontmatter);
 }
 
 test "subgraph_edges parses both notations; bridge round-trips; invalid errors" {

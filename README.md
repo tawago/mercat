@@ -98,12 +98,14 @@ pager = "less -R"
 theme = "auto"       # auto, dark, light
 width = 0            # 0 = terminal width
 heading_markers = true
+# YAML front matter display: panel (default), dim, compact, raw, hidden
+frontmatter = "panel"
 
 [files]
 extensions = ["md", "markdown", "mdown", "mkd"]
 ```
 
-Environment overrides: `MERCAT_THEME`, `MERCAT_WIDTH`
+Environment overrides: `MERCAT_THEME`, `MERCAT_WIDTH`, `MERCAT_FRONTMATTER`
 
 ## Status
 

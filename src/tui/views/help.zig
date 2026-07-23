@@ -10,6 +10,7 @@ pub const HelpView = struct {
             "r           reload current file",
             "l           cycle mermaid layout",
             "b           toggle subgraph edges (bridge/cross)",
+            "m           toggle metadata panel (front matter)",
             "j / Down    scroll down",
             "k / Up      scroll up",
             "Space       page down",

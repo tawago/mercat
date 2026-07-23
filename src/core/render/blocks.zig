@@ -7,6 +7,7 @@ const types = @import("types.zig");
 const builder_mod = @import("builder.zig");
 const wrap = @import("wrap.zig");
 const table_mod = @import("table.zig");
+const frontmatter_mod = @import("frontmatter.zig");
 const unicode = @import("../../lib/unicode.zig");
 
 const Block = markdown.Block;
@@ -26,6 +27,7 @@ const bullet_shapes = [_][]const u8{ "\u{2022} ", "\u{25E6} ", "\u{2023} " };
 pub fn renderBlock(allocator: std.mem.Allocator, builder: *Builder, block: Block, options: Options) !void {
     const content_width = options.width -| options.left_padding;
     switch (block) {
+        .frontmatter => |fm| try frontmatter_mod.render(allocator, builder, fm, content_width, options.frontmatter_style, options.for_export),
         .heading => |h| try renderHeading(allocator, builder, h, content_width, options.show_heading_markers),
         .paragraph => |p| try renderParagraph(allocator, builder, p.content, content_width, .body, p.indent),
         .unordered_list_item => |item| try renderListItem(allocator, builder, item, content_width, "\u{2022} ", 0),

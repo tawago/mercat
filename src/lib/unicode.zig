@@ -25,6 +25,20 @@ pub fn displayWidth(text: []const u8) usize {
     return width;
 }
 
+/// Longest prefix of `text` that fits within `width` display cells, cut on a
+/// glyph boundary. Returns a sub-slice of the input — no allocation.
+pub fn clipToWidth(text: []const u8, width: usize) []const u8 {
+    var used: usize = 0;
+    var index: usize = 0;
+    while (index < text.len) {
+        const glyph = nextGlyph(text, index);
+        if (used + glyph.width > width) break;
+        used += glyph.width;
+        index += glyph.bytes.len;
+    }
+    return text[0..index];
+}
+
 pub fn wrapLine(allocator: std.mem.Allocator, text: []const u8, width: usize, indent: []const u8) ![][]const u8 {
     if (width == 0 or displayWidth(text) <= width) {
         const lines = try allocator.alloc([]const u8, 1);
@@ -106,6 +120,25 @@ test "nextGlyph advances across a mixed string" {
     try std.testing.expectEqualStrings("日", g1.bytes);
     try std.testing.expectEqualStrings("b", g2.bytes);
     try std.testing.expectEqual(text.len, index);
+}
+
+test "clipToWidth truncates ASCII to the column budget" {
+    // Truncates when the string is wider than the budget.
+    try std.testing.expectEqualStrings("hel", clipToWidth("hello", 3));
+    // Returns the whole string when it already fits.
+    try std.testing.expectEqualStrings("hi", clipToWidth("hi", 10));
+    // A zero budget yields the empty slice.
+    try std.testing.expectEqualStrings("", clipToWidth("anything", 0));
+}
+
+test "clipToWidth breaks before a wide glyph at the boundary" {
+    // A leading CJK glyph occupies two cells; with a one-column budget it
+    // cannot fit, so the clip breaks before it rather than splitting the
+    // multibyte sequence.
+    const cjk = "世界"; // each glyph is 2 display columns
+    try std.testing.expectEqual(@as(usize, 0), clipToWidth(cjk, 1).len);
+    // With a two-column budget exactly one whole glyph fits (no partial bytes).
+    try std.testing.expectEqualStrings("世", clipToWidth(cjk, 2));
 }
 
 test "wraps text with indent" {

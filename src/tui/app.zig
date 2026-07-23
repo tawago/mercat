@@ -9,6 +9,7 @@ const SubgraphEdges = @import("prim").SubgraphEdges;
 const editor = @import("../platform/editor.zig");
 const PagerView = @import("views/pager.zig").PagerView;
 const HelpView = @import("views/help.zig").HelpView;
+const MetadataOverlay = @import("views/metadata.zig").MetadataOverlay;
 const input = @import("input.zig");
 const statusbar = @import("widgets/statusbar.zig");
 const args = @import("../cli/args.zig");
@@ -84,6 +85,9 @@ pub const App = struct {
     toast_message: ?[]u8,
     toast_deadline_ms: i64,
 
+    // Front matter metadata overlay (top-right panel toggled with `m`).
+    metadata: MetadataOverlay,
+
     pub fn init(
         allocator: std.mem.Allocator,
         title: []const u8,
@@ -93,6 +97,7 @@ pub const App = struct {
         active_theme: config.Theme,
         syntax_theme: config.SyntaxTheme,
         show_heading_markers: bool,
+        frontmatter_style: config.FrontmatterStyle,
         initial_layout: mermaid_types.ForceLayout,
         initial_subgraph_edges: SubgraphEdges,
     ) !App {
@@ -120,12 +125,14 @@ pub const App = struct {
         self.mermaid_layout = initial_layout;
         self.mermaid_subgraph_edges = initial_subgraph_edges;
         self.pager = PagerView.init(allocator, title, &self.current_document, active_theme, syntax_theme, show_heading_markers, initial_layout, initial_subgraph_edges);
+        self.pager.frontmatter_style = frontmatter_style;
 
         self.view_mode = .pager;
         self.status_message = null;
         self.needs_redraw = true;
         self.toast_message = null;
         self.toast_deadline_ms = 0;
+        self.metadata = .{};
 
         return self;
     }
@@ -210,7 +217,12 @@ pub const App = struct {
     fn handleKeyPress(self: *App, key: vaxis.Key) !bool {
         switch (input.mapKey(key)) {
             .quit => return true,
-            .toggle_help => self.view_mode = if (self.view_mode == .help) .pager else .help,
+            .toggle_help => {
+                self.view_mode = if (self.view_mode == .help) .pager else .help;
+                // Keep overlays mutually exclusive so neither paints over the
+                // other (z-order): opening help closes the metadata overlay.
+                if (self.view_mode == .help) try self.setMetadataVisible(false);
+            },
             .edit => {
                 try self.handleEdit();
                 return false;
@@ -224,17 +236,23 @@ pub const App = struct {
                 try self.handleLayoutChange();
                 return false;
             },
+            .toggle_metadata => {
+                try self.handleToggleMetadata();
+                return false;
+            },
             .toggle_subgraph_edges => {
                 self.mermaid_subgraph_edges = self.mermaid_subgraph_edges.next();
                 try self.handleSubgraphEdgesChange();
                 return false;
             },
-            .line_up => self.pager.lineUp(),
-            .line_down => self.pager.lineDown(),
-            .page_up => self.pager.pageUp(),
-            .page_down => self.pager.pageDown(),
-            .top => self.pager.toTop(),
-            .bottom => self.pager.toBottom(),
+            // While the metadata overlay is open, navigation keys scroll it
+            // rather than the document underneath.
+            .line_up => if (self.metadata.visible) self.metadata.scrollBy(-1) else self.pager.lineUp(),
+            .line_down => if (self.metadata.visible) self.metadata.scrollBy(1) else self.pager.lineDown(),
+            .page_up => if (self.metadata.visible) self.metadata.scrollBy(-@as(isize, @intCast(self.metadata.visible_rows))) else self.pager.pageUp(),
+            .page_down => if (self.metadata.visible) self.metadata.scrollBy(@as(isize, @intCast(self.metadata.visible_rows))) else self.pager.pageDown(),
+            .top => if (self.metadata.visible) self.metadata.scrollTo(0) else self.pager.toTop(),
+            .bottom => if (self.metadata.visible) self.metadata.scrollTo(std.math.maxInt(usize)) else self.pager.toBottom(),
             .follow_link => {
                 _ = self.pager.followFootnoteLink();
             },
@@ -247,6 +265,24 @@ pub const App = struct {
     }
 
     fn handleMouse(self: *App, mouse: vaxis.Mouse) !void {
+        // The metadata overlay is modal over its own area: swallow clicks so
+        // they don't select the hidden document beneath it, and map the wheel
+        // to overlay scrolling.
+        if (self.metadata.visible and self.metadata.contains(mouse)) {
+            switch (mouse.button) {
+                .wheel_up => {
+                    self.metadata.scrollBy(-1);
+                    self.needs_redraw = true;
+                },
+                .wheel_down => {
+                    self.metadata.scrollBy(1);
+                    self.needs_redraw = true;
+                },
+                else => {},
+            }
+            return;
+        }
+
         const content_height = self.vx.window().height -| 1;
         switch (mouse.button) {
             .wheel_up => {
@@ -358,6 +394,48 @@ pub const App = struct {
             .col_offset = x_off + 1,
             .wrap = .none,
         });
+    }
+
+    /// The document's front matter block, if any (always the first block).
+    fn frontMatter(self: *App) ?markdown.Block.FrontMatter {
+        for (self.current_document.blocks) |block| {
+            if (block == .frontmatter) return block.frontmatter;
+        }
+        return null;
+    }
+
+    fn handleToggleMetadata(self: *App) !void {
+        // `hidden` promises the front matter is stripped entirely (see
+        // config.zig); the overlay must not reveal it either.
+        if (self.pager.frontmatter_style == .hidden) {
+            try self.setStatusMessage("Front matter is hidden (frontmatter = hidden).", false);
+            self.needs_redraw = true;
+            return;
+        }
+        if (self.frontMatter() == null) {
+            try self.setStatusMessage("No front matter metadata in this document.", false);
+            self.needs_redraw = true;
+            return;
+        }
+        try self.setMetadataVisible(!self.metadata.visible);
+        if (self.metadata.visible) {
+            // Keep overlays mutually exclusive (z-order): opening metadata
+            // dismisses the help dialog.
+            self.view_mode = .pager;
+        }
+        self.clearStatusMessage();
+        self.needs_redraw = true;
+    }
+
+    /// Show or hide the metadata overlay, keeping the document canvas in sync:
+    /// while the overlay presents the front matter, the inline block is
+    /// suppressed so the same data is not shown twice.
+    fn setMetadataVisible(self: *App, visible: bool) !void {
+        if (self.metadata.visible == visible) return;
+        self.metadata.visible = visible;
+        if (visible) self.metadata.scroll = 0;
+        self.pager.suppress_frontmatter = visible;
+        try self.pager.reload();
     }
 
     fn handleResize(self: *App, ws: vaxis.Winsize) !void {
@@ -478,6 +556,14 @@ pub const App = struct {
             drawHelp(root);
         }
 
+        // Frame-scoped storage for text handed to vaxis: screen cells borrow
+        // the bytes until `vx.render` below has emitted them.
+        var frame_arena = std.heap.ArenaAllocator.init(self.allocator);
+        defer frame_arena.deinit();
+        // `hidden` keeps the front matter stripped (see config.zig); pass null
+        // so the overlay never reveals it.
+        const overlay_fm = if (self.pager.frontmatter_style == .hidden) null else self.frontMatter();
+        try self.metadata.draw(root, frame_arena.allocator(), overlay_fm, self.pager.active_theme);
         self.drawToast(root);
 
         const writer = self.tty.writer();
@@ -487,8 +573,8 @@ pub const App = struct {
 };
 
 /// Entry point for TUI mode - creates and runs the App
-pub fn run(allocator: std.mem.Allocator, title: []const u8, input_source: args.Input, initial_content: []const u8, editor_command: []const u8, active_theme: config.Theme, syntax_theme: config.SyntaxTheme, show_heading_markers: bool, initial_layout: mermaid_types.ForceLayout, initial_subgraph_edges: SubgraphEdges) !void {
-    var app = try App.init(allocator, title, input_source, initial_content, editor_command, active_theme, syntax_theme, show_heading_markers, initial_layout, initial_subgraph_edges);
+pub fn run(allocator: std.mem.Allocator, title: []const u8, input_source: args.Input, initial_content: []const u8, editor_command: []const u8, active_theme: config.Theme, syntax_theme: config.SyntaxTheme, show_heading_markers: bool, frontmatter_style: config.FrontmatterStyle, initial_layout: mermaid_types.ForceLayout, initial_subgraph_edges: SubgraphEdges) !void {
+    var app = try App.init(allocator, title, input_source, initial_content, editor_command, active_theme, syntax_theme, show_heading_markers, frontmatter_style, initial_layout, initial_subgraph_edges);
     // Fix self-referential pointer invalidated by struct return copy.
     // App.init() stores &self.current_document where self is a local; after
     // the return-by-value copy into app, that pointer is stale.
@@ -603,7 +689,7 @@ test "toVaxisSegments borrows render-model span text" {
 test "initLoop binds loop to app-owned tty and vaxis" {
     const allocator = std.testing.allocator;
 
-    var app = try App.init(allocator, "fixture", .none, "# Title\n", "vim", .dark, .default, true, .auto, .bridge);
+    var app = try App.init(allocator, "fixture", .none, "# Title\n", "vim", .dark, .default, true, .panel, .auto, .bridge);
     defer app.deinit();
 
     try app.initLoop();
@@ -630,6 +716,60 @@ test "syncPagerSize reflows when draw detects width change" {
     try std.testing.expect(changed);
     try std.testing.expectEqual(@as(usize, 20), pager.width);
     try std.testing.expect(pager.lines.len > original_line_count);
+}
+
+test "toggle metadata is refused when front matter is hidden" {
+    const allocator = std.testing.allocator;
+    const content = "---\ntitle: Secret\n---\n# Body\n";
+    var app = try App.init(allocator, "fixture", .none, content, "vim", .dark, .default, true, .hidden, .auto, .bridge);
+    defer app.deinit();
+
+    try app.handleToggleMetadata();
+    // Hidden means stripped entirely — the overlay must not reveal it.
+    try std.testing.expect(!app.metadata.visible);
+    try std.testing.expect(app.status_message != null);
+}
+
+test "toggle metadata opens the overlay for visible front matter" {
+    const allocator = std.testing.allocator;
+    const content = "---\ntitle: Shown\n---\n# Body\n";
+    var app = try App.init(allocator, "fixture", .none, content, "vim", .dark, .default, true, .panel, .auto, .bridge);
+    defer app.deinit();
+
+    try app.handleToggleMetadata();
+    try std.testing.expect(app.metadata.visible);
+}
+
+test "opening the metadata overlay hides the inline front matter and closing restores it" {
+    const allocator = std.testing.allocator;
+    const content = "---\ntitle: Shown\n---\n# Body\n";
+    var app = try App.init(allocator, "fixture", .none, content, "vim", .dark, .default, true, .panel, .auto, .bridge);
+    defer app.deinit();
+
+    try app.pager.resize(60, 20);
+    const lines_with_frontmatter = app.pager.lines.len;
+
+    try app.handleToggleMetadata();
+    try std.testing.expect(app.metadata.visible);
+    try std.testing.expect(app.pager.suppress_frontmatter);
+    // The inline panel is gone from the canvas while the overlay shows it.
+    try std.testing.expect(app.pager.lines.len < lines_with_frontmatter);
+
+    try app.handleToggleMetadata();
+    try std.testing.expect(!app.pager.suppress_frontmatter);
+    try std.testing.expectEqual(lines_with_frontmatter, app.pager.lines.len);
+}
+
+test "toggle metadata is refused when the document has no front matter" {
+    const allocator = std.testing.allocator;
+    const content = "# Body only\n"; // no --- fenced block
+    var app = try App.init(allocator, "fixture", .none, content, "vim", .dark, .default, true, .panel, .auto, .bridge);
+    defer app.deinit();
+
+    try app.handleToggleMetadata();
+    try std.testing.expect(!app.metadata.visible);
+    try std.testing.expect(app.status_message != null);
+    try std.testing.expectEqualStrings("No front matter metadata in this document.", app.status_message.?);
 }
 
 test "formatCopyPreview quotes short text" {

@@ -1,6 +1,7 @@
 const std = @import("std");
 const koino = @import("koino");
 const preprocess = @import("preprocess.zig");
+const frontmatter = @import("frontmatter.zig");
 pub const document = @import("document.zig");
 
 pub const Inline = document.Inline;
@@ -9,8 +10,13 @@ pub const BlockTag = document.BlockTag;
 pub const Document = document.Document;
 
 pub fn parse(allocator: std.mem.Allocator, source: []const u8) !Document {
+    // Peel off YAML front matter before koino ever sees the buffer — its
+    // closing `---` would otherwise parse as a setext underline or thematic
+    // break and turn metadata lines into headings.
+    const front = frontmatter.split(source);
+
     // Apply extended-syntax pre-processing before handing off to koino.
-    const preprocessed = try preprocess.preprocess(allocator, source);
+    const preprocessed = try preprocess.preprocess(allocator, front.body);
     defer allocator.free(preprocessed);
 
     const root = try koino.parse(allocator, preprocessed, .{
@@ -28,8 +34,17 @@ pub fn parse(allocator: std.mem.Allocator, source: []const u8) !Document {
         blocks.deinit(allocator);
     }
 
+    if (front.yaml) |yaml| try appendFrontMatterBlock(allocator, &blocks, yaml);
     try collectBlocksWithSource(allocator, &blocks, root, preprocessed);
     return .{ .blocks = try blocks.toOwnedSlice(allocator) };
+}
+
+fn appendFrontMatterBlock(allocator: std.mem.Allocator, blocks: *std.ArrayList(Block), yaml: []const u8) !void {
+    const raw = try allocator.dupe(u8, yaml);
+    errdefer allocator.free(raw);
+    const entries = try frontmatter.parseEntries(allocator, raw);
+    errdefer allocator.free(entries);
+    try blocks.append(allocator, .{ .frontmatter = .{ .raw = raw, .entries = entries } });
 }
 
 fn collectBlocksWithSource(allocator: std.mem.Allocator, blocks: *std.ArrayList(Block), node: *koino.nodes.AstNode, source: []const u8) !void {
@@ -924,4 +939,9 @@ test "strikethrough preprocessing converts to unicode" {
         }
     }
     try std.testing.expect(has_combining);
+}
+
+test {
+    // Collect the front matter splitter's own tests into this test graph.
+    _ = frontmatter;
 }
