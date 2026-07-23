@@ -42,15 +42,8 @@ pub fn parse(allocator: std.mem.Allocator, source: []const u8) !Document {
 fn appendFrontMatterBlock(allocator: std.mem.Allocator, blocks: *std.ArrayList(Block), yaml: []const u8) !void {
     const raw = try allocator.dupe(u8, yaml);
     errdefer allocator.free(raw);
-    const source_entries = try frontmatter.parseEntries(allocator, raw);
-    defer allocator.free(source_entries);
-
-    const entries = try allocator.alloc(Block.FrontMatter.Entry, source_entries.len);
+    const entries = try frontmatter.parseEntries(allocator, raw);
     errdefer allocator.free(entries);
-    for (source_entries, 0..) |entry, index| {
-        entries[index] = .{ .key = entry.key, .value = entry.value };
-    }
-
     try blocks.append(allocator, .{ .frontmatter = .{ .raw = raw, .entries = entries } });
 }
 

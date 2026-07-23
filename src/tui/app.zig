@@ -9,6 +9,7 @@ const SubgraphEdges = @import("prim").SubgraphEdges;
 const editor = @import("../platform/editor.zig");
 const PagerView = @import("views/pager.zig").PagerView;
 const HelpView = @import("views/help.zig").HelpView;
+const MetadataOverlay = @import("views/metadata.zig").MetadataOverlay;
 const input = @import("input.zig");
 const statusbar = @import("widgets/statusbar.zig");
 const args = @import("../cli/args.zig");
@@ -32,9 +33,6 @@ const Event = union(enum) {
     focus_in,
     mouse: vaxis.Mouse,
 };
-
-/// Screen rectangle (cells) of a drawn overlay, used for mouse hit-testing.
-const Rect = struct { x: u16, y: u16, width: u16, height: u16 };
 
 fn isMermaidFile(input_source: args.Input) bool {
     return switch (input_source) {
@@ -88,14 +86,7 @@ pub const App = struct {
     toast_deadline_ms: i64,
 
     // Front matter metadata overlay (top-right panel toggled with `m`).
-    show_metadata: bool,
-    // Scroll offset (first visible entry index) within the metadata overlay.
-    metadata_scroll: usize,
-    // Overlay geometry recorded on the last draw, for scroll clamping and
-    // mouse hit-testing. `metadata_rect` is null while the overlay is hidden.
-    metadata_visible_rows: usize,
-    metadata_total: usize,
-    metadata_rect: ?Rect,
+    metadata: MetadataOverlay,
 
     pub fn init(
         allocator: std.mem.Allocator,
@@ -141,11 +132,7 @@ pub const App = struct {
         self.needs_redraw = true;
         self.toast_message = null;
         self.toast_deadline_ms = 0;
-        self.show_metadata = false;
-        self.metadata_scroll = 0;
-        self.metadata_visible_rows = 0;
-        self.metadata_total = 0;
-        self.metadata_rect = null;
+        self.metadata = .{};
 
         return self;
     }
@@ -234,7 +221,7 @@ pub const App = struct {
                 self.view_mode = if (self.view_mode == .help) .pager else .help;
                 // Keep overlays mutually exclusive so neither paints over the
                 // other (z-order): opening help closes the metadata overlay.
-                if (self.view_mode == .help) self.show_metadata = false;
+                if (self.view_mode == .help) self.metadata.visible = false;
             },
             .edit => {
                 try self.handleEdit();
@@ -260,12 +247,12 @@ pub const App = struct {
             },
             // While the metadata overlay is open, navigation keys scroll it
             // rather than the document underneath.
-            .line_up => if (self.show_metadata) self.metadataScrollBy(-1) else self.pager.lineUp(),
-            .line_down => if (self.show_metadata) self.metadataScrollBy(1) else self.pager.lineDown(),
-            .page_up => if (self.show_metadata) self.metadataScrollBy(-@as(isize, @intCast(self.metadata_visible_rows))) else self.pager.pageUp(),
-            .page_down => if (self.show_metadata) self.metadataScrollBy(@as(isize, @intCast(self.metadata_visible_rows))) else self.pager.pageDown(),
-            .top => if (self.show_metadata) self.metadataScrollTo(0) else self.pager.toTop(),
-            .bottom => if (self.show_metadata) self.metadataScrollTo(std.math.maxInt(usize)) else self.pager.toBottom(),
+            .line_up => if (self.metadata.visible) self.metadata.scrollBy(-1) else self.pager.lineUp(),
+            .line_down => if (self.metadata.visible) self.metadata.scrollBy(1) else self.pager.lineDown(),
+            .page_up => if (self.metadata.visible) self.metadata.scrollBy(-@as(isize, @intCast(self.metadata.visible_rows))) else self.pager.pageUp(),
+            .page_down => if (self.metadata.visible) self.metadata.scrollBy(@as(isize, @intCast(self.metadata.visible_rows))) else self.pager.pageDown(),
+            .top => if (self.metadata.visible) self.metadata.scrollTo(0) else self.pager.toTop(),
+            .bottom => if (self.metadata.visible) self.metadata.scrollTo(std.math.maxInt(usize)) else self.pager.toBottom(),
             .follow_link => {
                 _ = self.pager.followFootnoteLink();
             },
@@ -281,14 +268,14 @@ pub const App = struct {
         // The metadata overlay is modal over its own area: swallow clicks so
         // they don't select the hidden document beneath it, and map the wheel
         // to overlay scrolling.
-        if (self.show_metadata and self.metadataContains(mouse)) {
+        if (self.metadata.visible and self.metadata.contains(mouse)) {
             switch (mouse.button) {
                 .wheel_up => {
-                    self.metadataScrollBy(-1);
+                    self.metadata.scrollBy(-1);
                     self.needs_redraw = true;
                 },
                 .wheel_down => {
-                    self.metadataScrollBy(1);
+                    self.metadata.scrollBy(1);
                     self.needs_redraw = true;
                 },
                 else => {},
@@ -430,163 +417,15 @@ pub const App = struct {
             self.needs_redraw = true;
             return;
         }
-        self.show_metadata = !self.show_metadata;
-        if (self.show_metadata) {
-            self.metadata_scroll = 0;
+        self.metadata.visible = !self.metadata.visible;
+        if (self.metadata.visible) {
+            self.metadata.scroll = 0;
             // Keep overlays mutually exclusive (z-order): opening metadata
             // dismisses the help dialog.
             self.view_mode = .pager;
         }
         self.clearStatusMessage();
         self.needs_redraw = true;
-    }
-
-    /// Clamp the metadata scroll offset to the last valid page.
-    fn metadataMaxScroll(self: *App) usize {
-        return self.metadata_total -| self.metadata_visible_rows;
-    }
-
-    fn metadataScrollBy(self: *App, delta: isize) void {
-        const max_scroll = self.metadataMaxScroll();
-        var next: isize = @as(isize, @intCast(self.metadata_scroll)) + delta;
-        if (next < 0) next = 0;
-        if (next > @as(isize, @intCast(max_scroll))) next = @intCast(max_scroll);
-        self.metadata_scroll = @intCast(next);
-    }
-
-    fn metadataScrollTo(self: *App, offset: usize) void {
-        self.metadata_scroll = @min(offset, self.metadataMaxScroll());
-    }
-
-    /// True when `mouse` falls inside the metadata overlay's drawn rectangle.
-    fn metadataContains(self: *App, mouse: vaxis.Mouse) bool {
-        const rect = self.metadata_rect orelse return false;
-        if (mouse.col < 0 or mouse.row < 0) return false;
-        const col: u16 = @intCast(mouse.col);
-        const row: u16 = @intCast(mouse.row);
-        return col >= rect.x and col < rect.x + rect.width and
-            row >= rect.y and row < rect.y + rect.height;
-    }
-
-    /// Draw the front matter metadata panel in the top-right corner: one
-    /// `key  value` row per entry, aligned on the key column. `frame_allocator`
-    /// must outlive `vx.render()` — vaxis stores borrowed grapheme slices in
-    /// screen cells, so the row buffers are read at render time.
-    fn drawMetadata(self: *App, root: vaxis.Window, frame_allocator: std.mem.Allocator) !void {
-        // `hidden` keeps the front matter stripped (see config.zig); refuse to
-        // paint it even if the overlay flag somehow got set.
-        if (!self.show_metadata or self.pager.frontmatter_style == .hidden) {
-            self.metadata_rect = null;
-            return;
-        }
-        const fm = self.frontMatter() orelse {
-            self.metadata_rect = null;
-            return;
-        };
-
-        const total = fm.entries.len;
-        self.metadata_total = total;
-
-        // Rows available inside the borders, bounded so the panel never covers
-        // the status bar at the bottom.
-        const max_inner_rows: usize = (@as(usize, root.height) -| 2) -| 2;
-        if (max_inner_rows == 0) {
-            self.metadata_rect = null;
-            return;
-        }
-        // When entries overflow, reserve the bottom inner row for a scroll
-        // indicator (e.g. `↑ 3-8 / 20 ↓`).
-        const overflow = total > max_inner_rows;
-        const visible_rows = if (overflow) @min(max_inner_rows -| 1, total) else total;
-        if (visible_rows == 0) {
-            self.metadata_rect = null;
-            return;
-        }
-        self.metadata_visible_rows = visible_rows;
-        // Clamp scroll now that we know the geometry (window may have shrunk).
-        if (self.metadata_scroll > total -| visible_rows) {
-            self.metadata_scroll = total -| visible_rows;
-        }
-        const start = self.metadata_scroll;
-        const end = @min(start + visible_rows, total);
-
-        var key_width: usize = 0;
-        for (fm.entries) |entry| key_width = @max(key_width, unicode.displayWidth(entry.key));
-        var row_width: usize = 0;
-        for (fm.entries) |entry| {
-            const w = if (entry.key.len == 0)
-                unicode.displayWidth(entry.value)
-            else
-                key_width + 2 + unicode.displayWidth(entry.value);
-            row_width = @max(row_width, w);
-        }
-
-        const indicator = if (overflow)
-            try std.fmt.allocPrint(frame_allocator, "{c} {d}-{d} / {d} {c}", .{
-                @as(u8, if (start > 0) '^' else ' '),
-                start + 1,
-                end,
-                total,
-                @as(u8, if (end < total) 'v' else ' '),
-            })
-        else
-            "";
-        if (overflow) row_width = @max(row_width, unicode.displayWidth(indicator));
-
-        // Text + one space padding each side + two border columns.
-        const width: u16 = @intCast(@min(root.width -| 2, row_width + 4));
-        const inner_rows = visible_rows + @as(usize, if (overflow) 1 else 0);
-        const height: u16 = @intCast(inner_rows + 2);
-        if (width < 5 or height < 3) {
-            self.metadata_rect = null;
-            return;
-        }
-
-        const style = theme.metadataPanelStyle(self.pager.active_theme);
-        const x_off = root.width -| width;
-        self.metadata_rect = .{ .x = x_off, .y = 0, .width = width, .height = height };
-
-        const panel = root.child(.{ .x_off = x_off, .y_off = 0, .width = width, .height = height });
-        panel.fill(.{ .style = style.fill });
-        _ = root.child(.{
-            .x_off = x_off,
-            .y_off = 0,
-            .width = width,
-            .height = height,
-            .border = .{ .where = .all, .glyphs = .single_rounded, .style = style.border },
-        });
-
-        var key_style = style.text;
-        key_style.dim = true;
-        const inner_width = width -| 4;
-        for (fm.entries[start..end], 0..) |entry, row| {
-            var line: std.ArrayList(u8) = .empty;
-            if (entry.key.len != 0) {
-                try line.appendSlice(frame_allocator, entry.key);
-                var pad = key_width + 2 - unicode.displayWidth(entry.key);
-                while (pad > 0) : (pad -= 1) try line.append(frame_allocator, ' ');
-            }
-            try line.appendSlice(frame_allocator, entry.value);
-            const clipped = clipToWidth(line.items, inner_width);
-            const key_cols = if (entry.key.len == 0) 0 else @min(entry.key.len, clipped.len);
-            _ = root.print(&.{
-                .{ .text = clipped[0..key_cols], .style = key_style },
-                .{ .text = clipped[key_cols..], .style = style.text },
-            }, .{
-                .row_offset = @intCast(row + 1),
-                .col_offset = x_off + 2,
-                .wrap = .none,
-            });
-        }
-
-        if (overflow) {
-            const clipped = clipToWidth(indicator, inner_width);
-            _ = root.print(&.{.{ .text = clipped, .style = key_style }}, .{
-                .row_offset = @intCast(inner_rows),
-                .col_offset = x_off + 2,
-                .wrap = .none,
-            });
-        }
     }
 
     fn handleResize(self: *App, ws: vaxis.Winsize) !void {
@@ -711,7 +550,10 @@ pub const App = struct {
         // the bytes until `vx.render` below has emitted them.
         var frame_arena = std.heap.ArenaAllocator.init(self.allocator);
         defer frame_arena.deinit();
-        try self.drawMetadata(root, frame_arena.allocator());
+        // `hidden` keeps the front matter stripped (see config.zig); pass null
+        // so the overlay never reveals it.
+        const overlay_fm = if (self.pager.frontmatter_style == .hidden) null else self.frontMatter();
+        try self.metadata.draw(root, frame_arena.allocator(), overlay_fm, self.pager.active_theme);
         self.drawToast(root);
 
         const writer = self.tty.writer();
@@ -796,19 +638,6 @@ fn formatCopyPreview(allocator: std.mem.Allocator, text: []const u8) ![]u8 {
     });
 }
 
-/// Clip `text` to at most `max_cols` display columns on a glyph boundary.
-fn clipToWidth(text: []const u8, max_cols: usize) []const u8 {
-    var cols: usize = 0;
-    var index: usize = 0;
-    while (index < text.len) {
-        const glyph = unicode.nextGlyph(text, index);
-        if (cols + glyph.width > max_cols) break;
-        cols += glyph.width;
-        index += glyph.bytes.len;
-    }
-    return text[0..index];
-}
-
 fn drawHelp(root: vaxis.Window) void {
     const help_lines = HelpView.lines();
     const width = @min(root.width -| 4, HelpView.width() + 4);
@@ -887,7 +716,7 @@ test "toggle metadata is refused when front matter is hidden" {
 
     try app.handleToggleMetadata();
     // Hidden means stripped entirely — the overlay must not reveal it.
-    try std.testing.expect(!app.show_metadata);
+    try std.testing.expect(!app.metadata.visible);
     try std.testing.expect(app.status_message != null);
 }
 
@@ -898,32 +727,19 @@ test "toggle metadata opens the overlay for visible front matter" {
     defer app.deinit();
 
     try app.handleToggleMetadata();
-    try std.testing.expect(app.show_metadata);
+    try std.testing.expect(app.metadata.visible);
 }
 
-test "metadataScrollBy clamps to the last page" {
+test "toggle metadata is refused when the document has no front matter" {
     const allocator = std.testing.allocator;
-    var app = try App.init(allocator, "fixture", .none, "# Title\n", "vim", .dark, .default, true, .panel, .auto, .bridge);
+    const content = "# Body only\n"; // no --- fenced block
+    var app = try App.init(allocator, "fixture", .none, content, "vim", .dark, .default, true, .panel, .auto, .bridge);
     defer app.deinit();
 
-    app.metadata_total = 20;
-    app.metadata_visible_rows = 8;
-    app.metadata_scroll = 0;
-
-    app.metadataScrollBy(-3);
-    try std.testing.expectEqual(@as(usize, 0), app.metadata_scroll);
-
-    app.metadataScrollBy(5);
-    try std.testing.expectEqual(@as(usize, 5), app.metadata_scroll);
-
-    app.metadataScrollBy(1000);
-    try std.testing.expectEqual(@as(usize, 12), app.metadata_scroll); // 20 - 8
-
-    app.metadataScrollTo(std.math.maxInt(usize));
-    try std.testing.expectEqual(@as(usize, 12), app.metadata_scroll);
-
-    app.metadataScrollTo(0);
-    try std.testing.expectEqual(@as(usize, 0), app.metadata_scroll);
+    try app.handleToggleMetadata();
+    try std.testing.expect(!app.metadata.visible);
+    try std.testing.expect(app.status_message != null);
+    try std.testing.expectEqualStrings("No front matter metadata in this document.", app.status_message.?);
 }
 
 test "formatCopyPreview quotes short text" {

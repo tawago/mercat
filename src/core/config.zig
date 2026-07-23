@@ -329,6 +329,42 @@ test "frontmatter style parses every notation; invalid errors" {
     try std.testing.expectError(error.InvalidFrontmatterStyle, parseFrontmatterStyle("fancy"));
 }
 
+test "frontmatter: file value is stripped of quotes before enum parse, quoted and bare both apply" {
+    // The TOML-like parser hands the raw right-hand side to assignValue: a
+    // double-quoted scalar keeps its quotes (`"compact"`), a bare word does not
+    // (`raw`). Both must reach the same enum tag, proving stripQuotes runs
+    // ahead of parseFrontmatterStyle on the file path.
+    var quoted = try parseTomlLike(std.testing.allocator, default_config_text);
+    defer quoted.deinit(std.testing.allocator);
+    try applyTomlLike(std.testing.allocator, &quoted,
+        \\[display]
+        \\frontmatter = "compact"
+    );
+    try std.testing.expectEqual(FrontmatterStyle.compact, quoted.display.frontmatter);
+
+    var bare = try parseTomlLike(std.testing.allocator, default_config_text);
+    defer bare.deinit(std.testing.allocator);
+    try applyTomlLike(std.testing.allocator, &bare,
+        \\[display]
+        \\frontmatter = raw
+    );
+    try std.testing.expectEqual(FrontmatterStyle.raw, bare.display.frontmatter);
+}
+
+test "frontmatter: invalid value in a config file surfaces the error instead of defaulting" {
+    // Unlike the env-override path (`catch <old>`), the file path propagates a
+    // bad value as error.InvalidFrontmatterStyle rather than silently keeping
+    // the default. The style must stay untouched when the error is returned.
+    var cfg = try parseTomlLike(std.testing.allocator, default_config_text);
+    defer cfg.deinit(std.testing.allocator);
+
+    try std.testing.expectError(error.InvalidFrontmatterStyle, applyTomlLike(std.testing.allocator, &cfg,
+        \\[display]
+        \\frontmatter = "fancy"
+    ));
+    try std.testing.expectEqual(FrontmatterStyle.panel, cfg.display.frontmatter);
+}
+
 test "subgraph_edges parses both notations; bridge round-trips; invalid errors" {
     // `bridge` and `cross` map to the two enum tags.
     try std.testing.expectEqual(prim.SubgraphEdges.bridge, try parseSubgraphEdges("bridge"));

@@ -370,6 +370,43 @@ test "parses frontmatter style flag and rejects invalid values" {
     try std.testing.expectError(error.InvalidFrontmatterStyle, parse(allocator, &bad));
 }
 
+test "frontmatter: missing value at end of argv errors MissingValue" {
+    const allocator = std.testing.allocator;
+    // The flag is the last argument, so there is no style token to consume.
+    const argv = [_][]const u8{ "mercat", "--frontmatter" };
+    try std.testing.expectError(error.MissingValue, parse(allocator, &argv));
+}
+
+test "frontmatter: accepts every valid style spelling" {
+    const allocator = std.testing.allocator;
+    const cases = [_]struct { text: []const u8, style: config.FrontmatterStyle }{
+        .{ .text = "panel", .style = .panel },
+        .{ .text = "dim", .style = .dim },
+        .{ .text = "compact", .style = .compact },
+        .{ .text = "raw", .style = .raw },
+        .{ .text = "hidden", .style = .hidden },
+    };
+    for (cases) |case| {
+        const argv = [_][]const u8{ "mercat", "--frontmatter", case.text, "README.md" };
+        const parsed = try parse(allocator, &argv);
+        defer parsed.deinit(allocator);
+        try std.testing.expectEqual(case.style, parsed.frontmatter.?);
+    }
+}
+
+test "frontmatter: effectiveFrontmatter honors config when flag absent and flag wins when present" {
+    // No flag: the config value passes through unchanged for every style.
+    const styles = [_]config.FrontmatterStyle{ .panel, .dim, .compact, .raw, .hidden };
+    for (styles) |style| {
+        try std.testing.expectEqual(style, (Parsed{}).effectiveFrontmatter(style));
+    }
+    // Flag present: it overrides any config value.
+    const with_flag = Parsed{ .frontmatter = .hidden };
+    for (styles) |config_value| {
+        try std.testing.expectEqual(config.FrontmatterStyle.hidden, with_flag.effectiveFrontmatter(config_value));
+    }
+}
+
 test "rejects pager plus tui" {
     const allocator = std.testing.allocator;
     const argv = [_][]const u8{ "mercat", "-p", "-t", "README.md" };

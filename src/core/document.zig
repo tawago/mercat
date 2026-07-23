@@ -79,10 +79,9 @@ pub const Block = union(enum) {
         raw: []const u8,
         entries: []Entry,
 
-        pub const Entry = struct {
-            key: []const u8,
-            value: []const u8,
-        };
+        // Same shape as the parser's output so parsed entries are stored
+        // directly instead of copied into a parallel type.
+        pub const Entry = @import("frontmatter.zig").Entry;
     };
 
     pub const Heading = struct {

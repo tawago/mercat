@@ -198,3 +198,135 @@ test "parseEntries handles quoted keys and tab-after-colon" {
     try std.testing.expectEqualStrings("'q'", entries[2].key);
     try std.testing.expectEqualStrings("v", entries[2].value);
 }
+
+test "frontmatter: opening fence with trailing content is rejected" {
+    // A trailing space on the opener means it is not exactly "---\n".
+    const source = "--- \ntitle: x\n---\n";
+    const result = split(source);
+    try std.testing.expect(result.yaml == null);
+    try std.testing.expectEqualStrings(source, result.body);
+}
+
+test "frontmatter: four dashes is not a fence opener" {
+    const source = "----\ntitle: x\n---\n";
+    const result = split(source);
+    try std.testing.expect(result.yaml == null);
+    try std.testing.expectEqualStrings(source, result.body);
+}
+
+test "frontmatter: closing fence with trailing space does not match" {
+    // Only \r is trimmed from the candidate closing line, not spaces, so
+    // "--- " is not recognized as the closing fence and no block is found.
+    const source = "---\ntitle: x\n--- \nbody";
+    const result = split(source);
+    try std.testing.expect(result.yaml == null);
+    try std.testing.expectEqualStrings(source, result.body);
+}
+
+test "frontmatter: opener with no closing fence before EOF is not front matter" {
+    const source = "---\n";
+    const result = split(source);
+    try std.testing.expect(result.yaml == null);
+    try std.testing.expectEqualStrings(source, result.body);
+}
+
+test "frontmatter: parseEntries keeps duplicate keys as separate entries" {
+    const allocator = std.testing.allocator;
+    const entries = try parseEntries(allocator, "a: 1\na: 2\n");
+    defer allocator.free(entries);
+
+    try std.testing.expectEqual(@as(usize, 2), entries.len);
+    try std.testing.expectEqualStrings("a", entries[0].key);
+    try std.testing.expectEqualStrings("1", entries[0].value);
+    try std.testing.expectEqualStrings("a", entries[1].key);
+    try std.testing.expectEqualStrings("2", entries[1].value);
+}
+
+test "frontmatter: parseEntries treats a comment line as raw" {
+    const allocator = std.testing.allocator;
+    const entries = try parseEntries(allocator, "# comment\nkey: val\n");
+    defer allocator.free(entries);
+
+    try std.testing.expectEqual(@as(usize, 2), entries.len);
+    // A leading '#' makes topLevelKeyLength return null, so the whole line is raw.
+    try std.testing.expectEqualStrings("", entries[0].key);
+    try std.testing.expectEqualStrings("# comment", entries[0].value);
+    try std.testing.expectEqualStrings("key", entries[1].key);
+    try std.testing.expectEqualStrings("val", entries[1].value);
+}
+
+test "frontmatter: parseEntries empty value with colon at end of line" {
+    const allocator = std.testing.allocator;
+    const entries = try parseEntries(allocator, "key:\n");
+    defer allocator.free(entries);
+
+    try std.testing.expectEqual(@as(usize, 1), entries.len);
+    try std.testing.expectEqualStrings("key", entries[0].key);
+    try std.testing.expectEqualStrings("", entries[0].value);
+}
+
+test "frontmatter: parseEntries rejects colon with no following space" {
+    const allocator = std.testing.allocator;
+    const entries = try parseEntries(allocator, "a:b\n");
+    defer allocator.free(entries);
+
+    try std.testing.expectEqual(@as(usize, 1), entries.len);
+    // The mapping colon must be followed by space, tab, or EOL, so this is raw.
+    try std.testing.expectEqualStrings("", entries[0].key);
+    try std.testing.expectEqualStrings("a:b", entries[0].value);
+}
+
+test "frontmatter: parseEntries unterminated quoted key falls back to raw" {
+    const allocator = std.testing.allocator;
+    const entries = try parseEntries(allocator, "\"unclosed: value\n");
+    defer allocator.free(entries);
+
+    try std.testing.expectEqual(@as(usize, 1), entries.len);
+    // quotedScalarEnd returns null for the unclosed quote, so the line is raw.
+    try std.testing.expectEqualStrings("", entries[0].key);
+    try std.testing.expectEqualStrings("\"unclosed: value", entries[0].value);
+}
+
+test "frontmatter: parseEntries single-quote doubling inside key" {
+    const allocator = std.testing.allocator;
+    const entries = try parseEntries(allocator, "'it''s': v\n");
+    defer allocator.free(entries);
+
+    try std.testing.expectEqual(@as(usize, 1), entries.len);
+    // The '' is an escaped quote, so the key includes it and the value is v.
+    try std.testing.expectEqualStrings("'it''s'", entries[0].key);
+    try std.testing.expectEqualStrings("v", entries[0].value);
+}
+
+test "frontmatter: parseEntries rejects colon at position zero" {
+    const allocator = std.testing.allocator;
+    const entries = try parseEntries(allocator, ":value\n");
+    defer allocator.free(entries);
+
+    try std.testing.expectEqual(@as(usize, 1), entries.len);
+    try std.testing.expectEqualStrings("", entries[0].key);
+    try std.testing.expectEqualStrings(":value", entries[0].value);
+}
+
+test "frontmatter: parseEntries skips blank and whitespace-only lines" {
+    const allocator = std.testing.allocator;
+    const entries = try parseEntries(allocator, "a: 1\n   \n\t\nb: 2\n");
+    defer allocator.free(entries);
+
+    try std.testing.expectEqual(@as(usize, 2), entries.len);
+    try std.testing.expectEqualStrings("a", entries[0].key);
+    try std.testing.expectEqualStrings("1", entries[0].value);
+    try std.testing.expectEqualStrings("b", entries[1].key);
+    try std.testing.expectEqualStrings("2", entries[1].value);
+}
+
+test "frontmatter: parseEntries splits non-ASCII keys correctly" {
+    const allocator = std.testing.allocator;
+    const entries = try parseEntries(allocator, "café: value\n");
+    defer allocator.free(entries);
+
+    try std.testing.expectEqual(@as(usize, 1), entries.len);
+    // The key slice is the raw multibyte bytes, unmodified.
+    try std.testing.expectEqualStrings("café", entries[0].key);
+    try std.testing.expectEqualStrings("value", entries[0].value);
+}
