@@ -21,6 +21,8 @@ pub const PagerView = struct {
     document: *const markdown.Document,
     active_theme: config.Theme,
     syntax_theme: config.SyntaxTheme,
+    theme_overrides: config.ThemeOverrides = .{},
+    glyphs: render_model.Glyphs = .{},
     show_heading_markers: bool = true,
     mermaid_layout: mermaid_types.ForceLayout = .auto,
     /// Subgraph frame-border notation (config value; a later live toggle may
@@ -35,13 +37,15 @@ pub const PagerView = struct {
     /// Active mouse text selection, in (document line, display column) space.
     selection: selection_mod.Selection = .{},
 
-    pub fn init(allocator: std.mem.Allocator, title: []const u8, document: *const markdown.Document, active_theme: config.Theme, syntax_theme: config.SyntaxTheme, show_heading_markers: bool, mermaid_layout: mermaid_types.ForceLayout, subgraph_edges: SubgraphEdges) PagerView {
+    pub fn init(allocator: std.mem.Allocator, title: []const u8, document: *const markdown.Document, active_theme: config.Theme, syntax_theme: config.SyntaxTheme, theme_overrides: config.ThemeOverrides, glyphs: render_model.Glyphs, show_heading_markers: bool, mermaid_layout: mermaid_types.ForceLayout, subgraph_edges: SubgraphEdges) PagerView {
         return .{
             .allocator = allocator,
             .title = title,
             .document = document,
             .active_theme = active_theme,
             .syntax_theme = syntax_theme,
+            .theme_overrides = theme_overrides,
+            .glyphs = glyphs,
             .show_heading_markers = show_heading_markers,
             .mermaid_layout = mermaid_layout,
             .mermaid_subgraph_edges = subgraph_edges,
@@ -164,6 +168,7 @@ pub const PagerView = struct {
         var rendered = try render_model.renderDocument(self.allocator, self.document.*, .{
             .width = if (self.width == 0) 80 else self.width,
             .show_heading_markers = self.show_heading_markers,
+            .glyphs = self.glyphs,
             .mermaid_force_layout = self.mermaid_layout,
             .mermaid_subgraph_edges = self.mermaid_subgraph_edges,
         });
@@ -211,7 +216,7 @@ test "builds footnote index from rendered lines" {
     );
     defer document.deinit(allocator);
 
-    var pager = PagerView.init(allocator, "fixture", &document, .dark, .default, true, .auto, .bridge);
+    var pager = PagerView.init(allocator, "fixture", &document, .dark, .default, .{}, .{}, true, .auto, .bridge);
     defer pager.deinit();
     try pager.resize(80, 20);
 
@@ -245,7 +250,7 @@ test "followFootnoteLink jumps to definition" {
     );
     defer document.deinit(allocator);
 
-    var pager = PagerView.init(allocator, "fixture", &document, .dark, .default, true, .auto, .bridge);
+    var pager = PagerView.init(allocator, "fixture", &document, .dark, .default, .{}, .{}, true, .auto, .bridge);
     defer pager.deinit();
     // Small viewport so we can actually scroll.
     try pager.resize(80, 3);
@@ -265,7 +270,7 @@ test "selection maps screen rows to document text" {
     var document = try markdown.parse(allocator, "Hello world foo bar");
     defer document.deinit(allocator);
 
-    var pager = PagerView.init(allocator, "fixture", &document, .dark, .default, true, .auto, .bridge);
+    var pager = PagerView.init(allocator, "fixture", &document, .dark, .default, .{}, .{}, true, .auto, .bridge);
     defer pager.deinit();
     try pager.resize(80, 10);
 
@@ -287,7 +292,7 @@ test "clearing selection stops highlighting and copying" {
     var document = try markdown.parse(allocator, "Hello world");
     defer document.deinit(allocator);
 
-    var pager = PagerView.init(allocator, "fixture", &document, .dark, .default, true, .auto, .bridge);
+    var pager = PagerView.init(allocator, "fixture", &document, .dark, .default, .{}, .{}, true, .auto, .bridge);
     defer pager.deinit();
     try pager.resize(80, 10);
 
@@ -306,7 +311,7 @@ test "selection is cleared when the document reflows" {
     var document = try markdown.parse(allocator, "Hello world foo bar baz qux");
     defer document.deinit(allocator);
 
-    var pager = PagerView.init(allocator, "fixture", &document, .dark, .default, true, .auto, .bridge);
+    var pager = PagerView.init(allocator, "fixture", &document, .dark, .default, .{}, .{}, true, .auto, .bridge);
     defer pager.deinit();
     try pager.resize(80, 10);
 
@@ -329,7 +334,7 @@ test "reflows rendered text into lines" {
     );
     defer document.deinit(allocator);
 
-    var pager = PagerView.init(allocator, "fixture", &document, .dark, .default, true, .auto, .bridge);
+    var pager = PagerView.init(allocator, "fixture", &document, .dark, .default, .{}, .{}, true, .auto, .bridge);
     defer pager.deinit();
     try pager.resize(20, 5);
 

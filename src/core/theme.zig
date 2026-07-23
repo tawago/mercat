@@ -12,6 +12,7 @@
 //!
 //! This separation allows the same Span data to render identically in both modes.
 
+const std = @import("std");
 const config = @import("config.zig");
 const render_model = @import("render_model.zig");
 const vaxis = @import("vaxis");
@@ -56,13 +57,37 @@ pub const Palette = struct {
     superscript: StyleToken,
     subscript: StyleToken,
     highlight: StyleToken,
+    // Structural slots (Issue 17 Layer 1b). Field names must match
+    // config.ThemeOverrides exactly (see palette() merge).
+    list_marker: StyleToken,
+    table_border: StyleToken,
+    table_header: StyleToken,
+    task_checkbox_done: StyleToken,
+    task_checkbox_todo: StyleToken,
+    hr: StyleToken,
+    code_fence_banner: StyleToken,
 };
 
-pub fn palette(theme: config.Theme, syntax_theme: config.SyntaxTheme) Palette {
-    return switch (theme) {
+pub fn palette(theme: config.Theme, syntax_theme: config.SyntaxTheme, overrides: config.ThemeOverrides) Palette {
+    var pal = switch (theme) {
         .dark, .auto => darkPalette(syntax_theme),
         .light => lightPalette(syntax_theme),
     };
+    // Comptime-checked merge: every ThemeOverrides field name must name a
+    // Palette field (else `@field(&pal, ...)` fails to compile). Each non-null
+    // attribute stamps over the base token.
+    inline for (std.meta.fields(config.ThemeOverrides)) |field| {
+        if (@field(overrides, field.name)) |ov| {
+            const slot = &@field(pal, field.name);
+            if (ov.fg) |v| slot.fg_index = v;
+            if (ov.bg) |v| slot.bg_index = v;
+            if (ov.bold) |v| slot.bold = v;
+            if (ov.italic) |v| slot.italic = v;
+            if (ov.underline) |v| slot.underline = v;
+            if (ov.strikethrough) |v| slot.strikethrough = v;
+        }
+    }
+    return pal;
 }
 
 fn darkPalette(syntax_theme: config.SyntaxTheme) Palette {
@@ -96,6 +121,13 @@ fn darkPalette(syntax_theme: config.SyntaxTheme) Palette {
             .superscript = .{ .fg_index = 153 },
             .subscript = .{ .fg_index = 152 },
             .highlight = .{ .fg_index = 227, .bold = true },
+            .list_marker = .{ .fg_index = 244 },
+            .table_border = .{ .fg_index = 244 },
+            .table_header = .{ .fg_index = 252 },
+            .task_checkbox_done = .{ .fg_index = 244 },
+            .task_checkbox_todo = .{ .fg_index = 244 },
+            .hr = .{ .fg_index = 244 },
+            .code_fence_banner = .{ .fg_index = 244 },
         },
         .classic => .{
             .heading1 = .{ .fg_index = 81, .bold = true },
@@ -126,6 +158,13 @@ fn darkPalette(syntax_theme: config.SyntaxTheme) Palette {
             .superscript = .{ .fg_index = 153 },
             .subscript = .{ .fg_index = 152 },
             .highlight = .{ .fg_index = 227, .bold = true },
+            .list_marker = .{ .fg_index = 244 },
+            .table_border = .{ .fg_index = 244 },
+            .table_header = .{ .fg_index = 252 },
+            .task_checkbox_done = .{ .fg_index = 244 },
+            .task_checkbox_todo = .{ .fg_index = 244 },
+            .hr = .{ .fg_index = 244 },
+            .code_fence_banner = .{ .fg_index = 244 },
         },
     };
 }
@@ -161,6 +200,13 @@ fn lightPalette(syntax_theme: config.SyntaxTheme) Palette {
             .superscript = .{ .fg_index = 26 },
             .subscript = .{ .fg_index = 31 },
             .highlight = .{ .fg_index = 130, .bold = true },
+            .list_marker = .{ .fg_index = 245 },
+            .table_border = .{ .fg_index = 245 },
+            .table_header = .{ .fg_index = 236 },
+            .task_checkbox_done = .{ .fg_index = 245 },
+            .task_checkbox_todo = .{ .fg_index = 245 },
+            .hr = .{ .fg_index = 245 },
+            .code_fence_banner = .{ .fg_index = 245 },
         },
         .classic => .{
             .heading1 = .{ .fg_index = 25, .bold = true },
@@ -191,6 +237,13 @@ fn lightPalette(syntax_theme: config.SyntaxTheme) Palette {
             .superscript = .{ .fg_index = 26 },
             .subscript = .{ .fg_index = 31 },
             .highlight = .{ .fg_index = 130, .bold = true },
+            .list_marker = .{ .fg_index = 245 },
+            .table_border = .{ .fg_index = 245 },
+            .table_header = .{ .fg_index = 236 },
+            .task_checkbox_done = .{ .fg_index = 245 },
+            .task_checkbox_todo = .{ .fg_index = 245 },
+            .hr = .{ .fg_index = 245 },
+            .code_fence_banner = .{ .fg_index = 245 },
         },
     };
 }
@@ -227,6 +280,13 @@ pub fn token(palette_value: Palette, style: render_model.SpanStyle) StyleToken {
         .superscript => palette_value.superscript,
         .subscript => palette_value.subscript,
         .highlight => palette_value.highlight,
+        .list_marker => palette_value.list_marker,
+        .table_border => palette_value.table_border,
+        .table_header => palette_value.table_header,
+        .task_checkbox_done => palette_value.task_checkbox_done,
+        .task_checkbox_todo => palette_value.task_checkbox_todo,
+        .hr => palette_value.hr,
+        .code_fence_banner => palette_value.code_fence_banner,
     };
 }
 
@@ -242,7 +302,7 @@ pub const ToastStyle = struct {
 pub fn toastStyle(theme: config.Theme) ToastStyle {
     // Track the theme's own panel (code-block background) and body text so the
     // toast stays in sync with the palette; only the green accent is bespoke.
-    const active = palette(theme, .default);
+    const active = palette(theme, .default, .{});
     const bg: vaxis.Color = if (active.code_block.bg_index) |index| .{ .index = index } else .default;
     const accent: u8 = switch (theme) {
         .light => 65,
@@ -266,4 +326,34 @@ pub fn vaxisStyle(token_value: StyleToken) vaxis.Style {
         .strikethrough = token_value.strikethrough,
         .ul_style = if (token_value.underline) .single else .off,
     };
+}
+
+test "structural slot defaults equal their legacy borrowed tokens" {
+    // Byte-parity guard: each new structural slot must resolve to exactly the
+    // token its emit site used before Issue 17 (mostly .muted; header = .body).
+    inline for (.{ config.Theme.dark, config.Theme.light }) |t| {
+        inline for (.{ config.SyntaxTheme.default, config.SyntaxTheme.classic }) |s| {
+            const pal = palette(t, s, .{});
+            try std.testing.expectEqual(token(pal, .muted), token(pal, .list_marker));
+            try std.testing.expectEqual(token(pal, .muted), token(pal, .table_border));
+            try std.testing.expectEqual(token(pal, .body), token(pal, .table_header));
+            try std.testing.expectEqual(token(pal, .muted), token(pal, .task_checkbox_done));
+            try std.testing.expectEqual(token(pal, .muted), token(pal, .task_checkbox_todo));
+            try std.testing.expectEqual(token(pal, .muted), token(pal, .hr));
+            try std.testing.expectEqual(token(pal, .muted), token(pal, .code_fence_banner));
+        }
+    }
+}
+
+test "palette override changes only the targeted slot" {
+    const base = palette(.dark, .default, .{});
+    const merged = palette(.dark, .default, .{ .heading1 = .{ .fg = 200, .bold = false } });
+
+    try std.testing.expectEqual(@as(u8, 200), merged.heading1.fg_index);
+    try std.testing.expectEqual(false, merged.heading1.bold);
+    // Every other slot is untouched.
+    try std.testing.expectEqual(base.heading2, merged.heading2);
+    try std.testing.expectEqual(base.body, merged.body);
+    try std.testing.expectEqual(base.muted, merged.muted);
+    try std.testing.expectEqual(base.hr, merged.hr);
 }

@@ -297,7 +297,7 @@ const Line = render_model.Line;
 const Rendered = render_model.Rendered;
 
 fn testOptions(mode: ColorMode) Options {
-    return .{ .palette = theme.palette(.dark, .default), .color_mode = mode };
+    return .{ .palette = theme.palette(.dark, .default, .{}), .color_mode = mode };
 }
 
 fn makeSpan(text: []const u8, style: render_model.SpanStyle) Span {
@@ -433,7 +433,7 @@ test "invalid utf8 in rendered content is rejected" {
 
 test "themed color resolution maps through the xterm table" {
     const face = try font.Font.init(20);
-    const palette = theme.palette(.dark, .default);
+    const palette = theme.palette(.dark, .default, .{});
     var spans = [_]Span{makeSpan("code", .code)};
     var lines = [_]Line{.{ .spans = &spans }};
     const rendered = Rendered{ .lines = &lines };
@@ -446,7 +446,7 @@ test "themed color resolution maps through the xterm table" {
 
 test "themed code block resolves a background rectangle" {
     const face = try font.Font.init(20);
-    const palette = theme.palette(.dark, .default);
+    const palette = theme.palette(.dark, .default, .{});
     var spans = [_]Span{makeSpan("x", .code_block)};
     var lines = [_]Line{.{ .spans = &spans }};
     const rendered = Rendered{ .lines = &lines };

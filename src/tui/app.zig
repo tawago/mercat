@@ -92,6 +92,8 @@ pub const App = struct {
         editor_command: []const u8,
         active_theme: config.Theme,
         syntax_theme: config.SyntaxTheme,
+        theme_overrides: config.ThemeOverrides,
+        glyphs: render_model.Glyphs,
         show_heading_markers: bool,
         initial_layout: mermaid_types.ForceLayout,
         initial_subgraph_edges: SubgraphEdges,
@@ -119,7 +121,7 @@ pub const App = struct {
 
         self.mermaid_layout = initial_layout;
         self.mermaid_subgraph_edges = initial_subgraph_edges;
-        self.pager = PagerView.init(allocator, title, &self.current_document, active_theme, syntax_theme, show_heading_markers, initial_layout, initial_subgraph_edges);
+        self.pager = PagerView.init(allocator, title, &self.current_document, active_theme, syntax_theme, theme_overrides, glyphs, show_heading_markers, initial_layout, initial_subgraph_edges);
 
         self.view_mode = .pager;
         self.status_message = null;
@@ -454,7 +456,7 @@ pub const App = struct {
         if (self.view_mode == .pager) {
             var row: usize = 0;
             while (row < content_height and self.pager.viewport.top + row < self.pager.lines.len) : (row += 1) {
-                const segments = try toVaxisSegments(self.allocator, self.pager.lines[self.pager.viewport.top + row], self.pager.active_theme, self.pager.syntax_theme);
+                const segments = try toVaxisSegments(self.allocator, self.pager.lines[self.pager.viewport.top + row], self.pager.active_theme, self.pager.syntax_theme, self.pager.theme_overrides);
                 defer self.allocator.free(segments);
                 _ = root.print(segments, .{
                     .row_offset = @intCast(row),
@@ -487,8 +489,8 @@ pub const App = struct {
 };
 
 /// Entry point for TUI mode - creates and runs the App
-pub fn run(allocator: std.mem.Allocator, title: []const u8, input_source: args.Input, initial_content: []const u8, editor_command: []const u8, active_theme: config.Theme, syntax_theme: config.SyntaxTheme, show_heading_markers: bool, initial_layout: mermaid_types.ForceLayout, initial_subgraph_edges: SubgraphEdges) !void {
-    var app = try App.init(allocator, title, input_source, initial_content, editor_command, active_theme, syntax_theme, show_heading_markers, initial_layout, initial_subgraph_edges);
+pub fn run(allocator: std.mem.Allocator, title: []const u8, input_source: args.Input, initial_content: []const u8, editor_command: []const u8, active_theme: config.Theme, syntax_theme: config.SyntaxTheme, theme_overrides: config.ThemeOverrides, glyphs: render_model.Glyphs, show_heading_markers: bool, initial_layout: mermaid_types.ForceLayout, initial_subgraph_edges: SubgraphEdges) !void {
+    var app = try App.init(allocator, title, input_source, initial_content, editor_command, active_theme, syntax_theme, theme_overrides, glyphs, show_heading_markers, initial_layout, initial_subgraph_edges);
     // Fix self-referential pointer invalidated by struct return copy.
     // App.init() stores &self.current_document where self is a local; after
     // the return-by-value copy into app, that pointer is stale.
@@ -497,8 +499,8 @@ pub fn run(allocator: std.mem.Allocator, title: []const u8, input_source: args.I
     try app.run();
 }
 
-fn toVaxisSegments(allocator: std.mem.Allocator, line: render_model.Line, active_theme: config.Theme, syntax_theme: config.SyntaxTheme) ![]vaxis.Segment {
-    const palette = theme.palette(active_theme, syntax_theme);
+fn toVaxisSegments(allocator: std.mem.Allocator, line: render_model.Line, active_theme: config.Theme, syntax_theme: config.SyntaxTheme, theme_overrides: config.ThemeOverrides) ![]vaxis.Segment {
+    const palette = theme.palette(active_theme, syntax_theme, theme_overrides);
     const segments = try allocator.alloc(vaxis.Segment, line.spans.len);
     for (line.spans, 0..) |span, index| {
         var segment: vaxis.Segment = .{
@@ -594,7 +596,7 @@ test "toVaxisSegments borrows render-model span text" {
     var rendered = try render_model.renderDocument(allocator, document, .{ .width = 20 });
     defer rendered.deinit(allocator);
 
-    const segments = try toVaxisSegments(allocator, rendered.lines[0], .dark, .default);
+    const segments = try toVaxisSegments(allocator, rendered.lines[0], .dark, .default, .{});
     defer allocator.free(segments);
 
     try std.testing.expectEqual(@intFromPtr(rendered.lines[0].spans[0].text.ptr), @intFromPtr(segments[0].text.ptr));
@@ -603,7 +605,7 @@ test "toVaxisSegments borrows render-model span text" {
 test "initLoop binds loop to app-owned tty and vaxis" {
     const allocator = std.testing.allocator;
 
-    var app = try App.init(allocator, "fixture", .none, "# Title\n", "vim", .dark, .default, true, .auto, .bridge);
+    var app = try App.init(allocator, "fixture", .none, "# Title\n", "vim", .dark, .default, .{}, .{}, true, .auto, .bridge);
     defer app.deinit();
 
     try app.initLoop();
@@ -619,7 +621,7 @@ test "syncPagerSize reflows when draw detects width change" {
     );
     defer document.deinit(allocator);
 
-    var pager = PagerView.init(allocator, "fixture", &document, .dark, .default, true, .auto, .bridge);
+    var pager = PagerView.init(allocator, "fixture", &document, .dark, .default, .{}, .{}, true, .auto, .bridge);
     defer pager.deinit();
 
     try pager.resize(60, 5);

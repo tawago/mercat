@@ -250,7 +250,7 @@ const testing = std.testing;
 
 fn sheetOptions() layout.Options {
     return .{
-        .palette = theme.palette(.dark, .default),
+        .palette = theme.palette(.dark, .default, .{}),
         .color_mode = .monochrome,
     };
 }

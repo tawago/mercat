@@ -16,7 +16,7 @@ const render_model = @import("../core/render_model.zig");
 /// Bumped whenever the canonical-hash byte encoding changes. It is the first
 /// value fed into `canonicalSha256`, so a recipe change necessarily changes
 /// every document hash.
-pub const canonical_hash_version: u16 = 1;
+pub const canonical_hash_version: u16 = 2;
 
 pub const Color = struct {
     r: u8,
@@ -200,6 +200,13 @@ pub fn semanticStyleTag(style: render_model.SpanStyle) u16 {
         .superscript => 26,
         .subscript => 27,
         .highlight => 28,
+        .list_marker => 29,
+        .table_border => 30,
+        .table_header => 31,
+        .task_checkbox_done => 32,
+        .task_checkbox_todo => 33,
+        .hr => 34,
+        .code_fence_banner => 35,
     };
 }
 

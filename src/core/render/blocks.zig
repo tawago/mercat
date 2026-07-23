@@ -13,6 +13,7 @@ const Block = markdown.Block;
 const Inline = markdown.Inline;
 const Options = types.Options;
 const SpanStyle = types.SpanStyle;
+const Glyphs = types.Glyphs;
 const Builder = builder_mod.Builder;
 const BoxDrawingStyle = mermaid_types.BoxDrawingStyle;
 const CrossingReductionHeuristic = mermaid_types.CrossingReductionHeuristic;
@@ -20,33 +21,53 @@ const ForceLayout = mermaid_types.ForceLayout;
 const SubgraphEdges = @import("prim").SubgraphEdges;
 const FitStage = mermaid_types.FitStage;
 
-const bullet_shapes = [_][]const u8{ "\u{2022} ", "\u{25E6} ", "\u{2023} " };
-// • (bullet), ◦ (white bullet), ‣ (triangular bullet)
+/// The bullet glyph for a list item at `depth`, plus its trailing space. Caller
+/// owns the returned slice. Falls back to "•" when no glyphs are configured.
+fn bulletMarker(allocator: std.mem.Allocator, glyphs: Glyphs, depth: usize) ![]u8 {
+    const glyph = if (glyphs.bullet_glyphs.len == 0)
+        "\u{2022}"
+    else
+        glyphs.bullet_glyphs[depth % glyphs.bullet_glyphs.len];
+    return std.mem.concat(allocator, u8, &.{ glyph, " " });
+}
+
+/// A task-list checkbox marker (configured glyph + trailing space). Caller owns
+/// the returned slice.
+fn taskMarker(allocator: std.mem.Allocator, glyphs: Glyphs, checked: bool) ![]u8 {
+    const glyph = if (checked) glyphs.task_checked else glyphs.task_todo;
+    return std.mem.concat(allocator, u8, &.{ glyph, " " });
+}
 
 pub fn renderBlock(allocator: std.mem.Allocator, builder: *Builder, block: Block, options: Options) !void {
     const content_width = options.width -| options.left_padding;
     switch (block) {
-        .heading => |h| try renderHeading(allocator, builder, h, content_width, options.show_heading_markers),
+        .heading => |h| try renderHeading(allocator, builder, h, content_width, options.show_heading_markers, options.glyphs),
         .paragraph => |p| try renderParagraph(allocator, builder, p.content, content_width, .body, p.indent),
-        .unordered_list_item => |item| try renderListItem(allocator, builder, item, content_width, "\u{2022} ", 0),
-        .ordered_list_item => |item| try renderListItem(allocator, builder, item, content_width, item.marker, 0),
+        .unordered_list_item => |item| {
+            const marker = try bulletMarker(allocator, options.glyphs, 0);
+            defer allocator.free(marker);
+            try renderListItem(allocator, builder, item, content_width, marker, 0, options.glyphs);
+        },
+        .ordered_list_item => |item| try renderListItem(allocator, builder, item, content_width, item.marker, 0, options.glyphs),
         .task_list_item => |item| {
-            const marker = if (item.checked) "[x] " else "[ ] ";
-            try renderTaskItem(allocator, builder, item.content, content_width, marker);
+            const marker = try taskMarker(allocator, options.glyphs, item.checked);
+            defer allocator.free(marker);
+            const marker_style: SpanStyle = if (item.checked) .task_checkbox_done else .task_checkbox_todo;
+            try renderTaskItem(allocator, builder, item.content, content_width, marker, marker_style);
         },
         .fenced_code => |code| try renderCodeBlock(allocator, builder, code, content_width, options.mermaid_box_style, options.mermaid_crossing_heuristic, options.mermaid_force_layout, options.mermaid_aspect_ratio, options.mermaid_debug, options.mermaid_subgraph_edges),
         .html_block => |html| try builder.appendSpan(.muted, html),
         .thematic_break => {
-            const hr_text = try repeatChar(allocator, content_width);
+            const hr_text = try repeatChar(allocator, content_width, options.glyphs.hr_glyph);
             defer allocator.free(hr_text);
-            try builder.appendSpan(.muted, hr_text);
+            try builder.appendSpan(.hr, hr_text);
         },
-        .table => |table| try table_mod.renderTable(allocator, builder, table, content_width),
-        .blockquote => |bq| try renderBlockQuote(allocator, builder, bq, content_width, options.left_padding),
+        .table => |table| try table_mod.renderTable(allocator, builder, table, content_width, options.glyphs),
+        .blockquote => |bq| try renderBlockQuote(allocator, builder, bq, content_width, options.left_padding, options.glyphs),
     }
 }
 
-pub fn renderHeading(allocator: std.mem.Allocator, builder: *Builder, heading: Block.Heading, width: usize, show_markers: bool) !void {
+pub fn renderHeading(allocator: std.mem.Allocator, builder: *Builder, heading: Block.Heading, width: usize, show_markers: bool, glyphs: Glyphs) !void {
     const heading_style: SpanStyle = switch (heading.level) {
         1 => .heading1,
         2 => .heading2,
@@ -60,11 +81,13 @@ pub fn renderHeading(allocator: std.mem.Allocator, builder: *Builder, heading: B
         try wrap.renderWrappedInlines(allocator, builder, heading.content, width, heading_style, "", heading_style, "", heading_style);
         return;
     }
-    var prefix_buf: [8]u8 = undefined;
-    const prefix_len = @min(heading.level, 6);
-    @memset(prefix_buf[0..prefix_len], '#');
-    prefix_buf[prefix_len] = ' ';
-    const prefix = prefix_buf[0 .. prefix_len + 1];
+    // Repeat the configured prefix `level` times (capped at 6), then a space.
+    const repeat = @min(heading.level, 6);
+    var prefix_builder: std.ArrayList(u8) = .empty;
+    defer prefix_builder.deinit(allocator);
+    for (0..repeat) |_| try prefix_builder.appendSlice(allocator, glyphs.heading_prefix);
+    try prefix_builder.append(allocator, ' ');
+    const prefix = prefix_builder.items;
     try wrap.renderWrappedInlines(allocator, builder, heading.content, width, heading_style, prefix, heading_style, prefix, heading_style);
 }
 
@@ -95,7 +118,7 @@ pub fn renderParagraph(allocator: std.mem.Allocator, builder: *Builder, inlines:
     }
 }
 
-pub fn renderListItem(allocator: std.mem.Allocator, builder: *Builder, item: Block.ListItem, width: usize, display_marker: []const u8, depth: u8) anyerror!void {
+pub fn renderListItem(allocator: std.mem.Allocator, builder: *Builder, item: Block.ListItem, width: usize, display_marker: []const u8, depth: u8, glyphs: Glyphs) anyerror!void {
     const indent_count = @as(usize, depth) * 2;
     const indent = try repeatSpaces(allocator, indent_count);
     defer allocator.free(indent);
@@ -117,7 +140,7 @@ pub fn renderListItem(allocator: std.mem.Allocator, builder: *Builder, item: Blo
             if (i > start) {
                 if (!first) try builder.newline();
                 const prefix = if (first) first_prefix else continuation;
-                try wrap.renderWrappedInlines(allocator, builder, item.content[start..i], width, .body, prefix, .muted, continuation, .muted);
+                try wrap.renderWrappedInlines(allocator, builder, item.content[start..i], width, .body, prefix, .list_marker, continuation, .list_marker);
                 first = false;
             }
             start = i + 1;
@@ -126,9 +149,9 @@ pub fn renderListItem(allocator: std.mem.Allocator, builder: *Builder, item: Blo
     if (start < item.content.len) {
         if (!first) try builder.newline();
         const prefix = if (first) first_prefix else continuation;
-        try wrap.renderWrappedInlines(allocator, builder, item.content[start..], width, .body, prefix, .muted, continuation, .muted);
+        try wrap.renderWrappedInlines(allocator, builder, item.content[start..], width, .body, prefix, .list_marker, continuation, .list_marker);
     } else if (first and item.content.len == 0) {
-        try builder.appendSpan(.muted, first_prefix);
+        try builder.appendSpan(.list_marker, first_prefix);
     }
 
     // Render nested items
@@ -136,17 +159,18 @@ pub fn renderListItem(allocator: std.mem.Allocator, builder: *Builder, item: Blo
         try builder.newline();
         switch (nested) {
             .unordered_list_item => |n| {
-                const nested_bullet = bullet_shapes[(depth + 1) % bullet_shapes.len];
-                try renderListItem(allocator, builder, n, width, nested_bullet, depth + 1);
+                const nested_bullet = try bulletMarker(allocator, glyphs, depth + 1);
+                defer allocator.free(nested_bullet);
+                try renderListItem(allocator, builder, n, width, nested_bullet, depth + 1, glyphs);
             },
-            .ordered_list_item => |n| try renderListItem(allocator, builder, n, width, n.marker, depth + 1),
-            .blockquote => |bq| try renderBlockQuoteWithPrefix(allocator, builder, bq, width -| unicode.displayWidth(continuation), continuation),
+            .ordered_list_item => |n| try renderListItem(allocator, builder, n, width, n.marker, depth + 1, glyphs),
+            .blockquote => |bq| try renderBlockQuoteWithPrefix(allocator, builder, bq, width -| unicode.displayWidth(continuation), continuation, glyphs),
             else => {},
         }
     }
 }
 
-pub fn renderTaskItem(allocator: std.mem.Allocator, builder: *Builder, content: []const Inline, width: usize, marker: []const u8) !void {
+pub fn renderTaskItem(allocator: std.mem.Allocator, builder: *Builder, content: []const Inline, width: usize, marker: []const u8, marker_style: SpanStyle) !void {
     const continuation = try repeatSpaces(allocator, unicode.displayWidth(marker));
     defer allocator.free(continuation);
 
@@ -157,7 +181,7 @@ pub fn renderTaskItem(allocator: std.mem.Allocator, builder: *Builder, content: 
             if (i > start) {
                 if (!first) try builder.newline();
                 const prefix = if (first) marker else continuation;
-                try wrap.renderWrappedInlines(allocator, builder, content[start..i], width, .body, prefix, .muted, continuation, .muted);
+                try wrap.renderWrappedInlines(allocator, builder, content[start..i], width, .body, prefix, marker_style, continuation, marker_style);
                 first = false;
             }
             start = i + 1;
@@ -166,28 +190,32 @@ pub fn renderTaskItem(allocator: std.mem.Allocator, builder: *Builder, content: 
     if (start < content.len) {
         if (!first) try builder.newline();
         const prefix = if (first) marker else continuation;
-        try wrap.renderWrappedInlines(allocator, builder, content[start..], width, .body, prefix, .muted, continuation, .muted);
+        try wrap.renderWrappedInlines(allocator, builder, content[start..], width, .body, prefix, marker_style, continuation, marker_style);
     } else if (first) {
-        try builder.appendSpan(.muted, marker);
+        try builder.appendSpan(marker_style, marker);
     }
 }
 
-pub fn renderBlockQuote(allocator: std.mem.Allocator, builder: *Builder, bq: Block.BlockQuote, width: usize, left_padding: usize) !void {
-    // Build the prefix with left padding, then stacked "▎" characters (U+258E, 3 bytes UTF-8)
-    const prefix_bytes = left_padding + bq.depth * 3 + 1; // left_padding + 3 bytes per "▎" + 1 for space
+pub fn renderBlockQuote(allocator: std.mem.Allocator, builder: *Builder, bq: Block.BlockQuote, width: usize, left_padding: usize, glyphs: Glyphs) !void {
+    // Build the prefix with left padding, then one configured quote bar per
+    // depth level (arbitrary byte length), then a trailing space.
+    const bar = glyphs.quote_bar;
+    const prefix_bytes = left_padding + bq.depth * bar.len + 1;
     const prefix = try allocator.alloc(u8, prefix_bytes);
     defer allocator.free(prefix);
 
     // Add left padding first
     @memset(prefix[0..left_padding], ' ');
 
-    // Then add the "▎" characters
+    // Then add the quote bar characters
     for (0..bq.depth) |i| {
-        @memcpy(prefix[left_padding + i*3..][0..3], "\u{258E}");
+        @memcpy(prefix[left_padding + i * bar.len ..][0..bar.len], bar);
     }
-    prefix[left_padding + bq.depth * 3] = ' ';
+    prefix[left_padding + bq.depth * bar.len] = ' ';
 
-    const content_width = width -| (prefix.len);
+    // Subtract the DISPLAY width the prefix occupies, not its byte length (a
+    // multi-byte width-1 bar like "▎" is 3 bytes but one column).
+    const content_width = width -| unicode.displayWidth(prefix);
 
     // Render each block inside the blockquote with the prefix
     var first_block = true;
@@ -198,7 +226,7 @@ pub fn renderBlockQuote(allocator: std.mem.Allocator, builder: *Builder, bq: Blo
         // Check if this is a blockquote - nested blockquotes handle their own prefixing
         if (block == .blockquote) {
             const nested_bq = block.blockquote;
-            try renderBlockQuote(allocator, builder, nested_bq, width, left_padding);
+            try renderBlockQuote(allocator, builder, nested_bq, width, left_padding, glyphs);
             continue;
         }
 
@@ -207,22 +235,28 @@ pub fn renderBlockQuote(allocator: std.mem.Allocator, builder: *Builder, bq: Blo
 
         // Render the block - this adds new lines to builder
         switch (block) {
-            .heading => |h| try renderHeading(allocator, builder, h, content_width, true),
+            .heading => |h| try renderHeading(allocator, builder, h, content_width, true, glyphs),
             .paragraph => |p| try renderParagraph(allocator, builder, p.content, content_width, .body, p.indent),
-            .unordered_list_item => |item| try renderListItem(allocator, builder, item, content_width, "\u{2022} ", 0),
-            .ordered_list_item => |item| try renderListItem(allocator, builder, item, content_width, item.marker, 0),
+            .unordered_list_item => |item| {
+                const marker = try bulletMarker(allocator, glyphs, 0);
+                defer allocator.free(marker);
+                try renderListItem(allocator, builder, item, content_width, marker, 0, glyphs);
+            },
+            .ordered_list_item => |item| try renderListItem(allocator, builder, item, content_width, item.marker, 0, glyphs),
             .task_list_item => |item| {
-                const marker = if (item.checked) "[x] " else "[ ] ";
-                try renderTaskItem(allocator, builder, item.content, content_width, marker);
+                const marker = try taskMarker(allocator, glyphs, item.checked);
+                defer allocator.free(marker);
+                const marker_style: SpanStyle = if (item.checked) .task_checkbox_done else .task_checkbox_todo;
+                try renderTaskItem(allocator, builder, item.content, content_width, marker, marker_style);
             },
             .fenced_code => |code| try renderCodeBlock(allocator, builder, code, content_width, .standard, .median, .auto, 1.0, false, .bridge),
             .html_block => |html| try builder.appendSpan(.muted, html),
             .thematic_break => {
-                const hr_text = try repeatChar(allocator, content_width);
+                const hr_text = try repeatChar(allocator, content_width, glyphs.hr_glyph);
                 defer allocator.free(hr_text);
-                try builder.appendSpan(.muted, hr_text);
+                try builder.appendSpan(.hr, hr_text);
             },
-            .table => |table| try table_mod.renderTable(allocator, builder, table, content_width),
+            .table => |table| try table_mod.renderTable(allocator, builder, table, content_width, glyphs),
             else => {},
         }
 
@@ -277,22 +311,25 @@ pub fn renderBlockQuote(allocator: std.mem.Allocator, builder: *Builder, bq: Blo
 }
 
 /// Renders a blockquote with a custom base prefix (for blockquotes inside list items)
-pub fn renderBlockQuoteWithPrefix(allocator: std.mem.Allocator, builder: *Builder, bq: Block.BlockQuote, width: usize, base_prefix: []const u8) anyerror!void {
-    // Build the prefix: base_prefix + stacked "▎" characters + space
-    const prefix_bytes = base_prefix.len + bq.depth * 3 + 1;
+pub fn renderBlockQuoteWithPrefix(allocator: std.mem.Allocator, builder: *Builder, bq: Block.BlockQuote, width: usize, base_prefix: []const u8, glyphs: Glyphs) anyerror!void {
+    // Build the prefix: base_prefix + one configured quote bar per depth + space
+    const bar = glyphs.quote_bar;
+    const prefix_bytes = base_prefix.len + bq.depth * bar.len + 1;
     const prefix = try allocator.alloc(u8, prefix_bytes);
     defer allocator.free(prefix);
 
     // Copy base prefix first
     @memcpy(prefix[0..base_prefix.len], base_prefix);
 
-    // Then add the "▎" characters
+    // Then add the quote bar characters
     for (0..bq.depth) |i| {
-        @memcpy(prefix[base_prefix.len + i*3..][0..3], "\u{258E}");
+        @memcpy(prefix[base_prefix.len + i * bar.len ..][0..bar.len], bar);
     }
-    prefix[base_prefix.len + bq.depth * 3] = ' ';
+    prefix[base_prefix.len + bq.depth * bar.len] = ' ';
 
-    const content_width = width -| (bq.depth * 3 + 1);
+    // Width consumed by the depth bars + trailing space, in display columns
+    // (not bytes): each bar occupies displayWidth(bar) columns.
+    const content_width = width -| (bq.depth * unicode.displayWidth(bar) + 1);
 
     // Render each block inside the blockquote
     var first_block = true;
@@ -302,7 +339,7 @@ pub fn renderBlockQuoteWithPrefix(allocator: std.mem.Allocator, builder: *Builde
 
         if (block == .blockquote) {
             const nested_bq = block.blockquote;
-            try renderBlockQuoteWithPrefix(allocator, builder, nested_bq, width, base_prefix);
+            try renderBlockQuoteWithPrefix(allocator, builder, nested_bq, width, base_prefix, glyphs);
             continue;
         }
 
@@ -311,16 +348,20 @@ pub fn renderBlockQuoteWithPrefix(allocator: std.mem.Allocator, builder: *Builde
 
         // Render the block
         switch (block) {
-            .heading => |h| try renderHeading(allocator, builder, h, content_width, true),
+            .heading => |h| try renderHeading(allocator, builder, h, content_width, true, glyphs),
             .paragraph => |p| try renderParagraph(allocator, builder, p.content, content_width, .body, p.indent),
-            .unordered_list_item => |item| try renderListItem(allocator, builder, item, content_width, "\u{2022} ", 0),
-            .ordered_list_item => |item| try renderListItem(allocator, builder, item, content_width, item.marker, 0),
+            .unordered_list_item => |item| {
+                const marker = try bulletMarker(allocator, glyphs, 0);
+                defer allocator.free(marker);
+                try renderListItem(allocator, builder, item, content_width, marker, 0, glyphs);
+            },
+            .ordered_list_item => |item| try renderListItem(allocator, builder, item, content_width, item.marker, 0, glyphs),
             .fenced_code => |code| try renderCodeBlock(allocator, builder, code, content_width, .standard, .median, .auto, 1.0, false, .bridge),
             .html_block => |html| try builder.appendSpan(.muted, html),
             .thematic_break => {
-                const hr_text = try repeatChar(allocator, content_width);
+                const hr_text = try repeatChar(allocator, content_width, glyphs.hr_glyph);
                 defer allocator.free(hr_text);
-                try builder.appendSpan(.muted, hr_text);
+                try builder.appendSpan(.hr, hr_text);
             },
             else => {},
         }
@@ -362,11 +403,11 @@ pub fn renderCodeBlock(allocator: std.mem.Allocator, builder: *Builder, code: Bl
 
     // Render header
     if (code.language.len == 0) {
-        try builder.appendSpan(.muted, "```");
+        try builder.appendSpan(.code_fence_banner, "```");
     } else {
         const header = try std.fmt.allocPrint(allocator, "```{s}", .{code.language});
         defer allocator.free(header);
-        try builder.appendSpan(.muted, header);
+        try builder.appendSpan(.code_fence_banner, header);
     }
 
     const max_line_width = maxCodeBlockLineWidth(code.code);
@@ -389,7 +430,7 @@ pub fn renderCodeBlock(allocator: std.mem.Allocator, builder: *Builder, code: Bl
     }
 
     try builder.newline();
-    try builder.appendSpan(.muted, "```");
+    try builder.appendSpan(.code_fence_banner, "```");
 }
 
 pub fn renderMermaidBlock(allocator: std.mem.Allocator, builder: *Builder, source: []const u8, content_width: usize, box_style: BoxDrawingStyle, crossing_heuristic: CrossingReductionHeuristic, force_layout: ForceLayout, aspect_ratio: f32, debug_mermaid: bool, subgraph_edges: SubgraphEdges) !void {
@@ -510,11 +551,11 @@ pub fn renderMermaidBlock(allocator: std.mem.Allocator, builder: *Builder, sourc
 
 pub fn renderCodeBlockFallback(allocator: std.mem.Allocator, builder: *Builder, language: []const u8, source: []const u8) !void {
     if (language.len == 0) {
-        try builder.appendSpan(.muted, "```");
+        try builder.appendSpan(.code_fence_banner, "```");
     } else {
         const header = try std.fmt.allocPrint(allocator, "```{s}", .{language});
         defer allocator.free(header);
-        try builder.appendSpan(.muted, header);
+        try builder.appendSpan(.code_fence_banner, header);
     }
 
     const max_line_width = maxCodeBlockLineWidth(source);
@@ -529,7 +570,7 @@ pub fn renderCodeBlockFallback(allocator: std.mem.Allocator, builder: *Builder, 
     }
 
     try builder.newline();
-    try builder.appendSpan(.muted, "```");
+    try builder.appendSpan(.code_fence_banner, "```");
 }
 
 fn repeatSpaces(allocator: std.mem.Allocator, count: usize) ![]u8 {
@@ -538,14 +579,18 @@ fn repeatSpaces(allocator: std.mem.Allocator, count: usize) ![]u8 {
     return buffer;
 }
 
-fn repeatChar(allocator: std.mem.Allocator, count: usize) ![]u8 {
-    const dash = "\u{2500}"; // "─" character (3 bytes in UTF-8: E2 94 80)
-    const buffer = try allocator.alloc(u8, count * dash.len);
+fn repeatChar(allocator: std.mem.Allocator, count: usize, glyph: []const u8) ![]u8 {
+    // Fill `count` DISPLAY columns with the glyph: repetitions = columns divided
+    // by the glyph's display width (a width-2 glyph tiles half as many times).
+    // Default hr_glyph is width 1, so `count/1 == count` keeps byte-parity.
+    const glyph_width = @max(unicode.displayWidth(glyph), 1);
+    const repeats = count / glyph_width;
+    const buffer = try allocator.alloc(u8, repeats * glyph.len);
     var offset: usize = 0;
     var i: usize = 0;
-    while (i < count) : (i += 1) {
-        @memcpy(buffer[offset .. offset + dash.len], dash);
-        offset += dash.len;
+    while (i < repeats) : (i += 1) {
+        @memcpy(buffer[offset .. offset + glyph.len], glyph);
+        offset += glyph.len;
     }
     return buffer;
 }

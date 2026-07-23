@@ -45,17 +45,43 @@ pub fn serialize(
     var buffer: std.ArrayList(u8) = .empty;
     errdefer buffer.deinit(allocator);
 
+    // Run buffer for coalescing consecutive non-hyperlink spans that resolve to
+    // the same StyleToken. Distinct SpanStyle enums (e.g. body vs table_header)
+    // can map to an identical token under a given theme; emitting one SGR run
+    // for them keeps default-theme output byte-identical to the pre-Issue-17
+    // renderer, where those slots shared a single enum.
+    var run_text: std.ArrayList(u8) = .empty;
+    defer run_text.deinit(allocator);
+    var run_token: ?theme.StyleToken = null;
+
+    const flushRun = struct {
+        fn call(a: std.mem.Allocator, buf: *std.ArrayList(u8), rt: *std.ArrayList(u8), tok: *?theme.StyleToken) !void {
+            if (tok.*) |t| {
+                if (rt.items.len != 0) try ansi.writeTokenStyled(a, buf, t, rt.items);
+            }
+            rt.clearRetainingCapacity();
+            tok.* = null;
+        }
+    }.call;
+
     for (rendered.lines, 0..) |line, line_index| {
+        try flushRun(allocator, &buffer, &run_text, &run_token);
         if (line_index != 0) try buffer.append(allocator, '\n');
         for (line.spans) |span| {
             const token = theme.token(palette, span.style);
             if (span.url) |url| {
+                try flushRun(allocator, &buffer, &run_text, &run_token);
                 try ansi.writeHyperlink(allocator, &buffer, url, span.text, token);
             } else {
-                try ansi.writeTokenStyled(allocator, &buffer, token, span.text);
+                if (run_token != null and !std.meta.eql(run_token.?, token)) {
+                    try flushRun(allocator, &buffer, &run_text, &run_token);
+                }
+                run_token = token;
+                try run_text.appendSlice(allocator, span.text);
             }
         }
     }
+    try flushRun(allocator, &buffer, &run_text, &run_token);
 
     return try buffer.toOwnedSlice(allocator);
 }
@@ -72,7 +98,7 @@ test "renders heading and paragraph" {
 
     const rendered = try renderDocument(allocator, document, .{
         .width = 20,
-        .palette = theme.palette(.dark, .default),
+        .palette = theme.palette(.dark, .default, .{}),
         .show_heading_markers = true,
     });
     defer allocator.free(rendered);
@@ -91,7 +117,7 @@ test "renders table with borders" {
     var document = try markdown.parse(allocator, source);
     defer document.deinit(allocator);
 
-    const rendered = try renderDocument(allocator, document, .{ .width = 80, .palette = theme.palette(.dark, .default), .show_heading_markers = true });
+    const rendered = try renderDocument(allocator, document, .{ .width = 80, .palette = theme.palette(.dark, .default, .{}), .show_heading_markers = true });
     defer allocator.free(rendered);
 
     try std.testing.expect(std.mem.indexOf(u8, rendered, "Name") != null);
@@ -110,7 +136,7 @@ test "renders highlighted code fence" {
     var document = try markdown.parse(allocator, source);
     defer document.deinit(allocator);
 
-    const rendered = try renderDocument(allocator, document, .{ .width = 80, .palette = theme.palette(.dark, .default), .show_heading_markers = true });
+    const rendered = try renderDocument(allocator, document, .{ .width = 80, .palette = theme.palette(.dark, .default, .{}), .show_heading_markers = true });
     defer allocator.free(rendered);
 
     try std.testing.expect(std.mem.indexOf(u8, rendered, "const") != null);
@@ -125,7 +151,7 @@ test "renders inline markdown styling" {
     var document = try markdown.parse(allocator, source);
     defer document.deinit(allocator);
 
-    const palette = theme.palette(.dark, .default);
+    const palette = theme.palette(.dark, .default, .{});
     const rendered = try renderDocument(allocator, document, .{ .width = 100, .palette = palette, .show_heading_markers = true });
     defer allocator.free(rendered);
 
@@ -139,7 +165,7 @@ test "can hide heading markers" {
     );
     defer document.deinit(allocator);
 
-    const rendered = try renderDocument(allocator, document, .{ .width = 40, .palette = theme.palette(.dark, .default), .show_heading_markers = false });
+    const rendered = try renderDocument(allocator, document, .{ .width = 40, .palette = theme.palette(.dark, .default, .{}), .show_heading_markers = false });
     defer allocator.free(rendered);
 
     try std.testing.expect(std.mem.indexOf(u8, rendered, "###") == null);
