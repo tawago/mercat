@@ -22,6 +22,11 @@ pub const Options = struct {
     show_heading_markers: bool = true,
     /// YAML front matter display style (issue #9; panel default).
     frontmatter_style: config.FrontmatterStyle = .panel,
+    /// True when the render model feeds a file exporter (plain/PNG) rather than
+    /// an interactive terminal. The raw front-matter style keeps tabs byte-
+    /// verbatim for the terminal, but the plain/PNG backends reject tab scalars,
+    /// so raw content has its tabs expanded to spaces only on the export path.
+    for_export: bool = false,
     mermaid_box_style: mermaid_types.BoxDrawingStyle = .standard,
     mermaid_crossing_heuristic: mermaid_types.CrossingReductionHeuristic = .median,
     mermaid_force_layout: mermaid_types.ForceLayout = .auto,

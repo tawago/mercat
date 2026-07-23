@@ -19,8 +19,13 @@ pub fn renderDocument(allocator: std.mem.Allocator, document: markdown.Document,
     var previous: ?markdown.Block = null;
     for (document.blocks) |block| {
         // Hidden front matter is skipped before spacing so the document
-        // starts flush at its first real block.
-        if (block == .frontmatter and options.frontmatter_style == .hidden) continue;
+        // starts flush at its first real block. Empty front matter (no
+        // entries) is skipped the same way so `---\n---` leaves no phantom
+        // leading blank lines -- EXCEPT under the raw style, whose verbatim
+        // contract must reproduce the fences (and any blank content line) even
+        // when no key/value pairs were parsed.
+        if (block == .frontmatter and (options.frontmatter_style == .hidden or
+            (block.frontmatter.entries.len == 0 and options.frontmatter_style != .raw))) continue;
         if (previous) |prev| {
             try builder.newline();
             if (!blocks.isCompactBlockPair(prev, block)) try builder.newline();

@@ -33,6 +33,9 @@ const Event = union(enum) {
     mouse: vaxis.Mouse,
 };
 
+/// Screen rectangle (cells) of a drawn overlay, used for mouse hit-testing.
+const Rect = struct { x: u16, y: u16, width: u16, height: u16 };
+
 fn isMermaidFile(input_source: args.Input) bool {
     return switch (input_source) {
         .file => |path| std.mem.endsWith(u8, path, ".mmd"),
@@ -86,6 +89,13 @@ pub const App = struct {
 
     // Front matter metadata overlay (top-right panel toggled with `m`).
     show_metadata: bool,
+    // Scroll offset (first visible entry index) within the metadata overlay.
+    metadata_scroll: usize,
+    // Overlay geometry recorded on the last draw, for scroll clamping and
+    // mouse hit-testing. `metadata_rect` is null while the overlay is hidden.
+    metadata_visible_rows: usize,
+    metadata_total: usize,
+    metadata_rect: ?Rect,
 
     pub fn init(
         allocator: std.mem.Allocator,
@@ -132,6 +142,10 @@ pub const App = struct {
         self.toast_message = null;
         self.toast_deadline_ms = 0;
         self.show_metadata = false;
+        self.metadata_scroll = 0;
+        self.metadata_visible_rows = 0;
+        self.metadata_total = 0;
+        self.metadata_rect = null;
 
         return self;
     }
@@ -216,7 +230,12 @@ pub const App = struct {
     fn handleKeyPress(self: *App, key: vaxis.Key) !bool {
         switch (input.mapKey(key)) {
             .quit => return true,
-            .toggle_help => self.view_mode = if (self.view_mode == .help) .pager else .help,
+            .toggle_help => {
+                self.view_mode = if (self.view_mode == .help) .pager else .help;
+                // Keep overlays mutually exclusive so neither paints over the
+                // other (z-order): opening help closes the metadata overlay.
+                if (self.view_mode == .help) self.show_metadata = false;
+            },
             .edit => {
                 try self.handleEdit();
                 return false;
@@ -239,12 +258,14 @@ pub const App = struct {
                 try self.handleSubgraphEdgesChange();
                 return false;
             },
-            .line_up => self.pager.lineUp(),
-            .line_down => self.pager.lineDown(),
-            .page_up => self.pager.pageUp(),
-            .page_down => self.pager.pageDown(),
-            .top => self.pager.toTop(),
-            .bottom => self.pager.toBottom(),
+            // While the metadata overlay is open, navigation keys scroll it
+            // rather than the document underneath.
+            .line_up => if (self.show_metadata) self.metadataScrollBy(-1) else self.pager.lineUp(),
+            .line_down => if (self.show_metadata) self.metadataScrollBy(1) else self.pager.lineDown(),
+            .page_up => if (self.show_metadata) self.metadataScrollBy(-@as(isize, @intCast(self.metadata_visible_rows))) else self.pager.pageUp(),
+            .page_down => if (self.show_metadata) self.metadataScrollBy(@as(isize, @intCast(self.metadata_visible_rows))) else self.pager.pageDown(),
+            .top => if (self.show_metadata) self.metadataScrollTo(0) else self.pager.toTop(),
+            .bottom => if (self.show_metadata) self.metadataScrollTo(std.math.maxInt(usize)) else self.pager.toBottom(),
             .follow_link => {
                 _ = self.pager.followFootnoteLink();
             },
@@ -257,6 +278,24 @@ pub const App = struct {
     }
 
     fn handleMouse(self: *App, mouse: vaxis.Mouse) !void {
+        // The metadata overlay is modal over its own area: swallow clicks so
+        // they don't select the hidden document beneath it, and map the wheel
+        // to overlay scrolling.
+        if (self.show_metadata and self.metadataContains(mouse)) {
+            switch (mouse.button) {
+                .wheel_up => {
+                    self.metadataScrollBy(-1);
+                    self.needs_redraw = true;
+                },
+                .wheel_down => {
+                    self.metadataScrollBy(1);
+                    self.needs_redraw = true;
+                },
+                else => {},
+            }
+            return;
+        }
+
         const content_height = self.vx.window().height -| 1;
         switch (mouse.button) {
             .wheel_up => {
@@ -379,14 +418,54 @@ pub const App = struct {
     }
 
     fn handleToggleMetadata(self: *App) !void {
+        // `hidden` promises the front matter is stripped entirely (see
+        // config.zig); the overlay must not reveal it either.
+        if (self.pager.frontmatter_style == .hidden) {
+            try self.setStatusMessage("Front matter is hidden (frontmatter = hidden).", false);
+            self.needs_redraw = true;
+            return;
+        }
         if (self.frontMatter() == null) {
             try self.setStatusMessage("No front matter metadata in this document.", false);
             self.needs_redraw = true;
             return;
         }
         self.show_metadata = !self.show_metadata;
+        if (self.show_metadata) {
+            self.metadata_scroll = 0;
+            // Keep overlays mutually exclusive (z-order): opening metadata
+            // dismisses the help dialog.
+            self.view_mode = .pager;
+        }
         self.clearStatusMessage();
         self.needs_redraw = true;
+    }
+
+    /// Clamp the metadata scroll offset to the last valid page.
+    fn metadataMaxScroll(self: *App) usize {
+        return self.metadata_total -| self.metadata_visible_rows;
+    }
+
+    fn metadataScrollBy(self: *App, delta: isize) void {
+        const max_scroll = self.metadataMaxScroll();
+        var next: isize = @as(isize, @intCast(self.metadata_scroll)) + delta;
+        if (next < 0) next = 0;
+        if (next > @as(isize, @intCast(max_scroll))) next = @intCast(max_scroll);
+        self.metadata_scroll = @intCast(next);
+    }
+
+    fn metadataScrollTo(self: *App, offset: usize) void {
+        self.metadata_scroll = @min(offset, self.metadataMaxScroll());
+    }
+
+    /// True when `mouse` falls inside the metadata overlay's drawn rectangle.
+    fn metadataContains(self: *App, mouse: vaxis.Mouse) bool {
+        const rect = self.metadata_rect orelse return false;
+        if (mouse.col < 0 or mouse.row < 0) return false;
+        const col: u16 = @intCast(mouse.col);
+        const row: u16 = @intCast(mouse.row);
+        return col >= rect.x and col < rect.x + rect.width and
+            row >= rect.y and row < rect.y + rect.height;
     }
 
     /// Draw the front matter metadata panel in the top-right corner: one
@@ -394,12 +473,46 @@ pub const App = struct {
     /// must outlive `vx.render()` — vaxis stores borrowed grapheme slices in
     /// screen cells, so the row buffers are read at render time.
     fn drawMetadata(self: *App, root: vaxis.Window, frame_allocator: std.mem.Allocator) !void {
-        if (!self.show_metadata) return;
-        const fm = self.frontMatter() orelse return;
+        // `hidden` keeps the front matter stripped (see config.zig); refuse to
+        // paint it even if the overlay flag somehow got set.
+        if (!self.show_metadata or self.pager.frontmatter_style == .hidden) {
+            self.metadata_rect = null;
+            return;
+        }
+        const fm = self.frontMatter() orelse {
+            self.metadata_rect = null;
+            return;
+        };
+
+        const total = fm.entries.len;
+        self.metadata_total = total;
+
+        // Rows available inside the borders, bounded so the panel never covers
+        // the status bar at the bottom.
+        const max_inner_rows: usize = (@as(usize, root.height) -| 2) -| 2;
+        if (max_inner_rows == 0) {
+            self.metadata_rect = null;
+            return;
+        }
+        // When entries overflow, reserve the bottom inner row for a scroll
+        // indicator (e.g. `↑ 3-8 / 20 ↓`).
+        const overflow = total > max_inner_rows;
+        const visible_rows = if (overflow) @min(max_inner_rows -| 1, total) else total;
+        if (visible_rows == 0) {
+            self.metadata_rect = null;
+            return;
+        }
+        self.metadata_visible_rows = visible_rows;
+        // Clamp scroll now that we know the geometry (window may have shrunk).
+        if (self.metadata_scroll > total -| visible_rows) {
+            self.metadata_scroll = total -| visible_rows;
+        }
+        const start = self.metadata_scroll;
+        const end = @min(start + visible_rows, total);
 
         var key_width: usize = 0;
-        var row_width: usize = 0;
         for (fm.entries) |entry| key_width = @max(key_width, unicode.displayWidth(entry.key));
+        var row_width: usize = 0;
         for (fm.entries) |entry| {
             const w = if (entry.key.len == 0)
                 unicode.displayWidth(entry.value)
@@ -408,13 +521,30 @@ pub const App = struct {
             row_width = @max(row_width, w);
         }
 
+        const indicator = if (overflow)
+            try std.fmt.allocPrint(frame_allocator, "{c} {d}-{d} / {d} {c}", .{
+                @as(u8, if (start > 0) '^' else ' '),
+                start + 1,
+                end,
+                total,
+                @as(u8, if (end < total) 'v' else ' '),
+            })
+        else
+            "";
+        if (overflow) row_width = @max(row_width, unicode.displayWidth(indicator));
+
         // Text + one space padding each side + two border columns.
         const width: u16 = @intCast(@min(root.width -| 2, row_width + 4));
-        const height: u16 = @intCast(@min(@as(usize, root.height) -| 2, fm.entries.len + 2));
-        if (width < 5 or height < 3) return;
+        const inner_rows = visible_rows + @as(usize, if (overflow) 1 else 0);
+        const height: u16 = @intCast(inner_rows + 2);
+        if (width < 5 or height < 3) {
+            self.metadata_rect = null;
+            return;
+        }
 
         const style = theme.metadataPanelStyle(self.pager.active_theme);
         const x_off = root.width -| width;
+        self.metadata_rect = .{ .x = x_off, .y = 0, .width = width, .height = height };
 
         const panel = root.child(.{ .x_off = x_off, .y_off = 0, .width = width, .height = height });
         panel.fill(.{ .style = style.fill });
@@ -429,8 +559,7 @@ pub const App = struct {
         var key_style = style.text;
         key_style.dim = true;
         const inner_width = width -| 4;
-        for (fm.entries, 0..) |entry, index| {
-            if (index + 2 >= height) break;
+        for (fm.entries[start..end], 0..) |entry, row| {
             var line: std.ArrayList(u8) = .empty;
             if (entry.key.len != 0) {
                 try line.appendSlice(frame_allocator, entry.key);
@@ -444,7 +573,16 @@ pub const App = struct {
                 .{ .text = clipped[0..key_cols], .style = key_style },
                 .{ .text = clipped[key_cols..], .style = style.text },
             }, .{
-                .row_offset = @intCast(index + 1),
+                .row_offset = @intCast(row + 1),
+                .col_offset = x_off + 2,
+                .wrap = .none,
+            });
+        }
+
+        if (overflow) {
+            const clipped = clipToWidth(indicator, inner_width);
+            _ = root.print(&.{.{ .text = clipped, .style = key_style }}, .{
+                .row_offset = @intCast(inner_rows),
                 .col_offset = x_off + 2,
                 .wrap = .none,
             });
@@ -739,6 +877,53 @@ test "syncPagerSize reflows when draw detects width change" {
     try std.testing.expect(changed);
     try std.testing.expectEqual(@as(usize, 20), pager.width);
     try std.testing.expect(pager.lines.len > original_line_count);
+}
+
+test "toggle metadata is refused when front matter is hidden" {
+    const allocator = std.testing.allocator;
+    const content = "---\ntitle: Secret\n---\n# Body\n";
+    var app = try App.init(allocator, "fixture", .none, content, "vim", .dark, .default, true, .hidden, .auto, .bridge);
+    defer app.deinit();
+
+    try app.handleToggleMetadata();
+    // Hidden means stripped entirely — the overlay must not reveal it.
+    try std.testing.expect(!app.show_metadata);
+    try std.testing.expect(app.status_message != null);
+}
+
+test "toggle metadata opens the overlay for visible front matter" {
+    const allocator = std.testing.allocator;
+    const content = "---\ntitle: Shown\n---\n# Body\n";
+    var app = try App.init(allocator, "fixture", .none, content, "vim", .dark, .default, true, .panel, .auto, .bridge);
+    defer app.deinit();
+
+    try app.handleToggleMetadata();
+    try std.testing.expect(app.show_metadata);
+}
+
+test "metadataScrollBy clamps to the last page" {
+    const allocator = std.testing.allocator;
+    var app = try App.init(allocator, "fixture", .none, "# Title\n", "vim", .dark, .default, true, .panel, .auto, .bridge);
+    defer app.deinit();
+
+    app.metadata_total = 20;
+    app.metadata_visible_rows = 8;
+    app.metadata_scroll = 0;
+
+    app.metadataScrollBy(-3);
+    try std.testing.expectEqual(@as(usize, 0), app.metadata_scroll);
+
+    app.metadataScrollBy(5);
+    try std.testing.expectEqual(@as(usize, 5), app.metadata_scroll);
+
+    app.metadataScrollBy(1000);
+    try std.testing.expectEqual(@as(usize, 12), app.metadata_scroll); // 20 - 8
+
+    app.metadataScrollTo(std.math.maxInt(usize));
+    try std.testing.expectEqual(@as(usize, 12), app.metadata_scroll);
+
+    app.metadataScrollTo(0);
+    try std.testing.expectEqual(@as(usize, 0), app.metadata_scroll);
 }
 
 test "formatCopyPreview quotes short text" {

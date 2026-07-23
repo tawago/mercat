@@ -181,6 +181,9 @@ pub fn main() !void {
         .width = render_width,
         .show_heading_markers = show_heading_markers,
         .frontmatter_style = frontmatter_style,
+        // Raw front matter keeps tabs verbatim for the terminal, but the
+        // plain/PNG exporters reject tab scalars, so expand them on export.
+        .for_export = parsed.format != .terminal,
         .mermaid_box_style = parsed.box_style orelse .standard,
         .mermaid_crossing_heuristic = parsed.crossing_heuristic orelse .median,
         .mermaid_force_layout = parsed.force_layout orelse .auto,

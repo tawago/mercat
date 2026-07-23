@@ -75,15 +75,48 @@ pub fn parseEntries(allocator: std.mem.Allocator, yaml: []const u8) ![]Entry {
     return entries.toOwnedSlice(allocator);
 }
 
-/// Byte length of a top-level YAML key on `line` (text before the first `:`),
-/// or null when the line is indented, a list item, or has no colon.
+/// Byte length of a top-level YAML key on `line` (the text before the mapping
+/// colon), or null when the line is indented, a list item, or has no colon in
+/// key position. A quoted key (`"a:b": value`) keeps its quotes so a colon
+/// inside the quotes is not mistaken for the separator.
 fn topLevelKeyLength(line: []const u8) ?usize {
     if (line.len == 0 or line[0] == ' ' or line[0] == '\t' or line[0] == '-' or line[0] == '#') return null;
-    const colon = std.mem.indexOfScalar(u8, line, ':') orelse return null;
-    if (colon == 0) return null;
-    // `key:` must be followed by a space, end of line, or nothing (empty value).
-    if (colon + 1 < line.len and line[colon + 1] != ' ') return null;
+
+    var colon: usize = undefined;
+    if (line[0] == '"' or line[0] == '\'') {
+        const close = quotedScalarEnd(line, line[0]) orelse return null;
+        // The mapping colon must immediately follow the closing quote.
+        if (close + 1 >= line.len or line[close + 1] != ':') return null;
+        colon = close + 1;
+    } else {
+        colon = std.mem.indexOfScalar(u8, line, ':') orelse return null;
+        if (colon == 0) return null;
+    }
+    // `key:` must be followed by a space, a tab, or the end of the line
+    // (an empty value). YAML permits a tab after the colon just like a space.
+    if (colon + 1 < line.len and line[colon + 1] != ' ' and line[colon + 1] != '\t') return null;
     return colon;
+}
+
+/// Index of the closing quote of the quoted scalar that begins at `line[0]`,
+/// or null when the quote is never closed. Handles `\"` escapes in double
+/// quotes and `''` doubling in single quotes.
+fn quotedScalarEnd(line: []const u8, quote: u8) ?usize {
+    var i: usize = 1;
+    while (i < line.len) : (i += 1) {
+        if (quote == '"' and line[i] == '\\') {
+            i += 1; // skip the escaped character
+            continue;
+        }
+        if (line[i] == quote) {
+            if (quote == '\'' and i + 1 < line.len and line[i + 1] == '\'') {
+                i += 1; // '' is an escaped single quote, not the terminator
+                continue;
+            }
+            return i;
+        }
+    }
+    return null;
 }
 
 test "split extracts front matter and body" {
@@ -147,4 +180,21 @@ test "parseEntries splits simple pairs and keeps complex lines raw" {
     // The colon inside the URL does not re-split the value.
     try std.testing.expectEqualStrings("url", entries[4].key);
     try std.testing.expectEqualStrings("https://example.com/x", entries[4].value);
+}
+
+test "parseEntries handles quoted keys and tab-after-colon" {
+    const allocator = std.testing.allocator;
+    const entries = try parseEntries(allocator, "\"a:b\": value\nkey:\tvalue\n'q': v\n");
+    defer allocator.free(entries);
+
+    try std.testing.expectEqual(@as(usize, 3), entries.len);
+    // A colon inside a quoted key is not the mapping separator.
+    try std.testing.expectEqualStrings("\"a:b\"", entries[0].key);
+    try std.testing.expectEqualStrings("value", entries[0].value);
+    // A tab after the colon is a valid mapping separator.
+    try std.testing.expectEqualStrings("key", entries[1].key);
+    try std.testing.expectEqualStrings("value", entries[1].value);
+    // Single-quoted keys work too.
+    try std.testing.expectEqualStrings("'q'", entries[2].key);
+    try std.testing.expectEqualStrings("v", entries[2].value);
 }
