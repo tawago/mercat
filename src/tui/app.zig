@@ -691,6 +691,9 @@ test "initLoop binds loop to app-owned tty and vaxis" {
     const allocator = std.testing.allocator;
 
     var app = try App.init(allocator, "fixture", .none, "# Title\n", "vim", .dark, .default, .{}, .{}, true, .panel, .auto, .bridge);
+    // Repair the self-referential document pointer invalidated by App.init's
+    // return-by-value copy (see run()); reflow() dereferences it.
+    app.pager.document = &app.current_document;
     defer app.deinit();
 
     try app.initLoop();
@@ -723,6 +726,7 @@ test "toggle metadata is refused when front matter is hidden" {
     const allocator = std.testing.allocator;
     const content = "---\ntitle: Secret\n---\n# Body\n";
     var app = try App.init(allocator, "fixture", .none, content, "vim", .dark, .default, .{}, .{}, true, .hidden, .auto, .bridge);
+    app.pager.document = &app.current_document;
     defer app.deinit();
 
     try app.handleToggleMetadata();
@@ -735,6 +739,7 @@ test "toggle metadata opens the overlay for visible front matter" {
     const allocator = std.testing.allocator;
     const content = "---\ntitle: Shown\n---\n# Body\n";
     var app = try App.init(allocator, "fixture", .none, content, "vim", .dark, .default, .{}, .{}, true, .panel, .auto, .bridge);
+    app.pager.document = &app.current_document;
     defer app.deinit();
 
     try app.handleToggleMetadata();
@@ -745,6 +750,7 @@ test "opening the metadata overlay hides the inline front matter and closing res
     const allocator = std.testing.allocator;
     const content = "---\ntitle: Shown\n---\n# Body\n";
     var app = try App.init(allocator, "fixture", .none, content, "vim", .dark, .default, .{}, .{}, true, .panel, .auto, .bridge);
+    app.pager.document = &app.current_document;
     defer app.deinit();
 
     try app.pager.resize(60, 20);
@@ -765,6 +771,7 @@ test "toggle metadata is refused when the document has no front matter" {
     const allocator = std.testing.allocator;
     const content = "# Body only\n"; // no --- fenced block
     var app = try App.init(allocator, "fixture", .none, content, "vim", .dark, .default, .{}, .{}, true, .panel, .auto, .bridge);
+    app.pager.document = &app.current_document;
     defer app.deinit();
 
     try app.handleToggleMetadata();
