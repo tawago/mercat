@@ -69,6 +69,9 @@ pub const Palette = struct {
     task_checkbox_todo: StyleToken = .{ .fg_index = 0 }, // stamped by palette()
     hr: StyleToken = .{ .fg_index = 0 }, // stamped by palette()
     code_fence_banner: StyleToken = .{ .fg_index = 0 }, // stamped by palette()
+    frontmatter_key: StyleToken,
+    frontmatter_value: StyleToken,
+    frontmatter_cap: StyleToken,
 };
 
 pub fn palette(theme: config.Theme, syntax_theme: config.SyntaxTheme, overrides: config.ThemeOverrides) Palette {
@@ -135,6 +138,9 @@ fn darkPalette(syntax_theme: config.SyntaxTheme) Palette {
             .superscript = .{ .fg_index = 153 },
             .subscript = .{ .fg_index = 152 },
             .highlight = .{ .fg_index = 227, .bold = true },
+            .frontmatter_key = .{ .fg_index = 109, .bg_index = 236 },
+            .frontmatter_value = .{ .fg_index = 250, .bg_index = 236 },
+            .frontmatter_cap = .{ .fg_index = 236 },
         },
         .classic => .{
             .heading1 = .{ .fg_index = 81, .bold = true },
@@ -165,6 +171,9 @@ fn darkPalette(syntax_theme: config.SyntaxTheme) Palette {
             .superscript = .{ .fg_index = 153 },
             .subscript = .{ .fg_index = 152 },
             .highlight = .{ .fg_index = 227, .bold = true },
+            .frontmatter_key = .{ .fg_index = 109, .bg_index = 236 },
+            .frontmatter_value = .{ .fg_index = 250, .bg_index = 236 },
+            .frontmatter_cap = .{ .fg_index = 236 },
         },
     };
 }
@@ -200,6 +209,9 @@ fn lightPalette(syntax_theme: config.SyntaxTheme) Palette {
             .superscript = .{ .fg_index = 26 },
             .subscript = .{ .fg_index = 31 },
             .highlight = .{ .fg_index = 130, .bold = true },
+            .frontmatter_key = .{ .fg_index = 60, .bg_index = 254 },
+            .frontmatter_value = .{ .fg_index = 239, .bg_index = 254 },
+            .frontmatter_cap = .{ .fg_index = 254 },
         },
         .classic => .{
             .heading1 = .{ .fg_index = 25, .bold = true },
@@ -230,6 +242,9 @@ fn lightPalette(syntax_theme: config.SyntaxTheme) Palette {
             .superscript = .{ .fg_index = 26 },
             .subscript = .{ .fg_index = 31 },
             .highlight = .{ .fg_index = 130, .bold = true },
+            .frontmatter_key = .{ .fg_index = 60, .bg_index = 254 },
+            .frontmatter_value = .{ .fg_index = 239, .bg_index = 254 },
+            .frontmatter_cap = .{ .fg_index = 254 },
         },
     };
 }
@@ -273,6 +288,9 @@ pub fn token(palette_value: Palette, style: render_model.SpanStyle) StyleToken {
         .task_checkbox_todo => palette_value.task_checkbox_todo,
         .hr => palette_value.hr,
         .code_fence_banner => palette_value.code_fence_banner,
+        .frontmatter_key => palette_value.frontmatter_key,
+        .frontmatter_value => palette_value.frontmatter_value,
+        .frontmatter_cap => palette_value.frontmatter_cap,
     };
 }
 
@@ -298,6 +316,23 @@ pub fn toastStyle(theme: config.Theme) ToastStyle {
         .fill = .{ .bg = bg },
         .border = .{ .fg = .{ .index = accent }, .bg = bg },
         .text = .{ .fg = .{ .index = active.body.fg_index }, .bg = bg, .bold = true },
+    };
+}
+
+/// Styling for the TUI metadata overlay (front matter panel toggled with
+/// `m`): the same soft panel as the toast but with a neutral blue accent so
+/// it reads as reference information, not a confirmation.
+pub fn metadataPanelStyle(theme: config.Theme) ToastStyle {
+    const active = palette(theme, .default, .{});
+    const bg: vaxis.Color = if (active.code_block.bg_index) |index| .{ .index = index } else .default;
+    const accent: u8 = switch (theme) {
+        .light => 25,
+        .dark => 67,
+    };
+    return .{
+        .fill = .{ .bg = bg },
+        .border = .{ .fg = .{ .index = accent }, .bg = bg },
+        .text = .{ .fg = .{ .index = active.body.fg_index }, .bg = bg },
     };
 }
 

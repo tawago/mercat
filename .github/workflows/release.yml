@@ -115,6 +115,63 @@ jobs:
             ${{ matrix.artifact }}
             ${{ matrix.artifact }}.sha256
 
+  package-linux:
+    runs-on: ubuntu-latest
+    needs: [prepare-release, build-release]
+    if: always() && needs.build-release.result == 'success'
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+      RELEASE_TAG: ${{ needs.prepare-release.outputs.tag || github.ref_name }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - tarball_arch: x86_64
+            nfpm_arch: amd64
+          - tarball_arch: aarch64
+            nfpm_arch: arm64
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.RELEASE_TAG }}
+
+      - name: Set up Go (for nfpm)
+        uses: actions/setup-go@v5
+        with:
+          go-version: stable
+
+      - name: Install nfpm
+        run: go install github.com/goreleaser/nfpm/v2/cmd/nfpm@v2.41.1
+
+      - name: Download release binary
+        run: |
+          mkdir -p dist
+          curl -fsSL "https://github.com/tawago/mercat/releases/download/${RELEASE_TAG}/mercat-linux-${{ matrix.tarball_arch }}.tar.gz" \
+            | tar -xz -C dist
+          chmod 755 dist/mercat
+
+      - name: Build .deb and .rpm
+        env:
+          VERSION: ${{ env.RELEASE_TAG }}
+          NFPM_ARCH: ${{ matrix.nfpm_arch }}
+        run: |
+          export VERSION="${VERSION#v}"
+          nfpm package -f packaging/nfpm.yaml -p deb -t "mercat_${VERSION}_${NFPM_ARCH}.deb"
+          nfpm package -f packaging/nfpm.yaml -p rpm -t "mercat-${VERSION}.${{ matrix.tarball_arch }}.rpm"
+          shasum -a 256 mercat_*.deb > "mercat_${VERSION}_${NFPM_ARCH}.deb.sha256"
+          shasum -a 256 mercat-*.rpm > "mercat-${VERSION}.${{ matrix.tarball_arch }}.rpm.sha256"
+
+      - name: Publish package assets
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ env.RELEASE_TAG }}
+          files: |
+            *.deb
+            *.deb.sha256
+            *.rpm
+            *.rpm.sha256
+
   update-homebrew-tap:
     runs-on: ubuntu-latest
     needs: [prepare-release, build-release]

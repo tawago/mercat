@@ -21,6 +21,8 @@ pub const help_text =
     \\      --style <name>   Select theme: dark, light
     \\      --no-heading-markers
     \\                      Hide leading # markers in headings
+    \\      --frontmatter <s>
+    \\                      Front matter display: panel (default), dim, compact, raw, hidden
     \\      --box-style <s>  Mermaid box style: standard, rounded, heavy, double, ascii
     \\      --crossing-heuristic <h>
     \\                      Mermaid crossing reduction: median (default), barycenter
@@ -42,6 +44,7 @@ pub const ParseError = std.mem.Allocator.Error || error{
     MissingValue,
     InvalidWidth,
     InvalidStyle,
+    InvalidFrontmatterStyle,
     InvalidBoxStyle,
     InvalidCrossingHeuristic,
     InvalidLayout,
@@ -75,6 +78,7 @@ pub const Parsed = struct {
     width: ?usize = null,
     style: ?ThemeOverride = null,
     heading_markers: ?bool = null,
+    frontmatter: ?config.FrontmatterStyle = null,
     pager: bool = false,
     box_style: ?BoxDrawingStyle = null,
     crossing_heuristic: ?CrossingReductionHeuristic = null,
@@ -120,6 +124,10 @@ pub const Parsed = struct {
 
     pub fn effectiveHeadingMarkers(self: Parsed, config_value: bool) bool {
         return self.heading_markers orelse config_value;
+    }
+
+    pub fn effectiveFrontmatter(self: Parsed, config_value: config.FrontmatterStyle) config.FrontmatterStyle {
+        return self.frontmatter orelse config_value;
     }
 };
 
@@ -167,6 +175,13 @@ pub fn parse(allocator: std.mem.Allocator, argv: []const []const u8) ParseError!
 
         if (std.mem.eql(u8, arg, "--heading-markers")) {
             result.heading_markers = true;
+            continue;
+        }
+
+        if (std.mem.eql(u8, arg, "--frontmatter")) {
+            index += 1;
+            if (index >= argv.len) return error.MissingValue;
+            result.frontmatter = std.meta.stringToEnum(config.FrontmatterStyle, argv[index]) orelse return error.InvalidFrontmatterStyle;
             continue;
         }
 
@@ -337,6 +352,57 @@ test "supports heading marker override" {
     defer parsed.deinit(allocator);
 
     try std.testing.expectEqual(@as(?bool, false), parsed.heading_markers);
+}
+
+test "parses frontmatter style flag and rejects invalid values" {
+    const allocator = std.testing.allocator;
+    const argv = [_][]const u8{ "mercat", "--frontmatter", "compact", "README.md" };
+    const parsed = try parse(allocator, &argv);
+    defer parsed.deinit(allocator);
+    try std.testing.expectEqual(config.FrontmatterStyle.compact, parsed.frontmatter.?);
+    // Flag wins over config; absent flag falls back to config.
+    try std.testing.expectEqual(config.FrontmatterStyle.compact, parsed.effectiveFrontmatter(.panel));
+    try std.testing.expectEqual(config.FrontmatterStyle.dim, (Parsed{}).effectiveFrontmatter(.dim));
+
+    const bad = [_][]const u8{ "mercat", "--frontmatter", "table", "README.md" };
+    try std.testing.expectError(error.InvalidFrontmatterStyle, parse(allocator, &bad));
+}
+
+test "frontmatter: missing value at end of argv errors MissingValue" {
+    const allocator = std.testing.allocator;
+    // The flag is the last argument, so there is no style token to consume.
+    const argv = [_][]const u8{ "mercat", "--frontmatter" };
+    try std.testing.expectError(error.MissingValue, parse(allocator, &argv));
+}
+
+test "frontmatter: accepts every valid style spelling" {
+    const allocator = std.testing.allocator;
+    const cases = [_]struct { text: []const u8, style: config.FrontmatterStyle }{
+        .{ .text = "panel", .style = .panel },
+        .{ .text = "dim", .style = .dim },
+        .{ .text = "compact", .style = .compact },
+        .{ .text = "raw", .style = .raw },
+        .{ .text = "hidden", .style = .hidden },
+    };
+    for (cases) |case| {
+        const argv = [_][]const u8{ "mercat", "--frontmatter", case.text, "README.md" };
+        const parsed = try parse(allocator, &argv);
+        defer parsed.deinit(allocator);
+        try std.testing.expectEqual(case.style, parsed.frontmatter.?);
+    }
+}
+
+test "frontmatter: effectiveFrontmatter honors config when flag absent and flag wins when present" {
+    // No flag: the config value passes through unchanged for every style.
+    const styles = [_]config.FrontmatterStyle{ .panel, .dim, .compact, .raw, .hidden };
+    for (styles) |style| {
+        try std.testing.expectEqual(style, (Parsed{}).effectiveFrontmatter(style));
+    }
+    // Flag present: it overrides any config value.
+    const with_flag = Parsed{ .frontmatter = .hidden };
+    for (styles) |config_value| {
+        try std.testing.expectEqual(config.FrontmatterStyle.hidden, with_flag.effectiveFrontmatter(config_value));
+    }
 }
 
 test "rejects pager plus tui" {

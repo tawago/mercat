@@ -146,6 +146,7 @@ pub fn main() !void {
 
     const active_theme = parsed.effectiveTheme(loaded_config.display.theme);
     const show_heading_markers = parsed.effectiveHeadingMarkers(loaded_config.display.heading_markers);
+    const frontmatter_style = parsed.effectiveFrontmatter(loaded_config.display.frontmatter);
     // §5.3: terminal output keeps the terminal-aware resolution; plain/png
     // output resolve explicit -w > configured non-zero width > 120 and never
     // consult the terminal.
@@ -165,7 +166,7 @@ pub fn main() !void {
         // flag is cleared on return so a later CLI invocation still prints.
         tui_active.store(true, .monotonic);
         defer tui_active.store(false, .monotonic);
-        try tui.run(allocator, inputTitle(parsed.input), parsed.input, content, loaded_config.general.editor, active_theme, loaded_config.display.syntax_theme, loaded_config.theme_overrides, render_model.Glyphs.fromDisplay(loaded_config.display), show_heading_markers, parsed.force_layout orelse .auto, loaded_config.mermaid.subgraph_edges);
+        try tui.run(allocator, inputTitle(parsed.input), parsed.input, content, loaded_config.general.editor, active_theme, loaded_config.display.syntax_theme, loaded_config.theme_overrides, render_model.Glyphs.fromDisplay(loaded_config.display), show_heading_markers, frontmatter_style, parsed.force_layout orelse .auto, loaded_config.mermaid.subgraph_edges);
         return;
     }
 
@@ -180,6 +181,10 @@ pub fn main() !void {
         .width = render_width,
         .show_heading_markers = show_heading_markers,
         .glyphs = render_model.Glyphs.fromDisplay(loaded_config.display),
+        .frontmatter_style = frontmatter_style,
+        // Raw front matter keeps tabs verbatim for the terminal, but the
+        // plain/PNG exporters reject tab scalars, so expand them on export.
+        .for_export = parsed.format != .terminal,
         .mermaid_box_style = parsed.box_style orelse .standard,
         .mermaid_crossing_heuristic = parsed.crossing_heuristic orelse .median,
         .mermaid_force_layout = parsed.force_layout orelse .auto,

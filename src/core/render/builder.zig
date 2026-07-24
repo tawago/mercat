@@ -36,9 +36,9 @@ pub const Builder = struct {
         if (text.len == 0) return;
         if (self.current.items.len == 0 and self.left_padding != 0) {
             const padding = try self.allocator.alloc(u8, self.left_padding);
+            errdefer self.allocator.free(padding);
             @memset(padding, ' ');
-            defer self.allocator.free(padding);
-            try self.current.append(self.allocator, .{ .text = try self.allocator.dupe(u8, padding), .style = .body });
+            try self.current.append(self.allocator, .{ .text = padding, .style = .body });
         }
         const can_merge = if (self.current.items.len != 0) blk: {
             const last = &self.current.items[self.current.items.len - 1];
@@ -55,11 +55,22 @@ pub const Builder = struct {
             return;
         }
         const duped_url = if (url) |u| try self.allocator.dupe(u8, u) else null;
-        try self.current.append(self.allocator, .{ .text = try self.allocator.dupe(u8, text), .style = style, .url = duped_url });
+        errdefer if (duped_url) |u| self.allocator.free(u);
+        const duped_text = try self.allocator.dupe(u8, text);
+        errdefer self.allocator.free(duped_text);
+        try self.current.append(self.allocator, .{ .text = duped_text, .style = style, .url = duped_url });
     }
 
     pub fn newline(self: *Builder) !void {
-        try self.lines.append(self.allocator, .{ .spans = try self.current.toOwnedSlice(self.allocator) });
+        const spans = try self.current.toOwnedSlice(self.allocator);
+        errdefer {
+            for (spans) |span| {
+                self.allocator.free(span.text);
+                if (span.url) |u| self.allocator.free(u);
+            }
+            self.allocator.free(spans);
+        }
+        try self.lines.append(self.allocator, .{ .spans = spans });
         self.current = .empty;
     }
 
@@ -70,3 +81,20 @@ pub const Builder = struct {
         return try self.lines.toOwnedSlice(self.allocator);
     }
 };
+
+fn buildForLeakTest(allocator: std.mem.Allocator) !void {
+    var b = Builder.init(allocator);
+    defer b.deinit();
+    b.left_padding = 2;
+    try b.appendSpanWithUrl(.body, "link", "https://example.com");
+    try b.appendSpan(.emphasis, "text");
+    try b.newline();
+    try b.appendSpan(.body, "more");
+    const lines = try b.finish();
+    for (lines) |line| line.deinit(allocator);
+    allocator.free(lines);
+}
+
+test "Builder leaks no spans under injected allocation failure" {
+    try std.testing.checkAllAllocationFailures(std.testing.allocator, buildForLeakTest, .{});
+}

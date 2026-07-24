@@ -18,6 +18,14 @@ task_todo = "[ ]"
 table_border_set = "light"
 # String repeated once per heading level when heading markers are shown.
 heading_prefix = "#"
+# How YAML front matter (--- metadata at the top of a file) is displayed:
+#   "panel" (default) — banded metadata card
+#   "dim"             — muted key/value list, no chrome
+#   "compact"         — one status-bar-like line of key:value pairs
+#   "raw"             — verbatim YAML including the --- fences
+#   "hidden"          — stripped entirely
+# Override for one run with MERCAT_FRONTMATTER=<style>.
+frontmatter = "panel"
 
 [mermaid]
 enabled = true

@@ -14,6 +14,18 @@ A fast terminal markdown viewer with best-in-class mermaid diagram rendering, wr
 brew install tawago/tap/mercat
 ```
 
+Works on both macOS and Linux.
+
+### Debian/Ubuntu and Fedora/RHEL
+
+`.deb` and `.rpm` packages are attached to each
+[release](https://github.com/tawago/mercat/releases):
+
+```bash
+sudo apt install ./mercat_<version>_amd64.deb   # Debian/Ubuntu
+sudo dnf install ./mercat-<version>.x86_64.rpm  # Fedora/RHEL
+```
+
 ### Installer Script
 
 ```bash
@@ -86,6 +98,8 @@ pager = "less -R"
 theme = "dark"       # dark, light
 width = 0            # 0 = terminal width
 heading_markers = true
+# YAML front matter display: panel (default), dim, compact, raw, hidden
+frontmatter = "panel"
 
 # Structural glyphs (a trailing space is appended after markers automatically)
 quote_bar = "▎"
@@ -115,7 +129,7 @@ fg = 81
 bold = true
 ```
 
-Environment overrides: `MERCAT_THEME`, `MERCAT_WIDTH`
+Environment overrides: `MERCAT_THEME`, `MERCAT_WIDTH`, `MERCAT_FRONTMATTER`
 
 ## Status
 

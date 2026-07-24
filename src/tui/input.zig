@@ -8,6 +8,7 @@ pub const Action = enum {
     reload,
     cycle_layout,
     toggle_subgraph_edges,
+    toggle_metadata,
     line_up,
     line_down,
     page_up,
@@ -27,6 +28,7 @@ pub fn mapKey(key: vaxis.Key) Action {
     if (key.matches('k', .{}) or key.matches(vaxis.Key.up, .{})) return .line_up;
     if (key.matches('j', .{}) or key.matches(vaxis.Key.down, .{})) return .line_down;
     if (key.matches('b', .{})) return .toggle_subgraph_edges;
+    if (key.matches('m', .{})) return .toggle_metadata;
     if (key.matches('b', .{ .ctrl = true }) or key.matches(vaxis.Key.page_up, .{})) return .page_up;
     if (key.matches(' ', .{}) or key.matches(vaxis.Key.page_down, .{})) return .page_down;
     if (key.matches('g', .{})) return .top;

@@ -12,9 +12,9 @@
 //! The mapping to concrete colors is handled by theme.zig based on dark/light mode.
 
 const std = @import("std");
+const config = @import("../config.zig");
 const mermaid_types = @import("../mermaid/types.zig");
 const unicode = @import("../../lib/unicode.zig");
-const config = @import("../config.zig");
 
 /// Structural glyphs the block/table renderers stamp into the grid. Defaults are
 /// the exact literals used before Issue 17, so an unpopulated Options renders
@@ -60,6 +60,13 @@ pub const Options = struct {
     left_padding: usize = 2,
     show_heading_markers: bool = true,
     glyphs: Glyphs = .{},
+    /// YAML front matter display style (issue #9; panel default).
+    frontmatter_style: config.FrontmatterStyle = .panel,
+    /// True when the render model feeds a file exporter (plain/PNG) rather than
+    /// an interactive terminal. The raw front-matter style keeps tabs byte-
+    /// verbatim for the terminal, but the plain/PNG backends reject tab scalars,
+    /// so raw content has its tabs expanded to spaces only on the export path.
+    for_export: bool = false,
     mermaid_box_style: mermaid_types.BoxDrawingStyle = .standard,
     mermaid_crossing_heuristic: mermaid_types.CrossingReductionHeuristic = .median,
     mermaid_force_layout: mermaid_types.ForceLayout = .auto,
@@ -111,6 +118,9 @@ pub const SpanStyle = enum {
     task_checkbox_todo,
     hr,
     code_fence_banner,
+    frontmatter_key,
+    frontmatter_value,
+    frontmatter_cap,
 };
 
 /// A span of styled text. This is the shared abstraction used by both

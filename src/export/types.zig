@@ -207,6 +207,9 @@ pub fn semanticStyleTag(style: render_model.SpanStyle) u16 {
         .task_checkbox_todo => 33,
         .hr => 34,
         .code_fence_banner => 35,
+        .frontmatter_key => 36,
+        .frontmatter_value => 37,
+        .frontmatter_cap => 38,
     };
 }
 

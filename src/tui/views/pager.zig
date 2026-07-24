@@ -28,6 +28,11 @@ pub const PagerView = struct {
     palette: theme.Palette,
     glyphs: render_model.Glyphs = .{},
     show_heading_markers: bool = true,
+    frontmatter_style: config.FrontmatterStyle = .panel,
+    /// While the metadata overlay shows the front matter, the inline block is
+    /// suppressed so the same data is not displayed twice. Overrides
+    /// `frontmatter_style` at reflow time; the configured style is untouched.
+    suppress_frontmatter: bool = false,
     mermaid_layout: mermaid_types.ForceLayout = .auto,
     /// Subgraph frame-border notation (config value; a later live toggle may
     /// mutate it, mirroring `mermaid_layout`).
@@ -174,6 +179,7 @@ pub const PagerView = struct {
             .width = if (self.width == 0) 80 else self.width,
             .show_heading_markers = self.show_heading_markers,
             .glyphs = self.glyphs,
+            .frontmatter_style = if (self.suppress_frontmatter) .hidden else self.frontmatter_style,
             .mermaid_force_layout = self.mermaid_layout,
             .mermaid_subgraph_edges = self.mermaid_subgraph_edges,
         });
