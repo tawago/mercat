@@ -91,6 +91,7 @@ pub const App = struct {
     metadata: MetadataOverlay,
 
     pub fn init(
+        self: *App,
         allocator: std.mem.Allocator,
         title: []const u8,
         input_source: args.Input,
@@ -102,8 +103,7 @@ pub const App = struct {
         frontmatter_style: config.FrontmatterStyle,
         initial_layout: mermaid_types.ForceLayout,
         initial_subgraph_edges: SubgraphEdges,
-    ) !App {
-        var self: App = undefined;
+    ) !void {
         self.allocator = allocator;
         self.title = title;
         self.input_source = input_source;
@@ -136,8 +136,6 @@ pub const App = struct {
         self.toast_message = null;
         self.toast_deadline_ms = 0;
         self.metadata = .{};
-
-        return self;
     }
 
     pub fn deinit(self: *App) void {
@@ -584,11 +582,10 @@ pub const App = struct {
 
 /// Entry point for TUI mode - creates and runs the App
 pub fn run(allocator: std.mem.Allocator, title: []const u8, input_source: args.Input, initial_content: []const u8, editor_command: []const u8, resolved: *const ResolvedTheme, theme_warning: ?[]const u8, show_heading_markers: bool, frontmatter_style: config.FrontmatterStyle, initial_layout: mermaid_types.ForceLayout, initial_subgraph_edges: SubgraphEdges) !void {
-    var app = try App.init(allocator, title, input_source, initial_content, editor_command, resolved, theme_warning, show_heading_markers, frontmatter_style, initial_layout, initial_subgraph_edges);
-    // Fix self-referential pointer invalidated by struct return copy.
-    // App.init() stores &self.current_document where self is a local; after
-    // the return-by-value copy into app, that pointer is stale.
-    app.pager.document = &app.current_document;
+    var app: App = undefined;
+    // `init` takes an out-pointer, so &self.current_document / &self.tty_buffer
+    // point at this stable `app` — no post-return fix-up needed.
+    try app.init(allocator, title, input_source, initial_content, editor_command, resolved, theme_warning, show_heading_markers, frontmatter_style, initial_layout, initial_subgraph_edges);
     defer app.deinit();
     try app.run();
 }
@@ -729,7 +726,8 @@ test "toast/metadata panel styles derive from the resolved preset accent" {
 test "startup theme_warning surfaces in the status bar" {
     const allocator = std.testing.allocator;
     const rt = theme_resolve.builtinResolved(allocator, "dark");
-    var app = try App.init(allocator, "fixture", .none, "# Title\n", "vim", &rt, "theme: unknown theme 'nope' (using dark)", true, .panel, .auto, .bridge);
+    var app: App = undefined;
+    try app.init(allocator, "fixture", .none, "# Title\n", "vim", &rt, "theme: unknown theme 'nope' (using dark)", true, .panel, .auto, .bridge);
     defer app.deinit();
     try std.testing.expect(app.status_message != null);
     try std.testing.expectEqualStrings("theme: unknown theme 'nope' (using dark)", app.status_message.?);
@@ -755,7 +753,8 @@ test "initLoop binds loop to app-owned tty and vaxis" {
     const allocator = std.testing.allocator;
 
     const rt = theme_resolve.builtinResolved(allocator, "dark");
-    var app = try App.init(allocator, "fixture", .none, "# Title\n", "vim", &rt, null, true, .panel, .auto, .bridge);
+    var app: App = undefined;
+    try app.init(allocator, "fixture", .none, "# Title\n", "vim", &rt, null, true, .panel, .auto, .bridge);
     defer app.deinit();
 
     try app.initLoop();
@@ -789,7 +788,8 @@ test "toggle metadata is refused when front matter is hidden" {
     const allocator = std.testing.allocator;
     const content = "---\ntitle: Secret\n---\n# Body\n";
     const rt = theme_resolve.builtinResolved(allocator, "dark");
-    var app = try App.init(allocator, "fixture", .none, content, "vim", &rt, null, true, .hidden, .auto, .bridge);
+    var app: App = undefined;
+    try app.init(allocator, "fixture", .none, content, "vim", &rt, null, true, .hidden, .auto, .bridge);
     defer app.deinit();
 
     try app.handleToggleMetadata();
@@ -802,7 +802,8 @@ test "toggle metadata opens the overlay for visible front matter" {
     const allocator = std.testing.allocator;
     const content = "---\ntitle: Shown\n---\n# Body\n";
     const rt = theme_resolve.builtinResolved(allocator, "dark");
-    var app = try App.init(allocator, "fixture", .none, content, "vim", &rt, null, true, .panel, .auto, .bridge);
+    var app: App = undefined;
+    try app.init(allocator, "fixture", .none, content, "vim", &rt, null, true, .panel, .auto, .bridge);
     defer app.deinit();
 
     try app.handleToggleMetadata();
@@ -813,7 +814,8 @@ test "opening the metadata overlay hides the inline front matter and closing res
     const allocator = std.testing.allocator;
     const content = "---\ntitle: Shown\n---\n# Body\n";
     const rt = theme_resolve.builtinResolved(allocator, "dark");
-    var app = try App.init(allocator, "fixture", .none, content, "vim", &rt, null, true, .panel, .auto, .bridge);
+    var app: App = undefined;
+    try app.init(allocator, "fixture", .none, content, "vim", &rt, null, true, .panel, .auto, .bridge);
     defer app.deinit();
 
     try app.pager.resize(60, 20);
@@ -834,7 +836,8 @@ test "toggle metadata is refused when the document has no front matter" {
     const allocator = std.testing.allocator;
     const content = "# Body only\n"; // no --- fenced block
     const rt = theme_resolve.builtinResolved(allocator, "dark");
-    var app = try App.init(allocator, "fixture", .none, content, "vim", &rt, null, true, .panel, .auto, .bridge);
+    var app: App = undefined;
+    try app.init(allocator, "fixture", .none, content, "vim", &rt, null, true, .panel, .auto, .bridge);
     defer app.deinit();
 
     try app.handleToggleMetadata();
