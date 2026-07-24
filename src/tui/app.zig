@@ -4,6 +4,8 @@ const markdown = @import("../core/markdown.zig");
 const config = @import("../core/config.zig");
 const render_model = @import("../core/render_model.zig");
 const theme = @import("../core/theme.zig");
+const theme_resolve = @import("../core/theme/resolve.zig");
+const ResolvedTheme = theme_resolve.ResolvedTheme;
 const mermaid_types = @import("../core/mermaid/types.zig");
 const SubgraphEdges = @import("prim").SubgraphEdges;
 const editor = @import("../platform/editor.zig");
@@ -94,10 +96,8 @@ pub const App = struct {
         input_source: args.Input,
         initial_content: []const u8,
         editor_command: []const u8,
-        active_theme: config.Theme,
-        syntax_theme: config.SyntaxTheme,
-        theme_overrides: config.ThemeOverrides,
-        glyphs: render_model.Glyphs,
+        resolved: *const ResolvedTheme,
+        theme_warning: ?[]const u8,
         show_heading_markers: bool,
         frontmatter_style: config.FrontmatterStyle,
         initial_layout: mermaid_types.ForceLayout,
@@ -126,11 +126,12 @@ pub const App = struct {
 
         self.mermaid_layout = initial_layout;
         self.mermaid_subgraph_edges = initial_subgraph_edges;
-        self.pager = PagerView.init(allocator, title, &self.current_document, active_theme, syntax_theme, theme_overrides, glyphs, show_heading_markers, initial_layout, initial_subgraph_edges);
+        self.pager = PagerView.init(allocator, title, &self.current_document, resolved, show_heading_markers, initial_layout, initial_subgraph_edges);
         self.pager.frontmatter_style = frontmatter_style;
 
         self.view_mode = .pager;
-        self.status_message = null;
+        // Surface theme-resolution diagnostics in the status bar on startup.
+        self.status_message = if (theme_warning) |w| try allocator.dupe(u8, w) else null;
         self.needs_redraw = true;
         self.toast_message = null;
         self.toast_deadline_ms = 0;
@@ -376,7 +377,7 @@ pub const App = struct {
         const height: usize = 3;
         if (width < 3 or root.height < height) return;
 
-        const style = theme.toastStyle(self.pager.active_theme);
+        const style = theme.toastStyle(self.pager.resolved.accent, self.pager.resolved.base_bg);
         const x_off = root.width -| width;
 
         // Fill the panel background, draw the rounded border over it, then print
@@ -531,10 +532,17 @@ pub const App = struct {
 
         root.clear();
 
+        // Canvas: paint every cell's background with base_bg so blank cells and
+        // the padding to the right of each line read as a solid sheet. Printed
+        // segments carry the same bg (toVaxisSegments), so text cells match.
+        if (self.pager.resolved.canvasBg()) |bg| {
+            root.fill(.{ .style = .{ .bg = theme.toVaxisColor(bg) } });
+        }
+
         if (self.view_mode == .pager) {
             var row: usize = 0;
             while (row < content_height and self.pager.viewport.top + row < self.pager.lines.len) : (row += 1) {
-                const segments = try toVaxisSegments(self.allocator, self.pager.lines[self.pager.viewport.top + row], self.pager.palette);
+                const segments = try toVaxisSegments(self.allocator, self.pager.lines[self.pager.viewport.top + row], self.pager.resolved);
                 defer self.allocator.free(segments);
                 _ = root.print(segments, .{
                     .row_offset = @intCast(row),
@@ -565,7 +573,7 @@ pub const App = struct {
         // `hidden` keeps the front matter stripped (see config.zig); pass null
         // so the overlay never reveals it.
         const overlay_fm = if (self.pager.frontmatter_style == .hidden) null else self.frontMatter();
-        try self.metadata.draw(root, frame_arena.allocator(), overlay_fm, self.pager.active_theme);
+        try self.metadata.draw(root, frame_arena.allocator(), overlay_fm, self.pager.resolved);
         self.drawToast(root);
 
         const writer = self.tty.writer();
@@ -575,8 +583,8 @@ pub const App = struct {
 };
 
 /// Entry point for TUI mode - creates and runs the App
-pub fn run(allocator: std.mem.Allocator, title: []const u8, input_source: args.Input, initial_content: []const u8, editor_command: []const u8, active_theme: config.Theme, syntax_theme: config.SyntaxTheme, theme_overrides: config.ThemeOverrides, glyphs: render_model.Glyphs, show_heading_markers: bool, frontmatter_style: config.FrontmatterStyle, initial_layout: mermaid_types.ForceLayout, initial_subgraph_edges: SubgraphEdges) !void {
-    var app = try App.init(allocator, title, input_source, initial_content, editor_command, active_theme, syntax_theme, theme_overrides, glyphs, show_heading_markers, frontmatter_style, initial_layout, initial_subgraph_edges);
+pub fn run(allocator: std.mem.Allocator, title: []const u8, input_source: args.Input, initial_content: []const u8, editor_command: []const u8, resolved: *const ResolvedTheme, theme_warning: ?[]const u8, show_heading_markers: bool, frontmatter_style: config.FrontmatterStyle, initial_layout: mermaid_types.ForceLayout, initial_subgraph_edges: SubgraphEdges) !void {
+    var app = try App.init(allocator, title, input_source, initial_content, editor_command, resolved, theme_warning, show_heading_markers, frontmatter_style, initial_layout, initial_subgraph_edges);
     // Fix self-referential pointer invalidated by struct return copy.
     // App.init() stores &self.current_document where self is a local; after
     // the return-by-value copy into app, that pointer is stale.
@@ -585,13 +593,19 @@ pub fn run(allocator: std.mem.Allocator, title: []const u8, input_source: args.I
     try app.run();
 }
 
-fn toVaxisSegments(allocator: std.mem.Allocator, line: render_model.Line, palette: theme.Palette) ![]vaxis.Segment {
+fn toVaxisSegments(allocator: std.mem.Allocator, line: render_model.Line, resolved: *const ResolvedTheme) ![]vaxis.Segment {
+    const palette = resolved.palette;
+    // Canvas: spans without their own bg inherit base_bg so the row reads as a
+    // solid sheet (the filled window supplies the trailing/blank-cell bg).
+    const canvas_bg = resolved.canvasBg();
     const segments = try allocator.alloc(vaxis.Segment, line.spans.len);
     for (line.spans, 0..) |span, index| {
-        var segment: vaxis.Segment = .{
-            .text = span.text,
-            .style = theme.vaxisStyle(theme.token(palette, span.style)),
-        };
+        const token = theme.token(palette, span.style);
+        var style = theme.vaxisStyle(token);
+        if (canvas_bg) |bg| {
+            if (token.bg == null) style.bg = theme.toVaxisColor(bg);
+        }
+        var segment: vaxis.Segment = .{ .text = span.text, .style = style };
         if (span.url) |url| {
             segment.link = .{ .uri = url };
         }
@@ -672,6 +686,55 @@ fn drawHelp(root: vaxis.Window) void {
     }
 }
 
+test "toVaxisSegments uses the resolved preset palette (dracula, not dark)" {
+    const allocator = std.testing.allocator;
+    var document = try markdown.parse(allocator,
+        \\# Title
+    );
+    defer document.deinit(allocator);
+    var rendered = try render_model.renderDocument(allocator, document, .{ .width = 20 });
+    defer rendered.deinit(allocator);
+
+    const dracula = theme_resolve.builtinResolved(allocator, "dracula");
+    const dark = theme_resolve.builtinResolved(allocator, "dark");
+    // Presets must diverge, otherwise the wiring guard below is vacuous.
+    try std.testing.expect(!std.meta.eql(dracula.palette.heading1.fg, dark.palette.heading1.fg));
+
+    // Every segment must be styled through the *passed* resolved palette, not a
+    // hardcoded dark one — this is the CLI/TUI-divergence guard (Correctness #2).
+    const seg = try toVaxisSegments(allocator, rendered.lines[0], &dracula);
+    defer allocator.free(seg);
+    for (rendered.lines[0].spans, seg) |span, s| {
+        const want = theme.vaxisStyle(theme.token(dracula.palette, span.style));
+        try std.testing.expectEqual(want.fg, s.style.fg);
+    }
+}
+
+test "toast/metadata panel styles derive from the resolved preset accent" {
+    const allocator = std.testing.allocator;
+    const pink = theme_resolve.builtinResolved(allocator, "pink");
+    const dark = theme_resolve.builtinResolved(allocator, "dark");
+
+    const pink_toast = theme.toastStyle(pink.accent, pink.base_bg);
+    const dark_toast = theme.toastStyle(dark.accent, dark.base_bg);
+    // Different presets must yield different toast border accents.
+    try std.testing.expect(!std.meta.eql(pink_toast.border.fg, dark_toast.border.fg));
+    // The metadata panel shares the same accent but is non-bold.
+    const pink_meta = theme.metadataPanelStyle(pink.accent, pink.base_bg);
+    try std.testing.expectEqual(pink_toast.border.fg, pink_meta.border.fg);
+    try std.testing.expect(!pink_meta.text.bold);
+    try std.testing.expect(pink_toast.text.bold);
+}
+
+test "startup theme_warning surfaces in the status bar" {
+    const allocator = std.testing.allocator;
+    const rt = theme_resolve.builtinResolved(allocator, "dark");
+    var app = try App.init(allocator, "fixture", .none, "# Title\n", "vim", &rt, "theme: unknown theme 'nope' (using dark)", true, .panel, .auto, .bridge);
+    defer app.deinit();
+    try std.testing.expect(app.status_message != null);
+    try std.testing.expectEqualStrings("theme: unknown theme 'nope' (using dark)", app.status_message.?);
+}
+
 test "toVaxisSegments borrows render-model span text" {
     const allocator = std.testing.allocator;
     var document = try markdown.parse(allocator,
@@ -681,7 +744,8 @@ test "toVaxisSegments borrows render-model span text" {
     var rendered = try render_model.renderDocument(allocator, document, .{ .width = 20 });
     defer rendered.deinit(allocator);
 
-    const segments = try toVaxisSegments(allocator, rendered.lines[0], theme.palette(.dark, .default, .{}));
+    const rt = theme_resolve.builtinResolved(allocator, "dark");
+    const segments = try toVaxisSegments(allocator, rendered.lines[0], &rt);
     defer allocator.free(segments);
 
     try std.testing.expectEqual(@intFromPtr(rendered.lines[0].spans[0].text.ptr), @intFromPtr(segments[0].text.ptr));
@@ -690,10 +754,8 @@ test "toVaxisSegments borrows render-model span text" {
 test "initLoop binds loop to app-owned tty and vaxis" {
     const allocator = std.testing.allocator;
 
-    var app = try App.init(allocator, "fixture", .none, "# Title\n", "vim", .dark, .default, .{}, .{}, true, .panel, .auto, .bridge);
-    // Repair the self-referential document pointer invalidated by App.init's
-    // return-by-value copy (see run()); reflow() dereferences it.
-    app.pager.document = &app.current_document;
+    const rt = theme_resolve.builtinResolved(allocator, "dark");
+    var app = try App.init(allocator, "fixture", .none, "# Title\n", "vim", &rt, null, true, .panel, .auto, .bridge);
     defer app.deinit();
 
     try app.initLoop();
@@ -709,7 +771,8 @@ test "syncPagerSize reflows when draw detects width change" {
     );
     defer document.deinit(allocator);
 
-    var pager = PagerView.init(allocator, "fixture", &document, .dark, .default, .{}, .{}, true, .auto, .bridge);
+    const rt = theme_resolve.builtinResolved(allocator, "dark");
+    var pager = PagerView.init(allocator, "fixture", &document, &rt, true, .auto, .bridge);
     defer pager.deinit();
 
     try pager.resize(60, 5);
@@ -725,8 +788,8 @@ test "syncPagerSize reflows when draw detects width change" {
 test "toggle metadata is refused when front matter is hidden" {
     const allocator = std.testing.allocator;
     const content = "---\ntitle: Secret\n---\n# Body\n";
-    var app = try App.init(allocator, "fixture", .none, content, "vim", .dark, .default, .{}, .{}, true, .hidden, .auto, .bridge);
-    app.pager.document = &app.current_document;
+    const rt = theme_resolve.builtinResolved(allocator, "dark");
+    var app = try App.init(allocator, "fixture", .none, content, "vim", &rt, null, true, .hidden, .auto, .bridge);
     defer app.deinit();
 
     try app.handleToggleMetadata();
@@ -738,8 +801,8 @@ test "toggle metadata is refused when front matter is hidden" {
 test "toggle metadata opens the overlay for visible front matter" {
     const allocator = std.testing.allocator;
     const content = "---\ntitle: Shown\n---\n# Body\n";
-    var app = try App.init(allocator, "fixture", .none, content, "vim", .dark, .default, .{}, .{}, true, .panel, .auto, .bridge);
-    app.pager.document = &app.current_document;
+    const rt = theme_resolve.builtinResolved(allocator, "dark");
+    var app = try App.init(allocator, "fixture", .none, content, "vim", &rt, null, true, .panel, .auto, .bridge);
     defer app.deinit();
 
     try app.handleToggleMetadata();
@@ -749,8 +812,8 @@ test "toggle metadata opens the overlay for visible front matter" {
 test "opening the metadata overlay hides the inline front matter and closing restores it" {
     const allocator = std.testing.allocator;
     const content = "---\ntitle: Shown\n---\n# Body\n";
-    var app = try App.init(allocator, "fixture", .none, content, "vim", .dark, .default, .{}, .{}, true, .panel, .auto, .bridge);
-    app.pager.document = &app.current_document;
+    const rt = theme_resolve.builtinResolved(allocator, "dark");
+    var app = try App.init(allocator, "fixture", .none, content, "vim", &rt, null, true, .panel, .auto, .bridge);
     defer app.deinit();
 
     try app.pager.resize(60, 20);
@@ -770,8 +833,8 @@ test "opening the metadata overlay hides the inline front matter and closing res
 test "toggle metadata is refused when the document has no front matter" {
     const allocator = std.testing.allocator;
     const content = "# Body only\n"; // no --- fenced block
-    var app = try App.init(allocator, "fixture", .none, content, "vim", .dark, .default, .{}, .{}, true, .panel, .auto, .bridge);
-    app.pager.document = &app.current_document;
+    const rt = theme_resolve.builtinResolved(allocator, "dark");
+    var app = try App.init(allocator, "fixture", .none, content, "vim", &rt, null, true, .panel, .auto, .bridge);
     defer app.deinit();
 
     try app.handleToggleMetadata();

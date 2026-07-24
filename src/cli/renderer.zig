@@ -4,6 +4,18 @@ const render_model = @import("../core/render_model.zig");
 const theme = @import("../core/theme.zig");
 const ansi = @import("../lib/ansi.zig");
 const mermaid_types = @import("../core/mermaid/types.zig");
+const Color = @import("../core/theme/color.zig").Color;
+
+/// Solid-background ("canvas") fill request for the terminal backend. When
+/// present, every line's background is painted with `bg` and padded with
+/// bg-styled spaces to `width`; spans that carry their own bg keep it. When
+/// `null`, serialization is byte-identical to the historical terminal output
+/// (the un-themed neutral palettes have no `base_bg`, so `main.zig` passes
+/// `null` and the coalescing path below is unchanged).
+pub const Canvas = struct {
+    bg: Color,
+    width: usize,
+};
 
 pub const Options = struct {
     width: usize,
@@ -32,7 +44,7 @@ pub fn renderDocument(allocator: std.mem.Allocator, document: markdown.Document,
     });
     defer rendered.deinit(allocator);
 
-    return serialize(allocator, rendered, options.palette);
+    return serialize(allocator, rendered, options.palette, null);
 }
 
 /// Serialize an already-rendered value to ANSI-styled terminal bytes. This is
@@ -43,6 +55,7 @@ pub fn serialize(
     allocator: std.mem.Allocator,
     rendered: render_model.Rendered,
     palette: theme.Palette,
+    canvas: ?Canvas,
 ) ![]u8 {
     var buffer: std.ArrayList(u8) = .empty;
     errdefer buffer.deinit(allocator);
@@ -72,7 +85,15 @@ pub fn serialize(
         try flushRun(allocator, &buffer, &run_token, &run_open);
         if (line_index != 0) try buffer.append(allocator, '\n');
         for (line.spans) |span| {
-            const token = theme.token(palette, span.style);
+            var token = theme.token(palette, span.style);
+            // Canvas: spans without their own bg inherit the base_bg so the row
+            // reads as a solid sheet; spans that carry a bg (code panels, tints)
+            // keep theirs. Setting the bg before the run-equality check keeps
+            // coalescing intact — two spans that were equal with bg==null are
+            // still equal once both inherit the same canvas bg.
+            if (canvas) |c| {
+                if (token.bg == null) token.bg = c.bg;
+            }
             if (span.url) |url| {
                 try flushRun(allocator, &buffer, &run_token, &run_open);
                 try ansi.writeHyperlink(allocator, &buffer, url, span.text, token);
@@ -88,6 +109,23 @@ pub fn serialize(
                     }
                     try buffer.appendSlice(allocator, span.text);
                 }
+            }
+        }
+        // Canvas: pad the row with bg-styled spaces out to the full width so the
+        // background is solid to the right margin (and blank lines fill too).
+        // This is the one exception to trailing-space stripping. The fill span
+        // is emitted as its own reset-terminated run, so nothing bleeds past the
+        // line. Only runs when canvas is present, so the un-themed path is
+        // untouched.
+        if (canvas) |c| {
+            try flushRun(allocator, &buffer, &run_token, &run_open);
+            const cur = line.displayWidth();
+            if (cur < c.width) {
+                const pad = c.width - cur;
+                const spaces = try allocator.alloc(u8, pad);
+                defer allocator.free(spaces);
+                @memset(spaces, ' ');
+                try ansi.writeTokenStyled(allocator, &buffer, .{ .fg = .default, .bg = c.bg }, spaces);
             }
         }
     }
@@ -107,7 +145,7 @@ pub fn serialize(
 
 test "coalesces distinct SpanStyles that map to one StyleToken into a single run" {
     const allocator = std.testing.allocator;
-    const palette = theme.palette(.dark, .default, .{});
+    const palette = theme.palette(.dark, .default);
 
     // .body and .table_header are different SpanStyle enums but table_header is
     // stamped equal to body in the palette, so they resolve to one StyleToken.
@@ -120,7 +158,7 @@ test "coalesces distinct SpanStyles that map to one StyleToken into a single run
     var lines = [_]render_model.Line{.{ .spans = &spans }};
     const rendered = render_model.Rendered{ .lines = &lines };
 
-    const out = try serialize(allocator, rendered, palette);
+    const out = try serialize(allocator, rendered, palette, null);
     defer allocator.free(out);
 
     var expected: std.ArrayList(u8) = .empty;
@@ -135,7 +173,7 @@ test "coalesces distinct SpanStyles that map to one StyleToken into a single run
 
 test "token change mid-line closes the run and opens a new prefix" {
     const allocator = std.testing.allocator;
-    const palette = theme.palette(.dark, .default, .{});
+    const palette = theme.palette(.dark, .default);
 
     try std.testing.expect(!std.meta.eql(theme.token(palette, .body), theme.token(palette, .emphasis)));
 
@@ -146,7 +184,7 @@ test "token change mid-line closes the run and opens a new prefix" {
     var lines = [_]render_model.Line{.{ .spans = &spans }};
     const rendered = render_model.Rendered{ .lines = &lines };
 
-    const out = try serialize(allocator, rendered, palette);
+    const out = try serialize(allocator, rendered, palette, null);
     defer allocator.free(out);
 
     var expected: std.ArrayList(u8) = .empty;
@@ -163,7 +201,7 @@ test "token change mid-line closes the run and opens a new prefix" {
 
 test "same-token empty span leaves the run open" {
     const allocator = std.testing.allocator;
-    const palette = theme.palette(.dark, .default, .{});
+    const palette = theme.palette(.dark, .default);
 
     // Empty span between two body spans (via table_header, same token) must not
     // close/reopen the run: the whole line is one prefix/reset pair.
@@ -175,7 +213,7 @@ test "same-token empty span leaves the run open" {
     var lines = [_]render_model.Line{.{ .spans = &spans }};
     const rendered = render_model.Rendered{ .lines = &lines };
 
-    const out = try serialize(allocator, rendered, palette);
+    const out = try serialize(allocator, rendered, palette, null);
     defer allocator.free(out);
 
     var expected: std.ArrayList(u8) = .empty;
@@ -190,7 +228,7 @@ test "same-token empty span leaves the run open" {
 
 test "different-token empty span closes the run without opening a new prefix" {
     const allocator = std.testing.allocator;
-    const palette = theme.palette(.dark, .default, .{});
+    const palette = theme.palette(.dark, .default);
 
     // The empty emphasis span closes the open body run (emits a reset) but must
     // NOT emit an emphasis prefix, because it carries no text. The next body
@@ -204,7 +242,7 @@ test "different-token empty span closes the run without opening a new prefix" {
     var lines = [_]render_model.Line{.{ .spans = &spans }};
     const rendered = render_model.Rendered{ .lines = &lines };
 
-    const out = try serialize(allocator, rendered, palette);
+    const out = try serialize(allocator, rendered, palette, null);
     defer allocator.free(out);
 
     var expected: std.ArrayList(u8) = .empty;
@@ -227,7 +265,7 @@ test "different-token empty span closes the run without opening a new prefix" {
 
 test "run resets at line end and newlines sit between lines with no leading newline" {
     const allocator = std.testing.allocator;
-    const palette = theme.palette(.dark, .default, .{});
+    const palette = theme.palette(.dark, .default);
 
     var spans0 = [_]render_model.Span{.{ .text = "a", .style = .body }};
     var spans1 = [_]render_model.Span{.{ .text = "b", .style = .body }};
@@ -237,7 +275,7 @@ test "run resets at line end and newlines sit between lines with no leading newl
     };
     const rendered = render_model.Rendered{ .lines = &lines };
 
-    const out = try serialize(allocator, rendered, palette);
+    const out = try serialize(allocator, rendered, palette, null);
     defer allocator.free(out);
 
     var expected: std.ArrayList(u8) = .empty;
@@ -258,7 +296,7 @@ test "run resets at line end and newlines sit between lines with no leading newl
 
 test "blank middle line emits its own newline without an SGR run" {
     const allocator = std.testing.allocator;
-    const palette = theme.palette(.dark, .default, .{});
+    const palette = theme.palette(.dark, .default);
 
     var spans0 = [_]render_model.Span{.{ .text = "a", .style = .body }};
     var spans1 = [_]render_model.Span{}; // empty line
@@ -270,7 +308,7 @@ test "blank middle line emits its own newline without an SGR run" {
     };
     const rendered = render_model.Rendered{ .lines = &lines };
 
-    const out = try serialize(allocator, rendered, palette);
+    const out = try serialize(allocator, rendered, palette, null);
     defer allocator.free(out);
 
     var expected: std.ArrayList(u8) = .empty;
@@ -289,7 +327,7 @@ test "blank middle line emits its own newline without an SGR run" {
 
 test "hyperlink span flushes the run and neighbours re-open around it" {
     const allocator = std.testing.allocator;
-    const palette = theme.palette(.dark, .default, .{});
+    const palette = theme.palette(.dark, .default);
     const url = "https://example.com";
 
     var spans = [_]render_model.Span{
@@ -300,7 +338,7 @@ test "hyperlink span flushes the run and neighbours re-open around it" {
     var lines = [_]render_model.Line{.{ .spans = &spans }};
     const rendered = render_model.Rendered{ .lines = &lines };
 
-    const out = try serialize(allocator, rendered, palette);
+    const out = try serialize(allocator, rendered, palette, null);
     defer allocator.free(out);
 
     var expected: std.ArrayList(u8) = .empty;
@@ -331,7 +369,7 @@ test "renders heading and paragraph" {
 
     const rendered = try renderDocument(allocator, document, .{
         .width = 20,
-        .palette = theme.palette(.dark, .default, .{}),
+        .palette = theme.palette(.dark, .default),
         .show_heading_markers = true,
     });
     defer allocator.free(rendered);
@@ -350,7 +388,7 @@ test "renders table with borders" {
     var document = try markdown.parse(allocator, source);
     defer document.deinit(allocator);
 
-    const rendered = try renderDocument(allocator, document, .{ .width = 80, .palette = theme.palette(.dark, .default, .{}), .show_heading_markers = true });
+    const rendered = try renderDocument(allocator, document, .{ .width = 80, .palette = theme.palette(.dark, .default), .show_heading_markers = true });
     defer allocator.free(rendered);
 
     try std.testing.expect(std.mem.indexOf(u8, rendered, "Name") != null);
@@ -369,7 +407,7 @@ test "renders highlighted code fence" {
     var document = try markdown.parse(allocator, source);
     defer document.deinit(allocator);
 
-    const rendered = try renderDocument(allocator, document, .{ .width = 80, .palette = theme.palette(.dark, .default, .{}), .show_heading_markers = true });
+    const rendered = try renderDocument(allocator, document, .{ .width = 80, .palette = theme.palette(.dark, .default), .show_heading_markers = true });
     defer allocator.free(rendered);
 
     try std.testing.expect(std.mem.indexOf(u8, rendered, "const") != null);
@@ -384,7 +422,7 @@ test "renders inline markdown styling" {
     var document = try markdown.parse(allocator, source);
     defer document.deinit(allocator);
 
-    const palette = theme.palette(.dark, .default, .{});
+    const palette = theme.palette(.dark, .default);
     const rendered = try renderDocument(allocator, document, .{ .width = 100, .palette = palette, .show_heading_markers = true });
     defer allocator.free(rendered);
 
@@ -398,7 +436,7 @@ test "can hide heading markers" {
     );
     defer document.deinit(allocator);
 
-    const rendered = try renderDocument(allocator, document, .{ .width = 40, .palette = theme.palette(.dark, .default, .{}), .show_heading_markers = false });
+    const rendered = try renderDocument(allocator, document, .{ .width = 40, .palette = theme.palette(.dark, .default), .show_heading_markers = false });
     defer allocator.free(rendered);
 
     try std.testing.expect(std.mem.indexOf(u8, rendered, "###") == null);

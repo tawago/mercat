@@ -16,7 +16,7 @@ const render_model = @import("../core/render_model.zig");
 /// Bumped whenever the canonical-hash byte encoding changes. It is the first
 /// value fed into `canonicalSha256`, so a recipe change necessarily changes
 /// every document hash.
-pub const canonical_hash_version: u16 = 2;
+pub const canonical_hash_version: u16 = 3;
 
 pub const Color = struct {
     r: u8,
@@ -200,16 +200,23 @@ pub fn semanticStyleTag(style: render_model.SpanStyle) u16 {
         .superscript => 26,
         .subscript => 27,
         .highlight => 28,
-        .list_marker => 29,
-        .table_border => 30,
-        .table_header => 31,
-        .task_checkbox_done => 32,
-        .task_checkbox_todo => 33,
-        .hr => 34,
-        .code_fence_banner => 35,
-        .frontmatter_key => 36,
-        .frontmatter_value => 37,
-        .frontmatter_cap => 38,
+        .frontmatter_key => 29,
+        .frontmatter_value => 30,
+        .frontmatter_cap => 31,
+        // Reconciled marker taxonomy (S2): the #17 list_marker/task_checkbox_*
+        // tags are retired; bullet/ordered/task_on/task_off/list_item take
+        // 32..36 (matches PR #22's renumbering).
+        .bullet => 32,
+        .ordered => 33,
+        .task_on => 34,
+        .task_off => 35,
+        .list_item => 36,
+        // Structural color slots re-added for the 40-slot union (S2). Appended
+        // after #22's set so the earlier tags stay put.
+        .table_border => 37,
+        .table_header => 38,
+        .hr => 39,
+        .code_fence_banner => 40,
     };
 }
 

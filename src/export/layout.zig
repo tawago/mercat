@@ -23,6 +23,7 @@ const std = @import("std");
 
 const render_model = @import("../core/render_model.zig");
 const theme = @import("../core/theme.zig");
+const color = @import("../core/theme/color.zig");
 const unicode = @import("../lib/unicode.zig");
 const font = @import("font.zig");
 const types = @import("types.zig");
@@ -35,12 +36,15 @@ const ExportDocument = types.ExportDocument;
 
 pub const ColorMode = enum { theme, monochrome };
 
-/// Export options (§6.4). The theme MUST already be resolved into a concrete
-/// `theme.Palette` before this stage — the export backend cannot inspect
-/// terminal state.
+/// Export options (§6.4). `.auto` theme MUST already be resolved into a
+/// concrete `theme.Palette` before this stage — the export backend cannot
+/// inspect terminal state.
 pub const Options = struct {
     palette: theme.Palette,
     color_mode: ColorMode,
+    /// When set (canvas=true theme with a concrete base_bg), the sheet uses this
+    /// as its page background instead of the luminance-derived black/white.
+    canvas_bg: ?color.Color = null,
     font_pixel_height: u16 = 20,
     horizontal_padding_cells: u16 = 1,
     vertical_padding_cells: u16 = 1,
@@ -191,13 +195,13 @@ fn appendRun(
     const style = theme.token(options.palette, span.style);
 
     const foreground: Color = switch (options.color_mode) {
-        .theme => xterm256ToSrgb(style.fg_index),
+        .theme => srgbOf(style.fg) orelse black,
         .monochrome => black,
     };
     const background: ?Color = switch (options.color_mode) {
         // A span background only exists in themed mode; in monochrome every
         // span background equals the white page, so no rectangle is painted.
-        .theme => if (style.bg_index) |bg| xterm256ToSrgb(bg) else null,
+        .theme => if (style.bg) |bg| srgbOf(bg) else null,
         .monochrome => null,
     };
 
@@ -236,7 +240,11 @@ fn freeRuns(allocator: std.mem.Allocator, runs: *std.ArrayList(PositionedRun)) v
 /// foreground luminance: light text implies a dark page, dark text a light one.
 fn pageBackground(options: Options) Color {
     if (options.color_mode == .monochrome) return white;
-    const body_fg = xterm256ToSrgb(options.palette.body.fg_index);
+    // Canvas themes pin the sheet background to their resolved base_bg.
+    if (options.canvas_bg) |bg| {
+        if (srgbOf(bg)) |c| return c;
+    }
+    const body_fg = srgbOf(options.palette.body.fg) orelse black;
     return if (luminance(body_fg) > 128) black else white;
 }
 
@@ -248,43 +256,20 @@ fn luminance(c: Color) u32 {
 // xterm-256 -> sRGB
 // ---------------------------------------------------------------------------
 
-/// The one committed, deterministic xterm-256 -> sRGB table (§6.4). Indexes
-/// 0-15 are the standard system colors; 16-231 are the 6×6×6 cube; 232-255 are
-/// the 24-step grayscale ramp.
+/// The one committed, deterministic xterm-256 -> sRGB table (§6.4). The table
+/// itself lives in `core/theme/color.zig` so every backend shares one copy;
+/// this re-export adapts its `Srgb` result to the export `Color` type.
 pub fn xterm256ToSrgb(index: u8) Color {
-    if (index < 16) return system_colors[index];
-    if (index < 232) {
-        const i: u16 = @as(u16, index) - 16;
-        const r = cube_levels[i / 36];
-        const g = cube_levels[(i % 36) / 6];
-        const b = cube_levels[i % 6];
-        return .{ .r = r, .g = g, .b = b };
-    }
-    // 232..255 -> 8, 18, ... , 238.
-    const gray: u8 = @intCast(8 + 10 * (@as(u16, index) - 232));
-    return .{ .r = gray, .g = gray, .b = gray };
+    const s = color.xterm256ToSrgb(index);
+    return .{ .r = s.r, .g = s.g, .b = s.b };
 }
 
-const cube_levels = [_]u8{ 0, 95, 135, 175, 215, 255 };
-
-const system_colors = [16]Color{
-    .{ .r = 0, .g = 0, .b = 0 }, // 0  black
-    .{ .r = 128, .g = 0, .b = 0 }, // 1  red
-    .{ .r = 0, .g = 128, .b = 0 }, // 2  green
-    .{ .r = 128, .g = 128, .b = 0 }, // 3  yellow
-    .{ .r = 0, .g = 0, .b = 128 }, // 4  blue
-    .{ .r = 128, .g = 0, .b = 128 }, // 5  magenta
-    .{ .r = 0, .g = 128, .b = 128 }, // 6  cyan
-    .{ .r = 192, .g = 192, .b = 192 }, // 7  white
-    .{ .r = 128, .g = 128, .b = 128 }, // 8  bright black
-    .{ .r = 255, .g = 0, .b = 0 }, // 9  bright red
-    .{ .r = 0, .g = 255, .b = 0 }, // 10 bright green
-    .{ .r = 255, .g = 255, .b = 0 }, // 11 bright yellow
-    .{ .r = 0, .g = 0, .b = 255 }, // 12 bright blue
-    .{ .r = 255, .g = 0, .b = 255 }, // 13 bright magenta
-    .{ .r = 0, .g = 255, .b = 255 }, // 14 bright cyan
-    .{ .r = 255, .g = 255, .b = 255 }, // 15 bright white
-};
+/// Resolve a theme `Color` union to an sRGB export color, or null for the
+/// terminal-default arm (which has no numbered value on the export path).
+fn srgbOf(c: color.Color) ?Color {
+    const s = color.toSrgb(c) orelse return null;
+    return .{ .r = s.r, .g = s.g, .b = s.b };
+}
 
 // ===========================================================================
 // Tests
@@ -297,7 +282,7 @@ const Line = render_model.Line;
 const Rendered = render_model.Rendered;
 
 fn testOptions(mode: ColorMode) Options {
-    return .{ .palette = theme.palette(.dark, .default, .{}), .color_mode = mode };
+    return .{ .palette = theme.palette(.dark, .default), .color_mode = mode };
 }
 
 fn makeSpan(text: []const u8, style: render_model.SpanStyle) Span {
@@ -433,7 +418,7 @@ test "invalid utf8 in rendered content is rejected" {
 
 test "themed color resolution maps through the xterm table" {
     const face = try font.Font.init(20);
-    const palette = theme.palette(.dark, .default, .{});
+    const palette = theme.palette(.dark, .default);
     var spans = [_]Span{makeSpan("code", .code)};
     var lines = [_]Line{.{ .spans = &spans }};
     const rendered = Rendered{ .lines = &lines };
@@ -446,7 +431,7 @@ test "themed color resolution maps through the xterm table" {
 
 test "themed code block resolves a background rectangle" {
     const face = try font.Font.init(20);
-    const palette = theme.palette(.dark, .default, .{});
+    const palette = theme.palette(.dark, .default);
     var spans = [_]Span{makeSpan("x", .code_block)};
     var lines = [_]Line{.{ .spans = &spans }};
     const rendered = Rendered{ .lines = &lines };
