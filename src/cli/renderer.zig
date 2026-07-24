@@ -45,45 +45,276 @@ pub fn serialize(
     var buffer: std.ArrayList(u8) = .empty;
     errdefer buffer.deinit(allocator);
 
-    // Run buffer for coalescing consecutive non-hyperlink spans that resolve to
-    // the same StyleToken. Distinct SpanStyle enums (e.g. body vs table_header)
-    // can map to an identical token under a given theme; emitting one SGR run
-    // for them keeps default-theme output byte-identical to the pre-Issue-17
-    // renderer, where those slots shared a single enum.
-    var run_text: std.ArrayList(u8) = .empty;
-    defer run_text.deinit(allocator);
+    // Coalesce consecutive non-hyperlink spans that resolve to the same
+    // StyleToken into a single SGR run: emit the style prefix once when a run's
+    // first non-empty span arrives, append each matching span's text straight
+    // into `buffer`, and emit the reset when the token changes or the line ends.
+    // Distinct SpanStyle enums (e.g. body vs table_header) can map to an
+    // identical token under a given theme; emitting one SGR run for them keeps
+    // default-theme output byte-identical to the pre-Issue-17 renderer, where
+    // those slots shared a single enum. An empty-text span with a different
+    // token still closes the current run (matching the pre-refactor per-run
+    // flush); a same-token empty span leaves the run open.
     var run_token: ?theme.StyleToken = null;
+    var run_open = false; // prefix emitted for the current run, reset still pending
 
     const flushRun = struct {
-        fn call(a: std.mem.Allocator, buf: *std.ArrayList(u8), rt: *std.ArrayList(u8), tok: *?theme.StyleToken) !void {
-            if (tok.*) |t| {
-                if (rt.items.len != 0) try ansi.writeTokenStyled(a, buf, t, rt.items);
-            }
-            rt.clearRetainingCapacity();
+        fn call(a: std.mem.Allocator, buf: *std.ArrayList(u8), tok: *?theme.StyleToken, open: *bool) !void {
+            if (open.*) try buf.appendSlice(a, ansi.reset_sequence);
             tok.* = null;
+            open.* = false;
         }
     }.call;
 
     for (rendered.lines, 0..) |line, line_index| {
-        try flushRun(allocator, &buffer, &run_text, &run_token);
+        try flushRun(allocator, &buffer, &run_token, &run_open);
         if (line_index != 0) try buffer.append(allocator, '\n');
         for (line.spans) |span| {
             const token = theme.token(palette, span.style);
             if (span.url) |url| {
-                try flushRun(allocator, &buffer, &run_text, &run_token);
+                try flushRun(allocator, &buffer, &run_token, &run_open);
                 try ansi.writeHyperlink(allocator, &buffer, url, span.text, token);
             } else {
                 if (run_token != null and !std.meta.eql(run_token.?, token)) {
-                    try flushRun(allocator, &buffer, &run_text, &run_token);
+                    try flushRun(allocator, &buffer, &run_token, &run_open);
                 }
                 run_token = token;
-                try run_text.appendSlice(allocator, span.text);
+                if (span.text.len != 0) {
+                    if (!run_open) {
+                        try ansi.writeTokenPrefix(allocator, &buffer, token);
+                        run_open = true;
+                    }
+                    try buffer.appendSlice(allocator, span.text);
+                }
             }
         }
     }
-    try flushRun(allocator, &buffer, &run_text, &run_token);
+    try flushRun(allocator, &buffer, &run_token, &run_open);
 
     return try buffer.toOwnedSlice(allocator);
+}
+
+// --- Span-coalescing serializer unit tests (Issue 17) ------------------------
+//
+// These pin the lazy-prefix / coalesce-run / reset-on-change behavior of
+// serialize() and the ansi prefix/reset helpers it drives. Fixtures are built
+// directly as Rendered{ .lines = []Line{ .spans = []Span } } with string
+// literals so no fixture allocation/free is needed (serialize() never frees the
+// Rendered it consumes). Expected bytes are assembled from the same ansi
+// constants and helpers serialize() uses, so no escape bytes are hard-coded.
+
+test "coalesces distinct SpanStyles that map to one StyleToken into a single run" {
+    const allocator = std.testing.allocator;
+    const palette = theme.palette(.dark, .default, .{});
+
+    // .body and .table_header are different SpanStyle enums but table_header is
+    // stamped equal to body in the palette, so they resolve to one StyleToken.
+    try std.testing.expectEqual(theme.token(palette, .body), theme.token(palette, .table_header));
+
+    var spans = [_]render_model.Span{
+        .{ .text = "foo", .style = .body },
+        .{ .text = "bar", .style = .table_header },
+    };
+    var lines = [_]render_model.Line{.{ .spans = &spans }};
+    const rendered = render_model.Rendered{ .lines = &lines };
+
+    const out = try serialize(allocator, rendered, palette);
+    defer allocator.free(out);
+
+    var expected: std.ArrayList(u8) = .empty;
+    defer expected.deinit(allocator);
+    try ansi.writeTokenPrefix(allocator, &expected, theme.token(palette, .body));
+    try expected.appendSlice(allocator, "foo");
+    try expected.appendSlice(allocator, "bar");
+    try expected.appendSlice(allocator, ansi.reset_sequence);
+
+    try std.testing.expectEqualStrings(expected.items, out);
+}
+
+test "token change mid-line closes the run and opens a new prefix" {
+    const allocator = std.testing.allocator;
+    const palette = theme.palette(.dark, .default, .{});
+
+    try std.testing.expect(!std.meta.eql(theme.token(palette, .body), theme.token(palette, .emphasis)));
+
+    var spans = [_]render_model.Span{
+        .{ .text = "foo", .style = .body },
+        .{ .text = "bar", .style = .emphasis },
+    };
+    var lines = [_]render_model.Line{.{ .spans = &spans }};
+    const rendered = render_model.Rendered{ .lines = &lines };
+
+    const out = try serialize(allocator, rendered, palette);
+    defer allocator.free(out);
+
+    var expected: std.ArrayList(u8) = .empty;
+    defer expected.deinit(allocator);
+    try ansi.writeTokenPrefix(allocator, &expected, theme.token(palette, .body));
+    try expected.appendSlice(allocator, "foo");
+    try expected.appendSlice(allocator, ansi.reset_sequence);
+    try ansi.writeTokenPrefix(allocator, &expected, theme.token(palette, .emphasis));
+    try expected.appendSlice(allocator, "bar");
+    try expected.appendSlice(allocator, ansi.reset_sequence);
+
+    try std.testing.expectEqualStrings(expected.items, out);
+}
+
+test "same-token empty span leaves the run open" {
+    const allocator = std.testing.allocator;
+    const palette = theme.palette(.dark, .default, .{});
+
+    // Empty span between two body spans (via table_header, same token) must not
+    // close/reopen the run: the whole line is one prefix/reset pair.
+    var spans = [_]render_model.Span{
+        .{ .text = "foo", .style = .body },
+        .{ .text = "", .style = .table_header },
+        .{ .text = "bar", .style = .body },
+    };
+    var lines = [_]render_model.Line{.{ .spans = &spans }};
+    const rendered = render_model.Rendered{ .lines = &lines };
+
+    const out = try serialize(allocator, rendered, palette);
+    defer allocator.free(out);
+
+    var expected: std.ArrayList(u8) = .empty;
+    defer expected.deinit(allocator);
+    try ansi.writeTokenPrefix(allocator, &expected, theme.token(palette, .body));
+    try expected.appendSlice(allocator, "foo");
+    try expected.appendSlice(allocator, "bar");
+    try expected.appendSlice(allocator, ansi.reset_sequence);
+
+    try std.testing.expectEqualStrings(expected.items, out);
+}
+
+test "different-token empty span closes the run without opening a new prefix" {
+    const allocator = std.testing.allocator;
+    const palette = theme.palette(.dark, .default, .{});
+
+    // The empty emphasis span closes the open body run (emits a reset) but must
+    // NOT emit an emphasis prefix, because it carries no text. The next body
+    // span then re-opens a fresh body prefix. Net: two body runs, one reset each,
+    // and no emphasis SGR anywhere.
+    var spans = [_]render_model.Span{
+        .{ .text = "foo", .style = .body },
+        .{ .text = "", .style = .emphasis },
+        .{ .text = "bar", .style = .body },
+    };
+    var lines = [_]render_model.Line{.{ .spans = &spans }};
+    const rendered = render_model.Rendered{ .lines = &lines };
+
+    const out = try serialize(allocator, rendered, palette);
+    defer allocator.free(out);
+
+    var expected: std.ArrayList(u8) = .empty;
+    defer expected.deinit(allocator);
+    try ansi.writeTokenPrefix(allocator, &expected, theme.token(palette, .body));
+    try expected.appendSlice(allocator, "foo");
+    try expected.appendSlice(allocator, ansi.reset_sequence);
+    try ansi.writeTokenPrefix(allocator, &expected, theme.token(palette, .body));
+    try expected.appendSlice(allocator, "bar");
+    try expected.appendSlice(allocator, ansi.reset_sequence);
+
+    try std.testing.expectEqualStrings(expected.items, out);
+
+    // No emphasis SGR was emitted for the empty span.
+    var emph: std.ArrayList(u8) = .empty;
+    defer emph.deinit(allocator);
+    try ansi.writeTokenPrefix(allocator, &emph, theme.token(palette, .emphasis));
+    try std.testing.expect(std.mem.indexOf(u8, out, emph.items) == null);
+}
+
+test "run resets at line end and newlines sit between lines with no leading newline" {
+    const allocator = std.testing.allocator;
+    const palette = theme.palette(.dark, .default, .{});
+
+    var spans0 = [_]render_model.Span{.{ .text = "a", .style = .body }};
+    var spans1 = [_]render_model.Span{.{ .text = "b", .style = .body }};
+    var lines = [_]render_model.Line{
+        .{ .spans = &spans0 },
+        .{ .spans = &spans1 },
+    };
+    const rendered = render_model.Rendered{ .lines = &lines };
+
+    const out = try serialize(allocator, rendered, palette);
+    defer allocator.free(out);
+
+    var expected: std.ArrayList(u8) = .empty;
+    defer expected.deinit(allocator);
+    try ansi.writeTokenPrefix(allocator, &expected, theme.token(palette, .body));
+    try expected.appendSlice(allocator, "a");
+    try expected.appendSlice(allocator, ansi.reset_sequence);
+    try expected.append(allocator, '\n');
+    try ansi.writeTokenPrefix(allocator, &expected, theme.token(palette, .body));
+    try expected.appendSlice(allocator, "b");
+    try expected.appendSlice(allocator, ansi.reset_sequence);
+
+    try std.testing.expectEqualStrings(expected.items, out);
+
+    // First line carries no leading newline; reset precedes the separator.
+    try std.testing.expect(!std.mem.startsWith(u8, out, "\n"));
+}
+
+test "blank middle line emits its own newline without an SGR run" {
+    const allocator = std.testing.allocator;
+    const palette = theme.palette(.dark, .default, .{});
+
+    var spans0 = [_]render_model.Span{.{ .text = "a", .style = .body }};
+    var spans1 = [_]render_model.Span{}; // empty line
+    var spans2 = [_]render_model.Span{.{ .text = "b", .style = .body }};
+    var lines = [_]render_model.Line{
+        .{ .spans = &spans0 },
+        .{ .spans = &spans1 },
+        .{ .spans = &spans2 },
+    };
+    const rendered = render_model.Rendered{ .lines = &lines };
+
+    const out = try serialize(allocator, rendered, palette);
+    defer allocator.free(out);
+
+    var expected: std.ArrayList(u8) = .empty;
+    defer expected.deinit(allocator);
+    try ansi.writeTokenPrefix(allocator, &expected, theme.token(palette, .body));
+    try expected.appendSlice(allocator, "a");
+    try expected.appendSlice(allocator, ansi.reset_sequence);
+    try expected.append(allocator, '\n');
+    try expected.append(allocator, '\n');
+    try ansi.writeTokenPrefix(allocator, &expected, theme.token(palette, .body));
+    try expected.appendSlice(allocator, "b");
+    try expected.appendSlice(allocator, ansi.reset_sequence);
+
+    try std.testing.expectEqualStrings(expected.items, out);
+}
+
+test "hyperlink span flushes the run and neighbours re-open around it" {
+    const allocator = std.testing.allocator;
+    const palette = theme.palette(.dark, .default, .{});
+    const url = "https://example.com";
+
+    var spans = [_]render_model.Span{
+        .{ .text = "foo", .style = .body },
+        .{ .text = "link", .style = .link, .url = url },
+        .{ .text = "bar", .style = .body },
+    };
+    var lines = [_]render_model.Line{.{ .spans = &spans }};
+    const rendered = render_model.Rendered{ .lines = &lines };
+
+    const out = try serialize(allocator, rendered, palette);
+    defer allocator.free(out);
+
+    var expected: std.ArrayList(u8) = .empty;
+    defer expected.deinit(allocator);
+    // Run before the hyperlink closes first.
+    try ansi.writeTokenPrefix(allocator, &expected, theme.token(palette, .body));
+    try expected.appendSlice(allocator, "foo");
+    try expected.appendSlice(allocator, ansi.reset_sequence);
+    // The hyperlink is emitted by the OSC 8 helper, self-contained.
+    try ansi.writeHyperlink(allocator, &expected, url, "link", theme.token(palette, .link));
+    // The trailing body span re-opens a fresh run.
+    try ansi.writeTokenPrefix(allocator, &expected, theme.token(palette, .body));
+    try expected.appendSlice(allocator, "bar");
+    try expected.appendSlice(allocator, ansi.reset_sequence);
+
+    try std.testing.expectEqualStrings(expected.items, out);
 }
 
 test "renders heading and paragraph" {

@@ -1,7 +1,7 @@
 const std = @import("std");
 const prim = @import("prim");
 
-pub const Theme = enum { auto, dark, light };
+pub const Theme = enum { dark, light };
 pub const SyntaxTheme = enum { default, classic };
 
 /// Glyph set for table borders. Each variant maps to a (horizontal, vertical,
@@ -122,7 +122,7 @@ pub const Config = struct {
     };
 
     pub const Display = struct {
-        theme: Theme = .auto,
+        theme: Theme = .dark,
         syntax_theme: SyntaxTheme = .default,
         width: usize = 0,
         line_numbers: bool = false,
@@ -259,7 +259,11 @@ fn applyTomlLike(allocator: std.mem.Allocator, cfg: *Config, source: []const u8)
 
         const equals_index = std.mem.indexOfScalar(u8, trimmed, '=') orelse continue;
         const key = std.mem.trim(u8, trimmed[0..equals_index], " \t");
-        const value = std.mem.trim(u8, trimmed[equals_index + 1 ..], " \t");
+        // Strip any inline `# comment` before dispatching, so documented lines
+        // like `theme = "dark"  # dark, light` reach the field parsers as
+        // just the value. Quote-aware so a `#` inside a string (heading_prefix)
+        // stays literal (see stripInlineComment).
+        const value = stripInlineComment(std.mem.trim(u8, trimmed[equals_index + 1 ..], " \t"));
         try assignValue(allocator, cfg, section, key, value);
     }
 }
@@ -271,36 +275,48 @@ fn assignValue(allocator: std.mem.Allocator, cfg: *Config, section: []const u8, 
     }
 
     if (std.mem.eql(u8, section, "general")) {
-        if (std.mem.eql(u8, key, "editor")) try replaceString(allocator, &cfg.general.editor, stripQuotes(value));
-        if (std.mem.eql(u8, key, "pager")) try replaceString(allocator, &cfg.general.pager, stripQuotes(value));
+        if (std.mem.eql(u8, key, "editor")) try replaceString(allocator, &cfg.general.editor, value);
+        if (std.mem.eql(u8, key, "pager")) try replaceString(allocator, &cfg.general.pager, value);
         return;
     }
 
     if (std.mem.eql(u8, section, "display")) {
-        if (std.mem.eql(u8, key, "theme")) cfg.display.theme = try parseTheme(stripQuotes(value));
-        if (std.mem.eql(u8, key, "syntax_theme")) cfg.display.syntax_theme = try parseSyntaxTheme(stripQuotes(value));
+        if (std.mem.eql(u8, key, "theme")) {
+            if (parseTheme(stripQuotes(value))) |t| cfg.display.theme = t;
+        }
+        if (std.mem.eql(u8, key, "syntax_theme")) {
+            if (parseSyntaxTheme(stripQuotes(value))) |t| cfg.display.syntax_theme = t;
+        }
         if (std.mem.eql(u8, key, "width")) cfg.display.width = try std.fmt.parseUnsigned(usize, value, 10);
-        if (std.mem.eql(u8, key, "line_numbers")) cfg.display.line_numbers = parseBool(value);
-        if (std.mem.eql(u8, key, "heading_markers")) cfg.display.heading_markers = parseBool(value);
-        if (std.mem.eql(u8, key, "quote_bar")) try replaceString(allocator, &cfg.display.quote_bar, stripQuotes(value));
+        if (std.mem.eql(u8, key, "line_numbers")) {
+            if (parseBool(value)) |b| cfg.display.line_numbers = b;
+        }
+        if (std.mem.eql(u8, key, "heading_markers")) {
+            if (parseBool(value)) |b| cfg.display.heading_markers = b;
+        }
+        if (std.mem.eql(u8, key, "quote_bar")) try replaceString(allocator, &cfg.display.quote_bar, value);
         if (std.mem.eql(u8, key, "bullet_glyphs")) try replaceStringArray(allocator, &cfg.display.bullet_glyphs, value);
-        if (std.mem.eql(u8, key, "hr_glyph")) try replaceString(allocator, &cfg.display.hr_glyph, stripQuotes(value));
-        if (std.mem.eql(u8, key, "task_checked")) try replaceString(allocator, &cfg.display.task_checked, stripQuotes(value));
-        if (std.mem.eql(u8, key, "task_todo")) try replaceString(allocator, &cfg.display.task_todo, stripQuotes(value));
+        if (std.mem.eql(u8, key, "hr_glyph")) try replaceString(allocator, &cfg.display.hr_glyph, value);
+        if (std.mem.eql(u8, key, "task_checked")) try replaceString(allocator, &cfg.display.task_checked, value);
+        if (std.mem.eql(u8, key, "task_todo")) try replaceString(allocator, &cfg.display.task_todo, value);
         if (std.mem.eql(u8, key, "table_border_set")) cfg.display.table_border_set = parseTableBorderSet(stripQuotes(value)) catch return;
-        if (std.mem.eql(u8, key, "heading_prefix")) try replaceString(allocator, &cfg.display.heading_prefix, stripQuotes(value));
+        if (std.mem.eql(u8, key, "heading_prefix")) try replaceString(allocator, &cfg.display.heading_prefix, value);
         return;
     }
 
     if (std.mem.eql(u8, section, "mermaid")) {
-        if (std.mem.eql(u8, key, "enabled")) cfg.mermaid.enabled = parseBool(value);
-        if (std.mem.eql(u8, key, "style")) try replaceString(allocator, &cfg.mermaid.style, stripQuotes(value));
+        if (std.mem.eql(u8, key, "enabled")) {
+            if (parseBool(value)) |b| cfg.mermaid.enabled = b;
+        }
+        if (std.mem.eql(u8, key, "style")) try replaceString(allocator, &cfg.mermaid.style, value);
         if (std.mem.eql(u8, key, "subgraph_edges")) cfg.mermaid.subgraph_edges = try parseSubgraphEdges(stripQuotes(value));
         return;
     }
 
     if (std.mem.eql(u8, section, "files")) {
-        if (std.mem.eql(u8, key, "show_hidden")) cfg.files.show_hidden = parseBool(value);
+        if (std.mem.eql(u8, key, "show_hidden")) {
+            if (parseBool(value)) |b| cfg.files.show_hidden = b;
+        }
         if (std.mem.eql(u8, key, "extensions")) try replaceExtensions(allocator, cfg, value);
     }
 }
@@ -321,13 +337,13 @@ fn assignThemeOverride(cfg: *Config, slot: []const u8, key: []const u8, value: [
             } else if (std.mem.eql(u8, key, "bg")) {
                 ov.bg = std.fmt.parseUnsigned(u8, stripQuotes(value), 10) catch return;
             } else if (std.mem.eql(u8, key, "bold")) {
-                ov.bold = parseBool(value);
+                if (parseBool(value)) |b| ov.bold = b;
             } else if (std.mem.eql(u8, key, "italic")) {
-                ov.italic = parseBool(value);
+                if (parseBool(value)) |b| ov.italic = b;
             } else if (std.mem.eql(u8, key, "underline")) {
-                ov.underline = parseBool(value);
+                if (parseBool(value)) |b| ov.underline = b;
             } else if (std.mem.eql(u8, key, "strikethrough")) {
-                ov.strikethrough = parseBool(value);
+                if (parseBool(value)) |b| ov.strikethrough = b;
             }
             return;
         }
@@ -370,15 +386,19 @@ fn replaceStringArray(allocator: std.mem.Allocator, target: *[]const []const u8,
     var i: usize = 0;
     while (i < trimmed.len) : (i += 1) {
         const ch = trimmed[i];
+        if (in_quotes and ch == '\\') {
+            i += 1; // skip the escaped char so a \" does not toggle quote state
+            continue;
+        }
         if (ch == '"') {
             in_quotes = !in_quotes;
         } else if (ch == ',' and !in_quotes) {
-            items[index] = try allocator.dupe(u8, stripQuotes(std.mem.trim(u8, trimmed[start..i], " \t")));
+            items[index] = try decodeQuotedString(allocator, std.mem.trim(u8, trimmed[start..i], " \t"));
             index += 1;
             start = i + 1;
         }
     }
-    items[index] = try allocator.dupe(u8, stripQuotes(std.mem.trim(u8, trimmed[start..], " \t")));
+    items[index] = try decodeQuotedString(allocator, std.mem.trim(u8, trimmed[start..], " \t"));
     index += 1;
 
     for (target.*) |item| allocator.free(item);
@@ -390,7 +410,13 @@ fn replaceStringArray(allocator: std.mem.Allocator, target: *[]const []const u8,
 fn countArrayElements(trimmed: []const u8) usize {
     var count: usize = 1;
     var in_quotes = false;
-    for (trimmed) |ch| {
+    var i: usize = 0;
+    while (i < trimmed.len) : (i += 1) {
+        const ch = trimmed[i];
+        if (in_quotes and ch == '\\') {
+            i += 1; // skip the escaped char so a \" does not toggle quote state
+            continue;
+        }
         if (ch == '"') {
             in_quotes = !in_quotes;
         } else if (ch == ',' and !in_quotes) {
@@ -408,17 +434,18 @@ fn parseTableBorderSet(value: []const u8) !TableBorderSet {
     return error.InvalidTableBorderSet;
 }
 
-fn parseTheme(value: []const u8) !Theme {
-    if (std.mem.eql(u8, value, "auto")) return .auto;
+/// Unknown values yield null so callers leave the current/default value
+/// untouched, matching the parser's leniency for bad booleans and fg/bg.
+fn parseTheme(value: []const u8) ?Theme {
     if (std.mem.eql(u8, value, "dark")) return .dark;
     if (std.mem.eql(u8, value, "light")) return .light;
-    return error.InvalidTheme;
+    return null;
 }
 
-fn parseSyntaxTheme(value: []const u8) !SyntaxTheme {
+fn parseSyntaxTheme(value: []const u8) ?SyntaxTheme {
     if (std.mem.eql(u8, value, "default")) return .default;
     if (std.mem.eql(u8, value, "classic")) return .classic;
-    return error.InvalidSyntaxTheme;
+    return null;
 }
 
 fn parseSubgraphEdges(value: []const u8) !prim.SubgraphEdges {
@@ -427,8 +454,37 @@ fn parseSubgraphEdges(value: []const u8) !prim.SubgraphEdges {
     return error.InvalidSubgraphEdges;
 }
 
-fn parseBool(value: []const u8) bool {
-    return std.mem.eql(u8, value, "true");
+/// Strip an inline TOML comment from an already-trimmed value: a `#` outside a
+/// double-quoted string begins a comment; inside quotes it is literal (so
+/// `heading_prefix = "#"` keeps its glyph). Quote tracking is escape-aware — a
+/// `\"` inside a string does not end the string and expose a following `#`.
+/// Whitespace between the value and the comment is trimmed off.
+fn stripInlineComment(value: []const u8) []const u8 {
+    var in_quotes = false;
+    var i: usize = 0;
+    while (i < value.len) : (i += 1) {
+        const ch = value[i];
+        if (in_quotes and ch == '\\') {
+            i += 1; // skip the escaped char so a \" cannot toggle quote state
+            continue;
+        }
+        if (ch == '"') {
+            in_quotes = !in_quotes;
+        } else if (ch == '#' and !in_quotes) {
+            return std.mem.trim(u8, value[0..i], " \t");
+        }
+    }
+    return value;
+}
+
+/// Parse a TOML boolean. Only the exact literals `true`/`false` are recognized;
+/// anything else yields null so callers can leave the target attribute
+/// untouched (matching the "unparseable scalar values leave the attribute
+/// untouched" contract) rather than silently coercing to false.
+fn parseBool(value: []const u8) ?bool {
+    if (std.mem.eql(u8, value, "true")) return true;
+    if (std.mem.eql(u8, value, "false")) return false;
+    return null;
 }
 
 fn stripQuotes(value: []const u8) []const u8 {
@@ -438,11 +494,96 @@ fn stripQuotes(value: []const u8) []const u8 {
     return value;
 }
 
+/// Strip surrounding quotes and decode the basic TOML escape sequences a string
+/// value may contain: \" \\ \n \t \r \uXXXX \UXXXXXXXX. Returns freshly-owned
+/// bytes the caller must free. A malformed or unknown escape is kept verbatim
+/// (backslash preserved) — this is a deliberately small TOML-like parser, not a
+/// validator. Decoded output is never longer than the input (every escape
+/// shrinks: \n's two chars -> 1 byte, \uXXXX's six -> at most 3 UTF-8 bytes,
+/// \U's ten -> at most 4), so a single input-sized buffer always suffices.
+fn decodeQuotedString(allocator: std.mem.Allocator, raw: []const u8) ![]u8 {
+    const inner = stripQuotes(raw);
+    var buf = try allocator.alloc(u8, inner.len);
+    errdefer allocator.free(buf);
+
+    var len: usize = 0;
+    var i: usize = 0;
+    while (i < inner.len) {
+        const ch = inner[i];
+        if (ch != '\\' or i + 1 >= inner.len) {
+            buf[len] = ch;
+            len += 1;
+            i += 1;
+            continue;
+        }
+        switch (inner[i + 1]) {
+            '"' => {
+                buf[len] = '"';
+                len += 1;
+                i += 2;
+            },
+            '\\' => {
+                buf[len] = '\\';
+                len += 1;
+                i += 2;
+            },
+            'n' => {
+                buf[len] = '\n';
+                len += 1;
+                i += 2;
+            },
+            't' => {
+                buf[len] = '\t';
+                len += 1;
+                i += 2;
+            },
+            'r' => {
+                buf[len] = '\r';
+                len += 1;
+                i += 2;
+            },
+            'u', 'U' => {
+                const digits: usize = if (inner[i + 1] == 'u') 4 else 8;
+                const decoded = decodeUnicodeEscape(inner[i..], digits, buf[len..]);
+                if (decoded) |n| {
+                    len += n;
+                    i += 2 + digits;
+                } else {
+                    // Malformed \u/\U: keep the backslash literal and move on.
+                    buf[len] = ch;
+                    len += 1;
+                    i += 1;
+                }
+            },
+            else => {
+                // Unknown escape: keep the backslash literal (lenient).
+                buf[len] = ch;
+                len += 1;
+                i += 1;
+            },
+        }
+    }
+
+    if (len == buf.len) return buf;
+    return allocator.realloc(buf, len);
+}
+
+/// Decode a `\uXXXX`/`\UXXXXXXXX` escape at the start of `seq` (which points at
+/// the leading backslash), writing the UTF-8 encoding into `out`. `digits` is 4
+/// or 8. Returns the number of bytes written, or null if the escape is
+/// truncated, not valid hex, or not a valid Unicode scalar.
+fn decodeUnicodeEscape(seq: []const u8, digits: usize, out: []u8) ?usize {
+    if (seq.len < 2 + digits) return null;
+    const code = std.fmt.parseInt(u21, seq[2 .. 2 + digits], 16) catch return null;
+    return std.unicode.utf8Encode(code, out) catch null;
+}
+
 fn replaceString(allocator: std.mem.Allocator, target: *[]const u8, value: []const u8) !void {
-    // Dupe into a temp first so an OOM leaves the prior value intact (no
-    // dangling pointer, no double-free): only free the old value once the new
-    // allocation has succeeded.
-    const dup = try allocator.dupe(u8, value);
+    // Decode into a fresh allocation first so an OOM leaves the prior value
+    // intact (no dangling pointer, no double-free): only free the old value once
+    // the new allocation has succeeded. `value` is the raw TOML value — quotes
+    // are stripped and escapes decoded here.
+    const dup = try decodeQuotedString(allocator, value);
     allocator.free(target.*);
     target.* = dup;
 }
@@ -457,13 +598,13 @@ fn applyEnvOverrides(cfg: *Config) void {
     const theme = std.process.getEnvVarOwned(std.heap.page_allocator, "MERCAT_THEME") catch null;
     defer if (theme) |value| std.heap.page_allocator.free(value);
     if (theme) |value| {
-        cfg.display.theme = parseTheme(value) catch cfg.display.theme;
+        cfg.display.theme = parseTheme(value) orelse cfg.display.theme;
     }
 
     const syntax_theme = std.process.getEnvVarOwned(std.heap.page_allocator, "MERCAT_SYNTAX_THEME") catch null;
     defer if (syntax_theme) |value| std.heap.page_allocator.free(value);
     if (syntax_theme) |value| {
-        cfg.display.syntax_theme = parseSyntaxTheme(value) catch cfg.display.syntax_theme;
+        cfg.display.syntax_theme = parseSyntaxTheme(value) orelse cfg.display.syntax_theme;
     }
 
     const subgraph_edges = std.process.getEnvVarOwned(std.heap.page_allocator, "MERCAT_SUBGRAPH_EDGES") catch null;
@@ -477,7 +618,7 @@ test "parses default config" {
     var cfg = try parseTomlLike(std.testing.allocator, default_config_text);
     defer cfg.deinit(std.testing.allocator);
 
-    try std.testing.expectEqual(Theme.auto, cfg.display.theme);
+    try std.testing.expectEqual(Theme.dark, cfg.display.theme);
     try std.testing.expectEqual(SyntaxTheme.default, cfg.display.syntax_theme);
     try std.testing.expectEqualStrings("vim", cfg.general.editor);
     try std.testing.expect(cfg.mermaid.enabled);
@@ -646,6 +787,28 @@ test "invalid table_border_set is lenient and keeps the prior value" {
     try std.testing.expectEqual(TableBorderSet.heavy, cfg.display.table_border_set);
 }
 
+test "invalid theme and syntax_theme are lenient and keep the default" {
+    var cfg = try parseTomlLike(std.testing.allocator, default_config_text);
+    defer cfg.deinit(std.testing.allocator);
+
+    // "auto" is no longer a valid theme (dark/light auto-detection was
+    // dropped); like any unknown value it must NOT error and must leave the
+    // default (dark) in place.
+    try applyTomlLike(std.testing.allocator, &cfg,
+        \\[display]
+        \\theme = "bogus"
+        \\syntax_theme = "bogus"
+    );
+    try std.testing.expectEqual(Theme.dark, cfg.display.theme);
+    try std.testing.expectEqual(SyntaxTheme.default, cfg.display.syntax_theme);
+
+    try applyTomlLike(std.testing.allocator, &cfg,
+        \\[display]
+        \\theme = "auto"
+    );
+    try std.testing.expectEqual(Theme.dark, cfg.display.theme);
+}
+
 test "empty bracket bullet_glyphs yields a zero-length array" {
     var cfg = try parseTomlLike(std.testing.allocator, default_config_text);
     defer cfg.deinit(std.testing.allocator);
@@ -708,4 +871,124 @@ test "subgraph_edges parses both notations; bridge round-trips; invalid errors" 
         \\subgraph_edges = "bridge"
     );
     try std.testing.expectEqual(prim.SubgraphEdges.bridge, cfg.mermaid.subgraph_edges);
+}
+
+test "README example config parses verbatim (inline comments stripped)" {
+    // The exact commented block from README.md must load without erroring and
+    // must not corrupt the trailing array element (F1 regression guard).
+    var cfg = try parseTomlLike(std.testing.allocator, default_config_text);
+    defer cfg.deinit(std.testing.allocator);
+
+    try applyTomlLike(std.testing.allocator, &cfg,
+        \\[general]
+        \\editor = "vim"
+        \\pager = "less -R"
+        \\
+        \\[display]
+        \\theme = "dark"       # dark, light
+        \\width = 0            # 0 = terminal width
+        \\heading_markers = true
+        \\
+        \\# Structural glyphs (a trailing space is appended after markers automatically)
+        \\quote_bar = "▎"
+        \\bullet_glyphs = ["•", "◦", "‣"]   # cycled by nesting depth
+        \\hr_glyph = "─"
+        \\task_checked = "[x]"
+        \\task_todo = "[ ]"
+        \\table_border_set = "light"        # light, heavy, double, ascii
+        \\heading_prefix = "#"
+        \\
+        \\[files]
+        \\extensions = ["md", "markdown", "mdown", "mkd"]
+    );
+
+    try std.testing.expectEqual(Theme.dark, cfg.display.theme);
+    try std.testing.expectEqual(@as(usize, 0), cfg.display.width);
+    try std.testing.expect(cfg.display.heading_markers);
+    try std.testing.expectEqualStrings("vim", cfg.general.editor);
+    try std.testing.expectEqualStrings("▎", cfg.display.quote_bar);
+    try std.testing.expectEqual(@as(usize, 3), cfg.display.bullet_glyphs.len);
+    try std.testing.expectEqualStrings("•", cfg.display.bullet_glyphs[0]);
+    try std.testing.expectEqualStrings("◦", cfg.display.bullet_glyphs[1]);
+    // The trailing element must survive intact — before F1 the unstripped
+    // `# comment` fused onto or replaced this glyph.
+    try std.testing.expectEqualStrings("‣", cfg.display.bullet_glyphs[2]);
+    try std.testing.expectEqual(TableBorderSet.light, cfg.display.table_border_set);
+    // A `#` inside quotes is literal, not a comment introducer.
+    try std.testing.expectEqualStrings("#", cfg.display.heading_prefix);
+}
+
+test "inline comment stripping is quote-aware" {
+    var cfg = try parseTomlLike(std.testing.allocator, default_config_text);
+    defer cfg.deinit(std.testing.allocator);
+
+    try applyTomlLike(std.testing.allocator, &cfg,
+        \\[display]
+        \\heading_prefix = "#"      # kept: the # inside quotes is literal
+        \\quote_bar = "a#b"         # kept whole; only the outside # is a comment
+    );
+    try std.testing.expectEqualStrings("#", cfg.display.heading_prefix);
+    try std.testing.expectEqualStrings("a#b", cfg.display.quote_bar);
+}
+
+test "boolean contract: unrecognized value leaves the attribute untouched" {
+    var cfg = try parseTomlLike(std.testing.allocator, default_config_text);
+    defer cfg.deinit(std.testing.allocator);
+
+    // `bold = tru` must NOT write an explicit false override; the attribute
+    // stays null (F2). A trailing comment on a valid value still sets it.
+    try applyTomlLike(std.testing.allocator, &cfg,
+        \\[theme.heading1]
+        \\bold = tru
+        \\[theme.heading2]
+        \\bold = true # c
+        \\[theme.heading3]
+        \\bold = false
+    );
+    try std.testing.expectEqual(@as(?bool, null), cfg.theme_overrides.heading1.?.bold);
+    try std.testing.expectEqual(@as(?bool, true), cfg.theme_overrides.heading2.?.bold);
+    try std.testing.expectEqual(@as(?bool, false), cfg.theme_overrides.heading3.?.bold);
+}
+
+test "parseBool only recognizes the exact true/false literals" {
+    try std.testing.expectEqual(@as(?bool, true), parseBool("true"));
+    try std.testing.expectEqual(@as(?bool, false), parseBool("false"));
+    try std.testing.expectEqual(@as(?bool, null), parseBool("tru"));
+    try std.testing.expectEqual(@as(?bool, null), parseBool("True"));
+    try std.testing.expectEqual(@as(?bool, null), parseBool("1"));
+    try std.testing.expectEqual(@as(?bool, null), parseBool(""));
+}
+
+test "string escapes decode: unicode escape and escaped quotes in arrays" {
+    var cfg = try parseTomlLike(std.testing.allocator, default_config_text);
+    defer cfg.deinit(std.testing.allocator);
+
+    try applyTomlLike(std.testing.allocator, &cfg,
+        \\[display]
+        \\quote_bar = "\u2502"
+        \\bullet_glyphs = ["\"", "a\tb", "‣"]
+    );
+    // The │ escape decodes to the light vertical bar │.
+    try std.testing.expectEqualStrings("\u{2502}", cfg.display.quote_bar);
+    try std.testing.expectEqual(@as(usize, 3), cfg.display.bullet_glyphs.len);
+    // A `\"` is one literal double-quote and does NOT toggle quote state, so it
+    // neither splits the array nor ends the element early (F3).
+    try std.testing.expectEqualStrings("\"", cfg.display.bullet_glyphs[0]);
+    try std.testing.expectEqualStrings("a\tb", cfg.display.bullet_glyphs[1]);
+    try std.testing.expectEqualStrings("\u{2023}", cfg.display.bullet_glyphs[2]);
+}
+
+test "malformed escapes are kept verbatim (lenient)" {
+    var cfg = try parseTomlLike(std.testing.allocator, default_config_text);
+    defer cfg.deinit(std.testing.allocator);
+
+    try applyTomlLike(std.testing.allocator, &cfg,
+        \\[general]
+        \\editor = "a\qb"
+        \\pager = "c\u12"
+    );
+    // Unknown escape \q and truncated \u12 keep their backslash rather than
+    // erroring — this is a small TOML-like parser, not a validator.
+    try std.testing.expectEqualStrings("a\\qb", cfg.general.editor);
+    try std.testing.expectEqualStrings("c\\u12", cfg.general.pager);
 }

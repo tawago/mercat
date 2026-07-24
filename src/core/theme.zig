@@ -73,7 +73,7 @@ pub const Palette = struct {
 
 pub fn palette(theme: config.Theme, syntax_theme: config.SyntaxTheme, overrides: config.ThemeOverrides) Palette {
     var pal = switch (theme) {
-        .dark, .auto => darkPalette(syntax_theme),
+        .dark => darkPalette(syntax_theme),
         .light => lightPalette(syntax_theme),
     };
     // Stamp the structural slots from their legacy borrowed tokens, once, before
@@ -292,7 +292,7 @@ pub fn toastStyle(theme: config.Theme) ToastStyle {
     const bg: vaxis.Color = if (active.code_block.bg_index) |index| .{ .index = index } else .default;
     const accent: u8 = switch (theme) {
         .light => 65,
-        .dark, .auto => 108,
+        .dark => 108,
     };
     return .{
         .fill = .{ .bg = bg },

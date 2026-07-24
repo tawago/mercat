@@ -35,9 +35,9 @@ const ExportDocument = types.ExportDocument;
 
 pub const ColorMode = enum { theme, monochrome };
 
-/// Export options (§6.4). `.auto` theme MUST already be resolved into a
-/// concrete `theme.Palette` before this stage — the export backend cannot
-/// inspect terminal state.
+/// Export options (§6.4). The theme MUST already be resolved into a concrete
+/// `theme.Palette` before this stage — the export backend cannot inspect
+/// terminal state.
 pub const Options = struct {
     palette: theme.Palette,
     color_mode: ColorMode,

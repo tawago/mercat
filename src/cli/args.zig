@@ -18,7 +18,7 @@ pub const help_text =
     \\  -h, --help           Show this help and exit
     \\  -v, -V, --version    Show version and exit
     \\  -w, --width <n>      Override wrap width (0 uses terminal width)
-    \\      --style <name>   Select theme: auto, dark, light
+    \\      --style <name>   Select theme: dark, light
     \\      --no-heading-markers
     \\                      Hide leading # markers in headings
     \\      --box-style <s>  Mermaid box style: standard, rounded, heavy, double, ascii
@@ -62,7 +62,7 @@ pub const OutputFormat = enum {
     plain,
     png,
 };
-pub const ThemeOverride = enum { auto, dark, light };
+pub const ThemeOverride = enum { dark, light };
 pub const Input = union(enum) {
     none,
     stdin,
@@ -113,7 +113,6 @@ pub const Parsed = struct {
 
     pub fn effectiveTheme(self: Parsed, config_theme: config.Theme) config.Theme {
         return if (self.style) |style| switch (style) {
-            .auto => .auto,
             .dark => .dark,
             .light => .light,
         } else config_theme;
@@ -278,7 +277,6 @@ fn parseWidth(raw: []const u8) ParseError!usize {
 }
 
 fn parseStyle(raw: []const u8) ParseError!ThemeOverride {
-    if (std.mem.eql(u8, raw, "auto")) return .auto;
     if (std.mem.eql(u8, raw, "dark")) return .dark;
     if (std.mem.eql(u8, raw, "light")) return .light;
     return error.InvalidStyle;

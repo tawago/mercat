@@ -40,7 +40,7 @@ zig build -Doptimize=ReleaseFast
 - **CLI mode**: Render markdown with syntax highlighting to stdout
 - **TUI mode**: Interactive pager with vim-style navigation
 - **Editor integration**: Press `e` to edit in $EDITOR, auto-reloads on return
-- **Themes**: Dark, light, and auto (terminal background detection)
+- **Themes**: Dark and light
 - **Pager support**: Pipe through $PAGER or `less -R`
 - **Stdin support**: `cat file.md | mercat -`
 - **GFM support**: Tables, task lists, fenced code blocks, strikethrough
@@ -83,7 +83,7 @@ editor = "vim"
 pager = "less -R"
 
 [display]
-theme = "auto"       # auto, dark, light
+theme = "dark"       # dark, light
 width = 0            # 0 = terminal width
 heading_markers = true
 

@@ -21,21 +21,40 @@ const ForceLayout = mermaid_types.ForceLayout;
 const SubgraphEdges = @import("prim").SubgraphEdges;
 const FitStage = mermaid_types.FitStage;
 
-/// The bullet glyph for a list item at `depth`, plus its trailing space. Caller
-/// owns the returned slice. Falls back to "•" when no glyphs are configured.
-fn bulletMarker(allocator: std.mem.Allocator, glyphs: Glyphs, depth: usize) ![]u8 {
-    const glyph = if (glyphs.bullet_glyphs.len == 0)
+/// A list/task marker (glyph + trailing space) formatted into a small stack
+/// buffer, with a heap fallback for oversized glyphs. Configured glyphs are
+/// bounded but not tiny, so the buffer avoids a per-item heap allocation in the
+/// common case. Use it in place (the slice points into `buf`); `deinit` frees
+/// only the heap fallback.
+const Marker = struct {
+    buf: [64]u8 = undefined,
+    slice: []const u8 = &.{},
+    heap: bool = false,
+
+    fn set(self: *Marker, allocator: std.mem.Allocator, glyph: []const u8) !void {
+        const total = glyph.len + 1;
+        const dst = if (total <= self.buf.len)
+            self.buf[0..total]
+        else
+            try allocator.alloc(u8, total);
+        @memcpy(dst[0..glyph.len], glyph);
+        dst[glyph.len] = ' ';
+        self.slice = dst;
+        self.heap = total > self.buf.len;
+    }
+
+    fn deinit(self: *Marker, allocator: std.mem.Allocator) void {
+        if (self.heap) allocator.free(self.slice);
+    }
+};
+
+/// The bullet glyph for a list item at `depth`. Falls back to "•" when no
+/// glyphs are configured.
+fn bulletGlyph(glyphs: Glyphs, depth: usize) []const u8 {
+    return if (glyphs.bullet_glyphs.len == 0)
         "\u{2022}"
     else
         glyphs.bullet_glyphs[depth % glyphs.bullet_glyphs.len];
-    return std.mem.concat(allocator, u8, &.{ glyph, " " });
-}
-
-/// A task-list checkbox marker (configured glyph + trailing space). Caller owns
-/// the returned slice.
-fn taskMarker(allocator: std.mem.Allocator, glyphs: Glyphs, checked: bool) ![]u8 {
-    const glyph = if (checked) glyphs.task_checked else glyphs.task_todo;
-    return std.mem.concat(allocator, u8, &.{ glyph, " " });
 }
 
 pub fn renderBlock(allocator: std.mem.Allocator, builder: *Builder, block: Block, options: Options) !void {
@@ -44,16 +63,18 @@ pub fn renderBlock(allocator: std.mem.Allocator, builder: *Builder, block: Block
         .heading => |h| try renderHeading(allocator, builder, h, content_width, options.show_heading_markers, options.glyphs),
         .paragraph => |p| try renderParagraph(allocator, builder, p.content, content_width, .body, p.indent),
         .unordered_list_item => |item| {
-            const marker = try bulletMarker(allocator, options.glyphs, 0);
-            defer allocator.free(marker);
-            try renderListItem(allocator, builder, item, content_width, marker, 0, options.glyphs);
+            var marker: Marker = .{};
+            try marker.set(allocator, bulletGlyph(options.glyphs, 0));
+            defer marker.deinit(allocator);
+            try renderListItem(allocator, builder, item, content_width, marker.slice, 0, options.glyphs);
         },
         .ordered_list_item => |item| try renderListItem(allocator, builder, item, content_width, item.marker, 0, options.glyphs),
         .task_list_item => |item| {
-            const marker = try taskMarker(allocator, options.glyphs, item.checked);
-            defer allocator.free(marker);
+            var marker: Marker = .{};
+            try marker.set(allocator, if (item.checked) options.glyphs.task_checked else options.glyphs.task_todo);
+            defer marker.deinit(allocator);
             const marker_style: SpanStyle = if (item.checked) .task_checkbox_done else .task_checkbox_todo;
-            try renderTaskItem(allocator, builder, item.content, content_width, marker, marker_style);
+            try renderTaskItem(allocator, builder, item.content, content_width, marker.slice, marker_style);
         },
         .fenced_code => |code| try renderCodeBlock(allocator, builder, code, content_width, options.mermaid_box_style, options.mermaid_crossing_heuristic, options.mermaid_force_layout, options.mermaid_aspect_ratio, options.mermaid_debug, options.mermaid_subgraph_edges),
         .html_block => |html| try builder.appendSpan(.muted, html),
@@ -82,12 +103,19 @@ pub fn renderHeading(allocator: std.mem.Allocator, builder: *Builder, heading: B
         return;
     }
     // Repeat the configured prefix `level` times (capped at 6), then a space.
+    // A 64-byte stack buffer covers the common case; oversized glyphs fall back
+    // to a heap allocation so no per-heading allocation happens normally.
     const repeat = @min(heading.level, 6);
-    var prefix_builder: std.ArrayList(u8) = .empty;
-    defer prefix_builder.deinit(allocator);
-    for (0..repeat) |_| try prefix_builder.appendSlice(allocator, glyphs.heading_prefix);
-    try prefix_builder.append(allocator, ' ');
-    const prefix = prefix_builder.items;
+    const glyph = glyphs.heading_prefix;
+    const total = repeat * glyph.len + 1;
+    var prefix_buf: [64]u8 = undefined;
+    const prefix = if (total <= prefix_buf.len)
+        prefix_buf[0..total]
+    else
+        try allocator.alloc(u8, total);
+    defer if (total > prefix_buf.len) allocator.free(prefix);
+    for (0..repeat) |i| @memcpy(prefix[i * glyph.len ..][0..glyph.len], glyph);
+    prefix[total - 1] = ' ';
     try wrap.renderWrappedInlines(allocator, builder, heading.content, width, heading_style, prefix, heading_style, prefix, heading_style);
 }
 
@@ -159,9 +187,10 @@ pub fn renderListItem(allocator: std.mem.Allocator, builder: *Builder, item: Blo
         try builder.newline();
         switch (nested) {
             .unordered_list_item => |n| {
-                const nested_bullet = try bulletMarker(allocator, glyphs, depth + 1);
-                defer allocator.free(nested_bullet);
-                try renderListItem(allocator, builder, n, width, nested_bullet, depth + 1, glyphs);
+                var nested_bullet: Marker = .{};
+                try nested_bullet.set(allocator, bulletGlyph(glyphs, depth + 1));
+                defer nested_bullet.deinit(allocator);
+                try renderListItem(allocator, builder, n, width, nested_bullet.slice, depth + 1, glyphs);
             },
             .ordered_list_item => |n| try renderListItem(allocator, builder, n, width, n.marker, depth + 1, glyphs),
             .blockquote => |bq| try renderBlockQuoteWithPrefix(allocator, builder, bq, width -| unicode.displayWidth(continuation), continuation, glyphs),
@@ -238,16 +267,18 @@ pub fn renderBlockQuote(allocator: std.mem.Allocator, builder: *Builder, bq: Blo
             .heading => |h| try renderHeading(allocator, builder, h, content_width, true, glyphs),
             .paragraph => |p| try renderParagraph(allocator, builder, p.content, content_width, .body, p.indent),
             .unordered_list_item => |item| {
-                const marker = try bulletMarker(allocator, glyphs, 0);
-                defer allocator.free(marker);
-                try renderListItem(allocator, builder, item, content_width, marker, 0, glyphs);
+                var marker: Marker = .{};
+                try marker.set(allocator, bulletGlyph(glyphs, 0));
+                defer marker.deinit(allocator);
+                try renderListItem(allocator, builder, item, content_width, marker.slice, 0, glyphs);
             },
             .ordered_list_item => |item| try renderListItem(allocator, builder, item, content_width, item.marker, 0, glyphs),
             .task_list_item => |item| {
-                const marker = try taskMarker(allocator, glyphs, item.checked);
-                defer allocator.free(marker);
+                var marker: Marker = .{};
+                try marker.set(allocator, if (item.checked) glyphs.task_checked else glyphs.task_todo);
+                defer marker.deinit(allocator);
                 const marker_style: SpanStyle = if (item.checked) .task_checkbox_done else .task_checkbox_todo;
-                try renderTaskItem(allocator, builder, item.content, content_width, marker, marker_style);
+                try renderTaskItem(allocator, builder, item.content, content_width, marker.slice, marker_style);
             },
             .fenced_code => |code| try renderCodeBlock(allocator, builder, code, content_width, .standard, .median, .auto, 1.0, false, .bridge),
             .html_block => |html| try builder.appendSpan(.muted, html),
@@ -351,9 +382,10 @@ pub fn renderBlockQuoteWithPrefix(allocator: std.mem.Allocator, builder: *Builde
             .heading => |h| try renderHeading(allocator, builder, h, content_width, true, glyphs),
             .paragraph => |p| try renderParagraph(allocator, builder, p.content, content_width, .body, p.indent),
             .unordered_list_item => |item| {
-                const marker = try bulletMarker(allocator, glyphs, 0);
-                defer allocator.free(marker);
-                try renderListItem(allocator, builder, item, content_width, marker, 0, glyphs);
+                var marker: Marker = .{};
+                try marker.set(allocator, bulletGlyph(glyphs, 0));
+                defer marker.deinit(allocator);
+                try renderListItem(allocator, builder, item, content_width, marker.slice, 0, glyphs);
             },
             .ordered_list_item => |item| try renderListItem(allocator, builder, item, content_width, item.marker, 0, glyphs),
             .fenced_code => |code| try renderCodeBlock(allocator, builder, code, content_width, .standard, .median, .auto, 1.0, false, .bridge),
@@ -618,6 +650,190 @@ fn maxCodeBlockLineWidth(source: []const u8) usize {
 fn appendCodeBlockPadding(builder: *Builder, count: usize) !void {
     if (count == 0) return;
     try table_mod.appendSpaces(builder, count, .code_block);
+}
+
+// ---------------------------------------------------------------------------
+// Tests
+// ---------------------------------------------------------------------------
+
+/// Test helper: concatenate every span's text on a line into one owned buffer.
+fn concatSpans(allocator: std.mem.Allocator, spans: []const types.Span) ![]u8 {
+    var out: std.ArrayList(u8) = .empty;
+    errdefer out.deinit(allocator);
+    for (spans) |span| try out.appendSlice(allocator, span.text);
+    return out.toOwnedSlice(allocator);
+}
+
+test "Marker.set with typical glyph produces glyph+space on the stack (no heap alloc)" {
+    // fail_index 0 makes the very first allocation fail; the stack path must
+    // therefore complete without touching the allocator at all.
+    var failing = std.testing.FailingAllocator.init(std.testing.allocator, .{ .fail_index = 0 });
+    const alloc = failing.allocator();
+
+    var marker: Marker = .{};
+    try marker.set(alloc, "\u{2022}"); // "•", 3 bytes
+    defer marker.deinit(alloc);
+
+    try std.testing.expectEqualStrings("\u{2022} ", marker.slice);
+    try std.testing.expect(!marker.heap);
+    try std.testing.expectEqual(@as(usize, 0), failing.allocations);
+}
+
+test "Marker.set with oversized glyph falls back to heap and deinit frees it" {
+    // 100-byte glyph -> total 101 > 64-byte stack buffer -> heap path.
+    // std.testing.allocator turns any missed free into a test failure.
+    const glyph = "x" ** 100;
+    var marker: Marker = .{};
+    try marker.set(std.testing.allocator, glyph);
+    defer marker.deinit(std.testing.allocator);
+
+    try std.testing.expect(marker.heap);
+    try std.testing.expectEqual(glyph.len + 1, marker.slice.len);
+    try std.testing.expectEqualStrings(glyph, marker.slice[0..glyph.len]);
+    try std.testing.expectEqual(@as(u8, ' '), marker.slice[glyph.len]);
+}
+
+test "Marker.set at the stack/heap boundary" {
+    // total == 64 (glyph 63 bytes + space) still fits the stack buffer.
+    {
+        const glyph = "y" ** 63;
+        var marker: Marker = .{};
+        try marker.set(std.testing.allocator, glyph);
+        defer marker.deinit(std.testing.allocator);
+        try std.testing.expect(!marker.heap);
+        try std.testing.expectEqual(@as(usize, 64), marker.slice.len);
+    }
+    // total == 65 (glyph 64 bytes + space) overflows -> heap.
+    {
+        const glyph = "z" ** 64;
+        var marker: Marker = .{};
+        try marker.set(std.testing.allocator, glyph);
+        defer marker.deinit(std.testing.allocator);
+        try std.testing.expect(marker.heap);
+        try std.testing.expectEqual(@as(usize, 65), marker.slice.len);
+    }
+}
+
+test "renderHeading default '#' prefix repeats per level 1-6" {
+    const expected = [_][]const u8{
+        "# Title",
+        "## Title",
+        "### Title",
+        "#### Title",
+        "##### Title",
+        "###### Title",
+    };
+    for (expected, 1..) |want, level| {
+        var builder = Builder.init(std.testing.allocator);
+        defer builder.deinit();
+
+        var content = [_]Inline{.{ .text = "Title" }};
+        const heading = Block.Heading{ .level = @intCast(level), .content = &content };
+        try renderHeading(std.testing.allocator, &builder, heading, 80, true, .{});
+
+        const lines = try builder.finish();
+        defer {
+            for (lines) |l| l.deinit(std.testing.allocator);
+            std.testing.allocator.free(lines);
+        }
+        try std.testing.expectEqual(@as(usize, 1), lines.len);
+        const text = try concatSpans(std.testing.allocator, lines[0].spans);
+        defer std.testing.allocator.free(text);
+        try std.testing.expectEqualStrings(want, text);
+    }
+}
+
+test "renderHeading levels above 6 cap the prefix at 6 glyphs" {
+    var builder = Builder.init(std.testing.allocator);
+    defer builder.deinit();
+
+    var content = [_]Inline{.{ .text = "Title" }};
+    const heading = Block.Heading{ .level = 9, .content = &content };
+    try renderHeading(std.testing.allocator, &builder, heading, 80, true, .{});
+
+    const lines = try builder.finish();
+    defer {
+        for (lines) |l| l.deinit(std.testing.allocator);
+        std.testing.allocator.free(lines);
+    }
+    const text = try concatSpans(std.testing.allocator, lines[0].spans);
+    defer std.testing.allocator.free(text);
+    try std.testing.expectEqualStrings("###### Title", text);
+}
+
+test "renderHeading with a multi-byte glyph repeats bytes correctly at level 6" {
+    var builder = Builder.init(std.testing.allocator);
+    defer builder.deinit();
+
+    var content = [_]Inline{.{ .text = "Sec" }};
+    const heading = Block.Heading{ .level = 6, .content = &content };
+    // "§" is U+00A7, two bytes (0xC2 0xA7); six repeats + space = 13 bytes.
+    try renderHeading(std.testing.allocator, &builder, heading, 80, true, .{ .heading_prefix = "\u{00A7}" });
+
+    const lines = try builder.finish();
+    defer {
+        for (lines) |l| l.deinit(std.testing.allocator);
+        std.testing.allocator.free(lines);
+    }
+    const text = try concatSpans(std.testing.allocator, lines[0].spans);
+    defer std.testing.allocator.free(text);
+    try std.testing.expectEqualStrings("\u{00A7}\u{00A7}\u{00A7}\u{00A7}\u{00A7}\u{00A7} Sec", text);
+}
+
+test "renderHeading with oversized prefix glyph takes heap fallback and renders without leaks" {
+    var builder = Builder.init(std.testing.allocator);
+    defer builder.deinit();
+
+    var content = [_]Inline{.{ .text = "Big" }};
+    const heading = Block.Heading{ .level = 1, .content = &content };
+    // 100-byte glyph -> total 101 > 64-byte prefix buffer -> heap allocation.
+    const glyph = "#" ** 100;
+    try renderHeading(std.testing.allocator, &builder, heading, 400, true, .{ .heading_prefix = glyph });
+
+    const lines = try builder.finish();
+    defer {
+        for (lines) |l| l.deinit(std.testing.allocator);
+        std.testing.allocator.free(lines);
+    }
+    const text = try concatSpans(std.testing.allocator, lines[0].spans);
+    defer std.testing.allocator.free(text);
+    try std.testing.expectEqualStrings(glyph ++ " Big", text);
+}
+
+test "renderBlock task_list_item renders default task_todo glyph as 'glyph + space' before content" {
+    var builder = Builder.init(std.testing.allocator);
+    defer builder.deinit();
+
+    var content = [_]Inline{.{ .text = "Task" }};
+    const block = Block{ .task_list_item = .{ .checked = false, .content = &content } };
+    try renderBlock(std.testing.allocator, &builder, block, .{ .width = 80, .left_padding = 0 });
+
+    const lines = try builder.finish();
+    defer {
+        for (lines) |l| l.deinit(std.testing.allocator);
+        std.testing.allocator.free(lines);
+    }
+    const text = try concatSpans(std.testing.allocator, lines[0].spans);
+    defer std.testing.allocator.free(text);
+    try std.testing.expectEqualStrings("[ ] Task", text);
+}
+
+test "renderBlock task_list_item renders default task_checked glyph as 'glyph + space' before content" {
+    var builder = Builder.init(std.testing.allocator);
+    defer builder.deinit();
+
+    var content = [_]Inline{.{ .text = "Task" }};
+    const block = Block{ .task_list_item = .{ .checked = true, .content = &content } };
+    try renderBlock(std.testing.allocator, &builder, block, .{ .width = 80, .left_padding = 0 });
+
+    const lines = try builder.finish();
+    defer {
+        for (lines) |l| l.deinit(std.testing.allocator);
+        std.testing.allocator.free(lines);
+    }
+    const text = try concatSpans(std.testing.allocator, lines[0].spans);
+    defer std.testing.allocator.free(text);
+    try std.testing.expectEqualStrings("[x] Task", text);
 }
 
 pub fn isCompactBlockPair(previous: Block, current: Block) bool {
