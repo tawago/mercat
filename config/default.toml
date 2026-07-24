@@ -3,7 +3,7 @@ editor = "vim"
 pager = "less -R"
 
 [display]
-theme = "auto"
+theme = "dark"
 width = 0
 line_numbers = false
 heading_markers = true

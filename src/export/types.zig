@@ -200,9 +200,16 @@ pub fn semanticStyleTag(style: render_model.SpanStyle) u16 {
         .superscript => 26,
         .subscript => 27,
         .highlight => 28,
-        .frontmatter_key => 29,
-        .frontmatter_value => 30,
-        .frontmatter_cap => 31,
+        .list_marker => 29,
+        .table_border => 30,
+        .table_header => 31,
+        .task_checkbox_done => 32,
+        .task_checkbox_todo => 33,
+        .hr => 34,
+        .code_fence_banner => 35,
+        .frontmatter_key => 36,
+        .frontmatter_value => 37,
+        .frontmatter_cap => 38,
     };
 }
 

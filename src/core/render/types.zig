@@ -16,10 +16,50 @@ const config = @import("../config.zig");
 const mermaid_types = @import("../mermaid/types.zig");
 const unicode = @import("../../lib/unicode.zig");
 
+/// Structural glyphs the block/table renderers stamp into the grid. Defaults are
+/// the exact literals used before Issue 17, so an unpopulated Options renders
+/// byte-identically. The renderer appends the trailing space after bullet and
+/// checkbox markers, so these strings never include it.
+pub const Glyphs = struct {
+    // Single source of truth: derive every default from config.Display's own
+    // defaults so the two structs cannot drift apart. The table triple defaults
+    // from the default border set expanded to its concrete glyphs.
+    const default_display = config.Config.Display{};
+    const default_border = default_display.table_border_set.glyphs();
+
+    quote_bar: []const u8 = default_display.quote_bar,
+    bullet_glyphs: []const []const u8 = default_display.bullet_glyphs,
+    hr_glyph: []const u8 = default_display.hr_glyph,
+    task_checked: []const u8 = default_display.task_checked,
+    task_todo: []const u8 = default_display.task_todo,
+    heading_prefix: []const u8 = default_display.heading_prefix,
+    table_horizontal: []const u8 = default_border.horizontal,
+    table_vertical: []const u8 = default_border.vertical,
+    table_cross: []const u8 = default_border.cross,
+
+    /// Project a loaded `[display]` config onto the render-side glyph set,
+    /// expanding the table_border_set enum into its concrete triple.
+    pub fn fromDisplay(display: config.Config.Display) Glyphs {
+        const border = display.table_border_set.glyphs();
+        return .{
+            .quote_bar = display.quote_bar,
+            .bullet_glyphs = display.bullet_glyphs,
+            .hr_glyph = display.hr_glyph,
+            .task_checked = display.task_checked,
+            .task_todo = display.task_todo,
+            .heading_prefix = display.heading_prefix,
+            .table_horizontal = border.horizontal,
+            .table_vertical = border.vertical,
+            .table_cross = border.cross,
+        };
+    }
+};
+
 pub const Options = struct {
     width: usize,
     left_padding: usize = 2,
     show_heading_markers: bool = true,
+    glyphs: Glyphs = .{},
     /// YAML front matter display style (issue #9; panel default).
     frontmatter_style: config.FrontmatterStyle = .panel,
     /// True when the render model feeds a file exporter (plain/PNG) rather than
@@ -69,6 +109,15 @@ pub const SpanStyle = enum {
     superscript,
     subscript,
     highlight,
+    // Structural slots (Issue 17 Layer 1b): each defaults to the token its
+    // emit site borrowed before, so default output stays byte-identical.
+    list_marker,
+    table_border,
+    table_header,
+    task_checkbox_done,
+    task_checkbox_todo,
+    hr,
+    code_fence_banner,
     frontmatter_key,
     frontmatter_value,
     frontmatter_cap,

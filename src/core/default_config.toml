@@ -3,10 +3,21 @@ editor = "vim"
 pager = "less -R"
 
 [display]
-theme = "auto"
+theme = "dark"
 syntax_theme = "default"
 width = 0
 line_numbers = false
+# Structural glyphs. Bullet/checkbox markers get a trailing space appended by
+# the renderer, so do not include it here.
+quote_bar = "▎"
+bullet_glyphs = ["•", "◦", "‣"]
+hr_glyph = "─"
+task_checked = "[x]"
+task_todo = "[ ]"
+# Table border glyph set: "light" (─│┼), "heavy" (━┃╋), "double" (═║╬), "ascii" (-|+).
+table_border_set = "light"
+# String repeated once per heading level when heading markers are shown.
+heading_prefix = "#"
 # How YAML front matter (--- metadata at the top of a file) is displayed:
 #   "panel" (default) — banded metadata card
 #   "dim"             — muted key/value list, no chrome
@@ -28,3 +39,12 @@ subgraph_edges = "bridge"
 [files]
 show_hidden = false
 extensions = ["md", "markdown", "mdown", "mkd"]
+
+# Per-element color overrides. Uncomment a [theme.<slot>] table to restyle one
+# element; every key is optional (fg/bg are xterm-256 indices 0-255).
+# Slots include heading1..heading6, body, muted, emphasis, strong, code, quote,
+# link, and the structural slots list_marker, table_border, table_header,
+# task_checkbox_done, task_checkbox_todo, hr, code_fence_banner.
+# [theme.heading1]
+# fg = 81
+# bold = true

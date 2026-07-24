@@ -44,14 +44,24 @@ pub fn writeHyperlink(allocator: std.mem.Allocator, buffer: *std.ArrayList(u8), 
     try buffer.appendSlice(allocator, "\x1b]8;;\x1b\\");
 }
 
-/// Writes text with ANSI styling based on a StyleToken.
-/// This is the CLI equivalent of theme.vaxisStyle() used by the TUI.
-pub fn writeTokenStyled(allocator: std.mem.Allocator, buffer: *std.ArrayList(u8), token: theme.StyleToken, text: []const u8) !void {
+/// SGR reset sequence closing a styled run.
+pub const reset_sequence = "\x1b[0m";
+
+/// Writes the SGR style prefix for a StyleToken without any text or reset.
+/// Lets callers coalesce a run of same-token spans behind one prefix/reset
+/// pair, appending span text straight into the output buffer in between.
+pub fn writeTokenPrefix(allocator: std.mem.Allocator, buffer: *std.ArrayList(u8), token: theme.StyleToken) !void {
     var prefix: [48]u8 = undefined;
     const style = try formatStyle(&prefix, token);
     try buffer.appendSlice(allocator, style);
+}
+
+/// Writes text with ANSI styling based on a StyleToken.
+/// This is the CLI equivalent of theme.vaxisStyle() used by the TUI.
+pub fn writeTokenStyled(allocator: std.mem.Allocator, buffer: *std.ArrayList(u8), token: theme.StyleToken, text: []const u8) !void {
+    try writeTokenPrefix(allocator, buffer, token);
     try buffer.appendSlice(allocator, text);
-    try buffer.appendSlice(allocator, "\x1b[0m");
+    try buffer.appendSlice(allocator, reset_sequence);
 }
 
 fn formatStyle(buffer: []u8, token: theme.StyleToken) ![]const u8 {

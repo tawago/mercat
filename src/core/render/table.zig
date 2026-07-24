@@ -8,9 +8,10 @@ const unicode = @import("../../lib/unicode.zig");
 const Block = markdown.Block;
 const Inline = markdown.Inline;
 const SpanStyle = types.SpanStyle;
+const Glyphs = types.Glyphs;
 const Builder = builder_mod.Builder;
 
-pub fn renderTable(allocator: std.mem.Allocator, builder: *Builder, table: Block.Table, max_width: usize) !void {
+pub fn renderTable(allocator: std.mem.Allocator, builder: *Builder, table: Block.Table, max_width: usize, glyphs: Glyphs) !void {
     if (table.rows.len == 0) return;
 
     // Calculate column widths based on inline content
@@ -31,23 +32,24 @@ pub fn renderTable(allocator: std.mem.Allocator, builder: *Builder, table: Block
 
     for (table.rows, 0..) |row, index| {
         if (index != 0) try builder.newline();
-        try appendTableRow(allocator, builder, row, widths, table.alignments);
+        try appendTableRow(allocator, builder, row, widths, table.alignments, index == 0, glyphs);
         if (index == 0) {
             try builder.newline();
-            try appendTableRule(builder, widths);
+            try appendTableRule(builder, widths, glyphs);
         }
     }
 }
 
-pub fn appendTableRule(builder: *Builder, widths: []const usize) !void {
+pub fn appendTableRule(builder: *Builder, widths: []const usize, glyphs: Glyphs) !void {
     for (widths, 0..) |width, index| {
-        if (index != 0) try builder.appendSpan(.muted, "\u{253c}");
+        if (index != 0) try builder.appendSpan(.table_border, glyphs.table_cross);
         var count: usize = 0;
-        while (count < width + 2) : (count += 1) try builder.appendSpan(.muted, "\u{2500}");
+        while (count < width + 2) : (count += 1) try builder.appendSpan(.table_border, glyphs.table_horizontal);
     }
 }
 
-pub fn appendTableRow(allocator: std.mem.Allocator, builder: *Builder, row: Block.TableRow, widths: []const usize, alignments: []const Block.Table.Alignment) !void {
+pub fn appendTableRow(allocator: std.mem.Allocator, builder: *Builder, row: Block.TableRow, widths: []const usize, alignments: []const Block.Table.Alignment, is_header: bool, glyphs: Glyphs) !void {
+    const cell_style: SpanStyle = if (is_header) .table_header else .body;
     var wrapped_cells = try allocator.alloc([][]const u8, widths.len);
     defer allocator.free(wrapped_cells);
     var row_height: usize = 1;
@@ -78,12 +80,12 @@ pub fn appendTableRow(allocator: std.mem.Allocator, builder: *Builder, row: Bloc
                 .center => .{ remaining / 2, remaining - (remaining / 2) },
                 .left, .none => .{ 0, remaining },
             };
-            try builder.appendSpan(.body, " ");
-            if (pad_left != 0) try appendSpaces(builder, pad_left, .body);
-            try builder.appendSpan(.body, cell_line);
-            if (pad_right != 0) try appendSpaces(builder, pad_right, .body);
-            try builder.appendSpan(.body, " ");
-            if (index + 1 < widths.len) try builder.appendSpan(.muted, "\u{2502}");
+            try builder.appendSpan(cell_style, " ");
+            if (pad_left != 0) try appendSpaces(builder, pad_left, cell_style);
+            try builder.appendSpan(cell_style, cell_line);
+            if (pad_right != 0) try appendSpaces(builder, pad_right, cell_style);
+            try builder.appendSpan(cell_style, " ");
+            if (index + 1 < widths.len) try builder.appendSpan(.table_border, glyphs.table_vertical);
         }
     }
 }

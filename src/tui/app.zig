@@ -96,6 +96,8 @@ pub const App = struct {
         editor_command: []const u8,
         active_theme: config.Theme,
         syntax_theme: config.SyntaxTheme,
+        theme_overrides: config.ThemeOverrides,
+        glyphs: render_model.Glyphs,
         show_heading_markers: bool,
         frontmatter_style: config.FrontmatterStyle,
         initial_layout: mermaid_types.ForceLayout,
@@ -124,7 +126,7 @@ pub const App = struct {
 
         self.mermaid_layout = initial_layout;
         self.mermaid_subgraph_edges = initial_subgraph_edges;
-        self.pager = PagerView.init(allocator, title, &self.current_document, active_theme, syntax_theme, show_heading_markers, initial_layout, initial_subgraph_edges);
+        self.pager = PagerView.init(allocator, title, &self.current_document, active_theme, syntax_theme, theme_overrides, glyphs, show_heading_markers, initial_layout, initial_subgraph_edges);
         self.pager.frontmatter_style = frontmatter_style;
 
         self.view_mode = .pager;
@@ -532,7 +534,7 @@ pub const App = struct {
         if (self.view_mode == .pager) {
             var row: usize = 0;
             while (row < content_height and self.pager.viewport.top + row < self.pager.lines.len) : (row += 1) {
-                const segments = try toVaxisSegments(self.allocator, self.pager.lines[self.pager.viewport.top + row], self.pager.active_theme, self.pager.syntax_theme);
+                const segments = try toVaxisSegments(self.allocator, self.pager.lines[self.pager.viewport.top + row], self.pager.palette);
                 defer self.allocator.free(segments);
                 _ = root.print(segments, .{
                     .row_offset = @intCast(row),
@@ -573,8 +575,8 @@ pub const App = struct {
 };
 
 /// Entry point for TUI mode - creates and runs the App
-pub fn run(allocator: std.mem.Allocator, title: []const u8, input_source: args.Input, initial_content: []const u8, editor_command: []const u8, active_theme: config.Theme, syntax_theme: config.SyntaxTheme, show_heading_markers: bool, frontmatter_style: config.FrontmatterStyle, initial_layout: mermaid_types.ForceLayout, initial_subgraph_edges: SubgraphEdges) !void {
-    var app = try App.init(allocator, title, input_source, initial_content, editor_command, active_theme, syntax_theme, show_heading_markers, frontmatter_style, initial_layout, initial_subgraph_edges);
+pub fn run(allocator: std.mem.Allocator, title: []const u8, input_source: args.Input, initial_content: []const u8, editor_command: []const u8, active_theme: config.Theme, syntax_theme: config.SyntaxTheme, theme_overrides: config.ThemeOverrides, glyphs: render_model.Glyphs, show_heading_markers: bool, frontmatter_style: config.FrontmatterStyle, initial_layout: mermaid_types.ForceLayout, initial_subgraph_edges: SubgraphEdges) !void {
+    var app = try App.init(allocator, title, input_source, initial_content, editor_command, active_theme, syntax_theme, theme_overrides, glyphs, show_heading_markers, frontmatter_style, initial_layout, initial_subgraph_edges);
     // Fix self-referential pointer invalidated by struct return copy.
     // App.init() stores &self.current_document where self is a local; after
     // the return-by-value copy into app, that pointer is stale.
@@ -583,8 +585,7 @@ pub fn run(allocator: std.mem.Allocator, title: []const u8, input_source: args.I
     try app.run();
 }
 
-fn toVaxisSegments(allocator: std.mem.Allocator, line: render_model.Line, active_theme: config.Theme, syntax_theme: config.SyntaxTheme) ![]vaxis.Segment {
-    const palette = theme.palette(active_theme, syntax_theme);
+fn toVaxisSegments(allocator: std.mem.Allocator, line: render_model.Line, palette: theme.Palette) ![]vaxis.Segment {
     const segments = try allocator.alloc(vaxis.Segment, line.spans.len);
     for (line.spans, 0..) |span, index| {
         var segment: vaxis.Segment = .{
@@ -680,7 +681,7 @@ test "toVaxisSegments borrows render-model span text" {
     var rendered = try render_model.renderDocument(allocator, document, .{ .width = 20 });
     defer rendered.deinit(allocator);
 
-    const segments = try toVaxisSegments(allocator, rendered.lines[0], .dark, .default);
+    const segments = try toVaxisSegments(allocator, rendered.lines[0], theme.palette(.dark, .default, .{}));
     defer allocator.free(segments);
 
     try std.testing.expectEqual(@intFromPtr(rendered.lines[0].spans[0].text.ptr), @intFromPtr(segments[0].text.ptr));
@@ -689,7 +690,10 @@ test "toVaxisSegments borrows render-model span text" {
 test "initLoop binds loop to app-owned tty and vaxis" {
     const allocator = std.testing.allocator;
 
-    var app = try App.init(allocator, "fixture", .none, "# Title\n", "vim", .dark, .default, true, .panel, .auto, .bridge);
+    var app = try App.init(allocator, "fixture", .none, "# Title\n", "vim", .dark, .default, .{}, .{}, true, .panel, .auto, .bridge);
+    // Repair the self-referential document pointer invalidated by App.init's
+    // return-by-value copy (see run()); reflow() dereferences it.
+    app.pager.document = &app.current_document;
     defer app.deinit();
 
     try app.initLoop();
@@ -705,7 +709,7 @@ test "syncPagerSize reflows when draw detects width change" {
     );
     defer document.deinit(allocator);
 
-    var pager = PagerView.init(allocator, "fixture", &document, .dark, .default, true, .auto, .bridge);
+    var pager = PagerView.init(allocator, "fixture", &document, .dark, .default, .{}, .{}, true, .auto, .bridge);
     defer pager.deinit();
 
     try pager.resize(60, 5);
@@ -721,7 +725,8 @@ test "syncPagerSize reflows when draw detects width change" {
 test "toggle metadata is refused when front matter is hidden" {
     const allocator = std.testing.allocator;
     const content = "---\ntitle: Secret\n---\n# Body\n";
-    var app = try App.init(allocator, "fixture", .none, content, "vim", .dark, .default, true, .hidden, .auto, .bridge);
+    var app = try App.init(allocator, "fixture", .none, content, "vim", .dark, .default, .{}, .{}, true, .hidden, .auto, .bridge);
+    app.pager.document = &app.current_document;
     defer app.deinit();
 
     try app.handleToggleMetadata();
@@ -733,7 +738,8 @@ test "toggle metadata is refused when front matter is hidden" {
 test "toggle metadata opens the overlay for visible front matter" {
     const allocator = std.testing.allocator;
     const content = "---\ntitle: Shown\n---\n# Body\n";
-    var app = try App.init(allocator, "fixture", .none, content, "vim", .dark, .default, true, .panel, .auto, .bridge);
+    var app = try App.init(allocator, "fixture", .none, content, "vim", .dark, .default, .{}, .{}, true, .panel, .auto, .bridge);
+    app.pager.document = &app.current_document;
     defer app.deinit();
 
     try app.handleToggleMetadata();
@@ -743,7 +749,8 @@ test "toggle metadata opens the overlay for visible front matter" {
 test "opening the metadata overlay hides the inline front matter and closing restores it" {
     const allocator = std.testing.allocator;
     const content = "---\ntitle: Shown\n---\n# Body\n";
-    var app = try App.init(allocator, "fixture", .none, content, "vim", .dark, .default, true, .panel, .auto, .bridge);
+    var app = try App.init(allocator, "fixture", .none, content, "vim", .dark, .default, .{}, .{}, true, .panel, .auto, .bridge);
+    app.pager.document = &app.current_document;
     defer app.deinit();
 
     try app.pager.resize(60, 20);
@@ -763,7 +770,8 @@ test "opening the metadata overlay hides the inline front matter and closing res
 test "toggle metadata is refused when the document has no front matter" {
     const allocator = std.testing.allocator;
     const content = "# Body only\n"; // no --- fenced block
-    var app = try App.init(allocator, "fixture", .none, content, "vim", .dark, .default, true, .panel, .auto, .bridge);
+    var app = try App.init(allocator, "fixture", .none, content, "vim", .dark, .default, .{}, .{}, true, .panel, .auto, .bridge);
+    app.pager.document = &app.current_document;
     defer app.deinit();
 
     try app.handleToggleMetadata();

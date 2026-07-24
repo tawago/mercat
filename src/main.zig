@@ -166,7 +166,7 @@ pub fn main() !void {
         // flag is cleared on return so a later CLI invocation still prints.
         tui_active.store(true, .monotonic);
         defer tui_active.store(false, .monotonic);
-        try tui.run(allocator, inputTitle(parsed.input), parsed.input, content, loaded_config.general.editor, active_theme, loaded_config.display.syntax_theme, show_heading_markers, frontmatter_style, parsed.force_layout orelse .auto, loaded_config.mermaid.subgraph_edges);
+        try tui.run(allocator, inputTitle(parsed.input), parsed.input, content, loaded_config.general.editor, active_theme, loaded_config.display.syntax_theme, loaded_config.theme_overrides, render_model.Glyphs.fromDisplay(loaded_config.display), show_heading_markers, frontmatter_style, parsed.force_layout orelse .auto, loaded_config.mermaid.subgraph_edges);
         return;
     }
 
@@ -180,6 +180,7 @@ pub fn main() !void {
     var rendered = try render_model.renderDocument(allocator, document, .{
         .width = render_width,
         .show_heading_markers = show_heading_markers,
+        .glyphs = render_model.Glyphs.fromDisplay(loaded_config.display),
         .frontmatter_style = frontmatter_style,
         // Raw front matter keeps tabs verbatim for the terminal, but the
         // plain/PNG exporters reject tab scalars, so expand them on export.
@@ -201,7 +202,7 @@ pub fn main() !void {
             const output = try renderer.serialize(
                 allocator,
                 rendered,
-                theme.palette(active_theme, loaded_config.display.syntax_theme),
+                theme.palette(active_theme, loaded_config.display.syntax_theme, loaded_config.theme_overrides),
             );
             defer allocator.free(output);
             try pager.writeOutput(allocator, output, loaded_config.general.pager, parsed.pager);
@@ -228,7 +229,7 @@ pub fn main() !void {
             const output_path = parsed.output_path orelse return error.PngRequiresOutput;
 
             const options = export_layout.Options{
-                .palette = theme.palette(active_theme, loaded_config.display.syntax_theme),
+                .palette = theme.palette(active_theme, loaded_config.display.syntax_theme, loaded_config.theme_overrides),
                 .color_mode = if (parsed.monochrome) .monochrome else .theme,
             };
 

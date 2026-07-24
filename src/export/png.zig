@@ -338,7 +338,7 @@ fn buildDoc(
     mode: layout.ColorMode,
 ) !ExportDocument {
     return layout.build(allocator, rendered, face, .{
-        .palette = theme.palette(.dark, .default),
+        .palette = theme.palette(.dark, .default, .{}),
         .color_mode = mode,
     });
 }

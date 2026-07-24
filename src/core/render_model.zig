@@ -7,6 +7,7 @@ const render_frontmatter = @import("render/frontmatter.zig");
 
 // Re-export types
 pub const Options = types.Options;
+pub const Glyphs = types.Glyphs;
 pub const SpanStyle = types.SpanStyle;
 pub const Span = types.Span;
 pub const Line = types.Line;
