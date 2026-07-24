@@ -3,6 +3,7 @@ const vaxis = @import("vaxis");
 const markdown = @import("../../core/markdown.zig");
 const config = @import("../../core/config.zig");
 const theme = @import("../../core/theme.zig");
+const ResolvedTheme = @import("../../core/theme/resolve.zig").ResolvedTheme;
 const unicode = @import("../../lib/unicode.zig");
 
 /// Front matter metadata overlay: a top-right panel toggled with `m`, showing
@@ -60,7 +61,7 @@ pub const MetadataOverlay = struct {
         root: vaxis.Window,
         frame_allocator: std.mem.Allocator,
         fm_opt: ?markdown.Block.FrontMatter,
-        active_theme: config.Theme,
+        resolved: *const ResolvedTheme,
     ) !void {
         if (!self.visible) {
             self.rect = null;
@@ -129,7 +130,7 @@ pub const MetadataOverlay = struct {
             return;
         }
 
-        const style = theme.metadataPanelStyle(active_theme);
+        const style = theme.metadataPanelStyle(resolved.accent, resolved.base_bg);
         const x_off = root.width -| width;
         self.rect = .{ .x = x_off, .y = 0, .width = width, .height = height };
 

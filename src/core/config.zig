@@ -1,6 +1,12 @@
 const std = @import("std");
 const prim = @import("prim");
+pub const loadfile = @import("theme/loadfile.zig");
+pub const RawThemeBuilder = loadfile.RawThemeBuilder;
 
+/// Legacy built-in palette selector, kept as a type for the internal
+/// `theme.palette(...)` helper (export/PNG/renderer test call sites). The
+/// user-facing `display.theme` is now a free-form theme *name* string resolved
+/// by the theme registry (presets + user files), not this enum.
 pub const Theme = enum { auto, dark, light };
 pub const SyntaxTheme = enum { default, classic };
 /// How YAML front matter at the top of a document is displayed (issue #9):
@@ -23,13 +29,19 @@ pub const Config = struct {
     display: Display = .{},
     mermaid: Mermaid = .{},
     files: Files = .{},
+    /// Sparse, uninterpreted inline `[theme]` / `[theme.<slot>]` tables from
+    /// config.toml. Wired but inert in S1: nothing consumes it yet — S3 folds
+    /// it as the inline-override layer of the theme resolver.
+    raw_theme: RawThemeBuilder = .{},
 
     pub fn deinit(self: *Config, allocator: std.mem.Allocator) void {
         allocator.free(self.general.editor);
         allocator.free(self.general.pager);
+        allocator.free(self.display.theme);
         allocator.free(self.mermaid.style);
         for (self.files.extensions) |extension| allocator.free(extension);
         allocator.free(self.files.extensions);
+        self.raw_theme.deinit(allocator);
     }
 
     pub const General = struct {
@@ -38,7 +50,14 @@ pub const Config = struct {
     };
 
     pub const Display = struct {
-        theme: Theme = .auto,
+        /// Theme *name*: a built-in preset (`auto`, `dark`, `light`, `ansi`,
+        /// `dracula`, `tokyo-night`, `pink`, `markview`) or a user theme-file
+        /// name under `~/.config/mercat/themes/`. Validation is deferred to the
+        /// registry, which falls back to `dark` (with an `unknown_theme`
+        /// diagnostic) for names it cannot resolve. Owned; freed in `deinit`.
+        theme: []const u8 = "auto",
+        /// Deprecated alias, superseded by the theme system. Still parsed so old
+        /// configs load without error, but no longer selects a palette variant.
         syntax_theme: SyntaxTheme = .default,
         width: usize = 0,
         line_numbers: bool = false,
@@ -76,7 +95,7 @@ pub fn load(allocator: std.mem.Allocator) !Config {
         else => return err,
     }
 
-    applyEnvOverrides(&cfg);
+    try applyEnvOverrides(allocator, &cfg);
     return cfg;
 }
 
@@ -120,7 +139,7 @@ fn initDefaults(allocator: std.mem.Allocator) !Config {
             .editor = try allocator.dupe(u8, "vim"),
             .pager = try allocator.dupe(u8, "less -R"),
         },
-        .display = .{},
+        .display = .{ .theme = try allocator.dupe(u8, "auto") },
         .mermaid = .{
             .enabled = true,
             .style = try allocator.dupe(u8, "rounded"),
@@ -148,7 +167,16 @@ fn applyTomlLike(allocator: std.mem.Allocator, cfg: *Config, source: []const u8)
         const equals_index = std.mem.indexOfScalar(u8, trimmed, '=') orelse continue;
         const key = std.mem.trim(u8, trimmed[0..equals_index], " \t");
         const value = std.mem.trim(u8, trimmed[equals_index + 1 ..], " \t");
-        try assignValue(allocator, cfg, section, key, value);
+
+        // Split the section header on its first `.` into `(table, subtable)`.
+        // Dotted `[theme.<slot>]` tables route into the sparse raw-theme
+        // builder; every other (undotted) section keeps flat behavior.
+        const split = loadfile.splitSection(section);
+        if (std.mem.eql(u8, split.table, "theme")) {
+            try loadfile.assignThemeValue(allocator, &cfg.raw_theme, split.subtable, key, value);
+        } else {
+            try assignValue(allocator, cfg, section, key, value);
+        }
     }
 }
 
@@ -160,7 +188,7 @@ fn assignValue(allocator: std.mem.Allocator, cfg: *Config, section: []const u8, 
     }
 
     if (std.mem.eql(u8, section, "display")) {
-        if (std.mem.eql(u8, key, "theme")) cfg.display.theme = try parseTheme(stripQuotes(value));
+        if (std.mem.eql(u8, key, "theme")) try replaceString(allocator, &cfg.display.theme, stripQuotes(value));
         if (std.mem.eql(u8, key, "syntax_theme")) cfg.display.syntax_theme = try parseSyntaxTheme(stripQuotes(value));
         if (std.mem.eql(u8, key, "width")) cfg.display.width = try std.fmt.parseUnsigned(usize, value, 10);
         if (std.mem.eql(u8, key, "line_numbers")) cfg.display.line_numbers = parseBool(value);
@@ -246,7 +274,7 @@ fn replaceString(allocator: std.mem.Allocator, target: *[]const u8, value: []con
     target.* = try allocator.dupe(u8, value);
 }
 
-fn applyEnvOverrides(cfg: *Config) void {
+fn applyEnvOverrides(allocator: std.mem.Allocator, cfg: *Config) !void {
     const width = std.process.getEnvVarOwned(std.heap.page_allocator, "MERCAT_WIDTH") catch null;
     defer if (width) |value| std.heap.page_allocator.free(value);
     if (width) |value| {
@@ -256,7 +284,8 @@ fn applyEnvOverrides(cfg: *Config) void {
     const theme = std.process.getEnvVarOwned(std.heap.page_allocator, "MERCAT_THEME") catch null;
     defer if (theme) |value| std.heap.page_allocator.free(value);
     if (theme) |value| {
-        cfg.display.theme = parseTheme(value) catch cfg.display.theme;
+        // Free-form name; the registry validates it later.
+        try replaceString(allocator, &cfg.display.theme, value);
     }
 
     const syntax_theme = std.process.getEnvVarOwned(std.heap.page_allocator, "MERCAT_SYNTAX_THEME") catch null;
@@ -282,7 +311,7 @@ test "parses default config" {
     var cfg = try parseTomlLike(std.testing.allocator, default_config_text);
     defer cfg.deinit(std.testing.allocator);
 
-    try std.testing.expectEqual(Theme.auto, cfg.display.theme);
+    try std.testing.expectEqualStrings("auto", cfg.display.theme);
     try std.testing.expectEqual(SyntaxTheme.default, cfg.display.syntax_theme);
     try std.testing.expectEqualStrings("vim", cfg.general.editor);
     try std.testing.expect(cfg.mermaid.enabled);
@@ -311,12 +340,30 @@ test "overrides config values from file content" {
         ,
     );
 
-    try std.testing.expectEqual(Theme.dark, cfg.display.theme);
+    try std.testing.expectEqualStrings("dark", cfg.display.theme);
     try std.testing.expectEqual(SyntaxTheme.classic, cfg.display.syntax_theme);
     try std.testing.expectEqual(@as(usize, 88), cfg.display.width);
     try std.testing.expectEqualStrings("nvim", cfg.general.editor);
     try std.testing.expectEqual(prim.SubgraphEdges.cross, cfg.mermaid.subgraph_edges);
     try std.testing.expectEqual(FrontmatterStyle.dim, cfg.display.frontmatter);
+}
+
+test "theme is a free-form name (preset names pass through unvalidated)" {
+    var cfg = try parseTomlLike(std.testing.allocator, default_config_text);
+    defer cfg.deinit(std.testing.allocator);
+    try applyTomlLike(std.testing.allocator, &cfg,
+        \\[display]
+        \\theme = "pink"
+    );
+    try std.testing.expectEqualStrings("pink", cfg.display.theme);
+
+    // A name with no matching preset/user file is still accepted here; the
+    // registry defers validation and falls back to dark with a diagnostic.
+    try applyTomlLike(std.testing.allocator, &cfg,
+        \\[display]
+        \\theme = "not-a-real-theme"
+    );
+    try std.testing.expectEqualStrings("not-a-real-theme", cfg.display.theme);
 }
 
 test "frontmatter style parses every notation; invalid errors" {
@@ -363,6 +410,79 @@ test "frontmatter: invalid value in a config file surfaces the error instead of 
         \\frontmatter = "fancy"
     ));
     try std.testing.expectEqual(FrontmatterStyle.panel, cfg.display.frontmatter);
+}
+
+test {
+    // Pull loadfile's own unit tests into the `zig build test` run.
+    _ = @import("theme/loadfile.zig");
+    _ = @import("theme/color.zig");
+    _ = @import("theme/spec.zig");
+    _ = @import("theme/resolve.zig");
+    _ = @import("theme/fromraw.zig");
+    _ = @import("theme/presets.zig");
+    _ = @import("theme/dump.zig");
+    _ = @import("render/decor.zig");
+}
+
+test "inline [theme.heading1] collects raw KVs under the slot" {
+    var cfg = try parseTomlLike(std.testing.allocator, default_config_text);
+    defer cfg.deinit(std.testing.allocator);
+
+    try applyTomlLike(std.testing.allocator, &cfg,
+        \\[theme.heading1]
+        \\fg = "#ff0000"
+        \\bold = true
+        \\prefix = "> "
+    );
+
+    try std.testing.expectEqual(@as(usize, 1), cfg.raw_theme.slots.items.len);
+    try std.testing.expectEqualStrings("heading1", cfg.raw_theme.slots.items[0].name);
+    try std.testing.expectEqual(@as(usize, 3), cfg.raw_theme.slots.items[0].kvs.items.len);
+    try std.testing.expectEqualStrings("#ff0000", cfg.raw_theme.slots.items[0].kvs.items[0].value);
+    // Quotes are stripped so the two-char prefix survives intact.
+    try std.testing.expectEqualStrings("> ", cfg.raw_theme.slots.items[0].kvs.items[2].value);
+}
+
+test "top-level [theme] extends lands in raw_theme.top; [display] still routes flat" {
+    var cfg = try parseTomlLike(std.testing.allocator, default_config_text);
+    defer cfg.deinit(std.testing.allocator);
+
+    try applyTomlLike(std.testing.allocator, &cfg,
+        \\[theme]
+        \\extends = "dark"
+        \\[display]
+        \\theme = "light"
+    );
+
+    // Dotted-vs-undotted split: [display] regression path still applies.
+    try std.testing.expectEqualStrings("light", cfg.display.theme);
+    try std.testing.expectEqual(@as(usize, 1), cfg.raw_theme.top.items.len);
+    try std.testing.expectEqualStrings("extends", cfg.raw_theme.top.items[0].key);
+    try std.testing.expectEqualStrings("dark", cfg.raw_theme.top.items[0].value);
+    try std.testing.expectEqual(@as(usize, 0), cfg.raw_theme.slots.items.len);
+}
+
+test "repeated inline [theme.link] blocks merge last-wins" {
+    var cfg = try parseTomlLike(std.testing.allocator, default_config_text);
+    defer cfg.deinit(std.testing.allocator);
+
+    try applyTomlLike(std.testing.allocator, &cfg,
+        \\[theme.link]
+        \\fg = "#111111"
+        \\[theme.link]
+        \\fg = "#222222"
+    );
+
+    try std.testing.expectEqual(@as(usize, 1), cfg.raw_theme.slots.items.len);
+    try std.testing.expectEqual(@as(usize, 1), cfg.raw_theme.slots.items[0].kvs.items.len);
+    try std.testing.expectEqualStrings("#222222", cfg.raw_theme.slots.items[0].kvs.items[0].value);
+}
+
+test "default config produces an empty raw_theme" {
+    var cfg = try parseTomlLike(std.testing.allocator, default_config_text);
+    defer cfg.deinit(std.testing.allocator);
+    try std.testing.expectEqual(@as(usize, 0), cfg.raw_theme.top.items.len);
+    try std.testing.expectEqual(@as(usize, 0), cfg.raw_theme.slots.items.len);
 }
 
 test "subgraph_edges parses both notations; bridge round-trips; invalid errors" {

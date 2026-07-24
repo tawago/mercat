@@ -4,6 +4,16 @@ const render_model = @import("../core/render_model.zig");
 const theme = @import("../core/theme.zig");
 const ansi = @import("../lib/ansi.zig");
 const mermaid_types = @import("../core/mermaid/types.zig");
+const Color = @import("../core/theme/color.zig").Color;
+
+/// Solid-background ("canvas") fill request for the terminal backend. When
+/// present, every line's background is painted with `bg` and padded with
+/// bg-styled spaces to `width`; spans that carry their own bg keep it. When
+/// `null`, serialization is byte-identical to the historical terminal output.
+pub const Canvas = struct {
+    bg: Color,
+    width: usize,
+};
 
 pub const Options = struct {
     width: usize,
@@ -32,7 +42,7 @@ pub fn renderDocument(allocator: std.mem.Allocator, document: markdown.Document,
     });
     defer rendered.deinit(allocator);
 
-    return serialize(allocator, rendered, options.palette);
+    return serialize(allocator, rendered, options.palette, null);
 }
 
 /// Serialize an already-rendered value to ANSI-styled terminal bytes. This is
@@ -43,6 +53,7 @@ pub fn serialize(
     allocator: std.mem.Allocator,
     rendered: render_model.Rendered,
     palette: theme.Palette,
+    canvas: ?Canvas,
 ) ![]u8 {
     var buffer: std.ArrayList(u8) = .empty;
     errdefer buffer.deinit(allocator);
@@ -50,11 +61,32 @@ pub fn serialize(
     for (rendered.lines, 0..) |line, line_index| {
         if (line_index != 0) try buffer.append(allocator, '\n');
         for (line.spans) |span| {
-            const token = theme.token(palette, span.style);
+            var token = theme.token(palette, span.style);
+            // Canvas: spans without their own bg inherit the base_bg so the row
+            // reads as a solid sheet; spans that carry a bg (code panels, tints)
+            // keep theirs. Each writeTokenStyled resets at its own end, so no
+            // color bleeds past a span boundary.
+            if (canvas) |c| {
+                if (token.bg == null) token.bg = c.bg;
+            }
             if (span.url) |url| {
                 try ansi.writeHyperlink(allocator, &buffer, url, span.text, token);
             } else {
                 try ansi.writeTokenStyled(allocator, &buffer, token, span.text);
+            }
+        }
+        // Canvas: pad the row with bg-styled spaces out to the full width so the
+        // background is solid to the right margin (and blank lines fill too).
+        // This is the one exception to trailing-space stripping. The fill span
+        // resets at its end, so nothing bleeds past the line.
+        if (canvas) |c| {
+            const cur = line.displayWidth();
+            if (cur < c.width) {
+                const pad = c.width - cur;
+                const spaces = try allocator.alloc(u8, pad);
+                defer allocator.free(spaces);
+                @memset(spaces, ' ');
+                try ansi.writeTokenStyled(allocator, &buffer, .{ .fg = .default, .bg = c.bg }, spaces);
             }
         }
     }
@@ -146,4 +178,65 @@ test "can hide heading markers" {
 
     try std.testing.expect(std.mem.indexOf(u8, rendered, "###") == null);
     try std.testing.expect(std.mem.indexOf(u8, rendered, "Title") != null);
+}
+
+const color = @import("../core/theme/color.zig");
+
+// Helper: build a Rendered from markdown for the serialize-path canvas tests.
+fn renderFor(allocator: std.mem.Allocator, src: []const u8, width: usize) !render_model.Rendered {
+    var document = try markdown.parse(allocator, src);
+    defer document.deinit(allocator);
+    return render_model.renderDocument(allocator, document, .{ .width = width, .show_heading_markers = true });
+}
+
+test "canvas serialization fills every line to width with a bg run and resets at EOL" {
+    const allocator = std.testing.allocator;
+    color.setTruecolor(true);
+    defer color.setTruecolor(false);
+    const width: usize = 24;
+    var rendered = try renderFor(allocator, "# Hi\n\nbody", width);
+    defer rendered.deinit(allocator);
+
+    const bg = color.rgb(40, 42, 54);
+    const out = try serialize(allocator, rendered, theme.palette(.dark, .default), .{ .bg = bg, .width = width });
+    defer allocator.free(out);
+
+    // The canvas bg SGR (48;2;r;g;b) is emitted.
+    try std.testing.expect(std.mem.indexOf(u8, out, "48;2;40;42;54") != null);
+
+    // Every physical line, stripped of ANSI, is padded to the full width, and
+    // every newline is immediately preceded by a reset (no bg bleeds past EOL).
+    var it = std.mem.splitScalar(u8, out, '\n');
+    const unicode = @import("../lib/unicode.zig");
+    while (it.next()) |raw_line| {
+        const plain = try ansi.stripAlloc(allocator, raw_line);
+        defer allocator.free(plain);
+        try std.testing.expectEqual(width, unicode.displayWidth(plain));
+        try std.testing.expect(std.mem.endsWith(u8, raw_line, "\x1b[0m"));
+    }
+}
+
+test "canvas off leaves serialization unpadded and free of the canvas bg" {
+    const allocator = std.testing.allocator;
+    color.setTruecolor(true);
+    defer color.setTruecolor(false);
+    const width: usize = 24;
+    var rendered = try renderFor(allocator, "# Hi\n\nbody", width);
+    defer rendered.deinit(allocator);
+
+    const off = try serialize(allocator, rendered, theme.palette(.dark, .default), null);
+    defer allocator.free(off);
+
+    // No canvas bg, and short lines stay short (historical trailing-space
+    // stripping preserved).
+    try std.testing.expect(std.mem.indexOf(u8, off, "48;2;40;42;54") == null);
+    const unicode = @import("../lib/unicode.zig");
+    var it = std.mem.splitScalar(u8, off, '\n');
+    var saw_short = false;
+    while (it.next()) |raw_line| {
+        const plain = try ansi.stripAlloc(allocator, raw_line);
+        defer allocator.free(plain);
+        if (unicode.displayWidth(plain) < width) saw_short = true;
+    }
+    try std.testing.expect(saw_short);
 }

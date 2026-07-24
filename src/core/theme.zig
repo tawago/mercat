@@ -15,16 +15,26 @@
 const config = @import("config.zig");
 const render_model = @import("render_model.zig");
 const vaxis = @import("vaxis");
+const presets = @import("theme/presets.zig");
+const spec = @import("theme/spec.zig");
+const types = @import("render/types.zig");
+pub const color = @import("theme/color.zig");
+pub const Color = color.Color;
+
+/// Terse constructor re-export so palette literals stay readable: `idx(81)`.
+pub const idx = color.idx;
 
 /// Concrete style attributes for terminal output.
-/// Contains the actual color index and text decorations.
+/// Colors are a `Color` union (terminal-default / xterm-256 index / named
+/// ansi16 / rgb) so the same token drives the CLI ANSI writer, the TUI vaxis
+/// backend, and the PNG exporter.
 pub const StyleToken = struct {
-    fg_index: u8,
+    fg: Color,
     bold: bool = false,
     italic: bool = false,
     underline: bool = false,
     strikethrough: bool = false,
-    bg_index: ?u8 = null,
+    bg: ?Color = null,
 };
 
 pub const Palette = struct {
@@ -59,155 +69,61 @@ pub const Palette = struct {
     frontmatter_key: StyleToken,
     frontmatter_value: StyleToken,
     frontmatter_cap: StyleToken,
+    bullet: StyleToken,
+    ordered: StyleToken,
+    task_on: StyleToken,
+    task_off: StyleToken,
+    list_item: StyleToken,
 };
 
+/// The neutral mechanism-level palettes. These are *derived at comptime* from
+/// the `dark`/`light` preset specs in `theme/presets.zig` — the single source of
+/// truth — so the slot colors live in exactly one place. They serve two roles:
+///   1. the legacy `palette()`/`token()` API used by the export/PNG paths + tests,
+///   2. the base palette that `resolve.bake` overlays sparse preset slots onto
+///      (unset slots of dracula/ansi/etc. fall back to these).
+pub const neutralDark: Palette = bakeSlots(presets.dark.slots, null);
+pub const neutralLight: Palette = bakeSlots(presets.light.slots, null);
+
+/// Overlay a sparse `SlotSpec` onto a concrete `StyleToken` (mirror of
+/// `resolve.applySlot`; kept here so `theme.zig` has no dependency on `resolve`).
+fn applySlotToken(tok: *StyleToken, s: spec.SlotSpec) void {
+    if (s.fg) |c| tok.fg = c;
+    if (s.bg) |c| tok.bg = c;
+    if (s.bold) |v| tok.bold = v;
+    if (s.italic) |v| tok.italic = v;
+    if (s.underline) |v| tok.underline = v;
+    if (s.strike) |v| tok.strikethrough = v;
+}
+
+/// Bake a default `SlotMap` (plus an optional `classic`-variant delta) into a
+/// concrete `Palette`, starting from an all-terminal-default palette.
+fn bakeSlots(base_slots: spec.SlotMap, classic_slots: ?spec.SlotMap) Palette {
+    var p: Palette = undefined;
+    inline for (@typeInfo(Palette).@"struct".fields) |f| {
+        @field(p, f.name) = StyleToken{ .fg = .default };
+    }
+    inline for (@typeInfo(types.SpanStyle).@"enum".fields) |f| {
+        const style = @field(types.SpanStyle, f.name);
+        const slot = spec.Slot.fromSpanStyle(style);
+        if (base_slots.get(slot)) |ss| applySlotToken(&@field(p, f.name), ss);
+        if (classic_slots) |cs| {
+            if (cs.get(slot)) |ss| applySlotToken(&@field(p, f.name), ss);
+        }
+    }
+    // `list_item` inherits the theme's own `body` when the slot is unset, so item
+    // text renders exactly like a paragraph unless a theme opts in.
+    if (base_slots.get(.list_item) == null) p.list_item = p.body;
+    return p;
+}
+
 pub fn palette(theme: config.Theme, syntax_theme: config.SyntaxTheme) Palette {
-    return switch (theme) {
-        .dark, .auto => darkPalette(syntax_theme),
-        .light => lightPalette(syntax_theme),
+    const base = switch (theme) {
+        .dark, .auto => presets.dark,
+        .light => presets.light,
     };
-}
-
-fn darkPalette(syntax_theme: config.SyntaxTheme) Palette {
-    return switch (syntax_theme) {
-        .default => .{
-            .heading1 = .{ .fg_index = 81, .bold = true },
-            .heading2 = .{ .fg_index = 75, .bold = true },
-            .heading3 = .{ .fg_index = 74, .bold = false },
-            .heading4 = .{ .fg_index = 67, .bold = false },
-            .heading5 = .{ .fg_index = 66, .bold = false },
-            .heading6 = .{ .fg_index = 59, .bold = false },
-            .body = .{ .fg_index = 252 },
-            .muted = .{ .fg_index = 244 },
-            .emphasis = .{ .fg_index = 188, .italic = true },
-            .strong = .{ .fg_index = 231, .bold = true },
-            .strong_emphasis = .{ .fg_index = 231, .bold = true, .italic = true },
-            .code = .{ .fg_index = 114 },
-            .code_block = .{ .fg_index = 250, .bg_index = 236 },
-            .code_block_keyword = .{ .fg_index = 141, .bold = true, .bg_index = 236 },
-            .code_block_string = .{ .fg_index = 180, .bg_index = 236 },
-            .code_block_number = .{ .fg_index = 216, .bg_index = 236 },
-            .code_block_comment = .{ .fg_index = 243, .bg_index = 236 },
-            .code_keyword = .{ .fg_index = 141, .bold = true },
-            .code_string = .{ .fg_index = 180 },
-            .code_number = .{ .fg_index = 216 },
-            .code_comment = .{ .fg_index = 243 },
-            .quote = .{ .fg_index = 109 },
-            .link = .{ .fg_index = 117, .underline = true },
-            .strikethrough = .{ .fg_index = 244, .strikethrough = true },
-            .image_alt = .{ .fg_index = 213 },
-            .superscript = .{ .fg_index = 153 },
-            .subscript = .{ .fg_index = 152 },
-            .highlight = .{ .fg_index = 227, .bold = true },
-            .frontmatter_key = .{ .fg_index = 109, .bg_index = 236 },
-            .frontmatter_value = .{ .fg_index = 250, .bg_index = 236 },
-            .frontmatter_cap = .{ .fg_index = 236 },
-        },
-        .classic => .{
-            .heading1 = .{ .fg_index = 81, .bold = true },
-            .heading2 = .{ .fg_index = 75, .bold = true },
-            .heading3 = .{ .fg_index = 74, .bold = false },
-            .heading4 = .{ .fg_index = 67, .bold = false },
-            .heading5 = .{ .fg_index = 66, .bold = false },
-            .heading6 = .{ .fg_index = 59, .bold = false },
-            .body = .{ .fg_index = 252 },
-            .muted = .{ .fg_index = 244 },
-            .emphasis = .{ .fg_index = 188, .italic = true },
-            .strong = .{ .fg_index = 231, .bold = true },
-            .strong_emphasis = .{ .fg_index = 231, .bold = true, .italic = true },
-            .code = .{ .fg_index = 114 },
-            .code_block = .{ .fg_index = 114, .bg_index = 236 },
-            .code_block_keyword = .{ .fg_index = 81, .bold = true, .bg_index = 236 },
-            .code_block_string = .{ .fg_index = 186, .bg_index = 236 },
-            .code_block_number = .{ .fg_index = 221, .bg_index = 236 },
-            .code_block_comment = .{ .fg_index = 243, .bg_index = 236 },
-            .code_keyword = .{ .fg_index = 81, .bold = true },
-            .code_string = .{ .fg_index = 186 },
-            .code_number = .{ .fg_index = 221 },
-            .code_comment = .{ .fg_index = 243 },
-            .quote = .{ .fg_index = 109 },
-            .link = .{ .fg_index = 117, .underline = true },
-            .strikethrough = .{ .fg_index = 244, .strikethrough = true },
-            .image_alt = .{ .fg_index = 213 },
-            .superscript = .{ .fg_index = 153 },
-            .subscript = .{ .fg_index = 152 },
-            .highlight = .{ .fg_index = 227, .bold = true },
-            .frontmatter_key = .{ .fg_index = 109, .bg_index = 236 },
-            .frontmatter_value = .{ .fg_index = 250, .bg_index = 236 },
-            .frontmatter_cap = .{ .fg_index = 236 },
-        },
-    };
-}
-
-fn lightPalette(syntax_theme: config.SyntaxTheme) Palette {
-    return switch (syntax_theme) {
-        .default => .{
-            .heading1 = .{ .fg_index = 25, .bold = true },
-            .heading2 = .{ .fg_index = 26, .bold = true },
-            .heading3 = .{ .fg_index = 33, .bold = false },
-            .heading4 = .{ .fg_index = 39, .bold = false },
-            .heading5 = .{ .fg_index = 45, .bold = false },
-            .heading6 = .{ .fg_index = 109, .bold = false },
-            .body = .{ .fg_index = 236 },
-            .muted = .{ .fg_index = 245 },
-            .emphasis = .{ .fg_index = 60, .italic = true },
-            .strong = .{ .fg_index = 18, .bold = true },
-            .strong_emphasis = .{ .fg_index = 18, .bold = true, .italic = true },
-            .code = .{ .fg_index = 28 },
-            .code_block = .{ .fg_index = 239, .bg_index = 254 },
-            .code_block_keyword = .{ .fg_index = 97, .bold = true, .bg_index = 254 },
-            .code_block_string = .{ .fg_index = 131, .bg_index = 254 },
-            .code_block_number = .{ .fg_index = 167, .bg_index = 254 },
-            .code_block_comment = .{ .fg_index = 246, .bg_index = 254 },
-            .code_keyword = .{ .fg_index = 97, .bold = true },
-            .code_string = .{ .fg_index = 131 },
-            .code_number = .{ .fg_index = 167 },
-            .code_comment = .{ .fg_index = 246 },
-            .quote = .{ .fg_index = 60 },
-            .link = .{ .fg_index = 27, .underline = true },
-            .strikethrough = .{ .fg_index = 245, .strikethrough = true },
-            .image_alt = .{ .fg_index = 213 },
-            .superscript = .{ .fg_index = 26 },
-            .subscript = .{ .fg_index = 31 },
-            .highlight = .{ .fg_index = 130, .bold = true },
-            .frontmatter_key = .{ .fg_index = 60, .bg_index = 254 },
-            .frontmatter_value = .{ .fg_index = 239, .bg_index = 254 },
-            .frontmatter_cap = .{ .fg_index = 254 },
-        },
-        .classic => .{
-            .heading1 = .{ .fg_index = 25, .bold = true },
-            .heading2 = .{ .fg_index = 26, .bold = true },
-            .heading3 = .{ .fg_index = 33, .bold = false },
-            .heading4 = .{ .fg_index = 39, .bold = false },
-            .heading5 = .{ .fg_index = 45, .bold = false },
-            .heading6 = .{ .fg_index = 109, .bold = false },
-            .body = .{ .fg_index = 236 },
-            .muted = .{ .fg_index = 245 },
-            .emphasis = .{ .fg_index = 60, .italic = true },
-            .strong = .{ .fg_index = 18, .bold = true },
-            .strong_emphasis = .{ .fg_index = 18, .bold = true, .italic = true },
-            .code = .{ .fg_index = 28 },
-            .code_block = .{ .fg_index = 28, .bg_index = 254 },
-            .code_block_keyword = .{ .fg_index = 25, .bold = true, .bg_index = 254 },
-            .code_block_string = .{ .fg_index = 94, .bg_index = 254 },
-            .code_block_number = .{ .fg_index = 130, .bg_index = 254 },
-            .code_block_comment = .{ .fg_index = 246, .bg_index = 254 },
-            .code_keyword = .{ .fg_index = 25, .bold = true },
-            .code_string = .{ .fg_index = 94 },
-            .code_number = .{ .fg_index = 130 },
-            .code_comment = .{ .fg_index = 246 },
-            .quote = .{ .fg_index = 60 },
-            .link = .{ .fg_index = 27, .underline = true },
-            .strikethrough = .{ .fg_index = 245, .strikethrough = true },
-            .image_alt = .{ .fg_index = 213 },
-            .superscript = .{ .fg_index = 26 },
-            .subscript = .{ .fg_index = 31 },
-            .highlight = .{ .fg_index = 130, .bold = true },
-            .frontmatter_key = .{ .fg_index = 60, .bg_index = 254 },
-            .frontmatter_value = .{ .fg_index = 239, .bg_index = 254 },
-            .frontmatter_cap = .{ .fg_index = 254 },
-        },
-    };
+    const classic: ?spec.SlotMap = if (syntax_theme == .classic) base.slots_classic else null;
+    return bakeSlots(base.slots, classic);
 }
 
 /// Maps a semantic SpanStyle to a concrete StyleToken using the given palette.
@@ -245,6 +161,11 @@ pub fn token(palette_value: Palette, style: render_model.SpanStyle) StyleToken {
         .frontmatter_key => palette_value.frontmatter_key,
         .frontmatter_value => palette_value.frontmatter_value,
         .frontmatter_cap => palette_value.frontmatter_cap,
+        .bullet => palette_value.bullet,
+        .ordered => palette_value.ordered,
+        .task_on => palette_value.task_on,
+        .task_off => palette_value.task_off,
+        .list_item => palette_value.list_item,
     };
 }
 
@@ -257,48 +178,70 @@ pub const ToastStyle = struct {
     text: vaxis.Style,
 };
 
-pub fn toastStyle(theme: config.Theme) ToastStyle {
-    // Track the theme's own panel (code-block background) and body text so the
-    // toast stays in sync with the palette; only the green accent is bespoke.
-    const active = palette(theme, .default);
-    const bg: vaxis.Color = if (active.code_block.bg_index) |index| .{ .index = index } else .default;
-    const accent: u8 = switch (theme) {
-        .light => 65,
-        .dark, .auto => 108,
-    };
+/// Builds the toast/metadata panel style from a resolved theme's accent color
+/// and panel background (Correctness #1). Both overlays share the same soft
+/// panel; the caller decides whether the text is bold (toast) or not
+/// (metadata). Deriving from the ResolvedTheme means all seven presets — not
+/// just dark/light — get panel colors that match their palette.
+pub fn panelStyle(accent: Color, base_bg: Color, bold: bool) ToastStyle {
+    const bg = toVaxisColor(base_bg);
     return .{
         .fill = .{ .bg = bg },
-        .border = .{ .fg = .{ .index = accent }, .bg = bg },
-        .text = .{ .fg = .{ .index = active.body.fg_index }, .bg = bg, .bold = true },
+        .border = .{ .fg = toVaxisColor(accent), .bg = bg },
+        .text = .{ .fg = toVaxisColor(accent), .bg = bg, .bold = bold },
     };
 }
 
-/// Styling for the TUI metadata overlay (front matter panel toggled with
-/// `m`): the same soft panel as the toast but with a neutral blue accent so
-/// it reads as reference information, not a confirmation.
-pub fn metadataPanelStyle(theme: config.Theme) ToastStyle {
-    const active = palette(theme, .default);
-    const bg: vaxis.Color = if (active.code_block.bg_index) |index| .{ .index = index } else .default;
-    const accent: u8 = switch (theme) {
-        .light => 25,
-        .dark, .auto => 67,
-    };
-    return .{
-        .fill = .{ .bg = bg },
-        .border = .{ .fg = .{ .index = accent }, .bg = bg },
-        .text = .{ .fg = .{ .index = active.body.fg_index }, .bg = bg },
-    };
+/// Copy-confirmation toast: bold accent text on the theme panel background.
+pub fn toastStyle(accent: Color, base_bg: Color) ToastStyle {
+    return panelStyle(accent, base_bg, true);
+}
+
+/// TUI metadata overlay (front matter panel toggled with `m`): same soft panel
+/// as the toast, non-bold so it reads as reference information.
+pub fn metadataPanelStyle(accent: Color, base_bg: Color) ToastStyle {
+    return panelStyle(accent, base_bg, false);
 }
 
 /// Converts a StyleToken to vaxis.Style for TUI rendering.
 /// The CLI equivalent is ansi.writeTokenStyled() which emits ANSI escape codes.
 pub fn vaxisStyle(token_value: StyleToken) vaxis.Style {
     return .{
-        .fg = .{ .index = token_value.fg_index },
-        .bg = if (token_value.bg_index) |bg| .{ .index = bg } else .default,
+        .fg = toVaxisColor(token_value.fg),
+        .bg = if (token_value.bg) |bg| toVaxisColor(bg) else .default,
         .bold = token_value.bold,
         .italic = token_value.italic,
         .strikethrough = token_value.strikethrough,
         .ul_style = if (token_value.underline) .single else .off,
     };
+}
+
+/// Maps a Color union arm onto a vaxis color. The terminal decides the exact
+/// hue for `default` and `ansi16`; vaxis always receives rgb for truecolor
+/// (the terminal, not mercat, negotiates capability there).
+pub fn toVaxisColor(c: Color) vaxis.Color {
+    return switch (c) {
+        .default => .default,
+        .index => |n| .{ .index = n },
+        .ansi16 => |a| .{ .index = a.index() },
+        .rgb => |v| .{ .rgb = .{ v.r, v.g, v.b } },
+    };
+}
+
+const std = @import("std");
+
+test "vaxisStyle maps each Color union arm" {
+    const a = vaxisStyle(.{ .fg = idx(81), .bg = idx(236), .bold = true });
+    try std.testing.expectEqual(vaxis.Color{ .index = 81 }, a.fg);
+    try std.testing.expectEqual(vaxis.Color{ .index = 236 }, a.bg);
+
+    const b = vaxisStyle(.{ .fg = .{ .ansi16 = .blue } });
+    try std.testing.expectEqual(vaxis.Color{ .index = 4 }, b.fg);
+    try std.testing.expectEqual(vaxis.Color.default, b.bg);
+
+    const c = vaxisStyle(.{ .fg = color.rgb(10, 20, 30) });
+    try std.testing.expectEqual(vaxis.Color{ .rgb = .{ 10, 20, 30 } }, c.fg);
+
+    const d = vaxisStyle(.{ .fg = .default });
+    try std.testing.expectEqual(vaxis.Color.default, d.fg);
 }

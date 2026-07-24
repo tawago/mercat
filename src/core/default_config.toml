@@ -3,9 +3,28 @@ editor = "vim"
 pager = "less -R"
 
 [display]
+# Theme by name. Built-in presets:
+#   auto (dark, terminal-aware), dark, light, ansi (16-color terminal palette),
+#   dracula, tokyo-night, pink, markview.
+# Or the name of a user theme file at ~/.config/mercat/themes/<name>.toml.
+# Override for one run with --style <name> or MERCAT_THEME=<name>.
 theme = "auto"
+# Deprecated: superseded by the theme system. Still parsed so old configs load,
+# but no longer selects a palette variant.
 syntax_theme = "default"
 width = 0
+
+# Inline theme overrides layer on top of the selected theme. Each [theme.<slot>]
+# table tweaks one element; absent keys inherit, an empty string "" clears an
+# inherited value. Extend a preset with `extends`:
+#   [theme]
+#   extends = "dracula"
+#   [theme.heading1]
+#   fg = "#ff79c6"   # hex, an xterm-256 index, an ANSI color name, or "default"
+#   prefix = "» "
+#   bold = true
+# Slots include heading1..heading6, body, quote, link, image, code, code_block,
+# strong, emph, strike. See ~/.config/mercat/themes/ for full user theme files.
 line_numbers = false
 # How YAML front matter (--- metadata at the top of a file) is displayed:
 #   "panel" (default) — banded metadata card

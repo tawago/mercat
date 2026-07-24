@@ -21,6 +21,10 @@ const export_glyph_sheet = @import("export/glyph_sheet.zig");
 const export_test = @import("export/export_test.zig");
 const terminal = @import("platform/terminal.zig");
 const tui = @import("tui/app.zig");
+const theme_color = @import("core/theme/color.zig");
+const theme_resolve = @import("core/theme/resolve.zig");
+const theme_loadfile = @import("core/theme/loadfile.zig");
+const theme_dump = @import("core/theme/dump.zig");
 
 const VERSION = @import("build_options").version;
 
@@ -138,13 +142,57 @@ pub fn main() !void {
     };
     defer parsed.deinit(allocator);
 
+    // Detect truecolor support once (COLORTERM=truecolor|24bit); the ANSI writer
+    // reads this to decide whether to emit 24-bit rgb or downgrade to xterm-256.
+    theme_color.initTruecolor(allocator);
+
     var loaded_config = try config.load(allocator);
     defer loaded_config.deinit(allocator);
+
+    // `--dump-theme <name>`: resolve the theme (preset or user file) and print it
+    // as editable TOML, then exit. Runs before input is read (no file needed).
+    if (parsed.dump_theme) |name| {
+        try runDumpTheme(allocator, name);
+        return;
+    }
 
     const content = try readInput(allocator, parsed.input);
     defer allocator.free(content);
 
-    const active_theme = parsed.effectiveTheme(loaded_config.display.theme);
+    // Theme resolution: build the registry (built-in presets + user theme
+    // files), resolve the selected name into a concrete Palette + Decor, and
+    // collect diagnostics for the CLI dim-comment / TUI status-bar surfaces.
+    var diag = theme_resolve.Collector.init(allocator);
+    defer diag.deinit();
+
+    var registry = theme_resolve.Registry.init(allocator);
+    defer registry.deinit();
+
+    // User theme-file specs live in a process-lifetime arena; the registry
+    // borrows their pointers (buildChain treats them as first-class nodes).
+    var theme_arena = std.heap.ArenaAllocator.init(allocator);
+    defer theme_arena.deinit();
+    loadUserThemes(theme_arena.allocator(), &registry, &diag);
+
+    // `auto` is a main-resolved pseudo-name → `dark` (matches historical
+    // behavior where `.auto` mapped to the dark palette).
+    const theme_name = blk: {
+        const n = parsed.effectiveTheme(loaded_config.display.theme);
+        break :blk if (std.mem.eql(u8, n, "auto")) "dark" else n;
+    };
+
+    // Inline `[theme.*]` config tables are the highest-priority override layer;
+    // borrow the builder's slices into an immutable view for the resolver.
+    var inline_slots = try theme_arena.allocator().alloc(theme_loadfile.RawThemeTables.Slot, loaded_config.raw_theme.slots.items.len);
+    for (loaded_config.raw_theme.slots.items, 0..) |s, i| {
+        inline_slots[i] = .{ .name = s.name, .kvs = s.kvs.items };
+    }
+    const inline_overrides = theme_loadfile.RawThemeTables{
+        .top = loaded_config.raw_theme.top.items,
+        .slots = inline_slots,
+    };
+
+    var resolved = try registry.resolve(theme_name, inline_overrides, &diag);
     const show_heading_markers = parsed.effectiveHeadingMarkers(loaded_config.display.heading_markers);
     const frontmatter_style = parsed.effectiveFrontmatter(loaded_config.display.frontmatter);
     // §5.3: terminal output keeps the terminal-aware resolution; plain/png
@@ -166,7 +214,10 @@ pub fn main() !void {
         // flag is cleared on return so a later CLI invocation still prints.
         tui_active.store(true, .monotonic);
         defer tui_active.store(false, .monotonic);
-        try tui.run(allocator, inputTitle(parsed.input), parsed.input, content, loaded_config.general.editor, active_theme, loaded_config.display.syntax_theme, show_heading_markers, frontmatter_style, parsed.force_layout orelse .auto, loaded_config.mermaid.subgraph_edges);
+        // TUI surfaces diagnostics in the status bar, not on stderr.
+        const theme_warning = try themeWarning(allocator, &diag);
+        defer if (theme_warning) |w| allocator.free(w);
+        try tui.run(allocator, inputTitle(parsed.input), parsed.input, content, loaded_config.general.editor, &resolved, theme_warning, show_heading_markers, frontmatter_style, parsed.force_layout orelse .auto, loaded_config.mermaid.subgraph_edges);
         return;
     }
 
@@ -180,6 +231,8 @@ pub fn main() !void {
     var rendered = try render_model.renderDocument(allocator, document, .{
         .width = render_width,
         .show_heading_markers = show_heading_markers,
+        .decor = &resolved.decor,
+        .truecolor = theme_color.truecolorEnabled(),
         .frontmatter_style = frontmatter_style,
         // Raw front matter keeps tabs verbatim for the terminal, but the
         // plain/PNG exporters reject tab scalars, so expand them on export.
@@ -198,12 +251,22 @@ pub fn main() !void {
 
     switch (parsed.format) {
         .terminal => {
+            const canvas: ?renderer.Canvas = if (resolved.canvasBg()) |bg|
+                .{ .bg = bg, .width = render_width }
+            else
+                null;
             const output = try renderer.serialize(
                 allocator,
                 rendered,
-                theme.palette(active_theme, loaded_config.display.syntax_theme),
+                resolved.palette,
+                canvas,
             );
             defer allocator.free(output);
+            // §S6: theme-resolution diagnostics go to stderr as dim comment
+            // lines. stderr is a separate channel, so a piped/redirected stdout
+            // stays byte-clean regardless — surface the warnings unconditionally
+            // so an interactive `mercat --style typo file.md` still gets told.
+            emitCliDiagnostics(&diag);
             try pager.writeOutput(allocator, output, loaded_config.general.pager, parsed.pager);
         },
         .plain => {
@@ -228,8 +291,9 @@ pub fn main() !void {
             const output_path = parsed.output_path orelse return error.PngRequiresOutput;
 
             const options = export_layout.Options{
-                .palette = theme.palette(active_theme, loaded_config.display.syntax_theme),
+                .palette = resolved.palette,
                 .color_mode = if (parsed.monochrome) .monochrome else .theme,
+                .canvas_bg = resolved.canvasBg(),
             };
 
             const ctx = ExportContext{
@@ -239,12 +303,92 @@ pub fn main() !void {
                 .width = render_width,
             };
 
-            var diag: export_png.Diagnostic = .{};
-            exportPng(allocator, rendered, options, output_path, &diag) catch |err| {
+            var png_diag: export_png.Diagnostic = .{};
+            exportPng(allocator, rendered, options, output_path, &png_diag) catch |err| {
                 var buf: [192]u8 = undefined;
-                exportFailure(ctx, exportDetail(&buf, err, diag));
+                exportFailure(ctx, exportDetail(&buf, err, png_diag));
             };
         },
+    }
+}
+
+/// Discover and register user theme files from `~/.config/mercat/themes/`.
+/// Each `<name>.toml` becomes a `ThemeSpec` (converted via `specFromRaw`) that
+/// the registry treats as a first-class node — usable as the selected theme and
+/// as an `extends=` target. Specs and their backing raw strings are allocated
+/// in `arena` (process-lifetime) so the registry's borrowed pointers stay live.
+/// Best-effort: any error is reported as a diagnostic and skipped.
+fn loadUserThemes(arena: std.mem.Allocator, registry: *theme_resolve.Registry, diag: *theme_resolve.Collector) void {
+    const dir_path = theme_loadfile.resolveThemeDir(arena) catch return orelse return;
+    var dir = std.fs.openDirAbsolute(dir_path, .{ .iterate = true }) catch return;
+    defer dir.close();
+
+    var it = dir.iterate();
+    while (it.next() catch null) |entry| {
+        if (entry.kind != .file) continue;
+        if (!std.mem.endsWith(u8, entry.name, ".toml")) continue;
+        const stem = entry.name[0 .. entry.name.len - ".toml".len];
+        if (stem.len == 0) continue;
+
+        const raw = theme_loadfile.readThemeFile(arena, dir_path, stem) catch {
+            diag.warnFmt(.unreadable_file, "cannot read theme file '{s}'", .{entry.name});
+            continue;
+        } orelse continue;
+
+        const spec = arena.create(theme_resolve.ThemeSpec) catch continue;
+        spec.* = theme_resolve.specFromRaw(arena, raw, diag);
+        // File identity wins the name (matches `~/.config/mercat/themes/<name>`).
+        spec.name = arena.dupe(u8, stem) catch continue;
+        registry.insertUserSpec(spec) catch continue;
+    }
+}
+
+/// Resolve `name` (preset or user theme file) and write it to stdout as
+/// round-trippable TOML. Unknown names report `unknown_theme` and exit non-zero.
+fn runDumpTheme(allocator: std.mem.Allocator, name: []const u8) !void {
+    var diag = theme_resolve.Collector.init(allocator);
+    defer diag.deinit();
+    var registry = theme_resolve.Registry.init(allocator);
+    defer registry.deinit();
+    var theme_arena = std.heap.ArenaAllocator.init(allocator);
+    defer theme_arena.deinit();
+    loadUserThemes(theme_arena.allocator(), &registry, &diag);
+
+    const folded = registry.foldedSpec(name, &diag);
+    if (folded) |f| {
+        var buf = std.ArrayList(u8).empty;
+        defer buf.deinit(allocator);
+        try theme_dump.write(buf.writer(allocator), name, &f);
+        try std.fs.File.stdout().writeAll(buf.items);
+    }
+    // Surface diagnostics (unknown theme, glyph fallback, ...) on stderr.
+    emitCliDiagnostics(&diag);
+    if (folded == null) std.process.exit(1);
+}
+
+/// Build a one-line theme-warning summary for the TUI status bar, or null when
+/// resolution produced no diagnostics. Owned by the caller.
+fn themeWarning(allocator: std.mem.Allocator, diag: *const theme_resolve.Collector) !?[]u8 {
+    const n = diag.count();
+    if (n == 0) return null;
+    const first = diag.list.items[0].detail;
+    return if (n == 1)
+        try std.fmt.allocPrint(allocator, "theme: {s}", .{first})
+    else
+        try std.fmt.allocPrint(allocator, "theme: {s} (+{d} more)", .{ first, n - 1 });
+}
+
+/// Emit each theme diagnostic as a dim ANSI comment line on stderr. stderr is
+/// a distinct channel from the rendered stdout, so pipes/redirects stay
+/// byte-clean while the warnings still reach the user's terminal — interactive
+/// and piped invocations alike.
+fn emitCliDiagnostics(diag: *const theme_resolve.Collector) void {
+    if (diag.count() == 0) return;
+    const stderr = std.fs.File.stderr();
+    var buf: [512]u8 = undefined;
+    for (diag.list.items) |d| {
+        const line = std.fmt.bufPrint(&buf, "\x1b[2m# mercat: {s}\x1b[0m\n", .{d.detail}) catch continue;
+        stderr.writeAll(line) catch {};
     }
 }
 

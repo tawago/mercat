@@ -2,9 +2,11 @@ const std = @import("std");
 const markdown = @import("../markdown.zig");
 const types = @import("types.zig");
 const unicode = @import("../../lib/unicode.zig");
+const decor_mod = @import("decor.zig");
 
 const Inline = markdown.Inline;
 const SpanStyle = types.SpanStyle;
+const Decor = decor_mod.Decor;
 
 pub const InlineToken = struct {
     text: []const u8,
@@ -12,7 +14,7 @@ pub const InlineToken = struct {
     url: ?[]const u8 = null,
 };
 
-pub fn inlinesToTokens(allocator: std.mem.Allocator, inlines: []const Inline) ![]InlineToken {
+pub fn inlinesToTokens(allocator: std.mem.Allocator, inlines: []const Inline, decor: *const Decor) ![]InlineToken {
     var tokens: std.ArrayList(InlineToken) = .empty;
     errdefer {
         for (tokens.items) |token| {
@@ -22,7 +24,7 @@ pub fn inlinesToTokens(allocator: std.mem.Allocator, inlines: []const Inline) ![
         tokens.deinit(allocator);
     }
 
-    try appendInlineSliceTokens(allocator, &tokens, inlines, .body);
+    try appendInlineSliceTokens(allocator, &tokens, inlines, .body, decor);
 
     return try tokens.toOwnedSlice(allocator);
 }
@@ -31,7 +33,7 @@ pub fn inlinesToTokens(allocator: std.mem.Allocator, inlines: []const Inline) ![
 /// When we encounter an opening HTML tag for a known semantic element, we
 /// consume subsequent inlines until the matching closing tag and apply the
 /// appropriate style to all content in between.
-fn appendInlineSliceTokens(allocator: std.mem.Allocator, tokens: *std.ArrayList(InlineToken), inlines: []const Inline, parent_style: SpanStyle) anyerror!void {
+fn appendInlineSliceTokens(allocator: std.mem.Allocator, tokens: *std.ArrayList(InlineToken), inlines: []const Inline, parent_style: SpanStyle, decor: *const Decor) anyerror!void {
     var i: usize = 0;
     while (i < inlines.len) {
         const inline_ = inlines[i];
@@ -51,7 +53,7 @@ fn appendInlineSliceTokens(allocator: std.mem.Allocator, tokens: *std.ArrayList(
                 // Render content between the tags with superscript style and nav URL.
                 const content = inlines[i + 1 .. j];
                 const start = tokens.items.len;
-                try appendInlineSliceTokens(allocator, tokens, content, .superscript);
+                try appendInlineSliceTokens(allocator, tokens, content, .superscript, decor);
                 for (tokens.items[start..]) |*tok| {
                     if (tok.url == null) {
                         tok.url = try allocator.dupe(u8, nav_url);
@@ -71,39 +73,48 @@ fn appendInlineSliceTokens(allocator: std.mem.Allocator, tokens: *std.ArrayList(
                 }
                 // Render content between the tags with span_style.
                 const content = inlines[i + 1 .. j];
-                try appendInlineSliceTokens(allocator, tokens, content, span_style);
+                try appendInlineSliceTokens(allocator, tokens, content, span_style, decor);
                 // Skip past the closing tag (if found).
                 i = if (j < inlines.len) j + 1 else j;
                 continue;
             }
         }
 
-        try appendInlineTokens(allocator, tokens, inline_, parent_style);
+        try appendInlineTokens(allocator, tokens, inline_, parent_style, decor);
         i += 1;
     }
 }
 
-pub fn appendInlineTokens(allocator: std.mem.Allocator, tokens: *std.ArrayList(InlineToken), inline_: Inline, parent_style: SpanStyle) !void {
+pub fn appendInlineTokens(allocator: std.mem.Allocator, tokens: *std.ArrayList(InlineToken), inline_: Inline, parent_style: SpanStyle, decor: *const Decor) !void {
     switch (inline_) {
         .text => |text| try splitAndAppendTokens(allocator, tokens, text, parent_style),
-        .code => |text| try tokens.append(allocator, .{ .text = try allocator.dupe(u8, text), .style = .code }),
+        .code => |text| {
+            // Optional per-theme chip prefix/suffix (pink/markview pad inline code).
+            const cd = decor.slot(.code);
+            if (cd.prefix.len != 0) try tokens.append(allocator, .{ .text = try allocator.dupe(u8, cd.prefix), .style = .code });
+            try tokens.append(allocator, .{ .text = try allocator.dupe(u8, text), .style = .code });
+            if (cd.suffix.len != 0) try tokens.append(allocator, .{ .text = try allocator.dupe(u8, cd.suffix), .style = .code });
+        },
         .html => |text| try tokens.append(allocator, .{ .text = try allocator.dupe(u8, text), .style = .muted }),
         .emphasis => |children| {
             const style: SpanStyle = if (parent_style == .strong) .strong_emphasis else .emphasis;
-            try appendInlineSliceTokens(allocator, tokens, children, style);
+            try appendInlineSliceTokens(allocator, tokens, children, style, decor);
         },
         .strong => |children| {
             const style: SpanStyle = if (parent_style == .emphasis) .strong_emphasis else .strong;
-            try appendInlineSliceTokens(allocator, tokens, children, style);
+            try appendInlineSliceTokens(allocator, tokens, children, style, decor);
         },
         .strikethrough => |children| {
-            try appendInlineSliceTokens(allocator, tokens, children, .strikethrough);
+            try appendInlineSliceTokens(allocator, tokens, children, .strikethrough, decor);
         },
         .link => |link| {
+            // Optional leading icon (markview →).
+            const ld = decor.slot(.link);
+            const start = tokens.items.len;
+            if (ld.icon.len != 0) try tokens.append(allocator, .{ .text = try allocator.dupe(u8, ld.icon), .style = .link });
             // Collect link text tokens, then attach the URL so the text itself is
             // the OSC 8 hyperlink anchor in capable terminals.
-            const start = tokens.items.len;
-            try appendInlineSliceTokens(allocator, tokens, link.text, .link);
+            try appendInlineSliceTokens(allocator, tokens, link.text, .link, decor);
             // Attach URL to every link-text token so the full text is clickable.
             for (tokens.items[start..]) |*tok| {
                 tok.url = try allocator.dupe(u8, link.url);
@@ -111,12 +122,16 @@ pub fn appendInlineTokens(allocator: std.mem.Allocator, tokens: *std.ArrayList(I
             // Append visible " <url>" suffix as fallback for non-OSC-8 terminals.
             const url_text = try std.fmt.allocPrint(allocator, " <{s}>", .{link.url});
             try tokens.append(allocator, .{ .text = url_text, .style = .link, .url = try allocator.dupe(u8, link.url) });
+            if (ld.suffix.len != 0) try tokens.append(allocator, .{ .text = try allocator.dupe(u8, ld.suffix), .style = .link });
         },
         .image => |image| {
-            // Render as [Image: alt]
+            // Render as [Image: alt] with optional theme icon prefix + suffix.
+            const imd = decor.slot(.image_alt);
+            if (imd.icon.len != 0) try tokens.append(allocator, .{ .text = try allocator.dupe(u8, imd.icon), .style = .image_alt });
             try tokens.append(allocator, .{ .text = try allocator.dupe(u8, "[Image: "), .style = .image_alt });
-            try appendInlineSliceTokens(allocator, tokens, image.alt, .image_alt);
+            try appendInlineSliceTokens(allocator, tokens, image.alt, .image_alt, decor);
             try tokens.append(allocator, .{ .text = try allocator.dupe(u8, "]"), .style = .image_alt });
+            if (imd.suffix.len != 0) try tokens.append(allocator, .{ .text = try allocator.dupe(u8, imd.suffix), .style = .image_alt });
         },
         .soft_break, .line_break => {
             try tokens.append(allocator, .{ .text = try allocator.dupe(u8, " "), .style = parent_style });

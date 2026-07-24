@@ -15,11 +15,20 @@ const std = @import("std");
 const config = @import("../config.zig");
 const mermaid_types = @import("../mermaid/types.zig");
 const unicode = @import("../../lib/unicode.zig");
+const decor_mod = @import("decor.zig");
 
 pub const Options = struct {
     width: usize,
     left_padding: usize = 2,
     show_heading_markers: bool = true,
+    /// Structural decoration vocabulary (prefixes/glyphs/frames). Defaults to
+    /// `decor.legacy`, which reproduces the historical hardcoded literals so
+    /// every un-themed render path stays byte-identical.
+    decor: *const decor_mod.Decor = &decor_mod.legacy,
+    /// True when the terminal advertises 24-bit color (COLORTERM). Threaded to
+    /// backends so rgb colors downgrade to 256 when absent. Backends read this
+    /// via the CLI/TUI Options; the render model only carries it.
+    truecolor: bool = false,
     /// YAML front matter display style (issue #9; panel default).
     frontmatter_style: config.FrontmatterStyle = .panel,
     /// True when the render model feeds a file exporter (plain/PNG) rather than
@@ -72,6 +81,18 @@ pub const SpanStyle = enum {
     frontmatter_key,
     frontmatter_value,
     frontmatter_cap,
+    // List/task markers: first-class color-bearing slots. A theme that leaves
+    // these unset resolves them to the `muted` color (see theme.darkPalette /
+    // lightPalette), preserving the historical muted-marker rendering.
+    bullet,
+    ordered,
+    task_on,
+    task_off,
+    // List item TEXT (distinct from the marker slots above). A theme that leaves
+    // this unset resolves it to the theme's own `body` style (see theme.bakeSlots
+    // / resolve.bake), so item text renders exactly like a paragraph unless a
+    // theme opts into a distinct register.
+    list_item,
 };
 
 /// A span of styled text. This is the shared abstraction used by both
