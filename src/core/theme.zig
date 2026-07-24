@@ -3,7 +3,7 @@
 //! This module bridges the gap between the semantic SpanStyle (heading, code, link)
 //! and the concrete terminal output. It provides:
 //!
-//!   - Palette: A set of StyleTokens for each semantic style
+//!   - StyleMap: A set of StyleTokens for each semantic style
 //!   - token(): Maps SpanStyle → StyleToken for a given palette
 //!   - vaxisStyle(): Converts StyleToken → vaxis.Style for TUI rendering
 //!
@@ -39,7 +39,7 @@ pub const StyleToken = struct {
     bg: ?Color = null,
 };
 
-pub const Palette = struct {
+pub const StyleMap = struct {
     heading1: StyleToken,
     heading2: StyleToken,
     heading3: StyleToken,
@@ -94,11 +94,10 @@ pub const Palette = struct {
 ///   1. the legacy `palette()`/`token()` API used by the export/PNG paths + tests,
 ///   2. the base palette that `resolve.bake` overlays sparse preset slots onto
 ///      (unset slots of dracula/ansi/etc. fall back to these).
-pub const neutralDark: Palette = bakeSlots(presets.dark.slots, null);
-pub const neutralLight: Palette = bakeSlots(presets.light.slots, null);
+pub const neutralDark: StyleMap = bakeSlots(presets.dark.slots, null);
+pub const neutralLight: StyleMap = bakeSlots(presets.light.slots, null);
 
-/// Overlay a sparse `SlotSpec` onto a concrete `StyleToken` (mirror of
-/// `resolve.applySlot`; kept here so `theme.zig` has no dependency on `resolve`).
+/// Overlay a sparse `SlotSpec` onto a concrete `StyleToken`.
 fn applySlotToken(tok: *StyleToken, s: spec.SlotSpec) void {
     if (s.fg) |c| tok.fg = c;
     if (s.bg) |c| tok.bg = c;
@@ -108,40 +107,51 @@ fn applySlotToken(tok: *StyleToken, s: spec.SlotSpec) void {
     if (s.strike) |v| tok.strikethrough = v;
 }
 
-/// Bake a default `SlotMap` (plus an optional `classic`-variant delta) into a
-/// concrete `Palette`, starting from an all-terminal-default palette.
-fn bakeSlots(base_slots: spec.SlotMap, classic_slots: ?spec.SlotMap) Palette {
-    var p: Palette = undefined;
-    inline for (@typeInfo(Palette).@"struct".fields) |f| {
-        @field(p, f.name) = StyleToken{ .fg = .default };
-    }
+/// The single bake primitive: overlay a sparse `SlotMap` onto an existing
+/// `StyleMap` base, then borrow structural defaults for any slot the overlay
+/// left unset. Shared by the legacy `palette()` path and `resolve.bake`, so the
+/// overlay + borrow rules live in exactly one place.
+pub fn overlaySlots(base: StyleMap, slots: spec.SlotMap) StyleMap {
+    var p = base;
     inline for (@typeInfo(types.SpanStyle).@"enum".fields) |f| {
         const style = @field(types.SpanStyle, f.name);
         const slot = spec.Slot.fromSpanStyle(style);
-        if (base_slots.get(slot)) |ss| applySlotToken(&@field(p, f.name), ss);
-        if (classic_slots) |cs| {
-            if (cs.get(slot)) |ss| applySlotToken(&@field(p, f.name), ss);
-        }
+        if (slots.get(slot)) |ss| applySlotToken(&@field(p, f.name), ss);
     }
-    // `list_item` inherits the theme's own `body` when the slot is unset, so item
-    // text renders exactly like a paragraph unless a theme opts in.
-    if (base_slots.get(.list_item) == null) p.list_item = p.body;
-    // #17-parity: the four structural slots re-added in S2 borrow the same tokens
-    // #17 stamped for them when a preset leaves them unset (table_border/hr/
-    // code_fence_banner → muted, table_header → body), so the un-themed path stays
-    // byte-identical while a preset may still set them explicitly.
-    if (base_slots.get(.table_border) == null) p.table_border = p.muted;
-    if (base_slots.get(.table_header) == null) p.table_header = p.body;
-    if (base_slots.get(.hr) == null) p.hr = p.muted;
-    if (base_slots.get(.code_fence_banner) == null) p.code_fence_banner = p.muted;
+    borrowStructuralDefaults(&p, slots);
+    return p;
+}
+
+/// #17-parity: `list_item` and the four structural color slots borrow a sibling
+/// token (list_item/table_header → body; table_border/hr/code_fence_banner →
+/// muted) whenever `slots` leaves them unset, so the un-themed path stays
+/// byte-identical while a preset may still set them explicitly.
+fn borrowStructuralDefaults(p: *StyleMap, slots: spec.SlotMap) void {
+    if (slots.get(.list_item) == null) p.list_item = p.body;
+    if (slots.get(.table_border) == null) p.table_border = p.muted;
+    if (slots.get(.table_header) == null) p.table_header = p.body;
+    if (slots.get(.hr) == null) p.hr = p.muted;
+    if (slots.get(.code_fence_banner) == null) p.code_fence_banner = p.muted;
+}
+
+/// Bake a default `SlotMap` (plus an optional `classic`-variant delta) into a
+/// concrete `StyleMap`, starting from an all-terminal-default palette.
+fn bakeSlots(base_slots: spec.SlotMap, classic_slots: ?spec.SlotMap) StyleMap {
+    @setEvalBranchQuota(200000);
+    var p: StyleMap = undefined;
+    inline for (@typeInfo(StyleMap).@"struct".fields) |f| {
+        @field(p, f.name) = StyleToken{ .fg = .default };
+    }
+    p = overlaySlots(p, base_slots);
+    if (classic_slots) |cs| p = overlaySlots(p, cs);
     return p;
 }
 
 /// Legacy base-palette API: bake the named preset (dark/light) into a concrete
-/// `Palette`, folding its `classic` syntax-variant delta when requested. The
+/// `StyleMap`, folding its `classic` syntax-variant delta when requested. The
 /// resolver (`resolve.zig`) supersedes this for the themed pipeline; this arm
 /// stays for the export/PNG paths and their tests.
-pub fn palette(theme: config.Theme, syntax_theme: config.SyntaxTheme) Palette {
+pub fn palette(theme: config.Theme, syntax_theme: config.SyntaxTheme) StyleMap {
     const base = switch (theme) {
         .dark => presets.dark,
         .light => presets.light,
@@ -150,51 +160,14 @@ pub fn palette(theme: config.Theme, syntax_theme: config.SyntaxTheme) Palette {
     return bakeSlots(base.slots, classic);
 }
 
-/// Maps a semantic SpanStyle to a concrete StyleToken using the given palette.
-/// This is the key function that bridges semantic styles to terminal colors.
-pub fn token(palette_value: Palette, style: render_model.SpanStyle) StyleToken {
-    return switch (style) {
-        .heading1 => palette_value.heading1,
-        .heading2 => palette_value.heading2,
-        .heading3 => palette_value.heading3,
-        .heading4 => palette_value.heading4,
-        .heading5 => palette_value.heading5,
-        .heading6 => palette_value.heading6,
-        .body => palette_value.body,
-        .muted => palette_value.muted,
-        .emphasis => palette_value.emphasis,
-        .strong => palette_value.strong,
-        .strong_emphasis => palette_value.strong_emphasis,
-        .code => palette_value.code,
-        .code_block => palette_value.code_block,
-        .code_block_keyword => palette_value.code_block_keyword,
-        .code_block_string => palette_value.code_block_string,
-        .code_block_number => palette_value.code_block_number,
-        .code_block_comment => palette_value.code_block_comment,
-        .code_keyword => palette_value.code_keyword,
-        .code_string => palette_value.code_string,
-        .code_number => palette_value.code_number,
-        .code_comment => palette_value.code_comment,
-        .quote => palette_value.quote,
-        .link => palette_value.link,
-        .strikethrough => palette_value.strikethrough,
-        .image_alt => palette_value.image_alt,
-        .superscript => palette_value.superscript,
-        .subscript => palette_value.subscript,
-        .highlight => palette_value.highlight,
-        .frontmatter_key => palette_value.frontmatter_key,
-        .frontmatter_value => palette_value.frontmatter_value,
-        .frontmatter_cap => palette_value.frontmatter_cap,
-        .bullet => palette_value.bullet,
-        .ordered => palette_value.ordered,
-        .task_on => palette_value.task_on,
-        .task_off => palette_value.task_off,
-        .list_item => palette_value.list_item,
-        .table_border => palette_value.table_border,
-        .table_header => palette_value.table_header,
-        .hr => palette_value.hr,
-        .code_fence_banner => palette_value.code_fence_banner,
-    };
+/// Maps a semantic SpanStyle to its concrete StyleToken in the given StyleMap.
+/// Relies on the name-for-name SpanStyle↔StyleMap field mirror (the same
+/// invariant `overlaySlots` uses), so it needs no per-slot maintenance.
+pub fn token(style_map: StyleMap, style: render_model.SpanStyle) StyleToken {
+    inline for (@typeInfo(render_model.SpanStyle).@"enum".fields) |f| {
+        if (style == @field(render_model.SpanStyle, f.name)) return @field(style_map, f.name);
+    }
+    unreachable;
 }
 
 /// Styling for the copy-confirmation toast / metadata overlay: a soft panel

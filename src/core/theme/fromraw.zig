@@ -23,7 +23,7 @@ const Color = color.Color;
 const ThemeSpec = spec.ThemeSpec;
 const SlotSpec = spec.SlotSpec;
 const Slot = spec.Slot;
-const Collector = resolve.Collector;
+const Diagnostics = resolve.Diagnostics;
 const RawThemeTables = loadfile.RawThemeTables;
 
 /// Convert raw string tables into a typed `ThemeSpec`. Unknown slot names and
@@ -33,7 +33,7 @@ const RawThemeTables = loadfile.RawThemeTables;
 ///
 /// String values are referenced (not duped) from `raw`; `raw` must outlive the
 /// returned spec. `alloc` is used only for glyph-fallback substitution buffers.
-pub fn specFromRaw(alloc: std.mem.Allocator, raw: RawThemeTables, diag: *Collector) ThemeSpec {
+pub fn specFromRaw(alloc: std.mem.Allocator, raw: RawThemeTables, diag: *Diagnostics) ThemeSpec {
     var out = ThemeSpec{ .name = "" };
 
     // Top-level keys.
@@ -88,7 +88,7 @@ fn applyRawKv(
     ss: *SlotSpec,
     kv: loadfile.RawKV,
     slot_name: []const u8,
-    diag: *Collector,
+    diag: *Diagnostics,
 ) void {
     const k = kv.key;
     const v = kv.value;
@@ -125,7 +125,7 @@ fn applyRawKv(
     }
 }
 
-fn applyGlyphKv(alloc: std.mem.Allocator, g: *spec.GlyphSet, kv: loadfile.RawKV, diag: *Collector) void {
+fn applyGlyphKv(alloc: std.mem.Allocator, g: *spec.GlyphSet, kv: loadfile.RawKV, diag: *Diagnostics) void {
     const k = kv.key;
     const v = kv.value;
     if (std.mem.eql(u8, k, "ordered_prefix")) {
@@ -158,7 +158,7 @@ fn applyGlyphKv(alloc: std.mem.Allocator, g: *spec.GlyphSet, kv: loadfile.RawKV,
     }
 }
 
-fn applyCodeFrameKv(cf: *spec.CodeFrameSpec, kv: loadfile.RawKV, diag: *Collector) void {
+fn applyCodeFrameKv(cf: *spec.CodeFrameSpec, kv: loadfile.RawKV, diag: *Diagnostics) void {
     const k = kv.key;
     const v = kv.value;
     if (std.mem.eql(u8, k, "kind")) {
@@ -178,7 +178,7 @@ fn applyCodeFrameKv(cf: *spec.CodeFrameSpec, kv: loadfile.RawKV, diag: *Collecto
     }
 }
 
-fn applyTokenKv(t: *spec.TokenColors, kv: loadfile.RawKV, diag: *Collector) void {
+fn applyTokenKv(t: *spec.TokenColors, kv: loadfile.RawKV, diag: *Diagnostics) void {
     const k = kv.key;
     const c = parseColorOrWarn(kv.value, "tokens", diag);
     if (std.mem.eql(u8, k, "keyword")) {
@@ -196,7 +196,7 @@ fn applyTokenKv(t: *spec.TokenColors, kv: loadfile.RawKV, diag: *Collector) void
     }
 }
 
-fn parseColorOrWarn(v: []const u8, slot_name: []const u8, diag: *Collector) ?Color {
+fn parseColorOrWarn(v: []const u8, slot_name: []const u8, diag: *Diagnostics) ?Color {
     if (v.len == 0) return null; // "" clears; leave inherited (S3 minimal)
     return color.parseColor(v) catch {
         diag.warnFmt(.bad_color, "bad color '{s}' in [theme.{s}]", .{ v, slot_name });
@@ -213,7 +213,7 @@ fn parseBool(v: []const u8) ?bool {
 /// If `s` contains a Nerd-font PUA codepoint, substitute a safe placeholder and
 /// report `glyph_fallback`; otherwise return `s` unchanged. This fires only on
 /// the user-file path (built-in presets are authored PUA-free).
-fn safeGlyph(alloc: std.mem.Allocator, s: []const u8, diag: *Collector) []const u8 {
+fn safeGlyph(alloc: std.mem.Allocator, s: []const u8, diag: *Diagnostics) []const u8 {
     if (!containsPua(s)) return s;
     diag.warnFmt(.glyph_fallback, "glyph '{s}' uses a private-use codepoint; substituting", .{s});
     // Replace each PUA codepoint with '?'; keep other bytes.
@@ -271,7 +271,7 @@ test "specFromRaw parses the re-added structural slots (S2)" {
         "[theme.table_header]\nfg = \"213\"\nbold = true\n" ++
         "[theme.code_fence_banner]\nfg = \"99\"\n");
     defer tables.deinit(alloc);
-    var diag = resolve.Collector.init(alloc);
+    var diag = resolve.Diagnostics.init(alloc);
     defer diag.deinit();
 
     const s = specFromRaw(alloc, tables, &diag);
@@ -295,7 +295,7 @@ test "specFromRaw parses the widened table_style weights and reports invalid one
     }) |c| {
         var tables = try loadfile.parseThemeTables(alloc, "[theme.glyphs]\ntable_style = \"" ++ c.name ++ "\"\n");
         defer tables.deinit(alloc);
-        var diag = resolve.Collector.init(alloc);
+        var diag = resolve.Diagnostics.init(alloc);
         defer diag.deinit();
         const s = specFromRaw(alloc, tables, &diag);
         try testing.expectEqual(@as(usize, 0), diag.count());
@@ -305,7 +305,7 @@ test "specFromRaw parses the widened table_style weights and reports invalid one
     // An unknown weight is reported and leaves the field unset.
     var bad = try loadfile.parseThemeTables(alloc, "[theme.glyphs]\ntable_style = \"triple\"\n");
     defer bad.deinit(alloc);
-    var diag = resolve.Collector.init(alloc);
+    var diag = resolve.Diagnostics.init(alloc);
     defer diag.deinit();
     const s = specFromRaw(alloc, bad, &diag);
     try testing.expect(diag.has(.unknown_key));

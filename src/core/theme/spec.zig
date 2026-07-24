@@ -8,7 +8,7 @@
 //! Nothing here interprets colors or reads files; this module is the vocabulary
 //! that `presets.zig` (built-ins, S4) and `loadfile`/`resolve` (user files,
 //! sparse folding) both speak. The concrete, non-optional bake target lives in
-//! `render/decor.zig` (`Decor`) and `theme.Palette`.
+//! `render/decor.zig` (`Decor`) and `theme.StyleMap`.
 
 const std = @import("std");
 const color = @import("color.zig");

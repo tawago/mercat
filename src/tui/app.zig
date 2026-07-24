@@ -594,7 +594,7 @@ pub fn run(allocator: std.mem.Allocator, title: []const u8, input_source: args.I
 }
 
 fn toVaxisSegments(allocator: std.mem.Allocator, line: render_model.Line, resolved: *const ResolvedTheme) ![]vaxis.Segment {
-    const palette = resolved.palette;
+    const palette = resolved.styles;
     // Canvas: spans without their own bg inherit base_bg so the row reads as a
     // solid sheet (the filled window supplies the trailing/blank-cell bg).
     const canvas_bg = resolved.canvasBg();
@@ -698,14 +698,14 @@ test "toVaxisSegments uses the resolved preset palette (dracula, not dark)" {
     const dracula = theme_resolve.builtinResolved(allocator, "dracula");
     const dark = theme_resolve.builtinResolved(allocator, "dark");
     // Presets must diverge, otherwise the wiring guard below is vacuous.
-    try std.testing.expect(!std.meta.eql(dracula.palette.heading1.fg, dark.palette.heading1.fg));
+    try std.testing.expect(!std.meta.eql(dracula.styles.heading1.fg, dark.styles.heading1.fg));
 
     // Every segment must be styled through the *passed* resolved palette, not a
     // hardcoded dark one — this is the CLI/TUI-divergence guard (Correctness #2).
     const seg = try toVaxisSegments(allocator, rendered.lines[0], &dracula);
     defer allocator.free(seg);
     for (rendered.lines[0].spans, seg) |span, s| {
-        const want = theme.vaxisStyle(theme.token(dracula.palette, span.style));
+        const want = theme.vaxisStyle(theme.token(dracula.styles, span.style));
         try std.testing.expectEqual(want.fg, s.style.fg);
     }
 }

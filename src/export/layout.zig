@@ -37,10 +37,10 @@ const ExportDocument = types.ExportDocument;
 pub const ColorMode = enum { theme, monochrome };
 
 /// Export options (§6.4). `.auto` theme MUST already be resolved into a
-/// concrete `theme.Palette` before this stage — the export backend cannot
+/// concrete `theme.StyleMap` before this stage — the export backend cannot
 /// inspect terminal state.
 pub const Options = struct {
-    palette: theme.Palette,
+    palette: theme.StyleMap,
     color_mode: ColorMode,
     /// When set (canvas=true theme with a concrete base_bg), the sheet uses this
     /// as its page background instead of the luminance-derived black/white.

@@ -151,33 +151,81 @@ pub fn parseThemeTables(alloc: std.mem.Allocator, text: []const u8) !RawThemeTab
 fn applyThemeLines(alloc: std.mem.Allocator, builder: *RawThemeBuilder, text: []const u8) !void {
     // A dedicated theme file *is* the `[theme]` table: its document-root keys
     // (e.g. a top-of-file `extends = "dracula"`) belong to the top-level theme
-    // table without needing an explicit `[theme]` header. So the implicit
-    // starting section is `theme` with an empty subtable. A later `[display]`
-    // (or any non-theme) header flips `in_theme` off; `[theme]`/`[theme.<slot>]`
-    // flip it back on.
-    var in_theme = true;
-    var subtable: []const u8 = "";
-
-    var lines = std.mem.splitScalar(u8, text, '\n');
-    while (lines.next()) |raw_line| {
-        const trimmed = std.mem.trim(u8, raw_line, " \t\r");
-        if (trimmed.len == 0 or trimmed[0] == '#') continue;
-
-        if (trimmed[0] == '[' and trimmed[trimmed.len - 1] == ']') {
-            const section = trimmed[1 .. trimmed.len - 1];
-            const split = splitSection(section);
-            in_theme = std.mem.eql(u8, split.table, "theme");
-            subtable = split.subtable;
-            continue;
-        }
-
-        if (!in_theme) continue;
-
-        const equals_index = std.mem.indexOfScalar(u8, trimmed, '=') orelse continue;
-        const key = std.mem.trim(u8, trimmed[0..equals_index], " \t");
-        const value = std.mem.trim(u8, trimmed[equals_index + 1 ..], " \t");
-        try assignThemeValue(alloc, builder, subtable, key, value);
+    // table without needing an explicit `[theme]` header. So the scanner starts
+    // in section `theme` with an empty subtable. A later `[display]` (or any
+    // non-theme) header parks `event.table` off `theme`, which we skip;
+    // `[theme]`/`[theme.<slot>]` bring it back.
+    var scanner = scanLines(text, "theme");
+    while (scanner.next()) |event| {
+        if (!std.mem.eql(u8, event.table, "theme")) continue;
+        try assignThemeValue(alloc, builder, event.subtable, event.key, event.value);
     }
+}
+
+/// The one line/section walker shared by the inline-config path (`config.zig`)
+/// and the theme-file path (`applyThemeLines`). It walks TOML-like text and,
+/// for each `key = value` line, yields the key/value alongside the current
+/// section — both raw (`section`) and split into `(table, subtable)`. Blank
+/// lines, `#` comment lines, and `[section]` / `[table.subtable]` headers are
+/// consumed silently. Values are returned verbatim (quotes intact); consumers
+/// decode/strip as they see fit — this scanner is decode-free.
+pub const LineScanner = struct {
+    lines: std.mem.SplitIterator(u8, .scalar),
+    section: []const u8,
+    table: []const u8,
+    subtable: []const u8,
+
+    pub const Event = struct {
+        /// The full current section header text (undotted or `table.subtable`).
+        section: []const u8,
+        /// `section` split on its first `.` — the part before the dot.
+        table: []const u8,
+        /// `section` split on its first `.` — the part after it (else "").
+        subtable: []const u8,
+        key: []const u8,
+        value: []const u8,
+    };
+
+    pub fn next(self: *LineScanner) ?Event {
+        while (self.lines.next()) |raw_line| {
+            const trimmed = std.mem.trim(u8, raw_line, " \t\r");
+            if (trimmed.len == 0 or trimmed[0] == '#') continue;
+
+            if (trimmed[0] == '[' and trimmed[trimmed.len - 1] == ']') {
+                self.section = trimmed[1 .. trimmed.len - 1];
+                const split = splitSection(self.section);
+                self.table = split.table;
+                self.subtable = split.subtable;
+                continue;
+            }
+
+            const equals_index = std.mem.indexOfScalar(u8, trimmed, '=') orelse continue;
+            const key = std.mem.trim(u8, trimmed[0..equals_index], " \t");
+            const value = std.mem.trim(u8, trimmed[equals_index + 1 ..], " \t");
+            return .{
+                .section = self.section,
+                .table = self.table,
+                .subtable = self.subtable,
+                .key = key,
+                .value = value,
+            };
+        }
+        return null;
+    }
+};
+
+/// Open a `LineScanner` over `text`, starting in `initial_section` (before any
+/// header is seen). Pass "" for the config path (document-root keys have no
+/// section); pass "theme" for the theme-file path (a theme file's root keys
+/// belong to the implicit top-level `[theme]` table).
+pub fn scanLines(text: []const u8, initial_section: []const u8) LineScanner {
+    const split = splitSection(initial_section);
+    return .{
+        .lines = std.mem.splitScalar(u8, text, '\n'),
+        .section = initial_section,
+        .table = split.table,
+        .subtable = split.subtable,
+    };
 }
 
 /// Split a section header on its first `.` into `(table, subtable)`. Undotted
@@ -189,7 +237,7 @@ pub fn splitSection(section: []const u8) struct { table: []const u8, subtable: [
     return .{ .table = section, .subtable = "" };
 }
 
-fn stripQuotes(value: []const u8) []const u8 {
+pub fn stripQuotes(value: []const u8) []const u8 {
     if (value.len >= 2 and value[0] == '"' and value[value.len - 1] == '"') {
         return value[1 .. value.len - 1];
     }

@@ -1,5 +1,5 @@
 //! Stage S3: the theme *engine*. Turns a theme name + inline `[theme.*]`
-//! overrides into a concrete `ResolvedTheme{ Palette, Decor, mode, accent,
+//! overrides into a concrete `ResolvedTheme{ StyleMap, Decor, mode, accent,
 //! base_bg }` by:
 //!
 //!   1. looking the name up in a `Registry` (built-in presets win the name,
@@ -7,14 +7,14 @@
 //!   2. walking the `extends` chain base→leaf (cycle- and missing-target-aware),
 //!   3. folding the sparse specs (absent = inherit, `""` = clear) plus the
 //!      optional `classic` syntax-variant delta and the inline overrides,
-//!   4. baking the folded spec over a base built-in Palette into concrete
-//!      `Palette` + `Decor`.
+//!   4. baking the merged spec over a base built-in StyleMap into concrete
+//!      `StyleMap` + `Decor`.
 //!
 //! Every soft failure (unknown key/color/theme, missing/cyclic extends,
-//! unreadable file, glyph fallback) is *reported* via a `Collector`, never
+//! unreadable file, glyph fallback) is *reported* via a `Diagnostics`, never
 //! fatal — resolution always yields a usable theme (dark fallback).
 //!
-//! The `Diagnostic` type + `Collector` live here (Simplicity #7: no standalone
+//! The `Diagnostic` type + `Diagnostics` live here (Simplicity #7: no standalone
 //! diag.zig). The single RawThemeTables→ThemeSpec conversion (`specFromRaw`)
 //! also lives here and is the one typed path for inline overrides, user files
 //! selected by name, and user files named as `extends=` targets.
@@ -37,7 +37,7 @@ pub const Slot = spec.Slot;
 pub const PaletteMode = spec.PaletteMode;
 pub const RawThemeTables = loadfile.RawThemeTables;
 pub const Decor = decor_mod.Decor;
-pub const Palette = theme.Palette;
+pub const StyleMap = theme.StyleMap;
 pub const StyleToken = theme.StyleToken;
 
 /// The one typed RawThemeTables→ThemeSpec conversion (split into `fromraw.zig`
@@ -64,38 +64,38 @@ pub const Diagnostic = struct { kind: DiagKind, detail: []const u8 };
 
 /// Accumulates resolution warnings. `detail` strings are duped into `alloc` and
 /// freed by `deinit`, so callers may pass transient formatted text to `warn`.
-pub const Collector = struct {
+pub const Diagnostics = struct {
     list: std.ArrayList(Diagnostic) = .empty,
     alloc: std.mem.Allocator,
 
-    pub fn init(alloc: std.mem.Allocator) Collector {
+    pub fn init(alloc: std.mem.Allocator) Diagnostics {
         return .{ .alloc = alloc };
     }
 
-    pub fn deinit(self: *Collector) void {
+    pub fn deinit(self: *Diagnostics) void {
         for (self.list.items) |d| self.alloc.free(d.detail);
         self.list.deinit(self.alloc);
     }
 
-    pub fn warn(self: *Collector, kind: DiagKind, detail: []const u8) void {
+    pub fn warn(self: *Diagnostics, kind: DiagKind, detail: []const u8) void {
         const owned = self.alloc.dupe(u8, detail) catch return;
         self.list.append(self.alloc, .{ .kind = kind, .detail = owned }) catch {
             self.alloc.free(owned);
         };
     }
 
-    pub fn warnFmt(self: *Collector, kind: DiagKind, comptime fmt: []const u8, args: anytype) void {
+    pub fn warnFmt(self: *Diagnostics, kind: DiagKind, comptime fmt: []const u8, args: anytype) void {
         const owned = std.fmt.allocPrint(self.alloc, fmt, args) catch return;
         self.list.append(self.alloc, .{ .kind = kind, .detail = owned }) catch {
             self.alloc.free(owned);
         };
     }
 
-    pub fn count(self: *const Collector) usize {
+    pub fn count(self: *const Diagnostics) usize {
         return self.list.items.len;
     }
 
-    pub fn has(self: *const Collector, kind: DiagKind) bool {
+    pub fn has(self: *const Diagnostics, kind: DiagKind) bool {
         for (self.list.items) |d| if (d.kind == kind) return true;
         return false;
     }
@@ -106,7 +106,7 @@ pub const Collector = struct {
 // ---------------------------------------------------------------------------
 
 pub const ResolvedTheme = struct {
-    palette: Palette,
+    styles: StyleMap,
     decor: Decor,
     mode: PaletteMode,
     /// Toast/metadata accent (Correctness #1): the heading-1 color.
@@ -138,29 +138,88 @@ const builtins = presets.ALL;
 // ---------------------------------------------------------------------------
 
 pub const Registry = struct {
-    /// User-file specs, inserted after built-ins. Built-ins win a name clash.
+    /// In-memory user specs (tests, or specs inserted before resolve). Consulted
+    /// after built-ins but before any on-disk file. Built-ins win a name clash.
     user: std.ArrayList(*const ThemeSpec) = .empty,
+    /// User theme directory (`~/.config/mercat/themes`), or null when unset or
+    /// unresolvable. When set, a name that misses the built-ins and `user` list
+    /// is lazily read from `<dir>/<name>.toml` on demand — no eager directory
+    /// scan. The path is arena-owned.
+    dir: ?[]const u8 = null,
+    /// Cache of names already resolved against `dir`. A present entry short-
+    /// circuits re-reading the file; a *negative* entry (stored `null`) records
+    /// "looked, not found/unreadable" so a missing name isn't re-stat'd and a
+    /// load diagnostic fires at most once.
+    cache: std.StringHashMapUnmanaged(?*const ThemeSpec) = .empty,
+    /// Backs every lazily-loaded spec (its raw tables, duped name, cache keys)
+    /// and the resolved `dir` path. Owned by the registry, so file-loaded specs
+    /// live exactly as long as the registry — callers no longer plumb a
+    /// theme-spec arena of their own.
+    arena: std.heap.ArenaAllocator,
     alloc: std.mem.Allocator,
 
     pub fn init(alloc: std.mem.Allocator) Registry {
-        return .{ .alloc = alloc };
+        return .{ .alloc = alloc, .arena = std.heap.ArenaAllocator.init(alloc) };
     }
 
     pub fn deinit(self: *Registry) void {
         self.user.deinit(self.alloc);
+        self.cache.deinit(self.alloc);
+        self.arena.deinit();
     }
 
-    /// Insert a user-file spec (already converted via `specFromRaw`). The
-    /// pointee must outlive the registry (owned by the caller's arena).
+    /// Point the registry at the user theme directory (`resolveThemeDir`) so
+    /// name lookups that miss the built-ins/`user` list read `<dir>/<name>.toml`
+    /// lazily. Best-effort: an unresolvable dir (no HOME/XDG) leaves `dir` null
+    /// and lazy loading simply disabled.
+    pub fn useThemeDir(self: *Registry) void {
+        self.dir = loadfile.resolveThemeDir(self.arena.allocator()) catch null;
+    }
+
+    /// Insert an in-memory user spec (already converted via `specFromRaw`). The
+    /// pointee must outlive the registry (owned by the caller).
     pub fn insertUserSpec(self: *Registry, s: *const ThemeSpec) !void {
         try self.user.append(self.alloc, s);
     }
 
-    /// Look a theme up by name: built-in presets first, then user files.
-    pub fn lookup(self: *const Registry, name: []const u8) ?*const ThemeSpec {
+    /// Look a theme up by name: built-in presets first, then the in-memory
+    /// `user` list, then (lazily, on the first miss) the `<dir>/<name>.toml`
+    /// file. File loads are cached — positive and negative alike — and report
+    /// `unreadable_file`/parse diagnostics to `diag` at load time.
+    pub fn lookup(self: *Registry, name: []const u8, diag: *Diagnostics) ?*const ThemeSpec {
         for (builtins) |b| if (std.mem.eql(u8, b.name, name)) return b;
         for (self.user.items) |u| if (std.mem.eql(u8, u.name, name)) return u;
-        return null;
+        if (self.cache.get(name)) |cached| return cached; // present entry (may be a negative null)
+        return self.loadUserFile(name, diag);
+    }
+
+    /// Read + convert `<dir>/<name>.toml` on a cache miss, caching the outcome
+    /// (spec or negative `null`). File identity wins the name. Any read/parse
+    /// failure is reported and cached negative so it isn't retried.
+    fn loadUserFile(self: *Registry, name: []const u8, diag: *Diagnostics) ?*const ThemeSpec {
+        const arena = self.arena.allocator();
+        // The cache key doubles as the spec's canonical name, so dupe once.
+        const key = arena.dupe(u8, name) catch return null;
+
+        const dir = self.dir orelse {
+            self.cache.put(self.alloc, key, null) catch {};
+            return null;
+        };
+
+        const raw = loadfile.readThemeFile(arena, dir, name) catch {
+            diag.warnFmt(.unreadable_file, "cannot read theme file '{s}.toml'", .{name});
+            self.cache.put(self.alloc, key, null) catch {};
+            return null;
+        } orelse {
+            self.cache.put(self.alloc, key, null) catch {};
+            return null;
+        };
+
+        const s = arena.create(ThemeSpec) catch return null;
+        s.* = specFromRaw(arena, raw, diag);
+        s.name = key; // file identity wins the name (`<name>.toml` -> spec.name = name)
+        self.cache.put(self.alloc, key, s) catch {};
+        return s;
     }
 
     /// Resolve `name` (+ optional `classic` syntax variant + inline overrides)
@@ -169,19 +228,19 @@ pub const Registry = struct {
     ///
     /// `syntax_theme` is the legacy #17 code-token variant selector: when
     /// `.classic` **and** the extends-chain root is `dark`/`light`, that
-    /// preset's `slots_classic` delta is folded as an extra layer *before* the
+    /// preset's `slots_classic` delta is merged as an extra layer *before* the
     /// inline overrides (so inline `[theme.*]` still wins over the variant).
     pub fn resolve(
-        self: *const Registry,
+        self: *Registry,
         name: []const u8,
         syntax_theme: config.SyntaxTheme,
         inline_overrides: ?RawThemeTables,
-        diag: *Collector,
+        diag: *Diagnostics,
     ) !ResolvedTheme {
-        var leaf = self.lookup(name);
+        var leaf = self.lookup(name, diag);
         if (leaf == null) {
             diag.warnFmt(.unknown_theme, "unknown theme '{s}' (using dark)", .{name});
-            leaf = self.lookup("dark").?;
+            leaf = self.lookup("dark", diag).?;
         }
 
         var chain_buf: [max_chain]*const ThemeSpec = undefined;
@@ -193,9 +252,9 @@ pub const Registry = struct {
         const classic_delta: ?spec.SlotMap =
             if (syntax_theme == .classic and chain.len != 0) chain[0].slots_classic else null;
 
-        var folded = foldSpecs(self.alloc, chain, classic_delta, inline_overrides, diag);
+        var merged = mergeChain(self.alloc, chain, classic_delta, inline_overrides, diag);
         const base_light = std.mem.eql(u8, chain[0].name, "light");
-        return bake(&folded, base_light, diag);
+        return bake(&merged, base_light);
     }
 
     /// Fold `name`'s extends chain into one flattened `ThemeSpec` (no classic
@@ -204,24 +263,24 @@ pub const Registry = struct {
     /// fail hard rather than silently fall back to dark, and which dumps the
     /// named theme's own data (classic-agnostic). The returned spec borrows
     /// string slices from the registry's specs, so it must not outlive them.
-    pub fn foldedSpec(self: *const Registry, name: []const u8, diag: *Collector) ?ThemeSpec {
-        const leaf = self.lookup(name) orelse {
+    pub fn mergedSpec(self: *Registry, name: []const u8, diag: *Diagnostics) ?ThemeSpec {
+        const leaf = self.lookup(name, diag) orelse {
             diag.warnFmt(.unknown_theme, "unknown theme '{s}'", .{name});
             return null;
         };
         var chain_buf: [max_chain]*const ThemeSpec = undefined;
         const chain = self.buildChain(leaf, &chain_buf, diag);
-        return foldSpecs(self.alloc, chain, null, null, diag);
+        return mergeChain(self.alloc, chain, null, null, diag);
     }
 
     /// Walk `extends` from leaf to root, returning the chain root-first. Detects
     /// cycles (`cyclic_extends`) and missing targets (`missing_extends`, falls
     /// back to dark as the base).
     fn buildChain(
-        self: *const Registry,
+        self: *Registry,
         leaf: *const ThemeSpec,
         buf: *[max_chain]*const ThemeSpec,
-        diag: *Collector,
+        diag: *Diagnostics,
     ) []const *const ThemeSpec {
         // Collect leaf→root, then reverse.
         var n: usize = 0;
@@ -249,12 +308,12 @@ pub const Registry = struct {
             vn += 1;
 
             const target = node.extends orelse break;
-            if (self.lookup(target)) |next| {
+            if (self.lookup(target, diag)) |next| {
                 cur = next;
             } else {
                 diag.warnFmt(.missing_extends, "extends target '{s}' not found (using dark)", .{target});
                 // Fall back to dark as the base of the chain.
-                if (self.lookup("dark")) |dark_spec| {
+                if (self.lookup("dark", diag)) |dark_spec| {
                     if (n < max_chain and !std.mem.eql(u8, dark_spec.name, node.name)) {
                         buf[n] = dark_spec;
                         n += 1;
@@ -281,12 +340,12 @@ const max_chain = 16;
 /// field inherits, present field wins (a present `""` prefix/icon deliberately
 /// clears — see bake). Order: chain root→leaf, then `classic_slots`, then
 /// `inline_overrides` (so inline `[theme.*]` beats the syntax variant).
-fn foldSpecs(
+fn mergeChain(
     alloc: std.mem.Allocator,
     chain: []const *const ThemeSpec,
     classic_slots: ?spec.SlotMap,
     inline_overrides: ?RawThemeTables,
-    diag: *Collector,
+    diag: *Diagnostics,
 ) ThemeSpec {
     var out = ThemeSpec{ .name = if (chain.len > 0) chain[chain.len - 1].name else "dark" };
 
@@ -367,56 +426,16 @@ fn mergeGlyphs(out: *spec.GlyphSet, g: spec.GlyphSet) void {
 }
 
 // ---------------------------------------------------------------------------
-// Bake: folded spec → concrete Palette + Decor
+// Bake: merged spec → concrete StyleMap + Decor
 // ---------------------------------------------------------------------------
 
-fn bake(folded: *const ThemeSpec, base_light: bool, diag: *Collector) ResolvedTheme {
-    _ = diag;
-    var palette: Palette = if (base_light)
-        theme.palette(.light, .default)
-    else
-        theme.palette(.dark, .default);
-
-    // Overlay each SpanStyle-corresponding slot onto the base palette.
-    inline for (@typeInfo(types.SpanStyle).@"enum".fields) |f| {
-        const style = @field(types.SpanStyle, f.name);
-        const s = spec.Slot.fromSpanStyle(style);
-        if (folded.slots.get(s)) |ss| {
-            applySlot(&@field(palette, f.name), ss);
-        }
-    }
-
-    // `list_item` inherits the theme's own `body` when neither this theme nor a
-    // user override sets it, so item text matches paragraphs unless opted in.
-    // (Runs before applyTokens, which never touches list_item/body.)
-    if (folded.slots.get(.list_item) == null) palette.list_item = palette.body;
-
-    // #17-parity: the four structural color slots re-added in S2 borrow the same
-    // tokens #17 stamped for them (table_border/hr/code_fence_banner → muted,
-    // table_header → body) unless a preset or user override sets them. Runs after
-    // the overlay so they track a folded-overridden `muted`/`body`, and mirrors
-    // `theme.bakeSlots`'s stamping so the un-themed path stays byte-identical.
-    if (folded.slots.get(.table_border) == null) palette.table_border = palette.muted;
-    if (folded.slots.get(.table_header) == null) palette.table_header = palette.body;
-    if (folded.slots.get(.hr) == null) palette.hr = palette.muted;
-    if (folded.slots.get(.code_fence_banner) == null) palette.code_fence_banner = palette.muted;
-
-    // Token colors collapse onto both inline and block code classes.
-    applyTokens(&palette, folded.tokens);
-
-    const decor = bakeDecor(folded);
-
-    const accent: Color = palette.heading1.fg;
-    const base_bg: Color = folded.base_bg orelse (palette.code_block.bg orelse .default);
-
-    return .{
-        .palette = palette,
-        .decor = decor,
-        .mode = folded.palette_mode orelse .truecolor_or_256,
-        .accent = accent,
-        .base_bg = base_bg,
-        .canvas = folded.canvas orelse false,
-    };
+fn bake(merged: *const ThemeSpec, base_light: bool) ResolvedTheme {
+    var style_map = theme.overlaySlots(if (base_light) theme.neutralLight else theme.neutralDark, merged.slots);
+    applyTokens(&style_map, merged.tokens);
+    const decor = bakeDecor(merged);
+    const accent: Color = style_map.heading1.fg;
+    const base_bg: Color = merged.base_bg orelse (style_map.code_block.bg orelse .default);
+    return .{ .styles = style_map, .decor = decor, .mode = merged.palette_mode orelse .truecolor_or_256, .accent = accent, .base_bg = base_bg, .canvas = merged.canvas orelse false };
 }
 
 /// Convenience: resolve a built-in preset with no overrides (default syntax
@@ -426,45 +445,36 @@ fn bake(folded: *const ThemeSpec, base_light: bool, diag: *Collector) ResolvedTh
 pub fn builtinResolved(alloc: std.mem.Allocator, name: []const u8) ResolvedTheme {
     var reg = Registry.init(alloc);
     defer reg.deinit();
-    var d = Collector.init(alloc);
+    var d = Diagnostics.init(alloc);
     defer d.deinit();
     return reg.resolve(name, .default, null, &d) catch unreachable;
 }
 
-fn applySlot(tok: *StyleToken, s: SlotSpec) void {
-    if (s.fg) |c| tok.fg = c;
-    if (s.bg) |c| tok.bg = c;
-    if (s.bold) |v| tok.bold = v;
-    if (s.italic) |v| tok.italic = v;
-    if (s.underline) |v| tok.underline = v;
-    if (s.strike) |v| tok.strikethrough = v;
-}
-
-fn applyTokens(palette: *Palette, t: spec.TokenColors) void {
+fn applyTokens(style_map: *StyleMap, t: spec.TokenColors) void {
     const kw = t.keyword orelse t.function;
     if (kw) |c| {
-        palette.code_keyword.fg = c;
-        palette.code_block_keyword.fg = c;
+        style_map.code_keyword.fg = c;
+        style_map.code_block_keyword.fg = c;
     }
     if (t.string) |c| {
-        palette.code_string.fg = c;
-        palette.code_block_string.fg = c;
+        style_map.code_string.fg = c;
+        style_map.code_block_string.fg = c;
     }
     if (t.number) |c| {
-        palette.code_number.fg = c;
-        palette.code_block_number.fg = c;
+        style_map.code_number.fg = c;
+        style_map.code_block_number.fg = c;
     }
     if (t.comment) |c| {
-        palette.code_comment.fg = c;
-        palette.code_block_comment.fg = c;
+        style_map.code_comment.fg = c;
+        style_map.code_block_comment.fg = c;
     }
 }
 
-fn bakeDecor(folded: *const ThemeSpec) Decor {
+fn bakeDecor(merged: *const ThemeSpec) Decor {
     var d = Decor{};
     var i: usize = 0;
     while (i < spec.slot_count) : (i += 1) {
-        if (folded.slots.entries[i]) |ss| {
+        if (merged.slots.entries[i]) |ss| {
             d.slots[i] = .{
                 .prefix = ss.prefix orelse "",
                 .suffix = ss.suffix orelse "",
@@ -481,7 +491,7 @@ fn bakeDecor(folded: *const ThemeSpec) Decor {
             };
         }
     }
-    const g = folded.glyphs;
+    const g = merged.glyphs;
     d.glyphs = .{
         .bullets = g.bullets orelse &decor_mod.default_bullets,
         .ordered_prefix = g.ordered_prefix orelse "",
@@ -519,7 +529,7 @@ fn rawFrom(alloc: std.mem.Allocator, text: []const u8) !RawThemeTables {
 test "resolve(dark/light) == theme.palette default variant across all slots" {
     var reg = Registry.init(testing.allocator);
     defer reg.deinit();
-    var diag = Collector.init(testing.allocator);
+    var diag = Diagnostics.init(testing.allocator);
     defer diag.deinit();
 
     const cases = [_]struct { name: []const u8, kind: @import("../config.zig").Theme }{
@@ -530,8 +540,8 @@ test "resolve(dark/light) == theme.palette default variant across all slots" {
         const r = try reg.resolve(c.name, .default, null, &diag);
         try testing.expectEqual(@as(usize, 0), diag.count());
         const want = theme.palette(c.kind, .default);
-        inline for (@typeInfo(Palette).@"struct".fields) |f| {
-            try testing.expect(std.meta.eql(@field(want, f.name), @field(r.palette, f.name)));
+        inline for (@typeInfo(StyleMap).@"struct".fields) |f| {
+            try testing.expect(std.meta.eql(@field(want, f.name), @field(r.styles, f.name)));
         }
     }
     // Independent numeric anchors (default + classic variant) so the historical
@@ -555,30 +565,30 @@ test "resolve(dark/light) == theme.palette default variant across all slots" {
 test "resolve(dark/light, .classic) recolors code tokens; default is unchanged" {
     var reg = Registry.init(testing.allocator);
     defer reg.deinit();
-    var diag = Collector.init(testing.allocator);
+    var diag = Diagnostics.init(testing.allocator);
     defer diag.deinit();
 
     const dark_c = try reg.resolve("dark", .classic, null, &diag);
     try testing.expectEqual(@as(usize, 0), diag.count());
-    try testing.expectEqual(color.idx(81), dark_c.palette.code_block_keyword.fg);
-    try testing.expectEqual(color.idx(114), dark_c.palette.code_block.fg);
+    try testing.expectEqual(color.idx(81), dark_c.styles.code_block_keyword.fg);
+    try testing.expectEqual(color.idx(114), dark_c.styles.code_block.fg);
 
     const dark_d = try reg.resolve("dark", .default, null, &diag);
-    try testing.expectEqual(color.idx(141), dark_d.palette.code_block_keyword.fg);
+    try testing.expectEqual(color.idx(141), dark_d.styles.code_block_keyword.fg);
 
     const light_c = try reg.resolve("light", .classic, null, &diag);
-    try testing.expectEqual(color.idx(25), light_c.palette.code_block_keyword.fg);
+    try testing.expectEqual(color.idx(25), light_c.styles.code_block_keyword.fg);
 
     // Non-dark/light preset ignores the variant (no delta): dracula unchanged.
     const drac_def = try reg.resolve("dracula", .default, null, &diag);
     const drac_cls = try reg.resolve("dracula", .classic, null, &diag);
-    try testing.expectEqual(drac_def.palette.code_block_keyword.fg, drac_cls.palette.code_block_keyword.fg);
+    try testing.expectEqual(drac_def.styles.code_block_keyword.fg, drac_cls.styles.code_block_keyword.fg);
 
     // Inline overrides still win over the classic delta.
     var raw = try rawFrom(testing.allocator, "[theme.code_block_keyword]\nfg = \"#ff0000\"\n");
     defer raw.deinit(testing.allocator);
     const overridden = try reg.resolve("dark", .classic, raw, &diag);
-    try testing.expectEqual(color.rgb(0xff, 0, 0), overridden.palette.code_block_keyword.fg);
+    try testing.expectEqual(color.rgb(0xff, 0, 0), overridden.styles.code_block_keyword.fg);
 }
 
 // The four structural color slots re-added in S2 bake to their #17 borrowed
@@ -587,27 +597,27 @@ test "resolve(dark/light, .classic) recolors code tokens; default is unchanged" 
 test "re-added structural slots default to muted/body" {
     var reg = Registry.init(testing.allocator);
     defer reg.deinit();
-    var diag = Collector.init(testing.allocator);
+    var diag = Diagnostics.init(testing.allocator);
     defer diag.deinit();
     const r = try reg.resolve("dark", .default, null, &diag);
-    try testing.expect(std.meta.eql(r.palette.table_border, r.palette.muted));
-    try testing.expect(std.meta.eql(r.palette.hr, r.palette.muted));
-    try testing.expect(std.meta.eql(r.palette.code_fence_banner, r.palette.muted));
-    try testing.expect(std.meta.eql(r.palette.table_header, r.palette.body));
+    try testing.expect(std.meta.eql(r.styles.table_border, r.styles.muted));
+    try testing.expect(std.meta.eql(r.styles.hr, r.styles.muted));
+    try testing.expect(std.meta.eql(r.styles.code_fence_banner, r.styles.muted));
+    try testing.expect(std.meta.eql(r.styles.table_header, r.styles.body));
 }
 
 test "resolve dark yields a full palette + total decor" {
     var reg = Registry.init(testing.allocator);
     defer reg.deinit();
-    var diag = Collector.init(testing.allocator);
+    var diag = Diagnostics.init(testing.allocator);
     defer diag.deinit();
 
     const r = try reg.resolve("dark", .default, null, &diag);
     try testing.expectEqual(@as(usize, 0), diag.count());
     // dark bakes to the current darkPalette exactly.
     const expected = theme.palette(.dark, .default);
-    try testing.expectEqual(expected.heading1.fg, r.palette.heading1.fg);
-    try testing.expectEqual(expected.body.fg, r.palette.body.fg);
+    try testing.expectEqual(expected.heading1.fg, r.styles.heading1.fg);
+    try testing.expectEqual(expected.body.fg, r.styles.body.fg);
     // Default decor is total.
     try testing.expectEqualStrings("─", r.decor.glyphs.hr_glyph);
 }
@@ -616,7 +626,7 @@ test "dark/light bake to the render/decor legacy Decor (goldens safety net)" {
     var reg = Registry.init(testing.allocator);
     defer reg.deinit();
     for ([_][]const u8{ "dark", "light" }) |name| {
-        var diag = Collector.init(testing.allocator);
+        var diag = Diagnostics.init(testing.allocator);
         defer diag.deinit();
         const r = try reg.resolve(name, .default, null, &diag);
         const legacy = decor_mod.legacy;
@@ -637,7 +647,7 @@ test "every built-in preset resolves with zero diagnostics" {
     var reg = Registry.init(testing.allocator);
     defer reg.deinit();
     for (presets.ALL) |p| {
-        var diag = Collector.init(testing.allocator);
+        var diag = Diagnostics.init(testing.allocator);
         defer diag.deinit();
         const r = try reg.resolve(p.name, .default, null, &diag);
         try testing.expectEqual(@as(usize, 0), diag.count());
@@ -649,47 +659,47 @@ test "every built-in preset resolves with zero diagnostics" {
 test "ansi preset bakes ansi16-typed slot colors" {
     var reg = Registry.init(testing.allocator);
     defer reg.deinit();
-    var diag = Collector.init(testing.allocator);
+    var diag = Diagnostics.init(testing.allocator);
     defer diag.deinit();
     const r = try reg.resolve("ansi", .default, null, &diag);
     try testing.expectEqual(PaletteMode.ansi16, r.mode);
-    try testing.expectEqual(Color{ .ansi16 = .bright_blue }, r.palette.heading1.fg);
+    try testing.expectEqual(Color{ .ansi16 = .bright_blue }, r.styles.heading1.fg);
 }
 
 test "light preset bakes to the light base palette" {
     var reg = Registry.init(testing.allocator);
     defer reg.deinit();
-    var diag = Collector.init(testing.allocator);
+    var diag = Diagnostics.init(testing.allocator);
     defer diag.deinit();
     const r = try reg.resolve("light", .default, null, &diag);
     const expected = theme.palette(.light, .default);
-    try testing.expectEqual(expected.body.fg, r.palette.body.fg);
-    try testing.expectEqual(expected.heading1.fg, r.palette.heading1.fg);
+    try testing.expectEqual(expected.body.fg, r.styles.body.fg);
+    try testing.expectEqual(expected.heading1.fg, r.styles.heading1.fg);
 }
 
 test "unknown theme name falls back to dark with a diagnostic" {
     var reg = Registry.init(testing.allocator);
     defer reg.deinit();
-    var diag = Collector.init(testing.allocator);
+    var diag = Diagnostics.init(testing.allocator);
     defer diag.deinit();
 
     const r = try reg.resolve("nope", .default, null, &diag);
     try testing.expect(diag.has(.unknown_theme));
     const expected = theme.palette(.dark, .default);
-    try testing.expectEqual(expected.body.fg, r.palette.body.fg);
+    try testing.expectEqual(expected.body.fg, r.styles.body.fg);
 }
 
 test "inline override changes a slot color" {
     var reg = Registry.init(testing.allocator);
     defer reg.deinit();
-    var diag = Collector.init(testing.allocator);
+    var diag = Diagnostics.init(testing.allocator);
     defer diag.deinit();
 
     var raw = try rawFrom(testing.allocator, "[theme.heading1]\nfg = \"#ff0000\"\n");
     defer raw.deinit(testing.allocator);
 
     const r = try reg.resolve("dark", .default, raw, &diag);
-    try testing.expectEqual(color.rgb(0xff, 0, 0), r.palette.heading1.fg);
+    try testing.expectEqual(color.rgb(0xff, 0, 0), r.styles.heading1.fg);
 }
 
 test "sparse merge: child sets fg only, inherits prefix from base" {
@@ -704,11 +714,11 @@ test "sparse merge: child sets fg only, inherits prefix from base" {
         m.set(.heading1, .{ .fg = color.idx(20) });
         break :blk m;
     } };
-    var diag = Collector.init(testing.allocator);
+    var diag = Diagnostics.init(testing.allocator);
     defer diag.deinit();
     const chain = [_]*const ThemeSpec{ &base, &leaf };
-    var folded = foldSpecs(testing.allocator, &chain, null, null, &diag);
-    const h1 = folded.slots.get(.heading1).?;
+    var merged = mergeChain(testing.allocator, &chain, null, null, &diag);
+    const h1 = merged.slots.get(.heading1).?;
     try testing.expectEqual(color.idx(20), h1.fg.?);
     try testing.expectEqualStrings(">> ", h1.prefix.?);
 }
@@ -719,24 +729,24 @@ test "canvas merges through the extends chain (absent inherits, present wins)" {
     const base = ThemeSpec{ .name = "cbase", .canvas = true };
     const mid = ThemeSpec{ .name = "cmid", .extends = "cbase" }; // canvas absent
     const leaf = ThemeSpec{ .name = "cleaf", .extends = "cmid", .canvas = false };
-    var diag = Collector.init(testing.allocator);
+    var diag = Diagnostics.init(testing.allocator);
     defer diag.deinit();
 
     // Inherit-through-absent: base(true) → mid(absent) folds to true.
     const chain_inherit = [_]*const ThemeSpec{ &base, &mid };
-    const folded_inherit = foldSpecs(testing.allocator, &chain_inherit, null, null, &diag);
+    const folded_inherit = mergeChain(testing.allocator, &chain_inherit, null, null, &diag);
     try testing.expectEqual(@as(?bool, true), folded_inherit.canvas);
 
     // Explicit override: leaf(false) wins over inherited true.
     const chain_override = [_]*const ThemeSpec{ &base, &mid, &leaf };
-    const folded_override = foldSpecs(testing.allocator, &chain_override, null, null, &diag);
+    const folded_override = mergeChain(testing.allocator, &chain_override, null, null, &diag);
     try testing.expectEqual(@as(?bool, false), folded_override.canvas);
 }
 
 test "canvas preset defaults + canvasBg gating" {
     var reg = Registry.init(testing.allocator);
     defer reg.deinit();
-    var diag = Collector.init(testing.allocator);
+    var diag = Diagnostics.init(testing.allocator);
     defer diag.deinit();
 
     // dracula: canvas on, concrete base_bg → canvasBg non-null.
@@ -753,7 +763,7 @@ test "canvas preset defaults + canvasBg gating" {
 test "inline [theme] canvas = true overrides a preset default" {
     var reg = Registry.init(testing.allocator);
     defer reg.deinit();
-    var diag = Collector.init(testing.allocator);
+    var diag = Diagnostics.init(testing.allocator);
     defer diag.deinit();
     // dark is canvas=false by default; the inline override flips it on.
     var raw = try rawFrom(testing.allocator, "canvas = true\n");
@@ -773,11 +783,11 @@ test "empty-string prefix clears inherited prefix" {
         m.set(.heading1, .{ .prefix = "" });
         break :blk m;
     } };
-    var diag = Collector.init(testing.allocator);
+    var diag = Diagnostics.init(testing.allocator);
     defer diag.deinit();
     const chain = [_]*const ThemeSpec{ &base, &leaf };
-    var folded = foldSpecs(testing.allocator, &chain, null, null, &diag);
-    const d = bakeDecor(&folded);
+    var merged = mergeChain(testing.allocator, &chain, null, null, &diag);
+    const d = bakeDecor(&merged);
     try testing.expectEqualStrings("", d.slot(.heading1).prefix);
 }
 
@@ -793,11 +803,11 @@ test "underline_row inherits through extends; glyph bakes concretely" {
         m.set(.heading1, .{ .fg = color.idx(5) }); // unrelated override
         break :blk m;
     } };
-    var diag = Collector.init(testing.allocator);
+    var diag = Diagnostics.init(testing.allocator);
     defer diag.deinit();
     const chain = [_]*const ThemeSpec{ &base, &leaf };
-    var folded = foldSpecs(testing.allocator, &chain, null, null, &diag);
-    const d = bakeDecor(&folded);
+    var merged = mergeChain(testing.allocator, &chain, null, null, &diag);
+    const d = bakeDecor(&merged);
     try testing.expect(d.slot(.heading1).underline_row);
     try testing.expectEqualStrings("\u{2550}", d.slot(.heading1).underline_glyph);
 }
@@ -813,11 +823,11 @@ test "underline_glyph empty string clears an inherited glyph back to the default
         m.set(.heading1, .{ .underline_glyph = "" }); // clear → default "─"
         break :blk m;
     } };
-    var diag = Collector.init(testing.allocator);
+    var diag = Diagnostics.init(testing.allocator);
     defer diag.deinit();
     const chain = [_]*const ThemeSpec{ &base, &leaf };
-    var folded = foldSpecs(testing.allocator, &chain, null, null, &diag);
-    const d = bakeDecor(&folded);
+    var merged = mergeChain(testing.allocator, &chain, null, null, &diag);
+    const d = bakeDecor(&merged);
     try testing.expect(d.slot(.heading1).underline_row);
     try testing.expectEqualStrings("\u{2500}", d.slot(.heading1).underline_glyph);
 }
@@ -830,7 +840,7 @@ test "buildChain detects a cycle and still resolves" {
     defer reg.deinit();
     try reg.insertUserSpec(&a);
     try reg.insertUserSpec(&b);
-    var diag = Collector.init(testing.allocator);
+    var diag = Diagnostics.init(testing.allocator);
     defer diag.deinit();
 
     const r = try reg.resolve("acyc", .default, null, &diag);
@@ -843,14 +853,14 @@ test "missing extends target reports and falls back to dark" {
     var reg = Registry.init(testing.allocator);
     defer reg.deinit();
     try reg.insertUserSpec(&a);
-    var diag = Collector.init(testing.allocator);
+    var diag = Diagnostics.init(testing.allocator);
     defer diag.deinit();
 
     const r = try reg.resolve("orphan", .default, null, &diag);
     try testing.expect(diag.has(.missing_extends));
     // Base is dark.
     const expected = theme.palette(.dark, .default);
-    try testing.expectEqual(expected.body.fg, r.palette.body.fg);
+    try testing.expectEqual(expected.body.fg, r.styles.body.fg);
 }
 
 test "extends chain depth >= 2 folds correctly" {
@@ -874,21 +884,21 @@ test "extends chain depth >= 2 folds correctly" {
     try reg.insertUserSpec(&grand);
     try reg.insertUserSpec(&parent);
     try reg.insertUserSpec(&child);
-    var diag = Collector.init(testing.allocator);
+    var diag = Diagnostics.init(testing.allocator);
     defer diag.deinit();
 
     const r = try reg.resolve("child", .default, null, &diag);
     try testing.expectEqual(@as(usize, 0), diag.count());
-    try testing.expectEqual(color.idx(1), r.palette.body.fg);
-    try testing.expectEqual(color.idx(2), r.palette.strong.fg);
-    try testing.expectEqual(color.idx(3), r.palette.link.fg);
+    try testing.expectEqual(color.idx(1), r.styles.body.fg);
+    try testing.expectEqual(color.idx(2), r.styles.strong.fg);
+    try testing.expectEqual(color.idx(3), r.styles.link.fg);
 }
 
 test "specFromRaw reports bad color and unknown key, keeps good ones" {
     var raw = try rawFrom(testing.allocator,
         "[theme.heading1]\nfg = \"notacolor\"\nbold = true\nbogus = \"x\"\n");
     defer raw.deinit(testing.allocator);
-    var diag = Collector.init(testing.allocator);
+    var diag = Diagnostics.init(testing.allocator);
     defer diag.deinit();
 
     const s = specFromRaw(testing.allocator, raw, &diag);
@@ -902,7 +912,7 @@ test "specFromRaw reports bad color and unknown key, keeps good ones" {
 test "specFromRaw reports unknown slot name" {
     var raw = try rawFrom(testing.allocator, "[theme.not_a_slot]\nfg = \"#fff\"\n");
     defer raw.deinit(testing.allocator);
-    var diag = Collector.init(testing.allocator);
+    var diag = Diagnostics.init(testing.allocator);
     defer diag.deinit();
     _ = specFromRaw(testing.allocator, raw, &diag);
     try testing.expect(diag.has(.unknown_key));
@@ -911,7 +921,7 @@ test "specFromRaw reports unknown slot name" {
 test "user file as named theme resolves via specFromRaw" {
     var raw = try rawFrom(testing.allocator, "[theme.body]\nfg = \"#010203\"\n");
     defer raw.deinit(testing.allocator);
-    var diag = Collector.init(testing.allocator);
+    var diag = Diagnostics.init(testing.allocator);
     defer diag.deinit();
 
     var spec_val = specFromRaw(testing.allocator, raw, &diag);
@@ -922,14 +932,14 @@ test "user file as named theme resolves via specFromRaw" {
     try reg.insertUserSpec(&spec_val);
 
     const r = try reg.resolve("usertheme", .default, null, &diag);
-    try testing.expectEqual(color.rgb(1, 2, 3), r.palette.body.fg);
+    try testing.expectEqual(color.rgb(1, 2, 3), r.styles.body.fg);
 }
 
 test "user file as extends= target folds into the chain" {
     // A user base + a user leaf extending it.
     var base_raw = try rawFrom(testing.allocator, "[theme.body]\nfg = \"#0a0b0c\"\n");
     defer base_raw.deinit(testing.allocator);
-    var diag = Collector.init(testing.allocator);
+    var diag = Diagnostics.init(testing.allocator);
     defer diag.deinit();
     var base_spec = specFromRaw(testing.allocator, base_raw, &diag);
     base_spec.name = "userbase";
@@ -946,8 +956,8 @@ test "user file as extends= target folds into the chain" {
     try reg.insertUserSpec(&leaf);
 
     const r = try reg.resolve("userleaf", .default, null, &diag);
-    try testing.expectEqual(color.rgb(0x0a, 0x0b, 0x0c), r.palette.body.fg);
-    try testing.expectEqual(color.idx(7), r.palette.link.fg);
+    try testing.expectEqual(color.rgb(0x0a, 0x0b, 0x0c), r.styles.body.fg);
+    try testing.expectEqual(color.idx(7), r.styles.link.fg);
 }
 
 test "user file as extends= built-in preset: non-overridden slots equal the preset" {
@@ -956,7 +966,7 @@ test "user file as extends= built-in preset: non-overridden slots equal the pres
     var raw = try rawFrom(testing.allocator,
         "extends = \"dracula\"\n[theme.heading1]\nfg = \"#ff0000\"\n");
     defer raw.deinit(testing.allocator);
-    var diag = Collector.init(testing.allocator);
+    var diag = Diagnostics.init(testing.allocator);
     defer diag.deinit();
 
     var user = specFromRaw(testing.allocator, raw, &diag);
@@ -972,14 +982,14 @@ test "user file as extends= built-in preset: non-overridden slots equal the pres
 
     const drac = try reg.resolve("dracula", .default, null, &diag);
     // Overridden slot differs; everything else matches dracula exactly.
-    try testing.expectEqual(color.rgb(0xff, 0, 0), r.palette.heading1.fg);
-    try testing.expectEqual(drac.palette.body.fg, r.palette.body.fg);
-    try testing.expectEqual(drac.palette.link.fg, r.palette.link.fg);
-    try testing.expectEqual(drac.palette.code.fg, r.palette.code.fg);
-    try testing.expectEqual(drac.palette.strong.fg, r.palette.strong.fg);
+    try testing.expectEqual(color.rgb(0xff, 0, 0), r.styles.heading1.fg);
+    try testing.expectEqual(drac.styles.body.fg, r.styles.body.fg);
+    try testing.expectEqual(drac.styles.link.fg, r.styles.link.fg);
+    try testing.expectEqual(drac.styles.code.fg, r.styles.code.fg);
+    try testing.expectEqual(drac.styles.strong.fg, r.styles.strong.fg);
     // And it did NOT collapse to the built-in dark base.
     const dark_base = theme.palette(.dark, .default);
-    try testing.expect(!std.meta.eql(r.palette.body.fg, dark_base.body.fg));
+    try testing.expect(!std.meta.eql(r.styles.body.fg, dark_base.body.fg));
 }
 
 test "extends chain through a second user file (leaf → user base → built-in)" {
@@ -989,7 +999,7 @@ test "extends chain through a second user file (leaf → user base → built-in)
     var leaf_raw = try rawFrom(testing.allocator,
         "extends = \"userbase\"\n[theme.heading1]\nfg = \"#040506\"\n");
     defer leaf_raw.deinit(testing.allocator);
-    var diag = Collector.init(testing.allocator);
+    var diag = Diagnostics.init(testing.allocator);
     defer diag.deinit();
 
     var base = specFromRaw(testing.allocator, base_raw, &diag);
@@ -1005,17 +1015,17 @@ test "extends chain through a second user file (leaf → user base → built-in)
     const r = try reg.resolve("userleaf", .default, null, &diag);
     try testing.expectEqual(@as(usize, 0), diag.count());
     // leaf override, user-base override, and inherited built-in dracula slot all present.
-    try testing.expectEqual(color.rgb(0x04, 0x05, 0x06), r.palette.heading1.fg);
-    try testing.expectEqual(color.rgb(0x01, 0x02, 0x03), r.palette.link.fg);
+    try testing.expectEqual(color.rgb(0x04, 0x05, 0x06), r.styles.heading1.fg);
+    try testing.expectEqual(color.rgb(0x01, 0x02, 0x03), r.styles.link.fg);
     const drac = try reg.resolve("dracula", .default, null, &diag);
-    try testing.expectEqual(drac.palette.body.fg, r.palette.body.fg);
+    try testing.expectEqual(drac.styles.body.fg, r.styles.body.fg);
 }
 
 test "user file with missing/cyclic root extends still reports diagnostics" {
     // Missing target.
     var miss_raw = try rawFrom(testing.allocator, "extends = \"ghost\"\n");
     defer miss_raw.deinit(testing.allocator);
-    var d1 = Collector.init(testing.allocator);
+    var d1 = Diagnostics.init(testing.allocator);
     defer d1.deinit();
     var miss = specFromRaw(testing.allocator, miss_raw, &d1);
     miss.name = "orphanfile";
@@ -1030,7 +1040,7 @@ test "user file with missing/cyclic root extends still reports diagnostics" {
     defer a_raw.deinit(testing.allocator);
     var b_raw = try rawFrom(testing.allocator, "extends = \"filea\"\n");
     defer b_raw.deinit(testing.allocator);
-    var d2 = Collector.init(testing.allocator);
+    var d2 = Diagnostics.init(testing.allocator);
     defer d2.deinit();
     var a = specFromRaw(testing.allocator, a_raw, &d2);
     a.name = "filea";
@@ -1048,7 +1058,7 @@ test "glyph_fallback fires on PUA user glyph and substitutes" {
     // U+F011 is in the Nerd PUA range.
     var raw = try rawFrom(testing.allocator, "[theme.heading1]\nprefix = \"\u{f011} \"\n");
     defer raw.deinit(testing.allocator);
-    var diag = Collector.init(testing.allocator);
+    var diag = Diagnostics.init(testing.allocator);
     defer diag.deinit();
 
     const s = specFromRaw(testing.allocator, raw, &diag);
@@ -1063,7 +1073,7 @@ test "glyph_fallback fires on PUA user glyph and substitutes" {
 test "unknown palette mode and ansi16 mode" {
     var raw = try rawFrom(testing.allocator, "[theme]\npalette = \"ansi16\"\n");
     defer raw.deinit(testing.allocator);
-    var diag = Collector.init(testing.allocator);
+    var diag = Diagnostics.init(testing.allocator);
     defer diag.deinit();
     const s = specFromRaw(testing.allocator, raw, &diag);
     try testing.expectEqual(PaletteMode.ansi16, s.palette_mode.?);

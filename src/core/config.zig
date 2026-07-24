@@ -153,30 +153,17 @@ fn initDefaults(allocator: std.mem.Allocator) !Config {
 }
 
 fn applyTomlLike(allocator: std.mem.Allocator, cfg: *Config, source: []const u8) !void {
-    var section: []const u8 = "";
-
-    var lines = std.mem.splitScalar(u8, source, '\n');
-    while (lines.next()) |raw_line| {
-        const trimmed = std.mem.trim(u8, raw_line, " \t\r");
-        if (trimmed.len == 0 or trimmed[0] == '#') continue;
-
-        if (trimmed[0] == '[' and trimmed[trimmed.len - 1] == ']') {
-            section = trimmed[1 .. trimmed.len - 1];
-            continue;
-        }
-
-        const equals_index = std.mem.indexOfScalar(u8, trimmed, '=') orelse continue;
-        const key = std.mem.trim(u8, trimmed[0..equals_index], " \t");
-        const value = std.mem.trim(u8, trimmed[equals_index + 1 ..], " \t");
-
-        // Split the section header on its first `.` into `(table, subtable)`.
-        // Dotted `[theme.<slot>]` tables route into the sparse raw-theme
-        // builder; every other (undotted) section keeps flat behavior.
-        const split = loadfile.splitSection(section);
-        if (std.mem.eql(u8, split.table, "theme")) {
-            try loadfile.assignThemeValue(allocator, &cfg.raw_theme, split.subtable, key, value);
+    // Walk lines with the shared scanner (comments/blank lines/headers handled
+    // there). The section header is split on its first `.` into
+    // `(table, subtable)`: dotted `[theme.<slot>]` tables route into the sparse
+    // raw-theme builder; every other section keeps flat typed-field behavior,
+    // dispatched on the full section string.
+    var scanner = loadfile.scanLines(source, "");
+    while (scanner.next()) |event| {
+        if (std.mem.eql(u8, event.table, "theme")) {
+            try loadfile.assignThemeValue(allocator, &cfg.raw_theme, event.subtable, event.key, event.value);
         } else {
-            try assignValue(allocator, cfg, section, key, value);
+            try assignValue(allocator, cfg, event.section, event.key, event.value);
         }
     }
 }
@@ -256,12 +243,8 @@ fn parseBool(value: []const u8) bool {
     return std.mem.eql(u8, value, "true");
 }
 
-fn stripQuotes(value: []const u8) []const u8 {
-    if (value.len >= 2 and value[0] == '"' and value[value.len - 1] == '"') {
-        return value[1 .. value.len - 1];
-    }
-    return value;
-}
+/// Shared with the theme-file parser so quote handling stays identical.
+const stripQuotes = loadfile.stripQuotes;
 
 fn replaceString(allocator: std.mem.Allocator, target: *[]const u8, value: []const u8) !void {
     allocator.free(target.*);

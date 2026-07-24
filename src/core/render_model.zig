@@ -76,7 +76,7 @@ const resolve = @import("theme/resolve.zig");
 fn presetDecor(alloc: std.mem.Allocator, name: []const u8) !decor_mod.Decor {
     var reg = resolve.Registry.init(alloc);
     defer reg.deinit();
-    var diag = resolve.Collector.init(alloc);
+    var diag = resolve.Diagnostics.init(alloc);
     defer diag.deinit();
     const r = try reg.resolve(name, .default, null, &diag);
     return r.decor;
@@ -439,7 +439,7 @@ test "list_item falls back to a theme's own body when unset (dracula)" {
     const drac = resolve.builtinResolved(std.testing.allocator, "dracula");
     // dracula sets no list_item slot → it inherits dracula's own body, not the
     // dark base's list_item (byte-identical to the pre-slot item-text rendering).
-    try std.testing.expectEqual(drac.palette.body.fg, drac.palette.list_item.fg);
+    try std.testing.expectEqual(drac.styles.body.fg, drac.styles.list_item.fg);
 }
 
 test "front matter never renders as headings (issue #9 regression)" {
@@ -742,13 +742,13 @@ test "nested lists have indentation and varying bullet shapes" {
 const rgb = @import("theme/color.zig").rgb;
 const cidx = @import("theme/color.zig").idx;
 
-fn presetPalette(alloc: std.mem.Allocator, name: []const u8) !theme.Palette {
+fn presetPalette(alloc: std.mem.Allocator, name: []const u8) !theme.StyleMap {
     var reg = resolve.Registry.init(alloc);
     defer reg.deinit();
-    var diag = resolve.Collector.init(alloc);
+    var diag = resolve.Diagnostics.init(alloc);
     defer diag.deinit();
     const r = try reg.resolve(name, .default, null, &diag);
-    return r.palette;
+    return r.styles;
 }
 
 test "marker slots fall back to muted when a theme leaves them unset" {

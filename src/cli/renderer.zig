@@ -19,7 +19,7 @@ pub const Canvas = struct {
 
 pub const Options = struct {
     width: usize,
-    palette: theme.Palette,
+    palette: theme.StyleMap,
     show_heading_markers: bool = true,
     frontmatter_style: @import("../core/config.zig").FrontmatterStyle = .panel,
     mermaid_box_style: mermaid_types.BoxDrawingStyle = .standard,
@@ -54,7 +54,7 @@ pub fn renderDocument(allocator: std.mem.Allocator, document: markdown.Document,
 pub fn serialize(
     allocator: std.mem.Allocator,
     rendered: render_model.Rendered,
-    palette: theme.Palette,
+    palette: theme.StyleMap,
     canvas: ?Canvas,
 ) ![]u8 {
     var buffer: std.ArrayList(u8) = .empty;

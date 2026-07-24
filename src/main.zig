@@ -160,25 +160,26 @@ pub fn main() !void {
     defer allocator.free(content);
 
     // Theme resolution: build the registry (built-in presets + user theme
-    // files), resolve the selected name into a concrete Palette + Decor, and
+    // files), resolve the selected name into a concrete StyleMap + Decor, and
     // collect diagnostics for the CLI dim-comment / TUI status-bar surfaces.
-    var diag = theme_resolve.Collector.init(allocator);
+    var diag = theme_resolve.Diagnostics.init(allocator);
     defer diag.deinit();
 
     var registry = theme_resolve.Registry.init(allocator);
     defer registry.deinit();
 
-    // User theme-file specs live in a process-lifetime arena; the registry
-    // borrows their pointers (buildChain treats them as first-class nodes).
-    var theme_arena = std.heap.ArenaAllocator.init(allocator);
-    defer theme_arena.deinit();
-    loadUserThemes(theme_arena.allocator(), &registry, &diag);
+    // Point the registry at `~/.config/mercat/themes`; it reads only the files
+    // the resolved chain actually references (the selected name + its `extends`
+    // targets), lazily, and owns their lifetime.
+    registry.useThemeDir();
 
     const theme_name = parsed.effectiveTheme(loaded_config.display.theme);
 
     // Inline `[theme.*]` config tables are the highest-priority override layer;
-    // borrow the builder's slices into an immutable view for the resolver.
-    var inline_slots = try theme_arena.allocator().alloc(theme_loadfile.RawThemeTables.Slot, loaded_config.raw_theme.slots.items.len);
+    // borrow the builder's slices into an immutable view for the resolver. The
+    // view only has to outlive the `resolve` call below.
+    var inline_slots = try allocator.alloc(theme_loadfile.RawThemeTables.Slot, loaded_config.raw_theme.slots.items.len);
+    defer allocator.free(inline_slots);
     for (loaded_config.raw_theme.slots.items, 0..) |s, i| {
         inline_slots[i] = .{ .name = s.name, .kvs = s.kvs.items };
     }
@@ -256,7 +257,7 @@ pub fn main() !void {
             const output = try renderer.serialize(
                 allocator,
                 rendered,
-                resolved.palette,
+                resolved.styles,
                 canvas,
             );
             defer allocator.free(output);
@@ -289,7 +290,7 @@ pub fn main() !void {
             const output_path = parsed.output_path orelse return error.PngRequiresOutput;
 
             const options = export_layout.Options{
-                .palette = resolved.palette,
+                .palette = resolved.styles,
                 .color_mode = if (parsed.monochrome) .monochrome else .theme,
                 .canvas_bg = resolved.canvasBg(),
             };
@@ -310,49 +311,17 @@ pub fn main() !void {
     }
 }
 
-/// Discover and register user theme files from `~/.config/mercat/themes/`.
-/// Each `<name>.toml` becomes a `ThemeSpec` (converted via `specFromRaw`) that
-/// the registry treats as a first-class node — usable as the selected theme and
-/// as an `extends=` target. Specs and their backing raw strings are allocated
-/// in `arena` (process-lifetime) so the registry's borrowed pointers stay live.
-/// Best-effort: any error is reported as a diagnostic and skipped.
-fn loadUserThemes(arena: std.mem.Allocator, registry: *theme_resolve.Registry, diag: *theme_resolve.Collector) void {
-    const dir_path = theme_loadfile.resolveThemeDir(arena) catch return orelse return;
-    var dir = std.fs.openDirAbsolute(dir_path, .{ .iterate = true }) catch return;
-    defer dir.close();
-
-    var it = dir.iterate();
-    while (it.next() catch null) |entry| {
-        if (entry.kind != .file) continue;
-        if (!std.mem.endsWith(u8, entry.name, ".toml")) continue;
-        const stem = entry.name[0 .. entry.name.len - ".toml".len];
-        if (stem.len == 0) continue;
-
-        const raw = theme_loadfile.readThemeFile(arena, dir_path, stem) catch {
-            diag.warnFmt(.unreadable_file, "cannot read theme file '{s}'", .{entry.name});
-            continue;
-        } orelse continue;
-
-        const spec = arena.create(theme_resolve.ThemeSpec) catch continue;
-        spec.* = theme_resolve.specFromRaw(arena, raw, diag);
-        // File identity wins the name (matches `~/.config/mercat/themes/<name>`).
-        spec.name = arena.dupe(u8, stem) catch continue;
-        registry.insertUserSpec(spec) catch continue;
-    }
-}
-
 /// Resolve `name` (preset or user theme file) and write it to stdout as
 /// round-trippable TOML. Unknown names report `unknown_theme` and exit non-zero.
 fn runDumpTheme(allocator: std.mem.Allocator, name: []const u8) !void {
-    var diag = theme_resolve.Collector.init(allocator);
+    var diag = theme_resolve.Diagnostics.init(allocator);
     defer diag.deinit();
     var registry = theme_resolve.Registry.init(allocator);
     defer registry.deinit();
-    var theme_arena = std.heap.ArenaAllocator.init(allocator);
-    defer theme_arena.deinit();
-    loadUserThemes(theme_arena.allocator(), &registry, &diag);
+    // The registry lazily reads only `<name>.toml` (+ its `extends` targets).
+    registry.useThemeDir();
 
-    const folded = registry.foldedSpec(name, &diag);
+    const folded = registry.mergedSpec(name, &diag);
     if (folded) |f| {
         var buf = std.ArrayList(u8).empty;
         defer buf.deinit(allocator);
@@ -366,7 +335,7 @@ fn runDumpTheme(allocator: std.mem.Allocator, name: []const u8) !void {
 
 /// Build a one-line theme-warning summary for the TUI status bar, or null when
 /// resolution produced no diagnostics. Owned by the caller.
-fn themeWarning(allocator: std.mem.Allocator, diag: *const theme_resolve.Collector) !?[]u8 {
+fn themeWarning(allocator: std.mem.Allocator, diag: *const theme_resolve.Diagnostics) !?[]u8 {
     const n = diag.count();
     if (n == 0) return null;
     const first = diag.list.items[0].detail;
@@ -380,7 +349,7 @@ fn themeWarning(allocator: std.mem.Allocator, diag: *const theme_resolve.Collect
 /// a distinct channel from the rendered stdout, so pipes/redirects stay
 /// byte-clean while the warnings still reach the user's terminal — interactive
 /// and piped invocations alike.
-fn emitCliDiagnostics(diag: *const theme_resolve.Collector) void {
+fn emitCliDiagnostics(diag: *const theme_resolve.Diagnostics) void {
     if (diag.count() == 0) return;
     const stderr = std.fs.File.stderr();
     var buf: [512]u8 = undefined;
