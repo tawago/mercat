@@ -118,6 +118,11 @@ pub const CodeFrameKind = enum { panel, rule, block, plain };
 
 /// One encoding for every code-frame flavor: `kind` selects the flavor and the
 /// remaining fields parameterize it (Simplicity #1 — no per-kind struct zoo).
+///
+/// This is the *baked* form (`render/decor.zig` aliases it, `render/blocks.zig`
+/// reads it): `kind`/`language_label` are concrete. Themes describe a code frame
+/// with the sparse `CodeFrameDelta` below; `resolve.bakeDecor` fills the
+/// `.panel`/`false` defaults for whatever the fold left unset.
 pub const CodeFrameSpec = struct {
     kind: CodeFrameKind = .panel,
     border_glyph: ?[]const u8 = null,
@@ -126,7 +131,20 @@ pub const CodeFrameSpec = struct {
     pad: ?u8 = null,
     /// Block-mode language chip.
     language_label: bool = false,
-    rule_color: ?Color = null,
+};
+
+/// The sparse counterpart of `CodeFrameSpec`: every field optional so a code
+/// frame folds field-by-field like a `SlotSpec` does. A child theme that sets
+/// only `pad` therefore keeps its base's `kind` and `language_label` instead of
+/// resetting them to the struct defaults.
+pub const CodeFrameDelta = struct {
+    kind: ?CodeFrameKind = null,
+    border_glyph: ?[]const u8 = null,
+    /// Rule-mode cap on the drawn border width.
+    border_cap: ?u16 = null,
+    pad: ?u8 = null,
+    /// Block-mode language chip.
+    language_label: ?bool = null,
 };
 
 /// Sparse list/hr/table/code glyph vocabulary.
@@ -144,19 +162,19 @@ pub const GlyphSet = struct {
     hr_count: ?u16 = null,
     hr_center: ?[]const u8 = null,
     table_style: ?TableStyle = null,
-    code_frame: ?CodeFrameSpec = null,
-    doc_margin: ?u8 = null,
+    code_frame: ?CodeFrameDelta = null,
 };
 
-/// Code-token colors, collapsed onto mercat's existing four token classes.
-/// `function` is an alias mapping onto the keyword class (do not widen the
-/// highlighter taxonomy — locked decision).
+/// Code-token colors, collapsed onto mercat's existing four token classes. The
+/// TOML key `function` is an accepted *alias* canonicalized into `keyword` at
+/// parse time (`fromraw`), so there is one field and a child's `function` beats
+/// an inherited `keyword` like any other override (do not widen the highlighter
+/// taxonomy — locked decision).
 pub const TokenColors = struct {
     keyword: ?Color = null,
     string: ?Color = null,
     number: ?Color = null,
     comment: ?Color = null,
-    function: ?Color = null,
 };
 
 /// The 16-color `ansi` preset locks the palette to named ANSI slots so the
@@ -198,7 +216,6 @@ pub const ThemeSpec = struct {
     glyphs: GlyphSet = .{},
     tokens: TokenColors = .{},
     base_bg: ?Color = null,
-    base_fg: ?Color = null,
     /// Paint the whole document background with the resolved `base_bg` (a solid
     /// "canvas"). Sparse like the other top-level fields: `null` inherits down
     /// the extends chain; the terminal-native presets (dark/light/ansi) set it

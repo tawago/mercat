@@ -2,12 +2,13 @@
 //! ready-to-edit TOML on stdout — the "start your own theme" workflow.
 //!
 //! The output is a round-trip contract: it emits ONLY what `fromraw.specFromRaw`
-//! parses (top-level `base_bg`/`base_fg`/`canvas`/`palette`, `[theme.<slot>]`,
+//! parses (top-level `base_bg`/`canvas`/`palette`, `[theme.<slot>]`,
 //! `[theme.glyphs]`, `[theme.code_frame]`, `[theme.tokens]`), and `extends` is
 //! omitted because the spec is already flattened. So
 //!   `mercat --dump-theme dark > mine.toml && mercat --style mine`
 //! resolves with zero diagnostics and renders identically to `--style dark`.
-//! (Custom `bullets` arrays are the one non-round-tripping field; see fromraw.)
+//! (`bullets` is emitted as a TOML inline array — the one array-valued key —
+//! and read back by `loadfile.parseInlineArray`, so it round-trips too.)
 //!
 //! Slot emission iterates `spec.Slot` in declaration order, so the four
 //! re-added structural color slots (`table_border`/`table_header`/`hr`/
@@ -21,6 +22,25 @@ const color = @import("color.zig");
 const Color = color.Color;
 const ThemeSpec = spec.ThemeSpec;
 const SlotSpec = spec.SlotSpec;
+
+/// Write a user-provided string as a quoted TOML value, escaping the
+/// characters that would break the quoting or the line-based scanner
+/// (`"`, `\`, newline, tab, CR). Inverse of `loadfile.decodeQuotedString`,
+/// so any glyph string round-trips byte-exact through dump -> reload.
+fn writeQuoted(w: anytype, s: []const u8) !void {
+    try w.writeAll("\"");
+    for (s) |ch| {
+        switch (ch) {
+            '"' => try w.writeAll("\\\""),
+            '\\' => try w.writeAll("\\\\"),
+            '\n' => try w.writeAll("\\n"),
+            '\t' => try w.writeAll("\\t"),
+            '\r' => try w.writeAll("\\r"),
+            else => try w.writeAll(&[_]u8{ch}),
+        }
+    }
+    try w.writeAll("\"");
+}
 
 /// Format a color the way `fromraw`/`color.parseColor` reads it back:
 ///   rgb → "#rrggbb", index → decimal, ansi16 → name, default → "default".
@@ -43,11 +63,6 @@ pub fn write(w: anytype, name: []const u8, merged: *const ThemeSpec) !void {
 
     if (merged.base_bg) |c| {
         try w.writeAll("base_bg = ");
-        try writeColor(w, c);
-        try w.writeAll("\n");
-    }
-    if (merged.base_fg) |c| {
-        try w.writeAll("base_fg = ");
         try writeColor(w, c);
         try w.writeAll("\n");
     }
@@ -92,30 +107,45 @@ fn writeSlot(w: anytype, ss: SlotSpec) !void {
     if (ss.full_line_bg) |v| try w.print("full_line_bg = {}\n", .{v});
     if (ss.blank_wrap) |v| try w.print("blank_wrap = {}\n", .{v});
     if (ss.shift) |v| try w.print("shift = {d}\n", .{v});
-    if (ss.prefix) |v| try w.print("prefix = \"{s}\"\n", .{v});
-    if (ss.suffix) |v| try w.print("suffix = \"{s}\"\n", .{v});
-    if (ss.icon) |v| try w.print("icon = \"{s}\"\n", .{v});
+    if (ss.prefix) |v| try writeQuotedKv(w, "prefix", v);
+    if (ss.suffix) |v| try writeQuotedKv(w, "suffix", v);
+    if (ss.icon) |v| try writeQuotedKv(w, "icon", v);
     if (ss.underline_row) |v| try w.print("underline_row = {}\n", .{v});
-    if (ss.underline_glyph) |v| try w.print("underline_glyph = \"{s}\"\n", .{v});
+    if (ss.underline_glyph) |v| try writeQuotedKv(w, "underline_glyph", v);
+}
+
+/// `key = "escaped value"` on one line.
+fn writeQuotedKv(w: anytype, key: []const u8, value: []const u8) !void {
+    try w.print("{s} = ", .{key});
+    try writeQuoted(w, value);
+    try w.writeAll("\n");
 }
 
 fn writeGlyphs(w: anytype, g: spec.GlyphSet) !void {
-    // Emit the [theme.glyphs] table only when at least one scalar field is set.
+    // Emit the [theme.glyphs] table only when at least one field is set.
     const any = g.ordered_prefix != null or g.task_ticked != null or
         g.task_unticked != null or g.quote_bar != null or g.hr_glyph != null or
         g.hr_center != null or g.quote_indent != null or g.hr_count != null or
-        g.doc_margin != null or g.hr_mode != null or g.table_style != null;
+        g.hr_mode != null or g.table_style != null or
+        g.bullets != null;
     if (any) {
         try w.writeAll("\n[theme.glyphs]\n");
-        if (g.quote_bar) |v| try w.print("quote_bar = \"{s}\"\n", .{v});
+        if (g.quote_bar) |v| try writeQuotedKv(w, "quote_bar", v);
+        if (g.bullets) |bs| {
+            try w.writeAll("bullets = [");
+            for (bs, 0..) |b, i| {
+                if (i != 0) try w.writeAll(", ");
+                try writeQuoted(w, b);
+            }
+            try w.writeAll("]\n");
+        }
         if (g.quote_indent) |v| try w.print("quote_indent = {d}\n", .{v});
-        if (g.ordered_prefix) |v| try w.print("ordered_prefix = \"{s}\"\n", .{v});
-        if (g.task_ticked) |v| try w.print("task_ticked = \"{s}\"\n", .{v});
-        if (g.task_unticked) |v| try w.print("task_unticked = \"{s}\"\n", .{v});
-        if (g.hr_glyph) |v| try w.print("hr_glyph = \"{s}\"\n", .{v});
-        if (g.hr_center) |v| try w.print("hr_center = \"{s}\"\n", .{v});
+        if (g.ordered_prefix) |v| try writeQuotedKv(w, "ordered_prefix", v);
+        if (g.task_ticked) |v| try writeQuotedKv(w, "task_ticked", v);
+        if (g.task_unticked) |v| try writeQuotedKv(w, "task_unticked", v);
+        if (g.hr_glyph) |v| try writeQuotedKv(w, "hr_glyph", v);
+        if (g.hr_center) |v| try writeQuotedKv(w, "hr_center", v);
         if (g.hr_count) |v| try w.print("hr_count = {d}\n", .{v});
-        if (g.doc_margin) |v| try w.print("doc_margin = {d}\n", .{v});
         if (g.hr_mode) |v| try w.print("hr_mode = \"{s}\"\n", .{@tagName(v)});
         // `table_style` serializes via @tagName, so the widened enum
         // (grid/heavy/double/ascii/rounded) round-trips for free.
@@ -123,25 +153,22 @@ fn writeGlyphs(w: anytype, g: spec.GlyphSet) !void {
     }
     if (g.code_frame) |cf| {
         try w.writeAll("\n[theme.code_frame]\n");
-        try w.print("kind = \"{s}\"\n", .{@tagName(cf.kind)});
-        if (cf.border_glyph) |v| try w.print("border_glyph = \"{s}\"\n", .{v});
+        if (cf.kind) |v| try w.print("kind = \"{s}\"\n", .{@tagName(v)});
+        if (cf.border_glyph) |v| try writeQuotedKv(w, "border_glyph", v);
         if (cf.border_cap) |v| try w.print("border_cap = {d}\n", .{v});
         if (cf.pad) |v| try w.print("pad = {d}\n", .{v});
-        if (cf.language_label) try w.writeAll("language_label = true\n");
-        if (cf.rule_color) |c| {
-            try w.writeAll("rule_color = ");
-            try writeColor(w, c);
-            try w.writeAll("\n");
-        }
+        if (cf.language_label) |v| try w.print("language_label = {}\n", .{v});
     }
 }
 
 fn writeTokens(w: anytype, t: spec.TokenColors) !void {
+    // `function` is a parse-time alias of `keyword`, so only `keyword` is
+    // emitted; a dumped theme still re-reads either spelling.
     const any = t.keyword != null or t.string != null or t.number != null or
-        t.comment != null or t.function != null;
+        t.comment != null;
     if (!any) return;
     try w.writeAll("\n[theme.tokens]\n");
-    inline for (.{ "keyword", "string", "number", "comment", "function" }) |k| {
+    inline for (.{ "keyword", "string", "number", "comment" }) |k| {
         if (@field(t, k)) |c| {
             try w.print("{s} = ", .{k});
             try writeColor(w, c);
@@ -297,6 +324,73 @@ test "re-added structural slots + widened table_style round-trip through dump + 
     try testing.expect(rt.styles.table_header.bold);
     try testing.expect(std.meta.eql(rt.styles.code_fence_banner.fg, Color{ .index = 99 }));
     try testing.expectEqual(spec.TableStyle.heavy, rt.decor.glyphs.table_style);
+}
+
+test "markview's custom bullets survive dump -> reload" {
+    // The bullet strings are allocated by the parser, so run on an arena.
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const alloc = arena.allocator();
+
+    var reg = resolve.Registry.init(alloc);
+    defer reg.deinit();
+    var diag = resolve.Diagnostics.init(alloc);
+
+    const merged = reg.mergedSpec("markview", &diag).?;
+    var buf = std.ArrayList(u8).empty;
+    try write(buf.writer(alloc), "markview", &merged);
+    try testing.expect(std.mem.indexOf(u8, buf.items, "bullets = [\"\u{25CF}\"]") != null);
+
+    const tables = try loadfile.parseThemeTables(alloc, buf.items);
+    var dumped = resolve.specFromRaw(alloc, tables, &diag);
+    dumped.name = "markview_rt";
+    try reg.insertUserSpec(&dumped);
+
+    const original = try reg.resolve("markview", .default, null, &diag);
+    const rt = try reg.resolve("markview_rt", .default, null, &diag);
+    try testing.expectEqual(@as(usize, 0), diag.count());
+    try testing.expectEqualStrings(original.decor.glyphs.bulletAt(0), rt.decor.glyphs.bulletAt(0));
+    try testing.expectEqualStrings("\u{25CF}", rt.decor.glyphs.bulletAt(2));
+}
+
+test "glyphs containing quotes and backslashes round-trip through dump + loadfile" {
+    // The escaping contract: writeQuoted is the exact inverse of
+    // decodeQuotedString, so even hostile glyph strings survive dump -> reload.
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const alloc = arena.allocator();
+
+    var reg = resolve.Registry.init(alloc);
+    defer reg.deinit();
+    var diag = resolve.Diagnostics.init(alloc);
+
+    // prefix ends up as the literal bytes: a"b\c
+    const raw = try loadfile.parseThemeTables(alloc,
+        "extends = \"dark\"\n[theme.heading1]\nprefix = \"a\\\"b\\\\c\"\n" ++
+        "[theme.glyphs]\nbullets = [\"\\\"\", \"\\\\\"]\n");
+    var user = resolve.specFromRaw(alloc, raw, &diag);
+    user.name = "hostile";
+    try reg.insertUserSpec(&user);
+
+    const merged = reg.mergedSpec("hostile", &diag).?;
+    try testing.expectEqualStrings("a\"b\\c", merged.slots.get(.heading1).?.prefix.?);
+
+    var buf = std.ArrayList(u8).empty;
+    try write(buf.writer(alloc), "hostile", &merged);
+    // The dump re-escapes rather than emitting raw quotes/backslashes.
+    try testing.expect(std.mem.indexOf(u8, buf.items, "prefix = \"a\\\"b\\\\c\"") != null);
+    try testing.expect(std.mem.indexOf(u8, buf.items, "bullets = [\"\\\"\", \"\\\\\"]") != null);
+
+    const tables = try loadfile.parseThemeTables(alloc, buf.items);
+    var dumped = resolve.specFromRaw(alloc, tables, &diag);
+    dumped.name = "hostile_rt";
+    try reg.insertUserSpec(&dumped);
+
+    const rt = try reg.resolve("hostile_rt", .default, null, &diag);
+    try testing.expectEqual(@as(usize, 0), diag.count());
+    try testing.expectEqualStrings("a\"b\\c", rt.decor.slot(.heading1).prefix);
+    try testing.expectEqualStrings("\"", rt.decor.glyphs.bulletAt(0));
+    try testing.expectEqualStrings("\\", rt.decor.glyphs.bulletAt(1));
 }
 
 test "dumped dark contains the expected round-trip keys" {

@@ -182,7 +182,6 @@ test "ansi preset bakes ansi16-typed slot colors" {
     var diag = Diagnostics.init(testing.allocator);
     defer diag.deinit();
     const r = try reg.resolve("ansi", .default, null, &diag);
-    try testing.expectEqual(PaletteMode.ansi16, r.mode);
     try testing.expectEqual(Color{ .ansi16 = .bright_blue }, r.styles.heading1.fg);
 }
 
@@ -597,4 +596,95 @@ test "unknown palette mode and ansi16 mode" {
     defer diag.deinit();
     const s = specFromRaw(testing.allocator, raw, &diag);
     try testing.expectEqual(PaletteMode.ansi16, s.palette_mode.?);
+}
+
+// --- Cluster B: theme resolution semantics -------------------------------
+
+test "inline [theme] extends re-roots the chain" {
+    var reg = Registry.init(testing.allocator);
+    defer reg.deinit();
+    var diag = Diagnostics.init(testing.allocator);
+    defer diag.deinit();
+
+    // `--style dark` plus an inline `extends = "dracula"`: dracula becomes the
+    // chain leaf, so every slot the inline keys do not touch comes from dracula.
+    var raw = try rawFrom(testing.allocator, "extends = \"dracula\"\n[theme.heading1]\nfg = \"#ff0000\"\n");
+    defer raw.deinit(testing.allocator);
+    const r = try reg.resolve("dark", .default, raw, &diag);
+    try testing.expectEqual(@as(usize, 0), diag.count());
+
+    const drac = try reg.resolve("dracula", .default, null, &diag);
+    try testing.expect(std.meta.eql(drac.styles.body, r.styles.body));
+    try testing.expect(std.meta.eql(drac.styles.code_block, r.styles.code_block));
+    // The inline key itself still wins over the inherited value.
+    try testing.expectEqual(color.rgb(0xff, 0, 0), r.styles.heading1.fg);
+
+    // An unknown inline target reports missing_extends and falls back to dark.
+    var bad = try rawFrom(testing.allocator, "extends = \"ghost\"\n");
+    defer bad.deinit(testing.allocator);
+    const fb = try reg.resolve("dracula", .default, bad, &diag);
+    try testing.expect(diag.has(.missing_extends));
+    const dark = try reg.resolve("dark", .default, null, &diag);
+    try testing.expect(std.meta.eql(dark.styles.body, fb.styles.body));
+}
+
+test "code_frame folds per field: a pad-only child keeps kind/language_label" {
+    var reg = Registry.init(testing.allocator);
+    defer reg.deinit();
+    var diag = Diagnostics.init(testing.allocator);
+    defer diag.deinit();
+
+    // markview frames code blocks as a labelled block; a child that touches only
+    // `pad` must inherit both `kind = block` and `language_label = true`.
+    var raw = try rawFrom(testing.allocator, "extends = \"markview\"\n[theme.code_frame]\npad = 4\n");
+    defer raw.deinit(testing.allocator);
+    var child = specFromRaw(testing.allocator, raw, &diag);
+    child.name = "padded";
+    try reg.insertUserSpec(&child);
+
+    const r = try reg.resolve("padded", .default, null, &diag);
+    try testing.expectEqual(@as(usize, 0), diag.count());
+    try testing.expectEqual(spec.CodeFrameKind.block, r.decor.glyphs.code_frame.kind);
+    try testing.expectEqual(true, r.decor.glyphs.code_frame.language_label);
+    try testing.expectEqual(@as(?u8, 4), r.decor.glyphs.code_frame.pad);
+
+    // A theme with no code_frame at all still bakes the .panel/false defaults.
+    const bare = try reg.resolve("dark", .default, null, &diag);
+    try testing.expectEqual(spec.CodeFrameKind.panel, bare.decor.glyphs.code_frame.kind);
+    try testing.expectEqual(false, bare.decor.glyphs.code_frame.language_label);
+}
+
+test "tokens.function is an alias that overrides an inherited keyword" {
+    var reg = Registry.init(testing.allocator);
+    defer reg.deinit();
+    var diag = Diagnostics.init(testing.allocator);
+    defer diag.deinit();
+
+    // dracula sets tokens.keyword; a child spelling the alias must win.
+    var raw = try rawFrom(testing.allocator, "extends = \"dracula\"\n[theme.tokens]\nfunction = \"#00ff00\"\n");
+    defer raw.deinit(testing.allocator);
+    var child = specFromRaw(testing.allocator, raw, &diag);
+    child.name = "fnalias";
+    try reg.insertUserSpec(&child);
+    try testing.expectEqual(color.rgb(0, 0xff, 0), child.tokens.keyword.?);
+
+    const r = try reg.resolve("fnalias", .default, null, &diag);
+    try testing.expectEqual(@as(usize, 0), diag.count());
+    try testing.expectEqual(color.rgb(0, 0xff, 0), r.styles.code_keyword.fg);
+    try testing.expectEqual(color.rgb(0, 0xff, 0), r.styles.code_block_keyword.fg);
+}
+
+test "inline PUA glyph substitution is registry-arena owned (no leak)" {
+    // The substituted buffer is allocated while folding the inline overrides;
+    // it must come from the registry arena, or testing.allocator reports a leak.
+    var reg = Registry.init(testing.allocator);
+    defer reg.deinit();
+    var diag = Diagnostics.init(testing.allocator);
+    defer diag.deinit();
+
+    var raw = try rawFrom(testing.allocator, "[theme.heading1]\nprefix = \"\u{f011} \"\n");
+    defer raw.deinit(testing.allocator);
+    const r = try reg.resolve("dark", .default, raw, &diag);
+    try testing.expect(diag.has(.glyph_fallback));
+    try testing.expect(!containsPua(r.decor.slot(.heading1).prefix));
 }

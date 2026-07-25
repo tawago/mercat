@@ -25,10 +25,6 @@ pub const Options = struct {
     /// `decor.legacy`, which reproduces the historical hardcoded literals so
     /// every un-themed render path stays byte-identical.
     decor: *const decor_mod.Decor = &decor_mod.legacy,
-    /// True when the terminal advertises 24-bit color (COLORTERM). Threaded to
-    /// backends so rgb colors downgrade to 256 when absent. Backends read this
-    /// via the CLI/TUI Options; the render model only carries it.
-    truecolor: bool = false,
     /// YAML front matter display style (issue #9; panel default).
     frontmatter_style: config.FrontmatterStyle = .panel,
     /// True when the render model feeds a file exporter (plain/PNG) rather than

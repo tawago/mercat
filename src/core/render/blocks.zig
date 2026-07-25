@@ -23,9 +23,6 @@ const ForceLayout = mermaid_types.ForceLayout;
 const SubgraphEdges = @import("prim").SubgraphEdges;
 const FitStage = mermaid_types.FitStage;
 
-const bullet_shapes = [_][]const u8{ "\u{2022} ", "\u{25E6} ", "\u{2023} " };
-// • (bullet), ◦ (white bullet), ‣ (triangular bullet)
-
 /// A list bullet marker for `depth`, e.g. "• " — glyph from decor + one space.
 /// Caller owns the returned slice.
 fn bulletMarker(allocator: std.mem.Allocator, decor: *const Decor, depth: usize) ![]u8 {
@@ -294,7 +291,7 @@ pub fn renderBlockQuote(allocator: std.mem.Allocator, builder: *Builder, bq: Blo
         }
 
         // Finalize current line if it has content
-        if (builder.current.items.len > 0) {
+        if (builder.hasPending()) {
             try builder.newline();
         }
 
@@ -391,7 +388,7 @@ pub fn renderBlockQuoteWithPrefix(allocator: std.mem.Allocator, builder: *Builde
         }
 
         // Finalize current line
-        if (builder.current.items.len > 0) {
+        if (builder.hasPending()) {
             try builder.newline();
         }
 
@@ -427,7 +424,7 @@ pub fn renderCodeBlock(allocator: std.mem.Allocator, builder: *Builder, code: Bl
 
     const frame = decor.glyphs.code_frame;
     switch (frame.kind) {
-        .panel => try renderCodePanel(allocator, builder, code, frame),
+        .panel => try renderCodePanel(allocator, builder, code, content_width, frame),
         .plain => try renderCodePlain(allocator, builder, code),
         .rule => try renderCodeRule(allocator, builder, code, content_width, frame),
         .block => try renderCodeFramedBlock(allocator, builder, code, content_width, frame),
@@ -438,7 +435,7 @@ pub fn renderCodeBlock(allocator: std.mem.Allocator, builder: *Builder, code: Bl
 /// left-padded and right-padded to `max_line_width` so the code_block bg tints
 /// a clean panel. `pad` widens the left gutter (dracula/tokyo pad=2). With the
 /// default `pad = null` this is byte-identical to the pre-theme renderer.
-fn renderCodePanel(allocator: std.mem.Allocator, builder: *Builder, code: Block.CodeBlock, frame: decor_mod.CodeFrameSpec) !void {
+fn renderCodePanel(allocator: std.mem.Allocator, builder: *Builder, code: Block.CodeBlock, content_width: usize, frame: decor_mod.CodeFrameSpec) !void {
     const left_pad: usize = 1 + @as(usize, frame.pad orelse 0);
     if (code.language.len == 0) {
         try builder.appendSpan(.code_fence_banner, "```");
@@ -448,7 +445,11 @@ fn renderCodePanel(allocator: std.mem.Allocator, builder: *Builder, code: Block.
         try builder.appendSpan(.code_fence_banner, header);
     }
 
-    const max_line_width = maxCodeBlockLineWidth(code.code);
+    // Pad only up to the columns actually available. Without this cap a single
+    // pathologically long line (say 50k columns) would have every other line
+    // padded out to match it, which is both invisible and enormous.
+    const pad_limit = content_width -| left_pad -| 1;
+    const max_line_width = @min(maxCodeBlockLineWidth(code.code), pad_limit);
 
     var lines = std.mem.splitScalar(u8, code.code, '\n');
     while (lines.next()) |line| {
@@ -463,7 +464,7 @@ fn renderCodePanel(allocator: std.mem.Allocator, builder: *Builder, code: Block.
         const tokens = try highlight.tokenizeLine(allocator, code.language, trimmed);
         defer highlight.freeTokens(allocator, tokens);
         for (tokens) |token| try builder.appendSpan(tokenStyle(token.style), token.text);
-        try appendCodeBlockPadding(builder, max_line_width - line_width + 1);
+        try appendCodeBlockPadding(builder, (max_line_width -| line_width) + 1);
     }
 
     try builder.newline();
@@ -487,8 +488,8 @@ fn renderCodePlain(allocator: std.mem.Allocator, builder: *Builder, code: Block.
 
 /// Rule code frame (ansi): a top and bottom border rule (border_glyph capped at
 /// border_cap, clamped to width) bracketing highlighted code lines. The rule is
-/// drawn in the muted style; `rule_color` is not honored as an arbitrary color
-/// because the render model is style-keyed, not color-keyed (see task notes).
+/// drawn in the muted style; the frame carries no arbitrary rule color because
+/// the render model is style-keyed, not color-keyed (see task notes).
 fn renderCodeRule(allocator: std.mem.Allocator, builder: *Builder, code: Block.CodeBlock, content_width: usize, frame: decor_mod.CodeFrameSpec) !void {
     const glyph = frame.border_glyph orelse "\u{2500}";
     const glyph_w = @max(unicode.displayWidth(glyph), 1);
@@ -771,7 +772,7 @@ fn maxCodeBlockLineWidth(source: []const u8) usize {
 
 fn appendCodeBlockPadding(builder: *Builder, count: usize) !void {
     if (count == 0) return;
-    try table_mod.appendSpaces(builder, count, .code_block);
+    try builder.appendRepeated(.code_block, " ", count);
 }
 
 pub fn isCompactBlockPair(previous: Block, current: Block) bool {
@@ -784,4 +785,75 @@ pub fn isCompactBlockPair(previous: Block, current: Block) bool {
         else => false,
     };
     return prev_is_list and curr_is_list;
+}
+
+// ===========================================================================
+// Tests
+// ===========================================================================
+
+const testing = std.testing;
+
+/// Render `code` as a panel-framed fenced block at `content_width` and return
+/// the concatenated span text, one newline per rendered row.
+fn renderCodePanelText(allocator: std.mem.Allocator, source: []const u8, content_width: usize) ![]u8 {
+    const code = Block.CodeBlock{ .language = "", .code = source };
+    var builder = Builder.init(allocator);
+    defer builder.deinit();
+    try renderCodePanel(allocator, &builder, code, content_width, .{ .kind = .panel });
+    const lines = try builder.finish();
+    defer {
+        for (lines) |line| line.deinit(allocator);
+        allocator.free(lines);
+    }
+
+    var out: std.ArrayList(u8) = .empty;
+    errdefer out.deinit(allocator);
+    for (lines) |line| {
+        for (line.spans) |span| try out.appendSlice(allocator, span.text);
+        try out.append(allocator, '\n');
+    }
+    return out.toOwnedSlice(allocator);
+}
+
+test "code panel pads short lines out to the widest line" {
+    const allocator = testing.allocator;
+    const out = try renderCodePanelText(allocator, "ab\nlonger line", 80);
+    defer allocator.free(out);
+
+    // ``` header, two code rows, ``` footer.
+    var rows = std.mem.splitScalar(u8, std.mem.trimRight(u8, out, "\n"), '\n');
+    try testing.expectEqualStrings("```", rows.next().?);
+    // left_pad(1) + text + pad to max_line_width(11) + 1 trailing column.
+    try testing.expectEqualStrings(" ab          ", rows.next().?);
+    try testing.expectEqualStrings(" longer line ", rows.next().?);
+    try testing.expectEqualStrings("```", rows.next().?);
+    try testing.expect(rows.next() == null);
+}
+
+test "code panel padding is capped at the content width for pathologically long lines" {
+    const allocator = testing.allocator;
+
+    // One 50k-column line next to short ones. Before the cap, every row was
+    // padded out to 50k columns, so the block cost gigabytes of memcpy.
+    const long = try allocator.alloc(u8, 50_000);
+    defer allocator.free(long);
+    @memset(long, 'x');
+    const source = try std.fmt.allocPrint(allocator, "a\n{s}\n\nb", .{long});
+    defer allocator.free(source);
+
+    const content_width: usize = 80;
+    const out = try renderCodePanelText(allocator, source, content_width);
+    defer allocator.free(out);
+
+    var rows = std.mem.splitScalar(u8, std.mem.trimRight(u8, out, "\n"), '\n');
+    _ = rows.next(); // ```
+    // Padded rows stop at the available width instead of chasing the long line.
+    try testing.expectEqual(content_width, rows.next().?.len); // "a" + padding
+    // The long line itself is never truncated, only its trailing padding.
+    try testing.expect(rows.next().?.len >= 50_000);
+    try testing.expectEqual(content_width, rows.next().?.len); // blank row
+    try testing.expectEqual(content_width, rows.next().?.len); // "b" + padding
+
+    // The whole render stays proportional to the source, not to width * lines.
+    try testing.expect(out.len < source.len + 16 * content_width);
 }

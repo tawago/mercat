@@ -82,6 +82,7 @@ const default_config_text = @embedFile("default_config.toml");
 
 pub fn load(allocator: std.mem.Allocator) !Config {
     var cfg = try parseTomlLike(allocator, default_config_text);
+    errdefer cfg.deinit(allocator);
 
     const path = try resolveConfigPath(allocator);
     defer allocator.free(path);
@@ -170,13 +171,13 @@ fn applyTomlLike(allocator: std.mem.Allocator, cfg: *Config, source: []const u8)
 
 fn assignValue(allocator: std.mem.Allocator, cfg: *Config, section: []const u8, key: []const u8, value: []const u8) !void {
     if (std.mem.eql(u8, section, "general")) {
-        if (std.mem.eql(u8, key, "editor")) try replaceString(allocator, &cfg.general.editor, stripQuotes(value));
-        if (std.mem.eql(u8, key, "pager")) try replaceString(allocator, &cfg.general.pager, stripQuotes(value));
+        if (std.mem.eql(u8, key, "editor")) try replaceString(allocator, &cfg.general.editor, value);
+        if (std.mem.eql(u8, key, "pager")) try replaceString(allocator, &cfg.general.pager, value);
         return;
     }
 
     if (std.mem.eql(u8, section, "display")) {
-        if (std.mem.eql(u8, key, "theme")) try replaceString(allocator, &cfg.display.theme, stripQuotes(value));
+        if (std.mem.eql(u8, key, "theme")) try replaceString(allocator, &cfg.display.theme, value);
         if (std.mem.eql(u8, key, "syntax_theme")) cfg.display.syntax_theme = try parseSyntaxTheme(stripQuotes(value));
         if (std.mem.eql(u8, key, "width")) cfg.display.width = try std.fmt.parseUnsigned(usize, value, 10);
         if (std.mem.eql(u8, key, "line_numbers")) cfg.display.line_numbers = parseBool(value);
@@ -187,7 +188,7 @@ fn assignValue(allocator: std.mem.Allocator, cfg: *Config, section: []const u8, 
 
     if (std.mem.eql(u8, section, "mermaid")) {
         if (std.mem.eql(u8, key, "enabled")) cfg.mermaid.enabled = parseBool(value);
-        if (std.mem.eql(u8, key, "style")) try replaceString(allocator, &cfg.mermaid.style, stripQuotes(value));
+        if (std.mem.eql(u8, key, "style")) try replaceString(allocator, &cfg.mermaid.style, value);
         if (std.mem.eql(u8, key, "subgraph_edges")) cfg.mermaid.subgraph_edges = try parseSubgraphEdges(stripQuotes(value));
         return;
     }
@@ -214,7 +215,7 @@ fn replaceExtensions(allocator: std.mem.Allocator, cfg: *Config, value: []const 
 
     var iter = std.mem.splitScalar(u8, trimmed, ',');
     while (iter.next()) |item| {
-        extensions[index] = try allocator.dupe(u8, stripQuotes(std.mem.trim(u8, item, " \t")));
+        extensions[index] = try decodeQuotedString(allocator, std.mem.trim(u8, item, " \t"));
         index += 1;
     }
 
@@ -247,9 +248,18 @@ fn parseBool(value: []const u8) bool {
 const stripQuotes = loadfile.stripQuotes;
 
 fn replaceString(allocator: std.mem.Allocator, target: *[]const u8, value: []const u8) !void {
+    // Decode into a fresh allocation first so an OOM leaves the prior value
+    // intact (no dangling pointer, no double-free): only free the old value once
+    // the new allocation has succeeded. `value` is the raw TOML value — quotes
+    // are stripped and escapes decoded here.
+    const dup = try decodeQuotedString(allocator, value);
     allocator.free(target.*);
-    target.* = try allocator.dupe(u8, value);
+    target.* = dup;
 }
+
+/// Shared with the theme-file parser (and the dumper's `writeQuoted` inverse)
+/// so escape decoding stays identical across both TOML surfaces.
+const decodeQuotedString = loadfile.decodeQuotedString;
 
 fn applyEnvOverrides(allocator: std.mem.Allocator, cfg: *Config) !void {
     const width = std.process.getEnvVarOwned(std.heap.page_allocator, "MERCAT_WIDTH") catch null;
@@ -479,4 +489,58 @@ test "subgraph_edges parses both notations; bridge round-trips; invalid errors" 
         \\subgraph_edges = "bridge"
     );
     try std.testing.expectEqual(prim.SubgraphEdges.bridge, cfg.mermaid.subgraph_edges);
+}
+
+test "inline comments are stripped from config values" {
+    var cfg = try parseTomlLike(std.testing.allocator, default_config_text);
+    defer cfg.deinit(std.testing.allocator);
+
+    try applyTomlLike(std.testing.allocator, &cfg,
+        \\[display]
+        \\width = 80 # columns
+        \\line_numbers = true # x
+        \\[general]
+        \\editor = "nvim" # my editor
+    );
+
+    try std.testing.expectEqual(@as(usize, 80), cfg.display.width);
+    try std.testing.expect(cfg.display.line_numbers);
+    try std.testing.expectEqualStrings("nvim", cfg.general.editor);
+}
+
+test "a `#` inside quotes is literal, including after an escaped quote" {
+    var cfg = try parseTomlLike(std.testing.allocator, default_config_text);
+    defer cfg.deinit(std.testing.allocator);
+
+    try applyTomlLike(std.testing.allocator, &cfg,
+        \\[general]
+        \\editor = "a\"#b" # trailing comment
+    );
+
+    try std.testing.expectEqualStrings("a\"#b", cfg.general.editor);
+}
+
+test "string values decode TOML escape sequences" {
+    var cfg = try parseTomlLike(std.testing.allocator, default_config_text);
+    defer cfg.deinit(std.testing.allocator);
+
+    try applyTomlLike(std.testing.allocator, &cfg,
+        \\[general]
+        \\editor = "tab\there\nline"
+        \\pager = "\u2713 \\ done"
+    );
+
+    try std.testing.expectEqualStrings("tab\there\nline", cfg.general.editor);
+    try std.testing.expectEqualStrings("\u{2713} \\ done", cfg.general.pager);
+}
+
+test "unknown and malformed escapes keep the backslash verbatim" {
+    const alloc = std.testing.allocator;
+    const kept = try decodeQuotedString(alloc, "\"a\\qb\"");
+    defer alloc.free(kept);
+    try std.testing.expectEqualStrings("a\\qb", kept);
+
+    const truncated = try decodeQuotedString(alloc, "\"\\u12\"");
+    defer alloc.free(truncated);
+    try std.testing.expectEqualStrings("\\u12", truncated);
 }

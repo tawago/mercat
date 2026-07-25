@@ -134,7 +134,19 @@ pub fn assignThemeValue(
     value: []const u8,
 ) !void {
     const slot: ?[]const u8 = if (subtable.len == 0) null else subtable;
-    try builder.set(alloc, slot, key, stripQuotes(value));
+    if (value.len >= 2 and value[0] == '"' and value[value.len - 1] == '"') {
+        // Quoted string: strip the quotes and decode escapes, so a dumped
+        // `prefix = "a\"b"` stores the literal bytes `a"b` (the dumper's
+        // `writeQuoted` is the inverse).
+        const decoded = try decodeQuotedString(alloc, value);
+        defer alloc.free(decoded);
+        try builder.set(alloc, slot, key, decoded);
+    } else {
+        // Unquoted (bools, numbers, inline arrays): store verbatim — escapes
+        // only exist inside quoted strings, and arrays are split (and their
+        // elements decoded) later by `parseInlineArray`.
+        try builder.set(alloc, slot, key, value);
+    }
 }
 
 /// Parse a whole theme-file text into raw tables. Only `[theme]` /
@@ -167,7 +179,8 @@ fn applyThemeLines(alloc: std.mem.Allocator, builder: *RawThemeBuilder, text: []
 /// for each `key = value` line, yields the key/value alongside the current
 /// section — both raw (`section`) and split into `(table, subtable)`. Blank
 /// lines, `#` comment lines, and `[section]` / `[table.subtable]` headers are
-/// consumed silently. Values are returned verbatim (quotes intact); consumers
+/// consumed silently, as is an inline `# ...` trailer on a value line. Values
+/// are otherwise returned verbatim (quotes intact); consumers
 /// decode/strip as they see fit — this scanner is decode-free.
 pub const LineScanner = struct {
     lines: std.mem.SplitIterator(u8, .scalar),
@@ -201,7 +214,9 @@ pub const LineScanner = struct {
 
             const equals_index = std.mem.indexOfScalar(u8, trimmed, '=') orelse continue;
             const key = std.mem.trim(u8, trimmed[0..equals_index], " \t");
-            const value = std.mem.trim(u8, trimmed[equals_index + 1 ..], " \t");
+            // A trailing `# ...` is an inline comment, but a `#` inside a
+            // quoted string stays literal (see stripInlineComment).
+            const value = stripInlineComment(std.mem.trim(u8, trimmed[equals_index + 1 ..], " \t"));
             return .{
                 .section = self.section,
                 .table = self.table,
@@ -237,11 +252,163 @@ pub fn splitSection(section: []const u8) struct { table: []const u8, subtable: [
     return .{ .table = section, .subtable = "" };
 }
 
+/// Strip an inline TOML comment from an already-trimmed value: a `#` outside a
+/// double-quoted string begins a comment; inside quotes it is literal (so
+/// `heading_prefix = "#"` keeps its glyph). Quote tracking is escape-aware — a
+/// `\"` inside a string does not end the string and expose a following `#`.
+/// Whitespace between the value and the comment is trimmed off.
+pub fn stripInlineComment(value: []const u8) []const u8 {
+    var in_quotes = false;
+    var i: usize = 0;
+    while (i < value.len) : (i += 1) {
+        const ch = value[i];
+        if (in_quotes and ch == '\\') {
+            i += 1; // skip the escaped char so a \" cannot toggle quote state
+            continue;
+        }
+        if (ch == '"') {
+            in_quotes = !in_quotes;
+        } else if (ch == '#' and !in_quotes) {
+            return std.mem.trim(u8, value[0..i], " \t");
+        }
+    }
+    return value;
+}
+
+/// Parse a TOML inline array of strings (`["•", "◦", "‣"]`) into an owned slice
+/// of element strings (each element is duped into `alloc`, as is the outer
+/// slice). Returns null when `value` is not bracketed, so callers can fall back
+/// to scalar handling. Splitting is quote- and escape-aware (the same rules
+/// `stripInlineComment` uses), so an element may contain a comma or a `#`;
+/// each element is decoded with `decodeQuotedString` (quotes stripped, escapes
+/// resolved). Empty elements (a trailing comma, `""`, or `[]`) are skipped.
+pub fn parseInlineArray(alloc: std.mem.Allocator, value: []const u8) !?[][]const u8 {
+    const trimmed = std.mem.trim(u8, value, " \t");
+    if (trimmed.len < 2 or trimmed[0] != '[' or trimmed[trimmed.len - 1] != ']') return null;
+    const body = trimmed[1 .. trimmed.len - 1];
+
+    var out = std.ArrayList([]const u8).empty;
+    errdefer {
+        for (out.items) |item| alloc.free(item);
+        out.deinit(alloc);
+    }
+
+    var in_quotes = false;
+    var start: usize = 0;
+    var i: usize = 0;
+    while (i <= body.len) : (i += 1) {
+        const at_end = i == body.len;
+        if (!at_end) {
+            const ch = body[i];
+            if (in_quotes and ch == '\\') {
+                i += 1; // skip the escaped char so a \" cannot toggle quote state
+                continue;
+            }
+            if (ch == '"') {
+                in_quotes = !in_quotes;
+                continue;
+            }
+            if (ch != ',' or in_quotes) continue;
+        }
+        const element = std.mem.trim(u8, body[start..i], " \t");
+        if (element.len != 0) {
+            const decoded = try decodeQuotedString(alloc, element);
+            if (decoded.len != 0) try out.append(alloc, decoded) else alloc.free(decoded);
+        }
+        start = i + 1;
+    }
+    return try out.toOwnedSlice(alloc);
+}
+
 pub fn stripQuotes(value: []const u8) []const u8 {
     if (value.len >= 2 and value[0] == '"' and value[value.len - 1] == '"') {
         return value[1 .. value.len - 1];
     }
     return value;
+}
+
+/// Strip surrounding quotes and decode the basic TOML escape sequences a string
+/// value may contain: \" \\ \n \t \r \uXXXX \UXXXXXXXX. Returns freshly-owned
+/// bytes the caller must free. A malformed or unknown escape is kept verbatim
+/// (backslash preserved) — this is a deliberately small TOML-like parser, not a
+/// validator. Decoded output is never longer than the input (every escape
+/// shrinks: \n's two chars -> 1 byte, \uXXXX's six -> at most 3 UTF-8 bytes,
+/// \U's ten -> at most 4), so a single input-sized buffer always suffices.
+pub fn decodeQuotedString(allocator: std.mem.Allocator, raw: []const u8) ![]u8 {
+    const inner = stripQuotes(raw);
+    var buf = try allocator.alloc(u8, inner.len);
+    errdefer allocator.free(buf);
+
+    var len: usize = 0;
+    var i: usize = 0;
+    while (i < inner.len) {
+        const ch = inner[i];
+        if (ch != '\\' or i + 1 >= inner.len) {
+            buf[len] = ch;
+            len += 1;
+            i += 1;
+            continue;
+        }
+        switch (inner[i + 1]) {
+            '"' => {
+                buf[len] = '"';
+                len += 1;
+                i += 2;
+            },
+            '\\' => {
+                buf[len] = '\\';
+                len += 1;
+                i += 2;
+            },
+            'n' => {
+                buf[len] = '\n';
+                len += 1;
+                i += 2;
+            },
+            't' => {
+                buf[len] = '\t';
+                len += 1;
+                i += 2;
+            },
+            'r' => {
+                buf[len] = '\r';
+                len += 1;
+                i += 2;
+            },
+            'u', 'U' => {
+                const digits: usize = if (inner[i + 1] == 'u') 4 else 8;
+                const decoded = decodeUnicodeEscape(inner[i..], digits, buf[len..]);
+                if (decoded) |n| {
+                    len += n;
+                    i += 2 + digits;
+                } else {
+                    // Malformed \u/\U: keep the backslash literal and move on.
+                    buf[len] = ch;
+                    len += 1;
+                    i += 1;
+                }
+            },
+            else => {
+                // Unknown escape: keep the backslash literal (lenient).
+                buf[len] = ch;
+                len += 1;
+                i += 1;
+            },
+        }
+    }
+
+    if (len == buf.len) return buf;
+    return allocator.realloc(buf, len);
+}
+
+/// Decode a `\uXXXX`/`\UXXXXXXXX` escape at the start of `seq` (which points at
+/// the leading backslash), writing the UTF-8 encoding into `out`. `digits` is 4
+/// or 8. Returns the number of bytes written, or null if the escape is
+/// truncated, not valid hex, or not a valid Unicode scalar.
+fn decodeUnicodeEscape(seq: []const u8, digits: usize, out: []u8) ?usize {
+    if (seq.len < 2 + digits) return null;
+    const code = std.fmt.parseInt(u21, seq[2 .. 2 + digits], 16) catch return null;
+    return std.unicode.utf8Encode(code, out) catch null;
 }
 
 /// Resolve the user theme directory: `$XDG_CONFIG_HOME/mercat/themes` else
@@ -454,4 +621,78 @@ test "RawThemeBuilder.set merges last-wins and top vs slot separate" {
     try std.testing.expectEqual(@as(usize, 1), b.slots.items.len);
     try std.testing.expectEqual(@as(usize, 1), b.slots.items[0].kvs.items.len);
     try std.testing.expectEqualStrings("#222", b.slots.items[0].kvs.items[0].value);
+}
+
+test "theme-file values drop inline comments but keep a quoted `#`" {
+    const text =
+        \\[theme.heading1]
+        \\fg = "#ff79c6" # pink
+        \\bold = true # emphasis
+        \\prefix = "#" # literal hash glyph
+    ;
+    var tables = try parseThemeTables(std.testing.allocator, text);
+    defer tables.deinit(std.testing.allocator);
+
+    try std.testing.expectEqual(@as(usize, 1), tables.slots.len);
+    const kvs = tables.slots[0].kvs;
+    try std.testing.expectEqualStrings("#ff79c6", kvs[0].value);
+    try std.testing.expectEqualStrings("true", kvs[1].value);
+    try std.testing.expectEqualStrings("#", kvs[2].value);
+}
+
+test "parseInlineArray splits top-level commas and strips per-element quotes" {
+    const alloc = std.testing.allocator;
+    const items = (try parseInlineArray(alloc, "[\"\u{2022}\", \"\u{25E6}\", \"\u{2023}\"]")).?;
+    defer {
+        for (items) |it| alloc.free(it);
+        alloc.free(items);
+    }
+    try std.testing.expectEqual(@as(usize, 3), items.len);
+    try std.testing.expectEqualStrings("\u{2022}", items[0]);
+    try std.testing.expectEqualStrings("\u{25E6}", items[1]);
+    try std.testing.expectEqualStrings("\u{2023}", items[2]);
+
+    // A comma inside quotes is literal, and a trailing comma yields no element.
+    const commas = (try parseInlineArray(alloc, "[ \"a,b\" , \"c\" , ]")).?;
+    defer {
+        for (commas) |it| alloc.free(it);
+        alloc.free(commas);
+    }
+    try std.testing.expectEqual(@as(usize, 2), commas.len);
+    try std.testing.expectEqualStrings("a,b", commas[0]);
+
+    // Empty array, and a non-bracketed (scalar) value.
+    const empty = (try parseInlineArray(alloc, "[]")).?;
+    defer alloc.free(empty);
+    try std.testing.expectEqual(@as(usize, 0), empty.len);
+    try std.testing.expect((try parseInlineArray(alloc, "\"nope\"")) == null);
+}
+
+test "an array value survives the scanner, including a quoted `#` element" {
+    const alloc = std.testing.allocator;
+    var tables = try parseThemeTables(alloc,
+        \\[theme.glyphs]
+        \\bullets = ["#", "●"] # depth cycle
+    );
+    defer tables.deinit(alloc);
+
+    try std.testing.expectEqual(@as(usize, 1), tables.slots.len);
+    const kv = tables.slots[0].kvs[0];
+    try std.testing.expectEqualStrings("bullets", kv.key);
+    // The inline comment is gone; the quoted `#` element is not.
+    try std.testing.expectEqualStrings("[\"#\", \"\u{25CF}\"]", kv.value);
+
+    const items = (try parseInlineArray(alloc, kv.value)).?;
+    defer {
+        for (items) |it| alloc.free(it);
+        alloc.free(items);
+    }
+    try std.testing.expectEqual(@as(usize, 2), items.len);
+    try std.testing.expectEqualStrings("#", items[0]);
+}
+
+test "stripInlineComment is escape-aware" {
+    try std.testing.expectEqualStrings("80", stripInlineComment("80 # columns"));
+    try std.testing.expectEqualStrings("\"a\\\"#b\"", stripInlineComment("\"a\\\"#b\" # c"));
+    try std.testing.expectEqualStrings("", stripInlineComment("# whole line"));
 }

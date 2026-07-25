@@ -231,7 +231,6 @@ pub fn main() !void {
         .width = render_width,
         .show_heading_markers = show_heading_markers,
         .decor = &resolved.decor,
-        .truecolor = theme_color.truecolorEnabled(),
         .frontmatter_style = frontmatter_style,
         // Raw front matter keeps tabs verbatim for the terminal, but the
         // plain/PNG exporters reject tab scalars, so expand them on export.
@@ -248,6 +247,13 @@ pub fn main() !void {
     });
     defer rendered.deinit(allocator);
 
+    // §S6: theme-resolution diagnostics go to stderr as dim comment lines.
+    // stderr is a separate channel, so a piped/redirected stdout stays
+    // byte-clean regardless — surface the warnings unconditionally, for every
+    // output format, so an interactive `mercat --style typo file.md` still gets
+    // told. (The TUI returned above; it shows diagnostics in the status bar.)
+    emitCliDiagnostics(&diag);
+
     switch (parsed.format) {
         .terminal => {
             const canvas: ?renderer.Canvas = if (resolved.canvasBg()) |bg|
@@ -261,11 +267,6 @@ pub fn main() !void {
                 canvas,
             );
             defer allocator.free(output);
-            // §S6: theme-resolution diagnostics go to stderr as dim comment
-            // lines. stderr is a separate channel, so a piped/redirected stdout
-            // stays byte-clean regardless — surface the warnings unconditionally
-            // so an interactive `mercat --style typo file.md` still gets told.
-            emitCliDiagnostics(&diag);
             try pager.writeOutput(allocator, output, loaded_config.general.pager, parsed.pager);
         },
         .plain => {

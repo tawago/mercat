@@ -13,7 +13,6 @@ pub fn mergeInto(out: *ThemeSpec, s: *const ThemeSpec) void {
     if (s.extends) |_| {} // extends already consumed by chain walk
     if (s.palette_mode) |m| out.palette_mode = m;
     if (s.base_bg) |c| out.base_bg = c;
-    if (s.base_fg) |c| out.base_fg = c;
     if (s.canvas) |v| out.canvas = v;
 
     // Slots.
@@ -30,7 +29,6 @@ pub fn mergeInto(out: *ThemeSpec, s: *const ThemeSpec) void {
     if (s.tokens.string) |c| out.tokens.string = c;
     if (s.tokens.number) |c| out.tokens.number = c;
     if (s.tokens.comment) |c| out.tokens.comment = c;
-    if (s.tokens.function) |c| out.tokens.function = c;
 }
 
 pub fn mergeSlot(base: ?SlotSpec, over: SlotSpec) SlotSpec {
@@ -64,6 +62,19 @@ pub fn mergeGlyphs(out: *spec.GlyphSet, g: spec.GlyphSet) void {
     if (g.hr_count) |v| out.hr_count = v;
     if (g.hr_center) |v| out.hr_center = v;
     if (g.table_style) |v| out.table_style = v;
-    if (g.code_frame) |v| out.code_frame = v;
-    if (g.doc_margin) |v| out.doc_margin = v;
+    // Per-field, not wholesale: `[theme.code_frame] pad = 2` inherits the base's
+    // kind/language_label rather than resetting them.
+    if (g.code_frame) |v| out.code_frame = mergeCodeFrame(out.code_frame, v);
+}
+
+/// Fold one sparse code frame over another, mirroring `mergeSlot`: absent field
+/// inherits, present field wins.
+pub fn mergeCodeFrame(base: ?spec.CodeFrameDelta, over: spec.CodeFrameDelta) spec.CodeFrameDelta {
+    var r = base orelse spec.CodeFrameDelta{};
+    if (over.kind) |v| r.kind = v;
+    if (over.border_glyph) |v| r.border_glyph = v;
+    if (over.border_cap) |v| r.border_cap = v;
+    if (over.pad) |v| r.pad = v;
+    if (over.language_label) |v| r.language_label = v;
+    return r;
 }

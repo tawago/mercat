@@ -218,15 +218,32 @@ pub fn vaxisStyle(token_value: StyleToken) vaxis.Style {
 }
 
 /// Maps a Color union arm onto a vaxis color. The terminal decides the exact
-/// hue for `default` and `ansi16`; vaxis always receives rgb for truecolor
-/// (the terminal, not mercat, negotiates capability there).
+/// hue for `default` and `ansi16`. For `rgb` mercat — not the terminal — decides:
+/// the pinned vaxis never downgrades, so we mirror ansi.writeColorSgr() and fall
+/// back to the nearest xterm-256 index when `color.truecolorEnabled()` is false.
 pub fn toVaxisColor(c: Color) vaxis.Color {
     return switch (c) {
         .default => .default,
         .index => |n| .{ .index = n },
         .ansi16 => |a| .{ .index = a.index() },
-        .rgb => |v| .{ .rgb = .{ v.r, v.g, v.b } },
+        .rgb => |v| if (color.truecolorEnabled())
+            .{ .rgb = .{ v.r, v.g, v.b } }
+        else
+            .{ .index = color.to256(c).? },
     };
+}
+
+test "toVaxisColor downgrades rgb when truecolor is off" {
+    const saved = color.truecolorEnabled();
+    defer color.setTruecolor(saved);
+
+    const c: Color = .{ .rgb = .{ .r = 0xd7, .g = 0x87, .b = 0x00 } };
+
+    color.setTruecolor(true);
+    try std.testing.expectEqual(vaxis.Color{ .rgb = .{ 0xd7, 0x87, 0x00 } }, toVaxisColor(c));
+
+    color.setTruecolor(false);
+    try std.testing.expectEqual(vaxis.Color{ .index = color.to256(c).? }, toVaxisColor(c));
 }
 
 test "structural slots bake to their borrowed defaults (byte-parity)" {

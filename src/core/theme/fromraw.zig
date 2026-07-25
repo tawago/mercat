@@ -5,13 +5,13 @@
 //!
 //! It parses everything `--dump-theme` can emit so a dumped preset round-trips
 //! byte-for-byte:
-//!   - top-level `extends` / `palette` / `name` / `canvas` / `base_bg` / `base_fg`
+//!   - top-level `extends` / `palette` / `name` / `canvas` / `base_bg`
 //!   - `[theme.<slot>]` color + attr + decor keys
 //!   - `[theme.glyphs]` / `[theme.code_frame]` / `[theme.tokens]` sections
 //!
-//! (Custom `bullets` arrays are the one decor field not representable in the
-//! flat key/value parser; the dumper omits them, so a preset using non-default
-//! bullets would not round-trip that field. dark/light use the default bullets.)
+//! `[theme.glyphs] bullets` is the one array-valued key; it is decoded with
+//! `loadfile.parseInlineArray` and the dumper emits it, so custom bullet
+//! vocabularies round-trip like everything else.
 
 const std = @import("std");
 const spec = @import("spec.zig");
@@ -48,9 +48,7 @@ pub fn specFromRaw(alloc: std.mem.Allocator, raw: RawThemeTables, diag: *Diagnos
             if (parseBool(kv.value)) |b| out.canvas = b else diag.warnFmt(.unknown_key, "invalid [theme] canvas value '{s}'", .{kv.value});
         } else if (std.mem.eql(u8, kv.key, "base_bg")) {
             out.base_bg = parseColorOrWarn(kv.value, "base_bg", diag) orelse out.base_bg;
-        } else if (std.mem.eql(u8, kv.key, "base_fg")) {
-            out.base_fg = parseColorOrWarn(kv.value, "base_fg", diag) orelse out.base_fg;
-        } else {
+                } else {
             diag.warnFmt(.unknown_key, "unknown [theme] key '{s}'", .{kv.key});
         }
     }
@@ -62,7 +60,7 @@ pub fn specFromRaw(alloc: std.mem.Allocator, raw: RawThemeTables, diag: *Diagnos
             continue;
         }
         if (std.mem.eql(u8, raw_slot.name, "code_frame")) {
-            var cf = out.glyphs.code_frame orelse spec.CodeFrameSpec{};
+            var cf = out.glyphs.code_frame orelse spec.CodeFrameDelta{};
             for (raw_slot.kvs) |kv| applyCodeFrameKv(&cf, kv, diag);
             out.glyphs.code_frame = cf;
             continue;
@@ -144,10 +142,24 @@ fn applyGlyphKv(alloc: std.mem.Allocator, g: *spec.GlyphSet, kv: loadfile.RawKV,
         g.quote_indent = std.fmt.parseUnsigned(u8, v, 10) catch 0;
     } else if (std.mem.eql(u8, k, "hr_count")) {
         g.hr_count = std.fmt.parseUnsigned(u16, v, 10) catch 0;
-    } else if (std.mem.eql(u8, k, "doc_margin")) {
-        g.doc_margin = std.fmt.parseUnsigned(u8, v, 10) catch 0;
-    } else if (std.mem.eql(u8, k, "hr_mode")) {
+        } else if (std.mem.eql(u8, k, "hr_mode")) {
         if (std.mem.eql(u8, v, "full")) g.hr_mode = .full else if (std.mem.eql(u8, v, "fixed")) g.hr_mode = .fixed else diag.warnFmt(.unknown_key, "invalid hr_mode '{s}'", .{v});
+    } else if (std.mem.eql(u8, k, "bullets")) {
+        // The one array-valued glyph key: `bullets = ["•", "◦", "‣"]`, cycled
+        // by list nesting depth. Elements go through safeGlyph like any other
+        // user glyph. A malformed (non-bracketed) value is reported rather
+        // than silently treated as a one-element list.
+        const items = loadfile.parseInlineArray(alloc, v) catch null;
+        if (items) |list| {
+            if (list.len == 0) {
+                diag.warnFmt(.unknown_key, "empty bullets array in [theme.glyphs]", .{});
+            } else {
+                for (list) |*b| b.* = safeGlyph(alloc, b.*, diag);
+                g.bullets = list;
+            }
+        } else {
+            diag.warnFmt(.unknown_key, "bullets must be an array of strings, got '{s}'", .{v});
+        }
     } else if (std.mem.eql(u8, k, "table_style")) {
         // Widened table_style vocabulary (restored #17 border weights): the
         // full enum is grid|heavy|double|ascii|rounded. Use stringToEnum so
@@ -158,7 +170,7 @@ fn applyGlyphKv(alloc: std.mem.Allocator, g: *spec.GlyphSet, kv: loadfile.RawKV,
     }
 }
 
-fn applyCodeFrameKv(cf: *spec.CodeFrameSpec, kv: loadfile.RawKV, diag: *Diagnostics) void {
+fn applyCodeFrameKv(cf: *spec.CodeFrameDelta, kv: loadfile.RawKV, diag: *Diagnostics) void {
     const k = kv.key;
     const v = kv.value;
     if (std.mem.eql(u8, k, "kind")) {
@@ -170,10 +182,8 @@ fn applyCodeFrameKv(cf: *spec.CodeFrameSpec, kv: loadfile.RawKV, diag: *Diagnost
     } else if (std.mem.eql(u8, k, "pad")) {
         cf.pad = std.fmt.parseUnsigned(u8, v, 10) catch null;
     } else if (std.mem.eql(u8, k, "language_label")) {
-        cf.language_label = parseBool(v) orelse false;
-    } else if (std.mem.eql(u8, k, "rule_color")) {
-        cf.rule_color = color.parseColor(v) catch null;
-    } else {
+        cf.language_label = parseBool(v);
+        } else {
         diag.warnFmt(.unknown_key, "unknown key '{s}' in [theme.code_frame]", .{k});
     }
 }
@@ -190,7 +200,9 @@ fn applyTokenKv(t: *spec.TokenColors, kv: loadfile.RawKV, diag: *Diagnostics) vo
     } else if (std.mem.eql(u8, k, "comment")) {
         if (c) |v| t.comment = v;
     } else if (std.mem.eql(u8, k, "function")) {
-        if (c) |v| t.function = v;
+        // `function` is an accepted alias of `keyword`, canonicalized here so
+        // the fold sees one field (last key in the file wins).
+        if (c) |v| t.keyword = v;
     } else {
         diag.warnFmt(.unknown_key, "unknown key '{s}' in [theme.tokens]", .{k});
     }
@@ -281,6 +293,40 @@ test "specFromRaw parses the re-added structural slots (S2)" {
     try testing.expect(std.meta.eql(s.slots.get(.table_header).?.fg.?, Color{ .index = 213 }));
     try testing.expectEqual(true, s.slots.get(.table_header).?.bold.?);
     try testing.expect(std.meta.eql(s.slots.get(.code_fence_banner).?.fg.?, Color{ .index = 99 }));
+}
+
+test "specFromRaw parses a user bullets array (documented [theme.glyphs] key)" {
+    // Bullet strings are allocated, so run the whole conversion on an arena.
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const alloc = arena.allocator();
+
+    const tables = try loadfile.parseThemeTables(alloc,
+        \\[theme.glyphs]
+        \\bullets = ["#", "◦", "‣"] # a quoted hash stays a glyph
+    );
+    var diag = resolve.Diagnostics.init(alloc);
+    const s = specFromRaw(alloc, tables, &diag);
+    try testing.expectEqual(@as(usize, 0), diag.count());
+    const bs = s.glyphs.bullets.?;
+    try testing.expectEqual(@as(usize, 3), bs.len);
+    try testing.expectEqualStrings("#", bs[0]);
+    try testing.expectEqualStrings("\u{25E6}", bs[1]);
+    try testing.expectEqualStrings("\u{2023}", bs[2]);
+}
+
+test "a scalar or empty bullets value is reported, not silently accepted" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const alloc = arena.allocator();
+
+    inline for (.{ "bullets = \"*\"", "bullets = []" }) |line| {
+        const tables = try loadfile.parseThemeTables(alloc, "[theme.glyphs]\n" ++ line ++ "\n");
+        var diag = resolve.Diagnostics.init(alloc);
+        const s = specFromRaw(alloc, tables, &diag);
+        try testing.expect(diag.has(.unknown_key));
+        try testing.expect(s.glyphs.bullets == null);
+    }
 }
 
 test "specFromRaw parses the widened table_style weights and reports invalid ones" {

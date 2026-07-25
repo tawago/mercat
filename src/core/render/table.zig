@@ -106,8 +106,7 @@ fn appendRoundedBorder(builder: *Builder, widths: []const usize, g: RoundedGlyph
     try builder.appendSpan(.table_border, left);
     for (widths, 0..) |width, index| {
         if (index != 0) try builder.appendSpan(.table_border, mid);
-        var count: usize = 0;
-        while (count < width + 2) : (count += 1) try builder.appendSpan(.table_border, g.h);
+        try builder.appendRepeated(.table_border, g.h, width + 2);
     }
     try builder.appendSpan(.table_border, right);
 }
@@ -165,8 +164,7 @@ fn appendRowCells(allocator: std.mem.Allocator, builder: *Builder, row: Block.Ta
 pub fn appendTableRule(builder: *Builder, widths: []const usize, triple: Triple) !void {
     for (widths, 0..) |width, index| {
         if (index != 0) try builder.appendSpan(.table_border, triple.cross);
-        var count: usize = 0;
-        while (count < width + 2) : (count += 1) try builder.appendSpan(.table_border, triple.h);
+        try builder.appendRepeated(.table_border, triple.h, width + 2);
     }
 }
 
@@ -200,8 +198,7 @@ pub fn fitColumnWidths(widths: []usize, max_width: usize) !void {
 }
 
 pub fn appendSpaces(builder: *Builder, count: usize, style: SpanStyle) !void {
-    var i: usize = 0;
-    while (i < count) : (i += 1) try builder.appendSpan(style, " ");
+    try builder.appendRepeated(style, " ", count);
 }
 
 // ===========================================================================
@@ -295,4 +292,73 @@ test "renderTable draws all five TableStyle variants with distinct borders" {
     try testing.expect(std.mem.indexOf(u8, rounded, "\u{2570}") != null); // ╰
     try testing.expect(std.mem.indexOf(u8, rounded, "\u{256F}") != null); // ╯
     try testing.expect(std.mem.indexOf(u8, rounded, "\u{2502}") != null); // │
+}
+
+test "a very wide table row builds in time linear in its width" {
+    const allocator = testing.allocator;
+
+    // A single cell far wider than any terminal. Every border row and every
+    // padding run here used to be emitted one glyph at a time and merged by
+    // reallocating the whole span, making a row quadratic in its width.
+    const wide = try allocator.alloc(u8, 20_000);
+    defer allocator.free(wide);
+    @memset(wide, 'w');
+
+    var cell_head = [_]Inline{.{ .text = "h" }};
+    var cell_body = [_]Inline{.{ .text = wide }};
+    var header = [_][]Inline{&cell_head};
+    var body = [_][]Inline{&cell_body};
+    var rows = [_]Block.TableRow{ .{ .cells = &header }, .{ .cells = &body } };
+    var alignments = [_]Block.Table.Alignment{.none};
+    const table = Block.Table{ .rows = &rows, .alignments = &alignments };
+
+    var d = decor_mod.legacy;
+    d.glyphs.table_style = .rounded;
+
+    var builder = Builder.init(allocator);
+    defer builder.deinit();
+    try renderTable(allocator, &builder, table, 20_000, &d);
+    const lines = try builder.finish();
+    defer {
+        for (lines) |line| line.deinit(allocator);
+        allocator.free(lines);
+    }
+
+    // The top border is one rail + a single run of horizontals + one rail, so
+    // it merges down to a handful of spans rather than thousands.
+    try testing.expect(lines.len >= 4);
+    try testing.expect(lines[0].spans.len <= 4);
+
+    // The column is fitted to the requested width, and the rounded box adds its
+    // two outer rails on top of that.
+    var border_width: usize = 0;
+    for (lines[0].spans) |span| border_width += unicode.displayWidth(span.text);
+    try testing.expectEqual(@as(usize, 20_002), border_width);
+}
+
+test "appendRepeated emits one span and matches glyph-by-glyph appends" {
+    const allocator = testing.allocator;
+
+    var builder = Builder.init(allocator);
+    defer builder.deinit();
+    try builder.appendRepeated(.table_border, "\u{2500}", 5);
+    try builder.appendSpan(.body, "x");
+    try builder.appendRepeated(.body, " ", 3);
+    const lines = try builder.finish();
+    defer {
+        for (lines) |line| line.deinit(allocator);
+        allocator.free(lines);
+    }
+
+    // Same-style neighbours still merge, so this is exactly two spans.
+    try testing.expectEqual(@as(usize, 2), lines[0].spans.len);
+    try testing.expectEqualStrings("\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}", lines[0].spans[0].text);
+    try testing.expectEqualStrings("x   ", lines[0].spans[1].text);
+
+    // A zero count and an empty glyph are both no-ops.
+    var empty = Builder.init(allocator);
+    defer empty.deinit();
+    try empty.appendRepeated(.body, " ", 0);
+    try empty.appendRepeated(.body, "", 4);
+    try testing.expect(!empty.hasPending());
 }

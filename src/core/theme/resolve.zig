@@ -109,7 +109,6 @@ pub const Diagnostics = struct {
 pub const ResolvedTheme = struct {
     styles: StyleMap,
     decor: Decor,
-    mode: PaletteMode,
     /// Toast/metadata accent (Correctness #1): the heading-1 color.
     accent: Color,
     /// Panel background used by toast/metadata overlays.
@@ -238,9 +237,25 @@ pub const Registry = struct {
         inline_overrides: ?RawThemeTables,
         diag: *Diagnostics,
     ) !ResolvedTheme {
-        var leaf = self.lookup(name, diag);
+        // An inline `[theme] extends = "..."` re-roots the chain: the named
+        // target becomes the chain leaf and the remaining inline keys fold on
+        // top of it, exactly as a user file's own `extends` behaves. Without
+        // this the inline extends would be parsed and then silently dropped by
+        // the fold (mergeInto consumes it as "already handled").
+        var inline_extends: ?[]const u8 = null;
+        if (inline_overrides) |raw| {
+            for (raw.top) |kv| {
+                if (std.mem.eql(u8, kv.key, "extends")) inline_extends = kv.value; // last key wins
+            }
+        }
+
+        var leaf = if (inline_extends) |target| self.lookup(target, diag) else self.lookup(name, diag);
         if (leaf == null) {
-            diag.warnFmt(.unknown_theme, "unknown theme '{s}' (using dark)", .{name});
+            if (inline_extends) |target| {
+                diag.warnFmt(.missing_extends, "extends target '{s}' not found (using dark)", .{target});
+            } else {
+                diag.warnFmt(.unknown_theme, "unknown theme '{s}' (using dark)", .{name});
+            }
             leaf = self.lookup("dark", diag).?;
         }
 
@@ -253,7 +268,7 @@ pub const Registry = struct {
         const classic_delta: ?spec.SlotMap =
             if (syntax_theme == .classic and chain.len != 0) chain[0].slots_classic else null;
 
-        var merged = mergeChain(self.alloc, chain, classic_delta, inline_overrides, diag);
+        var merged = mergeChain(self.arena.allocator(), chain, classic_delta, inline_overrides, diag);
         const base_light = std.mem.eql(u8, chain[0].name, "light");
         return bake(&merged, base_light);
     }
@@ -271,7 +286,7 @@ pub const Registry = struct {
         };
         var chain_buf: [max_chain]*const ThemeSpec = undefined;
         const chain = self.buildChain(leaf, &chain_buf, diag);
-        return mergeChain(self.alloc, chain, null, null, diag);
+        return mergeChain(self.arena.allocator(), chain, null, null, diag);
     }
 
     /// Walk `extends` from leaf to root, returning the chain root-first. Detects
@@ -341,6 +356,11 @@ const max_chain = 16;
 /// field inherits, present field wins (a present `""` prefix/icon deliberately
 /// clears — see bake). Order: chain root→leaf, then `classic_slots`, then
 /// `inline_overrides` (so inline `[theme.*]` beats the syntax variant).
+///
+/// `alloc` backs only the glyph-fallback substitution buffers produced while
+/// converting `inline_overrides`, and those buffers are referenced by the
+/// returned spec (and by anything baked from it) without ever being freed here
+/// — so pass an arena that outlives them (`Registry` passes its own).
 pub fn mergeChain(
     alloc: std.mem.Allocator,
     chain: []const *const ThemeSpec,
@@ -377,7 +397,7 @@ pub fn bake(merged: *const ThemeSpec, base_light: bool) ResolvedTheme {
     const decor = bakeDecor(merged);
     const accent: Color = style_map.heading1.fg;
     const base_bg: Color = merged.base_bg orelse (style_map.code_block.bg orelse .default);
-    return .{ .styles = style_map, .decor = decor, .mode = merged.palette_mode orelse .truecolor_or_256, .accent = accent, .base_bg = base_bg, .canvas = merged.canvas orelse false };
+    return .{ .styles = style_map, .decor = decor, .accent = accent, .base_bg = base_bg, .canvas = merged.canvas orelse false };
 }
 
 /// Convenience: resolve a built-in preset with no overrides (default syntax
@@ -393,8 +413,7 @@ pub fn builtinResolved(alloc: std.mem.Allocator, name: []const u8) ResolvedTheme
 }
 
 fn applyTokens(style_map: *StyleMap, t: spec.TokenColors) void {
-    const kw = t.keyword orelse t.function;
-    if (kw) |c| {
+    if (t.keyword) |c| {
         style_map.code_keyword.fg = c;
         style_map.code_block_keyword.fg = c;
     }
@@ -446,10 +465,23 @@ pub fn bakeDecor(merged: *const ThemeSpec) Decor {
         .hr_count = g.hr_count orelse 0,
         .hr_center = g.hr_center orelse "",
         .table_style = g.table_style orelse .grid,
-        .code_frame = g.code_frame orelse .{ .kind = .panel },
-        .doc_margin = g.doc_margin orelse 0,
+        // Sparse delta → concrete frame; the .panel/false defaults land here, at
+        // bake time, so the fold can keep "unset" distinct from "explicitly
+        // panel / no label".
+        .code_frame = bakeCodeFrame(g.code_frame),
     };
     return d;
+}
+
+fn bakeCodeFrame(cf: ?spec.CodeFrameDelta) decor_mod.CodeFrameSpec {
+    const c = cf orelse spec.CodeFrameDelta{};
+    return .{
+        .kind = c.kind orelse .panel,
+        .border_glyph = c.border_glyph,
+        .border_cap = c.border_cap,
+        .pad = c.pad,
+        .language_label = c.language_label orelse false,
+    };
 }
 
 test {

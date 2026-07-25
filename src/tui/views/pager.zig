@@ -173,7 +173,6 @@ pub const PagerView = struct {
             .width = if (self.width == 0) 80 else self.width,
             .show_heading_markers = self.show_heading_markers,
             .decor = &self.resolved.decor,
-            .truecolor = theme_color.truecolorEnabled(),
             .frontmatter_style = if (self.suppress_frontmatter) .hidden else self.frontmatter_style,
             .mermaid_force_layout = self.mermaid_layout,
             .mermaid_subgraph_edges = self.mermaid_subgraph_edges,

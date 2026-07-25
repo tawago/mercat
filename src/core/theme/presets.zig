@@ -36,7 +36,7 @@ const SlotMap = spec.SlotMap;
 const SlotSpec = spec.SlotSpec;
 const GlyphSet = spec.GlyphSet;
 const TokenColors = spec.TokenColors;
-const CodeFrameSpec = spec.CodeFrameSpec;
+const CodeFrameDelta = spec.CodeFrameDelta;
 
 fn a16(named: color.Ansi16) Color {
     return .{ .ansi16 = named };
@@ -180,7 +180,6 @@ fn lightClassic() SlotMap {
 pub const dark = ThemeSpec{
     .name = "dark",
     .base_bg = rgb(0x1c, 0x1c, 0x1c),
-    .base_fg = rgb(0xD0, 0xD0, 0xD0),
     .canvas = false,
     .slots = darkSlots(),
     .slots_classic = darkClassic(),
@@ -190,7 +189,6 @@ pub const dark = ThemeSpec{
 pub const light = ThemeSpec{
     .name = "light",
     .base_bg = rgb(0xff, 0xff, 0xff),
-    .base_fg = rgb(0x1c, 0x1c, 0x1c),
     // Light is designed against a white canvas; without the fill it is
     // illegible on dark terminals, so it paints by default (unlike dark/ansi,
     // which stay terminal-native).
@@ -208,7 +206,6 @@ pub const ansi = ThemeSpec{
     .name = "ansi",
     .palette_mode = .ansi16,
     .base_bg = .default,
-    .base_fg = .default,
     .canvas = false,
     .slots = blk: {
         var m = SlotMap{};
@@ -239,11 +236,10 @@ pub const ansi = ThemeSpec{
         .task_unticked = "☐",
         .hr_glyph = "═",
         .hr_mode = .full,
-        .code_frame = CodeFrameSpec{
+        .code_frame = CodeFrameDelta{
             .kind = .rule,
             .border_glyph = "─",
             .border_cap = 20,
-            .rule_color = a16(.green),
         },
     },
     .tokens = .{
@@ -261,7 +257,6 @@ pub const ansi = ThemeSpec{
 pub const dracula = ThemeSpec{
     .name = "dracula",
     .base_bg = rgb(0x28, 0x2a, 0x36),
-    .base_fg = rgb(0xf8, 0xf8, 0xf2),
     .canvas = true,
     .slots = blk: {
         var m = SlotMap{};
@@ -295,15 +290,13 @@ pub const dracula = ThemeSpec{
         .hr_glyph = "-",
         .hr_mode = .fixed,
         .hr_count = 8,
-        .doc_margin = 2,
-        .code_frame = CodeFrameSpec{ .kind = .panel, .pad = 2 },
+        .code_frame = CodeFrameDelta{ .kind = .panel, .pad = 2 },
     },
     .tokens = .{
         .keyword = rgb(0xff, 0x79, 0xc6),
         .string = rgb(0xf1, 0xfa, 0x8c),
         .number = rgb(0xbd, 0x93, 0xf9),
         .comment = rgb(0x62, 0x72, 0xa4),
-        .function = rgb(0x50, 0xfa, 0x7b),
     },
 };
 
@@ -314,7 +307,6 @@ pub const dracula = ThemeSpec{
 pub const tokyo_night = ThemeSpec{
     .name = "tokyo-night",
     .base_bg = rgb(0x1a, 0x1b, 0x26),
-    .base_fg = rgb(0xa9, 0xb1, 0xd6),
     .canvas = true,
     .slots = blk: {
         var m = SlotMap{};
@@ -347,8 +339,7 @@ pub const tokyo_night = ThemeSpec{
         .hr_glyph = "-",
         .hr_mode = .fixed,
         .hr_count = 8,
-        .doc_margin = 2,
-        .code_frame = CodeFrameSpec{ .kind = .panel, .pad = 2 },
+        .code_frame = CodeFrameDelta{ .kind = .panel, .pad = 2 },
     },
     .tokens = .{
         .keyword = rgb(0x2a, 0xc3, 0xde),
@@ -365,7 +356,6 @@ pub const tokyo_night = ThemeSpec{
 pub const pink = ThemeSpec{
     .name = "pink",
     .base_bg = rgb(0x1c, 0x1c, 0x1c),
-    .base_fg = rgb(0xD0, 0xD0, 0xD0),
     .canvas = true,
     .slots = blk: {
         var m = SlotMap{};
@@ -398,7 +388,7 @@ pub const pink = ThemeSpec{
         .hr_glyph = "─",
         .hr_mode = .fixed,
         .hr_count = 6,
-        .code_frame = CodeFrameSpec{ .kind = .plain },
+        .code_frame = CodeFrameDelta{ .kind = .plain },
     },
     .tokens = .{
         .keyword = rgb(0xFF, 0x5F, 0xD7),
@@ -415,7 +405,6 @@ pub const pink = ThemeSpec{
 pub const markview = ThemeSpec{
     .name = "markview",
     .base_bg = rgb(0x1E, 0x1E, 0x2E),
-    .base_fg = rgb(0xCD, 0xD6, 0xF4),
     .canvas = true,
     .slots = blk: {
         var m = SlotMap{};
@@ -449,14 +438,13 @@ pub const markview = ThemeSpec{
         .hr_mode = .full,
         .hr_center = "  ",
         .table_style = .rounded,
-        .code_frame = CodeFrameSpec{ .kind = .block, .language_label = true, .pad = 2 },
+        .code_frame = CodeFrameDelta{ .kind = .block, .language_label = true, .pad = 2 },
     },
     .tokens = .{
         .keyword = rgb(0xCB, 0xA6, 0xF7),
         .string = rgb(0xA6, 0xE3, 0xA1),
         .number = rgb(0xFA, 0xB3, 0x87),
         .comment = rgb(0x6C, 0x70, 0x86),
-        .function = rgb(0x89, 0xB4, 0xFA),
     },
 };
 
@@ -542,6 +530,6 @@ test "spot-check preset fields against the spec JSON" {
     try testing.expectEqual(spec.TableStyle.rounded, markview.glyphs.table_style.?);
     try testing.expectEqualStrings("◉  ", markview.slots.get(.heading1).?.prefix.?);
     try testing.expectEqual(@as(?u8, 5), markview.slots.get(.heading6).?.shift);
-    try testing.expectEqual(spec.CodeFrameKind.rule, ansi.glyphs.code_frame.?.kind);
+    try testing.expectEqual(spec.CodeFrameKind.rule, ansi.glyphs.code_frame.?.kind.?);
     try testing.expectEqual(@as(?u16, 20), ansi.glyphs.code_frame.?.border_cap);
 }

@@ -44,7 +44,6 @@ pub const ResolvedGlyphSet = struct {
     hr_center: []const u8 = "",
     table_style: TableStyle = .grid,
     code_frame: CodeFrameSpec = .{ .kind = .panel },
-    doc_margin: u8 = 0,
 
     /// Bullet glyph for a given (0-based) list depth, clamping to the last.
     pub fn bulletAt(self: ResolvedGlyphSet, depth: usize) []const u8 {
