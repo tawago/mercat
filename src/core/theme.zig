@@ -13,7 +13,6 @@
 //! This separation allows the same Span data to render identically in both modes.
 
 const std = @import("std");
-const config = @import("config.zig");
 const render_model = @import("render_model.zig");
 const vaxis = @import("vaxis");
 const presets = @import("theme/presets.zig");
@@ -91,11 +90,11 @@ pub const StyleMap = struct {
 /// The neutral mechanism-level palettes. These are *derived at comptime* from
 /// the `dark`/`light` preset specs in `theme/presets.zig` — the single source of
 /// truth — so the slot colors live in exactly one place. They serve two roles:
-///   1. the legacy `palette()`/`token()` API used by the export/PNG paths + tests,
+///   1. the default `StyleMap` used by the export/PNG paths + tests,
 ///   2. the base palette that `resolve.bake` overlays sparse preset slots onto
 ///      (unset slots of dracula/ansi/etc. fall back to these).
-pub const neutralDark: StyleMap = bakeSlots(presets.dark.slots, null);
-pub const neutralLight: StyleMap = bakeSlots(presets.light.slots, null);
+pub const neutralDark: StyleMap = bakeSlots(presets.dark.slots);
+pub const neutralLight: StyleMap = bakeSlots(presets.light.slots);
 
 /// Overlay a sparse `SlotSpec` onto a concrete `StyleToken`.
 fn applySlotToken(tok: *StyleToken, s: spec.SlotSpec) void {
@@ -109,7 +108,7 @@ fn applySlotToken(tok: *StyleToken, s: spec.SlotSpec) void {
 
 /// The single bake primitive: overlay a sparse `SlotMap` onto an existing
 /// `StyleMap` base, then borrow structural defaults for any slot the overlay
-/// left unset. Shared by the legacy `palette()` path and `resolve.bake`, so the
+/// left unset. Shared by the neutral-palette bake and `resolve.bake`, so the
 /// overlay + borrow rules live in exactly one place.
 pub fn overlaySlots(base: StyleMap, slots: spec.SlotMap) StyleMap {
     var p = base;
@@ -134,30 +133,17 @@ fn borrowStructuralDefaults(p: *StyleMap, slots: spec.SlotMap) void {
     if (slots.get(.code_fence_banner) == null) p.code_fence_banner = p.muted;
 }
 
-/// Bake a default `SlotMap` (plus an optional `classic`-variant delta) into a
-/// concrete `StyleMap`, starting from an all-terminal-default palette.
-fn bakeSlots(base_slots: spec.SlotMap, classic_slots: ?spec.SlotMap) StyleMap {
+/// Bake a default `SlotMap` into a concrete `StyleMap`, starting from an
+/// all-terminal-default palette. The resolver (`resolve.zig`) is the single
+/// bake authority for the themed pipeline (including the `classic` syntax
+/// variant); this comptime arm only derives the two neutral base palettes.
+fn bakeSlots(base_slots: spec.SlotMap) StyleMap {
     @setEvalBranchQuota(200000);
     var p: StyleMap = undefined;
     inline for (@typeInfo(StyleMap).@"struct".fields) |f| {
         @field(p, f.name) = StyleToken{ .fg = .default };
     }
-    p = overlaySlots(p, base_slots);
-    if (classic_slots) |cs| p = overlaySlots(p, cs);
-    return p;
-}
-
-/// Legacy base-palette API: bake the named preset (dark/light) into a concrete
-/// `StyleMap`, folding its `classic` syntax-variant delta when requested. The
-/// resolver (`resolve.zig`) supersedes this for the themed pipeline; this arm
-/// stays for the export/PNG paths and their tests.
-pub fn palette(theme: config.Theme, syntax_theme: config.SyntaxTheme) StyleMap {
-    const base = switch (theme) {
-        .dark => presets.dark,
-        .light => presets.light,
-    };
-    const classic: ?spec.SlotMap = if (syntax_theme == .classic) base.slots_classic else null;
-    return bakeSlots(base.slots, classic);
+    return overlaySlots(p, base_slots);
 }
 
 /// Maps a semantic SpanStyle to its concrete StyleToken in the given StyleMap.
@@ -252,14 +238,11 @@ test "structural slots bake to their borrowed defaults (byte-parity)" {
     // muted, table_header → body). This is the byte-parity anchor for the
     // un-themed table/hr/fence rendering. (list_item is NOT one of these four —
     // dark/light presets explicitly color it, so it is asserted separately.)
-    inline for (.{ config.Theme.dark, config.Theme.light }) |t| {
-        inline for (.{ config.SyntaxTheme.default, config.SyntaxTheme.classic }) |s| {
-            const pal = palette(t, s);
-            try std.testing.expectEqual(token(pal, .muted), token(pal, .table_border));
-            try std.testing.expectEqual(token(pal, .muted), token(pal, .hr));
-            try std.testing.expectEqual(token(pal, .muted), token(pal, .code_fence_banner));
-            try std.testing.expectEqual(token(pal, .body), token(pal, .table_header));
-        }
+    inline for (.{ neutralDark, neutralLight }) |pal| {
+        try std.testing.expectEqual(token(pal, .muted), token(pal, .table_border));
+        try std.testing.expectEqual(token(pal, .muted), token(pal, .hr));
+        try std.testing.expectEqual(token(pal, .muted), token(pal, .code_fence_banner));
+        try std.testing.expectEqual(token(pal, .body), token(pal, .table_header));
     }
 }
 
@@ -267,23 +250,17 @@ test "list_item defaults to body only when a preset leaves it unset" {
     // The bake fallback stamps list_item = body, but a preset may override it.
     // markview leaves list_item unset → it must equal body; dark sets it to a
     // dimmer register (ix(250)) → it must differ from body.
-    const markview = bakeSlots(presets.markview.slots, null);
+    const markview = bakeSlots(presets.markview.slots);
     try std.testing.expectEqual(token(markview, .body), token(markview, .list_item));
 
-    const dark = palette(.dark, .default);
-    try std.testing.expect(!std.meta.eql(token(dark, .body), token(dark, .list_item)));
+    try std.testing.expect(!std.meta.eql(token(neutralDark, .body), token(neutralDark, .list_item)));
 }
 
-test "palette anchors match the preset specs" {
-    const dark = palette(.dark, .default);
-    try std.testing.expectEqual(idx(254), dark.body.fg);
-    try std.testing.expectEqual(idx(141), dark.code_block_keyword.fg);
-    const dark_classic = palette(.dark, .classic);
-    try std.testing.expectEqual(idx(81), dark_classic.code_block_keyword.fg);
-
-    const light = palette(.light, .default);
-    try std.testing.expectEqual(idx(234), light.body.fg);
-    try std.testing.expectEqual(idx(92), light.code_block_keyword.fg);
-    const light_classic = palette(.light, .classic);
-    try std.testing.expectEqual(idx(25), light_classic.code_block_keyword.fg);
+test "neutral palette anchors match the preset specs" {
+    // Classic-variant anchors live in resolve_test.zig — the resolver is the
+    // only path that bakes the `classic` delta.
+    try std.testing.expectEqual(idx(254), neutralDark.body.fg);
+    try std.testing.expectEqual(idx(141), neutralDark.code_block_keyword.fg);
+    try std.testing.expectEqual(idx(234), neutralLight.body.fg);
+    try std.testing.expectEqual(idx(92), neutralLight.code_block_keyword.fg);
 }

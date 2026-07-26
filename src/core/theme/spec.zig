@@ -206,9 +206,8 @@ pub const ThemeSpec = struct {
     palette_mode: ?PaletteMode = null,
     slots: SlotMap = .{},
     /// The `classic` syntax-highlighting variant, modeled as a sparse delta over
-    /// `slots` covering only the code-token slots that differ. Consumed by the
-    /// legacy `theme.palette(_, .classic)` API (export/PNG paths + tests) and, for
-    /// the `dark`/`light` bases, by `resolve` when `syntax_theme == .classic`
+    /// `slots` covering only the code-token slots that differ. Consumed for the
+    /// `dark`/`light` bases by `resolve` when `syntax_theme == .classic`
     /// (folded as an extra layer before inline overrides). `--dump-theme` stays
     /// classic-agnostic and always dumps the default variant (`slots`). Kept here
     /// so `presets.zig` remains the single source of truth for both variants.

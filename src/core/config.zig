@@ -3,11 +3,6 @@ const prim = @import("prim");
 pub const loadfile = @import("theme/loadfile.zig");
 pub const RawThemeBuilder = loadfile.RawThemeBuilder;
 
-/// Legacy built-in palette selector, kept as a type for the internal
-/// `theme.palette(...)` helper (export/PNG/renderer test call sites). The
-/// user-facing `display.theme` is now a free-form theme *name* string resolved
-/// by the theme registry (presets + user files), not this enum.
-pub const Theme = enum { dark, light };
 pub const SyntaxTheme = enum { default, classic };
 /// How YAML front matter at the top of a document is displayed (issue #9):
 ///   panel   — banded card with half-block caps (default)
@@ -21,8 +16,7 @@ pub const FrontmatterStyle = enum { panel, dim, compact, raw, hidden };
 /// reproduces the legacy junction-weld render. The shared mermaid_v2
 /// vocabulary (`prim.SubgraphEdges`, itself std-only pure data) is stored
 /// directly here — no config-local twin — so it flows to the render options
-/// with no enum translation, matching how `ForceLayout` is handled. (`Theme`
-/// keeps a config-local enum only because it has no downstream twin to share.)
+/// with no enum translation, matching how `ForceLayout` is handled.
 
 pub const Config = struct {
     general: General = .{},

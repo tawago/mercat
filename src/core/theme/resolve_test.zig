@@ -39,44 +39,36 @@ fn rawFrom(alloc: std.mem.Allocator, text: []const u8) !loadfile.RawThemeBuilder
     return loadfile.parseThemeTables(alloc, text);
 }
 
-// Byte-identity guard for the dark/light data-spec migration: the resolve
-// pipeline must reproduce the historical `theme.palette()` literals across
-// EVERY one of the palette slots. If any slot in `presets.dark`/`light`
-// drifts from the historical `theme.darkPalette`/`lightPalette` values, this
-// fails. Both variant paths flow from `presets.zig` (single source of truth),
-// so this equally pins the numeric anchors below.
-test "resolve(dark/light) == theme.palette default variant across all slots" {
+// Byte-identity guard for the dark/light data-spec migration: resolving the
+// un-themed presets must reproduce the neutral base palettes across EVERY
+// slot (dark/light carry no delta over their own base, so any difference
+// means the bake drifted), plus numeric anchors pinning the historical
+// literals themselves.
+test "resolve(dark/light) == the neutral base palettes across all slots" {
     var reg = Registry.init(testing.allocator);
     defer reg.deinit();
     var diag = Diagnostics.init(testing.allocator);
     defer diag.deinit();
 
-    const cases = [_]struct { name: []const u8, kind: @import("../config.zig").Theme }{
-        .{ .name = "dark", .kind = .dark },
-        .{ .name = "light", .kind = .light },
+    const cases = [_]struct { name: []const u8, want: StyleMap }{
+        .{ .name = "dark", .want = theme.neutralDark },
+        .{ .name = "light", .want = theme.neutralLight },
     };
     for (cases) |c| {
         const r = try reg.resolve(c.name, .default, null, &diag);
         try testing.expectEqual(@as(usize, 0), diag.count());
-        const want = theme.palette(c.kind, .default);
         inline for (@typeInfo(StyleMap).@"struct".fields) |f| {
-            try testing.expect(std.meta.eql(@field(want, f.name), @field(r.styles, f.name)));
+            try testing.expect(std.meta.eql(@field(c.want, f.name), @field(r.styles, f.name)));
         }
     }
-    // Independent numeric anchors (default + classic variant) so the historical
-    // values are pinned even if both derived paths were to drift together.
-    const dark_d = theme.palette(.dark, .default);
-    const dark_c = theme.palette(.dark, .classic);
-    try testing.expectEqual(color.idx(254), dark_d.body.fg);
-    try testing.expectEqual(color.idx(141), dark_d.code_block_keyword.fg); // default
-    try testing.expectEqual(color.idx(81), dark_c.code_block_keyword.fg); // classic recolor
-    try testing.expectEqual(color.idx(250), dark_d.code_block.fg);
-    try testing.expectEqual(color.idx(114), dark_c.code_block.fg);
-    const light_d = theme.palette(.light, .default);
-    const light_c = theme.palette(.light, .classic);
-    try testing.expectEqual(color.idx(234), light_d.body.fg);
-    try testing.expectEqual(color.idx(92), light_d.code_block_keyword.fg);
-    try testing.expectEqual(color.idx(25), light_c.code_block_keyword.fg);
+    // Independent numeric anchors (default variant) so the historical values
+    // are pinned even if the derived paths were to drift together. The classic
+    // anchors live in the adjacent syntax-variant test.
+    try testing.expectEqual(color.idx(254), theme.neutralDark.body.fg);
+    try testing.expectEqual(color.idx(141), theme.neutralDark.code_block_keyword.fg);
+    try testing.expectEqual(color.idx(250), theme.neutralDark.code_block.fg);
+    try testing.expectEqual(color.idx(234), theme.neutralLight.body.fg);
+    try testing.expectEqual(color.idx(92), theme.neutralLight.code_block_keyword.fg);
 }
 
 // Classic syntax variant threaded end-to-end through the resolver (S5): the
@@ -133,8 +125,8 @@ test "resolve dark yields a full palette + total decor" {
 
     const r = try reg.resolve("dark", .default, null, &diag);
     try testing.expectEqual(@as(usize, 0), diag.count());
-    // dark bakes to the current darkPalette exactly.
-    const expected = theme.palette(.dark, .default);
+    // dark bakes to the neutral dark base exactly.
+    const expected = theme.neutralDark;
     try testing.expectEqual(expected.heading1.fg, r.styles.heading1.fg);
     try testing.expectEqual(expected.body.fg, r.styles.body.fg);
     // Default decor is total.
@@ -190,7 +182,7 @@ test "light preset bakes to the light base palette" {
     var diag = Diagnostics.init(testing.allocator);
     defer diag.deinit();
     const r = try reg.resolve("light", .default, null, &diag);
-    const expected = theme.palette(.light, .default);
+    const expected = theme.neutralLight;
     try testing.expectEqual(expected.body.fg, r.styles.body.fg);
     try testing.expectEqual(expected.heading1.fg, r.styles.heading1.fg);
 }
@@ -203,7 +195,7 @@ test "unknown theme name falls back to dark with a diagnostic" {
 
     const r = try reg.resolve("nope", .default, null, &diag);
     try testing.expect(diag.has(.unknown_theme));
-    const expected = theme.palette(.dark, .default);
+    const expected = theme.neutralDark;
     try testing.expectEqual(expected.body.fg, r.styles.body.fg);
 }
 
@@ -377,7 +369,7 @@ test "missing extends target reports and falls back to dark" {
     const r = try reg.resolve("orphan", .default, null, &diag);
     try testing.expect(diag.has(.missing_extends));
     // Base is dark.
-    const expected = theme.palette(.dark, .default);
+    const expected = theme.neutralDark;
     try testing.expectEqual(expected.body.fg, r.styles.body.fg);
 }
 
@@ -506,7 +498,7 @@ test "user file as extends= built-in preset: non-overridden slots equal the pres
     try testing.expectEqual(drac.styles.code.fg, r.styles.code.fg);
     try testing.expectEqual(drac.styles.strong.fg, r.styles.strong.fg);
     // And it did NOT collapse to the built-in dark base.
-    const dark_base = theme.palette(.dark, .default);
+    const dark_base = theme.neutralDark;
     try testing.expect(!std.meta.eql(r.styles.body.fg, dark_base.body.fg));
 }
 

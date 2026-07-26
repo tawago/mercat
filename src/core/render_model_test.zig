@@ -359,7 +359,7 @@ test "default dark: markers resolve to the muted color, item text to list_item (
     var rendered = try renderDocument(allocator, document, .{ .width = 40, .left_padding = 0 });
     defer rendered.deinit(allocator);
 
-    const pal = theme.palette(.dark, .default);
+    const pal = theme.neutralDark;
     const marker = firstMarkerSpan(rendered.lines[0]);
     const text = rendered.lines[0].spans[rendered.lines[0].spans.len - 1];
     // The bullet slot falls back to muted in dark → byte-identical marker color.
@@ -370,8 +370,8 @@ test "default dark: markers resolve to the muted color, item text to list_item (
 }
 
 test "dark list_item = 250, light = 236 (own register, one step softer than body)" {
-    const dark = theme.palette(.dark, .default);
-    const light = theme.palette(.light, .default);
+    const dark = theme.neutralDark;
+    const light = theme.neutralLight;
     try std.testing.expectEqual(cidx(250), dark.list_item.fg);
     try std.testing.expectEqual(cidx(254), dark.body.fg);
     try std.testing.expectEqual(cidx(236), light.list_item.fg);

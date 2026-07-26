@@ -145,7 +145,7 @@ pub fn serialize(
 
 test "coalesces distinct SpanStyles that map to one StyleToken into a single run" {
     const allocator = std.testing.allocator;
-    const palette = theme.palette(.dark, .default);
+    const palette = theme.neutralDark;
 
     // .body and .table_header are different SpanStyle enums but table_header is
     // stamped equal to body in the palette, so they resolve to one StyleToken.
@@ -173,7 +173,7 @@ test "coalesces distinct SpanStyles that map to one StyleToken into a single run
 
 test "token change mid-line closes the run and opens a new prefix" {
     const allocator = std.testing.allocator;
-    const palette = theme.palette(.dark, .default);
+    const palette = theme.neutralDark;
 
     try std.testing.expect(!std.meta.eql(theme.token(palette, .body), theme.token(palette, .emphasis)));
 
@@ -201,7 +201,7 @@ test "token change mid-line closes the run and opens a new prefix" {
 
 test "same-token empty span leaves the run open" {
     const allocator = std.testing.allocator;
-    const palette = theme.palette(.dark, .default);
+    const palette = theme.neutralDark;
 
     // Empty span between two body spans (via table_header, same token) must not
     // close/reopen the run: the whole line is one prefix/reset pair.
@@ -228,7 +228,7 @@ test "same-token empty span leaves the run open" {
 
 test "different-token empty span closes the run without opening a new prefix" {
     const allocator = std.testing.allocator;
-    const palette = theme.palette(.dark, .default);
+    const palette = theme.neutralDark;
 
     // The empty emphasis span closes the open body run (emits a reset) but must
     // NOT emit an emphasis prefix, because it carries no text. The next body
@@ -265,7 +265,7 @@ test "different-token empty span closes the run without opening a new prefix" {
 
 test "run resets at line end and newlines sit between lines with no leading newline" {
     const allocator = std.testing.allocator;
-    const palette = theme.palette(.dark, .default);
+    const palette = theme.neutralDark;
 
     var spans0 = [_]render_model.Span{.{ .text = "a", .style = .body }};
     var spans1 = [_]render_model.Span{.{ .text = "b", .style = .body }};
@@ -296,7 +296,7 @@ test "run resets at line end and newlines sit between lines with no leading newl
 
 test "blank middle line emits its own newline without an SGR run" {
     const allocator = std.testing.allocator;
-    const palette = theme.palette(.dark, .default);
+    const palette = theme.neutralDark;
 
     var spans0 = [_]render_model.Span{.{ .text = "a", .style = .body }};
     var spans1 = [_]render_model.Span{}; // empty line
@@ -327,7 +327,7 @@ test "blank middle line emits its own newline without an SGR run" {
 
 test "hyperlink span flushes the run and neighbours re-open around it" {
     const allocator = std.testing.allocator;
-    const palette = theme.palette(.dark, .default);
+    const palette = theme.neutralDark;
     const url = "https://example.com";
 
     var spans = [_]render_model.Span{
@@ -369,7 +369,7 @@ test "renders heading and paragraph" {
 
     const rendered = try renderDocument(allocator, document, .{
         .width = 20,
-        .palette = theme.palette(.dark, .default),
+        .palette = theme.neutralDark,
         .show_heading_markers = true,
     });
     defer allocator.free(rendered);
@@ -388,7 +388,7 @@ test "renders table with borders" {
     var document = try markdown.parse(allocator, source);
     defer document.deinit(allocator);
 
-    const rendered = try renderDocument(allocator, document, .{ .width = 80, .palette = theme.palette(.dark, .default), .show_heading_markers = true });
+    const rendered = try renderDocument(allocator, document, .{ .width = 80, .palette = theme.neutralDark, .show_heading_markers = true });
     defer allocator.free(rendered);
 
     try std.testing.expect(std.mem.indexOf(u8, rendered, "Name") != null);
@@ -407,7 +407,7 @@ test "renders highlighted code fence" {
     var document = try markdown.parse(allocator, source);
     defer document.deinit(allocator);
 
-    const rendered = try renderDocument(allocator, document, .{ .width = 80, .palette = theme.palette(.dark, .default), .show_heading_markers = true });
+    const rendered = try renderDocument(allocator, document, .{ .width = 80, .palette = theme.neutralDark, .show_heading_markers = true });
     defer allocator.free(rendered);
 
     try std.testing.expect(std.mem.indexOf(u8, rendered, "const") != null);
@@ -422,7 +422,7 @@ test "renders inline markdown styling" {
     var document = try markdown.parse(allocator, source);
     defer document.deinit(allocator);
 
-    const palette = theme.palette(.dark, .default);
+    const palette = theme.neutralDark;
     const rendered = try renderDocument(allocator, document, .{ .width = 100, .palette = palette, .show_heading_markers = true });
     defer allocator.free(rendered);
 
@@ -436,7 +436,7 @@ test "can hide heading markers" {
     );
     defer document.deinit(allocator);
 
-    const rendered = try renderDocument(allocator, document, .{ .width = 40, .palette = theme.palette(.dark, .default), .show_heading_markers = false });
+    const rendered = try renderDocument(allocator, document, .{ .width = 40, .palette = theme.neutralDark, .show_heading_markers = false });
     defer allocator.free(rendered);
 
     try std.testing.expect(std.mem.indexOf(u8, rendered, "###") == null);
