@@ -1,10 +1,10 @@
 const std = @import("std");
-const config = @import("../config.zig");
-const markdown = @import("../markdown.zig");
+const config = @import("../../config.zig");
+const markdown = @import("../parser.zig");
 const types = @import("types.zig");
 const builder_mod = @import("builder.zig");
 const table = @import("table.zig");
-const unicode = @import("../../lib/unicode.zig");
+const unicode = @import("../../../lib/unicode.zig");
 
 const Block = markdown.Block;
 const Builder = builder_mod.Builder;

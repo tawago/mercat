@@ -297,6 +297,6 @@ test {
     _ = @import("theme/fromraw.zig");
     _ = @import("theme/presets.zig");
     _ = @import("theme/dump.zig");
-    _ = @import("render/decor.zig");
+    _ = @import("markdown/render/decor.zig");
     _ = @import("config_test.zig");
 }

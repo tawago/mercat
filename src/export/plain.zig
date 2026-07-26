@@ -18,7 +18,7 @@
 //! - do not trim blank lines.
 
 const std = @import("std");
-const render_model = @import("../core/render_model.zig");
+const render_model = @import("../core/markdown/render.zig");
 
 pub const Error = std.mem.Allocator.Error || error{
     /// A span carried a control scalar the plain artifact must never contain:

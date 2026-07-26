@@ -8,7 +8,7 @@
 //! consistent with `unicode.displayWidth`.
 
 const std = @import("std");
-const render_model = @import("../core/render_model.zig");
+const render_model = @import("../core/markdown/render.zig");
 const unicode = @import("../lib/unicode.zig");
 
 pub const Point = struct {

@@ -21,7 +21,7 @@
 
 const std = @import("std");
 
-const render_model = @import("../core/render_model.zig");
+const render_model = @import("../core/markdown/render.zig");
 const theme = @import("../core/theme.zig");
 const font = @import("font.zig");
 const layout = @import("layout.zig");

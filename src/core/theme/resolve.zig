@@ -25,9 +25,9 @@ const color = @import("color.zig");
 const loadfile = @import("loadfile.zig");
 const presets = @import("presets.zig");
 const fromraw = @import("fromraw.zig");
-const decor_mod = @import("../render/decor.zig");
+const decor_mod = @import("../markdown/render/decor.zig");
 const theme = @import("../theme.zig");
-const types = @import("../render/types.zig");
+const types = @import("../markdown/render/types.zig");
 const config = @import("../config.zig");
 const merge = @import("merge.zig");
 

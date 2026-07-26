@@ -11,7 +11,7 @@
 //! hashes identically across builds, targets, and struct-layout changes.
 
 const std = @import("std");
-const render_model = @import("../core/render_model.zig");
+const render_model = @import("../core/markdown/render.zig");
 
 /// Bumped whenever the canonical-hash byte encoding changes. It is the first
 /// value fed into `canonicalSha256`, so a recipe change necessarily changes

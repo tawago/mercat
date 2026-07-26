@@ -1,9 +1,9 @@
 const std = @import("std");
-const markdown = @import("../markdown.zig");
+const markdown = @import("../parser.zig");
 const types = @import("types.zig");
 const builder_mod = @import("builder.zig");
 const inline_mod = @import("inline.zig");
-const unicode = @import("../../lib/unicode.zig");
+const unicode = @import("../../../lib/unicode.zig");
 
 const Inline = markdown.Inline;
 const SpanStyle = types.SpanStyle;

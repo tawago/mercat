@@ -12,9 +12,9 @@
 //! The mapping to concrete colors is handled by theme.zig based on dark/light mode.
 
 const std = @import("std");
-const config = @import("../config.zig");
-const mermaid_types = @import("../mermaid/types.zig");
-const unicode = @import("../../lib/unicode.zig");
+const config = @import("../../config.zig");
+const mermaid_types = @import("../../mermaid/types.zig");
+const unicode = @import("../../../lib/unicode.zig");
 const decor_mod = @import("decor.zig");
 
 pub const Options = struct {

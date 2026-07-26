@@ -324,7 +324,7 @@ fn atomicWrite(allocator: std.mem.Allocator, path: []const u8, bytes: []const u8
 // ===========================================================================
 
 const testing = std.testing;
-const render_model = @import("../core/render_model.zig");
+const render_model = @import("../core/markdown/render.zig");
 const theme = @import("../core/theme.zig");
 
 const Span = render_model.Span;
