@@ -18,7 +18,12 @@ pub const help_text =
     \\  -h, --help           Show this help and exit
     \\  -v, -V, --version    Show version and exit
     \\  -w, --width <n>      Override wrap width (0 uses terminal width)
-    \\      --style <name>   Select theme: dark, light
+    \\      --style <name>   Select theme: dark, light, ansi, dracula,
+    \\                      tokyo-night, pink, markview, or a user theme name
+    \\                      (~/.config/mercat/themes/<name>.toml)
+    \\      --dump-theme <name>
+    \\                      Print a theme as editable TOML to stdout and exit
+    \\                      (a starting point for your own theme file)
     \\      --no-heading-markers
     \\                      Hide leading # markers in headings
     \\      --frontmatter <s>
@@ -65,7 +70,6 @@ pub const OutputFormat = enum {
     plain,
     png,
 };
-pub const ThemeOverride = enum { dark, light };
 pub const Input = union(enum) {
     none,
     stdin,
@@ -76,7 +80,13 @@ pub const Parsed = struct {
     input: Input = .none,
     mode: Mode = .cli,
     width: ?usize = null,
-    style: ?ThemeOverride = null,
+    /// `--style <name>`: a theme *name* (preset or user file). Borrows the
+    /// argv slice, which outlives `Parsed` in `main`; validation is deferred to
+    /// the theme registry. Null means "use the configured theme".
+    style: ?[]const u8 = null,
+    /// `--dump-theme <name>`: print the named theme (preset or user file) as
+    /// ready-to-edit TOML to stdout and exit. Borrows the argv slice.
+    dump_theme: ?[]const u8 = null,
     heading_markers: ?bool = null,
     frontmatter: ?config.FrontmatterStyle = null,
     pager: bool = false,
@@ -115,11 +125,10 @@ pub const Parsed = struct {
         return 120;
     }
 
-    pub fn effectiveTheme(self: Parsed, config_theme: config.Theme) config.Theme {
-        return if (self.style) |style| switch (style) {
-            .dark => .dark,
-            .light => .light,
-        } else config_theme;
+    /// The theme *name* to resolve: the `--style` override if present, else the
+    /// configured name. The registry maps unknown names to a `dark` fallback.
+    pub fn effectiveTheme(self: Parsed, config_theme: []const u8) []const u8 {
+        return self.style orelse config_theme;
     }
 
     pub fn effectiveHeadingMarkers(self: Parsed, config_value: bool) bool {
@@ -161,10 +170,17 @@ pub fn parse(allocator: std.mem.Allocator, argv: []const []const u8) ParseError!
             continue;
         }
 
+        if (std.mem.eql(u8, arg, "--dump-theme")) {
+            index += 1;
+            if (index >= argv.len) return error.MissingValue;
+            result.dump_theme = argv[index];
+            continue;
+        }
+
         if (std.mem.eql(u8, arg, "--style")) {
             index += 1;
             if (index >= argv.len) return error.MissingValue;
-            result.style = try parseStyle(argv[index]);
+            result.style = argv[index];
             continue;
         }
 
@@ -291,12 +307,6 @@ fn parseWidth(raw: []const u8) ParseError!usize {
     return std.fmt.parseUnsigned(usize, raw, 10) catch error.InvalidWidth;
 }
 
-fn parseStyle(raw: []const u8) ParseError!ThemeOverride {
-    if (std.mem.eql(u8, raw, "dark")) return .dark;
-    if (std.mem.eql(u8, raw, "light")) return .light;
-    return error.InvalidStyle;
-}
-
 fn parseBoxStyle(raw: []const u8) ParseError!BoxDrawingStyle {
     if (std.mem.eql(u8, raw, "standard")) return .standard;
     if (std.mem.eql(u8, raw, "rounded")) return .rounded;
@@ -341,8 +351,33 @@ test "parses cli arguments" {
 
     try std.testing.expectEqual(Mode.cli, parsed.mode);
     try std.testing.expectEqual(@as(?usize, 88), parsed.width);
-    try std.testing.expectEqual(ThemeOverride.dark, parsed.style.?);
+    try std.testing.expectEqualStrings("dark", parsed.style.?);
     try std.testing.expectEqualStrings("README.md", parsed.input.file);
+}
+
+test "--dump-theme captures the theme name" {
+    const argv = [_][]const u8{ "mercat", "--dump-theme", "dracula" };
+    const parsed = try parse(std.testing.allocator, &argv);
+    defer parsed.deinit(std.testing.allocator);
+    try std.testing.expectEqualStrings("dracula", parsed.dump_theme.?);
+}
+
+test "--dump-theme without a value errors" {
+    const argv = [_][]const u8{ "mercat", "--dump-theme" };
+    try std.testing.expectError(error.MissingValue, parse(std.testing.allocator, &argv));
+}
+
+test "--style accepts any name; validation is deferred to the registry" {
+    const allocator = std.testing.allocator;
+    const argv = [_][]const u8{ "mercat", "--style", "dracula", "README.md" };
+    const parsed = try parse(allocator, &argv);
+    defer parsed.deinit(allocator);
+
+    try std.testing.expectEqualStrings("dracula", parsed.style.?);
+    // effectiveTheme returns the override over the configured name.
+    try std.testing.expectEqualStrings("dracula", parsed.effectiveTheme("light"));
+    // No override → configured name passes through.
+    try std.testing.expectEqualStrings("light", (Parsed{}).effectiveTheme("light"));
 }
 
 test "supports heading marker override" {

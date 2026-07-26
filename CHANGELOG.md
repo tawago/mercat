@@ -4,7 +4,31 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
-- Ongoing development
+### Themes
+
+- **New theme system.** Colors and glyphs now resolve through a single slot-based
+  theme engine. Seven built-in presets ship: `dark`, `light`, `ansi`, `dracula`,
+  `tokyo-night`, `pink`, and `markview`.
+- **`--style <name>`** selects any preset or user theme at the command line;
+  `[display] theme` and `MERCAT_THEME` accept the same free-form names (default
+  `"dark"`).
+- **`--dump-theme <name>`** prints a resolved theme as editable TOML.
+- **User theme files.** Drop `<name>.toml` in `~/.config/mercat/themes/`
+  (or `$XDG_CONFIG_HOME/mercat/themes/`) and select it by filename. Themes may
+  `extends = "<preset>"` and override only the slots they want.
+- Any of the 40 slots is overridable inline via `[theme.<slot>]`; structural
+  glyphs live under `[theme.glyphs]` (`quote_bar`, `bullets`, `hr_glyph`,
+  `task_ticked`/`task_unticked`, `table_style`). Colors accept xterm-256 indices,
+  ANSI-16 names, or `#rrggbb` truecolor values.
+
+### Breaking
+
+- **The flat `[display]` glyph keys have been removed:** `quote_bar`,
+  `bullet_glyphs`, `hr_glyph`, `task_checked`, `task_todo`, `table_border_set`,
+  and `heading_prefix`. Move them under `[theme.glyphs]` (and per-heading
+  `prefix` keys). See the migration table in the README. `table_border_set`
+  becomes `table_style`, which accepts `grid` (formerly `light`), `heavy`,
+  `double`, `ascii`, and the new `rounded`.
 
 ## [0.2.0]
 

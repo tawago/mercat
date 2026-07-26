@@ -52,7 +52,7 @@ zig build -Doptimize=ReleaseFast
 - **CLI mode**: Render markdown with syntax highlighting to stdout
 - **TUI mode**: Interactive pager with vim-style navigation
 - **Editor integration**: Press `e` to edit in $EDITOR, auto-reloads on return
-- **Themes**: Dark and light
+- **Themes**: Seven built-in presets (`dark`, `light`, `ansi`, `dracula`, `tokyo-night`, `pink`, `markview`) plus user theme files with per-slot color and glyph control
 - **Pager support**: Pipe through $PAGER or `less -R`
 - **Stdin support**: `cat file.md | mercat -`
 - **GFM support**: Tables, task lists, fenced code blocks, strikethrough
@@ -68,7 +68,8 @@ mercat -t .                   # Browse directory (WIP)
 mercat README.md              # Render to stdout
 mercat -p README.md           # Pipe through pager
 mercat -w 80 README.md        # Fixed width
-mercat --style dark README.md # Force dark theme
+mercat --style dracula README.md   # Pick a built-in preset or user theme
+mercat --dump-theme dark      # Print a theme as editable TOML
 cat file.md | mercat -        # Read from stdin
 
 ```
@@ -95,41 +96,81 @@ editor = "vim"
 pager = "less -R"
 
 [display]
-theme = "dark"       # dark, light
+theme = "dark"       # dark, light, ansi, dracula,
+                     # tokyo-night, pink, markview, or a user theme name
 width = 0            # 0 = terminal width
 heading_markers = true
 # YAML front matter display: panel (default), dim, compact, raw, hidden
 frontmatter = "panel"
 
-# Structural glyphs (a trailing space is appended after markers automatically)
-quote_bar = "▎"
-bullet_glyphs = ["•", "◦", "‣"]   # cycled by nesting depth
-hr_glyph = "─"
-task_checked = "[x]"
-task_todo = "[ ]"
-table_border_set = "light"        # light, heavy, double, ascii
-heading_prefix = "#"
-
 [files]
 extensions = ["md", "markdown", "mdown", "mkd"]
+```
 
-# Per-element color overrides (xterm-256 fg/bg indices; all keys optional:
-# fg, bg, bold, italic, underline, strikethrough). Use any of the following
-# 35 slots as [theme.<slot>]:
-#   heading1, heading2, heading3, heading4, heading5, heading6,
-#   body, muted, emphasis, strong, strong_emphasis,
-#   code, code_block, code_block_keyword, code_block_string,
-#   code_block_number, code_block_comment,
-#   code_keyword, code_string, code_number, code_comment,
-#   quote, link, strikethrough, image_alt, superscript, subscript, highlight,
-#   list_marker, table_border, table_header,
-#   task_checkbox_done, task_checkbox_todo, hr, code_fence_banner
+### Theming
+
+mercat resolves colors and glyphs through a single theme system. Pick a theme
+with `theme = "<name>"` in `[display]`, the `--style <name>` flag, or the
+`MERCAT_THEME` environment variable. Built-in names are `dark`, `light`,
+`ansi`, `dracula`, `tokyo-night`, `pink`, and `markview`.
+
+Every themable element is a **slot**. Override any slot inline in
+`config.toml`, or in a standalone theme file. Colors accept an xterm-256 index,
+an ANSI-16 name, or a `#rrggbb` truecolor value; every key is optional:
+
+```toml
 [theme.heading1]
 fg = 81
 bold = true
+underline_row = true      # draw a full-width rule under the heading
+underline_glyph = "═"
+
+[theme.glyphs]
+quote_bar = "▎"
+bullets = ["•", "◦", "‣"]        # cycled by nesting depth
+hr_glyph = "─"
+task_ticked = "[x]"
+task_unticked = "[ ]"
+table_style = "grid"             # grid, heavy, double, ascii, rounded
 ```
 
-Environment overrides: `MERCAT_THEME`, `MERCAT_WIDTH`, `MERCAT_FRONTMATTER`
+The full slot list (40 slots) and per-element documentation live in
+[`theme-guide.md`](theme-guide.md); open it under different styles to see each
+element change, e.g. `mercat --style dracula theme-guide.md`.
+
+**User theme files.** Drop `<name>.toml` in `~/.config/mercat/themes/`
+(or `$XDG_CONFIG_HOME/mercat/themes/`) and select it by its filename stem. A
+theme can start from any built-in with `extends = "dark"` and override only the
+slots it wants. Generate an editable starting point with:
+
+```bash
+mercat --dump-theme dark > ~/.config/mercat/themes/mine.toml
+mercat --style mine README.md
+```
+
+Environment overrides: `MERCAT_THEME`, `MERCAT_WIDTH`, `MERCAT_SYNTAX_THEME`,
+`MERCAT_FRONTMATTER`.
+
+#### Migration from the old `[display]` glyph keys
+
+The flat glyph keys that used to live under `[display]` — `quote_bar`,
+`bullet_glyphs`, `hr_glyph`, `task_checked`, `task_todo`, `table_border_set`,
+and `heading_prefix` — have been **removed**. They now live under
+`[theme.glyphs]` (and per-heading `prefix` keys), so structural glyphs are
+themed the same way as colors:
+
+| Old `[display]` key             | New location                                       |
+| ------------------------------- | -------------------------------------------------- |
+| `quote_bar = "▎"`               | `[theme.glyphs] quote_bar = "▎"`                   |
+| `bullet_glyphs = ["•","◦","‣"]` | `[theme.glyphs] bullets = ["•","◦","‣"]`           |
+| `hr_glyph = "─"`                | `[theme.glyphs] hr_glyph = "─"`                    |
+| `task_checked = "[x]"`          | `[theme.glyphs] task_ticked = "[x]"`               |
+| `task_todo = "[ ]"`             | `[theme.glyphs] task_unticked = "[ ]"`             |
+| `table_border_set = "light"`    | `[theme.glyphs] table_style = "grid"`              |
+| `heading_prefix = "#"`          | `[theme.heading1] prefix = "# "` (per level)       |
+
+The table border weights are unchanged in spirit — `table_style` accepts
+`grid` (the former `light`), `heavy`, `double`, `ascii`, and the new `rounded`.
 
 ## Status
 

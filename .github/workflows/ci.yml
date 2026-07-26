@@ -27,6 +27,9 @@ jobs:
         with:
           version: 0.15.1
 
+      - name: Lint file length
+        run: bash tools/check_line_count.sh
+
       - name: Build
         run: zig build -Doptimize=ReleaseSafe
 

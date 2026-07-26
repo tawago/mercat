@@ -3,7 +3,7 @@
 //! This module bridges the gap between the semantic SpanStyle (heading, code, link)
 //! and the concrete terminal output. It provides:
 //!
-//!   - Palette: A set of StyleTokens for each semantic style
+//!   - StyleMap: A set of StyleTokens for each semantic style
 //!   - token(): Maps SpanStyle → StyleToken for a given palette
 //!   - vaxisStyle(): Converts StyleToken → vaxis.Style for TUI rendering
 //!
@@ -13,22 +13,32 @@
 //! This separation allows the same Span data to render identically in both modes.
 
 const std = @import("std");
-const config = @import("config.zig");
 const render_model = @import("render_model.zig");
 const vaxis = @import("vaxis");
+const presets = @import("theme/presets.zig");
+const spec = @import("theme/spec.zig");
+const types = @import("render/types.zig");
+
+pub const color = @import("theme/color.zig");
+pub const Color = color.Color;
+
+/// Terse constructor re-export so palette literals stay readable: `idx(81)`.
+pub const idx = color.idx;
 
 /// Concrete style attributes for terminal output.
-/// Contains the actual color index and text decorations.
+/// Colors are a `Color` union (terminal-default / xterm-256 index / named
+/// ansi16 / rgb) so the same token drives the CLI ANSI writer, the TUI vaxis
+/// backend, and the PNG exporter.
 pub const StyleToken = struct {
-    fg_index: u8,
+    fg: Color,
     bold: bool = false,
     italic: bool = false,
     underline: bool = false,
     strikethrough: bool = false,
-    bg_index: ?u8 = null,
+    bg: ?Color = null,
 };
 
-pub const Palette = struct {
+pub const StyleMap = struct {
     heading1: StyleToken,
     heading2: StyleToken,
     heading3: StyleToken,
@@ -57,291 +67,135 @@ pub const Palette = struct {
     superscript: StyleToken,
     subscript: StyleToken,
     highlight: StyleToken,
-    // Structural slots (Issue 17 Layer 1b). Field names must match
-    // config.ThemeOverrides exactly (see palette() merge). The constructor arms
-    // omit these; palette() stamps them from the legacy borrowed slots after the
-    // switch (before the override merge). The placeholder default only lets the
-    // arm literals omit them — it is never observed.
-    list_marker: StyleToken = .{ .fg_index = 0 }, // stamped by palette()
-    table_border: StyleToken = .{ .fg_index = 0 }, // stamped by palette()
-    table_header: StyleToken = .{ .fg_index = 0 }, // stamped by palette()
-    task_checkbox_done: StyleToken = .{ .fg_index = 0 }, // stamped by palette()
-    task_checkbox_todo: StyleToken = .{ .fg_index = 0 }, // stamped by palette()
-    hr: StyleToken = .{ .fg_index = 0 }, // stamped by palette()
-    code_fence_banner: StyleToken = .{ .fg_index = 0 }, // stamped by palette()
     frontmatter_key: StyleToken,
     frontmatter_value: StyleToken,
     frontmatter_cap: StyleToken,
+    // #22's marker taxonomy (replaces #17's list_marker/task_checkbox_done/
+    // task_checkbox_todo). Field names are name-for-name identical to SpanStyle
+    // so spec.Slot.fromSpanStyle (stringToEnum(Slot, @tagName(style)).?) resolves.
+    bullet: StyleToken,
+    ordered: StyleToken,
+    task_on: StyleToken,
+    task_off: StyleToken,
+    list_item: StyleToken,
+    // Structural color slots re-added for the reconciled 40-slot union (S2). Bake
+    // defaults them to borrowed tokens (table_border/hr/code_fence_banner → muted,
+    // table_header → body) for byte-parity with #17's un-themed output.
+    table_border: StyleToken,
+    table_header: StyleToken,
+    hr: StyleToken,
+    code_fence_banner: StyleToken,
 };
 
-pub fn palette(theme: config.Theme, syntax_theme: config.SyntaxTheme, overrides: config.ThemeOverrides) Palette {
-    var pal = switch (theme) {
-        .dark => darkPalette(syntax_theme),
-        .light => lightPalette(syntax_theme),
-    };
-    // Stamp the structural slots from their legacy borrowed tokens, once, before
-    // the override merge (guarded-by: theme_test "structural slot defaults equal
-    // their legacy borrowed tokens"). Keeps the four constructor arms free of the
-    // seven repeated entries while preserving byte-parity.
-    pal.list_marker = pal.muted;
-    pal.table_border = pal.muted;
-    pal.task_checkbox_done = pal.muted;
-    pal.task_checkbox_todo = pal.muted;
-    pal.hr = pal.muted;
-    pal.code_fence_banner = pal.muted;
-    pal.table_header = pal.body;
-    // Comptime-checked merge: every ThemeOverrides field name must name a
-    // Palette field (else `@field(&pal, ...)` fails to compile). Each non-null
-    // attribute stamps over the base token.
-    inline for (std.meta.fields(config.ThemeOverrides)) |field| {
-        if (@field(overrides, field.name)) |ov| {
-            const slot = &@field(pal, field.name);
-            if (ov.fg) |v| slot.fg_index = v;
-            if (ov.bg) |v| slot.bg_index = v;
-            if (ov.bold) |v| slot.bold = v;
-            if (ov.italic) |v| slot.italic = v;
-            if (ov.underline) |v| slot.underline = v;
-            if (ov.strikethrough) |v| slot.strikethrough = v;
-        }
+/// The neutral mechanism-level palettes. These are *derived at comptime* from
+/// the `dark`/`light` preset specs in `theme/presets.zig` — the single source of
+/// truth — so the slot colors live in exactly one place. They serve two roles:
+///   1. the default `StyleMap` used by the export/PNG paths + tests,
+///   2. the base palette that `resolve.bake` overlays sparse preset slots onto
+///      (unset slots of dracula/ansi/etc. fall back to these).
+pub const neutralDark: StyleMap = bakeSlots(presets.dark.slots);
+pub const neutralLight: StyleMap = bakeSlots(presets.light.slots);
+
+/// Overlay a sparse `SlotSpec` onto a concrete `StyleToken`.
+fn applySlotToken(tok: *StyleToken, s: spec.SlotSpec) void {
+    if (s.fg) |c| tok.fg = c;
+    if (s.bg) |c| tok.bg = c;
+    if (s.bold) |v| tok.bold = v;
+    if (s.italic) |v| tok.italic = v;
+    if (s.underline) |v| tok.underline = v;
+    if (s.strike) |v| tok.strikethrough = v;
+}
+
+/// The single bake primitive: overlay a sparse `SlotMap` onto an existing
+/// `StyleMap` base, then borrow structural defaults for any slot the overlay
+/// left unset. Shared by the neutral-palette bake and `resolve.bake`, so the
+/// overlay + borrow rules live in exactly one place.
+pub fn overlaySlots(base: StyleMap, slots: spec.SlotMap) StyleMap {
+    var p = base;
+    inline for (@typeInfo(types.SpanStyle).@"enum".fields) |f| {
+        const style = @field(types.SpanStyle, f.name);
+        const slot = spec.Slot.fromSpanStyle(style);
+        if (slots.get(slot)) |ss| applySlotToken(&@field(p, f.name), ss);
     }
-    return pal;
+    borrowStructuralDefaults(&p, slots);
+    return p;
 }
 
-fn darkPalette(syntax_theme: config.SyntaxTheme) Palette {
-    return switch (syntax_theme) {
-        .default => .{
-            .heading1 = .{ .fg_index = 81, .bold = true },
-            .heading2 = .{ .fg_index = 75, .bold = true },
-            .heading3 = .{ .fg_index = 74, .bold = false },
-            .heading4 = .{ .fg_index = 67, .bold = false },
-            .heading5 = .{ .fg_index = 66, .bold = false },
-            .heading6 = .{ .fg_index = 59, .bold = false },
-            .body = .{ .fg_index = 252 },
-            .muted = .{ .fg_index = 244 },
-            .emphasis = .{ .fg_index = 188, .italic = true },
-            .strong = .{ .fg_index = 231, .bold = true },
-            .strong_emphasis = .{ .fg_index = 231, .bold = true, .italic = true },
-            .code = .{ .fg_index = 114 },
-            .code_block = .{ .fg_index = 250, .bg_index = 236 },
-            .code_block_keyword = .{ .fg_index = 141, .bold = true, .bg_index = 236 },
-            .code_block_string = .{ .fg_index = 180, .bg_index = 236 },
-            .code_block_number = .{ .fg_index = 216, .bg_index = 236 },
-            .code_block_comment = .{ .fg_index = 243, .bg_index = 236 },
-            .code_keyword = .{ .fg_index = 141, .bold = true },
-            .code_string = .{ .fg_index = 180 },
-            .code_number = .{ .fg_index = 216 },
-            .code_comment = .{ .fg_index = 243 },
-            .quote = .{ .fg_index = 109 },
-            .link = .{ .fg_index = 117, .underline = true },
-            .strikethrough = .{ .fg_index = 244, .strikethrough = true },
-            .image_alt = .{ .fg_index = 213 },
-            .superscript = .{ .fg_index = 153 },
-            .subscript = .{ .fg_index = 152 },
-            .highlight = .{ .fg_index = 227, .bold = true },
-            .frontmatter_key = .{ .fg_index = 109, .bg_index = 236 },
-            .frontmatter_value = .{ .fg_index = 250, .bg_index = 236 },
-            .frontmatter_cap = .{ .fg_index = 236 },
-        },
-        .classic => .{
-            .heading1 = .{ .fg_index = 81, .bold = true },
-            .heading2 = .{ .fg_index = 75, .bold = true },
-            .heading3 = .{ .fg_index = 74, .bold = false },
-            .heading4 = .{ .fg_index = 67, .bold = false },
-            .heading5 = .{ .fg_index = 66, .bold = false },
-            .heading6 = .{ .fg_index = 59, .bold = false },
-            .body = .{ .fg_index = 252 },
-            .muted = .{ .fg_index = 244 },
-            .emphasis = .{ .fg_index = 188, .italic = true },
-            .strong = .{ .fg_index = 231, .bold = true },
-            .strong_emphasis = .{ .fg_index = 231, .bold = true, .italic = true },
-            .code = .{ .fg_index = 114 },
-            .code_block = .{ .fg_index = 114, .bg_index = 236 },
-            .code_block_keyword = .{ .fg_index = 81, .bold = true, .bg_index = 236 },
-            .code_block_string = .{ .fg_index = 186, .bg_index = 236 },
-            .code_block_number = .{ .fg_index = 221, .bg_index = 236 },
-            .code_block_comment = .{ .fg_index = 243, .bg_index = 236 },
-            .code_keyword = .{ .fg_index = 81, .bold = true },
-            .code_string = .{ .fg_index = 186 },
-            .code_number = .{ .fg_index = 221 },
-            .code_comment = .{ .fg_index = 243 },
-            .quote = .{ .fg_index = 109 },
-            .link = .{ .fg_index = 117, .underline = true },
-            .strikethrough = .{ .fg_index = 244, .strikethrough = true },
-            .image_alt = .{ .fg_index = 213 },
-            .superscript = .{ .fg_index = 153 },
-            .subscript = .{ .fg_index = 152 },
-            .highlight = .{ .fg_index = 227, .bold = true },
-            .frontmatter_key = .{ .fg_index = 109, .bg_index = 236 },
-            .frontmatter_value = .{ .fg_index = 250, .bg_index = 236 },
-            .frontmatter_cap = .{ .fg_index = 236 },
-        },
-    };
+/// #17-parity: `list_item` and the four structural color slots borrow a sibling
+/// token (list_item/table_header → body; table_border/hr/code_fence_banner →
+/// muted) whenever `slots` leaves them unset, so the un-themed path stays
+/// byte-identical while a preset may still set them explicitly.
+fn borrowStructuralDefaults(p: *StyleMap, slots: spec.SlotMap) void {
+    if (slots.get(.list_item) == null) p.list_item = p.body;
+    if (slots.get(.table_border) == null) p.table_border = p.muted;
+    if (slots.get(.table_header) == null) p.table_header = p.body;
+    if (slots.get(.hr) == null) p.hr = p.muted;
+    if (slots.get(.code_fence_banner) == null) p.code_fence_banner = p.muted;
 }
 
-fn lightPalette(syntax_theme: config.SyntaxTheme) Palette {
-    return switch (syntax_theme) {
-        .default => .{
-            .heading1 = .{ .fg_index = 25, .bold = true },
-            .heading2 = .{ .fg_index = 26, .bold = true },
-            .heading3 = .{ .fg_index = 33, .bold = false },
-            .heading4 = .{ .fg_index = 39, .bold = false },
-            .heading5 = .{ .fg_index = 45, .bold = false },
-            .heading6 = .{ .fg_index = 109, .bold = false },
-            .body = .{ .fg_index = 236 },
-            .muted = .{ .fg_index = 245 },
-            .emphasis = .{ .fg_index = 60, .italic = true },
-            .strong = .{ .fg_index = 18, .bold = true },
-            .strong_emphasis = .{ .fg_index = 18, .bold = true, .italic = true },
-            .code = .{ .fg_index = 28 },
-            .code_block = .{ .fg_index = 239, .bg_index = 254 },
-            .code_block_keyword = .{ .fg_index = 97, .bold = true, .bg_index = 254 },
-            .code_block_string = .{ .fg_index = 131, .bg_index = 254 },
-            .code_block_number = .{ .fg_index = 167, .bg_index = 254 },
-            .code_block_comment = .{ .fg_index = 246, .bg_index = 254 },
-            .code_keyword = .{ .fg_index = 97, .bold = true },
-            .code_string = .{ .fg_index = 131 },
-            .code_number = .{ .fg_index = 167 },
-            .code_comment = .{ .fg_index = 246 },
-            .quote = .{ .fg_index = 60 },
-            .link = .{ .fg_index = 27, .underline = true },
-            .strikethrough = .{ .fg_index = 245, .strikethrough = true },
-            .image_alt = .{ .fg_index = 213 },
-            .superscript = .{ .fg_index = 26 },
-            .subscript = .{ .fg_index = 31 },
-            .highlight = .{ .fg_index = 130, .bold = true },
-            .frontmatter_key = .{ .fg_index = 60, .bg_index = 254 },
-            .frontmatter_value = .{ .fg_index = 239, .bg_index = 254 },
-            .frontmatter_cap = .{ .fg_index = 254 },
-        },
-        .classic => .{
-            .heading1 = .{ .fg_index = 25, .bold = true },
-            .heading2 = .{ .fg_index = 26, .bold = true },
-            .heading3 = .{ .fg_index = 33, .bold = false },
-            .heading4 = .{ .fg_index = 39, .bold = false },
-            .heading5 = .{ .fg_index = 45, .bold = false },
-            .heading6 = .{ .fg_index = 109, .bold = false },
-            .body = .{ .fg_index = 236 },
-            .muted = .{ .fg_index = 245 },
-            .emphasis = .{ .fg_index = 60, .italic = true },
-            .strong = .{ .fg_index = 18, .bold = true },
-            .strong_emphasis = .{ .fg_index = 18, .bold = true, .italic = true },
-            .code = .{ .fg_index = 28 },
-            .code_block = .{ .fg_index = 28, .bg_index = 254 },
-            .code_block_keyword = .{ .fg_index = 25, .bold = true, .bg_index = 254 },
-            .code_block_string = .{ .fg_index = 94, .bg_index = 254 },
-            .code_block_number = .{ .fg_index = 130, .bg_index = 254 },
-            .code_block_comment = .{ .fg_index = 246, .bg_index = 254 },
-            .code_keyword = .{ .fg_index = 25, .bold = true },
-            .code_string = .{ .fg_index = 94 },
-            .code_number = .{ .fg_index = 130 },
-            .code_comment = .{ .fg_index = 246 },
-            .quote = .{ .fg_index = 60 },
-            .link = .{ .fg_index = 27, .underline = true },
-            .strikethrough = .{ .fg_index = 245, .strikethrough = true },
-            .image_alt = .{ .fg_index = 213 },
-            .superscript = .{ .fg_index = 26 },
-            .subscript = .{ .fg_index = 31 },
-            .highlight = .{ .fg_index = 130, .bold = true },
-            .frontmatter_key = .{ .fg_index = 60, .bg_index = 254 },
-            .frontmatter_value = .{ .fg_index = 239, .bg_index = 254 },
-            .frontmatter_cap = .{ .fg_index = 254 },
-        },
-    };
+/// Bake a default `SlotMap` into a concrete `StyleMap`, starting from an
+/// all-terminal-default palette. The resolver (`resolve.zig`) is the single
+/// bake authority for the themed pipeline (including the `classic` syntax
+/// variant); this comptime arm only derives the two neutral base palettes.
+fn bakeSlots(base_slots: spec.SlotMap) StyleMap {
+    @setEvalBranchQuota(200000);
+    var p: StyleMap = undefined;
+    inline for (@typeInfo(StyleMap).@"struct".fields) |f| {
+        @field(p, f.name) = StyleToken{ .fg = .default };
+    }
+    return overlaySlots(p, base_slots);
 }
 
-/// Maps a semantic SpanStyle to a concrete StyleToken using the given palette.
-/// This is the key function that bridges semantic styles to terminal colors.
-pub fn token(palette_value: Palette, style: render_model.SpanStyle) StyleToken {
-    return switch (style) {
-        .heading1 => palette_value.heading1,
-        .heading2 => palette_value.heading2,
-        .heading3 => palette_value.heading3,
-        .heading4 => palette_value.heading4,
-        .heading5 => palette_value.heading5,
-        .heading6 => palette_value.heading6,
-        .body => palette_value.body,
-        .muted => palette_value.muted,
-        .emphasis => palette_value.emphasis,
-        .strong => palette_value.strong,
-        .strong_emphasis => palette_value.strong_emphasis,
-        .code => palette_value.code,
-        .code_block => palette_value.code_block,
-        .code_block_keyword => palette_value.code_block_keyword,
-        .code_block_string => palette_value.code_block_string,
-        .code_block_number => palette_value.code_block_number,
-        .code_block_comment => palette_value.code_block_comment,
-        .code_keyword => palette_value.code_keyword,
-        .code_string => palette_value.code_string,
-        .code_number => palette_value.code_number,
-        .code_comment => palette_value.code_comment,
-        .quote => palette_value.quote,
-        .link => palette_value.link,
-        .strikethrough => palette_value.strikethrough,
-        .image_alt => palette_value.image_alt,
-        .superscript => palette_value.superscript,
-        .subscript => palette_value.subscript,
-        .highlight => palette_value.highlight,
-        .list_marker => palette_value.list_marker,
-        .table_border => palette_value.table_border,
-        .table_header => palette_value.table_header,
-        .task_checkbox_done => palette_value.task_checkbox_done,
-        .task_checkbox_todo => palette_value.task_checkbox_todo,
-        .hr => palette_value.hr,
-        .code_fence_banner => palette_value.code_fence_banner,
-        .frontmatter_key => palette_value.frontmatter_key,
-        .frontmatter_value => palette_value.frontmatter_value,
-        .frontmatter_cap => palette_value.frontmatter_cap,
-    };
+/// Maps a semantic SpanStyle to its concrete StyleToken in the given StyleMap.
+/// Relies on the name-for-name SpanStyle↔StyleMap field mirror (the same
+/// invariant `overlaySlots` uses), so it needs no per-slot maintenance.
+pub fn token(style_map: StyleMap, style: render_model.SpanStyle) StyleToken {
+    inline for (@typeInfo(render_model.SpanStyle).@"enum".fields) |f| {
+        if (style == @field(render_model.SpanStyle, f.name)) return @field(style_map, f.name);
+    }
+    unreachable;
 }
 
-/// Styling for the copy-confirmation toast: a soft panel with a subtle green
-/// rounded border and readable text, tuned per light/dark mode so it reads as a
-/// gentle confirmation rather than a harsh reverse-video block.
+/// Styling for the copy-confirmation toast / metadata overlay: a soft panel
+/// with a rounded border and readable text, derived from the resolved theme so
+/// every preset gets matching overlay colors.
 pub const ToastStyle = struct {
     fill: vaxis.Style,
     border: vaxis.Style,
     text: vaxis.Style,
 };
 
-pub fn toastStyle(theme: config.Theme) ToastStyle {
-    // Track the theme's own panel (code-block background) and body text so the
-    // toast stays in sync with the palette; only the green accent is bespoke.
-    const active = palette(theme, .default, .{});
-    const bg: vaxis.Color = if (active.code_block.bg_index) |index| .{ .index = index } else .default;
-    const accent: u8 = switch (theme) {
-        .light => 65,
-        .dark => 108,
-    };
+/// Builds the toast/metadata panel style from a resolved theme's accent color
+/// and panel background (Correctness #1). Both overlays share the same soft
+/// panel; the caller decides whether the text is bold (toast) or not
+/// (metadata). Deriving from the ResolvedTheme means all seven presets — not
+/// just dark/light — get panel colors that match their palette.
+pub fn panelStyle(accent: Color, base_bg: Color, bold: bool) ToastStyle {
+    const bg = toVaxisColor(base_bg);
     return .{
         .fill = .{ .bg = bg },
-        .border = .{ .fg = .{ .index = accent }, .bg = bg },
-        .text = .{ .fg = .{ .index = active.body.fg_index }, .bg = bg, .bold = true },
+        .border = .{ .fg = toVaxisColor(accent), .bg = bg },
+        .text = .{ .fg = toVaxisColor(accent), .bg = bg, .bold = bold },
     };
 }
 
-/// Styling for the TUI metadata overlay (front matter panel toggled with
-/// `m`): the same soft panel as the toast but with a neutral blue accent so
-/// it reads as reference information, not a confirmation.
-pub fn metadataPanelStyle(theme: config.Theme) ToastStyle {
-    const active = palette(theme, .default, .{});
-    const bg: vaxis.Color = if (active.code_block.bg_index) |index| .{ .index = index } else .default;
-    const accent: u8 = switch (theme) {
-        .light => 25,
-        .dark => 67,
-    };
-    return .{
-        .fill = .{ .bg = bg },
-        .border = .{ .fg = .{ .index = accent }, .bg = bg },
-        .text = .{ .fg = .{ .index = active.body.fg_index }, .bg = bg },
-    };
+/// Copy-confirmation toast: bold accent text on the theme panel background.
+pub fn toastStyle(accent: Color, base_bg: Color) ToastStyle {
+    return panelStyle(accent, base_bg, true);
+}
+
+/// TUI metadata overlay (front matter panel toggled with `m`): same soft panel
+/// as the toast, non-bold so it reads as reference information.
+pub fn metadataPanelStyle(accent: Color, base_bg: Color) ToastStyle {
+    return panelStyle(accent, base_bg, false);
 }
 
 /// Converts a StyleToken to vaxis.Style for TUI rendering.
 /// The CLI equivalent is ansi.writeTokenStyled() which emits ANSI escape codes.
 pub fn vaxisStyle(token_value: StyleToken) vaxis.Style {
     return .{
-        .fg = .{ .index = token_value.fg_index },
-        .bg = if (token_value.bg_index) |bg| .{ .index = bg } else .default,
+        .fg = toVaxisColor(token_value.fg),
+        .bg = if (token_value.bg) |bg| toVaxisColor(bg) else .default,
         .bold = token_value.bold,
         .italic = token_value.italic,
         .strikethrough = token_value.strikethrough,
@@ -349,32 +203,64 @@ pub fn vaxisStyle(token_value: StyleToken) vaxis.Style {
     };
 }
 
-test "structural slot defaults equal their legacy borrowed tokens" {
-    // Byte-parity guard: each new structural slot must resolve to exactly the
-    // token its emit site used before Issue 17 (mostly .muted; header = .body).
-    inline for (.{ config.Theme.dark, config.Theme.light }) |t| {
-        inline for (.{ config.SyntaxTheme.default, config.SyntaxTheme.classic }) |s| {
-            const pal = palette(t, s, .{});
-            try std.testing.expectEqual(token(pal, .muted), token(pal, .list_marker));
-            try std.testing.expectEqual(token(pal, .muted), token(pal, .table_border));
-            try std.testing.expectEqual(token(pal, .body), token(pal, .table_header));
-            try std.testing.expectEqual(token(pal, .muted), token(pal, .task_checkbox_done));
-            try std.testing.expectEqual(token(pal, .muted), token(pal, .task_checkbox_todo));
-            try std.testing.expectEqual(token(pal, .muted), token(pal, .hr));
-            try std.testing.expectEqual(token(pal, .muted), token(pal, .code_fence_banner));
-        }
+/// Maps a Color union arm onto a vaxis color. The terminal decides the exact
+/// hue for `default` and `ansi16`. For `rgb` mercat — not the terminal — decides:
+/// the pinned vaxis never downgrades, so we mirror ansi.writeColorSgr() and fall
+/// back to the nearest xterm-256 index when `color.truecolorEnabled()` is false.
+pub fn toVaxisColor(c: Color) vaxis.Color {
+    return switch (c) {
+        .default => .default,
+        .index => |n| .{ .index = n },
+        .ansi16 => |a| .{ .index = a.index() },
+        .rgb => |v| if (color.truecolorEnabled())
+            .{ .rgb = .{ v.r, v.g, v.b } }
+        else
+            .{ .index = color.to256(c).? },
+    };
+}
+
+test "toVaxisColor downgrades rgb when truecolor is off" {
+    const saved = color.truecolorEnabled();
+    defer color.setTruecolor(saved);
+
+    const c: Color = .{ .rgb = .{ .r = 0xd7, .g = 0x87, .b = 0x00 } };
+
+    color.setTruecolor(true);
+    try std.testing.expectEqual(vaxis.Color{ .rgb = .{ 0xd7, 0x87, 0x00 } }, toVaxisColor(c));
+
+    color.setTruecolor(false);
+    try std.testing.expectEqual(vaxis.Color{ .index = color.to256(c).? }, toVaxisColor(c));
+}
+
+test "structural slots bake to their borrowed defaults (byte-parity)" {
+    // The four re-added slots are unset in every preset, so they default to the
+    // same tokens #17 stamped for them (table_border/hr/code_fence_banner →
+    // muted, table_header → body). This is the byte-parity anchor for the
+    // un-themed table/hr/fence rendering. (list_item is NOT one of these four —
+    // dark/light presets explicitly color it, so it is asserted separately.)
+    inline for (.{ neutralDark, neutralLight }) |pal| {
+        try std.testing.expectEqual(token(pal, .muted), token(pal, .table_border));
+        try std.testing.expectEqual(token(pal, .muted), token(pal, .hr));
+        try std.testing.expectEqual(token(pal, .muted), token(pal, .code_fence_banner));
+        try std.testing.expectEqual(token(pal, .body), token(pal, .table_header));
     }
 }
 
-test "palette override changes only the targeted slot" {
-    const base = palette(.dark, .default, .{});
-    const merged = palette(.dark, .default, .{ .heading1 = .{ .fg = 200, .bold = false } });
+test "list_item defaults to body only when a preset leaves it unset" {
+    // The bake fallback stamps list_item = body, but a preset may override it.
+    // markview leaves list_item unset → it must equal body; dark sets it to a
+    // dimmer register (ix(250)) → it must differ from body.
+    const markview = bakeSlots(presets.markview.slots);
+    try std.testing.expectEqual(token(markview, .body), token(markview, .list_item));
 
-    try std.testing.expectEqual(@as(u8, 200), merged.heading1.fg_index);
-    try std.testing.expectEqual(false, merged.heading1.bold);
-    // Every other slot is untouched.
-    try std.testing.expectEqual(base.heading2, merged.heading2);
-    try std.testing.expectEqual(base.body, merged.body);
-    try std.testing.expectEqual(base.muted, merged.muted);
-    try std.testing.expectEqual(base.hr, merged.hr);
+    try std.testing.expect(!std.meta.eql(token(neutralDark, .body), token(neutralDark, .list_item)));
+}
+
+test "neutral palette anchors match the preset specs" {
+    // Classic-variant anchors live in resolve_test.zig — the resolver is the
+    // only path that bakes the `classic` delta.
+    try std.testing.expectEqual(idx(254), neutralDark.body.fg);
+    try std.testing.expectEqual(idx(141), neutralDark.code_block_keyword.fg);
+    try std.testing.expectEqual(idx(234), neutralLight.body.fg);
+    try std.testing.expectEqual(idx(92), neutralLight.code_block_keyword.fg);
 }

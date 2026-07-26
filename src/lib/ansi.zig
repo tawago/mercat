@@ -13,6 +13,8 @@
 const std = @import("std");
 const vaxis = @import("vaxis");
 const theme = @import("../core/theme.zig");
+const color = @import("../core/theme/color.zig");
+const Color = color.Color;
 
 pub const StyledLine = struct {
     segments: []vaxis.Segment,
@@ -89,12 +91,55 @@ fn formatStyle(buffer: []u8, token: theme.StyleToken) ![]const u8 {
         first = false;
     }
     if (!first) try writer.writeAll(";");
-    try writer.print("38;5;{d}", .{token.fg_index});
-    if (token.bg_index) |bg| {
-        try writer.print(";48;5;{d}", .{bg});
+    try writeColorSgr(writer, token.fg, .fg);
+    if (token.bg) |bg| {
+        try writer.writeAll(";");
+        try writeColorSgr(writer, bg, .bg);
     }
     try writer.writeAll("m");
     return buffer[0..stream.pos];
+}
+
+const Layer = enum { fg, bg };
+
+/// Emit the SGR color parameters (no leading/trailing separators, no `m`) for
+/// one color on one layer. `rgb` emits `38;2;r;g;b` when the terminal supports
+/// truecolor, otherwise downgrades to the nearest xterm-256 index. `ansi16`
+/// emits the named-color codes (30-37/90-97 fg, 40-47/100-107 bg) so the
+/// terminal's own palette decides the hue.
+fn writeColorSgr(writer: anytype, c: Color, layer: Layer) !void {
+    const is_fg = layer == .fg;
+    switch (c) {
+        .default => try writer.writeAll(if (is_fg) "39" else "49"),
+        .index => |n| try writeIndexed(writer, is_fg, n),
+        .ansi16 => |a| {
+            const slot = a.index();
+            const base: u16 = if (slot < 8)
+                (if (is_fg) @as(u16, 30) else 40)
+            else
+                (if (is_fg) @as(u16, 90) else 100);
+            try writer.print("{d}", .{base + (slot % 8)});
+        },
+        .rgb => |v| {
+            if (color.truecolorEnabled()) {
+                if (is_fg) {
+                    try writer.print("38;2;{d};{d};{d}", .{ v.r, v.g, v.b });
+                } else {
+                    try writer.print("48;2;{d};{d};{d}", .{ v.r, v.g, v.b });
+                }
+            } else {
+                try writeIndexed(writer, is_fg, color.to256(c).?);
+            }
+        },
+    }
+}
+
+fn writeIndexed(writer: anytype, is_fg: bool, n: u8) !void {
+    if (is_fg) {
+        try writer.print("38;5;{d}", .{n});
+    } else {
+        try writer.print("48;5;{d}", .{n});
+    }
 }
 
 pub fn stripAlloc(allocator: std.mem.Allocator, text: []const u8) ![]u8 {
@@ -224,6 +269,41 @@ test "strips ansi escape sequences" {
     defer allocator.free(stripped);
 
     try std.testing.expectEqualStrings("hello world", stripped);
+}
+
+test "formatStyle emits xterm-256 for index colors" {
+    var buf: [48]u8 = undefined;
+    const out = try formatStyle(&buf, .{ .fg = .{ .index = 81 }, .bold = true });
+    try std.testing.expectEqualStrings("\x1b[1;38;5;81m", out);
+}
+
+test "formatStyle emits named SGR for ansi16 colors" {
+    var buf: [48]u8 = undefined;
+    // blue (slot 4) fg → 34; bright_green (slot 10) bg → 102.
+    const out = try formatStyle(&buf, .{ .fg = .{ .ansi16 = .blue }, .bg = .{ .ansi16 = .bright_green } });
+    try std.testing.expectEqualStrings("\x1b[34;102m", out);
+}
+
+test "formatStyle emits truecolor when enabled, downgrades when off" {
+    var buf: [48]u8 = undefined;
+    const tok: theme.StyleToken = .{ .fg = color.rgb(255, 255, 255) };
+
+    color.setTruecolor(true);
+    const on = try formatStyle(&buf, tok);
+    try std.testing.expectEqualStrings("\x1b[38;2;255;255;255m", on);
+
+    color.setTruecolor(false);
+    var buf2: [48]u8 = undefined;
+    const off = try formatStyle(&buf2, tok);
+    // Pure white downgrades to cube index 231.
+    try std.testing.expectEqualStrings("\x1b[38;5;231m", off);
+    color.setTruecolor(false);
+}
+
+test "formatStyle emits terminal-default for default arm" {
+    var buf: [48]u8 = undefined;
+    const out = try formatStyle(&buf, .{ .fg = .default, .bg = .default });
+    try std.testing.expectEqualStrings("\x1b[39;49m", out);
 }
 
 test "parses ansi styled lines" {

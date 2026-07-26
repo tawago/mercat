@@ -8,9 +8,10 @@ const unicode = @import("../../lib/unicode.zig");
 const Inline = markdown.Inline;
 const SpanStyle = types.SpanStyle;
 const Builder = builder_mod.Builder;
+const Decor = @import("decor.zig").Decor;
 
-pub fn renderWrappedInlines(allocator: std.mem.Allocator, builder: *Builder, inlines: []const Inline, width: usize, first_prefix_style: SpanStyle, first_prefix: []const u8, rest_prefix_style: SpanStyle, rest_prefix: []const u8, default_style: SpanStyle) !void {
-    const tokens = try inline_mod.inlinesToTokens(allocator, inlines);
+pub fn renderWrappedInlines(allocator: std.mem.Allocator, builder: *Builder, inlines: []const Inline, width: usize, first_prefix_style: SpanStyle, first_prefix: []const u8, rest_prefix_style: SpanStyle, rest_prefix: []const u8, default_style: SpanStyle, decor: *const Decor) !void {
+    const tokens = try inline_mod.inlinesToTokens(allocator, inlines, decor);
     defer {
         for (tokens) |token| {
             allocator.free(token.text);
