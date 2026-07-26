@@ -14,10 +14,10 @@ limit=500
 grandfathered=(
   src/core/mermaid/parser.zig
   src/core/mermaid/types.zig
-  src/core/markdown.zig
-  src/core/render/blocks.zig
-  src/core/render/frontmatter.zig
-  src/core/preprocess.zig
+  src/core/markdown/parser.zig
+  src/core/markdown/render/blocks.zig
+  src/core/markdown/render/frontmatter.zig
+  src/core/markdown/preprocess.zig
   src/core/mermaid/sequence/render.zig
   src/export/png_encode.zig
   src/export/png.zig
