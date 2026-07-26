@@ -1,5 +1,5 @@
 const std = @import("std");
-const markdown = @import("markdown.zig");
+const markdown = @import("parser.zig");
 const types = @import("render/types.zig");
 const builder_mod = @import("render/builder.zig");
 const blocks = @import("render/blocks.zig");
@@ -69,5 +69,5 @@ fn materializeLineFill(allocator: std.mem.Allocator, lines: []Line, options: Opt
 }
 
 test {
-    _ = @import("render_model_test.zig");
+    _ = @import("render_test.zig");
 }

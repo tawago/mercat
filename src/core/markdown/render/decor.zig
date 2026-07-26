@@ -5,7 +5,7 @@
 //! produces one of these; the block/inline/table renderers consume it in S5.
 
 const std = @import("std");
-const spec = @import("../theme/spec.zig");
+const spec = @import("../../theme/spec.zig");
 
 pub const Slot = spec.Slot;
 pub const slot_count = spec.slot_count;

@@ -1,5 +1,6 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
+const text = @import("../../lib/text.zig");
 
 /// Supported diagram types
 pub const DiagramType = enum {
@@ -11,7 +12,8 @@ pub const DiagramType = enum {
     unsupported,
 
     pub fn fromSource(source: []const u8) DiagramType {
-        const trimmed = std.mem.trimLeft(u8, source, " \t\n\r");
+        // Blank lines, a UTF-8 BOM and `%%` comments may precede the keyword.
+        const trimmed = text.firstMeaningfulLine(source, "%%");
         if (std.mem.startsWith(u8, trimmed, "graph") or
             std.mem.startsWith(u8, trimmed, "flowchart"))
         {

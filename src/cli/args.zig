@@ -5,41 +5,81 @@ pub const BoxDrawingStyle = mermaid_types.BoxDrawingStyle;
 pub const CrossingReductionHeuristic = mermaid_types.CrossingReductionHeuristic;
 pub const ForceLayout = mermaid_types.ForceLayout;
 
-pub const help_text =
-    \\mercat - Zig terminal markdown viewer
+/// Brief usage, shown when mercat is invoked with nothing to do (no file
+/// argument and an interactive terminal on stdin). The full contract lives in
+/// `help_text` (-h only).
+pub const usage_text =
+    \\mercat - Mermaid & Markdown Viewer on Terminal.
     \\
     \\Usage:
-    \\  mercat [options] <file>
-    \\  mercat [options] -
-    \\  cat README.md | mercat -
-    \\  mercat -t <path>
+    \\  mercat [options] <file>        Render a file to stdout
+    \\  cat file.md | mercat           Render piped stdin (no "-" needed)
+    \\  mercat -t <path>               Interactive TUI viewer/browser
+    \\
+    \\Run mercat -h for all options, input rules and examples.
+    \\
+;
+
+pub const help_text =
+    \\mercat - Mermaid & Markdown Viewer on Terminal.
+    \\
+    \\Usage:
+    \\  mercat [options] <file>        Render a file to stdout
+    \\  cat file.md | mercat           Render piped stdin (no "-" needed)
+    \\  mercat [options] -             Read stdin explicitly
+    \\  mercat -t <path>               Interactive TUI viewer/browser
+    \\
+    \\Input:
+    \\  A .mmd/.mermaid file, or piped input whose first non-blank, non-"%%"
+    \\  line begins at a diagram keyword (eg: flowchart/graph plus a
+    \\  direction like TD/LR), is rendered as one bare Mermaid diagram; 
+    \\
+    \\Output:
+    \\  Writes to stdout. When stdout is not a TTY (pipe/redirect), the pager is
+    \\  skipped even with -p, and TUI mode refuses to start; colors are still
+    \\  emitted, so use --format plain for clean text.
     \\
     \\Options:
     \\  -h, --help           Show this help and exit
     \\  -v, -V, --version    Show version and exit
-    \\  -w, --width <n>      Override wrap width (0 uses terminal width)
-    \\      --style <name>   Select theme: dark, light, ansi, dracula,
-    \\                      tokyo-night, pink, markview, or a user theme name
-    \\                      (~/.config/mercat/themes/<name>.toml)
+    \\  -w, --width <n>      Wrap width in columns (0 = terminal width; plain/png
+    \\                       default to 120)
+    \\      --style <name>   Theme: dark, light, ansi, dracula, tokyo-night, pink,
+    \\                       markview, or a user theme
+    \\                       (~/.config/mercat/themes/<name>.toml)
     \\      --dump-theme <name>
-    \\                      Print a theme as editable TOML to stdout and exit
-    \\                      (a starting point for your own theme file)
-    \\      --no-heading-markers
-    \\                      Hide leading # markers in headings
+    \\                       Print a theme as editable TOML to stdout and exit
+    \\      --heading-markers / --no-heading-markers
+    \\                       Show / hide the leading # markers on headings
     \\      --frontmatter <s>
-    \\                      Front matter display: panel (default), dim, compact, raw, hidden
-    \\      --box-style <s>  Mermaid box style: standard, rounded, heavy, double, ascii
-    \\      --crossing-heuristic <h>
-    \\                      Mermaid crossing reduction: median (default), barycenter
-    \\      --layout <a>    Mermaid layout: auto (default), sugiyama, tree, force
-    \\      --aspect-ratio <n>
-    \\                      Mermaid horizontal cell width multiplier (default: 1.0, try 2.0 for 2:1 terminals)
-    \\      --debug-mermaid  Show layout debug info for each mermaid diagram
-    \\      --format <f>     Output format: terminal (default), plain, png
+    \\                       YAML front matter: panel (default), dim, compact,
+    \\                       raw, hidden
+    \\      --format <f>     Output format: terminal (default, ANSI), plain (no
+    \\                       escapes), png (requires -o)
     \\  -o, --output <path>  Write output to a file instead of stdout
-    \\      --monochrome     Black-on-white output (only affects png)
-    \\  -p, --pager          Pipe rendered output through pager
-    \\  -t, --tui            Launch TUI browser/viewer mode
+    \\      --monochrome     Black-on-white output (png only)
+    \\  -p, --pager          Page output through $PAGER (ignored unless stdout is
+    \\                       a TTY)
+    \\  -t, --tui            Launch the TUI viewer (needs an interactive terminal)
+    \\      --box-style <s>  Mermaid box glyphs: standard, rounded, heavy, double,
+    \\                       ascii
+    \\      --layout <a>     Mermaid layout: auto (default), sugiyama, tree, force
+    \\      --crossing-heuristic <h>
+    \\                       Mermaid crossing reduction: median (default),
+    \\                       barycenter
+    \\      --aspect-ratio <n>
+    \\                       Mermaid horizontal cell multiplier (default 1.0; try
+    \\                       2.0 on 2:1 terminals)
+    \\      --debug-mermaid  Print layout debug info for each Mermaid diagram
+    \\
+    \\Examples:
+    \\  cat README.md | mercat
+    \\  printf 'flowchart LR\n  A-->B\n' | mercat
+    \\  mercat -w 80 --style light README.md
+    \\  mercat --format plain README.md > README.txt
+    \\
+    \\Config: ~/.config/mercat/config.toml (TOML; CLI flags win).
+    \\
 ;
 
 pub const ParseError = std.mem.Allocator.Error || error{
@@ -74,6 +114,14 @@ pub const Input = union(enum) {
     none,
     stdin,
     file: []const u8,
+
+    /// The file path, when the input has one (stdin/pipe input does not).
+    pub fn filePath(self: Input) ?[]const u8 {
+        return switch (self) {
+            .file => |path| path,
+            .stdin, .none => null,
+        };
+    }
 };
 
 pub const Parsed = struct {
@@ -553,4 +601,34 @@ test "output path is freed on deinit" {
     const parsed = try parse(allocator, &argv);
     // testing.allocator flags leaks; deinit must free output_path and input.
     parsed.deinit(allocator);
+}
+
+test "no arguments leaves input unset so stdin can be read implicitly" {
+    const allocator = std.testing.allocator;
+    const argv = [_][]const u8{"mercat"};
+    const parsed = try parse(allocator, &argv);
+    defer parsed.deinit(allocator);
+    try std.testing.expectEqual(Input.none, std.meta.activeTag(parsed.input));
+}
+
+test "explicit dash still selects stdin" {
+    const allocator = std.testing.allocator;
+    const argv = [_][]const u8{ "mercat", "-" };
+    const parsed = try parse(allocator, &argv);
+    defer parsed.deinit(allocator);
+    try std.testing.expectEqual(Input.stdin, std.meta.activeTag(parsed.input));
+}
+
+test "help text documents the contract an agent needs" {
+    // The help is the only spec a scripted caller reads; keep the load-bearing
+    // lines present so a reword cannot silently drop them.
+    for ([_][]const u8{
+        "cat file.md | mercat",
+        "flowchart",
+        "Examples:",
+        "--format",
+        "not a TTY",
+    }) |needle| {
+        try std.testing.expect(std.mem.indexOf(u8, help_text, needle) != null);
+    }
 }

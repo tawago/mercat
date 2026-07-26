@@ -2,10 +2,12 @@ const std = @import("std");
 const args = @import("cli/args.zig");
 const renderer = @import("cli/renderer.zig");
 const pager = @import("cli/pager.zig");
-const stdin = @import("cli/stdin.zig");
+const cli_input = @import("cli/input.zig");
 const config = @import("core/config.zig");
-const markdown = @import("core/markdown.zig");
-const render_model = @import("core/render_model.zig");
+const markdown = @import("core/markdown/parser.zig");
+
+const cli_input_test = @import("cli/input_test.zig");
+const render_model = @import("core/markdown/render.zig");
 const theme = @import("core/theme.zig");
 const plain = @import("export/plain.zig");
 // Backend-neutral export document + layout. Not yet
@@ -155,8 +157,21 @@ pub fn main() !void {
         return;
     }
 
-    const content = try readInput(allocator, parsed.input);
-    defer allocator.free(content);
+    // No file argument and stdin is an interactive terminal: there is nothing
+    // to read and waiting on the tty would look like a hang, so show the usage
+    // text on stderr and exit non-zero. (A pipe or redirect on stdin is read
+    // implicitly — `cat file.md | mercat` needs no `-`.)
+    const raw_content = readInput(allocator, parsed.input) catch |err| switch (err) {
+        error.MissingInput => {
+            std.fs.File.stderr().writeAll(args.usage_text) catch {};
+            std.process.exit(1);
+        },
+        else => return err,
+    };
+    defer allocator.free(raw_content);
+    // A UTF-8 BOM (common in Windows-authored files) is not content: leaving it
+    // in place turns the first markdown/mermaid line into an unparseable one.
+    const content = cli_input.stripBom(raw_content);
 
     // Theme resolution: build the registry (built-in presets + user theme
     // files), resolve the selected name into a concrete StyleMap + Decor, and
@@ -211,7 +226,7 @@ pub fn main() !void {
         return;
     }
 
-    var document = if (isMermaidFile(parsed.input))
+    var document = if (cli_input.isMermaidSource(parsed.input.filePath(), content))
         try createMermaidDocument(allocator, content)
     else
         try markdown.parse(allocator, content);
@@ -446,17 +461,10 @@ fn readInput(allocator: std.mem.Allocator, input: args.Input) ![]u8 {
             const cwd = std.fs.cwd();
             break :blk try cwd.readFileAlloc(allocator, path, std.math.maxInt(usize));
         },
-        .none => if (stdin.shouldReadImplicitStdin())
+        .none => if (cli_input.shouldReadImplicitStdin())
             std.fs.File.stdin().readToEndAlloc(allocator, std.math.maxInt(usize))
         else
             error.MissingInput,
-    };
-}
-
-fn isMermaidFile(input: args.Input) bool {
-    return switch (input) {
-        .file => |path| std.mem.endsWith(u8, path, ".mmd"),
-        else => false,
     };
 }
 
@@ -479,4 +487,5 @@ test {
     // from imported files; `_ = @import(...)` does.
     _ = export_glyph_sheet;
     _ = export_test;
+    _ = cli_input_test;
 }

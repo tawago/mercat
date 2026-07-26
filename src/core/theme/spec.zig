@@ -12,7 +12,7 @@
 
 const std = @import("std");
 const color = @import("color.zig");
-const types = @import("../render/types.zig");
+const types = @import("../markdown/render/types.zig");
 
 pub const Color = color.Color;
 

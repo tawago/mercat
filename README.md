@@ -54,7 +54,8 @@ zig build -Doptimize=ReleaseFast
 - **Editor integration**: Press `e` to edit in $EDITOR, auto-reloads on return
 - **Themes**: Seven built-in presets (`dark`, `light`, `ansi`, `dracula`, `tokyo-night`, `pink`, `markview`) plus user theme files with per-slot color and glyph control
 - **Pager support**: Pipe through $PAGER or `less -R`
-- **Stdin support**: `cat file.md | mercat -`
+- **Stdin support**: `cat file.md | mercat` (implicit; `-` still works)
+- **Bare Mermaid**: pipe raw diagram source with no ```` ```mermaid ```` fence
 - **GFM support**: Tables, task lists, fenced code blocks, strikethrough
 
 ## Usage
@@ -70,9 +71,23 @@ mercat -p README.md           # Pipe through pager
 mercat -w 80 README.md        # Fixed width
 mercat --style dracula README.md   # Pick a built-in preset or user theme
 mercat --dump-theme dark      # Print a theme as editable TOML
-cat file.md | mercat -        # Read from stdin
+cat file.md | mercat          # Read from stdin (no `-` needed)
+cat file.md | mercat -        # Explicit stdin
 
+# Mermaid
+mercat diagram.mmd            # .mmd / .mermaid files render as one diagram
+printf 'flowchart LR\n  A-->B\n' | mercat   # bare diagram source, no fence
 ```
+
+With no file argument, mercat reads stdin whenever it is a pipe or redirect;
+when stdin is an interactive terminal it prints the usage text and exits 1.
+
+Piped input is sniffed: if it carries no ```` ```mermaid ```` fence and its
+first non-blank, non-`%%` line begins at column 0 with a diagram keyword
+(`sequenceDiagram`, `classDiagram`, `erDiagram`, `stateDiagram[-v2]`, or
+`flowchart`/`graph` followed by a direction such as `TD`/`LR`), the whole
+input is rendered as a single Mermaid diagram. An indented first line stays
+markdown, since indentation there means "code block".
 
 ## TUI Key Bindings
 
@@ -150,27 +165,6 @@ mercat --style mine README.md
 
 Environment overrides: `MERCAT_THEME`, `MERCAT_WIDTH`, `MERCAT_SYNTAX_THEME`,
 `MERCAT_FRONTMATTER`.
-
-#### Migration from the old `[display]` glyph keys
-
-The flat glyph keys that used to live under `[display]` — `quote_bar`,
-`bullet_glyphs`, `hr_glyph`, `task_checked`, `task_todo`, `table_border_set`,
-and `heading_prefix` — have been **removed**. They now live under
-`[theme.glyphs]` (and per-heading `prefix` keys), so structural glyphs are
-themed the same way as colors:
-
-| Old `[display]` key             | New location                                       |
-| ------------------------------- | -------------------------------------------------- |
-| `quote_bar = "▎"`               | `[theme.glyphs] quote_bar = "▎"`                   |
-| `bullet_glyphs = ["•","◦","‣"]` | `[theme.glyphs] bullets = ["•","◦","‣"]`           |
-| `hr_glyph = "─"`                | `[theme.glyphs] hr_glyph = "─"`                    |
-| `task_checked = "[x]"`          | `[theme.glyphs] task_ticked = "[x]"`               |
-| `task_todo = "[ ]"`             | `[theme.glyphs] task_unticked = "[ ]"`             |
-| `table_border_set = "light"`    | `[theme.glyphs] table_style = "grid"`              |
-| `heading_prefix = "#"`          | `[theme.heading1] prefix = "# "` (per level)       |
-
-The table border weights are unchanged in spirit — `table_style` accepts
-`grid` (the former `light`), `heavy`, `double`, `ascii`, and the new `rounded`.
 
 ## Status
 

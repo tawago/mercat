@@ -1,17 +1,17 @@
 //! Tests for render_model.zig (split out to keep the module under the
 //! line-count limit). Exercises the public renderDocument surface.
 const std = @import("std");
-const markdown = @import("markdown.zig");
+const markdown = @import("parser.zig");
 const blocks = @import("render/blocks.zig");
 const decor_mod = @import("render/decor.zig");
-const render_model = @import("render_model.zig");
+const render_model = @import("render.zig");
 
 const renderDocument = render_model.renderDocument;
 const SpanStyle = render_model.SpanStyle;
 const Line = render_model.Line;
 const Span = render_model.Span;
 
-const resolve = @import("theme/resolve.zig");
+const resolve = @import("../theme/resolve.zig");
 
 /// Resolve a built-in preset to its baked `Decor` for render-consumption tests.
 /// The returned `Decor`'s slice fields point at static preset literals, so it
@@ -301,7 +301,7 @@ test "markview block code frame emits a language label chip" {
     try std.testing.expect(!saw_fence);
 }
 
-const theme = @import("theme.zig");
+const theme = @import("../theme.zig");
 
 /// The first non-whitespace-only span on a line (skips leading padding spans).
 fn firstMarkerSpan(line: Line) Span {
@@ -456,7 +456,7 @@ test "mid-document thematic break is untouched by front matter handling" {
 
 test "renders styled lines for heading and paragraph" {
     const allocator = std.testing.allocator;
-    const unicode = @import("../lib/unicode.zig");
+    const unicode = @import("../../lib/unicode.zig");
     _ = unicode;
     var document = try markdown.parse(allocator,
         \\# Title
@@ -586,7 +586,7 @@ test "keeps inline code foreground-only and pads fenced code blocks" {
 
 test "table row widths match rule width with inline code" {
     const allocator = std.testing.allocator;
-    const unicode = @import("../lib/unicode.zig");
+    const unicode = @import("../../lib/unicode.zig");
     var document = try markdown.parse(allocator,
         \\| Name | Command |
         \\| --- | --- |
@@ -618,7 +618,7 @@ test "table row widths match rule width with inline code" {
 
 test "table respects terminal width with inline code" {
     const allocator = std.testing.allocator;
-    const unicode = @import("../lib/unicode.zig");
+    const unicode = @import("../../lib/unicode.zig");
     const terminal_width: usize = 80;
 
     var document = try markdown.parse(allocator,
@@ -682,8 +682,8 @@ test "nested lists have indentation and varying bullet shapes" {
     try std.testing.expect(c3 > c2);
 }
 
-const rgb = @import("theme/color.zig").rgb;
-const cidx = @import("theme/color.zig").idx;
+const rgb = @import("../theme/color.zig").rgb;
+const cidx = @import("../theme/color.zig").idx;
 
 fn presetPalette(alloc: std.mem.Allocator, name: []const u8) !theme.StyleMap {
     var reg = resolve.Registry.init(alloc);

@@ -1,6 +1,6 @@
 const std = @import("std");
 const vaxis = @import("vaxis");
-const markdown = @import("../../core/markdown.zig");
+const markdown = @import("../../core/markdown/parser.zig");
 const config = @import("../../core/config.zig");
 const theme = @import("../../core/theme.zig");
 const ResolvedTheme = @import("../../core/theme/resolve.zig").ResolvedTheme;

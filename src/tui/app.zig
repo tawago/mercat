@@ -1,8 +1,9 @@
 const std = @import("std");
 const vaxis = @import("vaxis");
-const markdown = @import("../core/markdown.zig");
+const markdown = @import("../core/markdown/parser.zig");
+const cli_input = @import("../cli/input.zig");
 const config = @import("../core/config.zig");
-const render_model = @import("../core/render_model.zig");
+const render_model = @import("../core/markdown/render.zig");
 const theme = @import("../core/theme.zig");
 const theme_resolve = @import("../core/theme/resolve.zig");
 const ResolvedTheme = theme_resolve.ResolvedTheme;
@@ -36,15 +37,9 @@ const Event = union(enum) {
     mouse: vaxis.Mouse,
 };
 
-fn isMermaidFile(input_source: args.Input) bool {
-    return switch (input_source) {
-        .file => |path| std.mem.endsWith(u8, path, ".mmd"),
-        else => false,
-    };
-}
-
 fn parseContent(allocator: std.mem.Allocator, content: []const u8, input_source: args.Input) !markdown.Document {
-    if (isMermaidFile(input_source)) {
+    // Shared classifier keeps a TUI reload (`r`, `e`) in step with CLI rendering.
+    if (cli_input.isMermaidSource(input_source.filePath(), content)) {
         const language = try allocator.dupe(u8, "mermaid");
         errdefer allocator.free(language);
         const code = try allocator.dupe(u8, content);

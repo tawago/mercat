@@ -13,11 +13,11 @@
 //! This separation allows the same Span data to render identically in both modes.
 
 const std = @import("std");
-const render_model = @import("render_model.zig");
+const render_model = @import("markdown/render.zig");
 const vaxis = @import("vaxis");
 const presets = @import("theme/presets.zig");
 const spec = @import("theme/spec.zig");
-const types = @import("render/types.zig");
+const types = @import("markdown/render/types.zig");
 
 pub const color = @import("theme/color.zig");
 pub const Color = color.Color;
