@@ -246,7 +246,8 @@ pub fn renderBlockQuote(allocator: std.mem.Allocator, builder: *Builder, bq: Blo
     try appendQuotePrefix(allocator, &prefix_buf, decor, bq.depth);
     const prefix = prefix_buf.items;
 
-    const content_width = width -| (prefix.len);
+    // Columns, not bytes: the quote bar is a 3-byte, width-1 glyph.
+    const content_width = width -| unicode.displayWidth(prefix);
 
     // Render each block inside the blockquote with the prefix
     var first_block = true;
@@ -350,7 +351,8 @@ pub fn renderBlockQuoteWithPrefix(allocator: std.mem.Allocator, builder: *Builde
     try appendQuotePrefix(allocator, &prefix_buf, decor, bq.depth);
     const prefix = prefix_buf.items;
 
-    const content_width = width -| (prefix_buf.items.len - bar_len_start);
+    // Columns, not bytes: the quote bar is a 3-byte, width-1 glyph.
+    const content_width = width -| unicode.displayWidth(prefix_buf.items[bar_len_start..]);
 
     // Render each block inside the blockquote
     var first_block = true;
