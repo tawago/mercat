@@ -424,8 +424,9 @@ pub fn renderCodeBlock(allocator: std.mem.Allocator, builder: *Builder, code: Bl
         return;
     }
 
+    // The frame is sparse (see decor.ResolvedGlyphSet); unset kind means panel.
     const frame = decor.glyphs.code_frame;
-    switch (frame.kind) {
+    switch (frame.kind orelse .panel) {
         .panel => try renderCodePanel(allocator, builder, code, content_width, frame),
         .plain => try renderCodePlain(allocator, builder, code),
         .rule => try renderCodeRule(allocator, builder, code, content_width, frame),
@@ -437,7 +438,7 @@ pub fn renderCodeBlock(allocator: std.mem.Allocator, builder: *Builder, code: Bl
 /// left-padded and right-padded to `max_line_width` so the code_block bg tints
 /// a clean panel. `pad` widens the left gutter (dracula/tokyo pad=2). With the
 /// default `pad = null` this is byte-identical to the pre-theme renderer.
-fn renderCodePanel(allocator: std.mem.Allocator, builder: *Builder, code: Block.CodeBlock, content_width: usize, frame: decor_mod.CodeFrameSpec) !void {
+fn renderCodePanel(allocator: std.mem.Allocator, builder: *Builder, code: Block.CodeBlock, content_width: usize, frame: decor_mod.CodeFrameDelta) !void {
     const left_pad: usize = 1 + @as(usize, frame.pad orelse 0);
     if (code.language.len == 0) {
         try builder.appendSpan(.code_fence_banner, "```");
@@ -492,7 +493,7 @@ fn renderCodePlain(allocator: std.mem.Allocator, builder: *Builder, code: Block.
 /// border_cap, clamped to width) bracketing highlighted code lines. The rule is
 /// drawn in the muted style; the frame carries no arbitrary rule color because
 /// the render model is style-keyed, not color-keyed (see task notes).
-fn renderCodeRule(allocator: std.mem.Allocator, builder: *Builder, code: Block.CodeBlock, content_width: usize, frame: decor_mod.CodeFrameSpec) !void {
+fn renderCodeRule(allocator: std.mem.Allocator, builder: *Builder, code: Block.CodeBlock, content_width: usize, frame: decor_mod.CodeFrameDelta) !void {
     const glyph = frame.border_glyph orelse "\u{2500}";
     const glyph_w = @max(unicode.displayWidth(glyph), 1);
     const cap: usize = if (frame.border_cap) |c| c else content_width;
@@ -515,9 +516,9 @@ fn renderCodeRule(allocator: std.mem.Allocator, builder: *Builder, code: Block.C
 
 /// Block code frame (markview): an optional language-label chip, then each line
 /// padded to the full content width so the code_block bg reads as a solid slab.
-fn renderCodeFramedBlock(allocator: std.mem.Allocator, builder: *Builder, code: Block.CodeBlock, content_width: usize, frame: decor_mod.CodeFrameSpec) !void {
+fn renderCodeFramedBlock(allocator: std.mem.Allocator, builder: *Builder, code: Block.CodeBlock, content_width: usize, frame: decor_mod.CodeFrameDelta) !void {
     const left_pad: usize = 1 + @as(usize, frame.pad orelse 0);
-    if (frame.language_label and code.language.len != 0) {
+    if ((frame.language_label orelse false) and code.language.len != 0) {
         const chip = try std.fmt.allocPrint(allocator, " {s} ", .{code.language});
         defer allocator.free(chip);
         try builder.appendSpan(.code_fence_banner, chip);

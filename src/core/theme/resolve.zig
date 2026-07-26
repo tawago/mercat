@@ -413,21 +413,13 @@ pub fn builtinResolved(alloc: std.mem.Allocator, name: []const u8) ResolvedTheme
 }
 
 fn applyTokens(style_map: *StyleMap, t: spec.TokenColors) void {
-    if (t.keyword) |c| {
-        style_map.code_keyword.fg = c;
-        style_map.code_block_keyword.fg = c;
-    }
-    if (t.string) |c| {
-        style_map.code_string.fg = c;
-        style_map.code_block_string.fg = c;
-    }
-    if (t.number) |c| {
-        style_map.code_number.fg = c;
-        style_map.code_block_number.fg = c;
-    }
-    if (t.comment) |c| {
-        style_map.code_comment.fg = c;
-        style_map.code_block_comment.fg = c;
+    // Each token class recolors its inline and block code slots
+    // (`code_<name>` / `code_block_<name>`).
+    inline for (@typeInfo(spec.TokenColors).@"struct".fields) |f| {
+        if (@field(t, f.name)) |c| {
+            @field(style_map, "code_" ++ f.name).fg = c;
+            @field(style_map, "code_block_" ++ f.name).fg = c;
+        }
     }
 }
 
@@ -436,52 +428,29 @@ pub fn bakeDecor(merged: *const ThemeSpec) Decor {
     var i: usize = 0;
     while (i < spec.slot_count) : (i += 1) {
         if (merged.slots.entries[i]) |ss| {
-            d.slots[i] = .{
-                .prefix = ss.prefix orelse "",
-                .suffix = ss.suffix orelse "",
-                .icon = ss.icon orelse "",
-                .shift = ss.shift orelse 0,
-                .blank_wrap = ss.blank_wrap orelse false,
-                .full_line_bg = ss.full_line_bg orelse false,
-                .underline_row = ss.underline_row orelse false,
-                // null (unset) and explicit "" both bake to the default "─".
-                .underline_glyph = blk: {
-                    const g = ss.underline_glyph orelse "";
-                    break :blk if (g.len == 0) "\u{2500}" else g;
-                },
-            };
+            var sd = unwrapWithDefaults(decor_mod.SlotDecor, ss);
+            // null (unset) and explicit "" both bake to the default "─".
+            if (sd.underline_glyph.len == 0) sd.underline_glyph = "\u{2500}";
+            d.slots[i] = sd;
         }
     }
-    const g = merged.glyphs;
-    d.glyphs = .{
-        .bullets = g.bullets orelse &decor_mod.default_bullets,
-        .ordered_prefix = g.ordered_prefix orelse "",
-        .task_ticked = g.task_ticked orelse "[x]",
-        .task_unticked = g.task_unticked orelse "[ ]",
-        .quote_bar = g.quote_bar orelse "",
-        .quote_indent = g.quote_indent orelse 0,
-        .hr_glyph = g.hr_glyph orelse "─",
-        .hr_mode = g.hr_mode orelse .full,
-        .hr_count = g.hr_count orelse 0,
-        .hr_center = g.hr_center orelse "",
-        .table_style = g.table_style orelse .grid,
-        // Sparse delta → concrete frame; the .panel/false defaults land here, at
-        // bake time, so the fold can keep "unset" distinct from "explicitly
-        // panel / no label".
-        .code_frame = bakeCodeFrame(g.code_frame),
-    };
+    // `code_frame` passes through still sparse; its .panel/false defaults land
+    // at the render read sites (`kind orelse .panel`), so the fold keeps
+    // "unset" distinct from "explicitly panel / no label".
+    d.glyphs = unwrapWithDefaults(decor_mod.ResolvedGlyphSet, merged.glyphs);
     return d;
 }
 
-fn bakeCodeFrame(cf: ?spec.CodeFrameDelta) decor_mod.CodeFrameSpec {
-    const c = cf orelse spec.CodeFrameDelta{};
-    return .{
-        .kind = c.kind orelse .panel,
-        .border_glyph = c.border_glyph,
-        .border_cap = c.border_cap,
-        .pad = c.pad,
-        .language_label = c.language_label orelse false,
-    };
+/// Bake a sparse spec into the concrete struct `Out`: every field of `Out`
+/// takes the same-named optional field of `sparse` when present, otherwise its
+/// own declared default. Extra fields on `sparse` (the `SlotSpec` colors/attrs,
+/// which bake into the `StyleMap` instead) are ignored.
+fn unwrapWithDefaults(comptime Out: type, sparse: anytype) Out {
+    var out = Out{};
+    inline for (@typeInfo(Out).@"struct".fields) |f| {
+        if (@field(sparse, f.name)) |v| @field(out, f.name) = v;
+    }
+    return out;
 }
 
 test {

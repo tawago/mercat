@@ -639,10 +639,11 @@ test "code_frame folds per field: a pad-only child keeps kind/language_label" {
     try testing.expectEqual(true, r.decor.glyphs.code_frame.language_label);
     try testing.expectEqual(@as(?u8, 4), r.decor.glyphs.code_frame.pad);
 
-    // A theme with no code_frame at all still bakes the .panel/false defaults.
+    // A theme with no code_frame at all stays fully sparse; the .panel/false
+    // defaults land at the render read sites (`kind orelse .panel`).
     const bare = try reg.resolve("dark", .default, null, &diag);
-    try testing.expectEqual(spec.CodeFrameKind.panel, bare.decor.glyphs.code_frame.kind);
-    try testing.expectEqual(false, bare.decor.glyphs.code_frame.language_label);
+    try testing.expectEqual(@as(?spec.CodeFrameKind, null), bare.decor.glyphs.code_frame.kind);
+    try testing.expectEqual(@as(?bool, null), bare.decor.glyphs.code_frame.language_label);
 }
 
 test "tokens.function is an alias that overrides an inherited keyword" {

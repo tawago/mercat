@@ -11,7 +11,7 @@ pub const Slot = spec.Slot;
 pub const slot_count = spec.slot_count;
 pub const HrMode = spec.HrMode;
 pub const TableStyle = spec.TableStyle;
-pub const CodeFrameSpec = spec.CodeFrameSpec;
+pub const CodeFrameDelta = spec.CodeFrameDelta;
 
 /// Resolved per-slot structural decoration. All fields concrete: an empty
 /// string means "no prefix/suffix/icon", never "inherit".
@@ -30,7 +30,9 @@ pub const SlotDecor = struct {
 };
 
 /// Resolved, non-optional glyph vocabulary. Backed by string constants (from
-/// presets or user files); the renderer never sees a `null` here.
+/// presets or user files); the renderer never sees a `null` here — except the
+/// `code_frame`, which stays sparse and whose `.panel`/`false` defaults land at
+/// the render read sites (`kind orelse .panel`).
 pub const ResolvedGlyphSet = struct {
     bullets: []const []const u8 = &default_bullets,
     ordered_prefix: []const u8 = "",
@@ -43,7 +45,7 @@ pub const ResolvedGlyphSet = struct {
     hr_count: u16 = 0,
     hr_center: []const u8 = "",
     table_style: TableStyle = .grid,
-    code_frame: CodeFrameSpec = .{ .kind = .panel },
+    code_frame: CodeFrameDelta = .{},
 
     /// Bullet glyph for a given (0-based) list depth, clamping to the last.
     pub fn bulletAt(self: ResolvedGlyphSet, depth: usize) []const u8 {

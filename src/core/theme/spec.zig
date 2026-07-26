@@ -119,24 +119,11 @@ pub const CodeFrameKind = enum { panel, rule, block, plain };
 /// One encoding for every code-frame flavor: `kind` selects the flavor and the
 /// remaining fields parameterize it (Simplicity #1 — no per-kind struct zoo).
 ///
-/// This is the *baked* form (`render/decor.zig` aliases it, `render/blocks.zig`
-/// reads it): `kind`/`language_label` are concrete. Themes describe a code frame
-/// with the sparse `CodeFrameDelta` below; `resolve.bakeDecor` fills the
-/// `.panel`/`false` defaults for whatever the fold left unset.
-pub const CodeFrameSpec = struct {
-    kind: CodeFrameKind = .panel,
-    border_glyph: ?[]const u8 = null,
-    /// Rule-mode cap on the drawn border width.
-    border_cap: ?u16 = null,
-    pad: ?u8 = null,
-    /// Block-mode language chip.
-    language_label: bool = false,
-};
-
-/// The sparse counterpart of `CodeFrameSpec`: every field optional so a code
-/// frame folds field-by-field like a `SlotSpec` does. A child theme that sets
-/// only `pad` therefore keeps its base's `kind` and `language_label` instead of
-/// resetting them to the struct defaults.
+/// Sparse like a `SlotSpec`: every field optional so a code frame folds
+/// field-by-field — a child theme that sets only `pad` keeps its base's `kind`
+/// and `language_label`. The renderer reads this form directly
+/// (`render/blocks.zig`), applying the `.panel`/`false` defaults at the read
+/// sites for whatever the fold left unset.
 pub const CodeFrameDelta = struct {
     kind: ?CodeFrameKind = null,
     border_glyph: ?[]const u8 = null,
