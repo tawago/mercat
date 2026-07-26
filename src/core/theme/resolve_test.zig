@@ -19,7 +19,6 @@ const SlotSpec = resolve.SlotSpec;
 const Slot = resolve.Slot;
 const Color = resolve.Color;
 const StyleMap = resolve.StyleMap;
-const RawThemeTables = resolve.RawThemeTables;
 const Decor = resolve.Decor;
 const specFromRaw = resolve.specFromRaw;
 const mergeChain = resolve.mergeChain;
@@ -36,7 +35,7 @@ const containsPua = @import("fromraw.zig").containsPua;
 
 const testing = std.testing;
 
-fn rawFrom(alloc: std.mem.Allocator, text: []const u8) !RawThemeTables {
+fn rawFrom(alloc: std.mem.Allocator, text: []const u8) !loadfile.RawThemeBuilder {
     return loadfile.parseThemeTables(alloc, text);
 }
 
@@ -107,7 +106,7 @@ test "resolve(dark/light, .classic) recolors code tokens; default is unchanged" 
     // Inline overrides still win over the classic delta.
     var raw = try rawFrom(testing.allocator, "[theme.code_block_keyword]\nfg = \"#ff0000\"\n");
     defer raw.deinit(testing.allocator);
-    const overridden = try reg.resolve("dark", .classic, raw, &diag);
+    const overridden = try reg.resolve("dark", .classic, raw.view(), &diag);
     try testing.expectEqual(color.rgb(0xff, 0, 0), overridden.styles.code_block_keyword.fg);
 }
 
@@ -217,7 +216,7 @@ test "inline override changes a slot color" {
     var raw = try rawFrom(testing.allocator, "[theme.heading1]\nfg = \"#ff0000\"\n");
     defer raw.deinit(testing.allocator);
 
-    const r = try reg.resolve("dark", .default, raw, &diag);
+    const r = try reg.resolve("dark", .default, raw.view(), &diag);
     try testing.expectEqual(color.rgb(0xff, 0, 0), r.styles.heading1.fg);
 }
 
@@ -287,7 +286,7 @@ test "inline [theme] canvas = true overrides a preset default" {
     // dark is canvas=false by default; the inline override flips it on.
     var raw = try rawFrom(testing.allocator, "canvas = true\n");
     defer raw.deinit(testing.allocator);
-    const r = try reg.resolve("dark", .default, raw, &diag);
+    const r = try reg.resolve("dark", .default, raw.view(), &diag);
     try testing.expect(r.canvas and r.canvasBg() != null);
 }
 
@@ -420,7 +419,7 @@ test "specFromRaw reports bad color and unknown key, keeps good ones" {
     var diag = Diagnostics.init(testing.allocator);
     defer diag.deinit();
 
-    const s = specFromRaw(testing.allocator, raw, &diag);
+    const s = specFromRaw(testing.allocator, raw.view(), &diag);
     try testing.expect(diag.has(.bad_color));
     try testing.expect(diag.has(.unknown_key));
     const h1 = s.slots.get(.heading1).?;
@@ -433,7 +432,7 @@ test "specFromRaw reports unknown slot name" {
     defer raw.deinit(testing.allocator);
     var diag = Diagnostics.init(testing.allocator);
     defer diag.deinit();
-    _ = specFromRaw(testing.allocator, raw, &diag);
+    _ = specFromRaw(testing.allocator, raw.view(), &diag);
     try testing.expect(diag.has(.unknown_key));
 }
 
@@ -443,7 +442,7 @@ test "user file as named theme resolves via specFromRaw" {
     var diag = Diagnostics.init(testing.allocator);
     defer diag.deinit();
 
-    var spec_val = specFromRaw(testing.allocator, raw, &diag);
+    var spec_val = specFromRaw(testing.allocator, raw.view(), &diag);
     spec_val.name = "usertheme";
 
     var reg = Registry.init(testing.allocator);
@@ -460,7 +459,7 @@ test "user file as extends= target folds into the chain" {
     defer base_raw.deinit(testing.allocator);
     var diag = Diagnostics.init(testing.allocator);
     defer diag.deinit();
-    var base_spec = specFromRaw(testing.allocator, base_raw, &diag);
+    var base_spec = specFromRaw(testing.allocator, base_raw.view(), &diag);
     base_spec.name = "userbase";
 
     const leaf = ThemeSpec{ .name = "userleaf", .extends = "userbase", .slots = blk: {
@@ -488,7 +487,7 @@ test "user file as extends= built-in preset: non-overridden slots equal the pres
     var diag = Diagnostics.init(testing.allocator);
     defer diag.deinit();
 
-    var user = specFromRaw(testing.allocator, raw, &diag);
+    var user = specFromRaw(testing.allocator, raw.view(), &diag);
     user.name = "tmptest";
     try testing.expectEqualStrings("dracula", user.extends.?);
 
@@ -521,9 +520,9 @@ test "extends chain through a second user file (leaf → user base → built-in)
     var diag = Diagnostics.init(testing.allocator);
     defer diag.deinit();
 
-    var base = specFromRaw(testing.allocator, base_raw, &diag);
+    var base = specFromRaw(testing.allocator, base_raw.view(), &diag);
     base.name = "userbase";
-    var leaf = specFromRaw(testing.allocator, leaf_raw, &diag);
+    var leaf = specFromRaw(testing.allocator, leaf_raw.view(), &diag);
     leaf.name = "userleaf";
 
     var reg = Registry.init(testing.allocator);
@@ -546,7 +545,7 @@ test "user file with missing/cyclic root extends still reports diagnostics" {
     defer miss_raw.deinit(testing.allocator);
     var d1 = Diagnostics.init(testing.allocator);
     defer d1.deinit();
-    var miss = specFromRaw(testing.allocator, miss_raw, &d1);
+    var miss = specFromRaw(testing.allocator, miss_raw.view(), &d1);
     miss.name = "orphanfile";
     var reg1 = Registry.init(testing.allocator);
     defer reg1.deinit();
@@ -561,9 +560,9 @@ test "user file with missing/cyclic root extends still reports diagnostics" {
     defer b_raw.deinit(testing.allocator);
     var d2 = Diagnostics.init(testing.allocator);
     defer d2.deinit();
-    var a = specFromRaw(testing.allocator, a_raw, &d2);
+    var a = specFromRaw(testing.allocator, a_raw.view(), &d2);
     a.name = "filea";
-    var b = specFromRaw(testing.allocator, b_raw, &d2);
+    var b = specFromRaw(testing.allocator, b_raw.view(), &d2);
     b.name = "fileb";
     var reg2 = Registry.init(testing.allocator);
     defer reg2.deinit();
@@ -580,7 +579,7 @@ test "glyph_fallback fires on PUA user glyph and substitutes" {
     var diag = Diagnostics.init(testing.allocator);
     defer diag.deinit();
 
-    const s = specFromRaw(testing.allocator, raw, &diag);
+    const s = specFromRaw(testing.allocator, raw.view(), &diag);
     try testing.expect(diag.has(.glyph_fallback));
     const h1 = s.slots.get(.heading1).?;
     // PUA codepoint replaced; no PUA byte survives. The substituted buffer is
@@ -594,7 +593,7 @@ test "unknown palette mode and ansi16 mode" {
     defer raw.deinit(testing.allocator);
     var diag = Diagnostics.init(testing.allocator);
     defer diag.deinit();
-    const s = specFromRaw(testing.allocator, raw, &diag);
+    const s = specFromRaw(testing.allocator, raw.view(), &diag);
     try testing.expectEqual(PaletteMode.ansi16, s.palette_mode.?);
 }
 
@@ -610,7 +609,7 @@ test "inline [theme] extends re-roots the chain" {
     // chain leaf, so every slot the inline keys do not touch comes from dracula.
     var raw = try rawFrom(testing.allocator, "extends = \"dracula\"\n[theme.heading1]\nfg = \"#ff0000\"\n");
     defer raw.deinit(testing.allocator);
-    const r = try reg.resolve("dark", .default, raw, &diag);
+    const r = try reg.resolve("dark", .default, raw.view(), &diag);
     try testing.expectEqual(@as(usize, 0), diag.count());
 
     const drac = try reg.resolve("dracula", .default, null, &diag);
@@ -622,7 +621,7 @@ test "inline [theme] extends re-roots the chain" {
     // An unknown inline target reports missing_extends and falls back to dark.
     var bad = try rawFrom(testing.allocator, "extends = \"ghost\"\n");
     defer bad.deinit(testing.allocator);
-    const fb = try reg.resolve("dracula", .default, bad, &diag);
+    const fb = try reg.resolve("dracula", .default, bad.view(), &diag);
     try testing.expect(diag.has(.missing_extends));
     const dark = try reg.resolve("dark", .default, null, &diag);
     try testing.expect(std.meta.eql(dark.styles.body, fb.styles.body));
@@ -638,7 +637,7 @@ test "code_frame folds per field: a pad-only child keeps kind/language_label" {
     // `pad` must inherit both `kind = block` and `language_label = true`.
     var raw = try rawFrom(testing.allocator, "extends = \"markview\"\n[theme.code_frame]\npad = 4\n");
     defer raw.deinit(testing.allocator);
-    var child = specFromRaw(testing.allocator, raw, &diag);
+    var child = specFromRaw(testing.allocator, raw.view(), &diag);
     child.name = "padded";
     try reg.insertUserSpec(&child);
 
@@ -663,7 +662,7 @@ test "tokens.function is an alias that overrides an inherited keyword" {
     // dracula sets tokens.keyword; a child spelling the alias must win.
     var raw = try rawFrom(testing.allocator, "extends = \"dracula\"\n[theme.tokens]\nfunction = \"#00ff00\"\n");
     defer raw.deinit(testing.allocator);
-    var child = specFromRaw(testing.allocator, raw, &diag);
+    var child = specFromRaw(testing.allocator, raw.view(), &diag);
     child.name = "fnalias";
     try reg.insertUserSpec(&child);
     try testing.expectEqual(color.rgb(0, 0xff, 0), child.tokens.keyword.?);
@@ -684,7 +683,7 @@ test "inline PUA glyph substitution is registry-arena owned (no leak)" {
 
     var raw = try rawFrom(testing.allocator, "[theme.heading1]\nprefix = \"\u{f011} \"\n");
     defer raw.deinit(testing.allocator);
-    const r = try reg.resolve("dark", .default, raw, &diag);
+    const r = try reg.resolve("dark", .default, raw.view(), &diag);
     try testing.expect(diag.has(.glyph_fallback));
     try testing.expect(!containsPua(r.decor.slot(.heading1).prefix));
 }

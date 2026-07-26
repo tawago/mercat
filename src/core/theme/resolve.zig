@@ -216,7 +216,7 @@ pub const Registry = struct {
         };
 
         const s = arena.create(ThemeSpec) catch return null;
-        s.* = specFromRaw(arena, raw, diag);
+        s.* = specFromRaw(arena, raw.view(), diag);
         s.name = key; // file identity wins the name (`<name>.toml` -> spec.name = name)
         self.cache.put(self.alloc, key, s) catch {};
         return s;

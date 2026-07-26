@@ -9,14 +9,16 @@
 const std = @import("std");
 
 /// One raw, uninterpreted `key = value` pair (both strings owned by the
-/// containing builder / tables allocator).
+/// containing builder's allocator).
 pub const RawKV = struct { key: []const u8, value: []const u8 };
 
-/// A growable accumulator for `[theme]` / `[theme.<slot>]` tables. The inline
-/// config path (`config.zig`) feeds this incrementally line-by-line across
-/// multiple `applyTomlLike` calls (default text then user config), and the
-/// file path (`parseThemeTables`) fills one then freezes it. `set` implements
-/// the locked merge policy: last-wins per key within a slot.
+/// A growable accumulator for `[theme]` / `[theme.<slot>]` tables — the one
+/// storage form for raw theme data. The inline config path (`config.zig`)
+/// feeds this incrementally line-by-line across multiple `applyTomlLike` calls
+/// (default text then user config), and the file path (`parseThemeTables`)
+/// fills one from a whole file. Consumers read it through the borrowed
+/// `RawThemeTables` view (`view`). `set` implements the locked merge policy:
+/// last-wins per key within a slot.
 pub const RawThemeBuilder = struct {
     /// Top-level `[theme]` keys (e.g. `extends`, `palette`).
     top: std.ArrayList(RawKV) = .empty,
@@ -58,46 +60,20 @@ pub const RawThemeBuilder = struct {
         return &self.slots.items[self.slots.items.len - 1].kvs;
     }
 
-    /// Freeze into an immutable `RawThemeTables` (transfers ownership of the
-    /// duped strings; the builder is emptied and safe to `deinit`).
-    pub fn toOwned(self: *RawThemeBuilder, alloc: std.mem.Allocator) !RawThemeTables {
-        const top = try self.top.toOwnedSlice(alloc);
-        errdefer alloc.free(top);
-
-        var slots = try alloc.alloc(RawThemeTables.Slot, self.slots.items.len);
-        errdefer alloc.free(slots);
-        for (self.slots.items, 0..) |*slot, i| {
-            slots[i] = .{ .name = slot.name, .kvs = try slot.kvs.toOwnedSlice(alloc) };
-        }
-        self.slots.deinit(alloc);
-        self.slots = .empty;
-        return .{ .top = top, .slots = slots };
+    /// Borrow the current contents as an immutable `RawThemeTables` view
+    /// (allocation-free, no ownership transfer). The view only stays valid
+    /// until the next `set` (which may reallocate the lists), and the strings
+    /// it references live exactly as long as the builder.
+    pub fn view(self: *const RawThemeBuilder) RawThemeTables {
+        return .{ .top = self.top.items, .slots = self.slots.items };
     }
 };
 
-/// Immutable, fully-owned raw theme tables (the file-path / handoff form).
+/// Immutable, borrowed view of a `RawThemeBuilder` (the resolver-facing
+/// handoff form). Owns nothing — per-slot KVs are read via `slot.kvs.items`.
 pub const RawThemeTables = struct {
-    top: []RawKV,
-    slots: []Slot,
-
-    pub const Slot = struct { name: []const u8, kvs: []RawKV };
-
-    pub fn deinit(self: *RawThemeTables, alloc: std.mem.Allocator) void {
-        for (self.top) |kv| {
-            alloc.free(kv.key);
-            alloc.free(kv.value);
-        }
-        alloc.free(self.top);
-        for (self.slots) |slot| {
-            alloc.free(slot.name);
-            for (slot.kvs) |kv| {
-                alloc.free(kv.key);
-                alloc.free(kv.value);
-            }
-            alloc.free(slot.kvs);
-        }
-        alloc.free(self.slots);
-    }
+    top: []const RawKV,
+    slots: []const RawThemeBuilder.Slot,
 };
 
 fn freeKvList(alloc: std.mem.Allocator, list: *std.ArrayList(RawKV)) void {
@@ -149,15 +125,17 @@ pub fn assignThemeValue(
     }
 }
 
-/// Parse a whole theme-file text into raw tables. Only `[theme]` /
-/// `[theme.<slot>]` sections are collected; any other section is ignored (a
-/// user theme file is expected to contain only theme tables, but non-theme
-/// noise is tolerated rather than rejected — validation is S3's job).
-pub fn parseThemeTables(alloc: std.mem.Allocator, text: []const u8) !RawThemeTables {
+/// Parse a whole theme-file text into a raw builder (read it via `view`).
+/// Only `[theme]` / `[theme.<slot>]` sections are collected; any other section
+/// is ignored (a user theme file is expected to contain only theme tables, but
+/// non-theme noise is tolerated rather than rejected — validation is S3's
+/// job). The caller owns the result: `deinit` it, or parse into an arena (the
+/// production path — `Registry.loadUserFile` — does the latter).
+pub fn parseThemeTables(alloc: std.mem.Allocator, text: []const u8) !RawThemeBuilder {
     var builder = RawThemeBuilder{};
     errdefer builder.deinit(alloc);
     try applyThemeLines(alloc, &builder, text);
-    return builder.toOwned(alloc);
+    return builder;
 }
 
 fn applyThemeLines(alloc: std.mem.Allocator, builder: *RawThemeBuilder, text: []const u8) !void {
@@ -428,9 +406,10 @@ pub fn resolveThemeDir(alloc: std.mem.Allocator) !?[]u8 {
     return null;
 }
 
-/// Read + parse `<dir>/<name>.toml`. Returns null when the file does not
+/// Read + parse `<dir>/<name>.toml` into a raw builder (see
+/// `parseThemeTables` for ownership). Returns null when the file does not
 /// exist; other IO errors propagate.
-pub fn readThemeFile(alloc: std.mem.Allocator, dir: []const u8, name: []const u8) !?RawThemeTables {
+pub fn readThemeFile(alloc: std.mem.Allocator, dir: []const u8, name: []const u8) !?RawThemeBuilder {
     const filename = try std.fmt.allocPrint(alloc, "{s}.toml", .{name});
     defer alloc.free(filename);
     const path = try std.fs.path.join(alloc, &.{ dir, filename });

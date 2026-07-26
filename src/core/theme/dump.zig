@@ -203,7 +203,7 @@ fn roundTrip(name: []const u8) !void {
     // Parse the dumped TOML back through the production user-file path.
     var tables = try loadfile.parseThemeTables(alloc, buf.items);
     defer tables.deinit(alloc);
-    var user = resolve.specFromRaw(alloc, tables, &diag);
+    var user = resolve.specFromRaw(alloc, tables.view(), &diag);
     user.name = "dumped";
     try reg.insertUserSpec(&user);
 
@@ -248,7 +248,7 @@ test "underline_row + underline_glyph round-trip through dump + loadfile" {
     var raw = try loadfile.parseThemeTables(alloc,
         "extends = \"dark\"\n[theme.heading1]\nunderline_row = true\nunderline_glyph = \"\u{2550}\"\n");
     defer raw.deinit(alloc);
-    var user = resolve.specFromRaw(alloc, raw, &diag);
+    var user = resolve.specFromRaw(alloc, raw.view(), &diag);
     user.name = "uline";
     try reg.insertUserSpec(&user);
 
@@ -263,7 +263,7 @@ test "underline_row + underline_glyph round-trip through dump + loadfile" {
     // Parse the dump back and confirm the baked decor matches.
     var tables = try loadfile.parseThemeTables(alloc, buf.items);
     defer tables.deinit(alloc);
-    var dumped = resolve.specFromRaw(alloc, tables, &diag);
+    var dumped = resolve.specFromRaw(alloc, tables.view(), &diag);
     dumped.name = "uline_rt";
     try reg.insertUserSpec(&dumped);
 
@@ -292,7 +292,7 @@ test "re-added structural slots + widened table_style round-trip through dump + 
         "[theme.code_fence_banner]\nfg = \"99\"\n" ++
         "[theme.glyphs]\ntable_style = \"heavy\"\n");
     defer raw.deinit(alloc);
-    var user = resolve.specFromRaw(alloc, raw, &diag);
+    var user = resolve.specFromRaw(alloc, raw.view(), &diag);
     user.name = "structural";
     try reg.insertUserSpec(&user);
 
@@ -312,7 +312,7 @@ test "re-added structural slots + widened table_style round-trip through dump + 
     // palette + decor survived the round-trip with zero diagnostics.
     var tables = try loadfile.parseThemeTables(alloc, buf.items);
     defer tables.deinit(alloc);
-    var dumped = resolve.specFromRaw(alloc, tables, &diag);
+    var dumped = resolve.specFromRaw(alloc, tables.view(), &diag);
     dumped.name = "structural_rt";
     try reg.insertUserSpec(&dumped);
 
@@ -342,7 +342,7 @@ test "markview's custom bullets survive dump -> reload" {
     try testing.expect(std.mem.indexOf(u8, buf.items, "bullets = [\"\u{25CF}\"]") != null);
 
     const tables = try loadfile.parseThemeTables(alloc, buf.items);
-    var dumped = resolve.specFromRaw(alloc, tables, &diag);
+    var dumped = resolve.specFromRaw(alloc, tables.view(), &diag);
     dumped.name = "markview_rt";
     try reg.insertUserSpec(&dumped);
 
@@ -368,7 +368,7 @@ test "glyphs containing quotes and backslashes round-trip through dump + loadfil
     const raw = try loadfile.parseThemeTables(alloc,
         "extends = \"dark\"\n[theme.heading1]\nprefix = \"a\\\"b\\\\c\"\n" ++
         "[theme.glyphs]\nbullets = [\"\\\"\", \"\\\\\"]\n");
-    var user = resolve.specFromRaw(alloc, raw, &diag);
+    var user = resolve.specFromRaw(alloc, raw.view(), &diag);
     user.name = "hostile";
     try reg.insertUserSpec(&user);
 
@@ -382,7 +382,7 @@ test "glyphs containing quotes and backslashes round-trip through dump + loadfil
     try testing.expect(std.mem.indexOf(u8, buf.items, "bullets = [\"\\\"\", \"\\\\\"]") != null);
 
     const tables = try loadfile.parseThemeTables(alloc, buf.items);
-    var dumped = resolve.specFromRaw(alloc, tables, &diag);
+    var dumped = resolve.specFromRaw(alloc, tables.view(), &diag);
     dumped.name = "hostile_rt";
     try reg.insertUserSpec(&dumped);
 

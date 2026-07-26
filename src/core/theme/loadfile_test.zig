@@ -4,7 +4,6 @@ const std = @import("std");
 const loadfile = @import("loadfile.zig");
 
 const RawThemeBuilder = loadfile.RawThemeBuilder;
-const RawThemeTables = loadfile.RawThemeTables;
 const parseThemeTables = loadfile.parseThemeTables;
 const splitSection = loadfile.splitSection;
 const stripInlineComment = loadfile.stripInlineComment;
@@ -12,7 +11,7 @@ const parseInlineArray = loadfile.parseInlineArray;
 const readThemeFile = loadfile.readThemeFile;
 const resolveThemeDir = loadfile.resolveThemeDir;
 
-test "parseThemeTables collects slot KVs" {
+test "parseThemeTables collects slot KVs (read through the borrowed view)" {
     const text =
         \\[theme.heading1]
         \\fg = "#ff0000"
@@ -22,13 +21,14 @@ test "parseThemeTables collects slot KVs" {
     var tables = try parseThemeTables(std.testing.allocator, text);
     defer tables.deinit(std.testing.allocator);
 
-    try std.testing.expectEqual(@as(usize, 1), tables.slots.len);
-    try std.testing.expectEqualStrings("heading1", tables.slots[0].name);
-    try std.testing.expectEqual(@as(usize, 3), tables.slots[0].kvs.len);
+    const v = tables.view();
+    try std.testing.expectEqual(@as(usize, 1), v.slots.len);
+    try std.testing.expectEqualStrings("heading1", v.slots[0].name);
+    try std.testing.expectEqual(@as(usize, 3), v.slots[0].kvs.items.len);
     // Quotes are stripped so spaces inside the prefix survive.
-    try std.testing.expectEqualStrings("fg", tables.slots[0].kvs[0].key);
-    try std.testing.expectEqualStrings("#ff0000", tables.slots[0].kvs[0].value);
-    try std.testing.expectEqualStrings("> ", tables.slots[0].kvs[2].value);
+    try std.testing.expectEqualStrings("fg", v.slots[0].kvs.items[0].key);
+    try std.testing.expectEqualStrings("#ff0000", v.slots[0].kvs.items[0].value);
+    try std.testing.expectEqualStrings("> ", v.slots[0].kvs.items[2].value);
 }
 
 test "parseThemeTables lands top-level [theme] keys in .top" {
@@ -42,11 +42,11 @@ test "parseThemeTables lands top-level [theme] keys in .top" {
     var tables = try parseThemeTables(std.testing.allocator, text);
     defer tables.deinit(std.testing.allocator);
 
-    try std.testing.expectEqual(@as(usize, 2), tables.top.len);
-    try std.testing.expectEqualStrings("extends", tables.top[0].key);
-    try std.testing.expectEqualStrings("dark", tables.top[0].value);
-    try std.testing.expectEqual(@as(usize, 1), tables.slots.len);
-    try std.testing.expectEqualStrings("link", tables.slots[0].name);
+    try std.testing.expectEqual(@as(usize, 2), tables.top.items.len);
+    try std.testing.expectEqualStrings("extends", tables.top.items[0].key);
+    try std.testing.expectEqualStrings("dark", tables.top.items[0].value);
+    try std.testing.expectEqual(@as(usize, 1), tables.slots.items.len);
+    try std.testing.expectEqualStrings("link", tables.slots.items[0].name);
 }
 
 test "document-root keys before any header land in top-level [theme]" {
@@ -60,11 +60,11 @@ test "document-root keys before any header land in top-level [theme]" {
     var tables = try parseThemeTables(std.testing.allocator, text);
     defer tables.deinit(std.testing.allocator);
 
-    try std.testing.expectEqual(@as(usize, 1), tables.top.len);
-    try std.testing.expectEqualStrings("extends", tables.top[0].key);
-    try std.testing.expectEqualStrings("dracula", tables.top[0].value);
-    try std.testing.expectEqual(@as(usize, 1), tables.slots.len);
-    try std.testing.expectEqualStrings("heading1", tables.slots[0].name);
+    try std.testing.expectEqual(@as(usize, 1), tables.top.items.len);
+    try std.testing.expectEqualStrings("extends", tables.top.items[0].key);
+    try std.testing.expectEqualStrings("dracula", tables.top.items[0].value);
+    try std.testing.expectEqual(@as(usize, 1), tables.slots.items.len);
+    try std.testing.expectEqualStrings("heading1", tables.slots.items[0].name);
 }
 
 test "a non-theme header after root keys turns collection off" {
@@ -76,9 +76,9 @@ test "a non-theme header after root keys turns collection off" {
     var tables = try parseThemeTables(std.testing.allocator, text);
     defer tables.deinit(std.testing.allocator);
     // Only the root `extends` is a theme key; the [display] value is ignored.
-    try std.testing.expectEqual(@as(usize, 1), tables.top.len);
-    try std.testing.expectEqualStrings("extends", tables.top[0].key);
-    try std.testing.expectEqual(@as(usize, 0), tables.slots.len);
+    try std.testing.expectEqual(@as(usize, 1), tables.top.items.len);
+    try std.testing.expectEqualStrings("extends", tables.top.items[0].key);
+    try std.testing.expectEqual(@as(usize, 0), tables.slots.items.len);
 }
 
 test "repeated [theme.link] blocks merge last-wins per key" {
@@ -93,12 +93,13 @@ test "repeated [theme.link] blocks merge last-wins per key" {
     defer tables.deinit(std.testing.allocator);
 
     // One merged slot, not two.
-    try std.testing.expectEqual(@as(usize, 1), tables.slots.len);
-    try std.testing.expectEqual(@as(usize, 2), tables.slots[0].kvs.len);
-    try std.testing.expectEqualStrings("fg", tables.slots[0].kvs[0].key);
+    try std.testing.expectEqual(@as(usize, 1), tables.slots.items.len);
+    const kvs = tables.slots.items[0].kvs.items;
+    try std.testing.expectEqual(@as(usize, 2), kvs.len);
+    try std.testing.expectEqualStrings("fg", kvs[0].key);
     // Last write wins in place.
-    try std.testing.expectEqualStrings("#222222", tables.slots[0].kvs[0].value);
-    try std.testing.expectEqualStrings("underline", tables.slots[0].kvs[1].key);
+    try std.testing.expectEqualStrings("#222222", kvs[0].value);
+    try std.testing.expectEqualStrings("underline", kvs[1].key);
 }
 
 test "unknown slot name is retained raw, not dropped" {
@@ -110,8 +111,8 @@ test "unknown slot name is retained raw, not dropped" {
     var tables = try parseThemeTables(std.testing.allocator, text);
     defer tables.deinit(std.testing.allocator);
 
-    try std.testing.expectEqual(@as(usize, 1), tables.slots.len);
-    try std.testing.expectEqualStrings("not_a_real_slot", tables.slots[0].name);
+    try std.testing.expectEqual(@as(usize, 1), tables.slots.items.len);
+    try std.testing.expectEqualStrings("not_a_real_slot", tables.slots.items[0].name);
 }
 
 test "non-theme sections are ignored by parseThemeTables" {
@@ -124,9 +125,9 @@ test "non-theme sections are ignored by parseThemeTables" {
     var tables = try parseThemeTables(std.testing.allocator, text);
     defer tables.deinit(std.testing.allocator);
 
-    try std.testing.expectEqual(@as(usize, 0), tables.top.len);
-    try std.testing.expectEqual(@as(usize, 1), tables.slots.len);
-    try std.testing.expectEqualStrings("strong", tables.slots[0].name);
+    try std.testing.expectEqual(@as(usize, 0), tables.top.items.len);
+    try std.testing.expectEqual(@as(usize, 1), tables.slots.items.len);
+    try std.testing.expectEqualStrings("strong", tables.slots.items[0].name);
 }
 
 test "splitSection splits on first dot; undotted yields empty subtable" {
@@ -156,8 +157,8 @@ test "readThemeFile round-trips a temp theme file; missing returns null" {
 
     var tables = (try readThemeFile(std.testing.allocator, dir_path, "solarized")).?;
     defer tables.deinit(std.testing.allocator);
-    try std.testing.expectEqual(@as(usize, 1), tables.slots.len);
-    try std.testing.expectEqualStrings("heading1", tables.slots[0].name);
+    try std.testing.expectEqual(@as(usize, 1), tables.slots.items.len);
+    try std.testing.expectEqualStrings("heading1", tables.slots.items[0].name);
 
     // A name with no file returns null rather than erroring.
     const missing = try readThemeFile(std.testing.allocator, dir_path, "nonexistent");
@@ -188,8 +189,8 @@ test "theme-file values drop inline comments but keep a quoted `#`" {
     var tables = try parseThemeTables(std.testing.allocator, text);
     defer tables.deinit(std.testing.allocator);
 
-    try std.testing.expectEqual(@as(usize, 1), tables.slots.len);
-    const kvs = tables.slots[0].kvs;
+    try std.testing.expectEqual(@as(usize, 1), tables.slots.items.len);
+    const kvs = tables.slots.items[0].kvs.items;
     try std.testing.expectEqualStrings("#ff79c6", kvs[0].value);
     try std.testing.expectEqualStrings("true", kvs[1].value);
     try std.testing.expectEqualStrings("#", kvs[2].value);
@@ -231,8 +232,8 @@ test "an array value survives the scanner, including a quoted `#` element" {
     );
     defer tables.deinit(alloc);
 
-    try std.testing.expectEqual(@as(usize, 1), tables.slots.len);
-    const kv = tables.slots[0].kvs[0];
+    try std.testing.expectEqual(@as(usize, 1), tables.slots.items.len);
+    const kv = tables.slots.items[0].kvs.items[0];
     try std.testing.expectEqualStrings("bullets", kv.key);
     // The inline comment is gone; the quoted `#` element is not.
     try std.testing.expectEqualStrings("[\"#\", \"\u{25CF}\"]", kv.value);

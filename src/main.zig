@@ -23,7 +23,6 @@ const terminal = @import("platform/terminal.zig");
 const tui = @import("tui/app.zig");
 const theme_color = @import("core/theme/color.zig");
 const theme_resolve = @import("core/theme/resolve.zig");
-const theme_loadfile = @import("core/theme/loadfile.zig");
 const theme_dump = @import("core/theme/dump.zig");
 
 const VERSION = @import("build_options").version;
@@ -178,15 +177,7 @@ pub fn main() !void {
     // Inline `[theme.*]` config tables are the highest-priority override layer;
     // borrow the builder's slices into an immutable view for the resolver. The
     // view only has to outlive the `resolve` call below.
-    var inline_slots = try allocator.alloc(theme_loadfile.RawThemeTables.Slot, loaded_config.raw_theme.slots.items.len);
-    defer allocator.free(inline_slots);
-    for (loaded_config.raw_theme.slots.items, 0..) |s, i| {
-        inline_slots[i] = .{ .name = s.name, .kvs = s.kvs.items };
-    }
-    const inline_overrides = theme_loadfile.RawThemeTables{
-        .top = loaded_config.raw_theme.top.items,
-        .slots = inline_slots,
-    };
+    const inline_overrides = loaded_config.raw_theme.view();
 
     // S5 threads the legacy `syntax_theme=classic` code-token variant as an
     // extra fold layer (before inline overrides) for chains rooted at

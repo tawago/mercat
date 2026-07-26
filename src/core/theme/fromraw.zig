@@ -31,8 +31,9 @@ const RawThemeTables = loadfile.RawThemeTables;
 /// (`bad_color`) and dropped (inherit kept); user glyphs containing Nerd PUA
 /// codepoints are substituted and reported (`glyph_fallback`).
 ///
-/// String values are referenced (not duped) from `raw`; `raw` must outlive the
-/// returned spec. `alloc` is used only for glyph-fallback substitution buffers.
+/// String values are referenced (not duped) from the builder behind `raw`,
+/// which must outlive the returned spec (the view itself only has to survive
+/// this call). `alloc` is used only for glyph-fallback substitution buffers.
 pub fn specFromRaw(alloc: std.mem.Allocator, raw: RawThemeTables, diag: *Diagnostics) ThemeSpec {
     var out = ThemeSpec{ .name = "" };
 
@@ -56,17 +57,17 @@ pub fn specFromRaw(alloc: std.mem.Allocator, raw: RawThemeTables, diag: *Diagnos
     for (raw.slots) |raw_slot| {
         // Non-slot sub-tables: glyph vocabulary, code frame, syntax tokens.
         if (std.mem.eql(u8, raw_slot.name, "glyphs")) {
-            for (raw_slot.kvs) |kv| applyGlyphKv(alloc, &out.glyphs, kv, diag);
+            for (raw_slot.kvs.items) |kv| applyGlyphKv(alloc, &out.glyphs, kv, diag);
             continue;
         }
         if (std.mem.eql(u8, raw_slot.name, "code_frame")) {
             var cf = out.glyphs.code_frame orelse spec.CodeFrameDelta{};
-            for (raw_slot.kvs) |kv| applyCodeFrameKv(&cf, kv, diag);
+            for (raw_slot.kvs.items) |kv| applyCodeFrameKv(&cf, kv, diag);
             out.glyphs.code_frame = cf;
             continue;
         }
         if (std.mem.eql(u8, raw_slot.name, "tokens")) {
-            for (raw_slot.kvs) |kv| applyTokenKv(&out.tokens, kv, diag);
+            for (raw_slot.kvs.items) |kv| applyTokenKv(&out.tokens, kv, diag);
             continue;
         }
 
@@ -75,7 +76,7 @@ pub fn specFromRaw(alloc: std.mem.Allocator, raw: RawThemeTables, diag: *Diagnos
             continue;
         };
         var ss = out.slots.get(slot) orelse SlotSpec{};
-        for (raw_slot.kvs) |kv| applyRawKv(alloc, &ss, kv, raw_slot.name, diag);
+        for (raw_slot.kvs.items) |kv| applyRawKv(alloc, &ss, kv, raw_slot.name, diag);
         out.slots.set(slot, ss);
     }
     return out;
@@ -286,7 +287,7 @@ test "specFromRaw parses the re-added structural slots (S2)" {
     var diag = resolve.Diagnostics.init(alloc);
     defer diag.deinit();
 
-    const s = specFromRaw(alloc, tables, &diag);
+    const s = specFromRaw(alloc, tables.view(), &diag);
     try testing.expectEqual(@as(usize, 0), diag.count());
     try testing.expect(std.meta.eql(s.slots.get(.hr).?.fg.?, Color{ .index = 202 }));
     try testing.expect(std.meta.eql(s.slots.get(.table_border).?.fg.?, Color{ .index = 45 }));
@@ -306,7 +307,7 @@ test "specFromRaw parses a user bullets array (documented [theme.glyphs] key)" {
         \\bullets = ["#", "◦", "‣"] # a quoted hash stays a glyph
     );
     var diag = resolve.Diagnostics.init(alloc);
-    const s = specFromRaw(alloc, tables, &diag);
+    const s = specFromRaw(alloc, tables.view(), &diag);
     try testing.expectEqual(@as(usize, 0), diag.count());
     const bs = s.glyphs.bullets.?;
     try testing.expectEqual(@as(usize, 3), bs.len);
@@ -323,7 +324,7 @@ test "a scalar or empty bullets value is reported, not silently accepted" {
     inline for (.{ "bullets = \"*\"", "bullets = []" }) |line| {
         const tables = try loadfile.parseThemeTables(alloc, "[theme.glyphs]\n" ++ line ++ "\n");
         var diag = resolve.Diagnostics.init(alloc);
-        const s = specFromRaw(alloc, tables, &diag);
+        const s = specFromRaw(alloc, tables.view(), &diag);
         try testing.expect(diag.has(.unknown_key));
         try testing.expect(s.glyphs.bullets == null);
     }
@@ -343,7 +344,7 @@ test "specFromRaw parses the widened table_style weights and reports invalid one
         defer tables.deinit(alloc);
         var diag = resolve.Diagnostics.init(alloc);
         defer diag.deinit();
-        const s = specFromRaw(alloc, tables, &diag);
+        const s = specFromRaw(alloc, tables.view(), &diag);
         try testing.expectEqual(@as(usize, 0), diag.count());
         try testing.expectEqual(c.want, s.glyphs.table_style.?);
     }
@@ -353,7 +354,7 @@ test "specFromRaw parses the widened table_style weights and reports invalid one
     defer bad.deinit(alloc);
     var diag = resolve.Diagnostics.init(alloc);
     defer diag.deinit();
-    const s = specFromRaw(alloc, bad, &diag);
+    const s = specFromRaw(alloc, bad.view(), &diag);
     try testing.expect(diag.has(.unknown_key));
     try testing.expect(s.glyphs.table_style == null);
 }
