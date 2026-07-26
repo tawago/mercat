@@ -4,6 +4,8 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.2.1]
+
 ### Themes
 
 - **New theme system.** Colors and glyphs now resolve through a single slot-based
@@ -21,14 +23,31 @@ All notable changes to this project will be documented in this file.
   `task_ticked`/`task_unticked`, `table_style`). Colors accept xterm-256 indices,
   ANSI-16 names, or `#rrggbb` truecolor values.
 
-### Breaking
+### Front matter
 
-- **The flat `[display]` glyph keys have been removed:** `quote_bar`,
-  `bullet_glyphs`, `hr_glyph`, `task_checked`, `task_todo`, `table_border_set`,
-  and `heading_prefix`. Move them under `[theme.glyphs]` (and per-heading
-  `prefix` keys). See the migration table in the README. `table_border_set`
-  becomes `table_style`, which accepts `grid` (formerly `light`), `heavy`,
-  `double`, `ascii`, and the new `rounded`.
+- **YAML front matter renders as metadata** instead of leaking into the document
+  as fake headings and horizontal rules. The offset-0 fence is peeled off before
+  markdown parsing and carried as a dedicated block.
+- Display styles via `[display] frontmatter`, the `--frontmatter` flag, or
+  `MERCAT_FRONTMATTER`: `panel` (default), `dim`, `compact`, `raw`, `hidden`.
+- TUI: `m` toggles a top-right metadata overlay listing the front matter entries.
+
+### Input
+
+- **Implicit stdin.** With no file argument, mercat reads stdin whenever it is a
+  pipe or redirect; `-` still works. An interactive terminal prints usage and
+  exits 1.
+- **Bare Mermaid sources.** `.mmd`/`.mermaid` files render as a single diagram,
+  and piped input whose first meaningful line starts at column 0 with a diagram
+  keyword is rendered as a diagram with no ```` ```mermaid ```` fence needed.
+
+### Packaging
+
+- Releases now attach `.deb` and `.rpm` packages alongside the tarballs.
+
+### Fixed
+
+- v2 lexer rejected tight inline edge labels such as `-.text.->`.
 
 ## [0.2.0]
 

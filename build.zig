@@ -6,7 +6,7 @@ pub fn build(b: *std.Build) void {
     const options = b.addOptions();
     const koino_dep = b.dependency("koino", .{ .target = target, .optimize = optimize });
     const vaxis_dep = b.dependency("vaxis", .{ .target = target, .optimize = optimize });
-    options.addOption([]const u8, "version", "0.2.0");
+    options.addOption([]const u8, "version", "0.2.1");
 
     // =====================================================
     // Shared Modules (for reuse across targets)
