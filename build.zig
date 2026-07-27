@@ -340,6 +340,47 @@ pub fn build(b: *std.Build) void {
         const test_eval_step = b.step("test-eval", "Run private eval scorer tests (reconstruction + decoder-score)");
         test_eval_step.dependOn(&reconstruction_test_run.step);
         test_eval_step.dependOn(&decoder_score_test_run.step);
+
+        // --- byte-exact regression gate (private) ---
+        // Renders each pinned input with the installed mercat binary and
+        // byte-compares against frozen goldens; the corpus location is the
+        // runner's own default. Folded into `zig build test` here, so the
+        // gate runs on every maintainer test invocation while public clones
+        // (which lack `eval/`) are untouched.
+        const update_regressions = b.option(
+            bool,
+            "update-regressions",
+            "Rewrite regression goldens instead of comparing (deliberate, judged changes only)",
+        ) orelse false;
+
+        const regress_module = b.createModule(.{
+            .root_source_file = b.path("eval/regress.zig"),
+            .target = target,
+            .optimize = optimize,
+        });
+
+        const regress_exe = b.addExecutable(.{
+            .name = "regress",
+            .root_module = regress_module,
+        });
+
+        const regress_cmd = b.addRunArtifact(regress_exe);
+        regress_cmd.setCwd(b.path("."));
+        regress_cmd.addArg(b.getInstallPath(.bin, "mercat"));
+        if (update_regressions) regress_cmd.addArg("--update");
+        regress_cmd.step.dependOn(b.getInstallStep());
+        regress_cmd.expectExitCode(0);
+        // The gate's verdict depends on the renderer, not just on its own
+        // inputs; never let the build cache short-circuit it.
+        regress_cmd.has_side_effects = true;
+
+        const regress_step = b.step("regress", "Byte-compare regression goldens (-Dupdate-regressions=true rewrites them)");
+        regress_step.dependOn(&regress_cmd.step);
+        test_step.dependOn(&regress_cmd.step);
+
+        const regress_tests = b.addTest(.{ .root_module = regress_module });
+        const regress_test_run = b.addRunArtifact(regress_tests);
+        test_step.dependOn(&regress_test_run.step);
     }
 }
 
