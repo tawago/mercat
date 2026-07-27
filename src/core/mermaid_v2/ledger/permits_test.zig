@@ -261,6 +261,111 @@ test "V-D-JOIN-SELECT-14: self-loop exclusion does not annihilate real fan-in co
     try expectClean(a, graph(&edges), result.plan);
 }
 
+// -- Source-end-decorated (`<-->`) edges at the permission tier ------------
+//
+// The permission tier is arrow-blind: a `<-->` arrival is licensed into a
+// fan-IN group exactly like a plain one, and may be admitted to a mesh
+// union. Whether such an arrival is actually FOLDED into a trunk is a
+// geometry-tier decision (layout/fan.zig collectFanIn drops it, because a
+// fan-IN's source-side dropper has no cell for a far-end head). These tests
+// pin the permission tier's shape and determinism, not the fold.
+
+fn bidirectional(id: sg.EdgeId, from: sg.NodeId, to: sg.NodeId) sg.Edge {
+    return .{
+        .id = id,
+        .from = from,
+        .to = to,
+        .kind = .solid,
+        .arrow_from = .open,
+        .arrow_to = .open,
+        .label = null,
+    };
+}
+
+test "bidirectional arrival is licensed by the permission tier (geometry decides)" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    // Target-incidence union {A<-->X, B-->X}: arrow decoration is invisible
+    // here, so the group forms exactly as it does for two plain arrivals.
+    const edges = [_]sg.Edge{ bidirectional(0, 0, 4), edge(1, 1, 4) };
+
+    const result = try planner.build(a, graph(&edges), .joined);
+    try std.testing.expectEqual(@as(usize, 1), result.plan.groups.len);
+    try std.testing.expectEqual(pb.JoinDirection.in, result.plan.groups[0].direction);
+    try std.testing.expectEqualSlices(pb.EdgeId, &.{ 0, 1 }, result.plan.groups[0].members);
+    try expectClean(a, graph(&edges), result.plan);
+
+    // Byte-identical to the all-plain twin: the tier really is arrow-blind.
+    const plain = [_]sg.Edge{ edge(0, 0, 4), edge(1, 1, 4) };
+    const control = try planner.build(a, graph(&plain), .joined);
+    try std.testing.expectEqualStrings(
+        try canonicalBytes(a, control.plan),
+        try canonicalBytes(a, result.plan),
+    );
+
+    // Determinism under member permutation.
+    const swapped = [_]sg.Edge{ edge(1, 1, 4), bidirectional(0, 0, 4) };
+    const other = try planner.build(a, graph(&swapped), .joined);
+    try std.testing.expectEqualStrings(
+        try canonicalBytes(a, result.plan),
+        try canonicalBytes(a, other.plan),
+    );
+    try expectClean(a, graph(&swapped), other.plan);
+}
+
+test "bidirectional arrival joins a larger fan-in union like any other member" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    // Union {A<-->X, B-->X, C-->X}: all three are members of the one group.
+    const edges = [_]sg.Edge{ bidirectional(0, 0, 4), edge(1, 1, 4), edge(2, 2, 4) };
+
+    const result = try planner.build(a, graph(&edges), .joined);
+    try std.testing.expectEqual(@as(usize, 1), result.plan.groups.len);
+    const group = result.plan.groups[0];
+    try std.testing.expectEqual(pb.JoinDirection.in, group.direction);
+    try std.testing.expectEqual(@as(sg.NodeId, 4), group.pivot);
+    try std.testing.expectEqualSlices(pb.EdgeId, &.{ 0, 1, 2 }, group.members);
+    const decorated = planner.lookupMembership(result.plan, .{ .original = 0 });
+    try std.testing.expectEqual(@as(?pb.JoinGroupId, null), decorated.membership.?.source_group);
+    try std.testing.expectEqual(group.id, decorated.membership.?.target_group.?);
+    try expectClean(a, graph(&edges), result.plan);
+}
+
+test "bidirectional edges form a fan-OUT group at their shared source" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    // Source-incidence union {A<-->B, A<-->C}: the head sits at the pivot,
+    // where the bus-bar's single pivot_arrow renders it once for the trunk.
+    const edges = [_]sg.Edge{ bidirectional(0, 0, 1), bidirectional(1, 0, 2) };
+
+    const result = try planner.build(a, graph(&edges), .joined);
+    try std.testing.expectEqual(@as(usize, 1), result.plan.groups.len);
+    try std.testing.expectEqual(pb.JoinDirection.out, result.plan.groups[0].direction);
+    try std.testing.expectEqual(@as(sg.NodeId, 0), result.plan.groups[0].pivot);
+    try std.testing.expectEqualSlices(pb.EdgeId, &.{ 0, 1 }, result.plan.groups[0].members);
+    try expectClean(a, graph(&edges), result.plan);
+}
+
+test "parsed '<-->' reaches the planner as a source-end-decorated edge" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    // The end-to-end shape from issue #29, straight off the parser: the
+    // decoration survives parse, and the planner licenses the union.
+    const g = try parse.parse(a, "flowchart TB\n  A[A] <--> C[C]\n  B[B] --> C\n");
+    try std.testing.expectEqual(@as(usize, 2), g.edges.len);
+    try std.testing.expect(g.edges[0].arrow_from != .none);
+    try std.testing.expect(g.edges[1].arrow_from == .none);
+
+    const result = try planner.build(a, g, .joined);
+    try std.testing.expectEqual(@as(usize, 1), result.plan.groups.len);
+    try std.testing.expectEqual(pb.JoinDirection.in, result.plan.groups[0].direction);
+    try expectClean(a, g, result.plan);
+}
+
 test "builder output always validates clean across discovery shapes" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
@@ -273,6 +378,11 @@ test "builder output always validates clean across discovery shapes" {
         &.{ edge(0, 0, 4), edge(1, 0, 1), edge(2, 2, 4) },
         // V-D-JOIN-SELECT-14: self-loop-bearing fan-in union stays clean.
         &.{ edge(0, 0, 4), edge(1, 1, 4), edge(2, 4, 4) },
+        // #29: source-end-decorated unions stay clean at every group size.
+        &.{ bidirectional(0, 0, 4), edge(1, 1, 4) },
+        &.{ bidirectional(0, 0, 4), edge(1, 1, 4), edge(2, 2, 4) },
+        &.{ bidirectional(0, 0, 4), bidirectional(1, 1, 4) },
+        &.{ bidirectional(0, 0, 1), bidirectional(1, 0, 2) },
     };
     for (cases) |edges| {
         const g = graph(edges);

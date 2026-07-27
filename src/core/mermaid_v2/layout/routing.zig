@@ -331,6 +331,8 @@ pub fn buildEdgesWithPlan(
         // else GROW a corner-fed length-2 final into a formal straight base.
         if (!rp.ensureBaseStub(poly, placements, orig.from, orig.to))
             poly = try growBaseApproach(a, poly, placements, orig, out.items, bar_views, allocated_ports.edges, joins);
+        // Same rule at the SOURCE end when the edge carries a head there.
+        poly = try growSourceApproach(a, poly, placements, orig, out.items, bar_views, allocated_ports.edges, joins);
 
         try out.append(a, .{
             .id = orig.id,
@@ -418,16 +420,39 @@ fn growBaseApproach(
     edge_ports: []const port_plan.EdgePorts,
     joins: ledger.RealizedJoins,
 ) error{OutOfMemory}![]sketch.Point {
-    // A source-side arrowhead means BOTH ends of the polyline are terminals
-    // (a bidirectional or reverse-arrow edge); which end is poly[last] is then
-    // ambiguous, and growing one end can re-route the whole edge. Restrict the
-    // grow to pure single-target terminals.
-    if (edge.arrow_from != .none) return poly;
-    const grown = try rt.ensureBaseApproachLengthen(a, poly, placements);
+    // `poly[last]` is ALWAYS the target end, so a source-side arrowhead makes
+    // this pass no more ambiguous than any other — it only means the far end
+    // (`poly[0]`) is a head too, which `far_head` reserves room for. (An earlier
+    // blanket `arrow_from != .none` bail predates `growSourceApproach`; with the
+    // two ends on dedicated passes it just left decorated targets unformalized.)
+    const grown = try rt.ensureBaseApproachLengthen(a, poly, placements, edge.arrow_from != .none);
     if (grown.ptr == poly.ptr) return poly; // did not fire
     if (try route_clearance.polylineClears(a, edge.id, edge.kind, grown, existing, bar_views, placements, edge_ports, joins, edge.from, edge.to))
         return grown;
     return poly; // grown geometry conflicts — revert to the ungrown route
+}
+
+/// Source-end counterpart of `growBaseApproach` (#29). Class-level: keyed on
+/// `arrow_from != .none` alone, never on a node id or a diagram shape. The
+/// mirror geometry lives in `rt.ensureSourceBaseApproach`; this wrapper only
+/// applies the same re-clear-or-revert discipline, since a formalized source
+/// base can push one cell into a neighbour just like a formalized terminal.
+fn growSourceApproach(
+    a: std.mem.Allocator,
+    poly: []sketch.Point,
+    placements: []const sketch.NodePlacement,
+    edge: sg.Edge,
+    existing: []const sketch.EdgePath,
+    bar_views: []const sketch.BusBar,
+    edge_ports: []const port_plan.EdgePorts,
+    joins: ledger.RealizedJoins,
+) error{OutOfMemory}![]sketch.Point {
+    if (edge.arrow_from == .none) return poly;
+    const grown = try rt.ensureSourceBaseApproach(a, poly, placements, edge.from, edge.to, edge.arrow_to != .none);
+    if (grown.ptr == poly.ptr) return poly; // did not fire
+    if (try route_clearance.polylineClears(a, edge.id, edge.kind, grown, existing, bar_views, placements, edge_ports, joins, edge.from, edge.to))
+        return grown;
+    return poly;
 }
 
 test {

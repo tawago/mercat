@@ -98,7 +98,7 @@ fn memberGeom(s: sk.Sketch, edge: pb.EdgeId) MemberGeom {
             .from = if (out) bb.pivot else tap.node,
             .to = if (out) tap.node else bb.pivot,
             .kind = bb.kind,
-            .arrow_from = if (out) .none else tap.arrow,
+            .arrow_from = if (out) bb.pivot_arrow else tap.arrow,
             .arrow_to = if (out) tap.arrow else bb.pivot_arrow,
             .label = tap.label,
             .found = true,

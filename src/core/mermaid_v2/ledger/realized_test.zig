@@ -456,3 +456,30 @@ test "V-D-IR-04: JoinPermits and RealizedJoins byte-identical across edge orders
         } else first = bytes;
     }
 }
+
+test "V-D-TRUNK: a bus-bar member reports the bar's pivot arrow, not a blanket none" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    // Fan-OUT at Hub over two members whose geometry is heterogeneous: one is
+    // a bus-bar tap on a bar whose pivot attachment is DECORATED, the other an
+    // ordinary arrowless-pivot EdgePath. MemberGeom must surface the bar's
+    // pivot_arrow for the tap member — reporting a blanket `.none` for every
+    // bus-bar member makes sub-clause (c) blind to exactly this mismatch.
+    const edges = [_]sg.Edge{ edge(0, 5, 0), edge(1, 5, 1) };
+    const g = graph(&edges);
+    const plan = try buildPlan(a, g);
+
+    const taps = [_]sk.Tap{.{ .edge = 0, .node = 0, .at = poly[0], .landing = poly[1], .arrow = .filled }};
+    var bar = busbarFor(5, .solid, .fan_out_rail, &taps);
+    bar.pivot_arrow = .filled;
+    const path = [_]sk.EdgePath{pathFor(edges[1])};
+    const members = [_]pb.EdgeId{ 0, 1 };
+    const sel = [_]pb.SelectedJoin{.{ .id = 0, .proposal = 0, .permission_group = plan.groups[0].id, .members = &members }};
+
+    var s = sketchOf(&path, &.{bar});
+    s.joins = .{ .selected_joins = &sel };
+    const res = try jp.realize(a, plan, s, &.{});
+    try expectEqual(jp.GroupClause.style, res.report.verdicts[0].clause);
+    try expectEqual(pb.DiagnosticTag.trunk_pivot_side_arrow, res.report.verdicts[0].trunk_detail.?);
+}

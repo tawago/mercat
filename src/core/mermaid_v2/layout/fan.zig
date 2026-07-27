@@ -73,12 +73,30 @@ pub const Fan = struct {
 /// edges to REAL nodes on the immediately-next layer, none through
 /// virtuals. Symmetric criterion for fan-IN. Returned slice and inner
 /// `peers` slices are arena-allocated via `a`.
+///
+/// An edge carrying a SOURCE-end arrowhead (`arrow_from != .none`: the
+/// `<-->` / `<--` / `o--o` / `x--x` family) is never a fan-IN member. A
+/// fan-IN's rail is anchored to the PIVOT (it sits `off` rows above the
+/// target), so the source-side dropper collapses to zero interior cells and
+/// the far-end head has nowhere to land — it is simply deleted. Fan-OUT is
+/// not symmetric here: there the source end IS the pivot end, carried by the
+/// bus-bar's single `pivot_arrow` (or by the per-peer polylines, which each
+/// keep their own `arrow_from`), so fan-OUT members are left alone.
+/// Detection is the single layout chokepoint — fan_lanes, fan_busbar,
+/// extraRowsPerGap and routing's fan branch all key off the fan lookup — so
+/// an excluded edge falls to the ordinary orthogonal router, which draws
+/// BOTH heads.
+/// guarded-by: fan_test.zig "detect drops a bidirectional member from a fan-IN"
 pub fn detect(
     a: std.mem.Allocator,
     graph: sg.SemGraph,
     lg: sugiyama.LayeredGraph,
 ) error{OutOfMemory}![]Fan {
-    _ = graph;
+    var source_headed: std.ArrayListUnmanaged(sg.EdgeId) = .empty;
+    defer source_headed.deinit(a);
+    for (graph.edges) |e| {
+        if (e.arrow_from != .none) try source_headed.append(a, e.id);
+    }
 
     var node_layer = try a.alloc(u32, lg.nodes.len);
     @memset(node_layer, 0);
@@ -114,7 +132,7 @@ pub fn detect(
         }
         const p_layer = node_layer[pivot];
         if (p_layer == 0) continue;
-        if (try collectFanIn(a, lg, node_layer, pivot, p_layer - 1)) |peers| {
+        if (try collectFanIn(a, lg, node_layer, source_headed.items, pivot, p_layer - 1)) |peers| {
             try fans.append(a, .{
                 .direction = .in,
                 .pivot_idx = pivot,
@@ -125,6 +143,14 @@ pub fn detect(
     }
 
     return try fans.toOwnedSlice(a);
+}
+
+/// True iff `id` is one of the source-end-decorated edges collected by
+/// `detect`. Linear over a set that is empty for the overwhelming majority
+/// of diagrams (only `<-->`-family edges land in it).
+fn sourceHeaded(ids: []const sg.EdgeId, id: sg.EdgeId) bool {
+    for (ids) |candidate| if (candidate == id) return true;
+    return false;
 }
 
 fn collectFanOut(
@@ -163,6 +189,7 @@ fn collectFanIn(
     a: std.mem.Allocator,
     lg: sugiyama.LayeredGraph,
     node_layer: []const u32,
+    source_headed: []const sg.EdgeId,
     tgt_idx: u32,
     want_src_layer: u32,
 ) error{OutOfMemory}!?[]FanEdge {
@@ -177,6 +204,16 @@ fn collectFanIn(
             .real => {},
             .virtual => return null,
         }
+        // Membership-only exclusion, deliberately placed AFTER the layer and
+        // virtual-peer disqualifications so every pre-existing reason a fan
+        // does NOT form still fires first: a bidirectional arrival routed
+        // through a virtual node must still veto the whole fan, exactly as
+        // before. The source-side dropper of a fan-IN has no room for a
+        // far-end head, so skip the member (the group simply falls below the
+        // two-candidate floor if that empties it) and let the plain router
+        // draw it.
+        // guarded-by: fan_test.zig "a virtual bidirectional arrival still disqualifies the whole fan-IN"
+        if (sourceHeaded(source_headed, le.edge)) continue;
         try candidates.append(a, .{
             .edge_id = le.edge,
             .peer_idx = le.from,

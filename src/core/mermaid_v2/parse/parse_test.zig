@@ -76,6 +76,28 @@ test "edge variants" {
     try t.expectEqual(EdgeKind.invisible, g.edges[4].kind);
 }
 
+test "bidirectional edge decodes an arrowhead at BOTH ends" {
+    // `<-->` is the only common two-headed connector; downstream stages key
+    // "this edge carries ink at its source end too" off `arrow_from != .none`
+    // — fan-IN DETECTION excludes such edges (layout/fan.zig), and routing
+    // gives their source end its own base-approach pass. The PERMISSION tier
+    // (join-permit discovery) is deliberately arrow-blind and does NOT exclude
+    // them. So the decode itself is pinned here.
+    var g = try parse(t.allocator, "flowchart TD\nA <--> B\n");
+    defer g.deinit(t.allocator);
+    try t.expectEqual(@as(usize, 2), g.nodeCount());
+    try t.expectEqual(@as(usize, 1), g.edgeCount());
+    try t.expectEqual(EdgeKind.solid, g.edges[0].kind);
+    try t.expectEqual(ArrowEnd.open, g.edges[0].arrow_from);
+    try t.expectEqual(ArrowEnd.open, g.edges[0].arrow_to);
+
+    var dotted = try parse(t.allocator, "flowchart TD\nA <-.-> B\n");
+    defer dotted.deinit(t.allocator);
+    try t.expectEqual(@as(usize, 1), dotted.edgeCount());
+    try t.expectEqual(ArrowEnd.open, dotted.edges[0].arrow_from);
+    try t.expectEqual(ArrowEnd.open, dotted.edges[0].arrow_to);
+}
+
 test "double-ended circle/cross edge builds one edge, no phantom node" {
     // `o--o` / `x--x` must parse (not fall back to raw source): two nodes, one
     // edge with both end markers decoded. No spurious "o"/"x" node.

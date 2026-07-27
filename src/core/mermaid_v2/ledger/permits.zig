@@ -56,12 +56,19 @@ pub fn build(
         for (graph.edges[0..i]) |prior| if (prior.id == edge.id) return error.InvalidSemGraph;
         // A self-loop is not a plain directed edge between two distinct nodes, so it is
         // never an endpoint-incidence join-group member (its source==target makes fan-in/
-        // fan-out classification degenerate). Excluded here, before the carve-out predicate;
-        // it still takes a (null,null) membership below and still renders its own lollipop.
+        // fan-out classification degenerate). It still takes a (null,null) membership
+        // below and still renders its own lollipop.
         // guarded-by: permits_test.zig "V-D-JOIN-SELECT-14: self-loop excluded from fan-in group leaves residual member independent"
         // D-JOIN-SELECT self-loop join exclusion (2026-07-18) / V-D-JOIN-SELECT-14.
         if (edge.from == edge.to) continue;
         try incidence[from].outgoing.append(allocator, edge.id);
+        // Arrow decoration is NOT a permission-tier concern: a source-end
+        // arrowhead (`<-->` / `<--` / `o--o` / `x--x`) may be licensed into a
+        // fan-IN group here, and MAY end up in a mesh union via
+        // mesh_legal.endpointsOf. Whether such an arrival is actually folded
+        // into a trunk is decided one tier down, geometrically, by
+        // layout/fan.zig's collectFanIn.
+        // guarded-by: permits_test.zig "bidirectional arrival is licensed by the permission tier (geometry decides)"
         try incidence[to].incoming.append(allocator, edge.id);
     }
 

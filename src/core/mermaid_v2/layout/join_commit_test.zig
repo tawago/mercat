@@ -127,3 +127,51 @@ test "N6: every enumerated candidate agrees on pre-sizing trunk commitments and 
         if (source_i == 2) try std.testing.expect(saw_switch);
     }
 }
+
+// -- #29: source-end-decorated arrivals keep N6 agreement -------------------
+//
+// The permission tier is arrow-blind, so a `<-->` arrival MAY be licensed
+// into a fan-IN group and MAY be a committed trunk member here. Whether the
+// rail actually folds it is a geometry-tier decision (layout/fan.zig
+// collectFanIn drops it), and the class property that the fold never eats
+// the far-end head is asserted at the raster tier:
+// ledger/realized_production_test.zig "#29 class: a source-end-decorated
+// member keeps both endpoints, its reverse head, and a sane canvas".
+//
+// What must hold HERE is the standing N6 equality on this family: whatever
+// join_commit commits pre-sizing, realized.realize must reproduce edge for
+// edge, over every candidate of every enumerated rung.
+const source_headed_sources = [_][]const u8{
+    "flowchart TD\n  A <--> C\n  B --> C\n",
+    "flowchart TD\n  A <--> C\n  B --> C\n  D --> C\n",
+    "flowchart TD\n  A <--> C\n  B <--> C\n  D --> C\n",
+    "flowchart TD\n  S --> A\n  S <--> B\n  S --> D\n",
+    "flowchart LR\n  S <--> A\n  S <--> B\n",
+    "flowchart TD\n  A o--o C\n  B --> C\n",
+    "flowchart TD\n  A <-- C\n  B --> C\n  D --> C\n",
+};
+
+test "N6 holds across the source-end-decorated family" {
+    for (source_headed_sources) |source| {
+        var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+        defer arena.deinit();
+        const a = arena.allocator();
+        const graph = try parse(a, source);
+        const plan = (try permits.build(a, graph, .joined)).plan;
+        const set = try select.enumerateAll(a, graph, &plan, true, 94);
+        for (set.merged) |candidate| {
+            const checked = try realized.realize(a, plan, candidate.sketch, candidate.sketch.joins.mesh_unions);
+            try expectSelectedEqual(candidate.sketch.joins.selected_joins, checked.plan.selected_joins);
+        }
+    }
+}
+
+test "a plain fan-in beside a bidirectional departure still commits its trunk" {
+    // D's three plain arrivals merge as usual; the `<-->` on D's DEPARTURE
+    // side does not perturb the arrival trunk.
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const keys = try trunkKeysAtD(a, "flowchart TD\n  A --> D\n  B --> D\n  C --> D\n  D <--> E\n");
+    try std.testing.expectEqual(@as(usize, 3), keys.len);
+}

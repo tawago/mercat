@@ -168,16 +168,28 @@ pub fn mapArrow(e: sg.ArrowEnd) sketch.ArrowKind {
 /// predecessor vertex (not the source port, index 0) so the source attachment
 /// never moves.
 ///
+/// FAR-END RESERVE (`far_head`): set it when the polyline's index-0 end carries
+/// an arrowhead of its own — a source-decorated edge on the forward pass, a
+/// plain target head on the reversed (source) pass. That head occupies the cell
+/// one step inside `poly[0]`, and its own base cell the step after; a run pulled
+/// to within one cell of `poly[0]` would land ON the far head and erase it. With
+/// the flag set the pulled-back run must stay >= 2 cells from `poly[0]` along
+/// the base axis, which leaves the far head corner-fed at worst — never blind.
+/// Only the LAST leg's own predecessor run can reach that far (`bi == 2`), so
+/// the reserve is checked exactly there.
+///
 /// Grows onto a FRESH buffer (never mutates the input) so the caller retains
 /// the ungrown polyline for a clearance-driven revert (a grown run can push
 /// one cell into a neighbour). Returns the same slice when it does not fire.
 /// The point count is preserved — the new straight cell is the vacated corner
 /// position — but the slice is reallocated so callers uniformly rebind.
 /// guarded-by: routing_terminal_test.zig "ensureBaseApproachLengthen grows a corner-fed len-2 final into a straight base approach"
+/// guarded-by: routing_terminal_test.zig "ensureBaseApproachLengthen keeps a far-end head's base cell clear when far_head is set"
 pub fn ensureBaseApproachLengthen(
     a: std.mem.Allocator,
     poly: []sketch.Point,
     placements: []const sketch.NodePlacement,
+    far_head: bool,
 ) error{OutOfMemory}![]sketch.Point {
     const fed = rp.detectCornerFedTerminal(poly) orelse return poly;
     const bi = fed.bi;
@@ -206,6 +218,9 @@ pub fn ensureBaseApproachLengthen(
     const p_base: i32 = if (base_horizontal) p.x else p.y;
     const np_base: i32 = p_base - (if (base_horizontal) ux else uy);
     if (np_base == q_base or (p_base > q_base) != (np_base > q_base)) return poly;
+    // Far-end reserve: `q` is `poly[0]` itself only when bi == 2, so that is the
+    // only depth at which the pulled-back run can crowd the far attachment.
+    if (far_head and bi == 2 and @abs(np_base - q_base) < 2) return poly;
     // Pull the corner (and its predecessor run) back one cell along -unit(base).
     const nb = sketch.Point{ .x = b.x - ux, .y = b.y - uy };
     const np = sketch.Point{ .x = p.x - ux, .y = p.y - uy };
@@ -244,6 +259,66 @@ pub fn ensureBaseApproachLengthen(
     return try grown.toOwnedSlice(a);
 }
 
+/// SOURCE-end mirror of the base-approach pair. An edge with
+/// `arrow_from != .none` (`<-->` / `<--` / `o--o` / `x--x`) stamps a second
+/// arrowhead one cell inside its SOURCE port, and that head needs the same
+/// straight collinear base the terminal head gets — otherwise the first leg
+/// turns immediately and the reverse head points sideways along the turn,
+/// into nothing (a fabricated relation).
+///
+/// Rather than duplicate the two passes end-for-end, this REVERSES the
+/// polyline onto a fresh buffer — which makes the source port the terminal —
+/// runs the already-proven `ensureBaseStub` / `ensureBaseApproachLengthen`
+/// on it, and reverses back.
+///
+/// FAR-END PROTECTION. The mirror is NOT free: both passes write `[bi]` and
+/// `[bi-1]`, and on the reversed buffer index 0 is the TARGET attachment. The
+/// forward pass never touches its own far end only because `poly[0]` is a
+/// SOURCE port that no head occupies; here it is a target port that usually
+/// does. Two guards restore the symmetry properly:
+///   - `bi >= 2`, applied to the SHARED detector before either pass runs, so
+///     `ensureBaseStub` (whose own floor is only `bi >= 1`) can never write
+///     `rev[0]` and slide the target attachment. Without it a reversed 3-point
+///     polyline moves the target port outright.
+///   - `far_head` on the lengthen, so a pulled-back run keeps 2 cells of
+///     clearance from the target port — the target's own arrowhead and its base
+///     cell. Without it the run lands on the head's base row, which is exactly
+///     how an excluded fan-IN's members re-fuse into a rail flush against the
+///     shared `▼`.
+/// `far_head` is the caller's `arrow_to != .none`: whether the far end really
+/// carries a head is edge data this pure-geometry helper cannot see.
+///
+/// Returns `poly` itself (same pointer) when neither pass fires, so the
+/// caller can skip its clearance re-check. Never mutates `poly`.
+/// guarded-by: routing_terminal_test.zig "ensureSourceBaseApproach mirrors the base-approach passes onto the source end"
+/// guarded-by: routing_terminal_test.zig "ensureSourceBaseApproach never moves the target attachment"
+pub fn ensureSourceBaseApproach(
+    a: std.mem.Allocator,
+    poly: []sketch.Point,
+    placements: []const sketch.NodePlacement,
+    from_id: sketch.NodeId,
+    to_id: sketch.NodeId,
+    far_head: bool,
+) error{OutOfMemory}![]sketch.Point {
+    if (poly.len < 3) return poly;
+    const rev = try a.alloc(sketch.Point, poly.len);
+    for (poly, 0..) |pt, i| rev[poly.len - 1 - i] = pt;
+    // Shared pre-gate: both passes write rev[bi] and rev[bi-1], so bi >= 2 is
+    // what keeps rev[0] — the target attachment — pinned.
+    const fed = rp.detectCornerFedTerminal(rev) orelse return poly;
+    if (fed.bi < 2) return poly;
+    // On the mirror the roles swap; both ids are exempt in the touch tests
+    // either way, so the pair is passed through unchanged.
+    var grown: []sketch.Point = rev;
+    if (!rp.ensureBaseStub(rev, placements, to_id, from_id)) {
+        grown = try ensureBaseApproachLengthen(a, rev, placements, far_head);
+        if (grown.ptr == rev.ptr) return poly; // neither pass fired
+    }
+    const out = try a.alloc(sketch.Point, grown.len);
+    for (grown, 0..) |pt, i| out[grown.len - 1 - i] = pt;
+    return out;
+}
+
 /// Per-gap extra rows for OFFSET corner-fed forward terminals sitting in a
 /// BARE inter-rank gap. The row-reservation companion to
 /// `ensureBaseApproachLengthen`: that pass GROWS a corner-fed len-2 final into
@@ -251,15 +326,18 @@ pub fn ensureBaseApproachLengthen(
 /// TD gap (v_spacing = 2 rows) none does, so it accept-falls-back. This pass
 /// tells the caller which gaps to widen so the room appears.
 ///
-/// Entry i is +1 when the gap between layer i and layer i+1 RECEIVES a terminal
-/// whose final approach must TURN: an adjacent REAL→REAL forward edge whose
+/// Entry i is +1 when the gap between layer i and layer i+1 carries an ARROWHEAD
+/// whose approach must TURN: an adjacent REAL→REAL forward edge whose
 /// source-port column differs from its target-port column. A column-aligned
-/// terminal descends straight (already a formal `│` base) and is left at 0.
+/// head descends straight (already a formal `│` base) and is left at 0.
+/// The gap is the same one for either end, so a source-end head
+/// (`arrow_from != .none`, formalized by `ensureSourceBaseApproach`) reserves
+/// it on exactly the same terms as a terminal head.
 ///
-/// Scope (matches the grow pass's own guards, so a reserved row is never
-/// wasted on a case the pass declines):
+/// Scope (matches the grow passes' own guards, so a reserved row is never
+/// wasted on a case they decline):
 ///   - reversed segments are back edges (`growBaseApproach` skips them),
-///   - bidirectional edges (`arrow_from != none`) are skipped by the grow pass,
+///   - an edge with NEITHER head has nothing to formalize,
 ///   - invisible links draw no arrowhead to formalize,
 ///   - virtual endpoints are skip corridors — `skipCorridorExtraRows` owns
 ///     those gaps; keying on REAL→REAL keeps the two passes disjoint.
@@ -312,7 +390,7 @@ pub fn terminalApproachExtraRows(
         if (lt != lf + 1) continue; // only adjacent downward segments
 
         const oe = edge_by_id.get(le.edge) orelse continue;
-        if (oe.arrow_to == .none or oe.arrow_from != .none) continue;
+        if (oe.arrow_to == .none and oe.arrow_from == .none) continue;
         if (oe.kind == .invisible) continue;
 
         // Offset test: source-port column != target-port column ⇒ the final
