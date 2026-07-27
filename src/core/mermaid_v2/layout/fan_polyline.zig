@@ -126,34 +126,47 @@ pub fn buildPolylineAt(
 
     var pts: std.ArrayListUnmanaged(sketch.Point) = .empty;
     try pts.append(a, .{ .x = sx, .y = s_peri });
-    switch (role) {
-        .center => {
-            // Straight descent: source column == target column.
-        },
-        .leftmost, .rightmost, .middle => {
-            // A fan whose peers sit 2+ layers away needs this dodge (same discipline as the grid combs above) since a direct column drop would slice an intermediate box. (Only TD reaches fan routing: BT is canonicalized to TD before layout, and LR/RL fans are not detected — no direction gate needed.) guarded-by: fan_polyline_test.zig "single-row fan spanning 2+ layers dodges an intermediate box instead of slicing it"
-            if (sketch.columnTouchesAny(sx, s_peri + 1, rail_y, placements, source_p.id, target_p.id)) {
-                const jog_y = s_peri + 1;
-                const corridor = sketch.clearLine(false, sx, jog_y, rail_y, placements, source_p.id, target_p.id, .{ .margin = true });
-                try emitDodgedDescent(a, &pts, sx, tx, jog_y, rail_y, corridor);
-            } else {
-                try pts.append(a, .{ .x = sx, .y = rail_y });
-                if (tx != sx) {
-                    try pts.append(a, .{ .x = tx, .y = rail_y });
-                }
+    // `.center` is a PLACEMENT classification (peer centre column == pivot
+    // centre column); the straight two-point descent it emits is only legal
+    // when the two PORT columns also agree. Per-edge port allocation (D-PORT)
+    // routinely hands a centre-classified member a target port a cell off the
+    // source column, and the bare two-point polyline is then DIAGONAL — a
+    // segment the rasterizer cannot walk, so it drops the whole edge with no
+    // ink and no loss counted. Gate the straight arm on the ports themselves
+    // and rail the rest. // guarded-by: fan_polyline_test.zig "a centre-classified member with offset ports is railed, not emitted as a diagonal"
+    const straight_descent = (role == .center and sx == tx);
+    if (!straight_descent) {
+        // Landing corridor, decided BEFORE the rail is laid. When the TARGET
+        // column is blocked between the rail and its landing row, the descent
+        // moves to a clear neighbouring column and steps across at `land_y`.
+        // Resolving it first lets the rail run END there. Laying the rail to
+        // `tx` and only THEN discovering the corridor makes the polyline double
+        // back along the row it just drew, and the reversal vertex — arms on one
+        // side only — paints a dead-end stub pointing at nothing.
+        // guarded-by: fan_polyline_test.zig "a blocked landing column bends the rail once instead of doubling it back"
+        const land_y = t_peri - 2; // >= 1 row of straight final descent
+        const landing: ?i32 = blk: {
+            if (land_y <= rail_y) break :blk null;
+            if (!sketch.columnTouchesAny(tx, rail_y + 1, t_peri - 1, placements, source_p.id, target_p.id)) break :blk null;
+            const c = sketch.clearLine(false, tx, rail_y, land_y, placements, source_p.id, target_p.id, .{ .margin = true });
+            break :blk if (c != tx) c else null;
+        };
+        const rail_end = landing orelse tx;
+        // A fan whose peers sit 2+ layers away needs this dodge (same discipline as the grid combs above) since a direct column drop would slice an intermediate box. (Only TD reaches fan routing: BT is canonicalized to TD before layout, and LR/RL fans are not detected — no direction gate needed.) guarded-by: fan_polyline_test.zig "single-row fan spanning 2+ layers dodges an intermediate box instead of slicing it"
+        if (sketch.columnTouchesAny(sx, s_peri + 1, rail_y, placements, source_p.id, target_p.id)) {
+            const jog_y = s_peri + 1;
+            const corridor = sketch.clearLine(false, sx, jog_y, rail_y, placements, source_p.id, target_p.id, .{ .margin = true });
+            try emitDodgedDescent(a, &pts, sx, rail_end, jog_y, rail_y, corridor);
+        } else {
+            try pts.append(a, .{ .x = sx, .y = rail_y });
+            if (rail_end != sx) {
+                try pts.append(a, .{ .x = rail_end, .y = rail_y });
             }
-            const land_y = t_peri - 2; // >= 1 row of straight final descent
-            if (land_y > rail_y and
-                sketch.columnTouchesAny(tx, rail_y + 1, t_peri - 1, placements, source_p.id, target_p.id))
-            {
-                const corridor = sketch.clearLine(false, tx, rail_y, land_y, placements, source_p.id, target_p.id, .{ .margin = true });
-                if (corridor != tx) {
-                    try pts.append(a, .{ .x = corridor, .y = rail_y });
-                    try pts.append(a, .{ .x = corridor, .y = land_y });
-                    try pts.append(a, .{ .x = tx, .y = land_y });
-                }
-            }
-        },
+        }
+        if (landing) |c| {
+            try pts.append(a, .{ .x = c, .y = land_y });
+            try pts.append(a, .{ .x = tx, .y = land_y });
+        }
     }
     try pts.append(a, .{ .x = tx, .y = t_peri });
     return try pts.toOwnedSlice(a);

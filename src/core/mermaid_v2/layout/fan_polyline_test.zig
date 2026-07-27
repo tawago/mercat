@@ -190,3 +190,111 @@ test "single-row fan spanning 2+ layers dodges an intermediate box instead of sl
     try testing.expectEqual(pivot.rect.bottom() - 1, poly[0].y);
     try testing.expectEqual(child.rect.y, poly[poly.len - 1].y);
 }
+
+test "a centre-classified member with offset ports is railed, not emitted as a diagonal" {
+    // `.center` is decided from PLACEMENT columns, but the polyline is built
+    // from the allocated PORT columns. When D-PORT hands the member a target
+    // port one cell off the source column, the straight two-point descent is
+    // a DIAGONAL segment: `raster/edges.zig` finds no orthogonal direction,
+    // calls the polyline degenerate, and drops the edge with zero ink and
+    // zero cells_lost — a silent deletion no audit can see. Every consecutive
+    // pair must therefore be axis-aligned.
+    const a = testing.allocator;
+    var arena = std.heap.ArenaAllocator.init(a);
+    defer arena.deinit();
+
+    const peer = sketch.NodePlacement{ .id = 1, .rect = .{ .x = 20, .y = 0, .w = 5, .h = 3 }, .shape = .rect, .lines = &.{}, .cluster_id = null };
+    const pivot = sketch.NodePlacement{ .id = 0, .rect = .{ .x = 16, .y = 14, .w = 13, .h = 3 }, .shape = .rect, .lines = &.{}, .cluster_id = null };
+    const placements = [_]sketch.NodePlacement{ pivot, peer };
+    var peers = [_]fan.FanEdge{.{ .edge_id = 1, .peer_idx = 1, .role = .center }};
+    const f = fan.Fan{ .direction = .in, .pivot_idx = 0, .source_layer = 0, .peers = &peers };
+
+    // Source port at the peer's centre column (22); target port one cell to
+    // its left (21) — the offset a per-edge port allocation produces.
+    const source_port = sketch.Port{ .node = peer.id, .side = .south, .offset = 2 };
+    const target_port = sketch.Port{ .node = pivot.id, .side = .north, .offset = 5 };
+
+    const poly = try fan_polyline.buildPolylineAt(
+        arena.allocator(),
+        .TD,
+        f,
+        pivot,
+        peer,
+        source_port,
+        target_port,
+        .center,
+        0,
+        0,
+        &placements,
+    );
+
+    try testing.expect(poly.len > 2);
+    var i: usize = 1;
+    while (i < poly.len) : (i += 1) {
+        const p0 = poly[i - 1];
+        const p1 = poly[i];
+        try testing.expect(p0.x == p1.x or p0.y == p1.y);
+    }
+    try testing.expectEqual(@as(i32, 22), poly[0].x);
+    try testing.expectEqual(@as(i32, 21), poly[poly.len - 1].x);
+}
+
+test "a blocked landing column bends the rail once instead of doubling it back" {
+    // The target column is blocked between the rail row and its landing row,
+    // so the descent must move to a clear corridor. Running the rail all the
+    // way to the target column FIRST and only then stepping back to that
+    // corridor retraces the row just drawn; the reversal vertex carries arms on
+    // one side only and paints a dead-end stub pointing at nothing. The rail
+    // must therefore reverse direction nowhere.
+    const a = testing.allocator;
+    var arena = std.heap.ArenaAllocator.init(a);
+    defer arena.deinit();
+
+    const peer = sketch.NodePlacement{ .id = 1, .rect = .{ .x = 40, .y = 0, .w = 5, .h = 3 }, .shape = .rect, .lines = &.{}, .cluster_id = null };
+    const pivot = sketch.NodePlacement{ .id = 0, .rect = .{ .x = 16, .y = 20, .w = 13, .h = 3 }, .shape = .rect, .lines = &.{}, .cluster_id = null };
+    // Spans the target column between the rail row (14) and the landing row
+    // (18), and everything to its LEFT — so the only clear descent corridor
+    // lies to the RIGHT of the target column, i.e. back toward the source.
+    const blocker = sketch.NodePlacement{ .id = 2, .rect = .{ .x = 0, .y = 15, .w = 27, .h = 3 }, .shape = .rect, .lines = &.{}, .cluster_id = null };
+    const placements = [_]sketch.NodePlacement{ pivot, peer, blocker };
+    var peers = [_]fan.FanEdge{.{ .edge_id = 1, .peer_idx = 1, .role = .rightmost }};
+    const f = fan.Fan{ .direction = .in, .pivot_idx = 0, .source_layer = 0, .peers = &peers };
+
+    const source_port = sketch.Port{ .node = peer.id, .side = .south, .offset = 2 };
+    const target_port = sketch.Port{ .node = pivot.id, .side = .north, .offset = 6 };
+    // lane 4 lifts the rail to row 14, leaving a real gap (rows 15..18) for the
+    // landing descent — the configuration in which the corridor is discovered.
+    const poly = try fan_polyline.buildPolylineAt(
+        arena.allocator(),
+        .TD,
+        f,
+        pivot,
+        peer,
+        source_port,
+        target_port,
+        .rightmost,
+        4,
+        0,
+        &placements,
+    );
+
+    // The fixture must actually reach the corridor path: the rail row is 14 and
+    // the descent lands at row 18 in a column right of the target column.
+    var saw_corridor = false;
+    for (poly) |pt| {
+        if (pt.y == 18 and pt.x > 22) saw_corridor = true;
+    }
+    try testing.expect(saw_corridor);
+
+    // No horizontal run may reverse the direction of the previous one.
+    var prev: i32 = 0;
+    var i: usize = 1;
+    while (i < poly.len) : (i += 1) {
+        const dx = poly[i].x - poly[i - 1].x;
+        if (dx == 0) continue;
+        const sign: i32 = if (dx > 0) 1 else -1;
+        if (prev != 0) try testing.expect(sign == prev);
+        prev = sign;
+    }
+    try expectPolyAvoidsRect(poly, blocker.rect);
+}

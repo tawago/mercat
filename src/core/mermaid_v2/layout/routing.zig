@@ -240,12 +240,12 @@ pub fn buildEdgesWithPlan(
                 try back_edges.backEdgePolylineAt(a, graph.direction, src_p, dst_p, ep.source, ep.target, rail, placements);
             const port_from = if (joins.memberships.len == 0) back_edges.backEdgePortFrom(graph.direction, src_p) else ep.source;
             const port_to = if (joins.memberships.len == 0) back_edges.backEdgePortTo(graph.direction, dst_p) else ep.target;
-            // Base-approach GROW is NOT wired on the back-edge path: a back edge's
-            // U-shape (and the bidirectional case, where BOTH ends carry an
-            // arrow) breaks the "clean perpendicular final approach" the grow
-            // assumes, and pulling a loop corner can flip the terminal's
-            // direction. Only ensureBaseStub's in-place length-1 shift applies
-            // here; corner-fed back-edge terminals stay a report-only residual.
+            // Base-approach GROW is NOT wired on the back-edge path: a back
+            // edge's U-shape breaks the "clean perpendicular final approach"
+            // the grow assumes, and pulling a loop corner can flip the
+            // terminal's direction. Only ensureBaseStub's in-place length-1
+            // shift applies here; corner-fed back-edge terminals stay a
+            // report-only residual.
             _ = rp.ensureBaseStub(poly, placements, orig.from, orig.to);
             try out.append(a, .{
                 .id = orig.id,

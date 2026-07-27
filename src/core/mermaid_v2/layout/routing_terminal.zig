@@ -280,6 +280,15 @@ pub fn ensureBaseApproachLengthen(
 ///     `ensureBaseStub` (whose own floor is only `bi >= 1`) can never write
 ///     `rev[0]` and slide the target attachment. Without it a reversed 3-point
 ///     polyline moves the target port outright.
+///   - `stubCollapsesPredecessorLeg`, the stub's missing half of the guard the
+///     lengthen carries inline (`np_base == q_base`). The stub SHIFTS `[bi-1]`
+///     one cell along the base axis; when `[bi-2]` sits on that same axis the
+///     shift can land ON it, collapsing that leg to zero length. On the
+///     reversed buffer `[bi-2]` can be `rev[0]`'s own leg — the TARGET's final
+///     approach — so a collapse silently re-points the target arrowhead along
+///     the other axis: a fabricated arrival direction, not a formalized base.
+///     (The forward callers never expose that leg, which is why `ensureBaseStub`
+///     itself carries no such gate.)
 ///   - `far_head` on the lengthen, so a pulled-back run keeps 2 cells of
 ///     clearance from the target port — the target's own arrowhead and its base
 ///     cell. Without it the run lands on the head's base row, which is exactly
@@ -292,6 +301,7 @@ pub fn ensureBaseApproachLengthen(
 /// caller can skip its clearance re-check. Never mutates `poly`.
 /// guarded-by: routing_terminal_test.zig "ensureSourceBaseApproach mirrors the base-approach passes onto the source end"
 /// guarded-by: routing_terminal_test.zig "ensureSourceBaseApproach never moves the target attachment"
+/// guarded-by: routing_terminal_test.zig "ensureSourceBaseApproach refuses a stub shift that would collapse the target's approach leg"
 pub fn ensureSourceBaseApproach(
     a: std.mem.Allocator,
     poly: []sketch.Point,
@@ -307,6 +317,9 @@ pub fn ensureSourceBaseApproach(
     // what keeps rev[0] — the target attachment — pinned.
     const fed = rp.detectCornerFedTerminal(rev) orelse return poly;
     if (fed.bi < 2) return poly;
+    // The stub and the lengthen act on disjoint final-leg lengths (1 vs 2), so
+    // refusing here refuses only the stub — the lengthen would decline anyway.
+    if (stubCollapsesPredecessorLeg(rev, fed)) return poly;
     // On the mirror the roles swap; both ids are exempt in the touch tests
     // either way, so the pair is passed through unchanged.
     var grown: []sketch.Point = rev;
@@ -317,6 +330,33 @@ pub fn ensureSourceBaseApproach(
     const out = try a.alloc(sketch.Point, grown.len);
     for (grown, 0..) |pt, i| out[grown.len - 1 - i] = pt;
     return out;
+}
+
+/// True iff `ensureBaseStub` would fire on `poly` at `fed` AND its one-cell
+/// shift of `poly[fed.bi - 1]` would land on — or step past — `poly[fed.bi - 2]`,
+/// collapsing (or reversing) that leg. Pure predicate over the shared detector's
+/// facts; mirrors `ensureBaseApproachLengthen`'s inline `np_base == q_base` gate
+/// so both passes refuse the same degeneracy. See `ensureSourceBaseApproach`.
+fn stubCollapsesPredecessorLeg(poly: []const sketch.Point, fed: rp.CornerFed) bool {
+    if (fed.bi < 2) return false;
+    // Length-1 final leg is the stub's own signature; anything else and the
+    // stub declines before it can move a point.
+    if (@abs(fed.lx) + @abs(fed.ly) != 1) return false;
+    const q = poly[fed.bi - 2];
+    const p = fed.p;
+    const base_horizontal = (fed.lx != 0);
+    // Only a q->p leg running ALONG the base axis can be collapsed by a shift
+    // along that axis; a perpendicular one just gets shorter/longer.
+    if (base_horizontal) {
+        if (q.y != p.y) return false;
+    } else {
+        if (q.x != p.x) return false;
+    }
+    const unit: i32 = if (base_horizontal) fed.lx else fed.ly;
+    const q_base: i32 = if (base_horizontal) q.x else q.y;
+    const p_base: i32 = if (base_horizontal) p.x else p.y;
+    const np_base: i32 = p_base - unit;
+    return np_base == q_base or (p_base > q_base) != (np_base > q_base);
 }
 
 /// Per-gap extra rows for OFFSET corner-fed forward terminals sitting in a

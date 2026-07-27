@@ -252,3 +252,42 @@ test "ensureBaseApproachLengthen keeps a far-end head's base cell clear when far
     try testing.expectEqual(sketch.Point{ .x = 4, .y = 6 }, grown[1]);
     try testing.expectEqual(sketch.Point{ .x = 10, .y = 6 }, grown[2]);
 }
+
+test "ensureSourceBaseApproach refuses a stub shift that would collapse the target's approach leg" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const placements = [_]sketch.NodePlacement{
+        mkPlacement(1, .{ .x = 8, .y = 3, .w = 5, .h = 3 }), // source, port (10,5)
+        mkPlacement(9, .{ .x = 2, .y = 7, .w = 5, .h = 3 }), // target, port (4,7)
+    };
+
+    // Source-end turn-at-tip: reversed, the stub's shift moves rev[1] from
+    // (4,6) onto (4,7) — rev[0], the TARGET port. The far leg collapses to zero
+    // length and the target's arrival flips from vertical to horizontal, so the
+    // terminal arrowhead would point along an axis the route never travelled.
+    var poly = [_]sketch.Point{
+        .{ .x = 10, .y = 5 }, // source port (the end being formalized)
+        .{ .x = 10, .y = 6 }, // length-1 final leg on the reversed buffer
+        .{ .x = 4, .y = 6 },
+        .{ .x = 4, .y = 7 }, // target port
+    };
+    const kept = try rt.ensureSourceBaseApproach(a, &poly, &placements, 1, 9, true);
+    try testing.expectEqual((&poly).ptr, kept.ptr);
+    try testing.expectEqual(sketch.Point{ .x = 10, .y = 6 }, poly[1]);
+    try testing.expectEqual(sketch.Point{ .x = 4, .y = 6 }, poly[2]);
+    try testing.expectEqual(sketch.Point{ .x = 4, .y = 7 }, poly[3]);
+
+    // Control: give the target's approach leg two cells of room instead of one
+    // and the very same pass fires — the refusal above is the collapse guard,
+    // not an unrelated gate.
+    var roomy = [_]sketch.Point{
+        .{ .x = 10, .y = 5 },
+        .{ .x = 10, .y = 6 },
+        .{ .x = 4, .y = 6 },
+        .{ .x = 4, .y = 8 },
+    };
+    const grown = try rt.ensureSourceBaseApproach(a, &roomy, &placements, 1, 9, true);
+    try testing.expect(grown.ptr != (&roomy).ptr);
+    try testing.expectEqual(sketch.Point{ .x = 4, .y = 8 }, grown[grown.len - 1]);
+}
