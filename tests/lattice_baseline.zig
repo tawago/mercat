@@ -202,7 +202,7 @@ fn runOneFixture(
         return;
     };
 
-    const report = v2.rasterize(arena_alloc, sketch, .bridge) catch |err| {
+    const report = v2.rasterize(arena_alloc, sketch, .bridge, .{}) catch |err| {
         std.debug.print(
             "[lattice_baseline] {s}/{s}\tok\tok\traster_err={s}\t-\t-\n",
             .{ cat_name, file_name, @errorName(err) },

@@ -6,6 +6,10 @@
 //! skips cells already claimed by an earlier one, except labels, which
 //! intentionally overwrite node interiors last.
 //!
+//! When `Options.collect_aux` is set, the producers also file records into
+//! the lattice's position-keyed side table (`raster/aux.zig`), attached to
+//! the Lattice once every pass has run.
+//!
 //! Allowed imports: `std`, sibling `raster/*` files, `sketch.zig`,
 //! `lattice.zig`. No `paint/` or `parse/` (enforced by `tools/lint_imports.zig`).
 
@@ -21,6 +25,18 @@ const labels_r = @import("raster/labels.zig");
 const reconcile = @import("raster/reconcile.zig");
 const crossings_r = @import("raster/crossings.zig");
 const arrow_base_r = @import("raster/arrow_base.zig");
+const aux_r = @import("raster/aux.zig");
+
+/// Per-rasterization switches. Defaults are the cheap ones: a caller that
+/// wants an extra channel must ask for it.
+pub const Options = struct {
+    /// Build the lattice's position-keyed side table (`lattice.Aux`).
+    /// OFF by default because the score path rasterizes every candidate in
+    /// the ladder purely to count shipped defects and never reads the
+    /// channel — it must not pay for it. The shipped render (entry.zig)
+    /// turns it on.
+    collect_aux: bool = false,
+};
 
 pub const RasterizeError = error{
     OutOfMemory,
@@ -73,6 +89,7 @@ pub fn rasterize(
     allocator: std.mem.Allocator,
     s: sketch.Sketch,
     subgraph_edges: prim.SubgraphEdges,
+    options: Options,
 ) RasterizeError!RasterReport {
     const w = s.bbox.w;
     const h = s.bbox.h;
@@ -100,6 +117,9 @@ pub fn rasterize(
 
     var lat: lattice.Lattice = .{ .width = w, .height = h, .cells = cells };
 
+    var aux_collector = aux_r.Collector.init(allocator);
+    const sink: aux_r.Sink = if (options.collect_aux) &aux_collector else null;
+
     const clusters_n = clusters_r.rasterizeClusters(allocator, &lat, s) catch |err| switch (err) {
         error.OutOfMemory => return error.OutOfMemory,
         error.OutOfBounds => return error.OutOfBounds,
@@ -112,9 +132,9 @@ pub fn rasterize(
     };
 
     // Bus-bars before ordinary edges (Phase 4b slice iv): the fan trunk claims its cells first, so edges OR their bits in afterwards without overwriting trunk kind/role. // guarded-by: raster.zig "bus-bar rasterizes before edges: junction cell keeps trunk kind/role, edge bits fold in"
-    const busbar_report = busbars_r.rasterizeRails(&lat, s);
+    const busbar_report = busbars_r.rasterizeRails(&lat, s, sink);
 
-    const edge_report = edges_r.rasterizeEdges(allocator, &lat, s, subgraph_edges) catch |err| switch (err) {
+    const edge_report = edges_r.rasterizeEdges(allocator, &lat, s, subgraph_edges, sink) catch |err| switch (err) {
         error.OutOfMemory => return error.OutOfMemory,
         error.OutOfBounds => return error.OutOfBounds,
         error.MalformedPolyline => return error.MalformedPolyline,
@@ -139,6 +159,11 @@ pub fn rasterize(
     // validator to report. Then scan the FINAL lattice for any residual.
     _ = arrow_base_r.receiveBase(&lat);
     const arrow_base = arrow_base_r.validate(&lat);
+
+    // Attach the side table LAST: the passes above rewrite cells in place,
+    // and no pass touches a record (lattice.zig's anti-desync law), so the
+    // table is complete the moment the last producer has run.
+    lat.aux = aux_collector.finish();
 
     return .{
         .lattice = lat,
@@ -174,7 +199,7 @@ test "zero-sized bbox returns empty report" {
         .budget = .{ .max_width = 80, .rung = 0 },
     };
 
-    const r = try rasterize(a, s, .bridge);
+    const r = try rasterize(a, s, .bridge, .{});
     try testing.expectEqual(@as(u32, 0), r.lattice.width);
     try testing.expectEqual(@as(u32, 0), r.lattice.height);
     try testing.expectEqual(@as(u32, 0), r.nodes_written);
@@ -234,7 +259,7 @@ test "two nodes + one edge: borders, interiors, and an edge cell" {
         .budget = .{ .max_width = 80, .rung = 0 },
     };
 
-    const r = try rasterize(a, s, .bridge);
+    const r = try rasterize(a, s, .bridge, .{});
     try testing.expectEqual(@as(u32, 2), r.nodes_written);
     try testing.expectEqual(@as(u32, 0), r.clusters_written);
     try testing.expect(r.edges_written >= 1);
@@ -301,7 +326,7 @@ test "single cluster around one node" {
         .budget = .{ .max_width = 80, .rung = 0 },
     };
 
-    const r = try rasterize(a, s, .bridge);
+    const r = try rasterize(a, s, .bridge, .{});
     try testing.expectEqual(@as(u32, 1), r.clusters_written);
     try testing.expectEqual(@as(u32, 1), r.nodes_written);
 
@@ -366,7 +391,7 @@ test "edge crossing produces a full junction cell" {
         .budget = .{ .max_width = 80, .rung = 0 },
     };
 
-    const r = try rasterize(a, s, .bridge);
+    const r = try rasterize(a, s, .bridge, .{});
     const c = r.lattice.atConst(5, 5).*;
     try testing.expectEqual(@as(u4, 0b1111), c.neighbours.toMask());
 }
@@ -427,7 +452,7 @@ test "bus-bar rasterizes before edges: junction cell keeps trunk kind/role, edge
         .budget = .{ .max_width = 80, .rung = 0 },
     };
 
-    const r = try rasterize(a, s, .bridge);
+    const r = try rasterize(a, s, .bridge, .{});
 
     const cell = r.lattice.atConst(7, 5).*;
     switch (cell.occupant) {

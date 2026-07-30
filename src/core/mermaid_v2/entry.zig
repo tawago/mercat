@@ -257,7 +257,9 @@ pub fn renderFlowchart(
         break :blk validate_mod.counts(result, sketch_val);
     };
 
-    const raster_report = rasterize(aa, sketch_val, options.subgraph_edges) catch |err| {
+    // The shipped render collects the lattice side table; the score path's
+    // per-candidate audit does not (see raster.Options.collect_aux).
+    const raster_report = rasterize(aa, sketch_val, options.subgraph_edges, .{ .collect_aux = true }) catch |err| {
         std.log.warn("mermaid_v2 rasterize failed: {s}", .{@errorName(err)});
         return fallback(source, "v2 raster error");
     };

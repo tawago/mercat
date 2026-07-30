@@ -70,7 +70,7 @@ test "V-D-CROSS-01: two independent perpendicular edges cross as a transversal" 
         .{ .edge = 0, .source = null, .target = null },
         .{ .edge = 1, .source = null, .target = null },
     };
-    const r = try edges.rasterizeEdges(a, &lat, sketchWith(&es, independentPlan(&mems)), .bridge);
+    const r = try edges.rasterizeEdges(a, &lat, sketchWith(&es, independentPlan(&mems)), .bridge, null);
 
     // First writer (edge 0, horizontal) keeps its straight stroke: NOT a ┼.
     const cross = lat.atConst(5, 5).*;
@@ -100,7 +100,7 @@ test "V-D-CROSS-01 companion: same-group perpendicular crossing keeps the ┼ (n
     // Both edges are co-members of ONE realized join → legal shared ink.
     var members = [_]ledger.EdgeId{ 0, 1 };
     var sel = [_]ledger.SelectedJoin{.{ .id = 0, .proposal = 0, .permission_group = 0, .members = &members }};
-    const r = try edges.rasterizeEdges(a, &lat, sketchWith(&es, .{ .selected_joins = &sel }), .bridge);
+    const r = try edges.rasterizeEdges(a, &lat, sketchWith(&es, .{ .selected_joins = &sel }), .bridge, null);
 
     // Co-members keep the pre-C OR-merge: the crossing fuses to ┼.
     try testing.expectEqual(mask_cross, lat.atConst(5, 5).neighbours.toMask());
@@ -122,7 +122,7 @@ test "V-D-CROSS-02: a foreign run through an arrowhead cell is refused (C2)" {
         .{ .edge = 0, .source = null, .target = null },
         .{ .edge = 1, .source = null, .target = null },
     };
-    const r = try edges.rasterizeEdges(a, &lat, sketchWith(&es, independentPlan(&mems)), .bridge);
+    const r = try edges.rasterizeEdges(a, &lat, sketchWith(&es, independentPlan(&mems)), .bridge, null);
 
     // The arrowhead cell stays an arrowhead owned by edge 0 — no foreign bits.
     const cell = lat.atConst(5, 5).*;
@@ -150,7 +150,7 @@ test "C1 violation shape: a foreign collinear/corner overlap keeps first-writer 
         .{ .edge = 0, .source = null, .target = null },
         .{ .edge = 1, .source = null, .target = null },
     };
-    const r = try edges.rasterizeEdges(a, &lat, sketchWith(&es, independentPlan(&mems)), .bridge);
+    const r = try edges.rasterizeEdges(a, &lat, sketchWith(&es, independentPlan(&mems)), .bridge, null);
 
     // The corner cell (7,5) keeps edge 0's straight horizontal stroke — no ┬.
     const corner = lat.atConst(7, 5).*;
@@ -181,7 +181,7 @@ test "determinism: crossing outcome is deterministic under edge-array permutatio
         var lat = try makeLattice(a, 11, 11);
         defer a.free(lat.cells);
         const es = [_]sketch.EdgePath{ edge(0, &h, .none), edge(1, &v, .none) };
-        const r = try edges.rasterizeEdges(a, &lat, sketchWith(&es, independentPlan(&mems)), .bridge);
+        const r = try edges.rasterizeEdges(a, &lat, sketchWith(&es, independentPlan(&mems)), .bridge, null);
         try testing.expectEqual(mask_hw, lat.atConst(5, 5).neighbours.toMask());
         try testing.expectEqual(@as(u32, 1), r.crossings.legal_crossing);
     }
@@ -191,7 +191,7 @@ test "determinism: crossing outcome is deterministic under edge-array permutatio
         var lat = try makeLattice(a, 11, 11);
         defer a.free(lat.cells);
         const es = [_]sketch.EdgePath{ edge(1, &v, .none), edge(0, &h, .none) };
-        const r = try edges.rasterizeEdges(a, &lat, sketchWith(&es, independentPlan(&mems)), .bridge);
+        const r = try edges.rasterizeEdges(a, &lat, sketchWith(&es, independentPlan(&mems)), .bridge, null);
         try testing.expectEqual(mask_ns, lat.atConst(5, 5).neighbours.toMask());
         try testing.expectEqual(@as(u32, 1), r.crossings.legal_crossing);
     }

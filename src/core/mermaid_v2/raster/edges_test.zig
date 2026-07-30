@@ -53,7 +53,7 @@ test "single horizontal segment writes interior cells with E+W bits" {
 
     const pts = [_]sketch.Point{ .{ .x = 2, .y = 2 }, .{ .x = 6, .y = 2 } };
     const es = [_]sketch.EdgePath{makeEdge(1, &pts, .none, .none)};
-    const written = (try edges.rasterizeEdges(a, &lat, makeSketch(&es), .bridge)).edges_written;
+    const written = (try edges.rasterizeEdges(a, &lat, makeSketch(&es), .bridge, null)).edges_written;
     try testing.expectEqual(@as(u32, 1), written);
 
     try testing.expect(switch (lat.atConst(2, 2).occupant) {
@@ -90,7 +90,7 @@ test "L-shaped corner has reverse-incoming + outgoing bits" {
         .{ .x = 6, .y = 6 },
     };
     const es = [_]sketch.EdgePath{makeEdge(7, &pts, .none, .none)};
-    _ = try edges.rasterizeEdges(a, &lat, makeSketch(&es), .bridge);
+    _ = try edges.rasterizeEdges(a, &lat, makeSketch(&es), .bridge, null);
 
     const corner = lat.atConst(2, 6);
     try testing.expect(switch (corner.occupant) {
@@ -118,7 +118,7 @@ test "arrowhead at end of polyline" {
 
     const pts = [_]sketch.Point{ .{ .x = 0, .y = 0 }, .{ .x = 5, .y = 0 } };
     const es = [_]sketch.EdgePath{makeEdge(42, &pts, .none, .filled)};
-    _ = try edges.rasterizeEdges(a, &lat, makeSketch(&es), .bridge);
+    _ = try edges.rasterizeEdges(a, &lat, makeSketch(&es), .bridge, null);
 
     const cell = lat.atConst(4, 0);
     try testing.expect(switch (cell.occupant) {
@@ -145,7 +145,7 @@ test "length-1 final segment after a corner points the terminal arrowhead into t
 
     const pts = [_]sketch.Point{ .{ .x = 0, .y = 0 }, .{ .x = 5, .y = 0 }, .{ .x = 5, .y = 1 } };
     const es = [_]sketch.EdgePath{makeEdge(11, &pts, .none, .filled)};
-    _ = try edges.rasterizeEdges(a, &lat, makeSketch(&es), .bridge);
+    _ = try edges.rasterizeEdges(a, &lat, makeSketch(&es), .bridge, null);
 
     const cell = lat.atConst(5, 0);
     try testing.expect(switch (cell.occupant) {
@@ -165,7 +165,7 @@ test "two crossing edges merge neighbour bits" {
         makeEdge(1, &pts_h, .none, .none),
         makeEdge(2, &pts_v, .none, .none),
     };
-    _ = try edges.rasterizeEdges(a, &lat, makeSketch(&es), .bridge);
+    _ = try edges.rasterizeEdges(a, &lat, makeSketch(&es), .bridge, null);
 
     const cell = lat.atConst(5, 5);
     try testing.expect(switch (cell.occupant) {
@@ -185,7 +185,7 @@ test "degenerate polyline with < 2 points is skipped" {
 
     const pts = [_]sketch.Point{.{ .x = 1, .y = 1 }};
     const es = [_]sketch.EdgePath{makeEdge(99, &pts, .none, .none)};
-    const written = (try edges.rasterizeEdges(a, &lat, makeSketch(&es), .bridge)).edges_written;
+    const written = (try edges.rasterizeEdges(a, &lat, makeSketch(&es), .bridge, null)).edges_written;
     try testing.expectEqual(@as(u32, 0), written);
 }
 
@@ -198,7 +198,7 @@ test "EdgeRole round-trips from EdgePath into Cell.edge_segment.role" {
     var e = makeEdge(11, &pts, .none, .none);
     e.role = .back_edge;
     const es = [_]sketch.EdgePath{e};
-    _ = try edges.rasterizeEdges(a, &lat, makeSketch(&es), .bridge);
+    _ = try edges.rasterizeEdges(a, &lat, makeSketch(&es), .bridge, null);
 
     var x: u32 = 2;
     while (x <= 6) : (x += 1) {
@@ -221,7 +221,7 @@ test "zero-length intermediate point is skipped" {
         .{ .x = 5, .y = 1 },
     };
     const es = [_]sketch.EdgePath{makeEdge(3, &pts, .none, .none)};
-    _ = try edges.rasterizeEdges(a, &lat, makeSketch(&es), .bridge);
+    _ = try edges.rasterizeEdges(a, &lat, makeSketch(&es), .bridge, null);
 
     var x: u32 = 2;
     while (x <= 4) : (x += 1) {
@@ -249,7 +249,7 @@ test "edge cells colliding with node-owned cells are counted as lost" {
 
     const pts = [_]sketch.Point{ .{ .x = 2, .y = 2 }, .{ .x = 8, .y = 2 } };
     const es = [_]sketch.EdgePath{makeEdge(1, &pts, .none, .none)};
-    const report = try edges.rasterizeEdges(a, &lat, makeSketch(&es), .bridge);
+    const report = try edges.rasterizeEdges(a, &lat, makeSketch(&es), .bridge, null);
 
     // Cells 3,4,5 collide and are skipped; 6,7 are written ((a,b] walk
     // excludes the target endpoint 8 on the last segment).
@@ -266,7 +266,7 @@ test "collision-free edge reports zero cells lost" {
 
     const pts = [_]sketch.Point{ .{ .x = 2, .y = 2 }, .{ .x = 6, .y = 2 } };
     const es = [_]sketch.EdgePath{makeEdge(1, &pts, .none, .filled)};
-    const report = try edges.rasterizeEdges(a, &lat, makeSketch(&es), .bridge);
+    const report = try edges.rasterizeEdges(a, &lat, makeSketch(&es), .bridge, null);
     try testing.expectEqual(@as(u32, 0), report.cells_lost);
 }
 
@@ -292,7 +292,7 @@ test "through-crossing bridges a subgraph frame border" {
     stampBorder(&lat, 5, 5, .{ .e = true, .w = true });
     const pts = [_]sketch.Point{ .{ .x = 5, .y = 2 }, .{ .x = 5, .y = 8 } };
     const es = [_]sketch.EdgePath{makeEdge(1, &pts, .none, .none)};
-    const r = try edges.rasterizeEdges(a, &lat, makeSketch(&es), .bridge);
+    const r = try edges.rasterizeEdges(a, &lat, makeSketch(&es), .bridge, null);
 
     // The border cell keeps its occupant and its `─` mask — no ┼ fabricated.
     const border = lat.atConst(5, 5).*;
@@ -325,7 +325,7 @@ test "terminal segment cell on a frame border keeps today's merge" {
     stampBorder(&lat, 5, 6, .{ .e = true, .w = true });
     const pts = [_]sketch.Point{ .{ .x = 5, .y = 3 }, .{ .x = 5, .y = 7 } };
     const es = [_]sketch.EdgePath{makeEdge(9, &pts, .none, .none)};
-    const r = try edges.rasterizeEdges(a, &lat, makeSketch(&es), .bridge);
+    const r = try edges.rasterizeEdges(a, &lat, makeSketch(&es), .bridge, null);
 
     const cell = lat.atConst(5, 6).*;
     try testing.expect(switch (cell.occupant) {
@@ -347,7 +347,7 @@ test "an arrowhead terminating on a frame border is stamped (arrival AT the clus
     stampBorder(&lat, 5, 6, .{ .e = true, .w = true });
     const pts = [_]sketch.Point{ .{ .x = 5, .y = 3 }, .{ .x = 5, .y = 7 } };
     const es = [_]sketch.EdgePath{makeEdge(9, &pts, .none, .filled)};
-    const r = try edges.rasterizeEdges(a, &lat, makeSketch(&es), .bridge);
+    const r = try edges.rasterizeEdges(a, &lat, makeSketch(&es), .bridge, null);
 
     const cell = lat.atConst(5, 6).*;
     try testing.expect(switch (cell.occupant) {
@@ -366,7 +366,7 @@ test "corner arm onto a subgraph frame border is refused" {
     stampBorder(&lat, 6, 5, .{ .n = true, .s = true });
     const pts = [_]sketch.Point{ .{ .x = 2, .y = 5 }, .{ .x = 6, .y = 5 }, .{ .x = 6, .y = 9 } };
     const es = [_]sketch.EdgePath{makeEdge(3, &pts, .none, .none)};
-    const r = try edges.rasterizeEdges(a, &lat, makeSketch(&es), .bridge);
+    const r = try edges.rasterizeEdges(a, &lat, makeSketch(&es), .bridge, null);
 
     // The frame stays pristine: still a cluster_border with its `│` mask, no
     // ┼/├ welded by the corner arm.
@@ -398,7 +398,7 @@ test "cross mode: through-crossing welds the frame border (pre-slice-1)" {
     stampBorder(&lat, 5, 5, .{ .e = true, .w = true });
     const pts = [_]sketch.Point{ .{ .x = 5, .y = 2 }, .{ .x = 5, .y = 8 } };
     const es = [_]sketch.EdgePath{makeEdge(1, &pts, .none, .none)};
-    const r = try edges.rasterizeEdges(a, &lat, makeSketch(&es), .cross);
+    const r = try edges.rasterizeEdges(a, &lat, makeSketch(&es), .cross, null);
 
     // The border cell is OVERWRITTEN as this edge's segment, its `─` bits
     // OR-merged with the crossing `│` → a fabricated ┼ (writeEdgeCell's
@@ -426,7 +426,7 @@ test "cross mode: corner arm onto a subgraph frame border welds a tee (pre-slice
     stampBorder(&lat, 6, 5, .{ .n = true, .s = true });
     const pts = [_]sketch.Point{ .{ .x = 2, .y = 5 }, .{ .x = 6, .y = 5 }, .{ .x = 6, .y = 9 } };
     const es = [_]sketch.EdgePath{makeEdge(3, &pts, .none, .none)};
-    const r = try edges.rasterizeEdges(a, &lat, makeSketch(&es), .cross);
+    const r = try edges.rasterizeEdges(a, &lat, makeSketch(&es), .cross, null);
 
     // The border is welded into the edge (no pristine frame): the incoming east
     // run overwrites it, then the corner arm replaces the mask with its
@@ -466,7 +466,7 @@ test "shared trunk corner: sibling drops bending at one cell yield ┴, not a ph
         makeEdge(2, &b_pts, .none, .none),
         makeEdge(3, &c_pts, .none, .none),
     };
-    _ = try edges.rasterizeEdges(a, &lat, makeSketch(&es), .bridge);
+    _ = try edges.rasterizeEdges(a, &lat, makeSketch(&es), .bridge, null);
 
     // Trunk cell: north riser + east/west rail, NO south arm.
     const trunk = lat.atConst(5, 5).neighbours;

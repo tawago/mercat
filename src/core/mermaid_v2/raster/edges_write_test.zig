@@ -144,7 +144,7 @@ test "drawPortStroke: an invisible edge leaves the source node border untouched"
     defer a.free(lat.cells);
 
     const pts = [_]sketch.Point{ .{ .x = 0, .y = 0 }, .{ .x = 0, .y = 1 } };
-    ew.drawPortStroke(&lat, &pts, .invisible);
+    ew.drawPortStroke(&lat, &pts, .invisible, 0, null);
 
     const cell = lat.atConst(0, 0);
     try testing.expect(!cell.neighbours.s); // no phantom south tee
@@ -159,7 +159,7 @@ test "drawPortStroke: a solid edge still ORs the south exit bit into the source 
     defer a.free(lat.cells);
 
     const pts = [_]sketch.Point{ .{ .x = 0, .y = 0 }, .{ .x = 0, .y = 1 } };
-    ew.drawPortStroke(&lat, &pts, .solid);
+    ew.drawPortStroke(&lat, &pts, .solid, 0, null);
 
     try testing.expect(lat.atConst(0, 0).neighbours.s);
 }
@@ -172,7 +172,7 @@ test "drawPortStroke: a north-exit invisible edge is also suppressed" {
     defer a.free(lat.cells);
 
     const pts = [_]sketch.Point{ .{ .x = 0, .y = 1 }, .{ .x = 0, .y = 0 } };
-    ew.drawPortStroke(&lat, &pts, .invisible);
+    ew.drawPortStroke(&lat, &pts, .invisible, 0, null);
 
     try testing.expect(!lat.atConst(0, 1).neighbours.n);
 }
@@ -185,7 +185,7 @@ test "drawPortStroke: a thick edge still stamps stroke_kind on the source border
     defer a.free(lat.cells);
 
     const pts = [_]sketch.Point{ .{ .x = 0, .y = 0 }, .{ .x = 0, .y = 1 } };
-    ew.drawPortStroke(&lat, &pts, .thick);
+    ew.drawPortStroke(&lat, &pts, .thick, 0, null);
 
     const cell = lat.atConst(0, 0);
     try testing.expect(cell.neighbours.s);

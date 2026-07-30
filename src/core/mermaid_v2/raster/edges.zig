@@ -2,7 +2,8 @@
 //! `EdgePath.polyline` in a `Sketch`, writing `edge_segment`/`arrowhead`
 //! cells into a `Lattice` with `Neighbours` bits for the painter's
 //! junction table. Imports: `std`, `sketch.zig`, `lattice.zig`,
-//! `edge_roles.zig`, `crossings.zig`, `edges_write.zig`, the `prim` module only.
+//! `edge_roles.zig`, `crossings.zig`, `edges_write.zig`, `aux.zig`, the `prim`
+//! module only.
 //! Role-merge precedence at shared-run cells (`edge_roles.zig`): fan_out_rail
 //! > fan_out_dropper and fan_in_rail > fan_in_dropper, both over forward/
 //! cluster_internal. Fan shared-run cells stamped explicitly post-walk.
@@ -20,6 +21,7 @@ const lattice = @import("../lattice.zig");
 const roles = @import("edge_roles.zig");
 const crossings = @import("crossings.zig");
 const ew = @import("edges_write.zig");
+const aux = @import("aux.zig");
 const prim = @import("prim");
 
 // Scoped logger: collision/skip diagnostics stay .debug (silent in release
@@ -127,6 +129,7 @@ fn walkPolyline(
     edge: sketch.EdgePath,
     cells_lost: *u32,
     ctx: crossings.Ctx,
+    sink: aux.Sink,
 ) RasterError!EdgeWalkResult {
     const pts = edge.polyline;
     if (pts.len < 2) {
@@ -159,7 +162,7 @@ fn walkPolyline(
     const ek = edge.kind;
     const erole = edge.role;
 
-    drawPortStroke(lat, pts, ek);
+    drawPortStroke(lat, pts, ek, edge.id, sink);
 
     var i: usize = 0;
     while (i + 1 < pts.len) : (i += 1) {
@@ -336,6 +339,7 @@ pub fn rasterizeEdges(
     lat: *lattice.Lattice,
     s: sketch.Sketch,
     subgraph_edges: prim.SubgraphEdges,
+    sink: aux.Sink,
 ) RasterError!EdgeRasterReport {
     _ = allocator; // reserved
     var written: u32 = 0;
@@ -349,7 +353,7 @@ pub fn rasterizeEdges(
     };
 
     for (s.edges) |edge| {
-        const r = try walkPolyline(lat, edge, &cells_lost, ctx);
+        const r = try walkPolyline(lat, edge, &cells_lost, ctx, sink);
 
         if (edge.arrow_to != .none) {
             if (r.last_cell) |p| {

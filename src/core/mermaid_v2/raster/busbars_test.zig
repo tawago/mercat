@@ -17,7 +17,7 @@ fn rasterizeForTest(a: std.mem.Allocator, s: sketch.Sketch) !Raster {
     for (cells) |*c| c.* = lattice.Cell.empty;
     var lat: lattice.Lattice = .{ .width = s.bbox.w, .height = s.bbox.h, .cells = cells };
     _ = try nodes_r.rasterizeNodes(a, &lat, s);
-    const report = busbars_r.rasterizeRails(&lat, s);
+    const report = busbars_r.rasterizeRails(&lat, s, null);
     return .{ .lattice = lat, .report = report };
 }
 
@@ -224,8 +224,8 @@ test "TSD 14.5: busbar plus separated edges is byte and report invariant under e
     first_sketch.edges = &forward;
     var second_sketch = base;
     second_sketch.edges = &reverse;
-    const first = try raster.rasterize(a, first_sketch, .bridge);
-    const second = try raster.rasterize(a, second_sketch, .bridge);
+    const first = try raster.rasterize(a, first_sketch, .bridge, .{});
+    const second = try raster.rasterize(a, second_sketch, .bridge, .{});
 
     try testing.expectEqualSlices(lattice.Cell, first.lattice.cells, second.lattice.cells);
     try testing.expectEqual(first.nodes_written, second.nodes_written);

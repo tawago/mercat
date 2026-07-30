@@ -68,7 +68,7 @@ fn renderMode(a: std.mem.Allocator, source: []const u8, width: u32, mode: prim.S
     const plan = built.plan;
     const flat = !built.report.join_permits_skipped_clustered;
     const winner = try select.choose(a, graph, &plan, flat, width, false, false);
-    const report = try raster.rasterize(a, winner.sketch, mode);
+    const report = try raster.rasterize(a, winner.sketch, mode, .{});
     return .{ .graph = graph, .sketch = winner.sketch, .report = report, .mode = mode };
 }
 

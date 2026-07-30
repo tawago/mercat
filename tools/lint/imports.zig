@@ -81,6 +81,11 @@ pub const Rule = union(enum) {
 ///                   std + base siblings only; importable from every zone.
 ///                   Enforced by the base/ dir rule + the in_base_dir zone
 ///                   block in `checkImport`, not by a `file_allowlists` row.
+///   raster/aux.zig  the lattice side-table builder: lattice (plus its own
+///                   test sibling) only — one step tighter than the raster
+///                   zone, which would also grant sketch.zig, so the channel
+///                   can only record what was rasterized, never what the
+///                   layout intended.
 ///   ledger/permits.zig  semantic permission discovery (D-IR item 3):
 ///                   base/ledger + sem_graph.
 ///   ledger/realized.zig candidate-local realized-join planner (D-IR item 8):
@@ -276,6 +281,21 @@ pub const file_allowlists = [_]struct {
         .name = "layout/join_commit_test.zig",
         .allowed = &.{ .parse_zone, .{ .exact = "../ledger/permits.zig" }, .{ .exact = "../ledger/realized.zig" }, .{ .exact = "../select.zig" } },
         .reason = "join_commit_test may only import std, prim, base/ledger, parse, permits, realized, or select",
+    },
+    .{
+        .name = "raster/aux.zig",
+        .allowed = &.{ .{ .exact = "../lattice.zig" }, .{ .exact = "aux_test.zig" } },
+        .reason = "raster/aux may only import std, prim, lattice, or its own test sibling: the side-table builder must stay Sketch-blind, or a record could describe what layout INTENDED instead of what the raster DID",
+    },
+    .{
+        .name = "raster/aux_test.zig",
+        .allowed = &.{
+            .sketch,                            .raster_zone,
+            .{ .exact = "../lattice.zig" },     .{ .exact = "aux.zig" },
+            .{ .exact = "edges_write.zig" },    .{ .exact = "edge_roles.zig" },
+            .{ .exact = "reconcile.zig" },      .{ .exact = "arrow_base.zig" },
+        },
+        .reason = "aux_test may only import std, prim, sketch, lattice, raster, or the raster siblings whose post-walk passes it pins",
     },
     .{
         .name = "raster/busbars_test.zig",

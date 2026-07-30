@@ -12,6 +12,7 @@ const std = @import("std");
 const sketch = @import("../sketch.zig");
 const lattice = @import("../lattice.zig");
 const edges_r = @import("edges.zig");
+const aux = @import("aux.zig");
 
 pub const Report = struct {
     /// Taps that claimed at least one cell (each tap represents one edge).
@@ -21,15 +22,15 @@ pub const Report = struct {
 };
 
 /// Rasterize every bus-bar in `s` into `lat`.
-pub fn rasterizeRails(lat: *lattice.Lattice, s: sketch.Sketch) Report {
+pub fn rasterizeRails(lat: *lattice.Lattice, s: sketch.Sketch, sink: aux.Sink) Report {
     var report: Report = .{};
     for (s.busbars) |bb| {
-        drawRail(lat, bb, &report);
+        drawRail(lat, bb, &report, sink);
     }
     return report;
 }
 
-fn drawRail(lat: *lattice.Lattice, bb: sketch.Rail, report: *Report) void {
+fn drawRail(lat: *lattice.Lattice, bb: sketch.Rail, report: *Report, sink: aux.Sink) void {
     const crossbar_edge = bb.taps[0].edge; // informational owner id for shared-run cells
     const junction = bb.stem[bb.stem.len - 1];
     const fan_in = bb.role == .fan_in_dropper or bb.role == .fan_in_rail;
@@ -49,7 +50,9 @@ fn drawRail(lat: *lattice.Lattice, bb: sketch.Rail, report: *Report) void {
 
     // -- Stem: pivot exit bit into the node border, interior cells, and
     //    the stem arm OR'd into the junction (a rail cell).
-    if (!fan_in) edges_r.drawPortStroke(lat, bb.stem, bb.kind);
+    // The stem departs the pivot, so the port belongs to the run's owner id
+    // (the same informational id the shared-run cells carry).
+    if (!fan_in) edges_r.drawPortStroke(lat, bb.stem, bb.kind, crossbar_edge, sink);
     var i: usize = 0;
     var last_dir: ?edges_r.Move = null;
     while (i + 1 < bb.stem.len) : (i += 1) {
@@ -86,7 +89,7 @@ fn drawRail(lat: *lattice.Lattice, bb: sketch.Rail, report: *Report) void {
     for (bb.taps) |tap| {
         if (fan_in) {
             const source_stub = [_]sketch.Point{ tap.landing, tap.at };
-            edges_r.drawPortStroke(lat, &source_stub, bb.kind);
+            edges_r.drawPortStroke(lat, &source_stub, bb.kind, tap.edge, sink);
         }
         const dir = edges_r.segmentDir(tap.at, tap.landing) orelse continue;
         claim(lat, tap.at, tap.edge, bb.kind, crossbar_role, edges_r.bitMask(dir), report);

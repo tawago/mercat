@@ -9,13 +9,14 @@
 //! and the raster tests keep reaching them as `edges.<name>`.
 //!
 //! Imports: `std`, `sketch.zig`, `lattice.zig`, `edge_roles.zig`,
-//! `crossings.zig` (all raster-zone siblings).
+//! `crossings.zig`, `aux.zig` (all raster-zone siblings).
 
 const std = @import("std");
 const sketch = @import("../sketch.zig");
 const lattice = @import("../lattice.zig");
 const roles = @import("edge_roles.zig");
 const crossings = @import("crossings.zig");
+const aux = @import("aux.zig");
 
 // Scoped logger: collision/skip diagnostics stay .debug (silent in release
 // unless a developer opts in via `-Dlog_level=debug` or a debug build).
@@ -200,11 +201,20 @@ pub fn writeArrowCell(
 /// thick edges meeting a solid node frame.
 /// An invisible (`~~~`) edge draws no ink, so it must not tee the source
 /// border: return before touching the cell.
+/// Every stroke actually drawn also files a `.port` record for `edge_id`
+/// on the side table: the border cell keeps the merged arm but not the
+/// identity of the edge that merged it, so the record adds a fact the
+/// Cell cannot express (lattice.zig's anti-desync law). Refused strokes
+/// (invisible edge, non-vertical exit, non-border cell) file nothing —
+/// the channel records what was drawn, never what was intended.
 /// guarded-by: edges_write_test.zig "drawPortStroke: an invisible edge leaves the source node border untouched"
+/// guarded-by: aux_test.zig "drawPortStroke files a port record only for a stroke it actually draws"
 pub fn drawPortStroke(
     lat: *lattice.Lattice,
     pts: []const sketch.Point,
     kind: lattice.EdgeKind,
+    edge_id: u32,
+    sink: aux.Sink,
 ) void {
     if (kind == .invisible) return;
     var first_dir_opt: ?Move = null;
@@ -226,6 +236,7 @@ pub fn drawPortStroke(
         if (kind != .solid and cell.stroke_kind == .solid) {
             cell.stroke_kind = kind;
         }
+        aux.record(sink, lat.cellIndex(c.x, c.y), .port, edge_id, 0);
     }
 }
 

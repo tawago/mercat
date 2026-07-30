@@ -25,7 +25,11 @@ pub fn collect(allocator: std.mem.Allocator, s: sketch.Sketch) score.RasterCount
     // counters + glyph), never labels_dropped/labels_displaced/edge_cells_lost.
     // Audit therefore always uses the default `.bridge`, keeping the score
     // raster-blind to the user's notation choice.
-    const report = raster.rasterize(allocator, s, .bridge) catch return .{};
+    //
+    // `collect_aux = false`: this runs once per ladder candidate and reads
+    // nothing but the three counts below, so the lattice side table would be
+    // pure dead cost on the multi-candidate loop.
+    const report = raster.rasterize(allocator, s, .bridge, .{ .collect_aux = false }) catch return .{};
     return .{
         .labels_dropped = report.labels_dropped,
         .labels_displaced = report.labels_displaced,
