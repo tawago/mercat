@@ -24,7 +24,7 @@
 //! report-only `reach_skipped_clustered` marker; a flat input whose
 //! candidate carries (synthetic) packed frames fires the distinct
 //! non-tag `skipped_packed_candidate` count (OPEN-8: the packed-winner
-//! validation gap must stay visible, and the 43-tag registry is pinned).
+//! validation gap must stay visible, and the tag registry is closed).
 //!
 //! Allowed imports (tools/lint_imports.zig): std, prim, ledger,
 //! sketch, reach_geometry, reach_report (split

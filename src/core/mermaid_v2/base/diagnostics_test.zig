@@ -11,7 +11,7 @@ const expectEqual = std.testing.expectEqual;
 const expectEqualStrings = std.testing.expectEqualStrings;
 
 // ---------------------------------------------------------------------------
-// Static 43-tag registry (D-DISPOSITION items 3, 5, 6).
+// Static diagnostic registry (D-DISPOSITION items 3, 5, 6).
 // ---------------------------------------------------------------------------
 
 const rf_tags = [_]pb.DiagnosticTag{
@@ -64,26 +64,33 @@ const ro_tags = [_]pb.DiagnosticTag{
     .join_permits_skipped_clustered,
     .edgeid_scope_clustered_skipped,
     .intentional_joins,
+    // Registered ahead of their producers (nothing fires them yet): the
+    // rail-law refusals and the co-set declaration failures.
+    .rail_deco_mixed,
+    .rail_star_violation,
+    .rail_closure_undeclared,
+    .co_undeclared,
+    .co_double_discharge,
 };
 
-test "registry partitions the 43 tags RF 5 / CI 17 / RO 21" {
+test "registry partitions the 48 tags RF 5 / CI 17 / RO 26" {
     // Class assignments per D-DISPOSITION items 5-6, pinned tag by tag.
     for (rf_tags) |t| try expectEqual(pb.DispositionClass.render_fatal, pb.classOf(t));
     for (ci_tags) |t| try expectEqual(pb.DispositionClass.candidate_invalid, pb.classOf(t));
     for (ro_tags) |t| try expectEqual(pb.DispositionClass.report_only, pb.classOf(t));
 
-    // Partition counts pinned to exactly 5 / 17 / 21 = 43, with the SI
+    // Partition counts pinned to exactly 5 / 17 / 26 = 48, with the SI
     // class empty of members (D-DISPOSITION item 10).
     try expectEqual(@as(usize, 5), rf_tags.len);
     try expectEqual(@as(usize, 17), ci_tags.len);
-    try expectEqual(@as(usize, 21), ro_tags.len);
+    try expectEqual(@as(usize, 26), ro_tags.len);
     const fields = @typeInfo(pb.DiagnosticTag).@"enum".fields;
-    try expectEqual(@as(usize, 43), fields.len);
+    try expectEqual(@as(usize, 48), fields.len);
     var counts = [_]usize{ 0, 0, 0, 0 };
     inline for (fields) |f| {
         counts[@intFromEnum(pb.classOf(@enumFromInt(f.value)))] += 1;
     }
-    try expectEqual(@as(usize, 21), counts[@intFromEnum(pb.DispositionClass.report_only)]);
+    try expectEqual(@as(usize, 26), counts[@intFromEnum(pb.DispositionClass.report_only)]);
     try expectEqual(@as(usize, 17), counts[@intFromEnum(pb.DispositionClass.candidate_invalid)]);
     try expectEqual(@as(usize, 5), counts[@intFromEnum(pb.DispositionClass.render_fatal)]);
     try expectEqual(@as(usize, 0), counts[@intFromEnum(pb.DispositionClass.score_input)]);

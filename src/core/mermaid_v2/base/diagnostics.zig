@@ -23,7 +23,7 @@ pub const DispositionClass = enum {
     score_input,
 };
 
-/// The closed 43-tag registry, declared in D-DISPOSITION item 3's own
+/// The closed tag registry, declared in D-DISPOSITION item 3's own
 /// enumeration order (owning record noted per block). Tags whose
 /// record-verbatim names carry dots (`join_select.*`) spell them with
 /// underscores here; `tagName` returns the verbatim form.
@@ -81,6 +81,28 @@ pub const DiagnosticTag = enum {
     // D-EDGE-ID (2)
     edgeid_scope_clustered_skipped,
     edgeid_unqualified_local_lookup,
+    // Rail-law refusals (3) and co-set declaration failures (2). Registered
+    // here ahead of their producers: nothing in the pipeline fires them yet,
+    // so a report that names one is itself a bug until the rail-eligibility
+    // and co-realization passes land.
+    /// Fires when a rail is refused because its member edges disagree in
+    /// decoration (stroke class or arrowhead), so one shared run cannot ink
+    /// them all; the members unfuse onto separate rail rows.
+    rail_deco_mixed,
+    /// Fires when a rail is refused because its members do not form a star
+    /// around one shared pivot — the star-only rail law admits no union of
+    /// two or more pivots.
+    rail_star_violation,
+    /// Fires when a rail run carries a shared cell whose carrier edge was
+    /// never declared a member of that rail (membership is not closed over
+    /// the ink the rail actually owns).
+    rail_closure_undeclared,
+    /// Fires when a cell is co-realized for an edge pair that no declared
+    /// co-set names.
+    co_undeclared,
+    /// Fires when one edge is discharged by two co-set entries, breaking the
+    /// bijective backing that each declared pair names its own edge.
+    co_double_discharge,
 };
 
 /// Record-verbatim tag string (dotted for the `join_select.*` family).
@@ -113,7 +135,7 @@ pub fn tagByName(name: []const u8) ?DiagnosticTag {
 
 /// The static tag → class registry: every tag by explicit name, no
 /// wildcard, no prefix, no else branch (D-DISPOSITION items 3, 5, 6).
-/// guarded-by: diagnostics_test.zig "registry partitions the 43 tags RF 5 / CI 17 / RO 21"
+/// guarded-by: diagnostics_test.zig "registry partitions the 48 tags RF 5 / CI 17 / RO 26"
 /// guarded-by: diagnostics_test.zig "both invalidation tags are candidate-invalid (D-DISPOSITION item 5 row 4)"
 pub fn classOf(tag: DiagnosticTag) DispositionClass {
     return switch (tag) {
@@ -149,10 +171,12 @@ pub fn classOf(tag: DiagnosticTag) DispositionClass {
         .join_select_invalidated,
         => .candidate_invalid,
 
-        // RO (21): normal-operation inventory/style/safety-filter outcomes
+        // RO (26): normal-operation inventory/style/safety-filter outcomes
         // (item 6 rows 1-2), the five clustered scope-gate skips (item 6
-        // row 3), the terminal-fallback count (item 9(e)), and the
-        // count-surfaced intentional_joins.
+        // row 3), the terminal-fallback count (item 9(e)), the
+        // count-surfaced intentional_joins, and the five registered-but-
+        // unfired rail-law / co-set tags — a refusal there is discharged by
+        // unfusing onto separate lanes, never by invalidating the candidate.
         .disp_terminal_fallback_engaged,
         .rail_member_style_mixed,
         .rail_member_invisible,
@@ -174,6 +198,11 @@ pub fn classOf(tag: DiagnosticTag) DispositionClass {
         .join_permits_skipped_clustered,
         .port_skipped_clustered,
         .edgeid_scope_clustered_skipped,
+        .rail_deco_mixed,
+        .rail_star_violation,
+        .rail_closure_undeclared,
+        .co_undeclared,
+        .co_double_discharge,
         => .report_only,
     };
 }

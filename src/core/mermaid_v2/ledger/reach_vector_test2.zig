@@ -243,8 +243,8 @@ test "Counts fields mirror the registered reach_* tags (11 CI + 1 RO skip) plus 
     inline for (@typeInfo(vc.Counts).@"struct".fields) |f| {
         n_fields += 1;
         if (comptime std.mem.eql(u8, f.name, "skipped_packed_candidate")) {
-            // F2: deliberately NON-tag — the 43-tag D-DISPOSITION registry
-            // is pinned and must not grow for a report-only skip split.
+            // F2: deliberately NON-tag — the D-DISPOSITION registry is
+            // closed and must not grow for a report-only skip split.
             try expect(pb.tagByName("reach_" ++ f.name) == null);
             try expect(pb.tagByName(f.name) == null);
             continue;

@@ -22,7 +22,7 @@ pub const Error = error{OutOfMemory};
 /// Per-candidate counts for every D-REACH diagnostic tag. Field names are
 /// the registry tags minus the `reach_` prefix (pinned by test) — except
 /// `skipped_packed_candidate`, deliberately a NON-tag field (post-review
-/// F2): the 43-tag D-DISPOSITION registry is pinned and must not grow for
+/// F2): the D-DISPOSITION registry is closed and must not grow for
 /// a report-only skip split, so the packed-candidate skip is counted and
 /// serialized distinctly without ever becoming a `reach_*` tag.
 /// `cross_connected` / `one_sided_adjacency` / `mixed_stroke_junction`
@@ -391,7 +391,7 @@ pub fn serialize(alloc: std.mem.Allocator, report: Report, node_keys: []const []
     }
     inline for (@typeInfo(Counts).@"struct".fields) |f| {
         // skipped_packed_candidate is deliberately NOT a registry tag (the
-        // 43-tag registry is pinned); emit it without the reach_ prefix so
+        // tag registry is closed); emit it without the reach_ prefix so
         // it can never read as one.
         const prefix = if (comptime std.mem.eql(u8, f.name, "skipped_packed_candidate")) "" else "reach_";
         try appendf(alloc, &out, "{s}{s}={d}\n", .{ prefix, f.name, @field(report.counts, f.name) });
