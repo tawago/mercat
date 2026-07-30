@@ -31,6 +31,7 @@ pub fn rasterizeRails(lat: *lattice.Lattice, s: sketch.Sketch, sink: aux.Sink) R
 }
 
 fn drawRail(lat: *lattice.Lattice, bb: sketch.Rail, report: *Report, sink: aux.Sink) void {
+    const rec = aux.Recorder.init(sink, lat);
     const crossbar_edge = bb.taps[0].edge; // informational owner id for shared-run cells
     const junction = bb.stem[bb.stem.len - 1];
     const fan_in = bb.role == .fan_in_dropper or bb.role == .fan_in_rail;
@@ -45,7 +46,7 @@ fn drawRail(lat: *lattice.Lattice, bb: sketch.Rail, report: *Report, sink: aux.S
     var x = x0;
     while (x <= x1) : (x += 1) {
         const mask: lattice.Neighbours = .{ .e = x < x1, .w = x > x0 };
-        claim(lat, .{ .x = x, .y = rail_y }, crossbar_edge, bb.kind, crossbar_role, mask, report);
+        claim(lat, .{ .x = x, .y = rail_y }, crossbar_edge, bb.kind, crossbar_role, mask, report, rec);
     }
 
     // -- Stem: pivot exit bit into the node border, interior cells, and
@@ -60,16 +61,16 @@ fn drawRail(lat: *lattice.Lattice, bb: sketch.Rail, report: *Report, sink: aux.S
         const b = bb.stem[i + 1];
         const dir = edges_r.segmentDir(a, b) orelse continue;
         if (last_dir) |prev| {
-            claim(lat, a, crossbar_edge, bb.kind, crossbar_role, edges_r.orMask(edges_r.bitMask(edges_r.reverse(prev)), edges_r.bitMask(dir)), report);
+            claim(lat, a, crossbar_edge, bb.kind, crossbar_role, edges_r.orMask(edges_r.bitMask(edges_r.reverse(prev)), edges_r.bitMask(dir)), report, rec);
         }
         var cursor = edges_r.step(a, dir);
         while (cursor.x != b.x or cursor.y != b.y) : (cursor = edges_r.step(cursor, dir)) {
-            claim(lat, cursor, crossbar_edge, bb.kind, crossbar_role, edges_r.straightMask(dir), report);
+            claim(lat, cursor, crossbar_edge, bb.kind, crossbar_role, edges_r.straightMask(dir), report, rec);
         }
         last_dir = dir;
     }
     if (last_dir) |dir| {
-        claim(lat, junction, crossbar_edge, bb.kind, crossbar_role, edges_r.bitMask(edges_r.reverse(dir)), report);
+        claim(lat, junction, crossbar_edge, bb.kind, crossbar_role, edges_r.bitMask(edges_r.reverse(dir)), report, rec);
     }
     if (bb.pivot_arrow != .none) {
         var si: usize = 0;
@@ -78,7 +79,7 @@ fn drawRail(lat: *lattice.Lattice, bb: sketch.Rail, report: *Report, sink: aux.S
             const p = edges_r.step(bb.stem[0], dir);
             if (edges_r.pointInBounds(p, lat)) {
                 const c = edges_r.toCoord(p);
-                edges_r.writeArrowCell(lat.at(c.x, c.y), crossbar_edge, bb.kind, bb.pivot_arrow, edges_r.reverse(dir), edges_r.straightMask(dir), c.x, c.y, &report.cells_lost);
+                edges_r.writeArrowCell(lat.at(c.x, c.y), crossbar_edge, bb.kind, bb.pivot_arrow, edges_r.reverse(dir), edges_r.straightMask(dir), c.x, c.y, &report.cells_lost, rec);
             }
             break;
         }
@@ -92,12 +93,12 @@ fn drawRail(lat: *lattice.Lattice, bb: sketch.Rail, report: *Report, sink: aux.S
             edges_r.drawPortStroke(lat, &source_stub, bb.kind, tap.edge, sink);
         }
         const dir = edges_r.segmentDir(tap.at, tap.landing) orelse continue;
-        claim(lat, tap.at, tap.edge, bb.kind, crossbar_role, edges_r.bitMask(dir), report);
+        claim(lat, tap.at, tap.edge, bb.kind, crossbar_role, edges_r.bitMask(dir), report, rec);
         var wrote_any = false;
         var last_cell: ?sketch.Point = null;
         var cursor = edges_r.step(tap.at, dir);
         while (cursor.x != tap.landing.x or cursor.y != tap.landing.y) : (cursor = edges_r.step(cursor, dir)) {
-            claim(lat, cursor, tap.edge, bb.kind, dropper_role, edges_r.straightMask(dir), report);
+            claim(lat, cursor, tap.edge, bb.kind, dropper_role, edges_r.straightMask(dir), report, rec);
             wrote_any = true;
             last_cell = cursor;
         }
@@ -106,7 +107,7 @@ fn drawRail(lat: *lattice.Lattice, bb: sketch.Rail, report: *Report, sink: aux.S
                 if (edges_r.pointInBounds(p, lat)) {
                     const c = edges_r.toCoord(p);
                     const arrow_dir = if (fan_in) edges_r.reverse(dir) else dir;
-                    edges_r.writeArrowCell(lat.at(c.x, c.y), tap.edge, bb.kind, tap.arrow, arrow_dir, edges_r.straightMask(dir), c.x, c.y, &report.cells_lost);
+                    edges_r.writeArrowCell(lat.at(c.x, c.y), tap.edge, bb.kind, tap.arrow, arrow_dir, edges_r.straightMask(dir), c.x, c.y, &report.cells_lost, rec);
                 }
             }
         }
@@ -124,10 +125,11 @@ fn claim(
     role: lattice.EdgeRole,
     mask: lattice.Neighbours,
     report: *Report,
+    rec: aux.Recorder,
 ) void {
     if (!edges_r.pointInBounds(p, lat)) return;
     const c = edges_r.toCoord(p);
-    edges_r.writeEdgeCell(lat.at(c.x, c.y), edge_id, kind, role, mask, c.x, c.y, &report.cells_lost);
+    edges_r.writeEdgeCell(lat.at(c.x, c.y), edge_id, kind, role, mask, c.x, c.y, &report.cells_lost, rec);
 }
 
 test {

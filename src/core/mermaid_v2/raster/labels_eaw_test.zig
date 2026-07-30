@@ -127,7 +127,7 @@ test "wide node label writes char + continuation and paints two columns" {
     var s = emptySketch(12, 5, .TD);
     s.nodes = &nodes;
 
-    const report = try labels.rasterizeLabels(alloc, &lat, s);
+    const report = try labels.rasterizeLabels(alloc, &lat, s, null);
     try testing.expectEqual(@as(u32, 1), report.placed);
     // No truncation: the box was sized in display columns and the writer
     // now advances in the same unit.
@@ -162,7 +162,7 @@ test "a wide node glyph whose second cell is not this node's interior is refused
     var s = emptySketch(12, 5, .TD);
     s.nodes = &nodes;
 
-    _ = try labels.rasterizeLabels(alloc, &lat, s);
+    _ = try labels.rasterizeLabels(alloc, &lat, s, null);
 
     // Head refused too — never a half glyph — and the cursor still moved,
     // so the following glyphs keep their columns.
@@ -196,7 +196,7 @@ test "wide cluster title advances by span and still closes the band" {
     var s = emptySketch(14, 6, .TD);
     s.clusters = &clusters;
 
-    const report = try labels.rasterizeLabels(alloc, &lat, s);
+    const report = try labels.rasterizeLabels(alloc, &lat, s, null);
     try testing.expectEqual(@as(u32, 1), report.placed);
 
     try testing.expectEqual(@as(u21, ' '), cellChar(lat, 2, 0));
@@ -229,7 +229,7 @@ test "edge-label probe reserves display cells: a wide label no longer overwrites
     var s = emptySketch(8, 4, .LR);
     s.edges = &edges;
 
-    const report = try labels.rasterizeLabels(alloc, &lat, s);
+    const report = try labels.rasterizeLabels(alloc, &lat, s, null);
     try testing.expectEqual(@as(u32, 0), report.placed);
     try testing.expectEqual(@as(u32, 1), report.dropped);
 
@@ -251,7 +251,7 @@ test "edge label writes head + continuation when the reserved span fits" {
     var s = emptySketch(12, 6, .LR);
     s.edges = &edges;
 
-    const report = try labels.rasterizeLabels(alloc, &lat, s);
+    const report = try labels.rasterizeLabels(alloc, &lat, s, null);
     try testing.expectEqual(@as(u32, 1), report.placed);
 
     var found = false;
@@ -283,7 +283,7 @@ test "blank-flank rule treats a continuation as a label neighbour" {
     lat.at(2, 2).* = .{ .occupant = .{ .label_char = '日' }, .neighbours = .{} };
     lat.at(3, 2).* = .{ .occupant = .label_cont, .neighbours = .{} };
 
-    const report = try labels.rasterizeLabels(alloc, &lat, s);
+    const report = try labels.rasterizeLabels(alloc, &lat, s, null);
     try testing.expectEqual(@as(u32, 0), report.placed);
     try testing.expectEqual(@as(u32, 1), report.dropped);
 
@@ -292,6 +292,6 @@ test "blank-flank rule treats a continuation as a label neighbour" {
     var free_lat = try makeLattice(alloc, 6, 4);
     free_lat.at(2, 2).* = .{ .occupant = .{ .label_char = '日' }, .neighbours = .{} };
 
-    const free_report = try labels.rasterizeLabels(alloc, &free_lat, s);
+    const free_report = try labels.rasterizeLabels(alloc, &free_lat, s, null);
     try testing.expectEqual(@as(u32, 1), free_report.placed);
 }

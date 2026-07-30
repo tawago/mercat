@@ -72,6 +72,39 @@ pub fn record(
     };
 }
 
+/// A `Sink` plus the grid width.
+///
+/// Most producers hold the whole `Lattice` and can key a record with
+/// `Lattice.cellIndex`. The per-cell writers do not: they are handed a
+/// `*Cell` and its (x, y) precisely so they cannot reach anything else on
+/// the grid. Bundling the width with the sink lets them key a record
+/// positionally without regaining that reach, and keeps the widening of
+/// their signatures to one parameter.
+///
+/// The default is inert (`sink = null`), so a synthetic caller writes
+/// `.{}` and files nothing.
+/// guarded-by: aux_test.zig "a Recorder with no sink files nothing"
+pub const Recorder = struct {
+    sink: Sink = null,
+    width: u32 = 0,
+
+    pub fn init(sink: Sink, lat: *const lattice.Lattice) Recorder {
+        return .{ .sink = sink, .width = lat.width };
+    }
+
+    /// Record one fact at (x, y). A no-op on an inert recorder.
+    pub fn at(
+        self: Recorder,
+        x: u32,
+        y: u32,
+        kind: lattice.AuxKind,
+        value: u32,
+        detail: u8,
+    ) void {
+        record(self.sink, y * self.width + x, kind, value, detail);
+    }
+};
+
 test {
     _ = @import("aux_test.zig");
 }

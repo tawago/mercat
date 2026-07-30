@@ -15,6 +15,7 @@ const sketch = @import("../sketch.zig");
 const lattice = @import("../lattice.zig");
 const labels_edge = @import("labels_edge.zig");
 const lw = @import("labels_write.zig");
+const aux = @import("aux.zig");
 
 // Scoped logger — see module docstring. .debug keeps placement diagnostics
 // out of release-build stderr while staying available to developers.
@@ -66,6 +67,7 @@ pub fn rasterizeLabels(
     allocator: std.mem.Allocator,
     lat: *lattice.Lattice,
     s: sketch.Sketch,
+    sink: aux.Sink,
 ) RasterError!Report {
     var diags = std.ArrayList(LabelDiagnostic){};
     defer diags.deinit(allocator);
@@ -77,14 +79,14 @@ pub fn rasterizeLabels(
     for (s.nodes) |np| {
         if (np.lines.len == 0) continue;
         attempted += 1;
-        if (try placeNodeLabel(allocator, &diags, lat, np)) placed += 1;
+        if (try placeNodeLabel(allocator, &diags, lat, np, sink)) placed += 1;
     }
 
     for (s.edges) |ep| {
         const lbl = ep.label orelse continue;
         if (lbl.len == 0) continue;
         attempted += 1;
-        switch (try labels_edge.placeEdgeLabel(allocator, &diags, lat, ep, lbl)) {
+        switch (try labels_edge.placeEdgeLabel(allocator, &diags, lat, ep, lbl, sink)) {
             .at_anchor => placed += 1,
             .displaced => {
                 placed += 1;
@@ -102,7 +104,7 @@ pub fn rasterizeLabels(
             if (lbl.len == 0) continue;
             attempted += 1;
             const seg = bb.tapLabelSeg(tap);
-            switch (try labels_edge.placeLabelAtSeg(allocator, &diags, lat, tap.edge, lbl, seg[0], seg[1], false, &.{})) {
+            switch (try labels_edge.placeLabelAtSeg(allocator, &diags, lat, tap.edge, lbl, seg[0], seg[1], false, &.{}, sink)) {
                 .at_anchor => placed += 1,
                 .displaced => {
                     placed += 1;
@@ -116,7 +118,7 @@ pub fn rasterizeLabels(
     for (s.clusters) |cf| {
         if (cf.label.len == 0) continue;
         attempted += 1;
-        if (try placeClusterLabel(allocator, &diags, lat, cf)) placed += 1;
+        if (try placeClusterLabel(allocator, &diags, lat, cf, sink)) placed += 1;
     }
 
     return Report{
@@ -193,6 +195,7 @@ fn writeNodeSpan(
     row: u32,
     cp: u21,
     span: u32,
+    sink: aux.Sink,
 ) bool {
     var i: u32 = 0;
     while (i < span) : (i += 1) {
@@ -215,7 +218,7 @@ fn writeNodeSpan(
             },
         }
     }
-    lw.writeSpan(lat, x, row, cp, span);
+    lw.writeSpan(lat, x, row, cp, span, .{ .kind = .node, .id = np.id }, sink);
     return true;
 }
 
@@ -224,6 +227,7 @@ fn placeNodeLabel(
     diags: *std.ArrayList(LabelDiagnostic),
     lat: *lattice.Lattice,
     np: sketch.NodePlacement,
+    sink: aux.Sink,
 ) RasterError!bool {
     if (np.rect.w < 3 or np.rect.h < 3) return false;
 
@@ -264,11 +268,11 @@ fn placeNodeLabel(
             // advances so the rest of the line keeps its column.
             const span = cellSpan(dc.cp);
             if (x + span > lat.width) break;
-            if (writeNodeSpan(lat, np, x, row, dc.cp, span)) wrote += 1;
+            if (writeNodeSpan(lat, np, x, row, dc.cp, span, sink)) wrote += 1;
             x += span;
         }
         if (truncated and x + cellSpan(ELLIPSIS) <= lat.width) {
-            if (writeNodeSpan(lat, np, x, row, ELLIPSIS, cellSpan(ELLIPSIS))) wrote += 1;
+            if (writeNodeSpan(lat, np, x, row, ELLIPSIS, cellSpan(ELLIPSIS), sink)) wrote += 1;
         }
     }
 
@@ -292,8 +296,8 @@ fn placeNodeLabel(
 /// over the WHOLE title band (spaces and all); the band looks exactly like the
 /// old render and the arrowhead below the band is the resumed edge. No
 /// title-space conduction.
-fn stampTitleCell(lat: *lattice.Lattice, x: u32, row: u32, cp: u21) void {
-    lw.writeGlyph(lat, x, row, cp);
+fn stampTitleCell(lat: *lattice.Lattice, x: u32, row: u32, cp: u21, cf: sketch.ClusterFrame, sink: aux.Sink) void {
+    lw.writeGlyph(lat, x, row, cp, .{ .kind = .cluster, .id = cf.id }, sink);
 }
 
 fn placeClusterLabel(
@@ -301,6 +305,7 @@ fn placeClusterLabel(
     diags: *std.ArrayList(LabelDiagnostic),
     lat: *lattice.Lattice,
     cf: sketch.ClusterFrame,
+    sink: aux.Sink,
 ) RasterError!bool {
     // Layout in the top border row:
     //   ┌─ <label> ───┐
@@ -336,7 +341,7 @@ fn placeClusterLabel(
 
     // Leading space.
     if (lead < lat.width) {
-        stampTitleCell(lat, lead, row, @as(u21, ' '));
+        stampTitleCell(lat, lead, row, @as(u21, ' '), cf, sink);
         wrote += 1;
     }
 
@@ -353,21 +358,21 @@ fn placeClusterLabel(
         const span = cellSpan(cp);
         if (x + span > lat.width) break;
         // Overwrite cluster_border edge_n cells (and tolerate empty too).
-        stampTitleCell(lat, x, row, cp);
+        stampTitleCell(lat, x, row, cp, cf, sink);
         var i: u32 = 1;
         while (i < span) : (i += 1) lw.writeCont(lat, x + i, row);
         wrote += 1;
         x += span;
     }
     if (truncated and x + cellSpan(ELLIPSIS) <= lat.width) {
-        stampTitleCell(lat, x, row, ELLIPSIS);
+        stampTitleCell(lat, x, row, ELLIPSIS, cf, sink);
         wrote += 1;
         x += cellSpan(ELLIPSIS);
     }
 
     // Trailing space (immediately after the last written label cell).
     if (x < lat.width) {
-        stampTitleCell(lat, x, row, @as(u21, ' '));
+        stampTitleCell(lat, x, row, @as(u21, ' '), cf, sink);
         wrote += 1;
     }
 

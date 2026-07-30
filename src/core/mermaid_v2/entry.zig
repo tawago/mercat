@@ -466,5 +466,6 @@ test {
     _ = @import("tiling/expect_test.zig");
     _ = @import("tiling/scan_test.zig");
     _ = @import("tiling_crosscheck_test.zig");
+    _ = @import("tiling_records_test.zig");
     _ = @import("tiling_weld_test.zig");
 }

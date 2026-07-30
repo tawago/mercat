@@ -166,6 +166,41 @@ pub const AuxKind = enum(u8) {
     /// this record is legal under the anti-desync law. `detail` is unused
     /// (0): the departure direction is already a neighbour bit.
     port,
+    /// A carrier: the edge named by `value` has ink at `cell` that the
+    /// Cell does not name. A Cell holds exactly ONE edge id, so every
+    /// further edge reaching that position is anonymous the moment it
+    /// arrives — either its bits merged in under the first writer's id, or
+    /// the crossing rule suppressed them outright. `detail` is a
+    /// `CarrierKind`. Filed by the edge writers in
+    /// `raster/edges_write.zig` and by the crossing refusals in
+    /// `raster/edges.zig`.
+    carrier,
+    /// Label ownership: the label span occupying `cell` belongs to the
+    /// entity named by `value`, of the kind in `detail` (`LabelOwnerKind`).
+    /// A `label_char` Cell holds the codepoint and nothing else — which
+    /// node, cluster or edge put it there is exactly the fact it cannot
+    /// express. Filed by `raster/labels_write.zig` at each glyph head.
+    label_owner,
+};
+
+/// How an edge's ink came to be anonymous at a carrier cell. Not a Cell
+/// fact either way: the Cell shows the surviving id, never the manner in
+/// which the other one was lost.
+pub const CarrierKind = enum(u8) {
+    /// The carrier's bits are IN the cell's mask; only its identity was
+    /// dropped, because the position already had an owner.
+    merged = 0,
+    /// The carrier contributed no bits at all — the crossing rule kept the
+    /// first writer untouched (a transversal, a refused foreign junction,
+    /// or a pristine arrowhead). The ink is on the grid, the cell is not.
+    suppressed = 1,
+};
+
+/// Which kind of entity a `label_owner` record names.
+pub const LabelOwnerKind = enum(u8) {
+    node = 0,
+    cluster = 1,
+    edge = 2,
 };
 
 /// One position-keyed side-table record: 12 bytes, no pointers, freely
@@ -178,7 +213,8 @@ pub const AuxKind = enum(u8) {
 pub const Aux = struct {
     /// Row-major linear cell index: `y * width + x`.
     cell: u32,
-    /// Kind-specific primary value (for `.port`: the attaching edge id).
+    /// Kind-specific primary value: for `.port` and `.carrier` the edge
+    /// id, for `.label_owner` the owning entity's id.
     value: u32,
     kind: AuxKind,
     /// Kind-specific secondary byte; 0 when the kind has no second

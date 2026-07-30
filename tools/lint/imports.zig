@@ -129,6 +129,11 @@ pub const Rule = union(enum) {
 ///                   select, paint, budget, permits) to prove the audit is
 ///                   inert against real renders and that its mirrored
 ///                   predicates still agree with raster's originals.
+///   tiling_records_test.zig  root-level cross-instrument pin for the
+///                   lattice side table: the raster writes the records and
+///                   the tiling zone reads them, and neither may import the
+///                   other, so their agreement is checkable only here.
+///                   Split from the crosscheck for the cap.
 ///   tiling_weld_test.zig  root-level weld-order pin for tiling/: needs
 ///                   raster's arrow_base to run the LAST mutation of the
 ///                   pipeline by hand and show the audit's buckets move
@@ -294,8 +299,9 @@ pub const file_allowlists = [_]struct {
             .{ .exact = "../lattice.zig" },     .{ .exact = "aux.zig" },
             .{ .exact = "edges_write.zig" },    .{ .exact = "edge_roles.zig" },
             .{ .exact = "reconcile.zig" },      .{ .exact = "arrow_base.zig" },
+            .{ .exact = "crossings.zig" },
         },
-        .reason = "aux_test may only import std, prim, sketch, lattice, raster, or the raster siblings whose post-walk passes it pins",
+        .reason = "aux_test may only import std, prim, sketch, lattice, raster, or the raster siblings whose post-walk passes and refusal decisions it pins",
     },
     .{
         .name = "raster/busbars_test.zig",
@@ -334,6 +340,17 @@ pub const file_allowlists = [_]struct {
             .{ .exact = "tiling/arrows.zig" },  .{ .exact = "tiling/terminal.zig" },
         },
         .reason = "tiling_crosscheck_test may only import std, prim, base/*, sem_graph, sketch, budget, parse, raster, lattice, select, paint, ledger/permits, or tiling entry points",
+    },
+    .{
+        .name = "tiling_records_test.zig",
+        .allowed = &.{
+            .sem_graph,                         .sketch,
+            .parse_zone,                        .raster_zone,
+            .{ .exact = "lattice.zig" },        .{ .exact = "select.zig" },
+            .{ .exact = "ledger/permits.zig" }, .{ .exact = "tiling/scan.zig" },
+            .{ .exact = "tiling/cell.zig" },
+        },
+        .reason = "tiling_records_test may only import std, prim, base/*, sem_graph, sketch, parse, raster, lattice, select, ledger/permits, or tiling entry points",
     },
     .{
         .name = "tiling_weld_test.zig",

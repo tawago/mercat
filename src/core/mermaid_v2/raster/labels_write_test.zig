@@ -12,6 +12,7 @@
 const std = @import("std");
 const lattice = @import("../lattice.zig");
 const lw = @import("labels_write.zig");
+const aux = @import("aux.zig");
 
 const testing = std.testing;
 
@@ -25,6 +26,10 @@ fn dirtyCell() lattice.Cell {
         .shape = .cylinder,
     };
 }
+
+/// The owner every reset test writes under; irrelevant to the reset, so
+/// it is named once rather than spelled at each call.
+const node_owner: lw.Owner = .{ .kind = .node, .id = 1 };
 
 fn dirtyLattice(buf: []lattice.Cell) lattice.Lattice {
     for (buf) |*c| c.* = dirtyCell();
@@ -42,7 +47,7 @@ test "a glyph write resets every field of the cell it covers" {
     var buf: [1]lattice.Cell = undefined;
     var lat = dirtyLattice(&buf);
 
-    lw.writeGlyph(&lat, 0, 0, 'A');
+    lw.writeGlyph(&lat, 0, 0, 'A', node_owner, null);
 
     const c = lat.atConst(0, 0).*;
     switch (c.occupant) {
@@ -70,7 +75,7 @@ test "a span write claims head plus continuations and resets both" {
     var buf: [3]lattice.Cell = undefined;
     var lat = dirtyLattice(&buf);
 
-    lw.writeSpan(&lat, 0, 0, '日', 2);
+    lw.writeSpan(&lat, 0, 0, '日', 2, node_owner, null);
 
     switch (lat.atConst(0, 0).occupant) {
         .label_char => |cp| try testing.expectEqual(@as(u21, '日'), cp),
@@ -99,7 +104,7 @@ test "a span of 1 writes no continuation" {
     var buf: [2]lattice.Cell = undefined;
     var lat = dirtyLattice(&buf);
 
-    lw.writeSpan(&lat, 0, 0, 'x', 1);
+    lw.writeSpan(&lat, 0, 0, 'x', 1, node_owner, null);
 
     try testing.expectEqual(
         lattice.Occupant.label_char,
@@ -109,4 +114,43 @@ test "a span of 1 writes no continuation" {
         lattice.Occupant.edge_segment,
         std.meta.activeTag(lat.atConst(1, 0).occupant),
     );
+}
+
+test "a glyph write files one owner record; a continuation files none" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+
+    var buf: [3]lattice.Cell = undefined;
+    var lat = dirtyLattice(&buf);
+    var c = aux.Collector.init(arena.allocator());
+
+    lw.writeSpan(&lat, 0, 0, '\u{65e5}', 2, .{ .kind = .cluster, .id = 4 }, &c);
+
+    const table = c.finish();
+    // Two cells were claimed, one record filed: `label_cont` is DEFINED as
+    // the tail of the head immediately west, so recording its owner would
+    // restate a fact the grid already carries.
+    try testing.expectEqual(@as(usize, 1), table.len);
+    try testing.expectEqual(lat.cellIndex(0, 0), table[0].cell);
+    try testing.expectEqual(lattice.AuxKind.label_owner, table[0].kind);
+    try testing.expectEqual(@as(u32, 4), table[0].value);
+    try testing.expectEqual(@intFromEnum(lattice.LabelOwnerKind.cluster), table[0].detail);
+}
+
+test "a null sink writes the same cells and files nothing" {
+    // The channel is opt-in per rasterization; the ink must not depend on it.
+    var with_buf: [2]lattice.Cell = undefined;
+    var without_buf: [2]lattice.Cell = undefined;
+    var with = dirtyLattice(&with_buf);
+    var without = dirtyLattice(&without_buf);
+
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    var c = aux.Collector.init(arena.allocator());
+
+    lw.writeSpan(&with, 0, 0, '\u{65e5}', 2, node_owner, &c);
+    lw.writeSpan(&without, 0, 0, '\u{65e5}', 2, node_owner, null);
+
+    try testing.expectEqualSlices(lattice.Cell, with.cells, without.cells);
+    try testing.expectEqual(@as(usize, 1), c.finish().len);
 }

@@ -14,6 +14,7 @@ const sketch = @import("../sketch.zig");
 const lattice = @import("../lattice.zig");
 const labels = @import("labels.zig");
 const lw = @import("labels_write.zig");
+const aux = @import("aux.zig");
 
 const log = std.log.scoped(.@"mermaid_v2.raster.labels");
 
@@ -50,6 +51,7 @@ pub fn placeEdgeLabel(
     lat: *lattice.Lattice,
     ep: sketch.EdgePath,
     label: []const u8,
+    sink: aux.Sink,
 ) labels.RasterError!Placement {
     if (ep.polyline.len < 2) return .dropped;
 
@@ -57,7 +59,7 @@ pub fn placeEdgeLabel(
     // (skip zero-length segments produced by routing fixups so e.g. a
     // [(x,y),(x,y'),(x,y')] polyline yields the (x,y)→(x,y') segment).
     const seg_pair = pickMidSegment(ep.polyline) orelse return .dropped;
-    return placeLabelAtSeg(allocator, diags, lat, ep.id, label, seg_pair.a, seg_pair.b, ep.label_left_of_run, ep.polyline);
+    return placeLabelAtSeg(allocator, diags, lat, ep.id, label, seg_pair.a, seg_pair.b, ep.label_left_of_run, ep.polyline, sink);
 }
 
 /// Shared anchored-placement body for edge and bus-bar tap labels.
@@ -73,6 +75,7 @@ pub fn placeLabelAtSeg(
     b: sketch.Point,
     left_of_run: bool,
     polyline: []const sketch.Point,
+    sink: aux.Sink,
 ) labels.RasterError!Placement {
     // Lattice cells the label occupies, counted the way it is written:
     // one per codepoint, two for an East-Asian-Wide one. Probe, bounds
@@ -83,9 +86,9 @@ pub fn placeLabelAtSeg(
 
     // Candidate #1: legacy anchor recorded by layout on ep.label_left_of_run (clusters.computeBbox). guarded-by: labels_test.zig "edge label fits above midpoint"
     const anchor = anchorFor(a, b, left_of_run, prim.displayWidth(label));
-    if (tryWrite(lat, label, cell_count, anchor.x, anchor.y)) return .at_anchor;
+    if (tryWrite(lat, label, cell_count, anchor.x, anchor.y, edge_id, sink)) return .at_anchor;
 
-    if (trySegment(lat, label, cell_count, a, b, left_of_run)) return .displaced;
+    if (trySegment(lat, label, cell_count, a, b, left_of_run, edge_id, sink)) return .displaced;
 
     // Ladder tail: the remaining non-degenerate segments of the polyline.
     if (polyline.len >= 2) {
@@ -93,7 +96,7 @@ pub fn placeLabelAtSeg(
             const q = polyline[i + 1];
             if (p.x == q.x and p.y == q.y) continue;
             if (p.x == a.x and p.y == a.y and q.x == b.x and q.y == b.y) continue;
-            if (trySegment(lat, label, cell_count, p, q, left_of_run)) return .displaced;
+            if (trySegment(lat, label, cell_count, p, q, left_of_run, edge_id, sink)) return .displaced;
         }
     }
 
@@ -122,6 +125,8 @@ fn trySegment(
     a: sketch.Point,
     b: sketch.Point,
     left_of_run: bool,
+    edge_id: u32,
+    sink: aux.Sink,
 ) bool {
     const orig_len: u32 = prim.displayWidth(label);
 
@@ -134,8 +139,8 @@ fn trySegment(
         for (rows) |row| {
             var d: i32 = 0;
             while (mid_x - d >= min_x or mid_x + d <= max_x) : (d += 1) {
-                if (mid_x - d >= min_x and tryWrite(lat, label, cell_count, mid_x - d, row)) return true;
-                if (d > 0 and mid_x + d <= max_x and tryWrite(lat, label, cell_count, mid_x + d, row)) return true;
+                if (mid_x - d >= min_x and tryWrite(lat, label, cell_count, mid_x - d, row, edge_id, sink)) return true;
+                if (d > 0 and mid_x + d <= max_x and tryWrite(lat, label, cell_count, mid_x + d, row, edge_id, sink)) return true;
             }
         }
         return false;
@@ -154,8 +159,8 @@ fn trySegment(
     for (sides) |x| {
         var d: i32 = 0;
         while (mid_y - d >= min_y or mid_y + d <= max_y) : (d += 1) {
-            if (mid_y - d >= min_y and tryWrite(lat, label, cell_count, x, mid_y - d)) return true;
-            if (d > 0 and mid_y + d <= max_y and tryWrite(lat, label, cell_count, x, mid_y + d)) return true;
+            if (mid_y - d >= min_y and tryWrite(lat, label, cell_count, x, mid_y - d, edge_id, sink)) return true;
+            if (d > 0 and mid_y + d <= max_y and tryWrite(lat, label, cell_count, x, mid_y + d, edge_id, sink)) return true;
         }
     }
     return false;
@@ -181,6 +186,8 @@ fn tryWrite(
     cell_count: u32,
     lx: i32,
     ly: i32,
+    edge_id: u32,
+    sink: aux.Sink,
 ) bool {
     if (ly < 0 or @as(i64, ly) >= lat.height) return false;
     if (lx < 0) return false;
@@ -218,7 +225,7 @@ fn tryWrite(
         bi += dc.byte_len;
         const cp = labels.sentinelToSpace(dc.cp);
         const span = labels.cellSpan(cp);
-        lw.writeSpan(lat, x, row, cp, span);
+        lw.writeSpan(lat, x, row, cp, span, .{ .kind = .edge, .id = edge_id }, sink);
         x += span;
     }
     return true;

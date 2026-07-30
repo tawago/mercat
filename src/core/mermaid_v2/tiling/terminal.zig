@@ -7,10 +7,15 @@
 //! make. So this walks the pairs (ink cell, direction, ring cell reached)
 //! and files each one:
 //!
-//!   RECIPROCATED   the ring carries the arm back. Only a source-side
-//!                  departure gets this: the border merge stamps the
-//!                  departure bit into the cell the run LEAVES, never into
-//!                  the cell it arrives at.
+//!   DEPARTURE      the ring cell holds a `.port` record: an edge attached
+//!                  a departure stroke to it (`drawPortStroke` files one
+//!                  for every stroke it actually merges). This is the one
+//!                  verdict that used to be an INFERENCE — "the ring
+//!                  carries the arm back, and only a departure could have
+//!                  put it there". It could not: the arrowhead-base weld
+//!                  ORs an arm into a border cell too. The record says
+//!                  which, so the pair is now classified on evidence and
+//!                  the residual arms get their own bucket.
 //!   NODE FACE      the standard arrival. All four combinations — vertical
 //!                  or horizontal face, bare stroke or arrowhead — are
 //!                  conventions, because nothing in the rasterizer ever
@@ -95,8 +100,23 @@ fn abutment(v: cell.View, x: u32, y: u32, d: cell.Dir4, is_arrow: bool, c: *coun
     switch (n.kind) {
         .ring_node, .ring_frame => {
             c.n_term_abut += 1;
+            // Departure first, and from the record rather than the mask:
+            // `drawPortStroke` files a `.port` for every stroke it merges
+            // into a source border, so a pair whose ring cell holds one is
+            // a departure by evidence.
+            // guarded-by: terminal_test.zig "departure: a port record claims the pair before any face verdict"
+            if (n.ports().len != 0) {
+                c.c_term_departure_recorded += 1;
+                return;
+            }
+            // An arm pointing back with nothing recorded behind it belongs
+            // to another writer (the arrowhead-base weld). It is not a
+            // departure, and drawing an ARRIVAL verdict from a cell whose
+            // mask another pass edited would be the same inference in
+            // reverse — so this family stays silent about it.
+            // guarded-by: terminal_test.zig "an unrecorded ring arm is neither a departure nor a face verdict"
             if (n.mask & cell.bit(cell.reverse(d)) != 0) {
-                c.c_term_reciprocated += 1;
+                c.c_term_ring_arm_unrecorded += 1;
                 return;
             }
             bucket(n, is_arrow, c);

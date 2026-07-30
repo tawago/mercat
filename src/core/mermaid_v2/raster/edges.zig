@@ -73,6 +73,9 @@ const EdgeWalkResult = struct {
 /// a refused arrowhead transit), recording the classified event; false to
 /// proceed with the pre-C merge. Applies to `edge_segment`/`arrowhead`
 /// occupants only — other occupants are handled by the normal write path.
+/// Every `true` return is a suppression: the incoming edge's ink runs
+/// through the position and the cell will say nothing about it, so the
+/// caller files a suppressed `.carrier` for it.
 fn crossingKeepsFirstWriter(
     cell: *const lattice.Cell,
     incoming_edge: u32,
@@ -130,6 +133,7 @@ fn walkPolyline(
     cells_lost: *u32,
     ctx: crossings.Ctx,
     sink: aux.Sink,
+    rec: aux.Recorder,
 ) RasterError!EdgeWalkResult {
     const pts = edge.polyline;
     if (pts.len < 2) {
@@ -202,7 +206,10 @@ fn walkPolyline(
                             edge.id,
                             corner_mask,
                         )) {
-                            // no foreign junction ink
+                            // No foreign junction ink — and with the corner
+                            // arm refused, nothing on the cell records that
+                            // this edge turns here.
+                            ew.recordCarrier(rec, c.x, c.y, edge.id, .suppressed);
                         } else {
                             cell.neighbours = if (seg.edge == edge.id)
                                 corner_mask
@@ -247,8 +254,11 @@ fn walkPolyline(
                     else => {
                         // Arrowhead here → refuse (C2); node/label → normal
                         // loss accounting inside writeEdgeCell.
-                        if (!crossingKeepsFirstWriter(cell, edge.id, corner_mask, ctx))
-                            writeEdgeCell(cell, edge.id, ek, erole, corner_mask, c.x, c.y, cells_lost);
+                        if (crossingKeepsFirstWriter(cell, edge.id, corner_mask, ctx)) {
+                            ew.recordCarrier(rec, c.x, c.y, edge.id, .suppressed);
+                        } else {
+                            writeEdgeCell(cell, edge.id, ek, erole, corner_mask, c.x, c.y, cells_lost, rec);
+                        }
                     },
                 }
                 if (result.first_cell == null) {
@@ -308,11 +318,13 @@ fn walkPolyline(
                 // still track this edge's path for arrowhead placement.
                 if (ctx.mode == .bridge and cell.occupant == .cluster_border and !terminal_here) {
                     ctx.counts.b_frame_bridge += 1;
-                } else if (!crossingKeepsFirstWriter(cell, edge.id, straightMask(dir), ctx)) {
+                } else if (crossingKeepsFirstWriter(cell, edge.id, straightMask(dir), ctx)) {
+                    ew.recordCarrier(rec, c.x, c.y, edge.id, .suppressed);
+                } else {
                     // `.cross` mode falls through here: writeEdgeCell's
                     // `.cluster_border` arm still holds the pre-Slice-1
                     // overwrite+OR merge (junction weld) — byte-identical.
-                    writeEdgeCell(cell, edge.id, ek, erole, straightMask(dir), c.x, c.y, cells_lost);
+                    writeEdgeCell(cell, edge.id, ek, erole, straightMask(dir), c.x, c.y, cells_lost, rec);
                 }
                 if (result.first_cell == null) {
                     result.first_cell = cursor;
@@ -345,6 +357,9 @@ pub fn rasterizeEdges(
     var written: u32 = 0;
     var cells_lost: u32 = 0;
     var cross_counts: crossings.CrossingCounts = .{};
+    // The per-cell writers hold a `*Cell`, never the grid; the recorder
+    // carries the width they need to key a record positionally.
+    const rec = aux.Recorder.init(sink, lat);
     const ctx: crossings.Ctx = .{
         .joins = s.joins,
         .active = crossings.active(s.joins),
@@ -353,14 +368,14 @@ pub fn rasterizeEdges(
     };
 
     for (s.edges) |edge| {
-        const r = try walkPolyline(lat, edge, &cells_lost, ctx, sink);
+        const r = try walkPolyline(lat, edge, &cells_lost, ctx, sink, rec);
 
         if (edge.arrow_to != .none) {
             if (r.last_cell) |p| {
                 if (r.last_dir) |d| {
                     if (pointInBounds(p, lat)) {
                         const c = toCoord(p);
-                        ew.writeArrowGuarded(lat.at(c.x, c.y), edge.id, edge.kind, edge.arrow_to, d, straightMask(d), c.x, c.y, &cells_lost, ctx);
+                        ew.writeArrowGuarded(lat.at(c.x, c.y), edge.id, edge.kind, edge.arrow_to, d, straightMask(d), c.x, c.y, &cells_lost, ctx, rec);
                     }
                 }
             }
@@ -370,7 +385,7 @@ pub fn rasterizeEdges(
                 if (r.first_dir) |d| {
                     if (pointInBounds(p, lat)) {
                         const c = toCoord(p);
-                        ew.writeArrowGuarded(lat.at(c.x, c.y), edge.id, edge.kind, edge.arrow_from, reverse(d), straightMask(d), c.x, c.y, &cells_lost, ctx);
+                        ew.writeArrowGuarded(lat.at(c.x, c.y), edge.id, edge.kind, edge.arrow_from, reverse(d), straightMask(d), c.x, c.y, &cells_lost, ctx, rec);
                     }
                 }
             }

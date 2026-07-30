@@ -75,6 +75,22 @@ fn pairAt(ink: lattice.Cell, d: lattice.Dir4, ring: lattice.Cell) counts.Counts 
     return scanAll(&lat);
 }
 
+/// The same pair, with a `.port` record filed on the ring cell — the
+/// evidence `drawPortStroke` leaves for a departure stroke it merged.
+fn pairAtWithPort(ink: lattice.Cell, d: lattice.Dir4, ring: lattice.Cell) counts.Counts {
+    var g: Grid = .{};
+    g.init();
+    g.set(2, 2, ink);
+    const p = cell.step(2, 2, d, W, W).?;
+    g.set(p.x, p.y, ring);
+    var lat = g.lat();
+    const records = [_]lattice.Aux{
+        .{ .cell = lat.cellIndex(p.x, p.y), .value = 7, .kind = .port },
+    };
+    lat.aux = &records;
+    return scanAll(&lat);
+}
+
 // -- Node faces: all four bare/arrow combinations are conventions -------------
 
 test "node face: a bare stroke arriving vertically is a convention" {
@@ -147,14 +163,49 @@ test "frame: an arrowhead still abutting untouched frame stopped short" {
 
 // -- Reciprocation and the reprieved gap ------------------------------------
 
-test "reciprocated: a source-side departure is claimed before any face verdict" {
+test "departure: a port record claims the pair before any face verdict" {
     // The border merge stamps the departure bit into the cell the run
-    // LEAVES; that bit pointing back is the whole signature.
-    const c = pairAt(edgeCell(.{ .n = true, .s = true }), .north, border(.edge_s, .{ .e = true, .w = true, .s = true }));
+    // LEAVES and files a `.port` record naming the edge that did it. The
+    // record is the signature; the bit is only a consequence.
+    const c = pairAtWithPort(edgeCell(.{ .n = true, .s = true }), .north, border(.edge_s, .{ .e = true, .w = true, .s = true }));
     try testing.expectEqual(@as(u32, 1), c.n_term_abut);
-    try testing.expectEqual(@as(u32, 1), c.c_term_reciprocated);
+    try testing.expectEqual(@as(u32, 1), c.c_term_departure_recorded);
+    try testing.expectEqual(@as(u32, 0), c.c_term_ring_arm_unrecorded);
     try testing.expectEqual(@as(u32, 0), c.c_term_node_ns_bare);
     try testing.expectEqual(@as(u32, 0), c.defectTotal());
+}
+
+test "an unrecorded ring arm is neither a departure nor a face verdict" {
+    // The identical geometry with NO record behind the arm. Something put
+    // that bit there — the arrowhead-base weld ORs one into a border cell
+    // for any tip — but it was not a departure, and the old mask-only
+    // reading called it one. Now it lands in its own bucket, and still
+    // draws no face verdict: the arm's writer accounts for it elsewhere.
+    const c = pairAt(edgeCell(.{ .n = true, .s = true }), .north, border(.edge_s, .{ .e = true, .w = true, .s = true }));
+    try testing.expectEqual(@as(u32, 1), c.n_term_abut);
+    try testing.expectEqual(@as(u32, 0), c.c_term_departure_recorded);
+    try testing.expectEqual(@as(u32, 1), c.c_term_ring_arm_unrecorded);
+    try testing.expectEqual(@as(u32, 0), c.c_term_node_ns_bare);
+    try testing.expectEqual(@as(u32, 0), c.defectTotal());
+}
+
+test "a port record on a ring the pair never reaches changes nothing" {
+    // The record is positional: it claims the pair only when it sits on
+    // the ring cell this arm actually touches. A record one cell away
+    // must not silence an arrival.
+    var g: Grid = .{};
+    g.init();
+    g.set(2, 2, edgeCell(.{ .n = true, .s = true }));
+    g.set(2, 3, border(.edge_n, .{ .e = true, .w = true }));
+    var lat = g.lat();
+    const records = [_]lattice.Aux{
+        .{ .cell = lat.cellIndex(0, 0), .value = 7, .kind = .port },
+    };
+    lat.aux = &records;
+    const c = scanAll(&lat);
+    try testing.expectEqual(@as(u32, 1), c.n_term_abut);
+    try testing.expectEqual(@as(u32, 0), c.c_term_departure_recorded);
+    try testing.expectEqual(@as(u32, 1), c.c_term_node_ns_bare);
 }
 
 test "gap: a ring one cell beyond a reprieved blank is a pair with no face verdict" {
@@ -252,13 +303,19 @@ test "a plain TD arrival set contains zero defect buckets" {
     g.set(2, 1, edgeCell(.{ .n = true, .s = true }));
     g.set(2, 2, arrowCell(.south, .{ .n = true }));
     g.set(2, 3, border(.edge_n, .{ .e = true, .w = true }));
-    const lat = g.lat();
+    var lat = g.lat();
+    // The merged departure comes with its record, exactly as a real
+    // rasterization files one.
+    const records = [_]lattice.Aux{
+        .{ .cell = lat.cellIndex(2, 0), .value = 7, .kind = .port },
+    };
+    lat.aux = &records;
     const c = scanAll(&lat);
     // Two pairs: the departure off the source face and the arrival on the
     // target face. The stroke's south arm ends on the arrowhead, which is
     // not a ring and so ends no pair.
     try testing.expectEqual(@as(u32, 2), c.n_term_abut);
-    try testing.expectEqual(@as(u32, 1), c.c_term_reciprocated);
+    try testing.expectEqual(@as(u32, 1), c.c_term_departure_recorded);
     try testing.expectEqual(@as(u32, 1), c.c_term_node_ns_arrow);
     try testing.expectEqual(@as(u32, 0), c.defectTotal());
 }

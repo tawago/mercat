@@ -221,3 +221,71 @@ test "columns mirrors paint.cellWidth: wide label glyph is two columns" {
     try testing.expect(!v.isWideGlyph(4, 0));
     try testing.expect(!v.isWideGlyph(9, 9));
 }
+
+// -- Side-table views --------------------------------------------------------
+
+/// A 3-cell lattice whose middle cell carries a mixed run of records, in
+/// the (cell, kind, value) order the collector guarantees.
+fn viewWithRecords(buf: []lattice.Cell, table: []const lattice.Aux) lattice.Lattice {
+    for (buf) |*c| c.* = lattice.Cell.empty;
+    return .{ .width = @intCast(buf.len), .height = 1, .cells = buf, .aux = table };
+}
+
+test "ofKind returns the contiguous run of one kind and nothing else" {
+    var buf: [3]lattice.Cell = undefined;
+    const table = [_]lattice.Aux{
+        // Cell 0's records must never leak into cell 1's slice.
+        .{ .cell = 0, .value = 99, .kind = .carrier },
+        .{ .cell = 1, .value = 4, .kind = .port },
+        .{ .cell = 1, .value = 7, .kind = .carrier },
+        .{ .cell = 1, .value = 8, .kind = .carrier },
+        .{ .cell = 1, .value = 2, .kind = .label_owner, .detail = 1 },
+        .{ .cell = 2, .value = 5, .kind = .port },
+    };
+    const lat = viewWithRecords(&buf, &table);
+    const v = cell.View.init(&lat);
+
+    const t = v.at(1, 0).?;
+    try testing.expectEqual(@as(usize, 4), t.aux.len);
+
+    const carriers = t.carriers();
+    try testing.expectEqual(@as(usize, 2), carriers.len);
+    try testing.expectEqual(@as(u32, 7), carriers[0].value);
+    try testing.expectEqual(@as(u32, 8), carriers[1].value);
+
+    const ports = t.ports();
+    try testing.expectEqual(@as(usize, 1), ports.len);
+    try testing.expectEqual(@as(u32, 4), ports[0].value);
+
+    // A cell with records of only one kind, and a cell with none.
+    try testing.expectEqual(@as(usize, 1), v.at(0, 0).?.carriers().len);
+    try testing.expectEqual(@as(usize, 0), v.at(0, 0).?.ports().len);
+    try testing.expectEqual(@as(usize, 0), v.at(2, 0).?.carriers().len);
+}
+
+test "labelOwner reports the last owner recorded at a cell" {
+    var buf: [2]lattice.Cell = undefined;
+    // Two labels claimed the same position; the second write replaced the
+    // first glyph, so the later record is the live owner.
+    const table = [_]lattice.Aux{
+        .{ .cell = 0, .value = 11, .kind = .label_owner, .detail = @intFromEnum(lattice.LabelOwnerKind.node) },
+        .{ .cell = 0, .value = 12, .kind = .label_owner, .detail = @intFromEnum(lattice.LabelOwnerKind.edge) },
+    };
+    const lat = viewWithRecords(&buf, &table);
+    const v = cell.View.init(&lat);
+
+    const owner = v.at(0, 0).?.labelOwner().?;
+    try testing.expectEqual(lattice.LabelOwnerKind.edge, owner.kind);
+    try testing.expectEqual(@as(u32, 12), owner.id);
+
+    // No record is not "owned by node 0": it is no answer at all.
+    try testing.expectEqual(@as(?cell.LabelOwner, null), v.at(1, 0).?.labelOwner());
+}
+
+test "classify alone carries no records; the View is what attaches them" {
+    // `classify` sees a Cell and nothing else, so a caller holding only a
+    // Cell can never mistake "no records here" for "none were collected".
+    const t = cell.classify(lattice.Cell.empty);
+    try testing.expectEqual(@as(usize, 0), t.aux.len);
+    try testing.expectEqual(@as(?cell.LabelOwner, null), t.labelOwner());
+}

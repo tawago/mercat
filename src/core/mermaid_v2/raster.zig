@@ -148,7 +148,7 @@ pub fn rasterize(
     // edge_segment, so the two passes never conflict. // guarded-by: raster/reconcile_test.zig "repairReciprocalStrokes: half-open split-junction corner regains its arm (┘→┤)"
     const arms_repaired = reconcile.repairReciprocalStrokes(&lat);
 
-    const label_report = labels_r.rasterizeLabels(allocator, &lat, s) catch |err| switch (err) {
+    const label_report = labels_r.rasterizeLabels(allocator, &lat, s, sink) catch |err| switch (err) {
         error.OutOfMemory => return error.OutOfMemory,
     };
 

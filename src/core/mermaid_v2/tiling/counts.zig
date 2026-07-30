@@ -204,9 +204,18 @@ pub const Counts = struct {
     /// stops against a node outline or a subgraph frame. The denominator
     /// for the buckets below.
     n_term_abut: u32 = 0,
-    /// The ring carries the arm back. Source-side departures only: the
-    /// border merge stamps the departure bit into the cell a run LEAVES.
-    c_term_reciprocated: u32 = 0,
+    /// The ring cell holds a `.port` record for this position: an edge
+    /// attached a departure stroke here, so the pair is a source-side
+    /// departure and no arrival verdict is drawn from it. Read from the
+    /// side table, not inferred from the mask — a bit pointing back is
+    /// evidence of SOME writer, not of this one.
+    c_term_departure_recorded: u32 = 0,
+    /// The ring carries the arm back but no port record explains it. The
+    /// arrowhead-base weld ORs an arm into a border cell for any tip, so
+    /// such a bit exists without being a departure. Not a departure and
+    /// not an arrival either: the arm's own writer already accounts for
+    /// it (`c_border_arm_weld`), so this family draws no face verdict.
+    c_term_ring_arm_unrecorded: u32 = 0,
     /// The ring sits one cell beyond a reprieved gap — port padding. The
     /// gap is the rasterizer's own convention, so no face verdict is
     /// drawn from such a pair.

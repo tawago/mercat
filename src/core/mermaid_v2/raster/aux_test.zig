@@ -15,6 +15,7 @@ const ew = @import("edges_write.zig");
 const roles = @import("edge_roles.zig");
 const reconcile = @import("reconcile.zig");
 const arrow_base = @import("arrow_base.zig");
+const crossings = @import("crossings.zig");
 
 const testing = std.testing;
 
@@ -213,4 +214,136 @@ test "aux records survive the three post-walk mutating passes" {
         try testing.expectEqual(b.value, after.value);
         try testing.expectEqual(b.detail, after.detail);
     }
+}
+
+// -- Carrier records ---------------------------------------------------------
+
+/// A 4x4 lattice, so a Recorder built from it keys records the way the
+/// production one does (`y * width + x`).
+fn blankLattice(a: std.mem.Allocator) !lattice.Lattice {
+    const cells = try a.alloc(lattice.Cell, 16);
+    for (cells) |*c| c.* = lattice.Cell.empty;
+    return .{ .width = 4, .height = 4, .cells = cells };
+}
+
+test "a Recorder with no sink files nothing" {
+    // The inert default is what every synthetic caller uses, so it must be
+    // reachable without constructing anything.
+    const rec: aux.Recorder = .{};
+    rec.at(3, 3, .carrier, 1, 0);
+    rec.at(0, 0, .port, 2, 0);
+}
+
+test "a Recorder keys a record at y * width + x" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+
+    const lat = try blankLattice(a);
+    var c = aux.Collector.init(a);
+    const rec = aux.Recorder.init(&c, &lat);
+    rec.at(2, 3, .carrier, 5, 1);
+
+    const table = c.finish();
+    try testing.expectEqual(@as(usize, 1), table.len);
+    try testing.expectEqual(lat.cellIndex(2, 3), table[0].cell);
+    try testing.expectEqual(@as(u8, 1), table[0].detail);
+}
+
+test "an OR-merge onto a foreign cell files a merged carrier; onto its own ink, nothing" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const lat = try blankLattice(a);
+    var lost: u32 = 0;
+
+    // Foreign: edge 8 merges onto edge 3's run. The cell keeps edge 3, so
+    // edge 8's presence is exactly what it cannot express.
+    {
+        var c = aux.Collector.init(a);
+        const rec = aux.Recorder.init(&c, &lat);
+        var cell = lattice.Cell{
+            .occupant = .{ .edge_segment = .{ .edge = 3, .kind = .solid } },
+            .neighbours = .{ .e = true, .w = true },
+        };
+        ew.writeEdgeCell(&cell, 8, .solid, .forward, .{ .n = true, .s = true }, 1, 1, &lost, rec);
+        const table = c.finish();
+        try testing.expectEqual(@as(usize, 1), table.len);
+        try testing.expectEqual(lattice.AuxKind.carrier, table[0].kind);
+        try testing.expectEqual(@as(u32, 8), table[0].value);
+        try testing.expectEqual(@intFromEnum(lattice.CarrierKind.merged), table[0].detail);
+        // The Cell still names the first writer: no restatement, no drift.
+        try testing.expectEqual(@as(u32, 3), cell.occupant.edge_segment.edge);
+    }
+
+    // Own ink: nothing anonymous happened, so nothing is recorded.
+    {
+        var c = aux.Collector.init(a);
+        const rec = aux.Recorder.init(&c, &lat);
+        var cell = lattice.Cell{
+            .occupant = .{ .edge_segment = .{ .edge = 3, .kind = .solid } },
+            .neighbours = .{ .e = true, .w = true },
+        };
+        ew.writeEdgeCell(&cell, 3, .solid, .forward, .{ .n = true, .s = true }, 1, 1, &lost, rec);
+        try testing.expectEqual(@as(usize, 0), c.finish().len);
+    }
+
+    // An empty cell is claimed outright: the Cell names the writer.
+    {
+        var c = aux.Collector.init(a);
+        const rec = aux.Recorder.init(&c, &lat);
+        var cell = lattice.Cell.empty;
+        ew.writeEdgeCell(&cell, 8, .solid, .forward, .{ .n = true, .s = true }, 1, 1, &lost, rec);
+        try testing.expectEqual(@as(usize, 0), c.finish().len);
+    }
+}
+
+test "an arrowhead stamped over a foreign run files a carrier for the run it covered" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const lat = try blankLattice(a);
+    var lost: u32 = 0;
+
+    var c = aux.Collector.init(a);
+    const rec = aux.Recorder.init(&c, &lat);
+    var cell = lattice.Cell{
+        .occupant = .{ .edge_segment = .{ .edge = 3, .kind = .solid } },
+        .neighbours = .{ .e = true, .w = true },
+    };
+    ew.writeArrowCell(&cell, 9, .solid, .filled, .south, .{ .n = true }, 2, 2, &lost, rec);
+
+    const table = c.finish();
+    try testing.expectEqual(@as(usize, 1), table.len);
+    // The occupant is now edge 9's arrowhead; edge 3's run still passes
+    // through the position and nothing on the cell says so.
+    try testing.expectEqual(@as(u32, 3), table[0].value);
+    try testing.expectEqual(@intFromEnum(lattice.CarrierKind.merged), table[0].detail);
+}
+
+test "a refused arrowhead transit files a suppressed carrier for the crossed run" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const lat = try blankLattice(a);
+    var lost: u32 = 0;
+
+    var counts: crossings.CrossingCounts = .{};
+    const ctx: crossings.Ctx = .{ .counts = &counts, .active = true };
+
+    var c = aux.Collector.init(a);
+    const rec = aux.Recorder.init(&c, &lat);
+    var cell = lattice.Cell{
+        .occupant = .{ .edge_segment = .{ .edge = 3, .kind = .solid } },
+        .neighbours = .{ .e = true, .w = true },
+    };
+    ew.writeArrowGuarded(&cell, 9, .solid, .filled, .south, .{ .n = true }, 2, 2, &lost, ctx, rec);
+
+    try testing.expectEqual(@as(u32, 1), counts.arrowhead_transit_violation);
+    const table = c.finish();
+    try testing.expectEqual(@as(usize, 1), table.len);
+    try testing.expectEqual(@as(u32, 3), table[0].value);
+    // Suppressed, not merged: the refusal dropped edge 3's bits as well as
+    // its name, so the cell carries no trace of it at all.
+    try testing.expectEqual(@intFromEnum(lattice.CarrierKind.suppressed), table[0].detail);
 }

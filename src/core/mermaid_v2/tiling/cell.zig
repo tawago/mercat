@@ -18,6 +18,14 @@
 //! `raster/`; drift is pinned from `tiling_crosscheck_test.zig`, which
 //! has raster-zone privileges.
 //!
+//! `View.at` also attaches the lattice's side-table records for the
+//! position (`Typed.aux`, read through `carriers`/`ports`/`labelOwner`).
+//! Those answer the PLURAL questions a Cell cannot — which other edges
+//! have ink here, whose label this glyph is — and a check that needs one
+//! must read the record rather than infer it from a mask that several
+//! passes write. Agreement with the raster-side writers is pinned from
+//! `tiling_records_test.zig`.
+//!
 //! Imports: `std`, `prim`, `lattice.zig`, tiling siblings.
 
 const std = @import("std");
@@ -58,10 +66,24 @@ pub const Kind = enum {
     ring_frame,
 };
 
+/// Whose label a `label_owner` record names.
+pub const LabelOwner = struct {
+    kind: lattice.LabelOwnerKind,
+    id: u32,
+};
+
 /// A read-only typed copy of one cell. Copies only: no `*Cell` ever
 /// escapes the audit, which is what makes mutation unreachable in
 /// practice (`Lattice.at` takes `self` by value, so a `*const Lattice`
 /// alone would NOT make a write a compile error).
+///
+/// `aux` is the second half of that copy: the side-table records filed at
+/// this position. The Cell answers "what is painted here"; the records
+/// answer the plural questions a single cell cannot hold — which OTHER
+/// edges have ink here, whose label this glyph is, which edge attached to
+/// this border. `classify` alone leaves it empty (it sees a Cell and
+/// nothing else); `View.at` fills it. An EMPTY slice therefore means
+/// "nothing recorded OR nothing collected" — never "nothing happened".
 pub const Typed = struct {
     kind: Kind,
     /// Committed neighbour bits, verbatim.
@@ -74,7 +96,63 @@ pub const Typed = struct {
     role: ?lattice.BorderRole = null,
     edge_role: ?prim.EdgeRole = null,
     tip: ?Dir4 = null,
+    /// Every side-table record filed at this position, in table order
+    /// (sorted by kind, then value).
+    aux: []const lattice.Aux = &.{},
+
+    /// The records of one kind. The table is sorted by (cell, kind, value)
+    /// and `aux` is one cell's slice of it, so a kind's records are
+    /// contiguous inside it.
+    /// guarded-by: cell_test.zig "ofKind returns the contiguous run of one kind and nothing else"
+    pub fn ofKind(self: Typed, kind: lattice.AuxKind) []const lattice.Aux {
+        var lo: usize = 0;
+        while (lo < self.aux.len and self.aux[lo].kind != kind) lo += 1;
+        var hi = lo;
+        while (hi < self.aux.len and self.aux[hi].kind == kind) hi += 1;
+        return self.aux[lo..hi];
+    }
+
+    /// Edges with ink at this position that the Cell does not name —
+    /// merged-and-anonymised or suppressed outright.
+    pub fn carriers(self: Typed) []const lattice.Aux {
+        return self.ofKind(.carrier);
+    }
+
+    /// Edges recorded as having attached a port stroke to this border cell.
+    pub fn ports(self: Typed) []const lattice.Aux {
+        return self.ofKind(.port);
+    }
+
+    /// Whose label glyph this is, when one was recorded. A cell carries at
+    /// most one owner: a label write REPLACES the cell, so the last writer
+    /// is the only one whose glyph is still visible — but the records are
+    /// append-only history, so the LAST record is the live one.
+    /// guarded-by: cell_test.zig "labelOwner reports the last owner recorded at a cell"
+    pub fn labelOwner(self: Typed) ?LabelOwner {
+        const rows = self.ofKind(.label_owner);
+        if (rows.len == 0) return null;
+        const last = rows[rows.len - 1];
+        return .{
+            .kind = @enumFromInt(last.detail),
+            .id = last.value,
+        };
+    }
 };
+
+/// The side-table records filed at linear index `index`, as a contiguous
+/// subslice of `table` (which is sorted by cell first). Binary search: the
+/// audit walks every cell of the grid, so a linear scan per cell would be
+/// quadratic in the table size.
+fn recordsAt(table: []const lattice.Aux, index: u32) []const lattice.Aux {
+    const lo = std.sort.lowerBound(lattice.Aux, table, index, struct {
+        fn order(key: u32, item: lattice.Aux) std.math.Order {
+            return std.math.order(key, item.cell);
+        }
+    }.order);
+    var hi = lo;
+    while (hi < table.len and table[hi].cell == index) hi += 1;
+    return table[lo..hi];
+}
 
 /// Total classification of a lattice cell.
 /// guarded-by: cell_test.zig "classify: invisible edge_segment is ghost with zero ink"
@@ -214,10 +292,13 @@ pub const View = struct {
         return self.lat.height;
     }
 
-    /// Typed copy of `(x,y)`, or null when out of bounds.
+    /// Typed copy of `(x,y)`, or null when out of bounds — the Cell's own
+    /// facts plus the side-table records filed at that position.
     pub fn at(self: View, x: u32, y: u32) ?Typed {
         if (x >= self.lat.width or y >= self.lat.height) return null;
-        return classify(self.lat.atConst(x, y).*);
+        var t = classify(self.lat.atConst(x, y).*);
+        t.aux = recordsAt(self.lat.aux, self.lat.cellIndex(x, y));
+        return t;
     }
 
     /// Display COLUMNS this cell contributes when painted. Mirror of
