@@ -79,7 +79,7 @@ pub fn validate(
     try checkNodeOverlap(allocator, s, &violations);
     try checkPathEndpoints(allocator, s, &violations);
     try checkPathInteriors(allocator, s, &violations);
-    try checkBusBars(allocator, s, &violations);
+    try checkRails(allocator, s, &violations);
     try checkClusterContainment(allocator, s, &violations);
     try checkClusterPorts(allocator, s, &violations);
     try checkBboxBudget(allocator, s, &violations);
@@ -189,7 +189,7 @@ pub fn checkPathInteriors(
 ///     checkPathInteriors' endpoint adjacency rule).
 /// All violations map onto existing Counts fields, so score.eval's T1
 /// tier stays stable regardless of stem/rail/tap mix.
-pub fn checkBusBars(
+pub fn checkRails(
     allocator: std.mem.Allocator,
     s: sketch.Sketch,
     violations: *std.ArrayList(Violation),
@@ -218,8 +218,8 @@ pub fn checkBusBars(
                     try emit(allocator, violations, .path_through_interior, "busbar stem segment ({d},{d})->({d},{d}) crosses interior of node {d}", .{ bb.stem[si].x, bb.stem[si].y, bb.stem[si + 1].x, bb.stem[si + 1].y, node.id });
                 }
             }
-            if (segmentCrossesInterior(bb.rail[0], bb.rail[1], node.rect)) {
-                try emit(allocator, violations, .path_through_interior, "busbar rail ({d},{d})->({d},{d}) crosses interior of node {d}", .{ bb.rail[0].x, bb.rail[0].y, bb.rail[1].x, bb.rail[1].y, node.id });
+            if (segmentCrossesInterior(bb.crossbar[0], bb.crossbar[1], node.rect)) {
+                try emit(allocator, violations, .path_through_interior, "busbar rail ({d},{d})->({d},{d}) crosses interior of node {d}", .{ bb.crossbar[0].x, bb.crossbar[0].y, bb.crossbar[1].x, bb.crossbar[1].y, node.id });
             }
             for (bb.taps) |tap| {
                 if (node.id == tap.node) continue;

@@ -11,7 +11,7 @@ const std = @import("std");
 const sg = @import("../sem_graph.zig");
 const sketch = @import("../sketch.zig");
 const prim = @import("prim");
-const fan_busbar = @import("fan_busbar.zig");
+const fan_rail = @import("fan_rail.zig");
 const clusters = @import("clusters.zig");
 const coords = @import("../layout.zig");
 
@@ -136,7 +136,7 @@ test "computeBbox: a self-loop detour point at the diagram's extreme corner exte
     var edges = [_]sketch.EdgePath{mkEdge(0, 0, 0, null, .forward, &poly)};
     var polylines = [_][]sketch.Point{&poly};
     var clusters_arr = [_]sketch.ClusterFrame{};
-    var busbars = [_]fan_busbar.Built{};
+    var busbars = [_]fan_rail.Built{};
 
     const bbox = clusters.computeBbox(&placements, &edges, &clusters_arr, &polylines, &busbars, false, 200);
 
@@ -172,10 +172,10 @@ test "computeBbox: back-edge rail label relocation depends on the diagram's full
         var edges = [_]sketch.EdgePath{mkEdge(0, 0, 0, label, .back_edge, &poly_a)};
         var polylines = [_][]sketch.Point{&poly_a};
         var clusters_arr = [_]sketch.ClusterFrame{};
-        var busbars = [_]fan_busbar.Built{};
+        var busbars = [_]fan_rail.Built{};
 
         _ = clusters.computeBbox(&placements, &edges, &clusters_arr, &polylines, &busbars, true, max_width);
-        try testing.expect(edges[0].label_left_of_rail);
+        try testing.expect(edges[0].label_left_of_run);
     }
 
     // Scenario B: an unrelated wide node alone pushes pass 1's right
@@ -192,10 +192,10 @@ test "computeBbox: back-edge rail label relocation depends on the diagram's full
         var edges = [_]sketch.EdgePath{mkEdge(0, 0, 0, label, .back_edge, &poly_b)};
         var polylines = [_][]sketch.Point{&poly_b};
         var clusters_arr = [_]sketch.ClusterFrame{};
-        var busbars = [_]fan_busbar.Built{};
+        var busbars = [_]fan_rail.Built{};
 
         _ = clusters.computeBbox(&placements, &edges, &clusters_arr, &polylines, &busbars, true, max_width);
-        try testing.expect(!edges[0].label_left_of_rail);
+        try testing.expect(!edges[0].label_left_of_run);
     }
 }
 
@@ -213,16 +213,16 @@ test "computeBbox: back-edge rail lever leaves the label right when the right pl
     var edges = [_]sketch.EdgePath{mkEdge(0, 0, 0, "ok", .back_edge, &poly)};
     var polylines = [_][]sketch.Point{&poly};
     var clusters_arr = [_]sketch.ClusterFrame{};
-    var busbars = [_]fan_busbar.Built{};
+    var busbars = [_]fan_rail.Built{};
 
     _ = clusters.computeBbox(&placements, &edges, &clusters_arr, &polylines, &busbars, true, 200);
-    try testing.expect(!edges[0].label_left_of_rail);
+    try testing.expect(!edges[0].label_left_of_run);
 }
 
 // -- claim: bus-bar tap label anchor reservation agrees with the shared
-//    BusBar.tapLabelSeg + prim.edgeLabelAnchor formula raster/labels uses --
+//    Rail.tapLabelSeg + prim.edgeLabelAnchor formula raster/labels uses --
 
-test "computeBbox: bus-bar tap label reservation matches BusBar.tapLabelSeg + prim.edgeLabelAnchor" {
+test "computeBbox: bus-bar tap label reservation matches Rail.tapLabelSeg + prim.edgeLabelAnchor" {
     var placements = [_]sketch.NodePlacement{
         .{ .id = 0, .rect = .{ .x = 5, .y = 8, .w = 4, .h = 3 }, .shape = .rect, .lines = &.{}, .cluster_id = null },
         .{ .id = 10, .rect = .{ .x = 12, .y = 8, .w = 4, .h = 3 }, .shape = .rect, .lines = &.{}, .cluster_id = null },
@@ -236,11 +236,11 @@ test "computeBbox: bus-bar tap label reservation matches BusBar.tapLabelSeg + pr
     var taps = [_]sketch.Tap{
         .{ .edge = 1, .node = 10, .at = .{ .x = 12, .y = 3 }, .landing = .{ .x = 12, .y = 8 }, .label = "tap label" },
     };
-    var busbars = [_]fan_busbar.Built{.{
+    var busbars = [_]fan_rail.Built{.{
         .busbar = .{
             .pivot = 0,
             .stem = &stem,
-            .rail = .{ .{ .x = 5, .y = 3 }, .{ .x = 20, .y = 3 } },
+            .crossbar = .{ .{ .x = 5, .y = 3 }, .{ .x = 20, .y = 3 } },
             .taps = &taps,
             .kind = .solid,
         },
@@ -251,7 +251,7 @@ test "computeBbox: bus-bar tap label reservation matches BusBar.tapLabelSeg + pr
     const bbox = clusters.computeBbox(&placements, &edges, &clusters_arr, &polylines, &busbars, false, 200);
 
     // Independently recompute the anchor exactly as raster/labels does:
-    // BusBar.tapLabelSeg for the segment, then prim.edgeLabelAnchor.
+    // Rail.tapLabelSeg for the segment, then prim.edgeLabelAnchor.
     const bb = busbars[0].busbar;
     const seg = bb.tapLabelSeg(taps[0]);
     const lbl_w = prim.displayWidth(taps[0].label.?);
@@ -264,9 +264,9 @@ test "computeBbox: bus-bar tap label reservation matches BusBar.tapLabelSeg + pr
 }
 
 // -- claim: the bus-bar shift pass mutates memory shared by both the
-//    `Built.taps` view and the embedded `BusBar.taps` slice ----------------
+//    `Built.taps` view and the embedded `Rail.taps` slice ----------------
 
-test "computeBbox: the shift pass updates both the Built.taps view and the aliased BusBar.taps slice" {
+test "computeBbox: the shift pass updates both the Built.taps view and the aliased Rail.taps slice" {
     // Placements chosen so min_x < 0, forcing computeBbox's shift pass to
     // fire (dx > 0).
     var placements = [_]sketch.NodePlacement{
@@ -280,11 +280,11 @@ test "computeBbox: the shift pass updates both the Built.taps view and the alias
     var taps = [_]sketch.Tap{
         .{ .edge = 1, .node = 1, .at = .{ .x = -5, .y = -2 }, .landing = .{ .x = -5, .y = 0 } },
     };
-    var busbars = [_]fan_busbar.Built{.{
+    var busbars = [_]fan_rail.Built{.{
         .busbar = .{
             .pivot = 0,
             .stem = &stem,
-            .rail = .{ .{ .x = -5, .y = -2 }, .{ .x = -5, .y = -2 } },
+            .crossbar = .{ .{ .x = -5, .y = -2 }, .{ .x = -5, .y = -2 } },
             .taps = &taps, // aliases the SAME memory as `Built.taps` below
             .kind = .solid,
         },
@@ -298,19 +298,19 @@ test "computeBbox: the shift pass updates both the Built.taps view and the alias
     // A shift must actually have happened (min_x was negative).
     try testing.expect(busbars[0].busbar.taps[0].at.x != pre_shift_tap_x);
     // Both views must agree on the post-shift value -- they alias the
-    // same backing array (`fan_busbar.build` sets `.taps = taps` on both
-    // the returned `Built` and the embedded `BusBar`).
+    // same backing array (`fan_rail.build` sets `.taps = taps` on both
+    // the returned `Built` and the embedded `Rail`).
     try testing.expectEqual(busbars[0].taps[0].at.x, busbars[0].busbar.taps[0].at.x);
     try testing.expectEqual(busbars[0].taps[0].at.y, busbars[0].busbar.taps[0].at.y);
 }
 
-// -- claim: label_left_of_rail's threshold is exactly prim.edgeLabelAnchor's
+// -- claim: label_left_of_run's threshold is exactly prim.edgeLabelAnchor's
 //    default right-of-rail offset (mid_x + 2) ------------------------------
 
-test "computeBbox: label_left_of_rail is false exactly at prim.edgeLabelAnchor's default mid_x+2 offset" {
+test "computeBbox: label_left_of_run is false exactly at prim.edgeLabelAnchor's default mid_x+2 offset" {
     // Lever active but with a small enough label that the default right
     // placement fits: prim.edgeLabelAnchor returns exactly (mid_x+2,
-    // mid_y) -- clusters.zig's own left_of_rail check (`anchor.x < mid_x +
+    // mid_y) -- clusters.zig's own left_of_run check (`anchor.x < mid_x +
     // 2`) must therefore read false, matching prim's default exactly at
     // the boundary rather than drifting by an off-by-one.
     var placements = [_]sketch.NodePlacement{
@@ -320,14 +320,14 @@ test "computeBbox: label_left_of_rail is false exactly at prim.edgeLabelAnchor's
     var edges = [_]sketch.EdgePath{mkEdge(0, 0, 0, "x", .back_edge, &poly)};
     var polylines = [_][]sketch.Point{&poly};
     var clusters_arr = [_]sketch.ClusterFrame{};
-    var busbars = [_]fan_busbar.Built{};
+    var busbars = [_]fan_rail.Built{};
 
     _ = clusters.computeBbox(&placements, &edges, &clusters_arr, &polylines, &busbars, true, 200);
 
     const mid_x: i32 = @divTrunc(poly[0].x + poly[1].x, 2);
     const anchor = prim.edgeLabelAnchor(poly[0].x, poly[0].y, poly[1].x, poly[1].y, prim.displayWidth("x"), .{});
     try testing.expectEqual(mid_x + 2, anchor.x);
-    try testing.expect(!edges[0].label_left_of_rail);
+    try testing.expect(!edges[0].label_left_of_run);
 }
 
 // -- claim: the back-edge rail label lever is armed by layout.zig only for
@@ -383,8 +383,8 @@ test "the back-edge rail label lever fires for authored TD but not for a rotatio
         if (e.role == .back_edge) back_rotated = e;
     }
 
-    try testing.expect(back_authored.?.label_left_of_rail);
-    try testing.expect(!back_rotated.?.label_left_of_rail);
+    try testing.expect(back_authored.?.label_left_of_run);
+    try testing.expect(!back_rotated.?.label_left_of_run);
     // The relocated label recovers width, so the authored render must be
     // strictly narrower than the rotation-probe render of the same graph.
     try testing.expect(s_authored.bbox.w < s_rotated.bbox.w);

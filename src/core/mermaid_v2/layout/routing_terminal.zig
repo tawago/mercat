@@ -3,7 +3,7 @@
 //! pure lookups over the SemGraph, the placement slice, and the layered graph,
 //! plus the perimeter-port geometry and SemGraph→Sketch arrow mapping — no
 //! routing state of their own. `routing.zig` re-exports every symbol here so
-//! both its own call sites and external importers (fan_busbar.zig,
+//! both its own call sites and external importers (fan_rail.zig,
 //! back_edges.zig, ports_test.zig) address them exactly as before.
 //!
 //! Imports: only `std`, `../sem_graph.zig`, `../sketch.zig`, `sugiyama.zig`.

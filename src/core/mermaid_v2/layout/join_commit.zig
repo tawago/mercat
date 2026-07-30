@@ -10,7 +10,7 @@ pub fn build(a: std.mem.Allocator, graph: sg.SemGraph, permits: ?*const pb.JoinP
     // P2v Step 8 (D-DISPOSITION item 9(b)): the forced all-independent terminal
     // layout. Every grouped endpoint takes an independent(not_selected)
     // disposition, so no trunk is realized and no mesh union is provenanced —
-    // fan_busbar.resolve then declines (memberships present, none selected),
+    // fan_rail.resolve then declines (memberships present, none selected),
     // leaving per-edge D-PORT ports. The always-expressible conservative
     // baseline (TSD §6.6 step 2), materialized as layout geometry.
     if (disable) {

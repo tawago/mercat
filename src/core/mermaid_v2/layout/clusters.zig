@@ -15,7 +15,7 @@ const sg = @import("../sem_graph.zig");
 const sketch = @import("../sketch.zig");
 const sugiyama = @import("sugiyama.zig");
 const routing = @import("routing.zig");
-const fan_busbar = @import("fan_busbar.zig");
+const fan_rail = @import("fan_rail.zig");
 
 const NodeGeom = routing.NodeGeom;
 
@@ -165,13 +165,13 @@ pub fn computeBbox(
     /// Fan bus-bars, each carrying its mutable tap view so the shift
     /// pass can translate rail + tap points in place. Stems are already
     /// registered in `polylines`.
-    busbars: []fan_busbar.Built,
+    busbars: []fan_rail.Built,
     /// True on every rung above `natural` (spacing_scale > 0). Arms the
-    /// back-edge return-rail width lever (see prim.edgeLabelAnchor): a back-edge
-    /// rail label is relocated LEFT of the rail ONLY when its default right
-    /// placement is the element that busts `max_width` while the rest of the
-    /// diagram already fits. A no-op at the natural rung, and byte-identical for
-    /// any seed whose rail label was not the overflow driver.
+    /// back-edge return-run width lever (see prim.edgeLabelAnchor): a back-edge
+    /// label is relocated LEFT of its own vertical run ONLY when its default
+    /// right placement is the element that busts `max_width` while the rest of
+    /// the diagram already fits. A no-op at the natural rung, and byte-identical
+    /// for any seed whose back-edge label was not the overflow driver.
     pressure: bool,
     /// Width budget for the lever's necessity gate.
     max_width: u32,
@@ -213,12 +213,12 @@ pub fn computeBbox(
             if (fp.ly + 1 > max_y) max_y = fp.ly + 1;
         }
     }
-    // Bus-bar geometry + tap labels (non-relocatable, part of pass 1's extent); each tap label's anchor is reserved via the same shared segment (`BusBar.tapLabelSeg`) raster/labels paints. // guarded-by: layout/clusters_test.zig "computeBbox: bus-bar tap label reservation matches BusBar.tapLabelSeg + prim.edgeLabelAnchor"
+    // Bus-bar geometry + tap labels (non-relocatable, part of pass 1's extent); each tap label's anchor is reserved via the same shared segment (`Rail.tapLabelSeg`) raster/labels paints. // guarded-by: layout/clusters_test.zig "computeBbox: bus-bar tap label reservation matches Rail.tapLabelSeg + prim.edgeLabelAnchor"
     for (busbars) |b| {
         const bb = b.busbar;
         for (bb.stem) |pt| extendPoint(&min_x, &min_y, &max_x, &max_y, pt);
-        extendPoint(&min_x, &min_y, &max_x, &max_y, bb.rail[0]);
-        extendPoint(&min_x, &min_y, &max_x, &max_y, bb.rail[1]);
+        extendPoint(&min_x, &min_y, &max_x, &max_y, bb.crossbar[0]);
+        extendPoint(&min_x, &min_y, &max_x, &max_y, bb.crossbar[1]);
         for (bb.taps) |tap| {
             extendPoint(&min_x, &min_y, &max_x, &max_y, tap.at);
             extendPoint(&min_x, &min_y, &max_x, &max_y, tap.landing);
@@ -238,7 +238,7 @@ pub fn computeBbox(
     for (edges) |*e| {
         if (!(pressure and e.role == .back_edge)) continue;
         if (labelFootprint(e.*, true, max_width, max_x)) |fp| {
-            e.label_left_of_rail = fp.left_of_rail;
+            e.label_left_of_run = fp.left_of_run;
             if (fp.lx < min_x) min_x = fp.lx;
             if (fp.ly < min_y) min_y = fp.ly;
             if (fp.lend_x > max_x) max_x = fp.lend_x;
@@ -268,7 +268,7 @@ fn shiftAll(
     edges: []sketch.EdgePath,
     clusters: []sketch.ClusterFrame,
     polylines: [][]sketch.Point,
-    busbars: []fan_busbar.Built,
+    busbars: []fan_rail.Built,
     dx: i32,
     dy: i32,
 ) void {
@@ -287,9 +287,9 @@ fn shiftAll(
             pt.y += dy;
         }
     }
-    // Stems live in `polylines` (shifted above); taps shift via the Built's mutable view, which aliases the memory `busbar.taps` reads. // guarded-by: layout/clusters_test.zig "computeBbox: the shift pass updates both the Built.taps view and the aliased BusBar.taps slice"
+    // Stems live in `polylines` (shifted above); taps shift via the Built's mutable view, which aliases the memory `busbar.taps` reads. // guarded-by: layout/clusters_test.zig "computeBbox: the shift pass updates both the Built.taps view and the aliased Rail.taps slice"
     for (busbars) |*b| {
-        for (&b.busbar.rail) |*pt| {
+        for (&b.busbar.crossbar) |*pt| {
             pt.x += dx;
             pt.y += dy;
         }
@@ -315,7 +315,7 @@ const LabelFootprint = struct {
     lx: i32,
     ly: i32,
     lend_x: i32,
-    left_of_rail: bool,
+    left_of_run: bool,
 };
 
 /// Compute the cells an edge label occupies, via the shared prim anchor so the
@@ -344,8 +344,8 @@ fn labelFootprint(
         .lx = anchor.x,
         .ly = anchor.y,
         .lend_x = anchor.x + @as(i32, @intCast(lbl_w)),
-        // Left of rail iff x is below the default right position (mid_x + 2). // guarded-by: layout/clusters_test.zig "computeBbox: label_left_of_rail is false exactly at prim.edgeLabelAnchor's default mid_x+2 offset"
-        .left_of_rail = anchor.x < mid_x + 2,
+        // Left of the edge's own run iff x is below the default right position (mid_x + 2). // guarded-by: layout/clusters_test.zig "computeBbox: label_left_of_run is false exactly at prim.edgeLabelAnchor's default mid_x+2 offset"
+        .left_of_run = anchor.x < mid_x + 2,
     };
 }
 

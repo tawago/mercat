@@ -56,7 +56,7 @@ pub fn placeEdgeLabel(
     // (skip zero-length segments produced by routing fixups so e.g. a
     // [(x,y),(x,y'),(x,y')] polyline yields the (x,y)→(x,y') segment).
     const seg_pair = pickMidSegment(ep.polyline) orelse return .dropped;
-    return placeLabelAtSeg(allocator, diags, lat, ep.id, label, seg_pair.a, seg_pair.b, ep.label_left_of_rail, ep.polyline);
+    return placeLabelAtSeg(allocator, diags, lat, ep.id, label, seg_pair.a, seg_pair.b, ep.label_left_of_run, ep.polyline);
 }
 
 /// Shared anchored-placement body for edge and bus-bar tap labels.
@@ -70,7 +70,7 @@ pub fn placeLabelAtSeg(
     label: []const u8,
     a: sketch.Point,
     b: sketch.Point,
-    left_of_rail: bool,
+    left_of_run: bool,
     polyline: []const sketch.Point,
 ) labels.RasterError!Placement {
     // Lattice cells the label occupies, counted the way it is written:
@@ -80,11 +80,11 @@ pub fn placeLabelAtSeg(
     // it paints. // guarded-by: labels_eaw_test.zig "edge-label probe reserves display cells: a wide label no longer overwrites the ink beside it"
     const cell_count: u32 = labels.cellSpanOf(label);
 
-    // Candidate #1: legacy anchor recorded by layout on ep.label_left_of_rail (clusters.computeBbox). guarded-by: labels_test.zig "edge label fits above midpoint"
-    const anchor = anchorFor(a, b, left_of_rail, prim.displayWidth(label));
+    // Candidate #1: legacy anchor recorded by layout on ep.label_left_of_run (clusters.computeBbox). guarded-by: labels_test.zig "edge label fits above midpoint"
+    const anchor = anchorFor(a, b, left_of_run, prim.displayWidth(label));
     if (tryWrite(lat, label, cell_count, anchor.x, anchor.y)) return .at_anchor;
 
-    if (trySegment(lat, label, cell_count, a, b, left_of_rail)) return .displaced;
+    if (trySegment(lat, label, cell_count, a, b, left_of_run)) return .displaced;
 
     // Ladder tail: the remaining non-degenerate segments of the polyline.
     if (polyline.len >= 2) {
@@ -92,7 +92,7 @@ pub fn placeLabelAtSeg(
             const q = polyline[i + 1];
             if (p.x == q.x and p.y == q.y) continue;
             if (p.x == a.x and p.y == a.y and q.x == b.x and q.y == b.y) continue;
-            if (trySegment(lat, label, cell_count, p, q, left_of_rail)) return .displaced;
+            if (trySegment(lat, label, cell_count, p, q, left_of_run)) return .displaced;
         }
     }
 
@@ -103,8 +103,8 @@ pub fn placeLabelAtSeg(
 /// The primary (legacy) anchor for a segment: right-of-rail / above-the-
 /// line convention, or the LEFT-of-rail width-lever anchor when layout
 /// chose it.
-fn anchorFor(a: sketch.Point, b: sketch.Point, left_of_rail: bool, label_w: u32) prim.LabelAnchor {
-    return if (left_of_rail)
+fn anchorFor(a: sketch.Point, b: sketch.Point, left_of_run: bool, label_w: u32) prim.LabelAnchor {
+    return if (left_of_run)
         prim.leftOfRailAnchor(a.x, a.y, b.x, b.y, label_w)
     else
         prim.edgeLabelAnchor(a.x, a.y, b.x, b.y, label_w, .{});
@@ -120,7 +120,7 @@ fn trySegment(
     cell_count: u32,
     a: sketch.Point,
     b: sketch.Point,
-    left_of_rail: bool,
+    left_of_run: bool,
 ) bool {
     const orig_len: u32 = prim.displayWidth(label);
 
@@ -149,7 +149,7 @@ fn trySegment(
     const max_y = @max(a.y, b.y);
     const right_x: i32 = mid_x + 2;
     const left_x: i32 = mid_x - 1 - @as(i32, @intCast(orig_len));
-    const sides = if (left_of_rail) [2]i32{ left_x, right_x } else [2]i32{ right_x, left_x };
+    const sides = if (left_of_run) [2]i32{ left_x, right_x } else [2]i32{ right_x, left_x };
     for (sides) |x| {
         var d: i32 = 0;
         while (mid_y - d >= min_y or mid_y + d <= max_y) : (d += 1) {

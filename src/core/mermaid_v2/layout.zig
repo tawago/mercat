@@ -373,8 +373,8 @@ fn buildSketch(
         }
     }
 
-    // Freeze the bus-bars AFTER computeBbox's shift pass — their slices still alias the shifted mutable buffers before that point. guarded-by: layout/fan_busbar_test.zig "busbar taps stay in sync with their target node's post-shift position"
-    const busbars_out = try a.alloc(sketch.BusBar, edges_result.busbars.len);
+    // Freeze the bus-bars AFTER computeBbox's shift pass — their slices still alias the shifted mutable buffers before that point. guarded-by: layout/fan_rail_test.zig "busbar taps stay in sync with their target node's post-shift position"
+    const busbars_out = try a.alloc(sketch.Rail, edges_result.busbars.len);
     for (edges_result.busbars, busbars_out) |b, *out| out.* = b.busbar;
 
     return sketch.Sketch{

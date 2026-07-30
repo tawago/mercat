@@ -55,7 +55,7 @@ pub const Result = struct {
 };
 
 /// One member's realized style/endpoints read from the candidate's OWN
-/// geometry (EdgePath fields, or the owning BusBar for tap-represented
+/// geometry (EdgePath fields, or the owning Rail for tap-represented
 /// members) — no sem_graph datum (D-IR item 8).
 const MemberGeom = struct {
     from: sk.NodeId = 0,
@@ -71,7 +71,7 @@ const MemberGeom = struct {
     found: bool = false,
 };
 
-fn busBarDirection(bb: sk.BusBar) pb.JoinDirection {
+fn railDirection(bb: sk.Rail) pb.JoinDirection {
     return switch (bb.role) {
         .fan_in_dropper, .fan_in_rail => .in,
         else => .out,
@@ -90,10 +90,10 @@ fn memberGeom(s: sk.Sketch, edge: pb.EdgeId) MemberGeom {
         .found = true,
     };
     for (s.busbars) |bb| for (bb.taps) |tap| if (tap.edge == edge) {
-        // A BusBar owns exactly ONE pivot attachment, so the pivot-side
+        // A Rail owns exactly ONE pivot attachment, so the pivot-side
         // decoration is single-valued by construction (D-TRUNK item 5);
         // Tap.arrow is the member-end decoration; pivot_arrow is group-owned.
-        const out = busBarDirection(bb) == .out;
+        const out = railDirection(bb) == .out;
         return .{
             .from = if (out) bb.pivot else tap.node,
             .to = if (out) tap.node else bb.pivot,
@@ -166,7 +166,7 @@ pub fn realize(
         slot.* = row;
     }
 
-    // Proposal extraction: one JoinProposal per BusBar whose tap set lies
+    // Proposal extraction: one JoinProposal per Rail whose tap set lies
     // inside a JoinPermits group at the busbar's pivot/direction.
     const raw_count = try allocator.alloc(u32, groups.len);
     @memset(raw_count, 0);
@@ -181,7 +181,7 @@ pub fn realize(
         try pend.append(allocator, .{ .group = gi, .members = members, .ranks = ranks, .geometry = .{ .edge_path = 0 }, .count = 1 });
     }
     if (s.joins.selected_joins.len == 0) for (s.busbars, 0..) |bb, bi| {
-        const gi = findGroup(groups, busBarDirection(bb), bb.pivot) orelse continue;
+        const gi = findGroup(groups, railDirection(bb), bb.pivot) orelse continue;
         var corresponds = bb.taps.len > 0;
         for (bb.taps) |tap| {
             if (!containsEdge(groups[gi].members, tap.edge)) corresponds = false;

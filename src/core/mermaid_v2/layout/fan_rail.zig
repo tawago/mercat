@@ -1,6 +1,6 @@
-//! First-class BUS-BAR construction for fan-OUT layouts: one `sketch.BusBar`
-//! per eligible fan (stem + rail + one `Tap` per peer). Tapped edges get no
-//! `EdgePath` — `raster/busbars.zig` paints the trunk from the BusBar's
+//! First-class fan-RAIL construction for fan-OUT layouts: one `sketch.Rail`
+//! per eligible fan (stem + crossbar + one `Tap` per peer). Tapped edges get
+//! no `EdgePath` — `raster/busbars.zig` paints the shared run from the Rail's
 //! explicit junction bits.
 //!
 //! SCOPE: single-row (`rows == 1`) TD-internal fan-OUT only; multi-row fans,
@@ -28,7 +28,7 @@ pub const FAN_BUSBARS = true;
 /// `clusters.computeBbox`'s shift pass can translate the geometry in
 /// place (same pattern as `routing.EdgesResult.polylines`).
 pub const Built = struct {
-    busbar: sketch.BusBar,
+    busbar: sketch.Rail,
     stem: []sketch.Point,
     taps: []sketch.Tap,
 };
@@ -136,7 +136,7 @@ pub fn build(
     // the rail on the pivot/source border — there we keep off=2 (today's
     // geometry) and blocked() still guards. `delta` stays in the guard so each
     // lane/lift keeps its own row.
-    // guarded-by: fan_busbar_test.zig "formal base approach: rail lifts one row when the gap admits it, holds at a gap of 2"
+    // guarded-by: fan_rail_test.zig "formal base approach: rail lifts one row when the gap admits it, holds at a gap of 2"
     const anchor: i32 = if (fan_in) pivot_p.rect.y else peer_line;
     const obstacle: i32 = if (fan_in) peer_line else pivot_p.rect.bottom() - 1;
     const off: i32 = if (anchor - 3 - delta > obstacle) 3 else 2;
@@ -167,7 +167,7 @@ pub fn build(
         .busbar = .{
             .pivot = pivot_p.id,
             .stem = stem,
-            .rail = .{ .{ .x = min_x, .y = rail_y }, .{ .x = max_x, .y = rail_y } },
+            .crossbar = .{ .{ .x = min_x, .y = rail_y }, .{ .x = max_x, .y = rail_y } },
             .taps = taps,
             // resolve() proved every member edge shares one stroke kind.
             .kind = resolved.peers[0].edge.kind,
@@ -200,10 +200,10 @@ pub fn blocked(
         const hi = if (fan_in) @max(tap.at.y, tap.landing.y) - 1 else tap.landing.y - 1;
         if (lo <= hi and sketch.columnTouchesAny(tap.at.x, lo, hi, placements, tap.node, pivot_id)) return true;
     }
-    // Rail span (peers sit >= 2 rows below the rail, so only the pivot needs
+    // Crossbar span (peers sit >= 2 rows below it, so only the pivot needs
     // excluding).
-    const rail = built.busbar.rail;
-    if (sketch.rowTouchesAny(rail[0].y, rail[0].x, rail[1].x, placements, pivot_id, pivot_id)) return true;
+    const crossbar = built.busbar.crossbar;
+    if (sketch.rowTouchesAny(crossbar[0].y, crossbar[0].x, crossbar[1].x, placements, pivot_id, pivot_id)) return true;
     return false;
 }
 
@@ -243,5 +243,5 @@ fn meshExempt(peers: []const fan_mod.FanEdge, unions: []const pb.MeshUnion) bool
 }
 
 test {
-    _ = @import("fan_busbar_test.zig");
+    _ = @import("fan_rail_test.zig");
 }

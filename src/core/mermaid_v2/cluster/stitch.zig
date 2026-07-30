@@ -106,7 +106,7 @@ pub fn stitch(
     var nodes: std.ArrayListUnmanaged(sketch.NodePlacement) = .empty;
     var clusters: std.ArrayListUnmanaged(sketch.ClusterFrame) = .empty;
     var edges: std.ArrayListUnmanaged(sketch.EdgePath) = .empty;
-    var busbars: std.ArrayListUnmanaged(sketch.BusBar) = .empty;
+    var busbars: std.ArrayListUnmanaged(sketch.Rail) = .empty;
 
     // Per-piece map: piece SKETCH node id -> merged (global) node id.
     var global_of = try arena.alloc([]sketch.NodeId, split_result.pieces.len);
@@ -224,7 +224,7 @@ pub fn stitch(
             try edges.append(arena, try translateEdge(arena, ce, global_of[super.child_piece], dx, dy));
         }
         for (child.sketch.busbars) |cb| {
-            if (try translateBusBar(arena, cb, global_of[super.child_piece], dx, dy)) |tb| {
+            if (try translateRail(arena, cb, global_of[super.child_piece], dx, dy)) |tb| {
                 try busbars.append(arena, tb);
             }
         }
@@ -260,11 +260,11 @@ pub fn stitch(
             min_x = @min(min_x, tap.at.x);
             max_x = @max(max_x, tap.at.x);
         }
-        filtered.rail = .{
-            .{ .x = min_x, .y = ob.rail[0].y },
-            .{ .x = max_x, .y = ob.rail[1].y },
+        filtered.crossbar = .{
+            .{ .x = min_x, .y = ob.crossbar[0].y },
+            .{ .x = max_x, .y = ob.crossbar[1].y },
         };
-        if (try translateBusBar(arena, filtered, global_of[0], 0, 0)) |tb| {
+        if (try translateRail(arena, filtered, global_of[0], 0, 0)) |tb| {
             try busbars.append(arena, tb);
         }
     }
@@ -350,13 +350,13 @@ fn translateEdge(
 /// Copy a bus-bar with node ids remapped through `gmap` and all geometry
 /// translated by (dx, dy). Returns null when any referenced node maps to
 /// SENTINEL (defensive; callers filter super-node members beforehand).
-fn translateBusBar(
+fn translateRail(
     arena: std.mem.Allocator,
-    bb: sketch.BusBar,
+    bb: sketch.Rail,
     gmap: []const sketch.NodeId,
     dx: i32,
     dy: i32,
-) error{OutOfMemory}!?sketch.BusBar {
+) error{OutOfMemory}!?sketch.Rail {
     if (bb.pivot >= gmap.len or gmap[bb.pivot] == sg.SENTINEL) return null;
     const stem = try arena.alloc(sketch.Point, bb.stem.len);
     for (bb.stem, 0..) |pt, i| stem[i] = .{ .x = pt.x + dx, .y = pt.y + dy };
@@ -372,9 +372,9 @@ fn translateBusBar(
     out.pivot = gmap[bb.pivot];
     out.stem = stem;
     out.taps = taps;
-    out.rail = .{
-        .{ .x = bb.rail[0].x + dx, .y = bb.rail[0].y + dy },
-        .{ .x = bb.rail[1].x + dx, .y = bb.rail[1].y + dy },
+    out.crossbar = .{
+        .{ .x = bb.crossbar[0].x + dx, .y = bb.crossbar[0].y + dy },
+        .{ .x = bb.crossbar[1].x + dx, .y = bb.crossbar[1].y + dy },
     };
     return out;
 }

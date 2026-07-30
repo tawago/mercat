@@ -374,7 +374,7 @@ test "derivation: a committed group consumes one trunk pivot attachment keyed by
     try std.testing.expectEqual(@as(u32, 1), ports.sideDemand(derived, 1).north);
     try std.testing.expectEqual(@as(u32, 1), ports.sideDemand(derived, 2).north);
     // Clause 10: a trunk pivot alone on its side keeps the midpoint m —
-    // today's BusBar stem geometry, the zero-output-change anchor.
+    // today's Rail stem geometry, the zero-output-change anchor.
     const out = try assigned(try ports.allocate(a, no_candidate, 0, .south, 7, south));
     try std.testing.expectEqual(@as(u32, 3), out[0].offset);
 }

@@ -269,10 +269,10 @@ test "expect: a tap keys on its landing, so a bus-bar fan needs no polyline" {
     cells[4 * 5 + 0] = .{ .occupant = .{ .arrowhead = .{ .dir = .south, .edge = 7 } }, .neighbours = .{ .n = true, .s = true } };
 
     var taps = [_]sketch.Tap{.{ .edge = 7, .node = 2, .at = .{ .x = 0, .y = 3 }, .landing = .{ .x = 0, .y = 5 } }};
-    var bars = [_]sketch.BusBar{.{
+    var bars = [_]sketch.Rail{.{
         .pivot = 0,
         .stem = &.{},
-        .rail = .{ .{ .x = 0, .y = 3 }, .{ .x = 2, .y = 3 } },
+        .crossbar = .{ .{ .x = 0, .y = 3 }, .{ .x = 2, .y = 3 } },
         .taps = &taps,
         .kind = .solid,
     }};

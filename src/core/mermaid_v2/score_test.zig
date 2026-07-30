@@ -278,10 +278,10 @@ test "bus-bar bends: trunk junction counted once, one turn per off-column tap" {
         .{ .edge = 1, .node = 11, .at = .{ .x = 5, .y = 5 }, .landing = .{ .x = 5, .y = 8 } }, // off-column
         .{ .edge = 2, .node = 12, .at = .{ .x = 10, .y = 5 }, .landing = .{ .x = 10, .y = 8 } }, // off-column
     };
-    const busbars = [_]sketch.BusBar{.{
+    const busbars = [_]sketch.Rail{.{
         .pivot = 0,
         .stem = &stem,
-        .rail = .{ .{ .x = 0, .y = 5 }, .{ .x = 10, .y = 5 } },
+        .crossbar = .{ .{ .x = 0, .y = 5 }, .{ .x = 10, .y = 5 } },
         .taps = &taps,
         .kind = .solid,
     }};
@@ -310,10 +310,10 @@ test "bus-bar crossings: shared trunk registers once, never crosses itself" {
         .{ .edge = 1, .node = 11, .at = .{ .x = 5, .y = 5 }, .landing = .{ .x = 5, .y = 8 } },
         .{ .edge = 2, .node = 12, .at = .{ .x = 10, .y = 5 }, .landing = .{ .x = 10, .y = 8 } },
     };
-    const busbars = [_]sketch.BusBar{.{
+    const busbars = [_]sketch.Rail{.{
         .pivot = 0,
         .stem = &stem,
-        .rail = .{ .{ .x = 0, .y = 5 }, .{ .x = 10, .y = 5 } },
+        .crossbar = .{ .{ .x = 0, .y = 5 }, .{ .x = 10, .y = 5 } },
         .taps = &taps,
         .kind = .solid,
     }};

@@ -48,7 +48,7 @@ pub fn path(id: sk.EdgeId, from: sk.NodeId, to: sk.NodeId, polyline: []const sk.
     };
 }
 
-pub fn sketchOf(edges: []const sk.EdgePath, busbars: []const sk.BusBar) sk.Sketch {
+pub fn sketchOf(edges: []const sk.EdgePath, busbars: []const sk.Rail) sk.Sketch {
     return .{
         .bbox = .{ .x = 0, .y = 0, .w = 40, .h = 16 }, .direction = .TD,
         .nodes = &.{}, .clusters = &.{}, .edges = edges, .busbars = busbars,
@@ -95,8 +95,8 @@ pub fn fanTaps(rail_covers_all: bool) [3]sk.Tap {
         .{ .edge = 2, .node = 3, .at = .{ .x = 16, .y = 4 }, .landing = .{ .x = 16, .y = 6 } },
     };
 }
-pub fn fanBusBar(taps: []const sk.Tap, rail_hi: i32) sk.BusBar {
-    return .{ .pivot = 0, .stem = &fan_stem, .rail = .{ .{ .x = 4, .y = 4 }, .{ .x = rail_hi, .y = 4 } }, .taps = taps, .kind = .solid, .role = .fan_out_dropper };
+pub fn fanRail(taps: []const sk.Tap, rail_hi: i32) sk.Rail {
+    return .{ .pivot = 0, .stem = &fan_stem, .crossbar = .{ .{ .x = 4, .y = 4 }, .{ .x = rail_hi, .y = 4 } }, .taps = taps, .kind = .solid, .role = .fan_out_dropper };
 }
 
 test "V-D-REACH-01 (vector): admitted fan-out trunk is one component, Cartesian == declared" {
@@ -105,7 +105,7 @@ test "V-D-REACH-01 (vector): admitted fan-out trunk is one component, Cartesian 
     const a = arena.allocator();
 
     const taps = fanTaps(true);
-    const bbs = [_]sk.BusBar{fanBusBar(&taps, 16)};
+    const bbs = [_]sk.Rail{fanRail(&taps, 16)};
     const g = graphOf(&fan_nodes, &fan_edges);
     const s = try realized(a, g, sketchOf(&.{}, &bbs), &.{});
     try expectEqual(@as(usize, 1), s.joins.selected_joins.len);
@@ -139,7 +139,7 @@ test "V-D-REACH-02 (vector): admitted fan-in trunk is one component, 3x1 pairs" 
         .{ .edge = 1, .node = 1, .at = .{ .x = 10, .y = 6 }, .landing = .{ .x = 10, .y = 4 } },
         .{ .edge = 2, .node = 2, .at = .{ .x = 16, .y = 6 }, .landing = .{ .x = 16, .y = 4 } },
     };
-    const bbs = [_]sk.BusBar{.{ .pivot = 3, .stem = &stem, .rail = .{ .{ .x = 4, .y = 6 }, .{ .x = 16, .y = 6 } }, .taps = &taps, .kind = .solid, .role = .fan_in_dropper }};
+    const bbs = [_]sk.Rail{.{ .pivot = 3, .stem = &stem, .crossbar = .{ .{ .x = 4, .y = 6 }, .{ .x = 16, .y = 6 } }, .taps = &taps, .kind = .solid, .role = .fan_in_dropper }};
     const s = try realized(a, graphOf(&nodes, &edges), sketchOf(&.{}, &bbs), &.{});
     try expectEqual(@as(usize, 1), s.joins.selected_joins.len);
 
@@ -359,7 +359,7 @@ test "V-D-REACH-18 (vector): broken trunk rail strands a member — reach_join_s
     // V-01's trunk, but the rail stops at x=12 while member e2's tap sits
     // at x=16: the tap drop disconnects from the trunk.
     const taps = fanTaps(false);
-    const bbs = [_]sk.BusBar{fanBusBar(&taps, 12)};
+    const bbs = [_]sk.Rail{fanRail(&taps, 12)};
     const g = graphOf(&fan_nodes, &fan_edges);
     const s = try realized(a, g, sketchOf(&.{}, &bbs), &.{});
     try expectEqual(@as(usize, 1), s.joins.selected_joins.len);

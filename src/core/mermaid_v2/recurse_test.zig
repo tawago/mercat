@@ -327,7 +327,7 @@ test "stitch re-clamps a surviving bus-bar's rail past a dropped super-node tap"
     // paint a dead trunk arm ending in mid-air past the surviving taps.
     try std.testing.expectEqual(@as(usize, 1), merged.sketch.busbars.len);
     try std.testing.expectEqual(@as(usize, 2), merged.sketch.busbars[0].taps.len);
-    const rail = merged.sketch.busbars[0].rail;
-    try std.testing.expect(rail[0].x <= rail[1].x);
-    try std.testing.expect(dropped_x.? > rail[1].x or dropped_x.? < rail[0].x);
+    const crossbar = merged.sketch.busbars[0].crossbar;
+    try std.testing.expect(crossbar[0].x <= crossbar[1].x);
+    try std.testing.expect(dropped_x.? > crossbar[1].x or dropped_x.? < crossbar[0].x);
 }

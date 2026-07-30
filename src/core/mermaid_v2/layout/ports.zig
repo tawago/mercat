@@ -192,7 +192,7 @@ pub fn derive(
         }
     }
     // One pivot attachment per committed group (clause 10), keyed by the
-    // lexicographically-smallest member K; forward BusBar geometry → forward side.
+    // lexicographically-smallest member K; forward Rail geometry → forward side.
     // guarded-by: ports_test.zig "derivation: a committed group consumes one trunk pivot attachment keyed by its smallest member K"
     for (joins.selected_joins) |join| {
         const gi = groupIndexById(plan.groups, join.permission_group) orelse return error.InvalidSemGraph;

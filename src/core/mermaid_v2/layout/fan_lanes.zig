@@ -1,7 +1,7 @@
 //! fan_lanes.zig — incomplete-bipartite fan lane separation (plan-06 R1a).
 //!
 //! THE fabrication fix. Several fans that share one inter-layer gap put their
-//! horizontal rails on the SAME row (`fan_polyline`/`fan_busbar` both anchor
+//! horizontal rails on the SAME row (`fan_polyline`/`fan_rail` both anchor
 //! `rail_y` to the target perimeter). When two such rails occupy
 //! overlapping-or-abutting x-spans they FUSE at raster time into one
 //! continuous `├──┼──┤` bus. If the UNION of the fused rails' declared edges

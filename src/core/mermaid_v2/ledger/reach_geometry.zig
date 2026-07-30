@@ -4,8 +4,8 @@
 //! 500-line cap, mirroring realized/invariants.
 //!
 //! Turns Sketch geometry into conductive UNITS: each edge-owned
-//! `EdgePath` polyline, each realized whole-trunk `BusBar`, and — for a
-//! BusBar NOT realized by a selected join — one per-tap share (the
+//! `EdgePath` polyline, each realized whole-trunk `Rail`, and — for a
+//! Rail NOT realized by a selected join — one per-tap share (the
 //! member's own stem/rail/drop path, whose collinear sharing with its
 //! siblings is exactly the cross-owner event D-REACH clause 9 reports).
 //! Every unit carries its cell set with straight-pass flags (for the
@@ -63,10 +63,10 @@ pub const Unit = struct {
     attachments: []const Attachment,
 };
 
-/// D-JOIN direction of a BusBar read from its role (same mapping as
+/// D-JOIN direction of a Rail read from its role (same mapping as
 /// realized.zig, re-stated here because realized may not be imported
 /// from this zone).
-pub fn busBarDirection(bb: sk.BusBar) pb.JoinDirection {
+pub fn railDirection(bb: sk.Rail) pb.JoinDirection {
     return switch (bb.role) {
         .fan_in_dropper, .fan_in_rail => .in,
         else => .out,
@@ -141,17 +141,17 @@ pub fn edgeUnit(alloc: std.mem.Allocator, e: sk.EdgePath) Error!Unit {
     return .{ .edge = e.id, .join = null, .cells = cells, .attachments = att };
 }
 
-fn railPoint(bb: sk.BusBar, x: i32) sk.Point {
-    return .{ .x = x, .y = bb.rail[0].y };
+fn railPoint(bb: sk.Rail, x: i32) sk.Point {
+    return .{ .x = x, .y = bb.crossbar[0].y };
 }
 
-fn tapAttachments(bb: sk.BusBar, tap: sk.Tap, out: *std.ArrayListUnmanaged(Attachment), alloc: std.mem.Allocator) Error!void {
+fn tapAttachments(bb: sk.Rail, tap: sk.Tap, out: *std.ArrayListUnmanaged(Attachment), alloc: std.mem.Allocator) Error!void {
     const stem_start: Cell = if (bb.stem.len > 0)
         .{ .x = bb.stem[0].x, .y = bb.stem[0].y }
     else
         .{ .x = 0, .y = 0 };
     const landing: Cell = .{ .x = tap.landing.x, .y = tap.landing.y };
-    const out_dir = busBarDirection(bb) == .out;
+    const out_dir = railDirection(bb) == .out;
     // Pivot-side terminal of this member sits at the stem's perimeter
     // point; member-side terminal at the tap landing.
     try out.append(alloc, .{
@@ -168,14 +168,14 @@ fn tapAttachments(bb: sk.BusBar, tap: sk.Tap, out: *std.ArrayListUnmanaged(Attac
     });
 }
 
-/// Whole-trunk unit for a BusBar realized by a selected join (channel
+/// Whole-trunk unit for a Rail realized by a selected join (channel
 /// class (b)): stem + full rail + every tap drop as ONE channel whose
 /// component must contain the pivot terminal and exactly its member
 /// terminals (D-REACH clause 6).
-pub fn trunkUnit(alloc: std.mem.Allocator, bb: sk.BusBar, join: pb.RealizedJoinId) Error!Unit {
+pub fn trunkUnit(alloc: std.mem.Allocator, bb: sk.Rail, join: pb.RealizedJoinId) Error!Unit {
     var cells: CellMap = .empty;
     try foldPath(alloc, &cells, try cellPath(alloc, bb.stem));
-    try foldPath(alloc, &cells, try cellPath(alloc, &.{ bb.rail[0], bb.rail[1] }));
+    try foldPath(alloc, &cells, try cellPath(alloc, &.{ bb.crossbar[0], bb.crossbar[1] }));
     var att: std.ArrayListUnmanaged(Attachment) = .empty;
     for (bb.taps) |tap| {
         try foldPath(alloc, &cells, try cellPath(alloc, &.{ tap.at, tap.landing }));
@@ -184,15 +184,15 @@ pub fn trunkUnit(alloc: std.mem.Allocator, bb: sk.BusBar, join: pb.RealizedJoinI
     return .{ .edge = null, .join = join, .cells = cells, .attachments = try att.toOwnedSlice(alloc) };
 }
 
-/// Per-tap share unit for a BusBar NOT realized by any selected join:
+/// Per-tap share unit for a Rail NOT realized by any selected join:
 /// the member edge's own conductive path (stem, rail run from the stem
 /// junction to its tap, drop). Sibling shares overlap collinearly on the
 /// stem/rail — the cross-owner sharing D-REACH clause 9 reports, because
 /// an unrealized fusion is a channel of no class.
-pub fn tapShareUnit(alloc: std.mem.Allocator, bb: sk.BusBar, tap: sk.Tap) Error!Unit {
+pub fn tapShareUnit(alloc: std.mem.Allocator, bb: sk.Rail, tap: sk.Tap) Error!Unit {
     var cells: CellMap = .empty;
     try foldPath(alloc, &cells, try cellPath(alloc, bb.stem));
-    const junction_x: i32 = if (bb.stem.len > 0) bb.stem[bb.stem.len - 1].x else bb.rail[0].x;
+    const junction_x: i32 = if (bb.stem.len > 0) bb.stem[bb.stem.len - 1].x else bb.crossbar[0].x;
     try foldPath(alloc, &cells, try cellPath(alloc, &.{ railPoint(bb, junction_x), railPoint(bb, tap.at.x) }));
     try foldPath(alloc, &cells, try cellPath(alloc, &.{ tap.at, tap.landing }));
     var att: std.ArrayListUnmanaged(Attachment) = .empty;

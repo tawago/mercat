@@ -1,4 +1,4 @@
-//! Bus-bar rasterizer: paints each `sketch.BusBar` as one owned trunk (stem
+//! Bus-bar rasterizer: paints each `sketch.Rail` as one owned trunk (stem
 //! + rail) plus direction-aware per-tap droppers; junction cells get explicit neighbour bits from tap
 //! geometry so the painter's mask→glyph table yields `┬`/`┴`/`┼`/`├`.
 //!
@@ -21,15 +21,15 @@ pub const Report = struct {
 };
 
 /// Rasterize every bus-bar in `s` into `lat`.
-pub fn rasterizeBusBars(lat: *lattice.Lattice, s: sketch.Sketch) Report {
+pub fn rasterizeRails(lat: *lattice.Lattice, s: sketch.Sketch) Report {
     var report: Report = .{};
     for (s.busbars) |bb| {
-        drawBusBar(lat, bb, &report);
+        drawRail(lat, bb, &report);
     }
     return report;
 }
 
-fn drawBusBar(lat: *lattice.Lattice, bb: sketch.BusBar, report: *Report) void {
+fn drawRail(lat: *lattice.Lattice, bb: sketch.Rail, report: *Report) void {
     const crossbar_edge = bb.taps[0].edge; // informational owner id for shared-run cells
     const junction = bb.stem[bb.stem.len - 1];
     const fan_in = bb.role == .fan_in_dropper or bb.role == .fan_in_rail;
@@ -38,9 +38,9 @@ fn drawBusBar(lat: *lattice.Lattice, bb: sketch.BusBar, report: *Report) void {
 
     // Rail: every cell carries exactly its inward arm(s), from geometry.
     // guarded-by: busbars_test.zig "busbar junction bits are explicit: corner, tee, cross"
-    const x0 = bb.rail[0].x;
-    const x1 = bb.rail[1].x;
-    const rail_y = bb.rail[0].y;
+    const x0 = bb.crossbar[0].x;
+    const x1 = bb.crossbar[1].x;
+    const rail_y = bb.crossbar[0].y;
     var x = x0;
     while (x <= x1) : (x += 1) {
         const mask: lattice.Neighbours = .{ .e = x < x1, .w = x > x0 };

@@ -46,7 +46,7 @@ pub fn deadSpace(allocator: std.mem.Allocator, s: sketch.Sketch) !u64 {
         while (i + 1 < bb.stem.len) : (i += 1) {
             markSegment(&covered, s.bbox, bb.stem[i], bb.stem[i + 1]);
         }
-        markSegment(&covered, s.bbox, bb.rail[0], bb.rail[1]);
+        markSegment(&covered, s.bbox, bb.crossbar[0], bb.crossbar[1]);
         for (bb.taps) |tap| markSegment(&covered, s.bbox, tap.at, tap.landing);
     }
     return area - covered.count();
@@ -131,7 +131,7 @@ pub fn bends(s: sketch.Sketch) u64 {
     for (s.busbars) |bb| {
         total += polylineBends(bb.stem);
         const junction = bb.stem[bb.stem.len - 1];
-        if (bb.rail[0].x != bb.rail[1].x) total += 1;
+        if (bb.crossbar[0].x != bb.crossbar[1].x) total += 1;
         for (bb.taps) |tap| {
             if (tap.at.x != junction.x) total += 1;
         }
@@ -180,19 +180,19 @@ pub fn countCrossings(s: sketch.Sketch) u64 {
 
 /// Iterate a bus-bar's segments: stem segments, the rail, one drop per
 /// tap. Index-addressed so crossing loops stay allocation-free.
-fn busbarSegCount(bb: sketch.BusBar) usize {
+fn busbarSegCount(bb: sketch.Rail) usize {
     return (bb.stem.len - 1) + 1 + bb.taps.len;
 }
 
-fn busbarSeg(bb: sketch.BusBar, i: usize) [2]sketch.Point {
+fn busbarSeg(bb: sketch.Rail, i: usize) [2]sketch.Point {
     const stem_segs = bb.stem.len - 1;
     if (i < stem_segs) return .{ bb.stem[i], bb.stem[i + 1] };
-    if (i == stem_segs) return .{ bb.rail[0], bb.rail[1] };
+    if (i == stem_segs) return .{ bb.crossbar[0], bb.crossbar[1] };
     const tap = bb.taps[i - stem_segs - 1];
     return .{ tap.at, tap.landing };
 }
 
-fn busbarEdgeCrossings(bb: sketch.BusBar, poly: []const sketch.Point) u64 {
+fn busbarEdgeCrossings(bb: sketch.Rail, poly: []const sketch.Point) u64 {
     var total: u64 = 0;
     var i: usize = 0;
     while (i < busbarSegCount(bb)) : (i += 1) {
@@ -205,7 +205,7 @@ fn busbarEdgeCrossings(bb: sketch.BusBar, poly: []const sketch.Point) u64 {
     return total;
 }
 
-fn busbarBusbarCrossings(ba: sketch.BusBar, bb: sketch.BusBar) u64 {
+fn busbarBusbarCrossings(ba: sketch.Rail, bb: sketch.Rail) u64 {
     var total: u64 = 0;
     var i: usize = 0;
     while (i < busbarSegCount(ba)) : (i += 1) {

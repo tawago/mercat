@@ -57,11 +57,11 @@ fn tapFor(e: sg.Edge) sk.Tap {
     return .{ .edge = e.id, .node = e.to, .at = poly[0], .landing = poly[1], .label = e.label, .arrow = mapArrow(e.arrow_to) };
 }
 
-fn busbarFor(pivot: sg.NodeId, kind: sg.EdgeKind, role: sk.EdgeRole, taps: []const sk.Tap) sk.BusBar {
-    return .{ .pivot = pivot, .stem = &poly, .rail = .{ poly[0], poly[1] }, .taps = taps, .kind = kind, .role = role };
+fn busbarFor(pivot: sg.NodeId, kind: sg.EdgeKind, role: sk.EdgeRole, taps: []const sk.Tap) sk.Rail {
+    return .{ .pivot = pivot, .stem = &poly, .crossbar = .{ poly[0], poly[1] }, .taps = taps, .kind = kind, .role = role };
 }
 
-fn sketchOf(edges: []const sk.EdgePath, busbars: []const sk.BusBar) sk.Sketch {
+fn sketchOf(edges: []const sk.EdgePath, busbars: []const sk.Rail) sk.Sketch {
     return .{
         .bbox = .{ .x = 0, .y = 0, .w = 10, .h = 10 },
         .direction = .TD,
@@ -255,7 +255,7 @@ test "V-D-JOIN-SELECT-07: partial proposal fails clause (c) first" {
     const g = graph(&edges);
     const plan = try buildPlan(a, g);
     const taps = [_]sk.Tap{ tapFor(edges[0]), tapFor(edges[1]), tapFor(edges[2]) };
-    const bbs = [_]sk.BusBar{busbarFor(5, .solid, .fan_out_dropper, &taps)};
+    const bbs = [_]sk.Rail{busbarFor(5, .solid, .fan_out_dropper, &taps)};
     const s = sketchOf(try paths(a, edges[3..]), &bbs);
 
     const res = try jp.realize(a, plan, s, &.{});
@@ -321,7 +321,7 @@ test "V-D-JOIN-SELECT-13: proposal multiplicity blocks realization, byte-identic
     const bb = busbarFor(5, .solid, .fan_out_dropper, &taps);
     // TWO complete trunk proposals for FO-Hub (distinct busbar entries,
     // identical member-set key → one multiplicity-counted entry).
-    const two = [_]sk.BusBar{ bb, bb };
+    const two = [_]sk.Rail{ bb, bb };
     const res = try jp.realize(a, plan, sketchOf(&.{}, &two), &.{});
     try expectEqual(jp.GroupClause.multiplicity, res.report.verdicts[0].clause);
     try expectEqual(pb.DiagnosticTag.join_select_proposal_multiplicity_blocked, res.report.verdicts[0].tag);
@@ -334,7 +334,7 @@ test "V-D-JOIN-SELECT-13: proposal multiplicity blocks realization, byte-identic
         try expectEqual(pb.IndependentReason.not_selected, rm.source.?.independent.reason);
     }
     // Proposal-enumeration swap (busbar array order) → byte-identical.
-    const swapped = [_]sk.BusBar{ two[1], two[0] };
+    const swapped = [_]sk.Rail{ two[1], two[0] };
     const res2 = try jp.realize(a, plan, sketchOf(&.{}, &swapped), &.{});
     try std.testing.expectEqualStrings(
         try planBytes(a, g, plan, res),

@@ -5,8 +5,8 @@
 //! hand-built `.cluster` fields on nodes, so the invariant is checked
 //! end-to-end through `buildEdges` rather than by re-deriving it.
 //!
-//! `fan_busbar.blocked`'s integrity gate (tested directly against the
-//! bus-bar artifact it reads) lives in `fan_busbar_test.zig`, next to the
+//! `fan_rail.blocked`'s integrity gate (tested directly against the
+//! bus-bar artifact it reads) lives in `fan_rail_test.zig`, next to the
 //! module it exercises.
 
 const std = @import("std");
@@ -27,7 +27,7 @@ fn mkNode(id: sg.NodeId, raw: []const u8, cluster: ?sg.ClusterId) sg.Node {
     };
 }
 
-/// Fan-OUT edge with `arrow_from = .filled`: fails `fan_busbar.resolve`'s
+/// Fan-OUT edge with `arrow_from = .filled`: fails `fan_rail.resolve`'s
 /// eligibility check (`e.arrow_from != .none`), forcing every peer of the
 /// fan onto the per-peer polyline path this file exercises.
 fn mkForcedPeerEdge(id: sg.EdgeId, from: sg.NodeId, to: sg.NodeId) sg.Edge {
@@ -189,7 +189,7 @@ test "bus-bar pre-pass and forced per-peer path lift the same fan-OUT geometry t
     defer arena_bar.deinit();
     const s_bar = try layoutForkIntoCluster(arena_bar.allocator(), &clusters, 0, false);
     try testing.expectEqual(@as(usize, 1), s_bar.busbars.len);
-    const bar_rail_y = s_bar.busbars[0].rail[0].y;
+    const bar_rail_y = s_bar.busbars[0].crossbar[0].y;
 
     var arena_peer = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena_peer.deinit();

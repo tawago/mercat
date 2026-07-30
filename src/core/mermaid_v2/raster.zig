@@ -112,7 +112,7 @@ pub fn rasterize(
     };
 
     // Bus-bars before ordinary edges (Phase 4b slice iv): the fan trunk claims its cells first, so edges OR their bits in afterwards without overwriting trunk kind/role. // guarded-by: raster.zig "bus-bar rasterizes before edges: junction cell keeps trunk kind/role, edge bits fold in"
-    const busbar_report = busbars_r.rasterizeBusBars(&lat, s);
+    const busbar_report = busbars_r.rasterizeRails(&lat, s);
 
     const edge_report = edges_r.rasterizeEdges(allocator, &lat, s, subgraph_edges) catch |err| switch (err) {
         error.OutOfMemory => return error.OutOfMemory,
@@ -388,10 +388,10 @@ test "bus-bar rasterizes before edges: junction cell keeps trunk kind/role, edge
         .{ .edge = 11, .node = 2, .at = .{ .x = 12, .y = 5 }, .landing = .{ .x = 12, .y = 7 } },
         .{ .edge = 12, .node = 3, .at = .{ .x = 22, .y = 5 }, .landing = .{ .x = 22, .y = 7 } },
     };
-    var busbars_buf = [_]sketch.BusBar{.{
+    var busbars_buf = [_]sketch.Rail{.{
         .pivot = 0,
         .stem = &stem,
-        .rail = .{ .{ .x = 2, .y = 5 }, .{ .x = 22, .y = 5 } },
+        .crossbar = .{ .{ .x = 2, .y = 5 }, .{ .x = 22, .y = 5 } },
         .taps = &taps,
         .kind = .solid,
     }};

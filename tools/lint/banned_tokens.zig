@@ -69,6 +69,18 @@ pub const table = [_]Row{
         .token = "fan_in_trunk",
         .why = "the fan-IN EdgeRole pair is fan_in_rail (the whole shared run) / fan_in_dropper (one source's leg); the old scheme is inexpressible without this spelling",
     },
+    .{
+        .token = "BusBar",
+        .why = "the first-class fan trunk type is sketch.Rail, and its horizontal span is the `crossbar` field; the whole camelCase family went with it (rasterizeRails, drawRail, translateRail, conflictsRails/RailArrows/RailJunctions, railDirection, checkRails). The lowercase raster/busbars.zig filename and its local `busbars` names are deliberately unaffected — this row is case-sensitive",
+    },
+    .{
+        .token = "fan_busbar",
+        .why = "the fan trunk builder is layout/fan_rail.zig (+ fan_rail_test.zig); the old module basename is retired, including in guarded-by pointers and import strings",
+    },
+    .{
+        .token = "label_left_of_rail",
+        .why = "EdgePath's back-edge label side flag is label_left_of_run (producer: clusters.LabelFootprint.left_of_run); 'rail' now names a fan's shared run, never an ordinary edge's vertical run",
+    },
 };
 
 fn basenameOf(rel_path: []const u8) []const u8 {

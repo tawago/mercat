@@ -17,7 +17,7 @@ fn rasterizeForTest(a: std.mem.Allocator, s: sketch.Sketch) !Raster {
     for (cells) |*c| c.* = lattice.Cell.empty;
     var lat: lattice.Lattice = .{ .width = s.bbox.w, .height = s.bbox.h, .cells = cells };
     _ = try nodes_r.rasterizeNodes(a, &lat, s);
-    const report = busbars_r.rasterizeBusBars(&lat, s);
+    const report = busbars_r.rasterizeRails(&lat, s);
     return .{ .lattice = lat, .report = report };
 }
 
@@ -27,7 +27,7 @@ fn fanSketch(
     nodes: []sketch.NodePlacement,
     taps: []sketch.Tap,
     stem: []sketch.Point,
-    busbars: []sketch.BusBar,
+    busbars: []sketch.Rail,
 ) sketch.Sketch {
     nodes[0] = .{ .id = 0, .rect = .{ .x = 10, .y = 0, .w = 5, .h = 3 }, .shape = .rect, .lines = &.{}, .cluster_id = null };
     nodes[1] = .{ .id = 1, .rect = .{ .x = 0, .y = 7, .w = 5, .h = 3 }, .shape = .rect, .lines = &.{}, .cluster_id = null };
@@ -41,7 +41,7 @@ fn fanSketch(
     busbars[0] = .{
         .pivot = 0,
         .stem = stem,
-        .rail = .{ .{ .x = 2, .y = 5 }, .{ .x = 22, .y = 5 } },
+        .crossbar = .{ .{ .x = 2, .y = 5 }, .{ .x = 22, .y = 5 } },
         .taps = taps,
         .kind = .solid,
     };
@@ -65,7 +65,7 @@ test "busbar junction bits are explicit: corner, tee, cross" {
     var nodes: [4]sketch.NodePlacement = undefined;
     var taps: [3]sketch.Tap = undefined;
     var stem: [2]sketch.Point = undefined;
-    var busbars: [1]sketch.BusBar = undefined;
+    var busbars: [1]sketch.Rail = undefined;
     const s = fanSketch(&nodes, &taps, &stem, &busbars);
 
     const r = try rasterizeForTest(a, s);
@@ -113,10 +113,10 @@ test "busbar without center tap yields a clean ┴ junction" {
         .{ .edge = 0, .node = 1, .at = .{ .x = 2, .y = 5 }, .landing = .{ .x = 2, .y = 7 } },
         .{ .edge = 1, .node = 2, .at = .{ .x = 22, .y = 5 }, .landing = .{ .x = 22, .y = 7 } },
     };
-    var busbars = [_]sketch.BusBar{.{
+    var busbars = [_]sketch.Rail{.{
         .pivot = 0,
         .stem = &stem,
-        .rail = .{ .{ .x = 2, .y = 5 }, .{ .x = 22, .y = 5 } },
+        .crossbar = .{ .{ .x = 2, .y = 5 }, .{ .x = 22, .y = 5 } },
         .taps = &taps,
         .kind = .solid,
     }};
@@ -152,10 +152,10 @@ test "V-D-TRUNK-10: fan-IN busbar stamps one pivot arrow off the shared run" {
         .{ .edge = 10, .node = 1, .at = .{ .x = 2, .y = 4 }, .landing = .{ .x = 2, .y = 2 }, .arrow = .none },
         .{ .edge = 11, .node = 2, .at = .{ .x = 22, .y = 4 }, .landing = .{ .x = 22, .y = 2 }, .arrow = .none },
     };
-    var busbars = [_]sketch.BusBar{.{
+    var busbars = [_]sketch.Rail{.{
         .pivot = 0,
         .stem = &stem,
-        .rail = .{ .{ .x = 2, .y = 4 }, .{ .x = 22, .y = 4 } },
+        .crossbar = .{ .{ .x = 2, .y = 4 }, .{ .x = 22, .y = 4 } },
         .taps = &taps,
         .kind = .solid,
         .role = .fan_in_dropper,
@@ -201,7 +201,7 @@ test "TSD 14.5: busbar plus separated edges is byte and report invariant under e
     var nodes: [4]sketch.NodePlacement = undefined;
     var taps: [3]sketch.Tap = undefined;
     var stem: [2]sketch.Point = undefined;
-    var busbars: [1]sketch.BusBar = undefined;
+    var busbars: [1]sketch.Rail = undefined;
     var base = fanSketch(&nodes, &taps, &stem, &busbars);
     base.bbox.h = 12;
     const p0 = [_]sketch.Point{ .{ .x = 0, .y = 10 }, .{ .x = 24, .y = 10 } };

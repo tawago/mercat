@@ -47,12 +47,12 @@ pub fn conflicts(
     return false;
 }
 
-pub fn conflictsBusBars(a: std.mem.Allocator, polyline: []const sk.Point, busbars: []const sk.BusBar) error{OutOfMemory}!bool {
+pub fn conflictsRails(a: std.mem.Allocator, polyline: []const sk.Point, busbars: []const sk.Rail) error{OutOfMemory}!bool {
     var candidate = try cells(a, polyline);
     defer candidate.deinit(a);
     for (busbars) |bb| {
         if (try conflictsPolyline(a, candidate, bb.stem, bb.pivot_arrow != .none, false)) return true;
-        if (try conflictsPolyline(a, candidate, &bb.rail, false, false)) return true;
+        if (try conflictsPolyline(a, candidate, &bb.crossbar, false, false)) return true;
         for (bb.taps) |tap| {
             const segment = [_]sk.Point{ tap.at, tap.landing };
             if (try conflictsPolyline(a, candidate, &segment, false, tap.arrow != .none)) return true;
@@ -61,7 +61,7 @@ pub fn conflictsBusBars(a: std.mem.Allocator, polyline: []const sk.Point, busbar
     return false;
 }
 
-pub fn conflictsBusBarArrows(a: std.mem.Allocator, polyline: []const sk.Point, busbars: []const sk.BusBar, from: pb.NodeId, to: pb.NodeId) error{OutOfMemory}!bool {
+pub fn conflictsRailArrows(a: std.mem.Allocator, polyline: []const sk.Point, busbars: []const sk.Rail, from: pb.NodeId, to: pb.NodeId) error{OutOfMemory}!bool {
     var candidate = try cells(a, polyline);
     defer candidate.deinit(a);
     for (busbars) |bb| {
@@ -77,7 +77,7 @@ pub fn conflictsBusBarArrows(a: std.mem.Allocator, polyline: []const sk.Point, b
     return false;
 }
 
-pub fn conflictsBusBarJunctions(a: std.mem.Allocator, polyline: []const sk.Point, busbars: []const sk.BusBar) error{OutOfMemory}!bool {
+pub fn conflictsRailJunctions(a: std.mem.Allocator, polyline: []const sk.Point, busbars: []const sk.Rail) error{OutOfMemory}!bool {
     var candidate = try cells(a, polyline);
     defer candidate.deinit(a);
     for (busbars) |bb| {
@@ -185,7 +185,7 @@ pub fn polylineClears(
     kind: sk.EdgeKind,
     polyline: []const sk.Point,
     existing: []const sk.EdgePath,
-    busbars: []const sk.BusBar,
+    busbars: []const sk.Rail,
     placements: []const sk.NodePlacement,
     edge_ports: anytype,
     joins: pb.RealizedJoins,
@@ -195,8 +195,8 @@ pub fn polylineClears(
     if (joins.memberships.len == 0) return true;
     const indep = hasIndependent(joins);
     return (indep == false or !try blocked(a, edge, kind, polyline, existing, joins, placements, from, to)) and
-        (indep == false or !try conflictsBusBarJunctions(a, polyline, busbars)) and
-        (indep or !try conflictsBusBarArrows(a, polyline, busbars, from, to)) and
+        (indep == false or !try conflictsRailJunctions(a, polyline, busbars)) and
+        (indep or !try conflictsRailArrows(a, polyline, busbars, from, to)) and
         (indep or !try conflictsReservedDepartures(a, edge, polyline, placements, edge_ports, joins));
 }
 

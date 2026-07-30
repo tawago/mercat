@@ -33,7 +33,7 @@ const zeroCounts = t1.zeroCounts;
 const fan_nodes = t1.fan_nodes;
 const fan_edges = t1.fan_edges;
 const fanTaps = t1.fanTaps;
-const fanBusBar = t1.fanBusBar;
+const fanRail = t1.fanRail;
 
 // Controlled 2x2 fixture: S1->T1 (e0), S1->T2 (e1), S2->T2 (e2).
 const c22_nodes = [_]sg.Node{ node(0, "S1"), node(1, "S2"), node(2, "T1"), node(3, "T2") };
@@ -74,7 +74,7 @@ test "V-D-REACH-07/13 (vector): §14.6 2x2 controlled source/target/neither plan
         .{ .edge = 0, .node = 2, .at = .{ .x = 2, .y = 4 }, .landing = .{ .x = 2, .y = 8 } },
         .{ .edge = 1, .node = 3, .at = .{ .x = 8, .y = 4 }, .landing = .{ .x = 8, .y = 8 } },
     };
-    const fo_bb = [_]sk.BusBar{.{ .pivot = 0, .stem = &fo_stem, .rail = .{ .{ .x = 2, .y = 4 }, .{ .x = 8, .y = 4 } }, .taps = &fo_taps, .kind = .solid, .role = .fan_out_dropper }};
+    const fo_bb = [_]sk.Rail{.{ .pivot = 0, .stem = &fo_stem, .crossbar = .{ .{ .x = 2, .y = 4 }, .{ .x = 8, .y = 4 } }, .taps = &fo_taps, .kind = .solid, .role = .fan_out_dropper }};
     const e2_path = [_]sk.EdgePath{path(2, 1, 3, &.{ .{ .x = 14, .y = 2 }, .{ .x = 14, .y = 8 } })};
     var src_side = sketchOf(&e2_path, &fo_bb);
     src_side.joins = controlledJoins(&.{ 0, 1 }, &c22_ports, &c22_ms);
@@ -90,7 +90,7 @@ test "V-D-REACH-07/13 (vector): §14.6 2x2 controlled source/target/neither plan
         .{ .edge = 1, .node = 0, .at = .{ .x = 2, .y = 8 }, .landing = .{ .x = 2, .y = 4 } },
         .{ .edge = 2, .node = 1, .at = .{ .x = 14, .y = 8 }, .landing = .{ .x = 14, .y = 4 } },
     };
-    const fi_bb = [_]sk.BusBar{.{ .pivot = 3, .stem = &fi_stem, .rail = .{ .{ .x = 2, .y = 8 }, .{ .x = 14, .y = 8 } }, .taps = &fi_taps, .kind = .solid, .role = .fan_in_dropper }};
+    const fi_bb = [_]sk.Rail{.{ .pivot = 3, .stem = &fi_stem, .crossbar = .{ .{ .x = 2, .y = 8 }, .{ .x = 14, .y = 8 } }, .taps = &fi_taps, .kind = .solid, .role = .fan_in_dropper }};
     const e0_path = [_]sk.EdgePath{path(0, 0, 2, &.{ .{ .x = 20, .y = 2 }, .{ .x = 20, .y = 8 } })};
     var tgt_side = sketchOf(&e0_path, &fi_bb);
     tgt_side.joins = controlledJoins(&.{ 1, 2 }, &c22_ports, &c22_ms);
@@ -138,7 +138,7 @@ test "V-D-REACH-08/14 (vector): §14.6 dual controlled source/target/neither pla
         .{ .edge = 0, .node = 1, .at = .{ .x = 2, .y = 4 }, .landing = .{ .x = 2, .y = 8 } },
         .{ .edge = 1, .node = 2, .at = .{ .x = 8, .y = 4 }, .landing = .{ .x = 8, .y = 8 } },
     };
-    const fo_bb = [_]sk.BusBar{.{ .pivot = 0, .stem = &fo_stem, .rail = .{ .{ .x = 2, .y = 4 }, .{ .x = 8, .y = 4 } }, .taps = &fo_taps, .kind = .solid, .role = .fan_out_dropper }};
+    const fo_bb = [_]sk.Rail{.{ .pivot = 0, .stem = &fo_stem, .crossbar = .{ .{ .x = 2, .y = 4 }, .{ .x = 8, .y = 4 } }, .taps = &fo_taps, .kind = .solid, .role = .fan_out_dropper }};
     const e2_path = [_]sk.EdgePath{path(2, 3, 1, &.{ .{ .x = 14, .y = 2 }, .{ .x = 14, .y = 8 } })};
     var src_side = sketchOf(&e2_path, &fo_bb);
     src_side.joins = controlledJoins(&.{ 0, 1 }, &dual_ports, &dual_ms);
@@ -154,7 +154,7 @@ test "V-D-REACH-08/14 (vector): §14.6 dual controlled source/target/neither pla
         .{ .edge = 0, .node = 0, .at = .{ .x = 2, .y = 8 }, .landing = .{ .x = 2, .y = 4 } },
         .{ .edge = 2, .node = 3, .at = .{ .x = 14, .y = 8 }, .landing = .{ .x = 14, .y = 4 } },
     };
-    const fi_bb = [_]sk.BusBar{.{ .pivot = 1, .stem = &fi_stem, .rail = .{ .{ .x = 2, .y = 8 }, .{ .x = 14, .y = 8 } }, .taps = &fi_taps, .kind = .solid, .role = .fan_in_dropper }};
+    const fi_bb = [_]sk.Rail{.{ .pivot = 1, .stem = &fi_stem, .crossbar = .{ .{ .x = 2, .y = 8 }, .{ .x = 14, .y = 8 } }, .taps = &fi_taps, .kind = .solid, .role = .fan_in_dropper }};
     const e1_path = [_]sk.EdgePath{path(1, 0, 2, &.{ .{ .x = 20, .y = 2 }, .{ .x = 20, .y = 8 } })};
     var tgt_side = sketchOf(&e1_path, &fi_bb);
     tgt_side.joins = controlledJoins(&.{ 0, 2 }, &dual_ports, &dual_ms);
@@ -187,8 +187,8 @@ test "V-D-REACH-19(b) (vector): declaration/writer permutation yields identical 
     const taps_fwd = fanTaps(true);
     const taps_rev = [_]sk.Tap{ taps_fwd[2], taps_fwd[0], taps_fwd[1] };
     const edges_rev = [_]sg.Edge{ fan_edges[2], fan_edges[0], fan_edges[1] };
-    const bbs_fwd = [_]sk.BusBar{fanBusBar(&taps_fwd, 16)};
-    const bbs_rev = [_]sk.BusBar{fanBusBar(&taps_rev, 16)};
+    const bbs_fwd = [_]sk.Rail{fanRail(&taps_fwd, 16)};
+    const bbs_rev = [_]sk.Rail{fanRail(&taps_rev, 16)};
     const s_fwd = try realized(a, graphOf(&fan_nodes, &fan_edges), sketchOf(&.{}, &bbs_fwd), &.{});
     const s_rev = try realized(a, graphOf(&fan_nodes, &edges_rev), sketchOf(&.{}, &bbs_rev), &.{});
     const bytes_fwd = try vc.serialize(a, try vc.validate(a, s_fwd, keys, .flat), keys);

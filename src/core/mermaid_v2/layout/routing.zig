@@ -14,7 +14,7 @@ const sugiyama = @import("sugiyama.zig");
 const back_edges = @import("back_edges.zig");
 const fan_mod = @import("fan.zig");
 const fan_polyline = @import("fan_polyline.zig");
-const fan_busbar = @import("fan_busbar.zig");
+const fan_rail = @import("fan_rail.zig");
 const self_loops = @import("routing_self_loops.zig");
 const rp = @import("routing_polyline.zig");
 const rt = @import("routing_terminal.zig");
@@ -31,7 +31,7 @@ pub const terminalApproachExtraRows = rt.terminalApproachExtraRows;
 
 // Graph/placement lookup + perimeter-port + arrow-mapping helpers live in
 // routing_terminal.zig; re-export them so both this file's call sites and
-// external importers (fan_busbar.zig, back_edges.zig, ports_test.zig) address
+// external importers (fan_rail.zig, back_edges.zig, ports_test.zig) address
 // them unchanged.
 pub const findGraphEdge = rt.findGraphEdge;
 pub const findPlacement = rt.findPlacement;
@@ -59,11 +59,11 @@ pub const EdgesResult = struct {
     edges: []sketch.EdgePath,
     polylines: [][]sketch.Point,
     /// First-class fan trunks, each holding its
-    /// `sketch.BusBar` plus the MUTABLE tap view so `clusters.computeBbox`'s
+    /// `sketch.Rail` plus the MUTABLE tap view so `clusters.computeBbox`'s
     /// shift pass can translate rail + tap points in place (stems are
     /// additionally registered in `polylines` for the same reason). layout.zig
     /// copies the `.busbar` fields out AFTER the shift for the final Sketch.
-    busbars: []fan_busbar.Built,
+    busbars: []fan_rail.Built,
 };
 
 pub fn buildEdgesWithPlan(
@@ -85,26 +85,26 @@ pub fn buildEdgesWithPlan(
     defer a.free(rail_alloc);
 
     // Bus-bar pre-pass: every ELIGIBLE single-row fan-OUT becomes ONE
-    // sketch.BusBar; its member edges are claimed and emit no EdgePath
+    // sketch.Rail; its member edges are claimed and emit no EdgePath
     // below. Grid fans / fan-IN / mixed-arrow or mixed-kind fans fall
     // through to the per-peer polyline path.
-    var busbars: std.ArrayListUnmanaged(fan_busbar.Built) = .empty;
+    var busbars: std.ArrayListUnmanaged(fan_rail.Built) = .empty;
     var claimed: std.ArrayListUnmanaged(sg.EdgeId) = .empty;
     for (fans) |f| {
-        const resolved = (try fan_busbar.resolve(a, graph.direction, f, graph, placements, joins, allocated_ports)) orelse continue;
+        const resolved = (try fan_rail.resolve(a, graph.direction, f, graph, placements, joins, allocated_ports)) orelse continue;
         // Shared-rail lift: same rule as the per-peer path below — any peer descending into a cluster lifts the rail above the frame. // guarded-by: routing_test.zig "bus-bar pre-pass and forced per-peer path lift the same fan-OUT geometry to the same rail row"
         var lift: u32 = 0;
         for (resolved.peers) |p| {
             lift = @max(lift, fanRailLift(graph, p.edge.from, p.edge.to));
         }
-        const built = try fan_busbar.build(a, resolved, lift, f.lane);
-        // Integrity gate: a bus-bar is straight-only geometry; if any run touches a foreign box, fall back to the per-peer polyline path, which can dodge. // guarded-by: fan_busbar_test.zig "fan_busbar.blocked rejects a built bus-bar whose tap drop touches a foreign node's box"
-        if (fan_busbar.blocked(built, resolved.pivot.id, placements)) continue;
+        const built = try fan_rail.build(a, resolved, lift, f.lane);
+        // Integrity gate: a bus-bar is straight-only geometry; if any run touches a foreign box, fall back to the per-peer polyline path, which can dodge. // guarded-by: fan_rail_test.zig "fan_rail.blocked rejects a built bus-bar whose tap drop touches a foreign node's box"
+        if (fan_rail.blocked(built, resolved.pivot.id, placements)) continue;
         try busbars.append(a, built);
         try polys.append(a, built.stem);
         for (f.peers) |p| try claimed.append(a, p.edge_id);
     }
-    const bar_views = try a.alloc(sketch.BusBar, busbars.items.len);
+    const bar_views = try a.alloc(sketch.Rail, busbars.items.len);
     for (busbars.items, bar_views) |bar, *view| view.* = bar.busbar;
 
     var routing_edges: std.ArrayListUnmanaged(sg.Edge) = .empty;
@@ -304,7 +304,7 @@ pub fn buildEdgesWithPlan(
                 lane,
                 chain_wrap,
             );
-            if (!route_clearance.hasIndependent(joins) and try route_clearance.conflictsBusBarArrows(a, poly, bar_views, orig.from, orig.to))
+            if (!route_clearance.hasIndependent(joins) and try route_clearance.conflictsRailArrows(a, poly, bar_views, orig.from, orig.to))
                 poly = try route_clearance.shiftInteriorRun(a, poly, eff_dir, 2 * (lane - ep.route_lane + 1));
             if (try route_clearance.polylineClears(a, orig.id, orig.kind, poly, out.items, bar_views, placements, allocated_ports.edges, joins, orig.from, orig.to)) break;
             if (lane >= 16) {
@@ -414,7 +414,7 @@ fn growBaseApproach(
     placements: []const sketch.NodePlacement,
     edge: sg.Edge,
     existing: []const sketch.EdgePath,
-    bar_views: []const sketch.BusBar,
+    bar_views: []const sketch.Rail,
     edge_ports: []const port_plan.EdgePorts,
     joins: ledger.RealizedJoins,
 ) error{OutOfMemory}![]sketch.Point {

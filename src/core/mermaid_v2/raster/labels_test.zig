@@ -192,10 +192,10 @@ test "no space for edge label emits diagnostic" {
     try testing.expect(report.diagnostics[0].kind == .edge_label_no_space);
 }
 
-// `EdgePath.label_left_of_rail` contract (sketch.zig's "the painted label
+// `EdgePath.label_left_of_run` contract (sketch.zig's "the painted label
 // lands exactly where the bbox reserved it"): `layout/clusters.computeBbox`
 // RESERVES room via `prim.edgeLabelAnchor`/`leftOfRailAnchor` and records
-// which side it chose on `label_left_of_rail`; raster (here) must PAINT at
+// which side it chose on `label_left_of_run`; raster (here) must PAINT at
 // that exact same anchor. This test recomputes the anchor directly via the
 // shared `prim` functions (the same ones computeBbox calls) and asserts the
 // painted cells land there — for BOTH the default right-of-rail anchor and
@@ -211,11 +211,11 @@ test "vertical edge label paints at the exact prim anchor for both rail sides" {
     const label = "abc";
     const label_w = prim.displayWidth(label);
 
-    // Right-of-rail (default; label_left_of_rail = false).
+    // Right-of-rail (default; label_left_of_run = false).
     {
         var lat = try makeLattice(alloc, 20, 10);
         var e = makeEdge(1, &poly, label);
-        e.label_left_of_rail = false;
+        e.label_left_of_run = false;
         const edges = [_]sketch.EdgePath{e};
         var s = emptySketch(20, 10, .LR);
         s.edges = &edges;
@@ -230,11 +230,11 @@ test "vertical edge label paints at the exact prim anchor for both rail sides" {
         try testing.expectEqual(@as(u21, 'c'), cellChar(lat, @intCast(want.x + 2), @intCast(want.y)));
     }
 
-    // Left-of-rail (the width lever's relocated anchor; label_left_of_rail = true).
+    // Left-of-rail (the width lever's relocated anchor; label_left_of_run = true).
     {
         var lat = try makeLattice(alloc, 20, 10);
         var e = makeEdge(2, &poly, label);
-        e.label_left_of_rail = true;
+        e.label_left_of_run = true;
         const edges = [_]sketch.EdgePath{e};
         var s = emptySketch(20, 10, .LR);
         s.edges = &edges;
@@ -254,7 +254,7 @@ test "vertical edge label paints at the exact prim anchor for both rail sides" {
     }
 }
 
-// `BusBar.tapLabelSeg`'s off-column/on-column rule (sketch.zig): bbox
+// `Rail.tapLabelSeg`'s off-column/on-column rule (sketch.zig): bbox
 // reservation (layout/clusters.computeBbox) and rasterization (raster/labels,
 // here) both call this SAME method to find the segment a tap label anchors
 // to, then feed it to the SAME `prim.edgeLabelAnchor`. Building one
@@ -270,7 +270,7 @@ test "bus-bar tap labels paint at the tapLabelSeg-predicted segment for off-colu
 
     const junction: sketch.Point = .{ .x = 5, .y = 3 };
     const stem = [_]sketch.Point{ .{ .x = 5, .y = 8 }, junction };
-    const rail = [2]sketch.Point{ junction, .{ .x = 20, .y = 3 } };
+    const crossbar = [2]sketch.Point{ junction, .{ .x = 20, .y = 3 } };
 
     // Off-column: tap.at.x (12) != junction.x (5) -> seg = (junction.x,
     // tap.at.y)..tap.at, a HORIZONTAL rail stretch.
@@ -292,15 +292,15 @@ test "bus-bar tap labels paint at the tapLabelSeg-predicted segment for off-colu
     };
     const taps = [_]sketch.Tap{ off_col_tap, on_col_tap };
 
-    const busbar: sketch.BusBar = .{
+    const busbar: sketch.Rail = .{
         .pivot = 0,
         .stem = &stem,
-        .rail = rail,
+        .crossbar = crossbar,
         .taps = &taps,
         .kind = .solid,
     };
     var s = emptySketch(30, 15, .TD);
-    s.busbars = &[_]sketch.BusBar{busbar};
+    s.busbars = &[_]sketch.Rail{busbar};
 
     const report = try labels.rasterizeLabels(alloc, &lat, s);
     try testing.expectEqual(@as(u32, 2), report.placed);

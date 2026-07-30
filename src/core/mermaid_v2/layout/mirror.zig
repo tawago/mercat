@@ -31,7 +31,7 @@ pub fn vertical(a: std.mem.Allocator, s: sketch.Sketch, direction: sketch.Direct
         edges[i].port_to = mirrorPort(s.nodes, e.port_to);
     }
 
-    const busbars = try a.alloc(sketch.BusBar, s.busbars.len);
+    const busbars = try a.alloc(sketch.Rail, s.busbars.len);
     for (s.busbars, 0..) |bb, i| {
         const stem = try a.alloc(sketch.Point, bb.stem.len);
         for (bb.stem, 0..) |pt, k| stem[k] = mirrorPoint(s.bbox, pt);
@@ -45,7 +45,7 @@ pub fn vertical(a: std.mem.Allocator, s: sketch.Sketch, direction: sketch.Direct
         busbars[i].stem = stem;
         busbars[i].taps = taps;
         // Vertical mirror keeps x order; only the shared rail row moves. // guarded-by: mirror.zig "vertical mirror preserves bus-bar tap x-order; only the rail row shifts"
-        busbars[i].rail = .{ mirrorPoint(s.bbox, bb.rail[0]), mirrorPoint(s.bbox, bb.rail[1]) };
+        busbars[i].crossbar = .{ mirrorPoint(s.bbox, bb.crossbar[0]), mirrorPoint(s.bbox, bb.crossbar[1]) };
     }
 
     return .{
@@ -180,8 +180,8 @@ test "vertical mirror preserves bus-bar tap x-order; only the rail row shifts" {
         .{ .edge = 1, .node = 2, .at = .{ .x = 2, .y = 5 }, .landing = .{ .x = 2, .y = 8 } },
         .{ .edge = 2, .node = 3, .at = .{ .x = 22, .y = 5 }, .landing = .{ .x = 22, .y = 8 } },
     };
-    const busbars = [_]sketch.BusBar{
-        .{ .pivot = 1, .stem = &stem, .rail = .{ .{ .x = 2, .y = 5 }, .{ .x = 22, .y = 5 } }, .taps = &taps, .kind = .solid },
+    const busbars = [_]sketch.Rail{
+        .{ .pivot = 1, .stem = &stem, .crossbar = .{ .{ .x = 2, .y = 5 }, .{ .x = 22, .y = 5 } }, .taps = &taps, .kind = .solid },
     };
     const s = sketch.Sketch{
         // h is even (12, rows 0..11) so mirroring has no fixed row: every
@@ -209,9 +209,9 @@ test "vertical mirror preserves bus-bar tap x-order; only the rail row shifts" {
 
     // The rail stays a single shared row (both endpoints keep equal y)
     // and stays x-ordered — but that row actually moved.
-    try std.testing.expect(out.busbars[0].rail[0].x <= out.busbars[0].rail[1].x);
-    try std.testing.expectEqual(out.busbars[0].rail[0].y, out.busbars[0].rail[1].y);
-    try std.testing.expect(out.busbars[0].rail[0].y != busbars[0].rail[0].y);
+    try std.testing.expect(out.busbars[0].crossbar[0].x <= out.busbars[0].crossbar[1].x);
+    try std.testing.expectEqual(out.busbars[0].crossbar[0].y, out.busbars[0].crossbar[1].y);
+    try std.testing.expect(out.busbars[0].crossbar[0].y != busbars[0].crossbar[0].y);
 }
 
 test "RL: sugiyama's own layer reversal plus applyDirection's axis swap alone yields correct right-to-left order" {

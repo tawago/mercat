@@ -163,14 +163,14 @@ pub const EdgePath = struct {
     label: ?[]const u8,
     kind: EdgeKind,
     role: EdgeRole = .forward,
-    /// Set by `layout/clusters.computeBbox` when the width lever relocates a back-edge rail label LEFT of the rail (`prim.edgeLabelAnchor`); `raster/labels` honors it. // guarded-by: raster/labels_test.zig "vertical edge label paints at the exact prim anchor for both rail sides"
-    label_left_of_rail: bool = false,
+    /// Set by `layout/clusters.computeBbox` when the width lever relocates a back-edge label LEFT of its own vertical run (`prim.edgeLabelAnchor`); `raster/labels` honors it. // guarded-by: raster/labels_test.zig "vertical edge label paints at the exact prim anchor for both rail sides"
+    label_left_of_run: bool = false,
 };
 
 // -- Bus-bars (first-class fan trunks) ----------------------------------------
 
-/// One tap off a bus-bar trunk: the branch serving exactly one edge of a
-/// fan. `at` lies ON the trunk rail row; `landing` lies on the tap node's
+/// One tap off a fan rail: the branch serving exactly one edge of a
+/// fan. `at` lies ON the crossbar row; `landing` lies on the tap node's
 /// perimeter. The drop between them is one straight orthogonal segment.
 pub const Tap = struct {
     edge: EdgeId,
@@ -181,19 +181,20 @@ pub const Tap = struct {
     arrow: ArrowKind = .filled,
 };
 
-/// A first-class fan bus-bar: ONE owned trunk plus per-edge taps, instead of
-/// N overlapping sibling polylines. Every `Tap.edge` here has NO `EdgePath`
-/// in `Sketch.edges` — the bus-bar is that edge's sole geometry, so score
-/// accounting counts the trunk once and raster owns the junction bits.
+/// A first-class fan rail: ONE owned shared run plus per-edge taps, instead
+/// of N overlapping sibling polylines. Every `Tap.edge` here has NO
+/// `EdgePath` in `Sketch.edges` — the rail is that edge's sole geometry, so
+/// score accounting counts the shared run once and raster owns the junction
+/// bits.
 ///
-/// `stem` runs from the pivot node's perimeter to the rail junction
-/// (>= 2 points, first point on the pivot perimeter). `rail` is the
-/// horizontal rail span, x-ordered (`rail[0].x <= rail[1].x`, equal y);
+/// `stem` runs from the pivot node's perimeter to the crossbar junction
+/// (>= 2 points, first point on the pivot perimeter). `crossbar` is the
+/// horizontal span, x-ordered (`crossbar[0].x <= crossbar[1].x`, equal y);
 /// it always covers the stem end and every `Tap.at`.
-pub const BusBar = struct {
+pub const Rail = struct {
     pivot: NodeId,
     stem: []const Point,
-    rail: [2]Point,
+    crossbar: [2]Point,
     taps: []const Tap,
     kind: EdgeKind,
     /// Direction discriminant only: any fan-OUT role reads as OUT, any
@@ -202,7 +203,7 @@ pub const BusBar = struct {
     pivot_arrow: ArrowKind = .none,
 
     /// Segment a tap's label anchors to (off-column: junction→tap rail stretch; on-column: tap→landing drop); shared by bbox reservation and rasterization. // guarded-by: raster/labels_test.zig "bus-bar tap labels paint at the tapLabelSeg-predicted segment for off-column and on-column taps"
-    pub fn tapLabelSeg(self: BusBar, tap: Tap) [2]Point {
+    pub fn tapLabelSeg(self: Rail, tap: Tap) [2]Point {
         const junction = self.stem[self.stem.len - 1];
         if (tap.at.x != junction.x) {
             return .{ .{ .x = junction.x, .y = tap.at.y }, tap.at };
@@ -265,7 +266,7 @@ pub const Sketch = struct {
     /// First-class fan trunks. Edges represented by a bus-bar tap do NOT
     /// appear in `edges`. Defaulted empty so hand-built Sketches (tests)
     /// and pre-busbar-aware code stay source-compatible.
-    busbars: []const BusBar = &.{},
+    busbars: []const Rail = &.{},
     /// Candidate-local branch realization envelope. // guarded-by: entry.zig "V-D-IR-07: clustered production path keeps the realized plan envelope empty"
     joins: ledger.RealizedJoins = .{},
     diagnostics: []const Diagnostic,

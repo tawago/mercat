@@ -93,7 +93,7 @@ pub fn rasterizeLabels(
         }
     }
 
-    // Anchored on `BusBar.tapLabelSeg`, the same segment layout/clusters.zig
+    // Anchored on `Rail.tapLabelSeg`, the same segment layout/clusters.zig
     // reserved bbox space for, so reservation and paint agree.
     for (s.busbars) |bb| {
         for (bb.taps) |tap| {

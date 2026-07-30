@@ -1,22 +1,22 @@
-//! Tests for `fan_busbar.zig`. Discovered via fan_busbar.zig's top-level
-//! `test { _ = @import("fan_busbar_test.zig"); }` block.
+//! Tests for `fan_rail.zig`. Discovered via fan_rail.zig's top-level
+//! `test { _ = @import("fan_rail_test.zig"); }` block.
 //!
 //! "busbar taps stay in sync..." moved from `fan_test.zig` (which built
-//! this fixture but was really exercising fan_busbar's `Built.taps`
+//! this fixture but was really exercising fan_rail's `Built.taps`
 //! aliasing contract through the full `coords.layout` pipeline); its
 //! `mkNode`/`mkEdge2`/`findById2`/`deinitSketch2` helpers are duplicated
 //! here (rather than moved) since fan_test.zig's OWN remaining
 //! "5-source fan-IN sink recenters..." test still uses them.
 //!
-//! "fan_busbar.blocked rejects..." moved from `routing_test.zig` (which
-//! tested `fan_busbar.blocked` directly, unlike the rest of that file's
+//! "fan_rail.blocked rejects..." moved from `routing_test.zig` (which
+//! tested `fan_rail.blocked` directly, unlike the rest of that file's
 //! `coords.layout`-driven fan-rail-lift tests).
 
 const std = @import("std");
 const sg = @import("../sem_graph.zig");
 const sketch = @import("../sketch.zig");
 const coords = @import("../layout.zig");
-const fan_busbar = @import("fan_busbar.zig");
+const fan_rail = @import("fan_rail.zig");
 
 const testing = std.testing;
 
@@ -93,9 +93,9 @@ test "busbar taps stay in sync with their target node's post-shift position" {
     }
 }
 
-// -- claim: fan_busbar.blocked (integrity gate) ------------------------------
+// -- claim: fan_rail.blocked (integrity gate) ------------------------------
 
-test "fan_busbar.blocked rejects a built bus-bar whose tap drop touches a foreign node's box" {
+test "fan_rail.blocked rejects a built bus-bar whose tap drop touches a foreign node's box" {
     // Pivot P fans out to two peers Q, R on distinct columns from P's own
     // (so the stem and rail spans stay clear); a foreign box sits exactly
     // on Q's tap-drop column, in the one row between the rail and Q's top
@@ -113,21 +113,21 @@ test "fan_busbar.blocked rejects a built bus-bar whose tap drop touches a foreig
     const e_pq = sg.Edge{ .id = 0, .from = 0, .to = 1, .kind = .solid, .arrow_from = .none, .arrow_to = .filled, .label = null };
     const e_po = sg.Edge{ .id = 1, .from = 0, .to = 2, .kind = .solid, .arrow_from = .none, .arrow_to = .filled, .label = null };
 
-    var peers = [_]fan_busbar.Peer{
+    var peers = [_]fan_rail.Peer{
         .{ .edge = e_pq, .placement = q },
         .{ .edge = e_po, .placement = other },
     };
-    const resolved = fan_busbar.Resolved{ .pivot = p, .peers = &peers };
+    const resolved = fan_rail.Resolved{ .pivot = p, .peers = &peers };
 
     var arena = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
-    const built = try fan_busbar.build(arena.allocator(), resolved, 0, 0);
+    const built = try fan_rail.build(arena.allocator(), resolved, 0, 0);
 
-    try testing.expect(fan_busbar.blocked(built, p.id, &placements));
+    try testing.expect(fan_rail.blocked(built, p.id, &placements));
 
     // Control: the same fixture minus the foreign box must NOT be blocked.
     const clean_placements = [_]sketch.NodePlacement{ p, q, other };
-    try testing.expect(!fan_busbar.blocked(built, p.id, &clean_placements));
+    try testing.expect(!fan_rail.blocked(built, p.id, &clean_placements));
 }
 
 // -- claim: formal base approach (rail lift for a straight base cell) --------
@@ -157,20 +157,20 @@ test "formal base approach: rail lifts one row when the gap admits it, holds at 
         const pivot = mkPlace(0, 20, 0, 10, 3); // bottom()-1 = 2
         const q = mkPlace(1, 10, 6, 6, 3); // top = 6
         const r = mkPlace(2, 30, 6, 6, 3); // top = 6
-        var peers = [_]fan_busbar.Peer{
+        var peers = [_]fan_rail.Peer{
             .{ .edge = mkEdge2(0, 0, 1), .placement = q },
             .{ .edge = mkEdge2(1, 0, 2), .placement = r },
         };
-        const resolved = fan_busbar.Resolved{ .pivot = pivot, .direction = .out, .peers = &peers };
-        const built = try fan_busbar.build(a, resolved, 0, 0);
-        try testing.expectEqual(@as(i32, 3), built.busbar.rail[0].y); // off=3
+        const resolved = fan_rail.Resolved{ .pivot = pivot, .direction = .out, .peers = &peers };
+        const built = try fan_rail.build(a, resolved, 0, 0);
+        try testing.expectEqual(@as(i32, 3), built.busbar.crossbar[0].y); // off=3
         // >= 1 straight base cell: arrowhead sits at landing-1, base at landing-2,
         // and the base must be strictly below the rail junction.
         for (built.taps) |tap| {
-            try testing.expect(built.busbar.rail[0].y <= tap.landing.y - 3);
+            try testing.expect(built.busbar.crossbar[0].y <= tap.landing.y - 3);
         }
         // Rail stays strictly below the pivot's bottom border row (no overlap).
-        try testing.expect(built.busbar.rail[0].y > pivot.rect.bottom() - 1);
+        try testing.expect(built.busbar.crossbar[0].y > pivot.rect.bottom() - 1);
     }
 
     // -- fan-OUT, gap = 3 -> guard HOLDS at off=2 (a blind -3 would touch) -----
@@ -180,14 +180,14 @@ test "formal base approach: rail lifts one row when the gap admits it, holds at 
         const pivot = mkPlace(0, 20, 0, 10, 3); // bottom()-1 = 2
         const q = mkPlace(1, 10, 5, 6, 3); // top = 5
         const r = mkPlace(2, 30, 5, 6, 3); // top = 5
-        var peers = [_]fan_busbar.Peer{
+        var peers = [_]fan_rail.Peer{
             .{ .edge = mkEdge2(0, 0, 1), .placement = q },
             .{ .edge = mkEdge2(1, 0, 2), .placement = r },
         };
-        const resolved = fan_busbar.Resolved{ .pivot = pivot, .direction = .out, .peers = &peers };
-        const built = try fan_busbar.build(a, resolved, 0, 0);
-        try testing.expectEqual(@as(i32, 3), built.busbar.rail[0].y); // off=2 held
-        try testing.expect(built.busbar.rail[0].y > pivot.rect.bottom() - 1); // no overlap
+        const resolved = fan_rail.Resolved{ .pivot = pivot, .direction = .out, .peers = &peers };
+        const built = try fan_rail.build(a, resolved, 0, 0);
+        try testing.expectEqual(@as(i32, 3), built.busbar.crossbar[0].y); // off=2 held
+        try testing.expect(built.busbar.crossbar[0].y > pivot.rect.bottom() - 1); // no overlap
     }
 
     // -- fan-OUT, gap = 2 (tight rung) -> off=2 held, byte-identical to today --
@@ -197,13 +197,13 @@ test "formal base approach: rail lifts one row when the gap admits it, holds at 
         const pivot = mkPlace(0, 20, 0, 10, 3); // bottom()-1 = 2
         const q = mkPlace(1, 10, 4, 6, 3); // top = 4
         const r = mkPlace(2, 30, 4, 6, 3); // top = 4
-        var peers = [_]fan_busbar.Peer{
+        var peers = [_]fan_rail.Peer{
             .{ .edge = mkEdge2(0, 0, 1), .placement = q },
             .{ .edge = mkEdge2(1, 0, 2), .placement = r },
         };
-        const resolved = fan_busbar.Resolved{ .pivot = pivot, .direction = .out, .peers = &peers };
-        const built = try fan_busbar.build(a, resolved, 0, 0);
-        try testing.expectEqual(@as(i32, 2), built.busbar.rail[0].y); // off=2, unchanged
+        const resolved = fan_rail.Resolved{ .pivot = pivot, .direction = .out, .peers = &peers };
+        const built = try fan_rail.build(a, resolved, 0, 0);
+        try testing.expectEqual(@as(i32, 2), built.busbar.crossbar[0].y); // off=2, unchanged
     }
 
     // -- fan-IN, gap = 8 -> stem lifts (off=3), sink arrowhead gains a base ----
@@ -214,18 +214,18 @@ test "formal base approach: rail lifts one row when the gap admits it, holds at 
         const sink = mkPlace(0, 20, 10, 10, 3); // top = 10
         const s1 = mkPlace(1, 10, 0, 6, 3); // bottom()-1 = 2
         const s2 = mkPlace(2, 30, 0, 6, 3); // bottom()-1 = 2
-        var peers = [_]fan_busbar.Peer{
+        var peers = [_]fan_rail.Peer{
             .{ .edge = mkEdge2(0, 1, 0), .placement = s1 },
             .{ .edge = mkEdge2(1, 2, 0), .placement = s2 },
         };
-        const resolved = fan_busbar.Resolved{ .pivot = sink, .direction = .in, .peers = &peers };
-        const built = try fan_busbar.build(a, resolved, 0, 0);
-        try testing.expectEqual(@as(i32, 7), built.busbar.rail[0].y); // off=3
+        const resolved = fan_rail.Resolved{ .pivot = sink, .direction = .in, .peers = &peers };
+        const built = try fan_rail.build(a, resolved, 0, 0);
+        try testing.expectEqual(@as(i32, 7), built.busbar.crossbar[0].y); // off=3
         // Stem base cell: sink top - rail >= 3 (arrowhead at top-1, base at top-2).
-        try testing.expect(built.busbar.rail[0].y <= sink.rect.y - 3);
+        try testing.expect(built.busbar.crossbar[0].y <= sink.rect.y - 3);
         // Rail stays above the sink and below every source bottom (no overlap).
-        try testing.expect(built.busbar.rail[0].y < sink.rect.y);
-        for (peers) |pr| try testing.expect(built.busbar.rail[0].y > pr.placement.rect.bottom() - 1);
+        try testing.expect(built.busbar.crossbar[0].y < sink.rect.y);
+        for (peers) |pr| try testing.expect(built.busbar.crossbar[0].y > pr.placement.rect.bottom() - 1);
     }
 
     // -- fan-IN, gap = 3 -> guard HOLDS at off=2 (a blind -3 would touch) ------
@@ -235,13 +235,13 @@ test "formal base approach: rail lifts one row when the gap admits it, holds at 
         const sink = mkPlace(0, 20, 5, 10, 3); // top = 5
         const s1 = mkPlace(1, 10, 0, 6, 3); // bottom()-1 = 2
         const s2 = mkPlace(2, 30, 0, 6, 3); // bottom()-1 = 2
-        var peers = [_]fan_busbar.Peer{
+        var peers = [_]fan_rail.Peer{
             .{ .edge = mkEdge2(0, 1, 0), .placement = s1 },
             .{ .edge = mkEdge2(1, 2, 0), .placement = s2 },
         };
-        const resolved = fan_busbar.Resolved{ .pivot = sink, .direction = .in, .peers = &peers };
-        const built = try fan_busbar.build(a, resolved, 0, 0);
-        try testing.expectEqual(@as(i32, 3), built.busbar.rail[0].y); // off=2 held
-        for (peers) |pr| try testing.expect(built.busbar.rail[0].y > pr.placement.rect.bottom() - 1); // no overlap
+        const resolved = fan_rail.Resolved{ .pivot = sink, .direction = .in, .peers = &peers };
+        const built = try fan_rail.build(a, resolved, 0, 0);
+        try testing.expectEqual(@as(i32, 3), built.busbar.crossbar[0].y); // off=2 held
+        for (peers) |pr| try testing.expect(built.busbar.crossbar[0].y > pr.placement.rect.bottom() - 1); // no overlap
     }
 }

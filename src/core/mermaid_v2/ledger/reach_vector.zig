@@ -8,7 +8,7 @@
 //! Enforcement lands in Step 8, after the output-changing Step 7.
 //!
 //! Model (D-REACH item 9): conductive channels are (a) edge-owned
-//! `EdgePath` polylines, (b) realized trunks (BusBars backing
+//! `EdgePath` polylines, (b) realized trunks (Rails backing
 //! `joins.selected_joins`, complete member provenance), (c) labeled
 //! exempt mesh unions (`joins.mesh_unions` provenance elements — recorded
 //! provenance, never geometric inference). Terminals are typed from
@@ -55,7 +55,7 @@ fn containsEdge(edges: []const pb.EdgeId, edge: pb.EdgeId) bool {
     return false;
 }
 
-fn tapSetEquals(bb: sk.BusBar, members: []const pb.EdgeId) bool {
+fn tapSetEquals(bb: sk.Rail, members: []const pb.EdgeId) bool {
     if (bb.taps.len != members.len) return false;
     for (bb.taps) |tap| if (!containsEdge(members, tap.edge)) return false;
     for (members) |m| {
@@ -119,8 +119,8 @@ pub fn validate(alloc: std.mem.Allocator, s: sk.Sketch, node_keys: []const []con
     const joins = s.joins;
     const declared = try declaredEdges(alloc, s);
 
-    // 1. Units. A BusBar realizing a selected join is ONE trunk channel;
-    // any other BusBar decomposes into per-tap member shares (an
+    // 1. Units. A Rail realizing a selected join is ONE trunk channel;
+    // any other Rail decomposes into per-tap member shares (an
     // unrealized fusion is a channel of NO class — D-REACH clause 9 —
     // so sibling shares are cross-owner and report, never link).
     var units: std.ArrayListUnmanaged(geom.Unit) = .empty;
@@ -284,7 +284,7 @@ fn declaredEdges(alloc: std.mem.Allocator, s: sk.Sketch) Error![]const DeclaredE
     var list: std.ArrayListUnmanaged(DeclaredEdge) = .empty;
     for (s.edges) |e| try addDeclared(alloc, &list, e.id, e.from, e.to);
     for (s.busbars) |bb| {
-        const out_dir = geom.busBarDirection(bb) == .out;
+        const out_dir = geom.railDirection(bb) == .out;
         for (bb.taps) |tap| {
             const from = if (out_dir) bb.pivot else tap.node;
             const to = if (out_dir) tap.node else bb.pivot;

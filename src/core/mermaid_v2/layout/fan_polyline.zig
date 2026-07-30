@@ -184,7 +184,7 @@ fn portPoint(p: sketch.NodePlacement, port: sketch.Port) sketch.Point {
     };
 }
 
-/// Center column of a placement (shared with fan_busbar.zig).
+/// Center column of a placement (shared with fan_rail.zig).
 pub fn midX(p: sketch.NodePlacement) i32 {
     return p.rect.x + @divTrunc(@as(i32, @intCast(p.rect.w)), 2);
 }

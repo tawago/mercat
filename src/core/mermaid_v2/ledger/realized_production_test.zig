@@ -150,7 +150,7 @@ test "V-D-PORT-01: mixed-kind 1x3 renders as three pitch-2 independent component
     try std.testing.expectEqual(@as(u32, 0), (try raster.rasterize(a, winner.sketch, .bridge)).edge_cells_lost);
 }
 
-test "V-D-PORT-14: inline K1,3 realized BusBar keeps midpoint stem and pre-Step-7 bytes" {
+test "V-D-PORT-14: inline K1,3 realized Rail keeps midpoint stem and pre-Step-7 bytes" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();

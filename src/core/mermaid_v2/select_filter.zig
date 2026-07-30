@@ -80,7 +80,7 @@ pub fn ciFilter(
 /// fallback returned when the CI filter EMPTIES the scored set. Laid out by
 /// `budget.runForcedIndependent` at the RAW `.natural` rung with trunk
 /// realization DISABLED (`LayoutOptions.disable_join_realization`): `join_commit`
-/// emits an all-independent plan over the REAL permits, so `fan_busbar` builds
+/// emits an all-independent plan over the REAL permits, so `fan_rail` builds
 /// no trunk and `ports.derive` gives every edge its own D-PORT port — no shared
 /// trunk ink between a permit group's edges. Its EMITTED plan is the
 /// all-independent realization over the REAL `join_permits` (`realized.realize`
