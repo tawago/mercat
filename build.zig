@@ -245,6 +245,21 @@ pub fn build(b: *std.Build) void {
     lint_step.dependOn(&lint_cmd.step);
     test_step.dependOn(&lint_cmd.step);
 
+    // Unit tests for the linter itself. The exe artifact above never runs
+    // `test` blocks, so without this the lint engine's own tests are dead
+    // code. Separate module: don't share one module between exe and test
+    // artifacts. cwd is the repo root because the fixture test opens
+    // "tools/lint_fixtures/bad" relatively (mirrors lint_cmd.setCwd).
+    const lint_test_module = b.createModule(.{
+        .root_source_file = b.path("tools/lint_imports.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    const lint_tests = b.addTest(.{ .root_module = lint_test_module });
+    const lint_tests_run = b.addRunArtifact(lint_tests);
+    lint_tests_run.setCwd(b.path("."));
+    test_step.dependOn(&lint_tests_run.step);
+
     // =====================================================
     // Visual Samples Harness (mermaid_v2)
     // =====================================================
