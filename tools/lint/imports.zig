@@ -297,11 +297,11 @@ pub const file_allowlists = [_]struct {
         .allowed = &.{
             .sketch,                            .raster_zone,
             .{ .exact = "../lattice.zig" },     .{ .exact = "aux.zig" },
-            .{ .exact = "edges_write.zig" },    .{ .exact = "edge_roles.zig" },
-            .{ .exact = "reconcile.zig" },      .{ .exact = "arrow_base.zig" },
-            .{ .exact = "crossings.zig" },
+            .{ .exact = "edges.zig" },          .{ .exact = "edges_write.zig" },
+            .{ .exact = "edge_roles.zig" },     .{ .exact = "reconcile.zig" },
+            .{ .exact = "arrow_base.zig" },     .{ .exact = "crossings.zig" },
         },
-        .reason = "aux_test may only import std, prim, sketch, lattice, raster, or the raster siblings whose post-walk passes and refusal decisions it pins",
+        .reason = "aux_test may only import std, prim, sketch, lattice, raster, or the raster siblings whose edge walk, post-walk passes and refusal decisions it pins",
     },
     .{
         .name = "raster/busbars_test.zig",

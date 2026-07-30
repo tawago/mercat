@@ -172,8 +172,8 @@ pub const AuxKind = enum(u8) {
     /// arrives — either its bits merged in under the first writer's id, or
     /// the crossing rule suppressed them outright. `detail` is a
     /// `CarrierKind`. Filed by the edge writers in
-    /// `raster/edges_write.zig` and by the crossing refusals in
-    /// `raster/edges.zig`.
+    /// `raster/edges_write.zig` and, in `raster/edges.zig`, by the walk's
+    /// corner merge onto a foreign run and by the crossing refusals.
     carrier,
     /// Label ownership: the label span occupying `cell` belongs to the
     /// entity named by `value`, of the kind in `detail` (`LabelOwnerKind`).

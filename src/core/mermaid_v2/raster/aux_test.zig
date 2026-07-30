@@ -11,6 +11,7 @@ const sketch = @import("../sketch.zig");
 const lattice = @import("../lattice.zig");
 const raster = @import("../raster.zig");
 const aux = @import("aux.zig");
+const edge_walk = @import("edges.zig");
 const ew = @import("edges_write.zig");
 const roles = @import("edge_roles.zig");
 const reconcile = @import("reconcile.zig");
@@ -226,6 +227,42 @@ fn blankLattice(a: std.mem.Allocator) !lattice.Lattice {
     return .{ .width = 4, .height = 4, .cells = cells };
 }
 
+/// A blank w×h lattice, plus the minimal Sketch/EdgePath pair that drives
+/// `rasterizeEdges` — the only way to reach the walk's own corner-cell arm.
+/// The Sketch carries no joins, so the crossing rule is inert.
+fn walkLattice(a: std.mem.Allocator, w: u32, h: u32) !lattice.Lattice {
+    const cells = try a.alloc(lattice.Cell, @as(usize, w) * @as(usize, h));
+    for (cells) |*c| c.* = lattice.Cell.empty;
+    return .{ .width = w, .height = h, .cells = cells };
+}
+
+fn walkSketch(es: []const sketch.EdgePath) sketch.Sketch {
+    return .{
+        .bbox = .{ .x = 0, .y = 0, .w = 16, .h = 16 },
+        .direction = .TD,
+        .nodes = &.{},
+        .clusters = &.{},
+        .edges = es,
+        .diagnostics = &.{},
+        .budget = .{ .max_width = 80, .rung = 0 },
+    };
+}
+
+fn walkEdge(id: u32, pts: []const sketch.Point) sketch.EdgePath {
+    return .{
+        .id = id,
+        .from = 0,
+        .to = 1,
+        .polyline = pts,
+        .port_from = .{ .node = 0, .side = .east, .offset = 0 },
+        .port_to = .{ .node = 1, .side = .west, .offset = 0 },
+        .arrow_from = .none,
+        .arrow_to = .none,
+        .label = null,
+        .kind = .solid,
+    };
+}
+
 test "a Recorder with no sink files nothing" {
     // The inert default is what every synthetic caller uses, so it must be
     // reachable without constructing anything.
@@ -319,6 +356,58 @@ test "an arrowhead stamped over a foreign run files a carrier for the run it cov
     // through the position and nothing on the cell says so.
     try testing.expectEqual(@as(u32, 3), table[0].value);
     try testing.expectEqual(@intFromEnum(lattice.CarrierKind.merged), table[0].detail);
+}
+
+test "a corner arm merged onto a foreign run files a merged carrier; onto its own ink, nothing" {
+    // The walk writes corner cells itself instead of going through
+    // `writeEdgeCell`, so its merge arm is a SECOND id-dropping site with the
+    // same consequence: the arm lands in the mask under the first writer's
+    // name. Driven through `rasterizeEdges` because that arm is reachable
+    // only from the walk.
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+
+    // Foreign: edge 3 runs straight down column 4; edge 8 arrives from the
+    // west and turns north ON that run. The joins plan is empty, so the
+    // crossing rule is inert and the merge (not a refusal) is what happens.
+    {
+        var lat = try walkLattice(a, 10, 10);
+        var c = aux.Collector.init(a);
+        const p3 = [_]sketch.Point{ .{ .x = 4, .y = 2 }, .{ .x = 4, .y = 7 } };
+        const p8 = [_]sketch.Point{ .{ .x = 1, .y = 4 }, .{ .x = 4, .y = 4 }, .{ .x = 4, .y = 3 } };
+        const es = [_]sketch.EdgePath{ walkEdge(3, &p3), walkEdge(8, &p8) };
+        _ = try edge_walk.rasterizeEdges(a, &lat, walkSketch(&es), .bridge, &c);
+
+        const table = c.finish();
+        try testing.expectEqual(@as(usize, 1), table.len);
+        try testing.expectEqual(lat.cellIndex(4, 4), table[0].cell);
+        try testing.expectEqual(lattice.AuxKind.carrier, table[0].kind);
+        try testing.expectEqual(@as(u32, 8), table[0].value);
+        // Merged, not suppressed: the corner arm IS in the mask (the west
+        // bit), and only edge 8's name was dropped.
+        try testing.expectEqual(@intFromEnum(lattice.CarrierKind.merged), table[0].detail);
+        const shared = lat.atConst(4, 4);
+        try testing.expectEqual(@as(u32, 3), shared.occupant.edge_segment.edge);
+        try testing.expect(shared.neighbours.w);
+    }
+
+    // Own ink: one edge whose last leg corners back onto a cell it laid down
+    // itself. The cell already names it, so a record would restate a Cell
+    // field.
+    {
+        var lat = try walkLattice(a, 10, 10);
+        var c = aux.Collector.init(a);
+        const pts = [_]sketch.Point{
+            .{ .x = 1, .y = 3 }, .{ .x = 5, .y = 3 }, .{ .x = 5, .y = 5 },
+            .{ .x = 3, .y = 5 }, .{ .x = 3, .y = 3 }, .{ .x = 1, .y = 3 },
+        };
+        const es = [_]sketch.EdgePath{walkEdge(2, &pts)};
+        _ = try edge_walk.rasterizeEdges(a, &lat, walkSketch(&es), .bridge, &c);
+
+        try testing.expectEqual(@as(usize, 0), c.finish().len);
+        try testing.expectEqual(@as(u32, 2), lat.atConst(3, 3).occupant.edge_segment.edge);
+    }
 }
 
 test "a refused arrowhead transit files a suppressed carrier for the crossed run" {

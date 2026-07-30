@@ -86,8 +86,9 @@ pub fn pointInBounds(p: sketch.Point, lat: *const lattice.Lattice) bool {
 pub const Coord = struct { x: u32, y: u32 };
 
 /// File one `.carrier` record: `edge` has ink at (x, y) that the Cell does
-/// not name. The single spelling of the record, so the four writer arms and
-/// the crossing refusals cannot drift in how they describe the same event.
+/// not name. The single spelling of the record, so the four writer arms
+/// here, the walk's own corner merge in `edges.zig`, and the crossing
+/// refusals cannot drift in how they describe the same event.
 pub fn recordCarrier(
     rec: aux.Recorder,
     x: u32,

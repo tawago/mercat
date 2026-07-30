@@ -211,7 +211,8 @@ fn walkPolyline(
                             // this edge turns here.
                             ew.recordCarrier(rec, c.x, c.y, edge.id, .suppressed);
                         } else {
-                            cell.neighbours = if (seg.edge == edge.id)
+                            const own = seg.edge == edge.id;
+                            cell.neighbours = if (own)
                                 corner_mask
                             else
                                 orMask(cell.neighbours, corner_mask);
@@ -220,6 +221,13 @@ fn walkPolyline(
                                 .kind = seg.kind,
                                 .role = roles.mergeRole(seg.role, erole),
                             } };
+                            // Merging onto a FOREIGN run is id-dropping exactly
+                            // as in `writeEdgeCell`'s `.edge_segment` arm: the
+                            // corner arm goes into the mask, the cell keeps the
+                            // first writer's id, and nothing on it says this
+                            // edge turns here.
+                            // guarded-by: aux_test.zig "a corner arm merged onto a foreign run files a merged carrier; onto its own ink, nothing"
+                            if (!own) ew.recordCarrier(rec, c.x, c.y, edge.id, .merged);
                         }
                     },
                     .empty => {
