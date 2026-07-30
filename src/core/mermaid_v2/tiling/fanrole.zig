@@ -14,9 +14,22 @@
 //! counts where the two disagree. The number it reports is the gate for
 //! replacing the inference with the derivation.
 //!
-//! NOT A LAW. Nothing here is a defect claim about the rendering. A
-//! mismatch says "these two ways of answering the same question differ",
-//! and the residual is expected to be small but not necessarily zero.
+//! NOT A LAW, AND NOT A NEAR-MISS. Nothing here is a defect claim about
+//! the rendering, and — measured, not predicted — the residual does NOT
+//! approach zero. The two readings answer different predicates by
+//! construction. The pass upgrades EVERY fan-role cell carrying one
+//! vertical and one horizontal arm, a lone peer's own corner included;
+//! a `.rail_member` is filed only where a second rider's ink landed on a
+//! cell already named for somebody else (`raster/edges.zig`'s
+//! `recordFanMember` returns when the cell already names the arriving
+//! edge). So `role_lattice_only` dominates wherever peers corner on their
+//! own ink. On the example corpus at w60: a declined fan
+//! (`A-->B; A-.->C; A==>D; A-->E`) judges 8 cells, all 8 lattice-only; a
+//! ten-child grid-wrapped fan-OUT judges 58 cells with 47 mismatches; the
+//! three non-vacuous lines over the nine-digest examples are 12/12, 8/10
+//! and 2/2. Read the number as the SIZE OF THE GAP between two readings,
+//! never as an error count — and read the consequence too: replacing the
+//! inference with the derivation is a rendering change, not a swap.
 //! `counts.zig`'s n_/m_/c_/d_/u_ prefix contract belongs to the ink-law
 //! taxonomy and deliberately does NOT apply to this struct.
 //!
@@ -71,15 +84,17 @@ pub const Bucket = struct {
     /// A role-matched cell whose mask agrees with the producer-derived
     /// expectation.
     mask_match: u32 = 0,
-    /// A role-matched cell whose mask does not: either the stamping
-    /// precondition (one vertical arm and one horizontal arm) no longer
-    /// holds, or a fan-OUT cell kept both vertical arms where the records
-    /// name no continuing rail row on its column.
+    /// A role-matched cell whose mask does not: the stamping precondition
+    /// (one vertical arm and one horizontal arm) no longer holds; or a
+    /// fan-OUT cell kept both vertical arms where the records name no
+    /// continuing rail row on its column; or the fan-OUT arm that SURVIVED
+    /// the strip is the one facing away from the pivot.
     mask_mismatch: u32 = 0,
-    /// A fan-OUT cell that kept both vertical arms and whose pivot the fan
-    /// facts could not place above or below it. The strip's decision is not
-    /// derivable there, so the cell is counted as a mask match and tallied
-    /// here instead of guessed at.
+    /// A fan-OUT cell whose pivot the fan facts could not place relative to
+    /// it — no rect at all, or a rect sharing this cell's rows. Neither
+    /// half of the strip decision (whether to strip, and which arm to keep)
+    /// is derivable there, so the cell is counted as a mask match and
+    /// tallied here instead of guessed at.
     pivot_unresolved: u32 = 0,
 
     /// This family's disagreements: the two role asymmetries plus the mask.
@@ -232,23 +247,41 @@ fn railFamily(t: cell.Typed) ?lattice.RailPolarity {
     };
 }
 
+/// The fan family of ANY fan role this cell carries — rail or dropper.
+/// `railJunctionAdjacent` accepts both when it looks for a second rail row,
+/// so the mirror must too.
+fn anyFanFamily(t: cell.Typed) ?lattice.RailPolarity {
+    const role = t.edge_role orelse return null;
+    return railRoleFamily(role);
+}
+
 /// The producer-derived mask expectation.
 ///
-/// Two claims, both about the cell the pass stamped:
+/// Three claims, all about the cell the pass stamped:
 ///   1. arity — a shared run still carries at least one vertical and at
 ///      least one horizontal arm. That is the pass's own stamping
 ///      precondition, and the later mask passes (phantom clearing,
 ///      reciprocity repair, arrowhead-base receiving) must not have
 ///      destroyed it.
-///   2. strip (fan-OUT only) — both vertical arms survive at a shared-run
-///      cell ONLY where a second rail row continues on this column. The
-///      pass answers that by inspecting the neighbour's role and mask; the
-///      records answer it by naming the same fan family one cell away.
+///   2. strip, occurrence (fan-OUT only) — both vertical arms survive at a
+///      shared-run cell ONLY where a second rail row continues on this
+///      column. The pass answers that by inspecting the neighbour's role
+///      and mask; the records answer it by naming the same fan family one
+///      cell away, in a cell that carries a horizontal arm of its own.
+///   3. strip, DIRECTION (fan-OUT only) — where one vertical arm survives
+///      on a column the pivot's own descents run down, that arm is the one
+///      FACING the pivot. This is the half the pass decides with a probe
+///      that accepts ANY node border within three rows, the pivot's or a
+///      child's, so a survivor on the far side is a real divergence and
+///      not a technicality. Without this claim the comparison would be
+///      vacuous on exactly the fact the strip exists to produce (the
+///      painter reads it as `┴` against `┬`), and a derivation that kept
+///      the wrong arm everywhere would still score zero.
 ///
-/// A cell that kept both arms with no recorded continuation is a mismatch
-/// unless the fan facts cannot say which side the pivot is on — the strip
-/// only fires when one vertical side resolves to the source and the other
-/// does not, so with the pivot unplaced no strip is predictable.
+/// Claims 2 and 3 both need the pivot placed; where the fan facts cannot
+/// place it the cell is tallied `pivot_unresolved` and passed, never
+/// guessed at. Off the pivot's columns claim 3 makes no demand: the single
+/// arm there is a member's own dropper and no strip was ever in play.
 fn maskAgrees(
     ctx: Ctx,
     v: cell.View,
@@ -263,42 +296,80 @@ fn maskAgrees(
     const horizontal = t.mask & (cell.bit(.east) | cell.bit(.west)) != 0;
     if (!(n or s) or !horizontal) return false;
     if (p == .in) return true;
-    if (!(n and s)) return true;
-    if (continuesColumn(v, x, y, p)) return true;
-    if (pivotSide(ctx, t, p, y) == null) {
-        b.pivot_unresolved += 1;
+
+    if (n and s) {
+        if (continuesColumn(v, x, y, p)) return true;
+        const rect = pivotRect(ctx, t, p) orelse return unresolved(b);
+        if (verticalSide(rect, y) == null) return unresolved(b);
+        return false;
+    }
+    const rect = pivotRect(ctx, t, p) orelse return unresolved(b);
+    if (!spansColumn(rect, x)) return true;
+    const side = verticalSide(rect, y) orelse return unresolved(b);
+    return if (side == .north) n else s;
+}
+
+/// Tally a cell whose strip decision the fan facts cannot derive, and pass
+/// it. Every unresolved path reports a mask MATCH, so the residual is never
+/// inflated by positions the derivation simply could not reach.
+fn unresolved(b: *Bucket) bool {
+    b.pivot_unresolved += 1;
+    return true;
+}
+
+/// The records' answer to `railJunctionAdjacent`, mirroring it term for
+/// term: is the cell directly above or below a SECOND rail row of this fan
+/// on this column? The pass demands an `.edge_segment` carrying a fan role
+/// AND a horizontal arm of its own; a bare vertical continuation is not a
+/// rail row and does not spare the strip. The records supply the family —
+/// by naming it, or by the neighbour's own fan role — and the horizontal
+/// arm is read off the neighbour's mask exactly as the pass reads it. A
+/// looser test here would declare both arms legal where the pass would
+/// have stripped, and would do it in the direction that flatters the gate.
+fn continuesColumn(v: cell.View, x: u32, y: u32, p: lattice.RailPolarity) bool {
+    for ([_]cell.Dir4{ .north, .south }) |d| {
+        const q = cell.step(x, y, d, v.width(), v.height()) orelse continue;
+        const nt = v.at(q.x, q.y) orelse continue;
+        if (nt.kind != .stroke and nt.kind != .ghost) continue;
+        if (!(hasRecord(nt, p) or anyFanFamily(nt) == p)) continue;
+        if (nt.mask & (cell.bit(.east) | cell.bit(.west)) == 0) continue;
         return true;
     }
     return false;
 }
 
-/// The records' answer to `railJunctionAdjacent`: is the cell directly
-/// above or below part of the same fan family's shared run?
-fn continuesColumn(v: cell.View, x: u32, y: u32, p: lattice.RailPolarity) bool {
-    for ([_]cell.Dir4{ .north, .south }) |d| {
-        const q = cell.step(x, y, d, v.width(), v.height()) orelse continue;
-        const nt = v.at(q.x, q.y) orelse continue;
-        if (hasRecord(nt, p) or railFamily(nt) == p) return true;
-    }
-    return false;
-}
-
-/// Which vertical side of row `y` the fan's pivot node sits on, or null
-/// when the fan facts do not place it on either (the pivot shares this
-/// cell's rows, or the recorded edge has no fan geometry in the Sketch).
-fn pivotSide(ctx: Ctx, t: cell.Typed, p: lattice.RailPolarity, y: u32) ?cell.Dir4 {
+/// The rect of the pivot node of the fan whose member rides this cell, or
+/// null when no record here resolves to one (no fan geometry in the Sketch
+/// for the recorded edge, or no placement for the pivot).
+fn pivotRect(ctx: Ctx, t: cell.Typed, p: lattice.RailPolarity) ?sketch.Rect {
     const d = @intFromEnum(p);
     for ([_]lattice.AuxKind{ .rail_member, .tap }) |kind| {
         for (t.ofKind(kind)) |r| {
             if (r.detail != d) continue;
             const pivot = pivotOf(ctx.sketch, r.value, p) orelse continue;
-            const rect = nodeRect(ctx.sketch, pivot) orelse continue;
-            const row: i32 = @intCast(y);
-            if (rect.bottom() <= row) return .north;
-            if (rect.y > row) return .south;
+            if (nodeRect(ctx.sketch, pivot)) |rect| return rect;
         }
     }
     return null;
+}
+
+/// Which vertical side of row `y` the pivot sits on, or null when it sits
+/// on neither (its rows include `y`).
+fn verticalSide(rect: sketch.Rect, y: u32) ?cell.Dir4 {
+    const row: i32 = @intCast(y);
+    if (rect.bottom() <= row) return .north;
+    if (rect.y > row) return .south;
+    return null;
+}
+
+/// True when column `x` is one the pivot's own descents can run down: every
+/// peer departs from a port ON the pivot's perimeter, so the columns a
+/// pivot-side vertical arm can occupy are exactly the pivot rect's. It is
+/// also the necessary condition for the pass's own upward probe to reach
+/// the pivot's border at all.
+fn spansColumn(rect: sketch.Rect, x: u32) bool {
+    const col: i32 = @intCast(x);
+    return col >= rect.x and col < rect.right();
 }
 
 /// The pivot node of the fan that `edge_id` belongs to: the rail's pivot

@@ -381,9 +381,9 @@ test "the fan-role shadow reaches both readings on real renders and moves nothin
     // leaving the shipped lattice exactly as it found it.
     //
     // The residual divergence is deliberately NOT pinned to a number here.
-    // It is the corpus-wide gate the harness measures, and it moves whenever
-    // fan routing does; freezing it in a unit test would turn an instrument
-    // reading into a rule.
+    // It is a corpus-wide reading taken outside this tree, and it moves
+    // whenever fan routing does; freezing it in a unit test would turn an
+    // instrument reading into a rule.
     var agreements: u32 = 0;
     var rail_owned: u32 = 0;
     for (corpus) |source| for (widths) |width| {
