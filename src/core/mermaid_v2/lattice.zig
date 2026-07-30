@@ -181,6 +181,35 @@ pub const AuxKind = enum(u8) {
     /// node, cluster or edge put it there is exactly the fact it cannot
     /// express. Filed by `raster/labels_write.zig` at each glyph head.
     label_owner,
+    /// Fan-rail membership: the fan member edge named by `value` has ink at
+    /// `cell` that the Cell attributes to someone else, with the member's
+    /// fan polarity in `detail` (a `RailPolarity`). A shared fan run is one
+    /// stroke several edges ride; the Cell holds ONE edge id and ONE role,
+    /// so it can name at most one rider. Filed by `raster/busbars.zig` for
+    /// a first-class rail — where the members have no `EdgePath` at all, so
+    /// these records are their only trace on the grid — and by the fan
+    /// polyline walk in `raster/edges.zig` for peer-drawn fans, where the
+    /// position also carries a merged `.carrier`: that one says an identity
+    /// was lost here, this one says which fan family lost it.
+    rail_member,
+    /// A branch point: the edge named by `value` leaves (fan-OUT) or joins
+    /// (fan-IN) a shared fan run at `cell`, polarity in `detail`. Not the
+    /// same fact as `.rail_member`, which says a member's ink passes
+    /// THROUGH: the mask at a branch cell grows a dropper arm, but no Cell
+    /// field says whose it is, nor which of the riders turns off here.
+    /// Filed by `raster/busbars.zig` only — see its header for the peer-fan
+    /// gap.
+    tap,
+    /// A frame intrusion: the edge named by `value` met a subgraph frame
+    /// border at `cell` and the frame-solid ruling resolved it as `detail`
+    /// (an `IntrusionKind`) — the edge bridged the border, or its corner
+    /// arm was refused. Either way the cell stays a pristine
+    /// `cluster_border`, so that an edge touched it at all is unrecoverable
+    /// from the grid. Filed by the walk in `raster/edges.zig`; the report's
+    /// `b_frame_bridge` / `b_border_fusion_refused` tallies count the same
+    /// events in aggregate.
+    /// guarded-by: tiling_records_test.zig "the frame-bridge tallies and the per-cell intrusion records count the same events"
+    intrusion,
 };
 
 /// How an edge's ink came to be anonymous at a carrier cell. Not a Cell
@@ -203,6 +232,28 @@ pub const LabelOwnerKind = enum(u8) {
     edge = 2,
 };
 
+/// Which side of a fan a `rail_member` / `tap` record belongs to. One
+/// position can sit on a fan-OUT run and a fan-IN run at once, and a Cell's
+/// single `EdgeRole` can only name one of the two families.
+pub const RailPolarity = enum(u8) {
+    /// A fan-OUT member: one pivot, many targets; the member's ink runs
+    /// from the shared stroke outwards to its own node.
+    out = 0,
+    /// A fan-IN member: many sources, one pivot; the member's ink joins the
+    /// shared stroke and runs inwards.
+    in = 1,
+};
+
+/// How an edge and a subgraph frame border resolved at an `.intrusion`.
+pub const IntrusionKind = enum(u8) {
+    /// A through-going segment bridged the border: the frame glyph stays
+    /// continuous and the edge contributed no bits, resuming beyond it.
+    bridge = 0,
+    /// A corner arm onto the border was refused: fusing it would have
+    /// welded a tee into the frame.
+    fusion_refused = 1,
+};
+
 /// One position-keyed side-table record: 12 bytes, no pointers, freely
 /// copyable. `cell` is the row-major linear index (`y * width + x`) of the
 /// position the fact belongs to, so a record stays valid however the Cell
@@ -213,8 +264,8 @@ pub const LabelOwnerKind = enum(u8) {
 pub const Aux = struct {
     /// Row-major linear cell index: `y * width + x`.
     cell: u32,
-    /// Kind-specific primary value: for `.port` and `.carrier` the edge
-    /// id, for `.label_owner` the owning entity's id.
+    /// Kind-specific primary value: an edge id for every kind except
+    /// `.label_owner`, whose value is the owning entity's id.
     value: u32,
     kind: AuxKind,
     /// Kind-specific secondary byte; 0 when the kind has no second

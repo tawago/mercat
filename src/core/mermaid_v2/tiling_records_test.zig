@@ -59,6 +59,13 @@ fn render(a: std.mem.Allocator, source: []const u8, width: u32) !Rendered {
 
 /// Shapes that exercise every writer of a record: shared cells, crossings,
 /// fans (rails and taps), labels of all three owner kinds, and clusters.
+///
+/// The last three are the fans the router does NOT lay down as a
+/// first-class rail — a fan-IN, a fan declined for mixed stroke kinds, and
+/// one wide enough to wrap into a grid at w=60. They are here because the
+/// membership records for those come from the edge walk instead of the
+/// bus-bar rasterizer, and a corpus of rails alone would leave that writer
+/// unexercised.
 const corpus = [_][]const u8{
     "flowchart TD\n  A --> B\n  B --> C\n",
     "flowchart LR\n  A --> B\n  B --> C\n  C --> D\n",
@@ -69,6 +76,9 @@ const corpus = [_][]const u8{
     "flowchart TD\n  subgraph S[\"Stage one\"]\n    A --> B\n  end\n  B --> C\n",
     "flowchart TD\n  subgraph S1\n    A --> B\n  end\n  subgraph S2\n    C --> D\n  end\n  A --> D\n  C --> B\n",
     "flowchart TD\n  A[Start] --> B{Check}\n  B -->|yes| C[Run]\n  B -->|no| D[Stop]\n  C --> E[Done]\n  D --> E\n",
+    "flowchart TD\n  A --> D\n  B --> D\n  C --> D\n",
+    "flowchart TD\n  A --> B\n  A -.-> C\n  A ==> D\n",
+    "flowchart TD\n  A --> B1\n  A --> B2\n  A --> B3\n  A --> B4\n  A --> B5\n  A --> B6\n  A --> B7\n  A --> B8\n",
 };
 
 const widths = [_]u32{ 60, 120 };
@@ -218,6 +228,122 @@ test "the terminal law's departure verdict comes from the records, not the mask"
     // recorded departures at all, because the port stroke is issued for
     // vertical exits only (east/west would spoil the `|` source border).
     try testing.expect(departures_seen > 0);
+}
+
+test "the frame-bridge tallies and the per-cell intrusion records count the same events" {
+    // The frame-solid ruling has two outcomes and counts them in aggregate;
+    // the side table names the edge and the position of each one. The two
+    // instruments are written at the same two sites, so they must agree
+    // exactly — and a third site added without a record is precisely what
+    // this catches.
+    var bridges_seen: u32 = 0;
+    var refusals_seen: u32 = 0;
+    for (corpus) |source| for (widths) |width| {
+        var arena = std.heap.ArenaAllocator.init(testing.allocator);
+        defer arena.deinit();
+        const a = arena.allocator();
+
+        const r = try render(a, source, width);
+        var bridged: u32 = 0;
+        var refused: u32 = 0;
+        for (r.report.lattice.aux) |rec| {
+            if (rec.kind != .intrusion) continue;
+            switch (@as(lattice.IntrusionKind, @enumFromInt(rec.detail))) {
+                .bridge => bridged += 1,
+                .fusion_refused => refused += 1,
+            }
+        }
+        const x = r.report.crossings;
+        if (bridged != x.b_frame_bridge or refused != x.b_border_fusion_refused) {
+            std.debug.print(
+                "source:\n{s}tallies: bridge={d} refused={d}; records: bridge={d} refused={d}\n",
+                .{ source, x.b_frame_bridge, x.b_border_fusion_refused, bridged, refused },
+            );
+            return error.IntrusionTallyMismatch;
+        }
+        bridges_seen += bridged;
+        refusals_seen += refused;
+    };
+    // Agreement at zero would be no evidence at all: the corpus has to
+    // actually drive an edge through a subgraph frame.
+    try testing.expect(bridges_seen + refusals_seen > 0);
+}
+
+test "every rail-membership record names an edge the fan actually serves" {
+    // A membership record is a claim about geometry the Cell cannot hold,
+    // so it has to be checkable against the geometry: the named edge must
+    // be a member of a fan of the recorded polarity, and no record may
+    // restate the id its own cell carries.
+    var rail_members: u32 = 0;
+    var peer_members: u32 = 0;
+    for (corpus) |source| for (widths) |width| {
+        var arena = std.heap.ArenaAllocator.init(testing.allocator);
+        defer arena.deinit();
+        const a = arena.allocator();
+
+        const r = try render(a, source, width);
+        const lat = r.report.lattice;
+        for (lat.aux) |rec| {
+            switch (rec.kind) {
+                .rail_member, .tap => {},
+                else => continue,
+            }
+            const polarity: lattice.RailPolarity = @enumFromInt(rec.detail);
+            // A `.tap` names a branch, which only a first-class rail
+            // declares; a `.rail_member` may also come from a peer-drawn fan.
+            const served = if (rec.kind == .tap)
+                railTap(r.sketch, rec.value, polarity)
+            else
+                railTap(r.sketch, rec.value, polarity) or fanPeer(r.sketch, rec.value, polarity);
+            if (!served) {
+                std.debug.print(
+                    "source:\n{s}{s} record names edge {d} ({s}), which no fan serves\n",
+                    .{ source, @tagName(rec.kind), rec.value, @tagName(polarity) },
+                );
+                return error.UnservedRailRecord;
+            }
+            if (rec.kind == .rail_member) {
+                rail_members += 1;
+                if (!railTap(r.sketch, rec.value, polarity)) peer_members += 1;
+                // Anti-desync: a membership record may never restate the id
+                // its own cell carries.
+                switch (lat.cells[rec.cell].occupant) {
+                    .edge_segment => |seg| try testing.expect(seg.edge != rec.value),
+                    .arrowhead => |head| try testing.expect(head.edge != rec.value),
+                    else => {},
+                }
+            }
+        }
+    };
+    // Both producers must actually be exercised, or this test would pass by
+    // checking nothing: the bus-bar rasterizer files for first-class rails,
+    // the edge walk for the peer-drawn fans (declined and grid-wrapped).
+    try testing.expect(rail_members > 0);
+    try testing.expect(peer_members > 0);
+}
+
+/// True when `edge` is a tap of a bus-bar rail of `polarity`.
+fn railTap(s: sketch.Sketch, edge: u32, polarity: lattice.RailPolarity) bool {
+    for (s.busbars) |bb| {
+        const fan_in = bb.role == .fan_in_rail or bb.role == .fan_in_dropper;
+        if ((polarity == .in) != fan_in) continue;
+        for (bb.taps) |tap| if (tap.edge == edge) return true;
+    }
+    return false;
+}
+
+/// True when `edge` is a peer-drawn fan member of `polarity` — a fan the
+/// router laid down as N sibling polylines rather than one owned rail.
+fn fanPeer(s: sketch.Sketch, edge: u32, polarity: lattice.RailPolarity) bool {
+    for (s.edges) |ep| {
+        if (ep.id != edge) continue;
+        return switch (ep.role) {
+            .fan_out_rail, .fan_out_dropper => polarity == .out,
+            .fan_in_rail, .fan_in_dropper => polarity == .in,
+            else => false,
+        };
+    }
+    return false;
 }
 
 test "collecting the side table changes no painted cell" {

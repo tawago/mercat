@@ -99,6 +99,93 @@ test "busbar junction bits are explicit: corner, tee, cross" {
     try testing.expectEqual(@as(u32, 0), r.report.cells_lost);
 }
 
+/// Every record of `kind` filed at (x, y), by ascending `value`. The table
+/// is sorted by (cell, kind, value), so a scan of the whole slice is both
+/// the simplest and the order-faithful way to ask.
+fn recordsAt(
+    a: std.mem.Allocator,
+    lat: lattice.Lattice,
+    kind: lattice.AuxKind,
+    x: u32,
+    y: u32,
+) ![]const lattice.Aux {
+    var out: std.ArrayListUnmanaged(lattice.Aux) = .empty;
+    const idx = lat.cellIndex(x, y);
+    for (lat.aux) |rec| {
+        if (rec.kind == kind and rec.cell == idx) try out.append(a, rec);
+    }
+    return out.items;
+}
+
+test "a rail files its members on the shared run and a tap at each branch cell" {
+    // The fixture is the standard three-peer fan: pivot 0 over peers at
+    // x = 2 / 12 / 22, junction at (12,5), crossbar 2..22 on row 5. Taps
+    // carry edges 0, 1, 2, and the shared run is attributed to edge 0
+    // throughout — which is exactly why edges 1 and 2 need records to exist
+    // anywhere on the grid at all.
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+
+    var nodes: [4]sketch.NodePlacement = undefined;
+    var taps: [3]sketch.Tap = undefined;
+    var stem: [2]sketch.Point = undefined;
+    var busbars: [1]sketch.Rail = undefined;
+    const s = fanSketch(&nodes, &taps, &stem, &busbars);
+
+    const r = try raster.rasterize(a, s, .bridge, .{ .collect_aux = true });
+    const lat = r.lattice;
+
+    // One tap record per branch cell, naming that tap's edge, polarity out.
+    for ([_]struct { x: u32, edge: u32 }{
+        .{ .x = 2, .edge = 0 },
+        .{ .x = 12, .edge = 1 },
+        .{ .x = 22, .edge = 2 },
+    }) |want| {
+        const at_branch = try recordsAt(a, lat, .tap, want.x, 5);
+        try testing.expectEqual(@as(usize, 1), at_branch.len);
+        try testing.expectEqual(want.edge, at_branch[0].value);
+        try testing.expectEqual(@intFromEnum(lattice.RailPolarity.out), at_branch[0].detail);
+    }
+    var taps_filed: u32 = 0;
+    for (lat.aux) |rec| {
+        if (rec.kind == .tap) taps_filed += 1;
+    }
+    try testing.expectEqual(@as(u32, 3), taps_filed);
+
+    // The stem carries every member: all three edges leave the pivot
+    // through it, and the Cell names edge 0.
+    const on_stem = try recordsAt(a, lat, .rail_member, 12, 4);
+    try testing.expectEqual(@as(usize, 2), on_stem.len);
+    try testing.expectEqual(@as(u32, 1), on_stem[0].value);
+    try testing.expectEqual(@as(u32, 2), on_stem[1].value);
+
+    // The junction: edge 1 branches here and edge 2 rides on east.
+    const at_junction = try recordsAt(a, lat, .rail_member, 12, 5);
+    try testing.expectEqual(@as(usize, 2), at_junction.len);
+
+    // East of the junction only edge 2 is still riding …
+    const east = try recordsAt(a, lat, .rail_member, 17, 5);
+    try testing.expectEqual(@as(usize, 1), east.len);
+    try testing.expectEqual(@as(u32, 2), east[0].value);
+
+    // … and west of it nobody is: that stretch conducts edge 0 alone, and
+    // the Cell names edge 0. A record there would be a restatement.
+    const west = try recordsAt(a, lat, .rail_member, 7, 5);
+    try testing.expectEqual(@as(usize, 0), west.len);
+
+    // Anti-desync, mechanically: no membership record names the id its own
+    // cell carries.
+    for (lat.aux) |rec| {
+        if (rec.kind != .rail_member) continue;
+        switch (lat.cells[rec.cell].occupant) {
+            .edge_segment => |seg| try testing.expect(seg.edge != rec.value),
+            .arrowhead => |head| try testing.expect(head.edge != rec.value),
+            else => {},
+        }
+    }
+}
+
 test "busbar without center tap yields a clean ┴ junction" {
     var arena = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena.deinit();

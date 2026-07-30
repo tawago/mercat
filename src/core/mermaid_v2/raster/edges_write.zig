@@ -99,6 +99,55 @@ pub fn recordCarrier(
     rec.at(x, y, .carrier, edge, @intFromEnum(how));
 }
 
+/// File one `.rail_member` record: fan member `edge` rides the shared run
+/// at (x, y). The single spelling for both producers of shared fan ink —
+/// the bus-bar rasterizer and the fan polyline walk — so they cannot drift
+/// in how they describe the same membership.
+pub fn recordRailMember(
+    rec: aux.Recorder,
+    x: u32,
+    y: u32,
+    edge: u32,
+    polarity: lattice.RailPolarity,
+) void {
+    rec.at(x, y, .rail_member, edge, @intFromEnum(polarity));
+}
+
+/// File one `.tap` record: `edge` branches off (fan-OUT) or onto (fan-IN)
+/// the shared run at its branch cell (x, y).
+pub fn recordTap(
+    rec: aux.Recorder,
+    x: u32,
+    y: u32,
+    edge: u32,
+    polarity: lattice.RailPolarity,
+) void {
+    rec.at(x, y, .tap, edge, @intFromEnum(polarity));
+}
+
+/// File one `.intrusion` record: `edge` met a subgraph frame border at
+/// (x, y) and the frame-solid ruling resolved it as `how`.
+pub fn recordIntrusion(
+    rec: aux.Recorder,
+    x: u32,
+    y: u32,
+    edge: u32,
+    how: lattice.IntrusionKind,
+) void {
+    rec.at(x, y, .intrusion, edge, @intFromEnum(how));
+}
+
+/// The fan family a routing role belongs to, or null for a role that is
+/// not fan ink at all. The rail/dropper distinction is a Cell field
+/// (`EdgeRole`); the family is what a membership record has to carry.
+pub fn railPolarity(role: lattice.EdgeRole) ?lattice.RailPolarity {
+    return switch (role) {
+        .fan_out_rail, .fan_out_dropper => .out,
+        .fan_in_rail, .fan_in_dropper => .in,
+        else => null,
+    };
+}
+
 pub fn toCoord(p: sketch.Point) Coord {
     std.debug.assert(p.x >= 0 and p.y >= 0);
     return .{ .x = @intCast(p.x), .y = @intCast(p.y) };

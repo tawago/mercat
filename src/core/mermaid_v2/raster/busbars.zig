@@ -6,12 +6,28 @@
 //! semantics match `edges.zig` (`writeEdgeCell`/`writeArrowCell`) for
 //! collision accounting (`cells_lost`) and cluster-border overwrite.
 //!
+//! SIDE TABLE. A rail's taps have no `EdgePath` anywhere in the Sketch —
+//! the shared run IS their geometry — so a member is invisible to the cell
+//! grid except on its own dropper. This file therefore files the two
+//! records that recover them: a `.rail_member` for every member riding a
+//! shared-run cell the Cell does not name, and a `.tap` at each member's
+//! branch cell. Both only where ink actually landed; a cell the rail lost
+//! to a node or a label carries no membership.
+//!
+//! GAP (honest, not a to-do disguised as prose): peer-drawn fans — grid-
+//! wrapped fan-OUT, declined fans, fan-IN routed as per-peer polylines —
+//! reach the grid through `edges.zig` instead, which files their
+//! `.rail_member` records but NO `.tap`. Their branch point is implicit in
+//! a polyline corner, and the raster refuses to infer a fact the geometry
+//! never states. Closing it means naming the branch in the Sketch.
+//!
 //! Allowed imports: std, prim, sketch, lattice, raster-internal siblings.
 
 const std = @import("std");
 const sketch = @import("../sketch.zig");
 const lattice = @import("../lattice.zig");
 const edges_r = @import("edges.zig");
+const ew = @import("edges_write.zig");
 const aux = @import("aux.zig");
 
 pub const Report = struct {
@@ -37,6 +53,7 @@ fn drawRail(lat: *lattice.Lattice, bb: sketch.Rail, report: *Report, sink: aux.S
     const fan_in = bb.role == .fan_in_dropper or bb.role == .fan_in_rail;
     const crossbar_role: lattice.EdgeRole = if (fan_in) .fan_in_rail else .fan_out_rail;
     const dropper_role: lattice.EdgeRole = if (fan_in) .fan_in_dropper else .fan_out_dropper;
+    const polarity: lattice.RailPolarity = if (fan_in) .in else .out;
 
     // Rail: every cell carries exactly its inward arm(s), from geometry.
     // guarded-by: busbars_test.zig "busbar junction bits are explicit: corner, tee, cross"
@@ -94,6 +111,13 @@ fn drawRail(lat: *lattice.Lattice, bb: sketch.Rail, report: *Report, sink: aux.S
         }
         const dir = edges_r.segmentDir(tap.at, tap.landing) orelse continue;
         claim(lat, tap.at, tap.edge, bb.kind, crossbar_role, edges_r.bitMask(dir), report, rec);
+        // The branch itself: the cell just grew this tap's drop arm, and
+        // nothing on it says whose arm that is (the run belongs to the
+        // shared owner id, and the mask is a merge). A tap with no drop
+        // reached `continue` above and files nothing — the record follows
+        // the ink, not the Sketch.
+        // guarded-by: busbars_test.zig "a rail files its members on the shared run and a tap at each branch cell"
+        if (inkAt(lat, tap.at)) |c| ew.recordTap(rec, c.x, c.y, tap.edge, polarity);
         var wrote_any = false;
         var last_cell: ?sketch.Point = null;
         var cursor = edges_r.step(tap.at, dir);
@@ -113,6 +137,90 @@ fn drawRail(lat: *lattice.Lattice, bb: sketch.Rail, report: *Report, sink: aux.S
         }
         if (wrote_any) report.taps_written += 1;
     }
+
+    recordMembership(lat, bb, polarity, rec);
+}
+
+/// Coordinates of `p` when the cell there carries edge ink, else null.
+/// Membership is a claim about ink: a position the rail never won (a node,
+/// a label, out of bounds) has no riders to record.
+fn inkAt(lat: *const lattice.Lattice, p: sketch.Point) ?ew.Coord {
+    if (!edges_r.pointInBounds(p, lat)) return null;
+    const c = edges_r.toCoord(p);
+    return switch (lat.atConst(c.x, c.y).occupant) {
+        .edge_segment, .arrowhead => c,
+        else => null,
+    };
+}
+
+/// File `.rail_member` records over the rail's whole shared run: the stem
+/// (every member's ink leaves the pivot through it) and the crossbar (a
+/// member rides it between the junction and its own branch cell, and no
+/// further). Runs last, over the finished ink, so a cell lost to a
+/// collision records nobody.
+///
+/// The member the Cell already names is skipped: that one IS on the grid,
+/// and restating it would put a second, staleable copy of a Cell field on
+/// the side table (lattice.zig's anti-desync law). Droppers are skipped for
+/// the same reason — a dropper carries exactly one member and says so.
+/// guarded-by: busbars_test.zig "a rail files its members on the shared run and a tap at each branch cell"
+fn recordMembership(
+    lat: *const lattice.Lattice,
+    bb: sketch.Rail,
+    polarity: lattice.RailPolarity,
+    rec: aux.Recorder,
+) void {
+    if (rec.sink == null) return;
+    const junction = bb.stem[bb.stem.len - 1];
+
+    var si: usize = 0;
+    while (si + 1 < bb.stem.len) : (si += 1) {
+        const dir = edges_r.segmentDir(bb.stem[si], bb.stem[si + 1]) orelse continue;
+        // Half-open [a, b): each stem point is visited once, and the
+        // junction is reached below as a crossbar cell.
+        var cursor = bb.stem[si];
+        while (cursor.x != bb.stem[si + 1].x or cursor.y != bb.stem[si + 1].y) : (cursor = edges_r.step(cursor, dir)) {
+            recordMembersAt(lat, cursor, bb, junction, polarity, rec);
+        }
+    }
+
+    var x = bb.crossbar[0].x;
+    while (x <= bb.crossbar[1].x) : (x += 1) {
+        recordMembersAt(lat, .{ .x = x, .y = bb.crossbar[0].y }, bb, junction, polarity, rec);
+    }
+}
+
+/// One shared-run cell: file every member whose ink rides it and whom the
+/// Cell does not name.
+fn recordMembersAt(
+    lat: *const lattice.Lattice,
+    p: sketch.Point,
+    bb: sketch.Rail,
+    junction: sketch.Point,
+    polarity: lattice.RailPolarity,
+    rec: aux.Recorder,
+) void {
+    if (!edges_r.pointInBounds(p, lat)) return;
+    const c = edges_r.toCoord(p);
+    const named: u32 = switch (lat.atConst(c.x, c.y).occupant) {
+        .edge_segment => |seg| seg.edge,
+        .arrowhead => |head| head.edge,
+        // A position the rail never won (a node, a label) carries no ink,
+        // so it carries no riders either.
+        else => return,
+    };
+    for (bb.taps) |tap| {
+        if (tap.edge == named) continue;
+        // On the crossbar a member rides only the stretch between the
+        // junction and its own branch; the far side of the rail conducts
+        // somebody else entirely.
+        if (p.y == bb.crossbar[0].y and !onStretch(p.x, junction.x, tap.at.x)) continue;
+        ew.recordRailMember(rec, c.x, c.y, tap.edge, polarity);
+    }
+}
+
+fn onStretch(v: i32, a: i32, b: i32) bool {
+    return v >= @min(a, b) and v <= @max(a, b);
 }
 
 /// Claim one cell through the shared edge cell contract (OR-merge on

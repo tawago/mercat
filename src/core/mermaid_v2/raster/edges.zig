@@ -8,6 +8,14 @@
 //! > fan_out_dropper and fan_in_rail > fan_in_dropper, both over forward/
 //! cluster_internal. Fan shared-run cells stamped explicitly post-walk.
 //!
+//! Side-table facts filed here (`lattice.Aux`): `.carrier` for ink the grid
+//! cannot name, `.rail_member` for a fan peer riding a shared run, and
+//! `.intrusion` at the two frame-border sites — the aggregate
+//! `b_frame_bridge`/`b_border_fusion_refused` tallies count the same events
+//! and are cross-checked against the records. No `.tap`: a peer-drawn fan's
+//! branch point is implicit in a polyline corner, and this walk records what
+//! it drew, never what it could infer (see `raster/busbars.zig`).
+//!
 //! The per-cell claim contract (`writeEdgeCell`/`writeArrowCell`/
 //! `writeArrowGuarded`/`drawPortStroke`) and the directional primitives
 //! live in `edges_write.zig` (cap split); the ones `raster/busbars.zig` and
@@ -101,6 +109,36 @@ fn crossingKeepsFirstWriter(
         ),
         else => false,
     };
+}
+
+/// File a `.rail_member` for a FAN-role edge whose ink just landed on a
+/// cell attributed to somebody else — the peer-drawn counterpart of the
+/// membership `raster/busbars.zig` files for a first-class rail. Called
+/// only after a write that actually deposited bits: a suppressed crossing
+/// leaves no ink and is a `.carrier` matter, and a cell lost to a node or a
+/// label names neither an edge nor an arrowhead, so it returns here.
+///
+/// A non-fan role files nothing (there is no family to name), and a cell
+/// that still names this very edge files nothing (the grid already says
+/// it). The position typically carries a merged `.carrier` too; that
+/// record says an identity was lost, this one says which fan lost it.
+/// guarded-by: tiling_records_test.zig "every rail-membership record names an edge the fan actually serves"
+fn recordFanMember(
+    rec: aux.Recorder,
+    cell: *const lattice.Cell,
+    x: u32,
+    y: u32,
+    edge_id: u32,
+    role: lattice.EdgeRole,
+) void {
+    const polarity = ew.railPolarity(role) orelse return;
+    const named: u32 = switch (cell.occupant) {
+        .edge_segment => |seg| seg.edge,
+        .arrowhead => |head| head.edge,
+        else => return,
+    };
+    if (named == edge_id) return;
+    ew.recordRailMember(rec, x, y, edge_id, polarity);
 }
 
 /// Claim a pristine corner cell for `edge_id` with the corner mask (occupant
@@ -228,6 +266,7 @@ fn walkPolyline(
                             // edge turns here.
                             // guarded-by: aux_test.zig "a corner arm merged onto a foreign run files a merged carrier; onto its own ink, nothing"
                             if (!own) ew.recordCarrier(rec, c.x, c.y, edge.id, .merged);
+                            recordFanMember(rec, cell, c.x, c.y, edge.id, erole);
                         }
                     },
                     .empty => {
@@ -242,6 +281,10 @@ fn walkPolyline(
                             // stays continuous, the corner contributes no bits.
                             // guarded-by: edges_test.zig "corner arm onto a subgraph frame border is refused"
                             ctx.counts.b_border_fusion_refused += 1;
+                            // The border cell comes out of the refusal
+                            // pristine, so nothing on the grid records that
+                            // this edge ever reached it.
+                            ew.recordIntrusion(rec, c.x, c.y, edge.id, .fusion_refused);
                         } else {
                             // `.cross` mode: the pre-Slice-1 behavior — weld the
                             // corner into the frame exactly as the old combined
@@ -266,6 +309,7 @@ fn walkPolyline(
                             ew.recordCarrier(rec, c.x, c.y, edge.id, .suppressed);
                         } else {
                             writeEdgeCell(cell, edge.id, ek, erole, corner_mask, c.x, c.y, cells_lost, rec);
+                            recordFanMember(rec, cell, c.x, c.y, edge.id, erole);
                         }
                     },
                 }
@@ -326,6 +370,9 @@ fn walkPolyline(
                 // still track this edge's path for arrowhead placement.
                 if (ctx.mode == .bridge and cell.occupant == .cluster_border and !terminal_here) {
                     ctx.counts.b_frame_bridge += 1;
+                    // The frame stays continuous and this edge leaves no
+                    // bits, so the crossing is invisible on the grid.
+                    ew.recordIntrusion(rec, c.x, c.y, edge.id, .bridge);
                 } else if (crossingKeepsFirstWriter(cell, edge.id, straightMask(dir), ctx)) {
                     ew.recordCarrier(rec, c.x, c.y, edge.id, .suppressed);
                 } else {
@@ -333,6 +380,7 @@ fn walkPolyline(
                     // `.cluster_border` arm still holds the pre-Slice-1
                     // overwrite+OR merge (junction weld) — byte-identical.
                     writeEdgeCell(cell, edge.id, ek, erole, straightMask(dir), c.x, c.y, cells_lost, rec);
+                    recordFanMember(rec, cell, c.x, c.y, edge.id, erole);
                 }
                 if (result.first_cell == null) {
                     result.first_cell = cursor;
