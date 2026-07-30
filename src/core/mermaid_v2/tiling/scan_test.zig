@@ -74,48 +74,118 @@ test "scan: run() leaves the lattice byte-identical" {
 }
 
 test "ownership: each seeded defect increments defectTotal by exactly one" {
-    // One hand-built lattice per seeded defect; each must move the total
-    // by exactly one, so no (cell, bit) is consumed by two families.
+    // One 5x5 lattice per seeded defect, each holding EXACTLY one thing
+    // wrong. If any (cell, bit) were consumed by two check families, or a
+    // family double-counted a cell-level verdict, a seed would move the
+    // total by more than one.
+    const W = 5;
+    const N = W * W;
     const Seed = struct {
         name: []const u8,
-        cells: [9]lattice.Cell,
+        cells: [N]lattice.Cell,
     };
 
-    var clean: [9]lattice.Cell = undefined;
+    var clean: [N]lattice.Cell = undefined;
     for (&clean) |*c| c.* = lattice.Cell.empty;
 
-    var orphan_lateral = clean;
-    // ▼ with a west arm pointing at background with nothing beyond.
-    orphan_lateral[4] = arrowCell(.south, .{ .n = true, .w = true });
-    orphan_lateral[1] = edgeCell(.{ .n = true, .s = true });
+    const put = struct {
+        fn at(cs: *[N]lattice.Cell, x: usize, y: usize, c: lattice.Cell) void {
+            cs[y * W + x] = c;
+        }
+    }.at;
 
-    var orphan_silent = clean;
-    // ▼ with a west arm at a stroke that never points back.
-    orphan_silent[4] = arrowCell(.south, .{ .n = true, .w = true });
-    orphan_silent[1] = edgeCell(.{ .n = true, .s = true });
-    orphan_silent[3] = edgeCell(.{ .n = true, .s = true });
+    // ▼ at (2,2) fed by a one-armed stub above it; its WEST bit points at
+    // background with nothing beyond.
+    var lat_orphan = clean;
+    put(&lat_orphan, 2, 2, arrowCell(.south, .{ .n = true, .w = true }));
+    put(&lat_orphan, 2, 1, edgeCell(.{ .s = true }));
+
+    // Same, but the west neighbour is a stroke that never points back.
+    var lat_silent = clean;
+    put(&lat_silent, 2, 2, arrowCell(.south, .{ .n = true, .w = true }));
+    put(&lat_silent, 2, 1, edgeCell(.{ .s = true }));
+    put(&lat_silent, 1, 2, edgeCell(.{ .n = true }));
+
+    // ▼ whose base cell is background: the tip receives nothing.
+    var lat_base_blank = clean;
+    put(&lat_base_blank, 2, 2, arrowCell(.south, .{ .s = true }));
+
+    // A stroke cell with no arms at all.
+    var lat_armless = clean;
+    put(&lat_armless, 2, 2, edgeCell(.{}));
+
+    // A one-armed stroke with nothing terminal beside it (a node's fill is
+    // not a terminal).
+    var lat_stub = clean;
+    put(&lat_stub, 2, 2, edgeCell(.{ .n = true }));
+    put(&lat_stub, 2, 1, .{ .occupant = .{ .node_interior = 5 }, .neighbours = .{} });
+
+    // Ink crossing a box: the cell-level verdict fires once and suppresses
+    // both of its own into-fill arms.
+    var lat_interior = clean;
+    put(&lat_interior, 2, 2, edgeCell(.{ .n = true, .s = true }));
+    put(&lat_interior, 2, 1, .{ .occupant = .{ .node_interior = 5 }, .neighbours = .{} });
+    put(&lat_interior, 2, 3, .{ .occupant = .{ .node_interior = 5 }, .neighbours = .{} });
+
+    // Two straight runs of different edges laid end to end between two
+    // arrowheads that are both properly fed.
+    var lat_fused = clean;
+    put(&lat_fused, 0, 2, arrowCell(.west, .{ .e = true }));
+    put(&lat_fused, 1, 2, edgeCell(.{ .e = true, .w = true }));
+    put(&lat_fused, 2, 2, .{ .occupant = .{ .edge_segment = .{ .edge = 8, .kind = .solid } }, .neighbours = .{ .e = true, .w = true } });
+    put(&lat_fused, 3, 2, arrowCell(.east, .{ .w = true }));
+
+    // A closed 3x3 node ring whose east side claims an extra east arm.
+    var lat_ring_arm = clean;
+    ring3(&lat_ring_arm, W, 3);
+    put(&lat_ring_arm, 2, 1, .{ .occupant = .{ .node_border = .{ .node = 3, .role = .edge_e } }, .neighbours = .{ .n = true, .s = true, .e = true } });
 
     const seeds = [_]Seed{
-        .{ .name = "arrow lateral into background", .cells = orphan_lateral },
-        .{ .name = "arrow lateral at a silent stroke", .cells = orphan_silent },
+        .{ .name = "arrow lateral into background", .cells = lat_orphan },
+        .{ .name = "arrow lateral at a silent stroke", .cells = lat_silent },
+        .{ .name = "arrowhead with a blank base", .cells = lat_base_blank },
+        .{ .name = "armless stroke", .cells = lat_armless },
+        .{ .name = "one-armed stroke with no terminal", .cells = lat_stub },
+        .{ .name = "ink crossing a node interior", .cells = lat_interior },
+        .{ .name = "two runs fused collinearly", .cells = lat_fused },
+        .{ .name = "node ring with an extra east arm", .cells = lat_ring_arm },
     };
 
     for (seeds) |seed| {
         var buf = seed.cells;
-        const lat = lattice.Lattice{ .width = 3, .height = 3, .cells = &buf };
+        const lat = lattice.Lattice{ .width = W, .height = W, .cells = &buf };
         const c = scan.run(testing.allocator, ctxOf(&lat));
         if (c.defectTotal() != 1) {
-            std.debug.print("seed '{s}': defectTotal {d}, want 1\n", .{ seed.name, c.defectTotal() });
+            var line: [counts.line_buf_len]u8 = undefined;
+            std.debug.print("seed '{s}': defectTotal {d}, want 1\n{s}\n", .{ seed.name, c.defectTotal(), c.writeLine(&line) });
             return error.OwnershipViolated;
         }
     }
 
     // The clean control fires nothing at all.
     var buf = clean;
-    buf[4] = arrowCell(.south, .{ .n = true });
-    buf[1] = edgeCell(.{ .n = true, .s = true });
-    const lat = lattice.Lattice{ .width = 3, .height = 3, .cells = &buf };
+    put(&buf, 2, 2, arrowCell(.south, .{ .n = true }));
+    put(&buf, 2, 1, edgeCell(.{ .s = true }));
+    const lat = lattice.Lattice{ .width = W, .height = W, .cells = &buf };
     try testing.expectEqual(@as(u32, 0), scan.run(testing.allocator, ctxOf(&lat)).defectTotal());
+}
+
+/// A closed 3x3 node ring with its NW corner at (0,0) of a `w`-wide grid.
+fn ring3(cs: []lattice.Cell, w: usize, node: u32) void {
+    const B = struct {
+        fn c(node_id: u32, role: lattice.BorderRole, nb: lattice.Neighbours) lattice.Cell {
+            return .{ .occupant = .{ .node_border = .{ .node = node_id, .role = role } }, .neighbours = nb };
+        }
+    };
+    cs[0] = B.c(node, .corner_nw, .{ .e = true, .s = true });
+    cs[1] = B.c(node, .edge_n, .{ .e = true, .w = true });
+    cs[2] = B.c(node, .corner_ne, .{ .w = true, .s = true });
+    cs[w] = B.c(node, .edge_w, .{ .n = true, .s = true });
+    cs[w + 1] = .{ .occupant = .{ .node_interior = node }, .neighbours = .{} };
+    cs[w + 2] = B.c(node, .edge_e, .{ .n = true, .s = true });
+    cs[2 * w] = B.c(node, .corner_sw, .{ .e = true, .n = true });
+    cs[2 * w + 1] = B.c(node, .edge_s, .{ .e = true, .w = true });
+    cs[2 * w + 2] = B.c(node, .corner_se, .{ .w = true, .n = true });
 }
 
 test "scan: a zero-sized lattice is a no-op" {

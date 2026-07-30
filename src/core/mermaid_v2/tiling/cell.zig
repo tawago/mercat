@@ -27,6 +27,13 @@ const lattice = @import("../lattice.zig");
 /// Cardinal direction, shared with the lattice.
 pub const Dir4 = prim.Dir4;
 
+/// Routing-intent role of an edge-segment cell, shared with the lattice.
+pub const EdgeRole = prim.EdgeRole;
+
+/// The four cardinal directions in a fixed order. Every per-arm ladder
+/// walks this, so bucket ordering is deterministic across checks.
+pub const dirs = [_]Dir4{ .north, .east, .south, .west };
+
 /// What a cell IS, for the purposes of an ink law. One variant per
 /// structural role; `classify` maps every `Occupant` onto exactly one.
 pub const Kind = enum {
@@ -97,10 +104,8 @@ pub fn classify(c: lattice.Cell) Typed {
 
 /// Mirror of `raster/reconcile.isRealConnection`: everything except
 /// background is a real connection — no reciprocity required, which is
-/// the frame-solid convention. The against-the-original mirror pin waits
-/// on that function's `pub` promotion; until then this is pinned by the
-/// classification table.
-/// guarded-by: cell_test.zig "classify: every occupant maps to one kind and only ink kinds carry ink"
+/// the frame-solid convention.
+/// guarded-by: tiling_crosscheck_test.zig "cell.isReal mirrors reconcile.isRealConnection over every occupant"
 pub fn isReal(t: Typed) bool {
     return t.kind != .blank;
 }
@@ -258,6 +263,7 @@ pub const View = struct {
     /// Callers apply this only after finding the adjacent cell blank or
     /// out of bounds; an out-of-bounds walk is never reprieved.
     /// guarded-by: cell_test.zig "gapReprieve honours reciprocation and refuses a non-reciprocating collinear cell"
+    /// guarded-by: tiling_crosscheck_test.zig "cell.gapReprieve mirrors reconcile.bitIsPhantom over a mask x occupant matrix"
     pub fn gapReprieve(self: View, x: u32, y: u32, d: Dir4) bool {
         const w = self.lat.width;
         const h = self.lat.height;

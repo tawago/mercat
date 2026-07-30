@@ -24,15 +24,26 @@
 //! ladder. Nothing may be counted twice, so `defectTotal()` stays a sum
 //! of distinct events:
 //!
-//!   arrow      -> the two TIP-PERPENDICULAR bits: lateral exclusivity
-//!                 (arrows.zig). The opposite-tip cell (base support) and
-//!                 the tip-direction abutment (terminal) are disjoint by
-//!                 direction and land in later families.
-//!   stroke     -> arity/stub, dangling, fusion  [not yet implemented]
-//!   ring_node  -> ring stencil + extra-arm fusion  [not yet implemented]
-//!   ring_frame -> frame stencil + fusion  [not yet implemented]
+//!   arrow      -> the two TIP-PERPENDICULAR bits: lateral exclusivity;
+//!                 the opposite-tip cell: base support (both arrows.zig).
+//!                 The tip-direction abutment is disjoint by direction and
+//!                 lands in the terminal family.
+//!   stroke     -> arity/stub, per-arm dangling, collinear fusion
+//!                 (strokes.zig).
+//!   ring_node  -> outline stencil + off-ring fusion (rings.zig).
+//!   ring_frame -> frame stencil + off-ring fusion (rings.zig).
 //!   ghost/glyph/fill/blank -> population counters only.
+//!
+//! One exception, and it is cell-level rather than bit-level: ink sitting
+//! INSIDE a node's fill is a property of the cell, not of any arm, so
+//! `strokes.inkInInterior` is consulted for stroke AND arrowhead cells.
+//! It can fire at most once per cell, so the ownership property holds.
 //! guarded-by: scan_test.zig "ownership: each seeded defect increments defectTotal by exactly one"
+//!
+//! After the lattice tier, the SKETCH-anchored expectation tier
+//! (`expect.zig`) asks what the geometry declared that the ink does not
+//! show. That tier is the only one that allocates, and it degrades to
+//! partial counts rather than failing a render.
 //!
 //! Imports: `std`, `prim`, `lattice.zig`, `sem_graph.zig`, `sketch.zig`,
 //! tiling siblings (see `tools/lint_imports.zig`).
@@ -45,6 +56,9 @@ const sketch = @import("../sketch.zig");
 const cell = @import("cell.zig");
 const counts = @import("counts.zig");
 const arrows = @import("arrows.zig");
+const strokes = @import("strokes.zig");
+const rings = @import("rings.zig");
+const expect = @import("expect.zig");
 
 /// Everything the audit reads. Assembled by the composition root from
 /// values that are already live there; the audit derives nothing itself
@@ -68,16 +82,15 @@ pub const Ctx = struct {
 /// cannot allocate degrades to partial counts (`u_audit_oom`) rather
 /// than propagating an error into a render.
 pub fn run(alloc: std.mem.Allocator, ctx: Ctx) counts.Counts {
-    // Tiers that need scratch memory land in a later commit; the lattice
-    // tier is allocation-free by construction.
-    _ = alloc;
-
     var c: counts.Counts = .{};
     c.n_clustered = @intCast(ctx.graph.clusters.len);
-    c.n_mode_cross = if (ctx.mode == .cross) 1 else 0;
+    const mode_cross = ctx.mode == .cross;
+    c.n_mode_cross = if (mode_cross) 1 else 0;
 
     const w = ctx.lat.width;
     const h = ctx.lat.height;
+    // A zero-sized lattice is an empty render: no ink to judge, and no
+    // position for the expectation tier to look at either.
     if (w == 0 or h == 0) return c;
     c.n_cells = @intCast(@min(@as(u64, w) * @as(u64, h), std.math.maxInt(u32)));
 
@@ -97,12 +110,37 @@ pub fn run(alloc: std.mem.Allocator, ctx: Ctx) counts.Counts {
                 .arrow => {
                     c.n_arrow_cells += 1;
                     arrows.checkLateral(v, x, y, t, &c);
+                    arrows.checkBase(v, x, y, t, &c);
+                    if (strokes.inkInInterior(v, x, y)) c.d_ink_in_interior += 1;
                 },
-                .stroke, .ghost, .ring_node, .ring_frame, .fill, .glyph, .blank => {},
+                .stroke => {
+                    c.n_stroke_cells += 1;
+                    strokes.check(v, x, y, t, &c);
+                },
+                .ghost => c.n_ghost_cells += 1,
+                .ring_node => {
+                    c.n_ring_node_cells += 1;
+                    rings.check(v, x, y, t, mode_cross, &c);
+                },
+                .ring_frame => {
+                    c.n_ring_frame_cells += 1;
+                    rings.check(v, x, y, t, mode_cross, &c);
+                },
+                .fill, .glyph, .blank => {},
             }
         }
         if (cols > w) c.m_row_col_overflow += cols - w;
     }
+
+    expect.check(alloc, .{
+        .graph = ctx.graph,
+        .sketch = ctx.sketch,
+        .lat = ctx.lat,
+        .labels_placed = ctx.labels_placed,
+        .labels_dropped = ctx.labels_dropped,
+        .labels_displaced = ctx.labels_displaced,
+    }, &c);
+
     return c;
 }
 

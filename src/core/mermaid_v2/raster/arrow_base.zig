@@ -63,7 +63,10 @@ fn baseCoord(x: u32, y: u32, tip: lattice.Dir4, w: u32, h: u32) ?struct { x: u32
 /// True when a base `cell` (in an already-painted lattice) legitimately feeds
 /// an arrowhead whose tip points `tip`. A `.label_char` base is exempt (class
 /// 3): the label/title interruption is a convention, not a break in the run.
-fn baseFeedsArrow(cell: *const lattice.Cell, tip: lattice.Dir4) bool {
+/// `pub` for its mirror only: the report-only tiling audit decomposes
+/// `validate` into buckets and must reproduce this exact test.
+/// guarded-by: tiling_crosscheck_test.zig "the base ladder's fed/exempt steps mirror arrow_base.baseFeedsArrow"
+pub fn baseFeedsArrow(cell: *const lattice.Cell, tip: lattice.Dir4) bool {
     switch (cell.occupant) {
         // Structural exemption (class 3): the base is a node/cluster label or
         // title glyph. The owner's frame-solid convention leaves such a run
@@ -96,7 +99,10 @@ fn isRealConnection(occ: lattice.Occupant) bool {
 /// FRAME/BORDER cell coincident with the arrowhead is NOT a side-feed (the
 /// frame just passes through), so this checks the neighbour's OCCUPANT, not the
 /// arrowhead's own inherited mask.
-fn sideFed(lat: *const lattice.Lattice, x: u32, y: u32, tip: lattice.Dir4) bool {
+/// `pub` for its mirror only: the report-only tiling audit reproduces this
+/// predicate to bucket side-fed arrowheads out of its defect total.
+/// guarded-by: tiling_crosscheck_test.zig "sideFed mirrors raster/arrow_base.sideFed over an occupant x mask matrix"
+pub fn sideFed(lat: *const lattice.Lattice, x: u32, y: u32, tip: lattice.Dir4) bool {
     const w = lat.width;
     const h = lat.height;
     // Perpendicular directions and the arm each neighbour needs to point back.

@@ -85,6 +85,20 @@ test "writeLine: one token per field plus d_total, mercat-tiling prefix" {
     try testing.expect(it.next() == null);
 }
 
+test "writeLine: the whole taxonomy fits the line buffer with room to grow" {
+    // Worst case by construction: every counter printed at its widest
+    // (10 digits for a u32), plus the prefix and the derived total. The
+    // `MissingToken` failure above catches a silent truncation once it
+    // happens; this says how much headroom is left before it can.
+    const worst = comptime blk: {
+        var n: usize = counts.line_prefix.len + " d_total=".len + 10;
+        for (fields) |f| n += 1 + f.name.len + 1 + 10;
+        break :blk n;
+    };
+    try testing.expect(worst < counts.line_buf_len);
+    try testing.expect(worst * 2 < counts.line_buf_len);
+}
+
 test "writeLine: a buffer too small truncates instead of failing" {
     const c: counts.Counts = .{};
     var tiny: [8]u8 = undefined;

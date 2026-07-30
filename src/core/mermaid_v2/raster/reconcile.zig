@@ -19,7 +19,10 @@ const ew = @import("edges_write.zig");
 /// `.cluster_border` counts as real WITHOUT requiring reciprocity, so a
 /// frame-bridge approach arm survives reconciliation (frame-solid
 /// convention). // guarded-by: reconcile_test.zig "reconcileNeighbours: frame-bridge approach arm facing a non-reciprocating cluster_border is kept"
-fn isRealConnection(occ: lattice.Occupant) bool {
+/// `pub` for its mirror only: the report-only tiling audit duplicates this
+/// predicate (its lint zone denies `raster/`) and the drift pin needs the
+/// original. // guarded-by: tiling_crosscheck_test.zig "cell.isReal mirrors reconcile.isRealConnection over every occupant"
+pub fn isRealConnection(occ: lattice.Occupant) bool {
     return switch (occ) {
         .empty => false,
         .node_interior,
@@ -70,7 +73,10 @@ fn reprieveReciprocates(cell: *const lattice.Cell, d: lattice.Dir4) bool {
 /// port-padding reprieve when the adjacent cell is empty but the cell
 /// beyond it (same axis) genuinely continues the run (reciprocates or is a
 /// terminal arrowhead). // guarded-by: reconcile_test.zig "reconcileNeighbours: 1-cell port gap before a reciprocating node border keeps the bit (duplicate-point reprieve)"
-fn bitIsPhantom(lat: *const lattice.Lattice, x: u32, y: u32, d: lattice.Dir4) bool {
+/// `pub` for its mirror only: the tiling audit's `gapReprieve` reproduces
+/// the empty-adjacent branch of this walk and the drift pin needs the
+/// original. // guarded-by: tiling_crosscheck_test.zig "cell.gapReprieve mirrors reconcile.bitIsPhantom over a mask x occupant matrix"
+pub fn bitIsPhantom(lat: *const lattice.Lattice, x: u32, y: u32, d: lattice.Dir4) bool {
     // Adjacent cell coordinates (ax,ay) and the cell one step beyond
     // (bx,by) along the same axis. `null` means out of bounds.
     const Pair = struct { ax: ?u32, ay: ?u32, bx: ?u32, by: ?u32 };
