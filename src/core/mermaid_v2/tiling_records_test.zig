@@ -23,6 +23,7 @@ const select = @import("select.zig");
 const raster = @import("raster.zig");
 const scan = @import("tiling/scan.zig");
 const cell = @import("tiling/cell.zig");
+const fanrole = @import("tiling/fanrole.zig");
 
 const testing = std.testing;
 
@@ -369,4 +370,43 @@ test "collecting the side table changes no painted cell" {
         try testing.expectEqual(@as(usize, 0), off.lattice.aux.len);
         try testing.expectEqualSlices(lattice.Cell, off.lattice.cells, on.lattice.cells);
     };
+}
+
+test "the fan-role shadow reaches both readings on real renders and moves nothing" {
+    // The comparator is the instrument that decides whether the post-walk
+    // stamping pass can be replaced by the producers' own records, so it has
+    // to be shown running on real geometry: reaching cells where the two
+    // readings AGREE (or it would be measuring nothing), reaching cells a
+    // first-class rail owns (the population it must decline to judge), and
+    // leaving the shipped lattice exactly as it found it.
+    //
+    // The residual divergence is deliberately NOT pinned to a number here.
+    // It is the corpus-wide gate the harness measures, and it moves whenever
+    // fan routing does; freezing it in a unit test would turn an instrument
+    // reading into a rule.
+    var agreements: u32 = 0;
+    var rail_owned: u32 = 0;
+    for (corpus) |source| for (widths) |width| {
+        var arena = std.heap.ArenaAllocator.init(testing.allocator);
+        defer arena.deinit();
+        const a = arena.allocator();
+
+        const r = try render(a, source, width);
+        const before = try a.dupe(lattice.Cell, r.report.lattice.cells);
+
+        const c = fanrole.run(.{ .sketch = r.sketch, .lat = &r.report.lattice });
+        try testing.expectEqualSlices(lattice.Cell, before, r.report.lattice.cells);
+
+        // Bookkeeping identity, per family: the mask dimension is judged on
+        // exactly the cells whose role the two readings agree on.
+        inline for (.{ "fan_out", "fan_in" }) |family| {
+            const b = @field(c, family);
+            try testing.expectEqual(b.role_match, b.mask_match + b.mask_mismatch);
+            try testing.expect(b.pivot_unresolved <= b.mask_match);
+        }
+        agreements += c.fan_out.role_match + c.fan_in.role_match;
+        rail_owned += c.rail_owned;
+    };
+    try testing.expect(agreements > 0);
+    try testing.expect(rail_owned > 0);
 }

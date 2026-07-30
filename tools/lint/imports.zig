@@ -118,12 +118,18 @@ pub const Rule = union(enum) {
 ///                   that need both cluster/ and layout/ zone privileges
 ///                   (split out to keep recurse.zig under the 500-line cap).
 ///   tiling/expect.zig   the report-only audit's expectation tier: the ONE
-///                   tiling file (with scan.zig) allowed to see Sketch and
-///                   SemGraph, so an ink law can never quietly become
-///                   expectation-driven. Everything else in tiling/ is
+///                   tiling file (with scan.zig and fanrole.zig) allowed to
+///                   see Sketch and SemGraph, so an ink law can never quietly
+///                   become expectation-driven. Everything else in tiling/ is
 ///                   lattice-only via the zone block in `checkImport`.
 ///   tiling/scan.zig the audit orchestrator: lattice + Sketch/SemGraph for
 ///                   the Ctx it assembles, plus its tiling siblings.
+///   tiling/fanrole.zig  the fan-role shadow comparator: lattice + Sketch,
+///                   because the fan facts it derives its expectation from
+///                   (a rail's pivot and geometry, a fan edge's endpoints,
+///                   node rects) live in the Sketch and nowhere else. No
+///                   SemGraph: it compares two readings of the raster, not
+///                   the diagram's semantics.
 ///   tiling_crosscheck_test.zig  root-level e2e cross-check for tiling/:
 ///                   needs the privileges the tiling zone denies (raster,
 ///                   select, paint, budget, permits) to prove the audit is
@@ -329,6 +335,16 @@ pub const file_allowlists = [_]struct {
         .reason = "tiling/scan may only import std, prim, base/*, sem_graph, sketch, lattice, or tiling siblings",
     },
     .{
+        .name = "tiling/fanrole.zig",
+        .allowed = &.{ .sketch, .{ .exact = "../lattice.zig" }, .{ .exact = "cell.zig" } },
+        .reason = "tiling/fanrole may only import std, prim, base/*, sketch, lattice, or cell",
+    },
+    .{
+        .name = "tiling/fanrole_test.zig",
+        .allowed = &.{ .sketch, .{ .exact = "../lattice.zig" }, .{ .exact = "fanrole.zig" }, .{ .exact = "cell.zig" } },
+        .reason = "tiling/fanrole_test may only import std, prim, base/*, sketch, lattice, fanrole, or cell",
+    },
+    .{
         .name = "tiling/scan_test.zig",
         .allowed = &.{ .sem_graph, .sketch, .{ .exact = "../lattice.zig" }, .{ .exact = "scan.zig" }, .{ .exact = "counts.zig" }, .{ .exact = "cell.zig" } },
         .reason = "tiling/scan_test may only import std, prim, base/*, sem_graph, sketch, lattice, scan, counts, or cell",
@@ -353,7 +369,7 @@ pub const file_allowlists = [_]struct {
             .parse_zone,                        .raster_zone,
             .{ .exact = "lattice.zig" },        .{ .exact = "select.zig" },
             .{ .exact = "ledger/permits.zig" }, .{ .exact = "tiling/scan.zig" },
-            .{ .exact = "tiling/cell.zig" },
+            .{ .exact = "tiling/cell.zig" },    .{ .exact = "tiling/fanrole.zig" },
         },
         .reason = "tiling_records_test may only import std, prim, base/*, sem_graph, sketch, parse, raster, lattice, select, ledger/permits, or tiling entry points",
     },

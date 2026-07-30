@@ -47,6 +47,7 @@ const motif_mod = @import("motif.zig");
 const ledger = @import("base/ledger.zig");
 const permits_mod = @import("ledger/permits.zig");
 const tiling_scan = @import("tiling/scan.zig");
+const tiling_fanrole = @import("tiling/fanrole.zig");
 const prim = @import("prim");
 
 pub const Sketch = sketch_types.Sketch;
@@ -131,6 +132,15 @@ const EnvOptions = struct {
     /// lattice, mutates nothing, never reaches score/selection.
     /// guarded-by: scan_test.zig "scan: run() leaves the lattice byte-identical"
     tiling_audit: bool,
+    /// MERCAT_FANROLE_SHADOW=1: emit one `mercat-fanrole-shadow:` counters
+    /// line per diagram to stderr (tiling/fanrole.zig). Report-only in the
+    /// same sense as `tiling_audit`: it reads the FINAL lattice plus the
+    /// winning Sketch's fan facts and compares the fan roles/masks the
+    /// post-walk stamping pass INFERRED against the ones the producers'
+    /// own side-table records DERIVE. Mutates nothing, never reaches
+    /// score/selection.
+    /// guarded-by: fanrole_test.zig "run leaves the lattice byte-identical"
+    fanrole_shadow: bool,
 
     fn read() EnvOptions {
         return .{
@@ -143,6 +153,7 @@ const EnvOptions = struct {
             .dump_motifs = envIsOne("MERCAT_DUMP_MOTIFS"),
             .integrity = envIsOne("MERCAT_INTEGRITY"),
             .tiling_audit = envIsOne("MERCAT_TILING_AUDIT"),
+            .fanrole_shadow = envIsOne("MERCAT_FANROLE_SHADOW"),
         };
     }
 };
@@ -278,6 +289,14 @@ pub fn renderFlowchart(
         .labels_dropped = raster_report.labels_dropped,
         .labels_displaced = raster_report.labels_displaced,
         .edge_cells_lost = raster_report.edge_cells_lost,
+    });
+
+    // Fan-role shadow (tiling/fanrole.zig): the producers' records vs the
+    // post-walk stamping pass's inference over the same lattice. One stderr
+    // line under the knob; nothing downstream reads the result.
+    if (env.fanrole_shadow) tiling_fanrole.emit(.{
+        .sketch = sketch_val,
+        .lat = &raster_report.lattice,
     });
 
     // Clip the painter to the winning budget — the honest terminal.
@@ -465,6 +484,7 @@ test {
     _ = @import("tiling/terminal_test.zig");
     _ = @import("tiling/expect_test.zig");
     _ = @import("tiling/scan_test.zig");
+    _ = @import("tiling/fanrole_test.zig");
     _ = @import("tiling_crosscheck_test.zig");
     _ = @import("tiling_records_test.zig");
     _ = @import("tiling_weld_test.zig");
