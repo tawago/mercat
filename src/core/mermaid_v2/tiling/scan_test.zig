@@ -1,5 +1,5 @@
 //! Unit tests for `tiling/scan.zig`: non-mutation, the ownership
-//! property, the meta counters, and the item-4 column bridge.
+//! property, the meta counters, and the EAW label-geometry bridge.
 
 const std = @import("std");
 const lattice = @import("../lattice.zig");
@@ -52,7 +52,7 @@ fn edgeCell(nb: lattice.Neighbours) lattice.Cell {
 }
 
 test "scan: run() leaves the lattice byte-identical" {
-    // The pinned proof of D2: the audit hands out copies only, cannot
+    // The pinned non-mutation proof: the audit hands out copies only, cannot
     // reach a writer, and demonstrably changes nothing.
     var buf: [9]lattice.Cell = undefined;
     for (&buf) |*c| c.* = lattice.Cell.empty;
@@ -142,7 +142,7 @@ test "scan: meta counters record cells and frame notation" {
     try testing.expectEqual(@as(u32, 1), c.n_mode_cross);
 }
 
-test "scan: the item-4 bridge sees a wide label lying about its row width" {
+test "scan: the EAW label bridge sees a wide label lying about its row width" {
     // A CJK label cell occupies ONE lattice cell but paints TWO columns:
     // the row claims 3 cells and paints 4. This is the audit vocabulary
     // the EAW writer fix is measured against.

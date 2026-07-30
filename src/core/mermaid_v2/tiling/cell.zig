@@ -217,7 +217,7 @@ pub const View = struct {
     /// `paint.cellWidth`: every glyph the painter emits is width 1 except
     /// a label codepoint, which is sized by East-Asian Width. The gap
     /// between this and the one cell the label writer advanced is the
-    /// item-4 defect `m_row_col_overflow` measures.
+    /// EAW label-geometry defect `m_row_col_overflow` measures.
     /// guarded-by: cell_test.zig "columns mirrors paint.cellWidth: wide label glyph is two columns"
     pub fn columns(self: View, x: u32, y: u32) u32 {
         if (x >= self.lat.width or y >= self.lat.height) return 0;

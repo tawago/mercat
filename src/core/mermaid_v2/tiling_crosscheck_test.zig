@@ -124,13 +124,14 @@ test "tiling audit is idempotent and its meta counters describe the render" {
 }
 
 test "clustered crossing render has zero orphan arrowhead laterals" {
-    // The adversarial fixture for R1: on clustered renders the crossing
-    // suppression pass is inert (its permits are skipped) and the edge
-    // writer OR-merges foreign transversal bits into arrowhead cells. If
-    // any of that legal population landed in a defect bucket, the audit
-    // would be measuring the renderer's conventions instead of its
-    // mistakes. The answer to a legal case is a new `c_` bucket, never a
-    // filter — so this asserts ZERO, not "small".
+    // The clustered-crossing adversarial fixture: on clustered renders
+    // the crossing suppression pass is inert (its permits are skipped)
+    // and the edge writer OR-merges foreign transversal bits into
+    // arrowhead cells. If any of that legal population landed in a
+    // defect bucket, the audit would be measuring the renderer's
+    // conventions instead of its mistakes. The answer to a legal case is
+    // a new `c_` bucket, never a filter — so this asserts ZERO, not
+    // "small".
     const clustered = [_][]const u8{
         "flowchart TD\n  subgraph S1\n    A --> B\n  end\n  subgraph S2\n    C --> D\n  end\n  A --> D\n  C --> B\n",
         "flowchart LR\n  subgraph S1\n    A --> B\n  end\n  subgraph S2\n    C --> D\n  end\n  A --> D\n  C --> B\n",

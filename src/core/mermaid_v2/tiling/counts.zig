@@ -69,7 +69,7 @@ pub const Counts = struct {
     /// these accumulate rather than being repaired.
     d_arrow_lat_orphan: u32 = 0,
 
-    // -- item-4 bridge: EAW label geometry ----------------------------
+    // -- EAW label-geometry bridge ------------------------------------
     /// Label cells holding an East-Asian-Wide codepoint. Each such cell
     /// paints two columns while occupying one lattice cell.
     m_wide_label_cells: u32 = 0,
