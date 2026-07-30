@@ -14,6 +14,7 @@ const prim = @import("prim");
 const sketch = @import("../sketch.zig");
 const lattice = @import("../lattice.zig");
 const labels_edge = @import("labels_edge.zig");
+const lw = @import("labels_write.zig");
 
 // Scoped logger — see module docstring. .debug keeps placement diagnostics
 // out of release-build stderr while staying available to developers.
@@ -180,12 +181,6 @@ pub fn cellSpanOf(text: []const u8) u32 {
     return total;
 }
 
-/// Stamp a continuation cell: the tail column of the wide glyph whose
-/// head sits immediately west.
-fn writeContCell(lat: *lattice.Lattice, x: u32, row: u32) void {
-    lat.at(x, row).* = .{ .occupant = .label_cont, .neighbours = .{} };
-}
-
 /// Write one node-label codepoint at (x,row), claiming all `span` cells
 /// of its footprint. All-or-nothing: every cell must be `np`'s interior,
 /// so a wide glyph is never split across foreign ink and never leaves a
@@ -220,12 +215,7 @@ fn writeNodeSpan(
             },
         }
     }
-    lat.at(x, row).* = .{
-        .occupant = .{ .label_char = cp },
-        .neighbours = .{},
-    };
-    i = 1;
-    while (i < span) : (i += 1) writeContCell(lat, x + i, row);
+    lw.writeSpan(lat, x, row, cp, span);
     return true;
 }
 
@@ -303,10 +293,7 @@ fn placeNodeLabel(
 /// old render and the arrowhead below the band is the resumed edge. No
 /// title-space conduction.
 fn stampTitleCell(lat: *lattice.Lattice, x: u32, row: u32, cp: u21) void {
-    lat.at(x, row).* = .{
-        .occupant = .{ .label_char = cp },
-        .neighbours = .{},
-    };
+    lw.writeGlyph(lat, x, row, cp);
 }
 
 fn placeClusterLabel(
@@ -368,7 +355,7 @@ fn placeClusterLabel(
         // Overwrite cluster_border edge_n cells (and tolerate empty too).
         stampTitleCell(lat, x, row, cp);
         var i: u32 = 1;
-        while (i < span) : (i += 1) writeContCell(lat, x + i, row);
+        while (i < span) : (i += 1) lw.writeCont(lat, x + i, row);
         wrote += 1;
         x += span;
     }

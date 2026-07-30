@@ -13,6 +13,7 @@ const prim = @import("prim");
 const sketch = @import("../sketch.zig");
 const lattice = @import("../lattice.zig");
 const labels = @import("labels.zig");
+const lw = @import("labels_write.zig");
 
 const log = std.log.scoped(.@"mermaid_v2.raster.labels");
 
@@ -216,15 +217,8 @@ fn tryWrite(
         const dc = labels.nextCodepoint(label, bi);
         bi += dc.byte_len;
         const cp = labels.sentinelToSpace(dc.cp);
-        lat.at(x, row).* = .{
-            .occupant = .{ .label_char = cp },
-            .neighbours = .{},
-        };
         const span = labels.cellSpan(cp);
-        var k: u32 = 1;
-        while (k < span) : (k += 1) {
-            lat.at(x + k, row).* = .{ .occupant = .label_cont, .neighbours = .{} };
-        }
+        lw.writeSpan(lat, x, row, cp, span);
         x += span;
     }
     return true;
