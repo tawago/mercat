@@ -88,7 +88,7 @@ pub fn bandMargin(
     first: u32,
     last: u32,
 ) error{OutOfMemory}!i32 {
-    var demands: std.ArrayListUnmanaged(lanes.Demand) = .empty;
+    var demands: std.ArrayListUnmanaged(lanes.LaneClaim) = .empty;
     defer demands.deinit(a);
     for (spans) |sp| {
         if (sp.hi < first or sp.lo > last) continue; // disjoint from band

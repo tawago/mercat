@@ -236,6 +236,6 @@ test "verticalCorridor: the source-side jog row (one past the source) is collisi
 
     // The claim under test: this derived row is ACTUALLY collision-free,
     // not merely assumed so — checked against every real placement other
-    // than the edge's own endpoints, exactly as `polyPierces` would.
+    // than the edge's own endpoints, exactly as `polyIntrudes` would.
     try std.testing.expect(!sketch.columnTouchesAny(poly[1].x, poly[0].y, poly[1].y, &placements, 0, 1));
 }

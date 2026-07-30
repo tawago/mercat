@@ -132,7 +132,7 @@ pub fn resolve(
     if (order.items.len == 0) return out;
     std.mem.sort(usize, order.items, SortCtx{ .reqs = reqs, .sign = sign }, SortCtx.lessThan);
 
-    const demands = try arena.alloc(lanes.Demand, order.items.len);
+    const demands = try arena.alloc(lanes.LaneClaim, order.items.len);
     for (order.items, 0..) |ri, k| {
         const r = reqs[ri];
         demands[k] = .{

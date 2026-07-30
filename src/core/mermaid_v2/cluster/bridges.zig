@@ -83,12 +83,12 @@ pub fn route(
     // through a node interior (a cross-border edge whose source has an
     // intra-cluster child sitting directly below it), re-route as a
     // corridor that jogs into a clear column before descending. Gating on
-    // an actual pierce keeps every non-piercing seed byte-identical.
+    // an actual intrusion keeps every non-intruding seed byte-identical.
     var out: std.ArrayListUnmanaged(sketch.EdgePath) = .empty;
     for (pends.items) |p| {
         var poly = try buildElbow(arena, p);
         const is_vertical = (p.sides.exit == .north or p.sides.exit == .south);
-        if (is_vertical and polyPierces(poly, placements, p.gf, p.gt)) {
+        if (is_vertical and polyIntrudes(poly, placements, p.gf, p.gt)) {
             poly = try verticalCorridor(arena, p.start, p.end, p.to_box, p.sides.exit, placements, p.gf, p.gt, clusters);
         }
 
@@ -357,7 +357,7 @@ fn verticalCorridor(
 /// because the raster owns border cells: a bridge leg running along a
 /// foreign border column rasterizes as swallowed edge cells even though
 /// the strict-interior validator stays silent.
-fn polyPierces(
+fn polyIntrudes(
     poly: []const sketch.Point,
     placements: []const sketch.NodePlacement,
     from_id: sketch.NodeId,

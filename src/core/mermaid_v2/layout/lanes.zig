@@ -1,13 +1,13 @@
 //! Lane-packing primitives for fitting several parallel runs (e.g. back-edge
 //! rails, bridge tracks) into a shared cross-axis "gutter". Re-exports the
-//! pure interval-packer core (`Demand`, `assign`, `Gutter`, `gutter`) from
-//! `../lanes.zig`, so cluster/ can use it too (the linter forbids
+//! pure interval-packer core (`LaneClaim`, `assign`, `Gutter`, `gutter`) from
+//! `../base/lanes.zig`, so cluster/ can use it too (the linter forbids
 //! cluster/ → layout/ imports); adds the placement-aware obstacle search
 //! (`runClear`, `clearRunBase`), which needs sketch geometry and so stays
 //! here. Axis-parameterized via `horizontal`; makes no post-`applyDirection`
 //! assumptions, so usable both pre- and post-direction-transform.
 //!
-//! Imports (layout/ zone): `std`, `../lanes.zig`, `../sem_graph.zig`,
+//! Imports (layout/ zone): `std`, `../base/lanes.zig`, `../sem_graph.zig`,
 //! `../sketch.zig`, `routing_polyline.zig`.
 
 const std = @import("std");
@@ -16,7 +16,7 @@ const sketch = @import("../sketch.zig");
 const rp = @import("routing_polyline.zig");
 const lanes = @import("../base/lanes.zig");
 
-pub const Demand = lanes.Demand;
+pub const LaneClaim = lanes.LaneClaim;
 pub const Assignment = lanes.Assignment;
 pub const assign = lanes.assign;
 pub const Gutter = lanes.Gutter;
@@ -51,7 +51,7 @@ fn inflateCross(horizontal: bool, r: sketch.Rect, pad: i32) sketch.Rect {
 }
 
 /// True iff a straight run at cross position `c` over the flow interval
-/// `[lo, hi]` pierces the interior of any node box — EXCLUDING the two
+/// `[lo, hi]` intrudes into the interior of any node box — EXCLUDING the two
 /// endpoint boxes — after cross-axis inflation by `pad + 1`.
 pub fn runClear(
     horizontal: bool,
@@ -66,11 +66,11 @@ pub fn runClear(
     for (placements) |p| {
         if (p.id == from_id or p.id == to_id) continue;
         const inflated = inflateCross(horizontal, p.rect, pad);
-        const pierces = if (horizontal)
-            rp.rowPiercesRect(c, lo, hi, inflated)
+        const intrudes = if (horizontal)
+            rp.rowIntrudesRect(c, lo, hi, inflated)
         else
-            rp.columnPiercesRect(c, lo, hi, inflated);
-        if (pierces) return false;
+            rp.columnIntrudesRect(c, lo, hi, inflated);
+        if (intrudes) return false;
     }
     return true;
 }

@@ -245,19 +245,19 @@ test "north/south port jog pad is never zero, near or far (guards clean ^/v)" {
 }
 
 /// True iff the vertical/horizontal segment prev->end passes through the
-/// strict open interior of `r` (the validator-mirror pierce predicates).
-fn finalLegPierces(prev: sketch.Point, end: sketch.Point, r: sketch.Rect) bool {
-    if (prev.x == end.x) return rp.columnPiercesRect(prev.x, @min(prev.y, end.y), @max(prev.y, end.y), r);
-    return rp.rowPiercesRect(prev.y, @min(prev.x, end.x), @max(prev.x, end.x), r);
+/// strict open interior of `r` (the validator-mirror intrusion predicates).
+fn finalLegIntrudes(prev: sketch.Point, end: sketch.Point, r: sketch.Rect) bool {
+    if (prev.x == end.x) return rp.columnIntrudesRect(prev.x, @min(prev.y, end.y), @max(prev.y, end.y), r);
+    return rp.rowIntrudesRect(prev.y, @min(prev.x, end.x), @max(prev.x, end.x), r);
 }
 
 test "final approach reconciles a below-approach opposite-side port to the entry-side terminal" {
     // Reproduces the pr_review CR->ReviseCode geometry: a dodging interior
     // shift left the run BELOW the target while its allocated port is NORTH
     // (top). The final leg (29,26)->(29,22) climbs through the whole box to
-    // reach the recorded top border — a pierce the rasterizer drops. The
+    // reach the recorded top border — an intrusion the rasterizer drops. The
     // reconciler must flip the port to SOUTH and land the endpoint on the
-    // bottom border (29,24), turning the pierce into a clean upward ▲.
+    // bottom border (29,24), turning the intrusion into a clean upward ▲.
     const rc = sketch.Rect{ .x = 22, .y = 22, .w = 13, .h = 3 }; // north offset 7 -> x=29
     const to_p = mkPlacement(1, rc);
 
@@ -265,16 +265,16 @@ test "final approach reconciles a below-approach opposite-side port to the entry
         .{ .x = 10, .y = 19 }, .{ .x = 10, .y = 26 }, .{ .x = 29, .y = 26 }, .{ .x = 29, .y = 22 },
     };
     const north_port = sketch.Port{ .node = 1, .side = .north, .offset = 7 };
-    // Precondition: the recorded (north) terminal makes the final leg pierce.
-    try testing.expect(finalLegPierces(below[below.len - 2], below[below.len - 1], rc));
+    // Precondition: the recorded (north) terminal makes the final leg intrude.
+    try testing.expect(finalLegIntrudes(below[below.len - 2], below[below.len - 1], rc));
 
     const fixed = rp.reconcileTerminalSide(&below, to_p, north_port);
     try testing.expectEqual(sketch.Dir4.south, fixed.side);
     try testing.expectEqual(@as(u32, 7), fixed.offset);
     try testing.expectEqual(sketch.Point{ .x = 29, .y = 24 }, below[below.len - 1]);
     // The corrected final leg (29,26)->(29,24) enters the bottom border and
-    // no longer pierces; it is a clean non-degenerate upward approach.
-    try testing.expect(!finalLegPierces(below[below.len - 2], below[below.len - 1], rc));
+    // no longer intrudes; it is a clean non-degenerate upward approach.
+    try testing.expect(!finalLegIntrudes(below[below.len - 2], below[below.len - 1], rc));
     try expectCleanVerticalFinalApproach(&below, false);
 }
 

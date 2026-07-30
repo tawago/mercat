@@ -30,6 +30,21 @@ pub const table = [_]Row{
         .why = "entry.zig is the sole env-knob reader in mermaid_v2 (see its header); thread values down as plain parameters",
         .allow = &.{"entry.zig"},
     },
+    .{
+        .token = "lanes.Demand",
+        .why = "renamed lanes.LaneClaim (rename wave A); the qualified old spelling is retired",
+    },
+    .{
+        .token = "pub const Demand",
+        .only = &.{"lanes.zig"},
+        .why = "base/lanes.zig's interval type is LaneClaim; ports.zig's SideDemand family is unrelated and unaffected",
+    },
+    .{
+        .token = "PiercesRect",
+        .why = "columnPiercesRect/rowPiercesRect are columnIntrudesRect/rowIntrudesRect: they detect illegal strict-interior intrusion; 'pierce' is reserved for licensed border-crossing corridors",
+    },
+    .{ .token = "polyPierces", .why = "renamed polyIntrudes (rename wave A)" },
+    .{ .token = "finalLegPierces", .why = "renamed finalLegIntrudes (rename wave A)" },
 };
 
 fn basenameOf(rel_path: []const u8) []const u8 {
@@ -165,6 +180,18 @@ test "banned token: repeated occurrences report once per file" {
 
     try testing.expectEqual(@as(usize, 1), got.list.items.len);
     try testing.expect(std.mem.indexOf(u8, got.list.items[0], ":1:") != null);
+}
+
+test "banned token: a reverted wave-A spelling fires" {
+    const a = testing.allocator;
+    // Synthetic content, so the assertion never depends on tree state: if the
+    // retired lane-type spelling comes back anywhere, the production table
+    // must catch it and name the replacement.
+    var got = try collect(a, "layout/thing.zig", "const d = lanes.Demand{};\n", &table);
+    defer got.deinit(a);
+
+    try testing.expectEqual(@as(usize, 1), got.list.items.len);
+    try testing.expect(std.mem.indexOf(u8, got.list.items[0], "LaneClaim") != null);
 }
 
 test "banned token: production table is well-formed" {

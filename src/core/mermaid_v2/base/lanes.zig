@@ -1,7 +1,7 @@
 //! Pure interval "lane" packer shared by the layout zone (back-edge rails,
 //! chain_wrap gutter negotiation) and the cluster zone (cross-border bridge
-//! track discipline). `Demand` is a flow-axis interval `[lo, hi]` plus a
-//! natural (unstacked) cross-axis `base`; `assign` greedily packs demands
+//! track discipline). `LaneClaim` is a flow-axis interval `[lo, hi]` plus a
+//! natural (unstacked) cross-axis `base`; `assign` greedily packs claims
 //! into the innermost compatible lane and resolves each lane's physical
 //! cross position; `gutter` reports the resulting shape without committing
 //! placements. No geometry/placement/sketch types: pure integers in/out.
@@ -13,22 +13,22 @@ const std = @import("std");
 /// One request for gutter space: a run that occupies the flow-axis interval
 /// `[lo, hi]` (inclusive, e.g. a back-edge's spanned layer range) and would
 /// naturally sit at cross position `base` (no stacking applied yet).
-pub const Demand = struct {
+pub const LaneClaim = struct {
     lo: u32,
     hi: u32,
     base: i32,
 };
 
-/// Result of `assign`: which lane each demand landed in, and where each lane
+/// Result of `assign`: which lane each claim landed in, and where each lane
 /// physically sits on the cross axis.
 pub const Assignment = struct {
-    /// Parallel to the input demands: `lane_of[i]` is the lane index that
-    /// `demands[i]` was packed into (0 = innermost).
+    /// Parallel to the input claims: `lane_of[i]` is the lane index that
+    /// `claims[i]` was packed into (0 = innermost).
     lane_of: []u32,
     /// Resolved cross position per lane, innermost first.
     lane_pos: []i32,
 
-    /// Resolved cross position for the `i`-th input demand.
+    /// Resolved cross position for the `i`-th input claim.
     pub fn posOf(self: Assignment, i: usize) i32 {
         return self.lane_pos[self.lane_of[i]];
     }
@@ -39,25 +39,25 @@ pub const Assignment = struct {
     }
 };
 
-/// True iff demand `d` overlaps any lane member's flow interval. Overlapping
+/// True iff claim `c` overlaps any lane member's flow interval. Overlapping
 /// intervals cannot share a lane (their runs would coexist on shared flow
 /// rows/columns and merge into one line).
-fn overlapsAny(demands: []const Demand, members: []const u32, d: Demand) bool {
+fn overlapsAny(claims: []const LaneClaim, members: []const u32, c: LaneClaim) bool {
     for (members) |mi| {
-        const m = demands[mi];
-        if (!(d.hi < m.lo or d.lo > m.hi)) return true;
+        const m = claims[mi];
+        if (!(c.hi < m.lo or c.lo > m.hi)) return true;
     }
     return false;
 }
 
-/// Greedy lane assignment over `demands` IN THE GIVEN ORDER (callers that
+/// Greedy lane assignment over `claims` IN THE GIVEN ORDER (callers that
 /// want span-ascending packing must pre-sort; the order is part of the
 /// packing's tie-break contract).
 ///
-/// A "lane" is a shared cross position occupied by one or more demands whose
+/// A "lane" is a shared cross position occupied by one or more claims whose
 /// flow intervals are mutually disjoint — their runs never coexist on the
 /// same flow row/column, so they can safely share without merging. Each
-/// demand picks the innermost (smallest-index) lane it fits in; if it
+/// claim picks the innermost (smallest-index) lane it fits in; if it
 /// overlaps a member of every existing lane, a new outer lane is created.
 ///
 /// A lane's physical position is the max of its members' `base`s, floored to
@@ -65,10 +65,10 @@ fn overlapsAny(demands: []const Demand, members: []const u32, d: Demand) bool {
 /// lanes' runs stay visually distinct.
 pub fn assign(
     a: std.mem.Allocator,
-    demands: []const Demand,
+    claims: []const LaneClaim,
     stack_gap: i32,
 ) error{OutOfMemory}!Assignment {
-    const lane_of = try a.alloc(u32, demands.len);
+    const lane_of = try a.alloc(u32, claims.len);
     errdefer a.free(lane_of);
 
     const Lane = struct {
@@ -81,10 +81,10 @@ pub fn assign(
         lanes_buf.deinit(a);
     }
 
-    for (demands, 0..) |d, i| {
+    for (claims, 0..) |c, i| {
         var chosen: ?usize = null;
         for (lanes_buf.items, 0..) |ln, li| {
-            if (!overlapsAny(demands, ln.members.items, d)) {
+            if (!overlapsAny(claims, ln.members.items, c)) {
                 chosen = li;
                 break;
             }
@@ -97,7 +97,7 @@ pub fn assign(
         };
         var ln = &lanes_buf.items[li];
         try ln.members.append(a, @intCast(i));
-        if (d.base > ln.max_base) ln.max_base = d.base;
+        if (c.base > ln.max_base) ln.max_base = c.base;
         lane_of[i] = @intCast(li);
     }
 
@@ -116,23 +116,23 @@ pub fn assign(
     return .{ .lane_of = lane_of, .lane_pos = lane_pos };
 }
 
-/// Shape of the gutter that a set of demands would produce.
+/// Shape of the gutter that a set of claims would produce.
 pub const Gutter = struct {
     /// Number of parallel lanes required.
     lanes: u32,
-    /// Resolved cross position of the outermost lane (0 when no demands).
+    /// Resolved cross position of the outermost lane (0 when no claims).
     outermost: i32,
 };
 
-/// Pure query: pack `demands` and report the resulting gutter shape WITHOUT
+/// Pure query: pack `claims` and report the resulting gutter shape WITHOUT
 /// committing any placements ("given these back-edge spans crossing a band
 /// boundary, what gutter width results?").
 pub fn gutter(
     a: std.mem.Allocator,
-    demands: []const Demand,
+    claims: []const LaneClaim,
     stack_gap: i32,
 ) error{OutOfMemory}!Gutter {
-    var asg = try assign(a, demands, stack_gap);
+    var asg = try assign(a, claims, stack_gap);
     defer asg.deinit(a);
     return .{
         .lanes = @intCast(asg.lane_pos.len),

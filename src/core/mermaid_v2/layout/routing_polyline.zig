@@ -3,7 +3,7 @@
 //! Contains `routePolyline` (the main forward-edge routing function),
 //! `skipCorridorExtraRows` (per-gap extra row allocation for skip edges),
 //! and the supporting helpers `placementAxis`, `insetPort`, `absDiff`,
-//! `portPoint`, plus the strict-interior "pierce" predicates. Touch-semantics
+//! `portPoint`, plus the strict-interior intrusion predicates. Touch-semantics
 //! clearance (used when CHOOSING an edge run's line) lives in `sketch.zig`.
 //! Imports: only `std`, `../sem_graph.zig`, `../sketch.zig`, `sugiyama.zig`.
 
@@ -130,11 +130,11 @@ fn oppositeSide(side: sketch.Dir4) sketch.Dir4 {
 /// the approach run to the side of the target OPPOSITE its allocated port,
 /// the recorded endpoint sits on the far border and the final leg crosses
 /// the whole box interior to reach it — the rasterizer then drops those
-/// pierced cells (arrowhead included). Nothing upstream enforces that the
-/// final-approach side equals the terminal-port side, so this closes the
-/// gap at the router's exit: if the final leg enters from the port's exact
-/// opposite side (with `prev` strictly outside the box), flip the port to
-/// the entry side and move the endpoint onto that border. The cross-axis
+/// intruded-through cells (arrowhead included). Nothing upstream enforces
+/// that the final-approach side equals the terminal-port side, so this closes
+/// the gap at the router's exit: if the final leg enters from the port's
+/// exact opposite side (with `prev` strictly outside the box), flip the port
+/// to the entry side and move the endpoint onto that border. The cross-axis
 /// offset is preserved (north<->south share the x-offset, east<->west the
 /// y-offset), so the approach column/row is unchanged — only the border the
 /// arrowhead lands on moves. No-op when the approach already agrees with the
@@ -158,14 +158,14 @@ pub fn reconcileTerminalSide(
     if (oppositeSide(entry_side) != port_to.side) return port_to; // agrees, or perpendicular
     const r = to_p.rect;
     // Require `prev` strictly OUTSIDE the box on the entry side, so the leg
-    // genuinely crosses the interior (a pierce), not merely a short stub.
-    const pierces = switch (entry_side) {
+    // genuinely crosses the interior (an intrusion), not merely a short stub.
+    const intrudes = switch (entry_side) {
         .north => prev.y < r.y,
         .south => prev.y > r.bottom() - 1,
         .west => prev.x < r.x,
         .east => prev.x > r.right() - 1,
     };
-    if (!pierces) return port_to;
+    if (!intrudes) return port_to;
     const flipped: sketch.Port = .{ .node = port_to.node, .side = entry_side, .offset = port_to.offset };
     poly[poly.len - 1] = portPoint(to_p, flipped);
     return flipped;
@@ -247,7 +247,7 @@ pub fn ensureBaseStub(
     return true;
 }
 
-// Strict-interior "pierce" predicates: border contact allowed. Use them
+// Strict-interior intrusion predicates: border contact allowed. Use them
 // ONLY to ask "would the validator flag this?" (mirrors
 // `validate.segmentCrossesInterior`).
 // guarded-by: validate_test.zig "edge through node interior flagged"
@@ -257,7 +257,7 @@ pub fn ensureBaseStub(
 
 /// True iff a vertical segment at column `x` spanning rows
 /// `[y_top, y_bot]` would pass through the strict open interior of `r`.
-pub fn columnPiercesRect(x: i32, y_top: i32, y_bot: i32, r: sketch.Rect) bool {
+pub fn columnIntrudesRect(x: i32, y_top: i32, y_bot: i32, r: sketch.Rect) bool {
     if (r.w < 3 or r.h < 3) return false;
     const left = r.x;
     const right_inc = r.right() - 1;
@@ -267,8 +267,8 @@ pub fn columnPiercesRect(x: i32, y_top: i32, y_bot: i32, r: sketch.Rect) bool {
     return y_top < bottom_inc and y_bot > top;
 }
 
-/// Row analogue of `columnPiercesRect`.
-pub fn rowPiercesRect(y: i32, x_left: i32, x_right: i32, r: sketch.Rect) bool {
+/// Row analogue of `columnIntrudesRect`.
+pub fn rowIntrudesRect(y: i32, x_left: i32, x_right: i32, r: sketch.Rect) bool {
     if (r.w < 3 or r.h < 3) return false;
     const top = r.y;
     const bottom_inc = r.bottom() - 1;
@@ -288,14 +288,14 @@ fn rowClear(
 ) bool {
     for (placements) |p| {
         if (p.id == from_id or p.id == to_id) continue;
-        if (rowPiercesRect(y, x_left, x_right, p.rect)) return false;
+        if (rowIntrudesRect(y, x_left, x_right, p.rect)) return false;
     }
     return true;
 }
 
 /// Pick a gap row for a serpentine band-return run from `want_y` outward
 /// (nearest first), skipping any row whose horizontal span `[x_left,x_right]`
-/// would pierce a node interior. A clear row always exists (bands are
+/// would intrude into a node interior. A clear row always exists (bands are
 /// separated by `BAND_CROSS_GAP` lanes).
 fn clearRow(
     want_y: i32,
@@ -351,11 +351,11 @@ pub fn routePolyline(
 
     // Skip-corridor routing (TD/BT): an edge spanning ≥2 layers carries ≥1
     // virtual node. Bending the polyline at each virtual's box row would
-    // pierce the intermediate boxes; instead route it as a vertical channel
-    // beside those boxes — descend into the gap above the first
+    // intrude into the intermediate boxes; instead route it as a vertical
+    // channel beside those boxes — descend into the gap above the first
     // intermediate layer, jog once to the virtuals' corridor column, run
-    // straight down past every intermediate layer, then jog into the
-    // target's column and descend into its port.
+    // straight down past every intermediate layer, then jog into the target's
+    // column and descend into its port.
     // guarded-by: validate_test.zig "edge through node interior flagged"
     if (!horizontal and virtuals.len > 0) {
         // Corridor column = the virtuals' center x. They are barycenter-
@@ -372,7 +372,7 @@ pub fn routePolyline(
         // The virtuals' barycenter column is NOT guaranteed clear: a real
         // node may have drifted onto it, so slide the corridor to the
         // nearest column whose run touches NO foreign box cell (touch
-        // semantics, not strict-interior pierce — a corridor on a foreign
+        // semantics, not strict-interior intrusion — a corridor on a foreign
         // border column rasterizes as swallowed edge cells even where the
         // interior validator stays silent). Generic — keyed only on the
         // placed rects, never on identities.

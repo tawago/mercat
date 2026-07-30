@@ -5,7 +5,7 @@ const std = @import("std");
 const lanes = @import("lanes.zig");
 const sketch = @import("../sketch.zig");
 
-fn dem(lo: u32, hi: u32, base: i32) lanes.Demand {
+fn claim(lo: u32, hi: u32, base: i32) lanes.LaneClaim {
     return .{ .lo = lo, .hi = hi, .base = base };
 }
 
@@ -21,7 +21,7 @@ fn np(id: u32, x: i32, y: i32, w: u32, h: u32) sketch.NodePlacement {
 
 test "assign: mutually disjoint spans share one lane at max base" {
     const a = std.testing.allocator;
-    const ds = [_]lanes.Demand{ dem(0, 1, 5), dem(2, 3, 6), dem(4, 5, 4) };
+    const ds = [_]lanes.LaneClaim{ claim(0, 1, 5), claim(2, 3, 6), claim(4, 5, 4) };
     var asg = try lanes.assign(a, &ds, 1);
     defer asg.deinit(a);
     try std.testing.expectEqual(@as(usize, 1), asg.lane_pos.len);
@@ -33,7 +33,7 @@ test "assign: mutually disjoint spans share one lane at max base" {
 
 test "assign: mutually overlapping spans stack into distinct outer lanes" {
     const a = std.testing.allocator;
-    const ds = [_]lanes.Demand{ dem(0, 4, 5), dem(1, 3, 5), dem(2, 2, 5) };
+    const ds = [_]lanes.LaneClaim{ claim(0, 4, 5), claim(1, 3, 5), claim(2, 2, 5) };
     var asg = try lanes.assign(a, &ds, 1);
     defer asg.deinit(a);
     try std.testing.expectEqual(@as(usize, 3), asg.lane_pos.len);
@@ -43,7 +43,7 @@ test "assign: mutually overlapping spans stack into distinct outer lanes" {
     try std.testing.expectEqual(@as(i32, 7), asg.posOf(2));
 }
 
-test "assign: greedy 4-demand hand example with a tie" {
+test "assign: greedy 4-claim hand example with a tie" {
     const a = std.testing.allocator;
     // In-order greedy packing (order is the tie-break contract):
     //   #0 [0,1] b5 → opens lane 0
@@ -51,8 +51,8 @@ test "assign: greedy 4-demand hand example with a tie" {
     //   #2 [1,2] b6 → overlaps BOTH lane-0 members → opens lane 1
     //   #3 [4,5] b7 → disjoint from #0 and #1 → joins lane 0; its base 7
     //                 TIES the lane's max_base and must not move the lane.
-    const ds = [_]lanes.Demand{
-        dem(0, 1, 5), dem(2, 3, 7), dem(1, 2, 6), dem(4, 5, 7),
+    const ds = [_]lanes.LaneClaim{
+        claim(0, 1, 5), claim(2, 3, 7), claim(1, 2, 6), claim(4, 5, 7),
     };
     var asg = try lanes.assign(a, &ds, 1);
     defer asg.deinit(a);
@@ -70,7 +70,7 @@ test "assign: greedy 4-demand hand example with a tie" {
 
 test "gutter: reports lane count and outermost position without placements" {
     const a = std.testing.allocator;
-    const ds = [_]lanes.Demand{ dem(0, 4, 5), dem(1, 3, 5) };
+    const ds = [_]lanes.LaneClaim{ claim(0, 4, 5), claim(1, 3, 5) };
     const g = try lanes.gutter(a, &ds, 1);
     try std.testing.expectEqual(@as(u32, 2), g.lanes);
     try std.testing.expectEqual(@as(i32, 6), g.outermost);

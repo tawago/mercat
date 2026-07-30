@@ -111,8 +111,8 @@ pub fn allocateBackEdgeRails(
     };
     std.mem.sort(Item, items.items, SortCtx{}, SortCtx.lt);
 
-    // Lane assignment: disjoint-span back-edges share a rail column; overlapping spans get distinct outer lanes. guarded-by: lanes_test.zig "assign: greedy 4-demand hand example with a tie"
-    var demands = try a.alloc(lanes.Demand, items.items.len);
+    // Lane assignment: disjoint-span back-edges share a rail column; overlapping spans get distinct outer lanes. guarded-by: lanes_test.zig "assign: greedy 4-claim hand example with a tie"
+    var demands = try a.alloc(lanes.LaneClaim, items.items.len);
     defer a.free(demands);
     for (items.items, 0..) |it, i| {
         demands[i] = .{ .lo = it.lo, .hi = it.hi, .base = it.base };

@@ -279,7 +279,7 @@ fn laneAssignGroup(
     var min_x: i32 = std.math.maxInt(i32);
     for (group) |gi| min_x = @min(min_x, trunks[members[gi]].lo);
 
-    const demands = try a.alloc(lanes.Demand, group.len);
+    const demands = try a.alloc(lanes.LaneClaim, group.len);
     defer a.free(demands);
     for (group, demands) |gi, *d| {
         const t = trunks[members[gi]];
