@@ -11,7 +11,7 @@ pub const GroupClause = enum {
     unresolved_member, // defensive: a member with no realized geometry
     incomplete, // (c) the single proposal covers a strict member subset
     overlap, // (d) permission overlap → NEITHER (conservative rule)
-    style, // (e) D-TRUNK sub-clause failed (see trunk_detail)
+    style, // (e) D-TRUNK sub-clause failed (see rail_detail)
     no_proposal, // (f) zero trunk proposals
     multiplicity, // (f) two or more trunk proposals (item 3)
 };
@@ -23,7 +23,7 @@ pub const GroupVerdict = struct {
     tag: pb.DiagnosticTag,
     /// D-TRUNK first-failing sub-clause tag when clause == .style
     /// ((a) invisible → (b) kind mixed → (c) pivot-side arrow mixed).
-    trunk_detail: ?pb.DiagnosticTag = null,
+    rail_detail: ?pb.DiagnosticTag = null,
     /// Report-only D-TRUNK duplicate-(from,to) inventory; fires regardless
     /// of the first-fail clause (V-D-TRUNK-06 pairs it with duplicate_key).
     duplicate_pair: bool = false,
@@ -300,7 +300,7 @@ pub fn realize(
             .group = g.id,
             .clause = clause,
             .tag = tagFor(clause),
-            .trunk_detail = detail,
+            .rail_detail = detail,
             .duplicate_pair = hasDuplicate(row, false),
             .proposal_count = raw_count[gi],
         };
@@ -452,15 +452,15 @@ fn styleFail(direction: pb.JoinDirection, row: []const MemberGeom) ?pb.Diagnosti
     var ref: ?MemberGeom = null;
     for (row) |g| {
         if (g.back_edge) continue;
-        if (g.kind == .invisible) return .trunk_member_invisible;
+        if (g.kind == .invisible) return .rail_member_invisible;
         const r = ref orelse {
             ref = g;
             continue;
         };
-        if (g.kind != r.kind) return .trunk_member_style_mixed;
+        if (g.kind != r.kind) return .rail_member_style_mixed;
         const a = if (direction == .out) g.arrow_from else g.arrow_to;
         const b = if (direction == .out) r.arrow_from else r.arrow_to;
-        if (a != b) return .trunk_pivot_side_arrow;
+        if (a != b) return .rail_pivot_side_arrow;
     }
     return null;
 }

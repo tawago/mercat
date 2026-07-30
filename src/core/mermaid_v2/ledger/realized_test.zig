@@ -133,7 +133,7 @@ fn planBytes(a: std.mem.Allocator, g: sg.SemGraph, plan: pb.JoinPermits, res: jp
         try appendf(a, &out, "v:{d}:{s}:{s}:{s}:{s}:{s}:{}:{d}\n", .{
             rank,                @tagName(grp.direction),
             rawOf(g, grp.pivot), @tagName(v.clause),
-            pb.tagName(v.tag),   if (v.trunk_detail) |t| pb.tagName(t) else "-",
+            pb.tagName(v.tag),   if (v.rail_detail) |t| pb.tagName(t) else "-",
             v.duplicate_pair,    v.proposal_count,
         });
     }
@@ -303,7 +303,7 @@ test "V-D-JOIN-SELECT-09: mixed member kinds fail clause (e) deterministically u
         const v = res.report.verdicts[0];
         try expectEqual(jp.GroupClause.style, v.clause);
         try expectEqual(pb.DiagnosticTag.join_select_independent_not_selected, v.tag);
-        try expectEqual(pb.DiagnosticTag.trunk_member_style_mixed, v.trunk_detail.?);
+        try expectEqual(pb.DiagnosticTag.rail_member_style_mixed, v.rail_detail.?);
         try expectEqual(@as(usize, 0), res.plan.selected_joins.len);
         bytes[i] = try planBytes(a, g, plan, res);
     }
@@ -355,16 +355,16 @@ test "V-D-TRUNK-01/02/03/04: clause (e) sub-clauses fire first-fail in frozen or
     var g = graph(&ok);
     var res = try jp.realize(a, try buildPlan(a, g), sketchOf(try paths(a, &ok), &.{}), &.{});
     try expectEqual(jp.GroupClause.no_proposal, res.report.verdicts[0].clause);
-    try expect(res.report.verdicts[0].trunk_detail == null);
+    try expect(res.report.verdicts[0].rail_detail == null);
 
-    // 02: two solid + one dotted → (e)(b) trunk_member_style_mixed.
+    // 02: two solid + one dotted → (e)(b) rail_member_style_mixed.
     const mixed = [_]sg.Edge{ edge(0, 5, 0), edge(1, 5, 1), styled(2, 5, 2, .dotted, .none, .filled, null) };
     g = graph(&mixed);
     res = try jp.realize(a, try buildPlan(a, g), sketchOf(try paths(a, &mixed), &.{}), &.{});
-    try expectEqual(pb.DiagnosticTag.trunk_member_style_mixed, res.report.verdicts[0].trunk_detail.?);
+    try expectEqual(pb.DiagnosticTag.rail_member_style_mixed, res.report.verdicts[0].rail_detail.?);
 
     // 03: fan-in with one invisible member, visible members ARROWLESS so
-    // sub-clause (a) is isolated → exactly trunk_member_invisible.
+    // sub-clause (a) is isolated → exactly rail_member_invisible.
     const invis = [_]sg.Edge{
         styled(0, 0, 6, .solid, .none, .none, null),
         styled(1, 1, 6, .solid, .none, .none, null),
@@ -372,14 +372,14 @@ test "V-D-TRUNK-01/02/03/04: clause (e) sub-clauses fire first-fail in frozen or
     };
     g = graph(&invis);
     res = try jp.realize(a, try buildPlan(a, g), sketchOf(try paths(a, &invis), &.{}), &.{});
-    try expectEqual(pb.DiagnosticTag.trunk_member_invisible, res.report.verdicts[0].trunk_detail.?);
+    try expectEqual(pb.DiagnosticTag.rail_member_invisible, res.report.verdicts[0].rail_detail.?);
 
     // 04: all solid, MIXED pivot-side arrow_from → (e)(c).
     const pivot_arrow = [_]sg.Edge{ edge(0, 5, 0), edge(1, 5, 1), styled(2, 5, 2, .solid, .filled, .filled, null) };
     g = graph(&pivot_arrow);
     res = try jp.realize(a, try buildPlan(a, g), sketchOf(try paths(a, &pivot_arrow), &.{}), &.{});
     try expectEqual(jp.GroupClause.style, res.report.verdicts[0].clause);
-    try expectEqual(pb.DiagnosticTag.trunk_pivot_side_arrow, res.report.verdicts[0].trunk_detail.?);
+    try expectEqual(pb.DiagnosticTag.rail_pivot_side_arrow, res.report.verdicts[0].rail_detail.?);
 }
 
 // V-D-TRUNK-06/08/10 live in realized_test2.zig (500-line cap balance).

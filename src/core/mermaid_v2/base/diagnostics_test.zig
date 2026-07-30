@@ -44,10 +44,10 @@ const ci_tags = [_]pb.DiagnosticTag{
 
 const ro_tags = [_]pb.DiagnosticTag{
     .disp_terminal_fallback_engaged,
-    .trunk_member_style_mixed,
-    .trunk_member_invisible,
-    .trunk_pivot_side_arrow,
-    .trunk_duplicate_pair,
+    .rail_member_style_mixed,
+    .rail_member_invisible,
+    .rail_pivot_side_arrow,
+    .rail_duplicate_pair,
     .dual_membership_edges,
     .dual_membership_selected_both_sides,
     .permission_overlap_conflicts,

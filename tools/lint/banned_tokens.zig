@@ -78,6 +78,22 @@ pub const table = [_]Row{
         .why = "the fan trunk builder is layout/fan_rail.zig (+ fan_rail_test.zig); the old module basename is retired, including in guarded-by pointers and import strings",
     },
     .{
+        .token = "trunk_member_style_mixed",
+        .why = "the diagnostic tag is rail_member_style_mixed (rename wave D): the shared run a fan realizes is a rail; the tag name is also its record-verbatim wire name",
+    },
+    .{
+        .token = "trunk_member_invisible",
+        .why = "the diagnostic tag is rail_member_invisible (rename wave D); the tag name is also its record-verbatim wire name",
+    },
+    .{
+        .token = "trunk_pivot_side_arrow",
+        .why = "the diagnostic tag is rail_pivot_side_arrow (rename wave D); the unrelated ports.AttachmentClass.trunk_pivot keeps its name, which this longer token does not match",
+    },
+    .{
+        .token = "trunk_duplicate_pair",
+        .why = "the diagnostic tag is rail_duplicate_pair (rename wave D); the GroupVerdict.duplicate_pair flag it inventories is unaffected",
+    },
+    .{
         .token = "label_left_of_rail",
         .why = "EdgePath's back-edge label side flag is label_left_of_run (producer: clusters.LabelFootprint.left_of_run); 'rail' now names a fan's shared run, never an ordinary edge's vertical run",
     },
@@ -244,6 +260,18 @@ test "banned token: a reverted fan-role spelling fires on both families" {
     defer in_hit.deinit(a);
     try testing.expectEqual(@as(usize, 1), in_hit.list.items.len);
     try testing.expect(std.mem.indexOf(u8, in_hit.list.items[0], "fan_in_dropper") != null);
+}
+
+test "banned token: a reverted diagnostic-tag spelling fires" {
+    const a = testing.allocator;
+    // The registry tags are their own wire names, so a reverted spelling
+    // compiles fine in a stale switch arm and only shows up in emitted
+    // records: the tombstone is the check that catches it.
+    var got = try collect(a, "ledger/realized.zig", "return .trunk_pivot_side_arrow;\n", &table);
+    defer got.deinit(a);
+
+    try testing.expectEqual(@as(usize, 1), got.list.items.len);
+    try testing.expect(std.mem.indexOf(u8, got.list.items[0], "rail_pivot_side_arrow") != null);
 }
 
 test "banned token: production table is well-formed" {

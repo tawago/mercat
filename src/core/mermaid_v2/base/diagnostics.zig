@@ -35,10 +35,10 @@ pub const DiagnosticTag = enum {
     // D-POLICY (1)
     join_policy_not_joined,
     // D-TRUNK (4)
-    trunk_member_style_mixed,
-    trunk_member_invisible,
-    trunk_pivot_side_arrow,
-    trunk_duplicate_pair,
+    rail_member_style_mixed,
+    rail_member_invisible,
+    rail_pivot_side_arrow,
+    rail_duplicate_pair,
     // D-DUAL (3)
     dual_membership_edges,
     dual_membership_selected_both_sides,
@@ -154,10 +154,10 @@ pub fn classOf(tag: DiagnosticTag) DispositionClass {
         // row 3), the terminal-fallback count (item 9(e)), and the
         // count-surfaced intentional_joins.
         .disp_terminal_fallback_engaged,
-        .trunk_member_style_mixed,
-        .trunk_member_invisible,
-        .trunk_pivot_side_arrow,
-        .trunk_duplicate_pair,
+        .rail_member_style_mixed,
+        .rail_member_invisible,
+        .rail_pivot_side_arrow,
+        .rail_duplicate_pair,
         .dual_membership_edges,
         .dual_membership_selected_both_sides,
         .permission_overlap_conflicts,
