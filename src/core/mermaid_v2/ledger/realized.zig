@@ -42,7 +42,7 @@ pub const Report = struct {
     multiplicity: []const u32 = &.{},
     dual_membership_edges: u32 = 0,
     permission_overlap_conflicts: u32 = 0,
-    /// Proposed mesh-union elements failing N*M==D legality (plan N5).
+    /// Proposed union elements failing leaf-pair legality (plan N5).
     mesh_unions_rejected: u32 = 0,
     /// Candidate off the flat identity path (D-JOIN-SELECT item 10):
     /// nothing was planned; the plan is the empty `.{}`.
@@ -346,13 +346,13 @@ pub fn realize(
         try ports.append(allocator, .{ .node = geo.to, .edge = m.edge, .endpoint_side = .target_entry, .port = target_port });
     }
 
-    // Mesh-union pass-through (D-IR item 16): legality re-checked here;
+    // Mesh-union pass-through (D-IR item 16): leaf-pair legality re-checked;
     // elements are produced by layout from Step 7 on.
     var unions: std.ArrayListUnmanaged(pb.MeshUnion) = .empty;
     var mesh_rejected: u32 = 0;
     const proposed_unions = if (mesh_candidates.len > 0) mesh_candidates else s.joins.mesh_unions;
     for (proposed_unions) |mu| {
-        if (meshUnionLegal(join_permits, mu.members)) {
+        if (noDuplicateLeafPairs(join_permits, mu.members)) {
             try unions.append(allocator, mu);
         } else mesh_rejected += 1;
     }
@@ -488,12 +488,12 @@ fn dispose(
     } };
 }
 
-/// Complete-mesh-union legality (TSD §7.4-as-amended, D-IR item 16) lives in
-/// mesh_legal.zig (split for the 500-line cap); re-exported so invariants.zig
-/// and realized_test2.zig keep reaching it as `realized.meshUnionLegal`.
-pub const meshUnionLegal = @import("mesh_legal.zig").meshUnionLegal;
+/// Union-element legality (D-IR item 16) lives in leaf_pairs.zig, narrowed to
+/// the refusals the element's producer cannot make; re-exported so
+/// invariants.zig and realized_test2.zig keep reaching it through realized.
+pub const noDuplicateLeafPairs = @import("leaf_pairs.zig").noDuplicateLeafPairs;
 
-/// Clause-(g)-pre unsafe-component withdrawal (P2v Step 8) also lives in
-/// mesh_legal.zig (the 500-line-cap plan-rewrite sibling); re-exported so
-/// select.zig and the test siblings reach it as `realized.disposeUnsafe`.
-pub const disposeUnsafe = @import("mesh_legal.zig").disposeUnsafe;
+/// Clause-(g)-pre unsafe-component withdrawal (P2v Step 8) lives in
+/// dispose.zig (the plan-rewrite sibling); re-exported so select_filter.zig
+/// and the test siblings reach it as `realized.disposeUnsafe`.
+pub const disposeUnsafe = @import("dispose.zig").disposeUnsafe;

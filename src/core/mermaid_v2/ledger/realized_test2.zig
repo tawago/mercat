@@ -1,9 +1,9 @@
 //! §6.7 validator vectors + controlled hand-built plans for realized_
 //! validate.zig (P2v Step 4: V-D-JOIN-SELECT-04/06/12, V-D-DUAL-01/02 and
-//! the never-both reject, the N5 mesh-legality pin, per-bullet corruption
-//! rejection, and the planner-output-validates-clean property). Split
-//! from realized_test.zig for the 500-line cap; aggregated into the test
-//! build from entry.zig's `test {}` block.
+//! the never-both reject, the N5 leaf-pair pin, per-bullet corruption
+//! rejection, and the planner-output-validates-clean property). Split from
+//! realized_test.zig for the 500-line cap; aggregated into the test build
+//! from entry.zig's `test {}` block.
 
 const std = @import("std");
 const sg = @import("../sem_graph.zig");
@@ -431,43 +431,42 @@ test "6.7: corrupted plans are rejected bullet by bullet" {
     try expect(hasFinding(try jpv.validate(a, plan, p, res.report.proposals), .terminal_ports_not_canonical));
 }
 
-// -- Mesh-union legality (D-IR item 16; plan N5) --------------------------------
+// -- Union-element leaf-pair legality (D-IR item 16; plan N5) -------------------
+//
+// NARROWING NOTE: completeness and two-sided width are guarantees of union
+// CONSTRUCTION, not of the ledger; leaf_pairs.zig refuses only what the
+// ledger owns (duplicate member, repeated leaf pair, unresolvable endpoint).
 
 const k22 = [_]sg.Edge{ edge(0, 0, 2), edge(1, 0, 3), edge(2, 1, 2), edge(3, 1, 3) };
 
-test "mesh legality: exactly-complete exactly-declared K2,2 union is legal and passes through" {
+test "leaf-pair legality: a complete K2,2 union is legal and passes through" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
     const g = graph(&k22);
     const plan = try buildPlan(a, g);
     const members = [_]pb.EdgeId{ 0, 1, 2, 3 };
-    try expect(jp.meshUnionLegal(plan, &members));
+    try expect(jp.noDuplicateLeafPairs(plan, &members));
 
-    const element = [_]pb.MeshUnion{.{
-        .id = 0,
-        .members = &members,
-        .source_keys = &.{ "S1", "S2" },
-        .target_keys = &.{ "T1", "T2" },
-    }};
+    const element = [_]pb.MeshUnion{.{ .id = 0, .members = &members, .source_keys = &.{ "S1", "S2" }, .target_keys = &.{ "T1", "T2" } }};
     const res = try jp.realize(a, plan, sketchOf(try paths(a, &k22), &.{}), &element);
     try expectEqual(@as(usize, 1), res.plan.mesh_unions.len);
     try expectEqual(@as(u32, 0), res.report.mesh_unions_rejected);
     try expect((try jpv.validate(a, plan, res.plan, res.report.proposals)).valid());
 }
 
-test "N5: duplicate-containing complete pair set fails mesh legality (D = declared edge count)" {
+test "N5: a duplicate declared edge fails leaf-pair legality" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
-    // K2,2 plus a DUPLICATE declared S1→T1 edge: the unique-pair relation
-    // is complete (fan_lanes.isIncomplete would keep it fused) but D = 5
-    // declared member edges != N*M = 4 → NOT a legal exempt union.
+    // K2,2 plus a DUPLICATE declared S1→T1 edge: the unique-pair relation is
+    // complete (fan_lanes.isIncomplete would keep it fused), but the fifth
+    // member repeats a claimed leaf pair → NOT a legal exempt union.
     const dup5 = k22 ++ [_]sg.Edge{edge(4, 0, 2)};
     const g = graph(&dup5);
     const plan = try buildPlan(a, g);
     const members = [_]pb.EdgeId{ 0, 1, 2, 3, 4 };
-    try expect(!jp.meshUnionLegal(plan, &members));
+    try expect(!jp.noDuplicateLeafPairs(plan, &members));
 
     const element = [_]pb.MeshUnion{.{ .id = 0, .members = &members, .source_keys = &.{ "S1", "S2" }, .target_keys = &.{ "T1", "T2" } }};
     const res = try jp.realize(a, plan, sketchOf(try paths(a, &dup5), &.{}), &element);
@@ -480,21 +479,22 @@ test "N5: duplicate-containing complete pair set fails mesh legality (D = declar
     try expect(hasFinding(try jpv.validate(a, plan, p, res.report.proposals), .mesh_union_illegal));
 }
 
-test "mesh legality: incomplete unions and single-pivot fans are never legal unions" {
+test "leaf-pair legality: incomplete and single-pivot member sets have unresolvable endpoints" {
+    // Still refused, now because the completing side earned no permission group.
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
 
-    // K2,2 minus one edge: T2's fan-in group vanishes → not exactly complete.
+    // K2,2 minus one edge: T2's fan-in group vanishes → S1→T2 has no target.
     const incomplete = [_]sg.Edge{ edge(0, 0, 2), edge(1, 0, 3), edge(2, 1, 2) };
     const gi = graph(&incomplete);
     const pi = try buildPlan(a, gi);
     const mi = [_]pb.EdgeId{ 0, 1, 2 };
-    try expect(!jp.meshUnionLegal(pi, &mi));
+    try expect(!jp.noDuplicateLeafPairs(pi, &mi));
 
-    // A 1×3 fan is single-pivot: carve-out territory, never a mesh union.
+    // A 1×3 fan is single-pivot: no member has a target group at all.
     const g3 = graph(fan5[0..3]);
     const p3 = try buildPlan(a, g3);
     const m3 = [_]pb.EdgeId{ 0, 1, 2 };
-    try expect(!jp.meshUnionLegal(p3, &m3));
+    try expect(!jp.noDuplicateLeafPairs(p3, &m3));
 }

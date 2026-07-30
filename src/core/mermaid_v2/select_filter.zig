@@ -30,7 +30,7 @@ pub const FilterResult = struct {
 /// D-DISPOSITION item 5 row 3). Partitions `candidates` by CI-class reach
 /// EVENTS: any candidate whose parallel `reports[i]` is not `ciClean` is
 /// EXCLUDED (no rung carve-out) and its emitted plan re-disposed clause-(g)-pre
-/// (`realized.disposeUnsafe`) into `excluded`; survivors keep their plan,
+/// (ledger/dispose.zig, via realized's re-export) into `excluded`; survivors keep their plan,
 /// order, and aligned report. SCORE-BLIND: reads reach EVENTS only, never a
 /// score, magnitude, or geometry. Clustered/packed SKIPS pass (`ciTotal`
 /// excludes both skip counts — OPEN-8). On the census-clean corpus red

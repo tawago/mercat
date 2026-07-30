@@ -155,13 +155,18 @@ pub const file_allowlists = [_]struct {
     },
     .{
         .name = "ledger/realized.zig",
-        .allowed = &.{ .sketch, .{ .exact = "mesh_legal.zig" } },
-        .reason = "realized may only import std, prim, base/ledger, sketch, or mesh_legal",
+        .allowed = &.{ .sketch, .{ .exact = "leaf_pairs.zig" }, .{ .exact = "dispose.zig" } },
+        .reason = "realized may only import std, prim, base/ledger, sketch, leaf_pairs, or dispose",
     },
     .{
-        .name = "ledger/mesh_legal.zig",
+        .name = "ledger/leaf_pairs.zig",
         .allowed = &.{},
-        .reason = "mesh_legal may only import std, prim, or base/ledger",
+        .reason = "leaf_pairs may only import std, prim, or base/ledger",
+    },
+    .{
+        .name = "ledger/dispose.zig",
+        .allowed = &.{},
+        .reason = "dispose may only import std, prim, or base/ledger",
     },
     .{
         .name = "ledger/realized_test.zig",

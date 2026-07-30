@@ -97,6 +97,14 @@ pub const table = [_]Row{
         .token = "label_left_of_rail",
         .why = "EdgePath's back-edge label side flag is label_left_of_run (producer: clusters.LabelFootprint.left_of_run); 'rail' now names a fan's shared run, never an ordinary edge's vertical run",
     },
+    .{
+        .token = "meshUnionLegal",
+        .why = "the ledger's union predicate is leaf_pairs.noDuplicateLeafPairs (re-exported by realized); completeness and two-sided width are guarantees of union construction, never re-derived in the ledger",
+    },
+    .{
+        .token = "mesh_legal",
+        .why = "the module split into ledger/leaf_pairs.zig (the predicate) and ledger/dispose.zig (clause-(g)-pre withdrawal); there is no combined legality module",
+    },
 };
 
 fn basenameOf(rel_path: []const u8) []const u8 {

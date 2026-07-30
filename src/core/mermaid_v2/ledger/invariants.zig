@@ -17,7 +17,7 @@ pub const Error = jp.Error;
 const containsEdge = jp.containsEdge;
 const edgeRank = jp.edgeRank;
 const groupIndexById = jp.groupIndexById;
-const meshUnionLegal = jp.meshUnionLegal;
+const noDuplicateLeafPairs = jp.noDuplicateLeafPairs;
 
 pub const ValidationTag = enum {
     membership_set_mismatch,
@@ -198,9 +198,10 @@ pub fn validate(
         prev_key = key;
     }
 
-    // D-IR item 16: every landed mesh-union element is legal (N*M == D).
+    // D-IR item 16: every landed union element clears leaf-pair legality (no
+    // duplicate declared member, no repeated leaf pair, endpoints resolvable).
     for (plan.mesh_unions) |mu| {
-        if (!meshUnionLegal(join_permits, mu.members))
+        if (!noDuplicateLeafPairs(join_permits, mu.members))
             try add(&out, allocator, .mesh_union_illegal, null, null);
     }
 

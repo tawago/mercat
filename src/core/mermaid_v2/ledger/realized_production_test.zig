@@ -269,3 +269,38 @@ test "V-D-PORT-16 corrected: a fan-out-pivot target DOES re-merge its pure fan-i
         try std.testing.expect(!(s_sel and t_sel)); // never-both
     }
 }
+
+test "dominance pin: the complete K2,2 union survives selection with its members and keys intact" {
+    // The ledger's union predicate is deliberately narrow: it refuses only
+    // what the producer cannot already rule out (a duplicate declared edge, a
+    // duplicate leaf pair, an endpoint it cannot resolve). Two-sided width and
+    // the completeness equation are guaranteed where unions are BUILT, so no
+    // ledger-side re-derivation of them can change what lands. This pin holds
+    // the POST-select winner plan's union list — the surface select copies
+    // into sketch.joins and the downstream stages read — fixed against exactly
+    // that narrowing.
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const graph = try parse(a, "flowchart TD\n  S1 --> T1\n  S1 --> T2\n  S2 --> T1\n  S2 --> T2\n");
+    const plan = (try permits.build(a, graph, .joined)).plan;
+    const winner = try select.choose(a, graph, &plan, true, 94, false, false);
+
+    const unions = winner.sketch.joins.mesh_unions;
+    try std.testing.expectEqual(@as(usize, 1), unions.len);
+    try std.testing.expectEqual(@as(usize, 4), unions[0].members.len);
+    const declared = [_][2][]const u8{ .{ "S1", "T1" }, .{ "S1", "T2" }, .{ "S2", "T1" }, .{ "S2", "T2" } };
+    for (declared) |pair| {
+        var seen: usize = 0;
+        for (unions[0].members) |m| {
+            if (m == edgeId(graph, pair[0], pair[1])) seen += 1;
+        }
+        try std.testing.expectEqual(@as(usize, 1), seen);
+    }
+    try std.testing.expectEqual(@as(usize, 2), unions[0].source_keys.len);
+    try std.testing.expectEqualStrings("S1", unions[0].source_keys[0]);
+    try std.testing.expectEqualStrings("S2", unions[0].source_keys[1]);
+    try std.testing.expectEqual(@as(usize, 2), unions[0].target_keys.len);
+    try std.testing.expectEqualStrings("T1", unions[0].target_keys[0]);
+    try std.testing.expectEqualStrings("T2", unions[0].target_keys[1]);
+}
