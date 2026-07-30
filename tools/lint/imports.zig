@@ -76,7 +76,8 @@ pub const Rule = union(enum) {
 /// rules are keyed on an exact rel_path rather than a directory). Rationale
 /// for each list lives with the file's own header docs:
 ///
-///   base/*          the no-deps tier (types.zig / lanes.zig / ledger.zig):
+///   base/*          the no-deps tier (types.zig / lanes.zig / ledger.zig /
+///                   diagnostics.zig):
 ///                   std + base siblings only; importable from every zone.
 ///                   Enforced by the base/ dir rule + the in_base_dir zone
 ///                   block in `checkImport`, not by a `file_allowlists` row.
@@ -330,7 +331,8 @@ pub const file_allowlists = [_]struct {
 /// Per-zone ALLOWLIST. Each zone may import:
 ///   everywhere:  "std", "prim"  (named module, resolves to base/types.zig),
 ///                and anything under "base/" (the no-deps tier: types.zig,
-///                lanes.zig, ledger.zig — importable from every zone)
+///                lanes.zig, ledger.zig, diagnostics.zig — importable from
+///                every zone)
 ///   base/*:      std + base siblings only (no-deps tier)
 ///   sem_graph.zig / sketch.zig / lattice.zig:   + each other (they are IR root files)
 ///   parse.zig + parse/*:   + sem_graph.zig
@@ -356,9 +358,10 @@ pub fn checkImport(rel_path: []const u8, target: []const u8) ?[]const u8 {
     if (std.mem.eql(u8, target, "std")) return null;
     if (std.mem.eql(u8, target, "prim")) return null;
 
-    // Anything under base/ (types.zig / lanes.zig / ledger.zig) is importable
-    // from every zone — the no-deps tier — mirroring the retired per-file
-    // universal exemptions the base-tier modules used to carry. Matches
+    // Anything under base/ (types.zig / lanes.zig / ledger.zig /
+    // diagnostics.zig) is importable from every zone — the no-deps tier —
+    // mirroring the retired per-file universal exemptions the base-tier
+    // modules used to carry. Matches
     // "base/types.zig", "../base/lanes.zig", "base/ledger.zig", etc. base/
     // files' OWN rule (std + base siblings only) is the in_base_dir zone block
     // below.

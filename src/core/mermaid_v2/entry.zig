@@ -435,6 +435,8 @@ test {
     _ = @import("cluster/bridges.zig");
     _ = @import("base/ledger.zig");
     _ = @import("base/ledger_test.zig");
+    _ = @import("base/diagnostics.zig");
+    _ = @import("base/diagnostics_test.zig");
     _ = @import("ledger/permits.zig");
     _ = @import("ledger/permits_test.zig");
     _ = @import("ledger/realized.zig");
