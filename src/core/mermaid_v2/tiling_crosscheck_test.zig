@@ -239,9 +239,22 @@ const all_occupants = [_]lattice.Occupant{
     .{ .edge_segment = .{ .edge = 2, .kind = .invisible } },
     .{ .arrowhead = .{ .dir = .south, .edge = 2 } },
     .{ .label_char = 'x' },
+    .label_cont,
 };
 
 const all_dirs = [_]lattice.Dir4{ .north, .east, .south, .west };
+
+test "the mirror matrices below enumerate every Occupant variant" {
+    // A hand-written literal cannot be checked the way a switch is: without
+    // this, a new Occupant would join the lattice while every drift pin
+    // below kept passing without ever having seen it.
+    inline for (@typeInfo(lattice.Occupant).@"union".fields) |f| {
+        var seen = false;
+        for (all_occupants) |occ| seen = seen or std.mem.eql(u8, @tagName(occ), f.name);
+        if (!seen) std.debug.print("Occupant.{s} missing from all_occupants\n", .{f.name});
+        try testing.expect(seen);
+    }
+}
 
 test "cell.isReal mirrors reconcile.isRealConnection over every occupant" {
     for (all_occupants) |occ| {

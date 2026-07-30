@@ -60,6 +60,9 @@ test "classify: every occupant maps to one kind and only ink kinds carry ink" {
         .{ .c = .{ .occupant = .empty, .neighbours = .{ .n = true } }, .k = .blank },
         .{ .c = .{ .occupant = .{ .node_interior = 1 }, .neighbours = .{ .n = true } }, .k = .fill },
         .{ .c = .{ .occupant = .{ .label_char = 'x' }, .neighbours = .{ .n = true } }, .k = .glyph },
+        // The tail column of a wide glyph classifies as the same opaque
+        // kind as its head: no ink, real, conducts nothing.
+        .{ .c = .{ .occupant = .label_cont, .neighbours = .{ .n = true } }, .k = .glyph },
         .{ .c = edgeCell(.solid, .{ .n = true }), .k = .stroke },
         .{ .c = edgeCell(.invisible, .{ .n = true }), .k = .ghost },
         .{ .c = .{ .occupant = .{ .arrowhead = .{ .dir = .south, .edge = 0 } }, .neighbours = .{ .n = true } }, .k = .arrow },
@@ -190,23 +193,31 @@ test "View hands out copies and bounds-checks every accessor" {
 }
 
 test "columns mirrors paint.cellWidth: wide label glyph is two columns" {
-    var buf: [4]lattice.Cell = undefined;
+    var buf: [5]lattice.Cell = undefined;
     for (&buf) |*c| c.* = lattice.Cell.empty;
     buf[0] = .{ .occupant = .{ .label_char = '日' }, .neighbours = .{} };
-    buf[1] = .{ .occupant = .{ .label_char = 'a' }, .neighbours = .{} };
-    buf[2] = .{ .occupant = .{ .node_interior = 0 }, .neighbours = .{} };
-    buf[3] = edgeCell(.solid, .{ .n = true });
-    const lat = lattice.Lattice{ .width = 4, .height = 1, .cells = &buf };
+    // The continuation the label writers stamp for that head. It paints
+    // nothing, so head+tail claim two cells and charge two columns — the
+    // equality `m_row_col_overflow` measures.
+    buf[1] = .{ .occupant = .label_cont, .neighbours = .{} };
+    buf[2] = .{ .occupant = .{ .label_char = 'a' }, .neighbours = .{} };
+    buf[3] = .{ .occupant = .{ .node_interior = 0 }, .neighbours = .{} };
+    buf[4] = edgeCell(.solid, .{ .n = true });
+    const lat = lattice.Lattice{ .width = 5, .height = 1, .cells = &buf };
     const v = cell.View.init(&lat);
 
     try testing.expectEqual(@as(u32, 2), v.columns(0, 0));
-    try testing.expectEqual(@as(u32, 1), v.columns(1, 0));
+    try testing.expectEqual(@as(u32, 0), v.columns(1, 0));
     try testing.expectEqual(@as(u32, 1), v.columns(2, 0));
     try testing.expectEqual(@as(u32, 1), v.columns(3, 0));
-    try testing.expectEqual(@as(u32, 0), v.columns(4, 0));
+    try testing.expectEqual(@as(u32, 1), v.columns(4, 0));
+    try testing.expectEqual(@as(u32, 0), v.columns(5, 0));
 
     try testing.expect(v.isWideGlyph(0, 0));
+    // A continuation is not itself a head: the wide-glyph probe answers
+    // for the cell that carries the codepoint, not for its tail.
     try testing.expect(!v.isWideGlyph(1, 0));
-    try testing.expect(!v.isWideGlyph(3, 0));
+    try testing.expect(!v.isWideGlyph(2, 0));
+    try testing.expect(!v.isWideGlyph(4, 0));
     try testing.expect(!v.isWideGlyph(9, 9));
 }
