@@ -70,6 +70,17 @@ pub const Dir4 = enum {
     west,
 };
 
+/// Arrowhead style at one end of an edge. Shared by the geometric IR
+/// (`sketch.zig`) and the cell grid (`lattice.zig`), which may not import
+/// sketch — hence its home here in the no-deps tier.
+pub const ArrowKind = enum {
+    none,
+    open,
+    filled,
+    circle,
+    cross,
+};
+
 /// Stroke style of an edge. Represents the visual weight / dash pattern of
 /// the drawn line, independent of routing intent.
 pub const EdgeKind = enum {

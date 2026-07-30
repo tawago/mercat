@@ -69,6 +69,10 @@ pub const EdgeRole = prim.EdgeRole;
 /// `sketch/` via `prim`.
 pub const Shape = prim.Shape;
 
+/// Arrowhead style of an `arrowhead` cell. Shared with `sketch/` via
+/// `prim`.
+pub const ArrowKind = prim.ArrowKind;
+
 /// What a single cell holds. The `empty` variant is the default and
 /// represents background space.
 pub const Occupant = union(enum) {
@@ -90,6 +94,12 @@ pub const Occupant = union(enum) {
     arrowhead: struct {
         dir: Dir4,
         edge: EdgeId,
+        /// Head style the producing edge asked for. Carried so the head
+        /// glyph can stop being a function of `dir` alone; the painter
+        /// still ignores it, so every cell paints exactly as before.
+        /// The default keeps synthetic/test cells at today's shape.
+        /// guarded-by: lattice.zig "Cell stays 16 bytes: the arrowhead style rides in existing padding"
+        arrow: ArrowKind = .filled,
     },
     label_char: u21,
     /// Second terminal column of the East-Asian-Wide `label_char`
@@ -217,6 +227,19 @@ test "Lattice index calculation: row-major, at() returns correct cell" {
         .label_char => |ch| ch,
         else => unreachable,
     });
+}
+
+test "Cell stays 16 bytes: the arrowhead style rides in existing padding" {
+    // The grid is one Cell per terminal column, so Cell's footprint is the
+    // pipeline's dominant allocation. Before the arrowhead payload carried
+    // a style it was already 16 bytes: a 12-byte tagged Occupant plus
+    // stroke_kind + shape + neighbours, with one byte of tail padding and
+    // two spare bytes inside the 8-byte union payload. `arrow` lands in
+    // that slack, so the widening is free. A future payload that pushes
+    // this past 16 is a deliberate decision, not an accident — this pin
+    // makes it visible in review.
+    try std.testing.expectEqual(@as(usize, 16), @sizeOf(Cell));
+    try std.testing.expectEqual(@as(usize, 12), @sizeOf(Occupant));
 }
 
 test "Cell.empty default matches struct literal" {

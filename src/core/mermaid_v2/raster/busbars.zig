@@ -75,7 +75,7 @@ fn drawRail(lat: *lattice.Lattice, bb: sketch.Rail, report: *Report) void {
             const p = edges_r.step(bb.stem[0], dir);
             if (edges_r.pointInBounds(p, lat)) {
                 const c = edges_r.toCoord(p);
-                edges_r.writeArrowCell(lat.at(c.x, c.y), crossbar_edge, bb.kind, edges_r.reverse(dir), edges_r.straightMask(dir), c.x, c.y, &report.cells_lost);
+                edges_r.writeArrowCell(lat.at(c.x, c.y), crossbar_edge, bb.kind, bb.pivot_arrow, edges_r.reverse(dir), edges_r.straightMask(dir), c.x, c.y, &report.cells_lost);
             }
             break;
         }
@@ -103,7 +103,7 @@ fn drawRail(lat: *lattice.Lattice, bb: sketch.Rail, report: *Report) void {
                 if (edges_r.pointInBounds(p, lat)) {
                     const c = edges_r.toCoord(p);
                     const arrow_dir = if (fan_in) edges_r.reverse(dir) else dir;
-                    edges_r.writeArrowCell(lat.at(c.x, c.y), tap.edge, bb.kind, arrow_dir, edges_r.straightMask(dir), c.x, c.y, &report.cells_lost);
+                    edges_r.writeArrowCell(lat.at(c.x, c.y), tap.edge, bb.kind, tap.arrow, arrow_dir, edges_r.straightMask(dir), c.x, c.y, &report.cells_lost);
                 }
             }
         }

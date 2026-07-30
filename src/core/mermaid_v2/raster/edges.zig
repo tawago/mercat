@@ -356,7 +356,7 @@ pub fn rasterizeEdges(
                 if (r.last_dir) |d| {
                     if (pointInBounds(p, lat)) {
                         const c = toCoord(p);
-                        ew.writeArrowGuarded(lat.at(c.x, c.y), edge.id, edge.kind, d, straightMask(d), c.x, c.y, &cells_lost, ctx);
+                        ew.writeArrowGuarded(lat.at(c.x, c.y), edge.id, edge.kind, edge.arrow_to, d, straightMask(d), c.x, c.y, &cells_lost, ctx);
                     }
                 }
             }
@@ -366,7 +366,7 @@ pub fn rasterizeEdges(
                 if (r.first_dir) |d| {
                     if (pointInBounds(p, lat)) {
                         const c = toCoord(p);
-                        ew.writeArrowGuarded(lat.at(c.x, c.y), edge.id, edge.kind, reverse(d), straightMask(d), c.x, c.y, &cells_lost, ctx);
+                        ew.writeArrowGuarded(lat.at(c.x, c.y), edge.id, edge.kind, edge.arrow_from, reverse(d), straightMask(d), c.x, c.y, &cells_lost, ctx);
                     }
                 }
             }

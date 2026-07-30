@@ -132,14 +132,9 @@ pub const ClusterFrame = struct {
 
 // -- Edge geometry -----------------------------------------------------------
 
-/// Arrowhead style at one end of an edge.
-pub const ArrowKind = enum {
-    none,
-    open,
-    filled,
-    circle,
-    cross,
-};
+/// Arrowhead style at one end of an edge. Shared with `lattice.zig` via
+/// `prim` (the cell grid may not import sketch).
+pub const ArrowKind = prim.ArrowKind;
 
 /// Stroke style of an edge. Shared with `sem_graph.zig` via `prim`.
 pub const EdgeKind = prim.EdgeKind;

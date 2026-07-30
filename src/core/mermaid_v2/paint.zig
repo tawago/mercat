@@ -409,6 +409,29 @@ test "paint: non-solid stroke wins over shape glyph on node_border" {
     }
 }
 
+// TEMPORARY PIN — delete together with the direction-only `arrowGlyph`.
+// The arrowhead cell now carries the head style the source declared, but the
+// painter deliberately still keys the glyph off `dir` alone, so recording the
+// style moved zero bytes of output. This test states that as an assertion
+// rather than a hope; when the head table learns the style it will start
+// failing, which is exactly the signal that the change took effect. Nothing
+// points at it with a guarded-by pointer — it is scaffolding, not a law.
+test "paint: a non-filled ArrowKind still paints today's direction-only glyph" {
+    const a = testing.allocator;
+    for ([_]lattice.ArrowKind{ .none, .open, .filled, .circle, .cross }) |kind| {
+        var cells: [1]lattice.Cell = .{
+            .{
+                .occupant = .{ .arrowhead = .{ .dir = .east, .edge = 0, .arrow = kind } },
+                .neighbours = .{},
+            },
+        };
+        const lat = lattice.Lattice{ .width = 1, .height = 1, .cells = &cells };
+        const got = try paint(a, lat, 1000);
+        defer a.free(got);
+        try testing.expectEqualStrings("▶\n", got);
+    }
+}
+
 test "paint: arrowhead glyphs for all four directions" {
     const a = testing.allocator;
     const cases = [_]struct { dir: lattice.Dir4, want: []const u8 }{

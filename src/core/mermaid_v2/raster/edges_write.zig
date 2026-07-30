@@ -156,11 +156,15 @@ pub fn writeEdgeCell(
 /// `stroke_kind` so an arrowhead landing on a FOREIGN edge's run no longer
 /// inherits that run's stroke — the arrowhead cell's stroke agrees with the
 /// edge that owns the arrowhead.
+/// `arrow` is the head style the producing edge declared; it is recorded on
+/// the cell but does not (yet) reach the painter, which still picks the head
+/// glyph from `dir` alone.
 /// guarded-by: edges_write_test.zig "writeArrowCell stamps the edge's own stroke_kind"
 pub fn writeArrowCell(
     cell: *lattice.Cell,
     edge_id: u32,
     kind: lattice.EdgeKind,
+    arrow: lattice.ArrowKind,
     dir: Move,
     along: lattice.Neighbours,
     x: u32,
@@ -171,7 +175,7 @@ pub fn writeArrowCell(
         // An arrowhead may stamp onto a cluster_border: an arrival AT the
         // cluster (terminal), which the frame-solid ruling preserves.
         .empty, .edge_segment, .cluster_border => {
-            cell.occupant = .{ .arrowhead = .{ .dir = dir, .edge = edge_id } };
+            cell.occupant = .{ .arrowhead = .{ .dir = dir, .edge = edge_id, .arrow = arrow } };
             cell.neighbours = orMask(cell.neighbours, along);
             cell.stroke_kind = kind;
         },
@@ -231,12 +235,13 @@ pub fn drawPortStroke(
 /// foreign run's bits) and record the violation; otherwise the pre-C write.
 /// `kind` is the arrowhead's OWN edge kind, stamped in both the refuse branch
 /// and the delegated `writeArrowCell` so the arrowhead cell never carries the
-/// foreign run's stroke.
+/// foreign run's stroke; `arrow` records the declared head style on both paths.
 /// guarded-by: edges_write_test.zig "writeArrowGuarded refuse branch stamps the arrowhead's own stroke_kind"
 pub fn writeArrowGuarded(
     cell: *lattice.Cell,
     edge_id: u32,
     kind: lattice.EdgeKind,
+    arrow: lattice.ArrowKind,
     dir: Move,
     along: lattice.Neighbours,
     x: u32,
@@ -247,13 +252,13 @@ pub fn writeArrowGuarded(
     if (cell.occupant == .edge_segment) {
         const seg = cell.occupant.edge_segment;
         if (crossings.arrowheadTransit(ctx.counts, ctx.joins, ctx.active, seg.edge, edge_id)) {
-            cell.occupant = .{ .arrowhead = .{ .dir = dir, .edge = edge_id } };
+            cell.occupant = .{ .arrowhead = .{ .dir = dir, .edge = edge_id, .arrow = arrow } };
             cell.neighbours = along; // pristine: no foreign junction bits
             cell.stroke_kind = kind;
             return;
         }
     }
-    writeArrowCell(cell, edge_id, kind, dir, along, x, y, cells_lost);
+    writeArrowCell(cell, edge_id, kind, arrow, dir, along, x, y, cells_lost);
 }
 
 test {
