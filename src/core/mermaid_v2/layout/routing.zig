@@ -174,9 +174,9 @@ pub fn buildEdgesWithPlan(
                 // zero-height tranche. Forward + back-edge terminals are grown
                 // below/above; fan taps stay a report-only residual.
                 const role: sketch.EdgeRole = if (hit.fan.direction == .out)
-                    .fan_out_rail
+                    .fan_out_dropper
                 else
-                    .fan_in_rail;
+                    .fan_in_dropper;
                 try out.append(a, .{
                     .id = orig.id,
                     .from = orig.from,

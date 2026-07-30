@@ -68,7 +68,7 @@ pub const Unit = struct {
 /// from this zone).
 pub fn busBarDirection(bb: sk.BusBar) pb.JoinDirection {
     return switch (bb.role) {
-        .fan_in_rail, .fan_in_trunk => .in,
+        .fan_in_dropper, .fan_in_rail => .in,
         else => .out,
     };
 }

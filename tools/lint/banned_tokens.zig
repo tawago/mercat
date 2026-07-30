@@ -61,6 +61,14 @@ pub const table = [_]Row{
         .token = "pub fn weld",
         .why = "raster/arrow_base's pass is receiveBase (rename wave B); 'weld' stays as the event vocabulary (c_border_arm_weld, the weld-order pin), never as a function name",
     },
+    .{
+        .token = "fan_out_trunk",
+        .why = "the fan-OUT EdgeRole pair is fan_out_rail (the whole shared run) / fan_out_dropper (one child's leg); the old scheme is inexpressible without this spelling",
+    },
+    .{
+        .token = "fan_in_trunk",
+        .why = "the fan-IN EdgeRole pair is fan_in_rail (the whole shared run) / fan_in_dropper (one source's leg); the old scheme is inexpressible without this spelling",
+    },
 };
 
 fn basenameOf(rel_path: []const u8) []const u8 {
@@ -208,6 +216,22 @@ test "banned token: a reverted wave-A spelling fires" {
 
     try testing.expectEqual(@as(usize, 1), got.list.items.len);
     try testing.expect(std.mem.indexOf(u8, got.list.items[0], "LaneClaim") != null);
+}
+
+test "banned token: a reverted fan-role spelling fires on both families" {
+    const a = testing.allocator;
+    // The fan roles were swapped in place (the old shared-run spelling now
+    // names the per-child leg), so a half-reverted file is silently wrong
+    // rather than a compile error: only these two tombstones catch it.
+    var out_hit = try collect(a, "raster/busbars.zig", "role = .fan_out_trunk;\n", &table);
+    defer out_hit.deinit(a);
+    try testing.expectEqual(@as(usize, 1), out_hit.list.items.len);
+    try testing.expect(std.mem.indexOf(u8, out_hit.list.items[0], "fan_out_dropper") != null);
+
+    var in_hit = try collect(a, "raster/busbars.zig", "role = .fan_in_trunk;\n", &table);
+    defer in_hit.deinit(a);
+    try testing.expectEqual(@as(usize, 1), in_hit.list.items.len);
+    try testing.expect(std.mem.indexOf(u8, in_hit.list.items[0], "fan_in_dropper") != null);
 }
 
 test "banned token: production table is well-formed" {

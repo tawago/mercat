@@ -78,11 +78,11 @@ test "busbar junction bits are explicit: corner, tee, cross" {
     try testing.expectEqual(@as(u4, 0b1100), r.lattice.atConst(22, 5).neighbours.toMask());
     // Plain rail cell: E+W = ─.
     try testing.expectEqual(@as(u4, 0b1010), r.lattice.atConst(7, 5).neighbours.toMask());
-    // Stem interior: N+S = │, role fan_out_trunk.
+    // Stem interior: N+S = │, role fan_out_rail.
     const stem_cell = r.lattice.atConst(12, 4).*;
     try testing.expectEqual(@as(u4, 0b0101), stem_cell.neighbours.toMask());
     switch (stem_cell.occupant) {
-        .edge_segment => |seg| try testing.expectEqual(lattice.EdgeRole.fan_out_trunk, seg.role),
+        .edge_segment => |seg| try testing.expectEqual(lattice.EdgeRole.fan_out_rail, seg.role),
         else => return error.MissingStemCell,
     }
     // Dropper arrowheads land on the cell above each peer top.
@@ -158,7 +158,7 @@ test "V-D-TRUNK-10: fan-IN busbar stamps one pivot arrow off the shared run" {
         .rail = .{ .{ .x = 2, .y = 4 }, .{ .x = 22, .y = 4 } },
         .taps = &taps,
         .kind = .solid,
-        .role = .fan_in_rail,
+        .role = .fan_in_dropper,
         .pivot_arrow = .filled,
     }};
     const s: sketch.Sketch = .{
@@ -184,11 +184,11 @@ test "V-D-TRUNK-10: fan-IN busbar stamps one pivot arrow off the shared run" {
         else => return error.MissingPivotArrow,
     }
     switch (r.lattice.atConst(12, 4).occupant) {
-        .edge_segment => |seg| try testing.expectEqual(lattice.EdgeRole.fan_in_trunk, seg.role),
+        .edge_segment => |seg| try testing.expectEqual(lattice.EdgeRole.fan_in_rail, seg.role),
         else => return error.MissingSharedRun,
     }
     switch (r.lattice.atConst(2, 3).occupant) {
-        .edge_segment => |seg| try testing.expectEqual(lattice.EdgeRole.fan_in_rail, seg.role),
+        .edge_segment => |seg| try testing.expectEqual(lattice.EdgeRole.fan_in_dropper, seg.role),
         else => return error.MissingRiserTap,
     }
     try testing.expectEqual(@as(u32, 0), r.report.cells_lost);

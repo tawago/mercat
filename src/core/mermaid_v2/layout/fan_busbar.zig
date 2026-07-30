@@ -171,7 +171,7 @@ pub fn build(
             .taps = taps,
             // resolve() proved every member edge shares one stroke kind.
             .kind = resolved.peers[0].edge.kind,
-            .role = if (fan_in) .fan_in_rail else .fan_out_rail,
+            .role = if (fan_in) .fan_in_dropper else .fan_out_dropper,
             .pivot_arrow = routing.mapArrow(if (fan_in) resolved.peers[0].edge.arrow_to else resolved.peers[0].edge.arrow_from),
         },
         .stem = stem,
@@ -191,7 +191,7 @@ pub fn blocked(
     placements: []const sketch.NodePlacement,
 ) bool {
     const stem_x = built.busbar.stem[0].x;
-    const fan_in = built.busbar.role == .fan_in_rail or built.busbar.role == .fan_in_trunk;
+    const fan_in = built.busbar.role == .fan_in_dropper or built.busbar.role == .fan_in_rail;
     const stem_lo = if (fan_in) @min(built.busbar.stem[0].y, built.busbar.stem[1].y) + 1 else built.busbar.stem[0].y + 1;
     const stem_hi = if (fan_in) @max(built.busbar.stem[0].y, built.busbar.stem[1].y) - 1 else built.busbar.stem[1].y;
     if (stem_lo <= stem_hi and sketch.columnTouchesAny(stem_x, stem_lo, stem_hi, placements, pivot_id, pivot_id)) return true;

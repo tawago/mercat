@@ -74,7 +74,7 @@ test "V-D-REACH-07/13 (vector): §14.6 2x2 controlled source/target/neither plan
         .{ .edge = 0, .node = 2, .at = .{ .x = 2, .y = 4 }, .landing = .{ .x = 2, .y = 8 } },
         .{ .edge = 1, .node = 3, .at = .{ .x = 8, .y = 4 }, .landing = .{ .x = 8, .y = 8 } },
     };
-    const fo_bb = [_]sk.BusBar{.{ .pivot = 0, .stem = &fo_stem, .rail = .{ .{ .x = 2, .y = 4 }, .{ .x = 8, .y = 4 } }, .taps = &fo_taps, .kind = .solid, .role = .fan_out_rail }};
+    const fo_bb = [_]sk.BusBar{.{ .pivot = 0, .stem = &fo_stem, .rail = .{ .{ .x = 2, .y = 4 }, .{ .x = 8, .y = 4 } }, .taps = &fo_taps, .kind = .solid, .role = .fan_out_dropper }};
     const e2_path = [_]sk.EdgePath{path(2, 1, 3, &.{ .{ .x = 14, .y = 2 }, .{ .x = 14, .y = 8 } })};
     var src_side = sketchOf(&e2_path, &fo_bb);
     src_side.joins = controlledJoins(&.{ 0, 1 }, &c22_ports, &c22_ms);
@@ -90,7 +90,7 @@ test "V-D-REACH-07/13 (vector): §14.6 2x2 controlled source/target/neither plan
         .{ .edge = 1, .node = 0, .at = .{ .x = 2, .y = 8 }, .landing = .{ .x = 2, .y = 4 } },
         .{ .edge = 2, .node = 1, .at = .{ .x = 14, .y = 8 }, .landing = .{ .x = 14, .y = 4 } },
     };
-    const fi_bb = [_]sk.BusBar{.{ .pivot = 3, .stem = &fi_stem, .rail = .{ .{ .x = 2, .y = 8 }, .{ .x = 14, .y = 8 } }, .taps = &fi_taps, .kind = .solid, .role = .fan_in_rail }};
+    const fi_bb = [_]sk.BusBar{.{ .pivot = 3, .stem = &fi_stem, .rail = .{ .{ .x = 2, .y = 8 }, .{ .x = 14, .y = 8 } }, .taps = &fi_taps, .kind = .solid, .role = .fan_in_dropper }};
     const e0_path = [_]sk.EdgePath{path(0, 0, 2, &.{ .{ .x = 20, .y = 2 }, .{ .x = 20, .y = 8 } })};
     var tgt_side = sketchOf(&e0_path, &fi_bb);
     tgt_side.joins = controlledJoins(&.{ 1, 2 }, &c22_ports, &c22_ms);
@@ -138,7 +138,7 @@ test "V-D-REACH-08/14 (vector): §14.6 dual controlled source/target/neither pla
         .{ .edge = 0, .node = 1, .at = .{ .x = 2, .y = 4 }, .landing = .{ .x = 2, .y = 8 } },
         .{ .edge = 1, .node = 2, .at = .{ .x = 8, .y = 4 }, .landing = .{ .x = 8, .y = 8 } },
     };
-    const fo_bb = [_]sk.BusBar{.{ .pivot = 0, .stem = &fo_stem, .rail = .{ .{ .x = 2, .y = 4 }, .{ .x = 8, .y = 4 } }, .taps = &fo_taps, .kind = .solid, .role = .fan_out_rail }};
+    const fo_bb = [_]sk.BusBar{.{ .pivot = 0, .stem = &fo_stem, .rail = .{ .{ .x = 2, .y = 4 }, .{ .x = 8, .y = 4 } }, .taps = &fo_taps, .kind = .solid, .role = .fan_out_dropper }};
     const e2_path = [_]sk.EdgePath{path(2, 3, 1, &.{ .{ .x = 14, .y = 2 }, .{ .x = 14, .y = 8 } })};
     var src_side = sketchOf(&e2_path, &fo_bb);
     src_side.joins = controlledJoins(&.{ 0, 1 }, &dual_ports, &dual_ms);
@@ -154,7 +154,7 @@ test "V-D-REACH-08/14 (vector): §14.6 dual controlled source/target/neither pla
         .{ .edge = 0, .node = 0, .at = .{ .x = 2, .y = 8 }, .landing = .{ .x = 2, .y = 4 } },
         .{ .edge = 2, .node = 3, .at = .{ .x = 14, .y = 8 }, .landing = .{ .x = 14, .y = 4 } },
     };
-    const fi_bb = [_]sk.BusBar{.{ .pivot = 1, .stem = &fi_stem, .rail = .{ .{ .x = 2, .y = 8 }, .{ .x = 14, .y = 8 } }, .taps = &fi_taps, .kind = .solid, .role = .fan_in_rail }};
+    const fi_bb = [_]sk.BusBar{.{ .pivot = 1, .stem = &fi_stem, .rail = .{ .{ .x = 2, .y = 8 }, .{ .x = 14, .y = 8 } }, .taps = &fi_taps, .kind = .solid, .role = .fan_in_dropper }};
     const e1_path = [_]sk.EdgePath{path(1, 0, 2, &.{ .{ .x = 20, .y = 2 }, .{ .x = 20, .y = 8 } })};
     var tgt_side = sketchOf(&e1_path, &fi_bb);
     tgt_side.joins = controlledJoins(&.{ 0, 2 }, &dual_ports, &dual_ms);

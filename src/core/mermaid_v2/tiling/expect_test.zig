@@ -265,7 +265,7 @@ test "expect: a tap keys on its landing, so a bus-bar fan needs no polyline" {
     for (&cells) |*c| c.* = lattice.Cell.empty;
     const lat = lattice.Lattice{ .width = 5, .height = 7, .cells = &cells };
     // Rail along row 3, one tap dropping to a landing at (0,5).
-    cells[3 * 5 + 0] = .{ .occupant = .{ .edge_segment = .{ .edge = 4, .kind = .solid, .role = .fan_out_trunk } }, .neighbours = .{ .e = true, .s = true } };
+    cells[3 * 5 + 0] = .{ .occupant = .{ .edge_segment = .{ .edge = 4, .kind = .solid, .role = .fan_out_rail } }, .neighbours = .{ .e = true, .s = true } };
     cells[4 * 5 + 0] = .{ .occupant = .{ .arrowhead = .{ .dir = .south, .edge = 7 } }, .neighbours = .{ .n = true, .s = true } };
 
     var taps = [_]sketch.Tap{.{ .edge = 7, .node = 2, .at = .{ .x = 0, .y = 3 }, .landing = .{ .x = 0, .y = 5 } }};

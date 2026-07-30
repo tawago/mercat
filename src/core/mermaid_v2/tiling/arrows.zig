@@ -99,7 +99,7 @@ pub fn sideFed(v: cell.View, x: u32, y: u32, tip: cell.Dir4) bool {
 fn isFanStrip(role: ?cell.EdgeRole) bool {
     const r = role orelse return false;
     return switch (r) {
-        .fan_out_trunk, .fan_out_rail, .fan_in_trunk, .fan_in_rail => true,
+        .fan_out_rail, .fan_out_dropper, .fan_in_rail, .fan_in_dropper => true,
         else => false,
     };
 }

@@ -434,7 +434,7 @@ test "bus-bar rasterizes before edges: junction cell keeps trunk kind/role, edge
         .edge_segment => |seg| {
             // Trunk-owned kind survives the later crossing edge write.
             try testing.expectEqual(lattice.EdgeKind.solid, seg.kind);
-            try testing.expectEqual(lattice.EdgeRole.fan_out_trunk, seg.role);
+            try testing.expectEqual(lattice.EdgeRole.fan_out_rail, seg.role);
         },
         else => return error.MissingJunctionCell,
     }

@@ -14,7 +14,7 @@ const testing = std.testing;
 
 fn railCell(nb: lattice.Neighbours) lattice.Cell {
     return .{
-        .occupant = .{ .edge_segment = .{ .edge = 0, .kind = .solid, .role = .fan_out_rail } },
+        .occupant = .{ .edge_segment = .{ .edge = 0, .kind = .solid, .role = .fan_out_dropper } },
         .neighbours = nb,
     };
 }

@@ -274,7 +274,7 @@ test "V-D-TRUNK-08: no automatic partial trunk — a subset proposal is rejected
     for (four[0..3], &taps) |e, *t| {
         t.* = .{ .edge = e.id, .node = e.to, .at = poly[0], .landing = poly[1], .arrow = .filled };
     }
-    const bbs = [_]sk.BusBar{.{ .pivot = 8, .stem = &poly, .rail = .{ poly[0], poly[1] }, .taps = &taps, .kind = .solid, .role = .fan_out_rail }};
+    const bbs = [_]sk.BusBar{.{ .pivot = 8, .stem = &poly, .rail = .{ poly[0], poly[1] }, .taps = &taps, .kind = .solid, .role = .fan_out_dropper }};
     const res = try jp.realize(a, plan, sketchOf(try paths(a, four[3..]), &bbs), &.{});
     try expectEqual(jp.GroupClause.incomplete, res.report.verdicts[0].clause);
     try expectEqual(@as(usize, 0), res.plan.selected_joins.len);
@@ -292,7 +292,7 @@ test "V-D-TRUNK-10: uniform directed fan-in busbar proposal realizes one group-o
     for (fanin, &taps) |e, *t| {
         t.* = .{ .edge = e.id, .node = e.from, .at = poly[0], .landing = poly[1], .arrow = .none };
     }
-    const bbs = [_]sk.BusBar{.{ .pivot = 5, .stem = &poly, .rail = .{ poly[0], poly[1] }, .taps = &taps, .kind = .solid, .role = .fan_in_rail }};
+    const bbs = [_]sk.BusBar{.{ .pivot = 5, .stem = &poly, .rail = .{ poly[0], poly[1] }, .taps = &taps, .kind = .solid, .role = .fan_in_dropper }};
     const res = try jp.realize(a, plan, sketchOf(&.{}, &bbs), &.{});
     try expectEqual(@as(usize, 1), res.plan.selected_joins.len);
     try expectEqual(@as(usize, 4), res.plan.selected_joins[0].members.len);
@@ -325,7 +325,7 @@ test "6.7: every planner output validates clean across the step-4 vector shapes"
     for (fan5[0..3], &taps) |e, *t| {
         t.* = .{ .edge = e.id, .node = e.to, .at = poly[0], .landing = poly[1], .arrow = .filled };
     }
-    const partial_bb = [_]sk.BusBar{.{ .pivot = 8, .stem = &poly, .rail = .{ poly[0], poly[1] }, .taps = &taps, .kind = .solid, .role = .fan_out_rail }};
+    const partial_bb = [_]sk.BusBar{.{ .pivot = 8, .stem = &poly, .rail = .{ poly[0], poly[1] }, .taps = &taps, .kind = .solid, .role = .fan_out_dropper }};
     const g5 = graph(&fan5);
     const plan5 = try buildPlan(a, g5);
     const partial = try jp.realize(a, plan5, sketchOf(try paths(a, fan5[3..]), &partial_bb), &.{});
@@ -404,7 +404,7 @@ test "6.7: corrupted plans are rejected bullet by bullet" {
     for (fan5[0..3], &taps) |e, *t| {
         t.* = .{ .edge = e.id, .node = e.to, .at = poly[0], .landing = poly[1], .arrow = .filled };
     }
-    const bbs = [_]sk.BusBar{ .{ .pivot = 8, .stem = &poly, .rail = .{ poly[0], poly[1] }, .taps = taps[0..2], .kind = .solid, .role = .fan_out_rail } };
+    const bbs = [_]sk.BusBar{ .{ .pivot = 8, .stem = &poly, .rail = .{ poly[0], poly[1] }, .taps = taps[0..2], .kind = .solid, .role = .fan_out_dropper } };
     const rejected = try jp.realize(a, plan3, sketchOf(try paths(a, fan5[2..3]), &bbs), &.{});
     try expectEqual(@as(usize, 1), rejected.plan.rejected_proposals.len);
     p = rejected.plan;
@@ -412,7 +412,7 @@ test "6.7: corrupted plans are rejected bullet by bullet" {
     try expect(hasFinding(try jpv.validate(a, plan3, p, rejected.report.proposals), .proposal_unaccounted));
 
     // Bullets 2/3/4: a selected join re-pointed at the wrong group.
-    const realized = try jp.realize(a, plan3, sketchOf(&.{}, &.{.{ .pivot = 8, .stem = &poly, .rail = .{ poly[0], poly[1] }, .taps = &taps, .kind = .solid, .role = .fan_out_rail }}), &.{});
+    const realized = try jp.realize(a, plan3, sketchOf(&.{}, &.{.{ .pivot = 8, .stem = &poly, .rail = .{ poly[0], poly[1] }, .taps = &taps, .kind = .solid, .role = .fan_out_dropper }}), &.{});
     try expectEqual(@as(usize, 1), realized.plan.selected_joins.len);
     const rejoined = try a.dupe(pb.SelectedJoin, realized.plan.selected_joins);
     const foreign = try a.dupe(pb.EdgeId, realized.plan.selected_joins[0].members);

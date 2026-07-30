@@ -3,9 +3,9 @@
 //! cells into a `Lattice` with `Neighbours` bits for the painter's
 //! junction table. Imports: `std`, `sketch.zig`, `lattice.zig`,
 //! `edge_roles.zig`, `crossings.zig`, `edges_write.zig`, the `prim` module only.
-//! Role-merge precedence at trunk cells (`edge_roles.zig`): fan_out_trunk >
-//! fan_out_rail and fan_in_trunk > fan_in_rail, both over forward/
-//! cluster_internal. Fan trunk cells stamped explicitly post-walk.
+//! Role-merge precedence at shared-run cells (`edge_roles.zig`): fan_out_rail
+//! > fan_out_dropper and fan_in_rail > fan_in_dropper, both over forward/
+//! cluster_internal. Fan shared-run cells stamped explicitly post-walk.
 //!
 //! The per-cell claim contract (`writeEdgeCell`/`writeArrowCell`/
 //! `writeArrowGuarded`/`drawPortStroke`) and the directional primitives

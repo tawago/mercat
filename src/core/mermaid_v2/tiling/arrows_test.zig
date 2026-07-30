@@ -275,7 +275,7 @@ test "base: a fan-strip trunk legally lacks the into-arrow arm" {
     g.init();
     g.set(1, 1, arrowCell(.south, .{ .n = true, .s = true }));
     g.set(1, 0, baseCell(
-        .{ .edge_segment = .{ .edge = 7, .kind = .solid, .role = .fan_out_trunk } },
+        .{ .edge_segment = .{ .edge = 7, .kind = .solid, .role = .fan_out_rail } },
         .{ .e = true, .w = true },
     ));
     const lat = g.lat();

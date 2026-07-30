@@ -1,6 +1,6 @@
-//! Edge-role plumbing for `raster/edges.zig`: trunk-cell role-merge
-//! precedence and the post-walk pass that upgrades fan rails into fan
-//! trunks. Split out to keep `edges.zig` under the 500-line cap.
+//! Edge-role plumbing for `raster/edges.zig`: shared-run role-merge
+//! precedence and the post-walk pass that upgrades fan droppers into fan
+//! rails. Split out to keep `edges.zig` under the 500-line cap.
 //!
 //! `sketch.EdgeRole` and `lattice.EdgeRole` are the same type
 //! (`prim.EdgeRole`), so no cross-layer mapping is needed here.
@@ -13,7 +13,7 @@ const lattice = @import("../lattice.zig");
 
 /// Choose the surviving role when a cell already has a role and a new
 /// writer arrives. Precedence (highest first):
-///   fan_out_trunk, fan_in_trunk  > fan_out_rail, fan_in_rail
+///   fan_out_rail, fan_in_rail  > fan_out_dropper, fan_in_dropper
 ///   > back_edge, self_loop, cluster_internal  > forward.
 /// Ties: prefer the existing role (first-writer-wins for same tier).
 pub fn mergeRole(existing: lattice.EdgeRole, incoming: lattice.EdgeRole) lattice.EdgeRole {
@@ -23,35 +23,35 @@ pub fn mergeRole(existing: lattice.EdgeRole, incoming: lattice.EdgeRole) lattice
 
 fn priority(r: lattice.EdgeRole) u8 {
     return switch (r) {
-        .fan_out_trunk, .fan_in_trunk => 3,
-        .fan_out_rail, .fan_in_rail => 2,
+        .fan_out_rail, .fan_in_rail => 3,
+        .fan_out_dropper, .fan_in_dropper => 2,
         .back_edge, .self_loop, .cluster_internal => 1,
         .forward => 0,
     };
 }
 
-/// After all polylines are written, locate fan-OUT / fan-IN trunk cells
-/// and stamp them with the higher-priority trunk role. Layout placed
-/// these cells deliberately (per-child polylines all pass through
-/// `(source.mid_x, rail_y)` for fan-OUT or `(target.mid_x, rail_y)` for
-/// fan-IN); we recognise them as the unique cells whose existing role
-/// is fan_out_rail / fan_in_rail AND whose neighbour mask contains both
-/// vertical and horizontal bits (the OR-merge of a "straight vertical"
-/// segment and a "corner" segment from a sibling).
+/// After all polylines are written, locate the fan-OUT / fan-IN cells that
+/// two or more siblings share and stamp them with the higher-priority
+/// shared-run role. Layout placed these cells deliberately (per-child
+/// polylines all pass through `(source.mid_x, rail_y)` for fan-OUT or
+/// `(target.mid_x, rail_y)` for fan-IN); we recognise them as the unique
+/// cells whose existing role is fan_out_dropper / fan_in_dropper AND whose
+/// neighbour mask contains both vertical and horizontal bits (the OR-merge
+/// of a "straight vertical" segment and a "corner" segment from a sibling).
 ///
 /// SCOPE: single-row fan-OUT no longer reaches
 /// this pass — it is painted as a first-class bus-bar with explicit
-/// junction bits (`raster/busbars.zig`; trunk cells arrive already
-/// role-stamped `fan_out_trunk`, which this scan skips). The remaining
-/// producers of `fan_out_rail` merges are GRID-wrapped fan-OUT (rows > 1)
-/// and declined fans (mixed stroke kind / source-side arrows); fan-IN is
-/// unchanged. Delete the fan-OUT branch here once those follow-ups move
-/// to bus-bars too.
+/// junction bits (`raster/busbars.zig`; its shared-run cells arrive
+/// already role-stamped `fan_out_rail`, which this scan skips). The
+/// remaining producers of `fan_out_dropper` merges are GRID-wrapped
+/// fan-OUT (rows > 1) and declined fans (mixed stroke kind / source-side
+/// arrows); fan-IN is unchanged. Delete the fan-OUT branch here once
+/// those follow-ups move to bus-bars too.
 ///
-/// For fan-OUT trunks we additionally strip the "spurious" vertical bit
-/// contributed by the center child's straight descent: the source side
+/// For fan-OUT shared runs we additionally strip the "spurious" vertical
+/// bit contributed by the center child's straight descent: the source side
 /// always keeps its bit; the opposite vertical bit (which would force
-/// `┼`) is dropped so the painter resolves to `┴`/`┬`. Fan-IN trunks
+/// `┼`) is dropped so the painter resolves to `┴`/`┬`. Fan-IN shared runs
 /// keep all four bits so the painter renders `┼`.
 pub fn stampFanTrunks(lat: *lattice.Lattice) void {
     if (lat.width == 0 or lat.height == 0) return;
@@ -68,8 +68,8 @@ pub fn stampFanTrunks(lat: *lattice.Lattice) void {
             const has_h = cell.neighbours.e or cell.neighbours.w;
             if (!has_v or !has_h) continue;
             const new_role: lattice.EdgeRole = switch (seg.role) {
-                .fan_out_rail => .fan_out_trunk,
-                .fan_in_rail => .fan_in_trunk,
+                .fan_out_dropper => .fan_out_rail,
+                .fan_in_dropper => .fan_in_rail,
                 else => continue,
             };
             cell.occupant = .{ .edge_segment = .{
@@ -77,7 +77,7 @@ pub fn stampFanTrunks(lat: *lattice.Lattice) void {
                 .kind = seg.kind,
                 .role = new_role,
             } };
-            if (new_role == .fan_out_trunk and cell.neighbours.n and cell.neighbours.s and
+            if (new_role == .fan_out_rail and cell.neighbours.n and cell.neighbours.s and
                 !railJunctionAdjacent(lat, x, y, .north) and !railJunctionAdjacent(lat, x, y, .south))
             {
                 // Guard (before the strip): a GRID-wrapped fan-OUT (rows > 1)
@@ -112,7 +112,7 @@ pub fn stampFanTrunks(lat: *lattice.Lattice) void {
 /// Walk vertically from `(x, y)` in `step_dy` (±1) up to `max_steps`,
 /// passing through pure-vertical edge_segment cells, and report whether
 /// we reach a node_border. Used to locate the source side of a fan-OUT
-/// trunk cell.
+/// shared-run cell.
 fn sourceReachable(lat: *const lattice.Lattice, x: u32, y: u32, comptime step_dy: i32, max_steps: u32, count_arrowhead: bool) bool {
     if (x >= lat.width) return false;
     var steps: u32 = 0;
@@ -150,7 +150,7 @@ fn sourceReachable(lat: *const lattice.Lattice, x: u32, y: u32, comptime step_dy
 
 /// Report whether the immediate vertical neighbour of `(x, y)` in
 /// direction `d` (`.north`/`.south`) is a SECOND fan rail row on this
-/// column: an `.edge_segment` carrying a fan rail/trunk role whose
+/// column: an `.edge_segment` carrying a fan shared-run/dropper role whose
 /// neighbour mask includes a horizontal bit. That signature is unique to
 /// grid-wrapped (rows > 1) fan-OUT — a single-row/declined fan's trunk
 /// cell has only pure-vertical vertical neighbours (the pivot stem above,
@@ -166,7 +166,7 @@ fn railJunctionAdjacent(lat: *const lattice.Lattice, x: u32, y: u32, comptime d:
         else => return false,
     };
     switch (seg.role) {
-        .fan_out_rail, .fan_out_trunk, .fan_in_rail, .fan_in_trunk => {},
+        .fan_out_dropper, .fan_out_rail, .fan_in_dropper, .fan_in_rail => {},
         else => return false,
     }
     return c.neighbours.e or c.neighbours.w;

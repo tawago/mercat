@@ -30,11 +30,11 @@ pub fn rasterizeBusBars(lat: *lattice.Lattice, s: sketch.Sketch) Report {
 }
 
 fn drawBusBar(lat: *lattice.Lattice, bb: sketch.BusBar, report: *Report) void {
-    const trunk_edge = bb.taps[0].edge; // informational owner id for trunk cells
+    const crossbar_edge = bb.taps[0].edge; // informational owner id for shared-run cells
     const junction = bb.stem[bb.stem.len - 1];
-    const fan_in = bb.role == .fan_in_rail or bb.role == .fan_in_trunk;
-    const trunk_role: lattice.EdgeRole = if (fan_in) .fan_in_trunk else .fan_out_trunk;
-    const tap_role: lattice.EdgeRole = if (fan_in) .fan_in_rail else .fan_out_rail;
+    const fan_in = bb.role == .fan_in_dropper or bb.role == .fan_in_rail;
+    const crossbar_role: lattice.EdgeRole = if (fan_in) .fan_in_rail else .fan_out_rail;
+    const dropper_role: lattice.EdgeRole = if (fan_in) .fan_in_dropper else .fan_out_dropper;
 
     // Rail: every cell carries exactly its inward arm(s), from geometry.
     // guarded-by: busbars_test.zig "busbar junction bits are explicit: corner, tee, cross"
@@ -44,7 +44,7 @@ fn drawBusBar(lat: *lattice.Lattice, bb: sketch.BusBar, report: *Report) void {
     var x = x0;
     while (x <= x1) : (x += 1) {
         const mask: lattice.Neighbours = .{ .e = x < x1, .w = x > x0 };
-        claim(lat, .{ .x = x, .y = rail_y }, trunk_edge, bb.kind, trunk_role, mask, report);
+        claim(lat, .{ .x = x, .y = rail_y }, crossbar_edge, bb.kind, crossbar_role, mask, report);
     }
 
     // -- Stem: pivot exit bit into the node border, interior cells, and
@@ -57,16 +57,16 @@ fn drawBusBar(lat: *lattice.Lattice, bb: sketch.BusBar, report: *Report) void {
         const b = bb.stem[i + 1];
         const dir = edges_r.segmentDir(a, b) orelse continue;
         if (last_dir) |prev| {
-            claim(lat, a, trunk_edge, bb.kind, trunk_role, edges_r.orMask(edges_r.bitMask(edges_r.reverse(prev)), edges_r.bitMask(dir)), report);
+            claim(lat, a, crossbar_edge, bb.kind, crossbar_role, edges_r.orMask(edges_r.bitMask(edges_r.reverse(prev)), edges_r.bitMask(dir)), report);
         }
         var cursor = edges_r.step(a, dir);
         while (cursor.x != b.x or cursor.y != b.y) : (cursor = edges_r.step(cursor, dir)) {
-            claim(lat, cursor, trunk_edge, bb.kind, trunk_role, edges_r.straightMask(dir), report);
+            claim(lat, cursor, crossbar_edge, bb.kind, crossbar_role, edges_r.straightMask(dir), report);
         }
         last_dir = dir;
     }
     if (last_dir) |dir| {
-        claim(lat, junction, trunk_edge, bb.kind, trunk_role, edges_r.bitMask(edges_r.reverse(dir)), report);
+        claim(lat, junction, crossbar_edge, bb.kind, crossbar_role, edges_r.bitMask(edges_r.reverse(dir)), report);
     }
     if (bb.pivot_arrow != .none) {
         var si: usize = 0;
@@ -75,7 +75,7 @@ fn drawBusBar(lat: *lattice.Lattice, bb: sketch.BusBar, report: *Report) void {
             const p = edges_r.step(bb.stem[0], dir);
             if (edges_r.pointInBounds(p, lat)) {
                 const c = edges_r.toCoord(p);
-                edges_r.writeArrowCell(lat.at(c.x, c.y), trunk_edge, bb.kind, edges_r.reverse(dir), edges_r.straightMask(dir), c.x, c.y, &report.cells_lost);
+                edges_r.writeArrowCell(lat.at(c.x, c.y), crossbar_edge, bb.kind, edges_r.reverse(dir), edges_r.straightMask(dir), c.x, c.y, &report.cells_lost);
             }
             break;
         }
@@ -89,12 +89,12 @@ fn drawBusBar(lat: *lattice.Lattice, bb: sketch.BusBar, report: *Report) void {
             edges_r.drawPortStroke(lat, &source_stub, bb.kind);
         }
         const dir = edges_r.segmentDir(tap.at, tap.landing) orelse continue;
-        claim(lat, tap.at, tap.edge, bb.kind, trunk_role, edges_r.bitMask(dir), report);
+        claim(lat, tap.at, tap.edge, bb.kind, crossbar_role, edges_r.bitMask(dir), report);
         var wrote_any = false;
         var last_cell: ?sketch.Point = null;
         var cursor = edges_r.step(tap.at, dir);
         while (cursor.x != tap.landing.x or cursor.y != tap.landing.y) : (cursor = edges_r.step(cursor, dir)) {
-            claim(lat, cursor, tap.edge, bb.kind, tap_role, edges_r.straightMask(dir), report);
+            claim(lat, cursor, tap.edge, bb.kind, dropper_role, edges_r.straightMask(dir), report);
             wrote_any = true;
             last_cell = cursor;
         }

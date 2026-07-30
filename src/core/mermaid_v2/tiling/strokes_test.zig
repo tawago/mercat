@@ -268,11 +268,11 @@ test "fusion: a bus-bar rail above its tap's dropper is not a fusion" {
     // what keeps the trunk's shared id from reading as a defect.
     var g: Grid = .{};
     g.init();
-    g.set(2, 2, roledCell(1, .fan_out_trunk, .{ .e = true, .s = true, .w = true }));
-    g.set(1, 2, roledCell(1, .fan_out_rail, .{ .e = true, .w = true }));
-    g.set(3, 2, roledCell(1, .fan_out_rail, .{ .e = true, .w = true }));
-    g.set(2, 3, roledCell(7, .fan_out_rail, .{ .n = true, .s = true }));
-    g.set(2, 4, roledCell(7, .fan_out_rail, .{ .n = true }));
+    g.set(2, 2, roledCell(1, .fan_out_rail, .{ .e = true, .s = true, .w = true }));
+    g.set(1, 2, roledCell(1, .fan_out_dropper, .{ .e = true, .w = true }));
+    g.set(3, 2, roledCell(1, .fan_out_dropper, .{ .e = true, .w = true }));
+    g.set(2, 3, roledCell(7, .fan_out_dropper, .{ .n = true, .s = true }));
+    g.set(2, 4, roledCell(7, .fan_out_dropper, .{ .n = true }));
     const lat = g.lat();
     const c = check(&lat, 2, 2);
     try testing.expectEqual(@as(u32, 0), c.d_run_fused_collinear);

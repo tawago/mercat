@@ -81,9 +81,9 @@ pub const Counts = struct {
     /// perpendicular to the tip axis. A routing artifact, not a stub gap —
     /// `receiveBase` refuses to touch these.
     c_base_side_fed: u32 = 0,
-    /// The base is a fan trunk/rail cell. The fan-strip stamp rewrites
-    /// those masks at the end of the edges stage, so a trunk base legally
-    /// lacks the into-arrow arm.
+    /// The base is a fan shared-run (rail) or dropper cell. The fan-strip
+    /// stamp rewrites those masks at the end of the edges stage, so such a
+    /// base legally lacks the into-arrow arm.
     c_base_fan_trunk: u32 = 0,
     /// The base is a FOREIGN edge's stroke. Welding here would fabricate a
     /// junction between two unrelated runs, so `receiveBase` refuses by design.

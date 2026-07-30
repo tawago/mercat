@@ -96,7 +96,7 @@ pub fn fanTaps(rail_covers_all: bool) [3]sk.Tap {
     };
 }
 pub fn fanBusBar(taps: []const sk.Tap, rail_hi: i32) sk.BusBar {
-    return .{ .pivot = 0, .stem = &fan_stem, .rail = .{ .{ .x = 4, .y = 4 }, .{ .x = rail_hi, .y = 4 } }, .taps = taps, .kind = .solid, .role = .fan_out_rail };
+    return .{ .pivot = 0, .stem = &fan_stem, .rail = .{ .{ .x = 4, .y = 4 }, .{ .x = rail_hi, .y = 4 } }, .taps = taps, .kind = .solid, .role = .fan_out_dropper };
 }
 
 test "V-D-REACH-01 (vector): admitted fan-out trunk is one component, Cartesian == declared" {
@@ -139,7 +139,7 @@ test "V-D-REACH-02 (vector): admitted fan-in trunk is one component, 3x1 pairs" 
         .{ .edge = 1, .node = 1, .at = .{ .x = 10, .y = 6 }, .landing = .{ .x = 10, .y = 4 } },
         .{ .edge = 2, .node = 2, .at = .{ .x = 16, .y = 6 }, .landing = .{ .x = 16, .y = 4 } },
     };
-    const bbs = [_]sk.BusBar{.{ .pivot = 3, .stem = &stem, .rail = .{ .{ .x = 4, .y = 6 }, .{ .x = 16, .y = 6 } }, .taps = &taps, .kind = .solid, .role = .fan_in_rail }};
+    const bbs = [_]sk.BusBar{.{ .pivot = 3, .stem = &stem, .rail = .{ .{ .x = 4, .y = 6 }, .{ .x = 16, .y = 6 } }, .taps = &taps, .kind = .solid, .role = .fan_in_dropper }};
     const s = try realized(a, graphOf(&nodes, &edges), sketchOf(&.{}, &bbs), &.{});
     try expectEqual(@as(usize, 1), s.joins.selected_joins.len);
 

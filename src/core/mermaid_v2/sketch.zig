@@ -196,7 +196,9 @@ pub const BusBar = struct {
     rail: [2]Point,
     taps: []const Tap,
     kind: EdgeKind,
-    role: EdgeRole = .fan_out_rail,
+    /// Direction discriminant only: any fan-OUT role reads as OUT, any
+    /// fan-IN role as IN (every reader accepts both members of a family).
+    role: EdgeRole = .fan_out_dropper,
     pivot_arrow: ArrowKind = .none,
 
     /// Segment a tap's label anchors to (off-column: junction→tap rail stretch; on-column: tap→landing drop); shared by bbox reservation and rasterization. // guarded-by: raster/labels_test.zig "bus-bar tap labels paint at the tapLabelSeg-predicted segment for off-column and on-column taps"

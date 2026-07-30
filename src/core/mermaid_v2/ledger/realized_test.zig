@@ -255,7 +255,7 @@ test "V-D-JOIN-SELECT-07: partial proposal fails clause (c) first" {
     const g = graph(&edges);
     const plan = try buildPlan(a, g);
     const taps = [_]sk.Tap{ tapFor(edges[0]), tapFor(edges[1]), tapFor(edges[2]) };
-    const bbs = [_]sk.BusBar{busbarFor(5, .solid, .fan_out_rail, &taps)};
+    const bbs = [_]sk.BusBar{busbarFor(5, .solid, .fan_out_dropper, &taps)};
     const s = sketchOf(try paths(a, edges[3..]), &bbs);
 
     const res = try jp.realize(a, plan, s, &.{});
@@ -318,7 +318,7 @@ test "V-D-JOIN-SELECT-13: proposal multiplicity blocks realization, byte-identic
     const g = graph(&edges);
     const plan = try buildPlan(a, g);
     const taps = [_]sk.Tap{ tapFor(edges[0]), tapFor(edges[1]), tapFor(edges[2]) };
-    const bb = busbarFor(5, .solid, .fan_out_rail, &taps);
+    const bb = busbarFor(5, .solid, .fan_out_dropper, &taps);
     // TWO complete trunk proposals for FO-Hub (distinct busbar entries,
     // identical member-set key → one multiplicity-counted entry).
     const two = [_]sk.BusBar{ bb, bb };

@@ -88,16 +88,25 @@ pub const EdgeRole = enum {
     /// Edge whose direction was reversed by sugiyama for cycle removal;
     /// rasterizes as a back-edge rail beneath the node row.
     back_edge,
-    /// A fan-OUT trunk cell at the source-column rail-row intersection.
-    /// Painter forces `┴`/`┬`/`├`/`┤` (no continuing trunk past rail).
-    fan_out_trunk,
-    /// A fan-OUT rail or descent segment from source to per-child column.
+    /// A cell of a fan-OUT's SHARED run: the pivot stem, the WHOLE
+    /// crossbar span, and every tap cell sitting on it — all the ink two
+    /// or more sibling edges have in common, not merely the stem/crossbar
+    /// intersection. Bus-bars stamp it directly; on the per-peer fan path
+    /// the post-walk pass upgrades the shared cells it detects. Painter
+    /// strips the junction to `┴`/`┬`/`├`/`┤` (nothing continues past the
+    /// crossbar).
     fan_out_rail,
-    /// A fan-IN trunk cell at the target-column rail-row intersection.
-    /// Painter keeps `┼` semantics (vertical pass-through preserved).
-    fan_in_trunk,
-    /// A fan-IN rail or ascent segment from per-source column to target.
+    /// A fan-OUT dropper: the leg descending from the crossbar to one
+    /// child column, owned by a single edge.
+    fan_out_dropper,
+    /// A cell of a fan-IN's SHARED run (target stem, crossbar span, and
+    /// every tap cell on it), from the same two producers as
+    /// `fan_out_rail`. Painter keeps `┼` semantics: the vertical
+    /// pass-through survives.
     fan_in_rail,
+    /// A fan-IN dropper: the leg rising from one source column to the
+    /// crossbar, owned by a single edge.
+    fan_in_dropper,
     /// Self-loop edge — uses the lollipop polyline.
     self_loop,
     /// Forward edge whose both endpoints live in the same innermost
