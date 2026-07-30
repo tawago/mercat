@@ -140,6 +140,20 @@ test "ownership: each seeded defect increments defectTotal by exactly one" {
     ring3(&lat_ring_arm, W, 3);
     put(&lat_ring_arm, 2, 1, .{ .occupant = .{ .node_border = .{ .node = 3, .role = .edge_e } }, .neighbours = .{ .n = true, .s = true, .e = true } });
 
+    // A run stopping on a node ring's SE corner instead of a face. The
+    // stroke's stub is a convention (it ends at a ring); the corner is not.
+    var lat_term_corner = clean;
+    ring3(&lat_term_corner, W, 3);
+    put(&lat_term_corner, 2, 3, edgeCell(.{ .n = true }));
+
+    // An arrowhead still abutting untouched frame: a real arrival into a
+    // cluster replaces the frame cell, so this one stopped a cell short.
+    // Its base is properly fed, so the base ladder stays silent.
+    var lat_term_frame = clean;
+    frameRing3(&lat_term_frame, W, 4);
+    put(&lat_term_frame, 1, 3, arrowCell(.north, .{ .s = true }));
+    put(&lat_term_frame, 1, 4, edgeCell(.{ .n = true }));
+
     const seeds = [_]Seed{
         .{ .name = "arrow lateral into background", .cells = lat_orphan },
         .{ .name = "arrow lateral at a silent stroke", .cells = lat_silent },
@@ -149,6 +163,8 @@ test "ownership: each seeded defect increments defectTotal by exactly one" {
         .{ .name = "ink crossing a node interior", .cells = lat_interior },
         .{ .name = "two runs fused collinearly", .cells = lat_fused },
         .{ .name = "node ring with an extra east arm", .cells = lat_ring_arm },
+        .{ .name = "run terminating on a node ring corner", .cells = lat_term_corner },
+        .{ .name = "arrowhead abutting untouched frame", .cells = lat_term_frame },
     };
 
     for (seeds) |seed| {
@@ -170,22 +186,40 @@ test "ownership: each seeded defect increments defectTotal by exactly one" {
     try testing.expectEqual(@as(u32, 0), scan.run(testing.allocator, ctxOf(&lat)).defectTotal());
 }
 
+/// The eight cells of a closed 3x3 ring: offset, role, and the arms that
+/// role carries. Shared by the node and frame builders so the two rings
+/// differ only in occupant.
+const ring3_shape = [_]struct { dx: usize, dy: usize, role: lattice.BorderRole, nb: lattice.Neighbours }{
+    .{ .dx = 0, .dy = 0, .role = .corner_nw, .nb = .{ .e = true, .s = true } },
+    .{ .dx = 1, .dy = 0, .role = .edge_n, .nb = .{ .e = true, .w = true } },
+    .{ .dx = 2, .dy = 0, .role = .corner_ne, .nb = .{ .w = true, .s = true } },
+    .{ .dx = 0, .dy = 1, .role = .edge_w, .nb = .{ .n = true, .s = true } },
+    .{ .dx = 2, .dy = 1, .role = .edge_e, .nb = .{ .n = true, .s = true } },
+    .{ .dx = 0, .dy = 2, .role = .corner_sw, .nb = .{ .e = true, .n = true } },
+    .{ .dx = 1, .dy = 2, .role = .edge_s, .nb = .{ .e = true, .w = true } },
+    .{ .dx = 2, .dy = 2, .role = .corner_se, .nb = .{ .w = true, .n = true } },
+};
+
 /// A closed 3x3 node ring with its NW corner at (0,0) of a `w`-wide grid.
 fn ring3(cs: []lattice.Cell, w: usize, node: u32) void {
-    const B = struct {
-        fn c(node_id: u32, role: lattice.BorderRole, nb: lattice.Neighbours) lattice.Cell {
-            return .{ .occupant = .{ .node_border = .{ .node = node_id, .role = role } }, .neighbours = nb };
-        }
-    };
-    cs[0] = B.c(node, .corner_nw, .{ .e = true, .s = true });
-    cs[1] = B.c(node, .edge_n, .{ .e = true, .w = true });
-    cs[2] = B.c(node, .corner_ne, .{ .w = true, .s = true });
-    cs[w] = B.c(node, .edge_w, .{ .n = true, .s = true });
+    for (ring3_shape) |r| {
+        cs[r.dy * w + r.dx] = .{
+            .occupant = .{ .node_border = .{ .node = node, .role = r.role } },
+            .neighbours = r.nb,
+        };
+    }
     cs[w + 1] = .{ .occupant = .{ .node_interior = node }, .neighbours = .{} };
-    cs[w + 2] = B.c(node, .edge_e, .{ .n = true, .s = true });
-    cs[2 * w] = B.c(node, .corner_sw, .{ .e = true, .n = true });
-    cs[2 * w + 1] = B.c(node, .edge_s, .{ .e = true, .w = true });
-    cs[2 * w + 2] = B.c(node, .corner_se, .{ .w = true, .n = true });
+}
+
+/// The same ring as a subgraph frame. A frame has no interior fill, so
+/// the centre cell stays background.
+fn frameRing3(cs: []lattice.Cell, w: usize, cluster: u32) void {
+    for (ring3_shape) |r| {
+        cs[r.dy * w + r.dx] = .{
+            .occupant = .{ .cluster_border = .{ .cluster = cluster, .role = r.role } },
+            .neighbours = r.nb,
+        };
+    }
 }
 
 test "scan: a zero-sized lattice is a no-op" {

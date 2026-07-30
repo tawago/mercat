@@ -371,7 +371,7 @@ test "the calibration floor: chains, fans and clusters are defect-free" {
 }
 
 test "every terminal abutment a real render makes is a convention" {
-    // The C3 acceptance gate. Chains are the shape the terminal law sees
+    // The acceptance gate for the terminal law. Chains are the shape it sees
     // most of, so they are named explicitly alongside the wider corpus:
     // if a plain `A --> B` chain filed a defect here, the law would be
     // measuring the renderer's conventions instead of its mistakes.
