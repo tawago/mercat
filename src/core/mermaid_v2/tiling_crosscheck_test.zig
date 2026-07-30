@@ -370,6 +370,32 @@ test "the calibration floor: chains, fans and clusters are defect-free" {
     };
 }
 
+test "every terminal abutment a real render makes is a convention" {
+    // The C3 acceptance gate. Chains are the shape the terminal law sees
+    // most of, so they are named explicitly alongside the wider corpus:
+    // if a plain `A --> B` chain filed a defect here, the law would be
+    // measuring the renderer's conventions instead of its mistakes.
+    const chains = [_][]const u8{
+        "flowchart TD\n  A --> B\n  B --> C\n  C --> D\n",
+        "flowchart LR\n  A --> B\n  B --> C\n  C --> D\n",
+    };
+    for (chains ++ corpus) |source| for ([_]u32{ 40, 60, 120 }) |width| {
+        var arena = std.heap.ArenaAllocator.init(testing.allocator);
+        defer arena.deinit();
+        const a = arena.allocator();
+
+        const r = try render(a, source, width);
+        const c = scan.run(a, r.ctx());
+        // Every render lands ink on a ring somewhere.
+        try testing.expect(c.n_term_abut > 0);
+        if (c.d_term_node_corner != 0 or c.d_term_frame_arrow != 0) {
+            var buf: [counts.line_buf_len]u8 = undefined;
+            std.debug.print("source:\n{s}{s}\n", .{ source, c.writeLine(&buf) });
+            return error.TerminalDefect;
+        }
+    };
+}
+
 test "the expectation tier finds every declared terminal and arrowhead" {
     for (corpus) |source| for ([_]u32{ 60, 120 }) |width| {
         var arena = std.heap.ArenaAllocator.init(testing.allocator);

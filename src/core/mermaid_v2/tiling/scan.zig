@@ -27,9 +27,11 @@
 //!   arrow      -> the two TIP-PERPENDICULAR bits: lateral exclusivity;
 //!                 the opposite-tip cell: base support (both arrows.zig).
 //!                 The tip-direction abutment is disjoint by direction and
-//!                 lands in the terminal family.
+//!                 lands in the terminal family (terminal.zig).
 //!   stroke     -> arity/stub, per-arm dangling, collinear fusion
-//!                 (strokes.zig).
+//!                 (strokes.zig); an arm landing on a RING goes to the
+//!                 terminal family instead, which is the one target the
+//!                 dangling ladder deliberately files under no bucket.
 //!   ring_node  -> outline stencil + off-ring fusion (rings.zig).
 //!   ring_frame -> frame stencil + off-ring fusion (rings.zig).
 //!   ghost/glyph/fill/blank -> population counters only.
@@ -58,6 +60,7 @@ const counts = @import("counts.zig");
 const arrows = @import("arrows.zig");
 const strokes = @import("strokes.zig");
 const rings = @import("rings.zig");
+const terminal = @import("terminal.zig");
 const expect = @import("expect.zig");
 
 /// Everything the audit reads. Assembled by the composition root from
@@ -111,11 +114,13 @@ pub fn run(alloc: std.mem.Allocator, ctx: Ctx) counts.Counts {
                     c.n_arrow_cells += 1;
                     arrows.checkLateral(v, x, y, t, &c);
                     arrows.checkBase(v, x, y, t, &c);
+                    terminal.check(v, x, y, t, &c);
                     if (strokes.inkInInterior(v, x, y)) c.d_ink_in_interior += 1;
                 },
                 .stroke => {
                     c.n_stroke_cells += 1;
                     strokes.check(v, x, y, t, &c);
+                    terminal.check(v, x, y, t, &c);
                 },
                 .ghost => c.n_ghost_cells += 1,
                 .ring_node => {

@@ -199,6 +199,43 @@ pub const Counts = struct {
     /// outright: a survivor is a leak.
     d_frame_arm_foreign: u32 = 0,
 
+    // -- terminal abutment (terminal.zig) -----------------------------
+    /// (ink cell, direction, ring cell) pairs found: every place a run
+    /// stops against a node outline or a subgraph frame. The denominator
+    /// for the buckets below.
+    n_term_abut: u32 = 0,
+    /// The ring carries the arm back. Source-side departures only: the
+    /// border merge stamps the departure bit into the cell a run LEAVES.
+    c_term_reciprocated: u32 = 0,
+    /// The ring sits one cell beyond a reprieved gap — port padding. The
+    /// gap is the rasterizer's own convention, so no face verdict is
+    /// drawn from such a pair.
+    c_term_gap_reprieved: u32 = 0,
+    /// A bare stroke abutting a node's north or south face: an arrival
+    /// along the vertical axis. Nothing writes a reciprocal bit into a
+    /// TARGET border, so this is the standard rendering.
+    c_term_node_ns_bare: u32 = 0,
+    /// A bare stroke abutting a node's east or west face.
+    c_term_node_ew_bare: u32 = 0,
+    /// An arrowhead's tip against a node's north or south face — a plain
+    /// `A --> B` in a top-down render.
+    c_term_node_ns_arrow: u32 = 0,
+    /// An arrowhead's tip against a node's east or west face.
+    c_term_node_ew_arrow: u32 = 0,
+    /// Ink landing on a node's CORNER. Perimeter ports are issued as face
+    /// offsets only, so a run that ends here missed the face it aimed at.
+    d_term_node_corner: u32 = 0,
+    /// A bare stroke abutting a subgraph frame's face: frame-solid, and
+    /// how a bridge legally crosses a border.
+    c_term_frame_bare: u32 = 0,
+    /// A bare stroke abutting a frame's corner. Still frame-solid: a
+    /// frame corner is a real cell a run may pass.
+    c_term_frame_corner: u32 = 0,
+    /// An arrowhead's tip against an untouched frame cell. A genuine
+    /// arrival into a cluster REPLACES the frame cell with the arrowhead,
+    /// so this one stopped a cell short of what it was aiming at.
+    d_term_frame_arrow: u32 = 0,
+
     // -- expectation tier (expect.zig) --------------------------------
     /// Non-invisible Sketch edges (each declares one terminal approach).
     n_edges_declared: u32 = 0,

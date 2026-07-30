@@ -458,7 +458,9 @@ test {
     _ = @import("tiling/arrows_test.zig");
     _ = @import("tiling/strokes_test.zig");
     _ = @import("tiling/rings_test.zig");
+    _ = @import("tiling/terminal_test.zig");
     _ = @import("tiling/expect_test.zig");
     _ = @import("tiling/scan_test.zig");
     _ = @import("tiling_crosscheck_test.zig");
+    _ = @import("tiling_weld_test.zig");
 }

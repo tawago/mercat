@@ -311,6 +311,10 @@ const Rule = union(enum) {
 ///                   select, paint, budget, permits) to prove the audit is
 ///                   inert against real renders and that its mirrored
 ///                   predicates still agree with raster's originals.
+///   tiling_weld_test.zig  root-level weld-order pin for tiling/: needs
+///                   raster's arrow_base to run the LAST mutation of the
+///                   pipeline by hand and show the audit's buckets move
+///                   across it. Split from the crosscheck for the cap.
 const file_allowlists = [_]struct {
     name: []const u8,
     allowed: []const Rule,
@@ -497,6 +501,15 @@ const file_allowlists = [_]struct {
             .{ .exact = "tiling/arrows.zig" },  .{ .exact = "tiling/terminal.zig" },
         },
         .reason = "tiling_crosscheck_test may only import std, prim, base/*, sem_graph, sketch, budget, parse, raster, lattice, select, paint, ledger/permits, or tiling entry points",
+    },
+    .{
+        .name = "tiling_weld_test.zig",
+        .allowed = &.{
+            .sem_graph,                 .sketch,
+            .raster_zone,               .{ .exact = "lattice.zig" },
+            .{ .exact = "tiling/scan.zig" },
+        },
+        .reason = "tiling_weld_test may only import std, prim, base/*, sem_graph, sketch, raster, lattice, or tiling/scan",
     },
 };
 
