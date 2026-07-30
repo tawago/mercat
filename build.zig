@@ -355,6 +355,39 @@ pub fn build(b: *std.Build) void {
         const test_eval_step = b.step("test-eval", "Run private eval scorer tests (reconstruction + decoder-score)");
         test_eval_step.dependOn(&reconstruction_test_run.step);
         test_eval_step.dependOn(&decoder_score_test_run.step);
+
+        // --- byte-exact regression gate (folded INTO `zig build test`) ---
+        // Renders every pin under `harness/regressions/` with the freshly
+        // installed mercat and compares byte for byte against its goldens;
+        // exits nonzero on any mismatch or orphan golden. Unlike `test-eval`
+        // this is a ratchet, so it hangs off `test` — but still only where
+        // `eval/` exists, leaving public clones untouched.
+        const update_regressions = b.option(
+            bool,
+            "update-regressions",
+            "Rewrite regression goldens (owner-approved changes only)",
+        ) orelse false;
+
+        const regress_exe = b.addExecutable(.{
+            .name = "regress",
+            .root_module = b.createModule(.{
+                .root_source_file = b.path("eval/regress.zig"),
+                .target = target,
+                .optimize = optimize,
+            }),
+        });
+
+        const regress_cmd = b.addRunArtifact(regress_exe);
+        regress_cmd.step.dependOn(b.getInstallStep());
+        regress_cmd.setCwd(b.path("."));
+        regress_cmd.addArg(b.getInstallPath(.bin, "mercat"));
+        regress_cmd.addArg("harness/regressions");
+        if (update_regressions) regress_cmd.addArg("--update");
+
+        const regress_step = b.step("regress", "Run byte-exact rendering regression pins");
+        regress_step.dependOn(&regress_cmd.step);
+
+        test_step.dependOn(&regress_cmd.step);
     }
 }
 
