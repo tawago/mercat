@@ -71,11 +71,15 @@ pub fn paint(allocator: std.mem.Allocator, lat: lattice.Lattice, max_width: u32)
 /// `appendCell`: blanks and node interiors are a single space; every
 /// glyph this painter emits is display-width 1 (all box-drawing,
 /// arrowheads, and shape glyphs are narrow), and label chars are sized
-/// by their codepoint.
+/// by their codepoint. A `label_cont` is the second cell of the wide
+/// glyph already charged to its head — it paints nothing and costs no
+/// column, so the row's cell count and its column count agree.
+/// guarded-by: paint.zig "paint: a wide label glyph plus its continuation paints two columns from two cells"
 fn cellWidth(cell: lattice.Cell) u32 {
     return switch (cell.occupant) {
         .empty, .node_interior => 1,
         .label_char => |cp| prim.codepointWidth(cp),
+        .label_cont => 0,
         else => 1,
     };
 }
@@ -87,7 +91,10 @@ fn rowHasContentFrom(lat: lattice.Lattice, y: u32, from_x: u32) bool {
     while (x < lat.width) : (x += 1) {
         const cell = lat.atConst(x, y).*;
         switch (cell.occupant) {
-            .empty, .node_interior => {},
+            // A continuation carries no bytes of its own: whether real
+            // content was cut is decided by its head, which sits west of
+            // `from_x` whenever a continuation is reached at all.
+            .empty, .node_interior, .label_cont => {},
             .label_char => |cp| if (cp != ' ') return true,
             .edge_segment => |seg| if (seg.kind != .invisible) return true,
             .node_border => |b| {
@@ -117,6 +124,8 @@ fn appendCell(
 ) !void {
     switch (cell.occupant) {
         .empty, .node_interior => try row.append(allocator, ' '),
+        // The head already emitted the whole glyph and both its columns.
+        .label_cont => {},
         .label_char => |cp| try appendCp(allocator, row, cp),
         .arrowhead => |a| try appendCp(allocator, row, arrowGlyph(a.dir)),
         .edge_segment => |seg| {
@@ -313,6 +322,52 @@ test "paint: marker stamping — width-2-at-boundary fills the leftover gap" {
     const got = try paint(a, lat, 4);
     defer a.free(got);
     try testing.expectEqualStrings("A\u{4E2D}\u{00BB}\n", got);
+}
+
+test "paint: a wide label glyph plus its continuation paints two columns from two cells" {
+    const a = testing.allocator;
+    // The writer's view: '日' claims cells 0 and 1 (head + continuation),
+    // 'x' claims cell 2. Painted, that is exactly three columns from three
+    // cells — the continuation emits no bytes and costs no column.
+    var cells: [3]lattice.Cell = undefined;
+    cells[0] = .{ .occupant = .{ .label_char = '\u{65E5}' }, .neighbours = .{} };
+    cells[1] = .{ .occupant = .label_cont, .neighbours = .{} };
+    cells[2] = .{ .occupant = .{ .label_char = 'x' }, .neighbours = .{} };
+    const lat = lattice.Lattice{ .width = 3, .height = 1, .cells = &cells };
+    const got = try paint(a, lat, 0);
+    defer a.free(got);
+    try testing.expectEqualStrings("\u{65E5}x\n", got);
+}
+
+test "paint: a wide glyph at the clip boundary is never split and earns one marker" {
+    const a = testing.allocator;
+    // max_width=3: 'A' fits (col 1), then '日' would need columns 2-3 —
+    // one past the budget — so the head is cut whole. The continuation is
+    // never reached, so no half glyph and exactly one marker.
+    var cells: [4]lattice.Cell = undefined;
+    cells[0] = .{ .occupant = .{ .label_char = 'A' }, .neighbours = .{} };
+    cells[1] = .{ .occupant = .{ .label_char = 'B' }, .neighbours = .{} };
+    cells[2] = .{ .occupant = .{ .label_char = '\u{65E5}' }, .neighbours = .{} };
+    cells[3] = .{ .occupant = .label_cont, .neighbours = .{} };
+    const lat = lattice.Lattice{ .width = 4, .height = 1, .cells = &cells };
+    const got = try paint(a, lat, 3);
+    defer a.free(got);
+    try testing.expectEqualStrings("AB\u{00BB}\n", got);
+}
+
+test "paint: a trailing continuation alone never fabricates the overflow marker" {
+    const a = testing.allocator;
+    // Cell 2 is a continuation whose head painted inside the budget. It is
+    // not real content, so cutting there earns no marker — and it cannot
+    // be cut at all, since it costs zero columns.
+    var cells: [3]lattice.Cell = undefined;
+    cells[0] = .{ .occupant = .{ .label_char = '\u{65E5}' }, .neighbours = .{} };
+    cells[1] = .{ .occupant = .label_cont, .neighbours = .{} };
+    cells[2] = .{ .occupant = .label_cont, .neighbours = .{} };
+    const lat = lattice.Lattice{ .width = 3, .height = 1, .cells = &cells };
+    const got = try paint(a, lat, 2);
+    defer a.free(got);
+    try testing.expectEqualStrings("\u{65E5}\n", got);
 }
 
 test "paint: non-solid stroke wins over shape glyph on node_border" {

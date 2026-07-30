@@ -74,7 +74,10 @@ pub fn baseFeedsArrow(cell: *const lattice.Cell, tip: lattice.Dir4) bool {
         // of a multi-word title, which are still that title's cells (welding a
         // stroke there would split the title, e.g. `Inventory│Management`). A
         // label base is therefore never a violation and never welded.
-        .label_char => return true,
+        // A continuation is the tail column of a wide title/label glyph and
+        // carries the same exemption as its head: welding a stroke there
+        // would split the glyph exactly as it would split the run of text.
+        .label_char, .label_cont => return true,
         // The base must carry the into-arrow arm. Any occupant whose glyph is
         // driven by the neighbour mask (edge segment, cluster/node border) is
         // judged purely on that mask, matching what the painter draws.

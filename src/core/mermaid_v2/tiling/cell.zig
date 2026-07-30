@@ -83,7 +83,9 @@ pub fn classify(c: lattice.Cell) Typed {
     return switch (c.occupant) {
         .empty => .{ .kind = .blank, .mask = mask },
         .node_interior => |id| .{ .kind = .fill, .mask = mask, .node = id },
-        .label_char => .{ .kind = .glyph, .mask = mask },
+        // A continuation is as opaque as the glyph it belongs to: it
+        // conducts nothing and blocks everything.
+        .label_char, .label_cont => .{ .kind = .glyph, .mask = mask },
         .edge_segment => |seg| if (seg.kind == .invisible) .{
             .kind = .ghost,
             .mask = mask,
@@ -220,14 +222,17 @@ pub const View = struct {
 
     /// Display COLUMNS this cell contributes when painted. Mirror of
     /// `paint.cellWidth`: every glyph the painter emits is width 1 except
-    /// a label codepoint, which is sized by East-Asian Width. The gap
-    /// between this and the one cell the label writer advanced is the
-    /// EAW label-geometry defect `m_row_col_overflow` measures.
+    /// a label codepoint, which is sized by East-Asian Width, and a
+    /// continuation, which paints nothing because its head already
+    /// charged both columns. A row whose label writers reserved the
+    /// glyph's true footprint therefore paints exactly as many columns as
+    /// it holds cells — `m_row_col_overflow` is the residual.
     /// guarded-by: cell_test.zig "columns mirrors paint.cellWidth: wide label glyph is two columns"
     pub fn columns(self: View, x: u32, y: u32) u32 {
         if (x >= self.lat.width or y >= self.lat.height) return 0;
         return switch (self.lat.atConst(x, y).occupant) {
             .label_char => |cp| prim.codepointWidth(cp),
+            .label_cont => 0,
             else => 1,
         };
     }

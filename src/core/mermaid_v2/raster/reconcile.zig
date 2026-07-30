@@ -31,6 +31,7 @@ pub fn isRealConnection(occ: lattice.Occupant) bool {
         .edge_segment,
         .arrowhead,
         .label_char,
+        .label_cont,
         => true,
     };
 }

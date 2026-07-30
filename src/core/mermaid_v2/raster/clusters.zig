@@ -142,7 +142,7 @@ fn tryWrite(
                 .{ cluster_id, x, y },
             );
         },
-        .label_char => {
+        .label_char, .label_cont => {
             log.warn(
                 "cluster {d} border at ({d},{d}) conflicts with label cell, skipped",
                 .{ cluster_id, x, y },

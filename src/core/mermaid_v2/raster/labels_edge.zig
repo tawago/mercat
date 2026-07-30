@@ -73,8 +73,12 @@ pub fn placeLabelAtSeg(
     left_of_rail: bool,
     polyline: []const sketch.Point,
 ) labels.RasterError!Placement {
-    // Number of lattice cells the label occupies = one cell per codepoint.
-    const cell_count: u32 = @intCast(std.unicode.utf8CountCodepoints(label) catch label.len);
+    // Lattice cells the label occupies, counted the way it is written:
+    // one per codepoint, two for an East-Asian-Wide one. Probe, bounds
+    // test, flank test, emptiness scan and the write loop all share this
+    // single number, so a wide label can never reserve less space than
+    // it paints. // guarded-by: labels_eaw_test.zig "edge-label probe reserves display cells: a wide label no longer overwrites the ink beside it"
+    const cell_count: u32 = labels.cellSpanOf(label);
 
     // Candidate #1: legacy anchor recorded by layout on ep.label_left_of_rail (clusters.computeBbox). guarded-by: labels_test.zig "edge label fits above midpoint"
     const anchor = anchorFor(a, b, left_of_rail, prim.displayWidth(label));
@@ -156,10 +160,14 @@ fn trySegment(
     return false;
 }
 
-/// True iff the cell at `(x,y)` is a `label_char` occupant.
+/// True iff the cell at `(x,y)` belongs to a label span — its head or the
+/// continuation column of a wide glyph. The blank-flank anti-fusion rule
+/// must see a continuation, or a span flanked by the tail of a wide glyph
+/// would read as free and fuse.
+/// guarded-by: labels_eaw_test.zig "blank-flank rule treats a continuation as a label neighbour"
 fn isLabelChar(lat: *const lattice.Lattice, x: u32, y: u32) bool {
     return switch (lat.atConst(x, y).occupant) {
-        .label_char => true,
+        .label_char, .label_cont => true,
         else => false,
     };
 }
@@ -199,16 +207,25 @@ fn tryWrite(
         }
     }
 
+    // The span was reserved by `cell_count`, so every write below is in
+    // bounds and on an empty cell — head first, then the continuation
+    // columns of a wide glyph.
     var x: u32 = start_x;
     var bi: usize = 0;
     while (bi < label.len) {
         const dc = labels.nextCodepoint(label, bi);
         bi += dc.byte_len;
+        const cp = labels.sentinelToSpace(dc.cp);
         lat.at(x, row).* = .{
-            .occupant = .{ .label_char = labels.sentinelToSpace(dc.cp) },
+            .occupant = .{ .label_char = cp },
             .neighbours = .{},
         };
-        x += 1;
+        const span = labels.cellSpan(cp);
+        var k: u32 = 1;
+        while (k < span) : (k += 1) {
+            lat.at(x + k, row).* = .{ .occupant = .label_cont, .neighbours = .{} };
+        }
+        x += span;
     }
     return true;
 }

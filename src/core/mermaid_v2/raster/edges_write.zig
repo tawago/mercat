@@ -142,7 +142,7 @@ pub fn writeEdgeCell(
                 .{ edge_id, x, y },
             );
         },
-        .label_char => {
+        .label_char, .label_cont => {
             cells_lost.* += 1;
             log.debug(
                 "mermaid_v2/raster/edges: edge {d} at ({d},{d}) collides with label_char; skipping",
@@ -178,7 +178,7 @@ pub fn writeArrowCell(
         .arrowhead => {
             cell.neighbours = orMask(cell.neighbours, along);
         },
-        .node_interior, .node_border, .label_char => {
+        .node_interior, .node_border, .label_char, .label_cont => {
             cells_lost.* += 1;
             log.debug(
                 "mermaid_v2/raster/edges: arrowhead for edge {d} at ({d},{d}) collides; skipping",

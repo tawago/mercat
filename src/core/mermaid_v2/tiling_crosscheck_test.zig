@@ -443,3 +443,42 @@ test "cross mode: frame welds move from the defect bucket to the convention buck
         }
     };
 }
+
+test "an all-ASCII render grows no continuation cells" {
+    // The ASCII byte-identity argument, mechanically: `labels.cellSpan` is
+    // 1 for every ASCII codepoint, so every writer advance is the one it
+    // always was and no continuation can exist. A failure here means an
+    // ASCII render moved.
+    for (corpus) |source| for ([_]u32{ 60, 120 }) |width| {
+        var arena = std.heap.ArenaAllocator.init(testing.allocator);
+        defer arena.deinit();
+        const a = arena.allocator();
+
+        const r = try render(a, source, width);
+        for (r.report.lattice.cells) |c| switch (c.occupant) {
+            .label_cont => return error.AsciiRenderGrewAContinuation,
+            else => {},
+        };
+    };
+}
+
+test "a wide-label render claims exactly the columns it paints" {
+    // The acceptance criterion for the EAW writer fix stated in the
+    // audit's own vocabulary: every wide glyph now holds both the cells it
+    // paints, so no row paints more columns than it has cells.
+    const wide = [_][]const u8{
+        "flowchart TD\n  A[日本語] --> B[設定]\n",
+        "flowchart LR\n  A[日本語] -->|ラベル| B[設定]\n",
+        "flowchart TD\n  subgraph S[\"日本語設定\"]\n    A[入力] --> B[出力]\n  end\n  B --> C\n",
+    };
+    for (wide) |source| for ([_]u32{ 60, 120 }) |width| {
+        var arena = std.heap.ArenaAllocator.init(testing.allocator);
+        defer arena.deinit();
+        const a = arena.allocator();
+
+        const r = try render(a, source, width);
+        const c = scan.run(a, r.ctx());
+        try testing.expect(c.m_wide_label_cells > 0);
+        try testing.expectEqual(@as(u32, 0), c.m_row_col_overflow);
+    };
+}

@@ -92,6 +92,14 @@ pub const Occupant = union(enum) {
         edge: EdgeId,
     },
     label_char: u21,
+    /// Second terminal column of the East-Asian-Wide `label_char`
+    /// immediately WEST. Paints zero bytes and contributes zero display
+    /// columns; it exists so collision detection and free-space probes see
+    /// a wide glyph's true 2-cell footprint. Never written for a
+    /// display-width-1 codepoint, so an all-ASCII lattice is bit-identical
+    /// to the pre-continuation pipeline.
+    /// guarded-by: labels_eaw_test.zig "wide node label writes char + continuation and paints two columns"
+    label_cont,
 };
 
 /// One grid cell.

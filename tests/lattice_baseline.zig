@@ -153,9 +153,10 @@ fn checkI2(allocator: std.mem.Allocator, lat: v2.Lattice) !?[]const u8 {
                             // Same-node border: stop flood here (don't enqueue).
                             visited[nidx] = 1;
                         },
-                        .label_char => {
+                        .label_char, .label_cont => {
                             // Labels live inside node interiors; treat as
-                            // interior for flood purposes.
+                            // interior for flood purposes (a continuation
+                            // is the tail column of a wide label glyph).
                             visited[nidx] = 1;
                             try queue.append(allocator, nx);
                             try queue.append(allocator, ny);

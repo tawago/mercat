@@ -151,39 +151,82 @@ pub fn nextCodepoint(text: []const u8, index: usize) Codepoint {
     return .{ .cp = cp, .byte_len = seq_len };
 }
 
-/// Write a single node-label codepoint into the cell at (x,row), but only
-/// if that cell is the interior of `np`. Returns true if written.
-fn writeNodeCell(
+/// Lattice cells one label codepoint occupies: an East-Asian-Wide
+/// codepoint claims 2, everything else 1.
+///
+/// Deliberately NOT `prim.codepointWidth`: a tab (4 columns) stays ONE
+/// cell and the C0 controls (0 columns, including the `prim.LINE_BREAK`
+/// sentinel) stay one cell. That freezes the pre-existing cursor
+/// arithmetic for every ASCII codepoint, which is what makes an
+/// all-ASCII lattice bit-identical to the pre-continuation pipeline.
+/// The tab column/cell skew is documented, not fixed.
+/// guarded-by: labels_eaw_test.zig "cellSpan is 1 for every ASCII codepoint including tab"
+pub fn cellSpan(cp: u21) u32 {
+    return if (prim.codepointWidth(cp) == 2) 2 else 1;
+}
+
+/// Lattice cells `text` occupies: the sum of its codepoints' spans. The
+/// one number every writer and every free-space probe reserves by, so
+/// cells reserved and cells written can never disagree.
+/// guarded-by: labels_eaw_test.zig "cellSpanOf equals prim.displayWidth for tab- and control-free text"
+pub fn cellSpanOf(text: []const u8) u32 {
+    var total: u32 = 0;
+    var bi: usize = 0;
+    while (bi < text.len) {
+        const dc = nextCodepoint(text, bi);
+        bi += dc.byte_len;
+        total += cellSpan(dc.cp);
+    }
+    return total;
+}
+
+/// Stamp a continuation cell: the tail column of the wide glyph whose
+/// head sits immediately west.
+fn writeContCell(lat: *lattice.Lattice, x: u32, row: u32) void {
+    lat.at(x, row).* = .{ .occupant = .label_cont, .neighbours = .{} };
+}
+
+/// Write one node-label codepoint at (x,row), claiming all `span` cells
+/// of its footprint. All-or-nothing: every cell must be `np`'s interior,
+/// so a wide glyph is never split across foreign ink and never leaves a
+/// widowed continuation. Returns true if written.
+/// guarded-by: labels_eaw_test.zig "a wide node glyph whose second cell is not this node's interior is refused whole"
+fn writeNodeSpan(
     lat: *lattice.Lattice,
     np: sketch.NodePlacement,
     x: u32,
     row: u32,
     cp: u21,
+    span: u32,
 ) bool {
-    const cell = lat.at(x, row);
-    switch (cell.occupant) {
-        .node_interior => |nid| {
-            if (nid != np.id) {
+    var i: u32 = 0;
+    while (i < span) : (i += 1) {
+        switch (lat.atConst(x + i, row).occupant) {
+            .node_interior => |nid| {
+                if (nid != np.id) {
+                    log.debug(
+                        "raster/labels: node {d} label cell ({d},{d}) is interior of node {d}; skipping",
+                        .{ np.id, x + i, row, nid },
+                    );
+                    return false;
+                }
+            },
+            else => {
                 log.debug(
-                    "raster/labels: node {d} label cell ({d},{d}) is interior of node {d}; skipping",
-                    .{ np.id, x, row, nid },
+                    "raster/labels: node {d} label cell ({d},{d}) not node_interior; skipping",
+                    .{ np.id, x + i, row },
                 );
                 return false;
-            }
-            cell.* = .{
-                .occupant = .{ .label_char = cp },
-                .neighbours = .{},
-            };
-            return true;
-        },
-        else => {
-            log.debug(
-                "raster/labels: node {d} label cell ({d},{d}) not node_interior; skipping",
-                .{ np.id, x, row },
-            );
-            return false;
-        },
+            },
+        }
     }
+    lat.at(x, row).* = .{
+        .occupant = .{ .label_char = cp },
+        .neighbours = .{},
+    };
+    i = 1;
+    while (i < span) : (i += 1) writeContCell(lat, x + i, row);
+    return true;
 }
 
 fn placeNodeLabel(
@@ -226,12 +269,16 @@ fn placeNodeLabel(
         while (bi < text.len) {
             const dc = nextCodepoint(text, bi);
             bi += dc.byte_len;
-            if (x >= lat.width) break;
-            if (writeNodeCell(lat, np, x, row, dc.cp)) wrote += 1;
-            x += 1;
+            // Advance by the glyph's CELL footprint, matching the display
+            // columns layout sized the box in. A refused glyph still
+            // advances so the rest of the line keeps its column.
+            const span = cellSpan(dc.cp);
+            if (x + span > lat.width) break;
+            if (writeNodeSpan(lat, np, x, row, dc.cp, span)) wrote += 1;
+            x += span;
         }
-        if (truncated and x < lat.width) {
-            if (writeNodeCell(lat, np, x, row, ELLIPSIS)) wrote += 1;
+        if (truncated and x + cellSpan(ELLIPSIS) <= lat.width) {
+            if (writeNodeSpan(lat, np, x, row, ELLIPSIS, cellSpan(ELLIPSIS))) wrote += 1;
         }
     }
 
@@ -312,16 +359,23 @@ fn placeClusterLabel(
     while (bi < text.len) {
         const dc = nextCodepoint(text, bi);
         bi += dc.byte_len;
-        if (x >= lat.width) break;
+        const cp = sentinelToSpace(dc.cp);
+        // The band claims the glyph's whole footprint, so the trailing
+        // space that closes it lands past the last painted column.
+        // guarded-by: labels_eaw_test.zig "wide cluster title advances by span and still closes the band"
+        const span = cellSpan(cp);
+        if (x + span > lat.width) break;
         // Overwrite cluster_border edge_n cells (and tolerate empty too).
-        stampTitleCell(lat, x, row, sentinelToSpace(dc.cp));
+        stampTitleCell(lat, x, row, cp);
+        var i: u32 = 1;
+        while (i < span) : (i += 1) writeContCell(lat, x + i, row);
         wrote += 1;
-        x += 1;
+        x += span;
     }
-    if (truncated and x < lat.width) {
+    if (truncated and x + cellSpan(ELLIPSIS) <= lat.width) {
         stampTitleCell(lat, x, row, ELLIPSIS);
         wrote += 1;
-        x += 1;
+        x += cellSpan(ELLIPSIS);
     }
 
     // Trailing space (immediately after the last written label cell).
@@ -345,4 +399,5 @@ fn placeClusterLabel(
 
 test {
     _ = @import("labels_test.zig");
+    _ = @import("labels_eaw_test.zig");
 }
