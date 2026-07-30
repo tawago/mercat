@@ -8,7 +8,7 @@
 //! cluster_internal. Fan trunk cells stamped explicitly post-walk.
 //!
 //! The per-cell claim contract (`writeEdgeCell`/`writeArrowCell`/
-//! `writeArrowGuarded`/`mergeSourceBorder`) and the directional primitives
+//! `writeArrowGuarded`/`drawPortStroke`) and the directional primitives
 //! live in `edges_write.zig` (cap split); the ones `raster/busbars.zig` and
 //! the raster tests reach as `edges.<name>` are re-exported below.
 //! (`writeArrowGuarded` has no external caller, so this file uses it directly
@@ -42,7 +42,7 @@ pub const pointInBounds = ew.pointInBounds;
 pub const toCoord = ew.toCoord;
 pub const writeEdgeCell = ew.writeEdgeCell;
 pub const writeArrowCell = ew.writeArrowCell;
-pub const mergeSourceBorder = ew.mergeSourceBorder;
+pub const drawPortStroke = ew.drawPortStroke;
 
 /// Summary of one edge-rasterization pass.
 /// `cells_lost` counts every polyline/arrowhead cell that could not be
@@ -159,7 +159,7 @@ fn walkPolyline(
     const ek = edge.kind;
     const erole = edge.role;
 
-    mergeSourceBorder(lat, pts, ek);
+    drawPortStroke(lat, pts, ek);
 
     var i: usize = 0;
     while (i + 1 < pts.len) : (i += 1) {

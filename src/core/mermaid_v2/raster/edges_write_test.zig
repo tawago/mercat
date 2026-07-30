@@ -21,7 +21,7 @@ fn borderCell(mask: lattice.Neighbours) lattice.Cell {
 
 /// A 1×2 lattice whose cell at (0, border_y) is a solid rect node_border with
 /// a horizontal {e,w} run (a box-bottom/box-top border). Callers drive
-/// `mergeSourceBorder` with a polyline that exits that cell vertically.
+/// `drawPortStroke` with a polyline that exits that cell vertically.
 fn sourceBorderLattice(a: std.mem.Allocator, border_y: u32) !lattice.Lattice {
     const cells = try a.alloc(lattice.Cell, 2);
     for (cells) |*c| c.* = lattice.Cell.empty;
@@ -118,7 +118,7 @@ test "writeArrowGuarded refuse branch stamps the arrowhead's own stroke_kind" {
     try testing.expectEqual(@as(u32, 1), counts.arrowhead_transit_violation);
 }
 
-test "mergeSourceBorder: an invisible edge leaves the source node border untouched" {
+test "drawPortStroke: an invisible edge leaves the source node border untouched" {
     // Witness geometry: a `~~~` link exits a box-bottom southward. The border
     // must keep its natural {e,w} mask (glyph ─, not ┬) and its .solid stroke.
     const a = testing.allocator;
@@ -126,14 +126,14 @@ test "mergeSourceBorder: an invisible edge leaves the source node border untouch
     defer a.free(lat.cells);
 
     const pts = [_]sketch.Point{ .{ .x = 0, .y = 0 }, .{ .x = 0, .y = 1 } };
-    ew.mergeSourceBorder(&lat, &pts, .invisible);
+    ew.drawPortStroke(&lat, &pts, .invisible);
 
     const cell = lat.atConst(0, 0);
     try testing.expect(!cell.neighbours.s); // no phantom south tee
     try testing.expectEqual(lattice.EdgeKind.solid, cell.stroke_kind); // no stroke corruption
 }
 
-test "mergeSourceBorder: a solid edge still ORs the south exit bit into the source border" {
+test "drawPortStroke: a solid edge still ORs the south exit bit into the source border" {
     // Control: the ordinary box-bottom tee is preserved — the guard bites
     // ONLY invisible.
     const a = testing.allocator;
@@ -141,12 +141,12 @@ test "mergeSourceBorder: a solid edge still ORs the south exit bit into the sour
     defer a.free(lat.cells);
 
     const pts = [_]sketch.Point{ .{ .x = 0, .y = 0 }, .{ .x = 0, .y = 1 } };
-    ew.mergeSourceBorder(&lat, &pts, .solid);
+    ew.drawPortStroke(&lat, &pts, .solid);
 
     try testing.expect(lat.atConst(0, 0).neighbours.s);
 }
 
-test "mergeSourceBorder: a north-exit invisible edge is also suppressed" {
+test "drawPortStroke: a north-exit invisible edge is also suppressed" {
     // Axis-generic: an invisible link exiting a box-top northward must not tee
     // either (guards against a south-only fix).
     const a = testing.allocator;
@@ -154,12 +154,12 @@ test "mergeSourceBorder: a north-exit invisible edge is also suppressed" {
     defer a.free(lat.cells);
 
     const pts = [_]sketch.Point{ .{ .x = 0, .y = 1 }, .{ .x = 0, .y = 0 } };
-    ew.mergeSourceBorder(&lat, &pts, .invisible);
+    ew.drawPortStroke(&lat, &pts, .invisible);
 
     try testing.expect(!lat.atConst(0, 1).neighbours.n);
 }
 
-test "mergeSourceBorder: a thick edge still stamps stroke_kind on the source border" {
+test "drawPortStroke: a thick edge still stamps stroke_kind on the source border" {
     // The non-solid stroke path (╥/╨) is narrowed to exclude .invisible only,
     // not all non-solid kinds: a thick edge still ORs the bit AND stamps stroke.
     const a = testing.allocator;
@@ -167,7 +167,7 @@ test "mergeSourceBorder: a thick edge still stamps stroke_kind on the source bor
     defer a.free(lat.cells);
 
     const pts = [_]sketch.Point{ .{ .x = 0, .y = 0 }, .{ .x = 0, .y = 1 } };
-    ew.mergeSourceBorder(&lat, &pts, .thick);
+    ew.drawPortStroke(&lat, &pts, .thick);
 
     const cell = lat.atConst(0, 0);
     try testing.expect(cell.neighbours.s);

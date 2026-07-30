@@ -2,7 +2,7 @@
 //!
 //! Split out of `edges.zig` (P2v Slice 1, frame-solid border bridging): the
 //! per-cell claim contract (`writeEdgeCell`/`writeArrowCell`/
-//! `writeArrowGuarded`/`mergeSourceBorder`) and the pure directional helpers
+//! `writeArrowGuarded`/`drawPortStroke`) and the pure directional helpers
 //! (`straightMask`/`bitMask`/`reverse`/`orMask`/`segmentDir`/`step`/…) live
 //! here so the walk driver in `edges.zig` stays under the 500-line cap. These
 //! symbols are re-exported from `edges.zig` (`pub const`) so `raster/busbars.zig`
@@ -188,16 +188,16 @@ pub fn writeArrowCell(
     }
 }
 
-/// OR-merge the outgoing bit into the source border cell when the
-/// polyline leaves a node vertically (east/west skipped so LR/RL
-/// flows keep a clean `│` source border).
+/// Draw the departure PORT: OR-merge the outgoing bit into the source
+/// border cell when the polyline leaves a node vertically (east/west
+/// skipped so LR/RL flows keep a clean `│` source border).
 /// When the merging edge is non-solid, also stamp the border cell's
 /// `stroke_kind` so the painter can pick variants like `╥`/`╨` for
 /// thick edges meeting a solid node frame.
 /// An invisible (`~~~`) edge draws no ink, so it must not tee the source
 /// border: return before touching the cell.
-/// guarded-by: edges_write_test.zig "mergeSourceBorder: an invisible edge leaves the source node border untouched"
-pub fn mergeSourceBorder(
+/// guarded-by: edges_write_test.zig "drawPortStroke: an invisible edge leaves the source node border untouched"
+pub fn drawPortStroke(
     lat: *lattice.Lattice,
     pts: []const sketch.Point,
     kind: lattice.EdgeKind,

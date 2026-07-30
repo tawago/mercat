@@ -45,6 +45,22 @@ pub const table = [_]Row{
     },
     .{ .token = "polyPierces", .why = "renamed polyIntrudes (rename wave A)" },
     .{ .token = "finalLegPierces", .why = "renamed finalLegIntrudes (rename wave A)" },
+    .{
+        .token = "mergeSourceBorder",
+        .why = "renamed drawPortStroke (rename wave B): it draws the departure port stroke on the source node border",
+    },
+    .{
+        .token = "repairReciprocalArms",
+        .why = "renamed repairReciprocalStrokes (rename wave B); the neighbour-bit 'arm' vocabulary itself is unaffected",
+    },
+    .{
+        .token = "ensureBaseApproachLengthen",
+        .why = "renamed satisfyApproach (rename wave B): it satisfies the base-side approach law for a terminal",
+    },
+    .{
+        .token = "pub fn weld",
+        .why = "raster/arrow_base's pass is receiveBase (rename wave B); 'weld' stays as the event vocabulary (c_border_arm_weld, the weld-order pin), never as a function name",
+    },
 };
 
 fn basenameOf(rel_path: []const u8) []const u8 {

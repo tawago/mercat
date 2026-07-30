@@ -178,7 +178,7 @@ pub fn hasIndependent(joins: pb.RealizedJoins) bool {
 /// bus-bars and independent-join reservations, reverting to the ungrown route
 /// on failure. When there are no realized joins the gates do not apply, so it
 /// returns true (the plain non-CI path is unaffected).
-/// guarded-by: routing_terminal_test.zig "ensureBaseApproachLengthen grows a corner-fed len-2 final into a straight base approach"
+/// guarded-by: routing_terminal_test.zig "satisfyApproach grows a corner-fed len-2 final into a straight base approach"
 pub fn polylineClears(
     a: std.mem.Allocator,
     edge: pb.EdgeId,

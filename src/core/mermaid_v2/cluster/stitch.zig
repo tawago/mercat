@@ -1,6 +1,6 @@
 //! cluster/stitch.zig — glue the finished per-piece Sketches into one.
 //!
-//! Counterpart to `cluster/split.zig`: welds each piece's `layout/`-produced
+//! Counterpart to `cluster/split.zig`: glues each piece's `layout/`-produced
 //! Sketch into the outer one, translating child geometry into its super-
 //! node's interior and drawing the box (ClusterFrame) around it.
 //!

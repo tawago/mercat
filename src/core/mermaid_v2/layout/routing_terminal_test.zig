@@ -1,6 +1,6 @@
 //! Tests for routing_terminal.zig's base-approach LENGTHEN pass.
 //!
-//! `ensureBaseApproachLengthen` promotes a "corner-fed" terminal (a
+//! `satisfyApproach` promotes a "corner-fed" terminal (a
 //! perpendicular run turning at a corner that sits directly on the
 //! arrowhead's base cell — a final leg of length exactly 2) into a formal
 //! `[corner][straight][arrow]` approach by pulling the corner back one cell,
@@ -77,7 +77,7 @@ test "terminalApproachExtraRows flags a bare gap with an offset adjacent forward
     try testing.expectEqual(@as(u32, 0), na[0]);
 }
 
-test "ensureBaseApproachLengthen grows a corner-fed len-2 final into a straight base approach" {
+test "satisfyApproach grows a corner-fed len-2 final into a straight base approach" {
     var arena = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
@@ -93,7 +93,7 @@ test "ensureBaseApproachLengthen grows a corner-fed len-2 final into a straight 
         .{ .x = 10, .y = 8 }, // b: the corner (turn from horizontal into the final descent)
         .{ .x = 10, .y = 10 }, // c: terminal port border (final leg length 2)
     };
-    const grown = try rt.ensureBaseApproachLengthen(a, &poly, &placements);
+    const grown = try rt.satisfyApproach(a, &poly, &placements);
     // A fresh slice (the input is retained for revert), corner pulled up one
     // row so the final leg is now length 3: [corner (10,7)][straight][arrow].
     try testing.expect(grown.ptr != (&poly).ptr);
@@ -106,7 +106,7 @@ test "ensureBaseApproachLengthen grows a corner-fed len-2 final into a straight 
     try testing.expectEqual(grown[2].x, grown[3].x);
 }
 
-test "ensureBaseApproachLengthen accept-fallback: no clear cell leaves the polyline untouched" {
+test "satisfyApproach accept-fallback: no clear cell leaves the polyline untouched" {
     var arena = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
@@ -123,13 +123,13 @@ test "ensureBaseApproachLengthen accept-fallback: no clear cell leaves the polyl
         .{ .x = 10, .y = 8 },
         .{ .x = 10, .y = 10 },
     };
-    const result = try rt.ensureBaseApproachLengthen(a, &poly, &placements);
+    const result = try rt.satisfyApproach(a, &poly, &placements);
     try testing.expectEqual((&poly).ptr, result.ptr);
     try testing.expectEqual(sketch.Point{ .x = 4, .y = 8 }, poly[1]);
     try testing.expectEqual(sketch.Point{ .x = 10, .y = 8 }, poly[2]);
 }
 
-test "ensureBaseApproachLengthen is a no-op for a formal (length-3) or turn-at-tip (length-1) final" {
+test "satisfyApproach is a no-op for a formal (length-3) or turn-at-tip (length-1) final" {
     var arena = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
@@ -137,11 +137,11 @@ test "ensureBaseApproachLengthen is a no-op for a formal (length-3) or turn-at-t
 
     // Already-formal: final leg length 3, base cell is straight -> untouched.
     var formal = [_]sketch.Point{ .{ .x = 4, .y = 5 }, .{ .x = 4, .y = 7 }, .{ .x = 10, .y = 7 }, .{ .x = 10, .y = 10 } };
-    const r1 = try rt.ensureBaseApproachLengthen(a, &formal, &placements);
+    const r1 = try rt.satisfyApproach(a, &formal, &placements);
     try testing.expectEqual((&formal).ptr, r1.ptr);
 
     // Length-1 turn-at-tip is ensureBaseStub's job, not this pass -> untouched.
     var tip = [_]sketch.Point{ .{ .x = 4, .y = 8 }, .{ .x = 10, .y = 8 }, .{ .x = 10, .y = 9 } };
-    const r2 = try rt.ensureBaseApproachLengthen(a, &tip, &placements);
+    const r2 = try rt.satisfyApproach(a, &tip, &placements);
     try testing.expectEqual((&tip).ptr, r2.ptr);
 }

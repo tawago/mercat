@@ -405,7 +405,7 @@ fn routePolyline(
 /// Apply the base-approach GROW (routing_terminal.zig) to a freshly-routed
 /// terminal and keep it only if the grown geometry still clears the same gates
 /// the lane loop enforces — a grown final run can push one cell into a
-/// neighbour, so it MUST re-clear. `ensureBaseApproachLengthen` never mutates
+/// neighbour, so it MUST re-clear. `satisfyApproach` never mutates
 /// its input, so reverting to the ungrown polyline on conflict is exact.
 /// Returns the grown polyline when it fires and clears, else the original.
 fn growBaseApproach(
@@ -423,7 +423,7 @@ fn growBaseApproach(
     // ambiguous, and growing one end can re-route the whole edge. Restrict the
     // grow to pure single-target terminals.
     if (edge.arrow_from != .none) return poly;
-    const grown = try rt.ensureBaseApproachLengthen(a, poly, placements);
+    const grown = try rt.satisfyApproach(a, poly, placements);
     if (grown.ptr == poly.ptr) return poly; // did not fire
     if (try route_clearance.polylineClears(a, edge.id, edge.kind, grown, existing, bar_views, placements, edge_ports, joins, edge.from, edge.to))
         return grown;

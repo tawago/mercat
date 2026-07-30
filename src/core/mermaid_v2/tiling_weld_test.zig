@@ -1,7 +1,7 @@
 //! Weld-order pin for the report-only structural audit (`tiling/`).
 //!
 //! WHY THIS EXISTS. The audit's POSITION in the pipeline is a correctness
-//! property, not a convenience. `raster/arrow_base.weld` is the last
+//! property, not a convenience. `raster/arrow_base.receiveBase` is the last
 //! mutation the rasterizer makes, and it CREATES ink: reading the lattice
 //! before it would have the audit judging a diagram the user never sees.
 //! Nothing in the tiling zone can observe that ordering — it cannot even
@@ -56,9 +56,9 @@ fn nodeFace(node: u32, role: lattice.BorderRole) lattice.Cell {
     return .{ .occupant = .{ .node_border = .{ .node = node, .role = role } }, .neighbours = .{} };
 }
 
-test "weld order: the terminal buckets are read AFTER arrow_base.weld, and move" {
+test "weld order: the terminal buckets are read AFTER arrow_base.receiveBase, and move" {
     // The fixture is the blank-base bridge: an arrowhead two cells below a
-    // node's south face with nothing between them. `weld` fills the gap
+    // node's south face with nothing between them. `receiveBase` fills the gap
     // with a straight stroke, and that stroke's north arm is a terminal
     // pair which did not exist a moment earlier.
     var buf: [4]lattice.Cell = undefined;
@@ -81,7 +81,7 @@ test "weld order: the terminal buckets are read AFTER arrow_base.weld, and move"
     try testing.expectEqual(@as(u32, 1), before.d_base_blank);
     try testing.expectEqual(@as(u32, 1), before.defectTotal());
 
-    try testing.expectEqual(@as(u32, 1), arrow_base.weld(&lat));
+    try testing.expectEqual(@as(u32, 1), arrow_base.receiveBase(&lat));
 
     const after = scan.run(testing.allocator, handCtx(&lat));
     // The bridged stroke adds a departure pair off the source face, and

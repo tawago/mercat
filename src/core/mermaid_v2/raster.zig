@@ -125,8 +125,8 @@ pub fn rasterize(
 
     // Repair half-open split-junctions (clear-then-repair order): clear only
     // removes into-empty arms, repair only adds toward a reciprocating
-    // edge_segment, so the two passes never conflict. // guarded-by: raster/reconcile_test.zig "repairReciprocalArms: half-open split-junction corner regains its arm (┘→┤)"
-    const arms_repaired = reconcile.repairReciprocalArms(&lat);
+    // edge_segment, so the two passes never conflict. // guarded-by: raster/reconcile_test.zig "repairReciprocalStrokes: half-open split-junction corner regains its arm (┘→┤)"
+    const arms_repaired = reconcile.repairReciprocalStrokes(&lat);
 
     const label_report = labels_r.rasterizeLabels(allocator, &lat, s) catch |err| switch (err) {
         error.OutOfMemory => return error.OutOfMemory,
@@ -137,7 +137,7 @@ pub fn rasterize(
     // is received on its base side. Truthful welds only (own ink / genuine
     // resume gaps); foreign crossings and side-fed corners are left for the
     // validator to report. Then scan the FINAL lattice for any residual.
-    _ = arrow_base_r.weld(&lat);
+    _ = arrow_base_r.receiveBase(&lat);
     const arrow_base = arrow_base_r.validate(&lat);
 
     return .{

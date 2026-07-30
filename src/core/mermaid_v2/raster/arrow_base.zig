@@ -149,7 +149,7 @@ pub fn sideFed(lat: *const lattice.Lattice, x: u32, y: u32, tip: lattice.Dir4) b
 ///   * a FOREIGN edge crossing the base cell (a weld would fabricate a junction);
 ///   * a side-fed arrowhead (the edge turned the corner at the tip);
 ///   * a blank base with nothing behind it (a weld would dangle).
-pub fn weld(lat: *lattice.Lattice) u32 {
+pub fn receiveBase(lat: *lattice.Lattice) u32 {
     if (lat.width == 0 or lat.height == 0) return 0;
     var welded: u32 = 0;
     var y: u32 = 0;
@@ -316,29 +316,29 @@ fn edgeCellE(edge: lattice.EdgeId, nb: lattice.Neighbours) lattice.Cell {
     return .{ .occupant = .{ .edge_segment = .{ .edge = edge, .kind = .solid } }, .neighbours = nb };
 }
 
-test "weld: own-edge corner base gains the drop arm (└→├), clearing the violation" {
+test "receiveBase: own-edge corner base gains the drop arm (└→├), clearing the violation" {
     var buf: [3]lattice.Cell = undefined;
     for (&buf) |*c| c.* = lattice.Cell.empty;
     var lat = lattice.Lattice{ .width = 1, .height = 3, .cells = &buf };
     lat.at(0, 0).* = edgeCellE(7, .{ .n = true, .e = true }); // └ own trunk (edge 7)
     lat.at(0, 1).* = arrowCellE(.south, 7, .{ .n = true, .s = true });
     try testing.expectEqual(@as(u32, 1), validate(&lat).violations);
-    try testing.expectEqual(@as(u32, 1), weld(&lat));
+    try testing.expectEqual(@as(u32, 1), receiveBase(&lat));
     try testing.expect(lat.atConst(0, 0).neighbours.s); // south arm added
     try testing.expectEqual(@as(u32, 0), validate(&lat).violations);
 }
 
-test "weld: a FOREIGN edge crossing the base is NEVER welded (no fabricated junction)" {
+test "receiveBase: a FOREIGN edge crossing the base is NEVER welded (no fabricated junction)" {
     var buf: [3]lattice.Cell = undefined;
     for (&buf) |*c| c.* = lattice.Cell.empty;
     var lat = lattice.Lattice{ .width = 1, .height = 3, .cells = &buf };
     lat.at(0, 0).* = edgeCellE(1, .{ .e = true, .w = true }); // foreign ─ (edge 1)
     lat.at(0, 1).* = arrowCellE(.south, 7, .{ .n = true, .s = true }); // arrow is edge 7
-    try testing.expectEqual(@as(u32, 0), weld(&lat)); // refused
+    try testing.expectEqual(@as(u32, 0), receiveBase(&lat)); // refused
     try testing.expectEqual(@as(u32, 1), validate(&lat).violations); // stays a residual
 }
 
-test "weld: blank base bridges a straight stroke only when the cell behind is real" {
+test "receiveBase: blank base bridges a straight stroke only when the cell behind is real" {
     // Real behind (node_border) → bridge.
     var buf: [4]lattice.Cell = undefined;
     for (&buf) |*c| c.* = lattice.Cell.empty;
@@ -346,16 +346,16 @@ test "weld: blank base bridges a straight stroke only when the cell behind is re
     lat.at(0, 0).* = .{ .occupant = .{ .node_border = .{ .node = 1, .role = .edge_s } }, .neighbours = .{} };
     // (0,1) blank base, (0,2) arrow south, behind of base is (0,0) node_border.
     lat.at(0, 2).* = arrowCellE(.south, 7, .{ .n = true, .s = true });
-    try testing.expectEqual(@as(u32, 1), weld(&lat));
+    try testing.expectEqual(@as(u32, 1), receiveBase(&lat));
     try testing.expectEqual(@as(u4, 0b0101), lat.atConst(0, 1).neighbours.toMask()); // │ (n+s)
 
     // Dangling (nothing behind) → refused.
     for (&buf) |*c| c.* = lattice.Cell.empty;
     lat.at(0, 2).* = arrowCellE(.south, 7, .{ .n = true, .s = true });
-    try testing.expectEqual(@as(u32, 0), weld(&lat));
+    try testing.expectEqual(@as(u32, 0), receiveBase(&lat));
 }
 
-test "weld: a side-fed arrowhead (edge turned the corner at the tip) is left alone" {
+test "receiveBase: a side-fed arrowhead (edge turned the corner at the tip) is left alone" {
     // ▼ at (1,1) fed from the WEST by an edge_segment ─ (a routing corner, not
     // a base gap): the perpendicular west neighbour carries an east arm.
     var buf: [9]lattice.Cell = undefined;
@@ -364,5 +364,5 @@ test "weld: a side-fed arrowhead (edge turned the corner at the tip) is left alo
     lat.at(1, 1).* = arrowCellE(.south, 7, .{ .n = true, .s = true, .w = true });
     lat.at(0, 1).* = edgeCellE(7, .{ .e = true, .w = true }); // west feed
     // base (1,0) blank, behind (1,... OOB up) — but side-fed guard fires first.
-    try testing.expectEqual(@as(u32, 0), weld(&lat));
+    try testing.expectEqual(@as(u32, 0), receiveBase(&lat));
 }

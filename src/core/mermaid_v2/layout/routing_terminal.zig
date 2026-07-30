@@ -173,8 +173,8 @@ pub fn mapArrow(e: sg.ArrowEnd) sketch.ArrowKind {
 /// one cell into a neighbour). Returns the same slice when it does not fire.
 /// The point count is preserved — the new straight cell is the vacated corner
 /// position — but the slice is reallocated so callers uniformly rebind.
-/// guarded-by: routing_terminal_test.zig "ensureBaseApproachLengthen grows a corner-fed len-2 final into a straight base approach"
-pub fn ensureBaseApproachLengthen(
+/// guarded-by: routing_terminal_test.zig "satisfyApproach grows a corner-fed len-2 final into a straight base approach"
+pub fn satisfyApproach(
     a: std.mem.Allocator,
     poly: []sketch.Point,
     placements: []const sketch.NodePlacement,
@@ -246,7 +246,7 @@ pub fn ensureBaseApproachLengthen(
 
 /// Per-gap extra rows for OFFSET corner-fed forward terminals sitting in a
 /// BARE inter-rank gap. The row-reservation companion to
-/// `ensureBaseApproachLengthen`: that pass GROWS a corner-fed len-2 final into
+/// `satisfyApproach`: that pass GROWS a corner-fed len-2 final into
 /// a straight base only when a clear collinear cell already exists; in a bare
 /// TD gap (v_spacing = 2 rows) none does, so it accept-falls-back. This pass
 /// tells the caller which gaps to widen so the room appears.

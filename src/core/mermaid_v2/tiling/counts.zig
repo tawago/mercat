@@ -79,16 +79,16 @@ pub const Counts = struct {
     c_base_label: u32 = 0,
     /// The edge turned the corner AT the arrowhead: ink arrives
     /// perpendicular to the tip axis. A routing artifact, not a stub gap —
-    /// `weld` refuses to touch these.
+    /// `receiveBase` refuses to touch these.
     c_base_side_fed: u32 = 0,
     /// The base is a fan trunk/rail cell. The fan-strip stamp rewrites
     /// those masks at the end of the edges stage, so a trunk base legally
     /// lacks the into-arrow arm.
     c_base_fan_trunk: u32 = 0,
     /// The base is a FOREIGN edge's stroke. Welding here would fabricate a
-    /// junction between two unrelated runs, so `weld` refuses by design.
+    /// junction between two unrelated runs, so `receiveBase` refuses by design.
     c_base_foreign: u32 = 0,
-    /// The base is a cluster frame. Frame-solid: `weld` leaves frames
+    /// The base is a cluster frame. Frame-solid: `receiveBase` leaves frames
     /// alone, so the arrowhead legally sits against an unmerged border.
     c_base_frame: u32 = 0,
     /// The base cell is background and nothing lies behind it — the

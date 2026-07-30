@@ -176,7 +176,7 @@ pub fn reconcileTerminalSide(
 pub const CornerFed = struct { bi: usize, b: sketch.Point, p: sketch.Point, lx: i32, ly: i32 };
 
 /// Shared corner-detection HEAD for `ensureBaseStub` (below) and
-/// routing_terminal.zig's `ensureBaseApproachLengthen`: locates the final leg
+/// routing_terminal.zig's `satisfyApproach`: locates the final leg
 /// `b->c` and confirms its predecessor `p->b` is an orthogonal run PERPENDICULAR
 /// to it (the "corner-fed terminal" both passes act on); null otherwise.
 /// Deliberately NEUTRAL — it checks neither final-leg LENGTH (stub wants 1,

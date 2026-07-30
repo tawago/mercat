@@ -49,7 +49,7 @@ fn drawBusBar(lat: *lattice.Lattice, bb: sketch.BusBar, report: *Report) void {
 
     // -- Stem: pivot exit bit into the node border, interior cells, and
     //    the stem arm OR'd into the junction (a rail cell).
-    if (!fan_in) edges_r.mergeSourceBorder(lat, bb.stem, bb.kind);
+    if (!fan_in) edges_r.drawPortStroke(lat, bb.stem, bb.kind);
     var i: usize = 0;
     var last_dir: ?edges_r.Move = null;
     while (i + 1 < bb.stem.len) : (i += 1) {
@@ -86,7 +86,7 @@ fn drawBusBar(lat: *lattice.Lattice, bb: sketch.BusBar, report: *Report) void {
     for (bb.taps) |tap| {
         if (fan_in) {
             const source_stub = [_]sketch.Point{ tap.landing, tap.at };
-            edges_r.mergeSourceBorder(lat, &source_stub, bb.kind);
+            edges_r.drawPortStroke(lat, &source_stub, bb.kind);
         }
         const dir = edges_r.segmentDir(tap.at, tap.landing) orelse continue;
         claim(lat, tap.at, tap.edge, bb.kind, trunk_role, edges_r.bitMask(dir), report);

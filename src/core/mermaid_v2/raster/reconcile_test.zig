@@ -165,7 +165,7 @@ test "reconcileNeighbours: a genuinely empty cell 2 steps out still clears (no r
 }
 
 // =====================================================================
-// Slice 2(2d): repairReciprocalArms — additive dual that heals half-open
+// Slice 2(2d): repairReciprocalStrokes — additive dual that heals half-open
 // split-junctions. All shape-generic (no seed names, hand-laid geometry).
 // =====================================================================
 
@@ -179,7 +179,7 @@ fn borderCell(nb: lattice.Neighbours) lattice.Cell {
 // POSITIVE — the witness geometry, abstracted: a corner `┘` (N+W) whose
 // south faces an edge_segment corner `└` (N+E) that asserts a reciprocal
 // north arm. The corner must regain its south arm: ┘ → ┤ (mask 0b1101).
-test "repairReciprocalArms: half-open split-junction corner regains its arm (┘→┤)" {
+test "repairReciprocalStrokes: half-open split-junction corner regains its arm (┘→┤)" {
     var buf: [9]lattice.Cell = undefined;
     var lat = emptyLattice(&buf, 3, 3);
 
@@ -192,7 +192,7 @@ test "repairReciprocalArms: half-open split-junction corner regains its arm (┘
     // (1,2): the second out-branch's corner └ = N+E, asserting north.
     lat.at(1, 2).* = edgeCell(.{ .n = true, .e = true });
 
-    const repaired = reconcile.repairReciprocalArms(&lat);
+    const repaired = reconcile.repairReciprocalStrokes(&lat);
 
     try testing.expectEqual(@as(u32, 1), repaired);
     // N+S+W = ┤ (0b1101).
@@ -203,7 +203,7 @@ test "repairReciprocalArms: half-open split-junction corner regains its arm (┘
 
 // POSITIVE, mirrored orientation: a `┌` (S+E) corner whose north faces an
 // edge_segment asserting a reciprocal south. It must gain N: ┌ → ├.
-test "repairReciprocalArms: mirror orientation ┌→├ (north arm re-added)" {
+test "repairReciprocalStrokes: mirror orientation ┌→├ (north arm re-added)" {
     var buf: [9]lattice.Cell = undefined;
     var lat = emptyLattice(&buf, 3, 3);
 
@@ -212,7 +212,7 @@ test "repairReciprocalArms: mirror orientation ┌→├ (north arm re-added)" {
     lat.at(1, 2).* = edgeCell(.{ .n = true }); // reciprocates S
     lat.at(1, 0).* = edgeCell(.{ .s = true, .w = true }); // above: asserts south back
 
-    const repaired = reconcile.repairReciprocalArms(&lat);
+    const repaired = reconcile.repairReciprocalStrokes(&lat);
 
     try testing.expectEqual(@as(u32, 1), repaired);
     // N+S+E = ├ (0b0111).
@@ -222,7 +222,7 @@ test "repairReciprocalArms: mirror orientation ┌→├ (north arm re-added)" {
 // NEGATIVE — C1 transversal guard: a clean straight horizontal run (E+W)
 // whose south faces an edge_segment asserting north. A straight run is a
 // legal transversal's crossed cell and must NEVER be upgraded to a tee.
-test "repairReciprocalArms: a clean straight run is never upgraded (C1 transversal guard)" {
+test "repairReciprocalStrokes: a clean straight run is never upgraded (C1 transversal guard)" {
     var buf: [9]lattice.Cell = undefined;
     var lat = emptyLattice(&buf, 3, 3);
 
@@ -231,7 +231,7 @@ test "repairReciprocalArms: a clean straight run is never upgraded (C1 transvers
     lat.at(2, 1).* = edgeCell(.{ .w = true });
     lat.at(1, 2).* = edgeCell(.{ .n = true }); // asserts north into the run
 
-    const repaired = reconcile.repairReciprocalArms(&lat);
+    const repaired = reconcile.repairReciprocalStrokes(&lat);
 
     try testing.expectEqual(@as(u32, 0), repaired);
     try testing.expectEqual(@as(u4, 0b1010), lat.atConst(1, 1).neighbours.toMask()); // still ─
@@ -240,14 +240,14 @@ test "repairReciprocalArms: a clean straight run is never upgraded (C1 transvers
 // NEGATIVE — no reciprocal assertion: the collinear neighbour is a
 // perpendicular horizontal run (E+W, no north bit). It does not assert
 // back, so nothing is added.
-test "repairReciprocalArms: a non-asserting perpendicular neighbour triggers no add" {
+test "repairReciprocalStrokes: a non-asserting perpendicular neighbour triggers no add" {
     var buf: [9]lattice.Cell = undefined;
     var lat = emptyLattice(&buf, 3, 3);
 
     lat.at(1, 1).* = edgeCell(.{ .n = true, .w = true }); // ┘
     lat.at(1, 2).* = edgeCell(.{ .e = true, .w = true }); // ─ (no reciprocal .n)
 
-    const repaired = reconcile.repairReciprocalArms(&lat);
+    const repaired = reconcile.repairReciprocalStrokes(&lat);
 
     try testing.expectEqual(@as(u32, 0), repaired);
     try testing.expectEqual(@as(u4, 0b1001), lat.atConst(1, 1).neighbours.toMask()); // still ┘
@@ -256,7 +256,7 @@ test "repairReciprocalArms: a non-asserting perpendicular neighbour triggers no 
 // NEGATIVE — Slice-1 frame safety: the collinear neighbour is a
 // cluster_border cell that DOES assert the reciprocal bit. Repair must
 // still refuse — it never grows an arm toward a frame.
-test "repairReciprocalArms: never grows an arm toward a cluster_border frame" {
+test "repairReciprocalStrokes: never grows an arm toward a cluster_border frame" {
     var buf: [9]lattice.Cell = undefined;
     var lat = emptyLattice(&buf, 3, 3);
 
@@ -264,7 +264,7 @@ test "repairReciprocalArms: never grows an arm toward a cluster_border frame" {
     // A frame cell below that (implausibly) carries a reciprocal north bit.
     lat.at(1, 2).* = borderCell(.{ .n = true });
 
-    const repaired = reconcile.repairReciprocalArms(&lat);
+    const repaired = reconcile.repairReciprocalStrokes(&lat);
 
     try testing.expectEqual(@as(u32, 0), repaired);
     try testing.expectEqual(@as(u4, 0b1001), lat.atConst(1, 1).neighbours.toMask()); // still ┘
@@ -272,14 +272,14 @@ test "repairReciprocalArms: never grows an arm toward a cluster_border frame" {
 
 // NEGATIVE — a cluster_border junction C is never repaired even when an
 // edge_segment asserts into it (repair only heals edge_segment cells).
-test "repairReciprocalArms: a cluster_border junction is never grown" {
+test "repairReciprocalStrokes: a cluster_border junction is never grown" {
     var buf: [9]lattice.Cell = undefined;
     var lat = emptyLattice(&buf, 3, 3);
 
     lat.at(1, 1).* = borderCell(.{ .n = true, .w = true }); // frame corner
     lat.at(1, 2).* = edgeCell(.{ .n = true }); // edge asserts north into it
 
-    const repaired = reconcile.repairReciprocalArms(&lat);
+    const repaired = reconcile.repairReciprocalStrokes(&lat);
 
     try testing.expectEqual(@as(u32, 0), repaired);
     try testing.expectEqual(@as(u4, 0b1001), lat.atConst(1, 1).neighbours.toMask());
@@ -287,14 +287,14 @@ test "repairReciprocalArms: a cluster_border junction is never grown" {
 
 // NEGATIVE — a lone stub (single arm, popcount < 2) is never resurrected
 // into a junction even when a neighbour asserts back.
-test "repairReciprocalArms: a lone stub is not resurrected (popcount guard)" {
+test "repairReciprocalStrokes: a lone stub is not resurrected (popcount guard)" {
     var buf: [9]lattice.Cell = undefined;
     var lat = emptyLattice(&buf, 3, 3);
 
     lat.at(1, 1).* = edgeCell(.{ .w = true }); // lone W stub
     lat.at(1, 2).* = edgeCell(.{ .n = true }); // asserts north
 
-    const repaired = reconcile.repairReciprocalArms(&lat);
+    const repaired = reconcile.repairReciprocalStrokes(&lat);
 
     try testing.expectEqual(@as(u32, 0), repaired);
     try testing.expectEqual(@as(u4, 0b1000), lat.atConst(1, 1).neighbours.toMask()); // still stub
@@ -304,7 +304,7 @@ test "repairReciprocalArms: a lone stub is not resurrected (popcount guard)" {
 // the top and middle corners are candidates to gain a south arm. Each add
 // targets a neighbour that already asserts the reverse arm and is itself
 // never an add candidate, so both adds land regardless of scan order.
-test "repairReciprocalArms: stacked adds are order-independent" {
+test "repairReciprocalStrokes: stacked adds are order-independent" {
     var buf: [9]lattice.Cell = undefined;
     var lat = emptyLattice(&buf, 3, 3);
 
@@ -315,7 +315,7 @@ test "repairReciprocalArms: stacked adds are order-independent" {
     lat.at(1, 1).* = edgeCell(.{ .n = true, .w = true });
     lat.at(1, 2).* = edgeCell(.{ .n = true, .e = true });
 
-    const repaired = reconcile.repairReciprocalArms(&lat);
+    const repaired = reconcile.repairReciprocalStrokes(&lat);
 
     try testing.expectEqual(@as(u32, 2), repaired);
     try testing.expectEqual(@as(u4, 0b1101), lat.atConst(1, 0).neighbours.toMask()); // ┤

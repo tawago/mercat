@@ -201,8 +201,8 @@ fn neighbourIndex(lat: *const lattice.Lattice, x: u32, y: u32, d: lattice.Dir4) 
 /// Order-independent without a snapshot: repairs only ADD a bit toward a
 /// neighbour that already asserts the reverse arm, and such a neighbour is
 /// never itself an add candidate (its own bit-set check short-circuits first).
-/// // guarded-by: reconcile_test.zig "repairReciprocalArms: stacked adds are order-independent"
-pub fn repairReciprocalArms(lat: *lattice.Lattice) u32 {
+/// // guarded-by: reconcile_test.zig "repairReciprocalStrokes: stacked adds are order-independent"
+pub fn repairReciprocalStrokes(lat: *lattice.Lattice) u32 {
     if (lat.width == 0 or lat.height == 0) return 0;
 
     var repaired: u32 = 0;
