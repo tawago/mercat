@@ -8,6 +8,7 @@ const std = @import("std");
 const fan = @import("fan.zig");
 const sg = @import("../sem_graph.zig");
 const sketch = @import("../sketch.zig");
+const ledger = @import("../base/ledger.zig");
 const sugiyama = @import("sugiyama.zig");
 
 const testing = std.testing;
@@ -224,6 +225,41 @@ test "5-source fan-IN sink recenters onto the exact mean of its sources" {
     // far-left source's position instead of the mean — assert the
     // converged (not mis-centered) result.
     try testing.expectEqual(mean_cx, f_cx);
+}
+
+test "co-sets group a fan's peers by rail lane" {
+    const a = testing.allocator;
+
+    // One fan of four peers. Three share lane 0 (the ordinary case: a shared
+    // rail run), one was lifted to its own lane and therefore shares with
+    // nobody. A second, single-lane fan contributes one more set.
+    var peers_a = [_]fan.FanEdge{
+        .{ .edge_id = 10, .peer_idx = 1, .role = .leftmost, .lane = 0 },
+        .{ .edge_id = 11, .peer_idx = 2, .role = .middle, .lane = 1 },
+        .{ .edge_id = 12, .peer_idx = 3, .role = .middle, .lane = 0 },
+        .{ .edge_id = 13, .peer_idx = 4, .role = .rightmost, .lane = 0 },
+    };
+    var peers_b = [_]fan.FanEdge{
+        .{ .edge_id = 20, .peer_idx = 6, .role = .leftmost },
+        .{ .edge_id = 21, .peer_idx = 7, .role = .rightmost },
+    };
+    const fans = [_]fan.Fan{
+        .{ .direction = .out, .pivot_idx = 0, .source_layer = 0, .peers = &peers_a },
+        .{ .direction = .in, .pivot_idx = 5, .source_layer = 1, .peers = &peers_b },
+    };
+
+    var arena = std.heap.ArenaAllocator.init(a);
+    defer arena.deinit();
+    const sets = try fan.coSets(arena.allocator(), &fans);
+
+    // The lone lane-1 peer is not a set; the two surviving groups are.
+    try testing.expectEqual(@as(usize, 2), sets.len);
+    try testing.expectEqualSlices(u32, &.{ 10, 12, 13 }, sets[0].members);
+    try testing.expectEqual(ledger.CoOrigin.fan_rail, sets[0].origin);
+    try testing.expectEqualSlices(u32, &.{ 20, 21 }, sets[1].members);
+
+    // No fans, no sets.
+    try testing.expectEqual(@as(usize, 0), (try fan.coSets(arena.allocator(), &.{})).len);
 }
 
 test {

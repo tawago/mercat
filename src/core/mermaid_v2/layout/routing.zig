@@ -64,6 +64,12 @@ pub const EdgesResult = struct {
     /// additionally registered in `polylines` for the same reason). layout.zig
     /// copies the `.busbar` fields out AFTER the shift for the final Sketch.
     busbars: []fan_rail.Built,
+    /// Co-channel sets from the live fans (`fan.coSets`), read off the same
+    /// peer/lane facts this routing pass just used. Geometry-free, so the
+    /// bbox shift pass never touches them. On a flat graph select.zig
+    /// replaces them with the plan-derived sets; on a clustered one they are
+    /// the whole population.
+    co_sets: []const ledger.CoSet,
 };
 
 pub fn buildEdgesWithPlan(
@@ -351,6 +357,7 @@ pub fn buildEdgesWithPlan(
         .edges = try out.toOwnedSlice(a),
         .polylines = try polys.toOwnedSlice(a),
         .busbars = try busbars.toOwnedSlice(a),
+        .co_sets = try fan_mod.coSets(a, fans),
     };
 }
 

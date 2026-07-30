@@ -56,6 +56,9 @@ pub fn vertical(a: std.mem.Allocator, s: sketch.Sketch, direction: sketch.Direct
         .edges = edges,
         .busbars = busbars,
         .joins = s.joins,
+        // Identity-keyed, not geometry-keyed: mirroring moves points, never
+        // membership.
+        .co_sets = s.co_sets,
         .diagnostics = s.diagnostics,
         .budget = s.budget,
     };

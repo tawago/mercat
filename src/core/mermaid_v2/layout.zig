@@ -385,6 +385,7 @@ fn buildSketch(
         .edges = edges_out,
         .busbars = busbars_out,
         .joins = candidate_joins,
+        .co_sets = edges_result.co_sets,
         .diagnostics = try diagnostics.toOwnedSlice(a),
         .budget = .{ .max_width = opts.max_width, .rung = opts.rung },
     };

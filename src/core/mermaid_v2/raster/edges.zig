@@ -94,6 +94,7 @@ fn crossingKeepsFirstWriter(
         .edge_segment => |seg| crossings.segmentOverlap(
             ctx.counts,
             ctx.joins,
+            ctx.co_sets,
             ctx.active,
             seg.edge,
             cell.neighbours,
@@ -103,6 +104,7 @@ fn crossingKeepsFirstWriter(
         .arrowhead => |a| crossings.arrowheadTransit(
             ctx.counts,
             ctx.joins,
+            ctx.co_sets,
             ctx.active,
             a.edge,
             incoming_edge,
@@ -238,6 +240,7 @@ fn walkPolyline(
                         if (seg.edge != edge.id and crossings.segmentOverlap(
                             ctx.counts,
                             ctx.joins,
+                            ctx.co_sets,
                             ctx.active,
                             seg.edge,
                             cell.neighbours,
@@ -418,6 +421,7 @@ pub fn rasterizeEdges(
     const rec = aux.Recorder.init(sink, lat);
     const ctx: crossings.Ctx = .{
         .joins = s.joins,
+        .co_sets = s.co_sets,
         .active = crossings.active(s.joins),
         .counts = &cross_counts,
         .mode = subgraph_edges,

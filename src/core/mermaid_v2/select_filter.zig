@@ -65,6 +65,9 @@ pub fn ciFilter(
             // so its emitted plan reads independent(unsafe_component); the
             // re-disposed copy rides `excluded` into Step 10's telemetry.
             cand.sketch.joins = realized_mod.disposeUnsafe(aa, cand.sketch.joins) catch cand.sketch.joins;
+            // The co-sets travel with the plan they were derived from, so a
+            // withdrawn trunk stops authorizing its members' shared ink.
+            cand.sketch.co_sets = ledger.coSetsFromPlan(aa, cand.sketch.joins) catch cand.sketch.co_sets;
             excluded.append(aa, cand.*) catch return clean;
         }
     }
@@ -106,6 +109,10 @@ pub fn terminalCandidate(
         } else |err| {
             std.log.warn("mermaid_v2/select: terminal fallback realize failed ({s}); emitting the empty envelope", .{@errorName(err)});
         }
+        // Co-sets speak for whatever plan the sketch ends up holding — both
+        // branches, so layout's fan-derived sets never survive onto a flat
+        // candidate.
+        result.sketch.co_sets = ledger.coSetsFromPlan(aa, result.sketch.joins) catch &.{};
     }
     std.log.debug("mermaid_v2/select: {s} engaged (terminal all-independent fallback)", .{ledger.tagName(.disp_terminal_fallback_engaged)});
     return result;

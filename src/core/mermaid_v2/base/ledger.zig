@@ -1,6 +1,7 @@
 //! Base-tier pure-data vocabulary for the semantic join permits and the
 //! candidate-local realized-join artifact (TSD §6.1; D-IR item 1): the
 //! JoinPolicy storage, the JoinPermits / RealizedJoins logical records,
+//! the co-channel membership sets riding the Sketch beside that plan,
 //! terminal-port identities, the SDD §12.4 component-table result types
 //! shared by both reachability validators, the canonical semantic-key
 //! comparators with the pinned D-PORT clause-4 ordinal tables, and the
@@ -178,6 +179,79 @@ pub const RealizedJoins = struct {
     terminal_ports: []const TerminalPort = &.{},
     mesh_unions: []const MeshUnion = &.{},
 };
+
+// -- Co-channel membership ---------------------------------------------------
+
+/// Where a co-channel set came from. Provenance only: every reader treats
+/// the origins alike, and the tag exists so a set can be attributed in a
+/// report and so a later law can scope itself to one origin.
+pub const CoOrigin = enum {
+    /// One realized selected join (`RealizedJoins.selected_joins`).
+    selected_join,
+    /// One exempt complete-mesh union (`RealizedJoins.mesh_unions`).
+    mesh_union,
+    /// One fan's peers sharing a rail lane (layout/fan.zig). The only
+    /// population a clustered or recursed render can have: those renders
+    /// carry an empty realized plan (V-D-IR-07).
+    fan_rail,
+};
+
+/// A CO-CHANNEL set: edges that legally share ink because ONE structural
+/// decision put them on the same channel.
+///
+/// Membership is an EXPLICIT edge-id list, never a numeric channel id. Sets
+/// built inside different recursion children are carried verbatim into one
+/// merged Sketch, so an id-based scheme would need renumbering at every
+/// stitch level and would fuse two children the moment both numbered a
+/// channel alike.
+pub const CoSet = struct {
+    origin: CoOrigin,
+    members: []const EdgeId,
+};
+
+/// The co-channel sets a realized plan authorizes: one per selected join and
+/// one per exempt mesh union, members BORROWED from the plan (same arena, no
+/// copy). This is the flat population; the caller applies it exactly where it
+/// applies the plan, because nowhere earlier is the plan final.
+///
+/// Membership-equivalent to interrogating the plan directly: `coMembers` over
+/// the result answers what a `selected_joins` + `mesh_unions` scan answers.
+/// guarded-by: select_test.zig "co-sets applied with the plan carry the plan's own membership"
+pub fn coSetsFromPlan(
+    allocator: std.mem.Allocator,
+    joins: RealizedJoins,
+) error{OutOfMemory}![]const CoSet {
+    const n = joins.selected_joins.len + joins.mesh_unions.len;
+    if (n == 0) return &.{};
+    const out = try allocator.alloc(CoSet, n);
+    var i: usize = 0;
+    for (joins.selected_joins) |j| {
+        out[i] = .{ .origin = .selected_join, .members = j.members };
+        i += 1;
+    }
+    for (joins.mesh_unions) |m| {
+        out[i] = .{ .origin = .mesh_union, .members = m.members };
+        i += 1;
+    }
+    return out;
+}
+
+/// True iff both edges appear in one co-set. Asked about DISTINCT ids: an
+/// edge and itself is a question about ownership, which the caller answers
+/// before it gets here.
+/// guarded-by: ledger_test.zig "co-membership needs both edges inside one set"
+pub fn coMembers(sets: []const CoSet, first: EdgeId, second: EdgeId) bool {
+    for (sets) |set| {
+        var saw_first = false;
+        var saw_second = false;
+        for (set.members) |m| {
+            if (m == first) saw_first = true;
+            if (m == second) saw_second = true;
+        }
+        if (saw_first and saw_second) return true;
+    }
+    return false;
+}
 
 // SDD §12.4 component-table result types — the one shared output shape
 // emitted by BOTH reachability validators (D-IR items 1, 9, 10).

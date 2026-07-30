@@ -17,12 +17,17 @@
 //!
 //! EXEMPTIONS (structural, never seed-keyed): same owner, and co-members of one
 //! realized selected join or one exempt mesh union — that ink sharing is legal
-//! join ink (D-JOIN clause 4). Determined from `Sketch.joins` (RealizedJoins),
-//! never from geometry or a fixture name.
+//! join ink (D-JOIN clause 4). Determined from `Sketch.joins` (RealizedJoins)
+//! and from `Sketch.co_sets`, the co-channel membership the same decisions
+//! record; never from geometry or a fixture name. The two agree by
+//! construction on the flat path (co-sets are derived from the plan where the
+//! plan is applied), and `co_sets` alone speaks for a clustered render, whose
+//! fans are its only channels.
 //!
 //! SCOPE: the rule is inert unless a realized-join plan exists (`active`). A
 //! clustered/subgraph render carries an empty plan (V-D-IR-07), so this module
-//! never alters clustered bytes.
+//! never alters clustered bytes. `active` reads the PLAN and only the plan:
+//! carrying co-sets a clustered render populates does not arm the rule there.
 //!
 //! Report-only: counts flow raster → entry → diagnostics, never into
 //! score.RasterCounts, audit.zig, or candidate selection. No new DiagnosticTag.
@@ -77,6 +82,10 @@ pub const CrossingCounts = struct {
 /// Copied by value; `counts` is a pointer so increments persist.
 pub const Ctx = struct {
     joins: ledger.RealizedJoins = .{},
+    /// Co-channel membership from the Sketch (`Sketch.co_sets`). Carried as a
+    /// plain slice of base-tier records because this zone may not import
+    /// sketch.zig for it.
+    co_sets: []const ledger.CoSet = &.{},
     active: bool = false,
     counts: *CrossingCounts,
     /// Subgraph frame-border notation (owner ruling, tawago 2026-07-19).
@@ -96,11 +105,23 @@ pub fn active(joins: ledger.RealizedJoins) bool {
 }
 
 /// Two edges share LEGAL join ink iff they are the same owner or co-members of
-/// one realized selected join or one exempt mesh union (D-JOIN clause 4). This
-/// is the structural exemption from the transversal rule — determined from the
-/// realized-join plan, never from geometry or a seed name.
-pub fn sameChannel(a: EdgeId, b: EdgeId, joins: ledger.RealizedJoins) bool {
+/// one channel: a declared co-set, a realized selected join, or an exempt mesh
+/// union (D-JOIN clause 4). This is the structural exemption from the
+/// transversal rule — determined from the recorded membership, never from
+/// geometry or a seed name.
+///
+/// `co_sets` and `joins` are asked in turn and neither can veto the other, so
+/// on the flat path — where the co-sets ARE the plan's membership — the answer
+/// is the plan's answer.
+/// guarded-by: crossings.zig "sameChannel: co-set membership answers what the plan answers"
+pub fn sameChannel(
+    a: EdgeId,
+    b: EdgeId,
+    joins: ledger.RealizedJoins,
+    co_sets: []const ledger.CoSet,
+) bool {
     if (a == b) return true;
+    if (ledger.coMembers(co_sets, a, b)) return true;
     for (joins.selected_joins) |j| {
         if (contains(j.members, a) and contains(j.members, b)) return true;
     }
@@ -147,6 +168,7 @@ pub fn classifySegment(existing: lattice.Neighbours, incoming: lattice.Neighbour
 pub fn segmentOverlap(
     counts: *CrossingCounts,
     joins: ledger.RealizedJoins,
+    co_sets: []const ledger.CoSet,
     active_rule: bool,
     existing_edge: EdgeId,
     existing_mask: lattice.Neighbours,
@@ -154,7 +176,7 @@ pub fn segmentOverlap(
     incoming_mask: lattice.Neighbours,
 ) bool {
     if (!active_rule) return false;
-    if (sameChannel(existing_edge, incoming_edge, joins)) return false;
+    if (sameChannel(existing_edge, incoming_edge, joins, co_sets)) return false;
     switch (classifySegment(existing_mask, incoming_mask)) {
         .legal_crossing => counts.legal_crossing += 1,
         .foreign_junction_violation => counts.foreign_junction_violation += 1,
@@ -171,12 +193,13 @@ pub fn segmentOverlap(
 pub fn arrowheadTransit(
     counts: *CrossingCounts,
     joins: ledger.RealizedJoins,
+    co_sets: []const ledger.CoSet,
     active_rule: bool,
     arrow_edge: EdgeId,
     incoming_edge: EdgeId,
 ) bool {
     if (!active_rule) return false;
-    if (sameChannel(arrow_edge, incoming_edge, joins)) return false;
+    if (sameChannel(arrow_edge, incoming_edge, joins, co_sets)) return false;
     counts.arrowhead_transit_violation += 1;
     return true;
 }
@@ -210,10 +233,39 @@ test "sameChannel: same owner, selected-join co-members, mesh co-members" {
     var sel = [_]ledger.SelectedJoin{.{ .id = 0, .proposal = 0, .permission_group = 0, .members = &members }};
     const joins: ledger.RealizedJoins = .{ .selected_joins = &sel };
 
-    try std.testing.expect(sameChannel(5, 5, joins)); // same owner
-    try std.testing.expect(sameChannel(10, 12, joins)); // co-members
-    try std.testing.expect(!sameChannel(10, 99, joins)); // one foreign
-    try std.testing.expect(!sameChannel(98, 99, .{})); // empty plan, distinct
+    try std.testing.expect(sameChannel(5, 5, joins, &.{})); // same owner
+    try std.testing.expect(sameChannel(10, 12, joins, &.{})); // co-members
+    try std.testing.expect(!sameChannel(10, 99, joins, &.{})); // one foreign
+    try std.testing.expect(!sameChannel(98, 99, .{}, &.{})); // empty plan, distinct
+}
+
+test "sameChannel: co-set membership answers what the plan answers" {
+    // The flat path derives its co-sets FROM the plan, so the two arguments
+    // are two spellings of one fact. Pin that: asked with only the plan, or
+    // with only the plan's co-sets, the answers agree on every pair.
+    var members = [_]EdgeId{ 10, 11, 12 };
+    var sel = [_]ledger.SelectedJoin{.{ .id = 0, .proposal = 0, .permission_group = 0, .members = &members }};
+    var mesh = [_]EdgeId{ 20, 21 };
+    var mu = [_]ledger.MeshUnion{.{ .id = 0, .members = &mesh, .source_keys = &.{}, .target_keys = &.{} }};
+    const joins: ledger.RealizedJoins = .{ .selected_joins = &sel, .mesh_unions = &mu };
+
+    const derived = try ledger.coSetsFromPlan(std.testing.allocator, joins);
+    defer std.testing.allocator.free(derived);
+
+    for ([_]EdgeId{ 10, 11, 12, 20, 21, 99 }) |a| {
+        for ([_]EdgeId{ 10, 11, 12, 20, 21, 99 }) |b| {
+            try std.testing.expectEqual(
+                sameChannel(a, b, joins, &.{}),
+                sameChannel(a, b, .{}, derived),
+            );
+        }
+    }
+    // A co-set with no plan behind it still speaks — that is the clustered
+    // render's only channel evidence.
+    var fan = [_]EdgeId{ 4, 5 };
+    const fan_sets = [_]ledger.CoSet{.{ .origin = .fan_rail, .members = &fan }};
+    try std.testing.expect(sameChannel(4, 5, .{}, &fan_sets));
+    try std.testing.expect(!sameChannel(4, 6, .{}, &fan_sets));
 }
 
 test "active reflects a non-empty realized plan" {
@@ -226,35 +278,41 @@ test "active reflects a non-empty realized plan" {
 test "segmentOverlap: inert / exempt merge; foreign perpendicular keeps first writer" {
     var counts: CrossingCounts = .{};
     // Rule inert → merge (false), no event.
-    try std.testing.expect(!segmentOverlap(&counts, .{}, false, 1, H, 2, V));
+    try std.testing.expect(!segmentOverlap(&counts, .{}, &.{}, false, 1, H, 2, V));
     try std.testing.expectEqual(@as(u32, 0), counts.legal_crossing);
 
     // Active, foreign, perpendicular → keep first writer (true), legal event.
     var members = [_]EdgeId{ 1, 3 };
     var sel = [_]ledger.SelectedJoin{.{ .id = 0, .proposal = 0, .permission_group = 0, .members = &members }};
     const joins: ledger.RealizedJoins = .{ .selected_joins = &sel };
-    try std.testing.expect(segmentOverlap(&counts, joins, true, 1, H, 2, V));
+    try std.testing.expect(segmentOverlap(&counts, joins, &.{}, true, 1, H, 2, V));
     try std.testing.expectEqual(@as(u32, 1), counts.legal_crossing);
 
     // Active but co-members (1 & 3 share the selected join) → merge (false).
-    try std.testing.expect(!segmentOverlap(&counts, joins, true, 1, H, 3, V));
+    try std.testing.expect(!segmentOverlap(&counts, joins, &.{}, true, 1, H, 3, V));
     try std.testing.expectEqual(@as(u32, 1), counts.legal_crossing);
 
     // Active, foreign, collinear → keep first writer, junction violation.
-    try std.testing.expect(segmentOverlap(&counts, joins, true, 1, H, 2, H));
+    try std.testing.expect(segmentOverlap(&counts, joins, &.{}, true, 1, H, 2, H));
     try std.testing.expectEqual(@as(u32, 1), counts.foreign_junction_violation);
+
+    // A co-set exempts on its own, with no plan behind it.
+    var fan = [_]EdgeId{ 1, 2 };
+    const fan_sets = [_]ledger.CoSet{.{ .origin = .fan_rail, .members = &fan }};
+    try std.testing.expect(!segmentOverlap(&counts, .{}, &fan_sets, true, 1, H, 2, V));
+    try std.testing.expectEqual(@as(u32, 1), counts.legal_crossing);
 }
 
 test "arrowheadTransit: own terminal exempt, foreign refused" {
     var counts: CrossingCounts = .{};
     // Same owner (own terminal) → not a violation.
-    try std.testing.expect(!arrowheadTransit(&counts, .{}, true, 7, 7));
+    try std.testing.expect(!arrowheadTransit(&counts, .{}, &.{}, true, 7, 7));
     try std.testing.expectEqual(@as(u32, 0), counts.arrowhead_transit_violation);
     // Foreign edge over a foreign arrowhead → C2 violation, keep pristine.
-    try std.testing.expect(arrowheadTransit(&counts, .{}, true, 7, 8));
+    try std.testing.expect(arrowheadTransit(&counts, .{}, &.{}, true, 7, 8));
     try std.testing.expectEqual(@as(u32, 1), counts.arrowhead_transit_violation);
     // Rule inert → no refusal.
-    try std.testing.expect(!arrowheadTransit(&counts, .{}, false, 7, 8));
+    try std.testing.expect(!arrowheadTransit(&counts, .{}, &.{}, false, 7, 8));
     try std.testing.expectEqual(@as(u32, 1), counts.arrowhead_transit_violation);
 }
 

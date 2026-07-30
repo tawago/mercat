@@ -11,6 +11,7 @@ const std = @import("std");
 const prim = @import("prim");
 const sketch = @import("../sketch.zig");
 const sg = @import("../sem_graph.zig");
+const ledger = @import("../base/ledger.zig");
 const split_mod = @import("split.zig");
 const bridges = @import("bridges.zig");
 const entry_inset = @import("entry_inset.zig");
@@ -107,6 +108,13 @@ pub fn stitch(
     var clusters: std.ArrayListUnmanaged(sketch.ClusterFrame) = .empty;
     var edges: std.ArrayListUnmanaged(sketch.EdgePath) = .empty;
     var busbars: std.ArrayListUnmanaged(sketch.Rail) = .empty;
+    // Co-channel sets ride along with the edges they name. They hold edge
+    // ids, and `translateEdge` leaves an edge's id alone (only endpoints are
+    // remapped), so a set is carried verbatim rather than rewritten — the
+    // reason membership is an explicit id list and not a channel handle.
+    // The merged sketch's edge ids are piece-local, exactly as its edges'
+    // own ids are, and a set inherits that scope unchanged.
+    var co_sets: std.ArrayListUnmanaged(ledger.CoSet) = .empty;
 
     // Per-piece map: piece SKETCH node id -> merged (global) node id.
     var global_of = try arena.alloc([]sketch.NodeId, split_result.pieces.len);
@@ -228,6 +236,7 @@ pub fn stitch(
                 try busbars.append(arena, tb);
             }
         }
+        for (child.sketch.co_sets) |cs| try co_sets.append(arena, cs);
     }
 
     // --- Outer edges. Keep only edges between two real top-level nodes;
@@ -237,6 +246,10 @@ pub fn stitch(
         if (superFor(split_result, oe.from) != null or superFor(split_result, oe.to) != null) continue;
         try edges.append(arena, try translateEdge(arena, oe, global_of[0], 0, 0));
     }
+    // The outer level's own sets. A member whose edge was dropped above (it
+    // touched a super-node and re-routes as a bridge) is left in place: a set
+    // names who MAY share, and naming an absent edge authorizes nothing.
+    for (outer.co_sets) |os| try co_sets.append(arena, os);
 
     // --- Outer bus-bars. Same rule per member edge: a tap onto a
     //     super-node is placement-only (its edge re-routes as a bridge);
@@ -284,6 +297,7 @@ pub fn stitch(
             .clusters = cluster_slice,
             .edges = try edges.toOwnedSlice(arena),
             .busbars = try busbars.toOwnedSlice(arena),
+            .co_sets = try co_sets.toOwnedSlice(arena),
             .diagnostics = outer.diagnostics,
             .budget = outer.budget,
         },

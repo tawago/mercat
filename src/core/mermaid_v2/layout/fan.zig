@@ -10,6 +10,7 @@
 const std = @import("std");
 const sg = @import("../sem_graph.zig");
 const sketch = @import("../sketch.zig");
+const ledger = @import("../base/ledger.zig");
 const sugiyama = @import("sugiyama.zig");
 const rp = @import("routing_polyline.zig");
 
@@ -287,6 +288,55 @@ pub fn lookup(fans: []const Fan, edge_id: sg.EdgeId) ?LookupHit {
         }
     }
     return null;
+}
+
+// ===================================================================
+// Co-channel membership
+// ===================================================================
+
+/// The co-channel sets the detected fans authorize: one per group of peers
+/// sharing a rail lane, in fan order then peer order.
+///
+/// Peers on one lane paint one shared rail run, so their ink sharing is a
+/// structural consequence of the fan, not an accident of routing — exactly
+/// the sharing a crossing law must not read as a fabricated junction. A lane
+/// holding a single peer is no set: that peer shares with nobody.
+///
+/// `peer.lane` is the per-member lane `fan_lanes.assignLanes` hands out when
+/// a carve-out leaves a group unrealized, and stays 0 everywhere else — so
+/// the ordinary result is one set per fan holding all of its peers, which is
+/// what a clustered render (empty realized plan, no per-member lanes) always
+/// gets. Members are edge ids in the caller's own id space.
+/// guarded-by: fan_test.zig "co-sets group a fan's peers by rail lane"
+pub fn coSets(
+    a: std.mem.Allocator,
+    fans: []const Fan,
+) error{OutOfMemory}![]const ledger.CoSet {
+    var out: std.ArrayListUnmanaged(ledger.CoSet) = .empty;
+    var members: std.ArrayListUnmanaged(ledger.EdgeId) = .empty;
+    defer members.deinit(a);
+    for (fans) |f| {
+        for (f.peers, 0..) |seed, i| {
+            // First peer on this lane owns the group; later ones are already
+            // inside it.
+            var already = false;
+            for (f.peers[0..i]) |earlier| {
+                if (earlier.lane == seed.lane) already = true;
+            }
+            if (already) continue;
+
+            members.clearRetainingCapacity();
+            for (f.peers) |p| {
+                if (p.lane == seed.lane) try members.append(a, p.edge_id);
+            }
+            if (members.items.len < 2) continue;
+            try out.append(a, .{
+                .origin = .fan_rail,
+                .members = try a.dupe(ledger.EdgeId, members.items),
+            });
+        }
+    }
+    return out.toOwnedSlice(a);
 }
 
 // ===================================================================

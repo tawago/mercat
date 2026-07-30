@@ -48,7 +48,7 @@ pub fn choose(
     const set = try enumerateAll(aa, graph, join_permits, join_permits_flat, max_width);
     const merged = attachJoinPlans(aa, join_permits, join_permits_flat, set.merged);
     var incumbent = set.incumbent;
-    if (join_permits_flat) incumbent.sketch.joins = planJoins(aa, join_permits, incumbent.sketch);
+    if (join_permits_flat) applyPlan(aa, join_permits, &incumbent.sketch);
 
     // D-REACH pre-raster vector reachability oracle per merged candidate,
     // AFTER realized and BEFORE scoring (D-REACH items 5/9/10/12-13). The
@@ -120,8 +120,25 @@ fn attachJoinPlans(
 ) []const ladder.Candidate {
     if (!join_permits_flat) return candidates;
     const mut = aa.dupe(ladder.Candidate, candidates) catch return candidates;
-    for (mut) |*cand| cand.sketch.joins = planJoins(aa, join_permits, cand.sketch);
+    for (mut) |*cand| applyPlan(aa, join_permits, &cand.sketch);
     return mut;
+}
+
+/// Apply one candidate's realized plan to its Sketch: the plan itself AND the
+/// co-channel sets derived from it.
+///
+/// Both land here, at the single point where the plan becomes the candidate's
+/// own. Deriving co-sets at layout time instead would be writing them where
+/// this call overwrites them — layout's fan-derived sets are for the clustered
+/// path, which never reaches here. A derivation failure degrades to no sets,
+/// matching how a planning failure degrades to the empty plan.
+fn applyPlan(
+    aa: std.mem.Allocator,
+    join_permits: *const ledger.JoinPermits,
+    target: *sketch_mod.Sketch,
+) void {
+    target.joins = planJoins(aa, join_permits, target.*);
+    target.co_sets = ledger.coSetsFromPlan(aa, target.joins) catch &.{};
 }
 
 /// P2v Step 6: one pre-raster vector reachability report per candidate

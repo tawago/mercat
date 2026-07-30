@@ -56,6 +56,44 @@ test "empty RealizedJoins is default-constructible with all-empty fields" {
     try expectEqual(@as(usize, 0), plan.mesh_unions.len);
 }
 
+test "co-membership needs both edges inside one set" {
+    var left = [_]pb.EdgeId{ 1, 2 };
+    var right = [_]pb.EdgeId{ 3, 4 };
+    const sets = [_]pb.CoSet{
+        .{ .origin = .selected_join, .members = &left },
+        .{ .origin = .fan_rail, .members = &right },
+    };
+
+    try expect(pb.coMembers(&sets, 1, 2));
+    try expect(pb.coMembers(&sets, 4, 3)); // order-free
+    // One from each set is NOT co-membership: two channels are two channels.
+    try expect(!pb.coMembers(&sets, 2, 3));
+    try expect(!pb.coMembers(&sets, 1, 9));
+    try expect(!pb.coMembers(&.{}, 1, 2));
+}
+
+test "co-sets from a plan name one channel per selected join and mesh union" {
+    var join_members = [_]pb.EdgeId{ 7, 8 };
+    var sel = [_]pb.SelectedJoin{.{ .id = 0, .proposal = 0, .permission_group = 0, .members = &join_members }};
+    var mesh_members = [_]pb.EdgeId{ 20, 21, 22 };
+    var mu = [_]pb.MeshUnion{.{ .id = 0, .members = &mesh_members, .source_keys = &.{}, .target_keys = &.{} }};
+
+    const sets = try pb.coSetsFromPlan(
+        std.testing.allocator,
+        .{ .selected_joins = &sel, .mesh_unions = &mu },
+    );
+    defer std.testing.allocator.free(sets);
+
+    try expectEqual(@as(usize, 2), sets.len);
+    try expectEqual(pb.CoOrigin.selected_join, sets[0].origin);
+    try std.testing.expectEqualSlices(pb.EdgeId, &.{ 7, 8 }, sets[0].members);
+    try expectEqual(pb.CoOrigin.mesh_union, sets[1].origin);
+    try std.testing.expectEqualSlices(pb.EdgeId, &.{ 20, 21, 22 }, sets[1].members);
+
+    // An empty plan authorizes nothing and allocates nothing.
+    try expectEqual(@as(usize, 0), (try pb.coSetsFromPlan(std.testing.allocator, .{})).len);
+}
+
 test "empty ComponentEntry is default-constructible with all-empty fields" {
     const entry: pb.ComponentEntry = .{};
     try expectEqual(@as(pb.ComponentId, 0), entry.id);

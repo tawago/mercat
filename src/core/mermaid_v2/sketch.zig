@@ -264,6 +264,19 @@ pub const Sketch = struct {
     busbars: []const Rail = &.{},
     /// Candidate-local branch realization envelope. // guarded-by: entry.zig "V-D-IR-07: clustered production path keeps the realized plan envelope empty"
     joins: ledger.RealizedJoins = .{},
+    /// Co-channel membership: the edge groups that legally share ink because
+    /// one structural decision put them on a channel together.
+    ///
+    /// Filled at two different points on purpose. `layout/routing.zig` fills
+    /// it from the live fans — the only population a clustered or recursed
+    /// render gets, since those carry an empty `joins`; `cluster/stitch.zig`
+    /// carries a child's sets into the merged Sketch beside the child's
+    /// edges. On a flat graph `select.zig` REPLACES it with the sets derived
+    /// from the realized plan, wherever it applies that plan.
+    ///
+    /// Member ids are read in the same id space as `edges[].id`, so a
+    /// merged Sketch inherits whatever ambiguity that space already has.
+    co_sets: []const ledger.CoSet = &.{},
     diagnostics: []const Diagnostic,
     budget: WidthBudget,
 };
