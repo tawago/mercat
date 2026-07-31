@@ -63,7 +63,18 @@ pub const Fan = struct {
     /// own lane so every declared edge stays traceable. 0 for complete meshes,
     /// single-trunk gaps, and pure fan-in/out (byte-identical to pre-lane).
     lane: u32 = 0,
+    /// True iff any member edge carries a label. A labeled fan reserves
+    /// `LABEL_RUN_EXTRA_ROWS` extra gap rows (extraRowsPerGap) so each
+    /// labeled member's PRIVATE vertical dropper is >= 3 cells long — flank,
+    /// on-run label row, flank — the shape raster/labels_onrun.zig places
+    /// over. Unlabeled fans stay byte-identical.
+    /// guarded-by: fan_test.zig "a labeled fan reserves two extra gap rows; an unlabeled fan reserves one"
+    labeled: bool = false,
 };
+
+/// Extra gap rows a LABELED fan reserves beyond its lane rows: the on-run
+/// label shape needs a 3-cell private dropper where the classic gap yields 1.
+pub const LABEL_RUN_EXTRA_ROWS: u32 = 2;
 
 // ===================================================================
 // Detection
@@ -79,8 +90,6 @@ pub fn detect(
     graph: sg.SemGraph,
     lg: sugiyama.LayeredGraph,
 ) error{OutOfMemory}![]Fan {
-    _ = graph;
-
     var node_layer = try a.alloc(u32, lg.nodes.len);
     @memset(node_layer, 0);
     for (lg.layers, 0..) |row, li| {
@@ -104,6 +113,7 @@ pub fn detect(
                 .pivot_idx = pivot,
                 .source_layer = p_layer,
                 .peers = peers,
+                .labeled = anyPeerLabeled(graph, peers),
             });
         }
     }
@@ -121,11 +131,25 @@ pub fn detect(
                 .pivot_idx = pivot,
                 .source_layer = p_layer - 1,
                 .peers = peers,
+                .labeled = anyPeerLabeled(graph, peers),
             });
         }
     }
 
     return try fans.toOwnedSlice(a);
+}
+
+/// True iff any peer's semantic edge carries a non-empty label.
+fn anyPeerLabeled(graph: sg.SemGraph, peers: []const FanEdge) bool {
+    for (peers) |p| {
+        for (graph.edges) |e| {
+            if (e.id != p.edge_id) continue;
+            if (e.label) |lbl| {
+                if (lbl.len > 0) return true;
+            }
+        }
+    }
+    return false;
 }
 
 fn collectFanOut(
@@ -212,7 +236,10 @@ pub fn extraRowsPerGap(
         if (f.source_layer < out.len) {
             var max_lane = f.lane;
             for (f.peers) |peer| max_lane = @max(max_lane, peer.lane);
-            const need = max_lane + 1;
+            // Labeled fan: reserve the on-run label shape's extra rows so a
+            // member's private dropper is flank + label row + flank long.
+            const label_rows: u32 = if (f.labeled) LABEL_RUN_EXTRA_ROWS else 0;
+            const need = max_lane + 1 + label_rows;
             if (need > out[f.source_layer]) out[f.source_layer] = need;
         }
     }

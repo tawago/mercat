@@ -190,3 +190,46 @@ test "single-row fan spanning 2+ layers dodges an intermediate box instead of sl
     try testing.expectEqual(pivot.rect.bottom() - 1, poly[0].y);
     try testing.expectEqual(child.rect.y, poly[poly.len - 1].y);
 }
+
+test "labeled fan-OUT rail rises two rows for a 3-cell private descent; unlabeled stays put" {
+    // A labeled fan-OUT's single-row rail must sit LABEL_RUN_EXTRA_ROWS
+    // higher than the classic `t_peri - 2` so each member's private final
+    // descent is 3 cells (flank + on-run label row + arrowhead flank).
+    // An unlabeled fan keeps the classic row byte-identically.
+    const a = testing.allocator;
+    var arena = std.heap.ArenaAllocator.init(a);
+    defer arena.deinit();
+
+    const pivot = sketch.NodePlacement{ .id = 0, .rect = .{ .x = 20, .y = 0, .w = 10, .h = 3 }, .shape = .rect, .lines = &.{}, .cluster_id = null };
+    const child = sketch.NodePlacement{ .id = 1, .rect = .{ .x = 40, .y = 8, .w = 10, .h = 3 }, .shape = .rect, .lines = &.{}, .cluster_id = null };
+    const placements = [_]sketch.NodePlacement{ pivot, child };
+    var peers = [_]fan.FanEdge{.{ .edge_id = 1, .peer_idx = 1, .role = .leftmost }};
+
+    const plain = fan.Fan{ .direction = .out, .pivot_idx = 0, .source_layer = 0, .peers = &peers };
+    const labeled = fan.Fan{ .direction = .out, .pivot_idx = 0, .source_layer = 0, .peers = &peers, .labeled = true };
+
+    const p_plain = try fan_polyline.buildPolyline(arena.allocator(), .TD, plain, pivot, child, .leftmost, 0, &placements);
+    const p_lbl = try fan_polyline.buildPolyline(arena.allocator(), .TD, labeled, pivot, child, .leftmost, 0, &placements);
+
+    const classic = child.rect.y - 2;
+    try testing.expectEqual(classic, p_plain[1].y);
+    try testing.expectEqual(classic - @as(i32, @intCast(fan.LABEL_RUN_EXTRA_ROWS)), p_lbl[1].y);
+}
+
+test "labeled fan-OUT rail holds the classic row when the raised rail would touch the source" {
+    // Tight gap (the reservation was shrunk away): the raised rail would
+    // land on/above the pivot's bottom border, so the lever declines and
+    // the geometry stays byte-identical to the unlabeled fan.
+    const a = testing.allocator;
+    var arena = std.heap.ArenaAllocator.init(a);
+    defer arena.deinit();
+
+    const pivot = sketch.NodePlacement{ .id = 0, .rect = .{ .x = 20, .y = 0, .w = 10, .h = 3 }, .shape = .rect, .lines = &.{}, .cluster_id = null };
+    const child = sketch.NodePlacement{ .id = 1, .rect = .{ .x = 40, .y = 5, .w = 10, .h = 3 }, .shape = .rect, .lines = &.{}, .cluster_id = null };
+    const placements = [_]sketch.NodePlacement{ pivot, child };
+    var peers = [_]fan.FanEdge{.{ .edge_id = 1, .peer_idx = 1, .role = .leftmost }};
+    const labeled = fan.Fan{ .direction = .out, .pivot_idx = 0, .source_layer = 0, .peers = &peers, .labeled = true };
+
+    const poly = try fan_polyline.buildPolyline(arena.allocator(), .TD, labeled, pivot, child, .leftmost, 0, &placements);
+    try testing.expectEqual(child.rect.y - 2, poly[1].y); // classic row held
+}

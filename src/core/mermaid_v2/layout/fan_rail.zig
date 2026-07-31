@@ -139,7 +139,24 @@ pub fn build(
     // guarded-by: fan_rail_test.zig "formal base approach: rail lifts one row when the gap admits it, holds at a gap of 2"
     const anchor: i32 = if (fan_in) pivot_p.rect.y else peer_line;
     const obstacle: i32 = if (fan_in) peer_line else pivot_p.rect.bottom() - 1;
-    const off: i32 = if (anchor - 3 - delta > obstacle) 3 else 2;
+    // Labeled fan-OUT bus-bar: lift the rail one MORE row (off=5, on top of
+    // the base-approach off=3) so each tap's private dropper is 3 cells —
+    // flank, on-run label row, arrowhead flank — the shape
+    // raster/labels_onrun.zig places over. Uses the gap rows
+    // fan.extraRowsPerGap reserved for labeled fans; when a tighter rung
+    // shrank the gap below what the lift needs, fall back down the existing
+    // ladder of offsets (the label then takes the ordinary side ladder).
+    // guarded-by: fan_rail_test.zig "labeled fan-OUT bus-bar lifts the rail for a 3-cell dropper when the gap admits it"
+    var labeled = false;
+    for (resolved.peers) |p| {
+        if (p.edge.label) |lbl| {
+            if (lbl.len > 0) labeled = true;
+        }
+    }
+    const label_lift: i32 = @intCast(fan_mod.LABEL_RUN_EXTRA_ROWS);
+    const off: i32 = if (labeled and !fan_in and anchor - 2 - label_lift - delta > obstacle)
+        2 + label_lift
+    else if (anchor - 3 - delta > obstacle) 3 else 2;
     const rail_y: i32 = anchor - off - delta;
 
     const stem = try a.alloc(sketch.Point, 2);

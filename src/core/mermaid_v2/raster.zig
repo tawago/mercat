@@ -66,6 +66,12 @@ pub const RasterReport = struct {
     /// anchor (see `raster/labels_edge.zig`) — cheaper than a drop, still
     /// a shipped legibility defect the score prices.
     labels_displaced: u32,
+    /// Edge/tap labels placed ON their own private fan dropper by the
+    /// top-priority on-run candidate (`raster/labels_onrun.zig`). These are
+    /// PLACED labels (counted in `labels_placed`, excluded from
+    /// `labels_displaced`); reported for diagnostic honesty only — never
+    /// consumed by audit/score.
+    labels_on_run: u32 = 0,
     /// Phantom neighbour-mask arms cleared by the reconcile post-pass
     /// (informational — these are repairs, not shipped defects).
     phantom_arms_cleared: u32,
@@ -175,6 +181,7 @@ pub fn rasterize(
         .edge_cells_lost = edge_report.cells_lost + busbar_report.cells_lost,
         .labels_dropped = label_report.dropped,
         .labels_displaced = label_report.displaced,
+        .labels_on_run = label_report.on_run,
         .phantom_arms_cleared = phantom_arms,
         .arms_repaired = arms_repaired,
         .crossings = edge_report.crossings,

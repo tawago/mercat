@@ -245,3 +245,51 @@ test "formal base approach: rail lifts one row when the gap admits it, holds at 
         for (peers) |pr| try testing.expect(built.busbar.crossbar[0].y > pr.placement.rect.bottom() - 1); // no overlap
     }
 }
+
+test "labeled fan-OUT bus-bar lifts the rail for a 3-cell dropper when the gap admits it" {
+    // A labeled member's tap must get a 3-cell private dropper (flank +
+    // on-run label row + arrowhead flank), i.e. rail at landing - 4, when
+    // the reserved gap admits it; with a tight gap the existing off ladder
+    // is kept and the label falls back to the side ladder.
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+
+    var lbl_edge_a = mkEdge2(0, 0, 1);
+    lbl_edge_a.label = "yes";
+    var lbl_edge_b = mkEdge2(1, 0, 2);
+    lbl_edge_b.label = "no";
+
+    // Gap 6 (labeled reservation applied): rail lifts to landing - 4.
+    {
+        const pivot = mkPlace(0, 20, 0, 10, 3); // bottom()-1 = 2
+        const q = mkPlace(1, 10, 8, 6, 3); // top = 8
+        const r = mkPlace(2, 30, 8, 6, 3);
+        var peers = [_]fan_rail.Peer{
+            .{ .edge = lbl_edge_a, .placement = q },
+            .{ .edge = lbl_edge_b, .placement = r },
+        };
+        const resolved = fan_rail.Resolved{ .pivot = pivot, .direction = .out, .peers = &peers };
+        const built = try fan_rail.build(a, resolved, 0, 0);
+        try testing.expectEqual(@as(i32, 4), built.busbar.crossbar[0].y); // 8 - 4
+        for (built.taps) |tap| {
+            // 3 dropper cells: rows rail+1 .. landing-1.
+            try testing.expectEqual(@as(i32, 3), tap.landing.y - tap.at.y - 1);
+        }
+    }
+
+    // Tight gap (4): the label lift would not clear the pivot; hold at the
+    // existing off=3 base-approach geometry — byte-identical to unlabeled.
+    {
+        const pivot = mkPlace(0, 20, 0, 10, 3);
+        const q = mkPlace(1, 10, 6, 6, 3); // top = 6
+        const r = mkPlace(2, 30, 6, 6, 3);
+        var peers = [_]fan_rail.Peer{
+            .{ .edge = lbl_edge_a, .placement = q },
+            .{ .edge = lbl_edge_b, .placement = r },
+        };
+        const resolved = fan_rail.Resolved{ .pivot = pivot, .direction = .out, .peers = &peers };
+        const built = try fan_rail.build(a, resolved, 0, 0);
+        try testing.expectEqual(@as(i32, 3), built.busbar.crossbar[0].y); // off=3 held
+    }
+}

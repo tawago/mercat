@@ -70,7 +70,9 @@ test "detect distinguishes fan-OUT and fan-IN in the same graph" {
 
     var arena = std.heap.ArenaAllocator.init(a);
     defer arena.deinit();
-    const dummy_graph: sg.SemGraph = undefined;
+    // detect() now reads graph.edges (labeled-fan discovery); give it a
+    // real-but-empty edge list instead of `undefined`.
+    const dummy_graph: sg.SemGraph = .{ .direction = .TD, .nodes = &.{}, .edges = &.{}, .clusters = &.{}, .classes = &.{}, .arena = null };
     const fans = try fan.detect(arena.allocator(), dummy_graph, lg);
 
     try testing.expectEqual(@as(usize, 2), fans.len);
@@ -132,7 +134,9 @@ test "detect excludes a pivot whose next-layer candidates mix real and virtual p
 
     var arena = std.heap.ArenaAllocator.init(a);
     defer arena.deinit();
-    const dummy_graph: sg.SemGraph = undefined;
+    // detect() now reads graph.edges (labeled-fan discovery); give it a
+    // real-but-empty edge list instead of `undefined`.
+    const dummy_graph: sg.SemGraph = .{ .direction = .TD, .nodes = &.{}, .edges = &.{}, .clusters = &.{}, .classes = &.{}, .arena = null };
     const fans = try fan.detect(arena.allocator(), dummy_graph, lg);
 
     for (fans) |f| {
@@ -265,4 +269,82 @@ test "co-sets group a fan's peers by rail lane" {
 test {
     _ = @import("fan_grid_test.zig");
     _ = @import("fan_polyline_test.zig");
+}
+
+test "a labeled fan reserves two extra gap rows; an unlabeled fan reserves one" {
+    // Same layered shape twice; only `labeled` differs. The labeled fan's
+    // gap must reserve LABEL_RUN_EXTRA_ROWS more rows (the on-run label
+    // shape: flank + label row + flank), the unlabeled fan stays at the
+    // classic one-row reservation.
+    const a = testing.allocator;
+    var arena = std.heap.ArenaAllocator.init(a);
+    defer arena.deinit();
+    const aa = arena.allocator();
+
+    var nodes = [_]sugiyama.LayerNode{ .{ .real = 0 }, .{ .real = 1 }, .{ .real = 2 } };
+    var row0 = [_]u32{0};
+    var row1 = [_]u32{ 1, 2 };
+    var layers = [_][]u32{ &row0, &row1 };
+    var edges = [_]sugiyama.LayerEdge{
+        .{ .from = 0, .to = 1, .reversed = false, .edge = 0 },
+        .{ .from = 0, .to = 2, .reversed = false, .edge = 1 },
+    };
+    var reversed = [_]sg.EdgeId{};
+    const lg = sugiyama.LayeredGraph{
+        .nodes = &nodes,
+        .layers = &layers,
+        .edges = &edges,
+        .reversed_edges = &reversed,
+        .real_index = .empty,
+        .arena = null,
+    };
+    var peers = [_]fan.FanEdge{
+        .{ .edge_id = 0, .peer_idx = 1, .role = .leftmost },
+        .{ .edge_id = 1, .peer_idx = 2, .role = .rightmost },
+    };
+
+    const unlabeled = [_]fan.Fan{.{ .direction = .out, .pivot_idx = 0, .source_layer = 0, .peers = &peers }};
+    const rows_u = try fan.extraRowsPerGap(aa, lg, &unlabeled);
+    try testing.expectEqual(@as(u32, 1), rows_u[0]);
+
+    const labeled = [_]fan.Fan{.{ .direction = .out, .pivot_idx = 0, .source_layer = 0, .peers = &peers, .labeled = true }};
+    const rows_l = try fan.extraRowsPerGap(aa, lg, &labeled);
+    try testing.expectEqual(@as(u32, 1 + fan.LABEL_RUN_EXTRA_ROWS), rows_l[0]);
+}
+
+test "detect marks a fan labeled iff a member edge carries a label" {
+    const a = testing.allocator;
+    var arena = std.heap.ArenaAllocator.init(a);
+    defer arena.deinit();
+    const aa = arena.allocator();
+
+    var nodes = [_]sugiyama.LayerNode{ .{ .real = 0 }, .{ .real = 1 }, .{ .real = 2 } };
+    var row0 = [_]u32{0};
+    var row1 = [_]u32{ 1, 2 };
+    var layers = [_][]u32{ &row0, &row1 };
+    var edges = [_]sugiyama.LayerEdge{
+        .{ .from = 0, .to = 1, .reversed = false, .edge = 0 },
+        .{ .from = 0, .to = 2, .reversed = false, .edge = 1 },
+    };
+    var reversed = [_]sg.EdgeId{};
+    const lg = sugiyama.LayeredGraph{
+        .nodes = &nodes,
+        .layers = &layers,
+        .edges = &edges,
+        .reversed_edges = &reversed,
+        .real_index = .empty,
+        .arena = null,
+    };
+
+    var sem_edges = [_]sg.Edge{ mkEdge2(0, 0, 1), mkEdge2(1, 0, 2) };
+    const graph: sg.SemGraph = .{ .direction = .TD, .nodes = &.{}, .edges = &sem_edges, .clusters = &.{}, .classes = &.{}, .arena = null };
+
+    const fans_plain = try fan.detect(aa, graph, lg);
+    try testing.expectEqual(@as(usize, 1), fans_plain.len);
+    try testing.expect(!fans_plain[0].labeled);
+
+    sem_edges[1].label = "yes";
+    const fans_lbl = try fan.detect(aa, graph, lg);
+    try testing.expectEqual(@as(usize, 1), fans_lbl.len);
+    try testing.expect(fans_lbl[0].labeled);
 }

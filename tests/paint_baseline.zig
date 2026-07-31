@@ -126,6 +126,16 @@ test "paint_baseline: every fixture renders through the full v2 pipeline" {
                 if (std.mem.eql(u8, golden, result.output)) {
                     exact = true;
                     tally.exact += 1;
+                } else if (std.posix.getenv("MERCAT_UPDATE_FIXTURES") != null) {
+                    // Env-gated golden rewrite (sibling fixtures only, never
+                    // committed from here): refresh the .txt to the current
+                    // render so the next run compares against it.
+                    const stem = f.name[0 .. f.name.len - 4];
+                    const txt_name = try std.fmt.allocPrint(a, "{s}.txt", .{stem});
+                    if (cat_dir.createFile(txt_name, .{ .truncate = true })) |out| {
+                        defer out.close();
+                        out.writeAll(result.output) catch {};
+                    } else |_| {}
                 }
             }
             std.debug.print(

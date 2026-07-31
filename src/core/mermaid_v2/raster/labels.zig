@@ -14,6 +14,7 @@ const prim = @import("prim");
 const sketch = @import("../sketch.zig");
 const lattice = @import("../lattice.zig");
 const labels_edge = @import("labels_edge.zig");
+const labels_onrun = @import("labels_onrun.zig");
 const lw = @import("labels_write.zig");
 const aux = @import("aux.zig");
 
@@ -52,6 +53,11 @@ pub const Report = struct {
     /// than their primary anchor (see labels_edge.Placement) — a cheaper
     /// shipped defect than `dropped`, priced separately by the score.
     displaced: u32,
+    /// Edge/tap labels placed ON their own private fan dropper (the
+    /// top-priority on-run candidate, labels_onrun.zig). A PLACED label —
+    /// counted in `placed`, never in `displaced` — reported separately for
+    /// diagnostic honesty.
+    on_run: u32,
     /// Arena-allocated. Lifetime matches the allocator passed to
     /// `rasterizeLabels` (callers should pass the same arena that owns
     /// the Sketch and Lattice).
@@ -75,6 +81,7 @@ pub fn rasterizeLabels(
     var placed: u32 = 0;
     var attempted: u32 = 0;
     var displaced: u32 = 0;
+    var on_run: u32 = 0;
 
     for (s.nodes) |np| {
         if (np.lines.len == 0) continue;
@@ -86,6 +93,14 @@ pub fn rasterizeLabels(
         const lbl = ep.label orelse continue;
         if (lbl.len == 0) continue;
         attempted += 1;
+        // Top-priority on-run candidate: the label sits OVER its own private
+        // fan dropper (labels_onrun.zig). Any refusal falls through to the
+        // ordinary ladder below. guarded-by: labels_onrun_test.zig "happy path: the label interrupts its own dropper for one row, flanks keep their bits"
+        if (labels_onrun.tryOnRunEdge(lat, s, ep, lbl, sink)) {
+            placed += 1;
+            on_run += 1;
+            continue;
+        }
         switch (try labels_edge.placeEdgeLabel(allocator, &diags, lat, ep, lbl, sink)) {
             .at_anchor => placed += 1,
             .displaced => {
@@ -103,6 +118,11 @@ pub fn rasterizeLabels(
             const lbl = tap.label orelse continue;
             if (lbl.len == 0) continue;
             attempted += 1;
+            if (labels_onrun.tryOnRunTap(lat, s, tap, lbl, sink)) {
+                placed += 1;
+                on_run += 1;
+                continue;
+            }
             const seg = bb.tapLabelSeg(tap);
             switch (try labels_edge.placeLabelAtSeg(allocator, &diags, lat, tap.edge, lbl, seg[0], seg[1], false, &.{}, sink)) {
                 .at_anchor => placed += 1,
@@ -125,6 +145,7 @@ pub fn rasterizeLabels(
         .placed = placed,
         .dropped = attempted - placed,
         .displaced = displaced,
+        .on_run = on_run,
         .diagnostics = try diags.toOwnedSlice(allocator),
     };
 }

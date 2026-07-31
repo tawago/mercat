@@ -13,7 +13,10 @@
 //!   defaults along with it. The write is unconditional — the CALLER owns
 //!   the decision about whether the cell may be claimed (node writers
 //!   demand their own interior, edge writers demand emptiness plus blank
-//!   flanks), and no policy lives here.
+//!   flanks; the ON-RUN edge writer, labels_onrun.zig, demands emptiness
+//!   for every covered cell EXCEPT exactly one verified own-edge private
+//!   dropper `edge_segment`, which it legally interrupts), and no policy
+//!   lives here.
 //!
 //! OWNERSHIP. Each claimed glyph head also files a `.label_owner` record
 //! naming the node, cluster or edge whose label it is. A `label_char` Cell
