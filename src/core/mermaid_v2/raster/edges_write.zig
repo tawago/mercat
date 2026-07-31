@@ -284,11 +284,11 @@ pub fn writeArrowCell(
 /// thick edges meeting a solid node frame.
 /// An invisible (`~~~`) edge draws no ink, so it must not tee the source
 /// border: return before touching the cell.
-/// `decorated` is TRUE when this end carries an arrowhead. A decorated end
-/// gets NO port bit: the head already declares the attachment, and a tee
-/// behind it (`▼` sitting on `┴`) asserts a continuation past the border
-/// that does not exist. Undecorated ends only — the wall stays pristine.
-/// guarded-by: edges_write_test.zig "a decorated source end leaves the border wall pristine"
+/// `head` is the cell this end's arrowhead was stamped on, or null when the
+/// end carries no head. Suppression is keyed to ADJACENCY, not to decoration
+/// alone (see `mergePortBit`): the bit is dropped only when the head abuts
+/// the border cell, where the tee behind it would be redundant.
+/// guarded-by: edges_write_test.zig "a decorated source end whose head abuts the wall leaves it pristine"
 /// Every stroke actually drawn also files a `.port` record for `edge_id`
 /// on the side table: the border cell keeps the merged arm but not the
 /// identity of the edge that merged it, so the record adds a fact the
@@ -302,11 +302,10 @@ pub fn drawPortStroke(
     pts: []const sketch.Point,
     kind: lattice.EdgeKind,
     edge_id: u32,
-    decorated: bool,
+    head: ?sketch.Point,
     sink: aux.Sink,
 ) void {
     if (kind == .invisible) return;
-    if (decorated) return;
     var first_dir_opt: ?Move = null;
     var fi: usize = 0;
     while (fi + 1 < pts.len) : (fi += 1) {
@@ -316,7 +315,7 @@ pub fn drawPortStroke(
         }
     }
     const fd = first_dir_opt orelse return;
-    mergePortBit(lat, pts[0], fd, kind, edge_id, sink);
+    mergePortBit(lat, pts[0], fd, kind, edge_id, head, sink);
 }
 
 /// Draw the arrival PORT: OR-merge the incoming arm into the TARGET border
@@ -326,39 +325,61 @@ pub fn drawPortStroke(
 /// border glyph becomes the tee facing the arriving stroke (`┴` on a
 /// box-top TD arrival, `┤`/`├` on LR/RL). Same refusals and `.port` record
 /// discipline as `drawPortStroke` — the two are the uniform port-erasure
-/// pair, symmetric on all four faces, and both are UNDECORATED-ONLY:
-/// `decorated` (this end carries an arrowhead) suppresses the merge, so a
-/// `▼` never sits on a `┴`.
+/// pair, symmetric on all four faces, and both drop the bit only for a head
+/// that ABUTS the border (`head`, the arrowhead's cell), so a `▼` never sits
+/// on a `┴` while a detached head still gets its wall attachment.
 /// guarded-by: edges_write_test.zig "drawTargetPortStroke: arrival arms merge on all four faces"
-/// guarded-by: edges_write_test.zig "a decorated arrival leaves the target border wall pristine"
+/// guarded-by: edges_write_test.zig "a decorated arrival whose head abuts the wall leaves it pristine"
+/// guarded-by: edges_write_test.zig "a decorated arrival whose head is DETACHED still tees the wall"
 pub fn drawTargetPortStroke(
     lat: *lattice.Lattice,
     pts: []const sketch.Point,
     kind: lattice.EdgeKind,
     edge_id: u32,
-    decorated: bool,
+    head: ?sketch.Point,
     sink: aux.Sink,
 ) void {
     if (kind == .invisible) return;
-    if (decorated) return;
     var last_dir_opt: ?Move = null;
     var i: usize = 0;
     while (i + 1 < pts.len) : (i += 1) {
         if (segmentDir(pts[i], pts[i + 1])) |d| last_dir_opt = d;
     }
     const ld = last_dir_opt orelse return;
-    mergePortBit(lat, pts[pts.len - 1], reverse(ld), kind, edge_id, sink);
+    mergePortBit(lat, pts[pts.len - 1], reverse(ld), kind, edge_id, head, sink);
+}
+
+/// Orthogonal (4-neighbour) adjacency: exactly one cell of separation on one
+/// axis and none on the other. Diagonal neighbours are NOT adjacent — a head
+/// kitty-corner to the wall does not face it across a seam.
+fn orthoAdjacent(a: sketch.Point, b: sketch.Point) bool {
+    const dx = if (a.x > b.x) a.x - b.x else b.x - a.x;
+    const dy = if (a.y > b.y) a.y - b.y else b.y - a.y;
+    return dx + dy == 1;
 }
 
 /// Shared tail of the two port-stroke writers: OR one directional arm into
 /// a node-border cell (refusing every other occupant), stamp a non-solid
 /// stroke, file the `.port` record for the stroke actually drawn.
+///
+/// THE PORT-TEE RULE. The bit is suppressed iff this end is decorated AND
+/// its head cell is orthogonally adjacent to the port border cell — the
+/// head's tip faces the wall across one seam, so the tee behind it is
+/// redundant ink asserting a continuation past the border that does not
+/// exist (`▼` sitting on `┴`, `▶` on `┤`). DECORATION ALONE IS NOT THE
+/// KEY: when the head is separated from the wall by one or more cells (a
+/// gap arrival, or a run that ends short), the wall shows no tap at all and
+/// the edge visually never attaches to the node — the return leg of a
+/// bidirectional pair appears to circulate from nowhere. In that case the
+/// bit MERGES, exactly as uniform erasure requires.
+/// guarded-by: edges_write_test.zig "a decorated arrival whose head is DETACHED still tees the wall"
 fn mergePortBit(
     lat: *lattice.Lattice,
     p: sketch.Point,
     arm: Move,
     kind: lattice.EdgeKind,
     edge_id: u32,
+    head: ?sketch.Point,
     sink: aux.Sink,
 ) void {
     if (!pointInBounds(p, lat)) return;
@@ -370,17 +391,26 @@ fn mergePortBit(
     // travel toward the node), and skipping it would leave gap arrivals
     // as the one un-erased port class. Probe exactly one cell, and only
     // across an EMPTY endpoint, so the stroke never jumps a real occupant.
-    // The probe survives the undecorated-ends rule on evidence, not on
-    // principle: with decorated ends returning before this point, gap
-    // arrivals still merge tens of times per multi-cycle render (measured
-    // over the fixture corpus and hand-built cycle/back-edge flows), so
-    // the undecorated gap arrival is a real class and deleting the probe
-    // would drop its tee. Decorated gap arrivals — the `├ ◀` arm-into-blank
-    // the judges flagged — never reach here at all.
     // guarded-by: edges_write_test.zig "a gap arrival merges its port bit across the 1-cell reprieve"
     if (lat.at(toCoord(q).x, toCoord(q).y).occupant == .empty) {
         q = step(q, reverse(arm));
         if (!pointInBounds(q, lat)) return;
+    }
+    // The head-adjacency gate, applied to the border cell the probe
+    // RESOLVED (not the polyline endpoint): a gap arrival's head sits two
+    // cells from the wall, so it is not adjacent and the bit merges.
+    //
+    // JUDGED TRADE-OFF (decorated gap arrival, `border, blank, head`).
+    // Merging here re-creates the `├ ◀` shape — a tee, a blank, then the
+    // head — which an earlier judgment flagged as an arm pointing into
+    // nothing. That judgment was made before the wall-attachment defect
+    // was visible; against it, the later evidence is that an unattached
+    // arrival is strictly worse: with no tap on the wall the edge reads as
+    // circulating from nowhere and the reader cannot tell WHICH node the
+    // return leg lands on. Attachment wins. The blank between tee and head
+    // is a legible one-cell approach; a wall with no tap is a missing fact.
+    if (head) |h| {
+        if (orthoAdjacent(h, q)) return;
     }
     const c = toCoord(q);
     const cell = lat.at(c.x, c.y);

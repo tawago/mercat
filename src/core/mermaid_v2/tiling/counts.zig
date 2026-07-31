@@ -191,15 +191,16 @@ pub const Counts = struct {
     /// double wall), not an edge attachment.
     c_border_arm_wall: u32 = 0,
     /// A node ring's extra arm explained by a `.port` record at the cell:
-    /// port erasure merges an attachment stroke into an UNDECORATED end's
-    /// border on any of the four faces, and files a record for every
-    /// stroke drawn. A DECORATED end draws no stroke and so contributes no
-    /// arm at all — it is never counted here and never in the defect
-    /// bucket below, because there is nothing on the wall to explain.
+    /// port erasure merges an attachment stroke into the border on any of
+    /// the four faces and files a record for every stroke drawn. The one
+    /// end that draws NO stroke is a decorated end whose head abuts the
+    /// wall: it contributes no arm at all, so it is never counted here and
+    /// never in the defect bucket below — there is nothing to explain.
     c_border_arm_port: u32 = 0,
     /// A node ring's extra arm with no `.port` record (and no weld): ink
-    /// the border claims and no recorded writer provides. An arrowheaded
-    /// terminal is NOT this — its wall stays pristine by convention.
+    /// the border claims and no recorded writer provides. A terminal whose
+    /// arrowhead abuts the wall is NOT this — its wall stays pristine by
+    /// convention, so it carries no arm to explain.
     d_border_arm_unrecorded: u32 = 0,
     /// A frame's extra arm under the `cross` notation, which welds edges
     /// into the border by design.
@@ -214,12 +215,12 @@ pub const Counts = struct {
     /// for the buckets below.
     n_term_abut: u32 = 0,
     /// The ring cell holds a `.port` record for this position: an edge
-    /// attached a port stroke here (source departure OR target arrival, at
-    /// an UNDECORATED end), so no face verdict is drawn from the pair.
+    /// attached a port stroke here (source departure OR target arrival), so
+    /// no face verdict is drawn from the pair.
     /// Read from the side table, not inferred from the mask — a bit
-    /// pointing back is evidence of SOME writer, not of this one. A
-    /// decorated terminal has no record and correctly falls through to the
-    /// `c_term_node_*_arrow` conventions below.
+    /// pointing back is evidence of SOME writer, not of this one. An
+    /// ABUTTING decorated terminal has no record and correctly falls
+    /// through to the `c_term_node_*_arrow` conventions below.
     c_term_port_recorded: u32 = 0,
     /// The ring carries the arm back but no port record explains it. The
     /// arrowhead-base weld ORs an arm into a border cell for any tip, so

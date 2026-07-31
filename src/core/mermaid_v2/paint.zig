@@ -243,13 +243,14 @@ test "paint: single 3x3 rect node renders box-drawing border" {
     try testing.expectEqualStrings("┌─┐\n│ │\n└─┘\n", got);
 }
 
-test "paint: a decorated arrival shows ▼ over a plain wall; an undecorated one tees" {
+test "paint: an abutting arrowhead shows ▼ over a plain wall; a bare arrival tees" {
     // The rule in one picture, on the masks the two port writers leave.
-    // Col 0: `A --> B` — the arrowhead declares the arrival, so the border
-    // under it stays a bare `─`. Col 1: `A --- B` — nothing else declares
-    // it, so the border tees to `┴`. Col 2 is the SAME node as col 1 seen
-    // on its west face, arrived at undecorated: the rule is per END, so a
-    // mixed node tees on its undecorated face only.
+    // Col 0: `A --> B` — the arrowhead sits directly on the wall and
+    // declares the arrival, so the border under it stays a bare `─`.
+    // Col 1: `A --- B` — nothing else declares it, so the border tees to
+    // `┴`. Col 2 is the SAME node as col 1 seen on its west face, arrived
+    // at without a head: the rule is per END, so a mixed node tees on the
+    // face whose arrival is not spoken for.
     const a = testing.allocator;
     const nb = lattice.Neighbours;
     var cells: [6]lattice.Cell = .{
@@ -257,7 +258,7 @@ test "paint: a decorated arrival shows ▼ over a plain wall; an undecorated one
         .{ .occupant = .{ .arrowhead = .{ .dir = .south, .edge = 0, .arrow = .filled } }, .neighbours = nb{ .n = true } },
         .{ .occupant = .{ .edge_segment = .{ .edge = 1, .kind = .solid } }, .neighbours = nb{ .n = true, .s = true } },
         lattice.Cell.empty,
-        // Row 1: target borders. Decorated: pristine. Undecorated: + arm.
+        // Row 1: target borders. Abutting head: pristine. Bare: + arm.
         .{ .occupant = .{ .node_border = .{ .node = 1, .role = .edge_n } }, .neighbours = nb{ .e = true, .w = true } },
         .{ .occupant = .{ .node_border = .{ .node = 2, .role = .edge_n } }, .neighbours = nb{ .e = true, .w = true, .n = true } },
         .{ .occupant = .{ .node_border = .{ .node = 2, .role = .edge_w } }, .neighbours = nb{ .n = true, .s = true, .w = true } },
@@ -268,11 +269,12 @@ test "paint: a decorated arrival shows ▼ over a plain wall; an undecorated one
     try testing.expectEqualStrings("▼│\n─┴┤\n", got);
 }
 
-test "paint: arrival port arms paint tees on the target border (undecorated ends)" {
+test "paint: arrival port arms paint tees on the target border (unspoken-for ends)" {
     // A TD arrival merges .n into a box-top edge_n cell → ┴; LR arrivals
     // merge .w/.e into the side borders → ┤/├. One row of three border
-    // cells, masks as drawTargetPortStroke leaves them at an UNDECORATED
-    // end (a decorated one draws nothing — see the test above).
+    // cells, masks as drawTargetPortStroke leaves them at an end no
+    // abutting arrowhead speaks for (one that has a head on the wall draws
+    // nothing — see the test above).
     const a = testing.allocator;
     var cells: [3]lattice.Cell = .{
         .{

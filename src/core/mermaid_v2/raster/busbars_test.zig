@@ -325,12 +325,12 @@ test "TSD 14.5: busbar plus separated edges is byte and report invariant under e
     try testing.expectEqual(first.phantom_arms_cleared, second.phantom_arms_cleared);
 }
 
-test "a decorated tap landing leaves the member border pristine; an undecorated tap tees it" {
-    // Port tees only at undecorated ends. Each fan-OUT tap lands on its
-    // member's top border: with `tap.arrow` declared, the head one cell
-    // above already says "attaches here" and the border keeps its bare
-    // {e,w}; with `.none`, nothing else declares the landing, so the tap
-    // merges its `.n` arm and the border tees.
+test "a tap head abutting the landing leaves the member border pristine; an undecorated tap tees it" {
+    // Port tees are keyed to head ADJACENCY. Each fan-OUT tap lands on its
+    // member's top border with one dropper cell above it: that cell holds
+    // the head, abuts the wall, and already says "attaches here", so the
+    // border keeps its bare {e,w}. With `.none` nothing declares the
+    // landing, so the tap merges its `.n` arm and the border tees.
     var arena = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
@@ -363,12 +363,30 @@ test "a decorated tap landing leaves the member border pristine; an undecorated 
             try testing.expectEqual(teed, r.lattice.atConst(x, 7).neighbours.toMask());
         }
     }
+    // Decorated but with NO dropper: the members sit directly under the
+    // rail, so `tap.at` already abuts `landing` and no head is ever
+    // stamped. Decoration alone would have left these walls bare and the
+    // fan would attach to nothing; head-adjacency tees them.
+    {
+        var nodes: [4]sketch.NodePlacement = undefined;
+        var taps: [3]sketch.Tap = undefined;
+        var stem: [2]sketch.Point = undefined;
+        var busbars: [1]sketch.Rail = undefined;
+        const s = fanSketch(&nodes, &taps, &stem, &busbars);
+        for (nodes[1..]) |*n| n.rect.y = 6;
+        for (&taps) |*t| t.landing.y = 6;
+        const r = try rasterizeForTest(a, s);
+        inline for (.{ 2, 12, 22 }) |x| {
+            try testing.expectEqual(teed, r.lattice.atConst(x, 6).neighbours.toMask());
+        }
+    }
 }
 
-test "a decorated pivot arrival leaves the pivot border pristine; undecorated tees" {
+test "a pivot head abutting the border leaves it pristine; a detached one tees" {
     // The fan-IN mirror on the other end of the stem: the pivot's bottom
-    // border at (12,2). `pivot_arrow` decorates it, so the wall stays bare;
-    // without a head the stem merges its `.s` arm and the border tees.
+    // border at (12,2). With the stem starting ON the border the head lands
+    // at (12,3), abutting, so the wall stays bare; without a head the stem
+    // merges its `.s` arm and the border tees.
     var arena = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
@@ -390,5 +408,23 @@ test "a decorated pivot arrival leaves the pivot border pristine; undecorated te
             if (decorated) plain else teed,
             r.lattice.atConst(12, 2).neighbours.toMask(),
         );
+    }
+    // Decorated, but the stem starts one cell SHORT of the pivot border
+    // (the gap convention): the port probe crosses the empty gap to reach
+    // the wall at (12,2) while the head sits back at (12,4) — two cells
+    // away, not adjacent. The wall must tee, or the fan-IN trunk arrives
+    // at a node it never visibly touches.
+    {
+        var nodes: [4]sketch.NodePlacement = undefined;
+        var taps: [3]sketch.Tap = undefined;
+        var stem: [2]sketch.Point = undefined;
+        var busbars: [1]sketch.Rail = undefined;
+        const s = fanSketch(&nodes, &taps, &stem, &busbars);
+        busbars[0].role = .fan_in_dropper;
+        busbars[0].pivot_arrow = .filled;
+        stem[0] = .{ .x = 12, .y = 3 };
+        for (&taps) |*t| t.arrow = .none;
+        const r = try rasterizeForTest(a, s);
+        try testing.expectEqual(teed, r.lattice.atConst(12, 2).neighbours.toMask());
     }
 }
