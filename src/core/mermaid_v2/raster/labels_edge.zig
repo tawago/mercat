@@ -34,9 +34,13 @@ const log = std.log.scoped(.@"mermaid_v2.raster.labels");
 /// LAW 1 ladder pass, in priority order. `own_adjacent` = nearest ink
 /// within OWN_ADJ_RADIUS is the label's own edge; `own_nearest` = own ink
 /// within OWN_NEAR_RADIUS and strictly nearer than any foreign edge's ink;
-/// `any` = no ownership requirement (isolation still enforced).
-const Pass = enum { own_adjacent, own_nearest, any };
-const passes = [3]Pass{ .own_adjacent, .own_nearest, .any };
+/// `any` = no ownership requirement (full isolation still enforced);
+/// `any_solid` = last resort before the drop path — ownership-blind AND
+/// waives only the node/cluster-border half of the isolation margin
+/// (spanIsolated `allow_solid`), so a label abuts a border rather than
+/// vanishing. The foreign-EDGE margin is never waived in any pass.
+const Pass = enum { own_adjacent, own_nearest, any, any_solid };
+const passes = [4]Pass{ .own_adjacent, .own_nearest, .any, .any_solid };
 
 /// P1: how far (Chebyshev) the span may sit from its own edge's ink and
 /// still count as "adjacent" — 2 keeps the vertical-rail convention anchor
@@ -218,7 +222,7 @@ fn passAllows(
     row: i32,
     cell_count: u32,
 ) bool {
-    if (pass == .any) return true;
+    if (pass == .any or pass == .any_solid) return true;
     const d = ink.inkDistances(lat, owner, start_x, row, cell_count, OWN_NEAR_RADIUS);
     const own = d.own orelse return false;
     const limit: u32 = if (pass == .own_adjacent) OWN_ADJ_RADIUS else OWN_NEAR_RADIUS;
@@ -253,10 +257,11 @@ fn tryWrite(
     // 8-neighbourhood is rejected (own-edge ink may abut, so convention
     // anchors beside the label's own run stay legal), and two label runs on
     // the same row keep >= 2 blank cells apart — a continuation column
-    // counts as a label neighbour.
+    // counts as a label neighbour. The final `any_solid` pass tolerates
+    // node/cluster-border abutment only.
     // guarded-by: labels_test.zig "edge-label runs on the same row keep two blank cells apart"
     // guarded-by: labels_eaw_test.zig "blank-flank rule treats a continuation as a label neighbour"
-    if (!ink.spanIsolated(lat, owner, lx, ly, cell_count)) return false;
+    if (!ink.spanIsolated(lat, owner, lx, ly, cell_count, pass == .any_solid)) return false;
 
     // Any non-empty cell is a genuine collision (edges/earlier labels are rasterized first) — reject the candidate. // guarded-by: labels_test.zig "tryWrite rejects a pre-occupied primary-anchor cell as a real collision, not an OOB miss"
     var i: u32 = 0;

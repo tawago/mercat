@@ -174,6 +174,46 @@ test "P2 walks the label toward its own edge's ink when P1 positions are blocked
     try testing.expectEqual(@as(u21, 'x'), cellChar(lat, 9, 2));
 }
 
+// LAW 2 / final pass: when every candidate's margin is violated only by
+// node/cluster ink, the `any_solid` pass places the label abutting the
+// border instead of dropping it; when the violator is a foreign EDGE, no
+// pass ever waives the margin and the label drops.
+test "allow_solid waives only the node/cluster margin, never the foreign-edge margin" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const alloc = arena.allocator();
+
+    const poly = [_]sketch.Point{ .{ .x = 1, .y = 2 }, .{ .x = 9, .y = 2 } };
+    const edges = [_]sketch.EdgePath{makeEdge(42, &poly, "x")};
+    var s = emptySketch(12, 5, .LR);
+    s.edges = &edges;
+
+    // Case 1: node-border ink walls off rows 0 and 4, so both candidate
+    // rows (1 and 3) touch solid ink everywhere. Placed anyway, at the
+    // primary anchor, by the solid-tolerant last pass.
+    var lat = try makeLattice(alloc, 12, 5);
+    var x: u32 = 0;
+    while (x < 12) : (x += 1) {
+        lat.at(x, 0).* = .{ .occupant = .{ .node_border = .{ .node = 1, .role = .edge_s } }, .neighbours = .{} };
+        lat.at(x, 4).* = .{ .occupant = .{ .node_border = .{ .node = 2, .role = .edge_n } }, .neighbours = .{} };
+    }
+    const solid_report = try labels.rasterizeLabels(alloc, &lat, s, null);
+    try testing.expectEqual(@as(u32, 1), solid_report.placed);
+    try testing.expectEqual(@as(u21, 'x'), cellChar(lat, 5, 1));
+
+    // Case 2: the same walls made of a FOREIGN edge's ink — the margin is
+    // never waived, so the label drops.
+    var lat2 = try makeLattice(alloc, 12, 5);
+    x = 0;
+    while (x < 12) : (x += 1) {
+        stampEdgeCell(&lat2, x, 0, 9);
+        stampEdgeCell(&lat2, x, 4, 9);
+    }
+    const edge_report = try labels.rasterizeLabels(alloc, &lat2, s, null);
+    try testing.expectEqual(@as(u32, 0), edge_report.placed);
+    try testing.expectEqual(@as(u32, 1), edge_report.dropped);
+}
+
 test "edge-label placement is deterministic: identical lattices place identically" {
     var arena = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena.deinit();

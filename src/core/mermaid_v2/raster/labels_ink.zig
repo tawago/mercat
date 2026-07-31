@@ -4,12 +4,10 @@
 //! Two laws live here:
 //!
 //!  1. OWNERSHIP — every ink cell is classified relative to the label's own
-//!     edge: `own` (the cell's edge id matches; OR the position lies on the
+//!     edge: `own` (the cell's edge id matches, OR the position lies on the
 //!     label's own routed geometry — its polyline / anchor segment — which
-//!     covers shared fan trunks and crossing cells whose single Cell id
-//!     names another rider; OR a pre-attached side-table record — carrier /
-//!     rail_member / tap — names the edge there; a SUPPRESSED carrier
-//!     counts as the edge's ink for ownership, never as a blocker),
+//!     covers shared fan trunks, suppressed/merged carrier cells, and
+//!     crossing cells whose single Cell id names another rider),
 //!     `foreign_edge` (another edge's run or arrowhead), `foreign_solid`
 //!     (node or cluster ink). Labels are not ink — their spacing is the
 //!     run-separation rule below.
@@ -18,14 +16,17 @@
 //!     8-neighbourhood) of non-ink cells against ALL foreign ink; only the
 //!     label's own edge may touch the span. Two label runs on the same row
 //!     additionally need >= 2 blank cells between them (a single space
-//!     reads as one merged run).
+//!     reads as one merged run). The final ladder pass relaxes ONLY the
+//!     `foreign_solid` half (`allow_solid`): abutting a node or cluster
+//!     border is a cheaper shipped defect than dropping the label, while
+//!     the foreign-EDGE margin (mis-attribution risk) is never waived.
 //!
-//! The LIVE aux collector is deliberately never consulted: rasterizing with
-//! `collect_aux` on must change no painted cell (pinned by
-//! tiling_records_test.zig "collecting the side table changes no painted
-//! cell"), so placement may only depend on state both modes share — cell
-//! ids, the Sketch geometry, and a lattice whose `aux` table was attached
-//! BEFORE placement (synthetic fixtures only; production attaches it last).
+//! The lattice side table (`lat.aux`) is deliberately never consulted:
+//! production attaches it AFTER label placement (raster.zig attaches last),
+//! and rasterizing with `collect_aux` on must change no painted cell
+//! (pinned by tiling_records_test.zig "collecting the side table changes
+//! no painted cell") — so placement depends only on state both modes
+//! share: cell ids and the Sketch geometry.
 //!
 //! Import boundary: std, sketch, lattice, raster siblings only (raster
 //! zone; enforced by tools/lint_imports.zig).
@@ -72,20 +73,6 @@ fn onSegment(a: sketch.Point, b: sketch.Point, x: i32, y: i32) bool {
         y >= @min(a.y, b.y) and y <= @max(a.y, b.y);
 }
 
-fn recordsNameEdge(records: []const lattice.Aux, cell: u32, edge_id: u32) bool {
-    for (records) |r| {
-        if (r.cell != cell or r.value != edge_id) continue;
-        switch (r.kind) {
-            // Merged AND suppressed carriers both attribute the position to
-            // the edge; rail_member/tap attribute shared fan-run ink to the
-            // riding member. Ports are excluded: a port cell IS node border.
-            .carrier, .rail_member, .tap => return true,
-            else => {},
-        }
-    }
-    return false;
-}
-
 /// Classify the ink at (x, y) relative to `owner`. Out-of-bounds positions,
 /// empty cells and label cells are `.none`.
 pub fn classifyAt(lat: *const lattice.Lattice, owner: Owner, x: i32, y: i32) InkClass {
@@ -95,16 +82,15 @@ pub fn classifyAt(lat: *const lattice.Lattice, owner: Owner, x: i32, y: i32) Ink
     if (ux >= lat.width or uy >= lat.height) return .none;
     return switch (lat.atConst(ux, uy).occupant) {
         .empty, .label_char, .label_cont => .none,
-        .edge_segment => |seg| edgeInk(lat, owner, seg.edge, x, y),
-        .arrowhead => |ah| edgeInk(lat, owner, ah.edge, x, y),
+        .edge_segment => |seg| edgeInk(owner, seg.edge, x, y),
+        .arrowhead => |ah| edgeInk(owner, ah.edge, x, y),
         .node_border, .node_interior, .cluster_border => .foreign_solid,
     };
 }
 
-fn edgeInk(lat: *const lattice.Lattice, owner: Owner, cell_edge: u32, x: i32, y: i32) InkClass {
+fn edgeInk(owner: Owner, cell_edge: u32, x: i32, y: i32) InkClass {
     if (cell_edge == owner.edge_id) return .own;
     if (owner.onOwnPath(x, y)) return .own;
-    if (recordsNameEdge(lat.aux, lat.cellIndex(@intCast(x), @intCast(y)), owner.edge_id)) return .own;
     return .foreign_edge;
 }
 
@@ -123,14 +109,19 @@ fn isLabelCell(lat: *const lattice.Lattice, x: i32, y: i32) bool {
 /// (`start_x`, `row`) keeps a full 8-neighbourhood margin of non-ink cells
 /// against every FOREIGN ink cell (own-edge ink may touch the span), and
 /// keeps >= 2 blank cells of same-row separation from any other label run.
+/// `allow_solid` (last-resort ladder pass only) waives the margin against
+/// node/cluster ink — abutting a border beats dropping the label — but the
+/// foreign-EDGE margin and the run separation always hold.
 /// guarded-by: labels_ladder_test.zig "isolation rejects a foreign-ink neighbour in every one of the 8 directions"
 /// guarded-by: labels_ladder_test.zig "own-edge ink beside the anchor does not displace the label"
+/// guarded-by: labels_ladder_test.zig "allow_solid waives only the node/cluster margin, never the foreign-edge margin"
 pub fn spanIsolated(
     lat: *const lattice.Lattice,
     owner: Owner,
     start_x: i32,
     row: i32,
     cell_count: u32,
+    allow_solid: bool,
 ) bool {
     const cc: i32 = @intCast(cell_count);
     var y: i32 = row - 1;
@@ -139,7 +130,8 @@ pub fn spanIsolated(
         while (x <= start_x + cc) : (x += 1) {
             if (y == row and x >= start_x and x < start_x + cc) continue; // span cells themselves
             switch (classifyAt(lat, owner, x, y)) {
-                .foreign_edge, .foreign_solid => return false,
+                .foreign_edge => return false,
+                .foreign_solid => if (!allow_solid) return false,
                 .none, .own => {},
             }
         }

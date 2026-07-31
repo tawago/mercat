@@ -22,7 +22,7 @@ fn stampEdge(lat: *lattice.Lattice, x: u32, y: u32, edge_id: u32) void {
 }
 
 /// Owner with a degenerate far-away segment and no polyline: ownership
-/// then rests purely on cell ids (+ any pre-attached aux records).
+/// then rests purely on cell ids.
 fn idOwner(edge_id: u32) ink.Owner {
     const far: sketch.Point = .{ .x = -100, .y = -100 };
     return .{ .edge_id = edge_id, .polyline = &.{}, .seg_a = far, .seg_b = far };
@@ -48,10 +48,10 @@ test "classifyAt: cell edge ids resolve own vs foreign; solids and labels classi
     try testing.expectEqual(ink.InkClass.none, ink.classifyAt(&lat, idOwner(42), -1, 2)); // OOB
 }
 
-// A suppressed carrier names an edge whose ink the Cell cannot express: for
-// ownership it counts as that edge's ink (never as a blocker), so a label
-// may sit beside a crossing its own edge rode through.
-test "classifyAt: a suppressed-carrier record turns a foreign cell into own ink" {
+// The side table never participates: production attaches `lat.aux` after
+// label placement (raster.zig attaches last), so a record must NOT change
+// classification even when a test pre-attaches one.
+test "classifyAt: an aux record never confers ink ownership (placement is aux-blind)" {
     var arena = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
     var lat = try makeLattice(arena.allocator(), 8, 4);
@@ -60,29 +60,8 @@ test "classifyAt: a suppressed-carrier record turns a foreign cell into own ink"
     const records = [_]lattice.Aux{
         .{ .cell = lat.cellIndex(4, 2), .value = 42, .kind = .carrier, .detail = @intFromEnum(lattice.CarrierKind.suppressed) },
     };
-
-    try testing.expectEqual(ink.InkClass.foreign_edge, ink.classifyAt(&lat, idOwner(42), 4, 2));
     lat.aux = &records;
-    try testing.expectEqual(ink.InkClass.own, ink.classifyAt(&lat, idOwner(42), 4, 2));
-    // A label_owner record must NOT confer ink ownership.
-    const wrong_kind = [_]lattice.Aux{
-        .{ .cell = lat.cellIndex(4, 2), .value = 42, .kind = .label_owner, .detail = @intFromEnum(lattice.LabelOwnerKind.edge) },
-    };
-    lat.aux = &wrong_kind;
     try testing.expectEqual(ink.InkClass.foreign_edge, ink.classifyAt(&lat, idOwner(42), 4, 2));
-}
-
-test "classifyAt: a rail_member record attributes shared fan-run ink to the riding member" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    var lat = try makeLattice(arena.allocator(), 8, 4);
-
-    stampEdge(&lat, 4, 2, 7); // trunk cell owned by another member
-    const records = [_]lattice.Aux{
-        .{ .cell = lat.cellIndex(4, 2), .value = 42, .kind = .rail_member, .detail = @intFromEnum(lattice.RailPolarity.out) },
-    };
-    lat.aux = &records;
-    try testing.expectEqual(ink.InkClass.own, ink.classifyAt(&lat, idOwner(42), 4, 2));
 }
 
 test "spanIsolated: foreign ink inside the margin rejects, own ink is exempt" {
@@ -94,14 +73,14 @@ test "spanIsolated: foreign ink inside the margin rejects, own ink is exempt" {
     stampEdge(&lat, 3, 3, 42);
     stampEdge(&lat, 4, 3, 42);
     stampEdge(&lat, 5, 3, 42);
-    try testing.expect(ink.spanIsolated(&lat, idOwner(42), 3, 2, 3));
+    try testing.expect(ink.spanIsolated(&lat, idOwner(42), 3, 2, 3, false));
 
     // Foreign ink diagonally off the span's corner: rejected.
     stampEdge(&lat, 6, 1, 7);
-    try testing.expect(!ink.spanIsolated(&lat, idOwner(42), 3, 2, 3));
+    try testing.expect(!ink.spanIsolated(&lat, idOwner(42), 3, 2, 3, false));
     // And for edge 7 the same span still fails — the run below is foreign
     // to IT even though its own ink sits on the corner.
-    try testing.expect(!ink.spanIsolated(&lat, idOwner(7), 3, 2, 3));
+    try testing.expect(!ink.spanIsolated(&lat, idOwner(7), 3, 2, 3, false));
 }
 
 test "spanIsolated: same-row label runs need two blank cells, other rows are free" {
@@ -111,11 +90,11 @@ test "spanIsolated: same-row label runs need two blank cells, other rows are fre
 
     lat.at(2, 2).* = .{ .occupant = .{ .label_char = 'Q' }, .neighbours = .{} };
     // Span starting 1 or 2 cells after the run: rejected; 3 cells: allowed.
-    try testing.expect(!ink.spanIsolated(&lat, idOwner(42), 3, 2, 2));
-    try testing.expect(!ink.spanIsolated(&lat, idOwner(42), 4, 2, 2));
-    try testing.expect(ink.spanIsolated(&lat, idOwner(42), 5, 2, 2));
+    try testing.expect(!ink.spanIsolated(&lat, idOwner(42), 3, 2, 2, false));
+    try testing.expect(!ink.spanIsolated(&lat, idOwner(42), 4, 2, 2, false));
+    try testing.expect(ink.spanIsolated(&lat, idOwner(42), 5, 2, 2, false));
     // A label on the row ABOVE is not ink and not a same-row run.
-    try testing.expect(ink.spanIsolated(&lat, idOwner(42), 2, 3, 2));
+    try testing.expect(ink.spanIsolated(&lat, idOwner(42), 2, 3, 2, false));
 }
 
 test "inkDistances: nearest own and nearest foreign edge measured in Chebyshev rings" {
