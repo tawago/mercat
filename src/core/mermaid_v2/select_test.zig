@@ -434,6 +434,13 @@ test "the forced-rung debug path carries plan co-sets, not layout's fan rails" {
     // apply the plan themselves. Without that, a flat graph's sketch would
     // keep layout's `.fan_rail` sets and the debug render's crossing
     // semantics would diverge from the production one.
+    //
+    // SCOPE — this pins the CONTRACT (runForced's sketch + applyPlan = plan
+    // co-sets), not entry.zig's WIRING: it reproduces the two calls rather
+    // than going through the real path, whose only trigger is the env read in
+    // `EnvOptions.read`. Deleting entry.zig's applyPlan calls leaves this
+    // test green; only a render through a set MERCAT_FORCE_RUNG /
+    // MERCAT_SCORE_OFF would catch that.
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();

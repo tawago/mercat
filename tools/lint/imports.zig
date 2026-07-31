@@ -236,13 +236,18 @@ pub const file_allowlists = [_]struct {
     },
     .{
         .name = "recurse.zig",
-        .allowed = &.{ .sem_graph, .sketch, .layout_zone, .cluster_zone, .{ .exact = "recurse_test.zig" } },
-        .reason = "recurse may only import std, prim, sem_graph, sketch, layout, cluster, or recurse_test",
+        .allowed = &.{ .sem_graph, .sketch, .layout_zone, .cluster_zone, .{ .exact = "recurse_test.zig" }, .{ .exact = "recurse_test2.zig" } },
+        .reason = "recurse may only import std, prim, sem_graph, sketch, layout, cluster, or its recurse_test siblings",
     },
     .{
         .name = "recurse_test.zig",
         .allowed = &.{ .recurse, .sem_graph, .sketch, .layout_zone, .cluster_zone },
         .reason = "recurse_test may only import std, prim, recurse, sem_graph, sketch, layout, or cluster",
+    },
+    .{
+        .name = "recurse_test2.zig",
+        .allowed = &.{ .recurse, .sem_graph, .sketch, .layout_zone, .cluster_zone, .{ .exact = "recurse_test.zig" } },
+        .reason = "recurse_test2 may only import std, prim, recurse, sem_graph, sketch, layout, cluster, or recurse_test",
     },
     .{
         .name = "score.zig",
@@ -282,6 +287,11 @@ pub const file_allowlists = [_]struct {
         .name = "select_test.zig",
         .allowed = &.{ .budget, .parse_zone, .{ .exact = "select.zig" }, .{ .exact = "ledger/permits.zig" }, .{ .exact = "ledger/reach_vector.zig" } },
         .reason = "select_test may only import std, prim, base/ledger, budget, parse, select, ledger/permits, or ledger/reach_vector",
+    },
+    .{
+        .name = "select_test2.zig",
+        .allowed = &.{ .budget, .parse_zone, .{ .exact = "select.zig" }, .{ .exact = "ledger/permits.zig" } },
+        .reason = "select_test2 may only import std, prim, base/ledger, budget, parse, select, or ledger/permits",
     },
     .{
         .name = "audit.zig",

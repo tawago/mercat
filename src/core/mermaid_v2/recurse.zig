@@ -394,4 +394,5 @@ test "fitting child keeps declared direction (overall never widened by a needles
 
 test {
     _ = @import("recurse_test.zig");
+    _ = @import("recurse_test2.zig");
 }

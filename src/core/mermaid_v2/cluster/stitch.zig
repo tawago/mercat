@@ -15,6 +15,7 @@ const ledger = @import("../base/ledger.zig");
 const split_mod = @import("split.zig");
 const bridges = @import("bridges.zig");
 const entry_inset = @import("entry_inset.zig");
+const bridge_cosets = @import("bridge_cosets.zig");
 
 pub const SplitResult = split_mod.SplitResult;
 /// Re-exported so `recurse.stitchOuter` (which calls `entryInsetFor`) and the
@@ -258,9 +259,13 @@ pub fn stitch(
         try edges.append(arena, try translateEdge(arena, oe, global_of[0], 0, 0, outer_base));
     }
     // The outer level's own sets. A member whose edge was dropped above (it
-    // touched a super-node and re-routes as a bridge) is left in place: a set
-    // names who MAY share, and naming an absent edge authorizes nothing.
-    for (outer.co_sets) |os| try co_sets.append(arena, try shiftSet(arena, os, outer_base));
+    // touched a super-node) names the BRIDGE that replaced it, so a fan into
+    // sibling subgraphs keeps its co-membership; anything else just shifts
+    // into the outer window (`bridge_cosets.remapOuterSet`). Bridges take the
+    // final id window, whose base `id_base` already is.
+    for (outer.co_sets) |os| {
+        try co_sets.append(arena, try bridge_cosets.remapOuterSet(arena, split_result, outer, os, outer_base, id_base));
+    }
 
     // --- Outer bus-bars. Same rule per member edge: a tap onto a
     //     super-node is placement-only (its edge re-routes as a bridge);

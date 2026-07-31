@@ -461,6 +461,7 @@ test {
     _ = @import("cluster/split.zig");
     _ = @import("cluster/stitch.zig");
     _ = @import("cluster/bridges.zig");
+    _ = @import("cluster/bridge_cosets.zig");
     _ = @import("base/ledger.zig");
     _ = @import("base/ledger_test.zig");
     _ = @import("base/diagnostics.zig");
@@ -480,6 +481,7 @@ test {
     _ = @import("layout/join_commit_test.zig");
     _ = @import("layout/route_clearance_test.zig");
     _ = @import("select_test.zig");
+    _ = @import("select_test2.zig");
     _ = @import("ledger/reach_vector.zig");
     _ = @import("ledger/reach_vector_test.zig");
     _ = @import("ledger/reach_vector_test2.zig");

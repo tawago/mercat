@@ -129,9 +129,10 @@ fn attachJoinPlans(
 ///
 /// Both land here, at the single point where the plan becomes the candidate's
 /// own. Deriving co-sets at layout time instead would be writing them where
-/// this call overwrites them — layout's fan-derived sets are for the clustered
-/// path, which never reaches here. A derivation failure degrades to no sets,
-/// matching how a planning failure degrades to the empty plan.
+/// this call overwrites them — except where no plan realized, which is where
+/// layout's fan-derived sets are the candidate's only record (see below). A
+/// derivation failure degrades to no sets, matching how a planning failure
+/// degrades to the empty plan.
 ///
 /// Shared with entry.zig's forced-rung / score-off paths, which bypass
 /// selection: a debug render must carry the same production join plan, or its
@@ -141,8 +142,16 @@ pub fn applyPlan(
     join_permits: *const ledger.JoinPermits,
     target: *sketch_mod.Sketch,
 ) void {
-    target.joins = planJoins(aa, join_permits, target.*);
-    target.co_sets = ledger.coSetsFromPlan(aa, target.joins) catch &.{};
+    const planned = planJoins(aa, join_permits, target.*);
+    target.joins = planned.plan;
+    // INVARIANT: plan-derived co-sets REPLACE layout's fan-derived sets only
+    // when a plan actually realized. A candidate the planner never planned —
+    // a motif-packed one, whose synthetic frames put it off the identity path
+    // (realized.zig's `skipped_clustered`), or a planning failure — has said
+    // nothing about who may share ink, so it keeps the sets layout gave it
+    // rather than being emptied into "nobody may share".
+    // guarded-by: select_test2.zig "a packed candidate keeps its fan co-sets when no plan realized"
+    if (planned.realized) target.co_sets = ledger.coSetsFromPlan(aa, planned.plan) catch &.{};
 }
 
 /// P2v Step 6: one pre-raster vector reachability report per candidate
@@ -183,17 +192,27 @@ fn planJoins(
     aa: std.mem.Allocator,
     join_permits: *const ledger.JoinPermits,
     candidate_sketch: sketch_mod.Sketch,
-) ledger.RealizedJoins {
+) PlanOutcome {
     const result = realized_mod.realize(aa, join_permits.*, candidate_sketch, &.{}) catch return .{};
+    const out: PlanOutcome = .{ .plan = result.plan, .realized = !result.report.skipped_clustered };
     if (std.debug.runtime_safety) {
         const report = invariants.validate(aa, join_permits.*, result.plan, result.report.proposals) catch
-            return result.plan;
+            return out;
         if (!report.valid()) {
             std.log.debug("mermaid_v2/select: realized-join plan failed §6.7 validation ({d} findings)", .{report.findings.len});
         }
     }
-    return result.plan;
+    return out;
 }
+
+/// A candidate's plan plus whether the planner actually planned it: false for
+/// a candidate it declined (off the identity path) or a planning failure —
+/// both of which leave the empty envelope, which is NOT the same statement as
+/// a realized plan that selected no join.
+const PlanOutcome = struct {
+    plan: ledger.RealizedJoins = .{},
+    realized: bool = false,
+};
 
 /// The full live candidate set: raw ladder rungs merged with the motif-packed
 /// candidates, plus the ladder incumbent. Exposed so budget_test.zig scores

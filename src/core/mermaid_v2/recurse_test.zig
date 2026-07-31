@@ -379,7 +379,7 @@ fn twoSiblingFanGraph(
 /// Every edge id the merged Sketch names geometrically (`EdgePath.id` plus
 /// each rail `Tap.edge`), asserted pairwise distinct, and returned so a
 /// caller can resolve co-set members against it.
-fn assertUniqueEdgeIds(a: std.mem.Allocator, s: sketch.Sketch) !std.AutoHashMap(sketch.EdgeId, sketch.NodeId) {
+pub fn assertUniqueEdgeIds(a: std.mem.Allocator, s: sketch.Sketch) !std.AutoHashMap(sketch.EdgeId, sketch.NodeId) {
     // id -> the node the geometry leaves from (edge source / rail pivot).
     var owners = std.AutoHashMap(sketch.EdgeId, sketch.NodeId).init(a);
     for (s.edges) |e| {
@@ -395,11 +395,14 @@ fn assertUniqueEdgeIds(a: std.mem.Allocator, s: sketch.Sketch) !std.AutoHashMap(
     return owners;
 }
 
-fn clusterOf(s: sketch.Sketch, node: sketch.NodeId) ??sem_graph.ClusterId {
+/// The cluster owning `node` in a merged Sketch. A node the Sketch does not
+/// place is a FAILURE, never a skip: silently treating "no such node" as
+/// "top-level" would let a comparison pass by finding nothing to compare.
+pub fn clusterOf(s: sketch.Sketch, node: sketch.NodeId) !?sem_graph.ClusterId {
     for (s.nodes) |p| {
         if (p.id == node) return p.cluster_id;
     }
-    return null;
+    return error.NodeNotPlaced;
 }
 
 // The merged Sketch has ONE edge-id space: sibling children each renumber
@@ -429,10 +432,13 @@ test "stitched sibling clusters share one edge-id space" {
     // still carry geometry must live in the SAME cluster. A member read in
     // the wrong child's id space lands in the other cluster (or nowhere).
     for (s.co_sets) |set| {
+        // Outer `null` = "no member compared yet"; the inner optional is the
+        // owner's cluster (null = top-level). A member carrying no geometry
+        // is skipped, but a member whose owner is unplaced now fails.
         var seen: ??sem_graph.ClusterId = null;
         for (set.members) |m| {
             const owner = owners.get(m) orelse continue;
-            const cid = clusterOf(s, owner);
+            const cid = try clusterOf(s, owner);
             if (seen) |want| try std.testing.expectEqual(want, cid) else seen = cid;
         }
     }

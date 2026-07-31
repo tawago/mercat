@@ -13,6 +13,15 @@ const ladder = @import("budget.zig");
 const realized_mod = @import("ledger/realized.zig");
 const reach_vector = @import("ledger/reach_vector.zig");
 
+/// True iff these co-sets speak for a realized plan (rather than layout's
+/// fans), so re-deriving them from a plan replaces like with like.
+fn planDerived(sets: []const ledger.CoSet) bool {
+    for (sets) |s| {
+        if (s.origin != .fan_rail) return true;
+    }
+    return false;
+}
+
 /// The CI-filter partition. `survivors` (+ aligned `reports`) are the
 /// CI-clean candidates the scorer sees; `excluded` holds the re-disposed
 /// clause-(g)-pre copies of the CI candidates in candidate order — a LIVE
@@ -66,8 +75,12 @@ pub fn ciFilter(
             // re-disposed copy rides `excluded` into Step 10's telemetry.
             cand.sketch.joins = realized_mod.disposeUnsafe(aa, cand.sketch.joins) catch cand.sketch.joins;
             // The co-sets travel with the plan they were derived from, so a
-            // withdrawn trunk stops authorizing its members' shared ink.
-            cand.sketch.co_sets = ledger.coSetsFromPlan(aa, cand.sketch.joins) catch cand.sketch.co_sets;
+            // withdrawn trunk stops authorizing its members' shared ink. Only
+            // plan-derived sets travel: a candidate the planner declined keeps
+            // layout's fan sets (same invariant as `select.applyPlan`) —
+            // there is no plan of its own to withdraw.
+            if (planDerived(cand.sketch.co_sets))
+                cand.sketch.co_sets = ledger.coSetsFromPlan(aa, cand.sketch.joins) catch cand.sketch.co_sets;
             excluded.append(aa, cand.*) catch return clean;
         }
     }
@@ -106,13 +119,16 @@ pub fn terminalCandidate(
     if (join_permits_flat) {
         if (realized_mod.realize(aa, join_permits.*, result.sketch, &.{})) |r| {
             result.sketch.joins = r.plan;
+            // Co-sets speak for the plan the sketch ends up holding, so
+            // layout's fan-derived sets do not survive a REALIZED plan. A
+            // failed realize leaves the empty envelope, which states nothing
+            // about sharing — same invariant as `select.applyPlan`, so the
+            // sketch keeps whatever layout gave it.
+            if (!r.report.skipped_clustered)
+                result.sketch.co_sets = ledger.coSetsFromPlan(aa, r.plan) catch &.{};
         } else |err| {
             std.log.warn("mermaid_v2/select: terminal fallback realize failed ({s}); emitting the empty envelope", .{@errorName(err)});
         }
-        // Co-sets speak for whatever plan the sketch ends up holding — both
-        // branches, so layout's fan-derived sets never survive onto a flat
-        // candidate.
-        result.sketch.co_sets = ledger.coSetsFromPlan(aa, result.sketch.joins) catch &.{};
     }
     std.log.debug("mermaid_v2/select: {s} engaged (terminal all-independent fallback)", .{ledger.tagName(.disp_terminal_fallback_engaged)});
     return result;
