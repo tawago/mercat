@@ -132,7 +132,11 @@ fn attachJoinPlans(
 /// this call overwrites them — layout's fan-derived sets are for the clustered
 /// path, which never reaches here. A derivation failure degrades to no sets,
 /// matching how a planning failure degrades to the empty plan.
-fn applyPlan(
+///
+/// Shared with entry.zig's forced-rung / score-off paths, which bypass
+/// selection: a debug render must carry the same production join plan, or its
+/// crossing semantics diverge from the render it is meant to explain.
+pub fn applyPlan(
     aa: std.mem.Allocator,
     join_permits: *const ledger.JoinPermits,
     target: *sketch_mod.Sketch,

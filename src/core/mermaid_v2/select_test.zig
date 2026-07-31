@@ -429,6 +429,27 @@ test "co-sets applied with the plan carry the plan's own membership" {
     try std.testing.expect(saw_mesh);
 }
 
+test "the forced-rung debug path carries plan co-sets, not layout's fan rails" {
+    // entry.zig's forced-rung / score-off paths bypass select.choose, so they
+    // apply the plan themselves. Without that, a flat graph's sketch would
+    // keep layout's `.fan_rail` sets and the debug render's crossing
+    // semantics would diverge from the production one.
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+
+    const g = try parse(a, "flowchart TD\n  A --> B\n  A --> C\n  A --> D\n");
+    const permits = (try permits_mod.build(a, g, .joined)).plan;
+    var forced = try ladder.runForced(a, g, &permits, true, 120, .natural);
+    select.applyPlan(a, &permits, &forced.sketch);
+
+    try std.testing.expect(forced.sketch.joins.selected_joins.len > 0);
+    try std.testing.expect(forced.sketch.co_sets.len > 0);
+    for (forced.sketch.co_sets) |set| {
+        try std.testing.expect(set.origin != .fan_rail);
+    }
+}
+
 test "a clustered render's co-sets come from its fans, not from an empty plan" {
     // The clustered path never applies a realized plan (V-D-IR-07), so the
     // co-sets are the only record of which edges legally share ink there —

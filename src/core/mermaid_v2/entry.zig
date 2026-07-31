@@ -220,19 +220,26 @@ pub fn renderFlowchart(
     // frame. The env knobs steering this block (force_rung / score_off /
     // shadow_telemetry) are documented on EnvOptions above.
     const ladder_result: ladder_pkg.LadderResult = blk: {
+        // Both debug paths below skip selection, so they must apply the
+        // realized join plan themselves (select.applyPlan, flat-gated as in
+        // select.choose) — a debug render carries production join semantics.
         if (env.force_rung) |rung| {
-            break :blk ladder_pkg.runForced(aa, graph, &join_permits, join_permits_flat, options.max_width, rung) catch |err| {
+            var forced = ladder_pkg.runForced(aa, graph, &join_permits, join_permits_flat, options.max_width, rung) catch |err| {
                 std.log.warn("mermaid_v2/entry: forced-rung layout failed: {s}", .{@errorName(err)});
                 return fallback(source, "v2 ladder error");
             };
+            if (join_permits_flat) select_mod.applyPlan(aa, &join_permits, &forced.sketch);
+            break :blk forced;
         }
         if (env.score_off and !env.shadow_telemetry) {
             // Escape hatch without telemetry: the exact original path
             // (short-circuiting ladder, no enumeration).
-            break :blk ladder_pkg.run(aa, graph, &join_permits, join_permits_flat, options.max_width) catch |err| {
+            var incumbent = ladder_pkg.run(aa, graph, &join_permits, join_permits_flat, options.max_width) catch |err| {
                 std.log.warn("mermaid_v2/entry: ladder failed: {s}", .{@errorName(err)});
                 return fallback(source, "v2 ladder error");
             };
+            if (join_permits_flat) select_mod.applyPlan(aa, &join_permits, &incumbent.sketch);
+            break :blk incumbent;
         }
         // LIVE selection (select.zig): raw ladder candidates + motif-
         // packed candidates, scored; argmin wins with the truncate gate
