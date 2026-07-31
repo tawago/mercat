@@ -270,12 +270,12 @@ pub const Sketch = struct {
     /// Filled at two different points on purpose. `layout/routing.zig` fills
     /// it from the live fans — the only population a clustered or recursed
     /// render gets, since those carry an empty `joins`; `cluster/stitch.zig`
-    /// carries a child's sets into the merged Sketch beside the child's
-    /// edges. On a flat graph `select.zig` REPLACES it with the sets derived
-    /// from the realized plan, wherever it applies that plan.
+    /// rewrites a child's sets into the merged Sketch's id space beside the
+    /// child's edges. On a flat graph `select.zig` REPLACES it with the sets
+    /// derived from the realized plan, wherever it applies that plan.
     ///
-    /// Member ids are read in the same id space as `edges[].id`, so a
-    /// merged Sketch inherits whatever ambiguity that space already has.
+    /// Member ids are read in the same id space as `edges[].id`, which is
+    /// unique across the whole Sketch — including a stitched one.
     co_sets: []const ledger.CoSet = &.{},
     diagnostics: []const Diagnostic,
     budget: WidthBudget,

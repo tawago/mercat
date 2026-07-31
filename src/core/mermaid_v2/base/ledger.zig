@@ -199,11 +199,11 @@ pub const CoOrigin = enum {
 /// A CO-CHANNEL set: edges that legally share ink because ONE structural
 /// decision put them on the same channel.
 ///
-/// Membership is an EXPLICIT edge-id list, never a numeric channel id. Sets
-/// built inside different recursion children are carried verbatim into one
-/// merged Sketch, so an id-based scheme would need renumbering at every
-/// stitch level and would fuse two children the moment both numbered a
-/// channel alike.
+/// Membership is an EXPLICIT edge-id list, never a numeric channel id. Ids
+/// are read in the id space of the Sketch that holds the set: a set built
+/// inside a recursion child is rewritten by `cluster/stitch.zig` into the
+/// merged Sketch's single, globally unique edge-id space, because carrying it
+/// verbatim would fuse two children the moment both numbered a channel alike.
 pub const CoSet = struct {
     origin: CoOrigin,
     members: []const EdgeId,

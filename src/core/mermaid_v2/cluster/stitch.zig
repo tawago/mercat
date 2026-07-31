@@ -108,13 +108,20 @@ pub fn stitch(
     var clusters: std.ArrayListUnmanaged(sketch.ClusterFrame) = .empty;
     var edges: std.ArrayListUnmanaged(sketch.EdgePath) = .empty;
     var busbars: std.ArrayListUnmanaged(sketch.Rail) = .empty;
-    // Co-channel sets ride along with the edges they name. They hold edge
-    // ids, and `translateEdge` leaves an edge's id alone (only endpoints are
-    // remapped), so a set is carried verbatim rather than rewritten — the
-    // reason membership is an explicit id list and not a channel handle.
-    // The merged sketch's edge ids are piece-local, exactly as its edges'
-    // own ids are, and a set inherits that scope unchanged.
     var co_sets: std.ArrayListUnmanaged(ledger.CoSet) = .empty;
+
+    // INVARIANT: edge ids are globally unique inside the merged Sketch.
+    // Every piece renumbers its edges from 0 (`split.zig`), so each piece gets
+    // a disjoint contiguous id window here — children in append order, then the
+    // outer piece, then the routed bridges — and EVERY id-bearing field copied
+    // out of a piece (`EdgePath.id`, `Tap.edge`, `CoSet.members`) is rewritten
+    // with that piece's offset. Without it, `ledger.coMembers` and the identity
+    // comparisons in `raster/` alias two unrelated edges that both numbered
+    // themselves 0. The scheme composes under nesting: an inner merged Sketch
+    // already satisfies the invariant, and the outer stitch only slides its
+    // whole (already-disjoint) window by one more offset.
+    // guarded-by: recurse_test.zig "stitched sibling clusters share one edge-id space"
+    var id_base: sketch.EdgeId = 0;
 
     // Per-piece map: piece SKETCH node id -> merged (global) node id.
     var global_of = try arena.alloc([]sketch.NodeId, split_result.pieces.len);
@@ -228,28 +235,32 @@ pub fn stitch(
         const ei = insets[si];
         const dx = sp.rect.x + @as(i32, @intCast(pad.x)) + ei.dxExtra();
         const dy = sp.rect.y + @as(i32, @intCast(pad.y)) + ei.dyExtra();
+        const base = id_base;
+        id_base += idSpan(child.sketch);
         for (child.sketch.edges) |ce| {
-            try edges.append(arena, try translateEdge(arena, ce, global_of[super.child_piece], dx, dy));
+            try edges.append(arena, try translateEdge(arena, ce, global_of[super.child_piece], dx, dy, base));
         }
         for (child.sketch.busbars) |cb| {
-            if (try translateRail(arena, cb, global_of[super.child_piece], dx, dy)) |tb| {
+            if (try translateRail(arena, cb, global_of[super.child_piece], dx, dy, base)) |tb| {
                 try busbars.append(arena, tb);
             }
         }
-        for (child.sketch.co_sets) |cs| try co_sets.append(arena, cs);
+        for (child.sketch.co_sets) |cs| try co_sets.append(arena, try shiftSet(arena, cs, base));
     }
 
     // --- Outer edges. Keep only edges between two real top-level nodes;
     //     edges touching a super-node are placement-only (they drove the
     //     outer layout) and are replaced by routed bridge lines below. ---
+    const outer_base = id_base;
+    id_base += idSpan(outer);
     for (outer.edges) |oe| {
         if (superFor(split_result, oe.from) != null or superFor(split_result, oe.to) != null) continue;
-        try edges.append(arena, try translateEdge(arena, oe, global_of[0], 0, 0));
+        try edges.append(arena, try translateEdge(arena, oe, global_of[0], 0, 0, outer_base));
     }
     // The outer level's own sets. A member whose edge was dropped above (it
     // touched a super-node and re-routes as a bridge) is left in place: a set
     // names who MAY share, and naming an absent edge authorizes nothing.
-    for (outer.co_sets) |os| try co_sets.append(arena, os);
+    for (outer.co_sets) |os| try co_sets.append(arena, try shiftSet(arena, os, outer_base));
 
     // --- Outer bus-bars. Same rule per member edge: a tap onto a
     //     super-node is placement-only (its edge re-routes as a bridge);
@@ -277,7 +288,7 @@ pub fn stitch(
             .{ .x = min_x, .y = ob.crossbar[0].y },
             .{ .x = max_x, .y = ob.crossbar[1].y },
         };
-        if (try translateRail(arena, filtered, global_of[0], 0, 0)) |tb| {
+        if (try translateRail(arena, filtered, global_of[0], 0, 0, outer_base)) |tb| {
             try busbars.append(arena, tb);
         }
     }
@@ -287,7 +298,13 @@ pub fn stitch(
     const node_slice = try nodes.toOwnedSlice(arena);
     const cluster_slice = try clusters.toOwnedSlice(arena);
     const bridge_edges = try bridges.route(arena, split_result.crossings, node_slice, cluster_slice, outer.direction, orig_to_merged);
-    for (bridge_edges) |be| try edges.append(arena, be);
+    // Bridges carry crossing ids, themselves renumbered from 0 by `split.zig`:
+    // they take the last id window.
+    for (bridge_edges) |be| {
+        var b = be;
+        b.id = be.id + id_base;
+        try edges.append(arena, b);
+    }
 
     return .{
         .sketch = .{
@@ -335,19 +352,43 @@ fn placementOf(placements: []const sketch.NodePlacement, id: sketch.NodeId) sket
     return placements[0];
 }
 
-/// Copy an edge with its endpoints remapped through `gmap` and its polyline +
-/// ports translated by (dx, dy).
+/// Width of a piece's edge-id space: one past the largest id the piece can
+/// name anywhere (`EdgePath.id`, a rail `Tap.edge`, a co-set member). Adding
+/// it to the running base gives the next piece a window that cannot overlap.
+fn idSpan(s: sketch.Sketch) sketch.EdgeId {
+    var max_id: ?sketch.EdgeId = null;
+    const bump = struct {
+        fn f(cur: *?sketch.EdgeId, id: sketch.EdgeId) void {
+            if (cur.* == null or id > cur.*.?) cur.* = id;
+        }
+    }.f;
+    for (s.edges) |e| bump(&max_id, e.id);
+    for (s.busbars) |b| for (b.taps) |t| bump(&max_id, t.edge);
+    for (s.co_sets) |cs| for (cs.members) |m| bump(&max_id, m);
+    return if (max_id) |m| m + 1 else 0;
+}
+
+/// Copy a co-set with every member shifted into the piece's id window.
+fn shiftSet(arena: std.mem.Allocator, cs: ledger.CoSet, base: sketch.EdgeId) error{OutOfMemory}!ledger.CoSet {
+    const members = try arena.alloc(sketch.EdgeId, cs.members.len);
+    for (cs.members, 0..) |m, i| members[i] = m + base;
+    return .{ .origin = cs.origin, .members = members };
+}
+
+/// Copy an edge with its endpoints remapped through `gmap`, its polyline +
+/// ports translated by (dx, dy) and its id shifted into the piece's window.
 fn translateEdge(
     arena: std.mem.Allocator,
     e: sketch.EdgePath,
     gmap: []const sketch.NodeId,
     dx: i32,
     dy: i32,
+    id_base: sketch.EdgeId,
 ) error{OutOfMemory}!sketch.EdgePath {
     const poly = try arena.alloc(sketch.Point, e.polyline.len);
     for (e.polyline, 0..) |pt, i| poly[i] = .{ .x = pt.x + dx, .y = pt.y + dy };
     return .{
-        .id = e.id,
+        .id = e.id + id_base,
         .from = gmap[e.from],
         .to = gmap[e.to],
         .polyline = poly,
@@ -370,6 +411,7 @@ fn translateRail(
     gmap: []const sketch.NodeId,
     dx: i32,
     dy: i32,
+    id_base: sketch.EdgeId,
 ) error{OutOfMemory}!?sketch.Rail {
     if (bb.pivot >= gmap.len or gmap[bb.pivot] == sg.SENTINEL) return null;
     const stem = try arena.alloc(sketch.Point, bb.stem.len);
@@ -379,6 +421,7 @@ fn translateRail(
         if (tap.node >= gmap.len or gmap[tap.node] == sg.SENTINEL) return null;
         taps[i] = tap;
         taps[i].node = gmap[tap.node];
+        taps[i].edge = tap.edge + id_base;
         taps[i].at = .{ .x = tap.at.x + dx, .y = tap.at.y + dy };
         taps[i].landing = .{ .x = tap.landing.x + dx, .y = tap.landing.y + dy };
     }

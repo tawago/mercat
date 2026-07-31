@@ -331,3 +331,130 @@ test "stitch re-clamps a surviving bus-bar's rail past a dropped super-node tap"
     try std.testing.expect(crossbar[0].x <= crossbar[1].x);
     try std.testing.expect(dropped_x.? > crossbar[1].x or dropped_x.? < crossbar[0].x);
 }
+
+// Two sibling clusters, each with its own fan: S = [a1 -> {a2, a3}],
+// R = [b1 -> {b2, b3}], both entered from Top and both leaving to End,
+// plus one purely-outer edge Top -> End. Every piece numbers its edges
+// from 0, so this is the minimal shape in which the merged Sketch would
+// alias if stitch carried piece-local ids through.
+fn twoSiblingFanGraph(
+    nodes_buf: []sem_graph.Node,
+    edges_buf: []sem_graph.Edge,
+    members_s: []sem_graph.NodeId,
+    members_r: []sem_graph.NodeId,
+    clusters_buf: []sem_graph.Cluster,
+) sem_graph.SemGraph {
+    const NS = sem_graph.NodeShape;
+    const names = [_][]const u8{ "Top", "a1", "a2", "a3", "b1", "b2", "b3", "End" };
+    const owners = [_]?sem_graph.ClusterId{ null, 100, 100, 100, 200, 200, 200, null };
+    for (names, 0..) |nm, i| {
+        nodes_buf[i] = .{ .id = @intCast(i), .raw_id = nm, .label = nm, .shape = NS.rect, .classes = &.{}, .cluster = owners[i] };
+    }
+    const pairs = [_][2]sem_graph.NodeId{
+        .{ 0, 1 }, .{ 1, 2 }, .{ 1, 3 }, .{ 0, 4 },
+        .{ 4, 5 }, .{ 4, 6 }, .{ 2, 7 }, .{ 5, 7 },
+        .{ 0, 7 },
+    };
+    for (pairs, 0..) |p, i| {
+        edges_buf[i] = .{ .id = @intCast(i), .from = p[0], .to = p[1], .kind = .solid, .arrow_from = .none, .arrow_to = .filled, .label = null };
+    }
+    members_s[0] = 1;
+    members_s[1] = 2;
+    members_s[2] = 3;
+    members_r[0] = 4;
+    members_r[1] = 5;
+    members_r[2] = 6;
+    clusters_buf[0] = .{ .id = 100, .raw_id = "S", .label = "S", .parent = null, .members = members_s, .sub_clusters = &.{}, .direction = null };
+    clusters_buf[1] = .{ .id = 200, .raw_id = "R", .label = "R", .parent = null, .members = members_r, .sub_clusters = &.{}, .direction = null };
+    return .{
+        .direction = .TD,
+        .nodes = nodes_buf,
+        .edges = edges_buf,
+        .clusters = clusters_buf,
+        .classes = &.{},
+        .arena = null,
+    };
+}
+
+/// Every edge id the merged Sketch names geometrically (`EdgePath.id` plus
+/// each rail `Tap.edge`), asserted pairwise distinct, and returned so a
+/// caller can resolve co-set members against it.
+fn assertUniqueEdgeIds(a: std.mem.Allocator, s: sketch.Sketch) !std.AutoHashMap(sketch.EdgeId, sketch.NodeId) {
+    // id -> the node the geometry leaves from (edge source / rail pivot).
+    var owners = std.AutoHashMap(sketch.EdgeId, sketch.NodeId).init(a);
+    for (s.edges) |e| {
+        try std.testing.expect(!owners.contains(e.id));
+        try owners.put(e.id, e.from);
+    }
+    for (s.busbars) |b| {
+        for (b.taps) |t| {
+            try std.testing.expect(!owners.contains(t.edge));
+            try owners.put(t.edge, b.pivot);
+        }
+    }
+    return owners;
+}
+
+fn clusterOf(s: sketch.Sketch, node: sketch.NodeId) ??sem_graph.ClusterId {
+    for (s.nodes) |p| {
+        if (p.id == node) return p.cluster_id;
+    }
+    return null;
+}
+
+// The merged Sketch has ONE edge-id space: sibling children each renumber
+// from 0, so stitch must slide every piece into a disjoint window and
+// rewrite each id-bearing field (`EdgePath.id`, `Tap.edge`, `CoSet.members`)
+// with the same offset. Carrying ids verbatim aliased unrelated edges — the
+// co-membership oracle then read one child's channel as covering another's.
+test "stitched sibling clusters share one edge-id space" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+
+    var nodes_buf: [8]sem_graph.Node = undefined;
+    var edges_buf: [9]sem_graph.Edge = undefined;
+    var members_s: [3]sem_graph.NodeId = undefined;
+    var members_r: [3]sem_graph.NodeId = undefined;
+    var clusters_buf: [2]sem_graph.Cluster = undefined;
+    const graph = twoSiblingFanGraph(&nodes_buf, &edges_buf, &members_s, &members_r, &clusters_buf);
+
+    const s = try recurse.layoutPieces(a, graph, .{ .max_width = 120 });
+    try std.testing.expect(s.clusters.len >= 2);
+
+    var owners = try assertUniqueEdgeIds(a, s);
+    defer owners.deinit();
+
+    // A co-set names one structural decision, so all of its members that
+    // still carry geometry must live in the SAME cluster. A member read in
+    // the wrong child's id space lands in the other cluster (or nowhere).
+    for (s.co_sets) |set| {
+        var seen: ??sem_graph.ClusterId = null;
+        for (set.members) |m| {
+            const owner = owners.get(m) orelse continue;
+            const cid = clusterOf(s, owner);
+            if (seen) |want| try std.testing.expectEqual(want, cid) else seen = cid;
+        }
+    }
+}
+
+// Same invariant one level deeper: an inner merged Sketch already holds a
+// unique id space, and the outer stitch only slides that whole window, so
+// uniqueness composes instead of re-colliding at each nesting level.
+test "edge-id uniqueness survives two stitch levels" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+
+    var nodes_buf: [5]sem_graph.Node = undefined;
+    var edges_buf: [4]sem_graph.Edge = undefined;
+    var members_buf: [4]sem_graph.NodeId = undefined;
+    var sub_buf: [1]sem_graph.ClusterId = undefined;
+    var clusters_buf: [2]sem_graph.Cluster = undefined;
+    const graph = nestedTwoLevelGraph(&nodes_buf, &edges_buf, &members_buf, &sub_buf, &clusters_buf);
+
+    const s = try recurse.layoutPieces(a, graph, .{ .max_width = 400 });
+    var owners = try assertUniqueEdgeIds(a, s);
+    defer owners.deinit();
+    try std.testing.expect(owners.count() >= graph.edges.len);
+}
