@@ -1,9 +1,21 @@
 //! Edge and bus-bar tap label placement: anchors at the edge's mid-segment,
-//! then falls back through a bounded, deterministic ladder — legacy anchor
-//! first, then positions along the label's own segment (convention side,
-//! walking outward from the midpoint), then remaining polyline segments.
-//! Dropped (edge_label_no_space) only when every candidate collides or is
-//! out of bounds.
+//! then falls back through a bounded, deterministic ladder.
+//!
+//! The ladder is a three-pass priority over one fixed candidate order
+//! (primary anchor, own-segment walk, remaining polyline segments):
+//!
+//!   P1 relocate-before-reroute — only positions whose nearest ink within
+//!      Chebyshev distance 2 is the label's OWN edge's ink (the primary
+//!      anchor is tried first, so unpressured seeds stay put);
+//!   P2 unambiguous ownership — positions strictly nearer (Chebyshev, up
+//!      to distance 4) to the own edge's ink than to any other edge's ink;
+//!   P3 far displacement — the remaining candidates, ownership-blind.
+//!
+//! Every pass additionally enforces LAW 2 label-region isolation
+//! (labels_ink.spanIsolated): a full 8-neighbourhood margin against all
+//! FOREIGN ink, own-edge ink exempt, plus >= 2 blank cells of same-row
+//! separation between label runs. Dropped (edge_label_no_space) only when
+//! every candidate fails every pass.
 //!
 //! Import boundary: std, prim, sketch, lattice, raster siblings only (same
 //! zone as labels.zig; enforced by tools/lint_imports.zig).
@@ -15,8 +27,23 @@ const lattice = @import("../lattice.zig");
 const labels = @import("labels.zig");
 const lw = @import("labels_write.zig");
 const aux = @import("aux.zig");
+const ink = @import("labels_ink.zig");
 
 const log = std.log.scoped(.@"mermaid_v2.raster.labels");
+
+/// LAW 1 ladder pass, in priority order. `own_adjacent` = nearest ink
+/// within OWN_ADJ_RADIUS is the label's own edge; `own_nearest` = own ink
+/// within OWN_NEAR_RADIUS and strictly nearer than any foreign edge's ink;
+/// `any` = no ownership requirement (isolation still enforced).
+const Pass = enum { own_adjacent, own_nearest, any };
+const passes = [3]Pass{ .own_adjacent, .own_nearest, .any };
+
+/// P1: how far (Chebyshev) the span may sit from its own edge's ink and
+/// still count as "adjacent" — 2 keeps the vertical-rail convention anchor
+/// (mid_x + 2) a P1 position.
+const OWN_ADJ_RADIUS: u32 = 2;
+/// P2: the bounded search horizon for "strictly nearer to own ink".
+const OWN_NEAR_RADIUS: u32 = 4;
 
 pub const SegPair = struct { a: sketch.Point, b: sketch.Point };
 
@@ -84,19 +111,31 @@ pub fn placeLabelAtSeg(
     // it paints. // guarded-by: labels_eaw_test.zig "edge-label probe reserves display cells: a wide label no longer overwrites the ink beside it"
     const cell_count: u32 = labels.cellSpanOf(label);
 
-    // Candidate #1: legacy anchor recorded by layout on ep.label_left_of_run (clusters.computeBbox). guarded-by: labels_test.zig "edge label fits above midpoint"
+    // The ownership context is fixed for the whole ladder: the edge's id,
+    // its routed polyline, and the anchor segment (for taps, the shared
+    // rail stretch — own ink even though the trunk Cell names one rider).
+    const owner: ink.Owner = .{ .edge_id = edge_id, .polyline = polyline, .seg_a = a, .seg_b = b };
+
+    // Three-pass priority (LAW 1) over one fixed candidate order per pass:
+    // primary anchor, own-segment walk, ladder tail. A position accepted by
+    // an earlier pass is never reconsidered — the passes only weaken the
+    // ownership requirement, so the walk is deterministic.
+    // guarded-by: labels_ladder_test.zig "P1 beats the primary anchor: the label relocates to sit by its own edge's ink"
     const anchor = anchorFor(a, b, left_of_run, prim.displayWidth(label));
-    if (tryWrite(lat, label, cell_count, anchor.x, anchor.y, edge_id, sink)) return .at_anchor;
+    for (passes) |pass| {
+        // Candidate #1: legacy anchor recorded by layout on ep.label_left_of_run (clusters.computeBbox). guarded-by: labels_test.zig "edge label fits above midpoint"
+        if (tryWrite(lat, label, cell_count, anchor.x, anchor.y, owner, pass, sink)) return .at_anchor;
 
-    if (trySegment(lat, label, cell_count, a, b, left_of_run, edge_id, sink)) return .displaced;
+        if (trySegment(lat, label, cell_count, a, b, left_of_run, owner, pass, sink)) return .displaced;
 
-    // Ladder tail: the remaining non-degenerate segments of the polyline.
-    if (polyline.len >= 2) {
-        for (polyline[0 .. polyline.len - 1], 0..) |p, i| {
-            const q = polyline[i + 1];
-            if (p.x == q.x and p.y == q.y) continue;
-            if (p.x == a.x and p.y == a.y and q.x == b.x and q.y == b.y) continue;
-            if (trySegment(lat, label, cell_count, p, q, left_of_run, edge_id, sink)) return .displaced;
+        // Ladder tail: the remaining non-degenerate segments of the polyline.
+        if (polyline.len >= 2) {
+            for (polyline[0 .. polyline.len - 1], 0..) |p, i| {
+                const q = polyline[i + 1];
+                if (p.x == q.x and p.y == q.y) continue;
+                if (p.x == a.x and p.y == a.y and q.x == b.x and q.y == b.y) continue;
+                if (trySegment(lat, label, cell_count, p, q, left_of_run, owner, pass, sink)) return .displaced;
+            }
         }
     }
 
@@ -125,7 +164,8 @@ fn trySegment(
     a: sketch.Point,
     b: sketch.Point,
     left_of_run: bool,
-    edge_id: u32,
+    owner: ink.Owner,
+    pass: Pass,
     sink: aux.Sink,
 ) bool {
     const orig_len: u32 = prim.displayWidth(label);
@@ -139,8 +179,8 @@ fn trySegment(
         for (rows) |row| {
             var d: i32 = 0;
             while (mid_x - d >= min_x or mid_x + d <= max_x) : (d += 1) {
-                if (mid_x - d >= min_x and tryWrite(lat, label, cell_count, mid_x - d, row, edge_id, sink)) return true;
-                if (d > 0 and mid_x + d <= max_x and tryWrite(lat, label, cell_count, mid_x + d, row, edge_id, sink)) return true;
+                if (mid_x - d >= min_x and tryWrite(lat, label, cell_count, mid_x - d, row, owner, pass, sink)) return true;
+                if (d > 0 and mid_x + d <= max_x and tryWrite(lat, label, cell_count, mid_x + d, row, owner, pass, sink)) return true;
             }
         }
         return false;
@@ -159,34 +199,48 @@ fn trySegment(
     for (sides) |x| {
         var d: i32 = 0;
         while (mid_y - d >= min_y or mid_y + d <= max_y) : (d += 1) {
-            if (mid_y - d >= min_y and tryWrite(lat, label, cell_count, x, mid_y - d, edge_id, sink)) return true;
-            if (d > 0 and mid_y + d <= max_y and tryWrite(lat, label, cell_count, x, mid_y + d, edge_id, sink)) return true;
+            if (mid_y - d >= min_y and tryWrite(lat, label, cell_count, x, mid_y - d, owner, pass, sink)) return true;
+            if (d > 0 and mid_y + d <= max_y and tryWrite(lat, label, cell_count, x, mid_y + d, owner, pass, sink)) return true;
         }
     }
     return false;
 }
 
-/// True iff the cell at `(x,y)` belongs to a label span — its head or the
-/// continuation column of a wide glyph. The blank-flank anti-fusion rule
-/// must see a continuation, or a span flanked by the tail of a wide glyph
-/// would read as free and fuse.
-/// guarded-by: labels_eaw_test.zig "blank-flank rule treats a continuation as a label neighbour"
-fn isLabelChar(lat: *const lattice.Lattice, x: u32, y: u32) bool {
-    return switch (lat.atConst(x, y).occupant) {
-        .label_char, .label_cont => true,
-        else => false,
-    };
+/// LAW 1 pass gate for one candidate span. `.any` is ownership-blind; the
+/// two ownership passes measure nearest-ink Chebyshev distances and demand
+/// the own edge's ink win (strictly, so a tie never yields an ambiguous
+/// owner). // guarded-by: labels_ladder_test.zig "P2 walks the label toward its own edge's ink when P1 positions are blocked"
+fn passAllows(
+    lat: *const lattice.Lattice,
+    owner: ink.Owner,
+    pass: Pass,
+    start_x: i32,
+    row: i32,
+    cell_count: u32,
+) bool {
+    if (pass == .any) return true;
+    const d = ink.inkDistances(lat, owner, start_x, row, cell_count, OWN_NEAR_RADIUS);
+    const own = d.own orelse return false;
+    const limit: u32 = if (pass == .own_adjacent) OWN_ADJ_RADIUS else OWN_NEAR_RADIUS;
+    if (own > limit) return false;
+    if (d.foreign_edge) |f| {
+        if (own >= f) return false;
+    }
+    return true;
 }
 
-/// Bounds-check the span, require every cell empty, then write one
-/// label_char cell per codepoint. All-or-nothing per candidate.
+/// Bounds-check the span, enforce LAW 2 isolation (foreign-ink margin +
+/// same-row run separation, labels_ink.spanIsolated), require every cell
+/// empty, apply the LAW 1 pass gate, then write one label_char cell per
+/// codepoint. All-or-nothing per candidate.
 fn tryWrite(
     lat: *lattice.Lattice,
     label: []const u8,
     cell_count: u32,
     lx: i32,
     ly: i32,
-    edge_id: u32,
+    owner: ink.Owner,
+    pass: Pass,
     sink: aux.Sink,
 ) bool {
     if (ly < 0 or @as(i64, ly) >= lat.height) return false;
@@ -195,15 +249,14 @@ fn tryWrite(
     const row: u32 = @intCast(ly);
     if (start_x + cell_count > lat.width) return false;
 
-    // Require >=1 empty column of separation from any adjacent label span so
-    // two independently-anchored labels never fuse into one unreadable run
-    // (fan-out siblings "route: api"+"route: static"). Only label_char
-    // neighbours force separation; abutting edge/node/arrow ink is legal.
-    // Flank cells are on the SAME row, immediately left of start_x and
-    // immediately right of the span end; a span flush to the grid edge simply
-    // has no flank there. // guarded-by: labels_test.zig "tryWrite requires a blank column between abutting label spans"
-    if (start_x >= 1 and isLabelChar(lat, start_x - 1, row)) return false;
-    if (start_x + cell_count < lat.width and isLabelChar(lat, start_x + cell_count, row)) return false;
+    // LAW 2: a candidate touching FOREIGN ink anywhere in the span's
+    // 8-neighbourhood is rejected (own-edge ink may abut, so convention
+    // anchors beside the label's own run stay legal), and two label runs on
+    // the same row keep >= 2 blank cells apart — a continuation column
+    // counts as a label neighbour.
+    // guarded-by: labels_test.zig "edge-label runs on the same row keep two blank cells apart"
+    // guarded-by: labels_eaw_test.zig "blank-flank rule treats a continuation as a label neighbour"
+    if (!ink.spanIsolated(lat, owner, lx, ly, cell_count)) return false;
 
     // Any non-empty cell is a genuine collision (edges/earlier labels are rasterized first) — reject the candidate. // guarded-by: labels_test.zig "tryWrite rejects a pre-occupied primary-anchor cell as a real collision, not an OOB miss"
     var i: u32 = 0;
@@ -215,6 +268,9 @@ fn tryWrite(
         }
     }
 
+    // LAW 1 pass gate, last so every pass sees identical geometry checks.
+    if (!passAllows(lat, owner, pass, lx, ly, cell_count)) return false;
+
     // The span was reserved by `cell_count`, so every write below is in
     // bounds and on an empty cell — head first, then the continuation
     // columns of a wide glyph.
@@ -225,7 +281,7 @@ fn tryWrite(
         bi += dc.byte_len;
         const cp = labels.sentinelToSpace(dc.cp);
         const span = labels.cellSpan(cp);
-        lw.writeSpan(lat, x, row, cp, span, .{ .kind = .edge, .id = edge_id }, sink);
+        lw.writeSpan(lat, x, row, cp, span, .{ .kind = .edge, .id = owner.edge_id }, sink);
         x += span;
     }
     return true;

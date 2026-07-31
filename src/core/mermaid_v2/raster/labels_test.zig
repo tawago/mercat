@@ -413,20 +413,22 @@ test "tryWrite rejects a pre-occupied primary-anchor cell as a real collision, n
 
     // The obstacle at the primary anchor must survive untouched...
     try testing.expectEqual(@as(u21, 0), cellChar(lat, 3, 2));
-    // ...and the label must have been displaced to the next ladder rung
-    // (one column further from the midpoint, same row).
-    try testing.expectEqual(@as(u21, 'x'), cellChar(lat, 2, 2));
+    // ...and the label must have been displaced past it. The adjacent walk
+    // slots (2,2)/(4,2) touch the obstacle (foreign ink) inside the LAW 2
+    // margin, so the first legal slot is (1,2) — two columns out.
+    try testing.expectEqual(@as(u21, 0), cellChar(lat, 2, 2));
+    try testing.expectEqual(@as(u21, 'x'), cellChar(lat, 1, 2));
 }
 
 // ---------------------------------------------------------------------
-// labels_edge.zig / tryWrite: inter-label separation invariant. Two
-// independently-anchored label spans must never abut with zero gap (they
-// fuse into one unreadable run). Only .label_char neighbours force
-// separation; abutting non-label ink (edge/node/arrow) stays legal.
-// Shape-generic: a pre-stamped label span forces the edge label off its
-// abutting primary anchor onto a separated slot.
+// labels_edge.zig / labels_ink.spanIsolated: inter-label run separation.
+// Two label runs on the same row need >= 2 blank cells between them — a
+// single blank column still reads as one merged run ("route: api route:
+// static"). A pre-stamped label span forces the edge label off its
+// abutting primary anchor AND off the one-blank slot, onto the first slot
+// with a two-cell gap.
 // ---------------------------------------------------------------------
-test "tryWrite requires a blank column between abutting label spans" {
+test "edge-label runs on the same row keep two blank cells apart" {
     var arena = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
     const alloc = arena.allocator();
@@ -451,37 +453,13 @@ test "tryWrite requires a blank column between abutting label spans" {
     try testing.expectEqual(@as(u32, 1), report.placed);
     try testing.expectEqual(@as(usize, 0), report.diagnostics.len);
 
-    // The pre-existing span's last cell (x=2) survives untouched, and the
-    // primary anchor (x=3, whose LEFT flank x=2 is label_char) is rejected
-    // by the guard...
+    // The pre-existing span's last cell (x=2) survives untouched; the
+    // primary anchor (x=3, zero gap) and the next slot out (x=4, one-blank
+    // gap) are both rejected by the run-separation rule...
     try testing.expectEqual(@as(u21, 'Q'), cellChar(lat, 2, 2));
     try testing.expectEqual(@as(u21, 0), cellChar(lat, 3, 2));
-    // ...so the label lands one column further out (x=4), leaving x=3 as the
-    // >=1 blank column of separation between the two spans.
-    try testing.expectEqual(@as(u21, 'x'), cellChar(lat, 4, 2));
-}
-
-test "tryWrite does not force separation from non-label ink" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const alloc = arena.allocator();
-
-    var lat = try makeLattice(alloc, 12, 6);
-    const poly = [_]sketch.Point{ .{ .x = 1, .y = 3 }, .{ .x = 5, .y = 3 } };
-    const edges = [_]sketch.EdgePath{makeEdge(42, &poly, "x")};
-    var s = emptySketch(12, 6, .LR);
-    s.edges = &edges;
-
-    // Pre-stamp NON-label ink at the left flank cell only (x=2, the cell
-    // immediately left of the primary anchor x=3). The guard keys on
-    // .label_char specifically, so this must NOT displace the label.
-    lat.at(2, 2).* = .{ .occupant = .{ .node_interior = 7 }, .neighbours = .{} };
-
-    const report = try labels.rasterizeLabels(alloc, &lat, s, null);
-    try testing.expectEqual(@as(u32, 1), report.placed);
-    try testing.expectEqual(@as(usize, 0), report.diagnostics.len);
-
-    // The label still lands at its primary anchor (x=3), abutting the
-    // non-label ink — separation is only forced against other labels.
-    try testing.expectEqual(@as(u21, 'x'), cellChar(lat, 3, 2));
+    try testing.expectEqual(@as(u21, 0), cellChar(lat, 4, 2));
+    // ...so the label lands at x=5, leaving x=3..4 as the two blank cells
+    // of separation between the two runs.
+    try testing.expectEqual(@as(u21, 'x'), cellChar(lat, 5, 2));
 }

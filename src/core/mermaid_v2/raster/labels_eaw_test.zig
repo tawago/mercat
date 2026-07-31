@@ -271,15 +271,15 @@ test "blank-flank rule treats a continuation as a label neighbour" {
     const alloc = arena.allocator();
 
     // A wide label already occupies cells (2,2)-(3,2): head + continuation.
-    // The only span the ladder can still reach on the only candidate row
-    // abuts the CONTINUATION, so the anti-fusion rule must refuse it
-    // exactly as it would refuse abutting the head, and the label drops.
+    // Every span the ladder can reach on the only candidate row sits within
+    // two cells of the CONTINUATION, so the run-separation rule must refuse
+    // them exactly as it would refuse the head, and the label drops.
     const poly = [_]sketch.Point{ .{ .x = 3, .y = 3 }, .{ .x = 5, .y = 3 } };
     const edges = [_]sketch.EdgePath{makeEdge(5, &poly, "ab")};
-    var s = emptySketch(6, 4, .LR);
+    var s = emptySketch(8, 4, .LR);
     s.edges = &edges;
 
-    var lat = try makeLattice(alloc, 6, 4);
+    var lat = try makeLattice(alloc, 8, 4);
     lat.at(2, 2).* = .{ .occupant = .{ .label_char = '日' }, .neighbours = .{} };
     lat.at(3, 2).* = .{ .occupant = .label_cont, .neighbours = .{} };
 
@@ -288,8 +288,9 @@ test "blank-flank rule treats a continuation as a label neighbour" {
     try testing.expectEqual(@as(u32, 1), report.dropped);
 
     // Control: the continuation is what refuses it. Free that one cell and
-    // the identical ladder places the label.
-    var free_lat = try makeLattice(alloc, 6, 4);
+    // the identical ladder places the label (at x=5, two blanks past the
+    // head at x=2).
+    var free_lat = try makeLattice(alloc, 8, 4);
     free_lat.at(2, 2).* = .{ .occupant = .{ .label_char = '日' }, .neighbours = .{} };
 
     const free_report = try labels.rasterizeLabels(alloc, &free_lat, s, null);

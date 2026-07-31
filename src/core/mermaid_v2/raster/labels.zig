@@ -391,5 +391,6 @@ fn placeClusterLabel(
 
 test {
     _ = @import("labels_test.zig");
+    _ = @import("labels_ladder_test.zig");
     _ = @import("labels_eaw_test.zig");
 }
