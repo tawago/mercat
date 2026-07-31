@@ -26,18 +26,14 @@
 //!   reserves for that, and a run that still cannot host the full sandwich
 //!   simply refuses and falls to the ordinary labels_edge ladder.
 //!
-//!   HALF-STROKE LEADS — the two flank cells are the run's lead-in and
-//!   lead-out to the text, so they paint as HALF strokes: the cell ABOVE
-//!   the label becomes `╵` (U+2575, upper half — the run continues from
-//!   above and stops short of the text) and the cell BELOW becomes `╷`
-//!   (U+2577, lower half). This is expressed in the Cell, never in the
-//!   painter: the flank loses the neighbour bit facing the label row
-//!   (truthfully — there is no stroke there any more) so the junction
-//!   table's single-bit entries pick `╵`/`╷` on their own, and its
-//!   `stroke_kind` is forced to `.solid` so the same two glyphs are used
-//!   for dotted and thick edges too. That last part is a DELIBERATE
-//!   FALLBACK: Unicode has no dashed or double-line half-stroke, so a
-//!   `┊`/`║` run leads into its label with a solid half tick.
+//!   The flanks paint as ORDINARY full strokes in the edge's own kind
+//!   (`│`, `┊`, `║`) and keep both vertical neighbour bits — the label row
+//!   interrupts the run visually, but the cells around it stay unremarkable
+//!   run cells. A half-stroke variant (`╵`/`╷` leads tapering into the
+//!   text) was tried and REVERTED: the blind decoder read the tapered
+//!   glyphs as a dashed stroke STYLE and reconstructed solid edges as
+//!   dotted ones, collapsing relation F1. A label that interrupts a run
+//!   must not perturb how that run's line style reads.
 //!
 //! Everything lateral keeps the ordinary LAW 2 isolation
 //! (labels_ink.spanIsolated): the own-run seams are exempt because the
@@ -187,39 +183,7 @@ fn tryAt(
         wx += span;
     }
 
-    // Half-stroke leads: the two flank cells stop short of the text.
-    // guarded-by: labels_onrun_test.zig "half-stroke leads: the flanks lose the bit facing the label and go solid"
-    markHalfStroke(lat, x, row - 1, .toward_south);
-    markHalfStroke(lat, x, row + 1, .toward_north);
     return true;
-}
-
-/// Which side of a flank cell faces the label row.
-const TowardLabel = enum { toward_south, toward_north };
-
-/// Turn a full `│` flank into the half stroke that leads into the label:
-/// drop the neighbour bit facing the label row (there is no stroke there
-/// any more, so the junction table's single-arm entries yield `╵` / `╷`)
-/// and force the cell's stroke to `.solid`, so those same two glyphs are
-/// used for a dotted or thick edge as well — the dotted/thick tables map
-/// a lone vertical arm back to the FULL `┊` / `║`, and Unicode offers no
-/// dashed or double-line half-stroke to use instead. The caller has
-/// already proven the cell is this edge's own run flank.
-///
-/// Both the occupant's `kind` and the Cell's `stroke_kind` are set: the
-/// painter reads the former for an `edge_segment`, and leaving the two
-/// disagreeing would strand a stale second opinion on the same cell.
-fn markHalfStroke(lat: *lattice.Lattice, x: i32, y: i32, toward: TowardLabel) void {
-    const cell = lat.at(@intCast(x), @intCast(y));
-    switch (toward) {
-        .toward_south => cell.neighbours.s = false,
-        .toward_north => cell.neighbours.n = false,
-    }
-    switch (cell.occupant) {
-        .edge_segment => |*seg| seg.kind = .solid,
-        else => unreachable, // runFlankCell proved this is an edge_segment
-    }
-    cell.stroke_kind = .solid;
 }
 
 /// True iff the cell at (x, y) is a private dropper cell of `edge_id`:

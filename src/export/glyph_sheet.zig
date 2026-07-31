@@ -40,11 +40,6 @@ const SpanStyle = render_model.SpanStyle;
 
 /// The 16 junction-table box-drawing glyphs (`junction_glyphs.zig`). Index 0
 /// is the empty cell (space); the rest are the corner/tee/cross/stub set.
-/// The single-arm entries `╵` (U+2575) and `╷` (U+2577) are load-bearing
-/// beyond junction cleanup: they are the HALF-STROKE LEADS an on-run edge
-/// label leaves on the two run cells flanking its text
-/// (`raster/labels_onrun.zig`), including for dotted and thick edges,
-/// which have no half-stroke of their own.
 pub const junction_glyphs = [_]u21{
     ' ', '╵', '╶', '└', '╷', '│', '┌', '├',
     '╴', '┘', '─', '┴', '┐', '┤', '┬', '┼',
@@ -285,58 +280,6 @@ test "PROBE box-drawing glyph vertical/horizontal ink extents at 20px" {
 // ---------------------------------------------------------------------------
 // §8.1 glyph coverage
 // ---------------------------------------------------------------------------
-
-test "the on-run half-stroke leads rasterize into their own half of the cell" {
-    // `╵`/`╷` are the only glyphs the renderer picks for their SHAPE rather
-    // than for connectivity: they are how an on-run edge label stops the run
-    // short of its text. A face that mapped them to a full bar (or to tofu)
-    // would erase the whole effect silently, so pin the ink extent, not just
-    // the cmap entry. Measured in the face's own glyph space (`bmp.top` is
-    // relative to the baseline), so the assertion is a comparison between the
-    // three glyphs rather than an absolute pixel row.
-    const face = try font.Font.init(20);
-
-    const Extent = struct { top: i32, bottom: i32 };
-    const measure = struct {
-        fn f(fc: font.Font, cp: u21) !Extent {
-            const gi = try fc.requireGlyph(cp);
-            try testing.expect(gi != 0);
-            var bmp = try fc.rasterizeGlyphIndex(testing.allocator, gi);
-            defer bmp.deinit(testing.allocator);
-            var top: i32 = std.math.maxInt(i32);
-            var bottom: i32 = std.math.minInt(i32);
-            var row: i32 = 0;
-            while (row < bmp.height) : (row += 1) {
-                var col: i32 = 0;
-                while (col < bmp.width) : (col += 1) {
-                    if (bmp.coverage[@intCast(row * bmp.width + col)] == 0) continue;
-                    const y = bmp.top + row;
-                    if (y < top) top = y;
-                    if (y > bottom) bottom = y;
-                }
-            }
-            try testing.expect(top <= bottom); // some ink exists
-            return .{ .top = top, .bottom = bottom };
-        }
-    }.f;
-
-    const full = try measure(face, '\u{2502}'); // │
-    const upper = try measure(face, '\u{2575}'); // ╵
-    const lower = try measure(face, '\u{2577}'); // ╷
-
-    // Each half starts where the full bar does on its own side...
-    try testing.expectEqual(full.top, upper.top);
-    try testing.expectEqual(full.bottom, lower.bottom);
-    // ...and stops well short of the other side. In the pinned face the two
-    // halves overlap by a couple of rows across the middle rather than
-    // meeting exactly, so the pin is "each covers appreciably less than the
-    // whole bar", not "the two are disjoint".
-    try testing.expect(upper.bottom < full.bottom);
-    try testing.expect(lower.top > full.top);
-    const full_span = full.bottom - full.top + 1;
-    try testing.expect((upper.bottom - upper.top + 1) * 10 < full_span * 7);
-    try testing.expect((lower.bottom - lower.top + 1) * 10 < full_span * 7);
-}
 
 test "font covers every renderer-owned glyph and every ASCII printable" {
     const face = try font.Font.init(20);

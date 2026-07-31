@@ -1,11 +1,13 @@
-//! Paint-level pin for the on-run label's HALF-STROKE LEADS.
+//! Paint-level pin for the DECORATED on-run label column.
 //!
-//! `raster/labels_onrun.zig` never names a glyph — it edits the two flank
-//! Cells (drops the neighbour bit facing the label, forces the stroke to
-//! `.solid`) and trusts the painter's junction table to draw `╵` and `╷`.
-//! That trust is the thing worth pinning: a change to either side alone
-//! silently turns the decorated column back into a full `│` sandwich, or
-//! worse, into a dotted/thick run that swallows the tick.
+//! The whole point of RULE B's line-glyph sandwich is what the column
+//! LOOKS like: full run, text, full run, head. `raster/labels_onrun.zig`
+//! never names a glyph — it only decides which cell the text may take —
+//! so nothing inside the raster stage can prove the picture comes out
+//! right. This pin also guards the reverted half-stroke experiment: the
+//! flanks must paint as unremarkable full strokes in the edge's own kind,
+//! because a taper (`╵`/`╷`) made the blind decoder read solid edges as
+//! dotted ones.
 //!
 //! It lives at the mermaid_v2 root because it must import BOTH the raster
 //! stage and the painter, which no file inside `raster/` may do (the
@@ -112,7 +114,7 @@ fn paintedColumn(a: std.mem.Allocator, kind: lattice.EdgeKind) ![]u21 {
     return columnOf(a, painted, 5);
 }
 
-test "paint: a decorated on-run label reads │ ╵ label ╷ ▼ down its own column" {
+test "paint: a decorated on-run label reads │ label │ ▼ down its own column" {
     var arena = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
@@ -120,33 +122,31 @@ test "paint: a decorated on-run label reads │ ╵ label ╷ ▼ down its own c
     const col = try paintedColumn(a, .solid);
 
     // Row 1 is the shared crossbar (a tee, not our business). The label
-    // takes the middle of the private stretch (rows 2..6 -> row 4), so the
-    // column reads: full run, half lead-in, text, half lead-out, head.
-    // The label glyph 'o' sits on the dropper column because the 2-cell
-    // span centres there.
-    try testing.expectEqual(@as(u21, '│'), col[2]); // run, still full
-    try testing.expectEqual(@as(u21, '╵'), col[3]); // upper flank: half stroke
+    // takes the middle of the private stretch (rows 2..6 -> row 4). The
+    // label glyph 'o' sits on the dropper column because the 2-cell span
+    // centres there.
+    try testing.expectEqual(@as(u21, '│'), col[2]); // run
+    try testing.expectEqual(@as(u21, '│'), col[3]); // upper flank: full stroke
     try testing.expectEqual(@as(u21, 'o'), col[4]); // the label
-    try testing.expectEqual(@as(u21, '╷'), col[5]); // lower flank: half stroke
+    try testing.expectEqual(@as(u21, '│'), col[5]); // lower flank: full stroke
     try testing.expectEqual(@as(u21, '▼'), col[6]); // head BELOW the flank
 }
 
-test "paint: a dotted or thick run leads into its on-run label with SOLID half ticks" {
-    // Deliberate fallback: the dotted/thick glyph tables map a lone vertical
-    // arm back to the FULL `┊` / `║`, and Unicode has no dashed or
-    // double-line half-stroke, so both kinds borrow the solid `╵` / `╷`.
-    // Only the two label-adjacent cells; the rest of the run keeps its kind.
+test "paint: a dotted or thick run keeps its own stroke on BOTH sides of the label" {
+    // The stroke style must survive the interruption unchanged: a decoder
+    // that sees a different glyph beside the text reads a different EDGE
+    // KIND. This is the pin the reverted half-stroke experiment failed.
     var arena = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
 
     const dotted = try paintedColumn(a, .dotted);
-    try testing.expectEqual(@as(u21, '╵'), dotted[3]);
-    try testing.expectEqual(@as(u21, '╷'), dotted[5]);
-    try testing.expectEqual(@as(u21, '┊'), dotted[2]); // non-flank keeps its kind
+    for ([_]usize{ 2, 3, 5 }) |row| {
+        try testing.expectEqual(@as(u21, '┊'), dotted[row]);
+    }
 
     const thick = try paintedColumn(a, .thick);
-    try testing.expectEqual(@as(u21, '╵'), thick[3]);
-    try testing.expectEqual(@as(u21, '╷'), thick[5]);
-    try testing.expectEqual(@as(u21, '║'), thick[2]);
+    for ([_]usize{ 2, 3, 5 }) |row| {
+        try testing.expectEqual(@as(u21, '║'), thick[row]);
+    }
 }

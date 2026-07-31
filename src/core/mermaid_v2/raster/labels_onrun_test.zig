@@ -105,16 +105,22 @@ test "happy path: the label interrupts its own dropper for one row, sandwiched b
     try testing.expect(lat.atConst(5, 5).occupant == .arrowhead);
 }
 
-test "half-stroke leads: the flanks lose the bit facing the label and go solid" {
-    // The two label-adjacent run cells become HALF strokes: the one above
-    // keeps only its north bit (junction table -> ╵), the one below only
-    // its south bit (-> ╷). Everything further up the run stays full │.
+test "the flanks stay ORDINARY full-stroke run cells in the edge's own kind" {
+    // Reverted experiment (blind decoder veto): the label-adjacent cells
+    // once tapered to `╵`/`╷` half strokes, and the decoder read the taper
+    // as a dashed line STYLE, reconstructing solid edges as dotted. The
+    // flanks must therefore keep BOTH vertical bits and their own stroke
+    // kind, so the run around a label reads exactly as it did without one.
     var arena = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
 
     var lat = try makeLattice(a, 12, 9);
     paintTapDropper(&lat, 7);
+    for ([_]u32{ 1, 2, 3, 4 }) |y| {
+        lat.at(5, y).stroke_kind = .dotted;
+        lat.at(5, y).occupant.edge_segment.kind = .dotted;
+    }
     const taps = [_]sketch.Tap{theTap(7)};
     var s = emptySketch(12, 9);
     const busbars = [_]sketch.Rail{theRail(&taps, &stem_pts)};
@@ -122,44 +128,15 @@ test "half-stroke leads: the flanks lose the bit facing the label and go solid" 
 
     try testing.expect(onrun.tryOnRunTap(&lat, s, taps[0], "ok", null));
 
-    const above = lat.atConst(5, 2);
-    try testing.expect(above.neighbours.n);
-    try testing.expect(!above.neighbours.s);
-    const below = lat.atConst(5, 4);
-    try testing.expect(!below.neighbours.n);
-    try testing.expect(below.neighbours.s);
-    // The shared crossbar cell above the flank is untouched.
-    try testing.expect(lat.atConst(5, 1).neighbours.s);
-}
-
-test "half-stroke leads: a dotted run leads into its label with SOLID half ticks" {
-    // Deliberate fallback: Unicode has no dashed/double half-stroke, so the
-    // flank's stroke_kind is forced to .solid and the painter uses ╵/╷ for
-    // dotted and thick edges exactly as for solid ones.
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const a = arena.allocator();
-
-    var lat = try makeLattice(a, 12, 9);
-    paintTapDropper(&lat, 7);
-    for ([_]u32{ 1, 2, 3, 4 }) |y| lat.at(5, y).stroke_kind = .dotted;
-    const taps = [_]sketch.Tap{theTap(7)};
-    var s = emptySketch(12, 9);
-    const busbars = [_]sketch.Rail{theRail(&taps, &stem_pts)};
-    s.busbars = &busbars;
-
-    try testing.expect(onrun.tryOnRunTap(&lat, s, taps[0], "ok", null));
-
-    // Both the Cell's stroke_kind and the occupant's kind go solid — the
-    // painter reads the latter for an edge_segment, and a disagreement
-    // would strand a stale second opinion on the same cell.
     for ([_]u32{ 2, 4 }) |y| {
         const c = lat.atConst(5, y);
-        try testing.expectEqual(lattice.EdgeKind.solid, c.stroke_kind);
-        try testing.expectEqual(lattice.EdgeKind.solid, c.occupant.edge_segment.kind);
+        // Both vertical bits survive: the painter emits the full glyph.
+        try testing.expect(c.neighbours.n);
+        try testing.expect(c.neighbours.s);
+        // And the edge's own stroke kind is untouched.
+        try testing.expectEqual(lattice.EdgeKind.dotted, c.stroke_kind);
+        try testing.expectEqual(lattice.EdgeKind.dotted, c.occupant.edge_segment.kind);
     }
-    // Non-flank run cells keep their own kind.
-    try testing.expectEqual(lattice.EdgeKind.dotted, lat.atConst(5, 1).stroke_kind);
 }
 
 test "RULE B: an arrowhead is not a flank, so the head-adjacent row is refused" {
@@ -311,11 +288,9 @@ test "on-run placement over a routed polyline dropper (fan-IN member)" {
     try testing.expectEqual(@as(u21, 'r'), labelCharAt(lat, 5, 2));
     try testing.expectEqual(@as(u21, 'p'), labelCharAt(lat, 6, 2));
     try testing.expectEqual(@as(u21, 'c'), labelCharAt(lat, 7, 2));
-    // Flanks became half strokes leading into the text.
-    try testing.expect(!lat.atConst(5, 1).neighbours.s);
-    try testing.expect(lat.atConst(5, 1).neighbours.n);
-    try testing.expect(!lat.atConst(5, 3).neighbours.n);
-    try testing.expect(lat.atConst(5, 3).neighbours.s);
+    // Flanks intact: full strokes, both vertical bits.
+    try testing.expect(lat.atConst(5, 1).neighbours.s);
+    try testing.expect(lat.atConst(5, 3).neighbours.n);
 }
 
 test "determinism: identical inputs place identically" {
