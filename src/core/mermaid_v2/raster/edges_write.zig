@@ -350,7 +350,7 @@ pub fn writeArrowGuarded(
 ) void {
     if (cell.occupant == .edge_segment) {
         const seg = cell.occupant.edge_segment;
-        if (crossings.arrowheadTransit(ctx.counts, ctx.joins, ctx.co_sets, ctx.active, seg.edge, edge_id)) {
+        if (crossings.arrowheadTransit(ctx.counts, ctx.joins, ctx.co_sets, seg.edge, edge_id)) {
             cell.occupant = .{ .arrowhead = .{ .dir = dir, .edge = edge_id, .arrow = arrow } };
             cell.neighbours = along; // pristine: no foreign junction bits
             cell.stroke_kind = kind;

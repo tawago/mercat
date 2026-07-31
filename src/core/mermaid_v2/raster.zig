@@ -131,7 +131,7 @@ pub fn rasterize(
         error.OccupiedCell => return error.OutOfBounds,
     };
 
-    // Bus-bars before ordinary edges (Phase 4b slice iv): the fan trunk claims its cells first, so edges OR their bits in afterwards without overwriting trunk kind/role. // guarded-by: raster.zig "bus-bar rasterizes before edges: junction cell keeps trunk kind/role, edge bits fold in"
+    // Bus-bars before ordinary edges (Phase 4b slice iv): the fan trunk claims its cells first, so a later edge can never overwrite trunk kind/role. // guarded-by: raster.zig "bus-bar rasterizes before edges: rail cell keeps trunk kind/role, foreign bits refused"
     const busbar_report = busbars_r.rasterizeRails(&lat, s, sink);
 
     const edge_report = edges_r.rasterizeEdges(allocator, &lat, s, subgraph_edges, sink) catch |err| switch (err) {
@@ -340,13 +340,15 @@ test "single cluster around one node" {
     }
 }
 
-test "edge crossing produces a full junction cell" {
+test "foreign perpendicular crossing reads as a transversal, not a junction" {
     var arena = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
 
-    // Two crossing edges meeting at (5,5). No nodes — just verify the
-    // edge rasterizer OR-merges neighbour bits at the crossing.
+    // Two crossing edges meeting at (5,5). No nodes, and no channel that
+    // makes them co-members: the crossing rule is unconditional, so the
+    // first writer (the horizontal run) keeps its straight stroke and the
+    // vertical contributes NO bits — a transversal, not a `┼`.
     var poly_h = [_]sketch.Point{
         .{ .x = 0, .y = 5 },
         .{ .x = 10, .y = 5 },
@@ -393,10 +395,13 @@ test "edge crossing produces a full junction cell" {
 
     const r = try rasterize(a, s, .bridge, .{});
     const c = r.lattice.atConst(5, 5).*;
-    try testing.expectEqual(@as(u4, 0b1111), c.neighbours.toMask());
+    try testing.expectEqual(
+        (lattice.Neighbours{ .e = true, .w = true }).toMask(),
+        c.neighbours.toMask(),
+    );
 }
 
-test "bus-bar rasterizes before edges: junction cell keeps trunk kind/role, edge bits fold in" {
+test "bus-bar rasterizes before edges: rail cell keeps trunk kind/role, foreign bits refused" {
     var arena = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
@@ -463,7 +468,11 @@ test "bus-bar rasterizes before edges: junction cell keeps trunk kind/role, edge
         },
         else => return error.MissingJunctionCell,
     }
-    // The crossing edge's vertical bits fold into the rail's existing
-    // horizontal bits (OR-merge) rather than replacing them: full 4-way.
-    try testing.expectEqual(@as(u4, 0b1111), cell.neighbours.toMask());
+    // The crossing edge is foreign to the rail, so its vertical bits are
+    // refused: the rail's horizontal run stays clean and the edge reads as
+    // a transversal across it.
+    try testing.expectEqual(
+        (lattice.Neighbours{ .e = true, .w = true }).toMask(),
+        cell.neighbours.toMask(),
+    );
 }

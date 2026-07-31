@@ -5,6 +5,7 @@ const std = @import("std");
 const sketch = @import("../sketch.zig");
 const lattice = @import("../lattice.zig");
 const edges = @import("edges.zig");
+const ledger = @import("../base/ledger.zig");
 
 const testing = std.testing;
 
@@ -154,7 +155,7 @@ test "length-1 final segment after a corner points the terminal arrowhead into t
     });
 }
 
-test "two crossing edges merge neighbour bits" {
+test "two foreign crossing edges read as a transversal, not a junction" {
     const a = testing.allocator;
     var lat = try makeLattice(a, 12, 10);
     defer a.free(lat.cells);
@@ -172,8 +173,10 @@ test "two crossing edges merge neighbour bits" {
         .edge_segment => true,
         else => false,
     });
+    // Unconditional crossing rule: the two edges share no channel, so the
+    // first writer's horizontal run keeps its straight stroke.
     try testing.expectEqual(
-        (lattice.Neighbours{ .n = true, .e = true, .s = true, .w = true }).toMask(),
+        (lattice.Neighbours{ .e = true, .w = true }).toMask(),
         cell.neighbours.toMask(),
     );
 }
@@ -466,7 +469,13 @@ test "shared trunk corner: sibling drops bending at one cell yield ┴, not a ph
         makeEdge(2, &b_pts, .none, .none),
         makeEdge(3, &c_pts, .none, .none),
     };
-    _ = try edges.rasterizeEdges(a, &lat, makeSketch(&es), .bridge, null);
+    // They share the trunk legally (one channel), so the crossing rule
+    // exempts them and the phantom-arm question is the one under test.
+    const members = [_]ledger.EdgeId{ 1, 2, 3 };
+    const co_sets = [_]ledger.CoSet{.{ .origin = .fan_rail, .members = &members }};
+    var s = makeSketch(&es);
+    s.co_sets = &co_sets;
+    _ = try edges.rasterizeEdges(a, &lat, s, .bridge, null);
 
     // Trunk cell: north riser + east/west rail, NO south arm.
     const trunk = lat.atConst(5, 5).neighbours;

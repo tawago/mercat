@@ -17,6 +17,7 @@ const roles = @import("edge_roles.zig");
 const reconcile = @import("reconcile.zig");
 const arrow_base = @import("arrow_base.zig");
 const crossings = @import("crossings.zig");
+const ledger = @import("../base/ledger.zig");
 
 const testing = std.testing;
 
@@ -368,16 +369,21 @@ test "a corner arm merged onto a foreign run files a merged carrier; onto its ow
     defer arena.deinit();
     const a = arena.allocator();
 
-    // Foreign: edge 3 runs straight down column 4; edge 8 arrives from the
-    // west and turns north ON that run. The joins plan is empty, so the
-    // crossing rule is inert and the merge (not a refusal) is what happens.
+    // Edge 3 runs straight down column 4; edge 8 arrives from the west and
+    // turns north ON that run. A co-set makes them ONE channel, so the
+    // (unconditional) crossing rule exempts the pair and the merge — not a
+    // refusal — is what happens.
     {
         var lat = try walkLattice(a, 10, 10);
         var c = aux.Collector.init(a);
         const p3 = [_]sketch.Point{ .{ .x = 4, .y = 2 }, .{ .x = 4, .y = 7 } };
         const p8 = [_]sketch.Point{ .{ .x = 1, .y = 4 }, .{ .x = 4, .y = 4 }, .{ .x = 4, .y = 3 } };
         const es = [_]sketch.EdgePath{ walkEdge(3, &p3), walkEdge(8, &p8) };
-        _ = try edge_walk.rasterizeEdges(a, &lat, walkSketch(&es), .bridge, &c);
+        const members = [_]ledger.EdgeId{ 3, 8 };
+        const co_sets = [_]ledger.CoSet{.{ .origin = .fan_rail, .members = &members }};
+        var s = walkSketch(&es);
+        s.co_sets = &co_sets;
+        _ = try edge_walk.rasterizeEdges(a, &lat, s, .bridge, &c);
 
         const table = c.finish();
         try testing.expectEqual(@as(usize, 1), table.len);
@@ -418,7 +424,7 @@ test "a refused arrowhead transit files a suppressed carrier for the crossed run
     var lost: u32 = 0;
 
     var counts: crossings.CrossingCounts = .{};
-    const ctx: crossings.Ctx = .{ .counts = &counts, .active = true };
+    const ctx: crossings.Ctx = .{ .counts = &counts };
 
     var c = aux.Collector.init(a);
     const rec = aux.Recorder.init(&c, &lat);

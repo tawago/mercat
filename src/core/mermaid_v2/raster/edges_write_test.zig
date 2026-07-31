@@ -101,7 +101,7 @@ test "writeArrowCell records the declared head style on the cell" {
     try testing.expectEqual(lattice.ArrowKind.open, plain.occupant.arrowhead.arrow);
 
     var counts: crossings.CrossingCounts = .{};
-    const ctx: crossings.Ctx = .{ .active = true, .counts = &counts };
+    const ctx: crossings.Ctx = .{ .counts = &counts };
     var refused: lattice.Cell = .{
         .occupant = .{ .edge_segment = .{ .edge = 2, .kind = .solid, .role = .forward } },
         .neighbours = .{ .e = true, .w = true },
@@ -115,7 +115,7 @@ test "writeArrowGuarded refuse branch stamps the arrowhead's own stroke_kind" {
     // lays a pristine arrowhead. Its stroke must be the incoming edge's OWN
     // kind (.solid), never the foreign run's (.thick).
     var counts: crossings.CrossingCounts = .{};
-    const ctx: crossings.Ctx = .{ .active = true, .counts = &counts };
+    const ctx: crossings.Ctx = .{ .counts = &counts };
     var cell: lattice.Cell = .{
         .occupant = .{ .edge_segment = .{ .edge = 2, .kind = .thick, .role = .forward } },
         .neighbours = .{ .e = true, .w = true },

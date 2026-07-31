@@ -46,7 +46,7 @@ fn sketchWith(es: []const sketch.EdgePath, joins: ledger.RealizedJoins) sketch.S
     };
 }
 
-/// A plan that makes the rule active but places every listed edge in DISTINCT
+/// A plan that places every listed edge in DISTINCT
 /// (independent) memberships, so no two are co-members: every foreign crossing
 /// is subject to the transversal rule.
 fn independentPlan(mems: []const ledger.RealizedEdgeMembership) ledger.RealizedJoins {
