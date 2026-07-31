@@ -7,20 +7,21 @@
 //! make. So this walks the pairs (ink cell, direction, ring cell reached)
 //! and files each one:
 //!
-//!   DEPARTURE      the ring cell holds a `.port` record: an edge attached
-//!                  a departure stroke to it (`drawPortStroke` files one
-//!                  for every stroke it actually merges). This is the one
+//!   PORT           the ring cell holds a `.port` record: an edge attached
+//!                  a port stroke to it — a source departure or a target
+//!                  arrival, both ends on all four faces (uniform port
+//!                  erasure; `drawPortStroke`/`drawTargetPortStroke` file
+//!                  one for every stroke actually merged). This is the one
 //!                  verdict that used to be an INFERENCE — "the ring
 //!                  carries the arm back, and only a departure could have
 //!                  put it there". It could not: the arrowhead-base weld
 //!                  ORs an arm into a border cell too. The record says
-//!                  which, so the pair is now classified on evidence and
-//!                  the residual arms get their own bucket.
-//!   NODE FACE      the standard arrival. All four combinations — vertical
-//!                  or horizontal face, bare stroke or arrowhead — are
-//!                  conventions, because nothing in the rasterizer ever
-//!                  writes a reciprocal bit into a TARGET border. A defect
-//!                  bucket here would fire on every plain `A --> B`.
+//!                  which, so the pair is classified on evidence and the
+//!                  residual arms get their own bucket.
+//!   NODE FACE      an abutment with no reciprocal port stroke recorded.
+//!                  All four combinations — vertical or horizontal face,
+//!                  bare stroke or arrowhead — stay conventions, not
+//!                  defects.
 //!   NODE CORNER    a defect: ports are issued as face offsets only, so a
 //!                  run that lands on a corner missed the face it aimed at.
 //!   FRAME BARE     frame-solid: a stroke abutting a subgraph border is
@@ -100,13 +101,13 @@ fn abutment(v: cell.View, x: u32, y: u32, d: cell.Dir4, is_arrow: bool, c: *coun
     switch (n.kind) {
         .ring_node, .ring_frame => {
             c.n_term_abut += 1;
-            // Departure first, and from the record rather than the mask:
-            // `drawPortStroke` files a `.port` for every stroke it merges
-            // into a source border, so a pair whose ring cell holds one is
-            // a departure by evidence.
-            // guarded-by: terminal_test.zig "departure: a port record claims the pair before any face verdict"
+            // Port record first, and from the record rather than the mask:
+            // the two port-stroke writers file a `.port` for every stroke
+            // they merge into a border (either end, any face), so a pair
+            // whose ring cell holds one is an attachment by evidence.
+            // guarded-by: terminal_test.zig "a port record claims the pair before any face verdict"
             if (n.ports().len != 0) {
-                c.c_term_departure_recorded += 1;
+                c.c_term_port_recorded += 1;
                 return;
             }
             // An arm pointing back with nothing recorded behind it belongs

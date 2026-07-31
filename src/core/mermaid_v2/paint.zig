@@ -243,6 +243,31 @@ test "paint: single 3x3 rect node renders box-drawing border" {
     try testing.expectEqualStrings("┌─┐\n│ │\n└─┘\n", got);
 }
 
+test "paint: arrival port arms paint tees on the target border (uniform port erasure)" {
+    // A TD arrival merges .n into a box-top edge_n cell → ┴; LR arrivals
+    // merge .w/.e into the side borders → ┤/├. One row of three border
+    // cells, masks as drawTargetPortStroke leaves them.
+    const a = testing.allocator;
+    var cells: [3]lattice.Cell = .{
+        .{
+            .occupant = .{ .node_border = .{ .node = 1, .role = .edge_n } },
+            .neighbours = .{ .e = true, .w = true, .n = true },
+        },
+        .{
+            .occupant = .{ .node_border = .{ .node = 1, .role = .edge_w } },
+            .neighbours = .{ .n = true, .s = true, .w = true },
+        },
+        .{
+            .occupant = .{ .node_border = .{ .node = 1, .role = .edge_e } },
+            .neighbours = .{ .n = true, .s = true, .e = true },
+        },
+    };
+    const lat = lattice.Lattice{ .width = 3, .height = 1, .cells = &cells };
+    const got = try paint(a, lat, 1000);
+    defer a.free(got);
+    try testing.expectEqualStrings("┴┤├\n", got);
+}
+
 test "paint: label_char overlay in 1x1 lattice" {
     const a = testing.allocator;
     var cells: [1]lattice.Cell = .{

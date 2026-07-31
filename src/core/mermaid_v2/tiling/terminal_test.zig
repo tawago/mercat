@@ -163,13 +163,13 @@ test "frame: an arrowhead still abutting untouched frame stopped short" {
 
 // -- Reciprocation and the reprieved gap ------------------------------------
 
-test "departure: a port record claims the pair before any face verdict" {
+test "a port record claims the pair before any face verdict" {
     // The border merge stamps the departure bit into the cell the run
     // LEAVES and files a `.port` record naming the edge that did it. The
     // record is the signature; the bit is only a consequence.
     const c = pairAtWithPort(edgeCell(.{ .n = true, .s = true }), .north, border(.edge_s, .{ .e = true, .w = true, .s = true }));
     try testing.expectEqual(@as(u32, 1), c.n_term_abut);
-    try testing.expectEqual(@as(u32, 1), c.c_term_departure_recorded);
+    try testing.expectEqual(@as(u32, 1), c.c_term_port_recorded);
     try testing.expectEqual(@as(u32, 0), c.c_term_ring_arm_unrecorded);
     try testing.expectEqual(@as(u32, 0), c.c_term_node_ns_bare);
     try testing.expectEqual(@as(u32, 0), c.defectTotal());
@@ -183,7 +183,7 @@ test "an unrecorded ring arm is neither a departure nor a face verdict" {
     // draws no face verdict: the arm's writer accounts for it elsewhere.
     const c = pairAt(edgeCell(.{ .n = true, .s = true }), .north, border(.edge_s, .{ .e = true, .w = true, .s = true }));
     try testing.expectEqual(@as(u32, 1), c.n_term_abut);
-    try testing.expectEqual(@as(u32, 0), c.c_term_departure_recorded);
+    try testing.expectEqual(@as(u32, 0), c.c_term_port_recorded);
     try testing.expectEqual(@as(u32, 1), c.c_term_ring_arm_unrecorded);
     try testing.expectEqual(@as(u32, 0), c.c_term_node_ns_bare);
     try testing.expectEqual(@as(u32, 0), c.defectTotal());
@@ -204,7 +204,7 @@ test "a port record on a ring the pair never reaches changes nothing" {
     lat.aux = &records;
     const c = scanAll(&lat);
     try testing.expectEqual(@as(u32, 1), c.n_term_abut);
-    try testing.expectEqual(@as(u32, 0), c.c_term_departure_recorded);
+    try testing.expectEqual(@as(u32, 0), c.c_term_port_recorded);
     try testing.expectEqual(@as(u32, 1), c.c_term_node_ns_bare);
 }
 
@@ -315,7 +315,7 @@ test "a plain TD arrival set contains zero defect buckets" {
     // target face. The stroke's south arm ends on the arrowhead, which is
     // not a ring and so ends no pair.
     try testing.expectEqual(@as(u32, 2), c.n_term_abut);
-    try testing.expectEqual(@as(u32, 1), c.c_term_departure_recorded);
+    try testing.expectEqual(@as(u32, 1), c.c_term_port_recorded);
     try testing.expectEqual(@as(u32, 1), c.c_term_node_ns_arrow);
     try testing.expectEqual(@as(u32, 0), c.defectTotal());
 }

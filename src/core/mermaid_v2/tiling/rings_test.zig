@@ -180,41 +180,77 @@ test "fusion: a weld-explained east arm is claimed before the axis buckets" {
     var lat = g.lat();
     var c = one(&lat, 1, 1, false);
     try testing.expectEqual(@as(u32, 1), c.c_border_arm_weld);
-    try testing.expectEqual(@as(u32, 0), c.d_border_arm_ew);
+    try testing.expectEqual(@as(u32, 0), c.d_border_arm_unrecorded);
 
     // The same arm with an arrowhead pointing the other way is NOT a weld
-    // (its base lies elsewhere), so it falls through to the axis bucket.
+    // (its base lies elsewhere), so it falls through to the record bucket
+    // — and with no `.port` record, it is unexplained.
     g.set(2, 1, .{ .occupant = .{ .arrowhead = .{ .dir = .west, .edge = 5 } }, .neighbours = .{ .e = true, .w = true } });
     lat = g.lat();
     c = one(&lat, 1, 1, false);
     try testing.expectEqual(@as(u32, 0), c.c_border_arm_weld);
-    try testing.expectEqual(@as(u32, 1), c.d_border_arm_ew);
+    try testing.expectEqual(@as(u32, 1), c.d_border_arm_unrecorded);
 }
 
-test "fusion: a node ring's extra N/S arm is the source merge, E/W is not" {
+test "fusion: an off-axis arm into the same node's own border is wall structure" {
+    // The subroutine double wall: a top-border cell carries a south arm
+    // down into the node's own inner-wall border cell. No record, no weld
+    // — but the arm lands on the same node's ring, so it is synthesized
+    // structure, not an unexplained attachment. A DIFFERENT node's ring
+    // does not qualify.
     var g: Grid = .{};
     g.init();
-    // A south edge cell with an extra south arm: a vertical departure.
+    g.set(1, 1, border(3, .edge_n, .{ .e = true, .w = true, .s = true }));
+    g.set(0, 1, border(3, .corner_nw, .{ .e = true, .s = true }));
+    g.set(2, 1, border(3, .corner_ne, .{ .w = true, .s = true }));
+    g.set(1, 2, border(3, .edge_w, .{ .n = true, .s = true }));
+    var lat = g.lat();
+    var c = one(&lat, 1, 1, false);
+    try testing.expectEqual(@as(u32, 1), c.c_border_arm_wall);
+    try testing.expectEqual(@as(u32, 0), c.defectTotal());
+
+    // Same geometry, foreign node below: falls through to the record
+    // ladder and, unrecorded, is a defect.
+    g.set(1, 2, border(4, .edge_w, .{ .n = true, .s = true }));
+    lat = g.lat();
+    c = one(&lat, 1, 1, false);
+    try testing.expectEqual(@as(u32, 0), c.c_border_arm_wall);
+    try testing.expectEqual(@as(u32, 1), c.d_border_arm_unrecorded);
+}
+
+test "fusion: a port-recorded arm is the convention on every face; unrecorded is a defect" {
+    var g: Grid = .{};
+    g.init();
+    // A south edge cell with an extra south arm and its `.port` record: a
+    // recorded vertical departure.
     g.set(1, 1, border(3, .edge_s, .{ .e = true, .w = true, .s = true }));
     g.set(0, 1, border(3, .corner_sw, .{ .e = true, .n = true }));
     g.set(2, 1, border(3, .corner_se, .{ .w = true, .n = true }));
     g.set(1, 2, edgeCell(5, .{ .n = true, .s = true }));
     var lat = g.lat();
+    const port_rec = [_]lattice.Aux{.{ .cell = 1 * 5 + 1, .value = 5, .kind = .port }};
+    lat.aux = &port_rec;
     var c = one(&lat, 1, 1, false);
-    try testing.expectEqual(@as(u32, 1), c.c_border_arm_source_ns);
+    try testing.expectEqual(@as(u32, 1), c.c_border_arm_port);
     try testing.expectEqual(@as(u32, 0), c.defectTotal());
 
-    // The same cell with an extra EAST arm: nothing writes one.
-    g.set(1, 1, border(3, .edge_n, .{ .e = true, .w = true }));
-    g.set(0, 1, border(3, .corner_nw, .{ .e = true, .s = true }));
-    g.set(2, 1, border(3, .corner_ne, .{ .w = true, .s = true }));
+    // An EAST arm with its record — uniform port erasure writes E/W arms
+    // too (LR/RL departures and arrivals) — is the same convention.
     g.set(1, 1, border(3, .edge_w, .{ .n = true, .s = true, .e = true }));
     g.set(1, 0, border(3, .corner_nw, .{ .e = true, .s = true }));
     g.set(1, 2, border(3, .corner_sw, .{ .e = true, .n = true }));
     g.set(2, 1, edgeCell(5, .{ .e = true, .w = true }));
     lat = g.lat();
+    lat.aux = &port_rec;
     c = one(&lat, 1, 1, false);
-    try testing.expectEqual(@as(u32, 1), c.d_border_arm_ew);
+    try testing.expectEqual(@as(u32, 1), c.c_border_arm_port);
+    try testing.expectEqual(@as(u32, 0), c.defectTotal());
+
+    // The same arm with the side table empty: no writer on record.
+    lat = g.lat();
+    c = one(&lat, 1, 1, false);
+    try testing.expectEqual(@as(u32, 0), c.c_border_arm_port);
+    try testing.expectEqual(@as(u32, 1), c.d_border_arm_unrecorded);
 }
 
 test "fusion: a frame's extra arm is a convention under cross and a leak under bridge" {

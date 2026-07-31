@@ -53,6 +53,7 @@ pub const toCoord = ew.toCoord;
 pub const writeEdgeCell = ew.writeEdgeCell;
 pub const writeArrowCell = ew.writeArrowCell;
 pub const drawPortStroke = ew.drawPortStroke;
+pub const drawTargetPortStroke = ew.drawTargetPortStroke;
 
 /// Summary of one edge-rasterization pass.
 /// `cells_lost` counts every polyline/arrowhead cell that could not be
@@ -208,6 +209,7 @@ fn walkPolyline(
     const erole = edge.role;
 
     drawPortStroke(lat, pts, ek, edge.id, sink);
+    ew.drawTargetPortStroke(lat, pts, ek, edge.id, sink);
 
     var i: usize = 0;
     while (i + 1 < pts.len) : (i += 1) {

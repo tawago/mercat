@@ -277,8 +277,8 @@ pub fn writeArrowCell(
 }
 
 /// Draw the departure PORT: OR-merge the outgoing bit into the source
-/// border cell when the polyline leaves a node vertically (east/west
-/// skipped so LR/RL flows keep a clean `│` source border).
+/// border cell on whichever face the polyline leaves through — all four
+/// faces, symmetric with `drawTargetPortStroke` (uniform port erasure).
 /// When the merging edge is non-solid, also stamp the border cell's
 /// `stroke_kind` so the painter can pick variants like `╥`/`╨` for
 /// thick edges meeting a solid node frame.
@@ -288,7 +288,7 @@ pub fn writeArrowCell(
 /// on the side table: the border cell keeps the merged arm but not the
 /// identity of the edge that merged it, so the record adds a fact the
 /// Cell cannot express (lattice.zig's anti-desync law). Refused strokes
-/// (invisible edge, non-vertical exit, non-border cell) file nothing —
+/// (invisible edge, non-border cell) file nothing —
 /// the channel records what was drawn, never what was intended.
 /// guarded-by: edges_write_test.zig "drawPortStroke: an invisible edge leaves the source node border untouched"
 /// guarded-by: aux_test.zig "drawPortStroke files a port record only for a stroke it actually draws"
@@ -309,13 +309,51 @@ pub fn drawPortStroke(
         }
     }
     const fd = first_dir_opt orelse return;
-    if (fd != .north and fd != .south) return;
-    const p0 = pts[0];
-    if (!pointInBounds(p0, lat)) return;
-    const c = toCoord(p0);
+    mergePortBit(lat, pts[0], fd, kind, edge_id, sink);
+}
+
+/// Draw the arrival PORT: OR-merge the incoming arm into the TARGET border
+/// cell at the polyline's final point — the perimeter cell the walk
+/// deliberately skips (the arrowhead stamps the last INTERIOR cell). The
+/// merged bit is `reverse(last_dir)`: it points back along the run, so the
+/// border glyph becomes the tee facing the arriving stroke (`┴` on a
+/// box-top TD arrival, `┤`/`├` on LR/RL). Same refusals and `.port` record
+/// discipline as `drawPortStroke` — the two are the uniform port-erasure
+/// pair, symmetric on all four faces.
+/// guarded-by: edges_write_test.zig "drawTargetPortStroke: arrival arms merge on all four faces"
+pub fn drawTargetPortStroke(
+    lat: *lattice.Lattice,
+    pts: []const sketch.Point,
+    kind: lattice.EdgeKind,
+    edge_id: u32,
+    sink: aux.Sink,
+) void {
+    if (kind == .invisible) return;
+    var last_dir_opt: ?Move = null;
+    var i: usize = 0;
+    while (i + 1 < pts.len) : (i += 1) {
+        if (segmentDir(pts[i], pts[i + 1])) |d| last_dir_opt = d;
+    }
+    const ld = last_dir_opt orelse return;
+    mergePortBit(lat, pts[pts.len - 1], reverse(ld), kind, edge_id, sink);
+}
+
+/// Shared tail of the two port-stroke writers: OR one directional arm into
+/// a node-border cell (refusing every other occupant), stamp a non-solid
+/// stroke, file the `.port` record for the stroke actually drawn.
+fn mergePortBit(
+    lat: *lattice.Lattice,
+    p: sketch.Point,
+    arm: Move,
+    kind: lattice.EdgeKind,
+    edge_id: u32,
+    sink: aux.Sink,
+) void {
+    if (!pointInBounds(p, lat)) return;
+    const c = toCoord(p);
     const cell = lat.at(c.x, c.y);
     if (cell.occupant == .node_border) {
-        cell.neighbours = orMask(cell.neighbours, bitMask(fd));
+        cell.neighbours = orMask(cell.neighbours, bitMask(arm));
         if (kind != .solid and cell.stroke_kind == .solid) {
             cell.stroke_kind = kind;
         }

@@ -188,15 +188,20 @@ test "aux records survive the three post-walk mutating passes" {
     const report = try raster.rasterize(a, s, .bridge, .{ .collect_aux = true });
     var lat = report.lattice;
 
-    const port_cell = lat.cellIndex(2, 2);
-    var found: usize = 0;
+    // Uniform port erasure: one record per attachment stroke — the source
+    // departure at (2,2) AND the target arrival at (2,6).
+    const source_port_cell = lat.cellIndex(2, 2);
+    const target_port_cell = lat.cellIndex(2, 6);
+    var found_source: usize = 0;
+    var found_target: usize = 0;
     for (lat.aux) |r| {
         if (r.kind != .port) continue;
-        found += 1;
-        try testing.expectEqual(port_cell, r.cell);
-        try testing.expectEqual(@as(u32, 7), r.value); // the departing edge id
+        try testing.expectEqual(@as(u32, 7), r.value); // the attaching edge id
+        if (r.cell == source_port_cell) found_source += 1;
+        if (r.cell == target_port_cell) found_target += 1;
     }
-    try testing.expectEqual(@as(usize, 1), found);
+    try testing.expectEqual(@as(usize, 1), found_source);
+    try testing.expectEqual(@as(usize, 1), found_target);
 
     // Snapshot, then run the three post-walk passes AGAIN over the shipped
     // lattice and, harsher than any of them, blank the recorded cell

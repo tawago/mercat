@@ -118,13 +118,28 @@ fn fusionArms(v: cell.View, x: u32, y: u32, t: cell.Typed, full: u4, mode_cross:
                 c.c_border_arm_weld += 1;
                 continue;
             }
+            // An off-axis arm into the SAME node's own border is internal
+            // structure the node rasterizer synthesized (the subroutine
+            // double wall), not an edge attachment.
+            // guarded-by: rings_test.zig "fusion: an off-axis arm into the same node's own border is wall structure"
+            if (t.kind == .ring_node and n.kind == .ring_node and
+                t.node != null and n.node != null and t.node.? == n.node.?)
+            {
+                c.c_border_arm_wall += 1;
+                continue;
+            }
         }
         if (t.kind == .ring_node) {
-            switch (d) {
-                // The source-border merge stamps a departure bit for
-                // vertical departures only.
-                .north, .south => c.c_border_arm_source_ns += 1,
-                .east, .west => c.d_border_arm_ew += 1,
+            // Uniform port erasure: an attachment stroke may OR an arm
+            // into EITHER end's border on ANY face, and every stroke
+            // actually drawn files a `.port` record at the cell. The
+            // record is the evidence; an arm with neither weld nor
+            // record has no known writer.
+            // guarded-by: rings_test.zig "fusion: a port-recorded arm is the convention on every face; unrecorded is a defect"
+            if (t.ports().len != 0) {
+                c.c_border_arm_port += 1;
+            } else {
+                c.d_border_arm_unrecorded += 1;
             }
         } else if (mode_cross) {
             c.c_frame_arm_cross_mode += 1;

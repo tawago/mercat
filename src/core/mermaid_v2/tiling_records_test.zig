@@ -213,21 +213,27 @@ test "the terminal law's departure verdict comes from the records, not the mask"
         blind.report.lattice.aux = &.{};
         const without = scan.run(a, blind.ctx());
 
-        departures_seen += with.c_term_departure_recorded;
+        departures_seen += with.c_term_port_recorded;
         try testing.expectEqual(@as(u32, 0), with.c_term_ring_arm_unrecorded);
-        try testing.expectEqual(@as(u32, 0), without.c_term_departure_recorded);
-        try testing.expectEqual(with.c_term_departure_recorded, without.c_term_ring_arm_unrecorded);
+        try testing.expectEqual(@as(u32, 0), without.c_term_port_recorded);
+        try testing.expectEqual(with.c_term_port_recorded, without.c_term_ring_arm_unrecorded);
 
-        // Same pairs, same everything else: only the two departure buckets
-        // trade places.
+        // Same pairs; the record-based buckets trade places. The rings
+        // family is record-based too (uniform port erasure files a `.port`
+        // for every border arm it merges), so blinding the table moves each
+        // port-explained arm into ITS unrecorded bucket — a defect there,
+        // exactly because a real unexplained arm is one.
         try testing.expectEqual(with.n_term_abut, without.n_term_abut);
-        try testing.expectEqual(with.defectTotal(), without.defectTotal());
+        try testing.expectEqual(with.c_border_arm_port, without.d_border_arm_unrecorded);
+        try testing.expectEqual(
+            with.defectTotal() + with.c_border_arm_port,
+            without.defectTotal(),
+        );
         try testing.expectEqual(with.c_term_node_ns_arrow, without.c_term_node_ns_arrow);
         try testing.expectEqual(with.c_term_frame_bare, without.c_term_frame_bare);
     };
-    // Counted over the corpus rather than per render: an LR/RL flow has NO
-    // recorded departures at all, because the port stroke is issued for
-    // vertical exits only (east/west would spoil the `|` source border).
+    // Counted over the corpus rather than per render, out of caution for
+    // degenerate entries (an all-invisible flow records nothing).
     try testing.expect(departures_seen > 0);
 }
 

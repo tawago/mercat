@@ -186,12 +186,17 @@ pub const Counts = struct {
     /// tip points along it — the arrowhead-base weld. Checked FIRST,
     /// because weld ORs an arm in for ANY tip including east/west.
     c_border_arm_weld: u32 = 0,
-    /// A node ring's extra N/S arm: the source-border merge stamps the
-    /// departure bit for vertical departures only.
-    c_border_arm_source_ns: u32 = 0,
-    /// A node ring's extra E/W arm. Nothing in the rasterizer writes one,
-    /// so it is ink the border claims and no run provides.
-    d_border_arm_ew: u32 = 0,
+    /// A node ring's off-axis arm landing on the SAME node's own border:
+    /// internal structure the node rasterizer synthesized (the subroutine
+    /// double wall), not an edge attachment.
+    c_border_arm_wall: u32 = 0,
+    /// A node ring's extra arm explained by a `.port` record at the cell:
+    /// uniform port erasure merges an attachment stroke into BOTH ends'
+    /// borders on all four faces, and files a record for every stroke drawn.
+    c_border_arm_port: u32 = 0,
+    /// A node ring's extra arm with no `.port` record (and no weld): ink
+    /// the border claims and no recorded writer provides.
+    d_border_arm_unrecorded: u32 = 0,
     /// A frame's extra arm under the `cross` notation, which welds edges
     /// into the border by design.
     c_frame_arm_cross_mode: u32 = 0,
@@ -205,11 +210,11 @@ pub const Counts = struct {
     /// for the buckets below.
     n_term_abut: u32 = 0,
     /// The ring cell holds a `.port` record for this position: an edge
-    /// attached a departure stroke here, so the pair is a source-side
-    /// departure and no arrival verdict is drawn from it. Read from the
-    /// side table, not inferred from the mask — a bit pointing back is
-    /// evidence of SOME writer, not of this one.
-    c_term_departure_recorded: u32 = 0,
+    /// attached a port stroke here (source departure OR target arrival —
+    /// uniform port erasure), so no face verdict is drawn from the pair.
+    /// Read from the side table, not inferred from the mask — a bit
+    /// pointing back is evidence of SOME writer, not of this one.
+    c_term_port_recorded: u32 = 0,
     /// The ring carries the arm back but no port record explains it. The
     /// arrowhead-base weld ORs an arm into a border cell for any tip, so
     /// such a bit exists without being a departure. Not a departure and

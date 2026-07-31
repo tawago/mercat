@@ -75,10 +75,12 @@ fn cylinderGlyph(role: lattice.BorderRole, n: lattice.Neighbours) u21 {
         .corner_ne => '╮',
         .corner_se => '╯',
         .corner_sw => '╰',
-        // Top/bottom rail is double-line `═`; edges attaching N/S get
-        // the hybrid tee. guarded-by: shape_glyphs.zig "cylinder: top/bottom edges use double rail; tees use ╤/╧"
-        .edge_n => if (n.s) '╤' else '═',
-        .edge_s => if (n.n) '╧' else '═',
+        // Top/bottom rail is double-line `═`; an attachment arm on either
+        // side (source departure OR target arrival — uniform port erasure)
+        // gets the hybrid tee whose stem points along the arm.
+        // guarded-by: shape_glyphs.zig "cylinder: top/bottom edges use double rail; tees use ╤/╧"
+        .edge_n => if (n.s) '╤' else if (n.n) '╧' else '═',
+        .edge_s => if (n.n) '╧' else if (n.s) '╤' else '═',
         else => jt.glyphFor(n),
     };
 }
@@ -180,6 +182,10 @@ test "cylinder: top/bottom edges use double rail; tees use ╤/╧" {
     try testing.expectEqual(@as(u21, '╤'), glyphFor(.cylinder, .edge_n, ews));
     try testing.expectEqual(@as(u21, '═'), glyphFor(.cylinder, .edge_s, ew));
     try testing.expectEqual(@as(u21, '╧'), glyphFor(.cylinder, .edge_s, ewn));
+    // Uniform port erasure: a TARGET arrival's arm (n-bit on the top rail,
+    // s-bit on the bottom rail) paints the symmetric hybrid tee.
+    try testing.expectEqual(@as(u21, '╧'), glyphFor(.cylinder, .edge_n, ewn));
+    try testing.expectEqual(@as(u21, '╤'), glyphFor(.cylinder, .edge_s, ews));
 }
 
 test "circle: diagonal slash corners" {
