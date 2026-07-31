@@ -350,14 +350,37 @@ fn mergePortBit(
     sink: aux.Sink,
 ) void {
     if (!pointInBounds(p, lat)) return;
-    const c = toCoord(p);
+    var q = p;
+    // Port-gap probe: a polyline may stop one cell SHORT of the border
+    // (the 1-cell gap convention `reconcile.zig` reprieves — back-edge
+    // arrivals do this routinely). The border then sits one further step
+    // AWAY from the merged arm (`reverse(arm)` points along the run's
+    // travel toward the node), and skipping it would leave gap arrivals
+    // as the one un-erased port class. Probe exactly one cell, and only
+    // across an EMPTY endpoint, so the stroke never jumps a real occupant.
+    // guarded-by: edges_write_test.zig "a gap arrival merges its port bit across the 1-cell reprieve"
+    if (lat.at(toCoord(q).x, toCoord(q).y).occupant == .empty) {
+        q = step(q, reverse(arm));
+        if (!pointInBounds(q, lat)) return;
+    }
+    const c = toCoord(q);
     const cell = lat.at(c.x, c.y);
     if (cell.occupant == .node_border) {
+        // Corner refusal: ports are issued as FACE offsets, so ink on a
+        // corner is a routing defect — merging there would morph the
+        // corner glyph AND file the `.port` that excuses the landing from
+        // the terminal audit's corner bucket. Leave the cell pristine so
+        // the defect stays visible to the report.
+        // guarded-by: edges_write_test.zig "a corner landing is refused: no merge, no record"
+        switch (cell.occupant.node_border.role) {
+            .corner_nw, .corner_ne, .corner_se, .corner_sw => return,
+            else => {},
+        }
         cell.neighbours = orMask(cell.neighbours, bitMask(arm));
         if (kind != .solid and cell.stroke_kind == .solid) {
             cell.stroke_kind = kind;
         }
-        aux.record(sink, lat.cellIndex(c.x, c.y), .port, edge_id, 0);
+        aux.record(sink, lat.cellIndex(c.x, c.y), .port, edge_id, lattice.portArmDetail(arm));
     }
 }
 

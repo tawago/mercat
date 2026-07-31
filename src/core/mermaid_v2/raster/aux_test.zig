@@ -92,7 +92,10 @@ test "drawPortStroke files a port record only for a stroke it actually draws" {
         try testing.expectEqual(lat.cellIndex(0, 0), table[0].cell);
         try testing.expectEqual(lattice.AuxKind.port, table[0].kind);
         try testing.expectEqual(@as(u32, 42), table[0].value); // the attaching edge
-        try testing.expectEqual(@as(u8, 0), table[0].detail); // direction is a Cell fact
+        // The merged arm rides in detail: the bit is a Cell fact, but
+        // OWNERSHIP of the bit is not — the audit needs to know which
+        // arm this record vouches for.
+        try testing.expectEqual(lattice.portArmDetail(.south), table[0].detail);
     }
 
     // Refused (invisible edge): no ink, therefore no record. The channel

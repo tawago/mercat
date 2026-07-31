@@ -163,8 +163,12 @@ pub const AuxKind = enum(u8) {
     /// node-border cell named by `cell` (see `raster/edges_write.zig`'s
     /// `drawPortStroke`). The border cell records the node, the border
     /// role and the merged arm — never WHICH edge merged it, which is why
-    /// this record is legal under the anti-desync law. `detail` is unused
-    /// (0): the departure direction is already a neighbour bit.
+    /// this record is legal under the anti-desync law. `detail` is
+    /// `portArmDetail(arm)` — WHICH arm the port stroke merged. The bit
+    /// itself is in the mask, but ownership of the bit is not: a border
+    /// cell can carry arms from several writers, and the audit must not
+    /// let one recorded stroke excuse a different, unexplained arm.
+    /// guarded-by: rings_test.zig "fusion: a port record excuses only the arm it merged"
     port,
     /// A carrier: the edge named by `value` has ink at `cell` that the
     /// Cell does not name. A Cell holds exactly ONE edge id, so every
@@ -211,6 +215,14 @@ pub const AuxKind = enum(u8) {
     /// guarded-by: tiling_records_test.zig "the frame-bridge tallies and the per-cell intrusion records count the same events"
     intrusion,
 };
+
+/// Encoding of a `.port` record's `detail`: WHICH border arm the port
+/// stroke merged. Offset by 1 so 0 never names a direction — a record
+/// built without a direction (a hand-rolled test fixture, a stale table)
+/// matches no arm instead of silently matching north.
+pub fn portArmDetail(arm: Dir4) u8 {
+    return 1 + @as(u8, @intFromEnum(arm));
+}
 
 /// How an edge's ink came to be anonymous at a carrier cell. Not a Cell
 /// fact either way: the Cell shows the surviving id, never the manner in

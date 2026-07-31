@@ -132,11 +132,14 @@ fn fusionArms(v: cell.View, x: u32, y: u32, t: cell.Typed, full: u4, mode_cross:
         if (t.kind == .ring_node) {
             // Uniform port erasure: an attachment stroke may OR an arm
             // into EITHER end's border on ANY face, and every stroke
-            // actually drawn files a `.port` record at the cell. The
-            // record is the evidence; an arm with neither weld nor
-            // record has no known writer.
+            // actually drawn files a `.port` record naming the merged
+            // arm. The record is the evidence FOR THAT ARM only: a cell
+            // with one recorded departure and one further unexplained
+            // arm still reports the stray. An arm with neither weld nor
+            // matching record has no known writer.
             // guarded-by: rings_test.zig "fusion: a port-recorded arm is the convention on every face; unrecorded is a defect"
-            if (t.ports().len != 0) {
+            // guarded-by: rings_test.zig "fusion: a port record excuses only the arm it merged"
+            if (t.portArm(d)) {
                 c.c_border_arm_port += 1;
             } else {
                 c.d_border_arm_unrecorded += 1;

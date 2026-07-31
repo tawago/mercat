@@ -85,7 +85,8 @@ fn pairAtWithPort(ink: lattice.Cell, d: lattice.Dir4, ring: lattice.Cell) counts
     g.set(p.x, p.y, ring);
     var lat = g.lat();
     const records = [_]lattice.Aux{
-        .{ .cell = lat.cellIndex(p.x, p.y), .value = 7, .kind = .port },
+        // The port stroke's merged arm points back toward the ink cell.
+        .{ .cell = lat.cellIndex(p.x, p.y), .value = 7, .kind = .port, .detail = lattice.portArmDetail(cell.reverse(d)) },
     };
     lat.aux = &records;
     return scanAll(&lat);
@@ -307,7 +308,7 @@ test "a plain TD arrival set contains zero defect buckets" {
     // The merged departure comes with its record, exactly as a real
     // rasterization files one.
     const records = [_]lattice.Aux{
-        .{ .cell = lat.cellIndex(2, 0), .value = 7, .kind = .port },
+        .{ .cell = lat.cellIndex(2, 0), .value = 7, .kind = .port, .detail = lattice.portArmDetail(.south) },
     };
     lat.aux = &records;
     const c = scanAll(&lat);

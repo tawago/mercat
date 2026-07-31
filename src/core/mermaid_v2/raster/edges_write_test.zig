@@ -8,6 +8,7 @@ const std = @import("std");
 const sketch = @import("../sketch.zig");
 const lattice = @import("../lattice.zig");
 const ew = @import("edges_write.zig");
+const aux = @import("aux.zig");
 const crossings = @import("crossings.zig");
 
 const testing = std.testing;
@@ -293,6 +294,58 @@ test "drawTargetPortStroke: refuses non-border occupants and invisible edges" {
         try testing.expect(!lat.atConst(1, 2).neighbours.n);
         try testing.expectEqual(lattice.EdgeKind.solid, lat.atConst(1, 2).stroke_kind);
     }
+}
+
+test "a gap arrival merges its port bit across the 1-cell reprieve" {
+    // Back-edge arrivals stop one cell SHORT of the border (the gap
+    // convention reconcile reprieves): the polyline endpoint is EMPTY and
+    // the border sits one further step along the travel direction. The
+    // arrival port must land there — otherwise gap arrivals are the one
+    // un-erased class.
+    const a = testing.allocator;
+    // Border on the east face at (2,1); polyline travels east but stops at
+    // the empty gap cell (1,1).
+    var lat = try borderLattice3(a, 2, 1, .{ .n = true, .s = true });
+    defer a.free(lat.cells);
+    lat.at(2, 1).occupant.node_border.role = .edge_w;
+    const pts = [_]sketch.Point{ .{ .x = 0, .y = 1 }, .{ .x = 1, .y = 1 } };
+    ew.drawTargetPortStroke(&lat, &pts, .solid, 0, null);
+    try testing.expect(lat.atConst(2, 1).neighbours.w);
+    // The gap cell itself stays untouched.
+    try testing.expectEqual(@as(u4, 0), lat.atConst(1, 1).neighbours.toMask());
+}
+
+test "a corner landing is refused: no merge, no record" {
+    // Ports are face offsets; ink ending on a corner is a routing defect.
+    // Merging there would morph the corner glyph and file the `.port`
+    // that launders the landing out of the terminal audit's corner
+    // bucket — so the writer refuses, leaving the defect visible.
+    const a = testing.allocator;
+    var lat = try borderLattice3(a, 1, 2, .{ .e = true, .s = true });
+    defer a.free(lat.cells);
+    lat.at(1, 2).occupant.node_border.role = .corner_nw;
+    var col = aux.Collector.init(a);
+    defer col.records.deinit(a);
+    const pts = [_]sketch.Point{ .{ .x = 1, .y = 0 }, .{ .x = 1, .y = 2 } };
+    ew.drawTargetPortStroke(&lat, &pts, .solid, 0, &col);
+    try testing.expect(!lat.atConst(1, 2).neighbours.n);
+    try testing.expectEqual(@as(usize, 0), col.finish().len);
+}
+
+test "a merged port files its arm direction in the record" {
+    const a = testing.allocator;
+    var lat = try borderLattice3(a, 1, 2, .{ .e = true, .w = true });
+    defer a.free(lat.cells);
+    var col = aux.Collector.init(a);
+    defer col.records.deinit(a);
+    const pts = [_]sketch.Point{ .{ .x = 1, .y = 0 }, .{ .x = 1, .y = 2 } };
+    ew.drawTargetPortStroke(&lat, &pts, .solid, 9, &col);
+    const recs = col.finish();
+    try testing.expectEqual(@as(usize, 1), recs.len);
+    try testing.expectEqual(lattice.AuxKind.port, recs[0].kind);
+    try testing.expectEqual(@as(u32, 9), recs[0].value);
+    // Arrival travelling south merges the north arm.
+    try testing.expectEqual(lattice.portArmDetail(.north), recs[0].detail);
 }
 
 test "directional primitives round-trip (straightMask/bitMask/reverse)" {

@@ -228,8 +228,8 @@ test "fusion: a port-recorded arm is the convention on every face; unrecorded is
     g.set(2, 1, border(3, .corner_se, .{ .w = true, .n = true }));
     g.set(1, 2, edgeCell(5, .{ .n = true, .s = true }));
     var lat = g.lat();
-    const port_rec = [_]lattice.Aux{.{ .cell = 1 * 5 + 1, .value = 5, .kind = .port }};
-    lat.aux = &port_rec;
+    const port_rec_s = [_]lattice.Aux{.{ .cell = 1 * 5 + 1, .value = 5, .kind = .port, .detail = lattice.portArmDetail(.south) }};
+    lat.aux = &port_rec_s;
     var c = one(&lat, 1, 1, false);
     try testing.expectEqual(@as(u32, 1), c.c_border_arm_port);
     try testing.expectEqual(@as(u32, 0), c.defectTotal());
@@ -241,7 +241,8 @@ test "fusion: a port-recorded arm is the convention on every face; unrecorded is
     g.set(1, 2, border(3, .corner_sw, .{ .e = true, .n = true }));
     g.set(2, 1, edgeCell(5, .{ .e = true, .w = true }));
     lat = g.lat();
-    lat.aux = &port_rec;
+    const port_rec_e = [_]lattice.Aux{.{ .cell = 1 * 5 + 1, .value = 5, .kind = .port, .detail = lattice.portArmDetail(.east) }};
+    lat.aux = &port_rec_e;
     c = one(&lat, 1, 1, false);
     try testing.expectEqual(@as(u32, 1), c.c_border_arm_port);
     try testing.expectEqual(@as(u32, 0), c.defectTotal());
@@ -249,6 +250,25 @@ test "fusion: a port-recorded arm is the convention on every face; unrecorded is
     // The same arm with the side table empty: no writer on record.
     lat = g.lat();
     c = one(&lat, 1, 1, false);
+    try testing.expectEqual(@as(u32, 0), c.c_border_arm_port);
+    try testing.expectEqual(@as(u32, 1), c.d_border_arm_unrecorded);
+}
+
+test "fusion: a port record excuses only the arm it merged" {
+    // A south-border cell with an extra SOUTH arm, but the cell's only
+    // `.port` record names an EAST stroke: the record is evidence for a
+    // different arm, so the south arm stays an unexplained defect. A
+    // direction-blind check would have laundered it.
+    var g: Grid = .{};
+    g.init();
+    g.set(1, 1, border(3, .edge_s, .{ .e = true, .w = true, .s = true }));
+    g.set(0, 1, border(3, .corner_sw, .{ .e = true, .n = true }));
+    g.set(2, 1, border(3, .corner_se, .{ .w = true, .n = true }));
+    g.set(1, 2, edgeCell(5, .{ .n = true, .s = true }));
+    var lat = g.lat();
+    const east_rec = [_]lattice.Aux{.{ .cell = 1 * 5 + 1, .value = 5, .kind = .port, .detail = lattice.portArmDetail(.east) }};
+    lat.aux = &east_rec;
+    const c = one(&lat, 1, 1, false);
     try testing.expectEqual(@as(u32, 0), c.c_border_arm_port);
     try testing.expectEqual(@as(u32, 1), c.d_border_arm_unrecorded);
 }

@@ -102,11 +102,13 @@ fn abutment(v: cell.View, x: u32, y: u32, d: cell.Dir4, is_arrow: bool, c: *coun
         .ring_node, .ring_frame => {
             c.n_term_abut += 1;
             // Port record first, and from the record rather than the mask:
-            // the two port-stroke writers file a `.port` for every stroke
-            // they merge into a border (either end, any face), so a pair
-            // whose ring cell holds one is an attachment by evidence.
+            // the two port-stroke writers file a `.port` naming the arm
+            // they merged into a border (either end, any face). The ring's
+            // arm back toward this ink cell is `reverse(d)`, so only a
+            // record for THAT arm claims the pair — a record for some
+            // other face's stroke does not launder this landing.
             // guarded-by: terminal_test.zig "a port record claims the pair before any face verdict"
-            if (n.ports().len != 0) {
+            if (n.portArm(cell.reverse(d))) {
                 c.c_term_port_recorded += 1;
                 return;
             }

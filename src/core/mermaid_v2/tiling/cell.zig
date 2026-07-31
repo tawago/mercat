@@ -123,6 +123,18 @@ pub const Typed = struct {
         return self.ofKind(.port);
     }
 
+    /// True when a `.port` record claims THIS arm — the record's `detail`
+    /// names the direction the stroke merged, so one recorded departure
+    /// cannot excuse a different, unexplained arm on the same cell.
+    /// guarded-by: rings_test.zig "fusion: a port record excuses only the arm it merged"
+    pub fn portArm(self: Typed, arm: Dir4) bool {
+        const want = lattice.portArmDetail(arm);
+        for (self.ports()) |p| {
+            if (p.detail == want) return true;
+        }
+        return false;
+    }
+
     /// Whose label glyph this is, when one was recorded. A cell carries at
     /// most one owner: a label write REPLACES the cell, so the last writer
     /// is the only one whose glyph is still visible — but the records are
