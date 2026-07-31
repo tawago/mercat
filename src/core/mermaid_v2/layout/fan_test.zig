@@ -271,10 +271,10 @@ test {
     _ = @import("fan_polyline_test.zig");
 }
 
-test "a labeled fan reserves two extra gap rows; an unlabeled fan reserves one" {
+test "a labeled fan reserves three extra gap rows; an unlabeled fan reserves one" {
     // Same layered shape twice; only `labeled` differs. The labeled fan's
     // gap must reserve LABEL_RUN_EXTRA_ROWS more rows (the on-run label
-    // shape: flank + label row + flank), the unlabeled fan stays at the
+    // shape: flank + label row + flank + head), the unlabeled fan stays at the
     // classic one-row reservation.
     const a = testing.allocator;
     var arena = std.heap.ArenaAllocator.init(a);

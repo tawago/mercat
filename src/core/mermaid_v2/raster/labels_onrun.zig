@@ -13,10 +13,31 @@
 //!   sibling tap's drop) may cover it. A reader must never wonder which
 //!   member of a shared run a label names.
 //!
-//!   RULE B (flanked resumption) — the interrupted run must show >= 1 cell
-//!   of the SAME edge's ink directly above AND below the label row (an
-//!   arrowhead of the same edge counts; a shared rail cell does not). If
-//!   either flank is missing the candidate is illegal.
+//!   RULE B (flanked resumption) — the interrupted run must show a LINE
+//!   GLYPH cell of the SAME edge's run directly above AND below the label
+//!   row. A flank is an `edge_segment` of this edge, non-rail role, with
+//!   collinear vertical neighbour bits (n and s, no e/w). An ARROWHEAD is
+//!   NOT a flank: the canonical decorated column reads
+//!   `│` (run), label, `│` (run), `▼` (head), border — the head sits BELOW
+//!   the lower flank, never adjacent to the text. If either flank is
+//!   missing the candidate is illegal. A decorated member therefore needs
+//!   a private interior of >= 4 cells (flank, label, flank, head) where an
+//!   undecorated one needs 3; `layout/fan.zig`'s LABEL_RUN_EXTRA_ROWS
+//!   reserves for that, and a run that still cannot host the full sandwich
+//!   simply refuses and falls to the ordinary labels_edge ladder.
+//!
+//!   HALF-STROKE LEADS — the two flank cells are the run's lead-in and
+//!   lead-out to the text, so they paint as HALF strokes: the cell ABOVE
+//!   the label becomes `╵` (U+2575, upper half — the run continues from
+//!   above and stops short of the text) and the cell BELOW becomes `╷`
+//!   (U+2577, lower half). This is expressed in the Cell, never in the
+//!   painter: the flank loses the neighbour bit facing the label row
+//!   (truthfully — there is no stroke there any more) so the junction
+//!   table's single-bit entries pick `╵`/`╷` on their own, and its
+//!   `stroke_kind` is forced to `.solid` so the same two glyphs are used
+//!   for dotted and thick edges too. That last part is a DELIBERATE
+//!   FALLBACK: Unicode has no dashed or double-line half-stroke, so a
+//!   `┊`/`║` run leads into its label with a solid half tick.
 //!
 //! Everything lateral keeps the ordinary LAW 2 isolation
 //! (labels_ink.spanIsolated): the own-run seams are exempt because the
@@ -118,11 +139,12 @@ fn tryAt(
     // RULE A, geometric half: no other edge's Sketch geometry rides here.
     // guarded-by: labels_onrun_test.zig "RULE A: a cell another tap's drop covers is refused"
     if (coveredByOther(s, edge_id, x, row)) return false;
-    // RULE B: same-edge ink directly above AND below (arrowhead counts,
-    // shared rail cells do not).
-    // guarded-by: labels_onrun_test.zig "RULE B: a 2-cell dropper has no legal interruption row"
-    if (!ownFlankInk(lat, edge_id, x, row - 1)) return false;
-    if (!ownFlankInk(lat, edge_id, x, row + 1)) return false;
+    // RULE B: a LINE GLYPH cell of this edge's own run directly above AND
+    // below. An arrowhead does not qualify — the head must sit below the
+    // lower flank, not against the text.
+    // guarded-by: labels_onrun_test.zig "RULE B: an arrowhead is not a flank, so the head-adjacent row is refused"
+    if (!runFlankCell(lat, edge_id, x, row - 1)) return false;
+    if (!runFlankCell(lat, edge_id, x, row + 1)) return false;
 
     // Center the span on the dropper column.
     const cc: i32 = @intCast(cell_count);
@@ -164,7 +186,40 @@ fn tryAt(
         lw.writeSpan(lat, wx, urow, cp, span, .{ .kind = .edge, .id = edge_id }, sink);
         wx += span;
     }
+
+    // Half-stroke leads: the two flank cells stop short of the text.
+    // guarded-by: labels_onrun_test.zig "half-stroke leads: the flanks lose the bit facing the label and go solid"
+    markHalfStroke(lat, x, row - 1, .toward_south);
+    markHalfStroke(lat, x, row + 1, .toward_north);
     return true;
+}
+
+/// Which side of a flank cell faces the label row.
+const TowardLabel = enum { toward_south, toward_north };
+
+/// Turn a full `│` flank into the half stroke that leads into the label:
+/// drop the neighbour bit facing the label row (there is no stroke there
+/// any more, so the junction table's single-arm entries yield `╵` / `╷`)
+/// and force the cell's stroke to `.solid`, so those same two glyphs are
+/// used for a dotted or thick edge as well — the dotted/thick tables map
+/// a lone vertical arm back to the FULL `┊` / `║`, and Unicode offers no
+/// dashed or double-line half-stroke to use instead. The caller has
+/// already proven the cell is this edge's own run flank.
+///
+/// Both the occupant's `kind` and the Cell's `stroke_kind` are set: the
+/// painter reads the former for an `edge_segment`, and leaving the two
+/// disagreeing would strand a stale second opinion on the same cell.
+fn markHalfStroke(lat: *lattice.Lattice, x: i32, y: i32, toward: TowardLabel) void {
+    const cell = lat.at(@intCast(x), @intCast(y));
+    switch (toward) {
+        .toward_south => cell.neighbours.s = false,
+        .toward_north => cell.neighbours.n = false,
+    }
+    switch (cell.occupant) {
+        .edge_segment => |*seg| seg.kind = .solid,
+        else => unreachable, // runFlankCell proved this is an edge_segment
+    }
+    cell.stroke_kind = .solid;
 }
 
 /// True iff the cell at (x, y) is a private dropper cell of `edge_id`:
@@ -190,21 +245,28 @@ fn privateDropperCell(lat: *const lattice.Lattice, edge_id: u32, x: i32, y: i32)
     return n.n and n.s and !n.e and !n.w;
 }
 
-/// RULE B flank: same-edge ink at (x, y) — an arrowhead of this edge, or
-/// an edge_segment of this edge whose role is not a shared rail.
-fn ownFlankInk(lat: *const lattice.Lattice, edge_id: u32, x: i32, y: i32) bool {
+/// RULE B flank: a LINE GLYPH cell of this edge's own run at (x, y) — an
+/// `edge_segment` of this edge, non-rail role, with collinear vertical
+/// neighbour bits. An arrowhead, a shared rail cell, a corner (which
+/// carries a horizontal arm) and any foreign occupant all fail.
+fn runFlankCell(lat: *const lattice.Lattice, edge_id: u32, x: i32, y: i32) bool {
     if (x < 0 or y < 0) return false;
     const ux: u32 = @intCast(x);
     const uy: u32 = @intCast(y);
     if (ux >= lat.width or uy >= lat.height) return false;
-    return switch (lat.atConst(ux, uy).occupant) {
-        .arrowhead => |ah| ah.edge == edge_id,
-        .edge_segment => |seg| seg.edge == edge_id and switch (seg.role) {
-            .fan_out_rail, .fan_in_rail => false,
-            else => true,
+    const cell = lat.atConst(ux, uy);
+    switch (cell.occupant) {
+        .edge_segment => |seg| {
+            if (seg.edge != edge_id) return false;
+            switch (seg.role) {
+                .fan_out_rail, .fan_in_rail => return false,
+                else => {},
+            }
         },
-        else => false,
-    };
+        else => return false,
+    }
+    const n = cell.neighbours;
+    return n.n and n.s and !n.e and !n.w;
 }
 
 /// RULE A cross-check against the Sketch: true iff any OTHER edge's

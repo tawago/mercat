@@ -358,6 +358,8 @@ test "ASCII printable and box-drawing code points resolve" {
         0x250C, // ┌ corner
         0x2514, // └ corner
         0x253C, // ┼ cross junction
+        0x2575, // ╵ upper half vertical (on-run label lead-in)
+        0x2577, // ╷ lower half vertical (on-run label lead-out)
         0x2022, // • bullet
         0x2192, // → arrow
     };

@@ -95,7 +95,7 @@ pub fn rasterizeLabels(
         attempted += 1;
         // Top-priority on-run candidate: the label sits OVER its own private
         // fan dropper (labels_onrun.zig). Any refusal falls through to the
-        // ordinary ladder below. guarded-by: labels_onrun_test.zig "happy path: the label interrupts its own dropper for one row, flanks keep their bits"
+        // ordinary ladder below. guarded-by: labels_onrun_test.zig "happy path: the label interrupts its own dropper for one row, sandwiched by run flanks"
         if (labels_onrun.tryOnRunEdge(lat, s, ep, lbl, sink)) {
             placed += 1;
             on_run += 1;

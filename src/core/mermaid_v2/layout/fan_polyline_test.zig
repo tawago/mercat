@@ -191,10 +191,10 @@ test "single-row fan spanning 2+ layers dodges an intermediate box instead of sl
     try testing.expectEqual(child.rect.y, poly[poly.len - 1].y);
 }
 
-test "labeled fan-OUT rail rises two rows for a 3-cell private descent; unlabeled stays put" {
+test "labeled fan-OUT rail rises three rows for a 4-cell private descent; unlabeled stays put" {
     // A labeled fan-OUT's single-row rail must sit LABEL_RUN_EXTRA_ROWS
     // higher than the classic `t_peri - 2` so each member's private final
-    // descent is 3 cells (flank + on-run label row + arrowhead flank).
+    // descent is 4 cells (flank + on-run label row + flank + arrowhead).
     // An unlabeled fan keeps the classic row byte-identically.
     const a = testing.allocator;
     var arena = std.heap.ArenaAllocator.init(a);

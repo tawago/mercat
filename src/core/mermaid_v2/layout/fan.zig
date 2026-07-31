@@ -66,16 +66,19 @@ pub const Fan = struct {
     lane: u32 = 0,
     /// True iff any member edge carries a label. A labeled fan reserves
     /// `LABEL_RUN_EXTRA_ROWS` extra gap rows (extraRowsPerGap) so each
-    /// labeled member's PRIVATE vertical dropper is >= 3 cells long — flank,
-    /// on-run label row, flank — the shape raster/labels_onrun.zig places
-    /// over. Unlabeled fans stay byte-identical.
-    /// guarded-by: fan_test.zig "a labeled fan reserves two extra gap rows; an unlabeled fan reserves one"
+    /// labeled member's PRIVATE vertical dropper is >= 4 cells long —
+    /// flank, on-run label row, flank, arrowhead — the DECORATED sandwich
+    /// raster/labels_onrun.zig places over (RULE B: an arrowhead is not a
+    /// flank, so the head needs its own cell below the lower flank).
+    /// Unlabeled fans stay byte-identical.
+    /// guarded-by: fan_test.zig "a labeled fan reserves three extra gap rows; an unlabeled fan reserves one"
     labeled: bool = false,
 };
 
-/// Extra gap rows a LABELED fan reserves beyond its lane rows: the on-run
-/// label shape needs a 3-cell private dropper where the classic gap yields 1.
-pub const LABEL_RUN_EXTRA_ROWS: u32 = 2;
+/// Extra gap rows a LABELED fan reserves beyond its lane rows: the
+/// decorated on-run sandwich needs a 4-cell private dropper (flank, label,
+/// flank, head) where the classic gap yields 1.
+pub const LABEL_RUN_EXTRA_ROWS: u32 = 3;
 
 // ===================================================================
 // Detection
@@ -168,8 +171,8 @@ fn peerLabel(graph: sg.SemGraph, edge_id: u32) ?[]const u8 {
 ///
 ///   1. The fan will grid-wrap: its single-row peer span (the EXACT
 ///      measure fan_grid.wrapGrid gates on) exceeds the width budget. The
-///      grid comb re-routes members without 3-cell private droppers, so
-///      the reserved rows would go dead.
+///      grid comb re-routes members without the 4-cell private droppers
+///      the decorated sandwich needs, so the reserved rows would go dead.
 ///   2. No labeled member's label can ever fit laterally: every label is
 ///      wider than the whole estimated canvas (labels_onrun refuses any
 ///      span wider than the lattice), so on-run placement is impossible.
@@ -300,8 +303,9 @@ pub fn extraRowsPerGap(
         if (f.source_layer < out.len) {
             var max_lane = f.lane;
             for (f.peers) |peer| max_lane = @max(max_lane, peer.lane);
-            // Labeled fan: reserve the on-run label shape's extra rows so a
-            // member's private dropper is flank + label row + flank long.
+            // Labeled fan: reserve the decorated on-run sandwich's extra
+            // rows so a member's private dropper is flank + label row +
+            // flank + head long.
             const label_rows: u32 = if (f.labeled) LABEL_RUN_EXTRA_ROWS else 0;
             const need = max_lane + 1 + label_rows;
             if (need > out[f.source_layer]) out[f.source_layer] = need;

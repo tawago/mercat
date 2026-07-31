@@ -380,6 +380,16 @@ pub const file_allowlists = [_]struct {
         .reason = "tiling/scan_test may only import std, prim, base/*, sem_graph, sketch, lattice, scan, counts, or cell",
     },
     .{
+        .name = "onrun_paint_test.zig",
+        .allowed = &.{
+            .sketch,
+            .raster_zone,
+            .{ .exact = "lattice.zig" },
+            .{ .exact = "paint.zig" },
+        },
+        .reason = "onrun_paint_test may only import std, prim, base/*, sketch, raster, lattice, or paint",
+    },
+    .{
         .name = "tiling_crosscheck_test.zig",
         .allowed = &.{
             .sem_graph,                         .sketch,

@@ -123,15 +123,16 @@ pub fn buildPolylineAt(
     // fabricating bus. lane 0 == the classic shared row (byte-identical).
     const lane: i32 = @intCast(@max(fan.lane, member_lane));
     var rail_y: i32 = if (south_flow) t_peri - 2 - lift - lane else t_peri + 2 + lift + lane;
-    // Labeled fan-OUT: raise the rail two extra rows (the gap rows
+    // Labeled fan-OUT: raise the rail three extra rows (the gap rows
     // fan.extraRowsPerGap reserved) so each member's PRIVATE final descent is
-    // 3 cells long — flank, on-run label row, flank (arrowhead counts) — the
-    // shape raster/labels_onrun.zig interrupts. Applied only when the raised
+    // 4 cells long — flank, on-run label row, flank, arrowhead — the DECORATED
+    // sandwich raster/labels_onrun.zig interrupts (RULE B refuses an
+    // arrowhead as a flank, so the head needs its own cell). Applied only when the raised
     // rail still clears the source perimeter, so a tighter-than-reserved gap
     // (or an unreserved one) keeps today's geometry and the label falls back
     // to the ordinary ladder. Fan-IN needs no rail move: its private ink is
     // the source-side descent, which the widened gap stretches by itself.
-    // guarded-by: fan_polyline_test.zig "labeled fan-OUT rail rises two rows for a 3-cell private descent; unlabeled stays put"
+    // guarded-by: fan_polyline_test.zig "labeled fan-OUT rail rises three rows for a 4-cell private descent; unlabeled stays put"
     if (fan.direction == .out and fan.labeled and south_flow) {
         const raised = rail_y - @as(i32, @intCast(fan_mod.LABEL_RUN_EXTRA_ROWS));
         if (raised > s_peri) rail_y = raised;

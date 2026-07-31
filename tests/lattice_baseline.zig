@@ -5,6 +5,14 @@
 //!       popcount(neighbours) >= 2. (An edge cell with fewer than two
 //!       set neighbour bits would be a dangling pixel — bug in the
 //!       edge rasterizer's neighbour-bit accounting.)
+//!       ONE sanctioned exception: the HALF-STROKE LEAD an on-run edge
+//!       label leaves behind (`raster/labels_onrun.zig`). A run that is
+//!       interrupted for one row by its own label ends the cell above the
+//!       text with only its north arm (painting `╵`) and resumes below it
+//!       with only its south arm (`╷`). Those cells are one-armed BY
+//!       DESIGN and their missing arm points squarely at the label that
+//!       replaced it, so they are not dangling — the check confirms the
+//!       label is really there rather than waiving the arity blindly.
 //!
 //!   I2. For every node referenced by `node_interior` cells, the union
 //!       of that node's interior cells is reachable via 4-connected
@@ -42,6 +50,27 @@ fn popcount4(n: v2.Neighbours) u32 {
     return @popCount(n.toMask());
 }
 
+/// True iff `c` at (x, y) is the sanctioned one-armed half-stroke lead an
+/// on-run edge label leaves: an `edge_segment` carrying exactly one
+/// vertical arm, whose OPPOSITE vertical neighbour is the label glyph that
+/// took the missing arm's place.
+fn isHalfStrokeLead(lat: v2.Lattice, x: u32, y: u32, c: v2.Cell) bool {
+    if (c.occupant != .edge_segment) return false;
+    const n = c.neighbours;
+    if (n.e or n.w) return false;
+    const label_y: u32 = if (n.n and !n.s) blk: {
+        if (y + 1 >= lat.height) return false;
+        break :blk y + 1;
+    } else if (n.s and !n.n) blk: {
+        if (y == 0) return false;
+        break :blk y - 1;
+    } else return false;
+    return switch (lat.atConst(x, label_y).occupant) {
+        .label_char, .label_cont => true,
+        else => false,
+    };
+}
+
 /// Returns null if invariant I1 holds; otherwise a short reason string
 /// (owned by `allocator`).
 fn checkI1(
@@ -59,6 +88,7 @@ fn checkI1(
             };
             if (!is_edge) continue;
             const pop = popcount4(c.neighbours);
+            if (pop == 1 and isHalfStrokeLead(lat, x, y, c)) continue;
             if (pop < 2) {
                 return try std.fmt.allocPrint(
                     allocator,
