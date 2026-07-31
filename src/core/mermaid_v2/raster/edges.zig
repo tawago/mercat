@@ -17,8 +17,8 @@
 //! it drew, never what it could infer (see `raster/busbars.zig`).
 //!
 //! The per-cell claim contract (`writeEdgeCell`/`writeArrowCell`/
-//! `writeArrowGuarded`/`drawPortStroke`) and the directional primitives
-//! live in `edges_write.zig` (cap split); the ones `raster/busbars.zig` and
+//! `writeArrowGuarded`) and the directional primitives live in
+//! `edges_write.zig`, the port strokes in `edges_port.zig` (cap splits); the ones `raster/busbars.zig` and
 //! the raster tests reach as `edges.<name>` are re-exported below.
 //! (`writeArrowGuarded` has no external caller, so this file uses it directly
 //! as `ew.writeArrowGuarded` rather than re-exporting it.)
@@ -29,6 +29,7 @@ const lattice = @import("../lattice.zig");
 const roles = @import("edge_roles.zig");
 const crossings = @import("crossings.zig");
 const ew = @import("edges_write.zig");
+const ep = @import("edges_port.zig");
 const aux = @import("aux.zig");
 const prim = @import("prim");
 
@@ -52,8 +53,10 @@ pub const pointInBounds = ew.pointInBounds;
 pub const toCoord = ew.toCoord;
 pub const writeEdgeCell = ew.writeEdgeCell;
 pub const writeArrowCell = ew.writeArrowCell;
-pub const drawPortStroke = ew.drawPortStroke;
-pub const drawTargetPortStroke = ew.drawTargetPortStroke;
+pub const drawPortStroke = ep.drawPortStroke;
+pub const drawTargetPortStroke = ep.drawTargetPortStroke;
+pub const Head = ep.Head;
+pub const PortEnd = ep.PortEnd;
 
 /// Summary of one edge-rasterization pass.
 /// `cells_lost` counts every polyline/arrowhead cell that could not be
@@ -400,19 +403,29 @@ fn walkPolyline(
     }
 
     // Port strokes, LAST — after the walk, because the rule they obey is
-    // head ADJACENCY and only the finished walk knows where the heads go:
-    // `rasterizeEdges` stamps `arrow_to` on `result.last_cell` and
-    // `arrow_from` on `result.first_cell`, so those cells ARE the heads,
-    // read off the walk rather than re-derived from the polyline (and never
-    // from the grid, which cannot tell this edge's head from a foreign one).
-    // An undecorated end passes null and always merges. The border cells
-    // (`pts[0]` / `pts[len-1]`) are the two positions the walk never writes,
-    // so drawing the ports after it is order-independent.
-    // guarded-by: edges_write_test.zig "a decorated arrival whose head is DETACHED still tees the wall"
-    const source_head: ?sketch.Point = if (edge.arrow_from != .none) result.first_cell else null;
-    const target_head: ?sketch.Point = if (edge.arrow_to != .none) result.last_cell else null;
-    drawPortStroke(lat, pts, ek, edge.id, source_head, sink);
-    ew.drawTargetPortStroke(lat, pts, ek, edge.id, target_head, sink);
+    // head FACING and only the finished walk knows where the heads go and
+    // which way they look: `rasterizeEdges` stamps `arrow_to` on
+    // `result.last_cell` pointing `last_dir`, and `arrow_from` on
+    // `result.first_cell` pointing `reverse(first_dir)`. Those cell/dir
+    // pairs are read off the walk here and handed to the arrowhead stamp
+    // below unchanged, so the port gate and the glyph cannot disagree about
+    // where the tip looks (never from the grid, which cannot tell this
+    // edge's head from a foreign one). An undecorated end passes null and
+    // always merges. The border cells (`pts[0]` / `pts[len-1]`) are the two
+    // positions the walk never writes, so drawing the ports after it is
+    // order-independent — except for the gap cell, which the ports paint and
+    // the walk, by the same token, never reaches.
+    // guarded-by: edges_port_test.zig "a head adjacent to the wall but pointing ALONG the route still tees it"
+    const source_head: ?ep.Head = if (edge.arrow_from != .none and result.first_cell != null and result.first_dir != null)
+        .{ .cell = result.first_cell.?, .dir = reverse(result.first_dir.?) }
+    else
+        null;
+    const target_head: ?ep.Head = if (edge.arrow_to != .none and result.last_cell != null and result.last_dir != null)
+        .{ .cell = result.last_cell.?, .dir = result.last_dir.? }
+    else
+        null;
+    drawPortStroke(lat, pts, ek, edge.id, .{ .head = source_head, .role = erole }, sink);
+    drawTargetPortStroke(lat, pts, ek, edge.id, .{ .head = target_head, .role = erole }, sink);
 
     return result;
 }

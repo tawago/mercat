@@ -10,11 +10,9 @@
 //!   PORT           the ring cell holds a `.port` record: an edge attached
 //!                  a port stroke to it — a source departure or a target
 //!                  arrival, on any of the four faces, at an end whose
-//!                  head does not abut the wall — undecorated, or decorated
-//!                  and detached (`drawPortStroke`/`drawTargetPortStroke`
-//!                  file one for every stroke actually merged; a DETACHED
-//!                  head is by definition not an abutment, so it reaches
-//!                  this ladder only through the ring's own arm). This is the one
+//!                  head does not FACE the wall — undecorated, detached, or
+//!                  merely alongside (`drawPortStroke`/`drawTargetPortStroke`
+//!                  file one for every stroke actually merged). This is the one
 //!                  verdict that used to be an INFERENCE — "the ring
 //!                  carries the arm back, and only a departure could have
 //!                  put it there". It could not: the arrowhead-base weld
@@ -24,17 +22,16 @@
 //!   NODE FACE      an abutment with no reciprocal port stroke recorded.
 //!                  All four combinations — vertical or horizontal face,
 //!                  bare stroke or arrowhead — stay conventions, not
-//!                  defects. An ABUTTING decorated terminal — the only
-//!                  kind this ladder sees — lands here BY DESIGN and a
-//!                  missing record is not evidence of anything: the port
-//!                  writers refuse a tee behind an arrowhead that faces the
-//!                  wall across one seam (a `▼` over a `┴` asserts a
+//!                  defects. A TIP-FACING decorated terminal lands here BY
+//!                  DESIGN and a missing record is not evidence of anything:
+//!                  the port writers refuse a tee behind an arrowhead whose
+//!                  tip points at the wall (a `▼` over a `┴` asserts a
 //!                  continuation past the wall that does not exist), so an
 //!                  arrowhead against a pristine face is the convention,
-//!                  never `d_border_arm_unrecorded`/`d_term_*`. A DETACHED
-//!                  head does merge its bit, but it is not abutting, so it
-//!                  never reaches this pair at all.
-//!                  guarded-by: terminal_test.zig "an abutting decorated arrival against a pristine face is a convention with no record"
+//!                  never `d_border_arm_unrecorded`/`d_term_*`. A head that
+//!                  is merely ALONGSIDE the wall does merge its bit, and
+//!                  reaches this pair only through the ring's own arm.
+//!                  guarded-by: terminal_test.zig "a tip-facing decorated arrival against a pristine face is a convention with no record"
 //!   NODE CORNER    a defect: ports are issued as face offsets only, so a
 //!                  run that lands on a corner missed the face it aimed at.
 //!   FRAME BARE     frame-solid: a stroke abutting a subgraph border is
@@ -144,6 +141,12 @@ fn abutment(v: cell.View, x: u32, y: u32, d: cell.Dir4, is_arrow: bool, c: *coun
             // no face/corner verdict is drawn from it. When the walk is
             // NOT reprieved the arm is simply dangling — that is the
             // stroke family's property, and this check stays silent.
+            //
+            // A gap the PORT writers crossed is no longer blank: they paint
+            // the approach cell, so wall/run/head come out contiguous and
+            // the pair is classified through `.ring_node` above on a
+            // `.port` record. This arm now sees only gaps nobody attached
+            // across.
             if (!v.gapReprieve(x, y, d)) return;
             const two = cell.step(x, y, d, v.width(), v.height()) orelse return;
             const beyond = cell.step(two.x, two.y, d, v.width(), v.height()) orelse return;

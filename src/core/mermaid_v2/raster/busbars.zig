@@ -71,19 +71,21 @@ fn drawRail(lat: *lattice.Lattice, bb: sketch.Rail, report: *Report, sink: aux.S
     // The stem departs the pivot, so the port belongs to the run's owner id
     // (the same informational id the shared-run cells carry).
     // The pivot end is decorated exactly when `pivot_arrow` is declared, and
-    // its head is stamped one cell out from `stem[0]` (see the stamping
-    // block below, which reads the same geometry). The port tee is dropped
-    // only when that head ABUTS the border cell — the redundant-tee case;
-    // a head detached from the wall keeps its tee so the stem still visibly
-    // attaches. // guarded-by: busbars_test.zig "a pivot head abutting the border leaves it pristine; a detached one tees"
-    const pivot_head = pivotHeadCell(bb);
-    if (!fan_in) edges_r.drawPortStroke(lat, bb.stem, bb.kind, crossbar_edge, pivot_head, sink);
+    // its head is stamped one cell out from `stem[0]` pointing back down the
+    // stem (see the stamping block below, which reads the same geometry).
+    // The port tee is dropped only when that head's TIP FACES the border
+    // cell — the redundant-tee case; any other head keeps its tee so the
+    // stem still visibly attaches.
+    // guarded-by: busbars_test.zig "a pivot head facing the border leaves it pristine; a detached one tees"
+    const pivot_head = pivotHead(bb);
+    const pivot_end: edges_r.PortEnd = .{ .head = pivot_head, .role = crossbar_role };
+    if (!fan_in) edges_r.drawPortStroke(lat, bb.stem, bb.kind, crossbar_edge, pivot_end, sink);
     // Fan-IN: the pivot is the TARGET — its port cell is stem[0], reached
     // from the stem side, so the arrival stroke comes from the reversed
     // two-point stub (uniform port erasure, both ends of every run).
     if (fan_in and bb.stem.len >= 2) {
         const pivot_stub = [_]sketch.Point{ bb.stem[1], bb.stem[0] };
-        edges_r.drawTargetPortStroke(lat, &pivot_stub, bb.kind, crossbar_edge, pivot_head, sink);
+        edges_r.drawTargetPortStroke(lat, &pivot_stub, bb.kind, crossbar_edge, pivot_end, sink);
     }
     var i: usize = 0;
     var last_dir: ?edges_r.Move = null;
@@ -103,11 +105,11 @@ fn drawRail(lat: *lattice.Lattice, bb: sketch.Rail, report: *Report, sink: aux.S
     if (last_dir) |dir| {
         claim(lat, junction, crossbar_edge, bb.kind, crossbar_role, edges_r.bitMask(edges_r.reverse(dir)), report, rec);
     }
-    if (pivot_head) |p| {
+    if (pivot_head) |h| {
         if (pivotStemDir(bb)) |dir| {
-            if (edges_r.pointInBounds(p, lat)) {
-                const c = edges_r.toCoord(p);
-                edges_r.writeArrowCell(lat.at(c.x, c.y), crossbar_edge, bb.kind, bb.pivot_arrow, edges_r.reverse(dir), edges_r.straightMask(dir), c.x, c.y, &report.cells_lost, rec);
+            if (edges_r.pointInBounds(h.cell, lat)) {
+                const c = edges_r.toCoord(h.cell);
+                edges_r.writeArrowCell(lat.at(c.x, c.y), crossbar_edge, bb.kind, bb.pivot_arrow, h.dir, edges_r.straightMask(dir), c.x, c.y, &report.cells_lost, rec);
             }
         }
     }
@@ -118,22 +120,24 @@ fn drawRail(lat: *lattice.Lattice, bb: sketch.Rail, report: *Report, sink: aux.S
         // The MEMBER end of a tap is decorated exactly when `tap.arrow` is
         // declared: fan-OUT stamps that head pointing INTO the landing,
         // fan-IN stamps it reversed (a back-arrow at the member). Either
-        // way the head lands on the tap's LAST dropper cell, so the port
-        // tee is dropped only when that cell abuts the landing — the same
-        // head-adjacency rule the polyline ports obey. A tap whose dropper
-        // stops short of the wall keeps its tee.
-        // guarded-by: busbars_test.zig "a tap head abutting the landing leaves the member border pristine; an undecorated tap tees it"
-        const tap_head = tapHeadCell(tap);
+        // way the head lands on the tap's LAST dropper cell with its tip
+        // toward the landing (fan-OUT) or away from it (fan-IN), so the port
+        // tee is dropped only when that tip FACES the landing — the same
+        // rule the polyline ports obey. A tap whose dropper stops short of
+        // the wall, or whose head looks the other way, keeps its tee.
+        // guarded-by: busbars_test.zig "a tap head facing the landing leaves the member border pristine; an undecorated tap tees it"
+        const tap_head = tapHead(tap, fan_in);
+        const tap_end: edges_r.PortEnd = .{ .head = tap_head, .role = dropper_role };
         if (fan_in) {
             const source_stub = [_]sketch.Point{ tap.landing, tap.at };
-            edges_r.drawPortStroke(lat, &source_stub, bb.kind, tap.edge, tap_head, sink);
+            edges_r.drawPortStroke(lat, &source_stub, bb.kind, tap.edge, tap_end, sink);
         } else {
             // Fan-OUT: each tap terminates on its member's TARGET border at
             // `tap.landing`; merge the arrival arm there (symmetric with the
             // fan-IN source stub above — no cell is painted twice, the two
             // stubs end on different nodes' borders).
             const target_stub = [_]sketch.Point{ tap.at, tap.landing };
-            edges_r.drawTargetPortStroke(lat, &target_stub, bb.kind, tap.edge, tap_head, sink);
+            edges_r.drawTargetPortStroke(lat, &target_stub, bb.kind, tap.edge, tap_end, sink);
         }
         const dir = edges_r.segmentDir(tap.at, tap.landing) orelse continue;
         claim(lat, tap.at, tap.edge, bb.kind, crossbar_role, edges_r.bitMask(dir), report, rec);
@@ -150,15 +154,14 @@ fn drawRail(lat: *lattice.Lattice, bb: sketch.Rail, report: *Report, sink: aux.S
             claim(lat, cursor, tap.edge, bb.kind, dropper_role, edges_r.straightMask(dir), report, rec);
             wrote_any = true;
         }
-        // `tapHeadCell` IS the loop's last cursor — the same cell, derived
-        // once so the port gate above and this stamp cannot disagree about
-        // where the head is.
+        // `tapHead` IS the loop's last cursor plus the tip direction stamped
+        // here — derived once so the port gate above and this stamp cannot
+        // disagree about where the head is or which way it looks.
         if (tap.arrow != .none) {
-            if (tap_head) |p| {
-                if (edges_r.pointInBounds(p, lat)) {
-                    const c = edges_r.toCoord(p);
-                    const arrow_dir = if (fan_in) edges_r.reverse(dir) else dir;
-                    edges_r.writeArrowCell(lat.at(c.x, c.y), tap.edge, bb.kind, tap.arrow, arrow_dir, edges_r.straightMask(dir), c.x, c.y, &report.cells_lost, rec);
+            if (tap_head) |h| {
+                if (edges_r.pointInBounds(h.cell, lat)) {
+                    const c = edges_r.toCoord(h.cell);
+                    edges_r.writeArrowCell(lat.at(c.x, c.y), tap.edge, bb.kind, tap.arrow, h.dir, edges_r.straightMask(dir), c.x, c.y, &report.cells_lost, rec);
                 }
             }
         }
@@ -177,25 +180,30 @@ fn pivotStemDir(bb: sketch.Rail) ?edges_r.Move {
     return null;
 }
 
-/// The cell the pivot arrowhead is stamped on — one step out from `stem[0]`
-/// along the stem — or null when the pivot end carries no head. Sole
-/// derivation: both the port gate and the arrow stamp read it.
-fn pivotHeadCell(bb: sketch.Rail) ?sketch.Point {
+/// The pivot arrowhead: stamped one step out from `stem[0]` along the stem,
+/// pointing BACK at the pivot. Null when the pivot end carries no head.
+/// Sole derivation: both the port gate and the arrow stamp read it, so the
+/// tip direction the gate tests is the one the painter draws.
+fn pivotHead(bb: sketch.Rail) ?edges_r.Head {
     if (bb.pivot_arrow == .none) return null;
     const dir = pivotStemDir(bb) orelse return null;
-    return edges_r.step(bb.stem[0], dir);
+    return .{ .cell = edges_r.step(bb.stem[0], dir), .dir = edges_r.reverse(dir) };
 }
 
-/// The cell a tap's arrowhead is stamped on: the LAST dropper cell, one
-/// step back from the landing. Null when the tap carries no head, has no
+/// A tap's arrowhead: the LAST dropper cell, one step back from the landing,
+/// pointing INTO the landing on a fan-OUT and away from it on a fan-IN (a
+/// back-arrow at the member). Null when the tap carries no head, has no
 /// direction, or has no dropper at all (`at` already abuts `landing`, so
 /// the loop writes nothing and no head is stamped).
-fn tapHeadCell(tap: sketch.Tap) ?sketch.Point {
+fn tapHead(tap: sketch.Tap, fan_in: bool) ?edges_r.Head {
     if (tap.arrow == .none) return null;
     const dir = edges_r.segmentDir(tap.at, tap.landing) orelse return null;
     const first = edges_r.step(tap.at, dir);
     if (first.x == tap.landing.x and first.y == tap.landing.y) return null;
-    return edges_r.step(tap.landing, edges_r.reverse(dir));
+    return .{
+        .cell = edges_r.step(tap.landing, edges_r.reverse(dir)),
+        .dir = if (fan_in) edges_r.reverse(dir) else dir,
+    };
 }
 
 /// Coordinates of `p` when the cell there carries edge ink, else null.

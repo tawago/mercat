@@ -2,11 +2,13 @@
 //!
 //! Split out of `edges.zig` (P2v Slice 1, frame-solid border bridging): the
 //! per-cell claim contract (`writeEdgeCell`/`writeArrowCell`/
-//! `writeArrowGuarded`/`drawPortStroke`) and the pure directional helpers
+//! `writeArrowGuarded`) and the pure directional helpers
 //! (`straightMask`/`bitMask`/`reverse`/`orMask`/`segmentDir`/`step`/…) live
 //! here so the walk driver in `edges.zig` stays under the 500-line cap. These
 //! symbols are re-exported from `edges.zig` (`pub const`) so `raster/busbars.zig`
-//! and the raster tests keep reaching them as `edges.<name>`.
+//! and the raster tests keep reaching them as `edges.<name>`. The PORT
+//! STROKES (`drawPortStroke`/`drawTargetPortStroke`) live one further split
+//! out, in `edges_port.zig`, which imports this file for its primitives.
 //!
 //! Imports: `std`, `sketch.zig`, `lattice.zig`, `edge_roles.zig`,
 //! `crossings.zig`, `aux.zig` (all raster-zone siblings).
@@ -273,163 +275,6 @@ pub fn writeArrowCell(
                 .{ edge_id, x, y },
             );
         },
-    }
-}
-
-/// Draw the departure PORT: OR-merge the outgoing bit into the source
-/// border cell on whichever face the polyline leaves through — all four
-/// faces, symmetric with `drawTargetPortStroke` (uniform port erasure).
-/// When the merging edge is non-solid, also stamp the border cell's
-/// `stroke_kind` so the painter can pick variants like `╥`/`╨` for
-/// thick edges meeting a solid node frame.
-/// An invisible (`~~~`) edge draws no ink, so it must not tee the source
-/// border: return before touching the cell.
-/// `head` is the cell this end's arrowhead was stamped on, or null when the
-/// end carries no head. Suppression is keyed to ADJACENCY, not to decoration
-/// alone (see `mergePortBit`): the bit is dropped only when the head abuts
-/// the border cell, where the tee behind it would be redundant.
-/// guarded-by: edges_write_test.zig "a decorated source end whose head abuts the wall leaves it pristine"
-/// Every stroke actually drawn also files a `.port` record for `edge_id`
-/// on the side table: the border cell keeps the merged arm but not the
-/// identity of the edge that merged it, so the record adds a fact the
-/// Cell cannot express (lattice.zig's anti-desync law). Refused strokes
-/// (invisible edge, non-border cell) file nothing —
-/// the channel records what was drawn, never what was intended.
-/// guarded-by: edges_write_test.zig "drawPortStroke: an invisible edge leaves the source node border untouched"
-/// guarded-by: aux_test.zig "drawPortStroke files a port record only for a stroke it actually draws"
-pub fn drawPortStroke(
-    lat: *lattice.Lattice,
-    pts: []const sketch.Point,
-    kind: lattice.EdgeKind,
-    edge_id: u32,
-    head: ?sketch.Point,
-    sink: aux.Sink,
-) void {
-    if (kind == .invisible) return;
-    var first_dir_opt: ?Move = null;
-    var fi: usize = 0;
-    while (fi + 1 < pts.len) : (fi += 1) {
-        if (segmentDir(pts[fi], pts[fi + 1])) |fd| {
-            first_dir_opt = fd;
-            break;
-        }
-    }
-    const fd = first_dir_opt orelse return;
-    mergePortBit(lat, pts[0], fd, kind, edge_id, head, sink);
-}
-
-/// Draw the arrival PORT: OR-merge the incoming arm into the TARGET border
-/// cell at the polyline's final point — the perimeter cell the walk
-/// deliberately skips (the arrowhead stamps the last INTERIOR cell). The
-/// merged bit is `reverse(last_dir)`: it points back along the run, so the
-/// border glyph becomes the tee facing the arriving stroke (`┴` on a
-/// box-top TD arrival, `┤`/`├` on LR/RL). Same refusals and `.port` record
-/// discipline as `drawPortStroke` — the two are the uniform port-erasure
-/// pair, symmetric on all four faces, and both drop the bit only for a head
-/// that ABUTS the border (`head`, the arrowhead's cell), so a `▼` never sits
-/// on a `┴` while a detached head still gets its wall attachment.
-/// guarded-by: edges_write_test.zig "drawTargetPortStroke: arrival arms merge on all four faces"
-/// guarded-by: edges_write_test.zig "a decorated arrival whose head abuts the wall leaves it pristine"
-/// guarded-by: edges_write_test.zig "a decorated arrival whose head is DETACHED still tees the wall"
-pub fn drawTargetPortStroke(
-    lat: *lattice.Lattice,
-    pts: []const sketch.Point,
-    kind: lattice.EdgeKind,
-    edge_id: u32,
-    head: ?sketch.Point,
-    sink: aux.Sink,
-) void {
-    if (kind == .invisible) return;
-    var last_dir_opt: ?Move = null;
-    var i: usize = 0;
-    while (i + 1 < pts.len) : (i += 1) {
-        if (segmentDir(pts[i], pts[i + 1])) |d| last_dir_opt = d;
-    }
-    const ld = last_dir_opt orelse return;
-    mergePortBit(lat, pts[pts.len - 1], reverse(ld), kind, edge_id, head, sink);
-}
-
-/// Orthogonal (4-neighbour) adjacency: exactly one cell of separation on one
-/// axis and none on the other. Diagonal neighbours are NOT adjacent — a head
-/// kitty-corner to the wall does not face it across a seam.
-fn orthoAdjacent(a: sketch.Point, b: sketch.Point) bool {
-    const dx = if (a.x > b.x) a.x - b.x else b.x - a.x;
-    const dy = if (a.y > b.y) a.y - b.y else b.y - a.y;
-    return dx + dy == 1;
-}
-
-/// Shared tail of the two port-stroke writers: OR one directional arm into
-/// a node-border cell (refusing every other occupant), stamp a non-solid
-/// stroke, file the `.port` record for the stroke actually drawn.
-///
-/// THE PORT-TEE RULE. The bit is suppressed iff this end is decorated AND
-/// its head cell is orthogonally adjacent to the port border cell — the
-/// head's tip faces the wall across one seam, so the tee behind it is
-/// redundant ink asserting a continuation past the border that does not
-/// exist (`▼` sitting on `┴`, `▶` on `┤`). DECORATION ALONE IS NOT THE
-/// KEY: when the head is separated from the wall by one or more cells (a
-/// gap arrival, or a run that ends short), the wall shows no tap at all and
-/// the edge visually never attaches to the node — the return leg of a
-/// bidirectional pair appears to circulate from nowhere. In that case the
-/// bit MERGES, exactly as uniform erasure requires.
-/// guarded-by: edges_write_test.zig "a decorated arrival whose head is DETACHED still tees the wall"
-fn mergePortBit(
-    lat: *lattice.Lattice,
-    p: sketch.Point,
-    arm: Move,
-    kind: lattice.EdgeKind,
-    edge_id: u32,
-    head: ?sketch.Point,
-    sink: aux.Sink,
-) void {
-    if (!pointInBounds(p, lat)) return;
-    var q = p;
-    // Port-gap probe: a polyline may stop one cell SHORT of the border
-    // (the 1-cell gap convention `reconcile.zig` reprieves — back-edge
-    // arrivals do this routinely). The border then sits one further step
-    // AWAY from the merged arm (`reverse(arm)` points along the run's
-    // travel toward the node), and skipping it would leave gap arrivals
-    // as the one un-erased port class. Probe exactly one cell, and only
-    // across an EMPTY endpoint, so the stroke never jumps a real occupant.
-    // guarded-by: edges_write_test.zig "a gap arrival merges its port bit across the 1-cell reprieve"
-    if (lat.at(toCoord(q).x, toCoord(q).y).occupant == .empty) {
-        q = step(q, reverse(arm));
-        if (!pointInBounds(q, lat)) return;
-    }
-    // The head-adjacency gate, applied to the border cell the probe
-    // RESOLVED (not the polyline endpoint): a gap arrival's head sits two
-    // cells from the wall, so it is not adjacent and the bit merges.
-    //
-    // JUDGED TRADE-OFF (decorated gap arrival, `border, blank, head`).
-    // Merging here re-creates the `├ ◀` shape — a tee, a blank, then the
-    // head — which an earlier judgment flagged as an arm pointing into
-    // nothing. That judgment was made before the wall-attachment defect
-    // was visible; against it, the later evidence is that an unattached
-    // arrival is strictly worse: with no tap on the wall the edge reads as
-    // circulating from nowhere and the reader cannot tell WHICH node the
-    // return leg lands on. Attachment wins. The blank between tee and head
-    // is a legible one-cell approach; a wall with no tap is a missing fact.
-    if (head) |h| {
-        if (orthoAdjacent(h, q)) return;
-    }
-    const c = toCoord(q);
-    const cell = lat.at(c.x, c.y);
-    if (cell.occupant == .node_border) {
-        // Corner refusal: ports are issued as FACE offsets, so ink on a
-        // corner is a routing defect — merging there would morph the
-        // corner glyph AND file the `.port` that excuses the landing from
-        // the terminal audit's corner bucket. Leave the cell pristine so
-        // the defect stays visible to the report.
-        // guarded-by: edges_write_test.zig "a corner landing is refused: no merge, no record"
-        switch (cell.occupant.node_border.role) {
-            .corner_nw, .corner_ne, .corner_se, .corner_sw => return,
-            else => {},
-        }
-        cell.neighbours = orMask(cell.neighbours, bitMask(arm));
-        if (kind != .solid and cell.stroke_kind == .solid) {
-            cell.stroke_kind = kind;
-        }
-        aux.record(sink, lat.cellIndex(c.x, c.y), .port, edge_id, lattice.portArmDetail(arm));
     }
 }
 

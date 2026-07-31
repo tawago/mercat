@@ -325,12 +325,12 @@ test "TSD 14.5: busbar plus separated edges is byte and report invariant under e
     try testing.expectEqual(first.phantom_arms_cleared, second.phantom_arms_cleared);
 }
 
-test "a tap head abutting the landing leaves the member border pristine; an undecorated tap tees it" {
-    // Port tees are keyed to head ADJACENCY. Each fan-OUT tap lands on its
+test "a tap head facing the landing leaves the member border pristine; an undecorated tap tees it" {
+    // Port tees are keyed to head FACING. Each fan-OUT tap lands on its
     // member's top border with one dropper cell above it: that cell holds
-    // the head, abuts the wall, and already says "attaches here", so the
-    // border keeps its bare {e,w}. With `.none` nothing declares the
-    // landing, so the tap merges its `.n` arm and the border tees.
+    // the head, its tip points straight down into the wall, and it already
+    // says "attaches here", so the border keeps its bare {e,w}. With `.none`
+    // nothing declares the landing, so the tap merges `.n` and the border tees.
     var arena = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
@@ -366,7 +366,7 @@ test "a tap head abutting the landing leaves the member border pristine; an unde
     // Decorated but with NO dropper: the members sit directly under the
     // rail, so `tap.at` already abuts `landing` and no head is ever
     // stamped. Decoration alone would have left these walls bare and the
-    // fan would attach to nothing; head-adjacency tees them.
+    // fan would attach to nothing; the facing rule tees them.
     {
         var nodes: [4]sketch.NodePlacement = undefined;
         var taps: [3]sketch.Tap = undefined;
@@ -382,11 +382,11 @@ test "a tap head abutting the landing leaves the member border pristine; an unde
     }
 }
 
-test "a pivot head abutting the border leaves it pristine; a detached one tees" {
+test "a pivot head facing the border leaves it pristine; a detached one tees" {
     // The fan-IN mirror on the other end of the stem: the pivot's bottom
     // border at (12,2). With the stem starting ON the border the head lands
-    // at (12,3), abutting, so the wall stays bare; without a head the stem
-    // merges its `.s` arm and the border tees.
+    // at (12,3) looking back north into the wall, so it stays bare; without
+    // a head the stem merges its `.s` arm and the border tees.
     var arena = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();

@@ -13,6 +13,7 @@ const raster = @import("../raster.zig");
 const aux = @import("aux.zig");
 const edge_walk = @import("edges.zig");
 const ew = @import("edges_write.zig");
+const ep = @import("edges_port.zig");
 const roles = @import("edge_roles.zig");
 const reconcile = @import("reconcile.zig");
 const arrow_base = @import("arrow_base.zig");
@@ -86,7 +87,7 @@ test "drawPortStroke files a port record only for a stroke it actually draws" {
         var lat = try sourceBorderLattice(a);
         var c = aux.Collector.init(a);
         const pts = [_]sketch.Point{ .{ .x = 0, .y = 0 }, .{ .x = 0, .y = 1 } };
-        ew.drawPortStroke(&lat, &pts, .solid, 42, null, &c);
+        ep.drawPortStroke(&lat, &pts, .solid, 42, .{}, &c);
         const table = c.finish();
         try testing.expectEqual(@as(usize, 1), table.len);
         try testing.expectEqual(lat.cellIndex(0, 0), table[0].cell);
@@ -104,7 +105,7 @@ test "drawPortStroke files a port record only for a stroke it actually draws" {
         var lat = try sourceBorderLattice(a);
         var c = aux.Collector.init(a);
         const pts = [_]sketch.Point{ .{ .x = 0, .y = 0 }, .{ .x = 0, .y = 1 } };
-        ew.drawPortStroke(&lat, &pts, .invisible, 42, null, &c);
+        ep.drawPortStroke(&lat, &pts, .invisible, 42, .{}, &c);
         try testing.expectEqual(@as(usize, 0), c.finish().len);
     }
 
@@ -114,7 +115,7 @@ test "drawPortStroke files a port record only for a stroke it actually draws" {
         lat.at(0, 0).* = lattice.Cell.empty;
         var c = aux.Collector.init(a);
         const pts = [_]sketch.Point{ .{ .x = 0, .y = 0 }, .{ .x = 0, .y = 1 } };
-        ew.drawPortStroke(&lat, &pts, .solid, 42, null, &c);
+        ep.drawPortStroke(&lat, &pts, .solid, 42, .{}, &c);
         try testing.expectEqual(@as(usize, 0), c.finish().len);
     }
 }

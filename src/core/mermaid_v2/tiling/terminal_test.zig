@@ -321,8 +321,8 @@ test "a plain TD arrival set contains zero defect buckets" {
     try testing.expectEqual(@as(u32, 0), c.defectTotal());
 }
 
-test "an abutting decorated arrival against a pristine face is a convention with no record" {
-    // A port tee is refused behind a head that ABUTS the wall, so such an
+test "a tip-facing decorated arrival against a pristine face is a convention with no record" {
+    // A port tee is refused behind a head whose TIP points at the wall, so such an
     // arrowheaded terminal legitimately leaves NOTHING on the border: no merged
     // arm, and therefore no `.port` record. The absence must not read as
     // evidence of a defect — the ladder falls straight through the record
