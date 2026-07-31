@@ -63,7 +63,11 @@ test "own-edge ink beside the anchor does not displace the label" {
 
     var lat = try makeLattice(alloc, 12, 6);
     const poly = [_]sketch.Point{ .{ .x = 1, .y = 3 }, .{ .x = 5, .y = 3 } };
-    const edges = [_]sketch.EdgePath{makeEdge(42, &poly, "x")};
+    // A 2-cell label on a 3-cell strict interior: the INLINE on-run
+    // candidate (labels_onrun_h.zig) needs label + 2 flanks = 4 cells and
+    // refuses without stretching, so the ordinary ladder runs — which is
+    // what this test pins.
+    const edges = [_]sketch.EdgePath{makeEdge(42, &poly, "xy")};
     var s = emptySketch(12, 6, .LR);
     s.edges = &edges;
 

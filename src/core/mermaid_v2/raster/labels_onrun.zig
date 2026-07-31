@@ -40,8 +40,11 @@
 //! flanks classify as own ink; foreign ink margins and the 2-blank
 //! same-row separation are enforced untouched.
 //!
-//! SCOPE: vertical droppers only (TD fans). Horizontal runs / LR graphs
-//! are out of scope and never match (the role + vertical-bits gate).
+//! SCOPE of THIS file: vertical droppers (TD fans) — the label is written
+//! ACROSS the run. The INLINE horizontal form (`──── label ────`, the text
+//! written ALONG a private horizontal run) lives in the sibling
+//! `labels_onrun_h.zig` under the same two rules; `tryOnRunEdge` below is
+//! the single entry point that offers both and fixes their order.
 //!
 //! Import boundary: std, sketch, lattice, raster siblings only (raster
 //! zone; enforced by tools/lint_imports.zig).
@@ -53,10 +56,23 @@ const labels = @import("labels.zig");
 const lw = @import("labels_write.zig");
 const aux = @import("aux.zig");
 const ink = @import("labels_ink.zig");
+const onrun_h = @import("labels_onrun_h.zig");
 
-/// Try the on-run candidate for a routed fan-member edge: every vertical
-/// polyline segment offers its strict interior rows, walked from the
-/// middle outward. Returns true iff the label was written.
+/// Try BOTH on-run forms for a routed edge and return true iff either
+/// wrote the label.
+///
+/// TIE ORDER — the LONGER qualifying stretch is offered first, measured as
+/// the longest strict interior among the polyline's vertical segments
+/// versus its horizontal ones, with a VERTICAL win on an exact tie. Two
+/// reasons for this rule over a direction-shaped one (TD → vertical first,
+/// LR → horizontal first): it is a pure function of the polyline, so it
+/// needs neither the Sketch direction nor a per-graph special case and
+/// stays correct for the mixed elbows both directions produce; and it
+/// picks the stretch with the most room for the label plus its two flanks
+/// plus the isolation margin, which is precisely what feasibility depends
+/// on. The tie going to VERTICAL keeps every render that placed a label
+/// before this file existed byte-identical.
+/// guarded-by: labels_onrun_h_test.zig "tie order: the longer qualifying stretch is tried first, ties go vertical"
 pub fn tryOnRunEdge(
     lat: *lattice.Lattice,
     s: sketch.Sketch,
@@ -65,6 +81,38 @@ pub fn tryOnRunEdge(
     sink: aux.Sink,
 ) bool {
     if (ep.polyline.len < 2) return false;
+    const h_len = onrun_h.longestHorizontalInterior(ep.polyline);
+    const v_len = longestVerticalInterior(ep.polyline);
+    if (h_len > v_len) {
+        if (onrun_h.tryOnRunEdgeH(lat, s, ep, label, sink)) return true;
+        return tryVerticalEdge(lat, s, ep, label, sink);
+    }
+    if (tryVerticalEdge(lat, s, ep, label, sink)) return true;
+    return onrun_h.tryOnRunEdgeH(lat, s, ep, label, sink);
+}
+
+/// Longest strict-interior length among the polyline's vertical segments.
+fn longestVerticalInterior(polyline: []const sketch.Point) u32 {
+    if (polyline.len < 2) return 0;
+    var best: u32 = 0;
+    for (polyline[0 .. polyline.len - 1], 0..) |p, i| {
+        const q = polyline[i + 1];
+        if (p.x != q.x or p.y == q.y) continue;
+        const span: u32 = @intCast(@max(p.y, q.y) - @min(p.y, q.y));
+        if (span >= 1 and span - 1 > best) best = span - 1;
+    }
+    return best;
+}
+
+/// The vertical (across-the-run) form: every vertical polyline segment
+/// offers its strict interior rows, walked from the middle outward.
+fn tryVerticalEdge(
+    lat: *lattice.Lattice,
+    s: sketch.Sketch,
+    ep: sketch.EdgePath,
+    label: []const u8,
+    sink: aux.Sink,
+) bool {
     for (ep.polyline[0 .. ep.polyline.len - 1], 0..) |p, i| {
         const q = ep.polyline[i + 1];
         if (p.x != q.x or p.y == q.y) continue; // vertical, non-degenerate only
@@ -237,7 +285,7 @@ fn runFlankCell(lat: *const lattice.Lattice, edge_id: u32, x: i32, y: i32) bool 
 /// geometry covers (x, y) — another EdgePath's polyline, or any bus-bar's
 /// stem, crossbar, or a DIFFERENT tap's drop. The bus-bar shared run is
 /// shared even for its own members, so it is never exempt.
-fn coveredByOther(s: sketch.Sketch, edge_id: u32, x: i32, y: i32) bool {
+pub fn coveredByOther(s: sketch.Sketch, edge_id: u32, x: i32, y: i32) bool {
     for (s.edges) |other| {
         if (other.id == edge_id) continue;
         if (other.polyline.len < 2) continue;
