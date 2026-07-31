@@ -65,6 +65,14 @@ pub const required_shape_scalars = [_]u21{
     0x25BC, // BLACK DOWN-POINTING TRIANGLE
     0x25C0, // BLACK LEFT-POINTING TRIANGLE
     0x25C7, // WHITE DIAMOND
+    // PIN — kind-aware arrowheads (paint/arrow_glyphs.zig). U+2715 is the
+    // only cross allowed; U+2716 and U+2A2F map to glyph 0 in this face.
+    0x25B3, // WHITE UP-POINTING TRIANGLE
+    0x25B7, // WHITE RIGHT-POINTING TRIANGLE
+    0x25BD, // WHITE DOWN-POINTING TRIANGLE
+    0x25C1, // WHITE LEFT-POINTING TRIANGLE
+    0x25CB, // WHITE CIRCLE
+    0x2715, // MULTIPLICATION X
 };
 
 pub const Error = error{

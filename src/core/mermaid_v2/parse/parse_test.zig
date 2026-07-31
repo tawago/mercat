@@ -35,7 +35,7 @@ test "single edge implicit nodes" {
     try t.expectEqual(@as(usize, 2), g.nodeCount());
     try t.expectEqual(@as(usize, 1), g.edgeCount());
     try t.expectEqual(EdgeKind.solid, g.edges[0].kind);
-    try t.expectEqual(ArrowEnd.open, g.edges[0].arrow_to);
+    try t.expectEqual(ArrowEnd.filled, g.edges[0].arrow_to);
     try t.expectEqual(ArrowEnd.none, g.edges[0].arrow_from);
 }
 

@@ -70,7 +70,7 @@ pub const shape_glyphs = [_]u21{
 };
 
 /// Arrow / geometric marker glyphs the flowchart painter owns. These are the
-/// five `required_shape_scalars` from `font.zig` (guarded there too) plus the
+/// `required_shape_scalars` from `font.zig` (guarded there too) plus the
 /// markdown link arrow.
 pub const arrow_glyphs = [_]u21{
     0x25B2, // ▲ BLACK UP-POINTING TRIANGLE
@@ -79,6 +79,13 @@ pub const arrow_glyphs = [_]u21{
     0x25C0, // ◀ BLACK LEFT-POINTING TRIANGLE
     0x25C7, // ◇ WHITE DIAMOND
     0x2192, // → RIGHTWARDS ARROW (markdown inline)
+    // Kind-aware arrowhead table (paint/arrow_glyphs.zig): open + circle + cross.
+    0x25B3, // △ WHITE UP-POINTING TRIANGLE
+    0x25B7, // ▷ WHITE RIGHT-POINTING TRIANGLE
+    0x25BD, // ▽ WHITE DOWN-POINTING TRIANGLE
+    0x25C1, // ◁ WHITE LEFT-POINTING TRIANGLE
+    0x25CB, // ○ WHITE CIRCLE
+    0x2715, // ✕ MULTIPLICATION X (the only sanctioned cross; U+2716/U+2A2F are tofu in the pinned face)
 };
 
 /// Heavy (bold) box-drawing set (`types.box_chars_heavy`), emitted by the
@@ -372,10 +379,10 @@ fn displayWidth(text: []const u8) !u32 {
 /// dev target (aarch64 macOS). Hashes are target-qualified (§7.6): on other
 /// targets the equality check is skipped and only determinism is asserted.
 const expected_surface_sha256_aarch64_macos: [32]u8 = .{
-    0x05, 0xf5, 0x3a, 0x48, 0x8c, 0x1a, 0x24, 0x31,
-    0x25, 0xc4, 0xde, 0xf8, 0x76, 0x69, 0xc5, 0x1d,
-    0x29, 0x9d, 0x03, 0xc3, 0x8b, 0xb4, 0xf5, 0x7c,
-    0x25, 0xa2, 0x64, 0x95, 0xd8, 0x3c, 0x77, 0xa5,
+    0x5b, 0x81, 0x15, 0x5b, 0xb1, 0x3f, 0x6c, 0xf4,
+    0xc5, 0x9a, 0xa0, 0xca, 0x49, 0xf1, 0xb5, 0xbb,
+    0x14, 0x59, 0x50, 0x42, 0x32, 0x11, 0x37, 0xbd,
+    0xe2, 0xb2, 0x35, 0xba, 0x3d, 0x5c, 0x42, 0x50,
 };
 
 fn renderSheetSurface(allocator: std.mem.Allocator) !surface_mod.Surface {

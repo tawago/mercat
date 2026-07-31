@@ -14,6 +14,7 @@ const prim = @import("prim");
 const jt = @import("paint/junction_glyphs.zig");
 const st = @import("paint/stroke_glyphs.zig");
 const sg = @import("paint/shape_glyphs.zig");
+const ag = @import("paint/arrow_glyphs.zig");
 
 /// Right-edge overflow marker. U+00BB (`»`) is below 0x1100 so
 /// `prim.codepointWidth` classifies it as display-width 1 — a hard
@@ -127,7 +128,7 @@ fn appendCell(
         // The head already emitted the whole glyph and both its columns.
         .label_cont => {},
         .label_char => |cp| try appendCp(allocator, row, cp),
-        .arrowhead => |a| try appendCp(allocator, row, arrowGlyph(a.dir)),
+        .arrowhead => |a| try appendCp(allocator, row, ag.glyphFor(a.arrow, a.dir)),
         .edge_segment => |seg| {
             const glyph: u21 = switch (seg.kind) {
                 .solid => jt.glyphFor(cell.neighbours),
@@ -167,15 +168,6 @@ fn appendCp(
     var buf: [4]u8 = undefined;
     const n = try std.unicode.utf8Encode(cp, &buf);
     try row.appendSlice(allocator, buf[0..n]);
-}
-
-fn arrowGlyph(d: lattice.Dir4) u21 {
-    return switch (d) {
-        .north => '▲',
-        .east => '▶',
-        .south => '▼',
-        .west => '◀',
-    };
 }
 
 fn trimTrailingSpaces(s: []const u8) []const u8 {
@@ -409,26 +401,25 @@ test "paint: non-solid stroke wins over shape glyph on node_border" {
     }
 }
 
-// TEMPORARY PIN — delete together with the direction-only `arrowGlyph`.
-// The arrowhead cell now carries the head style the source declared, but the
-// painter deliberately still keys the glyph off `dir` alone, so recording the
-// style moved zero bytes of output. This test states that as an assertion
-// rather than a hope; when the head table learns the style it will start
-// failing, which is exactly the signal that the change took effect. Nothing
-// points at it with a guarded-by pointer — it is scaffolding, not a law.
-test "paint: a non-filled ArrowKind still paints today's direction-only glyph" {
+test "paint: non-filled ArrowKinds paint their own glyphs" {
     const a = testing.allocator;
-    for ([_]lattice.ArrowKind{ .none, .open, .filled, .circle, .cross }) |kind| {
+    const cases = [_]struct { kind: lattice.ArrowKind, want: []const u8 }{
+        .{ .kind = .filled, .want = "▶\n" },
+        .{ .kind = .open, .want = "▷\n" },
+        .{ .kind = .circle, .want = "○\n" },
+        .{ .kind = .cross, .want = "\u{2715}\n" },
+    };
+    for (cases) |c| {
         var cells: [1]lattice.Cell = .{
             .{
-                .occupant = .{ .arrowhead = .{ .dir = .east, .edge = 0, .arrow = kind } },
+                .occupant = .{ .arrowhead = .{ .dir = .east, .edge = 0, .arrow = c.kind } },
                 .neighbours = .{},
             },
         };
         const lat = lattice.Lattice{ .width = 1, .height = 1, .cells = &cells };
         const got = try paint(a, lat, 1000);
         defer a.free(got);
-        try testing.expectEqualStrings("▶\n", got);
+        try testing.expectEqualStrings(c.want, got);
     }
 }
 

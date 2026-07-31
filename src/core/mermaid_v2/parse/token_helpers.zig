@@ -16,16 +16,19 @@ const ArrowEnd = sg.ArrowEnd;
 pub const ArrowPair = struct { from: ArrowEnd, to: ArrowEnd };
 
 /// Decode the arrow-end markers from a raw edge-token text. The first byte
-/// encodes the source-end marker (`<`, `o`, `x` → open/circle/cross);
+/// encodes the source-end marker (`<`, `o`, `x` → filled/circle/cross);
 /// the last byte encodes the target-end marker. Anything else → `.none`.
+/// The standard `>`/`<` point is `.filled` — mermaid draws it as a solid
+/// head; `.open` is reserved for an explicit open-triangle style, which no
+/// flowchart edge token produces today.
 pub fn decodeArrows(text: []const u8) ArrowPair {
     var ap: ArrowPair = .{ .from = .none, .to = .none };
     if (text.len == 0) return ap;
     switch (text[0]) {
-        '<' => ap.from = .open, 'o' => ap.from = .circle, 'x' => ap.from = .cross, else => {},
+        '<' => ap.from = .filled, 'o' => ap.from = .circle, 'x' => ap.from = .cross, else => {},
     }
     switch (text[text.len - 1]) {
-        '>' => ap.to = .open, 'o' => ap.to = .circle, 'x' => ap.to = .cross, else => {},
+        '>' => ap.to = .filled, 'o' => ap.to = .circle, 'x' => ap.to = .cross, else => {},
     }
     return ap;
 }
