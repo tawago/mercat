@@ -208,8 +208,16 @@ fn walkPolyline(
     const ek = edge.kind;
     const erole = edge.role;
 
-    drawPortStroke(lat, pts, ek, edge.id, sink);
-    ew.drawTargetPortStroke(lat, pts, ek, edge.id, sink);
+    // Port tees only at UNDECORATED ends: the walk below stamps this edge's
+    // arrowheads (`arrow_to` on the last interior cell, `arrow_from` on the
+    // first), so the declared arrow kinds are exactly the knowledge of which
+    // end is decorated — threaded as a parameter rather than re-derived from
+    // the grid, which cannot tell this edge's head from a foreign one.
+    // A decorated end keeps a pristine wall: the head already declares the
+    // attachment and a tee behind it asserts a continuation that never runs.
+    // guarded-by: edges_write_test.zig "a decorated arrival leaves the target border wall pristine"
+    drawPortStroke(lat, pts, ek, edge.id, edge.arrow_from != .none, sink);
+    ew.drawTargetPortStroke(lat, pts, ek, edge.id, edge.arrow_to != .none, sink);
 
     var i: usize = 0;
     while (i + 1 < pts.len) : (i += 1) {

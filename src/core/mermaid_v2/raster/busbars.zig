@@ -70,13 +70,18 @@ fn drawRail(lat: *lattice.Lattice, bb: sketch.Rail, report: *Report, sink: aux.S
     //    the stem arm OR'd into the junction (a rail cell).
     // The stem departs the pivot, so the port belongs to the run's owner id
     // (the same informational id the shared-run cells carry).
-    if (!fan_in) edges_r.drawPortStroke(lat, bb.stem, bb.kind, crossbar_edge, sink);
+    // Either way the pivot end is decorated exactly when `pivot_arrow` is
+    // declared — the head is stamped one cell out from `stem[0]` below, and
+    // a decorated end takes no port tee (the head already says "attaches
+    // here"). // guarded-by: busbars_test.zig "a decorated pivot arrival leaves the pivot border pristine; undecorated tees"
+    const pivot_decorated = bb.pivot_arrow != .none;
+    if (!fan_in) edges_r.drawPortStroke(lat, bb.stem, bb.kind, crossbar_edge, pivot_decorated, sink);
     // Fan-IN: the pivot is the TARGET — its port cell is stem[0], reached
     // from the stem side, so the arrival stroke comes from the reversed
     // two-point stub (uniform port erasure, both ends of every run).
     if (fan_in and bb.stem.len >= 2) {
         const pivot_stub = [_]sketch.Point{ bb.stem[1], bb.stem[0] };
-        edges_r.drawTargetPortStroke(lat, &pivot_stub, bb.kind, crossbar_edge, sink);
+        edges_r.drawTargetPortStroke(lat, &pivot_stub, bb.kind, crossbar_edge, pivot_decorated, sink);
     }
     var i: usize = 0;
     var last_dir: ?edges_r.Move = null;
@@ -112,16 +117,22 @@ fn drawRail(lat: *lattice.Lattice, bb: sketch.Rail, report: *Report, sink: aux.S
     // -- Taps: drop arm OR'd into the rail cell, dropper cells, arrowhead
     //    on the last cell before the landing (the node perimeter).
     for (bb.taps) |tap| {
+        // The MEMBER end of a tap is decorated exactly when `tap.arrow` is
+        // declared: fan-OUT stamps that head pointing INTO the landing,
+        // fan-IN stamps it reversed (a back-arrow at the member). Either
+        // way a decorated member end keeps its border wall pristine.
+        // guarded-by: busbars_test.zig "a decorated tap landing leaves the member border pristine; an undecorated tap tees it"
+        const tap_decorated = tap.arrow != .none;
         if (fan_in) {
             const source_stub = [_]sketch.Point{ tap.landing, tap.at };
-            edges_r.drawPortStroke(lat, &source_stub, bb.kind, tap.edge, sink);
+            edges_r.drawPortStroke(lat, &source_stub, bb.kind, tap.edge, tap_decorated, sink);
         } else {
             // Fan-OUT: each tap terminates on its member's TARGET border at
             // `tap.landing`; merge the arrival arm there (symmetric with the
             // fan-IN source stub above — no cell is painted twice, the two
             // stubs end on different nodes' borders).
             const target_stub = [_]sketch.Point{ tap.at, tap.landing };
-            edges_r.drawTargetPortStroke(lat, &target_stub, bb.kind, tap.edge, sink);
+            edges_r.drawTargetPortStroke(lat, &target_stub, bb.kind, tap.edge, tap_decorated, sink);
         }
         const dir = edges_r.segmentDir(tap.at, tap.landing) orelse continue;
         claim(lat, tap.at, tap.edge, bb.kind, crossbar_role, edges_r.bitMask(dir), report, rec);

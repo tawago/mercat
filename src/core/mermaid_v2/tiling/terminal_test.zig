@@ -320,3 +320,35 @@ test "a plain TD arrival set contains zero defect buckets" {
     try testing.expectEqual(@as(u32, 1), c.c_term_node_ns_arrow);
     try testing.expectEqual(@as(u32, 0), c.defectTotal());
 }
+
+test "a decorated arrival against a pristine face is a convention with no record" {
+    // Port tees are drawn only at UNDECORATED ends, so an arrowheaded
+    // terminal legitimately leaves NOTHING behind on the border: no merged
+    // arm, and therefore no `.port` record. The absence must not read as
+    // evidence of a defect — the ladder falls straight through the record
+    // test and the unrecorded-arm test to the face conventions, on both
+    // axes, and the whole set is silent.
+    inline for (.{
+        .{ lattice.Dir4.south, lattice.BorderRole.edge_n },
+        .{ lattice.Dir4.north, lattice.BorderRole.edge_s },
+        .{ lattice.Dir4.east, lattice.BorderRole.edge_w },
+        .{ lattice.Dir4.west, lattice.BorderRole.edge_e },
+    }) |tc| {
+        const d = tc[0];
+        const role = tc[1];
+        const wall: lattice.Neighbours = switch (role) {
+            .edge_n, .edge_s => .{ .e = true, .w = true },
+            else => .{ .n = true, .s = true },
+        };
+        const c = pairAt(arrowCell(d, .{}), d, border(role, wall));
+        try testing.expectEqual(@as(u32, 1), c.n_term_abut);
+        try testing.expectEqual(@as(u32, 0), c.c_term_port_recorded);
+        try testing.expectEqual(@as(u32, 0), c.c_term_ring_arm_unrecorded);
+        try testing.expectEqual(@as(u32, 0), c.d_border_arm_unrecorded);
+        try testing.expectEqual(@as(u32, 0), c.defectTotal());
+        switch (role) {
+            .edge_n, .edge_s => try testing.expectEqual(@as(u32, 1), c.c_term_node_ns_arrow),
+            else => try testing.expectEqual(@as(u32, 1), c.c_term_node_ew_arrow),
+        }
+    }
+}

@@ -324,3 +324,71 @@ test "TSD 14.5: busbar plus separated edges is byte and report invariant under e
     try testing.expectEqual(first.labels_displaced, second.labels_displaced);
     try testing.expectEqual(first.phantom_arms_cleared, second.phantom_arms_cleared);
 }
+
+test "a decorated tap landing leaves the member border pristine; an undecorated tap tees it" {
+    // Port tees only at undecorated ends. Each fan-OUT tap lands on its
+    // member's top border: with `tap.arrow` declared, the head one cell
+    // above already says "attaches here" and the border keeps its bare
+    // {e,w}; with `.none`, nothing else declares the landing, so the tap
+    // merges its `.n` arm and the border tees.
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+
+    const plain = (lattice.Neighbours{ .e = true, .w = true }).toMask();
+    const teed = (lattice.Neighbours{ .e = true, .w = true, .n = true }).toMask();
+
+    // Decorated (the fanSketch default is `.filled`).
+    {
+        var nodes: [4]sketch.NodePlacement = undefined;
+        var taps: [3]sketch.Tap = undefined;
+        var stem: [2]sketch.Point = undefined;
+        var busbars: [1]sketch.Rail = undefined;
+        const s = fanSketch(&nodes, &taps, &stem, &busbars);
+        const r = try rasterizeForTest(a, s);
+        inline for (.{ 2, 12, 22 }) |x| {
+            try testing.expectEqual(plain, r.lattice.atConst(x, 7).neighbours.toMask());
+        }
+    }
+    // Undecorated: the same geometry with every head dropped.
+    {
+        var nodes: [4]sketch.NodePlacement = undefined;
+        var taps: [3]sketch.Tap = undefined;
+        var stem: [2]sketch.Point = undefined;
+        var busbars: [1]sketch.Rail = undefined;
+        const s = fanSketch(&nodes, &taps, &stem, &busbars);
+        for (&taps) |*t| t.arrow = .none;
+        const r = try rasterizeForTest(a, s);
+        inline for (.{ 2, 12, 22 }) |x| {
+            try testing.expectEqual(teed, r.lattice.atConst(x, 7).neighbours.toMask());
+        }
+    }
+}
+
+test "a decorated pivot arrival leaves the pivot border pristine; undecorated tees" {
+    // The fan-IN mirror on the other end of the stem: the pivot's bottom
+    // border at (12,2). `pivot_arrow` decorates it, so the wall stays bare;
+    // without a head the stem merges its `.s` arm and the border tees.
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+
+    const plain = (lattice.Neighbours{ .e = true, .w = true }).toMask();
+    const teed = (lattice.Neighbours{ .e = true, .w = true, .s = true }).toMask();
+
+    inline for (.{ true, false }) |decorated| {
+        var nodes: [4]sketch.NodePlacement = undefined;
+        var taps: [3]sketch.Tap = undefined;
+        var stem: [2]sketch.Point = undefined;
+        var busbars: [1]sketch.Rail = undefined;
+        const s = fanSketch(&nodes, &taps, &stem, &busbars);
+        busbars[0].role = .fan_in_dropper;
+        busbars[0].pivot_arrow = if (decorated) .filled else .none;
+        for (&taps) |*t| t.arrow = .none;
+        const r = try rasterizeForTest(a, s);
+        try testing.expectEqual(
+            if (decorated) plain else teed,
+            r.lattice.atConst(12, 2).neighbours.toMask(),
+        );
+    }
+}

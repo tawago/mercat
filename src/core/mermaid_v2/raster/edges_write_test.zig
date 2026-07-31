@@ -145,7 +145,7 @@ test "drawPortStroke: an invisible edge leaves the source node border untouched"
     defer a.free(lat.cells);
 
     const pts = [_]sketch.Point{ .{ .x = 0, .y = 0 }, .{ .x = 0, .y = 1 } };
-    ew.drawPortStroke(&lat, &pts, .invisible, 0, null);
+    ew.drawPortStroke(&lat, &pts, .invisible, 0, false, null);
 
     const cell = lat.atConst(0, 0);
     try testing.expect(!cell.neighbours.s); // no phantom south tee
@@ -160,7 +160,7 @@ test "drawPortStroke: a solid edge still ORs the south exit bit into the source 
     defer a.free(lat.cells);
 
     const pts = [_]sketch.Point{ .{ .x = 0, .y = 0 }, .{ .x = 0, .y = 1 } };
-    ew.drawPortStroke(&lat, &pts, .solid, 0, null);
+    ew.drawPortStroke(&lat, &pts, .solid, 0, false, null);
 
     try testing.expect(lat.atConst(0, 0).neighbours.s);
 }
@@ -173,7 +173,7 @@ test "drawPortStroke: a north-exit invisible edge is also suppressed" {
     defer a.free(lat.cells);
 
     const pts = [_]sketch.Point{ .{ .x = 0, .y = 1 }, .{ .x = 0, .y = 0 } };
-    ew.drawPortStroke(&lat, &pts, .invisible, 0, null);
+    ew.drawPortStroke(&lat, &pts, .invisible, 0, false, null);
 
     try testing.expect(!lat.atConst(0, 1).neighbours.n);
 }
@@ -186,7 +186,7 @@ test "drawPortStroke: a thick edge still stamps stroke_kind on the source border
     defer a.free(lat.cells);
 
     const pts = [_]sketch.Point{ .{ .x = 0, .y = 0 }, .{ .x = 0, .y = 1 } };
-    ew.drawPortStroke(&lat, &pts, .thick, 0, null);
+    ew.drawPortStroke(&lat, &pts, .thick, 0, false, null);
 
     const cell = lat.atConst(0, 0);
     try testing.expect(cell.neighbours.s);
@@ -216,7 +216,7 @@ test "drawPortStroke: an east/west departure also merges its exit bit (all four 
     defer a.free(lat.cells);
 
     const pts = [_]sketch.Point{ .{ .x = 0, .y = 1 }, .{ .x = 2, .y = 1 } };
-    ew.drawPortStroke(&lat, &pts, .solid, 0, null);
+    ew.drawPortStroke(&lat, &pts, .solid, 0, false, null);
 
     try testing.expect(lat.atConst(0, 1).neighbours.e);
 }
@@ -242,7 +242,7 @@ test "drawTargetPortStroke: arrival arms merge on all four faces" {
         var lat = try borderLattice3(a, tc.border[0], tc.border[1], tc.border_mask);
         defer a.free(lat.cells);
         const pts = [_]sketch.Point{ tc.from, .{ .x = @intCast(tc.border[0]), .y = @intCast(tc.border[1]) } };
-        ew.drawTargetPortStroke(&lat, &pts, .solid, 0, null);
+        ew.drawTargetPortStroke(&lat, &pts, .solid, 0, false, null);
         const got = lat.atConst(tc.border[0], tc.border[1]).neighbours;
         try testing.expectEqual(
             ew.orMask(tc.border_mask, tc.expect).toMask(),
@@ -256,13 +256,13 @@ test "drawTargetPortStroke: a thick arrival stamps stroke_kind; dotted does too"
     var lat = try borderLattice3(a, 1, 2, .{ .e = true, .w = true });
     defer a.free(lat.cells);
     const pts = [_]sketch.Point{ .{ .x = 1, .y = 0 }, .{ .x = 1, .y = 2 } };
-    ew.drawTargetPortStroke(&lat, &pts, .thick, 0, null);
+    ew.drawTargetPortStroke(&lat, &pts, .thick, 0, false, null);
     try testing.expect(lat.atConst(1, 2).neighbours.n);
     try testing.expectEqual(lattice.EdgeKind.thick, lat.atConst(1, 2).stroke_kind);
 
     var lat2 = try borderLattice3(a, 1, 2, .{ .e = true, .w = true });
     defer a.free(lat2.cells);
-    ew.drawTargetPortStroke(&lat2, &pts, .dotted, 0, null);
+    ew.drawTargetPortStroke(&lat2, &pts, .dotted, 0, false, null);
     try testing.expectEqual(lattice.EdgeKind.dotted, lat2.atConst(1, 2).stroke_kind);
 }
 
@@ -273,7 +273,7 @@ test "drawTargetPortStroke: refuses non-border occupants and invisible edges" {
         var lat = try borderLattice3(a, 1, 2, .{ .e = true, .w = true });
         defer a.free(lat.cells);
         const pts = [_]sketch.Point{ .{ .x = 0, .y = 0 }, .{ .x = 0, .y = 2 } };
-        ew.drawTargetPortStroke(&lat, &pts, .solid, 0, null);
+        ew.drawTargetPortStroke(&lat, &pts, .solid, 0, false, null);
         try testing.expectEqual(@as(u4, 0), lat.atConst(0, 2).neighbours.toMask());
     }
     // Endpoint on a label cell: refused, untouched.
@@ -282,7 +282,7 @@ test "drawTargetPortStroke: refuses non-border occupants and invisible edges" {
         defer a.free(lat.cells);
         lat.at(1, 2).* = .{ .occupant = .{ .label_char = 'x' }, .neighbours = .{} };
         const pts = [_]sketch.Point{ .{ .x = 1, .y = 0 }, .{ .x = 1, .y = 2 } };
-        ew.drawTargetPortStroke(&lat, &pts, .solid, 0, null);
+        ew.drawTargetPortStroke(&lat, &pts, .solid, 0, false, null);
         try testing.expectEqual(@as(u4, 0), lat.atConst(1, 2).neighbours.toMask());
     }
     // Invisible edge: border stays pristine.
@@ -290,10 +290,76 @@ test "drawTargetPortStroke: refuses non-border occupants and invisible edges" {
         var lat = try borderLattice3(a, 1, 2, .{ .e = true, .w = true });
         defer a.free(lat.cells);
         const pts = [_]sketch.Point{ .{ .x = 1, .y = 0 }, .{ .x = 1, .y = 2 } };
-        ew.drawTargetPortStroke(&lat, &pts, .invisible, 0, null);
+        ew.drawTargetPortStroke(&lat, &pts, .invisible, 0, false, null);
         try testing.expect(!lat.atConst(1, 2).neighbours.n);
         try testing.expectEqual(lattice.EdgeKind.solid, lat.atConst(1, 2).stroke_kind);
     }
+}
+
+test "a decorated arrival leaves the target border wall pristine" {
+    // The arrowhead already declares the attachment; a tee behind it (`▼`
+    // sitting on `┴`) asserts a continuation past the wall that does not
+    // exist. Same geometry as the four-face merge test above, decorated:
+    // every face must stay exactly as the node rasterizer left it, and no
+    // `.port` record may be filed (nothing was drawn).
+    const a = testing.allocator;
+    const cases = [_]struct {
+        border: [2]u32,
+        border_mask: lattice.Neighbours,
+        from: sketch.Point,
+    }{
+        .{ .border = .{ 1, 2 }, .border_mask = .{ .e = true, .w = true }, .from = .{ .x = 1, .y = 0 } },
+        .{ .border = .{ 1, 0 }, .border_mask = .{ .e = true, .w = true }, .from = .{ .x = 1, .y = 2 } },
+        .{ .border = .{ 2, 1 }, .border_mask = .{ .n = true, .s = true }, .from = .{ .x = 0, .y = 1 } },
+        .{ .border = .{ 0, 1 }, .border_mask = .{ .n = true, .s = true }, .from = .{ .x = 2, .y = 1 } },
+    };
+    for (cases) |tc| {
+        var lat = try borderLattice3(a, tc.border[0], tc.border[1], tc.border_mask);
+        defer a.free(lat.cells);
+        var col = aux.Collector.init(a);
+        defer col.records.deinit(a);
+        const pts = [_]sketch.Point{ tc.from, .{ .x = @intCast(tc.border[0]), .y = @intCast(tc.border[1]) } };
+        ew.drawTargetPortStroke(&lat, &pts, .solid, 0, true, &col);
+        try testing.expectEqual(
+            tc.border_mask.toMask(),
+            lat.atConst(tc.border[0], tc.border[1]).neighbours.toMask(),
+        );
+        try testing.expectEqual(lattice.EdgeKind.solid, lat.atConst(tc.border[0], tc.border[1]).stroke_kind);
+        try testing.expectEqual(@as(usize, 0), col.finish().len);
+    }
+}
+
+test "a decorated source end leaves the border wall pristine" {
+    // The reversed-edge mirror: `arrow_from` decorates the DEPARTURE, and
+    // the departing wall must stay plain for exactly the same reason.
+    const a = testing.allocator;
+    var lat = try sourceBorderLattice(a, 0);
+    defer a.free(lat.cells);
+    var col = aux.Collector.init(a);
+    defer col.records.deinit(a);
+    const pts = [_]sketch.Point{ .{ .x = 0, .y = 0 }, .{ .x = 0, .y = 1 } };
+    ew.drawPortStroke(&lat, &pts, .solid, 0, true, &col);
+    try testing.expect(!lat.atConst(0, 0).neighbours.s);
+    try testing.expectEqual(@as(usize, 0), col.finish().len);
+}
+
+test "a bidirectional edge leaves BOTH walls plain" {
+    // Heads at both ends (`A <--> B`): neither port draws, so the source
+    // bottom and the target top both keep their bare `─`.
+    const a = testing.allocator;
+    var lat = try borderLattice3(a, 1, 0, .{ .e = true, .w = true });
+    defer a.free(lat.cells);
+    lat.at(1, 2).* = .{
+        .occupant = .{ .node_border = .{ .node = 1, .role = .edge_n } },
+        .neighbours = .{ .e = true, .w = true },
+        .stroke_kind = .solid,
+        .shape = .rect,
+    };
+    const pts = [_]sketch.Point{ .{ .x = 1, .y = 0 }, .{ .x = 1, .y = 2 } };
+    ew.drawPortStroke(&lat, &pts, .solid, 0, true, null);
+    ew.drawTargetPortStroke(&lat, &pts, .solid, 0, true, null);
+    try testing.expect(!lat.atConst(1, 0).neighbours.s);
+    try testing.expect(!lat.atConst(1, 2).neighbours.n);
 }
 
 test "a gap arrival merges its port bit across the 1-cell reprieve" {
@@ -309,7 +375,7 @@ test "a gap arrival merges its port bit across the 1-cell reprieve" {
     defer a.free(lat.cells);
     lat.at(2, 1).occupant.node_border.role = .edge_w;
     const pts = [_]sketch.Point{ .{ .x = 0, .y = 1 }, .{ .x = 1, .y = 1 } };
-    ew.drawTargetPortStroke(&lat, &pts, .solid, 0, null);
+    ew.drawTargetPortStroke(&lat, &pts, .solid, 0, false, null);
     try testing.expect(lat.atConst(2, 1).neighbours.w);
     // The gap cell itself stays untouched.
     try testing.expectEqual(@as(u4, 0), lat.atConst(1, 1).neighbours.toMask());
@@ -327,7 +393,7 @@ test "a corner landing is refused: no merge, no record" {
     var col = aux.Collector.init(a);
     defer col.records.deinit(a);
     const pts = [_]sketch.Point{ .{ .x = 1, .y = 0 }, .{ .x = 1, .y = 2 } };
-    ew.drawTargetPortStroke(&lat, &pts, .solid, 0, &col);
+    ew.drawTargetPortStroke(&lat, &pts, .solid, 0, false, &col);
     try testing.expect(!lat.atConst(1, 2).neighbours.n);
     try testing.expectEqual(@as(usize, 0), col.finish().len);
 }
@@ -339,7 +405,7 @@ test "a merged port files its arm direction in the record" {
     var col = aux.Collector.init(a);
     defer col.records.deinit(a);
     const pts = [_]sketch.Point{ .{ .x = 1, .y = 0 }, .{ .x = 1, .y = 2 } };
-    ew.drawTargetPortStroke(&lat, &pts, .solid, 9, &col);
+    ew.drawTargetPortStroke(&lat, &pts, .solid, 9, false, &col);
     const recs = col.finish();
     try testing.expectEqual(@as(usize, 1), recs.len);
     try testing.expectEqual(lattice.AuxKind.port, recs[0].kind);

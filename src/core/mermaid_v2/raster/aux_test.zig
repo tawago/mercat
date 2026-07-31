@@ -86,7 +86,7 @@ test "drawPortStroke files a port record only for a stroke it actually draws" {
         var lat = try sourceBorderLattice(a);
         var c = aux.Collector.init(a);
         const pts = [_]sketch.Point{ .{ .x = 0, .y = 0 }, .{ .x = 0, .y = 1 } };
-        ew.drawPortStroke(&lat, &pts, .solid, 42, &c);
+        ew.drawPortStroke(&lat, &pts, .solid, 42, false, &c);
         const table = c.finish();
         try testing.expectEqual(@as(usize, 1), table.len);
         try testing.expectEqual(lat.cellIndex(0, 0), table[0].cell);
@@ -104,7 +104,7 @@ test "drawPortStroke files a port record only for a stroke it actually draws" {
         var lat = try sourceBorderLattice(a);
         var c = aux.Collector.init(a);
         const pts = [_]sketch.Point{ .{ .x = 0, .y = 0 }, .{ .x = 0, .y = 1 } };
-        ew.drawPortStroke(&lat, &pts, .invisible, 42, &c);
+        ew.drawPortStroke(&lat, &pts, .invisible, 42, false, &c);
         try testing.expectEqual(@as(usize, 0), c.finish().len);
     }
 
@@ -114,7 +114,7 @@ test "drawPortStroke files a port record only for a stroke it actually draws" {
         lat.at(0, 0).* = lattice.Cell.empty;
         var c = aux.Collector.init(a);
         const pts = [_]sketch.Point{ .{ .x = 0, .y = 0 }, .{ .x = 0, .y = 1 } };
-        ew.drawPortStroke(&lat, &pts, .solid, 42, &c);
+        ew.drawPortStroke(&lat, &pts, .solid, 42, false, &c);
         try testing.expectEqual(@as(usize, 0), c.finish().len);
     }
 }
@@ -191,8 +191,10 @@ test "aux records survive the three post-walk mutating passes" {
     const report = try raster.rasterize(a, s, .bridge, .{ .collect_aux = true });
     var lat = report.lattice;
 
-    // Uniform port erasure: one record per attachment stroke — the source
-    // departure at (2,2) AND the target arrival at (2,6).
+    // Port tees only at UNDECORATED ends: this edge is `arrow_to = .filled`,
+    // so the arrival draws no stroke and files no record — the head already
+    // declares the attachment. The undecorated source departure at (2,2)
+    // still strokes and records.
     const source_port_cell = lat.cellIndex(2, 2);
     const target_port_cell = lat.cellIndex(2, 6);
     var found_source: usize = 0;
@@ -204,7 +206,7 @@ test "aux records survive the three post-walk mutating passes" {
         if (r.cell == target_port_cell) found_target += 1;
     }
     try testing.expectEqual(@as(usize, 1), found_source);
-    try testing.expectEqual(@as(usize, 1), found_target);
+    try testing.expectEqual(@as(usize, 0), found_target);
 
     // Snapshot, then run the three post-walk passes AGAIN over the shipped
     // lattice and, harsher than any of them, blank the recorded cell

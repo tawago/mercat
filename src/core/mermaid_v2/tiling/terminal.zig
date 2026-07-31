@@ -9,9 +9,9 @@
 //!
 //!   PORT           the ring cell holds a `.port` record: an edge attached
 //!                  a port stroke to it — a source departure or a target
-//!                  arrival, both ends on all four faces (uniform port
-//!                  erasure; `drawPortStroke`/`drawTargetPortStroke` file
-//!                  one for every stroke actually merged). This is the one
+//!                  arrival, on any of the four faces, at an UNDECORATED
+//!                  end (`drawPortStroke`/`drawTargetPortStroke` file one
+//!                  for every stroke actually merged). This is the one
 //!                  verdict that used to be an INFERENCE — "the ring
 //!                  carries the arm back, and only a departure could have
 //!                  put it there". It could not: the arrowhead-base weld
@@ -21,7 +21,13 @@
 //!   NODE FACE      an abutment with no reciprocal port stroke recorded.
 //!                  All four combinations — vertical or horizontal face,
 //!                  bare stroke or arrowhead — stay conventions, not
-//!                  defects.
+//!                  defects. A DECORATED terminal lands here BY DESIGN and
+//!                  a missing record is not evidence of anything: the port
+//!                  writers refuse a tee behind an arrowhead (a `▼` over a
+//!                  `┴` asserts a continuation past the wall that does not
+//!                  exist), so an arrowhead against a pristine face is the
+//!                  convention, never `d_border_arm_unrecorded`/`d_term_*`.
+//!                  guarded-by: terminal_test.zig "a decorated arrival against a pristine face is a convention with no record"
 //!   NODE CORNER    a defect: ports are issued as face offsets only, so a
 //!                  run that lands on a corner missed the face it aimed at.
 //!   FRAME BARE     frame-solid: a stroke abutting a subgraph border is
