@@ -33,7 +33,10 @@ pub fn scanImports(
 pub const Rule = union(enum) {
     /// endsWith "sem_graph.zig" (direct or parent-relative).
     sem_graph,
-    /// endsWith "sketch.zig".
+    /// endsWith "sketch.zig" OR "sketch_ports.zig": `sketch_ports.zig` is an
+    /// extension of the Sketch IR root (pure derivation over `EdgePath`
+    /// polylines), so it is granted exactly where `sketch.zig` is granted and
+    /// nowhere else.
     sketch,
     /// endsWith "budget.zig".
     budget,
@@ -53,7 +56,8 @@ pub const Rule = union(enum) {
     fn allows(rule: Rule, target: []const u8) bool {
         return switch (rule) {
             .sem_graph => std.mem.endsWith(u8, target, "sem_graph.zig"),
-            .sketch => std.mem.endsWith(u8, target, "sketch.zig"),
+            .sketch => std.mem.endsWith(u8, target, "sketch.zig") or
+                std.mem.endsWith(u8, target, "sketch_ports.zig"),
             .budget => std.mem.endsWith(u8, target, "budget.zig"),
             .recurse => std.mem.endsWith(u8, target, "recurse.zig"),
             .layout_zone => std.mem.endsWith(u8, target, "layout.zig") or
@@ -268,6 +272,21 @@ pub const file_allowlists = [_]struct {
         .name = "score_calibration_test.zig",
         .allowed = &.{ .sketch, .{ .exact = "score.zig" } },
         .reason = "score_calibration_test may only import std, prim, sketch, or score",
+    },
+    .{
+        // Extension of the Sketch IR root: the pure port-share co-set
+        // derivation over EdgePath polylines. std + prim + base/ledger +
+        // sketch only — it may read the geometry and nothing else, so a
+        // co-channel can never be claimed from layout intent or diagram
+        // semantics. `Rule.sketch` grants it wherever sketch.zig is granted.
+        .name = "sketch_ports.zig",
+        .allowed = &.{ .sketch, .{ .exact = "sketch_ports_test.zig" } },
+        .reason = "sketch_ports may only import std, prim, base/ledger, sketch, or sketch_ports_test",
+    },
+    .{
+        .name = "sketch_ports_test.zig",
+        .allowed = &.{.sketch},
+        .reason = "sketch_ports_test may only import std, prim, base/ledger, sketch, or sketch_ports",
     },
     .{
         .name = "select.zig",

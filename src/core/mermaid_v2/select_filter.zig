@@ -17,9 +17,26 @@ const reach_vector = @import("ledger/reach_vector.zig");
 /// fans), so re-deriving them from a plan replaces like with like.
 fn planDerived(sets: []const ledger.CoSet) bool {
     for (sets) |s| {
-        if (s.origin != .fan_rail) return true;
+        switch (s.origin) {
+            .selected_join, .mesh_union => return true,
+            // Neither layout's fans nor the geometric port shares are the
+            // plan's to speak for: re-deriving from a plan does NOT replace
+            // them, so they must not make the sketch look plan-derived.
+            .fan_rail, .port_share => {},
+        }
     }
     return false;
+}
+
+/// Re-derive `sets` from `plan`, KEEPING the sketch's `.port_share` records.
+/// INVARIANT: a port share is geometric, not planned — withdrawing a trunk
+/// says nothing about two edges the producers routed through one port, so the
+/// plan's population is replaced and the port shares ride along unchanged.
+/// guarded-by: select_test2.zig "applying a plan keeps the sketch's port-share co-sets"
+fn replanSets(aa: std.mem.Allocator, sets: []const ledger.CoSet, plan: ledger.RealizedJoins) []const ledger.CoSet {
+    const derived = ledger.coSetsFromPlan(aa, plan) catch return sets;
+    const shares = ledger.keepOrigin(aa, sets, .port_share) catch &.{};
+    return ledger.concatSets(aa, derived, shares) catch derived;
 }
 
 /// The CI-filter partition. `survivors` (+ aligned `reports`) are the
@@ -80,7 +97,7 @@ pub fn ciFilter(
             // layout's fan sets (same invariant as `select.applyPlan`) —
             // there is no plan of its own to withdraw.
             if (planDerived(cand.sketch.co_sets))
-                cand.sketch.co_sets = ledger.coSetsFromPlan(aa, cand.sketch.joins) catch cand.sketch.co_sets;
+                cand.sketch.co_sets = replanSets(aa, cand.sketch.co_sets, cand.sketch.joins);
             excluded.append(aa, cand.*) catch return clean;
         }
     }
@@ -125,7 +142,7 @@ pub fn terminalCandidate(
             // about sharing — same invariant as `select.applyPlan`, so the
             // sketch keeps whatever layout gave it.
             if (!r.report.skipped_clustered)
-                result.sketch.co_sets = ledger.coSetsFromPlan(aa, r.plan) catch &.{};
+                result.sketch.co_sets = replanSets(aa, result.sketch.co_sets, r.plan);
         } else |err| {
             std.log.warn("mermaid_v2/select: terminal fallback realize failed ({s}); emitting the empty envelope", .{@errorName(err)});
         }

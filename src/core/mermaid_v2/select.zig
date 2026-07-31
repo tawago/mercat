@@ -9,6 +9,7 @@
 //! scoring (score-blind); failures degrade to the ladder incumbent.
 //!
 //! Allowed imports (tools/lint_imports.zig): std, prim, sem_graph, sketch,
+//! sketch_ports (the Sketch-root extension deriving port-share co-sets),
 //! budget, score, motif, audit, realized, invariants, reach_vector,
 //! select_filter (the Step 8 CI filter + terminal candidate), parse (tests
 //! only). In-file tests live in select_test.zig (plan N3 cap-watch).
@@ -17,6 +18,7 @@ const std = @import("std");
 const ledger = @import("base/ledger.zig");
 const sem_graph = @import("sem_graph.zig");
 const sketch_mod = @import("sketch.zig");
+const sketch_ports = @import("sketch_ports.zig");
 const ladder = @import("budget.zig");
 const score_mod = @import("score.zig");
 const motif_mod = @import("motif.zig");
@@ -151,7 +153,17 @@ pub fn applyPlan(
     // nothing about who may share ink, so it keeps the sets layout gave it
     // rather than being emptied into "nobody may share".
     // guarded-by: select_test2.zig "a packed candidate keeps its fan co-sets when no plan realized"
-    if (planned.realized) target.co_sets = ledger.coSetsFromPlan(aa, planned.plan) catch &.{};
+    // INVARIANT: `.port_share` sets are NOT plan-derived and therefore are not
+    // the plan's to withdraw — they record a share the producers made in
+    // geometry, which no realization decision revokes. So the plan's sets
+    // replace only the plan's own population, and the port shares are
+    // re-derived from the sketch this call is finalizing.
+    // guarded-by: select_test2.zig "applying a plan keeps the sketch's port-share co-sets"
+    if (planned.realized) target.co_sets = sketch_ports.appendPortShares(
+        aa,
+        ledger.coSetsFromPlan(aa, planned.plan) catch &.{},
+        target.edges,
+    ) catch ledger.coSetsFromPlan(aa, planned.plan) catch &.{};
 }
 
 /// P2v Step 6: one pre-raster vector reachability report per candidate

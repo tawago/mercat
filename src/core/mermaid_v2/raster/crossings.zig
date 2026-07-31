@@ -45,6 +45,14 @@ const ledger = @import("../base/ledger.zig");
 const prim = @import("prim");
 
 pub const EdgeId = ledger.EdgeId;
+pub const CoCell = ledger.CoCell;
+
+/// The lattice cell a crossing decision is about, in the co-set's coordinate
+/// space (`ledger.CoCell` is signed because a Sketch polyline is; a rasterized
+/// cell is always non-negative, so the widening is total).
+pub fn cellAt(x: u32, y: u32) ledger.CoCell {
+    return .{ .x = @intCast(x), .y = @intCast(y) };
+}
 
 /// The three painted-crossing outcomes a foreign overlap can classify to.
 pub const CrossingClass = enum {
@@ -106,14 +114,20 @@ pub const Ctx = struct {
 /// on the flat path — where the co-sets ARE the plan's membership — the answer
 /// is the plan's answer.
 /// guarded-by: crossings.zig "sameChannel: co-set membership answers what the plan answers"
+/// `at` is the CELL the decision is about. A co-set may be cell-scoped (a
+/// `.port_share` set licenses only the two edges' common approach), so the
+/// membership question is always asked about a position; the structural
+/// origins license every cell and ignore it.
+/// guarded-by: crossings.zig "sameChannel: a cell-scoped co-set answers only on its own cells"
 pub fn sameChannel(
     a: EdgeId,
     b: EdgeId,
     joins: ledger.RealizedJoins,
     co_sets: []const ledger.CoSet,
+    at: ledger.CoCell,
 ) bool {
     if (a == b) return true;
-    if (ledger.coMembers(co_sets, a, b)) return true;
+    if (ledger.coMembersAt(co_sets, a, b, at)) return true;
     for (joins.selected_joins) |j| {
         if (contains(j.members, a) and contains(j.members, b)) return true;
     }
@@ -165,8 +179,9 @@ pub fn segmentOverlap(
     existing_mask: lattice.Neighbours,
     incoming_edge: EdgeId,
     incoming_mask: lattice.Neighbours,
+    at: ledger.CoCell,
 ) bool {
-    if (sameChannel(existing_edge, incoming_edge, joins, co_sets)) return false;
+    if (sameChannel(existing_edge, incoming_edge, joins, co_sets, at)) return false;
     switch (classifySegment(existing_mask, incoming_mask)) {
         .legal_crossing => counts.legal_crossing += 1,
         .foreign_junction_violation => counts.foreign_junction_violation += 1,
@@ -186,13 +201,18 @@ pub fn arrowheadTransit(
     co_sets: []const ledger.CoSet,
     arrow_edge: EdgeId,
     incoming_edge: EdgeId,
+    at: ledger.CoCell,
 ) bool {
-    if (sameChannel(arrow_edge, incoming_edge, joins, co_sets)) return false;
+    if (sameChannel(arrow_edge, incoming_edge, joins, co_sets, at)) return false;
     counts.arrowhead_transit_violation += 1;
     return true;
 }
 
 // -- Tests -------------------------------------------------------------------
+
+/// Any cell: the structural origins license every position, so the tests that
+/// speak for them pass an arbitrary one.
+const ANY: ledger.CoCell = .{ .x = 0, .y = 0 };
 
 const H: lattice.Neighbours = .{ .e = true, .w = true };
 const V: lattice.Neighbours = .{ .n = true, .s = true };
@@ -221,10 +241,10 @@ test "sameChannel: same owner, selected-join co-members, mesh co-members" {
     var sel = [_]ledger.SelectedJoin{.{ .id = 0, .proposal = 0, .permission_group = 0, .members = &members }};
     const joins: ledger.RealizedJoins = .{ .selected_joins = &sel };
 
-    try std.testing.expect(sameChannel(5, 5, joins, &.{})); // same owner
-    try std.testing.expect(sameChannel(10, 12, joins, &.{})); // co-members
-    try std.testing.expect(!sameChannel(10, 99, joins, &.{})); // one foreign
-    try std.testing.expect(!sameChannel(98, 99, .{}, &.{})); // empty plan, distinct
+    try std.testing.expect(sameChannel(5, 5, joins, &.{}, ANY)); // same owner
+    try std.testing.expect(sameChannel(10, 12, joins, &.{}, ANY)); // co-members
+    try std.testing.expect(!sameChannel(10, 99, joins, &.{}, ANY)); // one foreign
+    try std.testing.expect(!sameChannel(98, 99, .{}, &.{}, ANY)); // empty plan, distinct
 }
 
 test "sameChannel: co-set membership answers what the plan answers" {
@@ -243,8 +263,8 @@ test "sameChannel: co-set membership answers what the plan answers" {
     for ([_]EdgeId{ 10, 11, 12, 20, 21, 99 }) |a| {
         for ([_]EdgeId{ 10, 11, 12, 20, 21, 99 }) |b| {
             try std.testing.expectEqual(
-                sameChannel(a, b, joins, &.{}),
-                sameChannel(a, b, .{}, derived),
+                sameChannel(a, b, joins, &.{}, ANY),
+                sameChannel(a, b, .{}, derived, ANY),
             );
         }
     }
@@ -252,15 +272,15 @@ test "sameChannel: co-set membership answers what the plan answers" {
     // render's only channel evidence.
     var fan = [_]EdgeId{ 4, 5 };
     const fan_sets = [_]ledger.CoSet{.{ .origin = .fan_rail, .members = &fan }};
-    try std.testing.expect(sameChannel(4, 5, .{}, &fan_sets));
-    try std.testing.expect(!sameChannel(4, 6, .{}, &fan_sets));
+    try std.testing.expect(sameChannel(4, 5, .{}, &fan_sets, ANY));
+    try std.testing.expect(!sameChannel(4, 6, .{}, &fan_sets, ANY));
 }
 
 test "segmentOverlap: exempt merges; foreign perpendicular keeps first writer" {
     var counts: CrossingCounts = .{};
     // With no plan and no co-sets at all, two distinct edges are still foreign:
     // the rule is unconditional, so this is a legal transversal, not a merge.
-    try std.testing.expect(segmentOverlap(&counts, .{}, &.{}, 1, H, 2, V));
+    try std.testing.expect(segmentOverlap(&counts, .{}, &.{}, 1, H, 2, V, ANY));
     try std.testing.expectEqual(@as(u32, 1), counts.legal_crossing);
     counts = .{};
 
@@ -268,39 +288,53 @@ test "segmentOverlap: exempt merges; foreign perpendicular keeps first writer" {
     var members = [_]EdgeId{ 1, 3 };
     var sel = [_]ledger.SelectedJoin{.{ .id = 0, .proposal = 0, .permission_group = 0, .members = &members }};
     const joins: ledger.RealizedJoins = .{ .selected_joins = &sel };
-    try std.testing.expect(segmentOverlap(&counts, joins, &.{}, 1, H, 2, V));
+    try std.testing.expect(segmentOverlap(&counts, joins, &.{}, 1, H, 2, V, ANY));
     try std.testing.expectEqual(@as(u32, 1), counts.legal_crossing);
 
     // Co-members (1 & 3 share the selected join) → merge (false).
-    try std.testing.expect(!segmentOverlap(&counts, joins, &.{}, 1, H, 3, V));
+    try std.testing.expect(!segmentOverlap(&counts, joins, &.{}, 1, H, 3, V, ANY));
     try std.testing.expectEqual(@as(u32, 1), counts.legal_crossing);
 
     // Foreign, collinear → keep first writer, junction violation.
-    try std.testing.expect(segmentOverlap(&counts, joins, &.{}, 1, H, 2, H));
+    try std.testing.expect(segmentOverlap(&counts, joins, &.{}, 1, H, 2, H, ANY));
     try std.testing.expectEqual(@as(u32, 1), counts.foreign_junction_violation);
 
     // A co-set exempts on its own, with no plan behind it.
     var fan = [_]EdgeId{ 1, 2 };
     const fan_sets = [_]ledger.CoSet{.{ .origin = .fan_rail, .members = &fan }};
-    try std.testing.expect(!segmentOverlap(&counts, .{}, &fan_sets, 1, H, 2, V));
+    try std.testing.expect(!segmentOverlap(&counts, .{}, &fan_sets, 1, H, 2, V, ANY));
     try std.testing.expectEqual(@as(u32, 1), counts.legal_crossing);
 }
 
 test "arrowheadTransit: own terminal exempt, foreign refused" {
     var counts: CrossingCounts = .{};
     // Same owner (own terminal) → not a violation.
-    try std.testing.expect(!arrowheadTransit(&counts, .{}, &.{}, 7, 7));
+    try std.testing.expect(!arrowheadTransit(&counts, .{}, &.{}, 7, 7, ANY));
     try std.testing.expectEqual(@as(u32, 0), counts.arrowhead_transit_violation);
     // Foreign edge over a foreign arrowhead → C2 violation, keep pristine.
-    try std.testing.expect(arrowheadTransit(&counts, .{}, &.{}, 7, 8));
+    try std.testing.expect(arrowheadTransit(&counts, .{}, &.{}, 7, 8, ANY));
     try std.testing.expectEqual(@as(u32, 1), counts.arrowhead_transit_violation);
     // A co-set exempts on its own, with no plan behind it.
     var fan = [_]EdgeId{ 7, 8 };
     const fan_sets = [_]ledger.CoSet{.{ .origin = .fan_rail, .members = &fan }};
-    try std.testing.expect(!arrowheadTransit(&counts, .{}, &fan_sets, 7, 8));
+    try std.testing.expect(!arrowheadTransit(&counts, .{}, &fan_sets, 7, 8, ANY));
     try std.testing.expectEqual(@as(u32, 1), counts.arrowhead_transit_violation);
 }
 
 test {
     _ = @import("crossings_test.zig");
+}
+
+test "sameChannel: a cell-scoped co-set answers only on its own cells" {
+    // A `.port_share` set licenses the two edges' common approach and nothing
+    // else: at a crossing far from the shared port the pair is still foreign,
+    // so a true transversal there keeps its plain stroke.
+    const licensed = [_]ledger.CoCell{ .{ .x = 30, .y = 12 }, .{ .x = 30, .y = 13 } };
+    const sets = [_]ledger.CoSet{.{ .origin = .port_share, .members = &.{ 9, 11 }, .cells = &licensed }};
+    try std.testing.expect(sameChannel(9, 11, .{}, &sets, .{ .x = 30, .y = 12 }));
+    try std.testing.expect(sameChannel(9, 11, .{}, &sets, .{ .x = 30, .y = 13 }));
+    try std.testing.expect(!sameChannel(9, 11, .{}, &sets, .{ .x = 21, .y = 15 }));
+    // The unscoped origins are position-blind, on the same cell.
+    const fan = [_]ledger.CoSet{.{ .origin = .fan_rail, .members = &.{ 9, 11 } }};
+    try std.testing.expect(sameChannel(9, 11, .{}, &fan, .{ .x = 21, .y = 15 }));
 }

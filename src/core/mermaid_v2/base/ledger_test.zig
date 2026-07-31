@@ -269,3 +269,47 @@ test "comparator keys carry no numeric ids by construction" {
     try expectSemanticFieldsOnly(pb.EdgeKey);
     try expectSemanticFieldsOnly(pb.AttachmentKey);
 }
+
+test "keepOrigin selects exactly one origin's sets" {
+    // The two helpers that let a producer REPLACE the population it owns
+    // without taking another origin's records down with it.
+    const sets = [_]pb.CoSet{
+        .{ .origin = .fan_rail, .members = &.{ 0, 1 } },
+        .{ .origin = .port_share, .members = &.{ 2, 3 } },
+        .{ .origin = .selected_join, .members = &.{ 4, 5 } },
+        .{ .origin = .port_share, .members = &.{ 6, 7 } },
+    };
+    const shares = try pb.keepOrigin(std.testing.allocator, &sets, .port_share);
+    defer std.testing.allocator.free(shares);
+    try expectEqual(@as(usize, 2), shares.len);
+    try expect(pb.coMembers(shares, 2, 3));
+    try expect(pb.coMembers(shares, 6, 7));
+    try expect(!pb.coMembers(shares, 0, 1));
+
+    const head = [_]pb.CoSet{.{ .origin = .mesh_union, .members = &.{ 8, 9 } }};
+    const joined = try pb.concatSets(std.testing.allocator, &head, shares);
+    defer std.testing.allocator.free(joined);
+    try expectEqual(@as(usize, 3), joined.len);
+    try expectEqual(pb.CoOrigin.mesh_union, joined[0].origin);
+    try expect(pb.coMembers(joined, 8, 9));
+    try expect(pb.coMembers(joined, 6, 7));
+
+    // Degenerate arms: an empty side is returned as the other side verbatim.
+    try expectEqual(@as(usize, 0), (try pb.keepOrigin(std.testing.allocator, &sets, .mesh_union)).len);
+    try expectEqual(@as(usize, 1), (try pb.concatSets(std.testing.allocator, &head, &.{})).len);
+}
+
+test "a cell-scoped co-set answers only inside its licensed cells" {
+    // The `.port_share` shape: the pair is one channel on the common approach
+    // and foreign everywhere else. `at = null` asks the position-blind
+    // question and no scope applies to it.
+    const licensed = [_]pb.CoCell{ .{ .x = 4, .y = 2 }, .{ .x = 4, .y = 3 } };
+    const sets = [_]pb.CoSet{.{ .origin = .port_share, .members = &.{ 1, 2 }, .cells = &licensed }};
+    try expect(pb.coMembersAt(&sets, 1, 2, .{ .x = 4, .y = 2 }));
+    try expect(!pb.coMembersAt(&sets, 1, 2, .{ .x = 9, .y = 9 }));
+    try expect(pb.coMembersAt(&sets, 1, 2, null));
+    try expect(pb.coMembers(&sets, 1, 2));
+    // An unscoped set is position-blind on the very same cell.
+    const wide = [_]pb.CoSet{.{ .origin = .fan_rail, .members = &.{ 1, 2 } }};
+    try expect(pb.coMembersAt(&wide, 1, 2, .{ .x = 9, .y = 9 }));
+}

@@ -10,6 +10,7 @@
 const std = @import("std");
 const prim = @import("prim");
 const sketch = @import("../sketch.zig");
+const sketch_ports = @import("../sketch_ports.zig");
 const sg = @import("../sem_graph.zig");
 const ledger = @import("../base/ledger.zig");
 const split_mod = @import("split.zig");
@@ -311,15 +312,25 @@ pub fn stitch(
         try edges.append(arena, b);
     }
 
+    // Port shares, read off the FULL merged edge slice — children, outer, and
+    // the freshly routed bridges — now that every polyline is final and every
+    // id lives in the single merged space. This is the only point where a
+    // cross-tier share (a child edge and a bridge landing on one port) is even
+    // expressible, and neither producer could have declared it alone.
+    // Appended to the pieces' own sets, never substituted.
+    // guarded-by: recurse_test2.zig "two bridges into one port declare a port-share co-set"
+    const edge_slice = try edges.toOwnedSlice(arena);
+    const sets = try sketch_ports.appendPortShares(arena, try co_sets.toOwnedSlice(arena), edge_slice);
+
     return .{
         .sketch = .{
             .bbox = outer.bbox, // child geometry fits inside super rects ⊂ outer bbox
             .direction = outer.direction,
             .nodes = node_slice,
             .clusters = cluster_slice,
-            .edges = try edges.toOwnedSlice(arena),
+            .edges = edge_slice,
             .busbars = try busbars.toOwnedSlice(arena),
-            .co_sets = try co_sets.toOwnedSlice(arena),
+            .co_sets = sets,
             .diagnostics = outer.diagnostics,
             .budget = outer.budget,
         },

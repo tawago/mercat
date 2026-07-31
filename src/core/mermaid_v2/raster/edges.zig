@@ -88,6 +88,7 @@ fn crossingKeepsFirstWriter(
     cell: *const lattice.Cell,
     incoming_edge: u32,
     incoming_mask: lattice.Neighbours,
+    at: crossings.CoCell,
     ctx: crossings.Ctx,
 ) bool {
     return switch (cell.occupant) {
@@ -99,6 +100,7 @@ fn crossingKeepsFirstWriter(
             cell.neighbours,
             incoming_edge,
             incoming_mask,
+            at,
         ),
         .arrowhead => |a| crossings.arrowheadTransit(
             ctx.counts,
@@ -106,6 +108,7 @@ fn crossingKeepsFirstWriter(
             ctx.co_sets,
             a.edge,
             incoming_edge,
+            at,
         ),
         else => false,
     };
@@ -243,6 +246,7 @@ fn walkPolyline(
                             cell.neighbours,
                             edge.id,
                             corner_mask,
+                            crossings.cellAt(c.x, c.y),
                         )) {
                             // No foreign junction ink — and with the corner
                             // arm refused, nothing on the cell records that
@@ -305,7 +309,7 @@ fn walkPolyline(
                     else => {
                         // Arrowhead here → refuse (C2); node/label → normal
                         // loss accounting inside writeEdgeCell.
-                        if (crossingKeepsFirstWriter(cell, edge.id, corner_mask, ctx)) {
+                        if (crossingKeepsFirstWriter(cell, edge.id, corner_mask, crossings.cellAt(c.x, c.y), ctx)) {
                             ew.recordCarrier(rec, c.x, c.y, edge.id, .suppressed);
                         } else {
                             writeEdgeCell(cell, edge.id, ek, erole, corner_mask, c.x, c.y, cells_lost, rec);
@@ -373,7 +377,7 @@ fn walkPolyline(
                     // The frame stays continuous and this edge leaves no
                     // bits, so the crossing is invisible on the grid.
                     ew.recordIntrusion(rec, c.x, c.y, edge.id, .bridge);
-                } else if (crossingKeepsFirstWriter(cell, edge.id, straightMask(dir), ctx)) {
+                } else if (crossingKeepsFirstWriter(cell, edge.id, straightMask(dir), crossings.cellAt(c.x, c.y), ctx)) {
                     ew.recordCarrier(rec, c.x, c.y, edge.id, .suppressed);
                 } else {
                     // `.cross` mode falls through here: writeEdgeCell's

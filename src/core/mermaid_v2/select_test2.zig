@@ -46,3 +46,44 @@ test "a packed candidate keeps its fan co-sets when no plan realized" {
         try std.testing.expectEqualSlices(ledger.EdgeId, want.members, after.members);
     }
 }
+
+test "applying a plan keeps the sketch's port-share co-sets" {
+    // A port share is GEOMETRIC: two edges the producers routed through one
+    // perimeter port share their approach ink whatever the join planner
+    // decides. So the plan's own population replaces only itself, and every
+    // `.port_share` record survives `applyPlan` (and the CI filter's
+    // re-derivation, which shares the same rule via `replanSets`).
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+
+    const g = try parse(a, "flowchart TD\n  A --> B\n  A --> C\n  A --> D\n");
+    const permits = (try permits_mod.build(a, g, .joined)).plan;
+    var cand = try ladder.run(a, g, &permits, true, 120);
+    select.applyPlan(a, &permits, &cand.sketch);
+
+    // Non-vacuity: the plan realized (otherwise nothing was replaced at all).
+    try std.testing.expect(cand.sketch.joins.selected_joins.len > 0);
+    var saw_plan = false;
+    for (cand.sketch.co_sets) |set| switch (set.origin) {
+        .selected_join, .mesh_union => saw_plan = true,
+        // Layout's fans never survive a realized plan; port shares always do.
+        .fan_rail => return error.PlanKeptLayoutFanSets,
+        .port_share => try std.testing.expect(set.members.len >= 2),
+    };
+    try std.testing.expect(saw_plan);
+
+    // Every port share the geometry declares is present after the plan.
+    for (cand.sketch.edges) |first| for (cand.sketch.edges) |second| {
+        if (first.id == second.id) continue;
+        const shares = samePoint(first.polyline[0], second.polyline[0]) or
+            samePoint(first.polyline[first.polyline.len - 1], second.polyline[second.polyline.len - 1]) or
+            samePoint(first.polyline[0], second.polyline[second.polyline.len - 1]);
+        if (!shares) continue;
+        try std.testing.expect(ledger.coMembers(cand.sketch.co_sets, first.id, second.id));
+    };
+}
+
+fn samePoint(a: anytype, b: anytype) bool {
+    return a.x == b.x and a.y == b.y;
+}

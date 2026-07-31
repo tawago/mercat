@@ -106,3 +106,98 @@ test "an outer fan into sibling subgraphs names its bridges, not the dropped pla
     }
     try std.testing.expect(found);
 }
+
+// Two OUTER nodes both edge into the SAME node inside a subgraph. Each
+// crossing becomes its own bridge, minted independently by cluster/bridges,
+// and both elbows land on the target placement's one perimeter port. Neither
+// bridge knows about the other, so only the merged geometry can declare that
+// their approach ink is one channel — which is exactly what stitch reads back
+// off the final edge slice.
+fn twoBridgesIntoOnePortGraph(
+    nodes_buf: []sem_graph.Node,
+    edges_buf: []sem_graph.Edge,
+    members: []sem_graph.NodeId,
+    clusters_buf: []sem_graph.Cluster,
+) sem_graph.SemGraph {
+    const NS = sem_graph.NodeShape;
+    const names = [_][]const u8{ "A", "B", "C", "D" };
+    const owners = [_]?sem_graph.ClusterId{ null, null, 100, 100 };
+    for (names, 0..) |nm, i| {
+        nodes_buf[i] = .{ .id = @intCast(i), .raw_id = nm, .label = nm, .shape = NS.rect, .classes = &.{}, .cluster = owners[i] };
+    }
+    const pairs = [_][2]sem_graph.NodeId{ .{ 0, 2 }, .{ 1, 2 }, .{ 2, 3 } };
+    for (pairs, 0..) |pr, i| {
+        edges_buf[i] = .{ .id = @intCast(i), .from = pr[0], .to = pr[1], .kind = .solid, .arrow_from = .none, .arrow_to = .filled, .label = null };
+    }
+    members[0] = 2;
+    members[1] = 3;
+    clusters_buf[0] = .{ .id = 100, .raw_id = "S", .label = "S", .parent = null, .members = members, .sub_clusters = &.{}, .direction = null };
+    return .{
+        .direction = .TD,
+        .nodes = nodes_buf,
+        .edges = edges_buf,
+        .clusters = clusters_buf,
+        .classes = &.{},
+        .arena = null,
+    };
+}
+
+test "two bridges into one port declare a port-share co-set" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+
+    var nodes_buf: [4]sem_graph.Node = undefined;
+    var edges_buf: [3]sem_graph.Edge = undefined;
+    var members: [2]sem_graph.NodeId = undefined;
+    var clusters_buf: [1]sem_graph.Cluster = undefined;
+    const graph = twoBridgesIntoOnePortGraph(&nodes_buf, &edges_buf, &members, &clusters_buf);
+
+    const s = try recurse.layoutPieces(a, graph, .{ .max_width = 120 });
+
+    // The two bridges: the merged edges that end on C's placement, arriving
+    // from outside the cluster. Named by geometry, never by id arithmetic.
+    const c = placementNamed(s, "C") orelse return error.TargetNotPlaced;
+    var arrivals: [8]sketch.EdgeId = undefined;
+    var n: usize = 0;
+    for (s.edges) |e| {
+        if (e.to != c.id) continue;
+        if (n < arrivals.len) {
+            arrivals[n] = e.id;
+            n += 1;
+        }
+    }
+    try std.testing.expect(n >= 2);
+
+    // Every pair of arrivals that lands on the SAME point must be co-members
+    // of a `.port_share` set — the whole point of the stitch-side wire-in.
+    var checked = false;
+    for (0..n) |i| for (i + 1..n) |j| {
+        const first = edgeById(s, arrivals[i]) orelse continue;
+        const second = edgeById(s, arrivals[j]) orelse continue;
+        const fe = first.polyline[first.polyline.len - 1];
+        const se = second.polyline[second.polyline.len - 1];
+        if (fe.x != se.x or fe.y != se.y) continue;
+        checked = true;
+        var named = false;
+        for (s.co_sets) |set| {
+            if (set.origin != .port_share) continue;
+            var saw_first = false;
+            var saw_second = false;
+            for (set.members) |m| {
+                if (m == first.id) saw_first = true;
+                if (m == second.id) saw_second = true;
+            }
+            if (saw_first and saw_second) named = true;
+        }
+        try std.testing.expect(named);
+    };
+    try std.testing.expect(checked);
+}
+
+fn edgeById(s: sketch.Sketch, id: sketch.EdgeId) ?sketch.EdgePath {
+    for (s.edges) |e| {
+        if (e.id == id) return e;
+    }
+    return null;
+}

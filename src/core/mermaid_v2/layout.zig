@@ -12,6 +12,7 @@ const prim = @import("prim");
 const ledger = @import("base/ledger.zig");
 const sg = @import("sem_graph.zig");
 const sketch = @import("sketch.zig");
+const sketch_ports = @import("sketch_ports.zig");
 const sugiyama = @import("layout/sugiyama.zig");
 const crossing = @import("layout/crossing.zig");
 const routing = @import("layout/routing.zig");
@@ -385,7 +386,13 @@ fn buildSketch(
         .edges = edges_out,
         .busbars = busbars_out,
         .joins = candidate_joins,
-        .co_sets = edges_result.co_sets,
+        // Fan-derived sets PLUS the port shares read back off the final
+        // polylines: the port plan can route several edges through one
+        // perimeter port and records nothing, so the only declaration of that
+        // legal ink sharing is the geometry itself. Appended, never
+        // substituted (sketch_ports.appendPortShares).
+        // guarded-by: sketch_ports_test.zig "shared departure port groups its edges"
+        .co_sets = sketch_ports.appendPortShares(a, edges_result.co_sets, edges_out) catch edges_result.co_sets,
         .diagnostics = try diagnostics.toOwnedSlice(a),
         .budget = .{ .max_width = opts.max_width, .rung = opts.rung },
     };

@@ -395,6 +395,10 @@ test "co-sets applied with the plan carry the plan's own membership" {
         "flowchart TD\n  A --> X\n  A --> Y\n  B --> X\n  B --> Y\n",
         "flowchart TD\n  A --> B\n  B --> C\n  C --> A\n",
     };
+    // SCOPE: the equality is over the PLAN-DERIVED sets only. `.port_share`
+    // sets ride alongside them (geometry the plan never spoke for), so they
+    // are filtered out by origin rather than the equality being weakened.
+    //
     // Non-vacuity: an equality over two empty records proves nothing, so both
     // plan origins must actually appear somewhere in the sweep.
     var saw_selected = false;
@@ -410,8 +414,12 @@ test "co-sets applied with the plan carry the plan's own membership" {
         for (winner.sketch.co_sets) |set| switch (set.origin) {
             .selected_join => saw_selected = true,
             .mesh_union => saw_mesh = true,
+            .port_share => {},
             .fan_rail => return error.FlatCandidateKeptLayoutCoSets,
         };
+        const plan_sets = try ledger.keepOrigin(a, winner.sketch.co_sets, .selected_join);
+        const mesh_sets = try ledger.keepOrigin(a, winner.sketch.co_sets, .mesh_union);
+        const only_plan = try ledger.concatSets(a, plan_sets, mesh_sets);
 
         var first: u32 = 0;
         while (first < g.edges.len) : (first += 1) {
@@ -420,7 +428,7 @@ test "co-sets applied with the plan carry the plan's own membership" {
                 if (first == second) continue; // identity, answered before either record
                 try std.testing.expectEqual(
                     planCoMembers(winner.sketch.joins, first, second),
-                    ledger.coMembers(winner.sketch.co_sets, first, second),
+                    ledger.coMembers(only_plan, first, second),
                 );
             }
         }
@@ -480,8 +488,11 @@ test "a clustered render's co-sets come from its fans, not from an empty plan" {
 
     try std.testing.expectEqual(@as(usize, 0), winner.sketch.joins.selected_joins.len);
     try std.testing.expect(winner.sketch.co_sets.len > 0);
+    // Clustered: layout's fans plus the port shares stitch reads back off the
+    // merged geometry. No plan origin may appear (V-D-IR-07).
     for (winner.sketch.co_sets) |set| {
-        try std.testing.expectEqual(ledger.CoOrigin.fan_rail, set.origin);
+        try std.testing.expect(set.origin == .fan_rail or set.origin == .port_share);
         try std.testing.expect(set.members.len >= 2);
     }
+    try std.testing.expect((try ledger.keepOrigin(a, winner.sketch.co_sets, .fan_rail)).len > 0);
 }

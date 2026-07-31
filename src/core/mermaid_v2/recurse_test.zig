@@ -432,6 +432,20 @@ test "stitched sibling clusters share one edge-id space" {
     // still carry geometry must live in the SAME cluster. A member read in
     // the wrong child's id space lands in the other cluster (or nowhere).
     for (s.co_sets) |set| {
+        // SCOPE: the same-cluster claim is about sets naming ONE structural
+        // decision inside one level. A `.port_share` set is inherently
+        // cross-level — an outer fan's two bridges depart one port of a
+        // top-level node and land inside two different subgraphs — so it is
+        // held to the weaker half of the claim (every member resolves to a
+        // placed owner), which still catches a member read in the wrong id
+        // space.
+        if (set.origin == .port_share) {
+            for (set.members) |m| {
+                const owner = owners.get(m) orelse continue;
+                _ = try clusterOf(s, owner);
+            }
+            continue;
+        }
         // Outer `null` = "no member compared yet"; the inner optional is the
         // owner's cluster (null = top-level). A member carrying no geometry
         // is skipped, but a member whose owner is unplaced now fails.
