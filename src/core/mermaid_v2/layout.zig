@@ -232,7 +232,11 @@ fn buildSketch(
     if (fans.len > 0) try fan_lanes.assignLanes(NodeGeom, a, graph, lg, geom, fans, candidate_joins);
 
     // Reserve max(lane)+1 gap rows per fan gap (extraRowsPerGap reads fans[].lane).
+    // The label-feasibility gate first clears `labeled` on fans whose on-run
+    // candidate is doomed (will grid-wrap / no label can ever fit), so they
+    // reserve no dead label rows. guarded-by: layout/fan_test.zig "label reservation gate clears doomed fans and keeps feasible ones"
     if (v_sp_per_gap.len > 0 and fans.len > 0) {
+        fan_mod.gateLabelReservations(NodeGeom, graph, fans, geom, opts.max_width, opts.h_spacing);
         const extras = try fan_mod.extraRowsPerGap(a, lg, fans);
         for (extras, 0..) |x, i| {
             if (i < v_sp_per_gap.len) v_sp_per_gap[i] += x;

@@ -348,3 +348,59 @@ test "detect marks a fan labeled iff a member edge carries a label" {
     try testing.expectEqual(@as(usize, 1), fans_lbl.len);
     try testing.expect(fans_lbl[0].labeled);
 }
+
+test "label reservation gate clears doomed fans and keeps feasible ones" {
+    // Three cases over the same A->{B,C} labeled fan-OUT shape:
+    //   1. feasible: peers fit the budget, a label fits the canvas -> kept
+    //   2. will grid-wrap: single-row peer span > budget -> cleared
+    //   3. no label fits: every label wider than the canvas -> cleared
+    const Geom = struct { x: i32, y: i32, w: u32, h: u32 };
+
+    var peers = [_]fan.FanEdge{
+        .{ .edge_id = 0, .peer_idx = 1, .role = .leftmost },
+        .{ .edge_id = 1, .peer_idx = 2, .role = .rightmost },
+    };
+    const nodes = [_]sg.Node{ mkNode(0, "A"), mkNode(1, "B"), mkNode(2, "C") };
+
+    var short_edges = [_]sg.Edge{ mkEdge2(0, 0, 1), mkEdge2(1, 0, 2) };
+    short_edges[0].label = "yes";
+    const g_short = sg.SemGraph{
+        .direction = .TD,
+        .nodes = &nodes,
+        .edges = &short_edges,
+        .clusters = &.{},
+        .classes = &.{},
+        .arena = null,
+    };
+    // Canvas estimate: rightmost node edge = 9 + 5 = 14.
+    const geom = [_]Geom{
+        .{ .x = 4, .y = 0, .w = 5, .h = 3 },
+        .{ .x = 0, .y = 6, .w = 5, .h = 3 },
+        .{ .x = 9, .y = 6, .w = 5, .h = 3 },
+    };
+
+    // 1. Feasible: span = 5 + 4 + 5 = 14 <= 20, "yes" (3) <= canvas 14.
+    var fans_ok = [_]fan.Fan{.{ .direction = .out, .pivot_idx = 0, .source_layer = 0, .peers = &peers, .labeled = true }};
+    fan.gateLabelReservations(Geom, g_short, &fans_ok, &geom, 20, 4);
+    try testing.expect(fans_ok[0].labeled);
+
+    // 2. Will grid-wrap: same fan, budget 13 < span 14 -> cleared.
+    var fans_wrap = [_]fan.Fan{.{ .direction = .out, .pivot_idx = 0, .source_layer = 0, .peers = &peers, .labeled = true }};
+    fan.gateLabelReservations(Geom, g_short, &fans_wrap, &geom, 13, 4);
+    try testing.expect(!fans_wrap[0].labeled);
+
+    // 3. No label fits: only label is wider than the 14-cell canvas.
+    var wide_edges = [_]sg.Edge{ mkEdge2(0, 0, 1), mkEdge2(1, 0, 2) };
+    wide_edges[0].label = "averyveryverylonglabel";
+    const g_wide = sg.SemGraph{
+        .direction = .TD,
+        .nodes = &nodes,
+        .edges = &wide_edges,
+        .clusters = &.{},
+        .classes = &.{},
+        .arena = null,
+    };
+    var fans_wide = [_]fan.Fan{.{ .direction = .out, .pivot_idx = 0, .source_layer = 0, .peers = &peers, .labeled = true }};
+    fan.gateLabelReservations(Geom, g_wide, &fans_wide, &geom, 20, 4);
+    try testing.expect(!fans_wide[0].labeled);
+}

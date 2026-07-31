@@ -8,6 +8,7 @@
 //! Allowed imports for layout/*: std + sketch + sem_graph + sibling layout.
 
 const std = @import("std");
+const prim = @import("prim");
 const sg = @import("../sem_graph.zig");
 const sketch = @import("../sketch.zig");
 const ledger = @import("../base/ledger.zig");
@@ -142,14 +143,77 @@ pub fn detect(
 /// True iff any peer's semantic edge carries a non-empty label.
 fn anyPeerLabeled(graph: sg.SemGraph, peers: []const FanEdge) bool {
     for (peers) |p| {
-        for (graph.edges) |e| {
-            if (e.id != p.edge_id) continue;
-            if (e.label) |lbl| {
-                if (lbl.len > 0) return true;
-            }
-        }
+        if (peerLabel(graph, p.edge_id) != null) return true;
     }
     return false;
+}
+
+/// The non-empty semantic label of edge `edge_id`, or null.
+fn peerLabel(graph: sg.SemGraph, edge_id: u32) ?[]const u8 {
+    for (graph.edges) |e| {
+        if (e.id != edge_id) continue;
+        if (e.label) |lbl| {
+            if (lbl.len > 0) return lbl;
+        }
+        return null;
+    }
+    return null;
+}
+
+/// Feasibility gate for the labeled-fan row reservation: clears `labeled`
+/// on any fan whose on-run label candidate is DOOMED at layout time, so
+/// the fan reserves no LABEL_RUN_EXTRA_ROWS it can never consume (and the
+/// polyline/rail lifts, which read the same flag, stay off with it —
+/// byte-identical to the pre-label geometry). Two generic dooms:
+///
+///   1. The fan will grid-wrap: its single-row peer span (the EXACT
+///      measure fan_grid.wrapGrid gates on) exceeds the width budget. The
+///      grid comb re-routes members without 3-cell private droppers, so
+///      the reserved rows would go dead.
+///   2. No labeled member's label can ever fit laterally: every label is
+///      wider than the whole estimated canvas (labels_onrun refuses any
+///      span wider than the lattice), so on-run placement is impossible.
+///
+/// Runs AFTER x-assignment (widths + columns final) and BEFORE
+/// extraRowsPerGap. Fans with any feasible labeled member are untouched.
+/// guarded-by: fan_test.zig "label reservation gate clears doomed fans and keeps feasible ones"
+pub fn gateLabelReservations(
+    comptime G: type,
+    graph: sg.SemGraph,
+    fans: []Fan,
+    geom: []const G,
+    budget: u32,
+    h_spacing: u32,
+) void {
+    var est_w: i64 = 0;
+    for (geom) |g| {
+        const right: i64 = @as(i64, g.x) + g.w;
+        if (right > est_w) est_w = right;
+    }
+    for (fans) |*f| {
+        if (!f.labeled) continue;
+        // Doom 1: mirror of fan_grid.wrapGrid's single-row span gate.
+        const fit_gap: u32 = if (f.direction == .in) 1 else h_spacing;
+        var srw: u32 = 0;
+        for (f.peers, 0..) |p, i| {
+            srw += geom[p.peer_idx].w;
+            if (i + 1 < f.peers.len) srw += fit_gap;
+        }
+        if (srw > budget) {
+            f.labeled = false;
+            continue;
+        }
+        // Doom 2: every labeled member's label is wider than the canvas.
+        var any_fits = false;
+        for (f.peers) |p| {
+            const lbl = peerLabel(graph, p.edge_id) orelse continue;
+            if (prim.displayWidth(lbl) <= est_w) {
+                any_fits = true;
+                break;
+            }
+        }
+        if (!any_fits) f.labeled = false;
+    }
 }
 
 fn collectFanOut(

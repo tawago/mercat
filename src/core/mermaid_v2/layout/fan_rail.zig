@@ -139,7 +139,7 @@ pub fn build(
     // guarded-by: fan_rail_test.zig "formal base approach: rail lifts one row when the gap admits it, holds at a gap of 2"
     const anchor: i32 = if (fan_in) pivot_p.rect.y else peer_line;
     const obstacle: i32 = if (fan_in) peer_line else pivot_p.rect.bottom() - 1;
-    // Labeled fan-OUT bus-bar: lift the rail one MORE row (off=5, on top of
+    // Labeled fan-OUT bus-bar: lift the rail one MORE row (off=4, on top of
     // the base-approach off=3) so each tap's private dropper is 3 cells —
     // flank, on-run label row, arrowhead flank — the shape
     // raster/labels_onrun.zig places over. Uses the gap rows
