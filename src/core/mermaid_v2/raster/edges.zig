@@ -18,10 +18,11 @@
 //!
 //! The per-cell claim contract (`writeEdgeCell`/`writeArrowCell`/
 //! `writeArrowGuarded`) and the directional primitives live in
-//! `edges_write.zig`, the port strokes in `edges_port.zig` (cap splits); the ones `raster/busbars.zig` and
-//! the raster tests reach as `edges.<name>` are re-exported below.
-//! (`writeArrowGuarded` has no external caller, so this file uses it directly
-//! as `ew.writeArrowGuarded` rather than re-exporting it.)
+//! `edges_write.zig`, the port strokes and the head slide in
+//! `edges_port.zig` (cap splits); the ones `raster/busbars.zig` and the
+//! raster tests reach as `edges.<name>` are re-exported below.
+//! (`writeArrowGuarded` has no external caller, so this file uses it
+//! directly as `ew.writeArrowGuarded` rather than re-exporting it.)
 
 const std = @import("std");
 const sketch = @import("../sketch.zig");
@@ -78,6 +79,13 @@ const EdgeWalkResult = struct {
     last_cell: ?sketch.Point = null,
     first_dir: ?Move = null,
     last_dir: ?Move = null,
+    /// Where this edge's two arrowheads actually go, cell AND tip direction,
+    /// POST-SLIDE (`edges_port.slideHead`). Derived once here and handed
+    /// both to the port writers and to `rasterizeEdges`' stamp: nothing
+    /// downstream re-derives a head position from the polyline.
+    /// guarded-by: edges_slide_test.zig "a decorated gap arrival stamps its head against the wall, run ink behind it"
+    source_head: ?ep.Head = null,
+    target_head: ?ep.Head = null,
 };
 
 /// Crossing-rule gate (Amendment C, C1/C2). Returns true when the existing
@@ -404,28 +412,31 @@ fn walkPolyline(
 
     // Port strokes, LAST — after the walk, because the rule they obey is
     // head FACING and only the finished walk knows where the heads go and
-    // which way they look: `rasterizeEdges` stamps `arrow_to` on
-    // `result.last_cell` pointing `last_dir`, and `arrow_from` on
-    // `result.first_cell` pointing `reverse(first_dir)`. Those cell/dir
-    // pairs are read off the walk here and handed to the arrowhead stamp
-    // below unchanged, so the port gate and the glyph cannot disagree about
-    // where the tip looks (never from the grid, which cannot tell this
-    // edge's head from a foreign one). An undecorated end passes null and
-    // always merges. The border cells (`pts[0]` / `pts[len-1]`) are the two
-    // positions the walk never writes, so drawing the ports after it is
-    // order-independent — except for the gap cell, which the ports paint and
-    // the walk, by the same token, never reaches.
+    // which way they look: the heads resolved here (`arrow_to` on
+    // `last_cell` along `last_dir`, `arrow_from` on `first_cell` along
+    // `reverse(first_dir)`) are the very pairs `rasterizeEdges` stamps, so
+    // the port gate and the glyph cannot disagree about where the tip looks
+    // (never from the grid, which cannot tell this edge's head from a
+    // foreign one). An undecorated end passes null and always merges. The
+    // border cells (`pts[0]`/`pts[len-1]`) are the two positions the walk
+    // never writes, so drawing the ports after it is order-independent.
     // guarded-by: edges_port_test.zig "a head adjacent to the wall but pointing ALONG the route still tees it"
-    const source_head: ?ep.Head = if (edge.arrow_from != .none and result.first_cell != null and result.first_dir != null)
-        .{ .cell = result.first_cell.?, .dir = reverse(result.first_dir.?) }
-    else
-        null;
-    const target_head: ?ep.Head = if (edge.arrow_to != .none and result.last_cell != null and result.last_dir != null)
-        .{ .cell = result.last_cell.?, .dir = result.last_dir.? }
-    else
-        null;
-    drawPortStroke(lat, pts, ek, edge.id, .{ .head = source_head, .role = erole }, sink);
-    drawTargetPortStroke(lat, pts, ek, edge.id, .{ .head = target_head, .role = erole }, sink);
+    //
+    // THE SLIDE (`ep.slideHead`), applied here before either use: when the
+    // polyline stops one cell short of a mergeable face, the head moves
+    // FORWARD onto that gap so its tip abuts the wall directly — an
+    // arrowhead is terminal and ink on its tip side is never legal. The cell
+    // it vacates keeps the run ink the walk wrote there, and the slid tip
+    // faces the border, so the facing gate leaves the wall plain.
+    // guarded-by: edges_slide_test.zig "a decorated gap arrival stamps its head against the wall, run ink behind it"
+    if (edge.arrow_from != .none) if (result.first_cell) |fc| if (result.first_dir) |fd| {
+        result.source_head = ep.slideHead(lat, pts[0], .{ .cell = fc, .dir = reverse(fd) });
+    };
+    if (edge.arrow_to != .none) if (result.last_cell) |lc| if (result.last_dir) |ld| {
+        result.target_head = ep.slideHead(lat, pts[pts.len - 1], .{ .cell = lc, .dir = ld });
+    };
+    drawPortStroke(lat, pts, ek, edge.id, .{ .head = result.source_head, .role = erole }, sink);
+    drawTargetPortStroke(lat, pts, ek, edge.id, .{ .head = result.target_head, .role = erole }, sink);
 
     return result;
 }
@@ -457,24 +468,20 @@ pub fn rasterizeEdges(
     for (s.edges) |edge| {
         const r = try walkPolyline(lat, edge, &cells_lost, ctx, sink, rec);
 
-        if (edge.arrow_to != .none) {
-            if (r.last_cell) |p| {
-                if (r.last_dir) |d| {
-                    if (pointInBounds(p, lat)) {
-                        const c = toCoord(p);
-                        ew.writeArrowGuarded(lat.at(c.x, c.y), edge.id, edge.kind, edge.arrow_to, d, straightMask(d), c.x, c.y, &cells_lost, ctx, rec);
-                    }
-                }
+        // Both heads are stamped at the POST-SLIDE cell and tip direction
+        // the walk resolved (`EdgeWalkResult.source_head`/`target_head`) —
+        // the very pair the port gate saw, so gate and glyph cannot
+        // disagree about where the tip is or which way it looks.
+        if (r.target_head) |h| {
+            if (pointInBounds(h.cell, lat)) {
+                const c = toCoord(h.cell);
+                ew.writeArrowGuarded(lat.at(c.x, c.y), edge.id, edge.kind, edge.arrow_to, h.dir, straightMask(h.dir), c.x, c.y, &cells_lost, ctx, rec);
             }
         }
-        if (edge.arrow_from != .none) {
-            if (r.first_cell) |p| {
-                if (r.first_dir) |d| {
-                    if (pointInBounds(p, lat)) {
-                        const c = toCoord(p);
-                        ew.writeArrowGuarded(lat.at(c.x, c.y), edge.id, edge.kind, edge.arrow_from, reverse(d), straightMask(d), c.x, c.y, &cells_lost, ctx, rec);
-                    }
-                }
+        if (r.source_head) |h| {
+            if (pointInBounds(h.cell, lat)) {
+                const c = toCoord(h.cell);
+                ew.writeArrowGuarded(lat.at(c.x, c.y), edge.id, edge.kind, edge.arrow_from, h.dir, straightMask(h.dir), c.x, c.y, &cells_lost, ctx, rec);
             }
         }
 

@@ -5,8 +5,11 @@
 //! (arrival) and their shared tail `mergePortBit` — uniform port erasure on
 //! all four faces, both ends of every run — plus the two rules that decide
 //! what the attachment looks like: the port-tee FACING rule and the 1-cell
-//! gap probe with its painted approach. The per-cell claim contract and the
-//! directional primitives stay in `edges_write.zig`, which this file imports.
+//! gap probe, whose approach is closed by PAINTING the gap at an
+//! undecorated end and by SLIDING the arrowhead onto it at a decorated one
+//! (`slideHead` — an arrowhead is terminal, so its tip side may carry no
+//! ink). The per-cell claim contract and the directional primitives stay in
+//! `edges_write.zig`, which this file imports.
 //!
 //! Imports: `std`, `sketch.zig`, `lattice.zig`, `edges_write.zig`, `aux.zig`.
 
@@ -138,6 +141,68 @@ fn tipFaces(h: Head, q: sketch.Point) bool {
     return samePoint(step(h.cell, h.dir), q);
 }
 
+/// Resolve what an end's polyline endpoint `p` actually attaches to, given
+/// the direction `travel` in which the wall lies (the run's travel toward
+/// the node at an arrival, the reverse of the departure direction at a
+/// source). Returns null unless the attachment is a MERGEABLE node border —
+/// a non-corner face — because that is the only landing the port writers
+/// act on, and the head slide below must fire under exactly the same
+/// condition or gate and glyph would disagree.
+/// `gap` is the endpoint itself when the polyline stopped one cell short of
+/// the wall (the 1-cell reprieve), null when the endpoint IS the wall.
+const Attach = struct { border: sketch.Point, gap: ?sketch.Point };
+
+fn attachment(lat: *const lattice.Lattice, p: sketch.Point, travel: Move) ?Attach {
+    if (!pointInBounds(p, lat)) return null;
+    var q = p;
+    var gap: ?sketch.Point = null;
+    // Probe exactly one cell, and only across an EMPTY endpoint, so the
+    // stroke never jumps a real occupant.
+    if (lat.atConst(toCoord(q).x, toCoord(q).y).occupant == .empty) {
+        gap = q;
+        q = step(q, travel);
+        if (!pointInBounds(q, lat)) return null;
+    }
+    const c = toCoord(q);
+    const cell = lat.atConst(c.x, c.y);
+    if (cell.occupant != .node_border) return null;
+    switch (cell.occupant.node_border.role) {
+        .corner_nw, .corner_ne, .corner_se, .corner_sw => return null,
+        else => {},
+    }
+    return .{ .border = q, .gap = gap };
+}
+
+/// THE HEAD SLIDE. An arrowhead cell is TERMINAL: its base side is fed by
+/// its own collinear run, its laterals are empty, and its TIP side must
+/// abut the attachment DIRECTLY. Ink on the tip side is never legal — so a
+/// decorated end that stops one cell short of the wall must not paint the
+/// gap behind its head (`├─◀`, a run cell between tip and border). Instead
+/// the HEAD moves forward onto the gap cell, and the cell it vacates keeps
+/// the ordinary run ink the walk already wrote there — a base-side
+/// extension, which is legal: `│◀────┐`.
+///
+/// Returns `head` unchanged unless every part of the shape holds: the end
+/// really attaches to a mergeable face, the endpoint really is a 1-cell
+/// gap, and the head really sits one step behind that gap along its own
+/// tip direction. `head.dir` IS the travel toward the wall at both ends
+/// (an arrival's head points along the run; a departure's points back at
+/// its source wall), so it serves as the probe direction too.
+///
+/// Once slid, the head's tip FACES the border, so `mergePortBit`'s facing
+/// gate suppresses the tee (plain wall, no tap — the abutting-decorated
+/// convention) and the gap-paint below is unreachable for it. The paint
+/// therefore survives only for UNDECORATED gap ends, which have no head and
+/// no tip-side constraint.
+/// guarded-by: edges_slide_test.zig "a decorated gap arrival slides its head onto the border-adjacent cell"
+/// guarded-by: edges_slide_test.zig "an occupied gap cell leaves the head where it is"
+pub fn slideHead(lat: *const lattice.Lattice, endpoint: sketch.Point, head: Head) Head {
+    const at = attachment(lat, endpoint, head.dir) orelse return head;
+    const g = at.gap orelse return head;
+    if (!samePoint(step(head.cell, head.dir), g)) return head;
+    return .{ .cell = g, .dir = head.dir };
+}
+
 /// Shared tail of the two port-stroke writers: OR one directional arm into
 /// a node-border cell (refusing every other occupant), stamp a non-solid
 /// stroke, file the `.port` record for the stroke actually drawn.
@@ -155,14 +220,23 @@ fn tipFaces(h: Head, q: sketch.Point) bool {
 /// erasure requires.
 /// guarded-by: edges_port_test.zig "a head adjacent to the wall but pointing ALONG the route still tees it"
 ///
-/// THE GAP APPROACH. When the probe below crosses a 1-cell port gap, the
-/// merge alone would leave `├ ◀` — a tee, a blank, a head — an arm reading
-/// into nothing. So the gap cell is PAINTED with this edge's own stroke:
-/// `├─◀` runs contiguous from wall to head. The cell is empty by definition
-/// of the probe (it is the only condition under which the probe fires), so
-/// the write claims background and can lose nothing; anything occupying it
-/// refuses the probe and the whole stroke upstream.
-/// guarded-by: edges_port_test.zig "a gap arrival paints the gap cell so wall, run and head run contiguous"
+/// THE GAP APPROACH, FOR UNDECORATED ENDS ONLY. When the probe below
+/// crosses a 1-cell port gap, the merge alone would leave `├ ` — a tee, a
+/// blank — an arm reading into nothing. So the gap cell is PAINTED with
+/// this edge's own stroke and the run comes out contiguous from wall to
+/// run. The cell is empty by definition of the probe (it is the only
+/// condition under which the probe fires), so the write claims background
+/// and can lose nothing; anything occupying it refuses the probe and the
+/// whole stroke upstream.
+///
+/// A DECORATED end never reaches the paint: `slideHead` has already moved
+/// its arrowhead onto that gap cell, so the head's tip faces the border and
+/// the facing gate above returns first. That is the point — painting behind
+/// a head would put ink on its TIP side (`├─◀`), which the arrowhead
+/// contract forbids. Undecorated ends have no head and no tip side, so the
+/// paint is theirs alone.
+/// guarded-by: edges_port_test.zig "an UNDECORATED gap arrival also gets tee, painted gap and run"
+/// guarded-by: edges_slide_test.zig "a decorated gap arrival slides its head onto the border-adjacent cell"
 fn mergePortBit(
     lat: *lattice.Lattice,
     p: sketch.Point,
@@ -172,42 +246,32 @@ fn mergePortBit(
     end: PortEnd,
     sink: aux.Sink,
 ) void {
-    if (!pointInBounds(p, lat)) return;
-    var q = p;
-    var gap: ?sketch.Point = null;
     // Port-gap probe: a polyline may stop one cell SHORT of the border
     // (the 1-cell gap convention `reconcile.zig` reprieves — back-edge
     // arrivals do this routinely). The border then sits one further step
     // AWAY from the merged arm (`reverse(arm)` points along the run's
     // travel toward the node), and skipping it would leave gap arrivals
-    // as the one un-erased port class. Probe exactly one cell, and only
-    // across an EMPTY endpoint, so the stroke never jumps a real occupant.
+    // as the one un-erased port class. `attachment` owns that probe AND
+    // the mergeability test (a non-corner node border), so the head slide
+    // and this merge fire under one condition and cannot drift.
+    // A corner landing is refused there: ports are issued as FACE offsets,
+    // so ink on a corner is a routing defect — merging would morph the
+    // corner glyph AND file the `.port` that excuses the landing from the
+    // terminal audit's corner bucket. Nothing is drawn, the gap cell
+    // included: no port stroke, nothing approaching.
     // guarded-by: edges_port_test.zig "a gap arrival merges its port bit across the 1-cell reprieve"
-    if (lat.at(toCoord(q).x, toCoord(q).y).occupant == .empty) {
-        gap = q;
-        q = step(q, reverse(arm));
-        if (!pointInBounds(q, lat)) return;
-    }
-    // The facing gate, applied to the border cell the probe RESOLVED (not
-    // the polyline endpoint): a gap arrival's head sits two cells from the
-    // wall, so its tip faces the gap, not the wall, and the bit merges.
-    if (end.head) |h| {
-        if (tipFaces(h, q)) return;
-    }
-    const c = toCoord(q);
-    const cell = lat.at(c.x, c.y);
-    if (cell.occupant != .node_border) return;
-    // Corner refusal: ports are issued as FACE offsets, so ink on a
-    // corner is a routing defect — merging there would morph the
-    // corner glyph AND file the `.port` that excuses the landing from
-    // the terminal audit's corner bucket. Leave the cell pristine so
-    // the defect stays visible to the report. The gap cell is left
-    // unpainted too: no port stroke was drawn, so nothing approaches.
     // guarded-by: edges_port_test.zig "a corner landing is refused: no merge, no record"
-    switch (cell.occupant.node_border.role) {
-        .corner_nw, .corner_ne, .corner_se, .corner_sw => return,
-        else => {},
+    const at = attachment(lat, p, reverse(arm)) orelse return;
+    const gap = at.gap;
+    // The facing gate, applied to the border cell the probe RESOLVED (not
+    // the polyline endpoint). A gap end's head has already been slid ONTO
+    // the gap by `slideHead`, so its tip faces this border and the tee is
+    // suppressed; a head that did not slide does not face it and merges.
+    if (end.head) |h| {
+        if (tipFaces(h, at.border)) return;
     }
+    const c = toCoord(at.border);
+    const cell = lat.at(c.x, c.y);
     cell.neighbours = orMask(cell.neighbours, bitMask(arm));
     if (kind != .solid and cell.stroke_kind == .solid) {
         cell.stroke_kind = kind;
@@ -242,4 +306,5 @@ fn mergePortBit(
 
 test {
     _ = @import("edges_port_test.zig");
+    _ = @import("edges_slide_test.zig");
 }

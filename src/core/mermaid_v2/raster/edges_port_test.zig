@@ -2,9 +2,10 @@
 //! `drawPortStroke`/`drawTargetPortStroke` and the shared `mergePortBit`
 //! tail: uniform four-face erasure, the invisible-edge refusal, the
 //! stroke_kind stamp, the corner refusal, the `.port` record's arm detail,
-//! the port-tee FACING rule, and the 1-cell gap probe with its painted
-//! approach. Split out of `edges_write_test.zig` for the 500-line cap; the
-//! cell-writer contract tests stay there.
+//! the port-tee FACING rule, and the 1-cell gap probe. Split out of
+//! `edges_write_test.zig` for the 500-line cap; the cell-writer contract
+//! tests stay there, and the HEAD SLIDE that closes a decorated end's gap
+//! approach is pinned in `edges_slide_test.zig`.
 
 const std = @import("std");
 const sketch = @import("../sketch.zig");
@@ -279,6 +280,11 @@ test "a decorated arrival whose head is DETACHED still tees the wall" {
     // last interior cell — TWO cells from the wall. Nothing then touches the
     // border, so without this merge the edge visually never attaches to the
     // node: the arrival appears to circulate from nowhere.
+    //
+    // The polyline walk now SLIDES such a head onto the gap (see
+    // `edges_slide_test.zig`), so what this pins is the writer's own rule
+    // for every head it is still handed detached — a bus-bar stub, or a
+    // slide the geometry refused. Non-facing head → tee, unchanged.
     const a = testing.allocator;
     // Border on the east face at (2,1); the run travels east and stops at
     // the empty gap cell (1,1); the head sits back at (0,1).
@@ -298,28 +304,32 @@ test "a decorated arrival whose head is DETACHED still tees the wall" {
     try testing.expectEqual(lattice.AuxKind.port, recs[0].kind);
 }
 
-test "a gap arrival paints the gap cell so wall, run and head run contiguous" {
-    // DEFECT 2. The merge alone leaves `├ ◀` — a tee, a blank, a head — an
-    // arm reading into nothing. The gap cell is painted with this edge's own
-    // stroke on the port axis, so the shape closes up to `├─◀`.
+test "a DECORATED gap arrival paints nothing: the slid head owns the gap" {
+    // The tip-side law. Painting the gap behind a head produced `├─◀` — run
+    // ink between the arrowhead's TIP and the border, which the arrowhead
+    // contract forbids (a head is terminal; only its BASE side may carry
+    // ink). The head is slid onto the gap by the caller instead, so here it
+    // arrives already facing the wall: the facing gate suppresses the tee
+    // and the paint is never reached. The gap belongs to the arrowhead,
+    // which `rasterizeEdges` stamps after this call.
+    // guarded-by: edges_slide_test.zig "a decorated gap arrival stamps its head against the wall, run ink behind it"
     const a = testing.allocator;
     var lat = try borderLattice3(a, 2, 1, .{ .n = true, .s = true });
     defer a.free(lat.cells);
     lat.at(2, 1).occupant.node_border.role = .edge_w;
+    var col = aux.Collector.init(a);
+    defer col.records.deinit(a);
     const pts = [_]sketch.Point{ .{ .x = 0, .y = 1 }, .{ .x = 1, .y = 1 } };
-    const head: ew.Head = .{ .cell = .{ .x = 0, .y = 1 }, .dir = .east };
-    ew.drawTargetPortStroke(&lat, &pts, .solid, 7, .{ .head = head, .role = .forward }, null);
-    try testing.expect(lat.atConst(2, 1).neighbours.w);
-    const gap = lat.atConst(1, 1);
-    try testing.expectEqual(lattice.Occupant.edge_segment, std.meta.activeTag(gap.occupant));
-    try testing.expectEqual(@as(u32, 7), gap.occupant.edge_segment.edge);
-    try testing.expectEqual(lattice.EdgeRole.forward, gap.occupant.edge_segment.role);
-    try testing.expectEqual(lattice.EdgeKind.solid, gap.stroke_kind);
-    // The run axis is east/west, so the gap carries both arms: one back to
-    // the head, one on to the wall.
+    // The SLID head: it sits on the gap cell (1,1), tip facing (2,1).
+    const head: ew.Head = .{ .cell = .{ .x = 1, .y = 1 }, .dir = .east };
+    ew.drawTargetPortStroke(&lat, &pts, .solid, 7, .{ .head = head, .role = .forward }, &col);
+    // Plain wall, no tap, no record — the abutting-decorated convention.
+    try testing.expect(!lat.atConst(2, 1).neighbours.w);
+    try testing.expectEqual(@as(usize, 0), col.finish().len);
+    // And nothing painted on the gap: the arrowhead takes that cell.
     try testing.expectEqual(
-        (lattice.Neighbours{ .e = true, .w = true }).toMask(),
-        gap.neighbours.toMask(),
+        lattice.Occupant.empty,
+        std.meta.activeTag(lat.atConst(1, 1).occupant),
     );
 }
 

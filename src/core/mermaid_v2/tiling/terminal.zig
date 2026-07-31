@@ -142,11 +142,14 @@ fn abutment(v: cell.View, x: u32, y: u32, d: cell.Dir4, is_arrow: bool, c: *coun
             // NOT reprieved the arm is simply dangling — that is the
             // stroke family's property, and this check stays silent.
             //
-            // A gap the PORT writers crossed is no longer blank: they paint
-            // the approach cell, so wall/run/head come out contiguous and
-            // the pair is classified through `.ring_node` above on a
-            // `.port` record. This arm now sees only gaps nobody attached
-            // across.
+            // A gap the PORT path resolved is no longer blank. An
+            // UNDECORATED end paints the approach cell, so wall and run
+            // come out contiguous and the pair is classified through
+            // `.ring_node` above on a `.port` record. A DECORATED end
+            // slides its HEAD onto the gap instead (an arrowhead's tip
+            // side may carry no ink), so its pair is an arrow abutting a
+            // pristine face — the tip-facing convention, `bucket` below.
+            // This arm now sees only gaps nobody attached across.
             if (!v.gapReprieve(x, y, d)) return;
             const two = cell.step(x, y, d, v.width(), v.height()) orelse return;
             const beyond = cell.step(two.x, two.y, d, v.width(), v.height()) orelse return;
