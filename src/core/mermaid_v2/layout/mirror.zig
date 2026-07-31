@@ -61,6 +61,10 @@ pub fn vertical(a: std.mem.Allocator, s: sketch.Sketch, direction: sketch.Direct
         .co_sets = s.co_sets,
         .diagnostics = s.diagnostics,
         .budget = s.budget,
+        // Policy is a candidate property, not geometry: mirroring must carry it
+        // through or the BT canonicalization would drop back to the default.
+        // guarded-by: mirror_test.zig "vertical mirror preserves the label policy"
+        .label_policy = s.label_policy,
     };
 }
 

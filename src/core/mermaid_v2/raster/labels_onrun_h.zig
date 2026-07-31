@@ -193,6 +193,15 @@ fn tryAtH(
     if (onrun.coveredByOther(s, edge_id, start_x - 1, row)) return false;
     if (onrun.coveredByOther(s, edge_id, start_x + cc, row)) return false;
 
+    // RULE A, VISUAL-RUN half. Cell-local ownership is not the reader's unit:
+    // a PRIVATE PREFIX of a run that continues collinearly, with no break, into
+    // ANOTHER edge's ink reads as one long horizontal line, and the label then
+    // names an unidentifiable member of it (the fan-in rail assembled from
+    // several abutting per-edge polylines is exactly this shape — no crossbar
+    // role, no covering polyline, and still ambiguous).
+    // guarded-by: labels_onrun_h_test.zig "RULE A: a private prefix of a collinear shared run is refused"
+    if (!visualRunIsPrivate(lat, s, edge_id, start_x, row, cc)) return false;
+
     // LAW 2 isolation: foreign-ink margin above/below and at the diagonal
     // ends, plus the 2-blank same-row label separation. The own-run seams
     // are exempt — they classify as own ink.
@@ -239,6 +248,37 @@ fn privateRunCellH(lat: *const lattice.Lattice, edge_id: u32, x: i32, y: i32) bo
     }
     const n = cell.neighbours;
     return n.e and n.w and !n.n and !n.s;
+}
+
+/// True iff the WHOLE visually contiguous horizontal run through the span
+/// belongs to `edge_id`. Walks `row` outward from both flanks to the first
+/// cell that is not edge ink (blank, node/cluster border, label, …) and
+/// refuses as soon as a reached cell carries another edge's id — in the
+/// lattice OR in the Sketch geometry, so ink a collision refused still
+/// counts. The label's own span is verified by the caller and skipped here.
+fn visualRunIsPrivate(
+    lat: *const lattice.Lattice,
+    s: sketch.Sketch,
+    edge_id: u32,
+    start_x: i32,
+    row: i32,
+    cc: i32,
+) bool {
+    for ([2]i32{ -1, 1 }) |dir| {
+        var x: i32 = if (dir < 0) start_x - 1 else start_x + cc;
+        while (x >= 0 and x < @as(i32, @intCast(lat.width))) : (x += dir) {
+            const cell = lat.atConst(@intCast(x), @intCast(row));
+            const owner: u32 = switch (cell.occupant) {
+                .edge_segment => |seg| seg.edge,
+                .arrowhead => |ah| ah.edge,
+                // Anything else ends the visual run: the line stops here.
+                else => break,
+            };
+            if (owner != edge_id) return false;
+            if (onrun.coveredByOther(s, edge_id, x, row)) return false;
+        }
+    }
+    return true;
 }
 
 /// RULE B flank. Identical to the interrupt test: a flank is just another

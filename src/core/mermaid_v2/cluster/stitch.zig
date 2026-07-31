@@ -333,6 +333,12 @@ pub fn stitch(
             .co_sets = sets,
             .diagnostics = outer.diagnostics,
             .budget = outer.budget,
+            // The candidate's label policy is a property of the CANDIDATE, not
+            // of any one piece: it must survive the cut/glue or the raster (and
+            // the scorer's audit re-raster) would silently read the struct
+            // default instead of the policy the layout was built for.
+            // guarded-by: select_test3.zig "stitching preserves the outer sketch's label policy"
+            .label_policy = outer.label_policy,
         },
         .input_of = try input_of.toOwnedSlice(arena),
     };

@@ -134,10 +134,13 @@ test "the audit re-raster honors each candidate's policy flag" {
     try std.testing.expect(moved_on_run <= moved_beside);
 }
 
-test "the beside twin drops the labeled fan's reserved rows" {
-    // The reservation is a LAYOUT-time cost, so the twin has to be a separate
-    // layout run — this pins that it actually is one (and that the saved rows
-    // are what the score gets to weigh against the beside ladder's misses).
+test "the beside twin keeps the labeled fan's reserved rows" {
+    // The policy axis is a RASTER-form axis, NOT a layout-budget one. The
+    // fan's reserved gap rows are where a `.beside` label SITS (one per
+    // dropper, x-aligned with the dropper it names), so the twin must pay the
+    // same reservation. When it did not, the twin came out ~3 rows shorter and
+    // the score's height tier bought that discount with labels stranded on the
+    // rail row beside a dropper they do not belong to.
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
@@ -149,7 +152,36 @@ test "the beside twin drops the labeled fan's reserved rows" {
 
     try std.testing.expectEqual(prim.LabelPolicy.on_run, on_run.sketch.label_policy);
     try std.testing.expectEqual(prim.LabelPolicy.beside, beside.sketch.label_policy);
-    try std.testing.expect(beside.sketch.bbox.h < on_run.sketch.bbox.h);
+    // Same layout, same height: the twins differ only in the raster forms.
+    try std.testing.expectEqual(on_run.sketch.bbox.h, beside.sketch.bbox.h);
+}
+
+test "stitching preserves the outer sketch's label policy" {
+    // cluster/stitch.zig builds a FRESH merged Sketch literal; the policy is a
+    // candidate property, not a piece property, so it must be carried across
+    // the cut/glue. When it was dropped, every clustered / motif-packed
+    // candidate rastered under the struct DEFAULT, and the whole policy axis
+    // was a no-op on exactly the population where labeled fans live.
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+
+    const src =
+        \\flowchart TD
+        \\  subgraph S1
+        \\    A -->|alpha| B
+        \\    B -->|beta| C
+        \\  end
+        \\  C -->|gamma| D
+        \\
+    ;
+    const g = try parse(a, src);
+    const permits = try permitsFor(a, g);
+    for ([2]prim.LabelPolicy{ .on_run, .beside }) |policy| {
+        const r = try ladder.runVariant(a, g, &permits, false, 120, .natural, false, policy);
+        try std.testing.expect(r.sketch.clusters.len > 0); // the stitch path really ran
+        try std.testing.expectEqual(policy, r.sketch.label_policy);
+    }
 }
 
 test "debug paths keep the on-run policy" {

@@ -171,12 +171,14 @@ fn buildSketch(
     // candidate is doomed (will grid-wrap / no label can ever fit), so they
     // reserve no dead label rows. guarded-by: layout/fan_test.zig "label reservation gate clears doomed fans and keeps feasible ones"
     if (v_sp_per_gap.len > 0 and fans.len > 0) {
-        // `.beside` candidates place no label on a run, so they must not pay
-        // the labeled fan's extra gap rows (nor fan_polyline's label lift).
-        // guarded-by: select_test3.zig "the beside twin drops the labeled fan's reserved rows"
-        if (opts.label_policy == .beside) for (fans) |*f| {
-            f.labeled = false;
-        };
+        // The fan's reserved gap rows are a LABEL reservation, not an ON-RUN
+        // one: a `.beside` fan needs them just as much, because that is where
+        // its labels sit — one per dropper, x-aligned with the dropper they
+        // name. Dropping them for the beside twin made it ~3 rows shorter,
+        // which the height tier then bought at the price of labels stranded on
+        // the rail row next to a dropper they do not belong to. The policy axis
+        // is a RASTER-form axis; both twins pay the same layout reservation.
+        // guarded-by: select_test3.zig "the beside twin keeps the labeled fan's reserved rows"
         fan_mod.gateLabelReservations(NodeGeom, graph, fans, geom, opts.max_width, opts.h_spacing);
         const extras = try fan_mod.extraRowsPerGap(a, lg, fans);
         for (extras, 0..) |x, i| {

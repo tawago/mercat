@@ -317,3 +317,46 @@ test "tie order: the longer qualifying stretch is tried first, ties go vertical"
         try testing.expectEqual(@as(u21, 0), labelCharAt(lat, 7, 6));
     }
 }
+
+test "RULE A: a private prefix of a collinear shared run is refused" {
+    // Cell-local ownership is not the reader's unit. A fan-in rail assembled
+    // from several ABUTTING per-edge polylines has no crossbar role and no
+    // covering foreign polyline over this edge's own stretch, so both
+    // cell-local halves of RULE A pass — yet the reader sees ONE continuous
+    // horizontal line and cannot tell which member the label names. The
+    // visual-run walk closes that: it follows the row outward to the first
+    // non-edge cell and refuses on reaching another edge's ink.
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+
+    const foreign_poly = [_]sketch.Point{ .{ .x = 12, .y = 4 }, .{ .x = 14, .y = 4 } };
+    var foreign = straightEdge(&foreign_poly, .solid);
+    foreign.id = 9;
+    const ep = straightEdge(&long_poly, .solid);
+
+    // Contiguous: edge 7's run (3..11) abuts edge 9's run (12..14) with no
+    // break at all — one visual line.
+    {
+        var lat = try makeLattice(a, 16, 9);
+        paintRun(&lat, 3, 11, 4, 7, .solid);
+        paintRun(&lat, 12, 14, 4, 9, .solid);
+        var s = emptySketch(16, 9);
+        const edges = [_]sketch.EdgePath{ ep, foreign };
+        s.edges = &edges;
+        try testing.expect(!onrun.tryOnRunEdge(&lat, s, ep, "ok", null));
+    }
+
+    // Positive control: one blank column breaks the run, so the label is
+    // unambiguously on a line of this edge's own and is written as before.
+    {
+        var lat = try makeLattice(a, 16, 9);
+        paintRun(&lat, 3, 11, 4, 7, .solid);
+        paintRun(&lat, 13, 14, 4, 9, .solid);
+        var s = emptySketch(16, 9);
+        const edges = [_]sketch.EdgePath{ ep, foreign };
+        s.edges = &edges;
+        try testing.expect(onrun.tryOnRunEdge(&lat, s, ep, "ok", null));
+        try testing.expectEqual(@as(u21, 'o'), labelCharAt(lat, 6, 4));
+    }
+}

@@ -267,7 +267,7 @@ pub fn runNegotiatedFold(
 /// each promising `.on_run` candidate so the score chooses the placement
 /// policy per diagram. Every other driver here is pinned to `.on_run`, so
 /// the debug paths (`runForced`, `MERCAT_FORCE_RUNG`) keep today's behavior.
-/// guarded-by: select_test3.zig "the beside twin drops the labeled fan's reserved rows"
+/// guarded-by: select_test3.zig "the beside twin keeps the labeled fan's reserved rows"
 pub fn runVariant(
     arena: std.mem.Allocator,
     graph: sem_graph.SemGraph,

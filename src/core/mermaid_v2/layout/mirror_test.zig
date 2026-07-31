@@ -32,3 +32,30 @@ test "mirror.applyDirection swaps x/y/w/h but leaves NodeGeom.layer untouched" {
     try testing.expectEqual(@as(u32, 4), geom[0].layer);
     try testing.expectEqual(@as(u32, 0), geom[1].layer);
 }
+
+// ---------------------------------------------------------------------
+// mirror.zig: the BT canonicalization rebuilds the Sketch literal, so
+// every candidate-level field must be carried across it explicitly.
+// ---------------------------------------------------------------------
+test "vertical mirror preserves the label policy" {
+    const sketch = @import("../sketch.zig");
+
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+
+    const s: sketch.Sketch = .{
+        .bbox = .{ .x = 0, .y = 0, .w = 20, .h = 10 },
+        .direction = .TD,
+        .nodes = &.{},
+        .clusters = &.{},
+        .edges = &.{},
+        .busbars = &.{},
+        .diagnostics = &.{},
+        .budget = .{ .max_width = 20, .rung = 0 },
+        .label_policy = .beside,
+    };
+    const m = try mirror.vertical(a, s, .BT);
+    try testing.expectEqual(sketch.Direction.BT, m.direction);
+    try testing.expectEqual(@as(@TypeOf(m.label_policy), .beside), m.label_policy);
+}
