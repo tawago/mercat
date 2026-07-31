@@ -235,8 +235,8 @@ pub const file_allowlists = [_]struct {
     },
     .{
         .name = "budget.zig",
-        .allowed = &.{ .sem_graph, .sketch, .layout_zone, .parse_zone, .cluster_zone, .recurse, .{ .exact = "budget_test.zig" } },
-        .reason = "budget may only import std, prim, sem_graph, sketch, layout, parse, recurse, cluster, or budget_test",
+        .allowed = &.{ .sem_graph, .sketch, .layout_zone, .parse_zone, .cluster_zone, .recurse, .{ .exact = "budget_test.zig" }, .{ .exact = "budget_types.zig" } },
+        .reason = "budget may only import std, prim, sem_graph, sketch, layout, parse, recurse, cluster, budget_test, or budget_types",
     },
     .{
         .name = "recurse.zig",
@@ -289,9 +289,26 @@ pub const file_allowlists = [_]struct {
         .reason = "sketch_ports_test may only import std, prim, base/ledger, sketch, or sketch_ports",
     },
     .{
+        .name = "budget_types.zig",
+        .allowed = &.{ .sem_graph, .sketch, .budget },
+        .reason = "budget_types may only import std, prim, sem_graph, sketch, or budget",
+    },
+    .{
+        // Cap-forced split of select.zig: the label-placement policy axis
+        // (both candidate variants) + the motif-pack graph rewrite.
+        .name = "select_labels.zig",
+        .allowed = &.{ .sem_graph, .sketch, .budget, .{ .exact = "score.zig" }, .{ .exact = "motif.zig" }, .{ .exact = "select_test3.zig" } },
+        .reason = "select_labels may only import std, prim, base/ledger, sem_graph, sketch, budget, score, motif, or select_test3",
+    },
+    .{
+        .name = "select_test3.zig",
+        .allowed = &.{ .sem_graph, .sketch, .budget, .parse_zone, .{ .exact = "score.zig" }, .{ .exact = "select.zig" }, .{ .exact = "select_labels.zig" }, .{ .exact = "audit.zig" }, .{ .exact = "raster.zig" }, .{ .exact = "ledger/permits.zig" } },
+        .reason = "select_test3 may only import std, prim, base/ledger, sem_graph, sketch, budget, parse, score, select, select_labels, audit, raster, or ledger/permits",
+    },
+    .{
         .name = "select.zig",
-        .allowed = &.{ .sem_graph, .sketch, .budget, .parse_zone, .{ .exact = "score.zig" }, .{ .exact = "motif.zig" }, .{ .exact = "audit.zig" }, .{ .exact = "ledger/realized.zig" }, .{ .exact = "ledger/invariants.zig" }, .{ .exact = "ledger/reach_vector.zig" }, .{ .exact = "select_filter.zig" } },
-        .reason = "select may only import std, prim, base/ledger, sem_graph, sketch, budget, score, motif, audit, ledger/realized, ledger/invariants, ledger/reach_vector, select_filter, or parse",
+        .allowed = &.{ .sem_graph, .sketch, .budget, .parse_zone, .{ .exact = "score.zig" }, .{ .exact = "motif.zig" }, .{ .exact = "audit.zig" }, .{ .exact = "ledger/realized.zig" }, .{ .exact = "ledger/invariants.zig" }, .{ .exact = "ledger/reach_vector.zig" }, .{ .exact = "select_filter.zig" }, .{ .exact = "select_labels.zig" } },
+        .reason = "select may only import std, prim, base/ledger, sem_graph, sketch, budget, score, motif, audit, ledger/realized, ledger/invariants, ledger/reach_vector, select_filter, select_labels, or parse",
     },
     .{
         // P2v Step 8 cap-forced split of select.zig (plan's "Lint: None" line
@@ -309,8 +326,8 @@ pub const file_allowlists = [_]struct {
     },
     .{
         .name = "select_test2.zig",
-        .allowed = &.{ .budget, .parse_zone, .{ .exact = "select.zig" }, .{ .exact = "ledger/permits.zig" } },
-        .reason = "select_test2 may only import std, prim, base/ledger, budget, parse, select, or ledger/permits",
+        .allowed = &.{ .budget, .parse_zone, .{ .exact = "select.zig" }, .{ .exact = "ledger/permits.zig" }, .{ .exact = "select_test3.zig" } },
+        .reason = "select_test2 may only import std, prim, base/ledger, budget, parse, select, ledger/permits, or select_test3",
     },
     .{
         .name = "audit.zig",

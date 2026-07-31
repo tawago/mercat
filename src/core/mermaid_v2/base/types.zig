@@ -93,6 +93,12 @@ pub const EdgeKind = enum {
 /// Routing-intent role of an edge or edge-segment cell. Carries downstream
 /// the "why" of the polyline so raster/paint can resolve junction glyphs
 /// without re-deriving topology from cell geometry.
+/// Where a candidate places its edge labels. A SCORED policy, not a
+/// preference: select.zig lays out both variants and the score picks.
+/// `on_run` = try the on-run forms first (and reserve fan label rows);
+/// `beside` = skip on-run entirely and reserve no label rows.
+pub const LabelPolicy = enum { on_run, beside };
+
 pub const EdgeRole = enum {
     /// Default — straight forward edge between adjacent layers.
     forward,

@@ -17,6 +17,7 @@ const sketch = @import("sketch.zig");
 const sem_graph = @import("sem_graph.zig");
 const coords = @import("layout.zig");
 const recurse = @import("recurse.zig");
+const types = @import("budget_types.zig");
 
 /// Ordered budget-relaxation strategies, from least to most aggressive.
 ///
@@ -94,10 +95,12 @@ fn layoutRung(
     max_width: u32,
     rung: Rung,
     negotiated: bool,
+    policy: prim.LabelPolicy,
 ) !sketch.Sketch {
     var opts = optionsFor(rung, max_width);
     opts.join_permits = join_permits;
     opts.join_permits_flat = join_permits_flat;
+    opts.label_policy = policy;
     if (negotiated) opts.chain_wrap_negotiated = true;
     return recurse.layoutPieces(arena, rotateForRung(graph, rung), opts);
 }
@@ -115,7 +118,7 @@ fn tryRung(
     max_width: u32,
     rung: Rung,
 ) !RungAttempt {
-    const result = try layoutRung(arena, graph, join_permits, join_permits_flat, max_width, rung, false);
+    const result = try layoutRung(arena, graph, join_permits, join_permits_flat, max_width, rung, false, .on_run);
     return .{
         .sketch = result,
         .accepted = try ladderAccepts(arena, graph, join_permits, join_permits_flat, max_width, rung, result),
@@ -160,62 +163,9 @@ fn ladderAccepts(
     return rung == .truncate or !hasWidthOverflow(result.diagnostics);
 }
 
-/// One laid-out rung candidate, retained for score-shadow diagnostics.
-/// `accepted` records whether the ladder's acceptance rule passed this rung
-/// while the incumbent was still undecided (rungs after the incumbent are
-/// laid out for scoring only and are never `accepted`).
-pub const Candidate = struct {
-    rung: Rung,
-    sketch: sketch.Sketch,
-    accepted: bool,
-    /// Which transform produced this candidate (see `Transform`). budget.zig
-    /// itself only ever emits `.raw`; the transformed candidates come from
-    /// select.zig — the field lives here so the merged list stays one type.
-    transform: Transform = .raw,
-};
-
-/// See `Candidate.transform`. Each transform owns its own eligibility:
-/// which source directions it applies to and which rungs its candidates
-/// are laid out at (select.zig consumes both).
-pub const Transform = enum {
-    raw,
-    motif_pack,
-    negotiated_fold,
-
-    /// True when this transform can produce candidates for a graph flowing
-    /// in `d`. Packing is a direction-preserving TD/BT move (rank_grid tiles
-    /// vertical-flow rows); the negotiated fold lives on chain_wrap's LR/RL
-    /// domain (foldChain is a no-op for vertical flows).
-    pub fn appliesTo(t: Transform, d: sem_graph.Direction) bool {
-        return switch (t) {
-            .raw => true,
-            .motif_pack => d == .TD or d == .BT,
-            .negotiated_fold => d == .LR or d == .RL,
-        };
-    }
-
-    /// The rung set this transform's candidates are laid out at. `.raw` is
-    /// the full ladder (see `enumerate`). `.motif_pack` uses a capped set:
-    /// rank_grid tiling of the rigid branch super-nodes fires under
-    /// flush-left (rung >= tight); natural is kept as cheap insurance;
-    /// rotating rungs are excluded — packing is direction-preserving.
-    /// `.negotiated_fold` is one measured-gutter chain_wrap candidate.
-    pub fn rungs(t: Transform) []const Rung {
-        return switch (t) {
-            .raw => &.{ .natural, .tight, .wrap_labels, .chain_wrap, .switch_direction, .truncate },
-            .motif_pack => &.{ .natural, .tight, .truncate },
-            .negotiated_fold => &.{.chain_wrap},
-        };
-    }
-};
-
-/// `run` plus retained candidates. `incumbent` is byte-for-byte the same
-/// choice `run` makes; `candidates` holds every rung that laid out
-/// successfully (all six in the common case), in rung order.
-pub const EnumerateResult = struct {
-    incumbent: LadderResult,
-    candidates: []const Candidate,
-};
+pub const Candidate = types.Candidate;
+pub const Transform = types.Transform;
+pub const EnumerateResult = types.EnumerateResult;
 
 /// Shadow-mode sibling of `run`: identical incumbent selection (same
 /// layout calls, same acceptance predicate, same error propagation up to
@@ -250,7 +200,7 @@ pub fn enumerate(
             }
         } else {
             // Post-incumbent: scoring-only extra work; failures skipped. // guarded-by: budget_test.zig "enumerate never probes acceptance for post-incumbent candidates"
-            const result = layoutRung(arena, graph, join_permits, join_permits_flat, max_width, rung, false) catch continue;
+            const result = layoutRung(arena, graph, join_permits, join_permits_flat, max_width, rung, false, .on_run) catch continue;
             try candidates.append(arena, .{ .rung = rung, .sketch = result, .accepted = false });
         }
     }
@@ -274,7 +224,7 @@ pub fn runForced(
     max_width: u32,
     rung: Rung,
 ) !LadderResult {
-    const result = try layoutRung(arena, graph, join_permits, join_permits_flat, max_width, rung, false);
+    const result = try layoutRung(arena, graph, join_permits, join_permits_flat, max_width, rung, false, .on_run);
     return .{ .sketch = result, .final_rung = rung, .attempts = 1 };
 }
 
@@ -307,8 +257,29 @@ pub fn runNegotiatedFold(
     join_permits_flat: bool,
     max_width: u32,
 ) !LadderResult {
-    const result = try layoutRung(arena, graph, join_permits, join_permits_flat, max_width, .chain_wrap, true);
+    const result = try layoutRung(arena, graph, join_permits, join_permits_flat, max_width, .chain_wrap, true, .on_run);
     return .{ .sketch = result, .final_rung = .chain_wrap, .attempts = 1 };
+}
+
+/// Lay out ONE candidate's LABEL-POLICY VARIANT: the same recipe (graph,
+/// rung, negotiated fold) under a different `prim.LabelPolicy`, bypassing
+/// acceptance like `runForced`. select.zig pairs a `.beside` variant with
+/// each promising `.on_run` candidate so the score chooses the placement
+/// policy per diagram. Every other driver here is pinned to `.on_run`, so
+/// the debug paths (`runForced`, `MERCAT_FORCE_RUNG`) keep today's behavior.
+/// guarded-by: select_test3.zig "the beside twin drops the labeled fan's reserved rows"
+pub fn runVariant(
+    arena: std.mem.Allocator,
+    graph: sem_graph.SemGraph,
+    join_permits: *const ledger.JoinPermits,
+    join_permits_flat: bool,
+    max_width: u32,
+    rung: Rung,
+    negotiated: bool,
+    policy: prim.LabelPolicy,
+) !LadderResult {
+    const result = try layoutRung(arena, graph, join_permits, join_permits_flat, max_width, rung, negotiated, policy);
+    return .{ .sketch = result, .final_rung = rung, .attempts = 1 };
 }
 
 /// Probe the `switch_direction` rung: lay `graph` out rotated and report

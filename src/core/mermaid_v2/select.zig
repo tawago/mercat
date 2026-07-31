@@ -21,12 +21,12 @@ const sketch_mod = @import("sketch.zig");
 const sketch_ports = @import("sketch_ports.zig");
 const ladder = @import("budget.zig");
 const score_mod = @import("score.zig");
-const motif_mod = @import("motif.zig");
 const audit_mod = @import("audit.zig");
 const realized_mod = @import("ledger/realized.zig");
 const invariants = @import("ledger/invariants.zig");
 const reach_vector = @import("ledger/reach_vector.zig");
 const select_filter = @import("select_filter.zig");
+const select_labels = @import("select_labels.zig");
 
 /// Packed candidates' capped rung set (see budget.Transform.rungs).
 const PACK_RUNGS = ladder.Transform.motif_pack.rungs();
@@ -234,8 +234,11 @@ pub const CandidateSet = struct {
     incumbent: ladder.LadderResult,
 };
 
-/// Enumerate raw + packed candidates, RAW FIRST (T4 index ties prefer raw).
-/// Packing is best-effort: any failure leaves the raw set.
+/// Enumerate raw + packed candidates, RAW FIRST (T4 index ties prefer raw),
+/// then — for a graph with labeled edges — the `.beside` LABEL-POLICY twins of
+/// the promising candidates, appended LAST so an exact score tie keeps the
+/// on-run placement (select_labels.zig). Packing is best-effort: any failure
+/// leaves the raw set.
 pub fn enumerateAll(
     aa: std.mem.Allocator,
     graph: sem_graph.SemGraph,
@@ -245,7 +248,7 @@ pub fn enumerateAll(
 ) !CandidateSet {
     const enumerated = try ladder.enumerate(aa, graph, join_permits, join_permits_flat, max_width);
 
-    var extras: [PACK_RUNGS.len + 1]ladder.Candidate = undefined;
+    var extras: [PACK_RUNGS.len + 1 + select_labels.MAX_BESIDE]ladder.Candidate = undefined;
     var n_extras: usize = 0;
     for (packedCandidates(aa, graph, join_permits, join_permits_flat, max_width) catch &.{}) |c| {
         extras[n_extras] = c;
@@ -254,6 +257,16 @@ pub fn enumerateAll(
     if (negotiatedFoldCandidate(aa, graph, join_permits, join_permits_flat, max_width)) |c| {
         extras[n_extras] = c;
         n_extras += 1;
+    }
+
+    // The label-policy twins are picked against the FULL on-run set, so they
+    // are chosen after both extras blocks and appended behind them.
+    var on_run: [MAX_CANDIDATES]ladder.Candidate = undefined;
+    const on_run_n = enumerated.candidates.len + n_extras;
+    if (on_run_n <= on_run.len) {
+        @memcpy(on_run[0..enumerated.candidates.len], enumerated.candidates);
+        @memcpy(on_run[enumerated.candidates.len..on_run_n], extras[0..n_extras]);
+        n_extras += select_labels.besideVariants(aa, graph, join_permits, join_permits_flat, max_width, on_run[0..on_run_n], extras[n_extras..]);
     }
 
     const merged = blk: {
@@ -298,9 +311,7 @@ pub fn packedCandidates(
     join_permits_flat: bool,
     max_width: u32,
 ) error{OutOfMemory}![]const ladder.Candidate {
-    if (!ladder.Transform.motif_pack.appliesTo(graph.direction)) return &.{};
-    const tree = try motif_mod.decompose(aa, graph);
-    const packed_graph = (try motif_mod.pack.transform(aa, graph, tree)) orelse return &.{};
+    const packed_graph = select_labels.packedGraph(aa, graph) orelse return &.{};
 
     var list: std.ArrayListUnmanaged(ladder.Candidate) = .empty;
     for (PACK_RUNGS) |rung| {

@@ -1,0 +1,89 @@
+//! layout/options.zig — the per-candidate layout knob bag.
+//!
+//! Cap-forced split of layout.zig: `LayoutOptions` is the one struct every
+//! driver (budget.zig's rung ladder, recurse.zig, select.zig's variants)
+//! fills in to steer one layout pass, plus the `Justify` enum it carries.
+//! Pure data; re-exported from layout.zig so every existing call site keeps
+//! naming it `layout.LayoutOptions` / `coords.LayoutOptions`.
+
+const prim = @import("prim");
+const ledger = @import("../base/ledger.zig");
+const sizing = @import("sizing.zig");
+
+/// A caller-imposed size override for one node; see `sizing.FixedSize`.
+pub const FixedSize = sizing.FixedSize;
+
+pub const LayoutOptions = struct {
+    /// One render-wide semantic permission plan, inert until join planning.
+    join_permits: ?*const ledger.JoinPermits = null,
+    /// Flatness of the original graph; never re-derived from recursion pieces.
+    join_permits_flat: bool = false,
+    /// P2v Step 8 (D-DISPOSITION item 9(b)): force the forced all-independent
+    /// TERMINAL layout. `join_commit.build` emits an all-independent plan (no
+    /// selected join, no mesh union), so no fan busbar is realized and every
+    /// edge keeps its own D-PORT-allocated port — the trunk-free geometry the
+    /// CI-filter terminal candidate needs. Off (default) leaves normal trunk
+    /// realization untouched, so every other candidate stays byte-identical.
+    disable_join_realization: bool = false,
+    /// Width budget in display columns.
+    max_width: u32 = 120,
+    /// Horizontal spacing between adjacent nodes in the same layer.
+    h_spacing: u32 = 4,
+    /// Vertical spacing between adjacent layers.
+    v_spacing: u32 = 2,
+    /// Padding inside each node (text margin).
+    node_padding: u32 = 1,
+    /// Initial budget rung. Coords doesn't run the ladder itself, but
+    /// exposing this lets the ladder driver set it later.
+    rung: u8 = 0,
+    /// Optional per-node size overrides (super-node sizing). Empty by
+    /// default — a label-only flowchart sizes every node from its text.
+    fixed_sizes: []const FixedSize = &.{},
+    /// Soft word-wrap cap in display columns; null = no soft wrap. Set only
+    /// on the budget ladder's `wrap_labels` rung. When non-null, `sizeNodes`
+    /// word-wraps each node label to this width (hard `<br>`/`\n` breaks are
+    /// always honored regardless). Author hard breaks are independent of this
+    /// knob; this only gates *soft* wrapping under budget pressure.
+    max_label_width: ?u32 = null,
+    /// True when the budget ladder has rotated this graph's flow direction
+    /// 90° (the `switch_direction` rung). Set by `budget.optionsFor`. When
+    /// true, drift compaction (`compact_x`) is suppressed: a rotated diagram
+    /// is a long single-trunk chain that relies on raw packed positions to
+    /// keep its vertical connectors drilled.
+    is_direction_rotated: bool = false,
+    /// Justification under width pressure. `.center` (the default, used on the
+    /// `natural` rung) centers narrow rows on their parent barycenter;
+    /// `.flush_left` (every rung > `natural`) suppresses that recentering so
+    /// rows stay left-packed, recovering orphan whitespace.
+    justify: Justify = .center,
+    /// Inter-node / inter-cluster gap scale, in halvings. 0 = full-size gaps
+    /// (natural rung); 1 = halve `SIBLING_GAP_BASE` / `CLUSTER_NODE_GAP`
+    /// (every rung > `natural`), floored so boxes never collide. Frame insets
+    /// are intentionally NOT scaled here (must move in lockstep with
+    /// super-node sizing + the drawn frame).
+    spacing_scale: u8 = 0,
+    /// Lever C — serpentine chain-wrap. When true, a long LR/RL chain whose
+    /// flow axis busts the width budget is folded into a multi-band snake
+    /// (direction-preserving). Set ONLY on the budget ladder's `chain_wrap`
+    /// rung, which sits between `wrap_labels` and `switch_direction` so the
+    /// direction-preserving fold is tried BEFORE paying for a 90° rotation.
+    /// A no-op when off, so lower rungs / fitting seeds stay byte-identical.
+    chain_wrap: bool = false,
+    /// NEGOTIATED chain-wrap band breaks — each band reserves its MEASURED
+    /// back-edge gutter demand (chain_wrap.bandMargin via lanes.gutter)
+    /// instead of the blind FLOW_RAIL_MARGIN. Only meaningful with
+    /// `chain_wrap = true`; set solely on select.zig's extra fold candidate
+    /// (never by the raw rung ladder), so default-false keeps the
+    /// chain_wrap rung byte-identical.
+    chain_wrap_negotiated: bool = false,
+    /// This candidate's label-placement policy. `.on_run` (default, and what
+    /// every debug/forced driver uses) reserves the fan label rows and lets
+    /// the raster pass try the on-run forms; `.beside` clears both, so labels
+    /// land only via the beside-run ladder. select.zig lays out BOTH variants
+    /// for a labeled graph and the score decides — never a global preference.
+    label_policy: prim.LabelPolicy = .on_run,
+};
+
+/// Horizontal justification of layout rows. Pressure-gated: only the
+/// `natural` rung uses `.center`; every wider rung uses `.flush_left`.
+pub const Justify = enum { center, flush_left };

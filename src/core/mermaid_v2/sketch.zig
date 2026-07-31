@@ -279,6 +279,10 @@ pub const Sketch = struct {
     co_sets: []const ledger.CoSet = &.{},
     diagnostics: []const Diagnostic,
     budget: WidthBudget,
+    /// This candidate's label-placement policy (prim.LabelPolicy). Carried on
+    /// the Sketch so the raster pass — production AND the scorer's audit
+    /// re-raster — reads the same decision the layout was built for.
+    label_policy: prim.LabelPolicy = .on_run,
 };
 
 // -- Straight-run clearance (touch semantics) ---------------------------------

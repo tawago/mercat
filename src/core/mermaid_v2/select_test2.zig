@@ -87,3 +87,9 @@ test "applying a plan keeps the sketch's port-share co-sets" {
 fn samePoint(a: anytype, b: anytype) bool {
     return a.x == b.x and a.y == b.y;
 }
+
+// The label-policy variant suite is aggregated here (entry.zig's test block
+// sits at the 500-line cap).
+test {
+    _ = @import("select_test3.zig");
+}
