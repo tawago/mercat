@@ -14,7 +14,7 @@ const aux = @import("aux.zig");
 const edge_walk = @import("edges.zig");
 const ew = @import("edges_write.zig");
 const ep = @import("edges_port.zig");
-const roles = @import("edge_roles.zig");
+const fan_roles = @import("fan_roles.zig");
 const reconcile = @import("reconcile.zig");
 const arrow_base = @import("arrow_base.zig");
 const crossings = @import("crossings.zig");
@@ -186,7 +186,7 @@ test "aux records survive the three post-walk mutating passes" {
     const s = try stackedPairSketch(a);
 
     // The record below is filed DURING the edge walk. Everything the
-    // orchestrator runs afterwards — fan role stamping, neighbour
+    // orchestrator runs afterwards — the fan-OUT mask resolve, neighbour
     // reconciliation + reciprocity repair, and arrowhead-base receiving —
     // rewrites cells in place. The record is still here at the end.
     const report = try raster.rasterize(a, s, .bridge, .{ .collect_aux = true });
@@ -215,7 +215,7 @@ test "aux records survive the three post-walk mutating passes" {
     // outright. A record is keyed by position, not by occupant, so none of
     // this may disturb it.
     const before = try a.dupe(lattice.Aux, lat.aux);
-    roles.stampFanTrunks(&lat);
+    fan_roles.resolveMasks(&lat, s);
     _ = reconcile.reconcileNeighbours(&lat);
     _ = reconcile.repairReciprocalStrokes(&lat);
     _ = arrow_base.receiveBase(&lat);

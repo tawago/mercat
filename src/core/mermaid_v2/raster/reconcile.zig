@@ -1,5 +1,6 @@
 //! Neighbour-reconciliation post-pass for the lattice, run after
-//! `rasterizeEdges`/`stampFanTrunks`. Clears junction-bearing cells'
+//! `rasterizeEdges` (fan roles and the fan-OUT strip included). Clears
+//! junction-bearing cells'
 //! neighbour bits pointing at an out-of-bounds or `.empty` adjacent
 //! cell (a "phantom arm"); bits pointing at a real occupant are kept.
 //! Only `.edge_segment`/`.cluster_border` are touched; `.arrowhead`/

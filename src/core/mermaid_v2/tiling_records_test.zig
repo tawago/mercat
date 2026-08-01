@@ -23,7 +23,6 @@ const select = @import("select.zig");
 const raster = @import("raster.zig");
 const scan = @import("tiling/scan.zig");
 const cell = @import("tiling/cell.zig");
-const fanrole = @import("tiling/fanrole.zig");
 
 const testing = std.testing;
 
@@ -378,41 +377,87 @@ test "collecting the side table changes no painted cell" {
     };
 }
 
-test "the fan-role shadow reaches both readings on real renders and moves nothing" {
-    // The comparator is the instrument that decides whether the post-walk
-    // stamping pass can be replaced by the producers' own records, so it has
-    // to be shown running on real geometry: reaching cells where the two
-    // readings AGREE (or it would be measuring nothing), reaching cells a
-    // first-class rail owns (the population it must decline to judge), and
-    // leaving the shipped lattice exactly as it found it.
-    //
-    // The residual divergence is deliberately NOT pinned to a number here.
-    // It is a corpus-wide reading taken outside this tree, and it moves
-    // whenever fan routing does; freezing it in a unit test would turn an
-    // instrument reading into a rule.
-    var agreements: u32 = 0;
-    var rail_owned: u32 = 0;
+test "a peer-drawn rail role and its membership record are one event" {
+    // The residual self-check left behind by retiring the shadow
+    // comparator. `fan_roles.markShared` stamps the rail role and files the
+    // `.rail_member` record from a single observation, so on the shipped
+    // lattice the two must coincide everywhere the bus-bar rasterizer is
+    // not the author: a peer-drawn cell carrying a family's rail role has a
+    // membership record of that family, and vice versa. A drift between
+    // them would mean one of the two was re-derived somewhere else.
+    var checked: u32 = 0;
     for (corpus) |source| for (widths) |width| {
         var arena = std.heap.ArenaAllocator.init(testing.allocator);
         defer arena.deinit();
         const a = arena.allocator();
 
         const r = try render(a, source, width);
-        const before = try a.dupe(lattice.Cell, r.report.lattice.cells);
-
-        const c = fanrole.run(.{ .sketch = r.sketch, .lat = &r.report.lattice });
-        try testing.expectEqualSlices(lattice.Cell, before, r.report.lattice.cells);
-
-        // Bookkeeping identity, per family: the mask dimension is judged on
-        // exactly the cells whose role the two readings agree on.
-        inline for (.{ "fan_out", "fan_in" }) |family| {
-            const b = @field(c, family);
-            try testing.expectEqual(b.role_match, b.mask_match + b.mask_mismatch);
-            try testing.expect(b.pivot_unresolved <= b.mask_match);
+        const lat = r.report.lattice;
+        var y: u32 = 0;
+        while (y < lat.height) : (y += 1) {
+            var x: u32 = 0;
+            while (x < lat.width) : (x += 1) {
+                // A first-class rail writes both role and geometry itself;
+                // its cells are the bus-bar rasterizer's, not the walk's.
+                if (onOwnedRail(r.sketch, x, y)) continue;
+                const stamped = railFamilyAt(lat, x, y);
+                const recorded = recordedFamilyAt(lat, x, y);
+                if (stamped == null and recorded == null) continue;
+                if (stamped != recorded) {
+                    std.debug.print(
+                        "source:\n{s}cell ({d},{d}): role says {?s}, records say {?s}\n",
+                        .{ source, x, y, tagOf(stamped), tagOf(recorded) },
+                    );
+                    return error.FanRoleRecordDisagreement;
+                }
+                checked += 1;
+            }
         }
-        agreements += c.fan_out.role_match + c.fan_in.role_match;
-        rail_owned += c.rail_owned;
     };
-    try testing.expect(agreements > 0);
-    try testing.expect(rail_owned > 0);
+    // The corpus carries declined and grid-wrapped fans, so the peer-drawn
+    // writer must actually have produced shared cells.
+    try testing.expect(checked > 0);
+}
+
+fn tagOf(p: ?lattice.RailPolarity) ?[]const u8 {
+    return if (p) |q| @tagName(q) else null;
+}
+
+/// The fan family whose SHARED-RUN role the cell at (x, y) carries.
+fn railFamilyAt(lat: lattice.Lattice, x: u32, y: u32) ?lattice.RailPolarity {
+    return switch (lat.atConst(x, y).occupant) {
+        .edge_segment => |seg| switch (seg.role) {
+            .fan_out_rail => .out,
+            .fan_in_rail => .in,
+            else => null,
+        },
+        else => null,
+    };
+}
+
+/// The fan family a `.rail_member` record names at (x, y), if any.
+fn recordedFamilyAt(lat: lattice.Lattice, x: u32, y: u32) ?lattice.RailPolarity {
+    const idx = lat.cellIndex(x, y);
+    for (lat.aux) |rec| {
+        if (rec.kind != .rail_member or rec.cell != idx) continue;
+        return @enumFromInt(rec.detail);
+    }
+    return null;
+}
+
+/// True when (x, y) lies on a first-class rail's own stem or crossbar.
+fn onOwnedRail(s: sketch.Sketch, x: u32, y: u32) bool {
+    const px: i32 = @intCast(x);
+    const py: i32 = @intCast(y);
+    for (s.busbars) |bb| {
+        if (py == bb.crossbar[0].y and px >= bb.crossbar[0].x and px <= bb.crossbar[1].x) return true;
+        var i: usize = 0;
+        while (i + 1 < bb.stem.len) : (i += 1) {
+            const p = bb.stem[i];
+            const q = bb.stem[i + 1];
+            if (p.x == q.x and p.x == px and py >= @min(p.y, q.y) and py <= @max(p.y, q.y)) return true;
+            if (p.y == q.y and p.y == py and px >= @min(p.x, q.x) and px <= @max(p.x, q.x)) return true;
+        }
+    }
+    return false;
 }

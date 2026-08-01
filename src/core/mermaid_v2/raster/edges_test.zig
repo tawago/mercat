@@ -453,8 +453,8 @@ test "shared trunk corner: sibling drops bending at one cell yield ┴, not a ph
     var lat = try makeLattice(a, 12, 12);
     defer a.free(lat.cells);
 
-    // Three `.forward` edges (an UNDETECTED fan: no fan role, so
-    // stampFanTrunks never stamps or strips the trunk) descend a shared
+    // Three `.forward` edges (an UNDETECTED fan: no fan role, so no rail
+    // is ever named here and the fan-OUT strip never runs) descend a shared
     // source column to a common rail row (5), then bend to their own
     // columns. None continues SOUTH past the trunk cell (5,5): the left
     // two bend west, the right one bends east. The trunk cell must render

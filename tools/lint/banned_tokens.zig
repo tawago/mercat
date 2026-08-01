@@ -102,6 +102,18 @@ pub const table = [_]Row{
         .why = "the ledger's union predicate is leaf_pairs.noDuplicateLeafPairs (re-exported by realized); completeness and two-sided width are guarantees of union construction, never re-derived in the ledger",
     },
     .{
+        .token = "stampFanTrunks",
+        .why = "the post-hoc grid re-derivation of fan roles is gone: roles are stamped from producer facts (raster/fan_roles.markShared at write time) and the fan-OUT strip resolved from the Sketch's pivot geometry (raster/fan_roles.resolveMasks). Never re-infer a role by scanning the finished lattice",
+    },
+    .{
+        .token = "MERCAT_FANROLE_SHADOW",
+        .why = "the fan-role shadow comparator was retired with the inference it shadowed; the producers' roles ARE the derived roles now, and the residual is pinned by tiling_records_test 'a peer-drawn rail role and its membership record are one event'",
+    },
+    .{
+        .token = "mercat-fanrole-shadow",
+        .why = "the shadow comparator's stderr line is retired along with its knob; there is no second reading of fan roles to report",
+    },
+    .{
         .token = "mesh_legal",
         .why = "the module split into ledger/leaf_pairs.zig (the predicate) and ledger/dispose.zig (clause-(g)-pre withdrawal); there is no combined legality module",
     },

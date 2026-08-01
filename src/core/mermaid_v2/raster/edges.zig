@@ -6,10 +6,14 @@
 //! module only.
 //! Role-merge precedence at shared-run cells (`edge_roles.zig`): fan_out_rail
 //! > fan_out_dropper and fan_in_rail > fan_in_dropper, both over forward/
-//! cluster_internal. Fan shared-run cells stamped explicitly post-walk.
+//! cluster_internal. A fan shared run is named by `raster/fan_roles.zig` as
+//! the ink lands (`markShared`) and its fan-OUT strip resolved from the
+//! Sketch's pivot geometry once the walk is done (`resolveMasks`) — never
+//! re-derived from the finished grid.
 //!
 //! Side-table facts filed here (`lattice.Aux`): `.carrier` for ink the grid
-//! cannot name, `.rail_member` for a fan peer riding a shared run, and
+//! cannot name, `.rail_member` for a fan peer riding a shared run (filed
+//! by `fan_roles.markShared`, alongside the rail role it stamps), and
 //! `.intrusion` at the two frame-border sites — the aggregate
 //! `b_frame_bridge`/`b_border_fusion_refused` tallies count the same events
 //! and are cross-checked against the records. No `.tap`: a peer-drawn fan's
@@ -28,6 +32,7 @@ const std = @import("std");
 const sketch = @import("../sketch.zig");
 const lattice = @import("../lattice.zig");
 const roles = @import("edge_roles.zig");
+const fan_roles = @import("fan_roles.zig");
 const crossings = @import("crossings.zig");
 const ew = @import("edges_write.zig");
 const ep = @import("edges_port.zig");
@@ -124,36 +129,6 @@ fn crossingKeepsFirstWriter(
         ),
         else => false,
     };
-}
-
-/// File a `.rail_member` for a FAN-role edge whose ink just landed on a
-/// cell attributed to somebody else — the peer-drawn counterpart of the
-/// membership `raster/busbars.zig` files for a first-class rail. Called
-/// only after a write that actually deposited bits: a suppressed crossing
-/// leaves no ink and is a `.carrier` matter, and a cell lost to a node or a
-/// label names neither an edge nor an arrowhead, so it returns here.
-///
-/// A non-fan role files nothing (there is no family to name), and a cell
-/// that still names this very edge files nothing (the grid already says
-/// it). The position typically carries a merged `.carrier` too; that
-/// record says an identity was lost, this one says which fan lost it.
-/// guarded-by: tiling_records_test.zig "every rail-membership record names an edge the fan actually serves"
-fn recordFanMember(
-    rec: aux.Recorder,
-    cell: *const lattice.Cell,
-    x: u32,
-    y: u32,
-    edge_id: u32,
-    role: lattice.EdgeRole,
-) void {
-    const polarity = ew.railPolarity(role) orelse return;
-    const named: u32 = switch (cell.occupant) {
-        .edge_segment => |seg| seg.edge,
-        .arrowhead => |head| head.edge,
-        else => return,
-    };
-    if (named == edge_id) return;
-    ew.recordRailMember(rec, x, y, edge_id, polarity);
 }
 
 /// Claim a pristine corner cell for `edge_id` with the corner mask (occupant
@@ -280,7 +255,7 @@ fn walkPolyline(
                             // edge turns here.
                             // guarded-by: aux_test.zig "a corner arm merged onto a foreign run files a merged carrier; onto its own ink, nothing"
                             if (!own) ew.recordCarrier(rec, c.x, c.y, edge.id, .merged);
-                            recordFanMember(rec, cell, c.x, c.y, edge.id, erole);
+                            fan_roles.markShared(rec, cell, c.x, c.y, edge.id, erole);
                         }
                     },
                     .empty => {
@@ -323,7 +298,7 @@ fn walkPolyline(
                             ew.recordCarrier(rec, c.x, c.y, edge.id, .suppressed);
                         } else {
                             writeEdgeCell(cell, edge.id, ek, erole, corner_mask, c.x, c.y, cells_lost, rec);
-                            recordFanMember(rec, cell, c.x, c.y, edge.id, erole);
+                            fan_roles.markShared(rec, cell, c.x, c.y, edge.id, erole);
                         }
                     },
                 }
@@ -394,7 +369,7 @@ fn walkPolyline(
                     // `.cluster_border` arm still holds the pre-Slice-1
                     // overwrite+OR merge (junction weld) — byte-identical.
                     writeEdgeCell(cell, edge.id, ek, erole, straightMask(dir), c.x, c.y, cells_lost, rec);
-                    recordFanMember(rec, cell, c.x, c.y, edge.id, erole);
+                    fan_roles.markShared(rec, cell, c.x, c.y, edge.id, erole);
                 }
                 if (result.first_cell == null) {
                     result.first_cell = cursor;
@@ -488,7 +463,11 @@ pub fn rasterizeEdges(
         if (r.first_cell != null) written += 1;
     }
 
-    roles.stampFanTrunks(lat);
+    // The fan-OUT strip, from the Sketch's own pivot geometry — the last
+    // producer-derived fact about fan ink, and the only one that needs the
+    // whole walk finished (both arms of a junction must exist before either
+    // can be judged). Roles themselves were stamped as the ink landed.
+    fan_roles.resolveMasks(lat, s);
 
     return .{ .edges_written = written, .cells_lost = cells_lost, .crossings = cross_counts };
 }
