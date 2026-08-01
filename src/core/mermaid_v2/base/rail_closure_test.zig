@@ -21,8 +21,8 @@ fn backer(edge: u32, a: u32, b: u32) rc.Backer {
     return .{ .edge = edge, .a = a, .b = b, .kind = solid, .arrow_free = true, .unlabeled = true };
 }
 
-fn decide(members: []const rc.Member, backers: []const rc.Backer, unavailable: []const u32) !rc.Verdict {
-    return rc.decide(testing.allocator, members, backers, unavailable);
+fn decide(members: []const rc.Member, backers: []const rc.Backer) !rc.Verdict {
+    return rc.decide(testing.allocator, members, backers);
 }
 
 fn free(v: rc.Verdict) void {
@@ -34,7 +34,7 @@ test "an undeclared leaf pair refuses the rail" {
     // A---Z, B---Z, C---Z with nothing declared between the leaves: the
     // crossbar would assert A—B, A—C and B—C, none of them declared.
     const members = [_]rc.Member{ member(0, 1), member(1, 2), member(2, 3) };
-    const v = try decide(&members, &.{}, &.{});
+    const v = try decide(&members, &.{});
     defer free(v);
     try testing.expectEqual(rc.Outcome.refuse, v.outcome);
     try testing.expectEqual(@as(usize, 0), v.members.len);
@@ -44,7 +44,7 @@ test "an undeclared leaf pair refuses the rail" {
 test "a fully declared clique keeps the rail and discharges every pair edge" {
     const members = [_]rc.Member{ member(0, 1), member(1, 2), member(2, 3) };
     const backers = [_]rc.Backer{ backer(10, 1, 2), backer(11, 1, 3), backer(12, 2, 3) };
-    const v = try decide(&members, &backers, &.{});
+    const v = try decide(&members, &backers);
     defer free(v);
     try testing.expectEqual(rc.Outcome.keep, v.outcome);
     try testing.expectEqualSlices(u32, &.{ 0, 1, 2 }, v.members);
@@ -61,7 +61,7 @@ test "a backing edge is matched on unordered endpoints" {
     // B: a pair is a PAIR, not an ordered arc.
     const members = [_]rc.Member{ member(0, 1), member(1, 2) };
     const backers = [_]rc.Backer{backer(10, 2, 1)};
-    const v = try decide(&members, &backers, &.{});
+    const v = try decide(&members, &backers);
     defer free(v);
     try testing.expectEqual(rc.Outcome.keep, v.outcome);
     try testing.expectEqual(@as(u32, 10), v.discharges[0].backer);
@@ -77,7 +77,7 @@ test "a decorated, labeled or wrong-stroke declaration backs nothing" {
     var mismatched = backer(12, 1, 2);
     mismatched.kind = dotted;
     inline for ([3]rc.Backer{ arrowed, labeled, mismatched }) |b| {
-        const v = try decide(&members, &[_]rc.Backer{b}, &.{});
+        const v = try decide(&members, &[_]rc.Backer{b});
         defer free(v);
         try testing.expectEqual(rc.Outcome.refuse, v.outcome);
         try testing.expectEqual(@as(u32, 1), v.undeclared_pairs);
@@ -90,7 +90,7 @@ test "one declaration cannot back two pairs of the same rail" {
     // needs a second backer.
     const members = [_]rc.Member{ member(0, 1), member(1, 2), member(2, 3) };
     const backers = [_]rc.Backer{backer(10, 1, 2)};
-    const v = try decide(&members, &backers, &.{});
+    const v = try decide(&members, &backers);
     defer free(v);
     try testing.expectEqual(rc.Outcome.salvage, v.outcome);
     try testing.expectEqualSlices(u32, &.{ 0, 1 }, v.members);
@@ -98,15 +98,53 @@ test "one declaration cannot back two pairs of the same rail" {
     try testing.expectEqual(@as(u32, 2), v.undeclared_pairs);
 }
 
-test "a declaration another rail already took is unavailable here" {
+test "a declaration another rail draws licenses the pair but is never discharged" {
+    // The clique case: the leaf pair IS declared, but that declaration is
+    // already ink — another rail's member, or a pair an earlier rail already
+    // discharged. The rail keeps its fusion (it states nothing the graph does
+    // not) and the discharge is flagged so the caller withholds nothing.
     const members = [_]rc.Member{ member(0, 1), member(1, 2) };
-    const backers = [_]rc.Backer{backer(10, 1, 2)};
-    const taken = try decide(&members, &backers, &[_]u32{10});
+    var drawn = backer(10, 1, 2);
+    drawn.drawn = true;
+    const taken = try decide(&members, &[_]rc.Backer{drawn});
     defer free(taken);
-    try testing.expectEqual(rc.Outcome.refuse, taken.outcome);
-    const fresh = try decide(&members, &backers, &.{});
+    try testing.expectEqual(rc.Outcome.keep, taken.outcome);
+    try testing.expectEqual(@as(usize, 1), taken.discharges.len);
+    try testing.expect(taken.discharges[0].drawn);
+
+    const fresh = try decide(&members, &[_]rc.Backer{backer(10, 1, 2)});
     defer free(fresh);
     try testing.expectEqual(rc.Outcome.keep, fresh.outcome);
+    try testing.expect(!fresh.discharges[0].drawn);
+}
+
+test "a wide rail with nothing declared refuses without searching every subset" {
+    // 16 leaves, no declarations: every 2-subset already fails the pair test,
+    // so the compatibility prefilter rejects all 2^16 masks with no allocation
+    // and no first-fit search. A timing floor, not a wall-clock assertion: the
+    // outcome must still be the exhaustive one.
+    var members: [rc.max_salvage_members]rc.Member = undefined;
+    for (&members, 0..) |*m, i| m.* = member(@intCast(i), @intCast(i + 1));
+    var timer = try std.time.Timer.start();
+    const v = try decide(&members, &.{});
+    defer free(v);
+    try testing.expectEqual(rc.Outcome.refuse, v.outcome);
+    try testing.expectEqual(@as(u32, 120), v.undeclared_pairs);
+    try testing.expect(timer.read() < 200 * std.time.ns_per_ms);
+}
+
+test "a mesh whose same-side pairs are undeclared is not closed" {
+    // The complete-bipartite union A—C, A—D, B—C, B—D fuses into ONE run
+    // welding all four endpoints, so it asserts A—B and C—D as well. Its own
+    // members declare the four cross pairs; nothing declares the two same-side
+    // ones, so the union is not closed and may not claim the exemption.
+    const nodes = [_]u32{ 1, 2, 3, 4 };
+    const members = [_]rc.Backer{ backer(10, 1, 3), backer(11, 1, 4), backer(12, 2, 3), backer(13, 2, 4) };
+    try testing.expectEqual(@as(?[]const rc.Discharge, null), try rc.nodesClosed(testing.allocator, &nodes, solid, &members));
+    const declared = members ++ [_]rc.Backer{ backer(20, 1, 2), backer(21, 3, 4) };
+    const closed = (try rc.nodesClosed(testing.allocator, &nodes, solid, &declared)).?;
+    defer testing.allocator.free(closed);
+    try testing.expectEqual(@as(usize, 6), closed.len);
 }
 
 test "salvage keeps the largest fully declared subset, earliest members first" {
@@ -114,7 +152,7 @@ test "salvage keeps the largest fully declared subset, earliest members first" {
     // the leaf-4 member must go and the remaining three fuse.
     const members = [_]rc.Member{ member(0, 1), member(1, 2), member(2, 3), member(3, 4) };
     const backers = [_]rc.Backer{ backer(10, 1, 2), backer(11, 1, 3), backer(12, 2, 3) };
-    const v = try decide(&members, &backers, &.{});
+    const v = try decide(&members, &backers);
     defer free(v);
     try testing.expectEqual(rc.Outcome.salvage, v.outcome);
     try testing.expectEqualSlices(u32, &.{ 0, 1, 2 }, v.members);
@@ -123,20 +161,20 @@ test "salvage keeps the largest fully declared subset, earliest members first" {
 
 test "a directed or mixed rail is untouched by this law" {
     const directed = [_]rc.Member{ directedMember(0, 1), directedMember(1, 2) };
-    const v = try decide(&directed, &.{}, &.{});
+    const v = try decide(&directed, &.{});
     defer free(v);
     try testing.expectEqual(rc.Outcome.untouched, v.outcome);
     try testing.expectEqualSlices(u32, &.{ 0, 1 }, v.members);
 
     const mixed = [_]rc.Member{ member(0, 1), directedMember(1, 2) };
-    const w = try decide(&mixed, &.{}, &.{});
+    const w = try decide(&mixed, &.{});
     defer free(w);
     try testing.expectEqual(rc.Outcome.untouched, w.outcome);
 }
 
 test "a rail with fewer than two members has no pairs to declare" {
     const one = [_]rc.Member{member(0, 1)};
-    const v = try decide(&one, &.{}, &.{});
+    const v = try decide(&one, &.{});
     defer free(v);
     try testing.expectEqual(rc.Outcome.untouched, v.outcome);
 }
@@ -145,7 +183,7 @@ test "two members landing on one leaf state no leaf-to-leaf pair" {
     // A duplicate arrival (both members reach leaf 1) asserts nothing between
     // distinct leaves, so the law neither demands a declaration nor refuses.
     const members = [_]rc.Member{ member(0, 1), member(1, 1) };
-    const v = try decide(&members, &.{}, &.{});
+    const v = try decide(&members, &.{});
     defer free(v);
     try testing.expectEqual(rc.Outcome.keep, v.outcome);
     try testing.expectEqual(@as(usize, 0), v.discharges.len);
@@ -155,9 +193,9 @@ test "the verdict does not depend on the order declarations were listed" {
     const members = [_]rc.Member{ member(0, 1), member(1, 2), member(2, 3) };
     const forward = [_]rc.Backer{ backer(10, 1, 2), backer(11, 1, 3), backer(12, 2, 3) };
     const reverse = [_]rc.Backer{ backer(12, 2, 3), backer(11, 1, 3), backer(10, 1, 2) };
-    const x = try decide(&members, &forward, &.{});
+    const x = try decide(&members, &forward);
     defer free(x);
-    const y = try decide(&members, &reverse, &.{});
+    const y = try decide(&members, &reverse);
     defer free(y);
     try testing.expectEqual(x.outcome, y.outcome);
     try testing.expectEqualSlices(u32, x.members, y.members);

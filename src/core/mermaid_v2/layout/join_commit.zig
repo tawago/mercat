@@ -77,30 +77,33 @@ pub fn buildReported(a: std.mem.Allocator, graph: sg.SemGraph, permits: ?*const 
 
     // Phase 2 — the all-arrow-free shared-rail closure law. A rail whose every
     // member is arrow-free asserts each unordered LEAF PAIR too, so it may fuse
-    // only over pairs the graph declares. `reserved` is what no rail may spend
-    // as a backing edge: everything a provisionally eligible rail already DRAWS
-    // (an edge cannot be both a member's ink and a discharged pair), plus every
-    // backer an earlier rail took — which is the plan-wide "one rail per
-    // declared edge" clause, resolved in canonical group order.
+    // only over pairs the graph declares. `drawn` is the plan-wide record of
+    // declarations that ALREADY carry ink — every provisionally eligible rail's
+    // own members, plus every declaration an earlier rail discharged. They
+    // license a pair (the relation is on the page) but are never discharged
+    // again, which is the plan-wide "one rail renders one declaration" clause;
+    // refusing over them instead would unfuse every fully declared clique,
+    // whose leaf pairs are by construction other stars' members.
+    // guarded-by: join_commit_test.zig "a clique whose pair edges are other rails' members keeps every rail"
     const closure_refused = try a.alloc(bool, plan.groups.len);
     @memset(closure_refused, false);
-    var reserved: std.ArrayListUnmanaged(pb.EdgeId) = .empty;
     var discharged: std.ArrayListUnmanaged(pb.EdgeId) = .empty;
+    var drawn: std.ArrayListUnmanaged(pb.EdgeId) = .empty;
     for (eff_of) |maybe| {
-        if (maybe) |eff| try reserved.appendSlice(a, eff);
+        if (maybe) |eff| try drawn.appendSlice(a, eff);
     }
     for (plan.groups, 0..) |group, gi| {
         const eff = eff_of[gi] orelse continue;
-        const verdict = try closureVerdict(a, graph, group, eff, reserved.items);
+        const verdict = try closureVerdict(a, graph, group, eff, drawn.items);
         if (report) |r| {
             if (verdict.outcome == .refuse or verdict.outcome == .salvage) r.rail_closure_undeclared += 1;
             r.co_undeclared += verdict.undeclared_pairs;
         }
         switch (verdict.outcome) {
             .untouched, .keep => {},
-            // A salvaged rail keeps a strict subset; the dropped members stay
-            // `reserved` (they are not backers either) and fall to independent
-            // lanes exactly like a member the style gate excluded.
+            // A salvaged rail keeps a strict subset; the dropped members fall
+            // to independent lanes exactly like a member the style gate
+            // excluded, and keep their own ink (so they stay `drawn`).
             .salvage => eff_of[gi] = verdict.members,
             .refuse => {
                 eff_of[gi] = null;
@@ -108,8 +111,9 @@ pub fn buildReported(a: std.mem.Allocator, graph: sg.SemGraph, permits: ?*const 
             },
         }
         for (verdict.discharges) |d| {
+            if (d.drawn) continue;
             try discharged.append(a, d.backer);
-            try reserved.append(a, d.backer);
+            try drawn.append(a, d.backer);
         }
     }
 
@@ -157,7 +161,7 @@ fn closureVerdict(
     graph: sg.SemGraph,
     group: pb.JoinGroup,
     eff: []const pb.EdgeId,
-    reserved: []const pb.EdgeId,
+    drawn: []const pb.EdgeId,
 ) error{OutOfMemory}!rc.Verdict {
     const members = try a.alloc(rc.Member, eff.len);
     for (eff, members) |id, *m| {
@@ -179,9 +183,10 @@ fn closureVerdict(
             .kind = pb.edgeKindOrdinal(edge.kind),
             .arrow_free = arrowFree(edge),
             .unlabeled = edge.label == null or edge.label.?.len == 0,
+            .drawn = containsEdge(drawn, edge.id),
         });
     }
-    return rc.decide(a, members, backers.items, reserved);
+    return rc.decide(a, members, backers.items);
 }
 
 fn arrowFree(edge: sg.Edge) bool {

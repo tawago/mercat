@@ -280,3 +280,46 @@ test "a clustered DIRECTED fan is untouched by the closure law" {
     peerLanes(fans, .in, 3, &lanes);
     for (lanes) |l| try testing.expectEqual(@as(u32, 0), l);
 }
+
+test "a salvaged fan's excluded members never land on the kept trunk's lane" {
+    // The closure law's salvage shape: a strict subset of the fan keeps the
+    // trunk (edges 10 and 11 selected) and the rest unfuses. The excluded
+    // member must start ABOVE the trunk's own lane — starting at the fan's
+    // lane would put it straight back on the crossbar it was excluded from.
+    const a = testing.allocator;
+    var nodes = [_]sugiyama.LayerNode{ .{ .real = 0 }, .{ .real = 1 }, .{ .real = 2 }, .{ .real = 3 } };
+    var row0 = [_]u32{ 0, 1, 2 };
+    var row1 = [_]u32{3};
+    var layers = [_][]u32{ &row0, &row1 };
+    var edges = [_]sugiyama.LayerEdge{
+        .{ .from = 0, .to = 3, .reversed = false, .edge = 10 },
+        .{ .from = 1, .to = 3, .reversed = false, .edge = 11 },
+        .{ .from = 2, .to = 3, .reversed = false, .edge = 12 },
+    };
+    var reversed = [_]sg.EdgeId{};
+    const lg = mkLg(&nodes, &layers, &edges, &reversed);
+    const geom = [_]Geom{ .{ .x = 0, .w = 3 }, .{ .x = 9, .w = 3 }, .{ .x = 18, .w = 3 }, .{ .x = 9, .w = 3 } };
+    var arena = std.heap.ArenaAllocator.init(a);
+    defer arena.deinit();
+    const aa = arena.allocator();
+    const graph = try mkGraph(aa, &edges);
+    const fans = try fan.detect(aa, graph, lg);
+
+    var trunk = [_]u32{ 10, 11 };
+    const selected = [_]sg.EdgeId{ 10, 11 };
+    _ = selected;
+    const joins: @import("../base/ledger.zig").RealizedJoins = .{
+        .selected_joins = &.{.{ .id = 0, .proposal = 0, .permission_group = 0, .members = &trunk }},
+        .memberships = &.{
+            .{ .edge = 10, .source = null, .target = .{ .selected = 0 } },
+            .{ .edge = 11, .source = null, .target = .{ .selected = 0 } },
+            .{ .edge = 12, .source = null, .target = .{ .independent = .{ .permission_group = 0, .reason = .not_selected } } },
+        },
+    };
+    try fan_lanes.assignLanes(Geom, aa, graph, lg, &geom, fans, joins);
+    var lanes = [_]u32{ 9, 9, 9 };
+    peerLanes(fans, .in, 3, &lanes);
+    try testing.expectEqual(@as(u32, 0), lanes[0]);
+    try testing.expectEqual(@as(u32, 0), lanes[1]);
+    try testing.expect(lanes[2] != 0);
+}

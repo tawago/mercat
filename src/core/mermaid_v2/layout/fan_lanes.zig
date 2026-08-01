@@ -175,15 +175,36 @@ pub fn assignLanes(
 
     // A carve-out-unrealized fan is edge-owned: every member gets a distinct
     // rail lane. Selected trunks and exempt complete meshes retain lane zero.
+    //
+    // A PARTLY selected fan (the closure law's salvage: a strict subset keeps
+    // the trunk, the rest unfuse) still owns lane `fan.lane` with its trunk, so
+    // the independent members start one lane ABOVE it. Starting at the fan's
+    // own lane would put an excluded member back on the crossbar it was
+    // excluded from — re-fusing exactly the pair the salvage refused, and
+    // handing the reach oracle an unlicensed shared cell.
+    // guarded-by: fan_lanes_test.zig "a salvaged fan's excluded members never land on the kept trunk's lane"
     for (fans) |*fan| {
         if (fanSelected(fan.*, joins) or fanMeshExempt(fan.*, joins.mesh_unions)) continue;
-        var next_lane = fan.lane;
+        var next_lane = fan.lane + @as(u32, if (anySelected(fan.*, joins)) 1 else 0);
         for (fan.peers) |*peer| {
             if (invisible.contains(peer.edge_id) or !peerIndependent(fan.direction, peer.edge_id, joins.memberships)) continue;
             peer.lane = next_lane;
             next_lane += 1;
         }
     }
+}
+
+/// True iff at least one peer joined a realized trunk — the salvage shape the
+/// closure law produces (`fanSelected` demands ALL of them).
+fn anySelected(fan: Fan, joins: pb.RealizedJoins) bool {
+    for (fan.peers) |peer| {
+        const membership = membershipFor(joins.memberships, peer.edge_id) orelse continue;
+        const disposition = if (fan.direction == .out) membership.source else membership.target;
+        if (disposition) |value| {
+            if (value == .selected) return true;
+        }
+    }
+    return false;
 }
 
 fn fanSelected(fan: Fan, joins: pb.RealizedJoins) bool {

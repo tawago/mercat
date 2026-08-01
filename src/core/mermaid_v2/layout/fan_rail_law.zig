@@ -45,22 +45,23 @@ pub fn refuseUndeclared(
     fans: []Fan,
     invisible: std.AutoHashMapUnmanaged(sg.EdgeId, void),
 ) error{OutOfMemory}!void {
-    // Every candidate rail's own ink is reserved plan-wide before any verdict:
-    // an edge a rail DRAWS can never also be the declaration that licenses
-    // another rail's crossbar, and the reservation must not depend on the
-    // order the fans happen to be visited.
-    var reserved: std.ArrayListUnmanaged(sg.EdgeId) = .empty;
-    defer reserved.deinit(a);
+    // Every candidate rail's own ink is DRAWN plan-wide before any verdict, and
+    // the record must not depend on the order the fans happen to be visited: a
+    // declaration another fan already inks licenses a pair here (the relation
+    // is on the page) but is never discharged. This pass discharges nothing at
+    // all (see the module docs), so `drawn` is the whole record.
+    var drawn: std.ArrayListUnmanaged(sg.EdgeId) = .empty;
+    defer drawn.deinit(a);
     for (fans) |f| {
         for (f.peers) |p| {
-            if (!invisible.contains(p.edge_id)) try reserved.append(a, p.edge_id);
+            if (!invisible.contains(p.edge_id)) try drawn.append(a, p.edge_id);
         }
     }
 
     for (fans) |*f| {
         const members = try membersOf(a, graph, lg, f.*, invisible);
         defer a.free(members);
-        const verdict = try rc.decide(a, members, try backersOf(a, graph, members), reserved.items);
+        const verdict = try rc.decide(a, members, try backersOf(a, graph, members, drawn.items));
         switch (verdict.outcome) {
             .untouched, .keep => {},
             // Refuse: no subset fuses truthfully, so every member gets its own
@@ -68,9 +69,6 @@ pub fn refuseUndeclared(
             // crossbar) and only the excluded members are lifted off it.
             .refuse, .salvage => assignPrivateLanes(f, members, verdict.members, invisible),
         }
-        // A kept rail spends its backers plan-wide, so a second rail cannot
-        // license itself with the same declaration.
-        for (verdict.discharges) |d| try reserved.append(a, d.backer);
     }
 }
 
@@ -98,7 +96,9 @@ fn membersOf(
 }
 
 /// Every declared non-self edge that is not itself a member of this rail.
-fn backersOf(a: std.mem.Allocator, graph: sg.SemGraph, members: []const rc.Member) error{OutOfMemory}![]rc.Backer {
+/// `drawn` names the edges some fan already inks — usable as a licence, never
+/// dischargeable.
+fn backersOf(a: std.mem.Allocator, graph: sg.SemGraph, members: []const rc.Member, drawn: []const sg.EdgeId) error{OutOfMemory}![]rc.Backer {
     var out: std.ArrayListUnmanaged(rc.Backer) = .empty;
     for (graph.edges) |edge| {
         if (edge.from == edge.to) continue;
@@ -114,6 +114,7 @@ fn backersOf(a: std.mem.Allocator, graph: sg.SemGraph, members: []const rc.Membe
             .kind = kindOrdinal(edge.kind),
             .arrow_free = edge.arrow_from == .none and edge.arrow_to == .none,
             .unlabeled = edge.label == null or edge.label.?.len == 0,
+            .drawn = rc.contains(drawn, edge.id),
         });
     }
     return out.toOwnedSlice(a);

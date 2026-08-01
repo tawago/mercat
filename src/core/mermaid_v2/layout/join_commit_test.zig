@@ -263,3 +263,28 @@ test "every closure-law counter names a registered report-only tag" {
     try std.testing.expect(@hasField(join_commit.Report, fields[1]));
     try std.testing.expect(@hasField(realized.Report, fields[2]));
 }
+
+test "a clique whose pair edges are other rails' members keeps every rail" {
+    // Z---A, Z---B, Z---C plus the full leaf clique A---B, A---C, B---C. Every
+    // leaf pair of every rail is declared, so nothing may unfuse — but each of
+    // those declarations is itself a member of some OTHER star, so a rule that
+    // withheld another rail's ink as a backer would refuse the whole clique
+    // and rebuild the picture around a fabrication that is not there.
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const graph = try parse(a, "flowchart TD\n  Z --- A\n  Z --- B\n  Z --- C\n  A --- B\n  A --- C\n  B --- C\n");
+    const plan = (try permits.build(a, graph, .joined)).plan;
+    var report: join_commit.Report = .{};
+    const joins = try join_commit.buildReported(a, graph, &plan, true, &.{}, false, &report);
+
+    try std.testing.expectEqual(@as(u32, 0), report.rail_closure_undeclared);
+    try std.testing.expectEqual(@as(u32, 0), report.co_undeclared);
+    try std.testing.expect(joins.selected_joins.len > 0);
+    // A declaration is discharged by at most ONE rail plan-wide: the record
+    // carries no duplicates, and no discharged edge is another rail's member.
+    for (joins.co_realized, 0..) |co, i| {
+        for (joins.co_realized[0..i]) |prev| try std.testing.expect(prev != co);
+        for (joins.selected_joins) |sj| for (sj.members) |m| try std.testing.expect(m != co);
+    }
+}
