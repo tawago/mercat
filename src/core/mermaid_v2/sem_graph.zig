@@ -79,7 +79,28 @@ pub const Edge = struct {
     arrow_to: ArrowEnd,
     /// Optional edge label text.
     label: ?[]const u8,
+    /// True when this edge is a cross-border PLACEMENT edge (cluster/split.zig)
+    /// standing in for at least one DIRECTED crossing.
+    ///
+    /// A placement edge is never painted — `stitch` drops every edge touching a
+    /// super-node and `bridges` routes the real crossing instead — so it
+    /// deliberately carries no arrowheads of its own: giving it any would
+    /// perturb the outer layout it exists to drive. But the ink that eventually
+    /// lands for it IS the crossing's, and the rail-closure law
+    /// (base/rail_closure.zig) asks precisely whether a rail's ink is
+    /// arrow-free. Without this flag every clustered DIRECTED fan reads as
+    /// arrow-free to the law and is unfused over leaf pairs its arrowheads
+    /// already block.
+    /// guarded-by: cluster/split_test.zig "a placement edge records the directedness of the crossings it stands for"
+    stands_for_directed: bool = false,
 };
+
+/// True iff NEITHER end of the ink this edge stands for carries an arrowhead —
+/// the question the rail-closure law asks. A placement edge answers for the
+/// crossing it proxies, not for its own (always bare) arrow fields.
+pub fn arrowFree(e: Edge) bool {
+    return e.arrow_from == .none and e.arrow_to == .none and !e.stands_for_directed;
+}
 
 /// A subgraph grouping. Members are direct only; nested groups go in `sub_clusters`.
 pub const Cluster = struct {

@@ -177,7 +177,7 @@ fn closureVerdict(
 }
 
 fn arrowFree(edge: sg.Edge) bool {
-    return edge.arrow_from == .none and edge.arrow_to == .none;
+    return sg.arrowFree(edge);
 }
 
 fn containsEdge(edges: []const pb.EdgeId, edge: pb.EdgeId) bool {

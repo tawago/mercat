@@ -281,6 +281,43 @@ test "a clustered DIRECTED fan is untouched by the closure law" {
     for (lanes) |l| try testing.expectEqual(@as(u32, 0), l);
 }
 
+test "a fan of placement proxies for directed crossings is untouched by the closure law" {
+    // The outer level of a CLUSTERED render fans through placement edges, which
+    // carry no arrowheads of their own (they drive layout and are never
+    // painted) but stand for directed crossings. Reading their bare arrow
+    // fields made every directed clustered fan unfuse; `stands_for_directed`
+    // is what keeps the law inert on them.
+    const a = testing.allocator;
+    var nodes = [_]sugiyama.LayerNode{ .{ .real = 0 }, .{ .real = 1 }, .{ .real = 2 }, .{ .real = 3 } };
+    var row0 = [_]u32{ 0, 1, 2 };
+    var row1 = [_]u32{3};
+    var layers = [_][]u32{ &row0, &row1 };
+    var edges = [_]sugiyama.LayerEdge{
+        .{ .from = 0, .to = 3, .reversed = false, .edge = 10 },
+        .{ .from = 1, .to = 3, .reversed = false, .edge = 11 },
+        .{ .from = 2, .to = 3, .reversed = false, .edge = 12 },
+    };
+    var reversed = [_]sg.EdgeId{};
+    const lg = mkLg(&nodes, &layers, &edges, &reversed);
+    const geom = [_]Geom{
+        .{ .x = 0, .w = 3 }, .{ .x = 9, .w = 3 }, .{ .x = 18, .w = 3 }, .{ .x = 9, .w = 3 },
+    };
+    var arena = std.heap.ArenaAllocator.init(a);
+    defer arena.deinit();
+    const aa = arena.allocator();
+
+    // No declared leaf pairs at all — the exact shape that unfuses when the
+    // members really are arrow-free (the test above).
+    const graph = try mkBareGraph(aa, &edges, &.{});
+    for (@constCast(graph.edges)) |*e| e.stands_for_directed = true;
+
+    const fans = try fan.detect(aa, graph, lg);
+    try fan_lanes.assignLanes(Geom, aa, graph, lg, &geom, fans, .{}, null);
+    var lanes = [_]u32{ 9, 9, 9 };
+    peerLanes(fans, .in, 3, &lanes);
+    for (lanes) |l| try testing.expectEqual(@as(u32, 0), l);
+}
+
 test "a salvaged fan's excluded members never land on the kept trunk's lane" {
     // The closure law's salvage shape: a strict subset of the fan keeps the
     // trunk (edges 10 and 11 selected) and the rest unfuses. The excluded

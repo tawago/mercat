@@ -446,6 +446,7 @@ test {
     _ = @import("motif.zig");
     _ = @import("recurse.zig");
     _ = @import("cluster/split.zig");
+    _ = @import("cluster/split_test.zig");
     _ = @import("cluster/stitch.zig");
     _ = @import("cluster/bridges.zig");
     _ = @import("cluster/bridge_cosets.zig");

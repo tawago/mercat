@@ -290,8 +290,10 @@ fn buildOuter(arena: std.mem.Allocator, graph: sg.SemGraph, tops: []const usize,
 
     var edges: std.ArrayListUnmanaged(sg.Edge) = .empty;
     var crossings: std.ArrayListUnmanaged(Crossing) = .empty;
-    // (from_outer, to_outer) pairs already given a placement edge.
-    var seen: std.ArrayListUnmanaged([2]sg.NodeId) = .empty;
+    // (from_outer, to_outer, index into `edges`) for the outer pairs already
+    // given a placement edge. The index is kept so a LATER crossing over the
+    // same outer pair can still lend the placement edge its arrowheads.
+    var seen: std.ArrayListUnmanaged(SeenPair) = .empty;
 
     for (graph.edges) |e| {
         // Classify by TOP-LEVEL containing subgraph (or null for top-level
@@ -325,18 +327,29 @@ fn buildOuter(arena: std.mem.Allocator, graph: sg.SemGraph, tops: []const usize,
             });
             const rf = outerRepr(graph, supers, orig.items, e.from);
             const rt = outerRepr(graph, supers, orig.items, e.to);
-            if (rf != rt and !pairSeen(seen.items, rf, rt)) {
-                try seen.append(arena, .{ rf, rt });
-                try edges.append(arena, .{
-                    .id = @intCast(edges.items.len),
-                    .from = rf,
-                    .to = rt,
-                    .kind = e.kind,
-                    .arrow_from = .none,
-                    .arrow_to = .none,
-                    .label = null,
-                });
+            if (rf == rt) continue;
+            const directed = e.arrow_from != .none or e.arrow_to != .none;
+            if (seenIndex(seen.items, rf, rt)) |at| {
+                // One placement edge already stands for this outer pair, and it
+                // stands for THIS crossing too: one directed crossing behind
+                // it is enough to make its eventual ink directed.
+                if (directed) edges.items[at].stands_for_directed = true;
+                continue;
             }
+            try seen.append(arena, .{ .from = rf, .to = rt, .edge = @intCast(edges.items.len) });
+            try edges.append(arena, .{
+                .id = @intCast(edges.items.len),
+                .from = rf,
+                .to = rt,
+                .kind = e.kind,
+                // No arrowheads: this edge only drives the outer layout and is
+                // dropped before painting, so arrowheads here would move boxes
+                // for ink nobody draws. The flag carries the truth instead.
+                .arrow_from = .none,
+                .arrow_to = .none,
+                .label = null,
+                .stands_for_directed = directed,
+            });
         }
     }
 
@@ -358,11 +371,14 @@ fn sameCluster(a: ?sg.ClusterId, b: ?sg.ClusterId) bool {
     return a != null and b != null and a.? == b.?;
 }
 
-fn pairSeen(seen: []const [2]sg.NodeId, f: sg.NodeId, t: sg.NodeId) bool {
+/// One outer pair that already owns a placement edge, and where that edge sits.
+const SeenPair = struct { from: sg.NodeId, to: sg.NodeId, edge: u32 };
+
+fn seenIndex(seen: []const SeenPair, f: sg.NodeId, t: sg.NodeId) ?u32 {
     for (seen) |p| {
-        if (p[0] == f and p[1] == t) return true;
+        if (p.from == f and p.to == t) return p.edge;
     }
-    return false;
+    return null;
 }
 
 /// The outer-graph node that stands in for an original node: the super-node of
