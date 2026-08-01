@@ -237,7 +237,7 @@ pub fn realize(
             // (non-back-edge) members: a fan-IN trunk composes its forward
             // subset and the reversed member(s) stay independent, exactly as
             // join_commit commits it (keeps the N6 agreement pin exact).
-            if (single != null and single.?.members.len < forwardCount(row)) break :blk .incomplete;
+            if (single != null and single.?.members.len < committedCount(s.joins, g.id, forwardCount(row))) break :blk .incomplete;
             if (groupHasConflict(conflicts.items, g.id) and !pb.fanInReMergeEligible(groups, gi, s.joins.mesh_unions)) break :blk .overlap; // arrival re-merge: eligible fan-in falls through (conflict still recorded)
             if (styleFail(g.direction, row)) |t| {
                 detail = t;
@@ -386,6 +386,28 @@ fn hasDuplicate(row: []const MemberGeom, full_key: bool) bool {
 fn hasUnresolved(row: []const MemberGeom) bool {
     for (row) |g| if (!g.found) return true;
     return false;
+}
+
+/// The member count clause (c) measures completeness against: the candidate's
+/// OWN pre-sizing commitment when it named a strict subset for this group,
+/// otherwise the forward-eligible count.
+///
+/// A layout builds the trunk it was committed to build. The closure law can
+/// commit a strict subset — the salvage: the members whose leaf pairs the
+/// graph declares keep the rail, the rest unfuse — exactly as the reversal
+/// rule already does. Judging the geometry against the whole PERMISSION group
+/// then calls that trunk `incomplete`, withdraws it, and leaves the ink the
+/// layout genuinely fused with no co-set to license it: the reach oracle
+/// reports an unknown continuation, the CI filter drops every candidate, and
+/// the render falls back to the forced all-independent terminal layout — a
+/// worse picture, produced by two halves of the planner disagreeing about
+/// what was drawn.
+/// guarded-by: realized_production_test.zig "a salvaged trunk is complete against the commitment the layout drew"
+fn committedCount(joins: pb.RealizedJoins, group: pb.JoinGroupId, forward: usize) usize {
+    for (joins.selected_joins) |sj| {
+        if (sj.permission_group == group) return @min(forward, sj.members.len);
+    }
+    return forward;
 }
 
 /// Count of trunk-eligible (forward, non-back-edge) members.

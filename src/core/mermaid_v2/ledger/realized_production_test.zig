@@ -363,3 +363,31 @@ test "an undeclared all-arrow-free fan unfuses; a declared clique keeps the rail
     // The shared arrival survives: exactly one western entry at Z.
     try std.testing.expectEqual(@as(usize, 1), rowsWithInk(kept.grid, "├──┤ Z"));
 }
+
+test "a salvaged trunk is complete against the commitment the layout drew" {
+    // A---Z, B---Z, C---Z with A---B and B---C declared: the closure law
+    // refuses the three-member rail (A—C is undeclared) and salvages a
+    // two-member one. The layout draws that trunk — so the planner must not
+    // then call it `incomplete` against the whole permission group, withdraw
+    // it, and leave its fused ink with no co-set. That disagreement made every
+    // candidate CI-dirty and shipped the forced all-independent fallback, which
+    // dead-ends C---B's stroke on B's border.
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const graph = try parse(a, "flowchart TD\n  A --- Z\n  B --- Z\n  C --- Z\n  A --- B\n  B --- C\n");
+    const plan = (try permits.build(a, graph, .joined)).plan;
+    const set = try select.enumerateAll(a, graph, &plan, true, 60);
+    const merged = set.merged;
+    const reports = select.reachReports(a, graph, true, merged);
+    try std.testing.expectEqual(merged.len, reports.len);
+    for (reports) |r| try std.testing.expect(r.counts.ciClean());
+
+    // The winner keeps the salvaged trunk and loses no edge cell.
+    const winner = try select.choose(a, graph, &plan, true, 60, false, false);
+    var trunk_members: usize = 0;
+    for (winner.sketch.joins.selected_joins) |sj| trunk_members = @max(trunk_members, sj.members.len);
+    try std.testing.expectEqual(@as(usize, 2), trunk_members);
+    const report = try raster.rasterize(a, winner.sketch, .bridge, .{});
+    try std.testing.expectEqual(@as(u32, 0), report.edge_cells_lost);
+}
