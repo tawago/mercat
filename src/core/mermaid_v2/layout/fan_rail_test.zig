@@ -293,3 +293,41 @@ test "labeled fan-OUT bus-bar lifts the rail for a 4-cell dropper when the gap a
         try testing.expectEqual(@as(i32, 3), built.busbar.crossbar[0].y); // off=3 held
     }
 }
+
+test "a fan whose peers were lifted onto separate lanes builds no bus-bar" {
+    // A bus-bar is one crossbar on one row. When a lane pass has lifted a
+    // member off the shared row — the clustered closure law's refusal is the
+    // case with no plan to say so — resolving it back into a single trunk
+    // would rebuild exactly the run the lift took apart.
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+
+    const nodes = [_]sg.Node{ mkNode(0, "Z"), mkNode(1, "A"), mkNode(2, "B") };
+    var edges = [_]sg.Edge{ mkEdge2(10, 0, 1), mkEdge2(11, 0, 2) };
+    for (&edges) |*e| e.arrow_to = .none;
+    const graph: sg.SemGraph = .{
+        .direction = .TD,
+        .nodes = &nodes,
+        .edges = &edges,
+        .clusters = &.{},
+        .classes = &.{},
+        .arena = null,
+    };
+    const placements = [_]sketch.NodePlacement{
+        .{ .id = 0, .rect = .{ .x = 6, .y = 0, .w = 5, .h = 3 }, .shape = .rect, .lines = &.{}, .cluster_id = null },
+        .{ .id = 1, .rect = .{ .x = 0, .y = 8, .w = 5, .h = 3 }, .shape = .rect, .lines = &.{}, .cluster_id = null },
+        .{ .id = 2, .rect = .{ .x = 12, .y = 8, .w = 5, .h = 3 }, .shape = .rect, .lines = &.{}, .cluster_id = null },
+    };
+    const allocated = try @import("port_plan.zig").midpoint(a, graph, &placements);
+
+    var peers = [_]@import("fan.zig").FanEdge{
+        .{ .edge_id = 10, .peer_idx = 1, .role = .leftmost },
+        .{ .edge_id = 11, .peer_idx = 2, .role = .rightmost },
+    };
+    const shared: @import("fan.zig").Fan = .{ .direction = .out, .pivot_idx = 0, .source_layer = 0, .peers = &peers };
+    try testing.expect((try fan_rail.resolve(a, .TD, shared, graph, &placements, .{}, allocated)) != null);
+
+    peers[1].lane = 1;
+    try testing.expectEqual(@as(?fan_rail.Resolved, null), try fan_rail.resolve(a, .TD, shared, graph, &placements, .{}, allocated));
+}

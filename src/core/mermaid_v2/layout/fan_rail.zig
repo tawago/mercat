@@ -64,6 +64,16 @@ pub fn resolve(
 ) error{OutOfMemory}!?Resolved {
     if (!FAN_BUSBARS) return null;
     if (joins.memberships.len == 0 and fan.direction != .out) return null;
+    // A bus-bar is ONE crossbar on ONE row, so it can only speak for a fan
+    // whose members all belong on that row. When a lane pass has lifted a
+    // member off the shared row — the incomplete-bipartite separation, or the
+    // clustered closure law's refusal, which has no plan to express itself
+    // through — rebuilding them as a single trunk would put back the very run
+    // the lift took apart. The per-peer polyline path honours `peer.lane`.
+    // guarded-by: fan_rail_test.zig "a fan whose peers were lifted onto separate lanes builds no bus-bar"
+    for (fan.peers) |p| {
+        if (p.lane != fan.peers[0].lane) return null;
+    }
     if (fan.rows != 1) return null;
     if (dir != .TD) return null;
     if (fan.peers.len < 2) return null;
