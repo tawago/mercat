@@ -159,7 +159,14 @@ pub fn decide(
     // where nothing closes) from paying 2^n first-fit searches.
     // guarded-by: rail_closure_test.zig "a wide rail with nothing declared refuses without searching every subset"
     const compatible = pairMatrix(members, backers);
-    var size: usize = members.len - 1;
+    // A closing subset is a clique in `compatible`, so no subset can be larger
+    // than one plus the widest compatibility row. With nothing declared every
+    // row is empty and the search is over before it starts — the case a wide
+    // undeclared fan actually hits.
+    var widest: usize = 0;
+    for (0..members.len) |i| widest = @max(widest, @popCount(compatible[i]));
+    if (widest < 1) return .{ .outcome = .refuse, .undeclared_pairs = undeclared };
+    var size: usize = @min(members.len - 1, widest + 1);
     while (size >= 2) : (size -= 1) {
         var mask: u32 = 0;
         const limit: u32 = @as(u32, 1) << @intCast(members.len);
