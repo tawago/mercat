@@ -97,7 +97,7 @@ pub fn route(
         .from = .{ .node = p.gf, .rect = p.from_rect, .side = p.sides.exit, .frame = p.from_frame },
         .to = .{ .node = p.gt, .rect = p.to_rect, .side = p.sides.entry, .frame = p.to_frame },
     };
-    for (pends.items, try corridors.discipline(arena, pairs, clusters)) |*p, r| {
+    for (pends.items, try corridors.discipline(arena, pairs, clusters, placements)) |*p, r| {
         corridors.slide(&p.start, p.sides.exit, r.from_coord);
         corridors.slide(&p.end, p.sides.entry, r.to_coord);
         p.off_from = r.from_off;

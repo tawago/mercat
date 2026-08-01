@@ -21,6 +21,16 @@
 //! crossing node's own face — the corridor stays orthogonal and the final
 //! run stays perpendicular into the port, only the port offset moves.
 //!
+//!   NODE CLEARANCE — a shift takes the whole perpendicular APPROACH run
+//!   (border cell to port) with it, so the column it lands on must also be
+//!   clear of every other node box over that run. Without this term the
+//!   discipline separates two corridors by driving one straight through an
+//!   intervening box: the stroke is swallowed for the box's whole height and
+//!   re-emerges as a second foot on its far border, reading as an edge out of
+//!   a node that has none. Two corridors sharing a border cell LOSE an edge;
+//!   a pierced box INVENTS one, which is strictly worse — so when no clear
+//!   column exists the corridor keeps `want` and the merge stands.
+//!
 //! PURE DATA: rects/coords in, resolved coords out; imports std and sketch.
 
 const std = @import("std");
@@ -82,6 +92,7 @@ pub fn discipline(
     arena: std.mem.Allocator,
     pairs: []const Pair,
     clusters: []const sketch.ClusterFrame,
+    placements: []const sketch.NodePlacement,
 ) error{OutOfMemory}![]Resolved {
     const out = try arena.alloc(Resolved, pairs.len);
     for (pairs, out) |p, *o| o.* = .{
@@ -100,6 +111,13 @@ pub fn discipline(
             const e = if (exit) p.from else p.to;
             const f = e.frame orelse continue;
             const rng = faceRange(e.rect, e.side);
+            // The run a shift would drag across the gap between this frame's
+            // border and the port. Unknown frame rect (never happens for a
+            // frame we just looked up) leaves the span empty, i.e. unchecked.
+            const run: Span = if (rectOf(clusters, f)) |fr|
+                approachRun(fr, e.rect, e.side)
+            else
+                .{ .lo = 0, .hi = -1 };
             try reqs.append(arena, .{
                 .frame = f,
                 .side = e.side,
@@ -107,13 +125,17 @@ pub fn discipline(
                 .lo = rng.lo,
                 .hi = rng.hi,
                 .group = groupKey(e.node, e.side),
+                .run_lo = run.lo,
+                .run_hi = run.hi,
+                .skip_a = p.from.node,
+                .skip_b = p.to.node,
             });
             try owner.append(arena, .{ .idx = i, .exit = exit });
         }
     }
     if (reqs.items.len == 0) return out;
 
-    for (owner.items, try resolve(arena, reqs.items, clusters)) |o, coord| {
+    for (owner.items, try resolve(arena, reqs.items, clusters, placements)) |o, coord| {
         const p = pairs[o.idx];
         if (o.exit) {
             out[o.idx].from_coord = coord;
@@ -170,7 +192,34 @@ pub const Req = struct {
     /// without conflicting; distinct groups on one frame side may not
     /// share a coordinate.
     group: u64,
+    /// Span of the perpendicular approach run a SHIFTED crossing would lay
+    /// down — rows between the frame border and the port on a north/south
+    /// face, columns on an east/west one. Empty (`run_hi < run_lo`) disables
+    /// the node-clearance term, which is what a caller with no placements to
+    /// consult wants.
+    run_lo: i32 = 0,
+    run_hi: i32 = -1,
+    /// The corridor's own two nodes, exempt from node clearance: the run is
+    /// allowed to touch the boxes it starts and ends on.
+    skip_a: sketch.NodeId = std.math.maxInt(sketch.NodeId),
+    skip_b: sketch.NodeId = std.math.maxInt(sketch.NodeId),
 };
+
+/// An inclusive coordinate span; empty when `hi < lo`.
+pub const Span = struct { lo: i32, hi: i32 };
+
+/// The approach run a crossing on `side` lays down between `frame`'s border
+/// and `rect`'s face: rows for a horizontal side, columns for a vertical one.
+/// This is the span a sideways shift drags across other node boxes.
+pub fn approachRun(frame: sketch.Rect, rect: sketch.Rect, side: sketch.Dir4) Span {
+    const a: i32, const b: i32 = switch (side) {
+        .north => .{ frame.y, rect.y },
+        .south => .{ rect.bottom() - 1, frame.bottom() - 1 },
+        .west => .{ frame.x, rect.x },
+        .east => .{ rect.right() - 1, frame.right() - 1 },
+    };
+    return .{ .lo = @min(a, b), .hi = @max(a, b) };
+}
 
 /// True iff `coord` names a CORNER cell of `side` on `frame`.
 pub fn onCorner(frame: sketch.Rect, side: sketch.Dir4, coord: i32) bool {
@@ -225,6 +274,7 @@ pub fn resolve(
     arena: std.mem.Allocator,
     reqs: []const Req,
     clusters: []const sketch.ClusterFrame,
+    placements: []const sketch.NodePlacement,
 ) error{OutOfMemory}![]i32 {
     const out = try arena.alloc(i32, reqs.len);
     for (reqs, 0..) |r, i| out[i] = r.want;
@@ -248,7 +298,7 @@ pub fn resolve(
 
         var pick = r.want;
         if (!legal(rect, r, pick, claims.items)) {
-            pick = search(rect, r, claims.items) orelse r.want;
+            pick = search(rect, r, claims.items, placements) orelse r.want;
         }
         out[i] = pick;
         try claims.append(arena, .{ .frame = r.frame, .side = r.side, .coord = pick });
@@ -265,18 +315,31 @@ fn findGroup(groups: []const Grp, r: Req) ?i32 {
 }
 
 /// Nearest legal coordinate to `want`, searched outward and preferring the
-/// larger side on a tie so the walk is a total order.
-fn search(rect: sketch.Rect, r: Req, claims: []const Claim) ?i32 {
+/// larger side on a tie so the walk is a total order. A candidate must clear
+/// intervening node boxes as well — `want` itself is exempt, so a corridor
+/// that never moves stays byte-identical.
+/// guarded-by: corridors_test.zig "a slide that would drive the approach run through a node box is refused"
+fn search(rect: sketch.Rect, r: Req, claims: []const Claim, placements: []const sketch.NodePlacement) ?i32 {
     if (r.hi < r.lo) return null;
     const reach: i32 = @max(r.want - r.lo, r.hi - r.want);
     var d: i32 = 1;
     while (d <= reach) : (d += 1) {
         for ([2]i32{ r.want + d, r.want - d }) |c| {
             if (c < r.lo or c > r.hi) continue;
-            if (legal(rect, r, c, claims)) return c;
+            if (legal(rect, r, c, claims) and runClear(r, c, placements)) return c;
         }
     }
     return null;
+}
+
+/// True iff the approach run a crossing at `coord` would lay down touches no
+/// node box but its own two. Vacuously true when the caller filed no run span.
+fn runClear(r: Req, coord: i32, placements: []const sketch.NodePlacement) bool {
+    if (r.run_hi < r.run_lo) return true;
+    // A north/south face is crossed by a VERTICAL run at column `coord`; an
+    // east/west face by a horizontal run at row `coord`.
+    const horizontal = (r.side == .east or r.side == .west);
+    return !sketch.lineTouchesAny(horizontal, coord, r.run_lo, r.run_hi, placements, r.skip_a, r.skip_b);
 }
 
 fn legal(rect: sketch.Rect, r: Req, coord: i32, claims: []const Claim) bool {

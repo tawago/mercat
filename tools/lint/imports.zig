@@ -143,6 +143,9 @@ pub const Rule = union(enum) {
 ///                   the law is decided in the cluster zone but is ABOUT the
 ///                   `.intrusion` records the raster files, and the cluster
 ///                   zone may not import raster, so the two meet only here.
+///                   Also imports cluster/corridors for its face/approach
+///                   primitives, so the pin can re-derive whether a merge
+///                   was FORCED from geometry rather than restate the policy.
 ///   tiling_weld_test.zig  root-level weld-order pin for tiling/: needs
 ///                   raster's arrow_base to run the LAST mutation of the
 ///                   pipeline by hand and show the audit's buckets move
@@ -422,11 +425,12 @@ pub const file_allowlists = [_]struct {
     .{
         .name = "cluster_corridor_test.zig",
         .allowed = &.{
-            .sketch,                            .parse_zone,
-            .raster_zone,                       .{ .exact = "lattice.zig" },
-            .{ .exact = "select.zig" },         .{ .exact = "ledger/permits.zig" },
+            .sketch,                                  .parse_zone,
+            .raster_zone,                             .{ .exact = "lattice.zig" },
+            .{ .exact = "select.zig" },               .{ .exact = "ledger/permits.zig" },
+            .{ .exact = "cluster/corridors.zig" },
         },
-        .reason = "cluster_corridor_test may only import std, prim, base/*, sketch, parse, raster, lattice, select, or ledger/permits",
+        .reason = "cluster_corridor_test may only import std, prim, base/*, sketch, parse, raster, lattice, select, ledger/permits, or cluster/corridors",
     },
     .{
         .name = "tiling_weld_test.zig",
