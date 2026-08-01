@@ -60,12 +60,13 @@ fn render(a: std.mem.Allocator, source: []const u8, width: u32) !Rendered {
 /// Shapes that exercise every writer of a record: shared cells, crossings,
 /// fans (rails and taps), labels of all three owner kinds, and clusters.
 ///
-/// The last three are the fans the router does NOT lay down as a
-/// first-class rail — a fan-IN, a fan declined for mixed stroke kinds, and
-/// one wide enough to wrap into a grid at w=60. They are here because the
-/// membership records for those come from the edge walk instead of the
-/// bus-bar rasterizer, and a corpus of rails alone would leave that writer
-/// unexercised.
+/// The fan-IN, the fan declined for mixed stroke kinds and the one wide
+/// enough to wrap into a grid at w=60 are here because the membership
+/// records for those come from the edge walk instead of the bus-bar
+/// rasterizer, and a corpus of rails alone would leave that writer
+/// unexercised. The last entry lands a fan peer on a sibling's ARROWHEAD,
+/// the position where a record is filed and no role can be — without it the
+/// exception branch below would pass by never meeting a case.
 const corpus = [_][]const u8{
     "flowchart TD\n  A --> B\n  B --> C\n",
     "flowchart LR\n  A --> B\n  B --> C\n  C --> D\n",
@@ -79,6 +80,7 @@ const corpus = [_][]const u8{
     "flowchart TD\n  A --> D\n  B --> D\n  C --> D\n",
     "flowchart TD\n  A --> B\n  A -.-> C\n  A ==> D\n",
     "flowchart TD\n  A --> B1\n  A --> B2\n  A --> B3\n  A --> B4\n  A --> B5\n  A --> B6\n  A --> B7\n  A --> B8\n",
+    "flowchart TD\n  subgraph S1\n    A <-->|a longer label 0| C0\n    A -.-|a longer label 1| C1\n    A -.-> C2\n    A --- C3\n  end\n  C0 -.-> OUT\n  OUT -.- A\n",
 };
 
 const widths = [_]u32{ 60, 120 };
@@ -380,12 +382,16 @@ test "collecting the side table changes no painted cell" {
 test "a peer-drawn rail role and its membership record are one event" {
     // The residual self-check left behind by retiring the shadow
     // comparator. `fan_roles.markShared` stamps the rail role and files the
-    // `.rail_member` record from a single observation, so on the shipped
-    // lattice the two must coincide everywhere the bus-bar rasterizer is
-    // not the author: a peer-drawn cell carrying a family's rail role has a
-    // membership record of that family, and vice versa. A drift between
-    // them would mean one of the two was re-derived somewhere else.
-    var checked: u32 = 0;
+    // `.rail_member` record from one observation, so a peer-drawn cell
+    // carrying a family's rail role ALWAYS has a membership record of that
+    // family. That direction is the invariant, and the one worth pinning: a
+    // role without a record means the role was re-derived somewhere the
+    // record writer never ran. The converse is NOT an invariant — the
+    // record is filed BEFORE two guards that can decline the stamp — so its
+    // exceptions are enumerated in `recordWithoutRoleIsExplained` and
+    // anything outside them fails here just as loudly.
+    var roles_checked: u32 = 0;
+    var records_without_role: u32 = 0;
     for (corpus) |source| for (widths) |width| {
         var arena = std.heap.ArenaAllocator.init(testing.allocator);
         defer arena.deinit();
@@ -400,23 +406,52 @@ test "a peer-drawn rail role and its membership record are one event" {
                 // A first-class rail writes both role and geometry itself;
                 // its cells are the bus-bar rasterizer's, not the walk's.
                 if (onOwnedRail(r.sketch, x, y)) continue;
+                const c = lat.atConst(x, y).*;
                 const stamped = railFamilyAt(lat, x, y);
                 const recorded = recordedFamilyAt(lat, x, y);
                 if (stamped == null and recorded == null) continue;
-                if (stamped != recorded) {
+                // role ⇒ record of the same family; a record with no role is
+                // legal only for a reason the producer states.
+                const agree = if (stamped) |fam|
+                    recorded == fam
+                else
+                    recordWithoutRoleIsExplained(c, recorded.?);
+                if (!agree) {
                     std.debug.print(
-                        "source:\n{s}cell ({d},{d}): role says {?s}, records say {?s}\n",
-                        .{ source, x, y, tagOf(stamped), tagOf(recorded) },
+                        "source:\n{s}cell ({d},{d}): role says {?s}, records say {?s} (occupant {s})\n",
+                        .{ source, x, y, tagOf(stamped), tagOf(recorded), @tagName(std.meta.activeTag(c.occupant)) },
                     );
                     return error.FanRoleRecordDisagreement;
                 }
-                checked += 1;
+                if (stamped == null) records_without_role += 1 else roles_checked += 1;
             }
         }
     };
     // The corpus carries declined and grid-wrapped fans, so the peer-drawn
-    // writer must actually have produced shared cells.
-    try testing.expect(checked > 0);
+    // writer must actually have produced shared cells — and the last entry
+    // is there so the exception branch is met rather than assumed.
+    try testing.expect(roles_checked > 0);
+    try testing.expect(records_without_role > 0);
+}
+
+/// The two — and only two — reasons `fan_roles.markShared` files a
+/// `.rail_member` record and then declines to stamp the family's rail role:
+/// (1) the occupant carries NO role at all (an `.arrowhead`; the bus-bar
+/// rasterizer records on those for the same reason), or (2) the cell's role
+/// belongs to the OTHER family — two families met on one cell and a Cell
+/// holds exactly one role, so the record is the only place the second
+/// membership can be said. Anything else — a record on a plain `.forward`
+/// segment, say — means a record was filed where the stamp never looked.
+fn recordWithoutRoleIsExplained(c: lattice.Cell, recorded: lattice.RailPolarity) bool {
+    const seg = switch (c.occupant) {
+        .edge_segment => |q| q,
+        else => return true, // (1) role-less occupant
+    };
+    return switch (seg.role) { // (2) the other family owns this cell's role
+        .fan_out_rail, .fan_out_dropper => recorded == .in,
+        .fan_in_rail, .fan_in_dropper => recorded == .out,
+        else => false,
+    };
 }
 
 fn tagOf(p: ?lattice.RailPolarity) ?[]const u8 {

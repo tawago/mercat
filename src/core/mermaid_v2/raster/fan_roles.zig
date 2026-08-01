@@ -22,10 +22,20 @@
 //!   junction must exist before either can be judged) and decides the
 //!   fan-OUT strip from the Sketch: the fan's PIVOT rect says which side
 //!   the trunk comes from, so the arm facing the pivot is the one that
-//!   survives. The only grid read is `continuesColumn`, which asks whether
-//!   a SECOND rail row of the same fan sits one cell away on this column —
-//!   a grid-wrapped fan threads its trunk through such a row, and there
-//!   both arms are real.
+//!   survives. Two grid reads bound it: `continuesColumn`, which asks
+//!   whether a SECOND fan rail row sits one cell away on this column (a
+//!   grid-wrapped fan threads its trunk through such a row, and there both
+//!   arms are real), and `armIsAnswered`, which refuses to sever an arm
+//!   something answers — the stroke an arrowhead receives on its base side
+//!   (owner ruling, see `raster/arrow_base.zig`), or one a neighbouring
+//!   stroke asserts back. An answered arm is ink, never the spurious half
+//!   of a junction, and the pivot only says which of two arms is spurious
+//!   where one of them is.
+//!
+//! The strip is a VERTICAL-FLOW matter: `pivotSide` reads the pivot rect's
+//! rows, which only says "the trunk arrives from above/below" under TD/BT.
+//! Under LR/RL the fan's shared run IS the vertical, so `resolveMasks`
+//! declines outright rather than sever a rail.
 //!
 //! Fan-IN shared runs keep all four bits (the painter renders `┼`), so the
 //! strip is a fan-OUT matter only.
@@ -110,10 +120,18 @@ pub fn markShared(
 /// Where the pivot cannot be placed — no fan geometry for the cell's own
 /// edge, no placement for the pivot, or a pivot whose rows include this row
 /// — nothing is derivable and the cell is left exactly as the walk wrote
-/// it. The pass never guesses.
+/// it. Nor does it strip an ANSWERED arm (`armIsAnswered`): the pivot says
+/// which arm is spurious, but only where one of them is.
 /// guarded-by: fan_roles_test.zig "a shared run below its pivot keeps N and drops the child's descent"
+/// guarded-by: fan_roles_test.zig "the arm an arrowhead stands on is never the spurious one"
+/// guarded-by: fan_roles_test.zig "an arm a stroke answers back is left for nobody to strip"
+/// guarded-by: fan_roles_test.zig "under LR/RL the vertical is the rail itself, so nothing is stripped"
 pub fn resolveMasks(lat: *lattice.Lattice, s: sketch.Sketch) void {
     if (lat.width == 0 or lat.height == 0) return;
+    switch (s.direction) {
+        .TD, .BT => {},
+        .LR, .RL => return,
+    }
     var y: u32 = 0;
     while (y < lat.height) : (y += 1) {
         var x: u32 = 0;
@@ -130,13 +148,20 @@ pub fn resolveMasks(lat: *lattice.Lattice, s: sketch.Sketch) void {
             if (!(nb.n and nb.s)) continue;
             if (!(nb.e or nb.w)) continue;
             if (onRail(s, x, y)) continue;
-            if (continuesColumn(lat, x, y, .out)) continue;
+            if (continuesColumn(lat, x, y)) continue;
             const rect = pivotRect(s, seg.edge, .out) orelse continue;
             const side = pivotSide(rect, y) orelse continue;
+            // The arm the pivot does NOT face is the strip candidate.
+            const drop: lattice.Dir4 = switch (side) {
+                .north => .south,
+                .south => .north,
+            };
+            if (armIsAnswered(lat, x, y, drop)) continue;
             var m = nb;
-            switch (side) {
-                .north => m.s = false,
-                .south => m.n = false,
+            switch (drop) {
+                .south => m.s = false,
+                .north => m.n = false,
+                else => unreachable,
             }
             cell.neighbours = m;
         }
@@ -153,13 +178,19 @@ fn pivotSide(rect: sketch.Rect, y: u32) ?enum { north, south } {
 }
 
 /// True when the cell directly above or below (x, y) is a SECOND rail row
-/// of fan family `p` on this column: fan ink of that family carrying a
-/// horizontal arm of its own. That signature belongs to a grid-wrapped
-/// (rows > 1) fan-OUT — a single-row fan's junction sees only pure-vertical
-/// neighbours (the pivot stem above, a dropper or an arrowhead below) — so
-/// the guard cannot fire on a flat fan.
+/// on this column: fan ink of EITHER family carrying a horizontal arm of
+/// its own. That signature belongs to a grid-wrapped (rows > 1) fan-OUT —
+/// a single-row fan's junction sees only pure-vertical neighbours (the
+/// pivot stem above, a dropper or an arrowhead below) — so the guard cannot
+/// fire on a flat fan.
+///
+/// Family-blind on purpose: a fan-OUT run stacked directly on a fan-IN run
+/// is still two rail rows threaded on one column, and the vertical joining
+/// them is still a real continuation. Asking for a matching polarity would
+/// narrow the reprieve to same-family stacks and sever the other case.
 /// guarded-by: fan_roles_test.zig "a grid trunk keeps the rail-to-rail vertical (┼ over ┼)"
-fn continuesColumn(lat: *const lattice.Lattice, x: u32, y: u32, p: lattice.RailPolarity) bool {
+/// guarded-by: fan_roles_test.zig "a fan-IN rail row one cell away reprieves the fan-OUT junction too"
+fn continuesColumn(lat: *const lattice.Lattice, x: u32, y: u32) bool {
     for ([_]i64{ -1, 1 }) |dy| {
         const yi: i64 = @as(i64, y) + dy;
         if (yi < 0 or yi >= @as(i64, @intCast(lat.height))) continue;
@@ -168,11 +199,51 @@ fn continuesColumn(lat: *const lattice.Lattice, x: u32, y: u32, p: lattice.RailP
             .edge_segment => |q| q,
             else => continue,
         };
-        if (ew.railPolarity(seg.role) != p) continue;
+        if (ew.railPolarity(seg.role) == null) continue;
         if (!(c.neighbours.e or c.neighbours.w)) continue;
         return true;
     }
     return false;
+}
+
+/// True when the arm in direction `d` (`.north`/`.south`) is ANSWERED by
+/// what it points at, in which case it is a real connection and never the
+/// spurious half of a junction. Two answers count:
+///
+///   * a TERMINAL standing on this cell — an arrowhead whose tip points `d`,
+///     so this cell is its base and owes it the stroke it receives (owner
+///     ruling, `raster/arrow_base.zig`). Severing that orphans the head and
+///     nothing heals it: the reciprocal repair only grows arms toward an
+///     `.edge_segment`, so the painted arrowhead-base validator is left
+///     reporting the violation this pass created. An arrowhead pointing the
+///     OTHER way is fed from beyond it, not from here, and answers nothing.
+///
+///   * a STROKE asserting the reciprocal arm back at us. Stripping that one
+///     is not wrong so much as pointless — `reconcile.repairReciprocalStrokes`
+///     puts it straight back a pass later, on exactly this condition — and a
+///     pass whose work is silently undone downstream reports an effect it
+///     does not have.
+/// guarded-by: fan_roles_test.zig "the arm an arrowhead stands on is never the spurious one"
+/// guarded-by: fan_roles_test.zig "an arm a stroke answers back is left for nobody to strip"
+fn armIsAnswered(lat: *const lattice.Lattice, x: u32, y: u32, d: lattice.Dir4) bool {
+    const dy: i64 = switch (d) {
+        .north => -1,
+        .south => 1,
+        .east, .west => return false,
+    };
+    const yi: i64 = @as(i64, y) + dy;
+    if (yi < 0 or yi >= @as(i64, @intCast(lat.height))) return false;
+    const c = lat.atConst(x, @intCast(yi));
+    return switch (c.occupant) {
+        .arrowhead => |head| head.dir == d,
+        // The reciprocal of `.north` is the neighbour's `.s`, and vice versa.
+        .edge_segment => switch (d) {
+            .north => c.neighbours.s,
+            .south => c.neighbours.n,
+            .east, .west => false,
+        },
+        else => false,
+    };
 }
 
 /// The rect of the pivot of the fan `edge_id` belongs to: the rail's pivot

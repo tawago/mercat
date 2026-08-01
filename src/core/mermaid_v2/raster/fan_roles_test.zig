@@ -29,6 +29,10 @@ fn arrowSouth(edge: u32) lattice.Cell {
     return .{ .occupant = .{ .arrowhead = .{ .dir = .south, .edge = edge } }, .neighbours = .{} };
 }
 
+fn arrowNorth(edge: u32) lattice.Cell {
+    return .{ .occupant = .{ .arrowhead = .{ .dir = .north, .edge = edge } }, .neighbours = .{} };
+}
+
 /// A 3-wide, 5-tall grid; every cell empty.
 fn blank(buf: []lattice.Cell) lattice.Lattice {
     for (buf) |*c| c.* = lattice.Cell.empty;
@@ -128,7 +132,12 @@ test "a shared run below its pivot keeps N and drops the child's descent" {
     var lat = blank(&buf);
     lat.at(1, 1).* = .{ .occupant = .{ .node_border = .{ .node = 5, .role = .edge_s } }, .neighbours = .{ .s = true } };
     lat.at(1, 2).* = fanCell(0, .fan_out_rail, all4);
-    lat.at(1, 3).* = arrowSouth(0);
+    // Below is ink that does NOT reciprocate: a foreign run passing by on
+    // its own corner, not a stroke this junction feeds. That is the arm the
+    // strip exists for — reconcile's phantom sweep will not clear it (the
+    // cell is real) and its repair pass will not re-add it (no arm points
+    // back), so the decision has to be made here.
+    lat.at(1, 3).* = fanCell(9, .forward, .{ .e = true, .s = true });
 
     const nodes = pivotAt(0, 2); // rows 0..1, so row 2 is below it
     const edges = memberEdge(.fan_out_dropper);
@@ -141,12 +150,101 @@ test "a shared run above its pivot keeps S" {
     var buf: [15]lattice.Cell = undefined;
     var lat = blank(&buf);
     lat.at(1, 2).* = fanCell(0, .fan_out_rail, all4);
+    lat.at(1, 1).* = fanCell(9, .forward, .{ .n = true, .e = true });
 
     const nodes = pivotAt(4, 1); // row 4, so the pivot is BELOW row 2
     const edges = memberEdge(.fan_out_dropper);
     fan_roles.resolveMasks(&lat, fanSketch(&nodes, &edges, &.{}));
 
     try testing.expectEqual(@as(u4, 0b1110), lat.atConst(1, 2).neighbours.toMask()); // ┬
+}
+
+test "the arm an arrowhead stands on is never the spurious one" {
+    // The owner's arrowhead-base law (raster/arrow_base.zig): the cell on a
+    // triangle's base side must carry the stroke it receives. An arm that
+    // ends in a terminal is therefore ink by construction — stripping it
+    // leaves the head fed by nothing, and no later pass heals it (the
+    // reciprocal repair only grows arms toward an `.edge_segment`).
+    //
+    // Both polarities of the bug, on one column: the pivot above (strip
+    // candidate S, a `▼` standing on it) and the pivot below (strip
+    // candidate N, a `▲` standing on it).
+    var down: [15]lattice.Cell = undefined;
+    var lat_down = blank(&down);
+    lat_down.at(1, 1).* = .{ .occupant = .{ .node_border = .{ .node = 5, .role = .edge_s } }, .neighbours = .{ .s = true } };
+    lat_down.at(1, 2).* = fanCell(0, .fan_out_rail, all4);
+    lat_down.at(1, 3).* = arrowSouth(7); // a sibling's terminal, not this edge
+
+    const nodes_above = pivotAt(0, 2);
+    const edges = memberEdge(.fan_out_dropper);
+    fan_roles.resolveMasks(&lat_down, fanSketch(&nodes_above, &edges, &.{}));
+    try testing.expectEqual(@as(u4, 0b1111), lat_down.atConst(1, 2).neighbours.toMask()); // ┼
+
+    var up: [15]lattice.Cell = undefined;
+    var lat_up = blank(&up);
+    lat_up.at(1, 1).* = arrowNorth(7);
+    lat_up.at(1, 2).* = fanCell(0, .fan_out_rail, all4);
+
+    const nodes_below = pivotAt(4, 1);
+    fan_roles.resolveMasks(&lat_up, fanSketch(&nodes_below, &edges, &.{}));
+    try testing.expectEqual(@as(u4, 0b1111), lat_up.atConst(1, 2).neighbours.toMask()); // ┼
+}
+
+test "an arm a stroke answers back is left for nobody to strip" {
+    // Same fixture as the strip case, with one bit added: the cell below now
+    // asserts N back at the junction. `reconcile.repairReciprocalStrokes`
+    // re-adds an arm on exactly that condition, so stripping here buys a
+    // mask that does not survive to paint — the pass would be reporting an
+    // effect it does not have.
+    var buf: [15]lattice.Cell = undefined;
+    var lat = blank(&buf);
+    lat.at(1, 1).* = .{ .occupant = .{ .node_border = .{ .node = 5, .role = .edge_s } }, .neighbours = .{ .s = true } };
+    lat.at(1, 2).* = fanCell(0, .fan_out_rail, all4);
+    lat.at(1, 3).* = fanCell(9, .forward, .{ .n = true, .e = true, .s = true });
+
+    const nodes = pivotAt(0, 2);
+    const edges = memberEdge(.fan_out_dropper);
+    fan_roles.resolveMasks(&lat, fanSketch(&nodes, &edges, &.{}));
+
+    try testing.expectEqual(@as(u4, 0b1111), lat.atConst(1, 2).neighbours.toMask()); // ┼
+}
+
+test "an arrowhead facing away grants no reprieve" {
+    // The reprieve is about the BASE side only: a `▲` sitting below this
+    // cell is fed from below it, so the south arm here is still a strip
+    // candidate. Anything looser would make the pass refuse on any nearby
+    // terminal at all.
+    var buf: [15]lattice.Cell = undefined;
+    var lat = blank(&buf);
+    lat.at(1, 1).* = .{ .occupant = .{ .node_border = .{ .node = 5, .role = .edge_s } }, .neighbours = .{ .s = true } };
+    lat.at(1, 2).* = fanCell(0, .fan_out_rail, all4);
+    lat.at(1, 3).* = arrowNorth(7);
+
+    const nodes = pivotAt(0, 2);
+    const edges = memberEdge(.fan_out_dropper);
+    fan_roles.resolveMasks(&lat, fanSketch(&nodes, &edges, &.{}));
+
+    try testing.expectEqual(@as(u4, 0b1011), lat.atConst(1, 2).neighbours.toMask()); // ┴
+}
+
+test "under LR/RL the vertical is the rail itself, so nothing is stripped" {
+    // `pivotSide` reads the pivot rect's ROWS, which only means "the trunk
+    // arrives from above/below" when the flow is vertical. Under LR/RL the
+    // fan's shared run runs down a column and the droppers leave sideways,
+    // so a row comparison would sever the rail rather than a child's stub.
+    for ([_]sketch.Direction{ .LR, .RL }) |dir| {
+        var buf: [15]lattice.Cell = undefined;
+        var lat = blank(&buf);
+        lat.at(1, 2).* = fanCell(0, .fan_out_rail, all4);
+
+        const nodes = pivotAt(0, 2);
+        const edges = memberEdge(.fan_out_dropper);
+        var s = fanSketch(&nodes, &edges, &.{});
+        s.direction = dir;
+        fan_roles.resolveMasks(&lat, s);
+
+        try testing.expectEqual(@as(u4, 0b1111), lat.atConst(1, 2).neighbours.toMask());
+    }
 }
 
 test "a grid trunk keeps the rail-to-rail vertical (┼ over ┼)" {
@@ -164,6 +262,23 @@ test "a grid trunk keeps the rail-to-rail vertical (┼ over ┼)" {
 
     try testing.expectEqual(@as(u4, 0b1111), lat.atConst(1, 1).neighbours.toMask());
     try testing.expectEqual(@as(u4, 0b1111), lat.atConst(1, 2).neighbours.toMask());
+}
+
+test "a fan-IN rail row one cell away reprieves the fan-OUT junction too" {
+    // The grid guard is family-blind: two rail rows threaded on one column
+    // are a real vertical continuation whether or not they belong to the
+    // same fan. Requiring a matching polarity would keep the reprieve for a
+    // fan-OUT stack and sever the fan-OUT-onto-fan-IN one.
+    var buf: [15]lattice.Cell = undefined;
+    var lat = blank(&buf);
+    lat.at(1, 1).* = fanCell(0, .fan_out_rail, all4);
+    lat.at(1, 2).* = fanCell(3, .fan_in_rail, all4);
+
+    const nodes = pivotAt(0, 1);
+    const edges = memberEdge(.fan_out_dropper);
+    fan_roles.resolveMasks(&lat, fanSketch(&nodes, &edges, &.{}));
+
+    try testing.expectEqual(@as(u4, 0b1111), lat.atConst(1, 1).neighbours.toMask());
 }
 
 test "fan-IN shared runs keep all four arms" {
