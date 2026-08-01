@@ -446,6 +446,10 @@ test {
     _ = @import("base/ledger.zig");    _ = @import("base/ledger_test.zig");
     _ = @import("base/diagnostics.zig");
     _ = @import("base/diagnostics_test.zig");
+    _ = @import("base/co_channel.zig");
+    _ = @import("base/rail_closure.zig");
+    _ = @import("base/rail_closure_test.zig");
+    _ = @import("layout/fan_rail_law.zig");
     _ = @import("ledger/permits.zig");
     _ = @import("ledger/permits_test.zig");
     _ = @import("ledger/realized.zig");

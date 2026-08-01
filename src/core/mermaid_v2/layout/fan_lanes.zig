@@ -33,6 +33,7 @@ const fan_mod = @import("fan.zig");
 const sugiyama = @import("sugiyama.zig");
 const lanes = @import("../base/lanes.zig");
 const pb = @import("../base/ledger.zig");
+const rail_law = @import("fan_rail_law.zig");
 
 const Fan = fan_mod.Fan;
 
@@ -160,9 +161,16 @@ pub fn assignLanes(
         try processGap(a, trunks.items, members.items, fans);
     }
 
+    // No plan at all (a clustered or recursed render — V-D-IR-07): the flat
+    // lever never ran, so the all-arrow-free closure law is applied here,
+    // directly over the graph, or the fan fuses undeclared leaf pairs.
+    if (joins.memberships.len == 0) {
+        try rail_law.refuseUndeclared(a, graph, lg, fans, invisible);
+        return;
+    }
+
     // A carve-out-unrealized fan is edge-owned: every member gets a distinct
     // rail lane. Selected trunks and exempt complete meshes retain lane zero.
-    if (joins.memberships.len == 0) return;
     for (fans) |*fan| {
         if (fanSelected(fan.*, joins) or fanMeshExempt(fan.*, joins.mesh_unions)) continue;
         var next_lane = fan.lane;

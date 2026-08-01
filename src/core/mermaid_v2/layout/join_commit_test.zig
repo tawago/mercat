@@ -3,6 +3,7 @@ const parse = @import("../parse.zig").parse;
 const permits = @import("../ledger/permits.zig");
 const realized = @import("../ledger/realized.zig");
 const select = @import("../select.zig");
+const join_commit = @import("join_commit.zig");
 
 fn expectSelectedEqual(expected: anytype, actual: anytype) !void {
     try std.testing.expectEqual(expected.len, actual.len);
@@ -125,5 +126,122 @@ test "N6: every enumerated candidate agrees on pre-sizing trunk commitments and 
             try expectSelectedEqual(candidate.sketch.joins.selected_joins, checked.plan.selected_joins);
         }
         if (source_i == 2) try std.testing.expect(saw_switch);
+    }
+}
+
+// ===================================================================
+// The all-arrow-free shared-rail closure law (base/rail_closure.zig)
+// ===================================================================
+
+fn edgeIdOf(graph: anytype, from: []const u8, to: []const u8) u32 {
+    const f = nodeId(graph, from);
+    const t = nodeId(graph, to);
+    for (graph.edges) |e| if (e.from == f and e.to == t) return e.id;
+    unreachable;
+}
+
+fn targetOf(joins: anytype, edge: u32) ?@TypeOf(joins.memberships[0].target) {
+    for (joins.memberships) |m| if (m.edge == edge) return m.target;
+    return null;
+}
+
+test "an all-arrow-free fan with undeclared leaf pairs commits no trunk" {
+    // A---Z, B---Z, C---Z: the crossbar would assert A—B, A—C and B—C, none
+    // declared. Refusal is expressed as independent dispositions — the same
+    // record a decoration-mixed rail gets — so the members unfuse.
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const graph = try parse(a, "flowchart TD\n  A --- Z\n  B --- Z\n  C --- Z\n");
+    const plan = (try permits.build(a, graph, .joined)).plan;
+    var report: join_commit.Report = .{};
+    const joins = try join_commit.buildReported(a, graph, &plan, true, &.{}, false, &report);
+
+    try std.testing.expectEqual(@as(usize, 0), joins.selected_joins.len);
+    try std.testing.expectEqual(@as(usize, 0), joins.co_realized.len);
+    try std.testing.expectEqual(@as(u32, 1), report.rail_closure_undeclared);
+    try std.testing.expectEqual(@as(u32, 3), report.co_undeclared);
+    for ([_][]const u8{ "A", "B", "C" }) |leaf| {
+        const t = targetOf(joins, edgeIdOf(graph, leaf, "Z")).?;
+        try std.testing.expect(t.? == .independent);
+    }
+}
+
+test "a directed fan is untouched by the closure law" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const graph = try parse(a, "flowchart TD\n  A --> Z\n  B --> Z\n  C --> Z\n");
+    const plan = (try permits.build(a, graph, .joined)).plan;
+    var report: join_commit.Report = .{};
+    const joins = try join_commit.buildReported(a, graph, &plan, true, &.{}, false, &report);
+
+    try std.testing.expectEqual(@as(usize, 1), joins.selected_joins.len);
+    try std.testing.expectEqual(@as(u32, 0), report.rail_closure_undeclared);
+    try std.testing.expectEqual(@as(u32, 0), report.co_undeclared);
+}
+
+test "a fully declared leaf clique keeps the trunk and co-realizes its pair edges" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const graph = try parse(a, "flowchart TD\n  A --- Z\n  B --- Z\n  A --- B\n");
+    const plan = (try permits.build(a, graph, .joined)).plan;
+    var report: join_commit.Report = .{};
+    const joins = try join_commit.buildReported(a, graph, &plan, true, &.{}, false, &report);
+
+    // The fan-IN at Z fuses, and A---B is discharged by its crossbar.
+    try std.testing.expectEqual(@as(u32, 0), report.rail_closure_undeclared);
+    try std.testing.expectEqual(@as(usize, 1), joins.co_realized.len);
+    try std.testing.expectEqual(edgeIdOf(graph, "A", "B"), joins.co_realized[0]);
+    var fused = false;
+    for (joins.selected_joins) |sj| {
+        for (plan.groups) |g| if (g.id == sj.permission_group and g.direction == .in and g.pivot == nodeId(graph, "Z")) {
+            fused = true;
+        };
+    }
+    try std.testing.expect(fused);
+}
+
+test "a labeled or decorated declaration cannot back a leaf pair" {
+    const sources = [_][]const u8{
+        "flowchart TD\n  A --- Z\n  B --- Z\n  A -- why --- B\n", // labeled
+        "flowchart TD\n  A --- Z\n  B --- Z\n  A --> B\n", // arrowed
+        "flowchart TD\n  A --- Z\n  B --- Z\n  A -.- B\n", // wrong stroke class
+    };
+    for (sources) |source| {
+        var arena2 = std.heap.ArenaAllocator.init(std.testing.allocator);
+        defer arena2.deinit();
+        const a = arena2.allocator();
+        const graph = try parse(a, source);
+        const plan = (try permits.build(a, graph, .joined)).plan;
+        var report: join_commit.Report = .{};
+        const joins = try join_commit.buildReported(a, graph, &plan, true, &.{}, false, &report);
+        try std.testing.expectEqual(@as(usize, 0), joins.co_realized.len);
+        try std.testing.expectEqual(@as(u32, 1), report.rail_closure_undeclared);
+    }
+}
+
+test "a reversed member does not hide a closure refusal behind a null disposition" {
+    // in@Z = {A---Z, B---Z, Q---Z} with Q---Z layout-reversed: the forward
+    // subset {A---Z, B---Z} is provisionally eligible, and the closure law
+    // then refuses it (A—B undeclared). The refusal MUST reach the members as
+    // `independent` — the null-disposition escape is for a group the reversal
+    // rule left ungrouped, and would silently keep the rail fused.
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const graph = try parse(a, "flowchart TD\n  A --- Z\n  B --- Z\n  Z --- W\n  W --- Q\n  Q --- Z\n");
+    const plan = (try permits.build(a, graph, .joined)).plan;
+    const reversed = [_]u32{edgeIdOf(graph, "Q", "Z")};
+    var report: join_commit.Report = .{};
+    const joins = try join_commit.buildReported(a, graph, &plan, true, &reversed, false, &report);
+
+    try std.testing.expectEqual(@as(usize, 0), joins.selected_joins.len);
+    try std.testing.expectEqual(@as(u32, 1), report.rail_closure_undeclared);
+    for ([_][]const u8{ "A", "B" }) |leaf| {
+        const t = targetOf(joins, edgeIdOf(graph, leaf, "Z")).?;
+        try std.testing.expect(t != null);
+        try std.testing.expect(t.? == .independent);
     }
 }

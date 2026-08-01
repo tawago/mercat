@@ -170,3 +170,113 @@ test "complete K3,3 mesh keeps every fan on lane 0" {
     const extras = try fan.extraRowsPerGap(aa, lg, fans);
     try testing.expectEqual(@as(u32, 1), extras[0]);
 }
+
+/// Like `mkGraph` but every edge is fully arrow-free (`A --- B`) — the shape
+/// the shared-rail closure law judges. `extra` appends declarations that are
+/// NOT layer edges (the leaf-pair backers).
+fn mkBareGraph(a: std.mem.Allocator, ledges: []const sugiyama.LayerEdge, extra: []const sg.Edge) !sg.SemGraph {
+    const es = try a.alloc(sg.Edge, ledges.len + extra.len);
+    for (ledges, es[0..ledges.len]) |le, *e| e.* = .{
+        .id = le.edge,
+        .from = le.from,
+        .to = le.to,
+        .kind = .solid,
+        .arrow_from = .none,
+        .arrow_to = .none,
+        .label = null,
+    };
+    @memcpy(es[ledges.len..], extra);
+    return .{ .direction = .TD, .nodes = &.{}, .edges = es, .clusters = &.{}, .classes = &.{}, .arena = null };
+}
+
+fn peerLanes(fans: []const fan.Fan, dir: fan.Direction, pivot: u32, out: []u32) void {
+    for (fans) |f| {
+        if (f.direction != dir or f.pivot_idx != pivot) continue;
+        for (f.peers, 0..) |p, i| out[i] = p.lane;
+    }
+}
+
+test "a clustered undirected fan with no declared leaf pairs unfuses onto separate lanes" {
+    // A---Z, B---Z, C---Z inside a subgraph: no realized plan exists (the
+    // clustered render carries the empty envelope), so the closure law runs
+    // here or the crossbar silently asserts A—B, A—C and B—C. With the leaf
+    // pairs DECLARED the same fan keeps its single shared rail.
+    const a = testing.allocator;
+    var nodes = [_]sugiyama.LayerNode{
+        .{ .real = 0 }, .{ .real = 1 }, .{ .real = 2 }, // A B C (layer 0)
+        .{ .real = 3 }, // Z (layer 1)
+    };
+    var row0 = [_]u32{ 0, 1, 2 };
+    var row1 = [_]u32{3};
+    var layers = [_][]u32{ &row0, &row1 };
+    var edges = [_]sugiyama.LayerEdge{
+        .{ .from = 0, .to = 3, .reversed = false, .edge = 10 },
+        .{ .from = 1, .to = 3, .reversed = false, .edge = 11 },
+        .{ .from = 2, .to = 3, .reversed = false, .edge = 12 },
+    };
+    var reversed = [_]sg.EdgeId{};
+    const lg = mkLg(&nodes, &layers, &edges, &reversed);
+    const geom = [_]Geom{
+        .{ .x = 0, .w = 3 }, .{ .x = 9, .w = 3 }, .{ .x = 18, .w = 3 }, .{ .x = 9, .w = 3 },
+    };
+
+    var arena = std.heap.ArenaAllocator.init(a);
+    defer arena.deinit();
+    const aa = arena.allocator();
+
+    // Undeclared: every member takes a lane of its own.
+    {
+        const graph = try mkBareGraph(aa, &edges, &.{});
+        const fans = try fan.detect(aa, graph, lg);
+        try fan_lanes.assignLanes(Geom, aa, graph, lg, &geom, fans, .{});
+        var lanes = [_]u32{ 0, 0, 0 };
+        peerLanes(fans, .in, 3, &lanes);
+        try testing.expect(lanes[0] != lanes[1]);
+        try testing.expect(lanes[1] != lanes[2]);
+        try testing.expect(lanes[0] != lanes[2]);
+    }
+
+    // Declared clique A---B, A---C, B---C: the crossbar states only what the
+    // graph already does, so the fan keeps ONE shared rail row.
+    {
+        const clique = [_]sg.Edge{
+            .{ .id = 20, .from = 0, .to = 1, .kind = .solid, .arrow_from = .none, .arrow_to = .none, .label = null },
+            .{ .id = 21, .from = 0, .to = 2, .kind = .solid, .arrow_from = .none, .arrow_to = .none, .label = null },
+            .{ .id = 22, .from = 1, .to = 2, .kind = .solid, .arrow_from = .none, .arrow_to = .none, .label = null },
+        };
+        const graph = try mkBareGraph(aa, &edges, &clique);
+        const fans = try fan.detect(aa, graph, lg);
+        try fan_lanes.assignLanes(Geom, aa, graph, lg, &geom, fans, .{});
+        var lanes = [_]u32{ 9, 9, 9 };
+        peerLanes(fans, .in, 3, &lanes);
+        for (lanes) |l| try testing.expectEqual(@as(u32, 0), l);
+    }
+}
+
+test "a clustered DIRECTED fan is untouched by the closure law" {
+    const a = testing.allocator;
+    var nodes = [_]sugiyama.LayerNode{ .{ .real = 0 }, .{ .real = 1 }, .{ .real = 2 }, .{ .real = 3 } };
+    var row0 = [_]u32{ 0, 1, 2 };
+    var row1 = [_]u32{3};
+    var layers = [_][]u32{ &row0, &row1 };
+    var edges = [_]sugiyama.LayerEdge{
+        .{ .from = 0, .to = 3, .reversed = false, .edge = 10 },
+        .{ .from = 1, .to = 3, .reversed = false, .edge = 11 },
+        .{ .from = 2, .to = 3, .reversed = false, .edge = 12 },
+    };
+    var reversed = [_]sg.EdgeId{};
+    const lg = mkLg(&nodes, &layers, &edges, &reversed);
+    const geom = [_]Geom{
+        .{ .x = 0, .w = 3 }, .{ .x = 9, .w = 3 }, .{ .x = 18, .w = 3 }, .{ .x = 9, .w = 3 },
+    };
+    var arena = std.heap.ArenaAllocator.init(a);
+    defer arena.deinit();
+    const aa = arena.allocator();
+    // mkGraph's edges all carry `arrow_to = .filled` — a directed fan.
+    const graph = try mkGraph(aa, &edges);
+    const fans = try fan.detect(aa, graph, lg);
+    try fan_lanes.assignLanes(Geom, aa, graph, lg, &geom, fans, .{});
+    var lanes = [_]u32{ 9, 9, 9 };
+    peerLanes(fans, .in, 3, &lanes);
+    for (lanes) |l| try testing.expectEqual(@as(u32, 0), l);
+}

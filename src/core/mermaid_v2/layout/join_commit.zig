@@ -2,9 +2,28 @@
 
 const std = @import("std");
 const pb = @import("../base/ledger.zig");
+const rc = @import("../base/rail_closure.zig");
 const sg = @import("../sem_graph.zig");
 
+/// Report-only inventory of the all-arrow-free shared-rail closure law
+/// (base/rail_closure.zig). Never read by layout — the refusals it counts are
+/// already expressed as `independent` dispositions, which is what unfuses the
+/// members. Tests and telemetry read it; `build` accepts a null sink.
+pub const Report = struct {
+    /// Rails the law refused as proposed — outright, or by salvaging a
+    /// strict subset. One per refused rail (`rail_closure_undeclared`).
+    rail_closure_undeclared: u32 = 0,
+    /// Leaf pairs whose backing failed the bijection: undeclared, decorated,
+    /// labeled, wrong stroke class, or already spent on another rail
+    /// (`co_undeclared`).
+    co_undeclared: u32 = 0,
+};
+
 pub fn build(a: std.mem.Allocator, graph: sg.SemGraph, permits: ?*const pb.JoinPermits, flat: bool, reversed_edges: []const pb.EdgeId, disable: bool) error{OutOfMemory}!pb.RealizedJoins {
+    return buildReported(a, graph, permits, flat, reversed_edges, disable, null);
+}
+
+pub fn buildReported(a: std.mem.Allocator, graph: sg.SemGraph, permits: ?*const pb.JoinPermits, flat: bool, reversed_edges: []const pb.EdgeId, disable: bool, report: ?*Report) error{OutOfMemory}!pb.RealizedJoins {
     if (!flat or permits == null) return .{};
     const plan = permits.?.*;
     // P2v Step 8 (D-DISPOSITION item 9(b)): the forced all-independent terminal
@@ -26,10 +45,11 @@ pub fn build(a: std.mem.Allocator, graph: sg.SemGraph, permits: ?*const pb.JoinP
     // re-merge preference (D-PORT.md, 2026-07-18) exempts mesh members, so
     // the unions must be known when the fan-in overlap relaxation is decided.
     const unions = try meshUnions(a, graph, plan);
-    const selected_group = try a.alloc(?pb.RealizedJoinId, plan.groups.len);
-    @memset(selected_group, null);
-    var selected: std.ArrayListUnmanaged(pb.SelectedJoin) = .empty;
 
+    // Phase 1 — provisional eligibility under the frozen gates. `eff_of[gi]`
+    // is the member set the group would commit as a trunk, or null when a
+    // gate refuses it.
+    const eff_of = try a.alloc(?[]const pb.EdgeId, plan.groups.len);
     for (plan.groups, 0..) |group, gi| {
         // A fan-IN group whose arrival is a legal pure fan-in stays eligible
         // despite an overlap (arrival re-merge preference); the shared
@@ -50,8 +70,55 @@ pub fn build(a: std.mem.Allocator, graph: sg.SemGraph, permits: ?*const pb.JoinP
         else
             group.members;
         const eff_group: pb.JoinGroup = .{ .id = group.id, .direction = group.direction, .pivot = group.pivot, .members = eff };
-        if ((overlap and !remerge) or !styleCompatible(graph, eff_group) or hasDuplicateKey(graph, eff_group) or
-            containsReversed(eff_group, reversed_edges) or eff.len < 2) continue;
+        const blocked = (overlap and !remerge) or !styleCompatible(graph, eff_group) or hasDuplicateKey(graph, eff_group) or
+            containsReversed(eff_group, reversed_edges) or eff.len < 2;
+        eff_of[gi] = if (blocked) null else eff;
+    }
+
+    // Phase 2 — the all-arrow-free shared-rail closure law. A rail whose every
+    // member is arrow-free asserts each unordered LEAF PAIR too, so it may fuse
+    // only over pairs the graph declares. `reserved` is what no rail may spend
+    // as a backing edge: everything a provisionally eligible rail already DRAWS
+    // (an edge cannot be both a member's ink and a discharged pair), plus every
+    // backer an earlier rail took — which is the plan-wide "one rail per
+    // declared edge" clause, resolved in canonical group order.
+    const closure_refused = try a.alloc(bool, plan.groups.len);
+    @memset(closure_refused, false);
+    var reserved: std.ArrayListUnmanaged(pb.EdgeId) = .empty;
+    var discharged: std.ArrayListUnmanaged(pb.EdgeId) = .empty;
+    for (eff_of) |maybe| {
+        if (maybe) |eff| try reserved.appendSlice(a, eff);
+    }
+    for (plan.groups, 0..) |group, gi| {
+        const eff = eff_of[gi] orelse continue;
+        const verdict = try closureVerdict(a, graph, group, eff, reserved.items);
+        if (report) |r| {
+            if (verdict.outcome == .refuse or verdict.outcome == .salvage) r.rail_closure_undeclared += 1;
+            r.co_undeclared += verdict.undeclared_pairs;
+        }
+        switch (verdict.outcome) {
+            .untouched, .keep => {},
+            // A salvaged rail keeps a strict subset; the dropped members stay
+            // `reserved` (they are not backers either) and fall to independent
+            // lanes exactly like a member the style gate excluded.
+            .salvage => eff_of[gi] = verdict.members,
+            .refuse => {
+                eff_of[gi] = null;
+                closure_refused[gi] = true;
+            },
+        }
+        for (verdict.discharges) |d| {
+            try discharged.append(a, d.backer);
+            try reserved.append(a, d.backer);
+        }
+    }
+
+    // Phase 3 — commitment. Ids ascend with group rank, unchanged.
+    const selected_group = try a.alloc(?pb.RealizedJoinId, plan.groups.len);
+    @memset(selected_group, null);
+    var selected: std.ArrayListUnmanaged(pb.SelectedJoin) = .empty;
+    for (plan.groups, 0..) |group, gi| {
+        const eff = eff_of[gi] orelse continue;
         const jid: pb.RealizedJoinId = @intCast(selected.items.len);
         selected_group[gi] = jid;
         try selected.append(a, .{
@@ -70,15 +137,60 @@ pub fn build(a: std.mem.Allocator, graph: sg.SemGraph, permits: ?*const pb.JoinP
         }
         out.* = .{
             .edge = m.edge,
-            .source = disposition(graph, plan.groups, selected_group, selected.items, m.source_group, reversed_edges, m.edge),
-            .target = disposition(graph, plan.groups, selected_group, selected.items, m.target_group, reversed_edges, m.edge),
+            .source = disposition(graph, plan.groups, selected_group, closure_refused, selected.items, m.source_group, reversed_edges, m.edge),
+            .target = disposition(graph, plan.groups, selected_group, closure_refused, selected.items, m.target_group, reversed_edges, m.edge),
         };
     }
     return .{
         .selected_joins = try selected.toOwnedSlice(a),
         .memberships = memberships,
         .mesh_unions = unions,
+        .co_realized = try discharged.toOwnedSlice(a),
     };
+}
+
+/// Project one provisionally eligible group into the closure law's own
+/// vocabulary and ask it. Members carry the LEAF endpoint (the one that is
+/// not the pivot); every other declared non-self edge is a candidate backer.
+fn closureVerdict(
+    a: std.mem.Allocator,
+    graph: sg.SemGraph,
+    group: pb.JoinGroup,
+    eff: []const pb.EdgeId,
+    reserved: []const pb.EdgeId,
+) error{OutOfMemory}!rc.Verdict {
+    const members = try a.alloc(rc.Member, eff.len);
+    for (eff, members) |id, *m| {
+        const edge = edgeById(graph, id) orelse return .{ .outcome = .untouched, .members = eff };
+        m.* = .{
+            .edge = id,
+            .leaf = if (group.direction == .out) edge.to else edge.from,
+            .kind = pb.edgeKindOrdinal(edge.kind),
+            .arrow_free = arrowFree(edge),
+        };
+    }
+    var backers: std.ArrayListUnmanaged(rc.Backer) = .empty;
+    for (graph.edges) |edge| {
+        if (edge.from == edge.to or containsEdge(eff, edge.id)) continue;
+        try backers.append(a, .{
+            .edge = edge.id,
+            .a = edge.from,
+            .b = edge.to,
+            .kind = pb.edgeKindOrdinal(edge.kind),
+            .arrow_free = arrowFree(edge),
+            .unlabeled = edge.label == null or edge.label.?.len == 0,
+        });
+    }
+    return rc.decide(a, members, backers.items, reserved);
+}
+
+fn arrowFree(edge: sg.Edge) bool {
+    return edge.arrow_from == .none and edge.arrow_to == .none;
+}
+
+fn containsEdge(edges: []const pb.EdgeId, edge: pb.EdgeId) bool {
+    for (edges) |e| if (e == edge) return true;
+    return false;
 }
 
 /// An all-independent(not_selected) disposition for a grouped endpoint (null
@@ -110,7 +222,7 @@ fn forwardSubset(a: std.mem.Allocator, members: []const pb.EdgeId, reversed_edge
     return out.toOwnedSlice(a);
 }
 
-fn disposition(graph: sg.SemGraph, groups: []const pb.JoinGroup, selected_group: []const ?pb.RealizedJoinId, selected_joins: []const pb.SelectedJoin, id: ?pb.JoinGroupId, reversed_edges: []const pb.EdgeId, edge: pb.EdgeId) ?pb.MembershipDisposition {
+fn disposition(graph: sg.SemGraph, groups: []const pb.JoinGroup, selected_group: []const ?pb.RealizedJoinId, closure_refused: []const bool, selected_joins: []const pb.SelectedJoin, id: ?pb.JoinGroupId, reversed_edges: []const pb.EdgeId, edge: pb.EdgeId) ?pb.MembershipDisposition {
     const gid = id orelse return null;
     for (groups, 0..) |g, i| if (g.id == gid) {
         if (selected_group[i]) |jid| {
@@ -121,7 +233,12 @@ fn disposition(graph: sg.SemGraph, groups: []const pb.JoinGroup, selected_group:
             };
             return .{ .independent = .{ .permission_group = gid, .reason = .not_selected } };
         }
-        if (containsReversed(g, reversed_edges) and !overlaps(groups, i) and styleCompatible(graph, g) and !hasDuplicateKey(graph, g)) return null;
+        // A closure refusal must reach the member as `independent`: that
+        // disposition is what unfuses it (per-member fan lanes in TD, a port of
+        // its own in LR/RL). The null-disposition escape below is for a group
+        // the reversal rule left ungrouped, never for a refused rail.
+        // guarded-by: join_commit_test.zig "a reversed member does not hide a closure refusal behind a null disposition"
+        if (!closure_refused[i] and containsReversed(g, reversed_edges) and !overlaps(groups, i) and styleCompatible(graph, g) and !hasDuplicateKey(graph, g)) return null;
         return .{ .independent = .{ .permission_group = gid, .reason = if (overlaps(groups, i)) .overlap_conflict else .not_selected } };
     };
     return null;
