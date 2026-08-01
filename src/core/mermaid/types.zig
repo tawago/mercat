@@ -1,6 +1,6 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
-const text = @import("../../lib/text.zig");
+const text = @import("text");
 
 /// Supported diagram types
 pub const DiagramType = enum {

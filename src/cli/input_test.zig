@@ -88,5 +88,5 @@ test "one accepted sample per supported diagram type" {
 // Pull lib/text.zig's own tests into the test binary (it is only reached
 // through imports, which does not collect tests on its own).
 test {
-    _ = @import("../lib/text.zig");
+    _ = @import("text");
 }

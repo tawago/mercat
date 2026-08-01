@@ -21,7 +21,7 @@
 //! `DiagramType.fromSource` so the two cannot drift.
 
 const std = @import("std");
-const text = @import("../lib/text.zig");
+const text = @import("text");
 const terminal = @import("../platform/terminal.zig");
 
 pub const stripBom = text.stripBom;

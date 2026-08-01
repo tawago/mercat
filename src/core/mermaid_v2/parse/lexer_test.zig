@@ -216,6 +216,40 @@ test "tight inline label on a dotted edge" {
     try t.expectEqual(TokenKind.edge_thick, e4.kind);
     try t.expectEqualStrings("text", e4.edge_label.?);
 
+    // A tight label may begin with 'o'/'x' — those letters are glued arrow
+    // ends only on a complete run followed by whitespace (`A --o B`).
+    var lxd1 = Lexer.init("A -.ok.-> B\n");
+    _ = lxd1.next();
+    const ed1 = lxd1.next();
+    try t.expectEqual(TokenKind.edge_dotted, ed1.kind);
+    try t.expectEqualStrings("ok", ed1.edge_label.?);
+    try t.expectEqualStrings("B", lxd1.next().text);
+
+    var lxd2 = Lexer.init("A --ok--> B\n");
+    _ = lxd2.next();
+    const ed2 = lxd2.next();
+    try t.expectEqual(TokenKind.edge_solid, ed2.kind);
+    try t.expectEqualStrings("ok", ed2.edge_label.?);
+    try t.expectEqualStrings("B", lxd2.next().text);
+
+    // Arrowless dotted with a tight label: `A -.x.- B`.
+    var lxd3 = Lexer.init("A -.x.- B\n");
+    _ = lxd3.next();
+    const ed3 = lxd3.next();
+    try t.expectEqual(TokenKind.edge_dotted, ed3.kind);
+    try t.expectEqualStrings("x", ed3.edge_label.?);
+    try t.expectEqualStrings("B", lxd3.next().text);
+
+    // The glued circle/cross ends keep working: no label is invented.
+    for ([_][]const u8{ "A --o B\n", "A --x B\n", "A --oB\n", "A -.-o B\n" }) |src| {
+        var lxa = Lexer.init(src);
+        _ = lxa.next();
+        const ea = lxa.next();
+        try t.expect(ea.kind == .edge_solid or ea.kind == .edge_dotted);
+        try t.expect(ea.edge_label == null);
+        try t.expectEqualStrings("B", lxa.next().text);
+    }
+
     // A short run with no closing connector before end-of-line still bails:
     // "--" followed by an identifier is not an edge.
     var lx5 = Lexer.init("A --B\n");
