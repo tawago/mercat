@@ -456,3 +456,28 @@ test "V-D-IR-04: JoinPermits and RealizedJoins byte-identical across edge orders
         } else first = bytes;
     }
 }
+
+test "a co-realized edge that still owns an EdgePath counts as a double discharge" {
+    // Discharging an edge means the rail's crossbar IS its rendering; a second,
+    // private EdgePath would state the relation twice. The planner re-checks
+    // the candidate's own geometry for exactly that leak.
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const edges = [_]sg.Edge{ edge(0, 0, 3), edge(1, 1, 3), edge(2, 0, 1) };
+    const g = graph(&edges);
+    const plan = try buildPlan(a, g);
+
+    // Withheld as the law intends: no EdgePath for edge 2, no double discharge.
+    var withheld = sketchOf(try paths(a, edges[0..2]), &.{});
+    withheld.joins = .{ .co_realized = &.{2} };
+    const clean = try jp.realize(a, plan, withheld, &.{});
+    try expectEqual(@as(u32, 0), clean.report.co_double_discharge);
+    try expectEqual(@as(usize, 1), clean.plan.co_realized.len);
+
+    // Leaked: edge 2 was discharged AND routed.
+    var leaked = sketchOf(try paths(a, &edges), &.{});
+    leaked.joins = .{ .co_realized = &.{2} };
+    const dirty = try jp.realize(a, plan, leaked, &.{});
+    try expectEqual(@as(u32, 1), dirty.report.co_double_discharge);
+}

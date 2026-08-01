@@ -19,6 +19,7 @@ const self_loops = @import("routing_self_loops.zig");
 const rp = @import("routing_polyline.zig");
 const rt = @import("routing_terminal.zig");
 const ledger = @import("../base/ledger.zig");
+const rail_closure = @import("../base/rail_closure.zig");
 const port_plan = @import("port_plan.zig");
 const route_clearance = @import("route_clearance.zig");
 
@@ -122,6 +123,12 @@ pub fn buildEdgesWithPlan(
         for (graph.edges) |edge| if (edge.kind == .invisible) try routing_edges.append(a, edge);
     }
     for (routing_edges.items) |orig| {
+        // CO-REALIZED: a leaf-pair edge an all-arrow-free rail discharges is
+        // rendered BY that rail's crossbar (base/rail_closure.zig). It owns no
+        // polyline, no port and no label of its own — drawing one would state
+        // the relation twice — so it never enters the router at all.
+        // guarded-by: routing_test.zig "a co-realized edge is withheld from routing entirely"
+        if (rail_closure.contains(joins.co_realized, orig.id)) continue;
         // Edge owned by a bus-bar: its sole geometry is the trunk + tap.
         if (std.mem.indexOfScalar(sg.EdgeId, claimed.items, orig.id) != null) continue;
         // Decision-fan path: if this edge belongs to a detected fan,

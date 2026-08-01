@@ -121,7 +121,8 @@ fn buildSketch(
     const lane_plan = try port_plan.planLanes(a, graph, lg, candidate_joins);
     const derived = if (opts.join_permits) |plan| blk: {
         if (!candidate_flat or !port_active) break :blk &.{};
-        break :blk ports.derive(a, graph, plan.*, candidate_joins, graph.direction, lg.reversed_edges) catch &.{};
+        const all = ports.derive(a, graph, plan.*, candidate_joins, graph.direction, lg.reversed_edges) catch &.{};
+        break :blk port_plan.withoutCoRealized(a, all, candidate_joins) catch all;
     } else &.{};
     try sizeNodes(a, graph, lg, geom, opts.node_padding, opts.fixed_sizes, opts.max_label_width, node_lines);
     sizing.applyPortDemand(graph, lg, geom, derived);

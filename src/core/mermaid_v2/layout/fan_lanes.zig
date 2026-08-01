@@ -33,6 +33,7 @@ const fan_mod = @import("fan.zig");
 const sugiyama = @import("sugiyama.zig");
 const lanes = @import("../base/lanes.zig");
 const pb = @import("../base/ledger.zig");
+const rc = @import("../base/rail_closure.zig");
 const rail_law = @import("fan_rail_law.zig");
 
 const Fan = fan_mod.Fan;
@@ -80,11 +81,14 @@ pub fn assignLanes(
     const ngaps: u32 = @intCast(lg.layers.len - 1);
 
     // Invisible (`~~~`) links draw no ink, so they can neither fuse into a bus
-    // nor fabricate — exclude them from every rail model.
+    // nor fabricate — exclude them from every rail model. A CO-REALIZED edge
+    // is excluded for the same reason: its ink is the discharging rail's
+    // crossbar, so it draws no rail of its own and must not inflate a group
+    // with a phantom trunk.
     var invisible: std.AutoHashMapUnmanaged(sg.EdgeId, void) = .empty;
     defer invisible.deinit(a);
     for (graph.edges) |e| {
-        if (e.kind == .invisible) try invisible.put(a, e.id, {});
+        if (e.kind == .invisible or rc.contains(joins.co_realized, e.id)) try invisible.put(a, e.id, {});
     }
 
     // Edges that a fan-OUT owns: their rail belongs to the fan-OUT trunk, so a

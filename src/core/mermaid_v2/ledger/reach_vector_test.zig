@@ -381,3 +381,29 @@ test "V-D-REACH-18 (vector): broken trunk rail strands a member — reach_join_s
     }
     try expectEqual(@as(usize, 1), missing_total);
 }
+
+test "a co-realized edge is not charged as a missing declared edge" {
+    // The clique edge A—B was discharged by an all-arrow-free rail: it owns no
+    // geometry BY DESIGN, because the crossbar between the two taps is its
+    // rendering. Charging it as absent would report the law working as a loss.
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+
+    const nodes = [_]sg.Node{ node(0, "A"), node(1, "B"), node(2, "Z") };
+    const edges = [_]sg.Edge{ edge(0, 0, 2), edge(1, 1, 2), edge(2, 0, 1) };
+    const drop_a = [_]sk.Point{ .{ .x = 4, .y = 2 }, .{ .x = 4, .y = 6 } };
+    const drop_b = [_]sk.Point{ .{ .x = 10, .y = 2 }, .{ .x = 10, .y = 6 } };
+    const g = graphOf(&nodes, &edges);
+    // Only the two rail members own polylines; edge 2 is withheld.
+    const routed = [_]sk.EdgePath{ path(0, 0, 2, &drop_a), path(1, 1, 2, &drop_b) };
+    const keys = try nodeKeys(a, &nodes);
+
+    var charged = try realized(a, g, sketchOf(&routed, &.{}), &.{});
+    const before = try vc.validate(a, charged, keys, .flat);
+    try expectEqual(@as(u32, 1), before.counts.missing_declared);
+
+    charged.joins.co_realized = &.{2};
+    const after = try vc.validate(a, charged, keys, .flat);
+    try expectEqual(@as(u32, 0), after.counts.missing_declared);
+}

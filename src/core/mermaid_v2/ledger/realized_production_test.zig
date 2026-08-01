@@ -304,3 +304,62 @@ test "dominance pin: the complete K2,2 union survives selection with its members
     try std.testing.expectEqualStrings("T1", unions[0].target_keys[0]);
     try std.testing.expectEqualStrings("T2", unions[0].target_keys[1]);
 }
+
+/// Render a source end-to-end (select → raster → paint) and return the plain
+/// grid plus the winning candidate's plan.
+fn renderPlain(a: std.mem.Allocator, source: []const u8, width: u32) !struct { grid: []const u8, joins: pb.RealizedJoins, routed: []const u32 } {
+    const graph = try parse(a, source);
+    const plan = (try permits.build(a, graph, .joined)).plan;
+    const winner = try select.choose(a, graph, &plan, true, width, false, false);
+    const rendered = try raster.rasterize(a, winner.sketch, .bridge, .{});
+    const routed = try a.alloc(u32, winner.sketch.edges.len);
+    for (winner.sketch.edges, routed) |e, *slot| slot.* = e.id;
+    return .{
+        .grid = try paint.paint(a, rendered.lattice, winner.sketch.budget.max_width),
+        .joins = winner.sketch.joins,
+        .routed = routed,
+    };
+}
+
+/// Count how many of `grid`'s rows carry at least one horizontal run glyph —
+/// a shared crossbar occupies ONE such row, unfused private lanes occupy one
+/// each.
+fn rowsWithInk(grid: []const u8, glyph: []const u8) usize {
+    var n: usize = 0;
+    var it = std.mem.splitScalar(u8, grid, '\n');
+    while (it.next()) |line| {
+        if (std.mem.indexOf(u8, line, glyph) != null) n += 1;
+    }
+    return n;
+}
+
+test "an undeclared all-arrow-free fan unfuses; a declared clique keeps the rail and withholds its pair edges" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+
+    // (1) REFUSAL. Three arrow-free arrivals at Z with no declared leaf pair:
+    // the old single crossbar `└────────┼────────┘` asserted A—B, A—C and B—C.
+    // Every member now descends on its own, so the picture states only the
+    // three declared relations.
+    const refused = try renderPlain(a, "flowchart TD\n  A --- Z\n  B --- Z\n  C --- Z\n", 70);
+    try std.testing.expectEqual(@as(usize, 0), refused.joins.selected_joins.len);
+    try std.testing.expectEqual(@as(usize, 0), refused.joins.co_realized.len);
+    try std.testing.expectEqual(@as(usize, 3), refused.routed.len);
+    // No row carries a run spanning A's column through C's: the leaves never
+    // meet each other's ink.
+    try std.testing.expect(std.mem.indexOf(u8, refused.grid, "┼") == null);
+
+    // (2) CO-REALIZED EMISSION. A---B declared, so the two arrivals may share
+    // one run: the ink between the taps IS A---B's rendering, and A---B keeps
+    // no polyline of its own — three declared edges, two drawn.
+    const kept = try renderPlain(a, "flowchart LR\n  A --- Z\n  B --- Z\n  A --- B\n", 70);
+    try std.testing.expectEqual(@as(usize, 1), kept.joins.co_realized.len);
+    try std.testing.expectEqual(@as(usize, 2), kept.routed.len);
+    // No double discharge: the withheld edge owns no private geometry.
+    for (kept.joins.co_realized) |co| {
+        for (kept.routed) |id| try std.testing.expect(id != co);
+    }
+    // The shared arrival survives: exactly one western entry at Z.
+    try std.testing.expectEqual(@as(usize, 1), rowsWithInk(kept.grid, "├──┤ Z"));
+}

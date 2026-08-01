@@ -2,6 +2,7 @@
 
 const std = @import("std");
 const pb = @import("../base/ledger.zig");
+const rail_closure = @import("../base/rail_closure.zig");
 const sg = @import("../sem_graph.zig");
 const sk = @import("../sketch.zig");
 const ports = @import("ports.zig");
@@ -34,6 +35,31 @@ pub fn midpoint(a: std.mem.Allocator, graph: sg.SemGraph, placements: []const sk
     return .{ .edges = edges };
 }
 
+/// The derived attachment set minus every CO-REALIZED edge. Such an edge is
+/// rendered by an all-arrow-free rail's crossbar and never routed, so it
+/// claims no attachment on either endpoint: leaving it in would widen a face,
+/// shift its siblings' port ordinals, and reserve a terminal nothing arrives
+/// at. Applied where `derive` is consumed rather than inside it, so the pure
+/// D-PORT derivation keeps reading the permits plan and nothing else.
+/// guarded-by: port_plan_test.zig "a co-realized edge claims no attachment and consumes no route lane"
+pub fn withoutCoRealized(
+    a: std.mem.Allocator,
+    derived: []const ports.DerivedAttachment,
+    joins: pb.RealizedJoins,
+) error{OutOfMemory}![]const ports.DerivedAttachment {
+    if (joins.co_realized.len == 0) return derived;
+    var out: std.ArrayListUnmanaged(ports.DerivedAttachment) = .empty;
+    for (derived) |item| {
+        const edge = item.attachment.edge orelse {
+            try out.append(a, item);
+            continue;
+        };
+        if (rail_closure.contains(joins.co_realized, edge)) continue;
+        try out.append(a, item);
+    }
+    return out.toOwnedSlice(a);
+}
+
 pub fn planLanes(a: std.mem.Allocator, graph: sg.SemGraph, lg: sugiyama.LayeredGraph, joins: pb.RealizedJoins) error{OutOfMemory}!LanePlan {
     if (lg.layers.len < 2) return .{};
     const node_layers = try a.alloc(u32, graph.nodes.len);
@@ -50,7 +76,10 @@ pub fn planLanes(a: std.mem.Allocator, graph: sg.SemGraph, lg: sugiyama.LayeredG
     @memset(next, 0);
     var lanes: std.ArrayListUnmanaged(EdgeLane) = .empty;
     for (sorted) |edge| {
-        if (edge.kind == .invisible or edge.from == edge.to or !edgeIsIndependent(joins.memberships, edge.id) or inMesh(joins.mesh_unions, edge.id)) continue;
+        // A co-realized leaf-pair edge is drawn by a rail's crossbar, never
+        // routed — so it consumes no route lane and reserves no gap row.
+        if (edge.kind == .invisible or edge.from == edge.to or !edgeIsIndependent(joins.memberships, edge.id) or
+            inMesh(joins.mesh_unions, edge.id) or rail_closure.contains(joins.co_realized, edge.id)) continue;
         const high = @max(node_layers[edge.from], node_layers[edge.to]);
         if (high == 0) continue;
         const gap = high - 1;

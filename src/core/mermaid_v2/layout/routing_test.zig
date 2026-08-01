@@ -13,6 +13,10 @@ const std = @import("std");
 const sg = @import("../sem_graph.zig");
 const sketch = @import("../sketch.zig");
 const coords = @import("../layout.zig");
+const routing = @import("routing.zig");
+const sugiyama = @import("sugiyama.zig");
+const port_plan = @import("port_plan.zig");
+const ledger = @import("../base/ledger.zig");
 
 const testing = std.testing;
 
@@ -40,6 +44,11 @@ fn mkForcedPeerEdge(id: sg.EdgeId, from: sg.NodeId, to: sg.NodeId) sg.Edge {
         .arrow_to = .filled,
         .label = null,
     };
+}
+
+/// Fully arrow-free edge (`A --- B`): the shape the closure law judges.
+fn mkBareEdge(id: sg.EdgeId, from: sg.NodeId, to: sg.NodeId) sg.Edge {
+    return .{ .id = id, .from = from, .to = to, .kind = .solid, .arrow_from = .none, .arrow_to = .none, .label = null };
 }
 
 /// Plain fan-OUT edge (arrow_from = .none): stays bus-bar eligible.
@@ -198,4 +207,54 @@ test "bus-bar pre-pass and forced per-peer path lift the same fan-OUT geometry t
     const ec = findEdge(s_peer.edges, 0, 2);
 
     try testing.expectEqual(bar_rail_y, railRow(ec.polyline));
+}
+
+// -- claim: co-realized withholding (routing.zig `routing_edges` loop) ------
+
+test "a co-realized edge is withheld from routing entirely" {
+    // A---Z and B---Z fuse on one arrival, and the crossbar between their two
+    // taps IS the rendering of the declared A---B. Routing must therefore emit
+    // NO EdgePath for A---B: a private polyline would draw that relation twice.
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+
+    const nodes = [_]sg.Node{ mkNode(0, "A", null), mkNode(1, "B", null), mkNode(2, "Z", null) };
+    const edges = [_]sg.Edge{ mkBareEdge(0, 0, 2), mkBareEdge(1, 1, 2), mkBareEdge(2, 0, 1) };
+    const g = sg.SemGraph{ .direction = .TD, .nodes = &nodes, .edges = &edges, .clusters = &.{}, .classes = &.{}, .arena = null };
+
+    var lg_nodes = [_]sugiyama.LayerNode{ .{ .real = 0 }, .{ .real = 1 }, .{ .real = 2 } };
+    var row0 = [_]u32{ 0, 1 };
+    var row1 = [_]u32{2};
+    var layers = [_][]u32{ &row0, &row1 };
+    var lg_edges = [_]sugiyama.LayerEdge{
+        .{ .edge = 0, .from = 0, .to = 2, .reversed = false },
+        .{ .edge = 1, .from = 1, .to = 2, .reversed = false },
+        .{ .edge = 2, .from = 0, .to = 1, .reversed = false },
+    };
+    const lg: sugiyama.LayeredGraph = .{ .nodes = &lg_nodes, .layers = &layers, .edges = &lg_edges, .reversed_edges = &.{}, .real_index = .empty, .arena = null };
+    const geom = [_]routing.NodeGeom{
+        .{ .x = 0, .y = 0, .w = 5, .h = 3, .layer = 0 },
+        .{ .x = 10, .y = 0, .w = 5, .h = 3, .layer = 0 },
+        .{ .x = 5, .y = 7, .w = 5, .h = 3, .layer = 1 },
+    };
+    const placements = [_]sketch.NodePlacement{
+        .{ .id = 0, .rect = .{ .x = 0, .y = 0, .w = 5, .h = 3 }, .shape = .rect, .lines = &.{}, .cluster_id = null },
+        .{ .id = 1, .rect = .{ .x = 10, .y = 0, .w = 5, .h = 3 }, .shape = .rect, .lines = &.{}, .cluster_id = null },
+        .{ .id = 2, .rect = .{ .x = 5, .y = 7, .w = 5, .h = 3 }, .shape = .rect, .lines = &.{}, .cluster_id = null },
+    };
+    const ind: ledger.MembershipDisposition = .{ .independent = .{ .permission_group = 0, .reason = .not_selected } };
+    const memberships = [_]ledger.RealizedEdgeMembership{
+        .{ .edge = 0, .source = null, .target = ind },
+        .{ .edge = 1, .source = null, .target = ind },
+        .{ .edge = 2, .source = null, .target = null },
+    };
+    const ports = try port_plan.midpoint(a, g, &placements);
+
+    const routed = try routing.buildEdgesWithPlan(a, g, lg, &geom, &placements, &.{}, .{ .memberships = &memberships }, ports, false);
+    try testing.expectEqual(@as(usize, 3), routed.edges.len);
+
+    const withheld = try routing.buildEdgesWithPlan(a, g, lg, &geom, &placements, &.{}, .{ .memberships = &memberships, .co_realized = &.{2} }, ports, false);
+    try testing.expectEqual(@as(usize, 2), withheld.edges.len);
+    for (withheld.edges) |e| try testing.expect(e.id != 2);
 }

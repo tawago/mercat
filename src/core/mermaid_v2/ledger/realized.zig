@@ -3,56 +3,17 @@ const std = @import("std");
 const pb = @import("../base/ledger.zig");
 const sk = @import("../sketch.zig");
 pub const Error = error{OutOfMemory};
-/// Which step of the frozen selection order decided a group; the first
-/// failing step names the tag (D-JOIN-SELECT item 3). Report-only.
-pub const GroupClause = enum {
-    selected, // (a)–(f) all pass → realized trunk
-    duplicate_key, // item 1 canonicalization block (pre-clause)
-    unresolved_member, // defensive: a member with no realized geometry
-    incomplete, // (c) the single proposal covers a strict member subset
-    overlap, // (d) permission overlap → NEITHER (conservative rule)
-    style, // (e) D-TRUNK sub-clause failed (see rail_detail)
-    no_proposal, // (f) zero trunk proposals
-    multiplicity, // (f) two or more trunk proposals (item 3)
-};
 
-pub const GroupVerdict = struct {
-    group: pb.JoinGroupId,
-    clause: GroupClause,
-    /// First-fail naming tag (join_select.* family, pinned registry).
-    tag: pb.DiagnosticTag,
-    /// D-TRUNK first-failing sub-clause tag when clause == .style
-    /// ((a) invisible → (b) kind mixed → (c) pivot-side arrow mixed).
-    rail_detail: ?pb.DiagnosticTag = null,
-    /// Report-only D-TRUNK duplicate-(from,to) inventory; fires regardless
-    /// of the first-fail clause (V-D-TRUNK-06 pairs it with duplicate_key).
-    duplicate_pair: bool = false,
-    /// Raw trunk-proposal count, identical-key duplicates included —
-    /// item 3 reads this count and no other proposal property.
-    proposal_count: u32 = 0,
-};
+/// The report-only output vocabulary lives in the sibling
+/// realized_report.zig (split out at the 500-line cap); re-exported so every
+/// `realized.GroupClause` / `realized.Report` call site is unchanged.
+const report_types = @import("realized_report.zig");
 
-/// Report-only planner outputs that do not ride the RealizedJoins
-/// envelope (TSD §12.1; D-JOIN-SELECT item 6: never score input).
-pub const Report = struct {
-    verdicts: []const GroupVerdict = &.{},
-    /// Canonical proposal records; identical-key entries collapsed into
-    /// one multiplicity-counted entry (item 1d). Parallel `multiplicity`.
-    proposals: []const pb.JoinProposal = &.{},
-    multiplicity: []const u32 = &.{},
-    dual_membership_edges: u32 = 0,
-    permission_overlap_conflicts: u32 = 0,
-    /// Proposed union elements failing leaf-pair legality (plan N5).
-    mesh_unions_rejected: u32 = 0,
-    /// Candidate off the flat identity path (D-JOIN-SELECT item 10):
-    /// nothing was planned; the plan is the empty `.{}`.
-    skipped_clustered: bool = false,
-};
-
-pub const Result = struct {
-    plan: pb.RealizedJoins = .{},
-    report: Report = .{},
-};
+pub const GroupClause = report_types.GroupClause;
+pub const GroupVerdict = report_types.GroupVerdict;
+pub const Report = report_types.Report;
+pub const Result = report_types.Result;
+const tagFor = report_types.tagFor;
 
 /// One member's realized style/endpoints read from the candidate's OWN
 /// geometry (EdgePath fields, or the owning Rail for tap-represented
@@ -357,6 +318,17 @@ pub fn realize(
         } else mesh_rejected += 1;
     }
 
+    // Co-realization is a fact of the candidate's OWN emitted geometry, not a
+    // permission re-decided here: the discharges were made before the sketch
+    // existed, so the record travels with the plan describing it. What IS
+    // re-checked is that no discharged edge also owns an EdgePath.
+    var double_discharge: u32 = 0;
+    for (s.joins.co_realized) |co| {
+        for (s.edges) |e| {
+            if (e.id == co) double_discharge += 1;
+        }
+    }
+
     const conflict_slice = try conflicts.toOwnedSlice(allocator);
     return .{
         .plan = .{
@@ -366,6 +338,7 @@ pub fn realize(
             .conflicts = conflict_slice,
             .terminal_ports = try ports.toOwnedSlice(allocator),
             .mesh_unions = try unions.toOwnedSlice(allocator),
+            .co_realized = s.joins.co_realized,
         },
         .report = .{
             .verdicts = verdicts,
@@ -374,19 +347,8 @@ pub fn realize(
             .dual_membership_edges = dual_edges,
             .permission_overlap_conflicts = @intCast(conflict_slice.len),
             .mesh_unions_rejected = mesh_rejected,
+            .co_double_discharge = double_discharge,
         },
-    };
-}
-
-/// First-fail naming tag per D-JOIN-SELECT items 3/7 (the pinned
-/// join_select.* registry family).
-fn tagFor(clause: GroupClause) pb.DiagnosticTag {
-    return switch (clause) {
-        .selected => .join_select_selected,
-        .duplicate_key => .join_select_duplicate_key_blocked,
-        .overlap => .join_select_conflict_neither,
-        .multiplicity => .join_select_proposal_multiplicity_blocked,
-        .unresolved_member, .incomplete, .style, .no_proposal => .join_select_independent_not_selected,
     };
 }
 

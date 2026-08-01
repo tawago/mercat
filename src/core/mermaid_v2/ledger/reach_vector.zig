@@ -33,6 +33,7 @@
 const std = @import("std");
 const sk = @import("../sketch.zig");
 const pb = @import("../base/ledger.zig");
+const rc = @import("../base/rail_closure.zig");
 const geom = @import("reach_geometry.zig");
 const rep = @import("reach_report.zig");
 
@@ -398,6 +399,12 @@ fn missingDeclared(
 ) Error![]const u32 {
     var missing: std.ArrayListUnmanaged(u32) = .empty;
     for (s.joins.memberships, 0..) |m, rank| {
+        // A CO-REALIZED edge is present, not absent: an all-arrow-free rail
+        // discharged it, so the crossbar ink between its two taps IS its
+        // rendering. It owns no geometry of its own by construction, and
+        // charging it here would report the law's success as a lost edge.
+        // guarded-by: reach_vector_test.zig "a co-realized edge is not charged as a missing declared edge"
+        if (rc.contains(s.joins.co_realized, m.edge)) continue;
         const has_geometry = rep.declaredById(declared, m.edge) != null;
         if (has_geometry and edgeHasOccurrence(comps, m.edge)) continue;
         counts.missing_declared += 1;

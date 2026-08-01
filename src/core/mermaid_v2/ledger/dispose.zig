@@ -50,6 +50,11 @@ pub fn disposeUnsafe(a: std.mem.Allocator, plan: pb.RealizedJoins) error{OutOfMe
         .conflicts = plan.conflicts,
         .terminal_ports = plan.terminal_ports,
         .mesh_unions = plan.mesh_unions,
+        // Withdrawing a trunk is a PERMISSION rewrite; the candidate's already
+        // emitted geometry is untouched, and a co-realized edge still has no
+        // private ink in it. Dropping the record would report that edge as
+        // missing from a sketch that never drew it.
+        .co_realized = plan.co_realized,
     };
 }
 
