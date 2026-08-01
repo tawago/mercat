@@ -29,12 +29,15 @@ fn placementNamed(s: sketch.Sketch, name: []const u8) ?sketch.NodePlacement {
 // OUTER piece both targets are super-nodes one layer below Top, so the outer
 // layout sees a two-peer fan whose members are placement edges — the exact
 // edges stitch drops in favour of bridges.
+/// `labeled` stamps a label on each of Top's two CROSS-BORDER members, the
+/// only difference between the two variants the row-reservation pin compares.
 fn fanIntoTwoSubgraphsGraph(
     nodes_buf: []sem_graph.Node,
     edges_buf: []sem_graph.Edge,
     members_s: []sem_graph.NodeId,
     members_r: []sem_graph.NodeId,
     clusters_buf: []sem_graph.Cluster,
+    labeled: bool,
 ) sem_graph.SemGraph {
     const NS = sem_graph.NodeShape;
     const names = [_][]const u8{ "Top", "a1", "a2", "b1", "b2" };
@@ -45,6 +48,10 @@ fn fanIntoTwoSubgraphsGraph(
     const pairs = [_][2]sem_graph.NodeId{ .{ 0, 1 }, .{ 1, 2 }, .{ 0, 3 }, .{ 3, 4 } };
     for (pairs, 0..) |p, i| {
         edges_buf[i] = .{ .id = @intCast(i), .from = p[0], .to = p[1], .kind = .solid, .arrow_from = .none, .arrow_to = .filled, .label = null };
+    }
+    if (labeled) {
+        edges_buf[0].label = "yes"; // Top -> a1, crosses into S
+        edges_buf[2].label = "no"; // Top -> b1, crosses into R
     }
     members_s[0] = 1;
     members_s[1] = 2;
@@ -78,7 +85,7 @@ test "an outer fan into sibling subgraphs names its bridges, not the dropped pla
     var members_s: [2]sem_graph.NodeId = undefined;
     var members_r: [2]sem_graph.NodeId = undefined;
     var clusters_buf: [2]sem_graph.Cluster = undefined;
-    const graph = fanIntoTwoSubgraphsGraph(&nodes_buf, &edges_buf, &members_s, &members_r, &clusters_buf);
+    const graph = fanIntoTwoSubgraphsGraph(&nodes_buf, &edges_buf, &members_s, &members_r, &clusters_buf, false);
 
     const s = try recurse.layoutPieces(a, graph, .{ .max_width = 120 });
     const top = placementNamed(s, "Top") orelse return error.TopNotPlaced;
@@ -105,6 +112,77 @@ test "an outer fan into sibling subgraphs names its bridges, not the dropped pla
         if (found) break;
     }
     try std.testing.expect(found);
+}
+
+/// The merged frame of cluster `id`, or null.
+fn frameOf(s: sketch.Sketch, id: sem_graph.ClusterId) ?sketch.ClusterFrame {
+    for (s.clusters) |c| {
+        if (c.id == id) return c;
+    }
+    return null;
+}
+
+/// Rows between Top's bottom edge and the top of subgraph S's frame — the
+/// inter-layer gap the labeled-fan reservation would inflate.
+fn topToFrameGap(s: sketch.Sketch) !u32 {
+    const top = placementNamed(s, "Top") orelse return error.TopNotPlaced;
+    const frame = frameOf(s, 100) orelse return error.FrameNotPlaced;
+    const bottom: i32 = top.rect.y + @as(i32, @intCast(top.rect.h));
+    if (frame.rect.y < bottom) return error.FrameAboveTop;
+    return @intCast(frame.rect.y - bottom);
+}
+
+// A fan whose members all CROSS a subgraph border pays no on-run label rows.
+//
+// The reservation (fan.LABEL_RUN_EXTRA_ROWS, driven by `Fan.labeled`) buys a
+// 4-cell private dropper for the decorated on-run sandwich. The on-run writer
+// only ever sees edges that SURVIVE the stitch, and stitch drops every outer
+// edge touching a super-node in favour of a bridge EdgePath — so rows bought
+// for a bridge-routed member could never be spent. They are not bought:
+// `split.buildOuter` rewrites each cross-border edge as a LABEL-FREE placement
+// edge, so `fan.detect`, which reads the outer piece's semantic edges, never
+// sees a label on a bridge-routed member and leaves `labeled` clear.
+//
+// This pins that end to end: labelling both members of the outer fan must not
+// move a single row. It is the standing guard on the coupling — a future
+// change that carried crossing labels onto the placement edges (for bridge
+// label placement, say) would start buying rows the raster can never spend,
+// and this test is what would catch it.
+test "a labeled fan into sibling subgraphs reserves no on-run rows" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+
+    var plain_nodes: [5]sem_graph.Node = undefined;
+    var plain_edges: [4]sem_graph.Edge = undefined;
+    var plain_ms: [2]sem_graph.NodeId = undefined;
+    var plain_mr: [2]sem_graph.NodeId = undefined;
+    var plain_clusters: [2]sem_graph.Cluster = undefined;
+    const plain = fanIntoTwoSubgraphsGraph(&plain_nodes, &plain_edges, &plain_ms, &plain_mr, &plain_clusters, false);
+
+    var lbl_nodes: [5]sem_graph.Node = undefined;
+    var lbl_edges: [4]sem_graph.Edge = undefined;
+    var lbl_ms: [2]sem_graph.NodeId = undefined;
+    var lbl_mr: [2]sem_graph.NodeId = undefined;
+    var lbl_clusters: [2]sem_graph.Cluster = undefined;
+    const labeled = fanIntoTwoSubgraphsGraph(&lbl_nodes, &lbl_edges, &lbl_ms, &lbl_mr, &lbl_clusters, true);
+
+    const sp = try recurse.layoutPieces(a, plain, .{ .max_width = 120 });
+    const sl = try recurse.layoutPieces(a, labeled, .{ .max_width = 120 });
+
+    // The gap the reservation would inflate, and the whole canvas height.
+    try std.testing.expectEqual(try topToFrameGap(sp), try topToFrameGap(sl));
+    try std.testing.expectEqual(sp.bbox.h, sl.bbox.h);
+
+    // Guard the guard: both members really are bridge-routed, i.e. Top's
+    // outgoing ink lands INSIDE a cluster rather than on a top-level box.
+    const top = placementNamed(sl, "Top") orelse return error.TopNotPlaced;
+    var crossings: usize = 0;
+    for (sl.edges) |e| {
+        if (e.from != top.id) continue;
+        if (try clusterOf(sl, e.to) != null) crossings += 1;
+    }
+    try std.testing.expectEqual(@as(usize, 2), crossings);
 }
 
 // Two OUTER nodes both edge into the SAME node inside a subgraph. Each
