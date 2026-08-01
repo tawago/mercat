@@ -239,3 +239,42 @@ test "verticalCorridor: the source-side jog row (one past the source) is collisi
     // than the edge's own endpoints, exactly as `polyIntrudes` would.
     try std.testing.expect(!sketch.columnTouchesAny(poly[1].x, poly[0].y, poly[1].y, &placements, 0, 1));
 }
+
+test "a vertical corridor's descent column never lands on a drawn frame border" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+
+    // The source's own column is blocked by a child directly below it, so
+    // `route` falls to `verticalCorridor`. The nearest margined node-clear
+    // column the shared `clearLine` core offers for the descent is x=9 —
+    // which is exactly the RIGHT BORDER column of the drawn frame the run
+    // passes: descending there would lay the whole run inside the frame's
+    // wall and cross both of that wall's corners on the way.
+    const placements = [_]sketch.NodePlacement{
+        .{ .id = 0, .rect = .{ .x = 2, .y = 0, .w = 6, .h = 3 }, .shape = .rect, .lines = &.{"A"}, .cluster_id = null },
+        .{ .id = 3, .rect = .{ .x = 2, .y = 7, .w = 6, .h = 3 }, .shape = .rect, .lines = &.{"child"}, .cluster_id = 7 },
+        .{ .id = 1, .rect = .{ .x = 5, .y = 20, .w = 6, .h = 3 }, .shape = .rect, .lines = &.{"B"}, .cluster_id = null },
+    };
+    const frames = [_]sketch.ClusterFrame{
+        .{ .id = 7, .rect = .{ .x = 0, .y = 4, .w = 10, .h = 12 }, .parent_id = null, .label = "S", .depth = 0 },
+    };
+    const orig_to_merged = [_]sketch.NodeId{ 0, 1 };
+    const crossings = [_]Crossing{
+        .{ .id = 0, .from = 0, .to = 1, .kind = .solid, .arrow_from = .none, .arrow_to = .filled, .label = null },
+    };
+    const edges = try bridges.route(a, &crossings, &placements, &frames, .TD, &orig_to_merged);
+    const poly = edges[0].polyline;
+    try std.testing.expectEqual(@as(usize, 6), poly.len);
+
+    // The long descent is poly[2]->poly[3]. What the unguarded core alone
+    // would have picked IS the frame's wall — so this fixture really does
+    // exercise the guard rather than agreeing with it by luck.
+    const naive = sketch.clearLine(false, poly[5].x, poly[1].y, poly[3].y, &placements, 0, 1, .{ .margin = true });
+    try std.testing.expect(tracks.onFrameBorder(false, naive, poly[1].y, poly[3].y, &frames));
+
+    const run_col = poly[2].x;
+    try std.testing.expectEqual(poly[3].x, run_col);
+    try std.testing.expect(!tracks.onFrameBorder(false, run_col, poly[2].y, poly[3].y, &frames));
+    try std.testing.expect(!sketch.columnTouchesAny(run_col, poly[2].y, poly[3].y, &placements, 0, 1));
+}

@@ -138,6 +138,11 @@ pub const Rule = union(enum) {
 ///                   the tiling zone reads them, and neither may import the
 ///                   other, so their agreement is checkable only here.
 ///                   Split from the crosscheck for the cap.
+///   cluster_corridor_test.zig  root-level cross-instrument pin for the
+///                   per-column crossing discipline (cluster/corridors.zig):
+///                   the law is decided in the cluster zone but is ABOUT the
+///                   `.intrusion` records the raster files, and the cluster
+///                   zone may not import raster, so the two meet only here.
 ///   tiling_weld_test.zig  root-level weld-order pin for tiling/: needs
 ///                   raster's arrow_base to run the LAST mutation of the
 ///                   pipeline by hand and show the audit's buckets move
@@ -413,6 +418,15 @@ pub const file_allowlists = [_]struct {
             .{ .exact = "tiling/cell.zig" },
         },
         .reason = "tiling_records_test may only import std, prim, base/*, sem_graph, sketch, parse, raster, lattice, select, ledger/permits, or tiling entry points",
+    },
+    .{
+        .name = "cluster_corridor_test.zig",
+        .allowed = &.{
+            .sketch,                            .parse_zone,
+            .raster_zone,                       .{ .exact = "lattice.zig" },
+            .{ .exact = "select.zig" },         .{ .exact = "ledger/permits.zig" },
+        },
+        .reason = "cluster_corridor_test may only import std, prim, base/*, sketch, parse, raster, lattice, select, or ledger/permits",
     },
     .{
         .name = "tiling_weld_test.zig",

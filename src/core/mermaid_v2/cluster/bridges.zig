@@ -8,13 +8,18 @@
 //! borders; overlapping same-side bridges get distinct stacked tracks, but
 //! bridges sharing one source port share a track (fan rail).
 //!
+//! Corridor discipline (corridors.zig): each border a bridge crosses carries
+//! at most ONE corridor per display column, and never one on a frame corner;
+//! an offending port slides along its own node face until both hold.
+//!
 //! PURE DATA: Sketch geometry in, Sketch edges out. Imports only std, prim,
-//! sem_graph, sketch, and cluster-internal tracks.zig.
+//! sem_graph, sketch, and the cluster-internal tracks.zig / corridors.zig.
 
 const std = @import("std");
 const sketch = @import("../sketch.zig");
 const sg = @import("../sem_graph.zig");
 const tracks = @import("tracks.zig");
+const corridors = @import("corridors.zig");
 
 /// One original edge that crosses a piece boundary. Endpoints are ORIGINAL
 /// SemGraph node ids (resolved to merged placements via `orig_to_merged`).
@@ -41,8 +46,8 @@ pub fn route(
     dir: sketch.Direction,
     orig_to_merged: []const sketch.NodeId,
 ) error{OutOfMemory}![]sketch.EdgePath {
-    // Pass 1: resolve endpoints, sides, ports, and each bridge's PREFERRED
-    // jog coordinate (the plain elbow formula, before track discipline).
+    // Pass 1: resolve endpoints, sides and centred ports. The jog
+    // preference waits for pass 2, which may still move a port.
     var pends: std.ArrayListUnmanaged(Pending) = .empty;
     for (crossings) |c| {
         if (c.from >= orig_to_merged.len or c.to >= orig_to_merged.len) continue;
@@ -72,9 +77,32 @@ pub fn route(
             .sides = sides,
             .start = start,
             .end = end,
-            .pref = jogPref(start, end, sides.exit, to_box),
+            .off_from = sideOffset(from_p.rect, sides.exit),
+            .off_to = sideOffset(to_p.rect, sides.entry),
+            .from_frame = corridors.drawnFrame(clusters, from_p),
+            .to_frame = corridors.drawnFrame(clusters, to_p),
+            .pref = null,
             .anchor = anchorOf(clusters, to_p, gt),
         });
+    }
+
+    // Pass 2: per-column crossing discipline (corridors.zig). Each corridor
+    // meets its frames at one border cell each; two corridors may not meet
+    // the same one and none may meet a corner. The fix is a sideways slide
+    // of the offending PORT along its own node face, so the corridor stays
+    // orthogonal and its final run stays perpendicular. Runs BEFORE the jog
+    // prefs, which are a function of the ports.
+    const pairs = try arena.alloc(corridors.Pair, pends.items.len);
+    for (pends.items, pairs) |p, *q| q.* = .{
+        .from = .{ .node = p.gf, .rect = p.from_rect, .side = p.sides.exit, .frame = p.from_frame },
+        .to = .{ .node = p.gt, .rect = p.to_rect, .side = p.sides.entry, .frame = p.to_frame },
+    };
+    for (pends.items, try corridors.discipline(arena, pairs, clusters)) |*p, r| {
+        corridors.slide(&p.start, p.sides.exit, r.from_coord);
+        corridors.slide(&p.end, p.sides.entry, r.to_coord);
+        p.off_from = r.from_off;
+        p.off_to = r.to_off;
+        p.pref = jogPref(p.start, p.end, p.sides.exit, p.to_box);
     }
 
     try assignJogs(arena, pends.items, clusters);
@@ -97,8 +125,8 @@ pub fn route(
             .from = p.gf,
             .to = p.gt,
             .polyline = poly,
-            .port_from = .{ .node = p.gf, .side = p.sides.exit, .offset = sideOffset(p.from_rect, p.sides.exit) },
-            .port_to = .{ .node = p.gt, .side = p.sides.entry, .offset = sideOffset(p.to_rect, p.sides.entry) },
+            .port_from = .{ .node = p.gf, .side = p.sides.exit, .offset = p.off_from },
+            .port_to = .{ .node = p.gt, .side = p.sides.entry, .offset = p.off_to },
             .arrow_from = p.cross.arrow_from,
             .arrow_to = p.cross.arrow_to,
             .label = p.cross.label,
@@ -120,6 +148,16 @@ const Pending = struct {
     sides: Sides,
     start: Pt,
     end: Pt,
+    /// Port offsets on the two node faces. They start centred and only move
+    /// when the corridor discipline slides one off a taken border column or
+    /// a frame corner.
+    off_from: u32,
+    off_to: u32,
+    /// The drawn (non-synthetic) frame each endpoint sits in, or null when
+    /// the endpoint is top-level — the frame whose border this corridor
+    /// crosses on that side.
+    from_frame: ?sketch.ClusterId,
+    to_frame: ?sketch.ClusterId,
     /// Preferred jog coordinate (row y for a vertical bridge, column x for a
     /// horizontal one); null when the ports already line up (straight run).
     pref: ?i32,
@@ -332,7 +370,7 @@ fn verticalCorridor(
     // if blocked; margined over merely touch-free (flush `││` reads as
     // crowding) — sketch.clearLine is the shared clearance core (cluster/ may
     // import sketch, not layout/). // guarded-by: sketch.zig "clearLine prefers a margined line over a closer touch-free-only line"
-    const run_col = sketch.clearLine(false, end.x, lo, hi, placements, from_id, to_id, .{ .margin = true });
+    const run_col = clearRunColumn(end.x, lo, hi, placements, from_id, to_id, clusters);
 
     var poly: std.ArrayListUnmanaged(sketch.Point) = .empty;
     var prev = start;
@@ -350,6 +388,34 @@ fn verticalCorridor(
         prev = p;
     }
     return try poly.toOwnedSlice(arena);
+}
+
+/// Column for a vertical corridor's long descent: node-clear (the shared
+/// `sketch.clearLine` core) AND clear of every drawn cluster-frame border
+/// column over the run's span. A run laid ON a border column does not
+/// merely touch it, it IS it for the whole descent — the frame swallows the
+/// stroke and the run crosses both of that side's corners on the way.
+/// Slides further out (away from the target column) until both hold.
+/// guarded-by: bridges_test.zig "a vertical corridor's descent column never lands on a drawn frame border"
+fn clearRunColumn(
+    want: i32,
+    lo: i32,
+    hi: i32,
+    placements: []const sketch.NodePlacement,
+    from_id: sketch.NodeId,
+    to_id: sketch.NodeId,
+    clusters: []const sketch.ClusterFrame,
+) i32 {
+    var col = sketch.clearLine(false, want, lo, hi, placements, from_id, to_id, .{ .margin = true });
+    if (!tracks.onFrameBorder(false, col, lo, hi, clusters)) return col;
+    const sign: i32 = if (col >= want) 1 else -1;
+    var guard: u32 = 0;
+    while (guard < 4096) : (guard += 1) {
+        col += sign;
+        if (!tracks.onFrameBorder(false, col, lo, hi, clusters) and
+            !sketch.lineTouchesAny(false, col, lo, hi, placements, from_id, to_id)) break;
+    }
+    return col;
 }
 
 /// True iff any straight vertical segment of `poly` touches a node box
@@ -393,10 +459,7 @@ fn center(r: sketch.Rect) Pt {
 }
 
 fn sideOffset(r: sketch.Rect, side: sketch.Dir4) u32 {
-    return switch (side) {
-        .north, .south => @divTrunc(r.w, 2),
-        .east, .west => @divTrunc(r.h, 2),
-    };
+    return corridors.sideOffset(r, side);
 }
 
 fn portPoint(r: sketch.Rect, side: sketch.Dir4) Pt {
