@@ -4,6 +4,7 @@ const permits = @import("../ledger/permits.zig");
 const realized = @import("../ledger/realized.zig");
 const select = @import("../select.zig");
 const join_commit = @import("join_commit.zig");
+const pb = @import("../base/ledger.zig");
 
 fn expectSelectedEqual(expected: anytype, actual: anytype) !void {
     try std.testing.expectEqual(expected.len, actual.len);
@@ -244,4 +245,21 @@ test "a reversed member does not hide a closure refusal behind a null dispositio
         try std.testing.expect(t != null);
         try std.testing.expect(t.? == .independent);
     }
+}
+
+test "every closure-law counter names a registered report-only tag" {
+    // The counters ARE the diagnostics: a report field that stopped naming a
+    // registered tag would be firing something the registry never sanctioned
+    // (D-DISPOSITION item 4's unregistered backstop), and a class other than
+    // report-only would let a refusal invalidate a candidate instead of
+    // unfusing it.
+    const fields = [_][]const u8{ "rail_closure_undeclared", "co_undeclared", "co_double_discharge" };
+    inline for (fields) |name| {
+        const tag = pb.tagByName(name) orelse return error.UnregisteredTag;
+        try std.testing.expectEqual(pb.DispositionClass.report_only, pb.classOf(tag));
+    }
+    // Spelled the same on the structs that carry them.
+    try std.testing.expect(@hasField(join_commit.Report, fields[0]));
+    try std.testing.expect(@hasField(join_commit.Report, fields[1]));
+    try std.testing.expect(@hasField(realized.Report, fields[2]));
 }
