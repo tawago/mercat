@@ -280,12 +280,12 @@ pub const Lexer = struct {
             // "-." is not a link, so its 'o' belongs to the label.
             // guarded-by: lexer_test.zig "tight inline label on a dotted edge"
             const run_complete = last_run_char == '-' and self.pos - run_start >= 2;
-            const had_arrow = self.resolveTail(run_complete, '-', &saw_dot, &inline_label);
+            const had_arrow = self.resolveTail(run_complete);
             // A short dash run with no arrow tail (e.g. bare "--") is only valid as the
             // OPENING of an inline-label edge like "-- text -->"; probe for the label
             // before bailing so a valid inline-label edge is not rejected as a stray link.
             // guarded-by: parse_test.zig "inline-label edge keeps bare links intact"
-            if (!had_arrow and inline_label == null and self.pos - start < 3) {
+            if (!had_arrow and self.pos - start < 3) {
                 if (!self.atInlineLabel()) return self.restore(saved_pos, saved_line, saved_col);
                 inline_label = self.scanInlineLabel('-', &saw_dot) orelse
                     return self.restore(saved_pos, saved_line, saved_col);
@@ -295,10 +295,10 @@ pub const Lexer = struct {
             var count: usize = 0;
             while (self.pos < self.source.len and self.source[self.pos] == '=') : (count += 1) self.advanceRaw();
             if (count == 0) return self.restore(saved_pos, saved_line, saved_col);
-            var ignore_dot = false;
-            const had_arrow = self.resolveTail(count >= 2, '=', &ignore_dot, &inline_label);
-            if (!had_arrow and inline_label == null and self.pos - start < 3) {
+            const had_arrow = self.resolveTail(count >= 2);
+            if (!had_arrow and self.pos - start < 3) {
                 if (!self.atInlineLabel()) return self.restore(saved_pos, saved_line, saved_col);
+                var ignore_dot = false;
                 inline_label = self.scanInlineLabel('=', &ignore_dot) orelse
                     return self.restore(saved_pos, saved_line, saved_col);
             }
@@ -364,38 +364,25 @@ pub const Lexer = struct {
 
     /// Decide what follows a connector run: a glued 'o'/'x' arrow tail, or the
     /// first letter of a tight inline label that merely BEGINS with one of
-    /// those letters (`A --ok--> B`, `A -.ok.-> B`). '>' is unambiguous.
+    /// those letters (`A -.ok.-> B`). '>' is unambiguous.
     ///
-    /// A glued o/x is an arrow end only on a run that already forms a complete
-    /// link (`run_complete`) AND is followed by whitespace — the `A --o B`
-    /// spelling. When the letter is glued to further text we probe for the
-    /// inline-label form first and fall back to the arrow tail if the line
-    /// carries no closing run (so `A--oB` still reads as a circle end).
-    /// guarded-by: lexer_test.zig "tight inline label on a dotted edge"
-    fn resolveTail(
-        self: *Lexer,
-        run_complete: bool,
-        connector: u8,
-        saw_dot: *bool,
-        inline_label: *?[]const u8,
-    ) bool {
+    /// The rule is mermaid.js's own, and it reads ONLY the run. A COMPLETE
+    /// link run (`--`, `==`, `-.-`) swallows a following o/x as its arrow end
+    /// whatever comes next, so `A --ok--> B` is `A --o k --> B`: a circle end
+    /// into a node named `k`, not an edge labelled "ok". An INCOMPLETE run
+    /// (`-.`, a lone `-`/`=`) opens the edge-text form instead, so there the
+    /// o/x is the label's first letter.
+    ///
+    /// What follows the o/x must NOT be consulted. Probing ahead for a closing
+    /// run makes an earlier link's meaning depend on unrelated text later on
+    /// the line, deletes the node the arrow points at, and breaks the
+    /// pipe-label form (`A --o|t| B`).
+    /// guarded-by: lexer_test.zig "glued o/x on a complete run is an arrow end whatever follows"
+    fn resolveTail(self: *Lexer, run_complete: bool) bool {
         const tail = if (self.pos < self.source.len) self.source[self.pos] else 0;
         if (tail == '>') return self.consumeArrowTail();
         if (tail != 'o' and tail != 'x') return false;
         if (!run_complete) return false;
-        const after = self.peekAt(1);
-        const glued = after != 0 and after != ' ' and after != '\t' and
-            after != '\n' and after != '\r';
-        if (glued) {
-            const p = self.pos;
-            const l = self.line;
-            const c = self.col;
-            if (self.scanInlineLabel(connector, saw_dot)) |label| {
-                inline_label.* = label;
-                return false;
-            }
-            _ = self.restore(p, l, c);
-        }
         return self.consumeArrowTail();
     }
 

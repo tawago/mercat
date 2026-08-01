@@ -216,21 +216,14 @@ test "tight inline label on a dotted edge" {
     try t.expectEqual(TokenKind.edge_thick, e4.kind);
     try t.expectEqualStrings("text", e4.edge_label.?);
 
-    // A tight label may begin with 'o'/'x' — those letters are glued arrow
-    // ends only on a complete run followed by whitespace (`A --o B`).
+    // A tight label may begin with 'o'/'x' when the OPENING run is incomplete
+    // (`-.`), which is what puts mermaid.js into its edge-text state.
     var lxd1 = Lexer.init("A -.ok.-> B\n");
     _ = lxd1.next();
     const ed1 = lxd1.next();
     try t.expectEqual(TokenKind.edge_dotted, ed1.kind);
     try t.expectEqualStrings("ok", ed1.edge_label.?);
     try t.expectEqualStrings("B", lxd1.next().text);
-
-    var lxd2 = Lexer.init("A --ok--> B\n");
-    _ = lxd2.next();
-    const ed2 = lxd2.next();
-    try t.expectEqual(TokenKind.edge_solid, ed2.kind);
-    try t.expectEqualStrings("ok", ed2.edge_label.?);
-    try t.expectEqualStrings("B", lxd2.next().text);
 
     // Arrowless dotted with a tight label: `A -.x.- B`.
     var lxd3 = Lexer.init("A -.x.- B\n");
@@ -239,16 +232,6 @@ test "tight inline label on a dotted edge" {
     try t.expectEqual(TokenKind.edge_dotted, ed3.kind);
     try t.expectEqualStrings("x", ed3.edge_label.?);
     try t.expectEqualStrings("B", lxd3.next().text);
-
-    // The glued circle/cross ends keep working: no label is invented.
-    for ([_][]const u8{ "A --o B\n", "A --x B\n", "A --oB\n", "A -.-o B\n" }) |src| {
-        var lxa = Lexer.init(src);
-        _ = lxa.next();
-        const ea = lxa.next();
-        try t.expect(ea.kind == .edge_solid or ea.kind == .edge_dotted);
-        try t.expect(ea.edge_label == null);
-        try t.expectEqualStrings("B", lxa.next().text);
-    }
 
     // A short run with no closing connector before end-of-line still bails:
     // "--" followed by an identifier is not an edge.
@@ -261,6 +244,67 @@ test "tight inline label on a dotted edge" {
     var lx6 = Lexer.init("A --|text| B\n");
     _ = lx6.next();
     try t.expect(lx6.next().kind != TokenKind.edge_solid);
+}
+
+test "glued o/x on a complete run is an arrow end whatever follows" {
+    // mermaid.js decides this on the RUN alone: `--`/`==`/`-.-` is a complete
+    // link, so a following 'o'/'x' is its arrow end and the identifier after
+    // it is a NODE. Ground truth taken from mermaid v11's own flow lexer,
+    // e.g. `A --ok--> B` => LINK " --o", NODE_STRING "k", LINK "--> ",
+    // NODE_STRING "B". Reading the char after the o/x instead deletes that
+    // node and invents an edge label out of it.
+    const Case = struct {
+        src: []const u8,
+        kind: TokenKind,
+        to: ArrowEnd,
+        /// The node identifier the glued end points at.
+        node: []const u8,
+    };
+    for ([_]Case{
+        .{ .src = "A --ok--> B\n", .kind = .edge_solid, .to = .circle, .node = "k" },
+        .{ .src = "A --x1--> B\n", .kind = .edge_solid, .to = .cross, .node = "1" },
+        .{ .src = "A --oops--> B\n", .kind = .edge_solid, .to = .circle, .node = "ops" },
+        .{ .src = "A ==ok==> B\n", .kind = .edge_thick, .to = .circle, .node = "k" },
+        .{ .src = "A ----ok----> B\n", .kind = .edge_solid, .to = .circle, .node = "k" },
+        .{ .src = "A --oB[label] --> C\n", .kind = .edge_solid, .to = .circle, .node = "B" },
+        .{ .src = "A--oB-->C\n", .kind = .edge_solid, .to = .circle, .node = "B" },
+        .{ .src = "A--xB-->C\n", .kind = .edge_solid, .to = .cross, .node = "B" },
+        .{ .src = "A-.-oB-.->C\n", .kind = .edge_dotted, .to = .circle, .node = "B" },
+        .{ .src = "A==oB==>C\n", .kind = .edge_thick, .to = .circle, .node = "B" },
+        // Space before the closing run, glued target — still a node, not a label.
+        .{ .src = "A --oB --> C\n", .kind = .edge_solid, .to = .circle, .node = "B" },
+        // A ';' statement separator later on the line may not reach back and
+        // turn the earlier link into a label.
+        .{ .src = "A --oB; C --> D\n", .kind = .edge_solid, .to = .circle, .node = "B" },
+        // The pipe-label form survives: '|' is not label text glued to the end.
+        .{ .src = "A --o|t| B\n", .kind = .edge_solid, .to = .circle, .node = "|" },
+    }) |c| {
+        var lx = Lexer.init(c.src);
+        try t.expectEqualStrings("A", lx.next().text);
+        const e = lx.next();
+        try t.expectEqual(c.kind, e.kind);
+        try t.expectEqual(@as(?[]const u8, null), e.edge_label);
+        try t.expectEqual(c.to, th.decodeArrows(e.text).to);
+        try t.expectEqualStrings(c.node, lx.next().text);
+    }
+
+    // The mirror: an INCOMPLETE run ("-.") is mermaid's edge-text opener, so
+    // there the same letters ARE the label's first character.
+    var lxi = Lexer.init("A -.ok.-> B\n");
+    _ = lxi.next();
+    const ei = lxi.next();
+    try t.expectEqual(TokenKind.edge_dotted, ei.kind);
+    try t.expectEqualStrings("ok", ei.edge_label.?);
+
+    // Spaced glued ends are unchanged, and no label is invented.
+    for ([_][]const u8{ "A --o B\n", "A --x B\n", "A --oB\n", "A -.-o B\n" }) |src| {
+        var lxa = Lexer.init(src);
+        _ = lxa.next();
+        const ea = lxa.next();
+        try t.expect(ea.kind == .edge_solid or ea.kind == .edge_dotted);
+        try t.expect(ea.edge_label == null);
+        try t.expectEqualStrings("B", lxa.next().text);
+    }
 }
 
 test "solo CR (old Mac line ending) emits a newline token but does not bump the line counter" {
