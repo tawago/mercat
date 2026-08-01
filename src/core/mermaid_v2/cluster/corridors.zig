@@ -21,6 +21,17 @@
 //! crossing node's own face — the corridor stays orthogonal and the final
 //! run stays perpendicular into the port, only the port offset moves.
 //!
+//! SCOPE, stated plainly because the resolution is a PORT slide: this layer
+//! binds a crossing only where the port coordinate IS the crossing
+//! coordinate. An entry always qualifies — its jog sits outside the target's
+//! frame, so the final perpendicular leg is what meets the border. An exit
+//! qualifies unless `bridges.zig` re-routes it as an obstacle-aware vertical
+//! corridor, which jogs one row off the source (inside the frame) and meets
+//! the border at its descent column instead; `bridges.route` withholds that
+//! end's demand, since sliding the port would de-centre the arrow foot and
+//! move nothing. Two such descent columns can still coincide, and nothing
+//! here can separate them — only a router that owns the descent could.
+//!
 //!   NODE CLEARANCE — a shift takes the whole perpendicular APPROACH run
 //!   (border cell to port) with it, so the column it lands on must also be
 //!   clear of every other node box over that run. Without this term the

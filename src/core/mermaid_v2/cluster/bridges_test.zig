@@ -278,3 +278,47 @@ test "a vertical corridor's descent column never lands on a drawn frame border" 
     try std.testing.expect(!tracks.onFrameBorder(false, run_col, poly[2].y, poly[3].y, &frames));
     try std.testing.expect(!sketch.columnTouchesAny(run_col, poly[2].y, poly[3].y, &placements, 0, 1));
 }
+
+test "a re-routed corridor raises no crossing demand on the frame it leaves" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+
+    // Two members stacked inside S, each leaving through S's bottom border to
+    // its own target below. Their centred south ports name the SAME border
+    // column, so the discipline sees a conflict and would slide one of them.
+    //
+    // But both corridors are re-routed: a plain elbow from M1 runs straight
+    // through M2, so pass 3 replaces it with the obstacle-aware corridor,
+    // which jogs one row below its source — INSIDE S — and meets S's bottom
+    // border at its own descent column. Sliding the port cannot move that
+    // crossing; it only de-centres the arrow foot. So both ports must stay
+    // centred, and the offsets must agree with the polyline's own start.
+    const placements = [_]sketch.NodePlacement{
+        .{ .id = 0, .rect = .{ .x = 4, .y = 2, .w = 6, .h = 3 }, .shape = .rect, .lines = &.{"M1"}, .cluster_id = 1 },
+        .{ .id = 1, .rect = .{ .x = 4, .y = 7, .w = 6, .h = 3 }, .shape = .rect, .lines = &.{"M2"}, .cluster_id = 1 },
+        .{ .id = 2, .rect = .{ .x = 0, .y = 16, .w = 6, .h = 3 }, .shape = .rect, .lines = &.{"T1"}, .cluster_id = null },
+        .{ .id = 3, .rect = .{ .x = 10, .y = 16, .w = 6, .h = 3 }, .shape = .rect, .lines = &.{"T2"}, .cluster_id = null },
+    };
+    const frames = [_]sketch.ClusterFrame{
+        .{ .id = 1, .rect = .{ .x = 2, .y = 0, .w = 12, .h = 13 }, .parent_id = null, .label = "S", .depth = 0 },
+    };
+    const orig_to_merged = [_]sketch.NodeId{ 0, 1, 2, 3 };
+    const crossings = [_]Crossing{
+        .{ .id = 0, .from = 0, .to = 2, .kind = .solid, .arrow_from = .none, .arrow_to = .filled, .label = null },
+        .{ .id = 1, .from = 1, .to = 3, .kind = .solid, .arrow_from = .none, .arrow_to = .filled, .label = null },
+    };
+    const edges = try bridges.route(a, &crossings, &placements, &frames, .TD, &orig_to_merged);
+    try std.testing.expectEqual(@as(usize, 2), edges.len);
+
+    // M1's corridor really is the re-routed kind (more than one bend), so the
+    // fixture exercises the exemption rather than agreeing with it by luck.
+    try std.testing.expect(edges[0].polyline.len > 4);
+
+    const centred: u32 = 3; // @divTrunc(6, 2) for a 6-wide south face
+    for (edges) |e| {
+        try std.testing.expectEqual(centred, e.port_from.offset);
+        const rect = placements[e.from].rect;
+        try std.testing.expectEqual(rect.x + @as(i32, centred), e.polyline[0].x);
+    }
+}

@@ -90,19 +90,37 @@ pub fn route(
     // meets its frames at one border cell each; two corridors may not meet
     // the same one and none may meet a corner. The fix is a sideways slide
     // of the offending PORT along its own node face, so the corridor stays
-    // orthogonal and its final run stays perpendicular. Runs BEFORE the jog
-    // prefs, which are a function of the ports.
+    // orthogonal and its final run stays perpendicular.
+    //
+    // The slide only MOVES a crossing where the port coordinate IS the
+    // crossing coordinate. An entry always qualifies: its jog sits outside
+    // the target's frame, so the final perpendicular leg is what meets the
+    // border. An exit qualifies unless pass 3 re-routes it as an
+    // obstacle-aware `verticalCorridor`, which jogs one row off the source —
+    // INSIDE the frame — and then meets the border at its descent column,
+    // a coordinate this layer never chose. Sliding such a port de-centres
+    // the arrow foot and resolves nothing, so that end raises no demand.
+    // Deciding it needs the tentative jogs, which need only the centred
+    // ports the re-route itself will keep.
+    // guarded-by: bridges_test.zig "a re-routed corridor raises no crossing demand on the frame it leaves"
+    for (pends.items) |*p| p.pref = jogPref(p.start, p.end, p.sides.exit, p.to_box);
+    try assignJogs(arena, pends.items, clusters);
+
     const pairs = try arena.alloc(corridors.Pair, pends.items.len);
-    for (pends.items, pairs) |p, *q| q.* = .{
-        .from = .{ .node = p.gf, .rect = p.from_rect, .side = p.sides.exit, .frame = p.from_frame },
-        .to = .{ .node = p.gt, .rect = p.to_rect, .side = p.sides.entry, .frame = p.to_frame },
-    };
+    for (pends.items, pairs) |p, *q| {
+        const exit_frame: ?sketch.ClusterId = if (try rerouted(arena, p, placements)) null else p.from_frame;
+        q.* = .{
+            .from = .{ .node = p.gf, .rect = p.from_rect, .side = p.sides.exit, .frame = exit_frame },
+            .to = .{ .node = p.gt, .rect = p.to_rect, .side = p.sides.entry, .frame = p.to_frame },
+        };
+    }
     for (pends.items, try corridors.discipline(arena, pairs, clusters, placements)) |*p, r| {
         corridors.slide(&p.start, p.sides.exit, r.from_coord);
         corridors.slide(&p.end, p.sides.entry, r.to_coord);
         p.off_from = r.from_off;
         p.off_to = r.to_off;
         p.pref = jogPref(p.start, p.end, p.sides.exit, p.to_box);
+        p.jog = null;
     }
 
     try assignJogs(arena, pends.items, clusters);
@@ -115,8 +133,7 @@ pub fn route(
     var out: std.ArrayListUnmanaged(sketch.EdgePath) = .empty;
     for (pends.items) |p| {
         var poly = try buildElbow(arena, p);
-        const is_vertical = (p.sides.exit == .north or p.sides.exit == .south);
-        if (is_vertical and polyIntrudes(poly, placements, p.gf, p.gt)) {
+        if (try rerouted(arena, p, placements)) {
             poly = try verticalCorridor(arena, p.start, p.end, p.to_box, p.sides.exit, placements, p.gf, p.gt, clusters);
         }
 
@@ -135,6 +152,20 @@ pub fn route(
         });
     }
     return try out.toOwnedSlice(arena);
+}
+
+/// True iff the plain elbow for `p` would run straight through a node
+/// interior, so pass 3 replaces it with the obstacle-aware
+/// `verticalCorridor`. Pass 2 asks this to know whether a slide of the exit
+/// port could move that end's border crossing at all — the re-route meets
+/// the source frame at its own descent column instead.
+fn rerouted(
+    arena: std.mem.Allocator,
+    p: Pending,
+    placements: []const sketch.NodePlacement,
+) error{OutOfMemory}!bool {
+    if (p.sides.exit != .north and p.sides.exit != .south) return false;
+    return polyIntrudes(try buildElbow(arena, p), placements, p.gf, p.gt);
 }
 
 /// One crossing after endpoint/side resolution, before polyline build.

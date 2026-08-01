@@ -30,10 +30,17 @@
 //!
 //!   * no crossing sits on a frame CORNER cell.
 //!
-//! NOT pinned here: that a MERGED corridor's own descent misses the boxes
-//! between it and its port. It does not (a stacked pair's second stroke runs
-//! down through the first target), and no port slide can fix it — only an
-//! obstacle-aware reroute can, which this layer does not do.
+//! NOT pinned here, because the discipline's lever is a PORT slide and
+//! neither is reachable by one:
+//!   * that a MERGED corridor's own descent misses the boxes between it and
+//!     its port. It does not — a stacked pair's second stroke runs down
+//!     through the first target — and only an obstacle-aware reroute could
+//!     fix it;
+//!   * that two corridors RE-ROUTED by `bridges.verticalCorridor` meet a
+//!     border at different cells. Those meet it at their descent columns,
+//!     which no port slide chooses; `bridges.route` therefore withholds
+//!     their demands rather than de-centring arrow feet for nothing, and the
+//!     corpus's four-members-leaving-one-frame scene pins that it does.
 
 const std = @import("std");
 const lattice = @import("lattice.zig");
@@ -75,9 +82,14 @@ const corpus = [_][]const u8{
     "flowchart LR\n  S1[S1]\n  S2[S2]\n  subgraph G[\"G\"]\n    G1[G1]\n    G2[G2]\n  end\n  S1 --> G1\n  S2 --> G2\n  G1 --> G2\n",
     // Labelled crossings, which move the geometry around again.
     "flowchart TD\n  A[A]\n  subgraph S[\"Stage\"]\n    B[B] --> C[C]\n  end\n  A -->|start| B\n  A -->|skip| C\n  C -->|done| D[D]\n",
+    // Four members leaving one frame's bottom border. Narrow widths stack
+    // them, which pushes every corridor onto the obstacle-aware re-route:
+    // the crossings then land at descent columns the port slide never
+    // chose, so no port here may be de-centred.
+    "flowchart TD\n  subgraph S\n    M1\n    M2\n    M3\n    M4\n  end\n  M1 --> T1\n  M2 --> T2\n  M3 --> T3\n  M4 --> T4\n",
 };
 
-const widths = [_]u32{ 40, 60, 80, 120 };
+const widths = [_]u32{ 24, 30, 40, 60, 80, 120 };
 
 /// Every `.intrusion` record, decorated with what the grid says about the
 /// cell it names.
