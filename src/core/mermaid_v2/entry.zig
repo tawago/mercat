@@ -271,7 +271,7 @@ pub fn renderFlowchart(
         return fallback(source, "v2 raster error");
     };
 
-    if (env.integrity) emitIntegrityLine(integrity, raster_report, graph.skipped_lines);
+    if (env.integrity) emitIntegrityLine(integrity, raster_report, graph.skipped_lines, sketch_val.closure);
 
     // Dark structural audit over the FINAL, SHIPPED lattice (tiling/):
     // zero output effect, zero selection effect, one stderr line under
@@ -334,9 +334,12 @@ fn emitIntegrityLine(
     v: validate_mod.Counts,
     raster_report: rasterize_mod.RasterReport,
     skipped_lines: u32,
+    /// The SHIPPED candidate's rail-closure inventory (report-only): the three
+    /// registered tags the closure law fires, which no other surface emits.
+    closure: ledger.ClosureCounts,
 ) void {
     std.debug.print(
-        "mercat-integrity: v_node_overlap={d} v_path_off_perimeter={d} v_path_through_interior={d} v_cluster={d} v_bbox={d} r_edge_cells_lost={d} r_labels_dropped={d} r_labels_displaced={d} r_phantom_arms={d} r_arms_repaired={d} x_legal_crossing={d} x_foreign_junction={d} x_arrowhead_transit={d} b_frame_bridge={d} b_border_fusion_refused={d} a_arrowhead_base={d} skipped_lines={d}\n",
+        "mercat-integrity: v_node_overlap={d} v_path_off_perimeter={d} v_path_through_interior={d} v_cluster={d} v_bbox={d} r_edge_cells_lost={d} r_labels_dropped={d} r_labels_displaced={d} r_phantom_arms={d} r_arms_repaired={d} x_legal_crossing={d} x_foreign_junction={d} x_arrowhead_transit={d} b_frame_bridge={d} b_border_fusion_refused={d} a_arrowhead_base={d} skipped_lines={d} rail_closure_undeclared={d} co_undeclared={d} co_double_discharge={d}\n",
         .{
             v.node_overlap,
             v.path_off_perimeter,
@@ -355,6 +358,9 @@ fn emitIntegrityLine(
             raster_report.crossings.b_border_fusion_refused,
             raster_report.arrow_base.violations,
             skipped_lines,
+            closure.rail_closure_undeclared,
+            closure.co_undeclared,
+            closure.co_double_discharge,
         },
     );
 }

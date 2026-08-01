@@ -81,10 +81,11 @@ pub const DiagnosticTag = enum {
     // D-EDGE-ID (2)
     edgeid_scope_clustered_skipped,
     edgeid_unqualified_local_lookup,
-    // Rail-law refusals (3) and co-set declaration failures (2). Registered
-    // here ahead of their producers: nothing in the pipeline fires them yet,
-    // so a report that names one is itself a bug until the rail-eligibility
-    // and co-realization passes land.
+    // Rail-law refusals (3) and co-set declaration failures (2). The last
+    // three are fired by the all-arrow-free shared-rail closure law
+    // (base/rail_closure.zig) — the flat commitment in layout/join_commit.zig
+    // and the clustered pass in layout/fan_rail_law.zig — and reach stderr on
+    // the `MERCAT_INTEGRITY=1` line. The first two await their producers.
     /// Fires when a rail is refused because its member edges disagree in
     /// decoration (stroke class or arrowhead), so one shared run cannot ink
     /// them all; the members unfuse onto separate rail rows.
@@ -93,15 +94,17 @@ pub const DiagnosticTag = enum {
     /// around one shared pivot — the star-only rail law admits no union of
     /// two or more pivots.
     rail_star_violation,
-    /// Fires when a rail run carries a shared cell whose carrier edge was
-    /// never declared a member of that rail (membership is not closed over
-    /// the ink the rail actually owns).
+    /// Fires once per rail the closure law refuses: an all-arrow-free rail
+    /// whose crossbar would assert a leaf pair the graph never declared, so
+    /// its membership is not closed over the ink the rail actually owns.
+    /// Counted for a partial salvage too — the rail as proposed was refused.
     rail_closure_undeclared,
-    /// Fires when a cell is co-realized for an edge pair that no declared
-    /// co-set names.
+    /// Fires per LEAF PAIR of a proposed rail with no usable declaration
+    /// backing it: undeclared, or declared with an arrowhead, a label, or the
+    /// wrong stroke class. The inventory behind one `rail_closure_undeclared`.
     co_undeclared,
-    /// Fires when one edge is discharged by two co-set entries, breaking the
-    /// bijective backing that each declared pair names its own edge.
+    /// Fires when an edge a rail discharged ALSO owns private geometry, so one
+    /// relation is rendered twice — the withholding leaked. Must stay zero.
     co_double_discharge,
 };
 

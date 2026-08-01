@@ -88,6 +88,17 @@ pub const Clustered = struct {
     input_of: []const sketch.NodeId,
 };
 
+/// Per-field sum of the outer piece's closure counts and every child's.
+fn closureSum(outer: sketch.Sketch, children: []const Clustered) ledger.ClosureCounts {
+    var out = outer.closure;
+    for (children) |child| {
+        inline for (@typeInfo(ledger.ClosureCounts).@"struct".fields) |f| {
+            @field(out, f.name) += @field(child.sketch.closure, f.name);
+        }
+    }
+    return out;
+}
+
 /// Glue the outer Sketch + each super-node's child `Clustered` into one
 /// `Clustered`. `children[i]` aligns with `split_result.pieces[i]`
 /// (`children[0]` is unused; the outer is passed separately). A child may
@@ -331,6 +342,11 @@ pub fn stitch(
             .edges = edge_slice,
             .busbars = try busbars.toOwnedSlice(arena),
             .co_sets = sets,
+            // Report-only counts are per-PIECE facts about one merged picture,
+            // so the merged Sketch carries their sum; keeping only the outer's
+            // would silently drop every refusal a child's fans decided.
+            // guarded-by: recurse_test2.zig "the merged sketch sums its pieces' closure counts"
+            .closure = closureSum(outer, children),
             .diagnostics = outer.diagnostics,
             .budget = outer.budget,
             // The candidate's label policy is a property of the CANDIDATE, not

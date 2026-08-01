@@ -44,6 +44,9 @@ pub fn refuseUndeclared(
     lg: sugiyama.LayeredGraph,
     fans: []Fan,
     invisible: std.AutoHashMapUnmanaged(sg.EdgeId, void),
+    /// Report-only sink: the same counts the flat commitment fills, so a
+    /// clustered refusal is counted where a flat one is.
+    report: ?*pb.ClosureCounts,
 ) error{OutOfMemory}!void {
     // Every candidate rail's own ink is DRAWN plan-wide before any verdict, and
     // the record must not depend on the order the fans happen to be visited: a
@@ -62,6 +65,10 @@ pub fn refuseUndeclared(
         const members = try membersOf(a, graph, lg, f.*, invisible);
         defer a.free(members);
         const verdict = try rc.decide(a, members, try backersOf(a, graph, members, drawn.items));
+        if (report) |r| {
+            if (verdict.outcome == .refuse or verdict.outcome == .salvage) r.rail_closure_undeclared += 1;
+            r.co_undeclared += verdict.undeclared_pairs;
+        }
         switch (verdict.outcome) {
             .untouched, .keep => {},
             // Refuse: no subset fuses truthfully, so every member gets its own

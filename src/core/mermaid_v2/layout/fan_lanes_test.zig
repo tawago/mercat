@@ -83,7 +83,7 @@ test "incomplete overlapping fans get separate lanes" {
     const aa = arena.allocator();
     const graph = try mkGraph(aa, &edges);
     const fans = try fan.detect(aa, graph, lg);
-    try fan_lanes.assignLanes(Geom, aa, graph, lg, &geom, fans, .{});
+    try fan_lanes.assignLanes(Geom, aa, graph, lg, &geom, fans, .{}, null);
 
     const lane_a = laneOfPivot(fans, .out, 0); // fan-OUT A
     const lane_c = laneOfPivot(fans, .out, 2); // fan-OUT C
@@ -125,7 +125,7 @@ test "lane assignment reserves one extra gap row per lane" {
     const aa = arena.allocator();
     const graph = try mkGraph(aa, &edges);
     const fans = try fan.detect(aa, graph, lg);
-    try fan_lanes.assignLanes(Geom, aa, graph, lg, &geom, fans, .{});
+    try fan_lanes.assignLanes(Geom, aa, graph, lg, &geom, fans, .{}, null);
     var max_lane: u32 = 0;
     for (fans) |f| max_lane = @max(max_lane, f.lane);
     const extras = try fan.extraRowsPerGap(aa, lg, fans);
@@ -165,7 +165,7 @@ test "complete K3,3 mesh keeps every fan on lane 0" {
     const aa = arena.allocator();
     const graph = try mkGraph(aa, &edges);
     const fans = try fan.detect(aa, graph, lg);
-    try fan_lanes.assignLanes(Geom, aa, graph, lg, &geom, fans, .{});
+    try fan_lanes.assignLanes(Geom, aa, graph, lg, &geom, fans, .{}, null);
     for (fans) |f| try testing.expectEqual(@as(u32, 0), f.lane);
     const extras = try fan.extraRowsPerGap(aa, lg, fans);
     try testing.expectEqual(@as(u32, 1), extras[0]);
@@ -228,7 +228,7 @@ test "a clustered undirected fan with no declared leaf pairs unfuses onto separa
     {
         const graph = try mkBareGraph(aa, &edges, &.{});
         const fans = try fan.detect(aa, graph, lg);
-        try fan_lanes.assignLanes(Geom, aa, graph, lg, &geom, fans, .{});
+        try fan_lanes.assignLanes(Geom, aa, graph, lg, &geom, fans, .{}, null);
         var lanes = [_]u32{ 0, 0, 0 };
         peerLanes(fans, .in, 3, &lanes);
         try testing.expect(lanes[0] != lanes[1]);
@@ -246,7 +246,7 @@ test "a clustered undirected fan with no declared leaf pairs unfuses onto separa
         };
         const graph = try mkBareGraph(aa, &edges, &clique);
         const fans = try fan.detect(aa, graph, lg);
-        try fan_lanes.assignLanes(Geom, aa, graph, lg, &geom, fans, .{});
+        try fan_lanes.assignLanes(Geom, aa, graph, lg, &geom, fans, .{}, null);
         var lanes = [_]u32{ 9, 9, 9 };
         peerLanes(fans, .in, 3, &lanes);
         for (lanes) |l| try testing.expectEqual(@as(u32, 0), l);
@@ -275,7 +275,7 @@ test "a clustered DIRECTED fan is untouched by the closure law" {
     // mkGraph's edges all carry `arrow_to = .filled` — a directed fan.
     const graph = try mkGraph(aa, &edges);
     const fans = try fan.detect(aa, graph, lg);
-    try fan_lanes.assignLanes(Geom, aa, graph, lg, &geom, fans, .{});
+    try fan_lanes.assignLanes(Geom, aa, graph, lg, &geom, fans, .{}, null);
     var lanes = [_]u32{ 9, 9, 9 };
     peerLanes(fans, .in, 3, &lanes);
     for (lanes) |l| try testing.expectEqual(@as(u32, 0), l);
@@ -316,7 +316,7 @@ test "a salvaged fan's excluded members never land on the kept trunk's lane" {
             .{ .edge = 12, .source = null, .target = .{ .independent = .{ .permission_group = 0, .reason = .not_selected } } },
         },
     };
-    try fan_lanes.assignLanes(Geom, aa, graph, lg, &geom, fans, joins);
+    try fan_lanes.assignLanes(Geom, aa, graph, lg, &geom, fans, joins, null);
     var lanes = [_]u32{ 9, 9, 9 };
     peerLanes(fans, .in, 3, &lanes);
     try testing.expectEqual(@as(u32, 0), lanes[0]);

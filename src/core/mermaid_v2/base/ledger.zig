@@ -188,6 +188,32 @@ pub const RealizedJoins = struct {
     co_realized: []const EdgeId = &.{},
 };
 
+// -- Rail-closure report-only inventory --------------------------------------
+
+const rail_closure = @import("rail_closure.zig");
+
+/// How many discharged edges also own private geometry (`co_double_discharge`);
+/// the predicate itself lives in the sibling rail_closure.zig.
+pub const doubleDischarged = rail_closure.doubleDischarged;
+
+/// The all-arrow-free shared-rail closure law's REPORT-ONLY inventory
+/// (base/rail_closure.zig), carried on the Sketch so the shipped candidate's
+/// counts reach telemetry. Never read by a layout decision: a refusal is
+/// already expressed as the `independent` disposition that unfuses the
+/// members, and these three fields only NAME what happened. Field names are
+/// the registry tags verbatim (pinned by test).
+pub const ClosureCounts = struct {
+    /// Rails the law refused as proposed — outright, or by salvaging a strict
+    /// subset. One per refused rail.
+    rail_closure_undeclared: u32 = 0,
+    /// Leaf pairs of a proposed rail with no usable backing declaration:
+    /// undeclared, decorated, labeled, or of the wrong stroke class.
+    co_undeclared: u32 = 0,
+    /// Discharged edges that ALSO kept private geometry — the withholding
+    /// leaked and one relation is stated twice. Must stay zero.
+    co_double_discharge: u32 = 0,
+};
+
 // -- Co-channel membership ---------------------------------------------------
 // The set vocabulary itself lives in the sibling co_channel.zig (split out
 // at the 500-line cap); re-exported so every `pb.CoSet` / `pb.coMembers`

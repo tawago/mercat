@@ -264,6 +264,8 @@ pub const Sketch = struct {
     busbars: []const Rail = &.{},
     /// Candidate-local branch realization envelope. // guarded-by: entry.zig "V-D-IR-07: clustered production path keeps the realized plan envelope empty"
     joins: ledger.RealizedJoins = .{},
+    /// Report-only closure-law inventory for this candidate (never a layout input).
+    closure: ledger.ClosureCounts = .{},
     /// Co-channel membership: the edge groups that legally share ink because
     /// one structural decision put them on a channel together.
     ///

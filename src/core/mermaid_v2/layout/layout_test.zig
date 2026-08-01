@@ -9,7 +9,7 @@ const routing = @import("routing.zig");
 
 const testing = std.testing;
 
-fn mkNode(id: sg.NodeId, raw: []const u8) sg.Node {
+pub fn mkNode(id: sg.NodeId, raw: []const u8) sg.Node {
     return .{
         .id = id,
         .raw_id = raw,
@@ -20,7 +20,7 @@ fn mkNode(id: sg.NodeId, raw: []const u8) sg.Node {
     };
 }
 
-fn mkEdge(id: sg.EdgeId, from: sg.NodeId, to: sg.NodeId) sg.Edge {
+pub fn mkEdge(id: sg.EdgeId, from: sg.NodeId, to: sg.NodeId) sg.Edge {
     return .{
         .id = id,
         .from = from,
@@ -41,7 +41,7 @@ fn findById(nodes: []const sketch.NodePlacement, id: sketch.NodeId) sketch.NodeP
     @panic("missing node");
 }
 
-fn deinitSketch(s: *sketch.Sketch, allocator: std.mem.Allocator) void {
+pub fn deinitSketch(s: *sketch.Sketch, allocator: std.mem.Allocator) void {
     // Sketch is arena-owned by coords.layout — but coords doesn't expose a
     // deinit method on Sketch. For tests we have to leak the arena since
     // we can't reach it through the public API. testing.allocator catches

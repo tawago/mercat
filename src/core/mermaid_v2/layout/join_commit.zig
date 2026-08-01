@@ -5,23 +5,10 @@ const pb = @import("../base/ledger.zig");
 const rc = @import("../base/rail_closure.zig");
 const sg = @import("../sem_graph.zig");
 
-/// Report-only inventory of the all-arrow-free shared-rail closure law
-/// (base/rail_closure.zig). Never read by layout — the refusals it counts are
-/// already expressed as `independent` dispositions, which is what unfuses the
-/// members. Tests and telemetry read it; `build` accepts a null sink.
-pub const Report = struct {
-    /// Rails the law refused as proposed — outright, or by salvaging a
-    /// strict subset. One per refused rail (`rail_closure_undeclared`).
-    rail_closure_undeclared: u32 = 0,
-    /// Leaf pairs whose backing failed the bijection: undeclared, decorated,
-    /// labeled, wrong stroke class, or already spent on another rail
-    /// (`co_undeclared`).
-    co_undeclared: u32 = 0,
-};
-
-pub fn build(a: std.mem.Allocator, graph: sg.SemGraph, permits: ?*const pb.JoinPermits, flat: bool, reversed_edges: []const pb.EdgeId, disable: bool) error{OutOfMemory}!pb.RealizedJoins {
-    return buildReported(a, graph, permits, flat, reversed_edges, disable, null);
-}
+/// The closure law's report-only inventory (base/ledger.zig). One type for
+/// every producer — the flat commitment here and the clustered lane pass —
+/// so the shipped Sketch carries a single set of counts.
+pub const Report = pb.ClosureCounts;
 
 pub fn buildReported(a: std.mem.Allocator, graph: sg.SemGraph, permits: ?*const pb.JoinPermits, flat: bool, reversed_edges: []const pb.EdgeId, disable: bool, report: ?*Report) error{OutOfMemory}!pb.RealizedJoins {
     if (!flat or permits == null) return .{};

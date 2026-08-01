@@ -279,3 +279,40 @@ fn edgeById(s: sketch.Sketch, id: sketch.EdgeId) ?sketch.EdgePath {
     }
     return null;
 }
+
+test "the merged sketch sums its pieces' closure counts" {
+    // The refusal happens INSIDE the child piece: `subgraph S { Z---A; Z---B;
+    // Z---C }`. Report-only counts are per-piece facts about one merged
+    // picture, so keeping only the outer piece's would report a clean render
+    // for a diagram whose fan the law refused.
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+
+    var nodes = [_]sem_graph.Node{
+        .{ .id = 0, .raw_id = "Z", .label = "Z", .shape = .rect, .classes = &.{}, .cluster = 0 },
+        .{ .id = 1, .raw_id = "A", .label = "A", .shape = .rect, .classes = &.{}, .cluster = 0 },
+        .{ .id = 2, .raw_id = "B", .label = "B", .shape = .rect, .classes = &.{}, .cluster = 0 },
+        .{ .id = 3, .raw_id = "C", .label = "C", .shape = .rect, .classes = &.{}, .cluster = 0 },
+    };
+    var edges = [_]sem_graph.Edge{
+        .{ .id = 0, .from = 0, .to = 1, .kind = .solid, .arrow_from = .none, .arrow_to = .none, .label = null },
+        .{ .id = 1, .from = 0, .to = 2, .kind = .solid, .arrow_from = .none, .arrow_to = .none, .label = null },
+        .{ .id = 2, .from = 0, .to = 3, .kind = .solid, .arrow_from = .none, .arrow_to = .none, .label = null },
+    };
+    var members = [_]sem_graph.NodeId{ 0, 1, 2, 3 };
+    var clusters = [_]sem_graph.Cluster{
+        .{ .id = 0, .raw_id = "S", .label = "S", .parent = null, .members = &members, .sub_clusters = &.{}, .direction = null },
+    };
+    const graph: sem_graph.SemGraph = .{
+        .direction = .TD,
+        .nodes = &nodes,
+        .edges = &edges,
+        .clusters = &clusters,
+        .classes = &.{},
+        .arena = null,
+    };
+    const s = try recurse.layoutPieces(a, graph, .{ .max_width = 120 });
+    try std.testing.expectEqual(@as(u32, 1), s.closure.rail_closure_undeclared);
+    try std.testing.expectEqual(@as(u32, 3), s.closure.co_undeclared);
+}

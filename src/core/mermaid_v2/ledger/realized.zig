@@ -322,12 +322,9 @@ pub fn realize(
     // permission re-decided here: the discharges were made before the sketch
     // existed, so the record travels with the plan describing it. What IS
     // re-checked is that no discharged edge also owns an EdgePath.
-    var double_discharge: u32 = 0;
-    for (s.joins.co_realized) |co| {
-        for (s.edges) |e| {
-            if (e.id == co) double_discharge += 1;
-        }
-    }
+    const routed = try allocator.alloc(pb.EdgeId, s.edges.len);
+    for (s.edges, routed) |e, *slot| slot.* = e.id;
+    const double_discharge = pb.doubleDischarged(s.joins.co_realized, routed);
 
     const conflict_slice = try conflicts.toOwnedSlice(allocator);
     return .{

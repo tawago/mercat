@@ -76,6 +76,8 @@ pub fn assignLanes(
     geom: []const G,
     fans: []Fan,
     joins: pb.RealizedJoins,
+    /// Report-only closure-law sink for the clustered arm (null in tests).
+    report: ?*pb.ClosureCounts,
 ) error{OutOfMemory}!void {
     if (fans.len == 0 or lg.layers.len < 2) return;
     const ngaps: u32 = @intCast(lg.layers.len - 1);
@@ -169,7 +171,7 @@ pub fn assignLanes(
     // lever never ran, so the all-arrow-free closure law is applied here,
     // directly over the graph, or the fan fuses undeclared leaf pairs.
     if (joins.memberships.len == 0) {
-        try rail_law.refuseUndeclared(a, graph, lg, fans, invisible);
+        try rail_law.refuseUndeclared(a, graph, lg, fans, invisible, report);
         return;
     }
 

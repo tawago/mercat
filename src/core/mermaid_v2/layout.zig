@@ -116,7 +116,11 @@ fn buildSketch(
     // path just like authored clusters; no original-input permit may affect
     // their geometry before post-layout realization applies the same gate.
     const candidate_flat = opts.join_permits_flat and graph.clusters.len == 0;
-    var candidate_joins = try join_commit.build(a, graph, opts.join_permits, candidate_flat, lg.reversed_edges, opts.disable_join_realization);
+    // The closure law's report-only counts ride the Sketch to telemetry: the
+    // registry tags name real events only if a production render can fire them.
+    // guarded-by: layout_test2.zig "a production render carries the closure law's counts on its Sketch"
+    var closure: ledger.ClosureCounts = .{};
+    var candidate_joins = try join_commit.buildReported(a, graph, opts.join_permits, candidate_flat, lg.reversed_edges, opts.disable_join_realization, &closure);
     const port_active = hasPortWork(candidate_joins);
     const lane_plan = try port_plan.planLanes(a, graph, lg, candidate_joins);
     const derived = if (opts.join_permits) |plan| blk: {
@@ -165,7 +169,7 @@ fn buildSketch(
     // rail row via fans[].lane so every declared edge stays traceable. Complete
     // meshes / single trunks / pure fan-in|out stay lane 0 (byte-identical).
     // guarded-by: layout/fan_lanes_test.zig "incomplete overlapping fans get separate lanes"
-    if (fans.len > 0) try fan_lanes.assignLanes(NodeGeom, a, graph, lg, geom, fans, candidate_joins);
+    if (fans.len > 0) try fan_lanes.assignLanes(NodeGeom, a, graph, lg, geom, fans, candidate_joins, &closure);
 
     // Reserve max(lane)+1 gap rows per fan gap (extraRowsPerGap reads fans[].lane).
     // The label-feasibility gate first clears `labeled` on fans whose on-run
@@ -326,6 +330,13 @@ fn buildSketch(
     const busbars_out = try a.alloc(sketch.Rail, edges_result.busbars.len);
     for (edges_result.busbars, busbars_out) |b, *out| out.* = b.busbar;
 
+    // A discharged edge is rendered by a rail's crossbar, so owning an
+    // EdgePath too would state its relation twice. Measured over the sketch
+    // this call is finalizing — the artifact, never a re-derivation.
+    const routed = try a.alloc(ledger.EdgeId, edges_out.len);
+    for (edges_out, routed) |e, *slot| slot.* = e.id;
+    closure.co_double_discharge = ledger.doubleDischarged(candidate_joins.co_realized, routed);
+
     return sketch.Sketch{
         .bbox = bbox,
         .direction = graph.direction, // BT was canonicalized to TD above; unreachable here
@@ -334,6 +345,7 @@ fn buildSketch(
         .edges = edges_out,
         .busbars = busbars_out,
         .joins = candidate_joins,
+        .closure = closure,
         // Fan-derived sets PLUS the port shares read back off the final
         // polylines: the port plan can route several edges through one
         // perimeter port and records nothing, so the only declaration of that
@@ -436,4 +448,5 @@ const buildPlacements = sizing.buildPlacements;
 
 test {
     _ = @import("layout/layout_test.zig");
+    _ = @import("layout/layout_test2.zig");
 }
