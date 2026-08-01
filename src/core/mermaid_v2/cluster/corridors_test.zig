@@ -246,3 +246,47 @@ test "drawnFrame walks through synthetic packing frames to the drawn one" {
     };
     try testing.expectEqual(@as(?sketch.ClusterId, null), corridors.drawnFrame(&frames, top));
 }
+
+test "a descent escaping a frame wall leaves the frame instead of stepping inside it" {
+    // A frame whose LEFT wall is the column the node-clear core prefers, with
+    // the target column to its left. Escaping the wall by stepping in a
+    // direction fixed by the target ("away from want") steps to x=12 — the
+    // frame's own interior — so the whole descent is drawn down through S,
+    // crossing its top and bottom borders on the way in and out.
+    const frames = [_]sketch.ClusterFrame{
+        .{ .id = 1, .rect = .{ .x = 11, .y = 3, .w = 12, .h = 11 }, .parent_id = null, .label = "S", .depth = 0 },
+    };
+    // Endpoints are both OUTSIDE S: it is a frame this corridor has no
+    // business entering. The boxes push the node-clear core onto x=11.
+    const placements = [_]sketch.NodePlacement{
+        .{ .id = 0, .rect = .{ .x = 4, .y = 0, .w = 6, .h = 3 }, .shape = .rect, .lines = &.{"A"}, .cluster_id = null },
+        .{ .id = 1, .rect = .{ .x = 4, .y = 16, .w = 6, .h = 3 }, .shape = .rect, .lines = &.{"B"}, .cluster_id = null },
+        .{ .id = 2, .rect = .{ .x = 0, .y = 4, .w = 10, .h = 9 }, .shape = .rect, .lines = &.{"mid"}, .cluster_id = null },
+    };
+    const lo: i32 = 3;
+    const hi: i32 = 15;
+    const want: i32 = 7;
+
+    // The unguarded core really does land on S's wall, so the fixture
+    // exercises the guard rather than agreeing with it by luck.
+    const naive = sketch.clearLine(false, want, lo, hi, &placements, 0, 1, .{ .margin = true });
+    try testing.expectEqual(@as(i32, 11), naive);
+
+    const col = corridors.descentColumn(want, lo, hi, &placements, 0, 1, &frames);
+    const r = frames[0].rect;
+    try testing.expect(col <= r.x or col >= r.right() - 1); // never the interior
+    try testing.expect(col >= 0); // and never off the canvas
+    // Nearest-first in BOTH directions: it steps off the wall to x=10, the
+    // near side, rather than 12 (inside) or all the way past x=22.
+    try testing.expectEqual(@as(i32, 10), col);
+
+    // A frame that HOLDS an endpoint is one the corridor legitimately enters:
+    // the interior term must not push the descent out of it.
+    const inner = [_]sketch.NodePlacement{
+        placements[0],
+        .{ .id = 1, .rect = .{ .x = 13, .y = 8, .w = 6, .h = 3 }, .shape = .rect, .lines = &.{"B"}, .cluster_id = 1 },
+        placements[2],
+    };
+    const held = corridors.descentColumn(16, lo, hi, &inner, 0, 1, &frames);
+    try testing.expect(held > r.x and held < r.right() - 1);
+}

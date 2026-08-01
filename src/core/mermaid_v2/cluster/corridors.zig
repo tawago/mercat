@@ -35,6 +35,7 @@
 
 const std = @import("std");
 const sketch = @import("../sketch.zig");
+const tracks = @import("tracks.zig");
 
 /// One end of a bridge: the node face the corridor leaves from or arrives
 /// on, plus the drawn frame (if any) whose border it therefore crosses.
@@ -207,6 +208,83 @@ pub const Req = struct {
 
 /// An inclusive coordinate span; empty when `hi < lo`.
 pub const Span = struct { lo: i32, hi: i32 };
+
+/// How far the descent search walks before settling for its node-clear
+/// preference. Generous — a real graph never needs a fraction of it.
+const DESCENT_REACH: i32 = 512;
+
+/// Column for a vertical corridor's long descent over rows `[lo, hi]`:
+/// node-clear (the shared `sketch.clearLine` core), off every drawn frame's
+/// border column, and out of the strict INTERIOR of every drawn frame that
+/// holds neither endpoint.
+///
+/// The border term alone is not enough. Escaping a wall by marching in one
+/// fixed direction steps INWARD as often as outward, and a descent laid
+/// inside a frame it has no business in crosses that frame's two borders and
+/// is drawn down through its title and its members — two crossings nobody
+/// counts, in a subgraph the edge never touches. So the search is
+/// nearest-first in BOTH directions from the node-clear preference, ties
+/// broken toward the target column (the shorter final jog), and it never
+/// leaves the canvas.
+/// guarded-by: corridors_test.zig "a descent escaping a frame wall leaves the frame instead of stepping inside it"
+pub fn descentColumn(
+    want: i32,
+    lo: i32,
+    hi: i32,
+    placements: []const sketch.NodePlacement,
+    from_id: sketch.NodeId,
+    to_id: sketch.NodeId,
+    clusters: []const sketch.ClusterFrame,
+) i32 {
+    const first = sketch.clearLine(false, want, lo, hi, placements, from_id, to_id, .{ .margin = true });
+    if (!frameBlocked(first, lo, hi, placements, from_id, to_id, clusters)) return first;
+
+    const dirn: i32 = if (want < first) -1 else 1;
+    var d: i32 = 1;
+    while (d <= DESCENT_REACH) : (d += 1) {
+        for ([2]i32{ first + dirn * d, first - dirn * d }) |c| {
+            if (c < 0) continue;
+            if (frameBlocked(c, lo, hi, placements, from_id, to_id, clusters)) continue;
+            if (sketch.lineTouchesAny(false, c, lo, hi, placements, from_id, to_id)) continue;
+            return c;
+        }
+    }
+    return first;
+}
+
+/// True iff a descent at `col` would run along a drawn frame's wall or down
+/// the inside of a frame that holds neither of the corridor's endpoints.
+fn frameBlocked(
+    col: i32,
+    lo: i32,
+    hi: i32,
+    placements: []const sketch.NodePlacement,
+    from_id: sketch.NodeId,
+    to_id: sketch.NodeId,
+    clusters: []const sketch.ClusterFrame,
+) bool {
+    if (tracks.onFrameBorder(false, col, lo, hi, clusters)) return true;
+    for (clusters) |c| {
+        if (c.synthetic or c.rect.w == 0 or c.rect.h == 0) continue;
+        // Strict interior only: the walls are the border term's business.
+        if (col <= c.rect.x or col >= c.rect.right() - 1) continue;
+        if (lo >= c.rect.bottom() or hi < c.rect.y) continue;
+        // A frame holding an endpoint is one this corridor legitimately
+        // enters or leaves; its crossing is the edge's own.
+        if (frameHolds(c.rect, placements, from_id) or frameHolds(c.rect, placements, to_id)) continue;
+        return true;
+    }
+    return false;
+}
+
+fn frameHolds(frame: sketch.Rect, placements: []const sketch.NodePlacement, id: sketch.NodeId) bool {
+    for (placements) |p| {
+        if (p.id != id) continue;
+        return p.rect.x >= frame.x and p.rect.right() <= frame.right() and
+            p.rect.y >= frame.y and p.rect.bottom() <= frame.bottom();
+    }
+    return false;
+}
 
 /// The approach run a crossing on `side` lays down between `frame`'s border
 /// and `rect`'s face: rows for a horizontal side, columns for a vertical one.

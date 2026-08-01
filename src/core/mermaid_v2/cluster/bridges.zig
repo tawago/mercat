@@ -370,7 +370,7 @@ fn verticalCorridor(
     // if blocked; margined over merely touch-free (flush `││` reads as
     // crowding) — sketch.clearLine is the shared clearance core (cluster/ may
     // import sketch, not layout/). // guarded-by: sketch.zig "clearLine prefers a margined line over a closer touch-free-only line"
-    const run_col = clearRunColumn(end.x, lo, hi, placements, from_id, to_id, clusters);
+    const run_col = corridors.descentColumn(end.x, lo, hi, placements, from_id, to_id, clusters);
 
     var poly: std.ArrayListUnmanaged(sketch.Point) = .empty;
     var prev = start;
@@ -388,34 +388,6 @@ fn verticalCorridor(
         prev = p;
     }
     return try poly.toOwnedSlice(arena);
-}
-
-/// Column for a vertical corridor's long descent: node-clear (the shared
-/// `sketch.clearLine` core) AND clear of every drawn cluster-frame border
-/// column over the run's span. A run laid ON a border column does not
-/// merely touch it, it IS it for the whole descent — the frame swallows the
-/// stroke and the run crosses both of that side's corners on the way.
-/// Slides further out (away from the target column) until both hold.
-/// guarded-by: bridges_test.zig "a vertical corridor's descent column never lands on a drawn frame border"
-fn clearRunColumn(
-    want: i32,
-    lo: i32,
-    hi: i32,
-    placements: []const sketch.NodePlacement,
-    from_id: sketch.NodeId,
-    to_id: sketch.NodeId,
-    clusters: []const sketch.ClusterFrame,
-) i32 {
-    var col = sketch.clearLine(false, want, lo, hi, placements, from_id, to_id, .{ .margin = true });
-    if (!tracks.onFrameBorder(false, col, lo, hi, clusters)) return col;
-    const sign: i32 = if (col >= want) 1 else -1;
-    var guard: u32 = 0;
-    while (guard < 4096) : (guard += 1) {
-        col += sign;
-        if (!tracks.onFrameBorder(false, col, lo, hi, clusters) and
-            !sketch.lineTouchesAny(false, col, lo, hi, placements, from_id, to_id)) break;
-    }
-    return col;
 }
 
 /// True iff any straight vertical segment of `poly` touches a node box
