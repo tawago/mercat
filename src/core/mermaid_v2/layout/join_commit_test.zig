@@ -264,12 +264,12 @@ test "every closure-law counter names a registered report-only tag" {
     try std.testing.expect(@hasField(realized.Report, fields[2]));
 }
 
-test "a clique whose pair edges are other rails' members keeps every rail" {
+test "a clique whose pair edges are other rails' members keeps a rail" {
     // Z---A, Z---B, Z---C plus the full leaf clique A---B, A---C, B---C. Every
-    // leaf pair of every rail is declared, so nothing may unfuse — but each of
-    // those declarations is itself a member of some OTHER star, so a rule that
-    // withheld another rail's ink as a backer would refuse the whole clique
-    // and rebuild the picture around a fabrication that is not there.
+    // leaf pair of the widest star is declared, so it must stay fused — and
+    // each of those declarations is itself a member of some OTHER star, so a
+    // rule that withheld another rail's ink as a backer would refuse the whole
+    // clique and rebuild the picture around a fabrication that is not there.
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
@@ -287,4 +287,84 @@ test "a clique whose pair edges are other rails' members keeps every rail" {
         for (joins.co_realized[0..i]) |prev| try std.testing.expect(prev != co);
         for (joins.selected_joins) |sj| for (sj.members) |m| try std.testing.expect(m != co);
     }
+}
+
+test "a single fan with its own fully declared clique keeps the whole trunk" {
+    // A---Z, B---Z, C---Z plus the leaf clique A---B, A---C, B---C. The star at
+    // Z asserts exactly those three pairs and the graph declares all three, so
+    // the rail keeps every member and its crossbar takes over their rendering.
+    // The clique edges pair up into stars of their own (in@C is {A---C, B---C}),
+    // but those are the star's OWN discharges: co-realized ink draws nothing
+    // privately, so it can carry no competing trunk and claims no pair.
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const graph = try parse(a, "flowchart TD\n  A --- Z\n  B --- Z\n  C --- Z\n  A --- B\n  A --- C\n  B --- C\n");
+    const plan = (try permits.build(a, graph, .joined)).plan;
+    var report: join_commit.Report = .{};
+    const joins = try join_commit.buildReported(a, graph, &plan, true, &.{}, false, &report);
+
+    try std.testing.expectEqual(@as(u32, 0), report.rail_closure_undeclared);
+    try std.testing.expectEqual(@as(u32, 0), report.co_undeclared);
+    try std.testing.expectEqual(@as(usize, 1), joins.selected_joins.len);
+    const trunk = joins.selected_joins[0];
+    for (plan.groups) |g| if (g.id == trunk.permission_group) {
+        try std.testing.expectEqual(pb.JoinDirection.in, g.direction);
+        try std.testing.expectEqual(nodeId(graph, "Z"), g.pivot);
+    };
+    try std.testing.expectEqual(@as(usize, 3), trunk.members.len);
+    // Exactly the three clique declarations are co-realized by that crossbar.
+    try std.testing.expectEqual(@as(usize, 3), joins.co_realized.len);
+    for ([_][2][]const u8{ .{ "A", "B" }, .{ "A", "C" }, .{ "B", "C" } }) |pair| {
+        const id = edgeIdOf(graph, pair[0], pair[1]);
+        var found = false;
+        for (joins.co_realized) |co| {
+            if (co == id) found = true;
+        }
+        try std.testing.expect(found);
+    }
+}
+
+test "two rails asserting one declared pair both refuse" {
+    // A---Z, B---Z and A---W, B---W with A---B declared. Each star asserts only
+    // A—B, which the graph does declare — but the two crossbars run over the
+    // SAME leaf columns, so a reader traces Z up A's column, along one
+    // crossbar and down to W: a relation nothing declares. The pair is
+    // spendable exactly once, so neither rail may keep it.
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const graph = try parse(a, "flowchart TD\n  A --- Z\n  B --- Z\n  A --- W\n  B --- W\n  A --- B\n");
+    const plan = (try permits.build(a, graph, .joined)).plan;
+    var report: join_commit.Report = .{};
+    const joins = try join_commit.buildReported(a, graph, &plan, true, &.{}, false, &report);
+
+    try std.testing.expectEqual(@as(usize, 0), joins.selected_joins.len);
+    // Nothing is co-realized: a refused rail draws no crossbar to render A---B.
+    try std.testing.expectEqual(@as(usize, 0), joins.co_realized.len);
+    try std.testing.expectEqual(@as(u32, 2), report.rail_closure_undeclared);
+    // The refusal reaches every member as `independent` — that is what unfuses.
+    for ([_][2][]const u8{ .{ "A", "Z" }, .{ "B", "Z" }, .{ "A", "W" }, .{ "B", "W" } }) |pair| {
+        const t = targetOf(joins, edgeIdOf(graph, pair[0], pair[1])).?;
+        try std.testing.expect(t.? == .independent);
+    }
+}
+
+test "one rail's pair survives when no second rail asserts it" {
+    // The same picture minus the second star: A---Z, B---Z, A---W with A---B
+    // declared. Only one rail asserts A—B now, so the reservation has nothing
+    // to refuse and the star at Z keeps its crossbar — the boundary the
+    // both-refuse rule must not overshoot.
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const graph = try parse(a, "flowchart TD\n  A --- Z\n  B --- Z\n  A --- W\n  A --- B\n");
+    const plan = (try permits.build(a, graph, .joined)).plan;
+    var report: join_commit.Report = .{};
+    const joins = try join_commit.buildReported(a, graph, &plan, true, &.{}, false, &report);
+
+    try std.testing.expectEqual(@as(u32, 0), report.rail_closure_undeclared);
+    try std.testing.expectEqual(@as(usize, 1), joins.selected_joins.len);
+    try std.testing.expectEqual(@as(usize, 1), joins.co_realized.len);
+    try std.testing.expectEqual(edgeIdOf(graph, "A", "B"), joins.co_realized[0]);
 }

@@ -98,24 +98,18 @@ test "one declaration cannot back two pairs of the same rail" {
     try testing.expectEqual(@as(u32, 2), v.undeclared_pairs);
 }
 
-test "a declaration another rail draws licenses the pair but is never discharged" {
-    // The clique case: the leaf pair IS declared, but that declaration is
-    // already ink — another rail's member, or a pair an earlier rail already
-    // discharged. The rail keeps its fusion (it states nothing the graph does
-    // not) and the discharge is flagged so the caller withholds nothing.
+test "a declared pair names the one declaration the rail's crossbar takes over" {
+    // The clique case: the leaf pair IS declared, so the rail keeps its fusion
+    // and the verdict NAMES the declaration whose rendering the crossbar takes
+    // over. Which of the named declarations the caller may actually withhold
+    // is its own plan-wide record, not a property of this predicate.
     const members = [_]rc.Member{ member(0, 1), member(1, 2) };
-    var drawn = backer(10, 1, 2);
-    drawn.drawn = true;
-    const taken = try decide(&members, &[_]rc.Backer{drawn});
+    const taken = try decide(&members, &[_]rc.Backer{backer(10, 1, 2)});
     defer free(taken);
     try testing.expectEqual(rc.Outcome.keep, taken.outcome);
     try testing.expectEqual(@as(usize, 1), taken.discharges.len);
-    try testing.expect(taken.discharges[0].drawn);
-
-    const fresh = try decide(&members, &[_]rc.Backer{backer(10, 1, 2)});
-    defer free(fresh);
-    try testing.expectEqual(rc.Outcome.keep, fresh.outcome);
-    try testing.expect(!fresh.discharges[0].drawn);
+    try testing.expectEqual(@as(rc.EdgeId, 10), taken.discharges[0].backer);
+    try testing.expectEqual([2]rc.NodeId{ 1, 2 }, taken.discharges[0].pair);
 }
 
 test "a wide rail with nothing declared refuses without searching every subset" {

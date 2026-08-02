@@ -48,23 +48,14 @@ pub fn refuseUndeclared(
     /// clustered refusal is counted where a flat one is.
     report: ?*pb.ClosureCounts,
 ) error{OutOfMemory}!void {
-    // Every candidate rail's own ink is DRAWN plan-wide before any verdict, and
-    // the record must not depend on the order the fans happen to be visited: a
-    // declaration another fan already inks licenses a pair here (the relation
-    // is on the page) but is never discharged. This pass discharges nothing at
-    // all (see the module docs), so `drawn` is the whole record.
-    var drawn: std.ArrayListUnmanaged(sg.EdgeId) = .empty;
-    defer drawn.deinit(a);
-    for (fans) |f| {
-        for (f.peers) |p| {
-            if (!invisible.contains(p.edge_id)) try drawn.append(a, p.edge_id);
-        }
-    }
-
+    // Every fan is judged against the declarations around it, independently of
+    // the order the fans happen to be visited: this pass discharges nothing at
+    // all (see the module docs), so there is no plan-wide record to keep and no
+    // pair to reserve — a kept rail here leaves its backer's own ink alone.
     for (fans) |*f| {
         const members = try membersOf(a, graph, lg, f.*, invisible);
         defer a.free(members);
-        const verdict = try rc.decide(a, members, try backersOf(a, graph, members, drawn.items));
+        const verdict = try rc.decide(a, members, try backersOf(a, graph, members));
         if (report) |r| {
             if (verdict.outcome == .refuse or verdict.outcome == .salvage) r.rail_closure_undeclared += 1;
             r.co_undeclared += verdict.undeclared_pairs;
@@ -103,9 +94,7 @@ fn membersOf(
 }
 
 /// Every declared non-self edge that is not itself a member of this rail.
-/// `drawn` names the edges some fan already inks — usable as a licence, never
-/// dischargeable.
-fn backersOf(a: std.mem.Allocator, graph: sg.SemGraph, members: []const rc.Member, drawn: []const sg.EdgeId) error{OutOfMemory}![]rc.Backer {
+fn backersOf(a: std.mem.Allocator, graph: sg.SemGraph, members: []const rc.Member) error{OutOfMemory}![]rc.Backer {
     var out: std.ArrayListUnmanaged(rc.Backer) = .empty;
     for (graph.edges) |edge| {
         if (edge.from == edge.to) continue;
@@ -121,7 +110,6 @@ fn backersOf(a: std.mem.Allocator, graph: sg.SemGraph, members: []const rc.Membe
             .kind = kindOrdinal(edge.kind),
             .arrow_free = sg.arrowFree(edge),
             .unlabeled = edge.label == null or edge.label.?.len == 0,
-            .drawn = rc.contains(drawn, edge.id),
         });
     }
     return out.toOwnedSlice(a);

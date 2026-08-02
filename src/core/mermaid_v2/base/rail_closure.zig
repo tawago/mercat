@@ -27,14 +27,10 @@
 //! would double the relation. `Verdict.discharges` names them; the caller
 //! withholds them from routing.
 //!
-//! Exactly ONE rail discharges a given declaration plan-wide. The caller
-//! records the ones already inked — another rail's drawn member, or a
-//! declaration an earlier rail already discharged — as `Backer.drawn`: such a
-//! declaration still LICENSES the pair (the relation is on the page and the
-//! crossbar states nothing new), it simply does not hand over its rendering a
-//! second time. Refusing over it instead would unfuse the fully declared
-//! cliques the law has nothing against — every leaf pair of a clique is some
-//! other star's member.
+//! This predicate judges ONE proposed rail against the declarations around
+//! it. Which of those declarations are still spendable, and which rail gets
+//! to spend a pair when two of them assert it, is the caller's plan-wide
+//! record — see `join_commit.reserve`.
 //!
 //! Pure data + pure functions; imports only std. Own input types (no IR
 //! type crosses this boundary) so all three call sites — the flat pre-sizing
@@ -69,15 +65,6 @@ pub const Backer = struct {
     kind: u8,
     arrow_free: bool,
     unlabeled: bool,
-    /// True iff this declaration ALREADY carries ink of its own — it is a
-    /// drawn member of ANOTHER rail. It still LICENSES the pair (the crossbar
-    /// states a relation the graph declares), but it is never DISCHARGED:
-    /// withholding it would delete the other rail's spoke, losing an edge to
-    /// buy a fusion. A fully declared clique is the common case — every leaf
-    /// pair there is some other star's member — so refusing over it would
-    /// unfuse exactly the pictures the law has nothing against.
-    /// guarded-by: rail_closure_test.zig "a declaration another rail draws licenses the pair but is never discharged"
-    drawn: bool = false,
 };
 
 /// One leaf pair and the declared edge whose rendering the rail's crossbar
@@ -85,10 +72,6 @@ pub const Backer = struct {
 pub const Discharge = struct {
     pair: [2]NodeId,
     backer: EdgeId,
-    /// Copied from the backing declaration: a `drawn` backer keeps its own
-    /// ink, so the caller records the pair as SPENT (the plan-wide bijection)
-    /// without withholding the edge from routing.
-    drawn: bool = false,
 };
 
 pub const Outcome = enum {
@@ -125,8 +108,7 @@ pub const Verdict = struct {
 /// keeps the subset enumeration bounded (2^16 worst case).
 pub const max_salvage_members: usize = 16;
 
-/// Decide one proposed rail. Declarations already inked elsewhere are marked
-/// `Backer.drawn` by the caller: usable as a licence, never discharged.
+/// Decide one proposed rail against the declarations the caller offers it.
 /// guarded-by: rail_closure_test.zig "an undeclared leaf pair refuses the rail"
 pub fn decide(
     allocator: std.mem.Allocator,
@@ -213,7 +195,7 @@ pub fn nodesClosed(
                 return null;
             };
             try used.append(allocator, b.edge);
-            try out.append(allocator, .{ .pair = normalize(y, x), .backer = b.edge, .drawn = b.drawn });
+            try out.append(allocator, .{ .pair = normalize(y, x), .backer = b.edge });
         }
     }
     return try out.toOwnedSlice(allocator);
