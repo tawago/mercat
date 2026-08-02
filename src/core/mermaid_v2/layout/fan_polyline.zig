@@ -123,6 +123,17 @@ pub fn buildPolylineAt(
     // fabricating bus. lane 0 == the classic shared row (byte-identical).
     const lane: i32 = @intCast(@max(fan.lane, member_lane));
     var rail_y: i32 = if (south_flow) t_peri - 2 - lift - lane else t_peri + 2 + lift + lane;
+    // A rail belongs to the GAP it crosses. `routing.zig` walks the lane up
+    // until the polyline clears, and a gap holds only so many lanes: past that
+    // the raw arithmetic keeps marching over the source perimeter, through the
+    // source's own box and off the top of the canvas — where nothing is drawn,
+    // so the clearance test happily accepts it and the rasterizer then clips
+    // the run into severed ink with a dead-end terminal. Clamping to the
+    // innermost row still inside the gap makes every over-budget lane say the
+    // same unclearable thing, so the escalation reaches the designed
+    // outside-detour fallback instead of inventing a path above the diagram.
+    // guarded-by: fan_polyline_test.zig "a lane past the gap's capacity clamps to the innermost in-gap row instead of climbing over the source"
+    rail_y = if (south_flow) @max(rail_y, s_peri + 1) else @min(rail_y, s_peri - 1);
     // Labeled fan-OUT: raise the rail three extra rows (the gap rows
     // fan.extraRowsPerGap reserved) so each member's PRIVATE final descent is
     // 4 cells long — flank, on-run label row, flank, arrowhead — the DECORATED

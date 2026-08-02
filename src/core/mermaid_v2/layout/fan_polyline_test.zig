@@ -233,3 +233,38 @@ test "labeled fan-OUT rail holds the classic row when the raised rail would touc
     const poly = try fan_polyline.buildPolyline(arena.allocator(), .TD, labeled, pivot, child, .leftmost, 0, &placements);
     try testing.expectEqual(child.rect.y - 2, poly[1].y); // classic row held
 }
+
+test "a lane past the gap's capacity clamps to the innermost in-gap row instead of climbing over the source" {
+    // `routing.zig` escalates the lane until the polyline clears. A gap holds
+    // only so many rail rows; past that the raw `t_peri - 2 - lane` arithmetic
+    // climbs over the source perimeter, through the source box and off the
+    // canvas, where the clearance test finds nothing to object to and the
+    // rasterizer then clips the accepted run into severed ink. Every
+    // over-budget lane must instead report the same innermost in-gap row.
+    const a = testing.allocator;
+    var arena = std.heap.ArenaAllocator.init(a);
+    defer arena.deinit();
+
+    const pivot = sketch.NodePlacement{ .id = 0, .rect = .{ .x = 20, .y = 0, .w = 10, .h = 3 }, .shape = .rect, .lines = &.{}, .cluster_id = null };
+    const child = sketch.NodePlacement{ .id = 1, .rect = .{ .x = 40, .y = 8, .w = 10, .h = 3 }, .shape = .rect, .lines = &.{}, .cluster_id = null };
+    const placements = [_]sketch.NodePlacement{ pivot, child };
+    var peers = [_]fan.FanEdge{.{ .edge_id = 1, .peer_idx = 1, .role = .leftmost }};
+
+    const s_peri = pivot.rect.bottom() - 1; // 2
+    const t_peri = child.rect.y; // 8
+
+    // Lane 3 still fits: t_peri - 2 - 3 == 3 == s_peri + 1.
+    const fits = fan.Fan{ .direction = .out, .pivot_idx = 0, .source_layer = 0, .peers = &peers, .lane = 3 };
+    const p_fits = try fan_polyline.buildPolyline(arena.allocator(), .TD, fits, pivot, child, .leftmost, 0, &placements);
+    try testing.expectEqual(t_peri - 2 - 3, p_fits[1].y);
+    try testing.expectEqual(s_peri + 1, p_fits[1].y);
+
+    // Lanes 4 and 9 are past the gap's capacity: both clamp, neither reaches
+    // the source perimeter, and their rail rows are identical.
+    for ([_]u32{ 4, 9 }) |lane| {
+        const over = fan.Fan{ .direction = .out, .pivot_idx = 0, .source_layer = 0, .peers = &peers, .lane = lane };
+        const poly = try fan_polyline.buildPolyline(arena.allocator(), .TD, over, pivot, child, .leftmost, 0, &placements);
+        try testing.expectEqual(s_peri + 1, poly[1].y);
+        try testing.expect(poly[1].y > s_peri);
+    }
+}
