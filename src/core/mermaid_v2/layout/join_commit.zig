@@ -202,7 +202,14 @@ fn reserve(
         if (!hit) continue;
         eff_of[gi] = null;
         closure_refused[gi] = true;
-        if (report) |r| r.rail_closure_undeclared += 1;
+        // One group, one count. A SALVAGE was already counted by the per-rail
+        // pass above (it refused part of its own rail); counting it again here
+        // reports one more rail refused than the plan holds groups.
+        // guarded-by: join_commit_test.zig "a salvaged rail that then loses its pair is one refusal, not two"
+        const counted = if (verdicts[gi]) |v| v.outcome == .salvage else false;
+        if (!counted) {
+            if (report) |r| r.rail_closure_undeclared += 1;
+        }
     }
 }
 

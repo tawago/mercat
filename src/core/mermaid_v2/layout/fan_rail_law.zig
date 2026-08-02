@@ -18,6 +18,16 @@
 //! rail here simply keeps its fusion, and the backing edge keeps its own ink:
 //! a relation drawn twice, never one invented.
 //!
+//! The plan-wide clause runs here all the same. A pair is spendable ONCE:
+//! two rails whose crossbars imply the same leaf pair fabricate together even
+//! though each tells the truth alone — the reader walks one crossbar, down a
+//! shared leaf column, and along the other, arriving at a relation neither
+//! declaration covers. Geometry, not bookkeeping, is what makes that trace
+//! readable, so it does not care that this path discharges nothing: both
+//! rails refuse. The over-refusal the flat lever has to guard against — the
+//! fully declared clique, whose pair edges are themselves rails — cannot
+//! arise here, and `reserve` says why.
+//!
 //! Allowed imports (layout zone): std + sem_graph + layout siblings + base.
 
 const std = @import("std");
@@ -28,6 +38,15 @@ const fan_mod = @import("fan.zig");
 const sugiyama = @import("sugiyama.zig");
 
 const Fan = fan_mod.Fan;
+
+/// One fan's proposed rail, judged: the closure members it models plus the
+/// predicate's answer about them.
+const Claim = struct {
+    members: []rc.Member,
+    verdict: rc.Verdict,
+    /// Cleared when the plan-wide clause takes the rail's fusion away.
+    claiming: bool,
+};
 
 /// Give every member of an undeclared all-arrow-free fan its own rail lane,
 /// so the fan's rails no longer fuse into one crossbar asserting leaf pairs
@@ -48,26 +67,97 @@ pub fn refuseUndeclared(
     /// clustered refusal is counted where a flat one is.
     report: ?*pb.ClosureCounts,
 ) error{OutOfMemory}!void {
-    // Every fan is judged against the declarations around it, independently of
-    // the order the fans happen to be visited: this pass discharges nothing at
-    // all (see the module docs), so there is no plan-wide record to keep and no
-    // pair to reserve — a kept rail here leaves its backer's own ink alone.
-    for (fans) |*f| {
-        const members = try membersOf(a, graph, lg, f.*, invisible);
-        defer a.free(members);
-        const verdict = try rc.decide(a, members, try backersOf(a, graph, members));
+    // Per-rail pass: each fan judged against the declarations around it.
+    const claims = try a.alloc(Claim, fans.len);
+    defer a.free(claims);
+    for (fans, claims) |f, *claim| {
+        claim.members = try membersOf(a, graph, lg, f, invisible);
+        claim.verdict = try rc.decide(a, claim.members, try backersOf(a, graph, claim.members));
+        claim.claiming = claim.verdict.outcome == .keep or claim.verdict.outcome == .salvage;
         if (report) |r| {
-            if (verdict.outcome == .refuse or verdict.outcome == .salvage) r.rail_closure_undeclared += 1;
-            r.co_undeclared += verdict.undeclared_pairs;
+            if (claim.verdict.outcome == .refuse or claim.verdict.outcome == .salvage) r.rail_closure_undeclared += 1;
+            r.co_undeclared += claim.verdict.undeclared_pairs;
         }
-        switch (verdict.outcome) {
+    }
+
+    // Plan-wide pass: at most one rail per implied pair, both refuse otherwise.
+    const refused = try reserve(a, claims, report);
+    defer a.free(refused);
+
+    for (fans, claims, refused) |*f, claim, lost_pair| {
+        defer a.free(claim.members);
+        // A rail the reservation took apart keeps nothing: its whole member
+        // set goes to private lanes, exactly like an outright refusal.
+        if (lost_pair) {
+            assignPrivateLanes(f, claim.members, &.{}, invisible);
+            continue;
+        }
+        switch (claim.verdict.outcome) {
             .untouched, .keep => {},
             // Refuse: no subset fuses truthfully, so every member gets its own
             // row. Salvage: the kept subset stays on lane 0 (one truthful
             // crossbar) and only the excluded members are lifted off it.
-            .refuse, .salvage => assignPrivateLanes(f, members, verdict.members, invisible),
+            .refuse, .salvage => assignPrivateLanes(f, claim.members, claim.verdict.members, invisible),
         }
     }
+}
+
+/// The plan-wide clause: an implied leaf pair may be claimed by AT MOST ONE
+/// rail, and a second claimant makes it nobody's. Returns one flag per claim
+/// — true where the rail must give its fusion up.
+///
+/// The flat lever pairs this clause with a SUBORDINATION one: a candidate
+/// every one of whose members is a wider rail's backing declaration is that
+/// rail's discharge seen from the other side, and counting it as a second
+/// claimant refuses the fully declared clique. No such candidate exists here.
+/// `fan.detect` admits only peers exactly one layer from the pivot, so a
+/// rail's leaves all share ONE layer and every declaration between two of
+/// them is an intra-layer edge — which no fan can ever hold as a member. A
+/// discharge is therefore never somebody else's rail on this path, and the
+/// clause has nothing to subordinate.
+/// guarded-by: fan_lanes_test.zig "two clustered rails implying one declared leaf pair both refuse"
+fn reserve(a: std.mem.Allocator, claims: []Claim, report: ?*pb.ClosureCounts) error{OutOfMemory}![]bool {
+    const order = try a.alloc(usize, claims.len);
+    defer a.free(order);
+    for (order, 0..) |*slot, i| slot.* = i;
+    std.mem.sort(usize, order, claims, widestFirst);
+
+    const refused = try a.alloc(bool, claims.len);
+    @memset(refused, false);
+    for (order, 0..) |x, rank| {
+        if (!claims[x].claiming) continue;
+        for (order[rank + 1 ..]) |y| {
+            if (!claims[y].claiming or !sharesPair(claims[x].verdict, claims[y].verdict)) continue;
+            refused[x] = true;
+            refused[y] = true;
+        }
+    }
+    for (refused, claims) |hit, claim| {
+        // A salvage was already counted by the per-rail pass; counting the
+        // same group twice would tell the harness two rails refused.
+        if (hit and claim.verdict.outcome != .salvage) {
+            if (report) |r| r.rail_closure_undeclared += 1;
+        }
+    }
+    return refused;
+}
+
+/// Wider rails first, then by fan order — the deterministic claim order.
+fn widestFirst(claims: []const Claim, x: usize, y: usize) bool {
+    const nx = claims[x].verdict.members.len;
+    const ny = claims[y].verdict.members.len;
+    return if (nx == ny) x < y else nx > ny;
+}
+
+/// The two rails imply one and the same unordered leaf pair. `pair` is
+/// already normalized low-id first by the closure law.
+fn sharesPair(x: rc.Verdict, y: rc.Verdict) bool {
+    for (x.discharges) |dx| {
+        for (y.discharges) |dy| {
+            if (dx.pair[0] == dy.pair[0] and dx.pair[1] == dy.pair[1]) return true;
+        }
+    }
+    return false;
 }
 
 /// The fan's ink-drawing peers as closure members: the LEAF is the peer node

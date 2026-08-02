@@ -368,3 +368,21 @@ test "one rail's pair survives when no second rail asserts it" {
     try std.testing.expectEqual(@as(usize, 1), joins.co_realized.len);
     try std.testing.expectEqual(edgeIdOf(graph, "A", "B"), joins.co_realized[0]);
 }
+test "a salvaged rail that then loses its pair is one refusal, not two" {
+    // A---Z, B---Z, C---Z and A---W, B---W with A---B declared. Z's rail can
+    // only SALVAGE (A—C and B—C are undeclared) — counted once — and the
+    // salvaged subset then asserts A—B, which W's rail asserts too, so both
+    // lose the pair. Two groups refuse, so the report says two: the salvage
+    // must not be counted a second time when the reservation takes it apart.
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const graph = try parse(a, "flowchart TD\n  A --- Z\n  B --- Z\n  C --- Z\n  A --- W\n  B --- W\n  A --- B\n");
+    const plan = (try permits.build(a, graph, .joined)).plan;
+    var report: join_commit.Report = .{};
+    const joins = try join_commit.buildReported(a, graph, &plan, true, &.{}, false, &report);
+
+    try std.testing.expectEqual(@as(usize, 0), joins.selected_joins.len);
+    try std.testing.expectEqual(@as(usize, 0), joins.co_realized.len);
+    try std.testing.expectEqual(@as(u32, 2), report.rail_closure_undeclared);
+}

@@ -99,7 +99,7 @@ pub const table = [_]Row{
     },
     .{
         .token = "meshUnionLegal",
-        .why = "the ledger's union predicate is leaf_pairs.noDuplicateLeafPairs (re-exported by realized); completeness and two-sided width are guarantees of union construction, never re-derived in the ledger",
+        .why = "there is no union to judge legal: a shared run is licensed by the ONE endpoint its members share, discovered as a star group in ledger/permits.zig, and everything a rail additionally implies is judged by base/rail_closure.zig",
     },
     .{
         .token = "stampFanTrunks",

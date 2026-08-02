@@ -415,3 +415,71 @@ test "an all-to-all gap lane-separates the arrival trunks that draw its rails" {
     try fan_lanes.assignLanes(Geom, aa, graph, lg, &geom, fans, joins, null);
     try testing.expect(laneOfPivot(fans, .in, 2) != laneOfPivot(fans, .in, 3));
 }
+
+test "two clustered rails implying one declared leaf pair both refuse" {
+    // A---Z, B---Z, A---W, B---W with A---B declared, inside a subgraph (no
+    // realized plan). Each crossbar asserts only A—B, which the graph does
+    // declare — truthfully, one rail at a time. Together they stack over the
+    // SAME two leaf columns, so a reader walks Z up A's column, along one
+    // crossbar, down to W: a Z—W relation nothing declares. A pair is
+    // spendable once, so the second claimant makes it nobody's and BOTH
+    // unfuse. One rail alone over the same declaration keeps its trunk.
+    const a = testing.allocator;
+    var nodes = [_]sugiyama.LayerNode{
+        .{ .real = 0 }, .{ .real = 1 }, // A B (layer 0)
+        .{ .real = 2 }, .{ .real = 3 }, // Z W (layer 1)
+    };
+    var row0 = [_]u32{ 0, 1 };
+    var row1 = [_]u32{ 2, 3 };
+    var layers = [_][]u32{ &row0, &row1 };
+    // Columns: A/Z @ centre 1, B/W @ centre 10.
+    const geom = [_]Geom{ .{ .x = 0, .w = 3 }, .{ .x = 9, .w = 3 }, .{ .x = 0, .w = 3 }, .{ .x = 9, .w = 3 } };
+    const declared_pair = [_]sg.Edge{
+        .{ .id = 20, .from = 0, .to = 1, .kind = .solid, .arrow_from = .none, .arrow_to = .none, .label = null },
+    };
+
+    var arena = std.heap.ArenaAllocator.init(a);
+    defer arena.deinit();
+    const aa = arena.allocator();
+
+    // Two rails over the one declaration: both refuse.
+    {
+        var edges = [_]sugiyama.LayerEdge{
+            .{ .from = 0, .to = 2, .reversed = false, .edge = 10 }, // A---Z
+            .{ .from = 1, .to = 2, .reversed = false, .edge = 11 }, // B---Z
+            .{ .from = 0, .to = 3, .reversed = false, .edge = 12 }, // A---W
+            .{ .from = 1, .to = 3, .reversed = false, .edge = 13 }, // B---W
+        };
+        var reversed = [_]sg.EdgeId{};
+        const lg = mkLg(&nodes, &layers, &edges, &reversed);
+        const graph = try mkBareGraph(aa, &edges, &declared_pair);
+        const fans = try fan.detect(aa, graph, lg);
+        var report: pb.ClosureCounts = .{};
+        try fan_lanes.assignLanes(Geom, aa, graph, lg, &geom, fans, .{}, &report);
+
+        var z_lanes = [_]u32{ 0, 0 };
+        peerLanes(fans, .in, 2, &z_lanes);
+        var w_lanes = [_]u32{ 0, 0 };
+        peerLanes(fans, .in, 3, &w_lanes);
+        try testing.expect(z_lanes[0] != z_lanes[1]);
+        try testing.expect(w_lanes[0] != w_lanes[1]);
+    }
+
+    // ONE rail over the same declaration: nothing competes for the pair, so
+    // the trunk stays fused (the over-refusal boundary).
+    {
+        var edges = [_]sugiyama.LayerEdge{
+            .{ .from = 0, .to = 2, .reversed = false, .edge = 10 }, // A---Z
+            .{ .from = 1, .to = 2, .reversed = false, .edge = 11 }, // B---Z
+        };
+        var reversed = [_]sg.EdgeId{};
+        const lg = mkLg(&nodes, &layers, &edges, &reversed);
+        const graph = try mkBareGraph(aa, &edges, &declared_pair);
+        const fans = try fan.detect(aa, graph, lg);
+        try fan_lanes.assignLanes(Geom, aa, graph, lg, &geom, fans, .{}, null);
+
+        var z_lanes = [_]u32{ 9, 9 };
+        peerLanes(fans, .in, 2, &z_lanes);
+        for (z_lanes) |l| try testing.expectEqual(@as(u32, 0), l);
+    }
+}
