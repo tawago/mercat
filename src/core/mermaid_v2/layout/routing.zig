@@ -170,9 +170,10 @@ pub fn buildEdgesWithPlan(
                             break;
                         }
                         var distance: u32 = 0;
+                        const limit = route_clearance.detourLimit(out.items.len);
                         while (true) : (distance += 1) {
                             poly = try route_clearance.outsideDetour(a, graph.direction, src_p, dst_p, ep.source, ep.target, placements, distance);
-                            if ((try route_clearance.polylineClears(a, orig.id, orig.kind, poly, out.items, bar_views, placements, allocated_ports.edges, joins, orig.from, orig.to)) or distance >= 64) break;
+                            if ((try route_clearance.polylineClears(a, orig.id, orig.kind, poly, out.items, bar_views, placements, allocated_ports.edges, joins, orig.from, orig.to)) or distance >= limit) break;
                         }
                         break;
                     }
@@ -326,9 +327,10 @@ pub fn buildEdgesWithPlan(
                     break;
                 }
                 var distance: u32 = 0;
+                const limit = route_clearance.detourLimit(out.items.len);
                 while (true) : (distance += 1) {
                     poly = try route_clearance.outsideDetour(a, eff_dir, eff_from_p, eff_to_p, eff_port_from, eff_port_to, placements, distance);
-                    if ((try route_clearance.polylineClears(a, orig.id, orig.kind, poly, out.items, bar_views, placements, allocated_ports.edges, joins, orig.from, orig.to)) or distance >= 64) break;
+                    if ((try route_clearance.polylineClears(a, orig.id, orig.kind, poly, out.items, bar_views, placements, allocated_ports.edges, joins, orig.from, orig.to)) or distance >= limit) break;
                 }
                 break;
             }

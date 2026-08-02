@@ -79,3 +79,16 @@ test "reserved departures exempt same selected trunk" {
         .{ .selected_joins = &selected },
     ));
 }
+
+test "the detour search widens once per already-routed path, never past the ceiling" {
+    // Nothing routed yet: the search still gets its two tracks (one per side)
+    // so a first detour can dodge the boxes it is going around.
+    try std.testing.expectEqual(@as(u32, 2), clearance.detourLimit(0));
+    // One track per side per already-placed path — the only obstacles a wider
+    // detour can be dodging.
+    try std.testing.expectEqual(@as(u32, 4), clearance.detourLimit(1));
+    try std.testing.expectEqual(@as(u32, 20), clearance.detourLimit(9));
+    // The ceiling holds: a huge graph never buys unbounded frame.
+    try std.testing.expectEqual(@as(u32, 64), clearance.detourLimit(31));
+    try std.testing.expectEqual(@as(u32, 64), clearance.detourLimit(10_000));
+}

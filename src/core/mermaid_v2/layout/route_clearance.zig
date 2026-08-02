@@ -200,6 +200,24 @@ pub fn polylineClears(
         (indep or !try conflictsReservedDepartures(a, edge, polyline, placements, edge_ports, joins));
 }
 
+/// How far the outside-detour search may widen before it gives up.
+///
+/// Each step pushes the detour one cell further outside every placement, and
+/// the canvas bbox grows with it, so a search that never clears is billed for
+/// every step it took. What it dodges is the paths already routed: with
+/// `routed` of them and two sides to alternate between, `2 * routed + 2`
+/// tracks exhaust every distinct answer widening can give — past that the
+/// walk is only buying frame. The absolute ceiling stays 64 so a pathological
+/// graph cannot make it quadratic.
+///
+/// This bound is why one unroutable edge in a complete undirected mesh no
+/// longer drags ~60 empty rows of frame around the whole diagram.
+/// guarded-by: route_clearance_test.zig "the detour search widens once per already-routed path, never past the ceiling"
+pub fn detourLimit(routed: usize) u32 {
+    const want = 2 * @as(u64, routed) + 2;
+    return @intCast(@min(want, 64));
+}
+
 /// Route around the outside of the placed diagram when all local gap lanes
 /// are occupied. The first and last legs remain perpendicular to the ports.
 pub fn outsideDetour(
