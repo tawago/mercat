@@ -418,3 +418,68 @@ test "a complete all-to-all draws one rail per shared endpoint, never one bus ac
     try std.testing.expectEqual(@as(usize, 0), undirected.joins.co_realized.len);
     try std.testing.expectEqual(@as(usize, 4), undirected.routed.len);
 }
+
+test "a directed complete bipartite keeps its TD star decomposition on clearing rows" {
+    // The all-to-all's star decomposition is one arrival trunk per target,
+    // each on a rail row of its own. Every trunk's stem meets its crossbar at
+    // one cell, and the OTHER trunks run taps down the same columns: unless
+    // the rows are ordered so each junction sits clear of the taps that cross
+    // it, the junction is a four-armed glyph two trunks claim — the reach
+    // oracle's `unknown_continuation` — and the whole TD family is filtered
+    // out of selection, leaving a switched-direction render to win by default.
+    const source =
+        \\flowchart TD
+        \\    S1[Order Received] --> M1[Validate Payment]
+        \\    S1 --> M2[Check Inventory]
+        \\    S1 --> M3[Apply Discount]
+        \\    S2[Webhook Triggered] --> M1
+        \\    S2 --> M2
+        \\    S2 --> M3
+        \\    S3[Manual Entry] --> M1
+        \\    S3 --> M2
+        \\    S3 --> M3
+        \\
+    ;
+    for ([_]u32{ 60, 90, 120 }) |width| {
+        var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+        defer arena.deinit();
+        const a = arena.allocator();
+        const graph = try parse(a, source);
+        const plan = (try permits.build(a, graph, .joined)).plan;
+        const winner = try select.choose(a, graph, &plan, true, width, false, false);
+
+        // The TD shape survives: three arrival trunks of three taps each, on
+        // three distinct rail rows, and the source's own direction is kept.
+        try std.testing.expectEqual(graph.direction, winner.sketch.direction);
+        try std.testing.expectEqual(@as(usize, 3), winner.sketch.busbars.len);
+        for (winner.sketch.busbars, 0..) |bar, i| {
+            try std.testing.expectEqual(@as(usize, 3), bar.taps.len);
+            for (winner.sketch.busbars[i + 1 ..]) |other| {
+                try std.testing.expect(bar.crossbar[0].y != other.crossbar[0].y);
+            }
+        }
+
+        // THE invariant: a trunk's stem junction never sits on a row a foreign
+        // trunk's tap still occupies. A fan-IN's taps run from the sources
+        // down to that trunk's own rail, so clearance is exactly "my rail is
+        // nearer my pivot than the rail whose taps share my stem column".
+        for (winner.sketch.busbars) |bar| {
+            const stem_x = bar.stem[0].x;
+            const junction_y = bar.crossbar[0].y;
+            for (winner.sketch.busbars) |other| {
+                if (other.crossbar[0].y == junction_y) continue;
+                for (other.taps) |tap| {
+                    if (tap.at.x != stem_x) continue;
+                    try std.testing.expect(other.crossbar[0].y < junction_y);
+                }
+            }
+        }
+
+        // No reach event, no lost ink, and the render fits the budget it was
+        // asked for (the defect shipped a clipped render at width 60).
+        const keys = try select.nodeKeyTable(a, graph);
+        const report = try reach.validate(a, winner.sketch, keys, .flat);
+        try std.testing.expectEqual(@as(u32, 0), report.counts.ciTotal());
+        try std.testing.expect(winner.sketch.bbox.w <= width);
+    }
+}

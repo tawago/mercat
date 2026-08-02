@@ -15,6 +15,7 @@ const back_edges = @import("back_edges.zig");
 const fan_mod = @import("fan.zig");
 const fan_polyline = @import("fan_polyline.zig");
 const fan_rail = @import("fan_rail.zig");
+const fan_lane_order = @import("fan_lane_order.zig");
 const self_loops = @import("routing_self_loops.zig");
 const rp = @import("routing_polyline.zig");
 const rt = @import("routing_terminal.zig");
@@ -97,6 +98,12 @@ pub fn buildEdgesWithPlan(
     // through to the per-peer polyline path.
     var busbars: std.ArrayListUnmanaged(fan_rail.Built) = .empty;
     var claimed: std.ArrayListUnmanaged(sg.EdgeId) = .empty;
+    // Resolve every eligible fan FIRST: which lane row each trunk should take
+    // is a question about the gap, not about the trunk, and only the resolved
+    // set knows the placed stem and tap columns it turns on.
+    const Pending = struct { fan: fan_mod.Fan, resolved: fan_rail.Resolved, lift: u32 };
+    var pending: std.ArrayListUnmanaged(Pending) = .empty;
+    var lane_trunks: std.ArrayListUnmanaged(fan_lane_order.Trunk) = .empty;
     for (fans) |f| {
         const resolved = (try fan_rail.resolve(a, graph.direction, f, graph, placements, joins, allocated_ports)) orelse continue;
         // Shared-rail lift: same rule as the per-peer path below — any peer descending into a cluster lifts the rail above the frame. // guarded-by: routing_test.zig "bus-bar pre-pass and forced per-peer path lift the same fan-OUT geometry to the same rail row"
@@ -104,12 +111,26 @@ pub fn buildEdgesWithPlan(
         for (resolved.peers) |p| {
             lift = @max(lift, fanRailLift(graph, p.edge.from, p.edge.to));
         }
-        const built = try fan_rail.build(a, resolved, lift, f.lane);
+        try pending.append(a, .{ .fan = f, .resolved = resolved, .lift = lift });
+        try lane_trunks.append(a, .{
+            .gap = f.source_layer,
+            .lane = f.lane,
+            .fan_in = resolved.direction == .in,
+            .stem_x = fan_lane_order.stemX(resolved),
+            .tap_xs = try fan_lane_order.tapXs(a, resolved),
+        });
+    }
+    // Stem-corner clearance: permute the packer's lane indices so no trunk's
+    // stem junction sits under a foreign trunk's tap column. Row count is
+    // unchanged, so nothing downstream of the reservation pass moves.
+    try fan_lane_order.reorder(a, lane_trunks.items);
+    for (pending.items, lane_trunks.items) |p, t| {
+        const built = try fan_rail.build(a, p.resolved, p.lift, t.lane);
         // Integrity gate: a bus-bar is straight-only geometry; if any run touches a foreign box, fall back to the per-peer polyline path, which can dodge. // guarded-by: fan_rail_test.zig "fan_rail.blocked rejects a built bus-bar whose tap drop touches a foreign node's box"
-        if (fan_rail.blocked(built, resolved.pivot.id, placements)) continue;
+        if (fan_rail.blocked(built, p.resolved.pivot.id, placements)) continue;
         try busbars.append(a, built);
         try polys.append(a, built.stem);
-        for (f.peers) |p| try claimed.append(a, p.edge_id);
+        for (p.fan.peers) |peer| try claimed.append(a, peer.edge_id);
     }
     const bar_views = try a.alloc(sketch.Rail, busbars.items.len);
     for (busbars.items, bar_views) |bar, *view| view.* = bar.busbar;
