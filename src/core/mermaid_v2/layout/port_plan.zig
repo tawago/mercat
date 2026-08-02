@@ -79,7 +79,7 @@ pub fn planLanes(a: std.mem.Allocator, graph: sg.SemGraph, lg: sugiyama.LayeredG
         // A co-realized leaf-pair edge is drawn by a rail's crossbar, never
         // routed — so it consumes no route lane and reserves no gap row.
         if (edge.kind == .invisible or edge.from == edge.to or !edgeIsIndependent(joins.memberships, edge.id) or
-            inMesh(joins.mesh_unions, edge.id) or rail_closure.contains(joins.co_realized, edge.id)) continue;
+            rail_closure.contains(joins.co_realized, edge.id)) continue;
         const high = @max(node_layers[edge.from], node_layers[edge.to]);
         if (high == 0) continue;
         const gap = high - 1;
@@ -196,7 +196,6 @@ fn resolvePort(
 ) ResolvedPort {
     const node = if (endpoint == .source_exit) edge.from else edge.to;
     const placement = placementById(placements, node) orelse placements[0];
-    if (inMesh(joins.mesh_unions, edge.id)) return midpointPort(graph.direction, placement, edge, endpoint);
     const selected_group = selectedGroup(joins, edge.id, endpoint);
     for (faces) |face| {
         if (face.node != node) continue;
@@ -239,11 +238,6 @@ fn selectedGroup(joins: pb.RealizedJoins, edge: pb.EdgeId, endpoint: pb.Endpoint
         for (joins.selected_joins) |join| if (join.id == jid) return join.permission_group;
     }
     return null;
-}
-
-fn inMesh(unions: []const pb.MeshUnion, edge: pb.EdgeId) bool {
-    for (unions) |u| for (u.members) |member| if (member == edge) return true;
-    return false;
 }
 
 fn placementById(placements: []const sk.NodePlacement, id: pb.NodeId) ?sk.NodePlacement {

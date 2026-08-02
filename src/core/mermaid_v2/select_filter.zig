@@ -18,7 +18,7 @@ const reach_vector = @import("ledger/reach_vector.zig");
 fn planDerived(sets: []const ledger.CoSet) bool {
     for (sets) |s| {
         switch (s.origin) {
-            .selected_join, .mesh_union => return true,
+            .selected_join => return true,
             // Neither layout's fans nor the geometric port shares are the
             // plan's to speak for: re-deriving from a plan does NOT replace
             // them, so they must not make the sketch look plan-derived.
@@ -134,7 +134,7 @@ pub fn terminalCandidate(
     var result = try ladder.runForcedIndependent(aa, graph, join_permits, join_permits_flat, max_width);
     result.terminal_fallback = true;
     if (join_permits_flat) {
-        if (realized_mod.realize(aa, join_permits.*, result.sketch, &.{})) |r| {
+        if (realized_mod.realize(aa, join_permits.*, result.sketch)) |r| {
             result.sketch.joins = r.plan;
             // Co-sets speak for the plan the sketch ends up holding, so
             // layout's fan-derived sets do not survive a REALIZED plan. A

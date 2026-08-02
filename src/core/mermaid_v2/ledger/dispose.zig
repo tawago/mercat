@@ -14,7 +14,7 @@ const pb = @import("../base/ledger.zig");
 /// emptied joins' proposals move to `rejected_proposals` so the §6.7 proposal
 /// accounting (selected XOR rejected) still balances under
 /// `invariants.validate`. Pure over the plan (no Sketch, no reach_report):
-/// conflicts, terminal ports, mesh unions, and every already-`independent`/
+/// conflicts, terminal ports, and every already-`independent`/
 /// null disposition are unchanged.
 ///
 /// GRANULARITY (record decision): the WHOLE excluded plan's selected set is
@@ -49,7 +49,6 @@ pub fn disposeUnsafe(a: std.mem.Allocator, plan: pb.RealizedJoins) error{OutOfMe
         .memberships = memberships,
         .conflicts = plan.conflicts,
         .terminal_ports = plan.terminal_ports,
-        .mesh_unions = plan.mesh_unions,
         // Withdrawing a trunk is a PERMISSION rewrite; the candidate's already
         // emitted geometry is untouched, and a co-realized edge still has no
         // private ink in it. Dropping the record would report that edge as

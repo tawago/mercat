@@ -143,8 +143,6 @@ pub fn derive(
 ) DeriveError![]const DerivedAttachment {
     var out: std.ArrayListUnmanaged(DerivedAttachment) = .empty;
     for (graph.edges) |edge| {
-        // Exempt complete meshes retain their fused midpoint terminals.
-        if (meshContains(joins.mesh_unions, edge.id)) continue;
         if (edge.from == edge.to) {
             // Self-loop: always two distinct typed terminals (clause 3),
             // regardless of any group membership.
@@ -169,7 +167,7 @@ pub fn derive(
             inline for ([2]pb.EndpointSide{ .source_exit, .target_entry }) |es| {
                 const n = if (es == .source_exit) edge.from else edge.to;
                 const sd = forwardSide(direction, es);
-                if (hasSelfLoopSide(graph, joins, direction, n, sd))
+                if (hasSelfLoopSide(graph, direction, n, sd))
                     try out.append(a, .{ .node = n, .side = sd, .attachment = .{ .key = try edgeAttachmentKey(graph, edge, es), .edge = edge.id } });
             }
             continue;
@@ -457,16 +455,11 @@ fn containsEdge(edges: []const pb.EdgeId, edge: pb.EdgeId) bool {
     return false;
 }
 
-fn meshContains(unions: []const pb.MeshUnion, edge: pb.EdgeId) bool {
-    for (unions) |u| if (containsEdge(u.members, edge)) return true;
-    return false;
-}
-
-/// True iff `node` hosts a non-mesh self-loop whose (clause-3) terminal
-/// occupies `side` — the side a co-located plain forward edge must join.
-fn hasSelfLoopSide(graph: sg.SemGraph, joins: pb.RealizedJoins, dir: sg.Direction, node: pb.NodeId, side: sk.Dir4) bool {
+/// True iff `node` hosts a self-loop whose (clause-3) terminal occupies
+/// `side` — the side a co-located plain forward edge must join.
+fn hasSelfLoopSide(graph: sg.SemGraph, dir: sg.Direction, node: pb.NodeId, side: sk.Dir4) bool {
     for (graph.edges) |e|
-        if (e.from == e.to and e.from == node and !meshContains(joins.mesh_unions, e.id) and
+        if (e.from == e.to and e.from == node and
             (selfLoopSide(dir, .source_exit) == side or selfLoopSide(dir, .target_entry) == side)) return true;
     return false;
 }

@@ -241,7 +241,7 @@ test "V-D-TRUNK-06: duplicate (from,to) pair is blocked by the item-1 duplicate-
     const dup = [_]sg.Edge{ edge(0, 8, 6), edge(1, 8, 6), edge(2, 8, 7) };
     const g = graph(&dup);
     const plan = try buildPlan(a, g);
-    const res = try jp.realize(a, plan, sketchOf(try paths(a, &dup), &.{}), &.{});
+    const res = try jp.realize(a, plan, sketchOf(try paths(a, &dup), &.{}));
     // Both containing groups (FO-Hub and FI-A) blocked pre-clause; the
     // overlap conflict between them is still retained per §6.5.
     for (res.report.verdicts) |v| {
@@ -275,7 +275,7 @@ test "V-D-TRUNK-08: no automatic partial trunk — a subset proposal is rejected
         t.* = .{ .edge = e.id, .node = e.to, .at = poly[0], .landing = poly[1], .arrow = .filled };
     }
     const bbs = [_]sk.Rail{.{ .pivot = 8, .stem = &poly, .crossbar = .{ poly[0], poly[1] }, .taps = &taps, .kind = .solid, .role = .fan_out_dropper }};
-    const res = try jp.realize(a, plan, sketchOf(try paths(a, four[3..]), &bbs), &.{});
+    const res = try jp.realize(a, plan, sketchOf(try paths(a, four[3..]), &bbs));
     try expectEqual(jp.GroupClause.incomplete, res.report.verdicts[0].clause);
     try expectEqual(@as(usize, 0), res.plan.selected_joins.len);
     try expectEqual(@as(usize, 1), res.plan.rejected_proposals.len);
@@ -293,7 +293,7 @@ test "V-D-TRUNK-10: uniform directed fan-in busbar proposal realizes one group-o
         t.* = .{ .edge = e.id, .node = e.from, .at = poly[0], .landing = poly[1], .arrow = .none };
     }
     const bbs = [_]sk.Rail{.{ .pivot = 5, .stem = &poly, .crossbar = .{ poly[0], poly[1] }, .taps = &taps, .kind = .solid, .role = .fan_in_dropper }};
-    const res = try jp.realize(a, plan, sketchOf(&.{}, &bbs), &.{});
+    const res = try jp.realize(a, plan, sketchOf(&.{}, &bbs));
     try expectEqual(@as(usize, 1), res.plan.selected_joins.len);
     try expectEqual(@as(usize, 4), res.plan.selected_joins[0].members.len);
     for (res.plan.memberships) |rm| {
@@ -315,7 +315,7 @@ test "6.7: every planner output validates clean across the step-4 vector shapes"
     for (cases) |edges| {
         const g = graph(edges);
         const plan = try buildPlan(a, g);
-        const res = try jp.realize(a, plan, sketchOf(try paths(a, edges), &.{}), &.{});
+        const res = try jp.realize(a, plan, sketchOf(try paths(a, edges), &.{}));
         const report = try jpv.validate(a, plan, res.plan, res.report.proposals);
         try expect(report.valid());
     }
@@ -328,16 +328,16 @@ test "6.7: every planner output validates clean across the step-4 vector shapes"
     const partial_bb = [_]sk.Rail{.{ .pivot = 8, .stem = &poly, .crossbar = .{ poly[0], poly[1] }, .taps = &taps, .kind = .solid, .role = .fan_out_dropper }};
     const g5 = graph(&fan5);
     const plan5 = try buildPlan(a, g5);
-    const partial = try jp.realize(a, plan5, sketchOf(try paths(a, fan5[3..]), &partial_bb), &.{});
+    const partial = try jp.realize(a, plan5, sketchOf(try paths(a, fan5[3..]), &partial_bb));
     try expect((try jpv.validate(a, plan5, partial.plan, partial.report.proposals)).valid());
 
     const fan3 = fan5[0..3];
     const g3 = graph(fan3);
     const plan3 = try buildPlan(a, g3);
     const complete_bb = [_]sk.Rail{ partial_bb[0], partial_bb[0] };
-    const multi = try jp.realize(a, plan3, sketchOf(&.{}, &complete_bb), &.{});
+    const multi = try jp.realize(a, plan3, sketchOf(&.{}, &complete_bb));
     try expect((try jpv.validate(a, plan3, multi.plan, multi.report.proposals)).valid());
-    const realized = try jp.realize(a, plan3, sketchOf(&.{}, complete_bb[0..1]), &.{});
+    const realized = try jp.realize(a, plan3, sketchOf(&.{}, complete_bb[0..1]));
     try expectEqual(@as(usize, 1), realized.plan.selected_joins.len);
     try expect((try jpv.validate(a, plan3, realized.plan, realized.report.proposals)).valid());
 }
@@ -351,7 +351,7 @@ test "6.7: corrupted plans are rejected bullet by bullet" {
 
     const g = graph(&twox2);
     const plan = try buildPlan(a, g);
-    const res = try jp.realize(a, plan, sketchOf(try paths(a, &twox2), &.{}), &.{});
+    const res = try jp.realize(a, plan, sketchOf(try paths(a, &twox2), &.{}));
 
     // Bullet 1/7: a dropped membership record.
     var p = res.plan;
@@ -405,14 +405,14 @@ test "6.7: corrupted plans are rejected bullet by bullet" {
         t.* = .{ .edge = e.id, .node = e.to, .at = poly[0], .landing = poly[1], .arrow = .filled };
     }
     const bbs = [_]sk.Rail{ .{ .pivot = 8, .stem = &poly, .crossbar = .{ poly[0], poly[1] }, .taps = taps[0..2], .kind = .solid, .role = .fan_out_dropper } };
-    const rejected = try jp.realize(a, plan3, sketchOf(try paths(a, fan5[2..3]), &bbs), &.{});
+    const rejected = try jp.realize(a, plan3, sketchOf(try paths(a, fan5[2..3]), &bbs));
     try expectEqual(@as(usize, 1), rejected.plan.rejected_proposals.len);
     p = rejected.plan;
     p.rejected_proposals = &.{};
     try expect(hasFinding(try jpv.validate(a, plan3, p, rejected.report.proposals), .proposal_unaccounted));
 
     // Bullets 2/3/4: a selected join re-pointed at the wrong group.
-    const realized = try jp.realize(a, plan3, sketchOf(&.{}, &.{.{ .pivot = 8, .stem = &poly, .crossbar = .{ poly[0], poly[1] }, .taps = &taps, .kind = .solid, .role = .fan_out_dropper }}), &.{});
+    const realized = try jp.realize(a, plan3, sketchOf(&.{}, &.{.{ .pivot = 8, .stem = &poly, .crossbar = .{ poly[0], poly[1] }, .taps = &taps, .kind = .solid, .role = .fan_out_dropper }}));
     try expectEqual(@as(usize, 1), realized.plan.selected_joins.len);
     const rejoined = try a.dupe(pb.SelectedJoin, realized.plan.selected_joins);
     const foreign = try a.dupe(pb.EdgeId, realized.plan.selected_joins[0].members);
@@ -431,70 +431,3 @@ test "6.7: corrupted plans are rejected bullet by bullet" {
     try expect(hasFinding(try jpv.validate(a, plan, p, res.report.proposals), .terminal_ports_not_canonical));
 }
 
-// -- Union-element leaf-pair legality (D-IR item 16; plan N5) -------------------
-//
-// NARROWING NOTE: completeness and two-sided width are guarantees of union
-// CONSTRUCTION, not of the ledger; leaf_pairs.zig refuses only what the
-// ledger owns (duplicate member, repeated leaf pair, unresolvable endpoint).
-
-const k22 = [_]sg.Edge{ edge(0, 0, 2), edge(1, 0, 3), edge(2, 1, 2), edge(3, 1, 3) };
-
-test "leaf-pair legality: a complete K2,2 union is legal and passes through" {
-    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
-    defer arena.deinit();
-    const a = arena.allocator();
-    const g = graph(&k22);
-    const plan = try buildPlan(a, g);
-    const members = [_]pb.EdgeId{ 0, 1, 2, 3 };
-    try expect(jp.noDuplicateLeafPairs(plan, &members));
-
-    const element = [_]pb.MeshUnion{.{ .id = 0, .members = &members, .source_keys = &.{ "S1", "S2" }, .target_keys = &.{ "T1", "T2" } }};
-    const res = try jp.realize(a, plan, sketchOf(try paths(a, &k22), &.{}), &element);
-    try expectEqual(@as(usize, 1), res.plan.mesh_unions.len);
-    try expectEqual(@as(u32, 0), res.report.mesh_unions_rejected);
-    try expect((try jpv.validate(a, plan, res.plan, res.report.proposals)).valid());
-}
-
-test "N5: a duplicate declared edge fails leaf-pair legality" {
-    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
-    defer arena.deinit();
-    const a = arena.allocator();
-    // K2,2 plus a DUPLICATE declared S1→T1 edge: the unique-pair relation is
-    // complete (fan_lanes.isIncomplete would keep it fused), but the fifth
-    // member repeats a claimed leaf pair → NOT a legal exempt union.
-    const dup5 = k22 ++ [_]sg.Edge{edge(4, 0, 2)};
-    const g = graph(&dup5);
-    const plan = try buildPlan(a, g);
-    const members = [_]pb.EdgeId{ 0, 1, 2, 3, 4 };
-    try expect(!jp.noDuplicateLeafPairs(plan, &members));
-
-    const element = [_]pb.MeshUnion{.{ .id = 0, .members = &members, .source_keys = &.{ "S1", "S2" }, .target_keys = &.{ "T1", "T2" } }};
-    const res = try jp.realize(a, plan, sketchOf(try paths(a, &dup5), &.{}), &element);
-    try expectEqual(@as(usize, 0), res.plan.mesh_unions.len);
-    try expectEqual(@as(u32, 1), res.report.mesh_unions_rejected);
-
-    // A hand-landed illegal element is rejected by the §6.7 validator.
-    var p = res.plan;
-    p.mesh_unions = &element;
-    try expect(hasFinding(try jpv.validate(a, plan, p, res.report.proposals), .mesh_union_illegal));
-}
-
-test "leaf-pair legality: incomplete and single-pivot member sets have unresolvable endpoints" {
-    // Still refused, now because the completing side earned no permission group.
-    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
-    defer arena.deinit();
-    const a = arena.allocator();
-
-    // K2,2 minus one edge: T2's fan-in group vanishes → S1→T2 has no target.
-    const incomplete = [_]sg.Edge{ edge(0, 0, 2), edge(1, 0, 3), edge(2, 1, 2) };
-    const gi = graph(&incomplete);
-    const pi = try buildPlan(a, gi);
-    const mi = [_]pb.EdgeId{ 0, 1, 2 };
-    try expect(!jp.noDuplicateLeafPairs(pi, &mi));
-
-    // A 1×3 fan is single-pivot: no member has a target group at all.
-    const g3 = graph(fan5[0..3]);
-    const p3 = try buildPlan(a, g3);
-    const m3 = [_]pb.EdgeId{ 0, 1, 2 };
-    try expect(!jp.noDuplicateLeafPairs(p3, &m3));
-}

@@ -379,9 +379,6 @@ fn sameChannel(a: pb.EdgeId, b: pb.EdgeId, joins: pb.RealizedJoins) bool {
     for (joins.selected_joins) |join| {
         if (contains(join.members, a) and contains(join.members, b)) return true;
     }
-    for (joins.mesh_unions) |mesh| {
-        if (contains(mesh.members, a) and contains(mesh.members, b)) return true;
-    }
     return false;
 }
 

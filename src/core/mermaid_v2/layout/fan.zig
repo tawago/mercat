@@ -60,9 +60,9 @@ pub const Fan = struct {
     rows: u32 = 1,
     /// Rail row within its inter-layer gap, 0 = the classic single shared row.
     /// Assigned by `fan_lanes.assignLanes`: a fan whose rail would fuse with a
-    /// neighbouring fan's into an INCOMPLETE all-to-all bus is lifted to its
-    /// own lane so every declared edge stays traceable. 0 for complete meshes,
-    /// single-trunk gaps, and pure fan-in/out (byte-identical to pre-lane).
+    /// neighbouring fan's into a TWO-SIDED bus — one run standing for a pivot
+    /// none of its members shares — is lifted to its own lane so every declared
+    /// edge stays traceable. 0 for single-trunk gaps and pure fan-in/out.
     lane: u32 = 0,
     /// True iff any member edge carries a label. A labeled fan reserves
     /// `LABEL_RUN_EXTRA_ROWS` extra gap rows (extraRowsPerGap) so each

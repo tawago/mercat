@@ -66,7 +66,7 @@ test "applying a plan keeps the sketch's port-share co-sets" {
     try std.testing.expect(cand.sketch.joins.selected_joins.len > 0);
     var saw_plan = false;
     for (cand.sketch.co_sets) |set| switch (set.origin) {
-        .selected_join, .mesh_union => saw_plan = true,
+        .selected_join => saw_plan = true,
         // Layout's fans never survive a realized plan; port shares always do.
         .fan_rail => return error.PlanKeptLayoutFanSets,
         .port_share => try std.testing.expect(set.members.len >= 2),

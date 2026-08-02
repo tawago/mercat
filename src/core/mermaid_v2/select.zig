@@ -205,7 +205,7 @@ fn planJoins(
     join_permits: *const ledger.JoinPermits,
     candidate_sketch: sketch_mod.Sketch,
 ) PlanOutcome {
-    const result = realized_mod.realize(aa, join_permits.*, candidate_sketch, &.{}) catch return .{};
+    const result = realized_mod.realize(aa, join_permits.*, candidate_sketch) catch return .{};
     const out: PlanOutcome = .{ .plan = result.plan, .realized = !result.report.skipped_clustered };
     if (std.debug.runtime_safety) {
         const report = invariants.validate(aa, join_permits.*, result.plan, result.report.proposals) catch

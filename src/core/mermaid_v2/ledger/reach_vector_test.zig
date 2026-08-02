@@ -58,10 +58,10 @@ pub fn sketchOf(edges: []const sk.EdgePath, busbars: []const sk.Rail) sk.Sketch 
 
 /// Attach a production-shaped realized plan (join_permits + realized over
 /// the candidate's own geometry).
-pub fn realized(a: std.mem.Allocator, g: sg.SemGraph, s: sk.Sketch, mesh: []const pb.MeshUnion) !sk.Sketch {
+pub fn realized(a: std.mem.Allocator, g: sg.SemGraph, s: sk.Sketch) !sk.Sketch {
     const plan = (try planner.build(a, g, .joined)).plan;
     var out = s;
-    out.joins = (try jp.realize(a, plan, s, mesh)).plan;
+    out.joins = (try jp.realize(a, plan, s)).plan;
     return out;
 }
 
@@ -107,7 +107,7 @@ test "V-D-REACH-01 (vector): admitted fan-out trunk is one component, Cartesian 
     const taps = fanTaps(true);
     const bbs = [_]sk.Rail{fanRail(&taps, 16)};
     const g = graphOf(&fan_nodes, &fan_edges);
-    const s = try realized(a, g, sketchOf(&.{}, &bbs), &.{});
+    const s = try realized(a, g, sketchOf(&.{}, &bbs));
     try expectEqual(@as(usize, 1), s.joins.selected_joins.len);
 
     const report = try vc.validate(a, s, try nodeKeys(a, &fan_nodes), .flat);
@@ -140,7 +140,7 @@ test "V-D-REACH-02 (vector): admitted fan-in trunk is one component, 3x1 pairs" 
         .{ .edge = 2, .node = 2, .at = .{ .x = 16, .y = 6 }, .landing = .{ .x = 16, .y = 4 } },
     };
     const bbs = [_]sk.Rail{.{ .pivot = 3, .stem = &stem, .crossbar = .{ .{ .x = 4, .y = 6 }, .{ .x = 16, .y = 6 } }, .taps = &taps, .kind = .solid, .role = .fan_in_dropper }};
-    const s = try realized(a, graphOf(&nodes, &edges), sketchOf(&.{}, &bbs), &.{});
+    const s = try realized(a, graphOf(&nodes, &edges), sketchOf(&.{}, &bbs));
     try expectEqual(@as(usize, 1), s.joins.selected_joins.len);
 
     const report = try vc.validate(a, s, try nodeKeys(a, &nodes), .flat);
@@ -174,36 +174,25 @@ fn k33Graph(a: std.mem.Allocator) !struct { g: sg.SemGraph, paths: []sk.EdgePath
     return .{ .g = graphOf(&k33_nodes, edges), .paths = paths };
 }
 
-test "V-D-REACH-04(b) (vector): labeled exact-complete K3,3 union is ONE legal channel; unlabeled fires reach_unknown_continuation" {
+test "V-D-REACH-04(b) (vector): a complete K3,3 has no union channel — its members stay separate owners" {
+    // A complete mesh has no shared endpoint, so no element speaks for one run
+    // across all nine edges. Every member is its own owner: the collinear
+    // sharing the geometry still carries is CROSS-owner and fires
+    // reach_unknown_continuation, which is what routes the shape into star
+    // decomposition instead of one bus.
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
 
     const k33 = try k33Graph(a);
     const keys = try nodeKeys(a, &k33_nodes);
-    const members = [_]pb.EdgeId{ 0, 1, 2, 3, 4, 5, 6, 7, 8 };
-    const mu = [_]pb.MeshUnion{.{ .id = 0, .members = &members, .source_keys = &.{ "S1", "S2", "S3" }, .target_keys = &.{ "T1", "T2", "T3" } }};
-
-    // Labeled: one exempt-mesh-union channel, Cartesian == declared, no tag.
-    const labeled = try realized(a, k33.g, sketchOf(k33.paths, &.{}), &mu);
-    try expectEqual(@as(usize, 1), labeled.joins.mesh_unions.len);
-    const lr = try vc.validate(a, labeled, keys, .flat);
-    try expect(zeroCounts(lr.counts));
-    try expectEqual(@as(usize, 1), lr.components.len);
-    try expectEqual(@as(usize, 9), lr.components[0].reachable_pairs.len);
-    try expectEqual(@as(usize, 9), lr.components[0].declared_pairs_in_component.len);
-    try expectEqual(@as(usize, 0), lr.components[0].extra_undeclared_pairs.len);
-
-    // Same geometry UNLABELED: cross-owner collinear sharing, channels
-    // stay separate — recorded provenance, never geometric inference.
-    const unlabeled = try realized(a, k33.g, sketchOf(k33.paths, &.{}), &.{});
-    try expectEqual(@as(usize, 0), unlabeled.joins.mesh_unions.len);
-    const ur = try vc.validate(a, unlabeled, keys, .flat);
-    try expect(ur.counts.unknown_continuation > 0);
-    try expectEqual(@as(u32, 0), ur.counts.undeclared_pair);
-    try expectEqual(@as(u32, 0), ur.counts.independent_joined);
-    try expectEqual(@as(usize, 9), ur.components.len);
-    for (ur.components) |comp| try expectEqual(@as(usize, 1), comp.reachable_pairs.len);
+    const s = try realized(a, k33.g, sketchOf(k33.paths, &.{}));
+    const r = try vc.validate(a, s, keys, .flat);
+    try expect(r.counts.unknown_continuation > 0);
+    try expectEqual(@as(u32, 0), r.counts.undeclared_pair);
+    try expectEqual(@as(u32, 0), r.counts.independent_joined);
+    try expectEqual(@as(usize, 9), r.components.len);
+    for (r.components) |comp| try expectEqual(@as(usize, 1), comp.reachable_pairs.len);
 }
 
 test "V-D-REACH-05 (vector): no node transit — A->B, B->C stay two components, (A,C) unreachable" {
@@ -217,7 +206,7 @@ test "V-D-REACH-05 (vector): no node transit — A->B, B->C stay two components,
         path(0, 0, 1, &.{ .{ .x = 2, .y = 2 }, .{ .x = 2, .y = 6 } }),
         path(1, 1, 2, &.{ .{ .x = 2, .y = 8 }, .{ .x = 2, .y = 12 } }),
     };
-    const s = try realized(a, graphOf(&nodes, &edges), sketchOf(&paths, &.{}), &.{});
+    const s = try realized(a, graphOf(&nodes, &edges), sketchOf(&paths, &.{}));
     const report = try vc.validate(a, s, try nodeKeys(a, &nodes), .flat);
     try expect(zeroCounts(report.counts));
     try expectEqual(@as(usize, 2), report.components.len);
@@ -236,7 +225,7 @@ test "V-D-REACH-06 (vector): separate ports stay separate — equal-NodeId termi
         path(0, 0, 2, &.{ .{ .x = 2, .y = 2 }, .{ .x = 2, .y = 6 } }),
         path(1, 1, 2, &.{ .{ .x = 6, .y = 2 }, .{ .x = 6, .y = 6 } }),
     };
-    const s = try realized(a, graphOf(&nodes, &edges), sketchOf(&paths, &.{}), &.{});
+    const s = try realized(a, graphOf(&nodes, &edges), sketchOf(&paths, &.{}));
     const report = try vc.validate(a, s, try nodeKeys(a, &nodes), .flat);
     try expect(zeroCounts(report.counts));
     try expectEqual(@as(usize, 2), report.components.len);
@@ -325,7 +314,7 @@ test "V-D-REACH-16 (vector half): strict orthogonal transversal crossing is lega
         path(0, 0, 1, &.{ .{ .x = 2, .y = 6 }, .{ .x = 10, .y = 6 } }),
         path(1, 2, 3, &.{ .{ .x = 6, .y = 2 }, .{ .x = 6, .y = 10 } }),
     };
-    const s = try realized(a, graphOf(&nodes, &edges), sketchOf(&paths, &.{}), &.{});
+    const s = try realized(a, graphOf(&nodes, &edges), sketchOf(&paths, &.{}));
     const report = try vc.validate(a, s, try nodeKeys(a, &nodes), .flat);
     try expect(zeroCounts(report.counts)); // TSD §7.5 MAY: no tag, no link
     try expectEqual(@as(usize, 2), report.components.len);
@@ -361,7 +350,7 @@ test "V-D-REACH-18 (vector): broken trunk rail strands a member — reach_join_s
     const taps = fanTaps(false);
     const bbs = [_]sk.Rail{fanRail(&taps, 12)};
     const g = graphOf(&fan_nodes, &fan_edges);
-    const s = try realized(a, g, sketchOf(&.{}, &bbs), &.{});
+    const s = try realized(a, g, sketchOf(&.{}, &bbs));
     try expectEqual(@as(usize, 1), s.joins.selected_joins.len);
 
     const keys = try nodeKeys(a, &fan_nodes);
@@ -399,7 +388,7 @@ test "a co-realized edge is not charged as a missing declared edge" {
     const routed = [_]sk.EdgePath{ path(0, 0, 2, &drop_a), path(1, 1, 2, &drop_b) };
     const keys = try nodeKeys(a, &nodes);
 
-    var charged = try realized(a, g, sketchOf(&routed, &.{}), &.{});
+    var charged = try realized(a, g, sketchOf(&routed, &.{}));
     const before = try vc.validate(a, charged, keys, .flat);
     try expectEqual(@as(u32, 1), before.counts.missing_declared);
 

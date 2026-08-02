@@ -90,7 +90,7 @@ fn realizeNatural(a: std.mem.Allocator, g: sg.SemGraph, plan: pb.JoinPermits, wi
     const set = try select.enumerateAll(a, g, &plan, true, width);
     for (set.merged) |cand| {
         if (cand.rung == .natural and cand.transform == .raw)
-            return jp.realize(a, plan, cand.sketch, &.{});
+            return jp.realize(a, plan, cand.sketch);
     }
     return error.MissingNaturalCandidate;
 }
@@ -100,7 +100,7 @@ fn realizeNaturalWithoutCommit(a: std.mem.Allocator, g: sg.SemGraph, plan: pb.Jo
     for (set.merged) |cand| if (cand.rung == .natural and cand.transform == .raw) {
         var s = cand.sketch;
         s.joins = .{};
-        return jp.realize(a, plan, s, &.{});
+        return jp.realize(a, plan, s);
     };
     return error.MissingNaturalCandidate;
 }
@@ -258,7 +258,7 @@ test "V-D-JOIN-SELECT-07: partial proposal fails clause (c) first" {
     const bbs = [_]sk.Rail{busbarFor(5, .solid, .fan_out_dropper, &taps)};
     const s = sketchOf(try paths(a, edges[3..]), &bbs);
 
-    const res = try jp.realize(a, plan, s, &.{});
+    const res = try jp.realize(a, plan, s);
     try expectEqual(jp.GroupClause.incomplete, res.report.verdicts[0].clause);
     try expectEqual(@as(usize, 0), res.plan.selected_joins.len);
     try expectEqual(@as(usize, 1), res.plan.rejected_proposals.len);
@@ -280,8 +280,8 @@ test "V-D-JOIN-SELECT-08: plan serialization is byte-identical under edge and sk
     const p1 = try buildPlan(a, g1);
     const p2 = try buildPlan(a, g2);
     const paths2 = try paths(a, &shuffled);
-    const r1 = try jp.realize(a, p1, sketchOf(try paths(a, &ordered), &.{}), &.{});
-    const r2 = try jp.realize(a, p2, sketchOf(paths2, &.{}), &.{});
+    const r1 = try jp.realize(a, p1, sketchOf(try paths(a, &ordered), &.{}));
+    const r2 = try jp.realize(a, p2, sketchOf(paths2, &.{}));
 
     try std.testing.expectEqualStrings(
         try planBytes(a, g1, p1, r1),
@@ -322,7 +322,7 @@ test "V-D-JOIN-SELECT-13: proposal multiplicity blocks realization, byte-identic
     // TWO complete trunk proposals for FO-Hub (distinct busbar entries,
     // identical member-set key → one multiplicity-counted entry).
     const two = [_]sk.Rail{ bb, bb };
-    const res = try jp.realize(a, plan, sketchOf(&.{}, &two), &.{});
+    const res = try jp.realize(a, plan, sketchOf(&.{}, &two));
     try expectEqual(jp.GroupClause.multiplicity, res.report.verdicts[0].clause);
     try expectEqual(pb.DiagnosticTag.join_select_proposal_multiplicity_blocked, res.report.verdicts[0].tag);
     try expectEqual(@as(u32, 2), res.report.verdicts[0].proposal_count);
@@ -335,7 +335,7 @@ test "V-D-JOIN-SELECT-13: proposal multiplicity blocks realization, byte-identic
     }
     // Proposal-enumeration swap (busbar array order) → byte-identical.
     const swapped = [_]sk.Rail{ two[1], two[0] };
-    const res2 = try jp.realize(a, plan, sketchOf(&.{}, &swapped), &.{});
+    const res2 = try jp.realize(a, plan, sketchOf(&.{}, &swapped));
     try std.testing.expectEqualStrings(
         try planBytes(a, g, plan, res),
         try planBytes(a, g, plan, res2),
@@ -353,14 +353,14 @@ test "V-D-TRUNK-01/02/03/04: clause (e) sub-clauses fire first-fail in frozen or
     // proposal the first failure is clause (f), never (e).
     const ok = [_]sg.Edge{ edge(0, 5, 0), edge(1, 5, 1), edge(2, 5, 2), edge(3, 5, 3), edge(4, 5, 4) };
     var g = graph(&ok);
-    var res = try jp.realize(a, try buildPlan(a, g), sketchOf(try paths(a, &ok), &.{}), &.{});
+    var res = try jp.realize(a, try buildPlan(a, g), sketchOf(try paths(a, &ok), &.{}));
     try expectEqual(jp.GroupClause.no_proposal, res.report.verdicts[0].clause);
     try expect(res.report.verdicts[0].rail_detail == null);
 
     // 02: two solid + one dotted → (e)(b) rail_member_style_mixed.
     const mixed = [_]sg.Edge{ edge(0, 5, 0), edge(1, 5, 1), styled(2, 5, 2, .dotted, .none, .filled, null) };
     g = graph(&mixed);
-    res = try jp.realize(a, try buildPlan(a, g), sketchOf(try paths(a, &mixed), &.{}), &.{});
+    res = try jp.realize(a, try buildPlan(a, g), sketchOf(try paths(a, &mixed), &.{}));
     try expectEqual(pb.DiagnosticTag.rail_member_style_mixed, res.report.verdicts[0].rail_detail.?);
 
     // 03: fan-in with one invisible member, visible members ARROWLESS so
@@ -371,13 +371,13 @@ test "V-D-TRUNK-01/02/03/04: clause (e) sub-clauses fire first-fail in frozen or
         styled(2, 2, 6, .invisible, .none, .none, null),
     };
     g = graph(&invis);
-    res = try jp.realize(a, try buildPlan(a, g), sketchOf(try paths(a, &invis), &.{}), &.{});
+    res = try jp.realize(a, try buildPlan(a, g), sketchOf(try paths(a, &invis), &.{}));
     try expectEqual(pb.DiagnosticTag.rail_member_invisible, res.report.verdicts[0].rail_detail.?);
 
     // 04: all solid, MIXED pivot-side arrow_from → (e)(c).
     const pivot_arrow = [_]sg.Edge{ edge(0, 5, 0), edge(1, 5, 1), styled(2, 5, 2, .solid, .filled, .filled, null) };
     g = graph(&pivot_arrow);
-    res = try jp.realize(a, try buildPlan(a, g), sketchOf(try paths(a, &pivot_arrow), &.{}), &.{});
+    res = try jp.realize(a, try buildPlan(a, g), sketchOf(try paths(a, &pivot_arrow), &.{}));
     try expectEqual(jp.GroupClause.style, res.report.verdicts[0].clause);
     try expectEqual(pb.DiagnosticTag.rail_pivot_side_arrow, res.report.verdicts[0].rail_detail.?);
 }
@@ -412,7 +412,7 @@ test "V-D-IR-02: motif_pack candidate is off the identity path and keeps an empt
     var saw_raw = false;
     var saw_packed = false;
     for (set.merged) |cand| {
-        const res = try jp.realize(a, plan, cand.sketch, &.{});
+        const res = try jp.realize(a, plan, cand.sketch);
         if (cand.transform == .raw) {
             try expect(!res.report.skipped_clustered);
             try expectEqual(@as(usize, 4), res.plan.memberships.len);
@@ -471,13 +471,13 @@ test "a co-realized edge that still owns an EdgePath counts as a double discharg
     // Withheld as the law intends: no EdgePath for edge 2, no double discharge.
     var withheld = sketchOf(try paths(a, edges[0..2]), &.{});
     withheld.joins = .{ .co_realized = &.{2} };
-    const clean = try jp.realize(a, plan, withheld, &.{});
+    const clean = try jp.realize(a, plan, withheld);
     try expectEqual(@as(u32, 0), clean.report.co_double_discharge);
     try expectEqual(@as(usize, 1), clean.plan.co_realized.len);
 
     // Leaked: edge 2 was discharged AND routed.
     var leaked = sketchOf(try paths(a, &edges), &.{});
     leaked.joins = .{ .co_realized = &.{2} };
-    const dirty = try jp.realize(a, plan, leaked, &.{});
+    const dirty = try jp.realize(a, plan, leaked);
     try expectEqual(@as(u32, 1), dirty.report.co_double_discharge);
 }

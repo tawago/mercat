@@ -424,7 +424,6 @@ test "V-D-IR-07: clustered production path keeps the realized plan envelope empt
     const laid_out = try ladder_pkg.run(a, graph, &result.plan, false, 120);
     try std.testing.expectEqual(@as(usize, 0), laid_out.sketch.joins.selected_joins.len);
     try std.testing.expectEqual(@as(usize, 0), laid_out.sketch.joins.memberships.len);
-    try std.testing.expectEqual(@as(usize, 0), laid_out.sketch.joins.mesh_unions.len);
 }
 
 test {

@@ -102,7 +102,7 @@ pub fn resolve(
             .port = if (fan.direction == .out) ep.target else ep.source,
         };
     }
-    if (joins.memberships.len != 0 and !selected(joinedMembers(fan), joins) and !meshExempt(fan.peers, joins.mesh_unions)) return null;
+    if (joins.memberships.len != 0 and !selected(joinedMembers(fan), joins)) return null;
     const first_ep = allocated_ports.forEdge(peers[0].edge.id) orelse return null;
     return .{
         .pivot = routing.findPlacement(placements, if (fan.direction == .out) peers[0].edge.from else peers[0].edge.to),
@@ -245,21 +245,6 @@ fn selected(peers: []const fan_mod.FanEdge, joins: pb.RealizedJoins) bool {
         for (peers) |peer| {
             var found = false;
             for (join.members) |member| {
-                if (member == peer.edge_id) found = true;
-            }
-            if (!found) all = false;
-        }
-        if (all) return true;
-    }
-    return false;
-}
-
-fn meshExempt(peers: []const fan_mod.FanEdge, unions: []const pb.MeshUnion) bool {
-    for (unions) |mesh_union| {
-        var all = true;
-        for (peers) |peer| {
-            var found = false;
-            for (mesh_union.members) |member| {
                 if (member == peer.edge_id) found = true;
             }
             if (!found) all = false;

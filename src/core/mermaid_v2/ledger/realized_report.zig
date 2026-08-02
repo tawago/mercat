@@ -52,8 +52,6 @@ pub const Report = struct {
     multiplicity: []const u32 = &.{},
     dual_membership_edges: u32 = 0,
     permission_overlap_conflicts: u32 = 0,
-    /// Proposed union elements failing leaf-pair legality (plan N5).
-    mesh_unions_rejected: u32 = 0,
     /// Co-realized edges that ALSO own private geometry in this candidate
     /// (`co_double_discharge`). An edge discharged by a rail's crossbar has
     /// no second rendering, so a non-zero count means the withholding leaked.

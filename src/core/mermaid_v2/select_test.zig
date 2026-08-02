@@ -357,23 +357,14 @@ test "reachReports: node-key table maps raw_id bytes and tolerates sparse ids" {
 }
 
 /// The plan's own answer to "may these two edges share ink": co-membership of
-/// one selected join or one exempt mesh union. The predicate `raster/crossings.zig`
-/// applies, restated here over ledger records so this pin is about the DATA and
-/// not about the raster's copy of the question.
+/// one selected join. The predicate `raster/crossings.zig` applies, restated
+/// here over ledger records so this pin is about the DATA and not about the
+/// raster's copy of the question.
 fn planCoMembers(plan: ledger.RealizedJoins, first: u32, second: u32) bool {
     for (plan.selected_joins) |j| {
         var a_in = false;
         var b_in = false;
         for (j.members) |m| {
-            if (m == first) a_in = true;
-            if (m == second) b_in = true;
-        }
-        if (a_in and b_in) return true;
-    }
-    for (plan.mesh_unions) |u| {
-        var a_in = false;
-        var b_in = false;
-        for (u.members) |m| {
             if (m == first) a_in = true;
             if (m == second) b_in = true;
         }
@@ -386,8 +377,8 @@ test "co-sets applied with the plan carry the plan's own membership" {
     // The equality that makes co-channel plumbing inert on the flat path: for
     // every pair of edge ids in the winning candidate, the co-sets answer
     // exactly what the realized plan answers. Fixtures span a fan-out, a
-    // shared-target fan-in, a dual-ended edge, and a complete mesh — the four
-    // shapes that produce non-empty plans.
+    // shared-target fan-in, a dual-ended edge, and an all-to-all (whose star
+    // decomposition still plans trunks) — the shapes with non-empty plans.
     const sources = [_][]const u8{
         "flowchart TD\n  A --> B\n  A --> C\n  A --> D\n",
         "flowchart TD\n  A --> D\n  B --> D\n  C --> D\n",
@@ -402,7 +393,6 @@ test "co-sets applied with the plan carry the plan's own membership" {
     // Non-vacuity: an equality over two empty records proves nothing, so both
     // plan origins must actually appear somewhere in the sweep.
     var saw_selected = false;
-    var saw_mesh = false;
     for (sources) |source| for ([_]u32{ 60, 120 }) |width| {
         var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
         defer arena.deinit();
@@ -413,13 +403,10 @@ test "co-sets applied with the plan carry the plan's own membership" {
         const winner = try select.choose(a, g, &permits, true, width, false, false);
         for (winner.sketch.co_sets) |set| switch (set.origin) {
             .selected_join => saw_selected = true,
-            .mesh_union => saw_mesh = true,
             .port_share => {},
             .fan_rail => return error.FlatCandidateKeptLayoutCoSets,
         };
-        const plan_sets = try ledger.keepOrigin(a, winner.sketch.co_sets, .selected_join);
-        const mesh_sets = try ledger.keepOrigin(a, winner.sketch.co_sets, .mesh_union);
-        const only_plan = try ledger.concatSets(a, plan_sets, mesh_sets);
+        const only_plan = try ledger.keepOrigin(a, winner.sketch.co_sets, .selected_join);
 
         var first: u32 = 0;
         while (first < g.edges.len) : (first += 1) {
@@ -434,7 +421,6 @@ test "co-sets applied with the plan carry the plan's own membership" {
         }
     };
     try std.testing.expect(saw_selected);
-    try std.testing.expect(saw_mesh);
 }
 
 test "the forced-rung debug path carries plan co-sets, not layout's fan rails" {

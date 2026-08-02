@@ -24,8 +24,6 @@ const EdgeId = u32;
 pub const CoOrigin = enum {
     /// One realized selected join (`RealizedJoins.selected_joins`).
     selected_join,
-    /// One exempt complete-mesh union (`RealizedJoins.mesh_unions`).
-    mesh_union,
     /// One fan's peers sharing a rail lane (layout/fan.zig). The only
     /// population a clustered or recursed render can have: those renders
     /// carry an empty realized plan (V-D-IR-07).
@@ -51,7 +49,7 @@ pub const CoSet = struct {
     members: []const EdgeId,
     /// The cells this set licenses, or `null` for "licenses everywhere".
     ///
-    /// A structural decision (a realized join, a mesh union, a fan rail) makes
+    /// A structural decision (a realized join, a fan rail) makes
     /// its members ONE channel wherever they meet, so it leaves this null. A
     /// `.port_share` set is narrower: two edges routed through one perimeter
     /// port share the ink of their COMMON APPROACH and nothing else. Anywhere

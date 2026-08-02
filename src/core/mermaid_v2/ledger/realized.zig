@@ -100,14 +100,11 @@ const Pending = struct {
     id: pb.JoinProposalId = 0,
 };
 
-/// Plan one candidate. `mesh_candidates` is the D-IR item 16 pass-through
-/// channel: the producer is layout (P2v Step 7; empty until then); the
-/// planner re-checks legality only and lands legal elements.
+/// Plan one candidate.
 pub fn realize(
     allocator: std.mem.Allocator,
     join_permits: pb.JoinPermits,
     s: sk.Sketch,
-    mesh_candidates: []const pb.MeshUnion,
 ) Error!Result {
     // Candidate-local identity gate (D-JOIN-SELECT item 10): a sketch
     // carrying cluster frames went through split/stitch, whose edge ids
@@ -238,7 +235,7 @@ pub fn realize(
             // subset and the reversed member(s) stay independent, exactly as
             // join_commit commits it (keeps the N6 agreement pin exact).
             if (single != null and single.?.members.len < committedCount(s.joins, g.id, forwardCount(row))) break :blk .incomplete;
-            if (groupHasConflict(conflicts.items, g.id) and !pb.fanInReMergeEligible(groups, gi, s.joins.mesh_unions)) break :blk .overlap; // arrival re-merge: eligible fan-in falls through (conflict still recorded)
+            if (groupHasConflict(conflicts.items, g.id) and !pb.fanInReMergeEligible(groups, gi)) break :blk .overlap; // arrival re-merge: eligible fan-in falls through (conflict still recorded)
             if (styleFail(g.direction, row)) |t| {
                 detail = t;
                 break :blk .style;
@@ -279,14 +276,10 @@ pub fn realize(
     var dual_edges: u32 = 0;
     const rms = try allocator.alloc(pb.RealizedEdgeMembership, ms.len);
     for (ms, rms) |m, *rm| {
-        var mesh = false;
-        for (s.joins.mesh_unions) |mu| {
-            if (containsEdge(mu.members, m.edge)) mesh = true;
-        }
         rm.* = .{
             .edge = m.edge,
-            .source = if (mesh) null else dispose(groups, verdicts, join_of_group, selected.items, m.source_group, m.edge),
-            .target = if (mesh) null else dispose(groups, verdicts, join_of_group, selected.items, m.target_group, m.edge),
+            .source = dispose(groups, verdicts, join_of_group, selected.items, m.source_group, m.edge),
+            .target = dispose(groups, verdicts, join_of_group, selected.items, m.target_group, m.edge),
         };
         if (m.source_group != null and m.target_group != null) dual_edges += 1;
     }
@@ -307,17 +300,6 @@ pub fn realize(
         try ports.append(allocator, .{ .node = geo.to, .edge = m.edge, .endpoint_side = .target_entry, .port = target_port });
     }
 
-    // Mesh-union pass-through (D-IR item 16): leaf-pair legality re-checked;
-    // elements are produced by layout from Step 7 on.
-    var unions: std.ArrayListUnmanaged(pb.MeshUnion) = .empty;
-    var mesh_rejected: u32 = 0;
-    const proposed_unions = if (mesh_candidates.len > 0) mesh_candidates else s.joins.mesh_unions;
-    for (proposed_unions) |mu| {
-        if (noDuplicateLeafPairs(join_permits, mu.members)) {
-            try unions.append(allocator, mu);
-        } else mesh_rejected += 1;
-    }
-
     // Co-realization is a fact of the candidate's OWN emitted geometry, not a
     // permission re-decided here: the discharges were made before the sketch
     // existed, so the record travels with the plan describing it. What IS
@@ -334,7 +316,6 @@ pub fn realize(
             .memberships = rms,
             .conflicts = conflict_slice,
             .terminal_ports = try ports.toOwnedSlice(allocator),
-            .mesh_unions = try unions.toOwnedSlice(allocator),
             .co_realized = s.joins.co_realized,
         },
         .report = .{
@@ -343,7 +324,6 @@ pub fn realize(
             .multiplicity = multiplicity,
             .dual_membership_edges = dual_edges,
             .permission_overlap_conflicts = @intCast(conflict_slice.len),
-            .mesh_unions_rejected = mesh_rejected,
             .co_double_discharge = double_discharge,
         },
     };
@@ -468,11 +448,6 @@ fn dispose(
         .reason = if (verdicts[gi].clause == .overlap) .overlap_conflict else .not_selected,
     } };
 }
-
-/// Union-element legality (D-IR item 16) lives in leaf_pairs.zig, narrowed to
-/// the refusals the element's producer cannot make; re-exported so
-/// invariants.zig and realized_test2.zig keep reaching it through realized.
-pub const noDuplicateLeafPairs = @import("leaf_pairs.zig").noDuplicateLeafPairs;
 
 /// Clause-(g)-pre unsafe-component withdrawal (P2v Step 8) lives in
 /// dispose.zig (the plan-rewrite sibling); re-exported so select_filter.zig

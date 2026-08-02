@@ -15,8 +15,7 @@ pub fn buildReported(a: std.mem.Allocator, graph: sg.SemGraph, permits: ?*const 
     const plan = permits.?.*;
     // P2v Step 8 (D-DISPOSITION item 9(b)): the forced all-independent terminal
     // layout. Every grouped endpoint takes an independent(not_selected)
-    // disposition, so no trunk is realized and no mesh union is provenanced —
-    // fan_rail.resolve then declines (memberships present, none selected),
+    // disposition, so no trunk is realized — fan_rail.resolve then declines (memberships present, none selected),
     // leaving per-edge D-PORT ports. The always-expressible conservative
     // baseline (TSD §6.6 step 2), materialized as layout geometry.
     if (disable) {
@@ -28,11 +27,6 @@ pub fn buildReported(a: std.mem.Allocator, graph: sg.SemGraph, permits: ?*const 
         };
         return .{ .memberships = memberships };
     }
-    // Complete-mesh provenance is needed BEFORE selection now: the arrival
-    // re-merge preference (D-PORT.md, 2026-07-18) exempts mesh members, so
-    // the unions must be known when the fan-in overlap relaxation is decided.
-    const unions = try meshUnions(a, graph, plan);
-
     // Phase 1 — provisional eligibility under the frozen gates. `eff_of[gi]`
     // is the member set the group would commit as a trunk, or null when a
     // gate refuses it.
@@ -43,7 +37,7 @@ pub fn buildReported(a: std.mem.Allocator, graph: sg.SemGraph, permits: ?*const 
         // conflict is still retained by the memberships pass below. Fan-OUT
         // groups keep the strict overlap exclusion.
         const overlap = overlaps(plan.groups, gi);
-        const remerge = overlap and pb.fanInReMergeEligible(plan.groups, gi, unions);
+        const remerge = overlap and pb.fanInReMergeEligible(plan.groups, gi);
         // Forward-subset composition (owner ruling 2026-07-18): a fan-IN group
         // blocked ONLY by a layout-reversed member composes its FORWARD subset
         // (>=2 members) as one merged trunk; the reversed member(s) take
@@ -136,10 +130,6 @@ pub fn buildReported(a: std.mem.Allocator, graph: sg.SemGraph, permits: ?*const 
 
     const memberships = try a.alloc(pb.RealizedEdgeMembership, plan.memberships.len);
     for (plan.memberships, memberships) |m, *out| {
-        if (inMesh(unions, m.edge)) {
-            out.* = .{ .edge = m.edge, .source = null, .target = null };
-            continue;
-        }
         out.* = .{
             .edge = m.edge,
             .source = disposition(graph, plan.groups, selected_group, closure_refused, selected.items, m.source_group, reversed_edges, m.edge),
@@ -149,7 +139,6 @@ pub fn buildReported(a: std.mem.Allocator, graph: sg.SemGraph, permits: ?*const 
     return .{
         .selected_joins = try selected.toOwnedSlice(a),
         .memberships = memberships,
-        .mesh_unions = unions,
         .co_realized = try discharged.toOwnedSlice(a),
     };
 }
@@ -380,76 +369,8 @@ fn hasDuplicateKey(graph: sg.SemGraph, group: pb.JoinGroup) bool {
     return false;
 }
 
-fn meshUnions(a: std.mem.Allocator, graph: sg.SemGraph, plan: pb.JoinPermits) error{OutOfMemory}![]const pb.MeshUnion {
-    const seen = try a.alloc(bool, plan.groups.len);
-    @memset(seen, false);
-    var result: std.ArrayListUnmanaged(pb.MeshUnion) = .empty;
-    for (plan.groups, 0..) |_, start| {
-        if (seen[start]) continue;
-        var queue: std.ArrayListUnmanaged(usize) = .empty;
-        var members: std.ArrayListUnmanaged(pb.EdgeId) = .empty;
-        try queue.append(a, start);
-        seen[start] = true;
-        var qi: usize = 0;
-        while (qi < queue.items.len) : (qi += 1) {
-            const gi = queue.items[qi];
-            for (plan.groups[gi].members) |edge| try appendUnique(pb.EdgeId, a, &members, edge);
-            for (plan.groups, 0..) |other, oi| {
-                if (seen[oi] or !groupsShare(plan.groups[gi], other)) continue;
-                seen[oi] = true;
-                try queue.append(a, oi);
-            }
-        }
-        if (try completeUnion(a, graph, members.items)) |sets| {
-            try result.append(a, .{
-                .id = @intCast(result.items.len),
-                .members = try a.dupe(pb.EdgeId, members.items),
-                .source_keys = sets.sources,
-                .target_keys = sets.targets,
-            });
-        }
-    }
-    return result.toOwnedSlice(a);
-}
-
-const KeySets = struct { sources: []const []const u8, targets: []const []const u8 };
-
-fn completeUnion(a: std.mem.Allocator, graph: sg.SemGraph, members: []const pb.EdgeId) error{OutOfMemory}!?KeySets {
-    var sources: std.ArrayListUnmanaged([]const u8) = .empty;
-    var targets: std.ArrayListUnmanaged([]const u8) = .empty;
-    var pairs: std.ArrayListUnmanaged([2]pb.NodeId) = .empty;
-    for (members) |id| {
-        const edge = edgeById(graph, id) orelse return null;
-        const from = nodeKey(graph, edge.from) orelse return null;
-        const to = nodeKey(graph, edge.to) orelse return null;
-        try appendUniqueBytes(a, &sources, from);
-        try appendUniqueBytes(a, &targets, to);
-        for (pairs.items) |p| if (p[0] == edge.from and p[1] == edge.to) return null;
-        try pairs.append(a, .{ edge.from, edge.to });
-    }
-    if (sources.items.len < 2 or targets.items.len < 2 or pairs.items.len != sources.items.len * targets.items.len) return null;
-    std.mem.sort([]const u8, sources.items, {}, bytesLess);
-    std.mem.sort([]const u8, targets.items, {}, bytesLess);
-    return .{ .sources = try sources.toOwnedSlice(a), .targets = try targets.toOwnedSlice(a) };
-}
-
-fn groupsShare(a: pb.JoinGroup, b: pb.JoinGroup) bool {
-    for (a.members) |x| for (b.members) |y| if (x == y) return true;
-    return false;
-}
-
-fn inMesh(unions: []const pb.MeshUnion, edge: pb.EdgeId) bool {
-    for (unions) |u| for (u.members) |member| if (member == edge) return true;
-    return false;
-}
-
 fn edgeById(graph: sg.SemGraph, id: pb.EdgeId) ?sg.Edge {
     for (graph.edges) |edge| if (edge.id == id) return edge;
-    return null;
-}
-
-fn nodeKey(graph: sg.SemGraph, id: pb.NodeId) ?[]const u8 {
-    for (graph.nodes) |node| if (node.id == id) return node.raw_id;
     return null;
 }
 
@@ -458,16 +379,3 @@ fn labelsEqual(a: ?[]const u8, b: ?[]const u8) bool {
     return b != null and std.mem.eql(u8, av, b.?);
 }
 
-fn appendUnique(comptime T: type, a: std.mem.Allocator, list: *std.ArrayListUnmanaged(T), value: T) !void {
-    for (list.items) |item| if (item == value) return;
-    try list.append(a, value);
-}
-
-fn appendUniqueBytes(a: std.mem.Allocator, list: *std.ArrayListUnmanaged([]const u8), value: []const u8) !void {
-    for (list.items) |item| if (std.mem.eql(u8, item, value)) return;
-    try list.append(a, value);
-}
-
-fn bytesLess(_: void, a: []const u8, b: []const u8) bool {
-    return std.mem.lessThan(u8, a, b);
-}

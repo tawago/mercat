@@ -1,24 +1,27 @@
-//! fan_lanes.zig — incomplete-bipartite fan lane separation (plan-06 R1a).
+//! fan_lanes.zig — two-sided fan lane separation (plan-06 R1a).
 //!
 //! THE fabrication fix. Several fans that share one inter-layer gap put their
 //! horizontal rails on the SAME row (`fan_polyline`/`fan_rail` both anchor
 //! `rail_y` to the target perimeter). When two such rails occupy
 //! overlapping-or-abutting x-spans they FUSE at raster time into one
-//! continuous `├──┼──┤` bus. If the UNION of the fused rails' declared edges
-//! is an INCOMPLETE bipartite (distinct-sources × distinct-targets > declared
-//! pairs), that single bus asserts every source→target pair — inventing edges
-//! that were never declared.
+//! continuous `├──┼──┤` bus — one run standing for a shared endpoint. If the
+//! UNION of the fused rails' declared edges is TWO-SIDED (more than one
+//! distinct source AND more than one distinct target) there is no such shared
+//! endpoint: the bus speaks for a pivot nothing in the source declares.
 //!
 //! This pass groups a gap's rail-producing trunks by collinear overlap, tests
-//! each group's union bipartite, and — only for INCOMPLETE groups — assigns
-//! each constituent trunk its own rail row (`fan.lane`) via the pure interval
+//! each group's union, and — for every two-sided group — assigns each
+//! constituent trunk its own rail row (`fan.lane`) via the pure interval
 //! packer. Distinct rails then land on distinct rows, so each declared edge
 //! keeps its own traceable rail; the honest merges (a shared target column) are
 //! preserved because they stay a single vertical.
 //!
-//! Inert (every `lane == 0`, byte-identical) for: complete meshes (K3,3,
-//! N×M==D), gaps with a single trunk, and pure fan-in or fan-out groups
-//! (N==1 or M==1 — a lone pivot never fabricates).
+//! Inert (every `lane == 0`, byte-identical) for gaps with a single trunk and
+//! for pure fan-in or fan-out groups (N==1 or M==1 — a lone pivot never
+//! fabricates). A COMPLETE bipartite is not exempt: shared trunking exists
+//! only where members share one exact endpoint, so a K(N,M) renders as its
+//! star decomposition — one rail per shared endpoint, on a lane of its own —
+//! never as one bus spanning all of them.
 //!
 //! Runs AFTER x-assignment (needs placed columns to know which rails overlap)
 //! and BEFORE row reservation (`fan.extraRowsPerGap` reads the resulting
@@ -96,10 +99,18 @@ pub fn assignLanes(
     // Edges that a fan-OUT owns: their rail belongs to the fan-OUT trunk, so a
     // fan-IN into the same target must NOT double-count them as its own rail
     // (the fan-IN would otherwise inflate a group with a phantom trunk).
+    //
+    // A fan-OUT EVERY one of whose peers was selected into an arrival trunk is
+    // the exception: it draws no run of its own, so there is nothing to defer
+    // to and the arrivals ARE the rails of that gap. That is the shape a
+    // complete all-to-all takes — every edge is somebody's arrival member —
+    // and without this its arrivals model no trunk at all, so nothing keeps
+    // their crossbars off one shared row.
+    // guarded-by: fan_lanes_test.zig "an all-to-all gap lane-separates the arrival trunks that draw its rails"
     var fanout_edges: std.AutoHashMapUnmanaged(sg.EdgeId, void) = .empty;
     defer fanout_edges.deinit(a);
     for (fans) |f| {
-        if (f.direction != .out) continue;
+        if (f.direction != .out or allPeersJoinArrivals(f, joins)) continue;
         for (f.peers) |p| try fanout_edges.put(a, p.edge_id, {});
     }
 
@@ -176,7 +187,7 @@ pub fn assignLanes(
     }
 
     // A carve-out-unrealized fan is edge-owned: every member gets a distinct
-    // rail lane. Selected trunks and exempt complete meshes retain lane zero.
+    // rail lane. Selected trunks retain lane zero.
     //
     // A PARTLY selected fan (the closure law's salvage: a strict subset keeps
     // the trunk, the rest unfuse) still owns lane `fan.lane` with its trunk, so
@@ -186,7 +197,7 @@ pub fn assignLanes(
     // handing the reach oracle an unlicensed shared cell.
     // guarded-by: fan_lanes_test.zig "a salvaged fan's excluded members never land on the kept trunk's lane"
     for (fans) |*fan| {
-        if (fanSelected(fan.*, joins) or fanMeshExempt(fan.*, joins.mesh_unions)) continue;
+        if (fanSelected(fan.*, joins)) continue;
         var next_lane = fan.lane + @as(u32, if (anySelected(fan.*, joins)) 1 else 0);
         for (fan.peers) |*peer| {
             if (invisible.contains(peer.edge_id) or !peerIndependent(fan.direction, peer.edge_id, joins.memberships)) continue;
@@ -194,6 +205,18 @@ pub fn assignLanes(
             next_lane += 1;
         }
     }
+}
+
+/// True iff a realized plan put EVERY peer of this fan-OUT into an arrival
+/// trunk, so the departure side draws no run of its own.
+fn allPeersJoinArrivals(fan: Fan, joins: pb.RealizedJoins) bool {
+    if (joins.memberships.len == 0 or fan.peers.len == 0) return false;
+    for (fan.peers) |peer| {
+        const membership = membershipFor(joins.memberships, peer.edge_id) orelse return false;
+        const arrival = membership.target orelse return false;
+        if (arrival != .selected) return false;
+    }
+    return true;
 }
 
 /// True iff at least one peer joined a realized trunk — the salvage shape the
@@ -234,22 +257,6 @@ fn peerIndependent(direction: fan_mod.Direction, edge: pb.EdgeId, memberships: [
 fn membershipFor(memberships: []const pb.RealizedEdgeMembership, edge: pb.EdgeId) ?pb.RealizedEdgeMembership {
     for (memberships) |membership| if (membership.edge == edge) return membership;
     return null;
-}
-
-fn fanMeshExempt(fan: Fan, unions: []const pb.MeshUnion) bool {
-    for (unions) |mesh_union| {
-        var all = true;
-        for (fan.peers) |peer| {
-            if (!contains(mesh_union.members, peer.edge_id)) all = false;
-        }
-        if (all) return true;
-    }
-    return false;
-}
-
-fn contains(edges: []const pb.EdgeId, edge: pb.EdgeId) bool {
-    for (edges) |item| if (item == edge) return true;
-    return false;
 }
 
 /// Group the gap's trunks by transitive x-overlap and, per incomplete group,
@@ -298,7 +305,7 @@ fn processGap(
     }
 }
 
-/// Assign lanes to one connected group. Complete / pure-fan groups keep lane 0.
+/// Assign lanes to one connected group. Pure-fan groups keep lane 0.
 fn laneAssignGroup(
     a: std.mem.Allocator,
     trunks: []const Trunk,
@@ -306,7 +313,7 @@ fn laneAssignGroup(
     group: []const u32, // indices into `members`
     fans: []Fan,
 ) error{OutOfMemory}!void {
-    if (!isIncomplete(a, trunks, members, group)) return;
+    if (!fusionForbidden(a, trunks, members, group)) return;
 
     // Lane-pack: pack each trunk's x-span into the innermost lane it fits,
     // treating overlapping/abutting spans as conflicting (so they land on
@@ -335,9 +342,13 @@ fn spansTouch(x: Trunk, y: Trunk) bool {
     return !(x.hi < y.lo or y.hi < x.lo);
 }
 
-/// Union of the group's declared edges is an incomplete bipartite: distinct
-/// sources × distinct targets strictly exceeds distinct declared pairs.
-fn isIncomplete(
+/// The group's rails must not fuse into one bus: its declared-edge union is
+/// two-sided (more than one distinct source AND more than one distinct
+/// target), so the single run the fusion would draw speaks for a shared
+/// endpoint no member actually shares. Completeness is no excuse — a complete
+/// K(N,M) is exactly the shape whose one bus has N+M pivots — so the only
+/// exemption left is a lone pivot on either side.
+fn fusionForbidden(
     a: std.mem.Allocator,
     trunks: []const Trunk,
     members: []const u32,
@@ -347,33 +358,20 @@ fn isIncomplete(
     defer srcs.deinit(a);
     var tgts: std.ArrayListUnmanaged(sg.NodeId) = .empty;
     defer tgts.deinit(a);
-    var pairs: std.ArrayListUnmanaged(Edge) = .empty;
-    defer pairs.deinit(a);
-
     for (group) |gi| {
         for (trunks[members[gi]].edges) |e| {
             addUnique(a, &srcs, e.from) catch return false;
             addUnique(a, &tgts, e.to) catch return false;
-            addUniquePair(a, &pairs, e) catch return false;
         }
     }
-    const nn = srcs.items.len;
-    const mm = tgts.items.len;
-    const dd = pairs.items.len;
-    // A lone pivot on either side (N==1 or M==1) can never fabricate; a
-    // complete mesh (N×M == D) is a truthful all-to-all.
-    if (nn <= 1 or mm <= 1) return false;
-    return nn * mm > dd;
+    // A lone pivot on either side (N==1 or M==1) can never fabricate: every
+    // member of such a union genuinely shares that one endpoint.
+    return srcs.items.len > 1 and tgts.items.len > 1;
 }
 
 fn addUnique(a: std.mem.Allocator, list: *std.ArrayListUnmanaged(sg.NodeId), v: sg.NodeId) !void {
     for (list.items) |x| if (x == v) return;
     try list.append(a, v);
-}
-
-fn addUniquePair(a: std.mem.Allocator, list: *std.ArrayListUnmanaged(Edge), e: Edge) !void {
-    for (list.items) |x| if (x.from == e.from and x.to == e.to) return;
-    try list.append(a, e);
 }
 
 // -- tiny union-find -------------------------------------------------------

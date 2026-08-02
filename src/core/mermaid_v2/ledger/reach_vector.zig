@@ -8,10 +8,8 @@
 //! Enforcement lands in Step 8, after the output-changing Step 7.
 //!
 //! Model (D-REACH item 9): conductive channels are (a) edge-owned
-//! `EdgePath` polylines, (b) realized trunks (Rails backing
-//! `joins.selected_joins`, complete member provenance), (c) labeled
-//! exempt mesh unions (`joins.mesh_unions` provenance elements — recorded
-//! provenance, never geometric inference). Terminals are typed from
+//! `EdgePath` polylines and (b) realized trunks (Rails backing
+//! `joins.selected_joins`, complete member provenance). Terminals are typed from
 //! `joins.terminal_ports`; a node is a terminal — traversal never
 //! continues through it (item 5), so equal-NodeId terminals add no link.
 //! Cross-owner cell sharing links nothing: a strict orthogonal
@@ -146,8 +144,7 @@ pub fn validate(alloc: std.mem.Allocator, s: sk.Sketch, node_keys: []const []con
 
     // 2. Channels: co-ownership union-find. Links exist only inside a
     // channel + trunk arms: a selected join co-owns its trunk and its
-    // members' continuations; a labeled mesh union co-owns ALL member
-    // geometry as one conductive channel (clause 9(c)).
+    // members' continuations.
     const parent = try alloc.alloc(usize, units.items.len);
     for (parent, 0..) |*p, i| p.* = i;
     for (joins.selected_joins) |join| {
@@ -156,13 +153,6 @@ pub fn validate(alloc: std.mem.Allocator, s: sk.Sketch, node_keys: []const []con
             const owns = (u.join != null and u.join.? == join.id) or
                 (u.edge != null and containsEdge(join.members, u.edge.?));
             if (!owns) continue;
-            if (anchor) |a| unite(parent, a, i) else anchor = i;
-        }
-    }
-    for (joins.mesh_unions) |mu| {
-        var anchor: ?usize = null;
-        for (units.items, 0..) |u, i| {
-            if (u.edge == null or !containsEdge(mu.members, u.edge.?)) continue;
             if (anchor) |a| unite(parent, a, i) else anchor = i;
         }
     }
@@ -351,12 +341,6 @@ fn oracle(
         }
         if (member_comps != 1) counts.join_split += 1;
         try foreignCheck(alloc, join.id, true, join.members, comps, counts);
-    }
-    // A labeled mesh union's channel must likewise carry members only;
-    // within the union, member sharing is intra-channel and bullet 5
-    // never fires among members (clause 9(c)).
-    for (s.joins.mesh_unions) |mu| {
-        try foreignCheck(alloc, null, false, mu.members, comps, counts);
     }
 }
 

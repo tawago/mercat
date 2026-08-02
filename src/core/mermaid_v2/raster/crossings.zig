@@ -16,8 +16,8 @@
 //! OR-merging foreign perpendicular overlap at the raster layer.
 //!
 //! EXEMPTIONS (structural, never seed-keyed): same owner, and co-members of one
-//! realized selected join or one exempt mesh union — that ink sharing is legal
-//! join ink (D-JOIN clause 4). Determined from `Sketch.joins` (RealizedJoins)
+//! realized selected join — that ink sharing is legal join ink (D-JOIN clause
+//! 4). Determined from `Sketch.joins` (RealizedJoins)
 //! and from `Sketch.co_sets`, the co-channel membership the same decisions
 //! record; never from geometry or a fixture name. The two agree by
 //! construction on the flat path (co-sets are derived from the plan where the
@@ -105,8 +105,8 @@ pub const Ctx = struct {
 };
 
 /// Two edges share LEGAL join ink iff they are the same owner or co-members of
-/// one channel: a declared co-set, a realized selected join, or an exempt mesh
-/// union (D-JOIN clause 4). This is the structural exemption from the
+/// one channel: a declared co-set or a realized selected join (D-JOIN clause
+/// 4). This is the structural exemption from the
 /// transversal rule — determined from the recorded membership, never from
 /// geometry or a seed name.
 ///
@@ -130,9 +130,6 @@ pub fn sameChannel(
     if (ledger.coMembersAt(co_sets, a, b, at)) return true;
     for (joins.selected_joins) |j| {
         if (contains(j.members, a) and contains(j.members, b)) return true;
-    }
-    for (joins.mesh_unions) |m| {
-        if (contains(m.members, a) and contains(m.members, b)) return true;
     }
     return false;
 }
@@ -236,7 +233,7 @@ test "classifySegment: perpendicular is legal, collinear/corner are violations" 
     );
 }
 
-test "sameChannel: same owner, selected-join co-members, mesh co-members" {
+test "sameChannel: same owner and selected-join co-members" {
     var members = [_]EdgeId{ 10, 11, 12 };
     var sel = [_]ledger.SelectedJoin{.{ .id = 0, .proposal = 0, .permission_group = 0, .members = &members }};
     const joins: ledger.RealizedJoins = .{ .selected_joins = &sel };
@@ -252,10 +249,12 @@ test "sameChannel: co-set membership answers what the plan answers" {
     // are two spellings of one fact. Pin that: asked with only the plan, or
     // with only the plan's co-sets, the answers agree on every pair.
     var members = [_]EdgeId{ 10, 11, 12 };
-    var sel = [_]ledger.SelectedJoin{.{ .id = 0, .proposal = 0, .permission_group = 0, .members = &members }};
-    var mesh = [_]EdgeId{ 20, 21 };
-    var mu = [_]ledger.MeshUnion{.{ .id = 0, .members = &mesh, .source_keys = &.{}, .target_keys = &.{} }};
-    const joins: ledger.RealizedJoins = .{ .selected_joins = &sel, .mesh_unions = &mu };
+    var others = [_]EdgeId{ 20, 21 };
+    var sel = [_]ledger.SelectedJoin{
+        .{ .id = 0, .proposal = 0, .permission_group = 0, .members = &members },
+        .{ .id = 1, .proposal = 1, .permission_group = 1, .members = &others },
+    };
+    const joins: ledger.RealizedJoins = .{ .selected_joins = &sel };
 
     const derived = try ledger.coSetsFromPlan(std.testing.allocator, joins);
     defer std.testing.allocator.free(derived);

@@ -127,7 +127,7 @@ test "a wide rail with nothing declared refuses without searching every subset" 
     try testing.expect(timer.read() < 200 * std.time.ns_per_ms);
 }
 
-test "a mesh whose same-side pairs are undeclared is not closed" {
+test "a run whose welded pairs are undeclared is not closed" {
     // The complete-bipartite union A—C, A—D, B—C, B—D fuses into ONE run
     // welding all four endpoints, so it asserts A—B and C—D as well. Its own
     // members declare the four cross pairs; nothing declares the two same-side

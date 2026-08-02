@@ -60,7 +60,7 @@ test "N6 reversed: forward-subset fan-in trunk agrees across join_commit and rea
     const set = try select.enumerateAll(a, graph, &plan, true, 94);
     var saw_fanin = false;
     for (set.merged) |candidate| {
-        const checked = try realized.realize(a, plan, candidate.sketch, candidate.sketch.joins.mesh_unions);
+        const checked = try realized.realize(a, plan, candidate.sketch);
         try expectSelectedEqual(candidate.sketch.joins.selected_joins, checked.plan.selected_joins);
         for (candidate.sketch.joins.selected_joins) |sj| {
             for (plan.groups) |g| if (g.id == sj.permission_group and g.direction == .in and g.pivot == nodeId(graph, "D")) {
@@ -83,7 +83,7 @@ test "N6 floor: a single-forward-member reversed fan-in commits no trunk" {
     const plan = (try permits.build(a, graph, .joined)).plan;
     const set = try select.enumerateAll(a, graph, &plan, true, 94);
     for (set.merged) |candidate| {
-        const checked = try realized.realize(a, plan, candidate.sketch, candidate.sketch.joins.mesh_unions);
+        const checked = try realized.realize(a, plan, candidate.sketch);
         try expectSelectedEqual(candidate.sketch.joins.selected_joins, checked.plan.selected_joins);
         for (candidate.sketch.joins.selected_joins) |sj| {
             for (plan.groups) |g| if (g.id == sj.permission_group)
@@ -123,7 +123,7 @@ test "N6: every enumerated candidate agrees on pre-sizing trunk commitments and 
         var saw_switch = false;
         for (set.merged) |candidate| {
             if (candidate.rung == .switch_direction) saw_switch = true;
-            const checked = try realized.realize(a, plan, candidate.sketch, candidate.sketch.joins.mesh_unions);
+            const checked = try realized.realize(a, plan, candidate.sketch);
             try expectSelectedEqual(candidate.sketch.joins.selected_joins, checked.plan.selected_joins);
         }
         if (source_i == 2) try std.testing.expect(saw_switch);

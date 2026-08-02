@@ -64,7 +64,7 @@ fn groupId(plan: pb.JoinPermits, dir: pb.JoinDirection, pivot: sg.NodeId) pb.Joi
 const Fused = struct { sketch: sk.Sketch, proposals: []const pb.JoinProposal };
 
 fn fusedBothSides(a: std.mem.Allocator, plan: pb.JoinPermits, s: sk.Sketch, fo_pivot: sg.NodeId, fi_pivot: sg.NodeId) !Fused {
-    const base = (try jp.realize(a, plan, s, &.{})).plan;
+    const base = (try jp.realize(a, plan, s)).plan;
     const fo = groupId(plan, .out, fo_pivot);
     const fi = groupId(plan, .in, fi_pivot);
     const fo_members = plan.groups[jp.groupIndexById(plan.groups, fo).?].members;
@@ -97,7 +97,7 @@ test "V-D-DISPOSITION-04: fusing incomplete-union candidate is CI-excluded, inde
 
     // Clean survivor: separate per-edge routing, all-independent → reach clean.
     var clean_paths = twox2Paths();
-    const clean = try rvt.realized(a, g, rvt.sketchOf(&clean_paths, &.{}), &.{});
+    const clean = try rvt.realized(a, g, rvt.sketchOf(&clean_paths, &.{}));
     const clean_report = try vc.validate(a, clean, keys, .flat);
     try expect(clean_report.counts.ciClean());
     try expectEqual(@as(usize, 0), clean.joins.selected_joins.len);

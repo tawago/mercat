@@ -7,6 +7,7 @@ const sg = @import("../sem_graph.zig");
 const sugiyama = @import("sugiyama.zig");
 const fan = @import("fan.zig");
 const fan_lanes = @import("fan_lanes.zig");
+const pb = @import("../base/ledger.zig");
 
 /// Minimal geometry element: `assignLanes` only reads centre columns (x + w/2).
 const Geom = struct { x: i32, w: u32 };
@@ -132,9 +133,11 @@ test "lane assignment reserves one extra gap row per lane" {
     try testing.expectEqual(max_lane + 1, extras[0]);
 }
 
-test "complete K3,3 mesh keeps every fan on lane 0" {
-    // Three sources fully connected to three targets: N×M == D == 9, a truthful
-    // all-to-all. Every fan must stay on the shared row (lane 0), byte-identical.
+test "complete K3,3 mesh lane-separates its stars instead of fusing one bus" {
+    // Three sources fully connected to three targets. Completeness is no
+    // licence: one run across all six columns speaks for a pivot none of the
+    // nine edges shares, so each star takes a rail row of its own and the gap
+    // reserves a row per lane.
     const a = testing.allocator;
     var nodes = [_]sugiyama.LayerNode{
         .{ .real = 0 }, .{ .real = 1 }, .{ .real = 2 }, // S1 S2 S3
@@ -166,9 +169,15 @@ test "complete K3,3 mesh keeps every fan on lane 0" {
     const graph = try mkGraph(aa, &edges);
     const fans = try fan.detect(aa, graph, lg);
     try fan_lanes.assignLanes(Geom, aa, graph, lg, &geom, fans, .{}, null);
-    for (fans) |f| try testing.expectEqual(@as(u32, 0), f.lane);
+    // The three fan-OUT stars span the same columns, so no two may share a row.
+    const lanes3 = [_]u32{ laneOfPivot(fans, .out, 0), laneOfPivot(fans, .out, 1), laneOfPivot(fans, .out, 2) };
+    try testing.expect(lanes3[0] != lanes3[1]);
+    try testing.expect(lanes3[0] != lanes3[2]);
+    try testing.expect(lanes3[1] != lanes3[2]);
+    var max_lane: u32 = 0;
+    for (fans) |f| max_lane = @max(max_lane, f.lane);
     const extras = try fan.extraRowsPerGap(aa, lg, fans);
-    try testing.expectEqual(@as(u32, 1), extras[0]);
+    try testing.expectEqual(max_lane + 1, extras[0]);
 }
 
 /// Like `mkGraph` but every edge is fully arrow-free (`A --- B`) — the shape
@@ -359,4 +368,50 @@ test "a salvaged fan's excluded members never land on the kept trunk's lane" {
     try testing.expectEqual(@as(u32, 0), lanes[0]);
     try testing.expectEqual(@as(u32, 0), lanes[1]);
     try testing.expect(lanes[2] != 0);
+}
+
+test "an all-to-all gap lane-separates the arrival trunks that draw its rails" {
+    // K2,2: A,B → X,Y. The plan selects the two ARRIVAL trunks (at X and at Y);
+    // neither departure is selected, so neither draws a run and both defer
+    // their peers. Model those arrivals as the gap's trunks — as the ones
+    // actually drawing rails — and the two-sided union puts them on separate
+    // rows, which is the star decomposition. Model them as owned by the
+    // departures instead and the gap has no trunk at all, so nothing keeps the
+    // two crossbars off one shared row.
+    const a = testing.allocator;
+    var nodes = [_]sugiyama.LayerNode{ .{ .real = 0 }, .{ .real = 1 }, .{ .real = 2 }, .{ .real = 3 } };
+    var row0 = [_]u32{ 0, 1 };
+    var row1 = [_]u32{ 2, 3 };
+    var layers = [_][]u32{ &row0, &row1 };
+    var edges = [_]sugiyama.LayerEdge{
+        .{ .from = 0, .to = 2, .reversed = false, .edge = 0 }, // A->X
+        .{ .from = 0, .to = 3, .reversed = false, .edge = 1 }, // A->Y
+        .{ .from = 1, .to = 2, .reversed = false, .edge = 2 }, // B->X
+        .{ .from = 1, .to = 3, .reversed = false, .edge = 3 }, // B->Y
+    };
+    var reversed = [_]sg.EdgeId{};
+    const lg = mkLg(&nodes, &layers, &edges, &reversed);
+    const geom = [_]Geom{ .{ .x = 0, .w = 3 }, .{ .x = 9, .w = 3 }, .{ .x = 0, .w = 3 }, .{ .x = 9, .w = 3 } };
+
+    var x_members = [_]pb.EdgeId{ 0, 2 };
+    var y_members = [_]pb.EdgeId{ 1, 3 };
+    var selected = [_]pb.SelectedJoin{
+        .{ .id = 0, .proposal = 0, .permission_group = 0, .members = &x_members },
+        .{ .id = 1, .proposal = 1, .permission_group = 1, .members = &y_members },
+    };
+    var memberships: [4]pb.RealizedEdgeMembership = undefined;
+    for (&memberships, 0..) |*m, i| m.* = .{
+        .edge = @intCast(i),
+        .source = .{ .independent = .{ .permission_group = 2, .reason = .overlap_conflict } },
+        .target = .{ .selected = if (i % 2 == 0) 0 else 1 },
+    };
+    const joins: pb.RealizedJoins = .{ .selected_joins = &selected, .memberships = &memberships };
+
+    var arena = std.heap.ArenaAllocator.init(a);
+    defer arena.deinit();
+    const aa = arena.allocator();
+    const graph = try mkGraph(aa, &edges);
+    const fans = try fan.detect(aa, graph, lg);
+    try fan_lanes.assignLanes(Geom, aa, graph, lg, &geom, fans, joins, null);
+    try testing.expect(laneOfPivot(fans, .in, 2) != laneOfPivot(fans, .in, 3));
 }

@@ -163,11 +163,11 @@ fn buildSketch(
 
     normalizeX(geom);
 
-    // Incomplete-bipartite fan lane separation: when >=2 fans in one gap would
-    // fuse their rails into a single all-to-all bus whose union bipartite is
-    // incomplete (N×M > D declared edges), give each fabricating trunk its own
-    // rail row via fans[].lane so every declared edge stays traceable. Complete
-    // meshes / single trunks / pure fan-in|out stay lane 0 (byte-identical).
+    // Two-sided fan lane separation: when >=2 fans in one gap would fuse their
+    // rails into a single bus whose union has more than one source AND more
+    // than one target, that bus speaks for a pivot none of its members shares,
+    // so each trunk takes its own rail row via fans[].lane and every declared
+    // edge stays traceable. Single trunks and pure fan-in|out stay lane 0.
     // guarded-by: layout/fan_lanes_test.zig "incomplete overlapping fans get separate lanes"
     if (fans.len > 0) try fan_lanes.assignLanes(NodeGeom, a, graph, lg, geom, fans, candidate_joins, &closure);
 
@@ -360,7 +360,7 @@ fn buildSketch(
 }
 
 fn hasPortWork(joins: ledger.RealizedJoins) bool {
-    if (joins.selected_joins.len != 0 or joins.mesh_unions.len != 0) return true;
+    if (joins.selected_joins.len != 0) return true;
     for (joins.memberships) |membership| {
         inline for ([2]?ledger.MembershipDisposition{ membership.source, membership.target }) |disposition| {
             if (disposition) |value| if (value == .independent) return true;

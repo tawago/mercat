@@ -189,8 +189,8 @@ test "V-D-REACH-19(b) (vector): declaration/writer permutation yields identical 
     const edges_rev = [_]sg.Edge{ fan_edges[2], fan_edges[0], fan_edges[1] };
     const bbs_fwd = [_]sk.Rail{fanRail(&taps_fwd, 16)};
     const bbs_rev = [_]sk.Rail{fanRail(&taps_rev, 16)};
-    const s_fwd = try realized(a, graphOf(&fan_nodes, &fan_edges), sketchOf(&.{}, &bbs_fwd), &.{});
-    const s_rev = try realized(a, graphOf(&fan_nodes, &edges_rev), sketchOf(&.{}, &bbs_rev), &.{});
+    const s_fwd = try realized(a, graphOf(&fan_nodes, &fan_edges), sketchOf(&.{}, &bbs_fwd));
+    const s_rev = try realized(a, graphOf(&fan_nodes, &edges_rev), sketchOf(&.{}, &bbs_rev));
     const bytes_fwd = try vc.serialize(a, try vc.validate(a, s_fwd, keys, .flat), keys);
     const bytes_rev = try vc.serialize(a, try vc.validate(a, s_rev, keys, .flat), keys);
     try std.testing.expectEqualStrings(bytes_fwd, bytes_rev);
@@ -201,8 +201,8 @@ test "V-D-REACH-19(b) (vector): declaration/writer permutation yields identical 
     const p0 = path(0, 0, 1, &.{ .{ .x = 2, .y = 6 }, .{ .x = 10, .y = 6 } });
     const p1 = path(1, 2, 3, &.{ .{ .x = 6, .y = 2 }, .{ .x = 6, .y = 10 } });
     const x_keys = try nodeKeys(a, &x_nodes);
-    const sa = try realized(a, graphOf(&x_nodes, &x_edges), sketchOf(&.{ p0, p1 }, &.{}), &.{});
-    const sb = try realized(a, graphOf(&x_nodes, &x_edges), sketchOf(&.{ p1, p0 }, &.{}), &.{});
+    const sa = try realized(a, graphOf(&x_nodes, &x_edges), sketchOf(&.{ p0, p1 }, &.{}));
+    const sb = try realized(a, graphOf(&x_nodes, &x_edges), sketchOf(&.{ p1, p0 }, &.{}));
     const ba = try vc.serialize(a, try vc.validate(a, sa, x_keys, .flat), x_keys);
     const bb = try vc.serialize(a, try vc.validate(a, sb, x_keys, .flat), x_keys);
     try std.testing.expectEqualStrings(ba, bb);
@@ -227,8 +227,8 @@ test "V-D-REACH-19(b) (vector): declaration/writer permutation yields identical 
     const g_fwd = graphOf(&o_nodes, &o_edges);
     const o_edges_rev = [_]sg.Edge{ o_edges[2], o_edges[0], o_edges[1] };
     const g_rev = graphOf(&o_nodes, &o_edges_rev);
-    const sh_a = try realized(a, g_fwd, sketchOf(&.{ q0, q1, q2 }, &.{}), &.{});
-    const sh_b = try realized(a, g_rev, sketchOf(&.{ q2, q0, q1 }, &.{}), &.{});
+    const sh_a = try realized(a, g_fwd, sketchOf(&.{ q0, q1, q2 }, &.{}));
+    const sh_b = try realized(a, g_rev, sketchOf(&.{ q2, q0, q1 }, &.{}));
     const ra = try vc.validate(a, sh_a, o_keys, .flat);
     const rb = try vc.validate(a, sh_b, o_keys, .flat);
     try expectEqual(@as(u32, 3), ra.counts.unknown_continuation); // really fires

@@ -169,12 +169,12 @@ pub fn decide(
 }
 
 /// Every unordered pair of `nodes` backed by a distinct usable declaration of
-/// stroke class `kind`, or null when any pair is unbacked. THE shared kernel:
-/// a rail asks it about its leaves, a complete-mesh union about the endpoints
-/// its single fused run welds together. Pairs are visited in `nodes` order and
-/// each takes the FIRST usable backer, so the bijection is deterministic.
-/// Repeated node ids are ignored (a node states no pair with itself).
-/// guarded-by: rail_closure_test.zig "a mesh whose same-side pairs are undeclared is not closed"
+/// stroke class `kind`, or null when any pair is unbacked — THE kernel a rail
+/// asks about the leaves its one continuous run welds together. Pairs are
+/// visited in `nodes` order and each takes the FIRST usable backer, so the
+/// bijection is deterministic. Repeated node ids are ignored (a node states no
+/// pair with itself).
+/// guarded-by: rail_closure_test.zig "a run whose welded pairs are undeclared is not closed"
 pub fn nodesClosed(
     allocator: std.mem.Allocator,
     nodes: []const NodeId,

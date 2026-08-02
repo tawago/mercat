@@ -24,7 +24,6 @@ pub const EdgeId = u32;
 pub const JoinGroupId = u32;
 pub const JoinProposalId = u32;
 pub const RealizedJoinId = u32;
-pub const MeshUnionId = u32;
 pub const ComponentId = u32;
 
 // Branch policy (TSD §5.1; D-POLICY item 1).
@@ -138,34 +137,18 @@ pub const TerminalPort = struct {
     port: u32,
 };
 
-/// One exempt complete-mesh union's recorded provenance (D-IR item 16):
-/// union identity, its COMPLETE member-edge set, and both endpoint sets as
-/// canonical node keys (raw_id bytes). This element IS the exemption's
-/// required provenance — a fused run with no element is validated as
-/// ordinary cross-owner sharing, never inferred from geometry.
-pub const MeshUnion = struct {
-    id: MeshUnionId,
-    members: []const EdgeId,
-    source_keys: []const []const u8,
-    target_keys: []const []const u8,
-};
-
 /// Owner-directed arrival re-merge preference (D-PORT.md, 2026-07-18): a fan-IN
 /// group whose arrival is a LEGAL PURE fan-in MAY be selected as one merged
 /// entry even when it overlaps a fan-out group at a shared dual edge (the
 /// carve-out's NEITHER output — the recorded conflict — stays retained; only
-/// this group's verdict flips). Eligible iff: direction == .in; no member in
-/// any mesh union (LOAD-BEARING — K3,3 stays a fused rail). No fan-out-pivot
+/// this group's verdict flips). Eligible iff: direction == .in. No fan-out-pivot
 /// exclusion — OPEN-1 class-1 (D-PORT 2026-07-17 four-way) sets purity by the
 /// ARRIVAL SHAPE alone (A,B,C → D); the mixing prohibition targets ink FUSION,
 /// prevented STRUCTURALLY not here — arrival trunk enters the target's entry
 /// side, departures exit other sides, D-JOIN clause 4 keeps junctions group-
 /// internal. Carve-out never checked fan-out pivots, so legality can't hinge on it.
-pub fn fanInReMergeEligible(groups: []const JoinGroup, index: usize, mesh_unions: []const MeshUnion) bool {
-    const g = groups[index];
-    if (g.direction != .in) return false;
-    for (g.members) |m| for (mesh_unions) |u| for (u.members) |um| if (um == m) return false;
-    return true;
+pub fn fanInReMergeEligible(groups: []const JoinGroup, index: usize) bool {
+    return groups[index].direction == .in;
 }
 
 /// The candidate-local artifact riding `Sketch.joins` (D-IR item 4). All
@@ -177,7 +160,6 @@ pub const RealizedJoins = struct {
     memberships: []const RealizedEdgeMembership = &.{},
     conflicts: []const JoinConflict = &.{},
     terminal_ports: []const TerminalPort = &.{},
-    mesh_unions: []const MeshUnion = &.{},
     /// Declared edges whose ENTIRE rendering is another element's shared ink:
     /// the leaf-pair edges an all-arrow-free rail discharges by running its
     /// crossbar between their two taps (the rail-closure law). A co-realized
@@ -229,29 +211,23 @@ pub const concatSets = co_channel.concatSets;
 pub const coMembers = co_channel.coMembers;
 pub const coMembersAt = co_channel.coMembersAt;
 
-/// The co-channel sets a realized plan authorizes: one per selected join and
-/// one per exempt mesh union, members BORROWED from the plan (same arena, no
-/// copy). This is the flat population; the caller applies it exactly where it
-/// applies the plan, because nowhere earlier is the plan final.
+/// The co-channel sets a realized plan authorizes: one per selected join,
+/// members BORROWED from the plan (same arena, no copy). This is the flat
+/// population; the caller applies it exactly where it applies the plan,
+/// because nowhere earlier is the plan final.
 ///
 /// Membership-equivalent to interrogating the plan directly: `coMembers` over
-/// the result answers what a `selected_joins` + `mesh_unions` scan answers.
+/// the result answers what a `selected_joins` scan answers.
 /// guarded-by: select_test.zig "co-sets applied with the plan carry the plan's own membership"
 pub fn coSetsFromPlan(
     allocator: std.mem.Allocator,
     joins: RealizedJoins,
 ) error{OutOfMemory}![]const CoSet {
-    const n = joins.selected_joins.len + joins.mesh_unions.len;
+    const n = joins.selected_joins.len;
     if (n == 0) return &.{};
     const out = try allocator.alloc(CoSet, n);
-    var i: usize = 0;
-    for (joins.selected_joins) |j| {
-        out[i] = .{ .origin = .selected_join, .members = j.members };
-        i += 1;
-    }
-    for (joins.mesh_unions) |m| {
-        out[i] = .{ .origin = .mesh_union, .members = m.members };
-        i += 1;
+    for (joins.selected_joins, out) |j, *slot| {
+        slot.* = .{ .origin = .selected_join, .members = j.members };
     }
     return out;
 }

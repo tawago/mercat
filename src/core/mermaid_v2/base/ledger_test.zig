@@ -53,7 +53,6 @@ test "empty RealizedJoins is default-constructible with all-empty fields" {
     try expectEqual(@as(usize, 0), plan.memberships.len);
     try expectEqual(@as(usize, 0), plan.conflicts.len);
     try expectEqual(@as(usize, 0), plan.terminal_ports.len);
-    try expectEqual(@as(usize, 0), plan.mesh_unions.len);
 }
 
 test "co-membership needs both edges inside one set" {
@@ -72,22 +71,21 @@ test "co-membership needs both edges inside one set" {
     try expect(!pb.coMembers(&.{}, 1, 2));
 }
 
-test "co-sets from a plan name one channel per selected join and mesh union" {
+test "co-sets from a plan name one channel per selected join" {
     var join_members = [_]pb.EdgeId{ 7, 8 };
-    var sel = [_]pb.SelectedJoin{.{ .id = 0, .proposal = 0, .permission_group = 0, .members = &join_members }};
-    var mesh_members = [_]pb.EdgeId{ 20, 21, 22 };
-    var mu = [_]pb.MeshUnion{.{ .id = 0, .members = &mesh_members, .source_keys = &.{}, .target_keys = &.{} }};
+    var other_members = [_]pb.EdgeId{ 20, 21, 22 };
+    var sel = [_]pb.SelectedJoin{
+        .{ .id = 0, .proposal = 0, .permission_group = 0, .members = &join_members },
+        .{ .id = 1, .proposal = 1, .permission_group = 1, .members = &other_members },
+    };
 
-    const sets = try pb.coSetsFromPlan(
-        std.testing.allocator,
-        .{ .selected_joins = &sel, .mesh_unions = &mu },
-    );
+    const sets = try pb.coSetsFromPlan(std.testing.allocator, .{ .selected_joins = &sel });
     defer std.testing.allocator.free(sets);
 
     try expectEqual(@as(usize, 2), sets.len);
     try expectEqual(pb.CoOrigin.selected_join, sets[0].origin);
     try std.testing.expectEqualSlices(pb.EdgeId, &.{ 7, 8 }, sets[0].members);
-    try expectEqual(pb.CoOrigin.mesh_union, sets[1].origin);
+    try expectEqual(pb.CoOrigin.selected_join, sets[1].origin);
     try std.testing.expectEqualSlices(pb.EdgeId, &.{ 20, 21, 22 }, sets[1].members);
 
     // An empty plan authorizes nothing and allocates nothing.
@@ -286,16 +284,17 @@ test "keepOrigin selects exactly one origin's sets" {
     try expect(pb.coMembers(shares, 6, 7));
     try expect(!pb.coMembers(shares, 0, 1));
 
-    const head = [_]pb.CoSet{.{ .origin = .mesh_union, .members = &.{ 8, 9 } }};
+    const head = [_]pb.CoSet{.{ .origin = .selected_join, .members = &.{ 8, 9 } }};
     const joined = try pb.concatSets(std.testing.allocator, &head, shares);
     defer std.testing.allocator.free(joined);
     try expectEqual(@as(usize, 3), joined.len);
-    try expectEqual(pb.CoOrigin.mesh_union, joined[0].origin);
+    try expectEqual(pb.CoOrigin.selected_join, joined[0].origin);
     try expect(pb.coMembers(joined, 8, 9));
     try expect(pb.coMembers(joined, 6, 7));
 
     // Degenerate arms: an empty side is returned as the other side verbatim.
-    try expectEqual(@as(usize, 0), (try pb.keepOrigin(std.testing.allocator, &sets, .mesh_union)).len);
+    const no_joins = [_]pb.CoSet{.{ .origin = .fan_rail, .members = &.{ 0, 1 } }};
+    try expectEqual(@as(usize, 0), (try pb.keepOrigin(std.testing.allocator, &no_joins, .selected_join)).len);
     try expectEqual(@as(usize, 1), (try pb.concatSets(std.testing.allocator, &head, &.{})).len);
 }
 

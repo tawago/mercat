@@ -167,19 +167,14 @@ pub const file_allowlists = [_]struct {
     },
     .{
         .name = "ledger/realized.zig",
-        .allowed = &.{ .sketch, .{ .exact = "leaf_pairs.zig" }, .{ .exact = "dispose.zig" }, .{ .exact = "realized_report.zig" } },
-        .reason = "realized may only import std, prim, base/ledger, sketch, leaf_pairs, dispose, or realized_report",
+        .allowed = &.{ .sketch, .{ .exact = "dispose.zig" }, .{ .exact = "realized_report.zig" } },
+        .reason = "realized may only import std, prim, base/ledger, sketch, dispose, or realized_report",
     },
     .{
         // The planner's report-only output vocabulary, split off at the cap.
         .name = "ledger/realized_report.zig",
         .allowed = &.{},
         .reason = "realized_report may only import std, prim, or base/ledger",
-    },
-    .{
-        .name = "ledger/leaf_pairs.zig",
-        .allowed = &.{},
-        .reason = "leaf_pairs may only import std, prim, or base/ledger",
     },
     .{
         .name = "ledger/dispose.zig",

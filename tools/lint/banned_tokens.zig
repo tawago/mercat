@@ -115,7 +115,19 @@ pub const table = [_]Row{
     },
     .{
         .token = "mesh_legal",
-        .why = "the module split into ledger/leaf_pairs.zig (the predicate) and ledger/dispose.zig (clause-(g)-pre withdrawal); there is no combined legality module",
+        .why = "the complete-mesh union path is gone; ledger/dispose.zig (clause-(g)-pre withdrawal) is what survived the split, and there is no legality module because there is no union to judge",
+    },
+    .{
+        .token = "meshUnions",
+        .why = "shared trunking exists only where members share ONE exact endpoint, so there is no K(N,M) union producer; an all-to-all renders as its star decomposition (one rail per shared endpoint, lane-separated by layout/fan_lanes.zig)",
+    },
+    .{
+        .token = "fanMeshExempt",
+        .why = "no fan is exempt from lane separation: completeness never licensed one bus across every column, so layout/fan_lanes.zig gates on the two-sided union alone (fusionForbidden)",
+    },
+    .{
+        .token = "noDuplicateLeafPairs",
+        .why = "the union-element legality predicate died with the union path (ledger/leaf_pairs.zig deleted); a star trunk's legality is its shared pivot, checked where the group is discovered",
     },
 };
 

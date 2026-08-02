@@ -270,15 +270,11 @@ test "V-D-PORT-16 corrected: a fan-out-pivot target DOES re-merge its pure fan-i
     }
 }
 
-test "dominance pin: the complete K2,2 union survives selection with its members and keys intact" {
-    // The ledger's union predicate is deliberately narrow: it refuses only
-    // what the producer cannot already rule out (a duplicate declared edge, a
-    // duplicate leaf pair, an endpoint it cannot resolve). Two-sided width and
-    // the completeness equation are guaranteed where unions are BUILT, so no
-    // ledger-side re-derivation of them can change what lands. This pin holds
-    // the POST-select winner plan's union list — the surface select copies
-    // into sketch.joins and the downstream stages read — fixed against exactly
-    // that narrowing.
+test "dominance pin: a complete K2,2 decomposes into star trunks, never one union" {
+    // Shared trunking exists only where members share ONE exact endpoint. A
+    // complete K2,2 has no such endpoint, so no single element may speak for
+    // all four edges: what selection lands is the star decomposition — a trunk
+    // per shared pivot — and every landed trunk's members share its pivot.
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
@@ -286,23 +282,15 @@ test "dominance pin: the complete K2,2 union survives selection with its members
     const plan = (try permits.build(a, graph, .joined)).plan;
     const winner = try select.choose(a, graph, &plan, true, 94, false, false);
 
-    const unions = winner.sketch.joins.mesh_unions;
-    try std.testing.expectEqual(@as(usize, 1), unions.len);
-    try std.testing.expectEqual(@as(usize, 4), unions[0].members.len);
-    const declared = [_][2][]const u8{ .{ "S1", "T1" }, .{ "S1", "T2" }, .{ "S2", "T1" }, .{ "S2", "T2" } };
-    for (declared) |pair| {
-        var seen: usize = 0;
-        for (unions[0].members) |m| {
-            if (m == edgeId(graph, pair[0], pair[1])) seen += 1;
-        }
-        try std.testing.expectEqual(@as(usize, 1), seen);
+    for (winner.sketch.joins.selected_joins) |sj| {
+        try std.testing.expect(sj.members.len < graph.edges.len);
+        for (plan.groups) |g| if (g.id == sj.permission_group) {
+            for (sj.members) |m| for (graph.edges) |e| if (e.id == m) {
+                const shared = if (g.direction == .out) e.from else e.to;
+                try std.testing.expectEqual(g.pivot, shared);
+            };
+        };
     }
-    try std.testing.expectEqual(@as(usize, 2), unions[0].source_keys.len);
-    try std.testing.expectEqualStrings("S1", unions[0].source_keys[0]);
-    try std.testing.expectEqualStrings("S2", unions[0].source_keys[1]);
-    try std.testing.expectEqual(@as(usize, 2), unions[0].target_keys.len);
-    try std.testing.expectEqualStrings("T1", unions[0].target_keys[0]);
-    try std.testing.expectEqualStrings("T2", unions[0].target_keys[1]);
 }
 
 /// Render a source end-to-end (select → raster → paint) and return the plain
@@ -390,4 +378,43 @@ test "a salvaged trunk is complete against the commitment the layout drew" {
     try std.testing.expectEqual(@as(usize, 2), trunk_members);
     const report = try raster.rasterize(a, winner.sketch, .bridge, .{});
     try std.testing.expectEqual(@as(u32, 0), report.edge_cells_lost);
+}
+
+test "a complete all-to-all draws one rail per shared endpoint, never one bus across all of them" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+
+    // DIRECTED K2,2. The single `├────────┤` bus this used to draw hangs both
+    // X and Y off one run: every source appears connected to every target
+    // through ink no single declaration owns. A,B → X,Y genuinely IS all-to-all,
+    // but the run still speaks for a pivot the graph never states. What
+    // replaces it is the star decomposition: one arrival trunk at X and one at
+    // Y, each carrying only the members that share ITS pivot.
+    const directed = try renderPlain(a, "flowchart TD\n  A --> X\n  A --> Y\n  B --> X\n  B --> Y\n", 70);
+    try std.testing.expectEqual(@as(usize, 2), directed.joins.selected_joins.len);
+    for (directed.joins.selected_joins) |sj| try std.testing.expectEqual(@as(usize, 2), sj.members.len);
+    // Every declared edge is drawn, by exactly one of those two trunks.
+    for (0..4) |edge| {
+        var owners: usize = 0;
+        for (directed.joins.selected_joins) |sj| {
+            for (sj.members) |m| {
+                if (m == edge) owners += 1;
+            }
+        }
+        try std.testing.expectEqual(@as(usize, 1), owners);
+    }
+    // Two crossbars on two rows: no single row carries a run from the leftmost
+    // column to the rightmost one (that row IS the bus).
+    var it = std.mem.splitScalar(u8, directed.grid, '\n');
+    while (it.next()) |line| try std.testing.expect(std.mem.indexOf(u8, line, "├────────┤") == null);
+
+    // UNDIRECTED K2,2. Arrow-free ink reads both ways, so a shared run also
+    // states A—B. Neither arrival's pair is declared and both arrivals assert
+    // it, so the closure law refuses both rails outright: no trunk, no
+    // crossbar, nothing co-realized, and all four edges route privately.
+    const undirected = try renderPlain(a, "flowchart TD\n  A --- X\n  A --- Y\n  B --- X\n  B --- Y\n", 70);
+    try std.testing.expectEqual(@as(usize, 0), undirected.joins.selected_joins.len);
+    try std.testing.expectEqual(@as(usize, 0), undirected.joins.co_realized.len);
+    try std.testing.expectEqual(@as(usize, 4), undirected.routed.len);
 }

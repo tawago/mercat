@@ -20,7 +20,7 @@ pub const LayoutOptions = struct {
     join_permits_flat: bool = false,
     /// P2v Step 8 (D-DISPOSITION item 9(b)): force the forced all-independent
     /// TERMINAL layout. `join_commit.build` emits an all-independent plan (no
-    /// selected join, no mesh union), so no fan busbar is realized and every
+    /// selected join at all), so no fan busbar is realized and every
     /// edge keeps its own D-PORT-allocated port — the trunk-free geometry the
     /// CI-filter terminal candidate needs. Off (default) leaves normal trunk
     /// realization untouched, so every other candidate stays byte-identical.

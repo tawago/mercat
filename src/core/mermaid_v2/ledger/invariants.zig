@@ -17,7 +17,6 @@ pub const Error = jp.Error;
 const containsEdge = jp.containsEdge;
 const edgeRank = jp.edgeRank;
 const groupIndexById = jp.groupIndexById;
-const noDuplicateLeafPairs = jp.noDuplicateLeafPairs;
 
 pub const ValidationTag = enum {
     membership_set_mismatch,
@@ -41,7 +40,6 @@ pub const ValidationTag = enum {
     proposal_unaccounted,
     terminal_edge_unknown,
     terminal_ports_not_canonical,
-    mesh_union_illegal,
 };
 
 pub const Finding = struct {
@@ -196,13 +194,6 @@ pub fn validate(
         if (prev_key != null and key <= prev_key.?)
             try add(&out, allocator, .terminal_ports_not_canonical, null, tp.edge);
         prev_key = key;
-    }
-
-    // D-IR item 16: every landed union element clears leaf-pair legality (no
-    // duplicate declared member, no repeated leaf pair, endpoints resolvable).
-    for (plan.mesh_unions) |mu| {
-        if (!noDuplicateLeafPairs(join_permits, mu.members))
-            try add(&out, allocator, .mesh_union_illegal, null, null);
     }
 
     return .{ .findings = try out.toOwnedSlice(allocator) };
