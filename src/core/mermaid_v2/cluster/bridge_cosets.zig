@@ -1,10 +1,14 @@
-//! Reconstruct outer structural co-sets after cross-border routing.
+//! Final-image resolution and outer structural co-set rebuild after
+//! cross-border routing.
 //!
 //! Outer placement carriers that touch a super-node are not final geometry.
-//! One such carrier may represent zero, one, or many routed bridges, so this
-//! module resolves an explicit final image relation after `bridges.route`.
-//! Cell-scoped port shares are intentionally excluded: stitch derives their
-//! one final population from final `EdgePath` geometry instead.
+//! One such carrier may represent zero, one, or many routed bridges;
+//! `finalImages` resolves that relation for the claim rebuild (report tier).
+//! Co-sets never expand across it: bridge fusion authority is the licence
+//! tier's recorded verdict (cluster/bridge_plan.zig), so `rebuildOuterSets`
+//! keeps only sets among surviving real-node carriers. Cell-scoped port
+//! shares are excluded here: stitch derives their one final population from
+//! final `EdgePath` geometry instead.
 
 const std = @import("std");
 const sg = @import("../sem_graph.zig");
@@ -62,6 +66,9 @@ pub fn finalImages(
 /// Rebuild only structural outer sets. Polarity must be proven by an outer
 /// claim or by a unique common placement endpoint. Final images are grouped by
 /// their exact real pivot, and a group needs two distinct old contributors.
+/// Members whose placement touches a super-node contribute nothing: routed
+/// bridges answer to the licence tier (cluster/bridge_plan.zig), and its
+/// recorded verdict — not a rebuilt set — is their fusion authority.
 pub fn rebuildOuterSets(
     arena: std.mem.Allocator,
     sr: split_mod.SplitResult,
@@ -80,6 +87,9 @@ pub fn rebuildOuterSets(
 
         for (set.members, 0..) |old_edge, contributor| {
             if (seenEarlier(set.members, contributor, old_edge)) continue;
+            if (endpointsOf(outer, old_edge)) |ep| {
+                if (isSuper(sr, ep.from) or isSuper(sr, ep.to)) continue;
+            }
             const images = try finalImages(
                 arena,
                 sr,

@@ -114,7 +114,7 @@ test "many routed crossings behind one placement do not make a structural fan" {
     try testing.expectEqual(@as(usize, 0), (try bridge_cosets.rebuildOuterSets(a, sr, outer, 50, 100, &bridges, &bridges, &.{})).len);
 }
 
-test "two distinct contributors with one real pivot form structural authority" {
+test "bridge members contribute no structural authority; the licence tier owns their fusion verdict" {
     var arena = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
@@ -132,11 +132,10 @@ test "two distinct contributors with one real pivot form structural authority" {
         path(101, 10, 21, .{ .x = 1, .y = 1 }, .{ .x = 2, .y = 8 }),
     };
 
+    // Both contributors' placements touch the super: no rebuilt set. Routed
+    // bridges answer to cluster/bridge_plan.zig; claims (below) still expand.
     const got = try bridge_cosets.rebuildOuterSets(a, sr, outer, 50, 100, &bridges, &bridges, &.{});
-    try testing.expectEqual(@as(usize, 1), got.len);
-    try testing.expectEqual(ledger.no_channel, got[0].channel);
-    try testing.expectEqualSlices(sketch.EdgeId, &.{ 100, 101 }, got[0].members);
-    try testing.expect(got[0].cells == null and got[0].pairwise == null);
+    try testing.expectEqual(@as(usize, 0), got.len);
 
     const members = [_]ledger.RailClaimMember{ pending(55, 10, null), pending(56, 10, null) };
     const claims = [_]ledger.RailClaim{.{ .id = 8, .polarity = .out, .members = &members }};
@@ -146,7 +145,7 @@ test "two distinct contributors with one real pivot form structural authority" {
     try testing.expect(ledger.checkRailClaim(rebuilt_claims[0]).isValid());
 }
 
-test "contributors expanding behind one super split on different real pivots" {
+test "super-splitting contributors rebuild no sets; per-pivot claims still expand" {
     var arena = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
@@ -178,9 +177,7 @@ test "contributors expanding behind one super split on different real pivots" {
     };
 
     const rebuilt_sets = try bridge_cosets.rebuildOuterSets(a, sr, outer, 50, 100, &routed, &routed, &.{});
-    try testing.expectEqual(@as(usize, 2), rebuilt_sets.len);
-    try testing.expectEqualSlices(sketch.EdgeId, &.{ 100, 102 }, rebuilt_sets[0].members);
-    try testing.expectEqualSlices(sketch.EdgeId, &.{ 101, 103 }, rebuilt_sets[1].members);
+    try testing.expectEqual(@as(usize, 0), rebuilt_sets.len);
 
     const members = [_]ledger.RailClaimMember{ pending(55, null, 20), pending(56, null, 21) };
     const claims = [_]ledger.RailClaim{.{ .id = 7, .polarity = .out, .members = &members }};
@@ -195,7 +192,7 @@ test "contributors expanding behind one super split on different real pivots" {
     try testing.expectEqual(@as(usize, 2), out_claims);
 }
 
-test "a proven mixed survivor and bridge structural set is retained" {
+test "a mixed survivor-and-bridge set rebuilds nothing once the bridge member is licence-tier" {
     var arena = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
@@ -219,9 +216,10 @@ test "a proven mixed survivor and bridge structural set is retained" {
         path(100, 10, 20, .{ .x = 3, .y = 1 }, .{ .x = 2, .y = 8 }),
     };
 
+    // The super-touching contributor is excluded, leaving one contributor —
+    // below the two-contributor floor, so no set survives.
     const got = try bridge_cosets.rebuildOuterSets(a, sr, outer, 50, 100, &final, final[1..], &.{});
-    try testing.expectEqual(@as(usize, 1), got.len);
-    try testing.expectEqualSlices(sketch.EdgeId, &.{ 55, 100 }, got[0].members);
+    try testing.expectEqual(@as(usize, 0), got.len);
 }
 
 test "missing routed bridge leaves the proven claim member unresolved" {
