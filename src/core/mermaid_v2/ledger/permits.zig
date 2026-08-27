@@ -121,25 +121,25 @@ fn railEquivalentBefore(graph: sg.SemGraph, direction: pb.JoinDirection, pivot: 
     return false;
 }
 
-fn prospectiveRailCheck(a: std.mem.Allocator, graph: sg.SemGraph, direction: pb.JoinDirection, pivot: sg.NodeId, ids: []const pb.EdgeId) error{OutOfMemory}!pb.RailClaimCheck {
-    const members = try a.alloc(pb.RailClaimMember, ids.len);
+fn prospectiveRailCheck(a: std.mem.Allocator, graph: sg.SemGraph, direction: pb.JoinDirection, pivot: sg.NodeId, ids: []const pb.EdgeId) error{OutOfMemory}!pb.RailLicenceCheck {
+    const members = try a.alloc(pb.RailLicenceMember, ids.len);
     const pivot_end: pb.Endpoint = if (direction == .out) .source else .target;
-    const pivot_site: pb.AttachmentSite = .{ .node = pivot, .side = .north, .offset = 0 };
     for (ids, members) |id, *member| {
         const candidate = edgeById(graph, id).?;
         member.* = .{
             .edge = id,
             .endpoints = .{ candidate.from, candidate.to },
-            .sites = .{
-                if (direction == .out) pivot_site else .{ .node = candidate.from, .side = .south, .offset = 0 },
-                if (direction == .in) pivot_site else .{ .node = candidate.to, .side = .south, .offset = 0 },
-            },
             .arrows = .{ mapArrow(candidate.arrow_from), mapArrow(candidate.arrow_to) },
             .kind = candidate.kind,
             .pivot_end = pivot_end,
         };
     }
-    return pb.checkRailClaim(.{ .id = 1, .polarity = if (direction == .out) .out else .in, .members = members });
+    return pb.checkRailLicence(.{
+        .id = 1,
+        .polarity = if (direction == .out) .out else .in,
+        .pivot = pivot,
+        .members = members,
+    });
 }
 
 fn pivotArrow(direction: pb.JoinDirection, candidate: sg.Edge) sg.ArrowEnd {

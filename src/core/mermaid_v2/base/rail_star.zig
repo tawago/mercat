@@ -89,6 +89,34 @@ pub const RailClaimMember = struct {
     }
 };
 
+/// Licence-tier member: the graph facts of one edge, no geometry. The type
+/// has no site fields, so a pre-layout producer cannot fabricate them.
+pub const RailLicenceMember = struct {
+    edge: EdgeId,
+    endpoints: [2]?NodeId,
+    arrows: [2]ArrowKind,
+    kind: EdgeKind,
+    pivot_end: Endpoint,
+
+    pub fn node(self: RailLicenceMember, end: Endpoint) ?NodeId {
+        return self.endpoints[end.index()];
+    }
+
+    pub fn arrow(self: RailLicenceMember, end: Endpoint) ArrowKind {
+        return self.arrows[end.index()];
+    }
+};
+
+/// Licence-tier claim: the semantic sharing question, asked of the graph
+/// alone. `pivot` is the caller's claimed pivot; the checker reports both the
+/// member consensus and disagreement with the claim.
+pub const RailLicence = struct {
+    id: RailClaimId,
+    polarity: RailPolarity,
+    pivot: NodeId,
+    members: []const RailLicenceMember,
+};
+
 /// One render-local semantic claim for shared rail ink. Pivot, pivot site,
 /// and resolution state are derived from members by `check`, never stored.
 pub const RailClaim = struct {
@@ -109,6 +137,9 @@ pub const BndSResult = struct {
     self_loop: bool = false,
     leaf_is_pivot: bool = false,
     differing_or_missing_pi: bool = false,
+    /// Licence tier only: a member's pivot end is missing or is not the
+    /// claimed pivot. Realized claims derive their pivot; never set there.
+    pivot_not_claimed: bool = false,
 
     pub fn isValid(self: BndSResult) bool {
         return !self.no_common_real_pivot and
@@ -119,7 +150,8 @@ pub const BndSResult = struct {
             !self.antiparallel and
             !self.self_loop and
             !self.leaf_is_pivot and
-            !self.differing_or_missing_pi;
+            !self.differing_or_missing_pi and
+            !self.pivot_not_claimed;
     }
 };
 
@@ -192,39 +224,39 @@ pub const CheckResult = struct {
     }
 };
 
-/// Derive and validate one claim without allocation or mutation.
+/// Licence-tier verdict: the semantic partitions only. Resolution and pi are
+/// realization facts and have no licence-tier meaning.
+pub const LicenceCheckResult = struct {
+    bnd_s: BndSResult,
+    decoration: DecorationResult,
+    style: StyleResult,
+    record: RecordResult,
+    derived_pivot: ?NodeId,
+
+    pub fn isValid(self: LicenceCheckResult) bool {
+        return self.bnd_s.isValid() and self.decoration.isValid() and
+            self.style.isValid() and self.record.isValid();
+    }
+};
+
+/// Validate one licence-tier claim from graph facts alone.
+pub fn checkLicence(licence: RailLicence) LicenceCheckResult {
+    return semanticCore(licence.id, licence.polarity, licence.pivot, licence.members);
+}
+
+/// Derive and validate one realized claim without allocation or mutation.
 pub fn check(claim: RailClaim) CheckResult {
-    var bnd: BndSResult = .{};
-    var decoration: DecorationResult = .{};
-    var style: StyleResult = .{};
-    var record: RecordResult = .{
-        .invalid_id = !validId(claim.id),
-        .arity = claim.members.len < 2,
-    };
+    const sem = semanticCore(claim.id, claim.polarity, null, claim.members);
+    var bnd = sem.bnd_s;
+    var record = sem.record;
 
-    const expected_pivot_end = claim.polarity.pivotEnd();
-    var derived_pivot: ?NodeId = null;
-    var pivot_consistent = claim.members.len != 0;
     var unresolved: u32 = 0;
-
-    for (claim.members, 0..) |member, i| {
+    for (claim.members) |member| {
         if (!endResolved(member, .source) or !endResolved(member, .target)) {
             if (unresolved != max_u32) unresolved += 1;
         }
-        if (member.pivot_end != expected_pivot_end) bnd.wrong_polarity_end = true;
-
-        const member_pivot = member.node(member.pivot_end) orelse {
-            pivot_consistent = false;
-            continue;
-        };
-        if (i == 0) {
-            derived_pivot = member_pivot;
-        } else if (derived_pivot == null or derived_pivot.? != member_pivot) {
-            pivot_consistent = false;
-        }
     }
-    if (!pivot_consistent) derived_pivot = null;
-    bnd.no_common_real_pivot = derived_pivot == null;
+    record.unresolved = unresolved != 0;
 
     var derived_pi: ?AttachmentSite = null;
     var pi_consistent = claim.members.len != 0;
@@ -247,18 +279,72 @@ pub fn check(claim: RailClaim) CheckResult {
     if (!pi_consistent) derived_pi = null;
     bnd.differing_or_missing_pi = derived_pi == null;
 
-    if (claim.members.len != 0) {
-        const first = claim.members[0];
+    return .{
+        .bnd_s = bnd,
+        .decoration = sem.decoration,
+        .style = sem.style,
+        .record = record,
+        .derived_pivot = sem.derived_pivot,
+        .derived_pi = derived_pi,
+        .derived_unresolved_members = unresolved,
+    };
+}
+
+/// The checks both tiers share, over any member type carrying graph facts.
+/// `claimed_pivot` is licence-tier only; realized claims pass null.
+fn semanticCore(id: RailClaimId, polarity: RailPolarity, claimed_pivot: ?NodeId, members: anytype) LicenceCheckResult {
+    var bnd: BndSResult = .{};
+    var decoration: DecorationResult = .{};
+    var style: StyleResult = .{};
+    const record: RecordResult = .{
+        .invalid_id = !validId(id),
+        .arity = members.len < 2,
+    };
+
+    const expected_pivot_end = polarity.pivotEnd();
+    var derived_pivot: ?NodeId = null;
+    var pivot_consistent = members.len != 0;
+
+    for (members, 0..) |member, i| {
+        if (member.pivot_end != expected_pivot_end) bnd.wrong_polarity_end = true;
+
+        const member_pivot = member.node(member.pivot_end) orelse {
+            pivot_consistent = false;
+            continue;
+        };
+        if (i == 0) {
+            derived_pivot = member_pivot;
+        } else if (derived_pivot == null or derived_pivot.? != member_pivot) {
+            pivot_consistent = false;
+        }
+    }
+    if (!pivot_consistent) derived_pivot = null;
+    bnd.no_common_real_pivot = derived_pivot == null;
+
+    if (claimed_pivot) |pivot| {
+        var claimed_ok = members.len != 0;
+        for (members) |member| {
+            const member_pivot = member.node(member.pivot_end) orelse {
+                claimed_ok = false;
+                continue;
+            };
+            if (member_pivot != pivot) claimed_ok = false;
+        }
+        bnd.pivot_not_claimed = !claimed_ok;
+    }
+
+    if (members.len != 0) {
+        const first = members[0];
         const first_deco = first.arrow(first.pivot_end);
         const first_kind = first.kind;
-        for (claim.members[1..]) |member| {
+        for (members[1..]) |member| {
             if (member.arrow(member.pivot_end) != first_deco)
                 decoration.mixed_pivot_decoration = true;
             if (member.kind != first_kind) style.style_mismatch = true;
         }
     }
 
-    for (claim.members, 0..) |member, i| {
+    for (members, 0..) |member, i| {
         const source = member.node(.source);
         const target = member.node(.target);
         if (source != null and target != null and source.? == target.?)
@@ -268,7 +354,7 @@ pub fn check(claim: RailClaim) CheckResult {
         if (sameResolvedNode(member_pivot, member_leaf))
             bnd.leaf_is_pivot = true;
 
-        for (claim.members[0..i]) |prior| {
+        for (members[0..i]) |prior| {
             if (prior.edge == member.edge) bnd.duplicate_member_edge = true;
             if (sameResolvedNode(
                 prior.node(prior.pivot_end.opposite()),
@@ -280,16 +366,12 @@ pub fn check(claim: RailClaim) CheckResult {
         }
     }
 
-    record.unresolved = unresolved != 0;
-
     return .{
         .bnd_s = bnd,
         .decoration = decoration,
         .style = style,
         .record = record,
         .derived_pivot = derived_pivot,
-        .derived_pi = derived_pi,
-        .derived_unresolved_members = unresolved,
     };
 }
 
@@ -305,7 +387,7 @@ fn sameResolvedNode(a: ?NodeId, b: ?NodeId) bool {
     return a != null and b != null and a.? == b.?;
 }
 
-fn sameResolvedPair(a: RailClaimMember, b: RailClaimMember, reversed: bool) bool {
+fn sameResolvedPair(a: anytype, b: @TypeOf(a), reversed: bool) bool {
     const af = a.node(.source) orelse return false;
     const at = a.node(.target) orelse return false;
     const bf = b.node(.source) orelse return false;

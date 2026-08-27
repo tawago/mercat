@@ -202,6 +202,10 @@ pub const RailClaimMember = rail_star.RailClaimMember;
 pub const RailClaim = rail_star.RailClaim;
 pub const RailClaimCheck = rail_star.CheckResult;
 pub const checkRailClaim = rail_star.check;
+pub const RailLicenceMember = rail_star.RailLicenceMember;
+pub const RailLicence = rail_star.RailLicence;
+pub const RailLicenceCheck = rail_star.LicenceCheckResult;
+pub const checkRailLicence = rail_star.checkLicence;
 
 /// The all-arrow-free shared-rail closure law's REPORT-ONLY inventory
 /// (base/rail_closure.zig), carried on the Sketch so the shipped candidate's
