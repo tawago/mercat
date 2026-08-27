@@ -1,14 +1,14 @@
 const std = @import("std");
 const markdown = @import("../parser.zig");
-const types = @import("types.zig");
+const line_mod = @import("line.zig");
 const builder_mod = @import("builder.zig");
 const inline_mod = @import("inline.zig");
-const unicode = @import("../../../lib/unicode.zig");
+const geometry = @import("geometry.zig");
 const decor_mod = @import("decor.zig");
 
 const Block = markdown.Block;
 const Inline = markdown.Inline;
-const SpanStyle = types.SpanStyle;
+const SpanStyle = line_mod.SpanStyle;
 const Builder = builder_mod.Builder;
 const Decor = decor_mod.Decor;
 const TableStyle = decor_mod.TableStyle;
@@ -20,15 +20,22 @@ pub fn renderTable(allocator: std.mem.Allocator, builder: *Builder, table: Block
     var max_columns: usize = 0;
     for (table.rows) |row| max_columns = @max(max_columns, row.cells.len);
 
-    var widths = try allocator.alloc(usize, max_columns);
+    const widths = try allocator.alloc(usize, max_columns);
     defer allocator.free(widths);
     @memset(widths, 0);
 
-    for (table.rows) |row| {
-        for (row.cells, 0..) |cell, index| {
-            widths[index] = @max(widths[index], inline_mod.inlinesDisplayWidth(cell));
+    const boxed = decor.glyphs.table_style == .rounded;
+    const natural_widths = try allocator.alloc(usize, max_columns);
+    defer allocator.free(natural_widths);
+    @memset(natural_widths, 0);
+    for (0..max_columns) |index| {
+        const text_column = cellTextColumn(builder.left_padding, natural_widths, index, boxed);
+        for (table.rows) |row| {
+            if (index >= row.cells.len) continue;
+            natural_widths[index] = @max(natural_widths[index], try inline_mod.inlinesDisplayWidthFrom(allocator, row.cells[index], text_column));
         }
     }
+    @memcpy(widths, natural_widths);
 
     try fitColumnWidths(widths, max_width);
 
@@ -129,7 +136,7 @@ fn appendRowCells(allocator: std.mem.Allocator, builder: *Builder, row: Block.Ta
         const cell_inlines = if (index < row.cells.len) row.cells[index] else &[_]Inline{};
         const cell_text = try inline_mod.inlinesToText(allocator, cell_inlines);
         defer allocator.free(cell_text);
-        wrapped_cells[index] = try unicode.wrapLine(allocator, cell_text, @max(width, 1), "");
+        wrapped_cells[index] = try wrapCell(allocator, cell_text, @max(width, 1), cellTextColumn(builder.left_padding, widths, index, boxed));
         row_height = @max(row_height, wrapped_cells[index].len);
     }
     defer {
@@ -144,13 +151,8 @@ fn appendRowCells(allocator: std.mem.Allocator, builder: *Builder, row: Block.Ta
         for (widths, 0..) |width, index| {
             const cell_line = if (line_index < wrapped_cells[index].len) wrapped_cells[index][line_index] else "";
             const alignment = if (index < alignments.len) alignments[index] else .none;
-            const cell_width = unicode.displayWidth(cell_line);
-            const remaining = width -| cell_width;
-            const pad_left, const pad_right = switch (alignment) {
-                .right => .{ remaining, 0 },
-                .center => .{ remaining / 2, remaining - (remaining / 2) },
-                .left, .none => .{ 0, remaining },
-            };
+            const text_column = cellTextColumn(builder.left_padding, widths, index, boxed);
+            const pad_left, const pad_right = try alignmentPadding(cell_line, width, text_column, alignment);
             try builder.appendSpan(cell_style, " ");
             if (pad_left != 0) try appendSpaces(builder, pad_left, cell_style);
             try builder.appendSpan(cell_style, cell_line);
@@ -199,6 +201,86 @@ pub fn fitColumnWidths(widths: []usize, max_width: usize) !void {
 
 pub fn appendSpaces(builder: *Builder, count: usize, style: SpanStyle) !void {
     try builder.appendRepeated(style, " ", count);
+}
+
+/// Strict source-preserving wrapping for a table cell. Long words are split at
+/// extended-grapheme boundaries; tabs retain their source byte here and are
+/// expanded later when the complete output row is prepared.
+fn wrapCell(allocator: std.mem.Allocator, text: []const u8, width: usize, initial_column: usize) ![][]const u8 {
+    _ = try geometry.displayWidth(text);
+    var output: std.ArrayList([]const u8) = .empty;
+    errdefer {
+        for (output.items) |line| allocator.free(line);
+        output.deinit(allocator);
+    }
+    var current: std.ArrayList(u8) = .empty;
+    defer current.deinit(allocator);
+    var current_width: usize = 0;
+
+    var words = std.mem.tokenizeScalar(u8, text, ' ');
+    while (words.next()) |word| {
+        const remaining = word;
+        while (remaining.len != 0) {
+            const separator: usize = @intFromBool(current.items.len != 0);
+            const word_width = try geometry.displayWidthFrom(remaining, initial_column + current_width + separator);
+            if (current_width + separator + word_width <= width) {
+                if (separator != 0) try current.append(allocator, ' ');
+                try current.appendSlice(allocator, remaining);
+                current_width += separator + word_width;
+                break;
+            }
+            if (current.items.len != 0) {
+                try output.append(allocator, try current.toOwnedSlice(allocator));
+                current_width = 0;
+                continue;
+            }
+            // Historical table behavior permits one over-wide unbroken word.
+            // Keep that byte output while still validating and measuring it
+            // through the strict authority.
+            try current.appendSlice(allocator, remaining);
+            current_width = word_width;
+            break;
+        }
+    }
+    if (current.items.len != 0) try output.append(allocator, try current.toOwnedSlice(allocator));
+    if (output.items.len == 0) try output.append(allocator, try allocator.dupe(u8, ""));
+    return output.toOwnedSlice(allocator);
+}
+
+fn cellTextColumn(left_padding: usize, widths: []const usize, index: usize, boxed: bool) usize {
+    var column = left_padding + @intFromBool(boxed);
+    for (widths[0..index]) |width| column += width + 3;
+    return column + 1;
+}
+
+fn alignmentPadding(text: []const u8, width: usize, base_column: usize, alignment: Block.Table.Alignment) !struct { usize, usize } {
+    if (alignment == .left or alignment == .none) {
+        const text_width = try geometry.displayWidthFrom(text, base_column);
+        return .{ 0, width -| text_width };
+    }
+
+    var best_left: usize = 0;
+    var best_right: usize = 0;
+    var best_balance: usize = std.math.maxInt(usize);
+    for (0..width + 1) |left| {
+        const text_width = try geometry.displayWidthFrom(text, base_column + left);
+        if (left + text_width > width) continue;
+        const right = width - left - text_width;
+        if (alignment == .right) {
+            if (left >= best_left) {
+                best_left = left;
+                best_right = right;
+            }
+            continue;
+        }
+        const balance = if (left > right) left - right else right - left;
+        if (balance < best_balance) {
+            best_balance = balance;
+            best_left = left;
+            best_right = right;
+        }
+    }
+    return .{ best_left, best_right };
 }
 
 // ===========================================================================
@@ -332,7 +414,7 @@ test "a very wide table row builds in time linear in its width" {
     // The column is fitted to the requested width, and the rounded box adds its
     // two outer rails on top of that.
     var border_width: usize = 0;
-    for (lines[0].spans) |span| border_width += unicode.displayWidth(span.text);
+    for (lines[0].spans) |span| border_width += try geometry.displayWidth(span.text);
     try testing.expectEqual(@as(usize, 20_002), border_width);
 }
 

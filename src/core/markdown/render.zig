@@ -65,6 +65,7 @@ fn materializeLineFill(allocator: std.mem.Allocator, lines: []Line, options: Opt
         new_spans[line.spans.len] = .{ .text = buf, .style = style };
         allocator.free(line.spans);
         line.spans = new_spans;
+        line.display_columns = options.width;
     }
 }
 

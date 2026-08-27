@@ -1,11 +1,11 @@
 const std = @import("std");
 const markdown = @import("../parser.zig");
-const types = @import("types.zig");
-const unicode = @import("../../../lib/unicode.zig");
+const line_mod = @import("line.zig");
+const geometry = @import("geometry.zig");
 const decor_mod = @import("decor.zig");
 
 const Inline = markdown.Inline;
-const SpanStyle = types.SpanStyle;
+const SpanStyle = line_mod.SpanStyle;
 const Decor = decor_mod.Decor;
 
 pub const InlineToken = struct {
@@ -212,26 +212,36 @@ pub fn splitAndAppendTokens(allocator: std.mem.Allocator, tokens: *std.ArrayList
     }
 }
 
-pub fn inlinesDisplayWidth(inlines: []const Inline) usize {
-    var width: usize = 0;
-    for (inlines) |inline_| {
-        width += inlineDisplayWidth(inline_);
-    }
-    return width;
+pub fn inlinesDisplayWidth(allocator: std.mem.Allocator, inlines: []const Inline) !usize {
+    return inlinesDisplayWidthFrom(allocator, inlines, 0);
 }
 
-pub fn inlineDisplayWidth(inline_: Inline) usize {
-    return switch (inline_) {
-        .text => |text| unicode.displayWidth(text),
-        .code => |text| unicode.displayWidth(text),
-        .html => |text| unicode.displayWidth(text),
-        .emphasis => |children| inlinesDisplayWidth(children),
-        .strong => |children| inlinesDisplayWidth(children),
-        .strikethrough => |children| inlinesDisplayWidth(children),
-        .link => |link| inlinesDisplayWidth(link.text) + 3 + link.url.len, // " <url>"
-        .image => |image| 8 + inlinesDisplayWidth(image.alt) + 1, // "[Image: alt]"
-        .soft_break, .line_break => 1,
-    };
+pub fn inlinesDisplayWidthFrom(allocator: std.mem.Allocator, inlines: []const Inline, initial_column: usize) !usize {
+    var text: std.ArrayList(u8) = .empty;
+    defer text.deinit(allocator);
+    for (inlines) |inline_| try appendInlineMeasurementText(allocator, &text, inline_);
+    return geometry.displayWidthFrom(text.items, initial_column);
+}
+
+fn appendInlineMeasurementText(allocator: std.mem.Allocator, buffer: *std.ArrayList(u8), inline_: Inline) !void {
+    switch (inline_) {
+        .text, .code, .html => |text| try buffer.appendSlice(allocator, text),
+        .emphasis, .strong, .strikethrough => |children| {
+            for (children) |child| try appendInlineMeasurementText(allocator, buffer, child);
+        },
+        .link => |link| {
+            for (link.text) |child| try appendInlineMeasurementText(allocator, buffer, child);
+            try buffer.appendSlice(allocator, " <");
+            try buffer.appendSlice(allocator, link.url);
+            try buffer.append(allocator, '>');
+        },
+        .image => |image| {
+            try buffer.appendSlice(allocator, "[Image: ");
+            for (image.alt) |child| try appendInlineMeasurementText(allocator, buffer, child);
+            try buffer.append(allocator, ']');
+        },
+        .soft_break, .line_break => try buffer.append(allocator, ' '),
+    }
 }
 
 pub fn inlinesToText(allocator: std.mem.Allocator, inlines: []const Inline) ![]u8 {

@@ -1,6 +1,6 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
-const unicode = @import("../../../lib/unicode.zig");
+const unicode = @import("unicode");
 const types = @import("../types.zig");
 const Point = types.Point;
 const Rect = types.Rect;
@@ -30,7 +30,7 @@ pub const Cell = struct {
         if (priority == .edge and self.priority == .edge) {
             const existing = self.char;
             const h = LineChars.horizontal; // ─
-            const v = LineChars.vertical;   // │
+            const v = LineChars.vertical; // │
             const is_existing_h = existing == h or existing == '-';
             const is_existing_v = existing == v or existing == '|';
             const is_new_h = char == h or char == '-';
@@ -128,40 +128,28 @@ pub const Canvas = struct {
         }
     }
 
-    /// Draw text at position, one Unicode scalar per display cell.
+    /// Draw text at position when every grapheme is exactly one scalar.
     ///
-    /// Each cell holds one `u21` scalar, so the text MUST be decoded as UTF-8
-    /// rather than written byte-per-cell: a multi-byte glyph such as '◁'
-    /// (E2 97 81) written as raw bytes would land three separate scalars —
-    /// U+00E2 plus the C1 control scalars U+0097/U+0081 — corrupting `toString`
-    /// output and tripping the strict export validator (§7.2). The cursor
-    /// advances by the scalar's terminal display width (never less than one
-    /// cell) so wide scalars reserve two columns and combining marks stack on
-    /// the preceding cell.
+    /// This legacy canvas stores one `u21` scalar per cell. It has no grapheme
+    /// storage or continuation-cell metadata, so combining and ZWJ sequences
+    /// cannot be represented honestly. Strict Unicode authority supplies
+    /// validation and width for accepted scalar graphemes; malformed input,
+    /// controls, tabs, and multi-scalar graphemes are declined atomically.
     pub fn drawText(self: *Canvas, x: i32, y: i32, text: []const u8, priority: Priority) void {
+        if (legacyScalarTextWidth(text) == null) return;
+
         var col = x;
-        const view = std.unicode.Utf8View.init(text) catch {
-            // Not valid UTF-8: degrade to byte-per-cell so no content is lost.
-            for (text) |c| {
-                self.setChar(col, y, c, priority);
-                col += 1;
-            }
-            return;
-        };
-        var it = view.iterator();
-        while (it.nextCodepoint()) |cp| {
+        var it = unicode.Iterator.init(text);
+        while (it.next() catch unreachable) |grapheme| {
+            const cp = singleScalar(grapheme.bytes).?;
             self.setChar(col, y, cp, priority);
-            // One cell minimum; wide scalars reserve two columns.
-            const w = unicode.codepointWidth(cp);
-            col += if (w >= 2) 2 else 1;
+            col += @intCast(grapheme.width);
         }
     }
 
-    /// Draw text centered within a box. Centering uses the text's terminal
-    /// display width (not its UTF-8 byte length) so multi-byte glyphs center
-    /// correctly.
+    /// Draw supported legacy scalar text centered using authority width.
     pub fn drawTextCentered(self: *Canvas, rect: Rect, text: []const u8, priority: Priority) void {
-        const text_len: i32 = @intCast(unicode.displayWidth(text));
+        const text_len: i32 = @intCast(legacyScalarTextWidth(text) orelse return);
         const box_width: i32 = @intCast(rect.width);
         const box_height: i32 = @intCast(rect.height);
 
@@ -331,6 +319,24 @@ pub const Canvas = struct {
     }
 };
 
+fn legacyScalarTextWidth(text: []const u8) ?usize {
+    var width: usize = 0;
+    var it = unicode.Iterator.init(text);
+    while (it.next() catch return null) |grapheme| {
+        const cp = singleScalar(grapheme.bytes) orelse return null;
+        if (cp == '\t') return null;
+        width = grapheme.column_end;
+    }
+    return width;
+}
+
+fn singleScalar(bytes: []const u8) ?u21 {
+    if (bytes.len == 0) return null;
+    const len = std.unicode.utf8ByteSequenceLength(bytes[0]) catch return null;
+    if (len != bytes.len) return null;
+    return std.unicode.utf8Decode(bytes) catch null;
+}
+
 test "Canvas basic operations" {
     const testing = std.testing;
     var canvas = try Canvas.init(testing.allocator, 20, 10);
@@ -389,6 +395,46 @@ test "drawText decodes multi-byte UTF-8 into one scalar per cell" {
     const str = try canvas.toString(testing.allocator);
     defer testing.allocator.free(str);
     try testing.expectEqualStrings("◁A◆\n", str);
+}
+
+test "drawText uses authority width for ASCII and CJK scalars" {
+    const testing = std.testing;
+    var canvas = try Canvas.init(testing.allocator, 12, 1);
+    defer canvas.deinit();
+
+    canvas.drawText(0, 0, "A日B", .node_text);
+    try testing.expectEqual(@as(u21, 'A'), canvas.getCell(0, 0).?.char);
+    try testing.expectEqual(@as(u21, 0x65E5), canvas.getCell(1, 0).?.char);
+    try testing.expectEqual(@as(u21, ' '), canvas.getCell(2, 0).?.char);
+    try testing.expectEqual(@as(u21, 'B'), canvas.getCell(3, 0).?.char);
+
+    const str = try canvas.toString(testing.allocator);
+    defer testing.allocator.free(str);
+    try testing.expectEqualStrings("A日 B\n", str);
+
+    canvas.drawTextCentered(.{ .x = 4, .y = 0, .width = 7, .height = 1 }, "日", .node_text);
+    try testing.expectEqual(@as(u21, 0x65E5), canvas.getCell(6, 0).?.char);
+}
+
+test "drawText declines invalid UTF-8 controls and tabs atomically" {
+    const testing = std.testing;
+    var canvas = try Canvas.init(testing.allocator, 12, 1);
+    defer canvas.deinit();
+
+    canvas.drawText(0, 0, "A\x80B", .node_text);
+    canvas.drawText(3, 0, "A\nB", .node_text);
+    canvas.drawText(6, 0, "A\tB", .node_text);
+    for (canvas.cells[0]) |cell| try testing.expectEqual(@as(u21, ' '), cell.char);
+}
+
+test "drawText declines combining and ZWJ graphemes atomically" {
+    const testing = std.testing;
+    var canvas = try Canvas.init(testing.allocator, 12, 1);
+    defer canvas.deinit();
+
+    canvas.drawText(0, 0, "e\u{0301}X", .node_text);
+    canvas.drawTextCentered(.{ .x = 4, .y = 0, .width = 8, .height = 1 }, "👩‍💻", .node_text);
+    for (canvas.cells[0]) |cell| try testing.expectEqual(@as(u21, ' '), cell.char);
 }
 
 test "Canvas priority" {

@@ -1,8 +1,9 @@
 const std = @import("std");
-const types = @import("types.zig");
-const Line = types.Line;
-const Span = types.Span;
-const SpanStyle = types.SpanStyle;
+const unicode = @import("unicode");
+const line_mod = @import("line.zig");
+const Line = line_mod.Line;
+const Span = line_mod.Span;
+const SpanStyle = line_mod.SpanStyle;
 
 pub const Builder = struct {
     allocator: std.mem.Allocator,
@@ -126,6 +127,7 @@ pub const Builder = struct {
         if (self.hasPending() or self.lines.items.len == 0) {
             try self.newline();
         }
+        for (self.lines.items) |*line| try line.prepareOwned(self.allocator);
         // `finish` hands ownership of everything to the caller, and callers are
         // allowed to drop the Builder without `deinit`. Release the tail
         // buffer's retained capacity so that stays leak-free.
@@ -196,4 +198,59 @@ test "building one long span stays linear rather than quadratic" {
 
     try std.testing.expectEqual(@as(usize, 1), lines[0].spans.len);
     try std.testing.expectEqual(@as(usize, 200_000), lines[0].spans[0].text.len);
+}
+
+test "whole-line preparation preserves styles across one combining grapheme" {
+    const allocator = std.testing.allocator;
+    var builder = Builder.init(allocator);
+    defer builder.deinit();
+    try builder.appendSpan(.emphasis, "e");
+    try builder.appendSpan(.strong, "\u{0301}");
+    const lines = try builder.finish();
+    defer {
+        for (lines) |line| line.deinit(allocator);
+        allocator.free(lines);
+    }
+
+    try std.testing.expectEqual(@as(usize, 1), lines[0].displayWidth());
+    try std.testing.expectEqual(@as(usize, 2), lines[0].spans.len);
+    try std.testing.expectEqualStrings("e", lines[0].spans[0].text);
+    try std.testing.expectEqualStrings("\u{0301}", lines[0].spans[1].text);
+    try std.testing.expectEqual(SpanStyle.emphasis, lines[0].spans[0].style);
+    try std.testing.expectEqual(SpanStyle.strong, lines[0].spans[1].style);
+}
+
+test "whole-line tabs use actual columns and keep the tab span style" {
+    const allocator = std.testing.allocator;
+    const cases = [_]struct { prefix: []const u8, spaces: []const u8, columns: usize }{
+        .{ .prefix = "", .spaces = "    ", .columns = 4 },
+        .{ .prefix = "a", .spaces = "   ", .columns = 4 },
+        .{ .prefix = "ab", .spaces = "  ", .columns = 4 },
+        .{ .prefix = "abc", .spaces = " ", .columns = 4 },
+        .{ .prefix = "abcd", .spaces = "    ", .columns = 8 },
+        .{ .prefix = "日", .spaces = "  ", .columns = 4 },
+    };
+    for (cases) |case| {
+        var builder = Builder.init(allocator);
+        defer builder.deinit();
+        try builder.appendSpan(.body, case.prefix);
+        try builder.appendSpan(.code, "\t");
+        const lines = try builder.finish();
+        defer {
+            for (lines) |line| line.deinit(allocator);
+            allocator.free(lines);
+        }
+        try std.testing.expectEqual(case.columns, lines[0].displayWidth());
+        try std.testing.expectEqualStrings(case.spaces, lines[0].spans[lines[0].spans.len - 1].text);
+        try std.testing.expectEqual(SpanStyle.code, lines[0].spans[lines[0].spans.len - 1].style);
+    }
+}
+
+test "whole-line preparation propagates invalid UTF-8 and controls" {
+    inline for (.{ .{ "\x80", error.InvalidUtf8 }, .{ "\x1b", error.DisallowedControl } }) |case| {
+        var builder = Builder.init(std.testing.allocator);
+        defer builder.deinit();
+        try builder.appendSpan(.body, case[0]);
+        try std.testing.expectError(case[1], builder.finish());
+    }
 }

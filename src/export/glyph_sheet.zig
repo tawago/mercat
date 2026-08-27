@@ -21,8 +21,9 @@
 
 const std = @import("std");
 
-const render_model = @import("../core/markdown/render.zig");
+const render_model = @import("../core/markdown/render/types.zig");
 const theme = @import("../core/theme.zig");
+const unicode = @import("unicode");
 const font = @import("font.zig");
 const layout = @import("layout.zig");
 const types = @import("types.zig");
@@ -41,7 +42,7 @@ const SpanStyle = render_model.SpanStyle;
 /// The 16 junction-table box-drawing glyphs (`junction_glyphs.zig`). Index 0
 /// is the empty cell (space); the rest are the corner/tee/cross/stub set.
 pub const junction_glyphs = [_]u21{
-    ' ', '╵', '╶', '└', '╷', '│', '┌', '├',
+    ' ',   '╵', '╶', '└', '╷', '│', '┌', '├',
     '╴', '┘', '─', '┴', '┐', '┤', '┬', '┼',
 };
 
@@ -51,9 +52,16 @@ pub const stroke_glyphs = [_]u21{
     // dotted straight runs
     '┊', '╌',
     // thick (double-line) full box set
-    '║', '═', '╚', '╔', '╠', '╝', '╩', '╗', '╣', '╦', '╬',
+    '║', '═',
+    '╚', '╔',
+    '╠', '╝',
+    '╩', '╗',
+    '╣', '╦',
+    '╬',
     // thick/solid hybrid border cells
-    '╨', '╞', '╥', '╡',
+    '╨',
+    '╞', '╥',
+    '╡',
 };
 
 /// Node-shape perimeter glyphs (`shape_glyphs.zig`): rounded corners, stadium
@@ -61,12 +69,12 @@ pub const stroke_glyphs = [_]u21{
 /// asymmetric caps, rhombus diamond.
 pub const shape_glyphs = [_]u21{
     '╭', '╮', '╯', '╰', // rounded corners
-    '(',  ')', // stadium caps
-    '╤',  '╧', // cylinder tees
-    '╱',  '╲', // circle/hexagon/parallelogram diagonals
-    '>',  '<', // asymmetric / hexagon caps
+    '(', ')', // stadium caps
+    '╤', '╧', // cylinder tees
+    '╱', '╲', // circle/hexagon/parallelogram diagonals
+    '>', '<', // asymmetric / hexagon caps
     '◇', // rhombus
-    '/',  '\\', // trapezoid corners
+    '/', '\\', // trapezoid corners
 };
 
 /// Arrow / geometric marker glyphs the flowchart painter owns. These are the
@@ -346,9 +354,11 @@ test "glyph sheet export dimensions follow the fixture and §7.4" {
     // Columns equal the widest line's display width.
     var expect_cols: u32 = 0;
     for (rendered.lines) |line| {
-        var w: u32 = 0;
-        for (line.spans) |span| w += try displayWidth(span.text);
-        expect_cols = @max(expect_cols, w);
+        var text: std.ArrayList(u8) = .empty;
+        defer text.deinit(testing.allocator);
+        for (line.spans) |span| try text.appendSlice(testing.allocator, span.text);
+        const columns = try unicode.rawDisplayWidth(text.items);
+        expect_cols = @max(expect_cols, std.math.cast(u32, columns) orelse return error.Overflow);
     }
     try testing.expectEqual(expect_cols, doc.columns);
 
@@ -357,18 +367,6 @@ test "glyph sheet export dimensions follow the fixture and §7.4" {
     const ch: u32 = 20;
     try testing.expectEqual(cw + doc.columns * cw + cw, try doc.pixelWidth());
     try testing.expectEqual(ch + doc.rows * ch + ch, try doc.pixelHeight());
-}
-
-fn displayWidth(text: []const u8) !u32 {
-    const unicode = @import("../lib/unicode.zig");
-    const view = try std.unicode.Utf8View.init(text);
-    var it = view.iterator();
-    var total: u32 = 0;
-    while (it.nextCodepoint()) |c| {
-        if (layout.isCombining(c)) continue;
-        total += @intCast(unicode.codepointWidth(c));
-    }
-    return total;
 }
 
 // ---------------------------------------------------------------------------
@@ -542,12 +540,12 @@ test "rendered line count maps exactly to export rows" {
     try testing.expectEqual(@as(u32, 3), doc.rows);
 }
 
-test "display width maps exactly to export columns for wide + combining scalars" {
+test "authority display width maps exactly to export columns" {
     const face = try font.Font.init(20);
-    // "Ａ" width-2, "e" + combining acute = 1 cell, "x" = 1 → 4 columns total.
-    var spans = [_]Span{spanOf("Ａe\u{0301}x", .body)};
+    const text = "·Ａe\u{0301}👩‍💻©︎©️";
+    var spans = [_]Span{spanOf(text, .body)};
     var lines = [_]Line{.{ .spans = &spans }};
     var doc = try layout.build(testing.allocator, .{ .lines = &lines }, &face, sheetOptions());
     defer doc.deinit(testing.allocator);
-    try testing.expectEqual(@as(u32, 4), doc.columns);
+    try testing.expectEqual(try unicode.rawDisplayWidth(text), @as(usize, doc.columns));
 }

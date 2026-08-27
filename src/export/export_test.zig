@@ -39,14 +39,55 @@ fn requireBinary() !void {
 /// Run `mercat <extra_args...>` with no stdin. Returns captured stdout/stderr and
 /// the exit status. `argv0` is prepended automatically.
 fn runMercat(allocator: std.mem.Allocator, extra_args: []const []const u8) !Run {
+    return runMercatWithEnv(allocator, extra_args, &.{});
+}
+
+const EnvVar = struct {
+    name: []const u8,
+    value: []const u8,
+};
+
+const steering_env_names = [_][]const u8{
+    "MERCAT_FORCE_RUNG",
+    "MERCAT_SCORE_OFF",
+    "MERCAT_SCORE_SHADOW",
+    "MERCAT_DUMP_MOTIFS",
+    "MERCAT_INTEGRITY",
+    "MERCAT_TILING_AUDIT",
+    "MERCAT_WIDTH",
+    "MERCAT_THEME",
+    "MERCAT_SYNTAX_THEME",
+    "MERCAT_FRONTMATTER",
+    "MERCAT_SUBGRAPH_EDGES",
+};
+
+fn childEnv(allocator: std.mem.Allocator, config_home: []const u8, overrides: []const EnvVar) !std.process.EnvMap {
+    var env = try std.process.getEnvMap(allocator);
+    errdefer env.deinit();
+    for (steering_env_names) |name| env.remove(name);
+    try env.put("HOME", config_home);
+    try env.put("XDG_CONFIG_HOME", config_home);
+    for (overrides) |item| try env.put(item.name, item.value);
+    return env;
+}
+
+fn runMercatWithEnv(allocator: std.mem.Allocator, extra_args: []const []const u8, overrides: []const EnvVar) !Run {
     var argv: std.ArrayList([]const u8) = .empty;
     defer argv.deinit(allocator);
     try argv.append(allocator, mercat_exe_path);
     for (extra_args) |a| try argv.append(allocator, a);
 
+    var env_tmp = testing.tmpDir(.{});
+    defer env_tmp.cleanup();
+    const config_home = try env_tmp.dir.realpathAlloc(allocator, ".");
+    defer allocator.free(config_home);
+    var env = try childEnv(allocator, config_home, overrides);
+    defer env.deinit();
+
     const result = try std.process.Child.run(.{
         .allocator = allocator,
         .argv = argv.items,
+        .env_map = &env,
         .max_output_bytes = 16 * 1024 * 1024,
     });
     return .{
@@ -64,7 +105,15 @@ fn runMercatStdin(allocator: std.mem.Allocator, extra_args: []const []const u8, 
     try argv.append(allocator, mercat_exe_path);
     for (extra_args) |a| try argv.append(allocator, a);
 
+    var env_tmp = testing.tmpDir(.{});
+    defer env_tmp.cleanup();
+    const config_home = try env_tmp.dir.realpathAlloc(allocator, ".");
+    defer allocator.free(config_home);
+    var env = try childEnv(allocator, config_home, &.{});
+    defer env.deinit();
+
     var child = std.process.Child.init(argv.items, allocator);
+    child.env_map = &env;
     child.stdin_behavior = .Pipe;
     child.stdout_behavior = .Pipe;
     child.stderr_behavior = .Pipe;
@@ -109,6 +158,51 @@ fn maxLineBytes(text: []const u8) usize {
     return m;
 }
 
+fn auditLineCount(stderr: []const u8) usize {
+    var count: usize = 0;
+    var lines = std.mem.splitScalar(u8, stderr, '\n');
+    while (lines.next()) |line| {
+        if (std.mem.startsWith(u8, line, "mercat-tiling:")) count += 1;
+    }
+    return count;
+}
+
+fn auditLine(stderr: []const u8) ?[]const u8 {
+    var found: ?[]const u8 = null;
+    var lines = std.mem.splitScalar(u8, stderr, '\n');
+    while (lines.next()) |line| {
+        if (!std.mem.startsWith(u8, line, "mercat-tiling:")) continue;
+        if (found != null) return null;
+        found = line;
+    }
+    return found;
+}
+
+fn auditField(line: []const u8, wanted: []const u8) !u64 {
+    var tokens = std.mem.splitScalar(u8, line, ' ');
+    _ = tokens.next();
+    while (tokens.next()) |token| {
+        const eq = std.mem.indexOfScalar(u8, token, '=') orelse continue;
+        if (std.mem.eql(u8, token[0..eq], wanted)) {
+            return std.fmt.parseUnsigned(u64, token[eq + 1 ..], 10);
+        }
+    }
+    return error.MissingAuditField;
+}
+
+fn auditDefectSum(line: []const u8) !u64 {
+    var total: u64 = 0;
+    var tokens = std.mem.splitScalar(u8, line, ' ');
+    _ = tokens.next();
+    while (tokens.next()) |token| {
+        const eq = std.mem.indexOfScalar(u8, token, '=') orelse continue;
+        const name = token[0..eq];
+        if (!std.mem.startsWith(u8, name, "d_") or std.mem.eql(u8, name, "d_total")) continue;
+        total += try std.fmt.parseUnsigned(u64, token[eq + 1 ..], 10);
+    }
+    return total;
+}
+
 const wide_markdown =
     "lorem ipsum dolor sit amet consectetur adipiscing elit sed do eiusmod " ++
     "tempor incididunt ut labore et dolore magna aliqua ut enim ad minim " ++
@@ -116,6 +210,46 @@ const wide_markdown =
     "commodo consequat duis aute irure dolor in reprehenderit in voluptate\n";
 
 const sample_mermaid = "flowchart TD\n  A[Start] --> B[Middle]\n  B --> C[End]\n";
+
+test "tiling audit emits one arithmetically consistent stderr record without changing output" {
+    try requireBinary();
+    const allocator = testing.allocator;
+
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    try writeTmpFile(&tmp, "audit.mmd", sample_mermaid);
+    const in_path = try tmpPath(allocator, &tmp, "audit.mmd");
+    defer allocator.free(in_path);
+
+    const normal = try runMercat(allocator, &.{ "--format", "plain", "-w", "80", in_path });
+    defer normal.deinit(allocator);
+    const audited = try runMercatWithEnv(
+        allocator,
+        &.{ "--format", "plain", "-w", "80", in_path },
+        &.{.{ .name = "MERCAT_TILING_AUDIT", .value = "1" }},
+    );
+    defer audited.deinit(allocator);
+
+    try testing.expect(normal.exited_zero);
+    try testing.expect(audited.exited_zero);
+    try testing.expectEqualSlices(u8, normal.stdout, audited.stdout);
+    try testing.expectEqual(@as(usize, 0), auditLineCount(normal.stderr));
+    try testing.expectEqual(@as(usize, 1), auditLineCount(audited.stderr));
+
+    const line = auditLine(audited.stderr) orelse return error.MissingAuditLine;
+    try testing.expectEqual(try auditDefectSum(line), try auditField(line, "d_total"));
+    try testing.expectEqual(
+        try auditField(line, "c_run_fused_crossing"),
+        try auditField(line, "c_run_fused_licensed") +
+            try auditField(line, "d_run_fused_foreign") +
+            try auditField(line, "u_run_fused_unevidenced"),
+    );
+    try testing.expectEqual(
+        try auditField(line, "n_channel_pairs_compared"),
+        try auditField(line, "m_channel_identity_agreed") +
+            try auditField(line, "u_channel_identity_disagreed"),
+    );
+}
 
 // ===========================================================================
 // §8.2 — separate-process PNG determinism
