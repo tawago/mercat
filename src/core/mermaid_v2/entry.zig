@@ -421,10 +421,12 @@ test "V-D-IR-07: a clustered graph's joins ride piece plans; the root plan stays
     try std.testing.expect(result.report.edgeid_scope_clustered_skipped);
     const laid_out = try ladder_pkg.run(a, graph, &result.plan, 120);
     // No fan anywhere: no trunk realizes. But the piece plans' membership
-    // rows survive the stitch — one for S's A->B; the cross-border edge is
-    // a bridge and takes no row.
+    // rows survive the stitch — one for S's A->B — and the cross-border
+    // edge takes a bridge-scope row (ungrouped: both sides null).
     try std.testing.expectEqual(@as(usize, 0), laid_out.sketch.joins.selected_joins.len);
-    try std.testing.expectEqual(@as(usize, 1), laid_out.sketch.joins.memberships.len);
+    try std.testing.expectEqual(@as(usize, 2), laid_out.sketch.joins.memberships.len);
+    const bridge_row = laid_out.sketch.joins.memberships[1];
+    try std.testing.expect(bridge_row.source == null and bridge_row.target == null);
 }
 
 test "cluster unification: a subgraph-internal fan-in realizes a trunk and ships it" {
@@ -539,6 +541,53 @@ test "cluster unification: a bridge never transits a stitched trunk's arrowhead"
     try std.testing.expectEqual(@as(u32, 0), report.edge_cells_lost);
 }
 
+test "cluster unification: bridges route around each other, not through" {
+    // Three subgraphs, five cross-border edges (dotted, labeled and solid
+    // mixed) whose jogs used to fuse collinear into 45 foreign junctions
+    // at this width; sequential routing with a growing scene dodges them
+    // all. Pinned through the production selection path.
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const graph = try parse(a,
+        \\graph LR
+        \\    subgraph auth-service/
+        \\        INDEX[src/index.ts<br/>Entry point]
+        \\        PROV[src/provider.ts<br/>Provider config]
+        \\        CFG[src/config/]
+        \\        ADAPT[src/adapters/account.ts]
+        \\        CLAIMS[src/claims/custom-claims.ts]
+        \\        INTER[src/interactions/]
+        \\        VIEWS[views/*.ejs]
+        \\        DATA[data/users.yaml]
+        \\    end
+        \\    INDEX --> PROV
+        \\    PROV --> CFG
+        \\    PROV --> ADAPT
+        \\    PROV --> CLAIMS
+        \\    PROV --> INTER
+        \\    INTER --> VIEWS
+        \\    ADAPT --> DATA
+        \\    subgraph web-app/
+        \\        AUTH[contexts/auth-context.tsx]
+        \\        ROUTES[routes/_authenticated/]
+        \\    end
+        \\    AUTH -.->|OIDC flow| PROV
+        \\    subgraph api-server/
+        \\        COMPOSE[docker-compose.yaml]
+        \\        VALID[JWT validation]
+        \\    end
+        \\    COMPOSE -->|runs| INDEX
+        \\    VALID -.->|fetch JWKS| PROV
+        \\
+    );
+    const result = try resolveJoinPermits(a, graph);
+    const winner = try select_mod.choose(a, graph, &result.plan, 120, false, false);
+    const report = try rasterize(a, winner.sketch, .bridge);
+    try std.testing.expectEqual(@as(u32, 0), report.crossings.foreign_junction_violation);
+    try std.testing.expectEqual(@as(u32, 0), report.crossings.arrowhead_transit_violation);
+}
+
 test {
     // Pull in layout-pipeline tests so `zig build` sees them when the
     // mermaid_v2 module is exercised. Each referenced file uses its own
@@ -564,6 +613,7 @@ test {
     _ = @import("cluster/stitch.zig");
     _ = @import("cluster/stitch_cosets.zig");
     _ = @import("cluster/bridges.zig");
+    _ = @import("cluster/bridge_plan.zig");
     _ = @import("cluster/bridge_cosets.zig");
     _ = @import("base/ledger.zig");
     _ = @import("base/ledger_test.zig");

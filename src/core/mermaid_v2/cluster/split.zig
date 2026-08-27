@@ -326,6 +326,7 @@ fn buildOuter(arena: std.mem.Allocator, graph: sg.SemGraph, tops: []const usize,
                 .arrow_from = mapArrow(e.arrow_from),
                 .arrow_to = mapArrow(e.arrow_to),
                 .label = e.label,
+                .origin = originOf(e),
             });
             const rf = outerRepr(graph, supers, orig.items, e.from);
             const rt = outerRepr(graph, supers, orig.items, e.to);

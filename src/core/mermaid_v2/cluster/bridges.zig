@@ -13,12 +13,14 @@
 //! an offending port slides along its own node face until both hold.
 //!
 //! PURE DATA: Sketch geometry in, Sketch edges out. Imports only std, prim,
-//! sem_graph, sketch, and the cluster-internal tracks.zig / corridors.zig.
+//! sem_graph, sketch, and the cluster-internal tracks.zig / corridors.zig /
+//! bridge_scene.zig.
 
 const std = @import("std");
 const sketch = @import("../sketch.zig");
 const sg = @import("../sem_graph.zig");
 const tracks = @import("tracks.zig");
+const scene = @import("bridge_scene.zig");
 const corridors = @import("corridors.zig");
 
 /// One original edge that crosses a piece boundary. Endpoints are ORIGINAL
@@ -31,6 +33,10 @@ pub const Crossing = struct {
     arrow_from: sketch.ArrowKind,
     arrow_to: sketch.ArrowKind,
     label: ?[]const u8,
+    /// Root-graph EdgeId of the declared edge this crossing renders
+    /// (SENTINEL only for hand-built test crossings). Same identity rule as
+    /// `sem_graph.Edge.origin`.
+    origin: sg.EdgeId = sg.SENTINEL,
 };
 
 /// Route every crossing into an orthogonal `EdgePath` between its endpoints'
@@ -160,17 +166,33 @@ pub fn route(
 
     try assignJogs(arena, pends.items, clusters, obstacles);
 
-    // Pass 3: build polylines. If a vertical elbow would run straight
-    // through a node interior (a cross-border edge whose source has an
-    // intra-cluster child sitting directly below it), re-route as a
-    // corridor that jogs into a clear column before descending. Gating on
-    // an actual intrusion keeps every non-intruding seed byte-identical.
+    // Pass 3: build polylines SEQUENTIALLY, each bridge routing into a
+    // scene that already holds the bridges routed before it (deterministic
+    // crossing order): a jog displaces off committed bridge runs and head
+    // cells inside its clamp interval, and committed ink joins the obstacle
+    // set the re-routed corridor consults. Bridges sharing one start stay
+    // ONE rail — the leader's dodged jog is copied, never re-dodged. If a
+    // vertical elbow would run straight through a node interior, re-route
+    // as a corridor that jogs into a clear column before descending; gating
+    // on an actual intrusion keeps every non-intruding seed byte-identical.
+    var dyn_heads: std.ArrayListUnmanaged(Pt) = .empty;
+    var dyn_runs: std.ArrayListUnmanaged([2]Pt) = .empty;
+    try dyn_heads.appendSlice(arena, obstacles.heads);
+    try dyn_runs.appendSlice(arena, obstacles.runs);
     var out: std.ArrayListUnmanaged(sketch.EdgePath) = .empty;
-    for (pends.items) |p| {
-        var poly = try buildElbow(arena, p);
-        if (try rerouted(arena, p, placements)) {
-            poly = try verticalCorridor(arena, p.start, p.end, p.to_box, p.sides.exit, placements, p.gf, p.gt, clusters, obstacles);
+    for (pends.items, 0..) |*p, pi| {
+        const dyn = tracks.Obstacles{ .heads = dyn_heads.items, .runs = dyn_runs.items };
+        const reroute = try rerouted(arena, p.*, placements);
+        if (leaderJog(pends.items[0..pi], p.*)) |j| {
+            p.jog = j;
+        } else if (p.jog != null and !reroute) {
+            p.jog = dodgeJog(p.*, clusters, dyn);
         }
+        var poly = try buildElbow(arena, p.*);
+        if (reroute) {
+            poly = try verticalCorridor(arena, p.start, p.end, p.to_box, p.sides.exit, placements, p.gf, p.gt, clusters, dyn);
+        }
+        try commitScene(arena, &dyn_heads, &dyn_runs, poly, p.cross);
 
         try out.append(arena, .{
             .id = p.cross.id,
@@ -187,6 +209,101 @@ pub fn route(
         });
     }
     return try out.toOwnedSlice(arena);
+}
+
+/// The jog an earlier same-start, same-exit bridge committed: a follower on
+/// a shared rail keeps the leader's coordinate so the rail never splits.
+fn leaderJog(earlier: []const Pending, p: Pending) ?i32 {
+    for (earlier) |q| {
+        if (q.sides.exit != p.sides.exit) continue;
+        if (q.start.x != p.start.x or q.start.y != p.start.y) continue;
+        return q.jog;
+    }
+    return null;
+}
+
+/// Displace `p`'s jog inside its clamp interval until the jog line runs
+/// through no committed ink and neither leg covers a committed head cell.
+/// The already-assigned coordinate is kept when it is clear (so a scene with
+/// no bridge-vs-bridge contact routes byte-identically); an all-blocked
+/// interval keeps it too, best effort.
+fn dodgeJog(p: Pending, clusters: []const sketch.ClusterFrame, dyn: tracks.Obstacles) ?i32 {
+    const j = p.jog orelse return null;
+    const vertical = (p.sides.exit == .north or p.sides.exit == .south);
+    const bound_lo: i32, const bound_hi: i32 = switch (p.sides.exit) {
+        .south => .{ p.start.y, p.end.y },
+        .north => .{ p.end.y, p.start.y },
+        .east => .{ p.start.x, p.end.x },
+        .west => .{ p.end.x, p.start.x },
+    };
+    const jc = clampBetween(bound_lo, bound_hi, j);
+    if (jogClear(p, jc, vertical, clusters, dyn)) return j;
+    const sign = tracks.outwardSign(p.sides.entry);
+    const width = bound_hi - bound_lo;
+    var d: i32 = 1;
+    while (d <= width) : (d += 1) {
+        for ([2]i32{ jc + sign * d, jc - sign * d }) |c| {
+            if (c <= bound_lo or c >= bound_hi) continue;
+            if (jogClear(p, c, vertical, clusters, dyn)) return c;
+        }
+    }
+    return j;
+}
+
+/// True iff a jog at `c` is placeable against the committed scene: not
+/// along a drawn frame border, not collinear with (or head-covered on) any
+/// committed run over its span, and neither perpendicular leg covers a
+/// committed head cell (a leg CROSSING a run stays legal).
+fn jogClear(p: Pending, c: i32, vertical: bool, clusters: []const sketch.ClusterFrame, dyn: tracks.Obstacles) bool {
+    const lo = if (vertical) @min(p.start.x, p.end.x) else @min(p.start.y, p.end.y);
+    const hi = if (vertical) @max(p.start.x, p.end.x) else @max(p.start.y, p.end.y);
+    if (tracks.onFrameBorder(vertical, c, lo, hi, clusters)) return false;
+    if (dyn.blocks(vertical, c, lo, hi)) return false;
+    // A corner glyph landing ON committed ink always fuses (it cannot
+    // "cross" anything), so both jog corners must sit on clear cells.
+    const corners = if (vertical)
+        [2]Pt{ .{ .x = p.start.x, .y = c }, .{ .x = p.end.x, .y = c } }
+    else
+        [2]Pt{ .{ .x = c, .y = p.start.y }, .{ .x = c, .y = p.end.y } };
+    for (corners) |corner| {
+        if (dyn.covers(corner)) return false;
+    }
+    for (dyn.heads) |h| {
+        if (vertical) {
+            if (h.x == p.start.x and between(h.y, p.start.y, c)) return false;
+            if (h.x == p.end.x and between(h.y, c, p.end.y)) return false;
+        } else {
+            if (h.y == p.start.y and between(h.x, p.start.x, c)) return false;
+            if (h.y == p.end.y and between(h.x, c, p.end.x)) return false;
+        }
+    }
+    return true;
+}
+
+const between = scene.between;
+
+/// File a routed bridge's ink into the growing scene: every polyline
+/// segment as a run, plus the head cell one step back from each decorated
+/// port — the same derivation `sceneObstacles` uses for edge paths.
+fn commitScene(
+    arena: std.mem.Allocator,
+    heads: *std.ArrayListUnmanaged(Pt),
+    runs: *std.ArrayListUnmanaged([2]Pt),
+    poly: []const sketch.Point,
+    cross: Crossing,
+) error{OutOfMemory}!void {
+    const n = poly.len;
+    if (n < 2) return;
+    var i: usize = 0;
+    while (i + 1 < n) : (i += 1) {
+        try runs.append(arena, .{ poly[i], poly[i + 1] });
+    }
+    if (cross.arrow_to != .none) {
+        if (stepDir(poly[n - 1], poly[n - 2])) |d| try heads.append(arena, stepPt(poly[n - 1], d));
+    }
+    if (cross.arrow_from != .none) {
+        if (stepDir(poly[0], poly[1])) |d| try heads.append(arena, stepPt(poly[0], d));
+    }
 }
 
 /// True iff the plain elbow for `p` would run straight through a node
@@ -330,57 +447,11 @@ fn assignJogs(
     }
 }
 
-/// Sketch-space ink already in the merged scene. Rail heads: the pivot head
-/// one step out from `stem[0]` along the stem, each decorated tap's head one
-/// step back from its landing — cell-twin of raster/busbars.zig
-/// pivotHead/tapHead, which stamp exactly these cells. Edge heads sit one
-/// step back from a decorated port along the end segment. Runs: crossbars,
-/// stem legs, tap droppers, and every polyline leg.
-// guarded-by: bridges_test.zig "sceneObstacles derives the pivot and tap head cells the raster stamps"
-pub fn sceneObstacles(
-    arena: std.mem.Allocator,
-    rails: []const sketch.Rail,
-    edge_paths: []const sketch.EdgePath,
-) error{OutOfMemory}!tracks.Obstacles {
-    var heads: std.ArrayListUnmanaged(Pt) = .empty;
-    var runs: std.ArrayListUnmanaged([2]Pt) = .empty;
-    for (edge_paths) |e| {
-        const n = e.polyline.len;
-        if (n >= 2) {
-            if (e.arrow_to != .none) {
-                if (stepDir(e.polyline[n - 1], e.polyline[n - 2])) |d| try heads.append(arena, stepPt(e.polyline[n - 1], d));
-            }
-            if (e.arrow_from != .none) {
-                if (stepDir(e.polyline[0], e.polyline[1])) |d| try heads.append(arena, stepPt(e.polyline[0], d));
-            }
-        }
-    }
-    for (rails) |r| {
-        try runs.append(arena, r.crossbar);
-        var si: usize = 0;
-        while (si + 1 < r.stem.len) : (si += 1) {
-            try runs.append(arena, .{ r.stem[si], r.stem[si + 1] });
-        }
-        if (r.pivot_arrow != .none and r.stem.len >= 2) {
-            si = 0;
-            while (si + 1 < r.stem.len) : (si += 1) {
-                if (stepDir(r.stem[si], r.stem[si + 1])) |d| {
-                    try heads.append(arena, stepPt(r.stem[0], d));
-                    break;
-                }
-            }
-        }
-        for (r.taps) |tap| {
-            try runs.append(arena, .{ tap.at, tap.landing });
-            if (tap.arrow == .none) continue;
-            const d = stepDir(tap.at, tap.landing) orelse continue;
-            const first = stepPt(tap.at, d);
-            if (first.x == tap.landing.x and first.y == tap.landing.y) continue;
-            try heads.append(arena, stepPt(tap.landing, .{ .x = -d.x, .y = -d.y }));
-        }
-    }
-    return .{ .heads = try heads.toOwnedSlice(arena), .runs = try runs.toOwnedSlice(arena) };
-}
+/// Scene-ink derivation lives in bridge_scene.zig (cap-forced split);
+/// re-exported so callers and the derivation test keep one name.
+pub const sceneObstacles = scene.sceneObstacles;
+const stepDir = scene.stepDir;
+const stepPt = scene.stepPt;
 
 /// The port's coordinate along its face (x on a horizontal face, y on a
 /// vertical one).
@@ -401,12 +472,7 @@ fn outwardCell(rect: sketch.Rect, side: sketch.Dir4, c: i32) Pt {
     };
 }
 
-fn cellIn(cells: []const Pt, p: Pt) bool {
-    for (cells) |c| {
-        if (c.x == p.x and c.y == p.y) return true;
-    }
-    return false;
-}
+const cellIn = scene.cellIn;
 
 /// If `port`'s outward step lands on a head cell, slide it along its face —
 /// nearest interior coordinate first — to one whose outward step touches no
@@ -449,19 +515,6 @@ fn faceTaken(pends: []const Pending, self: usize, node: sketch.NodeId, side: ske
         if (q.gt == node and q.sides.entry == side and faceCoord(q.end, side) == c) return true;
     }
     return false;
-}
-
-const Step = struct { x: i32, y: i32 };
-
-fn stepDir(a: Pt, b: Pt) ?Step {
-    const dx = b.x - a.x;
-    const dy = b.y - a.y;
-    if ((dx == 0) == (dy == 0)) return null; // zero-length or diagonal
-    return .{ .x = std.math.sign(dx), .y = std.math.sign(dy) };
-}
-
-fn stepPt(p: Pt, d: Step) Pt {
-    return .{ .x = p.x + d.x, .y = p.y + d.y };
 }
 
 /// The subgraph frame containing `p`, or null if `p` is top-level.

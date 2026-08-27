@@ -14,6 +14,7 @@ const sg = @import("../sem_graph.zig");
 const ledger = @import("../base/ledger.zig");
 const split_mod = @import("split.zig");
 const bridges = @import("bridges.zig");
+const bridge_plan = @import("bridge_plan.zig");
 const entry_inset = @import("entry_inset.zig");
 const stitch_cosets = @import("stitch_cosets.zig");
 const stitch_joins = @import("stitch_joins.zig");
@@ -335,6 +336,12 @@ pub fn stitch(
     // guarded-by: recurse_test2.zig "two bridges into one port declare a port-share co-set"
     const edge_slice = try edges.toOwnedSlice(arena);
     const final_bridges = edge_slice[bridge_start..];
+    // Cross-border bundles answer to the same licence tier as piece fans;
+    // the decision (selected / independent) enters the merged plan below.
+    const bridge_joins = if (merge_joins)
+        try bridge_plan.plan(arena, split_result.crossings, final_bridges, bridge_base)
+    else
+        ledger.RealizedJoins{};
     const bar_slice = try busbars.toOwnedSlice(arena);
     const authority = try stitch_cosets.finalizeAuthority(
         arena,
@@ -362,7 +369,7 @@ pub fn stitch(
         .co_sets = authority.sets,
         // Piece records rewritten into merged id spaces (stitch_joins.zig):
         // the merged plan is exactly as trustworthy as a flat candidate's.
-        .joins = if (merge_joins) try stitch_joins.merge(arena, piece_joins.items) else .{},
+        .joins = if (merge_joins) try stitch_joins.merge(arena, piece_joins.items, bridge_joins) else .{},
         // Report-only counts are per-PIECE facts about one merged picture,
         // so the merged Sketch carries their sum; keeping only the outer's
         // would silently drop every refusal a child's fans decided.

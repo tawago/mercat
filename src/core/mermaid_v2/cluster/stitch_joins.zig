@@ -17,9 +17,11 @@ pub const PieceJoins = struct {
     node_map: []const sketch.NodeId,
 };
 
-/// Merge piece records in order. Selected-join ids are renumbered to one
-/// ascending sequence and every `.selected` disposition follows its join.
-pub fn merge(a: std.mem.Allocator, pieces: []const PieceJoins) error{OutOfMemory}!ledger.RealizedJoins {
+/// Merge piece records in order, then the bridge-scope fragment
+/// (cluster/bridge_plan.zig — already in merged edge ids, no offset).
+/// Selected-join ids are renumbered to one ascending sequence and every
+/// `.selected` disposition follows its join.
+pub fn merge(a: std.mem.Allocator, pieces: []const PieceJoins, bridge: ledger.RealizedJoins) error{OutOfMemory}!ledger.RealizedJoins {
     var selected: std.ArrayListUnmanaged(ledger.SelectedJoin) = .empty;
     var memberships: std.ArrayListUnmanaged(ledger.RealizedEdgeMembership) = .empty;
     var terminals: std.ArrayListUnmanaged(ledger.TerminalPort) = .empty;
@@ -57,6 +59,23 @@ pub fn merge(a: std.mem.Allocator, pieces: []const PieceJoins) error{OutOfMemory
             });
         }
         for (j.co_realized) |e| try co_realized.append(a, e + piece.edge_base);
+    }
+
+    const bridge_jid_base: ledger.RealizedJoinId = @intCast(selected.items.len);
+    for (bridge.selected_joins) |sel| {
+        try selected.append(a, .{
+            .id = sel.id + bridge_jid_base,
+            .proposal = sel.proposal,
+            .permission_group = sel.permission_group,
+            .members = sel.members,
+        });
+    }
+    for (bridge.memberships) |m| {
+        try memberships.append(a, .{
+            .edge = m.edge,
+            .source = shiftDisposition(m.source, bridge_jid_base),
+            .target = shiftDisposition(m.target, bridge_jid_base),
+        });
     }
 
     return .{
@@ -101,7 +120,7 @@ test "merge renumbers joins per piece and shifts every edge id" {
     const merged = try merge(a, &.{
         .{ .joins = piece_a, .edge_base = 0, .node_map = &node_map },
         .{ .joins = piece_b, .edge_base = 10, .node_map = &node_map },
-    });
+    }, .{});
 
     try std.testing.expectEqual(@as(usize, 2), merged.selected_joins.len);
     try std.testing.expectEqual(@as(ledger.RealizedJoinId, 0), merged.selected_joins[0].id);
@@ -125,7 +144,7 @@ test "merge drops a terminal port whose node did not survive the stitch" {
         },
     };
     const node_map = [_]sketch.NodeId{ 5, sg.SENTINEL };
-    const merged = try merge(a, &.{.{ .joins = joins, .edge_base = 4, .node_map = &node_map }});
+    const merged = try merge(a, &.{.{ .joins = joins, .edge_base = 4, .node_map = &node_map }}, .{});
     try std.testing.expectEqual(@as(usize, 1), merged.terminal_ports.len);
     try std.testing.expectEqual(@as(sketch.NodeId, 5), merged.terminal_ports[0].node);
     try std.testing.expectEqual(@as(ledger.EdgeId, 4), merged.terminal_ports[0].edge);

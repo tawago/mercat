@@ -81,7 +81,10 @@ pub const JoinPermits = struct {
 
 // Logical records (candidate-local realization side).
 
-pub const IndependentReason = enum { not_selected, overlap_conflict, unsafe_component };
+/// `licence_refused`: the group failed the geometry-free licence check —
+/// distinct from `not_selected`, where a licensed bundle simply realized no
+/// shared trunk (e.g. bridge-scope groups, whose realization is deferred).
+pub const IndependentReason = enum { not_selected, overlap_conflict, unsafe_component, licence_refused };
 
 pub const MembershipDisposition = union(enum) {
     selected: RealizedJoinId,
