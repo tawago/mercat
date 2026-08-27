@@ -93,6 +93,11 @@ pub const Edge = struct {
     /// already block.
     /// guarded-by: cluster/split_test.zig "a placement edge records the directedness of the crossings it stands for"
     stands_for_directed: bool = false,
+    /// Root-graph EdgeId this edge descends from, chained through nested cuts
+    /// (cluster/split.zig). SENTINEL when the edge was born in this graph:
+    /// parse-built edges (their own `id` is the root id) and synthetic
+    /// placement edges (no root counterpart).
+    origin: EdgeId = SENTINEL,
 };
 
 /// True iff NEITHER end of the ink this edge stands for carries an arrowhead —

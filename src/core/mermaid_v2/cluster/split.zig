@@ -236,6 +236,7 @@ fn buildChild(arena: std.mem.Allocator, graph: sg.SemGraph, c: sg.Cluster) error
                 .arrow_from = e.arrow_from,
                 .arrow_to = e.arrow_to,
                 .label = e.label,
+                .origin = originOf(e),
             });
         }
     }
@@ -310,6 +311,7 @@ fn buildOuter(arena: std.mem.Allocator, graph: sg.SemGraph, tops: []const usize,
                 .arrow_from = e.arrow_from,
                 .arrow_to = e.arrow_to,
                 .label = e.label,
+                .origin = originOf(e),
             });
         } else if (sameCluster(fa, ta)) {
             // Same top-level subtree: lives in the child piece, not here.
@@ -369,6 +371,12 @@ fn buildOuter(arena: std.mem.Allocator, graph: sg.SemGraph, tops: []const usize,
 
 fn sameCluster(a: ?sg.ClusterId, b: ?sg.ClusterId) bool {
     return a != null and b != null and a.? == b.?;
+}
+
+/// The root-graph id of `e`: its own id when it was born in the graph being
+/// cut (first cut), else the origin it already carries (nested cut).
+fn originOf(e: sg.Edge) sg.EdgeId {
+    return if (e.origin == sg.SENTINEL) e.id else e.origin;
 }
 
 /// One outer pair that already owns a placement edge, and where that edge sits.

@@ -69,6 +69,82 @@ test "a placement edge records the directedness of the crossings it stands for" 
     }
 }
 
+test "every piece edge carries its root origin; placement edges carry none" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+
+    // Top-level T0->T1, intra-cluster A->B, cross-border T0->A.
+    const nodes = [_]sg.Node{
+        .{ .id = 0, .raw_id = "T0", .label = "T0", .shape = .rect, .classes = &.{}, .cluster = null },
+        .{ .id = 1, .raw_id = "T1", .label = "T1", .shape = .rect, .classes = &.{}, .cluster = null },
+        .{ .id = 2, .raw_id = "A", .label = "A", .shape = .rect, .classes = &.{}, .cluster = 7 },
+        .{ .id = 3, .raw_id = "B", .label = "B", .shape = .rect, .classes = &.{}, .cluster = 7 },
+    };
+    const edges = [_]sg.Edge{
+        .{ .id = 0, .from = 2, .to = 3, .kind = .dotted, .arrow_from = .none, .arrow_to = .filled, .label = "x" },
+        .{ .id = 1, .from = 0, .to = 1, .kind = .solid, .arrow_from = .none, .arrow_to = .open, .label = "y" },
+        .{ .id = 2, .from = 0, .to = 2, .kind = .solid, .arrow_from = .none, .arrow_to = .filled, .label = null },
+    };
+    const members = [_]sg.NodeId{ 2, 3 };
+    const clusters = [_]sg.Cluster{
+        .{ .id = 7, .raw_id = "S", .label = "S", .parent = null, .members = &members, .sub_clusters = &.{} },
+    };
+    const g: sg.SemGraph = .{ .direction = .TD, .nodes = &nodes, .edges = &edges, .clusters = &clusters, .classes = &.{}, .arena = null };
+
+    const sr = try split.split(a, g);
+    for (sr.pieces) |p| {
+        for (p.graph.edges) |e| {
+            if (e.origin == sg.SENTINEL) {
+                // Only synthetic placement edges are origin-free.
+                try std.testing.expect(p.cluster_id == null);
+                try std.testing.expect(split.idAt(p.orig_ids, e.from) == sg.SENTINEL or
+                    split.idAt(p.orig_ids, e.to) == sg.SENTINEL);
+                continue;
+            }
+            const root = edges[e.origin];
+            try std.testing.expectEqual(root.from, split.idAt(p.orig_ids, e.from));
+            try std.testing.expectEqual(root.to, split.idAt(p.orig_ids, e.to));
+            try std.testing.expectEqual(root.kind, e.kind);
+            try std.testing.expectEqual(root.arrow_from, e.arrow_from);
+            try std.testing.expectEqual(root.arrow_to, e.arrow_to);
+            try std.testing.expectEqual(root.label, e.label);
+        }
+    }
+}
+
+test "origin chains through a nested cut to the root id" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+
+    // S contains sub-cluster T; the only edge lives inside T.
+    const nodes = [_]sg.Node{
+        .{ .id = 0, .raw_id = "A1", .label = "A1", .shape = .rect, .classes = &.{}, .cluster = 1 },
+        .{ .id = 1, .raw_id = "A2", .label = "A2", .shape = .rect, .classes = &.{}, .cluster = 1 },
+    };
+    const edges = [_]sg.Edge{
+        .{ .id = 0, .from = 0, .to = 1, .kind = .thick, .arrow_from = .none, .arrow_to = .filled, .label = "deep" },
+    };
+    const mt = [_]sg.NodeId{ 0, 1 };
+    const clusters = [_]sg.Cluster{
+        .{ .id = 0, .raw_id = "S", .label = "S", .parent = null, .members = &.{}, .sub_clusters = &.{} },
+        .{ .id = 1, .raw_id = "T", .label = "T", .parent = 0, .members = &mt, .sub_clusters = &.{} },
+    };
+    const g: sg.SemGraph = .{ .direction = .TD, .nodes = &nodes, .edges = &edges, .clusters = &clusters, .classes = &.{}, .arena = null };
+
+    const sr = try split.split(a, g);
+    const child = sr.pieces[1].graph; // S's subtree, T now top-level in it
+    try std.testing.expectEqual(@as(usize, 1), child.edges.len);
+    try std.testing.expectEqual(@as(sg.EdgeId, 0), child.edges[0].origin);
+
+    const sr2 = try split.split(a, child);
+    const grandchild = sr2.pieces[1].graph;
+    try std.testing.expectEqual(@as(usize, 1), grandchild.edges.len);
+    try std.testing.expectEqual(@as(sg.EdgeId, 0), grandchild.edges[0].origin);
+    try std.testing.expectEqualStrings("deep", grandchild.edges[0].label.?);
+}
+
 test "one directed crossing is enough to mark a deduped placement edge" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
