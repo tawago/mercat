@@ -103,6 +103,19 @@ fn bucket(r: cell.Typed, is_arrow: bool, c: *counts.Counts) void {
     }
 }
 
+/// Without AUX, retain convention-only geometry but abstain from either
+/// defect verdict that would depend on proving no port record exists.
+fn bucketUnavailable(r: cell.Typed, is_arrow: bool, c: *counts.Counts) void {
+    const role = r.role orelse return;
+    if ((r.kind == .ring_frame and is_arrow) or
+        (r.kind == .ring_node and isCorner(role)))
+    {
+        c.u_term_aux_unavailable += 1;
+        return;
+    }
+    bucket(r, is_arrow, c);
+}
+
 /// Follow ONE direction out of an ink cell and, when it ends on a ring,
 /// file the pair. Directions that end on anything else belong to another
 /// check family and are left untouched here.
@@ -111,6 +124,10 @@ fn abutment(v: cell.View, x: u32, y: u32, d: cell.Dir4, is_arrow: bool, c: *coun
     switch (n.kind) {
         .ring_node, .ring_frame => {
             c.n_term_abut += 1;
+            if (!v.auxComplete()) {
+                bucketUnavailable(n, is_arrow, c);
+                return;
+            }
             // Port record first, and from the record rather than the mask:
             // the two port-stroke writers file a `.port` naming the arm
             // they merged into a border (either end, any face). The ring's

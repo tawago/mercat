@@ -64,8 +64,7 @@ const ro_tags = [_]pb.DiagnosticTag{
     .join_permits_skipped_clustered,
     .edgeid_scope_clustered_skipped,
     .intentional_joins,
-    // Registered ahead of their producers (nothing fires them yet): the
-    // rail-law refusals and the co-set declaration failures.
+    // Rail construction/refusal and co-set declaration diagnostics.
     .rail_deco_mixed,
     .rail_star_violation,
     .rail_closure_undeclared,
@@ -129,4 +128,12 @@ test "tag names round-trip through tagByName" {
     // Unregistered names resolve to null (item-4 backstop is the caller's).
     try expectEqual(@as(?pb.DiagnosticTag, null), pb.tagByName("not_a_registered_tag"));
     try expectEqual(@as(?pb.DiagnosticTag, null), pb.tagByName("join_select.selected_both"));
+}
+
+test "rail style and decoration exclusions are distinct report-only registry entries" {
+    try expectEqual(pb.DiagnosticTag.rail_member_style_mixed, pb.tagByName("rail_member_style_mixed").?);
+    try expectEqual(pb.DiagnosticTag.rail_deco_mixed, pb.tagByName("rail_deco_mixed").?);
+    try std.testing.expect(pb.DiagnosticTag.rail_member_style_mixed != pb.DiagnosticTag.rail_deco_mixed);
+    try expectEqual(pb.DispositionClass.report_only, pb.classOf(.rail_member_style_mixed));
+    try expectEqual(pb.DispositionClass.report_only, pb.classOf(.rail_deco_mixed));
 }

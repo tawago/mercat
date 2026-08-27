@@ -38,6 +38,10 @@ pub const Dir4 = prim.Dir4;
 /// Routing-intent role of an edge-segment cell, shared with the lattice.
 pub const EdgeRole = prim.EdgeRole;
 
+/// Carrier-detail alphabet exposed through the typed side-table view.
+pub const CarrierKind = lattice.CarrierKind;
+pub const AuxCollectionReport = lattice.AuxCollectionReport;
+
 /// The four cardinal directions in a fixed order. Every per-arm ladder
 /// walks this, so bucket ordering is deterministic across checks.
 pub const dirs = [_]Dir4{ .north, .east, .south, .west };
@@ -304,12 +308,35 @@ pub const View = struct {
         return self.lat.height;
     }
 
+    /// Whether absence from the AUX side table is evidence of absence.
+    pub fn auxComplete(self: View) bool {
+        return self.lat.aux_collection.state == .complete;
+    }
+
+    /// Collection attribution for tiers that must explain an empty table.
+    pub fn auxCollection(self: View) lattice.AuxCollectionReport {
+        return self.lat.aux_collection;
+    }
+
+    /// The complete table, or an empty slice when collection was unavailable.
+    pub fn auxRecords(self: View) []const lattice.Aux {
+        return self.lat.aux;
+    }
+
+    /// Typed copy at a side-table record's row-major index.
+    pub fn atIndex(self: View, index: u32) ?Typed {
+        if (self.lat.width == 0) return null;
+        const total = @as(u64, self.lat.width) * @as(u64, self.lat.height);
+        if (@as(u64, index) >= total) return null;
+        return self.at(index % self.lat.width, index / self.lat.width);
+    }
+
     /// Typed copy of `(x,y)`, or null when out of bounds — the Cell's own
     /// facts plus the side-table records filed at that position.
     pub fn at(self: View, x: u32, y: u32) ?Typed {
         if (x >= self.lat.width or y >= self.lat.height) return null;
         var t = classify(self.lat.atConst(x, y).*);
-        t.aux = recordsAt(self.lat.aux, self.lat.cellIndex(x, y));
+        t.aux = recordsAt(self.auxRecords(), self.lat.cellIndex(x, y));
         return t;
     }
 

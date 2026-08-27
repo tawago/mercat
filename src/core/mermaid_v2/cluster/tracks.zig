@@ -2,11 +2,17 @@
 //!
 //! BORDER CLEARANCE: a jog must never run along a drawn cluster-frame
 //! border (the corner glyph would fuse into it); an offending coordinate
-//! is displaced outward until clear. Synthetic frames never constrain.
+//! is displaced outward on a best-effort, bounded search (at most 4096
+//! steps), and if the guard expires the last coordinate is returned even
+//! though it may still sit on a border. Synthetic frames never constrain.
 //! TRACK SEPARATION: same-side bridges whose jog spans overlap pack into
 //! distinct tracks (lanes.assign, stack_gap 1); untangled requests
 //! keep their preferred, border-cleared coordinate. PURE DATA: rects/coords
 //! in, resolved coords out; imports std, lanes, sketch.
+
+// REFACTOR TARGET: bounded search presented as a guarantee — the 4096 guard can
+// expire and return a non-conforming result silently. Either prove the bound is
+// unreachable, or make expiry an explicit, reported outcome.
 
 const std = @import("std");
 const sketch = @import("../sketch.zig");

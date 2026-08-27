@@ -5,10 +5,20 @@ const pb = @import("../base/ledger.zig");
 const rail_closure = @import("../base/rail_closure.zig");
 const sg = @import("../sem_graph.zig");
 const sk = @import("../sketch.zig");
+const fan_mod = @import("fan.zig");
 const ports = @import("ports.zig");
 const sugiyama = @import("sugiyama.zig");
 
-pub const EdgePorts = struct { edge: pb.EdgeId, source: sk.Port, target: sk.Port, source_ordinal: u32, target_ordinal: u32, route_lane: u32 = 0 };
+pub const EdgePorts = struct {
+    edge: pb.EdgeId,
+    source: sk.Port,
+    target: sk.Port,
+    source_ordinal: u32,
+    target_ordinal: u32,
+    source_duplicate: bool = false,
+    target_duplicate: bool = false,
+    route_lane: u32 = 0,
+};
 
 pub const LanePlan = struct { lanes: []const EdgeLane = &.{}, extra_rows: []const u32 = &.{} };
 pub const EdgeLane = struct { edge: pb.EdgeId, lane: u32 };
@@ -33,6 +43,69 @@ pub fn midpoint(a: std.mem.Allocator, graph: sg.SemGraph, placements: []const sk
         out.* = .{ .edge = edge.id, .source = source.port, .target = target.port, .source_ordinal = 0, .target_ordinal = 0 };
     }
     return .{ .edges = edges };
+}
+
+/// Derive the structural fan attachment population when no flat realization
+/// plan exists. Shared members consume one pivot attachment per fan; private
+/// members and every leaf endpoint stay independent. This preserves the shared
+/// rail while preventing an excluded member from reusing its attachment.
+pub fn deriveFanAttachments(a: std.mem.Allocator, graph: sg.SemGraph, direction: sg.Direction, reversed_edges: []const pb.EdgeId, fans: []const fan_mod.Fan) ports.DeriveError![]const ports.DerivedAttachment {
+    var out: std.ArrayListUnmanaged(ports.DerivedAttachment) = .empty;
+    for (graph.edges) |edge| {
+        if (edge.kind == .invisible) continue;
+        for ([2]pb.EndpointSide{ .source_exit, .target_entry }) |endpoint| {
+            const node = if (endpoint == .source_exit) edge.from else edge.to;
+            const side = if (edge.from == edge.to)
+                ports.selfLoopSide(direction, endpoint)
+            else if (containsEdge(reversed_edges, edge.id))
+                ports.reversedSide(direction)
+            else
+                ports.forwardSide(direction, endpoint);
+            if (sharedFan(fans, edge.id, endpoint)) |fan| {
+                const trunk = try fanAttachment(a, graph, fan, endpoint);
+                if (trunk.edge != edge.id) continue;
+                try out.append(a, .{ .node = node, .side = side, .attachment = trunk });
+                continue;
+            }
+            try out.append(a, .{
+                .node = node,
+                .side = side,
+                .attachment = .{ .key = try ports.edgeAttachmentKey(graph, edge, endpoint), .edge = edge.id },
+            });
+        }
+    }
+    return try out.toOwnedSlice(a);
+}
+
+fn sharedFan(fans: []const fan_mod.Fan, edge: pb.EdgeId, endpoint: pb.EndpointSide) ?fan_mod.Fan {
+    for (fans) |fan| {
+        const pivot_endpoint = if (fan.direction == .out) pb.EndpointSide.source_exit else .target_entry;
+        if (endpoint != pivot_endpoint) continue;
+        for (fan.peers) |peer| if (peer.shared and peer.edge_id == edge) return fan;
+    }
+    return null;
+}
+
+fn fanAttachment(a: std.mem.Allocator, graph: sg.SemGraph, fan: fan_mod.Fan, endpoint: pb.EndpointSide) ports.DeriveError!ports.Attachment {
+    var best: ?pb.AttachmentKey = null;
+    var best_edge: pb.EdgeId = 0;
+    var members: std.ArrayListUnmanaged(pb.EdgeId) = .empty;
+    for (fan.peers) |peer| {
+        if (!peer.shared) continue;
+        const edge = edgeById(graph, peer.edge_id) orelse return error.InvalidSemGraph;
+        const key = try ports.edgeAttachmentKey(graph, edge, endpoint);
+        if (best == null or pb.attachmentKeyOrder(key, best.?) == .lt) {
+            best = key;
+            best_edge = edge.id;
+        }
+        try members.append(a, edge.id);
+    }
+    return .{
+        .class = .trunk_pivot,
+        .key = best orelse return error.InvalidSemGraph,
+        .edge = best_edge,
+        .members = try members.toOwnedSlice(a),
+    };
 }
 
 /// The derived attachment set minus every CO-REALIZED edge. Such an edge is
@@ -122,30 +195,117 @@ pub fn allocate(
             .north, .south => placement.rect.w,
             .east, .west => placement.rect.h,
         };
-        const allocation = try ports.allocate(a, .{ .rung = rung }, placement.id, side, len, attachments);
-        switch (allocation) {
-            .assigned => |items| try faces.append(a, .{ .node = placement.id, .side = side, .items = items }),
-            .failed => continue,
-        }
+        const items = try allocateFace(a, placement.id, side, len, attachments, rung);
+        try faces.append(a, .{ .node = placement.id, .side = side, .items = items });
     };
 
     const edge_ports = try a.alloc(EdgePorts, graph.edges.len);
     var terminals: std.ArrayListUnmanaged(pb.TerminalPort) = .empty;
     for (graph.edges, edge_ports) |edge, *out| {
-        const source = resolvePort(graph, placements, faces.items, joins, edge, .source_exit);
-        const target = resolvePort(graph, placements, faces.items, joins, edge, .target_entry);
+        const source = resolvePort(graph, placements, faces.items, resolved, joins, edge, .source_exit);
+        const target = resolvePort(graph, placements, faces.items, resolved, joins, edge, .target_entry);
         out.* = .{
             .edge = edge.id,
             .source = source.port,
             .target = target.port,
             .source_ordinal = source.ordinal,
             .target_ordinal = target.ordinal,
+            .source_duplicate = hasDuplicatePrivateClaim(resolved, joins, edge.from, edge, .source_exit),
+            .target_duplicate = hasDuplicatePrivateClaim(resolved, joins, edge.to, edge, .target_entry),
             .route_lane = laneFor(lane_plan.lanes, edge.id),
         };
         try terminals.append(a, .{ .node = edge.from, .edge = edge.id, .endpoint_side = .source_exit, .port = source.ordinal });
         try terminals.append(a, .{ .node = edge.to, .edge = edge.id, .endpoint_side = .target_entry, .port = target.ordinal });
     }
     return .{ .edges = edge_ports, .terminals = try terminals.toOwnedSlice(a) };
+}
+
+fn allocateFace(a: std.mem.Allocator, node: pb.NodeId, side: sk.Dir4, side_len: u32, attachments: []const ports.Attachment, rung: u8) error{OutOfMemory}![]const ports.Assignment {
+    return switch (try ports.allocate(a, .{ .rung = rung }, node, side, side_len, attachments)) {
+        .assigned => |items| items,
+        .failed => |failure| switch (failure) {
+            // The exact allocator correctly reports equal semantic keys. At
+            // plan level, distinct edge/end claims are the duplicate policy:
+            // each private claim receives its own stable slot.
+            .key_collision => allocateCollidingClaims(a, node, side, side_len, attachments),
+            .capacity_exceeded => portCapacityInvariant(node, side, side_len, attachments.len),
+        },
+    };
+}
+
+fn allocateCollidingClaims(a: std.mem.Allocator, node: pb.NodeId, side: sk.Dir4, side_len: u32, attachments: []const ports.Attachment) error{OutOfMemory}![]const ports.Assignment {
+    if (!ports.satisfiable(side_len, @intCast(attachments.len)))
+        portCapacityInvariant(node, side, side_len, attachments.len);
+    const sorted = try a.dupe(ports.Attachment, attachments);
+    std.mem.sort(ports.Attachment, sorted, {}, attachmentLess);
+    const out = try a.alloc(ports.Assignment, sorted.len);
+    for (sorted, out, 0..) |attachment, *assignment, i| assignment.* = .{
+        .attachment = attachment,
+        .ordinal = @intCast(i),
+        .offset = ports.offsetAt(side_len, @intCast(sorted.len), @intCast(i)),
+    };
+    return out;
+}
+
+fn attachmentLess(_: void, x: ports.Attachment, y: ports.Attachment) bool {
+    if (x.opposite_center != y.opposite_center) return x.opposite_center < y.opposite_center;
+    const key_order = pb.attachmentKeyOrder(x.key, y.key);
+    if (key_order != .eq) return key_order == .lt;
+    const x_edge = x.edge orelse std.math.maxInt(pb.EdgeId);
+    const y_edge = y.edge orelse std.math.maxInt(pb.EdgeId);
+    if (x_edge != y_edge) return x_edge < y_edge;
+    if (x.class != y.class) return @intFromEnum(x.class) < @intFromEnum(y.class);
+    const x_group = x.group orelse std.math.maxInt(pb.JoinGroupId);
+    const y_group = y.group orelse std.math.maxInt(pb.JoinGroupId);
+    return x_group < y_group;
+}
+
+fn portCapacityInvariant(node: pb.NodeId, side: sk.Dir4, side_len: u32, demand: usize) noreturn {
+    std.debug.panic("port demand was not applied before allocation: node={d} side={s} len={d} demand={d}", .{ node, @tagName(side), side_len, demand });
+}
+
+/// Exact private duplicates use separate outside tracks. Endpoint ordinals
+/// select both the track and the perpendicular bases.
+pub fn duplicateDetour(a: std.mem.Allocator, direction: sg.Direction, from: sk.NodePlacement, to: sk.NodePlacement, owner: EdgePorts, placements: []const sk.NodePlacement) error{OutOfMemory}![]sk.Point {
+    const start = portPoint(from, owner.source);
+    const end = portPoint(to, owner.target);
+    const depth: i32 = @intCast(@max(owner.source_ordinal, owner.target_ordinal) + 2);
+    var min_x = @min(start.x, end.x);
+    var min_y = @min(start.y, end.y);
+    for (placements) |placement| {
+        min_x = @min(min_x, placement.rect.x);
+        min_y = @min(min_y, placement.rect.y);
+    }
+    const source_base = outward(start, owner.source.side, depth);
+    const target_base = outward(end, owner.target.side, depth);
+    const out = try a.alloc(sk.Point, 6);
+    if (direction == .TD or direction == .BT) {
+        const outside_x = min_x - depth;
+        @memcpy(out, &[_]sk.Point{ start, source_base, .{ .x = outside_x, .y = source_base.y }, .{ .x = outside_x, .y = target_base.y }, target_base, end });
+    } else {
+        const outside_y = min_y - depth;
+        @memcpy(out, &[_]sk.Point{ start, source_base, .{ .x = source_base.x, .y = outside_y }, .{ .x = target_base.x, .y = outside_y }, target_base, end });
+    }
+    return out;
+}
+
+fn outward(point: sk.Point, side: sk.Dir4, distance: i32) sk.Point {
+    return switch (side) {
+        .north => .{ .x = point.x, .y = point.y - distance },
+        .south => .{ .x = point.x, .y = point.y + distance },
+        .west => .{ .x = point.x - distance, .y = point.y },
+        .east => .{ .x = point.x + distance, .y = point.y },
+    };
+}
+
+fn portPoint(placement: sk.NodePlacement, port: sk.Port) sk.Point {
+    const offset: i32 = @intCast(port.offset);
+    return switch (port.side) {
+        .north => .{ .x = placement.rect.x + offset, .y = placement.rect.y },
+        .south => .{ .x = placement.rect.x + offset, .y = placement.rect.bottom() - 1 },
+        .west => .{ .x = placement.rect.x, .y = placement.rect.y + offset },
+        .east => .{ .x = placement.rect.right() - 1, .y = placement.rect.y + offset },
+    };
 }
 
 fn edgeIsIndependent(memberships: []const pb.RealizedEdgeMembership, edge: pb.EdgeId) bool {
@@ -156,6 +316,11 @@ fn edgeIsIndependent(memberships: []const pb.RealizedEdgeMembership, edge: pb.Ed
         }
         return false;
     }
+    return false;
+}
+
+fn containsEdge(edges: []const pb.EdgeId, edge: pb.EdgeId) bool {
+    for (edges) |candidate| if (candidate == edge) return true;
     return false;
 }
 
@@ -176,7 +341,8 @@ fn edgeLess(graph: sg.SemGraph, x: sg.Edge, y: sg.Edge) bool {
     if (x.arrow_to != y.arrow_to) return @intFromEnum(x.arrow_to) < @intFromEnum(y.arrow_to);
     const xl = x.label orelse "";
     const yl = y.label orelse "";
-    return std.mem.lessThan(u8, xl, yl);
+    const label = std.mem.order(u8, xl, yl);
+    return if (label == .eq) x.id < y.id else label == .lt;
 }
 
 fn nodeKey(graph: sg.SemGraph, id: pb.NodeId) []const u8 {
@@ -190,6 +356,7 @@ fn resolvePort(
     graph: sg.SemGraph,
     placements: []const sk.NodePlacement,
     faces: []const FaceAssignments,
+    derived: []const ports.DerivedAttachment,
     joins: pb.RealizedJoins,
     edge: sg.Edge,
     endpoint: pb.EndpointSide,
@@ -203,15 +370,44 @@ fn resolvePort(
             const matches = if (selected_group) |group|
                 assignment.attachment.class == .trunk_pivot and assignment.attachment.group == group
             else
-                assignment.attachment.class == .independent and assignment.attachment.edge == edge.id and
-                    assignment.attachment.key.endpoint_side == endpoint;
+                assignment.attachment.key.endpoint_side == endpoint and
+                    ((assignment.attachment.class == .independent and assignment.attachment.edge == edge.id) or
+                        (assignment.attachment.class == .trunk_pivot and containsEdge(assignment.attachment.members, edge.id)));
             if (matches) return .{
                 .port = .{ .node = node, .side = face.side, .offset = assignment.offset },
                 .ordinal = assignment.ordinal,
             };
         }
     }
+    if (hasDemandedClaim(derived, joins, node, edge, endpoint))
+        std.debug.panic("derived port claim was not assigned: edge={d} endpoint={s}", .{ edge.id, @tagName(endpoint) });
     return midpointPort(graph.direction, placement, edge, endpoint);
+}
+
+fn hasDemandedClaim(derived: []const ports.DerivedAttachment, joins: pb.RealizedJoins, node: pb.NodeId, edge: sg.Edge, endpoint: pb.EndpointSide) bool {
+    const selected_group = selectedGroup(joins, edge.id, endpoint);
+    for (derived) |item| {
+        if (item.node != node or item.attachment.key.endpoint_side != endpoint) continue;
+        if (selected_group) |group| {
+            if (item.attachment.class == .trunk_pivot and item.attachment.group == group) return true;
+        } else if ((item.attachment.class == .independent and item.attachment.edge == edge.id) or
+            (item.attachment.class == .trunk_pivot and containsEdge(item.attachment.members, edge.id))) return true;
+    }
+    return false;
+}
+
+fn hasDuplicatePrivateClaim(derived: []const ports.DerivedAttachment, joins: pb.RealizedJoins, node: pb.NodeId, edge: sg.Edge, endpoint: pb.EndpointSide) bool {
+    if (selectedGroup(joins, edge.id, endpoint) != null) return false;
+    for (derived) |owner| {
+        if (owner.node != node or owner.attachment.key.endpoint_side != endpoint or
+            owner.attachment.class != .independent or owner.attachment.edge != edge.id) continue;
+        for (derived) |other| {
+            if (other.node == node and other.side == owner.side and other.attachment.class == .independent and
+                other.attachment.edge != edge.id and pb.attachmentKeyOrder(other.attachment.key, owner.attachment.key) == .eq) return true;
+        }
+        return false;
+    }
+    return false;
 }
 
 fn midpointPort(direction: sg.Direction, placement: sk.NodePlacement, edge: sg.Edge, endpoint: pb.EndpointSide) ResolvedPort {

@@ -1,6 +1,6 @@
 //! reach_vector_test2.zig — vector-half V-D-REACH oracle tests,
 //! part 2 (split sibling of reach_vector_test.zig for the 500-line
-//! cap, mirroring realized_test2): §14.6 controlled one-side plans (TEST
+//! cap, mirroring realized_test2): controlled one-side plans (TEST
 //! VECTORS only, never production — completing the reachability halves of
 //! V-D-JOIN-SELECT-04/06/12 and V-D-DUAL-01/02 left open by Step 4), the
 //! V-D-REACH-19(b) permutation pin, and the Counts↔registry pin.
@@ -60,7 +60,7 @@ const c22_ms = [_]pb.RealizedEdgeMembership{
     .{ .edge = 2, .source = null, .target = null },
 };
 
-test "V-D-REACH-07/13 (vector): §14.6 2x2 controlled source/target/neither plans pass; S2->T2 cannot reach T1" {
+test "V-D-REACH-07/13 (vector): 2x2 controlled source/target/neither plans pass; S2->T2 cannot reach T1" {
     // Completes the reachability halves of V-D-JOIN-SELECT-04/06/12
     // (controlled one-side selections are test-only, never production).
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
@@ -125,7 +125,7 @@ const dual_ms = [_]pb.RealizedEdgeMembership{
     .{ .edge = 2, .source = null, .target = null },
 };
 
-test "V-D-REACH-08/14 (vector): §14.6 dual controlled source/target/neither plans pass; B cannot reach A" {
+test "V-D-REACH-08/14 (vector): dual controlled source/target/neither plans pass; B cannot reach A" {
     // Completes the reachability halves of V-D-DUAL-01/02.
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
@@ -175,7 +175,6 @@ test "V-D-REACH-08/14 (vector): §14.6 dual controlled source/target/neither pla
     try expect(zeroCounts(nr.counts));
     try expectEqual(@as(usize, 3), nr.components.len);
 }
-
 
 test "V-D-REACH-19(b) (vector): declaration/writer permutation yields identical report bytes" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);

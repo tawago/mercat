@@ -6,13 +6,16 @@
 //! Only `.edge_segment`/`.cluster_border` are touched; `.arrowhead`/
 //! `.node_border` glyphs are left alone. Order-independent: each bit's
 //! decision depends only on the neighbour's occupant, never mutated
-//! here. Imports: `std`, `lattice.zig`, and the raster-zone siblings
-//! `crossings.zig`/`edges_write.zig` (shared Dir4 + straight-run helpers;
-//! any bare-name raster sibling is legal, see `tools/lint_imports.zig`).
+//! here. This module only ever CLEARS a bit: nothing in it may add one.
+//! An arm the edge writer declined to paint stays unpainted — restoring it
+//! from geometry alone would assert an adjacency the writer refused on
+//! edge identity, a question no pass here is in a position to re-ask.
+//! Imports: `std`, `lattice.zig`, and the raster-zone sibling
+//! `edges_write.zig` (shared Dir4 mask helpers; any bare-name raster
+//! sibling is legal, see `tools/lint_imports.zig`).
 
 const std = @import("std");
 const lattice = @import("../lattice.zig");
-const crossings = @import("crossings.zig");
 const ew = @import("edges_write.zig");
 
 /// True if `occ` represents a real stroke/structure a neighbour bit may
@@ -160,82 +163,6 @@ pub fn reconcileNeighbours(lat: *lattice.Lattice) u32 {
         }
     }
     return cleared;
-}
-
-/// Set the neighbour bit in direction `d`. Thin wrapper over the shared
-/// raster Dir4 mask helpers so no Dir4 switch is duplicated here.
-fn addBit(nb: *lattice.Neighbours, d: lattice.Dir4) void {
-    nb.* = ew.orMask(nb.*, ew.bitMask(d));
-}
-
-/// Index into `lat.cells` of the cell one step in direction `d` from
-/// `(x,y)`, or `null` when that step leaves the grid.
-fn neighbourIndex(lat: *const lattice.Lattice, x: u32, y: u32, d: lattice.Dir4) ?usize {
-    const nx: ?u32 = switch (d) {
-        .east => if (x + 1 < lat.width) x + 1 else null,
-        .west => if (x >= 1) x - 1 else null,
-        .north, .south => x,
-    };
-    const ny: ?u32 = switch (d) {
-        .south => if (y + 1 < lat.height) y + 1 else null,
-        .north => if (y >= 1) y - 1 else null,
-        .east, .west => y,
-    };
-    const rx = nx orelse return null;
-    const ry = ny orelse return null;
-    return @as(usize, ry) * @as(usize, lat.width) + rx;
-}
-
-/// Reciprocity-REPAIR post-pass: the additive dual of `reconcileNeighbours`'s
-/// phantom-arm CLEAR. Heals a half-open junction where a neighbouring edge
-/// stroke asserts a collinear connection that the junction cell fails to
-/// reciprocate — e.g. a stacked split-junction where a second out-branch's
-/// polyline begins at the shared stem cell, leaving the corner above it with
-/// no arm back down into the branch below. Purely additive: it only SETS a
-/// missing bit toward a genuinely-asserting `.edge_segment` neighbour. It
-/// never clears; never touches a `.cluster_border` frame or any non-edge
-/// occupant (Slice-1 frame safety); never upgrades a clean straight run (the
-/// C1 transversal guard — a legal crossing's crossed cell is preserved); and
-/// never resurrects a lone stub (the bend-junction popcount guard). Returns
-/// the number of bits added, for reporting only.
-///
-/// Order-independent without a snapshot: repairs only ADD a bit toward a
-/// neighbour that already asserts the reverse arm, and such a neighbour is
-/// never itself an add candidate (its own bit-set check short-circuits first).
-/// // guarded-by: reconcile_test.zig "repairReciprocalStrokes: stacked adds are order-independent"
-pub fn repairReciprocalStrokes(lat: *lattice.Lattice) u32 {
-    if (lat.width == 0 or lat.height == 0) return 0;
-
-    var repaired: u32 = 0;
-    var y: u32 = 0;
-    while (y < lat.height) : (y += 1) {
-        var x: u32 = 0;
-        while (x < lat.width) : (x += 1) {
-            const cell = lat.at(x, y);
-            // Only heal an edge-segment junction — never grow an arm into a
-            // frame (Slice-1 safety) or any other occupant kind.
-            if (cell.occupant != .edge_segment) continue;
-
-            const here = cell.neighbours;
-            // Must be an existing bend junction: at least two arms and not a
-            // clean straight run (C1 guard) — a lone stub or a legal
-            // transversal cell is left untouched.
-            if (@popCount(here.toMask()) < 2) continue;
-            if (crossings.isStraightPair(here)) continue;
-
-            const dirs = [_]lattice.Dir4{ .north, .east, .south, .west };
-            for (dirs) |d| {
-                if (bitSet(here, d)) continue; // arm already present
-                const m = neighbourIndex(lat, x, y, d) orelse continue;
-                if (lat.cells[m].occupant != .edge_segment) continue;
-                // The neighbour must ASSERT the reciprocal arm back at us.
-                if (!bitSet(lat.cells[m].neighbours, ew.reverse(d))) continue;
-                addBit(&cell.neighbours, d);
-                repaired += 1;
-            }
-        }
-    }
-    return repaired;
 }
 
 const testing = std.testing;

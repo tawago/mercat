@@ -16,24 +16,15 @@
 //! guarded-by: counts_test.zig "counts: every field carries an n_/m_/c_/d_/u_ prefix"
 //!
 //! Flat, all `u32`, reflection-emitted: the struct and the printer cannot
-//! drift because `writeLine` enumerates the fields.
-//! Imports: `std` only.
+//! drift because `writeLine` enumerates the fields. The printer itself lives
+//! in `counts_line.zig` (cap split) and is re-exported here unchanged.
+//! Imports: `std`, `counts_line.zig`.
 
-const std = @import("std");
+const line = @import("counts_line.zig");
 
-/// Field-name prefixes of the contract, in declaration order. Exposed so
-/// the completeness test and any future consumer read the same list.
-pub const prefixes = [_][]const u8{ "n_", "m_", "c_", "d_", "u_" };
-
-/// Byte budget of one emitted line. Sized so that even the absolute worst
-/// case — every counter printed at a u32's full ten digits — leaves the
-/// buffer half empty, so the taxonomy can keep growing; `writeLine`
-/// truncates rather than failing either way.
-/// guarded-by: counts_test.zig "writeLine: the whole taxonomy fits the line buffer with room to grow"
-pub const line_buf_len: usize = 8192;
-
-/// Leading token of the emitted stderr line — the grep handle.
-pub const line_prefix = "mercat-tiling:";
+pub const prefixes = line.prefixes;
+pub const line_buf_len = line.line_buf_len;
+pub const line_prefix = line.line_prefix;
 
 /// Every counter the audit maintains. Fields are grouped by the check
 /// family that owns them (see `scan.zig`'s ownership table); a family's
@@ -53,6 +44,14 @@ pub const Counts = struct {
     /// The audit's own scratch allocation failed and a tier was skipped.
     /// An audit limitation: the counts on this line are partial.
     u_audit_oom: u32 = 0,
+    n_aux_collection_complete: u32 = 0,
+    n_aux_records_attempted: u32 = 0,
+    n_aux_records_available: u32 = 0,
+    u_aux_not_collected: u32 = 0,
+    /// AUX collection failed atomically.
+    u_aux_collection_oom: u32 = 0,
+    /// Attempted records withheld by atomic collection failure.
+    u_aux_records_lost: u32 = 0,
 
     // -- arrowhead lateral exclusivity (arrows.zig) -------------------
     /// Arrowhead cells scanned.
@@ -147,12 +146,65 @@ pub const Counts = struct {
     /// overlapping pairs) — the safe direction.
     d_run_fused_collinear: u32 = 0,
     /// The same adjacency where one of the two cells is a JUNCTION (three
-    /// or four arms): the runs genuinely meet there, so the differing id
-    /// is the first-writer artifact and not a fusion.
+    /// or four arms). The PARENT population of the three buckets below,
+    /// which partition it exactly:
+    /// `c_run_fused_crossing == c_run_fused_licensed + d_run_fused_foreign
+    /// + u_run_fused_unevidenced`.
+    /// Kept whole rather than filtered: this tier adds buckets, it never
+    /// removes one a reader already knows how to read.
+    /// THE UNIT IS AN ADJACENT PAIR, NOT A CELL. `fusion` walks each cell's
+    /// east and south arms, so one fabricated junction glyph is counted once
+    /// per fused neighbour it has — a `┼` between two flanking runs scores
+    /// TWO. Do not read any of these four numbers as "how many cells".
+    /// guarded-by: strokes_test.zig "fusion: the three junction verdicts partition the crossing population"
     c_run_fused_crossing: u32 = 0,
+    /// A junction of that adjacency where a `.carrier` record ON the
+    /// junction cell names the OTHER cell's edge and states that the two
+    /// legally shared a channel THERE. The glyph asserts an adjacency the
+    /// crossing rule licensed, so the differing id really is a first-writer
+    /// artifact.
+    /// WEAKER THAN IT READS, for two reasons. The licence was evaluated for
+    /// the ordered pair (the id the cell kept, the id it dropped), and on a
+    /// rail's shared run the id the cell keeps is an arbitrary member of the
+    /// fan: this clears the REPRESENTATIVE pair, not necessarily the two runs
+    /// a reader traces. And a structural co-set (a realized join, a fan rail)
+    /// licenses its members at EVERY cell (`base/co_channel.zig` sets
+    /// `cells = null`), so a licence here can rest on a shared endpoint
+    /// arbitrarily far away; only a `.port_share` licence is local.
+    /// Both lean the same way — over-generous — which is what makes `d_` the
+    /// floor rather than the estimate.
+    c_run_fused_licensed: u32 = 0,
+    /// The same junction where such a record instead states FOREIGN — the
+    /// crossing rule refused this edge's ink here (`.suppressed`), or a
+    /// producer merged it with the channel question answered no
+    /// (`.merged_foreign`). The junction glyph asserts an adjacency no
+    /// source declares: a fabrication, filed as a defect.
+    /// ANY foreign record on EITHER junction cell decides, because a
+    /// position-scoped licence can differ at the two ends and one
+    /// unlicensed end is enough to make the drawn line a claim nothing
+    /// declares. That is a conservative choice, not a derivation, and it is
+    /// also what keeps the bucket independent of producer order.
+    /// A FLOOR, for one reason beyond the representative-id one above: two
+    /// merely ADJACENT runs never write on each other at all, so neither
+    /// cell can carry a record naming the other. That lands in
+    /// `u_run_fused_unevidenced`, never here.
+    /// guarded-by: strokes_test.zig "fusion: a foreign record on the junction cell files the defect"
+    d_run_fused_foreign: u32 = 0,
+    /// The same junction where NO record on any junction cell of the pair
+    /// names the other cell's edge, or the only ones that do state nothing
+    /// (`.merged_untested`). The question could not be ASKED here: neither
+    /// run ever attempted ink at the other's cell, or the side table was
+    /// not collected at all (an empty record slice means "nothing recorded
+    /// OR nothing collected", never "nothing happened" — `cell.zig`).
+    /// An audit limitation, never a licence. SILENCE IS NOT ADMISSION: no
+    /// path may fall through to `c_run_fused_licensed`.
+    /// guarded-by: strokes_test.zig "fusion: a junction with no usable record is unevidenced, never licensed"
+    u_run_fused_unevidenced: u32 = 0,
     /// A stroke arm at a stroke neighbour that does not carry the
-    /// reciprocal bit. Pure measurement: the repair pass has its own
-    /// guards and this does not reproduce them.
+    /// reciprocal bit. Pure measurement, deliberately unguarded: it reports
+    /// every half-open pair the SHIPPED mask holds, on no theory of which
+    /// side meant it. No pass closes such a pair, so this reads the picture
+    /// as drawn, never a repair still owed.
     m_arm_asym: u32 = 0,
 
     // -- ring stencils and fusion (rings.zig) -------------------------
@@ -204,6 +256,8 @@ pub const Counts = struct {
     /// arrowhead FACES the wall is NOT this — its wall stays pristine by
     /// convention, so it carries no arm to explain.
     d_border_arm_unrecorded: u32 = 0,
+    /// The same question abstained because AUX was unavailable.
+    u_border_arm_aux_unavailable: u32 = 0,
     /// A frame's extra arm under the `cross` notation, which welds edges
     /// into the border by design.
     c_frame_arm_cross_mode: u32 = 0,
@@ -248,6 +302,8 @@ pub const Counts = struct {
     /// Ink landing on a node's CORNER. Perimeter ports are issued as face
     /// offsets only, so a run that ends here missed the face it aimed at.
     d_term_node_corner: u32 = 0,
+    /// An abutment whose port-record absence could not be established.
+    u_term_aux_unavailable: u32 = 0,
     /// A bare stroke abutting a subgraph frame's face: frame-solid, and
     /// how a bridge legally crosses a border.
     c_term_frame_bare: u32 = 0,
@@ -309,9 +365,7 @@ pub const Counts = struct {
     /// rasterizer's placed+dropped. A cross-instrument mismatch is an
     /// audit bug, never a renderer bug.
     u_label_census_mismatch: u32 = 0,
-    /// SemGraph node count — the identity-free census half.
     m_graph_nodes: u32 = 0,
-    /// SemGraph edge count.
     m_graph_edges: u32 = 0,
     /// Sketch placement count. A gap against `m_graph_nodes` is semantic
     /// loss between IR 1 and IR 2, visible without per-entity matching.
@@ -319,6 +373,106 @@ pub const Counts = struct {
     /// Sketch edge count (routed polylines plus bus-bar taps).
     m_sketch_edges: u32 = 0,
 
+    // -- fused crossbar runs (rails.zig) ------------------------------
+    /// guarded-by: rails_test.zig "rails: the entry denominator is published before the tier can decline"
+    n_rails_first_class: u32 = 0,
+    /// guarded-by: rails_test.zig "rails: an empty population is named, not silent"
+    u_rail_population_absent: u32 = 0,
+    /// Fan rails sharing ONE crossbar row with touching spans raster into
+    /// one continuous line. This counts such runs that are TWO-SIDED (more
+    /// than one distinct upper-stage node AND more than one distinct
+    /// lower-stage node) — the only shape where one run can stand for a
+    /// pivot nothing declares. Derived from the drawn geometry, so it is
+    /// wider than any one upstream gate's admitted set and never claims
+    /// that gate approved the run. It counts CROSSBARS, not continuous
+    /// ink, so a zero here is NOT "no fused line" — read it together with
+    /// `u_rail_run_continued`, which counts the runs whose drawn line
+    /// outgrows the crossbars this tier could measure.
+    n_rail_runs_two_sided: u32 = 0,
+    /// A crossbar run — of ANY size, two-sided or not — whose drawn line
+    /// continues past the crossbars into stroke ink this tier does not
+    /// attribute: an ordinary edge's horizontal jog landing collinear with
+    /// a crossbar, or a crossbar abutting the next one column-adjacent.
+    /// The continued line reaches endpoints that never enter the sides
+    /// counted above, so it can assert pairs `n_rail_pairs_asserted` does
+    /// not contain and can be two-sided where the crossbars alone are not.
+    /// An audit limitation and the explicit companion of a zero
+    /// population: it is how often this tier's answer is known to be a
+    /// floor. The fused-run family above sees these junctions as three- or
+    /// four-armed, so a continued run leaves `d_run_fused_collinear` at
+    /// zero too — but `d_run_fused_foreign` now speaks for the same
+    /// fabrication from the other side, per adjacent CELL PAIR rather than
+    /// per run and only where a record survives to prove it. Read the two
+    /// together; neither is the whole count.
+    u_rail_run_continued: u32 = 0,
+    /// Summed over those runs, |upper| x |lower|: the CROSS-pair floor of
+    /// what a reader tracing one continuous line can get between. Not the
+    /// whole asserted set — a member that does not block the leaf-to-leaf
+    /// trace also asserts within-side pairs, which the Sketch cannot state,
+    /// so this UNDER-counts by construction (the safe direction).
+    n_rail_pairs_asserted: u32 = 0,
+    /// An asserted pair some rail of the run declares (a tap names it) AND
+    /// whose branch cell carries that member's `.tap` record: the run
+    /// asserts it and a reader can follow that member off the run.
+    c_rail_pair_accounted: u32 = 0,
+    /// An asserted pair NO rail of the run declares: the drawn line stands
+    /// for a connection nothing branches for. The fabrication itself.
+    /// A pure Sketch fact — it needs no side table, so no state of the
+    /// record channel can suppress it.
+    d_rail_pair_undeclared: u32 = 0,
+    /// A declared asserted pair whose branch cell is on the grid, on a run
+    /// whose row does carry records, and carries no `.tap` record of its
+    /// own: the member rides the shared run with nothing marking where it
+    /// leaves, so its own trace is lost even though the pair is honest.
+    d_rail_branch_unrecorded: u32 = 0,
+    /// A declared asserted pair whose branch question could not be ASKED:
+    /// the run's whole crossbar row carries no `.tap` record (side table
+    /// not collected), or that member's branch cell is off the grid. An
+    /// audit limitation, never a defect — an empty record slice means
+    /// "nothing recorded OR nothing collected" (`cell.zig`), and an
+    /// unreadable position is no evidence of anything.
+    /// The four pair buckets partition the denominator exactly:
+    /// `n_rail_pairs_asserted == c_rail_pair_accounted +
+    /// d_rail_pair_undeclared + d_rail_branch_unrecorded +
+    /// u_rail_pair_unevidenced`.
+    u_rail_pair_unevidenced: u32 = 0,
+    /// A two-sided run whose whole crossbar row carries no `.tap` record at
+    /// all — the side table was not collected, or the row is off-grid. The
+    /// run-level companion of the bucket above; its pairs are still counted
+    /// and still judged for what needs no record. An audit limitation.
+    u_rail_run_records_absent: u32 = 0,
+
+    n_rail_claims: u32 = 0,
+    n_rail_claim_members: u32 = 0,
+    c_rail_star_valid: u32 = 0,
+    d_rail_star_violation: u32 = 0,
+    d_rail_deco_mixed: u32 = 0,
+    d_rail_member_style_mixed: u32 = 0,
+    u_rail_claim_unresolved: u32 = 0,
+    u_rail_claim_record_invalid: u32 = 0,
+    u_rail_claim_population_absent: u32 = 0,
+    // -- channel identity, derivation, and filed claim (channels.zig) --
+    n_channel_carrier_records: u32 = 0,
+    u_channel_record_aux_unavailable: u32 = 0,
+    u_channel_record_owner_absent: u32 = 0,
+    u_channel_record_restates_owner: u32 = 0,
+    n_channel_carrier_pairs: u32 = 0,
+    u_channel_population_absent: u32 = 0,
+    n_channel_pairs_compared: u32 = 0,
+    m_channel_identity_agreed: u32 = 0,
+    u_channel_identity_disagreed: u32 = 0,
+    u_channel_identity_unavailable: u32 = 0,
+    n_channel_details_compared: u32 = 0,
+    m_channel_detail_agreed: u32 = 0,
+    u_channel_detail_disagreed: u32 = 0,
+    u_channel_detail_untested: u32 = 0,
+    u_channel_detail_invalid: u32 = 0,
+    u_channel_detail_identity_unavailable: u32 = 0,
+    n_channel_stamp_complete: u32 = 0,
+    u_channel_stamp_unattempted: u32 = 0,
+    u_channel_stamp_oom: u32 = 0,
+    u_channel_stamp_rail_invariant: u32 = 0,
+    u_channel_roster_inconsistent: u32 = 0,
     // -- EAW label-geometry bridge ------------------------------------
     /// Label cells holding an East-Asian-Wide codepoint. Each such cell
     /// paints two columns while occupying one lattice cell.
@@ -327,40 +481,19 @@ pub const Counts = struct {
     /// lattice is a cell grid, the terminal a column grid; a nonzero
     /// value means at least one row lies about its own width.
     m_row_col_overflow: u32 = 0,
-
-    /// Sum of exactly the `d_` fields — the single number a reader looks
-    /// at first. Reflection-driven, so a new defect bucket is included
-    /// the moment it is declared.
+    /// Sum of exactly the `d_` fields; reflection includes new defect buckets.
     /// guarded-by: counts_test.zig "counts: defectTotal sums exactly the d_ fields"
     pub fn defectTotal(self: Counts) u32 {
-        var total: u32 = 0;
-        inline for (@typeInfo(Counts).@"struct".fields) |f| {
-            if (comptime std.mem.startsWith(u8, f.name, "d_")) total += @field(self, f.name);
-        }
-        return total;
+        return line.defectTotal(Counts, self);
     }
 
-    /// Render the one-line `mercat-tiling: k=v ...` form into `buf` and
-    /// return the written slice. Truncates at the buffer end instead of
-    /// failing — a diagnostic line must never break a render.
-    /// The trailing `d_total` term is `defectTotal()`, not a field.
+    /// Render one line; trailing `d_total` is derived, not a field.
     /// guarded-by: counts_test.zig "writeLine: one token per field plus d_total, mercat-tiling prefix"
     pub fn writeLine(self: Counts, buf: []u8) []const u8 {
-        var i: usize = 0;
-        const head = std.fmt.bufPrint(buf, "{s}", .{line_prefix}) catch return buf[0..0];
-        i = head.len;
-        inline for (@typeInfo(Counts).@"struct".fields) |f| {
-            const term = std.fmt.bufPrint(buf[i..], " {s}={d}", .{ f.name, @field(self, f.name) }) catch break;
-            i += term.len;
-        }
-        const tail = std.fmt.bufPrint(buf[i..], " d_total={d}", .{self.defectTotal()}) catch return buf[0..i];
-        return buf[0 .. i + tail.len];
+        return line.writeLine(Counts, self, buf);
     }
-
-    /// Emit one line to STDERR. Stdout bytes are unaffected: this writes
-    /// to stderr only and changes no pipeline decision.
+    /// Emit one line to stderr without changing stdout or pipeline decisions.
     pub fn emitLine(self: Counts) void {
-        var buf: [line_buf_len]u8 = undefined;
-        std.debug.print("{s}\n", .{self.writeLine(&buf)});
+        line.emitLine(Counts, self);
     }
 };

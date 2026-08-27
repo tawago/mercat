@@ -44,8 +44,11 @@
 //!
 //! After the lattice tier, the SKETCH-anchored expectation tier
 //! (`expect.zig`) asks what the geometry declared that the ink does not
-//! show. That tier is the only one that allocates, and it degrades to
-//! partial counts rather than failing a render.
+//! show, and then the fused-crossbar tier (`rails.zig`) asks whether a run
+//! several rails share accounts for every endpoint pair it asserts. Both
+//! allocate scratch and both degrade to partial counts (`u_audit_oom`)
+//! rather than failing a render. Their buckets are disjoint: no other
+//! family counts crossbar-run pairs.
 //!
 //! Imports: `std`, `prim`, `lattice.zig`, `sem_graph.zig`, `sketch.zig`,
 //! tiling siblings (see `tools/lint_imports.zig`).
@@ -62,6 +65,9 @@ const strokes = @import("strokes.zig");
 const rings = @import("rings.zig");
 const terminal = @import("terminal.zig");
 const expect = @import("expect.zig");
+const rail_stars = @import("rail_stars.zig");
+const rails = @import("rails.zig");
+const channels = @import("channels.zig");
 
 /// Everything the audit reads. Assembled by the composition root from
 /// values that are already live there; the audit derives nothing itself
@@ -92,9 +98,6 @@ pub fn run(alloc: std.mem.Allocator, ctx: Ctx) counts.Counts {
 
     const w = ctx.lat.width;
     const h = ctx.lat.height;
-    // A zero-sized lattice is an empty render: no ink to judge, and no
-    // position for the expectation tier to look at either.
-    if (w == 0 or h == 0) return c;
     c.n_cells = @intCast(@min(@as(u64, w) * @as(u64, h), std.math.maxInt(u32)));
 
     const v = cell.View.init(ctx.lat);
@@ -137,6 +140,8 @@ pub fn run(alloc: std.mem.Allocator, ctx: Ctx) counts.Counts {
         if (cols > w) c.m_row_col_overflow += cols - w;
     }
 
+    // These tiers publish declaration/population state even when the cell
+    // loops above visit nothing on a zero-sized lattice.
     expect.check(alloc, .{
         .graph = ctx.graph,
         .sketch = ctx.sketch,
@@ -145,6 +150,14 @@ pub fn run(alloc: std.mem.Allocator, ctx: Ctx) counts.Counts {
         .labels_dropped = ctx.labels_dropped,
         .labels_displaced = ctx.labels_displaced,
     }, &c);
+    // Lattice-only semantic provenance, immediately before Sketch-based rail geometry.
+    rail_stars.check(ctx.lat, &c);
+    rails.check(alloc, v, ctx.sketch, &c);
+    // Last, and over its own population (carrier records, not cells): the
+    // channel-identity tier counts the filed identity against the membership
+    // derivation it replaces. Its buckets are disjoint from every family
+    // above — no other check reads a carrier pair as a licence question.
+    channels.check(v, ctx.sketch, &c);
 
     return c;
 }

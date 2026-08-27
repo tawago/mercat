@@ -52,3 +52,18 @@ test "a production render carries the closure law's counts on its Sketch" {
     try testing.expectEqual(@as(u32, 0), clean.closure.rail_closure_undeclared);
     try testing.expectEqual(@as(u32, 0), clean.closure.co_undeclared);
 }
+
+test "construction-time rail exclusions are reported on the shipped Sketch" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const nodes = [_]sg.Node{ mkNode(0, "P"), mkNode(1, "A"), mkNode(2, "B"), mkNode(3, "C") };
+    var edges = [_]sg.Edge{ mkEdge(0, 0, 1), mkEdge(1, 0, 2), mkEdge(2, 0, 3), mkEdge(3, 0, 1) };
+    edges[2].arrow_from = .circle;
+    edges[3].arrow_from = .circle;
+    const g: sg.SemGraph = .{ .direction = .TD, .nodes = &nodes, .edges = &edges, .clusters = &.{}, .classes = &.{}, .arena = null };
+    var s = try coords.layout(arena.allocator(), g, .{});
+    defer deinitSketch(&s, arena.allocator());
+    try testing.expectEqual(@as(u32, 1), s.closure.rail_deco_mixed);
+    // The duplicate P->A leaf affects both the fan-out at P and fan-in at A.
+    try testing.expectEqual(@as(u32, 2), s.closure.rail_star_violation);
+}

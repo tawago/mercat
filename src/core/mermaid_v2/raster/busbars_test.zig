@@ -23,7 +23,7 @@ fn rasterizeForTest(a: std.mem.Allocator, s: sketch.Sketch) !Raster {
 
 /// Standard single-row fan: pivot over three peers (left / center /
 /// right). The center tap drops straight through the junction.
-fn fanSketch(
+pub fn fanSketch(
     nodes: []sketch.NodePlacement,
     taps: []sketch.Tap,
     stem: []sketch.Point,
@@ -102,7 +102,7 @@ test "busbar junction bits are explicit: corner, tee, cross" {
 /// Every record of `kind` filed at (x, y), by ascending `value`. The table
 /// is sorted by (cell, kind, value), so a scan of the whole slice is both
 /// the simplest and the order-faithful way to ask.
-fn recordsAt(
+pub fn recordsAt(
     a: std.mem.Allocator,
     lat: lattice.Lattice,
     kind: lattice.AuxKind,
@@ -281,7 +281,7 @@ test "V-D-TRUNK-10: fan-IN busbar stamps one pivot arrow off the shared run" {
     try testing.expectEqual(@as(u32, 0), r.report.cells_lost);
 }
 
-test "TSD 14.5: busbar plus separated edges is byte and report invariant under edge write order" {
+test "busbar plus separated edges is byte and report invariant under edge write order" {
     var arena = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
@@ -294,16 +294,28 @@ test "TSD 14.5: busbar plus separated edges is byte and report invariant under e
     const p0 = [_]sketch.Point{ .{ .x = 0, .y = 10 }, .{ .x = 24, .y = 10 } };
     const p1 = [_]sketch.Point{ .{ .x = 0, .y = 11 }, .{ .x = 24, .y = 11 } };
     const e0: sketch.EdgePath = .{
-        .id = 10, .from = 1, .to = 3, .polyline = &p0,
+        .id = 10,
+        .from = 1,
+        .to = 3,
+        .polyline = &p0,
         .port_from = .{ .node = 1, .side = .south, .offset = 1 },
         .port_to = .{ .node = 3, .side = .south, .offset = 1 },
-        .arrow_from = .none, .arrow_to = .none, .label = null, .kind = .dotted,
+        .arrow_from = .none,
+        .arrow_to = .none,
+        .label = null,
+        .kind = .dotted,
     };
     const e1: sketch.EdgePath = .{
-        .id = 11, .from = 3, .to = 1, .polyline = &p1,
+        .id = 11,
+        .from = 3,
+        .to = 1,
+        .polyline = &p1,
         .port_from = .{ .node = 3, .side = .south, .offset = 3 },
         .port_to = .{ .node = 1, .side = .south, .offset = 3 },
-        .arrow_from = .none, .arrow_to = .none, .label = null, .kind = .thick,
+        .arrow_from = .none,
+        .arrow_to = .none,
+        .label = null,
+        .kind = .thick,
     };
     const forward = [_]sketch.EdgePath{ e0, e1 };
     const reverse = [_]sketch.EdgePath{ e1, e0 };
@@ -427,4 +439,9 @@ test "a pivot head facing the border leaves it pristine; a detached one tees" {
         const r = try rasterizeForTest(a, s);
         try testing.expectEqual(teed, r.lattice.atConst(12, 2).neighbours.toMask());
     }
+}
+
+test {
+    // Split out at the 500-line cap (tools/lint/line_caps.zig).
+    _ = @import("busbars_test2.zig");
 }

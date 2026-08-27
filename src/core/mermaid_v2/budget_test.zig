@@ -4,6 +4,7 @@
 //! halveAtLeastOne) stay in budget.zig where the private functions live.
 
 const std = @import("std");
+const build_options = @import("build_options");
 const ledger = @import("base/ledger.zig");
 const budget = @import("budget.zig");
 const sem_graph = @import("sem_graph.zig");
@@ -272,8 +273,8 @@ test "enumerate/run always resolve an incumbent across degenerate graphs and wid
 // The score's fitted weights (score.zig RUNG_SCALE / switch split /
 // W_INTEGRITY / W_LABEL_DROP / W_CELL_LOST / T0 severity) must reproduce
 // the labeled preference on >= 80% of the full 39 (ties satisfied either
-// way; gate 32/39). Reads harness/inputs/*.mmd from the repo root at test
-// time; skips when run outside the repo.
+// way; gate 32/39). Reads an explicitly configured private input directory;
+// skips when none is configured.
 // ---------------------------------------------------------------------------
 
 const RefLabel = enum { incumbent, argmin, tie };
@@ -341,11 +342,8 @@ const labeled_pairs = [_]LabeledPair{
 };
 
 test "score calibration: >=80% agreement with the labeled reference set" {
-    var inputs_dir = std.fs.cwd().openDir("harness/inputs", .{}) catch {
-        // Not running from the repo root (e.g. bare `zig test` from a cache
-        // dir): the corpus is unavailable, so the check cannot run.
-        return error.SkipZigTest;
-    };
+    const inputs_path = build_options.calibration_inputs orelse return error.SkipZigTest;
+    var inputs_dir = std.fs.cwd().openDir(inputs_path, .{}) catch return error.SkipZigTest;
     defer inputs_dir.close();
 
     var agree: u32 = 0;

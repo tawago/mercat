@@ -24,9 +24,15 @@
 //! and before the arrowhead-base weld, so a nonzero value localises the
 //! regression to those two later stages.
 //!
-//! Imports: `std`, `prim`, `lattice.zig`, tiling siblings.
+//! Allowed imports (tools/lint_imports.zig): the tiling zone — `std`,
+//! `prim`, the `base/` no-deps tier, `../lattice.zig`, and tiling siblings
+//! (never sem_graph or sketch: those are granted per-file to expect/scan
+//! only). Actually imports `std`, `../lattice.zig`, `cell.zig`,
+//! `counts.zig` — the lattice one purely for `CarrierKind`, the alphabet
+//! the side table's carrier records are written in.
 
 const std = @import("std");
+const lattice = @import("../lattice.zig");
 const cell = @import("cell.zig");
 const counts = @import("counts.zig");
 
@@ -112,9 +118,10 @@ fn armPass(v: cell.View, x: u32, y: u32, t: cell.Typed, interior: bool, c: *coun
                 c.d_arm_dangling += 1;
             },
             .stroke => if (n.mask & cell.bit(cell.reverse(d)) == 0) {
-                // Measurement only: the reciprocity-repair pass has its
-                // own guards (straight-run, popcount, occupant) and this
-                // deliberately does not reproduce them.
+                // Measurement only, and deliberately unguarded: every
+                // half-open pair the shipped mask holds is reported, on no
+                // theory of which side meant it. No pass closes such a
+                // pair, so this reads the picture as drawn.
                 c.m_arm_asym += 1;
             },
             .arrow, .glyph, .ring_node, .ring_frame => {},
@@ -139,6 +146,13 @@ fn armPass(v: cell.View, x: u32, y: u32, t: cell.Typed, interior: bool, c: *coun
 /// Documented bias: first-writer-wins gives fully overlapping runs a
 /// single id, so this UNDER-counts — the safe direction for a defect
 /// bucket.
+///
+/// The junction branch is DECOMPOSED, not judged wholesale. "The runs
+/// genuinely meet there" only holds when the two edges legally share a
+/// channel at that position; where they do not, the junction glyph asserts
+/// an adjacency no source declares. `licence` below reads that verdict off
+/// the carrier records, and the parent bucket keeps counting the whole
+/// population so the three verdicts stay auditable against it.
 fn fusion(v: cell.View, x: u32, y: u32, t: cell.Typed, c: *counts.Counts) void {
     const ae = t.edge orelse return;
     for ([2]cell.Dir4{ .east, .south }) |d| {
@@ -151,10 +165,61 @@ fn fusion(v: cell.View, x: u32, y: u32, t: cell.Typed, c: *counts.Counts) void {
         if (ae == be) continue;
         if (@popCount(t.ink) > 2 or @popCount(n.ink) > 2) {
             c.c_run_fused_crossing += 1;
+            switch (licence(t, be, n, ae)) {
+                .unlicensed => c.d_run_fused_foreign += 1,
+                .licensed => c.c_run_fused_licensed += 1,
+                .unevidenced => c.u_run_fused_unevidenced += 1,
+            }
         } else {
             c.d_run_fused_collinear += 1;
         }
     }
+}
+
+/// What the recorded facts say about the junction the pair paints.
+const Verdict = enum { unlicensed, licensed, unevidenced };
+
+/// The verdict for one junction pair, from carrier records ALONE.
+///
+/// The authoritative positions are the JUNCTION cells of the pair — those
+/// with three or four arms — because a licence CAN be position-scoped (a
+/// `.port_share` co-set answers only on its own cells; a structural one
+/// answers everywhere), and the only position whose answer certainly bears
+/// on the disputed glyph is the one the glyph occupies. Reading only there
+/// is the conservative choice, not a derivation: the non-junction cell's
+/// records answer a question about a different position and are not a
+/// fallback.
+///
+/// At such a cell, a carrier record naming the OTHER cell's edge is the
+/// transcript of one crossing decision: the record says "the edge named by
+/// `value` has ink here that this Cell does not name", and the Cell's own
+/// surviving id supplies the other half of the pair the producer handed to
+/// the crossing rule. Any FOREIGN record decides, from either end.
+/// guarded-by: strokes_test.zig "fusion: only a JUNCTION cell's records answer, and either junction may"
+/// guarded-by: strokes_test.zig "fusion: precedence — any foreign record outranks a licensed one, in either order"
+fn licence(t: cell.Typed, b: u32, n: cell.Typed, a: u32) Verdict {
+    var seen_licensed = false;
+    if (@popCount(t.ink) > 2 and tally(t, b, &seen_licensed)) return .unlicensed;
+    if (@popCount(n.ink) > 2 and tally(n, a, &seen_licensed)) return .unlicensed;
+    return if (seen_licensed) .licensed else .unevidenced;
+}
+
+/// One junction cell's records about `other`: true when any of them states
+/// FOREIGN. `licensed` is raised by any that states LICENSED. A record of
+/// an unknown or untested kind raises neither — it states nothing, and
+/// nothing is never consent.
+fn tally(t: cell.Typed, other: u32, licensed: *bool) bool {
+    var foreign = false;
+    for (t.carriers()) |r| {
+        if (r.value != other) continue;
+        const kind = std.meta.intToEnum(lattice.CarrierKind, r.detail) catch continue;
+        switch (kind) {
+            .suppressed, .merged_foreign => foreign = true,
+            .merged_licensed => licensed.* = true,
+            .merged_untested => {},
+        }
+    }
+    return foreign;
 }
 
 /// All stroke laws for ONE cell. Called from `scan.run`'s single

@@ -1,4 +1,4 @@
-//! Step 7 production-path structural vectors for the §14.6 mixing cases.
+//! Step 7 production-path structural vectors for mixed fan-in/fan-out cases.
 
 const std = @import("std");
 const parse = @import("../parse.zig").parse;
@@ -31,7 +31,7 @@ fn rmByEdge(plan: pb.RealizedJoins, e: u32) pb.RealizedEdgeMembership {
     unreachable;
 }
 
-test "Step 7 §14.6 mixing cases have exact reach and no fused edge junction" {
+test "Step 7 mixing cases have exact reach and no fused edge junction" {
     const sources = [_][]const u8{
         "flowchart TD\n  S1 --> T1\n  S1 --> T2\n  S2 --> T2\n",
         "flowchart TD\n  S --> X\n  S --> A\n  B --> X\n",
@@ -48,7 +48,7 @@ test "Step 7 §14.6 mixing cases have exact reach and no fused edge junction" {
 
         try std.testing.expectEqual(@as(u32, 0), report.counts.ciTotal());
         try std.testing.expectEqual(graph.edges.len, report.declared.len);
-        // Arrival re-merge (D-PORT.md 2026-07-18): the shared-target pure
+        // Arrival re-merge (D-PORT 2026-07-18): the shared-target pure
         // fan-in (T2 / X) is now composed as ONE merged trunk entry; the
         // departure side stays dissolved so reach stays exact.
         try std.testing.expectEqual(@as(usize, 1), winner.sketch.busbars.len);
@@ -198,7 +198,7 @@ test "V-D-PORT-16: incomplete 2x2 arrival re-merges the pure fan-in, overlap con
     try std.testing.expectEqual(pb.JoinDirection.in, plan.groups[sel_gi].direction);
     try std.testing.expectEqual(nodeId(graph, "T2"), plan.groups[sel_gi].pivot);
 
-    // §6.5 completeness: the shared dual edge S1->T2 is STILL a retained
+    // Conflict completeness: the shared dual edge S1->T2 is STILL a retained
     // conflict beside the preference.
     try std.testing.expectEqual(@as(usize, 1), joins.conflicts.len);
     try std.testing.expectEqual(edgeId(graph, "S1", "T2"), joins.conflicts[0].shared_edges[0]);

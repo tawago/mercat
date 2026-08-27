@@ -3,11 +3,14 @@
 //! deviation from the plan's "Lint: None" line; documented in the Step 8
 //! report). Pure data/plan surface — no scoring, no geometry ranking.
 //!
-//! Allowed imports (tools/lint_imports.zig): std, prim, base/ledger,
-//! sem_graph, budget, realized, reach_vector.
+//! Allowed imports (tools/lint_imports.zig): std, prim, the base/ no-deps
+//! tier, sem_graph, budget, ledger/realized, ledger/reach_vector. Actually
+//! imports std, base/ledger, sem_graph, budget, ledger/realized and
+//! ledger/reach_vector — not prim.
 
 const std = @import("std");
 const ledger = @import("base/ledger.zig");
+const sketch_channels = @import("sketch_channels.zig");
 const sem_graph = @import("sem_graph.zig");
 const ladder = @import("budget.zig");
 const realized_mod = @import("ledger/realized.zig");
@@ -52,7 +55,7 @@ pub const FilterResult = struct {
     excluded_any: bool = false,
 };
 
-/// P2v Step 8 pre-raster CI safety filter (D-JOIN-SELECT item 6; TSD §13.2;
+/// P2v Step 8 pre-raster CI safety filter (D-JOIN-SELECT item 6;
 /// D-DISPOSITION item 5 row 3). Partitions `candidates` by CI-class reach
 /// EVENTS: any candidate whose parallel `reports[i]` is not `ciClean` is
 /// EXCLUDED (no rung carve-out) and its emitted plan re-disposed clause-(g)-pre
@@ -98,6 +101,10 @@ pub fn ciFilter(
             // there is no plan of its own to withdraw.
             if (planDerived(cand.sketch.co_sets))
                 cand.sketch.co_sets = replanSets(aa, cand.sketch.co_sets, cand.sketch.joins);
+            // The withdrawn trunk took its channel's name with it; re-stamp so
+            // the surviving roster reads as one unbroken 1..N and no rail
+            // answers to a name that no longer sits on the list.
+            sketch_channels.stamp(aa, &cand.sketch);
             excluded.append(aa, cand.*) catch return clean;
         }
     }
@@ -119,7 +126,7 @@ pub fn ciFilter(
 /// all-independent realization over the REAL `join_permits` (`realized.realize`
 /// over the trunk-free sketch → every group falls to clause (f) →
 /// `independent(not_selected)`, fully-populated memberships + per-edge terminal
-/// ports, §6.7-valid — NOT the bare `.{}` envelope). `terminal_fallback` is set
+/// ports, invariant-valid — NOT the bare `.{}` envelope). `terminal_fallback` is set
 /// (9(e) observability; the RO `disp_terminal_fallback_engaged` count
 /// aggregation is Step 10's job). A FALLBACK: never engages on the census-clean
 /// corpus.
@@ -143,6 +150,7 @@ pub fn terminalCandidate(
             // sketch keeps whatever layout gave it.
             if (!r.report.skipped_clustered)
                 result.sketch.co_sets = replanSets(aa, result.sketch.co_sets, r.plan);
+            sketch_channels.stamp(aa, &result.sketch);
         } else |err| {
             std.log.warn("mermaid_v2/select: terminal fallback realize failed ({s}); emitting the empty envelope", .{@errorName(err)});
         }

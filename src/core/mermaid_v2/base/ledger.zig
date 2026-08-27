@@ -1,8 +1,8 @@
 //! Base-tier pure-data vocabulary for the semantic join permits and the
-//! candidate-local realized-join artifact (TSD §6.1; D-IR item 1): the
+//! candidate-local realized-join artifact (D-IR item 1): the
 //! JoinPolicy storage, the JoinPermits / RealizedJoins logical records,
 //! the co-channel membership sets riding the Sketch beside that plan,
-//! terminal-port identities, the SDD §12.4 component-table result types
+//! terminal-port identities, the component-table result types
 //! shared by both reachability validators, the canonical semantic-key
 //! comparators with the pinned D-PORT clause-4 ordinal tables, and the
 //! D-DISPOSITION diagnostic registry (in the sibling diagnostics.zig,
@@ -26,7 +26,7 @@ pub const JoinProposalId = u32;
 pub const RealizedJoinId = u32;
 pub const ComponentId = u32;
 
-// Branch policy (TSD §5.1; D-POLICY item 1).
+// Branch policy (D-POLICY item 1).
 
 /// Exactly ONE constructible variant: the type system, not a runtime guard,
 /// makes non-joined policy unrepresentable. Only entry.zig (the composition
@@ -34,7 +34,7 @@ pub const ComponentId = u32;
 /// guarded-by: ledger_test.zig "V-D-POLICY-01: JoinPolicy has exactly one variant, named joined"
 pub const JoinPolicy = enum { joined };
 
-// TSD §6.1 logical records (plan/permission side).
+// Logical records (plan/permission side).
 
 pub const JoinDirection = enum { out, in };
 
@@ -55,7 +55,7 @@ pub const JoinMembership = struct {
     target_group: ?JoinGroupId,
 };
 
-/// The ONE shared semantic plan per render (TSD §7.7). `groups` states
+/// The ONE shared semantic plan per render. `groups` states
 /// where joining is semantically PERMITTED — it must never be read as an
 /// instruction that a permitted group has a trunk; only
 /// `RealizedJoins.selected_joins` authorizes shared group geometry.
@@ -65,7 +65,7 @@ pub const JoinPermits = struct {
     memberships: []const JoinMembership = &.{},
 };
 
-// TSD §6.1 logical records (candidate-local realization side).
+// Logical records (candidate-local realization side).
 
 pub const IndependentReason = enum { not_selected, overlap_conflict, unsafe_component };
 
@@ -128,7 +128,7 @@ pub const JoinConflict = struct {
 /// (source-exit=0, target-entry=1).
 pub const EndpointSide = enum(u1) { source_exit = 0, target_entry = 1 };
 
-/// Typed port terminal (TSD §12.4; D-IR item 6): identities and indices
+/// Typed port terminal (D-IR item 6): identities and indices
 /// only — `port` is a perimeter port ORDINAL, never a coordinate.
 pub const TerminalPort = struct {
     node: NodeId,
@@ -137,7 +137,7 @@ pub const TerminalPort = struct {
     port: u32,
 };
 
-/// Owner-directed arrival re-merge preference (D-PORT.md, 2026-07-18): a fan-IN
+/// Owner-directed arrival re-merge preference (2026-07-18): a fan-IN
 /// group whose arrival is a LEGAL PURE fan-in MAY be selected as one merged
 /// entry even when it overlaps a fan-out group at a shared dual edge (the
 /// carve-out's NEITHER output — the recorded conflict — stays retained; only
@@ -178,13 +178,33 @@ const rail_closure = @import("rail_closure.zig");
 /// the predicate itself lives in the sibling rail_closure.zig.
 pub const doubleDischarged = rail_closure.doubleDischarged;
 
+// The semantic RailClaim vocabulary is kept in a cap-safe base sibling and
+// re-exported here with the other universally importable ledger records.
+const rail_star = @import("rail_star.zig");
+
+pub const RailClaimId = rail_star.RailClaimId;
+pub const no_rail_claim = rail_star.no_rail_claim;
+pub const RailPolarity = rail_star.RailPolarity;
+pub const Endpoint = rail_star.Endpoint;
+pub const AttachmentSite = rail_star.AttachmentSite;
+pub const RailClaimMember = rail_star.RailClaimMember;
+pub const RailClaim = rail_star.RailClaim;
+pub const RailClaimCheck = rail_star.CheckResult;
+pub const checkRailClaim = rail_star.check;
+
 /// The all-arrow-free shared-rail closure law's REPORT-ONLY inventory
 /// (base/rail_closure.zig), carried on the Sketch so the shipped candidate's
 /// counts reach telemetry. Never read by a layout decision: a refusal is
 /// already expressed as the `independent` disposition that unfuses the
-/// members, and these three fields only NAME what happened. Field names are
+/// members, and these fields only NAME what happened. Field names are
 /// the registry tags verbatim (pinned by test).
 pub const ClosureCounts = struct {
+    /// Construction groups with candidates excluded for mixed pivot decoration.
+    rail_deco_mixed: u32 = 0,
+    /// Construction groups with candidates excluded for mixed stroke style.
+    rail_member_style_mixed: u32 = 0,
+    /// Construction-time non-star proposals privatized safely.
+    rail_star_violation: u32 = 0,
     /// Rails the law refused as proposed — outright, or by salvaging a strict
     /// subset. One per refused rail.
     rail_closure_undeclared: u32 = 0,
@@ -206,10 +226,55 @@ const co_channel = @import("co_channel.zig");
 pub const CoOrigin = co_channel.CoOrigin;
 pub const CoSet = co_channel.CoSet;
 pub const CoCell = co_channel.CoCell;
+pub const PairCells = co_channel.PairCells;
 pub const keepOrigin = co_channel.keepOrigin;
 pub const concatSets = co_channel.concatSets;
 pub const coMembers = co_channel.coMembers;
 pub const coMembersAt = co_channel.coMembersAt;
+pub const ChannelId = co_channel.ChannelId;
+pub const no_channel = co_channel.no_channel;
+pub const privateChannel = co_channel.privateChannel;
+pub const numberChannels = co_channel.numberChannels;
+pub const rosterNumbered = co_channel.rosterNumbered;
+pub const StructuralSetResolution = co_channel.StructuralSetResolution;
+pub const resolveStructuralSet = co_channel.resolveStructuralSet;
+pub const channelOf = co_channel.channelOf;
+pub const channelsAgree = co_channel.channelsAgree;
+
+/// The pre-identity DERIVATION of the co-channel relation: a pairwise
+/// membership scan over the roster AND the realized plan, asked at a position.
+/// Two edges are on one channel iff the same owner, or some set names both
+/// here, or some selected join holds both.
+///
+/// This is the shape the raster used to ESTABLISH every licence with, before a
+/// channel had a name. It is kept — one copy, here, where both the raster and
+/// the report-only audit can reach it — as the WITNESS the recorded identity
+/// is measured against: `tiling/channels.zig` runs it beside
+/// `channelsAgree` on every carrier a render files and counts the two
+/// answers agreeing and disagreeing. Nothing that only LABELS a record calls
+/// it any more.
+/// guarded-by: ledger_test.zig "the derivation and the recorded identity answer alike on a declared channel"
+pub fn derivedSameChannel(
+    joins: RealizedJoins,
+    sets: []const CoSet,
+    first: EdgeId,
+    second: EdgeId,
+    at: ?CoCell,
+) bool {
+    if (first == second) return true;
+    if (coMembersAt(sets, first, second, at)) return true;
+    for (joins.selected_joins) |j| {
+        if (holds(j.members, first) and holds(j.members, second)) return true;
+    }
+    return false;
+}
+
+fn holds(edges: []const EdgeId, edge: EdgeId) bool {
+    for (edges) |e| {
+        if (e == edge) return true;
+    }
+    return false;
+}
 
 /// The co-channel sets a realized plan authorizes: one per selected join,
 /// members BORROWED from the plan (same arena, no copy). This is the flat
@@ -232,7 +297,7 @@ pub fn coSetsFromPlan(
     return out;
 }
 
-// SDD §12.4 component-table result types — the one shared output shape
+// Component-table result types: the one shared output shape
 // emitted by BOTH reachability validators (D-IR items 1, 9, 10).
 
 pub const NodePair = struct {
@@ -249,8 +314,8 @@ pub const ComponentEntry = struct {
     missing_declared_pairs: []const NodePair = &.{},
     extra_undeclared_pairs: []const NodePair = &.{},
     selected_join_ids: []const RealizedJoinId = &.{},
-    /// Structurally empty in the no-bridge P1a slice; carried so the SDD
-    /// §12.4 table shape is complete.
+    /// Structurally empty in the no-bridge P1a slice; carried so the shared
+    /// table shape is complete.
     bridge_ids: []const u32 = &.{},
 };
 

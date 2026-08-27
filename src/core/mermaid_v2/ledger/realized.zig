@@ -26,7 +26,7 @@ const MemberGeom = struct {
     arrow_to: sk.ArrowKind = .none,
     label: ?[]const u8 = null,
     /// The member's candidate geometry is a layout-reversed back-edge, so it
-    /// is NOT a trunk-eligible member (D-PORT.md forward-subset composition):
+    /// is NOT a trunk-eligible member (D-PORT forward-subset composition):
     /// trunk completeness/style judge the forward subset only.
     back_edge: bool = false,
     found: bool = false,
@@ -108,7 +108,7 @@ pub fn realize(
 ) Error!Result {
     // Candidate-local identity gate (D-JOIN-SELECT item 10): a sketch
     // carrying cluster frames went through split/stitch, whose edge ids
-    // are piece-local (D-EDGE-ID §4) — attribution would be unsound. This
+    // are piece-local (D-EDGE-ID item 4) — attribution would be unsound. This
     // covers motif-packed candidates (synthetic frames) even on flat
     // inputs; select.zig additionally gates on the top-level flat flag.
     // guarded-by: realized_test.zig "V-D-IR-02: motif_pack candidate is off the identity path and keeps an empty plan"
@@ -117,8 +117,8 @@ pub fn realize(
     const groups = join_permits.groups;
     const ms = join_permits.memberships;
 
-    const geoms = try allocator.alloc([]MemberGeom, groups.len);
-    for (groups, geoms) |g, *slot| {
+    const group_geoms = try allocator.alloc([]MemberGeom, groups.len);
+    for (groups, group_geoms) |g, *slot| {
         const row = try allocator.alloc(MemberGeom, g.members.len);
         for (g.members, row) |edge, *mg| mg.* = memberGeom(s, edge);
         slot.* = row;
@@ -187,7 +187,7 @@ pub fn realize(
         mult.* = p.count;
     }
 
-    // §6.5 overlap graph FIRST, retaining EVERY shared EdgeId; conflicts
+    // Build the overlap graph FIRST, retaining EVERY shared EdgeId; conflicts
     // ordered by the pair of group ranks, shared edges in the first
     // group's canonical member order.
     var conflicts: std.ArrayListUnmanaged(pb.JoinConflict) = .empty;
@@ -220,12 +220,19 @@ pub fn realize(
     const join_of_group = try allocator.alloc(?pb.RealizedJoinId, groups.len);
     @memset(join_of_group, null);
     var selected: std.ArrayListUnmanaged(pb.SelectedJoin) = .empty;
-    for (groups, geoms, verdicts, 0..) |g, row, *v, gi| {
+    for (groups, group_geoms, verdicts, 0..) |g, permission_row, *v, gi| {
         const single: ?*const Pending = blk: {
             if (raw_count[gi] != 1) break :blk null;
             for (pend.items) |*p| if (p.group == gi) break :blk p;
             break :blk null;
         };
+        // The pre-sizing commitment is authoritative about which members own
+        // the rail already present in this sketch. Excluded permission members
+        // have private geometry and cannot invalidate or enlarge that rail.
+        const row = if (single) |proposal|
+            try memberRow(allocator, s, proposal.members)
+        else
+            permission_row;
         var detail: ?pb.DiagnosticTag = null;
         const clause: GroupClause = blk: {
             if (hasDuplicate(row, true)) break :blk .duplicate_key;
@@ -234,7 +241,7 @@ pub fn realize(
             // (non-back-edge) members: a fan-IN trunk composes its forward
             // subset and the reversed member(s) stay independent, exactly as
             // join_commit commits it (keeps the N6 agreement pin exact).
-            if (single != null and single.?.members.len < committedCount(s.joins, g.id, forwardCount(row))) break :blk .incomplete;
+            if (single != null and single.?.members.len < committedCount(s.joins, g.id, forwardCount(permission_row))) break :blk .incomplete;
             if (groupHasConflict(conflicts.items, g.id) and !pb.fanInReMergeEligible(groups, gi)) break :blk .overlap; // arrival re-merge: eligible fan-in falls through (conflict still recorded)
             if (styleFail(g.direction, row)) |t| {
                 detail = t;
@@ -327,6 +334,12 @@ pub fn realize(
             .co_double_discharge = double_discharge,
         },
     };
+}
+
+fn memberRow(allocator: std.mem.Allocator, s: sk.Sketch, members: []const pb.EdgeId) error{OutOfMemory}![]MemberGeom {
+    const row = try allocator.alloc(MemberGeom, members.len);
+    for (members, row) |edge, *mg| mg.* = memberGeom(s, edge);
+    return row;
 }
 
 fn findGroup(groups: []const pb.JoinGroup, dir: pb.JoinDirection, pivot: sk.NodeId) ?usize {

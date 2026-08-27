@@ -139,7 +139,9 @@ fn fusionArms(v: cell.View, x: u32, y: u32, t: cell.Typed, full: u4, mode_cross:
             // matching record has no known writer.
             // guarded-by: rings_test.zig "fusion: a port-recorded arm is the convention on every face; unrecorded is a defect"
             // guarded-by: rings_test.zig "fusion: a port record excuses only the arm it merged"
-            if (t.portArm(d)) {
+            if (!v.auxComplete()) {
+                c.u_border_arm_aux_unavailable += 1;
+            } else if (t.portArm(d)) {
                 c.c_border_arm_port += 1;
             } else {
                 c.d_border_arm_unrecorded += 1;

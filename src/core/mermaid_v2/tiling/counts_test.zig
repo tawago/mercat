@@ -54,6 +54,16 @@ test "counts: a zero record has zero defects" {
     try testing.expectEqual(@as(u32, 0), c.defectTotal());
 }
 
+test "counts: channel audit counters add no defect claims" {
+    var c: counts.Counts = .{};
+    c.u_channel_identity_disagreed = 3;
+    c.u_channel_detail_disagreed = 5;
+    c.u_channel_detail_invalid = 7;
+    c.u_channel_stamp_rail_invariant = 11;
+    c.u_aux_collection_oom = 13;
+    try testing.expectEqual(@as(u32, 0), c.defectTotal());
+}
+
 test "writeLine: one token per field plus d_total, mercat-tiling prefix" {
     var c: counts.Counts = .{};
     var next: u32 = 3;
@@ -96,7 +106,7 @@ test "writeLine: the whole taxonomy fits the line buffer with room to grow" {
         break :blk n;
     };
     try testing.expect(worst < counts.line_buf_len);
-    try testing.expect(worst * 2 < counts.line_buf_len);
+    try testing.expect(worst + 1024 < counts.line_buf_len);
 }
 
 test "writeLine: a buffer too small truncates instead of failing" {

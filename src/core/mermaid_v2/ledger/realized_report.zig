@@ -43,7 +43,7 @@ pub const GroupVerdict = struct {
 };
 
 /// Report-only planner outputs that do not ride the RealizedJoins
-/// envelope (TSD §12.1; D-JOIN-SELECT item 6: never score input).
+/// envelope (D-JOIN-SELECT item 6: never score input).
 pub const Report = struct {
     verdicts: []const GroupVerdict = &.{},
     /// Canonical proposal records; identical-key entries collapsed into

@@ -1,5 +1,6 @@
 //! Crossing / transversal semantics for the mermaid_v2 raster (Amendment C,
-//! rulings C1/C2 — design/ascii-ambiguity-p1a-records/D-CROSS.md).
+//! rulings C1/C2). The rulings' normative text is held by the owner and is
+//! not in-tree; C1 and C2 are restated in full below.
 //!
 //! This module owns the crossing EVENT vocabulary recorded by
 //! `raster/edges.zig` and the decision predicates that keep foreign ink from
@@ -27,7 +28,11 @@
 //! SCOPE: UNCONDITIONAL. A crossing between two edges that do not legally
 //! share a channel never paints a junction glyph, on every render — flat,
 //! clustered, and recursion children alike. There is no arming predicate: the
-//! only question ever asked is `sameChannel`. On a clustered/subgraph render
+//! only question ever asked of the INK is `sameChannel`, the membership
+//! derivation. What a record SAYS about a cell is a different question, and it
+//! is answered by looking up the channel identity the producer stamped
+//! (`channelAt` / `licenceFor`); the two are counted against each other on
+//! every render by `tiling/channels.zig`. On a clustered/subgraph render
 //! the realized plan is empty (V-D-IR-07) and `co_sets` alone carries the
 //! legality — its fans are its only channels — which is exactly why the plan
 //! may not gate the rule.
@@ -35,11 +40,12 @@
 //! Report-only: counts flow raster → entry → diagnostics, never into
 //! score.RasterCounts, audit.zig, or candidate selection. No new DiagnosticTag.
 //!
-//! Allowed imports: `std`, `lattice.zig`, `base/ledger.zig`, the `prim`
-//! module (base/types.zig — universally importable; enforced by
+//! Allowed imports: `std`, `sketch.zig`, `lattice.zig`, `base/ledger.zig`,
+//! the `prim` module (base/types.zig — universally importable; enforced by
 //! `tools/lint_imports.zig`).
 
 const std = @import("std");
+const sketch = @import("../sketch.zig");
 const lattice = @import("../lattice.zig");
 const ledger = @import("../base/ledger.zig");
 const prim = @import("prim");
@@ -93,10 +99,11 @@ pub const CrossingCounts = struct {
 /// Copied by value; `counts` is a pointer so increments persist.
 pub const Ctx = struct {
     joins: ledger.RealizedJoins = .{},
-    /// Co-channel membership from the Sketch (`Sketch.co_sets`). Carried as a
-    /// plain slice of base-tier records because this zone may not import
-    /// sketch.zig for it.
+    /// Co-channel membership from the Sketch (`Sketch.co_sets`).
     co_sets: []const ledger.CoSet = &.{},
+    /// Outcome of the producer's transactional channel stamp. This gates only
+    /// recorded identity lookups; the ink predicates below remain derived.
+    stamp_state: sketch.ChannelStampState = .unattempted,
     counts: *CrossingCounts,
     /// Subgraph frame-border notation (owner ruling, tawago 2026-07-19).
     /// `.bridge` (default): frame-solid, edges bridge the border. `.cross`:
@@ -119,6 +126,15 @@ pub const Ctx = struct {
 /// membership question is always asked about a position; the structural
 /// origins license every cell and ignore it.
 /// guarded-by: crossings.zig "sameChannel: a cell-scoped co-set answers only on its own cells"
+///
+/// STANDING. This is the DERIVATION, and it is no longer what establishes a
+/// licence anywhere it only fills in a record's `detail`: those sites read the
+/// channel identity the producer filed (`channelAt` below). It still gates INK
+/// at the two refusal predicates in this file, and it is kept whole as the
+/// witness the recorded identity is measured against — `tiling/channels.zig`
+/// runs both answers over every carrier a render files and counts them
+/// agreeing and disagreeing. One copy, in `base/ledger.zig`, so the audit and
+/// the raster can never drift into asking two different questions.
 pub fn sameChannel(
     a: EdgeId,
     b: EdgeId,
@@ -126,17 +142,43 @@ pub fn sameChannel(
     co_sets: []const ledger.CoSet,
     at: ledger.CoCell,
 ) bool {
-    if (a == b) return true;
-    if (ledger.coMembersAt(co_sets, a, b, at)) return true;
-    for (joins.selected_joins) |j| {
-        if (contains(j.members, a) and contains(j.members, b)) return true;
-    }
-    return false;
+    return ledger.derivedSameChannel(joins, co_sets, a, b, at);
 }
 
-fn contains(edges: []const EdgeId, edge: EdgeId) bool {
-    for (edges) |e| if (e == edge) return true;
-    return false;
+/// The channel `edge` rides at `at`, read off the roster the producer stamped.
+/// Every edge has one: a co-set names a SHARED channel, and an edge no set
+/// names rides its own, one edge wide. A reader compares two of these instead
+/// of re-scanning membership — which is the whole point, because the id can
+/// then be said out loud ("this run speaks for channel k") where the relation
+/// could only ever be asserted about a pair.
+pub fn channelAt(co_sets: []const ledger.CoSet, edge: EdgeId, at: ledger.CoCell) ledger.ChannelId {
+    return ledger.channelOf(co_sets, edge, at);
+}
+
+/// The merged-carrier flavour for an ordered pair at `at`, decided by RECORDED
+/// IDENTITY: licensed iff the two carriers name one channel. Label-only — no
+/// caller of this moves a byte.
+///
+/// ABSTAINS unless the producer completed its transactional stamp AND every
+/// roster entry is numbered. A failed or refused re-stamp can leave an old,
+/// internally numbered payload in place; the explicit state says that payload
+/// is not current and therefore cannot establish a licence. Conversely,
+/// `.complete` with an unnumbered entry is inconsistent and also abstains.
+/// The did-not-ask value (`.merged_untested`) is attributable in both cases.
+/// guarded-by: crossings_test.zig "licenceFor trusts identity only after a complete consistent stamp"
+pub fn licenceFor(
+    held: EdgeId,
+    incoming: EdgeId,
+    co_sets: []const ledger.CoSet,
+    stamp_state: sketch.ChannelStampState,
+    at: ledger.CoCell,
+) lattice.CarrierKind {
+    if (stamp_state != .complete or !ledger.rosterNumbered(co_sets)) return .merged_untested;
+    if (held == incoming) return .merged_licensed;
+    return if (channelAt(co_sets, held, at) == channelAt(co_sets, incoming, at))
+        .merged_licensed
+    else
+        .merged_foreign;
 }
 
 /// A mask is a clean straight run iff exactly its two collinear arms are set.

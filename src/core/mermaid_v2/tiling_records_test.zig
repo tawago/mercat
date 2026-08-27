@@ -1,19 +1,6 @@
-//! Cross-instrument checks for the lattice side table, run against REAL
-//! renders: parse -> permits -> select -> rasterize -> scan.
-//!
-//! WHY THIS EXISTS. The side table is the audit's only source of facts the
-//! Cell grid cannot hold — which edges are anonymous at a shared cell,
-//! whose label a glyph is, which edge attached to a border. Those records
-//! are written by the raster and read by the tiling zone, and NEITHER side
-//! can check the other: raster cannot see the audit, and the tiling zone is
-//! forbidden from importing raster at all. So the agreement is pinned here,
-//! at the root, where both are reachable — the same arrangement, and the
-//! same lint-row grant, as `tiling_crosscheck_test.zig`.
-//!
-//! Split from that file only to keep both under the 500-line cap; the three
-//! root-level tiling tests are one instrument.
-
+//! Cross-instrument checks for real renders, where raster and tiling can meet.
 const std = @import("std");
+const ledger = @import("base/ledger.zig");
 const lattice = @import("lattice.zig");
 const sem_graph = @import("sem_graph.zig");
 const sketch = @import("sketch.zig");
@@ -21,6 +8,7 @@ const parse = @import("parse.zig").parse;
 const permits = @import("ledger/permits.zig");
 const select = @import("select.zig");
 const raster = @import("raster.zig");
+const paint = @import("paint.zig");
 const scan = @import("tiling/scan.zig");
 const cell = @import("tiling/cell.zig");
 
@@ -30,7 +18,6 @@ const Rendered = struct {
     graph: sem_graph.SemGraph,
     sketch: sketch.Sketch,
     report: raster.RasterReport,
-
     fn ctx(self: *const Rendered) scan.Ctx {
         return .{
             .graph = self.graph,
@@ -45,8 +32,7 @@ const Rendered = struct {
     }
 };
 
-/// The production path with the side table collected, exactly as the
-/// composition root drives it.
+/// Production path with the side table collected.
 fn render(a: std.mem.Allocator, source: []const u8, width: u32) !Rendered {
     const graph = try parse(a, source);
     const built = try permits.build(a, graph, .joined);
@@ -64,9 +50,8 @@ fn render(a: std.mem.Allocator, source: []const u8, width: u32) !Rendered {
 /// enough to wrap into a grid at w=60 are here because the membership
 /// records for those come from the edge walk instead of the bus-bar
 /// rasterizer, and a corpus of rails alone would leave that writer
-/// unexercised. The last entry lands a fan peer on a sibling's ARROWHEAD,
-/// the position where a record is filed and no role can be — without it the
-/// exception branch below would pass by never meeting a case.
+/// unexercised. The last entry also stresses the construction gate: its
+/// incompatible peers must remain private rather than share incidentally.
 const corpus = [_][]const u8{
     "flowchart TD\n  A --> B\n  B --> C\n",
     "flowchart LR\n  A --> B\n  B --> C\n  C --> D\n",
@@ -128,7 +113,7 @@ test "a merged carrier never restates the id its cell already carries" {
         const lat = r.report.lattice;
         for (lat.aux) |rec| {
             if (rec.kind != .carrier) continue;
-            if (rec.detail != @intFromEnum(lattice.CarrierKind.merged)) continue;
+            if (rec.detail == @intFromEnum(lattice.CarrierKind.suppressed)) continue;
             const c = lat.cells[rec.cell];
             const named: ?u32 = switch (c.occupant) {
                 .edge_segment => |seg| seg.edge,
@@ -354,11 +339,16 @@ fn fanPeer(s: sketch.Sketch, edge: u32, polarity: lattice.RailPolarity) bool {
     return false;
 }
 
-test "collecting the side table changes no painted cell" {
-    // The channel is opt-in, and the score path runs with it off: if
-    // collecting it moved a single cell, every candidate the selector
-    // priced would have been priced against a different render than the one
-    // that ships.
+fn finalCarrier(s: sketch.Sketch, id: u32) bool {
+    for (s.edges) |edge| if (edge.id == id) return true;
+    for (s.busbars) |rail| for (rail.taps) |tap| if (tap.edge == id) return true;
+    return false;
+}
+
+test "AUX and RailClaim metadata preserve production cells and audit counts" {
+    var first_class_claims = false;
+    var peer_claims = false;
+    var clustered_final_claims = false;
     for (corpus) |source| for (widths) |width| {
         var arena = std.heap.ArenaAllocator.init(testing.allocator);
         defer arena.deinit();
@@ -366,30 +356,41 @@ test "collecting the side table changes no painted cell" {
 
         const graph = try parse(a, source);
         const built = try permits.build(a, graph, .joined);
-        const plan = built.plan;
         const flat = !built.report.join_permits_skipped_clustered;
-        const winner = try select.choose(a, graph, &plan, flat, width, false, false);
-
+        const winner = try select.choose(a, graph, &built.plan, flat, width, false, false);
         const on = try raster.rasterize(a, winner.sketch, .bridge, .{ .collect_aux = true });
         const off = try raster.rasterize(a, winner.sketch, .bridge, .{});
-
         try testing.expect(on.lattice.aux.len > 0);
         try testing.expectEqual(@as(usize, 0), off.lattice.aux.len);
         try testing.expectEqualSlices(lattice.Cell, off.lattice.cells, on.lattice.cells);
+        if (winner.sketch.rail_claims.len != 0) {
+            try testing.expectEqual(winner.sketch.rail_claims.ptr, on.lattice.rail_claims.ptr);
+            try testing.expectEqual(winner.sketch.rail_claims.ptr, off.lattice.rail_claims.ptr);
+            const on_counts = scan.run(a, (&Rendered{ .graph = graph, .sketch = winner.sketch, .report = on }).ctx());
+            var blind = on.lattice;
+            blind.rail_claims = &.{};
+            try testing.expectEqualStrings(try paint.paint(a, on.lattice, width), try paint.paint(a, blind, width));
+            var no_claims = winner.sketch;
+            no_claims.rail_claims = &.{};
+            const removed = try raster.rasterize(a, no_claims, .bridge, .{});
+            try testing.expectEqualSlices(lattice.Cell, on.lattice.cells, removed.lattice.cells);
+            if (on_counts.c_rail_star_valid == on_counts.n_rail_claims) {
+                if (winner.sketch.busbars.len == 0) peer_claims = true else first_class_claims = true;
+            }
+            if (graph.clusters.len != 0) {
+                for (on.lattice.rail_claims) |claim| for (claim.members) |member| try testing.expect(finalCarrier(winner.sketch, member.edge));
+                clustered_final_claims = true;
+            }
+        }
     };
+    try testing.expect(first_class_claims);
+    try testing.expect(peer_claims);
+    try testing.expect(clustered_final_claims);
 }
 
 test "a peer-drawn rail role and its membership record are one event" {
-    // The residual self-check left behind by retiring the shadow
-    // comparator. `fan_roles.markShared` stamps the rail role and files the
-    // `.rail_member` record from one observation, so a peer-drawn cell
-    // carrying a family's rail role ALWAYS has a membership record of that
-    // family. That direction is the invariant, and the one worth pinning: a
-    // role without a record means the role was re-derived somewhere the
-    // record writer never ran. The converse is NOT an invariant — the
-    // record is filed BEFORE two guards that can decline the stamp — so its
-    // exceptions are enumerated in `recordWithoutRoleIsExplained` and
-    // anything outside them fails here just as loudly.
+    // The write-time role stamp and membership record remain one observation.
+    // Authoritative claims admit only a BND-S-valid family to shared ink.
     var roles_checked: u32 = 0;
     var records_without_role: u32 = 0;
     for (corpus) |source| for (widths) |width| {
@@ -427,14 +428,15 @@ test "a peer-drawn rail role and its membership record are one event" {
             }
         }
     };
-    // The corpus carries declined and grid-wrapped fans, so the peer-drawn
-    // writer must actually have produced shared cells — and the last entry
-    // is there so the exception branch is met rather than assumed.
+    // The corpus carries peer-drawn shared cells, but the construction gate
+    // keeps incompatible peers private. Record-only membership is retained
+    // for malformed/manual lattices and covered directly by fan_roles_test
+    // "a rider of another family, or of no fan at all, stamps nothing".
     try testing.expect(roles_checked > 0);
-    try testing.expect(records_without_role > 0);
+    try testing.expectEqual(@as(u32, 0), records_without_role);
 }
 
-/// The two — and only two — reasons `fan_roles.markShared` files a
+/// The two — and only two — low-level reasons `fan_roles.markShared` files a
 /// `.rail_member` record and then declines to stamp the family's rail role:
 /// (1) the occupant carries NO role at all (an `.arrowhead`; the bus-bar
 /// rasterizer records on those for the same reason), or (2) the cell's role

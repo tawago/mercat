@@ -1,11 +1,12 @@
 //! Unit tests for raster/edges.zig. Split out to keep edges.zig under
-//! the 500-line cap.
+//! the 500-line cap. The corner-cell writer's own mask tests moved on to
+//! `edges_corner_test.zig` when THIS file reached that cap; the head slide
+//! lives in `edges_slide_test.zig`.
 
 const std = @import("std");
 const sketch = @import("../sketch.zig");
 const lattice = @import("../lattice.zig");
 const edges = @import("edges.zig");
-const ledger = @import("../base/ledger.zig");
 
 const testing = std.testing;
 
@@ -78,38 +79,6 @@ test "single horizontal segment writes interior cells with E+W bits" {
             cell.neighbours.toMask(),
         );
     }
-}
-
-test "L-shaped corner has reverse-incoming + outgoing bits" {
-    const a = testing.allocator;
-    var lat = try makeLattice(a, 10, 10);
-    defer a.free(lat.cells);
-
-    const pts = [_]sketch.Point{
-        .{ .x = 2, .y = 2 },
-        .{ .x = 2, .y = 6 },
-        .{ .x = 6, .y = 6 },
-    };
-    const es = [_]sketch.EdgePath{makeEdge(7, &pts, .none, .none)};
-    _ = try edges.rasterizeEdges(a, &lat, makeSketch(&es), .bridge, null);
-
-    const corner = lat.atConst(2, 6);
-    try testing.expect(switch (corner.occupant) {
-        .edge_segment => |seg| seg.edge == 7,
-        else => false,
-    });
-    try testing.expectEqual(
-        (lattice.Neighbours{ .n = true, .e = true }).toMask(),
-        corner.neighbours.toMask(),
-    );
-    try testing.expectEqual(
-        (lattice.Neighbours{ .n = true, .s = true }).toMask(),
-        lat.atConst(2, 3).neighbours.toMask(),
-    );
-    try testing.expectEqual(
-        (lattice.Neighbours{ .e = true, .w = true }).toMask(),
-        lat.atConst(4, 6).neighbours.toMask(),
-    );
 }
 
 test "arrowhead at end of polyline" {
@@ -446,44 +415,4 @@ test "cross mode: corner arm onto a subgraph frame border welds a tee (pre-slice
     // No frame-solid events in `.cross` mode.
     try testing.expectEqual(@as(u32, 0), r.crossings.b_border_fusion_refused);
     try testing.expectEqual(@as(u32, 0), r.crossings.b_frame_bridge);
-}
-
-test "shared trunk corner: sibling drops bending at one cell yield ┴, not a phantom ┼" {
-    const a = testing.allocator;
-    var lat = try makeLattice(a, 12, 12);
-    defer a.free(lat.cells);
-
-    // Three `.forward` edges (an UNDETECTED fan: no fan role, so no rail
-    // is ever named here and the fan-OUT strip never runs) descend a shared
-    // source column to a common rail row (5), then bend to their own
-    // columns. None continues SOUTH past the trunk cell (5,5): the left
-    // two bend west, the right one bends east. The trunk cell must render
-    // ┴ ({n,e,w}) — a phantom {s} here (drawn by a sibling's straight
-    // endpoint before the corner rewrite) would falsely assert a fourth
-    // arm and paint ┼.
-    const a_pts = [_]sketch.Point{ .{ .x = 5, .y = 2 }, .{ .x = 5, .y = 5 }, .{ .x = 2, .y = 5 }, .{ .x = 2, .y = 8 } };
-    const b_pts = [_]sketch.Point{ .{ .x = 5, .y = 2 }, .{ .x = 5, .y = 5 }, .{ .x = 4, .y = 5 }, .{ .x = 4, .y = 8 } };
-    const c_pts = [_]sketch.Point{ .{ .x = 5, .y = 2 }, .{ .x = 5, .y = 5 }, .{ .x = 8, .y = 5 }, .{ .x = 8, .y = 8 } };
-    const es = [_]sketch.EdgePath{
-        makeEdge(1, &a_pts, .none, .none),
-        makeEdge(2, &b_pts, .none, .none),
-        makeEdge(3, &c_pts, .none, .none),
-    };
-    // They share the trunk legally (one channel), so the crossing rule
-    // exempts them and the phantom-arm question is the one under test.
-    const members = [_]ledger.EdgeId{ 1, 2, 3 };
-    const co_sets = [_]ledger.CoSet{.{ .origin = .fan_rail, .members = &members }};
-    var s = makeSketch(&es);
-    s.co_sets = &co_sets;
-    _ = try edges.rasterizeEdges(a, &lat, s, .bridge, null);
-
-    // Trunk cell: north riser + east/west rail, NO south arm.
-    const trunk = lat.atConst(5, 5).neighbours;
-    try testing.expect(trunk.n and trunk.e and trunk.w);
-    try testing.expect(!trunk.s);
-
-    // Contrast: a real sibling drop keeps its south arm (┬ at the bending
-    // column), proving the fix suppresses only the phantom, not real drops.
-    const drop = lat.atConst(4, 5).neighbours;
-    try testing.expect(drop.s);
 }

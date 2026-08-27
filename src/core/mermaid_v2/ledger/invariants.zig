@@ -1,7 +1,7 @@
-//! invariants.zig — the TSD §6.7 realized-plan output validator
+//! invariants.zig — the realized-plan output validator
 //! (P2v Step 4; D-JOIN-SELECT item 8), split out of realized.zig for the
 //! mermaid_v2 500-line cap. Pure function over (JoinPermits,
-//! RealizedJoins): every §6.7 bullet except component reachability
+//! RealizedJoins): every structural invariant except component reachability
 //! (D-REACH; landed by reach_vector in Steps 6 and 8–9).
 //! Report-only — used by tests and by select.zig's debug path; it never
 //! affects candidate selection or output bytes.
@@ -56,8 +56,8 @@ pub const ValidationReport = struct {
     }
 };
 
-/// TSD §6.7 output validation over (JoinPermits, RealizedJoins): every
-/// bullet except component reachability (D-REACH; Steps 6 and 8–9).
+/// Output validation over (JoinPermits, RealizedJoins): every structural
+/// invariant except component reachability (D-REACH; Steps 6 and 8–9).
 /// `proposals` is the planner report's canonical list, needed for the
 /// referenced-proposal-exists bullet. Pure and report-only.
 pub fn validate(
@@ -125,7 +125,7 @@ pub fn validate(
         }
     }
 
-    // §6.5 completeness (bullet 9's retained-permissions half): every
+    // Conflict completeness (bullet 9's retained-permissions half): every
     // overlapping group pair has ONE conflict retaining the full shared
     // set, in canonical (group-rank pair) order.
     var prev_pair: ?[2]usize = null;

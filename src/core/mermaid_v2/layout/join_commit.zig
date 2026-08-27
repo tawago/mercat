@@ -4,6 +4,7 @@ const std = @import("std");
 const pb = @import("../base/ledger.zig");
 const rc = @import("../base/rail_closure.zig");
 const sg = @import("../sem_graph.zig");
+const permit_mod = @import("../ledger/permits.zig");
 
 /// The closure law's report-only inventory (base/ledger.zig). One type for
 /// every producer — the flat commitment here and the clustered lane pass —
@@ -17,7 +18,7 @@ pub fn buildReported(a: std.mem.Allocator, graph: sg.SemGraph, permits: ?*const 
     // layout. Every grouped endpoint takes an independent(not_selected)
     // disposition, so no trunk is realized — fan_rail.resolve then declines (memberships present, none selected),
     // leaving per-edge D-PORT ports. The always-expressible conservative
-    // baseline (TSD §6.6 step 2), materialized as layout geometry.
+    // baseline, materialized as layout geometry.
     if (disable) {
         const memberships = try a.alloc(pb.RealizedEdgeMembership, plan.memberships.len);
         for (plan.memberships, memberships) |m, *out| out.* = .{
@@ -46,10 +47,11 @@ pub fn buildReported(a: std.mem.Allocator, graph: sg.SemGraph, permits: ?*const 
         // members — keeping join_commit and realized.realize in agreement (N6).
         // Fan-out and non-reversed groups keep the whole member set unchanged.
         const reversed = containsReversed(group, reversed_edges);
-        const eff = if (reversed and group.direction == .in)
+        const forward = if (reversed and group.direction == .in)
             try forwardSubset(a, group.members, reversed_edges)
         else
             group.members;
+        const eff = (try permit_mod.prepareRailMembers(a, graph, group.direction, group.pivot, forward)).members;
         const eff_group: pb.JoinGroup = .{ .id = group.id, .direction = group.direction, .pivot = group.pivot, .members = eff };
         const blocked = (overlap and !remerge) or !styleCompatible(graph, eff_group) or hasDuplicateKey(graph, eff_group) or
             containsReversed(eff_group, reversed_edges) or eff.len < 2;
@@ -385,4 +387,3 @@ fn labelsEqual(a: ?[]const u8, b: ?[]const u8) bool {
     const av = a orelse return b == null;
     return b != null and std.mem.eql(u8, av, b.?);
 }
-

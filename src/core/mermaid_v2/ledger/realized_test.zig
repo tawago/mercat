@@ -1,7 +1,7 @@
 //! Planner-side unit tests for realized.zig (P2v Step 4 vectors:
 //! V-D-JOIN-SELECT, V-D-TRUNK predicate/plan halves, V-D-DUAL plan level,
 //! V-D-IR-01/02/04). Aggregated into the test build from entry.zig's
-//! `test {}` block. The §6.7 validator vectors and controlled hand-built
+//! `test {}` block. The validator vectors and controlled hand-built
 //! plans live in realized_test2.zig.
 const std = @import("std");
 const parse_mod = @import("../parse.zig");

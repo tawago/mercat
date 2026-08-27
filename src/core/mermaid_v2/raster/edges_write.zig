@@ -172,10 +172,17 @@ pub fn toCoord(p: sketch.Point) Coord {
 ///
 /// The two OR-merge arms drop `edge_id`: the cell keeps the first writer's
 /// identity and this edge's ink becomes anonymous there. Each files a
-/// `.carrier` record naming it (`lattice.CarrierKind.merged`) — the one
-/// fact the Cell provably cannot express, since it holds a single edge id.
+/// `.carrier` record naming it — the one fact the Cell provably cannot
+/// express, since it holds a single edge id.
 /// A merge onto this edge's OWN ink names nobody new and files nothing.
+///
+/// `licence` is the merged flavour of `lattice.CarrierKind` the CALLER
+/// established for the pair (occupant id, `edge_id`) at this cell — the
+/// writer cannot ask, because it holds a `*Cell` and no channel context.
+/// A caller with no context passes `.merged_untested`, which states
+/// nothing; it must never pass `.merged_licensed` to mean "did not ask".
 /// guarded-by: aux_test.zig "an OR-merge onto a foreign cell files a merged carrier; onto its own ink, nothing"
+/// guarded-by: edges_write_test.zig "writeEdgeCell files the merged carrier under the licence its caller established"
 pub fn writeEdgeCell(
     cell: *lattice.Cell,
     edge_id: u32,
@@ -185,6 +192,7 @@ pub fn writeEdgeCell(
     x: u32,
     y: u32,
     cells_lost: *u32,
+    licence: lattice.CarrierKind,
     rec: aux.Recorder,
 ) void {
     switch (cell.occupant) {
@@ -205,11 +213,11 @@ pub fn writeEdgeCell(
                 .role = roles.mergeRole(existing.role, role),
             } };
             cell.neighbours = orMask(cell.neighbours, extra);
-            if (existing.edge != edge_id) recordCarrier(rec, x, y, edge_id, .merged);
+            if (existing.edge != edge_id) recordCarrier(rec, x, y, edge_id, licence);
         },
         .arrowhead => |head| {
             cell.neighbours = orMask(cell.neighbours, extra);
-            if (head.edge != edge_id) recordCarrier(rec, x, y, edge_id, .merged);
+            if (head.edge != edge_id) recordCarrier(rec, x, y, edge_id, licence);
         },
         .node_interior, .node_border => {
             cells_lost.* += 1;
@@ -238,7 +246,9 @@ pub fn writeEdgeCell(
 /// Both id-dropping arms file a merged `.carrier` for the edge whose name the
 /// cell loses: stamping over a foreign run drops the RUN's id (its bits stay
 /// in the mask), and landing on an existing arrowhead drops the incoming
-/// edge's.
+/// edge's. `licence` carries the caller's channel verdict for that pair,
+/// exactly as in `writeEdgeCell` — `.merged_untested` where the caller has
+/// no channel context, never `.merged_licensed` to mean "did not ask".
 /// guarded-by: edges_write_test.zig "writeArrowCell stamps the edge's own stroke_kind"
 /// guarded-by: aux_test.zig "an arrowhead stamped over a foreign run files a carrier for the run it covered"
 pub fn writeArrowCell(
@@ -251,6 +261,7 @@ pub fn writeArrowCell(
     x: u32,
     y: u32,
     cells_lost: *u32,
+    licence: lattice.CarrierKind,
     rec: aux.Recorder,
 ) void {
     switch (cell.occupant) {
@@ -258,7 +269,7 @@ pub fn writeArrowCell(
         // cluster (terminal), which the frame-solid ruling preserves.
         .empty, .edge_segment, .cluster_border => {
             if (cell.occupant == .edge_segment and cell.occupant.edge_segment.edge != edge_id) {
-                recordCarrier(rec, x, y, cell.occupant.edge_segment.edge, .merged);
+                recordCarrier(rec, x, y, cell.occupant.edge_segment.edge, licence);
             }
             cell.occupant = .{ .arrowhead = .{ .dir = dir, .edge = edge_id, .arrow = arrow } };
             cell.neighbours = orMask(cell.neighbours, along);
@@ -266,7 +277,7 @@ pub fn writeArrowCell(
         },
         .arrowhead => |head| {
             cell.neighbours = orMask(cell.neighbours, along);
-            if (head.edge != edge_id) recordCarrier(rec, x, y, edge_id, .merged);
+            if (head.edge != edge_id) recordCarrier(rec, x, y, edge_id, licence);
         },
         .node_interior, .node_border, .label_char, .label_cont => {
             cells_lost.* += 1;
@@ -288,7 +299,16 @@ pub fn writeArrowCell(
 /// The refuse branch files a SUPPRESSED `.carrier` for the crossed run: its
 /// ink runs through this position, and after the refusal neither the mask nor
 /// the occupant says so.
+///
+/// The C2 gate covers an arrowhead landing on a RUN only. An arrowhead
+/// landing on an EXISTING arrowhead falls through to `writeArrowCell`'s
+/// `.arrowhead` arm, which the gate never examined — so the licence for
+/// THAT pair is LOOKED UP here, off the channel identity each head's edge
+/// carries, and only to fill the record's `detail`. It changes no decision
+/// and paints no byte, which is exactly why it may read identity rather
+/// than re-derive the relation the ink gate above still derives.
 /// guarded-by: edges_write_test.zig "writeArrowGuarded refuse branch stamps the arrowhead's own stroke_kind"
+/// guarded-by: edges_write_test.zig "an arrowhead landing on a foreign arrowhead files a foreign carrier"
 /// guarded-by: aux_test.zig "a refused arrowhead transit files a suppressed carrier for the crossed run"
 pub fn writeArrowGuarded(
     cell: *lattice.Cell,
@@ -313,7 +333,16 @@ pub fn writeArrowGuarded(
             return;
         }
     }
-    writeArrowCell(cell, edge_id, kind, arrow, dir, along, x, y, cells_lost, rec);
+    // Reaching here with an `.edge_segment` occupant means the C2 gate passed
+    // it; an `.arrowhead` occupant was never examined, so its licence is
+    // LOOKED UP now — the two heads' recorded channel identities, compared.
+    // Label only: this fills a record's `detail` and paints no byte.
+    const licence: lattice.CarrierKind = switch (cell.occupant) {
+        .edge_segment => .merged_licensed,
+        .arrowhead => |h| crossings.licenceFor(h.edge, edge_id, ctx.co_sets, ctx.stamp_state, crossings.cellAt(x, y)),
+        else => .merged_untested, // no carrier is filed on those arms
+    };
+    writeArrowCell(cell, edge_id, kind, arrow, dir, along, x, y, cells_lost, licence, rec);
 }
 
 test {

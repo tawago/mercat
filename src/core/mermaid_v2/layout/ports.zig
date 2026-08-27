@@ -7,7 +7,7 @@
 //! fan group yields one trunk pivot or per-member independents is the input
 //! plan's statement (`joins.selected_joins`), never a default here (both
 //! OPEN-1 readings stay expressible). Failures are typed DATA results (never
-//! panics, never silent coalescing — TSD §7.7).
+//! panics, never silent coalescing).
 //!
 //! Imports (layout/ zone): std, ../ledger.zig, ../sem_graph.zig,
 //! ../sketch.zig. Tests live in ports_test.zig (aggregated from entry.zig).
@@ -260,7 +260,7 @@ pub fn demandDims(d: SideDemand) MinDims {
 
 // -- Allocation (coordinate side, clauses 6-7, 12-13) --------------------------
 
-/// Candidate/rung attribution for the §12.2 payload (allocator is candidate-blind).
+/// Candidate/rung attribution for the capacity payload (allocator is candidate-blind).
 pub const CandidateRef = struct { candidate: u32 = 0, rung: u8 = 0 };
 
 /// `ordinal` = rank i in the clause-6 total order (0..p-1); `offset` =
@@ -270,10 +270,10 @@ pub const Assignment = struct { attachment: Attachment, ordinal: u32, offset: u3
 pub const decision_row_clause_12 = "D-PORT clause 12";
 pub const capacity_reason =
     "demanded side cannot reach 2p+1 under an external clamp; MUST NOT share a cell, " ++
-    "drop an attachment, or fall back to the shared midpoint (TSD §7.7)";
+    "drop an attachment, or fall back to the shared midpoint";
 pub const capacity_action = "reject candidate and report, per D-DISPOSITION";
 
-/// Full clause-12 / TSD §12.2 payload. `classes` follows the clause-6
+/// Full capacity-failure payload. `classes` follows the clause-6
 /// recorded order; `edges`/`groups` list every involved edge id and
 /// branch group id demanded on the side (trunk members included).
 pub const CapacityExceeded = struct {

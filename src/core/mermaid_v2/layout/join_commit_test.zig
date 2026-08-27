@@ -112,6 +112,7 @@ test "N6: every enumerated candidate agrees on pre-sizing trunk commitments and 
         "flowchart LR\n  SourceWithLongLabel --> A\n  SourceWithLongLabel --> B\n  SourceWithLongLabel --> C\n",
         "flowchart TD\n  S1 --> T1\n  S1 --> T2\n  S2 --> T2\n",
         "flowchart TD\n  S1 --> T1\n  S1 --> T2\n  S2 --> T1\n  S2 --> T2\n",
+        "flowchart TD\n  S --> A\n  S --> B\n  S -.-> C\n",
     };
     for (sources, 0..) |source, source_i| {
         var arena = std.heap.ArenaAllocator.init(std.testing.allocator);

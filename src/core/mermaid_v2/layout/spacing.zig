@@ -12,7 +12,10 @@
 //! cluster-boundary bands are reserved separately by
 //! `addClusterBandReservations`.
 //!
-//! Imports: only `std`, `../sem_graph.zig`, `sugiyama.zig`.
+//! Allowed imports (tools/lint_imports.zig): the layout zone — `std`,
+//! `prim`, the `base/` no-deps tier, `../sem_graph.zig`, `sketch.zig`, and
+//! layout-internal siblings. Actually imports `std`, `prim`,
+//! `../sem_graph.zig`, `sugiyama.zig`.
 
 const std = @import("std");
 const prim = @import("prim");
@@ -143,7 +146,9 @@ test "intraLayerExtra: both ungrouped → 0" {
             .{ .id = 2, .raw_id = "B", .label = "B", .shape = .rect, .classes = &.{}, .cluster = null },
         },
         .edges = &.{},
-        .classes = &.{}, .arena = null, .clusters = &.{},
+        .classes = &.{},
+        .arena = null,
+        .clusters = &.{},
     };
     const lhs: sugiyama.LayerNode = .{ .real = 1 };
     const rhs: sugiyama.LayerNode = .{ .real = 2 };
@@ -159,7 +164,9 @@ test "intraLayerExtra: same cluster → 0" {
             .{ .id = 2, .raw_id = "B", .label = "B", .shape = .rect, .classes = &.{}, .cluster = 10 },
         },
         .edges = &.{},
-        .classes = &.{}, .arena = null, .clusters = &.{
+        .classes = &.{},
+        .arena = null,
+        .clusters = &.{
             .{ .id = 10, .raw_id = "S", .label = "S", .parent = null, .members = &.{ 1, 2 }, .sub_clusters = &.{} },
         },
     };
@@ -177,7 +184,9 @@ test "intraLayerExtra: sibling clusters → 2*pad + base - h_spacing" {
             .{ .id = 2, .raw_id = "B", .label = "B", .shape = .rect, .classes = &.{}, .cluster = 11 },
         },
         .edges = &.{},
-        .classes = &.{}, .arena = null, .clusters = &.{
+        .classes = &.{},
+        .arena = null,
+        .clusters = &.{
             .{ .id = 10, .raw_id = "S1", .label = "S1", .parent = null, .members = &.{1}, .sub_clusters = &.{} },
             .{ .id = 11, .raw_id = "S2", .label = "S2", .parent = null, .members = &.{2}, .sub_clusters = &.{} },
         },
@@ -197,7 +206,9 @@ test "intraLayerExtra: cluster vs ungrouped → pad + node_gap - h_spacing" {
             .{ .id = 2, .raw_id = "B", .label = "B", .shape = .rect, .classes = &.{}, .cluster = null },
         },
         .edges = &.{},
-        .classes = &.{}, .arena = null, .clusters = &.{
+        .classes = &.{},
+        .arena = null,
+        .clusters = &.{
             .{ .id = 10, .raw_id = "S1", .label = "S1", .parent = null, .members = &.{1}, .sub_clusters = &.{} },
         },
     };
@@ -216,7 +227,9 @@ test "intraLayerExtra: nested clusters (ancestor) → 0" {
             .{ .id = 2, .raw_id = "B", .label = "B", .shape = .rect, .classes = &.{}, .cluster = 11 },
         },
         .edges = &.{},
-        .classes = &.{}, .arena = null, .clusters = &.{
+        .classes = &.{},
+        .arena = null,
+        .clusters = &.{
             .{ .id = 10, .raw_id = "S1", .label = "S1", .parent = null, .members = &.{1}, .sub_clusters = &.{11} },
             .{ .id = 11, .raw_id = "S1a", .label = "S1a", .parent = 10, .members = &.{2}, .sub_clusters = &.{} },
         },

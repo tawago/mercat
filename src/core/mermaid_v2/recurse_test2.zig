@@ -5,10 +5,59 @@
 const std = @import("std");
 const sketch = @import("sketch.zig");
 const sem_graph = @import("sem_graph.zig");
+const ledger = @import("base/ledger.zig");
+const lattice = @import("lattice.zig");
 const recurse = @import("recurse.zig");
+const raster = @import("raster.zig");
 const rt = @import("recurse_test.zig");
 const assertUniqueEdgeIds = rt.assertUniqueEdgeIds;
 const clusterOf = rt.clusterOf;
+
+test "a nested clustered fan-in loses no RailClaim during either stitch" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+
+    const nodes = [_]sem_graph.Node{
+        .{ .id = 0, .raw_id = "A", .label = "A", .shape = .rect, .classes = &.{}, .cluster = 200 },
+        .{ .id = 1, .raw_id = "B", .label = "B", .shape = .rect, .classes = &.{}, .cluster = 200 },
+        .{ .id = 2, .raw_id = "P", .label = "P", .shape = .rect, .classes = &.{}, .cluster = 200 },
+    };
+    const edges = [_]sem_graph.Edge{
+        .{ .id = 0, .from = 0, .to = 2, .kind = .solid, .arrow_from = .none, .arrow_to = .filled, .label = null },
+        .{ .id = 1, .from = 1, .to = 2, .kind = .solid, .arrow_from = .none, .arrow_to = .filled, .label = null },
+    };
+    const members = [_]sem_graph.NodeId{ 0, 1, 2 };
+    const subs = [_]sem_graph.ClusterId{200};
+    const clusters = [_]sem_graph.Cluster{
+        .{ .id = 100, .raw_id = "outer", .label = "outer", .parent = null, .members = &.{}, .sub_clusters = &subs },
+        .{ .id = 200, .raw_id = "inner", .label = "inner", .parent = 100, .members = &members, .sub_clusters = &.{} },
+    };
+    const graph: sem_graph.SemGraph = .{
+        .direction = .TD,
+        .nodes = &nodes,
+        .edges = &edges,
+        .clusters = &clusters,
+        .classes = &.{},
+        .arena = null,
+    };
+
+    const s = try recurse.layoutPieces(a, graph, .{ .max_width = 120 });
+    try std.testing.expectEqual(@as(usize, 1), s.rail_claims.len);
+    const claim = s.rail_claims[0];
+    try std.testing.expectEqual(@as(ledger.RailClaimId, 1), claim.id);
+    try std.testing.expectEqual(ledger.RailPolarity.in, claim.polarity);
+    try std.testing.expectEqual(@as(usize, 2), claim.members.len);
+    try std.testing.expect(ledger.checkRailClaim(claim).isValid());
+    for (claim.members) |member| {
+        var carrier = false;
+        for (s.edges) |edge| carrier = carrier or edge.id == member.edge;
+        for (s.busbars) |rail| for (rail.taps) |tap| {
+            carrier = carrier or tap.edge == member.edge;
+        };
+        try std.testing.expect(carrier);
+    }
+}
 
 /// The merged placement whose label reads `name`, or null.
 fn placementNamed(s: sketch.Sketch, name: []const u8) ?sketch.NodePlacement {
@@ -112,6 +161,19 @@ test "an outer fan into sibling subgraphs names its bridges, not the dropped pla
         if (found) break;
     }
     try std.testing.expect(found);
+
+    // The same exact final pivot/site evidence rebuilds the semantic claim;
+    // no super-node endpoint or placement edge may survive in it.
+    var claimed = false;
+    for (s.rail_claims) |claim| {
+        if (claim.polarity != .out or claim.pivot != top.id or claim.members.len < 2) continue;
+        if (!ledger.checkRailClaim(claim).isValid()) continue;
+        for (claim.members) |member| {
+            if (member.node(.source) != top.id) break;
+            if (edgeById(s, member.edge) == null) break;
+        } else claimed = true;
+    }
+    try std.testing.expect(claimed);
 }
 
 /// The merged frame of cluster `id`, or null.
@@ -271,6 +333,63 @@ test "two bridges into one port declare a port-share co-set" {
         try std.testing.expect(named);
     };
     try std.testing.expect(checked);
+}
+
+test "a child rail and cross-border bridge sharing A's final port are licensed" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+
+    const nodes = [_]sem_graph.Node{
+        .{ .id = 0, .raw_id = "A", .label = "A", .shape = .rect, .classes = &.{}, .cluster = 100 },
+        .{ .id = 1, .raw_id = "B", .label = "B", .shape = .rect, .classes = &.{}, .cluster = 100 },
+        .{ .id = 2, .raw_id = "C", .label = "C", .shape = .rect, .classes = &.{}, .cluster = 100 },
+        .{ .id = 3, .raw_id = "D", .label = "D", .shape = .rect, .classes = &.{}, .cluster = null },
+    };
+    const edges = [_]sem_graph.Edge{
+        .{ .id = 0, .from = 0, .to = 1, .kind = .solid, .arrow_from = .none, .arrow_to = .filled, .label = null },
+        .{ .id = 1, .from = 0, .to = 2, .kind = .solid, .arrow_from = .none, .arrow_to = .filled, .label = null },
+        .{ .id = 2, .from = 0, .to = 3, .kind = .solid, .arrow_from = .none, .arrow_to = .filled, .label = null },
+    };
+    const members = [_]sem_graph.NodeId{ 0, 1, 2 };
+    const clusters = [_]sem_graph.Cluster{.{ .id = 100, .raw_id = "S", .label = "S", .parent = null, .members = &members, .sub_clusters = &.{} }};
+    const graph: sem_graph.SemGraph = .{
+        .direction = .TD,
+        .nodes = &nodes,
+        .edges = &edges,
+        .clusters = &clusters,
+        .classes = &.{},
+        .arena = null,
+    };
+
+    const s = try recurse.layoutPieces(a, graph, .{ .max_width = 120 });
+    const pivot = placementNamed(s, "A") orelse return error.PivotNotPlaced;
+    var bridge: ?sketch.EdgePath = null;
+    for (s.edges) |edge| {
+        if (edge.from == pivot.id) bridge = edge;
+    }
+    const final_bridge = bridge orelse return error.BridgeNotRouted;
+    try std.testing.expectEqual(@as(usize, 1), s.busbars.len);
+
+    var licensed = false;
+    for (s.busbars[0].taps) |tap| {
+        if (ledger.coMembersAt(s.co_sets, tap.edge, final_bridge.id, .{
+            .x = final_bridge.polyline[0].x,
+            .y = final_bridge.polyline[0].y + 1,
+        })) licensed = true;
+    }
+    try std.testing.expect(licensed);
+
+    const report = try raster.rasterize(a, s, .bridge, .{ .collect_aux = true });
+    try std.testing.expectEqual(@as(u32, 0), report.crossings.foreign_junction_violation);
+    try std.testing.expectEqual(@as(u32, 0), report.crossings.arrowhead_transit_violation);
+    var licensed_carriers: usize = 0;
+    for (report.lattice.aux) |record| {
+        if (record.kind != .carrier) continue;
+        try std.testing.expect(record.detail != @intFromEnum(lattice.CarrierKind.merged_foreign));
+        if (record.value == final_bridge.id and record.detail == @intFromEnum(lattice.CarrierKind.merged_licensed)) licensed_carriers += 1;
+    }
+    try std.testing.expect(licensed_carriers > 0);
 }
 
 fn edgeById(s: sketch.Sketch, id: sketch.EdgeId) ?sketch.EdgePath {

@@ -196,3 +196,70 @@ test "determinism: crossing outcome is deterministic under edge-array permutatio
         try testing.expectEqual(@as(u32, 1), r.crossings.legal_crossing);
     }
 }
+
+test "licenceFor trusts identity only after a complete consistent stamp" {
+    var members = [_]u32{ 0, 1 };
+    const unstamped = [_]ledger.CoSet{.{ .origin = .fan_rail, .members = &members }};
+    const at: ledger.CoCell = .{ .x = 0, .y = 0 };
+    const stamped = try ledger.numberChannels(testing.allocator, &unstamped);
+    defer testing.allocator.free(stamped);
+
+    // A numbered payload is still untrusted after every non-success outcome.
+    for ([_]sketch.ChannelStampState{ .unattempted, .out_of_memory, .rail_invariant }) |state| {
+        try testing.expectEqual(
+            lattice.CarrierKind.merged_untested,
+            crossings.licenceFor(0, 1, stamped, state, at),
+        );
+    }
+
+    // The inverse inconsistency also abstains: state says complete, but one
+    // roster identity was never filed.
+    try testing.expectEqual(
+        lattice.CarrierKind.merged_untested,
+        crossings.licenceFor(0, 1, &unstamped, .complete, at),
+    );
+
+    try testing.expectEqual(
+        lattice.CarrierKind.merged_licensed,
+        crossings.licenceFor(0, 1, stamped, .complete, at),
+    );
+    try testing.expectEqual(
+        lattice.CarrierKind.merged_foreign,
+        crossings.licenceFor(0, 2, stamped, .complete, at),
+    );
+}
+
+test "stamp state and ChannelId never change derived crossing ink" {
+    const a = testing.allocator;
+    const h = [_]sketch.Point{ .{ .x = 0, .y = 5 }, .{ .x = 10, .y = 5 } };
+    const v = [_]sketch.Point{ .{ .x = 5, .y = 0 }, .{ .x = 5, .y = 10 } };
+    const es = [_]sketch.EdgePath{ edge(0, &h, .none), edge(1, &v, .none) };
+    var baseline: [121]lattice.Cell = undefined;
+    var have_baseline = false;
+
+    for ([_]ledger.ChannelId{ 1, 97 }) |channel| {
+        const roster = [_]ledger.CoSet{.{
+            .origin = .fan_rail,
+            .channel = channel,
+            .members = &.{ 0, 1 },
+        }};
+        for ([_]sketch.ChannelStampState{ .unattempted, .complete, .out_of_memory, .rail_invariant }) |state| {
+            var lat = try makeLattice(a, 11, 11);
+            defer a.free(lat.cells);
+            var s = sketchWith(&es, .{});
+            s.co_sets = &roster;
+            s.channel_stamp_state = state;
+
+            const r = try edges.rasterizeEdges(a, &lat, s, .bridge, null);
+            try testing.expectEqual(mask_cross, lat.atConst(5, 5).neighbours.toMask());
+            try testing.expectEqual(crossings.CrossingCounts{}, r.crossings);
+
+            if (have_baseline) {
+                try testing.expectEqualSlices(lattice.Cell, &baseline, lat.cells);
+            } else {
+                @memcpy(&baseline, lat.cells);
+                have_baseline = true;
+            }
+        }
+    }
+}

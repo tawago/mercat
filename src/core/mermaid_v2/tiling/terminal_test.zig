@@ -21,7 +21,7 @@ const Grid = struct {
     }
 
     fn lat(self: *Grid) lattice.Lattice {
-        return .{ .width = W, .height = W, .cells = &self.buf };
+        return .{ .width = W, .height = W, .cells = &self.buf, .aux_collection = .{ .state = .complete } };
     }
 
     fn set(self: *Grid, x: usize, y: usize, c: lattice.Cell) void {
@@ -351,4 +351,35 @@ test "a tip-facing decorated arrival against a pristine face is a convention wit
             else => try testing.expectEqual(@as(u32, 1), c.c_term_node_ew_arrow),
         }
     }
+}
+
+test "unavailable AUX abstains from terminal defects, not safe face conventions" {
+    var g: Grid = .{};
+    g.init();
+    g.set(2, 2, edgeCell(.{ .n = true, .s = true }));
+    g.set(2, 3, border(.corner_nw, .{ .e = true, .s = true }));
+    var lat = g.lat();
+
+    const complete = scanAll(&lat);
+    try testing.expectEqual(@as(u32, 1), complete.d_term_node_corner);
+    try testing.expectEqual(@as(u32, 0), complete.u_term_aux_unavailable);
+
+    lat.aux_collection.state = .not_collected;
+    const unavailable = scanAll(&lat);
+    try testing.expectEqual(@as(u32, 0), unavailable.d_term_node_corner);
+    try testing.expectEqual(@as(u32, 1), unavailable.u_term_aux_unavailable);
+
+    lat.aux_collection.state = .out_of_memory;
+    const failed = scanAll(&lat);
+    try testing.expectEqual(@as(u32, 0), failed.d_term_node_corner);
+    try testing.expectEqual(@as(u32, 1), failed.u_term_aux_unavailable);
+
+    g.set(2, 2, arrowCell(.south, .{ .n = true }));
+    g.set(2, 3, border(.edge_n, .{ .e = true, .w = true }));
+    lat = g.lat();
+    lat.aux_collection.state = .not_collected;
+    const face = scanAll(&lat);
+    try testing.expectEqual(@as(u32, 1), face.c_term_node_ns_arrow);
+    try testing.expectEqual(@as(u32, 0), face.u_term_aux_unavailable);
+    try testing.expectEqual(@as(u32, 0), face.defectTotal());
 }

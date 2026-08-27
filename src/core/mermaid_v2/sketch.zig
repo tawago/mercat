@@ -8,8 +8,8 @@
 //! `label` strings are owned by the producer (typically the layout arena)
 //! and must outlive any consumer.
 //!
-//! Imports `std` and `prim` only; must not depend on `paint`, `lattice`,
-//! `parse`, or any other mermaid_v2 module (enforced by `tools/lint_imports.zig`).
+//! Allowed imports (tools/lint_imports.zig): `std`, `prim`, `base/*` (no-deps
+//! tier, universally importable) — no `paint`, `lattice`, `parse`, nothing else.
 
 const std = @import("std");
 const prim = @import("prim");
@@ -180,20 +180,23 @@ pub const Tap = struct {
 /// of N overlapping sibling polylines. Every `Tap.edge` here has NO
 /// `EdgePath` in `Sketch.edges` — the rail is that edge's sole geometry, so
 /// score accounting counts the shared run once and raster owns the junction
-/// bits.
-///
-/// `stem` runs from the pivot node's perimeter to the crossbar junction
+/// bits. `stem` runs from the pivot node's perimeter to the crossbar junction
 /// (>= 2 points, first point on the pivot perimeter). `crossbar` is the
 /// horizontal span, x-ordered (`crossbar[0].x <= crossbar[1].x`, equal y);
 /// it always covers the stem end and every `Tap.at`.
 pub const Rail = struct {
     pivot: NodeId,
+    /// This rail's CHANNEL: the identity of the run its taps share, stamped
+    /// from the co-set roster (`sketch_channels.stamp`) so a raster reader
+    /// LOOKS the licence up on the rail's own ink instead of re-deriving it
+    /// from membership. `no_channel` = not filed, never "no channel".
+    /// guarded-by: sketch_channels_test.zig "a stamped sketch names its rail's channel and its roster alike"
+    channel: ledger.ChannelId = ledger.no_channel,
     stem: []const Point,
     crossbar: [2]Point,
     taps: []const Tap,
     kind: EdgeKind,
-    /// Direction discriminant only: any fan-OUT role reads as OUT, any
-    /// fan-IN role as IN (every reader accepts both members of a family).
+    /// Direction discriminant only: any fan-OUT role reads as OUT, any fan-IN role as IN.
     role: EdgeRole = .fan_out_dropper,
     pivot_arrow: ArrowKind = .none,
 
@@ -249,6 +252,9 @@ pub const Diagnostic = union(enum) {
 
 // -- Sketch ------------------------------------------------------------------
 
+/// Outcome of the latest all-or-nothing channel payload stamp.
+pub const ChannelStampState = enum { unattempted, complete, out_of_memory, rail_invariant };
+
 /// Top-level geometric IR. All slices are borrowed from the layout
 /// arena; `bbox` encloses every `NodePlacement.rect`,
 /// `ClusterFrame.rect`, and every point of every `EdgePath.polyline`.
@@ -262,23 +268,18 @@ pub const Sketch = struct {
     /// appear in `edges`. Defaulted empty so hand-built Sketches (tests)
     /// and pre-busbar-aware code stay source-compatible.
     busbars: []const Rail = &.{},
+    rail_claims: []const ledger.RailClaim = &.{},
     /// Candidate-local branch realization envelope. // guarded-by: entry.zig "V-D-IR-07: clustered production path keeps the realized plan envelope empty"
     joins: ledger.RealizedJoins = .{},
     /// Report-only closure-law inventory for this candidate (never a layout input).
     closure: ledger.ClosureCounts = .{},
-    /// Co-channel membership: the edge groups that legally share ink because
-    /// one structural decision put them on a channel together.
-    ///
-    /// Filled at two different points on purpose. `layout/routing.zig` fills
-    /// it from the live fans — the only population a clustered or recursed
-    /// render gets, since those carry an empty `joins`; `cluster/stitch.zig`
-    /// rewrites a child's sets into the merged Sketch's id space beside the
-    /// child's edges. On a flat graph `select.zig` REPLACES it with the sets
-    /// derived from the realized plan, wherever it applies that plan.
-    ///
-    /// Member ids are read in the same id space as `edges[].id`, which is
-    /// unique across the whole Sketch — including a stitched one.
+    /// Co-channel membership and, after `sketch_channels.stamp`, this render's
+    /// numbered channel roster. Layout fills it from live fans, stitch rewrites
+    /// child sets into the merged id space, and flat selection replaces them
+    /// with plan-derived sets. Members use the Sketch's global edge-id space.
     co_sets: []const ledger.CoSet = &.{},
+    /// Only `.complete` authorizes the stamped co-set and rail identities.
+    channel_stamp_state: ChannelStampState = .unattempted,
     diagnostics: []const Diagnostic,
     budget: WidthBudget,
     /// This candidate's label-placement policy (prim.LabelPolicy). Carried on
@@ -396,8 +397,8 @@ pub fn clearLine(
     return plain orelse want;
 }
 
-/// First cross position at/after `start` (moving away from the endpoints,
-/// toward a rail) whose perpendicular hop over `[hop_lo, hop_hi]` is clear,
+/// First cross position at/after `start` whose perpendicular hop over
+/// `[hop_lo, hop_hi]` is clear,
 /// with the stub-line cells walked so far also clear. The walk tests only
 /// the newly entered stub cell each step (the blocked predicate is monotone
 /// in the span). Null when the stub line is blocked before any usable hop

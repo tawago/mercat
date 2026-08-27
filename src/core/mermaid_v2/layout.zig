@@ -13,6 +13,7 @@ const ledger = @import("base/ledger.zig");
 const sg = @import("sem_graph.zig");
 const sketch = @import("sketch.zig");
 const sketch_ports = @import("sketch_ports.zig");
+const sketch_channels = @import("sketch_channels.zig");
 const sugiyama = @import("layout/sugiyama.zig");
 const crossing = @import("layout/crossing.zig");
 const routing = @import("layout/routing.zig");
@@ -120,14 +121,22 @@ fn buildSketch(
     // registry tags name real events only if a production render can fire them.
     // guarded-by: layout_test2.zig "a production render carries the closure law's counts on its Sketch"
     var closure: ledger.ClosureCounts = .{};
+    addConstructionDiagnostics(&closure, fans);
     var candidate_joins = try join_commit.buildReported(a, graph, opts.join_permits, candidate_flat, lg.reversed_edges, opts.disable_join_realization, &closure);
-    const port_active = hasPortWork(candidate_joins);
+    const construction_private = hasPrivatePeers(fans);
+    const port_active = hasPortWork(candidate_joins) or construction_private;
     const lane_plan = try port_plan.planLanes(a, graph, lg, candidate_joins);
     const derived = if (opts.join_permits) |plan| blk: {
-        if (!candidate_flat or !port_active) break :blk &.{};
-        const all = ports.derive(a, graph, plan.*, candidate_joins, graph.direction, lg.reversed_edges) catch &.{};
-        break :blk port_plan.withoutCoRealized(a, all, candidate_joins) catch all;
-    } else &.{};
+        if (candidate_flat and port_active) {
+            const all = ports.derive(a, graph, plan.*, candidate_joins, graph.direction, lg.reversed_edges) catch &.{};
+            break :blk port_plan.withoutCoRealized(a, all, candidate_joins) catch all;
+        }
+        if (construction_private) break :blk port_plan.deriveFanAttachments(a, graph, graph.direction, lg.reversed_edges, fans) catch &.{};
+        break :blk &.{};
+    } else if (construction_private)
+        port_plan.deriveFanAttachments(a, graph, graph.direction, lg.reversed_edges, fans) catch &.{}
+    else
+        &.{};
     try sizeNodes(a, graph, lg, geom, opts.node_padding, opts.fixed_sizes, opts.max_label_width, node_lines);
     sizing.applyPortDemand(graph, lg, geom, derived);
     const layer_count: u32 = @intCast(lg.layers.len);
@@ -292,7 +301,7 @@ fn buildSketch(
     const placements = try buildPlacements(a, graph, lg, geom, node_lines);
     const allocated_ports = try port_plan.allocate(a, graph, placements, derived, candidate_joins, lane_plan, opts.rung);
     candidate_joins.terminal_ports = allocated_ports.terminals;
-    const edges_result = if (candidate_flat and port_active)
+    const edges_result = if (port_active)
         try routing.buildEdgesWithPlan(a, graph, lg, geom, placements, fans, candidate_joins, allocated_ports, opts.chain_wrap)
     else
         try routing.buildEdges(a, graph, lg, geom, placements, fans, opts.chain_wrap);
@@ -337,13 +346,14 @@ fn buildSketch(
     for (edges_out, routed) |e, *slot| slot.* = e.id;
     closure.co_double_discharge = ledger.doubleDischarged(candidate_joins.co_realized, routed);
 
-    return sketch.Sketch{
+    var out = sketch.Sketch{
         .bbox = bbox,
         .direction = graph.direction, // BT was canonicalized to TD above; unreachable here
         .nodes = placements,
         .clusters = clusters_out,
         .edges = edges_out,
         .busbars = busbars_out,
+        .rail_claims = edges_result.rail_claims,
         .joins = candidate_joins,
         .closure = closure,
         // Fan-derived sets PLUS the port shares read back off the final
@@ -357,6 +367,10 @@ fn buildSketch(
         .budget = .{ .max_width = opts.max_width, .rung = opts.rung },
         .label_policy = opts.label_policy,
     };
+    // The co-set list is final here, so this is where it becomes a roster: one
+    // identity per channel, and every rail stamped with the one it rides.
+    sketch_channels.stamp(a, &out);
+    return out;
 }
 
 fn hasPortWork(joins: ledger.RealizedJoins) bool {
@@ -366,6 +380,19 @@ fn hasPortWork(joins: ledger.RealizedJoins) bool {
             if (disposition) |value| if (value == .independent) return true;
         }
     }
+    return false;
+}
+
+fn addConstructionDiagnostics(report: *ledger.ClosureCounts, fans: []const fan_mod.Fan) void {
+    for (fans) |fan| {
+        if (fan.construction_deco_mixed) report.rail_deco_mixed += 1;
+        if (fan.construction_style_mixed) report.rail_member_style_mixed += 1;
+        if (fan.construction_star_violation) report.rail_star_violation += 1;
+    }
+}
+
+fn hasPrivatePeers(fans: []const fan_mod.Fan) bool {
+    for (fans) |f| for (f.peers) |peer| if (!peer.shared) return true;
     return false;
 }
 
@@ -449,4 +476,17 @@ const buildPlacements = sizing.buildPlacements;
 test {
     _ = @import("layout/layout_test.zig");
     _ = @import("layout/layout_test2.zig");
+}
+
+test "construction diagnostics do not alias decoration and style" {
+    const fans = [_]fan_mod.Fan{
+        .{ .direction = .out, .pivot_idx = 0, .source_layer = 0, .peers = &.{}, .construction_style_mixed = true },
+        .{ .direction = .out, .pivot_idx = 0, .source_layer = 0, .peers = &.{}, .construction_deco_mixed = true },
+        .{ .direction = .out, .pivot_idx = 0, .source_layer = 0, .peers = &.{}, .construction_deco_mixed = true, .construction_style_mixed = true },
+        .{ .direction = .out, .pivot_idx = 0, .source_layer = 0, .peers = &.{} },
+    };
+    var report: ledger.ClosureCounts = .{};
+    addConstructionDiagnostics(&report, &fans);
+    try std.testing.expectEqual(@as(u32, 2), report.rail_deco_mixed);
+    try std.testing.expectEqual(@as(u32, 2), report.rail_member_style_mixed);
 }

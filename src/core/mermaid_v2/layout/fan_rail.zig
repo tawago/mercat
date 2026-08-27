@@ -77,10 +77,19 @@ pub fn resolve(
     if (fan.rows != 1) return null;
     if (dir != .TD) return null;
     if (fan.peers.len < 2) return null;
-    const peers = try a.alloc(Peer, fan.peers.len);
+    var shared_len: usize = 0;
+    for (fan.peers) |p| if (p.shared) {
+        shared_len += 1;
+    };
+    if (shared_len < 2) return null;
+    const peers = try a.alloc(Peer, shared_len);
     var kind: ?sg.EdgeKind = null;
     var pivot_arrow: ?sg.ArrowEnd = null;
-    for (fan.peers, peers) |p, *out| {
+    var peer_i: usize = 0;
+    for (fan.peers) |p| {
+        if (!p.shared) continue;
+        const out = &peers[peer_i];
+        peer_i += 1;
         const e = routing.findGraphEdge(graph, p.edge_id) orelse return null;
         if (fan.direction == .in and e.label != null) return null;
         const ep = allocated_ports.forEdge(e.id) orelse return null;
@@ -102,7 +111,7 @@ pub fn resolve(
             .port = if (fan.direction == .out) ep.target else ep.source,
         };
     }
-    if (joins.memberships.len != 0 and !selected(joinedMembers(fan), joins)) return null;
+    if (joins.memberships.len != 0 and !selected(fan.peers, joins)) return null;
     const first_ep = allocated_ports.forEdge(peers[0].edge.id) orelse return null;
     return .{
         .pivot = routing.findPlacement(placements, if (fan.direction == .out) peers[0].edge.from else peers[0].edge.to),
@@ -234,15 +243,16 @@ pub fn blocked(
     return false;
 }
 
-fn joinedMembers(fan: fan_mod.Fan) []const fan_mod.FanEdge {
-    return fan.peers;
-}
-
 fn selected(peers: []const fan_mod.FanEdge, joins: pb.RealizedJoins) bool {
+    var shared_len: usize = 0;
+    for (peers) |peer| if (peer.shared) {
+        shared_len += 1;
+    };
     for (joins.selected_joins) |join| {
-        if (join.members.len != peers.len) continue;
+        if (join.members.len != shared_len) continue;
         var all = true;
         for (peers) |peer| {
+            if (!peer.shared) continue;
             var found = false;
             for (join.members) |member| {
                 if (member == peer.edge_id) found = true;

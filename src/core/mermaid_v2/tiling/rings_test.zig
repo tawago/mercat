@@ -18,7 +18,7 @@ const Grid = struct {
     }
 
     fn lat(self: *Grid) lattice.Lattice {
-        return .{ .width = 5, .height = 5, .cells = &self.buf };
+        return .{ .width = 5, .height = 5, .cells = &self.buf, .aux_collection = .{ .state = .complete } };
     }
 
     fn set(self: *Grid, x: usize, y: usize, c: lattice.Cell) void {
@@ -288,4 +288,28 @@ test "fusion: a frame's extra arm is a convention under cross and a leak under b
     const crossed = one(&lat, 1, 1, true);
     try testing.expectEqual(@as(u32, 1), crossed.c_frame_arm_cross_mode);
     try testing.expectEqual(@as(u32, 0), crossed.defectTotal());
+}
+
+test "fusion: unavailable AUX abstains instead of inferring an unrecorded port" {
+    var g: Grid = .{};
+    g.init();
+    g.set(1, 1, border(3, .edge_s, .{ .e = true, .w = true, .s = true }));
+    g.set(0, 1, border(3, .corner_sw, .{ .e = true, .n = true }));
+    g.set(2, 1, border(3, .corner_se, .{ .w = true, .n = true }));
+    g.set(1, 2, edgeCell(5, .{ .n = true, .s = true }));
+
+    var lat = g.lat();
+    const complete = one(&lat, 1, 1, false);
+    try testing.expectEqual(@as(u32, 1), complete.d_border_arm_unrecorded);
+    try testing.expectEqual(@as(u32, 0), complete.u_border_arm_aux_unavailable);
+
+    lat.aux_collection.state = .not_collected;
+    const unavailable = one(&lat, 1, 1, false);
+    try testing.expectEqual(@as(u32, 0), unavailable.d_border_arm_unrecorded);
+    try testing.expectEqual(@as(u32, 1), unavailable.u_border_arm_aux_unavailable);
+
+    lat.aux_collection.state = .out_of_memory;
+    const failed = one(&lat, 1, 1, false);
+    try testing.expectEqual(@as(u32, 0), failed.d_border_arm_unrecorded);
+    try testing.expectEqual(@as(u32, 1), failed.u_border_arm_aux_unavailable);
 }

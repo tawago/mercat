@@ -1,19 +1,14 @@
-//! Unified decision-fan layout: fan-OUT (source with 2+ forward edges to
-//! real next-layer children) and fan-IN (symmetric, incoming). Both share
-//! one rail row with descent/ascent polylines instead of the generic
-//! orthogonal router. Runs after `crossing.reduceCrossings`; `layout.zig`
-//! reserves the rail's extra inter-layer row. TD: leftmost/rightmost/middle
-//! peers detour via the rail bend; center peers (Sx == Tx) descend straight.
-//!
-//! Allowed imports for layout/*: std + sketch + sem_graph + sibling layout.
+//! Unified decision-fan layout: fan-OUT and fan-IN share one rail row with
+//! descent/ascent polylines. `layout.zig` reserves its inter-layer row.
 
 const std = @import("std");
 const prim = @import("prim");
 const sg = @import("../sem_graph.zig");
 const sketch = @import("../sketch.zig");
 const ledger = @import("../base/ledger.zig");
+const permits = @import("../ledger/permits.zig");
 const sugiyama = @import("sugiyama.zig");
-const rp = @import("routing_polyline.zig");
+const fan_grid = @import("fan_grid.zig");
 
 pub const Direction = enum { out, in };
 
@@ -29,7 +24,6 @@ pub const ChildRole = enum {
     center,
 };
 
-/// One peer edge in a fan.
 pub const FanEdge = struct {
     edge_id: sg.EdgeId,
     /// Index into lg.nodes of the peer node (child for fan-OUT, source
@@ -38,13 +32,17 @@ pub const FanEdge = struct {
     role: ChildRole,
     /// Per-member rail lane for unrealized groups; zero preserves merged ink.
     lane: u32 = 0,
+    /// False when the construction gate retained the edge only as private ink.
+    shared: bool = true,
+    /// Display columns in this member's non-empty label; zero means unlabeled.
+    label_width: u32 = 0,
 };
 
-/// One detected fan.
 pub const Fan = struct {
     direction: Direction,
+    pivot: sg.NodeId = 0,
     /// Index into lg.nodes of the pivot (source for fan-OUT, target for
-    /// fan-IN). Always a real node.
+    /// fan-IN). Always a real node and always names `pivot`.
     pivot_idx: u32,
     /// Layer index where the SOURCES sit. The rail row lives in the gap
     /// between `source_layer` and `source_layer + 1`.
@@ -73,16 +71,29 @@ pub const Fan = struct {
     /// Unlabeled fans stay byte-identical.
     /// guarded-by: fan_test.zig "a labeled fan reserves three extra gap rows; an unlabeled fan reserves one"
     labeled: bool = false,
+    construction_deco_mixed: bool = false,
+    construction_style_mixed: bool = false,
+    construction_star_violation: bool = false,
 };
+
+const PreparedPeers = struct { peers: []FanEdge, deco_mixed: bool = false, style_mixed: bool = false, star_violation: bool = false };
 
 /// Extra gap rows a LABELED fan reserves beyond its lane rows: the
 /// decorated on-run sandwich needs a 4-cell private dropper (flank, label,
 /// flank, head) where the classic gap yields 1.
 pub const LABEL_RUN_EXTRA_ROWS: u32 = 3;
 
-// ===================================================================
-// Detection
-// ===================================================================
+pub fn labelRowsOnLane(f: Fan, lane: u32) u32 {
+    var labels: u32 = 0;
+    for (f.peers) |peer| {
+        if (peer.label_width != 0 and @max(f.lane, peer.lane) == lane) labels += 1;
+    }
+    return labels * LABEL_RUN_EXTRA_ROWS;
+}
+
+pub fn additionalLabelLift(f: Fan, lane: u32) u32 {
+    return labelRowsOnLane(f, lane) -| LABEL_RUN_EXTRA_ROWS;
+}
 
 /// Detect every fan in the layered graph (both fan-OUT and fan-IN).
 /// A node qualifies as a fan-OUT pivot iff it has ≥2 outgoing forward
@@ -106,41 +117,61 @@ pub fn detect(
     // Two-pass to preserve fan-OUT-then-fan-IN ordering. guarded-by: fan_test.zig "detect distinguishes fan-OUT and fan-IN in the same graph"
     var pivot: u32 = 0;
     while (pivot < lg.nodes.len) : (pivot += 1) {
-        switch (lg.nodes[pivot]) {
-            .real => {},
+        const pivot_id = switch (lg.nodes[pivot]) {
+            .real => |id| id,
             .virtual => continue,
-        }
+        };
         const p_layer = node_layer[pivot];
-        if (try collectFanOut(a, lg, node_layer, pivot, p_layer)) |peers| {
-            try fans.append(a, .{
+        if (try collectFanOut(a, graph, lg, node_layer, pivot, pivot_id, p_layer)) |prepared| {
+            const found: Fan = .{
                 .direction = .out,
+                .pivot = pivot_id,
                 .pivot_idx = pivot,
                 .source_layer = p_layer,
-                .peers = peers,
-                .labeled = anyPeerLabeled(graph, peers),
-            });
+                .peers = prepared.peers,
+                .labeled = anyPeerLabeled(graph, prepared.peers),
+                .construction_deco_mixed = prepared.deco_mixed,
+                .construction_style_mixed = prepared.style_mixed,
+                .construction_star_violation = prepared.star_violation,
+            };
+            assertPivotConsistency(found, lg);
+            try fans.append(a, found);
         }
     }
     pivot = 0;
     while (pivot < lg.nodes.len) : (pivot += 1) {
-        switch (lg.nodes[pivot]) {
-            .real => {},
+        const pivot_id = switch (lg.nodes[pivot]) {
+            .real => |id| id,
             .virtual => continue,
-        }
+        };
         const p_layer = node_layer[pivot];
         if (p_layer == 0) continue;
-        if (try collectFanIn(a, lg, node_layer, pivot, p_layer - 1)) |peers| {
-            try fans.append(a, .{
+        if (try collectFanIn(a, graph, lg, node_layer, pivot, pivot_id, p_layer - 1)) |prepared| {
+            const found: Fan = .{
                 .direction = .in,
+                .pivot = pivot_id,
                 .pivot_idx = pivot,
                 .source_layer = p_layer - 1,
-                .peers = peers,
-                .labeled = anyPeerLabeled(graph, peers),
-            });
+                .peers = prepared.peers,
+                .labeled = anyPeerLabeled(graph, prepared.peers),
+                .construction_deco_mixed = prepared.deco_mixed,
+                .construction_style_mixed = prepared.style_mixed,
+                .construction_star_violation = prepared.star_violation,
+            };
+            assertPivotConsistency(found, lg);
+            try fans.append(a, found);
         }
     }
 
     return try fans.toOwnedSlice(a);
+}
+
+fn assertPivotConsistency(f: Fan, lg: sugiyama.LayeredGraph) void {
+    std.debug.assert(f.pivot_idx < lg.nodes.len);
+    switch (lg.nodes[f.pivot_idx]) {
+        .real => |id| std.debug.assert(id == f.pivot),
+        .virtual => unreachable,
+    }
 }
 
 /// True iff any peer's semantic edge carries a non-empty label.
@@ -163,69 +194,30 @@ fn peerLabel(graph: sg.SemGraph, edge_id: u32) ?[]const u8 {
     return null;
 }
 
-/// Feasibility gate for the labeled-fan row reservation: clears `labeled`
-/// on any fan whose on-run label candidate is DOOMED at layout time, so
-/// the fan reserves no LABEL_RUN_EXTRA_ROWS it can never consume (and the
-/// polyline/rail lifts, which read the same flag, stay off with it —
-/// byte-identical to the pre-label geometry). Two generic dooms:
-///
-///   1. The fan will grid-wrap: its single-row peer span (the EXACT
-///      measure fan_grid.wrapGrid gates on) exceeds the width budget. The
-///      grid comb re-routes members without the 4-cell private droppers
-///      the decorated sandwich needs, so the reserved rows would go dead.
-///   2. No labeled member's label can ever fit laterally: every label is
-///      wider than the whole estimated canvas (labels_onrun refuses any
-///      span wider than the lattice), so on-run placement is impossible.
-///
-/// Runs AFTER x-assignment (widths + columns final) and BEFORE
-/// extraRowsPerGap. Fans with any feasible labeled member are untouched.
-/// guarded-by: fan_test.zig "label reservation gate clears doomed fans and keeps feasible ones"
-pub fn gateLabelReservations(
-    comptime G: type,
-    graph: sg.SemGraph,
-    fans: []Fan,
-    geom: []const G,
-    budget: u32,
-    h_spacing: u32,
-) void {
-    var est_w: i64 = 0;
-    for (geom) |g| {
-        const right: i64 = @as(i64, g.x) + g.w;
-        if (right > est_w) est_w = right;
-    }
+/// Refresh per-member display widths before row reservation. Width pressure is
+/// explicit in the bbox diagnostic; it never licenses silent label loss.
+pub fn gateLabelReservations(comptime G: type, graph: sg.SemGraph, fans: []Fan, geom: []const G, budget: u32, h_spacing: u32) void {
+    _ = geom;
+    _ = budget;
+    _ = h_spacing;
     for (fans) |*f| {
-        if (!f.labeled) continue;
-        // Doom 1: mirror of fan_grid.wrapGrid's single-row span gate.
-        const fit_gap: u32 = if (f.direction == .in) 1 else h_spacing;
-        var srw: u32 = 0;
-        for (f.peers, 0..) |p, i| {
-            srw += geom[p.peer_idx].w;
-            if (i + 1 < f.peers.len) srw += fit_gap;
+        f.labeled = false;
+        for (f.peers) |*p| {
+            p.label_width = if (peerLabel(graph, p.edge_id)) |label| prim.displayWidth(label) else 0;
+            if (p.label_width != 0) f.labeled = true;
         }
-        if (srw > budget) {
-            f.labeled = false;
-            continue;
-        }
-        // Doom 2: every labeled member's label is wider than the canvas.
-        var any_fits = false;
-        for (f.peers) |p| {
-            const lbl = peerLabel(graph, p.edge_id) orelse continue;
-            if (prim.displayWidth(lbl) <= est_w) {
-                any_fits = true;
-                break;
-            }
-        }
-        if (!any_fits) f.labeled = false;
     }
 }
 
 fn collectFanOut(
     a: std.mem.Allocator,
+    graph: sg.SemGraph,
     lg: sugiyama.LayeredGraph,
     node_layer: []const u32,
     src_idx: u32,
+    pivot: sg.NodeId,
     src_layer: u32,
-) error{OutOfMemory}!?[]FanEdge {
+) error{OutOfMemory}!?PreparedPeers {
     var candidates: std.ArrayListUnmanaged(FanEdge) = .empty;
     defer candidates.deinit(a);
 
@@ -244,20 +236,18 @@ fn collectFanOut(
             .role = .middle,
         });
     }
-    if (candidates.items.len < 2) return null;
-
-    const out = try a.alloc(FanEdge, candidates.items.len);
-    @memcpy(out, candidates.items);
-    return out;
+    return preparePeers(a, graph, .out, pivot, candidates.items);
 }
 
 fn collectFanIn(
     a: std.mem.Allocator,
+    graph: sg.SemGraph,
     lg: sugiyama.LayeredGraph,
     node_layer: []const u32,
     tgt_idx: u32,
+    pivot: sg.NodeId,
     want_src_layer: u32,
-) error{OutOfMemory}!?[]FanEdge {
+) error{OutOfMemory}!?PreparedPeers {
     var candidates: std.ArrayListUnmanaged(FanEdge) = .empty;
     defer candidates.deinit(a);
 
@@ -275,16 +265,32 @@ fn collectFanIn(
             .role = .middle,
         });
     }
-    if (candidates.items.len < 2) return null;
-
-    const out = try a.alloc(FanEdge, candidates.items.len);
-    @memcpy(out, candidates.items);
-    return out;
+    return preparePeers(a, graph, .in, pivot, candidates.items);
 }
 
-// ===================================================================
-// Gap reservation
-// ===================================================================
+fn preparePeers(a: std.mem.Allocator, graph: sg.SemGraph, direction: ledger.JoinDirection, pivot: sg.NodeId, candidates: []const FanEdge) error{OutOfMemory}!?PreparedPeers {
+    if (candidates.len < 2) return null;
+    // Structural detection tests may supply no semantic edge table. Production
+    // always has it; keep the pure layered-graph contract for those unit tests.
+    const out = try a.dupe(FanEdge, candidates);
+    if (graph.edges.len == 0) return .{ .peers = out };
+    const ids = try a.alloc(ledger.EdgeId, candidates.len);
+    for (candidates, ids) |candidate, *id| id.* = candidate.edge_id;
+    const prepared = try permits.prepareRailMembers(a, graph, direction, pivot, ids);
+    const shared_ids = prepared.members;
+    for (out) |*candidate| {
+        candidate.label_width = if (peerLabel(graph, candidate.edge_id)) |label| prim.displayWidth(label) else 0;
+        // Fan-IN has no first-class labeled tap geometry today; its label owns
+        // a source-side private route. Fan-OUT labels can use private Rail taps.
+        candidate.shared = !(direction == .in and candidate.label_width != 0) and containsEdge(shared_ids, candidate.edge_id);
+    }
+    return .{ .peers = out, .deco_mixed = prepared.deco_mixed, .style_mixed = prepared.style_mixed, .star_violation = prepared.star_violation };
+}
+
+fn containsEdge(edges: []const ledger.EdgeId, edge: ledger.EdgeId) bool {
+    for (edges) |candidate| if (candidate == edge) return true;
+    return false;
+}
 
 /// Per-gap extra rows. Entry i is extra rows in the gap between layer i
 /// and layer i+1. Each fan reserves `fan.lane + 1` rows at its `source_layer`
@@ -303,34 +309,42 @@ pub fn extraRowsPerGap(
         if (f.source_layer < out.len) {
             var max_lane = f.lane;
             for (f.peers) |peer| max_lane = @max(max_lane, peer.lane);
-            // Labeled fan: reserve the decorated on-run sandwich's extra
-            // rows so a member's private dropper is flank + label row +
-            // flank + head long.
-            const label_rows: u32 = if (f.labeled) LABEL_RUN_EXTRA_ROWS else 0;
-            const need = max_lane + 1 + label_rows;
+            var need = max_lane + 1;
+            for (f.peers) |peer| {
+                if (peer.label_width == 0) continue;
+                const lane = @max(f.lane, peer.lane);
+                if (!peer.shared) {
+                    need = @max(need, lane + 1 + LABEL_RUN_EXTRA_ROWS);
+                    continue;
+                }
+                need = @max(need, lane + 1 + labelRowsOnLane(f, lane));
+            }
             if (need > out[f.source_layer]) out[f.source_layer] = need;
         }
     }
     return out;
 }
 
-// ===================================================================
-// Wide fan-OUT wrapping (grid layout) — see fan_grid.zig
-// ===================================================================
+pub fn wrapWideFanOut(comptime G: type, fans: []Fan, geom: []G, budget: u32, h: u32, v: u32) void {
+    wrapGated(G, .out, fans, geom, budget, h, v);
+}
 
-/// Re-export from fan_grid.zig. Wrap any fan-OUT whose single-row child
-/// span exceeds the `budget` width into a multi-row grid. See fan_grid.zig
-/// for the full implementation and documentation.
-pub const wrapWideFanOut = @import("fan_grid.zig").wrapWideFanOut;
+pub fn wrapWideFanIn(comptime G: type, fans: []Fan, geom: []G, budget: u32, h: u32, v: u32) void {
+    wrapGated(G, .in, fans, geom, budget, h, v);
+}
 
-/// Re-export from fan_grid.zig. Wrap any flat fan-IN whose single-row
-/// source span exceeds the `budget` width into a multi-row grid above the
-/// shared target — keeping the diagram TD so the ladder never rotates it.
-pub const wrapWideFanIn = @import("fan_grid.zig").wrapWideFanIn;
-
-// ===================================================================
-// Role assignment
-// ===================================================================
+fn wrapGated(comptime G: type, direction: Direction, fans: []Fan, geom: []G, budget: u32, h: u32, v: u32) void {
+    for (fans) |*f| {
+        var has_private = false;
+        for (f.peers) |peer| if (!peer.shared) {
+            has_private = true;
+        };
+        if (has_private) continue;
+        var one = [_]Fan{f.*};
+        if (direction == .out) fan_grid.wrapWideFanOut(G, &one, geom, budget, h, v) else fan_grid.wrapWideFanIn(G, &one, geom, budget, h, v);
+        f.* = one[0];
+    }
+}
 
 /// Fill in peer roles based on each peer's center x. Must be called
 /// AFTER coords.assignInitialX / centerByBarycenter / normalizeX but
@@ -365,10 +379,6 @@ pub fn assignRoles(fans: []Fan, center_x: []const i32) void {
     }
 }
 
-// ===================================================================
-// Lookup
-// ===================================================================
-
 pub const LookupHit = struct {
     fan: *const Fan,
     peer: *const FanEdge,
@@ -384,10 +394,6 @@ pub fn lookup(fans: []const Fan, edge_id: sg.EdgeId) ?LookupHit {
     }
     return null;
 }
-
-// ===================================================================
-// Co-channel membership
-// ===================================================================
 
 /// The co-channel sets the detected fans authorize: one per group of peers
 /// sharing a rail lane, in fan order then peer order.
@@ -412,16 +418,18 @@ pub fn coSets(
     defer members.deinit(a);
     for (fans) |f| {
         for (f.peers, 0..) |seed, i| {
+            if (!seed.shared) continue;
             // First peer on this lane owns the group; later ones are already
             // inside it.
             var already = false;
             for (f.peers[0..i]) |earlier| {
-                if (earlier.lane == seed.lane) already = true;
+                if (earlier.shared and earlier.lane == seed.lane) already = true;
             }
             if (already) continue;
 
             members.clearRetainingCapacity();
             for (f.peers) |p| {
+                if (!p.shared) continue;
                 if (p.lane == seed.lane) try members.append(a, p.edge_id);
             }
             if (members.items.len < 2) continue;
@@ -433,10 +441,6 @@ pub fn coSets(
     }
     return out.toOwnedSlice(a);
 }
-
-// ===================================================================
-// Fan-IN centroid (no fan-OUT analogue: barycenter handles that case)
-// ===================================================================
 
 /// Returns the source-centroid x for a node iff it satisfies the fan-IN
 /// criterion. Caller (layout.zig::centerByBarycenter) uses this as the
@@ -473,10 +477,7 @@ pub fn fanInCentroid(
     return @intCast(@divTrunc(sum, @as(i64, @intCast(n))));
 }
 
-// ===================================================================
-// Polyline construction + port helpers live in `fan_polyline.zig`
-// ===================================================================
-
 test {
     _ = @import("fan_test.zig");
+    _ = @import("fan_provenance_test.zig");
 }

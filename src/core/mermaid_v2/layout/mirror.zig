@@ -1,24 +1,32 @@
 //! Sketch mirroring helpers for direction canonicalization in layout/.
 
 const std = @import("std");
+const ledger = @import("../base/ledger.zig");
 const sg = @import("../sem_graph.zig");
 const sketch = @import("../sketch.zig");
 const sugiyama = @import("sugiyama.zig");
 
 pub fn vertical(a: std.mem.Allocator, s: sketch.Sketch, direction: sketch.Direction) error{OutOfMemory}!sketch.Sketch {
     const nodes = try a.alloc(sketch.NodePlacement, s.nodes.len);
+    errdefer a.free(nodes);
     for (s.nodes, 0..) |n, i| {
         nodes[i] = n;
         nodes[i].rect = mirrorRect(s.bbox, n.rect);
     }
 
     const clusters = try a.alloc(sketch.ClusterFrame, s.clusters.len);
+    errdefer a.free(clusters);
     for (s.clusters, 0..) |c, i| {
         clusters[i] = c;
         clusters[i].rect = mirrorRect(s.bbox, c.rect);
     }
 
     const edges = try a.alloc(sketch.EdgePath, s.edges.len);
+    var edges_done: usize = 0;
+    errdefer {
+        for (edges[0..edges_done]) |edge| a.free(edge.polyline);
+        a.free(edges);
+    }
     for (s.edges, 0..) |e, i| {
         const polyline = try a.alloc(sketch.Point, e.polyline.len);
         for (e.polyline, 0..) |pt, k| {
@@ -29,13 +37,24 @@ pub fn vertical(a: std.mem.Allocator, s: sketch.Sketch, direction: sketch.Direct
         edges[i].polyline = polyline;
         edges[i].port_from = mirrorPort(s.nodes, e.port_from);
         edges[i].port_to = mirrorPort(s.nodes, e.port_to);
+        edges_done += 1;
     }
 
     const busbars = try a.alloc(sketch.Rail, s.busbars.len);
+    var busbars_done: usize = 0;
+    errdefer {
+        for (busbars[0..busbars_done]) |bb| {
+            a.free(bb.stem);
+            a.free(bb.taps);
+        }
+        a.free(busbars);
+    }
     for (s.busbars, 0..) |bb, i| {
         const stem = try a.alloc(sketch.Point, bb.stem.len);
+        errdefer a.free(stem);
         for (bb.stem, 0..) |pt, k| stem[k] = mirrorPoint(s.bbox, pt);
         const taps = try a.alloc(sketch.Tap, bb.taps.len);
+        errdefer a.free(taps);
         for (bb.taps, 0..) |tap, k| {
             taps[k] = tap;
             taps[k].at = mirrorPoint(s.bbox, tap.at);
@@ -46,7 +65,12 @@ pub fn vertical(a: std.mem.Allocator, s: sketch.Sketch, direction: sketch.Direct
         busbars[i].taps = taps;
         // Vertical mirror keeps x order; only the shared rail row moves. // guarded-by: mirror.zig "vertical mirror preserves bus-bar tap x-order; only the rail row shifts"
         busbars[i].crossbar = .{ mirrorPoint(s.bbox, bb.crossbar[0]), mirrorPoint(s.bbox, bb.crossbar[1]) };
+        busbars_done += 1;
     }
+
+    const co_sets = try mirrorCoSets(a, s.bbox, s.co_sets);
+    errdefer if (co_sets.ptr != s.co_sets.ptr) freeMirroredSets(a, @constCast(co_sets));
+    const rail_claims = try mirrorRailClaims(a, s.nodes, s.rail_claims);
 
     return .{
         .bbox = s.bbox,
@@ -55,10 +79,11 @@ pub fn vertical(a: std.mem.Allocator, s: sketch.Sketch, direction: sketch.Direct
         .clusters = clusters,
         .edges = edges,
         .busbars = busbars,
+        .rail_claims = rail_claims,
         .joins = s.joins,
-        // Identity-keyed, not geometry-keyed: mirroring moves points, never
-        // membership.
-        .co_sets = s.co_sets,
+        .closure = s.closure,
+        .co_sets = co_sets,
+        .channel_stamp_state = s.channel_stamp_state,
         .diagnostics = s.diagnostics,
         .budget = s.budget,
         // Policy is a candidate property, not geometry: mirroring must carry it
@@ -66,6 +91,98 @@ pub fn vertical(a: std.mem.Allocator, s: sketch.Sketch, direction: sketch.Direct
         // guarded-by: mirror_test.zig "vertical mirror preserves the label policy"
         .label_policy = s.label_policy,
     };
+}
+
+fn mirrorRailClaims(
+    a: std.mem.Allocator,
+    nodes: []const sketch.NodePlacement,
+    claims: []const ledger.RailClaim,
+) error{OutOfMemory}![]const ledger.RailClaim {
+    if (claims.len == 0) return claims;
+    const out = try a.alloc(ledger.RailClaim, claims.len);
+    var initialized: usize = 0;
+    errdefer {
+        for (out[0..initialized]) |claim| a.free(claim.members);
+        a.free(out);
+    }
+    for (claims, out) |claim, *copy| {
+        const members = try a.alloc(ledger.RailClaimMember, claim.members.len);
+        for (claim.members, members) |member, *mirrored| {
+            mirrored.* = member;
+            for (&mirrored.sites) |*site| {
+                if (site.*) |value| site.* = mirrorSite(nodes, value);
+            }
+        }
+        copy.* = claim;
+        copy.members = members;
+        if (claim.pi) |pi| copy.pi = mirrorSite(nodes, pi);
+        initialized += 1;
+    }
+    return out;
+}
+
+fn mirrorSite(nodes: []const sketch.NodePlacement, site: ledger.AttachmentSite) ledger.AttachmentSite {
+    const port = mirrorPort(nodes, .{ .node = site.node, .side = site.side, .offset = site.offset });
+    return .{ .node = port.node, .side = port.side, .offset = port.offset };
+}
+
+fn mirrorCoSets(a: std.mem.Allocator, bbox: sketch.Rect, sets: []const ledger.CoSet) error{OutOfMemory}![]const ledger.CoSet {
+    var has_cells = false;
+    for (sets) |set| {
+        if (set.cells) |cells| has_cells = has_cells or cells.len != 0;
+        if (set.pairwise) |pairs| for (pairs) |pair| {
+            has_cells = has_cells or pair.cells.len != 0;
+        };
+    }
+    if (!has_cells) return sets;
+
+    const out = try a.alloc(ledger.CoSet, sets.len);
+    var initialized: usize = 0;
+    errdefer freeMirroredSets(a, out[0..initialized]);
+    for (sets, out) |set, *slot| {
+        slot.* = set;
+        slot.cells = null;
+        slot.pairwise = null;
+        initialized += 1;
+
+        if (set.cells) |cells| slot.cells = try mirrorCells(a, bbox, cells);
+        if (set.pairwise) |pairs| {
+            if (pairs.len == 0) {
+                slot.pairwise = pairs;
+                continue;
+            }
+            const mirrored = try a.alloc(ledger.PairCells, pairs.len);
+            for (mirrored) |*pair| pair.* = .{ .a = 0, .b = 0, .cells = &.{} };
+            slot.pairwise = mirrored;
+            for (pairs, mirrored) |pair, *copy| {
+                copy.a = pair.a;
+                copy.b = pair.b;
+                copy.cells = try mirrorCells(a, bbox, pair.cells);
+            }
+        }
+    }
+    return out;
+}
+
+fn mirrorCells(a: std.mem.Allocator, bbox: sketch.Rect, cells: []const ledger.CoCell) error{OutOfMemory}![]const ledger.CoCell {
+    if (cells.len == 0) return cells;
+    const out = try a.alloc(ledger.CoCell, cells.len);
+    for (cells, out) |cell, *copy| {
+        const point = mirrorPoint(bbox, .{ .x = cell.x, .y = cell.y });
+        copy.* = .{ .x = point.x, .y = point.y };
+    }
+    return out;
+}
+
+fn freeMirroredSets(a: std.mem.Allocator, sets: []const ledger.CoSet) void {
+    for (sets) |set| {
+        if (set.cells) |cells| if (cells.len != 0) a.free(cells);
+        if (set.pairwise) |pairs| if (pairs.len != 0) {
+            for (pairs) |pair| if (pair.cells.len != 0) a.free(pair.cells);
+            a.free(pairs);
+        };
+    }
+    a.free(sets);
 }
 
 /// Transpose node geometry for the declared flow direction. Layout runs in an

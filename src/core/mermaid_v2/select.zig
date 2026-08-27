@@ -19,6 +19,7 @@ const ledger = @import("base/ledger.zig");
 const sem_graph = @import("sem_graph.zig");
 const sketch_mod = @import("sketch.zig");
 const sketch_ports = @import("sketch_ports.zig");
+const sketch_channels = @import("sketch_channels.zig");
 const ladder = @import("budget.zig");
 const score_mod = @import("score.zig");
 const audit_mod = @import("audit.zig");
@@ -110,7 +111,7 @@ pub fn selectWinner(
 }
 
 /// P2v Step 4: populate every merged candidate's `Sketch.joins` BEFORE
-/// scoring (D-IR items 5/8; TSD §13.2 order). FLAT-GATED (D-EDGE-ID §4): on
+/// scoring (D-IR items 5/8). FLAT-GATED (D-EDGE-ID item 4): on
 /// clustered inputs `joins` stays `.{}`, preserving byte-identity. Any
 /// planning failure degrades to the empty plan (the render never fails here).
 /// guarded-by: realized_test.zig "V-D-IR-01: winner joins artifact survives selection to the entry boundary"
@@ -164,6 +165,11 @@ pub fn applyPlan(
         ledger.coSetsFromPlan(aa, planned.plan) catch &.{},
         target.edges,
     ) catch ledger.coSetsFromPlan(aa, planned.plan) catch &.{};
+    // A rebuilt roster is a rebuilt set of names: the plan's sets arrive
+    // unstamped, and layout's names spoke for the decision this call just
+    // replaced. Re-stamping is unconditional so the two cases — plan applied,
+    // plan declined — cannot leave the sketch in different states of filing.
+    sketch_channels.stamp(aa, target);
 }
 
 /// P2v Step 6: one pre-raster vector reachability report per candidate
@@ -199,7 +205,7 @@ pub fn nodeKeyTable(aa: std.mem.Allocator, graph: sem_graph.SemGraph) ![]const [
     return keys;
 }
 
-/// One candidate's realized-join plan; §6.7-validated on safety-checked builds (log-only).
+/// One candidate's realized-join plan; invariant-validated on safety-checked builds (log-only).
 fn planJoins(
     aa: std.mem.Allocator,
     join_permits: *const ledger.JoinPermits,
@@ -211,7 +217,7 @@ fn planJoins(
         const report = invariants.validate(aa, join_permits.*, result.plan, result.report.proposals) catch
             return out;
         if (!report.valid()) {
-            std.log.debug("mermaid_v2/select: realized-join plan failed §6.7 validation ({d} findings)", .{report.findings.len});
+            std.log.debug("mermaid_v2/select: realized-join plan failed invariant validation ({d} findings)", .{report.findings.len});
         }
     }
     return out;

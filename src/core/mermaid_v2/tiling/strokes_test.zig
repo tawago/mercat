@@ -291,3 +291,143 @@ test "fusion: each ordered pair is visited once (east/south scan only)" {
     // The centre owns only its EAST pair; the west one belongs to (1,2).
     try testing.expectEqual(@as(u32, 1), check(&lat, 2, 2).d_run_fused_collinear);
 }
+
+// -- the junction licence (R3) ------------------------------------------
+//
+// One shape throughout: a straight east-west run of edge 1 ending at (2,2),
+// meeting edge 2's four-armed cross at (3,2). The pair fires the junction
+// branch, so `c_run_fused_crossing` is always 1 and the only question is
+// which of the three verdicts it decomposes to. (3,2) is the sole junction
+// cell, so it is the only position whose records may answer.
+
+const JUNCTION = 3 * 1 + 2 * 5; // (3,2) in the 5x5 grid
+
+fn carrier(index: u32, edge: u32, how: lattice.CarrierKind) lattice.Aux {
+    return .{ .cell = index, .value = edge, .kind = .carrier, .detail = @intFromEnum(how) };
+}
+
+/// The shared fixture, with `table` as the side table. Records must be
+/// given in the table's own (cell, kind, value) order.
+fn junctionPair(g: *Grid, table: []const lattice.Aux) lattice.Lattice {
+    g.init();
+    g.set(1, 2, edgeCell(1, .{ .e = true, .w = true }));
+    g.set(2, 2, edgeCell(1, .{ .e = true, .w = true }));
+    g.set(3, 2, edgeCell(2, .{ .n = true, .e = true, .s = true, .w = true }));
+    g.set(3, 1, edgeCell(2, .{ .s = true }));
+    g.set(3, 3, edgeCell(2, .{ .n = true }));
+    g.set(4, 2, edgeCell(2, .{ .w = true }));
+    return .{ .width = 5, .height = 5, .cells = &g.buf, .aux = table };
+}
+
+test "fusion: a foreign record on the junction cell files the defect" {
+    // `.suppressed` IS `!sameChannel` verbatim — the crossing rule refused
+    // edge 1's ink at this very position — and `.merged_foreign` is the
+    // same answer from a producer that merged anyway. Either turns the
+    // CONVENTION branch into a defect.
+    for ([2]lattice.CarrierKind{ .suppressed, .merged_foreign }) |how| {
+        var g: Grid = .{};
+        const table = [_]lattice.Aux{carrier(JUNCTION, 1, how)};
+        const lat = junctionPair(&g, &table);
+        const c = check(&lat, 2, 2);
+        try testing.expectEqual(@as(u32, 1), c.c_run_fused_crossing);
+        try testing.expectEqual(@as(u32, 1), c.d_run_fused_foreign);
+        try testing.expectEqual(@as(u32, 0), c.c_run_fused_licensed);
+        try testing.expectEqual(@as(u32, 0), c.u_run_fused_unevidenced);
+        try testing.expectEqual(@as(u32, 1), c.defectTotal());
+    }
+}
+
+test "fusion: a licensed record on the junction cell keeps the convention" {
+    var g: Grid = .{};
+    const table = [_]lattice.Aux{carrier(JUNCTION, 1, .merged_licensed)};
+    const lat = junctionPair(&g, &table);
+    const c = check(&lat, 2, 2);
+    try testing.expectEqual(@as(u32, 1), c.c_run_fused_crossing);
+    try testing.expectEqual(@as(u32, 1), c.c_run_fused_licensed);
+    try testing.expectEqual(@as(u32, 0), c.d_run_fused_foreign);
+    try testing.expectEqual(@as(u32, 0), c.defectTotal());
+}
+
+test "fusion: a junction with no usable record is unevidenced, never licensed" {
+    // Three ways the question cannot be asked, and none of them may be
+    // read as consent: an empty side table (nothing recorded OR nothing
+    // collected), a record about a DIFFERENT edge, and a record whose kind
+    // states nothing because no producer ever asked.
+    var g: Grid = .{};
+    const tables = [3][]const lattice.Aux{
+        &.{},
+        &.{carrier(JUNCTION, 4, .merged_foreign)},
+        &.{carrier(JUNCTION, 1, .merged_untested)},
+    };
+    for (tables) |table| {
+        const lat = junctionPair(&g, table);
+        const c = check(&lat, 2, 2);
+        try testing.expectEqual(@as(u32, 1), c.c_run_fused_crossing);
+        try testing.expectEqual(@as(u32, 1), c.u_run_fused_unevidenced);
+        try testing.expectEqual(@as(u32, 0), c.c_run_fused_licensed);
+        try testing.expectEqual(@as(u32, 0), c.defectTotal());
+    }
+}
+
+test "fusion: precedence — any foreign record outranks a licensed one, in either order" {
+    // A cell can carry several carriers naming one edge, filed at different
+    // moments. Without this rule the verdict would be a function of
+    // producer order, which is not a fact about the picture.
+    var g: Grid = .{};
+    const licensed = carrier(JUNCTION, 1, .merged_licensed);
+    const foreign = carrier(JUNCTION, 1, .suppressed);
+    const tables = [2][2]lattice.Aux{ .{ licensed, foreign }, .{ foreign, licensed } };
+    for (tables) |table| {
+        const lat = junctionPair(&g, &table);
+        const c = check(&lat, 2, 2);
+        try testing.expectEqual(@as(u32, 1), c.d_run_fused_foreign);
+        try testing.expectEqual(@as(u32, 0), c.c_run_fused_licensed);
+    }
+}
+
+test "fusion: only a JUNCTION cell's records answer, and either junction may" {
+    // A licence is position-scoped, so the records of the non-junction cell
+    // answer a different position's question and are not a fallback.
+    {
+        var g: Grid = .{};
+        const table = [_]lattice.Aux{carrier(2 + 2 * 5, 2, .suppressed)};
+        const lat = junctionPair(&g, &table);
+        const c = check(&lat, 2, 2);
+        try testing.expectEqual(@as(u32, 1), c.u_run_fused_unevidenced);
+        try testing.expectEqual(@as(u32, 0), c.d_run_fused_foreign);
+    }
+    // Make (2,2) a junction too and put the foreign record THERE: one
+    // unlicensed end is enough, because the fabricated adjacency spans
+    // both cells.
+    {
+        var g: Grid = .{};
+        const table = [_]lattice.Aux{carrier(2 + 2 * 5, 2, .suppressed)};
+        var lat = junctionPair(&g, &table);
+        g.set(2, 2, edgeCell(1, .{ .n = true, .e = true, .w = true }));
+        g.set(2, 1, edgeCell(1, .{ .s = true }));
+        lat = .{ .width = 5, .height = 5, .cells = &g.buf, .aux = &table };
+        const c = check(&lat, 2, 2);
+        try testing.expectEqual(@as(u32, 1), c.d_run_fused_foreign);
+    }
+}
+
+test "fusion: the three junction verdicts partition the crossing population" {
+    // The parent bucket is kept whole, so the identity is checkable on any
+    // render. Here: one licensed pair east, one unevidenced pair south.
+    var g: Grid = .{};
+    const table = [_]lattice.Aux{carrier(JUNCTION, 1, .merged_licensed)};
+    var lat = junctionPair(&g, &table);
+    g.set(2, 2, edgeCell(1, .{ .e = true, .w = true, .n = true, .s = true }));
+    g.set(2, 1, edgeCell(1, .{ .s = true }));
+    g.set(2, 3, edgeCell(5, .{ .n = true, .s = true }));
+    g.set(2, 4, edgeCell(5, .{ .n = true }));
+    lat = .{ .width = 5, .height = 5, .cells = &g.buf, .aux = &table };
+    const c = check(&lat, 2, 2);
+    try testing.expectEqual(@as(u32, 2), c.c_run_fused_crossing);
+    try testing.expectEqual(
+        c.c_run_fused_crossing,
+        c.c_run_fused_licensed + c.d_run_fused_foreign + c.u_run_fused_unevidenced,
+    );
+    try testing.expectEqual(@as(u32, 1), c.c_run_fused_licensed);
+    try testing.expectEqual(@as(u32, 1), c.u_run_fused_unevidenced);
+}

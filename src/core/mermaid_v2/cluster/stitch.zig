@@ -1,26 +1,25 @@
 //! cluster/stitch.zig — glue the finished per-piece Sketches into one.
 //!
 //! Counterpart to `cluster/split.zig`: glues each piece's `layout/`-produced
-//! Sketch into the outer one, translating child geometry into its super-
-//! node's interior and drawing the box (ClusterFrame) around it.
-//!
-//! PURE DATA WORK: Sketches in, one Sketch out; the driver's arena owns all
-//! slices for the whole cut → layout → stitch run (no deinit here).
+//! Sketch into the outer one, translating child geometry into its super-node's
+//! interior and drawing the box (ClusterFrame) around it. PURE DATA WORK:
+//! Sketches in, one Sketch out; the driver's arena owns all slices for the
+//! whole cut → layout → stitch run (no deinit here).
 
 const std = @import("std");
 const prim = @import("prim");
 const sketch = @import("../sketch.zig");
-const sketch_ports = @import("../sketch_ports.zig");
+const sketch_channels = @import("../sketch_channels.zig");
 const sg = @import("../sem_graph.zig");
 const ledger = @import("../base/ledger.zig");
 const split_mod = @import("split.zig");
 const bridges = @import("bridges.zig");
 const entry_inset = @import("entry_inset.zig");
-const bridge_cosets = @import("bridge_cosets.zig");
+const stitch_cosets = @import("stitch_cosets.zig");
+const stitch_rails = @import("stitch_rails.zig");
 
 pub const SplitResult = split_mod.SplitResult;
-/// Re-exported so `recurse.stitchOuter` (which calls `entryInsetFor`) and the
-/// translate sites below share one inset type.
+/// Re-exported so `recurse.stitchOuter` and the translate sites share one type.
 pub const EntryInset = entry_inset.EntryInset;
 
 /// THE single source of the per-super frame pad: full `prim` frame pad for a
@@ -122,6 +121,7 @@ pub fn stitch(
     var edges: std.ArrayListUnmanaged(sketch.EdgePath) = .empty;
     var busbars: std.ArrayListUnmanaged(sketch.Rail) = .empty;
     var co_sets: std.ArrayListUnmanaged(ledger.CoSet) = .empty;
+    const claim_sources = try arena.alloc(stitch_rails.ChildSource, split_result.supers.len);
 
     // INVARIANT: edge ids are globally unique inside the merged Sketch.
     // Every piece renumbers its edges from 0 (`split.zig`), so each piece gets
@@ -250,6 +250,7 @@ pub fn stitch(
         const dy = sp.rect.y + @as(i32, @intCast(pad.y)) + ei.dyExtra();
         const base = id_base;
         id_base += idSpan(child.sketch);
+        claim_sources[si] = .{ .sketch = child.sketch, .node_map = global_of[super.child_piece], .edge_base = base };
         for (child.sketch.edges) |ce| {
             try edges.append(arena, try translateEdge(arena, ce, global_of[super.child_piece], dx, dy, base));
         }
@@ -258,7 +259,9 @@ pub fn stitch(
                 try busbars.append(arena, tb);
             }
         }
-        for (child.sketch.co_sets) |cs| try co_sets.append(arena, try shiftSet(arena, cs, base));
+        for (child.sketch.co_sets) |cs| {
+            if (cs.origin != .port_share) try co_sets.append(arena, try stitch_cosets.shiftSet(arena, cs, base, dx, dy));
+        }
     }
 
     // --- Outer edges. Keep only edges between two real top-level nodes;
@@ -270,15 +273,6 @@ pub fn stitch(
         if (superFor(split_result, oe.from) != null or superFor(split_result, oe.to) != null) continue;
         try edges.append(arena, try translateEdge(arena, oe, global_of[0], 0, 0, outer_base));
     }
-    // The outer level's own sets. A member whose edge was dropped above (it
-    // touched a super-node) names the BRIDGE that replaced it, so a fan into
-    // sibling subgraphs keeps its co-membership; anything else just shifts
-    // into the outer window (`bridge_cosets.remapOuterSet`). Bridges take the
-    // final id window, whose base `id_base` already is.
-    for (outer.co_sets) |os| {
-        try co_sets.append(arena, try bridge_cosets.remapOuterSet(arena, split_result, outer, os, outer_base, id_base));
-    }
-
     // --- Outer bus-bars. Same rule per member edge: a tap onto a
     //     super-node is placement-only (its edge re-routes as a bridge);
     //     a bus-bar whose pivot is a super-node drops entirely. Surviving
@@ -314,48 +308,67 @@ pub fn stitch(
     //     jogging in the gaps between the now-final boxes. ---
     const node_slice = try nodes.toOwnedSlice(arena);
     const cluster_slice = try clusters.toOwnedSlice(arena);
+    const bridge_base = id_base;
+    const bridge_start = edges.items.len;
     const bridge_edges = try bridges.route(arena, split_result.crossings, node_slice, cluster_slice, outer.direction, orig_to_merged);
     // Bridges carry crossing ids, themselves renumbered from 0 by `split.zig`:
     // they take the last id window.
     for (bridge_edges) |be| {
         var b = be;
-        b.id = be.id + id_base;
+        b.id = be.id + bridge_base;
         try edges.append(arena, b);
     }
 
-    // Port shares, read off the FULL merged edge slice — children, outer, and
-    // the freshly routed bridges — now that every polyline is final and every
-    // id lives in the single merged space. This is the only point where a
-    // cross-tier share (a child edge and a bridge landing on one port) is even
-    // expressible, and neither producer could have declared it alone.
-    // Appended to the pieces' own sets, never substituted.
+    // Reconstruct authority only after bridge routing made every final image,
+    // endpoint, port, and id available. Structural outer groups require exact
+    // pivot evidence; port shares are one fresh population from final paths.
     // guarded-by: recurse_test2.zig "two bridges into one port declare a port-share co-set"
     const edge_slice = try edges.toOwnedSlice(arena);
-    const sets = try sketch_ports.appendPortShares(arena, try co_sets.toOwnedSlice(arena), edge_slice);
+    const final_bridges = edge_slice[bridge_start..];
+    const bar_slice = try busbars.toOwnedSlice(arena);
+    const authority = try stitch_cosets.finalizeAuthority(
+        arena,
+        split_result,
+        outer,
+        claim_sources,
+        global_of[0],
+        outer_base,
+        bridge_base,
+        edge_slice,
+        final_bridges,
+        bar_slice,
+        node_slice,
+        try co_sets.toOwnedSlice(arena),
+    );
 
+    var merged: sketch.Sketch = .{
+        .bbox = outer.bbox, // child geometry fits inside super rects ⊂ outer bbox
+        .direction = outer.direction,
+        .nodes = node_slice,
+        .clusters = cluster_slice,
+        .edges = edge_slice,
+        .busbars = bar_slice,
+        .rail_claims = authority.claims,
+        .co_sets = authority.sets,
+        // Report-only counts are per-PIECE facts about one merged picture,
+        // so the merged Sketch carries their sum; keeping only the outer's
+        // would silently drop every refusal a child's fans decided.
+        // guarded-by: recurse_test2.zig "the merged sketch sums its pieces' closure counts"
+        .closure = closureSum(outer, children),
+        .diagnostics = outer.diagnostics,
+        .budget = outer.budget,
+        // The candidate's label policy is a property of the CANDIDATE, not
+        // of any one piece: it must survive the cut/glue or the raster (and
+        // the scorer's audit re-raster) would silently read the struct
+        // default instead of the policy the layout was built for.
+        // guarded-by: select_test3.zig "stitching preserves the outer sketch's label policy"
+        .label_policy = outer.label_policy,
+    };
+    // Each piece numbered from one, so the merged roster is re-numbered here.
+    // guarded-by: sketch_channels_test.zig "a merged roster names every channel once"
+    sketch_channels.stamp(arena, &merged);
     return .{
-        .sketch = .{
-            .bbox = outer.bbox, // child geometry fits inside super rects ⊂ outer bbox
-            .direction = outer.direction,
-            .nodes = node_slice,
-            .clusters = cluster_slice,
-            .edges = edge_slice,
-            .busbars = try busbars.toOwnedSlice(arena),
-            .co_sets = sets,
-            // Report-only counts are per-PIECE facts about one merged picture,
-            // so the merged Sketch carries their sum; keeping only the outer's
-            // would silently drop every refusal a child's fans decided.
-            // guarded-by: recurse_test2.zig "the merged sketch sums its pieces' closure counts"
-            .closure = closureSum(outer, children),
-            .diagnostics = outer.diagnostics,
-            .budget = outer.budget,
-            // The candidate's label policy is a property of the CANDIDATE, not
-            // of any one piece: it must survive the cut/glue or the raster (and
-            // the scorer's audit re-raster) would silently read the struct
-            // default instead of the policy the layout was built for.
-            // guarded-by: select_test3.zig "stitching preserves the outer sketch's label policy"
-            .label_policy = outer.label_policy,
-        },
+        .sketch = merged,
         .input_of = try input_of.toOwnedSlice(arena),
     };
 }
@@ -390,9 +403,7 @@ fn placementOf(placements: []const sketch.NodePlacement, id: sketch.NodeId) sket
     return placements[0];
 }
 
-/// Width of a piece's edge-id space: one past the largest id the piece can
-/// name anywhere (`EdgePath.id`, a rail `Tap.edge`, a co-set member). Adding
-/// it to the running base gives the next piece a window that cannot overlap.
+/// One past the largest edge id a piece can name in geometry or metadata.
 fn idSpan(s: sketch.Sketch) sketch.EdgeId {
     var max_id: ?sketch.EdgeId = null;
     const bump = struct {
@@ -403,14 +414,8 @@ fn idSpan(s: sketch.Sketch) sketch.EdgeId {
     for (s.edges) |e| bump(&max_id, e.id);
     for (s.busbars) |b| for (b.taps) |t| bump(&max_id, t.edge);
     for (s.co_sets) |cs| for (cs.members) |m| bump(&max_id, m);
+    for (s.rail_claims) |claim| for (claim.members) |m| bump(&max_id, m.edge);
     return if (max_id) |m| m + 1 else 0;
-}
-
-/// Copy a co-set with every member shifted into the piece's id window.
-fn shiftSet(arena: std.mem.Allocator, cs: ledger.CoSet, base: sketch.EdgeId) error{OutOfMemory}!ledger.CoSet {
-    const members = try arena.alloc(sketch.EdgeId, cs.members.len);
-    for (cs.members, 0..) |m, i| members[i] = m + base;
-    return .{ .origin = cs.origin, .members = members };
 }
 
 /// Copy an edge with its endpoints remapped through `gmap`, its polyline +
@@ -430,8 +435,8 @@ fn translateEdge(
         .from = gmap[e.from],
         .to = gmap[e.to],
         .polyline = poly,
-        .port_from = e.port_from,
-        .port_to = e.port_to,
+        .port_from = .{ .node = gmap[e.from], .side = e.port_from.side, .offset = e.port_from.offset },
+        .port_to = .{ .node = gmap[e.to], .side = e.port_to.side, .offset = e.port_to.offset },
         .arrow_from = e.arrow_from,
         .arrow_to = e.arrow_to,
         .label = e.label,
@@ -474,10 +479,8 @@ fn translateRail(
     return out;
 }
 
-// ====================================================================
 // Tests
 // ====================================================================
-
 test "superSize wraps child bbox with frame padding (scale 0 = full inset)" {
     const sz = superSize(.{ .x = 0, .y = 0, .w = 20, .h = 8 }, 0, false);
     try std.testing.expectEqual(@as(u32, 28), sz.w); // 20 + 2*4

@@ -57,7 +57,7 @@ fn groupId(plan: pb.JoinPermits, dir: pb.JoinDirection, pivot: sg.NodeId) pb.Joi
 }
 
 /// The "preserved fusing-geometry constructor": take the real all-independent
-/// plan (terminal ports + §6.5 conflicts) and OVERRIDE its selected joins to a
+/// plan (terminal ports + complete conflicts) and OVERRIDE its selected joins to a
 /// fabricating both-sides union of FO(`fo_pivot`) and FI(`fi_pivot`) — the
 /// incomplete union whose Cartesian product exceeds its declared pairs. The
 /// vector oracle then unites the members and reports the extra pair.
@@ -155,9 +155,9 @@ test "V-D-DISPOSITION-04: fusing incomplete-union candidate is CI-excluded, inde
 
 test "V-D-DUAL-04: a both-sides proposal set is CI-excluded by the filter and re-disposed to all-independent" {
     // Dual topology S→X, S→A, B→X. Selecting the dual edge S→X at BOTH ends
-    // (§6.6 step 3 illegal) fuses FO-S and FI-X → the REAL oracle reports the
+    // (illegal dual selection) fuses FO-S and FI-X → the REAL oracle reports the
     // undeclared B→A pair. The filter excludes it and clause-(g)-pre withdrawal
-    // falls the emitted plan back to all-independent; the §6.5 conflict is kept.
+    // falls the emitted plan back to all-independent; the conflict is kept.
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
@@ -191,13 +191,13 @@ test "V-D-DUAL-04: a both-sides proposal set is CI-excluded by the filter and re
         if (rm.source) |d| try expect(d == .independent);
         if (rm.target) |d| try expect(d == .independent);
     }
-    try expectEqual(@as(usize, 1), disposed.conflicts.len); // §6.5 conflict retained
+    try expectEqual(@as(usize, 1), disposed.conflicts.len); // conflict retained
     try expect((try jpv.validate(a, plan, disposed, fused.proposals)).valid());
     try expectEqual(pb.DispositionClass.report_only, pb.classOf(.dual_membership_selected_both_sides));
 }
 
 test "V-D-DISPOSITION-01: incomplete-2x2 conflicts survive disposeUnsafe, all-independent withdrawal, render succeeds" {
-    // Record input: incomplete-2x2. The production winner retains the §6.5
+    // Record input: incomplete-2x2. The production winner retains the
     // overlap conflict (permission_overlap_conflicts=1); clause-(g)-pre
     // withdrawal keeps that conflict while dropping every selected join; the
     // candidate renders end-to-end (RO — never fatal).
@@ -245,7 +245,7 @@ test "V-D-DISPOSITION-06: terminal fallback is built by the selection tail, mark
         const result = try select.selectWinner(a, graph, &plan, true, width, set.merged, reports, set.incumbent, false, false);
         try expect(result.terminal_fallback); // engagement observable (=1)
 
-        // All-independent, §6.7-valid against the REAL permits, and renders.
+        // All-independent, invariant-valid against the REAL permits, and renders.
         try expectEqual(@as(usize, 0), result.sketch.joins.selected_joins.len);
         try expectEqual(@as(usize, 0), result.sketch.busbars.len);
         try expect(result.sketch.joins.memberships.len > 0);

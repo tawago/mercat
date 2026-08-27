@@ -17,6 +17,12 @@
 //! "does the declared position hold ink at all", and when it holds
 //! SOMEONE ELSE's opaque ink that is a separate, non-defect bucket.
 //!
+//! That ban is on CELL-id keying and nothing wider. A `.tap`/`.port`
+//! side-table record is a different key: the aux channel is PLURAL per
+//! position and append-only, so two writers at one cell both keep their
+//! record and no first-writer loss exists to fabricate. `rails.zig` keys
+//! that way deliberately; reading a record is sanctioned (`cell.zig`).
+//!
 //! The population is a GEOMETRY union: routed `Sketch.edges` plus every
 //! bus-bar tap. A fan edge absorbed into a bus-bar has no polyline at
 //! all, so keying on `Sketch.edges` alone would silently drop it; taps

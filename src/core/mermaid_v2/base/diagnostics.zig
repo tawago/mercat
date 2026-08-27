@@ -13,7 +13,7 @@
 
 const std = @import("std");
 
-/// TSD §12.5's four disposition classes, verbatim and exhaustive. The
+/// The four disposition classes are exhaustive. The
 /// `score_input` class is approved EMPTY of new members in this slice: no
 /// registered tag maps to it.
 pub const DispositionClass = enum {
@@ -35,6 +35,8 @@ pub const DiagnosticTag = enum {
     // D-POLICY (1)
     join_policy_not_joined,
     // D-TRUNK (4)
+    /// Counts a construction group whose mixed stroke styles cause incompatible
+    /// candidates to remain private; this does not describe shipped ink.
     rail_member_style_mixed,
     rail_member_invisible,
     rail_pivot_side_arrow,
@@ -85,10 +87,10 @@ pub const DiagnosticTag = enum {
     // three are fired by the all-arrow-free shared-rail closure law
     // (base/rail_closure.zig) — the flat commitment in layout/join_commit.zig
     // and the clustered pass in layout/fan_rail_law.zig — and reach stderr on
-    // the `MERCAT_INTEGRITY=1` line. The first two await their producers.
-    /// Fires when a rail is refused because its member edges disagree in
-    /// decoration (stroke class or arrowhead), so one shared run cannot ink
-    /// them all; the members unfuse onto separate rail rows.
+    // the `MERCAT_INTEGRITY=1` line.
+    /// Counts a construction group whose mixed pivot-end arrow decorations
+    /// cause incompatible candidates to remain private. It does not describe a
+    /// defect in the final private rendering.
     rail_deco_mixed,
     /// Fires when a rail is refused because its members do not form a star
     /// around one shared pivot — the star-only rail law admits no union of

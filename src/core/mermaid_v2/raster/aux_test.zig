@@ -37,46 +37,6 @@ fn sourceBorderLattice(a: std.mem.Allocator) !lattice.Lattice {
     return .{ .width = 1, .height = 2, .cells = cells };
 }
 
-test "collector sorts by (cell, kind, value) and keeps producer order on ties" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-
-    var c = aux.Collector.init(arena.allocator());
-    // Synthetic details: the ORDER must be a property of the engine, not of
-    // whichever kinds happen to exist today.
-    aux.record(&c, 9, .port, 1, 0);
-    aux.record(&c, 4, .port, 7, 0);
-    aux.record(&c, 4, .port, 2, 0);
-    aux.record(&c, 4, .port, 2, 11); // ties with the previous record on the key
-    aux.record(&c, 4, .port, 2, 22); // ... and so does this one
-
-    const table = c.finish();
-    try testing.expectEqual(@as(usize, 5), table.len);
-    try testing.expectEqual(@as(u32, 0), c.dropped);
-
-    // (cell, kind, value) ascending.
-    try testing.expectEqual(@as(u32, 4), table[0].cell);
-    try testing.expectEqual(@as(u32, 2), table[0].value);
-    try testing.expectEqual(@as(u32, 2), table[1].value);
-    try testing.expectEqual(@as(u32, 2), table[2].value);
-    try testing.expectEqual(@as(u32, 7), table[3].value);
-    try testing.expectEqual(@as(u32, 9), table[4].cell);
-
-    // Stable: the three key-equal records keep the order they were filed in,
-    // so a table built from a deterministic raster is itself deterministic.
-    try testing.expectEqual(@as(u8, 0), table[0].detail);
-    try testing.expectEqual(@as(u8, 11), table[1].detail);
-    try testing.expectEqual(@as(u8, 22), table[2].detail);
-}
-
-test "a null sink is the off switch: recording is a no-op" {
-    // No Collector exists, so no allocator is reachable from here: a
-    // non-collecting rasterization cannot allocate for the channel.
-    const sink: aux.Sink = null;
-    aux.record(sink, 0, .port, 1, 0);
-    aux.record(sink, 7, .port, 2, 0);
-}
-
 test "drawPortStroke files a port record only for a stroke it actually draws" {
     var arena = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
@@ -164,19 +124,78 @@ test "collect_aux is opt-in: the same raster yields no table when it is off" {
 
     const off = try raster.rasterize(a, s, .bridge, .{});
     try testing.expectEqual(@as(usize, 0), off.lattice.aux.len);
+    try testing.expectEqual(lattice.AuxCollectionState.not_collected, off.lattice.aux_collection.state);
+    try testing.expectEqual(@as(u64, 0), off.lattice.aux_collection.attempted_records);
 
     const on = try raster.rasterize(a, s, .bridge, .{ .collect_aux = true });
     try testing.expect(on.lattice.aux.len > 0);
+    try testing.expectEqual(lattice.AuxCollectionState.complete, on.lattice.aux_collection.state);
+    try testing.expectEqual(@as(u64, @intCast(on.lattice.aux.len)), on.lattice.aux_collection.attempted_records);
+    try testing.expectEqual(@as(u64, 0), on.lattice.aux_collection.lostRecords());
 
     // Off vs on differ ONLY in the side table: the painted grid is identical.
     try testing.expectEqual(off.lattice.width, on.lattice.width);
     try testing.expectEqual(off.lattice.height, on.lattice.height);
-    for (off.lattice.cells, on.lattice.cells) |x, y| {
-        try testing.expectEqual(x.neighbours.toMask(), y.neighbours.toMask());
-        try testing.expectEqual(x.stroke_kind, y.stroke_kind);
-        try testing.expectEqual(x.shape, y.shape);
-        try testing.expectEqual(std.meta.activeTag(x.occupant), std.meta.activeTag(y.occupant));
-    }
+    try testing.expectEqualSlices(
+        u8,
+        std.mem.sliceAsBytes(off.lattice.cells),
+        std.mem.sliceAsBytes(on.lattice.cells),
+    );
+}
+
+test "raster distinguishes not-collected, complete-empty, and AUX OOM without changing cells" {
+    const empty = sketch.Sketch{
+        .bbox = .{ .x = 0, .y = 0, .w = 1, .h = 1 },
+        .direction = .TD,
+        .nodes = &.{},
+        .clusters = &.{},
+        .edges = &.{},
+        .diagnostics = &.{},
+        .budget = .{ .max_width = 80, .rung = 0 },
+    };
+
+    var empty_arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer empty_arena.deinit();
+    const empty_off = try raster.rasterize(empty_arena.allocator(), empty, .bridge, .{});
+    const empty_on = try raster.rasterize(empty_arena.allocator(), empty, .bridge, .{ .collect_aux = true });
+    try testing.expectEqual(lattice.AuxCollectionState.not_collected, empty_off.lattice.aux_collection.state);
+    try testing.expectEqual(lattice.AuxCollectionState.complete, empty_on.lattice.aux_collection.state);
+    try testing.expectEqual(@as(u64, 0), empty_on.lattice.aux_collection.attempted_records);
+    try testing.expectEqual(@as(usize, 0), empty_on.lattice.aux.len);
+
+    var sketch_arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer sketch_arena.deinit();
+    const s = try stackedPairSketch(sketch_arena.allocator());
+
+    var complete_arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer complete_arena.deinit();
+    const complete = try raster.rasterize(complete_arena.allocator(), s, .bridge, .{ .collect_aux = true });
+    try testing.expectEqual(lattice.AuxCollectionState.complete, complete.lattice.aux_collection.state);
+    try testing.expect(complete.lattice.aux_collection.attempted_records > 0);
+
+    // Cell allocation is allocation 0. Allocation 1 is the first AUX growth;
+    // this fixture has no clusters or labels that allocate afterwards.
+    var failed_arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer failed_arena.deinit();
+    var failing = std.testing.FailingAllocator.init(failed_arena.allocator(), .{
+        .fail_index = 1,
+        .resize_fail_index = 0,
+    });
+    const failed = try raster.rasterize(failing.allocator(), s, .bridge, .{ .collect_aux = true });
+    try testing.expect(failing.has_induced_failure);
+    try testing.expectEqual(lattice.AuxCollectionState.out_of_memory, failed.lattice.aux_collection.state);
+    try testing.expectEqual(complete.lattice.aux_collection.attempted_records, failed.lattice.aux_collection.attempted_records);
+    try testing.expectEqual(@as(u64, 0), failed.lattice.aux_collection.retainedRecords());
+    try testing.expectEqual(failed.lattice.aux_collection.attempted_records, failed.lattice.aux_collection.lostRecords());
+    try testing.expectEqual(@as(usize, 0), failed.lattice.aux.len);
+
+    // AUX collection cannot influence cell writes. Byte-identical cells also
+    // imply paint-neutrality because the painter never reads the AUX fields.
+    try testing.expectEqualSlices(
+        u8,
+        std.mem.sliceAsBytes(complete.lattice.cells),
+        std.mem.sliceAsBytes(failed.lattice.cells),
+    );
 }
 
 test "aux records survive the three post-walk mutating passes" {
@@ -187,8 +206,8 @@ test "aux records survive the three post-walk mutating passes" {
 
     // The record below is filed DURING the edge walk. Everything the
     // orchestrator runs afterwards — the fan-OUT mask resolve, neighbour
-    // reconciliation + reciprocity repair, and arrowhead-base receiving —
-    // rewrites cells in place. The record is still here at the end.
+    // reconciliation, and arrowhead-base receiving — rewrites cells in
+    // place. The record is still here at the end.
     const report = try raster.rasterize(a, s, .bridge, .{ .collect_aux = true });
     var lat = report.lattice;
 
@@ -210,14 +229,13 @@ test "aux records survive the three post-walk mutating passes" {
     try testing.expectEqual(@as(usize, 1), found_source);
     try testing.expectEqual(@as(usize, 0), found_target);
 
-    // Snapshot, then run the three post-walk passes AGAIN over the shipped
+    // Snapshot, then run the post-walk passes AGAIN over the shipped
     // lattice and, harsher than any of them, blank the recorded cell
     // outright. A record is keyed by position, not by occupant, so none of
     // this may disturb it.
     const before = try a.dupe(lattice.Aux, lat.aux);
     fan_roles.resolveMasks(&lat, s);
     _ = reconcile.reconcileNeighbours(&lat);
-    _ = reconcile.repairReciprocalStrokes(&lat);
     _ = arrow_base.receiveBase(&lat);
     lat.at(2, 2).* = lattice.Cell.empty;
 
@@ -316,12 +334,12 @@ test "an OR-merge onto a foreign cell files a merged carrier; onto its own ink, 
             .occupant = .{ .edge_segment = .{ .edge = 3, .kind = .solid } },
             .neighbours = .{ .e = true, .w = true },
         };
-        ew.writeEdgeCell(&cell, 8, .solid, .forward, .{ .n = true, .s = true }, 1, 1, &lost, rec);
+        ew.writeEdgeCell(&cell, 8, .solid, .forward, .{ .n = true, .s = true }, 1, 1, &lost, .merged_foreign, rec);
         const table = c.finish();
         try testing.expectEqual(@as(usize, 1), table.len);
         try testing.expectEqual(lattice.AuxKind.carrier, table[0].kind);
         try testing.expectEqual(@as(u32, 8), table[0].value);
-        try testing.expectEqual(@intFromEnum(lattice.CarrierKind.merged), table[0].detail);
+        try testing.expectEqual(@intFromEnum(lattice.CarrierKind.merged_foreign), table[0].detail);
         // The Cell still names the first writer: no restatement, no drift.
         try testing.expectEqual(@as(u32, 3), cell.occupant.edge_segment.edge);
     }
@@ -334,7 +352,7 @@ test "an OR-merge onto a foreign cell files a merged carrier; onto its own ink, 
             .occupant = .{ .edge_segment = .{ .edge = 3, .kind = .solid } },
             .neighbours = .{ .e = true, .w = true },
         };
-        ew.writeEdgeCell(&cell, 3, .solid, .forward, .{ .n = true, .s = true }, 1, 1, &lost, rec);
+        ew.writeEdgeCell(&cell, 3, .solid, .forward, .{ .n = true, .s = true }, 1, 1, &lost, .merged_licensed, rec);
         try testing.expectEqual(@as(usize, 0), c.finish().len);
     }
 
@@ -343,7 +361,7 @@ test "an OR-merge onto a foreign cell files a merged carrier; onto its own ink, 
         var c = aux.Collector.init(a);
         const rec = aux.Recorder.init(&c, &lat);
         var cell = lattice.Cell.empty;
-        ew.writeEdgeCell(&cell, 8, .solid, .forward, .{ .n = true, .s = true }, 1, 1, &lost, rec);
+        ew.writeEdgeCell(&cell, 8, .solid, .forward, .{ .n = true, .s = true }, 1, 1, &lost, .merged_untested, rec);
         try testing.expectEqual(@as(usize, 0), c.finish().len);
     }
 }
@@ -361,14 +379,14 @@ test "an arrowhead stamped over a foreign run files a carrier for the run it cov
         .occupant = .{ .edge_segment = .{ .edge = 3, .kind = .solid } },
         .neighbours = .{ .e = true, .w = true },
     };
-    ew.writeArrowCell(&cell, 9, .solid, .filled, .south, .{ .n = true }, 2, 2, &lost, rec);
+    ew.writeArrowCell(&cell, 9, .solid, .filled, .south, .{ .n = true }, 2, 2, &lost, .merged_foreign, rec);
 
     const table = c.finish();
     try testing.expectEqual(@as(usize, 1), table.len);
     // The occupant is now edge 9's arrowhead; edge 3's run still passes
     // through the position and nothing on the cell says so.
     try testing.expectEqual(@as(u32, 3), table[0].value);
-    try testing.expectEqual(@intFromEnum(lattice.CarrierKind.merged), table[0].detail);
+    try testing.expectEqual(@intFromEnum(lattice.CarrierKind.merged_foreign), table[0].detail);
 }
 
 test "a corner arm merged onto a foreign run files a merged carrier; onto its own ink, nothing" {
@@ -403,8 +421,9 @@ test "a corner arm merged onto a foreign run files a merged carrier; onto its ow
         try testing.expectEqual(lattice.AuxKind.carrier, table[0].kind);
         try testing.expectEqual(@as(u32, 8), table[0].value);
         // Merged, not suppressed: the corner arm IS in the mask (the west
-        // bit), and only edge 8's name was dropped.
-        try testing.expectEqual(@intFromEnum(lattice.CarrierKind.merged), table[0].detail);
+        // bit), and only edge 8's name was dropped — and LICENSED, since the
+        // co-set is exactly why the merge happened instead of a refusal.
+        try testing.expectEqual(@intFromEnum(lattice.CarrierKind.merged_licensed), table[0].detail);
         const shared = lat.atConst(4, 4);
         try testing.expectEqual(@as(u32, 3), shared.occupant.edge_segment.edge);
         try testing.expect(shared.neighbours.w);

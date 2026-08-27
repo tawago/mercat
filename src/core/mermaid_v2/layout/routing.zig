@@ -13,6 +13,7 @@ const sketch = @import("../sketch.zig");
 const sugiyama = @import("sugiyama.zig");
 const back_edges = @import("back_edges.zig");
 const fan_mod = @import("fan.zig");
+const fan_provenance = @import("fan_provenance.zig");
 const fan_polyline = @import("fan_polyline.zig");
 const fan_rail = @import("fan_rail.zig");
 const fan_lane_order = @import("fan_lane_order.zig");
@@ -72,6 +73,8 @@ pub const EdgesResult = struct {
     /// replaces them with the plan-derived sets; on a clustered one they are
     /// the whole population.
     co_sets: []const ledger.CoSet,
+    /// Semantic fan records derived after every local path and Rail is final.
+    rail_claims: []const ledger.RailClaim,
 };
 
 pub fn buildEdgesWithPlan(
@@ -111,6 +114,8 @@ pub fn buildEdgesWithPlan(
         for (resolved.peers) |p| {
             lift = @max(lift, fanRailLift(graph, p.edge.from, p.edge.to));
         }
+        // Buy another tap-anchor block for each label after the first.
+        if (f.direction == .out) lift += fan_mod.additionalLabelLift(f, f.lane);
         try pending.append(a, .{ .fan = f, .resolved = resolved, .lift = lift });
         try lane_trunks.append(a, .{
             .gap = f.source_layer,
@@ -130,7 +135,7 @@ pub fn buildEdgesWithPlan(
         if (fan_rail.blocked(built, p.resolved.pivot.id, placements)) continue;
         try busbars.append(a, built);
         try polys.append(a, built.stem);
-        for (p.fan.peers) |peer| try claimed.append(a, peer.edge_id);
+        for (p.fan.peers) |peer| if (peer.shared) try claimed.append(a, peer.edge_id);
     }
     const bar_views = try a.alloc(sketch.Rail, busbars.items.len);
     for (busbars.items, bar_views) |bar, *view| view.* = bar.busbar;
@@ -164,26 +169,26 @@ pub fn buildEdgesWithPlan(
                 const pivot_p = if (hit.fan.direction == .out) src_p else dst_p;
                 const peer_p = if (hit.fan.direction == .out) dst_p else src_p;
                 // Lift the rail above any cluster frame-border row it would otherwise be painted along (fusing sibling peers' top borders). // guarded-by: routing_test.zig "fan-OUT per-peer rail lifts exactly one row for the peer crossing into a cluster its source is not part of"
-                const rail_lift: u32 = if (hit.fan.direction == .out)
+                var rail_lift: u32 = if (hit.fan.direction == .out)
                     fanRailLift(graph, orig.from, orig.to)
                 else
                     0;
+                if (hit.fan.direction == .out)
+                    rail_lift += fan_mod.additionalLabelLift(hit.fan.*, @max(hit.fan.lane, hit.peer.lane));
                 var lane = @max(hit.peer.lane, ep.route_lane);
+                // An offset private port turns a geometric center into a jog.
+                const source_x = src_p.rect.x + @as(i32, @intCast(ep.source.offset));
+                const target_x = dst_p.rect.x + @as(i32, @intCast(ep.target.offset));
+                const routed_role: fan_mod.ChildRole = if (hit.peer.role == .center and source_x != target_x) .middle else hit.peer.role;
                 var poly: []sketch.Point = undefined;
+                var routed_fan = hit.fan.*;
+                // Label headroom belongs to this route, not to the whole fan.
+                routed_fan.labeled = orig.label != null and orig.label.?.len != 0;
                 while (true) : (lane += 1) {
-                    poly = try fan_polyline.buildPolylineAt(
-                        a,
-                        graph.direction,
-                        hit.fan.*,
-                        pivot_p,
-                        peer_p,
-                        ep.source,
-                        ep.target,
-                        hit.peer.role,
-                        lane,
-                        rail_lift,
-                        placements,
-                    );
+                    poly = if (lane == @max(hit.peer.lane, ep.route_lane) and orig.label == null and (ep.source_duplicate or ep.target_duplicate))
+                        try port_plan.duplicateDetour(a, graph.direction, src_p, dst_p, ep, placements)
+                    else
+                        try fan_polyline.buildPolylineAt(a, graph.direction, routed_fan, pivot_p, peer_p, ep.source, ep.target, routed_role, lane, rail_lift, placements);
                     if (try route_clearance.polylineClears(a, orig.id, orig.kind, poly, out.items, bar_views, placements, allocated_ports.edges, joins, orig.from, orig.to)) break;
                     if (lane >= 16) {
                         if (orig.kind == .invisible) {
@@ -324,21 +329,10 @@ pub fn buildEdgesWithPlan(
         var lane = ep.route_lane;
         var poly: []sketch.Point = undefined;
         while (true) : (lane += 1) {
-            poly = try routePolyline(
-                a,
-                eff_dir,
-                eff_from_p,
-                eff_to_p,
-                eff_port_from,
-                eff_port_to,
-                virtuals,
-                geom,
-                placements,
-                0,
-                0,
-                lane,
-                chain_wrap,
-            );
+            poly = if (lane == ep.route_lane and orig.label == null and (ep.source_duplicate or ep.target_duplicate))
+                try port_plan.duplicateDetour(a, eff_dir, eff_from_p, eff_to_p, ep, placements)
+            else
+                try routePolyline(a, eff_dir, eff_from_p, eff_to_p, eff_port_from, eff_port_to, virtuals, geom, placements, 0, 0, lane, chain_wrap);
             if (!route_clearance.hasIndependent(joins) and try route_clearance.conflictsRailArrows(a, poly, bar_views, orig.from, orig.to))
                 poly = try route_clearance.shiftInteriorRun(a, poly, eff_dir, 2 * (lane - ep.route_lane + 1));
             if (try route_clearance.polylineClears(a, orig.id, orig.kind, poly, out.items, bar_views, placements, allocated_ports.edges, joins, orig.from, orig.to)) break;
@@ -383,11 +377,15 @@ pub fn buildEdgesWithPlan(
         });
         try polys.append(a, poly);
     }
+    // Attachment sites are side-local offsets, so the later whole-sketch bbox
+    // translation cannot stale them.
+    const rail_claims = try fan_provenance.build(a, graph, placements, fans, joins, out.items, bar_views);
     return .{
         .edges = try out.toOwnedSlice(a),
         .polylines = try polys.toOwnedSlice(a),
         .busbars = try busbars.toOwnedSlice(a),
         .co_sets = try fan_mod.coSets(a, fans),
+        .rail_claims = rail_claims,
     };
 }
 

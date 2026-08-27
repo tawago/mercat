@@ -15,6 +15,7 @@
 
 const std = @import("std");
 const prim = @import("prim");
+const ledger = @import("base/ledger.zig");
 const sketch = @import("sketch.zig");
 const lattice = @import("lattice.zig");
 const nodes_r = @import("raster/nodes.zig");
@@ -75,10 +76,6 @@ pub const RasterReport = struct {
     /// Phantom neighbour-mask arms cleared by the reconcile post-pass
     /// (informational — these are repairs, not shipped defects).
     phantom_arms_cleared: u32,
-    /// Half-open split-junction arms re-added by the reciprocity-repair
-    /// post-pass (informational — repairs, not shipped defects; EXCLUDED
-    /// from audit's RasterCounts, exactly like `phantom_arms_cleared`).
-    arms_repaired: u32 = 0,
     /// Crossing/transversal tallies (Amendment C, C1/C2; report-only). Never
     /// consumed by score/audit/selection — see `raster/crossings.zig`.
     crossings: crossings_r.CrossingCounts = .{},
@@ -102,7 +99,13 @@ pub fn rasterize(
 
     if (w == 0 or h == 0) {
         return .{
-            .lattice = .{ .width = 0, .height = 0, .cells = &[_]lattice.Cell{} },
+            .lattice = .{
+                .width = 0,
+                .height = 0,
+                .cells = &[_]lattice.Cell{},
+                .rail_claims = s.rail_claims,
+                .aux_collection = if (options.collect_aux) .{ .state = .complete } else .{},
+            },
             .nodes_written = 0,
             .clusters_written = 0,
             .edges_written = 0,
@@ -121,9 +124,15 @@ pub fn rasterize(
     };
     for (cells) |*c| c.* = lattice.Cell.empty;
 
-    var lat: lattice.Lattice = .{ .width = w, .height = h, .cells = cells };
+    var lat: lattice.Lattice = .{
+        .width = w,
+        .height = h,
+        .cells = cells,
+        .rail_claims = s.rail_claims,
+    };
 
     var aux_collector = aux_r.Collector.init(allocator);
+    errdefer aux_collector.deinit();
     const sink: aux_r.Sink = if (options.collect_aux) &aux_collector else null;
 
     const clusters_n = clusters_r.rasterizeClusters(allocator, &lat, s) catch |err| switch (err) {
@@ -149,11 +158,6 @@ pub fn rasterize(
     // Reconcile junction masks (phantom-arm cleanup) after edges, before labels — order is required, not incidental. // guarded-by: raster/reconcile.zig "reconcile is NOT order-independent w.r.t. labels: swapping the pipeline position changes the result"
     const phantom_arms = reconcile.reconcileNeighbours(&lat);
 
-    // Repair half-open split-junctions (clear-then-repair order): clear only
-    // removes into-empty arms, repair only adds toward a reciprocating
-    // edge_segment, so the two passes never conflict. // guarded-by: raster/reconcile_test.zig "repairReciprocalStrokes: half-open split-junction corner regains its arm (┘→┤)"
-    const arms_repaired = reconcile.repairReciprocalStrokes(&lat);
-
     const label_report = labels_r.rasterizeLabels(allocator, &lat, s, sink) catch |err| switch (err) {
         error.OutOfMemory => return error.OutOfMemory,
     };
@@ -169,7 +173,10 @@ pub fn rasterize(
     // Attach the side table LAST: the passes above rewrite cells in place,
     // and no pass touches a record (lattice.zig's anti-desync law), so the
     // table is complete the moment the last producer has run.
-    lat.aux = aux_collector.finish();
+    if (options.collect_aux) {
+        lat.aux = aux_collector.finish();
+        lat.aux_collection = aux_collector.report();
+    }
 
     return .{
         .lattice = lat,
@@ -183,7 +190,6 @@ pub fn rasterize(
         .labels_displaced = label_report.displaced,
         .labels_on_run = label_report.on_run,
         .phantom_arms_cleared = phantom_arms,
-        .arms_repaired = arms_repaired,
         .crossings = edge_report.crossings,
         .arrow_base = arrow_base,
     };
@@ -191,12 +197,12 @@ pub fn rasterize(
 
 const testing = std.testing;
 
-test "zero-sized bbox returns empty report" {
+test "zero-sized bbox returns empty report and borrows final rail claims" {
     var arena = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
 
-    const s = sketch.Sketch{
+    var s = sketch.Sketch{
         .bbox = .{ .x = 0, .y = 0, .w = 0, .h = 0 },
         .direction = .TD,
         .nodes = &.{},
@@ -205,6 +211,8 @@ test "zero-sized bbox returns empty report" {
         .diagnostics = &.{},
         .budget = .{ .max_width = 80, .rung = 0 },
     };
+    const claims = [_]ledger.RailClaim{.{ .id = 1, .polarity = .out, .members = &.{} }};
+    s.rail_claims = &claims;
 
     const r = try rasterize(a, s, .bridge, .{});
     try testing.expectEqual(@as(u32, 0), r.lattice.width);
@@ -214,6 +222,13 @@ test "zero-sized bbox returns empty report" {
     try testing.expectEqual(@as(u32, 0), r.edges_written);
     try testing.expectEqual(@as(u32, 0), r.labels_placed);
     try testing.expectEqual(@as(usize, 0), r.label_diagnostics.len);
+    try testing.expectEqualSlices(ledger.RailClaim, &claims, r.lattice.rail_claims);
+    try testing.expectEqual(lattice.AuxCollectionState.not_collected, r.lattice.aux_collection.state);
+
+    const collected = try rasterize(a, s, .bridge, .{ .collect_aux = true });
+    try testing.expectEqual(lattice.AuxCollectionState.complete, collected.lattice.aux_collection.state);
+    try testing.expectEqual(@as(u64, 0), collected.lattice.aux_collection.attempted_records);
+    try testing.expectEqual(@as(usize, 0), collected.lattice.aux.len);
 }
 
 test "two nodes + one edge: borders, interiors, and an edge cell" {

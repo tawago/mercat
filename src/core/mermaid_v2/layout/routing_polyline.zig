@@ -293,10 +293,10 @@ fn rowClear(
     return true;
 }
 
-/// Pick a gap row for a serpentine band-return run from `want_y` outward
-/// (nearest first), skipping any row whose horizontal span `[x_left,x_right]`
-/// would intrude into a node interior. A clear row always exists (bands are
-/// separated by `BAND_CROSS_GAP` lanes).
+// REFACTOR TARGET: bounded search presented as a guarantee — the 4096 guard can
+// expire and return a non-conforming result silently. Either prove the bound is
+// unreachable, or make expiry an explicit, reported outcome.
+/// Best-effort gap row for a serpentine band-return: nearest row outward from `want_y` whose span `[x_left,x_right]` misses every node interior; the search is bounded to 4096 steps each way and then falls back to a possibly-obstructed `want_y`.
 fn clearRow(
     want_y: i32,
     x_left: i32,

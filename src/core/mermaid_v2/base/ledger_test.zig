@@ -312,3 +312,147 @@ test "a cell-scoped co-set answers only inside its licensed cells" {
     const wide = [_]pb.CoSet{.{ .origin = .fan_rail, .members = &.{ 1, 2 } }};
     try expect(pb.coMembersAt(&wide, 1, 2, .{ .x = 9, .y = 9 }));
 }
+
+test "a pairwise-scoped set licenses only a pair's own common approach, never a third member's" {
+    // Three members, one port, one channel — but member 2's own approach
+    // cells (shared only with member 0) must not license anything between
+    // members 0 and 1, and member 0/1's shared stem must not license
+    // anything between either of them and member 2.
+    const stem = [_]pb.CoCell{ .{ .x = 5, .y = 3 }, .{ .x = 5, .y = 8 } };
+    const port_only = [_]pb.CoCell{.{ .x = 5, .y = 3 }};
+    const pairwise = [_]pb.PairCells{
+        .{ .a = 0, .b = 1, .cells = &stem },
+        .{ .a = 0, .b = 2, .cells = &port_only },
+        .{ .a = 1, .b = 2, .cells = &port_only },
+    };
+    const union_cells = [_]pb.CoCell{ .{ .x = 5, .y = 3 }, .{ .x = 5, .y = 8 } };
+    const unnumbered = [_]pb.CoSet{.{
+        .origin = .port_share,
+        .members = &.{ 0, 1, 2 },
+        .cells = &union_cells,
+        .pairwise = &pairwise,
+    }};
+    const sets = try pb.numberChannels(std.testing.allocator, &unnumbered);
+    defer std.testing.allocator.free(sets);
+
+    // Transitive identity: all three are declared co-members, position-blind.
+    try expect(pb.coMembers(sets, 0, 1));
+    try expect(pb.coMembers(sets, 0, 2));
+    try expect(pb.coMembers(sets, 1, 2));
+
+    // 0 and 1 share the whole stem.
+    try expect(pb.coMembersAt(sets, 0, 1, .{ .x = 5, .y = 8 }));
+    // 2's own approach to 0 and to 1 never reached (5,8) — a cell the
+    // flat union would wrongly license via the OTHER pair's agreement.
+    try expect(!pb.coMembersAt(sets, 0, 2, .{ .x = 5, .y = 8 }));
+    try expect(!pb.coMembersAt(sets, 1, 2, .{ .x = 5, .y = 8 }));
+    // All three agree at the port itself.
+    try expect(pb.coMembersAt(sets, 0, 2, .{ .x = 5, .y = 3 }));
+    try expect(pb.coMembersAt(sets, 1, 2, .{ .x = 5, .y = 3 }));
+
+    // channelOf: edge 2 does not ride this channel at (5,8) — its own
+    // approach never reached there — even though the set's flat union does.
+    try expect(pb.channelOf(sets, 0, .{ .x = 5, .y = 8 }) != pb.no_channel);
+    try expect(pb.channelOf(sets, 2, .{ .x = 5, .y = 8 }) == pb.privateChannel(2));
+}
+
+// ---------------------------------------------------------------------------
+// Channel identity: the name a co-set carries, and the lookup read off it.
+// ---------------------------------------------------------------------------
+
+test "a numbered roster names every set exactly once" {
+    // Two sets that both arrived carrying the name 1 — the stitch's own case,
+    // where each child numbered its fans from one. Numbering is by POSITION,
+    // so the merged list can never read two distinct channels as one.
+    const a = [_]pb.EdgeId{ 0, 1 };
+    const b = [_]pb.EdgeId{ 2, 3 };
+    const raw = [_]pb.CoSet{
+        .{ .origin = .fan_rail, .channel = 1, .members = &a },
+        .{ .origin = .fan_rail, .channel = 1, .members = &b },
+    };
+    try expect(!pb.rosterNumbered(&[_]pb.CoSet{.{ .origin = .fan_rail, .members = &a }}));
+
+    const roster = try pb.numberChannels(std.testing.allocator, &raw);
+    defer std.testing.allocator.free(roster);
+    try expect(pb.rosterNumbered(roster));
+    try expectEqual(@as(pb.ChannelId, 1), roster[0].channel);
+    try expectEqual(@as(pb.ChannelId, 2), roster[1].channel);
+
+    // The lookup, and the relation read off two of them.
+    try expectEqual(@as(pb.ChannelId, 1), pb.channelOf(roster, 0, null));
+    try expectEqual(@as(pb.ChannelId, 2), pb.channelOf(roster, 3, null));
+    try expect(pb.channelsAgree(roster, 0, 1, null));
+    try expect(!pb.channelsAgree(roster, 1, 2, null));
+
+    // An edge no set names still rides a channel — its own, one edge wide,
+    // in a band no roster position can reach.
+    try expect(pb.privateChannel(0) != pb.privateChannel(1));
+    try expectEqual(pb.privateChannel(9), pb.channelOf(roster, 9, null));
+    try expect(pb.channelOf(roster, 9, null) != pb.channelOf(roster, 8, null));
+    try expect(pb.channelsAgree(roster, 9, 9, null));
+
+    // An unstamped set is NOT FILED, never "no channel": the lookup declines
+    // it and falls through to the private band rather than reading zero as a
+    // name every stranger shares.
+    const blank = [_]pb.CoSet{.{ .origin = .fan_rail, .members = &a }};
+    try expectEqual(pb.privateChannel(0), pb.channelOf(&blank, 0, null));
+    try expect(!pb.channelsAgree(&blank, 0, 1, null));
+}
+
+test "structural set resolution is unique and excludes scoped provenance" {
+    const scoped = [_]pb.CoCell{.{ .x = 3, .y = 4 }};
+    const sets = [_]pb.CoSet{
+        .{ .origin = .fan_rail, .members = &.{ 1, 2 } },
+        .{ .origin = .selected_join, .members = &.{ 2, 3 } },
+        // An unscoped port share is still not structural rail provenance.
+        .{ .origin = .port_share, .members = &.{4} },
+        // A structural origin with a cell scope cannot name a whole rail.
+        .{ .origin = .fan_rail, .members = &.{5}, .cells = &scoped },
+    };
+
+    switch (pb.resolveStructuralSet(&sets, 1)) {
+        .unique => |i| try expectEqual(@as(usize, 0), i),
+        else => try expect(false),
+    }
+    switch (pb.resolveStructuralSet(&sets, 2)) {
+        .multiple => {},
+        else => try expect(false),
+    }
+    switch (pb.resolveStructuralSet(&sets, 4)) {
+        .absent => {},
+        else => try expect(false),
+    }
+    switch (pb.resolveStructuralSet(&sets, 5)) {
+        .absent => {},
+        else => try expect(false),
+    }
+}
+
+test "the derivation and the recorded identity answer alike on a declared channel" {
+    // One structural set naming both edges: the pairwise scan finds them, and
+    // so does the pair of lookups. This is the agreement the raster's
+    // label-only sites now rely on, stated on the two functions directly.
+    const members = [_]pb.EdgeId{ 4, 5 };
+    const raw = [_]pb.CoSet{.{ .origin = .fan_rail, .members = &members }};
+    const roster = try pb.numberChannels(std.testing.allocator, &raw);
+    defer std.testing.allocator.free(roster);
+
+    try expect(pb.derivedSameChannel(.{}, roster, 4, 5, null));
+    try expect(pb.channelsAgree(roster, 4, 5, null));
+    try expect(!pb.derivedSameChannel(.{}, roster, 4, 6, null));
+    try expect(!pb.channelsAgree(roster, 4, 6, null));
+
+    // And on a cell-scoped set, both decline off the licensed cells.
+    const here = [_]pb.CoCell{.{ .x = 2, .y = 2 }};
+    const scoped_raw = [_]pb.CoSet{.{ .origin = .port_share, .members = &members, .cells = &here }};
+    const scoped = try pb.numberChannels(std.testing.allocator, &scoped_raw);
+    defer std.testing.allocator.free(scoped);
+    try expect(pb.derivedSameChannel(.{}, scoped, 4, 5, .{ .x = 2, .y = 2 }));
+    try expect(pb.channelsAgree(scoped, 4, 5, .{ .x = 2, .y = 2 }));
+    try expect(!pb.derivedSameChannel(.{}, scoped, 4, 5, .{ .x = 7, .y = 7 }));
+    try expect(!pb.channelsAgree(scoped, 4, 5, .{ .x = 7, .y = 7 }));
+}
+
+test {
+    _ = @import("rail_star_test.zig");
+}

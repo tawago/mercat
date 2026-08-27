@@ -51,8 +51,9 @@ fn inflateCross(horizontal: bool, r: sketch.Rect, pad: i32) sketch.Rect {
 }
 
 /// True iff a straight run at cross position `c` over the flow interval
-/// `[lo, hi]` intrudes into the interior of any node box — EXCLUDING the two
-/// endpoint boxes — after cross-axis inflation by `pad + 1`.
+/// `[lo, hi]` is CLEAR — that is, it intrudes into the interior of NO node box
+/// — EXCLUDING the two endpoint boxes — after cross-axis inflation by `pad + 1`.
+/// Returns false on the first intrusion.
 pub fn runClear(
     horizontal: bool,
     c: i32,

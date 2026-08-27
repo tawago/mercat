@@ -1,4 +1,4 @@
-//! §6.7 validator vectors + controlled hand-built plans for realized_
+//! Validator vectors + controlled hand-built plans for realized_
 //! validate.zig (P2v Step 4: V-D-JOIN-SELECT-04/06/12, V-D-DUAL-01/02 and
 //! the never-both reject, the N5 leaf-pair pin, per-bullet corruption
 //! rejection, and the planner-output-validates-clean property). Split from
@@ -17,9 +17,9 @@ const expect = std.testing.expect;
 const expectEqual = std.testing.expectEqual;
 
 const test_nodes = [_]sg.Node{
-    node(0, "S1"), node(1, "S2"), node(2, "T1"), node(3, "T2"),
-    node(4, "S"),  node(5, "X"),  node(6, "A"),  node(7, "B"),
-    node(8, "Hub"), node(9, "C"), node(10, "D"), node(11, "E"),
+    node(0, "S1"),  node(1, "S2"), node(2, "T1"), node(3, "T2"),
+    node(4, "S"),   node(5, "X"),  node(6, "A"),  node(7, "B"),
+    node(8, "Hub"), node(9, "C"),  node(10, "D"), node(11, "E"),
 };
 
 pub fn node(id: sg.NodeId, raw_id: []const u8) sg.Node {
@@ -86,7 +86,7 @@ pub fn hasFinding(report: jpv.ValidationReport, tag: jpv.ValidationTag) bool {
 
 /// Build a CONTROLLED one-side (or partial-member) plan: `sel_members` of
 /// `sel_group` are selected into one join; every other membership is
-/// independent(not_selected). Conflicts are recomputed complete per §6.5.
+/// independent(not_selected). Conflicts are recomputed completely.
 pub fn controlledPlan(
     a: std.mem.Allocator,
     plan: pb.JoinPermits,
@@ -145,14 +145,14 @@ fn disp(
     return .{ .independent = .{ .permission_group = gid, .reason = .not_selected } };
 }
 
-// -- Controlled one-side and partial plans through the §6.7 validator ---------
+// -- Controlled one-side and partial plans through the validator ---------------
 
 // Shared topologies.
 pub const twox2 = [_]sg.Edge{ edge(0, 0, 2), edge(1, 0, 3), edge(2, 1, 3) }; // S1→T1, S1→T2, S2→T2
 pub const dual = [_]sg.Edge{ edge(0, 4, 5), edge(1, 4, 6), edge(2, 7, 5) }; // S→X, S→A, B→X
 pub const fan5 = [_]sg.Edge{ edge(0, 8, 6), edge(1, 8, 7), edge(2, 8, 9), edge(3, 8, 10), edge(4, 8, 11) };
 
-test "V-D-JOIN-SELECT-04 / V-D-DUAL-01: controlled one-side incomplete-2x2 plans pass §6.6 step 3 validation" {
+test "V-D-JOIN-SELECT-04 / V-D-DUAL-01: controlled one-side incomplete-2x2 plans pass validation" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
@@ -243,7 +243,7 @@ test "V-D-TRUNK-06: duplicate (from,to) pair is blocked by the item-1 duplicate-
     const plan = try buildPlan(a, g);
     const res = try jp.realize(a, plan, sketchOf(try paths(a, &dup), &.{}));
     // Both containing groups (FO-Hub and FI-A) blocked pre-clause; the
-    // overlap conflict between them is still retained per §6.5.
+    // overlap conflict between them is still retained.
     for (res.report.verdicts) |v| {
         try expectEqual(jp.GroupClause.duplicate_key, v.clause);
         try expectEqual(pb.DiagnosticTag.join_select_duplicate_key_blocked, v.tag);
@@ -263,7 +263,7 @@ test "V-D-TRUNK-08: no automatic partial trunk — a subset proposal is rejected
     defer arena.deinit();
     const a = arena.allocator();
     const four = [_]sg.Edge{
-        edge(0, 8, 6), edge(1, 8, 7), edge(2, 8, 9),
+        edge(0, 8, 6),                                                                                               edge(1, 8, 7), edge(2, 8, 9),
         .{ .id = 3, .from = 8, .to = 10, .kind = .dotted, .arrow_from = .none, .arrow_to = .filled, .label = null },
     };
     const g = graph(&four);
@@ -305,7 +305,7 @@ test "V-D-TRUNK-10: uniform directed fan-in busbar proposal realizes one group-o
 
 // -- Planner output always validates clean -------------------------------------
 
-test "6.7: every planner output validates clean across the step-4 vector shapes" {
+test "every planner output validates clean across the step-4 vector shapes" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
@@ -342,9 +342,9 @@ test "6.7: every planner output validates clean across the step-4 vector shapes"
     try expect((try jpv.validate(a, plan3, realized.plan, realized.report.proposals)).valid());
 }
 
-// -- Corruption rejection per §6.7 bullet ---------------------------------------
+// -- Corruption rejection per validator rule -----------------------------------
 
-test "6.7: corrupted plans are rejected bullet by bullet" {
+test "corrupted plans are rejected rule by rule" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
@@ -383,7 +383,7 @@ test "6.7: corrupted plans are rejected bullet by bullet" {
     p.memberships = extra;
     try expect(hasFinding(try jpv.validate(a, plan, p, res.report.proposals), .disposition_unexpected));
 
-    // §6.5: erased or truncated conflicts.
+    // Erased or truncated conflicts.
     p = res.plan;
     p.conflicts = &.{};
     try expect(hasFinding(try jpv.validate(a, plan, p, res.report.proposals), .conflict_missing));
@@ -404,7 +404,7 @@ test "6.7: corrupted plans are rejected bullet by bullet" {
     for (fan5[0..3], &taps) |e, *t| {
         t.* = .{ .edge = e.id, .node = e.to, .at = poly[0], .landing = poly[1], .arrow = .filled };
     }
-    const bbs = [_]sk.Rail{ .{ .pivot = 8, .stem = &poly, .crossbar = .{ poly[0], poly[1] }, .taps = taps[0..2], .kind = .solid, .role = .fan_out_dropper } };
+    const bbs = [_]sk.Rail{.{ .pivot = 8, .stem = &poly, .crossbar = .{ poly[0], poly[1] }, .taps = taps[0..2], .kind = .solid, .role = .fan_out_dropper }};
     const rejected = try jp.realize(a, plan3, sketchOf(try paths(a, fan5[2..3]), &bbs));
     try expectEqual(@as(usize, 1), rejected.plan.rejected_proposals.len);
     p = rejected.plan;
@@ -430,4 +430,3 @@ test "6.7: corrupted plans are rejected bullet by bullet" {
     p.terminal_ports = ports;
     try expect(hasFinding(try jpv.validate(a, plan, p, res.report.proposals), .terminal_ports_not_canonical));
 }
-

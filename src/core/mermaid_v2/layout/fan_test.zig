@@ -5,6 +5,7 @@
 //! still discovers them.
 
 const std = @import("std");
+const prim = @import("prim");
 const fan = @import("fan.zig");
 const sg = @import("../sem_graph.zig");
 const sketch = @import("../sketch.zig");
@@ -81,10 +82,12 @@ test "detect distinguishes fan-OUT and fan-IN in the same graph" {
     for (fans) |f| {
         if (f.direction == .out and f.pivot_idx == 0) {
             saw_out = true;
+            try testing.expectEqual(@as(sg.NodeId, 0), f.pivot);
             try testing.expectEqual(@as(usize, 3), f.peers.len);
         }
         if (f.direction == .in and f.pivot_idx == 4) {
             saw_in = true;
+            try testing.expectEqual(@as(sg.NodeId, 4), f.pivot);
             try testing.expectEqual(@as(usize, 3), f.peers.len);
         }
     }
@@ -307,6 +310,7 @@ test "a labeled fan reserves three extra gap rows; an unlabeled fan reserves one
     const rows_u = try fan.extraRowsPerGap(aa, lg, &unlabeled);
     try testing.expectEqual(@as(u32, 1), rows_u[0]);
 
+    peers[0].label_width = 3;
     const labeled = [_]fan.Fan{.{ .direction = .out, .pivot_idx = 0, .source_layer = 0, .peers = &peers, .labeled = true }};
     const rows_l = try fan.extraRowsPerGap(aa, lg, &labeled);
     try testing.expectEqual(@as(u32, 1 + fan.LABEL_RUN_EXTRA_ROWS), rows_l[0]);
@@ -350,10 +354,6 @@ test "detect marks a fan labeled iff a member edge carries a label" {
 }
 
 test "label reservation gate clears doomed fans and keeps feasible ones" {
-    // Three cases over the same A->{B,C} labeled fan-OUT shape:
-    //   1. feasible: peers fit the budget, a label fits the canvas -> kept
-    //   2. will grid-wrap: single-row peer span > budget -> cleared
-    //   3. no label fits: every label wider than the canvas -> cleared
     const Geom = struct { x: i32, y: i32, w: u32, h: u32 };
 
     var peers = [_]fan.FanEdge{
@@ -384,10 +384,11 @@ test "label reservation gate clears doomed fans and keeps feasible ones" {
     fan.gateLabelReservations(Geom, g_short, &fans_ok, &geom, 20, 4);
     try testing.expect(fans_ok[0].labeled);
 
-    // 2. Will grid-wrap: same fan, budget 13 < span 14 -> cleared.
+    // Width pressure is explicit downstream; it never clears declarations.
     var fans_wrap = [_]fan.Fan{.{ .direction = .out, .pivot_idx = 0, .source_layer = 0, .peers = &peers, .labeled = true }};
     fan.gateLabelReservations(Geom, g_short, &fans_wrap, &geom, 13, 4);
-    try testing.expect(!fans_wrap[0].labeled);
+    try testing.expect(fans_wrap[0].labeled);
+    try testing.expectEqual(@as(u32, 3), fans_wrap[0].peers[0].label_width);
 
     // 3. No label fits: only label is wider than the 14-cell canvas.
     var wide_edges = [_]sg.Edge{ mkEdge2(0, 0, 1), mkEdge2(1, 0, 2) };
@@ -402,5 +403,6 @@ test "label reservation gate clears doomed fans and keeps feasible ones" {
     };
     var fans_wide = [_]fan.Fan{.{ .direction = .out, .pivot_idx = 0, .source_layer = 0, .peers = &peers, .labeled = true }};
     fan.gateLabelReservations(Geom, g_wide, &fans_wide, &geom, 20, 4);
-    try testing.expect(!fans_wide[0].labeled);
+    try testing.expect(fans_wide[0].labeled);
+    try testing.expectEqual(prim.displayWidth("averyveryverylonglabel"), fans_wide[0].peers[0].label_width);
 }

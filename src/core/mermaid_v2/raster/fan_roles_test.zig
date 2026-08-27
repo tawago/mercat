@@ -10,6 +10,7 @@
 //! 0b1110.
 
 const std = @import("std");
+const ledger = @import("../base/ledger.zig");
 const sketch = @import("../sketch.zig");
 const lattice = @import("../lattice.zig");
 const fan_roles = @import("fan_roles.zig");
@@ -17,6 +18,17 @@ const fan_roles = @import("fan_roles.zig");
 const testing = std.testing;
 
 const all4: lattice.Neighbours = .{ .n = true, .e = true, .s = true, .w = true };
+
+const out_members = [_]ledger.RailClaimMember{
+    .{ .edge = 0, .endpoints = .{ 5, 6 }, .sites = .{ .{ .node = 5, .side = .south, .offset = 1 }, .{ .node = 6, .side = .north, .offset = 1 } }, .arrows = .{ .none, .filled }, .kind = .solid, .pivot_end = .source },
+    .{ .edge = 1, .endpoints = .{ 5, 7 }, .sites = .{ .{ .node = 5, .side = .south, .offset = 1 }, .{ .node = 7, .side = .north, .offset = 1 } }, .arrows = .{ .none, .filled }, .kind = .solid, .pivot_end = .source },
+};
+const out_claims = [_]ledger.RailClaim{.{ .id = 1, .polarity = .out, .members = &out_members, .pivot = 5, .pi = .{ .node = 5, .side = .south, .offset = 1 } }};
+const in_members = [_]ledger.RailClaimMember{
+    .{ .edge = 0, .endpoints = .{ 6, 5 }, .sites = .{ .{ .node = 6, .side = .south, .offset = 1 }, .{ .node = 5, .side = .north, .offset = 1 } }, .arrows = .{ .none, .filled }, .kind = .solid, .pivot_end = .target },
+    .{ .edge = 1, .endpoints = .{ 7, 5 }, .sites = .{ .{ .node = 7, .side = .south, .offset = 1 }, .{ .node = 5, .side = .north, .offset = 1 } }, .arrows = .{ .none, .filled }, .kind = .solid, .pivot_end = .target },
+};
+const in_claims = [_]ledger.RailClaim{.{ .id = 1, .polarity = .in, .members = &in_members, .pivot = 5, .pi = .{ .node = 5, .side = .north, .offset = 1 } }};
 
 fn fanCell(edge: u32, role: lattice.EdgeRole, nb: lattice.Neighbours) lattice.Cell {
     return .{
@@ -36,7 +48,7 @@ fn arrowNorth(edge: u32) lattice.Cell {
 /// A 3-wide, 5-tall grid; every cell empty.
 fn blank(buf: []lattice.Cell) lattice.Lattice {
     for (buf) |*c| c.* = lattice.Cell.empty;
-    return .{ .width = 3, .height = 5, .cells = buf };
+    return .{ .width = 3, .height = 5, .cells = buf, .rail_claims = &out_claims };
 }
 
 /// A Sketch holding one placed pivot node (id 5) and one fan-OUT member
@@ -163,8 +175,8 @@ test "the arm an arrowhead stands on is never the spurious one" {
     // The owner's arrowhead-base law (raster/arrow_base.zig): the cell on a
     // triangle's base side must carry the stroke it receives. An arm that
     // ends in a terminal is therefore ink by construction — stripping it
-    // leaves the head fed by nothing, and no later pass heals it (the
-    // reciprocal repair only grows arms toward an `.edge_segment`).
+    // leaves the head fed by nothing, and no later pass heals it: nothing
+    // downstream of here ever adds a neighbour bit back.
     //
     // Both polarities of the bug, on one column: the pivot above (strip
     // candidate S, a `▼` standing on it) and the pivot below (strip
@@ -192,10 +204,10 @@ test "the arm an arrowhead stands on is never the spurious one" {
 
 test "an arm a stroke answers back is left for nobody to strip" {
     // Same fixture as the strip case, with one bit added: the cell below now
-    // asserts N back at the junction. `reconcile.repairReciprocalStrokes`
-    // re-adds an arm on exactly that condition, so stripping here buys a
-    // mask that does not survive to paint — the pass would be reporting an
-    // effect it does not have.
+    // asserts N back at the junction. The two cells agree a run continues
+    // across that boundary, so the arm is answered and not spurious —
+    // stripping it would open a run the edge writer closed, leaving the
+    // neighbour asserting a connection this cell no longer offers.
     var buf: [15]lattice.Cell = undefined;
     var lat = blank(&buf);
     lat.at(1, 1).* = .{ .occupant = .{ .node_border = .{ .node = 5, .role = .edge_s } }, .neighbours = .{ .s = true } };
@@ -284,6 +296,7 @@ test "a fan-IN rail row one cell away reprieves the fan-OUT junction too" {
 test "fan-IN shared runs keep all four arms" {
     var buf: [15]lattice.Cell = undefined;
     var lat = blank(&buf);
+    lat.rail_claims = &in_claims;
     lat.at(1, 2).* = fanCell(0, .fan_in_rail, all4);
 
     const nodes = pivotAt(0, 2);
@@ -315,14 +328,27 @@ test "a first-class rail's own geometry is left to the bus-bar rasterizer" {
     try testing.expectEqual(@as(u4, 0b1111), lat.atConst(1, 2).neighbours.toMask());
 }
 
+test "a stale claim cache cannot move the pivot-derived mask" {
+    var buf: [15]lattice.Cell = undefined;
+    var lat = blank(&buf);
+    lat.at(1, 2).* = fanCell(0, .fan_out_rail, all4);
+    lat.at(1, 3).* = fanCell(9, .forward, .{ .e = true, .s = true });
+    var stale = out_claims;
+    stale[0].pivot = 99;
+    lat.rail_claims = &stale;
+
+    const nodes = pivotAt(0, 2);
+    fan_roles.resolveMasks(&lat, fanSketch(&nodes, &.{}, &.{}));
+    try testing.expectEqual(@as(u4, 0b1011), lat.atConst(1, 2).neighbours.toMask());
+}
+
 test "an unplaceable pivot leaves the mask exactly as the walk wrote it" {
-    // Three ways the derivation can come up empty — no fan geometry for the
-    // cell's edge, no placement for the pivot, and a pivot whose own rows
-    // include this row. Each must pass the cell through untouched rather
-    // than guess which arm is spurious.
+    // No matching claim, no pivot placement, and a pivot spanning this row
+    // must all pass the cell through rather than inventing a pivot side.
     var buf: [15]lattice.Cell = undefined;
 
     var no_edge = blank(&buf);
+    no_edge.rail_claims = &.{};
     no_edge.at(1, 2).* = fanCell(0, .fan_out_rail, all4);
     const nodes = pivotAt(0, 2);
     fan_roles.resolveMasks(&no_edge, fanSketch(&nodes, &.{}, &.{}));

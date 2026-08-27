@@ -1,5 +1,5 @@
 //! reach_geometry.zig — pure vector-geometry decomposition for
-//! the pre-raster D-REACH reachability oracle (P2v Step 6; TSD §12.4;
+//! the pre-raster D-REACH reachability oracle (P2v Step 6;
 //! D-REACH items 5/9). Split sibling of `reach_vector.zig` for the
 //! 500-line cap, mirroring realized/invariants.
 //!

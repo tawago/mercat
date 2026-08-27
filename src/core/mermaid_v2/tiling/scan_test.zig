@@ -2,6 +2,7 @@
 //! property, the meta counters, and the EAW label-geometry bridge.
 
 const std = @import("std");
+const ledger = @import("../base/ledger.zig");
 const lattice = @import("../lattice.zig");
 const sem_graph = @import("../sem_graph.zig");
 const sketch = @import("../sketch.zig");
@@ -29,6 +30,7 @@ fn emptySketch() sketch.Sketch {
         .nodes = &.{},
         .clusters = &.{},
         .edges = &.{},
+        .channel_stamp_state = .complete,
         .diagnostics = &.{},
         .budget = .{ .max_width = 80, .rung = 0 },
     };
@@ -60,13 +62,29 @@ test "scan: run() leaves the lattice byte-identical" {
     buf[3] = edgeCell(.{ .e = true });
     buf[1] = .{ .occupant = .{ .label_char = '日' }, .neighbours = .{} };
     buf[6] = .{ .occupant = .{ .node_border = .{ .node = 1, .role = .edge_n } }, .neighbours = .{ .e = true, .w = true } };
-    const lat = lattice.Lattice{ .width = 3, .height = 3, .cells = &buf };
+    var records = [_]lattice.Aux{.{
+        .cell = 4,
+        .value = 8,
+        .kind = .carrier,
+        .detail = @intFromEnum(lattice.CarrierKind.merged_foreign),
+    }};
+    const lat = lattice.Lattice{
+        .width = 3,
+        .height = 3,
+        .cells = &buf,
+        .aux = &records,
+        .aux_collection = .{ .state = .complete, .attempted_records = records.len },
+    };
 
     const before = try testing.allocator.dupe(lattice.Cell, lat.cells);
     defer testing.allocator.free(before);
+    const records_before = records;
+    const aux_before = lat.aux_collection;
 
     const c = scan.run(testing.allocator, ctxOf(&lat));
     try testing.expectEqualSlices(lattice.Cell, before, lat.cells);
+    try testing.expectEqualSlices(lattice.Aux, &records_before, &records);
+    try testing.expectEqual(aux_before, lat.aux_collection);
 
     // ... and it did do work (a vacuous scan would trivially pass).
     try testing.expectEqual(@as(u32, 9), c.n_cells);
@@ -169,7 +187,7 @@ test "ownership: each seeded defect increments defectTotal by exactly one" {
 
     for (seeds) |seed| {
         var buf = seed.cells;
-        const lat = lattice.Lattice{ .width = W, .height = W, .cells = &buf };
+        const lat = lattice.Lattice{ .width = W, .height = W, .cells = &buf, .aux_collection = .{ .state = .complete } };
         const c = scan.run(testing.allocator, ctxOf(&lat));
         if (c.defectTotal() != 1) {
             var line: [counts.line_buf_len]u8 = undefined;
@@ -182,7 +200,7 @@ test "ownership: each seeded defect increments defectTotal by exactly one" {
     var buf = clean;
     put(&buf, 2, 2, arrowCell(.south, .{ .n = true }));
     put(&buf, 2, 1, edgeCell(.{ .s = true }));
-    const lat = lattice.Lattice{ .width = W, .height = W, .cells = &buf };
+    const lat = lattice.Lattice{ .width = W, .height = W, .cells = &buf, .aux_collection = .{ .state = .complete } };
     try testing.expectEqual(@as(u32, 0), scan.run(testing.allocator, ctxOf(&lat)).defectTotal());
 }
 
@@ -223,17 +241,48 @@ fn frameRing3(cs: []lattice.Cell, w: usize, cluster: u32) void {
 }
 
 test "scan: a zero-sized lattice is a no-op" {
-    const lat = lattice.Lattice{ .width = 0, .height = 0, .cells = &[_]lattice.Cell{} };
+    const lat = lattice.Lattice{
+        .width = 0,
+        .height = 0,
+        .cells = &[_]lattice.Cell{},
+        .aux_collection = .{ .state = .complete },
+    };
     const c = scan.run(testing.allocator, ctxOf(&lat));
     try testing.expectEqual(@as(u32, 0), c.n_cells);
     try testing.expectEqual(@as(u32, 0), c.defectTotal());
     try testing.expectEqual(@as(u32, 0), c.u_audit_oom);
+    try testing.expectEqual(@as(u32, 1), c.u_channel_population_absent);
+    try testing.expectEqual(@as(u32, 1), c.u_rail_population_absent);
+    try testing.expectEqual(@as(u32, 1), c.u_rail_claim_population_absent);
+}
+
+test "scan: zero-size still reports unavailable AUX and channel stamp causes" {
+    const lat = lattice.Lattice{ .width = 0, .height = 0, .cells = &[_]lattice.Cell{} };
+    var ctx = ctxOf(&lat);
+    ctx.sketch.channel_stamp_state = .unattempted;
+    const c = scan.run(testing.allocator, ctx);
+    try testing.expectEqual(@as(u32, 1), c.u_aux_not_collected);
+    try testing.expectEqual(@as(u32, 0), c.u_channel_population_absent);
+    try testing.expectEqual(@as(u32, 1), c.u_channel_stamp_unattempted);
+}
+
+test "scan: rail-star tier reads the lattice, not an unrelated Sketch" {
+    const members = [_]ledger.RailClaimMember{
+        .{ .edge = 1, .endpoints = .{ 10, 20 }, .sites = .{ .{ .node = 10, .side = .south, .offset = 1 }, .{ .node = 20, .side = .north, .offset = 1 } }, .arrows = .{ .none, .filled }, .kind = .solid, .pivot_end = .source },
+        .{ .edge = 2, .endpoints = .{ 10, 21 }, .sites = .{ .{ .node = 10, .side = .south, .offset = 1 }, .{ .node = 21, .side = .north, .offset = 1 } }, .arrows = .{ .none, .filled }, .kind = .solid, .pivot_end = .source },
+    };
+    const claims = [_]ledger.RailClaim{.{ .id = 1, .polarity = .out, .members = &members, .pivot = 10, .pi = .{ .node = 10, .side = .south, .offset = 1 } }};
+    const lat: lattice.Lattice = .{ .width = 0, .height = 0, .cells = &.{}, .rail_claims = &claims };
+    const c = scan.run(testing.allocator, ctxOf(&lat));
+    try testing.expectEqual(@as(u32, 1), c.n_rail_claims);
+    try testing.expectEqual(@as(u32, 1), c.c_rail_star_valid);
+    try testing.expectEqual(@as(u32, 0), c.u_rail_claim_population_absent);
 }
 
 test "scan: meta counters record cells and frame notation" {
     var buf: [6]lattice.Cell = undefined;
     for (&buf) |*c| c.* = lattice.Cell.empty;
-    const lat = lattice.Lattice{ .width = 3, .height = 2, .cells = &buf };
+    const lat = lattice.Lattice{ .width = 3, .height = 2, .cells = &buf, .aux_collection = .{ .state = .complete } };
 
     var ctx = ctxOf(&lat);
     var c = scan.run(testing.allocator, ctx);
@@ -254,7 +303,7 @@ test "scan: the EAW label bridge sees a wide label lying about its row width" {
     for (&buf) |*c| c.* = lattice.Cell.empty;
     buf[0] = .{ .occupant = .{ .label_char = '日' }, .neighbours = .{} };
     buf[1] = .{ .occupant = .{ .label_char = 'a' }, .neighbours = .{} };
-    const lat = lattice.Lattice{ .width = 3, .height = 1, .cells = &buf };
+    const lat = lattice.Lattice{ .width = 3, .height = 1, .cells = &buf, .aux_collection = .{ .state = .complete } };
 
     const c = scan.run(testing.allocator, ctxOf(&lat));
     try testing.expectEqual(@as(u32, 1), c.m_wide_label_cells);
@@ -272,7 +321,7 @@ test "scan: the EAW label bridge sees a wide label lying about its row width" {
 test "scan: emit() writes to stderr only and returns the same counts as run()" {
     var buf: [4]lattice.Cell = undefined;
     for (&buf) |*c| c.* = lattice.Cell.empty;
-    const lat = lattice.Lattice{ .width = 2, .height = 2, .cells = &buf };
+    const lat = lattice.Lattice{ .width = 2, .height = 2, .cells = &buf, .aux_collection = .{ .state = .complete } };
     const c = scan.run(testing.allocator, ctxOf(&lat));
 
     var line_buf: [counts.line_buf_len]u8 = undefined;

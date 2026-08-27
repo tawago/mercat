@@ -71,7 +71,7 @@ fn canonicalBytes(allocator: std.mem.Allocator, plan: pb.JoinPermits) ![]const u
     return try bytes.toOwnedSlice(allocator);
 }
 
-test "TSD 14.1: zero or one edge produces no groups" {
+test "zero or one edge produces no groups" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
@@ -90,7 +90,7 @@ test "TSD 14.1: zero or one edge produces no groups" {
     try expectClean(a, graph(&edges), one.plan);
 }
 
-test "TSD 6.2: two edges with one source produce one fan-out group" {
+test "two edges with one source produce one fan-out group" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
@@ -105,7 +105,7 @@ test "TSD 6.2: two edges with one source produce one fan-out group" {
     try expectClean(a, graph(&edges), result.plan);
 }
 
-test "TSD 6.2: two edges with one target produce one fan-in group" {
+test "two edges with one target produce one fan-in group" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
@@ -119,7 +119,7 @@ test "TSD 6.2: two edges with one target produce one fan-in group" {
     try expectClean(a, graph(&edges), result.plan);
 }
 
-test "TSD 14.1: one dual edge receives source and target memberships" {
+test "one dual edge receives source and target memberships" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
@@ -133,7 +133,7 @@ test "TSD 14.1: one dual edge receives source and target memberships" {
     try expectClean(a, graph(&edges), result.plan);
 }
 
-test "TSD 6.2: a pure chain produces no groups" {
+test "a pure chain produces no groups" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
@@ -145,7 +145,7 @@ test "TSD 6.2: a pure chain produces no groups" {
     try expectClean(a, graph(&edges), result.plan);
 }
 
-test "TSD 14.1: compact and separate source statements produce identical plans" {
+test "compact and separate source statements produce identical plans" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
@@ -281,7 +281,7 @@ test "builder output always validates clean across discovery shapes" {
     }
 }
 
-test "TSD 6.4: validator rejects each structural invariant corruption" {
+test "validator rejects each structural invariant corruption" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
@@ -339,4 +339,112 @@ test "V-D-EDGE-ID-03: unqualified local lookup returns no membership and RF tag"
     try std.testing.expect(lookup.membership == null);
     try std.testing.expectEqual(pb.DiagnosticTag.edgeid_unqualified_local_lookup, lookup.diagnostic.?);
     try std.testing.expectEqual(pb.DispositionClass.render_fatal, pb.classOf(lookup.diagnostic.?));
+}
+
+test "rail preparation salvages distinct leaves and rejects antiparallel or self-loop members" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const edges = [_]sg.Edge{
+        edge(10, 0, 1), edge(11, 0, 1), edge(12, 0, 2),
+        edge(13, 1, 0), edge(14, 0, 0),
+    };
+    const prepared = try planner.prepareRailMembers(a, graph(&edges), .out, 0, &.{ 10, 11, 12, 13, 14 });
+    try std.testing.expectEqualSlices(pb.EdgeId, &.{ 10, 12 }, prepared.members);
+
+    const anti = try planner.prepareRailMembers(a, graph(&edges), .out, 0, &.{ 10, 13 });
+    try std.testing.expectEqual(@as(usize, 0), anti.members.len);
+    const loop = try planner.prepareRailMembers(a, graph(&edges), .out, 0, &.{ 10, 14 });
+    try std.testing.expectEqual(@as(usize, 0), loop.members.len);
+    const repeated = try planner.prepareRailMembers(a, graph(&edges), .out, 0, &.{ 10, 10, 12 });
+    try std.testing.expectEqualSlices(pb.EdgeId, &.{ 10, 12 }, repeated.members);
+
+    var foreign_edges = [_]sg.Edge{ edge(20, 0, 1), edge(21, 2, 3) };
+    const mixed_pivot = try planner.prepareRailMembers(a, graph(&foreign_edges), .out, 0, &.{ 20, 21 });
+    try std.testing.expectEqual(@as(usize, 0), mixed_pivot.members.len);
+}
+
+test "rail preparation attributes style and pivot decoration independently" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    var edges = [_]sg.Edge{ edge(10, 0, 1), edge(11, 0, 2), edge(12, 0, 3), edge(13, 0, 4), edge(14, 0, 1) };
+    const local_nodes = [_]sg.Node{ node(0, "P"), node(1, "A"), node(2, "B"), node(3, "C"), node(4, "D") };
+    var g = graph(&edges);
+    g.nodes = &local_nodes;
+
+    var prepared = try planner.prepareRailMembers(a, g, .out, 0, &.{ 10, 11, 12, 13 });
+    try std.testing.expectEqualSlices(pb.EdgeId, &.{ 10, 11, 12, 13 }, prepared.members);
+    try std.testing.expect(!prepared.deco_mixed);
+    try std.testing.expect(!prepared.style_mixed);
+
+    edges[2].kind = .dotted;
+    edges[3].kind = .dotted;
+    prepared = try planner.prepareRailMembers(a, g, .out, 0, &.{ 10, 11, 12, 13 });
+    try std.testing.expectEqualSlices(pb.EdgeId, &.{ 10, 11 }, prepared.members);
+    try std.testing.expect(!prepared.deco_mixed);
+    try std.testing.expect(prepared.style_mixed);
+
+    edges[2].kind = .solid;
+    edges[3].kind = .solid;
+    edges[2].arrow_from = .circle;
+    edges[3].arrow_from = .circle;
+    prepared = try planner.prepareRailMembers(a, g, .out, 0, &.{ 10, 11, 12, 13 });
+    try std.testing.expectEqualSlices(pb.EdgeId, &.{ 10, 11 }, prepared.members);
+    try std.testing.expect(prepared.deco_mixed);
+    try std.testing.expect(!prepared.style_mixed);
+
+    edges[3].kind = .dotted;
+    prepared = try planner.prepareRailMembers(a, g, .out, 0, &.{ 10, 11, 12, 13 });
+    try std.testing.expectEqualSlices(pb.EdgeId, &.{ 10, 11 }, prepared.members);
+    try std.testing.expect(prepared.deco_mixed);
+    try std.testing.expect(prepared.style_mixed);
+    try std.testing.expect(!prepared.star_violation);
+
+    edges[3].kind = .solid;
+    edges[4].arrow_from = .circle;
+    edges[4].kind = .dotted;
+    prepared = try planner.prepareRailMembers(a, g, .out, 0, &.{ 10, 11, 12, 13, 14 });
+    try std.testing.expectEqualSlices(pb.EdgeId, &.{ 12, 13 }, prepared.members);
+    try std.testing.expect(prepared.deco_mixed);
+    try std.testing.expect(prepared.style_mixed);
+}
+
+test "rail preparation evidence and salvage are permutation invariant" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    var edges = [_]sg.Edge{ edge(10, 0, 1), edge(11, 0, 2), edge(12, 0, 3), edge(13, 0, 4) };
+    edges[2].arrow_from = .circle;
+    edges[3].arrow_from = .circle;
+    edges[3].kind = .dotted;
+    const g = graph(&edges);
+
+    const ordered = try planner.prepareRailMembers(a, g, .out, 0, &.{ 10, 11, 12, 13 });
+    const shuffled = try planner.prepareRailMembers(a, g, .out, 0, &.{ 13, 11, 12, 10 });
+    try std.testing.expectEqualSlices(pb.EdgeId, ordered.members, shuffled.members);
+    try std.testing.expectEqualSlices(pb.EdgeId, &.{ 10, 11 }, ordered.members);
+    try std.testing.expect(ordered.deco_mixed);
+    try std.testing.expect(ordered.style_mixed);
+    try std.testing.expectEqual(ordered.deco_mixed, shuffled.deco_mixed);
+    try std.testing.expectEqual(ordered.style_mixed, shuffled.style_mixed);
+    try std.testing.expectEqual(ordered.star_violation, shuffled.star_violation);
+}
+
+test "rail preparation ignores an invisible plurality" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    var edges = [_]sg.Edge{ edge(10, 0, 1), edge(11, 0, 2), edge(12, 0, 3), edge(13, 0, 4), edge(14, 0, 1) };
+    edges[2].kind = .invisible;
+    edges[3].kind = .invisible;
+    edges[4].kind = .invisible;
+    edges[2].arrow_from = .circle;
+    edges[3].arrow_from = .cross;
+    edges[4].arrow_from = .open;
+
+    const prepared = try planner.prepareRailMembers(a, graph(&edges), .out, 0, &.{ 14, 13, 12, 11, 10 });
+    try std.testing.expectEqualSlices(pb.EdgeId, &.{ 10, 11 }, prepared.members);
+    try std.testing.expect(!prepared.deco_mixed);
+    try std.testing.expect(!prepared.style_mixed);
 }

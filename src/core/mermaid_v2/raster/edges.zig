@@ -153,7 +153,7 @@ fn claimCornerCell(
 /// Walk a single polyline.
 ///
 /// Corner-cell convention: at a turn A → B, corner neighbours =
-/// `bitMask(reverse(A)) | bitMask(B)` (guarded-by: edges_test.zig
+/// `bitMask(reverse(A)) | bitMask(B)` (guarded-by: edges_corner_test.zig
 /// "L-shaped corner has reverse-incoming + outgoing bits").
 fn walkPolyline(
     lat: *lattice.Lattice,
@@ -212,7 +212,7 @@ fn walkPolyline(
         // shared trunk corner (e.g. an undetected fan's sibling drops all
         // bend at the source column): the OR-merge onto a foreign owner
         // must not carry a spurious straight bit, or the trunk renders `┼`
-        // instead of `┴`. // guarded-by: edges_test.zig "shared trunk corner: sibling drops bending at one cell yield ┴, not a phantom ┼"
+        // instead of `┴`. // guarded-by: edges_corner_test.zig "shared trunk corner: sibling drops bending at one cell yield ┴, not a phantom ┼"
         if (prev_dir) |prev| {
             if (pointInBounds(a, lat)) {
                 const c = toCoord(a);
@@ -239,10 +239,16 @@ fn walkPolyline(
                             ew.recordCarrier(rec, c.x, c.y, edge.id, .suppressed);
                         } else {
                             const own = seg.edge == edge.id;
-                            cell.neighbours = if (own)
-                                corner_mask
-                            else
-                                orMask(cell.neighbours, corner_mask);
+                            // OR onto OWN ink too, not only onto a foreign
+                            // run: this edge reaches a cell it already wrote
+                            // only by coming BACK to it (a route that doubles
+                            // back re-enters its own row or column), so both
+                            // visits are real ink of one stroke. Replacing
+                            // would drop the first visit's arms and sever the
+                            // edge from itself — the corner turns here, it
+                            // does not start here.
+                            // guarded-by: edges_corner_test.zig "a route that doubles back keeps both visits' arms at the cell it re-enters"
+                            cell.neighbours = orMask(cell.neighbours, corner_mask);
                             cell.occupant = .{ .edge_segment = .{
                                 .edge = seg.edge,
                                 .kind = seg.kind,
@@ -254,7 +260,9 @@ fn walkPolyline(
                             // first writer's id, and nothing on it says this
                             // edge turns here.
                             // guarded-by: aux_test.zig "a corner arm merged onto a foreign run files a merged carrier; onto its own ink, nothing"
-                            if (!own) ew.recordCarrier(rec, c.x, c.y, edge.id, .merged);
+                            // `segmentOverlap` false with a FOREIGN owner is
+                            // `sameChannel` true — the licence, verbatim.
+                            if (!own) ew.recordCarrier(rec, c.x, c.y, edge.id, .merged_licensed);
                             fan_roles.markShared(rec, cell, c.x, c.y, edge.id, erole);
                         }
                     },
@@ -275,6 +283,10 @@ fn walkPolyline(
                             // this edge ever reached it.
                             ew.recordIntrusion(rec, c.x, c.y, edge.id, .fusion_refused);
                         } else {
+                            // `.cross` mode is owner-ruled-legal, standing law
+                            // (spec B3's dual-notation ruling; owner ruling
+                            // 2026-07-19) — a co-equal rendering mode, not a
+                            // deprecated fallback kept only for byte-compat.
                             // `.cross` mode: the pre-Slice-1 behavior — weld the
                             // corner into the frame exactly as the old combined
                             // `.empty, .cluster_border` arm did (occupant/mask/
@@ -297,7 +309,10 @@ fn walkPolyline(
                         if (crossingKeepsFirstWriter(cell, edge.id, corner_mask, crossings.cellAt(c.x, c.y), ctx)) {
                             ew.recordCarrier(rec, c.x, c.y, edge.id, .suppressed);
                         } else {
-                            writeEdgeCell(cell, edge.id, ek, erole, corner_mask, c.x, c.y, cells_lost, rec);
+                            // `crossingKeepsFirstWriter` false on an arrowhead
+                            // occupant is `sameChannel` true; the node/label
+                            // arms file no carrier at all.
+                            writeEdgeCell(cell, edge.id, ek, erole, corner_mask, c.x, c.y, cells_lost, .merged_licensed, rec);
                             fan_roles.markShared(rec, cell, c.x, c.y, edge.id, erole);
                         }
                     },
@@ -365,10 +380,12 @@ fn walkPolyline(
                 } else if (crossingKeepsFirstWriter(cell, edge.id, straightMask(dir), crossings.cellAt(c.x, c.y), ctx)) {
                     ew.recordCarrier(rec, c.x, c.y, edge.id, .suppressed);
                 } else {
-                    // `.cross` mode falls through here: writeEdgeCell's
+                    // `.cross` mode is owner-ruled-legal, standing law (spec
+                    // B3's dual-notation ruling; owner ruling 2026-07-19) —
+                    // not retired/deprecated. It falls through here: writeEdgeCell's
                     // `.cluster_border` arm still holds the pre-Slice-1
                     // overwrite+OR merge (junction weld) — byte-identical.
-                    writeEdgeCell(cell, edge.id, ek, erole, straightMask(dir), c.x, c.y, cells_lost, rec);
+                    writeEdgeCell(cell, edge.id, ek, erole, straightMask(dir), c.x, c.y, cells_lost, .merged_licensed, rec);
                     fan_roles.markShared(rec, cell, c.x, c.y, edge.id, erole);
                 }
                 if (result.first_cell == null) {
@@ -436,6 +453,7 @@ pub fn rasterizeEdges(
     const ctx: crossings.Ctx = .{
         .joins = s.joins,
         .co_sets = s.co_sets,
+        .stamp_state = s.channel_stamp_state,
         .counts = &cross_counts,
         .mode = subgraph_edges,
     };
@@ -474,4 +492,5 @@ pub fn rasterizeEdges(
 
 test {
     _ = @import("edges_test.zig");
+    _ = @import("edges_corner_test.zig");
 }

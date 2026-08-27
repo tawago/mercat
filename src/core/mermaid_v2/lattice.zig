@@ -9,7 +9,7 @@
 //! positional rather than painted.
 //!
 //! Pure data: must not import `sketch.zig`, `parse.zig`, or `paint.zig`
-//! (enforced by `zig build lint`). Imports: `std` and `prim` only.
+//! (enforced by `zig build lint`). Imports: `std`, `prim`, and base ledger.
 //!
 //! ANTI-DESYNC LAW (the side table's one rule): an `Aux` record may only
 //! carry a fact the `Cell` CANNOT express. Never a restatement of an
@@ -25,6 +25,7 @@
 
 const std = @import("std");
 const prim = @import("prim");
+const ledger = @import("base/ledger.zig");
 
 /// Which border piece a cell on a node or cluster outline represents.
 /// Lets the painter (and validators) tell corners from edges without
@@ -224,17 +225,47 @@ pub fn portArmDetail(arm: Dir4) u8 {
     return 1 + @as(u8, @intFromEnum(arm));
 }
 
-/// How an edge's ink came to be anonymous at a carrier cell. Not a Cell
-/// fact either way: the Cell shows the surviving id, never the manner in
-/// which the other one was lost.
+/// How an edge's ink came to be anonymous at a carrier cell, AND under
+/// what licence. Not a Cell fact either way: the Cell shows the surviving
+/// id, never the manner in which the other one was lost — and certainly
+/// not whether the two edges legally shared a channel at that position.
+///
+/// The licence is the crossing rule's own answer for the ordered pair
+/// (the id the cell keeps, the id it drops) AT this cell. It is a
+/// transcript of ONE decision at ONE position, never a claim about the
+/// pair in general.
+///
+/// HOW WIDE that answer reaches is the co-set's business, not this byte's:
+/// a `.port_share` set licenses only its own cells, so the same two edges
+/// can read licensed here and foreign one cell over, while a structural set
+/// (a realized join, a fan rail) sets `cells = null` and licenses its
+/// members ANYWHERE (`base/co_channel.zig`). A licensed transcript is
+/// position-scoped only when a port share produced it.
+/// guarded-by: tiling_licence_test.zig "licence: a three-way port share the pairwise flood missed is now licensed, and the render files no defect"
 pub const CarrierKind = enum(u8) {
-    /// The carrier's bits are IN the cell's mask; only its identity was
-    /// dropped, because the position already had an owner.
-    merged = 0,
+    /// Merged, licence never asked — a producer with no channel context at
+    /// the moment it writes. It states NOTHING. A reader must treat it as
+    /// evidence of nothing, never as consent.
+    /// ZERO ON PURPOSE. `Aux.detail` defaults to 0, so every un-set,
+    /// hand-built or stale record lands HERE, on the value that admits
+    /// nothing. The audit files it as a limitation (`u_`), never as a
+    /// licence — silence must never be readable as consent.
+    merged_untested = 0,
     /// The carrier contributed no bits at all — the crossing rule kept the
     /// first writer untouched (a transversal, a refused foreign junction,
     /// or a pristine arrowhead). The ink is on the grid, the cell is not.
+    /// Every refusal predicate IS `!sameChannel`, so this value states
+    /// FOREIGN exactly as precisely as `merged_foreign` does.
     suppressed = 1,
+    /// Merged as above, but the two edges do NOT share a channel here: the
+    /// merged mask now asserts an adjacency no source declares.
+    merged_foreign = 2,
+    /// The carrier's bits are IN the cell's mask; only its identity was
+    /// dropped, because the position already had an owner — and the two
+    /// edges DO share a channel here, so the junction glyph is honest.
+    /// The one value that ADMITS something, so it is never the default:
+    /// reaching it takes an explicit producer that asked the question.
+    merged_licensed = 3,
 };
 
 /// Which kind of entity a `label_owner` record names.
@@ -296,6 +327,39 @@ pub const Aux = struct {
     }
 };
 
+/// Whether AUX was requested and whether every attempted record was retained.
+/// Allocation failure invalidates the whole table, never just one record.
+pub const AuxCollectionState = enum {
+    not_collected,
+    complete,
+    out_of_memory,
+};
+
+/// Collection attribution shipped with a `Lattice`.
+///
+/// Pointer-free and copied with the lattice. `attempted_records` includes calls
+/// after poisoning; the atomic table makes retained/lost arithmetic exact.
+pub const AuxCollectionReport = struct {
+    state: AuxCollectionState = .not_collected,
+    attempted_records: u64 = 0,
+
+    /// Records exposed in `Lattice.aux` for this report.
+    pub fn retainedRecords(self: AuxCollectionReport) u64 {
+        return switch (self.state) {
+            .complete => self.attempted_records,
+            .not_collected, .out_of_memory => 0,
+        };
+    }
+
+    /// Attempted records withheld because collection failed.
+    pub fn lostRecords(self: AuxCollectionReport) u64 {
+        return switch (self.state) {
+            .out_of_memory => self.attempted_records,
+            .not_collected, .complete => 0,
+        };
+    }
+};
+
 /// Width × height grid of cells, row-major.
 ///
 /// `cells.len` must equal `width * height`. The lattice does not own
@@ -305,11 +369,15 @@ pub const Lattice = struct {
     width: u32,
     height: u32,
     cells: []Cell,
-    /// Position-keyed side table, sorted by (cell, kind, value). Empty
-    /// unless the rasterizer was asked to collect it (`raster.Options`),
-    /// so a consumer must treat "no records" as "not collected", never as
-    /// "nothing happened". Same lifetime rule as `cells`.
+    /// Final rail provenance, borrowed independently of AUX and ignored by paint.
+    rail_claims: []const ledger.RailClaim = &.{},
+    /// Position-keyed side table, sorted by (cell, kind, value). Empty means
+    /// one of three things; `aux_collection.state` distinguishes collection
+    /// disabled, a complete zero-record result, and allocation failure. A
+    /// failed collection is always empty, never a retained prefix. Same
+    /// lifetime rule as `cells`.
     aux: []const Aux = &.{},
+    aux_collection: AuxCollectionReport = .{},
 
     /// Row-major linear index of (x, y) — the key `Aux.cell` uses.
     pub fn cellIndex(self: Lattice, x: u32, y: u32) u32 {
@@ -383,7 +451,6 @@ test "Lattice index calculation: row-major, at() returns correct cell" {
         }
     }
 
-    // Spot-check via at() / atConst().
     try std.testing.expectEqual(@as(u21, 0), switch (lat.atConst(0, 0).occupant) {
         .label_char => |ch| ch,
         else => unreachable,
@@ -411,24 +478,6 @@ test "Cell stays 16 bytes: the arrowhead style rides in existing padding" {
     try std.testing.expectEqual(@as(usize, 12), @sizeOf(Occupant));
 }
 
-test "Aux is 12 bytes and its order is (cell, kind, value)" {
-    // The side table is event-proportional, not grid-proportional, but it
-    // is still a hot array: keep the record pointer-free and small enough
-    // that three of them fit where two Cells do. A future field that pushes
-    // this past 12 is a deliberate decision, not an accident.
-    try std.testing.expectEqual(@as(usize, 12), @sizeOf(Aux));
-
-    const a: Aux = .{ .cell = 3, .value = 9, .kind = .port };
-    const same_cell_smaller_value: Aux = .{ .cell = 3, .value = 4, .kind = .port };
-    const later_cell: Aux = .{ .cell = 4, .value = 0, .kind = .port };
-
-    try std.testing.expect(Aux.lessThan({}, same_cell_smaller_value, a));
-    try std.testing.expect(!Aux.lessThan({}, a, same_cell_smaller_value));
-    try std.testing.expect(Aux.lessThan({}, a, later_cell));
-    // Irreflexive: a strict weak order, as std.mem.sort requires.
-    try std.testing.expect(!Aux.lessThan({}, a, a));
-}
-
 test "cellIndex agrees with at()'s row-major linearization" {
     var buf: [12]Cell = undefined;
     for (&buf) |*c| c.* = Cell.empty;
@@ -437,17 +486,7 @@ test "cellIndex agrees with at()'s row-major linearization" {
     try std.testing.expectEqual(@as(u32, 0), lat.cellIndex(0, 0));
     try std.testing.expectEqual(@as(u32, 6), lat.cellIndex(2, 1));
     try std.testing.expectEqual(@as(u32, 11), lat.cellIndex(3, 2));
-
-    // The index is a key INTO cells: at(x,y) must be that element.
     try std.testing.expectEqual(&buf[lat.cellIndex(2, 1)], lat.at(2, 1));
-}
-
-test "a fresh Lattice carries no aux records" {
-    // "Empty" means "not collected" — consumers must not read absence as
-    // evidence that no producer fired.
-    var buf: [1]Cell = .{Cell.empty};
-    const lat = Lattice{ .width = 1, .height = 1, .cells = &buf };
-    try std.testing.expectEqual(@as(usize, 0), lat.aux.len);
 }
 
 test "Cell.empty default matches struct literal" {

@@ -30,7 +30,6 @@ const toCoord = ew.toCoord;
 const pointInBounds = ew.pointInBounds;
 const writeEdgeCell = ew.writeEdgeCell;
 
-
 /// One end's arrowhead, as the port writers need to see it: the cell the
 /// head was stamped on AND the direction its tip points. Both, because the
 /// port-tee rule is about FACING, not mere nearness — a head beside the wall
@@ -298,6 +297,7 @@ fn mergePortBit(
             gc.x,
             gc.y,
             &lost,
+            .merged_untested, // the `.empty` arm files no carrier at all
             aux.Recorder.init(sink, lat),
         );
         std.debug.assert(lost == 0);

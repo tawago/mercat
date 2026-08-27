@@ -1,5 +1,5 @@
 //! reach_report.zig — result types, canonical ordering, and
-//! SDD §12.4 component-table construction for the pre-raster D-REACH
+//! component-table construction for the pre-raster D-REACH
 //! vector oracle (P2v Step 6). Split sibling of `reach_vector.zig`
 //! for the 500-line cap; the traversal/oracle logic lives there.
 //!
@@ -60,7 +60,7 @@ pub const Counts = struct {
         return total;
     }
 
-    /// P2v Step 8 safety-filter verdict (D-JOIN-SELECT item 6; TSD §13.2):
+    /// P2v Step 8 safety-filter verdict (D-JOIN-SELECT item 6):
     /// the candidate carries NO CI-class reach event, so it survives the
     /// pre-raster filter. A skip (clustered/packed) is CI-clean by this
     /// predicate — `ciTotal` excludes both skip counts (OPEN-8), yet the
@@ -260,7 +260,7 @@ fn dedupPairs(alloc: std.mem.Allocator, keys: []const []const u8, pairs: []const
     return slice;
 }
 
-// -- SDD §12.4 component-table construction --------------------------------
+// -- Component-table construction --------------------------------------------
 
 /// Assemble the ordered component table: per component the typed source/
 /// target terminals, the reachable Cartesian pairs, the declared pairs it

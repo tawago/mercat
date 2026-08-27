@@ -19,19 +19,34 @@
 //!     contributes both its first polyline point (its departure port) and its
 //!     last (its arrival port), so an in-edge and an out-edge meeting at one
 //!     port — a cycle return terminating where a fan departs — group together.
-//!   * A set is PAIRWISE and CELL-SCOPED. Two edges that share a port share
-//!     the ink of their COMMON APPROACH — the cells both traverse, connected
-//!     to the port — and NOTHING else. Where their paths meet again far from
-//!     the port they are still strangers and that meeting is still a
-//!     transversal. One wide set per port would instead license every later
-//!     crossing between its members, fabricating a `┼` on a true transversal.
+//!   * A set is ONE PER PORT and CELL-SCOPED, and members grouped
+//!     transitively (A shares B's port and B shares C's, so all three name
+//!     ONE channel) do NOT thereby share cell scope: the set's `.pairwise`
+//!     table records each PAIR's own common approach separately, and
+//!     `coMembersAt`/`channelOf` consult that pair-specific entry, never a
+//!     flat union over every pair. A member with no direct overlap with
+//!     another stays a named member (the group is one channel for identity
+//!     purposes) but licenses no cell between the two of them. Where two
+//!     members' paths meet again far from the port they are still strangers
+//!     there and that meeting is still a transversal — a third member's own
+//!     agreement with each of them separately licenses nothing between the
+//!     two that never agreed with each other. (The flat `.cells` field is
+//!     kept as the union anyway, purely so a reader can ask "is this a
+//!     narrower-than-a-rail set at all" without walking `.pairwise`; no
+//!     licensing decision reads it when `.pairwise` is present.)
 //!   * No union-find across ports: transitively fusing two ports would license
 //!     ink sharing along a run neither producer ever agreed on.
-//!   * Pure and total: reads only the passed edges, allocates only the result,
-//!     and never inspects node ids, roles, or names.
+//!   * Final stitch reconstruction also includes first-class rail members. A
+//!     rail member contributes only its two real terminal approaches: the
+//!     pivot stem and its own tap dropper. It never connects those components
+//!     through the crossbar or claims another member's stretch.
+//!   * Pure and total: reads only final geometry, allocates only the result,
+//!     and never inspects names or layout intent.
 //!
-//! Imports `std`, `prim`, `base/ledger.zig` and `sketch.zig` only (it is an
-//! extension of the Sketch IR root; enforced by `tools/lint_imports.zig`).
+//! Allowed imports (tools/lint_imports.zig): `std`, `prim`, the `base/`
+//! no-deps tier, `sketch.zig`, and `sketch_ports_test.zig`. Actually imports
+//! `std`, `sketch.zig` and `base/ledger.zig` (it is an extension of the
+//! Sketch IR root).
 
 const std = @import("std");
 const sketch = @import("sketch.zig");
@@ -43,19 +58,36 @@ const CoCell = ledger.CoCell;
 
 /// A single edge's cell footprint: every integer cell its polyline passes
 /// through, in path order.
-const Trace = struct {
+pub const CarrierTrace = struct {
     id: EdgeId,
     first: Point,
     last: Point,
     cells: []const CoCell,
+    rail: bool,
 };
 
-/// One `.port_share` co-set per PAIR of edges terminating on the same
-/// coordinate, licensed over their common approach (see the header).
+/// One `.port_share` co-set per DISTINCT PORT COORDINATE, gathering EVERY
+/// edge terminating there (transitively: A-shares-B and B-shares-C at the
+/// same physical point are ONE group, ONE channel — never two overlapping
+/// pairwise sets over the same trio). No union-find across DIFFERENT ports
+/// happens: an edge with two distinct shared terminals still lands in two
+/// separate sets (see the header's no-fusing invariant and the
+/// "an edge sharing two ports lands in two sets" test) because grouping keys
+/// on the literal coordinate value, which is transitive by equality alone
+/// and never chains through an intermediate edge to a second point.
+///
+/// Set order is by PORT COORDINATE (x then y), never by edge id or input
+/// position: the roster this feeds is renumbered positionally
+/// (`ledger.numberChannels`), and a stitch or re-plan can renumber and
+/// reorder edges freely, so the group boundaries and the order sets are
+/// discovered in must be a function of the sketch's own geometry alone.
 ///
 /// Skipped: invisible edges (they paint no ink, so they may license none),
 /// degenerate polylines (fewer than two points, or a first point equal to the
-/// last), and any pair whose common approach comes out empty.
+/// last). The `cells.items.len == 0` guard below is dead in practice — every
+/// member's trace contains the port cell itself by construction, so the
+/// union is never empty once two members are present — kept only as a
+/// defensive floor, not a real skip path.
 ///
 /// The result is allocated in `arena`.
 /// guarded-by: sketch_ports_test.zig "shared departure port groups its edges"
@@ -63,7 +95,18 @@ pub fn portShareCoSets(
     arena: std.mem.Allocator,
     edges: []const sketch.EdgePath,
 ) error{OutOfMemory}![]const ledger.CoSet {
-    var traces: std.ArrayListUnmanaged(Trace) = .empty;
+    return portShareCoSetsFromTraces(arena, try finalCarrierTraces(arena, edges, &.{}));
+}
+
+/// Final carrier population for stitch: ordinary paths plus one exact trace
+/// per first-class rail tap. EdgePath geometry wins if malformed input names
+/// one semantic edge in both forms; no edge can enter the population twice.
+pub fn finalCarrierTraces(
+    arena: std.mem.Allocator,
+    edges: []const sketch.EdgePath,
+    bars: []const sketch.Rail,
+) error{OutOfMemory}![]const CarrierTrace {
+    var traces: std.ArrayListUnmanaged(CarrierTrace) = .empty;
     for (edges) |e| {
         if (e.kind == .invisible) continue;
         if (e.polyline.len < 2) continue;
@@ -75,32 +118,153 @@ pub fn portShareCoSets(
             .first = first,
             .last = last,
             .cells = try traceCells(arena, e.polyline),
+            .rail = false,
         });
     }
 
+    for (bars) |bar| {
+        if (bar.kind == .invisible or bar.stem.len < 2) continue;
+        const fan_in = bar.role == .fan_in_dropper or bar.role == .fan_in_rail;
+        for (bar.taps) |tap| {
+            if (traceById(traces.items, tap.edge) != null) continue;
+            const first = if (fan_in) tap.landing else bar.stem[0];
+            const last = if (fan_in) bar.stem[0] else tap.landing;
+            if (pointEqual(first, last)) continue;
+            var cells: std.ArrayListUnmanaged(CoCell) = .empty;
+            for (try traceCells(arena, bar.stem)) |cell| {
+                if (!has(cells.items, cell)) try cells.append(arena, cell);
+            }
+            const dropper = try traceCells(arena, &.{ tap.at, tap.landing });
+            // `tap.at` is shared crossbar ink. The member's terminal approach
+            // starts one step off it and runs through the landing port.
+            for (dropper[1..]) |cell| {
+                if (!has(cells.items, cell)) try cells.append(arena, cell);
+            }
+            try traces.append(arena, .{
+                .id = tap.edge,
+                .first = first,
+                .last = last,
+                .cells = try cells.toOwnedSlice(arena),
+                .rail = true,
+            });
+        }
+    }
+    return traces.toOwnedSlice(arena);
+}
+
+/// Derive one final port-share population from EdgePaths and first-class rail
+/// members together. Pair scopes are always computed from those final traces.
+pub fn portShareCoSetsFromGeometry(
+    arena: std.mem.Allocator,
+    edges: []const sketch.EdgePath,
+    bars: []const sketch.Rail,
+) error{OutOfMemory}![]const ledger.CoSet {
+    return portShareCoSetsFromTraces(arena, try finalCarrierTraces(arena, edges, bars));
+}
+
+fn portShareCoSetsFromTraces(
+    arena: std.mem.Allocator,
+    traces: []const CarrierTrace,
+) error{OutOfMemory}![]const ledger.CoSet {
+
+    // Every distinct terminal coordinate any trace carries, in canonical
+    // (x, y) order — the port identity, independent of edge id or input
+    // position.
+    var ports: std.ArrayListUnmanaged(CoCell) = .empty;
+    for (traces) |t| {
+        for ([2]Point{ t.first, t.last }) |pt| {
+            const c: CoCell = .{ .x = pt.x, .y = pt.y };
+            if (!has(ports.items, c)) try ports.append(arena, c);
+        }
+    }
+    std.mem.sort(CoCell, ports.items, {}, portLess);
+
     var out: std.ArrayListUnmanaged(ledger.CoSet) = .empty;
-    for (traces.items, 0..) |a, i| {
-        for (traces.items[i + 1 ..]) |b| {
-            if (a.id == b.id) continue;
-            const port = sharedTerminal(a, b) orelse continue;
-            const cells = try commonApproach(arena, a.cells, b.cells, port);
-            if (cells.len == 0) continue;
-            const members = try arena.dupe(EdgeId, &[_]EdgeId{ a.id, b.id });
-            try out.append(arena, .{ .origin = .port_share, .members = members, .cells = cells });
+    for (ports.items) |port| {
+        var rail_source = false;
+        var rail_target = false;
+        for (traces) |t| {
+            if (!t.rail) continue;
+            rail_source = rail_source or terminalAt(t, port, .source);
+            rail_target = rail_target or terminalAt(t, port, .target);
+        }
+        if (!rail_source and !rail_target) {
+            try appendPortSet(arena, &out, traces, port, .any);
+        } else {
+            // Preserve the established polarity-blind relationship among
+            // ordinary paths. Rail members have disconnected source/target
+            // components, so they join only matching path ends; an arrival
+            // cannot borrow a fan-out stem merely because both metadata
+            // records name one coordinate.
+            try appendPortSet(arena, &out, traces, port, .paths);
+            if (rail_source) try appendPortSet(arena, &out, traces, port, .source);
+            if (rail_target) try appendPortSet(arena, &out, traces, port, .target);
         }
     }
     return out.toOwnedSlice(arena);
 }
 
-/// The coordinate both edges TERMINATE on, or null. Polarity-blind: each
-/// edge's two terminals are compared against the other's two.
-fn sharedTerminal(a: Trace, b: Trace) ?CoCell {
-    for ([2]Point{ a.first, a.last }) |p| {
-        for ([2]Point{ b.first, b.last }) |q| {
-            if (p.x == q.x and p.y == q.y) return .{ .x = p.x, .y = p.y };
+const TerminalFilter = enum { any, paths, source, target };
+
+fn appendPortSet(
+    arena: std.mem.Allocator,
+    out: *std.ArrayListUnmanaged(ledger.CoSet),
+    traces: []const CarrierTrace,
+    port: CoCell,
+    filter: TerminalFilter,
+) error{OutOfMemory}!void {
+    var members: std.ArrayListUnmanaged(EdgeId) = .empty;
+    for (traces) |trace| {
+        if (terminalAt(trace, port, filter)) try members.append(arena, trace.id);
+    }
+    if (members.items.len < 2) return;
+
+    var cells: std.ArrayListUnmanaged(CoCell) = .empty;
+    var pairwise: std.ArrayListUnmanaged(ledger.PairCells) = .empty;
+    for (traces, 0..) |a, i| {
+        if (!terminalAt(a, port, filter)) continue;
+        for (traces[i + 1 ..]) |b| {
+            if (!terminalAt(b, port, filter)) continue;
+            var pair_cells = try commonApproachCells(arena, a.cells, b.cells, port);
+            if (a.rail != b.rail and pair_cells.len <= 1) pair_cells = &.{};
+            try pairwise.append(arena, .{ .a = a.id, .b = b.id, .cells = pair_cells });
+            for (pair_cells) |cell| {
+                if (!has(cells.items, cell)) try cells.append(arena, cell);
+            }
         }
     }
+    if (cells.items.len == 0) return;
+    try out.append(arena, .{
+        .origin = .port_share,
+        .members = try members.toOwnedSlice(arena),
+        .cells = try cells.toOwnedSlice(arena),
+        .pairwise = try pairwise.toOwnedSlice(arena),
+    });
+}
+
+fn terminalAt(trace: CarrierTrace, port: CoCell, filter: TerminalFilter) bool {
+    const source = trace.first.x == port.x and trace.first.y == port.y;
+    const target = trace.last.x == port.x and trace.last.y == port.y;
+    return switch (filter) {
+        .any => source or target,
+        .paths => !trace.rail and (source or target),
+        .source => source,
+        .target => target,
+    };
+}
+
+fn traceById(traces: []const CarrierTrace, id: EdgeId) ?CarrierTrace {
+    for (traces) |trace| if (trace.id == id) return trace;
     return null;
+}
+
+fn pointEqual(a: Point, b: Point) bool {
+    return a.x == b.x and a.y == b.y;
+}
+
+fn portLess(_: void, a: CoCell, b: CoCell) bool {
+    if (a.x != b.x) return a.x < b.x;
+    return a.y < b.y;
 }
 
 /// Every cell a polyline passes through, in order. Orthogonal segments are
@@ -129,7 +293,7 @@ fn traceCells(arena: std.mem.Allocator, polyline: []const Point) error{OutOfMemo
 /// The cells BOTH edges occupy that are 4-connected to `port` through the
 /// intersection — the shared approach and nothing beyond it. A second, distant
 /// overlap between the same two edges is a separate meeting and stays foreign.
-fn commonApproach(
+pub fn commonApproachCells(
     arena: std.mem.Allocator,
     a: []const CoCell,
     b: []const CoCell,
@@ -170,17 +334,60 @@ fn has(cells: []const CoCell, want: CoCell) bool {
     return false;
 }
 
-/// `existing ++ portShareCoSets(edges)` — the ONE way callers wire this in.
-/// Port-share sets are APPENDED, never substituted: they record a share the
-/// other origins never claimed to know about, and dropping a fan-rail or
-/// plan-derived set to make room would silently un-license ink the producer
-/// did declare. Duplicate membership between origins is harmless
-/// (`ledger.coMembersAt` is a linear scan over all sets), so nothing is deduped.
+/// Replace the existing `.port_share` population with the one derived from
+/// `edges`, while retaining every structural set in order. This is the one way
+/// a finalizer wires port shares in: stale geometry and duplicate first-match
+/// identities cannot survive a second finalization.
 /// guarded-by: sketch_ports_test.zig "appendPortShares keeps the existing sets ahead of the derived ones"
 pub fn appendPortShares(
     arena: std.mem.Allocator,
     existing: []const ledger.CoSet,
     edges: []const sketch.EdgePath,
 ) error{OutOfMemory}![]const ledger.CoSet {
-    return ledger.concatSets(arena, existing, try portShareCoSets(arena, edges));
+    var structural: std.ArrayListUnmanaged(ledger.CoSet) = .empty;
+    for (existing) |set| {
+        if (set.origin != .port_share) try structural.append(arena, set);
+    }
+    return ledger.concatSets(arena, try structural.toOwnedSlice(arena), try portShareCoSets(arena, edges));
+}
+
+/// Stitch finalizer variant. Scoped port shares come first so a rail member
+/// can temporarily ride the port channel where a bridge joins it, then fall
+/// back to its structural rail channel everywhere outside that exact scope.
+pub fn rebuildFinalPortShares(
+    arena: std.mem.Allocator,
+    existing: []const ledger.CoSet,
+    edges: []const sketch.EdgePath,
+    bars: []const sketch.Rail,
+) error{OutOfMemory}![]const ledger.CoSet {
+    var structural: std.ArrayListUnmanaged(ledger.CoSet) = .empty;
+    for (existing) |set| {
+        if (set.origin != .port_share) try structural.append(arena, set);
+    }
+    const traces = try finalCarrierTraces(arena, edges, bars);
+    var mixed: std.ArrayListUnmanaged(ledger.CoSet) = .empty;
+    var path_only: std.ArrayListUnmanaged(ledger.CoSet) = .empty;
+    for (try portShareCoSetsFromTraces(arena, traces)) |share| {
+        var has_path = false;
+        var has_rail = false;
+        for (share.members) |member| {
+            if (traceById(traces, member)) |trace| {
+                if (trace.rail) has_rail = true else has_path = true;
+            }
+        }
+        // Rail-only sharing is already the structural fan set. Keeping a
+        // duplicate scoped origin would add no relationship. Mixed shares go
+        // first so scoped rail/bridge lookup can override the rail's structural
+        // channel only on the final common approach. Path-only shares retain
+        // their historical position after structural authority.
+        if (has_rail and has_path) {
+            try mixed.append(arena, share);
+        } else if (has_path) try path_only.append(arena, share);
+    }
+    const with_structural = try ledger.concatSets(
+        arena,
+        try mixed.toOwnedSlice(arena),
+        try structural.toOwnedSlice(arena),
+    );
+    return ledger.concatSets(arena, with_structural, try path_only.toOwnedSlice(arena));
 }

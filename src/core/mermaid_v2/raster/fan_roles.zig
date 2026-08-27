@@ -20,9 +20,10 @@
 //!
 //!   MASK — `resolveMasks` runs once after the walk (both arms of a
 //!   junction must exist before either can be judged) and decides the
-//!   fan-OUT strip from the Sketch: the fan's PIVOT rect says which side
-//!   the trunk comes from, so the arm facing the pivot is the one that
-//!   survives. Two grid reads bound it: `continuesColumn`, which asks
+//!   fan-OUT strip from the authoritative RailClaim on the Lattice. The
+//!   checker-derived PIVOT identifies a Sketch rect and says which side the
+//!   trunk comes from, so the arm facing the pivot is the one that survives.
+//!   Two grid reads bound it: `continuesColumn`, which asks
 //!   whether a SECOND fan rail row sits one cell away on this column (a
 //!   grid-wrapped fan threads its trunk through such a row, and there both
 //!   arms are real), and `armIsAnswered`, which refuses to sever an arm
@@ -45,9 +46,9 @@
 //! bus-bar rasterizer, and re-deciding them here would put a second author
 //! on one fact.
 //!
-//! Allowed imports: `std`, `sketch.zig`, `lattice.zig`, raster siblings.
+//! Allowed imports: base ledger, `sketch.zig`, `lattice.zig`, raster siblings.
 
-const prim = @import("prim");
+const ledger = @import("../base/ledger.zig");
 const sketch = @import("../sketch.zig");
 const lattice = @import("../lattice.zig");
 const ew = @import("edges_write.zig");
@@ -117,11 +118,12 @@ pub fn markShared(
 /// the two verticals is a child's straight descent through the run, and the
 /// arm that survives is the one FACING the fan's pivot.
 ///
-/// Where the pivot cannot be placed — no fan geometry for the cell's own
-/// edge, no placement for the pivot, or a pivot whose rows include this row
-/// — nothing is derivable and the cell is left exactly as the walk wrote
-/// it. Nor does it strip an ANSWERED arm (`armIsAnswered`): the pivot says
-/// which arm is spurious, but only where one of them is.
+/// Where the pivot cannot be placed — no matching claim for the cell's own
+/// edge, no checker-derived common pivot, no placement for that pivot, or a
+/// pivot whose rows include this row — nothing is derivable and the cell is
+/// left exactly as the walk wrote it. Nor does it strip an ANSWERED arm
+/// (`armIsAnswered`): the pivot says which arm is spurious, but only where
+/// one of them is.
 /// guarded-by: fan_roles_test.zig "a shared run below its pivot keeps N and drops the child's descent"
 /// guarded-by: fan_roles_test.zig "the arm an arrowhead stands on is never the spurious one"
 /// guarded-by: fan_roles_test.zig "an arm a stroke answers back is left for nobody to strip"
@@ -149,7 +151,7 @@ pub fn resolveMasks(lat: *lattice.Lattice, s: sketch.Sketch) void {
             if (!(nb.e or nb.w)) continue;
             if (onRail(s, x, y)) continue;
             if (continuesColumn(lat, x, y)) continue;
-            const rect = pivotRect(s, seg.edge, .out) orelse continue;
+            const rect = pivotRect(s, lat.rail_claims, seg.edge, .out) orelse continue;
             const side = pivotSide(rect, y) orelse continue;
             // The arm the pivot does NOT face is the strip candidate.
             const drop: lattice.Dir4 = switch (side) {
@@ -213,16 +215,17 @@ fn continuesColumn(lat: *const lattice.Lattice, x: u32, y: u32) bool {
 ///   * a TERMINAL standing on this cell — an arrowhead whose tip points `d`,
 ///     so this cell is its base and owes it the stroke it receives (owner
 ///     ruling, `raster/arrow_base.zig`). Severing that orphans the head and
-///     nothing heals it: the reciprocal repair only grows arms toward an
-///     `.edge_segment`, so the painted arrowhead-base validator is left
-///     reporting the violation this pass created. An arrowhead pointing the
+///     nothing heals it — no pass downstream ever adds a neighbour bit back
+///     — so the painted arrowhead-base validator is left reporting the
+///     violation this pass created. An arrowhead pointing the
 ///     OTHER way is fed from beyond it, not from here, and answers nothing.
 ///
-///   * a STROKE asserting the reciprocal arm back at us. Stripping that one
-///     is not wrong so much as pointless — `reconcile.repairReciprocalStrokes`
-///     puts it straight back a pass later, on exactly this condition — and a
-///     pass whose work is silently undone downstream reports an effect it
-///     does not have.
+///   * a STROKE asserting the reciprocal arm back at us. Both cells agree a
+///     run continues across that boundary, and the neighbour's half of the
+///     claim is not this pass's to overrule: stripping our half would open a
+///     run the edge writer closed, leaving one end asserting a connection
+///     the other no longer offers. A spurious arm is one nothing answers;
+///     an answered arm is, by that definition, not one.
 /// guarded-by: fan_roles_test.zig "the arm an arrowhead stands on is never the spurious one"
 /// guarded-by: fan_roles_test.zig "an arm a stroke answers back is left for nobody to strip"
 fn armIsAnswered(lat: *const lattice.Lattice, x: u32, y: u32, d: lattice.Dir4) bool {
@@ -246,34 +249,39 @@ fn armIsAnswered(lat: *const lattice.Lattice, x: u32, y: u32, d: lattice.Dir4) b
     };
 }
 
-/// The rect of the pivot of the fan `edge_id` belongs to: the rail's pivot
-/// when a first-class rail serves that member, else the fan-side endpoint
-/// of its own `EdgePath`. Null when the Sketch states no fan geometry for
-/// the edge or no placement for the pivot.
-fn pivotRect(s: sketch.Sketch, edge_id: u32, p: lattice.RailPolarity) ?sketch.Rect {
-    const pivot = pivotOf(s, edge_id, p) orelse return null;
+/// The placed rect of the checker-derived pivot in the matching final claim.
+/// Claim caches are deliberately ignored; members are the authority.
+fn pivotRect(s: sketch.Sketch, claims: []const ledger.RailClaim, edge_id: u32, p: lattice.RailPolarity) ?sketch.Rect {
+    const pivot = pivotOf(claims, edge_id, p) orelse return null;
     for (s.nodes) |np| {
         if (np.id == pivot) return np.rect;
     }
     return null;
 }
 
-fn pivotOf(s: sketch.Sketch, edge_id: u32, p: lattice.RailPolarity) ?prim.NodeId {
-    for (s.busbars) |bb| {
-        if (ew.railPolarity(bb.role) != p) continue;
-        for (bb.taps) |tap| {
-            if (tap.edge == edge_id) return bb.pivot;
+fn pivotOf(claims: []const ledger.RailClaim, edge_id: u32, p: lattice.RailPolarity) ?ledger.NodeId {
+    var found: ?ledger.NodeId = null;
+    for (claims) |claim| {
+        const same_polarity = switch (p) {
+            .out => claim.polarity == .out,
+            .in => claim.polarity == .in,
+        };
+        if (!same_polarity or !claimHasEdge(claim, edge_id)) continue;
+        const checked = ledger.checkRailClaim(claim);
+        if (checked.bnd_s.wrong_polarity_end) return null;
+        const pivot = checked.derived_pivot orelse return null;
+        if (found) |prior| {
+            if (prior != pivot) return null;
+        } else {
+            found = pivot;
         }
     }
-    for (s.edges) |e| {
-        if (e.id != edge_id) continue;
-        if (ew.railPolarity(e.role) != p) return null;
-        return switch (p) {
-            .out => e.from,
-            .in => e.to,
-        };
-    }
-    return null;
+    return found;
+}
+
+fn claimHasEdge(claim: ledger.RailClaim, edge_id: u32) bool {
+    for (claim.members) |member| if (member.edge == edge_id) return true;
+    return false;
 }
 
 /// True when (x, y) lies on a first-class rail's own geometry: its crossbar

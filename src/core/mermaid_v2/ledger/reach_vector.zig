@@ -1,6 +1,6 @@
 //! reach_vector.zig — pre-raster VECTOR-half D-REACH reachability
-//! oracle (P2v Step 6; TSD §12.4 / §17 step 15 first half; D-REACH items
-//! 5, 9, 10, 12–13; SDD §12.4 component table), modeled on score_geom.zig.
+//! oracle (P2v Step 6; D-REACH items 5, 9, 10, 12–13), modeled on
+//! score_geom.zig and emitting the shared component-table shape.
 //!
 //! PURE REPORT-ONLY in this step: `validate` computes and records — it
 //! feeds no CI filter, rejects no candidate, updates no disposition,
@@ -24,8 +24,9 @@
 //! non-tag `skipped_packed_candidate` count (OPEN-8: the packed-winner
 //! validation gap must stay visible, and the tag registry is closed).
 //!
-//! Allowed imports (tools/lint_imports.zig): std, prim, ledger,
-//! sketch, reach_geometry, reach_report (split
+//! Allowed imports (tools/lint_imports.zig): std, prim, the base/ no-deps
+//! tier (here ../base/ledger.zig and ../base/rail_closure.zig), sketch,
+//! reach_geometry, reach_report (split
 //! siblings for the 500-line cap, mirroring realized/invariants).
 
 const std = @import("std");
@@ -299,7 +300,7 @@ fn oracle(
     counts: *Counts,
 ) Error!void {
     // Every declared edge MUST have its source and target terminals in
-    // exactly one component (TSD §12.4, cross-gap condition vacuous).
+    // exactly one component (the cross-gap condition is vacuous).
     for (declared) |d| {
         var n_both: u32 = 0;
         var n_src: u32 = 0;

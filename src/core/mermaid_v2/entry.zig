@@ -323,8 +323,8 @@ fn resolveJoinPermits(allocator: std.mem.Allocator, graph: sem_graph.SemGraph) !
 
 /// Emit one machine-readable integrity line per rendered diagram to
 /// STDERR. The caller gates on `EnvOptions.integrity` (MERCAT_INTEGRITY=1).
-/// External diagnostics tooling captures these lines; normal CLI/TUI
-/// use never sets the variable. Stdout bytes are identical whether or
+/// External diagnostics tooling captures these lines; normal CLI/TUI use never
+/// sets the variable. Stdout bytes are identical whether or
 /// not the variable is set — this writes to stderr only and changes no
 /// pipeline decision.
 ///
@@ -334,12 +334,11 @@ fn emitIntegrityLine(
     v: validate_mod.Counts,
     raster_report: rasterize_mod.RasterReport,
     skipped_lines: u32,
-    /// The SHIPPED candidate's rail-closure inventory (report-only): the three
-    /// registered tags the closure law fires, which no other surface emits.
+    /// The SHIPPED candidate's report-only rail construction inventory.
     closure: ledger.ClosureCounts,
 ) void {
     std.debug.print(
-        "mercat-integrity: v_node_overlap={d} v_path_off_perimeter={d} v_path_through_interior={d} v_cluster={d} v_bbox={d} r_edge_cells_lost={d} r_labels_dropped={d} r_labels_displaced={d} r_phantom_arms={d} r_arms_repaired={d} x_legal_crossing={d} x_foreign_junction={d} x_arrowhead_transit={d} b_frame_bridge={d} b_border_fusion_refused={d} a_arrowhead_base={d} skipped_lines={d} rail_closure_undeclared={d} co_undeclared={d} co_double_discharge={d}\n",
+        "mercat-integrity: v_node_overlap={d} v_path_off_perimeter={d} v_path_through_interior={d} v_cluster={d} v_bbox={d} r_edge_cells_lost={d} r_labels_dropped={d} r_labels_displaced={d} r_phantom_arms={d} x_legal_crossing={d} x_foreign_junction={d} x_arrowhead_transit={d} b_frame_bridge={d} b_border_fusion_refused={d} a_arrowhead_base={d} skipped_lines={d} rail_deco_mixed={d} rail_member_style_mixed={d} rail_star_violation={d} rail_closure_undeclared={d} co_undeclared={d} co_double_discharge={d}\n",
         .{
             v.node_overlap,
             v.path_off_perimeter,
@@ -350,7 +349,6 @@ fn emitIntegrityLine(
             raster_report.labels_dropped,
             raster_report.labels_displaced,
             raster_report.phantom_arms_cleared,
-            raster_report.arms_repaired,
             raster_report.crossings.legal_crossing,
             raster_report.crossings.foreign_junction_violation,
             raster_report.crossings.arrowhead_transit_violation,
@@ -358,13 +356,15 @@ fn emitIntegrityLine(
             raster_report.crossings.b_border_fusion_refused,
             raster_report.arrow_base.violations,
             skipped_lines,
+            closure.rail_deco_mixed,
+            closure.rail_member_style_mixed,
+            closure.rail_star_violation,
             closure.rail_closure_undeclared,
             closure.co_undeclared,
             closure.co_double_discharge,
         },
     );
 }
-
 fn envIsOne(name: [:0]const u8) bool {
     const env = std.posix.getenv(name) orelse return false;
     return std.mem.eql(u8, env, "1");
@@ -437,7 +437,9 @@ test {
     _ = @import("layout/chain_wrap.zig");
     _ = @import("layout.zig");
     _ = @import("raster.zig");
-    _ = @import("paint.zig");    _ = @import("onrun_paint_test.zig");
+    _ = @import("raster/aux.zig");
+    _ = @import("paint.zig");
+    _ = @import("onrun_paint_test.zig");
     _ = @import("budget.zig");
     _ = @import("score.zig");
     _ = @import("select.zig");
@@ -447,9 +449,11 @@ test {
     _ = @import("cluster/split.zig");
     _ = @import("cluster/split_test.zig");
     _ = @import("cluster/stitch.zig");
+    _ = @import("cluster/stitch_cosets.zig");
     _ = @import("cluster/bridges.zig");
     _ = @import("cluster/bridge_cosets.zig");
-    _ = @import("base/ledger.zig");    _ = @import("base/ledger_test.zig");
+    _ = @import("base/ledger.zig");
+    _ = @import("base/ledger_test.zig");
     _ = @import("base/diagnostics.zig");
     _ = @import("base/diagnostics_test.zig");
     _ = @import("base/co_channel.zig");
@@ -473,6 +477,7 @@ test {
     _ = @import("select_test.zig");
     _ = @import("select_test2.zig");
     _ = @import("sketch_ports_test.zig");
+    _ = @import("sketch_channels_test.zig");
     _ = @import("ledger/reach_vector.zig");
     _ = @import("ledger/reach_vector_test.zig");
     _ = @import("ledger/reach_vector_test2.zig");
@@ -483,9 +488,13 @@ test {
     _ = @import("tiling/rings_test.zig");
     _ = @import("tiling/terminal_test.zig");
     _ = @import("tiling/expect_test.zig");
+    _ = @import("tiling/rails_test.zig");
+    _ = @import("tiling/channels_test.zig");
     _ = @import("tiling/scan_test.zig");
+    _ = @import("tiling_rails_e2e_test.zig");
     _ = @import("tiling_crosscheck_test.zig");
     _ = @import("tiling_records_test.zig");
+    _ = @import("tiling_licence_test.zig");
     _ = @import("tiling_weld_test.zig");
     _ = @import("cluster_corridor_test.zig");
 }

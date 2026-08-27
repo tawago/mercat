@@ -11,7 +11,7 @@ const pb = @import("../base/ledger.zig");
 /// D-DISPOSITION item 5 row 3): a candidate the pre-raster reachability
 /// filter excludes has EVERY realized trunk withdrawn — each `selected`
 /// membership flips to `independent{ its group, .unsafe_component }`, and the
-/// emptied joins' proposals move to `rejected_proposals` so the §6.7 proposal
+/// emptied joins' proposals move to `rejected_proposals` so invariant proposal
 /// accounting (selected XOR rejected) still balances under
 /// `invariants.validate`. Pure over the plan (no Sketch, no reach_report):
 /// conflicts, terminal ports, and every already-`independent`/

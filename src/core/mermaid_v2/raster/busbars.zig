@@ -28,7 +28,62 @@ const sketch = @import("../sketch.zig");
 const lattice = @import("../lattice.zig");
 const edges_r = @import("edges.zig");
 const ew = @import("edges_write.zig");
+const crossings = @import("crossings.zig");
+const ledger = @import("../base/ledger.zig");
 const aux = @import("aux.zig");
+
+/// The channel identity a rail needs in order to STATE the licence on
+/// every carrier it files. A rail's cells are the one merge path in the
+/// raster that never consulted the crossing rule — it does not need to, it
+/// owns its geometry — so without this the records it leaves could not say
+/// whether a junction glyph it painted over someone else's ink was legal.
+/// Carried, never acted on: nothing here refuses a merge or moves a byte.
+///
+/// `channel` is the CURRENT rail's own identity, stamped on the Sketch by the
+/// producer (`sketch_channels.stamp`) and swapped per rail by
+/// `rasterizeRails`. It is what makes this a lookup: the writer already knows
+/// which channel its ink speaks for and does not reconstruct it from a
+/// membership scan. `roster` answers the same question for whoever it MEETS.
+/// guarded-by: busbars_test2.zig "a rail reports licensed or foreign without changing bytes"
+const Chan = struct {
+    roster: []const ledger.CoSet = &.{},
+    channel: ledger.ChannelId = ledger.no_channel,
+    stamp_state: sketch.ChannelStampState = .unattempted,
+};
+
+/// The merged-carrier flavour for whatever the cell at `c` ALREADY names,
+/// against `incoming`. Read before the write: afterwards the cell names the
+/// first writer either way and the pair is unrecoverable. A cell naming
+/// nobody files no carrier, so its value is `.merged_untested` — never
+/// `.merged_licensed`, which would state a licence no one asked for.
+///
+/// Both sides are read as identities. The rail's own is `chan.channel` when
+/// the producer filed one; where it did not, `incoming` still has the channel
+/// every edge has, and the comparison is the same comparison.
+///
+/// ABSTAINS unless the producer's transaction completed AND every roster set
+/// is numbered. A failed/refused re-stamp deliberately preserves the old
+/// payload, so neither a nonzero rail name nor a numbered roster is sufficient
+/// without `.complete`; the inverse inconsistency also abstains.
+/// guarded-by: busbars.zig "licenceAt trusts identity only after a complete consistent stamp"
+fn licenceAt(lat: *const lattice.Lattice, c: ew.Coord, incoming: u32, chan: Chan) lattice.CarrierKind {
+    const held: u32 = switch (lat.atConst(c.x, c.y).occupant) {
+        .edge_segment => |seg| seg.edge,
+        .arrowhead => |h| h.edge,
+        else => return .merged_untested,
+    };
+    if (chan.stamp_state != .complete or !ledger.rosterNumbered(chan.roster)) return .merged_untested;
+    if (held == incoming) return .merged_licensed;
+    const at = crossings.cellAt(c.x, c.y);
+    const mine = if (chan.channel != ledger.no_channel)
+        chan.channel
+    else
+        crossings.channelAt(chan.roster, incoming, at);
+    return if (mine == crossings.channelAt(chan.roster, held, at))
+        .merged_licensed
+    else
+        .merged_foreign;
+}
 
 pub const Report = struct {
     /// Taps that claimed at least one cell (each tap represents one edge).
@@ -41,12 +96,16 @@ pub const Report = struct {
 pub fn rasterizeRails(lat: *lattice.Lattice, s: sketch.Sketch, sink: aux.Sink) Report {
     var report: Report = .{};
     for (s.busbars) |bb| {
-        drawRail(lat, bb, &report, sink);
+        drawRail(lat, bb, &report, .{
+            .roster = s.co_sets,
+            .channel = bb.channel,
+            .stamp_state = s.channel_stamp_state,
+        }, sink);
     }
     return report;
 }
 
-fn drawRail(lat: *lattice.Lattice, bb: sketch.Rail, report: *Report, sink: aux.Sink) void {
+fn drawRail(lat: *lattice.Lattice, bb: sketch.Rail, report: *Report, chan: Chan, sink: aux.Sink) void {
     const rec = aux.Recorder.init(sink, lat);
     const crossbar_edge = bb.taps[0].edge; // informational owner id for shared-run cells
     const junction = bb.stem[bb.stem.len - 1];
@@ -63,7 +122,7 @@ fn drawRail(lat: *lattice.Lattice, bb: sketch.Rail, report: *Report, sink: aux.S
     var x = x0;
     while (x <= x1) : (x += 1) {
         const mask: lattice.Neighbours = .{ .e = x < x1, .w = x > x0 };
-        claim(lat, .{ .x = x, .y = rail_y }, crossbar_edge, bb.kind, crossbar_role, mask, report, rec);
+        claim(lat, .{ .x = x, .y = rail_y }, crossbar_edge, bb.kind, crossbar_role, mask, report, chan, rec);
     }
 
     // -- Stem: pivot exit bit into the node border, interior cells, and
@@ -94,22 +153,23 @@ fn drawRail(lat: *lattice.Lattice, bb: sketch.Rail, report: *Report, sink: aux.S
         const b = bb.stem[i + 1];
         const dir = edges_r.segmentDir(a, b) orelse continue;
         if (last_dir) |prev| {
-            claim(lat, a, crossbar_edge, bb.kind, crossbar_role, edges_r.orMask(edges_r.bitMask(edges_r.reverse(prev)), edges_r.bitMask(dir)), report, rec);
+            claim(lat, a, crossbar_edge, bb.kind, crossbar_role, edges_r.orMask(edges_r.bitMask(edges_r.reverse(prev)), edges_r.bitMask(dir)), report, chan, rec);
         }
         var cursor = edges_r.step(a, dir);
         while (cursor.x != b.x or cursor.y != b.y) : (cursor = edges_r.step(cursor, dir)) {
-            claim(lat, cursor, crossbar_edge, bb.kind, crossbar_role, edges_r.straightMask(dir), report, rec);
+            claim(lat, cursor, crossbar_edge, bb.kind, crossbar_role, edges_r.straightMask(dir), report, chan, rec);
         }
         last_dir = dir;
     }
     if (last_dir) |dir| {
-        claim(lat, junction, crossbar_edge, bb.kind, crossbar_role, edges_r.bitMask(edges_r.reverse(dir)), report, rec);
+        claim(lat, junction, crossbar_edge, bb.kind, crossbar_role, edges_r.bitMask(edges_r.reverse(dir)), report, chan, rec);
     }
     if (pivot_head) |h| {
         if (pivotStemDir(bb)) |dir| {
             if (edges_r.pointInBounds(h.cell, lat)) {
                 const c = edges_r.toCoord(h.cell);
-                edges_r.writeArrowCell(lat.at(c.x, c.y), crossbar_edge, bb.kind, bb.pivot_arrow, h.dir, edges_r.straightMask(dir), c.x, c.y, &report.cells_lost, rec);
+                const lic = licenceAt(lat, c, crossbar_edge, chan);
+                edges_r.writeArrowCell(lat.at(c.x, c.y), crossbar_edge, bb.kind, bb.pivot_arrow, h.dir, edges_r.straightMask(dir), c.x, c.y, &report.cells_lost, lic, rec);
             }
         }
     }
@@ -140,7 +200,7 @@ fn drawRail(lat: *lattice.Lattice, bb: sketch.Rail, report: *Report, sink: aux.S
             edges_r.drawTargetPortStroke(lat, &target_stub, bb.kind, tap.edge, tap_end, sink);
         }
         const dir = edges_r.segmentDir(tap.at, tap.landing) orelse continue;
-        claim(lat, tap.at, tap.edge, bb.kind, crossbar_role, edges_r.bitMask(dir), report, rec);
+        claim(lat, tap.at, tap.edge, bb.kind, crossbar_role, edges_r.bitMask(dir), report, chan, rec);
         // The branch itself: the cell just grew this tap's drop arm, and
         // nothing on it says whose arm that is (the run belongs to the
         // shared owner id, and the mask is a merge). A tap with no drop
@@ -151,7 +211,7 @@ fn drawRail(lat: *lattice.Lattice, bb: sketch.Rail, report: *Report, sink: aux.S
         var wrote_any = false;
         var cursor = edges_r.step(tap.at, dir);
         while (cursor.x != tap.landing.x or cursor.y != tap.landing.y) : (cursor = edges_r.step(cursor, dir)) {
-            claim(lat, cursor, tap.edge, bb.kind, dropper_role, edges_r.straightMask(dir), report, rec);
+            claim(lat, cursor, tap.edge, bb.kind, dropper_role, edges_r.straightMask(dir), report, chan, rec);
             wrote_any = true;
         }
         // `tapHead` IS the loop's last cursor plus the tip direction stamped
@@ -161,7 +221,8 @@ fn drawRail(lat: *lattice.Lattice, bb: sketch.Rail, report: *Report, sink: aux.S
             if (tap_head) |h| {
                 if (edges_r.pointInBounds(h.cell, lat)) {
                     const c = edges_r.toCoord(h.cell);
-                    edges_r.writeArrowCell(lat.at(c.x, c.y), tap.edge, bb.kind, tap.arrow, h.dir, edges_r.straightMask(dir), c.x, c.y, &report.cells_lost, rec);
+                    const lic = licenceAt(lat, c, tap.edge, chan);
+                    edges_r.writeArrowCell(lat.at(c.x, c.y), tap.edge, bb.kind, tap.arrow, h.dir, edges_r.straightMask(dir), c.x, c.y, &report.cells_lost, lic, rec);
                 }
             }
         }
@@ -290,6 +351,13 @@ fn onStretch(v: i32, a: i32, b: i32) bool {
 
 /// Claim one cell through the shared edge cell contract (OR-merge on
 /// existing edge cells, overwrite cluster borders, count collisions).
+///
+/// The merge itself is unconditional, exactly as before: a rail owns its
+/// geometry and the crossing rule is not asked to approve it. `chan` only
+/// supplies the licence the resulting carrier record STATES, so a later
+/// reader can tell a rail welding onto a channel-mate from a rail welding
+/// onto a stranger. Refusing the latter would change every fan render and
+/// is not this file's decision to take.
 fn claim(
     lat: *lattice.Lattice,
     p: sketch.Point,
@@ -298,11 +366,48 @@ fn claim(
     role: lattice.EdgeRole,
     mask: lattice.Neighbours,
     report: *Report,
+    chan: Chan,
     rec: aux.Recorder,
 ) void {
     if (!edges_r.pointInBounds(p, lat)) return;
     const c = edges_r.toCoord(p);
-    edges_r.writeEdgeCell(lat.at(c.x, c.y), edge_id, kind, role, mask, c.x, c.y, &report.cells_lost, rec);
+    const lic = licenceAt(lat, c, edge_id, chan);
+    edges_r.writeEdgeCell(lat.at(c.x, c.y), edge_id, kind, role, mask, c.x, c.y, &report.cells_lost, lic, rec);
+}
+
+test "licenceAt trusts identity only after a complete consistent stamp" {
+    const std_testing = std.testing;
+    var lat = lattice.Lattice{
+        .width = 1,
+        .height = 1,
+        .cells = try std_testing.allocator.alloc(lattice.Cell, 1),
+    };
+    defer std_testing.allocator.free(lat.cells);
+    lat.cells[0] = lattice.Cell.empty;
+    lat.at(0, 0).occupant = .{ .edge_segment = .{ .edge = 0, .kind = .solid, .role = .forward } };
+
+    var members = [_]ledger.EdgeId{ 0, 1 };
+    const unstamped = [_]ledger.CoSet{.{ .origin = .fan_rail, .members = &members }};
+    const c: ew.Coord = .{ .x = 0, .y = 0 };
+
+    const stamped = try ledger.numberChannels(std_testing.allocator, &unstamped);
+    defer std_testing.allocator.free(stamped);
+
+    // A transaction failure/refusal can leave this fully numbered, nonzero
+    // payload behind. State still makes every identity answer abstain.
+    for ([_]sketch.ChannelStampState{ .unattempted, .out_of_memory, .rail_invariant }) |state| {
+        const chan: Chan = .{ .roster = stamped, .channel = 1, .stamp_state = state };
+        try std_testing.expectEqual(lattice.CarrierKind.merged_untested, licenceAt(&lat, c, 1, chan));
+    }
+
+    // Complete state cannot rescue an inconsistent, partly unnumbered roster.
+    const inconsistent: Chan = .{ .roster = &unstamped, .channel = 1, .stamp_state = .complete };
+    try std_testing.expectEqual(lattice.CarrierKind.merged_untested, licenceAt(&lat, c, 1, inconsistent));
+
+    const complete: Chan = .{ .roster = stamped, .channel = 1, .stamp_state = .complete };
+    try std_testing.expectEqual(lattice.CarrierKind.merged_licensed, licenceAt(&lat, c, 1, complete));
+    const off_roster: Chan = .{ .roster = stamped, .channel = 2, .stamp_state = .complete };
+    try std_testing.expectEqual(lattice.CarrierKind.merged_foreign, licenceAt(&lat, c, 2, off_roster));
 }
 
 test {

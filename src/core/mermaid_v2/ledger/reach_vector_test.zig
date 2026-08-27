@@ -41,18 +41,29 @@ pub fn nodeKeys(a: std.mem.Allocator, nodes: []const sg.Node) ![]const []const u
 
 pub fn path(id: sk.EdgeId, from: sk.NodeId, to: sk.NodeId, polyline: []const sk.Point) sk.EdgePath {
     return .{
-        .id = id, .from = from, .to = to, .polyline = polyline,
+        .id = id,
+        .from = from,
+        .to = to,
+        .polyline = polyline,
         .port_from = .{ .node = from, .side = .south, .offset = 0 },
         .port_to = .{ .node = to, .side = .north, .offset = 0 },
-        .arrow_from = .none, .arrow_to = .filled, .label = null, .kind = .solid,
+        .arrow_from = .none,
+        .arrow_to = .filled,
+        .label = null,
+        .kind = .solid,
     };
 }
 
 pub fn sketchOf(edges: []const sk.EdgePath, busbars: []const sk.Rail) sk.Sketch {
     return .{
-        .bbox = .{ .x = 0, .y = 0, .w = 40, .h = 16 }, .direction = .TD,
-        .nodes = &.{}, .clusters = &.{}, .edges = edges, .busbars = busbars,
-        .diagnostics = &.{}, .budget = .{ .max_width = 120, .rung = 0 },
+        .bbox = .{ .x = 0, .y = 0, .w = 40, .h = 16 },
+        .direction = .TD,
+        .nodes = &.{},
+        .clusters = &.{},
+        .edges = edges,
+        .busbars = busbars,
+        .diagnostics = &.{},
+        .budget = .{ .max_width = 120, .rung = 0 },
     };
 }
 
@@ -120,7 +131,7 @@ test "V-D-REACH-01 (vector): admitted fan-out trunk is one component, Cartesian 
     try expectEqual(@as(usize, 3), comp.declared_pairs_in_component.len);
     try expectEqual(@as(usize, 0), comp.extra_undeclared_pairs.len);
     try expectEqual(@as(usize, 0), comp.missing_declared_pairs.len);
-    // §12.4 table shape: ids dense from 0; bridge_ids structurally empty.
+    // Shared table shape: ids dense from 0; bridge_ids structurally empty.
     try expectEqual(@as(pb.ComponentId, 0), comp.id);
     try expectEqual(@as(usize, 0), comp.bridge_ids.len);
     try expectEqual(@as(usize, 1), comp.selected_join_ids.len);
@@ -316,7 +327,7 @@ test "V-D-REACH-16 (vector half): strict orthogonal transversal crossing is lega
     };
     const s = try realized(a, graphOf(&nodes, &edges), sketchOf(&paths, &.{}));
     const report = try vc.validate(a, s, try nodeKeys(a, &nodes), .flat);
-    try expect(zeroCounts(report.counts)); // TSD §7.5 MAY: no tag, no link
+    try expect(zeroCounts(report.counts)); // A legal transversal adds no tag and no link.
     try expectEqual(@as(usize, 2), report.components.len);
 }
 
