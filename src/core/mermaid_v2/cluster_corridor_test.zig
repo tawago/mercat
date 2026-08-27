@@ -245,7 +245,7 @@ test "one crossing corridor per cluster-border cell, and never on a corner" {
         const built = try permits.build(a, graph, .joined);
         const plan = built.plan;
         const winner = try select.choose(a, graph, &plan, width, false, false);
-        const report = try raster.rasterize(a, winner.sketch, .bridge, .{ .collect_aux = true });
+        const report = try raster.rasterize(a, winner.sketch, .bridge);
         const lat = report.lattice;
 
         var seen: std.ArrayListUnmanaged(Crossing) = .empty;

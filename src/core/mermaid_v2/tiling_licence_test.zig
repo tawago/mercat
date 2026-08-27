@@ -33,7 +33,7 @@ fn renderCounts(a: std.mem.Allocator, source: []const u8, width: u32) !counts.Co
     const built = try permits.build(a, graph, .joined);
     const plan = built.plan;
     const winner = try select.choose(a, graph, &plan, width, false, false);
-    const report = try raster.rasterize(a, winner.sketch, .bridge, .{ .collect_aux = true });
+    const report = try raster.rasterize(a, winner.sketch, .bridge);
     return scan.run(a, .{
         .graph = graph,
         .sketch = winner.sketch,
@@ -270,7 +270,7 @@ test "fan labels: feasible mixed, in-out, BND-S, clustered and BT renders lose n
         const graph = try parse(a, case.source);
         const built = try permits.build(a, graph, .joined);
         const winner = try select.choose(a, graph, &built.plan, 60, false, false);
-        const report = try raster.rasterize(a, winner.sketch, .bridge, .{ .collect_aux = true });
+        const report = try raster.rasterize(a, winner.sketch, .bridge);
         try testing.expectEqual(@as(u32, 0), report.labels_dropped);
         try testing.expectEqual(case.labels, report.labels_placed - @as(u32, @intCast(winner.sketch.nodes.len)));
         const c = scan.run(a, .{ .graph = graph, .sketch = winner.sketch, .lat = &report.lattice, .mode = .bridge, .labels_placed = report.labels_placed, .labels_dropped = report.labels_dropped, .labels_displaced = report.labels_displaced, .edge_cells_lost = report.edge_cells_lost });
@@ -294,6 +294,6 @@ test "fan labels: explicit clipping reports width overflow and declared loss" {
         else => {},
     };
     try testing.expect(marked);
-    const report = try raster.rasterize(a, winner.sketch, .bridge, .{});
+    const report = try raster.rasterize(a, winner.sketch, .bridge);
     try testing.expectEqual(@as(u32, 1), report.labels_dropped);
 }

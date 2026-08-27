@@ -67,10 +67,8 @@ fn renderMode(a: std.mem.Allocator, source: []const u8, width: u32, mode: prim.S
     const built = try permits.build(a, graph, .joined);
     const plan = built.plan;
     const winner = try select.choose(a, graph, &plan, width, false, false);
-    // `collect_aux` exactly as the composition root sets it: the audit reads
-    // the side table, so rendering without it would audit a lattice that
-    // never ships. See `tiling_records_test.zig`.
-    const report = try raster.rasterize(a, winner.sketch, mode, .{ .collect_aux = true });
+    // The audit reads the side table every rasterization now carries.
+    const report = try raster.rasterize(a, winner.sketch, mode);
     return .{ .graph = graph, .sketch = winner.sketch, .report = report, .mode = mode };
 }
 

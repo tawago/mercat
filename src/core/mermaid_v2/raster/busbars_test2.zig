@@ -34,7 +34,7 @@ test "a rail reports licensed or foreign without changing bytes" {
         if (want == .merged_licensed) s.co_sets = &mates;
         s.channel_stamp_state = .complete;
 
-        const r = try raster.rasterize(a, s, .bridge, .{ .collect_aux = true });
+        const r = try raster.rasterize(a, s, .bridge);
         if (baseline) |cells| try testing.expectEqualSlices(lattice.Cell, cells, r.lattice.cells) else baseline = r.lattice.cells;
         const records = try busbars_test.recordsAt(a, r.lattice, .carrier, 12, 5);
         try testing.expectEqual(@as(usize, 1), records.len);
@@ -69,7 +69,7 @@ test "every incomplete rail stamp files untested without changing bytes" {
         s.co_sets = &roster;
         s.channel_stamp_state = state;
 
-        const r = try raster.rasterize(a, s, .bridge, .{ .collect_aux = true });
+        const r = try raster.rasterize(a, s, .bridge);
         if (baseline) |cells| try testing.expectEqualSlices(lattice.Cell, cells, r.lattice.cells) else baseline = r.lattice.cells;
         const records = try busbars_test.recordsAt(a, r.lattice, .carrier, 12, 5);
         try testing.expectEqual(@as(usize, 1), records.len);
@@ -118,7 +118,7 @@ test "a rail off the roster reads every merge as foreign" {
     busbars[0].channel = 2;
     s.channel_stamp_state = .complete;
 
-    const r = try raster.rasterize(a, s, .bridge, .{ .collect_aux = true });
+    const r = try raster.rasterize(a, s, .bridge);
     const at_junction = try busbars_test.recordsAt(a, r.lattice, .carrier, 12, 5);
     try testing.expectEqual(@as(usize, 1), at_junction.len);
     try testing.expectEqual(@intFromEnum(lattice.CarrierKind.merged_foreign), at_junction[0].detail);

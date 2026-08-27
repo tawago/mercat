@@ -6,10 +6,9 @@
 //! writer of that channel — no later pass edits records, which is what
 //! makes the anti-desync law in `lattice.zig` mechanically true.
 //!
-//! Collection is opt-in per rasterization (`raster.Options.collect_aux`).
-//! A producer that is not collecting is handed a null `Sink`, so the
-//! score path — which rasterizes every candidate purely for defect
-//! counts — pays one null test per event and allocates nothing.
+//! Every rasterization collects: the table is part of the raster IR, not
+//! an optional extra. A null `Sink` remains only for synthetic per-cell
+//! writers constructed outside a rasterization.
 //!
 //! Deliberately Sketch-blind (enforced by a `tools/lint/imports.zig` row):
 //! this file may reach `lattice.zig` and nothing else. A builder that

@@ -116,34 +116,20 @@ fn stackedPairSketch(a: std.mem.Allocator) !sketch.Sketch {
     };
 }
 
-test "collect_aux is opt-in: the same raster yields no table when it is off" {
+test "every rasterization carries its complete side table" {
     var arena = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
     const s = try stackedPairSketch(a);
 
-    const off = try raster.rasterize(a, s, .bridge, .{});
-    try testing.expectEqual(@as(usize, 0), off.lattice.aux.len);
-    try testing.expectEqual(lattice.AuxCollectionState.not_collected, off.lattice.aux_collection.state);
-    try testing.expectEqual(@as(u64, 0), off.lattice.aux_collection.attempted_records);
-
-    const on = try raster.rasterize(a, s, .bridge, .{ .collect_aux = true });
+    const on = try raster.rasterize(a, s, .bridge);
     try testing.expect(on.lattice.aux.len > 0);
     try testing.expectEqual(lattice.AuxCollectionState.complete, on.lattice.aux_collection.state);
     try testing.expectEqual(@as(u64, @intCast(on.lattice.aux.len)), on.lattice.aux_collection.attempted_records);
     try testing.expectEqual(@as(u64, 0), on.lattice.aux_collection.lostRecords());
-
-    // Off vs on differ ONLY in the side table: the painted grid is identical.
-    try testing.expectEqual(off.lattice.width, on.lattice.width);
-    try testing.expectEqual(off.lattice.height, on.lattice.height);
-    try testing.expectEqualSlices(
-        u8,
-        std.mem.sliceAsBytes(off.lattice.cells),
-        std.mem.sliceAsBytes(on.lattice.cells),
-    );
 }
 
-test "raster distinguishes not-collected, complete-empty, and AUX OOM without changing cells" {
+test "raster distinguishes complete-empty and AUX OOM without changing cells" {
     const empty = sketch.Sketch{
         .bbox = .{ .x = 0, .y = 0, .w = 1, .h = 1 },
         .direction = .TD,
@@ -156,9 +142,7 @@ test "raster distinguishes not-collected, complete-empty, and AUX OOM without ch
 
     var empty_arena = std.heap.ArenaAllocator.init(testing.allocator);
     defer empty_arena.deinit();
-    const empty_off = try raster.rasterize(empty_arena.allocator(), empty, .bridge, .{});
-    const empty_on = try raster.rasterize(empty_arena.allocator(), empty, .bridge, .{ .collect_aux = true });
-    try testing.expectEqual(lattice.AuxCollectionState.not_collected, empty_off.lattice.aux_collection.state);
+    const empty_on = try raster.rasterize(empty_arena.allocator(), empty, .bridge);
     try testing.expectEqual(lattice.AuxCollectionState.complete, empty_on.lattice.aux_collection.state);
     try testing.expectEqual(@as(u64, 0), empty_on.lattice.aux_collection.attempted_records);
     try testing.expectEqual(@as(usize, 0), empty_on.lattice.aux.len);
@@ -169,7 +153,7 @@ test "raster distinguishes not-collected, complete-empty, and AUX OOM without ch
 
     var complete_arena = std.heap.ArenaAllocator.init(testing.allocator);
     defer complete_arena.deinit();
-    const complete = try raster.rasterize(complete_arena.allocator(), s, .bridge, .{ .collect_aux = true });
+    const complete = try raster.rasterize(complete_arena.allocator(), s, .bridge);
     try testing.expectEqual(lattice.AuxCollectionState.complete, complete.lattice.aux_collection.state);
     try testing.expect(complete.lattice.aux_collection.attempted_records > 0);
 
@@ -181,7 +165,7 @@ test "raster distinguishes not-collected, complete-empty, and AUX OOM without ch
         .fail_index = 1,
         .resize_fail_index = 0,
     });
-    const failed = try raster.rasterize(failing.allocator(), s, .bridge, .{ .collect_aux = true });
+    const failed = try raster.rasterize(failing.allocator(), s, .bridge);
     try testing.expect(failing.has_induced_failure);
     try testing.expectEqual(lattice.AuxCollectionState.out_of_memory, failed.lattice.aux_collection.state);
     try testing.expectEqual(complete.lattice.aux_collection.attempted_records, failed.lattice.aux_collection.attempted_records);
@@ -208,7 +192,7 @@ test "aux records survive the three post-walk mutating passes" {
     // orchestrator runs afterwards — the fan-OUT mask resolve, neighbour
     // reconciliation, and arrowhead-base receiving — rewrites cells in
     // place. The record is still here at the end.
-    const report = try raster.rasterize(a, s, .bridge, .{ .collect_aux = true });
+    const report = try raster.rasterize(a, s, .bridge);
     var lat = report.lattice;
 
     // Port tees are keyed to head adjacency: this edge is `arrow_to =

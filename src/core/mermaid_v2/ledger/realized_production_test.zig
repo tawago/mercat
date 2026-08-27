@@ -57,7 +57,7 @@ test "Step 7 mixing cases have exact reach and no fused edge junction" {
         // stay 2-neighbour paths. The one merged fan-in rail legitimately
         // carries a ┬ junction (its taps meet the drop), so busbar trunk/
         // rail roles are exempt — that junction IS the truthful merged ink.
-        const rendered = try raster.rasterize(a, winner.sketch, .bridge, .{});
+        const rendered = try raster.rasterize(a, winner.sketch, .bridge);
         for (rendered.lattice.cells) |cell| switch (cell.occupant) {
             .edge_segment => |seg| switch (seg.role) {
                 .forward, .back_edge => try std.testing.expect(@popCount(cell.neighbours.toMask()) <= 2),
@@ -147,7 +147,7 @@ test "V-D-PORT-01: mixed-kind 1x3 renders as three pitch-2 independent component
     const report = try reach.validate(a, winner.sketch, try select.nodeKeyTable(a, graph), .flat);
     try std.testing.expectEqual(@as(usize, 3), report.components.len);
     try std.testing.expectEqual(@as(u32, 0), report.counts.ciTotal());
-    try std.testing.expectEqual(@as(u32, 0), (try raster.rasterize(a, winner.sketch, .bridge, .{})).edge_cells_lost);
+    try std.testing.expectEqual(@as(u32, 0), (try raster.rasterize(a, winner.sketch, .bridge)).edge_cells_lost);
 }
 
 test "V-D-PORT-14: inline K1,3 realized Rail keeps midpoint stem and pre-Step-7 bytes" {
@@ -171,8 +171,8 @@ test "V-D-PORT-14: inline K1,3 realized Rail keeps midpoint stem and pre-Step-7 
     try std.testing.expectEqual(pivot.rect.x + @as(i32, @intCast(pivot.rect.w / 2)), bb.stem[0].x);
     try std.testing.expectEqual(pivot.rect.bottom() - 1, bb.stem[0].y);
 
-    const realized_raster = try raster.rasterize(a, realized_winner.sketch, .bridge, .{});
-    const before_raster = try raster.rasterize(a, before.sketch, .bridge, .{});
+    const realized_raster = try raster.rasterize(a, realized_winner.sketch, .bridge);
+    const before_raster = try raster.rasterize(a, before.sketch, .bridge);
     const realized_bytes = try paint.paint(a, realized_raster.lattice, realized_winner.sketch.budget.max_width);
     const before_bytes = try paint.paint(a, before_raster.lattice, before.sketch.budget.max_width);
     try std.testing.expectEqualStrings(before_bytes, realized_bytes);
@@ -299,7 +299,7 @@ fn renderPlain(a: std.mem.Allocator, source: []const u8, width: u32) !struct { g
     const graph = try parse(a, source);
     const plan = (try permits.build(a, graph, .joined)).plan;
     const winner = try select.choose(a, graph, &plan, width, false, false);
-    const rendered = try raster.rasterize(a, winner.sketch, .bridge, .{});
+    const rendered = try raster.rasterize(a, winner.sketch, .bridge);
     const routed = try a.alloc(u32, winner.sketch.edges.len);
     for (winner.sketch.edges, routed) |e, *slot| slot.* = e.id;
     return .{
@@ -376,7 +376,7 @@ test "a salvaged trunk is complete against the commitment the layout drew" {
     var trunk_members: usize = 0;
     for (winner.sketch.joins.selected_joins) |sj| trunk_members = @max(trunk_members, sj.members.len);
     try std.testing.expectEqual(@as(usize, 2), trunk_members);
-    const report = try raster.rasterize(a, winner.sketch, .bridge, .{});
+    const report = try raster.rasterize(a, winner.sketch, .bridge);
     try std.testing.expectEqual(@as(u32, 0), report.edge_cells_lost);
 }
 

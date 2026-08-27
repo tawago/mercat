@@ -55,11 +55,11 @@ test "fan provenance: first-class fan-out claim is valid metadata and changes no
     try testing.expectEqual(@as(usize, 3), claim.members.len);
     try testing.expect(ledger.checkRailClaim(claim).isValid());
 
-    const with_report = try raster.rasterize(a, s, .bridge, .{});
+    const with_report = try raster.rasterize(a, s, .bridge);
     const with_bytes = try painter.paint(a, with_report.lattice, s.budget.max_width);
     var without = s;
     without.rail_claims = &.{};
-    const without_report = try raster.rasterize(a, without, .bridge, .{});
+    const without_report = try raster.rasterize(a, without, .bridge);
     const without_bytes = try painter.paint(a, without_report.lattice, without.budget.max_width);
     try testing.expectEqualStrings(with_bytes, without_bytes);
 }
@@ -98,7 +98,7 @@ test "fan provenance: realized fan-in Rail claims the pivot while labeled fan-in
     try testing.expectEqual(@as(usize, 0), peer.busbars.len);
     try testing.expectEqual(@as(usize, 2), peer.edges.len);
     try testing.expectEqual(@as(usize, 0), peer.rail_claims.len);
-    const report = try raster.rasterize(peer_arena.allocator(), peer, .bridge, .{});
+    const report = try raster.rasterize(peer_arena.allocator(), peer, .bridge);
     try testing.expectEqual(@as(u32, 0), report.labels_dropped);
 }
 
@@ -290,7 +290,7 @@ test "fan provenance: duplicate leaf is private on flat and clustered peer paths
         try testing.expect(private.?.port_from.offset != retained.?.port_from.offset);
         try testing.expect(private.?.port_to.offset != retained.?.port_to.offset);
         try testing.expectEqual(sketch.EdgeRole.fan_out_dropper, private.?.role);
-        const report = try raster.rasterize(arena.allocator(), s, .bridge, .{});
+        const report = try raster.rasterize(arena.allocator(), s, .bridge);
         try testing.expect(report.labels_placed > 0);
         try testing.expectEqual(@as(u32, 0), report.labels_dropped);
     }

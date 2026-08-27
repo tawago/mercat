@@ -57,7 +57,7 @@ fn declaredGeometry(s: sk.Sketch) usize {
 }
 
 fn expectTerminalEvidence(a: std.mem.Allocator, g: sg.SemGraph, s: sk.Sketch, arrows: usize) !void {
-    const report = try raster.rasterize(a, s, .bridge, .{ .collect_aux = true });
+    const report = try raster.rasterize(a, s, .bridge);
     try std.testing.expectEqual(g.edges.len, declaredGeometry(s));
     try std.testing.expectEqual(g.edges.len, report.edges_written);
     try std.testing.expectEqual(@as(u32, 0), report.edge_cells_lost);

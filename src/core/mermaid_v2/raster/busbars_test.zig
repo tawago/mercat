@@ -133,7 +133,7 @@ test "a rail files its members on the shared run and a tap at each branch cell" 
     var busbars: [1]sketch.Rail = undefined;
     const s = fanSketch(&nodes, &taps, &stem, &busbars);
 
-    const r = try raster.rasterize(a, s, .bridge, .{ .collect_aux = true });
+    const r = try raster.rasterize(a, s, .bridge);
     const lat = r.lattice;
 
     // One tap record per branch cell, naming that tap's edge, polarity out.
@@ -323,8 +323,8 @@ test "busbar plus separated edges is byte and report invariant under edge write 
     first_sketch.edges = &forward;
     var second_sketch = base;
     second_sketch.edges = &reverse;
-    const first = try raster.rasterize(a, first_sketch, .bridge, .{});
-    const second = try raster.rasterize(a, second_sketch, .bridge, .{});
+    const first = try raster.rasterize(a, first_sketch, .bridge);
+    const second = try raster.rasterize(a, second_sketch, .bridge);
 
     try testing.expectEqualSlices(lattice.Cell, first.lattice.cells, second.lattice.cells);
     try testing.expectEqual(first.nodes_written, second.nodes_written);

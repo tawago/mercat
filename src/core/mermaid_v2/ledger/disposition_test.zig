@@ -221,7 +221,7 @@ test "V-D-DISPOSITION-01: incomplete-2x2 conflicts survive disposeUnsafe, all-in
     try expectEqual(pb.DispositionClass.report_only, pb.classOf(.join_select_independent_unsafe_component));
 
     // Render succeeds (RO disposition, no fatal).
-    const rendered = try raster.rasterize(a, winner.sketch, .bridge, .{});
+    const rendered = try raster.rasterize(a, winner.sketch, .bridge);
     const bytes = try paint.paint(a, rendered.lattice, winner.sketch.budget.max_width);
     try expect(bytes.len > 0);
 }
@@ -250,7 +250,7 @@ test "V-D-DISPOSITION-06: terminal fallback is built by the selection tail, mark
         try expectEqual(@as(usize, 0), result.sketch.busbars.len);
         try expect(result.sketch.joins.memberships.len > 0);
         try expect((try jpv.validate(a, plan, result.sketch.joins, &.{})).valid());
-        const rendered = try raster.rasterize(a, result.sketch, .bridge, .{});
+        const rendered = try raster.rasterize(a, result.sketch, .bridge);
         const bytes = try paint.paint(a, rendered.lattice, result.sketch.budget.max_width);
         try expect(bytes.len > 0);
     }

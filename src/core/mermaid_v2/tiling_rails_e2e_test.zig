@@ -33,7 +33,7 @@ fn renderCounts(a: std.mem.Allocator, source: []const u8, width: u32) !counts.Co
     const built = try permits.build(a, graph, .joined);
     const plan = built.plan;
     const winner = try select.choose(a, graph, &plan, width, false, false);
-    const report = try raster.rasterize(a, winner.sketch, .bridge, .{ .collect_aux = true });
+    const report = try raster.rasterize(a, winner.sketch, .bridge);
     return scan.run(a, .{
         .graph = graph,
         .sketch = winner.sketch,

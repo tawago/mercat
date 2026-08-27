@@ -125,9 +125,9 @@ test "the audit re-raster honors each candidate's policy flag" {
     try std.testing.expect(beside_sketch != null);
 
     // The flag reaches the raster pass: the beside twin places NOTHING on a run.
-    const rep_beside = try raster.rasterize(a, beside_sketch.?, .bridge, .{});
+    const rep_beside = try raster.rasterize(a, beside_sketch.?, .bridge);
     try std.testing.expectEqual(@as(u32, 0), rep_beside.labels_on_run);
-    const rep_on_run = try raster.rasterize(a, on_run_sketch.?, .bridge, .{});
+    const rep_on_run = try raster.rasterize(a, on_run_sketch.?, .bridge);
     try std.testing.expect(rep_on_run.labels_on_run > 0);
 
     // And the audit — the scorer's only view — collects each variant's own

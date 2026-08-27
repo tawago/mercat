@@ -38,7 +38,7 @@ fn render(a: std.mem.Allocator, source: []const u8, width: u32) !Rendered {
     const built = try permits.build(a, graph, .joined);
     const plan = built.plan;
     const winner = try select.choose(a, graph, &plan, width, false, false);
-    const report = try raster.rasterize(a, winner.sketch, .bridge, .{ .collect_aux = true });
+    const report = try raster.rasterize(a, winner.sketch, .bridge);
     return .{ .graph = graph, .sketch = winner.sketch, .report = report };
 }
 
@@ -356,21 +356,17 @@ test "AUX and RailClaim metadata preserve production cells and audit counts" {
         const graph = try parse(a, source);
         const built = try permits.build(a, graph, .joined);
         const winner = try select.choose(a, graph, &built.plan, width, false, false);
-        const on = try raster.rasterize(a, winner.sketch, .bridge, .{ .collect_aux = true });
-        const off = try raster.rasterize(a, winner.sketch, .bridge, .{});
+        const on = try raster.rasterize(a, winner.sketch, .bridge);
         try testing.expect(on.lattice.aux.len > 0);
-        try testing.expectEqual(@as(usize, 0), off.lattice.aux.len);
-        try testing.expectEqualSlices(lattice.Cell, off.lattice.cells, on.lattice.cells);
         if (winner.sketch.rail_claims.len != 0) {
             try testing.expectEqual(winner.sketch.rail_claims.ptr, on.lattice.rail_claims.ptr);
-            try testing.expectEqual(winner.sketch.rail_claims.ptr, off.lattice.rail_claims.ptr);
             const on_counts = scan.run(a, (&Rendered{ .graph = graph, .sketch = winner.sketch, .report = on }).ctx());
             var blind = on.lattice;
             blind.rail_claims = &.{};
             try testing.expectEqualStrings(try paint.paint(a, on.lattice, width), try paint.paint(a, blind, width));
             var no_claims = winner.sketch;
             no_claims.rail_claims = &.{};
-            const removed = try raster.rasterize(a, no_claims, .bridge, .{});
+            const removed = try raster.rasterize(a, no_claims, .bridge);
             try testing.expectEqualSlices(lattice.Cell, on.lattice.cells, removed.lattice.cells);
             if (on_counts.c_rail_star_valid == on_counts.n_rail_claims) {
                 if (winner.sketch.busbars.len == 0) peer_claims = true else first_class_claims = true;

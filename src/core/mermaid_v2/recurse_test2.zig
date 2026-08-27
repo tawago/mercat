@@ -380,7 +380,7 @@ test "a child rail and cross-border bridge sharing A's final port are licensed" 
     }
     try std.testing.expect(licensed);
 
-    const report = try raster.rasterize(a, s, .bridge, .{ .collect_aux = true });
+    const report = try raster.rasterize(a, s, .bridge);
     try std.testing.expectEqual(@as(u32, 0), report.crossings.foreign_junction_violation);
     try std.testing.expectEqual(@as(u32, 0), report.crossings.arrowhead_transit_violation);
     var licensed_carriers: usize = 0;

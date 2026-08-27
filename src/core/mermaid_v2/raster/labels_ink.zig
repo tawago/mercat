@@ -22,11 +22,8 @@
 //!     the foreign-EDGE margin (mis-attribution risk) is never waived.
 //!
 //! The lattice side table (`lat.aux`) is deliberately never consulted:
-//! production attaches it AFTER label placement (raster.zig attaches last),
-//! and rasterizing with `collect_aux` on must change no painted cell
-//! (pinned by tiling_records_test.zig "collecting the side table changes
-//! no painted cell") — so placement depends only on state both modes
-//! share: cell ids and the Sketch geometry.
+//! production attaches it AFTER label placement (raster.zig attaches
+//! last), so placement depends only on cell ids and the Sketch geometry.
 //!
 //! Import boundary: std, sketch, lattice, raster siblings only (raster
 //! zone; enforced by tools/lint_imports.zig).
