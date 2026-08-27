@@ -118,13 +118,19 @@ test "origin chains through a nested cut to the root id" {
     defer arena.deinit();
     const a = arena.allocator();
 
-    // S contains sub-cluster T; the only edge lives inside T.
+    // S contains sub-cluster T; the deep edge lives inside T. A preceding
+    // top-level edge (root id 0) forces the deep edge's root id (1) to differ
+    // from its piece-local id (0) at every level, so plain `e.id` chaining
+    // cannot masquerade as origin chaining.
     const nodes = [_]sg.Node{
         .{ .id = 0, .raw_id = "A1", .label = "A1", .shape = .rect, .classes = &.{}, .cluster = 1 },
         .{ .id = 1, .raw_id = "A2", .label = "A2", .shape = .rect, .classes = &.{}, .cluster = 1 },
+        .{ .id = 2, .raw_id = "X", .label = "X", .shape = .rect, .classes = &.{}, .cluster = null },
+        .{ .id = 3, .raw_id = "Y", .label = "Y", .shape = .rect, .classes = &.{}, .cluster = null },
     };
     const edges = [_]sg.Edge{
-        .{ .id = 0, .from = 0, .to = 1, .kind = .thick, .arrow_from = .none, .arrow_to = .filled, .label = "deep" },
+        .{ .id = 0, .from = 2, .to = 3, .kind = .solid, .arrow_from = .none, .arrow_to = .filled, .label = "top" },
+        .{ .id = 1, .from = 0, .to = 1, .kind = .thick, .arrow_from = .none, .arrow_to = .filled, .label = "deep" },
     };
     const mt = [_]sg.NodeId{ 0, 1 };
     const clusters = [_]sg.Cluster{
@@ -136,12 +142,12 @@ test "origin chains through a nested cut to the root id" {
     const sr = try split.split(a, g);
     const child = sr.pieces[1].graph; // S's subtree, T now top-level in it
     try std.testing.expectEqual(@as(usize, 1), child.edges.len);
-    try std.testing.expectEqual(@as(sg.EdgeId, 0), child.edges[0].origin);
+    try std.testing.expectEqual(@as(sg.EdgeId, 1), child.edges[0].origin);
 
     const sr2 = try split.split(a, child);
     const grandchild = sr2.pieces[1].graph;
     try std.testing.expectEqual(@as(usize, 1), grandchild.edges.len);
-    try std.testing.expectEqual(@as(sg.EdgeId, 0), grandchild.edges[0].origin);
+    try std.testing.expectEqual(@as(sg.EdgeId, 1), grandchild.edges[0].origin);
     try std.testing.expectEqualStrings("deep", grandchild.edges[0].label.?);
 }
 
