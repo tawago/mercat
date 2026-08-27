@@ -1,0 +1,11 @@
+pub const gcb = @import("generated/gcb.zig");
+pub const incb = @import("generated/incb.zig");
+pub const wide = @import("generated/wide.zig");
+pub const emoji_presentation = @import("generated/emoji_presentation.zig");
+pub const extended_pictographic = @import("generated/extended_pictographic.zig");
+pub const emoji_modifier = @import("generated/emoji_modifier.zig");
+pub const emoji_component = @import("generated/emoji_component.zig");
+pub const default_ignorable = @import("generated/default_ignorable.zig");
+pub const variation_bases = @import("generated/variation_bases.zig");
+pub const basic_emoji = @import("generated/basic_emoji.zig");
+pub const rgi = @import("generated/rgi.zig");

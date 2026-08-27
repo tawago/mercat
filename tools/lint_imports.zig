@@ -2,7 +2,7 @@
 //!
 //! Run via `zig build lint`. Walks the root directory recursively, reads every
 //! `.zig` file, and checks:
-//!   1. ≤ 500 newlines per file.
+//!   1. ≤ 500 code lines per file (blank and comment-only lines are free).
 //!   2. No path component equals "fallback".
 //!   3. Per-file `@import("...")` rules (tools/lint/imports.zig).
 //!   4. Every `guarded-by: <file> "<test>"` pointer resolves to a real test
@@ -81,13 +81,19 @@ pub fn lint(allocator: std.mem.Allocator, root: []const u8) !LintReport {
         defer file.close();
         const contents = try file.readToEndAlloc(a, 8 * 1024 * 1024);
 
-        // Check 1: 500-line cap (count newlines).
-        var newlines: usize = 0;
-        for (contents) |c| {
-            if (c == '\n') newlines += 1;
+        // Check 1: 500-code-line cap. Blank lines and comment-only lines
+        // (`//`, `///`, `//!` after leading whitespace) are free, so
+        // explanation never competes with functionality for the budget.
+        var code_lines: usize = 0;
+        var line_it = std.mem.splitScalar(u8, contents, '\n');
+        while (line_it.next()) |line| {
+            const trimmed = std.mem.trimLeft(u8, line, " \t\r");
+            if (trimmed.len == 0) continue;
+            if (std.mem.startsWith(u8, trimmed, "//")) continue;
+            code_lines += 1;
         }
-        if (newlines > 500) {
-            const msg = try std.fmt.allocPrint(a, "{s}: {d} newlines exceeds 500-line cap", .{ entry.path, newlines });
+        if (code_lines > 500) {
+            const msg = try std.fmt.allocPrint(a, "{s}: {d} code lines exceeds 500-code-line cap (blank/comment lines are free)", .{ entry.path, code_lines });
             try violations.append(a, msg);
         }
 

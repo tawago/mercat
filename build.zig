@@ -3,9 +3,34 @@ const std = @import("std");
 pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
+
+    const unicode_check = b.addExecutable(.{
+        .name = "unicode-check",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("tools/unicode/check.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+    const unicode_check_run = b.addRunArtifact(unicode_check);
+    unicode_check_run.setCwd(b.path("."));
+    const unicode_cache_dir = b.cache_root.join(b.allocator, &.{"unicode-17-generated"}) catch @panic("out of memory");
+    unicode_check_run.addArg(unicode_cache_dir);
+    const unicode_check_step = b.step("unicode-check", "Offline regenerate and byte-compare Unicode 17 tables");
+    unicode_check_step.dependOn(&unicode_check_run.step);
+
+    // Keep the Unicode provenance gate usable from a cold cache without
+    // resolving application packages that it neither imports nor executes.
+    if (onlyStepRequested(b, "unicode-check")) return;
+
     const options = b.addOptions();
-    const koino_dep = b.dependency("koino", .{ .target = target, .optimize = optimize });
-    const vaxis_dep = b.dependency("vaxis", .{ .target = target, .optimize = optimize });
+    const calibration_inputs = b.option([]const u8, "calibration-inputs", "Directory containing optional score-calibration inputs");
+    options.addOption(?[]const u8, "calibration_inputs", calibration_inputs);
+    const maybe_koino_dep = b.lazyDependency("koino", .{ .target = target, .optimize = optimize });
+    const maybe_vaxis_dep = b.lazyDependency("vaxis", .{ .target = target, .optimize = optimize });
+    if (maybe_koino_dep == null or maybe_vaxis_dep == null) return;
+    const koino_dep = maybe_koino_dep.?;
+    const vaxis_dep = maybe_vaxis_dep.?;
     options.addOption([]const u8, "version", "0.2.1");
 
     // =====================================================
@@ -17,6 +42,12 @@ pub fn build(b: *std.Build) void {
     // outside their own root directory.
     const text_mod = b.createModule(.{
         .root_source_file = b.path("src/lib/text.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+
+    const unicode_mod = b.createModule(.{
+        .root_source_file = b.path("src/lib/unicode.zig"),
         .target = target,
         .optimize = optimize,
     });
@@ -33,6 +64,7 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
     mermaid_v2_mod.addImport("prim", prim_mod);
+    mermaid_v2_mod.addImport("unicode", unicode_mod);
 
     // =====================================================
     // Main Executable
@@ -47,6 +79,7 @@ pub fn build(b: *std.Build) void {
     root_module.addImport("vaxis", vaxis_dep.module("vaxis"));
     root_module.addImport("prim", prim_mod);
     root_module.addImport("text", text_mod);
+    root_module.addImport("unicode", unicode_mod);
     // Native export font service (src/export/font.zig): embedded JetBrains Mono
     // + vendored stb_truetype. See linkExportFont below.
     linkExportFont(b, root_module);
@@ -83,6 +116,7 @@ pub fn build(b: *std.Build) void {
     test_module.addImport("vaxis", vaxis_dep.module("vaxis"));
     test_module.addImport("prim", prim_mod);
     test_module.addImport("text", text_mod);
+    test_module.addImport("unicode", unicode_mod);
     linkExportFont(b, test_module);
 
     const unit_tests = b.addTest(.{
@@ -95,6 +129,23 @@ pub fn build(b: *std.Build) void {
     test_run.step.dependOn(b.getInstallStep());
     const test_step = b.step("test", "Run unit tests");
     test_step.dependOn(&test_run.step);
+
+    // The scalar-cell legacy Mermaid renderers need a root above shared/ so
+    // canvas can import sibling types while consuming the one named Unicode
+    // authority. Flowcharts remain exclusively in the mermaid_v2 test graph.
+    const legacy_mermaid_test_module = b.createModule(.{
+        .root_source_file = b.path("src/core/mermaid/legacy_test.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    legacy_mermaid_test_module.addImport("prim", prim_mod);
+    legacy_mermaid_test_module.addImport("text", text_mod);
+    legacy_mermaid_test_module.addImport("unicode", unicode_mod);
+    const legacy_mermaid_tests = b.addTest(.{ .root_module = legacy_mermaid_test_module });
+    const legacy_mermaid_test_run = b.addRunArtifact(legacy_mermaid_tests);
+    const legacy_mermaid_test_step = b.step("test-mermaid-legacy", "Run legacy Mermaid renderer tests");
+    legacy_mermaid_test_step.dependOn(&legacy_mermaid_test_run.step);
+    test_step.dependOn(&legacy_mermaid_test_run.step);
 
     // =====================================================
     // Export Font Tests (standalone root at src/export/font.zig)
@@ -160,7 +211,9 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     });
+    v2_test_module.addOptions("build_options", options);
     v2_test_module.addImport("prim", prim_mod);
+    v2_test_module.addImport("unicode", unicode_mod);
     const v2_tests = b.addTest(.{ .root_module = v2_test_module });
     const v2_test_run = b.addRunArtifact(v2_tests);
     const v2_test_step = b.step("test-mermaid-v2", "Run mermaid_v2 unit tests");
@@ -202,6 +255,21 @@ pub fn build(b: *std.Build) void {
     const lint_tests_run = b.addRunArtifact(lint_tests);
     lint_tests_run.setCwd(b.path("."));
     test_step.dependOn(&lint_tests_run.step);
+
+    // =====================================================
+    // Unicode 17 authority (offline regeneration + tests)
+    // =====================================================
+    const unicode_test_module = b.createModule(.{
+        .root_source_file = b.path("src/lib/unicode.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    const unicode_tests = b.addTest(.{ .root_module = unicode_test_module });
+    const unicode_test_run = b.addRunArtifact(unicode_tests);
+    unicode_test_run.setCwd(b.path("."));
+    const unicode_test_step = b.step("test-unicode", "Run Unicode authority tests");
+    unicode_test_step.dependOn(&unicode_test_run.step);
+    test_step.dependOn(&unicode_test_run.step);
 
     // =====================================================
     // Visual Samples Harness (mermaid_v2)
@@ -251,6 +319,7 @@ pub fn build(b: *std.Build) void {
         });
         internals_mod.addImport("prim", prim_mod);
         internals_mod.addImport("text", text_mod);
+        internals_mod.addImport("unicode", unicode_mod);
 
         const reconstruction_mod = b.createModule(.{
             .root_source_file = b.path("eval/reconstruction_api.zig"),
@@ -301,8 +370,9 @@ pub fn build(b: *std.Build) void {
         test_eval_step.dependOn(&decoder_score_test_run.step);
 
         // --- byte-exact regression gate (folded INTO `zig build test`) ---
-        // Renders every pin under `harness/regressions/` with the freshly
-        // installed mercat and compares byte for byte against its goldens;
+        // Renders every pin under the explicitly configured private directory
+        // with the freshly installed mercat and compares byte for byte against
+        // its goldens;
         // exits nonzero on any mismatch or orphan golden. Unlike `test-eval`
         // this is a ratchet, so it hangs off `test` — but still only where
         // `eval/` exists, leaving public clones untouched.
@@ -311,6 +381,11 @@ pub fn build(b: *std.Build) void {
             "update-regressions",
             "Rewrite regression goldens (owner-approved changes only)",
         ) orelse false;
+        const regression_dir = b.option(
+            []const u8,
+            "regression-dir",
+            "Directory containing private byte-exact regression pins",
+        );
 
         const regress_exe = b.addExecutable(.{
             .name = "regress",
@@ -325,14 +400,46 @@ pub fn build(b: *std.Build) void {
         regress_cmd.step.dependOn(b.getInstallStep());
         regress_cmd.setCwd(b.path("."));
         regress_cmd.addArg(b.getInstallPath(.bin, "mercat"));
-        regress_cmd.addArg("harness/regressions");
+        if (regression_dir) |path| regress_cmd.addArg(path);
         if (update_regressions) regress_cmd.addArg("--update");
 
         const regress_step = b.step("regress", "Run byte-exact rendering regression pins");
-        regress_step.dependOn(&regress_cmd.step);
-
-        test_step.dependOn(&regress_cmd.step);
+        if (regression_dir != null) {
+            regress_step.dependOn(&regress_cmd.step);
+            test_step.dependOn(&regress_cmd.step);
+        }
     }
+}
+
+fn onlyStepRequested(b: *std.Build, wanted: []const u8) bool {
+    const args = std.process.argsAlloc(b.allocator) catch return false;
+    if (args.len < 6) return false;
+
+    var found: ?[]const u8 = null;
+    var index: usize = 6;
+    while (index < args.len) : (index += 1) {
+        const arg = args[index];
+        if (std.mem.eql(u8, arg, "--")) break;
+        if (buildOptionTakesValue(arg)) {
+            index += 1;
+            continue;
+        }
+        if (std.mem.startsWith(u8, arg, "-")) continue;
+        if (found != null) return false;
+        found = arg;
+    }
+    return found != null and std.mem.eql(u8, found.?, wanted);
+}
+
+fn buildOptionTakesValue(arg: []const u8) bool {
+    const options = [_][]const u8{
+        "-p",                   "--prefix",    "--prefix-lib-dir", "--prefix-exe-dir",
+        "--prefix-include-dir", "--sysroot",   "--maxrss",         "--search-prefix",
+        "--libc",               "--color",     "--summary",        "--seed",
+        "--debounce",           "--debug-log", "--libc-runtimes",  "--glibc-runtimes",
+    };
+    for (options) |option| if (std.mem.eql(u8, arg, option)) return true;
+    return false;
 }
 
 /// Wire the native-export font integration into a module that compiles

@@ -5,8 +5,9 @@
 //! whole file, comments included: a tombstone also stops the old word
 //! returning as prose. POLICY: tokens are FULL identifiers or longer
 //! (e.g. "lanes.Demand", "fan_in_trunk", "pub fn weld") — never bare word
-//! stems; exemptions are by basename (the matching gb_external uses), via
-//! `allow` (everywhere except) or `only` (nowhere except).
+//! stems. The three short privacy-boundary tokens are complete acronyms or a
+//! complete sigil, not stems. Exemptions are by basename (the matching
+//! gb_external uses), via `allow` (everywhere except) or `only` (nowhere except).
 //! Consequence for authors: never spell a retired name in a migration
 //! note — describe it ("the pre-rename lane type").
 
@@ -21,9 +22,26 @@ pub const Row = struct {
 
 pub const table = [_]Row{
     .{
+        .token = "TSD",
+        .why = "private design-document references do not belong in tracked renderer source; state the behavioral contract directly",
+    },
+    .{
+        .token = "SDD",
+        .why = "private design-document references do not belong in tracked renderer source; state the behavioral contract directly",
+    },
+    .{
+        .token = "§",
+        .why = "private section pointers do not belong in tracked renderer source; state the behavioral contract directly",
+    },
+    .{
         .token = "pub fn codepointWidth",
-        .why = "width policy has exactly two sanctioned copies (src/lib/unicode.zig and base/types.zig, drift-pinned); do not add a third",
-        .allow = &.{"types.zig"},
+        .why = "src/lib/unicode.zig is the Unicode width authority; codepointWidth remains only as its migration wrapper and the existing mermaid_v2 compatibility copy",
+        .allow = &.{ "unicode.zig", "types.zig" },
+    },
+    .{
+        .token = "lib/unicode.zig",
+        .why = "import the Unicode authority as the named module \"unicode\" so consumers cannot bypass one shared module identity",
+        .allow = &.{ "types.zig", "imports.zig", "banned_tokens.zig" },
     },
     .{
         .token = "getenv",
@@ -51,7 +69,11 @@ pub const table = [_]Row{
     },
     .{
         .token = "repairReciprocalArms",
-        .why = "renamed repairReciprocalStrokes (rename wave B); the neighbour-bit 'arm' vocabulary itself is unaffected",
+        .why = "the additive reciprocity-repair post-pass this named is DELETED, under this spelling and its later one alike; a neighbour bit the edge writer declined is never restored from geometry. The neighbour-bit 'arm' vocabulary itself is unaffected",
+    },
+    .{
+        .token = "repairReciprocalStrokes",
+        .why = "DELETED mechanism: the post-walk pass that re-added a neighbour bit toward any reciprocating edge_segment. It ran before the side table was attached and was handed no crossing context, so it could not tell a legal channel sharer from the foreign arm the crossing rule had just refused — and it put both back, painting a junction no source declares. The remedy for a false disconnect is evidence upstream (declare the sharing relation as a ledger.CoSet so the refusal never fires on a legal sharer), never an additive repair downstream. raster/reconcile.zig CLEARS only",
     },
     .{
         .token = "ensureBaseApproachLengthen",
@@ -99,7 +121,7 @@ pub const table = [_]Row{
     },
     .{
         .token = "meshUnionLegal",
-        .why = "there is no union to judge legal: a shared run is licensed by the ONE endpoint its members share, discovered as a star group in ledger/permits.zig, and everything a rail additionally implies is judged by base/rail_closure.zig",
+        .why = "there is no union to judge legal: a shared run is licensed by the ONE endpoint its members share, discovered as a star group in ledger/permits.zig, and everything a rail additionally implies is judged by the declared-pair closure test — stated in base/rail_closure.zig and applied per fused group, trace-blocked and not alike, by layout/fan_lanes.zig (amended 2026-08-04)",
     },
     .{
         .token = "stampFanTrunks",
@@ -123,7 +145,7 @@ pub const table = [_]Row{
     },
     .{
         .token = "fanMeshExempt",
-        .why = "no fan is exempt from lane separation: completeness never licensed one bus across every column, so layout/fan_lanes.zig gates on the two-sided union alone (fusionForbidden)",
+        .why = "there is no fan-level exemption mechanism to name: layout/fan_lanes.zig admits a fused group only by the closure test on the group's own declared edges (fusionForbidden — a two-sided group keeps one row exactly when every member blocks the leaf-to-leaf trace with a one-way head, no ink is missing from its model, and the declared set is the whole of srcs x tgts), never by exempting a fan (amended 2026-08-04)",
     },
     .{
         .token = "noDuplicateLeafPairs",
@@ -308,7 +330,10 @@ test "banned token: a reverted diagnostic-tag spelling fires" {
 
 test "banned token: production table is well-formed" {
     for (table) |row| {
-        try testing.expect(row.token.len >= 4);
+        const short_privacy_token = std.mem.eql(u8, row.token, "TSD") or
+            std.mem.eql(u8, row.token, "SDD") or
+            std.mem.eql(u8, row.token, "§");
+        try testing.expect(row.token.len >= 4 or short_privacy_token);
         try testing.expect(row.why.len != 0);
         try testing.expect(row.allow.len == 0 or row.only.len == 0);
     }
