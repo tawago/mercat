@@ -65,11 +65,14 @@ pub const JoinPermits = struct {
     /// `.skipped_clustered`: deliberately not computed because the graph is
     /// clustered (groups/memberships empty); consumers must not realize or
     /// apply it. Part of the plan itself so no flag rides beside the record.
+    /// `.piece`: computed for one cluster-free recursion piece of a clustered
+    /// original, keyed by ORIGIN (root-graph) edge ids; not realizable until
+    /// the piece merge lands.
     scope: Scope = .flat,
     groups: []const JoinGroup = &.{},
     memberships: []const JoinMembership = &.{},
 
-    pub const Scope = enum { flat, skipped_clustered };
+    pub const Scope = enum { flat, skipped_clustered, piece };
 
     pub fn isFlat(self: JoinPermits) bool {
         return self.scope == .flat;

@@ -12,13 +12,24 @@ const permit_mod = @import("../ledger/permits.zig");
 pub const Report = pb.ClosureCounts;
 
 pub fn buildReported(a: std.mem.Allocator, graph: sg.SemGraph, permits: ?*const pb.JoinPermits, reversed_edges: []const pb.EdgeId, disable: bool, report: ?*Report) error{OutOfMemory}!pb.RealizedJoins {
-    // Commit only for a flat plan laying out a cluster-free piece: synthetic
-    // motif-pack clusters are outside the flat edge-id identity path just like
-    // authored clusters, so no original-input permit may affect their geometry
-    // before post-layout realization applies the same gate.
-    const flat = permits != null and permits.?.isFlat() and graph.clusters.len == 0;
-    if (!flat) return .{};
-    const plan = permits.?.*;
+    // Commit only when laying out a cluster-free graph: synthetic motif-pack
+    // clusters are outside the flat edge-id identity path just like authored
+    // clusters, so no original-input permit may affect their geometry before
+    // post-layout realization applies the same gate.
+    const plan_ptr = permits orelse return .{};
+    if (graph.clusters.len != 0) return .{};
+    if (!plan_ptr.isFlat()) {
+        // A cluster-free piece of a clustered original: build its piece-scoped,
+        // origin-keyed licence plan here, where the piece graph exists.
+        // Realization of piece plans is cluster-unification step-3 territory;
+        // until it lands the commitment stays exactly the empty plan.
+        if (permit_mod.buildPiece(a, graph)) |_| {} else |err| switch (err) {
+            error.OutOfMemory => return error.OutOfMemory,
+            error.InvalidSemGraph => {},
+        }
+        return .{};
+    }
+    const plan = plan_ptr.*;
     // P2v Step 8 (D-DISPOSITION item 9(b)): the forced all-independent terminal
     // layout. Every grouped endpoint takes an independent(not_selected)
     // disposition, so no trunk is realized — fan_rail.resolve then declines (memberships present, none selected),
