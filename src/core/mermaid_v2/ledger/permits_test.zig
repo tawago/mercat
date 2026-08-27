@@ -449,14 +449,16 @@ test "rail preparation ignores an invisible plurality" {
     try std.testing.expect(!prepared.style_mixed);
 }
 
-test "piece plan licenses a fan keyed by origin ids; synthetic edges take no part" {
+test "piece plan licenses a fan in piece-local ids; synthetic edges take no part" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
 
     // A cluster-free piece as split leaves it: piece-local edge ids 0..2 carry
-    // root origins {9, 5, 7}; one synthetic placement-style edge keeps the
-    // SENTINEL origin.
+    // root origins; one synthetic placement-style edge keeps the SENTINEL
+    // origin. The plan speaks the PIECE's own ids — the id space its layout,
+    // routing, and Sketch use — so realization consumes it unchanged and the
+    // stitch remaps it with the same offsets as every other record.
     var edges = [_]sg.Edge{ edge(0, 0, 1), edge(1, 0, 2), edge(2, 0, 3), edge(3, 4, 0) };
     edges[0].origin = 9;
     edges[1].origin = 5;
@@ -468,12 +470,12 @@ test "piece plan licenses a fan keyed by origin ids; synthetic edges take no par
     try std.testing.expectEqual(@as(usize, 1), result.plan.groups.len);
     try std.testing.expectEqual(pb.JoinDirection.out, result.plan.groups[0].direction);
     try std.testing.expectEqual(@as(sg.NodeId, 0), result.plan.groups[0].pivot);
-    // Members are ROOT ids in canonical (raw-id key) order B,C,D -> 9,5,7.
-    try std.testing.expectEqualSlices(pb.EdgeId, &.{ 9, 5, 7 }, result.plan.groups[0].members);
-    // The synthetic edge has no membership row; real rows are origin-keyed.
+    // Members are PIECE-LOCAL ids in canonical (raw-id key) order B,C,D.
+    try std.testing.expectEqualSlices(pb.EdgeId, &.{ 0, 1, 2 }, result.plan.groups[0].members);
+    // The synthetic edge has no membership row.
     try std.testing.expectEqual(@as(usize, 3), result.plan.memberships.len);
     for (result.plan.memberships) |m| {
-        try std.testing.expect(m.edge == 5 or m.edge == 7 or m.edge == 9);
+        try std.testing.expect(m.edge <= 2);
     }
 }
 

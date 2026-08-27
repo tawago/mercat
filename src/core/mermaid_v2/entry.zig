@@ -402,7 +402,7 @@ test "V-D-POLICY-03: policy has no config CLI or environment surface" {
     try std.testing.expectEqualStrings(left.output, right.output);
 }
 
-test "V-D-IR-07: clustered production path keeps the realized plan envelope empty" {
+test "V-D-IR-07: a clustered graph's joins ride piece plans; the root plan stays skipped" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
@@ -420,8 +420,53 @@ test "V-D-IR-07: clustered production path keeps the realized plan envelope empt
     try std.testing.expect(result.report.join_permits_skipped_clustered);
     try std.testing.expect(result.report.edgeid_scope_clustered_skipped);
     const laid_out = try ladder_pkg.run(a, graph, &result.plan, 120);
+    // No fan anywhere: no trunk realizes. But the piece plans' membership
+    // rows survive the stitch — one for S's A->B; the cross-border edge is
+    // a bridge and takes no row.
     try std.testing.expectEqual(@as(usize, 0), laid_out.sketch.joins.selected_joins.len);
-    try std.testing.expectEqual(@as(usize, 0), laid_out.sketch.joins.memberships.len);
+    try std.testing.expectEqual(@as(usize, 1), laid_out.sketch.joins.memberships.len);
+}
+
+test "cluster unification: a subgraph-internal fan-in realizes a trunk and ships it" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const graph = try parse(a,
+        \\flowchart TD
+        \\subgraph S
+        \\  A --> C
+        \\  B --> C
+        \\end
+        \\
+    );
+
+    // The piece plan realizes the fan-IN inside S and the trunk record rides
+    // the stitch into the merged Sketch.
+    const result = try resolveJoinPermits(a, graph);
+    const laid_out = try ladder_pkg.run(a, graph, &result.plan, 80);
+    try std.testing.expectEqual(@as(usize, 1), laid_out.sketch.joins.selected_joins.len);
+    try std.testing.expectEqual(@as(usize, 2), laid_out.sketch.joins.selected_joins[0].members.len);
+
+    // And the shipped bytes draw the fan bundled: one trunk into C.
+    const rendered = try renderFlowchart(std.testing.allocator, "flowchart TD\nsubgraph S\n  A --> C\n  B --> C\nend\n", .{ .max_width = 80 });
+    defer std.testing.allocator.free(rendered.output);
+    try std.testing.expect(!rendered.is_fallback);
+    const expected =
+        \\┌─ S ────────────────┐
+        \\│                    │
+        \\│   ┌───┐    ┌───┐   │
+        \\│   │ A │    │ B │   │
+        \\│   └─┬─┘    └─┬─┘   │
+        \\│     └───┬────┘     │
+        \\│         │          │
+        \\│         ▼          │
+        \\│       ┌───┐        │
+        \\│       │ C │        │
+        \\│       └───┘        │
+        \\│                    │
+        \\└────────────────────┘
+    ;
+    try std.testing.expectEqualStrings(expected, std.mem.trimRight(u8, rendered.output, "\n"));
 }
 
 test {

@@ -115,12 +115,13 @@ fn expectReconstructedThreeWayPortShare() !void {
     const cells = share.cells orelse return error.MissingPortShareScope;
     const pairs = share.pairwise orelse return error.MissingPairScopes;
 
+
     // The flat field is the exact union, retained as the set's narrowness
     // marker. Licensing reads the three entries below instead.
-    try testing.expectEqual(@as(usize, 30), cells.len);
+    try testing.expectEqual(@as(usize, 35), cells.len);
     for (cells, 0..) |cell, i| {
-        try testing.expectEqual(@as(i32, 25), cell.x);
-        try testing.expectEqual(45 - @as(i32, @intCast(i)), cell.y);
+        try testing.expectEqual(@as(i32, 38), cell.x);
+        try testing.expectEqual(50 - @as(i32, @intCast(i)), cell.y);
     }
 
     const expected = [_]struct {
@@ -128,23 +129,23 @@ fn expectReconstructedThreeWayPortShare() !void {
         b: ledger.EdgeId,
         last_y: i32,
     }{
-        .{ .a = 14, .b = 15, .last_y = 40 },
-        .{ .a = 14, .b = 16, .last_y = 40 },
+        .{ .a = 14, .b = 15, .last_y = 45 },
+        .{ .a = 14, .b = 16, .last_y = 45 },
         .{ .a = 15, .b = 16, .last_y = 16 },
     };
     try testing.expectEqual(expected.len, pairs.len);
     for (pairs, expected) |pair, want| {
         try testing.expectEqual(want.a, pair.a);
         try testing.expectEqual(want.b, pair.b);
-        try testing.expectEqual(@as(usize, @intCast(45 - want.last_y + 1)), pair.cells.len);
+        try testing.expectEqual(@as(usize, @intCast(50 - want.last_y + 1)), pair.cells.len);
         for (pair.cells, 0..) |cell, i| {
-            try testing.expectEqual(@as(i32, 25), cell.x);
-            try testing.expectEqual(45 - @as(i32, @intCast(i)), cell.y);
+            try testing.expectEqual(@as(i32, 38), cell.x);
+            try testing.expectEqual(50 - @as(i32, @intCast(i)), cell.y);
         }
     }
 
     const only_share = [_]ledger.CoSet{share};
-    const long_pair_only: ledger.CoCell = .{ .x = 25, .y = 16 };
+    const long_pair_only: ledger.CoCell = .{ .x = 38, .y = 16 };
     try testing.expect(ledger.coMembersAt(&only_share, 15, 16, long_pair_only));
     try testing.expect(!ledger.coMembersAt(&only_share, 14, 15, long_pair_only));
     try testing.expect(!ledger.coMembersAt(&only_share, 14, 16, long_pair_only));

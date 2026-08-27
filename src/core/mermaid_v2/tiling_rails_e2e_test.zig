@@ -66,25 +66,28 @@ const unclustered =
     \\
 ;
 
-test "rails: a real render puts two rails on one row and accounts for every pair" {
+test "rails: a clustered complete bipartite renders exactly as its flat form" {
+    // Cluster unification: the subgraph piece realizes the same piece plan a
+    // flat graph would, so the graph inside a frame and the graph without one
+    // produce one and the same rail story — the fan-IN trunk arrangement,
+    // with no fused two-sided row. (The pre-unification piece path bypassed
+    // the plan and fused the two fan-OUT crossbars on one row; that
+    // clustered-only population is gone.)
     var arena = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
-    const c = try renderCounts(arena.allocator(), clustered, 120);
+    const in_frame = try renderCounts(arena.allocator(), clustered, 120);
+    const flat = try renderCounts(arena.allocator(), unclustered, 120);
 
-    // The population is non-empty in production: this is the whole point of
-    // the file. Two rails, one crossbar row, two pivots and two leaves.
-    try testing.expectEqual(@as(u32, 1), c.n_rail_runs_two_sided);
-    try testing.expectEqual(@as(u32, 4), c.n_rail_pairs_asserted);
-    try testing.expectEqual(@as(u32, 4), c.c_rail_pair_accounted);
-    try testing.expectEqual(@as(u32, 0), c.d_rail_pair_undeclared);
-    try testing.expectEqual(@as(u32, 0), c.d_rail_branch_unrecorded);
-    try testing.expectEqual(@as(u32, 0), c.u_rail_pair_unevidenced);
-    try testing.expectEqual(@as(u32, 0), c.u_rail_run_records_absent);
-    try testing.expectEqual(@as(u32, 0), c.u_audit_oom);
-    try testing.expectEqual(@as(u32, 0), c.defectTotal());
-    // The line drawn here IS the two crossbars and nothing more, so the
-    // pair counts above are the whole answer and not a floor.
-    try testing.expectEqual(@as(u32, 0), c.u_rail_run_continued);
+    try testing.expectEqual(@as(u32, 0), in_frame.n_rail_runs_two_sided);
+    try testing.expectEqual(@as(u32, 0), in_frame.u_rail_run_continued);
+    try testing.expectEqual(@as(u32, 0), in_frame.u_rail_run_records_absent);
+    try testing.expectEqual(@as(u32, 0), in_frame.u_audit_oom);
+    // The whole rail tier agrees between the two forms, defect for defect.
+    try testing.expectEqual(flat.n_rails_first_class, in_frame.n_rails_first_class);
+    try testing.expectEqual(flat.n_rail_pairs_asserted, in_frame.n_rail_pairs_asserted);
+    try testing.expectEqual(flat.d_rail_pair_undeclared, in_frame.d_rail_pair_undeclared);
+    try testing.expectEqual(flat.u_rail_pair_unevidenced, in_frame.u_rail_pair_unevidenced);
+    try testing.expectEqual(flat.defectTotal(), in_frame.defectTotal());
 }
 
 test "rails: the same graph unclustered separates its rails, so nothing fuses" {

@@ -150,7 +150,7 @@ pub fn applyPlan(
     // (realized.zig's `skipped_clustered`), or a planning failure — has said
     // nothing about who may share ink, so it keeps the sets layout gave it
     // rather than being emptied into "nobody may share".
-    // guarded-by: select_test2.zig "a packed candidate keeps its fan co-sets when no plan realized"
+    // guarded-by: select_test2.zig "a packed candidate keeps its layout co-sets when no plan realized"
     // INVARIANT: `.port_share` sets are NOT plan-derived and therefore are not
     // the plan's to withdraw — they record a share the producers made in
     // geometry, which no realization decision revokes. So the plan's sets

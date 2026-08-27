@@ -225,18 +225,19 @@ pub fn build(
 }
 
 /// Piece-scoped licence discovery: the same endpoint-incidence discovery as
-/// `build`, run on one CLUSTER-FREE recursion piece of a clustered original
-/// and keyed by ORIGIN (root-graph) edge ids, so piece plans can merge across
-/// the stitch. Edges born synthetic (origin == SENTINEL, e.g. placement
-/// edges) never enter a bundle and take no membership row.
+/// `build`, run on one CLUSTER-FREE recursion piece of a clustered original,
+/// in PIECE-LOCAL edge ids — the id space the piece's own layout, routing,
+/// and Sketch speak, so realization consumes the plan unchanged and the
+/// stitch remaps it with the same per-piece offsets as every other record.
+/// (`origin` stays split-level identity for the cross-border step.) Edges
+/// born synthetic (origin == SENTINEL, e.g. placement edges) never enter a
+/// bundle and take no membership row.
 pub fn buildPiece(allocator: std.mem.Allocator, graph: sg.SemGraph) BuildError!BuildResult {
     std.debug.assert(graph.clusters.len == 0);
     var edges: std.ArrayListUnmanaged(sg.Edge) = .empty;
     for (graph.edges) |e| {
         if (e.origin == sg.SENTINEL) continue;
-        var copy = e;
-        copy.id = e.origin;
-        try edges.append(allocator, copy);
+        try edges.append(allocator, e);
     }
     var shadow = graph;
     shadow.edges = edges.items;

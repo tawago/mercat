@@ -451,10 +451,11 @@ test "the forced-rung debug path carries plan co-sets, not layout's fan rails" {
     }
 }
 
-test "a clustered render's co-sets come from its fans, not from an empty plan" {
-    // The clustered path never applies a realized plan (V-D-IR-07), so the
-    // co-sets are the only record of which edges legally share ink there —
-    // and they must survive the stitch that merges child pieces.
+test "a clustered render's trunk co-sets come from its piece plan and survive the stitch" {
+    // A subgraph-internal fan realizes against its PIECE plan (cluster
+    // unification): the trunk's co-set carries the plan's own membership,
+    // rewritten into merged edge ids, so the raster's licence sites read the
+    // same sanction a flat candidate's trunk gets.
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
@@ -472,13 +473,16 @@ test "a clustered render's co-sets come from its fans, not from an empty plan" {
     const permits = (try permits_mod.build(a, g, .joined)).plan;
     const winner = try select.choose(a, g, &permits, 120, false, false);
 
-    try std.testing.expectEqual(@as(usize, 0), winner.sketch.joins.selected_joins.len);
+    try std.testing.expectEqual(@as(usize, 1), winner.sketch.joins.selected_joins.len);
+    const trunk = winner.sketch.joins.selected_joins[0];
+    try std.testing.expectEqual(@as(usize, 3), trunk.members.len);
     try std.testing.expect(winner.sketch.co_sets.len > 0);
-    // Clustered: layout's fans plus the port shares stitch reads back off the
-    // merged geometry. No plan origin may appear (V-D-IR-07).
     for (winner.sketch.co_sets) |set| {
-        try std.testing.expect(set.origin == .fan_rail or set.origin == .port_share);
+        try std.testing.expect(set.origin == .selected_join or set.origin == .port_share);
         try std.testing.expect(set.members.len >= 2);
     }
-    try std.testing.expect((try ledger.keepOrigin(a, winner.sketch.co_sets, .fan_rail)).len > 0);
+    // The trunk's sanction rides a plan-origin co-set with the SAME members.
+    const plan_sets = try ledger.keepOrigin(a, winner.sketch.co_sets, .selected_join);
+    try std.testing.expectEqual(@as(usize, 1), plan_sets.len);
+    try std.testing.expectEqualSlices(ledger.EdgeId, trunk.members, plan_sets[0].members);
 }

@@ -320,7 +320,7 @@ test "stitch re-clamps a surviving bus-bar's rail past a dropped super-node tap"
     }
     try std.testing.expect(dropped_x != null);
 
-    const merged = try cluster_stitch.stitch(a, sr, outer, children, opts.spacing_scale);
+    const merged = try cluster_stitch.stitch(a, sr, outer, children, opts.spacing_scale, false);
 
     // Post-stitch: the same bus-bar survives with only the two real taps —
     // and its rail must NOT reach out to the dropped tap's x, which would

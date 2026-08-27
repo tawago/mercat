@@ -269,7 +269,7 @@ pub const Sketch = struct {
     /// and pre-busbar-aware code stay source-compatible.
     busbars: []const Rail = &.{},
     rail_claims: []const ledger.RailClaim = &.{},
-    /// Candidate-local branch realization envelope. // guarded-by: entry.zig "V-D-IR-07: clustered production path keeps the realized plan envelope empty"
+    /// Candidate-local branch realization envelope. // guarded-by: entry.zig "V-D-IR-07: a clustered graph's joins ride piece plans; the root plan stays skipped"
     joins: ledger.RealizedJoins = .{},
     /// Report-only closure-law inventory for this candidate (never a layout input).
     closure: ledger.ClosureCounts = .{},

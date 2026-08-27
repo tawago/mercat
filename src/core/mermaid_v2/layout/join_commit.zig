@@ -11,24 +11,31 @@ const permit_mod = @import("../ledger/permits.zig");
 /// so the shipped Sketch carries a single set of counts.
 pub const Report = pb.ClosureCounts;
 
+/// The plan THIS graph's layout realizes against: the root plan when it is
+/// flat, a fresh piece-scoped plan (piece-local edge ids) for a cluster-free
+/// piece of a clustered original, and null when no plan applies (no permits,
+/// clusters present — authored or motif-pack synthetic — or invalid piece).
+pub fn effectivePlan(a: std.mem.Allocator, graph: sg.SemGraph, root: ?*const pb.JoinPermits) error{OutOfMemory}!?pb.JoinPermits {
+    const rp = root orelse return null;
+    if (graph.clusters.len != 0) return null;
+    if (rp.isFlat()) return rp.*;
+    const piece = permit_mod.buildPiece(a, graph) catch |err| switch (err) {
+        error.OutOfMemory => return error.OutOfMemory,
+        error.InvalidSemGraph => return null,
+    };
+    return piece.plan;
+}
+
 pub fn buildReported(a: std.mem.Allocator, graph: sg.SemGraph, permits: ?*const pb.JoinPermits, reversed_edges: []const pb.EdgeId, disable: bool, report: ?*Report) error{OutOfMemory}!pb.RealizedJoins {
     // Commit only when laying out a cluster-free graph: synthetic motif-pack
     // clusters are outside the flat edge-id identity path just like authored
     // clusters, so no original-input permit may affect their geometry before
-    // post-layout realization applies the same gate.
+    // post-layout realization applies the same gate. A piece-scoped plan
+    // (from `effectivePlan`) realizes exactly like a flat one — it speaks the
+    // piece's own edge ids; only a skipped_clustered root plan commits nothing.
     const plan_ptr = permits orelse return .{};
     if (graph.clusters.len != 0) return .{};
-    if (!plan_ptr.isFlat()) {
-        // A cluster-free piece of a clustered original: build its piece-scoped,
-        // origin-keyed licence plan here, where the piece graph exists.
-        // Realization of piece plans is cluster-unification step-3 territory;
-        // until it lands the commitment stays exactly the empty plan.
-        if (permit_mod.buildPiece(a, graph)) |_| {} else |err| switch (err) {
-            error.OutOfMemory => return error.OutOfMemory,
-            error.InvalidSemGraph => {},
-        }
-        return .{};
-    }
+    if (plan_ptr.scope == .skipped_clustered) return .{};
     const plan = plan_ptr.*;
     // P2v Step 8 (D-DISPOSITION item 9(b)): the forced all-independent terminal
     // layout. Every grouped endpoint takes an independent(not_selected)
@@ -84,7 +91,7 @@ pub fn buildReported(a: std.mem.Allocator, graph: sg.SemGraph, permits: ?*const 
     @memset(verdicts, null);
     for (plan.groups, 0..) |group, gi| {
         const eff = eff_of[gi] orelse continue;
-        const verdict = try closureVerdict(a, graph, group, eff);
+        const verdict = try closureVerdict(a, graph, group, eff, plan.scope == .piece);
         if (report) |r| {
             if (verdict.outcome == .refuse or verdict.outcome == .salvage) r.rail_closure_undeclared += 1;
             r.co_undeclared += verdict.undeclared_pairs;
@@ -271,6 +278,7 @@ fn closureVerdict(
     graph: sg.SemGraph,
     group: pb.JoinGroup,
     eff: []const pb.EdgeId,
+    piece_scope: bool,
 ) error{OutOfMemory}!rc.Verdict {
     const members = try a.alloc(rc.Member, eff.len);
     for (eff, members) |id, *m| {
@@ -285,6 +293,9 @@ fn closureVerdict(
     var backers: std.ArrayListUnmanaged(rc.Backer) = .empty;
     for (graph.edges) |edge| {
         if (edge.from == edge.to or containsEdge(eff, edge.id)) continue;
+        // In a piece, a born-synthetic edge (placement stand-in for a
+        // cross-border relation) is not a declaration and may back nothing.
+        if (piece_scope and edge.origin == sg.SENTINEL) continue;
         try backers.append(a, .{
             .edge = edge.id,
             .a = edge.from,

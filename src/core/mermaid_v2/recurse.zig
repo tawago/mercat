@@ -33,7 +33,7 @@ pub const RecurseError = coords.CoordsError || cluster_stitch.StitchError;
 /// call: one piece in, one Sketch out, returned unchanged by `stitch`.
 /// `opts` also carries the original graph's JoinPermits and flat gate unchanged
 /// through every recursive piece; recursion never re-derives either value.
-/// guarded-by: entry.zig "V-D-IR-07: clustered production path keeps the realized plan envelope empty"
+/// guarded-by: entry.zig "V-D-IR-07: a clustered graph's joins ride piece plans; the root plan stays skipped"
 pub fn layoutPieces(
     arena: std.mem.Allocator,
     graph: sem_graph.SemGraph,
@@ -140,7 +140,8 @@ pub fn stitchOuter(
     outer_opts.fixed_sizes = fixed;
     const outer = try coords.layout(arena, sr.pieces[0].graph, outer_opts);
     children[0] = .{ .sketch = outer, .input_of = &.{} }; // unused slot
-    return cluster_stitch.stitch(arena, sr, outer, children, opts.spacing_scale);
+    const authored_cluster_run = if (opts.join_permits) |p| !p.isFlat() else false;
+    return cluster_stitch.stitch(arena, sr, outer, children, opts.spacing_scale, authored_cluster_run);
 }
 
 /// Horizontal frame chrome the child piece at `piece_idx` sits inside: zero

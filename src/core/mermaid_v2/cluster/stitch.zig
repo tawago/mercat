@@ -16,6 +16,7 @@ const split_mod = @import("split.zig");
 const bridges = @import("bridges.zig");
 const entry_inset = @import("entry_inset.zig");
 const stitch_cosets = @import("stitch_cosets.zig");
+const stitch_joins = @import("stitch_joins.zig");
 const stitch_rails = @import("stitch_rails.zig");
 
 pub const SplitResult = split_mod.SplitResult;
@@ -113,6 +114,12 @@ pub fn stitch(
     /// same scale the driver passed to `superSize` so sizing and translation
     /// never diverge.
     scale: u32,
+    /// True only for an AUTHORED-cluster recursion (non-flat root plan),
+    /// where pieces realized piece-scoped plans worth carrying. A motif-pack
+    /// recursion of a flat graph keeps the empty record: its pieces were
+    /// handed the root plan whose ids do not match theirs, so their joins
+    /// are not testimony (and selection later overwrites them).
+    merge_joins: bool,
 ) StitchError!Clustered {
     if (children.len != split_result.pieces.len) return error.PieceSketchMismatch;
 
@@ -121,6 +128,7 @@ pub fn stitch(
     var edges: std.ArrayListUnmanaged(sketch.EdgePath) = .empty;
     var busbars: std.ArrayListUnmanaged(sketch.Rail) = .empty;
     var co_sets: std.ArrayListUnmanaged(ledger.CoSet) = .empty;
+    var piece_joins: std.ArrayListUnmanaged(stitch_joins.PieceJoins) = .empty;
     const claim_sources = try arena.alloc(stitch_rails.ChildSource, split_result.supers.len);
 
     // INVARIANT: edge ids are globally unique inside the merged Sketch.
@@ -251,6 +259,7 @@ pub fn stitch(
         const base = id_base;
         id_base += idSpan(child.sketch);
         claim_sources[si] = .{ .sketch = child.sketch, .node_map = global_of[super.child_piece], .edge_base = base };
+        try piece_joins.append(arena, .{ .joins = child.sketch.joins, .edge_base = base, .node_map = global_of[super.child_piece] });
         for (child.sketch.edges) |ce| {
             try edges.append(arena, try translateEdge(arena, ce, global_of[super.child_piece], dx, dy, base));
         }
@@ -269,6 +278,7 @@ pub fn stitch(
     //     outer layout) and are replaced by routed bridge lines below. ---
     const outer_base = id_base;
     id_base += idSpan(outer);
+    try piece_joins.append(arena, .{ .joins = outer.joins, .edge_base = outer_base, .node_map = global_of[0] });
     for (outer.edges) |oe| {
         if (superFor(split_result, oe.from) != null or superFor(split_result, oe.to) != null) continue;
         try edges.append(arena, try translateEdge(arena, oe, global_of[0], 0, 0, outer_base));
@@ -350,11 +360,9 @@ pub fn stitch(
         .busbars = bar_slice,
         .rail_claims = authority.claims,
         .co_sets = authority.sets,
-        // Deliberately empty, not forgotten: piece-local plans speak in
-        // piece-local edge ids that do not survive the merge, so no piece's
-        // joins may be carried across. The merged candidate's plan is written
-        // by the post-stitch realization pass or stays empty.
-        .joins = .{},
+        // Piece records rewritten into merged id spaces (stitch_joins.zig):
+        // the merged plan is exactly as trustworthy as a flat candidate's.
+        .joins = if (merge_joins) try stitch_joins.merge(arena, piece_joins.items) else .{},
         // Report-only counts are per-PIECE facts about one merged picture,
         // so the merged Sketch carries their sum; keeping only the outer's
         // would silently drop every refusal a child's fans decided.

@@ -118,13 +118,18 @@ fn buildSketch(
     // guarded-by: layout_test2.zig "a production render carries the closure law's counts on its Sketch"
     var closure: ledger.ClosureCounts = .{};
     addConstructionDiagnostics(&closure, fans);
-    var candidate_joins = try join_commit.buildReported(a, graph, opts.join_permits, lg.reversed_edges, opts.disable_join_realization, &closure);
-    const candidate_flat = if (opts.join_permits) |p| p.isFlat() and graph.clusters.len == 0 else false;
+    // The plan this candidate realizes against: the root plan for a flat
+    // graph, a piece-scoped plan (piece-local ids) for a cluster-free piece
+    // of a clustered original, null otherwise. Every consumer below reads
+    // THIS plan, never opts.join_permits directly.
+    const effective_plan: ?ledger.JoinPermits = try join_commit.effectivePlan(a, graph, opts.join_permits);
+    const plan_ref: ?*const ledger.JoinPermits = if (effective_plan) |*p| p else null;
+    var candidate_joins = try join_commit.buildReported(a, graph, plan_ref, lg.reversed_edges, opts.disable_join_realization, &closure);
     const construction_private = hasPrivatePeers(fans);
     const port_active = hasPortWork(candidate_joins) or construction_private;
     const lane_plan = try port_plan.planLanes(a, graph, lg, candidate_joins);
-    const derived = if (opts.join_permits) |plan| blk: {
-        if (candidate_flat and port_active) {
+    const derived = if (plan_ref) |plan| blk: {
+        if (port_active) {
             const all = ports.derive(a, graph, plan.*, candidate_joins, graph.direction, lg.reversed_edges) catch &.{};
             break :blk port_plan.withoutCoRealized(a, all, candidate_joins) catch all;
         }
@@ -343,6 +348,15 @@ fn buildSketch(
     for (edges_out, routed) |e, *slot| slot.* = e.id;
     closure.co_double_discharge = ledger.doubleDischarged(candidate_joins.co_realized, routed);
 
+    // A piece candidate never passes through select.applyPlan (that gate is
+    // the root plan's), so the plan-derived co-sets that sanction its trunk
+    // merges are attached HERE, replacing the fan-derived population exactly
+    // as applyPlan does for a flat candidate that realized.
+    const piece_realized = if (plan_ref) |p| p.scope == .piece and candidate_joins.selected_joins.len != 0 else false;
+    const base_sets = if (piece_realized)
+        ledger.coSetsFromPlan(a, candidate_joins) catch edges_result.co_sets
+    else
+        edges_result.co_sets;
     var out = sketch.Sketch{
         .bbox = bbox,
         .direction = graph.direction, // BT was canonicalized to TD above; unreachable here
@@ -359,7 +373,7 @@ fn buildSketch(
         // legal ink sharing is the geometry itself. Appended, never
         // substituted (sketch_ports.appendPortShares).
         // guarded-by: sketch_ports_test.zig "shared departure port groups its edges"
-        .co_sets = sketch_ports.appendPortShares(a, edges_result.co_sets, edges_out) catch edges_result.co_sets,
+        .co_sets = sketch_ports.appendPortShares(a, base_sets, edges_out) catch base_sets,
         .diagnostics = try diagnostics.toOwnedSlice(a),
         .budget = .{ .max_width = opts.max_width, .rung = opts.rung },
         .label_policy = opts.label_policy,

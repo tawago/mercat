@@ -11,12 +11,11 @@ const select = @import("select.zig");
 const permits_mod = @import("ledger/permits.zig");
 const parse = @import("parse.zig").parse;
 
-test "a packed candidate keeps its fan co-sets when no plan realized" {
-    // A candidate carrying cluster frames — a motif-packed one's synthetic
-    // frames, stood in for here by a real subgraph — is off the planner's
+test "a packed candidate keeps its layout co-sets when no plan realized" {
+    // A candidate carrying MOTIF-PACK synthetic frames is off the planner's
     // identity path, so `realize` declines it and the plan stays empty. An
     // empty plan is not the statement "nobody may share": applying it must
-    // leave layout's fan-derived sets in place, or the fan's legal sharers
+    // leave layout's own sets in place, or the candidate's legal sharers
     // lose their only permission record.
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
@@ -24,25 +23,23 @@ test "a packed candidate keeps its fan co-sets when no plan realized" {
 
     const g = try parse(a,
         \\flowchart TD
-        \\  subgraph S
-        \\    A --> B
-        \\    A --> C
-        \\    A --> D
-        \\  end
+        \\  A --> B1 --> C1
+        \\  A --> B2 --> C2
         \\
     );
     const permits = (try permits_mod.build(a, g, .joined)).plan;
-    var cand = try ladder.run(a, g, &permits, 120);
+    const packed_cands = try select.packedCandidates(a, g, &permits, 80);
+    try std.testing.expect(packed_cands.len > 0);
+    var cand = packed_cands[0];
     try std.testing.expect(cand.sketch.clusters.len != 0);
     const before = cand.sketch.co_sets;
-    try std.testing.expect(before.len > 0);
 
     select.applyPlan(a, &permits, &cand.sketch);
 
     try std.testing.expectEqual(@as(usize, 0), cand.sketch.joins.selected_joins.len);
     try std.testing.expectEqual(before.len, cand.sketch.co_sets.len);
     for (cand.sketch.co_sets, before) |after, want| {
-        try std.testing.expectEqual(ledger.CoOrigin.fan_rail, after.origin);
+        try std.testing.expectEqual(want.origin, after.origin);
         try std.testing.expectEqualSlices(ledger.EdgeId, want.members, after.members);
     }
 }
