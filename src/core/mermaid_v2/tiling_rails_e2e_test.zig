@@ -168,3 +168,70 @@ test "rails: the audit stays silent on shapes with no fused run" {
         try testing.expectEqual(@as(u32, 0), c.u_rail_run_continued);
     };
 }
+
+/// Production-path crossing counters for one source at one width.
+fn renderCrossings(a: std.mem.Allocator, source: []const u8, width: u32) !raster.RasterReport {
+    const graph = try parse(a, source);
+    const built = try permits.build(a, graph, .joined);
+    const plan = built.plan;
+    const winner = try select.choose(a, graph, &plan, width, false, false);
+    return try raster.rasterize(a, winner.sketch, .bridge);
+}
+
+test "bridges: a dodge that cannot halve measured conflict never ships" {
+    // A mixed cross-border fan over two subgraphs plus an inter-subgraph
+    // edge: the dodging build wins only marginal proxy points here while
+    // its displaced jogs fuse corners into other bridges' runs at the
+    // raster. The plain build (the incumbent geometry) must ship, keeping
+    // the render violation-free at both widths.
+    const source =
+        \\flowchart TD
+        \\subgraph SG0
+        \\  S0N0 -.-> S0N1
+        \\end
+        \\subgraph SG1
+        \\  S1N0 --o S1N1
+        \\end
+        \\O0 ==> S1N0
+        \\O0 --> S0N0
+        \\O0 --o S0N1
+        \\O0 --- S1N1
+        \\S1N0 --> S0N0
+        \\
+    ;
+    for ([2]u32{ 60, 120 }) |w| {
+        var arena = std.heap.ArenaAllocator.init(testing.allocator);
+        defer arena.deinit();
+        const report = try renderCrossings(arena.allocator(), source, w);
+        try testing.expectEqual(@as(u32, 0), report.crossings.foreign_junction_violation);
+        try testing.expectEqual(@as(u32, 0), report.crossings.arrowhead_transit_violation);
+    }
+}
+
+test "bridges: mixed-kind cross-border fans keep a clean scene" {
+    // Dotted, solid and thick bridges from one outer pivot into two
+    // subgraphs, plus a dotted subgraph-to-subgraph edge — a second shape
+    // whose always-dodged build measured worse than plain at the raster.
+    const source =
+        \\flowchart TD
+        \\subgraph SG0
+        \\  S0N0 --- S0N1
+        \\end
+        \\subgraph SG1
+        \\  S1N0 --x S1N1
+        \\end
+        \\O0 -.-> S1N0
+        \\O0 -.-> S0N1
+        \\O0 --> S0N0
+        \\O0 ==> S1N1
+        \\S0N1 -.-> S1N0
+        \\
+    ;
+    for ([2]u32{ 60, 120 }) |w| {
+        var arena = std.heap.ArenaAllocator.init(testing.allocator);
+        defer arena.deinit();
+        const report = try renderCrossings(arena.allocator(), source, w);
+        try testing.expectEqual(@as(u32, 0), report.crossings.foreign_junction_violation);
+        try testing.expectEqual(@as(u32, 0), report.crossings.arrowhead_transit_violation);
+    }
+}

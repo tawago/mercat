@@ -118,7 +118,7 @@ fn expectReconstructedThreeWayPortShare() !void {
 
     // The flat field is the exact union, retained as the set's narrowness
     // marker. Licensing reads the three entries below instead.
-    try testing.expectEqual(@as(usize, 36), cells.len);
+    try testing.expectEqual(@as(usize, 35), cells.len);
     for (cells, 0..) |cell, i| {
         try testing.expectEqual(@as(i32, 38), cell.x);
         try testing.expectEqual(50 - @as(i32, @intCast(i)), cell.y);
@@ -131,7 +131,7 @@ fn expectReconstructedThreeWayPortShare() !void {
     }{
         .{ .a = 14, .b = 15, .last_y = 45 },
         .{ .a = 14, .b = 16, .last_y = 45 },
-        .{ .a = 15, .b = 16, .last_y = 15 },
+        .{ .a = 15, .b = 16, .last_y = 16 },
     };
     try testing.expectEqual(expected.len, pairs.len);
     for (pairs, expected) |pair, want| {

@@ -38,7 +38,7 @@ pub fn plan(
         const grouped = try arena.alloc(bool, crossings.len);
         @memset(grouped, false);
         for (crossings, 0..) |c0, i| {
-            if (grouped[i] or c0.from == c0.to) continue;
+            if (grouped[i] or c0.from == c0.to or c0.kind == .invisible) continue;
             const pivot = pivotOf(c0, direction);
             var members: std.ArrayListUnmanaged(usize) = .empty;
             for (crossings, 0..) |c, j| {
@@ -150,6 +150,35 @@ test "a licensed cross-border fan-in records deferred; a mixed one records the r
     try std.testing.expectEqual(@as(usize, 0), refused.selected_joins.len);
     const disp = refused.memberships[0].target.?;
     try std.testing.expectEqual(ledger.IndependentReason.licence_refused, disp.independent.reason);
+}
+
+test "invisible crossings sharing a pivot re-form no group and keep one stable id" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+
+    // Two visible fan-out members plus two invisible crossings on the same
+    // pivot: the invisibles must neither seed a group of their own nor
+    // overwrite the visible group's disposition with a fresh id.
+    const crossings = [_]bridges.Crossing{
+        .{ .id = 0, .from = 1, .to = 8, .kind = .solid, .arrow_from = .none, .arrow_to = .filled, .label = null, .origin = 3 },
+        .{ .id = 1, .from = 1, .to = 9, .kind = .solid, .arrow_from = .none, .arrow_to = .filled, .label = null, .origin = 4 },
+        .{ .id = 2, .from = 1, .to = 6, .kind = .invisible, .arrow_from = .none, .arrow_to = .none, .label = null, .origin = 5 },
+        .{ .id = 3, .from = 1, .to = 7, .kind = .invisible, .arrow_from = .none, .arrow_to = .none, .label = null, .origin = 6 },
+    };
+    var routed: [4]sketch.EdgePath = undefined;
+    for (&routed, crossings) |*r, c| {
+        r.* = .{ .id = c.id, .from = c.from, .to = c.to, .polyline = &.{}, .port_from = .{ .node = c.from, .side = .south, .offset = 1 }, .port_to = .{ .node = c.to, .side = .north, .offset = 1 }, .arrow_from = c.arrow_from, .arrow_to = c.arrow_to, .label = null, .kind = c.kind };
+    }
+
+    const joins = try plan(a, &crossings, &routed, 0);
+    try std.testing.expectEqual(@as(usize, 4), joins.memberships.len);
+    const g0 = joins.memberships[0].source.?.independent.permission_group;
+    try std.testing.expectEqual(@as(ledger.JoinGroupId, 0), g0);
+    try std.testing.expectEqual(g0, joins.memberships[1].source.?.independent.permission_group);
+    // Invisible crossings carry no disposition at all.
+    try std.testing.expect(joins.memberships[2].source == null and joins.memberships[2].target == null);
+    try std.testing.expect(joins.memberships[3].source == null and joins.memberships[3].target == null);
 }
 
 test "a crossing the router skipped takes no membership row" {

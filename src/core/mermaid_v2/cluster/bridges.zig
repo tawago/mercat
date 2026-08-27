@@ -166,32 +166,60 @@ pub fn route(
 
     try assignJogs(arena, pends.items, clusters, obstacles);
 
-    // Pass 3: build polylines SEQUENTIALLY, each bridge routing into a
-    // scene that already holds the bridges routed before it (deterministic
-    // crossing order): a jog displaces off committed bridge runs and head
-    // cells inside its clamp interval, and committed ink joins the obstacle
-    // set the re-routed corridor consults. Bridges sharing one start stay
-    // ONE rail — the leader's dodged jog is copied, never re-dodged. If a
-    // vertical elbow would run straight through a node interior, re-route
-    // as a corridor that jogs into a clear column before descending; gating
-    // on an actual intrusion keeps every non-intruding seed byte-identical.
+    // Pass 3, two attempts: the plain build (every jog exactly as pass 2
+    // assigned it) and the dodging build (each bridge routes SEQUENTIALLY
+    // into a scene holding the bridges before it, its jog displaced off
+    // committed and tentative ink; bridges sharing one start stay ONE rail —
+    // the leader's dodged jog is copied, never re-dodged). The dodged set
+    // must EARN shipping: at least a halving of measured conflict. The
+    // metric is a sketch-side proxy for the raster's per-cell verdicts,
+    // faithful for gross fusion but blind to classification subtleties, so
+    // a marginal win is treated as noise and the plain build (the incumbent
+    // geometry) ships — a contact-free scene routes byte-identically, and a
+    // dodge can never make the whole diagram worse than not dodging.
+    const plain = try buildPaths(arena, pends.items, placements, clusters, obstacles, false);
+    const dodged = try buildPaths(arena, pends.items, placements, clusters, obstacles, true);
+    return if (dodged.score * 2 <= plain.score) dodged.paths else plain.paths;
+}
+
+const Built = struct { paths: []sketch.EdgePath, score: u64 };
+
+/// One whole-set routing attempt. In both attempts each finished polyline
+/// is scored against the scene so far (static ink + earlier bridges), so
+/// the two attempts' totals are comparable conflict counts. If a vertical
+/// elbow would run straight through a node interior, re-route as a corridor
+/// that jogs into a clear column before descending; gating on an actual
+/// intrusion keeps every non-intruding seed byte-identical.
+fn buildPaths(
+    arena: std.mem.Allocator,
+    pends_src: []const Pending,
+    placements: []const sketch.NodePlacement,
+    clusters: []const sketch.ClusterFrame,
+    obstacles: tracks.Obstacles,
+    enable_dodge: bool,
+) error{OutOfMemory}!Built {
+    const pends = try arena.dupe(Pending, pends_src);
     var dyn_heads: std.ArrayListUnmanaged(Pt) = .empty;
     var dyn_runs: std.ArrayListUnmanaged([2]Pt) = .empty;
     try dyn_heads.appendSlice(arena, obstacles.heads);
     try dyn_runs.appendSlice(arena, obstacles.runs);
     var out: std.ArrayListUnmanaged(sketch.EdgePath) = .empty;
-    for (pends.items, 0..) |*p, pi| {
+    var score: u64 = 0;
+    for (pends, 0..) |*p, pi| {
         const dyn = tracks.Obstacles{ .heads = dyn_heads.items, .runs = dyn_runs.items };
         const reroute = try rerouted(arena, p.*, placements);
-        if (leaderJog(pends.items[0..pi], p.*)) |j| {
-            p.jog = j;
-        } else if (p.jog != null and !reroute) {
-            p.jog = dodgeJog(p.*, clusters, dyn);
+        if (enable_dodge) {
+            if (leaderJog(pends[0..pi], p.*)) |j| {
+                p.jog = j;
+            } else if (p.jog != null and !reroute) {
+                p.jog = try dodgeJog(arena, p.*, pi, pends, placements, clusters, dyn);
+            }
         }
         var poly = try buildElbow(arena, p.*);
         if (reroute) {
-            poly = try verticalCorridor(arena, p.start, p.end, p.to_box, p.sides.exit, placements, p.gf, p.gt, clusters, dyn);
+            poly = try verticalCorridor(arena, p.start, p.end, p.to_box, p.sides.exit, placements, p.gf, p.gt, clusters, if (enable_dodge) dyn else obstacles);
         }
+        score += scene.polyScore(poly, dyn) + scene.boxScore(poly, p.gf, p.gt, placements, clusters);
         try commitScene(arena, &dyn_heads, &dyn_runs, poly, p.cross);
 
         try out.append(arena, .{
@@ -208,7 +236,7 @@ pub fn route(
             .role = .forward,
         });
     }
-    return try out.toOwnedSlice(arena);
+    return .{ .paths = try out.toOwnedSlice(arena), .score = score };
 }
 
 /// The jog an earlier same-start, same-exit bridge committed: a follower on
@@ -222,12 +250,20 @@ fn leaderJog(earlier: []const Pending, p: Pending) ?i32 {
     return null;
 }
 
-/// Displace `p`'s jog inside its clamp interval until the jog line runs
-/// through no committed ink and neither leg covers a committed head cell.
-/// The already-assigned coordinate is kept when it is clear (so a scene with
-/// no bridge-vs-bridge contact routes byte-identically); an all-blocked
-/// interval keeps it too, best effort.
-fn dodgeJog(p: Pending, clusters: []const sketch.ClusterFrame, dyn: tracks.Obstacles) ?i32 {
+/// Displace `p`'s jog inside its clamp interval to the least-conflicted
+/// coordinate, judged against the committed scene PLUS the tentative elbows
+/// of the bridges still to route (same-start peers excepted — a shared port
+/// is a licensed rail, never an obstacle). The assigned coordinate is kept
+/// when it is clear and kept when nothing strictly improves on it.
+fn dodgeJog(
+    arena: std.mem.Allocator,
+    p: Pending,
+    pi: usize,
+    pends: []const Pending,
+    placements: []const sketch.NodePlacement,
+    clusters: []const sketch.ClusterFrame,
+    dyn: tracks.Obstacles,
+) error{OutOfMemory}!?i32 {
     const j = p.jog orelse return null;
     const vertical = (p.sides.exit == .north or p.sides.exit == .south);
     const bound_lo: i32, const bound_hi: i32 = switch (p.sides.exit) {
@@ -237,54 +273,47 @@ fn dodgeJog(p: Pending, clusters: []const sketch.ClusterFrame, dyn: tracks.Obsta
         .west => .{ p.end.x, p.start.x },
     };
     const jc = clampBetween(bound_lo, bound_hi, j);
-    if (jogClear(p, jc, vertical, clusters, dyn)) return j;
+
+    var heads: std.ArrayListUnmanaged(Pt) = .empty;
+    var runs: std.ArrayListUnmanaged([2]Pt) = .empty;
+    try heads.appendSlice(arena, dyn.heads);
+    try runs.appendSlice(arena, dyn.runs);
+    for (pends[pi + 1 ..]) |q| {
+        if (q.start.x == p.start.x and q.start.y == p.start.y) continue;
+        const qv = (q.sides.exit == .north or q.sides.exit == .south);
+        const qj: ?i32 = if (q.jog) |qq| switch (q.sides.exit) {
+            .south => clampBetween(q.start.y, q.end.y, qq),
+            .north => clampBetween(q.end.y, q.start.y, qq),
+            .east => clampBetween(q.start.x, q.end.x, qq),
+            .west => clampBetween(q.end.x, q.start.x, qq),
+        } else null;
+        try scene.tentInk(arena, &heads, &runs, q.start, q.end, qv, qj, q.cross.arrow_from != .none, q.cross.arrow_to != .none);
+    }
+    const aug = tracks.Obstacles{ .heads = heads.items, .runs = runs.items };
+
+    const cur = scene.jogScore(p.start, p.end, jc, vertical, placements, p.gf, p.gt, clusters, aug);
+    if (cur == 0) return j;
     const sign = tracks.outwardSign(p.sides.entry);
     const width = bound_hi - bound_lo;
+    var best: ?i32 = null;
+    var best_score = cur;
     var d: i32 = 1;
     while (d <= width) : (d += 1) {
         for ([2]i32{ jc + sign * d, jc - sign * d }) |c| {
             if (c <= bound_lo or c >= bound_hi) continue;
-            if (jogClear(p, c, vertical, clusters, dyn)) return c;
+            const s = scene.jogScore(p.start, p.end, c, vertical, placements, p.gf, p.gt, clusters, aug);
+            if (s == 0) return c;
+            if (s < best_score) {
+                best_score = s;
+                best = c;
+            }
         }
     }
-    return j;
+    return best orelse j;
 }
 
-/// True iff a jog at `c` is placeable against the committed scene: not
-/// along a drawn frame border, not collinear with (or head-covered on) any
-/// committed run over its span, and neither perpendicular leg covers a
-/// committed head cell (a leg CROSSING a run stays legal).
-fn jogClear(p: Pending, c: i32, vertical: bool, clusters: []const sketch.ClusterFrame, dyn: tracks.Obstacles) bool {
-    const lo = if (vertical) @min(p.start.x, p.end.x) else @min(p.start.y, p.end.y);
-    const hi = if (vertical) @max(p.start.x, p.end.x) else @max(p.start.y, p.end.y);
-    if (tracks.onFrameBorder(vertical, c, lo, hi, clusters)) return false;
-    if (dyn.blocks(vertical, c, lo, hi)) return false;
-    // A corner glyph landing ON committed ink always fuses (it cannot
-    // "cross" anything), so both jog corners must sit on clear cells.
-    const corners = if (vertical)
-        [2]Pt{ .{ .x = p.start.x, .y = c }, .{ .x = p.end.x, .y = c } }
-    else
-        [2]Pt{ .{ .x = c, .y = p.start.y }, .{ .x = c, .y = p.end.y } };
-    for (corners) |corner| {
-        if (dyn.covers(corner)) return false;
-    }
-    for (dyn.heads) |h| {
-        if (vertical) {
-            if (h.x == p.start.x and between(h.y, p.start.y, c)) return false;
-            if (h.x == p.end.x and between(h.y, c, p.end.y)) return false;
-        } else {
-            if (h.y == p.start.y and between(h.x, p.start.x, c)) return false;
-            if (h.y == p.end.y and between(h.x, c, p.end.x)) return false;
-        }
-    }
-    return true;
-}
-
-const between = scene.between;
-
-/// File a routed bridge's ink into the growing scene: every polyline
-/// segment as a run, plus the head cell one step back from each decorated
-/// port — the same derivation `sceneObstacles` uses for edge paths.
+/// File a routed bridge's ink into the growing scene (bridge_scene.zig owns
+/// the derivation).
 fn commitScene(
     arena: std.mem.Allocator,
     heads: *std.ArrayListUnmanaged(Pt),
@@ -292,18 +321,7 @@ fn commitScene(
     poly: []const sketch.Point,
     cross: Crossing,
 ) error{OutOfMemory}!void {
-    const n = poly.len;
-    if (n < 2) return;
-    var i: usize = 0;
-    while (i + 1 < n) : (i += 1) {
-        try runs.append(arena, .{ poly[i], poly[i + 1] });
-    }
-    if (cross.arrow_to != .none) {
-        if (stepDir(poly[n - 1], poly[n - 2])) |d| try heads.append(arena, stepPt(poly[n - 1], d));
-    }
-    if (cross.arrow_from != .none) {
-        if (stepDir(poly[0], poly[1])) |d| try heads.append(arena, stepPt(poly[0], d));
-    }
+    try scene.commitPoly(arena, heads, runs, poly, cross.arrow_from != .none, cross.arrow_to != .none);
 }
 
 /// True iff the plain elbow for `p` would run straight through a node
@@ -584,102 +602,12 @@ fn buildElbow(arena: std.mem.Allocator, p: Pending) error{OutOfMemory}![]sketch.
     return try poly.toOwnedSlice(arena);
 }
 
-/// Obstacle-aware vertical route. Exits the source into the gap immediately
-/// below/above it (above its intra-cluster child), jogs to a column clear of
-/// every node over the run span, descends/ascends, then jogs to the target's
-/// column in the gap outside the target box and runs into the port. Degenerate
-/// (zero-length) segments collapse to the simple elbow.
-fn verticalCorridor(
-    arena: std.mem.Allocator,
-    start: sketch.Point,
-    end: sketch.Point,
-    to_box: sketch.Rect,
-    exit: sketch.Dir4,
-    placements: []const sketch.NodePlacement,
-    from_id: sketch.NodeId,
-    to_id: sketch.NodeId,
-    clusters: []const sketch.ClusterFrame,
-    obstacles: tracks.Obstacles,
-) error{OutOfMemory}![]sketch.Point {
-    const descending = (exit == .south);
-    // Gap row just past the source node — collision-free above its child. // guarded-by: bridges_test.zig "verticalCorridor: the source-side jog row (one past the source) is collision-free above the pierced child"
-    const src_jog_y = if (descending) start.y + 1 else start.y - 1;
-    // Gap row just outside the target box, ≥2 back from the port — displaced
-    // off any drawn frame border row (same discipline as the plain elbow).
-    const entry: sketch.Dir4 = if (descending) .north else .south;
-    const tgt_want = tracks.clearOfBorders(
-        entry,
-        if (descending) @min(to_box.y - 1, end.y - 2) else @max(to_box.bottom(), end.y + 2),
-        @min(start.x, end.x),
-        @max(start.x, end.x),
-        clusters,
-        obstacles,
-    );
-    const tgt_jog_y = if (descending)
-        clampBetween(start.y, end.y, tgt_want)
-    else
-        clampBetween(end.y, start.y, tgt_want);
-
-    const lo = @min(src_jog_y, tgt_jog_y);
-    const hi = @max(src_jog_y, tgt_jog_y);
-    // Prefer descending straight into the target column, sliding outward only
-    // if blocked; margined over merely touch-free (flush `││` reads as
-    // crowding) — sketch.clearLine is the shared clearance core (cluster/ may
-    // import sketch, not layout/). // guarded-by: sketch.zig "clearLine prefers a margined line over a closer touch-free-only line"
-    const run_col = corridors.descentColumn(end.x, lo, hi, placements, from_id, to_id, clusters);
-
-    var poly: std.ArrayListUnmanaged(sketch.Point) = .empty;
-    var prev = start;
-    try poly.append(arena, prev);
-    const pts = [_]sketch.Point{
-        .{ .x = start.x, .y = src_jog_y },
-        .{ .x = run_col, .y = src_jog_y },
-        .{ .x = run_col, .y = tgt_jog_y },
-        .{ .x = end.x, .y = tgt_jog_y },
-        end,
-    };
-    for (pts) |p| {
-        if (p.x == prev.x and p.y == prev.y) continue; // skip zero-length
-        try poly.append(arena, p);
-        prev = p;
-    }
-    return try poly.toOwnedSlice(arena);
-}
-
-/// True iff any straight vertical segment of `poly` touches a node box
-/// (excluding the edge's own endpoints). Touch semantics — borders count —
-/// because the raster owns border cells: a bridge leg running along a
-/// foreign border column rasterizes as swallowed edge cells even though
-/// the strict-interior validator stays silent.
-fn polyIntrudes(
-    poly: []const sketch.Point,
-    placements: []const sketch.NodePlacement,
-    from_id: sketch.NodeId,
-    to_id: sketch.NodeId,
-) bool {
-    if (poly.len < 2) return false;
-    var i: usize = 0;
-    while (i + 1 < poly.len) : (i += 1) {
-        const a = poly[i];
-        const b = poly[i + 1];
-        if (a.x == b.x) {
-            const y0 = @min(a.y, b.y);
-            const y1 = @max(a.y, b.y);
-            if (sketch.columnTouchesAny(a.x, y0, y1, placements, from_id, to_id)) return true;
-        }
-    }
-    return false;
-}
-
-/// Clamp `want` into the open interval (lo, hi). Keeps the jog coordinate
-/// strictly between the two ports even when the preferred gap line would land
-/// on or past a port (tight box spacing).
-fn clampBetween(lo: i32, hi: i32, want: i32) i32 {
-    if (hi - lo < 2) return lo + 1; // degenerate: no room, sit just past lo
-    if (want <= lo) return lo + 1;
-    if (want >= hi) return hi - 1;
-    return want;
-}
+// Obstacle-aware corridor geometry, intrusion test and jog clamping live in
+// bridge_scene.zig (cap-forced split); aliased so this router reads as one
+// vocabulary.
+const verticalCorridor = scene.verticalCorridor;
+const polyIntrudes = scene.polyIntrudes;
+const clampBetween = scene.clampBetween;
 
 const Pt = sketch.Point;
 fn center(r: sketch.Rect) Pt {
