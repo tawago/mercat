@@ -320,7 +320,7 @@ pub fn stitch(
     const cluster_slice = try clusters.toOwnedSlice(arena);
     const bridge_base = id_base;
     const bridge_start = edges.items.len;
-    const bridge_edges = try bridges.route(arena, split_result.crossings, node_slice, cluster_slice, outer.direction, orig_to_merged);
+    const bridge_edges = try bridges.route(arena, split_result.crossings, node_slice, cluster_slice, busbars.items, edges.items, outer.direction, orig_to_merged);
     // Bridges carry crossing ids, themselves renumbered from 0 by `split.zig`:
     // they take the last id window.
     for (bridge_edges) |be| {

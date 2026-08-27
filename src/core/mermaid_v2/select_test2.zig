@@ -33,6 +33,7 @@ test "a packed candidate keeps its layout co-sets when no plan realized" {
     var cand = packed_cands[0];
     try std.testing.expect(cand.sketch.clusters.len != 0);
     const before = cand.sketch.co_sets;
+    try std.testing.expect(before.len > 0);
 
     select.applyPlan(a, &permits, &cand.sketch);
 

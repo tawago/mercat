@@ -69,20 +69,62 @@ pub fn onFrameBorder(
     return false;
 }
 
+/// Trunk-ink obstacles for jog placement: `heads` are arrowhead CELLS
+/// (foreign ink there is an I2 transit violation, perpendicular crossing
+/// included); `runs` are the trunk's straight strokes (crossbar, stem,
+/// droppers), which — like frame borders — forbid only COLLINEAR jog runs;
+/// a perpendicular crossing rasterizes as a legal crossing.
+pub const Obstacles = struct {
+    heads: []const sketch.Point = &.{},
+    runs: []const [2]sketch.Point = &.{},
+
+    pub fn blocks(o: Obstacles, row_jog: bool, coord: i32, lo: i32, hi: i32) bool {
+        for (o.heads) |h| {
+            if (row_jog) {
+                if (h.y == coord and h.x >= lo and h.x <= hi) return true;
+            } else {
+                if (h.x == coord and h.y >= lo and h.y <= hi) return true;
+            }
+        }
+        for (o.runs) |s| {
+            const horizontal = s[0].y == s[1].y;
+            if (row_jog and horizontal) {
+                if (s[0].y == coord and @min(s[0].x, s[1].x) <= hi and @max(s[0].x, s[1].x) >= lo) return true;
+            } else if (!row_jog and !horizontal) {
+                if (s[0].x == coord and @min(s[0].y, s[1].y) <= hi and @max(s[0].y, s[1].y) >= lo) return true;
+            }
+        }
+        return false;
+    }
+
+    /// True iff `p` lies on a head cell or any run stroke.
+    pub fn covers(o: Obstacles, p: sketch.Point) bool {
+        for (o.heads) |h| {
+            if (h.x == p.x and h.y == p.y) return true;
+        }
+        for (o.runs) |s| {
+            if (@min(s[0].x, s[1].x) <= p.x and p.x <= @max(s[0].x, s[1].x) and
+                @min(s[0].y, s[1].y) <= p.y and p.y <= @max(s[0].y, s[1].y)) return true;
+        }
+        return false;
+    }
+};
+
 /// Displace `coord` outward (per `entry`) until the jog segment no longer
-/// runs along a drawn frame border.
+/// runs along a drawn frame border or through trunk-ink obstacles.
 pub fn clearOfBorders(
     entry: sketch.Dir4,
     coord: i32,
     lo: i32,
     hi: i32,
     clusters: []const sketch.ClusterFrame,
+    obstacles: Obstacles,
 ) i32 {
     const sign = outwardSign(entry);
     const row = isRowJog(entry);
     var c = coord;
     var guard: u32 = 0;
-    while (guard < 4096 and onFrameBorder(row, c, lo, hi, clusters)) : (guard += 1) {
+    while (guard < 4096 and (onFrameBorder(row, c, lo, hi, clusters) or obstacles.blocks(row, c, lo, hi))) : (guard += 1) {
         c += sign;
     }
     return c;
@@ -106,6 +148,7 @@ pub fn resolve(
     reqs: []const Req,
     entry: sketch.Dir4,
     clusters: []const sketch.ClusterFrame,
+    obstacles: Obstacles,
 ) error{OutOfMemory}![]i32 {
     const out = try arena.alloc(i32, reqs.len);
     const sign = outwardSign(entry);
@@ -126,7 +169,7 @@ pub fn resolve(
     // need displacing off any drawn frame border (no track separation to negotiate).
     // guarded-by: bridges_test.zig "vertical bridge jogs when x-misaligned, final segment vertical"
     for (reqs, 0..) |r, i| {
-        if (!part[i]) out[i] = clearOfBorders(entry, r.pref, r.span_lo, r.span_hi, clusters);
+        if (!part[i]) out[i] = clearOfBorders(entry, r.pref, r.span_lo, r.span_hi, clusters, obstacles);
     }
 
     // Entangled requests: sort innermost-preference first (assign packs in
@@ -166,7 +209,7 @@ pub fn resolve(
         var v = pos.*;
         if (prev != std.math.minInt(i32) and v <= prev) v = prev + 1;
         var guard: u32 = 0;
-        while (guard < 4096 and onFrameBorder(row, sign * v, lane_lo[li], lane_hi[li], clusters)) : (guard += 1) {
+        while (guard < 4096 and (onFrameBorder(row, sign * v, lane_lo[li], lane_hi[li], clusters) or obstacles.blocks(row, sign * v, lane_lo[li], lane_hi[li]))) : (guard += 1) {
             v += 1;
         }
         pos.* = v;

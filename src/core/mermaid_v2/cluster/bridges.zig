@@ -43,9 +43,17 @@ pub fn route(
     crossings: []const Crossing,
     placements: []const sketch.NodePlacement,
     clusters: []const sketch.ClusterFrame,
+    rails: []const sketch.Rail,
+    edge_paths: []const sketch.EdgePath,
     dir: sketch.Direction,
     orig_to_merged: []const sketch.NodeId,
 ) error{OutOfMemory}![]sketch.EdgePath {
+    // Bridges are routed LAST, into a fully-inked scene, so existing ink
+    // constrains them: an arrowhead cell refuses any foreign transit, and a
+    // collinear run along a trunk or edge stroke fuses into a foreign
+    // junction. Heads also repel ports whose outward step would land on
+    // them (slideOffHeads).
+    const obstacles = try sceneObstacles(arena, rails, edge_paths);
     // Pass 1: resolve endpoints, sides and centred ports. The jog
     // preference waits for pass 2, which may still move a port.
     var pends: std.ArrayListUnmanaged(Pending) = .empty;
@@ -104,7 +112,7 @@ pub fn route(
     // ports the re-route itself will keep.
     // guarded-by: bridges_test.zig "a re-routed corridor raises no crossing demand on the frame it leaves"
     for (pends.items) |*p| p.pref = jogPref(p.start, p.end, p.sides.exit, p.to_box);
-    try assignJogs(arena, pends.items, clusters);
+    try assignJogs(arena, pends.items, clusters, obstacles);
 
     const pairs = try arena.alloc(corridors.Pair, pends.items.len);
     for (pends.items, pairs) |p, *q| {
@@ -123,7 +131,34 @@ pub fn route(
         p.jog = null;
     }
 
-    try assignJogs(arena, pends.items, clusters);
+    // An EXIT port whose first outward step is an arrowhead cell shares its
+    // face column with a trunk stem or tap: every route out of it transits
+    // the head (the rerouted corridor's first leg included, which no jog or
+    // corridor demand can move). Slide it to the nearest interior
+    // coordinate whose step touches no scene ink and which no other
+    // bridge's port on the same face holds. Entry ports stay put — their
+    // final leg is corridor-disciplined, and sliding them against a
+    // neighbour's head only trades the transit for a fused junction.
+    // Bridges sharing one start point are ONE corridor (a shared-port fan)
+    // and must slide together or not at all — a split start breaks the
+    // port-share the raster licenses.
+    for (pends.items, 0..) |*p, pi| {
+        const shared_start = p.start;
+        if (slideOffHeads(&p.start, p.sides.exit, p.gf, p.from_rect, obstacles, pends.items, pi)) {
+            p.off_from = corridors.portOffset(p.from_rect, p.sides.exit, faceCoord(p.start, p.sides.exit));
+            p.pref = jogPref(p.start, p.end, p.sides.exit, p.to_box);
+            p.jog = null;
+            for (pends.items[pi + 1 ..]) |*q| {
+                if (q.start.x != shared_start.x or q.start.y != shared_start.y) continue;
+                q.start = p.start;
+                q.off_from = p.off_from;
+                q.pref = jogPref(q.start, q.end, q.sides.exit, q.to_box);
+                q.jog = null;
+            }
+        }
+    }
+
+    try assignJogs(arena, pends.items, clusters, obstacles);
 
     // Pass 3: build polylines. If a vertical elbow would run straight
     // through a node interior (a cross-border edge whose source has an
@@ -134,7 +169,7 @@ pub fn route(
     for (pends.items) |p| {
         var poly = try buildElbow(arena, p);
         if (try rerouted(arena, p, placements)) {
-            poly = try verticalCorridor(arena, p.start, p.end, p.to_box, p.sides.exit, placements, p.gf, p.gt, clusters);
+            poly = try verticalCorridor(arena, p.start, p.end, p.to_box, p.sides.exit, placements, p.gf, p.gt, clusters, obstacles);
         }
 
         try out.append(arena, .{
@@ -243,6 +278,7 @@ fn assignJogs(
     arena: std.mem.Allocator,
     pends: []Pending,
     clusters: []const sketch.ClusterFrame,
+    obstacles: tracks.Obstacles,
 ) error{OutOfMemory}!void {
     const done = try arena.alloc(bool, pends.len);
     @memset(done, false);
@@ -289,9 +325,143 @@ fn assignJogs(
             }
         }
 
-        const coords = try tracks.resolve(arena, reqs.items, p0.sides.entry, clusters);
+        const coords = try tracks.resolve(arena, reqs.items, p0.sides.entry, clusters, obstacles);
         for (members.items, req_of.items) |mi, ri| pends[mi].jog = coords[ri];
     }
+}
+
+/// Sketch-space ink already in the merged scene. Rail heads: the pivot head
+/// one step out from `stem[0]` along the stem, each decorated tap's head one
+/// step back from its landing — cell-twin of raster/busbars.zig
+/// pivotHead/tapHead, which stamp exactly these cells. Edge heads sit one
+/// step back from a decorated port along the end segment. Runs: crossbars,
+/// stem legs, tap droppers, and every polyline leg.
+// guarded-by: bridges_test.zig "sceneObstacles derives the pivot and tap head cells the raster stamps"
+pub fn sceneObstacles(
+    arena: std.mem.Allocator,
+    rails: []const sketch.Rail,
+    edge_paths: []const sketch.EdgePath,
+) error{OutOfMemory}!tracks.Obstacles {
+    var heads: std.ArrayListUnmanaged(Pt) = .empty;
+    var runs: std.ArrayListUnmanaged([2]Pt) = .empty;
+    for (edge_paths) |e| {
+        const n = e.polyline.len;
+        if (n >= 2) {
+            if (e.arrow_to != .none) {
+                if (stepDir(e.polyline[n - 1], e.polyline[n - 2])) |d| try heads.append(arena, stepPt(e.polyline[n - 1], d));
+            }
+            if (e.arrow_from != .none) {
+                if (stepDir(e.polyline[0], e.polyline[1])) |d| try heads.append(arena, stepPt(e.polyline[0], d));
+            }
+        }
+    }
+    for (rails) |r| {
+        try runs.append(arena, r.crossbar);
+        var si: usize = 0;
+        while (si + 1 < r.stem.len) : (si += 1) {
+            try runs.append(arena, .{ r.stem[si], r.stem[si + 1] });
+        }
+        if (r.pivot_arrow != .none and r.stem.len >= 2) {
+            si = 0;
+            while (si + 1 < r.stem.len) : (si += 1) {
+                if (stepDir(r.stem[si], r.stem[si + 1])) |d| {
+                    try heads.append(arena, stepPt(r.stem[0], d));
+                    break;
+                }
+            }
+        }
+        for (r.taps) |tap| {
+            try runs.append(arena, .{ tap.at, tap.landing });
+            if (tap.arrow == .none) continue;
+            const d = stepDir(tap.at, tap.landing) orelse continue;
+            const first = stepPt(tap.at, d);
+            if (first.x == tap.landing.x and first.y == tap.landing.y) continue;
+            try heads.append(arena, stepPt(tap.landing, .{ .x = -d.x, .y = -d.y }));
+        }
+    }
+    return .{ .heads = try heads.toOwnedSlice(arena), .runs = try runs.toOwnedSlice(arena) };
+}
+
+/// The port's coordinate along its face (x on a horizontal face, y on a
+/// vertical one).
+fn faceCoord(p: Pt, side: sketch.Dir4) i32 {
+    return switch (side) {
+        .north, .south => p.x,
+        .east, .west => p.y,
+    };
+}
+
+/// The cell one step outward from a port at face coordinate `c`.
+fn outwardCell(rect: sketch.Rect, side: sketch.Dir4, c: i32) Pt {
+    return switch (side) {
+        .north => .{ .x = c, .y = rect.y - 1 },
+        .south => .{ .x = c, .y = rect.bottom() },
+        .west => .{ .x = rect.x - 1, .y = c },
+        .east => .{ .x = rect.right(), .y = c },
+    };
+}
+
+fn cellIn(cells: []const Pt, p: Pt) bool {
+    for (cells) |c| {
+        if (c.x == p.x and c.y == p.y) return true;
+    }
+    return false;
+}
+
+/// If `port`'s outward step lands on a head cell, slide it along its face —
+/// nearest interior coordinate first — to one whose outward step touches no
+/// scene ink at all (a head repels; landing on a stem or dropper column
+/// would only trade the transit for a fused junction) and which no other
+/// bridge's port on this face holds. Returns true iff the port moved; an
+/// all-blocked face keeps the centre.
+fn slideOffHeads(
+    port: *Pt,
+    side: sketch.Dir4,
+    node: sketch.NodeId,
+    rect: sketch.Rect,
+    obstacles: tracks.Obstacles,
+    pends: []const Pending,
+    self: usize,
+) bool {
+    if (obstacles.heads.len == 0) return false;
+    const c0 = faceCoord(port.*, side);
+    if (!cellIn(obstacles.heads, outwardCell(rect, side, c0))) return false;
+    const rng = corridors.faceRange(rect, side);
+    var d: i32 = 1;
+    while (d <= rng.hi - rng.lo) : (d += 1) {
+        for ([2]i32{ c0 + d, c0 - d }) |c| {
+            if (c < rng.lo or c > rng.hi) continue;
+            if (obstacles.covers(outwardCell(rect, side, c))) continue;
+            if (faceTaken(pends, self, node, side, c)) continue;
+            corridors.slide(port, side, c);
+            return true;
+        }
+    }
+    return false;
+}
+
+/// True iff another bridge already holds face coordinate `c` on this node
+/// face (either of its ends).
+fn faceTaken(pends: []const Pending, self: usize, node: sketch.NodeId, side: sketch.Dir4, c: i32) bool {
+    for (pends, 0..) |q, qi| {
+        if (qi == self) continue;
+        if (q.gf == node and q.sides.exit == side and faceCoord(q.start, side) == c) return true;
+        if (q.gt == node and q.sides.entry == side and faceCoord(q.end, side) == c) return true;
+    }
+    return false;
+}
+
+const Step = struct { x: i32, y: i32 };
+
+fn stepDir(a: Pt, b: Pt) ?Step {
+    const dx = b.x - a.x;
+    const dy = b.y - a.y;
+    if ((dx == 0) == (dy == 0)) return null; // zero-length or diagonal
+    return .{ .x = std.math.sign(dx), .y = std.math.sign(dy) };
+}
+
+fn stepPt(p: Pt, d: Step) Pt {
+    return .{ .x = p.x + d.x, .y = p.y + d.y };
 }
 
 /// The subgraph frame containing `p`, or null if `p` is top-level.
@@ -376,6 +546,7 @@ fn verticalCorridor(
     from_id: sketch.NodeId,
     to_id: sketch.NodeId,
     clusters: []const sketch.ClusterFrame,
+    obstacles: tracks.Obstacles,
 ) error{OutOfMemory}![]sketch.Point {
     const descending = (exit == .south);
     // Gap row just past the source node — collision-free above its child. // guarded-by: bridges_test.zig "verticalCorridor: the source-side jog row (one past the source) is collision-free above the pierced child"
@@ -389,6 +560,7 @@ fn verticalCorridor(
         @min(start.x, end.x),
         @max(start.x, end.x),
         clusters,
+        obstacles,
     );
     const tgt_jog_y = if (descending)
         clampBetween(start.y, end.y, tgt_want)

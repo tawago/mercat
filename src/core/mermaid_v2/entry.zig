@@ -469,6 +469,76 @@ test "cluster unification: a subgraph-internal fan-in realizes a trunk and ships
     try std.testing.expectEqualStrings(expected, std.mem.trimRight(u8, rendered.output, "\n"));
 }
 
+test "cluster unification: two subgraph trunks keep their own members through nonzero stitch bases" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const graph = try parse(a,
+        \\flowchart TD
+        \\subgraph S
+        \\  A --> C
+        \\  B --> C
+        \\end
+        \\subgraph T
+        \\  D --> F
+        \\  E --> F
+        \\end
+        \\
+    );
+
+    // The second piece merges at a nonzero edge base; a dropped remap would
+    // alias its members onto the first piece's ids. Each trunk's member set
+    // must be exactly its own busbar's tap edges, and the two sets disjoint.
+    const result = try resolveJoinPermits(a, graph);
+    const laid_out = try ladder_pkg.run(a, graph, &result.plan, 80);
+    const joins = laid_out.sketch.joins.selected_joins;
+    try std.testing.expectEqual(@as(usize, 2), joins.len);
+    try std.testing.expectEqual(@as(usize, 2), laid_out.sketch.busbars.len);
+    for (joins) |j| {
+        try std.testing.expectEqual(@as(usize, 2), j.members.len);
+        var matched = false;
+        for (laid_out.sketch.busbars) |bb| {
+            if (bb.taps.len != 2) continue;
+            const fwd = (bb.taps[0].edge == j.members[0] and bb.taps[1].edge == j.members[1]);
+            const rev = (bb.taps[0].edge == j.members[1] and bb.taps[1].edge == j.members[0]);
+            if (fwd or rev) matched = true;
+        }
+        try std.testing.expect(matched);
+    }
+    try std.testing.expect(joins[0].members[0] != joins[1].members[0]);
+    try std.testing.expect(joins[0].members[1] != joins[1].members[1]);
+}
+
+test "cluster unification: a bridge never transits a stitched trunk's arrowhead" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    // Two subgraph fan-ins plus cross-border edges whose corridors pass the
+    // realized trunks; the bridge router must dodge every head cell.
+    const graph = try parse(a,
+        \\flowchart TD
+        \\subgraph S1
+        \\  A1 --> C
+        \\  A2 --> C
+        \\  A3 --> C
+        \\end
+        \\subgraph S2
+        \\  B1 --> D
+        \\  B2 --> D
+        \\end
+        \\H --> A1
+        \\C --> E
+        \\C --> H
+        \\
+    );
+    const result = try resolveJoinPermits(a, graph);
+    const laid_out = try ladder_pkg.run(a, graph, &result.plan, 120);
+    const report = try rasterize(a, laid_out.sketch, .bridge);
+    try std.testing.expectEqual(@as(u32, 0), report.crossings.arrowhead_transit_violation);
+    try std.testing.expectEqual(@as(u32, 0), report.crossings.foreign_junction_violation);
+    try std.testing.expectEqual(@as(u32, 0), report.edge_cells_lost);
+}
+
 test {
     // Pull in layout-pipeline tests so `zig build` sees them when the
     // mermaid_v2 module is exercised. Each referenced file uses its own
