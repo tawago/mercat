@@ -350,6 +350,11 @@ pub fn stitch(
         .busbars = bar_slice,
         .rail_claims = authority.claims,
         .co_sets = authority.sets,
+        // Deliberately empty, not forgotten: piece-local plans speak in
+        // piece-local edge ids that do not survive the merge, so no piece's
+        // joins may be carried across. The merged candidate's plan is written
+        // by the post-stitch realization pass or stays empty.
+        .joins = .{},
         // Report-only counts are per-PIECE facts about one merged picture,
         // so the merged Sketch carries their sum; keeping only the outer's
         // would silently drop every refusal a child's fans decided.
