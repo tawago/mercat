@@ -30,8 +30,13 @@ const LABELED_FAN =
     \\
 ;
 
+// These tests exercise label policy, not join realization; scope is forced
+// to skipped_clustered so join application stays inert (the pre-absorption
+// literal `false` these tests were written against).
 fn permitsFor(a: std.mem.Allocator, g: @TypeOf(@as(sem_graph.SemGraph, undefined))) !ledger.JoinPermits {
-    return (try permits_mod.build(a, g, .joined)).plan;
+    var plan = (try permits_mod.build(a, g, .joined)).plan;
+    plan.scope = .skipped_clustered;
+    return plan;
 }
 
 fn countPolicies(merged: []const ladder.Candidate) struct { on_run: usize, beside: usize } {
