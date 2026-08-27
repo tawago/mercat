@@ -192,8 +192,8 @@ pub fn renderFlowchart(
     // `join_permits` lives for the whole render (this frame outlives every
     // layout pass); the ladder/select drivers take it as *const so
     // LayoutOptions.join_permits aliases THIS plan, never a stack copy.
+    // The plan carries its own scope (flat vs skipped_clustered).
     const join_permits = branch_result.plan;
-    const join_permits_flat = !branch_result.report.join_permits_skipped_clustered;
 
     // MotifTree dump is INERT: nothing downstream reads the result yet
     // (see EnvOptions.dump_motifs).
@@ -213,21 +213,21 @@ pub fn renderFlowchart(
         // realized join plan themselves (select.applyPlan, flat-gated as in
         // select.choose) — a debug render carries production join semantics.
         if (env.force_rung) |rung| {
-            var forced = ladder_pkg.runForced(aa, graph, &join_permits, join_permits_flat, options.max_width, rung) catch |err| {
+            var forced = ladder_pkg.runForced(aa, graph, &join_permits, options.max_width, rung) catch |err| {
                 std.log.warn("mermaid_v2/entry: forced-rung layout failed: {s}", .{@errorName(err)});
                 return fallback(source, "v2 ladder error");
             };
-            if (join_permits_flat) select_mod.applyPlan(aa, &join_permits, &forced.sketch);
+            if (join_permits.isFlat()) select_mod.applyPlan(aa, &join_permits, &forced.sketch);
             break :blk forced;
         }
         if (env.score_off and !env.shadow_telemetry) {
             // Escape hatch without telemetry: the exact original path
             // (short-circuiting ladder, no enumeration).
-            var incumbent = ladder_pkg.run(aa, graph, &join_permits, join_permits_flat, options.max_width) catch |err| {
+            var incumbent = ladder_pkg.run(aa, graph, &join_permits, options.max_width) catch |err| {
                 std.log.warn("mermaid_v2/entry: ladder failed: {s}", .{@errorName(err)});
                 return fallback(source, "v2 ladder error");
             };
-            if (join_permits_flat) select_mod.applyPlan(aa, &join_permits, &incumbent.sketch);
+            if (join_permits.isFlat()) select_mod.applyPlan(aa, &join_permits, &incumbent.sketch);
             break :blk incumbent;
         }
         // LIVE selection (select.zig): raw ladder candidates + motif-
@@ -238,7 +238,7 @@ pub fn renderFlowchart(
         // scoring/packing failure degrades internally to the incumbent —
         // the render never fails on selection.
         // guarded-by: select_test.zig "choose: merged selection anchors to raw natural and never fails the render"
-        break :blk select_mod.choose(aa, graph, &join_permits, join_permits_flat, options.max_width, env.score_off, env.shadow_telemetry) catch |err| {
+        break :blk select_mod.choose(aa, graph, &join_permits, options.max_width, env.score_off, env.shadow_telemetry) catch |err| {
             std.log.warn("mermaid_v2/entry: ladder failed: {s}", .{@errorName(err)});
             return fallback(source, "v2 ladder error");
         };
@@ -421,7 +421,7 @@ test "V-D-IR-07: clustered production path keeps the realized plan envelope empt
     try std.testing.expectEqual(ledger.JoinPolicy.joined, result.plan.policy);
     try std.testing.expect(result.report.join_permits_skipped_clustered);
     try std.testing.expect(result.report.edgeid_scope_clustered_skipped);
-    const laid_out = try ladder_pkg.run(a, graph, &result.plan, false, 120);
+    const laid_out = try ladder_pkg.run(a, graph, &result.plan, 120);
     try std.testing.expectEqual(@as(usize, 0), laid_out.sketch.joins.selected_joins.len);
     try std.testing.expectEqual(@as(usize, 0), laid_out.sketch.joins.memberships.len);
 }

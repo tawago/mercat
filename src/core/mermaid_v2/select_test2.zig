@@ -32,7 +32,7 @@ test "a packed candidate keeps its fan co-sets when no plan realized" {
         \\
     );
     const permits = (try permits_mod.build(a, g, .joined)).plan;
-    var cand = try ladder.run(a, g, &permits, false, 120);
+    var cand = try ladder.run(a, g, &permits, 120);
     try std.testing.expect(cand.sketch.clusters.len != 0);
     const before = cand.sketch.co_sets;
     try std.testing.expect(before.len > 0);
@@ -59,7 +59,7 @@ test "applying a plan keeps the sketch's port-share co-sets" {
 
     const g = try parse(a, "flowchart TD\n  A --> B\n  A --> C\n  A --> D\n");
     const permits = (try permits_mod.build(a, g, .joined)).plan;
-    var cand = try ladder.run(a, g, &permits, true, 120);
+    var cand = try ladder.run(a, g, &permits, 120);
     select.applyPlan(a, &permits, &cand.sketch);
 
     // Non-vacuity: the plan realized (otherwise nothing was replaced at all).

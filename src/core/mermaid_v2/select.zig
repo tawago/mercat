@@ -43,15 +43,14 @@ pub fn choose(
     aa: std.mem.Allocator,
     graph: sem_graph.SemGraph,
     join_permits: *const ledger.JoinPermits,
-    join_permits_flat: bool,
     max_width: u32,
     score_off: bool,
     shadow: bool,
 ) !ladder.LadderResult {
-    const set = try enumerateAll(aa, graph, join_permits, join_permits_flat, max_width);
-    const merged = attachJoinPlans(aa, join_permits, join_permits_flat, set.merged);
+    const set = try enumerateAll(aa, graph, join_permits, max_width);
+    const merged = attachJoinPlans(aa, join_permits, set.merged);
     var incumbent = set.incumbent;
-    if (join_permits_flat) applyPlan(aa, join_permits, &incumbent.sketch);
+    if (join_permits.isFlat()) applyPlan(aa, join_permits, &incumbent.sketch);
 
     // D-REACH pre-raster vector reachability oracle per merged candidate,
     // AFTER realized and BEFORE scoring (D-REACH items 5/9/10/12-13). The
@@ -59,8 +58,8 @@ pub fn choose(
     // byte-identical decomposition, exposed so tests can drive the tail with
     // forged reports.
     // guarded-by: select_test.zig "report-only pin: reach oracle changes neither argmin nor winner"
-    const reach = reachReports(aa, graph, join_permits_flat, merged);
-    return selectWinner(aa, graph, join_permits, join_permits_flat, max_width, merged, reach, incumbent, score_off, shadow);
+    const reach = reachReports(aa, graph, join_permits.isFlat(), merged);
+    return selectWinner(aa, graph, join_permits, max_width, merged, reach, incumbent, score_off, shadow);
 }
 
 // The Step 8 CI filter + terminal candidate live in select_filter.zig
@@ -83,7 +82,6 @@ pub fn selectWinner(
     aa: std.mem.Allocator,
     graph: sem_graph.SemGraph,
     join_permits: *const ledger.JoinPermits,
-    join_permits_flat: bool,
     max_width: u32,
     merged: []const ladder.Candidate,
     reach: []const reach_vector.Report,
@@ -103,7 +101,7 @@ pub fn selectWinner(
         // (D-DISPOSITION item 9(b)); a scoring failure with survivors present
         // degrades to the incumbent (never terminal while survivors exist).
         if (filtered.survivors.len == 0 and filtered.excluded_any)
-            return terminalCandidate(aa, graph, join_permits, join_permits_flat, max_width) catch incumbent;
+            return terminalCandidate(aa, graph, join_permits, max_width) catch incumbent;
         return incumbent;
     };
     const winner = filtered.survivors[sel.argmin_idx];
@@ -118,10 +116,9 @@ pub fn selectWinner(
 fn attachJoinPlans(
     aa: std.mem.Allocator,
     join_permits: *const ledger.JoinPermits,
-    join_permits_flat: bool,
     candidates: []const ladder.Candidate,
 ) []const ladder.Candidate {
-    if (!join_permits_flat) return candidates;
+    if (!join_permits.isFlat()) return candidates;
     const mut = aa.dupe(ladder.Candidate, candidates) catch return candidates;
     for (mut) |*cand| applyPlan(aa, join_permits, &cand.sketch);
     return mut;
@@ -249,18 +246,17 @@ pub fn enumerateAll(
     aa: std.mem.Allocator,
     graph: sem_graph.SemGraph,
     join_permits: *const ledger.JoinPermits,
-    join_permits_flat: bool,
     max_width: u32,
 ) !CandidateSet {
-    const enumerated = try ladder.enumerate(aa, graph, join_permits, join_permits_flat, max_width);
+    const enumerated = try ladder.enumerate(aa, graph, join_permits, max_width);
 
     var extras: [PACK_RUNGS.len + 1 + select_labels.MAX_BESIDE]ladder.Candidate = undefined;
     var n_extras: usize = 0;
-    for (packedCandidates(aa, graph, join_permits, join_permits_flat, max_width) catch &.{}) |c| {
+    for (packedCandidates(aa, graph, join_permits, max_width) catch &.{}) |c| {
         extras[n_extras] = c;
         n_extras += 1;
     }
-    if (negotiatedFoldCandidate(aa, graph, join_permits, join_permits_flat, max_width)) |c| {
+    if (negotiatedFoldCandidate(aa, graph, join_permits, max_width)) |c| {
         extras[n_extras] = c;
         n_extras += 1;
     }
@@ -272,7 +268,7 @@ pub fn enumerateAll(
     if (on_run_n <= on_run.len) {
         @memcpy(on_run[0..enumerated.candidates.len], enumerated.candidates);
         @memcpy(on_run[enumerated.candidates.len..on_run_n], extras[0..n_extras]);
-        n_extras += select_labels.besideVariants(aa, graph, join_permits, join_permits_flat, max_width, on_run[0..on_run_n], extras[n_extras..]);
+        n_extras += select_labels.besideVariants(aa, graph, join_permits, max_width, on_run[0..on_run_n], extras[n_extras..]);
     }
 
     const merged = blk: {
@@ -294,11 +290,10 @@ pub fn negotiatedFoldCandidate(
     aa: std.mem.Allocator,
     graph: sem_graph.SemGraph,
     join_permits: *const ledger.JoinPermits,
-    join_permits_flat: bool,
     max_width: u32,
 ) ?ladder.Candidate {
     if (!ladder.Transform.negotiated_fold.appliesTo(graph.direction)) return null;
-    const result = ladder.runNegotiatedFold(aa, graph, join_permits, join_permits_flat, max_width) catch return null;
+    const result = ladder.runNegotiatedFold(aa, graph, join_permits, max_width) catch return null;
     return .{
         .rung = .chain_wrap,
         .sketch = result.sketch,
@@ -314,14 +309,13 @@ pub fn packedCandidates(
     aa: std.mem.Allocator,
     graph: sem_graph.SemGraph,
     join_permits: *const ledger.JoinPermits,
-    join_permits_flat: bool,
     max_width: u32,
 ) error{OutOfMemory}![]const ladder.Candidate {
     const packed_graph = select_labels.packedGraph(aa, graph) orelse return &.{};
 
     var list: std.ArrayListUnmanaged(ladder.Candidate) = .empty;
     for (PACK_RUNGS) |rung| {
-        const result = ladder.runForced(aa, packed_graph, join_permits, join_permits_flat, max_width, rung) catch continue;
+        const result = ladder.runForced(aa, packed_graph, join_permits, max_width, rung) catch continue;
         try list.append(aa, .{
             .rung = rung,
             .sketch = result.sketch,

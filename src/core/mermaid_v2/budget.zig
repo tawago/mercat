@@ -58,14 +58,13 @@ pub fn run(
     arena: std.mem.Allocator,
     graph: sem_graph.SemGraph,
     join_permits: *const ledger.JoinPermits,
-    join_permits_flat: bool,
     max_width: u32,
 ) !LadderResult {
     var attempts: u8 = 0;
     var rung_idx: u8 = 0;
     while (rung_idx <= @intFromEnum(Rung.truncate)) : (rung_idx += 1) {
         const rung: Rung = @enumFromInt(rung_idx);
-        const attempt = try tryRung(arena, graph, join_permits, join_permits_flat, max_width, rung);
+        const attempt = try tryRung(arena, graph, join_permits, max_width, rung);
         attempts += 1;
 
         if (attempt.accepted) {
@@ -91,7 +90,6 @@ fn layoutRung(
     arena: std.mem.Allocator,
     graph: sem_graph.SemGraph,
     join_permits: *const ledger.JoinPermits,
-    join_permits_flat: bool,
     max_width: u32,
     rung: Rung,
     negotiated: bool,
@@ -99,7 +97,6 @@ fn layoutRung(
 ) !sketch.Sketch {
     var opts = optionsFor(rung, max_width);
     opts.join_permits = join_permits;
-    opts.join_permits_flat = join_permits_flat;
     opts.label_policy = policy;
     if (negotiated) opts.chain_wrap_negotiated = true;
     return recurse.layoutPieces(arena, rotateForRung(graph, rung), opts);
@@ -114,14 +111,13 @@ fn tryRung(
     arena: std.mem.Allocator,
     graph: sem_graph.SemGraph,
     join_permits: *const ledger.JoinPermits,
-    join_permits_flat: bool,
     max_width: u32,
     rung: Rung,
 ) !RungAttempt {
-    const result = try layoutRung(arena, graph, join_permits, join_permits_flat, max_width, rung, false, .on_run);
+    const result = try layoutRung(arena, graph, join_permits, max_width, rung, false, .on_run);
     return .{
         .sketch = result,
-        .accepted = try ladderAccepts(arena, graph, join_permits, join_permits_flat, max_width, rung, result),
+        .accepted = try ladderAccepts(arena, graph, join_permits, max_width, rung, result),
     };
 }
 
@@ -146,7 +142,6 @@ fn ladderAccepts(
     arena: std.mem.Allocator,
     graph: sem_graph.SemGraph,
     join_permits: *const ledger.JoinPermits,
-    join_permits_flat: bool,
     max_width: u32,
     rung: Rung,
     result: sketch.Sketch,
@@ -158,7 +153,7 @@ fn ladderAccepts(
     if (rung == .chain_wrap) {
         // Fold didn't fit, OR rotation would fit: defer.
         return !hasWidthOverflow(result.diagnostics) and
-            try rotationStillOverflows(arena, graph, join_permits, join_permits_flat, max_width);
+            try rotationStillOverflows(arena, graph, join_permits, max_width);
     }
     return rung == .truncate or !hasWidthOverflow(result.diagnostics);
 }
@@ -182,7 +177,6 @@ pub fn enumerate(
     arena: std.mem.Allocator,
     graph: sem_graph.SemGraph,
     join_permits: *const ledger.JoinPermits,
-    join_permits_flat: bool,
     max_width: u32,
 ) !EnumerateResult {
     var candidates: std.ArrayList(Candidate) = .empty;
@@ -192,7 +186,7 @@ pub fn enumerate(
     while (rung_idx <= @intFromEnum(Rung.truncate)) : (rung_idx += 1) {
         const rung: Rung = @enumFromInt(rung_idx);
         if (incumbent == null) {
-            const attempt = try tryRung(arena, graph, join_permits, join_permits_flat, max_width, rung);
+            const attempt = try tryRung(arena, graph, join_permits, max_width, rung);
             attempts += 1;
             try candidates.append(arena, .{ .rung = rung, .sketch = attempt.sketch, .accepted = attempt.accepted });
             if (attempt.accepted) {
@@ -200,7 +194,7 @@ pub fn enumerate(
             }
         } else {
             // Post-incumbent: scoring-only extra work; failures skipped. // guarded-by: budget_test.zig "enumerate never probes acceptance for post-incumbent candidates"
-            const result = layoutRung(arena, graph, join_permits, join_permits_flat, max_width, rung, false, .on_run) catch continue;
+            const result = layoutRung(arena, graph, join_permits, max_width, rung, false, .on_run) catch continue;
             try candidates.append(arena, .{ .rung = rung, .sketch = result, .accepted = false });
         }
     }
@@ -220,11 +214,10 @@ pub fn runForced(
     arena: std.mem.Allocator,
     graph: sem_graph.SemGraph,
     join_permits: *const ledger.JoinPermits,
-    join_permits_flat: bool,
     max_width: u32,
     rung: Rung,
 ) !LadderResult {
-    const result = try layoutRung(arena, graph, join_permits, join_permits_flat, max_width, rung, false, .on_run);
+    const result = try layoutRung(arena, graph, join_permits, max_width, rung, false, .on_run);
     return .{ .sketch = result, .final_rung = rung, .attempts = 1 };
 }
 
@@ -236,12 +229,10 @@ pub fn runForcedIndependent(
     arena: std.mem.Allocator,
     graph: sem_graph.SemGraph,
     join_permits: *const ledger.JoinPermits,
-    join_permits_flat: bool,
     max_width: u32,
 ) !LadderResult {
     var opts = optionsFor(.natural, max_width);
     opts.join_permits = join_permits;
-    opts.join_permits_flat = join_permits_flat;
     opts.disable_join_realization = true;
     return .{ .sketch = try recurse.layoutPieces(arena, graph, opts), .final_rung = .natural, .attempts = 1 };
 }
@@ -254,10 +245,9 @@ pub fn runNegotiatedFold(
     arena: std.mem.Allocator,
     graph: sem_graph.SemGraph,
     join_permits: *const ledger.JoinPermits,
-    join_permits_flat: bool,
     max_width: u32,
 ) !LadderResult {
-    const result = try layoutRung(arena, graph, join_permits, join_permits_flat, max_width, .chain_wrap, true, .on_run);
+    const result = try layoutRung(arena, graph, join_permits, max_width, .chain_wrap, true, .on_run);
     return .{ .sketch = result, .final_rung = .chain_wrap, .attempts = 1 };
 }
 
@@ -272,13 +262,12 @@ pub fn runVariant(
     arena: std.mem.Allocator,
     graph: sem_graph.SemGraph,
     join_permits: *const ledger.JoinPermits,
-    join_permits_flat: bool,
     max_width: u32,
     rung: Rung,
     negotiated: bool,
     policy: prim.LabelPolicy,
 ) !LadderResult {
-    const result = try layoutRung(arena, graph, join_permits, join_permits_flat, max_width, rung, negotiated, policy);
+    const result = try layoutRung(arena, graph, join_permits, max_width, rung, negotiated, policy);
     return .{ .sketch = result, .final_rung = rung, .attempts = 1 };
 }
 
@@ -290,13 +279,11 @@ fn rotationStillOverflows(
     arena: std.mem.Allocator,
     graph: sem_graph.SemGraph,
     join_permits: *const ledger.JoinPermits,
-    join_permits_flat: bool,
     max_width: u32,
 ) !bool {
     const opts = optionsFor(.switch_direction, max_width);
     var planned_opts = opts;
     planned_opts.join_permits = join_permits;
-    planned_opts.join_permits_flat = join_permits_flat;
     const rotated = try recurse.layoutPieces(arena, rotateForRung(graph, .switch_direction), planned_opts);
     return hasWidthOverflow(rotated.diagnostics);
 }

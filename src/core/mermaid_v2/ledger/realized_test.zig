@@ -87,7 +87,7 @@ fn buildPlan(a: std.mem.Allocator, g: sg.SemGraph) !pb.JoinPermits {
 /// The raw natural-rung candidate's realized plan for a parsed graph —
 /// the production shape most vectors exercise.
 fn realizeNatural(a: std.mem.Allocator, g: sg.SemGraph, plan: pb.JoinPermits, width: u32) !jp.Result {
-    const set = try select.enumerateAll(a, g, &plan, true, width);
+    const set = try select.enumerateAll(a, g, &plan, width);
     for (set.merged) |cand| {
         if (cand.rung == .natural and cand.transform == .raw)
             return jp.realize(a, plan, cand.sketch);
@@ -96,7 +96,7 @@ fn realizeNatural(a: std.mem.Allocator, g: sg.SemGraph, plan: pb.JoinPermits, wi
 }
 
 fn realizeNaturalWithoutCommit(a: std.mem.Allocator, g: sg.SemGraph, plan: pb.JoinPermits, width: u32) !jp.Result {
-    const set = try select.enumerateAll(a, g, &plan, true, width);
+    const set = try select.enumerateAll(a, g, &plan, width);
     for (set.merged) |cand| if (cand.rung == .natural and cand.transform == .raw) {
         var s = cand.sketch;
         s.joins = .{};
@@ -395,7 +395,7 @@ test "V-D-IR-01: winner joins artifact survives selection to the entry boundary"
 
     // The production call path: choose() returns the envelope entry.zig
     // keeps; its joins must arrive populated, not recomputed after.
-    const result = try select.choose(a, g, &built.plan, true, 80, false, false);
+    const result = try select.choose(a, g, &built.plan, 80, false, false);
     try expectEqual(@as(usize, 3), result.sketch.joins.memberships.len);
     try expectEqual(@as(usize, 1), result.sketch.joins.selected_joins.len);
     try expectEqual(@as(usize, 6), result.sketch.joins.terminal_ports.len);
@@ -407,7 +407,7 @@ test "V-D-IR-02: motif_pack candidate is off the identity path and keeps an empt
     const a = arena.allocator();
     const g = try parse_mod.parse(a, "flowchart TD\n  A --> B1 --> C1\n  A --> B2 --> C2\n");
     const plan = try buildPlan(a, g);
-    const set = try select.enumerateAll(a, g, &plan, true, 80);
+    const set = try select.enumerateAll(a, g, &plan, 80);
 
     var saw_raw = false;
     var saw_packed = false;

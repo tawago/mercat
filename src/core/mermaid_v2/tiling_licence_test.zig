@@ -32,8 +32,7 @@ fn renderCounts(a: std.mem.Allocator, source: []const u8, width: u32) !counts.Co
     const graph = try parse(a, source);
     const built = try permits.build(a, graph, .joined);
     const plan = built.plan;
-    const flat = !built.report.join_permits_skipped_clustered;
-    const winner = try select.choose(a, graph, &plan, flat, width, false, false);
+    const winner = try select.choose(a, graph, &plan, width, false, false);
     const report = try raster.rasterize(a, winner.sketch, .bridge, .{ .collect_aux = true });
     return scan.run(a, .{
         .graph = graph,
@@ -103,8 +102,7 @@ fn expectReconstructedThreeWayPortShare() !void {
     const graph = try parse(a, three_way_port_share);
     const built = try permits.build(a, graph, .joined);
     const plan = built.plan;
-    const flat = !built.report.join_permits_skipped_clustered;
-    const winner = try select.choose(a, graph, &plan, flat, 140, false, false);
+    const winner = try select.choose(a, graph, &plan, 140, false, false);
 
     var found: ?ledger.CoSet = null;
     for (winner.sketch.co_sets) |set| {
@@ -271,7 +269,7 @@ test "fan labels: feasible mixed, in-out, BND-S, clustered and BT renders lose n
         const a = arena.allocator();
         const graph = try parse(a, case.source);
         const built = try permits.build(a, graph, .joined);
-        const winner = try select.choose(a, graph, &built.plan, !built.report.join_permits_skipped_clustered, 60, false, false);
+        const winner = try select.choose(a, graph, &built.plan, 60, false, false);
         const report = try raster.rasterize(a, winner.sketch, .bridge, .{ .collect_aux = true });
         try testing.expectEqual(@as(u32, 0), report.labels_dropped);
         try testing.expectEqual(case.labels, report.labels_placed - @as(u32, @intCast(winner.sketch.nodes.len)));
@@ -289,7 +287,7 @@ test "fan labels: explicit clipping reports width overflow and declared loss" {
     const a = arena.allocator();
     const graph = try parse(a, "flowchart TD\n  P -->|abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789| A\n  P -->|short| B\n");
     const built = try permits.build(a, graph, .joined);
-    const winner = try select.choose(a, graph, &built.plan, true, 20, false, false);
+    const winner = try select.choose(a, graph, &built.plan, 20, false, false);
     var marked = false;
     for (winner.sketch.diagnostics) |d| switch (d) {
         .width_overflow => marked = true,

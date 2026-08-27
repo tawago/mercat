@@ -78,7 +78,6 @@ test "fan provenance: realized fan-in Rail claims the pivot while labeled fan-in
     defer rail_arena.deinit();
     const rail = try coords.layout(rail_arena.allocator(), graph(.TD, &nodes, &edges, &.{}), .{
         .join_permits = &permits,
-        .join_permits_flat = true,
     });
     try testing.expectEqual(@as(usize, 1), rail.busbars.len);
     try testing.expectEqual(sketch.EdgeRole.fan_in_dropper, rail.busbars[0].role);
@@ -207,7 +206,7 @@ test "fan provenance: plan selection preserves the winning claims" {
     const permits: ledger.JoinPermits = .{ .policy = .joined, .groups = &groups, .memberships = &memberships };
     var arena = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
-    const winner = try select.choose(arena.allocator(), graph(.TD, &nodes, &edges, &.{}), &permits, true, 120, false, false);
+    const winner = try select.choose(arena.allocator(), graph(.TD, &nodes, &edges, &.{}), &permits, 120, false, false);
 
     try testing.expectEqual(@as(usize, 1), winner.sketch.rail_claims.len);
     try testing.expectEqual(@as(ledger.RailClaimId, 1), winner.sketch.rail_claims[0].id);

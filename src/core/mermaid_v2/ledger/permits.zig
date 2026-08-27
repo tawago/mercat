@@ -161,7 +161,7 @@ pub fn build(
     // only the original graph's cluster array opens or closes this gate.
     // guarded-by: permits_test.zig "V-D-EDGE-ID-02: clustered graph returns empty plan and both skip markers"
     if (graph.clusters.len != 0) return .{
-        .plan = .{ .policy = policy },
+        .plan = .{ .policy = policy, .scope = .skipped_clustered },
         .report = .{
             .join_permits_skipped_clustered = true,
             .edgeid_scope_clustered_skipped = true,

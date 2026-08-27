@@ -113,16 +113,13 @@ fn buildSketch(
 
     const is_td = graph.direction == .TD;
     const fans: []fan_mod.Fan = if (is_td) try fan_mod.detect(a, graph, lg) else &.{};
-    // Synthetic motif-pack clusters are outside the flat edge-id identity
-    // path just like authored clusters; no original-input permit may affect
-    // their geometry before post-layout realization applies the same gate.
-    const candidate_flat = opts.join_permits_flat and graph.clusters.len == 0;
     // The closure law's report-only counts ride the Sketch to telemetry: the
     // registry tags name real events only if a production render can fire them.
     // guarded-by: layout_test2.zig "a production render carries the closure law's counts on its Sketch"
     var closure: ledger.ClosureCounts = .{};
     addConstructionDiagnostics(&closure, fans);
-    var candidate_joins = try join_commit.buildReported(a, graph, opts.join_permits, candidate_flat, lg.reversed_edges, opts.disable_join_realization, &closure);
+    var candidate_joins = try join_commit.buildReported(a, graph, opts.join_permits, lg.reversed_edges, opts.disable_join_realization, &closure);
+    const candidate_flat = if (opts.join_permits) |p| p.isFlat() and graph.clusters.len == 0 else false;
     const construction_private = hasPrivatePeers(fans);
     const port_active = hasPortWork(candidate_joins) or construction_private;
     const lane_plan = try port_plan.planLanes(a, graph, lg, candidate_joins);

@@ -29,7 +29,7 @@ fn rawOf(graph: anytype, id: u32) []const u8 {
 fn trunkKeysAtD(a: std.mem.Allocator, source: []const u8) ![]const []const u8 {
     const graph = try parse(a, source);
     const plan = (try permits.build(a, graph, .joined)).plan;
-    const winner = try select.choose(a, graph, &plan, true, 94, false, false);
+    const winner = try select.choose(a, graph, &plan, 94, false, false);
     for (winner.sketch.joins.selected_joins) |sj| {
         for (plan.groups) |g| if (g.id == sj.permission_group and g.direction == .in and g.pivot == nodeId(graph, "D")) {
             const out = try a.alloc([]const u8, sj.members.len);
@@ -57,7 +57,7 @@ test "N6 reversed: forward-subset fan-in trunk agrees across join_commit and rea
     const a = arena.allocator();
     const graph = try parse(a, reversed_fanin_source);
     const plan = (try permits.build(a, graph, .joined)).plan;
-    const set = try select.enumerateAll(a, graph, &plan, true, 94);
+    const set = try select.enumerateAll(a, graph, &plan, 94);
     var saw_fanin = false;
     for (set.merged) |candidate| {
         const checked = try realized.realize(a, plan, candidate.sketch);
@@ -81,7 +81,7 @@ test "N6 floor: a single-forward-member reversed fan-in commits no trunk" {
     const a = arena.allocator();
     const graph = try parse(a, source);
     const plan = (try permits.build(a, graph, .joined)).plan;
-    const set = try select.enumerateAll(a, graph, &plan, true, 94);
+    const set = try select.enumerateAll(a, graph, &plan, 94);
     for (set.merged) |candidate| {
         const checked = try realized.realize(a, plan, candidate.sketch);
         try expectSelectedEqual(candidate.sketch.joins.selected_joins, checked.plan.selected_joins);
@@ -120,7 +120,7 @@ test "N6: every enumerated candidate agrees on pre-sizing trunk commitments and 
         const a = arena.allocator();
         const graph = try parse(a, source);
         const plan = (try permits.build(a, graph, .joined)).plan;
-        const set = try select.enumerateAll(a, graph, &plan, true, if (source_i == 2) 24 else 94);
+        const set = try select.enumerateAll(a, graph, &plan, if (source_i == 2) 24 else 94);
         var saw_switch = false;
         for (set.merged) |candidate| {
             if (candidate.rung == .switch_direction) saw_switch = true;
@@ -157,7 +157,7 @@ test "an all-arrow-free fan with undeclared leaf pairs commits no trunk" {
     const graph = try parse(a, "flowchart TD\n  A --- Z\n  B --- Z\n  C --- Z\n");
     const plan = (try permits.build(a, graph, .joined)).plan;
     var report: join_commit.Report = .{};
-    const joins = try join_commit.buildReported(a, graph, &plan, true, &.{}, false, &report);
+    const joins = try join_commit.buildReported(a, graph, &plan, &.{}, false, &report);
 
     try std.testing.expectEqual(@as(usize, 0), joins.selected_joins.len);
     try std.testing.expectEqual(@as(usize, 0), joins.co_realized.len);
@@ -176,7 +176,7 @@ test "a directed fan is untouched by the closure law" {
     const graph = try parse(a, "flowchart TD\n  A --> Z\n  B --> Z\n  C --> Z\n");
     const plan = (try permits.build(a, graph, .joined)).plan;
     var report: join_commit.Report = .{};
-    const joins = try join_commit.buildReported(a, graph, &plan, true, &.{}, false, &report);
+    const joins = try join_commit.buildReported(a, graph, &plan, &.{}, false, &report);
 
     try std.testing.expectEqual(@as(usize, 1), joins.selected_joins.len);
     try std.testing.expectEqual(@as(u32, 0), report.rail_closure_undeclared);
@@ -190,7 +190,7 @@ test "a fully declared leaf clique keeps the trunk and co-realizes its pair edge
     const graph = try parse(a, "flowchart TD\n  A --- Z\n  B --- Z\n  A --- B\n");
     const plan = (try permits.build(a, graph, .joined)).plan;
     var report: join_commit.Report = .{};
-    const joins = try join_commit.buildReported(a, graph, &plan, true, &.{}, false, &report);
+    const joins = try join_commit.buildReported(a, graph, &plan, &.{}, false, &report);
 
     // The fan-IN at Z fuses, and A---B is discharged by its crossbar.
     try std.testing.expectEqual(@as(u32, 0), report.rail_closure_undeclared);
@@ -218,7 +218,7 @@ test "a labeled or decorated declaration cannot back a leaf pair" {
         const graph = try parse(a, source);
         const plan = (try permits.build(a, graph, .joined)).plan;
         var report: join_commit.Report = .{};
-        const joins = try join_commit.buildReported(a, graph, &plan, true, &.{}, false, &report);
+        const joins = try join_commit.buildReported(a, graph, &plan, &.{}, false, &report);
         try std.testing.expectEqual(@as(usize, 0), joins.co_realized.len);
         try std.testing.expectEqual(@as(u32, 1), report.rail_closure_undeclared);
     }
@@ -237,7 +237,7 @@ test "a reversed member does not hide a closure refusal behind a null dispositio
     const plan = (try permits.build(a, graph, .joined)).plan;
     const reversed = [_]u32{edgeIdOf(graph, "Q", "Z")};
     var report: join_commit.Report = .{};
-    const joins = try join_commit.buildReported(a, graph, &plan, true, &reversed, false, &report);
+    const joins = try join_commit.buildReported(a, graph, &plan, &reversed, false, &report);
 
     try std.testing.expectEqual(@as(usize, 0), joins.selected_joins.len);
     try std.testing.expectEqual(@as(u32, 1), report.rail_closure_undeclared);
@@ -277,7 +277,7 @@ test "a clique whose pair edges are other rails' members keeps a rail" {
     const graph = try parse(a, "flowchart TD\n  Z --- A\n  Z --- B\n  Z --- C\n  A --- B\n  A --- C\n  B --- C\n");
     const plan = (try permits.build(a, graph, .joined)).plan;
     var report: join_commit.Report = .{};
-    const joins = try join_commit.buildReported(a, graph, &plan, true, &.{}, false, &report);
+    const joins = try join_commit.buildReported(a, graph, &plan, &.{}, false, &report);
 
     try std.testing.expectEqual(@as(u32, 0), report.rail_closure_undeclared);
     try std.testing.expectEqual(@as(u32, 0), report.co_undeclared);
@@ -303,7 +303,7 @@ test "a single fan with its own fully declared clique keeps the whole trunk" {
     const graph = try parse(a, "flowchart TD\n  A --- Z\n  B --- Z\n  C --- Z\n  A --- B\n  A --- C\n  B --- C\n");
     const plan = (try permits.build(a, graph, .joined)).plan;
     var report: join_commit.Report = .{};
-    const joins = try join_commit.buildReported(a, graph, &plan, true, &.{}, false, &report);
+    const joins = try join_commit.buildReported(a, graph, &plan, &.{}, false, &report);
 
     try std.testing.expectEqual(@as(u32, 0), report.rail_closure_undeclared);
     try std.testing.expectEqual(@as(u32, 0), report.co_undeclared);
@@ -338,7 +338,7 @@ test "two rails asserting one declared pair both refuse" {
     const graph = try parse(a, "flowchart TD\n  A --- Z\n  B --- Z\n  A --- W\n  B --- W\n  A --- B\n");
     const plan = (try permits.build(a, graph, .joined)).plan;
     var report: join_commit.Report = .{};
-    const joins = try join_commit.buildReported(a, graph, &plan, true, &.{}, false, &report);
+    const joins = try join_commit.buildReported(a, graph, &plan, &.{}, false, &report);
 
     try std.testing.expectEqual(@as(usize, 0), joins.selected_joins.len);
     // Nothing is co-realized: a refused rail draws no crossbar to render A---B.
@@ -362,7 +362,7 @@ test "one rail's pair survives when no second rail asserts it" {
     const graph = try parse(a, "flowchart TD\n  A --- Z\n  B --- Z\n  A --- W\n  A --- B\n");
     const plan = (try permits.build(a, graph, .joined)).plan;
     var report: join_commit.Report = .{};
-    const joins = try join_commit.buildReported(a, graph, &plan, true, &.{}, false, &report);
+    const joins = try join_commit.buildReported(a, graph, &plan, &.{}, false, &report);
 
     try std.testing.expectEqual(@as(u32, 0), report.rail_closure_undeclared);
     try std.testing.expectEqual(@as(usize, 1), joins.selected_joins.len);
@@ -381,7 +381,7 @@ test "a salvaged rail that then loses its pair is one refusal, not two" {
     const graph = try parse(a, "flowchart TD\n  A --- Z\n  B --- Z\n  C --- Z\n  A --- W\n  B --- W\n  A --- B\n");
     const plan = (try permits.build(a, graph, .joined)).plan;
     var report: join_commit.Report = .{};
-    const joins = try join_commit.buildReported(a, graph, &plan, true, &.{}, false, &report);
+    const joins = try join_commit.buildReported(a, graph, &plan, &.{}, false, &report);
 
     try std.testing.expectEqual(@as(usize, 0), joins.selected_joins.len);
     try std.testing.expectEqual(@as(usize, 0), joins.co_realized.len);

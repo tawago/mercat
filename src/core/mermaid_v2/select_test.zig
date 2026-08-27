@@ -33,7 +33,7 @@ test "truncate rung is ineligible when natural fits cleanly" {
     const a = arena.allocator();
 
     const g = try parse(a, "flowchart TD\n  A --> B\n  B --> C\n");
-    const enumerated = try ladder.enumerate(a, g, testJoinPermits(), true, 80);
+    const enumerated = try ladder.enumerate(a, g, testJoinPermits(), 80);
     const sel = select.scoreCandidates(a, enumerated.candidates, enumerated.incumbent.final_rung, g.direction) orelse
         return error.ScoringFailed;
 
@@ -68,7 +68,7 @@ test "packed candidates: TD parallel graph yields motif_pack candidates at cappe
         \\  A --> B2 --> C2
         \\
     );
-    const packed_cands = try select.packedCandidates(a, g, testJoinPermits(), true, 80);
+    const packed_cands = try select.packedCandidates(a, g, testJoinPermits(), 80);
     try std.testing.expectEqual(@as(usize, PACK_RUNGS.len), packed_cands.len);
     for (packed_cands, PACK_RUNGS) |cand, rung| {
         try std.testing.expectEqual(ladder.Transform.motif_pack, cand.transform);
@@ -90,7 +90,7 @@ test "packed candidates: TD parallel graph yields motif_pack candidates at cappe
     }
 
     const g_lr = try parse(a, "flowchart LR\n  A --> B1 --> C1\n  A --> B2 --> C2\n");
-    try std.testing.expectEqual(@as(usize, 0), (try select.packedCandidates(a, g_lr, testJoinPermits(), true, 80)).len);
+    try std.testing.expectEqual(@as(usize, 0), (try select.packedCandidates(a, g_lr, testJoinPermits(), 80)).len);
 }
 
 test "negotiated fold candidate: generated once for LR, declined for TD, appended last" {
@@ -99,16 +99,16 @@ test "negotiated fold candidate: generated once for LR, declined for TD, appende
     const a = arena.allocator();
 
     const g_lr = try parse(a, "flowchart LR\n  A --> B --> C --> D\n  D --> A\n");
-    const cand = select.negotiatedFoldCandidate(a, g_lr, testJoinPermits(), true, 40) orelse return error.MissingCandidate;
+    const cand = select.negotiatedFoldCandidate(a, g_lr, testJoinPermits(), 40) orelse return error.MissingCandidate;
     try std.testing.expectEqual(ladder.Transform.negotiated_fold, cand.transform);
     try std.testing.expectEqual(ladder.Rung.chain_wrap, cand.rung);
     try std.testing.expect(!cand.accepted);
 
     const g_td = try parse(a, "flowchart TD\n  A --> B\n");
-    try std.testing.expect(select.negotiatedFoldCandidate(a, g_td, testJoinPermits(), true, 40) == null);
+    try std.testing.expect(select.negotiatedFoldCandidate(a, g_td, testJoinPermits(), 40) == null);
 
     // Merged list: raw candidates first (T4 tie preference), negotiated last.
-    const set = try select.enumerateAll(a, g_lr, testJoinPermits(), true, 40);
+    const set = try select.enumerateAll(a, g_lr, testJoinPermits(), 40);
     try std.testing.expectEqual(ladder.Transform.raw, set.merged[0].transform);
     try std.testing.expectEqual(
         ladder.Transform.negotiated_fold,
@@ -130,12 +130,12 @@ test "choose: merged selection anchors to raw natural and never fails the render
         \\  A --> B2 --> C2
         \\
     );
-    const result = try select.choose(a, g, testJoinPermits(), true, 120, false, false);
+    const result = try select.choose(a, g, testJoinPermits(), 120, false, false);
     try std.testing.expect(result.sketch.bbox.w > 0);
 
     // score_off returns the ladder incumbent exactly.
-    const incumbent = (try ladder.enumerate(a, g, testJoinPermits(), true, 120)).incumbent;
-    const off = try select.choose(a, g, testJoinPermits(), true, 120, true, false);
+    const incumbent = (try ladder.enumerate(a, g, testJoinPermits(), 120)).incumbent;
+    const off = try select.choose(a, g, testJoinPermits(), 120, true, false);
     try std.testing.expectEqual(incumbent.final_rung, off.final_rung);
 }
 
@@ -158,7 +158,7 @@ test "report-only pin: reach oracle changes neither argmin nor winner" {
     const plan = (try permits_mod.build(a, g, .joined)).plan;
 
     // Selection WITHOUT the oracle: enumerate and score directly.
-    const set = try select.enumerateAll(a, g, &plan, true, 96);
+    const set = try select.enumerateAll(a, g, &plan, 96);
     const before = select.scoreCandidates(a, set.merged, set.incumbent.final_rung, g.direction) orelse
         return error.ScoringFailed;
 
@@ -172,7 +172,7 @@ test "report-only pin: reach oracle changes neither argmin nor winner" {
 
     // The production path (which DOES run the oracle inside choose) ships
     // exactly the oracle-free argmin's candidate.
-    const result = try select.choose(a, g, &plan, true, 96, false, false);
+    const result = try select.choose(a, g, &plan, 96, false, false);
     try std.testing.expectEqual(set.merged[before.argmin_idx].rung, result.final_rung);
 
     // The reports really are per-candidate recorded data (component
@@ -202,7 +202,7 @@ test "score-blindness: zeroing the surviving set's report counts leaves the argm
 
     const g = try parse(a, "flowchart TD\n  S1 --> T1\n  S1 --> T2\n  S2 --> T2\n");
     const plan = (try permits_mod.build(a, g, .joined)).plan;
-    const set = try select.enumerateAll(a, g, &plan, true, 96);
+    const set = try select.enumerateAll(a, g, &plan, 96);
 
     // Attach arbitrary NON-CI count magnitudes to every report — they survive
     // the filter (ciClean) yet must not perturb the scored argmin.
@@ -233,7 +233,7 @@ test "regression: the raw natural anchor filtered out keeps truncate eligible an
 
     const g = try parse(a, "flowchart TD\n  S1 --> T1\n  S1 --> T2\n  S2 --> T2\n");
     const plan = (try permits_mod.build(a, g, .joined)).plan;
-    const set = try select.enumerateAll(a, g, &plan, true, 96);
+    const set = try select.enumerateAll(a, g, &plan, 96);
     const forged = try a.dupe(reach_vector.Report, select.reachReports(a, g, true, set.merged));
 
     var nat: ?usize = null;
@@ -266,7 +266,7 @@ test "terminal candidate: raw-natural all-independent, zero realized trunks, sep
 
     const g = try parse(a, "flowchart TD\n  S --> A\n  S --> B\n  S --> C\n"); // K1,3 fan-out
     const plan = (try permits_mod.build(a, g, .joined)).plan;
-    const term = try select.terminalCandidate(a, g, &plan, true, 120);
+    const term = try select.terminalCandidate(a, g, &plan, 120);
 
     try std.testing.expectEqual(ladder.Rung.natural, term.final_rung);
     try std.testing.expectEqual(@as(usize, 0), term.sketch.joins.selected_joins.len); // zero realized trunks
@@ -293,7 +293,7 @@ test "CI-class event excludes the truncate rung too (no rung carve-out)" {
 
     const g = try parse(a, "flowchart TD\n  S1 --> T1\n  S1 --> T2\n  S2 --> T2\n");
     const plan = (try permits_mod.build(a, g, .joined)).plan;
-    const set = try select.enumerateAll(a, g, &plan, true, 96);
+    const set = try select.enumerateAll(a, g, &plan, 96);
     const forged = try a.dupe(reach_vector.Report, select.reachReports(a, g, true, set.merged));
 
     var t: ?usize = null;
@@ -320,7 +320,7 @@ test "filter drops the ladder incumbent: argmin over survivors still ships" {
 
     const g = try parse(a, "flowchart TD\n  S1 --> T1\n  S1 --> T2\n  S2 --> T2\n");
     const plan = (try permits_mod.build(a, g, .joined)).plan;
-    const set = try select.enumerateAll(a, g, &plan, true, 96);
+    const set = try select.enumerateAll(a, g, &plan, 96);
     const forged = try a.dupe(reach_vector.Report, select.reachReports(a, g, true, set.merged));
 
     var inc: ?usize = null;
@@ -400,7 +400,7 @@ test "co-sets applied with the plan carry the plan's own membership" {
 
         const g = try parse(a, source);
         const permits = (try permits_mod.build(a, g, .joined)).plan;
-        const winner = try select.choose(a, g, &permits, true, width, false, false);
+        const winner = try select.choose(a, g, &permits, width, false, false);
         for (winner.sketch.co_sets) |set| switch (set.origin) {
             .selected_join => saw_selected = true,
             .port_share => {},
@@ -441,7 +441,7 @@ test "the forced-rung debug path carries plan co-sets, not layout's fan rails" {
 
     const g = try parse(a, "flowchart TD\n  A --> B\n  A --> C\n  A --> D\n");
     const permits = (try permits_mod.build(a, g, .joined)).plan;
-    var forced = try ladder.runForced(a, g, &permits, true, 120, .natural);
+    var forced = try ladder.runForced(a, g, &permits, 120, .natural);
     select.applyPlan(a, &permits, &forced.sketch);
 
     try std.testing.expect(forced.sketch.joins.selected_joins.len > 0);
@@ -470,7 +470,7 @@ test "a clustered render's co-sets come from its fans, not from an empty plan" {
         \\
     );
     const permits = (try permits_mod.build(a, g, .joined)).plan;
-    const winner = try select.choose(a, g, &permits, false, 120, false, false);
+    const winner = try select.choose(a, g, &permits, 120, false, false);
 
     try std.testing.expectEqual(@as(usize, 0), winner.sketch.joins.selected_joins.len);
     try std.testing.expect(winner.sketch.co_sets.len > 0);

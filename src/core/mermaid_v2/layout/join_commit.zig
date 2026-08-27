@@ -11,8 +11,13 @@ const permit_mod = @import("../ledger/permits.zig");
 /// so the shipped Sketch carries a single set of counts.
 pub const Report = pb.ClosureCounts;
 
-pub fn buildReported(a: std.mem.Allocator, graph: sg.SemGraph, permits: ?*const pb.JoinPermits, flat: bool, reversed_edges: []const pb.EdgeId, disable: bool, report: ?*Report) error{OutOfMemory}!pb.RealizedJoins {
-    if (!flat or permits == null) return .{};
+pub fn buildReported(a: std.mem.Allocator, graph: sg.SemGraph, permits: ?*const pb.JoinPermits, reversed_edges: []const pb.EdgeId, disable: bool, report: ?*Report) error{OutOfMemory}!pb.RealizedJoins {
+    // Commit only for a flat plan laying out a cluster-free piece: synthetic
+    // motif-pack clusters are outside the flat edge-id identity path just like
+    // authored clusters, so no original-input permit may affect their geometry
+    // before post-layout realization applies the same gate.
+    const flat = permits != null and permits.?.isFlat() and graph.clusters.len == 0;
+    if (!flat) return .{};
     const plan = permits.?.*;
     // P2v Step 8 (D-DISPOSITION item 9(b)): the forced all-independent terminal
     // layout. Every grouped endpoint takes an independent(not_selected)

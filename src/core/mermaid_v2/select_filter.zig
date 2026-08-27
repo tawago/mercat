@@ -135,12 +135,11 @@ pub fn terminalCandidate(
     aa: std.mem.Allocator,
     graph: sem_graph.SemGraph,
     join_permits: *const ledger.JoinPermits,
-    join_permits_flat: bool,
     max_width: u32,
 ) !ladder.LadderResult {
-    var result = try ladder.runForcedIndependent(aa, graph, join_permits, join_permits_flat, max_width);
+    var result = try ladder.runForcedIndependent(aa, graph, join_permits, max_width);
     result.terminal_fallback = true;
-    if (join_permits_flat) {
+    if (join_permits.isFlat()) {
         if (realized_mod.realize(aa, join_permits.*, result.sketch)) |r| {
             result.sketch.joins = r.plan;
             // Co-sets speak for the plan the sketch ends up holding, so

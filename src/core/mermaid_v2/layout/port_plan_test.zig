@@ -27,7 +27,6 @@ fn productionLayout(a: std.mem.Allocator, g: sg.SemGraph) !sk.Sketch {
     const built = try permits.build(a, g, .joined);
     return coords.layout(a, g, .{
         .join_permits = &built.plan,
-        .join_permits_flat = !built.report.join_permits_skipped_clustered,
     });
 }
 

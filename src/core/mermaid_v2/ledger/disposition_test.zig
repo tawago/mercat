@@ -145,7 +145,7 @@ test "V-D-DISPOSITION-04: fusing incomplete-union candidate is CI-excluded, inde
         \\
     );
     const k33_plan = (try permits.build(a, k33, .joined)).plan;
-    const k33_set = try select.enumerateAll(a, k33, &k33_plan, true, 120);
+    const k33_set = try select.enumerateAll(a, k33, &k33_plan, 120);
     const k33_reports = select.reachReports(a, k33, true, k33_set.merged);
     for (k33_reports) |r| try expect(r.counts.ciClean());
     const k33_filtered = select.ciFilter(a, k33_set.merged, k33_reports);
@@ -206,7 +206,7 @@ test "V-D-DISPOSITION-01: incomplete-2x2 conflicts survive disposeUnsafe, all-in
     const a = arena.allocator();
     const graph = try parse(a, "flowchart TD\n  S1 --> T1\n  S1 --> T2\n  S2 --> T2\n");
     const plan = (try permits.build(a, graph, .joined)).plan;
-    const winner = try select.choose(a, graph, &plan, true, 94, false, false);
+    const winner = try select.choose(a, graph, &plan, 94, false, false);
     const joins = winner.sketch.joins;
 
     try expectEqual(@as(usize, 1), joins.conflicts.len); // permission_overlap_conflicts = 1
@@ -237,12 +237,12 @@ test "V-D-DISPOSITION-06: terminal fallback is built by the selection tail, mark
         const a = arena.allocator();
         const graph = try parse(a, "flowchart TD\n  S1 --> T1\n  S1 --> T2\n  S2 --> T2\n");
         const plan = (try permits.build(a, graph, .joined)).plan;
-        const set = try select.enumerateAll(a, graph, &plan, true, width);
+        const set = try select.enumerateAll(a, graph, &plan, width);
 
         const reports = try a.alloc(vc.Report, set.merged.len);
         for (reports) |*r| r.* = .{ .counts = .{ .undeclared_pair = 1 } }; // ALL RED
 
-        const result = try select.selectWinner(a, graph, &plan, true, width, set.merged, reports, set.incumbent, false, false);
+        const result = try select.selectWinner(a, graph, &plan, width, set.merged, reports, set.incumbent, false, false);
         try expect(result.terminal_fallback); // engagement observable (=1)
 
         // All-independent, invariant-valid against the REAL permits, and renders.
@@ -265,7 +265,7 @@ test "finding-2: survivors present ⇒ selection tail never engages the terminal
     const a = arena.allocator();
     const graph = try parse(a, "flowchart TD\n  S1 --> T1\n  S1 --> T2\n  S2 --> T2\n");
     const plan = (try permits.build(a, graph, .joined)).plan;
-    const set = try select.enumerateAll(a, graph, &plan, true, 96);
+    const set = try select.enumerateAll(a, graph, &plan, 96);
 
     const reports = try a.dupe(vc.Report, select.reachReports(a, graph, true, set.merged));
     var inc: ?usize = null;
@@ -276,6 +276,6 @@ test "finding-2: survivors present ⇒ selection tail never engages the terminal
     try expect(inc != null);
     reports[inc.?].counts.unknown_continuation = 1; // the incumbent fabricates
 
-    const result = try select.selectWinner(a, graph, &plan, true, 96, set.merged, reports, set.incumbent, false, false);
+    const result = try select.selectWinner(a, graph, &plan, 96, set.merged, reports, set.incumbent, false, false);
     try expect(!result.terminal_fallback); // a survivor shipped, not the terminal candidate
 }

@@ -34,7 +34,7 @@ test "rung 0 wins on trivial graph" {
     var g = try parse_mod.parse(a, "graph TD\nA-->B\n");
     _ = &g;
 
-    const result = try run(a, g, testJoinPermits(), true, 120);
+    const result = try run(a, g, testJoinPermits(), 120);
     try std.testing.expectEqual(Rung.natural, result.final_rung);
     try std.testing.expectEqual(@as(u8, 1), result.attempts);
     try std.testing.expect(!hasWidthOverflow(result.sketch.diagnostics));
@@ -53,7 +53,7 @@ test "truncate rung always returns even under impossible budget" {
     // truncate), so an impossible TD graph issues 6 attempts before truncate
     // wins. (chain_wrap is a no-op for TD, so it behaves like wrap_labels and
     // still overflows.)
-    const result = try run(a, g, testJoinPermits(), true, 1);
+    const result = try run(a, g, testJoinPermits(), 1);
     try std.testing.expectEqual(Rung.truncate, result.final_rung);
     try std.testing.expectEqual(@as(u8, 6), result.attempts);
     // Sketch is the truncate-rung output; may still report overflow.
@@ -75,7 +75,7 @@ test "switch_direction is rejected when rotation also overflows; declared dir ke
     );
     _ = &g;
 
-    const result = try run(a, g, testJoinPermits(), true, 4);
+    const result = try run(a, g, testJoinPermits(), 4);
     try std.testing.expectEqual(Rung.truncate, result.final_rung);
     // Declared direction (LR) is preserved — we did not rotate to TD.
     try std.testing.expectEqual(sem_graph.Direction.LR, result.sketch.direction);
@@ -103,7 +103,7 @@ test "chain_wrap acceptance guard defers to rotation when rotation fits" {
     );
     _ = &g;
 
-    const result = try run(a, g, testJoinPermits(), true, 40);
+    const result = try run(a, g, testJoinPermits(), 40);
     try std.testing.expectEqual(Rung.switch_direction, result.final_rung);
     try std.testing.expect(!hasWidthOverflow(result.sketch.diagnostics));
 }
@@ -117,8 +117,8 @@ test "enumerate picks the same incumbent as run and keeps every rung" {
     _ = &g;
 
     // Fitting graph: incumbent must equal run()'s choice (natural).
-    const ladder = try run(a, g, testJoinPermits(), true, 120);
-    const enumd = try budget.enumerate(a, g, testJoinPermits(), true, 120);
+    const ladder = try run(a, g, testJoinPermits(), 120);
+    const enumd = try budget.enumerate(a, g, testJoinPermits(), 120);
     try std.testing.expectEqual(ladder.final_rung, enumd.incumbent.final_rung);
     try std.testing.expectEqual(Rung.natural, enumd.incumbent.final_rung);
     // All six rungs laid out and retained, in rung order.
@@ -143,8 +143,8 @@ test "enumerate matches run on a truncate-terminal graph" {
     var g = try parse_mod.parse(a, "graph TD\nA-->B\nB-->C\nA-->C\n");
     _ = &g;
 
-    const ladder = try run(a, g, testJoinPermits(), true, 1);
-    const enumd = try budget.enumerate(a, g, testJoinPermits(), true, 1);
+    const ladder = try run(a, g, testJoinPermits(), 1);
+    const enumd = try budget.enumerate(a, g, testJoinPermits(), 1);
     try std.testing.expectEqual(Rung.truncate, ladder.final_rung);
     try std.testing.expectEqual(Rung.truncate, enumd.incumbent.final_rung);
     try std.testing.expectEqual(@as(usize, 6), enumd.candidates.len);
@@ -165,7 +165,7 @@ test "runForced returns exactly the requested rung, bypassing acceptance" {
     );
     _ = &g;
 
-    const forced = try budget.runForced(a, g, testJoinPermits(), true, 40, .natural);
+    const forced = try budget.runForced(a, g, testJoinPermits(), 40, .natural);
     try std.testing.expectEqual(Rung.natural, forced.final_rung);
     try std.testing.expectEqual(sem_graph.Direction.LR, forced.sketch.direction);
     try std.testing.expect(hasWidthOverflow(forced.sketch.diagnostics));
@@ -173,7 +173,7 @@ test "runForced returns exactly the requested rung, bypassing acceptance" {
     // Forcing switch_direction rotates even when unnecessary.
     var g2 = try parse_mod.parse(a, "graph TD\nA-->B\n");
     _ = &g2;
-    const rotated = try budget.runForced(a, g2, testJoinPermits(), true, 120, .switch_direction);
+    const rotated = try budget.runForced(a, g2, testJoinPermits(), 120, .switch_direction);
     try std.testing.expectEqual(Rung.switch_direction, rotated.final_rung);
     try std.testing.expectEqual(sem_graph.Direction.LR, rotated.sketch.direction);
 }
@@ -201,7 +201,7 @@ test "enumerate never probes acceptance for post-incumbent candidates" {
     _ = &g;
 
     const width: u32 = 20;
-    const enumd = try budget.enumerate(a, g, testJoinPermits(), true, width);
+    const enumd = try budget.enumerate(a, g, testJoinPermits(), width);
 
     // Incumbent must be decided before .chain_wrap so the chain_wrap
     // candidate below is genuinely post-incumbent scoring-only work.
@@ -245,10 +245,10 @@ test "enumerate/run always resolve an incumbent across degenerate graphs and wid
             var g = try parse_mod.parse(a, src);
             _ = &g;
 
-            const ladder = try run(a, g, testJoinPermits(), true, w);
+            const ladder = try run(a, g, testJoinPermits(), w);
             try std.testing.expect(@intFromEnum(ladder.final_rung) <= @intFromEnum(Rung.truncate));
 
-            const enumd = try budget.enumerate(a, g, testJoinPermits(), true, w);
+            const enumd = try budget.enumerate(a, g, testJoinPermits(), w);
             try std.testing.expect(@intFromEnum(enumd.incumbent.final_rung) <= @intFromEnum(Rung.truncate));
             try std.testing.expectEqual(@as(usize, 6), enumd.candidates.len);
         }
@@ -362,7 +362,7 @@ test "score calibration: >=80% agreement with the labeled reference set" {
         const g = try parse_mod.parse(a, src);
         // The LIVE candidate set (raw rungs + motif-packed) and the live
         // scoring path: per-candidate raster audit (Phase 4a) into eval.
-        const set = try select.enumerateAll(a, g, testJoinPermits(), true, pair.width - 2);
+        const set = try select.enumerateAll(a, g, testJoinPermits(), pair.width - 2);
         if (set.incumbent.final_rung != pair.incumbent and pair.incumbent_transform == .raw) {
             std.debug.print(
                 "  NOTE {s} w{d}: ladder incumbent drifted to {s} (labeled {s})\n",

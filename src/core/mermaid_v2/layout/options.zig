@@ -15,9 +15,9 @@ pub const FixedSize = sizing.FixedSize;
 
 pub const LayoutOptions = struct {
     /// One render-wide semantic permission plan, inert until join planning.
+    /// Carries its own scope (flat vs skipped_clustered); never re-derived
+    /// from recursion pieces.
     join_permits: ?*const ledger.JoinPermits = null,
-    /// Flatness of the original graph; never re-derived from recursion pieces.
-    join_permits_flat: bool = false,
     /// P2v Step 8 (D-DISPOSITION item 9(b)): force the forced all-independent
     /// TERMINAL layout. `join_commit.build` emits an all-independent plan (no
     /// selected join at all), so no fan busbar is realized and every

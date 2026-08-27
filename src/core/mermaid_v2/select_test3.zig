@@ -51,7 +51,7 @@ test "a labeled graph yields both policies; the winner is deterministic" {
 
     const g = try parse(a, LABELED_FAN);
     const permits = try permitsFor(a, g);
-    const set = try select.enumerateAll(a, g, &permits, false, 120);
+    const set = try select.enumerateAll(a, g, &permits, 120);
 
     const counts = countPolicies(set.merged);
     try std.testing.expect(counts.on_run > 0);
@@ -69,8 +69,8 @@ test "a labeled graph yields both policies; the winner is deterministic" {
     }
 
     // Deterministic: the same input selects byte-identically twice.
-    const w1 = try select.choose(a, g, &permits, false, 120, false, false);
-    const w2 = try select.choose(a, g, &permits, false, 120, false, false);
+    const w1 = try select.choose(a, g, &permits, 120, false, false);
+    const w2 = try select.choose(a, g, &permits, 120, false, false);
     try std.testing.expectEqual(w1.final_rung, w2.final_rung);
     try std.testing.expectEqual(w1.sketch.label_policy, w2.sketch.label_policy);
     try std.testing.expectEqual(w1.sketch.bbox.w, w2.sketch.bbox.w);
@@ -84,7 +84,7 @@ test "an unlabeled graph generates no label-policy twins" {
 
     const g = try parse(a, "flowchart TD\n  Root --> Alpha\n  Root --> Beta\n  Root --> Gamma\n");
     const permits = try permitsFor(a, g);
-    const set = try select.enumerateAll(a, g, &permits, false, 120);
+    const set = try select.enumerateAll(a, g, &permits, 120);
 
     try std.testing.expect(!select_labels.hasLabeledEdge(g));
     try std.testing.expectEqual(@as(usize, 0), countPolicies(set.merged).beside);
@@ -101,7 +101,7 @@ test "the audit re-raster honors each candidate's policy flag" {
 
     const g = try parse(a, LABELED_FAN);
     const permits = try permitsFor(a, g);
-    const set = try select.enumerateAll(a, g, &permits, false, 120);
+    const set = try select.enumerateAll(a, g, &permits, 120);
 
     var on_run_sketch: ?@TypeOf(set.merged[0].sketch) = null;
     var beside_sketch: ?@TypeOf(set.merged[0].sketch) = null;
@@ -147,8 +147,8 @@ test "the beside twin keeps the labeled fan's reserved rows" {
 
     const g = try parse(a, LABELED_FAN);
     const permits = try permitsFor(a, g);
-    const on_run = try ladder.runVariant(a, g, &permits, false, 120, .natural, false, .on_run);
-    const beside = try ladder.runVariant(a, g, &permits, false, 120, .natural, false, .beside);
+    const on_run = try ladder.runVariant(a, g, &permits, 120, .natural, false, .on_run);
+    const beside = try ladder.runVariant(a, g, &permits, 120, .natural, false, .beside);
 
     try std.testing.expectEqual(prim.LabelPolicy.on_run, on_run.sketch.label_policy);
     try std.testing.expectEqual(prim.LabelPolicy.beside, beside.sketch.label_policy);
@@ -178,7 +178,7 @@ test "stitching preserves the outer sketch's label policy" {
     const g = try parse(a, src);
     const permits = try permitsFor(a, g);
     for ([2]prim.LabelPolicy{ .on_run, .beside }) |policy| {
-        const r = try ladder.runVariant(a, g, &permits, false, 120, .natural, false, policy);
+        const r = try ladder.runVariant(a, g, &permits, 120, .natural, false, policy);
         try std.testing.expect(r.sketch.clusters.len > 0); // the stitch path really ran
         try std.testing.expectEqual(policy, r.sketch.label_policy);
     }
@@ -195,19 +195,19 @@ test "debug paths keep the on-run policy" {
     const g = try parse(a, LABELED_FAN);
     const permits = try permitsFor(a, g);
 
-    const forced = try ladder.runForced(a, g, &permits, false, 120, .tight);
+    const forced = try ladder.runForced(a, g, &permits, 120, .tight);
     try std.testing.expectEqual(ladder.Rung.tight, forced.final_rung);
     try std.testing.expect(forced.sketch.label_policy == .on_run);
 
-    const plain = try ladder.run(a, g, &permits, false, 120);
+    const plain = try ladder.run(a, g, &permits, 120);
     try std.testing.expect(plain.sketch.label_policy == .on_run);
 
-    const independent = try ladder.runForcedIndependent(a, g, &permits, false, 120);
+    const independent = try ladder.runForcedIndependent(a, g, &permits, 120);
     try std.testing.expect(independent.sketch.label_policy == .on_run);
 
     // score-off (the A/B escape hatch) returns the ladder incumbent, which is
     // built by that same on-run driver.
-    const off = try select.choose(a, g, &permits, false, 120, true, false);
+    const off = try select.choose(a, g, &permits, 120, true, false);
     try std.testing.expect(off.sketch.label_policy == .on_run);
 }
 
@@ -222,11 +222,11 @@ test "width pressure is free to flip the policy; both variants stay in the set" 
     const g = try parse(a, LABELED_FAN);
     const permits = try permitsFor(a, g);
 
-    const wide = try select.enumerateAll(a, g, &permits, false, 120);
-    const narrow = try select.enumerateAll(a, g, &permits, false, 40);
+    const wide = try select.enumerateAll(a, g, &permits, 120);
+    const narrow = try select.enumerateAll(a, g, &permits, 40);
     try std.testing.expect(countPolicies(wide.merged).beside > 0);
     try std.testing.expect(countPolicies(narrow.merged).beside > 0);
 
-    const w = try select.choose(a, g, &permits, false, 40, false, false);
+    const w = try select.choose(a, g, &permits, 40, false, false);
     try std.testing.expect(w.sketch.nodes.len > 0);
 }

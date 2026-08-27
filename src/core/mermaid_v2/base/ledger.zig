@@ -61,8 +61,19 @@ pub const JoinMembership = struct {
 /// `RealizedJoins.selected_joins` authorizes shared group geometry.
 pub const JoinPermits = struct {
     policy: JoinPolicy,
+    /// `.flat`: computed from a cluster-free graph and consumable.
+    /// `.skipped_clustered`: deliberately not computed because the graph is
+    /// clustered (groups/memberships empty); consumers must not realize or
+    /// apply it. Part of the plan itself so no flag rides beside the record.
+    scope: Scope = .flat,
     groups: []const JoinGroup = &.{},
     memberships: []const JoinMembership = &.{},
+
+    pub const Scope = enum { flat, skipped_clustered };
+
+    pub fn isFlat(self: JoinPermits) bool {
+        return self.scope == .flat;
+    }
 };
 
 // Logical records (candidate-local realization side).
