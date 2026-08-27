@@ -65,61 +65,11 @@ fn logFn(
     std.log.defaultLog(level, scope, format, args_);
 }
 
-fn showVersion(allocator: std.mem.Allocator) !void {
+fn showVersion() !void {
     const stdout = std.fs.File.stdout();
     try stdout.writeAll("mercat ");
     try stdout.writeAll(VERSION);
-
-    // Try to fetch latest version from GitHub API
-    if (fetchLatestVersion(allocator)) |latest| {
-        defer allocator.free(latest);
-        try stdout.writeAll(" (latest: ");
-        try stdout.writeAll(latest);
-        try stdout.writeAll(")");
-    } else |_| {
-        // Silently continue if latest version check fails
-    }
-
     try stdout.writeAll("\n");
-}
-
-fn fetchLatestVersion(allocator: std.mem.Allocator) ![]u8 {
-    // Try using curl if available
-    var child = std.process.Child.init(&.{
-        "curl",
-        "-s",
-        "--max-time",
-        "2",
-        "https://api.github.com/repos/tawago/mercat/releases/latest",
-    }, allocator);
-    child.stdout_behavior = .Pipe;
-    child.stderr_behavior = .Pipe;
-
-    try child.spawn();
-
-    const stdout = try child.stdout.?.readToEndAlloc(allocator, 8192);
-    defer allocator.free(stdout);
-
-    const term = try child.wait();
-    if (term != .Exited or term.Exited != 0) {
-        return error.FetchFailed;
-    }
-
-    // Parse JSON to find tag_name
-    if (std.mem.indexOf(u8, stdout, "\"tag_name\":\"")) |start| {
-        const begin = start + 12; // Length of "\"tag_name\":\""
-        if (std.mem.indexOf(u8, stdout[begin..], "\"")) |end| {
-            const tag = stdout[begin .. begin + end];
-            // Return the tag without the 'v' prefix if present
-            const version = if (std.mem.startsWith(u8, tag, "v"))
-                tag[1..]
-            else
-                tag;
-            return try allocator.dupe(u8, version);
-        }
-    }
-
-    return error.ParseFailed;
 }
 
 pub fn main() !void {
@@ -136,7 +86,7 @@ pub fn main() !void {
             return;
         },
         error.ShowVersion => {
-            try showVersion(allocator);
+            try showVersion();
             return;
         },
         else => return err,
@@ -226,6 +176,32 @@ pub fn main() !void {
         return;
     }
 
+    try runCli(allocator, parsed, &loaded_config, &resolved, &diag, content, .{
+        .width = render_width,
+        .show_heading_markers = show_heading_markers,
+        .frontmatter_style = frontmatter_style,
+    });
+}
+
+/// Per-invocation display settings already folded from CLI flags + config,
+/// passed to the CLI render path as one bundle.
+const CliDisplay = struct {
+    width: usize,
+    show_heading_markers: bool,
+    frontmatter_style: config.FrontmatterStyle,
+};
+
+/// The non-TUI path: parse the input, build the render model once, then
+/// serialize per output format (§6.1).
+fn runCli(
+    allocator: std.mem.Allocator,
+    parsed: args.Parsed,
+    loaded_config: *const config.Config,
+    resolved: *theme_resolve.ResolvedTheme,
+    diag: *const theme_resolve.Diagnostics,
+    content: []const u8,
+    display: CliDisplay,
+) !void {
     var document = if (cli_input.isMermaidSource(parsed.input.filePath(), content))
         try createMermaidDocument(allocator, content)
     else
@@ -234,10 +210,10 @@ pub fn main() !void {
 
     // §6.1: build the render model exactly once, then dispatch on format.
     var rendered = try render_model.renderDocument(allocator, document, .{
-        .width = render_width,
-        .show_heading_markers = show_heading_markers,
+        .width = display.width,
+        .show_heading_markers = display.show_heading_markers,
         .decor = &resolved.decor,
-        .frontmatter_style = frontmatter_style,
+        .frontmatter_style = display.frontmatter_style,
         // Raw front matter keeps tabs verbatim for the terminal, but the
         // plain/PNG exporters reject tab scalars, so expand them on export.
         .for_export = parsed.format != .terminal,
@@ -258,12 +234,22 @@ pub fn main() !void {
     // byte-clean regardless — surface the warnings unconditionally, for every
     // output format, so an interactive `mercat --style typo file.md` still gets
     // told. (The TUI returned above; it shows diagnostics in the status bar.)
-    emitCliDiagnostics(&diag);
+    emitCliDiagnostics(diag);
+
+    // §20: every export failure class reports this shared context (input path,
+    // format, output path, width) plus a failure-specific detail on one stderr
+    // line, then exits non-zero.
+    const ctx = ExportContext{
+        .input_path = inputTitle(parsed.input),
+        .format = @tagName(parsed.format),
+        .output_path = parsed.output_path,
+        .width = display.width,
+    };
 
     switch (parsed.format) {
         .terminal => {
             const canvas: ?renderer.Canvas = if (resolved.canvasBg()) |bg|
-                .{ .bg = bg, .width = render_width }
+                .{ .bg = bg, .width = display.width }
             else
                 null;
             const output = try renderer.serialize(
@@ -276,37 +262,22 @@ pub fn main() !void {
             try pager.writeOutput(allocator, output, loaded_config.general.pager, parsed.pager);
         },
         .plain => {
-            // §20: every export failure class reports the shared context (input
-            // path, format, output path, width) plus a failure-specific detail
-            // on one stderr line, then exits non-zero.
-            const ctx = ExportContext{
-                .input_path = inputTitle(parsed.input),
-                .format = "plain",
-                .output_path = parsed.output_path,
-                .width = render_width,
-            };
             exportPlain(allocator, rendered, parsed.output_path) catch |err| {
                 var buf: [192]u8 = undefined;
                 exportFailure(ctx, exportDetail(&buf, err, .{}));
             };
         },
         .png => {
-            // §5.2: PNG is binary and always targets a file (parse-time
-            // validation guarantees --output is present), so it never writes to
-            // an interactive terminal.
+            // §5.2: PNG is binary and always targets a file, so it never writes
+            // to an interactive terminal. Parse-time validation already rejects
+            // png without --output (see args.zig); the `orelse` is a backstop
+            // for that invariant, not a reachable user-facing error.
             const output_path = parsed.output_path orelse return error.PngRequiresOutput;
 
             const options = export_layout.Options{
                 .palette = resolved.styles,
                 .color_mode = if (parsed.monochrome) .monochrome else .theme,
                 .canvas_bg = resolved.canvasBg(),
-            };
-
-            const ctx = ExportContext{
-                .input_path = inputTitle(parsed.input),
-                .format = "png",
-                .output_path = output_path,
-                .width = render_width,
             };
 
             var png_diag: export_png.Diagnostic = .{};
@@ -454,15 +425,21 @@ fn inputTitle(input: args.Input) []const u8 {
     };
 }
 
+/// Upper bound on input size (size only — content/extension are not checked
+/// here). Sources are text; anything past this is almost certainly a mistyped
+/// path (or `mercat < /dev/zero`) and is better refused than swallowed into
+/// memory.
+const max_input_bytes = 256 * 1024 * 1024;
+
 fn readInput(allocator: std.mem.Allocator, input: args.Input) ![]u8 {
     return switch (input) {
-        .stdin => std.fs.File.stdin().readToEndAlloc(allocator, std.math.maxInt(usize)),
+        .stdin => std.fs.File.stdin().readToEndAlloc(allocator, max_input_bytes),
         .file => |path| blk: {
             const cwd = std.fs.cwd();
-            break :blk try cwd.readFileAlloc(allocator, path, std.math.maxInt(usize));
+            break :blk try cwd.readFileAlloc(allocator, path, max_input_bytes);
         },
         .none => if (cli_input.shouldReadImplicitStdin())
-            std.fs.File.stdin().readToEndAlloc(allocator, std.math.maxInt(usize))
+            std.fs.File.stdin().readToEndAlloc(allocator, max_input_bytes)
         else
             error.MissingInput,
     };
