@@ -149,9 +149,8 @@ test "eval: rung multiplier is a fitted degradation prior" {
     };
     var s = testSketch(.{ .x = 0, .y = 0, .w = 8, .h = 3 }, &nodes, &.{}, &.{});
     // Every rung applies exactly its RUNG_SCALE multiplier (direction kept,
-    // so no infidelity floor kicks in — rung 4's slot holds the vertical
-    // switch scale). NOT monotone across rungs since round 2: chain_wrap
-    // (48) deliberately prices above the switch scales (36/44).
+    // so no infidelity floor kicks in — rung 3's slot holds the vertical
+    // switch scale).
     var rung: u8 = 0;
     while (rung < RUNG_SCALE.len) : (rung += 1) {
         s.budget.rung = rung;
@@ -160,16 +159,15 @@ test "eval: rung multiplier is a fitted degradation prior" {
         if (rung > 0) try t.expect(sc.t12_composite > 16 * sc.t2_legibility);
     }
     // Natural dominates every later rung on identical geometry...
-    s.budget.rung = 5;
-    const late = try eval(a, s, .TD, 5, .{});
+    s.budget.rung = 4;
+    const late = try eval(a, s, .TD, 4, .{});
     s.budget.rung = 0;
     const early = try eval(a, s, .TD, 0, .{});
     try t.expect(early.lessThan(late));
-    // ...and the two fitted inversions hold: chain_wrap > both switch
-    // scales, truncate above everything.
-    try t.expect(RUNG_SCALE[3] > score.SWITCH_TO_HORIZONTAL_SCALE);
+    // ...and the fitted relations hold: horizontal switch above vertical,
+    // truncate above everything.
     try t.expect(score.SWITCH_TO_HORIZONTAL_SCALE > score.SWITCH_TO_VERTICAL_SCALE);
-    try t.expect(RUNG_SCALE[5] > RUNG_SCALE[3]);
+    try t.expect(RUNG_SCALE[4] > score.SWITCH_TO_HORIZONTAL_SCALE);
 }
 
 test "eval: direction infidelity pays the direction-matched switch scale" {

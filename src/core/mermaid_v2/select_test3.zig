@@ -152,8 +152,8 @@ test "the beside twin keeps the labeled fan's reserved rows" {
 
     const g = try parse(a, LABELED_FAN);
     const permits = try permitsFor(a, g);
-    const on_run = try ladder.runVariant(a, g, &permits, 120, .natural, false, .on_run);
-    const beside = try ladder.runVariant(a, g, &permits, 120, .natural, false, .beside);
+    const on_run = try ladder.runVariant(a, g, &permits, 120, .natural, .on_run);
+    const beside = try ladder.runVariant(a, g, &permits, 120, .natural, .beside);
 
     try std.testing.expectEqual(prim.LabelPolicy.on_run, on_run.sketch.label_policy);
     try std.testing.expectEqual(prim.LabelPolicy.beside, beside.sketch.label_policy);
@@ -183,7 +183,7 @@ test "stitching preserves the outer sketch's label policy" {
     const g = try parse(a, src);
     const permits = try permitsFor(a, g);
     for ([2]prim.LabelPolicy{ .on_run, .beside }) |policy| {
-        const r = try ladder.runVariant(a, g, &permits, 120, .natural, false, policy);
+        const r = try ladder.runVariant(a, g, &permits, 120, .natural, policy);
         try std.testing.expect(r.sketch.clusters.len > 0); // the stitch path really ran
         try std.testing.expectEqual(policy, r.sketch.label_policy);
     }

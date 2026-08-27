@@ -28,18 +28,13 @@ pub const Rung = enum(u8) {
     natural = 0,
     tight = 1,
     wrap_labels = 2,
-    /// Lever C: serpentine chain-wrap. Folds a long LR/RL chain into a
-    /// multi-band snake that PRESERVES the declared direction. Sits BELOW
-    /// `switch_direction` deliberately: try the direction-preserving fold
-    /// before paying for the 90° rotation.
-    chain_wrap = 3,
-    switch_direction = 4,
-    truncate = 5,
+    switch_direction = 3,
+    truncate = 4,
 };
 
 /// Result of running the ladder. `sketch` is the chosen Sketch, allocated
 /// from the caller-supplied arena allocator. `final_rung` is the rung that
-/// produced it; `attempts` is how many layout calls were issued (1..=6).
+/// produced it; `attempts` is how many layout calls were issued (1..=5).
 pub const LadderResult = struct {
     sketch: sketch.Sketch,
     final_rung: Rung,
@@ -81,8 +76,7 @@ pub fn run(
 
 /// Lay out ONE rung: options + (switch_direction-only) rotation + the
 /// cluster recursion; acceptance is NOT consulted here. The single layout
-/// call shared by every driver in this file. `negotiated` adds the
-/// measured-gutter fold flag (chain_wrap rung only). `join_permits` is a
+/// call shared by every driver in this file. `join_permits` is a
 /// pointer to the RENDER-lifetime plan (entry.zig's local), threaded
 /// through every driver so `LayoutOptions.join_permits` aliases that plan
 /// and never a stack copy.
@@ -92,19 +86,16 @@ fn layoutRung(
     join_permits: *const ledger.JoinPermits,
     max_width: u32,
     rung: Rung,
-    negotiated: bool,
     policy: prim.LabelPolicy,
 ) !sketch.Sketch {
     var opts = optionsFor(rung, max_width);
     opts.join_permits = join_permits;
     opts.label_policy = policy;
-    if (negotiated) opts.chain_wrap_negotiated = true;
     return recurse.layoutPieces(arena, rotateForRung(graph, rung), opts);
 }
 
 /// One rung's Sketch plus the ladder's acceptance verdict for it. Shared
-/// by `run` and `enumerate`'s pre-incumbent phase — the exact layout-then-
-/// accept call order is load-bearing (acceptance may run a rotation probe).
+/// by `run` and `enumerate`'s pre-incumbent phase.
 const RungAttempt = struct { sketch: sketch.Sketch, accepted: bool };
 
 fn tryRung(
@@ -114,46 +105,29 @@ fn tryRung(
     max_width: u32,
     rung: Rung,
 ) !RungAttempt {
-    const result = try layoutRung(arena, graph, join_permits, max_width, rung, false, .on_run);
+    const result = try layoutRung(arena, graph, join_permits, max_width, rung, .on_run);
     return .{
         .sketch = result,
-        .accepted = try ladderAccepts(arena, graph, join_permits, max_width, rung, result),
+        .accepted = ladderAccepts(rung, result),
     };
 }
 
 /// The ladder's acceptance rule for one rung's laid-out Sketch. The terminal
 /// `truncate` rung always wins; any earlier rung wins only with no
-/// `width_overflow`, plus two rung-specific constraints:
+/// `width_overflow`, plus one rung-specific constraint:
 ///
 /// `switch_direction`: a 90° rotation discards the author's flow direction, so
 /// accept it only if it FITS — a rotated-but-overflowing Sketch loses to
 /// `truncate` (which keeps the declared orientation). See budget_test.zig
 /// "switch_direction is rejected when rotation also overflows; declared dir kept".
 ///
-/// `chain_wrap`: the direction-preserving fold wins only when rotation cannot
-/// save the chain — accept iff it fits AND a `switch_direction` probe still
-/// overflows (one extra bounded pass, only when the fold fit). See
-/// budget_test.zig "chain_wrap acceptance guard defers to rotation when rotation fits".
-///
 /// Plain rungs: once a rung fits in the authored direction, accept it — the
 /// direction-preserving levers all run before `switch_direction`, so a fitting
 /// non-rotated rung has already had its chance to compact.
-fn ladderAccepts(
-    arena: std.mem.Allocator,
-    graph: sem_graph.SemGraph,
-    join_permits: *const ledger.JoinPermits,
-    max_width: u32,
-    rung: Rung,
-    result: sketch.Sketch,
-) !bool {
+fn ladderAccepts(rung: Rung, result: sketch.Sketch) bool {
     if (rung == .switch_direction) {
         // Rotated but still overflows: do NOT switch.
         return !hasWidthOverflow(result.diagnostics);
-    }
-    if (rung == .chain_wrap) {
-        // Fold didn't fit, OR rotation would fit: defer.
-        return !hasWidthOverflow(result.diagnostics) and
-            try rotationStillOverflows(arena, graph, join_permits, max_width);
     }
     return rung == .truncate or !hasWidthOverflow(result.diagnostics);
 }
@@ -193,8 +167,8 @@ pub fn enumerate(
                 incumbent = .{ .sketch = attempt.sketch, .final_rung = rung, .attempts = attempts };
             }
         } else {
-            // Post-incumbent: scoring-only extra work; failures skipped. // guarded-by: budget_test.zig "enumerate never probes acceptance for post-incumbent candidates"
-            const result = layoutRung(arena, graph, join_permits, max_width, rung, false, .on_run) catch continue;
+            // Post-incumbent: scoring-only extra work; failures skipped.
+            const result = layoutRung(arena, graph, join_permits, max_width, rung, .on_run) catch continue;
             try candidates.append(arena, .{ .rung = rung, .sketch = result, .accepted = false });
         }
     }
@@ -217,7 +191,7 @@ pub fn runForced(
     max_width: u32,
     rung: Rung,
 ) !LadderResult {
-    const result = try layoutRung(arena, graph, join_permits, max_width, rung, false, .on_run);
+    const result = try layoutRung(arena, graph, join_permits, max_width, rung, .on_run);
     return .{ .sketch = result, .final_rung = rung, .attempts = 1 };
 }
 
@@ -237,22 +211,8 @@ pub fn runForcedIndependent(
     return .{ .sketch = try recurse.layoutPieces(arena, graph, opts), .final_rung = .natural, .attempts = 1 };
 }
 
-/// Lay out the NEGOTIATED chain-wrap fold (`chain_wrap` + `chain_wrap_negotiated`)
-/// so foldChain chooses band breaks against MEASURED per-band back-edge gutter
-/// demand instead of the blind FLOW_RAIL_MARGIN. Bypasses acceptance like
-/// `runForced`; select.zig tags the candidate `.negotiated_fold`.
-pub fn runNegotiatedFold(
-    arena: std.mem.Allocator,
-    graph: sem_graph.SemGraph,
-    join_permits: *const ledger.JoinPermits,
-    max_width: u32,
-) !LadderResult {
-    const result = try layoutRung(arena, graph, join_permits, max_width, .chain_wrap, true, .on_run);
-    return .{ .sketch = result, .final_rung = .chain_wrap, .attempts = 1 };
-}
-
 /// Lay out ONE candidate's LABEL-POLICY VARIANT: the same recipe (graph,
-/// rung, negotiated fold) under a different `prim.LabelPolicy`, bypassing
+/// rung) under a different `prim.LabelPolicy`, bypassing
 /// acceptance like `runForced`. select.zig pairs a `.beside` variant with
 /// each promising `.on_run` candidate so the score chooses the placement
 /// policy per diagram. Every other driver here is pinned to `.on_run`, so
@@ -264,28 +224,10 @@ pub fn runVariant(
     join_permits: *const ledger.JoinPermits,
     max_width: u32,
     rung: Rung,
-    negotiated: bool,
     policy: prim.LabelPolicy,
 ) !LadderResult {
-    const result = try layoutRung(arena, graph, join_permits, max_width, rung, negotiated, policy);
+    const result = try layoutRung(arena, graph, join_permits, max_width, rung, policy);
     return .{ .sketch = result, .final_rung = rung, .attempts = 1 };
-}
-
-/// Probe the `switch_direction` rung: lay `graph` out rotated and report
-/// whether it STILL overflows `max_width`. Used by the chain-wrap acceptance
-/// guard to keep the fold from churning chains that rotation already fit. One
-/// bounded, deterministic layout pass.
-fn rotationStillOverflows(
-    arena: std.mem.Allocator,
-    graph: sem_graph.SemGraph,
-    join_permits: *const ledger.JoinPermits,
-    max_width: u32,
-) !bool {
-    const opts = optionsFor(.switch_direction, max_width);
-    var planned_opts = opts;
-    planned_opts.join_permits = join_permits;
-    const rotated = try recurse.layoutPieces(arena, rotateForRung(graph, .switch_direction), planned_opts);
-    return hasWidthOverflow(rotated.diagnostics);
 }
 
 /// Build the `LayoutOptions` for a given rung (defaults from
@@ -332,24 +274,6 @@ fn optionsFor(rung: Rung, max_width: u32) coords.LayoutOptions {
             .max_label_width = max_width -| (2 + 2 * defaults.node_padding),
             .justify = .flush_left,
             .spacing_scale = 1,
-        },
-        .chain_wrap => .{
-            // Lever C: same tight + flush-left + soft-wrap posture as
-            // `wrap_labels`, PLUS the `chain_wrap` flag that turns on the
-            // serpentine fold in layout.buildSketch. The fold only fires for
-            // LR/RL chains whose flow axis busts the budget; it is a no-op
-            // otherwise, so this rung degenerates to `wrap_labels` for every
-            // graph the fold doesn't apply to (and the ladder then falls
-            // through to `switch_direction` exactly as before).
-            .max_width = max_width,
-            .h_spacing = halveAtLeastOne(defaults.h_spacing),
-            .v_spacing = halveAtLeastOne(defaults.v_spacing),
-            .node_padding = defaults.node_padding,
-            .rung = @intFromEnum(rung),
-            .max_label_width = max_width -| (2 + 2 * defaults.node_padding),
-            .justify = .flush_left,
-            .spacing_scale = 1,
-            .chain_wrap = true,
         },
         .switch_direction => .{
             // Rotated direction is applied via `rotateForRung` on the
@@ -415,21 +339,6 @@ pub fn hasWidthOverflow(diagnostics: []const sketch.Diagnostic) bool {
 
 test {
     _ = @import("budget_test.zig");
-}
-
-test "chain_wrap rung sets the serpentine flag; sibling rungs do not" {
-    // Direct coverage of the new rung's options wiring. The fold flag must be
-    // set ONLY on chain_wrap so the serpentine pass is inert on every other
-    // rung (lower rungs / fitting seeds stay byte-identical).
-    try std.testing.expect(optionsFor(.chain_wrap, 60).chain_wrap);
-    try std.testing.expect(!optionsFor(.natural, 60).chain_wrap);
-    try std.testing.expect(!optionsFor(.tight, 60).chain_wrap);
-    try std.testing.expect(!optionsFor(.wrap_labels, 60).chain_wrap);
-    try std.testing.expect(!optionsFor(.switch_direction, 60).chain_wrap);
-    try std.testing.expect(!optionsFor(.truncate, 60).chain_wrap);
-    // chain_wrap sits between wrap_labels and switch_direction in the ladder.
-    try std.testing.expect(@intFromEnum(Rung.wrap_labels) < @intFromEnum(Rung.chain_wrap));
-    try std.testing.expect(@intFromEnum(Rung.chain_wrap) < @intFromEnum(Rung.switch_direction));
 }
 
 test "halveAtLeastOne clamps to 1" {

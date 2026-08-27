@@ -331,7 +331,7 @@ test "computeBbox: label_left_of_run is false exactly at prim.edgeLabelAnchor's 
 }
 
 // -- claim: the back-edge rail label lever is armed by layout.zig only for
-//    AUTHORED TD, not a rotation-probe TD (layout.zig ~line 282), and the
+//    AUTHORED TD, not a rotated TD (see layout.zig's rail_lever), and the
 //    lever ITSELF (computeBbox's pass-2 relocation) lives here in
 //    clusters.zig. Exercised end-to-end through `coords.layout` (moved from
 //    the former `layout/lanes_test.zig`, which hosted it only to keep
@@ -342,16 +342,16 @@ fn mkLeverNode(id: sg.NodeId, raw: []const u8) sg.Node {
     return .{ .id = id, .raw_id = raw, .label = raw, .shape = .rect, .classes = &.{}, .cluster = null };
 }
 
-test "the back-edge rail label lever fires for authored TD but not for a rotation-probe TD" {
+test "the back-edge rail label lever fires for authored TD but not for a rotated TD" {
     // A -> B -> C -> D -> A: a back-edge whose default right-of-rail label
     // busts max_width while everything else already fits. On authored TD
     // (`is_direction_rotated = false`) the lever must relocate the label
     // left of the rail, shrinking the bbox. On the budget ladder's
-    // `switch_direction` rotation PROBE (`is_direction_rotated = true`,
+    // `switch_direction` rotation (`is_direction_rotated = true`,
     // used when re-laying an LR/RL chain out as TD) the lever must stay
     // off, leaving the label at its default right placement and the wider
-    // bbox — so the rail lever can never flip chain_wrap's acceptance
-    // decision for a rotated candidate.
+    // bbox — so the rail lever can never change a rotated candidate's
+    // fit verdict.
     const nodes = [_]sg.Node{ mkLeverNode(0, "A"), mkLeverNode(1, "B"), mkLeverNode(2, "C"), mkLeverNode(3, "D") };
     const back_edges = [_]sg.Edge{
         .{ .id = 0, .from = 0, .to = 1, .kind = .solid, .arrow_from = .none, .arrow_to = .filled, .label = null },
@@ -386,6 +386,6 @@ test "the back-edge rail label lever fires for authored TD but not for a rotatio
     try testing.expect(back_authored.?.label_left_of_run);
     try testing.expect(!back_rotated.?.label_left_of_run);
     // The relocated label recovers width, so the authored render must be
-    // strictly narrower than the rotation-probe render of the same graph.
+    // strictly narrower than the rotated render of the same graph.
     try testing.expect(s_authored.bbox.w < s_rotated.bbox.w);
 }

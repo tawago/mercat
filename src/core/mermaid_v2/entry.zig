@@ -103,7 +103,7 @@ pub const RenderOptions = struct {
 /// composition root is the only getenv site in the pipeline (budget.zig
 /// et al. never call getenv) — and passed down as plain values.
 const EnvOptions = struct {
-    /// MERCAT_FORCE_RUNG=<natural|tight|wrap_labels|chain_wrap|
+    /// MERCAT_FORCE_RUNG=<natural|tight|wrap_labels|
     /// switch_direction|truncate>: lay out and return exactly that rung
     /// (bypassing both the ladder acceptance AND the score) so external
     /// diagnostics tooling can render any single candidate for audit. An
@@ -606,7 +606,6 @@ test {
     _ = @import("layout/crossing.zig");
     _ = @import("layout/validate.zig");
     _ = @import("layout/mirror.zig");
-    _ = @import("layout/chain_wrap.zig");
     _ = @import("layout.zig");
     _ = @import("raster.zig");
     _ = @import("raster/aux.zig");

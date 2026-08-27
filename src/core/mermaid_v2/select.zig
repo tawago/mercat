@@ -1,8 +1,7 @@
 //! select.zig — candidate construction + live score selection.
 //!
-//! Merges RAW ladder rungs (raw first, so index ties prefer it), PACKED
-//! (motif-packed TD/BT parallel graphs at capped rungs), and NEGOTIATED FOLD
-//! (one LR/RL chain_wrap candidate). Raster-audits each multi-candidate
+//! Merges RAW ladder rungs (raw first, so index ties prefer it) and PACKED
+//! (motif-packed TD/BT parallel graphs at capped rungs). Raster-audits each multi-candidate
 //! selection (audit.zig; skipped when only one) and picks the argmin of
 //! score.eval, gated by truncate-eligibility and a natural-preference margin
 //! anchored to the raw natural; the P2v Step 8 CI safety filter runs BEFORE
@@ -32,7 +31,7 @@ const select_labels = @import("select_labels.zig");
 /// Packed candidates' capped rung set (see budget.Transform.rungs).
 const PACK_RUNGS = ladder.Transform.motif_pack.rungs();
 
-/// Upper bound on the merged candidate list: 6 raw rungs + 3 packed.
+/// Upper bound on the merged candidate list: 5 raw rungs + 3 packed.
 const MAX_CANDIDATES = 16;
 
 /// Enumerate raw + packed candidates, CI-filter, score them, and return the
@@ -256,11 +255,6 @@ pub fn enumerateAll(
         extras[n_extras] = c;
         n_extras += 1;
     }
-    if (negotiatedFoldCandidate(aa, graph, join_permits, max_width)) |c| {
-        extras[n_extras] = c;
-        n_extras += 1;
-    }
-
     // The label-policy twins are picked against the FULL on-run set, so they
     // are chosen after both extras blocks and appended behind them.
     var on_run: [MAX_CANDIDATES]ladder.Candidate = undefined;
@@ -280,26 +274,6 @@ pub fn enumerateAll(
         break :blk m;
     };
     return .{ .merged = merged, .incumbent = enumerated.incumbent };
-}
-
-/// ONE extra candidate on LR/RL graphs (chain_wrap's domain): the chain_wrap
-/// rung with NEGOTIATED band breaks. Best-effort. When the fold never fires
-/// the sketch is byte-identical to the raw chain_wrap candidate and can never
-/// win (raw wrap_labels scores lower, scale 32 < 44, same geometry).
-pub fn negotiatedFoldCandidate(
-    aa: std.mem.Allocator,
-    graph: sem_graph.SemGraph,
-    join_permits: *const ledger.JoinPermits,
-    max_width: u32,
-) ?ladder.Candidate {
-    if (!ladder.Transform.negotiated_fold.appliesTo(graph.direction)) return null;
-    const result = ladder.runNegotiatedFold(aa, graph, join_permits, max_width) catch return null;
-    return .{
-        .rung = .chain_wrap,
-        .sketch = result.sketch,
-        .accepted = false,
-        .transform = .negotiated_fold,
-    };
 }
 
 /// Lay out the motif-packed graph (when packing applies) at the capped rung
@@ -400,15 +374,12 @@ pub fn scoreCandidates(
             continue;
         }
         const raster: score_mod.RasterCounts = if (n > 1) audit_mod.collect(aa, cand.sketch) else .{};
-        // The negotiated fold pays its own provisional scale (44 vs chain_wrap
-        // 48) — score.evalScaled owns that; we only tag the candidate.
-        sel.scores[i] = score_mod.evalScaled(
+        sel.scores[i] = score_mod.eval(
             aa,
             cand.sketch,
             source_direction,
             @intCast(i),
             raster,
-            cand.transform == .negotiated_fold,
         ) catch return null;
     }
 

@@ -96,7 +96,7 @@ test "SWITCH_TO_VERTICAL_SCALE window: flips exactly where the fitted (35.4, 42.
     natural_lr.budget.rung = 0;
     var rotated_td = testSketch(.{ .x = 0, .y = 0, .w = 100, .h = 1 }, &one_node, &.{}, &.{});
     rotated_td.direction = .TD;
-    rotated_td.budget.rung = 4;
+    rotated_td.budget.rung = 3;
     const sc_natural_lr = try eval(a, natural_lr, .LR, 0, .{});
     const sc_rotated_td = try eval(a, rotated_td, .LR, 4, .{});
     try t.expectEqual(@as(u64, 219), sc_natural_lr.t2_legibility);
@@ -110,7 +110,7 @@ test "SWITCH_TO_VERTICAL_SCALE window: flips exactly where the fitted (35.4, 42.
     natural_rl.budget.rung = 0;
     var rotated_td2 = testSketch(.{ .x = 0, .y = 0, .w = 333, .h = 1 }, &one_node, &.{}, &.{});
     rotated_td2.direction = .TD;
-    rotated_td2.budget.rung = 4;
+    rotated_td2.budget.rung = 3;
     const sc_natural_rl = try eval(a, natural_rl, .RL, 0, .{});
     const sc_rotated_td2 = try eval(a, rotated_td2, .RL, 4, .{});
     try t.expectEqual(@as(u64, 875), sc_natural_rl.t2_legibility);
@@ -131,7 +131,7 @@ test "SWITCH_TO_HORIZONTAL_SCALE lower bound: natural stays ahead at the fitted 
     natural_td.budget.rung = 0;
     var rotated_lr = testSketch(.{ .x = 0, .y = 0, .w = 53, .h = 1 }, &one_node, &.{}, &.{});
     rotated_lr.direction = .LR;
-    rotated_lr.budget.rung = 4;
+    rotated_lr.budget.rung = 3;
     const sc_natural_td = try eval(a, natural_td, .TD, 0, .{});
     const sc_rotated_lr = try eval(a, rotated_lr, .TD, 4, .{});
     try t.expectEqual(@as(u64, 130), sc_natural_td.t2_legibility);
@@ -166,7 +166,7 @@ test "W_INTEGRITY window: crosses exactly where the fitted (17098, 36200) bound 
     try t.expectEqual(@as(u64, 1595), sc_dirty.t2_legibility);
 
     var clean = testSketch(.{ .x = 0, .y = 0, .w = 1548, .h = 1 }, &.{}, &.{}, &.{});
-    clean.budget.rung = 5;
+    clean.budget.rung = 4;
     const sc_clean = try eval(a, clean, .TD, 1, .{});
     try t.expectEqual(@as(u32, 0), sc_clean.t1_integrity);
     try t.expectEqual(@as(u64, 1548), sc_clean.t2_legibility);
@@ -189,7 +189,7 @@ test "W_INTEGRITY window: crosses exactly where the fitted (17098, 36200) bound 
 
     var switched = testSketch(.{ .x = 0, .y = 0, .w = 1315, .h = 1 }, &one_node, &.{}, &.{});
     switched.direction = .LR;
-    switched.budget.rung = 4;
+    switched.budget.rung = 3;
     const sc_switched = try eval(a, switched, .TD, 4, .{});
     try t.expectEqual(@as(u64, 1314), sc_switched.t2_legibility);
 
@@ -225,34 +225,11 @@ test "W_LABEL_DROP prices a dropped label + lost cells above the shape_zoo_td_8 
     try t.expect(sc_raw.lessThan(sc_packed_dirty));
 }
 
-test "W_LABEL_DISPLACED window: crosses exactly where the fitted [577, 608]-ish bound says (self_loop_lr_4 + shape_zoo numbers)" {
-    // Lower bound (self_loop_lr_4 w60 numbers, live-verified for the plain
-    // chain_wrap rung): a NEGOTIATED fold priced at CHAIN_WRAP_NEGOTIATED_SCALE
-    // (44) with t2=153 undercuts a switch_direction candidate (scale 36,
-    // t2=203) by 44*153 vs 36*203 = 576 on raw legibility alone. Without the
-    // displaced-label penalty the fold would WRONGLY win; W_LABEL_DISPLACED
-    // must exceed 576 to make the reference-endorsed switch_direction win.
+test "W_LABEL_DISPLACED upper bound: a displaced label still clears the natural-preference margin (shape_zoo numbers)" {
     var arena = std.heap.ArenaAllocator.init(t.allocator);
     defer arena.deinit();
     const a = arena.allocator();
     const one_node = [_]sketch.NodePlacement{testNode(0, .{ .x = 0, .y = 0, .w = 1, .h = 1 }, null)};
-
-    var fold = testSketch(.{ .x = 0, .y = 0, .w = 154, .h = 1 }, &one_node, &.{}, &.{});
-    fold.budget.rung = 3; // chain_wrap; negotiated_fold overrides the scale below
-    var switched = testSketch(.{ .x = 0, .y = 0, .w = 204, .h = 1 }, &one_node, &.{}, &.{});
-    switched.direction = .TD;
-    switched.budget.rung = 4;
-
-    const sc_fold_clean = try score.evalScaled(a, fold, .LR, 0, .{}, true);
-    const sc_switch = try eval(a, switched, .LR, 1, .{});
-    try t.expectEqual(@as(u64, 153), sc_fold_clean.t2_legibility);
-    try t.expectEqual(@as(u64, 203), sc_switch.t2_legibility);
-    // Without the displacement penalty the (undesirable) fold wins.
-    try t.expect(sc_fold_clean.lessThan(sc_switch));
-
-    // With 1 displaced label at the shipped weight, switch_direction wins.
-    const sc_fold_displaced = try score.evalScaled(a, fold, .LR, 0, .{ .labels_displaced = 1 }, true);
-    try t.expect(sc_switch.lessThan(sc_fold_displaced));
 
     // Upper bound (shape_zoo_td_8 w120 numbers, live-verified): the
     // motif-packed candidate (t2=470) challenges natural (t2=616) at the

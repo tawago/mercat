@@ -81,7 +81,6 @@ test "TD skip-corridor final descent is a clean vertical approach (guards ▼)" 
         0,
         0,
         0,
-        false,
     );
     try expectCleanVerticalFinalApproach(poly, true);
 }
@@ -112,7 +111,6 @@ test "LR skip-corridor final approach is a clean horizontal approach (guards ▶
         0,
         0,
         0,
-        false,
     );
     try expectCleanHorizontalFinalApproach(poly, true);
 }
@@ -145,7 +143,6 @@ test "west/east port jog pad is never zero, near or far (guards clean </>)" {
             0,
             0,
             0,
-            false,
         );
         try expectCleanHorizontalFinalApproach(poly, true);
         const last = poly[poly.len - 1];
@@ -172,7 +169,6 @@ test "west/east port jog pad is never zero, near or far (guards clean </>)" {
             0,
             0,
             0,
-            false,
         );
         try expectCleanHorizontalFinalApproach(poly, true);
         const last = poly[poly.len - 1];
@@ -208,7 +204,6 @@ test "north/south port jog pad is never zero, near or far (guards clean ^/v)" {
             0,
             0,
             0,
-            false,
         );
         try expectCleanVerticalFinalApproach(poly, true);
         const last = poly[poly.len - 1];
@@ -235,7 +230,6 @@ test "north/south port jog pad is never zero, near or far (guards clean ^/v)" {
             0,
             0,
             0,
-            false,
         );
         try expectCleanVerticalFinalApproach(poly, true);
         const last = poly[poly.len - 1];

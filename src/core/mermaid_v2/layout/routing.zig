@@ -86,8 +86,6 @@ pub fn buildEdgesWithPlan(
     fans: []const fan_mod.Fan,
     joins: ledger.RealizedJoins,
     allocated_ports: port_plan.Plan,
-    /// Only true on the `chain_wrap` rung; enables the serpentine band-return route for left-and-below forward edges. guarded-by: budget.zig "chain_wrap rung sets the serpentine flag; sibling rungs do not"
-    chain_wrap: bool,
 ) error{OutOfMemory}!EdgesResult {
     var out: std.ArrayListUnmanaged(sketch.EdgePath) = .empty;
     var polys: std.ArrayListUnmanaged([]sketch.Point) = .empty;
@@ -332,7 +330,7 @@ pub fn buildEdgesWithPlan(
             poly = if (lane == ep.route_lane and orig.label == null and (ep.source_duplicate or ep.target_duplicate))
                 try port_plan.duplicateDetour(a, eff_dir, eff_from_p, eff_to_p, ep, placements)
             else
-                try routePolyline(a, eff_dir, eff_from_p, eff_to_p, eff_port_from, eff_port_to, virtuals, geom, placements, 0, 0, lane, chain_wrap);
+                try routePolyline(a, eff_dir, eff_from_p, eff_to_p, eff_port_from, eff_port_to, virtuals, geom, placements, 0, 0, lane);
             if (!route_clearance.hasIndependent(joins) and try route_clearance.conflictsRailArrows(a, poly, bar_views, orig.from, orig.to))
                 poly = try route_clearance.shiftInteriorRun(a, poly, eff_dir, 2 * (lane - ep.route_lane + 1));
             if (try route_clearance.polylineClears(a, orig.id, orig.kind, poly, out.items, bar_views, placements, allocated_ports.edges, joins, orig.from, orig.to)) break;
@@ -396,9 +394,8 @@ pub fn buildEdges(
     geom: []const NodeGeom,
     placements: []const sketch.NodePlacement,
     fans: []const fan_mod.Fan,
-    chain_wrap: bool,
 ) error{OutOfMemory}!EdgesResult {
-    return buildEdgesWithPlan(a, graph, lg, geom, placements, fans, .{}, try port_plan.midpoint(a, graph, placements), chain_wrap);
+    return buildEdgesWithPlan(a, graph, lg, geom, placements, fans, .{}, try port_plan.midpoint(a, graph, placements));
 }
 
 // Polyline routing: delegates to routing_polyline.zig.
@@ -415,7 +412,6 @@ fn routePolyline(
     inset_from: i32,
     inset_to: i32,
     route_lane: u32,
-    chain_wrap: bool,
 ) error{OutOfMemory}![]sketch.Point {
     return rp.routePolyline(
         a,
@@ -430,7 +426,6 @@ fn routePolyline(
         inset_from,
         inset_to,
         route_lane,
-        chain_wrap,
     );
 }
 

@@ -251,10 +251,10 @@ test "a co-realized edge is withheld from routing entirely" {
     };
     const ports = try port_plan.midpoint(a, g, &placements);
 
-    const routed = try routing.buildEdgesWithPlan(a, g, lg, &geom, &placements, &.{}, .{ .memberships = &memberships }, ports, false);
+    const routed = try routing.buildEdgesWithPlan(a, g, lg, &geom, &placements, &.{}, .{ .memberships = &memberships }, ports);
     try testing.expectEqual(@as(usize, 3), routed.edges.len);
 
-    const withheld = try routing.buildEdgesWithPlan(a, g, lg, &geom, &placements, &.{}, .{ .memberships = &memberships, .co_realized = &.{2} }, ports, false);
+    const withheld = try routing.buildEdgesWithPlan(a, g, lg, &geom, &placements, &.{}, .{ .memberships = &memberships, .co_realized = &.{2} }, ports);
     try testing.expectEqual(@as(usize, 2), withheld.edges.len);
     for (withheld.edges) |e| try testing.expect(e.id != 2);
 }

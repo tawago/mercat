@@ -93,29 +93,6 @@ test "packed candidates: TD parallel graph yields motif_pack candidates at cappe
     try std.testing.expectEqual(@as(usize, 0), (try select.packedCandidates(a, g_lr, testJoinPermits(), 80)).len);
 }
 
-test "negotiated fold candidate: generated once for LR, declined for TD, appended last" {
-    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
-    defer arena.deinit();
-    const a = arena.allocator();
-
-    const g_lr = try parse(a, "flowchart LR\n  A --> B --> C --> D\n  D --> A\n");
-    const cand = select.negotiatedFoldCandidate(a, g_lr, testJoinPermits(), 40) orelse return error.MissingCandidate;
-    try std.testing.expectEqual(ladder.Transform.negotiated_fold, cand.transform);
-    try std.testing.expectEqual(ladder.Rung.chain_wrap, cand.rung);
-    try std.testing.expect(!cand.accepted);
-
-    const g_td = try parse(a, "flowchart TD\n  A --> B\n");
-    try std.testing.expect(select.negotiatedFoldCandidate(a, g_td, testJoinPermits(), 40) == null);
-
-    // Merged list: raw candidates first (T4 tie preference), negotiated last.
-    const set = try select.enumerateAll(a, g_lr, testJoinPermits(), 40);
-    try std.testing.expectEqual(ladder.Transform.raw, set.merged[0].transform);
-    try std.testing.expectEqual(
-        ladder.Transform.negotiated_fold,
-        set.merged[set.merged.len - 1].transform,
-    );
-}
-
 test "choose: merged selection anchors to raw natural and never fails the render" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();

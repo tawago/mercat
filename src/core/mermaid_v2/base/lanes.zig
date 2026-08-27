@@ -1,10 +1,9 @@
-//! Pure interval "lane" packer shared by the layout zone (back-edge rails,
-//! chain_wrap gutter negotiation) and the cluster zone (cross-border bridge
-//! track discipline). `LaneClaim` is a flow-axis interval `[lo, hi]` plus a
-//! natural (unstacked) cross-axis `base`; `assign` greedily packs claims
-//! into the innermost compatible lane and resolves each lane's physical
-//! cross position; `gutter` reports the resulting shape without committing
-//! placements. No geometry/placement/sketch types: pure integers in/out.
+//! Pure interval "lane" packer shared by the layout zone (back-edge rails)
+//! and the cluster zone (cross-border bridge track discipline). `LaneClaim`
+//! is a flow-axis interval `[lo, hi]` plus a natural (unstacked) cross-axis
+//! `base`; `assign` greedily packs claims into the innermost compatible lane
+//! and resolves each lane's physical cross position.
+//! No geometry/placement/sketch types: pure integers in/out.
 //! Importable from every zone; may itself import only std (and prim) —
 //! enforced by tools/lint_imports.zig.
 
@@ -114,28 +113,4 @@ pub fn assign(
     }
 
     return .{ .lane_of = lane_of, .lane_pos = lane_pos };
-}
-
-/// Shape of the gutter that a set of claims would produce.
-pub const Gutter = struct {
-    /// Number of parallel lanes required.
-    lanes: u32,
-    /// Resolved cross position of the outermost lane (0 when no claims).
-    outermost: i32,
-};
-
-/// Pure query: pack `claims` and report the resulting gutter shape WITHOUT
-/// committing any placements ("given these back-edge spans crossing a band
-/// boundary, what gutter width results?").
-pub fn gutter(
-    a: std.mem.Allocator,
-    claims: []const LaneClaim,
-    stack_gap: i32,
-) error{OutOfMemory}!Gutter {
-    var asg = try assign(a, claims, stack_gap);
-    defer asg.deinit(a);
-    return .{
-        .lanes = @intCast(asg.lane_pos.len),
-        .outermost = if (asg.lane_pos.len == 0) 0 else asg.lane_pos[asg.lane_pos.len - 1],
-    };
 }

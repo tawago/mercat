@@ -278,44 +278,6 @@ pub fn rowIntrudesRect(y: i32, x_left: i32, x_right: i32, r: sketch.Rect) bool {
     return x_left < right_inc and x_right > left;
 }
 
-fn rowClear(
-    y: i32,
-    x_left: i32,
-    x_right: i32,
-    placements: []const sketch.NodePlacement,
-    from_id: sketch.NodeId,
-    to_id: sketch.NodeId,
-) bool {
-    for (placements) |p| {
-        if (p.id == from_id or p.id == to_id) continue;
-        if (rowIntrudesRect(y, x_left, x_right, p.rect)) return false;
-    }
-    return true;
-}
-
-// REFACTOR TARGET: bounded search presented as a guarantee — the 4096 guard can
-// expire and return a non-conforming result silently. Either prove the bound is
-// unreachable, or make expiry an explicit, reported outcome.
-/// Best-effort gap row for a serpentine band-return: nearest row outward from `want_y` whose span `[x_left,x_right]` misses every node interior; the search is bounded to 4096 steps each way and then falls back to a possibly-obstructed `want_y`.
-fn clearRow(
-    want_y: i32,
-    x_left: i32,
-    x_right: i32,
-    placements: []const sketch.NodePlacement,
-    from_id: sketch.NodeId,
-    to_id: sketch.NodeId,
-) i32 {
-    if (rowClear(want_y, x_left, x_right, placements, from_id, to_id)) return want_y;
-    var delta: i32 = 1;
-    while (delta < 4096) : (delta += 1) {
-        const up = want_y - delta;
-        if (rowClear(up, x_left, x_right, placements, from_id, to_id)) return up;
-        const down = want_y + delta;
-        if (rowClear(down, x_left, x_right, placements, from_id, to_id)) return down;
-    }
-    return want_y;
-}
-
 /// NodeGeom is passed by the caller (routing.zig); we reference it as a
 /// slice parameter rather than importing routing.zig (which would create
 /// a circular import). The type must match `routing.NodeGeom` exactly:
@@ -335,10 +297,6 @@ pub fn routePolyline(
     inset_from: i32,
     inset_to: i32,
     route_lane: u32,
-    /// True only on the chain_wrap rung — enables the serpentine band-return
-    /// route. Off elsewhere so a normal RL/LR left-going edge keeps its plain
-    /// elbow (it is not a carriage return).
-    chain_wrap: bool,
 ) error{OutOfMemory}![]sketch.Point {
     var poly: std.ArrayListUnmanaged(sketch.Point) = .empty;
     const raw_start = portPoint(from_p, port_from);
@@ -447,28 +405,7 @@ pub fn routePolyline(
     // original final bend (TD skip edges are handled by the corridor branch
     // above); forcing the gap-bend on them would disconnect the trailing stub.
     if (virtuals.len == 0) {
-        if (chain_wrap and horizontal and end.x < prev.x and end.y != prev.y) {
-            // Serpentine band-return (Lever C): target sits left of and on a
-            // different row than the source — a chain-wrap carriage-return
-            // edge. A plain east-exit + left-jog would slice every box across
-            // the source band; instead exit one cell past the source wall,
-            // drop into a clear inter-band gap row, run left to the target
-            // column, then descend/ascend into the port. Generic — keyed only
-            // on the placed rects, never on identity.
-            // guarded-by: validate_test.zig "edge through node interior flagged"
-            const exit_x = prev.x + 1; // one cell east of the source port.
-            const x_lo = @min(exit_x, end.x);
-            const x_hi = @max(exit_x, prev.x);
-            const want_y = @divTrunc(prev.y + end.y, 2);
-            const gap_y = clearRow(want_y, x_lo, x_hi, placements, from_p.id, to_p.id);
-            try poly.append(a, .{ .x = exit_x, .y = prev.y });
-            try poly.append(a, .{ .x = exit_x, .y = gap_y });
-            // Land in the target's approach column (one cell west of its west
-            // port) along the gap row, then run the final cell(s) into the port.
-            const approach_x = end.x - 1;
-            try poly.append(a, .{ .x = approach_x, .y = gap_y });
-            try poly.append(a, .{ .x = approach_x, .y = end.y });
-        } else if (horizontal) {
+        if (horizontal) {
             // West/east port: straight run if already on the port row; otherwise jog out 2 cells (1 if the gap is tight) so the final horizontal approach is never zero-length. guarded-by: routing_polyline_test.zig "west/east port jog pad is never zero, near or far (guards clean </>)"
             if (end.y != prev.y) {
                 const pad: i32 = (if (absDiff(end.x, prev.x) >= 2) @as(i32, 2) else 1) + @as(i32, @intCast(route_lane));

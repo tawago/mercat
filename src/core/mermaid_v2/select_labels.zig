@@ -24,7 +24,7 @@ const score_mod = @import("score.zig");
 const motif_mod = @import("motif.zig");
 
 /// Upper bound on beside-variants added to one selection. The merged on-run
-/// set peaks at 10 (6 raw + 3 packed + 1 fold), so 4 keeps the total under
+/// set peaks at 8 (5 raw + 3 packed), so 4 keeps the total under
 /// select.MAX_CANDIDATES with room to spare — and the variants are the
 /// expensive kind of candidate (one extra layout AND one extra audit raster
 /// each), so duplicating the whole ladder would be pure waste: everything
@@ -85,7 +85,7 @@ pub fn besideVariants(
         if (n >= out.len or n >= MAX_BESIDE) break;
         if (score_mod.fitSeverity(c.sketch) > min_t0) continue;
         const source: sem_graph.SemGraph = switch (c.transform) {
-            .raw, .negotiated_fold => graph,
+            .raw => graph,
             .motif_pack => blk: {
                 if (!packed_tried) {
                     packed_tried = true;
@@ -100,7 +100,6 @@ pub fn besideVariants(
             join_permits,
             max_width,
             c.rung,
-            c.transform == .negotiated_fold,
             .beside,
         ) catch continue;
         out[n] = .{

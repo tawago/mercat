@@ -68,18 +68,6 @@ test "assign: greedy 4-claim hand example with a tie" {
     try std.testing.expectEqual(@as(i32, 7), asg.posOf(3));
 }
 
-test "gutter: reports lane count and outermost position without placements" {
-    const a = std.testing.allocator;
-    const ds = [_]lanes.LaneClaim{ claim(0, 4, 5), claim(1, 3, 5) };
-    const g = try lanes.gutter(a, &ds, 1);
-    try std.testing.expectEqual(@as(u32, 2), g.lanes);
-    try std.testing.expectEqual(@as(i32, 6), g.outermost);
-
-    const empty = try lanes.gutter(a, &.{}, 1);
-    try std.testing.expectEqual(@as(u32, 0), empty.lanes);
-    try std.testing.expectEqual(@as(i32, 0), empty.outermost);
-}
-
 test "clearRunBase: vertical run parks just past endpoints when unobstructed" {
     const ps = [_]sketch.NodePlacement{
         np(1, 0, 0, 5, 3),

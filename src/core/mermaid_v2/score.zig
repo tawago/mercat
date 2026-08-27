@@ -33,23 +33,15 @@ pub const Direction = sketch.Direction;
 // fractional ratios in pure integers.
 
 /// Per-rung legibility multipliers, indexed by `Sketch.budget.rung`
-/// (0=natural, 1=tight, 2=wrap_labels, 3=chain_wrap, 4=switch_direction,
-/// 5=truncate). 16 = 1.0x. A later rung wins only when it improves
-/// legibility by MORE than its ratio vs the earlier rung's.
+/// (0=natural, 1=tight, 2=wrap_labels, 3=switch_direction, 4=truncate).
+/// 16 = 1.0x. A later rung wins only when it improves legibility by MORE
+/// than its ratio vs the earlier rung's.
 ///
 ///  - natural 16: baseline, by definition.
 ///  - tight 30 (1.875x): fitted window (28.1, 31.1) from labeled w60/w90 reference pairs. // guarded-by: score_calibration_test.zig "RUNG_SCALE tight window: flips exactly where the fitted (28.1, 31.1) bound says (live seed numbers)"
 ///  - wrap_labels 32: no labeled pair pins it; kept monotone just above
 ///    tight so the ladder prior stays ordered.
-///  - chain_wrap 48: ABOVE both switch scales, deliberately breaking the
-///    ladder's direction-preserving prior. All three labeled fold pairs go
-///    against the fold: self_loop_lr_4 w60 6-1, pr_review_lr_10 w90 9-1,
-///    cicd_pipeline_lr_10 w90 6-5 (near-tie) — this encodes "folds strand
-///    dead space until the motif/lanes work lands" (re-audit when folds
-///    improve). Lower bound 47.8 from self_loop_lr w60 (36*203 <
-///    scale*153); ceiling 50 (truncate) keeps a fold preferable to
-///    clipping. The self_loop_lr margin is thin (7308-vs-7344).
-///  - switch_direction (rung 4): SPLIT by the candidate's FINAL direction —
+///  - switch_direction (rung 3): SPLIT by the candidate's FINAL direction —
 ///    see SWITCH_TO_VERTICAL_SCALE / SWITCH_TO_HORIZONTAL_SCALE below. The
 ///    array slot holds the vertical (lower) value; `eval` overrides via
 ///    `switchScale`.
@@ -58,24 +50,12 @@ pub const Direction = sketch.Direction;
 ///    scale > 44.0) and 31.4 from ampersand_fanout w60 (natural over
 ///    truncate at 445-vs-227); upper bound 56.6 from microservices_layers
 ///    w90 (the labeled preference flips to truncate; see W_INTEGRITY).
-pub const RUNG_SCALE = [6]u64{ 16, 30, 32, 48, SWITCH_TO_VERTICAL_SCALE, 50 };
+pub const RUNG_SCALE = [5]u64{ 16, 30, 32, SWITCH_TO_VERTICAL_SCALE, 50 };
 
 /// Rotation asymmetry: rotations INTO vertical (LR/RL->TD) price cheaper (36, window 35.4-42.2) than rotations OUT of TD into horizontal (44). // guarded-by: score_calibration_test.zig "SWITCH_TO_VERTICAL_SCALE window: flips exactly where the fitted (35.4, 42.2) bound says (live seed numbers)"
 pub const SWITCH_TO_VERTICAL_SCALE: u64 = 36;
 /// Fitted lower bound 40.0. // guarded-by: score_calibration_test.zig "SWITCH_TO_HORIZONTAL_SCALE lower bound: natural stays ahead at the fitted 44 (live seed numbers)"
 pub const SWITCH_TO_HORIZONTAL_SCALE: u64 = 44;
-
-/// PROVISIONAL scale for the NEGOTIATED chain-wrap fold candidate; applied
-/// by select.zig via `evalScaled`, keyed off `Transform.negotiated_fold`
-/// — the candidate's recorded rung is still chain_wrap. Rationale:
-/// chain_wrap's 48 encodes "folds strand dead space until the motif/lanes
-/// work lands"; a negotiated fold whose band breaks reserve MEASURED
-/// back-edge gutters (chain_wrap.bandMargin via lanes.gutter) no longer
-/// earns the blind fold's stranded-dead-space reputation tax. Priced at
-/// switch_to_horizontal's 44: below the blind fold (48) and truncate (50),
-/// but still above switch_to_vertical (36) until new labeled reference
-/// pairs re-fit this constant.
-pub const CHAIN_WRAP_NEGOTIATED_SCALE: u64 = 44;
 
 /// One legibility unit in composite space (the 16ths base).
 const SCALE_ONE: u64 = 16;
@@ -83,9 +63,9 @@ const SCALE_ONE: u64 = 16;
 /// `RUNG_SCALE` index of the switch_direction rung: any candidate whose
 /// direction differs from the source pays AT LEAST the direction-matched
 /// switch multiplier, even if its recorded rung is lower (belt-and-braces;
-/// today only rung 4 rotates — and rung 4 always rotates, so this same
+/// today only rung 3 rotates — and rung 3 always rotates, so this same
 /// `@max` path is what applies the vertical/horizontal split to it).
-pub const SWITCH_SCALE_INDEX: usize = 4;
+pub const SWITCH_SCALE_INDEX: usize = 3;
 
 /// Switch multiplier for a rotated candidate, keyed by its FINAL
 /// (post-rotation) direction — `Sketch.direction` is post-rotation (see
@@ -119,7 +99,7 @@ pub const W_LABEL_DROP: u64 = 4096;
 /// separating candidates with identical drop counts.
 pub const W_CELL_LOST: u64 = 512;
 
-/// Composite cost per raster-DISPLACED label (placed by the fallback ladder, but not at its primary anchor — see raster/labels_edge.zig). Fitted window [577, 608], well under a drop (4096) — displacement is degraded legibility, not lost information. // guarded-by: score_calibration_test.zig "W_LABEL_DISPLACED window: crosses exactly where the fitted [577, 608]-ish bound says (self_loop_lr_4 + shape_zoo numbers)"
+/// Composite cost per raster-DISPLACED label (placed by the fallback ladder, but not at its primary anchor — see raster/labels_edge.zig). Kept well under a drop (4096) — displacement is degraded legibility, not lost information — and under the shape_zoo upper bound. // guarded-by: score_calibration_test.zig "W_LABEL_DISPLACED upper bound: a displaced label still clears the natural-preference margin (shape_zoo numbers)"
 pub const W_LABEL_DISPLACED: u64 = 592;
 
 /// Natural-preference (hysteresis) margin, in composite 16ths: a challenger
@@ -211,24 +191,6 @@ pub fn eval(
     candidate_index: u32,
     raster: RasterCounts,
 ) !Score {
-    return evalScaled(allocator, s, source_direction, candidate_index, raster, false);
-}
-
-/// `eval` for a possibly-NEGOTIATED candidate. When `negotiated_fold` is
-/// true the rung-scale lookup is replaced by CHAIN_WRAP_NEGOTIATED_SCALE
-/// (the direction-infidelity floor still applies on top): the candidate's
-/// Sketch records the chain_wrap rung, whose 48 would overtax the
-/// measured-gutter fold. select.zig passes
-/// `cand.transform == .negotiated_fold`; the scale decision lives HERE so
-/// score.zig is the single producer of composite scales.
-pub fn evalScaled(
-    allocator: std.mem.Allocator,
-    s: sketch.Sketch,
-    source_direction: Direction,
-    candidate_index: u32,
-    raster: RasterCounts,
-    negotiated_fold: bool,
-) !Score {
     const counts = blk: {
         const vr = try validate.validate(allocator, s);
         break :blk validate.counts(vr, s);
@@ -245,7 +207,7 @@ pub fn evalScaled(
         W_LABEL_WRAPS * geom.labelWraps(s);
 
     const rung_idx: usize = @min(s.budget.rung, RUNG_SCALE.len - 1);
-    var scale = if (negotiated_fold) CHAIN_WRAP_NEGOTIATED_SCALE else RUNG_SCALE[rung_idx];
+    var scale = RUNG_SCALE[rung_idx];
     if (s.direction != source_direction) scale = @max(scale, switchScale(s.direction));
 
     return .{

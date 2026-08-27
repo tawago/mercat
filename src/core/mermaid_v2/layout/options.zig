@@ -62,20 +62,6 @@ pub const LayoutOptions = struct {
     /// are intentionally NOT scaled here (must move in lockstep with
     /// super-node sizing + the drawn frame).
     spacing_scale: u8 = 0,
-    /// Lever C — serpentine chain-wrap. When true, a long LR/RL chain whose
-    /// flow axis busts the width budget is folded into a multi-band snake
-    /// (direction-preserving). Set ONLY on the budget ladder's `chain_wrap`
-    /// rung, which sits between `wrap_labels` and `switch_direction` so the
-    /// direction-preserving fold is tried BEFORE paying for a 90° rotation.
-    /// A no-op when off, so lower rungs / fitting seeds stay byte-identical.
-    chain_wrap: bool = false,
-    /// NEGOTIATED chain-wrap band breaks — each band reserves its MEASURED
-    /// back-edge gutter demand (chain_wrap.bandMargin via lanes.gutter)
-    /// instead of the blind FLOW_RAIL_MARGIN. Only meaningful with
-    /// `chain_wrap = true`; set solely on select.zig's extra fold candidate
-    /// (never by the raw rung ladder), so default-false keeps the
-    /// chain_wrap rung byte-identical.
-    chain_wrap_negotiated: bool = false,
     /// This candidate's label-placement policy. `.on_run` (default, and what
     /// every debug/forced driver uses) reserves the fan label rows and lets
     /// the raster pass try the on-run forms; `.beside` clears both, so labels

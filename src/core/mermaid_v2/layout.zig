@@ -26,7 +26,6 @@ const cx_mod = @import("layout/x_assign.zig");
 const sizing = @import("layout/sizing.zig");
 const components = @import("layout/components.zig");
 const rank_grid = @import("layout/rank_grid.zig");
-const chain_wrap = @import("layout/chain_wrap.zig");
 const decascade = @import("layout/decascade.zig");
 const join_commit = @import("layout/join_commit.zig");
 const options = @import("layout/options.zig");
@@ -217,8 +216,8 @@ fn buildSketch(
     // the ACCUMULATED gap width (after the fan/lane/skip folds above) and tops
     // up ONLY gaps still at the bare 2-row width — a widened gap is never
     // double-counted, and the add is bounded to at most +1 per boundary.
-    // Suppressed on the switch_direction rotation probe (`is_direction_rotated`):
-    // a rotated layout is authored non-TD, and adding a row inside the probe
+    // Suppressed on the switch_direction rotation (`is_direction_rotated`):
+    // a rotated layout is authored non-TD, and adding a row there
     // perturbs its height score and can flip candidate selection (GUARD 2 —
     // price the row only where TD is the FINAL direction). Same gate as the
     // other direction-dependent TD levers (compact_x, back-edge rail width).
@@ -280,22 +279,6 @@ fn buildSketch(
         normalizeX(geom);
     }
 
-    // Lever C: serpentine chain-wrap. Under width pressure (chain_wrap flag,
-    // set only on the `chain_wrap` rung between `wrap_labels` and
-    // `switch_direction`), fold a long LR/RL chain whose flow axis busts the
-    // width budget into a multi-band snake — direction-preserving, tried before
-    // the 90° rotation. Runs in INTERNAL pre-transpose coordinates (here, before
-    // applyDirection): the flow axis is internal-y and maps to display width for
-    // horizontal flows, so folding it relieves the overflow. A no-op for TD/BT
-    // and when the flag is off, so fitting seeds / lower rungs stay
-    // byte-identical. Forward + back edges re-route from the final geom
-    // positions downstream (routing.buildEdges / back_edges.zig), so no rail is
-    // synthesized here.
-    if (opts.chain_wrap) {
-        try chain_wrap.foldChain(NodeGeom, a, graph, lg, geom, opts.max_width, graph.direction, opts.chain_wrap_negotiated);
-        normalizeX(geom);
-    }
-
     if (fans.len > 0) fan_mod.assignRoles(fans, try centersX(a, geom));
 
     mirror.applyDirection(NodeGeom, geom, graph.direction);
@@ -304,13 +287,13 @@ fn buildSketch(
     const allocated_ports = try port_plan.allocate(a, graph, placements, derived, candidate_joins, lane_plan, opts.rung);
     candidate_joins.terminal_ports = allocated_ports.terminals;
     const edges_result = if (port_active)
-        try routing.buildEdgesWithPlan(a, graph, lg, geom, placements, fans, candidate_joins, allocated_ports, opts.chain_wrap)
+        try routing.buildEdgesWithPlan(a, graph, lg, geom, placements, fans, candidate_joins, allocated_ports)
     else
-        try routing.buildEdges(a, graph, lg, geom, placements, fans, opts.chain_wrap);
+        try routing.buildEdges(a, graph, lg, geom, placements, fans);
     const edges_out = edges_result.edges;
     const clusters_out = try clusters.buildClusters(a, graph, placements, opts.node_padding);
 
-    // Arm the back-edge return-rail width lever only for AUTHORED top-down flows; `!is_direction_rotated` excludes an LR seed's TD rotation probe so the lever never flips chain-wrap acceptance. guarded-by: layout/clusters_test.zig "the back-edge rail label lever fires for authored TD but not for a rotation-probe TD"
+    // Arm the back-edge return-rail width lever only for AUTHORED top-down flows; `!is_direction_rotated` excludes an LR seed's TD rotation so the lever never changes a rotated candidate's fit verdict. guarded-by: layout/clusters_test.zig "the back-edge rail label lever fires for authored TD but not for a rotated TD"
     const rail_lever = (opts.spacing_scale > 0) and
         (graph.direction == .TD) and !opts.is_direction_rotated;
     const bbox = clusters.computeBbox(placements, edges_out, clusters_out, edges_result.polylines, edges_result.busbars, rail_lever, opts.max_width);
