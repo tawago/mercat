@@ -1,7 +1,7 @@
 //! score.zig — pure integer candidate score. Evaluates a laid-out `Sketch`
-//! into a deterministic `Score`, ordered lexicographically: TV raster
-//! violation count (crossing rules + arrowhead bases) > T0 fit severity
-//! (width-overflow magnitude, not a count) > T12 composite (RUNG_SCALE[rung]
+//! into a deterministic `Score`, ordered lexicographically: T0 fit severity
+//! (width-overflow magnitude, not a count) > TV raster violation count
+//! (crossing rules + arrowhead bases) > T12 composite (RUNG_SCALE[rung]
 //! * t2_legibility + W_INTEGRITY * t1_integrity + raster-defect weights;
 //! integrity is a large cost, not a veto) > T3 height > T4 rung index (total
 //! order, unique argmin). Raw t1/t2 stay on `Score` for the shadow line;
@@ -95,11 +95,16 @@ pub const RasterCounts = struct {
     arrowhead_transit: u32 = 0,
     /// Arrowhead-base violations (raster/arrow_base.zig).
     arrow_base: u32 = 0,
+    /// 1 when the audit raster itself errored (audit.zig): the candidate's
+    /// violations are unknown, so it must never win the TV tier.
+    raster_failed: u32 = 0,
 
-    /// Correctness-tier total: every counter here is a rule VIOLATION in the
-    /// shipped raster, ranked lexicographically above all other tiers.
+    /// Violation-tier total: every counter here is a rule VIOLATION in the
+    /// shipped raster, compared after T0 fit and before the composite. A
+    /// failed audit dominates any real count.
     pub fn violations(c: RasterCounts) u64 {
-        return @as(u64, c.foreign_junction) + c.arrowhead_transit + c.arrow_base;
+        return @as(u64, c.raster_failed) * (1 << 40) +
+            c.foreign_junction + c.arrowhead_transit + c.arrow_base;
     }
 };
 
@@ -136,8 +141,8 @@ pub const NATURAL_PREFERENCE_MARGIN: u64 = 128;
 /// by at least `NATURAL_PREFERENCE_MARGIN`.
 pub fn displacesNatural(challenger: Score, natural: Score) bool {
     if (!challenger.lessThan(natural)) return false;
-    if (challenger.tv_violations != natural.tv_violations) return true; // TV-decided: exempt
     if (challenger.t0_fit != natural.t0_fit) return true; // T0-decided: exempt
+    if (challenger.tv_violations != natural.tv_violations) return true; // TV-decided: exempt
     if (challenger.t12_composite == natural.t12_composite) return true; // T3/T4-decided
     return natural.t12_composite - challenger.t12_composite >= NATURAL_PREFERENCE_MARGIN;
 }
@@ -159,13 +164,13 @@ const W_LABEL_WRAPS: u64 = 2;
 // -- Score ---------------------------------------------------------------------
 
 /// Integer score; lower is better. Ordering compares t0_fit, then
-/// t12_composite, then t3_height, then t4_index. `t1_integrity` and
+/// tv_violations, then t12_composite, then t3_height, then t4_index. `t1_integrity` and
 /// `t2_legibility` are the raw pre-weight measurements, kept for the
 /// shadow disagreement line and external diagnostics.
 pub const Score = struct {
-    /// Correctness tier: crossing-rule + arrowhead-base violations in the
-    /// shipped raster. Compared BEFORE t0_fit — a corrupt-but-fitting
-    /// render must lose to a clean-but-clipped one.
+    /// Violation tier: crossing-rule + arrowhead-base violations in the
+    /// shipped raster. Compared AFTER t0_fit — the counters are refusal
+    /// events (interrupted ink), not worse than an overflowing render.
     tv_violations: u64 = 0,
     t0_fit: u32,
     t1_integrity: u32,
@@ -181,18 +186,18 @@ pub const Score = struct {
 
     /// Strict "a is better than b".
     pub fn lessThan(a: Score, b: Score) bool {
-        if (a.tv_violations != b.tv_violations) return a.tv_violations < b.tv_violations;
         if (a.t0_fit != b.t0_fit) return a.t0_fit < b.t0_fit;
+        if (a.tv_violations != b.tv_violations) return a.tv_violations < b.tv_violations;
         if (a.t12_composite != b.t12_composite) return a.t12_composite < b.t12_composite;
         if (a.t3_height != b.t3_height) return a.t3_height < b.t3_height;
         return a.t4_index < b.t4_index;
     }
 
-    /// Name of the first tier at which `a` and `b` differ ("t0", "t12",
-    /// "t3", "t4"), or "tie" when fully equal. Used by the shadow line.
+    /// Name of the first tier at which `a` and `b` differ ("t0", "tv",
+    /// "t12", "t3", "t4"), or "tie" when fully equal. Used by the shadow line.
     pub fn decidingTier(a: Score, b: Score) []const u8 {
-        if (a.tv_violations != b.tv_violations) return "tv";
         if (a.t0_fit != b.t0_fit) return "t0";
+        if (a.tv_violations != b.tv_violations) return "tv";
         if (a.t12_composite != b.t12_composite) return "t12";
         if (a.t3_height != b.t3_height) return "t3";
         if (a.t4_index != b.t4_index) return "t4";

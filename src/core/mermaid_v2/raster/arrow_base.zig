@@ -20,9 +20,9 @@
 //! interruption). The owner's convention leaves those interruptions in place,
 //! so a label base is NOT a violation ("class 3").
 //!
-//! Report-only: the count flows raster → entry → the MERCAT_INTEGRITY stderr line,
-//! never into `score.RasterCounts`, `audit.zig`, or candidate selection, and it
-//! never mutates a cell. Allowed imports: `std`, `lattice.zig` (raster zone).
+//! The count flows raster → entry → the MERCAT_INTEGRITY stderr line, and via
+//! `audit.zig` into `score.RasterCounts`' violation tier of candidate
+//! selection; it never mutates a cell. Allowed imports: `std`, `lattice.zig` (raster zone).
 
 const std = @import("std");
 const lattice = @import("../lattice.zig");

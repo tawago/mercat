@@ -36,8 +36,9 @@
 //! `co_sets` without a realized plan (motif-packed candidates, plan
 //! failures), which is exactly why the plan may not gate the rule.
 //!
-//! Report-only: counts flow raster → entry → diagnostics, never into
-//! score.RasterCounts, audit.zig, or candidate selection. No new DiagnosticTag.
+//! Counts flow raster → entry → diagnostics, and via audit.zig into
+//! score.RasterCounts' violation tier of candidate selection; the shipped
+//! lattice is never modified by them. No new DiagnosticTag.
 //!
 //! Allowed imports: `std`, `sketch.zig`, `lattice.zig`, `base/ledger.zig`,
 //! the `prim` module (base/types.zig — universally importable; enforced by
