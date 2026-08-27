@@ -139,13 +139,15 @@ test "rails: a run the crossbars under-measure is reported as continued, not as 
     try testing.expectEqual(@as(u32, 0), c.u_rail_run_continued);
     try testing.expectEqual(@as(u32, 0), c.d_run_fused_collinear);
 
-    // The dodged jogs still CROSS runs perpendicular (legal), and this
-    // dense shape keeps one genuinely foreign fused pair — the floor the
-    // pair tier can still see. The counter pair stays read-together: runs
-    // and cell pairs, neither the whole count.
+    // The dodged jogs still CROSS runs perpendicular (legal). The one
+    // genuinely foreign fused pair this shape used to ship is gone BY
+    // SELECTION: the score's violation tier now prefers the candidate
+    // without it, so the defect population here is empty by repair too —
+    // the counter itself stays, as the floor for any leak selection
+    // cannot dodge.
     try testing.expect(c.c_run_fused_crossing > 0);
-    try testing.expect(c.d_run_fused_foreign > 0);
-    try testing.expectEqual(c.d_run_fused_foreign, c.defectTotal());
+    try testing.expectEqual(@as(u32, 0), c.d_run_fused_foreign);
+    try testing.expectEqual(@as(u32, 0), c.defectTotal());
 }
 
 test "rails: the audit stays silent on shapes with no fused run" {

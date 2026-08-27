@@ -348,22 +348,32 @@ pub fn scoreCandidates(
         }
     }
 
-    // Pass 1: T0 fit severity only (pure bbox arithmetic). T0 is the top tier,
-    // so any candidate above the minimum severity can never be the argmin.
+    // Pass 1: the raster audit (TV violations) plus T0 fit severity — the two
+    // top tiers, compared lexicographically. Audit is skipped for n == 1.
     var t0s: [MAX_CANDIDATES]u32 = undefined;
+    var rasters: [MAX_CANDIDATES]score_mod.RasterCounts = undefined;
+    var min_tv: u64 = std.math.maxInt(u64);
     var min_t0: u32 = std.math.maxInt(u32);
     for (candidates, 0..) |cand, i| {
         t0s[i] = score_mod.fitSeverity(cand.sketch);
-        min_t0 = @min(min_t0, t0s[i]);
+        rasters[i] = if (n > 1) audit_mod.collect(aa, cand.sketch) else .{};
+        const tv = rasters[i].violations();
+        if (tv < min_tv or (tv == min_tv and t0s[i] < min_t0)) {
+            min_tv = tv;
+            min_t0 = t0s[i];
+        }
     }
 
-    // Pass 2: full evaluation (raster audit + validate + geometry) ONLY for
-    // candidates that can still win (t0 == min) plus the incumbent. The rest
-    // get a sentinel losing score carrying the TRUE t0 (decided at the T0
-    // tier, so argmin/anchor are unaffected). Audit is skipped for n == 1.
+    // Pass 2: full evaluation (validate + geometry) ONLY for candidates that
+    // can still win ((tv, t0) == min) plus the incumbent. The rest get a
+    // sentinel losing score carrying the TRUE tv and t0 (decided at the
+    // TV/T0 tiers, so argmin/anchor are unaffected).
     for (candidates, 0..) |cand, i| {
-        if (t0s[i] > min_t0 and (incumbent_idx == null or i != incumbent_idx.?)) {
+        const tv = rasters[i].violations();
+        const beaten = tv > min_tv or (tv == min_tv and t0s[i] > min_t0);
+        if (beaten and (incumbent_idx == null or i != incumbent_idx.?)) {
             sel.scores[i] = .{
+                .tv_violations = tv,
                 .t0_fit = t0s[i],
                 .t1_integrity = 0,
                 .t2_legibility = 0,
@@ -373,7 +383,7 @@ pub fn scoreCandidates(
             };
             continue;
         }
-        const raster: score_mod.RasterCounts = if (n > 1) audit_mod.collect(aa, cand.sketch) else .{};
+        const raster = rasters[i];
         sel.scores[i] = score_mod.eval(
             aa,
             cand.sketch,

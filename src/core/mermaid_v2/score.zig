@@ -1,5 +1,6 @@
 //! score.zig — pure integer candidate score. Evaluates a laid-out `Sketch`
-//! into a deterministic `Score`, ordered lexicographically: T0 fit severity
+//! into a deterministic `Score`, ordered lexicographically: TV raster
+//! violation count (crossing rules + arrowhead bases) > T0 fit severity
 //! (width-overflow magnitude, not a count) > T12 composite (RUNG_SCALE[rung]
 //! * t2_legibility + W_INTEGRITY * t1_integrity + raster-defect weights;
 //! integrity is a large cost, not a veto) > T3 height > T4 rung index (total
@@ -87,6 +88,19 @@ pub const RasterCounts = struct {
     /// Labels the fallback ladder placed away from their primary anchor.
     labels_displaced: u32 = 0,
     edge_cells_lost: u32 = 0,
+    /// Crossing-rule violations (raster/crossings.zig). `legal_crossing` is
+    /// deliberately absent: legal crossings are already priced by the
+    /// geometric W_CROSSINGS term.
+    foreign_junction: u32 = 0,
+    arrowhead_transit: u32 = 0,
+    /// Arrowhead-base violations (raster/arrow_base.zig).
+    arrow_base: u32 = 0,
+
+    /// Correctness-tier total: every counter here is a rule VIOLATION in the
+    /// shipped raster, ranked lexicographically above all other tiers.
+    pub fn violations(c: RasterCounts) u64 {
+        return @as(u64, c.foreign_junction) + c.arrowhead_transit + c.arrow_base;
+    }
 };
 
 /// Composite cost per raster-DROPPED label, in 16ths; rung-scale-independent (added AFTER the RUNG_SCALE multiply, same tier as W_INTEGRITY). 4096 keeps W_INTEGRITY/label ≈ 5:1 — Sketch-level violations stay dearer. // guarded-by: score_calibration_test.zig "W_LABEL_DROP prices a dropped label + lost cells above the shape_zoo_td_8 legibility margin"
@@ -122,6 +136,7 @@ pub const NATURAL_PREFERENCE_MARGIN: u64 = 128;
 /// by at least `NATURAL_PREFERENCE_MARGIN`.
 pub fn displacesNatural(challenger: Score, natural: Score) bool {
     if (!challenger.lessThan(natural)) return false;
+    if (challenger.tv_violations != natural.tv_violations) return true; // TV-decided: exempt
     if (challenger.t0_fit != natural.t0_fit) return true; // T0-decided: exempt
     if (challenger.t12_composite == natural.t12_composite) return true; // T3/T4-decided
     return natural.t12_composite - challenger.t12_composite >= NATURAL_PREFERENCE_MARGIN;
@@ -148,6 +163,10 @@ const W_LABEL_WRAPS: u64 = 2;
 /// `t2_legibility` are the raw pre-weight measurements, kept for the
 /// shadow disagreement line and external diagnostics.
 pub const Score = struct {
+    /// Correctness tier: crossing-rule + arrowhead-base violations in the
+    /// shipped raster. Compared BEFORE t0_fit — a corrupt-but-fitting
+    /// render must lose to a clean-but-clipped one.
+    tv_violations: u64 = 0,
     t0_fit: u32,
     t1_integrity: u32,
     t2_legibility: u64,
@@ -162,6 +181,7 @@ pub const Score = struct {
 
     /// Strict "a is better than b".
     pub fn lessThan(a: Score, b: Score) bool {
+        if (a.tv_violations != b.tv_violations) return a.tv_violations < b.tv_violations;
         if (a.t0_fit != b.t0_fit) return a.t0_fit < b.t0_fit;
         if (a.t12_composite != b.t12_composite) return a.t12_composite < b.t12_composite;
         if (a.t3_height != b.t3_height) return a.t3_height < b.t3_height;
@@ -171,6 +191,7 @@ pub const Score = struct {
     /// Name of the first tier at which `a` and `b` differ ("t0", "t12",
     /// "t3", "t4"), or "tie" when fully equal. Used by the shadow line.
     pub fn decidingTier(a: Score, b: Score) []const u8 {
+        if (a.tv_violations != b.tv_violations) return "tv";
         if (a.t0_fit != b.t0_fit) return "t0";
         if (a.t12_composite != b.t12_composite) return "t12";
         if (a.t3_height != b.t3_height) return "t3";
@@ -211,6 +232,7 @@ pub fn eval(
     if (s.direction != source_direction) scale = @max(scale, switchScale(s.direction));
 
     return .{
+        .tv_violations = raster.violations(),
         .t0_fit = fitSeverity(s),
         .t1_integrity = t1,
         .t2_legibility = t2,

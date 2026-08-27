@@ -30,6 +30,9 @@ pub fn collect(allocator: std.mem.Allocator, s: sketch.Sketch) score.RasterCount
         .labels_dropped = report.labels_dropped,
         .labels_displaced = report.labels_displaced,
         .edge_cells_lost = report.edge_cells_lost,
+        .foreign_junction = report.crossings.foreign_junction_violation,
+        .arrowhead_transit = report.crossings.arrowhead_transit_violation,
+        .arrow_base = report.arrow_base.violations,
     };
 }
 
