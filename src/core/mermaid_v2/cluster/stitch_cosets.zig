@@ -1,9 +1,12 @@
-//! Co-set transport and post-routing authority finalization for stitch.
+//! Co-set transport and final-geometry derivation for stitch.
 //!
-//! Structural child sets shift into merged id space. Port shares do not pass
-//! through this path in production; `finalizeAuthority` replaces their whole
-//! population from final merged paths. `shiftSet` still performs an exact
-//! scoped translation for callers and its regression fixture.
+//! Structural child sets shift into merged id space (transport of the piece
+//! plans' records — nothing is decided here). Port shares do not pass
+//! through this path in production; `finalizeAuthority` derives their whole
+//! population from final merged paths (the coordinate agreement IS the
+//! declaration), and rebuilds the report-tier claims. `shiftSet` still
+//! performs an exact scoped translation for callers and its regression
+//! fixture.
 
 const std = @import("std");
 const sketch = @import("../sketch.zig");

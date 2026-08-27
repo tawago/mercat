@@ -31,8 +31,10 @@ pub const RecurseError = coords.CoordsError || cluster_stitch.StitchError;
 ///
 /// For a flat flowchart this is exactly the former single `coords.layout`
 /// call: one piece in, one Sketch out, returned unchanged by `stitch`.
-/// `opts` also carries the original graph's JoinPermits and flat gate unchanged
-/// through every recursive piece; recursion never re-derives either value.
+/// `opts` carries the original graph's JoinPermits (with its own scope)
+/// unchanged through every recursive piece; recursion never re-derives it.
+/// A cluster-free piece builds and realizes its OWN piece plan inside
+/// `join_commit.buildReported` — the root plan's scope only tells it to.
 /// guarded-by: entry.zig "V-D-IR-07: a clustered graph's joins ride piece plans; the root plan stays skipped"
 pub fn layoutPieces(
     arena: std.mem.Allocator,

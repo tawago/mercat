@@ -328,6 +328,16 @@ fn resolveJoinPermits(allocator: std.mem.Allocator, graph: sem_graph.SemGraph) !
 ///
 /// `r_phantom_arms` is informational (repaired masks, not shipped
 /// defects) and is EXCLUDED from the per-render violation total.
+///
+/// Field roles under the plan-governed regime (clustered sharing rides
+/// piece plans like flat; nothing is licensed post-routing): the x_*
+/// violation fields are conformance counts against the plan and are
+/// expected zero except where routing genuinely cannot avoid ink (the
+/// counts are the evidence when it cannot); rail_* / co_* are the closure
+/// law's refusal inventory — legitimately nonzero on refusing inputs —
+/// except `co_double_discharge`, which is a conformance assert and must
+/// stay zero. The line's field set and order are frozen for external
+/// tooling; demotions change doc meaning, never fields.
 fn emitIntegrityLine(
     v: validate_mod.Counts,
     raster_report: rasterize_mod.RasterReport,

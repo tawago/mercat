@@ -21,9 +21,9 @@
 //! 4). Determined from `Sketch.joins` (RealizedJoins)
 //! and from `Sketch.co_sets`, the co-channel membership the same decisions
 //! record; never from geometry or a fixture name. The two agree by
-//! construction on the flat path (co-sets are derived from the plan where the
-//! plan is applied), and `co_sets` alone speaks for a clustered render, whose
-//! fans are its only channels.
+//! construction wherever a plan realized — flat sketches directly, clustered
+//! sketches through the piece plans the stitch merges — and `co_sets` alone
+//! speaks for a sketch with no realized plan (motif-packed, plan failure).
 //!
 //! SCOPE: UNCONDITIONAL. A crossing between two edges that do not legally
 //! share a channel never paints a junction glyph, on every render — flat,
@@ -32,10 +32,9 @@
 //! derivation. What a record SAYS about a cell is a different question, and it
 //! is answered by looking up the channel identity the producer stamped
 //! (`channelAt` / `licenceFor`); the two are counted against each other on
-//! every render by `tiling/channels.zig`. On a clustered/subgraph render
-//! the realized plan is empty (V-D-IR-07) and `co_sets` alone carries the
-//! legality — its fans are its only channels — which is exactly why the plan
-//! may not gate the rule.
+//! every render by `tiling/channels.zig`. A sketch may carry legality in
+//! `co_sets` without a realized plan (motif-packed candidates, plan
+//! failures), which is exactly why the plan may not gate the rule.
 //!
 //! Report-only: counts flow raster → entry → diagnostics, never into
 //! score.RasterCounts, audit.zig, or candidate selection. No new DiagnosticTag.

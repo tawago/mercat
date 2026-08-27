@@ -24,9 +24,10 @@ const EdgeId = u32;
 pub const CoOrigin = enum {
     /// One realized selected join (`RealizedJoins.selected_joins`).
     selected_join,
-    /// One fan's peers sharing a rail lane (layout/fan.zig). The only
-    /// population a clustered or recursed render can have: those renders
-    /// carry an empty realized plan (V-D-IR-07).
+    /// One fan's peers sharing a rail lane (layout/fan.zig). The population
+    /// a sketch has where no plan realized: motif-packed candidates and
+    /// plan-failure renders. A clustered render's pieces realize their own
+    /// plans and their `selected_join` sets ride the stitch (V-D-IR-07).
     fan_rail,
     /// Edges a producer deliberately routed through ONE perimeter port, so
     /// their approach ink is one run (`sketch_ports.portShareCoSets`). Derived

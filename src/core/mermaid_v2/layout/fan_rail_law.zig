@@ -1,14 +1,15 @@
 //! fan_rail_law.zig — the all-arrow-free shared-rail closure law applied to
 //! DETECTED FANS, for the renders that have no realized plan to apply it to.
 //!
-//! On a flat graph the law is decided once, before sizing, by
+//! Where a plan realized — a flat graph, or a cluster-free piece realizing
+//! its own plan — the law is decided before sizing by
 //! `join_commit.buildReported`: a refused rail's members take `independent`
 //! dispositions and `fan_lanes`' per-member pass gives each its own rail row.
-//! A clustered or recursed render carries the EMPTY plan (V-D-IR-07) — no
-//! permits, no dispositions, nothing for that pass to read — and its fans
-//! fuse on lane 0 by default. That is where an undeclared leaf pair would
-//! survive untouched, so the same predicate (base/rail_closure.zig) runs
-//! here, directly over the child graph the fans were detected in.
+//! A render with no realized plan (a motif-packed candidate, a plan
+//! failure) has no permits, no dispositions, nothing for that pass to read —
+//! its fans fuse on lane 0 by default. That is where an undeclared leaf pair
+//! would survive untouched, so the same predicate (base/rail_closure.zig)
+//! runs here, directly over the child graph the fans were detected in.
 //!
 //! Refusal-only by design. The flat path additionally CO-REALIZES a kept
 //! rail's backing edges (withholding them from routing); a recursion child
