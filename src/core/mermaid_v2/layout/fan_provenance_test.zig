@@ -51,7 +51,7 @@ test "fan provenance: first-class fan-out claim is valid metadata and changes no
     const claim = s.rail_claims[0];
     try testing.expectEqual(@as(ledger.RailClaimId, 1), claim.id);
     try testing.expectEqual(ledger.RailPolarity.out, claim.polarity);
-    try testing.expectEqual(@as(?ledger.NodeId, 0), claim.pivot);
+    try testing.expectEqual(@as(?ledger.NodeId, 0), ledger.checkRailClaim(claim).derived_pivot);
     try testing.expectEqual(@as(usize, 3), claim.members.len);
     try testing.expect(ledger.checkRailClaim(claim).isValid());
 
@@ -83,7 +83,7 @@ test "fan provenance: realized fan-in Rail claims the pivot while labeled fan-in
     try testing.expectEqual(sketch.EdgeRole.fan_in_dropper, rail.busbars[0].role);
     try testing.expectEqual(@as(usize, 1), rail.rail_claims.len);
     try testing.expectEqual(ledger.RailPolarity.in, rail.rail_claims[0].polarity);
-    try testing.expectEqual(@as(?ledger.NodeId, 2), rail.rail_claims[0].pivot);
+    try testing.expectEqual(@as(?ledger.NodeId, 2), ledger.checkRailClaim(rail.rail_claims[0]).derived_pivot);
     try expectAllValid(rail.rail_claims);
 
     const clustered_nodes = [_]sg.Node{ node(0, "A", null), node(1, "B", null), node(2, "T", 7) };
@@ -190,7 +190,7 @@ test "fan provenance: stable sequential local ids and BT mirrored sites" {
     const bt = try coords.layout(bt_arena.allocator(), graph(.BT, &bt_nodes, &bt_edges, &.{}), .{});
     try testing.expectEqual(@as(usize, 1), bt.rail_claims.len);
     try testing.expectEqual(ledger.RailPolarity.out, bt.rail_claims[0].polarity);
-    try testing.expectEqual(sketch.Dir4.north, bt.rail_claims[0].pi.?.side);
+    try testing.expectEqual(sketch.Dir4.north, ledger.checkRailClaim(bt.rail_claims[0]).derived_pi.?.side);
     for (bt.rail_claims[0].members) |member| try testing.expectEqual(sketch.Dir4.south, member.sites[1].?.side);
     try expectAllValid(bt.rail_claims);
 }
@@ -247,10 +247,9 @@ test "fan provenance: missing artifact stays unresolved and a private singleton 
     try testing.expectEqual(@as(usize, 1), claims.len);
     try testing.expectEqual(@as(usize, 2), claims[0].members.len);
     try testing.expect(!hasMember(claims[0], 2));
-    try testing.expectEqual(@as(u32, 1), claims[0].unresolved_members);
     const checked = ledger.checkRailClaim(claims[0]);
+    try testing.expectEqual(@as(u32, 1), checked.derived_unresolved_members);
     try testing.expect(checked.record.unresolved);
-    try testing.expect(!checked.record.stale_caches);
 }
 
 test "fan provenance: duplicate leaf is private on flat and clustered peer paths" {

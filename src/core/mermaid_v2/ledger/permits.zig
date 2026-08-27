@@ -139,7 +139,7 @@ fn prospectiveRailCheck(a: std.mem.Allocator, graph: sg.SemGraph, direction: pb.
             .pivot_end = pivot_end,
         };
     }
-    return pb.checkRailClaim(.{ .id = 1, .polarity = if (direction == .out) .out else .in, .members = members, .pivot = pivot, .pi = pivot_site });
+    return pb.checkRailClaim(.{ .id = 1, .polarity = if (direction == .out) .out else .in, .members = members });
 }
 
 fn pivotArrow(direction: pb.JoinDirection, candidate: sg.Edge) sg.ArrowEnd {

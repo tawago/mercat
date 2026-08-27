@@ -61,16 +61,11 @@ fn appendClaim(
         copy.* = remapMember(member, node_map, edge_base, dropped);
     }
 
-    var copy: ledger.RailClaim = .{
+    try out.append(arena, .{
         .id = @intCast(out.items.len + 1),
         .polarity = claim.polarity,
         .members = members,
-    };
-    const checked = ledger.checkRailClaim(copy);
-    copy.pivot = checked.derived_pivot;
-    copy.pi = checked.derived_pi;
-    copy.unresolved_members = checked.derived_unresolved_members;
-    try out.append(arena, copy);
+    });
 }
 
 fn remapMember(

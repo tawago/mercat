@@ -14,7 +14,7 @@
 //!   `d_rail_member_style_mixed == count(style)`
 //!   `u_rail_claim_unresolved + u_rail_claim_record_invalid == count(record)`
 //! The two record buckets are disjoint: unresolved wins; the latter owns
-//! invalid identity, arity, or stale caches only when resolution is complete.
+//! invalid identity or arity only when resolution is complete.
 //! Families may overlap because one claim may independently violate BND-S,
 //! decoration, style, and its record envelope. Such overlap is attribution,
 //! not double-counting within a family.

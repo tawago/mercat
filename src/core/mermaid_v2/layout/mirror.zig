@@ -115,7 +115,6 @@ fn mirrorRailClaims(
         }
         copy.* = claim;
         copy.members = members;
-        if (claim.pi) |pi| copy.pi = mirrorSite(nodes, pi);
         initialized += 1;
     }
     return out;

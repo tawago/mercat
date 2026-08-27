@@ -24,14 +24,7 @@ fn member(edge: sketch.EdgeId, from: sketch.NodeId, to: sketch.NodeId, pivot_end
 }
 
 fn claim(id: ledger.RailClaimId, polarity: ledger.RailPolarity, members: []const ledger.RailClaimMember) ledger.RailClaim {
-    const pivot_end = polarity.pivotEnd();
-    return .{
-        .id = id,
-        .polarity = polarity,
-        .members = members,
-        .pivot = members[0].node(pivot_end),
-        .pi = members[0].site(pivot_end),
-    };
+    return .{ .id = id, .polarity = polarity, .members = members };
 }
 
 fn path(id: sketch.EdgeId, from: sketch.NodeId, to: sketch.NodeId) sketch.EdgePath {
@@ -119,17 +112,17 @@ test "stitch rails: child claims deep-remap first-class and peer-drawn carriers 
     try testing.expect(got[0].members.ptr != first_members[0..].ptr);
 
     try testing.expectEqual(@as(sketch.EdgeId, 20), got[0].members[0].edge);
-    try testing.expectEqual(@as(?sketch.NodeId, 10), got[0].pivot);
+    try testing.expectEqual(@as(?sketch.NodeId, 10), ledger.checkRailClaim(got[0]).derived_pivot);
     try testing.expectEqual(@as(?sketch.NodeId, 14), got[0].members[0].endpoints[1]);
     try testing.expectEqual(@as(sketch.NodeId, 14), got[0].members[0].sites[1].?.node);
     try testing.expectEqual(sketch.Dir4.north, got[0].members[0].sites[1].?.side);
     try testing.expectEqual(@as(u32, 2), got[0].members[0].sites[1].?.offset);
 
     try testing.expectEqual(@as(sketch.EdgeId, 44), got[1].members[0].edge);
-    try testing.expectEqual(@as(?sketch.NodeId, 30), got[1].pivot);
+    try testing.expectEqual(@as(?sketch.NodeId, 30), ledger.checkRailClaim(got[1]).derived_pivot);
     try testing.expectEqual(@as(?sketch.NodeId, 35), got[1].members[0].endpoints[0]);
     try testing.expectEqual(@as(sketch.EdgeId, 68), got[2].members[0].edge);
-    try testing.expectEqual(@as(?sketch.NodeId, 50), got[2].pivot);
+    try testing.expectEqual(@as(?sketch.NodeId, 50), ledger.checkRailClaim(got[2]).derived_pivot);
     for (got) |transported| try testing.expect(ledger.checkRailClaim(transported).isValid());
 }
 
@@ -162,25 +155,24 @@ test "stitch rails: surviving outer claim stays valid and a dropped placement me
 
     const got = try stitch_rails.transport(a, emptySplit(&supers), &.{}, outer, &.{ 30, 31, sg.SENTINEL, 33 }, 100);
     try testing.expectEqual(@as(usize, 2), got.len);
-    try testing.expect(ledger.checkRailClaim(got[0]).isValid());
-    try testing.expectEqual(@as(?sketch.NodeId, 30), got[0].pivot);
-    try testing.expectEqual(@as(sketch.NodeId, 30), got[0].pi.?.node);
+    const first = ledger.checkRailClaim(got[0]);
+    try testing.expect(first.isValid());
+    try testing.expectEqual(@as(?sketch.NodeId, 30), first.derived_pivot);
+    try testing.expectEqual(@as(sketch.NodeId, 30), first.derived_pi.?.node);
 
     const pending = got[1];
     try testing.expectEqual(@as(sketch.EdgeId, 102), pending.members[1].edge);
     try testing.expectEqual(@as(?sketch.NodeId, null), pending.members[1].endpoints[1]);
     try testing.expectEqual(@as(?ledger.AttachmentSite, null), pending.members[1].sites[1]);
-    try testing.expectEqual(@as(?sketch.NodeId, 30), pending.pivot);
-    try testing.expectEqual(@as(sketch.NodeId, 30), pending.pi.?.node);
-    try testing.expectEqual(@as(u32, 1), pending.unresolved_members);
     const checked = ledger.checkRailClaim(pending);
+    try testing.expectEqual(@as(?sketch.NodeId, 30), checked.derived_pivot);
+    try testing.expectEqual(@as(sketch.NodeId, 30), checked.derived_pi.?.node);
     try testing.expect(!checked.isValid());
     try testing.expect(checked.record.unresolved);
-    try testing.expect(!checked.record.stale_caches);
     try testing.expectEqual(@as(u32, 1), checked.derived_unresolved_members);
 }
 
-test "stitch rails: a dropped super-node pivot cannot survive in transported caches" {
+test "stitch rails: a dropped super-node pivot derives to null after transport" {
     var arena = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
@@ -198,10 +190,9 @@ test "stitch rails: a dropped super-node pivot cannot survive in transported cac
 
     const got = try stitch_rails.transport(a, emptySplit(&supers), &.{}, outer, &.{ 40, 41, sg.SENTINEL }, 10);
     try testing.expectEqual(@as(usize, 1), got.len);
-    try testing.expectEqual(@as(?sketch.NodeId, null), got[0].pivot);
-    try testing.expectEqual(@as(?ledger.AttachmentSite, null), got[0].pi);
-    try testing.expectEqual(@as(u32, 2), got[0].unresolved_members);
     const checked = ledger.checkRailClaim(got[0]);
+    try testing.expectEqual(@as(?sketch.NodeId, null), checked.derived_pivot);
+    try testing.expectEqual(@as(?ledger.AttachmentSite, null), checked.derived_pi);
+    try testing.expectEqual(@as(u32, 2), checked.derived_unresolved_members);
     try testing.expect(checked.record.unresolved);
-    try testing.expect(!checked.record.stale_caches);
 }

@@ -23,12 +23,12 @@ const out_members = [_]ledger.RailClaimMember{
     .{ .edge = 0, .endpoints = .{ 5, 6 }, .sites = .{ .{ .node = 5, .side = .south, .offset = 1 }, .{ .node = 6, .side = .north, .offset = 1 } }, .arrows = .{ .none, .filled }, .kind = .solid, .pivot_end = .source },
     .{ .edge = 1, .endpoints = .{ 5, 7 }, .sites = .{ .{ .node = 5, .side = .south, .offset = 1 }, .{ .node = 7, .side = .north, .offset = 1 } }, .arrows = .{ .none, .filled }, .kind = .solid, .pivot_end = .source },
 };
-const out_claims = [_]ledger.RailClaim{.{ .id = 1, .polarity = .out, .members = &out_members, .pivot = 5, .pi = .{ .node = 5, .side = .south, .offset = 1 } }};
+const out_claims = [_]ledger.RailClaim{.{ .id = 1, .polarity = .out, .members = &out_members }};
 const in_members = [_]ledger.RailClaimMember{
     .{ .edge = 0, .endpoints = .{ 6, 5 }, .sites = .{ .{ .node = 6, .side = .south, .offset = 1 }, .{ .node = 5, .side = .north, .offset = 1 } }, .arrows = .{ .none, .filled }, .kind = .solid, .pivot_end = .target },
     .{ .edge = 1, .endpoints = .{ 7, 5 }, .sites = .{ .{ .node = 7, .side = .south, .offset = 1 }, .{ .node = 5, .side = .north, .offset = 1 } }, .arrows = .{ .none, .filled }, .kind = .solid, .pivot_end = .target },
 };
-const in_claims = [_]ledger.RailClaim{.{ .id = 1, .polarity = .in, .members = &in_members, .pivot = 5, .pi = .{ .node = 5, .side = .north, .offset = 1 } }};
+const in_claims = [_]ledger.RailClaim{.{ .id = 1, .polarity = .in, .members = &in_members }};
 
 fn fanCell(edge: u32, role: lattice.EdgeRole, nb: lattice.Neighbours) lattice.Cell {
     return .{
@@ -326,20 +326,6 @@ test "a first-class rail's own geometry is left to the bus-bar rasterizer" {
     fan_roles.resolveMasks(&lat, fanSketch(&nodes, &.{}, &rails));
 
     try testing.expectEqual(@as(u4, 0b1111), lat.atConst(1, 2).neighbours.toMask());
-}
-
-test "a stale claim cache cannot move the pivot-derived mask" {
-    var buf: [15]lattice.Cell = undefined;
-    var lat = blank(&buf);
-    lat.at(1, 2).* = fanCell(0, .fan_out_rail, all4);
-    lat.at(1, 3).* = fanCell(9, .forward, .{ .e = true, .s = true });
-    var stale = out_claims;
-    stale[0].pivot = 99;
-    lat.rail_claims = &stale;
-
-    const nodes = pivotAt(0, 2);
-    fan_roles.resolveMasks(&lat, fanSketch(&nodes, &.{}, &.{}));
-    try testing.expectEqual(@as(u4, 0b1011), lat.atConst(1, 2).neighbours.toMask());
 }
 
 test "an unplaceable pivot leaves the mask exactly as the walk wrote it" {

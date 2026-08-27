@@ -139,7 +139,7 @@ test "two distinct contributors with one real pivot form structural authority" {
     try testing.expect(got[0].cells == null and got[0].pairwise == null);
 
     const members = [_]ledger.RailClaimMember{ pending(55, 10, null), pending(56, 10, null) };
-    const claims = [_]ledger.RailClaim{.{ .id = 8, .polarity = .out, .members = &members, .pivot = 10, .unresolved_members = 2 }};
+    const claims = [_]ledger.RailClaim{.{ .id = 8, .polarity = .out, .members = &members }};
     const rebuilt_claims = try bridge_claims.rebuild(a, sr, outer, &claims, 50, 100, &bridges, &bridges, &.{}, &.{});
     try testing.expectEqual(@as(usize, 1), rebuilt_claims.len);
     try testing.expectEqualSlices(sketch.EdgeId, &.{ 100, 101 }, &.{ rebuilt_claims[0].members[0].edge, rebuilt_claims[0].members[1].edge });
@@ -183,13 +183,13 @@ test "contributors expanding behind one super split on different real pivots" {
     try testing.expectEqualSlices(sketch.EdgeId, &.{ 101, 103 }, rebuilt_sets[1].members);
 
     const members = [_]ledger.RailClaimMember{ pending(55, null, 20), pending(56, null, 21) };
-    const claims = [_]ledger.RailClaim{.{ .id = 7, .polarity = .out, .members = &members, .unresolved_members = 2 }};
+    const claims = [_]ledger.RailClaim{.{ .id = 7, .polarity = .out, .members = &members }};
     const rebuilt_claims = try bridge_claims.rebuild(a, sr, outer, &claims, 50, 100, &routed, &routed, &.{}, &.{});
     var out_claims: usize = 0;
     for (rebuilt_claims) |claim| {
         try testing.expect(ledger.checkRailClaim(claim).isValid());
         if (claim.polarity != .out) continue;
-        try testing.expectEqual(@as(?sketch.NodeId, @intCast(10 + out_claims)), claim.pivot);
+        try testing.expectEqual(@as(?sketch.NodeId, @intCast(10 + out_claims)), ledger.checkRailClaim(claim).derived_pivot);
         out_claims += 1;
     }
     try testing.expectEqual(@as(usize, 2), out_claims);
@@ -238,17 +238,17 @@ test "missing routed bridge leaves the proven claim member unresolved" {
     const outer = outerSketch(&outer_edges, &.{});
     const routed = [_]sketch.EdgePath{path(100, 10, 20, .{ .x = 1, .y = 1 }, .{ .x = 1, .y = 8 })};
     const members = [_]ledger.RailClaimMember{ pending(55, 10, null), pending(56, 10, null) };
-    const claims = [_]ledger.RailClaim{.{ .id = 9, .polarity = .out, .members = &members, .pivot = 10, .unresolved_members = 2 }};
+    const claims = [_]ledger.RailClaim{.{ .id = 9, .polarity = .out, .members = &members }};
 
     const got = try bridge_claims.rebuild(a, sr, outer, &claims, 50, 100, &routed, &routed, &.{}, &.{});
     try testing.expectEqual(@as(usize, 1), got.len);
     try testing.expectEqual(@as(ledger.RailClaimId, 1), got[0].id);
     try testing.expectEqual(@as(usize, 2), got[0].members.len);
-    try testing.expectEqual(@as(u32, 1), got[0].unresolved_members);
-    try testing.expectEqual(@as(?sketch.NodeId, 10), got[0].pivot);
-    try testing.expectEqual(@as(?ledger.AttachmentSite, null), got[0].pi);
-    try testing.expect(!ledger.checkRailClaim(got[0]).isValid());
-    try testing.expect(!ledger.checkRailClaim(got[0]).record.stale_caches);
+    const checked = ledger.checkRailClaim(got[0]);
+    try testing.expectEqual(@as(u32, 1), checked.derived_unresolved_members);
+    try testing.expectEqual(@as(?sketch.NodeId, 10), checked.derived_pivot);
+    try testing.expectEqual(@as(?ledger.AttachmentSite, null), checked.derived_pi);
+    try testing.expect(!checked.isValid());
 
     const sets = [_]ledger.CoSet{.{ .origin = .fan_rail, .members = &.{ 5, 6 } }};
     var structural_outer = outer;
@@ -279,11 +279,12 @@ test "bridge-native claim uses exact final endpoint and site" {
     try testing.expectEqual(@as(usize, 1), got.len);
     try testing.expectEqual(@as(ledger.RailClaimId, 1), got[0].id);
     try testing.expectEqualSlices(sketch.EdgeId, &.{ 100, 101 }, &.{ got[0].members[0].edge, got[0].members[1].edge });
-    try testing.expectEqual(@as(?sketch.NodeId, 10), got[0].pivot);
-    try testing.expectEqual(@as(sketch.NodeId, 10), got[0].pi.?.node);
-    try testing.expectEqual(sketch.Dir4.south, got[0].pi.?.side);
-    try testing.expectEqual(@as(u32, 3), got[0].pi.?.offset);
-    try testing.expect(ledger.checkRailClaim(got[0]).isValid());
+    const native = ledger.checkRailClaim(got[0]);
+    try testing.expectEqual(@as(?sketch.NodeId, 10), native.derived_pivot);
+    try testing.expectEqual(@as(sketch.NodeId, 10), native.derived_pi.?.node);
+    try testing.expectEqual(sketch.Dir4.south, native.derived_pi.?.side);
+    try testing.expectEqual(@as(u32, 3), native.derived_pi.?.offset);
+    try testing.expect(native.isValid());
 }
 
 test "bridge-native claims reject empty paths and immediate divergence" {

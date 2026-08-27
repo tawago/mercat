@@ -39,11 +39,11 @@ fn inMember(edge: u32, leaf: u32, pivot: u32) ledger.RailClaimMember {
 }
 
 fn outClaim(id: u32, members: []const ledger.RailClaimMember) ledger.RailClaim {
-    return .{ .id = id, .polarity = .out, .members = members, .pivot = 10, .pi = site(10, .south, 2) };
+    return .{ .id = id, .polarity = .out, .members = members };
 }
 
 fn inClaim(id: u32, members: []const ledger.RailClaimMember) ledger.RailClaim {
-    return .{ .id = id, .polarity = .in, .members = members, .pivot = 10, .pi = site(10, .north, 2) };
+    return .{ .id = id, .polarity = .in, .members = members };
 }
 
 fn audit(claims: []const ledger.RailClaim) counts.Counts {
@@ -114,21 +114,16 @@ test "rail stars: BND-S shapes count once per claim, not once per failed clause"
     try expectEquations(&claims, c);
 }
 
-test "rail stars: wrong polarity and pi are BND-S while stale caches are record limitations" {
+test "rail stars: wrong polarity and differing pi are BND-S, not record limitations" {
     var wrong_members = [_]ledger.RailClaimMember{ outMember(1, 10, 20), outMember(2, 10, 21) };
     wrong_members[1].pivot_end = .target;
     wrong_members[0].sites[0] = site(10, .south, 3);
-    var stale_members = [_]ledger.RailClaimMember{ outMember(3, 10, 30), outMember(4, 10, 31) };
-    const wrong = outClaim(1, &wrong_members);
-    var stale = outClaim(2, &stale_members);
-    stale.pivot = 99;
-    stale.pi = site(10, .south, 99);
-    stale.unresolved_members = 1;
-    const claims = [_]ledger.RailClaim{ wrong, stale };
+    const sound_members = [_]ledger.RailClaimMember{ outMember(3, 10, 30), outMember(4, 10, 31) };
+    const claims = [_]ledger.RailClaim{ outClaim(1, &wrong_members), outClaim(2, &sound_members) };
     const c = audit(&claims);
     try testing.expectEqual(@as(u32, 1), c.d_rail_star_violation);
-    try testing.expectEqual(@as(u32, 2), c.u_rail_claim_record_invalid);
-    try testing.expectEqual(@as(u32, 0), c.c_rail_star_valid);
+    try testing.expectEqual(@as(u32, 0), c.u_rail_claim_record_invalid);
+    try testing.expectEqual(@as(u32, 1), c.c_rail_star_valid);
     try expectEquations(&claims, c);
 }
 
@@ -151,10 +146,7 @@ test "rail stars: decoration and style remain separate from BND-S" {
 
 test "rail stars: unresolved claims are limitations and never false-valid" {
     const members = [_]ledger.RailClaimMember{ outMember(1, 10, 20), outMember(2, null, 21) };
-    var claim = outClaim(1, &members);
-    claim.pivot = null;
-    claim.pi = null;
-    claim.unresolved_members = 1;
+    const claim = outClaim(1, &members);
     const c = audit(&.{claim});
     try testing.expectEqual(@as(u32, 1), c.u_rail_claim_unresolved);
     try testing.expectEqual(@as(u32, 0), c.u_rail_claim_record_invalid);

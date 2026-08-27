@@ -43,19 +43,13 @@ pub fn build(
             }
 
             const owned = try members.toOwnedSlice(a);
-            const pivot_end: ledger.Endpoint = if (f.direction == .out) .source else .target;
             const claim: ledger.RailClaim = .{
                 .id = @intCast(out.items.len + 1),
                 .polarity = if (f.direction == .out) .out else .in,
                 .members = owned,
-                // Fan discovery is the authority for semantic pivot identity.
-                .pivot = f.pivot,
-                .pi = commonPivotSite(owned, pivot_end),
-                .unresolved_members = unresolvedCount(owned),
             };
-            const checked = ledger.checkRailClaim(claim);
-            std.debug.assert(checked.derived_pivot == f.pivot);
-            std.debug.assert(!checked.record.stale_caches);
+            // Fan discovery and member derivation must agree on the pivot.
+            std.debug.assert(ledger.checkRailClaim(claim).derived_pivot == f.pivot);
             try out.append(a, claim);
         }
     }
@@ -151,32 +145,6 @@ fn siteFromPoint(placements: []const sketch.NodePlacement, node: sketch.NodeId, 
     return null;
 }
 
-fn commonPivotSite(members: []const ledger.RailClaimMember, pivot_end: ledger.Endpoint) ?ledger.AttachmentSite {
-    var common: ?ledger.AttachmentSite = null;
-    for (members) |member| {
-        const site = member.site(pivot_end) orelse return null;
-        if (common) |expected| {
-            if (!siteEqual(expected, site)) return null;
-        } else common = site;
-    }
-    return common;
-}
-
-fn unresolvedCount(members: []const ledger.RailClaimMember) u32 {
-    var count: u32 = 0;
-    for (members) |member| {
-        inline for ([2]ledger.Endpoint{ .source, .target }) |end| {
-            const node = member.node(end);
-            const site = member.site(end);
-            if (node == null or site == null or site.?.node != node.?) {
-                count += 1;
-                break;
-            }
-        }
-    }
-    return count;
-}
-
 fn groupSeen(graph: sg.SemGraph, f: fan_mod.Fan, joins: ledger.RealizedJoins, peers: []const fan_mod.FanEdge, lane: u32, seed: sg.Edge) bool {
     for (peers) |peer| {
         if (!peer.shared) continue;
@@ -222,10 +190,6 @@ fn roleMatches(direction: fan_mod.Direction, role: sketch.EdgeRole) bool {
         .out => role == .fan_out_dropper or role == .fan_out_rail,
         .in => role == .fan_in_dropper or role == .fan_in_rail,
     };
-}
-
-fn siteEqual(a: ledger.AttachmentSite, b: ledger.AttachmentSite) bool {
-    return a.node == b.node and a.side == b.side and a.offset == b.offset;
 }
 
 fn mapArrow(arrow: sg.ArrowEnd) sketch.ArrowKind {

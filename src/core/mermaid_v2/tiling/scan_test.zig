@@ -271,7 +271,7 @@ test "scan: rail-star tier reads the lattice, not an unrelated Sketch" {
         .{ .edge = 1, .endpoints = .{ 10, 20 }, .sites = .{ .{ .node = 10, .side = .south, .offset = 1 }, .{ .node = 20, .side = .north, .offset = 1 } }, .arrows = .{ .none, .filled }, .kind = .solid, .pivot_end = .source },
         .{ .edge = 2, .endpoints = .{ 10, 21 }, .sites = .{ .{ .node = 10, .side = .south, .offset = 1 }, .{ .node = 21, .side = .north, .offset = 1 } }, .arrows = .{ .none, .filled }, .kind = .solid, .pivot_end = .source },
     };
-    const claims = [_]ledger.RailClaim{.{ .id = 1, .polarity = .out, .members = &members, .pivot = 10, .pi = .{ .node = 10, .side = .south, .offset = 1 } }};
+    const claims = [_]ledger.RailClaim{.{ .id = 1, .polarity = .out, .members = &members }};
     const lat: lattice.Lattice = .{ .width = 0, .height = 0, .cells = &.{}, .rail_claims = &claims };
     const c = scan.run(testing.allocator, ctxOf(&lat));
     try testing.expectEqual(@as(u32, 1), c.n_rail_claims);

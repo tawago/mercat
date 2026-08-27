@@ -70,10 +70,7 @@ pub fn rebuild(
     }
 
     try appendNative(arena, &out, bridges, paths, bars, placements);
-    for (out.items, 1..) |*claim, id| {
-        claim.id = @intCast(id);
-        refresh(claim);
-    }
+    for (out.items, 1..) |*claim, id| claim.id = @intCast(id);
     return out.toOwnedSlice(arena);
 }
 
@@ -148,23 +145,11 @@ fn appendClaim(
     const members = try arena.dupe(ledger.RailClaimMember, source);
     std.mem.sort(ledger.RailClaimMember, members, {}, memberLess);
     if (sameClaimAlready(out.items, polarity, members)) return;
-    var claim: ledger.RailClaim = .{
+    try out.append(arena, .{
         .id = @intCast(out.items.len + 1),
         .polarity = polarity,
         .members = members,
-    };
-    refresh(&claim);
-    try out.append(arena, claim);
-}
-
-fn refresh(claim: *ledger.RailClaim) void {
-    claim.pivot = null;
-    claim.pi = null;
-    claim.unresolved_members = 0;
-    const checked = ledger.checkRailClaim(claim.*);
-    claim.pivot = checked.derived_pivot;
-    claim.pi = checked.derived_pi;
-    claim.unresolved_members = checked.derived_unresolved_members;
+    });
 }
 
 const NativeKey = struct {
@@ -230,12 +215,11 @@ fn appendNative(
     std.mem.sort(NativeKey, groups.items, {}, nativeLess);
     for (groups.items) |*group| {
         if (group.members.items.len < 2) continue;
-        var candidate: ledger.RailClaim = .{
+        const candidate: ledger.RailClaim = .{
             .id = 1,
             .polarity = group.polarity,
             .members = group.members.items,
         };
-        refresh(&candidate);
         if (!ledger.checkRailClaim(candidate).isValid()) continue;
         if (coveredByClaim(out.items, candidate)) continue;
         try appendClaim(arena, out, group.polarity, group.members.items);
@@ -267,9 +251,11 @@ fn sameClaimAlready(claims: []const ledger.RailClaim, polarity: ledger.RailPolar
 }
 
 fn coveredByClaim(claims: []const ledger.RailClaim, candidate: ledger.RailClaim) bool {
+    const derived = ledger.checkRailClaim(candidate);
     for (claims) |claim| {
-        if (claim.polarity != candidate.polarity or claim.pivot != candidate.pivot or
-            !optionalSiteEqual(claim.pi, candidate.pi)) continue;
+        const prior = ledger.checkRailClaim(claim);
+        if (claim.polarity != candidate.polarity or prior.derived_pivot != derived.derived_pivot or
+            !optionalSiteEqual(prior.derived_pi, derived.derived_pi)) continue;
         for (candidate.members) |member| {
             if (!hasMember(claim.members, member.edge)) break;
         } else return true;

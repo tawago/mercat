@@ -166,8 +166,9 @@ test "an outer fan into sibling subgraphs names its bridges, not the dropped pla
     // no super-node endpoint or placement edge may survive in it.
     var claimed = false;
     for (s.rail_claims) |claim| {
-        if (claim.polarity != .out or claim.pivot != top.id or claim.members.len < 2) continue;
-        if (!ledger.checkRailClaim(claim).isValid()) continue;
+        if (claim.polarity != .out or claim.members.len < 2) continue;
+        const checked = ledger.checkRailClaim(claim);
+        if (checked.derived_pivot != top.id or !checked.isValid()) continue;
         for (claim.members) |member| {
             if (member.node(.source) != top.id) break;
             if (edgeById(s, member.edge) == null) break;

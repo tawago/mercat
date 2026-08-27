@@ -1,8 +1,8 @@
 //! Semantic identity and star-law checks for one realized shared rail.
 //!
 //! A `RailClaim` records the final, render-local semantic facts behind shared
-//! rail ink. Its cached `pivot`, `pi`, and unresolved count are conveniences
-//! for consumers, never authorities: `check` derives all three from members.
+//! rail ink. Members are the single source of truth: `check` derives the
+//! pivot, its attachment site, and the unresolved count from them on demand.
 //! Pure data and pure functions only; imports the canonical primitive module.
 
 const prim = @import("prim");
@@ -89,15 +89,12 @@ pub const RailClaimMember = struct {
     }
 };
 
-/// One render-local semantic claim for shared rail ink. The last three fields
-/// are checked caches. A consumer must call `check`; it must not trust them.
+/// One render-local semantic claim for shared rail ink. Pivot, pivot site,
+/// and resolution state are derived from members by `check`, never stored.
 pub const RailClaim = struct {
     id: RailClaimId,
     polarity: RailPolarity,
     members: []const RailClaimMember,
-    pivot: ?NodeId = null,
-    pi: ?AttachmentSite = null,
-    unresolved_members: u32 = 0,
 };
 
 /// BND-S and attachment-coherence failures. Every field is independent: one
@@ -146,20 +143,14 @@ pub const StyleResult = struct {
     }
 };
 
-/// Envelope and cache failures. `unresolved` is derived from members;
-/// `stale_*` compares that truth and the derived pivot/pi with claim caches.
+/// Envelope failures. `unresolved` is derived from members.
 pub const RecordResult = struct {
     invalid_id: bool = false,
     arity: bool = false,
     unresolved: bool = false,
-    stale_pivot: bool = false,
-    stale_pi: bool = false,
-    stale_unresolved_count: bool = false,
-    stale_caches: bool = false,
 
     pub fn isValid(self: RecordResult) bool {
-        return !self.invalid_id and !self.arity and !self.unresolved and
-            !self.stale_caches;
+        return !self.invalid_id and !self.arity and !self.unresolved;
     }
 };
 
@@ -185,8 +176,8 @@ pub const CheckResult = struct {
     derived_pi: ?AttachmentSite,
     derived_unresolved_members: u32,
 
-    /// Exact validity: identity, arity, resolution, caches, BND-S,
-    /// decoration, and style must all be valid.
+    /// Exact validity: identity, arity, resolution, BND-S, decoration,
+    /// and style must all be valid.
     pub fn isValid(self: CheckResult) bool {
         return !self.partition().any();
     }
@@ -290,11 +281,6 @@ pub fn check(claim: RailClaim) CheckResult {
     }
 
     record.unresolved = unresolved != 0;
-    record.stale_pivot = claim.pivot != derived_pivot;
-    record.stale_pi = !optionalSiteEqual(claim.pi, derived_pi);
-    record.stale_unresolved_count = claim.unresolved_members != unresolved;
-    record.stale_caches = record.stale_pivot or record.stale_pi or
-        record.stale_unresolved_count;
 
     return .{
         .bnd_s = bnd,
@@ -325,11 +311,6 @@ fn sameResolvedPair(a: RailClaimMember, b: RailClaimMember, reversed: bool) bool
     const bf = b.node(.source) orelse return false;
     const bt = b.node(.target) orelse return false;
     return if (reversed) af == bt and at == bf else af == bf and at == bt;
-}
-
-fn optionalSiteEqual(a: ?AttachmentSite, b: ?AttachmentSite) bool {
-    if (a == null or b == null) return a == null and b == null;
-    return siteEqual(a.?, b.?);
 }
 
 fn siteEqual(a: AttachmentSite, b: AttachmentSite) bool {

@@ -36,13 +36,7 @@ fn inMember(edge: u32, leaf: u32, pivot: u32) rs.RailClaimMember {
 }
 
 fn outClaim(members: []const rs.RailClaimMember) rs.RailClaim {
-    return .{
-        .id = 1,
-        .polarity = .out,
-        .members = members,
-        .pivot = 10,
-        .pi = site(10, .south, 2),
-    };
+    return .{ .id = 1, .polarity = .out, .members = members };
 }
 
 test "RailClaim ids are render-local one-based handles with zero sentinel" {
@@ -76,14 +70,11 @@ test "valid fan-in derives its target pivot and shared attachment" {
         inMember(1, 20, 10),
         inMember(2, 21, 10),
     };
-    const claim: rs.RailClaim = .{
-        .id = 1,
-        .polarity = .in,
-        .members = &members,
-        .pivot = 10,
-        .pi = site(10, .north, 2),
-    };
-    try testing.expect(rs.check(claim).isValid());
+    const claim: rs.RailClaim = .{ .id = 1, .polarity = .in, .members = &members };
+    const result = rs.check(claim);
+    try testing.expect(result.isValid());
+    try testing.expectEqual(@as(?u32, 10), result.derived_pivot);
+    try testing.expectEqual(@as(u32, 10), result.derived_pi.?.node);
 }
 
 test "one wrong pivot removes the common real pivot" {
@@ -96,7 +87,7 @@ test "one wrong pivot removes the common real pivot" {
     try testing.expect(result.partition().bnd_s);
 }
 
-test "multiple member pivots cannot be laundered by the pivot cache" {
+test "multiple member pivots derive no pivot at all" {
     const members = [_]rs.RailClaimMember{
         outMember(1, 10, 20),
         outMember(2, 11, 21),
@@ -105,7 +96,6 @@ test "multiple member pivots cannot be laundered by the pivot cache" {
     const result = rs.check(outClaim(&members));
     try testing.expect(result.bnd_s.no_common_real_pivot);
     try testing.expectEqual(@as(?u32, null), result.derived_pivot);
-    try testing.expect(result.record.stale_pivot);
 }
 
 test "wrong recorded pivot end is a polarity failure" {
@@ -202,37 +192,14 @@ test "mixed stroke kinds occupy only the style partition" {
     try testing.expect(!result.partition().decoration);
 }
 
-test "stale pivot pi and unresolved caches are independently visible" {
-    const members = [_]rs.RailClaimMember{
-        outMember(1, 10, 20),
-        outMember(2, 10, 21),
-    };
-    var claim = outClaim(&members);
-    claim.pivot = 99;
-    claim.pi = site(10, .south, 99);
-    claim.unresolved_members = 1;
-    const result = rs.check(claim);
-    try testing.expect(result.record.stale_pivot);
-    try testing.expect(result.record.stale_pi);
-    try testing.expect(result.record.stale_unresolved_count);
-    try testing.expect(result.record.stale_caches);
-    try testing.expect(!result.record.unresolved);
-    try testing.expect(result.partition().record);
-}
-
 test "unresolved members are counted from final endpoints" {
     const members = [_]rs.RailClaimMember{
         outMember(1, 10, 20),
         outMember(2, null, 21),
     };
-    var claim = outClaim(&members);
-    claim.pivot = null;
-    claim.pi = null;
-    claim.unresolved_members = 1;
-    const result = rs.check(claim);
+    const result = rs.check(outClaim(&members));
     try testing.expect(result.record.unresolved);
     try testing.expectEqual(@as(u32, 1), result.derived_unresolved_members);
-    try testing.expect(!result.record.stale_caches);
     try testing.expect(result.bnd_s.no_common_real_pivot);
 }
 
@@ -242,15 +209,12 @@ test "unresolved attachment sites count even when both endpoint nodes exist" {
         outMember(2, 10, 21),
     };
     members[1].sites[1] = null;
-    var claim = outClaim(&members);
-    claim.unresolved_members = 1;
-    const result = rs.check(claim);
+    const result = rs.check(outClaim(&members));
     try testing.expect(result.record.unresolved);
     try testing.expectEqual(@as(u32, 1), result.derived_unresolved_members);
-    try testing.expect(!result.record.stale_caches);
 
     members[1].sites[1] = site(99, .north, 1);
-    const mismatched = rs.check(claim);
+    const mismatched = rs.check(outClaim(&members));
     try testing.expect(mismatched.record.unresolved);
     try testing.expectEqual(@as(u32, 1), mismatched.derived_unresolved_members);
 }

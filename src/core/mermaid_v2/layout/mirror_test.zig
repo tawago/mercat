@@ -76,8 +76,6 @@ test "vertical mirror deeply mirrors RailClaim sites and preserves identity" {
         .id = 7,
         .polarity = .out,
         .members = &members,
-        .pivot = 10,
-        .pi = .{ .node = 10, .side = .east, .offset = 1 },
     }};
     const s: sketch.Sketch = .{
         .bbox = .{ .x = 0, .y = 0, .w = 22, .h = 16 },
@@ -97,14 +95,15 @@ test "vertical mirror deeply mirrors RailClaim sites and preserves identity" {
 
     try testing.expectEqual(@as(ledger.RailClaimId, 7), claim.id);
     try testing.expectEqual(ledger.RailPolarity.out, claim.polarity);
-    try testing.expectEqual(@as(?ledger.NodeId, 10), claim.pivot);
+    const checked = ledger.checkRailClaim(claim);
+    try testing.expectEqual(@as(?ledger.NodeId, 10), checked.derived_pivot);
     try testing.expect(claim.members.ptr != claims[0].members.ptr);
     try testing.expectEqual(@as(ledger.EdgeId, 4), claim.members[0].edge);
     try testing.expectEqualDeep(members[0].endpoints, claim.members[0].endpoints);
-    try testing.expectEqual(sketch.Dir4.east, claim.pi.?.side);
-    try testing.expectEqual(@as(u32, 3), claim.pi.?.offset);
+    try testing.expectEqual(sketch.Dir4.east, checked.derived_pi.?.side);
+    try testing.expectEqual(@as(u32, 3), checked.derived_pi.?.offset);
     try testing.expectEqual(sketch.Dir4.south, claim.members[0].sites[1].?.side);
-    try testing.expect(ledger.checkRailClaim(claim).isValid());
+    try testing.expect(checked.isValid());
 }
 
 test "vertical BT mirror remaps clustered co-set scopes without changing identity" {
