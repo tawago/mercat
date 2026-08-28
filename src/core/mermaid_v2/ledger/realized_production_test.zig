@@ -380,17 +380,17 @@ test "a salvaged trunk is complete against the commitment the layout drew" {
     try std.testing.expectEqual(@as(u32, 0), report.edge_cells_lost);
 }
 
-test "a complete all-to-all draws one rail per shared endpoint, never one run across all of them" {
+test "a complete all-to-all draws one rail per shared endpoint, and the fused run spends one stub per source" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
 
-    // DIRECTED K2,2. The single `├────────┤` rail this used to draw hangs both
-    // X and Y off one run: every source appears connected to every target
-    // through ink no single declaration owns. A,B → X,Y genuinely IS all-to-all,
-    // but the run still speaks for a pivot the graph never states. What
-    // replaces it is the star decomposition: one arrival trunk at X and one at
-    // Y, each carrying only the members that share ITS pivot.
+    // DIRECTED K2,2. The star decomposition stands: one arrival trunk at X
+    // and one at Y, each carrying only the members that share ITS pivot. The
+    // declared set is EXACTLY srcs x tgts with every head one-way at the
+    // target, so the fusion licence lets the two trunks share one rail row —
+    // and each SOURCE spends ONE stub for its whole member set (discharge:
+    // the crossbar asserts every pair, so a second stub adds nothing).
     const directed = try renderPlain(a, "flowchart TD\n  A --> X\n  A --> Y\n  B --> X\n  B --> Y\n", 70);
     try std.testing.expectEqual(@as(usize, 2), directed.joins.selected_joins.len);
     for (directed.joins.selected_joins) |sj| try std.testing.expectEqual(@as(usize, 2), sj.members.len);
@@ -404,10 +404,14 @@ test "a complete all-to-all draws one rail per shared endpoint, never one run ac
         }
         try std.testing.expectEqual(@as(usize, 1), owners);
     }
-    // Two crossbars on two rows: no single row carries a run from the leftmost
-    // column to the rightmost one (that row IS the shared run).
-    var it = std.mem.splitScalar(u8, directed.grid, '\n');
-    while (it.next()) |line| try std.testing.expect(std.mem.indexOf(u8, line, "├────────┤") == null);
+    // The licence is on record, and the ink honours it: one source-border
+    // junction per source node — two `┬` in the whole grid, not one per edge.
+    try std.testing.expectEqual(@as(usize, 1), directed.joins.fused.len);
+    try std.testing.expectEqual(@as(usize, 4), directed.joins.fused[0].len);
+    var stubs: usize = 0;
+    var i: usize = 0;
+    while (std.mem.indexOfPos(u8, directed.grid, i, "┬")) |at| : (i = at + 1) stubs += 1;
+    try std.testing.expectEqual(@as(usize, 2), stubs);
 
     // UNDIRECTED K2,2. Arrow-free ink reads both ways, so a shared run also
     // states A—B. Neither arrival's pair is declared and both arrivals assert
@@ -460,6 +464,15 @@ test "a directed complete bipartite keeps its TD star decomposition on clearing 
         // so the shared row is one channel of record, not a coincidence.
         try std.testing.expectEqual(@as(usize, 1), winner.sketch.joins.fused.len);
         try std.testing.expectEqual(@as(usize, 9), winner.sketch.joins.fused[0].len);
+
+        // And the licence is spent honestly: every trunk's tap at one source
+        // rides the SAME column, so each source drops ONE stub for its three
+        // member edges — the crossbar's completeness recovers the pairs.
+        for (winner.sketch.rails) |bar| for (bar.taps) |tap| {
+            for (winner.sketch.rails) |other| for (other.taps) |t2| {
+                if (t2.node == tap.node) try std.testing.expectEqual(tap.at.x, t2.at.x);
+            };
+        };
 
         // No reach event, no lost ink, and the render fits the budget it was
         // asked for (the defect shipped a clipped render at width 60).

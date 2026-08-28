@@ -142,6 +142,7 @@ pub fn derive(
     reversed_edges: []const pb.EdgeId,
 ) DeriveError![]const DerivedAttachment {
     var out: std.ArrayListUnmanaged(DerivedAttachment) = .empty;
+    var fused_leaves: std.ArrayListUnmanaged(FusedLeaf) = .empty;
     for (graph.edges) |edge| {
         if (edge.from == edge.to) {
             // Self-loop: always two distinct typed terminals (clause 3),
@@ -175,17 +176,33 @@ pub fn derive(
         inline for ([2]pb.EndpointSide{ .source_exit, .target_entry }) |es| {
             const disp = if (membership) |m| (if (es == .source_exit) m.source else m.target) else null;
             // A selected endpoint is covered by its group's one pivot
-            // attachment; the opposite endpoint stays a per-member entry/exit.
+            // attachment; the opposite endpoint stays a per-member entry/exit —
+            // UNLESS a fused union licenses the edge: the union's one crossbar
+            // asserts every declared pair, so its leaf endpoints pool into ONE
+            // shared attachment per (union, node, side) below (discharge —
+            // one ink span witnessing several declared edges).
+            // guarded-by: ports_test.zig "a fused union's leaf node exits through one shared attachment"
             if (!isSelected(disp)) {
-                try out.append(a, .{
-                    .node = if (es == .source_exit) edge.from else edge.to,
-                    .side = if (reversed) reversedSide(direction) else forwardSide(direction, es),
-                    .attachment = .{
-                        .key = try edgeAttachmentKey(graph, edge, es),
-                        .edge = edge.id,
-                        .group = independentGroup(disp),
-                    },
-                });
+                const n = if (es == .source_exit) edge.from else edge.to;
+                const sd = if (reversed) reversedSide(direction) else forwardSide(direction, es);
+                // A labeled member never pools: the rail path refuses labeled
+                // fan-IN members, so its ink stays a per-edge polyline whose
+                // label must hang off a stub of its own.
+                const poolable = !reversed and (edge.label == null or edge.label.?.len == 0);
+                const fused_u = if (poolable) fusedUnionIndex(joins.fused, edge.id) else null;
+                if (fused_u) |ui| {
+                    try fused_leaves.append(a, .{ .u = ui, .node = n, .side = sd, .es = es, .edge = edge.id });
+                } else {
+                    try out.append(a, .{
+                        .node = n,
+                        .side = sd,
+                        .attachment = .{
+                            .key = try edgeAttachmentKey(graph, edge, es),
+                            .edge = edge.id,
+                            .group = independentGroup(disp),
+                        },
+                    });
+                }
             }
         }
     }
@@ -218,7 +235,48 @@ pub fn derive(
             },
         });
     }
+    // One shared attachment per (fused union, leaf node, side), keyed by the
+    // smallest member K exactly like a trunk pivot. The member edges' stub is
+    // one ink span; their co-set already speaks for it as one channel.
+    for (fused_leaves.items, 0..) |head, i| {
+        if (seenLeaf(fused_leaves.items[0..i], head)) continue;
+        var best: ?pb.AttachmentKey = null;
+        var best_edge: pb.EdgeId = 0;
+        var members: std.ArrayListUnmanaged(pb.EdgeId) = .empty;
+        for (fused_leaves.items[i..]) |leaf| {
+            if (leaf.u != head.u or leaf.node != head.node or leaf.side != head.side) continue;
+            const edge = edgeById(graph, leaf.edge) orelse return error.InvalidSemGraph;
+            const key = try edgeAttachmentKey(graph, edge, leaf.es);
+            if (best == null or pb.attachmentKeyOrder(key, best.?) == .lt) {
+                best = key;
+                best_edge = leaf.edge;
+            }
+            try members.append(a, leaf.edge);
+        }
+        try out.append(a, .{
+            .node = head.node,
+            .side = head.side,
+            .attachment = .{
+                .class = .trunk_pivot,
+                .key = best orelse return error.InvalidSemGraph,
+                .edge = best_edge,
+                .members = try members.toOwnedSlice(a),
+            },
+        });
+    }
     return try out.toOwnedSlice(a);
+}
+
+const FusedLeaf = struct { u: usize, node: pb.NodeId, side: sk.Dir4, es: pb.EndpointSide, edge: pb.EdgeId };
+
+fn seenLeaf(prior: []const FusedLeaf, head: FusedLeaf) bool {
+    for (prior) |leaf| if (leaf.u == head.u and leaf.node == head.node and leaf.side == head.side) return true;
+    return false;
+}
+
+fn fusedUnionIndex(fused: []const []const pb.EdgeId, edge: pb.EdgeId) ?usize {
+    for (fused, 0..) |u, i| if (containsEdge(u, edge)) return i;
+    return null;
 }
 
 /// Attachments of one (node, side) face, in derived (incidental) order —
