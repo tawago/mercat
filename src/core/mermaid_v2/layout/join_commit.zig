@@ -171,11 +171,15 @@ pub fn buildReported(a: std.mem.Allocator, graph: sg.SemGraph, permits: ?*const 
 }
 
 /// Phase 4 — the two-sided fusion licence. Selected SAME-direction trunks
-/// that share a leaf node form a candidate union; the union is licensed iff
-/// every member edge blocks the leaf-to-leaf trace (one-way head) and the
-/// distinct declared pairs are EXACTLY srcs x tgts with both sides plural —
-/// then the trunks' shared bus asserts only cross pairs the source declares,
-/// and its ink is one channel. Keyed on the plan and the declared edges only.
+/// over ONE AND THE SAME leaf set form a candidate union (a mere shared leaf
+/// would chain two disjoint complete unions into one that refuses); the union
+/// is licensed iff every member edge carries its one-way head at the union's
+/// TARGET side (a head at the source stops a trace only in the direction a
+/// fused bus reads backwards), all members agree on stroke kind and head
+/// glyphs, and the distinct declared pairs are EXACTLY srcs x tgts with both
+/// sides plural — then the trunks' shared bus asserts only cross pairs the
+/// source declares, and its ink is one channel. Keyed on the plan and the
+/// declared edges only.
 /// guarded-by: join_commit_test.zig "a complete bipartite of selected arrivals licenses one fused union"
 fn fusionLicence(a: std.mem.Allocator, graph: sg.SemGraph, groups: []const pb.JoinGroup, selected: []const pb.SelectedJoin) error{OutOfMemory}![]const []const pb.EdgeId {
     const n = selected.len;
@@ -186,7 +190,7 @@ fn fusionLicence(a: std.mem.Allocator, graph: sg.SemGraph, groups: []const pb.Jo
         const dx = directionOf(groups, x.permission_group) orelse continue;
         for (selected[i + 1 ..], i + 1..) |y, j| {
             if (directionOf(groups, y.permission_group) != dx) continue;
-            if (shareLeaf(graph, dx, x.members, y.members)) uniteJoin(parent, i, j);
+            if (leafSetEqual(graph, dx, x.members, y.members)) uniteJoin(parent, i, j);
         }
     }
     var out: std.ArrayListUnmanaged([]const pb.EdgeId) = .empty;
@@ -213,17 +217,21 @@ fn directionOf(groups: []const pb.JoinGroup, id: pb.JoinGroupId) ?pb.JoinDirecti
     return null;
 }
 
-fn shareLeaf(graph: sg.SemGraph, dir: pb.JoinDirection, xs: []const pb.EdgeId, ys: []const pb.EdgeId) bool {
+fn leafSetEqual(graph: sg.SemGraph, dir: pb.JoinDirection, xs: []const pb.EdgeId, ys: []const pb.EdgeId) bool {
+    return leafSubset(graph, dir, xs, ys) and leafSubset(graph, dir, ys, xs);
+}
+
+fn leafSubset(graph: sg.SemGraph, dir: pb.JoinDirection, xs: []const pb.EdgeId, ys: []const pb.EdgeId) bool {
     for (xs) |xi| {
         const x = edgeById(graph, xi) orelse return false;
-        for (ys) |yi| {
+        const lx = if (dir == .in) x.from else x.to;
+        const held = for (ys) |yi| {
             const y = edgeById(graph, yi) orelse return false;
-            const lx = if (dir == .in) x.from else x.to;
-            const ly = if (dir == .in) y.from else y.to;
-            if (lx == ly) return true;
-        }
+            if ((if (dir == .in) y.from else y.to) == lx) break true;
+        } else false;
+        if (!held) return false;
     }
-    return false;
+    return true;
 }
 
 fn unionComplete(a: std.mem.Allocator, graph: sg.SemGraph, members: []const pb.EdgeId) error{OutOfMemory}!bool {
@@ -233,9 +241,17 @@ fn unionComplete(a: std.mem.Allocator, graph: sg.SemGraph, members: []const pb.E
     defer tgts.deinit(a);
     var pairs: std.ArrayListUnmanaged([2]pb.NodeId) = .empty;
     defer pairs.deinit(a);
+    var style: ?u48 = null;
     for (members) |id| {
         const e = edgeById(graph, id) orelse return false;
-        if (e.kind == .invisible or !sg.blocksLeafTrace(e)) return false;
+        if (e.kind == .invisible or !sg.forwardOneWayHead(e)) return false;
+        // Mixed stroke kind or head glyphs would restate a member's
+        // declaration in a foreign style (mirrors realized's per-group gate).
+        const key: u48 = (@as(u48, pb.edgeKindOrdinal(e.kind)) << 8) |
+            (@as(u48, @intFromEnum(e.arrow_from)) << 4) | @intFromEnum(e.arrow_to);
+        if (style) |st| {
+            if (st != key) return false;
+        } else style = key;
         try addUniqueNode(a, &srcs, e.from);
         try addUniqueNode(a, &tgts, e.to);
         var seen = false;

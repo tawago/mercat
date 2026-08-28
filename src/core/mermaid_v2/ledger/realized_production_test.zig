@@ -469,3 +469,59 @@ test "a directed complete bipartite keeps its TD star decomposition on clearing 
         try std.testing.expect(winner.sketch.bbox.w <= width);
     }
 }
+
+test "on the licence's lapse path a trunk's junction still clears foreign taps" {
+    // The licence lapses where the declared set falls short (here S3 --> M3
+    // is absent), so rows separate again — and THE row-order invariant of the
+    // separated regime must still hold: a trunk's stem junction never sits on
+    // a row a foreign trunk's tap still occupies, or the junction becomes a
+    // four-armed glyph two trunks claim (the reach oracle's
+    // `unknown_continuation`) and the whole family is filtered out.
+    const source =
+        \\flowchart TD
+        \\    S1[Order Received] --> M1[Validate Payment]
+        \\    S1 --> M2[Check Inventory]
+        \\    S1 --> M3[Apply Discount]
+        \\    S2[Webhook Triggered] --> M1
+        \\    S2 --> M2
+        \\    S2 --> M3
+        \\    S3[Manual Entry] --> M1
+        \\    S3 --> M2
+        \\
+    ;
+    for ([_]u32{ 90, 120 }) |width| {
+        var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+        defer arena.deinit();
+        const a = arena.allocator();
+        const graph = try parse(a, source);
+        const plan = (try permits.build(a, graph, .joined)).plan;
+        const winner = try select.choose(a, graph, &plan, width, false, false);
+
+        // Non-vacuous: the lapse actually split the rails onto >= 2 rows.
+        try std.testing.expect(winner.sketch.busbars.len >= 2);
+        var rows_differ = false;
+        for (winner.sketch.busbars) |bar| {
+            if (bar.crossbar[0].y != winner.sketch.busbars[0].crossbar[0].y) rows_differ = true;
+        }
+        try std.testing.expect(rows_differ);
+
+        // THE invariant, unchanged from the separated regime: a foreign
+        // trunk's tap crossing my stem column keeps its rail nearer the
+        // sources than my junction.
+        for (winner.sketch.busbars) |bar| {
+            const stem_x = bar.stem[0].x;
+            const junction_y = bar.crossbar[0].y;
+            for (winner.sketch.busbars) |other| {
+                if (other.crossbar[0].y == junction_y) continue;
+                for (other.taps) |tap| {
+                    if (tap.at.x != stem_x) continue;
+                    try std.testing.expect(other.crossbar[0].y < junction_y);
+                }
+            }
+        }
+
+        const keys = try select.nodeKeyTable(a, graph);
+        const report = try reach.validate(a, winner.sketch, keys, .flat);
+        try std.testing.expectEqual(@as(u32, 0), report.counts.ciTotal());
+    }
+}

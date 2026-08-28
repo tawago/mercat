@@ -43,13 +43,22 @@ const rc = @import("../base/rail_closure.zig");
 const rail_law = @import("fan_rail_law.zig");
 
 const Fan = fan_mod.Fan;
-const Edge = struct { from: sg.NodeId, to: sg.NodeId, blocks_leaf_trace: bool };
+const Edge = struct { from: sg.NodeId, to: sg.NodeId, blocks_leaf_trace: bool, style: u16 };
 
 const Pair = struct { lo: sg.NodeId, hi: sg.NodeId };
 
-// The one-way-head trace test lives in sem_graph.blocksLeafTrace, shared
-// with the plan-side fusion licence (`layout/join_commit.zig`).
-const blocksLeafTrace = sg.blocksLeafTrace;
+// The one-way-head-at-target test lives in sem_graph.forwardOneWayHead,
+// shared with the plan-side fusion licence (`layout/join_commit.zig`): a head
+// at the SOURCE end also stops a trace, but in the direction a fused bus
+// would read backwards, so only a forward head qualifies a member.
+const forwardOneWayHead = sg.forwardOneWayHead;
+
+/// Stroke kind + both head glyphs: members of ONE fused run must agree on all
+/// three, or the shared ink restates somebody's declaration in a foreign style.
+fn styleKey(e: sg.Edge) u16 {
+    return (@as(u16, pb.edgeKindOrdinal(e.kind)) << 8) |
+        (@as(u16, @intFromEnum(e.arrow_from)) << 4) | @intFromEnum(e.arrow_to);
+}
 
 const Trunk = struct {
     fan_idx: u32,
@@ -60,6 +69,9 @@ const Trunk = struct {
     /// False for a MODEL-ONLY trunk: every member sits on the pivot column,
     /// so it draws pure verticals and owns no run to lane-separate.
     has_run: bool,
+    /// A fan-OUT whose every peer rides a selected arrival trunk: it stays in
+    /// the MODEL yet draws nothing, so it is never foreign ink to a class.
+    phantom: bool,
 };
 
 fn centerX(comptime G: type, g: G) i32 {
@@ -97,9 +109,12 @@ pub fn assignLanes(
     defer invisible.deinit(a);
     var blocking: std.AutoHashMapUnmanaged(sg.EdgeId, void) = .empty;
     defer blocking.deinit(a);
+    var style_of: std.AutoHashMapUnmanaged(sg.EdgeId, u16) = .empty;
+    defer style_of.deinit(a);
     for (graph.edges) |e| {
         if (e.kind == .invisible or rc.contains(joins.co_realized, e.id)) try invisible.put(a, e.id, {});
-        if (blocksLeafTrace(e)) try blocking.put(a, e.id, {});
+        if (forwardOneWayHead(e)) try blocking.put(a, e.id, {});
+        try style_of.put(a, e.id, styleKey(e));
     }
 
     // A rail model missing ink that still touches a crossbar is not complete.
@@ -156,6 +171,7 @@ pub fn assignLanes(
                     .from = nodeId(lg, f.pivot_idx),
                     .to = nodeId(lg, p.peer_idx),
                     .blocks_leaf_trace = blocking.contains(p.edge_id),
+                    .style = style_of.get(p.edge_id) orelse 0,
                 });
             }
         } else {
@@ -182,6 +198,7 @@ pub fn assignLanes(
                     .from = nodeId(lg, p.peer_idx),
                     .to = nodeId(lg, f.pivot_idx),
                     .blocks_leaf_trace = blocking.contains(p.edge_id),
+                    .style = style_of.get(p.edge_id) orelse 0,
                 });
             }
         }
@@ -196,6 +213,7 @@ pub fn assignLanes(
             .hi = hi,
             .edges = try edges.toOwnedSlice(a),
             .has_run = has_run,
+            .phantom = f.direction == .out and allPeersJoinArrivals(f, joins),
         });
     }
 
@@ -388,30 +406,113 @@ fn laneAssignGroup(
 ) error{OutOfMemory}!void {
     if (!fusionForbidden(a, trunks, members, group, gap_pruned)) return;
 
-    // Lane-pack: pack each trunk's x-span into the innermost lane it fits,
-    // treating overlapping/abutting spans as conflicting (so they land on
-    // distinct rows). `base = 0` — we only want the lane INDEX.
+    // A refused union may still hold complete SUB-unions: trunks of one
+    // direction over one and the same leaf set (two disjoint K2,2s chained by
+    // a shared source refuse as a whole, yet each half is licensable alone).
+    // Such a class keeps ONE shared claim; every other trunk claims alone.
     // Model-only trunks (pure verticals) own no run: they stay lane 0 and
     // take no row of their own.
     var runs: std.ArrayListUnmanaged(u32) = .empty;
     defer runs.deinit(a);
     for (group) |gi| if (trunks[members[gi]].has_run) try runs.append(a, gi);
 
+    const claim_of = try a.alloc(u32, runs.items.len);
+    defer a.free(claim_of);
+    var nclaims: u32 = 0;
+    for (runs.items, 0..) |gi, i| {
+        claim_of[i] = for (runs.items[0..i], 0..) |gj, j| {
+            if (sameFusionClass(trunks, members, fans, gi, gj) and
+                classFusable(a, trunks, members, group, fans, runs.items[0..i], claim_of[0..i], claim_of[j], gap_pruned, gi))
+                break claim_of[j];
+        } else blk: {
+            nclaims += 1;
+            break :blk nclaims - 1;
+        };
+    }
+
+    // Lane-pack: pack each claim's x-span into the innermost lane it fits,
+    // treating overlapping/abutting spans as conflicting (so they land on
+    // distinct rows). `base = 0` — we only want the lane INDEX.
     var min_x: i32 = std.math.maxInt(i32);
     for (runs.items) |gi| min_x = @min(min_x, trunks[members[gi]].lo);
 
-    const demands = try a.alloc(lanes.LaneClaim, runs.items.len);
+    const demands = try a.alloc(lanes.LaneClaim, nclaims);
     defer a.free(demands);
-    for (runs.items, demands) |gi, *d| {
-        const t = trunks[members[gi]];
-        d.* = .{ .lo = @intCast(t.lo - min_x), .hi = @intCast(t.hi - min_x), .base = 0 };
+    for (demands, 0..) |*d, ci| {
+        var lo: i32 = std.math.maxInt(i32);
+        var hi: i32 = std.math.minInt(i32);
+        for (runs.items, claim_of) |gi, c| if (c == ci) {
+            lo = @min(lo, trunks[members[gi]].lo);
+            hi = @max(hi, trunks[members[gi]].hi);
+        };
+        d.* = .{ .lo = @intCast(lo - min_x), .hi = @intCast(hi - min_x), .base = 0 };
     }
     var asg = try lanes.assign(a, demands, 1);
     defer asg.deinit(a);
 
-    for (runs.items, 0..) |gi, k| {
-        fans[trunks[members[gi]].fan_idx].lane = asg.lane_of[k];
+    for (runs.items, claim_of) |gi, c| {
+        fans[trunks[members[gi]].fan_idx].lane = asg.lane_of[c];
     }
+}
+
+/// One direction, one and the same leaf set — the sub-union key.
+fn sameFusionClass(trunks: []const Trunk, members: []const u32, fans: []const Fan, x_gi: u32, y_gi: u32) bool {
+    const x = trunks[members[x_gi]];
+    const y = trunks[members[y_gi]];
+    const dx = fans[x.fan_idx].direction;
+    if (dx != fans[y.fan_idx].direction) return false;
+    return leafSubset(dx, x.edges, y.edges) and leafSubset(dx, y.edges, x.edges);
+}
+
+fn leafSubset(dir: fan_mod.Direction, xs: []const Edge, ys: []const Edge) bool {
+    for (xs) |x| {
+        const leaf = if (dir == .in) x.from else x.to;
+        const held = for (ys) |y| {
+            if ((if (dir == .in) y.from else y.to) == leaf) break true;
+        } else false;
+        if (!held) return false;
+    }
+    return true;
+}
+
+/// Would the claim `ci` STAY complete with `gi` joined? Asked of the same
+/// closure test the whole group failed, over the claim's current trunks + gi —
+/// and of the group's OTHER ink: a foreign trunk incident to a node whose
+/// entry (or, for a departure class, any face) the class's bus serves could
+/// merge with the bus at that node, so a reader would trace pairs the class
+/// never declared. Placement never decides this: the node incidence does.
+fn classFusable(a: std.mem.Allocator, trunks: []const Trunk, members: []const u32, group: []const u32, fans: []const Fan, runs: []const u32, claim_of: []const u32, ci: u32, gap_pruned: bool, gi: u32) bool {
+    var sub: std.ArrayListUnmanaged(u32) = .empty;
+    defer sub.deinit(a);
+    for (runs, claim_of) |gj, c| {
+        if (c == ci) sub.append(a, gj) catch return false;
+    }
+    sub.append(a, gi) catch return false;
+    if (fusionForbidden(a, trunks, members, sub.items, gap_pruned)) return false;
+    return !foreignTouches(a, trunks, members, group, sub.items, fans);
+}
+
+fn foreignTouches(a: std.mem.Allocator, trunks: []const Trunk, members: []const u32, group: []const u32, sub: []const u32, fans: []const Fan) bool {
+    var guarded: std.ArrayListUnmanaged(sg.NodeId) = .empty;
+    defer guarded.deinit(a);
+    const dir = fans[trunks[members[sub[0]]].fan_idx].direction;
+    for (sub) |gi| for (trunks[members[gi]].edges) |e| {
+        // An arrival class's bus serves its pivot ENTRIES; a departure
+        // class's bus serves both its pivot exits and its target entries.
+        addUnique(a, &guarded, e.to) catch return true;
+        if (dir == .out) addUnique(a, &guarded, e.from) catch return true;
+    };
+    for (group) |gi| {
+        var in_sub = false;
+        for (sub) |sj| if (sj == gi) {
+            in_sub = true;
+        };
+        if (in_sub or trunks[members[gi]].phantom) continue;
+        for (trunks[members[gi]].edges) |e| {
+            for (guarded.items) |n| if (e.from == n or e.to == n) return true;
+        }
+    }
+    return false;
 }
 
 fn spansTouch(x: Trunk, y: Trunk) bool {
@@ -452,16 +553,24 @@ fn fusionForbidden(
     var pairs: std.ArrayListUnmanaged(Pair) = .empty;
     defer pairs.deinit(a);
     var any_open_trace = false;
+    var style: ?u16 = null;
+    var style_mixed = false;
     for (group) |gi| {
         for (trunks[members[gi]].edges) |e| {
             addUnique(a, &srcs, e.from) catch return true;
             addUnique(a, &tgts, e.to) catch return true;
             addUniquePair(a, &pairs, e) catch return true;
             if (!e.blocks_leaf_trace) any_open_trace = true;
+            if (style) |st| {
+                if (st != e.style) style_mixed = true;
+            } else style = e.style;
         }
     }
     if (srcs.items.len <= 1 or tgts.items.len <= 1) return false;
     if (any_open_trace) return true;
+    // Mixed stroke kind or head glyphs: one run would restate a member's
+    // declaration in a foreign style, so a two-sided union never fuses mixed.
+    if (style_mixed) return true;
     if (gap_pruned) return true;
     return pairs.items.len != srcs.items.len * tgts.items.len;
 }

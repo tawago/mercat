@@ -408,9 +408,10 @@ test "a complete bipartite of selected arrivals licenses one fused union" {
 }
 
 test "an incomplete bipartite of selected arrivals licenses no fused union" {
-    // The same shape short one declaration (S3 --> M3 absent): the union's
-    // distinct pairs are 8 of 9, so the licence lapses and every trunk keeps
-    // a row of its own.
+    // The same shape short one declaration (S3 --> M3 absent): the whole
+    // union's pairs are 8 of 9, so no all-nine licence exists. The two
+    // arrivals over the SAME leaf set {S1,S2,S3} still form a complete
+    // sub-union of six and fuse alone; M3's short trunk joins nothing.
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
@@ -421,5 +422,54 @@ test "an incomplete bipartite of selected arrivals licenses no fused union" {
     const plan = (try permits.build(a, graph, .joined)).plan;
     const joins = try join_commit.buildReported(a, graph, &plan, &.{}, false, null);
     try std.testing.expect(joins.selected_joins.len >= 2);
+    try std.testing.expectEqual(@as(usize, 1), joins.fused.len);
+    try std.testing.expectEqual(@as(usize, 6), joins.fused[0].len);
+    // No M3-bound edge rides the union.
+    for (joins.fused[0]) |id| {
+        for (graph.edges) |e| if (e.id == id) {
+            try std.testing.expect(e.to != nodeId(graph, "M3"));
+        };
+    }
+}
+
+test "a head at the source end never joins a fused union" {
+    // A --> C; B --> C; A <-- D; B <-- D: the D trunk's heads sit at the
+    // union's SOURCE side, so a fused bus would draw a head-free terminus at
+    // D and a reader could trace an undeclared D-to-C pair along it.
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const graph = try parse(a, "flowchart TD\n  A --> C\n  B --> C\n  A <-- D\n  B <-- D\n");
+    const plan = (try permits.build(a, graph, .joined)).plan;
+    const joins = try join_commit.buildReported(a, graph, &plan, &.{}, false, null);
     try std.testing.expectEqual(@as(usize, 0), joins.fused.len);
+}
+
+test "mixed stroke kinds never join a fused union" {
+    // A --> C; B --> C; A -.-> D; B -.-> D: fusing would restate the dotted
+    // declarations on a solid run (mirrors realized's per-group style gate).
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const graph = try parse(a, "flowchart TD\n  A --> C\n  B --> C\n  A -.-> D\n  B -.-> D\n");
+    const plan = (try permits.build(a, graph, .joined)).plan;
+    const joins = try join_commit.buildReported(a, graph, &plan, &.{}, false, null);
+    try std.testing.expectEqual(@as(usize, 0), joins.fused.len);
+}
+
+test "two disjoint complete unions chained by a shared source each fuse alone" {
+    // {A,B}x{C,D} and {B,E}x{F,G}: a mere shared leaf must not chain them
+    // into one union that refuses — leaf-set EQUALITY partitions them, and
+    // each half licenses its own four-member union.
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const graph = try parse(a,
+        "flowchart TD\n  A --> C\n  A --> D\n  B --> C\n  B --> D\n" ++
+            "  B --> F\n  B --> G\n  E --> F\n  E --> G\n");
+    const plan = (try permits.build(a, graph, .joined)).plan;
+    const joins = try join_commit.buildReported(a, graph, &plan, &.{}, false, null);
+    try std.testing.expectEqual(@as(usize, 2), joins.fused.len);
+    try std.testing.expectEqual(@as(usize, 4), joins.fused[0].len);
+    try std.testing.expectEqual(@as(usize, 4), joins.fused[1].len);
 }

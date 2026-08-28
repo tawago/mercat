@@ -107,14 +107,17 @@ pub fn arrowFree(e: Edge) bool {
     return e.arrow_from == .none and e.arrow_to == .none and !e.stands_for_directed;
 }
 
-/// True iff a leaf-to-leaf trace along a run carrying this edge RUNS AGAINST
-/// AN ARROW (`base/rail_closure.zig`) — a ONE-WAY head. `circle`/`cross` are
-/// direction-invariant and a head at BOTH ends points the trace along, so
-/// neither blocks.
+/// True iff this edge carries its ONE-WAY head at the declared TARGET end
+/// and nothing directional at the source — the member shape a two-sided
+/// fusion may admit: every leaf-to-leaf trace over the fused bus then runs
+/// against a head on the union's one arrow side. A head at the SOURCE end
+/// blocks a trace too, but in the direction a fused bus would read
+/// backwards, so it does not qualify. `circle`/`cross` are
+/// direction-invariant and a head at BOTH ends points the trace along.
 /// guarded-by: fan_lanes_test2.zig "a two-sided group whose heads are direction-invariant still separates"
-pub fn blocksLeafTrace(e: Edge) bool {
+pub fn forwardOneWayHead(e: Edge) bool {
     if (e.stands_for_directed) return true;
-    return directional(e.arrow_from) != directional(e.arrow_to);
+    return directional(e.arrow_to) and !directional(e.arrow_from);
 }
 
 fn directional(end: ArrowEnd) bool {
