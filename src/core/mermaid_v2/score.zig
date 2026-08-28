@@ -1,9 +1,9 @@
 //! score.zig — pure integer candidate score. Evaluates a laid-out `Sketch`
 //! into a deterministic `Score`, ordered lexicographically: T0 fit severity
-//! (width-overflow magnitude, not a count) > TV raster violation count
-//! (crossing rules + arrowhead bases) > T12 composite (RUNG_SCALE[rung]
-//! * t2_legibility + W_INTEGRITY * t1_integrity + raster-defect weights;
-//! integrity is a large cost, not a veto) > T3 height > T4 rung index (total
+//! (width-overflow magnitude, not a count) > T12 composite (RUNG_SCALE[rung]
+//! * t2_legibility + W_INTEGRITY * t1_integrity + raster-defect and
+//! raster-violation weights; integrity is a large cost, not a veto —
+//! only W_RASTER_FAILED is) > T3 height > T4 rung index (total
 //! order, unique argmin). Raw t1/t2 stay on `Score` for the shadow line;
 //! only `lessThan`/`decidingTier` consult the composite. Raster-time
 //! defects arrive via `RasterCounts` — this file stays raster-blind.
@@ -96,17 +96,25 @@ pub const RasterCounts = struct {
     /// Arrowhead-base violations (raster/arrow_base.zig).
     arrow_base: u32 = 0,
     /// 1 when the audit raster itself errored (audit.zig): the candidate's
-    /// violations are unknown, so it must never win the TV tier.
+    /// violations are unknown, so it must never win the composite.
     raster_failed: u32 = 0,
-
-    /// Violation-tier total: every counter here is a rule VIOLATION in the
-    /// shipped raster, compared after T0 fit and before the composite. A
-    /// failed audit dominates any real count.
-    pub fn violations(c: RasterCounts) u64 {
-        return @as(u64, c.raster_failed) * (1 << 40) +
-            c.foreign_junction + c.arrowhead_transit + c.arrow_base;
-    }
 };
+
+/// Composite cost per crossing-rule violation, in 16ths. Lower bound:
+/// dense_multi_cycle_td_8 w60 keeps its transit-free render only above 4096.
+/// Upper bound: microservices_layers_td_16 w60's ruled preference (all-ink
+/// fj=9/at=4/ab=2 over fj=5/at=3/ab=1 with 9 lost cells + 3 interior
+/// crossings) caps 4*fj + at + ab under that pair's integrity+lost slack —
+/// it holds at 8192/8192/4096 and flips by ab=8192.
+pub const W_FOREIGN_JUNCTION: u64 = 8192;
+pub const W_ARROWHEAD_TRANSIT: u64 = 8192;
+/// Floating arrowhead: milder (omitted feed, not fabricated structure);
+/// 8192 breaks the microservices w60 ruling above, 4096 holds it.
+pub const W_ARROW_BASE: u64 = 4096;
+/// Effectively lexicographic: dominates any realistic composite
+/// (~1e8 16ths) by four orders of magnitude; counts are 0/1 so the
+/// worst-case composite stays far below u64 overflow.
+pub const W_RASTER_FAILED: u64 = 1 << 40;
 
 /// Composite cost per raster-DROPPED label, in 16ths; rung-scale-independent (added AFTER the RUNG_SCALE multiply, same tier as W_INTEGRITY). 4096 keeps W_INTEGRITY/label ≈ 5:1 — Sketch-level violations stay dearer. // guarded-by: score_calibration_test.zig "W_LABEL_DROP prices a dropped label + lost cells above the shape_zoo_td_8 legibility margin"
 pub const W_LABEL_DROP: u64 = 4096;
@@ -142,7 +150,6 @@ pub const NATURAL_PREFERENCE_MARGIN: u64 = 128;
 pub fn displacesNatural(challenger: Score, natural: Score) bool {
     if (!challenger.lessThan(natural)) return false;
     if (challenger.t0_fit != natural.t0_fit) return true; // T0-decided: exempt
-    if (challenger.tv_violations != natural.tv_violations) return true; // TV-decided: exempt
     if (challenger.t12_composite == natural.t12_composite) return true; // T3/T4-decided
     return natural.t12_composite - challenger.t12_composite >= NATURAL_PREFERENCE_MARGIN;
 }
@@ -164,21 +171,18 @@ const W_LABEL_WRAPS: u64 = 2;
 // -- Score ---------------------------------------------------------------------
 
 /// Integer score; lower is better. Ordering compares t0_fit, then
-/// tv_violations, then t12_composite, then t3_height, then t4_index. `t1_integrity` and
+/// t12_composite, then t3_height, then t4_index. `t1_integrity` and
 /// `t2_legibility` are the raw pre-weight measurements, kept for the
 /// shadow disagreement line and external diagnostics.
 pub const Score = struct {
-    /// Violation tier: crossing-rule + arrowhead-base violations in the
-    /// shipped raster. Compared AFTER t0_fit — the counters are refusal
-    /// events (interrupted ink), not worse than an overflowing render.
-    tv_violations: u64 = 0,
     t0_fit: u32,
     t1_integrity: u32,
     t2_legibility: u64,
     t3_height: u32,
     t4_index: u32,
     /// RUNG_SCALE[rung]*t2 + W_INTEGRITY*t1 + W_LABEL_DROP*drops +
-    /// W_LABEL_DISPLACED*displaced + W_CELL_LOST*lost.
+    /// W_LABEL_DISPLACED*displaced + W_CELL_LOST*lost + the raster
+    /// violation weights (W_FOREIGN_JUNCTION..W_RASTER_FAILED).
     t12_composite: u64,
     /// Raw raster audit counts, kept for shadow telemetry.
     r_labels_dropped: u32 = 0,
@@ -187,17 +191,15 @@ pub const Score = struct {
     /// Strict "a is better than b".
     pub fn lessThan(a: Score, b: Score) bool {
         if (a.t0_fit != b.t0_fit) return a.t0_fit < b.t0_fit;
-        if (a.tv_violations != b.tv_violations) return a.tv_violations < b.tv_violations;
         if (a.t12_composite != b.t12_composite) return a.t12_composite < b.t12_composite;
         if (a.t3_height != b.t3_height) return a.t3_height < b.t3_height;
         return a.t4_index < b.t4_index;
     }
 
-    /// Name of the first tier at which `a` and `b` differ ("t0", "tv",
-    /// "t12", "t3", "t4"), or "tie" when fully equal. Used by the shadow line.
+    /// Name of the first tier at which `a` and `b` differ ("t0", "t12",
+    /// "t3", "t4"), or "tie" when fully equal. Used by the shadow line.
     pub fn decidingTier(a: Score, b: Score) []const u8 {
         if (a.t0_fit != b.t0_fit) return "t0";
-        if (a.tv_violations != b.tv_violations) return "tv";
         if (a.t12_composite != b.t12_composite) return "t12";
         if (a.t3_height != b.t3_height) return "t3";
         if (a.t4_index != b.t4_index) return "t4";
@@ -237,7 +239,6 @@ pub fn eval(
     if (s.direction != source_direction) scale = @max(scale, switchScale(s.direction));
 
     return .{
-        .tv_violations = raster.violations(),
         .t0_fit = fitSeverity(s),
         .t1_integrity = t1,
         .t2_legibility = t2,
@@ -246,7 +247,11 @@ pub fn eval(
         .t12_composite = scale * t2 + W_INTEGRITY * @as(u64, t1) +
             W_LABEL_DROP * @as(u64, raster.labels_dropped) +
             W_LABEL_DISPLACED * @as(u64, raster.labels_displaced) +
-            W_CELL_LOST * @as(u64, raster.edge_cells_lost),
+            W_CELL_LOST * @as(u64, raster.edge_cells_lost) +
+            W_FOREIGN_JUNCTION * @as(u64, raster.foreign_junction) +
+            W_ARROWHEAD_TRANSIT * @as(u64, raster.arrowhead_transit) +
+            W_ARROW_BASE * @as(u64, raster.arrow_base) +
+            W_RASTER_FAILED * @as(u64, raster.raster_failed),
         .r_labels_dropped = raster.labels_dropped,
         .r_edge_cells_lost = raster.edge_cells_lost,
     };

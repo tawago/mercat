@@ -348,32 +348,25 @@ pub fn scoreCandidates(
         }
     }
 
-    // Pass 1: T0 fit severity plus the raster audit (TV violations) — the two
-    // top tiers, compared lexicographically. Audit is skipped for n == 1.
+    // Pass 1: T0 fit severity plus the raster audit for EVERY candidate —
+    // the composite prices the audit's violation counters, so every scored
+    // candidate needs its counts. Audit is skipped for n == 1.
     var t0s: [MAX_CANDIDATES]u32 = undefined;
     var rasters: [MAX_CANDIDATES]score_mod.RasterCounts = undefined;
     var min_t0: u32 = std.math.maxInt(u32);
-    var min_tv: u64 = std.math.maxInt(u64);
     for (candidates, 0..) |cand, i| {
         t0s[i] = score_mod.fitSeverity(cand.sketch);
         rasters[i] = if (n > 1) audit_mod.collect(aa, cand.sketch) else .{};
-        const tv = rasters[i].violations();
-        if (t0s[i] < min_t0 or (t0s[i] == min_t0 and tv < min_tv)) {
-            min_t0 = t0s[i];
-            min_tv = tv;
-        }
+        min_t0 = @min(min_t0, t0s[i]);
     }
 
     // Pass 2: full evaluation (validate + geometry) ONLY for candidates that
-    // can still win ((t0, tv) == min) plus the incumbent. The rest get a
-    // sentinel losing score carrying the TRUE t0 and tv (decided at the
-    // T0/TV tiers, so argmin/anchor are unaffected).
+    // can still win (t0 == min) plus the incumbent. The rest get a sentinel
+    // losing score carrying the TRUE t0 (decided at the T0 tier, so
+    // argmin/anchor are unaffected).
     for (candidates, 0..) |cand, i| {
-        const tv = rasters[i].violations();
-        const beaten = t0s[i] > min_t0 or (t0s[i] == min_t0 and tv > min_tv);
-        if (beaten and (incumbent_idx == null or i != incumbent_idx.?)) {
+        if (t0s[i] > min_t0 and (incumbent_idx == null or i != incumbent_idx.?)) {
             sel.scores[i] = .{
-                .tv_violations = tv,
                 .t0_fit = t0s[i],
                 .t1_integrity = 0,
                 .t2_legibility = 0,
