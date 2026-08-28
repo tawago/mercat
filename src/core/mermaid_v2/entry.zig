@@ -623,6 +623,7 @@ test {
     _ = @import("cluster/stitch_cosets.zig");
     _ = @import("cluster/bridges.zig");
     _ = @import("cluster/bridge_plan.zig");
+    _ = @import("cluster/bridge_trunks.zig");
     _ = @import("cluster/bridge_cosets.zig");
     _ = @import("base/ledger.zig");
     _ = @import("base/ledger_test.zig");

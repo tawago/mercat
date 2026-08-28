@@ -14,7 +14,8 @@
 //!
 //! PURE DATA: Sketch geometry in, Sketch edges out. Imports only std, prim,
 //! sem_graph, sketch, and the cluster-internal tracks.zig / corridors.zig /
-//! bridge_scene.zig.
+//! bridge_scene.zig / bridge_trunks.zig (licensed shared-source trunk
+//! realization, gated on a strict full-scene win).
 
 const std = @import("std");
 const sketch = @import("../sketch.zig");
@@ -22,6 +23,7 @@ const sg = @import("../sem_graph.zig");
 const tracks = @import("tracks.zig");
 const scene = @import("bridge_scene.zig");
 const corridors = @import("corridors.zig");
+const trunks = @import("bridge_trunks.zig");
 
 /// One original edge that crosses a piece boundary. Endpoints are ORIGINAL
 /// SemGraph node ids (resolved to merged placements via `orig_to_merged`).
@@ -179,7 +181,22 @@ pub fn route(
     // dodge can never make the whole diagram worse than not dodging.
     const plain = try buildPaths(arena, pends.items, placements, clusters, obstacles, false);
     const dodged = try buildPaths(arena, pends.items, placements, clusters, obstacles, true);
-    return if (dodged.score * 2 <= plain.score) dodged.paths else plain.paths;
+    const incumbent = if (dodged.score * 2 <= plain.score) dodged else plain;
+
+    // Trunk attempt (bridge_trunks.zig): each licensed shared-source group
+    // jointly moves its shared jog to the least-conflicted rail coordinate,
+    // judged against the scene WITH static edge runs (which the base scene
+    // models as heads only). The trunk set ships only on a STRICT win of the
+    // same full-scene comparison run over both sets — realization stays a
+    // measured choice, never a default.
+    const full = try trunks.withStaticRuns(arena, obstacles, edge_paths);
+    if (try trunks.overrideJogs(arena, pends.items, placements, clusters, full)) {
+        const trunked = try buildPaths(arena, pends.items, placements, clusters, obstacles, false);
+        const t = try trunks.sceneScore(arena, trunked.paths, full, placements, clusters);
+        const inc = try trunks.sceneScore(arena, incumbent.paths, full, placements, clusters);
+        if (t < inc) return trunked.paths;
+    }
+    return incumbent.paths;
 }
 
 const Built = struct { paths: []sketch.EdgePath, score: u64 };
@@ -329,7 +346,7 @@ fn commitScene(
 /// `verticalCorridor`. Pass 2 asks this to know whether a slide of the exit
 /// port could move that end's border crossing at all — the re-route meets
 /// the source frame at its own descent column instead.
-fn rerouted(
+pub fn rerouted(
     arena: std.mem.Allocator,
     p: Pending,
     placements: []const sketch.NodePlacement,
@@ -339,7 +356,7 @@ fn rerouted(
 }
 
 /// One crossing after endpoint/side resolution, before polyline build.
-const Pending = struct {
+pub const Pending = struct {
     cross: Crossing,
     gf: sketch.NodeId,
     gt: sketch.NodeId,

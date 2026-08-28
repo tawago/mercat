@@ -237,3 +237,60 @@ test "bridges: mixed-kind cross-border fans keep a clean scene" {
         try testing.expectEqual(@as(u32, 0), report.crossings.arrowhead_transit_violation);
     }
 }
+
+test "bridges: a licensed cross-border fan records its realized trunk; a mixed fan keeps the refusal" {
+    // O fans across the border into two subgraphs; the crossings leave one
+    // exit port and split cleanly, so the bridge plan flips the group to
+    // SELECTED (one join over the bridge edges) and the scene stays clean.
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const graph = try parse(a,
+        \\graph TD
+        \\    subgraph G1
+        \\        N1[N1]
+        \\    end
+        \\    subgraph G2
+        \\        M1[M1]
+        \\        M2[M2]
+        \\    end
+        \\    X --> N1
+        \\    X --> M1
+        \\    X --> M2
+        \\
+    );
+    const built = try permits.build(a, graph, .joined);
+    const plan = built.plan;
+    const winner = try select.choose(a, graph, &plan, 60, false, false);
+    var realized: usize = 0;
+    for (winner.sketch.joins.selected_joins) |j| {
+        if (j.members.len >= 2) realized += 1;
+    }
+    try testing.expectEqual(@as(usize, 1), realized);
+    const report = try raster.rasterize(a, winner.sketch, .bridge);
+    try testing.expectEqual(@as(u32, 0), report.crossings.foreign_junction_violation);
+    try testing.expectEqual(@as(u32, 0), report.crossings.arrowhead_transit_violation);
+
+    // Mixed decorations at the pivot: the licence refuses, the record names
+    // it, and no join is selected.
+    const mixed = try parse(a,
+        \\graph TD
+        \\    subgraph S
+        \\        A[A]
+        \\        B[B]
+        \\    end
+        \\    Q -.-> A
+        \\    Q --o B
+        \\
+    );
+    const mixed_built = try permits.build(a, mixed, .joined);
+    const mixed_plan = mixed_built.plan;
+    const mixed_winner = try select.choose(a, mixed, &mixed_plan, 60, false, false);
+    try testing.expectEqual(@as(usize, 0), mixed_winner.sketch.joins.selected_joins.len);
+    var refused = false;
+    for (mixed_winner.sketch.joins.memberships) |m| {
+        const d = m.source orelse continue;
+        if (d == .independent and d.independent.reason == .licence_refused) refused = true;
+    }
+    try testing.expect(refused);
+}

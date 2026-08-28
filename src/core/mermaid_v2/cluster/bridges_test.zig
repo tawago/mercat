@@ -362,3 +362,51 @@ test "sceneObstacles derives the pivot and tap head cells the raster stamps" {
     try std.testing.expect(obs.blocks(false, 10, 8, 12)); // undecorated dropper
     try std.testing.expect(!obs.blocks(true, 7, 0, 20)); // free row
 }
+
+test "a licensed shared-source fan moves its whole rail off a static run the scene models as no obstacle" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+
+    // Pivot O fans to B1 (west) and B2 (east); same exit port, one rail.
+    // A STATIC edge runs along the preferred jog row inside only the EAST
+    // member's span. The base scene models static edges as heads only, so
+    // neither the track pass nor the dodge can see the collision; only the
+    // trunk choice (full static runs) moves the rail, and it moves BOTH
+    // members so the rail never splits.
+    const placements = [_]sketch.NodePlacement{
+        .{ .id = 0, .rect = .{ .x = 10, .y = 0, .w = 6, .h = 3 }, .shape = .rect, .lines = &.{"O"}, .cluster_id = null },
+        .{ .id = 1, .rect = .{ .x = 2, .y = 20, .w = 6, .h = 3 }, .shape = .rect, .lines = &.{"B1"}, .cluster_id = null },
+        .{ .id = 2, .rect = .{ .x = 22, .y = 20, .w = 6, .h = 3 }, .shape = .rect, .lines = &.{"B2"}, .cluster_id = null },
+        .{ .id = 3, .rect = .{ .x = 16, .y = 8, .w = 4, .h = 3 }, .shape = .rect, .lines = &.{"P"}, .cluster_id = null },
+    };
+    const orig_to_merged = [_]sketch.NodeId{ 0, 1, 2, 3 };
+    const crossings = [_]Crossing{
+        .{ .id = 0, .from = 0, .to = 1, .kind = .solid, .arrow_from = .none, .arrow_to = .filled, .label = null },
+        .{ .id = 1, .from = 0, .to = 2, .kind = .solid, .arrow_from = .none, .arrow_to = .filled, .label = null },
+    };
+    // Static scene: an arrow-free edge running along row 18 — the shared
+    // preferred jog row (end.y - 2) — east of the pivot column.
+    const static_poly = [_]sketch.Point{ .{ .x = 16, .y = 18 }, .{ .x = 30, .y = 18 } };
+    const statics = [_]sketch.EdgePath{.{
+        .id = 90,
+        .from = 3,
+        .to = 2,
+        .polyline = &static_poly,
+        .port_from = .{ .node = 3, .side = .east, .offset = 1 },
+        .port_to = .{ .node = 2, .side = .east, .offset = 1 },
+        .arrow_from = .none,
+        .arrow_to = .none,
+        .label = null,
+        .kind = .solid,
+    }};
+
+    const edges = try bridges.route(a, &crossings, &placements, &.{}, &.{}, &statics, .TD, &orig_to_merged);
+    try std.testing.expectEqual(@as(usize, 2), edges.len);
+    // Both members share one start and one jog row, and the row is NOT the
+    // head-occupied preferred row 18.
+    try std.testing.expectEqual(edges[0].polyline[0].x, edges[1].polyline[0].x);
+    try std.testing.expectEqual(@as(usize, 4), edges[0].polyline.len);
+    try std.testing.expectEqual(edges[0].polyline[1].y, edges[1].polyline[1].y);
+    try std.testing.expect(edges[0].polyline[1].y != 18);
+}

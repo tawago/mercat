@@ -342,6 +342,9 @@ pub fn stitch(
         try bridge_plan.plan(arena, split_result.crossings, final_bridges, bridge_base)
     else
         ledger.RealizedJoins{};
+    // A realized bridge trunk's sanction also enters the co-set roster, so
+    // the recorded identity (channelAt) agrees with the plan's own answer.
+    for (try ledger.coSetsFromPlan(arena, bridge_joins)) |cs| try co_sets.append(arena, cs);
     const bar_slice = try busbars.toOwnedSlice(arena);
     const authority = try stitch_cosets.finalizeAuthority(
         arena,

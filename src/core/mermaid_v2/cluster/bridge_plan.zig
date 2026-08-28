@@ -3,13 +3,18 @@
 //! candidate exactly like a piece fan; it answers to the same geometry-free
 //! licence tier (base/rail_star.checkLicence, members keyed by ROOT edge
 //! ids), and the decision is RECORDED in the merged plan's memberships:
-//! `licence_refused` when the licence fails, `not_selected` when it holds —
-//! licensed, realization deferred. No bridge group emits a selected join:
-//! `selected_joins` authorizes position-INDEPENDENT shared geometry, and a
-//! bridge fan's legal sharing is only its coincident approach — which the
-//! cell-scoped port-share co-set already sanctions exactly there. (A global
-//! sanction was tried and measured: it merges member-vs-member crossings
-//! away from the approach into junction glyphs a third edge then lands on.)
+//! `licence_refused` when the licence fails, `not_selected` when it holds
+//! but no trunk realized. A licensed EXIT group whose routed geometry IS a
+//! trunk (bridge_trunks.realizedTrunk: shared stem, disjoint tails) flips to
+//! `selected` with one selected join over the members — on that shape the
+//! position-independent authority is inert away from the shared run. Any
+//! other group stays independent: a global sanction was tried and measured —
+//! it merges member-vs-member crossings away from the approach into junction
+//! glyphs a third edge then lands on. Groups span CROSSINGS only: absorbing
+//! a piece edge sharing the pivot is licence-permitted but its committed
+//! geometry starts one column over with its arrowhead on the shared face
+//! (decorations refuse transit even among members), so no trunk containing
+//! it can exist and the honest record is the crossing-only group.
 //! Group ids are bridge-plan-internal (same rule as piece plans crossing the
 //! stitch); membership edge ids are merged-sketch bridge ids. PURE DATA:
 //! crossings + routed paths in, one RealizedJoins fragment out.
@@ -19,6 +24,7 @@ const sketch = @import("../sketch.zig");
 const sg = @import("../sem_graph.zig");
 const ledger = @import("../base/ledger.zig");
 const bridges = @import("bridges.zig");
+const trunks = @import("bridge_trunks.zig");
 
 /// Plan the cross-border bundles over the routed bridges. `routed` are the
 /// final merged-sketch bridge paths (ids already offset by `bridge_base`);
@@ -33,6 +39,8 @@ pub fn plan(
     for (side_of) |*s| s.* = .{ null, null };
 
     var group_id: ledger.JoinGroupId = 0;
+    var next_join: ledger.RealizedJoinId = 0;
+    var selected: std.ArrayListUnmanaged(ledger.SelectedJoin) = .empty;
     for ([2]ledger.JoinDirection{ .out, .in }) |direction| {
         const di: usize = if (direction == .out) 0 else 1;
         const grouped = try arena.alloc(bool, crossings.len);
@@ -50,7 +58,20 @@ pub fn plan(
             if (members.items.len < 2) continue;
 
             const licensed = (try checkGroup(arena, crossings, members.items, direction, pivot)).isValid();
-            for (members.items) |mi| side_of[mi][di] = .{ .independent = .{
+            if (licensed and direction == .out and
+                try realizedOut(arena, crossings, members.items, routed, bridge_base))
+            {
+                const medges = try arena.alloc(ledger.EdgeId, members.items.len);
+                for (members.items, medges) |mi, *e| e.* = crossings[mi].id + bridge_base;
+                try selected.append(arena, .{
+                    .id = next_join,
+                    .proposal = 0,
+                    .permission_group = group_id,
+                    .members = medges,
+                });
+                for (members.items) |mi| side_of[mi][di] = .{ .selected = next_join };
+                next_join += 1;
+            } else for (members.items) |mi| side_of[mi][di] = .{ .independent = .{
                 .permission_group = group_id,
                 .reason = if (licensed) .not_selected else .licence_refused,
             } };
@@ -68,7 +89,28 @@ pub fn plan(
         });
     }
 
-    return .{ .memberships = try memberships.toOwnedSlice(arena) };
+    return .{
+        .selected_joins = try selected.toOwnedSlice(arena),
+        .memberships = try memberships.toOwnedSlice(arena),
+    };
+}
+
+/// A licensed exit group realized a trunk iff EVERY member routed and the
+/// final paths are one trunk (bridge_trunks.realizedTrunk): shared stem,
+/// disjoint tails — the shape on which the sanction is inert away from the
+/// shared run.
+fn realizedOut(
+    arena: std.mem.Allocator,
+    crossings: []const bridges.Crossing,
+    members: []const usize,
+    routed: []const sketch.EdgePath,
+    bridge_base: sketch.EdgeId,
+) error{OutOfMemory}!bool {
+    const paths = try arena.alloc(sketch.EdgePath, members.len);
+    for (members, paths) |mi, *p| {
+        p.* = routedPath(routed, bridge_base, crossings[mi].id) orelse return false;
+    }
+    return trunks.realizedTrunk(arena, paths);
 }
 
 fn pivotOf(c: bridges.Crossing, direction: ledger.JoinDirection) sg.NodeId {
