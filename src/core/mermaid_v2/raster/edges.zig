@@ -18,12 +18,12 @@
 //! `b_frame_bridge`/`b_border_fusion_refused` tallies count the same events
 //! and are cross-checked against the records. No `.tap`: a peer-drawn fan's
 //! branch point is implicit in a polyline corner, and this walk records what
-//! it drew, never what it could infer (see `raster/busbars.zig`).
+//! it drew, never what it could infer (see `raster/rails.zig`).
 //!
 //! The per-cell claim contract (`writeEdgeCell`/`writeArrowCell`/
 //! `writeArrowGuarded`) and the directional primitives live in
 //! `edges_write.zig`, the port strokes and the head slide in
-//! `edges_port.zig` (cap splits); the ones `raster/busbars.zig` and the
+//! `edges_port.zig` (cap splits); the ones `raster/rails.zig` and the
 //! raster tests reach as `edges.<name>` are re-exported below.
 //! (`writeArrowGuarded` has no external caller, so this file uses it
 //! directly as `ew.writeArrowGuarded` rather than re-exporting it.)
@@ -47,7 +47,7 @@ pub const RasterError = error{ OutOfMemory, OutOfBounds, MalformedPolyline };
 
 // Re-exports of the cell-writer + geometry primitives (moved to
 // `edges_write.zig` to keep this file under the 500-line cap). Kept `pub`
-// so `raster/busbars.zig` and the raster tests reach them as `edges.<name>`.
+// so `raster/rails.zig` and the raster tests reach them as `edges.<name>`.
 pub const Move = ew.Move;
 pub const straightMask = ew.straightMask;
 pub const bitMask = ew.bitMask;

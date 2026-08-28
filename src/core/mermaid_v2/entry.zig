@@ -500,16 +500,16 @@ test "cluster unification: two subgraph trunks keep their own members through no
 
     // The second piece merges at a nonzero edge base; a dropped remap would
     // alias its members onto the first piece's ids. Each trunk's member set
-    // must be exactly its own busbar's tap edges, and the two sets disjoint.
+    // must be exactly its own rail's tap edges, and the two sets disjoint.
     const result = try resolveJoinPermits(a, graph);
     const laid_out = try ladder_pkg.run(a, graph, &result.plan, 80);
     const joins = laid_out.sketch.joins.selected_joins;
     try std.testing.expectEqual(@as(usize, 2), joins.len);
-    try std.testing.expectEqual(@as(usize, 2), laid_out.sketch.busbars.len);
+    try std.testing.expectEqual(@as(usize, 2), laid_out.sketch.rails.len);
     for (joins) |j| {
         try std.testing.expectEqual(@as(usize, 2), j.members.len);
         var matched = false;
-        for (laid_out.sketch.busbars) |bb| {
+        for (laid_out.sketch.rails) |bb| {
             if (bb.taps.len != 2) continue;
             const fwd = (bb.taps[0].edge == j.members[0] and bb.taps[1].edge == j.members[1]);
             const rev = (bb.taps[0].edge == j.members[1] and bb.taps[1].edge == j.members[0]);

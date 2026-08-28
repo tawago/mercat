@@ -202,7 +202,7 @@ const CompOrder = struct {
 /// whole-trunk participant (null edge) keys as the empty pair and sorts
 /// first, mirroring `labelOrder`'s null-first rule; every edge-owned unit
 /// is in `declared` by construction (units and declared edges are built
-/// from the same s.edges/s.busbars).
+/// from the same s.edges/s.rails).
 const OwnerKey = struct { from: []const u8, to: []const u8 };
 
 fn ownerKey(declared: []const DeclaredEdge, keys: []const []const u8, edge: ?pb.EdgeId) OwnerKey {

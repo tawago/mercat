@@ -136,9 +136,9 @@ test "computeBbox: a self-loop detour point at the diagram's extreme corner exte
     var edges = [_]sketch.EdgePath{mkEdge(0, 0, 0, null, .forward, &poly)};
     var polylines = [_][]sketch.Point{&poly};
     var clusters_arr = [_]sketch.ClusterFrame{};
-    var busbars = [_]fan_rail.Built{};
+    var rails = [_]fan_rail.Built{};
 
-    const bbox = clusters.computeBbox(&placements, &edges, &clusters_arr, &polylines, &busbars, false, 200);
+    const bbox = clusters.computeBbox(&placements, &edges, &clusters_arr, &polylines, &rails, false, 200);
 
     // The extreme point names inclusive cell (20,10); the exclusive bbox
     // extent must be point+1, i.e. w=21, h=11 -- not w=20,h=10.
@@ -172,9 +172,9 @@ test "computeBbox: back-edge rail label relocation depends on the diagram's full
         var edges = [_]sketch.EdgePath{mkEdge(0, 0, 0, label, .back_edge, &poly_a)};
         var polylines = [_][]sketch.Point{&poly_a};
         var clusters_arr = [_]sketch.ClusterFrame{};
-        var busbars = [_]fan_rail.Built{};
+        var rails = [_]fan_rail.Built{};
 
-        _ = clusters.computeBbox(&placements, &edges, &clusters_arr, &polylines, &busbars, true, max_width);
+        _ = clusters.computeBbox(&placements, &edges, &clusters_arr, &polylines, &rails, true, max_width);
         try testing.expect(edges[0].label_left_of_run);
     }
 
@@ -192,9 +192,9 @@ test "computeBbox: back-edge rail label relocation depends on the diagram's full
         var edges = [_]sketch.EdgePath{mkEdge(0, 0, 0, label, .back_edge, &poly_b)};
         var polylines = [_][]sketch.Point{&poly_b};
         var clusters_arr = [_]sketch.ClusterFrame{};
-        var busbars = [_]fan_rail.Built{};
+        var rails = [_]fan_rail.Built{};
 
-        _ = clusters.computeBbox(&placements, &edges, &clusters_arr, &polylines, &busbars, true, max_width);
+        _ = clusters.computeBbox(&placements, &edges, &clusters_arr, &polylines, &rails, true, max_width);
         try testing.expect(!edges[0].label_left_of_run);
     }
 }
@@ -213,16 +213,16 @@ test "computeBbox: back-edge rail lever leaves the label right when the right pl
     var edges = [_]sketch.EdgePath{mkEdge(0, 0, 0, "ok", .back_edge, &poly)};
     var polylines = [_][]sketch.Point{&poly};
     var clusters_arr = [_]sketch.ClusterFrame{};
-    var busbars = [_]fan_rail.Built{};
+    var rails = [_]fan_rail.Built{};
 
-    _ = clusters.computeBbox(&placements, &edges, &clusters_arr, &polylines, &busbars, true, 200);
+    _ = clusters.computeBbox(&placements, &edges, &clusters_arr, &polylines, &rails, true, 200);
     try testing.expect(!edges[0].label_left_of_run);
 }
 
-// -- claim: bus-bar tap label anchor reservation agrees with the shared
+// -- claim: rail tap label anchor reservation agrees with the shared
 //    Rail.tapLabelSeg + prim.edgeLabelAnchor formula raster/labels uses --
 
-test "computeBbox: bus-bar tap label reservation matches Rail.tapLabelSeg + prim.edgeLabelAnchor" {
+test "computeBbox: rail tap label reservation matches Rail.tapLabelSeg + prim.edgeLabelAnchor" {
     var placements = [_]sketch.NodePlacement{
         .{ .id = 0, .rect = .{ .x = 5, .y = 8, .w = 4, .h = 3 }, .shape = .rect, .lines = &.{}, .cluster_id = null },
         .{ .id = 10, .rect = .{ .x = 12, .y = 8, .w = 4, .h = 3 }, .shape = .rect, .lines = &.{}, .cluster_id = null },
@@ -236,8 +236,8 @@ test "computeBbox: bus-bar tap label reservation matches Rail.tapLabelSeg + prim
     var taps = [_]sketch.Tap{
         .{ .edge = 1, .node = 10, .at = .{ .x = 12, .y = 3 }, .landing = .{ .x = 12, .y = 8 }, .label = "tap label" },
     };
-    var busbars = [_]fan_rail.Built{.{
-        .busbar = .{
+    var rails = [_]fan_rail.Built{.{
+        .rail = .{
             .pivot = 0,
             .stem = &stem,
             .crossbar = .{ .{ .x = 5, .y = 3 }, .{ .x = 20, .y = 3 } },
@@ -248,11 +248,11 @@ test "computeBbox: bus-bar tap label reservation matches Rail.tapLabelSeg + prim
         .taps = &taps,
     }};
 
-    const bbox = clusters.computeBbox(&placements, &edges, &clusters_arr, &polylines, &busbars, false, 200);
+    const bbox = clusters.computeBbox(&placements, &edges, &clusters_arr, &polylines, &rails, false, 200);
 
     // Independently recompute the anchor exactly as raster/labels does:
     // Rail.tapLabelSeg for the segment, then prim.edgeLabelAnchor.
-    const bb = busbars[0].busbar;
+    const bb = rails[0].rail;
     const seg = bb.tapLabelSeg(taps[0]);
     const lbl_w = prim.displayWidth(taps[0].label.?);
     const anchor = prim.edgeLabelAnchor(seg[0].x, seg[0].y, seg[1].x, seg[1].y, lbl_w, .{});
@@ -263,7 +263,7 @@ test "computeBbox: bus-bar tap label reservation matches Rail.tapLabelSeg + prim
     try testing.expect(bbox.h >= @as(u32, @intCast(anchor.y + 1)));
 }
 
-// -- claim: the bus-bar shift pass mutates memory shared by both the
+// -- claim: the rail shift pass mutates memory shared by both the
 //    `Built.taps` view and the embedded `Rail.taps` slice ----------------
 
 test "computeBbox: the shift pass updates both the Built.taps view and the aliased Rail.taps slice" {
@@ -280,8 +280,8 @@ test "computeBbox: the shift pass updates both the Built.taps view and the alias
     var taps = [_]sketch.Tap{
         .{ .edge = 1, .node = 1, .at = .{ .x = -5, .y = -2 }, .landing = .{ .x = -5, .y = 0 } },
     };
-    var busbars = [_]fan_rail.Built{.{
-        .busbar = .{
+    var rails = [_]fan_rail.Built{.{
+        .rail = .{
             .pivot = 0,
             .stem = &stem,
             .crossbar = .{ .{ .x = -5, .y = -2 }, .{ .x = -5, .y = -2 } },
@@ -292,16 +292,16 @@ test "computeBbox: the shift pass updates both the Built.taps view and the alias
         .taps = &taps,
     }};
 
-    const pre_shift_tap_x = busbars[0].busbar.taps[0].at.x;
-    _ = clusters.computeBbox(&placements, &edges, &clusters_arr, &polylines, &busbars, false, 200);
+    const pre_shift_tap_x = rails[0].rail.taps[0].at.x;
+    _ = clusters.computeBbox(&placements, &edges, &clusters_arr, &polylines, &rails, false, 200);
 
     // A shift must actually have happened (min_x was negative).
-    try testing.expect(busbars[0].busbar.taps[0].at.x != pre_shift_tap_x);
+    try testing.expect(rails[0].rail.taps[0].at.x != pre_shift_tap_x);
     // Both views must agree on the post-shift value -- they alias the
     // same backing array (`fan_rail.build` sets `.taps = taps` on both
     // the returned `Built` and the embedded `Rail`).
-    try testing.expectEqual(busbars[0].taps[0].at.x, busbars[0].busbar.taps[0].at.x);
-    try testing.expectEqual(busbars[0].taps[0].at.y, busbars[0].busbar.taps[0].at.y);
+    try testing.expectEqual(rails[0].taps[0].at.x, rails[0].rail.taps[0].at.x);
+    try testing.expectEqual(rails[0].taps[0].at.y, rails[0].rail.taps[0].at.y);
 }
 
 // -- claim: label_left_of_run's threshold is exactly prim.edgeLabelAnchor's
@@ -320,9 +320,9 @@ test "computeBbox: label_left_of_run is false exactly at prim.edgeLabelAnchor's 
     var edges = [_]sketch.EdgePath{mkEdge(0, 0, 0, "x", .back_edge, &poly)};
     var polylines = [_][]sketch.Point{&poly};
     var clusters_arr = [_]sketch.ClusterFrame{};
-    var busbars = [_]fan_rail.Built{};
+    var rails = [_]fan_rail.Built{};
 
-    _ = clusters.computeBbox(&placements, &edges, &clusters_arr, &polylines, &busbars, true, 200);
+    _ = clusters.computeBbox(&placements, &edges, &clusters_arr, &polylines, &rails, true, 200);
 
     const mid_x: i32 = @divTrunc(poly[0].x + poly[1].x, 2);
     const anchor = prim.edgeLabelAnchor(poly[0].x, poly[0].y, poly[1].x, poly[1].y, prim.displayWidth("x"), .{});

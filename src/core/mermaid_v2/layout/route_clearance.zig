@@ -47,10 +47,10 @@ pub fn conflicts(
     return false;
 }
 
-pub fn conflictsRails(a: std.mem.Allocator, polyline: []const sk.Point, busbars: []const sk.Rail) error{OutOfMemory}!bool {
+pub fn conflictsRails(a: std.mem.Allocator, polyline: []const sk.Point, rails: []const sk.Rail) error{OutOfMemory}!bool {
     var candidate = try cells(a, polyline);
     defer candidate.deinit(a);
-    for (busbars) |bb| {
+    for (rails) |bb| {
         if (try conflictsPolyline(a, candidate, bb.stem, bb.pivot_arrow != .none, false)) return true;
         if (try conflictsPolyline(a, candidate, &bb.crossbar, false, false)) return true;
         for (bb.taps) |tap| {
@@ -61,10 +61,10 @@ pub fn conflictsRails(a: std.mem.Allocator, polyline: []const sk.Point, busbars:
     return false;
 }
 
-pub fn conflictsRailArrows(a: std.mem.Allocator, polyline: []const sk.Point, busbars: []const sk.Rail, from: pb.NodeId, to: pb.NodeId) error{OutOfMemory}!bool {
+pub fn conflictsRailArrows(a: std.mem.Allocator, polyline: []const sk.Point, rails: []const sk.Rail, from: pb.NodeId, to: pb.NodeId) error{OutOfMemory}!bool {
     var candidate = try cells(a, polyline);
     defer candidate.deinit(a);
-    for (busbars) |bb| {
+    for (rails) |bb| {
         for (candidate.keys()) |cell| {
             if ((bb.pivot == from or bb.pivot == to) and bb.pivot_arrow != .none and arrowPoint(bb.stem, cell, true, false)) return true;
             for (bb.taps) |tap| {
@@ -77,10 +77,10 @@ pub fn conflictsRailArrows(a: std.mem.Allocator, polyline: []const sk.Point, bus
     return false;
 }
 
-pub fn conflictsRailJunctions(a: std.mem.Allocator, polyline: []const sk.Point, busbars: []const sk.Rail) error{OutOfMemory}!bool {
+pub fn conflictsRailJunctions(a: std.mem.Allocator, polyline: []const sk.Point, rails: []const sk.Rail) error{OutOfMemory}!bool {
     var candidate = try cells(a, polyline);
     defer candidate.deinit(a);
-    for (busbars) |bb| {
+    for (rails) |bb| {
         if (bb.stem.len != 0) {
             const pivot = bb.stem[bb.stem.len - 1];
             if (candidate.contains(.{ .x = pivot.x, .y = pivot.y })) return true;
@@ -175,7 +175,7 @@ pub fn hasIndependent(joins: pb.RealizedJoins) bool {
 /// ACCEPT a route — the exact break condition inlined at those loops. Callers
 /// that MUTATE a polyline after routing (the base-approach GROW in
 /// routing_terminal.zig) use this to re-validate the mutated geometry against
-/// bus-bars and independent-join reservations, reverting to the ungrown route
+/// rails and independent-join reservations, reverting to the ungrown route
 /// on failure. When there are no realized joins the gates do not apply, so it
 /// returns true (the plain non-CI path is unaffected).
 /// guarded-by: routing_terminal_test.zig "satisfyApproach grows a corner-fed len-2 final into a straight base approach"
@@ -185,7 +185,7 @@ pub fn polylineClears(
     kind: sk.EdgeKind,
     polyline: []const sk.Point,
     existing: []const sk.EdgePath,
-    busbars: []const sk.Rail,
+    rails: []const sk.Rail,
     placements: []const sk.NodePlacement,
     edge_ports: anytype,
     joins: pb.RealizedJoins,
@@ -195,8 +195,8 @@ pub fn polylineClears(
     if (joins.memberships.len == 0) return true;
     const indep = hasIndependent(joins);
     return (indep == false or !try blocked(a, edge, kind, polyline, existing, joins, placements, from, to)) and
-        (indep == false or !try conflictsRailJunctions(a, polyline, busbars)) and
-        (indep or !try conflictsRailArrows(a, polyline, busbars, from, to)) and
+        (indep == false or !try conflictsRailJunctions(a, polyline, rails)) and
+        (indep or !try conflictsRailArrows(a, polyline, rails, from, to)) and
         (indep or !try conflictsReservedDepartures(a, edge, polyline, placements, edge_ports, joins));
 }
 

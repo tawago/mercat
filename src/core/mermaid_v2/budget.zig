@@ -197,7 +197,7 @@ pub fn runForced(
 
 /// P2v Step 8 (D-DISPOSITION item 9(b)): lay out the raw `.natural` rung with
 /// trunk realization DISABLED (`LayoutOptions.disable_join_realization`), so
-/// `join_commit` emits an all-independent plan and no fan busbar is realized —
+/// `join_commit` emits an all-independent plan and no fan rail is realized —
 /// the trunk-free CI-filter terminal geometry. Caller marks `terminal_fallback`.
 pub fn runForcedIndependent(
     arena: std.mem.Allocator,

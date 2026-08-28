@@ -10,7 +10,7 @@
 //! arm, is a violation.
 //!
 //! This is a PAINTED post-raster scan over the final `Lattice`: it reads the
-//! neighbour bits already committed by the edge/busbar/reconcile stages, so it
+//! neighbour bits already committed by the edge/rail/reconcile stages, so it
 //! automatically excludes dotted-stroke feeds (they carry the correct axis bits
 //! even though their glyph is `┊`/`╎`) — that removes the python corpus scan's
 //! "class 4" artifact without any glyph table.

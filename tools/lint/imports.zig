@@ -404,14 +404,14 @@ pub const file_allowlists = [_]struct {
         .reason = "aux_test may only import std, prim, sketch, lattice, raster, or the raster siblings whose edge walk, post-walk passes and refusal decisions it pins",
     },
     .{
-        .name = "raster/busbars_test.zig",
-        .allowed = &.{ .sketch, .{ .exact = "../lattice.zig" }, .{ .exact = "busbars.zig" }, .{ .exact = "nodes.zig" }, .{ .exact = "../raster.zig" }, .{ .exact = "busbars_test2.zig" } },
-        .reason = "busbars_test may only import std, prim, sketch, lattice, raster siblings, raster, or busbars_test2",
+        .name = "raster/rails_test.zig",
+        .allowed = &.{ .sketch, .{ .exact = "../lattice.zig" }, .{ .exact = "rails.zig" }, .{ .exact = "nodes.zig" }, .{ .exact = "../raster.zig" }, .{ .exact = "rails_test2.zig" } },
+        .reason = "rails_test may only import std, prim, sketch, lattice, raster siblings, raster, or rails_test2",
     },
     .{
-        .name = "raster/busbars_test2.zig",
-        .allowed = &.{ .sketch, .{ .exact = "../lattice.zig" }, .{ .exact = "../raster.zig" }, .{ .exact = "busbars_test.zig" } },
-        .reason = "busbars_test2 may only import std, prim, sketch, lattice, raster, or busbars_test",
+        .name = "raster/rails_test2.zig",
+        .allowed = &.{ .sketch, .{ .exact = "../lattice.zig" }, .{ .exact = "../raster.zig" }, .{ .exact = "rails_test.zig" } },
+        .reason = "rails_test2 may only import std, prim, sketch, lattice, raster, or rails_test",
     },
     .{
         .name = "tiling/expect.zig",

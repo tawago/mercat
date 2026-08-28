@@ -1,5 +1,5 @@
-//! Bus-bar rasterizer: paints each `sketch.Rail` as one owned trunk (stem
-//! + rail) plus direction-aware per-tap droppers; junction cells get explicit neighbour bits from tap
+//! Rail rasterizer: paints each `sketch.Rail` as one owned trunk (stem
+//! + crossbar) plus direction-aware per-tap droppers; junction cells get explicit neighbour bits from tap
 //! geometry so the painter's mask→glyph table yields `┬`/`┴`/`┼`/`├`.
 //!
 //! Ordering (see raster.zig): runs after nodes, before edges. Cell-claim
@@ -44,7 +44,7 @@ const aux = @import("aux.zig");
 /// `rasterizeRails`. It is what makes this a lookup: the writer already knows
 /// which channel its ink speaks for and does not reconstruct it from a
 /// membership scan. `roster` answers the same question for whoever it MEETS.
-/// guarded-by: busbars_test2.zig "a rail reports licensed or foreign without changing bytes"
+/// guarded-by: rails_test2.zig "a rail reports licensed or foreign without changing bytes"
 const Chan = struct {
     roster: []const ledger.CoSet = &.{},
     channel: ledger.ChannelId = ledger.no_channel,
@@ -65,7 +65,7 @@ const Chan = struct {
 /// is numbered. A failed/refused re-stamp deliberately preserves the old
 /// payload, so neither a nonzero rail name nor a numbered roster is sufficient
 /// without `.complete`; the inverse inconsistency also abstains.
-/// guarded-by: busbars.zig "licenceAt trusts identity only after a complete consistent stamp"
+/// guarded-by: rails.zig "licenceAt trusts identity only after a complete consistent stamp"
 fn licenceAt(lat: *const lattice.Lattice, c: ew.Coord, incoming: u32, chan: Chan) lattice.CarrierKind {
     const held: u32 = switch (lat.atConst(c.x, c.y).occupant) {
         .edge_segment => |seg| seg.edge,
@@ -92,10 +92,10 @@ pub const Report = struct {
     cells_lost: u32 = 0,
 };
 
-/// Rasterize every bus-bar in `s` into `lat`.
+/// Rasterize every rail in `s` into `lat`.
 pub fn rasterizeRails(lat: *lattice.Lattice, s: sketch.Sketch, sink: aux.Sink) Report {
     var report: Report = .{};
-    for (s.busbars) |bb| {
+    for (s.rails) |bb| {
         drawRail(lat, bb, &report, .{
             .roster = s.co_sets,
             .channel = bb.channel,
@@ -115,7 +115,7 @@ fn drawRail(lat: *lattice.Lattice, bb: sketch.Rail, report: *Report, chan: Chan,
     const polarity: lattice.RailPolarity = if (fan_in) .in else .out;
 
     // Rail: every cell carries exactly its inward arm(s), from geometry.
-    // guarded-by: busbars_test.zig "busbar junction bits are explicit: corner, tee, cross"
+    // guarded-by: rails_test.zig "rail junction bits are explicit: corner, tee, cross"
     const x0 = bb.crossbar[0].x;
     const x1 = bb.crossbar[1].x;
     const rail_y = bb.crossbar[0].y;
@@ -135,7 +135,7 @@ fn drawRail(lat: *lattice.Lattice, bb: sketch.Rail, report: *Report, chan: Chan,
     // The port tee is dropped only when that head's TIP FACES the border
     // cell — the redundant-tee case; any other head keeps its tee so the
     // stem still visibly attaches.
-    // guarded-by: busbars_test.zig "a pivot head facing the border leaves it pristine; a detached one tees"
+    // guarded-by: rails_test.zig "a pivot head facing the border leaves it pristine; a detached one tees"
     const pivot_head = pivotHead(bb);
     const pivot_end: edges_r.PortEnd = .{ .head = pivot_head, .role = crossbar_role };
     if (!fan_in) edges_r.drawPortStroke(lat, bb.stem, bb.kind, crossbar_edge, pivot_end, sink);
@@ -185,7 +185,7 @@ fn drawRail(lat: *lattice.Lattice, bb: sketch.Rail, report: *Report, chan: Chan,
         // tee is dropped only when that tip FACES the landing — the same
         // rule the polyline ports obey. A tap whose dropper stops short of
         // the wall, or whose head looks the other way, keeps its tee.
-        // guarded-by: busbars_test.zig "a tap head facing the landing leaves the member border pristine; an undecorated tap tees it"
+        // guarded-by: rails_test.zig "a tap head facing the landing leaves the member border pristine; an undecorated tap tees it"
         const tap_head = tapHead(tap, fan_in);
         const tap_end: edges_r.PortEnd = .{ .head = tap_head, .role = dropper_role };
         if (fan_in) {
@@ -206,7 +206,7 @@ fn drawRail(lat: *lattice.Lattice, bb: sketch.Rail, report: *Report, chan: Chan,
         // shared owner id, and the mask is a merge). A tap with no drop
         // reached `continue` above and files nothing — the record follows
         // the ink, not the Sketch.
-        // guarded-by: busbars_test.zig "a rail files its members on the shared run and a tap at each branch cell"
+        // guarded-by: rails_test.zig "a rail files its members on the shared run and a tap at each branch cell"
         if (inkAt(lat, tap.at)) |c| ew.recordTap(rec, c.x, c.y, tap.edge, polarity);
         var wrote_any = false;
         var cursor = edges_r.step(tap.at, dir);
@@ -289,7 +289,7 @@ fn inkAt(lat: *const lattice.Lattice, p: sketch.Point) ?ew.Coord {
 /// and restating it would put a second, staleable copy of a Cell field on
 /// the side table (lattice.zig's anti-desync law). Droppers are skipped for
 /// the same reason — a dropper carries exactly one member and says so.
-/// guarded-by: busbars_test.zig "a rail files its members on the shared run and a tap at each branch cell"
+/// guarded-by: rails_test.zig "a rail files its members on the shared run and a tap at each branch cell"
 fn recordMembership(
     lat: *const lattice.Lattice,
     bb: sketch.Rail,
@@ -411,5 +411,5 @@ test "licenceAt trusts identity only after a complete consistent stamp" {
 }
 
 test {
-    _ = @import("busbars_test.zig");
+    _ = @import("rails_test.zig");
 }

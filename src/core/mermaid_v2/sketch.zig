@@ -162,7 +162,7 @@ pub const EdgePath = struct {
     label_left_of_run: bool = false,
 };
 
-// -- Bus-bars (first-class fan trunks) ----------------------------------------
+// -- Rails (first-class fan trunks) ------------------------------------------
 
 /// One tap off a fan rail: the branch serving exactly one edge of a
 /// fan. `at` lies ON the crossbar row; `landing` lies on the tap node's
@@ -200,7 +200,7 @@ pub const Rail = struct {
     role: EdgeRole = .fan_out_dropper,
     pivot_arrow: ArrowKind = .none,
 
-    /// Segment a tap's label anchors to (off-column: junction→tap rail stretch; on-column: tap→landing drop); shared by bbox reservation and rasterization. // guarded-by: raster/labels_test.zig "bus-bar tap labels paint at the tapLabelSeg-predicted segment for off-column and on-column taps"
+    /// Segment a tap's label anchors to (off-column: junction→tap crossbar stretch; on-column: tap→landing drop); shared by bbox reservation and rasterization. // guarded-by: raster/labels_test.zig "rail tap labels paint at the tapLabelSeg-predicted segment for off-column and on-column taps"
     pub fn tapLabelSeg(self: Rail, tap: Tap) [2]Point {
         const junction = self.stem[self.stem.len - 1];
         if (tap.at.x != junction.x) {
@@ -264,10 +264,10 @@ pub const Sketch = struct {
     nodes: []const NodePlacement,
     clusters: []const ClusterFrame,
     edges: []const EdgePath,
-    /// First-class fan trunks. Edges represented by a bus-bar tap do NOT
+    /// First-class fan trunks. Edges represented by a rail tap do NOT
     /// appear in `edges`. Defaulted empty so hand-built Sketches (tests)
-    /// and pre-busbar-aware code stay source-compatible.
-    busbars: []const Rail = &.{},
+    /// and pre-rail-aware code stay source-compatible.
+    rails: []const Rail = &.{},
     rail_claims: []const ledger.RailClaim = &.{},
     /// Candidate-local branch realization envelope. // guarded-by: entry.zig "V-D-IR-07: a clustered graph's joins ride piece plans; the root plan stays skipped"
     joins: ledger.RealizedJoins = .{},

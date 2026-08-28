@@ -41,7 +41,7 @@ fn sketchWith(sets: []const ledger.CoSet, bars: []const sketch.Rail) sketch.Sket
         .nodes = &.{},
         .clusters = &.{},
         .edges = &.{},
-        .busbars = bars,
+        .rails = bars,
         .co_sets = sets,
         .diagnostics = &.{},
         .budget = .{ .max_width = 80, .rung = 0 },
@@ -62,8 +62,8 @@ test "a stamped sketch names its rail's channel and its roster alike" {
     try testing.expect(ledger.rosterNumbered(s.co_sets));
     try testing.expectEqual(@as(ledger.ChannelId, 1), s.co_sets[0].channel);
     // The rail rides the set that names its members, so the two agree — which
-    // is what lets the bus-bar writer state a licence without a scan.
-    try testing.expectEqual(@as(ledger.ChannelId, 1), s.busbars[0].channel);
+    // is what lets the rail writer state a licence without a scan.
+    try testing.expectEqual(@as(ledger.ChannelId, 1), s.rails[0].channel);
     try testing.expectEqual(@as(ledger.ChannelId, 1), ledger.channelOf(s.co_sets, 0, null));
     try testing.expectEqual(@as(ledger.ChannelId, 1), ledger.channelOf(s.co_sets, 1, null));
     try testing.expect(ledger.channelsAgree(s.co_sets, 0, 1, null));
@@ -107,11 +107,11 @@ test "a rail off the roster is stamped a channel none of its future merges can e
     sketch_channels.stamp(arena.allocator(), &s);
 
     try testing.expectEqual(@as(ledger.ChannelId, 1), s.co_sets[0].channel);
-    try testing.expectEqual(@as(ledger.ChannelId, 2), s.busbars[0].channel);
+    try testing.expectEqual(@as(ledger.ChannelId, 2), s.rails[0].channel);
     // The roster's one set can never answer with 2 — `numberChannels` only
     // ever mints 1..N over N sets — so no future set on this roster can ever
     // collide with this rail's name.
-    try testing.expect(s.busbars[0].channel != s.co_sets[0].channel);
+    try testing.expect(s.rails[0].channel != s.co_sets[0].channel);
 }
 
 test "a rail no set holds gets a name of its own, past the roster" {
@@ -124,12 +124,12 @@ test "a rail no set holds gets a name of its own, past the roster" {
     defer arena.deinit();
     sketch_channels.stamp(arena.allocator(), &s);
 
-    try testing.expectEqual(@as(ledger.ChannelId, 1), s.busbars[0].channel);
+    try testing.expectEqual(@as(ledger.ChannelId, 1), s.rails[0].channel);
     // Past the roster's end, so it can collide with neither a set's name nor
     // the other rail's — and it is a SHARED name, which the one-edge-wide
     // private band could not express.
-    try testing.expectEqual(@as(ledger.ChannelId, 2), s.busbars[1].channel);
-    try testing.expect(s.busbars[1].channel != s.busbars[0].channel);
+    try testing.expectEqual(@as(ledger.ChannelId, 2), s.rails[1].channel);
+    try testing.expect(s.rails[1].channel != s.rails[0].channel);
 }
 
 test "a port share is too narrow to name a whole rail" {
@@ -145,7 +145,7 @@ test "a port share is too narrow to name a whole rail" {
 
     // The share licenses one cell; the crossbar spans five. Adopting its name
     // would hand the whole run the authority of a share that stops at a port.
-    try testing.expectEqual(@as(ledger.ChannelId, 2), s.busbars[0].channel);
+    try testing.expectEqual(@as(ledger.ChannelId, 2), s.rails[0].channel);
 }
 
 test "different structural channels reject the whole stamp" {
@@ -168,9 +168,9 @@ test "different structural channels reject the whole stamp" {
 
     try testing.expectEqual(sketch.ChannelStampState.rail_invariant, s.channel_stamp_state);
     try testing.expect(s.co_sets.ptr == sets[0..].ptr);
-    try testing.expect(s.busbars.ptr == bars[0..].ptr);
+    try testing.expect(s.rails.ptr == bars[0..].ptr);
     try testing.expectEqualDeep(sets[0..], s.co_sets);
-    try testing.expectEqualDeep(bars[0..], s.busbars);
+    try testing.expectEqualDeep(bars[0..], s.rails);
 }
 
 test "partial structural membership rejects the whole stamp" {
@@ -184,9 +184,9 @@ test "partial structural membership rejects the whole stamp" {
 
     try testing.expectEqual(sketch.ChannelStampState.rail_invariant, s.channel_stamp_state);
     try testing.expect(s.co_sets.ptr == sets[0..].ptr);
-    try testing.expect(s.busbars.ptr == bars[0..].ptr);
+    try testing.expect(s.rails.ptr == bars[0..].ptr);
     try testing.expectEqual(ledger.no_channel, s.co_sets[0].channel);
-    try testing.expectEqual(ledger.no_channel, s.busbars[0].channel);
+    try testing.expectEqual(ledger.no_channel, s.rails[0].channel);
 }
 
 test "a tap in multiple structural sets rejects the whole stamp" {
@@ -203,10 +203,10 @@ test "a tap in multiple structural sets rejects the whole stamp" {
 
     try testing.expectEqual(sketch.ChannelStampState.rail_invariant, s.channel_stamp_state);
     try testing.expect(s.co_sets.ptr == sets[0..].ptr);
-    try testing.expect(s.busbars.ptr == bars[0..].ptr);
+    try testing.expect(s.rails.ptr == bars[0..].ptr);
     try testing.expectEqual(ledger.no_channel, s.co_sets[0].channel);
     try testing.expectEqual(ledger.no_channel, s.co_sets[1].channel);
-    try testing.expectEqual(ledger.no_channel, s.busbars[0].channel);
+    try testing.expectEqual(ledger.no_channel, s.rails[0].channel);
 }
 
 test "stamp is transactional across both allocation failures and success" {
@@ -226,7 +226,7 @@ test "stamp is transactional across both allocation failures and success" {
         const before_sets = sets;
         const before_bars = bars;
         const before_sets_ptr = s.co_sets.ptr;
-        const before_bars_ptr = s.busbars.ptr;
+        const before_bars_ptr = s.rails.ptr;
         var failing = std.testing.FailingAllocator.init(testing.allocator, .{ .fail_index = fail_index });
         sketch_channels.stamp(failing.allocator(), &s);
 
@@ -234,18 +234,18 @@ test "stamp is transactional across both allocation failures and success" {
             try testing.expect(failing.has_induced_failure);
             try testing.expectEqual(sketch.ChannelStampState.out_of_memory, s.channel_stamp_state);
             try testing.expect(s.co_sets.ptr == before_sets_ptr);
-            try testing.expect(s.busbars.ptr == before_bars_ptr);
+            try testing.expect(s.rails.ptr == before_bars_ptr);
             try testing.expectEqualDeep(before_sets[0..], s.co_sets);
-            try testing.expectEqualDeep(before_bars[0..], s.busbars);
+            try testing.expectEqualDeep(before_bars[0..], s.rails);
         } else {
-            defer failing.allocator().free(s.busbars);
+            defer failing.allocator().free(s.rails);
             defer failing.allocator().free(s.co_sets);
             try testing.expect(!failing.has_induced_failure);
             try testing.expectEqual(sketch.ChannelStampState.complete, s.channel_stamp_state);
             try testing.expect(s.co_sets.ptr != before_sets_ptr);
-            try testing.expect(s.busbars.ptr != before_bars_ptr);
+            try testing.expect(s.rails.ptr != before_bars_ptr);
             try testing.expectEqual(@as(ledger.ChannelId, 1), s.co_sets[0].channel);
-            try testing.expectEqual(@as(ledger.ChannelId, 1), s.busbars[0].channel);
+            try testing.expectEqual(@as(ledger.ChannelId, 1), s.rails[0].channel);
         }
     }
 }
@@ -262,7 +262,7 @@ test "a production render reaches the raster with its roster numbered" {
 
     try testing.expectEqual(sketch.ChannelStampState.complete, chosen.sketch.channel_stamp_state);
     try testing.expect(ledger.rosterNumbered(chosen.sketch.co_sets));
-    for (chosen.sketch.busbars) |bb| {
+    for (chosen.sketch.rails) |bb| {
         try testing.expect(bb.channel != ledger.no_channel);
     }
 }

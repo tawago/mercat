@@ -151,7 +151,7 @@ pub fn planLanes(a: std.mem.Allocator, graph: sg.SemGraph, lg: sugiyama.LayeredG
     for (sorted) |edge| {
         // A co-realized leaf-pair edge is drawn by a rail's crossbar, never
         // routed — so it consumes no route lane and reserves no gap row.
-        // Likewise an edge a FUSED union licenses: its whole gap is one bus
+        // Likewise an edge a FUSED union licenses: its whole gap is one rail
         // (`RealizedJoins.fused`), so it owes no per-edge lane row.
         if (edge.kind == .invisible or edge.from == edge.to or !edgeIsIndependent(joins.memberships, edge.id) or
             fusedContains(joins.fused, edge.id) or

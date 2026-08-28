@@ -1,4 +1,4 @@
-//! Edge and bus-bar tap label placement: anchors at the edge's mid-segment,
+//! Edge and rail tap label placement: anchors at the edge's mid-segment,
 //! then falls back through a bounded, deterministic ladder.
 //!
 //! The ladder is a three-pass priority over one fixed candidate order
@@ -93,9 +93,9 @@ pub fn placeEdgeLabel(
     return placeLabelAtSeg(allocator, diags, lat, ep.id, label, seg_pair.a, seg_pair.b, ep.label_left_of_run, ep.polyline, sink);
 }
 
-/// Shared anchored-placement body for edge and bus-bar tap labels.
+/// Shared anchored-placement body for edge and rail tap labels.
 /// `polyline` supplies the fallback segments for the tail of the ladder;
-/// bus-bar taps pass `&.{}` (the tap segment is the only geometry they own).
+/// rail taps pass `&.{}` (the tap segment is the only geometry they own).
 pub fn placeLabelAtSeg(
     allocator: std.mem.Allocator,
     diags: *std.ArrayList(labels.LabelDiagnostic),

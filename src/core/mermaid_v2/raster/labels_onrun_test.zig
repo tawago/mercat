@@ -86,8 +86,8 @@ test "happy path: the label interrupts its own dropper for one row, sandwiched b
     paintTapDropper(&lat, 7);
     const taps = [_]sketch.Tap{theTap(7)};
     var s = emptySketch(12, 9);
-    const busbars = [_]sketch.Rail{theRail(&taps, &stem_pts)};
-    s.busbars = &busbars;
+    const rails = [_]sketch.Rail{theRail(&taps, &stem_pts)};
+    s.rails = &rails;
 
     try testing.expect(onrun.tryOnRunTap(&lat, s, taps[0], "ok", null));
 
@@ -123,8 +123,8 @@ test "the flanks stay ORDINARY full-stroke run cells in the edge's own kind" {
     }
     const taps = [_]sketch.Tap{theTap(7)};
     var s = emptySketch(12, 9);
-    const busbars = [_]sketch.Rail{theRail(&taps, &stem_pts)};
-    s.busbars = &busbars;
+    const rails = [_]sketch.Rail{theRail(&taps, &stem_pts)};
+    s.rails = &rails;
 
     try testing.expect(onrun.tryOnRunTap(&lat, s, taps[0], "ok", null));
 
@@ -156,8 +156,8 @@ test "RULE B: an arrowhead is not a flank, so the head-adjacent row is refused" 
         .{ .edge = 7, .node = 1, .at = .{ .x = 5, .y = 1 }, .landing = .{ .x = 5, .y = 5 }, .label = "ok" },
     };
     var s = emptySketch(12, 9);
-    const busbars = [_]sketch.Rail{theRail(&taps, &stem_pts)};
-    s.busbars = &busbars;
+    const rails = [_]sketch.Rail{theRail(&taps, &stem_pts)};
+    s.rails = &rails;
 
     // Row 3: below-flank is the arrowhead -> refused. Row 2: above-flank is
     // the shared crossbar -> refused. No legal row.
@@ -177,8 +177,8 @@ test "RULE A: a rail/crossbar cell is never interrupted" {
     dropCell(&lat, 5, 3, 7, .fan_out_rail);
     const taps = [_]sketch.Tap{theTap(7)};
     var s = emptySketch(12, 9);
-    const busbars = [_]sketch.Rail{theRail(&taps, &stem_pts)};
-    s.busbars = &busbars;
+    const rails = [_]sketch.Rail{theRail(&taps, &stem_pts)};
+    s.rails = &rails;
 
     // Row 3 refused (rail role); rows 2 and 4 have the poisoned rail cell
     // as a flank (also refused), and row 5 is the arrowhead. No legal row.
@@ -200,8 +200,8 @@ test "RULE A: a cell another tap's drop covers is refused" {
         .{ .edge = 9, .node = 2, .at = .{ .x = 5, .y = 1 }, .landing = .{ .x = 5, .y = 5 } },
     };
     var s = emptySketch(12, 9);
-    const busbars = [_]sketch.Rail{theRail(&taps, &stem_pts)};
-    s.busbars = &busbars;
+    const rails = [_]sketch.Rail{theRail(&taps, &stem_pts)};
+    s.rails = &rails;
 
     try testing.expect(!onrun.tryOnRunTap(&lat, s, taps[0], "ok", null));
     try testing.expectEqual(@as(u21, 0), labelCharAt(lat, 5, 3));
@@ -221,8 +221,8 @@ test "RULE B: a 1-cell private dropper has no legal interruption row" {
         .{ .edge = 7, .node = 1, .at = .{ .x = 5, .y = 1 }, .landing = .{ .x = 5, .y = 4 }, .label = "ok" },
     };
     var s = emptySketch(12, 9);
-    const busbars = [_]sketch.Rail{theRail(&taps, &stem_pts)};
-    s.busbars = &busbars;
+    const rails = [_]sketch.Rail{theRail(&taps, &stem_pts)};
+    s.rails = &rails;
 
     // Row 2: above-flank is the shared crossbar cell (refused as flank).
     // Row 3: an arrowhead, not an interruptible segment. No legal row.
@@ -242,8 +242,8 @@ test "foreign ink beside the span still refuses the on-run candidate" {
     dropCell(&lat, 7, 3, 99, .forward);
     const taps = [_]sketch.Tap{theTap(7)};
     var s = emptySketch(12, 9);
-    const busbars = [_]sketch.Rail{theRail(&taps, &stem_pts)};
-    s.busbars = &busbars;
+    const rails = [_]sketch.Rail{theRail(&taps, &stem_pts)};
+    s.rails = &rails;
 
     // Row 3 refused by isolation; rows 2 and 4 have the foreign ink in their
     // span neighbourhood too; row 5 is the arrowhead. Refused.
@@ -304,8 +304,8 @@ test "determinism: identical inputs place identically" {
     paintTapDropper(&lat2, 7);
     const taps = [_]sketch.Tap{theTap(7)};
     var s = emptySketch(12, 9);
-    const busbars = [_]sketch.Rail{theRail(&taps, &stem_pts)};
-    s.busbars = &busbars;
+    const rails = [_]sketch.Rail{theRail(&taps, &stem_pts)};
+    s.rails = &rails;
 
     try testing.expect(onrun.tryOnRunTap(&lat1, s, taps[0], "ok", null));
     try testing.expect(onrun.tryOnRunTap(&lat2, s, taps[0], "ok", null));

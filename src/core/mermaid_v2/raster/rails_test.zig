@@ -1,4 +1,4 @@
-//! Unit tests for raster/busbars.zig — junction bits must come out of
+//! Unit tests for raster/rails.zig — junction bits must come out of
 //! tap geometry deterministically (the point of Phase 4b slice iv).
 
 const std = @import("std");
@@ -6,18 +6,18 @@ const testing = std.testing;
 const sketch = @import("../sketch.zig");
 const lattice = @import("../lattice.zig");
 const nodes_r = @import("nodes.zig");
-const busbars_r = @import("busbars.zig");
+const rails_r = @import("rails.zig");
 const raster = @import("../raster.zig");
 
 /// Allocate a lattice sized to the sketch bbox, rasterize nodes (so the
-/// pivot border exists for the stem-exit merge), then bus-bars.
-const Raster = struct { lattice: lattice.Lattice, report: busbars_r.Report };
+/// pivot border exists for the stem-exit merge), then rails.
+const Raster = struct { lattice: lattice.Lattice, report: rails_r.Report };
 fn rasterizeForTest(a: std.mem.Allocator, s: sketch.Sketch) !Raster {
     const cells = try a.alloc(lattice.Cell, @as(usize, s.bbox.w) * @as(usize, s.bbox.h));
     for (cells) |*c| c.* = lattice.Cell.empty;
     var lat: lattice.Lattice = .{ .width = s.bbox.w, .height = s.bbox.h, .cells = cells };
     _ = try nodes_r.rasterizeNodes(a, &lat, s);
-    const report = busbars_r.rasterizeRails(&lat, s, null);
+    const report = rails_r.rasterizeRails(&lat, s, null);
     return .{ .lattice = lat, .report = report };
 }
 
@@ -27,7 +27,7 @@ pub fn fanSketch(
     nodes: []sketch.NodePlacement,
     taps: []sketch.Tap,
     stem: []sketch.Point,
-    busbars: []sketch.Rail,
+    rails: []sketch.Rail,
 ) sketch.Sketch {
     nodes[0] = .{ .id = 0, .rect = .{ .x = 10, .y = 0, .w = 5, .h = 3 }, .shape = .rect, .lines = &.{}, .cluster_id = null };
     nodes[1] = .{ .id = 1, .rect = .{ .x = 0, .y = 7, .w = 5, .h = 3 }, .shape = .rect, .lines = &.{}, .cluster_id = null };
@@ -38,7 +38,7 @@ pub fn fanSketch(
     taps[0] = .{ .edge = 0, .node = 1, .at = .{ .x = 2, .y = 5 }, .landing = .{ .x = 2, .y = 7 } };
     taps[1] = .{ .edge = 1, .node = 2, .at = .{ .x = 12, .y = 5 }, .landing = .{ .x = 12, .y = 7 } };
     taps[2] = .{ .edge = 2, .node = 3, .at = .{ .x = 22, .y = 5 }, .landing = .{ .x = 22, .y = 7 } };
-    busbars[0] = .{
+    rails[0] = .{
         .pivot = 0,
         .stem = stem,
         .crossbar = .{ .{ .x = 2, .y = 5 }, .{ .x = 22, .y = 5 } },
@@ -51,13 +51,13 @@ pub fn fanSketch(
         .nodes = nodes,
         .clusters = &.{},
         .edges = &.{},
-        .busbars = busbars,
+        .rails = rails,
         .diagnostics = &.{},
         .budget = .{ .max_width = 80, .rung = 0 },
     };
 }
 
-test "busbar junction bits are explicit: corner, tee, cross" {
+test "rail junction bits are explicit: corner, tee, cross" {
     var arena = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
@@ -65,8 +65,8 @@ test "busbar junction bits are explicit: corner, tee, cross" {
     var nodes: [4]sketch.NodePlacement = undefined;
     var taps: [3]sketch.Tap = undefined;
     var stem: [2]sketch.Point = undefined;
-    var busbars: [1]sketch.Rail = undefined;
-    const s = fanSketch(&nodes, &taps, &stem, &busbars);
+    var rails: [1]sketch.Rail = undefined;
+    const s = fanSketch(&nodes, &taps, &stem, &rails);
 
     const r = try rasterizeForTest(a, s);
 
@@ -130,8 +130,8 @@ test "a rail files its members on the shared run and a tap at each branch cell" 
     var nodes: [4]sketch.NodePlacement = undefined;
     var taps: [3]sketch.Tap = undefined;
     var stem: [2]sketch.Point = undefined;
-    var busbars: [1]sketch.Rail = undefined;
-    const s = fanSketch(&nodes, &taps, &stem, &busbars);
+    var rails: [1]sketch.Rail = undefined;
+    const s = fanSketch(&nodes, &taps, &stem, &rails);
 
     const r = try raster.rasterize(a, s, .bridge);
     const lat = r.lattice;
@@ -186,7 +186,7 @@ test "a rail files its members on the shared run and a tap at each branch cell" 
     }
 }
 
-test "busbar without center tap yields a clean ┴ junction" {
+test "a rail without center tap yields a clean ┴ junction" {
     var arena = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
@@ -200,7 +200,7 @@ test "busbar without center tap yields a clean ┴ junction" {
         .{ .edge = 0, .node = 1, .at = .{ .x = 2, .y = 5 }, .landing = .{ .x = 2, .y = 7 } },
         .{ .edge = 1, .node = 2, .at = .{ .x = 22, .y = 5 }, .landing = .{ .x = 22, .y = 7 } },
     };
-    var busbars = [_]sketch.Rail{.{
+    var rails = [_]sketch.Rail{.{
         .pivot = 0,
         .stem = &stem,
         .crossbar = .{ .{ .x = 2, .y = 5 }, .{ .x = 22, .y = 5 } },
@@ -213,7 +213,7 @@ test "busbar without center tap yields a clean ┴ junction" {
         .nodes = &nodes,
         .clusters = &.{},
         .edges = &.{},
-        .busbars = &busbars,
+        .rails = &rails,
         .diagnostics = &.{},
         .budget = .{ .max_width = 80, .rung = 0 },
     };
@@ -224,7 +224,7 @@ test "busbar without center tap yields a clean ┴ junction" {
     try testing.expectEqual(@as(u4, 0b1011), r.lattice.atConst(12, 5).neighbours.toMask());
 }
 
-test "V-D-TRUNK-10: fan-IN busbar stamps one pivot arrow off the shared run" {
+test "V-D-TRUNK-10: fan-IN rail stamps one pivot arrow off the shared run" {
     var arena = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
@@ -239,7 +239,7 @@ test "V-D-TRUNK-10: fan-IN busbar stamps one pivot arrow off the shared run" {
         .{ .edge = 10, .node = 1, .at = .{ .x = 2, .y = 4 }, .landing = .{ .x = 2, .y = 2 }, .arrow = .none },
         .{ .edge = 11, .node = 2, .at = .{ .x = 22, .y = 4 }, .landing = .{ .x = 22, .y = 2 }, .arrow = .none },
     };
-    var busbars = [_]sketch.Rail{.{
+    var rails = [_]sketch.Rail{.{
         .pivot = 0,
         .stem = &stem,
         .crossbar = .{ .{ .x = 2, .y = 4 }, .{ .x = 22, .y = 4 } },
@@ -254,7 +254,7 @@ test "V-D-TRUNK-10: fan-IN busbar stamps one pivot arrow off the shared run" {
         .nodes = &nodes,
         .clusters = &.{},
         .edges = &.{},
-        .busbars = &busbars,
+        .rails = &rails,
         .diagnostics = &.{},
         .budget = .{ .max_width = 80, .rung = 0 },
     };
@@ -281,15 +281,15 @@ test "V-D-TRUNK-10: fan-IN busbar stamps one pivot arrow off the shared run" {
     try testing.expectEqual(@as(u32, 0), r.report.cells_lost);
 }
 
-test "busbar plus separated edges is byte and report invariant under edge write order" {
+test "a rail plus separated edges is byte and report invariant under edge write order" {
     var arena = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
     var nodes: [4]sketch.NodePlacement = undefined;
     var taps: [3]sketch.Tap = undefined;
     var stem: [2]sketch.Point = undefined;
-    var busbars: [1]sketch.Rail = undefined;
-    var base = fanSketch(&nodes, &taps, &stem, &busbars);
+    var rails: [1]sketch.Rail = undefined;
+    var base = fanSketch(&nodes, &taps, &stem, &rails);
     base.bbox.h = 12;
     const p0 = [_]sketch.Point{ .{ .x = 0, .y = 10 }, .{ .x = 24, .y = 10 } };
     const p1 = [_]sketch.Point{ .{ .x = 0, .y = 11 }, .{ .x = 24, .y = 11 } };
@@ -355,8 +355,8 @@ test "a tap head facing the landing leaves the member border pristine; an undeco
         var nodes: [4]sketch.NodePlacement = undefined;
         var taps: [3]sketch.Tap = undefined;
         var stem: [2]sketch.Point = undefined;
-        var busbars: [1]sketch.Rail = undefined;
-        const s = fanSketch(&nodes, &taps, &stem, &busbars);
+        var rails: [1]sketch.Rail = undefined;
+        const s = fanSketch(&nodes, &taps, &stem, &rails);
         const r = try rasterizeForTest(a, s);
         inline for (.{ 2, 12, 22 }) |x| {
             try testing.expectEqual(plain, r.lattice.atConst(x, 7).neighbours.toMask());
@@ -367,8 +367,8 @@ test "a tap head facing the landing leaves the member border pristine; an undeco
         var nodes: [4]sketch.NodePlacement = undefined;
         var taps: [3]sketch.Tap = undefined;
         var stem: [2]sketch.Point = undefined;
-        var busbars: [1]sketch.Rail = undefined;
-        const s = fanSketch(&nodes, &taps, &stem, &busbars);
+        var rails: [1]sketch.Rail = undefined;
+        const s = fanSketch(&nodes, &taps, &stem, &rails);
         for (&taps) |*t| t.arrow = .none;
         const r = try rasterizeForTest(a, s);
         inline for (.{ 2, 12, 22 }) |x| {
@@ -383,8 +383,8 @@ test "a tap head facing the landing leaves the member border pristine; an undeco
         var nodes: [4]sketch.NodePlacement = undefined;
         var taps: [3]sketch.Tap = undefined;
         var stem: [2]sketch.Point = undefined;
-        var busbars: [1]sketch.Rail = undefined;
-        const s = fanSketch(&nodes, &taps, &stem, &busbars);
+        var rails: [1]sketch.Rail = undefined;
+        const s = fanSketch(&nodes, &taps, &stem, &rails);
         for (nodes[1..]) |*n| n.rect.y = 6;
         for (&taps) |*t| t.landing.y = 6;
         const r = try rasterizeForTest(a, s);
@@ -410,10 +410,10 @@ test "a pivot head facing the border leaves it pristine; a detached one tees" {
         var nodes: [4]sketch.NodePlacement = undefined;
         var taps: [3]sketch.Tap = undefined;
         var stem: [2]sketch.Point = undefined;
-        var busbars: [1]sketch.Rail = undefined;
-        const s = fanSketch(&nodes, &taps, &stem, &busbars);
-        busbars[0].role = .fan_in_dropper;
-        busbars[0].pivot_arrow = if (decorated) .filled else .none;
+        var rails: [1]sketch.Rail = undefined;
+        const s = fanSketch(&nodes, &taps, &stem, &rails);
+        rails[0].role = .fan_in_dropper;
+        rails[0].pivot_arrow = if (decorated) .filled else .none;
         for (&taps) |*t| t.arrow = .none;
         const r = try rasterizeForTest(a, s);
         try testing.expectEqual(
@@ -430,10 +430,10 @@ test "a pivot head facing the border leaves it pristine; a detached one tees" {
         var nodes: [4]sketch.NodePlacement = undefined;
         var taps: [3]sketch.Tap = undefined;
         var stem: [2]sketch.Point = undefined;
-        var busbars: [1]sketch.Rail = undefined;
-        const s = fanSketch(&nodes, &taps, &stem, &busbars);
-        busbars[0].role = .fan_in_dropper;
-        busbars[0].pivot_arrow = .filled;
+        var rails: [1]sketch.Rail = undefined;
+        const s = fanSketch(&nodes, &taps, &stem, &rails);
+        rails[0].role = .fan_in_dropper;
+        rails[0].pivot_arrow = .filled;
         stem[0] = .{ .x = 12, .y = 3 };
         for (&taps) |*t| t.arrow = .none;
         const r = try rasterizeForTest(a, s);
@@ -443,5 +443,5 @@ test "a pivot head facing the border leaves it pristine; a detached one tees" {
 
 test {
     // Split out at the 500-line cap (tools/lint/line_caps.zig).
-    _ = @import("busbars_test2.zig");
+    _ = @import("rails_test2.zig");
 }

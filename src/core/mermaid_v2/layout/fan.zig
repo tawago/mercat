@@ -58,7 +58,7 @@ pub const Fan = struct {
     rows: u32 = 1,
     /// Rail row within its inter-layer gap, 0 = the classic single shared row.
     /// Assigned by `fan_lanes.assignLanes`: a fan whose rail would fuse with a
-    /// neighbouring fan's into a TWO-SIDED bus — one run standing for a pivot
+    /// neighbouring fan's into a TWO-SIDED run — one run standing for a pivot
     /// none of its members shares — is lifted to its own lane so every declared
     /// edge stays traceable. 0 for single-trunk gaps and pure fan-in/out.
     lane: u32 = 0,

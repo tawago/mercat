@@ -109,9 +109,9 @@ pub fn arrowFree(e: Edge) bool {
 
 /// True iff this edge carries its ONE-WAY head at the declared TARGET end
 /// and nothing directional at the source — the member shape a two-sided
-/// fusion may admit: every leaf-to-leaf trace over the fused bus then runs
+/// fusion may admit: every leaf-to-leaf trace over the fused rail then runs
 /// against a head on the union's one arrow side. A head at the SOURCE end
-/// blocks a trace too, but in the direction a fused bus would read
+/// blocks a trace too, but in the direction a fused rail would read
 /// backwards, so it does not qualify. `circle`/`cross` are
 /// direction-invariant and a head at BOTH ends points the trace along.
 /// guarded-by: fan_lanes_test2.zig "a two-sided group whose heads are direction-invariant still separates"

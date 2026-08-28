@@ -64,7 +64,7 @@ fn fanSketch(
         .nodes = nodes,
         .clusters = &.{},
         .edges = edges,
-        .busbars = rails,
+        .rails = rails,
         .diagnostics = &.{},
         .budget = .{ .max_width = 80, .rung = 0 },
     };
@@ -307,7 +307,7 @@ test "fan-IN shared runs keep all four arms" {
     try testing.expectEqual(@as(u4, 0b1111), lat.atConst(1, 2).neighbours.toMask());
 }
 
-test "a first-class rail's own geometry is left to the bus-bar rasterizer" {
+test "a first-class rail's own geometry is left to the rail rasterizer" {
     var buf: [15]lattice.Cell = undefined;
     var lat = blank(&buf);
     lat.at(1, 2).* = fanCell(0, .fan_out_rail, all4);

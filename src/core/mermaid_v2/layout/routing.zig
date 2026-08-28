@@ -65,8 +65,8 @@ pub const EdgesResult = struct {
     /// `sketch.Rail` plus the MUTABLE tap view so `clusters.computeBbox`'s
     /// shift pass can translate rail + tap points in place (stems are
     /// additionally registered in `polylines` for the same reason). layout.zig
-    /// copies the `.busbar` fields out AFTER the shift for the final Sketch.
-    busbars: []fan_rail.Built,
+    /// copies the `.rail` fields out AFTER the shift for the final Sketch.
+    rails: []fan_rail.Built,
     /// Co-channel sets from the live fans (`fan.coSets`), read off the same
     /// peer/lane facts this routing pass just used. Geometry-free, so the
     /// bbox shift pass never touches them. On a flat graph select.zig
@@ -93,11 +93,11 @@ pub fn buildEdgesWithPlan(
     const rail_alloc = try back_edges.allocateBackEdgeRails(a, graph, lg, geom, placements);
     defer a.free(rail_alloc);
 
-    // Bus-bar pre-pass: every ELIGIBLE single-row fan-OUT becomes ONE
+    // Rail pre-pass: every ELIGIBLE single-row fan-OUT becomes ONE
     // sketch.Rail; its member edges are claimed and emit no EdgePath
     // below. Grid fans / fan-IN / mixed-arrow or mixed-kind fans fall
     // through to the per-peer polyline path.
-    var busbars: std.ArrayListUnmanaged(fan_rail.Built) = .empty;
+    var rails: std.ArrayListUnmanaged(fan_rail.Built) = .empty;
     var claimed: std.ArrayListUnmanaged(sg.EdgeId) = .empty;
     // Resolve every eligible fan FIRST: which lane row each trunk should take
     // is a question about the gap, not about the trunk, and only the resolved
@@ -107,7 +107,7 @@ pub fn buildEdgesWithPlan(
     var lane_trunks: std.ArrayListUnmanaged(fan_lane_order.Trunk) = .empty;
     for (fans) |f| {
         const resolved = (try fan_rail.resolve(a, graph.direction, f, graph, placements, joins, allocated_ports)) orelse continue;
-        // Shared-rail lift: same rule as the per-peer path below — any peer descending into a cluster lifts the rail above the frame. // guarded-by: routing_test.zig "bus-bar pre-pass and forced per-peer path lift the same fan-OUT geometry to the same rail row"
+        // Shared-rail lift: same rule as the per-peer path below — any peer descending into a cluster lifts the rail above the frame. // guarded-by: routing_test.zig "rail pre-pass and forced per-peer path lift the same fan-OUT geometry to the same rail row"
         var lift: u32 = 0;
         for (resolved.peers) |p| {
             lift = @max(lift, fanRailLift(graph, p.edge.from, p.edge.to));
@@ -129,14 +129,14 @@ pub fn buildEdgesWithPlan(
     try fan_lane_order.reorder(a, lane_trunks.items);
     for (pending.items, lane_trunks.items) |p, t| {
         const built = try fan_rail.build(a, p.resolved, p.lift, t.lane);
-        // Integrity gate: a bus-bar is straight-only geometry; if any run touches a foreign box, fall back to the per-peer polyline path, which can dodge. // guarded-by: fan_rail_test.zig "fan_rail.blocked rejects a built bus-bar whose tap drop touches a foreign node's box"
+        // Integrity gate: a rail is straight-only geometry; if any run touches a foreign box, fall back to the per-peer polyline path, which can dodge. // guarded-by: fan_rail_test.zig "fan_rail.blocked rejects a built rail whose tap drop touches a foreign node's box"
         if (fan_rail.blocked(built, p.resolved.pivot.id, placements)) continue;
-        try busbars.append(a, built);
+        try rails.append(a, built);
         try polys.append(a, built.stem);
         for (p.fan.peers) |peer| if (peer.shared) try claimed.append(a, peer.edge_id);
     }
-    const bar_views = try a.alloc(sketch.Rail, busbars.items.len);
-    for (busbars.items, bar_views) |bar, *view| view.* = bar.busbar;
+    const bar_views = try a.alloc(sketch.Rail, rails.items.len);
+    for (rails.items, bar_views) |bar, *view| view.* = bar.rail;
 
     var routing_edges: std.ArrayListUnmanaged(sg.Edge) = .empty;
     if (joins.memberships.len == 0) {
@@ -153,7 +153,7 @@ pub fn buildEdgesWithPlan(
         // the relation twice — so it never enters the router at all.
         // guarded-by: routing_test.zig "a co-realized edge is withheld from routing entirely"
         if (rail_closure.contains(joins.co_realized, orig.id)) continue;
-        // Edge owned by a bus-bar: its sole geometry is the trunk + tap.
+        // Edge owned by a rail: its sole geometry is the trunk + tap.
         if (std.mem.indexOfScalar(sg.EdgeId, claimed.items, orig.id) != null) continue;
         // Decision-fan path: if this edge belongs to a detected fan,
         // synthesize the coordinated polyline that shares a rail row
@@ -381,7 +381,7 @@ pub fn buildEdgesWithPlan(
     return .{
         .edges = try out.toOwnedSlice(a),
         .polylines = try polys.toOwnedSlice(a),
-        .busbars = try busbars.toOwnedSlice(a),
+        .rails = try rails.toOwnedSlice(a),
         .co_sets = try fan_mod.coSets(a, fans),
         .rail_claims = rail_claims,
     };

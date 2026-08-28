@@ -50,7 +50,7 @@ fn memberGeom(s: sk.Sketch, edge: pb.EdgeId) MemberGeom {
         .back_edge = e.role == .back_edge,
         .found = true,
     };
-    for (s.busbars) |bb| for (bb.taps) |tap| if (tap.edge == edge) {
+    for (s.rails) |bb| for (bb.taps) |tap| if (tap.edge == edge) {
         // A Rail owns exactly ONE pivot attachment, so the pivot-side
         // decoration is single-valued by construction (D-TRUNK item 5);
         // Tap.arrow is the member-end decoration; pivot_arrow is group-owned.
@@ -125,7 +125,7 @@ pub fn realize(
     }
 
     // Proposal extraction: one JoinProposal per Rail whose tap set lies
-    // inside a JoinPermits group at the busbar's pivot/direction.
+    // inside a JoinPermits group at the rail's pivot/direction.
     const raw_count = try allocator.alloc(u32, groups.len);
     @memset(raw_count, 0);
     var pend: std.ArrayListUnmanaged(Pending) = .empty;
@@ -138,7 +138,7 @@ pub fn realize(
         for (members, ranks) |m, *r| r.* = edgeRank(ms, m) orelse std.math.maxInt(usize);
         try pend.append(allocator, .{ .group = gi, .members = members, .ranks = ranks, .geometry = .{ .edge_path = 0 }, .count = 1 });
     }
-    if (s.joins.selected_joins.len == 0) for (s.busbars, 0..) |bb, bi| {
+    if (s.joins.selected_joins.len == 0) for (s.rails, 0..) |bb, bi| {
         const gi = findGroup(groups, railDirection(bb), bb.pivot) orelse continue;
         var corresponds = bb.taps.len > 0;
         for (bb.taps) |tap| {
@@ -167,7 +167,7 @@ pub fn realize(
             .group = gi,
             .members = members,
             .ranks = ranks,
-            .geometry = .{ .busbar = @intCast(bi) },
+            .geometry = .{ .rail = @intCast(bi) },
             .count = 1,
         });
     };

@@ -52,7 +52,7 @@ test "a nested clustered fan-in loses no RailClaim during either stitch" {
     for (claim.members) |member| {
         var carrier = false;
         for (s.edges) |edge| carrier = carrier or edge.id == member.edge;
-        for (s.busbars) |rail| for (rail.taps) |tap| {
+        for (s.rails) |rail| for (rail.taps) |tap| {
             carrier = carrier or tap.edge == member.edge;
         };
         try std.testing.expect(carrier);
@@ -370,10 +370,10 @@ test "a child rail and cross-border bridge sharing A's final port are licensed" 
         if (edge.from == pivot.id) bridge = edge;
     }
     const final_bridge = bridge orelse return error.BridgeNotRouted;
-    try std.testing.expectEqual(@as(usize, 1), s.busbars.len);
+    try std.testing.expectEqual(@as(usize, 1), s.rails.len);
 
     var licensed = false;
-    for (s.busbars[0].taps) |tap| {
+    for (s.rails[0].taps) |tap| {
         if (ledger.coMembersAt(s.co_sets, tap.edge, final_bridge.id, .{
             .x = final_bridge.polyline[0].x,
             .y = final_bridge.polyline[0].y + 1,

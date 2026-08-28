@@ -51,14 +51,14 @@ fn pathFor(e: sg.Edge) sk.EdgePath {
     };
 }
 
-fn sketchOf(edges: []const sk.EdgePath, busbars: []const sk.Rail) sk.Sketch {
+fn sketchOf(edges: []const sk.EdgePath, rails: []const sk.Rail) sk.Sketch {
     return .{
         .bbox = .{ .x = 0, .y = 0, .w = 10, .h = 10 },
         .direction = .TD,
         .nodes = &.{},
         .clusters = &.{},
         .edges = edges,
-        .busbars = busbars,
+        .rails = rails,
         .diagnostics = &.{},
         .budget = .{ .max_width = 120, .rung = 0 },
     };
@@ -96,7 +96,7 @@ pub fn controlledPlan(
     const gi = jp.groupIndexById(plan.groups, sel_group).?;
     const dir = plan.groups[gi].direction;
     const proposals = try a.alloc(pb.JoinProposal, 1);
-    proposals[0] = .{ .id = 0, .permission_group = sel_group, .members = sel_members, .candidate_geometry = .{ .busbar = 0 } };
+    proposals[0] = .{ .id = 0, .permission_group = sel_group, .members = sel_members, .candidate_geometry = .{ .rail = 0 } };
     const joins = try a.alloc(pb.SelectedJoin, 1);
     joins[0] = .{ .id = 0, .proposal = 0, .permission_group = sel_group, .members = sel_members };
 
@@ -200,7 +200,7 @@ test "V-D-JOIN-SELECT-12: controlled partial-member subset plan validates clean,
     const report = try jpv.validate(a, plan, built.plan, built.proposals);
     try expect(report.valid());
     // The production planner never emits this subset automatically: with
-    // the same subset proposed as a busbar, clause (c) rejects it whole.
+    // the same subset proposed as a rail, clause (c) rejects it whole.
     // guarded-by: realized_test.zig "V-D-JOIN-SELECT-07: partial proposal fails clause (c) first"
 }
 
@@ -216,8 +216,8 @@ test "V-D-DUAL-04 analogue: selecting one dual edge at both endpoint sides is re
     const fi_members = plan.groups[jp.groupIndexById(plan.groups, fi).?].members;
 
     const proposals = try a.alloc(pb.JoinProposal, 2);
-    proposals[0] = .{ .id = 0, .permission_group = fo, .members = fo_members, .candidate_geometry = .{ .busbar = 0 } };
-    proposals[1] = .{ .id = 1, .permission_group = fi, .members = fi_members, .candidate_geometry = .{ .busbar = 1 } };
+    proposals[0] = .{ .id = 0, .permission_group = fo, .members = fo_members, .candidate_geometry = .{ .rail = 0 } };
+    proposals[1] = .{ .id = 1, .permission_group = fi, .members = fi_members, .candidate_geometry = .{ .rail = 1 } };
     const joins = try a.alloc(pb.SelectedJoin, 2);
     joins[0] = .{ .id = 0, .proposal = 0, .permission_group = fo, .members = fo_members };
     joins[1] = .{ .id = 1, .proposal = 1, .permission_group = fi, .members = fi_members };
@@ -281,7 +281,7 @@ test "V-D-TRUNK-08: no automatic partial trunk — a subset proposal is rejected
     try expectEqual(@as(usize, 1), res.plan.rejected_proposals.len);
 }
 
-test "V-D-TRUNK-10: uniform directed fan-in busbar proposal realizes one group-owned join" {
+test "V-D-TRUNK-10: uniform directed fan-in rail proposal realizes one group-owned join" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
@@ -320,7 +320,7 @@ test "every planner output validates clean across the step-4 vector shapes" {
         try expect(report.valid());
     }
 
-    // Busbar-realized fan and partial/multiplicity proposal shapes.
+    // Rail-realized fan and partial/multiplicity proposal shapes.
     var taps: [3]sk.Tap = undefined;
     for (fan5[0..3], &taps) |e, *t| {
         t.* = .{ .edge = e.id, .node = e.to, .at = poly[0], .landing = poly[1], .arrow = .filled };

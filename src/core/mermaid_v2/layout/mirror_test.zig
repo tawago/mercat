@@ -2,7 +2,7 @@
 //! misc grab-bag test file (since dissolved) into mirror.zig's own
 //! sibling, per the mermaid_v2/ test-file convention. Discovered via
 //! mirror.zig's top-level `test { _ = @import("mirror_test.zig"); }` block.
-//! (mirror.zig's own axis-swap/bus-bar/RL tests stay inline in mirror.zig
+//! (mirror.zig's own axis-swap/rail/RL tests stay inline in mirror.zig
 //! itself.)
 
 const std = @import("std");
@@ -50,7 +50,7 @@ test "vertical mirror preserves the label policy" {
         .nodes = &.{},
         .clusters = &.{},
         .edges = &.{},
-        .busbars = &.{},
+        .rails = &.{},
         .diagnostics = &.{},
         .budget = .{ .max_width = 20, .rung = 0 },
         .channel_stamp_state = .rail_invariant,

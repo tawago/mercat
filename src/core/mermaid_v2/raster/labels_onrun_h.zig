@@ -9,12 +9,12 @@
 //!
 //!   RULE A (edge-only) — every interrupted cell must be this edge's own
 //!   PRIVATE horizontal ink: an `edge_segment` carrying this edge's id, a
-//!   non-rail role (never a fan crossbar / bus-bar rail cell), and pure
+//!   non-rail role (never a fan crossbar / rail crossbar cell), and pure
 //!   HORIZONTAL neighbour bits (`e and w`, no `n`/`s` — a corner or a
 //!   junction carries a vertical arm and is refused). The same DOUBLE
 //!   enforcement as the vertical form applies: the occupant role/id test
 //!   above plus a Sketch-geometry sweep (`labels_onrun.coveredByOther`)
-//!   proving no OTHER edge's polyline, bus-bar stem, crossbar or tap drop
+//!   proving no OTHER edge's polyline, rail stem, crossbar or tap drop
 //!   rides any covered cell.
 //!
 //!   RULE B (flanked resumption) — a full-stroke run cell of the SAME

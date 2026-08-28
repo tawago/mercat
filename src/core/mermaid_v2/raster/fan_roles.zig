@@ -15,7 +15,7 @@
 //!   shared run, and it is the same event that files the cell's
 //!   `.rail_member` record, so the role on the grid and the record in the
 //!   side table are two spellings of one observation and cannot drift. A
-//!   first-class rail (`raster/busbars.zig`) needs none of this: it stamps
+//!   first-class rail (`raster/rails.zig`) needs none of this: it stamps
 //!   its own rail role straight from `sketch.Rail` geometry.
 //!
 //!   MASK — `resolveMasks` runs once after the walk (both arms of a
@@ -43,7 +43,7 @@
 //!
 //! SCOPE. `resolveMasks` declines every position a first-class rail owns
 //! (`onRail`): those masks are geometry, written cell by cell by the
-//! bus-bar rasterizer, and re-deciding them here would put a second author
+//! rail rasterizer, and re-deciding them here would put a second author
 //! on one fact.
 //!
 //! Allowed imports: base ledger, `sketch.zig`, `lattice.zig`, raster siblings.
@@ -289,7 +289,7 @@ fn claimHasEdge(claim: ledger.RailClaim, edge_id: u32) bool {
 fn onRail(s: sketch.Sketch, x: u32, y: u32) bool {
     const px: i32 = @intCast(x);
     const py: i32 = @intCast(y);
-    for (s.busbars) |bb| {
+    for (s.rails) |bb| {
         if (py == bb.crossbar[0].y and px >= bb.crossbar[0].x and px <= bb.crossbar[1].x) return true;
         var i: usize = 0;
         while (i + 1 < bb.stem.len) : (i += 1) {

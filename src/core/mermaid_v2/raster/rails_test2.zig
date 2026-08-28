@@ -1,12 +1,12 @@
-//! Split from busbars_test.zig at the 500-line cap (tools/lint/line_caps.zig).
-//! Chained via busbars_test.zig's own `test {}` block.
+//! Split from rails_test.zig at the 500-line cap (tools/lint/line_caps.zig).
+//! Chained via rails_test.zig's own `test {}` block.
 
 const std = @import("std");
 const testing = std.testing;
 const sketch = @import("../sketch.zig");
 const lattice = @import("../lattice.zig");
 const raster = @import("../raster.zig");
-const busbars_test = @import("busbars_test.zig");
+const rails_test = @import("rails_test.zig");
 
 test "a rail reports licensed or foreign without changing bytes" {
     var arena = std.heap.ArenaAllocator.init(testing.allocator);
@@ -29,14 +29,14 @@ test "a rail reports licensed or foreign without changing bytes" {
         var nodes: [4]sketch.NodePlacement = undefined;
         var taps: [3]sketch.Tap = undefined;
         var stem: [2]sketch.Point = undefined;
-        var busbars: [1]sketch.Rail = undefined;
-        var s = busbars_test.fanSketch(&nodes, &taps, &stem, &busbars);
+        var rails: [1]sketch.Rail = undefined;
+        var s = rails_test.fanSketch(&nodes, &taps, &stem, &rails);
         if (want == .merged_licensed) s.co_sets = &mates;
         s.channel_stamp_state = .complete;
 
         const r = try raster.rasterize(a, s, .bridge);
         if (baseline) |cells| try testing.expectEqualSlices(lattice.Cell, cells, r.lattice.cells) else baseline = r.lattice.cells;
-        const records = try busbars_test.recordsAt(a, r.lattice, .carrier, 12, 5);
+        const records = try rails_test.recordsAt(a, r.lattice, .carrier, 12, 5);
         try testing.expectEqual(@as(usize, 1), records.len);
         try testing.expectEqual(@as(u32, 1), records[0].value);
         try testing.expectEqual(@intFromEnum(want), records[0].detail);
@@ -64,14 +64,14 @@ test "every incomplete rail stamp files untested without changing bytes" {
         var nodes: [4]sketch.NodePlacement = undefined;
         var taps: [3]sketch.Tap = undefined;
         var stem: [2]sketch.Point = undefined;
-        var busbars: [1]sketch.Rail = undefined;
-        var s = busbars_test.fanSketch(&nodes, &taps, &stem, &busbars);
+        var rails: [1]sketch.Rail = undefined;
+        var s = rails_test.fanSketch(&nodes, &taps, &stem, &rails);
         s.co_sets = &roster;
         s.channel_stamp_state = state;
 
         const r = try raster.rasterize(a, s, .bridge);
         if (baseline) |cells| try testing.expectEqualSlices(lattice.Cell, cells, r.lattice.cells) else baseline = r.lattice.cells;
-        const records = try busbars_test.recordsAt(a, r.lattice, .carrier, 12, 5);
+        const records = try rails_test.recordsAt(a, r.lattice, .carrier, 12, 5);
         try testing.expectEqual(@as(usize, 1), records.len);
         try testing.expectEqual(
             @intFromEnum(if (state == .complete) lattice.CarrierKind.merged_licensed else .merged_untested),
@@ -111,15 +111,15 @@ test "a rail off the roster reads every merge as foreign" {
     var nodes: [4]sketch.NodePlacement = undefined;
     var taps: [3]sketch.Tap = undefined;
     var stem: [2]sketch.Point = undefined;
-    var busbars: [1]sketch.Rail = undefined;
-    var s = busbars_test.fanSketch(&nodes, &taps, &stem, &busbars);
+    var rails: [1]sketch.Rail = undefined;
+    var s = rails_test.fanSketch(&nodes, &taps, &stem, &rails);
     s.co_sets = &unrelated;
     // The producer mints an off-roster rail channel beyond the roster band.
-    busbars[0].channel = 2;
+    rails[0].channel = 2;
     s.channel_stamp_state = .complete;
 
     const r = try raster.rasterize(a, s, .bridge);
-    const at_junction = try busbars_test.recordsAt(a, r.lattice, .carrier, 12, 5);
+    const at_junction = try rails_test.recordsAt(a, r.lattice, .carrier, 12, 5);
     try testing.expectEqual(@as(usize, 1), at_junction.len);
     try testing.expectEqual(@intFromEnum(lattice.CarrierKind.merged_foreign), at_junction[0].detail);
 }

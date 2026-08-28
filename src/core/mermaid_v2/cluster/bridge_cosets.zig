@@ -188,7 +188,7 @@ fn polarityOf(outer: sketch.Sketch, set: ledger.CoSet) ?ledger.RailPolarity {
 
 fn endpointsOf(s: sketch.Sketch, id: sketch.EdgeId) ?Endpoints {
     for (s.edges) |edge| if (edge.id == id) return .{ .from = edge.from, .to = edge.to };
-    for (s.busbars) |bar| {
+    for (s.rails) |bar| {
         const fan_in = bar.role == .fan_in_dropper or bar.role == .fan_in_rail;
         for (bar.taps) |tap| {
             if (tap.edge != id) continue;

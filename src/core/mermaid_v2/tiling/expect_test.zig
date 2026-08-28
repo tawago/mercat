@@ -260,7 +260,7 @@ test "expect: the census makes sem-to-sketch loss visible without per-edge claim
     try testing.expectEqual(@as(u32, 0), c.defectTotal());
 }
 
-test "expect: a tap keys on its landing, so a bus-bar fan needs no polyline" {
+test "expect: a tap keys on its landing, so a rail fan needs no polyline" {
     var cells: [35]lattice.Cell = undefined;
     for (&cells) |*c| c.* = lattice.Cell.empty;
     const lat = lattice.Lattice{ .width = 5, .height = 7, .cells = &cells };
@@ -282,7 +282,7 @@ test "expect: a tap keys on its landing, so a bus-bar fan needs no polyline" {
         .nodes = &.{},
         .clusters = &.{},
         .edges = &.{},
-        .busbars = &bars,
+        .rails = &bars,
         .diagnostics = &.{},
         .budget = .{ .max_width = 80, .rung = 0 },
     };

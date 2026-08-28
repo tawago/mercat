@@ -57,18 +57,18 @@ fn tapFor(e: sg.Edge) sk.Tap {
     return .{ .edge = e.id, .node = e.to, .at = poly[0], .landing = poly[1], .label = e.label, .arrow = mapArrow(e.arrow_to) };
 }
 
-fn busbarFor(pivot: sg.NodeId, kind: sg.EdgeKind, role: sk.EdgeRole, taps: []const sk.Tap) sk.Rail {
+fn railFor(pivot: sg.NodeId, kind: sg.EdgeKind, role: sk.EdgeRole, taps: []const sk.Tap) sk.Rail {
     return .{ .pivot = pivot, .stem = &poly, .crossbar = .{ poly[0], poly[1] }, .taps = taps, .kind = kind, .role = role };
 }
 
-fn sketchOf(edges: []const sk.EdgePath, busbars: []const sk.Rail) sk.Sketch {
+fn sketchOf(edges: []const sk.EdgePath, rails: []const sk.Rail) sk.Sketch {
     return .{
         .bbox = .{ .x = 0, .y = 0, .w = 10, .h = 10 },
         .direction = .TD,
         .nodes = &.{},
         .clusters = &.{},
         .edges = edges,
-        .busbars = busbars,
+        .rails = rails,
         .diagnostics = &.{},
         .budget = .{ .max_width = 120, .rung = 0 },
     };
@@ -190,7 +190,7 @@ fn edgeRankOf(plan: pb.JoinPermits, e: pb.EdgeId) usize {
 
 // -- Production-path vectors -------------------------------------------------
 
-test "V-D-JOIN-SELECT-01: complete fan-out busbar realizes one selected join with full provenance" {
+test "V-D-JOIN-SELECT-01: complete fan-out rail realizes one selected join with full provenance" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
@@ -255,7 +255,7 @@ test "V-D-JOIN-SELECT-07: partial proposal fails clause (c) first" {
     const g = graph(&edges);
     const plan = try buildPlan(a, g);
     const taps = [_]sk.Tap{ tapFor(edges[0]), tapFor(edges[1]), tapFor(edges[2]) };
-    const bbs = [_]sk.Rail{busbarFor(5, .solid, .fan_out_dropper, &taps)};
+    const bbs = [_]sk.Rail{railFor(5, .solid, .fan_out_dropper, &taps)};
     const s = sketchOf(try paths(a, edges[3..]), &bbs);
 
     const res = try jp.realize(a, plan, s);
@@ -318,8 +318,8 @@ test "V-D-JOIN-SELECT-13: proposal multiplicity blocks realization, byte-identic
     const g = graph(&edges);
     const plan = try buildPlan(a, g);
     const taps = [_]sk.Tap{ tapFor(edges[0]), tapFor(edges[1]), tapFor(edges[2]) };
-    const bb = busbarFor(5, .solid, .fan_out_dropper, &taps);
-    // TWO complete trunk proposals for FO-Hub (distinct busbar entries,
+    const bb = railFor(5, .solid, .fan_out_dropper, &taps);
+    // TWO complete trunk proposals for FO-Hub (distinct rail entries,
     // identical member-set key → one multiplicity-counted entry).
     const two = [_]sk.Rail{ bb, bb };
     const res = try jp.realize(a, plan, sketchOf(&.{}, &two));
@@ -333,7 +333,7 @@ test "V-D-JOIN-SELECT-13: proposal multiplicity blocks realization, byte-identic
     for (res.plan.memberships) |rm| {
         try expectEqual(pb.IndependentReason.not_selected, rm.source.?.independent.reason);
     }
-    // Proposal-enumeration swap (busbar array order) → byte-identical.
+    // Proposal-enumeration swap (rail array order) → byte-identical.
     const swapped = [_]sk.Rail{ two[1], two[0] };
     const res2 = try jp.realize(a, plan, sketchOf(&.{}, &swapped));
     try std.testing.expectEqualStrings(
@@ -418,7 +418,7 @@ test "V-D-IR-02: motif_pack candidate is off the identity path and keeps an empt
             try expectEqual(@as(usize, 4), res.plan.memberships.len);
             for (res.report.proposals) |p| {
                 switch (p.candidate_geometry) {
-                    .busbar => |idx| try expect(idx < cand.sketch.busbars.len),
+                    .rail => |idx| try expect(idx < cand.sketch.rails.len),
                     .edge_path => |idx| try expect(idx < cand.sketch.edges.len),
                 }
             }

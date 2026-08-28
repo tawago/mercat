@@ -1,7 +1,7 @@
 //! Tests for `fan_rail.zig`. Discovered via fan_rail.zig's top-level
 //! `test { _ = @import("fan_rail_test.zig"); }` block.
 //!
-//! "busbar taps stay in sync..." moved from `fan_test.zig` (which built
+//! "rail taps stay in sync..." moved from `fan_test.zig` (which built
 //! this fixture but was really exercising fan_rail's `Built.taps`
 //! aliasing contract through the full `coords.layout` pipeline); its
 //! `mkNode`/`mkEdge2`/`findById2`/`deinitSketch2` helpers are duplicated
@@ -41,17 +41,17 @@ fn deinitSketch2(s: *sketch.Sketch, allocator: std.mem.Allocator) void {
     _ = allocator;
 }
 
-// -- bus-bar freeze happens AFTER the bbox coordinate-shift pass -------------
+// -- rail freeze happens AFTER the bbox coordinate-shift pass ----------------
 
-test "busbar taps stay in sync with their target node's post-shift position" {
-    // P has a fan-out busbar to C1/C2 AND a self-loop. The self-loop's
+test "rail taps stay in sync with their target node's post-shift position" {
+    // P has a fan-out rail to C1/C2 AND a self-loop. The self-loop's
     // classic "over the top" detour runs above P's north border — since P
     // sits in the topmost layer (y=0), that detour has negative y, forcing
     // computeBbox's shift pass to translate every coordinate down (dy>0).
-    // If layout.zig ever copied `.busbar` into the Sketch BEFORE that
+    // If layout.zig ever copied `.rail` into the Sketch BEFORE that
     // shift (instead of after), every tap would freeze at its stale
     // pre-shift y while `s.nodes` reports the shifted (correct) position,
-    // desyncing the busbar from the very node it's supposed to land on.
+    // desyncing the rail from the very node it's supposed to land on.
     const nodes = [_]sg.Node{ mkNode(0, "P"), mkNode(1, "C1"), mkNode(2, "C2") };
     const edges = [_]sg.Edge{
         mkEdge2(0, 0, 1),
@@ -77,14 +77,14 @@ test "busbar taps stay in sync with their target node's post-shift position" {
     const p = findById2(s.nodes, 0);
     try testing.expect(p.rect.y > 0);
 
-    // Exactly one busbar, with 2 taps (C1, C2).
-    try testing.expectEqual(@as(usize, 1), s.busbars.len);
-    const bb = s.busbars[0];
+    // Exactly one rail, with 2 taps (C1, C2).
+    try testing.expectEqual(@as(usize, 1), s.rails.len);
+    const bb = s.rails[0];
     try testing.expectEqual(@as(usize, 2), bb.taps.len);
 
     // Every tap must land exactly on its target's final (post-shift) north
     // border — the same shift that moved `s.nodes` must have moved the
-    // busbar by the same amount.
+    // rail by the same amount.
     for (bb.taps) |tap| {
         const child = findById2(s.nodes, tap.node);
         const want_x = child.rect.x + @as(i32, @intCast(child.rect.w / 2));
@@ -95,7 +95,7 @@ test "busbar taps stay in sync with their target node's post-shift position" {
 
 // -- claim: fan_rail.blocked (integrity gate) ------------------------------
 
-test "fan_rail.blocked rejects a built bus-bar whose tap drop touches a foreign node's box" {
+test "fan_rail.blocked rejects a built rail whose tap drop touches a foreign node's box" {
     // Pivot P fans out to two peers Q, R on distinct columns from P's own
     // (so the stem and rail spans stay clear); a foreign box sits exactly
     // on Q's tap-drop column, in the one row between the rail and Q's top
@@ -138,7 +138,7 @@ fn mkPlace(id: sketch.NodeId, x: i32, y: i32, w: u16, h: u16) sketch.NodePlaceme
 
 test "formal base approach: rail lifts one row when the gap admits it, holds at a gap of 2" {
     // LAW (owner ruling): every terminal arrowhead must have >= 1 straight
-    // collinear stroke cell on its base side before any junction. The bus-bar
+    // collinear stroke cell on its base side before any junction. The rail
     // tap-drop (fan-OUT) / stem (fan-IN) must therefore leave a straight `│`
     // between the rail junction and the `▼` when the gap admits it (off=3),
     // but must hold at the old off=2 geometry when lifting the rail would land
@@ -163,14 +163,14 @@ test "formal base approach: rail lifts one row when the gap admits it, holds at 
         };
         const resolved = fan_rail.Resolved{ .pivot = pivot, .direction = .out, .peers = &peers };
         const built = try fan_rail.build(a, resolved, 0, 0);
-        try testing.expectEqual(@as(i32, 3), built.busbar.crossbar[0].y); // off=3
+        try testing.expectEqual(@as(i32, 3), built.rail.crossbar[0].y); // off=3
         // >= 1 straight base cell: arrowhead sits at landing-1, base at landing-2,
         // and the base must be strictly below the rail junction.
         for (built.taps) |tap| {
-            try testing.expect(built.busbar.crossbar[0].y <= tap.landing.y - 3);
+            try testing.expect(built.rail.crossbar[0].y <= tap.landing.y - 3);
         }
         // Rail stays strictly below the pivot's bottom border row (no overlap).
-        try testing.expect(built.busbar.crossbar[0].y > pivot.rect.bottom() - 1);
+        try testing.expect(built.rail.crossbar[0].y > pivot.rect.bottom() - 1);
     }
 
     // -- fan-OUT, gap = 3 -> guard HOLDS at off=2 (a blind -3 would touch) -----
@@ -186,8 +186,8 @@ test "formal base approach: rail lifts one row when the gap admits it, holds at 
         };
         const resolved = fan_rail.Resolved{ .pivot = pivot, .direction = .out, .peers = &peers };
         const built = try fan_rail.build(a, resolved, 0, 0);
-        try testing.expectEqual(@as(i32, 3), built.busbar.crossbar[0].y); // off=2 held
-        try testing.expect(built.busbar.crossbar[0].y > pivot.rect.bottom() - 1); // no overlap
+        try testing.expectEqual(@as(i32, 3), built.rail.crossbar[0].y); // off=2 held
+        try testing.expect(built.rail.crossbar[0].y > pivot.rect.bottom() - 1); // no overlap
     }
 
     // -- fan-OUT, gap = 2 (tight rung) -> off=2 held, byte-identical to today --
@@ -203,7 +203,7 @@ test "formal base approach: rail lifts one row when the gap admits it, holds at 
         };
         const resolved = fan_rail.Resolved{ .pivot = pivot, .direction = .out, .peers = &peers };
         const built = try fan_rail.build(a, resolved, 0, 0);
-        try testing.expectEqual(@as(i32, 2), built.busbar.crossbar[0].y); // off=2, unchanged
+        try testing.expectEqual(@as(i32, 2), built.rail.crossbar[0].y); // off=2, unchanged
     }
 
     // -- fan-IN, gap = 8 -> stem lifts (off=3), sink arrowhead gains a base ----
@@ -220,12 +220,12 @@ test "formal base approach: rail lifts one row when the gap admits it, holds at 
         };
         const resolved = fan_rail.Resolved{ .pivot = sink, .direction = .in, .peers = &peers };
         const built = try fan_rail.build(a, resolved, 0, 0);
-        try testing.expectEqual(@as(i32, 7), built.busbar.crossbar[0].y); // off=3
+        try testing.expectEqual(@as(i32, 7), built.rail.crossbar[0].y); // off=3
         // Stem base cell: sink top - rail >= 3 (arrowhead at top-1, base at top-2).
-        try testing.expect(built.busbar.crossbar[0].y <= sink.rect.y - 3);
+        try testing.expect(built.rail.crossbar[0].y <= sink.rect.y - 3);
         // Rail stays above the sink and below every source bottom (no overlap).
-        try testing.expect(built.busbar.crossbar[0].y < sink.rect.y);
-        for (peers) |pr| try testing.expect(built.busbar.crossbar[0].y > pr.placement.rect.bottom() - 1);
+        try testing.expect(built.rail.crossbar[0].y < sink.rect.y);
+        for (peers) |pr| try testing.expect(built.rail.crossbar[0].y > pr.placement.rect.bottom() - 1);
     }
 
     // -- fan-IN, gap = 3 -> guard HOLDS at off=2 (a blind -3 would touch) ------
@@ -241,12 +241,12 @@ test "formal base approach: rail lifts one row when the gap admits it, holds at 
         };
         const resolved = fan_rail.Resolved{ .pivot = sink, .direction = .in, .peers = &peers };
         const built = try fan_rail.build(a, resolved, 0, 0);
-        try testing.expectEqual(@as(i32, 3), built.busbar.crossbar[0].y); // off=2 held
-        for (peers) |pr| try testing.expect(built.busbar.crossbar[0].y > pr.placement.rect.bottom() - 1); // no overlap
+        try testing.expectEqual(@as(i32, 3), built.rail.crossbar[0].y); // off=2 held
+        for (peers) |pr| try testing.expect(built.rail.crossbar[0].y > pr.placement.rect.bottom() - 1); // no overlap
     }
 }
 
-test "labeled fan-OUT bus-bar lifts the rail for a 4-cell dropper when the gap admits it" {
+test "labeled fan-OUT rail lifts the crossbar for a 4-cell dropper when the gap admits it" {
     // A labeled member's tap must get a 4-cell private dropper (flank +
     // on-run label row + flank + arrowhead), i.e. rail at landing - 5, when
     // the reserved gap admits it; with a tight gap the existing off ladder
@@ -271,7 +271,7 @@ test "labeled fan-OUT bus-bar lifts the rail for a 4-cell dropper when the gap a
         };
         const resolved = fan_rail.Resolved{ .pivot = pivot, .direction = .out, .peers = &peers };
         const built = try fan_rail.build(a, resolved, 0, 0);
-        try testing.expectEqual(@as(i32, 3), built.busbar.crossbar[0].y); // 8 - 5
+        try testing.expectEqual(@as(i32, 3), built.rail.crossbar[0].y); // 8 - 5
         for (built.taps) |tap| {
             // 4 dropper cells: rows rail+1 .. landing-1.
             try testing.expectEqual(@as(i32, 4), tap.landing.y - tap.at.y - 1);
@@ -290,12 +290,12 @@ test "labeled fan-OUT bus-bar lifts the rail for a 4-cell dropper when the gap a
         };
         const resolved = fan_rail.Resolved{ .pivot = pivot, .direction = .out, .peers = &peers };
         const built = try fan_rail.build(a, resolved, 0, 0);
-        try testing.expectEqual(@as(i32, 3), built.busbar.crossbar[0].y); // off=3 held
+        try testing.expectEqual(@as(i32, 3), built.rail.crossbar[0].y); // off=3 held
     }
 }
 
-test "a fan whose peers were lifted onto separate lanes builds no bus-bar" {
-    // A bus-bar is one crossbar on one row. When a lane pass has lifted a
+test "a fan whose peers were lifted onto separate lanes builds no rail" {
+    // A rail is one crossbar on one row. When a lane pass has lifted a
     // member off the shared row — the clustered closure law's refusal is the
     // case with no plan to say so — resolving it back into a single trunk
     // would rebuild exactly the run the lift took apart.

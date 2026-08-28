@@ -115,7 +115,7 @@ fn tNode(id: sketch.NodeId, x: i32, y: i32, cid: ?sketch.ClusterId) sketch.NodeP
 }
 
 fn tSketch(nodes: []const sketch.NodePlacement) sketch.Sketch {
-    return .{ .bbox = .{ .x = 0, .y = 0, .w = 20, .h = 20 }, .direction = .TD, .nodes = nodes, .clusters = &.{}, .edges = &.{}, .busbars = &.{}, .diagnostics = &.{}, .budget = .{ .max_width = 20, .rung = 0 } };
+    return .{ .bbox = .{ .x = 0, .y = 0, .w = 20, .h = 20 }, .direction = .TD, .nodes = nodes, .clusters = &.{}, .edges = &.{}, .rails = &.{}, .diagnostics = &.{}, .budget = .{ .max_width = 20, .rung = 0 } };
 }
 
 test "entryArrivalInset" {

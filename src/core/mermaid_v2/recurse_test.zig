@@ -250,17 +250,17 @@ test "rotation that reduces but does not eliminate overflow is rejected (validat
     try std.testing.expect(c.bbox_overflow >= 1); // validator agrees: still over budget
 }
 
-// Bus-bar rail re-clamp on a dropped (super-node) tap
-// (`cluster/stitch.zig`'s "Re-clamp the rail to the surviving taps +
+// Rail crossbar re-clamp on a dropped (super-node) tap
+// (`cluster/stitch.zig`'s "Re-clamp the crossbar to the surviving taps +
 // junction" invariant): a fan-OUT pivot P -> {A, B, D} where D lives inside
-// subgraph S. On the OUTER piece (pre-stitch) the fan-busbar trunk taps A,
+// subgraph S. On the OUTER piece (pre-stitch) the fan rail trunk taps A,
 // B, AND the super-node standing in for S (S's real edge is a cross-border
 // crossing, routed separately by `bridges.route`). `stitch` must drop the
 // super-node's tap and re-clamp the rail to just the two surviving taps +
 // the stem junction — if it instead kept the ORIGINAL (pre-drop) rail span,
 // the rail would keep painting a dead arm out to where the super-node's tap
 // used to be, past the real taps that remain.
-test "stitch re-clamps a surviving bus-bar's rail past a dropped super-node tap" {
+test "stitch re-clamps a surviving rail's crossbar past a dropped super-node tap" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
@@ -309,25 +309,25 @@ test "stitch re-clamps a surviving bus-bar's rail past a dropped super-node tap"
     const outer = try coords.layout(a, sr.pieces[0].graph, outer_opts);
     children[0] = .{ .sketch = outer, .input_of = &.{} };
 
-    // Pre-stitch: the outer fan-busbar taps all THREE peers, including the
+    // Pre-stitch: the outer fan rail taps all THREE peers, including the
     // super-node standing in for S — record its x so we can prove it is
     // later excluded.
-    try std.testing.expectEqual(@as(usize, 1), outer.busbars.len);
-    try std.testing.expectEqual(@as(usize, 3), outer.busbars[0].taps.len);
+    try std.testing.expectEqual(@as(usize, 1), outer.rails.len);
+    try std.testing.expectEqual(@as(usize, 3), outer.rails[0].taps.len);
     var dropped_x: ?i32 = null;
-    for (outer.busbars[0].taps) |tap| {
+    for (outer.rails[0].taps) |tap| {
         if (tap.node == sr.supers[0].outer_node) dropped_x = tap.at.x;
     }
     try std.testing.expect(dropped_x != null);
 
     const merged = try cluster_stitch.stitch(a, sr, outer, children, opts.spacing_scale, false);
 
-    // Post-stitch: the same bus-bar survives with only the two real taps —
+    // Post-stitch: the same rail survives with only the two real taps —
     // and its rail must NOT reach out to the dropped tap's x, which would
     // paint a dead trunk arm ending in mid-air past the surviving taps.
-    try std.testing.expectEqual(@as(usize, 1), merged.sketch.busbars.len);
-    try std.testing.expectEqual(@as(usize, 2), merged.sketch.busbars[0].taps.len);
-    const crossbar = merged.sketch.busbars[0].crossbar;
+    try std.testing.expectEqual(@as(usize, 1), merged.sketch.rails.len);
+    try std.testing.expectEqual(@as(usize, 2), merged.sketch.rails[0].taps.len);
+    const crossbar = merged.sketch.rails[0].crossbar;
     try std.testing.expect(crossbar[0].x <= crossbar[1].x);
     try std.testing.expect(dropped_x.? > crossbar[1].x or dropped_x.? < crossbar[0].x);
 }
@@ -386,7 +386,7 @@ pub fn assertUniqueEdgeIds(a: std.mem.Allocator, s: sketch.Sketch) !std.AutoHash
         try std.testing.expect(!owners.contains(e.id));
         try owners.put(e.id, e.from);
     }
-    for (s.busbars) |b| {
+    for (s.rails) |b| {
         for (b.taps) |t| {
             try std.testing.expect(!owners.contains(t.edge));
             try owners.put(t.edge, b.pivot);

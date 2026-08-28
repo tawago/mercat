@@ -100,7 +100,7 @@ const Fixture = struct {
             .nodes = &self.nodes,
             .clusters = &.{},
             .edges = &.{},
-            .busbars = &self.bars,
+            .rails = &self.bars,
             .diagnostics = &.{},
             .budget = .{ .max_width = 80, .rung = 0 },
         };
@@ -337,7 +337,7 @@ test "rails: a LONE rail whose line is continued is still reported" {
     outside(&f, 7, .{ .e = true, .w = true });
     var one = [_]sketch.Rail{f.bars[0]};
     var s = f.sk();
-    s.busbars = &one;
+    s.rails = &one;
     const l = f.lat();
     var c: counts.Counts = .{};
     rails.check(testing.allocator, cell.View.init(&l), s, &c);
@@ -357,7 +357,7 @@ test "rails: an empty population is named, not silent" {
     var f: Fixture = .{};
     f.init();
     var s = f.sk();
-    s.busbars = &.{};
+    s.rails = &.{};
     const l = f.lat();
     var c: counts.Counts = .{};
     rails.check(testing.allocator, cell.View.init(&l), s, &c);
@@ -385,7 +385,7 @@ test "rails: the entry denominator is published before the tier can decline" {
     f2.init();
     var one = [_]sketch.Rail{f2.bars[0]};
     var s = f2.sk();
-    s.busbars = &one;
+    s.rails = &one;
     const l = f2.lat();
     var c2: counts.Counts = .{};
     rails.check(testing.allocator, cell.View.init(&l), s, &c2);
@@ -413,7 +413,7 @@ test "rails: a lone rail is never a fused run" {
     f.init();
     var one = [_]sketch.Rail{f.bars[0]};
     var s = f.sk();
-    s.busbars = &one;
+    s.rails = &one;
     const l = f.lat();
     var c: counts.Counts = .{};
     rails.check(testing.allocator, cell.View.init(&l), s, &c);
@@ -452,7 +452,7 @@ test "rails: a scratch failure at any point leaves the buckets owned" {
         .{ .pivot = 1, .stem = &.{}, .crossbar = .{ .{ .x = 2, .y = R + 3 }, .{ .x = 6, .y = R + 3 } }, .taps = &far_b, .kind = .solid },
     };
     var s = f.sk();
-    s.busbars = &four;
+    s.rails = &four;
     const l = f.lat();
 
     var saw_oom = false;

@@ -124,17 +124,17 @@ pub fn validate(alloc: std.mem.Allocator, s: sk.Sketch, node_keys: []const []con
     // unrealized fusion is a channel of NO class — D-REACH clause 9 —
     // so sibling shares are cross-owner and report, never link).
     var units: std.ArrayListUnmanaged(geom.Unit) = .empty;
-    const bb_join = try alloc.alloc(?pb.RealizedJoinId, s.busbars.len);
+    const bb_join = try alloc.alloc(?pb.RealizedJoinId, s.rails.len);
     @memset(bb_join, null);
     for (joins.selected_joins) |join| {
-        for (s.busbars, 0..) |bb, bi| {
+        for (s.rails, 0..) |bb, bi| {
             if (bb_join[bi] == null and tapSetEquals(bb, join.members)) {
                 bb_join[bi] = join.id;
                 break;
             }
         }
     }
-    for (s.busbars, 0..) |bb, bi| {
+    for (s.rails, 0..) |bb, bi| {
         if (bb_join[bi]) |jid| {
             try units.append(alloc, try geom.trunkUnit(alloc, bb, jid));
         } else {
@@ -157,8 +157,8 @@ pub fn validate(alloc: std.mem.Allocator, s: sk.Sketch, node_keys: []const []con
             if (anchor) |a| unite(parent, a, i) else anchor = i;
         }
     }
-    // A fusion licence (plan record) makes its trunks' bus ONE channel: the
-    // union's members and their trunks link, so licensed bus-row sharing is
+    // A fusion licence (plan record) makes its trunks' rail ONE channel: the
+    // union's members and their trunks link, so licensed rail-row sharing is
     // in-channel and fires nothing.
     for (joins.fused) |u| {
         var anchor: ?usize = null;
@@ -287,7 +287,7 @@ fn matchRecord(records: []const pb.TerminalPort, att: geom.Attachment) ?u32 {
 fn declaredEdges(alloc: std.mem.Allocator, s: sk.Sketch) Error![]const DeclaredEdge {
     var list: std.ArrayListUnmanaged(DeclaredEdge) = .empty;
     for (s.edges) |e| try addDeclared(alloc, &list, e.id, e.from, e.to);
-    for (s.busbars) |bb| {
+    for (s.rails) |bb| {
         const out_dir = geom.railDirection(bb) == .out;
         for (bb.taps) |tap| {
             const from = if (out_dir) bb.pivot else tap.node;

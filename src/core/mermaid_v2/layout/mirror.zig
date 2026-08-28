@@ -40,16 +40,16 @@ pub fn vertical(a: std.mem.Allocator, s: sketch.Sketch, direction: sketch.Direct
         edges_done += 1;
     }
 
-    const busbars = try a.alloc(sketch.Rail, s.busbars.len);
-    var busbars_done: usize = 0;
+    const rails = try a.alloc(sketch.Rail, s.rails.len);
+    var rails_done: usize = 0;
     errdefer {
-        for (busbars[0..busbars_done]) |bb| {
+        for (rails[0..rails_done]) |bb| {
             a.free(bb.stem);
             a.free(bb.taps);
         }
-        a.free(busbars);
+        a.free(rails);
     }
-    for (s.busbars, 0..) |bb, i| {
+    for (s.rails, 0..) |bb, i| {
         const stem = try a.alloc(sketch.Point, bb.stem.len);
         errdefer a.free(stem);
         for (bb.stem, 0..) |pt, k| stem[k] = mirrorPoint(s.bbox, pt);
@@ -60,12 +60,12 @@ pub fn vertical(a: std.mem.Allocator, s: sketch.Sketch, direction: sketch.Direct
             taps[k].at = mirrorPoint(s.bbox, tap.at);
             taps[k].landing = mirrorPoint(s.bbox, tap.landing);
         }
-        busbars[i] = bb;
-        busbars[i].stem = stem;
-        busbars[i].taps = taps;
-        // Vertical mirror keeps x order; only the shared rail row moves. // guarded-by: mirror.zig "vertical mirror preserves bus-bar tap x-order; only the rail row shifts"
-        busbars[i].crossbar = .{ mirrorPoint(s.bbox, bb.crossbar[0]), mirrorPoint(s.bbox, bb.crossbar[1]) };
-        busbars_done += 1;
+        rails[i] = bb;
+        rails[i].stem = stem;
+        rails[i].taps = taps;
+        // Vertical mirror keeps x order; only the shared rail row moves. // guarded-by: mirror.zig "vertical mirror preserves rail tap x-order; only the rail row shifts"
+        rails[i].crossbar = .{ mirrorPoint(s.bbox, bb.crossbar[0]), mirrorPoint(s.bbox, bb.crossbar[1]) };
+        rails_done += 1;
     }
 
     const co_sets = try mirrorCoSets(a, s.bbox, s.co_sets);
@@ -78,7 +78,7 @@ pub fn vertical(a: std.mem.Allocator, s: sketch.Sketch, direction: sketch.Direct
         .nodes = nodes,
         .clusters = clusters,
         .edges = edges,
-        .busbars = busbars,
+        .rails = rails,
         .rail_claims = rail_claims,
         .joins = s.joins,
         .closure = s.closure,
@@ -292,7 +292,7 @@ test "vertical mirror flips y geometry and ports" {
     try std.testing.expectEqual(@as(u32, 2), out.edges[0].port_to.offset);
 }
 
-test "vertical mirror preserves bus-bar tap x-order; only the rail row shifts" {
+test "vertical mirror preserves rail tap x-order; only the rail row shifts" {
     const nodes = [_]sketch.NodePlacement{
         .{ .id = 1, .rect = .{ .x = 0, .y = 0, .w = 5, .h = 3 }, .shape = .rect, .lines = &.{"P"}, .cluster_id = null },
         .{ .id = 2, .rect = .{ .x = 0, .y = 8, .w = 5, .h = 3 }, .shape = .rect, .lines = &.{"L"}, .cluster_id = null },
@@ -303,7 +303,7 @@ test "vertical mirror preserves bus-bar tap x-order; only the rail row shifts" {
         .{ .edge = 1, .node = 2, .at = .{ .x = 2, .y = 5 }, .landing = .{ .x = 2, .y = 8 } },
         .{ .edge = 2, .node = 3, .at = .{ .x = 22, .y = 5 }, .landing = .{ .x = 22, .y = 8 } },
     };
-    const busbars = [_]sketch.Rail{
+    const rails = [_]sketch.Rail{
         .{ .pivot = 1, .stem = &stem, .crossbar = .{ .{ .x = 2, .y = 5 }, .{ .x = 22, .y = 5 } }, .taps = &taps, .kind = .solid },
     };
     const s = sketch.Sketch{
@@ -314,7 +314,7 @@ test "vertical mirror preserves bus-bar tap x-order; only the rail row shifts" {
         .nodes = &nodes,
         .clusters = &.{},
         .edges = &.{},
-        .busbars = &busbars,
+        .rails = &rails,
         .diagnostics = &.{},
         .budget = .{ .max_width = 80, .rung = 0 },
     };
@@ -325,16 +325,16 @@ test "vertical mirror preserves bus-bar tap x-order; only the rail row shifts" {
 
     // Tap x-values (and therefore their relative x-order) are unchanged —
     // vertical mirroring only touches y.
-    try std.testing.expectEqual(taps[0].at.x, out.busbars[0].taps[0].at.x);
-    try std.testing.expectEqual(taps[1].at.x, out.busbars[0].taps[1].at.x);
-    try std.testing.expectEqual(taps[0].landing.x, out.busbars[0].taps[0].landing.x);
-    try std.testing.expectEqual(taps[1].landing.x, out.busbars[0].taps[1].landing.x);
+    try std.testing.expectEqual(taps[0].at.x, out.rails[0].taps[0].at.x);
+    try std.testing.expectEqual(taps[1].at.x, out.rails[0].taps[1].at.x);
+    try std.testing.expectEqual(taps[0].landing.x, out.rails[0].taps[0].landing.x);
+    try std.testing.expectEqual(taps[1].landing.x, out.rails[0].taps[1].landing.x);
 
     // The rail stays a single shared row (both endpoints keep equal y)
     // and stays x-ordered — but that row actually moved.
-    try std.testing.expect(out.busbars[0].crossbar[0].x <= out.busbars[0].crossbar[1].x);
-    try std.testing.expectEqual(out.busbars[0].crossbar[0].y, out.busbars[0].crossbar[1].y);
-    try std.testing.expect(out.busbars[0].crossbar[0].y != busbars[0].crossbar[0].y);
+    try std.testing.expect(out.rails[0].crossbar[0].x <= out.rails[0].crossbar[1].x);
+    try std.testing.expectEqual(out.rails[0].crossbar[0].y, out.rails[0].crossbar[1].y);
+    try std.testing.expect(out.rails[0].crossbar[0].y != rails[0].crossbar[0].y);
 }
 
 test "RL: sugiyama's own layer reversal plus applyDirection's axis swap alone yields correct right-to-left order" {

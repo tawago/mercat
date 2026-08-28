@@ -43,7 +43,7 @@ pub const InkDistances = struct {
 };
 
 /// The label's own edge, as the ownership tests see it: its id, its routed
-/// polyline (empty for bus-bar taps), and the anchor segment the ladder is
+/// polyline (empty for rail taps), and the anchor segment the ladder is
 /// walking (for taps, the tapLabelSeg stretch of shared rail — own ink even
 /// though the trunk Cell names a single other rider).
 pub const Owner = struct {

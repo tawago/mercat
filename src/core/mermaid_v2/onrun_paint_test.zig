@@ -106,7 +106,7 @@ fn paintedColumn(a: std.mem.Allocator, kind: lattice.EdgeKind) ![]u21 {
         .role = .fan_out_dropper,
     }};
     var s2 = s;
-    s2.busbars = &rails;
+    s2.rails = &rails;
 
     try testing.expect(onrun.tryOnRunTap(&lat, s2, taps[0], "ok", null));
 

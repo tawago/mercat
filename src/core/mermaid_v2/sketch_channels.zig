@@ -15,7 +15,7 @@
 //!     into a single roster, so a merged picture can never read two distinct
 //!     channels as one.
 //!   * the rails — every `sketch.Rail` gets the channel of the set that names
-//!     its members, so raster's bus-bar writer states the licence on its own
+//!     its members, so raster's rail writer states the licence on its own
 //!     ink by LOOKUP rather than by re-derivation.
 //!
 //! WHEN. At each point a Sketch's co-set list becomes final, and nowhere
@@ -92,12 +92,12 @@ pub fn stamp(allocator: std.mem.Allocator, s: *sketch.Sketch) void {
         s.channel_stamp_state = .out_of_memory;
         return;
     };
-    const bars = allocator.alloc(sketch.Rail, s.busbars.len) catch {
+    const bars = allocator.alloc(sketch.Rail, s.rails.len) catch {
         discardNumbered(allocator, s.co_sets.len, numbered);
         s.channel_stamp_state = .out_of_memory;
         return;
     };
-    @memcpy(bars, s.busbars);
+    @memcpy(bars, s.rails);
 
     // A rail whose members no set names still rides a channel — its own. It is
     // minted past the end of the roster so it can collide with neither a set's
@@ -108,11 +108,11 @@ pub fn stamp(allocator: std.mem.Allocator, s: *sketch.Sketch) void {
     // no structural set names is stamped OFF-roster, on a fresh channel of its
     // own (below). That channel never equals any edge it merges onto, so
     // EVERY merge such a rail makes reads `.merged_foreign` at the licence
-    // sites (`crossings.licenceFor`, `busbars.licenceAt`) and the crossing
+    // sites (`crossings.licenceFor`, `rails.licenceAt`) and the crossing
     // audit's `d_run_fused_foreign`. Correct, by the same rule any two
     // strangers get — but corpus-unexercised until
     // the off-roster tests in `sketch_channels_test.zig` and
-    // `busbars_test2.zig` gave it explicit coverage.
+    // `rails_test2.zig` gave it explicit coverage.
     var next: ledger.ChannelId = @intCast(numbered.len + 1);
     for (bars) |*slot| {
         switch (resolveRailChannel(numbered, slot.*)) {
@@ -131,7 +131,7 @@ pub fn stamp(allocator: std.mem.Allocator, s: *sketch.Sketch) void {
     }
 
     s.co_sets = numbered;
-    s.busbars = bars;
+    s.rails = bars;
     s.channel_stamp_state = .complete;
 }
 

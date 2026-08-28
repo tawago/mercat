@@ -24,7 +24,7 @@
 //! that way deliberately; reading a record is sanctioned (`cell.zig`).
 //!
 //! The population is a GEOMETRY union: routed `Sketch.edges` plus every
-//! bus-bar tap. A fan edge absorbed into a bus-bar has no polyline at
+//! rail tap. A fan edge absorbed into a rail has no polyline at
 //! all, so keying on `Sketch.edges` alone would silently drop it; taps
 //! key on their own rail/landing points instead.
 //!
@@ -224,7 +224,7 @@ fn labelCensus(s: sketch.Sketch) u32 {
         const l = ep.label orelse continue;
         if (l.len > 0) n += 1;
     }
-    for (s.busbars) |bb| {
+    for (s.rails) |bb| {
         for (bb.taps) |tp| {
             const l = tp.label orelse continue;
             if (l.len > 0) n += 1;
@@ -301,7 +301,7 @@ fn nodeTier(v: cell.View, s: sketch.Sketch, ring: []bool, c: *counts.Counts) voi
             if (ep.kind == .invisible) continue;
             if (ep.to == np.id) arrivals += 1;
         }
-        for (s.busbars) |bb| {
+        for (s.rails) |bb| {
             for (bb.taps) |tp| {
                 if (tp.node == np.id) arrivals += 1;
             }
@@ -352,7 +352,7 @@ fn edgeTier(v: cell.View, s: sketch.Sketch, c: *counts.Counts) void {
 }
 
 fn tapTier(v: cell.View, s: sketch.Sketch, c: *counts.Counts) void {
-    for (s.busbars) |bb| {
+    for (s.rails) |bb| {
         for (bb.taps) |tp| {
             c.n_taps_declared += 1;
             const d = dirOf(tp.at, tp.landing) orelse continue;
@@ -387,7 +387,7 @@ pub fn check(alloc: std.mem.Allocator, in: Input, c: *counts.Counts) void {
     const s = in.sketch;
 
     var taps: u32 = 0;
-    for (s.busbars) |bb| taps += @intCast(bb.taps.len);
+    for (s.rails) |bb| taps += @intCast(bb.taps.len);
 
     c.m_graph_nodes = @intCast(in.graph.nodes.len);
     c.m_graph_edges = @intCast(in.graph.edges.len);

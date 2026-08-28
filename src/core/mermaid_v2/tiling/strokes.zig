@@ -136,7 +136,7 @@ fn armPass(v: cell.View, x: u32, y: u32, t: cell.Typed, interior: bool, c: *coun
 /// Scanned east and south only, so each ordered pair is visited once.
 ///
 /// Two gates keep the legal populations out. Both cells must carry the
-/// FULL straight pair of the shared axis — that excludes the bus-bar
+/// FULL straight pair of the shared axis — that excludes the rail
 /// shape, where a rail cell holds one drop arm above a tap's straight
 /// dropper and the trunk id differs from the tap's by design. And
 /// neither cell may be a JUNCTION (three or four arms): where runs

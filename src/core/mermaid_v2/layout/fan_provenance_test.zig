@@ -46,7 +46,7 @@ test "fan provenance: first-class fan-out claim is valid metadata and changes no
     const a = arena.allocator();
     const s = try coords.layout(a, graph(.TD, &nodes, &edges, &.{}), .{});
 
-    try testing.expectEqual(@as(usize, 1), s.busbars.len);
+    try testing.expectEqual(@as(usize, 1), s.rails.len);
     try testing.expectEqual(@as(usize, 1), s.rail_claims.len);
     const claim = s.rail_claims[0];
     try testing.expectEqual(@as(ledger.RailClaimId, 1), claim.id);
@@ -79,8 +79,8 @@ test "fan provenance: realized fan-in Rail claims the pivot while labeled fan-in
     const rail = try coords.layout(rail_arena.allocator(), graph(.TD, &nodes, &edges, &.{}), .{
         .join_permits = &permits,
     });
-    try testing.expectEqual(@as(usize, 1), rail.busbars.len);
-    try testing.expectEqual(sketch.EdgeRole.fan_in_dropper, rail.busbars[0].role);
+    try testing.expectEqual(@as(usize, 1), rail.rails.len);
+    try testing.expectEqual(sketch.EdgeRole.fan_in_dropper, rail.rails[0].role);
     try testing.expectEqual(@as(usize, 1), rail.rail_claims.len);
     try testing.expectEqual(ledger.RailPolarity.in, rail.rail_claims[0].polarity);
     try testing.expectEqual(@as(?ledger.NodeId, 2), ledger.checkRailClaim(rail.rail_claims[0]).derived_pivot);
@@ -95,7 +95,7 @@ test "fan provenance: realized fan-in Rail claims the pivot while labeled fan-in
     var peer_arena = std.heap.ArenaAllocator.init(testing.allocator);
     defer peer_arena.deinit();
     const peer = try coords.layout(peer_arena.allocator(), graph(.TD, &clustered_nodes, &clustered_edges, &clusters), .{});
-    try testing.expectEqual(@as(usize, 0), peer.busbars.len);
+    try testing.expectEqual(@as(usize, 0), peer.rails.len);
     try testing.expectEqual(@as(usize, 2), peer.edges.len);
     try testing.expectEqual(@as(usize, 0), peer.rail_claims.len);
     const report = try raster.rasterize(peer_arena.allocator(), peer, .bridge);
@@ -111,7 +111,7 @@ test "fan provenance: forced peer drawing, wrapping, and arrow-style partition" 
     var forced_arena = std.heap.ArenaAllocator.init(testing.allocator);
     defer forced_arena.deinit();
     const forced = try coords.layout(forced_arena.allocator(), graph(.TD, &forced_nodes, &forced_edges, &.{}), .{});
-    try testing.expectEqual(@as(usize, 0), forced.busbars.len);
+    try testing.expectEqual(@as(usize, 0), forced.rails.len);
     try testing.expectEqual(@as(usize, 1), forced.rail_claims.len);
     try testing.expectEqual(sketch.ArrowKind.filled, forced.rail_claims[0].members[0].arrows[0]);
     try expectAllValid(forced.rail_claims);
@@ -124,7 +124,7 @@ test "fan provenance: forced peer drawing, wrapping, and arrow-style partition" 
     var wide_arena = std.heap.ArenaAllocator.init(testing.allocator);
     defer wide_arena.deinit();
     const wide = try coords.layout(wide_arena.allocator(), graph(.TD, &wide_nodes, &wide_edges, &.{}), .{ .max_width = 18 });
-    try testing.expectEqual(@as(usize, 0), wide.busbars.len);
+    try testing.expectEqual(@as(usize, 0), wide.rails.len);
     try testing.expectEqual(@as(usize, 6), wide.edges.len);
     try testing.expectEqual(@as(usize, 1), wide.rail_claims.len);
     try testing.expectEqual(@as(usize, 6), wide.rail_claims[0].members.len);
@@ -144,7 +144,7 @@ test "fan provenance: forced peer drawing, wrapping, and arrow-style partition" 
     var mixed_arena = std.heap.ArenaAllocator.init(testing.allocator);
     defer mixed_arena.deinit();
     const mixed = try coords.layout(mixed_arena.allocator(), graph(.TD, &mixed_nodes, &mixed_edges, &.{}), .{});
-    try testing.expectEqual(@as(usize, 0), mixed.busbars.len);
+    try testing.expectEqual(@as(usize, 0), mixed.rails.len);
     // Construction keeps the stable largest decoration/style class. The other
     // valid-looking class is not lane-proven independent here, so it stays
     // private rather than creating a second same-row shared channel.
@@ -267,7 +267,7 @@ test "fan provenance: duplicate leaf is private on flat and clustered peer paths
         defer arena.deinit();
         const s = try coords.layout(arena.allocator(), g, .{});
 
-        try testing.expectEqual(@as(usize, 0), s.busbars.len);
+        try testing.expectEqual(@as(usize, 0), s.rails.len);
         try testing.expectEqual(@as(usize, 3), s.edges.len);
         try testing.expectEqual(@as(usize, 1), s.rail_claims.len);
         try testing.expectEqual(@as(usize, 2), s.rail_claims[0].members.len);

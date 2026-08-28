@@ -29,7 +29,7 @@
 //! `expect.nodeTier` reads `np.id`/`tp.node` — and they are unique across a
 //! whole Sketch INCLUDING a stitched one (`sketch.zig`'s member-id note).
 //! Sketch edge ids are matched against `Aux.value` on `.tap` records, which
-//! `raster/busbars.zig` files straight from `sketch.Rail.taps[].edge`: one
+//! `raster/rails.zig` files straight from `sketch.Rail.taps[].edge`: one
 //! producer, one id space. That keying is legal precisely where CELL-id
 //! keying is not — a Cell holds one edge id and is first-writer-lossy, while
 //! the aux channel is PLURAL per cell and append-only under the anti-desync
@@ -40,7 +40,7 @@
 //!
 //! DERIVED POPULATION, NOT A FLAG READ BACK. Nothing upstream is asked
 //! whether it admitted a group. The population is the CONSEQUENCE — rails
-//! that actually share a row — read off `Sketch.busbars` geometry. It is
+//! that actually share a row — read off `Sketch.rails` geometry. It is
 //! therefore wider than any one upstream gate's admitted set: rails from
 //! different children stitched onto one row, and gaps that never reached the
 //! gate at all, are in it too. On those a shortfall is a true positive, and
@@ -88,11 +88,11 @@
 //!     within-side pairs, and those are not counted. Under-counting, the
 //!     safe direction, exactly like `d_run_fused_collinear`.
 //!   - peer-drawn fans reach the grid through the edge walk, which files no
-//!     `.tap` record at all (`raster/busbars.zig`'s GAP note). They have no
+//!     `.tap` record at all (`raster/rails.zig`'s GAP note). They have no
 //!     `sketch.Rail`, so they are outside the population entirely.
 //!   - a `.tap` record naming an edge no rail of the run declares is ignored.
 //!   - the record, not the surviving glyph, is what is read at a branch
-//!     cell. Labels raster after bus-bars and the aux channel is
+//!     cell. Labels raster after rails and the aux channel is
 //!     append-only, so a branch cell whose glyph was overwritten by opaque
 //!     text keeps its record and still reads as accounted. Same limit
 //!     `expect.zig` states for someone else's opaque ink, and the same
@@ -106,7 +106,7 @@ const sketch = @import("../sketch.zig");
 const cell = @import("cell.zig");
 const counts = @import("counts.zig");
 
-/// Direction discriminant of a rail, read exactly as `raster/busbars.zig`
+/// Direction discriminant of a rail, read exactly as `raster/rails.zig`
 /// reads it: any fan-IN role means the pivot is the LOWER-stage node and the
 /// members are the upper-stage ones; everything else reads as fan-OUT (which
 /// is also the `Rail.role` default).
@@ -156,7 +156,7 @@ const IdSet = struct {
 const Branch = enum { recorded, unrecorded, offgrid };
 
 /// Does this tap's branch cell carry a `.tap` record naming this member?
-/// The record is filed at the branch cell itself (`raster/busbars.zig` files
+/// The record is filed at the branch cell itself (`raster/rails.zig` files
 /// it at `tap.at` wherever ink landed), so the position is the key and the
 /// edge id picks the member out of a plural channel.
 fn branchEvidence(v: cell.View, tp: sketch.Tap) Branch {
@@ -171,13 +171,13 @@ fn branchEvidence(v: cell.View, tp: sketch.Tap) Branch {
 /// The run's row, and the union of its crossbar spans. `null` when the row
 /// itself is off the grid, which leaves nothing to ask about it.
 fn runSpan(s: sketch.Sketch, gr: []const u32) ?struct { y: i32, lo: i32, hi: i32 } {
-    const y = s.busbars[gr[0]].crossbar[0].y;
+    const y = s.rails[gr[0]].crossbar[0].y;
     if (y < 0) return null;
-    var lo = s.busbars[gr[0]].crossbar[0].x;
-    var hi = s.busbars[gr[0]].crossbar[1].x;
+    var lo = s.rails[gr[0]].crossbar[0].x;
+    var hi = s.rails[gr[0]].crossbar[1].x;
     for (gr) |gi| {
-        lo = @min(lo, s.busbars[gi].crossbar[0].x);
-        hi = @max(hi, s.busbars[gi].crossbar[1].x);
+        lo = @min(lo, s.rails[gi].crossbar[0].x);
+        hi = @max(hi, s.rails[gi].crossbar[1].x);
     }
     if (hi < 0) return null;
     return .{ .y = y, .lo = lo, .hi = hi };
@@ -234,7 +234,7 @@ fn accountPair(v: cell.View, s: sketch.Sketch, gr: []const u32, u: u32, l: u32, 
     var declared = false;
     var readable = false;
     for (gr) |gi| {
-        const bb = s.busbars[gi];
+        const bb = s.rails[gi];
         for (bb.taps) |tp| {
             if (upperOf(bb, tp) != u or lowerOf(bb, tp) != l) continue;
             declared = true;
@@ -267,7 +267,7 @@ pub fn check(alloc: std.mem.Allocator, v: cell.View, s: sketch.Sketch, c: *count
     // it the buckets below carry a zero that reads the same whether the tier
     // measured a population and found nothing or never had a population to
     // measure — two opposite readings of one number.
-    c.n_rails_first_class = @intCast(s.busbars.len);
+    c.n_rails_first_class = @intCast(s.rails.len);
 
     // No rail, no run. A LONE rail cannot be excused here even though it
     // fuses with nothing and is never two-sided: its line can still be
@@ -278,12 +278,12 @@ pub fn check(alloc: std.mem.Allocator, v: cell.View, s: sketch.Sketch, c: *count
     // structurally incapable of firing past this point, so the abstention is
     // named here rather than left as a silence indistinguishable from a
     // clean bill.
-    if (s.busbars.len == 0) {
+    if (s.rails.len == 0) {
         c.u_rail_population_absent += 1;
         return;
     }
 
-    const seen = alloc.alloc(bool, s.busbars.len) catch {
+    const seen = alloc.alloc(bool, s.rails.len) catch {
         c.u_audit_oom += 1;
         return;
     };
@@ -297,7 +297,7 @@ pub fn check(alloc: std.mem.Allocator, v: cell.View, s: sketch.Sketch, c: *count
     var lower: IdSet = .{};
     defer lower.items.deinit(alloc);
 
-    for (0..s.busbars.len) |i| {
+    for (0..s.rails.len) |i| {
         if (seen[i]) continue;
         seen[i] = true;
         group.clearRetainingCapacity();
@@ -312,10 +312,10 @@ pub fn check(alloc: std.mem.Allocator, v: cell.View, s: sketch.Sketch, c: *count
         var grew = true;
         while (grew) {
             grew = false;
-            for (s.busbars, 0..) |bj, j| {
+            for (s.rails, 0..) |bj, j| {
                 if (seen[j]) continue;
                 for (group.items) |gi| {
-                    if (!fuses(s.busbars[gi], bj)) continue;
+                    if (!fuses(s.rails[gi], bj)) continue;
                     seen[j] = true;
                     group.append(alloc, @intCast(j)) catch {
                         c.u_audit_oom += 1;
@@ -338,7 +338,7 @@ pub fn check(alloc: std.mem.Allocator, v: cell.View, s: sketch.Sketch, c: *count
         upper.items.clearRetainingCapacity();
         lower.items.clearRetainingCapacity();
         for (group.items) |gi| {
-            const bb = s.busbars[gi];
+            const bb = s.rails[gi];
             for (bb.taps) |tp| {
                 upper.add(alloc, upperOf(bb, tp)) catch {
                     c.u_audit_oom += 1;

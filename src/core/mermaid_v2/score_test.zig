@@ -261,7 +261,7 @@ test "dead_space does not double-count cluster frames vs member nodes" {
     try t.expectEqual(@as(u64, 50 - 12), try deadSpace(a, bare));
 }
 
-test "bus-bar bends: trunk junction counted once, one turn per off-column tap" {
+test "rail bends: trunk junction counted once, one turn per off-column tap" {
     // Stem straight (no interior flips) from pivot (0,0) down to the
     // junction (0,5); rail runs horizontally from the junction out to
     // (10,5) — a real stem→rail turn (vertical→horizontal). Three taps:
@@ -276,7 +276,7 @@ test "bus-bar bends: trunk junction counted once, one turn per off-column tap" {
         .{ .edge = 1, .node = 11, .at = .{ .x = 5, .y = 5 }, .landing = .{ .x = 5, .y = 8 } }, // off-column
         .{ .edge = 2, .node = 12, .at = .{ .x = 10, .y = 5 }, .landing = .{ .x = 10, .y = 8 } }, // off-column
     };
-    const busbars = [_]sketch.Rail{.{
+    const rails = [_]sketch.Rail{.{
         .pivot = 0,
         .stem = &stem,
         .crossbar = .{ .{ .x = 0, .y = 5 }, .{ .x = 10, .y = 5 } },
@@ -284,7 +284,7 @@ test "bus-bar bends: trunk junction counted once, one turn per off-column tap" {
         .kind = .solid,
     }};
     var s = testSketch(.{ .x = 0, .y = 0, .w = 11, .h = 9 }, &.{}, &.{}, &.{});
-    s.busbars = &busbars;
+    s.rails = &rails;
     // 0 (straight stem) + 1 (stem→rail junction turn) + 0 (on-column tap)
     // + 1 + 1 (two off-column taps) = 3. A per-peer-multiplied count would
     // instead land at 2 turns × 3 taps = 6 (or similar taps.len-scaled
@@ -292,8 +292,8 @@ test "bus-bar bends: trunk junction counted once, one turn per off-column tap" {
     try t.expectEqual(@as(u64, 3), bends(s));
 }
 
-test "bus-bar crossings: shared trunk registers once, never crosses itself" {
-    // A bus-bar with a rail spanning x=0..10 at y=5, plus a plain edge
+test "rail crossings: shared trunk registers once, never crosses itself" {
+    // A rail with a crossbar spanning x=0..10 at y=5, plus a plain edge
     // that runs vertically through x=3 across y=0..10. The edge's
     // vertical segment strictly crosses the rail exactly once. Two of the
     // three taps' drops also run vertically near that span (x=5, x=10)
@@ -308,7 +308,7 @@ test "bus-bar crossings: shared trunk registers once, never crosses itself" {
         .{ .edge = 1, .node = 11, .at = .{ .x = 5, .y = 5 }, .landing = .{ .x = 5, .y = 8 } },
         .{ .edge = 2, .node = 12, .at = .{ .x = 10, .y = 5 }, .landing = .{ .x = 10, .y = 8 } },
     };
-    const busbars = [_]sketch.Rail{.{
+    const rails = [_]sketch.Rail{.{
         .pivot = 0,
         .stem = &stem,
         .crossbar = .{ .{ .x = 0, .y = 5 }, .{ .x = 10, .y = 5 } },
@@ -318,13 +318,13 @@ test "bus-bar crossings: shared trunk registers once, never crosses itself" {
     const crossing_edge = [_]sketch.Point{ .{ .x = 3, .y = 0 }, .{ .x = 3, .y = 10 } };
     const edges = [_]sketch.EdgePath{testEdge(0, &crossing_edge)};
     var s = testSketch(.{ .x = 0, .y = 0, .w = 11, .h = 10 }, &.{}, &edges, &.{});
-    s.busbars = &busbars;
+    s.rails = &rails;
     try t.expectEqual(@as(u64, 1), countCrossings(s));
 
-    // A bus-bar alone (no other edges/busbars) never crosses itself, even
+    // A rail alone (no other edges/rails) never crosses itself, even
     // though its taps and rail share endpoints (excluded by strictCross).
     var solo = testSketch(.{ .x = 0, .y = 0, .w = 11, .h = 10 }, &.{}, &.{}, &.{});
-    solo.busbars = &busbars;
+    solo.rails = &rails;
     try t.expectEqual(@as(u64, 0), countCrossings(solo));
 }
 

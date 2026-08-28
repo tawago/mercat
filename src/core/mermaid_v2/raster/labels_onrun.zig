@@ -9,7 +9,7 @@
 //!   private ink. The interrupted cell must be an `edge_segment` carrying
 //!   this edge's id with a `fan_*_dropper` role and pure vertical
 //!   neighbour bits (never a rail/crossbar/trunk/junction cell), and no
-//!   OTHER edge's Sketch geometry (polyline, bus-bar stem/crossbar, or a
+//!   OTHER edge's Sketch geometry (polyline, rail stem/crossbar, or a
 //!   sibling tap's drop) may cover it. A reader must never wonder which
 //!   member of a shared run a label names.
 //!
@@ -122,7 +122,7 @@ fn tryVerticalEdge(
     return false;
 }
 
-/// Try the on-run candidate for a bus-bar tap: the run is the tap's own
+/// Try the on-run candidate for a rail tap: the run is the tap's own
 /// drop, `tap.at` (crossbar cell, shared — never interruptible) exclusive
 /// to `tap.landing` (node border) exclusive.
 pub fn tryOnRunTap(
@@ -282,8 +282,8 @@ fn runFlankCell(lat: *const lattice.Lattice, edge_id: u32, x: i32, y: i32) bool 
 }
 
 /// RULE A cross-check against the Sketch: true iff any OTHER edge's
-/// geometry covers (x, y) — another EdgePath's polyline, or any bus-bar's
-/// stem, crossbar, or a DIFFERENT tap's drop. The bus-bar shared run is
+/// geometry covers (x, y) — another EdgePath's polyline, or any rail's
+/// stem, crossbar, or a DIFFERENT tap's drop. The rail's shared run is
 /// shared even for its own members, so it is never exempt.
 pub fn coveredByOther(s: sketch.Sketch, edge_id: u32, x: i32, y: i32) bool {
     for (s.edges) |other| {
@@ -293,7 +293,7 @@ pub fn coveredByOther(s: sketch.Sketch, edge_id: u32, x: i32, y: i32) bool {
             if (onSeg(p, other.polyline[i + 1], x, y)) return true;
         }
     }
-    for (s.busbars) |bb| {
+    for (s.rails) |bb| {
         for (bb.stem[0 .. bb.stem.len - 1], 0..) |p, i| {
             if (onSeg(p, bb.stem[i + 1], x, y)) return true;
         }

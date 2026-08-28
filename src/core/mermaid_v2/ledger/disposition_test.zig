@@ -70,8 +70,8 @@ fn fusedBothSides(a: std.mem.Allocator, plan: pb.JoinPermits, s: sk.Sketch, fo_p
     const fo_members = plan.groups[jp.groupIndexById(plan.groups, fo).?].members;
     const fi_members = plan.groups[jp.groupIndexById(plan.groups, fi).?].members;
     const proposals = try a.alloc(pb.JoinProposal, 2);
-    proposals[0] = .{ .id = 0, .permission_group = fo, .members = fo_members, .candidate_geometry = .{ .busbar = 0 } };
-    proposals[1] = .{ .id = 1, .permission_group = fi, .members = fi_members, .candidate_geometry = .{ .busbar = 1 } };
+    proposals[0] = .{ .id = 0, .permission_group = fo, .members = fo_members, .candidate_geometry = .{ .rail = 0 } };
+    proposals[1] = .{ .id = 1, .permission_group = fi, .members = fi_members, .candidate_geometry = .{ .rail = 1 } };
     const joins = try a.alloc(pb.SelectedJoin, 2);
     joins[0] = .{ .id = 0, .proposal = 0, .permission_group = fo, .members = fo_members };
     joins[1] = .{ .id = 1, .proposal = 1, .permission_group = fi, .members = fi_members };
@@ -247,7 +247,7 @@ test "V-D-DISPOSITION-06: terminal fallback is built by the selection tail, mark
 
         // All-independent, invariant-valid against the REAL permits, and renders.
         try expectEqual(@as(usize, 0), result.sketch.joins.selected_joins.len);
-        try expectEqual(@as(usize, 0), result.sketch.busbars.len);
+        try expectEqual(@as(usize, 0), result.sketch.rails.len);
         try expect(result.sketch.joins.memberships.len > 0);
         try expect((try jpv.validate(a, plan, result.sketch.joins, &.{})).valid());
         const rendered = try raster.rasterize(a, result.sketch, .bridge);

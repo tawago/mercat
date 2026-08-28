@@ -47,7 +47,7 @@ fn render(a: std.mem.Allocator, source: []const u8, width: u32) !Rendered {
 ///
 /// The fan-IN, the fan declined for mixed stroke kinds and the one wide
 /// enough to wrap into a grid at w=60 are here because the membership
-/// records for those come from the edge walk instead of the bus-bar
+/// records for those come from the edge walk instead of the rail
 /// rasterizer, and a corpus of rails alone would leave that writer
 /// unexercised. The last entry also stresses the construction gate: its
 /// incompatible peers must remain private rather than share incidentally.
@@ -171,7 +171,7 @@ fn ownerExists(s: sketch.Sketch, owner: cell.LabelOwner) bool {
         },
         .edge => {
             for (s.edges) |ep| if (ep.id == owner.id) return true;
-            for (s.busbars) |bb| for (bb.taps) |tap| {
+            for (s.rails) |bb| for (bb.taps) |tap| {
                 if (tap.edge == owner.id) return true;
             };
         },
@@ -308,15 +308,15 @@ test "every rail-membership record names an edge the fan actually serves" {
         }
     };
     // Both producers must actually be exercised, or this test would pass by
-    // checking nothing: the bus-bar rasterizer files for first-class rails,
+    // checking nothing: the rail rasterizer files for first-class rails,
     // the edge walk for the peer-drawn fans (declined and grid-wrapped).
     try testing.expect(rail_members > 0);
     try testing.expect(peer_members > 0);
 }
 
-/// True when `edge` is a tap of a bus-bar rail of `polarity`.
+/// True when `edge` is a tap of a rail of `polarity`.
 fn railTap(s: sketch.Sketch, edge: u32, polarity: lattice.RailPolarity) bool {
-    for (s.busbars) |bb| {
+    for (s.rails) |bb| {
         const fan_in = bb.role == .fan_in_rail or bb.role == .fan_in_dropper;
         if ((polarity == .in) != fan_in) continue;
         for (bb.taps) |tap| if (tap.edge == edge) return true;
@@ -340,7 +340,7 @@ fn fanPeer(s: sketch.Sketch, edge: u32, polarity: lattice.RailPolarity) bool {
 
 fn finalCarrier(s: sketch.Sketch, id: u32) bool {
     for (s.edges) |edge| if (edge.id == id) return true;
-    for (s.busbars) |rail| for (rail.taps) |tap| if (tap.edge == id) return true;
+    for (s.rails) |rail| for (rail.taps) |tap| if (tap.edge == id) return true;
     return false;
 }
 
@@ -369,7 +369,7 @@ test "AUX and RailClaim metadata preserve production cells and audit counts" {
             const removed = try raster.rasterize(a, no_claims, .bridge);
             try testing.expectEqualSlices(lattice.Cell, on.lattice.cells, removed.lattice.cells);
             if (on_counts.c_rail_star_valid == on_counts.n_rail_claims) {
-                if (winner.sketch.busbars.len == 0) peer_claims = true else first_class_claims = true;
+                if (winner.sketch.rails.len == 0) peer_claims = true else first_class_claims = true;
             }
             if (graph.clusters.len != 0) {
                 for (on.lattice.rail_claims) |claim| for (claim.members) |member| try testing.expect(finalCarrier(winner.sketch, member.edge));
@@ -399,7 +399,7 @@ test "a peer-drawn rail role and its membership record are one event" {
             var x: u32 = 0;
             while (x < lat.width) : (x += 1) {
                 // A first-class rail writes both role and geometry itself;
-                // its cells are the bus-bar rasterizer's, not the walk's.
+                // its cells are the rail rasterizer's, not the walk's.
                 if (onOwnedRail(r.sketch, x, y)) continue;
                 const c = lat.atConst(x, y).*;
                 const stamped = railFamilyAt(lat, x, y);
@@ -432,7 +432,7 @@ test "a peer-drawn rail role and its membership record are one event" {
 
 /// The two — and only two — low-level reasons `fan_roles.markShared` files a
 /// `.rail_member` record and then declines to stamp the family's rail role:
-/// (1) the occupant carries NO role at all (an `.arrowhead`; the bus-bar
+/// (1) the occupant carries NO role at all (an `.arrowhead`; the rail
 /// rasterizer records on those for the same reason), or (2) the cell's role
 /// belongs to the OTHER family — two families met on one cell and a Cell
 /// holds exactly one role, so the record is the only place the second
@@ -480,7 +480,7 @@ fn recordedFamilyAt(lat: lattice.Lattice, x: u32, y: u32) ?lattice.RailPolarity 
 fn onOwnedRail(s: sketch.Sketch, x: u32, y: u32) bool {
     const px: i32 = @intCast(x);
     const py: i32 = @intCast(y);
-    for (s.busbars) |bb| {
+    for (s.rails) |bb| {
         if (py == bb.crossbar[0].y and px >= bb.crossbar[0].x and px <= bb.crossbar[1].x) return true;
         var i: usize = 0;
         while (i + 1 < bb.stem.len) : (i += 1) {

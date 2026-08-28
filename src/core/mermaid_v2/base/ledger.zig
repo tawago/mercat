@@ -98,8 +98,8 @@ pub const MembershipDisposition = union(enum) {
 /// an index, never a coordinate; geometry derives from the owning Sketch
 /// at consumption time.
 pub const CandidateGeometryRef = union(enum) {
-    /// Index into the candidate Sketch's `busbars`.
-    busbar: u32,
+    /// Index into the candidate Sketch's `rails`.
+    rail: u32,
     /// Index into the candidate Sketch's `edges`.
     edge_path: u32,
 };
@@ -189,7 +189,7 @@ pub const RealizedJoins = struct {
     /// of selected same-direction trunks whose declared pairs are EXACTLY
     /// srcs x tgts with every member blocking the leaf-to-leaf trace (the
     /// closure test of base/rail_closure.zig, asked of the whole union). Such
-    /// trunks may share one bus row and their ink is ONE channel; anything
+    /// trunks may share one rail row and their ink is ONE channel; anything
     /// short of complete never appears here.
     /// guarded-by: join_commit_test.zig "a complete bipartite of selected arrivals licenses one fused union"
     fused: []const []const EdgeId = &.{},
@@ -319,7 +319,7 @@ pub fn coSetsFromPlan(
 ) error{OutOfMemory}![]const CoSet {
     if (joins.selected_joins.len == 0) return &.{};
     var out: std.ArrayListUnmanaged(CoSet) = .empty;
-    // A fused union replaces its trunks' per-join sets: the bus is ONE
+    // A fused union replaces its trunks' per-join sets: the rail is ONE
     // channel, and a member named by two structural sets is no channel at all
     // (`resolveStructuralSet` reads that as .multiple).
     for (joins.fused) |u| try out.append(allocator, .{ .origin = .selected_join, .members = u });

@@ -52,7 +52,7 @@ fn samePort(a: sk.Port, b: sk.Port) bool {
 
 fn declaredGeometry(s: sk.Sketch) usize {
     var n = s.edges.len;
-    for (s.busbars) |rail| n += rail.taps.len;
+    for (s.rails) |rail| n += rail.taps.len;
     return n;
 }
 

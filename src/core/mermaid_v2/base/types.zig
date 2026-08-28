@@ -108,7 +108,7 @@ pub const EdgeRole = enum {
     /// A cell of a fan-OUT's SHARED run: the pivot stem, the WHOLE
     /// crossbar span, and every tap cell sitting on it — all the ink two
     /// or more sibling edges have in common, not merely the stem/crossbar
-    /// intersection. Bus-bars stamp it directly; on the per-peer fan path
+    /// intersection. Rails stamp it directly; on the per-peer fan path
     /// the post-walk pass upgrades the shared cells it detects. Painter
     /// strips the junction to `┴`/`┬`/`├`/`┤` (nothing continues past the
     /// crossbar).

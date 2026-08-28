@@ -23,7 +23,7 @@ const lattice = @import("../lattice.zig");
 
 /// Glyph for one arrowhead cell. `.none` never reaches an arrowhead cell:
 /// the raster stage writes arrowheads only behind `arrow != .none` guards
-/// (raster/edges.zig, raster/busbars.zig).
+/// (raster/edges.zig, raster/rails.zig).
 pub fn glyphFor(kind: lattice.ArrowKind, dir: lattice.Dir4) u21 {
     return switch (kind) {
         .none => unreachable, // raster never emits an arrowhead cell for .none

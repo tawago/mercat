@@ -177,8 +177,8 @@ pub fn checkPathInteriors(
     }
 }
 
-/// Bus-bar invariants. The trunk is deliberately EXEMPT from the
-/// node-perimeter endpoint rule (its rail ends float in the inter-layer
+/// Rail invariants. The trunk is deliberately EXEMPT from the
+/// node-perimeter endpoint rule (its crossbar ends float in the inter-layer
 /// gap); instead:
 ///   - the stem must be non-degenerate (>= 2 points) and START on the
 ///     pivot node's perimeter (counted as path_off_perimeter);
@@ -194,20 +194,20 @@ pub fn checkRails(
     s: sketch.Sketch,
     violations: *std.ArrayList(Violation),
 ) !void {
-    for (s.busbars) |bb| {
+    for (s.rails) |bb| {
         if (bb.stem.len < 2) {
-            try emit(allocator, violations, .path_off_perimeter, "busbar of node {d} has degenerate stem (len={d})", .{ bb.pivot, bb.stem.len });
+            try emit(allocator, violations, .path_off_perimeter, "rail of node {d} has degenerate stem (len={d})", .{ bb.pivot, bb.stem.len });
             continue;
         }
         if (findNode(s, bb.pivot)) |pivot| {
             if (!onPerimeter(pivot.rect, bb.stem[0])) {
-                try emit(allocator, violations, .path_off_perimeter, "busbar stem start ({d},{d}) not on perimeter of pivot {d}", .{ bb.stem[0].x, bb.stem[0].y, bb.pivot });
+                try emit(allocator, violations, .path_off_perimeter, "rail stem start ({d},{d}) not on perimeter of pivot {d}", .{ bb.stem[0].x, bb.stem[0].y, bb.pivot });
             }
         }
         for (bb.taps) |tap| {
             const node = findNode(s, tap.node) orelse continue;
             if (!onPerimeter(node.rect, tap.landing)) {
-                try emit(allocator, violations, .path_off_perimeter, "busbar tap for edge {d} lands at ({d},{d}) off perimeter of node {d}", .{ tap.edge, tap.landing.x, tap.landing.y, tap.node });
+                try emit(allocator, violations, .path_off_perimeter, "rail tap for edge {d} lands at ({d},{d}) off perimeter of node {d}", .{ tap.edge, tap.landing.x, tap.landing.y, tap.node });
             }
         }
         for (s.nodes) |node| {
@@ -215,16 +215,16 @@ pub fn checkRails(
             while (si + 1 < bb.stem.len) : (si += 1) {
                 if (si == 0 and node.id == bb.pivot) continue;
                 if (segmentCrossesInterior(bb.stem[si], bb.stem[si + 1], node.rect)) {
-                    try emit(allocator, violations, .path_through_interior, "busbar stem segment ({d},{d})->({d},{d}) crosses interior of node {d}", .{ bb.stem[si].x, bb.stem[si].y, bb.stem[si + 1].x, bb.stem[si + 1].y, node.id });
+                    try emit(allocator, violations, .path_through_interior, "rail stem segment ({d},{d})->({d},{d}) crosses interior of node {d}", .{ bb.stem[si].x, bb.stem[si].y, bb.stem[si + 1].x, bb.stem[si + 1].y, node.id });
                 }
             }
             if (segmentCrossesInterior(bb.crossbar[0], bb.crossbar[1], node.rect)) {
-                try emit(allocator, violations, .path_through_interior, "busbar rail ({d},{d})->({d},{d}) crosses interior of node {d}", .{ bb.crossbar[0].x, bb.crossbar[0].y, bb.crossbar[1].x, bb.crossbar[1].y, node.id });
+                try emit(allocator, violations, .path_through_interior, "rail crossbar ({d},{d})->({d},{d}) crosses interior of node {d}", .{ bb.crossbar[0].x, bb.crossbar[0].y, bb.crossbar[1].x, bb.crossbar[1].y, node.id });
             }
             for (bb.taps) |tap| {
                 if (node.id == tap.node) continue;
                 if (segmentCrossesInterior(tap.at, tap.landing, node.rect)) {
-                    try emit(allocator, violations, .path_through_interior, "busbar tap for edge {d} ({d},{d})->({d},{d}) crosses interior of node {d}", .{ tap.edge, tap.at.x, tap.at.y, tap.landing.x, tap.landing.y, node.id });
+                    try emit(allocator, violations, .path_through_interior, "rail tap for edge {d} ({d},{d})->({d},{d}) crosses interior of node {d}", .{ tap.edge, tap.at.x, tap.at.y, tap.landing.x, tap.landing.y, node.id });
                 }
             }
         }

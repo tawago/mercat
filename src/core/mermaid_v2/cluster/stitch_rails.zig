@@ -110,7 +110,7 @@ fn droppedEnds(sr: split_mod.SplitResult, outer: sketch.Sketch, edge: sketch.Edg
         if (path.id != edge) continue;
         return .{ isSuper(sr, path.from), isSuper(sr, path.to) };
     }
-    for (outer.busbars) |rail| {
+    for (outer.rails) |rail| {
         for (rail.taps) |tap| {
             if (tap.edge != edge) continue;
             const fan_in = rail.role == .fan_in_dropper or rail.role == .fan_in_rail;

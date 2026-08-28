@@ -127,7 +127,7 @@ pub fn stitch(
     var nodes: std.ArrayListUnmanaged(sketch.NodePlacement) = .empty;
     var clusters: std.ArrayListUnmanaged(sketch.ClusterFrame) = .empty;
     var edges: std.ArrayListUnmanaged(sketch.EdgePath) = .empty;
-    var busbars: std.ArrayListUnmanaged(sketch.Rail) = .empty;
+    var rails: std.ArrayListUnmanaged(sketch.Rail) = .empty;
     var co_sets: std.ArrayListUnmanaged(ledger.CoSet) = .empty;
     var piece_joins: std.ArrayListUnmanaged(stitch_joins.PieceJoins) = .empty;
     const claim_sources = try arena.alloc(stitch_rails.ChildSource, split_result.supers.len);
@@ -253,7 +253,7 @@ pub fn stitch(
         const sp = placementOf(outer.nodes, super.outer_node);
         const pad = superPad(scale, super.synthetic);
         // Same entry-side inset as the node-translate site, so child edges/
-        // busbars stay aligned with their (offset) child nodes.
+        // rails stay aligned with their (offset) child nodes.
         const ei = insets[si];
         const dx = sp.rect.x + @as(i32, @intCast(pad.x)) + ei.dxExtra();
         const dy = sp.rect.y + @as(i32, @intCast(pad.y)) + ei.dyExtra();
@@ -264,9 +264,9 @@ pub fn stitch(
         for (child.sketch.edges) |ce| {
             try edges.append(arena, try translateEdge(arena, ce, global_of[super.child_piece], dx, dy, base));
         }
-        for (child.sketch.busbars) |cb| {
+        for (child.sketch.rails) |cb| {
             if (try translateRail(arena, cb, global_of[super.child_piece], dx, dy, base)) |tb| {
-                try busbars.append(arena, tb);
+                try rails.append(arena, tb);
             }
         }
         for (child.sketch.co_sets) |cs| {
@@ -284,11 +284,11 @@ pub fn stitch(
         if (superFor(split_result, oe.from) != null or superFor(split_result, oe.to) != null) continue;
         try edges.append(arena, try translateEdge(arena, oe, global_of[0], 0, 0, outer_base));
     }
-    // --- Outer bus-bars. Same rule per member edge: a tap onto a
+    // --- Outer rails. Same rule per member edge: a tap onto a
     //     super-node is placement-only (its edge re-routes as a bridge);
-    //     a bus-bar whose pivot is a super-node drops entirely. Surviving
+    //     a rail whose pivot is a super-node drops entirely. Surviving
     //     taps keep the trunk; a trunk left with zero taps drops too. ---
-    for (outer.busbars) |ob| {
+    for (outer.rails) |ob| {
         if (superFor(split_result, ob.pivot) != null) continue;
         var kept: std.ArrayListUnmanaged(sketch.Tap) = .empty;
         for (ob.taps) |tap| {
@@ -298,7 +298,7 @@ pub fn stitch(
         if (kept.items.len == 0) continue;
         var filtered = ob;
         filtered.taps = try kept.toOwnedSlice(arena);
-        // Re-clamp the rail to the surviving taps + junction. // guarded-by: recurse_test.zig "stitch re-clamps a surviving bus-bar's rail past a dropped super-node tap"
+        // Re-clamp the crossbar to the surviving taps + junction. // guarded-by: recurse_test.zig "stitch re-clamps a surviving rail's crossbar past a dropped super-node tap"
         const junction = ob.stem[ob.stem.len - 1];
         var min_x: i32 = junction.x;
         var max_x: i32 = junction.x;
@@ -311,7 +311,7 @@ pub fn stitch(
             .{ .x = max_x, .y = ob.crossbar[1].y },
         };
         if (try translateRail(arena, filtered, global_of[0], 0, 0, outer_base)) |tb| {
-            try busbars.append(arena, tb);
+            try rails.append(arena, tb);
         }
     }
 
@@ -321,7 +321,7 @@ pub fn stitch(
     const cluster_slice = try clusters.toOwnedSlice(arena);
     const bridge_base = id_base;
     const bridge_start = edges.items.len;
-    const bridge_edges = try bridges.route(arena, split_result.crossings, node_slice, cluster_slice, busbars.items, edges.items, outer.direction, orig_to_merged);
+    const bridge_edges = try bridges.route(arena, split_result.crossings, node_slice, cluster_slice, rails.items, edges.items, outer.direction, orig_to_merged);
     // Bridges carry crossing ids, themselves renumbered from 0 by `split.zig`:
     // they take the last id window.
     for (bridge_edges) |be| {
@@ -345,7 +345,7 @@ pub fn stitch(
     // A realized bridge trunk's sanction also enters the co-set roster, so
     // the recorded identity (channelAt) agrees with the plan's own answer.
     for (try ledger.coSetsFromPlan(arena, bridge_joins)) |cs| try co_sets.append(arena, cs);
-    const bar_slice = try busbars.toOwnedSlice(arena);
+    const bar_slice = try rails.toOwnedSlice(arena);
     const authority = try stitch_cosets.finalizeAuthority(
         arena,
         split_result,
@@ -367,7 +367,7 @@ pub fn stitch(
         .nodes = node_slice,
         .clusters = cluster_slice,
         .edges = edge_slice,
-        .busbars = bar_slice,
+        .rails = bar_slice,
         .rail_claims = authority.claims,
         .co_sets = authority.sets,
         // Piece records rewritten into merged id spaces (stitch_joins.zig):
@@ -435,7 +435,7 @@ fn idSpan(s: sketch.Sketch) sketch.EdgeId {
         }
     }.f;
     for (s.edges) |e| bump(&max_id, e.id);
-    for (s.busbars) |b| for (b.taps) |t| bump(&max_id, t.edge);
+    for (s.rails) |b| for (b.taps) |t| bump(&max_id, t.edge);
     for (s.co_sets) |cs| for (cs.members) |m| bump(&max_id, m);
     for (s.rail_claims) |claim| for (claim.members) |m| bump(&max_id, m.edge);
     return if (max_id) |m| m + 1 else 0;
@@ -468,7 +468,7 @@ fn translateEdge(
     };
 }
 
-/// Copy a bus-bar with node ids remapped through `gmap` and all geometry
+/// Copy a rail with node ids remapped through `gmap` and all geometry
 /// translated by (dx, dy). Returns null when any referenced node maps to
 /// SENTINEL (defensive; callers filter super-node members beforehand).
 fn translateRail(

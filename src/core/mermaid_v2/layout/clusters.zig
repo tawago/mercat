@@ -162,10 +162,10 @@ pub fn computeBbox(
     edges: []sketch.EdgePath,
     clusters: []sketch.ClusterFrame,
     polylines: [][]sketch.Point,
-    /// Fan bus-bars, each carrying its mutable tap view so the shift
-    /// pass can translate rail + tap points in place. Stems are already
+    /// Fan rails, each carrying its mutable tap view so the shift
+    /// pass can translate crossbar + tap points in place. Stems are already
     /// registered in `polylines`.
-    busbars: []fan_rail.Built,
+    rails: []fan_rail.Built,
     /// True on every rung above `natural` (spacing_scale > 0). Arms the
     /// back-edge return-run width lever (see prim.edgeLabelAnchor): a back-edge
     /// label is relocated LEFT of its own vertical run ONLY when its default
@@ -213,9 +213,9 @@ pub fn computeBbox(
             if (fp.ly + 1 > max_y) max_y = fp.ly + 1;
         }
     }
-    // Bus-bar geometry + tap labels (non-relocatable, part of pass 1's extent); each tap label's anchor is reserved via the same shared segment (`Rail.tapLabelSeg`) raster/labels paints. // guarded-by: layout/clusters_test.zig "computeBbox: bus-bar tap label reservation matches Rail.tapLabelSeg + prim.edgeLabelAnchor"
-    for (busbars) |b| {
-        const bb = b.busbar;
+    // Rail geometry + tap labels (non-relocatable, part of pass 1's extent); each tap label's anchor is reserved via the same shared segment (`Rail.tapLabelSeg`) raster/labels paints. // guarded-by: layout/clusters_test.zig "computeBbox: rail tap label reservation matches Rail.tapLabelSeg + prim.edgeLabelAnchor"
+    for (rails) |b| {
+        const bb = b.rail;
         for (bb.stem) |pt| extendPoint(&min_x, &min_y, &max_x, &max_y, pt);
         extendPoint(&min_x, &min_y, &max_x, &max_y, bb.crossbar[0]);
         extendPoint(&min_x, &min_y, &max_x, &max_y, bb.crossbar[1]);
@@ -252,7 +252,7 @@ pub fn computeBbox(
     const dx: i32 = -min_x;
     const dy: i32 = -min_y;
     if (dx != 0 or dy != 0) {
-        shiftAll(placements, edges, clusters, polylines, busbars, dx, dy);
+        shiftAll(placements, edges, clusters, polylines, rails, dx, dy);
     }
 
     return .{
@@ -268,7 +268,7 @@ fn shiftAll(
     edges: []sketch.EdgePath,
     clusters: []sketch.ClusterFrame,
     polylines: [][]sketch.Point,
-    busbars: []fan_rail.Built,
+    rails: []fan_rail.Built,
     dx: i32,
     dy: i32,
 ) void {
@@ -287,9 +287,9 @@ fn shiftAll(
             pt.y += dy;
         }
     }
-    // Stems live in `polylines` (shifted above); taps shift via the Built's mutable view, which aliases the memory `busbar.taps` reads. // guarded-by: layout/clusters_test.zig "computeBbox: the shift pass updates both the Built.taps view and the aliased Rail.taps slice"
-    for (busbars) |*b| {
-        for (&b.busbar.crossbar) |*pt| {
+    // Stems live in `polylines` (shifted above); taps shift via the Built's mutable view, which aliases the memory `rail.taps` reads. // guarded-by: layout/clusters_test.zig "computeBbox: the shift pass updates both the Built.taps view and the aliased Rail.taps slice"
+    for (rails) |*b| {
+        for (&b.rail.crossbar) |*pt| {
             pt.x += dx;
             pt.y += dy;
         }

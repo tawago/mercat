@@ -70,7 +70,7 @@ test "rails: a clustered complete bipartite renders exactly as its flat form" {
     // Cluster unification: the subgraph piece realizes the same piece plan a
     // flat graph would, so the graph inside a frame and the graph without one
     // produce one and the same rail story — the two arrivals fused onto ONE
-    // bus row, licensed because the directed declared set is exactly
+    // rail row, licensed because the directed declared set is exactly
     // srcs x tgts (the two-sided fusion licence; every pair accounted).
     var arena = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena.deinit();

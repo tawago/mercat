@@ -224,7 +224,7 @@ test "an arrowhead landing on a foreign arrowhead files a foreign carrier" {
 
 test "writeEdgeCell files NO carrier on an unowned cell, whatever licence it is handed" {
     // THE INERTNESS THE PLACEHOLDER LICENCES REST ON. Two producers hand
-    // this writer a licence they cannot compute — `busbars.licenceAt`'s
+    // this writer a licence they cannot compute — `rails.licenceAt`'s
     // `else` arm (the cell names nobody) and `edges_port.zig`'s gap-cell
     // write — and both pass `.merged_untested` with a comment saying the
     // value cannot matter because the arm files no carrier at all.

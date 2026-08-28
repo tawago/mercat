@@ -93,7 +93,7 @@ pub const table = [_]Row{
     },
     .{
         .token = "BusBar",
-        .why = "the first-class fan trunk type is sketch.Rail, and its horizontal span is the `crossbar` field; the whole camelCase family went with it (rasterizeRails, drawRail, translateRail, conflictsRails/RailArrows/RailJunctions, railDirection, checkRails). The lowercase raster/busbars.zig filename and its local `busbars` names are deliberately unaffected — this row is case-sensitive",
+        .why = "the first-class fan trunk type is sketch.Rail, and its horizontal span is the `crossbar` field; the whole camelCase family went with it (rasterizeRails, drawRail, translateRail, conflictsRails/RailArrows/RailJunctions, railDirection, checkRails), and the lowercase family followed (raster/rails.zig, Sketch.rails)",
     },
     .{
         .token = "fan_busbar",
@@ -305,12 +305,12 @@ test "banned token: a reverted fan-role spelling fires on both families" {
     // The fan roles were swapped in place (the old shared-run spelling now
     // names the per-child leg), so a half-reverted file is silently wrong
     // rather than a compile error: only these two tombstones catch it.
-    var out_hit = try collect(a, "raster/busbars.zig", "role = .fan_out_trunk;\n", &table);
+    var out_hit = try collect(a, "raster/rails.zig", "role = .fan_out_trunk;\n", &table);
     defer out_hit.deinit(a);
     try testing.expectEqual(@as(usize, 1), out_hit.list.items.len);
     try testing.expect(std.mem.indexOf(u8, out_hit.list.items[0], "fan_out_dropper") != null);
 
-    var in_hit = try collect(a, "raster/busbars.zig", "role = .fan_in_trunk;\n", &table);
+    var in_hit = try collect(a, "raster/rails.zig", "role = .fan_in_trunk;\n", &table);
     defer in_hit.deinit(a);
     try testing.expectEqual(@as(usize, 1), in_hit.list.items.len);
     try testing.expect(std.mem.indexOf(u8, in_hit.list.items[0], "fan_in_dropper") != null);

@@ -262,7 +262,7 @@ test "fusion: a junction beside a foreign run is a crossing, not a fusion" {
     try testing.expectEqual(@as(u32, 0), c.d_run_fused_collinear);
 }
 
-test "fusion: a bus-bar rail above its tap's dropper is not a fusion" {
+test "fusion: a rail's crossbar above its tap's dropper is not a fusion" {
     // The rail cell carries only the drop arm on the shared axis, so the
     // "both cells run straight through" gate excludes the pair — which is
     // what keeps the trunk's shared id from reading as a defect.

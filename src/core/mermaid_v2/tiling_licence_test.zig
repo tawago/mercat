@@ -231,7 +231,7 @@ test "licence: the two-rail K(2,2) is the smallest render that fabricates" {
     // over each other's tap legs, both fused pairs foreign. The two-sided
     // fusion licence changed the verdict, not the detector: the DIRECTED
     // complete K(2,2) declares exactly srcs x tgts with one-way heads, so
-    // the plan records one fused union, the two arrivals share one bus row,
+    // the plan records one fused union, the two arrivals share one rail row,
     // and every fused meeting on it is LICENSED — no defect. Drop one head
     // (see the arrow-free complement above) or one edge and the licence
     // lapses, which the incomplete-bipartite pins elsewhere hold.

@@ -190,7 +190,7 @@ pub const AuxKind = enum(u8) {
     /// `cell` that the Cell attributes to someone else, with the member's
     /// fan polarity in `detail` (a `RailPolarity`). A shared fan run is one
     /// stroke several edges ride; the Cell holds ONE edge id and ONE role,
-    /// so it can name at most one rider. Filed by `raster/busbars.zig` for
+    /// so it can name at most one rider. Filed by `raster/rails.zig` for
     /// a first-class rail — where the members have no `EdgePath` at all, so
     /// these records are their only trace on the grid — and by the fan
     /// polyline walk in `raster/edges.zig` for peer-drawn fans, where the
@@ -202,7 +202,7 @@ pub const AuxKind = enum(u8) {
     /// same fact as `.rail_member`, which says a member's ink passes
     /// THROUGH: the mask at a branch cell grows a dropper arm, but no Cell
     /// field says whose it is, nor which of the riders turns off here.
-    /// Filed by `raster/busbars.zig` only — see its header for the peer-fan
+    /// Filed by `raster/rails.zig` only — see its header for the peer-fan
     /// gap.
     tap,
     /// A frame intrusion: the edge named by `value` met a subgraph frame

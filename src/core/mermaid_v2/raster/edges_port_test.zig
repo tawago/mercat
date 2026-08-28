@@ -283,7 +283,7 @@ test "a decorated arrival whose head is DETACHED still tees the wall" {
     //
     // The polyline walk now SLIDES such a head onto the gap (see
     // `edges_slide_test.zig`), so what this pins is the writer's own rule
-    // for every head it is still handed detached — a bus-bar stub, or a
+    // for every head it is still handed detached — a rail stub, or a
     // slide the geometry refused. Non-facing head → tee, unchanged.
     const a = testing.allocator;
     // Border on the east face at (2,1); the run travels east and stops at

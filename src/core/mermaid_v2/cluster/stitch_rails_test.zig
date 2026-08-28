@@ -73,7 +73,7 @@ test "stitch rails: child claims deep-remap first-class and peer-drawn carriers 
         .{ .edge = 1, .node = 2, .at = .{ .x = 1, .y = 0 }, .landing = .{ .x = 1, .y = 1 } },
     };
     var first = emptySketch();
-    first.busbars = &.{.{
+    first.rails = &.{.{
         .pivot = 0,
         .stem = &.{ .{ .x = 0, .y = 0 }, .{ .x = 0, .y = 1 } },
         .crossbar = .{ .{ .x = 0, .y = 1 }, .{ .x = 1, .y = 1 } },

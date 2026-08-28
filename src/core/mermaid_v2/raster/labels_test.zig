@@ -261,7 +261,7 @@ test "vertical edge label paints at the exact prim anchor for both rail sides" {
 // off-column and one on-column tap and checking the painted cells against
 // that shared formula pins both the rule (off-column -> junction..tap rail
 // stretch; on-column -> tap..landing drop) and the cross-stage agreement.
-test "bus-bar tap labels paint at the tapLabelSeg-predicted segment for off-column and on-column taps" {
+test "rail tap labels paint at the tapLabelSeg-predicted segment for off-column and on-column taps" {
     var arena = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
     const alloc = arena.allocator();
@@ -292,7 +292,7 @@ test "bus-bar tap labels paint at the tapLabelSeg-predicted segment for off-colu
     };
     const taps = [_]sketch.Tap{ off_col_tap, on_col_tap };
 
-    const busbar: sketch.Rail = .{
+    const rail: sketch.Rail = .{
         .pivot = 0,
         .stem = &stem,
         .crossbar = crossbar,
@@ -300,19 +300,19 @@ test "bus-bar tap labels paint at the tapLabelSeg-predicted segment for off-colu
         .kind = .solid,
     };
     var s = emptySketch(30, 15, .TD);
-    s.busbars = &[_]sketch.Rail{busbar};
+    s.rails = &[_]sketch.Rail{rail};
 
     const report = try labels.rasterizeLabels(alloc, &lat, s, null);
     try testing.expectEqual(@as(u32, 2), report.placed);
     try testing.expectEqual(@as(u32, 0), report.dropped);
 
-    const off_seg = busbar.tapLabelSeg(off_col_tap);
+    const off_seg = rail.tapLabelSeg(off_col_tap);
     const off_w = prim.displayWidth(off_col_tap.label.?);
     const off_anchor = prim.edgeLabelAnchor(off_seg[0].x, off_seg[0].y, off_seg[1].x, off_seg[1].y, off_w, .{});
     try testing.expectEqual(@as(u21, 'a'), cellChar(lat, @intCast(off_anchor.x), @intCast(off_anchor.y)));
     try testing.expectEqual(@as(u21, 'b'), cellChar(lat, @intCast(off_anchor.x + 1), @intCast(off_anchor.y)));
 
-    const on_seg = busbar.tapLabelSeg(on_col_tap);
+    const on_seg = rail.tapLabelSeg(on_col_tap);
     const on_w = prim.displayWidth(on_col_tap.label.?);
     const on_anchor = prim.edgeLabelAnchor(on_seg[0].x, on_seg[0].y, on_seg[1].x, on_seg[1].y, on_w, .{});
     try testing.expectEqual(@as(u21, 'c'), cellChar(lat, @intCast(on_anchor.x), @intCast(on_anchor.y)));

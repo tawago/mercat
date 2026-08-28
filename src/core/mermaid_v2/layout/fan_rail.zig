@@ -1,6 +1,6 @@
 //! First-class fan-RAIL construction for fan-OUT layouts: one `sketch.Rail`
 //! per eligible fan (stem + crossbar + one `Tap` per peer). Tapped edges get
-//! no `EdgePath` — `raster/busbars.zig` paints the shared run from the Rail's
+//! no `EdgePath` — `raster/rails.zig` paints the shared run from the Rail's
 //! explicit junction bits.
 //!
 //! SCOPE: single-row (`rows == 1`) TD-internal fan-OUT only; multi-row fans,
@@ -22,13 +22,13 @@ const port_plan = @import("port_plan.zig");
 /// Revert flag for the behavior-parity escape hatch: `false` restores the
 /// per-peer fan polylines (the old `fan.buildPolyline` path, which stays
 /// compiled for grid fans regardless). Not score-inert either way.
-pub const FAN_BUSBARS = true;
+pub const FAN_RAILS = true;
 
-/// One built bus-bar plus the MUTABLE views layout retains so
+/// One built rail plus the MUTABLE views layout retains so
 /// `clusters.computeBbox`'s shift pass can translate the geometry in
 /// place (same pattern as `routing.EdgesResult.polylines`).
 pub const Built = struct {
-    busbar: sketch.Rail,
+    rail: sketch.Rail,
     stem: []sketch.Point,
     taps: []sketch.Tap,
 };
@@ -49,7 +49,7 @@ pub const Resolved = struct {
     peers: []Peer,
 };
 
-/// Resolve `fan` for bus-bar routing, or null when it does not qualify
+/// Resolve `fan` for rail routing, or null when it does not qualify
 /// (see module docs). `dir` is the layout-internal direction (BT already
 /// canonicalized to TD upstream; LR/RL never detect fans today). Each
 /// peer's (edge, placement) is resolved exactly once, into `a` (arena).
@@ -62,15 +62,15 @@ pub fn resolve(
     joins: pb.RealizedJoins,
     allocated_ports: port_plan.Plan,
 ) error{OutOfMemory}!?Resolved {
-    if (!FAN_BUSBARS) return null;
+    if (!FAN_RAILS) return null;
     if (joins.memberships.len == 0 and fan.direction != .out) return null;
-    // A bus-bar is ONE crossbar on ONE row, so it can only speak for a fan
+    // A rail is ONE crossbar on ONE row, so it can only speak for a fan
     // whose members all belong on that row. When a lane pass has lifted a
     // member off the shared row — the incomplete-bipartite separation, or the
     // clustered closure law's refusal, which has no plan to express itself
     // through — rebuilding them as a single trunk would put back the very run
     // the lift took apart. The per-peer polyline path honours `peer.lane`.
-    // guarded-by: fan_rail_test.zig "a fan whose peers were lifted onto separate lanes builds no bus-bar"
+    // guarded-by: fan_rail_test.zig "a fan whose peers were lifted onto separate lanes builds no rail"
     for (fan.peers) |p| {
         if (p.lane != fan.peers[0].lane) return null;
     }
@@ -121,11 +121,11 @@ pub fn resolve(
     };
 }
 
-/// Build the bus-bar for a resolved fan: stem on the pivot column, rail at
+/// Build the rail for a resolved fan: stem on the pivot column, crossbar at
 /// `t_peri - 2 - rail_lift - lane`, one straight drop per peer. `lane` is the
 /// fan's `fan_lanes`-assigned rail row (0 = the classic shared row); a lifted
 /// lane keeps an incomplete-bipartite fan's rail off its neighbour's row so
-/// the two never fuse into a fabricating bus.
+/// the two never fuse into a fabricating rail.
 pub fn build(
     a: std.mem.Allocator,
     resolved: Resolved,
@@ -158,14 +158,14 @@ pub fn build(
     // guarded-by: fan_rail_test.zig "formal base approach: rail lifts one row when the gap admits it, holds at a gap of 2"
     const anchor: i32 = if (fan_in) pivot_p.rect.y else peer_line;
     const obstacle: i32 = if (fan_in) peer_line else pivot_p.rect.bottom() - 1;
-    // Labeled fan-OUT bus-bar: lift the rail two MORE rows (off=5, on top of
+    // Labeled fan-OUT rail: lift the crossbar two MORE rows (off=5, on top of
     // the base-approach off=3) so each tap's private dropper is 4 cells —
     // flank, on-run label row, flank, arrowhead — the DECORATED sandwich
     // raster/labels_onrun.zig places over. Uses the gap rows
     // fan.extraRowsPerGap reserved for labeled fans; when a tighter rung
     // shrank the gap below what the lift needs, fall back down the existing
     // ladder of offsets (the label then takes the ordinary side ladder).
-    // guarded-by: fan_rail_test.zig "labeled fan-OUT bus-bar lifts the rail for a 4-cell dropper when the gap admits it"
+    // guarded-by: fan_rail_test.zig "labeled fan-OUT rail lifts the crossbar for a 4-cell dropper when the gap admits it"
     var labeled = false;
     for (resolved.peers) |p| {
         if (p.edge.label) |lbl| {
@@ -200,7 +200,7 @@ pub fn build(
     }
 
     return .{
-        .busbar = .{
+        .rail = .{
             .pivot = pivot_p.id,
             .stem = stem,
             .crossbar = .{ .{ .x = min_x, .y = rail_y }, .{ .x = max_x, .y = rail_y } },
@@ -215,7 +215,7 @@ pub fn build(
     };
 }
 
-/// Integrity gate on a BUILT bus-bar: true iff any of its straight runs
+/// Integrity gate on a BUILT rail: true iff any of its straight runs
 /// (stem, rail, or a vertical tap) touches a foreign box. Touch semantics:
 /// raster cell ownership includes borders, so border contact amputates the
 /// trunk even though no interior is pierced. Reads the artifact's own
@@ -226,10 +226,10 @@ pub fn blocked(
     pivot_id: sketch.NodeId,
     placements: []const sketch.NodePlacement,
 ) bool {
-    const stem_x = built.busbar.stem[0].x;
-    const fan_in = built.busbar.role == .fan_in_dropper or built.busbar.role == .fan_in_rail;
-    const stem_lo = if (fan_in) @min(built.busbar.stem[0].y, built.busbar.stem[1].y) + 1 else built.busbar.stem[0].y + 1;
-    const stem_hi = if (fan_in) @max(built.busbar.stem[0].y, built.busbar.stem[1].y) - 1 else built.busbar.stem[1].y;
+    const stem_x = built.rail.stem[0].x;
+    const fan_in = built.rail.role == .fan_in_dropper or built.rail.role == .fan_in_rail;
+    const stem_lo = if (fan_in) @min(built.rail.stem[0].y, built.rail.stem[1].y) + 1 else built.rail.stem[0].y + 1;
+    const stem_hi = if (fan_in) @max(built.rail.stem[0].y, built.rail.stem[1].y) - 1 else built.rail.stem[1].y;
     if (stem_lo <= stem_hi and sketch.columnTouchesAny(stem_x, stem_lo, stem_hi, placements, pivot_id, pivot_id)) return true;
     for (built.taps) |tap| {
         const lo = if (fan_in) @min(tap.at.y, tap.landing.y) + 1 else tap.at.y + 1;
@@ -238,7 +238,7 @@ pub fn blocked(
     }
     // Crossbar span (peers sit >= 2 rows below it, so only the pivot needs
     // excluding).
-    const crossbar = built.busbar.crossbar;
+    const crossbar = built.rail.crossbar;
     if (sketch.rowTouchesAny(crossbar[0].y, crossbar[0].x, crossbar[1].x, placements, pivot_id, pivot_id)) return true;
     return false;
 }

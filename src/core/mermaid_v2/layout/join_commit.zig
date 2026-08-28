@@ -175,9 +175,9 @@ pub fn buildReported(a: std.mem.Allocator, graph: sg.SemGraph, permits: ?*const 
 /// would chain two disjoint complete unions into one that refuses); the union
 /// is licensed iff every member edge carries its one-way head at the union's
 /// TARGET side (a head at the source stops a trace only in the direction a
-/// fused bus reads backwards), all members agree on stroke kind and head
+/// fused rail reads backwards), all members agree on stroke kind and head
 /// glyphs, and the distinct declared pairs are EXACTLY srcs x tgts with both
-/// sides plural — then the trunks' shared bus asserts only cross pairs the
+/// sides plural — then the trunks' shared rail asserts only cross pairs the
 /// source declares, and its ink is one channel. Keyed on the plan and the
 /// declared edges only.
 /// guarded-by: join_commit_test.zig "a complete bipartite of selected arrivals licenses one fused union"

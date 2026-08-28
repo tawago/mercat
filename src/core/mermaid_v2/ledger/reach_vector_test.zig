@@ -54,14 +54,14 @@ pub fn path(id: sk.EdgeId, from: sk.NodeId, to: sk.NodeId, polyline: []const sk.
     };
 }
 
-pub fn sketchOf(edges: []const sk.EdgePath, busbars: []const sk.Rail) sk.Sketch {
+pub fn sketchOf(edges: []const sk.EdgePath, rails: []const sk.Rail) sk.Sketch {
     return .{
         .bbox = .{ .x = 0, .y = 0, .w = 40, .h = 16 },
         .direction = .TD,
         .nodes = &.{},
         .clusters = &.{},
         .edges = edges,
-        .busbars = busbars,
+        .rails = rails,
         .diagnostics = &.{},
         .budget = .{ .max_width = 120, .rung = 0 },
     };
@@ -190,7 +190,7 @@ test "V-D-REACH-04(b) (vector): a complete K3,3 has no union channel — its mem
     // across all nine edges. Every member is its own owner: the collinear
     // sharing the geometry still carries is CROSS-owner and fires
     // reach_unknown_continuation, which is what routes the shape into star
-    // decomposition instead of one bus.
+    // decomposition instead of one rail.
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();

@@ -346,7 +346,7 @@ test "a rail member and path at one port with no common run license no merge" {
         .nodes = &.{},
         .clusters = &.{},
         .edges = &edges,
-        .busbars = &bars,
+        .rails = &bars,
         .co_sets = try sketch_ports.rebuildFinalPortShares(a, &structural, &edges, &bars),
         .diagnostics = &.{},
         .budget = .{ .max_width = 80, .rung = 0 },

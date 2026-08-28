@@ -236,7 +236,7 @@ test "terminal candidate: raw-natural all-independent, zero realized trunks, sep
     // D-DISPOSITION item 9(b): the terminal fallback is a raw-natural layout
     // with trunk realization disabled (LayoutOptions.disable_join_realization)
     // and an all-independent plan over the REAL permits — zero selected joins,
-    // no shared trunk busbar, fully-populated memberships (NOT the bare envelope).
+    // no shared trunk rail, fully-populated memberships (NOT the bare envelope).
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
@@ -247,7 +247,7 @@ test "terminal candidate: raw-natural all-independent, zero realized trunks, sep
 
     try std.testing.expectEqual(ladder.Rung.natural, term.final_rung);
     try std.testing.expectEqual(@as(usize, 0), term.sketch.joins.selected_joins.len); // zero realized trunks
-    try std.testing.expectEqual(@as(usize, 0), term.sketch.busbars.len); // separate ports, no shared trunk ink
+    try std.testing.expectEqual(@as(usize, 0), term.sketch.rails.len); // separate ports, no shared trunk ink
     try std.testing.expect(term.sketch.joins.memberships.len > 0); // NOT the bare envelope
     var all_independent = true;
     for (term.sketch.joins.memberships) |rm| {
@@ -335,7 +335,7 @@ test "reachReports: node-key table maps raw_id bytes and tolerates sparse ids" {
 
 /// The plan's own answer to "may these two edges share ink": co-membership of
 /// one selected join, or of one fused union (the two-sided fusion licence,
-/// which makes its trunks' bus one channel). The predicate
+/// which makes its trunks' rail one channel). The predicate
 /// `raster/crossings.zig` applies, restated here over ledger records so this
 /// pin is about the DATA and not about the raster's copy of the question.
 fn planCoMembers(plan: ledger.RealizedJoins, first: u32, second: u32) bool {

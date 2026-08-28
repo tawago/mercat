@@ -58,7 +58,7 @@ fn clusterAncestorOrSelf(graph: sg.SemGraph, anc: sg.ClusterId, desc: sg.Cluster
     return false;
 }
 
-/// Rows of fan-rail lift for one fan member edge: 1 when it descends into a cluster, else 0. THE shared lift rule for both the bus-bar pre-pass and the per-peer path. // guarded-by: routing_test.zig "bus-bar pre-pass and forced per-peer path lift the same fan-OUT geometry to the same rail row"
+/// Rows of fan-rail lift for one fan member edge: 1 when it descends into a cluster, else 0. THE shared lift rule for both the rail pre-pass and the per-peer path. // guarded-by: routing_test.zig "rail pre-pass and forced per-peer path lift the same fan-OUT geometry to the same rail row"
 pub fn fanRailLift(graph: sg.SemGraph, from: sg.NodeId, to: sg.NodeId) u32 {
     return if (crossesIntoCluster(graph, from, to)) 1 else 0;
 }

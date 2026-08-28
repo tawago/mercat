@@ -318,7 +318,7 @@ pub const Counts = struct {
     // -- expectation tier (expect.zig) --------------------------------
     /// Non-invisible Sketch edges (each declares one terminal approach).
     n_edges_declared: u32 = 0,
-    /// Bus-bar taps: fan edges whose sole geometry is the trunk.
+    /// Rail taps: fan edges whose sole geometry is the trunk.
     n_taps_declared: u32 = 0,
     /// A declared edge/tap whose final approach cell (and its one-cell
     /// reprieve) holds no ink at all: the arrival left no evidence.
@@ -370,7 +370,7 @@ pub const Counts = struct {
     /// Sketch placement count. A gap against `m_graph_nodes` is semantic
     /// loss between IR 1 and IR 2, visible without per-entity matching.
     m_sketch_nodes: u32 = 0,
-    /// Sketch edge count (routed polylines plus bus-bar taps).
+    /// Sketch edge count (routed polylines plus rail taps).
     m_sketch_edges: u32 = 0,
 
     // -- fused crossbar runs (rails.zig) ------------------------------

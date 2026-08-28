@@ -1,7 +1,7 @@
 //! Raster pipeline orchestrator.
 //!
 //! Allocates a `Lattice` sized to `Sketch.bbox` and runs clusters →
-//! nodes → bus-bars → edges → reconcile → labels in order, returning a
+//! nodes → rails → edges → reconcile → labels in order, returning a
 //! `RasterReport` with per-stage counts. Order matters: each stage
 //! skips cells already claimed by an earlier one, except labels, which
 //! intentionally overwrite node interiors last.
@@ -20,7 +20,7 @@ const sketch = @import("sketch.zig");
 const lattice = @import("lattice.zig");
 const nodes_r = @import("raster/nodes.zig");
 const edges_r = @import("raster/edges.zig");
-const busbars_r = @import("raster/busbars.zig");
+const rails_r = @import("raster/rails.zig");
 const clusters_r = @import("raster/clusters.zig");
 const labels_r = @import("raster/labels.zig");
 const reconcile = @import("raster/reconcile.zig");
@@ -134,8 +134,8 @@ pub fn rasterize(
         error.OccupiedCell => return error.OutOfBounds,
     };
 
-    // Bus-bars before ordinary edges (Phase 4b slice iv): the fan trunk claims its cells first, so a later edge can never overwrite trunk kind/role. // guarded-by: raster.zig "bus-bar rasterizes before edges: rail cell keeps trunk kind/role, foreign bits refused"
-    const busbar_report = busbars_r.rasterizeRails(&lat, s, sink);
+    // Rails before ordinary edges (Phase 4b slice iv): the fan trunk claims its cells first, so a later edge can never overwrite trunk kind/role. // guarded-by: raster.zig "a rail rasterizes before edges: its cell keeps trunk kind/role, foreign bits refused"
+    const rail_report = rails_r.rasterizeRails(&lat, s, sink);
 
     const edge_report = edges_r.rasterizeEdges(allocator, &lat, s, subgraph_edges, sink) catch |err| switch (err) {
         error.OutOfMemory => return error.OutOfMemory,
@@ -168,10 +168,10 @@ pub fn rasterize(
         .lattice = lat,
         .nodes_written = nodes_n,
         .clusters_written = clusters_n,
-        .edges_written = edge_report.edges_written + busbar_report.taps_written,
+        .edges_written = edge_report.edges_written + rail_report.taps_written,
         .labels_placed = label_report.placed,
         .label_diagnostics = label_report.diagnostics,
-        .edge_cells_lost = edge_report.cells_lost + busbar_report.cells_lost,
+        .edge_cells_lost = edge_report.cells_lost + rail_report.cells_lost,
         .labels_dropped = label_report.dropped,
         .labels_displaced = label_report.displaced,
         .labels_on_run = label_report.on_run,
@@ -406,7 +406,7 @@ test "foreign perpendicular crossing reads as a transversal, not a junction" {
     );
 }
 
-test "bus-bar rasterizes before edges: rail cell keeps trunk kind/role, foreign bits refused" {
+test "a rail rasterizes before edges: its cell keeps trunk kind/role, foreign bits refused" {
     var arena = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
@@ -423,7 +423,7 @@ test "bus-bar rasterizes before edges: rail cell keeps trunk kind/role, foreign 
         .{ .edge = 11, .node = 2, .at = .{ .x = 12, .y = 5 }, .landing = .{ .x = 12, .y = 7 } },
         .{ .edge = 12, .node = 3, .at = .{ .x = 22, .y = 5 }, .landing = .{ .x = 22, .y = 7 } },
     };
-    var busbars_buf = [_]sketch.Rail{.{
+    var rails_buf = [_]sketch.Rail{.{
         .pivot = 0,
         .stem = &stem,
         .crossbar = .{ .{ .x = 2, .y = 5 }, .{ .x = 22, .y = 5 } },
@@ -432,8 +432,8 @@ test "bus-bar rasterizes before edges: rail cell keeps trunk kind/role, foreign 
     }};
 
     // An unrelated `.dotted` edge whose polyline runs straight through a
-    // plain rail cell (7,5) that the bus-bar already claims. If edges
-    // rasterized before bus-bars, this cell's first-writer-wins `kind`
+    // plain rail cell (7,5) that the rail already claims. If edges
+    // rasterized before rails, this cell's first-writer-wins `kind`
     // would come out `.dotted` (the crossing edge's), not `.solid` (the
     // trunk's) — see `writeEdgeCell`'s `.edge_segment` branch, which
     // never updates `kind` on a second write.
@@ -457,7 +457,7 @@ test "bus-bar rasterizes before edges: rail cell keeps trunk kind/role, foreign 
         .nodes = nodes_buf[0..],
         .clusters = &.{},
         .edges = edges_buf[0..],
-        .busbars = busbars_buf[0..],
+        .rails = rails_buf[0..],
         .diagnostics = &.{},
         .budget = .{ .max_width = 80, .rung = 0 },
     };

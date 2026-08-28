@@ -6,7 +6,7 @@
 //! end-to-end through `buildEdges` rather than by re-deriving it.
 //!
 //! `fan_rail.blocked`'s integrity gate (tested directly against the
-//! bus-bar artifact it reads) lives in `fan_rail_test.zig`, next to the
+//! rail artifact it reads) lives in `fan_rail_test.zig`, next to the
 //! module it exercises.
 
 const std = @import("std");
@@ -51,7 +51,7 @@ fn mkBareEdge(id: sg.EdgeId, from: sg.NodeId, to: sg.NodeId) sg.Edge {
     return .{ .id = id, .from = from, .to = to, .kind = .solid, .arrow_from = .none, .arrow_to = .none, .label = null };
 }
 
-/// Plain fan-OUT edge (arrow_from = .none): stays bus-bar eligible.
+/// Plain fan-OUT edge (arrow_from = .none): stays rail eligible.
 fn mkPlainEdge(id: sg.EdgeId, from: sg.NodeId, to: sg.NodeId) sg.Edge {
     return .{
         .id = id,
@@ -184,11 +184,11 @@ test "fan-OUT per-peer rail does not lift when the source is a member of (or anc
     try testing.expectEqual(railRow(eb.polyline), railRow(ec.polyline));
 }
 
-test "bus-bar pre-pass and forced per-peer path lift the same fan-OUT geometry to the same rail row" {
+test "rail pre-pass and forced per-peer path lift the same fan-OUT geometry to the same rail row" {
     // fanRailLift is documented as THE single shared lift rule used by both
-    // the bus-bar pre-pass and the per-peer polyline path. Same fixture
+    // the rail pre-pass and the per-peer polyline path. Same fixture
     // (fan-out peer crossing into cluster X), routed once eligible for the
-    // bus-bar and once forced onto the per-peer path (arrow_from set): the
+    // rail and once forced onto the per-peer path (arrow_from set): the
     // resulting rail row must match exactly.
     const clusters = [_]sg.Cluster{
         .{ .id = 0, .raw_id = "X", .label = "X", .parent = null, .members = &.{2}, .sub_clusters = &.{} },
@@ -197,13 +197,13 @@ test "bus-bar pre-pass and forced per-peer path lift the same fan-OUT geometry t
     var arena_bar = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena_bar.deinit();
     const s_bar = try layoutForkIntoCluster(arena_bar.allocator(), &clusters, 0, false);
-    try testing.expectEqual(@as(usize, 1), s_bar.busbars.len);
-    const bar_rail_y = s_bar.busbars[0].crossbar[0].y;
+    try testing.expectEqual(@as(usize, 1), s_bar.rails.len);
+    const bar_rail_y = s_bar.rails[0].crossbar[0].y;
 
     var arena_peer = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena_peer.deinit();
     const s_peer = try layoutForkIntoCluster(arena_peer.allocator(), &clusters, 0, true);
-    try testing.expectEqual(@as(usize, 0), s_peer.busbars.len);
+    try testing.expectEqual(@as(usize, 0), s_peer.rails.len);
     const ec = findEdge(s_peer.edges, 0, 2);
 
     try testing.expectEqual(bar_rail_y, railRow(ec.polyline));

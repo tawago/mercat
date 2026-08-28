@@ -12,7 +12,7 @@ const Pt = sketch.Point;
 
 /// Sketch-space ink already in the merged scene. Rail heads: the pivot head
 /// one step out from `stem[0]` along the stem, each decorated tap's head one
-/// step back from its landing — cell-twin of raster/busbars.zig
+/// step back from its landing — cell-twin of raster/rails.zig
 /// pivotHead/tapHead, which stamp exactly these cells. Edge heads sit one
 /// step back from a decorated port along the end segment. Runs: crossbars,
 /// stem legs, tap droppers, and every polyline leg.

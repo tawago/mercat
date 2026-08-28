@@ -113,7 +113,7 @@ pub fn rasterizeLabels(
 
     // Anchored on `Rail.tapLabelSeg`, the same segment layout/clusters.zig
     // reserved bbox space for, so reservation and paint agree.
-    for (s.busbars) |bb| {
+    for (s.rails) |bb| {
         for (bb.taps) |tap| {
             const lbl = tap.label orelse continue;
             if (lbl.len == 0) continue;
@@ -309,7 +309,7 @@ fn placeNodeLabel(
     return wrote > 0;
 }
 
-// Edge and bus-bar tap label placement lives in labels_edge.zig: anchored
+// Edge and rail tap label placement lives in labels_edge.zig: anchored
 // at the mid-segment with a bounded deterministic fallback ladder.
 
 /// Stamp one cluster-title cell as a `label_char` — EVERY cell, spaces

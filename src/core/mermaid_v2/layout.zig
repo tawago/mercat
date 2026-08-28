@@ -174,8 +174,8 @@ fn buildSketch(
     normalizeX(geom);
 
     // Two-sided fan lane separation: when >=2 fans in one gap would fuse their
-    // rails into a single bus whose union has more than one source AND more
-    // than one target, that bus speaks for a pivot none of its members shares,
+    // rails into a single run whose union has more than one source AND more
+    // than one target, that run speaks for a pivot none of its members shares,
     // so each trunk takes its own rail row via fans[].lane and every declared
     // edge stays traceable. Single trunks and pure fan-in|out stay lane 0.
     // guarded-by: layout/fan_lanes_test.zig "incomplete overlapping fans get separate lanes"
@@ -296,7 +296,7 @@ fn buildSketch(
     // Arm the back-edge return-rail width lever only for AUTHORED top-down flows; `!is_direction_rotated` excludes an LR seed's TD rotation so the lever never changes a rotated candidate's fit verdict. guarded-by: layout/clusters_test.zig "the back-edge rail label lever fires for authored TD but not for a rotated TD"
     const rail_lever = (opts.spacing_scale > 0) and
         (graph.direction == .TD) and !opts.is_direction_rotated;
-    const bbox = clusters.computeBbox(placements, edges_out, clusters_out, edges_result.polylines, edges_result.busbars, rail_lever, opts.max_width);
+    const bbox = clusters.computeBbox(placements, edges_out, clusters_out, edges_result.polylines, edges_result.rails, rail_lever, opts.max_width);
     var diagnostics: std.ArrayListUnmanaged(sketch.Diagnostic) = .empty;
     if (bbox.w > opts.max_width) {
         try diagnostics.append(a, .{ .width_overflow = .{
@@ -320,9 +320,9 @@ fn buildSketch(
         }
     }
 
-    // Freeze the bus-bars AFTER computeBbox's shift pass — their slices still alias the shifted mutable buffers before that point. guarded-by: layout/fan_rail_test.zig "busbar taps stay in sync with their target node's post-shift position"
-    const busbars_out = try a.alloc(sketch.Rail, edges_result.busbars.len);
-    for (edges_result.busbars, busbars_out) |b, *out| out.* = b.busbar;
+    // Freeze the rails AFTER computeBbox's shift pass — their slices still alias the shifted mutable buffers before that point. guarded-by: layout/fan_rail_test.zig "rail taps stay in sync with their target node's post-shift position"
+    const rails_out = try a.alloc(sketch.Rail, edges_result.rails.len);
+    for (edges_result.rails, rails_out) |b, *out| out.* = b.rail;
 
     // A discharged edge is rendered by a rail's crossbar, so owning an
     // EdgePath too would state its relation twice. Measured over the sketch
@@ -346,7 +346,7 @@ fn buildSketch(
         .nodes = placements,
         .clusters = clusters_out,
         .edges = edges_out,
-        .busbars = busbars_out,
+        .rails = rails_out,
         .rail_claims = edges_result.rail_claims,
         .joins = candidate_joins,
         .closure = closure,

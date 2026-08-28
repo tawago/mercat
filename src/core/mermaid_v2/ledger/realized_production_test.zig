@@ -51,11 +51,11 @@ test "Step 7 mixing cases have exact reach and no fused edge junction" {
         // Arrival re-merge (D-PORT 2026-07-18): the shared-target pure
         // fan-in (T2 / X) is now composed as ONE merged trunk entry; the
         // departure side stays dissolved so reach stays exact.
-        try std.testing.expectEqual(@as(usize, 1), winner.sketch.busbars.len);
+        try std.testing.expectEqual(@as(usize, 1), winner.sketch.rails.len);
 
         // No fused PLAIN-edge junction: independent forward/back-edge cells
         // stay 2-neighbour paths. The one merged fan-in rail legitimately
-        // carries a ┬ junction (its taps meet the drop), so busbar trunk/
+        // carries a ┬ junction (its taps meet the drop), so rail trunk/
         // rail roles are exempt — that junction IS the truthful merged ink.
         const rendered = try raster.rasterize(a, winner.sketch, .bridge);
         for (rendered.lattice.cells) |cell| switch (cell.occupant) {
@@ -116,9 +116,9 @@ test "forward-subset composition: reversed fan-in member independent, forward pa
         const report = try reach.validate(a, winner.sketch, try select.nodeKeyTable(a, graph), .flat);
         try std.testing.expectEqual(@as(u32, 0), report.counts.ciTotal());
 
-        // A first-class fan-in busbar exists at D — the ONE merged entry.
+        // A first-class fan-in rail exists at D — the ONE merged entry.
         var has_d_trunk = false;
-        for (winner.sketch.busbars) |bb| {
+        for (winner.sketch.rails) |bb| {
             if (bb.pivot == nodeId(graph, "D")) has_d_trunk = true;
         }
         try std.testing.expect(has_d_trunk);
@@ -132,7 +132,7 @@ test "V-D-PORT-01: mixed-kind 1x3 renders as three pitch-2 independent component
     const graph = try parse(a, "flowchart TD\n  S --> A\n  S -.-> B\n  S ==> C\n");
     const plan = (try permits.build(a, graph, .joined)).plan;
     const winner = try select.choose(a, graph, &plan, 94, false, false);
-    try std.testing.expectEqual(@as(usize, 0), winner.sketch.busbars.len);
+    try std.testing.expectEqual(@as(usize, 0), winner.sketch.rails.len);
 
     var offsets: [3]u32 = undefined;
     var count: usize = 0;
@@ -160,9 +160,9 @@ test "V-D-PORT-14: inline K1,3 realized Rail keeps midpoint stem and pre-Step-7 
     const inert: @import("../base/ledger.zig").JoinPermits = .{ .policy = .joined };
     const before = try select.choose(a, graph, &inert, 94, false, false);
 
-    try std.testing.expectEqual(@as(usize, 1), realized_winner.sketch.busbars.len);
+    try std.testing.expectEqual(@as(usize, 1), realized_winner.sketch.rails.len);
     try std.testing.expectEqual(@as(usize, 1), realized_winner.sketch.joins.selected_joins.len);
-    const bb = realized_winner.sketch.busbars[0];
+    const bb = realized_winner.sketch.rails[0];
     var pivot = realized_winner.sketch.nodes[0];
     for (realized_winner.sketch.nodes) |node| if (node.id == bb.pivot) {
         pivot = node;
@@ -188,8 +188,8 @@ test "V-D-PORT-16: incomplete 2x2 arrival re-merges the pure fan-in, overlap con
     const joins = winner.sketch.joins;
 
     // Both selection sites agree: join_commit built the merged fan-in trunk
-    // (one busbar) and realized (via select's plan) selected the same group.
-    try std.testing.expectEqual(@as(usize, 1), winner.sketch.busbars.len);
+    // (one rail) and realized (via select's plan) selected the same group.
+    try std.testing.expectEqual(@as(usize, 1), winner.sketch.rails.len);
     try std.testing.expectEqual(@as(usize, 1), joins.selected_joins.len);
 
     // The selected group is the pure fan-in at T2; the fan-out FO-S1 stays
@@ -380,12 +380,12 @@ test "a salvaged trunk is complete against the commitment the layout drew" {
     try std.testing.expectEqual(@as(u32, 0), report.edge_cells_lost);
 }
 
-test "a complete all-to-all draws one rail per shared endpoint, never one bus across all of them" {
+test "a complete all-to-all draws one rail per shared endpoint, never one run across all of them" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
 
-    // DIRECTED K2,2. The single `├────────┤` bus this used to draw hangs both
+    // DIRECTED K2,2. The single `├────────┤` rail this used to draw hangs both
     // X and Y off one run: every source appears connected to every target
     // through ink no single declaration owns. A,B → X,Y genuinely IS all-to-all,
     // but the run still speaks for a pivot the graph never states. What
@@ -405,7 +405,7 @@ test "a complete all-to-all draws one rail per shared endpoint, never one bus ac
         try std.testing.expectEqual(@as(usize, 1), owners);
     }
     // Two crossbars on two rows: no single row carries a run from the leftmost
-    // column to the rightmost one (that row IS the bus).
+    // column to the rightmost one (that row IS the shared run).
     var it = std.mem.splitScalar(u8, directed.grid, '\n');
     while (it.next()) |line| try std.testing.expect(std.mem.indexOf(u8, line, "├────────┤") == null);
 
@@ -423,7 +423,7 @@ test "a directed complete bipartite keeps its TD star decomposition on clearing 
     // The all-to-all's star decomposition is one arrival trunk per target —
     // and because every member carries a one-way head and the declared set is
     // EXACTLY srcs x tgts, the plan's two-sided fusion licence
-    // (`RealizedJoins.fused`) lets the three trunks share ONE bus row: the
+    // (`RealizedJoins.fused`) lets the three trunks share ONE rail row: the
     // fused run asserts only cross pairs the source declares, its ink is one
     // channel, and the reach oracle fires nothing.
     const source =
@@ -448,12 +448,12 @@ test "a directed complete bipartite keeps its TD star decomposition on clearing 
         const winner = try select.choose(a, graph, &plan, width, false, false);
 
         // The TD shape survives: three arrival trunks of three taps each,
-        // FUSED onto one shared bus row, and the source's direction is kept.
+        // FUSED onto one shared rail row, and the source's direction is kept.
         try std.testing.expectEqual(graph.direction, winner.sketch.direction);
-        try std.testing.expectEqual(@as(usize, 3), winner.sketch.busbars.len);
-        for (winner.sketch.busbars) |bar| {
+        try std.testing.expectEqual(@as(usize, 3), winner.sketch.rails.len);
+        for (winner.sketch.rails) |bar| {
             try std.testing.expectEqual(@as(usize, 3), bar.taps.len);
-            try std.testing.expectEqual(winner.sketch.busbars[0].crossbar[0].y, bar.crossbar[0].y);
+            try std.testing.expectEqual(winner.sketch.rails[0].crossbar[0].y, bar.crossbar[0].y);
         }
 
         // THE licence: the plan records one fused union of all nine members,
@@ -498,20 +498,20 @@ test "on the licence's lapse path a trunk's junction still clears foreign taps" 
         const winner = try select.choose(a, graph, &plan, width, false, false);
 
         // Non-vacuous: the lapse actually split the rails onto >= 2 rows.
-        try std.testing.expect(winner.sketch.busbars.len >= 2);
+        try std.testing.expect(winner.sketch.rails.len >= 2);
         var rows_differ = false;
-        for (winner.sketch.busbars) |bar| {
-            if (bar.crossbar[0].y != winner.sketch.busbars[0].crossbar[0].y) rows_differ = true;
+        for (winner.sketch.rails) |bar| {
+            if (bar.crossbar[0].y != winner.sketch.rails[0].crossbar[0].y) rows_differ = true;
         }
         try std.testing.expect(rows_differ);
 
         // THE invariant, unchanged from the separated regime: a foreign
         // trunk's tap crossing my stem column keeps its rail nearer the
         // sources than my junction.
-        for (winner.sketch.busbars) |bar| {
+        for (winner.sketch.rails) |bar| {
             const stem_x = bar.stem[0].x;
             const junction_y = bar.crossbar[0].y;
-            for (winner.sketch.busbars) |other| {
+            for (winner.sketch.rails) |other| {
                 if (other.crossbar[0].y == junction_y) continue;
                 for (other.taps) |tap| {
                     if (tap.at.x != stem_x) continue;

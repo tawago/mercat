@@ -365,7 +365,7 @@ test "the calibration floor: chains, fans and clusters are defect-free" {
         // TD-CHAIN and LR-CHAIN: the simplest thing the renderer does.
         "flowchart TD\n  A --> B\n  B --> C\n  C --> D\n",
         "flowchart LR\n  A --> B\n  B --> C\n  C --> D\n",
-        // FAN-BUSBAR: one trunk, many taps, ids shared across the strip.
+        // FAN-RAIL: one trunk, many taps, ids shared across the strip.
         "flowchart TD\n  A --> B\n  A --> C\n  A --> D\n  A --> E\n  A --> F\n",
         "flowchart TD\n  B --> A\n  C --> A\n  D --> A\n  E --> A\n",
         // SUBROUTINE and other shapes: inner walls inside the interior.

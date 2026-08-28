@@ -3,11 +3,11 @@
 //! horizontal rails on the SAME row (`fan_polyline`/`fan_rail` both anchor
 //! `rail_y` to the target perimeter). When two such rails occupy
 //! overlapping-or-abutting x-spans they FUSE at raster time into one
-//! continuous `├──┼──┤` bus — one run standing for a shared endpoint. If the
+//! continuous `├──┼──┤` run — one run standing for a shared endpoint. If the
 //! UNION of the fused rails' declared edges is TWO-SIDED (more than one
 //! distinct source AND more than one distinct target) there is no shared
-//! endpoint to stand for, and the bus speaks for a pivot nothing in the source
-//! declares — unless the source declares every pair that bus asserts, which is
+//! endpoint to stand for, and the run speaks for a pivot nothing in the source
+//! declares — unless the source declares every pair that run asserts, which is
 //! the closure test stated below.
 //! This pass groups rail-producing trunks by collinear overlap and assigns
 //! each a row. Distinct rails land on distinct rows, so each edge
@@ -49,7 +49,7 @@ const Pair = struct { lo: sg.NodeId, hi: sg.NodeId };
 
 // The one-way-head-at-target test lives in sem_graph.forwardOneWayHead,
 // shared with the plan-side fusion licence (`layout/join_commit.zig`): a head
-// at the SOURCE end also stops a trace, but in the direction a fused bus
+// at the SOURCE end also stops a trace, but in the direction a fused rail
 // would read backwards, so only a forward head qualifies a member.
 const forwardOneWayHead = sg.forwardOneWayHead;
 
@@ -88,7 +88,7 @@ fn nodeId(lg: sugiyama.LayeredGraph, idx: u32) sg.NodeId {
 }
 
 /// Assign `fan.lane` for every fan so that no incomplete-bipartite group of
-/// rails fuses into a fabricating bus. Mutates `fans` in place; leaves every
+/// rails fuses into a fabricating run. Mutates `fans` in place; leaves every
 /// lane at 0 when nothing fabricates. `geom` is parallel to `lg.nodes`.
 pub fn assignLanes(
     comptime G: type,
@@ -155,7 +155,7 @@ pub fn assignLanes(
         errdefer edges.deinit(a);
 
         if (f.direction == .out) {
-            // A fan-OUT draws its rail (bus-bar or per-peer polyline) for every
+            // A fan-OUT draws its rail (first-class or per-peer polyline) for every
             // visible peer.
             for (f.peers) |p| {
                 if (!p.shared) continue;
@@ -478,8 +478,8 @@ fn leafSubset(dir: fan_mod.Direction, xs: []const Edge, ys: []const Edge) bool {
 /// Would the claim `ci` STAY complete with `gi` joined? Asked of the same
 /// closure test the whole group failed, over the claim's current trunks + gi —
 /// and of the group's OTHER ink: a foreign trunk incident to a node whose
-/// entry (or, for a departure class, any face) the class's bus serves could
-/// merge with the bus at that node, so a reader would trace pairs the class
+/// entry (or, for a departure class, any face) the class's rail serves could
+/// merge with the rail at that node, so a reader would trace pairs the class
 /// never declared. Placement never decides this: the node incidence does.
 fn classFusable(a: std.mem.Allocator, trunks: []const Trunk, members: []const u32, group: []const u32, fans: []const Fan, runs: []const u32, claim_of: []const u32, ci: u32, gap_pruned: bool, gi: u32) bool {
     var sub: std.ArrayListUnmanaged(u32) = .empty;
@@ -497,8 +497,8 @@ fn foreignTouches(a: std.mem.Allocator, trunks: []const Trunk, members: []const 
     defer guarded.deinit(a);
     const dir = fans[trunks[members[sub[0]]].fan_idx].direction;
     for (sub) |gi| for (trunks[members[gi]].edges) |e| {
-        // An arrival class's bus serves its pivot ENTRIES; a departure
-        // class's bus serves both its pivot exits and its target entries.
+        // An arrival class's rail serves its pivot ENTRIES; a departure
+        // class's rail serves both its pivot exits and its target entries.
         addUnique(a, &guarded, e.to) catch return true;
         if (dir == .out) addUnique(a, &guarded, e.from) catch return true;
     };

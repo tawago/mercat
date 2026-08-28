@@ -392,7 +392,7 @@ test "a complete bipartite of selected arrivals licenses one fused union" {
     // K3,3, all nine directed edges declared: the three arrival trunks'
     // member union is EXACTLY srcs x tgts with every member blocking the
     // leaf-to-leaf trace, so the plan records ONE fused union per gap and
-    // the trunks may share one bus row as one channel.
+    // the trunks may share one rail row as one channel.
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
@@ -434,7 +434,7 @@ test "an incomplete bipartite of selected arrivals licenses no fused union" {
 
 test "a head at the source end never joins a fused union" {
     // A --> C; B --> C; A <-- D; B <-- D: the D trunk's heads sit at the
-    // union's SOURCE side, so a fused bus would draw a head-free terminus at
+    // union's SOURCE side, so a fused rail would draw a head-free terminus at
     // D and a reader could trace an undeclared D-to-C pair along it.
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();

@@ -5,7 +5,7 @@
 //! `writeArrowGuarded`) and the pure directional helpers
 //! (`straightMask`/`bitMask`/`reverse`/`orMask`/`segmentDir`/`step`/…) live
 //! here so the walk driver in `edges.zig` stays under the 500-line cap. These
-//! symbols are re-exported from `edges.zig` (`pub const`) so `raster/busbars.zig`
+//! symbols are re-exported from `edges.zig` (`pub const`) so `raster/rails.zig`
 //! and the raster tests keep reaching them as `edges.<name>`. The PORT
 //! STROKES (`drawPortStroke`/`drawTargetPortStroke`) live one further split
 //! out, in `edges_port.zig`, which imports this file for its primitives.
@@ -103,7 +103,7 @@ pub fn recordCarrier(
 
 /// File one `.rail_member` record: fan member `edge` rides the shared run
 /// at (x, y). The single spelling for both producers of shared fan ink —
-/// the bus-bar rasterizer and the fan polyline walk — so they cannot drift
+/// the rail rasterizer and the fan polyline walk — so they cannot drift
 /// in how they describe the same membership.
 pub fn recordRailMember(
     rec: aux.Recorder,
