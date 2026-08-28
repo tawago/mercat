@@ -21,6 +21,11 @@ pub fn build(
 ) error{OutOfMemory}![]const ledger.RailClaim {
     var out: std.ArrayListUnmanaged(ledger.RailClaim) = .empty;
     for (fans) |f| {
+        // A fan-OUT every one of whose peers rides a selected arrival trunk
+        // draws no run of its own; its members' rail evidence is the
+        // arrivals' to claim, so a departure claim here would file a rail
+        // that owns no ink (unresolved sites).
+        if (deferredToArrivals(joins, f)) continue;
         for (f.peers, 0..) |seed, i| {
             if (!seed.shared) continue;
             const seed_edge = edgeById(graph, seed.edge_id) orelse continue;
@@ -158,6 +163,20 @@ fn groupSeen(graph: sg.SemGraph, f: fan_mod.Fan, joins: ledger.RealizedJoins, pe
 
 fn effectiveLane(f: fan_mod.Fan, peer: fan_mod.FanEdge) u32 {
     return @max(f.lane, peer.lane);
+}
+
+fn deferredToArrivals(joins: ledger.RealizedJoins, f: fan_mod.Fan) bool {
+    if (f.direction != .out or joins.memberships.len == 0) return false;
+    var any = false;
+    for (f.peers) |peer| {
+        if (!peer.shared) continue;
+        any = true;
+        const arrival = for (joins.memberships) |m| {
+            if (m.edge == peer.edge_id) break m.target orelse return false;
+        } else return false;
+        if (arrival != .selected) return false;
+    }
+    return any;
 }
 
 fn effective(joins: ledger.RealizedJoins, edge: sg.Edge) bool {

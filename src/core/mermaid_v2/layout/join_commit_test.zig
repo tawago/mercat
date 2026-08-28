@@ -387,3 +387,39 @@ test "a salvaged rail that then loses its pair is one refusal, not two" {
     try std.testing.expectEqual(@as(usize, 0), joins.co_realized.len);
     try std.testing.expectEqual(@as(u32, 2), report.rail_closure_undeclared);
 }
+
+test "a complete bipartite of selected arrivals licenses one fused union" {
+    // K3,3, all nine directed edges declared: the three arrival trunks'
+    // member union is EXACTLY srcs x tgts with every member blocking the
+    // leaf-to-leaf trace, so the plan records ONE fused union per gap and
+    // the trunks may share one bus row as one channel.
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const graph = try parse(a,
+        "flowchart TD\n  S1 --> M1\n  S1 --> M2\n  S1 --> M3\n" ++
+            "  S2 --> M1\n  S2 --> M2\n  S2 --> M3\n" ++
+            "  S3 --> M1\n  S3 --> M2\n  S3 --> M3\n");
+    const plan = (try permits.build(a, graph, .joined)).plan;
+    const joins = try join_commit.buildReported(a, graph, &plan, &.{}, false, null);
+    try std.testing.expectEqual(@as(usize, 3), joins.selected_joins.len);
+    try std.testing.expectEqual(@as(usize, 1), joins.fused.len);
+    try std.testing.expectEqual(@as(usize, 9), joins.fused[0].len);
+}
+
+test "an incomplete bipartite of selected arrivals licenses no fused union" {
+    // The same shape short one declaration (S3 --> M3 absent): the union's
+    // distinct pairs are 8 of 9, so the licence lapses and every trunk keeps
+    // a row of its own.
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const graph = try parse(a,
+        "flowchart TD\n  S1 --> M1\n  S1 --> M2\n  S1 --> M3\n" ++
+            "  S2 --> M1\n  S2 --> M2\n  S2 --> M3\n" ++
+            "  S3 --> M1\n  S3 --> M2\n");
+    const plan = (try permits.build(a, graph, .joined)).plan;
+    const joins = try join_commit.buildReported(a, graph, &plan, &.{}, false, null);
+    try std.testing.expect(joins.selected_joins.len >= 2);
+    try std.testing.expectEqual(@as(usize, 0), joins.fused.len);
+}

@@ -420,13 +420,12 @@ test "a complete all-to-all draws one rail per shared endpoint, never one bus ac
 }
 
 test "a directed complete bipartite keeps its TD star decomposition on clearing rows" {
-    // The all-to-all's star decomposition is one arrival trunk per target,
-    // each on a rail row of its own. Every trunk's stem meets its crossbar at
-    // one cell, and the OTHER trunks run taps down the same columns: unless
-    // the rows are ordered so each junction sits clear of the taps that cross
-    // it, the junction is a four-armed glyph two trunks claim — the reach
-    // oracle's `unknown_continuation` — and the whole TD family is filtered
-    // out of selection, leaving a switched-direction render to win by default.
+    // The all-to-all's star decomposition is one arrival trunk per target —
+    // and because every member carries a one-way head and the declared set is
+    // EXACTLY srcs x tgts, the plan's two-sided fusion licence
+    // (`RealizedJoins.fused`) lets the three trunks share ONE bus row: the
+    // fused run asserts only cross pairs the source declares, its ink is one
+    // channel, and the reach oracle fires nothing.
     const source =
         \\flowchart TD
         \\    S1[Order Received] --> M1[Validate Payment]
@@ -448,32 +447,19 @@ test "a directed complete bipartite keeps its TD star decomposition on clearing 
         const plan = (try permits.build(a, graph, .joined)).plan;
         const winner = try select.choose(a, graph, &plan, width, false, false);
 
-        // The TD shape survives: three arrival trunks of three taps each, on
-        // three distinct rail rows, and the source's own direction is kept.
+        // The TD shape survives: three arrival trunks of three taps each,
+        // FUSED onto one shared bus row, and the source's direction is kept.
         try std.testing.expectEqual(graph.direction, winner.sketch.direction);
         try std.testing.expectEqual(@as(usize, 3), winner.sketch.busbars.len);
-        for (winner.sketch.busbars, 0..) |bar, i| {
+        for (winner.sketch.busbars) |bar| {
             try std.testing.expectEqual(@as(usize, 3), bar.taps.len);
-            for (winner.sketch.busbars[i + 1 ..]) |other| {
-                try std.testing.expect(bar.crossbar[0].y != other.crossbar[0].y);
-            }
+            try std.testing.expectEqual(winner.sketch.busbars[0].crossbar[0].y, bar.crossbar[0].y);
         }
 
-        // THE invariant: a trunk's stem junction never sits on a row a foreign
-        // trunk's tap still occupies. A fan-IN's taps run from the sources
-        // down to that trunk's own rail, so clearance is exactly "my rail is
-        // nearer my pivot than the rail whose taps share my stem column".
-        for (winner.sketch.busbars) |bar| {
-            const stem_x = bar.stem[0].x;
-            const junction_y = bar.crossbar[0].y;
-            for (winner.sketch.busbars) |other| {
-                if (other.crossbar[0].y == junction_y) continue;
-                for (other.taps) |tap| {
-                    if (tap.at.x != stem_x) continue;
-                    try std.testing.expect(other.crossbar[0].y < junction_y);
-                }
-            }
-        }
+        // THE licence: the plan records one fused union of all nine members,
+        // so the shared row is one channel of record, not a coincidence.
+        try std.testing.expectEqual(@as(usize, 1), winner.sketch.joins.fused.len);
+        try std.testing.expectEqual(@as(usize, 9), winner.sketch.joins.fused[0].len);
 
         // No reach event, no lost ink, and the render fits the budget it was
         // asked for (the defect shipped a clipped render at width 60).

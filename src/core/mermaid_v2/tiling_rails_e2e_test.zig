@@ -69,16 +69,15 @@ const unclustered =
 test "rails: a clustered complete bipartite renders exactly as its flat form" {
     // Cluster unification: the subgraph piece realizes the same piece plan a
     // flat graph would, so the graph inside a frame and the graph without one
-    // produce one and the same rail story — the fan-IN trunk arrangement,
-    // with no fused two-sided row. (The pre-unification piece path bypassed
-    // the plan and fused the two fan-OUT crossbars on one row; that
-    // clustered-only population is gone.)
+    // produce one and the same rail story — the two arrivals fused onto ONE
+    // bus row, licensed because the directed declared set is exactly
+    // srcs x tgts (the two-sided fusion licence; every pair accounted).
     var arena = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
     const in_frame = try renderCounts(arena.allocator(), clustered, 120);
     const flat = try renderCounts(arena.allocator(), unclustered, 120);
 
-    try testing.expectEqual(@as(u32, 0), in_frame.n_rail_runs_two_sided);
+    try testing.expectEqual(@as(u32, 1), in_frame.n_rail_runs_two_sided);
     try testing.expectEqual(@as(u32, 0), in_frame.u_rail_run_continued);
     try testing.expectEqual(@as(u32, 0), in_frame.u_rail_run_records_absent);
     try testing.expectEqual(@as(u32, 0), in_frame.u_audit_oom);
@@ -90,14 +89,16 @@ test "rails: a clustered complete bipartite renders exactly as its flat form" {
     try testing.expectEqual(flat.defectTotal(), in_frame.defectTotal());
 }
 
-test "rails: the same graph unclustered separates its rails, so nothing fuses" {
+test "rails: the same graph unclustered fuses onto one licensed shared row" {
     var arena = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
     const c = try renderCounts(arena.allocator(), unclustered, 120);
 
-    // Distinct crossbar rows: the other side of the population boundary.
-    try testing.expectEqual(@as(u32, 0), c.n_rail_runs_two_sided);
-    try testing.expectEqual(@as(u32, 0), c.n_rail_pairs_asserted);
+    // One two-sided run, every asserted pair a declared one, records present.
+    try testing.expectEqual(@as(u32, 1), c.n_rail_runs_two_sided);
+    try testing.expectEqual(@as(u32, 4), c.n_rail_pairs_asserted);
+    try testing.expectEqual(@as(u32, 4), c.c_rail_pair_accounted);
+    try testing.expectEqual(@as(u32, 0), c.d_rail_pair_undeclared);
     try testing.expectEqual(@as(u32, 0), c.u_rail_run_records_absent);
 }
 

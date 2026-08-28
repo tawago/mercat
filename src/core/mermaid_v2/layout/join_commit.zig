@@ -161,11 +161,108 @@ pub fn buildReported(a: std.mem.Allocator, graph: sg.SemGraph, permits: ?*const 
             .target = disposition(graph, plan.groups, selected_group, closure_refused, selected.items, m.target_group, reversed_edges, m.edge),
         };
     }
+    const selected_slice = try selected.toOwnedSlice(a);
     return .{
-        .selected_joins = try selected.toOwnedSlice(a),
+        .selected_joins = selected_slice,
         .memberships = memberships,
         .co_realized = try discharged.toOwnedSlice(a),
+        .fused = try fusionLicence(a, graph, plan.groups, selected_slice),
     };
+}
+
+/// Phase 4 — the two-sided fusion licence. Selected SAME-direction trunks
+/// that share a leaf node form a candidate union; the union is licensed iff
+/// every member edge blocks the leaf-to-leaf trace (one-way head) and the
+/// distinct declared pairs are EXACTLY srcs x tgts with both sides plural —
+/// then the trunks' shared bus asserts only cross pairs the source declares,
+/// and its ink is one channel. Keyed on the plan and the declared edges only.
+/// guarded-by: join_commit_test.zig "a complete bipartite of selected arrivals licenses one fused union"
+fn fusionLicence(a: std.mem.Allocator, graph: sg.SemGraph, groups: []const pb.JoinGroup, selected: []const pb.SelectedJoin) error{OutOfMemory}![]const []const pb.EdgeId {
+    const n = selected.len;
+    if (n < 2) return &.{};
+    const parent = try a.alloc(usize, n);
+    for (parent, 0..) |*p, i| p.* = i;
+    for (selected, 0..) |x, i| {
+        const dx = directionOf(groups, x.permission_group) orelse continue;
+        for (selected[i + 1 ..], i + 1..) |y, j| {
+            if (directionOf(groups, y.permission_group) != dx) continue;
+            if (shareLeaf(graph, dx, x.members, y.members)) uniteJoin(parent, i, j);
+        }
+    }
+    var out: std.ArrayListUnmanaged([]const pb.EdgeId) = .empty;
+    for (0..n) |root| {
+        if (findJoin(parent, root) != root) continue;
+        var member_joins: u32 = 0;
+        var edges: std.ArrayListUnmanaged(pb.EdgeId) = .empty;
+        for (selected, 0..) |j, ji| {
+            if (findJoin(parent, ji) != root) continue;
+            member_joins += 1;
+            try edges.appendSlice(a, j.members);
+        }
+        if (member_joins < 2) continue;
+        if (try unionComplete(a, graph, edges.items)) {
+            std.mem.sort(pb.EdgeId, edges.items, {}, std.sort.asc(pb.EdgeId));
+            try out.append(a, try edges.toOwnedSlice(a));
+        } else edges.deinit(a);
+    }
+    return out.toOwnedSlice(a);
+}
+
+fn directionOf(groups: []const pb.JoinGroup, id: pb.JoinGroupId) ?pb.JoinDirection {
+    for (groups) |g| if (g.id == id) return g.direction;
+    return null;
+}
+
+fn shareLeaf(graph: sg.SemGraph, dir: pb.JoinDirection, xs: []const pb.EdgeId, ys: []const pb.EdgeId) bool {
+    for (xs) |xi| {
+        const x = edgeById(graph, xi) orelse return false;
+        for (ys) |yi| {
+            const y = edgeById(graph, yi) orelse return false;
+            const lx = if (dir == .in) x.from else x.to;
+            const ly = if (dir == .in) y.from else y.to;
+            if (lx == ly) return true;
+        }
+    }
+    return false;
+}
+
+fn unionComplete(a: std.mem.Allocator, graph: sg.SemGraph, members: []const pb.EdgeId) error{OutOfMemory}!bool {
+    var srcs: std.ArrayListUnmanaged(pb.NodeId) = .empty;
+    defer srcs.deinit(a);
+    var tgts: std.ArrayListUnmanaged(pb.NodeId) = .empty;
+    defer tgts.deinit(a);
+    var pairs: std.ArrayListUnmanaged([2]pb.NodeId) = .empty;
+    defer pairs.deinit(a);
+    for (members) |id| {
+        const e = edgeById(graph, id) orelse return false;
+        if (e.kind == .invisible or !sg.blocksLeafTrace(e)) return false;
+        try addUniqueNode(a, &srcs, e.from);
+        try addUniqueNode(a, &tgts, e.to);
+        var seen = false;
+        for (pairs.items) |p| if (p[0] == e.from and p[1] == e.to) {
+            seen = true;
+        };
+        if (!seen) try pairs.append(a, .{ e.from, e.to });
+    }
+    if (srcs.items.len <= 1 or tgts.items.len <= 1) return false;
+    return pairs.items.len == srcs.items.len * tgts.items.len;
+}
+
+fn addUniqueNode(a: std.mem.Allocator, list: *std.ArrayListUnmanaged(pb.NodeId), v: pb.NodeId) error{OutOfMemory}!void {
+    for (list.items) |x| if (x == v) return;
+    try list.append(a, v);
+}
+
+fn findJoin(parent: []usize, i: usize) usize {
+    var r = i;
+    while (parent[r] != r) r = parent[r];
+    return r;
+}
+
+fn uniteJoin(parent: []usize, i: usize, j: usize) void {
+    const ri = findJoin(parent, i);
+    const rj = findJoin(parent, j);
+    if (ri != rj) parent[@max(ri, rj)] = @min(ri, rj);
 }
 
 /// The plan-wide clause of the closure law: an implied leaf pair may be

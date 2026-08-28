@@ -107,6 +107,23 @@ pub fn arrowFree(e: Edge) bool {
     return e.arrow_from == .none and e.arrow_to == .none and !e.stands_for_directed;
 }
 
+/// True iff a leaf-to-leaf trace along a run carrying this edge RUNS AGAINST
+/// AN ARROW (`base/rail_closure.zig`) — a ONE-WAY head. `circle`/`cross` are
+/// direction-invariant and a head at BOTH ends points the trace along, so
+/// neither blocks.
+/// guarded-by: fan_lanes_test2.zig "a two-sided group whose heads are direction-invariant still separates"
+pub fn blocksLeafTrace(e: Edge) bool {
+    if (e.stands_for_directed) return true;
+    return directional(e.arrow_from) != directional(e.arrow_to);
+}
+
+fn directional(end: ArrowEnd) bool {
+    return switch (end) {
+        .open, .filled => true,
+        .none, .circle, .cross => false,
+    };
+}
+
 /// A subgraph grouping. Members are direct only; nested groups go in `sub_clusters`.
 pub const Cluster = struct {
     id: ClusterId,

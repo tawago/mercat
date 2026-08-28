@@ -316,14 +316,19 @@ pub fn realize(
     const double_discharge = pb.doubleDischarged(s.joins.co_realized, routed);
 
     const conflict_slice = try conflicts.toOwnedSlice(allocator);
+    const selected_slice = try selected.toOwnedSlice(allocator);
     return .{
         .plan = .{
-            .selected_joins = try selected.toOwnedSlice(allocator),
+            .selected_joins = selected_slice,
             .rejected_proposals = try rejected.toOwnedSlice(allocator),
             .memberships = rms,
             .conflicts = conflict_slice,
             .terminal_ports = try ports.toOwnedSlice(allocator),
             .co_realized = s.joins.co_realized,
+            // The fusion licence travels with the plan that earned it, valid
+            // only while every union member still rides a selected trunk here
+            // (the N6 agreement pin makes that the common case).
+            .fused = keepValidFused(s.joins.fused, selected_slice),
         },
         .report = .{
             .verdicts = verdicts,
@@ -334,6 +339,19 @@ pub fn realize(
             .co_double_discharge = double_discharge,
         },
     };
+}
+
+/// A licence whose union names an edge no re-realized trunk carries lapses
+/// wholesale — the conservative bar for a record nothing here re-derives.
+fn keepValidFused(fused: []const []const pb.EdgeId, selected: []const pb.SelectedJoin) []const []const pb.EdgeId {
+    for (fused) |u| for (u) |e| {
+        var found = false;
+        for (selected) |j| if (containsEdge(j.members, e)) {
+            found = true;
+        };
+        if (!found) return &.{};
+    };
+    return fused;
 }
 
 fn memberRow(allocator: std.mem.Allocator, s: sk.Sketch, members: []const pb.EdgeId) error{OutOfMemory}![]MemberGeom {

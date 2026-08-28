@@ -47,23 +47,9 @@ const Edge = struct { from: sg.NodeId, to: sg.NodeId, blocks_leaf_trace: bool };
 
 const Pair = struct { lo: sg.NodeId, hi: sg.NodeId };
 
-/// True iff a leaf-to-leaf trace along a run carrying this edge RUNS AGAINST
-/// AN ARROW (`base/rail_closure.zig`) — a ONE-WAY head. `circle`/`cross` are
-/// direction-invariant (`paint/arrow_glyphs.zig`) and a head at BOTH ends
-/// points the trace along, so neither blocks: `sg.arrowFree` answers "is there
-/// a glyph", which would read `o--o`, `x--x` and `<-->` as directed.
-/// guarded-by: fan_lanes_test2.zig "a two-sided group whose heads are direction-invariant still separates"
-fn blocksLeafTrace(e: sg.Edge) bool {
-    if (e.stands_for_directed) return true;
-    return directional(e.arrow_from) != directional(e.arrow_to);
-}
-
-fn directional(end: sg.ArrowEnd) bool {
-    return switch (end) {
-        .open, .filled => true,
-        .none, .circle, .cross => false,
-    };
-}
+// The one-way-head trace test lives in sem_graph.blocksLeafTrace, shared
+// with the plan-side fusion licence (`layout/join_commit.zig`).
+const blocksLeafTrace = sg.blocksLeafTrace;
 
 const Trunk = struct {
     fan_idx: u32,
@@ -71,6 +57,9 @@ const Trunk = struct {
     lo: i32,
     hi: i32,
     edges: []Edge,
+    /// False for a MODEL-ONLY trunk: every member sits on the pivot column,
+    /// so it draws pure verticals and owns no run to lane-separate.
+    has_run: bool,
 };
 
 fn centerX(comptime G: type, g: G) i32 {
@@ -146,6 +135,7 @@ pub fn assignLanes(
         const pivot_cx = centerX(G, geom[f.pivot_idx]);
         var lo: i32 = pivot_cx;
         var hi: i32 = pivot_cx;
+        var has_run = false;
         var edges: std.ArrayListUnmanaged(Edge) = .empty;
         errdefer edges.deinit(a);
 
@@ -159,6 +149,7 @@ pub fn assignLanes(
                     continue;
                 }
                 const cx = centerX(G, geom[p.peer_idx]);
+                if (cx != pivot_cx) has_run = true;
                 lo = @min(lo, cx);
                 hi = @max(hi, cx);
                 try edges.append(a, .{
@@ -177,13 +168,14 @@ pub fn assignLanes(
                     if (rc.contains(joins.co_realized, p.edge_id)) try pruned_gaps.put(a, f.source_layer, {});
                     continue;
                 }
-                // guarded-by: fan_lanes_test2.zig "a peer on its pivot's own column never shrinks a group into looking complete"
                 if (fanout_edges.contains(p.edge_id)) continue;
                 const cx = centerX(G, geom[p.peer_idx]);
-                if (cx == pivot_cx) {
-                    try pruned_gaps.put(a, f.source_layer, {});
-                    continue;
-                }
+                // A peer on the pivot's own column draws no horizontal run,
+                // but its vertical still touches the crossbar, so it stays in
+                // the MODEL (never widening the span): dropping it could make
+                // an incomplete group read complete.
+                // guarded-by: fan_lanes_test2.zig "a peer on its pivot's own column never shrinks a group into looking complete"
+                if (cx != pivot_cx) has_run = true;
                 lo = @min(lo, cx);
                 hi = @max(hi, cx);
                 try edges.append(a, .{
@@ -203,6 +195,7 @@ pub fn assignLanes(
             .lo = lo,
             .hi = hi,
             .edges = try edges.toOwnedSlice(a),
+            .has_run = has_run,
         });
     }
 
@@ -233,6 +226,10 @@ pub fn assignLanes(
     // guarded-by: fan_lanes_test.zig "a salvaged fan's excluded members never land on the kept trunk's lane"
     for (fans) |*fan| {
         if (fanSelected(fan.*, joins)) continue;
+        // A fan-OUT every one of whose peers joined an arrival trunk draws no
+        // run of its own: its members' ink belongs to those arrivals, so no
+        // per-member lane (and no reserved row) is owed here.
+        if (fan.direction == .out and allPeersJoinArrivals(fan.*, joins)) continue;
         var next_lane = fan.lane + @as(u32, if (anySelected(fan.*, joins)) 1 else 0);
         for (fan.peers) |*peer| {
             if (!peer.shared) continue;
@@ -394,19 +391,25 @@ fn laneAssignGroup(
     // Lane-pack: pack each trunk's x-span into the innermost lane it fits,
     // treating overlapping/abutting spans as conflicting (so they land on
     // distinct rows). `base = 0` — we only want the lane INDEX.
-    var min_x: i32 = std.math.maxInt(i32);
-    for (group) |gi| min_x = @min(min_x, trunks[members[gi]].lo);
+    // Model-only trunks (pure verticals) own no run: they stay lane 0 and
+    // take no row of their own.
+    var runs: std.ArrayListUnmanaged(u32) = .empty;
+    defer runs.deinit(a);
+    for (group) |gi| if (trunks[members[gi]].has_run) try runs.append(a, gi);
 
-    const demands = try a.alloc(lanes.LaneClaim, group.len);
+    var min_x: i32 = std.math.maxInt(i32);
+    for (runs.items) |gi| min_x = @min(min_x, trunks[members[gi]].lo);
+
+    const demands = try a.alloc(lanes.LaneClaim, runs.items.len);
     defer a.free(demands);
-    for (group, demands) |gi, *d| {
+    for (runs.items, demands) |gi, *d| {
         const t = trunks[members[gi]];
         d.* = .{ .lo = @intCast(t.lo - min_x), .hi = @intCast(t.hi - min_x), .base = 0 };
     }
     var asg = try lanes.assign(a, demands, 1);
     defer asg.deinit(a);
 
-    for (group, 0..) |gi, k| {
+    for (runs.items, 0..) |gi, k| {
         fans[trunks[members[gi]].fan_idx].lane = asg.lane_of[k];
     }
 }

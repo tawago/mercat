@@ -227,29 +227,25 @@ test "licence: a render that DOES merge, honestly, reports licensed and no defec
 }
 
 test "licence: the two-rail K(2,2) is the smallest render that fabricates" {
-    // THE SIZING CASE, and the reason the corpus number must not be read as
-    // a property of the mechanism. Four edges and two rails: each rail's
-    // crossbar OR-merges over the other's tap leg and paints a `┼` where
-    // nothing declares a transversal. Both fused pairs are foreign.
-    //
-    // This is decided ENTIRELY by the licence `raster/busbars.zig` records
-    // on the rail's own carriers. Neuter `licenceAt` and both events move
-    // to `u_run_fused_unevidenced` and the render reports no defect — so on
-    // shapes of this class, which the original corpus happened not to
-    // contain, the rail producer is the only detector there is.
+    // Once THE SIZING CASE: two separated rails whose crossbars OR-merged
+    // over each other's tap legs, both fused pairs foreign. The two-sided
+    // fusion licence changed the verdict, not the detector: the DIRECTED
+    // complete K(2,2) declares exactly srcs x tgts with one-way heads, so
+    // the plan records one fused union, the two arrivals share one bus row,
+    // and every fused meeting on it is LICENSED — no defect. Drop one head
+    // (see the arrow-free complement above) or one edge and the licence
+    // lapses, which the incomplete-bipartite pins elsewhere hold.
     const k22 = "flowchart TD\n  A --> C\n  B --> C\n  A --> D\n  B --> D\n";
     for ([3]u32{ 60, 100, 140 }) |w| {
         var arena = std.heap.ArenaAllocator.init(testing.allocator);
         defer arena.deinit();
         const c = try renderCounts(arena.allocator(), k22, w);
 
-        try testing.expectEqual(@as(u32, 2), c.c_run_fused_crossing);
-        try testing.expectEqual(@as(u32, 2), c.d_run_fused_foreign);
-        try testing.expectEqual(@as(u32, 0), c.c_run_fused_licensed);
+        try testing.expectEqual(@as(u32, 1), c.c_run_fused_crossing);
+        try testing.expectEqual(@as(u32, 1), c.c_run_fused_licensed);
+        try testing.expectEqual(@as(u32, 0), c.d_run_fused_foreign);
         try testing.expectEqual(@as(u32, 0), c.u_run_fused_unevidenced);
-        // Two counted pairs, ONE fabricated glyph: the unit is the adjacent
-        // pair, and the junction cell is a member of two of them.
-        try testing.expectEqual(@as(u32, 2), c.defectTotal());
+        try testing.expectEqual(@as(u32, 0), c.defectTotal());
     }
 }
 

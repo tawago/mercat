@@ -334,10 +334,20 @@ test "reachReports: node-key table maps raw_id bytes and tolerates sparse ids" {
 }
 
 /// The plan's own answer to "may these two edges share ink": co-membership of
-/// one selected join. The predicate `raster/crossings.zig` applies, restated
-/// here over ledger records so this pin is about the DATA and not about the
-/// raster's copy of the question.
+/// one selected join, or of one fused union (the two-sided fusion licence,
+/// which makes its trunks' bus one channel). The predicate
+/// `raster/crossings.zig` applies, restated here over ledger records so this
+/// pin is about the DATA and not about the raster's copy of the question.
 fn planCoMembers(plan: ledger.RealizedJoins, first: u32, second: u32) bool {
+    for (plan.fused) |u| {
+        var a_in = false;
+        var b_in = false;
+        for (u) |m| {
+            if (m == first) a_in = true;
+            if (m == second) b_in = true;
+        }
+        if (a_in and b_in) return true;
+    }
     for (plan.selected_joins) |j| {
         var a_in = false;
         var b_in = false;

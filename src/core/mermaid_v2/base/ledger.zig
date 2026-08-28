@@ -185,6 +185,14 @@ pub const RealizedJoins = struct {
     /// crossbar between the taps IS its rendering.
     /// guarded-by: rail_closure_test.zig "a fully declared clique keeps the rail and discharges every pair edge"
     co_realized: []const EdgeId = &.{},
+    /// Two-sided fusion licences: each entry is the member-edge UNION of a set
+    /// of selected same-direction trunks whose declared pairs are EXACTLY
+    /// srcs x tgts with every member blocking the leaf-to-leaf trace (the
+    /// closure test of base/rail_closure.zig, asked of the whole union). Such
+    /// trunks may share one bus row and their ink is ONE channel; anything
+    /// short of complete never appears here.
+    /// guarded-by: join_commit_test.zig "a complete bipartite of selected arrivals licenses one fused union"
+    fused: []const []const EdgeId = &.{},
 };
 
 // -- Rail-closure report-only inventory --------------------------------------
@@ -309,13 +317,28 @@ pub fn coSetsFromPlan(
     allocator: std.mem.Allocator,
     joins: RealizedJoins,
 ) error{OutOfMemory}![]const CoSet {
-    const n = joins.selected_joins.len;
-    if (n == 0) return &.{};
-    const out = try allocator.alloc(CoSet, n);
-    for (joins.selected_joins, out) |j, *slot| {
-        slot.* = .{ .origin = .selected_join, .members = j.members };
+    if (joins.selected_joins.len == 0) return &.{};
+    var out: std.ArrayListUnmanaged(CoSet) = .empty;
+    // A fused union replaces its trunks' per-join sets: the bus is ONE
+    // channel, and a member named by two structural sets is no channel at all
+    // (`resolveStructuralSet` reads that as .multiple).
+    for (joins.fused) |u| try out.append(allocator, .{ .origin = .selected_join, .members = u });
+    for (joins.selected_joins) |j| {
+        if (subsetOfAny(joins.fused, j.members)) continue;
+        try out.append(allocator, .{ .origin = .selected_join, .members = j.members });
     }
-    return out;
+    return out.toOwnedSlice(allocator);
+}
+
+fn subsetOfAny(unions: []const []const EdgeId, members: []const EdgeId) bool {
+    for (unions) |u| {
+        var all = true;
+        for (members) |m| {
+            if (!holds(u, m)) all = false;
+        }
+        if (all) return true;
+    }
+    return false;
 }
 
 // Component-table result types: the one shared output shape

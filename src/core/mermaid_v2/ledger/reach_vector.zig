@@ -157,6 +157,18 @@ pub fn validate(alloc: std.mem.Allocator, s: sk.Sketch, node_keys: []const []con
             if (anchor) |a| unite(parent, a, i) else anchor = i;
         }
     }
+    // A fusion licence (plan record) makes its trunks' bus ONE channel: the
+    // union's members and their trunks link, so licensed bus-row sharing is
+    // in-channel and fires nothing.
+    for (joins.fused) |u| {
+        var anchor: ?usize = null;
+        for (units.items, 0..) |unit, i| {
+            const owns = (unit.edge != null and containsEdge(u, unit.edge.?)) or
+                (unit.join != null and joinInUnion(joins, unit.join.?, u));
+            if (!owns) continue;
+            if (anchor) |a| unite(parent, a, i) else anchor = i;
+        }
+    }
 
     // 3. Cross-channel sharing (clauses 7/9): a strict orthogonal
     // transversal is legal and links nothing; ANY other cross-owner
@@ -341,8 +353,30 @@ fn oracle(
             if (has_member) member_comps += 1;
         }
         if (member_comps != 1) counts.join_split += 1;
-        try foreignCheck(alloc, join.id, true, join.members, comps, counts);
+        // A join in a licensed fusion shares its component with the union's
+        // other trunks by design; the union's members are not foreign to it.
+        try foreignCheck(alloc, join.id, true, fusedUnionOf(s.joins, join) orelse join.members, comps, counts);
     }
+}
+
+fn joinInUnion(joins: pb.RealizedJoins, id: pb.RealizedJoinId, u: []const pb.EdgeId) bool {
+    for (joins.selected_joins) |j| {
+        if (j.id != id) continue;
+        for (j.members) |m| if (containsEdge(u, m)) return true;
+        return false;
+    }
+    return false;
+}
+
+fn fusedUnionOf(joins: pb.RealizedJoins, join: pb.SelectedJoin) ?[]const pb.EdgeId {
+    for (joins.fused) |u| {
+        var all = true;
+        for (join.members) |m| {
+            if (!containsEdge(u, m)) all = false;
+        }
+        if (all and join.members.len > 0) return u;
+    }
+    return null;
 }
 
 /// Bullet 5: a component carrying a join's/union's members that also
