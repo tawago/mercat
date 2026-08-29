@@ -54,6 +54,11 @@ pub fn disposeUnsafe(a: std.mem.Allocator, plan: pb.RealizedJoins) error{OutOfMe
         // private ink in it. Dropping the record would report that edge as
         // missing from a sketch that never drew it.
         .co_realized = plan.co_realized,
+        // A fusion licence holds only while every union member rides a
+        // selected trunk (realized.keepValidFused); with the whole selected
+        // set withdrawn, a surviving record would declare a licensed channel
+        // no trunk backs.
+        .fused = &.{},
     };
 }
 

@@ -172,7 +172,7 @@ pub fn buildEdgesWithPlan(
                 else
                     0;
                 if (hit.fan.direction == .out)
-                    rail_lift += fan_mod.additionalLabelLift(hit.fan.*, @max(hit.fan.lane, hit.peer.lane));
+                    rail_lift += fan_mod.additionalLabelLift(hit.fan.*, fan_mod.effectiveLane(hit.fan.*, hit.peer.lane));
                 var lane = @max(hit.peer.lane, ep.route_lane);
                 // An offset private port turns a geometric center into a jog.
                 const source_x = src_p.rect.x + @as(i32, @intCast(ep.source.offset));

@@ -89,6 +89,20 @@ pub const Clustered = struct {
     input_of: []const sketch.NodeId,
 };
 
+/// `base` plus one `track_clearance_expired` diagnostic when any bridge-jog
+/// border-clearance search surrendered (count == surrendered coordinates).
+fn withTrackExpiry(
+    arena: std.mem.Allocator,
+    base: []const sketch.Diagnostic,
+    expired: u32,
+) error{OutOfMemory}![]const sketch.Diagnostic {
+    if (expired == 0) return base;
+    const out = try arena.alloc(sketch.Diagnostic, base.len + 1);
+    @memcpy(out[0..base.len], base);
+    out[base.len] = .{ .track_clearance_expired = expired };
+    return out;
+}
+
 /// Per-field sum of the outer piece's closure counts and every child's.
 fn closureSum(outer: sketch.Sketch, children: []const Clustered) ledger.ClosureCounts {
     var out = outer.closure;
@@ -321,7 +335,8 @@ pub fn stitch(
     const cluster_slice = try clusters.toOwnedSlice(arena);
     const bridge_base = id_base;
     const bridge_start = edges.items.len;
-    const bridge_edges = try bridges.route(arena, split_result.crossings, node_slice, cluster_slice, rails.items, edges.items, outer.direction, orig_to_merged);
+    var track_expired: u32 = 0;
+    const bridge_edges = try bridges.route(arena, split_result.crossings, node_slice, cluster_slice, rails.items, edges.items, outer.direction, orig_to_merged, &track_expired);
     // Bridges carry crossing ids, themselves renumbered from 0 by `split.zig`:
     // they take the last id window.
     for (bridge_edges) |be| {
@@ -378,7 +393,10 @@ pub fn stitch(
         // would silently drop every refusal a child's fans decided.
         // guarded-by: recurse_test2.zig "the merged sketch sums its pieces' closure counts"
         .closure = closureSum(outer, children),
-        .diagnostics = outer.diagnostics,
+        // A surrendered bridge-track coordinate may still be collinear with
+        // a drawn frame border; the render ships only with the surrender
+        // declared (I6).
+        .diagnostics = try withTrackExpiry(arena, outer.diagnostics, track_expired),
         .budget = outer.budget,
         // The candidate's label policy is a property of the CANDIDATE, not
         // of any one piece: it must survive the cut/glue or the raster (and

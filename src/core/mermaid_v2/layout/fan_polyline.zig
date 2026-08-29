@@ -121,7 +121,7 @@ pub fn buildPolylineAt(
     // Lane separation (fan_lanes): an incomplete-bipartite fan is lifted to its
     // own rail row so its rail no longer fuses with a neighbour's into a
     // fabricating run. lane 0 == the classic shared row (byte-identical).
-    const lane: i32 = @intCast(@max(fan.lane, member_lane));
+    const lane: i32 = @intCast(fan_mod.effectiveLane(fan, member_lane));
     var rail_y: i32 = if (south_flow) t_peri - 2 - lift - lane else t_peri + 2 + lift + lane;
     // A rail belongs to the GAP it crosses. `routing.zig` walks the lane up
     // until the polyline clears, and a gap holds only so many lanes: past that

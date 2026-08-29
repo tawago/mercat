@@ -68,14 +68,17 @@ pub const PortEnd = ep.PortEnd;
 /// `cells_lost` counts every polyline/arrowhead cell that could not be
 /// written because it collided with a node-owned or label cell — the
 /// raster-time signature of an edge routed through geometry it does not
-/// own. Report-only: nothing downstream branches on it.
+/// own. Summed into `RasterReport.edge_cells_lost`, which feeds selection
+/// via `audit.zig` → `score.RasterCounts`.
 pub const EdgeRasterReport = struct {
     edges_written: u32 = 0,
     cells_lost: u32 = 0,
-    /// Report-only crossing/transversal tallies (Amendment C, C1/C2) plus the
+    /// Crossing/transversal tallies (Amendment C, C1/C2) plus the
     /// frame-solid border-bridge pair (`b_frame_bridge`/
-    /// `b_border_fusion_refused`, D-CROSS owner ruling 2026-07-19). Never
-    /// consumed by score/audit/selection — flows raster → entry → diagnostics.
+    /// `b_border_fusion_refused`, D-CROSS owner ruling 2026-07-19). The two
+    /// violation fields feed selection via `audit.zig` →
+    /// `score.RasterCounts`; the rest flow raster → entry → diagnostics
+    /// only.
     crossings: crossings.CrossingCounts = .{},
 };
 

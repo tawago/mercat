@@ -226,6 +226,22 @@ test "V-D-DISPOSITION-01: incomplete-2x2 conflicts survive disposeUnsafe, all-in
     try expect(bytes.len > 0);
 }
 
+test "disposeUnsafe withdraws the fusion licence with the selected set it rode" {
+    // A fused union is valid only while every member rides a selected trunk
+    // (realized.keepValidFused); the wholesale withdrawal leaves none.
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const members = [_]pb.EdgeId{ 1, 2 };
+    const joins = [_]pb.SelectedJoin{.{ .id = 1, .proposal = 7, .permission_group = 3, .members = &members }};
+    const fused = [_][]const pb.EdgeId{&members};
+    const plan: pb.RealizedJoins = .{ .selected_joins = &joins, .fused = &fused };
+
+    const disposed = try jp.disposeUnsafe(a, plan);
+    try expectEqual(@as(usize, 0), disposed.selected_joins.len);
+    try expectEqual(@as(usize, 0), disposed.fused.len);
+}
+
 test "V-D-DISPOSITION-06: terminal fallback is built by the selection tail, marks terminal_fallback, validates, and renders" {
     // Fault injection: ALL candidates report a CI event, so the selection tail
     // (`selectWinner`) empties the scored set and BUILDS the terminal

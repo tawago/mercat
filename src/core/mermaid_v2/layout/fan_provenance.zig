@@ -30,16 +30,20 @@ pub fn build(
             if (!seed.shared) continue;
             const seed_edge = edgeById(graph, seed.edge_id) orelse continue;
             if (!effective(joins, seed_edge)) continue;
-            const lane = effectiveLane(f, seed);
-            if (groupSeen(graph, f, joins, f.peers[0..i], lane, seed_edge)) continue;
+            const lane = fan_mod.effectiveLane(f, seed.lane);
+            if (groupSeen(graph, f, joins, f.peers[0..i], lane)) continue;
 
+            // Membership is the recorded decision (`peer.shared`, set from
+            // permits, minus plan-discharged edges) partitioned by the rail
+            // row the ink occupies. A member whose style disagrees with the
+            // group is reported as-is; the rail-star checker files the
+            // defect (declared vs realized), never this producer.
             var members: std.ArrayListUnmanaged(ledger.RailClaimMember) = .empty;
             for (f.peers) |peer| {
                 if (!peer.shared) continue;
-                if (effectiveLane(f, peer) != lane) continue;
+                if (fan_mod.effectiveLane(f, peer.lane) != lane) continue;
                 const semantic = edgeById(graph, peer.edge_id) orelse continue;
                 if (!effective(joins, semantic)) continue;
-                if (!compatible(f.direction, seed_edge, semantic)) continue;
                 try members.append(a, memberFor(f, semantic, placements, paths, rails));
             }
             if (members.items.len < 2) {
@@ -156,19 +160,14 @@ fn siteFromPoint(placements: []const sketch.NodePlacement, node: sketch.NodeId, 
     return null;
 }
 
-fn groupSeen(graph: sg.SemGraph, f: fan_mod.Fan, joins: ledger.RealizedJoins, peers: []const fan_mod.FanEdge, lane: u32, seed: sg.Edge) bool {
+fn groupSeen(graph: sg.SemGraph, f: fan_mod.Fan, joins: ledger.RealizedJoins, peers: []const fan_mod.FanEdge, lane: u32) bool {
     for (peers) |peer| {
         if (!peer.shared) continue;
-        if (effectiveLane(f, peer) != lane) continue;
+        if (fan_mod.effectiveLane(f, peer.lane) != lane) continue;
         const prior = edgeById(graph, peer.edge_id) orelse continue;
-        if (!effective(joins, prior)) continue;
-        if (compatible(f.direction, seed, prior)) return true;
+        if (effective(joins, prior)) return true;
     }
     return false;
-}
-
-fn effectiveLane(f: fan_mod.Fan, peer: fan_mod.FanEdge) u32 {
-    return @max(f.lane, peer.lane);
 }
 
 fn deferredToArrivals(joins: ledger.RealizedJoins, f: fan_mod.Fan) bool {
@@ -189,15 +188,6 @@ fn effective(joins: ledger.RealizedJoins, edge: sg.Edge) bool {
     if (edge.kind == .invisible) return false;
     for (joins.co_realized) |spent| if (spent == edge.id) return false;
     return true;
-}
-
-fn compatible(direction: fan_mod.Direction, a: sg.Edge, b: sg.Edge) bool {
-    if (a.kind == .invisible or b.kind == .invisible or a.kind != b.kind) return false;
-    return pivotArrow(direction, a) == pivotArrow(direction, b);
-}
-
-fn pivotArrow(direction: fan_mod.Direction, edge: sg.Edge) sg.ArrowEnd {
-    return if (direction == .out) edge.arrow_from else edge.arrow_to;
 }
 
 fn pathById(paths: []const sketch.EdgePath, edge: sg.EdgeId) ?sketch.EdgePath {

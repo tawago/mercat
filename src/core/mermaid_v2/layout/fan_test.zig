@@ -269,6 +269,32 @@ test "co-sets group a fan's peers by rail lane" {
     try testing.expectEqual(@as(usize, 0), (try fan.coSets(arena.allocator(), &.{})).len);
 }
 
+test "co-sets partition by the effective lane the ink occupies, not peer.lane alone" {
+    const a = testing.allocator;
+
+    // fan.lane = 2 lifts the whole fan: peers with private lanes 0 and 1
+    // both paint on effective lane 2 (the row fan_polyline draws), so they
+    // are one shared set; the lane-3 peer stays above and shares with nobody.
+    var peers = [_]fan.FanEdge{
+        .{ .edge_id = 50, .peer_idx = 1, .role = .leftmost, .lane = 0 },
+        .{ .edge_id = 51, .peer_idx = 2, .role = .middle, .lane = 1 },
+        .{ .edge_id = 52, .peer_idx = 3, .role = .rightmost, .lane = 3 },
+    };
+    const fans = [_]fan.Fan{
+        .{ .direction = .out, .pivot_idx = 0, .source_layer = 0, .lane = 2, .peers = &peers },
+    };
+
+    try testing.expectEqual(@as(u32, 2), fan.effectiveLane(fans[0], peers[0].lane));
+    try testing.expectEqual(@as(u32, 2), fan.effectiveLane(fans[0], peers[1].lane));
+    try testing.expectEqual(@as(u32, 3), fan.effectiveLane(fans[0], peers[2].lane));
+
+    var arena = std.heap.ArenaAllocator.init(a);
+    defer arena.deinit();
+    const sets = try fan.coSets(arena.allocator(), &fans);
+    try testing.expectEqual(@as(usize, 1), sets.len);
+    try testing.expectEqualSlices(u32, &.{ 50, 51 }, sets[0].members);
+}
+
 test {
     _ = @import("fan_grid_test.zig");
     _ = @import("fan_polyline_test.zig");

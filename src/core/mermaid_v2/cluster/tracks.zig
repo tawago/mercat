@@ -2,17 +2,16 @@
 //!
 //! BORDER CLEARANCE: a jog must never run along a drawn cluster-frame
 //! border (the corner glyph would fuse into it); an offending coordinate
-//! is displaced outward on a best-effort, bounded search (at most 4096
-//! steps), and if the guard expires the last coordinate is returned even
-//! though it may still sit on a border. Synthetic frames never constrain.
+//! is displaced outward on a bounded search (at most 4096 steps). An
+//! expired search SURRENDERS: the last coordinate is returned even though
+//! it may still sit on a border, and each surrender is counted through the
+//! caller's `expired` out-counter (surfaced as the Sketch diagnostic
+//! `track_clearance_expired`), so a surrendered coordinate is always
+//! distinguishable from a cleared one. Synthetic frames never constrain.
 //! TRACK SEPARATION: same-side bridges whose jog spans overlap pack into
 //! distinct tracks (lanes.assign, stack_gap 1); untangled requests
 //! keep their preferred, border-cleared coordinate. PURE DATA: rects/coords
 //! in, resolved coords out; imports std, lanes, sketch.
-
-// REFACTOR TARGET: bounded search presented as a guarantee — the 4096 guard can
-// expire and return a non-conforming result silently. Either prove the bound is
-// unreachable, or make expiry an explicit, reported outcome.
 
 const std = @import("std");
 const sketch = @import("../sketch.zig");
@@ -112,6 +111,8 @@ pub const Obstacles = struct {
 
 /// Displace `coord` outward (per `entry`) until the jog segment no longer
 /// runs along a drawn frame border or through trunk-ink obstacles.
+/// On guard expiry the last coordinate is surrendered (possibly still on a
+/// border) and `expired`, when given, is incremented once.
 pub fn clearOfBorders(
     entry: sketch.Dir4,
     coord: i32,
@@ -119,12 +120,18 @@ pub fn clearOfBorders(
     hi: i32,
     clusters: []const sketch.ClusterFrame,
     obstacles: Obstacles,
+    expired: ?*u32,
 ) i32 {
     const sign = outwardSign(entry);
     const row = isRowJog(entry);
     var c = coord;
     var guard: u32 = 0;
-    while (guard < 4096 and (onFrameBorder(row, c, lo, hi, clusters) or obstacles.blocks(row, c, lo, hi))) : (guard += 1) {
+    while (onFrameBorder(row, c, lo, hi, clusters) or obstacles.blocks(row, c, lo, hi)) {
+        if (guard == 4096) {
+            if (expired) |e| e.* += 1;
+            break;
+        }
+        guard += 1;
         c += sign;
     }
     return c;
@@ -149,6 +156,7 @@ pub fn resolve(
     entry: sketch.Dir4,
     clusters: []const sketch.ClusterFrame,
     obstacles: Obstacles,
+    expired: ?*u32,
 ) error{OutOfMemory}![]i32 {
     const out = try arena.alloc(i32, reqs.len);
     const sign = outwardSign(entry);
@@ -169,7 +177,7 @@ pub fn resolve(
     // need displacing off any drawn frame border (no track separation to negotiate).
     // guarded-by: bridges_test.zig "vertical bridge jogs when x-misaligned, final segment vertical"
     for (reqs, 0..) |r, i| {
-        if (!part[i]) out[i] = clearOfBorders(entry, r.pref, r.span_lo, r.span_hi, clusters, obstacles);
+        if (!part[i]) out[i] = clearOfBorders(entry, r.pref, r.span_lo, r.span_hi, clusters, obstacles, expired);
     }
 
     // Entangled requests: sort innermost-preference first (assign packs in
@@ -209,7 +217,12 @@ pub fn resolve(
         var v = pos.*;
         if (prev != std.math.minInt(i32) and v <= prev) v = prev + 1;
         var guard: u32 = 0;
-        while (guard < 4096 and (onFrameBorder(row, sign * v, lane_lo[li], lane_hi[li], clusters) or obstacles.blocks(row, sign * v, lane_lo[li], lane_hi[li]))) : (guard += 1) {
+        while (onFrameBorder(row, sign * v, lane_lo[li], lane_hi[li], clusters) or obstacles.blocks(row, sign * v, lane_lo[li], lane_hi[li])) {
+            if (guard == 4096) {
+                if (expired) |e| e.* += 1;
+                break;
+            }
+            guard += 1;
             v += 1;
         }
         pos.* = v;

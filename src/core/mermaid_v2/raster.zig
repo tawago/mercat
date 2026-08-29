@@ -44,10 +44,12 @@ pub const RasterReport = struct {
     edges_written: u32,
     labels_placed: u32,
     label_diagnostics: []const labels_r.LabelDiagnostic,
-    // -- Phase 1 integrity counts (report-only; flow raster → entry →
-    //    diagnostics, never back into layout/budget) ------------------------
+    // -- Phase 1 integrity counts (flow raster → entry → diagnostics, and
+    //    via `audit.zig` into `score.RasterCounts` for candidate selection;
+    //    never back into layout/budget) -------------------------------------
     /// Edge polyline/arrowhead cells skipped because they collided with
-    /// node-owned or label cells (see `raster/edges.zig`).
+    /// node-owned or label cells (see `raster/edges.zig`). Feeds selection
+    /// via `audit.zig` → `score.RasterCounts`.
     edge_cells_lost: u32,
     /// Labels present in the Sketch that could not be placed at all
     /// (see `raster/labels.zig`).
@@ -65,12 +67,16 @@ pub const RasterReport = struct {
     /// Phantom neighbour-mask arms cleared by the reconcile post-pass
     /// (informational — these are repairs, not shipped defects).
     phantom_arms_cleared: u32,
-    /// Crossing/transversal tallies (Amendment C, C1/C2; report-only). Never
-    /// consumed by score/audit/selection — see `raster/crossings.zig`.
+    /// Crossing/transversal tallies (Amendment C, C1/C2) — see
+    /// `raster/crossings.zig`. `foreign_junction_violation` and
+    /// `arrowhead_transit_violation` feed selection: `audit.zig` reads them
+    /// into `score.RasterCounts`, which `score.eval` weights into the
+    /// violation tier. The remaining fields are report-only.
     crossings: crossings_r.CrossingCounts = .{},
-    /// Arrowhead-base painted tally (owner ruling 2026-07-18; report-only).
-    /// Counts arrowheads whose base cell does not feed the triangle. Never
-    /// consumed by score/audit/selection — see `raster/arrow_base.zig`.
+    /// Arrowhead-base painted tally (owner ruling 2026-07-18). Counts
+    /// arrowheads whose base cell does not feed the triangle.
+    /// `violations` feeds selection via `audit.zig` → `score.RasterCounts`;
+    /// the remaining fields are report-only — see `raster/arrow_base.zig`.
     arrow_base: arrow_base_r.ArrowBaseCounts = .{},
 };
 

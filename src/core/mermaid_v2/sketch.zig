@@ -248,6 +248,11 @@ pub const Diagnostic = union(enum) {
     },
     /// Total number of edge crossings in the routed Sketch.
     crossing_count: u32,
+    /// Bridge-jog track coordinates surrendered by the bounded border-
+    /// clearance search (`cluster/tracks.zig`): each counted coordinate may
+    /// still run along a drawn cluster-frame border. Declared degradation
+    /// (I6), never a cleared coordinate.
+    track_clearance_expired: u32,
 };
 
 // -- Sketch ------------------------------------------------------------------

@@ -78,6 +78,14 @@ pub const Fan = struct {
 
 const PreparedPeers = struct { peers: []FanEdge, deco_mixed: bool = false, style_mixed: bool = false, star_violation: bool = false };
 
+/// The rail row a member's ink actually occupies within the fan's gap:
+/// `fan_polyline` paints at exactly this lane, so any grouping of peers
+/// into shared-rail sets keys on this value. Sole partition authority (I5);
+/// a partition keyed on `peer.lane` or `f.lane` alone is a re-derivation.
+pub fn effectiveLane(f: Fan, peer_lane: u32) u32 {
+    return @max(f.lane, peer_lane);
+}
+
 /// Extra gap rows a LABELED fan reserves beyond its lane rows: the
 /// decorated on-run sandwich needs a 4-cell private dropper (flank, label,
 /// flank, head) where the classic gap yields 1.
@@ -86,7 +94,7 @@ pub const LABEL_RUN_EXTRA_ROWS: u32 = 3;
 pub fn labelRowsOnLane(f: Fan, lane: u32) u32 {
     var labels: u32 = 0;
     for (f.peers) |peer| {
-        if (peer.label_width != 0 and @max(f.lane, peer.lane) == lane) labels += 1;
+        if (peer.label_width != 0 and effectiveLane(f, peer.lane) == lane) labels += 1;
     }
     return labels * LABEL_RUN_EXTRA_ROWS;
 }
@@ -312,7 +320,7 @@ pub fn extraRowsPerGap(
             var need = max_lane + 1;
             for (f.peers) |peer| {
                 if (peer.label_width == 0) continue;
-                const lane = @max(f.lane, peer.lane);
+                const lane = effectiveLane(f, peer.lane);
                 if (!peer.shared) {
                     need = @max(need, lane + 1 + LABEL_RUN_EXTRA_ROWS);
                     continue;
@@ -396,12 +404,14 @@ pub fn lookup(fans: []const Fan, edge_id: sg.EdgeId) ?LookupHit {
 }
 
 /// The co-channel sets the detected fans authorize: one per group of peers
-/// sharing a rail lane, in fan order then peer order.
+/// sharing a rail lane (`effectiveLane` — the row the ink occupies), in fan
+/// order then peer order.
 ///
-/// Peers on one lane paint one shared rail run, so their ink sharing is a
-/// structural consequence of the fan, not an accident of routing — exactly
-/// the sharing a crossing law must not read as a fabricated junction. A lane
-/// holding a single peer is no set: that peer shares with nobody.
+/// Peers on one effective lane paint one shared rail run, so their ink
+/// sharing is a structural consequence of the fan, not an accident of
+/// routing — exactly the sharing a crossing law must not read as a
+/// fabricated junction. A lane holding a single peer is no set: that peer
+/// shares with nobody.
 ///
 /// `peer.lane` is the per-member lane `fan_lanes.assignLanes` hands out when
 /// a carve-out leaves a group unrealized, and stays 0 everywhere else — so
@@ -421,16 +431,17 @@ pub fn coSets(
             if (!seed.shared) continue;
             // First peer on this lane owns the group; later ones are already
             // inside it.
+            const seed_lane = effectiveLane(f, seed.lane);
             var already = false;
             for (f.peers[0..i]) |earlier| {
-                if (earlier.shared and earlier.lane == seed.lane) already = true;
+                if (earlier.shared and effectiveLane(f, earlier.lane) == seed_lane) already = true;
             }
             if (already) continue;
 
             members.clearRetainingCapacity();
             for (f.peers) |p| {
                 if (!p.shared) continue;
-                if (p.lane == seed.lane) try members.append(a, p.edge_id);
+                if (effectiveLane(f, p.lane) == seed_lane) try members.append(a, p.edge_id);
             }
             if (members.items.len < 2) continue;
             try out.append(a, .{

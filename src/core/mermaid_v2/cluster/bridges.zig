@@ -55,6 +55,9 @@ pub fn route(
     edge_paths: []const sketch.EdgePath,
     dir: sketch.Direction,
     orig_to_merged: []const sketch.NodeId,
+    /// Counts border-clearance searches that expired on SHIPPED coordinates
+    /// (tracks.zig surrender); tentative or unshipped attempts never count.
+    expired: ?*u32,
 ) error{OutOfMemory}![]sketch.EdgePath {
     // Bridges are routed LAST, into a fully-inked scene, so existing ink
     // constrains them: an arrowhead cell refuses any foreign transit, and a
@@ -120,7 +123,8 @@ pub fn route(
     // ports the re-route itself will keep.
     // guarded-by: bridges_test.zig "a re-routed corridor raises no crossing demand on the frame it leaves"
     for (pends.items) |*p| p.pref = jogPref(p.start, p.end, p.sides.exit, p.to_box);
-    try assignJogs(arena, pends.items, clusters, obstacles);
+    // Tentative jogs (recomputed after the slides below): no expiry counted.
+    try assignJogs(arena, pends.items, clusters, obstacles, null);
 
     const pairs = try arena.alloc(corridors.Pair, pends.items.len);
     for (pends.items, pairs) |p, *q| {
@@ -166,7 +170,8 @@ pub fn route(
         }
     }
 
-    try assignJogs(arena, pends.items, clusters, obstacles);
+    var jog_expired: u32 = 0;
+    try assignJogs(arena, pends.items, clusters, obstacles, &jog_expired);
 
     // Pass 3, two attempts: the plain build (every jog exactly as pass 2
     // assigned it) and the dodging build (each bridge routes SEQUENTIALLY
@@ -194,12 +199,16 @@ pub fn route(
         const trunked = try buildPaths(arena, pends.items, placements, clusters, obstacles, false);
         const t = try trunks.sceneScore(arena, trunked.paths, full, placements, clusters);
         const inc = try trunks.sceneScore(arena, incumbent.paths, full, placements, clusters);
-        if (t < inc) return trunked.paths;
+        if (t < inc) {
+            if (expired) |e| e.* += jog_expired + trunked.expired;
+            return trunked.paths;
+        }
     }
+    if (expired) |e| e.* += jog_expired + incumbent.expired;
     return incumbent.paths;
 }
 
-const Built = struct { paths: []sketch.EdgePath, score: u64 };
+const Built = struct { paths: []sketch.EdgePath, score: u64, expired: u32 };
 
 /// One whole-set routing attempt. In both attempts each finished polyline
 /// is scored against the scene so far (static ink + earlier bridges), so
@@ -222,6 +231,7 @@ fn buildPaths(
     try dyn_runs.appendSlice(arena, obstacles.runs);
     var out: std.ArrayListUnmanaged(sketch.EdgePath) = .empty;
     var score: u64 = 0;
+    var expired: u32 = 0;
     for (pends, 0..) |*p, pi| {
         const dyn = tracks.Obstacles{ .heads = dyn_heads.items, .runs = dyn_runs.items };
         const reroute = try rerouted(arena, p.*, placements);
@@ -234,7 +244,7 @@ fn buildPaths(
         }
         var poly = try buildElbow(arena, p.*);
         if (reroute) {
-            poly = try verticalCorridor(arena, p.start, p.end, p.to_box, p.sides.exit, placements, p.gf, p.gt, clusters, if (enable_dodge) dyn else obstacles);
+            poly = try verticalCorridor(arena, p.start, p.end, p.to_box, p.sides.exit, placements, p.gf, p.gt, clusters, if (enable_dodge) dyn else obstacles, &expired);
         }
         score += scene.polyScore(poly, dyn) + scene.boxScore(poly, p.gf, p.gt, placements, clusters);
         try commitScene(arena, &dyn_heads, &dyn_runs, poly, p.cross);
@@ -253,7 +263,7 @@ fn buildPaths(
             .role = .forward,
         });
     }
-    return .{ .paths = try out.toOwnedSlice(arena), .score = score };
+    return .{ .paths = try out.toOwnedSlice(arena), .score = score, .expired = expired };
 }
 
 /// The jog an earlier same-start, same-exit bridge committed: a follower on
@@ -431,6 +441,7 @@ fn assignJogs(
     pends: []Pending,
     clusters: []const sketch.ClusterFrame,
     obstacles: tracks.Obstacles,
+    expired: ?*u32,
 ) error{OutOfMemory}!void {
     const done = try arena.alloc(bool, pends.len);
     @memset(done, false);
@@ -477,7 +488,7 @@ fn assignJogs(
             }
         }
 
-        const coords = try tracks.resolve(arena, reqs.items, p0.sides.entry, clusters, obstacles);
+        const coords = try tracks.resolve(arena, reqs.items, p0.sides.entry, clusters, obstacles, expired);
         for (members.items, req_of.items) |mi, ri| pends[mi].jog = coords[ri];
     }
 }
