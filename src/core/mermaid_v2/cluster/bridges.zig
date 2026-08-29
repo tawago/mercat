@@ -12,12 +12,19 @@
 //! at most ONE corridor per display column, and never one on a frame corner;
 //! an offending port slides along its own node face until both hold.
 //!
+//! Routing VARIANTS (plain / dodged / trunked) are a caller decision
+//! (`prim.BridgeBuild`, from LayoutOptions): this router constructs exactly
+//! the variant it is told to and never picks between them — the variants
+//! are laid out as candidates and the selection stage's composite score
+//! against the real raster decides (confluence selection note).
+//!
 //! PURE DATA: Sketch geometry in, Sketch edges out. Imports only std, prim,
 //! sem_graph, sketch, and the cluster-internal tracks.zig / corridors.zig /
 //! bridge_scene.zig / bridge_trunks.zig (licensed shared-source trunk
-//! realization, gated on a strict full-scene win).
+//! realization).
 
 const std = @import("std");
+const prim = @import("prim");
 const sketch = @import("../sketch.zig");
 const sg = @import("../sem_graph.zig");
 const tracks = @import("tracks.zig");
@@ -58,6 +65,9 @@ pub fn route(
     /// Counts border-clearance searches that expired on SHIPPED coordinates
     /// (tracks.zig surrender); tentative or unshipped attempts never count.
     expired: ?*u32,
+    /// Which routing variant to construct (see the module doc). `.trunked`
+    /// with no licensed group (or no jog moved) builds the plain geometry.
+    build: prim.BridgeBuild,
 ) error{OutOfMemory}![]sketch.EdgePath {
     // Bridges are routed LAST, into a fully-inked scene, so existing ink
     // constrains them: an arrowhead cell refuses any foreign transit, and a
@@ -173,49 +183,35 @@ pub fn route(
     var jog_expired: u32 = 0;
     try assignJogs(arena, pends.items, clusters, obstacles, &jog_expired);
 
-    // Pass 3, two attempts: the plain build (every jog exactly as pass 2
-    // assigned it) and the dodging build (each bridge routes SEQUENTIALLY
-    // into a scene holding the bridges before it, its jog displaced off
-    // committed and tentative ink; bridges sharing one start stay ONE rail —
-    // the leader's dodged jog is copied, never re-dodged). The dodged set
-    // must EARN shipping: at least a halving of measured conflict. The
-    // metric is a sketch-side proxy for the raster's per-cell verdicts,
-    // faithful for gross fusion but blind to classification subtleties, so
-    // a marginal win is treated as noise and the plain build (the incumbent
-    // geometry) ships — a contact-free scene routes byte-identically, and a
-    // dodge can never make the whole diagram worse than not dodging.
-    const plain = try buildPaths(arena, pends.items, placements, clusters, obstacles, false);
-    const dodged = try buildPaths(arena, pends.items, placements, clusters, obstacles, true);
-    const incumbent = if (dodged.score * 2 <= plain.score) dodged else plain;
-
-    // Trunk attempt (bridge_trunks.zig): each licensed shared-source group
-    // jointly moves its shared jog to the least-conflicted rail coordinate,
-    // judged against the scene WITH static edge runs (which the base scene
-    // models as heads only). The trunk set ships only on a STRICT win of the
-    // same full-scene comparison run over both sets — realization stays a
-    // measured choice, never a default.
-    const full = try trunks.withStaticRuns(arena, obstacles, edge_paths);
-    if (try trunks.overrideJogs(arena, pends.items, placements, clusters, full)) {
-        const trunked = try buildPaths(arena, pends.items, placements, clusters, obstacles, false);
-        const t = try trunks.sceneScore(arena, trunked.paths, full, placements, clusters);
-        const inc = try trunks.sceneScore(arena, incumbent.paths, full, placements, clusters);
-        if (t < inc) {
-            if (expired) |e| e.* += jog_expired + trunked.expired;
-            return trunked.paths;
-        }
+    // Pass 3: construct exactly the variant the caller decided.
+    //   .plain — every jog exactly as pass 2 assigned it.
+    //   .dodged — each bridge routes SEQUENTIALLY into a scene holding the
+    //     bridges before it, its jog displaced off committed and tentative
+    //     ink; bridges sharing one start stay ONE rail (the leader's dodged
+    //     jog is copied, never re-dodged). The jog search inside a build is
+    //     constructive local placement; which BUILD ships is not decided
+    //     here — the variants are scored as candidates against the real
+    //     raster (confluence selection note).
+    //   .trunked — each licensed shared-source group jointly moves its
+    //     shared jog to the least-conflicted rail coordinate, judged
+    //     against the scene WITH static edge runs (which the base scene
+    //     models as heads only); with no licensed group, or no jog moved,
+    //     the geometry is the plain build.
+    if (build == .trunked) {
+        const full = try trunks.withStaticRuns(arena, obstacles, edge_paths);
+        _ = try trunks.overrideJogs(arena, pends.items, placements, clusters, full);
     }
-    if (expired) |e| e.* += jog_expired + incumbent.expired;
-    return incumbent.paths;
+    const built = try buildPaths(arena, pends.items, placements, clusters, obstacles, build == .dodged);
+    if (expired) |e| e.* += jog_expired + built.expired;
+    return built.paths;
 }
 
-const Built = struct { paths: []sketch.EdgePath, score: u64, expired: u32 };
+const Built = struct { paths: []sketch.EdgePath, expired: u32 };
 
-/// One whole-set routing attempt. In both attempts each finished polyline
-/// is scored against the scene so far (static ink + earlier bridges), so
-/// the two attempts' totals are comparable conflict counts. If a vertical
-/// elbow would run straight through a node interior, re-route as a corridor
-/// that jogs into a clear column before descending; gating on an actual
-/// intrusion keeps every non-intruding seed byte-identical.
+/// One whole-set routing attempt. If a vertical elbow would run straight
+/// through a node interior, re-route as a corridor that jogs into a clear
+/// column before descending; gating on an actual intrusion keeps every
+/// non-intruding seed byte-identical.
 fn buildPaths(
     arena: std.mem.Allocator,
     pends_src: []const Pending,
@@ -230,7 +226,6 @@ fn buildPaths(
     try dyn_heads.appendSlice(arena, obstacles.heads);
     try dyn_runs.appendSlice(arena, obstacles.runs);
     var out: std.ArrayListUnmanaged(sketch.EdgePath) = .empty;
-    var score: u64 = 0;
     var expired: u32 = 0;
     for (pends, 0..) |*p, pi| {
         const dyn = tracks.Obstacles{ .heads = dyn_heads.items, .runs = dyn_runs.items };
@@ -246,7 +241,6 @@ fn buildPaths(
         if (reroute) {
             poly = try verticalCorridor(arena, p.start, p.end, p.to_box, p.sides.exit, placements, p.gf, p.gt, clusters, if (enable_dodge) dyn else obstacles, &expired);
         }
-        score += scene.polyScore(poly, dyn) + scene.boxScore(poly, p.gf, p.gt, placements, clusters);
         try commitScene(arena, &dyn_heads, &dyn_runs, poly, p.cross);
 
         try out.append(arena, .{
@@ -263,7 +257,7 @@ fn buildPaths(
             .role = .forward,
         });
     }
-    return .{ .paths = try out.toOwnedSlice(arena), .score = score, .expired = expired };
+    return .{ .paths = try out.toOwnedSlice(arena), .expired = expired };
 }
 
 /// The jog an earlier same-start, same-exit bridge committed: a follower on

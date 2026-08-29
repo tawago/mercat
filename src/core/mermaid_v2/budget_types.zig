@@ -32,13 +32,20 @@ pub const Candidate = struct {
 pub const Transform = enum {
     raw,
     motif_pack,
+    /// Bridge-build twins of a clustered graph's promising candidates
+    /// (select.bridgeVariants): same recipe, `prim.BridgeBuild.dodged` /
+    /// `.trunked` instead of the `.plain` default. Their rungs are chosen
+    /// dynamically (raw natural + the ladder incumbent), so `rungs()` is
+    /// empty for them.
+    bridge_dodged,
+    bridge_trunked,
 
     /// True when this transform can produce candidates for a graph flowing
     /// in `d`. Packing is a direction-preserving TD/BT move (rank_grid tiles
     /// vertical-flow rows).
     pub fn appliesTo(t: Transform, d: sem_graph.Direction) bool {
         return switch (t) {
-            .raw => true,
+            .raw, .bridge_dodged, .bridge_trunked => true,
             .motif_pack => d == .TD or d == .BT,
         };
     }
@@ -52,6 +59,7 @@ pub const Transform = enum {
         return switch (t) {
             .raw => &.{ .natural, .tight, .wrap_labels, .switch_direction, .truncate },
             .motif_pack => &.{ .natural, .tight, .truncate },
+            .bridge_dodged, .bridge_trunked => &.{},
         };
     }
 };

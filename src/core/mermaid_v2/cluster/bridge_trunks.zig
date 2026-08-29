@@ -6,9 +6,10 @@
 //! clean rail row. `overrideJogs` moves the group's shared jog jointly to the
 //! least-conflicted coordinate, judged exactly like the gated dodge
 //! (committed scene + tentative non-member ink; a shared port is a licensed
-//! rail, never an obstacle). The caller re-builds the whole set and ships the
-//! trunk ONLY on a strict whole-scene win — realization is a measured choice,
-//! never a global switch.
+//! rail, never an obstacle). Whether the trunked build SHIPS is not decided
+//! here or by any sketch-side proxy: the trunked variant is laid out as a
+//! candidate and the selection stage's composite score against the real
+//! raster picks (confluence selection note).
 //!
 //! `realizedTrunk` is the plan tier's witness over FINAL geometry: a group
 //! realized a trunk iff every routed member leaves one shared point and the
@@ -224,29 +225,6 @@ pub fn withStaticRuns(
         }
     }
     return .{ .heads = base.heads, .runs = try runs.toOwnedSlice(arena) };
-}
-
-/// One whole-set conflict total for finished paths against `base`, each path
-/// also scored against the ink of the paths before it — the comparison the
-/// trunk gate runs on both the incumbent and the trunked set.
-pub fn sceneScore(
-    arena: std.mem.Allocator,
-    paths: []const sketch.EdgePath,
-    base: tracks.Obstacles,
-    placements: []const sketch.NodePlacement,
-    clusters: []const sketch.ClusterFrame,
-) error{OutOfMemory}!u64 {
-    var heads: std.ArrayListUnmanaged(Pt) = .empty;
-    var runs: std.ArrayListUnmanaged([2]Pt) = .empty;
-    try heads.appendSlice(arena, base.heads);
-    try runs.appendSlice(arena, base.runs);
-    var total: u64 = 0;
-    for (paths) |p| {
-        const dyn = tracks.Obstacles{ .heads = heads.items, .runs = runs.items };
-        total += scene.polyScore(p.polyline, dyn) + scene.boxScore(p.polyline, p.from, p.to, placements, clusters);
-        try scene.commitPoly(arena, &heads, &runs, p.polyline, p.arrow_from != .none, p.arrow_to != .none);
-    }
-    return total;
 }
 
 fn inGroup(members: []const usize, i: usize) bool {

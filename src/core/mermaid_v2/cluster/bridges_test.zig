@@ -22,7 +22,7 @@ test "vertical stacked bridge routes straight when x-aligned" {
     const crossings = [_]Crossing{
         .{ .id = 0, .from = 0, .to = 1, .kind = .solid, .arrow_from = .none, .arrow_to = .filled, .label = null },
     };
-    const edges = try bridges.route(a, &crossings, &placements, &.{}, &.{}, &.{}, .TD, &orig_to_merged, null);
+    const edges = try bridges.route(a, &crossings, &placements, &.{}, &.{}, &.{}, .TD, &orig_to_merged, null, .plain);
     try std.testing.expectEqual(@as(usize, 1), edges.len);
     // straight: 2 points, both at x = 13 (center of x=10,w=6)
     try std.testing.expectEqual(@as(usize, 2), edges[0].polyline.len);
@@ -47,7 +47,7 @@ test "vertical bridge jogs when x-misaligned, final segment vertical" {
     const crossings = [_]Crossing{
         .{ .id = 0, .from = 0, .to = 1, .kind = .solid, .arrow_from = .none, .arrow_to = .filled, .label = null },
     };
-    const edges = try bridges.route(a, &crossings, &placements, &.{}, &.{}, &.{}, .TD, &orig_to_merged, null);
+    const edges = try bridges.route(a, &crossings, &placements, &.{}, &.{}, &.{}, .TD, &orig_to_merged, null, .plain);
     const poly = edges[0].polyline;
     try std.testing.expectEqual(@as(usize, 4), poly.len);
     // Single bridge, no frames: the jog sits at the plain elbow's preferred
@@ -80,7 +80,7 @@ test "jog landing on a drawn frame border row is displaced outside it" {
     const crossings = [_]Crossing{
         .{ .id = 0, .from = 0, .to = 1, .kind = .solid, .arrow_from = .none, .arrow_to = .filled, .label = null },
     };
-    const edges = try bridges.route(a, &crossings, &placements, &clusters, &.{}, &.{}, .TD, &orig_to_merged, null);
+    const edges = try bridges.route(a, &crossings, &placements, &clusters, &.{}, &.{}, .TD, &orig_to_merged, null, .plain);
     const poly = edges[0].polyline;
     try std.testing.expectEqual(@as(usize, 4), poly.len);
     // Preferred row 6 fuses into frame 7's top border → displaced OUTWARD
@@ -112,7 +112,7 @@ test "two same-side bridges with overlapping spans get distinct tracks" {
         .{ .id = 0, .from = 0, .to = 3, .kind = .solid, .arrow_from = .none, .arrow_to = .filled, .label = null },
         .{ .id = 1, .from = 1, .to = 2, .kind = .solid, .arrow_from = .none, .arrow_to = .filled, .label = null },
     };
-    const edges = try bridges.route(a, &crossings, &placements, &clusters, &.{}, &.{}, .TD, &orig_to_merged, null);
+    const edges = try bridges.route(a, &crossings, &placements, &clusters, &.{}, &.{}, .TD, &orig_to_merged, null, .plain);
     try std.testing.expectEqual(@as(usize, 2), edges.len);
     const jog0 = edges[0].polyline[1].y;
     const jog1 = edges[1].polyline[1].y;
@@ -143,7 +143,7 @@ test "bridges sharing one source port share a single rail track" {
         .{ .id = 0, .from = 0, .to = 1, .kind = .solid, .arrow_from = .none, .arrow_to = .filled, .label = null },
         .{ .id = 1, .from = 0, .to = 2, .kind = .solid, .arrow_from = .none, .arrow_to = .filled, .label = null },
     };
-    const edges = try bridges.route(a, &crossings, &placements, &clusters, &.{}, &.{}, .TD, &orig_to_merged, null);
+    const edges = try bridges.route(a, &crossings, &placements, &clusters, &.{}, &.{}, .TD, &orig_to_merged, null, .plain);
     try std.testing.expectEqual(@as(usize, 2), edges.len);
     try std.testing.expectEqual(edges[0].polyline[1].y, edges[1].polyline[1].y);
 }
@@ -197,7 +197,7 @@ test "assignJogs: shared-request merge across different cluster depths picks the
         .{ .id = 0, .from = 0, .to = 1, .kind = .solid, .arrow_from = .none, .arrow_to = .filled, .label = null },
         .{ .id = 1, .from = 0, .to = 2, .kind = .solid, .arrow_from = .none, .arrow_to = .filled, .label = null },
     };
-    const edges = try bridges.route(a, &crossings, &placements, &clusters, &.{}, &.{}, .TD, &orig_to_merged, null);
+    const edges = try bridges.route(a, &crossings, &placements, &clusters, &.{}, &.{}, .TD, &orig_to_merged, null, .plain);
     try std.testing.expectEqual(@as(usize, 2), edges.len);
     // P's own preference (to_box=frame7, min(19, 23)=19) loses; the merge
     // must pick Q's deeper preference (to_box=frame8, min(21, 23)=21) for
@@ -225,7 +225,7 @@ test "verticalCorridor: the source-side jog row (one past the source) is collisi
     const crossings = [_]Crossing{
         .{ .id = 0, .from = 0, .to = 1, .kind = .solid, .arrow_from = .none, .arrow_to = .filled, .label = null },
     };
-    const edges = try bridges.route(a, &crossings, &placements, &.{}, &.{}, &.{}, .TD, &orig_to_merged, null);
+    const edges = try bridges.route(a, &crossings, &placements, &.{}, &.{}, &.{}, .TD, &orig_to_merged, null, .plain);
     const poly = edges[0].polyline;
 
     // Corridor engaged (not the plain 4-point elbow, whose jog row would
@@ -263,7 +263,7 @@ test "a vertical corridor's descent column never lands on a drawn frame border" 
     const crossings = [_]Crossing{
         .{ .id = 0, .from = 0, .to = 1, .kind = .solid, .arrow_from = .none, .arrow_to = .filled, .label = null },
     };
-    const edges = try bridges.route(a, &crossings, &placements, &frames, &.{}, &.{}, .TD, &orig_to_merged, null);
+    const edges = try bridges.route(a, &crossings, &placements, &frames, &.{}, &.{}, .TD, &orig_to_merged, null, .plain);
     const poly = edges[0].polyline;
     try std.testing.expectEqual(@as(usize, 6), poly.len);
 
@@ -308,7 +308,7 @@ test "a re-routed corridor raises no crossing demand on the frame it leaves" {
         .{ .id = 0, .from = 0, .to = 2, .kind = .solid, .arrow_from = .none, .arrow_to = .filled, .label = null },
         .{ .id = 1, .from = 1, .to = 3, .kind = .solid, .arrow_from = .none, .arrow_to = .filled, .label = null },
     };
-    const edges = try bridges.route(a, &crossings, &placements, &frames, &.{}, &.{}, .TD, &orig_to_merged, null);
+    const edges = try bridges.route(a, &crossings, &placements, &frames, &.{}, &.{}, .TD, &orig_to_merged, null, .plain);
     try std.testing.expectEqual(@as(usize, 2), edges.len);
 
     // M1's corridor really is the re-routed kind (more than one bend), so the
@@ -401,7 +401,7 @@ test "a licensed shared-source fan moves its whole rail off a static run the sce
         .kind = .solid,
     }};
 
-    const edges = try bridges.route(a, &crossings, &placements, &.{}, &.{}, &statics, .TD, &orig_to_merged, null);
+    const edges = try bridges.route(a, &crossings, &placements, &.{}, &.{}, &statics, .TD, &orig_to_merged, null, .trunked);
     try std.testing.expectEqual(@as(usize, 2), edges.len);
     // Both members share one start and one jog row, and the row is NOT the
     // head-occupied preferred row 18.

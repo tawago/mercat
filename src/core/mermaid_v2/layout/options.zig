@@ -68,6 +68,12 @@ pub const LayoutOptions = struct {
     /// land only via the beside-run ladder. select.zig lays out BOTH variants
     /// for a labeled graph and the score decides — never a global preference.
     label_policy: prim.LabelPolicy = .on_run,
+    /// This candidate's cross-border bridge build (`prim.BridgeBuild`).
+    /// `.plain` (default, and what every debug/forced driver uses) keeps
+    /// the track-assigned jogs; select.zig lays out the dodged/trunked
+    /// variants for a clustered graph and the score against the real
+    /// raster decides — routing itself never picks between them.
+    bridge_build: prim.BridgeBuild = .plain,
 };
 
 /// Horizontal justification of layout rows. Pressure-gated: only the

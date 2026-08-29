@@ -203,7 +203,7 @@ pub fn renderFlowchart(
     // (`budget.enumerate`), plus up to 3 motif-PACKED candidates on TD/BT
     // graphs with a packable parallel motif (select.zig), and returns the
     // score's argmin (score.zig), not the ladder's first-accepting rung.
-    // Cost: <=10 layout passes per render instead of the ladder's
+    // Cost: <=14 layout passes per render instead of the ladder's
     // short-circuit — acceptable at corpus scale (<=31 nodes), and the
     // TUI only re-renders on reflow (load/resize/reload), never per
     // frame. The env knobs steering this block (force_rung / score_off /

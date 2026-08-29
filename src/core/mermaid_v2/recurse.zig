@@ -143,7 +143,7 @@ pub fn stitchOuter(
     const outer = try coords.layout(arena, sr.pieces[0].graph, outer_opts);
     children[0] = .{ .sketch = outer, .input_of = &.{} }; // unused slot
     const authored_cluster_run = if (opts.join_permits) |p| !p.isFlat() else false;
-    return cluster_stitch.stitch(arena, sr, outer, children, opts.spacing_scale, authored_cluster_run);
+    return cluster_stitch.stitch(arena, sr, outer, children, opts.spacing_scale, authored_cluster_run, opts.bridge_build);
 }
 
 /// Horizontal frame chrome the child piece at `piece_idx` sits inside: zero

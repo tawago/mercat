@@ -32,8 +32,12 @@ const select_labels = @import("select_labels.zig");
 /// Packed candidates' capped rung set (see budget.Transform.rungs).
 const PACK_RUNGS = ladder.Transform.motif_pack.rungs();
 
-/// Upper bound on the merged candidate list: 5 raw rungs + 3 packed.
+/// Upper bound on the merged candidate list: 5 raw rungs + 3 packed +
+/// 4 beside twins + up to 4 bridge-build twins (capped at append time).
 const MAX_CANDIDATES = 16;
+
+/// Bridge-build twins: {dodged, trunked} x {raw natural, ladder incumbent}.
+const MAX_BRIDGE = 4;
 
 /// Enumerate raw + packed candidates, CI-filter, score them, and return the
 /// winning `LadderResult`. `score_off` returns the ladder incumbent (A/B
@@ -252,7 +256,7 @@ pub fn enumerateAll(
 ) !CandidateSet {
     const enumerated = try ladder.enumerate(aa, graph, join_permits, max_width);
 
-    var extras: [PACK_RUNGS.len + 1 + select_labels.MAX_BESIDE]ladder.Candidate = undefined;
+    var extras: [PACK_RUNGS.len + 1 + select_labels.MAX_BESIDE + MAX_BRIDGE]ladder.Candidate = undefined;
     var n_extras: usize = 0;
     for (packedCandidates(aa, graph, join_permits, max_width) catch &.{}) |c| {
         extras[n_extras] = c;
@@ -268,6 +272,19 @@ pub fn enumerateAll(
         n_extras += select_labels.besideVariants(aa, graph, join_permits, max_width, on_run[0..on_run_n], extras[n_extras..]);
     }
 
+    // Bridge-build twins LAST (behind raw, packed and beside), so an exact
+    // score tie keeps the plain build — the incumbent geometry.
+    n_extras += bridgeVariants(
+        aa,
+        graph,
+        join_permits,
+        max_width,
+        enumerated.candidates,
+        enumerated.incumbent.final_rung,
+        @min(extras.len - n_extras, MAX_CANDIDATES -| (enumerated.candidates.len + n_extras)),
+        extras[n_extras..],
+    );
+
     const merged = blk: {
         if (n_extras == 0) break :blk enumerated.candidates;
         const m = aa.alloc(ladder.Candidate, enumerated.candidates.len + n_extras) catch
@@ -277,6 +294,76 @@ pub fn enumerateAll(
         break :blk m;
     };
     return .{ .merged = merged, .incumbent = enumerated.incumbent };
+}
+
+/// Lay out the dodged/trunked BRIDGE-BUILD twins of a clustered graph's
+/// promising candidates (the raw natural rung and the ladder incumbent),
+/// appended behind every other candidate so ties keep the plain build. The
+/// composite score against the real raster then decides which bridge
+/// routing ships — the router itself never picks (confluence selection
+/// note: dodge vs plain and fused vs separate are candidate axes, not
+/// routing-time proxy decisions). A twin whose edges are byte-identical to
+/// its plain base is dropped (it cannot score differently); failures are
+/// skipped — twins are scoring-only extra work. Returns the number written.
+/// guarded-by: select_test3.zig "bridge variants: a clustered graph enumerates dodged/trunked twins behind the raw set"
+fn bridgeVariants(
+    aa: std.mem.Allocator,
+    graph: sem_graph.SemGraph,
+    join_permits: *const ledger.JoinPermits,
+    max_width: u32,
+    raw: []const ladder.Candidate,
+    incumbent_rung: ladder.Rung,
+    budget_slots: usize,
+    out: []ladder.Candidate,
+) usize {
+    if (graph.clusters.len == 0) return 0;
+    var rungs: [2]?ladder.Rung = .{ .natural, null };
+    if (incumbent_rung != .natural) rungs[1] = incumbent_rung;
+    var n: usize = 0;
+    const cap = @min(budget_slots, out.len);
+    for (rungs) |rung_opt| {
+        const rung = rung_opt orelse continue;
+        const base = baseCandidate(raw, rung) orelse continue;
+        for ([2]prim.BridgeBuild{ .dodged, .trunked }) |build| {
+            if (n >= cap) return n;
+            const result = ladder.runBridgeVariant(aa, graph, join_permits, max_width, rung, build) catch continue;
+            if (sameEdgeGeometry(base.sketch, result.sketch)) continue;
+            out[n] = .{
+                .rung = rung,
+                .sketch = result.sketch,
+                .accepted = false,
+                .transform = switch (build) {
+                    .dodged => .bridge_dodged,
+                    .trunked => .bridge_trunked,
+                    .plain => unreachable,
+                },
+            };
+            n += 1;
+        }
+    }
+    return n;
+}
+
+/// The raw candidate laid out at `rung`, if the ladder produced one.
+fn baseCandidate(raw: []const ladder.Candidate, rung: ladder.Rung) ?ladder.Candidate {
+    for (raw) |c| {
+        if (c.transform == .raw and c.rung == rung) return c;
+    }
+    return null;
+}
+
+/// True when two candidate Sketches carry identical edge geometry (ids and
+/// polylines) — a variant that changed nothing cannot audit or score
+/// differently, so it is not a distinct candidate.
+fn sameEdgeGeometry(a: sketch_mod.Sketch, b: sketch_mod.Sketch) bool {
+    if (a.edges.len != b.edges.len) return false;
+    for (a.edges, b.edges) |ea, eb| {
+        if (ea.id != eb.id or ea.polyline.len != eb.polyline.len) return false;
+        for (ea.polyline, eb.polyline) |pa, pb| {
+            if (pa.x != pb.x or pa.y != pb.y) return false;
+        }
+    }
+    return true;
 }
 
 /// Lay out the motif-packed graph (when packing applies) at the capped rung

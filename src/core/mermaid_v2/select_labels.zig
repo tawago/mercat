@@ -86,6 +86,10 @@ pub fn besideVariants(
         if (score_mod.fitSeverity(c.sketch) > min_t0) continue;
         const source: sem_graph.SemGraph = switch (c.transform) {
             .raw => graph,
+            // Bridge twins are appended AFTER the beside pass and never
+            // reach it; defensive skip keeps the twin space orthogonal
+            // (label policy is varied on the plain build only).
+            .bridge_dodged, .bridge_trunked => continue,
             .motif_pack => blk: {
                 if (!packed_tried) {
                     packed_tried = true;

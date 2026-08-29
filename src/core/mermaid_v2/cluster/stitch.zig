@@ -135,6 +135,10 @@ pub fn stitch(
     /// handed the root plan whose ids do not match theirs, so their joins
     /// are not testimony (and selection later overwrites them).
     merge_joins: bool,
+    /// This candidate's bridge build (LayoutOptions.bridge_build): which
+    /// routing variant `bridges.route` constructs. A decision made above
+    /// (selection scores the variants); routing obeys it.
+    bridge_build: prim.BridgeBuild,
 ) StitchError!Clustered {
     if (children.len != split_result.pieces.len) return error.PieceSketchMismatch;
 
@@ -336,7 +340,7 @@ pub fn stitch(
     const bridge_base = id_base;
     const bridge_start = edges.items.len;
     var track_expired: u32 = 0;
-    const bridge_edges = try bridges.route(arena, split_result.crossings, node_slice, cluster_slice, rails.items, edges.items, outer.direction, orig_to_merged, &track_expired);
+    const bridge_edges = try bridges.route(arena, split_result.crossings, node_slice, cluster_slice, rails.items, edges.items, outer.direction, orig_to_merged, &track_expired, bridge_build);
     // Bridges carry crossing ids, themselves renumbered from 0 by `split.zig`:
     // they take the last id window.
     for (bridge_edges) |be| {

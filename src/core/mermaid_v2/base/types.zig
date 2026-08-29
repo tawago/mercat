@@ -160,6 +160,19 @@ pub const EdgeKind = enum {
 /// `beside` = skip on-run entirely and reserve no label rows.
 pub const LabelPolicy = enum { on_run, beside };
 
+/// How a candidate builds its cross-border bridge paths. A SCORED routing
+/// variant, not a routing-time decision: select.zig lays out the variants
+/// and the composite score against the real raster picks (confluence
+/// selection note — a local sketch-side proxy may not decide fused vs
+/// separate or dodge vs plain).
+/// `plain` = every jog exactly as the track pass assigned it;
+/// `dodged` = each bridge routes sequentially, its jog displaced off
+/// committed and tentative ink;
+/// `trunked` = each licensed shared-source group jointly moves its shared
+/// jog to a rail coordinate judged against the full static scene (falls
+/// back to the plain geometry when no group is licensed or no jog moves).
+pub const BridgeBuild = enum { plain, dodged, trunked };
+
 pub const EdgeRole = enum {
     /// Default — straight forward edge between adjacent layers.
     forward,

@@ -230,6 +230,28 @@ pub fn runVariant(
     return .{ .sketch = result, .final_rung = rung, .attempts = 1 };
 }
 
+/// Lay out ONE candidate's BRIDGE-BUILD VARIANT: the same recipe (graph,
+/// rung) with a different `prim.BridgeBuild`, bypassing acceptance like
+/// `runForced`. select.zig lays out the dodged/trunked twins of a clustered
+/// graph's promising candidates so the composite score against the real
+/// raster chooses the bridge routing — routing never picks between the
+/// variants itself (confluence selection note). Every other driver here
+/// keeps the `.plain` default, so the debug paths keep one fixed geometry.
+/// guarded-by: select_test3.zig "bridge variants: the real-raster score decides, and flips when the counts flip"
+pub fn runBridgeVariant(
+    arena: std.mem.Allocator,
+    graph: sem_graph.SemGraph,
+    join_permits: *const ledger.JoinPermits,
+    max_width: u32,
+    rung: Rung,
+    build: prim.BridgeBuild,
+) !LadderResult {
+    var opts = optionsFor(rung, max_width);
+    opts.join_permits = join_permits;
+    opts.bridge_build = build;
+    return .{ .sketch = try recurse.layoutPieces(arena, rotateForRung(graph, rung), opts), .final_rung = rung, .attempts = 1 };
+}
+
 /// Build the `LayoutOptions` for a given rung (defaults from
 /// `coords.LayoutOptions{}`; tighter rungs cut spacing). `wrap_labels` adds
 /// `max_label_width` so `sizeNodes` soft-wraps over-wide labels (author

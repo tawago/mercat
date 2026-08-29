@@ -275,3 +275,164 @@ test "the audit prices the raster that ships: mode reaches collect and changes t
     const counterfactual = audit.collect(a, winner.sketch, .bridge);
     try std.testing.expect(counterfactual.arrow_base != priced.arrow_base);
 }
+
+// -- Bridge-build variants (P6) ---------------------------------------------
+
+const sketch_mod = @import("sketch.zig");
+const score_mod2 = @import("score.zig");
+
+/// Two-node fixture whose second edge either transits the first edge's
+/// arrowhead cell (x = 7 — a raster violation the sketch-side proxy could
+/// not classify) or crosses its plain run legally (x = 6).
+fn bridgePinSketch(cross_x: i32, polys: *[2][2]sketch_mod.Point, nodes: *[2]sketch_mod.NodePlacement, edges: *[2]sketch_mod.EdgePath) sketch_mod.Sketch {
+    nodes.* = .{
+        .{ .id = 1, .rect = .{ .x = 0, .y = 0, .w = 5, .h = 3 }, .shape = .rect, .lines = &.{}, .cluster_id = null },
+        .{ .id = 2, .rect = .{ .x = 8, .y = 0, .w = 5, .h = 3 }, .shape = .rect, .lines = &.{}, .cluster_id = null },
+    };
+    polys.* = .{
+        .{ .{ .x = 4, .y = 1 }, .{ .x = 8, .y = 1 } },
+        .{ .{ .x = cross_x, .y = 5 }, .{ .x = cross_x, .y = 0 } },
+    };
+    edges.* = .{
+        .{
+            .id = 0,
+            .from = 1,
+            .to = 2,
+            .polyline = polys[0][0..],
+            .port_from = .{ .node = 1, .side = .east, .offset = 1 },
+            .port_to = .{ .node = 2, .side = .west, .offset = 1 },
+            .arrow_from = .none,
+            .arrow_to = .filled,
+            .label = null,
+            .kind = .solid,
+        },
+        .{
+            .id = 1,
+            .from = 3,
+            .to = 4,
+            .polyline = polys[1][0..],
+            .port_from = .{ .node = 3, .side = .north, .offset = 0 },
+            .port_to = .{ .node = 4, .side = .south, .offset = 0 },
+            .arrow_from = .none,
+            .arrow_to = .none,
+            .label = null,
+            .kind = .solid,
+        },
+    };
+    return .{
+        .bbox = .{ .x = 0, .y = 0, .w = 13, .h = 6 },
+        .direction = .TD,
+        .nodes = nodes[0..],
+        .clusters = &.{},
+        .edges = edges[0..],
+        .diagnostics = &.{},
+        .budget = .{ .max_width = 80, .rung = 0 },
+    };
+}
+
+test "bridge variants: the real-raster score decides, and flips when the counts flip" {
+    // The deleted proxy (bridge_scene.polyScore + the dodged halving and the
+    // trunk sceneScore strict win) was "blind to classification subtleties":
+    // it modeled contact, never the raster's verdict classes. This pin puts a
+    // plain candidate and a bridge twin in front of scoreCandidates where the
+    // ONLY difference is one such subtlety — an arrowhead transit the audit
+    // raster counts — and asserts the choice follows the counts both ways.
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+
+    var polys_clean: [2][2]sketch_mod.Point = undefined;
+    var nodes_clean: [2]sketch_mod.NodePlacement = undefined;
+    var edges_clean: [2]sketch_mod.EdgePath = undefined;
+    const clean = bridgePinSketch(6, &polys_clean, &nodes_clean, &edges_clean);
+    var polys_bad: [2][2]sketch_mod.Point = undefined;
+    var nodes_bad: [2]sketch_mod.NodePlacement = undefined;
+    var edges_bad: [2]sketch_mod.EdgePath = undefined;
+    const bad = bridgePinSketch(7, &polys_bad, &nodes_bad, &edges_bad);
+
+    // The audit really classifies the two differently (the proxy could not).
+    const c_clean = audit.collect(a, clean, .bridge);
+    const c_bad = audit.collect(a, bad, .bridge);
+    try std.testing.expectEqual(@as(u32, 0), c_clean.arrowhead_transit);
+    try std.testing.expect(c_bad.arrowhead_transit > 0);
+
+    // Plain clean vs twin violating: plain wins.
+    const cands_a = [_]ladder.Candidate{
+        .{ .rung = .natural, .sketch = clean, .accepted = true, .transform = .raw },
+        .{ .rung = .natural, .sketch = bad, .accepted = false, .transform = .bridge_dodged },
+    };
+    const sel_a = select.scoreCandidates(a, &cands_a, .natural, .TD, .bridge) orelse return error.ScoreFailed;
+    try std.testing.expectEqual(@as(usize, 0), sel_a.argmin_idx);
+
+    // Counts flipped — plain violating vs twin clean: the twin displaces the
+    // natural anchor (one transit, 8192 composite, clears the margin).
+    const cands_b = [_]ladder.Candidate{
+        .{ .rung = .natural, .sketch = bad, .accepted = true, .transform = .raw },
+        .{ .rung = .natural, .sketch = clean, .accepted = false, .transform = .bridge_dodged },
+    };
+    const sel_b = select.scoreCandidates(a, &cands_b, .natural, .TD, .bridge) orelse return error.ScoreFailed;
+    try std.testing.expectEqual(@as(usize, 1), sel_b.argmin_idx);
+    _ = score_mod2.W_ARROWHEAD_TRANSIT; // the priced counter this pin rides on
+}
+
+test "bridge variants: a clustered graph enumerates dodged/trunked twins behind the raw set" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+
+    // Flat graph: no clusters, no bridge twins at all.
+    const flat = try parse(a, "flowchart TD\n  A --> B\n  A --> C\n");
+    const flat_permits = try permitsFor(a, flat);
+    const flat_set = try select.enumerateAll(a, flat, &flat_permits, 120);
+    for (flat_set.merged) |c| {
+        try std.testing.expect(c.transform != .bridge_dodged and c.transform != .bridge_trunked);
+    }
+
+    // Clustered graph with cross-border edges: twins may appear (a twin
+    // byte-identical to its plain base is dropped — it cannot score
+    // differently). Whatever appears must sit BEHIND every raw candidate
+    // and actually differ from its rung's plain base.
+    const clustered = try parse(a,
+        \\flowchart TD
+        \\  subgraph S1
+        \\    A --> B
+        \\  end
+        \\  subgraph S2
+        \\    C --> D
+        \\  end
+        \\  A --> C
+        \\  A --> D
+        \\  B --> D
+    );
+    const permits = try permitsFor(a, clustered);
+    const set = try select.enumerateAll(a, clustered, &permits, 120);
+    var last_raw: usize = 0;
+    var first_bridge: usize = set.merged.len;
+    for (set.merged, 0..) |c, i| {
+        switch (c.transform) {
+            .raw => last_raw = i,
+            .bridge_dodged, .bridge_trunked => {
+                first_bridge = @min(first_bridge, i);
+                // A retained twin differs from its rung's raw base.
+                for (set.merged) |base| {
+                    if (base.transform != .raw or base.rung != c.rung) continue;
+                    var same = base.sketch.edges.len == c.sketch.edges.len;
+                    if (same) for (base.sketch.edges, c.sketch.edges) |ea, eb| {
+                        if (ea.polyline.len != eb.polyline.len) same = false;
+                    };
+                    try std.testing.expect(!same or blk: {
+                        var differs = false;
+                        for (base.sketch.edges, c.sketch.edges) |ea, eb| {
+                            for (ea.polyline, eb.polyline) |pa, pb| {
+                                if (pa.x != pb.x or pa.y != pb.y) differs = true;
+                            }
+                        }
+                        break :blk differs;
+                    });
+                }
+            },
+            else => {},
+        }
+    }
+    try std.testing.expect(first_bridge > last_raw);
+}
