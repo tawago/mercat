@@ -16,6 +16,10 @@ pub const EdgePorts = struct {
     source_ordinal: u32,
     target_ordinal: u32,
     source_duplicate: bool = false,
+    /// Source-end decoration exists: the reserved off-node departure cell
+    /// will hold it, so that cell blocks ALL foreign transit (the plain-run
+    /// obstacle model applies only to undecorated departures).
+    source_decorated: bool = false,
     target_duplicate: bool = false,
     route_lane: u32 = 0,
 };
@@ -40,7 +44,7 @@ pub fn midpoint(a: std.mem.Allocator, graph: sg.SemGraph, placements: []const sk
         const target_p = placementById(placements, edge.to) orelse placements[0];
         const source = midpointPort(graph.direction, source_p, edge, .source_exit);
         const target = midpointPort(graph.direction, target_p, edge, .target_entry);
-        out.* = .{ .edge = edge.id, .source = source.port, .target = target.port, .source_ordinal = 0, .target_ordinal = 0 };
+        out.* = .{ .edge = edge.id, .source = source.port, .target = target.port, .source_ordinal = 0, .target_ordinal = 0, .source_decorated = edge.arrow_from != .none };
     }
     return .{ .edges = edges };
 }
@@ -214,6 +218,7 @@ pub fn allocate(
             .source_ordinal = source.ordinal,
             .target_ordinal = target.ordinal,
             .source_duplicate = hasDuplicatePrivateClaim(resolved, joins, edge.from, edge, .source_exit),
+            .source_decorated = edge.arrow_from != .none,
             .target_duplicate = hasDuplicatePrivateClaim(resolved, joins, edge.to, edge, .target_entry),
             .route_lane = laneFor(lane_plan.lanes, edge.id),
         };

@@ -108,9 +108,14 @@ pub fn conflictsReservedDepartures(a: std.mem.Allocator, edge: pb.EdgeId, polyli
         const placement = placementById(placements, item.source.node) orelse continue;
         const point = offNodePoint(placement, item.source);
         const theirs = candidate.get(.{ .x = point.x, .y = point.y }) orelse continue;
-        // The reservation follows the plain-run obstacle model: only
-        // collinear occupancy (or a bend lingering in the cell) claims the
-        // departure; a perpendicular through-run is a legal crossing.
+        // A decorated departure cell holds the reserved edge's source-end
+        // decoration; decoration ink blocks ALL foreign transit — a
+        // through-run there ships as an arrowhead transit.
+        // guarded-by: route_clearance_test.zig "a decorated departure cell blocks even a perpendicular crossing"
+        if (item.source_decorated) return true;
+        // An undecorated reservation follows the plain-run obstacle model:
+        // only collinear occupancy (or a bend lingering in the cell) claims
+        // the departure; a perpendicular through-run is a legal crossing.
         // guarded-by: route_clearance_test.zig "a reserved departure blocks collinear occupancy and admits a perpendicular crossing"
         var departure: Pass = .{};
         switch (item.source.side) {
