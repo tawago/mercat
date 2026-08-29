@@ -21,7 +21,7 @@
 //! of those passes fired. Records are therefore append-only history of
 //! what a producer did — which edge attached here, which runs share this
 //! cell — and no pass rewrites them.
-//! guarded-by: raster/aux_test.zig "aux records survive the three post-walk mutating passes"
+//! guarded-by: raster/aux_test.zig "aux records survive the post-walk mutating passes"
 
 const std = @import("std");
 const prim = @import("prim");

@@ -140,6 +140,23 @@ test "eval: integrity is a large priced cost, not a veto" {
     try t.expect(s_dirty.lessThan(s_huge));
 }
 
+test "eval: a lost terminal head is priced above the plain lost cell it also is" {
+    var arena = std.heap.ArenaAllocator.init(t.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+
+    const nodes = [_]sketch.NodePlacement{
+        testNode(0, .{ .x = 0, .y = 0, .w = 5, .h = 3 }, null),
+    };
+    const sk = testSketch(.{ .x = 0, .y = 0, .w = 7, .h = 4 }, &nodes, &.{}, &.{});
+    const base = try eval(a, sk, .TD, 0, .{ .edge_cells_lost = 1 });
+    const headless = try eval(a, sk, .TD, 0, .{ .edge_cells_lost = 1, .heads_lost = 1 });
+    // Same geometry: the head loss adds exactly its own weight on top of
+    // the generic cell loss already counted for the same event.
+    try t.expectEqual(base.t12_composite + score.W_HEAD_LOST, headless.t12_composite);
+    try t.expect(base.lessThan(headless));
+}
+
 test "eval: rung multiplier is a fitted degradation prior" {
     var arena = std.heap.ArenaAllocator.init(t.allocator);
     defer arena.deinit();

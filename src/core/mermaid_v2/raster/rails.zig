@@ -90,6 +90,9 @@ pub const Report = struct {
     taps_written: u32 = 0,
     /// Trunk/drop/arrow cells lost to node/label collisions.
     cells_lost: u32 = 0,
+    /// Rail pivot/tap arrowheads refused at a collision — same contract as
+    /// `edges.EdgeRasterReport.heads_lost`.
+    heads_lost: u32 = 0,
 };
 
 /// Rasterize every rail in `s` into `lat`.
@@ -169,7 +172,7 @@ fn drawRail(lat: *lattice.Lattice, bb: sketch.Rail, report: *Report, chan: Chan,
             if (edges_r.pointInBounds(h.cell, lat)) {
                 const c = edges_r.toCoord(h.cell);
                 const lic = licenceAt(lat, c, crossbar_edge, chan);
-                edges_r.writeArrowCell(lat.at(c.x, c.y), crossbar_edge, bb.kind, bb.pivot_arrow, h.dir, edges_r.straightMask(dir), c.x, c.y, &report.cells_lost, lic, rec);
+                edges_r.writeArrowCell(lat.at(c.x, c.y), crossbar_edge, bb.kind, bb.pivot_arrow, h.dir, edges_r.straightMask(dir), c.x, c.y, &report.cells_lost, &report.heads_lost, lic, rec);
             }
         }
     }
@@ -222,7 +225,7 @@ fn drawRail(lat: *lattice.Lattice, bb: sketch.Rail, report: *Report, chan: Chan,
                 if (edges_r.pointInBounds(h.cell, lat)) {
                     const c = edges_r.toCoord(h.cell);
                     const lic = licenceAt(lat, c, tap.edge, chan);
-                    edges_r.writeArrowCell(lat.at(c.x, c.y), tap.edge, bb.kind, tap.arrow, h.dir, edges_r.straightMask(dir), c.x, c.y, &report.cells_lost, lic, rec);
+                    edges_r.writeArrowCell(lat.at(c.x, c.y), tap.edge, bb.kind, tap.arrow, h.dir, edges_r.straightMask(dir), c.x, c.y, &report.cells_lost, &report.heads_lost, lic, rec);
                 }
             }
         }

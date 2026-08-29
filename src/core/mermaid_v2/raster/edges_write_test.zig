@@ -46,7 +46,8 @@ test "writeEdgeCell: a terminal segment cell onto a cluster_border merges (today
 test "writeArrowCell: an arrowhead may stamp onto a cluster_border (arrival AT the cluster)" {
     var cell = borderCell(.{ .e = true, .w = true });
     var lost: u32 = 0;
-    ew.writeArrowCell(&cell, 7, .solid, .filled, .south, .{ .n = true, .s = true }, 3, 3, &lost, .merged_untested, .{});
+    var hlost: u32 = 0;
+    ew.writeArrowCell(&cell, 7, .solid, .filled, .south, .{ .n = true, .s = true }, 3, 3, &lost, &hlost, .merged_untested, .{});
     try testing.expectEqual(@as(u32, 0), lost);
     try testing.expect(switch (cell.occupant) {
         .arrowhead => |ah| ah.dir == .south and ah.edge == 7,
@@ -64,7 +65,8 @@ test "writeArrowCell stamps the edge's own stroke_kind" {
         .stroke_kind = .solid,
     };
     var lost: u32 = 0;
-    ew.writeArrowCell(&cell, 9, .dotted, .filled, .east, .{ .e = true, .w = true }, 1, 1, &lost, .merged_foreign, .{});
+    var hlost: u32 = 0;
+    ew.writeArrowCell(&cell, 9, .dotted, .filled, .east, .{ .e = true, .w = true }, 1, 1, &lost, &hlost, .merged_foreign, .{});
     try testing.expect(switch (cell.occupant) {
         .arrowhead => |ah| ah.edge == 9,
         else => false,
@@ -77,7 +79,8 @@ test "writeArrowCell on an empty cell stamps stroke_kind" {
     // stroke agrees with its edge kind.
     var cell = lattice.Cell.empty;
     var lost: u32 = 0;
-    ew.writeArrowCell(&cell, 4, .thick, .filled, .south, .{ .n = true, .s = true }, 0, 0, &lost, .merged_untested, .{});
+    var hlost: u32 = 0;
+    ew.writeArrowCell(&cell, 4, .thick, .filled, .south, .{ .n = true, .s = true }, 0, 0, &lost, &hlost, .merged_untested, .{});
     try testing.expectEqual(lattice.EdgeKind.thick, cell.stroke_kind);
 }
 
@@ -86,7 +89,8 @@ test "writeArrowCell records the declared head style on the cell" {
     // must carry it, including the pristine refuse branch of the guarded one.
     var plain = lattice.Cell.empty;
     var lost: u32 = 0;
-    ew.writeArrowCell(&plain, 1, .solid, .open, .south, .{ .n = true }, 0, 0, &lost, .merged_untested, .{});
+    var hlost: u32 = 0;
+    ew.writeArrowCell(&plain, 1, .solid, .open, .south, .{ .n = true }, 0, 0, &lost, &hlost, .merged_untested, .{});
     try testing.expectEqual(lattice.ArrowKind.open, plain.occupant.arrowhead.arrow);
 
     var counts: crossings.CrossingCounts = .{};
@@ -95,7 +99,7 @@ test "writeArrowCell records the declared head style on the cell" {
         .occupant = .{ .edge_segment = .{ .edge = 2, .kind = .solid, .role = .forward } },
         .neighbours = .{ .e = true, .w = true },
     };
-    ew.writeArrowGuarded(&refused, 6, .solid, .cross, .east, .{ .e = true }, 1, 1, &lost, ctx, .{});
+    ew.writeArrowGuarded(&refused, 6, .solid, .cross, .east, .{ .e = true }, 1, 1, &lost, &hlost, ctx, .{});
     try testing.expectEqual(lattice.ArrowKind.cross, refused.occupant.arrowhead.arrow);
 }
 
@@ -111,7 +115,8 @@ test "writeArrowGuarded refuse branch stamps the arrowhead's own stroke_kind" {
         .stroke_kind = .thick,
     };
     var lost: u32 = 0;
-    ew.writeArrowGuarded(&cell, 5, .solid, .filled, .east, .{ .e = true, .w = true }, 1, 1, &lost, ctx, .{});
+    var hlost: u32 = 0;
+    ew.writeArrowGuarded(&cell, 5, .solid, .filled, .east, .{ .e = true, .w = true }, 1, 1, &lost, &hlost, ctx, .{});
     try testing.expect(switch (cell.occupant) {
         .arrowhead => |ah| ah.edge == 5,
         else => false,
@@ -123,6 +128,32 @@ test "writeArrowGuarded refuse branch stamps the arrowhead's own stroke_kind" {
     );
     try testing.expectEqual(lattice.EdgeKind.solid, cell.stroke_kind);
     try testing.expectEqual(@as(u32, 1), counts.arrowhead_transit_violation);
+}
+
+test "a head refused at a node/label collision counts BOTH cells_lost and heads_lost" {
+    // The deletion ships as a DECLARED defect: the generic lost-cell tally
+    // and the distinct lost-head tally both move, so selection prices a
+    // missing terminal decoration above an ordinary swallowed run cell.
+    var border: lattice.Cell = .{
+        .occupant = .{ .node_border = .{ .node = 3, .role = .edge_s } },
+        .neighbours = .{},
+    };
+    var lost: u32 = 0;
+    var hlost: u32 = 0;
+    ew.writeArrowCell(&border, 7, .solid, .filled, .south, .{ .n = true, .s = true }, 0, 0, &lost, &hlost, .merged_untested, .{});
+    try testing.expectEqual(@as(u32, 1), lost);
+    try testing.expectEqual(@as(u32, 1), hlost);
+    // The cell is untouched — the write was refused, not merged.
+    try testing.expect(border.occupant == .node_border);
+
+    // A plain run cell refused on the same occupant moves only cells_lost.
+    var border2: lattice.Cell = .{
+        .occupant = .{ .node_border = .{ .node = 3, .role = .edge_s } },
+        .neighbours = .{},
+    };
+    ew.writeEdgeCell(&border2, 7, .solid, .forward, .{ .n = true, .s = true }, 0, 0, &lost, .merged_untested, .{});
+    try testing.expectEqual(@as(u32, 2), lost);
+    try testing.expectEqual(@as(u32, 1), hlost);
 }
 
 test "directional primitives round-trip (straightMask/bitMask/reverse)" {
@@ -209,7 +240,8 @@ test "an arrowhead landing on a foreign arrowhead files a foreign carrier" {
             .neighbours = .{ .n = true },
         };
         var lost: u32 = 0;
-        ew.writeArrowGuarded(&cell, 9, .solid, .filled, .east, .{ .e = true }, 2, 2, &lost, ctx, rec);
+    var hlost: u32 = 0;
+        ew.writeArrowGuarded(&cell, 9, .solid, .filled, .east, .{ .e = true }, 2, 2, &lost, &hlost, ctx, rec);
 
         const table = col.finish();
         try testing.expectEqual(@as(usize, 1), table.len);

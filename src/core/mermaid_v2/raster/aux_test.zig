@@ -16,7 +16,6 @@ const ew = @import("edges_write.zig");
 const ep = @import("edges_port.zig");
 const fan_roles = @import("fan_roles.zig");
 const reconcile = @import("reconcile.zig");
-const arrow_base = @import("arrow_base.zig");
 const crossings = @import("crossings.zig");
 const ledger = @import("../base/ledger.zig");
 
@@ -182,16 +181,16 @@ test "raster distinguishes complete-empty and AUX OOM without changing cells" {
     );
 }
 
-test "aux records survive the three post-walk mutating passes" {
+test "aux records survive the post-walk mutating passes" {
     var arena = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
     const s = try stackedPairSketch(a);
 
     // The record below is filed DURING the edge walk. Everything the
-    // orchestrator runs afterwards — the fan-OUT mask resolve, neighbour
-    // reconciliation, and arrowhead-base receiving — rewrites cells in
-    // place. The record is still here at the end.
+    // orchestrator runs afterwards — the fan-OUT mask resolve and
+    // neighbour reconciliation — rewrites cells in place. The record is
+    // still here at the end.
     const report = try raster.rasterize(a, s, .bridge);
     var lat = report.lattice;
 
@@ -220,7 +219,6 @@ test "aux records survive the three post-walk mutating passes" {
     const before = try a.dupe(lattice.Aux, lat.aux);
     fan_roles.resolveMasks(&lat, s);
     _ = reconcile.reconcileNeighbours(&lat);
-    _ = arrow_base.receiveBase(&lat);
     lat.at(2, 2).* = lattice.Cell.empty;
 
     try testing.expectEqual(before.len, lat.aux.len);
@@ -356,6 +354,7 @@ test "an arrowhead stamped over a foreign run files a carrier for the run it cov
     const a = arena.allocator();
     const lat = try blankLattice(a);
     var lost: u32 = 0;
+    var hlost: u32 = 0;
 
     var c = aux.Collector.init(a);
     const rec = aux.Recorder.init(&c, &lat);
@@ -363,7 +362,7 @@ test "an arrowhead stamped over a foreign run files a carrier for the run it cov
         .occupant = .{ .edge_segment = .{ .edge = 3, .kind = .solid } },
         .neighbours = .{ .e = true, .w = true },
     };
-    ew.writeArrowCell(&cell, 9, .solid, .filled, .south, .{ .n = true }, 2, 2, &lost, .merged_foreign, rec);
+    ew.writeArrowCell(&cell, 9, .solid, .filled, .south, .{ .n = true }, 2, 2, &lost, &hlost, .merged_foreign, rec);
 
     const table = c.finish();
     try testing.expectEqual(@as(usize, 1), table.len);
@@ -437,6 +436,7 @@ test "a refused arrowhead transit files a suppressed carrier for the crossed run
     const a = arena.allocator();
     const lat = try blankLattice(a);
     var lost: u32 = 0;
+    var hlost: u32 = 0;
 
     var counts: crossings.CrossingCounts = .{};
     const ctx: crossings.Ctx = .{ .counts = &counts };
@@ -447,7 +447,7 @@ test "a refused arrowhead transit files a suppressed carrier for the crossed run
         .occupant = .{ .edge_segment = .{ .edge = 3, .kind = .solid } },
         .neighbours = .{ .e = true, .w = true },
     };
-    ew.writeArrowGuarded(&cell, 9, .solid, .filled, .south, .{ .n = true }, 2, 2, &lost, ctx, rec);
+    ew.writeArrowGuarded(&cell, 9, .solid, .filled, .south, .{ .n = true }, 2, 2, &lost, &hlost, ctx, rec);
 
     try testing.expectEqual(@as(u32, 1), counts.arrowhead_transit_violation);
     const table = c.finish();

@@ -73,6 +73,11 @@ pub const PortEnd = ep.PortEnd;
 pub const EdgeRasterReport = struct {
     edges_written: u32 = 0,
     cells_lost: u32 = 0,
+    /// Terminal arrowheads refused at a node/label collision: the edge's
+    /// declared decoration never ships. A strict subset of `cells_lost`
+    /// events, priced separately (audit → score) because a missing head
+    /// loses the relation's orientation, not just one ink cell.
+    heads_lost: u32 = 0,
     /// Crossing/transversal tallies (Amendment C, C1/C2) plus the
     /// frame-solid border-bridge pair (`b_frame_bridge`/
     /// `b_border_fusion_refused`, D-CROSS owner ruling 2026-07-19). The two
@@ -449,6 +454,7 @@ pub fn rasterizeEdges(
     _ = allocator; // reserved
     var written: u32 = 0;
     var cells_lost: u32 = 0;
+    var heads_lost: u32 = 0;
     var cross_counts: crossings.CrossingCounts = .{};
     // The per-cell writers hold a `*Cell`, never the grid; the recorder
     // carries the width they need to key a record positionally.
@@ -471,13 +477,13 @@ pub fn rasterizeEdges(
         if (r.target_head) |h| {
             if (pointInBounds(h.cell, lat)) {
                 const c = toCoord(h.cell);
-                ew.writeArrowGuarded(lat.at(c.x, c.y), edge.id, edge.kind, edge.arrow_to, h.dir, straightMask(h.dir), c.x, c.y, &cells_lost, ctx, rec);
+                ew.writeArrowGuarded(lat.at(c.x, c.y), edge.id, edge.kind, edge.arrow_to, h.dir, straightMask(h.dir), c.x, c.y, &cells_lost, &heads_lost, ctx, rec);
             }
         }
         if (r.source_head) |h| {
             if (pointInBounds(h.cell, lat)) {
                 const c = toCoord(h.cell);
-                ew.writeArrowGuarded(lat.at(c.x, c.y), edge.id, edge.kind, edge.arrow_from, h.dir, straightMask(h.dir), c.x, c.y, &cells_lost, ctx, rec);
+                ew.writeArrowGuarded(lat.at(c.x, c.y), edge.id, edge.kind, edge.arrow_from, h.dir, straightMask(h.dir), c.x, c.y, &cells_lost, &heads_lost, ctx, rec);
             }
         }
 
@@ -490,7 +496,7 @@ pub fn rasterizeEdges(
     // can be judged). Roles themselves were stamped as the ink landed.
     fan_roles.resolveMasks(lat, s);
 
-    return .{ .edges_written = written, .cells_lost = cells_lost, .crossings = cross_counts };
+    return .{ .edges_written = written, .cells_lost = cells_lost, .heads_lost = heads_lost, .crossings = cross_counts };
 }
 
 test {

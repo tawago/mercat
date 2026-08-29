@@ -51,6 +51,10 @@ pub const RasterReport = struct {
     /// node-owned or label cells (see `raster/edges.zig`). Feeds selection
     /// via `audit.zig` → `score.RasterCounts`.
     edge_cells_lost: u32,
+    /// Terminal arrowheads among those refusals: the edge ships without its
+    /// declared decoration. Subset of `edge_cells_lost` events; priced
+    /// separately in selection (audit.zig → score.RasterCounts).
+    edge_heads_lost: u32 = 0,
     /// Labels present in the Sketch that could not be placed at all
     /// (see `raster/labels.zig`).
     labels_dropped: u32,
@@ -106,6 +110,7 @@ pub fn rasterize(
             .labels_placed = 0,
             .label_diagnostics = &.{},
             .edge_cells_lost = 0,
+            .edge_heads_lost = 0,
             .labels_dropped = 0,
             .labels_displaced = 0,
             .phantom_arms_cleared = 0,
@@ -156,12 +161,11 @@ pub fn rasterize(
         error.OutOfMemory => return error.OutOfMemory,
     };
 
-    // Arrowhead-base weld (owner ruling 2026-07-18): after reconcile and
-    // labels, weld the connecting stroke onto arrowhead base cells so each tip
-    // is received on its base side. Truthful welds only (own ink / genuine
-    // resume gaps); foreign crossings and side-fed corners are left for the
-    // validator to report. Then scan the FINAL lattice for any residual.
-    _ = arrow_base_r.receiveBase(&lat);
+    // Arrowhead-base scan (owner ruling 2026-07-18) over the FINAL lattice:
+    // an unfed base is COUNTED, never repaired — the raster may remove
+    // nonconforming ink but may never add ink to patch a gap (I4). The count
+    // feeds selection (audit → score), so candidates that produce unfed
+    // heads are priced, and the shipped grid shows the reader the truth.
     const arrow_base = arrow_base_r.validate(&lat);
 
     // Attach the side table LAST: the passes above rewrite cells in place,
@@ -178,6 +182,7 @@ pub fn rasterize(
         .labels_placed = label_report.placed,
         .label_diagnostics = label_report.diagnostics,
         .edge_cells_lost = edge_report.cells_lost + rail_report.cells_lost,
+        .edge_heads_lost = edge_report.heads_lost + rail_report.heads_lost,
         .labels_dropped = label_report.dropped,
         .labels_displaced = label_report.displaced,
         .labels_on_run = label_report.on_run,

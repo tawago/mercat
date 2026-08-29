@@ -408,7 +408,13 @@ pub fn routePolyline(
         if (horizontal) {
             // West/east port: straight run if already on the port row; otherwise jog out 2 cells (1 if the gap is tight) so the final horizontal approach is never zero-length. guarded-by: routing_polyline_test.zig "west/east port jog pad is never zero, near or far (guards clean </>)"
             if (end.y != prev.y) {
-                const pad: i32 = (if (absDiff(end.x, prev.x) >= 2) @as(i32, 2) else 1) + @as(i32, @intCast(route_lane));
+                // Clamp the jog to at most span-1 (floor 1): a jog ON the
+                // source wall column lays the cross run along the wall — the
+                // raster refuses those cells and the head ships unfed.
+                // guarded-by: routing_polyline_test.zig "the jog never lands on the source wall (span-2 gap and lane escalation clamp)"
+                const span_x = absDiff(end.x, prev.x);
+                const want_x_pad: i32 = (if (span_x >= 2) @as(i32, 2) else 1) + @as(i32, @intCast(route_lane));
+                const pad: i32 = @max(@min(want_x_pad, span_x - 1), 1);
                 const jog = insetPort(end, port_to.side, pad);
                 try poly.append(a, .{ .x = jog.x, .y = prev.y });
                 try poly.append(a, .{ .x = jog.x, .y = end.y });
@@ -416,7 +422,12 @@ pub fn routePolyline(
         } else {
             // North/south port: straight run if already on the port column; otherwise jog out 2 rows (1 if the gap is tight) so the final vertical approach is never zero-length. guarded-by: routing_polyline_test.zig "north/south port jog pad is never zero, near or far (guards clean ^/v)"
             if (end.x != prev.x) {
-                const pad: i32 = (if (absDiff(end.y, prev.y) >= 2) @as(i32, 2) else 1) + @as(i32, @intCast(route_lane));
+                // Same clamp as the horizontal arm: the jog row must stay
+                // strictly off the source wall row.
+                // guarded-by: routing_polyline_test.zig "the jog never lands on the source wall (span-2 gap and lane escalation clamp)"
+                const span_y = absDiff(end.y, prev.y);
+                const want_y_pad: i32 = (if (span_y >= 2) @as(i32, 2) else 1) + @as(i32, @intCast(route_lane));
+                const pad: i32 = @max(@min(want_y_pad, span_y - 1), 1);
                 const jog = insetPort(end, port_to.side, pad);
                 try poly.append(a, .{ .x = prev.x, .y = jog.y });
                 try poly.append(a, .{ .x = end.x, .y = jog.y });

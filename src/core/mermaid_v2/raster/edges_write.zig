@@ -236,6 +236,10 @@ pub fn writeEdgeCell(
     }
 }
 
+/// A refused head is priced separately from a refused run cell: the cell
+/// arm bumps BOTH `cells_lost` (the ink cell) and `heads_lost` (the edge's
+/// declared decoration never ships — the reader loses the orientation the
+/// graph states). `heads_lost` feeds selection via audit → score.
 /// `kind` is the arrowhead's OWN edge kind. It is stamped onto the cell's
 /// `stroke_kind` so an arrowhead landing on a FOREIGN edge's run no longer
 /// inherits that run's stroke — the arrowhead cell's stroke agrees with the
@@ -261,6 +265,7 @@ pub fn writeArrowCell(
     x: u32,
     y: u32,
     cells_lost: *u32,
+    heads_lost: *u32,
     licence: lattice.CarrierKind,
     rec: aux.Recorder,
 ) void {
@@ -281,6 +286,7 @@ pub fn writeArrowCell(
         },
         .node_interior, .node_border, .label_char, .label_cont => {
             cells_lost.* += 1;
+            heads_lost.* += 1;
             log.debug(
                 "mermaid_v2/raster/edges: arrowhead for edge {d} at ({d},{d}) collides; skipping",
                 .{ edge_id, x, y },
@@ -320,6 +326,7 @@ pub fn writeArrowGuarded(
     x: u32,
     y: u32,
     cells_lost: *u32,
+    heads_lost: *u32,
     ctx: crossings.Ctx,
     rec: aux.Recorder,
 ) void {
@@ -342,7 +349,7 @@ pub fn writeArrowGuarded(
         .arrowhead => |h| crossings.licenceFor(h.edge, edge_id, ctx.co_sets, ctx.stamp_state, crossings.cellAt(x, y)),
         else => .merged_untested, // no carrier is filed on those arms
     };
-    writeArrowCell(cell, edge_id, kind, arrow, dir, along, x, y, cells_lost, licence, rec);
+    writeArrowCell(cell, edge_id, kind, arrow, dir, along, x, y, cells_lost, heads_lost, licence, rec);
 }
 
 test {

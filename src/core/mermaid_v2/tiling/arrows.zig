@@ -8,7 +8,7 @@
 //! This counter is METADATA HYGIENE, not a painted defect: `paint.zig`
 //! ignores an arrowhead's neighbour mask entirely and draws the glyph
 //! from the tip alone. What an orphan lateral bit costs is truth in the
-//! IR — every downstream reader (receiveBase, the audit itself, any future
+//! IR — every downstream reader (the audit itself, any future
 //! consumer) is entitled to believe the mask.
 //!
 //! Why orphans genuinely accumulate rather than being repaired:

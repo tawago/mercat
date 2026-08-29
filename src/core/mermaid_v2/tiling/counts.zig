@@ -77,18 +77,17 @@ pub const Counts = struct {
     /// interrupted by a label in place, so it is never a violation.
     c_base_label: u32 = 0,
     /// The edge turned the corner AT the arrowhead: ink arrives
-    /// perpendicular to the tip axis. A routing artifact, not a stub gap —
-    /// `receiveBase` refuses to touch these.
+    /// perpendicular to the tip axis. A routing artifact, not a stub gap.
     c_base_side_fed: u32 = 0,
     /// The base is a fan shared-run (rail) or dropper cell. The fan-strip
     /// stamp rewrites those masks at the end of the edges stage, so such a
     /// base legally lacks the into-arrow arm.
     c_base_fan_trunk: u32 = 0,
-    /// The base is a FOREIGN edge's stroke. Welding here would fabricate a
-    /// junction between two unrelated runs, so `receiveBase` refuses by design.
+    /// The base is a FOREIGN edge's stroke. An into-arrow arm here would
+    /// fabricate a junction between two unrelated runs, so none is drawn.
     c_base_foreign: u32 = 0,
-    /// The base is a cluster frame. Frame-solid: `receiveBase` leaves frames
-    /// alone, so the arrowhead legally sits against an unmerged border.
+    /// The base is a cluster frame. Frame-solid: frames stay unmerged, so
+    /// the arrowhead legally sits against an unmerged border.
     c_base_frame: u32 = 0,
     /// The base cell is background and nothing lies behind it — the
     /// arrowhead floats, receiving its tip on nothing.
@@ -235,8 +234,10 @@ pub const Counts = struct {
     /// clears frame phantoms, so residuals are post-label regressions.
     d_ring_frame_break: u32 = 0,
     /// A ring arm OFF the ring's own axes that feeds an arrowhead whose
-    /// tip points along it — the arrowhead-base weld. Checked FIRST,
-    /// because weld ORs an arm in for ANY tip including east/west.
+    /// tip points along it. Checked FIRST for any tip including east/west.
+    /// Historically produced by the deleted arrowhead-base weld (additive
+    /// repair, removed per I4); the bucket keeps the shape distinct so a
+    /// reintroduced writer is visible immediately.
     c_border_arm_weld: u32 = 0,
     /// A node ring's off-axis arm landing on the SAME node's own border:
     /// internal structure the node rasterizer synthesized (the subroutine
@@ -278,11 +279,10 @@ pub const Counts = struct {
     /// TIP-FACING decorated terminal has no record and correctly falls
     /// through to the `c_term_node_*_arrow` conventions below.
     c_term_port_recorded: u32 = 0,
-    /// The ring carries the arm back but no port record explains it. The
-    /// arrowhead-base weld ORs an arm into a border cell for any tip, so
-    /// such a bit exists without being a departure. Not a departure and
-    /// not an arrival either: the arm's own writer already accounts for
-    /// it (`c_border_arm_weld`), so this family draws no face verdict.
+    /// The ring carries the arm back but no port record explains it —
+    /// the shape the deleted arrowhead-base weld used to produce. Not a
+    /// departure and not an arrival: the arm's own ring bucket already
+    /// accounts for it (`c_border_arm_weld`), so no face verdict here.
     c_term_ring_arm_unrecorded: u32 = 0,
     /// The ring sits one cell beyond a reprieved gap — port padding. The
     /// gap is the rasterizer's own convention, so no face verdict is

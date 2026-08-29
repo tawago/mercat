@@ -26,7 +26,6 @@
 
 const std = @import("std");
 const lattice = @import("../lattice.zig");
-const ew = @import("edges_write.zig");
 
 /// Report-only arrowhead-base tally surfaced through the raster report.
 pub const ArrowBaseCounts = struct {
@@ -88,12 +87,6 @@ pub fn baseFeedsArrow(cell: *const lattice.Cell, tip: lattice.Dir4) bool {
     }
 }
 
-/// True when a real stroke/structure a bridge bit may legitimately connect to
-/// occupies `occ` (mirrors `reconcile.isRealConnection`; `.empty` is nothing).
-fn isRealConnection(occ: lattice.Occupant) bool {
-    return occ != .empty;
-}
-
 /// True when the arrowhead at `(x,y)` (tip `tip`) is fed by an EDGE stroke
 /// coming in PERPENDICULAR to the tip axis — i.e. the edge turned the corner
 /// AT the arrowhead (`─▼`, `───▲`). Those are routing/orientation artifacts,
@@ -132,74 +125,6 @@ pub fn sideFed(lat: *const lattice.Lattice, x: u32, y: u32, tip: lattice.Dir4) b
         if (is_edgey and (c.neighbours.toMask() & p.need.toMask()) != 0) return true;
     }
     return false;
-}
-
-/// Weld the connecting stroke onto arrowhead base cells so the tip is received
-/// on its base side (owner ruling 2026-07-18). Runs on the FINAL lattice, after
-/// reconcile and labels. Returns the number of base cells welded.
-///
-/// Only TRUTHFUL, non-foreign welds are applied — the rule is a truth rule, so
-/// fabricating foreign junction ink or a dangling stub is forbidden:
-///   * own-ink base (`edge_segment` of the SAME edge, incl. a fan trunk that
-///     forgot its tap's drop arm, or a node border the edge emerges from):
-///     OR the into-arrow arm in (`└`→`├`, `┴`→`┼`, node `─`→`┬`).
-///   * a genuine 1-cell resume gap (blank / space-padding base) whose cell one
-///     step further back is a real connection: bridge a straight stroke through.
-/// Cases left UNTOUCHED (reported as residual, class 1a / routing):
-///   * a FOREIGN edge crossing the base cell (a weld would fabricate a junction);
-///   * a side-fed arrowhead (the edge turned the corner at the tip);
-///   * a blank base with nothing behind it (a weld would dangle).
-pub fn receiveBase(lat: *lattice.Lattice) u32 {
-    if (lat.width == 0 or lat.height == 0) return 0;
-    var welded: u32 = 0;
-    var y: u32 = 0;
-    while (y < lat.height) : (y += 1) {
-        var x: u32 = 0;
-        while (x < lat.width) : (x += 1) {
-            const acell = lat.at(x, y);
-            const info = switch (acell.occupant) {
-                .arrowhead => |a| a,
-                else => continue,
-            };
-            const tip = info.dir;
-            const bc = baseCoord(x, y, tip, lat.width, lat.height) orelse continue;
-            const bcell = lat.at(bc.x, bc.y);
-            if (baseFeedsArrow(bcell, tip)) continue; // already fed / exempt label
-            if (sideFed(lat, x, y, tip)) continue; // routing artifact, not a stub gap
-            const need = intoArrowBit(tip);
-            switch (bcell.occupant) {
-                .edge_segment => |seg| {
-                    // Only the arrowhead's OWN edge may gain the arm; a foreign
-                    // crossing here must stay a transversal (no fabricated tee).
-                    if (seg.edge != info.edge) continue;
-                    bcell.neighbours = ew.orMask(bcell.neighbours, need);
-                    welded += 1;
-                },
-                .node_border => {
-                    // The edge emerges from / lands on this frame; the border
-                    // gains the drop/enter arm (painter picks `┬`/`┤`…).
-                    bcell.neighbours = ew.orMask(bcell.neighbours, need);
-                    welded += 1;
-                },
-                .empty => {
-                    // A blank base: bridge a straight stroke only when the cell
-                    // one step further back is real ink — so the weld extends an
-                    // existing run, never dangles. (Label bases are exempt above:
-                    // a title's cells, incl. its spaces, are never overwritten.)
-                    const behind = baseCoord(bc.x, bc.y, tip, lat.width, lat.height) orelse continue;
-                    if (!isRealConnection(lat.atConst(behind.x, behind.y).occupant)) continue;
-                    bcell.occupant = .{ .edge_segment = .{ .edge = info.edge, .kind = .solid, .role = .forward } };
-                    // The base sits opposite the tip; bridge a straight stroke
-                    // `behind → base → arrow` along that axis.
-                    bcell.neighbours = ew.orMask(need, intoArrowBit(ew.reverse(tip)));
-                    bcell.stroke_kind = .solid;
-                    welded += 1;
-                },
-                else => {}, // cluster_border (frame-solid), node_interior: leave.
-            }
-        }
-    }
-    return welded;
 }
 
 /// Scan the final lattice and tally every arrowhead whose base-side cell does
@@ -316,53 +241,35 @@ fn edgeCellE(edge: lattice.EdgeId, nb: lattice.Neighbours) lattice.Cell {
     return .{ .occupant = .{ .edge_segment = .{ .edge = edge, .kind = .solid } }, .neighbours = nb };
 }
 
-test "receiveBase: own-edge corner base gains the drop arm (└→├), clearing the violation" {
+test "an unfed own-edge corner base is a counted defect, never welded (I4)" {
     var buf: [3]lattice.Cell = undefined;
     for (&buf) |*c| c.* = lattice.Cell.empty;
     var lat = lattice.Lattice{ .width = 1, .height = 3, .cells = &buf };
-    lat.at(0, 0).* = edgeCellE(7, .{ .n = true, .e = true }); // └ own trunk (edge 7)
+    lat.at(0, 0).* = edgeCellE(7, .{ .n = true, .e = true }); // â own trunk (edge 7)
     lat.at(0, 1).* = arrowCellE(.south, 7, .{ .n = true, .s = true });
     try testing.expectEqual(@as(u32, 1), validate(&lat).violations);
-    try testing.expectEqual(@as(u32, 1), receiveBase(&lat));
-    try testing.expect(lat.atConst(0, 0).neighbours.s); // south arm added
-    try testing.expectEqual(@as(u32, 0), validate(&lat).violations);
+    // The defect is DECLARED, not repaired: the base keeps its mask.
+    try testing.expect(!lat.atConst(0, 0).neighbours.s);
 }
 
-test "receiveBase: a FOREIGN edge crossing the base is NEVER welded (no fabricated junction)" {
+test "a foreign edge crossing the base stays a counted residual (no fabricated junction)" {
     var buf: [3]lattice.Cell = undefined;
     for (&buf) |*c| c.* = lattice.Cell.empty;
     var lat = lattice.Lattice{ .width = 1, .height = 3, .cells = &buf };
-    lat.at(0, 0).* = edgeCellE(1, .{ .e = true, .w = true }); // foreign ─ (edge 1)
+    lat.at(0, 0).* = edgeCellE(1, .{ .e = true, .w = true }); // foreign â (edge 1)
     lat.at(0, 1).* = arrowCellE(.south, 7, .{ .n = true, .s = true }); // arrow is edge 7
-    try testing.expectEqual(@as(u32, 0), receiveBase(&lat)); // refused
-    try testing.expectEqual(@as(u32, 1), validate(&lat).violations); // stays a residual
+    try testing.expectEqual(@as(u32, 1), validate(&lat).violations);
 }
 
-test "receiveBase: blank base bridges a straight stroke only when the cell behind is real" {
-    // Real behind (node_border) → bridge.
+test "a blank base behind a real run is a counted gap, never bridged (I4)" {
     var buf: [4]lattice.Cell = undefined;
     for (&buf) |*c| c.* = lattice.Cell.empty;
     var lat = lattice.Lattice{ .width = 1, .height = 4, .cells = &buf };
     lat.at(0, 0).* = .{ .occupant = .{ .node_border = .{ .node = 1, .role = .edge_s } }, .neighbours = .{} };
-    // (0,1) blank base, (0,2) arrow south, behind of base is (0,0) node_border.
+    // (0,1) blank base, (0,2) arrow south: a 1-cell resume gap in the
+    // positioned layout. The raster may not add ink to patch it (I4); the
+    // gap ships as a priced violation instead.
     lat.at(0, 2).* = arrowCellE(.south, 7, .{ .n = true, .s = true });
-    try testing.expectEqual(@as(u32, 1), receiveBase(&lat));
-    try testing.expectEqual(@as(u4, 0b0101), lat.atConst(0, 1).neighbours.toMask()); // │ (n+s)
-
-    // Dangling (nothing behind) → refused.
-    for (&buf) |*c| c.* = lattice.Cell.empty;
-    lat.at(0, 2).* = arrowCellE(.south, 7, .{ .n = true, .s = true });
-    try testing.expectEqual(@as(u32, 0), receiveBase(&lat));
-}
-
-test "receiveBase: a side-fed arrowhead (edge turned the corner at the tip) is left alone" {
-    // ▼ at (1,1) fed from the WEST by an edge_segment ─ (a routing corner, not
-    // a base gap): the perpendicular west neighbour carries an east arm.
-    var buf: [9]lattice.Cell = undefined;
-    for (&buf) |*c| c.* = lattice.Cell.empty;
-    var lat = lattice.Lattice{ .width = 3, .height = 3, .cells = &buf };
-    lat.at(1, 1).* = arrowCellE(.south, 7, .{ .n = true, .s = true, .w = true });
-    lat.at(0, 1).* = edgeCellE(7, .{ .e = true, .w = true }); // west feed
-    // base (1,0) blank, behind (1,... OOB up) — but side-fed guard fires first.
-    try testing.expectEqual(@as(u32, 0), receiveBase(&lat));
+    try testing.expectEqual(@as(u32, 1), validate(&lat).violations);
+    try testing.expect(lat.atConst(0, 1).occupant == .empty);
 }

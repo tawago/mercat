@@ -238,6 +238,88 @@ test "north/south port jog pad is never zero, near or far (guards clean ^/v)" {
     }
 }
 
+test "the jog never lands on the source wall (span-2 gap and lane escalation clamp)" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const geom: []const Geom = &.{};
+    const virtuals: []const u32 = &.{};
+
+    // One gap row (source bottom border y=2, target top border y=4): the
+    // unclamped 2-row pad would put the jog ON the source border row —
+    // the raster refuses those cells (a run along the wall) and the head
+    // ships unfed. Clamped, the jog row stays strictly below the wall.
+    {
+        const from_p = mkPlacement(0, .{ .x = 0, .y = 0, .w = 8, .h = 3 });
+        const to_p = mkPlacement(1, .{ .x = 3, .y = 4, .w = 8, .h = 3 });
+        const placements = [_]sketch.NodePlacement{ from_p, to_p };
+        const poly = try rp.routePolyline(
+            a,
+            .TD,
+            from_p,
+            to_p,
+            .{ .node = 0, .side = .south, .offset = 4 },
+            .{ .node = 1, .side = .north, .offset = 6 },
+            virtuals,
+            geom,
+            &placements,
+            0,
+            0,
+            0,
+        );
+        const wall_y: i32 = 2; // from_p.rect.bottom() - 1
+        for (poly[1..]) |pt| try testing.expect(pt.y > wall_y);
+    }
+
+    // Lane escalation on a 2-gap-row span: pad 2 + lane 1 would reach the
+    // wall row; the clamp caps it at span-1.
+    {
+        const from_p = mkPlacement(0, .{ .x = 0, .y = 0, .w = 8, .h = 3 });
+        const to_p = mkPlacement(1, .{ .x = 3, .y = 5, .w = 8, .h = 3 });
+        const placements = [_]sketch.NodePlacement{ from_p, to_p };
+        const poly = try rp.routePolyline(
+            a,
+            .TD,
+            from_p,
+            to_p,
+            .{ .node = 0, .side = .south, .offset = 4 },
+            .{ .node = 1, .side = .north, .offset = 6 },
+            virtuals,
+            geom,
+            &placements,
+            0,
+            0,
+            1,
+        );
+        const wall_y: i32 = 2;
+        for (poly[1..]) |pt| try testing.expect(pt.y > wall_y);
+    }
+
+    // LR mirror: one gap column between the boxes; the jog column stays
+    // strictly east of the source wall column.
+    {
+        const from_p = mkPlacement(0, .{ .x = 0, .y = 0, .w = 8, .h = 3 });
+        const to_p = mkPlacement(1, .{ .x = 9, .y = 4, .w = 8, .h = 3 });
+        const placements = [_]sketch.NodePlacement{ from_p, to_p };
+        const poly = try rp.routePolyline(
+            a,
+            .LR,
+            from_p,
+            to_p,
+            .{ .node = 0, .side = .east, .offset = 1 },
+            .{ .node = 1, .side = .west, .offset = 1 },
+            virtuals,
+            geom,
+            &placements,
+            0,
+            0,
+            0,
+        );
+        const wall_x: i32 = 7; // from_p.rect.right() - 1
+        for (poly[1..]) |pt| try testing.expect(pt.x > wall_x);
+    }
+}
+
 /// True iff the vertical/horizontal segment prev->end passes through the
 /// strict open interior of `r` (the validator-mirror intrusion predicates).
 fn finalLegIntrudes(prev: sketch.Point, end: sketch.Point, r: sketch.Rect) bool {

@@ -88,6 +88,10 @@ pub const RasterCounts = struct {
     /// Labels the fallback ladder placed away from their primary anchor.
     labels_displaced: u32 = 0,
     edge_cells_lost: u32 = 0,
+    /// Terminal arrowheads lost to raster collisions: the edge ships with
+    /// its declared decoration missing (I3 untruth by omission; the reader
+    /// loses the relation's orientation). Subset of `edge_cells_lost`.
+    heads_lost: u32 = 0,
     /// Crossing-rule violations (raster/crossings.zig). `legal_crossing` is
     /// deliberately absent: legal crossings are already priced by the
     /// geometric W_CROSSINGS term.
@@ -111,6 +115,10 @@ pub const W_ARROWHEAD_TRANSIT: u64 = 8192;
 /// Floating arrowhead: milder (omitted feed, not fabricated structure);
 /// 8192 breaks the microservices w60 ruling above, 4096 holds it.
 pub const W_ARROW_BASE: u64 = 4096;
+/// Terminal head lost to a collision: an omission the reader cannot see
+/// (the run looks complete, the direction is gone). Same tier as the
+/// other omission (W_ARROW_BASE); the cell itself is also in W_CELL_LOST.
+pub const W_HEAD_LOST: u64 = 4096;
 /// Effectively lexicographic: dominates any realistic composite
 /// (~1e8 16ths) by four orders of magnitude; counts are 0/1 so the
 /// worst-case composite stays far below u64 overflow.
@@ -251,6 +259,7 @@ pub fn eval(
             W_FOREIGN_JUNCTION * @as(u64, raster.foreign_junction) +
             W_ARROWHEAD_TRANSIT * @as(u64, raster.arrowhead_transit) +
             W_ARROW_BASE * @as(u64, raster.arrow_base) +
+            W_HEAD_LOST * @as(u64, raster.heads_lost) +
             W_RASTER_FAILED * @as(u64, raster.raster_failed),
         .r_labels_dropped = raster.labels_dropped,
         .r_edge_cells_lost = raster.edge_cells_lost,
