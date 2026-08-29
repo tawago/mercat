@@ -52,7 +52,10 @@ pub const Member = struct {
     leaf: NodeId,
     /// Stroke-class ordinal (`pb.edgeKindOrdinal`). A backer must match it.
     kind: u8,
-    /// True iff NEITHER end of this member carries an arrowhead.
+    /// True iff this member's ink carries NO end decoration at all (both
+    /// ends bare — stricter than merely non-directional; producers gate on
+    /// sem_graph.undecorated, so circle/cross-decorated members never
+    /// qualify and a discharge cannot erase their decoration).
     arrow_free: bool,
 };
 
@@ -63,6 +66,10 @@ pub const Backer = struct {
     a: NodeId,
     b: NodeId,
     kind: u8,
+    /// True iff the declaration carries NO end decoration at all (both ends
+    /// bare — sem_graph.undecorated at the producers): the crossbar span
+    /// that discharges it is undecorated, so a decorated declaration would
+    /// have its decoration silently erased.
     arrow_free: bool,
     unlabeled: bool,
 };

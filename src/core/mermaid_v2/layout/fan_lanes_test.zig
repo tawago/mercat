@@ -247,8 +247,8 @@ test "a fan of placement proxies for directed crossings is untouched by the clos
     // The outer level of a CLUSTERED render fans through placement edges, which
     // carry no arrowheads of their own (they drive layout and are never
     // painted) but stand for directed crossings. Reading their bare arrow
-    // fields made every directed clustered fan unfuse; `stands_for_directed`
-    // is what keeps the law inert on them.
+    // fields made every directed clustered fan unfuse; `stands_for` is what
+    // keeps the law inert on them.
     const a = testing.allocator;
     var nodes = [_]sugiyama.LayerNode{ .{ .real = 0 }, .{ .real = 1 }, .{ .real = 2 }, .{ .real = 3 } };
     var row0 = [_]u32{ 0, 1, 2 };
@@ -271,7 +271,7 @@ test "a fan of placement proxies for directed crossings is untouched by the clos
     // No declared leaf pairs at all — the exact shape that unfuses when the
     // members really are arrow-free (the test above).
     const graph = try mkBareGraph(aa, &edges, &.{});
-    for (@constCast(graph.edges)) |*e| e.stands_for_directed = true;
+    for (@constCast(graph.edges)) |*e| e.stands_for = .forward_one_way;
 
     const fans = try fan.detect(aa, graph, lg);
     try fan_lanes.assignLanes(Geom, aa, graph, lg, &geom, fans, .{}, null);

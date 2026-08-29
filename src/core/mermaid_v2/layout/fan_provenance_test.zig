@@ -105,8 +105,11 @@ test "fan provenance: realized fan-in Rail claims the pivot while labeled fan-in
 test "fan provenance: forced peer drawing, wrapping, and arrow-style partition" {
     const forced_nodes = [_]sg.Node{ node(0, "P", null), node(1, "A", null), node(2, "B", null) };
     const forced_edges = [_]sg.Edge{
-        styledEdge(0, 0, 1, .solid, .filled, .filled, null),
-        styledEdge(1, 0, 2, .solid, .filled, .filled, null),
+        // Head at the SOURCE only: forces per-peer drawing (a pivot-side
+        // head fails fan_rail.resolve eligibility) while every member still
+        // blocks, so the star keeps its licence.
+        styledEdge(0, 0, 1, .solid, .filled, .none, null),
+        styledEdge(1, 0, 2, .solid, .filled, .none, null),
     };
     var forced_arena = std.heap.ArenaAllocator.init(testing.allocator);
     defer forced_arena.deinit();

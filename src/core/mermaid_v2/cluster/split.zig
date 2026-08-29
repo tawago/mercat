@@ -236,6 +236,8 @@ fn buildChild(arena: std.mem.Allocator, graph: sg.SemGraph, c: sg.Cluster) error
                 .arrow_from = e.arrow_from,
                 .arrow_to = e.arrow_to,
                 .label = e.label,
+                // Carried through the cut unchanged: stated, not defaulted.
+                .stands_for = e.stands_for,
                 .origin = originOf(e),
             });
         }
@@ -311,6 +313,8 @@ fn buildOuter(arena: std.mem.Allocator, graph: sg.SemGraph, tops: []const usize,
                 .arrow_from = e.arrow_from,
                 .arrow_to = e.arrow_to,
                 .label = e.label,
+                // Carried through the cut unchanged: stated, not defaulted.
+                .stands_for = e.stands_for,
                 .origin = originOf(e),
             });
         } else if (sameCluster(fa, ta)) {
@@ -331,12 +335,13 @@ fn buildOuter(arena: std.mem.Allocator, graph: sg.SemGraph, tops: []const usize,
             const rf = outerRepr(graph, supers, orig.items, e.from);
             const rt = outerRepr(graph, supers, orig.items, e.to);
             if (rf == rt) continue;
-            const directed = e.arrow_from != .none or e.arrow_to != .none;
+            const class = sg.standsForClass(e.arrow_from, e.arrow_to);
             if (seenIndex(seen.items, rf, rt)) |at| {
-                // One placement edge already stands for this outer pair, and it
-                // stands for THIS crossing too: one directed crossing behind
-                // it is enough to make its eventual ink directed.
-                if (directed) edges.items[at].stands_for_directed = true;
+                // One placement edge already stands for this outer pair, and
+                // it stands for THIS crossing too: its class is the fold of
+                // every crossing behind it.
+                edges.items[at].stands_for =
+                    sg.mergeStandsFor(edges.items[at].stands_for, class);
                 continue;
             }
             try seen.append(arena, .{ .from = rf, .to = rt, .edge = @intCast(edges.items.len) });
@@ -347,11 +352,11 @@ fn buildOuter(arena: std.mem.Allocator, graph: sg.SemGraph, tops: []const usize,
                 .kind = e.kind,
                 // No arrowheads: this edge only drives the outer layout and is
                 // dropped before painting, so arrowheads here would move boxes
-                // for ink nobody draws. The flag carries the truth instead.
+                // for ink nobody draws. `stands_for` carries the truth instead.
                 .arrow_from = .none,
                 .arrow_to = .none,
                 .label = null,
-                .stands_for_directed = directed,
+                .stands_for = class,
             });
         }
     }

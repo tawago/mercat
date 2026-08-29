@@ -400,7 +400,7 @@ fn closureVerdict(
             .edge = id,
             .leaf = if (group.direction == .out) edge.to else edge.from,
             .kind = pb.edgeKindOrdinal(edge.kind),
-            .arrow_free = arrowFree(edge),
+            .arrow_free = undecorated(edge),
         };
     }
     var backers: std.ArrayListUnmanaged(rc.Backer) = .empty;
@@ -414,15 +414,15 @@ fn closureVerdict(
             .a = edge.from,
             .b = edge.to,
             .kind = pb.edgeKindOrdinal(edge.kind),
-            .arrow_free = arrowFree(edge),
+            .arrow_free = undecorated(edge),
             .unlabeled = edge.label == null or edge.label.?.len == 0,
         });
     }
     return rc.decide(a, members, backers.items);
 }
 
-fn arrowFree(edge: sg.Edge) bool {
-    return sg.arrowFree(edge);
+fn undecorated(edge: sg.Edge) bool {
+    return sg.undecorated(edge);
 }
 
 fn containsEdge(edges: []const pb.EdgeId, edge: pb.EdgeId) bool {

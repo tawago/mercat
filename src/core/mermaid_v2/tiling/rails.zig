@@ -82,7 +82,7 @@
 //!     three upper nodes to two lower ones and the whole audit's
 //!     `d_total` is 0.
 //!     guarded-by: tiling_rails_e2e_test.zig "rails: a run the crossbars under-measure is reported as continued, not as silence"
-//!   - `stands_for_directed` is a SemGraph fact absent from the Sketch, so
+//!   - `stands_for` is a SemGraph fact absent from the Sketch, so
 //!     the asserted set used here is the CROSS-pairs floor. A run carrying a
 //!     member that does not block a leaf-to-leaf trace also asserts
 //!     within-side pairs, and those are not counted. Under-counting, the

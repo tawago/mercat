@@ -200,13 +200,13 @@ test "a co-realized edge never shrinks a group into looking complete" {
 test "a two-sided group whose heads are direction-invariant still separates" {
     // o--o at both ends: a glyph is present, but circle heads are
     // direction-invariant, so nothing blocks the leaf-to-leaf trace and the
-    // complete cross set buys no more than it does for `---`. Same for x--x
-    // and for <-->, whose heads point the trace along either way.
+    // complete cross set buys no more than it does for `---`. Same for x--x.
+    // (<--> goes further: a member with directional ends on BOTH sides loses
+    // the star licence itself — covered below.)
     const a = testing.allocator;
     for ([_][2]sg.ArrowEnd{
         .{ .circle, .circle },
         .{ .cross, .cross },
-        .{ .open, .open },
     }) |heads| {
         var fixture = twoByTwo();
         var row0 = [_]u32{ 0, 1 };
@@ -233,4 +233,38 @@ test "a two-sided group whose heads are direction-invariant still separates" {
         try fan_lanes.assignLanes(Geom, aa, graph, lg, &geom, fans, .{}, null);
         try testing.expect(laneOfPivot(fans, .out, 0) != laneOfPivot(fans, .out, 1));
     }
+}
+
+test "a two-sided group of double-headed members loses the star licence outright" {
+    // <--> permits both orientations, so no member blocks (L1's predicate):
+    // the star may not share a rail at all — every peer stays private
+    // instead of merely lane-separating.
+    const a = testing.allocator;
+    var fixture = twoByTwo();
+    var row0 = [_]u32{ 0, 1 };
+    var row1 = [_]u32{ 2, 3 };
+    var layers = [_][]u32{ &row0, &row1 };
+    var reversed = [_]sg.EdgeId{};
+    const lg = mkLg(&fixture.nodes, &layers, &fixture.edges, &reversed);
+    const geom = [_]Geom{ .{ .x = 0, .w = 3 }, .{ .x = 20, .w = 3 }, .{ .x = 10, .w = 3 }, .{ .x = 30, .w = 3 } };
+    var arena = std.heap.ArenaAllocator.init(a);
+    defer arena.deinit();
+    const aa = arena.allocator();
+    const es = try aa.alloc(sg.Edge, fixture.edges.len);
+    for (fixture.edges, es) |le, *e| e.* = .{
+        .id = le.edge,
+        .from = le.from,
+        .to = le.to,
+        .kind = .solid,
+        .arrow_from = .open,
+        .arrow_to = .open,
+        .label = null,
+    };
+    const graph: sg.SemGraph = .{ .direction = .TD, .nodes = &.{}, .edges = es, .clusters = &.{}, .classes = &.{}, .arena = null };
+    const fans = try fan.detect(aa, graph, lg);
+    for (fans) |f| {
+        try testing.expect(f.construction_star_violation);
+        for (f.peers) |p| try testing.expect(!p.shared);
+    }
+    try fan_lanes.assignLanes(Geom, aa, graph, lg, &geom, fans, .{}, null);
 }

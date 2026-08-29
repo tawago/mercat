@@ -229,3 +229,100 @@ test "arity and sentinel identity invalidate otherwise coherent claims" {
     try testing.expect(!result.isValid());
     try testing.expect(result.partition().record);
 }
+
+fn licenceMember(edge: u32, pivot: u32, leaf: u32, arrows: [2]rs.ArrowKind) rs.RailLicenceMember {
+    return .{
+        .edge = edge,
+        .endpoints = .{ pivot, leaf },
+        .arrows = arrows,
+        .kind = .solid,
+        .pivot_end = .source,
+    };
+}
+
+fn outLicence(members: []const rs.RailLicenceMember) rs.RailLicence {
+    return .{ .id = 1, .polarity = .out, .pivot = 10, .members = members };
+}
+
+test "a star of blocking members holds the licence" {
+    const members = [_]rs.RailLicenceMember{
+        licenceMember(1, 10, 20, .{ .none, .filled }),
+        licenceMember(2, 10, 21, .{ .none, .filled }),
+    };
+    const result = rs.checkLicence(outLicence(&members));
+    try testing.expect(result.isValid());
+    try testing.expect(!result.bnd_s.non_blocking_member);
+}
+
+test "a member with directional ends on both sides blocks nothing and refuses the licence" {
+    const members = [_]rs.RailLicenceMember{
+        licenceMember(1, 10, 20, .{ .filled, .filled }),
+        licenceMember(2, 10, 21, .{ .filled, .filled }),
+    };
+    const result = rs.checkLicence(outLicence(&members));
+    try testing.expect(result.bnd_s.non_blocking_member);
+    try testing.expect(!result.isValid());
+}
+
+test "a mixed blocking and arrow-free star refuses the licence" {
+    const members = [_]rs.RailLicenceMember{
+        licenceMember(1, 10, 20, .{ .none, .filled }),
+        licenceMember(2, 10, 21, .{ .none, .none }),
+    };
+    const result = rs.checkLicence(outLicence(&members));
+    try testing.expect(result.bnd_s.non_blocking_member);
+    try testing.expect(!result.isValid());
+}
+
+test "an all-arrow-free star is not refused by the blocking predicate" {
+    // L3's domain: the closure law (rail_closure.zig) decides it against the
+    // declared leaf pairs; the L1 licence stays silent.
+    const bare = [_]rs.RailLicenceMember{
+        licenceMember(1, 10, 20, .{ .none, .none }),
+        licenceMember(2, 10, 21, .{ .none, .none }),
+    };
+    try testing.expect(!rs.checkLicence(outLicence(&bare)).bnd_s.non_blocking_member);
+    try testing.expect(rs.checkLicence(outLicence(&bare)).isValid());
+
+    // Circle/cross ends are decoration, not directional: still arrow-free.
+    const decorated = [_]rs.RailLicenceMember{
+        licenceMember(1, 10, 20, .{ .none, .circle }),
+        licenceMember(2, 10, 21, .{ .none, .circle }),
+    };
+    try testing.expect(!rs.checkLicence(outLicence(&decorated)).bnd_s.non_blocking_member);
+}
+
+test "a head at the source side alone still blocks under the licence" {
+    const members = [_]rs.RailLicenceMember{
+        licenceMember(1, 10, 20, .{ .filled, .none }),
+        licenceMember(2, 10, 21, .{ .none, .filled }),
+    };
+    try testing.expect(!rs.checkLicence(outLicence(&members)).bnd_s.non_blocking_member);
+}
+
+test "a placement member standing for one-way crossings blocks like a headed member" {
+    for ([_]prim.StandsFor{ .forward_one_way, .backward_one_way }) |class| {
+        var proxy = licenceMember(3, 10, 22, .{ .none, .none });
+        proxy.stands_for = class;
+        const members = [_]rs.RailLicenceMember{
+            licenceMember(1, 10, 20, .{ .none, .filled }),
+            licenceMember(2, 10, 21, .{ .none, .filled }),
+            proxy,
+        };
+        const result = rs.checkLicence(outLicence(&members));
+        try testing.expect(!result.bnd_s.non_blocking_member);
+    }
+}
+
+test "a placement member standing for non-forward directed ink refuses the licence" {
+    var proxy = licenceMember(3, 10, 22, .{ .none, .none });
+    proxy.stands_for = .directed;
+    const members = [_]rs.RailLicenceMember{
+        licenceMember(1, 10, 20, .{ .none, .filled }),
+        licenceMember(2, 10, 21, .{ .none, .filled }),
+        proxy,
+    };
+    const result = rs.checkLicence(outLicence(&members));
+    try testing.expect(result.bnd_s.non_blocking_member);
+    try testing.expect(!result.isValid());
+}

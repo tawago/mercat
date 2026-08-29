@@ -45,16 +45,30 @@ test "a placement edge records the directedness of the crossings it stands for" 
     var members: [2]sg.NodeId = undefined;
     var clusters: [1]sg.Cluster = undefined;
 
-    // Directed crossings: the placement edge stays bare (it drives layout and
-    // is never painted) but must not read as arrow-free ink.
+    // Forward one-way crossings: the placement edge stays bare (it drives
+    // layout and is never painted) but must not read as arrow-free ink, and
+    // it qualifies as a forward-one-way member for its crossings.
     const directed = crossingGraph(&nodes, &edges, &members, &clusters, .filled, .filled);
     const sr_d = try split.split(a, directed);
     const outer_d = outerEdges(sr_d);
     try std.testing.expect(outer_d.len >= 1);
     for (outer_d) |e| {
         try std.testing.expectEqual(sg.ArrowEnd.none, e.arrow_to);
-        try std.testing.expect(e.stands_for_directed);
+        try std.testing.expectEqual(sg.StandsFor.forward_one_way, e.stands_for);
         try std.testing.expect(!sg.arrowFree(e));
+        try std.testing.expect(sg.forwardOneWayHead(e));
+    }
+
+    // Circle-decorated crossings: decoration, not direction (T3) — the
+    // proxy's ink is arrow-free and neither directed predicate holds.
+    const decorated = crossingGraph(&nodes, &edges, &members, &clusters, .circle, .circle);
+    const sr_c = try split.split(a, decorated);
+    const outer_c = outerEdges(sr_c);
+    try std.testing.expect(outer_c.len >= 1);
+    for (outer_c) |e| {
+        try std.testing.expectEqual(sg.StandsFor.arrow_free, e.stands_for);
+        try std.testing.expect(sg.arrowFree(e));
+        try std.testing.expect(!sg.forwardOneWayHead(e));
     }
 
     // Arrow-free crossings: nothing to stand for, so the proxy answers
@@ -64,7 +78,7 @@ test "a placement edge records the directedness of the crossings it stands for" 
     const outer_u = outerEdges(sr_u);
     try std.testing.expect(outer_u.len >= 1);
     for (outer_u) |e| {
-        try std.testing.expect(!e.stands_for_directed);
+        try std.testing.expectEqual(sg.StandsFor.arrow_free, e.stands_for);
         try std.testing.expect(sg.arrowFree(e));
     }
 }
@@ -163,10 +177,13 @@ test "one directed crossing is enough to mark a deduped placement edge" {
 
     // Both crossings share the outer pair (P, super-S), so ONE placement edge
     // stands for both. The arrow-free one is seen first: the directed one that
-    // follows still has to be able to speak for the shared proxy.
+    // follows still has to be able to speak for the shared proxy — and the
+    // fold of the two classes is neither arrow-free nor forward one-way.
     const mixed = crossingGraph(&nodes, &edges, &members, &clusters, .none, .filled);
     const sr = try split.split(a, mixed);
     const outer = outerEdges(sr);
     try std.testing.expectEqual(@as(usize, 1), outer.len);
-    try std.testing.expect(outer[0].stands_for_directed);
+    try std.testing.expectEqual(sg.StandsFor.directed, outer[0].stands_for);
+    try std.testing.expect(!sg.arrowFree(outer[0]));
+    try std.testing.expect(!sg.forwardOneWayHead(outer[0]));
 }

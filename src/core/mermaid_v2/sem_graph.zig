@@ -52,8 +52,10 @@ pub const NodeShape = enum {
 /// Stroke style for an edge.
 pub const EdgeKind = prim.EdgeKind;
 
-/// Arrowhead glyph at one end of an edge.
-pub const ArrowEnd = enum { none, open, filled, circle, cross };
+/// Arrowhead glyph at one end of an edge. The same enum the geometric IRs
+/// carry, so end predicates (`prim.directional`, `prim.blocks`) apply to a
+/// semantic edge without translation.
+pub const ArrowEnd = prim.ArrowKind;
 
 /// A semantic node — an identifier, label, shape, and class membership.
 pub const Node = struct {
@@ -79,20 +81,18 @@ pub const Edge = struct {
     arrow_to: ArrowEnd,
     /// Optional edge label text.
     label: ?[]const u8,
-    /// True when this edge is a cross-border PLACEMENT edge (cluster/split.zig)
-    /// standing in for at least one DIRECTED crossing.
-    ///
-    /// A placement edge is never painted — `stitch` drops every edge touching a
-    /// super-node and `bridges` routes the real crossing instead — so it
-    /// deliberately carries no arrowheads of its own: giving it any would
-    /// perturb the outer layout it exists to drive. But the ink that eventually
-    /// lands for it IS the crossing's, and the rail-closure law
-    /// (base/rail_closure.zig) asks precisely whether a rail's ink is
-    /// arrow-free. Without this flag every clustered DIRECTED fan reads as
-    /// arrow-free to the law and is unfused over leaf pairs its arrowheads
-    /// already block.
+    /// Directedness class of the ink this edge stands for. An ordinary edge
+    /// stands only for itself and stays `.arrow_free` here; its own arrow
+    /// fields answer the predicates below. A cross-border PLACEMENT edge
+    /// (cluster/split.zig) is never painted — `stitch` drops every edge
+    /// touching a super-node and `bridges` routes the real crossings instead
+    /// — so it deliberately carries no arrowheads of its own: giving it any
+    /// would perturb the outer layout it exists to drive. But the ink that
+    /// eventually lands for it IS the crossings', and this field carries
+    /// their directedness class so `arrowFree` and `forwardOneWayHead`
+    /// answer for that ink, not for the proxy's bare ends.
     /// guarded-by: cluster/split_test.zig "a placement edge records the directedness of the crossings it stands for"
-    stands_for_directed: bool = false,
+    stands_for: StandsFor = .arrow_free,
     /// Root-graph EdgeId this edge descends from, chained through nested cuts
     /// (cluster/split.zig). SENTINEL when the edge was born in this graph:
     /// parse-built edges (their own `id` is the root id) and synthetic
@@ -100,11 +100,46 @@ pub const Edge = struct {
     origin: EdgeId = SENTINEL,
 };
 
-/// True iff NEITHER end of the ink this edge stands for carries an arrowhead —
-/// the question the rail-closure law asks. A placement edge answers for the
-/// crossing it proxies, not for its own (always bare) arrow fields.
+/// Directedness class of the ink a placement edge stands for, folded over
+/// every crossing behind it (one placement edge may proxy several crossings
+/// of one outer pair). Lives in prim so licence-tier member types
+/// (base/rail_star.zig) can carry it too.
+pub const StandsFor = prim.StandsFor;
+
+/// The class of one crossing's own ends, for folding into a placement
+/// edge's `stands_for` (cluster/split.zig).
+pub fn standsForClass(arrow_from: ArrowEnd, arrow_to: ArrowEnd) StandsFor {
+    if (!prim.directional(arrow_from) and !prim.directional(arrow_to)) return .arrow_free;
+    if (prim.directional(arrow_to) and !prim.directional(arrow_from)) return .forward_one_way;
+    if (prim.directional(arrow_from) and !prim.directional(arrow_to)) return .backward_one_way;
+    return .directed;
+}
+
+/// Fold a further crossing's class into a placement edge that already
+/// stands for this outer pair. Agreement keeps the class; any mix folds to
+/// `.directed` — the combined ink is not uniformly one-way in one direction
+/// (forward+backward, for instance, lands heads at both ends of the pair).
+pub fn mergeStandsFor(a: StandsFor, b: StandsFor) StandsFor {
+    return if (a == b) a else .directed;
+}
+
+/// True iff NO end of the ink this edge stands for is directional — the L3
+/// ELIGIBILITY question (blocking unsatisfiable). Circle/cross ends are
+/// decoration, not directional, and do not count here. A placement edge
+/// answers for the crossings it proxies, not for its own (always bare)
+/// arrow fields. The closure law's member/backer gate is the stricter
+/// `undecorated` below.
 pub fn arrowFree(e: Edge) bool {
-    return e.arrow_from == .none and e.arrow_to == .none and !e.stands_for_directed;
+    return prim.memberArrowFree(e.arrow_from, e.arrow_to, e.stands_for);
+}
+
+/// True iff this edge's rendering carries NO end decoration at all: both
+/// declared ends bare and no proxied ink class. Stricter than `arrowFree` —
+/// circle/cross ends are non-directional yet still decoration, and a rail
+/// discharge must neither erase nor fabricate them (I3). This, not
+/// `arrowFree`, gates rail-closure members and backers.
+pub fn undecorated(e: Edge) bool {
+    return e.arrow_from == .none and e.arrow_to == .none and e.stands_for == .arrow_free;
 }
 
 /// True iff this edge carries its ONE-WAY head at the declared TARGET end
@@ -114,17 +149,12 @@ pub fn arrowFree(e: Edge) bool {
 /// blocks a trace too, but in the direction a fused rail would read
 /// backwards, so it does not qualify. `circle`/`cross` are
 /// direction-invariant and a head at BOTH ends points the trace along.
+/// A placement edge answers with the folded class of the crossings it
+/// stands for: only a uniformly forward-one-way set qualifies.
 /// guarded-by: fan_lanes_test2.zig "a two-sided group whose heads are direction-invariant still separates"
 pub fn forwardOneWayHead(e: Edge) bool {
-    if (e.stands_for_directed) return true;
-    return directional(e.arrow_to) and !directional(e.arrow_from);
-}
-
-fn directional(end: ArrowEnd) bool {
-    return switch (end) {
-        .open, .filled => true,
-        .none, .circle, .cross => false,
-    };
+    if (e.stands_for != .arrow_free) return e.stands_for == .forward_one_way;
+    return prim.directional(e.arrow_to) and !prim.directional(e.arrow_from);
 }
 
 /// A subgraph grouping. Members are direct only; nested groups go in `sub_clusters`.
@@ -306,4 +336,28 @@ test "SemGraph manual construction round-trip" {
     try std.testing.expectEqualStrings("maybe", g.edges[1].label.?);
 
     try std.testing.expectEqual(SENTINEL, std.math.maxInt(u32));
+}
+
+test "stands-for classes: backward one-way blocks but is never a forward head" {
+    try std.testing.expectEqual(StandsFor.backward_one_way, standsForClass(.filled, .none));
+    try std.testing.expectEqual(StandsFor.forward_one_way, standsForClass(.none, .open));
+    try std.testing.expectEqual(StandsFor.arrow_free, standsForClass(.circle, .cross));
+    try std.testing.expectEqual(StandsFor.directed, standsForClass(.filled, .filled));
+    // Antiparallel one-way crossings behind one pair: heads land both ends.
+    try std.testing.expectEqual(StandsFor.directed, mergeStandsFor(.forward_one_way, .backward_one_way));
+
+    try std.testing.expect(prim.memberBlocks(.none, .none, .backward_one_way));
+    const proxy: Edge = .{
+        .id = 0,
+        .from = 0,
+        .to = 1,
+        .kind = .solid,
+        .arrow_from = .none,
+        .arrow_to = .none,
+        .label = null,
+        .stands_for = .backward_one_way,
+    };
+    try std.testing.expect(!forwardOneWayHead(proxy));
+    try std.testing.expect(!arrowFree(proxy));
+    try std.testing.expect(!undecorated(proxy));
 }

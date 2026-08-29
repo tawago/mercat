@@ -76,6 +76,8 @@ fn licensedOut(
             .edge = if (c.origin == sg.SENTINEL) c.id else c.origin,
             .endpoints = .{ c.from, c.to },
             .arrows = .{ c.arrow_from, c.arrow_to },
+            // A crossing is its own ink, never a proxy: stated, not defaulted.
+            .stands_for = .arrow_free,
             .kind = c.kind,
             .pivot_end = .source,
         };

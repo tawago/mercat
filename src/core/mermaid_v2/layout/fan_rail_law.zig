@@ -178,7 +178,7 @@ fn membersOf(
             .edge = p.edge_id,
             .leaf = nodeId(lg, p.peer_idx),
             .kind = kindOrdinal(edge.kind),
-            .arrow_free = sg.arrowFree(edge),
+            .arrow_free = sg.undecorated(edge),
         }) catch return error.OutOfMemory;
     }
     return out.toOwnedSlice(a);
@@ -199,7 +199,7 @@ fn backersOf(a: std.mem.Allocator, graph: sg.SemGraph, members: []const rc.Membe
             .a = edge.from,
             .b = edge.to,
             .kind = kindOrdinal(edge.kind),
-            .arrow_free = sg.arrowFree(edge),
+            .arrow_free = sg.undecorated(edge),
             .unlabeled = edge.label == null or edge.label.?.len == 0,
         });
     }

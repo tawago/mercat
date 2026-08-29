@@ -71,6 +71,9 @@ pub const RailClaimMember = struct {
     endpoints: [2]?NodeId,
     sites: [2]?AttachmentSite,
     arrows: [2]ArrowKind,
+    /// Class of ink this member stands for beyond its own end glyphs
+    /// (a placement edge proxies its crossings' decoration).
+    stands_for: prim.StandsFor = .arrow_free,
     kind: EdgeKind,
     /// Producer's assertion about which end meets the pivot. The checker also
     /// derives this from `polarity` and reports disagreement independently.
@@ -95,6 +98,9 @@ pub const RailLicenceMember = struct {
     edge: EdgeId,
     endpoints: [2]?NodeId,
     arrows: [2]ArrowKind,
+    /// Class of ink this member stands for beyond its own end glyphs
+    /// (a placement edge proxies its crossings' decoration).
+    stands_for: prim.StandsFor = .arrow_free,
     kind: EdgeKind,
     pivot_end: Endpoint,
 
@@ -140,6 +146,11 @@ pub const BndSResult = struct {
     /// Licence tier only: a member's pivot end is missing or is not the
     /// claimed pivot. Realized claims derive their pivot; never set there.
     pivot_not_claimed: bool = false,
+    /// L1 blocking predicate: a directional end is present in the star, yet
+    /// some member does not block (`prim.blocks`) — two directional ends,
+    /// or none while another member carries one. An ALL-arrow-free star is
+    /// L3's domain (base/rail_closure.zig) and never sets this.
+    non_blocking_member: bool = false,
 
     pub fn isValid(self: BndSResult) bool {
         return !self.no_common_real_pivot and
@@ -151,7 +162,8 @@ pub const BndSResult = struct {
             !self.self_loop and
             !self.leaf_is_pivot and
             !self.differing_or_missing_pi and
-            !self.pivot_not_claimed;
+            !self.pivot_not_claimed and
+            !self.non_blocking_member;
     }
 };
 
@@ -332,6 +344,16 @@ fn semanticCore(id: RailClaimId, polarity: RailPolarity, claimed_pivot: ?NodeId,
         }
         bnd.pivot_not_claimed = !claimed_ok;
     }
+
+    var any_directional = false;
+    var any_non_blocking = false;
+    for (members) |member| {
+        const from = member.arrow(.source);
+        const to = member.arrow(.target);
+        if (!prim.memberArrowFree(from, to, member.stands_for)) any_directional = true;
+        if (!prim.memberBlocks(from, to, member.stands_for)) any_non_blocking = true;
+    }
+    bnd.non_blocking_member = any_directional and any_non_blocking;
 
     if (members.len != 0) {
         const first = members[0];

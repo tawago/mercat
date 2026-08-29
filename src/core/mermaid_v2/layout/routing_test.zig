@@ -31,9 +31,10 @@ fn mkNode(id: sg.NodeId, raw: []const u8, cluster: ?sg.ClusterId) sg.Node {
     };
 }
 
-/// Fan-OUT edge with `arrow_from = .filled`: fails `fan_rail.resolve`'s
-/// eligibility check (`e.arrow_from != .none`), forcing every peer of the
-/// fan onto the per-peer polyline path this file exercises.
+/// Fan-OUT edge with `arrow_from = .filled` (and nothing at the target, so
+/// the member still blocks and the star keeps its licence): fails
+/// `fan_rail.resolve`'s eligibility check (`e.arrow_from != .none`), forcing
+/// every peer of the fan onto the per-peer polyline path this file exercises.
 fn mkForcedPeerEdge(id: sg.EdgeId, from: sg.NodeId, to: sg.NodeId) sg.Edge {
     return .{
         .id = id,
@@ -41,7 +42,7 @@ fn mkForcedPeerEdge(id: sg.EdgeId, from: sg.NodeId, to: sg.NodeId) sg.Edge {
         .to = to,
         .kind = .solid,
         .arrow_from = .filled,
-        .arrow_to = .filled,
+        .arrow_to = .none,
         .label = null,
     };
 }

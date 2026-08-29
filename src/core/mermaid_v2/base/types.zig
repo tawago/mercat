@@ -81,6 +81,67 @@ pub const ArrowKind = enum {
     cross,
 };
 
+/// True for a directional end: an arrowhead that permits only the
+/// orientation it points. Circle and cross ends are decoration, not
+/// directional, and permit both orientations (trace axiom T3).
+pub fn directional(end: ArrowKind) bool {
+    return switch (end) {
+        .open, .filled => true,
+        .none, .circle, .cross => false,
+    };
+}
+
+/// Blocking predicate (confluence theory, corollary of T2+T3): an edge
+/// blocks leaf-to-leaf traversal through its rail iff exactly one of its
+/// two ends is directional. This is the glyph half only; `memberBlocks`
+/// below extends it to ink a placement edge proxies. (Mermaid syntax gives
+/// an ordinary edge no head-free directedness, so glyphs are its whole
+/// testimony.)
+pub fn blocks(arrow_from: ArrowKind, arrow_to: ArrowKind) bool {
+    return directional(arrow_from) != directional(arrow_to);
+}
+
+/// Directedness class of ink an edge stands for beyond its own end glyphs.
+/// Ordinary edges stand only for themselves and stay `.arrow_free`; a
+/// cross-border placement edge (cluster/split.zig) carries here the folded
+/// class of the crossings whose ink it proxies.
+pub const StandsFor = enum {
+    /// No directional end on any proxied crossing (circle/cross ends
+    /// included: decoration, not directional). Also every ordinary edge.
+    arrow_free,
+    /// Every proxied crossing carries exactly one directional head, at its
+    /// target — the crossing is semantically one-way toward it.
+    forward_one_way,
+    /// Every proxied crossing carries exactly one directional head, at its
+    /// source: still one-way (it blocks), but a two-sided fusion reads it
+    /// backwards, so it is not a forward head.
+    backward_one_way,
+    /// Directional ends are present but not uniformly one-way in one
+    /// direction: heads at both ends, or a mix of classes (antiparallel
+    /// one-way crossings fold here too — their combined ink is headed at
+    /// both ends).
+    directed,
+};
+
+/// The blocking predicate over one member's whole testimony: its own end
+/// glyphs plus the class of any ink it stands for. A one-way class blocks
+/// in either direction — the same verdict `blocks` gives the equivalent
+/// glyphs on a direct member. `.directed` folds double-headed with mixed
+/// ink, so it cannot claim to block.
+pub fn memberBlocks(arrow_from: ArrowKind, arrow_to: ArrowKind, stands_for: StandsFor) bool {
+    return switch (stands_for) {
+        .arrow_free => blocks(arrow_from, arrow_to),
+        .forward_one_way, .backward_one_way => true,
+        .directed => false,
+    };
+}
+
+/// True iff no end of the ink this member stands for is directional — the
+/// question the rail-closure law asks.
+pub fn memberArrowFree(arrow_from: ArrowKind, arrow_to: ArrowKind, stands_for: StandsFor) bool {
+    return !directional(arrow_from) and !directional(arrow_to) and stands_for == .arrow_free;
+}
+
 /// Stroke style of an edge. Represents the visual weight / dash pattern of
 /// the drawn line, independent of routing intent.
 pub const EdgeKind = enum {

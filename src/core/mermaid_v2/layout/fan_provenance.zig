@@ -69,7 +69,11 @@ fn memberFor(
     rails: []const sketch.Rail,
 ) ledger.RailClaimMember {
     if (railMember(f, semantic, placements, rails)) |member| return member;
-    if (pathById(paths, semantic.id)) |path| return memberFromPath(f, path);
+    if (pathById(paths, semantic.id)) |path| {
+        var member = memberFromPath(f, path);
+        member.stands_for = semantic.stands_for;
+        return member;
+    }
 
     // The semantic member remains explicit when local routing supplied no
     // endpoint artifact. Null sites make that lack of final evidence visible.
@@ -78,6 +82,7 @@ fn memberFor(
         .endpoints = .{ semantic.from, semantic.to },
         .sites = .{ null, null },
         .arrows = .{ mapArrow(semantic.arrow_from), mapArrow(semantic.arrow_to) },
+        .stands_for = semantic.stands_for,
         .kind = semantic.kind,
         .pivot_end = if (f.direction == .out) .source else .target,
     };
@@ -120,6 +125,7 @@ fn railMember(
                 .endpoints = .{ semantic.from, semantic.to },
                 .sites = .{ source_site, target_site },
                 .arrows = if (rail_in) .{ tap.arrow, rail.pivot_arrow } else .{ rail.pivot_arrow, tap.arrow },
+                .stands_for = semantic.stands_for,
                 .kind = rail.kind,
                 .pivot_end = if (f.direction == .out) .source else .target,
             };

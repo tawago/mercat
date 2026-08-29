@@ -130,6 +130,7 @@ fn prospectiveRailCheck(a: std.mem.Allocator, graph: sg.SemGraph, direction: pb.
             .edge = id,
             .endpoints = .{ candidate.from, candidate.to },
             .arrows = .{ mapArrow(candidate.arrow_from), mapArrow(candidate.arrow_to) },
+            .stands_for = candidate.stands_for,
             .kind = candidate.kind,
             .pivot_end = pivot_end,
         };

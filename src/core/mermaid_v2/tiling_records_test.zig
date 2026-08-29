@@ -64,10 +64,42 @@ const corpus = [_][]const u8{
     "flowchart TD\n  A --> D\n  B --> D\n  C --> D\n",
     "flowchart TD\n  A --> B\n  A -.-> C\n  A ==> D\n",
     "flowchart TD\n  A --> B1\n  A --> B2\n  A --> B3\n  A --> B4\n  A --> B5\n  A --> B6\n  A --> B7\n  A --> B8\n",
-    "flowchart TD\n  subgraph S1\n    A <-->|a longer label 0| C0\n    A -.-|a longer label 1| C1\n    A -.-> C2\n    A --- C3\n  end\n  C0 -.-> OUT\n  OUT -.- A\n",
+    // The kept dotted class {C1, C2} is uniformly forward one-way, so the
+    // clustered fan holds its star licence and files final rail claims.
+    "flowchart TD\n  subgraph S1\n    A <-->|a longer label 0| C0\n    A -.->|a longer label 1| C1\n    A -.-> C2\n    A --- C3\n  end\n  C0 -.-> OUT\n  OUT -.- A\n",
+    // Same shape with a mixed kept class {arrow-free C1, forward C2}: the
+    // star licence refuses it (non-blocking member) and every member routes
+    // privately — the record shape a refused clustered fan files is pinned
+    // by "a refused clustered fan files no rail claim ..." below.
+    refused_clustered_fan_source,
 };
 
 const widths = [_]u32{ 60, 120 };
+
+/// The original mixed-class clustered fan: `A -.- C1` is arrow-free while
+/// `A -.-> C2` is forward one-way, so the kept dotted class mixes a
+/// non-blocking member with a directional one and loses the star licence.
+const refused_clustered_fan_source =
+    "flowchart TD\n  subgraph S1\n    A <-->|a longer label 0| C0\n    A -.-|a longer label 1| C1\n    A -.-> C2\n    A --- C3\n  end\n  C0 -.-> OUT\n  OUT -.- A\n";
+
+test "a refused clustered fan files no rail claim and routes every member privately" {
+    for (widths) |width| {
+        var arena = std.heap.ArenaAllocator.init(testing.allocator);
+        defer arena.deinit();
+        const a = arena.allocator();
+
+        const r = try render(a, refused_clustered_fan_source, width);
+        // No shared ink anywhere: the refused fan keeps no rail, files no
+        // claim, and the lone non-fan edges never form one.
+        try testing.expectEqual(@as(usize, 0), r.sketch.rails.len);
+        try testing.expectEqual(@as(usize, 0), r.sketch.rail_claims.len);
+        try testing.expectEqual(@as(usize, 0), r.report.lattice.rail_claims.len);
+        // Every declared edge still owns private geometry (I1): one routed
+        // path per edge, none fused, none discharged, none lost.
+        try testing.expectEqual(r.graph.edges.len, r.sketch.edges.len);
+        for (r.sketch.edges) |edge| try testing.expect(edge.polyline.len != 0);
+    }
+}
 
 test "suppressed carriers and the crossing tallies count the same events" {
     // The crossing rule's THREE refusal classes are counted in aggregate by
