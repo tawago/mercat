@@ -400,7 +400,8 @@ fn closureVerdict(
             .edge = id,
             .leaf = if (group.direction == .out) edge.to else edge.from,
             .kind = pb.edgeKindOrdinal(edge.kind),
-            .arrow_free = undecorated(edge),
+            .arrow_free = sg.arrowFree(edge),
+            .undecorated = undecorated(edge),
         };
     }
     var backers: std.ArrayListUnmanaged(rc.Backer) = .empty;
@@ -414,7 +415,7 @@ fn closureVerdict(
             .a = edge.from,
             .b = edge.to,
             .kind = pb.edgeKindOrdinal(edge.kind),
-            .arrow_free = undecorated(edge),
+            .undecorated = undecorated(edge),
             .unlabeled = edge.label == null or edge.label.?.len == 0,
         });
     }

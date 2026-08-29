@@ -52,11 +52,17 @@ pub const Member = struct {
     leaf: NodeId,
     /// Stroke-class ordinal (`pb.edgeKindOrdinal`). A backer must match it.
     kind: u8,
-    /// True iff this member's ink carries NO end decoration at all (both
-    /// ends bare — stricter than merely non-directional; producers gate on
-    /// sem_graph.undecorated, so circle/cross-decorated members never
-    /// qualify and a discharge cannot erase their decoration).
+    /// L3 ELIGIBILITY: true iff no end of this member's ink is directional
+    /// (sem_graph.arrowFree) — the blocking predicate is unsatisfiable, so
+    /// the law decides this rail. Circle/cross ends are non-directional and
+    /// do not count here.
     arrow_free: bool,
+    /// DISCHARGE qualification: true iff the member's ink carries no end
+    /// decoration at all (sem_graph.undecorated). A decorated member is
+    /// still inside the law's domain via `arrow_free`, but no crossbar span
+    /// can render its pair truthfully, so it can never be kept — it unfuses
+    /// to a private stroke.
+    undecorated: bool,
 };
 
 /// A candidate declared edge that could back one leaf pair. `a`/`b` are its
@@ -66,11 +72,11 @@ pub const Backer = struct {
     a: NodeId,
     b: NodeId,
     kind: u8,
-    /// True iff the declaration carries NO end decoration at all (both ends
-    /// bare — sem_graph.undecorated at the producers): the crossbar span
-    /// that discharges it is undecorated, so a decorated declaration would
-    /// have its decoration silently erased.
-    arrow_free: bool,
+    /// True iff the declaration carries NO end decoration at all
+    /// (sem_graph.undecorated at the producers): the crossbar span that
+    /// discharges it is undecorated, so a decorated declaration would have
+    /// its decoration silently erased.
+    undecorated: bool,
     unlabeled: bool,
 };
 
@@ -82,8 +88,11 @@ pub const Discharge = struct {
 };
 
 pub const Outcome = enum {
-    /// Not an all-arrow-free rail (directed, mixed, or fewer than two
-    /// members): this law says nothing, existing behavior stands.
+    /// Not an all-arrow-free rail (some directional end, or fewer than two
+    /// members): the blocking predicate is satisfiable, this law says
+    /// nothing, existing behavior stands. Decoration alone does NOT leave
+    /// the domain — a circle/cross-decorated star is eligible and then
+    /// refused for discharge.
     untouched,
     /// Every leaf pair of the full member set is declared — fuse as proposed.
     keep,
@@ -215,6 +224,11 @@ fn attempt(
     members: []const Member,
     backers: []const Backer,
 ) error{OutOfMemory}!?[]const Discharge {
+    // A decorated member's pair cannot be rendered by a bare crossbar span,
+    // so no subset containing one ever closes.
+    for (members) |m| {
+        if (!m.undecorated) return null;
+    }
     // Members of one rail always share a stroke class (the style gate runs
     // first), so the first member's kind names the class a backer must match;
     // a mixed-kind rail can never close and is rejected here.
@@ -236,7 +250,7 @@ fn pairMatrix(members: []const Member, backers: []const Backer) [max_salvage_mem
     for (members, 0..) |m, i| {
         for (members[0..i], 0..) |n, j| {
             const ok = m.leaf == n.leaf or findBacker(backers, m.kind, m.leaf, n.leaf, &.{}) != null;
-            if (m.kind != n.kind or !ok) continue;
+            if (!m.undecorated or !n.undecorated or m.kind != n.kind or !ok) continue;
             rows[i] |= @as(u32, 1) << @intCast(j);
             rows[j] |= @as(u32, 1) << @intCast(i);
         }
@@ -264,7 +278,7 @@ fn countUndeclared(members: []const Member, backers: []const Backer) u32 {
     for (members, 0..) |m, i| {
         for (members[0..i]) |n| {
             if (m.leaf == n.leaf) continue;
-            if (m.kind != n.kind) {
+            if (m.kind != n.kind or !m.undecorated or !n.undecorated) {
                 missing += 1;
                 continue;
             }
@@ -282,7 +296,7 @@ fn countUndeclared(members: []const Member, backers: []const Backer) u32 {
 }
 
 /// The first declared edge that matches this pair on every clause: same
-/// unordered endpoints, the asking run's own stroke class, arrow-free,
+/// unordered endpoints, the asking run's own stroke class, undecorated,
 /// unlabeled, and not already spent on another pair of this same run.
 fn findBacker(
     backers: []const Backer,
@@ -293,7 +307,7 @@ fn findBacker(
 ) ?Backer {
     for (backers) |b| {
         if (!samePair(b, x, y)) continue;
-        if (b.kind != kind or !b.arrow_free or !b.unlabeled) continue;
+        if (b.kind != kind or !b.undecorated or !b.unlabeled) continue;
         if (contains(used, b.edge)) continue;
         return b;
     }

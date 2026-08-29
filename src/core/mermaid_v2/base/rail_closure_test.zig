@@ -10,15 +10,21 @@ const solid: u8 = 0;
 const dotted: u8 = 1;
 
 fn member(edge: u32, leaf: u32) rc.Member {
-    return .{ .edge = edge, .leaf = leaf, .kind = solid, .arrow_free = true };
+    return .{ .edge = edge, .leaf = leaf, .kind = solid, .arrow_free = true, .undecorated = true };
 }
 
 fn directedMember(edge: u32, leaf: u32) rc.Member {
-    return .{ .edge = edge, .leaf = leaf, .kind = solid, .arrow_free = false };
+    return .{ .edge = edge, .leaf = leaf, .kind = solid, .arrow_free = false, .undecorated = false };
+}
+
+/// Circle/cross-decorated: no directional end (eligible), yet decorated
+/// (never discharge-qualified).
+fn decoratedMember(edge: u32, leaf: u32) rc.Member {
+    return .{ .edge = edge, .leaf = leaf, .kind = solid, .arrow_free = true, .undecorated = false };
 }
 
 fn backer(edge: u32, a: u32, b: u32) rc.Backer {
-    return .{ .edge = edge, .a = a, .b = b, .kind = solid, .arrow_free = true, .unlabeled = true };
+    return .{ .edge = edge, .a = a, .b = b, .kind = solid, .undecorated = true, .unlabeled = true };
 }
 
 fn decide(members: []const rc.Member, backers: []const rc.Backer) !rc.Verdict {
@@ -71,7 +77,7 @@ test "a backing edge is matched on unordered endpoints" {
 test "a decorated, labeled or wrong-stroke declaration backs nothing" {
     const members = [_]rc.Member{ member(0, 1), member(1, 2) };
     var arrowed = backer(10, 1, 2);
-    arrowed.arrow_free = false;
+    arrowed.undecorated = false;
     var labeled = backer(11, 1, 2);
     labeled.unlabeled = false;
     var mismatched = backer(12, 1, 2);
@@ -200,4 +206,38 @@ test "a discharged edge that still routes privately is a double discharge" {
     try testing.expectEqual(@as(u32, 0), rc.doubleDischarged(&.{ 10, 11 }, &.{ 0, 1, 2 }));
     try testing.expectEqual(@as(u32, 1), rc.doubleDischarged(&.{ 10, 11 }, &.{ 0, 10 }));
     try testing.expectEqual(@as(u32, 2), rc.doubleDischarged(&.{ 10, 11 }, &.{ 11, 10 }));
+}
+
+test "a decorated star with undeclared pairs refuses instead of escaping the law" {
+    // o--o members: no directional end, so the law decides (eligible) — and
+    // decoration disqualifies every member from discharge, so nothing keeps
+    // the rail and every member unfuses to a private stroke.
+    const members = [_]rc.Member{ decoratedMember(0, 1), decoratedMember(1, 2), decoratedMember(2, 3) };
+    const v = try decide(&members, &.{});
+    defer free(v);
+    try testing.expectEqual(rc.Outcome.refuse, v.outcome);
+    try testing.expectEqual(@as(usize, 0), v.members.len);
+    try testing.expectEqual(@as(u32, 3), v.undeclared_pairs);
+}
+
+test "a decorated star with every pair declared is still refused for discharge" {
+    // Declarations exist for every leaf pair, but a bare crossbar span
+    // cannot render a decorated member's relation truthfully: the
+    // undecorated gate refuses regardless of the backing.
+    const members = [_]rc.Member{ decoratedMember(0, 1), decoratedMember(1, 2) };
+    const backers = [_]rc.Backer{backer(10, 1, 2)};
+    const v = try decide(&members, &backers);
+    defer free(v);
+    try testing.expectEqual(rc.Outcome.refuse, v.outcome);
+    try testing.expectEqual(@as(usize, 0), v.discharges.len);
+}
+
+test "a mixed decorated and bare star salvages only the bare declared subset" {
+    const members = [_]rc.Member{ decoratedMember(0, 1), member(1, 2), member(2, 3) };
+    const backers = [_]rc.Backer{backer(10, 2, 3)};
+    const v = try decide(&members, &backers);
+    defer free(v);
+    try testing.expectEqual(rc.Outcome.salvage, v.outcome);
+    try testing.expectEqualSlices(u32, &.{ 1, 2 }, v.members);
+    try testing.expectEqual(@as(usize, 1), v.discharges.len);
 }
