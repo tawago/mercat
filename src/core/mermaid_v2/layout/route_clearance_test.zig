@@ -80,6 +80,84 @@ test "reserved departures exempt same selected trunk" {
     ));
 }
 
+test "a co-realized edge's port allocation reserves no departure" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const placements = [_]sk.NodePlacement{
+        node(0, 0, 0, 5, 3),
+        node(1, 0, 6, 5, 3),
+    };
+    // Edge 0's allocated departure cell is (2,3); edge 1's route crosses it.
+    const edge_ports = [_]struct { edge: pb.EdgeId, source: sk.Port }{
+        .{ .edge = 0, .source = .{ .node = 0, .side = .south, .offset = 2 } },
+    };
+    const poly = [_]sk.Point{ .{ .x = 2, .y = 3 }, .{ .x = 2, .y = 8 } };
+
+    // Edge 0 routed on its own: the departure is real ink and blocks.
+    try std.testing.expect(try clearance.conflictsReservedDepartures(
+        arena.allocator(),
+        1,
+        &poly,
+        &placements,
+        &edge_ports,
+        .{},
+    ));
+
+    // Edge 0 co-realized: its whole rendering is a rail span — no polyline,
+    // no port — so its allocation must reserve nothing.
+    const co = [_]pb.EdgeId{0};
+    try std.testing.expect(!try clearance.conflictsReservedDepartures(
+        arena.allocator(),
+        1,
+        &poly,
+        &placements,
+        &edge_ports,
+        .{ .co_realized = &co },
+    ));
+}
+
+test "polylineClears refuses every clearance violation regardless of membership disposition" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const placements = [_]sk.NodePlacement{
+        node(0, 0, 0, 5, 3),
+        node(1, 0, 10, 5, 3),
+        node(2, 10, 4, 5, 3), // foreign node
+    };
+    const taps = [_]sk.Tap{.{ .edge = 7, .node = 1, .at = .{ .x = 2, .y = 6 }, .landing = .{ .x = 2, .y = 10 }, .arrow = .filled }};
+    const stem = [_]sk.Point{ .{ .x = 8, .y = 6 }, .{ .x = 2, .y = 6 } };
+    const rails = [_]sk.Rail{.{
+        .pivot = 5,
+        .stem = &stem,
+        .crossbar = .{ .{ .x = 2, .y = 6 }, .{ .x = 2, .y = 6 } },
+        .taps = &taps,
+        .kind = .solid,
+    }};
+    const edge_ports = [_]struct { edge: pb.EdgeId, source: sk.Port }{};
+
+    // The routed edge 0 targets tap node 1; cell (2,9) is that tap's
+    // arrowhead cell (one step off the landing toward the rail).
+    const over_arrow = [_]sk.Point{ .{ .x = 4, .y = 9 }, .{ .x = 2, .y = 9 } };
+    // A run whose interior leg crosses foreign node 2's box (x=12, rows 4..6).
+    const through_foreign = [_]sk.Point{ .{ .x = 4, .y = 1 }, .{ .x = 12, .y = 1 }, .{ .x = 12, .y = 8 }, .{ .x = 4, .y = 8 } };
+    // Clear of the rail, its junctions, the foreign box, and the arrow cell.
+    const clear = [_]sk.Point{ .{ .x = 4, .y = 2 }, .{ .x = 4, .y = 8 } };
+
+    const with_independent = pb.RealizedJoins{ .memberships = &[_]pb.RealizedEdgeMembership{
+        .{ .edge = 7, .source = .{ .independent = .{ .permission_group = 0, .reason = .not_selected } }, .target = null },
+    } };
+    const all_selected = pb.RealizedJoins{ .memberships = &[_]pb.RealizedEdgeMembership{
+        .{ .edge = 7, .source = .{ .selected = 0 }, .target = null },
+    } };
+
+    inline for ([2]pb.RealizedJoins{ with_independent, all_selected }) |joins| {
+        try std.testing.expect(!try clearance.polylineClears(a, 0, .solid, &over_arrow, &.{}, &rails, &placements, &edge_ports, joins, 0, 1));
+        try std.testing.expect(!try clearance.polylineClears(a, 0, .solid, &through_foreign, &.{}, &rails, &placements, &edge_ports, joins, 0, 1));
+        try std.testing.expect(try clearance.polylineClears(a, 0, .solid, &clear, &.{}, &rails, &placements, &edge_ports, joins, 0, 1));
+    }
+}
+
 test "the detour search widens once per already-routed path, never past the ceiling" {
     // Nothing routed yet: the search still gets its two tracks (one per side)
     // so a first detour can dodge the boxes it is going around.

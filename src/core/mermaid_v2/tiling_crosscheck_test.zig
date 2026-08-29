@@ -66,7 +66,7 @@ fn renderMode(a: std.mem.Allocator, source: []const u8, width: u32, mode: prim.S
     const graph = try parse(a, source);
     const built = try permits.build(a, graph, .joined);
     const plan = built.plan;
-    const winner = try select.choose(a, graph, &plan, width, false, false);
+    const winner = try select.choose(a, graph, &plan, width, false, false, mode);
     // The audit reads the side table every rasterization now carries.
     const report = try raster.rasterize(a, winner.sketch, mode);
     return .{ .graph = graph, .sketch = winner.sketch, .report = report, .mode = mode };

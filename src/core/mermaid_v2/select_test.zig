@@ -34,7 +34,7 @@ test "truncate rung is ineligible when natural fits cleanly" {
 
     const g = try parse(a, "flowchart TD\n  A --> B\n  B --> C\n");
     const enumerated = try ladder.enumerate(a, g, testJoinPermits(), 80);
-    const sel = select.scoreCandidates(a, enumerated.candidates, enumerated.incumbent.final_rung, g.direction) orelse
+    const sel = select.scoreCandidates(a, enumerated.candidates, enumerated.incumbent.final_rung, g.direction, .bridge) orelse
         return error.ScoringFailed;
 
     var natural_idx: ?usize = null;
@@ -107,12 +107,12 @@ test "choose: merged selection anchors to raw natural and never fails the render
         \\  A --> B2 --> C2
         \\
     );
-    const result = try select.choose(a, g, testJoinPermits(), 120, false, false);
+    const result = try select.choose(a, g, testJoinPermits(), 120, false, false, .bridge);
     try std.testing.expect(result.sketch.bbox.w > 0);
 
     // score_off returns the ladder incumbent exactly.
     const incumbent = (try ladder.enumerate(a, g, testJoinPermits(), 120)).incumbent;
-    const off = try select.choose(a, g, testJoinPermits(), 120, true, false);
+    const off = try select.choose(a, g, testJoinPermits(), 120, true, false, .bridge);
     try std.testing.expectEqual(incumbent.final_rung, off.final_rung);
 }
 
@@ -136,20 +136,20 @@ test "report-only pin: reach oracle changes neither argmin nor winner" {
 
     // Selection WITHOUT the oracle: enumerate and score directly.
     const set = try select.enumerateAll(a, g, &plan, 96);
-    const before = select.scoreCandidates(a, set.merged, set.incumbent.final_rung, g.direction) orelse
+    const before = select.scoreCandidates(a, set.merged, set.incumbent.final_rung, g.direction, .bridge) orelse
         return error.ScoringFailed;
 
     // Run the oracle (tags recorded per candidate), then score again.
     const reports = select.reachReports(a, g, true, set.merged);
     try std.testing.expectEqual(set.merged.len, reports.len);
-    const after = select.scoreCandidates(a, set.merged, set.incumbent.final_rung, g.direction) orelse
+    const after = select.scoreCandidates(a, set.merged, set.incumbent.final_rung, g.direction, .bridge) orelse
         return error.ScoringFailed;
     try std.testing.expectEqual(before.argmin_idx, after.argmin_idx);
     try std.testing.expectEqual(before.incumbent_idx, after.incumbent_idx);
 
     // The production path (which DOES run the oracle inside choose) ships
     // exactly the oracle-free argmin's candidate.
-    const result = try select.choose(a, g, &plan, 96, false, false);
+    const result = try select.choose(a, g, &plan, 96, false, false, .bridge);
     try std.testing.expectEqual(set.merged[before.argmin_idx].rung, result.final_rung);
 
     // The reports really are per-candidate recorded data (component
@@ -187,14 +187,14 @@ test "score-blindness: zeroing the surviving set's report counts leaves the argm
     for (with_counts) |*r| r.counts.skipped_clustered += 7;
     const survivors = select.ciFilter(a, set.merged, with_counts).survivors;
     try std.testing.expectEqual(set.merged.len, survivors.len); // all CI-clean
-    const argmin_present = (select.scoreCandidates(a, survivors, set.incumbent.final_rung, g.direction) orelse
+    const argmin_present = (select.scoreCandidates(a, survivors, set.incumbent.final_rung, g.direction, .bridge) orelse
         return error.ScoringFailed).argmin_idx;
 
     // Zero every surviving report's counts; the argmin is byte-identical.
     const zeroed = try a.dupe(reach_vector.Report, with_counts);
     for (zeroed) |*r| r.counts = .{};
     const survivors_zeroed = select.ciFilter(a, set.merged, zeroed).survivors;
-    const argmin_zeroed = (select.scoreCandidates(a, survivors_zeroed, set.incumbent.final_rung, g.direction) orelse
+    const argmin_zeroed = (select.scoreCandidates(a, survivors_zeroed, set.incumbent.final_rung, g.direction, .bridge) orelse
         return error.ScoringFailed).argmin_idx;
     try std.testing.expectEqual(argmin_present, argmin_zeroed);
 }
@@ -224,9 +224,9 @@ test "regression: the raw natural anchor filtered out keeps truncate eligible an
     for (filtered.survivors) |cand| // the raw natural anchor is gone from the set
         try std.testing.expect(!(cand.rung == .natural and cand.transform == .raw));
 
-    const s1 = select.scoreCandidates(a, filtered.survivors, set.incumbent.final_rung, g.direction) orelse
+    const s1 = select.scoreCandidates(a, filtered.survivors, set.incumbent.final_rung, g.direction, .bridge) orelse
         return error.ScoringFailed;
-    const s2 = select.scoreCandidates(a, filtered.survivors, set.incumbent.final_rung, g.direction) orelse
+    const s2 = select.scoreCandidates(a, filtered.survivors, set.incumbent.final_rung, g.direction, .bridge) orelse
         return error.ScoringFailed;
     try std.testing.expectEqual(s1.argmin_idx, s2.argmin_idx); // deterministic
     _ = filtered.survivors[s1.argmin_idx]; // in-range survivor winner
@@ -315,7 +315,7 @@ test "filter drops the ladder incumbent: argmin over survivors still ships" {
 
     // Even though the incumbent is absent, scoring returns a survivor winner
     // (the fix: scoreCandidates no longer bails when the incumbent is filtered).
-    const sel = select.scoreCandidates(a, filtered.survivors, set.incumbent.final_rung, g.direction) orelse
+    const sel = select.scoreCandidates(a, filtered.survivors, set.incumbent.final_rung, g.direction, .bridge) orelse
         return error.NoSurvivorWinner;
     _ = filtered.survivors[sel.argmin_idx]; // a valid, in-range survivor index
     try std.testing.expectEqual(sel.argmin_idx, sel.incumbent_idx); // incumbent stands in for the argmin
@@ -387,7 +387,7 @@ test "co-sets applied with the plan carry the plan's own membership" {
 
         const g = try parse(a, source);
         const permits = (try permits_mod.build(a, g, .joined)).plan;
-        const winner = try select.choose(a, g, &permits, width, false, false);
+        const winner = try select.choose(a, g, &permits, width, false, false, .bridge);
         for (winner.sketch.co_sets) |set| switch (set.origin) {
             .selected_join => saw_selected = true,
             .port_share => {},
@@ -458,7 +458,7 @@ test "a clustered render's trunk co-sets come from its piece plan and survive th
         \\
     );
     const permits = (try permits_mod.build(a, g, .joined)).plan;
-    const winner = try select.choose(a, g, &permits, 120, false, false);
+    const winner = try select.choose(a, g, &permits, 120, false, false, .bridge);
 
     try std.testing.expectEqual(@as(usize, 1), winner.sketch.joins.selected_joins.len);
     const trunk = winner.sketch.joins.selected_joins[0];

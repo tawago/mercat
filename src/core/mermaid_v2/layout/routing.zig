@@ -331,7 +331,9 @@ pub fn buildEdgesWithPlan(
                 try port_plan.duplicateDetour(a, eff_dir, eff_from_p, eff_to_p, ep, placements)
             else
                 try routePolyline(a, eff_dir, eff_from_p, eff_to_p, eff_port_from, eff_port_to, virtuals, geom, placements, 0, 0, lane);
-            if (!route_clearance.hasIndependent(joins) and try route_clearance.conflictsRailArrows(a, poly, bar_views, orig.from, orig.to))
+            // Repair attempt, not a gate: the clearance gate below refuses
+            // rail-arrow contact for every membership disposition.
+            if (try route_clearance.conflictsRailArrows(a, poly, bar_views, orig.from, orig.to))
                 poly = try route_clearance.shiftInteriorRun(a, poly, eff_dir, 2 * (lane - ep.route_lane + 1));
             if (try route_clearance.polylineClears(a, orig.id, orig.kind, poly, out.items, bar_views, placements, allocated_ports.edges, joins, orig.from, orig.to)) break;
             if (lane >= 16) {

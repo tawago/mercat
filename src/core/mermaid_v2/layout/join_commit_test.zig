@@ -29,7 +29,7 @@ fn rawOf(graph: anytype, id: u32) []const u8 {
 fn trunkKeysAtD(a: std.mem.Allocator, source: []const u8) ![]const []const u8 {
     const graph = try parse(a, source);
     const plan = (try permits.build(a, graph, .joined)).plan;
-    const winner = try select.choose(a, graph, &plan, 94, false, false);
+    const winner = try select.choose(a, graph, &plan, 94, false, false, .bridge);
     for (winner.sketch.joins.selected_joins) |sj| {
         for (plan.groups) |g| if (g.id == sj.permission_group and g.direction == .in and g.pivot == nodeId(graph, "D")) {
             const out = try a.alloc([]const u8, sj.members.len);

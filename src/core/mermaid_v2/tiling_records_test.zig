@@ -37,7 +37,7 @@ fn render(a: std.mem.Allocator, source: []const u8, width: u32) !Rendered {
     const graph = try parse(a, source);
     const built = try permits.build(a, graph, .joined);
     const plan = built.plan;
-    const winner = try select.choose(a, graph, &plan, width, false, false);
+    const winner = try select.choose(a, graph, &plan, width, false, false, .bridge);
     const report = try raster.rasterize(a, winner.sketch, .bridge);
     return .{ .graph = graph, .sketch = winner.sketch, .report = report };
 }
@@ -387,7 +387,7 @@ test "AUX and RailClaim metadata preserve production cells and audit counts" {
 
         const graph = try parse(a, source);
         const built = try permits.build(a, graph, .joined);
-        const winner = try select.choose(a, graph, &built.plan, width, false, false);
+        const winner = try select.choose(a, graph, &built.plan, width, false, false, .bridge);
         const on = try raster.rasterize(a, winner.sketch, .bridge);
         try testing.expect(on.lattice.aux.len > 0);
         if (winner.sketch.rail_claims.len != 0) {

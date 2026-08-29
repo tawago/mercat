@@ -11,6 +11,7 @@
 //! score (for the RasterCounts type consumed by score.eval).
 
 const std = @import("std");
+const prim = @import("prim");
 const sketch = @import("sketch.zig");
 const raster = @import("raster.zig");
 const score = @import("score.zig");
@@ -19,13 +20,14 @@ const score = @import("score.zig");
 /// Failure (OOM included) sets `raster_failed`, which dominates the
 /// violation tier: a candidate that cannot even rasterize must not win
 /// with tv=0 and then fail entry.zig's final re-raster.
-pub fn collect(allocator: std.mem.Allocator, s: sketch.Sketch) score.RasterCounts {
-    // The subgraph-border notation is a display preference, not a quality
-    // signal: bridge vs cross changes only border-cell painting (report-only
-    // counters + glyph), never labels_dropped/labels_displaced/edge_cells_lost.
-    // Audit therefore always uses the default `.bridge`, keeping the score
-    // raster-blind to the user's notation choice.
-    const report = raster.rasterize(allocator, s, .bridge) catch return .{ .raster_failed = 1 };
+pub fn collect(allocator: std.mem.Allocator, s: sketch.Sketch, subgraph_edges: prim.SubgraphEdges) score.RasterCounts {
+    // Candidates are priced against the raster that will SHIP, so the audit
+    // rasterizes under the selected subgraph-border notation. The modes do
+    // not raster identically: `.cross` welds junctions into cluster-border
+    // cells where `.bridge` refuses them (raster/crossings.zig), so
+    // violation counters differ per mode; auditing a counterfactual mode
+    // would score a grid nobody renders.
+    const report = raster.rasterize(allocator, s, subgraph_edges) catch return .{ .raster_failed = 1 };
     return .{
         .labels_dropped = report.labels_dropped,
         .labels_displaced = report.labels_displaced,
@@ -68,7 +70,7 @@ test "collect returns zero counts for a clean two-node sketch" {
         .budget = .{ .max_width = 80, .rung = 0 },
     };
 
-    const counts = collect(a, s);
+    const counts = collect(a, s, .bridge);
     try std.testing.expectEqual(@as(u32, 0), counts.labels_dropped);
     try std.testing.expectEqual(@as(u32, 0), counts.edge_cells_lost);
 }

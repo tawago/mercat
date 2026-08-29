@@ -258,7 +258,7 @@ test "a production render reaches the raster with its roster numbered" {
     const source = "flowchart TD\n  A --> B\n  A --> C\n  A --> D\n";
     const graph = try parse.parse(a, source);
     const plan = (try permits.build(a, graph, .joined)).plan;
-    const chosen = try select.choose(a, graph, &plan, 80, false, false);
+    const chosen = try select.choose(a, graph, &plan, 80, false, false, .bridge);
 
     try testing.expectEqual(sketch.ChannelStampState.complete, chosen.sketch.channel_stamp_state);
     try testing.expect(ledger.rosterNumbered(chosen.sketch.co_sets));

@@ -32,7 +32,7 @@ fn renderCounts(a: std.mem.Allocator, source: []const u8, width: u32) !counts.Co
     const graph = try parse(a, source);
     const built = try permits.build(a, graph, .joined);
     const plan = built.plan;
-    const winner = try select.choose(a, graph, &plan, width, false, false);
+    const winner = try select.choose(a, graph, &plan, width, false, false, .bridge);
     const report = try raster.rasterize(a, winner.sketch, .bridge);
     return scan.run(a, .{
         .graph = graph,
@@ -177,7 +177,7 @@ fn renderCrossings(a: std.mem.Allocator, source: []const u8, width: u32) !raster
     const graph = try parse(a, source);
     const built = try permits.build(a, graph, .joined);
     const plan = built.plan;
-    const winner = try select.choose(a, graph, &plan, width, false, false);
+    const winner = try select.choose(a, graph, &plan, width, false, false, .bridge);
     return try raster.rasterize(a, winner.sketch, .bridge);
 }
 
@@ -262,7 +262,7 @@ test "bridges: a licensed cross-border fan records its realized trunk; a mixed f
     );
     const built = try permits.build(a, graph, .joined);
     const plan = built.plan;
-    const winner = try select.choose(a, graph, &plan, 60, false, false);
+    const winner = try select.choose(a, graph, &plan, 60, false, false, .bridge);
     var realized: usize = 0;
     for (winner.sketch.joins.selected_joins) |j| {
         if (j.members.len >= 2) realized += 1;
@@ -286,7 +286,7 @@ test "bridges: a licensed cross-border fan records its realized trunk; a mixed f
     );
     const mixed_built = try permits.build(a, mixed, .joined);
     const mixed_plan = mixed_built.plan;
-    const mixed_winner = try select.choose(a, mixed, &mixed_plan, 60, false, false);
+    const mixed_winner = try select.choose(a, mixed, &mixed_plan, 60, false, false, .bridge);
     try testing.expectEqual(@as(usize, 0), mixed_winner.sketch.joins.selected_joins.len);
     var refused = false;
     for (mixed_winner.sketch.joins.memberships) |m| {

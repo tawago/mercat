@@ -238,7 +238,7 @@ pub fn renderFlowchart(
         // scoring/packing failure degrades internally to the incumbent —
         // the render never fails on selection.
         // guarded-by: select_test.zig "choose: merged selection anchors to raw natural and never fails the render"
-        break :blk select_mod.choose(aa, graph, &join_permits, options.max_width, env.score_off, env.shadow_telemetry) catch |err| {
+        break :blk select_mod.choose(aa, graph, &join_permits, options.max_width, env.score_off, env.shadow_telemetry, options.subgraph_edges) catch |err| {
             std.log.warn("mermaid_v2/entry: ladder failed: {s}", .{@errorName(err)});
             return fallback(source, "v2 ladder error");
         };
@@ -592,7 +592,7 @@ test "cluster unification: bridges route around each other, not through" {
         \\
     );
     const result = try resolveJoinPermits(a, graph);
-    const winner = try select_mod.choose(a, graph, &result.plan, 120, false, false);
+    const winner = try select_mod.choose(a, graph, &result.plan, 120, false, false, .bridge);
     const report = try rasterize(a, winner.sketch, .bridge);
     try std.testing.expectEqual(@as(u32, 0), report.crossings.foreign_junction_violation);
     try std.testing.expectEqual(@as(u32, 0), report.crossings.arrowhead_transit_violation);

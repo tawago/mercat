@@ -321,7 +321,7 @@ test "score calibration: >=80% agreement with the labeled reference set" {
             const is_inc = cand.rung == pair.incumbent and cand.transform == pair.incumbent_transform;
             const is_arg = cand.rung == pair.argmin and cand.transform == pair.argmin_transform;
             if (!is_inc and !is_arg) continue;
-            const counts = audit.collect(a, cand.sketch);
+            const counts = audit.collect(a, cand.sketch, .bridge);
             const sc = try score.eval(a, cand.sketch, g.direction, @intCast(i), counts);
             if (is_inc) s_inc = sc;
             if (is_arg) s_arg = sc;

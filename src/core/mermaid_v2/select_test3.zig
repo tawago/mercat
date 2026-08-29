@@ -74,8 +74,8 @@ test "a labeled graph yields both policies; the winner is deterministic" {
     }
 
     // Deterministic: the same input selects byte-identically twice.
-    const w1 = try select.choose(a, g, &permits, 120, false, false);
-    const w2 = try select.choose(a, g, &permits, 120, false, false);
+    const w1 = try select.choose(a, g, &permits, 120, false, false, .bridge);
+    const w2 = try select.choose(a, g, &permits, 120, false, false, .bridge);
     try std.testing.expectEqual(w1.final_rung, w2.final_rung);
     try std.testing.expectEqual(w1.sketch.label_policy, w2.sketch.label_policy);
     try std.testing.expectEqual(w1.sketch.bbox.w, w2.sketch.bbox.w);
@@ -132,8 +132,8 @@ test "the audit re-raster honors each candidate's policy flag" {
 
     // And the audit — the scorer's only view — collects each variant's own
     // counts rather than one shared number.
-    const c_beside = audit.collect(a, beside_sketch.?);
-    const c_on_run = audit.collect(a, on_run_sketch.?);
+    const c_beside = audit.collect(a, beside_sketch.?, .bridge);
+    const c_on_run = audit.collect(a, on_run_sketch.?, .bridge);
     const moved_beside = c_beside.labels_dropped + c_beside.labels_displaced;
     const moved_on_run = c_on_run.labels_dropped + c_on_run.labels_displaced;
     try std.testing.expect(moved_on_run <= moved_beside);
@@ -212,7 +212,7 @@ test "debug paths keep the on-run policy" {
 
     // score-off (the A/B escape hatch) returns the ladder incumbent, which is
     // built by that same on-run driver.
-    const off = try select.choose(a, g, &permits, 120, true, false);
+    const off = try select.choose(a, g, &permits, 120, true, false, .bridge);
     try std.testing.expect(off.sketch.label_policy == .on_run);
 }
 
@@ -232,6 +232,46 @@ test "width pressure is free to flip the policy; both variants stay in the set" 
     try std.testing.expect(countPolicies(wide.merged).beside > 0);
     try std.testing.expect(countPolicies(narrow.merged).beside > 0);
 
-    const w = try select.choose(a, g, &permits, 40, false, false);
+    const w = try select.choose(a, g, &permits, 40, false, false, .bridge);
     try std.testing.expect(w.sketch.nodes.len > 0);
+}
+
+test "the audit prices the raster that ships: mode reaches collect and changes the counts" {
+    // A clustered crossing scene where the two subgraph-border notations do
+    // not raster identically: `.cross` welds junctions into cluster-border
+    // cells that `.bridge` refuses, and the arrow-base tally differs with
+    // them. Scoring must therefore see the SELECTED mode's counts, never a
+    // fixed `.bridge` counterfactual.
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+
+    const g = try parse(a,
+        \\flowchart TD
+        \\  subgraph S1
+        \\    A --> B
+        \\  end
+        \\  subgraph S2
+        \\    C --> D
+        \\  end
+        \\  A --> D
+        \\  C --> B
+        \\
+    );
+    const permits = try permitsFor(a, g);
+    const winner = try select.choose(a, g, &permits, 90, false, false, .cross);
+
+    // Pricing matches shipping: the audit's counts under the selected mode
+    // are exactly the shipped raster's counts under that mode.
+    const shipped = try raster.rasterize(a, winner.sketch, .cross);
+    const priced = audit.collect(a, winner.sketch, .cross);
+    try std.testing.expectEqual(shipped.arrow_base.violations, priced.arrow_base);
+    try std.testing.expectEqual(shipped.crossings.foreign_junction_violation, priced.foreign_junction);
+    try std.testing.expectEqual(shipped.crossings.arrowhead_transit_violation, priced.arrowhead_transit);
+    try std.testing.expectEqual(shipped.edge_cells_lost, priced.edge_cells_lost);
+
+    // And the counterfactual is real: on this scene the `.bridge` audit
+    // prices an arrow-base violation the `.cross` grid does not have.
+    const counterfactual = audit.collect(a, winner.sketch, .bridge);
+    try std.testing.expect(counterfactual.arrow_base != priced.arrow_base);
 }

@@ -14,6 +14,7 @@
 //! only). In-file tests live in select_test.zig (plan N3 cap-watch).
 
 const std = @import("std");
+const prim = @import("prim");
 const ledger = @import("base/ledger.zig");
 const sem_graph = @import("sem_graph.zig");
 const sketch_mod = @import("sketch.zig");
@@ -45,6 +46,7 @@ pub fn choose(
     max_width: u32,
     score_off: bool,
     shadow: bool,
+    subgraph_edges: prim.SubgraphEdges,
 ) !ladder.LadderResult {
     const set = try enumerateAll(aa, graph, join_permits, max_width);
     const merged = attachJoinPlans(aa, join_permits, set.merged);
@@ -58,7 +60,7 @@ pub fn choose(
     // forged reports.
     // guarded-by: select_test.zig "report-only pin: reach oracle changes neither argmin nor winner"
     const reach = reachReports(aa, graph, join_permits.isFlat(), merged);
-    return selectWinner(aa, graph, join_permits, max_width, merged, reach, incumbent, score_off, shadow);
+    return selectWinner(aa, graph, join_permits, max_width, merged, reach, incumbent, score_off, shadow, subgraph_edges);
 }
 
 // The Step 8 CI filter + terminal candidate live in select_filter.zig
@@ -87,9 +89,10 @@ pub fn selectWinner(
     incumbent: ladder.LadderResult,
     score_off: bool,
     shadow: bool,
+    subgraph_edges: prim.SubgraphEdges,
 ) !ladder.LadderResult {
     const filtered = ciFilter(aa, merged, reach);
-    var selection = scoreCandidates(aa, filtered.survivors, incumbent.final_rung, graph.direction);
+    var selection = scoreCandidates(aa, filtered.survivors, incumbent.final_rung, graph.direction, subgraph_edges);
     if (selection) |*s| s.reach_reports = filtered.reports;
     if (shadow) {
         if (selection) |sel| emitScoreShadowLine(filtered.survivors, sel, max_width);
@@ -333,6 +336,7 @@ pub fn scoreCandidates(
     candidates: []const ladder.Candidate,
     incumbent_rung: ladder.Rung,
     source_direction: sem_graph.Direction,
+    subgraph_edges: prim.SubgraphEdges,
 ) ?ScoredSelection {
     var sel: ScoredSelection = undefined;
     sel.reach_reports = &.{};
@@ -356,7 +360,7 @@ pub fn scoreCandidates(
     var min_t0: u32 = std.math.maxInt(u32);
     for (candidates, 0..) |cand, i| {
         t0s[i] = score_mod.fitSeverity(cand.sketch);
-        rasters[i] = if (n > 1) audit_mod.collect(aa, cand.sketch) else .{};
+        rasters[i] = if (n > 1) audit_mod.collect(aa, cand.sketch, subgraph_edges) else .{};
         min_t0 = @min(min_t0, t0s[i]);
     }
 

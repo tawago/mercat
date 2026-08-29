@@ -395,7 +395,7 @@ test "V-D-IR-01: winner joins artifact survives selection to the entry boundary"
 
     // The production call path: choose() returns the envelope entry.zig
     // keeps; its joins must arrive populated, not recomputed after.
-    const result = try select.choose(a, g, &built.plan, 80, false, false);
+    const result = try select.choose(a, g, &built.plan, 80, false, false, .bridge);
     try expectEqual(@as(usize, 3), result.sketch.joins.memberships.len);
     try expectEqual(@as(usize, 1), result.sketch.joins.selected_joins.len);
     try expectEqual(@as(usize, 6), result.sketch.joins.terminal_ports.len);

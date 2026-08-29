@@ -42,7 +42,7 @@ test "Step 7 mixing cases have exact reach and no fused edge junction" {
         const a = arena.allocator();
         const graph = try parse(a, source);
         const plan = (try permits.build(a, graph, .joined)).plan;
-        const winner = try select.choose(a, graph, &plan, width, false, false);
+        const winner = try select.choose(a, graph, &plan, width, false, false, .bridge);
         const keys = try select.nodeKeyTable(a, graph);
         const report = try reach.validate(a, winner.sketch, keys, .flat);
 
@@ -80,7 +80,7 @@ test "forward-subset composition: reversed fan-in member independent, forward pa
         const a = arena.allocator();
         const graph = try parse(a, source);
         const plan = (try permits.build(a, graph, .joined)).plan;
-        const winner = try select.choose(a, graph, &plan, width, false, false);
+        const winner = try select.choose(a, graph, &plan, width, false, false, .bridge);
         const joins = winner.sketch.joins;
 
         // The fan-IN trunk at D carries EXACTLY the two forward arrivals.
@@ -131,7 +131,7 @@ test "V-D-PORT-01: mixed-kind 1x3 renders as three pitch-2 independent component
     const a = arena.allocator();
     const graph = try parse(a, "flowchart TD\n  S --> A\n  S -.-> B\n  S ==> C\n");
     const plan = (try permits.build(a, graph, .joined)).plan;
-    const winner = try select.choose(a, graph, &plan, 94, false, false);
+    const winner = try select.choose(a, graph, &plan, 94, false, false, .bridge);
     try std.testing.expectEqual(@as(usize, 0), winner.sketch.rails.len);
 
     var offsets: [3]u32 = undefined;
@@ -156,9 +156,9 @@ test "V-D-PORT-14: inline K1,3 realized Rail keeps midpoint stem and pre-Step-7 
     const a = arena.allocator();
     const graph = try parse(a, "flowchart TD\n  S --> A\n  S --> B\n  S --> C\n");
     const plan = (try permits.build(a, graph, .joined)).plan;
-    const realized_winner = try select.choose(a, graph, &plan, 94, false, false);
+    const realized_winner = try select.choose(a, graph, &plan, 94, false, false, .bridge);
     const inert: @import("../base/ledger.zig").JoinPermits = .{ .policy = .joined };
-    const before = try select.choose(a, graph, &inert, 94, false, false);
+    const before = try select.choose(a, graph, &inert, 94, false, false, .bridge);
 
     try std.testing.expectEqual(@as(usize, 1), realized_winner.sketch.rails.len);
     try std.testing.expectEqual(@as(usize, 1), realized_winner.sketch.joins.selected_joins.len);
@@ -184,7 +184,7 @@ test "V-D-PORT-16: incomplete 2x2 arrival re-merges the pure fan-in, overlap con
     const a = arena.allocator();
     const graph = try parse(a, "flowchart TD\n  S1 --> T1\n  S1 --> T2\n  S2 --> T2\n");
     const plan = (try permits.build(a, graph, .joined)).plan;
-    const winner = try select.choose(a, graph, &plan, 94, false, false);
+    const winner = try select.choose(a, graph, &plan, 94, false, false, .bridge);
     const joins = winner.sketch.joins;
 
     // Both selection sites agree: join_commit built the merged fan-in trunk
@@ -228,7 +228,7 @@ test "V-D-PORT-16 corrected: a fan-out-pivot target DOES re-merge its pure fan-i
     // fusion). FI-T re-merges; FO-T's own dispositions are untouched.
     const graph = try parse(a, "flowchart TD\n  A --> T\n  A --> Z\n  B --> T\n  T --> X\n  T --> Y\n");
     const plan = (try permits.build(a, graph, .joined)).plan;
-    const winner = try select.choose(a, graph, &plan, 94, false, false);
+    const winner = try select.choose(a, graph, &plan, 94, false, false, .bridge);
     const joins = winner.sketch.joins;
 
     // FI-T IS selected now: the fan-in at pivot T, direction .in.
@@ -280,7 +280,7 @@ test "dominance pin: a complete K2,2 decomposes into star trunks, never one unio
     const a = arena.allocator();
     const graph = try parse(a, "flowchart TD\n  S1 --> T1\n  S1 --> T2\n  S2 --> T1\n  S2 --> T2\n");
     const plan = (try permits.build(a, graph, .joined)).plan;
-    const winner = try select.choose(a, graph, &plan, 94, false, false);
+    const winner = try select.choose(a, graph, &plan, 94, false, false, .bridge);
 
     for (winner.sketch.joins.selected_joins) |sj| {
         try std.testing.expect(sj.members.len < graph.edges.len);
@@ -298,7 +298,7 @@ test "dominance pin: a complete K2,2 decomposes into star trunks, never one unio
 fn renderPlain(a: std.mem.Allocator, source: []const u8, width: u32) !struct { grid: []const u8, joins: pb.RealizedJoins, routed: []const u32 } {
     const graph = try parse(a, source);
     const plan = (try permits.build(a, graph, .joined)).plan;
-    const winner = try select.choose(a, graph, &plan, width, false, false);
+    const winner = try select.choose(a, graph, &plan, width, false, false, .bridge);
     const rendered = try raster.rasterize(a, winner.sketch, .bridge);
     const routed = try a.alloc(u32, winner.sketch.edges.len);
     for (winner.sketch.edges, routed) |e, *slot| slot.* = e.id;
@@ -372,7 +372,7 @@ test "a salvaged trunk is complete against the commitment the layout drew" {
     for (reports) |r| try std.testing.expect(r.counts.ciClean());
 
     // The winner keeps the salvaged trunk and loses no edge cell.
-    const winner = try select.choose(a, graph, &plan, 60, false, false);
+    const winner = try select.choose(a, graph, &plan, 60, false, false, .bridge);
     var trunk_members: usize = 0;
     for (winner.sketch.joins.selected_joins) |sj| trunk_members = @max(trunk_members, sj.members.len);
     try std.testing.expectEqual(@as(usize, 2), trunk_members);
@@ -449,7 +449,7 @@ test "a directed complete bipartite keeps its TD star decomposition on clearing 
         const a = arena.allocator();
         const graph = try parse(a, source);
         const plan = (try permits.build(a, graph, .joined)).plan;
-        const winner = try select.choose(a, graph, &plan, width, false, false);
+        const winner = try select.choose(a, graph, &plan, width, false, false, .bridge);
 
         // The TD shape survives: three arrival trunks of three taps each,
         // FUSED onto one shared rail row, and the source's direction is kept.
@@ -508,7 +508,7 @@ test "on the licence's lapse path a trunk's junction still clears foreign taps" 
         const a = arena.allocator();
         const graph = try parse(a, source);
         const plan = (try permits.build(a, graph, .joined)).plan;
-        const winner = try select.choose(a, graph, &plan, width, false, false);
+        const winner = try select.choose(a, graph, &plan, width, false, false, .bridge);
 
         // Non-vacuous: the lapse actually split the rails onto >= 2 rows.
         try std.testing.expect(winner.sketch.rails.len >= 2);

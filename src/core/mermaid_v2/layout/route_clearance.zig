@@ -101,6 +101,10 @@ pub fn conflictsReservedDepartures(a: std.mem.Allocator, edge: pb.EdgeId, polyli
         // merged ink), so they must not reserve departures against each other.
         // guarded-by: route_clearance_test.zig "reserved departures exempt same selected trunk"
         if (sameChannel(edge, item.edge, joins)) continue;
+        // A co-realized edge's entire rendering IS a rail span: it owns no
+        // polyline and no port, so its port allocation reserves nothing.
+        // guarded-by: route_clearance_test.zig "a co-realized edge's port allocation reserves no departure"
+        if (contains(joins.co_realized, item.edge)) continue;
         const placement = placementById(placements, item.source.node) orelse continue;
         const point = offNodePoint(placement, item.source);
         if (candidate.contains(.{ .x = point.x, .y = point.y })) return true;
@@ -162,23 +166,20 @@ pub fn isIndependent(edge: pb.EdgeId, joins: pb.RealizedJoins) bool {
     return false;
 }
 
-pub fn hasIndependent(joins: pb.RealizedJoins) bool {
-    for (joins.memberships) |membership| {
-        inline for ([2]?pb.MembershipDisposition{ membership.source, membership.target }) |disposition| {
-            if (disposition) |value| if (value == .independent) return true;
-        }
-    }
-    return false;
-}
-
 /// True iff `polyline` clears every gate the forward/fan lane loop uses to
 /// ACCEPT a route — the exact break condition inlined at those loops. Callers
 /// that MUTATE a polyline after routing (the base-approach GROW in
 /// routing_terminal.zig) use this to re-validate the mutated geometry against
 /// rails and independent-join reservations, reverting to the ungrown route
-/// on failure. When there are no realized joins the gates do not apply, so it
-/// returns true (the plain non-CI path is unaffected).
+/// on failure. When there are no realized joins there is nothing to clear —
+/// no rails, no junctions, no join-attributed reservations — so it returns
+/// true (the plain non-join path is cleared by the route builders themselves).
+/// All four gates run unconditionally: foreign-node/cross-channel contact
+/// (T1/I2), rail junctions (I2: unrelated ink over an owner-set change),
+/// rail arrowheads, and reserved departures are independent legality facts,
+/// never alternatives.
 /// guarded-by: routing_terminal_test.zig "satisfyApproach grows a corner-fed len-2 final into a straight base approach"
+/// guarded-by: route_clearance_test.zig "polylineClears refuses every clearance violation regardless of membership disposition"
 pub fn polylineClears(
     a: std.mem.Allocator,
     edge: pb.EdgeId,
@@ -193,11 +194,10 @@ pub fn polylineClears(
     to: pb.NodeId,
 ) error{OutOfMemory}!bool {
     if (joins.memberships.len == 0) return true;
-    const indep = hasIndependent(joins);
-    return (indep == false or !try blocked(a, edge, kind, polyline, existing, joins, placements, from, to)) and
-        (indep == false or !try conflictsRailJunctions(a, polyline, rails)) and
-        (indep or !try conflictsRailArrows(a, polyline, rails, from, to)) and
-        (indep or !try conflictsReservedDepartures(a, edge, polyline, placements, edge_ports, joins));
+    return !try blocked(a, edge, kind, polyline, existing, joins, placements, from, to) and
+        !try conflictsRailJunctions(a, polyline, rails) and
+        !try conflictsRailArrows(a, polyline, rails, from, to) and
+        !try conflictsReservedDepartures(a, edge, polyline, placements, edge_ports, joins);
 }
 
 /// How far the outside-detour search may widen before it gives up.
