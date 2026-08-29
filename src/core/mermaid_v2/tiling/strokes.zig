@@ -163,7 +163,7 @@ fn fusion(v: cell.View, x: u32, y: u32, t: cell.Typed, c: *counts.Counts) void {
         if (n.ink & axis != axis) continue;
         const be = n.edge orelse continue;
         if (ae == be) continue;
-        if (@popCount(t.ink) > 2 or @popCount(n.ink) > 2) {
+        if (isJunction(t) or isJunction(n)) {
             c.c_run_fused_crossing += 1;
             switch (licence(t, be, n, ae)) {
                 .unlicensed => c.d_run_fused_foreign += 1,
@@ -176,13 +176,29 @@ fn fusion(v: cell.View, x: u32, y: u32, t: cell.Typed, c: *counts.Counts) void {
     }
 }
 
+/// The junction question, answered from the RECORDED I2 state (B4): the
+/// producer wrote `.junction` at the moment it merged an owner-set change;
+/// this consumer reads it instead of re-deriving it from arm arity. An
+/// UNTAGGED cell (state `.none` — a hand-built lattice with no producer)
+/// falls back to the retired arity heuristic so fixtures stay
+/// expressible; production renders never reach the fallback
+/// (`m_state_untagged` is pinned to zero there), and every divergence
+/// between the two answers is counted by `state.zig`.
+fn isJunction(t: cell.Typed) bool {
+    return switch (t.state) {
+        .junction => true,
+        .none => @popCount(t.ink) > 2,
+        else => false,
+    };
+}
+
 /// What the recorded facts say about the junction the pair paints.
 const Verdict = enum { unlicensed, licensed, unevidenced };
 
 /// The verdict for one junction pair, from carrier records ALONE.
 ///
-/// The authoritative positions are the JUNCTION cells of the pair — those
-/// with three or four arms — because a licence CAN be position-scoped (a
+/// The authoritative positions are the JUNCTION cells of the pair — per
+/// the recorded I2 state (`isJunction`) — because a licence CAN be position-scoped (a
 /// `.port_share` co-set answers only on its own cells; a structural one
 /// answers everywhere), and the only position whose answer certainly bears
 /// on the disputed glyph is the one the glyph occupies. Reading only there
@@ -199,8 +215,8 @@ const Verdict = enum { unlicensed, licensed, unevidenced };
 /// guarded-by: strokes_test.zig "fusion: precedence — any foreign record outranks a licensed one, in either order"
 fn licence(t: cell.Typed, b: u32, n: cell.Typed, a: u32) Verdict {
     var seen_licensed = false;
-    if (@popCount(t.ink) > 2 and tally(t, b, &seen_licensed)) return .unlicensed;
-    if (@popCount(n.ink) > 2 and tally(n, a, &seen_licensed)) return .unlicensed;
+    if (isJunction(t) and tally(t, b, &seen_licensed)) return .unlicensed;
+    if (isJunction(n) and tally(n, a, &seen_licensed)) return .unlicensed;
     return if (seen_licensed) .licensed else .unevidenced;
 }
 

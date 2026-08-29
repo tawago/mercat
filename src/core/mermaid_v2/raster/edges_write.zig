@@ -150,6 +150,16 @@ pub fn railPolarity(role: lattice.EdgeRole) ?lattice.RailPolarity {
     };
 }
 
+/// The I2 state a fresh single-owner edge cell records: a rail role is
+/// bundle-shared ink, anything else is a private stroke. Decided from the
+/// caller's own role input — never re-derived from the grid.
+pub fn roleState(role: lattice.EdgeRole) lattice.InkState {
+    return switch (role) {
+        .fan_out_rail, .fan_in_rail => .rail_interior,
+        else => .stroke,
+    };
+}
+
 pub fn toCoord(p: sketch.Point) Coord {
     std.debug.assert(p.x >= 0 and p.y >= 0);
     return .{ .x = @intCast(p.x), .y = @intCast(p.y) };
@@ -200,13 +210,25 @@ pub fn writeEdgeCell(
             cell.occupant = .{ .edge_segment = .{ .edge = edge_id, .kind = kind, .role = role } };
             cell.neighbours = extra;
             cell.stroke_kind = kind;
+            cell.state = roleState(role);
         },
         .cluster_border => {
             cell.occupant = .{ .edge_segment = .{ .edge = edge_id, .kind = kind, .role = role } };
             cell.neighbours = orMask(cell.neighbours, extra);
             cell.stroke_kind = kind;
+            // Edge ink and frame ink share the cell: an owner-set meet.
+            cell.upgradeState(.junction);
         },
         .edge_segment => |existing| {
+            // I2 state, decided here where the merge is decided: a foreign
+            // merge that adds an arm changes the owner set along the ink
+            // (junction); one whose bits already lie in the mask is a rider
+            // on shared ink (rail interior). Own-ink revisits change no
+            // owner set and keep the recorded state.
+            if (existing.edge != edge_id) {
+                const grows = (cell.neighbours.toMask() | extra.toMask()) != cell.neighbours.toMask();
+                cell.upgradeState(if (grows) .junction else .rail_interior);
+            }
             cell.occupant = .{ .edge_segment = .{
                 .edge = existing.edge,
                 .kind = existing.kind,
@@ -216,6 +238,10 @@ pub fn writeEdgeCell(
             if (existing.edge != edge_id) recordCarrier(rec, x, y, edge_id, licence);
         },
         .arrowhead => |head| {
+            if (head.edge != edge_id) {
+                const grows = (cell.neighbours.toMask() | extra.toMask()) != cell.neighbours.toMask();
+                cell.upgradeState(if (grows) .junction else .rail_interior);
+            }
             cell.neighbours = orMask(cell.neighbours, extra);
             if (head.edge != edge_id) recordCarrier(rec, x, y, edge_id, licence);
         },
@@ -273,6 +299,21 @@ pub fn writeArrowCell(
         // An arrowhead may stamp onto a cluster_border: an arrival AT the
         // cluster (terminal), which the frame-solid ruling preserves.
         .empty, .edge_segment, .cluster_border => {
+            // I2 state: a head on background or its own run is decorated
+            // stroke ink; over a FOREIGN run the two edges' ink joins here
+            // (the C2 gate already passed this pair); onto a frame, edge
+            // ink meets frame ink. Shared prior states are kept.
+            switch (cell.occupant) {
+                .empty => cell.upgradeState(.stroke),
+                // Deliberate asymmetry with `upgradeState`: a head on its
+                // OWN shared run keeps `rail_interior` (the owner set is
+                // unchanged); only an untagged cell is promoted to stroke.
+                .edge_segment => |seg| if (seg.edge != edge_id) cell.upgradeState(.junction) else if (cell.state == .none) {
+                    cell.state = .stroke;
+                },
+                .cluster_border => cell.upgradeState(.junction),
+                else => unreachable,
+            }
             if (cell.occupant == .edge_segment and cell.occupant.edge_segment.edge != edge_id) {
                 recordCarrier(rec, x, y, cell.occupant.edge_segment.edge, licence);
             }
@@ -281,6 +322,10 @@ pub fn writeArrowCell(
             cell.stroke_kind = kind;
         },
         .arrowhead => |head| {
+            if (head.edge != edge_id) {
+                const grows = (cell.neighbours.toMask() | along.toMask()) != cell.neighbours.toMask();
+                cell.upgradeState(if (grows) .junction else .rail_interior);
+            }
             cell.neighbours = orMask(cell.neighbours, along);
             if (head.edge != edge_id) recordCarrier(rec, x, y, edge_id, licence);
         },
@@ -336,6 +381,8 @@ pub fn writeArrowGuarded(
             cell.occupant = .{ .arrowhead = .{ .dir = dir, .edge = edge_id, .arrow = arrow } };
             cell.neighbours = along; // pristine: no foreign junction bits
             cell.stroke_kind = kind;
+            // The crossed run's ink still passes this position unjoined.
+            cell.upgradeState(.crossing);
             recordCarrier(rec, x, y, seg.edge, .suppressed);
             return;
         }

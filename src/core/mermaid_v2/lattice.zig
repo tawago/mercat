@@ -129,6 +129,37 @@ pub const Occupant = union(enum) {
     label_cont,
 };
 
+/// The I2 semantic state of a cell's ink — what the ink IS, recorded by
+/// the producer AT THE MOMENT IT DECIDES (B4: nothing at the cell-grid
+/// boundary decides; downstream consumes, it does not re-derive).
+///
+///   - `none`: no edge/node ink (background, node interior, label glyph —
+///     a label REPLACING ink resets the cell to `none`).
+///   - `node`: box-outline ink owned by its node; terminates every trace.
+///     Cluster frames use this state too (what frames add to the trace
+///     model is an open hole; a frame cell still terminates ink).
+///   - `stroke`: edge ink with one owner.
+///   - `rail_interior`: shared ink all members of one bundle ride; a
+///     foreign merge that adds NO new arm is a rider, not a branch.
+///   - `junction`: the owner set changes here (a branch/tap, a licensed
+///     or foreign merge that adds an arm, edge ink welded into a frame).
+///   - `crossing`: two paths co-located without joining (the crossing
+///     rule suppressed the foreign contribution). Never overwrites a
+///     recorded `junction` — unrelated ink over an owner-set change is
+///     illegal geometry the audit reports, not a state.
+///
+/// The owner SET behind a plural state is carried by the side-table
+/// records (`carrier` / `rail_member` / `tap`) — see the P7 remainder
+/// note in the report; the discriminant itself is mandatory IR.
+pub const InkState = enum(u8) {
+    none = 0,
+    node,
+    stroke,
+    rail_interior,
+    junction,
+    crossing,
+};
+
 /// One grid cell.
 ///
 /// `stroke_kind` records the stroke style for the painter's glyph
@@ -146,6 +177,10 @@ pub const Cell = struct {
     /// occupants this field is meaningless and stays `.rect`. The
     /// painter uses it to pick shape-specific perimeter glyphs.
     shape: Shape = .rect,
+    /// I2 semantic state, recorded by the producer (see `InkState`).
+    /// The painter never reads it; conformance checks and the tiling
+    /// audit consume it instead of re-deriving what the ink is.
+    state: InkState = .none,
 
     /// Default cell value: empty background, no neighbours.
     pub const empty: Cell = .{
@@ -153,7 +188,18 @@ pub const Cell = struct {
         .neighbours = .{},
         .stroke_kind = .solid,
         .shape = .rect,
+        .state = .none,
     };
+
+    /// Record `s` unless the cell already holds a stronger claim: a
+    /// `junction` is never demoted (I2: a crossing never co-locates with
+    /// a junction — that misgeometry is the audit's to report), and a
+    /// `crossing` yields only to `junction`.
+    pub fn upgradeState(self: *Cell, s: InkState) void {
+        if (self.state == .junction) return;
+        if (self.state == .crossing and s != .junction) return;
+        self.state = s;
+    }
 };
 
 /// What a side-table record is about. One variant per WRITER: a variant
@@ -470,10 +516,11 @@ test "Cell stays 16 bytes: the arrowhead style rides in existing padding" {
     // pipeline's dominant allocation. Before the arrowhead payload carried
     // a style it was already 16 bytes: a 12-byte tagged Occupant plus
     // stroke_kind + shape + neighbours, with one byte of tail padding and
-    // two spare bytes inside the 8-byte union payload. `arrow` lands in
-    // that slack, so the widening is free. A future payload that pushes
-    // this past 16 is a deliberate decision, not an accident — this pin
-    // makes it visible in review.
+    // two spare bytes inside the 8-byte union payload. `arrow` landed in
+    // union slack; the I2 `state` byte lands in the tail-padding byte, so
+    // both widenings are free. A future payload that pushes this past 16
+    // is a deliberate decision, not an accident — this pin makes it
+    // visible in review.
     try std.testing.expectEqual(@as(usize, 16), @sizeOf(Cell));
     try std.testing.expectEqual(@as(usize, 12), @sizeOf(Occupant));
 }
@@ -487,6 +534,20 @@ test "cellIndex agrees with at()'s row-major linearization" {
     try std.testing.expectEqual(@as(u32, 6), lat.cellIndex(2, 1));
     try std.testing.expectEqual(@as(u32, 11), lat.cellIndex(3, 2));
     try std.testing.expectEqual(&buf[lat.cellIndex(2, 1)], lat.at(2, 1));
+}
+
+test "upgradeState: junction is never demoted; crossing yields only to junction" {
+    var c = Cell.empty;
+    c.upgradeState(.stroke);
+    try std.testing.expectEqual(InkState.stroke, c.state);
+    c.upgradeState(.crossing);
+    try std.testing.expectEqual(InkState.crossing, c.state);
+    c.upgradeState(.rail_interior); // crossing yields only to junction
+    try std.testing.expectEqual(InkState.crossing, c.state);
+    c.upgradeState(.junction);
+    try std.testing.expectEqual(InkState.junction, c.state);
+    c.upgradeState(.crossing); // never demoted
+    try std.testing.expectEqual(InkState.junction, c.state);
 }
 
 test "Cell.empty default matches struct literal" {

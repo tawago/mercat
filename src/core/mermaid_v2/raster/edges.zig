@@ -156,6 +156,7 @@ fn claimCornerCell(
     cell.occupant = .{ .edge_segment = .{ .edge = edge_id, .kind = kind, .role = role } };
     cell.neighbours = corner_mask;
     cell.stroke_kind = kind;
+    cell.state = ew.roleState(role);
 }
 
 /// Walk a single polyline.
@@ -243,7 +244,9 @@ fn walkPolyline(
                         )) {
                             // No foreign junction ink — and with the corner
                             // arm refused, nothing on the cell records that
-                            // this edge turns here.
+                            // this edge turns here. Two paths co-locate
+                            // unjoined: the I2 crossing state.
+                            cell.upgradeState(.crossing);
                             ew.recordCarrier(rec, c.x, c.y, edge.id, .suppressed);
                         } else {
                             const own = seg.edge == edge.id;
@@ -256,6 +259,13 @@ fn walkPolyline(
                             // edge from itself — the corner turns here, it
                             // does not start here.
                             // guarded-by: edges_corner_test.zig "a route that doubles back keeps both visits' arms at the cell it re-enters"
+                            // I2 state at the merge decision: a foreign
+                            // corner arm that lands changes the owner set
+                            // (junction); bits already present are a rider.
+                            if (!own) {
+                                const grows = (cell.neighbours.toMask() | corner_mask.toMask()) != cell.neighbours.toMask();
+                                cell.upgradeState(if (grows) .junction else .rail_interior);
+                            }
                             cell.neighbours = orMask(cell.neighbours, corner_mask);
                             cell.occupant = .{ .edge_segment = .{
                                 .edge = seg.edge,
@@ -315,6 +325,7 @@ fn walkPolyline(
                         // Arrowhead here → refuse (C2); node/label → normal
                         // loss accounting inside writeEdgeCell.
                         if (crossingKeepsFirstWriter(cell, edge.id, corner_mask, crossings.cellAt(c.x, c.y), ctx)) {
+                            cell.upgradeState(.crossing);
                             ew.recordCarrier(rec, c.x, c.y, edge.id, .suppressed);
                         } else {
                             // `crossingKeepsFirstWriter` false on an arrowhead
@@ -386,6 +397,7 @@ fn walkPolyline(
                     // bits, so the crossing is invisible on the grid.
                     ew.recordIntrusion(rec, c.x, c.y, edge.id, .bridge);
                 } else if (crossingKeepsFirstWriter(cell, edge.id, straightMask(dir), crossings.cellAt(c.x, c.y), ctx)) {
+                    cell.upgradeState(.crossing);
                     ew.recordCarrier(rec, c.x, c.y, edge.id, .suppressed);
                 } else {
                     // `.cross` mode is owner-ruled-legal, standing law (spec

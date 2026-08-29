@@ -173,6 +173,29 @@ test "the whole corpus is free of structural defects" {
     };
 }
 
+test "every production ink cell carries a recorded I2 state" {
+    // B4: the producer records the state; the audit consumes it. An
+    // untagged ink cell on a PRODUCTION render means a writer decided
+    // without recording — the fallback in strokes.isJunction exists only
+    // for hand-built lattices and must be unreachable here. The evidence
+    // measurements must also hold: every recorded crossing has its
+    // suppressed carrier, every off-role rail interior its membership.
+    for (corpus) |source| for ([_]u32{ 60, 120 }) |width| {
+        var arena = std.heap.ArenaAllocator.init(testing.allocator);
+        defer arena.deinit();
+        const a = arena.allocator();
+        const r = try render(a, source, width);
+        const c = scan.run(a, r.ctx());
+        try testing.expect(c.n_state_ink_cells > 0);
+        try testing.expectEqual(@as(u32, 0), c.m_state_untagged);
+        try testing.expectEqual(@as(u32, 0), c.m_state_ring_not_node);
+        try testing.expectEqual(@as(u32, 0), c.m_state_crossing_unevidenced);
+        try testing.expectEqual(@as(u32, 0), c.m_state_junction_with_suppressed_carrier);
+        try testing.expectEqual(@as(u32, 0), c.m_state_rail_unevidenced);
+        try testing.expectEqual(@as(u32, 0), c.u_state_aux_unavailable);
+    };
+}
+
 test "an invisible link contributes no ink and no arrowhead law" {
     var arena = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena.deinit();

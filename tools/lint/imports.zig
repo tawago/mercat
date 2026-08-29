@@ -461,8 +461,15 @@ pub const file_allowlists = [_]struct {
     },
     .{
         .name = "tiling/scan.zig",
-        .allowed = &.{ .sem_graph, .sketch, .{ .exact = "../lattice.zig" }, .{ .exact = "counts.zig" }, .{ .exact = "cell.zig" }, .{ .exact = "arrows.zig" }, .{ .exact = "strokes.zig" }, .{ .exact = "rings.zig" }, .{ .exact = "terminal.zig" }, .{ .exact = "expect.zig" }, .{ .exact = "rail_stars.zig" }, .{ .exact = "rails.zig" }, .{ .exact = "channels.zig" } },
+        .allowed = &.{ .sem_graph, .sketch, .{ .exact = "../lattice.zig" }, .{ .exact = "counts.zig" }, .{ .exact = "cell.zig" }, .{ .exact = "arrows.zig" }, .{ .exact = "strokes.zig" }, .{ .exact = "rings.zig" }, .{ .exact = "terminal.zig" }, .{ .exact = "expect.zig" }, .{ .exact = "rail_stars.zig" }, .{ .exact = "rails.zig" }, .{ .exact = "channels.zig" }, .{ .exact = "state.zig" } },
         .reason = "tiling/scan may only import std, prim, base/*, sem_graph, sketch, lattice, or tiling siblings",
+    },
+    .{
+        // The I2-state conformance tier: recorded state vs the retained
+        // re-derivation, compared and counted (contracts item 6 shape).
+        .name = "tiling/state.zig",
+        .allowed = &.{ .{ .exact = "../lattice.zig" }, .{ .exact = "cell.zig" }, .{ .exact = "counts.zig" } },
+        .reason = "tiling/state may only import std, prim, base/*, lattice, cell, or counts",
     },
     .{
         .name = "tiling/scan_test.zig",

@@ -61,6 +61,7 @@ const sketch = @import("../sketch.zig");
 const cell = @import("cell.zig");
 const counts = @import("counts.zig");
 const arrows = @import("arrows.zig");
+const state = @import("state.zig");
 const strokes = @import("strokes.zig");
 const rings = @import("rings.zig");
 const terminal = @import("terminal.zig");
@@ -112,6 +113,10 @@ pub fn run(alloc: std.mem.Allocator, ctx: Ctx) counts.Counts {
             if (v.isWideGlyph(x, y)) c.m_wide_label_cells += 1;
 
             // The single ownership dispatch (see the module doc).
+            switch (t.kind) {
+                .arrow, .stroke, .ring_node, .ring_frame => state.check(t, v.auxComplete(), &c),
+                else => {},
+            }
             switch (t.kind) {
                 .arrow => {
                     c.n_arrow_cells += 1;
@@ -166,4 +171,8 @@ pub fn run(alloc: std.mem.Allocator, ctx: Ctx) counts.Counts {
 /// gates this on `MERCAT_TILING_AUDIT=1`.
 pub fn emit(alloc: std.mem.Allocator, ctx: Ctx) void {
     run(alloc, ctx).emitLine();
+}
+
+test {
+    _ = @import("state.zig");
 }

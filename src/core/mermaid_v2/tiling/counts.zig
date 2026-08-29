@@ -53,6 +53,29 @@ pub const Counts = struct {
     /// Attempted records withheld by atomic collection failure.
     u_aux_records_lost: u32 = 0,
 
+    // -- I2 state conformance (state.zig) -----------------------------
+    /// Ink cells (stroke/arrow/ring) whose recorded I2 state was checked.
+    n_state_ink_cells: u32 = 0,
+    /// Ink cell with no recorded state. Zero on every production render
+    /// (pinned); nonzero on hand-built lattices, which carry no producer.
+    m_state_untagged: u32 = 0,
+    /// The retired arity heuristic (popcount>2 = junction) disagrees with
+    /// the recorded owner-set state. A comparison, never a verdict.
+    m_state_junction_vs_arity: u32 = 0,
+    /// Recorded crossing with no suppressed carrier on the side table.
+    m_state_crossing_unevidenced: u32 = 0,
+    /// A junction cell with a surviving suppressed carrier: unrelated ink
+    /// was refused over an owner-set change — the I2 co-location
+    /// misgeometry (a crossing never co-locates with a junction).
+    m_state_junction_with_suppressed_carrier: u32 = 0,
+    /// Recorded rail interior with neither a rail role nor a membership /
+    /// carrier record behind it.
+    m_state_rail_unevidenced: u32 = 0,
+    /// Recorded state on a ring cell other than `node`.
+    m_state_ring_not_node: u32 = 0,
+    /// A plural state's evidence question asked while AUX was unavailable.
+    u_state_aux_unavailable: u32 = 0,
+
     // -- arrowhead lateral exclusivity (arrows.zig) -------------------
     /// Arrowhead cells scanned.
     n_arrow_cells: u32 = 0,

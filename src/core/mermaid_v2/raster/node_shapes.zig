@@ -109,6 +109,7 @@ fn writeInnerWall(
                 .occupant = .{ .node_border = .{ .node = node, .role = role } },
                 .neighbours = .{ .n = true, .s = true },
                 .shape = .subroutine,
+                .state = .node,
             };
         },
         else => {},

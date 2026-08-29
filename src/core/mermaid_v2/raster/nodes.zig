@@ -166,6 +166,7 @@ fn writeBorder(
     cell.* = .{
         .occupant = .{ .node_border = .{ .node = node, .role = role } },
         .neighbours = nbrs,
+        .state = .node,
     };
 }
 

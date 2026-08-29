@@ -156,6 +156,39 @@ test "a head refused at a node/label collision counts BOTH cells_lost and heads_
     try testing.expectEqual(@as(u32, 1), hlost);
 }
 
+test "writers record the I2 state at the decision (B4)" {
+    // Fresh claim: role decides stroke vs rail interior.
+    var fresh = lattice.Cell.empty;
+    var lost: u32 = 0;
+    ew.writeEdgeCell(&fresh, 1, .solid, .forward, .{ .n = true, .s = true }, 0, 0, &lost, .merged_untested, .{});
+    try testing.expectEqual(lattice.InkState.stroke, fresh.state);
+    var rail = lattice.Cell.empty;
+    ew.writeEdgeCell(&rail, 1, .solid, .fan_out_rail, .{ .e = true, .w = true }, 0, 0, &lost, .merged_untested, .{});
+    try testing.expectEqual(lattice.InkState.rail_interior, rail.state);
+
+    // Foreign merge that ADDS an arm: the owner set changes — junction.
+    ew.writeEdgeCell(&rail, 2, .solid, .fan_out_dropper, .{ .s = true }, 0, 0, &lost, .merged_licensed, .{});
+    try testing.expectEqual(lattice.InkState.junction, rail.state);
+
+    // Foreign merge whose bits already lie in the mask: a rider.
+    var run = lattice.Cell.empty;
+    ew.writeEdgeCell(&run, 1, .solid, .forward, .{ .e = true, .w = true }, 0, 0, &lost, .merged_untested, .{});
+    ew.writeEdgeCell(&run, 2, .solid, .forward, .{ .e = true, .w = true }, 0, 0, &lost, .merged_licensed, .{});
+    try testing.expectEqual(lattice.InkState.rail_interior, run.state);
+
+    // A refused arrowhead transit records the crossing.
+    var crossed: lattice.Cell = .{
+        .occupant = .{ .edge_segment = .{ .edge = 3, .kind = .solid, .role = .forward } },
+        .neighbours = .{ .e = true, .w = true },
+        .state = .stroke,
+    };
+    var hlost: u32 = 0;
+    var cc: crossings.CrossingCounts = .{};
+    const ctx: crossings.Ctx = .{ .counts = &cc };
+    ew.writeArrowGuarded(&crossed, 9, .solid, .filled, .south, .{ .n = true, .s = true }, 1, 1, &lost, &hlost, ctx, .{});
+    try testing.expectEqual(lattice.InkState.crossing, crossed.state);
+}
+
 test "directional primitives round-trip (straightMask/bitMask/reverse)" {
     try testing.expectEqual(
         (lattice.Neighbours{ .n = true, .s = true }).toMask(),

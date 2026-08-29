@@ -90,6 +90,11 @@ pub const LabelOwner = struct {
 /// "nothing recorded OR nothing collected" — never "nothing happened".
 pub const Typed = struct {
     kind: Kind,
+    /// The producer-recorded I2 semantic state (`lattice.InkState`),
+    /// copied verbatim. Consumed, never re-derived; `state.zig` is the
+    /// declared conformance comparator between it and the old geometric
+    /// derivations.
+    state: lattice.InkState = .none,
     /// Committed neighbour bits, verbatim.
     mask: u4 = 0,
     /// `mask` for stroke/arrow/ring_*; 0 for blank/fill/glyph/ghost.
@@ -174,27 +179,30 @@ fn recordsAt(table: []const lattice.Aux, index: u32) []const lattice.Aux {
 /// guarded-by: cell_test.zig "classify: invisible edge_segment is ghost with zero ink"
 pub fn classify(c: lattice.Cell) Typed {
     const mask = c.neighbours.toMask();
+    const st = c.state;
     return switch (c.occupant) {
-        .empty => .{ .kind = .blank, .mask = mask },
-        .node_interior => |id| .{ .kind = .fill, .mask = mask, .node = id },
+        .empty => .{ .kind = .blank, .mask = mask, .state = st },
+        .node_interior => |id| .{ .kind = .fill, .mask = mask, .node = id, .state = st },
         // A continuation is as opaque as the glyph it belongs to: it
         // conducts nothing and blocks everything.
-        .label_char, .label_cont => .{ .kind = .glyph, .mask = mask },
+        .label_char, .label_cont => .{ .kind = .glyph, .mask = mask, .state = st },
         .edge_segment => |seg| if (seg.kind == .invisible) .{
             .kind = .ghost,
             .mask = mask,
             .edge = seg.edge,
             .edge_role = seg.role,
+            .state = st,
         } else .{
             .kind = .stroke,
             .mask = mask,
             .ink = mask,
             .edge = seg.edge,
             .edge_role = seg.role,
+            .state = st,
         },
-        .arrowhead => |a| .{ .kind = .arrow, .mask = mask, .ink = mask, .edge = a.edge, .tip = a.dir },
-        .node_border => |b| .{ .kind = .ring_node, .mask = mask, .ink = mask, .node = b.node, .role = b.role },
-        .cluster_border => |b| .{ .kind = .ring_frame, .mask = mask, .ink = mask, .cluster = b.cluster, .role = b.role },
+        .arrowhead => |a| .{ .kind = .arrow, .mask = mask, .ink = mask, .edge = a.edge, .tip = a.dir, .state = st },
+        .node_border => |b| .{ .kind = .ring_node, .mask = mask, .ink = mask, .node = b.node, .role = b.role, .state = st },
+        .cluster_border => |b| .{ .kind = .ring_frame, .mask = mask, .ink = mask, .cluster = b.cluster, .role = b.role, .state = st },
     };
 }
 
