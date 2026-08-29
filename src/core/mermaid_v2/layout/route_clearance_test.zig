@@ -116,6 +116,62 @@ test "a co-realized edge's port allocation reserves no departure" {
     ));
 }
 
+test "a reserved departure blocks collinear occupancy and admits a perpendicular crossing" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const placements = [_]sk.NodePlacement{
+        node(0, 0, 0, 5, 3),
+        node(1, 0, 6, 5, 3),
+    };
+    // Edge 0's departure cell: south port offset 2 -> off-node cell (2,3),
+    // vertical axis.
+    const edge_ports = [_]struct { edge: pb.EdgeId, source: sk.Port }{
+        .{ .edge = 0, .source = .{ .node = 0, .side = .south, .offset = 2 } },
+    };
+
+    // Collinear: another vertical run through (2,3) claims the departure.
+    const collinear = [_]sk.Point{ .{ .x = 2, .y = 3 }, .{ .x = 2, .y = 8 } };
+    try std.testing.expect(try clearance.conflictsReservedDepartures(a, 1, &collinear, &placements, &edge_ports, .{}));
+
+    // Bend: a route turning IN the departure cell lingers on its axis.
+    const bend = [_]sk.Point{ .{ .x = 8, .y = 3 }, .{ .x = 2, .y = 3 }, .{ .x = 2, .y = 8 } };
+    try std.testing.expect(try clearance.conflictsReservedDepartures(a, 1, &bend, &placements, &edge_ports, .{}));
+
+    // Perpendicular: a horizontal through-run over (2,3) is a legal crossing.
+    const crossing = [_]sk.Point{ .{ .x = 8, .y = 3 }, .{ .x = 0, .y = 3 } };
+    try std.testing.expect(!try clearance.conflictsReservedDepartures(a, 1, &crossing, &placements, &edge_ports, .{}));
+}
+
+test "a detour's port run never crosses the route's own box" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    // Every row below the source box is walled off, so the old own-box
+    // exemption would have parked the port run INSIDE the source box
+    // (its rows look "clear" once the box is skipped).
+    const placements = [_]sk.NodePlacement{
+        node(0, 0, 0, 5, 5), // source, rows 0..4
+        node(1, 0, 40, 5, 5), // target, rows 40..44
+        node(2, -20, 5, 60, 30), // wall, rows 5..34
+    };
+    const poly = try clearance.outsideDetour(
+        a,
+        .TD,
+        placements[0],
+        placements[1],
+        .{ .node = 0, .side = .south, .offset = 2 },
+        .{ .node = 1, .side = .north, .offset = 2 },
+        &placements,
+        0,
+    );
+    // The first leg departs south and stays in the outward half-plane:
+    // no cell of the port run re-enters rows 0..4.
+    try std.testing.expect(poly[1].y >= 5);
+    // Symmetric for the target's north port run.
+    try std.testing.expect(poly[poly.len - 2].y <= 39);
+}
+
 test "polylineClears refuses every clearance violation regardless of membership disposition" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();

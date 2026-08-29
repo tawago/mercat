@@ -107,7 +107,17 @@ pub fn conflictsReservedDepartures(a: std.mem.Allocator, edge: pb.EdgeId, polyli
         if (contains(joins.co_realized, item.edge)) continue;
         const placement = placementById(placements, item.source.node) orelse continue;
         const point = offNodePoint(placement, item.source);
-        if (candidate.contains(.{ .x = point.x, .y = point.y })) return true;
+        const theirs = candidate.get(.{ .x = point.x, .y = point.y }) orelse continue;
+        // The reservation follows the plain-run obstacle model: only
+        // collinear occupancy (or a bend lingering in the cell) claims the
+        // departure; a perpendicular through-run is a legal crossing.
+        // guarded-by: route_clearance_test.zig "a reserved departure blocks collinear occupancy and admits a perpendicular crossing"
+        var departure: Pass = .{};
+        switch (item.source.side) {
+            .north, .south => departure.vertical = true,
+            .west, .east => departure.horizontal = true,
+        }
+        if (!transversal(theirs, departure)) return true;
     }
     return false;
 }
@@ -218,6 +228,20 @@ pub fn detourLimit(routed: usize) u32 {
     return @intCast(@min(want, 64));
 }
 
+/// A clear line for a detour's port-adjacent run. No box is exempt — the
+/// route's OWN boxes terminate it too (T1: a box is a terminus, never a
+/// corridor); the only legal own-box footprint is the port cell itself,
+/// which sits one cell before `want` and off the searched line. The result
+/// is also confined to the port's outward half-plane, so the perpendicular
+/// leg from the port can never run back through the box; when nothing on
+/// that side is clear, `want` (the first off-box line) stands.
+/// guarded-by: route_clearance_test.zig "a detour's port run never crosses the route's own box"
+fn offSideClearLine(horizontal: bool, want: i32, lo: i32, hi: i32, placements: []const sk.NodePlacement, outward: i32) i32 {
+    const none = std.math.maxInt(pb.NodeId);
+    const found = sk.clearLine(horizontal, want, lo, hi, placements, none, none, .{});
+    return if ((found - want) * outward >= 0) found else want;
+}
+
 /// Route around the outside of the placed diagram when all local gap lanes
 /// are occupied. The first and last legs remain perpendicular to the ports.
 pub fn outsideDetour(
@@ -248,8 +272,8 @@ pub fn outsideDetour(
         const outside_x = if (distance % 2 == 0) min_x - offset else max_x + offset;
         const source_want = start.y + (if (port_from.side == .south) @as(i32, 1) else -1);
         const target_want = end.y + (if (port_to.side == .north) @as(i32, -1) else 1);
-        const source_y = sk.clearLine(true, source_want, @min(outside_x, start.x), @max(outside_x, start.x), placements, from.id, to.id, .{});
-        const target_y = sk.clearLine(true, target_want, @min(outside_x, end.x), @max(outside_x, end.x), placements, from.id, to.id, .{});
+        const source_y = offSideClearLine(true, source_want, @min(outside_x, start.x), @max(outside_x, start.x), placements, if (port_from.side == .south) 1 else -1);
+        const target_y = offSideClearLine(true, target_want, @min(outside_x, end.x), @max(outside_x, end.x), placements, if (port_to.side == .north) -1 else 1);
         @memcpy(points, &[_]sk.Point{
             start,
             .{ .x = start.x, .y = source_y },
@@ -262,8 +286,8 @@ pub fn outsideDetour(
         const outside_y = if (distance % 2 == 0) min_y - offset else max_y + offset;
         const source_want = start.x + (if (port_from.side == .east) @as(i32, 1) else -1);
         const target_want = end.x + (if (port_to.side == .west) @as(i32, -1) else 1);
-        const source_x = sk.clearLine(false, source_want, @min(outside_y, start.y), @max(outside_y, start.y), placements, from.id, to.id, .{});
-        const target_x = sk.clearLine(false, target_want, @min(outside_y, end.y), @max(outside_y, end.y), placements, from.id, to.id, .{});
+        const source_x = offSideClearLine(false, source_want, @min(outside_y, start.y), @max(outside_y, start.y), placements, if (port_from.side == .east) 1 else -1);
+        const target_x = offSideClearLine(false, target_want, @min(outside_y, end.y), @max(outside_y, end.y), placements, if (port_to.side == .west) -1 else 1);
         @memcpy(points, &[_]sk.Point{
             start,
             .{ .x = source_x, .y = start.y },
