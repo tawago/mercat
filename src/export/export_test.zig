@@ -245,9 +245,9 @@ test "tiling audit emits one arithmetically consistent stderr record without cha
             try auditField(line, "u_run_fused_unevidenced"),
     );
     try testing.expectEqual(
-        try auditField(line, "n_channel_pairs_compared"),
-        try auditField(line, "m_channel_identity_agreed") +
-            try auditField(line, "u_channel_identity_disagreed"),
+        try auditField(line, "n_bundle_pairs_compared"),
+        try auditField(line, "m_bundle_identity_agreed") +
+            try auditField(line, "u_bundle_identity_disagreed"),
     );
 }
 

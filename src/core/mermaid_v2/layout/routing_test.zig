@@ -210,9 +210,9 @@ test "rail pre-pass and forced per-peer path lift the same fan-OUT geometry to t
     try testing.expectEqual(bar_rail_y, railRow(ec.polyline));
 }
 
-// -- claim: co-realized withholding (routing.zig `routing_edges` loop) ------
+// -- claim: discharged withholding (routing.zig `routing_edges` loop) ------
 
-test "a co-realized edge is withheld from routing entirely" {
+test "a discharged edge is withheld from routing entirely" {
     // A---Z and B---Z fuse on one arrival, and the crossbar between their two
     // taps IS the rendering of the declared A---B. Routing must therefore emit
     // NO EdgePath for A---B: a private polyline would draw that relation twice.
@@ -244,7 +244,7 @@ test "a co-realized edge is withheld from routing entirely" {
         .{ .id = 1, .rect = .{ .x = 10, .y = 0, .w = 5, .h = 3 }, .shape = .rect, .lines = &.{}, .cluster_id = null },
         .{ .id = 2, .rect = .{ .x = 5, .y = 7, .w = 5, .h = 3 }, .shape = .rect, .lines = &.{}, .cluster_id = null },
     };
-    const ind: ledger.MembershipDisposition = .{ .independent = .{ .permission_group = 0, .reason = .not_selected } };
+    const ind: ledger.MembershipDisposition = .{ .independent = .{ .candidate_bundle = 0, .reason = .not_selected } };
     const memberships = [_]ledger.RealizedEdgeMembership{
         .{ .edge = 0, .source = null, .target = ind },
         .{ .edge = 1, .source = null, .target = ind },
@@ -255,7 +255,7 @@ test "a co-realized edge is withheld from routing entirely" {
     const routed = try routing.buildEdgesWithPlan(a, g, lg, &geom, &placements, &.{}, .{ .memberships = &memberships }, ports);
     try testing.expectEqual(@as(usize, 3), routed.edges.len);
 
-    const withheld = try routing.buildEdgesWithPlan(a, g, lg, &geom, &placements, &.{}, .{ .memberships = &memberships, .co_realized = &.{2} }, ports);
+    const withheld = try routing.buildEdgesWithPlan(a, g, lg, &geom, &placements, &.{}, .{ .memberships = &memberships, .discharged = &.{2} }, ports);
     try testing.expectEqual(@as(usize, 2), withheld.edges.len);
     for (withheld.edges) |e| try testing.expect(e.id != 2);
 }

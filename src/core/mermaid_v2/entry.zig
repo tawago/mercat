@@ -185,15 +185,15 @@ pub fn renderFlowchart(
         std.log.warn("mermaid_v2 parse: skipped {d} unparseable non-edge line(s); rendering the rest", .{graph.skipped_lines});
     }
 
-    const branch_result = resolveJoinPermits(aa, graph) catch |err| {
+    const branch_result = resolveBundlePermits(aa, graph) catch |err| {
         std.log.warn("mermaid_v2 branch plan failed: {s}", .{@errorName(err)});
         return fallback(source, "v2 pipeline error: branch plan");
     };
-    // `join_permits` lives for the whole render (this frame outlives every
+    // `bundle_permits` lives for the whole render (this frame outlives every
     // layout pass); the ladder/select drivers take it as *const so
-    // LayoutOptions.join_permits aliases THIS plan, never a stack copy.
+    // LayoutOptions.bundle_permits aliases THIS plan, never a stack copy.
     // The plan carries its own scope (flat vs skipped_clustered).
-    const join_permits = branch_result.plan;
+    const bundle_permits = branch_result.plan;
 
     // MotifTree dump is INERT: nothing downstream reads the result yet
     // (see EnvOptions.dump_motifs).
@@ -210,24 +210,24 @@ pub fn renderFlowchart(
     // shadow_telemetry) are documented on EnvOptions above.
     const ladder_result: ladder_pkg.LadderResult = blk: {
         // Both debug paths below skip selection, so they must apply the
-        // realized join plan themselves (select.applyPlan, flat-gated as in
-        // select.choose) — a debug render carries production join semantics.
+        // realized bundle plan themselves (select.applyPlan, flat-gated as in
+        // select.choose) — a debug render carries production bundle semantics.
         if (env.force_rung) |rung| {
-            var forced = ladder_pkg.runForced(aa, graph, &join_permits, options.max_width, rung) catch |err| {
+            var forced = ladder_pkg.runForced(aa, graph, &bundle_permits, options.max_width, rung) catch |err| {
                 std.log.warn("mermaid_v2/entry: forced-rung layout failed: {s}", .{@errorName(err)});
                 return fallback(source, "v2 ladder error");
             };
-            if (join_permits.isFlat()) select_mod.applyPlan(aa, &join_permits, &forced.sketch);
+            if (bundle_permits.isFlat()) select_mod.applyPlan(aa, &bundle_permits, &forced.sketch);
             break :blk forced;
         }
         if (env.score_off and !env.shadow_telemetry) {
             // Escape hatch without telemetry: the exact original path
             // (short-circuiting ladder, no enumeration).
-            var incumbent = ladder_pkg.run(aa, graph, &join_permits, options.max_width) catch |err| {
+            var incumbent = ladder_pkg.run(aa, graph, &bundle_permits, options.max_width) catch |err| {
                 std.log.warn("mermaid_v2/entry: ladder failed: {s}", .{@errorName(err)});
                 return fallback(source, "v2 ladder error");
             };
-            if (join_permits.isFlat()) select_mod.applyPlan(aa, &join_permits, &incumbent.sketch);
+            if (bundle_permits.isFlat()) select_mod.applyPlan(aa, &bundle_permits, &incumbent.sketch);
             break :blk incumbent;
         }
         // LIVE selection (select.zig): raw ladder candidates + motif-
@@ -238,7 +238,7 @@ pub fn renderFlowchart(
         // scoring/packing failure degrades internally to the incumbent —
         // the render never fails on selection.
         // guarded-by: select_test.zig "choose: merged selection anchors to raw natural and never fails the render"
-        break :blk select_mod.choose(aa, graph, &join_permits, options.max_width, env.score_off, env.shadow_telemetry, options.subgraph_edges) catch |err| {
+        break :blk select_mod.choose(aa, graph, &bundle_permits, options.max_width, env.score_off, env.shadow_telemetry, options.subgraph_edges) catch |err| {
             std.log.warn("mermaid_v2/entry: ladder failed: {s}", .{@errorName(err)});
             return fallback(source, "v2 ladder error");
         };
@@ -311,11 +311,11 @@ pub fn renderFlowchart(
     };
 }
 
-fn resolveJoinPermits(allocator: std.mem.Allocator, graph: sem_graph.SemGraph) !permits_mod.BuildResult {
+fn resolveBundlePermits(allocator: std.mem.Allocator, graph: sem_graph.SemGraph) !permits_mod.BuildResult {
     const result = try permits_mod.build(allocator, graph, .joined);
-    if (result.report.join_permits_skipped_clustered) return result;
+    if (result.report.bundle_permits_skipped_clustered) return result;
     const validation = try permits_mod.validate(allocator, graph, result.plan);
-    if (!validation.valid()) return error.InvalidJoinPermits;
+    if (!validation.valid()) return error.InvalidBundlePermits;
     return result;
 }
 
@@ -394,9 +394,9 @@ test "V-D-POLICY-02: production resolver originates joined for a flat graph" {
     const a = arena.allocator();
     const graph = try parse(a, "flowchart TD\nA --> B\nA --> C\n");
 
-    const result = try resolveJoinPermits(a, graph);
-    try std.testing.expectEqual(ledger.JoinPolicy.joined, result.plan.policy);
-    try std.testing.expect(!result.report.join_permits_skipped_clustered);
+    const result = try resolveBundlePermits(a, graph);
+    try std.testing.expectEqual(ledger.BundlePolicy.joined, result.plan.policy);
+    try std.testing.expect(!result.report.bundle_permits_skipped_clustered);
     try std.testing.expectEqual(@as(usize, 1), result.plan.groups.len);
 }
 
@@ -412,7 +412,7 @@ test "V-D-POLICY-03: policy has no config CLI or environment surface" {
     try std.testing.expectEqualStrings(left.output, right.output);
 }
 
-test "V-D-IR-07: a clustered graph's joins ride piece plans; the root plan stays skipped" {
+test "V-D-IR-07: a clustered graph's bundles ride piece plans; the root plan stays skipped" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
@@ -425,21 +425,21 @@ test "V-D-IR-07: a clustered graph's joins ride piece plans; the root plan stays
         \\
     );
 
-    const result = try resolveJoinPermits(a, graph);
-    try std.testing.expectEqual(ledger.JoinPolicy.joined, result.plan.policy);
-    try std.testing.expect(result.report.join_permits_skipped_clustered);
+    const result = try resolveBundlePermits(a, graph);
+    try std.testing.expectEqual(ledger.BundlePolicy.joined, result.plan.policy);
+    try std.testing.expect(result.report.bundle_permits_skipped_clustered);
     try std.testing.expect(result.report.edgeid_scope_clustered_skipped);
     const laid_out = try ladder_pkg.run(a, graph, &result.plan, 120);
-    // No fan anywhere: no trunk realizes. But the piece plans' membership
+    // No fan anywhere: no rail realizes. But the piece plans' membership
     // rows survive the stitch — one for S's A->B — and the cross-border
     // edge takes a bridge-scope row (ungrouped: both sides null).
-    try std.testing.expectEqual(@as(usize, 0), laid_out.sketch.joins.selected_joins.len);
-    try std.testing.expectEqual(@as(usize, 2), laid_out.sketch.joins.memberships.len);
-    const bridge_row = laid_out.sketch.joins.memberships[1];
+    try std.testing.expectEqual(@as(usize, 0), laid_out.sketch.bundles.selected_bundles.len);
+    try std.testing.expectEqual(@as(usize, 2), laid_out.sketch.bundles.memberships.len);
+    const bridge_row = laid_out.sketch.bundles.memberships[1];
     try std.testing.expect(bridge_row.source == null and bridge_row.target == null);
 }
 
-test "cluster unification: a subgraph-internal fan-in realizes a trunk and ships it" {
+test "cluster unification: a subgraph-internal fan-in realizes a rail and ships it" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
@@ -452,14 +452,14 @@ test "cluster unification: a subgraph-internal fan-in realizes a trunk and ships
         \\
     );
 
-    // The piece plan realizes the fan-IN inside S and the trunk record rides
+    // The piece plan realizes the fan-IN inside S and the rail record rides
     // the stitch into the merged Sketch.
-    const result = try resolveJoinPermits(a, graph);
+    const result = try resolveBundlePermits(a, graph);
     const laid_out = try ladder_pkg.run(a, graph, &result.plan, 80);
-    try std.testing.expectEqual(@as(usize, 1), laid_out.sketch.joins.selected_joins.len);
-    try std.testing.expectEqual(@as(usize, 2), laid_out.sketch.joins.selected_joins[0].members.len);
+    try std.testing.expectEqual(@as(usize, 1), laid_out.sketch.bundles.selected_bundles.len);
+    try std.testing.expectEqual(@as(usize, 2), laid_out.sketch.bundles.selected_bundles[0].members.len);
 
-    // And the shipped bytes draw the fan bundled: one trunk into C.
+    // And the shipped bytes draw the fan bundled: one rail into C.
     const rendered = try renderFlowchart(std.testing.allocator, "flowchart TD\nsubgraph S\n  A --> C\n  B --> C\nend\n", .{ .max_width = 80 });
     defer std.testing.allocator.free(rendered.output);
     try std.testing.expect(!rendered.is_fallback);
@@ -481,7 +481,7 @@ test "cluster unification: a subgraph-internal fan-in realizes a trunk and ships
     try std.testing.expectEqualStrings(expected, std.mem.trimRight(u8, rendered.output, "\n"));
 }
 
-test "cluster unification: two subgraph trunks keep their own members through nonzero stitch bases" {
+test "cluster unification: two subgraph rails keep their own members through nonzero stitch bases" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
@@ -499,34 +499,34 @@ test "cluster unification: two subgraph trunks keep their own members through no
     );
 
     // The second piece merges at a nonzero edge base; a dropped remap would
-    // alias its members onto the first piece's ids. Each trunk's member set
+    // alias its members onto the first piece's ids. Each rail's member set
     // must be exactly its own rail's tap edges, and the two sets disjoint.
-    const result = try resolveJoinPermits(a, graph);
+    const result = try resolveBundlePermits(a, graph);
     const laid_out = try ladder_pkg.run(a, graph, &result.plan, 80);
-    const joins = laid_out.sketch.joins.selected_joins;
-    try std.testing.expectEqual(@as(usize, 2), joins.len);
+    const bundles = laid_out.sketch.bundles.selected_bundles;
+    try std.testing.expectEqual(@as(usize, 2), bundles.len);
     try std.testing.expectEqual(@as(usize, 2), laid_out.sketch.rails.len);
-    for (joins) |j| {
+    for (bundles) |j| {
         try std.testing.expectEqual(@as(usize, 2), j.members.len);
         var matched = false;
-        for (laid_out.sketch.rails) |bb| {
-            if (bb.taps.len != 2) continue;
-            const fwd = (bb.taps[0].edge == j.members[0] and bb.taps[1].edge == j.members[1]);
-            const rev = (bb.taps[0].edge == j.members[1] and bb.taps[1].edge == j.members[0]);
+        for (laid_out.sketch.rails) |rail| {
+            if (rail.taps.len != 2) continue;
+            const fwd = (rail.taps[0].edge == j.members[0] and rail.taps[1].edge == j.members[1]);
+            const rev = (rail.taps[0].edge == j.members[1] and rail.taps[1].edge == j.members[0]);
             if (fwd or rev) matched = true;
         }
         try std.testing.expect(matched);
     }
-    try std.testing.expect(joins[0].members[0] != joins[1].members[0]);
-    try std.testing.expect(joins[0].members[1] != joins[1].members[1]);
+    try std.testing.expect(bundles[0].members[0] != bundles[1].members[0]);
+    try std.testing.expect(bundles[0].members[1] != bundles[1].members[1]);
 }
 
-test "cluster unification: a bridge never transits a stitched trunk's arrowhead" {
+test "cluster unification: a bridge never transits a stitched rail's arrowhead" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
     // Two subgraph fan-ins plus cross-border edges whose corridors pass the
-    // realized trunks; the bridge router must dodge every head cell.
+    // realized rails; the bridge router must dodge every head cell.
     const graph = try parse(a,
         \\flowchart TD
         \\subgraph S1
@@ -543,7 +543,7 @@ test "cluster unification: a bridge never transits a stitched trunk's arrowhead"
         \\C --> H
         \\
     );
-    const result = try resolveJoinPermits(a, graph);
+    const result = try resolveBundlePermits(a, graph);
     const laid_out = try ladder_pkg.run(a, graph, &result.plan, 120);
     const report = try rasterize(a, laid_out.sketch, .bridge);
     try std.testing.expectEqual(@as(u32, 0), report.crossings.arrowhead_transit_violation);
@@ -591,7 +591,7 @@ test "cluster unification: bridges route around each other, not through" {
         \\    VALID -.->|fetch JWKS| PROV
         \\
     );
-    const result = try resolveJoinPermits(a, graph);
+    const result = try resolveBundlePermits(a, graph);
     const winner = try select_mod.choose(a, graph, &result.plan, 120, false, false, .bridge);
     const report = try rasterize(a, winner.sketch, .bridge);
     try std.testing.expectEqual(@as(u32, 0), report.crossings.foreign_junction_violation);
@@ -620,16 +620,16 @@ test {
     _ = @import("cluster/split.zig");
     _ = @import("cluster/split_test.zig");
     _ = @import("cluster/stitch.zig");
-    _ = @import("cluster/stitch_cosets.zig");
+    _ = @import("cluster/stitch_bundle_sets.zig");
     _ = @import("cluster/bridges.zig");
     _ = @import("cluster/bridge_plan.zig");
-    _ = @import("cluster/bridge_trunks.zig");
-    _ = @import("cluster/bridge_cosets.zig");
+    _ = @import("cluster/bridge_rails.zig");
+    _ = @import("cluster/bridge_bundle_sets.zig");
     _ = @import("base/ledger.zig");
     _ = @import("base/ledger_test.zig");
     _ = @import("base/diagnostics.zig");
     _ = @import("base/diagnostics_test.zig");
-    _ = @import("base/co_channel.zig");
+    _ = @import("base/bundle.zig");
     _ = @import("base/rail_closure.zig");
     _ = @import("base/rail_closure_test.zig");
     _ = @import("layout/fan_rail_law.zig");
@@ -645,12 +645,12 @@ test {
     _ = @import("layout/ports_test.zig");
     _ = @import("layout/ports_step7_test.zig");
     _ = @import("layout/port_plan_test.zig");
-    _ = @import("layout/join_commit_test.zig");
+    _ = @import("layout/bundle_commit_test.zig");
     _ = @import("layout/route_clearance_test.zig");
     _ = @import("select_test.zig");
     _ = @import("select_test2.zig");
     _ = @import("sketch_ports_test.zig");
-    _ = @import("sketch_channels_test.zig");
+    _ = @import("sketch_bundles_test.zig");
     _ = @import("ledger/reach_vector.zig");
     _ = @import("ledger/reach_vector_test.zig");
     _ = @import("ledger/reach_vector_test2.zig");
@@ -662,7 +662,7 @@ test {
     _ = @import("tiling/terminal_test.zig");
     _ = @import("tiling/expect_test.zig");
     _ = @import("tiling/rails_test.zig");
-    _ = @import("tiling/channels_test.zig");
+    _ = @import("tiling/bundles_test.zig");
     _ = @import("tiling/scan_test.zig");
     _ = @import("tiling_rails_e2e_test.zig");
     _ = @import("tiling_crosscheck_test.zig");

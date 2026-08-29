@@ -107,7 +107,7 @@ test "rails: the same graph unclustered fuses onto one licensed shared row" {
 /// frame, E's above it — so no two crossbars fuse and the pair tier's
 /// population is empty. A->E's horizontal jog used to land collinear with
 /// E's crossbar and extend that row into one unbroken line; the bridge
-/// router now treats trunk runs as jog obstacles and dodges the row, so
+/// router now treats rail runs as jog obstacles and dodges the row, so
 /// the continued-run counter's population here is empty BY REPAIR — the
 /// counter itself stays, as the floor for any leak the router cannot see.
 const continued =
@@ -132,7 +132,7 @@ test "rails: a run the crossbars under-measure is reported as continued, not as 
 
     // Neither rail fuses with the other, so every pair bucket is empty and
     // the population reads zero. The jog that used to extend E's crossbar
-    // into an unbroken foreign line now dodges the row (trunk runs are
+    // into an unbroken foreign line now dodges the row (rail runs are
     // bridge-router obstacles), so the continued-run counter reads zero
     // TRUTHFULLY: no drawn row exceeds what its crossbar names.
     try testing.expectEqual(@as(u32, 0), c.n_rail_runs_two_sided);
@@ -239,10 +239,10 @@ test "bridges: mixed-kind cross-border fans keep a clean scene" {
     }
 }
 
-test "bridges: a licensed cross-border fan records its realized trunk; a mixed fan keeps the refusal" {
+test "bridges: a licensed cross-border fan records its realized rail; a mixed fan keeps the refusal" {
     // O fans across the border into two subgraphs; the crossings leave one
     // exit port and split cleanly, so the bridge plan flips the group to
-    // SELECTED (one join over the bridge edges) and the scene stays clean.
+    // SELECTED (one bundle over the bridge edges) and the scene stays clean.
     var arena = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
@@ -264,7 +264,7 @@ test "bridges: a licensed cross-border fan records its realized trunk; a mixed f
     const plan = built.plan;
     const winner = try select.choose(a, graph, &plan, 60, false, false, .bridge);
     var realized: usize = 0;
-    for (winner.sketch.joins.selected_joins) |j| {
+    for (winner.sketch.bundles.selected_bundles) |j| {
         if (j.members.len >= 2) realized += 1;
     }
     try testing.expectEqual(@as(usize, 1), realized);
@@ -273,7 +273,7 @@ test "bridges: a licensed cross-border fan records its realized trunk; a mixed f
     try testing.expectEqual(@as(u32, 0), report.crossings.arrowhead_transit_violation);
 
     // Mixed decorations at the pivot: the licence refuses, the record names
-    // it, and no join is selected.
+    // it, and no bundle is selected.
     const mixed = try parse(a,
         \\graph TD
         \\    subgraph S
@@ -287,9 +287,9 @@ test "bridges: a licensed cross-border fan records its realized trunk; a mixed f
     const mixed_built = try permits.build(a, mixed, .joined);
     const mixed_plan = mixed_built.plan;
     const mixed_winner = try select.choose(a, mixed, &mixed_plan, 60, false, false, .bridge);
-    try testing.expectEqual(@as(usize, 0), mixed_winner.sketch.joins.selected_joins.len);
+    try testing.expectEqual(@as(usize, 0), mixed_winner.sketch.bundles.selected_bundles.len);
     var refused = false;
-    for (mixed_winner.sketch.joins.memberships) |m| {
+    for (mixed_winner.sketch.bundles.memberships) |m| {
         const d = m.source orelse continue;
         if (d == .independent and d.independent.reason == .licence_refused) refused = true;
     }

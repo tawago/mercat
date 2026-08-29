@@ -68,7 +68,7 @@ pub const PortEnd = struct {
 /// identity of the edge that merged it, so the record adds a fact the
 /// Cell cannot express (lattice.zig's anti-desync law). Refused strokes
 /// (invisible edge, non-border cell) file nothing —
-/// the channel records what was drawn, never what was intended.
+/// the bundle records what was drawn, never what was intended.
 /// guarded-by: edges_port_test.zig "drawPortStroke: an invisible edge leaves the source node border untouched"
 /// guarded-by: aux_test.zig "drawPortStroke files a port record only for a stroke it actually draws"
 pub fn drawPortStroke(

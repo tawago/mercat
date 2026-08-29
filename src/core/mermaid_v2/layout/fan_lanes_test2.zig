@@ -60,7 +60,7 @@ test "a directed group whose declared set is complete keeps one shared row" {
     // Every member carries an arrowhead, so the run asserts only the CROSS
     // pairs — the stage separation removes the within-side reading. The source
     // declares all four of them, so nothing undeclared is asserted and no
-    // trunk needs a row of its own.
+    // rail needs a row of its own.
     const a = testing.allocator;
     var fixture = twoByTwo();
     var row0 = [_]u32{ 0, 1 };
@@ -82,14 +82,14 @@ test "a directed group whose declared set is complete keeps one shared row" {
 test "a directed group whose declared set is short of complete still separates" {
     // A->X, A->Y, A->Z, B->X, B->Y. Two sources, three targets: the fused run
     // would assert all six cross pairs, but B—Z is not declared, so the run
-    // speaks for a pivot nothing declares and the trunks separate.
+    // speaks for a pivot nothing declares and the rails separate.
     //
     // Built so a naive `edges.len` sum WOULD wrongly admit it. B's departure
-    // has every peer selected into an arrival trunk, so it keeps its own trunk
+    // has every peer selected into an arrival rail, so it keeps its own rail
     // yet stays out of `fanout_edges`; B->X is therefore modelled twice, once
-    // by B's departure and once by X's arrival. Trunk lengths then sum to
+    // by B's departure and once by X's arrival. Rail lengths then sum to
     // 3 + 2 + 1 = 6 == 2 * 3, an exact false match, while the DISTINCT declared
-    // pairs number 5. Y's arrival draws no trunk at all (its only undeferred
+    // pairs number 5. Y's arrival draws no rail at all (its only undeferred
     // peer B sits on Y's own column).
     const a = testing.allocator;
     var nodes = [_]sugiyama.LayerNode{
@@ -117,26 +117,26 @@ test "a directed group whose declared set is short of complete still separates" 
 
     var x_members = [_]pb.EdgeId{3};
     var y_members = [_]pb.EdgeId{4};
-    var selected = [_]pb.SelectedJoin{
-        .{ .id = 0, .proposal = 0, .permission_group = 0, .members = &x_members },
-        .{ .id = 1, .proposal = 1, .permission_group = 1, .members = &y_members },
+    var selected = [_]pb.SelectedBundle{
+        .{ .id = 0, .proposal = 0, .candidate_bundle = 0, .members = &x_members },
+        .{ .id = 1, .proposal = 1, .candidate_bundle = 1, .members = &y_members },
     };
-    // A's departure keeps its own run (A->Z joins nothing); B's does not.
+    // A's departure keeps its own run (A->Z bundles nothing); B's does not.
     var memberships = [_]pb.RealizedEdgeMembership{
-        .{ .edge = 0, .source = .{ .independent = .{ .permission_group = 2, .reason = .overlap_conflict } }, .target = null },
-        .{ .edge = 1, .source = .{ .independent = .{ .permission_group = 2, .reason = .overlap_conflict } }, .target = null },
-        .{ .edge = 2, .source = .{ .independent = .{ .permission_group = 2, .reason = .overlap_conflict } }, .target = null },
-        .{ .edge = 3, .source = .{ .independent = .{ .permission_group = 2, .reason = .overlap_conflict } }, .target = .{ .selected = 0 } },
-        .{ .edge = 4, .source = .{ .independent = .{ .permission_group = 2, .reason = .overlap_conflict } }, .target = .{ .selected = 1 } },
+        .{ .edge = 0, .source = .{ .independent = .{ .candidate_bundle = 2, .reason = .overlap_conflict } }, .target = null },
+        .{ .edge = 1, .source = .{ .independent = .{ .candidate_bundle = 2, .reason = .overlap_conflict } }, .target = null },
+        .{ .edge = 2, .source = .{ .independent = .{ .candidate_bundle = 2, .reason = .overlap_conflict } }, .target = null },
+        .{ .edge = 3, .source = .{ .independent = .{ .candidate_bundle = 2, .reason = .overlap_conflict } }, .target = .{ .selected = 0 } },
+        .{ .edge = 4, .source = .{ .independent = .{ .candidate_bundle = 2, .reason = .overlap_conflict } }, .target = .{ .selected = 1 } },
     };
-    const joins: pb.RealizedJoins = .{ .selected_joins = &selected, .memberships = &memberships };
+    const bundles: pb.RealizedBundles = .{ .selected_bundles = &selected, .memberships = &memberships };
 
     var arena = std.heap.ArenaAllocator.init(a);
     defer arena.deinit();
     const aa = arena.allocator();
     const graph = try mkGraph(aa, &edges);
     const fans = try fan.detect(aa, graph, lg);
-    try fan_lanes.assignLanes(Geom, aa, graph, lg, &geom, fans, joins, null);
+    try fan_lanes.assignLanes(Geom, aa, graph, lg, &geom, fans, bundles, null);
     try testing.expect(laneOfPivot(fans, .out, 0) != laneOfPivot(fans, .out, 1));
 }
 
@@ -156,7 +156,7 @@ fn fiveOfSix() struct { nodes: [5]sugiyama.LayerNode, edges: [5]sugiyama.LayerEd
 }
 
 /// Run `fiveOfSix` with C placed at centre `cx_c` and the given plan.
-fn runFiveOfSix(cx_c: i32, joins: pb.RealizedJoins) !bool {
+fn runFiveOfSix(cx_c: i32, bundles: pb.RealizedBundles) !bool {
     const a = testing.allocator;
     var fixture = fiveOfSix();
     var row0 = [_]u32{ 0, 2, 1 };
@@ -174,7 +174,7 @@ fn runFiveOfSix(cx_c: i32, joins: pb.RealizedJoins) !bool {
     const aa = arena.allocator();
     const graph = try mkGraph(aa, &fixture.edges);
     const fans = try fan.detect(aa, graph, lg);
-    try fan_lanes.assignLanes(Geom, aa, graph, lg, &geom, fans, joins, null);
+    try fan_lanes.assignLanes(Geom, aa, graph, lg, &geom, fans, bundles, null);
     return laneOfPivot(fans, .out, 0) != laneOfPivot(fans, .out, 1);
 }
 
@@ -188,13 +188,13 @@ test "a peer on its pivot's own column never shrinks a group into looking comple
     try testing.expect(try runFiveOfSix(31, .{})); // C's centre free
 }
 
-test "a co-realized edge never shrinks a group into looking complete" {
+test "a discharged edge never shrinks a group into looking complete" {
     // Same 5-of-6 union, C placed clear of X. Co-realizing C->X removes it
     // from every rail model — its ink IS the crossbar — so the counts read
     // 2 x 2 complete. They are not a declaration count, and C—Y stays
-    // undeclared, so the trunks still separate.
+    // undeclared, so the rails still separate.
     var co = [_]pb.EdgeId{4};
-    try testing.expect(try runFiveOfSix(31, .{ .co_realized = &co }));
+    try testing.expect(try runFiveOfSix(31, .{ .discharged = &co }));
 }
 
 test "a two-sided group whose heads are direction-invariant still separates" {

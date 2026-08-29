@@ -80,13 +80,13 @@ fn paths(a: std.mem.Allocator, edges: []const sg.Edge) ![]sk.EdgePath {
     return out;
 }
 
-fn buildPlan(a: std.mem.Allocator, g: sg.SemGraph) !pb.JoinPermits {
+fn buildPlan(a: std.mem.Allocator, g: sg.SemGraph) !pb.BundlePermits {
     return (try planner.build(a, g, .joined)).plan;
 }
 
 /// The raw natural-rung candidate's realized plan for a parsed graph —
 /// the production shape most vectors exercise.
-fn realizeNatural(a: std.mem.Allocator, g: sg.SemGraph, plan: pb.JoinPermits, width: u32) !jp.Result {
+fn realizeNatural(a: std.mem.Allocator, g: sg.SemGraph, plan: pb.BundlePermits, width: u32) !jp.Result {
     const set = try select.enumerateAll(a, g, &plan, width);
     for (set.merged) |cand| {
         if (cand.rung == .natural and cand.transform == .raw)
@@ -95,11 +95,11 @@ fn realizeNatural(a: std.mem.Allocator, g: sg.SemGraph, plan: pb.JoinPermits, wi
     return error.MissingNaturalCandidate;
 }
 
-fn realizeNaturalWithoutCommit(a: std.mem.Allocator, g: sg.SemGraph, plan: pb.JoinPermits, width: u32) !jp.Result {
+fn realizeNaturalWithoutCommit(a: std.mem.Allocator, g: sg.SemGraph, plan: pb.BundlePermits, width: u32) !jp.Result {
     const set = try select.enumerateAll(a, g, &plan, width);
     for (set.merged) |cand| if (cand.rung == .natural and cand.transform == .raw) {
         var s = cand.sketch;
-        s.joins = .{};
+        s.bundles = .{};
         return jp.realize(a, plan, s);
     };
     return error.MissingNaturalCandidate;
@@ -117,7 +117,7 @@ fn rawOf(g: sg.SemGraph, id: sg.NodeId) []const u8 {
     unreachable;
 }
 
-fn verdictOf(res: jp.Result, plan: pb.JoinPermits, dir: pb.JoinDirection, pivot: sg.NodeId) jp.GroupVerdict {
+fn verdictOf(res: jp.Result, plan: pb.BundlePermits, dir: pb.BundleDirection, pivot: sg.NodeId) jp.GroupVerdict {
     for (plan.groups, res.report.verdicts) |g, v| {
         if (g.direction == dir and g.pivot == pivot) return v;
     }
@@ -127,7 +127,7 @@ fn verdictOf(res: jp.Result, plan: pb.JoinPermits, dir: pb.JoinDirection, pivot:
 /// Canonical serialization: numeric ids mapped to canonical ranks (edges:
 /// position in plan.memberships; groups: array rank) and node raw_id
 /// bytes, so two writer orders of one graph serialize identically.
-fn planBytes(a: std.mem.Allocator, g: sg.SemGraph, plan: pb.JoinPermits, res: jp.Result) ![]const u8 {
+fn planBytes(a: std.mem.Allocator, g: sg.SemGraph, plan: pb.BundlePermits, res: jp.Result) ![]const u8 {
     var out: std.ArrayListUnmanaged(u8) = .empty;
     for (plan.groups, res.report.verdicts, 0..) |grp, v, rank| {
         try appendf(a, &out, "v:{d}:{s}:{s}:{s}:{s}:{s}:{}:{d}\n", .{
@@ -138,13 +138,13 @@ fn planBytes(a: std.mem.Allocator, g: sg.SemGraph, plan: pb.JoinPermits, res: jp
         });
     }
     for (res.report.proposals, res.report.multiplicity) |p, mult| {
-        try appendf(a, &out, "p:{d}:{d}:{d}:", .{ p.id, groupRank(plan, p.permission_group), mult });
+        try appendf(a, &out, "p:{d}:{d}:{d}:", .{ p.id, groupRank(plan, p.candidate_bundle), mult });
         for (p.members) |e| try appendf(a, &out, "{d},", .{edgeRankOf(plan, e)});
         try out.append(a, '\n');
     }
-    for (res.plan.selected_joins) |join| {
-        try appendf(a, &out, "s:{d}:{d}:{d}:", .{ join.id, groupRank(plan, join.permission_group), join.proposal });
-        for (join.members) |e| try appendf(a, &out, "{d},", .{edgeRankOf(plan, e)});
+    for (res.plan.selected_bundles) |sel| {
+        try appendf(a, &out, "s:{d}:{d}:{d}:", .{ sel.id, groupRank(plan, sel.candidate_bundle), sel.proposal });
+        for (sel.members) |e| try appendf(a, &out, "{d},", .{edgeRankOf(plan, e)});
         try out.append(a, '\n');
     }
     for (res.plan.rejected_proposals) |pid| try appendf(a, &out, "r:{d}\n", .{pid});
@@ -172,25 +172,25 @@ fn appendf(a: std.mem.Allocator, out: *std.ArrayListUnmanaged(u8), comptime fmt:
     try out.appendSlice(a, try std.fmt.allocPrint(a, fmt, args));
 }
 
-fn dispBytes(a: std.mem.Allocator, out: *std.ArrayListUnmanaged(u8), plan: pb.JoinPermits, disp: ?pb.MembershipDisposition) !void {
+fn dispBytes(a: std.mem.Allocator, out: *std.ArrayListUnmanaged(u8), plan: pb.BundlePermits, disp: ?pb.MembershipDisposition) !void {
     const d = disp orelse return out.append(a, '-');
     switch (d) {
         .selected => |jid| try appendf(a, out, "sel{d}", .{jid}),
-        .independent => |ind| try appendf(a, out, "ind{d}.{s}", .{ groupRank(plan, ind.permission_group), @tagName(ind.reason) }),
+        .independent => |ind| try appendf(a, out, "ind{d}.{s}", .{ groupRank(plan, ind.candidate_bundle), @tagName(ind.reason) }),
     }
 }
 
-fn groupRank(plan: pb.JoinPermits, id: pb.JoinGroupId) usize {
+fn groupRank(plan: pb.BundlePermits, id: pb.CandidateBundleId) usize {
     return jp.groupIndexById(plan.groups, id).?;
 }
 
-fn edgeRankOf(plan: pb.JoinPermits, e: pb.EdgeId) usize {
+fn edgeRankOf(plan: pb.BundlePermits, e: pb.EdgeId) usize {
     return jp.edgeRank(plan.memberships, e).?;
 }
 
 // -- Production-path vectors -------------------------------------------------
 
-test "V-D-JOIN-SELECT-01: complete fan-out rail realizes one selected join with full provenance" {
+test "V-D-JOIN-SELECT-01: complete fan-out rail realizes one selected bundle with full provenance" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
@@ -199,10 +199,10 @@ test "V-D-JOIN-SELECT-01: complete fan-out rail realizes one selected join with 
 
     const res = try realizeNatural(a, g, plan, 80);
     try expect(!res.report.skipped_clustered);
-    try expectEqual(@as(usize, 1), res.plan.selected_joins.len);
-    try expectEqual(@as(usize, 3), res.plan.selected_joins[0].members.len);
+    try expectEqual(@as(usize, 1), res.plan.selected_bundles.len);
+    try expectEqual(@as(usize, 3), res.plan.selected_bundles[0].members.len);
     try expectEqual(jp.GroupClause.selected, res.report.verdicts[0].clause);
-    try expectEqual(pb.DiagnosticTag.join_select_selected, res.report.verdicts[0].tag);
+    try expectEqual(pb.DiagnosticTag.bundle_select_selected, res.report.verdicts[0].tag);
     try expectEqual(@as(usize, 3), res.plan.memberships.len);
     for (res.plan.memberships) |rm| {
         try expect(rm.source != null and rm.source.? == .selected);
@@ -212,7 +212,7 @@ test "V-D-JOIN-SELECT-01: complete fan-out rail realizes one selected join with 
     for (res.plan.terminal_ports) |tp| try expectEqual(@as(u32, 0), tp.port);
 }
 
-test "V-D-JOIN-SELECT-02: no trunk proposal leaves every member independent(not_selected)" {
+test "V-D-JOIN-SELECT-02: no rail proposal leaves every member independent(not_selected)" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
@@ -221,9 +221,9 @@ test "V-D-JOIN-SELECT-02: no trunk proposal leaves every member independent(not_
     const plan = try buildPlan(a, g);
 
     const res = try realizeNaturalWithoutCommit(a, g, plan, 80);
-    try expectEqual(@as(usize, 0), res.plan.selected_joins.len);
+    try expectEqual(@as(usize, 0), res.plan.selected_bundles.len);
     try expectEqual(jp.GroupClause.no_proposal, res.report.verdicts[0].clause);
-    try expectEqual(pb.DiagnosticTag.join_select_independent_not_selected, res.report.verdicts[0].tag);
+    try expectEqual(pb.DiagnosticTag.bundle_select_independent_not_selected, res.report.verdicts[0].tag);
     for (res.plan.memberships) |rm| {
         try expect(rm.source != null);
         try expectEqual(pb.IndependentReason.not_selected, rm.source.?.independent.reason);
@@ -250,7 +250,7 @@ test "V-D-JOIN-SELECT-07: partial proposal fails clause (c) first" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
-    // Hub -> {A..E}; the candidate proposes a trunk for {A,B,C} only.
+    // Hub -> {A..E}; the candidate proposes a rail for {A,B,C} only.
     const edges = [_]sg.Edge{ edge(0, 5, 0), edge(1, 5, 1), edge(2, 5, 2), edge(3, 5, 3), edge(4, 5, 4) };
     const g = graph(&edges);
     const plan = try buildPlan(a, g);
@@ -260,7 +260,7 @@ test "V-D-JOIN-SELECT-07: partial proposal fails clause (c) first" {
 
     const res = try jp.realize(a, plan, s);
     try expectEqual(jp.GroupClause.incomplete, res.report.verdicts[0].clause);
-    try expectEqual(@as(usize, 0), res.plan.selected_joins.len);
+    try expectEqual(@as(usize, 0), res.plan.selected_bundles.len);
     try expectEqual(@as(usize, 1), res.plan.rejected_proposals.len);
     try expectEqual(@as(usize, 1), res.report.proposals.len);
     for (res.plan.memberships) |rm| {
@@ -302,9 +302,9 @@ test "V-D-JOIN-SELECT-09: mixed member kinds fail clause (e) deterministically u
         const res = try realizeNatural(a, g, plan, 80);
         const v = res.report.verdicts[0];
         try expectEqual(jp.GroupClause.style, v.clause);
-        try expectEqual(pb.DiagnosticTag.join_select_independent_not_selected, v.tag);
+        try expectEqual(pb.DiagnosticTag.bundle_select_independent_not_selected, v.tag);
         try expectEqual(pb.DiagnosticTag.rail_member_style_mixed, v.rail_detail.?);
-        try expectEqual(@as(usize, 0), res.plan.selected_joins.len);
+        try expectEqual(@as(usize, 0), res.plan.selected_bundles.len);
         bytes[i] = try planBytes(a, g, plan, res);
     }
     try std.testing.expectEqualStrings(bytes[0], bytes[1]);
@@ -318,17 +318,17 @@ test "V-D-JOIN-SELECT-13: proposal multiplicity blocks realization, byte-identic
     const g = graph(&edges);
     const plan = try buildPlan(a, g);
     const taps = [_]sk.Tap{ tapFor(edges[0]), tapFor(edges[1]), tapFor(edges[2]) };
-    const bb = railFor(5, .solid, .fan_out_dropper, &taps);
-    // TWO complete trunk proposals for FO-Hub (distinct rail entries,
+    const rail = railFor(5, .solid, .fan_out_dropper, &taps);
+    // TWO complete rail proposals for FO-Hub (distinct rail entries,
     // identical member-set key → one multiplicity-counted entry).
-    const two = [_]sk.Rail{ bb, bb };
+    const two = [_]sk.Rail{ rail, rail };
     const res = try jp.realize(a, plan, sketchOf(&.{}, &two));
     try expectEqual(jp.GroupClause.multiplicity, res.report.verdicts[0].clause);
-    try expectEqual(pb.DiagnosticTag.join_select_proposal_multiplicity_blocked, res.report.verdicts[0].tag);
+    try expectEqual(pb.DiagnosticTag.bundle_select_proposal_multiplicity_blocked, res.report.verdicts[0].tag);
     try expectEqual(@as(u32, 2), res.report.verdicts[0].proposal_count);
     try expectEqual(@as(usize, 1), res.report.proposals.len);
     try expectEqual(@as(u32, 2), res.report.multiplicity[0]);
-    try expectEqual(@as(usize, 0), res.plan.selected_joins.len);
+    try expectEqual(@as(usize, 0), res.plan.selected_bundles.len);
     try expectEqual(@as(usize, 1), res.plan.rejected_proposals.len);
     for (res.plan.memberships) |rm| {
         try expectEqual(pb.IndependentReason.not_selected, rm.source.?.independent.reason);
@@ -386,7 +386,7 @@ test "V-D-TRUNK-01/02/03/04: clause (e) sub-clauses fire first-fail in frozen or
 
 // -- V-D-IR vectors -----------------------------------------------------------
 
-test "V-D-IR-01: winner joins artifact survives selection to the entry boundary" {
+test "V-D-IR-01: winner bundles artifact survives selection to the entry boundary" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
@@ -394,11 +394,11 @@ test "V-D-IR-01: winner joins artifact survives selection to the entry boundary"
     const built = try planner.build(a, g, .joined);
 
     // The production call path: choose() returns the envelope entry.zig
-    // keeps; its joins must arrive populated, not recomputed after.
+    // keeps; its bundles must arrive populated, not recomputed after.
     const result = try select.choose(a, g, &built.plan, 80, false, false, .bridge);
-    try expectEqual(@as(usize, 3), result.sketch.joins.memberships.len);
-    try expectEqual(@as(usize, 1), result.sketch.joins.selected_joins.len);
-    try expectEqual(@as(usize, 6), result.sketch.joins.terminal_ports.len);
+    try expectEqual(@as(usize, 3), result.sketch.bundles.memberships.len);
+    try expectEqual(@as(usize, 1), result.sketch.bundles.selected_bundles.len);
+    try expectEqual(@as(usize, 6), result.sketch.bundles.terminal_ports.len);
 }
 
 test "V-D-IR-02: motif_pack candidate is off the identity path and keeps an empty plan" {
@@ -428,14 +428,14 @@ test "V-D-IR-02: motif_pack candidate is off the identity path and keeps an empt
             try expect(cand.sketch.clusters.len > 0);
             try expect(res.report.skipped_clustered);
             try expectEqual(@as(usize, 0), res.plan.memberships.len);
-            try expectEqual(@as(usize, 0), res.plan.selected_joins.len);
+            try expectEqual(@as(usize, 0), res.plan.selected_bundles.len);
             saw_packed = true;
         }
     }
     try expect(saw_raw and saw_packed);
 }
 
-test "V-D-IR-04: JoinPermits and RealizedJoins byte-identical across edge orders and writer orders" {
+test "V-D-IR-04: BundlePermits and RealizedBundles byte-identical across edge orders and writer orders" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
@@ -457,7 +457,7 @@ test "V-D-IR-04: JoinPermits and RealizedJoins byte-identical across edge orders
     }
 }
 
-test "a co-realized edge that still owns an EdgePath counts as a double discharge" {
+test "a discharged edge that still owns an EdgePath counts as a double discharge" {
     // Discharging an edge means the rail's crossbar IS its rendering; a second,
     // private EdgePath would state the relation twice. The planner re-checks
     // the candidate's own geometry for exactly that leak.
@@ -470,14 +470,14 @@ test "a co-realized edge that still owns an EdgePath counts as a double discharg
 
     // Withheld as the law intends: no EdgePath for edge 2, no double discharge.
     var withheld = sketchOf(try paths(a, edges[0..2]), &.{});
-    withheld.joins = .{ .co_realized = &.{2} };
+    withheld.bundles = .{ .discharged = &.{2} };
     const clean = try jp.realize(a, plan, withheld);
     try expectEqual(@as(u32, 0), clean.report.co_double_discharge);
-    try expectEqual(@as(usize, 1), clean.plan.co_realized.len);
+    try expectEqual(@as(usize, 1), clean.plan.discharged.len);
 
     // Leaked: edge 2 was discharged AND routed.
     var leaked = sketchOf(try paths(a, &edges), &.{});
-    leaked.joins = .{ .co_realized = &.{2} };
+    leaked.bundles = .{ .discharged = &.{2} };
     const dirty = try jp.realize(a, plan, leaked);
     try expectEqual(@as(u32, 1), dirty.report.co_double_discharge);
 }

@@ -8,7 +8,7 @@
 //! scoring (score-blind); failures degrade to the ladder incumbent.
 //!
 //! Allowed imports (tools/lint_imports.zig): std, prim, sem_graph, sketch,
-//! sketch_ports (the Sketch-root extension deriving port-share co-sets),
+//! sketch_ports (the Sketch-root extension deriving port-share bundles),
 //! budget, score, motif, audit, realized, invariants, reach_vector,
 //! select_filter (the Step 8 CI filter + terminal candidate), parse (tests
 //! only). In-file tests live in select_test.zig (plan N3 cap-watch).
@@ -19,7 +19,7 @@ const ledger = @import("base/ledger.zig");
 const sem_graph = @import("sem_graph.zig");
 const sketch_mod = @import("sketch.zig");
 const sketch_ports = @import("sketch_ports.zig");
-const sketch_channels = @import("sketch_channels.zig");
+const sketch_bundles = @import("sketch_bundles.zig");
 const ladder = @import("budget.zig");
 const score_mod = @import("score.zig");
 const audit_mod = @import("audit.zig");
@@ -36,7 +36,7 @@ const PACK_RUNGS = ladder.Transform.motif_pack.rungs();
 /// 4 beside twins + up to 4 bridge-build twins (capped at append time).
 const MAX_CANDIDATES = 16;
 
-/// Bridge-build twins: {dodged, trunked} x {raw natural, ladder incumbent}.
+/// Bridge-build twins: {dodged, railed} x {raw natural, ladder incumbent}.
 const MAX_BRIDGE = 4;
 
 /// Enumerate raw + packed candidates, CI-filter, score them, and return the
@@ -46,16 +46,16 @@ const MAX_BRIDGE = 4;
 pub fn choose(
     aa: std.mem.Allocator,
     graph: sem_graph.SemGraph,
-    join_permits: *const ledger.JoinPermits,
+    bundle_permits: *const ledger.BundlePermits,
     max_width: u32,
     score_off: bool,
     shadow: bool,
     subgraph_edges: prim.SubgraphEdges,
 ) !ladder.LadderResult {
-    const set = try enumerateAll(aa, graph, join_permits, max_width);
-    const merged = attachJoinPlans(aa, join_permits, set.merged);
+    const set = try enumerateAll(aa, graph, bundle_permits, max_width);
+    const merged = attachBundlePlans(aa, bundle_permits, set.merged);
     var incumbent = set.incumbent;
-    if (join_permits.isFlat()) applyPlan(aa, join_permits, &incumbent.sketch);
+    if (bundle_permits.isFlat()) applyPlan(aa, bundle_permits, &incumbent.sketch);
 
     // D-REACH pre-raster vector reachability oracle per merged candidate,
     // AFTER realized and BEFORE scoring (D-REACH items 5/9/10/12-13). The
@@ -63,8 +63,8 @@ pub fn choose(
     // byte-identical decomposition, exposed so tests can drive the tail with
     // forged reports.
     // guarded-by: select_test.zig "report-only pin: reach oracle changes neither argmin nor winner"
-    const reach = reachReports(aa, graph, join_permits.isFlat(), merged);
-    return selectWinner(aa, graph, join_permits, max_width, merged, reach, incumbent, score_off, shadow, subgraph_edges);
+    const reach = reachReports(aa, graph, bundle_permits.isFlat(), merged);
+    return selectWinner(aa, graph, bundle_permits, max_width, merged, reach, incumbent, score_off, shadow, subgraph_edges);
 }
 
 // The Step 8 CI filter + terminal candidate live in select_filter.zig
@@ -86,7 +86,7 @@ pub const terminalCandidate = select_filter.terminalCandidate;
 pub fn selectWinner(
     aa: std.mem.Allocator,
     graph: sem_graph.SemGraph,
-    join_permits: *const ledger.JoinPermits,
+    bundle_permits: *const ledger.BundlePermits,
     max_width: u32,
     merged: []const ladder.Candidate,
     reach: []const reach_vector.Report,
@@ -107,90 +107,90 @@ pub fn selectWinner(
         // (D-DISPOSITION item 9(b)); a scoring failure with survivors present
         // degrades to the incumbent (never terminal while survivors exist).
         if (filtered.survivors.len == 0 and filtered.excluded_any)
-            return terminalCandidate(aa, graph, join_permits, max_width) catch incumbent;
+            return terminalCandidate(aa, graph, bundle_permits, max_width) catch incumbent;
         return incumbent;
     };
     const winner = filtered.survivors[sel.argmin_idx];
     return .{ .sketch = winner.sketch, .final_rung = winner.rung, .attempts = @intCast(merged.len) };
 }
 
-/// P2v Step 4: populate every merged candidate's `Sketch.joins` BEFORE
+/// P2v Step 4: populate every merged candidate's `Sketch.bundles` BEFORE
 /// scoring (D-IR items 5/8). FLAT-GATED (D-EDGE-ID item 4): on
-/// clustered inputs `joins` stays `.{}`, preserving byte-identity. Any
+/// clustered inputs `bundles` stays `.{}`, preserving byte-identity. Any
 /// planning failure degrades to the empty plan (the render never fails here).
-/// guarded-by: realized_test.zig "V-D-IR-01: winner joins artifact survives selection to the entry boundary"
-fn attachJoinPlans(
+/// guarded-by: realized_test.zig "V-D-IR-01: winner bundles artifact survives selection to the entry boundary"
+fn attachBundlePlans(
     aa: std.mem.Allocator,
-    join_permits: *const ledger.JoinPermits,
+    bundle_permits: *const ledger.BundlePermits,
     candidates: []const ladder.Candidate,
 ) []const ladder.Candidate {
-    if (!join_permits.isFlat()) return candidates;
+    if (!bundle_permits.isFlat()) return candidates;
     const mut = aa.dupe(ladder.Candidate, candidates) catch return candidates;
-    for (mut) |*cand| applyPlan(aa, join_permits, &cand.sketch);
+    for (mut) |*cand| applyPlan(aa, bundle_permits, &cand.sketch);
     return mut;
 }
 
 /// Apply one candidate's realized plan to its Sketch: the plan itself AND the
-/// co-channel sets derived from it.
+/// bundle sets derived from it.
 ///
 /// Both land here, at the single point where the plan becomes the candidate's
-/// own. Deriving co-sets at layout time instead would be writing them where
+/// own. Deriving bundles at layout time instead would be writing them where
 /// this call overwrites them — except where no plan realized, which is where
 /// layout's fan-derived sets are the candidate's only record (see below). A
 /// derivation failure degrades to no sets, matching how a planning failure
 /// degrades to the empty plan.
 ///
 /// Shared with entry.zig's forced-rung / score-off paths, which bypass
-/// selection: a debug render must carry the same production join plan, or its
+/// selection: a debug render must carry the same production bundle plan, or its
 /// crossing semantics diverge from the render it is meant to explain.
 pub fn applyPlan(
     aa: std.mem.Allocator,
-    join_permits: *const ledger.JoinPermits,
+    bundle_permits: *const ledger.BundlePermits,
     target: *sketch_mod.Sketch,
 ) void {
-    const planned = planJoins(aa, join_permits, target.*);
-    target.joins = planned.plan;
-    // INVARIANT: plan-derived co-sets REPLACE layout's fan-derived sets only
+    const planned = planBundles(aa, bundle_permits, target.*);
+    target.bundles = planned.plan;
+    // INVARIANT: plan-derived bundles REPLACE layout's fan-derived sets only
     // when a plan actually realized. A candidate the planner never planned —
     // a motif-packed one, whose synthetic frames put it off the identity path
     // (realized.zig's `skipped_clustered`), or a planning failure — has said
     // nothing about who may share ink, so it keeps the sets layout gave it
     // rather than being emptied into "nobody may share".
-    // guarded-by: select_test2.zig "a packed candidate keeps its layout co-sets when no plan realized"
+    // guarded-by: select_test2.zig "a packed candidate keeps its layout bundles when no plan realized"
     // INVARIANT: `.port_share` sets are NOT plan-derived and therefore are not
     // the plan's to withdraw — they record a share the producers made in
     // geometry, which no realization decision revokes. So the plan's sets
     // replace only the plan's own population, and the port shares are
     // re-derived from the sketch this call is finalizing.
-    // guarded-by: select_test2.zig "applying a plan keeps the sketch's port-share co-sets"
-    if (planned.realized) target.co_sets = sketch_ports.appendPortShares(
+    // guarded-by: select_test2.zig "applying a plan keeps the sketch's port-share bundles"
+    if (planned.realized) target.bundle_sets = sketch_ports.appendPortShares(
         aa,
-        ledger.coSetsFromPlan(aa, planned.plan) catch &.{},
+        ledger.bundlesFromPlan(aa, planned.plan) catch &.{},
         target.edges,
-    ) catch ledger.coSetsFromPlan(aa, planned.plan) catch &.{};
+    ) catch ledger.bundlesFromPlan(aa, planned.plan) catch &.{};
     // A rebuilt roster is a rebuilt set of names: the plan's sets arrive
     // unstamped, and layout's names spoke for the decision this call just
     // replaced. Re-stamping is unconditional so the two cases — plan applied,
     // plan declined — cannot leave the sketch in different states of filing.
-    sketch_channels.stamp(aa, target);
+    sketch_bundles.stamp(aa, target);
 }
 
 /// P2v Step 6: one pre-raster vector reachability report per candidate
-/// (parallel to `candidates`), each from the candidate's OWN Sketch + `joins`
+/// (parallel to `candidates`), each from the candidate's OWN Sketch + `bundles`
 /// (D-IR items 5/9). Node keys (D-REACH item 12) are raw_id bytes; failures
-/// degrade to the empty report. `join_permits_flat` selects which skip a
+/// degrade to the empty report. `bundle_permits_flat` selects which skip a
 /// cluster-framed sketch records — `reach_skipped_clustered` (clustered) vs.
 /// `skipped_packed_candidate` (flat, synthetic packed frames — OPEN-8). Step
 /// 8's filter consumes these; never score input.
 pub fn reachReports(
     aa: std.mem.Allocator,
     graph: sem_graph.SemGraph,
-    join_permits_flat: bool,
+    bundle_permits_flat: bool,
     candidates: []const ladder.Candidate,
 ) []const reach_vector.Report {
     const keys = nodeKeyTable(aa, graph) catch &.{};
     const out = aa.alloc(reach_vector.Report, candidates.len) catch return &.{};
-    const input: reach_vector.InputKind = if (join_permits_flat) .flat else .clustered;
+    const input: reach_vector.InputKind = if (bundle_permits_flat) .flat else .clustered;
     for (candidates, out) |cand, *r| {
         r.* = reach_vector.validate(aa, cand.sketch, keys, input) catch .{};
     }
@@ -208,19 +208,19 @@ pub fn nodeKeyTable(aa: std.mem.Allocator, graph: sem_graph.SemGraph) ![]const [
     return keys;
 }
 
-/// One candidate's realized-join plan; invariant-validated on safety-checked builds (log-only).
-fn planJoins(
+/// One candidate's realized-bundle plan; invariant-validated on safety-checked builds (log-only).
+fn planBundles(
     aa: std.mem.Allocator,
-    join_permits: *const ledger.JoinPermits,
+    bundle_permits: *const ledger.BundlePermits,
     candidate_sketch: sketch_mod.Sketch,
 ) PlanOutcome {
-    const result = realized_mod.realize(aa, join_permits.*, candidate_sketch) catch return .{};
+    const result = realized_mod.realize(aa, bundle_permits.*, candidate_sketch) catch return .{};
     const out: PlanOutcome = .{ .plan = result.plan, .realized = !result.report.skipped_clustered };
     if (std.debug.runtime_safety) {
-        const report = invariants.validate(aa, join_permits.*, result.plan, result.report.proposals) catch
+        const report = invariants.validate(aa, bundle_permits.*, result.plan, result.report.proposals) catch
             return out;
         if (!report.valid()) {
-            std.log.debug("mermaid_v2/select: realized-join plan failed invariant validation ({d} findings)", .{report.findings.len});
+            std.log.debug("mermaid_v2/select: realized-bundle plan failed invariant validation ({d} findings)", .{report.findings.len});
         }
     }
     return out;
@@ -229,9 +229,9 @@ fn planJoins(
 /// A candidate's plan plus whether the planner actually planned it: false for
 /// a candidate it declined (off the identity path) or a planning failure —
 /// both of which leave the empty envelope, which is NOT the same statement as
-/// a realized plan that selected no join.
+/// a realized plan that selected no bundle.
 const PlanOutcome = struct {
-    plan: ledger.RealizedJoins = .{},
+    plan: ledger.RealizedBundles = .{},
     realized: bool = false,
 };
 
@@ -251,14 +251,14 @@ pub const CandidateSet = struct {
 pub fn enumerateAll(
     aa: std.mem.Allocator,
     graph: sem_graph.SemGraph,
-    join_permits: *const ledger.JoinPermits,
+    bundle_permits: *const ledger.BundlePermits,
     max_width: u32,
 ) !CandidateSet {
-    const enumerated = try ladder.enumerate(aa, graph, join_permits, max_width);
+    const enumerated = try ladder.enumerate(aa, graph, bundle_permits, max_width);
 
     var extras: [PACK_RUNGS.len + 1 + select_labels.MAX_BESIDE + MAX_BRIDGE]ladder.Candidate = undefined;
     var n_extras: usize = 0;
-    for (packedCandidates(aa, graph, join_permits, max_width) catch &.{}) |c| {
+    for (packedCandidates(aa, graph, bundle_permits, max_width) catch &.{}) |c| {
         extras[n_extras] = c;
         n_extras += 1;
     }
@@ -269,7 +269,7 @@ pub fn enumerateAll(
     if (on_run_n <= on_run.len) {
         @memcpy(on_run[0..enumerated.candidates.len], enumerated.candidates);
         @memcpy(on_run[enumerated.candidates.len..on_run_n], extras[0..n_extras]);
-        n_extras += select_labels.besideVariants(aa, graph, join_permits, max_width, on_run[0..on_run_n], extras[n_extras..]);
+        n_extras += select_labels.besideVariants(aa, graph, bundle_permits, max_width, on_run[0..on_run_n], extras[n_extras..]);
     }
 
     // Bridge-build twins LAST (behind raw, packed and beside), so an exact
@@ -277,7 +277,7 @@ pub fn enumerateAll(
     n_extras += bridgeVariants(
         aa,
         graph,
-        join_permits,
+        bundle_permits,
         max_width,
         enumerated.candidates,
         enumerated.incumbent.final_rung,
@@ -296,7 +296,7 @@ pub fn enumerateAll(
     return .{ .merged = merged, .incumbent = enumerated.incumbent };
 }
 
-/// Lay out the dodged/trunked BRIDGE-BUILD twins of a clustered graph's
+/// Lay out the dodged/railed BRIDGE-BUILD twins of a clustered graph's
 /// promising candidates (the raw natural rung and the ladder incumbent),
 /// appended behind every other candidate so ties keep the plain build. The
 /// composite score against the real raster then decides which bridge
@@ -305,11 +305,11 @@ pub fn enumerateAll(
 /// routing-time proxy decisions). A twin whose edges are byte-identical to
 /// its plain base is dropped (it cannot score differently); failures are
 /// skipped — twins are scoring-only extra work. Returns the number written.
-/// guarded-by: select_test3.zig "bridge variants: a clustered graph enumerates dodged/trunked twins behind the raw set"
+/// guarded-by: select_test3.zig "bridge variants: a clustered graph enumerates dodged/railed twins behind the raw set"
 fn bridgeVariants(
     aa: std.mem.Allocator,
     graph: sem_graph.SemGraph,
-    join_permits: *const ledger.JoinPermits,
+    bundle_permits: *const ledger.BundlePermits,
     max_width: u32,
     raw: []const ladder.Candidate,
     incumbent_rung: ladder.Rung,
@@ -324,9 +324,9 @@ fn bridgeVariants(
     for (rungs) |rung_opt| {
         const rung = rung_opt orelse continue;
         const base = baseCandidate(raw, rung) orelse continue;
-        for ([2]prim.BridgeBuild{ .dodged, .trunked }) |build| {
+        for ([2]prim.BridgeBuild{ .dodged, .railed }) |build| {
             if (n >= cap) return n;
-            const result = ladder.runBridgeVariant(aa, graph, join_permits, max_width, rung, build) catch continue;
+            const result = ladder.runBridgeVariant(aa, graph, bundle_permits, max_width, rung, build) catch continue;
             if (sameEdgeGeometry(base.sketch, result.sketch)) continue;
             out[n] = .{
                 .rung = rung,
@@ -334,7 +334,7 @@ fn bridgeVariants(
                 .accepted = false,
                 .transform = switch (build) {
                     .dodged => .bridge_dodged,
-                    .trunked => .bridge_trunked,
+                    .railed => .bridge_railed,
                     .plain => unreachable,
                 },
             };
@@ -372,14 +372,14 @@ fn sameEdgeGeometry(a: sketch_mod.Sketch, b: sketch_mod.Sketch) bool {
 pub fn packedCandidates(
     aa: std.mem.Allocator,
     graph: sem_graph.SemGraph,
-    join_permits: *const ledger.JoinPermits,
+    bundle_permits: *const ledger.BundlePermits,
     max_width: u32,
 ) error{OutOfMemory}![]const ladder.Candidate {
     const packed_graph = select_labels.packedGraph(aa, graph) orelse return &.{};
 
     var list: std.ArrayListUnmanaged(ladder.Candidate) = .empty;
     for (PACK_RUNGS) |rung| {
-        const result = ladder.runForced(aa, packed_graph, join_permits, max_width, rung) catch continue;
+        const result = ladder.runForced(aa, packed_graph, bundle_permits, max_width, rung) catch continue;
         try list.append(aa, .{
             .rung = rung,
             .sketch = result.sketch,

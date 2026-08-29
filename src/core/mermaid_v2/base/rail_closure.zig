@@ -30,7 +30,7 @@
 //! This predicate judges ONE proposed rail against the declarations around
 //! it. Which of those declarations are still spendable, and which rail gets
 //! to spend a pair when two of them assert it, is the caller's plan-wide
-//! record — see `join_commit.reserve`.
+//! record — see `bundle_commit.reserve`.
 //!
 //! Pure data + pure functions; imports only std. Own input types (no IR
 //! type crosses this boundary) so all three call sites — the flat pre-sizing
@@ -354,13 +354,13 @@ pub fn contains(edges: []const EdgeId, edge: EdgeId) bool {
 }
 
 /// How many discharged edges ALSO own private geometry — the
-/// `co_double_discharge` inventory. A co-realized edge is rendered by the
+/// `co_double_discharge` inventory. A discharged edge is rendered by the
 /// rail's crossbar; a second, private rendering would state its relation
 /// twice, so this must stay zero.
 /// guarded-by: rail_closure_test.zig "a discharged edge that still routes privately is a double discharge"
-pub fn doubleDischarged(co_realized: []const EdgeId, routed: []const EdgeId) u32 {
+pub fn doubleDischarged(discharged: []const EdgeId, routed: []const EdgeId) u32 {
     var n: u32 = 0;
-    for (co_realized) |edge| {
+    for (discharged) |edge| {
         if (contains(routed, edge)) n += 1;
     }
     return n;

@@ -47,9 +47,9 @@ test "assign: greedy 4-claim hand example with a tie" {
     const a = std.testing.allocator;
     // In-order greedy packing (order is the tie-break contract):
     //   #0 [0,1] b5 → opens lane 0
-    //   #1 [2,3] b7 → disjoint from #0 → joins lane 0 (max_base 7)
+    //   #1 [2,3] b7 → disjoint from #0 → bundles lane 0 (max_base 7)
     //   #2 [1,2] b6 → overlaps BOTH lane-0 members → opens lane 1
-    //   #3 [4,5] b7 → disjoint from #0 and #1 → joins lane 0; its base 7
+    //   #3 [4,5] b7 → disjoint from #0 and #1 → bundles lane 0; its base 7
     //                 TIES the lane's max_base and must not move the lane.
     const ds = [_]lanes.LaneClaim{
         claim(0, 1, 5), claim(2, 3, 7), claim(1, 2, 6), claim(4, 5, 7),

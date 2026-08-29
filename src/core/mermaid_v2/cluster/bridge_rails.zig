@@ -1,4 +1,4 @@
-//! cluster/bridge_trunks.zig — selective realization of cross-border bundles.
+//! cluster/bridge_rails.zig — selective realization of cross-border bundles.
 //!
 //! A LICENSED shared-source group of crossings (same original endpoint, same
 //! licence tier as a piece fan — base/rail_star.checkLicence) whose pends
@@ -6,15 +6,15 @@
 //! clean rail row. `overrideJogs` moves the group's shared jog jointly to the
 //! least-conflicted coordinate, judged exactly like the gated dodge
 //! (committed scene + tentative non-member ink; a shared port is a licensed
-//! rail, never an obstacle). Whether the trunked build SHIPS is not decided
-//! here or by any sketch-side proxy: the trunked variant is laid out as a
+//! rail, never an obstacle). Whether the railed build SHIPS is not decided
+//! here or by any sketch-side proxy: the railed variant is laid out as a
 //! candidate and the selection stage's composite score against the real
 //! raster picks (confluence selection note).
 //!
-//! `realizedTrunk` is the plan tier's witness over FINAL geometry: a group
-//! realized a trunk iff every routed member leaves one shared point and the
+//! `realizedRail` is the plan tier's witness over FINAL geometry: a group
+//! realized a rail iff every routed member leaves one shared point and the
 //! members never touch again past the shared prefix — the shape on which a
-//! structural sanction is inert away from the trunk (the always-on failure
+//! structural sanction is inert away from the rail (the always-on failure
 //! mode was sanctioning member-vs-member contact AWAY from the approach).
 //!
 //! PURE DATA: pends/paths in, jog mutations + one predicate out. Imports the
@@ -54,7 +54,7 @@ pub fn overrideJogs(
         }
         if (members.items.len < 2) continue;
         if (!try licensedOut(arena, pends, members.items)) continue;
-        if (!try trunkable(arena, pends, members.items, placements)) continue;
+        if (!try railable(arena, pends, members.items, placements)) continue;
         if (try chooseJog(arena, pends, members.items, placements, clusters, obstacles)) |c| {
             for (members.items) |mi| pends[mi].jog = c;
             changed = true;
@@ -91,10 +91,10 @@ fn licensedOut(
     }).isValid();
 }
 
-/// A group is trunk-shaped only when every member left ONE exit port on one
+/// A group is rail-shaped only when every member left ONE exit port on one
 /// side, each carries a jog to move, and none was re-routed as a corridor
 /// (whose descent column this layer never chose).
-fn trunkable(
+fn railable(
     arena: std.mem.Allocator,
     pends: []const bridges.Pending,
     members: []const usize,
@@ -209,7 +209,7 @@ fn boundsOf(p: bridges.Pending) [2]i32 {
 
 /// `base` widened with every static edge path's segments as run obstacles.
 /// The bridge scene deliberately models static edges as heads only; the
-/// trunk choice and its gate use this fuller picture LOCALLY, so a rail can
+/// rail choice and its gate use this fuller picture LOCALLY, so a rail can
 /// step off a piece edge's run without changing any other routing decision.
 pub fn withStaticRuns(
     arena: std.mem.Allocator,
@@ -234,9 +234,9 @@ fn inGroup(members: []const usize, i: usize) bool {
     return false;
 }
 
-/// True iff the routed members ARE one trunk: every path leaves one shared
+/// True iff the routed members ARE one rail: every path leaves one shared
 /// point and, past the pairwise shared prefix, no two members touch again.
-pub fn realizedTrunk(
+pub fn realizedRail(
     arena: std.mem.Allocator,
     paths: []const sketch.EdgePath,
 ) error{OutOfMemory}!bool {
@@ -284,7 +284,7 @@ fn cellsOf(arena: std.mem.Allocator, poly: []const Pt) error{OutOfMemory}![]cons
     return out.toOwnedSlice(arena);
 }
 
-test "realizedTrunk accepts a shared stem with disjoint tails and refuses re-contact" {
+test "realizedRail accepts a shared stem with disjoint tails and refuses re-contact" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
@@ -293,19 +293,19 @@ test "realizedTrunk accepts a shared stem with disjoint tails and refuses re-con
     const stem_east = [_]Pt{ .{ .x = 10, .y = 0 }, .{ .x = 10, .y = 4 }, .{ .x = 16, .y = 4 }, .{ .x = 16, .y = 9 } };
     var pa = path(&stem_west);
     var pb = path(&stem_east);
-    try std.testing.expect(try realizedTrunk(a, &.{ pa, pb }));
+    try std.testing.expect(try realizedRail(a, &.{ pa, pb }));
 
-    // Split starts: not one trunk.
+    // Split starts: not one rail.
     const other = [_]Pt{ .{ .x = 11, .y = 0 }, .{ .x = 11, .y = 9 } };
     pb = path(&other);
-    try std.testing.expect(!try realizedTrunk(a, &.{ pa, pb }));
+    try std.testing.expect(!try realizedRail(a, &.{ pa, pb }));
 
     // Re-contact past the split: the tail of one member crosses back onto
     // the other's tail cell — refused.
     const recross = [_]Pt{ .{ .x = 10, .y = 0 }, .{ .x = 10, .y = 4 }, .{ .x = 16, .y = 4 }, .{ .x = 16, .y = 6 }, .{ .x = 2, .y = 6 }, .{ .x = 2, .y = 8 } };
     pa = path(&stem_west);
     pb = path(&recross);
-    try std.testing.expect(!try realizedTrunk(a, &.{ pa, pb }));
+    try std.testing.expect(!try realizedRail(a, &.{ pa, pb }));
 }
 
 fn path(poly: []const Pt) sketch.EdgePath {

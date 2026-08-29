@@ -4,8 +4,8 @@
 //! 500-line cap, mirroring realized/invariants.
 //!
 //! Turns Sketch geometry into conductive UNITS: each edge-owned
-//! `EdgePath` polyline, each realized whole-trunk `Rail`, and — for a
-//! Rail NOT realized by a selected join — one per-tap share (the
+//! `EdgePath` polyline, each realized whole-rail `Rail`, and — for a
+//! Rail NOT realized by a selected bundle — one per-tap share (the
 //! member's own stem/rail/drop path, whose collinear sharing with its
 //! siblings is exactly the cross-owner event D-REACH clause 9 reports).
 //! Every unit carries its cell set with straight-pass flags (for the
@@ -55,10 +55,10 @@ pub const CellMap = std.AutoArrayHashMapUnmanaged(Cell, PassInfo);
 /// One conductive geometry unit.
 pub const Unit = struct {
     /// Owning declared edge — set for edge-owned polylines and
-    /// unrealized per-tap shares; null for realized whole-trunk units.
+    /// unrealized per-tap shares; null for realized whole-rail units.
     edge: ?pb.EdgeId,
-    /// Realized join this unit IS the trunk of (whole-trunk units only).
-    join: ?pb.RealizedJoinId,
+    /// Realized bundle this unit IS the rail of (whole-rail units only).
+    bundle: ?pb.SelectedBundleId,
     cells: CellMap,
     attachments: []const Attachment,
 };
@@ -66,8 +66,8 @@ pub const Unit = struct {
 /// D-JOIN direction of a Rail read from its role (same mapping as
 /// realized.zig, re-stated here because realized may not be imported
 /// from this zone).
-pub fn railDirection(bb: sk.Rail) pb.JoinDirection {
-    return switch (bb.role) {
+pub fn railDirection(rail: sk.Rail) pb.BundleDirection {
+    return switch (rail.role) {
         .fan_in_dropper, .fan_in_rail => .in,
         else => .out,
     };
@@ -128,7 +128,7 @@ fn foldPath(alloc: std.mem.Allocator, map: *CellMap, path: []const Cell) Error!v
 
 // -- Unit builders ------------------------------------------------------
 
-/// Unit for one edge-owned polyline (channel class (a), D-REACH item 9).
+/// Unit for one edge-owned polyline (bundle class (a), D-REACH item 9).
 pub fn edgeUnit(alloc: std.mem.Allocator, e: sk.EdgePath) Error!Unit {
     var cells: CellMap = .empty;
     const path = try cellPath(alloc, e.polyline);
@@ -138,25 +138,25 @@ pub fn edgeUnit(alloc: std.mem.Allocator, e: sk.EdgePath) Error!Unit {
     const last: Cell = if (path.len > 0) path[path.len - 1] else .{ .x = 0, .y = 0 };
     att[0] = .{ .edge = e.id, .node = e.from, .endpoint_side = .source_exit, .cell = first };
     att[1] = .{ .edge = e.id, .node = e.to, .endpoint_side = .target_entry, .cell = last };
-    return .{ .edge = e.id, .join = null, .cells = cells, .attachments = att };
+    return .{ .edge = e.id, .bundle = null, .cells = cells, .attachments = att };
 }
 
-fn railPoint(bb: sk.Rail, x: i32) sk.Point {
-    return .{ .x = x, .y = bb.crossbar[0].y };
+fn railPoint(rail: sk.Rail, x: i32) sk.Point {
+    return .{ .x = x, .y = rail.crossbar[0].y };
 }
 
-fn tapAttachments(bb: sk.Rail, tap: sk.Tap, out: *std.ArrayListUnmanaged(Attachment), alloc: std.mem.Allocator) Error!void {
-    const stem_start: Cell = if (bb.stem.len > 0)
-        .{ .x = bb.stem[0].x, .y = bb.stem[0].y }
+fn tapAttachments(rail: sk.Rail, tap: sk.Tap, out: *std.ArrayListUnmanaged(Attachment), alloc: std.mem.Allocator) Error!void {
+    const stem_start: Cell = if (rail.stem.len > 0)
+        .{ .x = rail.stem[0].x, .y = rail.stem[0].y }
     else
         .{ .x = 0, .y = 0 };
     const landing: Cell = .{ .x = tap.landing.x, .y = tap.landing.y };
-    const out_dir = railDirection(bb) == .out;
+    const out_dir = railDirection(rail) == .out;
     // Pivot-side terminal of this member sits at the stem's perimeter
     // point; member-side terminal at the tap landing.
     try out.append(alloc, .{
         .edge = tap.edge,
-        .node = bb.pivot,
+        .node = rail.pivot,
         .endpoint_side = if (out_dir) .source_exit else .target_entry,
         .cell = stem_start,
     });
@@ -168,36 +168,36 @@ fn tapAttachments(bb: sk.Rail, tap: sk.Tap, out: *std.ArrayListUnmanaged(Attachm
     });
 }
 
-/// Whole-trunk unit for a Rail realized by a selected join (channel
-/// class (b)): stem + full rail + every tap drop as ONE channel whose
+/// Whole-rail unit for a Rail realized by a selected bundle (bundle
+/// class (b)): stem + full rail + every tap drop as ONE bundle whose
 /// component must contain the pivot terminal and exactly its member
 /// terminals (D-REACH clause 6).
-pub fn trunkUnit(alloc: std.mem.Allocator, bb: sk.Rail, join: pb.RealizedJoinId) Error!Unit {
+pub fn railUnit(alloc: std.mem.Allocator, rail: sk.Rail, bundle: pb.SelectedBundleId) Error!Unit {
     var cells: CellMap = .empty;
-    try foldPath(alloc, &cells, try cellPath(alloc, bb.stem));
-    try foldPath(alloc, &cells, try cellPath(alloc, &.{ bb.crossbar[0], bb.crossbar[1] }));
+    try foldPath(alloc, &cells, try cellPath(alloc, rail.stem));
+    try foldPath(alloc, &cells, try cellPath(alloc, &.{ rail.crossbar[0], rail.crossbar[1] }));
     var att: std.ArrayListUnmanaged(Attachment) = .empty;
-    for (bb.taps) |tap| {
+    for (rail.taps) |tap| {
         try foldPath(alloc, &cells, try cellPath(alloc, &.{ tap.at, tap.landing }));
-        try tapAttachments(bb, tap, &att, alloc);
+        try tapAttachments(rail, tap, &att, alloc);
     }
-    return .{ .edge = null, .join = join, .cells = cells, .attachments = try att.toOwnedSlice(alloc) };
+    return .{ .edge = null, .bundle = bundle, .cells = cells, .attachments = try att.toOwnedSlice(alloc) };
 }
 
-/// Per-tap share unit for a Rail NOT realized by any selected join:
+/// Per-tap share unit for a Rail NOT realized by any selected bundle:
 /// the member edge's own conductive path (stem, rail run from the stem
 /// junction to its tap, drop). Sibling shares overlap collinearly on the
 /// stem/rail — the cross-owner sharing D-REACH clause 9 reports, because
-/// an unrealized fusion is a channel of no class.
-pub fn tapShareUnit(alloc: std.mem.Allocator, bb: sk.Rail, tap: sk.Tap) Error!Unit {
+/// an unrealized fusion is a bundle of no class.
+pub fn tapShareUnit(alloc: std.mem.Allocator, rail: sk.Rail, tap: sk.Tap) Error!Unit {
     var cells: CellMap = .empty;
-    try foldPath(alloc, &cells, try cellPath(alloc, bb.stem));
-    const junction_x: i32 = if (bb.stem.len > 0) bb.stem[bb.stem.len - 1].x else bb.crossbar[0].x;
-    try foldPath(alloc, &cells, try cellPath(alloc, &.{ railPoint(bb, junction_x), railPoint(bb, tap.at.x) }));
+    try foldPath(alloc, &cells, try cellPath(alloc, rail.stem));
+    const junction_x: i32 = if (rail.stem.len > 0) rail.stem[rail.stem.len - 1].x else rail.crossbar[0].x;
+    try foldPath(alloc, &cells, try cellPath(alloc, &.{ railPoint(rail, junction_x), railPoint(rail, tap.at.x) }));
     try foldPath(alloc, &cells, try cellPath(alloc, &.{ tap.at, tap.landing }));
     var att: std.ArrayListUnmanaged(Attachment) = .empty;
-    try tapAttachments(bb, tap, &att, alloc);
-    return .{ .edge = tap.edge, .join = null, .cells = cells, .attachments = try att.toOwnedSlice(alloc) };
+    try tapAttachments(rail, tap, &att, alloc);
+    return .{ .edge = tap.edge, .bundle = null, .cells = cells, .attachments = try att.toOwnedSlice(alloc) };
 }
 
 // -- Connectivity and the transversal test ------------------------------
@@ -245,7 +245,7 @@ fn strictPass(p: PassInfo) ?bool {
 }
 
 /// D-REACH clause 7/9 shape test for one shared cell between two units of
-/// DIFFERENT channels: legal iff it is a strict orthogonal transversal
+/// DIFFERENT bundles: legal iff it is a strict orthogonal transversal
 /// (each side passes straight through on one axis, axes perpendicular).
 /// Everything else — collinear overlap, non-transversal contact — is the
 /// `reach_unknown_continuation` pairing event.

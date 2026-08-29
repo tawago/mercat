@@ -68,7 +68,7 @@ const terminal = @import("terminal.zig");
 const expect = @import("expect.zig");
 const rail_stars = @import("rail_stars.zig");
 const rails = @import("rails.zig");
-const channels = @import("channels.zig");
+const bundles = @import("bundles.zig");
 
 /// Everything the audit reads. Assembled by the composition root from
 /// values that are already live there; the audit derives nothing itself
@@ -159,10 +159,10 @@ pub fn run(alloc: std.mem.Allocator, ctx: Ctx) counts.Counts {
     rail_stars.check(ctx.lat, &c);
     rails.check(alloc, v, ctx.sketch, &c);
     // Last, and over its own population (carrier records, not cells): the
-    // channel-identity tier counts the filed identity against the membership
+    // bundle-identity tier counts the filed identity against the membership
     // derivation it replaces. Its buckets are disjoint from every family
     // above — no other check reads a carrier pair as a licence question.
-    channels.check(v, ctx.sketch, &c);
+    bundles.check(v, ctx.sketch, &c);
 
     return c;
 }

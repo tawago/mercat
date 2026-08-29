@@ -4,8 +4,8 @@
 //! terminal's identity derive from SemGraph + plan records only (`derive` —
 //! never geometry); perimeter COORDINATES are a pure function of (final
 //! placements, K) (`allocate` — caller fills `opposite_center`). Whether a
-//! fan group yields one trunk pivot or per-member independents is the input
-//! plan's statement (`joins.selected_joins`), never a default here (both
+//! fan group yields one rail pivot or per-member independents is the input
+//! plan's statement (`bundles.selected_bundles`), never a default here (both
 //! OPEN-1 readings stay expressible). Failures are typed DATA results (never
 //! panics, never silent coalescing).
 //!
@@ -74,7 +74,7 @@ pub fn offsetAt(side_len: u32, demand: u32, i: u32) u32 {
 
 // -- Attachments (identity side, clause 5) ------------------------------------
 
-pub const AttachmentClass = enum { independent, trunk_pivot };
+pub const AttachmentClass = enum { independent, rail_pivot };
 
 /// One demanded terminal on a (node, side) face. Identity fields derive
 /// from SemGraph + plan records only; `opposite_center` is the ONE geometric
@@ -82,13 +82,13 @@ pub const AttachmentClass = enum { independent, trunk_pivot };
 /// opposite center is the node's own center.
 pub const Attachment = struct {
     class: AttachmentClass = .independent,
-    /// Canonical attachment key K (clause 4); trunk pivot: smallest member K (clause 10).
+    /// Canonical attachment key K (clause 4); rail pivot: smallest member K (clause 10).
     key: pb.AttachmentKey,
-    /// independent: the owning edge. trunk_pivot: clause-10 smallest member (whose opposite center the pivot orders by).
+    /// independent: the owning edge. rail_pivot: clause-10 smallest member (whose opposite center the pivot orders by).
     edge: ?pb.EdgeId = null,
-    /// independent: its permission group, if any. trunk_pivot: the committed group.
-    group: ?pb.JoinGroupId = null,
-    /// trunk_pivot: the full committed member set; else empty.
+    /// independent: its permission group, if any. rail_pivot: the committed group.
+    group: ?pb.CandidateBundleId = null,
+    /// rail_pivot: the full committed member set; else empty.
     members: []const pb.EdgeId = &.{},
     /// Opposite endpoint's placed center along the side axis (clause 6: x for north/south, y for east/west).
     opposite_center: i32 = 0,
@@ -129,15 +129,15 @@ pub fn edgeAttachmentKey(graph: sg.SemGraph, edge: sg.Edge, endpoint_side: pb.En
 }
 
 /// Derive the attachment set per (node, side): independent attachments +
-/// one trunk pivot per committed group (clause 10) + self-loop terminals
+/// one rail pivot per committed group (clause 10) + self-loop terminals
 /// (two typed terminals, clause 3) + reversed-edge side entries/exits
 /// (endpoint_side splits K). `direction`/`reversed_edges` are plan-level
 /// records, not geometry. Output order is incidental (`allocate` sorts).
 pub fn derive(
     a: std.mem.Allocator,
     graph: sg.SemGraph,
-    plan: pb.JoinPermits,
-    joins: pb.RealizedJoins,
+    plan: pb.BundlePermits,
+    bundles: pb.RealizedBundles,
     direction: sg.Direction,
     reversed_edges: []const pb.EdgeId,
 ) DeriveError![]const DerivedAttachment {
@@ -156,11 +156,11 @@ pub fn derive(
             }
             continue;
         }
-        const membership = membershipOf(joins, edge.id);
+        const membership = membershipOf(bundles, edge.id);
         const reversed = containsEdge(reversed_edges, edge.id);
         if (!reversed and (membership == null or (membership.?.source == null and membership.?.target == null))) {
             // Plain forward edge keeps its midpoint UNLESS an endpoint lands on
-            // a (node, side) hosting a self-loop terminal: then it joins that
+            // a (node, side) hosting a self-loop terminal: then it bundles that
             // side's allocation so the two get distinct pitch-2 cells, never a
             // shared midpoint (D-PORT clause 3 / D-REACH clause 9(a): a self-
             // loop owns its own two terminals, unshared with a foreign edge).
@@ -189,7 +189,7 @@ pub fn derive(
                 // fan-IN members, so its ink stays a per-edge polyline whose
                 // label must hang off a stub of its own.
                 const poolable = !reversed and (edge.label == null or edge.label.?.len == 0);
-                const fused_u = if (poolable) fusedUnionIndex(joins.fused, edge.id) else null;
+                const fused_u = if (poolable) fusedUnionIndex(bundles.fused, edge.id) else null;
                 if (fused_u) |ui| {
                     try fused_leaves.append(a, .{ .u = ui, .node = n, .side = sd, .es = es, .edge = edge.id });
                 } else {
@@ -208,14 +208,14 @@ pub fn derive(
     }
     // One pivot attachment per committed group (clause 10), keyed by the
     // lexicographically-smallest member K; forward Rail geometry → forward side.
-    // guarded-by: ports_test.zig "derivation: a committed group consumes one trunk pivot attachment keyed by its smallest member K"
-    for (joins.selected_joins) |join| {
-        const gi = groupIndexById(plan.groups, join.permission_group) orelse return error.InvalidSemGraph;
+    // guarded-by: ports_test.zig "derivation: a committed group consumes one rail pivot attachment keyed by its smallest member K"
+    for (bundles.selected_bundles) |sel| {
+        const gi = groupIndexById(plan.groups, sel.candidate_bundle) orelse return error.InvalidSemGraph;
         const group = plan.groups[gi];
         const es: pb.EndpointSide = if (group.direction == .out) .source_exit else .target_entry;
         var best: ?pb.AttachmentKey = null;
         var best_edge: pb.EdgeId = 0;
-        for (join.members) |member| {
+        for (sel.members) |member| {
             const edge = edgeById(graph, member) orelse return error.InvalidSemGraph;
             const key = try edgeAttachmentKey(graph, edge, es);
             if (best == null or pb.attachmentKeyOrder(key, best.?) == .lt) {
@@ -227,17 +227,17 @@ pub fn derive(
             .node = group.pivot,
             .side = forwardSide(direction, es),
             .attachment = .{
-                .class = .trunk_pivot,
+                .class = .rail_pivot,
                 .key = best orelse return error.InvalidSemGraph,
                 .edge = best_edge,
-                .group = join.permission_group,
-                .members = join.members,
+                .group = sel.candidate_bundle,
+                .members = sel.members,
             },
         });
     }
     // One shared attachment per (fused union, leaf node, side), keyed by the
-    // smallest member K exactly like a trunk pivot. The member edges' stub is
-    // one ink span; their co-set already speaks for it as one channel.
+    // smallest member K exactly like a rail pivot. The member edges' stub is
+    // one ink span; their bundle already speaks for it as one bundle.
     for (fused_leaves.items, 0..) |head, i| {
         if (seenLeaf(fused_leaves.items[0..i], head)) continue;
         var best: ?pb.AttachmentKey = null;
@@ -257,7 +257,7 @@ pub fn derive(
             .node = head.node,
             .side = head.side,
             .attachment = .{
-                .class = .trunk_pivot,
+                .class = .rail_pivot,
                 .key = best orelse return error.InvalidSemGraph,
                 .edge = best_edge,
                 .members = try members.toOwnedSlice(a),
@@ -333,7 +333,7 @@ pub const capacity_action = "reject candidate and report, per D-DISPOSITION";
 
 /// Full capacity-failure payload. `classes` follows the clause-6
 /// recorded order; `edges`/`groups` list every involved edge id and
-/// branch group id demanded on the side (trunk members included).
+/// branch group id demanded on the side (rail members included).
 pub const CapacityExceeded = struct {
     tag: pb.DiagnosticTag = .port_capacity_exceeded,
     candidate: CandidateRef,
@@ -343,7 +343,7 @@ pub const CapacityExceeded = struct {
     available: u32,
     classes: []const AttachmentClass,
     edges: []const pb.EdgeId,
-    groups: []const pb.JoinGroupId,
+    groups: []const pb.CandidateBundleId,
     decision_row: []const u8 = decision_row_clause_12,
     reason: []const u8 = capacity_reason,
     expected_action: []const u8 = capacity_action,
@@ -417,12 +417,12 @@ fn capacityPayload(a: std.mem.Allocator, candidate: CandidateRef, node: pb.NodeI
     std.mem.sort(Attachment, sorted, {}, attachmentLess);
     const classes = try a.alloc(AttachmentClass, sorted.len);
     var edges: std.ArrayListUnmanaged(pb.EdgeId) = .empty;
-    var groups: std.ArrayListUnmanaged(pb.JoinGroupId) = .empty;
+    var groups: std.ArrayListUnmanaged(pb.CandidateBundleId) = .empty;
     for (sorted, classes) |att, *class| {
         class.* = att.class;
         if (att.edge) |e| try appendUnique(pb.EdgeId, a, &edges, e);
         for (att.members) |member| try appendUnique(pb.EdgeId, a, &edges, member);
-        if (att.group) |g| try appendUnique(pb.JoinGroupId, a, &groups, g);
+        if (att.group) |g| try appendUnique(pb.CandidateBundleId, a, &groups, g);
     }
     return .{
         .candidate = candidate,
@@ -522,13 +522,13 @@ fn hasSelfLoopSide(graph: sg.SemGraph, dir: sg.Direction, node: pb.NodeId, side:
     return false;
 }
 
-fn groupIndexById(groups: []const pb.JoinGroup, id: pb.JoinGroupId) ?usize {
+fn groupIndexById(groups: []const pb.CandidateBundle, id: pb.CandidateBundleId) ?usize {
     for (groups, 0..) |group, i| if (group.id == id) return i;
     return null;
 }
 
-fn membershipOf(joins: pb.RealizedJoins, edge: pb.EdgeId) ?pb.RealizedEdgeMembership {
-    for (joins.memberships) |m| if (m.edge == edge) return m;
+fn membershipOf(bundles: pb.RealizedBundles, edge: pb.EdgeId) ?pb.RealizedEdgeMembership {
+    for (bundles.memberships) |m| if (m.edge == edge) return m;
     return null;
 }
 
@@ -537,11 +537,11 @@ fn isSelected(disp: ?pb.MembershipDisposition) bool {
     return d == .selected;
 }
 
-fn independentGroup(disp: ?pb.MembershipDisposition) ?pb.JoinGroupId {
+fn independentGroup(disp: ?pb.MembershipDisposition) ?pb.CandidateBundleId {
     const d = disp orelse return null;
     return switch (d) {
         .selected => null,
-        .independent => |ind| ind.permission_group,
+        .independent => |ind| ind.candidate_bundle,
     };
 }
 

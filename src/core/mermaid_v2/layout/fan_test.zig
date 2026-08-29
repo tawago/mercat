@@ -234,7 +234,7 @@ test "5-source fan-IN sink recenters onto the exact mean of its sources" {
     try testing.expectEqual(mean_cx, f_cx);
 }
 
-test "co-sets group a fan's peers by rail lane" {
+test "bundles group a fan's peers by rail lane" {
     const a = testing.allocator;
 
     // One fan of four peers. Three share lane 0 (the ordinary case: a shared
@@ -262,14 +262,14 @@ test "co-sets group a fan's peers by rail lane" {
     // The lone lane-1 peer is not a set; the two surviving groups are.
     try testing.expectEqual(@as(usize, 2), sets.len);
     try testing.expectEqualSlices(u32, &.{ 10, 12, 13 }, sets[0].members);
-    try testing.expectEqual(ledger.CoOrigin.fan_rail, sets[0].origin);
+    try testing.expectEqual(ledger.BundleOrigin.fan_rail, sets[0].origin);
     try testing.expectEqualSlices(u32, &.{ 20, 21 }, sets[1].members);
 
     // No fans, no sets.
     try testing.expectEqual(@as(usize, 0), (try fan.coSets(arena.allocator(), &.{})).len);
 }
 
-test "co-sets partition by the effective lane the ink occupies, not peer.lane alone" {
+test "bundles partition by the effective lane the ink occupies, not peer.lane alone" {
     const a = testing.allocator;
 
     // fan.lane = 2 lifts the whole fan: peers with private lanes 0 and 1

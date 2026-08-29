@@ -1,4 +1,4 @@
-//! Unit tests for the attributable carrier-record channel tier.
+//! Unit tests for the attributable carrier-record bundle tier.
 
 const std = @import("std");
 const ledger = @import("../base/ledger.zig");
@@ -6,7 +6,7 @@ const lattice = @import("../lattice.zig");
 const sketch = @import("../sketch.zig");
 const cell = @import("cell.zig");
 const counts = @import("counts.zig");
-const channels = @import("channels.zig");
+const bundles = @import("bundles.zig");
 
 const testing = std.testing;
 const W: u32 = 4;
@@ -20,9 +20,9 @@ const Fixture = struct {
     cells: [W * H]lattice.Cell = undefined,
     recs: [8]lattice.Aux = undefined,
     n_recs: usize = 0,
-    sets: [2]ledger.CoSet = undefined,
+    sets: [2]ledger.Bundle = undefined,
     n_sets: usize = 0,
-    joins: ledger.RealizedJoins = .{},
+    bundles: ledger.RealizedBundles = .{},
     aux_state: lattice.AuxCollectionState = .complete,
     attempted: ?u64 = null,
 
@@ -34,7 +34,7 @@ const Fixture = struct {
         };
         self.n_recs = 0;
         self.n_sets = 0;
-        self.joins = .{};
+        self.bundles = .{};
         self.aux_state = .complete;
         self.attempted = null;
     }
@@ -64,9 +64,9 @@ const Fixture = struct {
             .nodes = &.{},
             .clusters = &.{},
             .edges = &.{},
-            .joins = self.joins,
-            .co_sets = self.sets[0..self.n_sets],
-            .channel_stamp_state = .complete,
+            .bundles = self.bundles,
+            .bundle_sets = self.sets[0..self.n_sets],
+            .bundle_stamp_state = .complete,
             .diagnostics = &.{},
             .budget = .{ .max_width = 80, .rung = 0 },
         };
@@ -76,7 +76,7 @@ const Fixture = struct {
 fn run(f: *Fixture) counts.Counts {
     const lat = f.lat();
     var c: counts.Counts = .{};
-    channels.check(cell.View.init(&lat), f.sk(), &c);
+    bundles.check(cell.View.init(&lat), f.sk(), &c);
     return c;
 }
 
@@ -86,9 +86,9 @@ fn detail(kind: lattice.CarrierKind) u8 {
 
 fn expectRecordPartition(c: counts.Counts) !void {
     try testing.expectEqual(
-        c.n_channel_carrier_records,
-        c.u_channel_record_owner_absent + c.u_channel_record_restates_owner +
-            c.n_channel_carrier_pairs,
+        c.n_bundle_carrier_records,
+        c.u_bundle_record_owner_absent + c.u_bundle_record_restates_owner +
+            c.n_bundle_carrier_pairs,
     );
     try testing.expectEqual(
         c.n_aux_records_attempted,
@@ -100,29 +100,29 @@ fn expectRecordPartition(c: counts.Counts) !void {
     );
     try testing.expectEqual(
         @as(u32, 1),
-        c.n_channel_stamp_complete + c.u_channel_stamp_unattempted +
-            c.u_channel_stamp_oom + c.u_channel_stamp_rail_invariant +
-            c.u_channel_roster_inconsistent,
+        c.n_bundle_stamp_complete + c.u_bundle_stamp_unattempted +
+            c.u_bundle_stamp_oom + c.u_bundle_stamp_rail_invariant +
+            c.u_bundle_roster_inconsistent,
     );
 }
 
 fn expectPairPartitions(c: counts.Counts) !void {
     try testing.expectEqual(
-        c.n_channel_carrier_pairs,
-        c.n_channel_pairs_compared + c.u_channel_identity_unavailable,
+        c.n_bundle_carrier_pairs,
+        c.n_bundle_pairs_compared + c.u_bundle_identity_unavailable,
     );
     try testing.expectEqual(
-        c.n_channel_pairs_compared,
-        c.m_channel_identity_agreed + c.u_channel_identity_disagreed,
+        c.n_bundle_pairs_compared,
+        c.m_bundle_identity_agreed + c.u_bundle_identity_disagreed,
     );
     try testing.expectEqual(
-        c.n_channel_carrier_pairs,
-        c.n_channel_details_compared + c.u_channel_detail_untested +
-            c.u_channel_detail_invalid + c.u_channel_detail_identity_unavailable,
+        c.n_bundle_carrier_pairs,
+        c.n_bundle_details_compared + c.u_bundle_detail_untested +
+            c.u_bundle_detail_invalid + c.u_bundle_detail_identity_unavailable,
     );
     try testing.expectEqual(
-        c.n_channel_details_compared,
-        c.m_channel_detail_agreed + c.u_channel_detail_disagreed,
+        c.n_bundle_details_compared,
+        c.m_bundle_detail_agreed + c.u_bundle_detail_disagreed,
     );
 }
 
@@ -130,7 +130,7 @@ const members_01 = [_]ledger.EdgeId{ 0, 1 };
 const members_0 = [_]ledger.EdgeId{0};
 const members_1 = [_]ledger.EdgeId{1};
 
-test "channels: all available carrier records enter the owner partition" {
+test "bundles: all available carrier records enter the owner partition" {
     var f: Fixture = .{};
     f.init();
     f.add(idx(1, 0), 0, detail(.merged_licensed));
@@ -138,15 +138,15 @@ test "channels: all available carrier records enter the owner partition" {
     f.add(idx(1, 0), 1, detail(.merged_foreign));
     const c = run(&f);
 
-    try testing.expectEqual(@as(u32, 3), c.n_channel_carrier_records);
-    try testing.expectEqual(@as(u32, 1), c.u_channel_record_owner_absent);
-    try testing.expectEqual(@as(u32, 1), c.u_channel_record_restates_owner);
-    try testing.expectEqual(@as(u32, 1), c.n_channel_carrier_pairs);
+    try testing.expectEqual(@as(u32, 3), c.n_bundle_carrier_records);
+    try testing.expectEqual(@as(u32, 1), c.u_bundle_record_owner_absent);
+    try testing.expectEqual(@as(u32, 1), c.u_bundle_record_restates_owner);
+    try testing.expectEqual(@as(u32, 1), c.n_bundle_carrier_pairs);
     try expectRecordPartition(c);
     try expectPairPartitions(c);
 }
 
-test "channels: every CarrierKind detail outcome is attributable" {
+test "bundles: every CarrierKind detail outcome is attributable" {
     var f: Fixture = .{};
     f.init();
     f.add(idx(1, 0), 1, detail(.merged_licensed)); // strangers: mismatch
@@ -156,67 +156,67 @@ test "channels: every CarrierKind detail outcome is attributable" {
     f.add(idx(1, 0), 5, 255);
     const c = run(&f);
 
-    try testing.expectEqual(@as(u32, 5), c.n_channel_carrier_pairs);
-    try testing.expectEqual(@as(u32, 3), c.n_channel_details_compared);
-    try testing.expectEqual(@as(u32, 2), c.m_channel_detail_agreed);
-    try testing.expectEqual(@as(u32, 1), c.u_channel_detail_disagreed);
-    try testing.expectEqual(@as(u32, 1), c.u_channel_detail_untested);
-    try testing.expectEqual(@as(u32, 1), c.u_channel_detail_invalid);
+    try testing.expectEqual(@as(u32, 5), c.n_bundle_carrier_pairs);
+    try testing.expectEqual(@as(u32, 3), c.n_bundle_details_compared);
+    try testing.expectEqual(@as(u32, 2), c.m_bundle_detail_agreed);
+    try testing.expectEqual(@as(u32, 1), c.u_bundle_detail_disagreed);
+    try testing.expectEqual(@as(u32, 1), c.u_bundle_detail_untested);
+    try testing.expectEqual(@as(u32, 1), c.u_bundle_detail_invalid);
     try expectRecordPartition(c);
     try expectPairPartitions(c);
     try testing.expectEqual(@as(u32, 0), c.defectTotal());
 }
 
-test "channels: filed detail mismatch is counted in both directions" {
+test "bundles: filed detail mismatch is counted in both directions" {
     var f: Fixture = .{};
     f.init();
-    f.sets[0] = .{ .origin = .fan_rail, .channel = 1, .members = &members_01 };
+    f.sets[0] = .{ .origin = .fan_rail, .bundle = 1, .members = &members_01 };
     f.n_sets = 1;
     f.add(idx(1, 0), 1, detail(.merged_foreign)); // claim unequal, identity equal
     var c = run(&f);
-    try testing.expectEqual(@as(u32, 1), c.u_channel_detail_disagreed);
+    try testing.expectEqual(@as(u32, 1), c.u_bundle_detail_disagreed);
 
     f.n_recs = 0;
     f.n_sets = 0;
     f.add(idx(1, 0), 1, detail(.merged_licensed)); // claim equal, identity unequal
     c = run(&f);
-    try testing.expectEqual(@as(u32, 1), c.u_channel_detail_disagreed);
+    try testing.expectEqual(@as(u32, 1), c.u_bundle_detail_disagreed);
 }
 
-test "channels: identity-versus-derived remains an independent comparison" {
+test "bundles: identity-versus-derived remains an independent comparison" {
     var f: Fixture = .{};
     f.init();
-    const join_members = [_]ledger.EdgeId{ 0, 1 };
-    const joins = [_]ledger.SelectedJoin{.{ .id = 0, .proposal = 0, .permission_group = 0, .members = &join_members }};
-    f.joins = .{ .selected_joins = &joins };
-    f.sets[0] = .{ .origin = .fan_rail, .channel = 1, .members = &members_0 };
-    f.sets[1] = .{ .origin = .fan_rail, .channel = 2, .members = &members_1 };
+    const bundle_members = [_]ledger.EdgeId{ 0, 1 };
+    const selected = [_]ledger.SelectedBundle{.{ .id = 0, .proposal = 0, .candidate_bundle = 0, .members = &bundle_members }};
+    f.bundles = .{ .selected_bundles = &selected };
+    f.sets[0] = .{ .origin = .fan_rail, .bundle = 1, .members = &members_0 };
+    f.sets[1] = .{ .origin = .fan_rail, .bundle = 2, .members = &members_1 };
     f.n_sets = 2;
     f.add(idx(1, 0), 1, detail(.merged_foreign));
     const c = run(&f);
 
-    try testing.expectEqual(@as(u32, 1), c.u_channel_identity_disagreed);
-    try testing.expectEqual(@as(u32, 1), c.m_channel_detail_agreed);
+    try testing.expectEqual(@as(u32, 1), c.u_bundle_identity_disagreed);
+    try testing.expectEqual(@as(u32, 1), c.m_bundle_detail_agreed);
     try testing.expectEqual(@as(u32, 0), c.defectTotal());
 
-    f.joins = .{};
-    f.sets[1].channel = 1;
+    f.bundles = .{};
+    f.sets[1].bundle = 1;
     const reverse_mismatch = run(&f);
-    try testing.expectEqual(@as(u32, 1), reverse_mismatch.u_channel_identity_disagreed);
-    try testing.expectEqual(@as(u32, 1), reverse_mismatch.u_channel_detail_disagreed);
+    try testing.expectEqual(@as(u32, 1), reverse_mismatch.u_bundle_identity_disagreed);
+    try testing.expectEqual(@as(u32, 1), reverse_mismatch.u_bundle_detail_disagreed);
 }
 
-test "channels: unavailable AUX is attributed and never called an absent population" {
+test "bundles: unavailable AUX is attributed and never called an absent population" {
     inline for (.{ lattice.AuxCollectionState.not_collected, lattice.AuxCollectionState.out_of_memory }) |state| {
         var f: Fixture = .{};
         f.init();
         f.aux_state = state;
         f.attempted = if (state == .out_of_memory) 3 else 0;
         const c = run(&f);
-        try testing.expectEqual(@as(u32, 0), c.u_channel_population_absent);
-        try testing.expectEqual(@as(u32, 1), c.u_channel_record_aux_unavailable);
-        try testing.expectEqual(@as(u32, 0), c.n_channel_carrier_records);
-        try testing.expectEqual(@as(u32, 0), c.n_channel_pairs_compared);
+        try testing.expectEqual(@as(u32, 0), c.u_bundle_population_absent);
+        try testing.expectEqual(@as(u32, 1), c.u_bundle_record_aux_unavailable);
+        try testing.expectEqual(@as(u32, 0), c.n_bundle_carrier_records);
+        try testing.expectEqual(@as(u32, 0), c.n_bundle_pairs_compared);
         if (state == .not_collected) {
             try testing.expectEqual(@as(u32, 1), c.u_aux_not_collected);
             try testing.expectEqual(@as(u32, 0), c.n_aux_records_attempted);
@@ -229,58 +229,58 @@ test "channels: unavailable AUX is attributed and never called an absent populat
     }
 }
 
-test "channels: complete empty AUX names the absent population" {
+test "bundles: complete empty AUX names the absent population" {
     var f: Fixture = .{};
     f.init();
     const c = run(&f);
-    try testing.expectEqual(@as(u32, 0), c.n_channel_carrier_records);
-    try testing.expectEqual(@as(u32, 1), c.u_channel_population_absent);
+    try testing.expectEqual(@as(u32, 0), c.n_bundle_carrier_records);
+    try testing.expectEqual(@as(u32, 1), c.u_bundle_population_absent);
     try testing.expectEqual(@as(u32, 0), c.u_aux_not_collected);
 }
 
-test "channels: every unavailable stamp state partitions both comparisons" {
+test "bundles: every unavailable stamp state partitions both comparisons" {
     inline for (.{
-        sketch.ChannelStampState.unattempted,
-        sketch.ChannelStampState.out_of_memory,
-        sketch.ChannelStampState.rail_invariant,
+        sketch.BundleStampState.unattempted,
+        sketch.BundleStampState.out_of_memory,
+        sketch.BundleStampState.rail_invariant,
     }) |state| {
         var f: Fixture = .{};
         f.init();
         f.add(idx(1, 0), 1, detail(.merged_licensed));
         const lat = f.lat();
         var s = f.sk();
-        s.channel_stamp_state = state;
+        s.bundle_stamp_state = state;
         var c: counts.Counts = .{};
-        channels.check(cell.View.init(&lat), s, &c);
-        try testing.expectEqual(@as(u32, 1), c.u_channel_identity_unavailable);
-        try testing.expectEqual(@as(u32, 1), c.u_channel_detail_identity_unavailable);
+        bundles.check(cell.View.init(&lat), s, &c);
+        try testing.expectEqual(@as(u32, 1), c.u_bundle_identity_unavailable);
+        try testing.expectEqual(@as(u32, 1), c.u_bundle_detail_identity_unavailable);
         switch (state) {
-            .unattempted => try testing.expectEqual(@as(u32, 1), c.u_channel_stamp_unattempted),
-            .out_of_memory => try testing.expectEqual(@as(u32, 1), c.u_channel_stamp_oom),
-            .rail_invariant => try testing.expectEqual(@as(u32, 1), c.u_channel_stamp_rail_invariant),
+            .unattempted => try testing.expectEqual(@as(u32, 1), c.u_bundle_stamp_unattempted),
+            .out_of_memory => try testing.expectEqual(@as(u32, 1), c.u_bundle_stamp_oom),
+            .rail_invariant => try testing.expectEqual(@as(u32, 1), c.u_bundle_stamp_rail_invariant),
             .complete => unreachable,
         }
         try expectPairPartitions(c);
     }
 }
 
-test "channels: complete stamp with an unnumbered roster is inconsistent" {
+test "bundles: complete stamp with an unnumbered roster is inconsistent" {
     var f: Fixture = .{};
     f.init();
     f.sets[0] = .{ .origin = .fan_rail, .members = &members_01 };
     f.n_sets = 1;
     f.add(idx(1, 0), 1, detail(.merged_licensed));
     const c = run(&f);
-    try testing.expectEqual(@as(u32, 1), c.u_channel_roster_inconsistent);
-    try testing.expectEqual(@as(u32, 1), c.u_channel_identity_unavailable);
-    try testing.expectEqual(@as(u32, 1), c.u_channel_detail_identity_unavailable);
+    try testing.expectEqual(@as(u32, 1), c.u_bundle_roster_inconsistent);
+    try testing.expectEqual(@as(u32, 1), c.u_bundle_identity_unavailable);
+    try testing.expectEqual(@as(u32, 1), c.u_bundle_detail_identity_unavailable);
     try expectPairPartitions(c);
 }
 
-test "channels: audit leaves cells, records, and sketch payload unchanged" {
+test "bundles: audit leaves cells, records, and sketch payload unchanged" {
     var f: Fixture = .{};
     f.init();
-    f.sets[0] = .{ .origin = .fan_rail, .channel = 1, .members = &members_01 };
+    f.sets[0] = .{ .origin = .fan_rail, .bundle = 1, .members = &members_01 };
     f.n_sets = 1;
     f.add(idx(1, 0), 1, detail(.merged_foreign));
     const before_cells = f.cells;
@@ -291,5 +291,5 @@ test "channels: audit leaves cells, records, and sketch payload unchanged" {
     _ = run(&f);
     try testing.expectEqualSlices(lattice.Cell, &before_cells, &f.cells);
     try testing.expectEqualSlices(lattice.Aux, before_recs[0..n_recs], f.recs[0..n_recs]);
-    try testing.expectEqualSlices(ledger.CoSet, before_sets[0..n_sets], f.sets[0..n_sets]);
+    try testing.expectEqualSlices(ledger.Bundle, before_sets[0..n_sets], f.sets[0..n_sets]);
 }

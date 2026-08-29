@@ -67,12 +67,12 @@ pub fn sketchOf(edges: []const sk.EdgePath, rails: []const sk.Rail) sk.Sketch {
     };
 }
 
-/// Attach a production-shaped realized plan (join_permits + realized over
+/// Attach a production-shaped realized plan (bundle_permits + realized over
 /// the candidate's own geometry).
 pub fn realized(a: std.mem.Allocator, g: sg.SemGraph, s: sk.Sketch) !sk.Sketch {
     const plan = (try planner.build(a, g, .joined)).plan;
     var out = s;
-    out.joins = (try jp.realize(a, plan, s)).plan;
+    out.bundles = (try jp.realize(a, plan, s)).plan;
     return out;
 }
 
@@ -94,7 +94,7 @@ pub fn zeroCounts(counts: vc.Counts) bool {
     return counts.ciTotal() == 0 and counts.skipped_clustered == 0;
 }
 
-// V-01 geometry: carve-out-admitted TD fan-out trunk S->{A,B,C}.
+// V-01 geometry: carve-out-admitted TD fan-out rail S->{A,B,C}.
 pub const fan_nodes = [_]sg.Node{ node(0, "S"), node(1, "A"), node(2, "B"), node(3, "C") };
 pub const fan_edges = [_]sg.Edge{ edge(0, 0, 1), edge(1, 0, 2), edge(2, 0, 3) };
 pub const fan_stem = [_]sk.Point{ .{ .x = 10, .y = 2 }, .{ .x = 10, .y = 4 } };
@@ -110,7 +110,7 @@ pub fn fanRail(taps: []const sk.Tap, rail_hi: i32) sk.Rail {
     return .{ .pivot = 0, .stem = &fan_stem, .crossbar = .{ .{ .x = 4, .y = 4 }, .{ .x = rail_hi, .y = 4 } }, .taps = taps, .kind = .solid, .role = .fan_out_dropper };
 }
 
-test "V-D-REACH-01 (vector): admitted fan-out trunk is one component, Cartesian == declared" {
+test "V-D-REACH-01 (vector): admitted fan-out rail is one component, Cartesian == declared" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
@@ -119,7 +119,7 @@ test "V-D-REACH-01 (vector): admitted fan-out trunk is one component, Cartesian 
     const bbs = [_]sk.Rail{fanRail(&taps, 16)};
     const g = graphOf(&fan_nodes, &fan_edges);
     const s = try realized(a, g, sketchOf(&.{}, &bbs));
-    try expectEqual(@as(usize, 1), s.joins.selected_joins.len);
+    try expectEqual(@as(usize, 1), s.bundles.selected_bundles.len);
 
     const report = try vc.validate(a, s, try nodeKeys(a, &fan_nodes), .flat);
     try expect(zeroCounts(report.counts));
@@ -134,10 +134,10 @@ test "V-D-REACH-01 (vector): admitted fan-out trunk is one component, Cartesian 
     // Shared table shape: ids dense from 0; bridge_ids structurally empty.
     try expectEqual(@as(pb.ComponentId, 0), comp.id);
     try expectEqual(@as(usize, 0), comp.bridge_ids.len);
-    try expectEqual(@as(usize, 1), comp.selected_join_ids.len);
+    try expectEqual(@as(usize, 1), comp.selected_bundle_ids.len);
 }
 
-test "V-D-REACH-02 (vector): admitted fan-in trunk is one component, 3x1 pairs" {
+test "V-D-REACH-02 (vector): admitted fan-in rail is one component, 3x1 pairs" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
@@ -152,7 +152,7 @@ test "V-D-REACH-02 (vector): admitted fan-in trunk is one component, 3x1 pairs" 
     };
     const bbs = [_]sk.Rail{.{ .pivot = 3, .stem = &stem, .crossbar = .{ .{ .x = 4, .y = 6 }, .{ .x = 16, .y = 6 } }, .taps = &taps, .kind = .solid, .role = .fan_in_dropper }};
     const s = try realized(a, graphOf(&nodes, &edges), sketchOf(&.{}, &bbs));
-    try expectEqual(@as(usize, 1), s.joins.selected_joins.len);
+    try expectEqual(@as(usize, 1), s.bundles.selected_bundles.len);
 
     const report = try vc.validate(a, s, try nodeKeys(a, &nodes), .flat);
     try expect(zeroCounts(report.counts));
@@ -185,7 +185,7 @@ fn k33Graph(a: std.mem.Allocator) !struct { g: sg.SemGraph, paths: []sk.EdgePath
     return .{ .g = graphOf(&k33_nodes, edges), .paths = paths };
 }
 
-test "V-D-REACH-04(b) (vector): a complete K3,3 has no union channel — its members stay separate owners" {
+test "V-D-REACH-04(b) (vector): a complete K3,3 has no union bundle — its members stay separate owners" {
     // A complete mesh has no shared endpoint, so no element speaks for one run
     // across all nine edges. Every member is its own owner: the collinear
     // sharing the geometry still carries is CROSS-owner and fires
@@ -253,7 +253,7 @@ test "V-D-REACH-09(b) (vector): declared edge with no ink and no terminals fires
     var s = sketchOf(&paths, &.{});
     // Fault-injected drop: edge 1 (C->D) is declared in the plan but has
     // no geometry and no terminal records.
-    s.joins = .{
+    s.bundles = .{
         .memberships = &.{
             .{ .edge = 0, .source = null, .target = null },
             .{ .edge = 1, .source = null, .target = null },
@@ -342,7 +342,7 @@ test "V-D-REACH-17 (vector): duplicate trace — one declared edge as two disjoi
         path(0, 0, 1, &.{ .{ .x = 8, .y = 2 }, .{ .x = 8, .y = 6 } }),
     };
     var s = sketchOf(&paths, &.{});
-    s.joins = .{
+    s.bundles = .{
         .memberships = &.{.{ .edge = 0, .source = null, .target = null }},
         .terminal_ports = &.{ tp(0, 0, .source_exit), tp(1, 0, .target_entry) },
     };
@@ -351,22 +351,22 @@ test "V-D-REACH-17 (vector): duplicate trace — one declared edge as two disjoi
     try expectEqual(@as(usize, 2), report.components.len);
 }
 
-test "V-D-REACH-18 (vector): broken trunk rail strands a member — reach_join_split + reach_split_trace" {
+test "V-D-REACH-18 (vector): broken rail strands a member — reach_bundle_split + reach_split_trace" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
 
-    // V-01's trunk, but the rail stops at x=12 while member e2's tap sits
-    // at x=16: the tap drop disconnects from the trunk.
+    // V-01's rail, but the rail stops at x=12 while member e2's tap sits
+    // at x=16: the tap drop disconnects from the rail.
     const taps = fanTaps(false);
     const bbs = [_]sk.Rail{fanRail(&taps, 12)};
     const g = graphOf(&fan_nodes, &fan_edges);
     const s = try realized(a, g, sketchOf(&.{}, &bbs));
-    try expectEqual(@as(usize, 1), s.joins.selected_joins.len);
+    try expectEqual(@as(usize, 1), s.bundles.selected_bundles.len);
 
     const keys = try nodeKeys(a, &fan_nodes);
     const report = try vc.validate(a, s, keys, .flat);
-    try expectEqual(@as(u32, 1), report.counts.join_split);
+    try expectEqual(@as(u32, 1), report.counts.bundle_split);
     try expectEqual(@as(u32, 1), report.counts.split_trace);
     try expectEqual(@as(usize, 2), report.components.len);
     // The stranded declared pair (S,C) is recorded on the component
@@ -382,7 +382,7 @@ test "V-D-REACH-18 (vector): broken trunk rail strands a member — reach_join_s
     try expectEqual(@as(usize, 1), missing_total);
 }
 
-test "a co-realized edge is not charged as a missing declared edge" {
+test "a discharged edge is not charged as a missing declared edge" {
     // The clique edge A—B was discharged by an all-arrow-free rail: it owns no
     // geometry BY DESIGN, because the crossbar between the two taps is its
     // rendering. Charging it as absent would report the law working as a loss.
@@ -403,7 +403,7 @@ test "a co-realized edge is not charged as a missing declared edge" {
     const before = try vc.validate(a, charged, keys, .flat);
     try expectEqual(@as(u32, 1), before.counts.missing_declared);
 
-    charged.joins.co_realized = &.{2};
+    charged.bundles.discharged = &.{2};
     const after = try vc.validate(a, charged, keys, .flat);
     try expectEqual(@as(u32, 0), after.counts.missing_declared);
 }

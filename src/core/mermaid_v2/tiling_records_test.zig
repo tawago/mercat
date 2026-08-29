@@ -203,7 +203,7 @@ fn ownerExists(s: sketch.Sketch, owner: cell.LabelOwner) bool {
         },
         .edge => {
             for (s.edges) |ep| if (ep.id == owner.id) return true;
-            for (s.rails) |bb| for (bb.taps) |tap| {
+            for (s.rails) |rail| for (rail.taps) |tap| {
                 if (tap.edge == owner.id) return true;
             };
         },
@@ -348,10 +348,10 @@ test "every rail-membership record names an edge the fan actually serves" {
 
 /// True when `edge` is a tap of a rail of `polarity`.
 fn railTap(s: sketch.Sketch, edge: u32, polarity: lattice.RailPolarity) bool {
-    for (s.rails) |bb| {
-        const fan_in = bb.role == .fan_in_rail or bb.role == .fan_in_dropper;
+    for (s.rails) |rail| {
+        const fan_in = rail.role == .fan_in_rail or rail.role == .fan_in_dropper;
         if ((polarity == .in) != fan_in) continue;
-        for (bb.taps) |tap| if (tap.edge == edge) return true;
+        for (rail.taps) |tap| if (tap.edge == edge) return true;
     }
     return false;
 }
@@ -512,12 +512,12 @@ fn recordedFamilyAt(lat: lattice.Lattice, x: u32, y: u32) ?lattice.RailPolarity 
 fn onOwnedRail(s: sketch.Sketch, x: u32, y: u32) bool {
     const px: i32 = @intCast(x);
     const py: i32 = @intCast(y);
-    for (s.rails) |bb| {
-        if (py == bb.crossbar[0].y and px >= bb.crossbar[0].x and px <= bb.crossbar[1].x) return true;
+    for (s.rails) |rail| {
+        if (py == rail.crossbar[0].y and px >= rail.crossbar[0].x and px <= rail.crossbar[1].x) return true;
         var i: usize = 0;
-        while (i + 1 < bb.stem.len) : (i += 1) {
-            const p = bb.stem[i];
-            const q = bb.stem[i + 1];
+        while (i + 1 < rail.stem.len) : (i += 1) {
+            const p = rail.stem[i];
+            const q = rail.stem[i + 1];
             if (p.x == q.x and p.x == px and py >= @min(p.y, q.y) and py <= @max(p.y, q.y)) return true;
             if (p.y == q.y and p.y == py and px >= @min(p.x, q.x) and px <= @max(p.x, q.x)) return true;
         }

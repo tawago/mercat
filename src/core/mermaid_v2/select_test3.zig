@@ -30,10 +30,10 @@ const LABELED_FAN =
     \\
 ;
 
-// These tests exercise label policy, not join realization; scope is forced
-// to skipped_clustered so join application stays inert (the pre-absorption
+// These tests exercise label policy, not bundle realization; scope is forced
+// to skipped_clustered so bundle application stays inert (the pre-absorption
 // literal `false` these tests were written against).
-fn permitsFor(a: std.mem.Allocator, g: @TypeOf(@as(sem_graph.SemGraph, undefined))) !ledger.JoinPermits {
+fn permitsFor(a: std.mem.Allocator, g: @TypeOf(@as(sem_graph.SemGraph, undefined))) !ledger.BundlePermits {
     var plan = (try permits_mod.build(a, g, .joined)).plan;
     plan.scope = .skipped_clustered;
     return plan;
@@ -332,7 +332,7 @@ fn bridgePinSketch(cross_x: i32, polys: *[2][2]sketch_mod.Point, nodes: *[2]sket
 
 test "bridge variants: the real-raster score decides, and flips when the counts flip" {
     // The deleted proxy (bridge_scene.polyScore + the dodged halving and the
-    // trunk sceneScore strict win) was "blind to classification subtleties":
+    // rail sceneScore strict win) was "blind to classification subtleties":
     // it modeled contact, never the raster's verdict classes. This pin puts a
     // plain candidate and a bridge twin in front of scoreCandidates where the
     // ONLY difference is one such subtlety — an arrowhead transit the audit
@@ -375,7 +375,7 @@ test "bridge variants: the real-raster score decides, and flips when the counts 
     _ = score_mod2.W_ARROWHEAD_TRANSIT; // the priced counter this pin rides on
 }
 
-test "bridge variants: a clustered graph enumerates dodged/trunked twins behind the raw set" {
+test "bridge variants: a clustered graph enumerates dodged/railed twins behind the raw set" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
@@ -385,7 +385,7 @@ test "bridge variants: a clustered graph enumerates dodged/trunked twins behind 
     const flat_permits = try permitsFor(a, flat);
     const flat_set = try select.enumerateAll(a, flat, &flat_permits, 120);
     for (flat_set.merged) |c| {
-        try std.testing.expect(c.transform != .bridge_dodged and c.transform != .bridge_trunked);
+        try std.testing.expect(c.transform != .bridge_dodged and c.transform != .bridge_railed);
     }
 
     // Clustered graph with cross-border edges: twins may appear (a twin
@@ -411,7 +411,7 @@ test "bridge variants: a clustered graph enumerates dodged/trunked twins behind 
     for (set.merged, 0..) |c, i| {
         switch (c.transform) {
             .raw => last_raw = i,
-            .bridge_dodged, .bridge_trunked => {
+            .bridge_dodged, .bridge_railed => {
                 first_bridge = @min(first_bridge, i);
                 // A retained twin differs from its rung's raw base.
                 for (set.merged) |base| {

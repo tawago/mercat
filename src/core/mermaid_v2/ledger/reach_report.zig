@@ -34,7 +34,7 @@ pub const Counts = struct {
     missing_declared: u32 = 0,
     split_trace: u32 = 0,
     duplicate_trace: u32 = 0,
-    join_split: u32 = 0,
+    bundle_split: u32 = 0,
     independent_joined: u32 = 0,
     cross_connected: u32 = 0,
     one_sided_adjacency: u32 = 0,
@@ -72,8 +72,8 @@ pub const Counts = struct {
 };
 
 /// One illegal cross-owner sharing event (`reach_unknown_continuation`):
-/// the first offending cell (row/col scan order) of one cross-channel
-/// unit pair. Owning declared edges are null for a realized whole-trunk
+/// the first offending cell (row/col scan order) of one cross-bundle
+/// unit pair. Owning declared edges are null for a realized whole-rail
 /// participant. Canonical after `canonicalizeSharing` (D-REACH item 12):
 /// within an event the smaller owner key is `a_edge`, and the list sorts
 /// by (cell, owner keys) — never by writer/unit index.
@@ -85,7 +85,7 @@ pub const SharingEvent = struct {
 };
 
 /// One declared edge as read from the candidate's own geometry
-/// (EdgePath.id/from/to + trunk taps — D-IR item 9).
+/// (EdgePath.id/from/to + rail taps — D-IR item 9).
 pub const DeclaredEdge = struct { id: pb.EdgeId, from: sk.NodeId, to: sk.NodeId };
 
 pub const Report = struct {
@@ -94,7 +94,7 @@ pub const Report = struct {
     /// Declared relation the oracle checked against (geometry-derived).
     declared: []const DeclaredEdge = &.{},
     /// Declared edges with no conductive ink and no terminals at all
-    /// (`reach_missing_declared`), as canonical `joins.memberships` ranks.
+    /// (`reach_missing_declared`), as canonical `bundles.memberships` ranks.
     missing_declared: []const u32 = &.{},
     sharing: []const SharingEvent = &.{},
     skipped_clustered: bool = false,
@@ -106,9 +106,9 @@ pub const Report = struct {
 // -- Internal assembly types (shared with reach_vector.zig) --------
 
 /// One typed terminal occurrence: a geometry attachment matched to its
-/// `joins.terminal_ports` record, placed in a connectivity component.
+/// `bundles.terminal_ports` record, placed in a connectivity component.
 /// `opposite` is the owning edge's other endpoint — the deterministic
-/// tie-break for equal-(node, side, cell) trunk-pivot terminals, keeping
+/// tie-break for equal-(node, side, cell) rail-pivot terminals, keeping
 /// numeric ids out of every ordering decision.
 pub const Occurrence = struct {
     edge: pb.EdgeId,
@@ -119,13 +119,13 @@ pub const Occurrence = struct {
     port: u32,
 };
 
-/// One connectivity component under assembly (a channel sub-component).
+/// One connectivity component under assembly (a bundle sub-component).
 pub const Comp = struct {
     chan: usize,
     first_cell: geom.Cell,
     occ: std.ArrayListUnmanaged(Occurrence) = .empty,
     missing: std.ArrayListUnmanaged(pb.NodePair) = .empty,
-    joins: std.ArrayListUnmanaged(pb.RealizedJoinId) = .empty,
+    bundles: std.ArrayListUnmanaged(pb.SelectedBundleId) = .empty,
 };
 
 pub fn nodeKey(node_keys: []const []const u8, id: sk.NodeId) []const u8 {
@@ -199,7 +199,7 @@ const CompOrder = struct {
 // -- Canonical sharing-event ordering (D-REACH item 12, post-review F1) -----
 
 /// An owner's canonical key: the declared edge's endpoint node keys. A
-/// whole-trunk participant (null edge) keys as the empty pair and sorts
+/// whole-rail participant (null edge) keys as the empty pair and sorts
 /// first, mirroring `labelOrder`'s null-first rule; every edge-owned unit
 /// is in `declared` by construction (units and declared edges are built
 /// from the same s.edges/s.rails).
@@ -264,7 +264,7 @@ fn dedupPairs(alloc: std.mem.Allocator, keys: []const []const u8, pairs: []const
 
 /// Assemble the ordered component table: per component the typed source/
 /// target terminals, the reachable Cartesian pairs, the declared pairs it
-/// represents, the missing/extra defect lists, and its selected-join ids.
+/// represents, the missing/extra defect lists, and its selected-bundle ids.
 /// `bridge_ids` stays empty in the no-bridge P1a slice. Also charges
 /// `counts.undeclared_pair` for every extra pair (clause 10 bullet 1).
 pub fn buildTable(
@@ -326,8 +326,8 @@ pub fn buildTable(
         }
         counts.undeclared_pair += @intCast(extra.items.len);
 
-        const join_ids = try alloc.dupe(pb.RealizedJoinId, comp.joins.items);
-        std.mem.sort(pb.RealizedJoinId, join_ids, {}, std.sort.asc(pb.RealizedJoinId));
+        const bundle_ids = try alloc.dupe(pb.SelectedBundleId, comp.bundles.items);
+        std.mem.sort(pb.SelectedBundleId, bundle_ids, {}, std.sort.asc(pb.SelectedBundleId));
 
         entries[rank] = .{
             .id = @intCast(rank),
@@ -337,7 +337,7 @@ pub fn buildTable(
             .reachable_pairs = reachable_sorted,
             .missing_declared_pairs = try dedupPairs(alloc, node_keys, comp.missing.items),
             .extra_undeclared_pairs = try extra.toOwnedSlice(alloc),
-            .selected_join_ids = join_ids,
+            .selected_bundle_ids = bundle_ids,
             .bridge_ids = &.{},
         };
     }
@@ -377,7 +377,7 @@ pub fn serialize(alloc: std.mem.Allocator, report: Report, node_keys: []const []
         try writePairs(alloc, &out, " declared=", comp.declared_pairs_in_component, node_keys);
         try writePairs(alloc, &out, " missing=", comp.missing_declared_pairs, node_keys);
         try writePairs(alloc, &out, " extra=", comp.extra_undeclared_pairs, node_keys);
-        try appendf(alloc, &out, " joins={d} bridges={d}\n", .{ comp.selected_join_ids.len, comp.bridge_ids.len });
+        try appendf(alloc, &out, " bundles={d} bridges={d}\n", .{ comp.selected_bundle_ids.len, comp.bridge_ids.len });
     }
     for (report.sharing) |ev| {
         try appendf(alloc, &out, "sharing ({d},{d}) ", .{ ev.y, ev.x });
@@ -400,7 +400,7 @@ pub fn serialize(alloc: std.mem.Allocator, report: Report, node_keys: []const []
 }
 
 fn writeOwner(alloc: std.mem.Allocator, out: *std.ArrayListUnmanaged(u8), declared: []const DeclaredEdge, node_keys: []const []const u8, edge: ?pb.EdgeId) Error!void {
-    const id = edge orelse return out.appendSlice(alloc, "trunk");
+    const id = edge orelse return out.appendSlice(alloc, "rail");
     const d = declaredById(declared, id) orelse return out.appendSlice(alloc, "?");
     try appendf(alloc, out, "{s}->{s}", .{ nodeKey(node_keys, d.from), nodeKey(node_keys, d.to) });
 }

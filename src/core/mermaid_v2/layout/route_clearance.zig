@@ -1,4 +1,4 @@
-//! Cross-channel vector clearance for candidate edge routes.
+//! Cross-bundle vector clearance for candidate edge routes.
 
 const std = @import("std");
 const pb = @import("../base/ledger.zig");
@@ -21,21 +21,21 @@ const Pass = struct {
 const CellMap = std.AutoArrayHashMapUnmanaged(Cell, Pass);
 
 /// True when `polyline` has a non-transversal cell contact with an existing
-/// edge from another ownership channel.
+/// edge from another ownership bundle.
 pub fn conflicts(
     a: std.mem.Allocator,
     edge: pb.EdgeId,
     kind: sk.EdgeKind,
     polyline: []const sk.Point,
     existing: []const sk.EdgePath,
-    joins: pb.RealizedJoins,
+    bundles: pb.RealizedBundles,
 ) error{OutOfMemory}!bool {
     _ = kind;
     var candidate = try cells(a, polyline);
     defer candidate.deinit(a);
     for (existing) |other| {
         if (other.kind == .invisible) continue;
-        if (sameChannel(edge, other.id, joins)) continue;
+        if (sameBundle(edge, other.id, bundles)) continue;
         var occupied = try cells(a, other.polyline);
         defer occupied.deinit(a);
         for (candidate.keys()) |cell| {
@@ -50,10 +50,10 @@ pub fn conflicts(
 pub fn conflictsRails(a: std.mem.Allocator, polyline: []const sk.Point, rails: []const sk.Rail) error{OutOfMemory}!bool {
     var candidate = try cells(a, polyline);
     defer candidate.deinit(a);
-    for (rails) |bb| {
-        if (try conflictsPolyline(a, candidate, bb.stem, bb.pivot_arrow != .none, false)) return true;
-        if (try conflictsPolyline(a, candidate, &bb.crossbar, false, false)) return true;
-        for (bb.taps) |tap| {
+    for (rails) |rail| {
+        if (try conflictsPolyline(a, candidate, rail.stem, rail.pivot_arrow != .none, false)) return true;
+        if (try conflictsPolyline(a, candidate, &rail.crossbar, false, false)) return true;
+        for (rail.taps) |tap| {
             const segment = [_]sk.Point{ tap.at, tap.landing };
             if (try conflictsPolyline(a, candidate, &segment, false, tap.arrow != .none)) return true;
         }
@@ -64,10 +64,10 @@ pub fn conflictsRails(a: std.mem.Allocator, polyline: []const sk.Point, rails: [
 pub fn conflictsRailArrows(a: std.mem.Allocator, polyline: []const sk.Point, rails: []const sk.Rail, from: pb.NodeId, to: pb.NodeId) error{OutOfMemory}!bool {
     var candidate = try cells(a, polyline);
     defer candidate.deinit(a);
-    for (rails) |bb| {
+    for (rails) |rail| {
         for (candidate.keys()) |cell| {
-            if ((bb.pivot == from or bb.pivot == to) and bb.pivot_arrow != .none and arrowPoint(bb.stem, cell, true, false)) return true;
-            for (bb.taps) |tap| {
+            if ((rail.pivot == from or rail.pivot == to) and rail.pivot_arrow != .none and arrowPoint(rail.stem, cell, true, false)) return true;
+            for (rail.taps) |tap| {
                 if (tap.node != from and tap.node != to) continue;
                 const segment = [_]sk.Point{ tap.at, tap.landing };
                 if (tap.arrow != .none and arrowPoint(&segment, cell, false, true)) return true;
@@ -80,31 +80,31 @@ pub fn conflictsRailArrows(a: std.mem.Allocator, polyline: []const sk.Point, rai
 pub fn conflictsRailJunctions(a: std.mem.Allocator, polyline: []const sk.Point, rails: []const sk.Rail) error{OutOfMemory}!bool {
     var candidate = try cells(a, polyline);
     defer candidate.deinit(a);
-    for (rails) |bb| {
-        if (bb.stem.len != 0) {
-            const pivot = bb.stem[bb.stem.len - 1];
+    for (rails) |rail| {
+        if (rail.stem.len != 0) {
+            const pivot = rail.stem[rail.stem.len - 1];
             if (candidate.contains(.{ .x = pivot.x, .y = pivot.y })) return true;
         }
-        for (bb.taps) |tap| {
+        for (rail.taps) |tap| {
             if (candidate.contains(.{ .x = tap.at.x, .y = tap.at.y })) return true;
         }
     }
     return false;
 }
 
-pub fn conflictsReservedDepartures(a: std.mem.Allocator, edge: pb.EdgeId, polyline: []const sk.Point, placements: []const sk.NodePlacement, edge_ports: anytype, joins: pb.RealizedJoins) error{OutOfMemory}!bool {
+pub fn conflictsReservedDepartures(a: std.mem.Allocator, edge: pb.EdgeId, polyline: []const sk.Point, placements: []const sk.NodePlacement, edge_ports: anytype, bundles: pb.RealizedBundles) error{OutOfMemory}!bool {
     var candidate = try cells(a, polyline);
     defer candidate.deinit(a);
     for (edge_ports) |item| {
         if (item.edge == edge) continue;
-        // A selected trunk's members share one departure by design (attribution-only
+        // A selected rail's members share one departure by design (attribution-only
         // merged ink), so they must not reserve departures against each other.
-        // guarded-by: route_clearance_test.zig "reserved departures exempt same selected trunk"
-        if (sameChannel(edge, item.edge, joins)) continue;
-        // A co-realized edge's entire rendering IS a rail span: it owns no
+        // guarded-by: route_clearance_test.zig "reserved departures exempt same selected rail"
+        if (sameBundle(edge, item.edge, bundles)) continue;
+        // A discharged edge's entire rendering IS a rail span: it owns no
         // polyline and no port, so its port allocation reserves nothing.
-        // guarded-by: route_clearance_test.zig "a co-realized edge's port allocation reserves no departure"
-        if (contains(joins.co_realized, item.edge)) continue;
+        // guarded-by: route_clearance_test.zig "a discharged edge's port allocation reserves no departure"
+        if (contains(bundles.discharged, item.edge)) continue;
         const placement = placementById(placements, item.source.node) orelse continue;
         const point = offNodePoint(placement, item.source);
         const theirs = candidate.get(.{ .x = point.x, .y = point.y }) orelse continue;
@@ -154,24 +154,24 @@ fn conflictsPolyline(a: std.mem.Allocator, candidate: CellMap, points: []const s
 }
 
 /// True when a candidate either shares a non-transversal cell with another
-/// ownership channel or touches a foreign node, including its border cells.
+/// ownership bundle or touches a foreign node, including its border cells.
 pub fn blocked(
     a: std.mem.Allocator,
     edge: pb.EdgeId,
     kind: sk.EdgeKind,
     polyline: []const sk.Point,
     existing: []const sk.EdgePath,
-    joins: pb.RealizedJoins,
+    bundles: pb.RealizedBundles,
     placements: []const sk.NodePlacement,
     from: pb.NodeId,
     to: pb.NodeId,
 ) error{OutOfMemory}!bool {
     if (touchesForeignNode(polyline, placements, from, to)) return true;
-    return conflicts(a, edge, kind, polyline, existing, joins);
+    return conflicts(a, edge, kind, polyline, existing, bundles);
 }
 
-pub fn isIndependent(edge: pb.EdgeId, joins: pb.RealizedJoins) bool {
-    for (joins.memberships) |membership| {
+pub fn isIndependent(edge: pb.EdgeId, bundles: pb.RealizedBundles) bool {
+    for (bundles.memberships) |membership| {
         if (membership.edge != edge) continue;
         inline for ([2]?pb.MembershipDisposition{ membership.source, membership.target }) |disposition| {
             if (disposition) |value| if (value == .independent) return true;
@@ -185,11 +185,11 @@ pub fn isIndependent(edge: pb.EdgeId, joins: pb.RealizedJoins) bool {
 /// ACCEPT a route — the exact break condition inlined at those loops. Callers
 /// that MUTATE a polyline after routing (the base-approach GROW in
 /// routing_terminal.zig) use this to re-validate the mutated geometry against
-/// rails and independent-join reservations, reverting to the ungrown route
-/// on failure. When there are no realized joins there is nothing to clear —
-/// no rails, no junctions, no join-attributed reservations — so it returns
-/// true (the plain non-join path is cleared by the route builders themselves).
-/// All four gates run unconditionally: foreign-node/cross-channel contact
+/// rails and independent-bundle reservations, reverting to the ungrown route
+/// on failure. When there are no realized bundles there is nothing to clear —
+/// no rails, no junctions, no bundle-attributed reservations — so it returns
+/// true (the plain non-bundle path is cleared by the route builders themselves).
+/// All four gates run unconditionally: foreign-node/cross-bundle contact
 /// (T1/I2), rail junctions (I2: unrelated ink over an owner-set change),
 /// rail arrowheads, and reserved departures are independent legality facts,
 /// never alternatives.
@@ -204,15 +204,15 @@ pub fn polylineClears(
     rails: []const sk.Rail,
     placements: []const sk.NodePlacement,
     edge_ports: anytype,
-    joins: pb.RealizedJoins,
+    bundles: pb.RealizedBundles,
     from: pb.NodeId,
     to: pb.NodeId,
 ) error{OutOfMemory}!bool {
-    if (joins.memberships.len == 0) return true;
-    return !try blocked(a, edge, kind, polyline, existing, joins, placements, from, to) and
+    if (bundles.memberships.len == 0) return true;
+    return !try blocked(a, edge, kind, polyline, existing, bundles, placements, from, to) and
         !try conflictsRailJunctions(a, polyline, rails) and
         !try conflictsRailArrows(a, polyline, rails, from, to) and
-        !try conflictsReservedDepartures(a, edge, polyline, placements, edge_ports, joins);
+        !try conflictsReservedDepartures(a, edge, polyline, placements, edge_ports, bundles);
 }
 
 /// How far the outside-detour search may widen before it gives up.
@@ -360,7 +360,7 @@ pub fn clearInvisiblePath(
     port_to: sk.Port,
     placements: []const sk.NodePlacement,
     existing: []const sk.EdgePath,
-    joins: pb.RealizedJoins,
+    bundles: pb.RealizedBundles,
 ) error{OutOfMemory}![]sk.Point {
     var min_x = placements[0].rect.x;
     var max_x = placements[0].rect.right() - 1;
@@ -375,12 +375,12 @@ pub fn clearInvisiblePath(
     var x = min_x;
     while (x <= max_x) : (x += 1) {
         const poly = try dogleg(a, from, to, port_from, port_to, x, true);
-        if (!try blocked(a, edge, kind, poly, existing, joins, placements, from.id, to.id)) return poly;
+        if (!try blocked(a, edge, kind, poly, existing, bundles, placements, from.id, to.id)) return poly;
     }
     var y = min_y;
     while (y <= max_y) : (y += 1) {
         const poly = try dogleg(a, from, to, port_from, port_to, y, false);
-        if (!try blocked(a, edge, kind, poly, existing, joins, placements, from.id, to.id)) return poly;
+        if (!try blocked(a, edge, kind, poly, existing, bundles, placements, from.id, to.id)) return poly;
     }
     return a.alloc(sk.Point, 0);
 }
@@ -422,9 +422,9 @@ fn portPoint(placement: sk.NodePlacement, port: sk.Port) sk.Point {
     };
 }
 
-fn sameChannel(a: pb.EdgeId, b: pb.EdgeId, joins: pb.RealizedJoins) bool {
-    for (joins.selected_joins) |join| {
-        if (contains(join.members, a) and contains(join.members, b)) return true;
+fn sameBundle(a: pb.EdgeId, b: pb.EdgeId, bundles: pb.RealizedBundles) bool {
+    for (bundles.selected_bundles) |sel| {
+        if (contains(sel.members, a) and contains(sel.members, b)) return true;
     }
     return false;
 }

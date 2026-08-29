@@ -79,13 +79,13 @@ test "rail taps stay in sync with their target node's post-shift position" {
 
     // Exactly one rail, with 2 taps (C1, C2).
     try testing.expectEqual(@as(usize, 1), s.rails.len);
-    const bb = s.rails[0];
-    try testing.expectEqual(@as(usize, 2), bb.taps.len);
+    const rail = s.rails[0];
+    try testing.expectEqual(@as(usize, 2), rail.taps.len);
 
     // Every tap must land exactly on its target's final (post-shift) north
     // border — the same shift that moved `s.nodes` must have moved the
     // rail by the same amount.
-    for (bb.taps) |tap| {
+    for (rail.taps) |tap| {
         const child = findById2(s.nodes, tap.node);
         const want_x = child.rect.x + @as(i32, @intCast(child.rect.w / 2));
         try testing.expectEqual(want_x, tap.landing.x);
@@ -100,7 +100,7 @@ test "fan_rail.blocked rejects a built rail whose tap drop touches a foreign nod
     // (so the stem and rail spans stay clear); a foreign box sits exactly
     // on Q's tap-drop column, in the one row between the rail and Q's top
     // (a foreign node's owned cells, border included). `blocked` must
-    // reject this artifact rather than let raster amputate the trunk.
+    // reject this artifact rather than let raster amputate the rail.
     const p = sketch.NodePlacement{ .id = 0, .rect = .{ .x = 20, .y = 0, .w = 10, .h = 3 }, .shape = .rect, .lines = &.{}, .cluster_id = null }; // mid x = 25
     const q = sketch.NodePlacement{ .id = 1, .rect = .{ .x = 30, .y = 12, .w = 10, .h = 3 }, .shape = .rect, .lines = &.{}, .cluster_id = null }; // mid x = 35
     const other = sketch.NodePlacement{ .id = 2, .rect = .{ .x = 60, .y = 12, .w = 10, .h = 3 }, .shape = .rect, .lines = &.{}, .cluster_id = null }; // mid x = 65
@@ -297,7 +297,7 @@ test "labeled fan-OUT rail lifts the crossbar for a 4-cell dropper when the gap 
 test "a fan whose peers were lifted onto separate lanes builds no rail" {
     // A rail is one crossbar on one row. When a lane pass has lifted a
     // member off the shared row — the clustered closure law's refusal is the
-    // case with no plan to say so — resolving it back into a single trunk
+    // case with no plan to say so — resolving it back into a single rail
     // would rebuild exactly the run the lift took apart.
     var arena = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena.deinit();

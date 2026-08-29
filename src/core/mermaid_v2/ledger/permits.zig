@@ -10,13 +10,13 @@ pub const BuildError = error{ OutOfMemory, InvalidSemGraph };
 
 pub const BuildReport = struct {
     duplicate_canonical_edge_keys: u32 = 0,
-    join_select_duplicate_key_blocked: bool = false,
-    join_permits_skipped_clustered: bool = false,
+    bundle_select_duplicate_key_blocked: bool = false,
+    bundle_permits_skipped_clustered: bool = false,
     edgeid_scope_clustered_skipped: bool = false,
 };
 
 pub const BuildResult = struct {
-    plan: pb.JoinPermits,
+    plan: pb.BundlePermits,
     report: BuildReport = .{},
 };
 
@@ -29,7 +29,7 @@ const RailCandidate = struct { edge: sg.Edge, leaf: sg.NodeId };
 /// class inside it. Invisible edges never compete with drawable classes. Ties
 /// retain the class of the smallest canonical edge, independent of caller
 /// order.
-pub fn prepareRailMembers(a: std.mem.Allocator, graph: sg.SemGraph, direction: pb.JoinDirection, pivot: sg.NodeId, source: []const pb.EdgeId) error{OutOfMemory}!RailPreparation {
+pub fn prepareRailMembers(a: std.mem.Allocator, graph: sg.SemGraph, direction: pb.BundleDirection, pivot: sg.NodeId, source: []const pb.EdgeId) error{OutOfMemory}!RailPreparation {
     var star_violation = false;
     var canonical: std.ArrayListUnmanaged(pb.EdgeId) = .empty;
     for (source) |id| {
@@ -91,7 +91,7 @@ pub fn prepareRailMembers(a: std.mem.Allocator, graph: sg.SemGraph, direction: p
     return .{ .members = members, .deco_mixed = deco_mixed, .style_mixed = style_mixed, .star_violation = star_violation };
 }
 
-fn railCandidate(graph: sg.SemGraph, direction: pb.JoinDirection, pivot: sg.NodeId, source: []const pb.EdgeId, index: usize) ?RailCandidate {
+fn railCandidate(graph: sg.SemGraph, direction: pb.BundleDirection, pivot: sg.NodeId, source: []const pb.EdgeId, index: usize) ?RailCandidate {
     const id = source[index];
     for (source[0..index]) |prior| if (prior == id) return null;
     const candidate = edgeById(graph, id) orelse return null;
@@ -102,7 +102,7 @@ fn railCandidate(graph: sg.SemGraph, direction: pb.JoinDirection, pivot: sg.Node
     return .{ .edge = candidate, .leaf = leaf };
 }
 
-fn railClassCount(graph: sg.SemGraph, direction: pb.JoinDirection, pivot: sg.NodeId, source: []const pb.EdgeId, deco: sg.ArrowEnd, kind: ?sg.EdgeKind) usize {
+fn railClassCount(graph: sg.SemGraph, direction: pb.BundleDirection, pivot: sg.NodeId, source: []const pb.EdgeId, deco: sg.ArrowEnd, kind: ?sg.EdgeKind) usize {
     var count: usize = 0;
     for (source, 0..) |_, i| {
         const candidate = railCandidate(graph, direction, pivot, source, i) orelse continue;
@@ -112,7 +112,7 @@ fn railClassCount(graph: sg.SemGraph, direction: pb.JoinDirection, pivot: sg.Nod
     return count;
 }
 
-fn railEquivalentBefore(graph: sg.SemGraph, direction: pb.JoinDirection, pivot: sg.NodeId, source: []const pb.EdgeId, index: usize, deco: sg.ArrowEnd, kind: ?sg.EdgeKind, candidate: RailCandidate) bool {
+fn railEquivalentBefore(graph: sg.SemGraph, direction: pb.BundleDirection, pivot: sg.NodeId, source: []const pb.EdgeId, index: usize, deco: sg.ArrowEnd, kind: ?sg.EdgeKind, candidate: RailCandidate) bool {
     for (source[0..index], 0..) |_, i| {
         const prior = railCandidate(graph, direction, pivot, source, i) orelse continue;
         if (pivotArrow(direction, prior.edge) != deco or (kind != null and prior.edge.kind != kind.?)) continue;
@@ -121,7 +121,7 @@ fn railEquivalentBefore(graph: sg.SemGraph, direction: pb.JoinDirection, pivot: 
     return false;
 }
 
-fn prospectiveRailCheck(a: std.mem.Allocator, graph: sg.SemGraph, direction: pb.JoinDirection, pivot: sg.NodeId, ids: []const pb.EdgeId) error{OutOfMemory}!pb.RailLicenceCheck {
+fn prospectiveRailCheck(a: std.mem.Allocator, graph: sg.SemGraph, direction: pb.BundleDirection, pivot: sg.NodeId, ids: []const pb.EdgeId) error{OutOfMemory}!pb.RailLicenceCheck {
     const members = try a.alloc(pb.RailLicenceMember, ids.len);
     const pivot_end: pb.Endpoint = if (direction == .out) .source else .target;
     for (ids, members) |id, *member| {
@@ -143,7 +143,7 @@ fn prospectiveRailCheck(a: std.mem.Allocator, graph: sg.SemGraph, direction: pb.
     });
 }
 
-fn pivotArrow(direction: pb.JoinDirection, candidate: sg.Edge) sg.ArrowEnd {
+fn pivotArrow(direction: pb.BundleDirection, candidate: sg.Edge) sg.ArrowEnd {
     return if (direction == .out) candidate.arrow_from else candidate.arrow_to;
 }
 
@@ -156,7 +156,7 @@ fn mapArrow(arrow: sg.ArrowEnd) prim.ArrowKind {
 pub fn build(
     allocator: std.mem.Allocator,
     graph: sg.SemGraph,
-    policy: pb.JoinPolicy,
+    policy: pb.BundlePolicy,
 ) BuildError!BuildResult {
     // Child recursion pieces may look cluster-free after IDs were localized;
     // only the original graph's cluster array opens or closes this gate.
@@ -164,7 +164,7 @@ pub fn build(
     if (graph.clusters.len != 0) return .{
         .plan = .{ .policy = policy, .scope = .skipped_clustered },
         .report = .{
-            .join_permits_skipped_clustered = true,
+            .bundle_permits_skipped_clustered = true,
             .edgeid_scope_clustered_skipped = true,
         },
     };
@@ -185,7 +185,7 @@ pub fn build(
         const to = nodeIndex(graph, edge.to) orelse return error.InvalidSemGraph;
         for (graph.edges[0..i]) |prior| if (prior.id == edge.id) return error.InvalidSemGraph;
         // A self-loop is not a plain directed edge between two distinct nodes, so it is
-        // never an endpoint-incidence join-group member (its source==target makes fan-in/
+        // never an endpoint-incidence candidate-bundle member (its source==target makes fan-in/
         // fan-out classification degenerate). Excluded here, before the carve-out predicate;
         // it still takes a (null,null) membership below and still renders its own lollipop.
         // guarded-by: permits_test.zig "V-D-JOIN-SELECT-14: self-loop excluded from fan-in group leaves residual member independent"
@@ -195,21 +195,21 @@ pub fn build(
         try incidence[to].incoming.append(allocator, edge.id);
     }
 
-    var groups: std.ArrayListUnmanaged(pb.JoinGroup) = .empty;
+    var groups: std.ArrayListUnmanaged(pb.CandidateBundle) = .empty;
     for (incidence) |*item| {
         try appendGroup(allocator, graph, &groups, .out, item.pivot, &item.outgoing);
         try appendGroup(allocator, graph, &groups, .in, item.pivot, &item.incoming);
     }
-    std.mem.sort(pb.JoinGroup, groups.items, GroupSort{ .graph = graph }, GroupSort.lessThan);
+    std.mem.sort(pb.CandidateBundle, groups.items, GroupSort{ .graph = graph }, GroupSort.lessThan);
     for (groups.items, 0..) |*group, i| group.id = @intCast(i);
 
-    const memberships = try allocator.alloc(pb.JoinMembership, graph.edges.len);
+    const memberships = try allocator.alloc(pb.BundleMembership, graph.edges.len);
     for (graph.edges, memberships) |edge, *membership| membership.* = .{
         .edge = edge.id,
         .source_group = membershipGroup(groups.items, edge.id, .out),
         .target_group = membershipGroup(groups.items, edge.id, .in),
     };
-    std.mem.sort(pb.JoinMembership, memberships, EdgeSort{ .graph = graph }, EdgeSort.membershipLessThan);
+    std.mem.sort(pb.BundleMembership, memberships, EdgeSort{ .graph = graph }, EdgeSort.membershipLessThan);
 
     const duplicate_count = countDuplicateCanonicalKeys(graph, memberships);
     return .{
@@ -220,7 +220,7 @@ pub fn build(
         },
         .report = .{
             .duplicate_canonical_edge_keys = duplicate_count,
-            .join_select_duplicate_key_blocked = duplicate_count != 0,
+            .bundle_select_duplicate_key_blocked = duplicate_count != 0,
         },
     };
 }
@@ -259,8 +259,8 @@ fn verifyNodes(graph: sg.SemGraph) BuildError!void {
 fn appendGroup(
     allocator: std.mem.Allocator,
     graph: sg.SemGraph,
-    groups: *std.ArrayListUnmanaged(pb.JoinGroup),
-    direction: pb.JoinDirection,
+    groups: *std.ArrayListUnmanaged(pb.CandidateBundle),
+    direction: pb.BundleDirection,
     pivot: sg.NodeId,
     members: *std.ArrayListUnmanaged(pb.EdgeId),
 ) BuildError!void {
@@ -277,7 +277,7 @@ fn appendGroup(
 const GroupSort = struct {
     graph: sg.SemGraph,
 
-    fn lessThan(self: @This(), a: pb.JoinGroup, b: pb.JoinGroup) bool {
+    fn lessThan(self: @This(), a: pb.CandidateBundle, b: pb.CandidateBundle) bool {
         const ad: u1 = if (a.direction == .out) 0 else 1;
         const bd: u1 = if (b.direction == .out) 0 else 1;
         if (ad != bd) return ad < bd;
@@ -294,7 +294,7 @@ const EdgeSort = struct {
         return self.orderIds(a, b) == .lt;
     }
 
-    fn membershipLessThan(self: @This(), a: pb.JoinMembership, b: pb.JoinMembership) bool {
+    fn membershipLessThan(self: @This(), a: pb.BundleMembership, b: pb.BundleMembership) bool {
         return self.orderIds(a.edge, b.edge) == .lt;
     }
 
@@ -343,7 +343,7 @@ fn edgeById(graph: sg.SemGraph, id: sg.EdgeId) ?sg.Edge {
     return null;
 }
 
-fn membershipGroup(groups: []const pb.JoinGroup, edge: pb.EdgeId, direction: pb.JoinDirection) ?pb.JoinGroupId {
+fn membershipGroup(groups: []const pb.CandidateBundle, edge: pb.EdgeId, direction: pb.BundleDirection) ?pb.CandidateBundleId {
     for (groups) |group| {
         if (group.direction == direction and containsEdge(group.members, edge)) return group.id;
     }
@@ -355,7 +355,7 @@ fn containsEdge(edges: []const pb.EdgeId, edge: pb.EdgeId) bool {
     return false;
 }
 
-fn countDuplicateCanonicalKeys(graph: sg.SemGraph, memberships: []const pb.JoinMembership) u32 {
+fn countDuplicateCanonicalKeys(graph: sg.SemGraph, memberships: []const pb.BundleMembership) u32 {
     if (memberships.len < 2) return 0;
     var count: u32 = 0;
     for (memberships[1..], 1..) |membership, i| {
@@ -388,7 +388,7 @@ pub const ValidationTag = enum {
 
 pub const Finding = struct {
     tag: ValidationTag,
-    group: ?pb.JoinGroupId = null,
+    group: ?pb.CandidateBundleId = null,
     edge: ?pb.EdgeId = null,
 };
 
@@ -401,7 +401,7 @@ pub const ValidationReport = struct {
 };
 
 /// Validate plan structure without logging, mutation, or disposition policy.
-pub fn validate(allocator: std.mem.Allocator, graph: sg.SemGraph, plan: pb.JoinPermits) error{OutOfMemory}!ValidationReport {
+pub fn validate(allocator: std.mem.Allocator, graph: sg.SemGraph, plan: pb.BundlePermits) error{OutOfMemory}!ValidationReport {
     var out: std.ArrayListUnmanaged(Finding) = .empty;
 
     if (plan.policy != .joined) try add(&out, allocator, .policy_not_joined, null, null);
@@ -453,10 +453,10 @@ fn validateLink(
     out: *std.ArrayListUnmanaged(Finding),
     allocator: std.mem.Allocator,
     graph: sg.SemGraph,
-    groups: []const pb.JoinGroup,
-    membership: pb.JoinMembership,
-    direction: pb.JoinDirection,
-    group_id: ?pb.JoinGroupId,
+    groups: []const pb.CandidateBundle,
+    membership: pb.BundleMembership,
+    direction: pb.BundleDirection,
+    group_id: ?pb.CandidateBundleId,
 ) error{OutOfMemory}!void {
     const id = group_id orelse return;
     const group = groupById(groups, id) orelse {
@@ -471,12 +471,12 @@ fn validateLink(
     if (!pivot_matches) try add(out, allocator, .member_pivot_mismatch, id, membership.edge);
 }
 
-fn groupById(groups: []const pb.JoinGroup, id: pb.JoinGroupId) ?pb.JoinGroup {
+fn groupById(groups: []const pb.CandidateBundle, id: pb.CandidateBundleId) ?pb.CandidateBundle {
     for (groups) |group| if (group.id == id) return group;
     return null;
 }
 
-fn membershipByEdge(memberships: []const pb.JoinMembership, edge: pb.EdgeId) ?pb.JoinMembership {
+fn membershipByEdge(memberships: []const pb.BundleMembership, edge: pb.EdgeId) ?pb.BundleMembership {
     for (memberships) |membership| if (membership.edge == edge) return membership;
     return null;
 }
@@ -485,7 +485,7 @@ fn add(
     out: *std.ArrayListUnmanaged(Finding),
     allocator: std.mem.Allocator,
     tag: ValidationTag,
-    group: ?pb.JoinGroupId,
+    group: ?pb.CandidateBundleId,
     edge: ?pb.EdgeId,
 ) error{OutOfMemory}!void {
     try out.append(allocator, .{ .tag = tag, .group = group, .edge = edge });
@@ -497,13 +497,13 @@ pub const EdgeIdentity = union(enum) {
 };
 
 pub const MembershipLookup = struct {
-    membership: ?pb.JoinMembership = null,
+    membership: ?pb.BundleMembership = null,
     diagnostic: ?pb.DiagnosticTag = null,
 };
 
 /// Membership lookup accepts an explicit identity domain. A local ID without
 /// an original-edge mapping can never alias an original membership.
-pub fn lookupMembership(plan: pb.JoinPermits, identity: EdgeIdentity) MembershipLookup {
+pub fn lookupMembership(plan: pb.BundlePermits, identity: EdgeIdentity) MembershipLookup {
     return switch (identity) {
         .original => |id| .{ .membership = membershipByEdge(plan.memberships, id) },
         .unqualified_local => .{ .diagnostic = .edgeid_unqualified_local_lookup },

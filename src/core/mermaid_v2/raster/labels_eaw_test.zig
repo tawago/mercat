@@ -2,7 +2,7 @@
 //! / `cellSpanOf` and the three writers that advance by it (node label,
 //! cluster title, edge/tap label).
 //!
-//! The acceptance bar these pin is ASCII byte-identity: every ASCII
+//! The acceptance rail these pin is ASCII byte-identity: every ASCII
 //! codepoint spans exactly one cell, so every cursor advance and every
 //! free-space reservation is bit-for-bit what it was before continuation
 //! cells existed. Split out of labels_test.zig to stay under the cap.

@@ -104,7 +104,7 @@ test "inkDistances: nearest own and nearest foreign edge measured in Chebyshev r
 
     // Span (4..5, 3). Own ink at (7,4): Chebyshev 2 from span cell (5,3).
     // Foreign edge at (1,3): distance 3 from (4,3). Node ink nearer than
-    // both must NOT register in either channel.
+    // both must NOT register in either bundle.
     stampEdge(&lat, 7, 4, 42);
     stampEdge(&lat, 1, 3, 7);
     lat.at(4, 1).* = .{ .occupant = .{ .node_border = .{ .node = 1, .role = .edge_s } }, .neighbours = .{} };
@@ -124,7 +124,7 @@ test "ink on the owner's own routed geometry counts as own even when the cell na
     defer arena.deinit();
     var lat = try makeLattice(arena.allocator(), 10, 5);
 
-    // Shared fan trunk on row 2: the Cell can only name one rider (7), but
+    // Shared fan rail on row 2: the Cell can only name one rider (7), but
     // edge 42's polyline runs through it.
     stampEdge(&lat, 4, 2, 7);
     const poly = [_]sketch.Point{ .{ .x = 2, .y = 2 }, .{ .x = 6, .y = 2 }, .{ .x = 6, .y = 4 } };

@@ -52,14 +52,14 @@ pub const LadderResult = struct {
 pub fn run(
     arena: std.mem.Allocator,
     graph: sem_graph.SemGraph,
-    join_permits: *const ledger.JoinPermits,
+    bundle_permits: *const ledger.BundlePermits,
     max_width: u32,
 ) !LadderResult {
     var attempts: u8 = 0;
     var rung_idx: u8 = 0;
     while (rung_idx <= @intFromEnum(Rung.truncate)) : (rung_idx += 1) {
         const rung: Rung = @enumFromInt(rung_idx);
-        const attempt = try tryRung(arena, graph, join_permits, max_width, rung);
+        const attempt = try tryRung(arena, graph, bundle_permits, max_width, rung);
         attempts += 1;
 
         if (attempt.accepted) {
@@ -76,20 +76,20 @@ pub fn run(
 
 /// Lay out ONE rung: options + (switch_direction-only) rotation + the
 /// cluster recursion; acceptance is NOT consulted here. The single layout
-/// call shared by every driver in this file. `join_permits` is a
+/// call shared by every driver in this file. `bundle_permits` is a
 /// pointer to the RENDER-lifetime plan (entry.zig's local), threaded
-/// through every driver so `LayoutOptions.join_permits` aliases that plan
+/// through every driver so `LayoutOptions.bundle_permits` aliases that plan
 /// and never a stack copy.
 fn layoutRung(
     arena: std.mem.Allocator,
     graph: sem_graph.SemGraph,
-    join_permits: *const ledger.JoinPermits,
+    bundle_permits: *const ledger.BundlePermits,
     max_width: u32,
     rung: Rung,
     policy: prim.LabelPolicy,
 ) !sketch.Sketch {
     var opts = optionsFor(rung, max_width);
-    opts.join_permits = join_permits;
+    opts.bundle_permits = bundle_permits;
     opts.label_policy = policy;
     return recurse.layoutPieces(arena, rotateForRung(graph, rung), opts);
 }
@@ -101,11 +101,11 @@ const RungAttempt = struct { sketch: sketch.Sketch, accepted: bool };
 fn tryRung(
     arena: std.mem.Allocator,
     graph: sem_graph.SemGraph,
-    join_permits: *const ledger.JoinPermits,
+    bundle_permits: *const ledger.BundlePermits,
     max_width: u32,
     rung: Rung,
 ) !RungAttempt {
-    const result = try layoutRung(arena, graph, join_permits, max_width, rung, .on_run);
+    const result = try layoutRung(arena, graph, bundle_permits, max_width, rung, .on_run);
     return .{
         .sketch = result,
         .accepted = ladderAccepts(rung, result),
@@ -150,7 +150,7 @@ pub const EnumerateResult = types.EnumerateResult;
 pub fn enumerate(
     arena: std.mem.Allocator,
     graph: sem_graph.SemGraph,
-    join_permits: *const ledger.JoinPermits,
+    bundle_permits: *const ledger.BundlePermits,
     max_width: u32,
 ) !EnumerateResult {
     var candidates: std.ArrayList(Candidate) = .empty;
@@ -160,7 +160,7 @@ pub fn enumerate(
     while (rung_idx <= @intFromEnum(Rung.truncate)) : (rung_idx += 1) {
         const rung: Rung = @enumFromInt(rung_idx);
         if (incumbent == null) {
-            const attempt = try tryRung(arena, graph, join_permits, max_width, rung);
+            const attempt = try tryRung(arena, graph, bundle_permits, max_width, rung);
             attempts += 1;
             try candidates.append(arena, .{ .rung = rung, .sketch = attempt.sketch, .accepted = attempt.accepted });
             if (attempt.accepted) {
@@ -168,7 +168,7 @@ pub fn enumerate(
             }
         } else {
             // Post-incumbent: scoring-only extra work; failures skipped.
-            const result = layoutRung(arena, graph, join_permits, max_width, rung, .on_run) catch continue;
+            const result = layoutRung(arena, graph, bundle_permits, max_width, rung, .on_run) catch continue;
             try candidates.append(arena, .{ .rung = rung, .sketch = result, .accepted = false });
         }
     }
@@ -187,27 +187,27 @@ pub fn enumerate(
 pub fn runForced(
     arena: std.mem.Allocator,
     graph: sem_graph.SemGraph,
-    join_permits: *const ledger.JoinPermits,
+    bundle_permits: *const ledger.BundlePermits,
     max_width: u32,
     rung: Rung,
 ) !LadderResult {
-    const result = try layoutRung(arena, graph, join_permits, max_width, rung, .on_run);
+    const result = try layoutRung(arena, graph, bundle_permits, max_width, rung, .on_run);
     return .{ .sketch = result, .final_rung = rung, .attempts = 1 };
 }
 
 /// P2v Step 8 (D-DISPOSITION item 9(b)): lay out the raw `.natural` rung with
-/// trunk realization DISABLED (`LayoutOptions.disable_join_realization`), so
-/// `join_commit` emits an all-independent plan and no fan rail is realized —
-/// the trunk-free CI-filter terminal geometry. Caller marks `terminal_fallback`.
+/// rail realization DISABLED (`LayoutOptions.disable_bundle_realization`), so
+/// `bundle_commit` emits an all-independent plan and no fan rail is realized —
+/// the rail-free CI-filter terminal geometry. Caller marks `terminal_fallback`.
 pub fn runForcedIndependent(
     arena: std.mem.Allocator,
     graph: sem_graph.SemGraph,
-    join_permits: *const ledger.JoinPermits,
+    bundle_permits: *const ledger.BundlePermits,
     max_width: u32,
 ) !LadderResult {
     var opts = optionsFor(.natural, max_width);
-    opts.join_permits = join_permits;
-    opts.disable_join_realization = true;
+    opts.bundle_permits = bundle_permits;
+    opts.disable_bundle_realization = true;
     return .{ .sketch = try recurse.layoutPieces(arena, graph, opts), .final_rung = .natural, .attempts = 1 };
 }
 
@@ -221,18 +221,18 @@ pub fn runForcedIndependent(
 pub fn runVariant(
     arena: std.mem.Allocator,
     graph: sem_graph.SemGraph,
-    join_permits: *const ledger.JoinPermits,
+    bundle_permits: *const ledger.BundlePermits,
     max_width: u32,
     rung: Rung,
     policy: prim.LabelPolicy,
 ) !LadderResult {
-    const result = try layoutRung(arena, graph, join_permits, max_width, rung, policy);
+    const result = try layoutRung(arena, graph, bundle_permits, max_width, rung, policy);
     return .{ .sketch = result, .final_rung = rung, .attempts = 1 };
 }
 
 /// Lay out ONE candidate's BRIDGE-BUILD VARIANT: the same recipe (graph,
 /// rung) with a different `prim.BridgeBuild`, bypassing acceptance like
-/// `runForced`. select.zig lays out the dodged/trunked twins of a clustered
+/// `runForced`. select.zig lays out the dodged/railed twins of a clustered
 /// graph's promising candidates so the composite score against the real
 /// raster chooses the bridge routing — routing never picks between the
 /// variants itself (confluence selection note). Every other driver here
@@ -241,13 +241,13 @@ pub fn runVariant(
 pub fn runBridgeVariant(
     arena: std.mem.Allocator,
     graph: sem_graph.SemGraph,
-    join_permits: *const ledger.JoinPermits,
+    bundle_permits: *const ledger.BundlePermits,
     max_width: u32,
     rung: Rung,
     build: prim.BridgeBuild,
 ) !LadderResult {
     var opts = optionsFor(rung, max_width);
-    opts.join_permits = join_permits;
+    opts.bundle_permits = bundle_permits;
     opts.bridge_build = build;
     return .{ .sketch = try recurse.layoutPieces(arena, rotateForRung(graph, rung), opts), .final_rung = rung, .attempts = 1 };
 }

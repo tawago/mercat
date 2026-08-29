@@ -1,7 +1,7 @@
-//! Base-tier pure-data vocabulary for the semantic join permits and the
-//! candidate-local realized-join artifact (D-IR item 1): the
-//! JoinPolicy storage, the JoinPermits / RealizedJoins logical records,
-//! the co-channel membership sets riding the Sketch beside that plan,
+//! Base-tier pure-data vocabulary for the semantic bundle permits and the
+//! candidate-local realized-bundle artifact (D-IR item 1): the
+//! BundlePolicy storage, the BundlePermits / RealizedBundles logical records,
+//! the bundle membership sets riding the Sketch beside that plan,
 //! terminal-port identities, the component-table result types
 //! shared by both reachability validators, the canonical semantic-key
 //! comparators with the pinned D-PORT clause-4 ordinal tables, and the
@@ -21,9 +21,9 @@ const std = @import("std");
 
 pub const NodeId = u32;
 pub const EdgeId = u32;
-pub const JoinGroupId = u32;
-pub const JoinProposalId = u32;
-pub const RealizedJoinId = u32;
+pub const CandidateBundleId = u32;
+pub const BundleProposalId = u32;
+pub const SelectedBundleId = u32;
 pub const ComponentId = u32;
 
 // Branch policy (D-POLICY item 1).
@@ -31,36 +31,36 @@ pub const ComponentId = u32;
 /// Exactly ONE constructible variant: the type system, not a runtime guard,
 /// makes non-joined policy unrepresentable. Only entry.zig (the composition
 /// root) may originate the value (D-POLICY item 3).
-/// guarded-by: ledger_test.zig "V-D-POLICY-01: JoinPolicy has exactly one variant, named joined"
-pub const JoinPolicy = enum { joined };
+/// guarded-by: ledger_test.zig "V-D-POLICY-01: BundlePolicy has exactly one variant, named joined"
+pub const BundlePolicy = enum { joined };
 
 // Logical records (plan/permission side).
 
-pub const JoinDirection = enum { out, in };
+pub const BundleDirection = enum { out, in };
 
 /// One semantic endpoint incidence group: a fan-out (direction=.out, pivot
 /// is the shared source) or fan-in (.in, pivot is the shared target) with
 /// at least two member edges. Members are arena `[]const EdgeId` slices
 /// (D-IR item 7 container rule).
-pub const JoinGroup = struct {
-    id: JoinGroupId,
-    direction: JoinDirection,
+pub const CandidateBundle = struct {
+    id: CandidateBundleId,
+    direction: BundleDirection,
     pivot: NodeId,
     members: []const EdgeId,
 };
 
-pub const JoinMembership = struct {
+pub const BundleMembership = struct {
     edge: EdgeId,
-    source_group: ?JoinGroupId,
-    target_group: ?JoinGroupId,
+    source_group: ?CandidateBundleId,
+    target_group: ?CandidateBundleId,
 };
 
 /// The ONE shared semantic plan per render. `groups` states
 /// where joining is semantically PERMITTED — it must never be read as an
-/// instruction that a permitted group has a trunk; only
-/// `RealizedJoins.selected_joins` authorizes shared group geometry.
-pub const JoinPermits = struct {
-    policy: JoinPolicy,
+/// instruction that a permitted group has a rail; only
+/// `RealizedBundles.selected_bundles` authorizes shared group geometry.
+pub const BundlePermits = struct {
+    policy: BundlePolicy,
     /// `.flat`: computed from a cluster-free graph and consumable.
     /// `.skipped_clustered`: deliberately not computed because the graph is
     /// clustered (groups/memberships empty); consumers must not realize or
@@ -69,12 +69,12 @@ pub const JoinPermits = struct {
     /// original, keyed by ORIGIN (root-graph) edge ids; not realizable until
     /// the piece merge lands.
     scope: Scope = .flat,
-    groups: []const JoinGroup = &.{},
-    memberships: []const JoinMembership = &.{},
+    groups: []const CandidateBundle = &.{},
+    memberships: []const BundleMembership = &.{},
 
     pub const Scope = enum { flat, skipped_clustered, piece };
 
-    pub fn isFlat(self: JoinPermits) bool {
+    pub fn isFlat(self: BundlePermits) bool {
         return self.scope == .flat;
     }
 };
@@ -83,13 +83,13 @@ pub const JoinPermits = struct {
 
 /// `licence_refused`: the group failed the geometry-free licence check —
 /// distinct from `not_selected`, where a licensed bundle simply realized no
-/// shared trunk (e.g. bridge-scope groups, whose realization is deferred).
+/// shared rail (e.g. bridge-scope groups, whose realization is deferred).
 pub const IndependentReason = enum { not_selected, overlap_conflict, unsafe_component, licence_refused };
 
 pub const MembershipDisposition = union(enum) {
-    selected: RealizedJoinId,
+    selected: SelectedBundleId,
     independent: struct {
-        permission_group: JoinGroupId,
+        candidate_bundle: CandidateBundleId,
         reason: IndependentReason,
     },
 };
@@ -104,17 +104,17 @@ pub const CandidateGeometryRef = union(enum) {
     edge_path: u32,
 };
 
-pub const JoinProposal = struct {
-    id: JoinProposalId,
-    permission_group: JoinGroupId,
+pub const BundleProposal = struct {
+    id: BundleProposalId,
+    candidate_bundle: CandidateBundleId,
     members: []const EdgeId,
     candidate_geometry: CandidateGeometryRef,
 };
 
-pub const SelectedJoin = struct {
-    id: RealizedJoinId,
-    proposal: JoinProposalId,
-    permission_group: JoinGroupId,
+pub const SelectedBundle = struct {
+    id: SelectedBundleId,
+    proposal: BundleProposalId,
+    candidate_bundle: CandidateBundleId,
     members: []const EdgeId,
 };
 
@@ -124,7 +124,7 @@ pub const RealizedEdgeMembership = struct {
     target: ?MembershipDisposition,
 };
 
-pub const JoinConflictReason = enum {
+pub const BundleConflictReason = enum {
     overlapping_permissions,
     dual_edge_selected_at_both_ends,
     unsafe_connected_component,
@@ -133,11 +133,11 @@ pub const JoinConflictReason = enum {
 /// A permission-overlap conflict between two groups. `shared_edges` MUST
 /// retain EVERY shared EdgeId (D-DUAL clause 2: first-overlap-only is
 /// insufficient).
-pub const JoinConflict = struct {
-    groups: [2]JoinGroupId,
+pub const BundleConflict = struct {
+    groups: [2]CandidateBundleId,
     shared_edges: []const EdgeId,
-    proposals: []const JoinProposalId = &.{},
-    reason: JoinConflictReason,
+    proposals: []const BundleProposalId = &.{},
+    reason: BundleConflictReason,
 };
 
 /// D-PORT clause 4: which end of the edge an attachment/terminal belongs
@@ -161,37 +161,37 @@ pub const TerminalPort = struct {
 /// this group's verdict flips). Eligible iff: direction == .in. No fan-out-pivot
 /// exclusion — OPEN-1 class-1 (D-PORT 2026-07-17 four-way) sets purity by the
 /// ARRIVAL SHAPE alone (A,B,C → D); the mixing prohibition targets ink FUSION,
-/// prevented STRUCTURALLY not here — arrival trunk enters the target's entry
+/// prevented STRUCTURALLY not here — arrival rail enters the target's entry
 /// side, departures exit other sides, D-JOIN clause 4 keeps junctions group-
 /// internal. Carve-out never checked fan-out pivots, so legality can't hinge on it.
-pub fn fanInReMergeEligible(groups: []const JoinGroup, index: usize) bool {
+pub fn fanInReMergeEligible(groups: []const CandidateBundle, index: usize) bool {
     return groups[index].direction == .in;
 }
 
-/// The candidate-local artifact riding `Sketch.joins` (D-IR item 4). All
+/// The candidate-local artifact riding `Sketch.bundles` (D-IR item 4). All
 /// fields defaulted so `.{}` is the valid empty plan.
-/// guarded-by: ledger_test.zig "empty RealizedJoins is default-constructible with all-empty fields"
-pub const RealizedJoins = struct {
-    selected_joins: []const SelectedJoin = &.{},
-    rejected_proposals: []const JoinProposalId = &.{},
+/// guarded-by: ledger_test.zig "empty RealizedBundles is default-constructible with all-empty fields"
+pub const RealizedBundles = struct {
+    selected_bundles: []const SelectedBundle = &.{},
+    rejected_proposals: []const BundleProposalId = &.{},
     memberships: []const RealizedEdgeMembership = &.{},
-    conflicts: []const JoinConflict = &.{},
+    conflicts: []const BundleConflict = &.{},
     terminal_ports: []const TerminalPort = &.{},
     /// Declared edges whose ENTIRE rendering is another element's shared ink:
     /// the leaf-pair edges an all-arrow-free rail discharges by running its
-    /// crossbar between their two taps (the rail-closure law). A co-realized
+    /// crossbar between their two taps (the rail-closure law). A discharged
     /// edge owns no polyline, no port and no label of its own, so it must be
     /// withheld from independent routing — and it is NOT missing, because the
     /// crossbar between the taps IS its rendering.
     /// guarded-by: rail_closure_test.zig "a fully declared clique keeps the rail and discharges every pair edge"
-    co_realized: []const EdgeId = &.{},
+    discharged: []const EdgeId = &.{},
     /// Two-sided fusion licences: each entry is the member-edge UNION of a set
-    /// of selected same-direction trunks whose declared pairs are EXACTLY
+    /// of selected same-direction rails whose declared pairs are EXACTLY
     /// srcs x tgts with every member blocking the leaf-to-leaf trace (the
     /// closure test of base/rail_closure.zig, asked of the whole union). Such
-    /// trunks may share one rail row and their ink is ONE channel; anything
+    /// rails may share one rail row and their ink is ONE bundle; anything
     /// short of complete never appears here.
-    /// guarded-by: join_commit_test.zig "a complete bipartite of selected arrivals licenses one fused union"
+    /// guarded-by: bundle_commit_test.zig "a complete bipartite of selected arrivals licenses one fused union"
     fused: []const []const EdgeId = &.{},
 };
 
@@ -245,54 +245,54 @@ pub const ClosureCounts = struct {
     co_double_discharge: u32 = 0,
 };
 
-// -- Co-channel membership ---------------------------------------------------
-// The set vocabulary itself lives in the sibling co_channel.zig (split out
-// at the 500-line cap); re-exported so every `pb.CoSet` / `pb.coMembers`
+// -- Bundle membership ---------------------------------------------------
+// The set vocabulary itself lives in the sibling bundle.zig (split out
+// at the 500-line cap); re-exported so every `pb.Bundle` / `pb.bundleMembers`
 // call site is unchanged and type-identical.
 
-const co_channel = @import("co_channel.zig");
+const bundle = @import("bundle.zig");
 
-pub const CoOrigin = co_channel.CoOrigin;
-pub const CoSet = co_channel.CoSet;
-pub const CoCell = co_channel.CoCell;
-pub const PairCells = co_channel.PairCells;
-pub const keepOrigin = co_channel.keepOrigin;
-pub const concatSets = co_channel.concatSets;
-pub const coMembers = co_channel.coMembers;
-pub const coMembersAt = co_channel.coMembersAt;
-pub const ChannelId = co_channel.ChannelId;
-pub const no_channel = co_channel.no_channel;
-pub const privateChannel = co_channel.privateChannel;
-pub const numberChannels = co_channel.numberChannels;
-pub const rosterNumbered = co_channel.rosterNumbered;
-pub const StructuralSetResolution = co_channel.StructuralSetResolution;
-pub const resolveStructuralSet = co_channel.resolveStructuralSet;
-pub const channelOf = co_channel.channelOf;
-pub const channelsAgree = co_channel.channelsAgree;
+pub const BundleOrigin = bundle.BundleOrigin;
+pub const Bundle = bundle.Bundle;
+pub const BundleCell = bundle.BundleCell;
+pub const PairCells = bundle.PairCells;
+pub const keepOrigin = bundle.keepOrigin;
+pub const concatBundles = bundle.concatBundles;
+pub const bundleMembers = bundle.bundleMembers;
+pub const bundleMembersAt = bundle.bundleMembersAt;
+pub const BundleId = bundle.BundleId;
+pub const no_bundle = bundle.no_bundle;
+pub const privateBundle = bundle.privateBundle;
+pub const numberBundles = bundle.numberBundles;
+pub const rosterNumbered = bundle.rosterNumbered;
+pub const StructuralBundleResolution = bundle.StructuralBundleResolution;
+pub const resolveStructuralBundle = bundle.resolveStructuralBundle;
+pub const bundleOf = bundle.bundleOf;
+pub const bundlesAgree = bundle.bundlesAgree;
 
-/// The pre-identity DERIVATION of the co-channel relation: a pairwise
+/// The pre-identity DERIVATION of the bundle relation: a pairwise
 /// membership scan over the roster AND the realized plan, asked at a position.
-/// Two edges are on one channel iff the same owner, or some set names both
-/// here, or some selected join holds both.
+/// Two edges are on one bundle iff the same owner, or some set names both
+/// here, or some selected bundle holds both.
 ///
 /// This is the shape the raster used to ESTABLISH every licence with, before a
-/// channel had a name. It is kept — one copy, here, where both the raster and
+/// bundle had a name. It is kept — one copy, here, where both the raster and
 /// the report-only audit can reach it — as the WITNESS the recorded identity
-/// is measured against: `tiling/channels.zig` runs it beside
-/// `channelsAgree` on every carrier a render files and counts the two
+/// is measured against: `tiling/bundles.zig` runs it beside
+/// `bundlesAgree` on every carrier a render files and counts the two
 /// answers agreeing and disagreeing. Nothing that only LABELS a record calls
 /// it any more.
-/// guarded-by: ledger_test.zig "the derivation and the recorded identity answer alike on a declared channel"
-pub fn derivedSameChannel(
-    joins: RealizedJoins,
-    sets: []const CoSet,
+/// guarded-by: ledger_test.zig "the derivation and the recorded identity answer alike on a declared bundle"
+pub fn derivedSameBundle(
+    bundles: RealizedBundles,
+    sets: []const Bundle,
     first: EdgeId,
     second: EdgeId,
-    at: ?CoCell,
+    at: ?BundleCell,
 ) bool {
     if (first == second) return true;
-    if (coMembersAt(sets, first, second, at)) return true;
-    for (joins.selected_joins) |j| {
+    if (bundleMembersAt(sets, first, second, at)) return true;
+    for (bundles.selected_bundles) |j| {
         if (holds(j.members, first) and holds(j.members, second)) return true;
     }
     return false;
@@ -305,27 +305,27 @@ fn holds(edges: []const EdgeId, edge: EdgeId) bool {
     return false;
 }
 
-/// The co-channel sets a realized plan authorizes: one per selected join,
+/// The bundle sets a realized plan authorizes: one per selected bundle,
 /// members BORROWED from the plan (same arena, no copy). This is the flat
 /// population; the caller applies it exactly where it applies the plan,
 /// because nowhere earlier is the plan final.
 ///
-/// Membership-equivalent to interrogating the plan directly: `coMembers` over
-/// the result answers what a `selected_joins` scan answers.
-/// guarded-by: select_test.zig "co-sets applied with the plan carry the plan's own membership"
-pub fn coSetsFromPlan(
+/// Membership-equivalent to interrogating the plan directly: `bundleMembers` over
+/// the result answers what a `selected_bundles` scan answers.
+/// guarded-by: select_test.zig "bundles applied with the plan carry the plan's own membership"
+pub fn bundlesFromPlan(
     allocator: std.mem.Allocator,
-    joins: RealizedJoins,
-) error{OutOfMemory}![]const CoSet {
-    if (joins.selected_joins.len == 0) return &.{};
-    var out: std.ArrayListUnmanaged(CoSet) = .empty;
-    // A fused union replaces its trunks' per-join sets: the rail is ONE
-    // channel, and a member named by two structural sets is no channel at all
-    // (`resolveStructuralSet` reads that as .multiple).
-    for (joins.fused) |u| try out.append(allocator, .{ .origin = .selected_join, .members = u });
-    for (joins.selected_joins) |j| {
-        if (subsetOfAny(joins.fused, j.members)) continue;
-        try out.append(allocator, .{ .origin = .selected_join, .members = j.members });
+    bundles: RealizedBundles,
+) error{OutOfMemory}![]const Bundle {
+    if (bundles.selected_bundles.len == 0) return &.{};
+    var out: std.ArrayListUnmanaged(Bundle) = .empty;
+    // A fused union replaces its rails' per-bundle sets: the rail is ONE
+    // bundle, and a member named by two structural sets is no bundle at all
+    // (`resolveStructuralBundle` reads that as .multiple).
+    for (bundles.fused) |u| try out.append(allocator, .{ .origin = .selected_bundle, .members = u });
+    for (bundles.selected_bundles) |j| {
+        if (subsetOfAny(bundles.fused, j.members)) continue;
+        try out.append(allocator, .{ .origin = .selected_bundle, .members = j.members });
     }
     return out.toOwnedSlice(allocator);
 }
@@ -357,7 +357,7 @@ pub const ComponentEntry = struct {
     reachable_pairs: []const NodePair = &.{},
     missing_declared_pairs: []const NodePair = &.{},
     extra_undeclared_pairs: []const NodePair = &.{},
-    selected_join_ids: []const RealizedJoinId = &.{},
+    selected_bundle_ids: []const SelectedBundleId = &.{},
     /// Structurally empty in the no-bridge P1a slice; carried so the shared
     /// table shape is complete.
     bridge_ids: []const u32 = &.{},

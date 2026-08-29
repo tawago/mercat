@@ -113,14 +113,14 @@ fn crossingKeepsFirstWriter(
     cell: *const lattice.Cell,
     incoming_edge: u32,
     incoming_mask: lattice.Neighbours,
-    at: crossings.CoCell,
+    at: crossings.BundleCell,
     ctx: crossings.Ctx,
 ) bool {
     return switch (cell.occupant) {
         .edge_segment => |seg| crossings.segmentOverlap(
             ctx.counts,
-            ctx.joins,
-            ctx.co_sets,
+            ctx.bundles,
+            ctx.bundle_sets,
             seg.edge,
             cell.neighbours,
             incoming_edge,
@@ -129,8 +129,8 @@ fn crossingKeepsFirstWriter(
         ),
         .arrowhead => |a| crossings.arrowheadTransit(
             ctx.counts,
-            ctx.joins,
-            ctx.co_sets,
+            ctx.bundles,
+            ctx.bundle_sets,
             a.edge,
             incoming_edge,
             at,
@@ -218,10 +218,10 @@ fn walkPolyline(
         // cell short of `a` (see the walk loop's `break at b`), so this is
         // the sole writer of the corner from THIS edge — a corner never
         // deposits a straight perpendicular arm here. That matters at a
-        // shared trunk corner (e.g. an undetected fan's sibling drops all
+        // shared rail corner (e.g. an undetected fan's sibling drops all
         // bend at the source column): the OR-merge onto a foreign owner
-        // must not carry a spurious straight bit, or the trunk renders `┼`
-        // instead of `┴`. // guarded-by: edges_corner_test.zig "shared trunk corner: sibling drops bending at one cell yield ┴, not a phantom ┼"
+        // must not carry a spurious straight bit, or the rail renders `┼`
+        // instead of `┴`. // guarded-by: edges_corner_test.zig "shared rail corner: sibling drops bending at one cell yield ┴, not a phantom ┼"
         if (prev_dir) |prev| {
             if (pointInBounds(a, lat)) {
                 const c = toCoord(a);
@@ -234,8 +234,8 @@ fn walkPolyline(
                         // Keep the first writer untouched; record the event.
                         if (seg.edge != edge.id and crossings.segmentOverlap(
                             ctx.counts,
-                            ctx.joins,
-                            ctx.co_sets,
+                            ctx.bundles,
+                            ctx.bundle_sets,
                             seg.edge,
                             cell.neighbours,
                             edge.id,
@@ -279,7 +279,7 @@ fn walkPolyline(
                             // edge turns here.
                             // guarded-by: aux_test.zig "a corner arm merged onto a foreign run files a merged carrier; onto its own ink, nothing"
                             // `segmentOverlap` false with a FOREIGN owner is
-                            // `sameChannel` true — the licence, verbatim.
+                            // `sameBundle` true — the licence, verbatim.
                             if (!own) ew.recordCarrier(rec, c.x, c.y, edge.id, .merged_licensed);
                             fan_roles.markShared(rec, cell, c.x, c.y, edge.id, erole);
                         }
@@ -329,7 +329,7 @@ fn walkPolyline(
                             ew.recordCarrier(rec, c.x, c.y, edge.id, .suppressed);
                         } else {
                             // `crossingKeepsFirstWriter` false on an arrowhead
-                            // occupant is `sameChannel` true; the node/label
+                            // occupant is `sameBundle` true; the node/label
                             // arms file no carrier at all.
                             writeEdgeCell(cell, edge.id, ek, erole, corner_mask, c.x, c.y, cells_lost, .merged_licensed, rec);
                             fan_roles.markShared(rec, cell, c.x, c.y, edge.id, erole);
@@ -472,9 +472,9 @@ pub fn rasterizeEdges(
     // carries the width they need to key a record positionally.
     const rec = aux.Recorder.init(sink, lat);
     const ctx: crossings.Ctx = .{
-        .joins = s.joins,
-        .co_sets = s.co_sets,
-        .stamp_state = s.channel_stamp_state,
+        .bundles = s.bundles,
+        .bundle_sets = s.bundle_sets,
+        .stamp_state = s.bundle_stamp_state,
         .counts = &cross_counts,
         .mode = subgraph_edges,
     };

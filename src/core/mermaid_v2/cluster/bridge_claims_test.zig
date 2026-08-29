@@ -4,7 +4,7 @@ const std = @import("std");
 const sketch = @import("../sketch.zig");
 const sg = @import("../sem_graph.zig");
 const ledger = @import("../base/ledger.zig");
-const bridge_cosets = @import("bridge_cosets.zig");
+const bridge_bundle_sets = @import("bridge_bundle_sets.zig");
 const bridge_claims = @import("bridge_claims.zig");
 const split_mod = @import("split.zig");
 
@@ -64,14 +64,14 @@ fn routedPath(id: sketch.EdgeId, from: sketch.NodeId, to: sketch.NodeId, points:
     return out;
 }
 
-fn outerSketch(edges: []const sketch.EdgePath, sets: []const ledger.CoSet) sketch.Sketch {
+fn outerSketch(edges: []const sketch.EdgePath, sets: []const ledger.Bundle) sketch.Sketch {
     return .{
         .bbox = .{ .x = 0, .y = 0, .w = 20, .h = 20 },
         .direction = .TD,
         .nodes = &.{},
         .clusters = &.{},
         .edges = edges,
-        .co_sets = sets,
+        .bundle_sets = sets,
         .diagnostics = &.{},
         .budget = .{ .max_width = 80, .rung = 0 },
     };
@@ -102,16 +102,16 @@ test "many routed crossings behind one placement do not make a structural fan" {
     };
     const sr = twoTargetSplit(&crossings);
     const outer_edges = [_]sketch.EdgePath{outerPath(5, 0, 1)};
-    const sets = [_]ledger.CoSet{.{ .origin = .fan_rail, .members = &.{5} }};
+    const sets = [_]ledger.Bundle{.{ .origin = .fan_rail, .members = &.{5} }};
     const outer = outerSketch(&outer_edges, &sets);
     const bridges = [_]sketch.EdgePath{
         path(100, 10, 20, .{ .x = 1, .y = 1 }, .{ .x = 1, .y = 8 }),
         path(101, 10, 21, .{ .x = 1, .y = 1 }, .{ .x = 2, .y = 8 }),
     };
 
-    const images = try bridge_cosets.finalImages(a, sr, outer, 5, 50, 100, &bridges, &bridges, &.{});
+    const images = try bridge_bundle_sets.finalImages(a, sr, outer, 5, 50, 100, &bridges, &bridges, &.{});
     try testing.expectEqualSlices(sketch.EdgeId, &.{ 100, 101 }, &.{ images[0].edge, images[1].edge });
-    try testing.expectEqual(@as(usize, 0), (try bridge_cosets.rebuildOuterSets(a, sr, outer, 50, 100, &bridges, &bridges, &.{})).len);
+    try testing.expectEqual(@as(usize, 0), (try bridge_bundle_sets.rebuildOuterSets(a, sr, outer, 50, 100, &bridges, &bridges, &.{})).len);
 }
 
 test "bridge members contribute no structural authority; the licence tier owns their fusion verdict" {
@@ -125,7 +125,7 @@ test "bridge members contribute no structural authority; the licence tier owns t
     };
     const sr = twoTargetSplit(&crossings);
     const outer_edges = [_]sketch.EdgePath{ outerPath(5, 0, 1), outerPath(6, 0, 2) };
-    const sets = [_]ledger.CoSet{.{ .origin = .fan_rail, .channel = 42, .members = &.{ 5, 6 } }};
+    const sets = [_]ledger.Bundle{.{ .origin = .fan_rail, .bundle = 42, .members = &.{ 5, 6 } }};
     const outer = outerSketch(&outer_edges, &sets);
     const bridges = [_]sketch.EdgePath{
         path(100, 10, 20, .{ .x = 1, .y = 1 }, .{ .x = 1, .y = 8 }),
@@ -134,7 +134,7 @@ test "bridge members contribute no structural authority; the licence tier owns t
 
     // Both contributors' placements touch the super: no rebuilt set. Routed
     // bridges answer to cluster/bridge_plan.zig; claims (below) still expand.
-    const got = try bridge_cosets.rebuildOuterSets(a, sr, outer, 50, 100, &bridges, &bridges, &.{});
+    const got = try bridge_bundle_sets.rebuildOuterSets(a, sr, outer, 50, 100, &bridges, &bridges, &.{});
     try testing.expectEqual(@as(usize, 0), got.len);
 
     const members = [_]ledger.RailClaimMember{ pending(55, 10, null), pending(56, 10, null) };
@@ -167,7 +167,7 @@ test "super-splitting contributors rebuild no sets; per-pivot claims still expan
     };
     const sr: split_mod.SplitResult = .{ .pieces = &S.pieces, .supers = &S.supers, .crossings = &S.crossings, .orig_node_count = 6 };
     const outer_edges = [_]sketch.EdgePath{ outerPath(5, 0, 1), outerPath(6, 0, 2) };
-    const sets = [_]ledger.CoSet{.{ .origin = .fan_rail, .members = &.{ 5, 6 } }};
+    const sets = [_]ledger.Bundle{.{ .origin = .fan_rail, .members = &.{ 5, 6 } }};
     const outer = outerSketch(&outer_edges, &sets);
     const routed = [_]sketch.EdgePath{
         path(100, 10, 20, .{ .x = 3, .y = 1 }, .{ .x = 1, .y = 8 }),
@@ -176,7 +176,7 @@ test "super-splitting contributors rebuild no sets; per-pivot claims still expan
         path(103, 11, 21, .{ .x = 4, .y = 1 }, .{ .x = 2, .y = 8 }),
     };
 
-    const rebuilt_sets = try bridge_cosets.rebuildOuterSets(a, sr, outer, 50, 100, &routed, &routed, &.{});
+    const rebuilt_sets = try bridge_bundle_sets.rebuildOuterSets(a, sr, outer, 50, 100, &routed, &routed, &.{});
     try testing.expectEqual(@as(usize, 0), rebuilt_sets.len);
 
     const members = [_]ledger.RailClaimMember{ pending(55, null, 20), pending(56, null, 21) };
@@ -209,7 +209,7 @@ test "a mixed survivor-and-bridge set rebuilds nothing once the bridge member is
     };
     const sr: split_mod.SplitResult = .{ .pieces = &S.pieces, .supers = &S.supers, .crossings = &S.crossings, .orig_node_count = 3 };
     const outer_edges = [_]sketch.EdgePath{ outerPath(5, 0, 1), outerPath(6, 0, 2) };
-    const sets = [_]ledger.CoSet{.{ .origin = .fan_rail, .members = &.{ 5, 6 } }};
+    const sets = [_]ledger.Bundle{.{ .origin = .fan_rail, .members = &.{ 5, 6 } }};
     const outer = outerSketch(&outer_edges, &sets);
     const final = [_]sketch.EdgePath{
         path(55, 10, 11, .{ .x = 3, .y = 1 }, .{ .x = 1, .y = 8 }),
@@ -218,7 +218,7 @@ test "a mixed survivor-and-bridge set rebuilds nothing once the bridge member is
 
     // The super-touching contributor is excluded, leaving one contributor —
     // below the two-contributor floor, so no set survives.
-    const got = try bridge_cosets.rebuildOuterSets(a, sr, outer, 50, 100, &final, final[1..], &.{});
+    const got = try bridge_bundle_sets.rebuildOuterSets(a, sr, outer, 50, 100, &final, final[1..], &.{});
     try testing.expectEqual(@as(usize, 0), got.len);
 }
 
@@ -248,12 +248,12 @@ test "missing routed bridge leaves the proven claim member unresolved" {
     try testing.expectEqual(@as(?ledger.AttachmentSite, null), checked.derived_pi);
     try testing.expect(!checked.isValid());
 
-    const sets = [_]ledger.CoSet{.{ .origin = .fan_rail, .members = &.{ 5, 6 } }};
+    const sets = [_]ledger.Bundle{.{ .origin = .fan_rail, .members = &.{ 5, 6 } }};
     var structural_outer = outer;
-    structural_outer.co_sets = &sets;
+    structural_outer.bundle_sets = &sets;
     try testing.expectEqual(
         @as(usize, 0),
-        (try bridge_cosets.rebuildOuterSets(a, sr, structural_outer, 50, 100, &routed, &routed, &.{})).len,
+        (try bridge_bundle_sets.rebuildOuterSets(a, sr, structural_outer, 50, 100, &routed, &routed, &.{})).len,
     );
 }
 

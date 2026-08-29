@@ -73,7 +73,7 @@ pub const table = [_]Row{
     },
     .{
         .token = "repairReciprocalStrokes",
-        .why = "DELETED mechanism: the post-walk pass that re-added a neighbour bit toward any reciprocating edge_segment. It ran before the side table was attached and was handed no crossing context, so it could not tell a legal channel sharer from the foreign arm the crossing rule had just refused — and it put both back, painting a junction no source declares. The remedy for a false disconnect is evidence upstream (declare the sharing relation as a ledger.CoSet so the refusal never fires on a legal sharer), never an additive repair downstream. raster/reconcile.zig CLEARS only",
+        .why = "DELETED mechanism: the post-walk pass that re-added a neighbour bit toward any reciprocating edge_segment. It ran before the side table was attached and was handed no crossing context, so it could not tell a legal bundle sharer from the foreign arm the crossing rule had just refused — and it put both back, painting a junction no source declares. The remedy for a false disconnect is evidence upstream (declare the sharing relation as a ledger.Bundle so the refusal never fires on a legal sharer), never an additive repair downstream. raster/reconcile.zig CLEARS only",
     },
     .{
         .token = "ensureBaseApproachLengthen",
@@ -93,11 +93,11 @@ pub const table = [_]Row{
     },
     .{
         .token = "BusBar",
-        .why = "the first-class fan trunk type is sketch.Rail, and its horizontal span is the `crossbar` field; the whole camelCase family went with it (rasterizeRails, drawRail, translateRail, conflictsRails/RailArrows/RailJunctions, railDirection, checkRails), and the lowercase family followed (raster/rails.zig, Sketch.rails)",
+        .why = "the first-class fan rail type is sketch.Rail, and its horizontal span is the `crossbar` field; the whole camelCase family went with it (rasterizeRails, drawRail, translateRail, conflictsRails/RailArrows/RailJunctions, railDirection, checkRails), and the lowercase family followed (raster/rails.zig, Sketch.rails)",
     },
     .{
         .token = "fan_busbar",
-        .why = "the fan trunk builder is layout/fan_rail.zig (+ fan_rail_test.zig); the old module basename is retired, including in guarded-by pointers and import strings",
+        .why = "the fan rail builder is layout/fan_rail.zig (+ fan_rail_test.zig); the old module basename is retired, including in guarded-by pointers and import strings",
     },
     .{
         .token = "trunk_member_style_mixed",
@@ -109,7 +109,7 @@ pub const table = [_]Row{
     },
     .{
         .token = "trunk_pivot_side_arrow",
-        .why = "the diagnostic tag is rail_pivot_side_arrow (rename wave D); the unrelated ports.AttachmentClass.trunk_pivot keeps its name, which this longer token does not match",
+        .why = "the diagnostic tag is rail_pivot_side_arrow (rename wave D); ports.AttachmentClass later became rail_pivot (P8), which this longer token never matched",
     },
     .{
         .token = "trunk_duplicate_pair",
@@ -141,7 +141,7 @@ pub const table = [_]Row{
     },
     .{
         .token = "meshUnions",
-        .why = "shared trunking exists only where members share ONE exact endpoint, so there is no K(N,M) union producer; an all-to-all renders as its star decomposition (one rail per shared endpoint, lane-separated by layout/fan_lanes.zig)",
+        .why = "a shared rail exists only where members share ONE exact endpoint, so there is no K(N,M) union producer; an all-to-all renders as its star decomposition (one rail per shared endpoint, lane-separated by layout/fan_lanes.zig)",
     },
     .{
         .token = "fanMeshExempt",
@@ -149,7 +149,60 @@ pub const table = [_]Row{
     },
     .{
         .token = "noDuplicateLeafPairs",
-        .why = "the union-element legality predicate died with the union path (ledger/leaf_pairs.zig deleted); a star trunk's legality is its shared pivot, checked where the group is discovered",
+        .why = "the union-element legality predicate died with the union path (ledger/leaf_pairs.zig deleted); a star rail's legality is its shared pivot, checked where the group is discovered",
+    },
+    // -- P8 vocabulary unification (bundle/rail/discharge, 2026-08-29) -------
+    .{
+        .token = "JoinGroup",
+        .why = "the candidate-bundle record is ledger.CandidateBundle (P8): a bundle is the ONE name for a set of edges licensed to share ink; the Id went with it (CandidateBundleId)",
+    },
+    .{
+        .token = "JoinPermits",
+        .why = "the licence-tier record is ledger.BundlePermits (P8); the JoinPolicy/JoinDirection/JoinMembership family became BundlePolicy/BundleDirection/BundleMembership",
+    },
+    .{
+        .token = "JoinProposal",
+        .why = "the candidate-local proposal record is ledger.BundleProposal (P8)",
+    },
+    .{
+        .token = "SelectedJoin",
+        .why = "the fusion-tier selection record is ledger.SelectedBundle (P8); its id type is SelectedBundleId (formerly RealizedJoinId)",
+    },
+    .{
+        .token = "RealizedJoins",
+        .why = "the candidate-local realization envelope is ledger.RealizedBundles (P8), riding Sketch.bundles",
+    },
+    .{
+        .token = "intentional_joins",
+        .why = "the diagnostic tag is intentional_bundles (P8)",
+    },
+    .{
+        .token = "permission_group",
+        .why = "the disposition/proposal field is candidate_bundle (P8): it names the candidate bundle the membership belongs to",
+    },
+    .{
+        .token = "CoSet",
+        .why = "the operational sharing-membership record is ledger.Bundle (P8, base/bundle.zig): a co-set always WAS a bundle — the one structural decision that licenses shared ink",
+    },
+    .{
+        .token = "ChannelId",
+        .why = "the sharing identity a rail's ink carries is the bundle's: ledger.BundleId (P8); no_channel/privateChannel/channelOf/channelsAgree became no_bundle/privateBundle/bundleOf/bundlesAgree",
+    },
+    .{
+        .token = "co_realized",
+        .why = "the theory name is DISCHARGE: RealizedBundles.discharged (P8) lists the declared edges whose entire rendering is a span of another bundle's rail",
+    },
+    .{
+        .token = "sketch_channels",
+        .why = "the stamp module is sketch_bundles.zig (P8); the old basename is retired, including in guarded-by pointers and import strings",
+    },
+    .{
+        .token = "co_channel",
+        .why = "the membership-vocabulary module is base/bundle.zig (P8)",
+    },
+    .{
+        .token = "bridge_trunks",
+        .why = "the licensed shared-source module is cluster/bridge_rails.zig (P8): the rendered shared stretch is a rail everywhere",
     },
 };
 

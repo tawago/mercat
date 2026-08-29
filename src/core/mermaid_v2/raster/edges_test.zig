@@ -142,7 +142,7 @@ test "two foreign crossing edges read as a transversal, not a junction" {
         .edge_segment => true,
         else => false,
     });
-    // Unconditional crossing rule: the two edges share no channel, so the
+    // Unconditional crossing rule: the two edges share no bundle, so the
     // first writer's horizontal run keeps its straight stroke.
     try testing.expectEqual(
         (lattice.Neighbours{ .e = true, .w = true }).toMask(),

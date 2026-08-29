@@ -4,27 +4,27 @@
 //! licence tier (base/rail_star.checkLicence, members keyed by ROOT edge
 //! ids), and the decision is RECORDED in the merged plan's memberships:
 //! `licence_refused` when the licence fails, `not_selected` when it holds
-//! but no trunk realized. A licensed EXIT group whose routed geometry IS a
-//! trunk (bridge_trunks.realizedTrunk: shared stem, disjoint tails) flips to
-//! `selected` with one selected join over the members — on that shape the
+//! but no rail realized. A licensed EXIT group whose routed geometry IS a
+//! rail (bridge_rails.realizedRail: shared stem, disjoint tails) flips to
+//! `selected` with one selected bundle over the members — on that shape the
 //! position-independent authority is inert away from the shared run. Any
 //! other group stays independent: a global sanction was tried and measured —
 //! it merges member-vs-member crossings away from the approach into junction
 //! glyphs a third edge then lands on. Groups span CROSSINGS only: absorbing
 //! a piece edge sharing the pivot is licence-permitted but its committed
 //! geometry starts one column over with its arrowhead on the shared face
-//! (decorations refuse transit even among members), so no trunk containing
+//! (decorations refuse transit even among members), so no rail containing
 //! it can exist and the honest record is the crossing-only group.
 //! Group ids are bridge-plan-internal (same rule as piece plans crossing the
 //! stitch); membership edge ids are merged-sketch bridge ids. PURE DATA:
-//! crossings + routed paths in, one RealizedJoins fragment out.
+//! crossings + routed paths in, one RealizedBundles fragment out.
 
 const std = @import("std");
 const sketch = @import("../sketch.zig");
 const sg = @import("../sem_graph.zig");
 const ledger = @import("../base/ledger.zig");
 const bridges = @import("bridges.zig");
-const trunks = @import("bridge_trunks.zig");
+const rails = @import("bridge_rails.zig");
 
 /// Plan the cross-border bundles over the routed bridges. `routed` are the
 /// final merged-sketch bridge paths (ids already offset by `bridge_base`);
@@ -34,14 +34,14 @@ pub fn plan(
     crossings: []const bridges.Crossing,
     routed: []const sketch.EdgePath,
     bridge_base: sketch.EdgeId,
-) error{OutOfMemory}!ledger.RealizedJoins {
+) error{OutOfMemory}!ledger.RealizedBundles {
     const side_of = try arena.alloc([2]?ledger.MembershipDisposition, crossings.len);
     for (side_of) |*s| s.* = .{ null, null };
 
-    var group_id: ledger.JoinGroupId = 0;
-    var next_join: ledger.RealizedJoinId = 0;
-    var selected: std.ArrayListUnmanaged(ledger.SelectedJoin) = .empty;
-    for ([2]ledger.JoinDirection{ .out, .in }) |direction| {
+    var group_id: ledger.CandidateBundleId = 0;
+    var next_bundle: ledger.SelectedBundleId = 0;
+    var selected: std.ArrayListUnmanaged(ledger.SelectedBundle) = .empty;
+    for ([2]ledger.BundleDirection{ .out, .in }) |direction| {
         const di: usize = if (direction == .out) 0 else 1;
         const grouped = try arena.alloc(bool, crossings.len);
         @memset(grouped, false);
@@ -64,15 +64,15 @@ pub fn plan(
                 const medges = try arena.alloc(ledger.EdgeId, members.items.len);
                 for (members.items, medges) |mi, *e| e.* = crossings[mi].id + bridge_base;
                 try selected.append(arena, .{
-                    .id = next_join,
+                    .id = next_bundle,
                     .proposal = 0,
-                    .permission_group = group_id,
+                    .candidate_bundle = group_id,
                     .members = medges,
                 });
-                for (members.items) |mi| side_of[mi][di] = .{ .selected = next_join };
-                next_join += 1;
+                for (members.items) |mi| side_of[mi][di] = .{ .selected = next_bundle };
+                next_bundle += 1;
             } else for (members.items) |mi| side_of[mi][di] = .{ .independent = .{
-                .permission_group = group_id,
+                .candidate_bundle = group_id,
                 .reason = if (licensed) .not_selected else .licence_refused,
             } };
             group_id += 1;
@@ -90,13 +90,13 @@ pub fn plan(
     }
 
     return .{
-        .selected_joins = try selected.toOwnedSlice(arena),
+        .selected_bundles = try selected.toOwnedSlice(arena),
         .memberships = try memberships.toOwnedSlice(arena),
     };
 }
 
-/// A licensed exit group realized a trunk iff EVERY member routed and the
-/// final paths are one trunk (bridge_trunks.realizedTrunk): shared stem,
+/// A licensed exit group realized a rail iff EVERY member routed and the
+/// final paths are one rail (bridge_rails.realizedRail): shared stem,
 /// disjoint tails — the shape on which the sanction is inert away from the
 /// shared run.
 fn realizedOut(
@@ -110,10 +110,10 @@ fn realizedOut(
     for (members, paths) |mi, *p| {
         p.* = routedPath(routed, bridge_base, crossings[mi].id) orelse return false;
     }
-    return trunks.realizedTrunk(arena, paths);
+    return rails.realizedRail(arena, paths);
 }
 
-fn pivotOf(c: bridges.Crossing, direction: ledger.JoinDirection) sg.NodeId {
+fn pivotOf(c: bridges.Crossing, direction: ledger.BundleDirection) sg.NodeId {
     return if (direction == .out) c.from else c.to;
 }
 
@@ -122,7 +122,7 @@ fn checkGroup(
     arena: std.mem.Allocator,
     crossings: []const bridges.Crossing,
     members: []const usize,
-    direction: ledger.JoinDirection,
+    direction: ledger.BundleDirection,
     pivot: sg.NodeId,
 ) error{OutOfMemory}!ledger.RailLicenceCheck {
     const rows = try arena.alloc(ledger.RailLicenceMember, members.len);
@@ -176,22 +176,22 @@ test "a licensed cross-border fan-in records deferred; a mixed one records the r
         .{ .id = 102, .from = 3, .to = 8, .polyline = &.{}, .port_from = .{ .node = 3, .side = .south, .offset = 1 }, .port_to = .{ .node = 8, .side = .north, .offset = 0 }, .arrow_from = .none, .arrow_to = .filled, .label = null, .kind = .solid },
     };
 
-    const joins = try plan(a, &crossings, &routed, base);
-    try std.testing.expectEqual(@as(usize, 0), joins.selected_joins.len);
-    try std.testing.expectEqual(@as(usize, 3), joins.memberships.len);
-    const licensed = joins.memberships[0].target.?;
+    const bundles = try plan(a, &crossings, &routed, base);
+    try std.testing.expectEqual(@as(usize, 0), bundles.selected_bundles.len);
+    try std.testing.expectEqual(@as(usize, 3), bundles.memberships.len);
+    const licensed = bundles.memberships[0].target.?;
     try std.testing.expect(licensed == .independent);
     try std.testing.expectEqual(ledger.IndependentReason.not_selected, licensed.independent.reason);
-    try std.testing.expectEqual(licensed.independent.permission_group, joins.memberships[1].target.?.independent.permission_group);
-    try std.testing.expect(joins.memberships[0].source == null);
-    try std.testing.expect(joins.memberships[2].source == null and joins.memberships[2].target == null);
+    try std.testing.expectEqual(licensed.independent.candidate_bundle, bundles.memberships[1].target.?.independent.candidate_bundle);
+    try std.testing.expect(bundles.memberships[0].source == null);
+    try std.testing.expect(bundles.memberships[2].source == null and bundles.memberships[2].target == null);
 
     // Same shape but mixed arrows at the pivot: the licence refuses, and the
     // record names the refusal.
     var mixed = crossings;
     mixed[1].arrow_to = .circle;
     const refused = try plan(a, &mixed, &routed, base);
-    try std.testing.expectEqual(@as(usize, 0), refused.selected_joins.len);
+    try std.testing.expectEqual(@as(usize, 0), refused.selected_bundles.len);
     const disp = refused.memberships[0].target.?;
     try std.testing.expectEqual(ledger.IndependentReason.licence_refused, disp.independent.reason);
 }
@@ -215,14 +215,14 @@ test "invisible crossings sharing a pivot re-form no group and keep one stable i
         r.* = .{ .id = c.id, .from = c.from, .to = c.to, .polyline = &.{}, .port_from = .{ .node = c.from, .side = .south, .offset = 1 }, .port_to = .{ .node = c.to, .side = .north, .offset = 1 }, .arrow_from = c.arrow_from, .arrow_to = c.arrow_to, .label = null, .kind = c.kind };
     }
 
-    const joins = try plan(a, &crossings, &routed, 0);
-    try std.testing.expectEqual(@as(usize, 4), joins.memberships.len);
-    const g0 = joins.memberships[0].source.?.independent.permission_group;
-    try std.testing.expectEqual(@as(ledger.JoinGroupId, 0), g0);
-    try std.testing.expectEqual(g0, joins.memberships[1].source.?.independent.permission_group);
+    const bundles = try plan(a, &crossings, &routed, 0);
+    try std.testing.expectEqual(@as(usize, 4), bundles.memberships.len);
+    const g0 = bundles.memberships[0].source.?.independent.candidate_bundle;
+    try std.testing.expectEqual(@as(ledger.CandidateBundleId, 0), g0);
+    try std.testing.expectEqual(g0, bundles.memberships[1].source.?.independent.candidate_bundle);
     // Invisible crossings carry no disposition at all.
-    try std.testing.expect(joins.memberships[2].source == null and joins.memberships[2].target == null);
-    try std.testing.expect(joins.memberships[3].source == null and joins.memberships[3].target == null);
+    try std.testing.expect(bundles.memberships[2].source == null and bundles.memberships[2].target == null);
+    try std.testing.expect(bundles.memberships[3].source == null and bundles.memberships[3].target == null);
 }
 
 test "a crossing the router skipped takes no membership row" {
@@ -238,7 +238,7 @@ test "a crossing the router skipped takes no membership row" {
     const routed = [_]sketch.EdgePath{
         .{ .id = 50, .from = 1, .to = 9, .polyline = &.{}, .port_from = .{ .node = 1, .side = .south, .offset = 1 }, .port_to = .{ .node = 9, .side = .north, .offset = 2 }, .arrow_from = .none, .arrow_to = .filled, .label = null, .kind = .solid },
     };
-    const joins = try plan(a, &crossings, &routed, 50);
-    try std.testing.expectEqual(@as(usize, 1), joins.memberships.len);
-    try std.testing.expectEqual(@as(ledger.EdgeId, 50), joins.memberships[0].edge);
+    const bundles = try plan(a, &crossings, &routed, 50);
+    try std.testing.expectEqual(@as(usize, 1), bundles.memberships.len);
+    try std.testing.expectEqual(@as(ledger.EdgeId, 50), bundles.memberships[0].edge);
 }

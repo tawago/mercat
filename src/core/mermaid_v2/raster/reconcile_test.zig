@@ -65,13 +65,13 @@ test "reconcileNeighbours: 1-cell port gap before an arrowhead keeps the bit (te
 // ---------------------------------------------------------------------
 // Slice 2(2a): reprieve requires reciprocity — a non-reciprocating cell
 // collinear with the arm (an incidental perpendicular border running
-// alongside the trunk) does NOT justify the 1-cell reprieve.
+// alongside the rail) does NOT justify the 1-cell reprieve.
 // ---------------------------------------------------------------------
-// Fan-in trunk shape (adv_b01): a 4-way junction whose S bit faces a blank
+// Fan-in rail shape (adv_b01): a 4-way junction whose S bit faces a blank
 // gutter, with an incidental horizontal node_border two cells south. The
 // border's run is {e,w} (it does NOT reciprocate with a .n), so the S arm
 // must be cleared: ┼ → ┴.
-test "reconcileNeighbours: reprieve denied for a perpendicular horizontal node_border (fan-in trunk ┼→┴)" {
+test "reconcileNeighbours: reprieve denied for a perpendicular horizontal node_border (fan-in rail ┼→┴)" {
     var buf: [12]lattice.Cell = undefined;
     var lat = emptyLattice(&buf, 3, 4);
 
@@ -90,11 +90,11 @@ test "reconcileNeighbours: reprieve denied for a perpendicular horizontal node_b
     try testing.expectEqual(@as(u4, 0b1011), got.toMask()); // ┴ = N+E+W
 }
 
-// Fan trunk beside an outer frame wall (docling): a 4-way junction whose W
+// Fan rail beside an outer frame wall (docling): a 4-way junction whose W
 // bit faces a blank gutter, with the outer frame wall two cells west. The
 // wall's run is {n,s} (no reciprocal .e), so the W arm must be cleared:
 // ┼ → ├.
-test "reconcileNeighbours: reprieve denied for a perpendicular vertical cluster_border wall (fan trunk ┼→├)" {
+test "reconcileNeighbours: reprieve denied for a perpendicular vertical cluster_border wall (fan rail ┼→├)" {
     var buf: [15]lattice.Cell = undefined;
     var lat = emptyLattice(&buf, 5, 3);
 

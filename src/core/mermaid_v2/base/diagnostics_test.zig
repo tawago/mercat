@@ -27,7 +27,7 @@ const ci_tags = [_]pb.DiagnosticTag{
     .reach_missing_declared,
     .reach_split_trace,
     .reach_duplicate_trace,
-    .reach_join_split,
+    .reach_bundle_split,
     .reach_independent_joined,
     .reach_cross_connected,
     .reach_one_sided_adjacency,
@@ -38,8 +38,8 @@ const ci_tags = [_]pb.DiagnosticTag{
     .port_departure_conflict,
     .port_capacity_exceeded,
     .realized_plan_missing,
-    .selected_join_invalidated,
-    .join_select_invalidated,
+    .selected_bundle_invalidated,
+    .bundle_select_invalidated,
 };
 
 const ro_tags = [_]pb.DiagnosticTag{
@@ -51,20 +51,20 @@ const ro_tags = [_]pb.DiagnosticTag{
     .dual_membership_edges,
     .dual_membership_selected_both_sides,
     .permission_overlap_conflicts,
-    .join_select_selected,
-    .join_select_independent_not_selected,
-    .join_select_independent_overlap_conflict,
-    .join_select_independent_unsafe_component,
-    .join_select_conflict_neither,
-    .join_select_duplicate_key_blocked,
-    .join_select_proposal_multiplicity_blocked,
-    .join_select_cluster_skipped,
+    .bundle_select_selected,
+    .bundle_select_independent_not_selected,
+    .bundle_select_independent_overlap_conflict,
+    .bundle_select_independent_unsafe_component,
+    .bundle_select_conflict_neither,
+    .bundle_select_duplicate_key_blocked,
+    .bundle_select_proposal_multiplicity_blocked,
+    .bundle_select_cluster_skipped,
     .reach_skipped_clustered,
     .port_skipped_clustered,
-    .join_permits_skipped_clustered,
+    .bundle_permits_skipped_clustered,
     .edgeid_scope_clustered_skipped,
-    .intentional_joins,
-    // Rail construction/refusal and co-set declaration diagnostics.
+    .intentional_bundles,
+    // Rail construction/refusal and bundle declaration diagnostics.
     .rail_deco_mixed,
     .rail_star_violation,
     .rail_closure_undeclared,
@@ -99,13 +99,13 @@ test "registry partitions the 48 tags RF 5 / CI 17 / RO 26" {
 }
 
 test "both invalidation tags are candidate-invalid (D-DISPOSITION item 5 row 4)" {
-    // Item 5 row 4 names BOTH tags: `selected_join_invalidated` (D-IR) and
-    // `join_select.invalidated` (D-JOIN-SELECT) are two registry entries,
+    // Item 5 row 4 names BOTH tags: `selected_bundle_invalidated` (D-IR) and
+    // `bundle_select.invalidated` (D-JOIN-SELECT) are two registry entries,
     // each CI. Cross-pinned again by V-D-DISPOSITION-14 in Step 9.
-    try expectEqual(pb.DispositionClass.candidate_invalid, pb.classOf(.selected_join_invalidated));
-    try expectEqual(pb.DispositionClass.candidate_invalid, pb.classOf(.join_select_invalidated));
-    try expectEqual(pb.DispositionClass.candidate_invalid, pb.classOf(pb.tagByName("selected_join_invalidated").?));
-    try expectEqual(pb.DispositionClass.candidate_invalid, pb.classOf(pb.tagByName("join_select.invalidated").?));
+    try expectEqual(pb.DispositionClass.candidate_invalid, pb.classOf(.selected_bundle_invalidated));
+    try expectEqual(pb.DispositionClass.candidate_invalid, pb.classOf(.bundle_select_invalidated));
+    try expectEqual(pb.DispositionClass.candidate_invalid, pb.classOf(pb.tagByName("selected_bundle_invalidated").?));
+    try expectEqual(pb.DispositionClass.candidate_invalid, pb.classOf(pb.tagByName("bundle_select.invalidated").?));
 }
 
 test "tag names round-trip through tagByName" {
@@ -113,21 +113,21 @@ test "tag names round-trip through tagByName" {
         const tag: pb.DiagnosticTag = @enumFromInt(f.value);
         try expectEqual(tag, pb.tagByName(pb.tagName(tag)).?);
     }
-    // The join_select family carries its record-verbatim dotted names.
-    try expectEqualStrings("join_select.selected", pb.tagName(.join_select_selected));
-    try expectEqualStrings("join_select.independent.not_selected", pb.tagName(.join_select_independent_not_selected));
-    try expectEqualStrings("join_select.independent.overlap_conflict", pb.tagName(.join_select_independent_overlap_conflict));
-    try expectEqualStrings("join_select.independent.unsafe_component", pb.tagName(.join_select_independent_unsafe_component));
-    try expectEqualStrings("join_select.conflict_neither", pb.tagName(.join_select_conflict_neither));
-    try expectEqualStrings("join_select.invalidated", pb.tagName(.join_select_invalidated));
-    try expectEqualStrings("join_select.cluster_skipped", pb.tagName(.join_select_cluster_skipped));
-    try expectEqualStrings("join_select.duplicate_key_blocked", pb.tagName(.join_select_duplicate_key_blocked));
-    try expectEqualStrings("join_select.proposal_multiplicity_blocked", pb.tagName(.join_select_proposal_multiplicity_blocked));
+    // The bundle_select family carries its record-verbatim dotted names.
+    try expectEqualStrings("bundle_select.selected", pb.tagName(.bundle_select_selected));
+    try expectEqualStrings("bundle_select.independent.not_selected", pb.tagName(.bundle_select_independent_not_selected));
+    try expectEqualStrings("bundle_select.independent.overlap_conflict", pb.tagName(.bundle_select_independent_overlap_conflict));
+    try expectEqualStrings("bundle_select.independent.unsafe_component", pb.tagName(.bundle_select_independent_unsafe_component));
+    try expectEqualStrings("bundle_select.conflict_neither", pb.tagName(.bundle_select_conflict_neither));
+    try expectEqualStrings("bundle_select.invalidated", pb.tagName(.bundle_select_invalidated));
+    try expectEqualStrings("bundle_select.cluster_skipped", pb.tagName(.bundle_select_cluster_skipped));
+    try expectEqualStrings("bundle_select.duplicate_key_blocked", pb.tagName(.bundle_select_duplicate_key_blocked));
+    try expectEqualStrings("bundle_select.proposal_multiplicity_blocked", pb.tagName(.bundle_select_proposal_multiplicity_blocked));
     // Undotted tags spell exactly their field name.
-    try expectEqualStrings("selected_join_invalidated", pb.tagName(.selected_join_invalidated));
+    try expectEqualStrings("selected_bundle_invalidated", pb.tagName(.selected_bundle_invalidated));
     // Unregistered names resolve to null (item-4 backstop is the caller's).
     try expectEqual(@as(?pb.DiagnosticTag, null), pb.tagByName("not_a_registered_tag"));
-    try expectEqual(@as(?pb.DiagnosticTag, null), pb.tagByName("join_select.selected_both"));
+    try expectEqual(@as(?pb.DiagnosticTag, null), pb.tagByName("bundle_select.selected_both"));
 }
 
 test "rail style and decoration exclusions are distinct report-only registry entries" {

@@ -33,10 +33,10 @@ pub fn scanImports(
 pub const Rule = union(enum) {
     /// endsWith "sem_graph.zig" (direct or parent-relative).
     sem_graph,
-    /// endsWith "sketch.zig", "sketch_ports.zig" OR "sketch_channels.zig":
+    /// endsWith "sketch.zig", "sketch_ports.zig" OR "sketch_bundles.zig":
     /// both siblings are extensions of the Sketch IR root (a pure derivation
-    /// over `EdgePath` polylines; a pure stamping of channel identity over the
-    /// finished co-set list), so they are granted exactly where `sketch.zig`
+    /// over `EdgePath` polylines; a pure stamping of bundle identity over the
+    /// finished bundle list), so they are granted exactly where `sketch.zig`
     /// is granted and nowhere else.
     sketch,
     /// endsWith "budget.zig".
@@ -59,7 +59,7 @@ pub const Rule = union(enum) {
             .sem_graph => std.mem.endsWith(u8, target, "sem_graph.zig"),
             .sketch => std.mem.endsWith(u8, target, "sketch.zig") or
                 std.mem.endsWith(u8, target, "sketch_ports.zig") or
-                std.mem.endsWith(u8, target, "sketch_channels.zig"),
+                std.mem.endsWith(u8, target, "sketch_bundles.zig"),
             .budget => std.mem.endsWith(u8, target, "budget.zig"),
             .recurse => std.mem.endsWith(u8, target, "recurse.zig"),
             .layout_zone => std.mem.endsWith(u8, target, "layout.zig") or
@@ -89,18 +89,18 @@ pub const Rule = union(enum) {
 ///                   block in `checkImport`, not by a `file_allowlists` row.
 ///   raster/aux.zig  the lattice side-table builder: lattice (plus its own
 ///                   test sibling) only — one step tighter than the raster
-///                   zone, which would also grant sketch.zig, so the channel
+///                   zone, which would also grant sketch.zig, so the bundle
 ///                   can only record what was rasterized, never what the
 ///                   layout intended.
 ///   ledger/permits.zig  semantic permission discovery (D-IR item 3):
 ///                   base/ledger + sem_graph.
 ///   ledger/realized.zig candidate-local realized-join planner (D-IR item 8):
-///                   JoinPermits + candidate Sketch only.
+///                   BundlePermits + candidate Sketch only.
 ///   ledger/invariants.zig  the realized-join output validator
 ///                   (split sibling of realized.zig for the 500-line cap).
 ///   ledger/reach_vector.zig  pre-raster D-REACH vector reachability
 ///                   oracle (P2v Step 6, report-only; D-IR item 9):
-///                   candidate Sketch + joins only, plus its two split
+///                   candidate Sketch + bundles only, plus its two split
 ///                   siblings (reach_geometry decomposition, reach_report
 ///                   table types).
 ///   select_test.zig  select.zig's test sibling (Step 4 cap-watch
@@ -292,10 +292,10 @@ pub const file_allowlists = [_]struct {
         .reason = "score_calibration_test may only import std, prim, sketch, or score",
     },
     .{
-        // Extension of the Sketch IR root: the pure port-share co-set
+        // Extension of the Sketch IR root: the pure port-share bundle
         // derivation over EdgePath polylines. std + prim + base/ledger +
         // sketch only — it may read the geometry and nothing else, so a
-        // co-channel can never be claimed from layout intent or diagram
+        // bundle can never be claimed from layout intent or diagram
         // semantics. `Rule.sketch` grants it wherever sketch.zig is granted.
         .name = "sketch_ports.zig",
         .allowed = &.{ .sketch, .{ .exact = "sketch_ports_test.zig" } },
@@ -303,22 +303,22 @@ pub const file_allowlists = [_]struct {
     },
     .{
         .name = "sketch_ports_test.zig",
-        .allowed = &.{ .sketch, .{ .exact = "sketch_channels.zig" } },
-        .reason = "sketch_ports_test may only import std, prim, base/ledger, sketch, sketch_ports, or sketch_channels",
+        .allowed = &.{ .sketch, .{ .exact = "sketch_bundles.zig" } },
+        .reason = "sketch_ports_test may only import std, prim, base/ledger, sketch, sketch_ports, or sketch_bundles",
     },
     .{
-        // Extension of the Sketch IR root: channel identity stamped over a
-        // FINISHED co-set list. std + prim + base/ledger + sketch only — it
+        // Extension of the Sketch IR root: bundle identity stamped over a
+        // FINISHED bundle list. std + prim + base/ledger + sketch only — it
         // reads no geometry beyond the tap edge ids that key a rail to its
-        // set, so a channel can never be named from layout intent.
-        .name = "sketch_channels.zig",
-        .allowed = &.{ .sketch, .{ .exact = "sketch_channels_test.zig" } },
-        .reason = "sketch_channels may only import std, prim, base/ledger, sketch, or sketch_channels_test",
+        // set, so a bundle can never be named from layout intent.
+        .name = "sketch_bundles.zig",
+        .allowed = &.{ .sketch, .{ .exact = "sketch_bundles_test.zig" } },
+        .reason = "sketch_bundles may only import std, prim, base/ledger, sketch, or sketch_bundles_test",
     },
     .{
-        .name = "sketch_channels_test.zig",
+        .name = "sketch_bundles_test.zig",
         .allowed = &.{ .sketch, .parse_zone, .{ .exact = "select.zig" }, .{ .exact = "ledger/permits.zig" } },
-        .reason = "sketch_channels_test may only import std, prim, base/ledger, sketch, sketch_channels, parse, select, or ledger/permits",
+        .reason = "sketch_bundles_test may only import std, prim, base/ledger, sketch, sketch_bundles, parse, select, or ledger/permits",
     },
     .{
         .name = "budget_types.zig",
@@ -348,8 +348,8 @@ pub const file_allowlists = [_]struct {
         // surface pushed select.zig over the 500-line cap). Strict subset of
         // select.zig's imports: no score/audit/motif/sketch/invariants.
         .name = "select_filter.zig",
-        .allowed = &.{ .sem_graph, .budget, .{ .exact = "sketch_channels.zig" }, .{ .exact = "ledger/realized.zig" }, .{ .exact = "ledger/reach_vector.zig" } },
-        .reason = "select_filter may only import std, prim, base/ledger, sem_graph, budget, sketch_channels, ledger/realized, or ledger/reach_vector",
+        .allowed = &.{ .sem_graph, .budget, .{ .exact = "sketch_bundles.zig" }, .{ .exact = "ledger/realized.zig" }, .{ .exact = "ledger/reach_vector.zig" } },
+        .reason = "select_filter may only import std, prim, base/ledger, sem_graph, budget, sketch_bundles, ledger/realized, or ledger/reach_vector",
     },
     .{
         .name = "select_test.zig",
@@ -372,9 +372,9 @@ pub const file_allowlists = [_]struct {
         .reason = "budget_test may only import std, prim, build_options, budget, sem_graph, sketch, parse, score, select, or audit",
     },
     .{
-        .name = "layout/join_commit_test.zig",
-        .allowed = &.{ .parse_zone, .{ .exact = "../ledger/permits.zig" }, .{ .exact = "../ledger/realized.zig" }, .{ .exact = "../select.zig" }, .{ .exact = "join_commit.zig" } },
-        .reason = "join_commit_test may only import std, prim, base/ledger, parse, permits, realized, select, or join_commit",
+        .name = "layout/bundle_commit_test.zig",
+        .allowed = &.{ .parse_zone, .{ .exact = "../ledger/permits.zig" }, .{ .exact = "../ledger/realized.zig" }, .{ .exact = "../select.zig" }, .{ .exact = "bundle_commit.zig" } },
+        .reason = "bundle_commit_test may only import std, prim, base/ledger, parse, permits, realized, select, or bundle_commit",
     },
     .{
         .name = "layout/port_plan_test.zig",
@@ -434,17 +434,17 @@ pub const file_allowlists = [_]struct {
         .reason = "tiling/rails_test may only import std, prim, base/*, sketch, lattice, rails, cell, or counts",
     },
     .{
-        // The channel-identity tier: roster + carrier records only. It may
+        // The bundle-identity tier: roster + carrier records only. It may
         // NOT reach the raster that filed those records, so the comparison it
         // publishes is over shipped data and never over a re-run decision.
-        .name = "tiling/channels.zig",
+        .name = "tiling/bundles.zig",
         .allowed = &.{ .sketch, .{ .exact = "cell.zig" }, .{ .exact = "counts.zig" } },
-        .reason = "tiling/channels may only import std, prim, base/*, sketch, cell, or counts",
+        .reason = "tiling/bundles may only import std, prim, base/*, sketch, cell, or counts",
     },
     .{
-        .name = "tiling/channels_test.zig",
-        .allowed = &.{ .sketch, .{ .exact = "../lattice.zig" }, .{ .exact = "channels.zig" }, .{ .exact = "cell.zig" }, .{ .exact = "counts.zig" } },
-        .reason = "tiling/channels_test may only import std, prim, base/*, sketch, lattice, channels, cell, or counts",
+        .name = "tiling/bundles_test.zig",
+        .allowed = &.{ .sketch, .{ .exact = "../lattice.zig" }, .{ .exact = "bundles.zig" }, .{ .exact = "cell.zig" }, .{ .exact = "counts.zig" } },
+        .reason = "tiling/bundles_test may only import std, prim, base/*, sketch, lattice, bundles, cell, or counts",
     },
     .{
         // Cap-forced split of counts.zig: the reflection-driven printer. It
@@ -461,7 +461,7 @@ pub const file_allowlists = [_]struct {
     },
     .{
         .name = "tiling/scan.zig",
-        .allowed = &.{ .sem_graph, .sketch, .{ .exact = "../lattice.zig" }, .{ .exact = "counts.zig" }, .{ .exact = "cell.zig" }, .{ .exact = "arrows.zig" }, .{ .exact = "strokes.zig" }, .{ .exact = "rings.zig" }, .{ .exact = "terminal.zig" }, .{ .exact = "expect.zig" }, .{ .exact = "rail_stars.zig" }, .{ .exact = "rails.zig" }, .{ .exact = "channels.zig" }, .{ .exact = "state.zig" } },
+        .allowed = &.{ .sem_graph, .sketch, .{ .exact = "../lattice.zig" }, .{ .exact = "counts.zig" }, .{ .exact = "cell.zig" }, .{ .exact = "arrows.zig" }, .{ .exact = "strokes.zig" }, .{ .exact = "rings.zig" }, .{ .exact = "terminal.zig" }, .{ .exact = "expect.zig" }, .{ .exact = "rail_stars.zig" }, .{ .exact = "rails.zig" }, .{ .exact = "bundles.zig" }, .{ .exact = "state.zig" } },
         .reason = "tiling/scan may only import std, prim, base/*, sem_graph, sketch, lattice, or tiling siblings",
     },
     .{
@@ -594,7 +594,7 @@ pub fn checkImport(rel_path: []const u8, target: []const u8) ?[]const u8 {
 
     // The construction-time rail gate is owned by semantic permit discovery
     // and consumed only at the two layout commitment points.
-    if ((std.mem.eql(u8, rel_path, "layout/fan.zig") or std.mem.eql(u8, rel_path, "layout/join_commit.zig")) and
+    if ((std.mem.eql(u8, rel_path, "layout/fan.zig") or std.mem.eql(u8, rel_path, "layout/bundle_commit.zig")) and
         std.mem.eql(u8, target, "../ledger/permits.zig")) return null;
 
     // entry.zig — composition root, may import anything.

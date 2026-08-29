@@ -5,7 +5,7 @@
 //! and a `Neighbours` bitmask consumed by the painter's junction table.
 //!
 //! Beside the grid sits `aux`: a position-keyed side table of `Aux`
-//! records (see below), the channel for facts that are plural or
+//! records (see below), the bundle for facts that are plural or
 //! positional rather than painted.
 //!
 //! Pure data: must not import `sketch.zig`, `parse.zig`, or `paint.zig`
@@ -203,7 +203,7 @@ pub const Cell = struct {
 };
 
 /// What a side-table record is about. One variant per WRITER: a variant
-/// is added in the same change as the pass that writes it, so the channel
+/// is added in the same change as the pass that writes it, so the bundle
 /// never carries a tag nothing produces.
 pub const AuxKind = enum(u8) {
     /// A port attachment: the edge named by `value` attached to the
@@ -243,7 +243,7 @@ pub const AuxKind = enum(u8) {
     /// position also carries a merged `.carrier`: that one says an identity
     /// was lost here, this one says which fan family lost it.
     rail_member,
-    /// A branch point: the edge named by `value` leaves (fan-OUT) or joins
+    /// A branch point: the edge named by `value` leaves (fan-OUT) or bundles
     /// (fan-IN) a shared fan run at `cell`, polarity in `detail`. Not the
     /// same fact as `.rail_member`, which says a member's ink passes
     /// THROUGH: the mask at a branch cell grows a dropper arm, but no Cell
@@ -274,22 +274,22 @@ pub fn portArmDetail(arm: Dir4) u8 {
 /// How an edge's ink came to be anonymous at a carrier cell, AND under
 /// what licence. Not a Cell fact either way: the Cell shows the surviving
 /// id, never the manner in which the other one was lost — and certainly
-/// not whether the two edges legally shared a channel at that position.
+/// not whether the two edges legally shared a bundle at that position.
 ///
 /// The licence is the crossing rule's own answer for the ordered pair
 /// (the id the cell keeps, the id it drops) AT this cell. It is a
 /// transcript of ONE decision at ONE position, never a claim about the
 /// pair in general.
 ///
-/// HOW WIDE that answer reaches is the co-set's business, not this byte's:
+/// HOW WIDE that answer reaches is the bundle's business, not this byte's:
 /// a `.port_share` set licenses only its own cells, so the same two edges
 /// can read licensed here and foreign one cell over, while a structural set
-/// (a realized join, a fan rail) sets `cells = null` and licenses its
-/// members ANYWHERE (`base/co_channel.zig`). A licensed transcript is
+/// (a realized bundle, a fan rail) sets `cells = null` and licenses its
+/// members ANYWHERE (`base/bundle.zig`). A licensed transcript is
 /// position-scoped only when a port share produced it.
 /// guarded-by: tiling_licence_test.zig "licence: a three-way port share the pairwise flood missed is now licensed, and the render files no defect"
 pub const CarrierKind = enum(u8) {
-    /// Merged, licence never asked — a producer with no channel context at
+    /// Merged, licence never asked — a producer with no bundle context at
     /// the moment it writes. It states NOTHING. A reader must treat it as
     /// evidence of nothing, never as consent.
     /// ZERO ON PURPOSE. `Aux.detail` defaults to 0, so every un-set,
@@ -300,15 +300,15 @@ pub const CarrierKind = enum(u8) {
     /// The carrier contributed no bits at all — the crossing rule kept the
     /// first writer untouched (a transversal, a refused foreign junction,
     /// or a pristine arrowhead). The ink is on the grid, the cell is not.
-    /// Every refusal predicate IS `!sameChannel`, so this value states
+    /// Every refusal predicate IS `!sameBundle`, so this value states
     /// FOREIGN exactly as precisely as `merged_foreign` does.
     suppressed = 1,
-    /// Merged as above, but the two edges do NOT share a channel here: the
+    /// Merged as above, but the two edges do NOT share a bundle here: the
     /// merged mask now asserts an adjacency no source declares.
     merged_foreign = 2,
     /// The carrier's bits are IN the cell's mask; only its identity was
     /// dropped, because the position already had an owner — and the two
-    /// edges DO share a channel here, so the junction glyph is honest.
+    /// edges DO share a bundle here, so the junction glyph is honest.
     /// The one value that ADMITS something, so it is never the default:
     /// reaching it takes an explicit producer that asked the question.
     merged_licensed = 3,

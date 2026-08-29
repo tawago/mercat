@@ -9,15 +9,15 @@
 const std = @import("std");
 const prim = @import("prim");
 const sketch = @import("../sketch.zig");
-const sketch_channels = @import("../sketch_channels.zig");
+const sketch_bundles = @import("../sketch_bundles.zig");
 const sg = @import("../sem_graph.zig");
 const ledger = @import("../base/ledger.zig");
 const split_mod = @import("split.zig");
 const bridges = @import("bridges.zig");
 const bridge_plan = @import("bridge_plan.zig");
 const entry_inset = @import("entry_inset.zig");
-const stitch_cosets = @import("stitch_cosets.zig");
-const stitch_joins = @import("stitch_joins.zig");
+const stitch_bundle_sets = @import("stitch_bundle_sets.zig");
+const stitch_bundles = @import("stitch_bundles.zig");
 const stitch_rails = @import("stitch_rails.zig");
 
 pub const SplitResult = split_mod.SplitResult;
@@ -132,7 +132,7 @@ pub fn stitch(
     /// True only for an AUTHORED-cluster recursion (non-flat root plan),
     /// where pieces realized piece-scoped plans worth carrying. A motif-pack
     /// recursion of a flat graph keeps the empty record: its pieces were
-    /// handed the root plan whose ids do not match theirs, so their joins
+    /// handed the root plan whose ids do not match theirs, so their bundles
     /// are not testimony (and selection later overwrites them).
     merge_joins: bool,
     /// This candidate's bridge build (LayoutOptions.bridge_build): which
@@ -146,16 +146,16 @@ pub fn stitch(
     var clusters: std.ArrayListUnmanaged(sketch.ClusterFrame) = .empty;
     var edges: std.ArrayListUnmanaged(sketch.EdgePath) = .empty;
     var rails: std.ArrayListUnmanaged(sketch.Rail) = .empty;
-    var co_sets: std.ArrayListUnmanaged(ledger.CoSet) = .empty;
-    var piece_joins: std.ArrayListUnmanaged(stitch_joins.PieceJoins) = .empty;
+    var bundle_sets: std.ArrayListUnmanaged(ledger.Bundle) = .empty;
+    var piece_joins: std.ArrayListUnmanaged(stitch_bundles.PieceBundles) = .empty;
     const claim_sources = try arena.alloc(stitch_rails.ChildSource, split_result.supers.len);
 
     // INVARIANT: edge ids are globally unique inside the merged Sketch.
     // Every piece renumbers its edges from 0 (`split.zig`), so each piece gets
     // a disjoint contiguous id window here — children in append order, then the
     // outer piece, then the routed bridges — and EVERY id-bearing field copied
-    // out of a piece (`EdgePath.id`, `Tap.edge`, `CoSet.members`) is rewritten
-    // with that piece's offset. Without it, `ledger.coMembers` and the identity
+    // out of a piece (`EdgePath.id`, `Tap.edge`, `Bundle.members`) is rewritten
+    // with that piece's offset. Without it, `ledger.bundleMembers` and the identity
     // comparisons in `raster/` alias two unrelated edges that both numbered
     // themselves 0. The scheme composes under nesting: an inner merged Sketch
     // already satisfies the invariant, and the outer stitch only slides its
@@ -278,7 +278,7 @@ pub fn stitch(
         const base = id_base;
         id_base += idSpan(child.sketch);
         claim_sources[si] = .{ .sketch = child.sketch, .node_map = global_of[super.child_piece], .edge_base = base };
-        try piece_joins.append(arena, .{ .joins = child.sketch.joins, .edge_base = base, .node_map = global_of[super.child_piece] });
+        try piece_joins.append(arena, .{ .bundles = child.sketch.bundles, .edge_base = base, .node_map = global_of[super.child_piece] });
         for (child.sketch.edges) |ce| {
             try edges.append(arena, try translateEdge(arena, ce, global_of[super.child_piece], dx, dy, base));
         }
@@ -287,8 +287,8 @@ pub fn stitch(
                 try rails.append(arena, tb);
             }
         }
-        for (child.sketch.co_sets) |cs| {
-            if (cs.origin != .port_share) try co_sets.append(arena, try stitch_cosets.shiftSet(arena, cs, base, dx, dy));
+        for (child.sketch.bundle_sets) |cs| {
+            if (cs.origin != .port_share) try bundle_sets.append(arena, try stitch_bundle_sets.shiftSet(arena, cs, base, dx, dy));
         }
     }
 
@@ -297,7 +297,7 @@ pub fn stitch(
     //     outer layout) and are replaced by routed bridge lines below. ---
     const outer_base = id_base;
     id_base += idSpan(outer);
-    try piece_joins.append(arena, .{ .joins = outer.joins, .edge_base = outer_base, .node_map = global_of[0] });
+    try piece_joins.append(arena, .{ .bundles = outer.bundles, .edge_base = outer_base, .node_map = global_of[0] });
     for (outer.edges) |oe| {
         if (superFor(split_result, oe.from) != null or superFor(split_result, oe.to) != null) continue;
         try edges.append(arena, try translateEdge(arena, oe, global_of[0], 0, 0, outer_base));
@@ -305,7 +305,7 @@ pub fn stitch(
     // --- Outer rails. Same rule per member edge: a tap onto a
     //     super-node is placement-only (its edge re-routes as a bridge);
     //     a rail whose pivot is a super-node drops entirely. Surviving
-    //     taps keep the trunk; a trunk left with zero taps drops too. ---
+    //     taps keep the rail; a rail left with zero taps drops too. ---
     for (outer.rails) |ob| {
         if (superFor(split_result, ob.pivot) != null) continue;
         var kept: std.ArrayListUnmanaged(sketch.Tap) = .empty;
@@ -352,7 +352,7 @@ pub fn stitch(
     // Reconstruct authority only after bridge routing made every final image,
     // endpoint, port, and id available. Structural outer groups require exact
     // pivot evidence; port shares are one fresh population from final paths.
-    // guarded-by: recurse_test2.zig "two bridges into one port declare a port-share co-set"
+    // guarded-by: recurse_test2.zig "two bridges into one port declare a port-share bundle"
     const edge_slice = try edges.toOwnedSlice(arena);
     const final_bridges = edge_slice[bridge_start..];
     // Cross-border bundles answer to the same licence tier as piece fans;
@@ -360,12 +360,12 @@ pub fn stitch(
     const bridge_joins = if (merge_joins)
         try bridge_plan.plan(arena, split_result.crossings, final_bridges, bridge_base)
     else
-        ledger.RealizedJoins{};
-    // A realized bridge trunk's sanction also enters the co-set roster, so
-    // the recorded identity (channelAt) agrees with the plan's own answer.
-    for (try ledger.coSetsFromPlan(arena, bridge_joins)) |cs| try co_sets.append(arena, cs);
+        ledger.RealizedBundles{};
+    // A realized bridge rail's sanction also enters the bundle roster, so
+    // the recorded identity (bundleAt) agrees with the plan's own answer.
+    for (try ledger.bundlesFromPlan(arena, bridge_joins)) |cs| try bundle_sets.append(arena, cs);
     const bar_slice = try rails.toOwnedSlice(arena);
-    const authority = try stitch_cosets.finalizeAuthority(
+    const authority = try stitch_bundle_sets.finalizeAuthority(
         arena,
         split_result,
         outer,
@@ -377,7 +377,7 @@ pub fn stitch(
         final_bridges,
         bar_slice,
         node_slice,
-        try co_sets.toOwnedSlice(arena),
+        try bundle_sets.toOwnedSlice(arena),
     );
 
     var merged: sketch.Sketch = .{
@@ -388,10 +388,10 @@ pub fn stitch(
         .edges = edge_slice,
         .rails = bar_slice,
         .rail_claims = authority.claims,
-        .co_sets = authority.sets,
-        // Piece records rewritten into merged id spaces (stitch_joins.zig):
+        .bundle_sets = authority.sets,
+        // Piece records rewritten into merged id spaces (stitch_bundles.zig):
         // the merged plan is exactly as trustworthy as a flat candidate's.
-        .joins = if (merge_joins) try stitch_joins.merge(arena, piece_joins.items, bridge_joins) else .{},
+        .bundles = if (merge_joins) try stitch_bundles.merge(arena, piece_joins.items, bridge_joins) else .{},
         // Report-only counts are per-PIECE facts about one merged picture,
         // so the merged Sketch carries their sum; keeping only the outer's
         // would silently drop every refusal a child's fans decided.
@@ -410,8 +410,8 @@ pub fn stitch(
         .label_policy = outer.label_policy,
     };
     // Each piece numbered from one, so the merged roster is re-numbered here.
-    // guarded-by: sketch_channels_test.zig "a merged roster names every channel once"
-    sketch_channels.stamp(arena, &merged);
+    // guarded-by: sketch_bundles_test.zig "a merged roster names every bundle once"
+    sketch_bundles.stamp(arena, &merged);
     return .{
         .sketch = merged,
         .input_of = try input_of.toOwnedSlice(arena),
@@ -458,7 +458,7 @@ fn idSpan(s: sketch.Sketch) sketch.EdgeId {
     }.f;
     for (s.edges) |e| bump(&max_id, e.id);
     for (s.rails) |b| for (b.taps) |t| bump(&max_id, t.edge);
-    for (s.co_sets) |cs| for (cs.members) |m| bump(&max_id, m);
+    for (s.bundle_sets) |cs| for (cs.members) |m| bump(&max_id, m);
     for (s.rail_claims) |claim| for (claim.members) |m| bump(&max_id, m.edge);
     return if (max_id) |m| m + 1 else 0;
 }
@@ -495,17 +495,17 @@ fn translateEdge(
 /// SENTINEL (defensive; callers filter super-node members beforehand).
 fn translateRail(
     arena: std.mem.Allocator,
-    bb: sketch.Rail,
+    rail: sketch.Rail,
     gmap: []const sketch.NodeId,
     dx: i32,
     dy: i32,
     id_base: sketch.EdgeId,
 ) error{OutOfMemory}!?sketch.Rail {
-    if (bb.pivot >= gmap.len or gmap[bb.pivot] == sg.SENTINEL) return null;
-    const stem = try arena.alloc(sketch.Point, bb.stem.len);
-    for (bb.stem, 0..) |pt, i| stem[i] = .{ .x = pt.x + dx, .y = pt.y + dy };
-    const taps = try arena.alloc(sketch.Tap, bb.taps.len);
-    for (bb.taps, 0..) |tap, i| {
+    if (rail.pivot >= gmap.len or gmap[rail.pivot] == sg.SENTINEL) return null;
+    const stem = try arena.alloc(sketch.Point, rail.stem.len);
+    for (rail.stem, 0..) |pt, i| stem[i] = .{ .x = pt.x + dx, .y = pt.y + dy };
+    const taps = try arena.alloc(sketch.Tap, rail.taps.len);
+    for (rail.taps, 0..) |tap, i| {
         if (tap.node >= gmap.len or gmap[tap.node] == sg.SENTINEL) return null;
         taps[i] = tap;
         taps[i].node = gmap[tap.node];
@@ -513,13 +513,13 @@ fn translateRail(
         taps[i].at = .{ .x = tap.at.x + dx, .y = tap.at.y + dy };
         taps[i].landing = .{ .x = tap.landing.x + dx, .y = tap.landing.y + dy };
     }
-    var out = bb;
-    out.pivot = gmap[bb.pivot];
+    var out = rail;
+    out.pivot = gmap[rail.pivot];
     out.stem = stem;
     out.taps = taps;
     out.crossbar = .{
-        .{ .x = bb.crossbar[0].x + dx, .y = bb.crossbar[0].y + dy },
-        .{ .x = bb.crossbar[1].x + dx, .y = bb.crossbar[1].y + dy },
+        .{ .x = rail.crossbar[0].x + dx, .y = rail.crossbar[0].y + dy },
+        .{ .x = rail.crossbar[1].x + dx, .y = rail.crossbar[1].y + dy },
     };
     return out;
 }

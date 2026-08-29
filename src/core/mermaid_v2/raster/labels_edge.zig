@@ -117,7 +117,7 @@ pub fn placeLabelAtSeg(
 
     // The ownership context is fixed for the whole ladder: the edge's id,
     // its routed polyline, and the anchor segment (for taps, the shared
-    // rail stretch — own ink even though the trunk Cell names one rider).
+    // rail stretch — own ink even though the rail Cell names one rider).
     const owner: ink.Owner = .{ .edge_id = edge_id, .polyline = polyline, .seg_a = a, .seg_b = b };
 
     // Three-pass priority (LAW 1) over one fixed candidate order per pass:

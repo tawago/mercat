@@ -51,30 +51,30 @@ fn twox2FusedPaths() [3]sk.EdgePath {
     };
 }
 
-fn groupId(plan: pb.JoinPermits, dir: pb.JoinDirection, pivot: sg.NodeId) pb.JoinGroupId {
+fn groupId(plan: pb.BundlePermits, dir: pb.BundleDirection, pivot: sg.NodeId) pb.CandidateBundleId {
     for (plan.groups) |g| if (g.direction == dir and g.pivot == pivot) return g.id;
     unreachable;
 }
 
 /// The "preserved fusing-geometry constructor": take the real all-independent
-/// plan (terminal ports + complete conflicts) and OVERRIDE its selected joins to a
+/// plan (terminal ports + complete conflicts) and OVERRIDE its selected bundles to a
 /// fabricating both-sides union of FO(`fo_pivot`) and FI(`fi_pivot`) — the
 /// incomplete union whose Cartesian product exceeds its declared pairs. The
 /// vector oracle then unites the members and reports the extra pair.
-const Fused = struct { sketch: sk.Sketch, proposals: []const pb.JoinProposal };
+const Fused = struct { sketch: sk.Sketch, proposals: []const pb.BundleProposal };
 
-fn fusedBothSides(a: std.mem.Allocator, plan: pb.JoinPermits, s: sk.Sketch, fo_pivot: sg.NodeId, fi_pivot: sg.NodeId) !Fused {
+fn fusedBothSides(a: std.mem.Allocator, plan: pb.BundlePermits, s: sk.Sketch, fo_pivot: sg.NodeId, fi_pivot: sg.NodeId) !Fused {
     const base = (try jp.realize(a, plan, s)).plan;
     const fo = groupId(plan, .out, fo_pivot);
     const fi = groupId(plan, .in, fi_pivot);
     const fo_members = plan.groups[jp.groupIndexById(plan.groups, fo).?].members;
     const fi_members = plan.groups[jp.groupIndexById(plan.groups, fi).?].members;
-    const proposals = try a.alloc(pb.JoinProposal, 2);
-    proposals[0] = .{ .id = 0, .permission_group = fo, .members = fo_members, .candidate_geometry = .{ .rail = 0 } };
-    proposals[1] = .{ .id = 1, .permission_group = fi, .members = fi_members, .candidate_geometry = .{ .rail = 1 } };
-    const joins = try a.alloc(pb.SelectedJoin, 2);
-    joins[0] = .{ .id = 0, .proposal = 0, .permission_group = fo, .members = fo_members };
-    joins[1] = .{ .id = 1, .proposal = 1, .permission_group = fi, .members = fi_members };
+    const proposals = try a.alloc(pb.BundleProposal, 2);
+    proposals[0] = .{ .id = 0, .candidate_bundle = fo, .members = fo_members, .candidate_geometry = .{ .rail = 0 } };
+    proposals[1] = .{ .id = 1, .candidate_bundle = fi, .members = fi_members, .candidate_geometry = .{ .rail = 1 } };
+    const bundles = try a.alloc(pb.SelectedBundle, 2);
+    bundles[0] = .{ .id = 0, .proposal = 0, .candidate_bundle = fo, .members = fo_members };
+    bundles[1] = .{ .id = 1, .proposal = 1, .candidate_bundle = fi, .members = fi_members };
     const rms = try a.alloc(pb.RealizedEdgeMembership, plan.memberships.len);
     for (plan.memberships, rms) |m, *rm| rm.* = .{
         .edge = m.edge,
@@ -82,7 +82,7 @@ fn fusedBothSides(a: std.mem.Allocator, plan: pb.JoinPermits, s: sk.Sketch, fo_p
         .target = if (m.target_group) |gid| (if (gid == fi) pb.MembershipDisposition{ .selected = 1 } else null) else null,
     };
     var out = s;
-    out.joins = .{ .selected_joins = joins, .memberships = rms, .conflicts = base.conflicts, .terminal_ports = base.terminal_ports };
+    out.bundles = .{ .selected_bundles = bundles, .memberships = rms, .conflicts = base.conflicts, .terminal_ports = base.terminal_ports };
     return .{ .sketch = out, .proposals = proposals };
 }
 
@@ -100,7 +100,7 @@ test "V-D-DISPOSITION-04: fusing incomplete-union candidate is CI-excluded, inde
     const clean = try rvt.realized(a, g, rvt.sketchOf(&clean_paths, &.{}));
     const clean_report = try vc.validate(a, clean, keys, .flat);
     try expect(clean_report.counts.ciClean());
-    try expectEqual(@as(usize, 0), clean.joins.selected_joins.len);
+    try expectEqual(@as(usize, 0), clean.bundles.selected_bundles.len);
 
     // Fusing candidate: the same edges FUSED as an incomplete union → the REAL
     // oracle reports the extra (undeclared) S2→T1 pair (no forged counts).
@@ -121,13 +121,13 @@ test "V-D-DISPOSITION-04: fusing incomplete-union candidate is CI-excluded, inde
     try expectEqual(@as(usize, 1), filtered.survivors.len);
     try expectEqual(@as(usize, 1), filtered.excluded.len);
     // The survivor routes independently (every membership independent).
-    for (filtered.survivors[0].sketch.joins.memberships) |rm| {
+    for (filtered.survivors[0].sketch.bundles.memberships) |rm| {
         if (rm.source) |d| try expect(d == .independent);
         if (rm.target) |d| try expect(d == .independent);
     }
     // The excluded candidate's re-disposed plan (via the `excluded` surface) is
     // all-independent — clause-(g)-pre withdrawal.
-    try expectEqual(@as(usize, 0), filtered.excluded[0].sketch.joins.selected_joins.len);
+    try expectEqual(@as(usize, 0), filtered.excluded[0].sketch.bundles.selected_bundles.len);
 
     // Complete exact union (N*M == D): K3,3 real geometry fires NOTHING; every
     // candidate is CI-clean and the filter is the identity.
@@ -185,8 +185,8 @@ test "V-D-DUAL-04: a both-sides proposal set is CI-excluded by the filter and re
     try expectEqual(@as(usize, 0), filtered.survivors.len);
     try expectEqual(@as(usize, 1), filtered.excluded.len);
 
-    const disposed = filtered.excluded[0].sketch.joins;
-    try expectEqual(@as(usize, 0), disposed.selected_joins.len);
+    const disposed = filtered.excluded[0].sketch.bundles;
+    try expectEqual(@as(usize, 0), disposed.selected_bundles.len);
     for (disposed.memberships) |rm| {
         if (rm.source) |d| try expect(d == .independent);
         if (rm.target) |d| try expect(d == .independent);
@@ -199,7 +199,7 @@ test "V-D-DUAL-04: a both-sides proposal set is CI-excluded by the filter and re
 test "V-D-DISPOSITION-01: incomplete-2x2 conflicts survive disposeUnsafe, all-independent withdrawal, render succeeds" {
     // Record input: incomplete-2x2. The production winner retains the
     // overlap conflict (permission_overlap_conflicts=1); clause-(g)-pre
-    // withdrawal keeps that conflict while dropping every selected join; the
+    // withdrawal keeps that conflict while dropping every selected bundle; the
     // candidate renders end-to-end (RO — never fatal).
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
@@ -207,18 +207,18 @@ test "V-D-DISPOSITION-01: incomplete-2x2 conflicts survive disposeUnsafe, all-in
     const graph = try parse(a, "flowchart TD\n  S1 --> T1\n  S1 --> T2\n  S2 --> T2\n");
     const plan = (try permits.build(a, graph, .joined)).plan;
     const winner = try select.choose(a, graph, &plan, 94, false, false, .bridge);
-    const joins = winner.sketch.joins;
+    const bundles = winner.sketch.bundles;
 
-    try expectEqual(@as(usize, 1), joins.conflicts.len); // permission_overlap_conflicts = 1
+    try expectEqual(@as(usize, 1), bundles.conflicts.len); // permission_overlap_conflicts = 1
 
-    const disposed = try jp.disposeUnsafe(a, joins);
+    const disposed = try jp.disposeUnsafe(a, bundles);
     try expectEqual(@as(usize, 1), disposed.conflicts.len); // conflict survives the withdrawal
-    try expectEqual(@as(usize, 0), disposed.selected_joins.len);
+    try expectEqual(@as(usize, 0), disposed.selected_bundles.len);
     for (disposed.memberships) |rm| {
         if (rm.source) |d| try expect(d == .independent);
         if (rm.target) |d| try expect(d == .independent);
     }
-    try expectEqual(pb.DispositionClass.report_only, pb.classOf(.join_select_independent_unsafe_component));
+    try expectEqual(pb.DispositionClass.report_only, pb.classOf(.bundle_select_independent_unsafe_component));
 
     // Render succeeds (RO disposition, no fatal).
     const rendered = try raster.rasterize(a, winner.sketch, .bridge);
@@ -227,18 +227,18 @@ test "V-D-DISPOSITION-01: incomplete-2x2 conflicts survive disposeUnsafe, all-in
 }
 
 test "disposeUnsafe withdraws the fusion licence with the selected set it rode" {
-    // A fused union is valid only while every member rides a selected trunk
+    // A fused union is valid only while every member rides a selected rail
     // (realized.keepValidFused); the wholesale withdrawal leaves none.
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
     const members = [_]pb.EdgeId{ 1, 2 };
-    const joins = [_]pb.SelectedJoin{.{ .id = 1, .proposal = 7, .permission_group = 3, .members = &members }};
+    const bundles = [_]pb.SelectedBundle{.{ .id = 1, .proposal = 7, .candidate_bundle = 3, .members = &members }};
     const fused = [_][]const pb.EdgeId{&members};
-    const plan: pb.RealizedJoins = .{ .selected_joins = &joins, .fused = &fused };
+    const plan: pb.RealizedBundles = .{ .selected_bundles = &bundles, .fused = &fused };
 
     const disposed = try jp.disposeUnsafe(a, plan);
-    try expectEqual(@as(usize, 0), disposed.selected_joins.len);
+    try expectEqual(@as(usize, 0), disposed.selected_bundles.len);
     try expectEqual(@as(usize, 0), disposed.fused.len);
 }
 
@@ -262,10 +262,10 @@ test "V-D-DISPOSITION-06: terminal fallback is built by the selection tail, mark
         try expect(result.terminal_fallback); // engagement observable (=1)
 
         // All-independent, invariant-valid against the REAL permits, and renders.
-        try expectEqual(@as(usize, 0), result.sketch.joins.selected_joins.len);
+        try expectEqual(@as(usize, 0), result.sketch.bundles.selected_bundles.len);
         try expectEqual(@as(usize, 0), result.sketch.rails.len);
-        try expect(result.sketch.joins.memberships.len > 0);
-        try expect((try jpv.validate(a, plan, result.sketch.joins, &.{})).valid());
+        try expect(result.sketch.bundles.memberships.len > 0);
+        try expect((try jpv.validate(a, plan, result.sketch.bundles, &.{})).valid());
         const rendered = try raster.rasterize(a, result.sketch, .bridge);
         const bytes = try paint.paint(a, rendered.lattice, result.sketch.budget.max_width);
         try expect(bytes.len > 0);

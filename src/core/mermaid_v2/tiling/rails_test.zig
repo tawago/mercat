@@ -42,7 +42,7 @@ const Fixture = struct {
     nodes: [4]sketch.NodePlacement = undefined,
     taps_a: [2]sketch.Tap = undefined,
     taps_b: [2]sketch.Tap = undefined,
-    bars: [2]sketch.Rail = undefined,
+    rails_buf: [2]sketch.Rail = undefined,
     /// Branch records, in `Aux.lessThan` order: (cell, kind, value).
     recs: [4]lattice.Aux = undefined,
     n_recs: usize = 4,
@@ -76,7 +76,7 @@ const Fixture = struct {
             .{ .edge = 2, .node = 2, .at = .{ .x = 2, .y = R }, .landing = .{ .x = 2, .y = 6 } },
             .{ .edge = 3, .node = 3, .at = .{ .x = 6, .y = R }, .landing = .{ .x = 6, .y = 6 } },
         };
-        self.bars = .{
+        self.rails_buf = .{
             .{ .pivot = 0, .stem = &.{}, .crossbar = .{ .{ .x = 1, .y = R }, .{ .x = 5, .y = R } }, .taps = &self.taps_a, .kind = .solid },
             .{ .pivot = 1, .stem = &.{}, .crossbar = .{ .{ .x = 2, .y = R }, .{ .x = 6, .y = R } }, .taps = &self.taps_b, .kind = .solid },
         };
@@ -100,7 +100,7 @@ const Fixture = struct {
             .nodes = &self.nodes,
             .clusters = &.{},
             .edges = &.{},
-            .rails = &self.bars,
+            .rails = &self.rails_buf,
             .diagnostics = &.{},
             .budget = .{ .max_width = 80, .rung = 0 },
         };
@@ -144,8 +144,8 @@ test "rails: a fan-IN run resolves its sides from the rail role" {
     // Same geometry, opposite polarity: each pivot is now the LOWER-stage
     // node and the tapped members are the upper ones. The cross product is
     // the same four pairs, so the verdict must be identical.
-    f.bars[0].role = .fan_in_rail;
-    f.bars[1].role = .fan_in_rail;
+    f.rails_buf[0].role = .fan_in_rail;
+    f.rails_buf[1].role = .fan_in_rail;
     const c = run(&f);
     try testing.expectEqual(@as(u32, 1), c.n_rail_runs_two_sided);
     try testing.expectEqual(@as(u32, 4), c.c_rail_pair_accounted);
@@ -158,7 +158,7 @@ test "rails: a pair no member declares is the fabrication bucket" {
     // Rail B loses its branch to leaf 3. Leaf 3 is still on the run (rail A
     // taps it), so the line still asserts pivot 1 -> leaf 3 — and now
     // nothing branches for it.
-    f.bars[1].taps = f.taps_b[0..1];
+    f.rails_buf[1].taps = f.taps_b[0..1];
     const c = run(&f);
     try testing.expectEqual(@as(u32, 1), c.n_rail_runs_two_sided);
     try testing.expectEqual(@as(u32, 4), c.n_rail_pairs_asserted);
@@ -191,7 +191,7 @@ test "rails: two rails on different rows are two runs, not one" {
     var f: Fixture = .{};
     f.init();
     // The lane-separated shape: distinct crossbar rows cannot fuse.
-    f.bars[1].crossbar = .{ .{ .x = 2, .y = R + 1 }, .{ .x = 6, .y = R + 1 } };
+    f.rails_buf[1].crossbar = .{ .{ .x = 2, .y = R + 1 }, .{ .x = 6, .y = R + 1 } };
     const c = run(&f);
     try testing.expectEqual(@as(u32, 0), c.n_rail_runs_two_sided);
     try testing.expectEqual(@as(u32, 0), c.n_rail_pairs_asserted);
@@ -201,8 +201,8 @@ test "rails: two rails on different rows are two runs, not one" {
 test "rails: one row but disjoint spans is still two runs" {
     var f: Fixture = .{};
     f.init();
-    f.bars[0].crossbar = .{ .{ .x = 1, .y = R }, .{ .x = 2, .y = R } };
-    f.bars[1].crossbar = .{ .{ .x = 5, .y = R }, .{ .x = 6, .y = R } };
+    f.rails_buf[0].crossbar = .{ .{ .x = 1, .y = R }, .{ .x = 2, .y = R } };
+    f.rails_buf[1].crossbar = .{ .{ .x = 5, .y = R }, .{ .x = 6, .y = R } };
     const c = run(&f);
     try testing.expectEqual(@as(u32, 0), c.n_rail_runs_two_sided);
     try testing.expectEqual(@as(u32, 0), c.defectTotal());
@@ -213,7 +213,7 @@ test "rails: rails sharing one pivot are the lone-pivot shape, never two-sided" 
     f.init();
     // One endpoint every member really does share: the run stands for it
     // honestly, so there is nothing here for it to fabricate.
-    f.bars[1].pivot = 0;
+    f.rails_buf[1].pivot = 0;
     const c = run(&f);
     try testing.expectEqual(@as(u32, 0), c.n_rail_runs_two_sided);
     try testing.expectEqual(@as(u32, 0), c.n_rail_pairs_asserted);
@@ -246,7 +246,7 @@ test "rails: an uncollected side table still exposes a pair nothing declares" {
     // run declares this pair" is readable off the Sketch alone, so the
     // absent records may downgrade the three honest pairs to unevidenced
     // and must NOT take the fabrication down with them.
-    f.bars[1].taps = f.taps_b[0..1];
+    f.rails_buf[1].taps = f.taps_b[0..1];
     f.n_recs = 0;
     const c = run(&f);
     try testing.expectEqual(@as(u32, 1), c.u_rail_run_records_absent);
@@ -335,7 +335,7 @@ test "rails: a LONE rail whose line is continued is still reported" {
     f.init();
     outside(&f, 0, .{ .e = true, .w = true });
     outside(&f, 7, .{ .e = true, .w = true });
-    var one = [_]sketch.Rail{f.bars[0]};
+    var one = [_]sketch.Rail{f.rails_buf[0]};
     var s = f.sk();
     s.rails = &one;
     const l = f.lat();
@@ -383,7 +383,7 @@ test "rails: the entry denominator is published before the tier can decline" {
     // nothing, which is exactly the case the marker must NOT claim.
     var f2: Fixture = .{};
     f2.init();
-    var one = [_]sketch.Rail{f2.bars[0]};
+    var one = [_]sketch.Rail{f2.rails_buf[0]};
     var s = f2.sk();
     s.rails = &one;
     const l = f2.lat();
@@ -398,7 +398,7 @@ test "rails: every asserted pair lands in exactly one bucket" {
     var f: Fixture = .{};
     f.init();
     try ownership(run(&f));
-    f.bars[1].taps = f.taps_b[0..1];
+    f.rails_buf[1].taps = f.taps_b[0..1];
     try ownership(run(&f));
     f.init();
     f.n_recs = 2;
@@ -411,7 +411,7 @@ test "rails: every asserted pair lands in exactly one bucket" {
 test "rails: a lone rail is never a fused run" {
     var f: Fixture = .{};
     f.init();
-    var one = [_]sketch.Rail{f.bars[0]};
+    var one = [_]sketch.Rail{f.rails_buf[0]};
     var s = f.sk();
     s.rails = &one;
     const l = f.lat();
@@ -446,8 +446,8 @@ test "rails: a scratch failure at any point leaves the buckets owned" {
     for (&far_a) |*t| t.at.y = R + 3;
     for (&far_b) |*t| t.at.y = R + 3;
     var four = [_]sketch.Rail{
-        f.bars[0],
-        f.bars[1],
+        f.rails_buf[0],
+        f.rails_buf[1],
         .{ .pivot = 0, .stem = &.{}, .crossbar = .{ .{ .x = 1, .y = R + 3 }, .{ .x = 5, .y = R + 3 } }, .taps = &far_a, .kind = .solid },
         .{ .pivot = 1, .stem = &.{}, .crossbar = .{ .{ .x = 2, .y = R + 3 }, .{ .x = 6, .y = R + 3 } }, .taps = &far_b, .kind = .solid },
     };

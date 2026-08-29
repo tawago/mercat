@@ -66,9 +66,9 @@ pub fn deriveFanAttachments(a: std.mem.Allocator, graph: sg.SemGraph, direction:
             else
                 ports.forwardSide(direction, endpoint);
             if (sharedFan(fans, edge.id, endpoint)) |fan| {
-                const trunk = try fanAttachment(a, graph, fan, endpoint);
-                if (trunk.edge != edge.id) continue;
-                try out.append(a, .{ .node = node, .side = side, .attachment = trunk });
+                const rail = try fanAttachment(a, graph, fan, endpoint);
+                if (rail.edge != edge.id) continue;
+                try out.append(a, .{ .node = node, .side = side, .attachment = rail });
                 continue;
             }
             try out.append(a, .{
@@ -105,7 +105,7 @@ fn fanAttachment(a: std.mem.Allocator, graph: sg.SemGraph, fan: fan_mod.Fan, end
         try members.append(a, edge.id);
     }
     return .{
-        .class = .trunk_pivot,
+        .class = .rail_pivot,
         .key = best orelse return error.InvalidSemGraph,
         .edge = best_edge,
         .members = try members.toOwnedSlice(a),
@@ -118,26 +118,26 @@ fn fanAttachment(a: std.mem.Allocator, graph: sg.SemGraph, fan: fan_mod.Fan, end
 /// shift its siblings' port ordinals, and reserve a terminal nothing arrives
 /// at. Applied where `derive` is consumed rather than inside it, so the pure
 /// D-PORT derivation keeps reading the permits plan and nothing else.
-/// guarded-by: port_plan_test.zig "a co-realized edge claims no attachment and consumes no route lane"
-pub fn withoutCoRealized(
+/// guarded-by: port_plan_test.zig "a discharged edge claims no attachment and consumes no route lane"
+pub fn withoutDischarged(
     a: std.mem.Allocator,
     derived: []const ports.DerivedAttachment,
-    joins: pb.RealizedJoins,
+    bundles: pb.RealizedBundles,
 ) error{OutOfMemory}![]const ports.DerivedAttachment {
-    if (joins.co_realized.len == 0) return derived;
+    if (bundles.discharged.len == 0) return derived;
     var out: std.ArrayListUnmanaged(ports.DerivedAttachment) = .empty;
     for (derived) |item| {
         const edge = item.attachment.edge orelse {
             try out.append(a, item);
             continue;
         };
-        if (rail_closure.contains(joins.co_realized, edge)) continue;
+        if (rail_closure.contains(bundles.discharged, edge)) continue;
         try out.append(a, item);
     }
     return out.toOwnedSlice(a);
 }
 
-pub fn planLanes(a: std.mem.Allocator, graph: sg.SemGraph, lg: sugiyama.LayeredGraph, joins: pb.RealizedJoins) error{OutOfMemory}!LanePlan {
+pub fn planLanes(a: std.mem.Allocator, graph: sg.SemGraph, lg: sugiyama.LayeredGraph, bundles: pb.RealizedBundles) error{OutOfMemory}!LanePlan {
     if (lg.layers.len < 2) return .{};
     const node_layers = try a.alloc(u32, graph.nodes.len);
     @memset(node_layers, 0);
@@ -153,13 +153,13 @@ pub fn planLanes(a: std.mem.Allocator, graph: sg.SemGraph, lg: sugiyama.LayeredG
     @memset(next, 0);
     var lanes: std.ArrayListUnmanaged(EdgeLane) = .empty;
     for (sorted) |edge| {
-        // A co-realized leaf-pair edge is drawn by a rail's crossbar, never
+        // A discharged leaf-pair edge is drawn by a rail's crossbar, never
         // routed — so it consumes no route lane and reserves no gap row.
         // Likewise an edge a FUSED union licenses: its whole gap is one rail
-        // (`RealizedJoins.fused`), so it owes no per-edge lane row.
-        if (edge.kind == .invisible or edge.from == edge.to or !edgeIsIndependent(joins.memberships, edge.id) or
-            fusedContains(joins.fused, edge.id) or
-            rail_closure.contains(joins.co_realized, edge.id)) continue;
+        // (`RealizedBundles.fused`), so it owes no per-edge lane row.
+        if (edge.kind == .invisible or edge.from == edge.to or !edgeIsIndependent(bundles.memberships, edge.id) or
+            fusedContains(bundles.fused, edge.id) or
+            rail_closure.contains(bundles.discharged, edge.id)) continue;
         const high = @max(node_layers[edge.from], node_layers[edge.to]);
         if (high == 0) continue;
         const gap = high - 1;
@@ -178,7 +178,7 @@ pub fn allocate(
     graph: sg.SemGraph,
     placements: []const sk.NodePlacement,
     derived: []const ports.DerivedAttachment,
-    joins: pb.RealizedJoins,
+    bundles: pb.RealizedBundles,
     lane_plan: LanePlan,
     rung: u8,
 ) error{OutOfMemory}!Plan {
@@ -209,17 +209,17 @@ pub fn allocate(
     const edge_ports = try a.alloc(EdgePorts, graph.edges.len);
     var terminals: std.ArrayListUnmanaged(pb.TerminalPort) = .empty;
     for (graph.edges, edge_ports) |edge, *out| {
-        const source = resolvePort(graph, placements, faces.items, resolved, joins, edge, .source_exit);
-        const target = resolvePort(graph, placements, faces.items, resolved, joins, edge, .target_entry);
+        const source = resolvePort(graph, placements, faces.items, resolved, bundles, edge, .source_exit);
+        const target = resolvePort(graph, placements, faces.items, resolved, bundles, edge, .target_entry);
         out.* = .{
             .edge = edge.id,
             .source = source.port,
             .target = target.port,
             .source_ordinal = source.ordinal,
             .target_ordinal = target.ordinal,
-            .source_duplicate = hasDuplicatePrivateClaim(resolved, joins, edge.from, edge, .source_exit),
+            .source_duplicate = hasDuplicatePrivateClaim(resolved, bundles, edge.from, edge, .source_exit),
             .source_decorated = edge.arrow_from != .none,
-            .target_duplicate = hasDuplicatePrivateClaim(resolved, joins, edge.to, edge, .target_entry),
+            .target_duplicate = hasDuplicatePrivateClaim(resolved, bundles, edge.to, edge, .target_entry),
             .route_lane = laneFor(lane_plan.lanes, edge.id),
         };
         try terminals.append(a, .{ .node = edge.from, .edge = edge.id, .endpoint_side = .source_exit, .port = source.ordinal });
@@ -263,8 +263,8 @@ fn attachmentLess(_: void, x: ports.Attachment, y: ports.Attachment) bool {
     const y_edge = y.edge orelse std.math.maxInt(pb.EdgeId);
     if (x_edge != y_edge) return x_edge < y_edge;
     if (x.class != y.class) return @intFromEnum(x.class) < @intFromEnum(y.class);
-    const x_group = x.group orelse std.math.maxInt(pb.JoinGroupId);
-    const y_group = y.group orelse std.math.maxInt(pb.JoinGroupId);
+    const x_group = x.group orelse std.math.maxInt(pb.CandidateBundleId);
+    const y_group = y.group orelse std.math.maxInt(pb.CandidateBundleId);
     return x_group < y_group;
 }
 
@@ -370,47 +370,47 @@ fn resolvePort(
     placements: []const sk.NodePlacement,
     faces: []const FaceAssignments,
     derived: []const ports.DerivedAttachment,
-    joins: pb.RealizedJoins,
+    bundles: pb.RealizedBundles,
     edge: sg.Edge,
     endpoint: pb.EndpointSide,
 ) ResolvedPort {
     const node = if (endpoint == .source_exit) edge.from else edge.to;
     const placement = placementById(placements, node) orelse placements[0];
-    const selected_group = selectedGroup(joins, edge.id, endpoint);
+    const selected_group = selectedGroup(bundles, edge.id, endpoint);
     for (faces) |face| {
         if (face.node != node) continue;
         for (face.items) |assignment| {
             const matches = if (selected_group) |group|
-                assignment.attachment.class == .trunk_pivot and assignment.attachment.group == group
+                assignment.attachment.class == .rail_pivot and assignment.attachment.group == group
             else
                 assignment.attachment.key.endpoint_side == endpoint and
                     ((assignment.attachment.class == .independent and assignment.attachment.edge == edge.id) or
-                        (assignment.attachment.class == .trunk_pivot and containsEdge(assignment.attachment.members, edge.id)));
+                        (assignment.attachment.class == .rail_pivot and containsEdge(assignment.attachment.members, edge.id)));
             if (matches) return .{
                 .port = .{ .node = node, .side = face.side, .offset = assignment.offset },
                 .ordinal = assignment.ordinal,
             };
         }
     }
-    if (hasDemandedClaim(derived, joins, node, edge, endpoint))
+    if (hasDemandedClaim(derived, bundles, node, edge, endpoint))
         std.debug.panic("derived port claim was not assigned: edge={d} endpoint={s}", .{ edge.id, @tagName(endpoint) });
     return midpointPort(graph.direction, placement, edge, endpoint);
 }
 
-fn hasDemandedClaim(derived: []const ports.DerivedAttachment, joins: pb.RealizedJoins, node: pb.NodeId, edge: sg.Edge, endpoint: pb.EndpointSide) bool {
-    const selected_group = selectedGroup(joins, edge.id, endpoint);
+fn hasDemandedClaim(derived: []const ports.DerivedAttachment, bundles: pb.RealizedBundles, node: pb.NodeId, edge: sg.Edge, endpoint: pb.EndpointSide) bool {
+    const selected_group = selectedGroup(bundles, edge.id, endpoint);
     for (derived) |item| {
         if (item.node != node or item.attachment.key.endpoint_side != endpoint) continue;
         if (selected_group) |group| {
-            if (item.attachment.class == .trunk_pivot and item.attachment.group == group) return true;
+            if (item.attachment.class == .rail_pivot and item.attachment.group == group) return true;
         } else if ((item.attachment.class == .independent and item.attachment.edge == edge.id) or
-            (item.attachment.class == .trunk_pivot and containsEdge(item.attachment.members, edge.id))) return true;
+            (item.attachment.class == .rail_pivot and containsEdge(item.attachment.members, edge.id))) return true;
     }
     return false;
 }
 
-fn hasDuplicatePrivateClaim(derived: []const ports.DerivedAttachment, joins: pb.RealizedJoins, node: pb.NodeId, edge: sg.Edge, endpoint: pb.EndpointSide) bool {
-    if (selectedGroup(joins, edge.id, endpoint) != null) return false;
+fn hasDuplicatePrivateClaim(derived: []const ports.DerivedAttachment, bundles: pb.RealizedBundles, node: pb.NodeId, edge: sg.Edge, endpoint: pb.EndpointSide) bool {
+    if (selectedGroup(bundles, edge.id, endpoint) != null) return false;
     for (derived) |owner| {
         if (owner.node != node or owner.attachment.key.endpoint_side != endpoint or
             owner.attachment.class != .independent or owner.attachment.edge != edge.id) continue;
@@ -435,8 +435,8 @@ fn midpointPort(direction: sg.Direction, placement: sk.NodePlacement, edge: sg.E
     return .{ .port = .{ .node = placement.id, .side = side, .offset = ports.midpoint(len) }, .ordinal = 0 };
 }
 
-fn selectedGroup(joins: pb.RealizedJoins, edge: pb.EdgeId, endpoint: pb.EndpointSide) ?pb.JoinGroupId {
-    for (joins.memberships) |membership| {
+fn selectedGroup(bundles: pb.RealizedBundles, edge: pb.EdgeId, endpoint: pb.EndpointSide) ?pb.CandidateBundleId {
+    for (bundles.memberships) |membership| {
         if (membership.edge != edge) continue;
         const disposition = if (endpoint == .source_exit) membership.source else membership.target;
         const selected = disposition orelse return null;
@@ -444,7 +444,7 @@ fn selectedGroup(joins: pb.RealizedJoins, edge: pb.EdgeId, endpoint: pb.Endpoint
             .selected => |id| id,
             .independent => return null,
         };
-        for (joins.selected_joins) |join| if (join.id == jid) return join.permission_group;
+        for (bundles.selected_bundles) |sel| if (sel.id == jid) return sel.candidate_bundle;
     }
     return null;
 }

@@ -62,7 +62,7 @@ fn bitSet(nb: lattice.Neighbours, d: lattice.Dir4) bool {
 /// the neighbour bit pointing BACK toward the junction (`reverse(d)`) — or
 /// is an `.arrowhead` (a genuine terminal always faces its run). A cell
 /// that merely happens to sit collinear (an incidental perpendicular border
-/// running alongside the trunk) does NOT reciprocate, so its reprieve is
+/// running alongside the rail) does NOT reciprocate, so its reprieve is
 /// denied and the phantom arm is cleared.
 /// // guarded-by: reconcile_test.zig "reconcileNeighbours: 1-cell port gap before a reciprocating node border keeps the bit (duplicate-point reprieve)"
 fn reprieveReciprocates(cell: *const lattice.Cell, d: lattice.Dir4) bool {

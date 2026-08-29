@@ -93,7 +93,7 @@ pub fn sideFed(v: cell.View, x: u32, y: u32, tip: cell.Dir4) bool {
     return false;
 }
 
-/// True for the fan-strip roles. The fan-trunk stamp rewrites those masks
+/// True for the fan-strip roles. The fan-rail stamp rewrites those masks
 /// at the end of the edges stage, so such a base legally lacks the
 /// into-arrow arm and the renderer's weld never repairs it.
 fn isFanStrip(role: ?cell.EdgeRole) bool {
@@ -112,7 +112,7 @@ fn isFanStrip(role: ?cell.EdgeRole) bool {
 ///   3  base mask carries the into-arm    -> fed, no bucket
 ///   4  the run turned the corner here    -> c_base_side_fed
 ///   5  base is background                -> d_base_blank
-///   6  base is edge ink: fan strip       -> c_base_fan_trunk
+///   6  base is edge ink: fan strip       -> c_base_fan_rail
 ///                       foreign edge     -> c_base_foreign
 ///                       own edge         -> d_base_unfed
 ///   7  base is a cluster frame           -> c_base_frame
@@ -141,7 +141,7 @@ pub fn checkBase(v: cell.View, x: u32, y: u32, t: cell.Typed, c: *counts.Counts)
         .blank => c.d_base_blank += 1,
         .stroke, .ghost => {
             if (isFanStrip(b.edge_role)) {
-                c.c_base_fan_trunk += 1;
+                c.c_base_fan_rail += 1;
             } else if (b.edge != null and t.edge != null and b.edge.? != t.edge.?) {
                 c.c_base_foreign += 1;
             } else {

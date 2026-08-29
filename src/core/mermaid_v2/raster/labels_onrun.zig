@@ -8,7 +8,7 @@
 //!   RULE A (edge-only) — the label may interrupt ONLY the edge's own
 //!   private ink. The interrupted cell must be an `edge_segment` carrying
 //!   this edge's id with a `fan_*_dropper` role and pure vertical
-//!   neighbour bits (never a rail/crossbar/trunk/junction cell), and no
+//!   neighbour bits (never a rail/crossbar/rail/junction cell), and no
 //!   OTHER edge's Sketch geometry (polyline, rail stem/crossbar, or a
 //!   sibling tap's drop) may cover it. A reader must never wonder which
 //!   member of a shared run a label names.
@@ -293,12 +293,12 @@ pub fn coveredByOther(s: sketch.Sketch, edge_id: u32, x: i32, y: i32) bool {
             if (onSeg(p, other.polyline[i + 1], x, y)) return true;
         }
     }
-    for (s.rails) |bb| {
-        for (bb.stem[0 .. bb.stem.len - 1], 0..) |p, i| {
-            if (onSeg(p, bb.stem[i + 1], x, y)) return true;
+    for (s.rails) |rail| {
+        for (rail.stem[0 .. rail.stem.len - 1], 0..) |p, i| {
+            if (onSeg(p, rail.stem[i + 1], x, y)) return true;
         }
-        if (onSeg(bb.crossbar[0], bb.crossbar[1], x, y)) return true;
-        for (bb.taps) |tap| {
+        if (onSeg(rail.crossbar[0], rail.crossbar[1], x, y)) return true;
+        for (rail.taps) |tap| {
             if (tap.edge == edge_id) continue;
             if (onSeg(tap.at, tap.landing, x, y)) return true;
         }

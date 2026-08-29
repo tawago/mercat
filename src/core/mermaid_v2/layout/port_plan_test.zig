@@ -26,7 +26,7 @@ fn testGraph(nodes: []const sg.Node, edges: []const sg.Edge, clusters: []const s
 fn productionLayout(a: std.mem.Allocator, g: sg.SemGraph) !sk.Sketch {
     const built = try permits.build(a, g, .joined);
     return coords.layout(a, g, .{
-        .join_permits = &built.plan,
+        .bundle_permits = &built.plan,
     });
 }
 
@@ -90,25 +90,25 @@ test "V-D-PORT-01: port_plan gives an unrealized mixed-kind 1x3 fan three pitch-
     const nodes = [_]sg.Node{ node(0, "S"), node(1, "A"), node(2, "B"), node(3, "C") };
     const edges = [_]sg.Edge{ edge(0, 1, .solid), edge(1, 2, .dotted), edge(2, 3, .thick) };
     const graph: sg.SemGraph = .{ .direction = .TD, .nodes = &nodes, .edges = &edges, .clusters = &.{}, .classes = &.{}, .arena = null };
-    const groups = [_]pb.JoinGroup{.{ .id = 0, .direction = .out, .pivot = 0, .members = &.{ 0, 1, 2 } }};
+    const groups = [_]pb.CandidateBundle{.{ .id = 0, .direction = .out, .pivot = 0, .members = &.{ 0, 1, 2 } }};
     const memberships = [_]pb.RealizedEdgeMembership{
-        .{ .edge = 0, .source = .{ .independent = .{ .permission_group = 0, .reason = .not_selected } }, .target = null },
-        .{ .edge = 1, .source = .{ .independent = .{ .permission_group = 0, .reason = .not_selected } }, .target = null },
-        .{ .edge = 2, .source = .{ .independent = .{ .permission_group = 0, .reason = .not_selected } }, .target = null },
+        .{ .edge = 0, .source = .{ .independent = .{ .candidate_bundle = 0, .reason = .not_selected } }, .target = null },
+        .{ .edge = 1, .source = .{ .independent = .{ .candidate_bundle = 0, .reason = .not_selected } }, .target = null },
+        .{ .edge = 2, .source = .{ .independent = .{ .candidate_bundle = 0, .reason = .not_selected } }, .target = null },
     };
-    const joins: pb.RealizedJoins = .{ .memberships = &memberships };
-    const permit_memberships = [_]pb.JoinMembership{
+    const bundles: pb.RealizedBundles = .{ .memberships = &memberships };
+    const permit_memberships = [_]pb.BundleMembership{
         .{ .edge = 0, .source_group = 0, .target_group = null }, .{ .edge = 1, .source_group = 0, .target_group = null }, .{ .edge = 2, .source_group = 0, .target_group = null },
     };
-    const permit: pb.JoinPermits = .{ .policy = .joined, .groups = &groups, .memberships = &permit_memberships };
-    const derived = try ports.derive(a, graph, permit, joins, .TD, &.{});
+    const permit: pb.BundlePermits = .{ .policy = .joined, .groups = &groups, .memberships = &permit_memberships };
+    const derived = try ports.derive(a, graph, permit, bundles, .TD, &.{});
     const placements = [_]sk.NodePlacement{
         .{ .id = 0, .rect = .{ .x = 10, .y = 0, .w = 7, .h = 3 }, .shape = .rect, .lines = &.{}, .cluster_id = null },
         .{ .id = 1, .rect = .{ .x = 0, .y = 7, .w = 5, .h = 3 }, .shape = .rect, .lines = &.{}, .cluster_id = null },
         .{ .id = 2, .rect = .{ .x = 10, .y = 7, .w = 5, .h = 3 }, .shape = .rect, .lines = &.{}, .cluster_id = null },
         .{ .id = 3, .rect = .{ .x = 20, .y = 7, .w = 5, .h = 3 }, .shape = .rect, .lines = &.{}, .cluster_id = null },
     };
-    const plan = try port_plan.allocate(a, graph, &placements, derived, joins, .{}, 0);
+    const plan = try port_plan.allocate(a, graph, &placements, derived, bundles, .{}, 0);
     try std.testing.expectEqual(@as(u32, 1), plan.forEdge(0).?.source.offset);
     try std.testing.expectEqual(@as(u32, 3), plan.forEdge(1).?.source.offset);
     try std.testing.expectEqual(@as(u32, 5), plan.forEdge(2).?.source.offset);
@@ -129,7 +129,7 @@ test "port_plan midpoint keeps singleton terminal coordinates" {
     try std.testing.expectEqual(@as(u32, 2), plan.forEdge(0).?.target.offset);
 }
 
-test "a co-realized edge claims no attachment and consumes no route lane" {
+test "a discharged edge claims no attachment and consumes no route lane" {
     // Edge 2 is discharged by an all-arrow-free rail: it is rendered by the
     // crossbar between the other two members' taps, so it must claim no
     // perimeter attachment and reserve no gap row of its own.
@@ -141,29 +141,29 @@ test "a co-realized edge claims no attachment and consumes no route lane" {
     const graph: sg.SemGraph = .{ .direction = .TD, .nodes = &nodes, .edges = &edges, .clusters = &.{}, .classes = &.{}, .arena = null };
     // out@S = {0,1} and in@B = {1,2}, both left independent — so the withheld
     // edge 2 DOES derive attachments, which is what the filter must remove.
-    const groups = [_]pb.JoinGroup{
+    const groups = [_]pb.CandidateBundle{
         .{ .id = 0, .direction = .out, .pivot = 0, .members = &.{ 0, 1 } },
         .{ .id = 1, .direction = .in, .pivot = 2, .members = &.{ 1, 2 } },
     };
-    const ind0: pb.MembershipDisposition = .{ .independent = .{ .permission_group = 0, .reason = .not_selected } };
-    const ind1: pb.MembershipDisposition = .{ .independent = .{ .permission_group = 1, .reason = .not_selected } };
+    const ind0: pb.MembershipDisposition = .{ .independent = .{ .candidate_bundle = 0, .reason = .not_selected } };
+    const ind1: pb.MembershipDisposition = .{ .independent = .{ .candidate_bundle = 1, .reason = .not_selected } };
     const memberships = [_]pb.RealizedEdgeMembership{
         .{ .edge = 0, .source = ind0, .target = null },
         .{ .edge = 1, .source = ind0, .target = ind1 },
         .{ .edge = 2, .source = null, .target = ind1 },
     };
-    const permit_memberships = [_]pb.JoinMembership{
+    const permit_memberships = [_]pb.BundleMembership{
         .{ .edge = 0, .source_group = 0, .target_group = null },
         .{ .edge = 1, .source_group = 0, .target_group = 1 },
         .{ .edge = 2, .source_group = null, .target_group = 1 },
     };
-    const permit: pb.JoinPermits = .{ .policy = .joined, .groups = &groups, .memberships = &permit_memberships };
+    const permit: pb.BundlePermits = .{ .policy = .joined, .groups = &groups, .memberships = &permit_memberships };
 
-    const with_ink: pb.RealizedJoins = .{ .memberships = &memberships };
-    const discharged: pb.RealizedJoins = .{ .memberships = &memberships, .co_realized = &.{2} };
+    const with_ink: pb.RealizedBundles = .{ .memberships = &memberships };
+    const discharged: pb.RealizedBundles = .{ .memberships = &memberships, .discharged = &.{2} };
 
     const all = try ports.derive(a, graph, permit, with_ink, .TD, &.{});
-    const kept = try port_plan.withoutCoRealized(a, all, discharged);
+    const kept = try port_plan.withoutDischarged(a, all, discharged);
     try std.testing.expect(kept.len < all.len);
     for (kept) |item| try std.testing.expect((item.attachment.edge orelse 99) != 2);
 
@@ -192,24 +192,24 @@ test "duplicate private claims receive stable distinct source and target slots" 
     for ([2][]const sg.Edge{ &forward, &reversed }, 0..) |edges, run| {
         const g = testGraph(&nodes, edges, &.{});
         const memberships = [_]pb.RealizedEdgeMembership{
-            .{ .edge = 4, .source = .{ .independent = .{ .permission_group = 0, .reason = .not_selected } }, .target = .{ .independent = .{ .permission_group = 1, .reason = .not_selected } } },
-            .{ .edge = 9, .source = .{ .independent = .{ .permission_group = 0, .reason = .not_selected } }, .target = .{ .independent = .{ .permission_group = 1, .reason = .not_selected } } },
+            .{ .edge = 4, .source = .{ .independent = .{ .candidate_bundle = 0, .reason = .not_selected } }, .target = .{ .independent = .{ .candidate_bundle = 1, .reason = .not_selected } } },
+            .{ .edge = 9, .source = .{ .independent = .{ .candidate_bundle = 0, .reason = .not_selected } }, .target = .{ .independent = .{ .candidate_bundle = 1, .reason = .not_selected } } },
         };
-        const joins: pb.RealizedJoins = .{ .memberships = &memberships };
-        const groups = [_]pb.JoinGroup{
+        const bundles: pb.RealizedBundles = .{ .memberships = &memberships };
+        const groups = [_]pb.CandidateBundle{
             .{ .id = 0, .direction = .out, .pivot = 0, .members = &.{ 4, 9 } },
             .{ .id = 1, .direction = .in, .pivot = 1, .members = &.{ 4, 9 } },
         };
-        const permit_memberships = [_]pb.JoinMembership{
+        const permit_memberships = [_]pb.BundleMembership{
             .{ .edge = 4, .source_group = 0, .target_group = 1 },
             .{ .edge = 9, .source_group = 0, .target_group = 1 },
         };
-        const derived = try ports.derive(a, g, .{ .policy = .joined, .groups = &groups, .memberships = &permit_memberships }, joins, .TD, &.{});
+        const derived = try ports.derive(a, g, .{ .policy = .joined, .groups = &groups, .memberships = &permit_memberships }, bundles, .TD, &.{});
         const placements = [_]sk.NodePlacement{
             .{ .id = 0, .rect = .{ .x = 0, .y = 0, .w = 5, .h = 3 }, .shape = .rect, .lines = &.{}, .cluster_id = null },
             .{ .id = 1, .rect = .{ .x = 0, .y = 7, .w = 5, .h = 3 }, .shape = .rect, .lines = &.{}, .cluster_id = null },
         };
-        const plan = try port_plan.allocate(a, g, &placements, derived, joins, .{}, 0);
+        const plan = try port_plan.allocate(a, g, &placements, derived, bundles, .{}, 0);
         offsets[run] = .{
             plan.forEdge(4).?.source.offset,
             plan.forEdge(9).?.source.offset,

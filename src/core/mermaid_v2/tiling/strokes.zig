@@ -138,7 +138,7 @@ fn armPass(v: cell.View, x: u32, y: u32, t: cell.Typed, interior: bool, c: *coun
 /// Two gates keep the legal populations out. Both cells must carry the
 /// FULL straight pair of the shared axis — that excludes the rail
 /// shape, where a rail cell holds one drop arm above a tap's straight
-/// dropper and the trunk id differs from the tap's by design. And
+/// dropper and the rail id differs from the tap's by design. And
 /// neither cell may be a JUNCTION (three or four arms): where runs
 /// genuinely meet, the cell's id is whichever run arrived first and says
 /// nothing about fusion.
@@ -149,7 +149,7 @@ fn armPass(v: cell.View, x: u32, y: u32, t: cell.Typed, interior: bool, c: *coun
 ///
 /// The junction branch is DECOMPOSED, not judged wholesale. "The runs
 /// genuinely meet there" only holds when the two edges legally share a
-/// channel at that position; where they do not, the junction glyph asserts
+/// bundle at that position; where they do not, the junction glyph asserts
 /// an adjacency no source declares. `licence` below reads that verdict off
 /// the carrier records, and the parent bucket keeps counting the whole
 /// population so the three verdicts stay auditable against it.
@@ -199,7 +199,7 @@ const Verdict = enum { unlicensed, licensed, unevidenced };
 ///
 /// The authoritative positions are the JUNCTION cells of the pair — per
 /// the recorded I2 state (`isJunction`) — because a licence CAN be position-scoped (a
-/// `.port_share` co-set answers only on its own cells; a structural one
+/// `.port_share` bundle answers only on its own cells; a structural one
 /// answers everywhere), and the only position whose answer certainly bears
 /// on the disputed glyph is the one the glyph occupies. Reading only there
 /// is the conservative choice, not a derivation: the non-junction cell's

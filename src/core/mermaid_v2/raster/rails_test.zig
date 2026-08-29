@@ -424,7 +424,7 @@ test "a pivot head facing the border leaves it pristine; a detached one tees" {
     // Decorated, but the stem starts one cell SHORT of the pivot border
     // (the gap convention): the port probe crosses the empty gap to reach
     // the wall at (12,2) while the head sits back at (12,4) — two cells
-    // away, not adjacent. The wall must tee, or the fan-IN trunk arrives
+    // away, not adjacent. The wall must tee, or the fan-IN rail arrives
     // at a node it never visibly touches.
     {
         var nodes: [4]sketch.NodePlacement = undefined;

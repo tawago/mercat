@@ -138,7 +138,7 @@ test "a glyph write files one owner record; a continuation files none" {
 }
 
 test "a null sink writes the same cells and files nothing" {
-    // The channel is opt-in per rasterization; the ink must not depend on it.
+    // The bundle is opt-in per rasterization; the ink must not depend on it.
     var with_buf: [2]lattice.Cell = undefined;
     var without_buf: [2]lattice.Cell = undefined;
     var with = dirtyLattice(&with_buf);

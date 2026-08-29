@@ -399,7 +399,7 @@ test "line and column tracking" {
     try t.expectEqual(@as(u32, 1), a.line);
     try t.expectEqual(@as(u32, 1), a.col);
     _ = lx.next();
-    const bb = lx.next();
-    try t.expectEqual(@as(u32, 2), bb.line);
-    try t.expectEqual(@as(u32, 1), bb.col);
+    const rail = lx.next();
+    try t.expectEqual(@as(u32, 2), rail.line);
+    try t.expectEqual(@as(u32, 1), rail.col);
 }

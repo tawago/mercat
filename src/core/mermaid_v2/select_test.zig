@@ -17,11 +17,11 @@ const parse = @import("parse.zig").parse;
 const PACK_RUNGS = ladder.Transform.motif_pack.rungs();
 
 // File-scope const so the returned pointer has static lifetime — the
-// select/ladder drivers now take `*const JoinPermits` (F6).
-const test_join_permits: ledger.JoinPermits = .{ .policy = .joined };
+// select/ladder drivers now take `*const BundlePermits` (F6).
+const test_bundle_permits: ledger.BundlePermits = .{ .policy = .joined };
 
-fn testJoinPermits() *const ledger.JoinPermits {
-    return &test_join_permits;
+fn testBundlePermits() *const ledger.BundlePermits {
+    return &test_bundle_permits;
 }
 
 test "truncate rung is ineligible when natural fits cleanly" {
@@ -33,7 +33,7 @@ test "truncate rung is ineligible when natural fits cleanly" {
     const a = arena.allocator();
 
     const g = try parse(a, "flowchart TD\n  A --> B\n  B --> C\n");
-    const enumerated = try ladder.enumerate(a, g, testJoinPermits(), 80);
+    const enumerated = try ladder.enumerate(a, g, testBundlePermits(), 80);
     const sel = select.scoreCandidates(a, enumerated.candidates, enumerated.incumbent.final_rung, g.direction, .bridge) orelse
         return error.ScoringFailed;
 
@@ -68,7 +68,7 @@ test "packed candidates: TD parallel graph yields motif_pack candidates at cappe
         \\  A --> B2 --> C2
         \\
     );
-    const packed_cands = try select.packedCandidates(a, g, testJoinPermits(), 80);
+    const packed_cands = try select.packedCandidates(a, g, testBundlePermits(), 80);
     try std.testing.expectEqual(@as(usize, PACK_RUNGS.len), packed_cands.len);
     for (packed_cands, PACK_RUNGS) |cand, rung| {
         try std.testing.expectEqual(ladder.Transform.motif_pack, cand.transform);
@@ -90,7 +90,7 @@ test "packed candidates: TD parallel graph yields motif_pack candidates at cappe
     }
 
     const g_lr = try parse(a, "flowchart LR\n  A --> B1 --> C1\n  A --> B2 --> C2\n");
-    try std.testing.expectEqual(@as(usize, 0), (try select.packedCandidates(a, g_lr, testJoinPermits(), 80)).len);
+    try std.testing.expectEqual(@as(usize, 0), (try select.packedCandidates(a, g_lr, testBundlePermits(), 80)).len);
 }
 
 test "choose: merged selection anchors to raw natural and never fails the render" {
@@ -107,12 +107,12 @@ test "choose: merged selection anchors to raw natural and never fails the render
         \\  A --> B2 --> C2
         \\
     );
-    const result = try select.choose(a, g, testJoinPermits(), 120, false, false, .bridge);
+    const result = try select.choose(a, g, testBundlePermits(), 120, false, false, .bridge);
     try std.testing.expect(result.sketch.bbox.w > 0);
 
     // score_off returns the ladder incumbent exactly.
-    const incumbent = (try ladder.enumerate(a, g, testJoinPermits(), 120)).incumbent;
-    const off = try select.choose(a, g, testJoinPermits(), 120, true, false, .bridge);
+    const incumbent = (try ladder.enumerate(a, g, testBundlePermits(), 120)).incumbent;
+    const off = try select.choose(a, g, testBundlePermits(), 120, true, false, .bridge);
     try std.testing.expectEqual(incumbent.final_rung, off.final_rung);
 }
 
@@ -232,11 +232,11 @@ test "regression: the raw natural anchor filtered out keeps truncate eligible an
     _ = filtered.survivors[s1.argmin_idx]; // in-range survivor winner
 }
 
-test "terminal candidate: raw-natural all-independent, zero realized trunks, separate ports" {
+test "terminal candidate: raw-natural all-independent, zero realized rails, separate ports" {
     // D-DISPOSITION item 9(b): the terminal fallback is a raw-natural layout
-    // with trunk realization disabled (LayoutOptions.disable_join_realization)
-    // and an all-independent plan over the REAL permits — zero selected joins,
-    // no shared trunk rail, fully-populated memberships (NOT the bare envelope).
+    // with rail realization disabled (LayoutOptions.disable_bundle_realization)
+    // and an all-independent plan over the REAL permits — zero selected bundles,
+    // no shared rail, fully-populated memberships (NOT the bare envelope).
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
@@ -246,11 +246,11 @@ test "terminal candidate: raw-natural all-independent, zero realized trunks, sep
     const term = try select.terminalCandidate(a, g, &plan, 120);
 
     try std.testing.expectEqual(ladder.Rung.natural, term.final_rung);
-    try std.testing.expectEqual(@as(usize, 0), term.sketch.joins.selected_joins.len); // zero realized trunks
-    try std.testing.expectEqual(@as(usize, 0), term.sketch.rails.len); // separate ports, no shared trunk ink
-    try std.testing.expect(term.sketch.joins.memberships.len > 0); // NOT the bare envelope
+    try std.testing.expectEqual(@as(usize, 0), term.sketch.bundles.selected_bundles.len); // zero realized rails
+    try std.testing.expectEqual(@as(usize, 0), term.sketch.rails.len); // separate ports, no shared rail ink
+    try std.testing.expect(term.sketch.bundles.memberships.len > 0); // NOT the bare envelope
     var all_independent = true;
-    for (term.sketch.joins.memberships) |rm| {
+    for (term.sketch.bundles.memberships) |rm| {
         if (rm.source) |d| if (d != .independent) {
             all_independent = false;
         };
@@ -334,11 +334,11 @@ test "reachReports: node-key table maps raw_id bytes and tolerates sparse ids" {
 }
 
 /// The plan's own answer to "may these two edges share ink": co-membership of
-/// one selected join, or of one fused union (the two-sided fusion licence,
-/// which makes its trunks' rail one channel). The predicate
+/// one selected bundle, or of one fused union (the two-sided fusion licence,
+/// which makes its rails' rail one bundle). The predicate
 /// `raster/crossings.zig` applies, restated here over ledger records so this
 /// pin is about the DATA and not about the raster's copy of the question.
-fn planCoMembers(plan: ledger.RealizedJoins, first: u32, second: u32) bool {
+fn planCoMembers(plan: ledger.RealizedBundles, first: u32, second: u32) bool {
     for (plan.fused) |u| {
         var a_in = false;
         var b_in = false;
@@ -348,7 +348,7 @@ fn planCoMembers(plan: ledger.RealizedJoins, first: u32, second: u32) bool {
         }
         if (a_in and b_in) return true;
     }
-    for (plan.selected_joins) |j| {
+    for (plan.selected_bundles) |j| {
         var a_in = false;
         var b_in = false;
         for (j.members) |m| {
@@ -360,12 +360,12 @@ fn planCoMembers(plan: ledger.RealizedJoins, first: u32, second: u32) bool {
     return false;
 }
 
-test "co-sets applied with the plan carry the plan's own membership" {
-    // The equality that makes co-channel plumbing inert on the flat path: for
-    // every pair of edge ids in the winning candidate, the co-sets answer
+test "bundles applied with the plan carry the plan's own membership" {
+    // The equality that makes bundle plumbing inert on the flat path: for
+    // every pair of edge ids in the winning candidate, the bundles answer
     // exactly what the realized plan answers. Fixtures span a fan-out, a
     // shared-target fan-in, a dual-ended edge, and an all-to-all (whose star
-    // decomposition still plans trunks) — the shapes with non-empty plans.
+    // decomposition still plans rails) — the shapes with non-empty plans.
     const sources = [_][]const u8{
         "flowchart TD\n  A --> B\n  A --> C\n  A --> D\n",
         "flowchart TD\n  A --> D\n  B --> D\n  C --> D\n",
@@ -388,12 +388,12 @@ test "co-sets applied with the plan carry the plan's own membership" {
         const g = try parse(a, source);
         const permits = (try permits_mod.build(a, g, .joined)).plan;
         const winner = try select.choose(a, g, &permits, width, false, false, .bridge);
-        for (winner.sketch.co_sets) |set| switch (set.origin) {
-            .selected_join => saw_selected = true,
+        for (winner.sketch.bundle_sets) |set| switch (set.origin) {
+            .selected_bundle => saw_selected = true,
             .port_share => {},
-            .fan_rail => return error.FlatCandidateKeptLayoutCoSets,
+            .fan_rail => return error.FlatCandidateKeptLayoutBundles,
         };
-        const only_plan = try ledger.keepOrigin(a, winner.sketch.co_sets, .selected_join);
+        const only_plan = try ledger.keepOrigin(a, winner.sketch.bundle_sets, .selected_bundle);
 
         var first: u32 = 0;
         while (first < g.edges.len) : (first += 1) {
@@ -401,8 +401,8 @@ test "co-sets applied with the plan carry the plan's own membership" {
             while (second < g.edges.len) : (second += 1) {
                 if (first == second) continue; // identity, answered before either record
                 try std.testing.expectEqual(
-                    planCoMembers(winner.sketch.joins, first, second),
-                    ledger.coMembers(only_plan, first, second),
+                    planCoMembers(winner.sketch.bundles, first, second),
+                    ledger.bundleMembers(only_plan, first, second),
                 );
             }
         }
@@ -410,14 +410,14 @@ test "co-sets applied with the plan carry the plan's own membership" {
     try std.testing.expect(saw_selected);
 }
 
-test "the forced-rung debug path carries plan co-sets, not layout's fan rails" {
+test "the forced-rung debug path carries plan bundles, not layout's fan rails" {
     // entry.zig's forced-rung / score-off paths bypass select.choose, so they
     // apply the plan themselves. Without that, a flat graph's sketch would
     // keep layout's `.fan_rail` sets and the debug render's crossing
     // semantics would diverge from the production one.
     //
     // SCOPE — this pins the CONTRACT (runForced's sketch + applyPlan = plan
-    // co-sets), not entry.zig's WIRING: it reproduces the two calls rather
+    // bundles), not entry.zig's WIRING: it reproduces the two calls rather
     // than going through the real path, whose only trigger is the env read in
     // `EnvOptions.read`. Deleting entry.zig's applyPlan calls leaves this
     // test green; only a render through a set MERCAT_FORCE_RUNG /
@@ -431,18 +431,18 @@ test "the forced-rung debug path carries plan co-sets, not layout's fan rails" {
     var forced = try ladder.runForced(a, g, &permits, 120, .natural);
     select.applyPlan(a, &permits, &forced.sketch);
 
-    try std.testing.expect(forced.sketch.joins.selected_joins.len > 0);
-    try std.testing.expect(forced.sketch.co_sets.len > 0);
-    for (forced.sketch.co_sets) |set| {
+    try std.testing.expect(forced.sketch.bundles.selected_bundles.len > 0);
+    try std.testing.expect(forced.sketch.bundle_sets.len > 0);
+    for (forced.sketch.bundle_sets) |set| {
         try std.testing.expect(set.origin != .fan_rail);
     }
 }
 
-test "a clustered render's trunk co-sets come from its piece plan and survive the stitch" {
+test "a clustered render's rail bundles come from its piece plan and survive the stitch" {
     // A subgraph-internal fan realizes against its PIECE plan (cluster
-    // unification): the trunk's co-set carries the plan's own membership,
+    // unification): the rail's bundle carries the plan's own membership,
     // rewritten into merged edge ids, so the raster's licence sites read the
-    // same sanction a flat candidate's trunk gets.
+    // same sanction a flat candidate's rail gets.
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
@@ -460,16 +460,16 @@ test "a clustered render's trunk co-sets come from its piece plan and survive th
     const permits = (try permits_mod.build(a, g, .joined)).plan;
     const winner = try select.choose(a, g, &permits, 120, false, false, .bridge);
 
-    try std.testing.expectEqual(@as(usize, 1), winner.sketch.joins.selected_joins.len);
-    const trunk = winner.sketch.joins.selected_joins[0];
-    try std.testing.expectEqual(@as(usize, 3), trunk.members.len);
-    try std.testing.expect(winner.sketch.co_sets.len > 0);
-    for (winner.sketch.co_sets) |set| {
-        try std.testing.expect(set.origin == .selected_join or set.origin == .port_share);
+    try std.testing.expectEqual(@as(usize, 1), winner.sketch.bundles.selected_bundles.len);
+    const rail = winner.sketch.bundles.selected_bundles[0];
+    try std.testing.expectEqual(@as(usize, 3), rail.members.len);
+    try std.testing.expect(winner.sketch.bundle_sets.len > 0);
+    for (winner.sketch.bundle_sets) |set| {
+        try std.testing.expect(set.origin == .selected_bundle or set.origin == .port_share);
         try std.testing.expect(set.members.len >= 2);
     }
-    // The trunk's sanction rides a plan-origin co-set with the SAME members.
-    const plan_sets = try ledger.keepOrigin(a, winner.sketch.co_sets, .selected_join);
+    // The rail's sanction rides a plan-origin bundle with the SAME members.
+    const plan_sets = try ledger.keepOrigin(a, winner.sketch.bundle_sets, .selected_bundle);
     try std.testing.expectEqual(@as(usize, 1), plan_sets.len);
-    try std.testing.expectEqualSlices(ledger.EdgeId, trunk.members, plan_sets[0].members);
+    try std.testing.expectEqualSlices(ledger.EdgeId, rail.members, plan_sets[0].members);
 }

@@ -30,7 +30,7 @@ fn emptySketch() sketch.Sketch {
         .nodes = &.{},
         .clusters = &.{},
         .edges = &.{},
-        .channel_stamp_state = .complete,
+        .bundle_stamp_state = .complete,
         .diagnostics = &.{},
         .budget = .{ .max_width = 80, .rung = 0 },
     };
@@ -251,19 +251,19 @@ test "scan: a zero-sized lattice is a no-op" {
     try testing.expectEqual(@as(u32, 0), c.n_cells);
     try testing.expectEqual(@as(u32, 0), c.defectTotal());
     try testing.expectEqual(@as(u32, 0), c.u_audit_oom);
-    try testing.expectEqual(@as(u32, 1), c.u_channel_population_absent);
+    try testing.expectEqual(@as(u32, 1), c.u_bundle_population_absent);
     try testing.expectEqual(@as(u32, 1), c.u_rail_population_absent);
     try testing.expectEqual(@as(u32, 1), c.u_rail_claim_population_absent);
 }
 
-test "scan: zero-size still reports unavailable AUX and channel stamp causes" {
+test "scan: zero-size still reports unavailable AUX and bundle stamp causes" {
     const lat = lattice.Lattice{ .width = 0, .height = 0, .cells = &[_]lattice.Cell{} };
     var ctx = ctxOf(&lat);
-    ctx.sketch.channel_stamp_state = .unattempted;
+    ctx.sketch.bundle_stamp_state = .unattempted;
     const c = scan.run(testing.allocator, ctx);
     try testing.expectEqual(@as(u32, 1), c.u_aux_not_collected);
-    try testing.expectEqual(@as(u32, 0), c.u_channel_population_absent);
-    try testing.expectEqual(@as(u32, 1), c.u_channel_stamp_unattempted);
+    try testing.expectEqual(@as(u32, 0), c.u_bundle_population_absent);
+    try testing.expectEqual(@as(u32, 1), c.u_bundle_stamp_unattempted);
 }
 
 test "scan: rail-star tier reads the lattice, not an unrelated Sketch" {

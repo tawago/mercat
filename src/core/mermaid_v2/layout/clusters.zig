@@ -215,16 +215,16 @@ pub fn computeBbox(
     }
     // Rail geometry + tap labels (non-relocatable, part of pass 1's extent); each tap label's anchor is reserved via the same shared segment (`Rail.tapLabelSeg`) raster/labels paints. // guarded-by: layout/clusters_test.zig "computeBbox: rail tap label reservation matches Rail.tapLabelSeg + prim.edgeLabelAnchor"
     for (rails) |b| {
-        const bb = b.rail;
-        for (bb.stem) |pt| extendPoint(&min_x, &min_y, &max_x, &max_y, pt);
-        extendPoint(&min_x, &min_y, &max_x, &max_y, bb.crossbar[0]);
-        extendPoint(&min_x, &min_y, &max_x, &max_y, bb.crossbar[1]);
-        for (bb.taps) |tap| {
+        const rail = b.rail;
+        for (rail.stem) |pt| extendPoint(&min_x, &min_y, &max_x, &max_y, pt);
+        extendPoint(&min_x, &min_y, &max_x, &max_y, rail.crossbar[0]);
+        extendPoint(&min_x, &min_y, &max_x, &max_y, rail.crossbar[1]);
+        for (rail.taps) |tap| {
             extendPoint(&min_x, &min_y, &max_x, &max_y, tap.at);
             extendPoint(&min_x, &min_y, &max_x, &max_y, tap.landing);
             const lbl = tap.label orelse continue;
             if (lbl.len == 0) continue;
-            const seg = bb.tapLabelSeg(tap);
+            const seg = rail.tapLabelSeg(tap);
             const lbl_w = prim.displayWidth(lbl);
             const anchor = prim.edgeLabelAnchor(seg[0].x, seg[0].y, seg[1].x, seg[1].y, lbl_w, .{});
             if (anchor.x < min_x) min_x = anchor.x;

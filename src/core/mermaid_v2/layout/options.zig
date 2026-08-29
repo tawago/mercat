@@ -14,17 +14,17 @@ const sizing = @import("sizing.zig");
 pub const FixedSize = sizing.FixedSize;
 
 pub const LayoutOptions = struct {
-    /// One render-wide semantic permission plan, inert until join planning.
+    /// One render-wide semantic permission plan, inert until bundle planning.
     /// Carries its own scope (flat vs skipped_clustered); never re-derived
     /// from recursion pieces.
-    join_permits: ?*const ledger.JoinPermits = null,
+    bundle_permits: ?*const ledger.BundlePermits = null,
     /// P2v Step 8 (D-DISPOSITION item 9(b)): force the forced all-independent
-    /// TERMINAL layout. `join_commit.build` emits an all-independent plan (no
-    /// selected join at all), so no fan rail is realized and every
-    /// edge keeps its own D-PORT-allocated port — the trunk-free geometry the
-    /// CI-filter terminal candidate needs. Off (default) leaves normal trunk
+    /// TERMINAL layout. `bundle_commit.build` emits an all-independent plan (no
+    /// selected bundle at all), so no fan rail is realized and every
+    /// edge keeps its own D-PORT-allocated port — the rail-free geometry the
+    /// CI-filter terminal candidate needs. Off (default) leaves normal rail
     /// realization untouched, so every other candidate stays byte-identical.
-    disable_join_realization: bool = false,
+    disable_bundle_realization: bool = false,
     /// Width budget in display columns.
     max_width: u32 = 120,
     /// Horizontal spacing between adjacent nodes in the same layer.
@@ -48,7 +48,7 @@ pub const LayoutOptions = struct {
     /// True when the budget ladder has rotated this graph's flow direction
     /// 90° (the `switch_direction` rung). Set by `budget.optionsFor`. When
     /// true, drift compaction (`compact_x`) is suppressed: a rotated diagram
-    /// is a long single-trunk chain that relies on raw packed positions to
+    /// is a long single-rail chain that relies on raw packed positions to
     /// keep its vertical connectors drilled.
     is_direction_rotated: bool = false,
     /// Justification under width pressure. `.center` (the default, used on the
@@ -70,7 +70,7 @@ pub const LayoutOptions = struct {
     label_policy: prim.LabelPolicy = .on_run,
     /// This candidate's cross-border bridge build (`prim.BridgeBuild`).
     /// `.plain` (default, and what every debug/forced driver uses) keeps
-    /// the track-assigned jogs; select.zig lays out the dodged/trunked
+    /// the track-assigned jogs; select.zig lays out the dodged/railed
     /// variants for a clustered graph and the score against the real
     /// raster decides — routing itself never picks between them.
     bridge_build: prim.BridgeBuild = .plain,

@@ -30,9 +30,9 @@ fn expectPolyAvoidsRect(poly: []const sketch.Point, rect: sketch.Rect) !void {
     }
 }
 
-test "grid fan-OUT trunk dodges a sibling box stacked in an earlier grid row" {
+test "grid fan-OUT rail dodges a sibling box stacked in an earlier grid row" {
     // Pivot at column 26 (hub_and_spoke shape): a row-2 child sits directly
-    // BELOW a row-1 sibling in the pivot column. The straight trunk descent
+    // BELOW a row-1 sibling in the pivot column. The straight rail descent
     // would pass through the sibling; the polyline must instead detour to a
     // column that touches no box at all (touch semantics, borders included).
     const a = testing.allocator;
@@ -117,8 +117,8 @@ test "grid fan-OUT rail sits exactly 2 rows above the child top (clean descent, 
     try testing.expectEqual(@as(i32, 2), last.y - prev.y);
 }
 
-test "grid fan-IN trunk dodges a source stacked in a lower grid row at the shared target column" {
-    // Mirror of the fan-OUT grid dodge test above: the shared trunk column
+test "grid fan-IN rail dodges a source stacked in a lower grid row at the shared target column" {
+    // Mirror of the fan-OUT grid dodge test above: the shared rail column
     // descending into the target may pass through a DIFFERENT source's box
     // stacked in a lower grid row. The reverse comb must detour around it
     // instead of piercing it.

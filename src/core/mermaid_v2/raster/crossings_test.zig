@@ -1,6 +1,6 @@
 //! Integration tests for the crossing/transversal rule (Amendment C, C1/C2)
 //! driven through `raster/edges.zig`'s `rasterizeEdges`. Sketches are built by
-//! hand; the realized-join plan (`Sketch.joins`) is set to activate the rule
+//! hand; the realized-bundle plan (`Sketch.bundles`) is set to activate the rule
 //! and to exercise the co-member exemption.
 
 const std = @import("std");
@@ -33,14 +33,14 @@ fn edge(id: u32, pts: []const sketch.Point, arrow_to: sketch.ArrowKind) sketch.E
     };
 }
 
-fn sketchWith(es: []const sketch.EdgePath, joins: ledger.RealizedJoins) sketch.Sketch {
+fn sketchWith(es: []const sketch.EdgePath, bundles: ledger.RealizedBundles) sketch.Sketch {
     return .{
         .bbox = .{ .x = 0, .y = 0, .w = 12, .h = 12 },
         .direction = .TD,
         .nodes = &.{},
         .clusters = &.{},
         .edges = es,
-        .joins = joins,
+        .bundles = bundles,
         .diagnostics = &.{},
         .budget = .{ .max_width = 80, .rung = 0 },
     };
@@ -49,7 +49,7 @@ fn sketchWith(es: []const sketch.EdgePath, joins: ledger.RealizedJoins) sketch.S
 /// A plan that places every listed edge in DISTINCT
 /// (independent) memberships, so no two are co-members: every foreign crossing
 /// is subject to the transversal rule.
-fn independentPlan(mems: []const ledger.RealizedEdgeMembership) ledger.RealizedJoins {
+fn independentPlan(mems: []const ledger.RealizedEdgeMembership) ledger.RealizedBundles {
     return .{ .memberships = mems };
 }
 
@@ -97,10 +97,10 @@ test "V-D-CROSS-01 companion: same-group perpendicular crossing keeps the ┼ (n
     const h = [_]sketch.Point{ .{ .x = 0, .y = 5 }, .{ .x = 10, .y = 5 } };
     const v = [_]sketch.Point{ .{ .x = 5, .y = 0 }, .{ .x = 5, .y = 10 } };
     const es = [_]sketch.EdgePath{ edge(0, &h, .none), edge(1, &v, .none) };
-    // Both edges are co-members of ONE realized join → legal shared ink.
+    // Both edges are co-members of ONE realized bundle → legal shared ink.
     var members = [_]ledger.EdgeId{ 0, 1 };
-    var sel = [_]ledger.SelectedJoin{.{ .id = 0, .proposal = 0, .permission_group = 0, .members = &members }};
-    const r = try edges.rasterizeEdges(a, &lat, sketchWith(&es, .{ .selected_joins = &sel }), .bridge, null);
+    var sel = [_]ledger.SelectedBundle{.{ .id = 0, .proposal = 0, .candidate_bundle = 0, .members = &members }};
+    const r = try edges.rasterizeEdges(a, &lat, sketchWith(&es, .{ .selected_bundles = &sel }), .bridge, null);
 
     // Co-members keep the pre-C OR-merge: the crossing fuses to ┼.
     try testing.expectEqual(mask_cross, lat.atConst(5, 5).neighbours.toMask());
@@ -199,13 +199,13 @@ test "determinism: crossing outcome is deterministic under edge-array permutatio
 
 test "licenceFor trusts identity only after a complete consistent stamp" {
     var members = [_]u32{ 0, 1 };
-    const unstamped = [_]ledger.CoSet{.{ .origin = .fan_rail, .members = &members }};
-    const at: ledger.CoCell = .{ .x = 0, .y = 0 };
-    const stamped = try ledger.numberChannels(testing.allocator, &unstamped);
+    const unstamped = [_]ledger.Bundle{.{ .origin = .fan_rail, .members = &members }};
+    const at: ledger.BundleCell = .{ .x = 0, .y = 0 };
+    const stamped = try ledger.numberBundles(testing.allocator, &unstamped);
     defer testing.allocator.free(stamped);
 
     // A numbered payload is still untrusted after every non-success outcome.
-    for ([_]sketch.ChannelStampState{ .unattempted, .out_of_memory, .rail_invariant }) |state| {
+    for ([_]sketch.BundleStampState{ .unattempted, .out_of_memory, .rail_invariant }) |state| {
         try testing.expectEqual(
             lattice.CarrierKind.merged_untested,
             crossings.licenceFor(0, 1, stamped, state, at),
@@ -229,7 +229,7 @@ test "licenceFor trusts identity only after a complete consistent stamp" {
     );
 }
 
-test "stamp state and ChannelId never change derived crossing ink" {
+test "stamp state and BundleId never change derived crossing ink" {
     const a = testing.allocator;
     const h = [_]sketch.Point{ .{ .x = 0, .y = 5 }, .{ .x = 10, .y = 5 } };
     const v = [_]sketch.Point{ .{ .x = 5, .y = 0 }, .{ .x = 5, .y = 10 } };
@@ -237,18 +237,18 @@ test "stamp state and ChannelId never change derived crossing ink" {
     var baseline: [121]lattice.Cell = undefined;
     var have_baseline = false;
 
-    for ([_]ledger.ChannelId{ 1, 97 }) |channel| {
-        const roster = [_]ledger.CoSet{.{
+    for ([_]ledger.BundleId{ 1, 97 }) |bundle| {
+        const roster = [_]ledger.Bundle{.{
             .origin = .fan_rail,
-            .channel = channel,
+            .bundle = bundle,
             .members = &.{ 0, 1 },
         }};
-        for ([_]sketch.ChannelStampState{ .unattempted, .complete, .out_of_memory, .rail_invariant }) |state| {
+        for ([_]sketch.BundleStampState{ .unattempted, .complete, .out_of_memory, .rail_invariant }) |state| {
             var lat = try makeLattice(a, 11, 11);
             defer a.free(lat.cells);
             var s = sketchWith(&es, .{});
-            s.co_sets = &roster;
-            s.channel_stamp_state = state;
+            s.bundle_sets = &roster;
+            s.bundle_stamp_state = state;
 
             const r = try edges.rasterizeEdges(a, &lat, s, .bridge, null);
             try testing.expectEqual(mask_cross, lat.atConst(5, 5).neighbours.toMask());

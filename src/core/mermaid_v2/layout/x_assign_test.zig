@@ -299,7 +299,7 @@ test "flushLeftRows never widens the bounding box" {
         try testing.expect(after < before);
     }
 
-    // Case 2: a lone single-node row is trunk-critical and exempt — must be
+    // Case 2: a lone single-node row is rail-critical and exempt — must be
     // a complete no-op (bbox unchanged, not just non-increasing).
     {
         var nodes = [_]sugiyama.LayerNode{ .{ .real = 20 }, .{ .real = 21 } };
@@ -331,12 +331,12 @@ test "flushLeftRows never widens the bounding box" {
 // -- x_assign centerRunOnDesired: real-nodes-only averaging + width clamp ---
 // (moved from lanes_test.zig; centerRunOnDesired itself lives in x_assign.zig)
 
-test "centerRunOnDesired re-centers using only real nodes, keeping the real node's trunk straight" {
+test "centerRunOnDesired re-centers using only real nodes, keeping the real node's rail straight" {
     // Row = [virtual waypoint from an unrelated edge, real node R], both fed
     // solely by parent A above. R's own barycenter is A's center; the
     // virtual's packing footprint pushes R's PACKED position off that
     // center, but the real-nodes-only average must pull R back exactly onto
-    // A's column (a straight vertical trunk).
+    // A's column (a straight vertical rail).
     const empty_g = sg.SemGraph{ .direction = .TD, .nodes = &.{}, .edges = &.{}, .clusters = &.{}, .classes = &.{}, .arena = null };
 
     var nodes = [_]sugiyama.LayerNode{
@@ -389,7 +389,7 @@ test "centerRunOnDesired re-centers using only real nodes, keeping the real node
 }
 
 test "centerRunOnDesired's width clamp keeps a recentered row from crossing x=0" {
-    // Same shape as the straight-trunk case above, but with A placed near
+    // Same shape as the straight-rail case above, but with A placed near
     // the left margin so the unclamped real-nodes-only delta would drive
     // the row negative.
     const empty_g = sg.SemGraph{ .direction = .TD, .nodes = &.{}, .edges = &.{}, .clusters = &.{}, .classes = &.{}, .arena = null };

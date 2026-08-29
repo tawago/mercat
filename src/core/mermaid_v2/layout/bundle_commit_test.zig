@@ -3,13 +3,13 @@ const parse = @import("../parse.zig").parse;
 const permits = @import("../ledger/permits.zig");
 const realized = @import("../ledger/realized.zig");
 const select = @import("../select.zig");
-const join_commit = @import("join_commit.zig");
+const bundle_commit = @import("bundle_commit.zig");
 const pb = @import("../base/ledger.zig");
 
 fn expectSelectedEqual(expected: anytype, actual: anytype) !void {
     try std.testing.expectEqual(expected.len, actual.len);
     for (expected, actual) |want, got| {
-        try std.testing.expectEqual(want.permission_group, got.permission_group);
+        try std.testing.expectEqual(want.candidate_bundle, got.candidate_bundle);
         try std.testing.expectEqualSlices(u32, want.members, got.members);
     }
 }
@@ -25,13 +25,13 @@ fn rawOf(graph: anytype, id: u32) []const u8 {
 }
 
 /// The identity keys ("from->to" node raw_ids, in committed member order) of
-/// the fan-IN trunk at node `D`, or empty when there is no such trunk.
-fn trunkKeysAtD(a: std.mem.Allocator, source: []const u8) ![]const []const u8 {
+/// the fan-IN rail at node `D`, or empty when there is no such rail.
+fn railKeysAtD(a: std.mem.Allocator, source: []const u8) ![]const []const u8 {
     const graph = try parse(a, source);
     const plan = (try permits.build(a, graph, .joined)).plan;
     const winner = try select.choose(a, graph, &plan, 94, false, false, .bridge);
-    for (winner.sketch.joins.selected_joins) |sj| {
-        for (plan.groups) |g| if (g.id == sj.permission_group and g.direction == .in and g.pivot == nodeId(graph, "D")) {
+    for (winner.sketch.bundles.selected_bundles) |sj| {
+        for (plan.groups) |g| if (g.id == sj.candidate_bundle and g.direction == .in and g.pivot == nodeId(graph, "D")) {
             const out = try a.alloc([]const u8, sj.members.len);
             for (sj.members, out) |m, *slot| {
                 for (graph.edges) |e| if (e.id == m) {
@@ -45,13 +45,13 @@ fn trunkKeysAtD(a: std.mem.Allocator, source: []const u8) ![]const []const u8 {
 }
 
 // Owner ruling 2026-07-18: a fan-IN group blocked ONLY by a layout-reversed
-// member composes its forward subset as one merged trunk (>=2 forward
+// member composes its forward subset as one merged rail (>=2 forward
 // members); the reversed member takes an independent side entry. These pin
-// that join_commit and realized.realize agree on the subset (N6 exact).
+// that bundle_commit and realized.realize agree on the subset (N6 exact).
 const reversed_fanin_source =
     "flowchart TD\n  A --> B\n  A --> C\n  B --> D\n  C --> D\n  D --> E\n  E --> F\n  F --> D\n";
 
-test "N6 reversed: forward-subset fan-in trunk agrees across join_commit and realized" {
+test "N6 reversed: forward-subset fan-in rail agrees across bundle_commit and realized" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
@@ -61,9 +61,9 @@ test "N6 reversed: forward-subset fan-in trunk agrees across join_commit and rea
     var saw_fanin = false;
     for (set.merged) |candidate| {
         const checked = try realized.realize(a, plan, candidate.sketch);
-        try expectSelectedEqual(candidate.sketch.joins.selected_joins, checked.plan.selected_joins);
-        for (candidate.sketch.joins.selected_joins) |sj| {
-            for (plan.groups) |g| if (g.id == sj.permission_group and g.direction == .in and g.pivot == nodeId(graph, "D")) {
+        try expectSelectedEqual(candidate.sketch.bundles.selected_bundles, checked.plan.selected_bundles);
+        for (candidate.sketch.bundles.selected_bundles) |sj| {
+            for (plan.groups) |g| if (g.id == sj.candidate_bundle and g.direction == .in and g.pivot == nodeId(graph, "D")) {
                 saw_fanin = true;
                 try std.testing.expectEqual(@as(usize, 2), sj.members.len); // forward subset only
             };
@@ -72,9 +72,9 @@ test "N6 reversed: forward-subset fan-in trunk agrees across join_commit and rea
     try std.testing.expect(saw_fanin);
 }
 
-test "N6 floor: a single-forward-member reversed fan-in commits no trunk" {
+test "N6 floor: a single-forward-member reversed fan-in commits no rail" {
     // H has one forward arrival G->H and a back-edge J->H (cycle H->I->J->H):
-    // forward subset {G->H} is one member, below the >=2 floor → no trunk.
+    // forward subset {G->H} is one member, below the >=2 floor → no rail.
     const source = "flowchart TD\n  A --> G\n  G --> H\n  H --> I\n  I --> J\n  J --> H\n";
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
@@ -84,9 +84,9 @@ test "N6 floor: a single-forward-member reversed fan-in commits no trunk" {
     const set = try select.enumerateAll(a, graph, &plan, 94);
     for (set.merged) |candidate| {
         const checked = try realized.realize(a, plan, candidate.sketch);
-        try expectSelectedEqual(candidate.sketch.joins.selected_joins, checked.plan.selected_joins);
-        for (candidate.sketch.joins.selected_joins) |sj| {
-            for (plan.groups) |g| if (g.id == sj.permission_group)
+        try expectSelectedEqual(candidate.sketch.bundles.selected_bundles, checked.plan.selected_bundles);
+        for (candidate.sketch.bundles.selected_bundles) |sj| {
+            for (plan.groups) |g| if (g.id == sj.candidate_bundle)
                 try std.testing.expect(!(g.direction == .in and g.pivot == nodeId(graph, "H")));
         }
     }
@@ -98,14 +98,14 @@ test "forward-subset selection is deterministic under arrival declaration permut
     const a = arena.allocator();
     // The two forward arrivals (and their sources) declared in swapped order.
     const swapped = "flowchart TD\n  A --> C\n  A --> B\n  C --> D\n  B --> D\n  D --> E\n  E --> F\n  F --> D\n";
-    const k1 = try trunkKeysAtD(a, reversed_fanin_source);
-    const k2 = try trunkKeysAtD(a, swapped);
+    const k1 = try railKeysAtD(a, reversed_fanin_source);
+    const k2 = try railKeysAtD(a, swapped);
     try std.testing.expectEqual(@as(usize, 2), k1.len);
     try std.testing.expectEqual(k1.len, k2.len);
     for (k1, k2) |x, y| try std.testing.expectEqualStrings(x, y);
 }
 
-test "N6: every enumerated candidate agrees on pre-sizing trunk commitments and realized selected joins" {
+test "N6: every enumerated candidate agrees on pre-sizing rail commitments and realized selected bundles" {
     const sources = [_][]const u8{
         "flowchart TD\n  S --> A\n  S --> B\n  S --> C\n",
         "flowchart TD\n  A --> T\n  B --> T\n  C --> T\n",
@@ -125,7 +125,7 @@ test "N6: every enumerated candidate agrees on pre-sizing trunk commitments and 
         for (set.merged) |candidate| {
             if (candidate.rung == .switch_direction) saw_switch = true;
             const checked = try realized.realize(a, plan, candidate.sketch);
-            try expectSelectedEqual(candidate.sketch.joins.selected_joins, checked.plan.selected_joins);
+            try expectSelectedEqual(candidate.sketch.bundles.selected_bundles, checked.plan.selected_bundles);
         }
         if (source_i == 2) try std.testing.expect(saw_switch);
     }
@@ -142,12 +142,12 @@ fn edgeIdOf(graph: anytype, from: []const u8, to: []const u8) u32 {
     unreachable;
 }
 
-fn targetOf(joins: anytype, edge: u32) ?@TypeOf(joins.memberships[0].target) {
-    for (joins.memberships) |m| if (m.edge == edge) return m.target;
+fn targetOf(bundles: anytype, edge: u32) ?@TypeOf(bundles.memberships[0].target) {
+    for (bundles.memberships) |m| if (m.edge == edge) return m.target;
     return null;
 }
 
-test "an all-arrow-free fan with undeclared leaf pairs commits no trunk" {
+test "an all-arrow-free fan with undeclared leaf pairs commits no rail" {
     // A---Z, B---Z, C---Z: the crossbar would assert A—B, A—C and B—C, none
     // declared. Refusal is expressed as independent dispositions — the same
     // record a decoration-mixed rail gets — so the members unfuse.
@@ -156,15 +156,15 @@ test "an all-arrow-free fan with undeclared leaf pairs commits no trunk" {
     const a = arena.allocator();
     const graph = try parse(a, "flowchart TD\n  A --- Z\n  B --- Z\n  C --- Z\n");
     const plan = (try permits.build(a, graph, .joined)).plan;
-    var report: join_commit.Report = .{};
-    const joins = try join_commit.buildReported(a, graph, &plan, &.{}, false, &report);
+    var report: bundle_commit.Report = .{};
+    const bundles = try bundle_commit.buildReported(a, graph, &plan, &.{}, false, &report);
 
-    try std.testing.expectEqual(@as(usize, 0), joins.selected_joins.len);
-    try std.testing.expectEqual(@as(usize, 0), joins.co_realized.len);
+    try std.testing.expectEqual(@as(usize, 0), bundles.selected_bundles.len);
+    try std.testing.expectEqual(@as(usize, 0), bundles.discharged.len);
     try std.testing.expectEqual(@as(u32, 1), report.rail_closure_undeclared);
     try std.testing.expectEqual(@as(u32, 3), report.co_undeclared);
     for ([_][]const u8{ "A", "B", "C" }) |leaf| {
-        const t = targetOf(joins, edgeIdOf(graph, leaf, "Z")).?;
+        const t = targetOf(bundles, edgeIdOf(graph, leaf, "Z")).?;
         try std.testing.expect(t.? == .independent);
     }
 }
@@ -175,30 +175,30 @@ test "a directed fan is untouched by the closure law" {
     const a = arena.allocator();
     const graph = try parse(a, "flowchart TD\n  A --> Z\n  B --> Z\n  C --> Z\n");
     const plan = (try permits.build(a, graph, .joined)).plan;
-    var report: join_commit.Report = .{};
-    const joins = try join_commit.buildReported(a, graph, &plan, &.{}, false, &report);
+    var report: bundle_commit.Report = .{};
+    const bundles = try bundle_commit.buildReported(a, graph, &plan, &.{}, false, &report);
 
-    try std.testing.expectEqual(@as(usize, 1), joins.selected_joins.len);
+    try std.testing.expectEqual(@as(usize, 1), bundles.selected_bundles.len);
     try std.testing.expectEqual(@as(u32, 0), report.rail_closure_undeclared);
     try std.testing.expectEqual(@as(u32, 0), report.co_undeclared);
 }
 
-test "a fully declared leaf clique keeps the trunk and co-realizes its pair edges" {
+test "a fully declared leaf clique keeps the rail and co-realizes its pair edges" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
     const graph = try parse(a, "flowchart TD\n  A --- Z\n  B --- Z\n  A --- B\n");
     const plan = (try permits.build(a, graph, .joined)).plan;
-    var report: join_commit.Report = .{};
-    const joins = try join_commit.buildReported(a, graph, &plan, &.{}, false, &report);
+    var report: bundle_commit.Report = .{};
+    const bundles = try bundle_commit.buildReported(a, graph, &plan, &.{}, false, &report);
 
     // The fan-IN at Z fuses, and A---B is discharged by its crossbar.
     try std.testing.expectEqual(@as(u32, 0), report.rail_closure_undeclared);
-    try std.testing.expectEqual(@as(usize, 1), joins.co_realized.len);
-    try std.testing.expectEqual(edgeIdOf(graph, "A", "B"), joins.co_realized[0]);
+    try std.testing.expectEqual(@as(usize, 1), bundles.discharged.len);
+    try std.testing.expectEqual(edgeIdOf(graph, "A", "B"), bundles.discharged[0]);
     var fused = false;
-    for (joins.selected_joins) |sj| {
-        for (plan.groups) |g| if (g.id == sj.permission_group and g.direction == .in and g.pivot == nodeId(graph, "Z")) {
+    for (bundles.selected_bundles) |sj| {
+        for (plan.groups) |g| if (g.id == sj.candidate_bundle and g.direction == .in and g.pivot == nodeId(graph, "Z")) {
             fused = true;
         };
     }
@@ -217,9 +217,9 @@ test "a labeled or decorated declaration cannot back a leaf pair" {
         const a = arena2.allocator();
         const graph = try parse(a, source);
         const plan = (try permits.build(a, graph, .joined)).plan;
-        var report: join_commit.Report = .{};
-        const joins = try join_commit.buildReported(a, graph, &plan, &.{}, false, &report);
-        try std.testing.expectEqual(@as(usize, 0), joins.co_realized.len);
+        var report: bundle_commit.Report = .{};
+        const bundles = try bundle_commit.buildReported(a, graph, &plan, &.{}, false, &report);
+        try std.testing.expectEqual(@as(usize, 0), bundles.discharged.len);
         try std.testing.expectEqual(@as(u32, 1), report.rail_closure_undeclared);
     }
 }
@@ -236,13 +236,13 @@ test "a reversed member does not hide a closure refusal behind a null dispositio
     const graph = try parse(a, "flowchart TD\n  A --- Z\n  B --- Z\n  Z --- W\n  W --- Q\n  Q --- Z\n");
     const plan = (try permits.build(a, graph, .joined)).plan;
     const reversed = [_]u32{edgeIdOf(graph, "Q", "Z")};
-    var report: join_commit.Report = .{};
-    const joins = try join_commit.buildReported(a, graph, &plan, &reversed, false, &report);
+    var report: bundle_commit.Report = .{};
+    const bundles = try bundle_commit.buildReported(a, graph, &plan, &reversed, false, &report);
 
-    try std.testing.expectEqual(@as(usize, 0), joins.selected_joins.len);
+    try std.testing.expectEqual(@as(usize, 0), bundles.selected_bundles.len);
     try std.testing.expectEqual(@as(u32, 1), report.rail_closure_undeclared);
     for ([_][]const u8{ "A", "B" }) |leaf| {
-        const t = targetOf(joins, edgeIdOf(graph, leaf, "Z")).?;
+        const t = targetOf(bundles, edgeIdOf(graph, leaf, "Z")).?;
         try std.testing.expect(t != null);
         try std.testing.expect(t.? == .independent);
     }
@@ -260,8 +260,8 @@ test "every closure-law counter names a registered report-only tag" {
         try std.testing.expectEqual(pb.DispositionClass.report_only, pb.classOf(tag));
     }
     // Spelled the same on the structs that carry them.
-    try std.testing.expect(@hasField(join_commit.Report, fields[0]));
-    try std.testing.expect(@hasField(join_commit.Report, fields[1]));
+    try std.testing.expect(@hasField(bundle_commit.Report, fields[0]));
+    try std.testing.expect(@hasField(bundle_commit.Report, fields[1]));
     try std.testing.expect(@hasField(realized.Report, fields[2]));
 }
 
@@ -276,50 +276,50 @@ test "a clique whose pair edges are other rails' members keeps a rail" {
     const a = arena.allocator();
     const graph = try parse(a, "flowchart TD\n  Z --- A\n  Z --- B\n  Z --- C\n  A --- B\n  A --- C\n  B --- C\n");
     const plan = (try permits.build(a, graph, .joined)).plan;
-    var report: join_commit.Report = .{};
-    const joins = try join_commit.buildReported(a, graph, &plan, &.{}, false, &report);
+    var report: bundle_commit.Report = .{};
+    const bundles = try bundle_commit.buildReported(a, graph, &plan, &.{}, false, &report);
 
     try std.testing.expectEqual(@as(u32, 0), report.rail_closure_undeclared);
     try std.testing.expectEqual(@as(u32, 0), report.co_undeclared);
-    try std.testing.expect(joins.selected_joins.len > 0);
+    try std.testing.expect(bundles.selected_bundles.len > 0);
     // A declaration is discharged by at most ONE rail plan-wide: the record
     // carries no duplicates, and no discharged edge is another rail's member.
-    for (joins.co_realized, 0..) |co, i| {
-        for (joins.co_realized[0..i]) |prev| try std.testing.expect(prev != co);
-        for (joins.selected_joins) |sj| for (sj.members) |m| try std.testing.expect(m != co);
+    for (bundles.discharged, 0..) |co, i| {
+        for (bundles.discharged[0..i]) |prev| try std.testing.expect(prev != co);
+        for (bundles.selected_bundles) |sj| for (sj.members) |m| try std.testing.expect(m != co);
     }
 }
 
-test "a single fan with its own fully declared clique keeps the whole trunk" {
+test "a single fan with its own fully declared clique keeps the whole rail" {
     // A---Z, B---Z, C---Z plus the leaf clique A---B, A---C, B---C. The star at
     // Z asserts exactly those three pairs and the graph declares all three, so
     // the rail keeps every member and its crossbar takes over their rendering.
     // The clique edges pair up into stars of their own (in@C is {A---C, B---C}),
-    // but those are the star's OWN discharges: co-realized ink draws nothing
-    // privately, so it can carry no competing trunk and claims no pair.
+    // but those are the star's OWN discharges: discharged ink draws nothing
+    // privately, so it can carry no competing rail and claims no pair.
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
     const graph = try parse(a, "flowchart TD\n  A --- Z\n  B --- Z\n  C --- Z\n  A --- B\n  A --- C\n  B --- C\n");
     const plan = (try permits.build(a, graph, .joined)).plan;
-    var report: join_commit.Report = .{};
-    const joins = try join_commit.buildReported(a, graph, &plan, &.{}, false, &report);
+    var report: bundle_commit.Report = .{};
+    const bundles = try bundle_commit.buildReported(a, graph, &plan, &.{}, false, &report);
 
     try std.testing.expectEqual(@as(u32, 0), report.rail_closure_undeclared);
     try std.testing.expectEqual(@as(u32, 0), report.co_undeclared);
-    try std.testing.expectEqual(@as(usize, 1), joins.selected_joins.len);
-    const trunk = joins.selected_joins[0];
-    for (plan.groups) |g| if (g.id == trunk.permission_group) {
-        try std.testing.expectEqual(pb.JoinDirection.in, g.direction);
+    try std.testing.expectEqual(@as(usize, 1), bundles.selected_bundles.len);
+    const rail = bundles.selected_bundles[0];
+    for (plan.groups) |g| if (g.id == rail.candidate_bundle) {
+        try std.testing.expectEqual(pb.BundleDirection.in, g.direction);
         try std.testing.expectEqual(nodeId(graph, "Z"), g.pivot);
     };
-    try std.testing.expectEqual(@as(usize, 3), trunk.members.len);
-    // Exactly the three clique declarations are co-realized by that crossbar.
-    try std.testing.expectEqual(@as(usize, 3), joins.co_realized.len);
+    try std.testing.expectEqual(@as(usize, 3), rail.members.len);
+    // Exactly the three clique declarations are discharged by that crossbar.
+    try std.testing.expectEqual(@as(usize, 3), bundles.discharged.len);
     for ([_][2][]const u8{ .{ "A", "B" }, .{ "A", "C" }, .{ "B", "C" } }) |pair| {
         const id = edgeIdOf(graph, pair[0], pair[1]);
         var found = false;
-        for (joins.co_realized) |co| {
+        for (bundles.discharged) |co| {
             if (co == id) found = true;
         }
         try std.testing.expect(found);
@@ -337,16 +337,16 @@ test "two rails asserting one declared pair both refuse" {
     const a = arena.allocator();
     const graph = try parse(a, "flowchart TD\n  A --- Z\n  B --- Z\n  A --- W\n  B --- W\n  A --- B\n");
     const plan = (try permits.build(a, graph, .joined)).plan;
-    var report: join_commit.Report = .{};
-    const joins = try join_commit.buildReported(a, graph, &plan, &.{}, false, &report);
+    var report: bundle_commit.Report = .{};
+    const bundles = try bundle_commit.buildReported(a, graph, &plan, &.{}, false, &report);
 
-    try std.testing.expectEqual(@as(usize, 0), joins.selected_joins.len);
-    // Nothing is co-realized: a refused rail draws no crossbar to render A---B.
-    try std.testing.expectEqual(@as(usize, 0), joins.co_realized.len);
+    try std.testing.expectEqual(@as(usize, 0), bundles.selected_bundles.len);
+    // Nothing is discharged: a refused rail draws no crossbar to render A---B.
+    try std.testing.expectEqual(@as(usize, 0), bundles.discharged.len);
     try std.testing.expectEqual(@as(u32, 2), report.rail_closure_undeclared);
     // The refusal reaches every member as `independent` — that is what unfuses.
     for ([_][2][]const u8{ .{ "A", "Z" }, .{ "B", "Z" }, .{ "A", "W" }, .{ "B", "W" } }) |pair| {
-        const t = targetOf(joins, edgeIdOf(graph, pair[0], pair[1])).?;
+        const t = targetOf(bundles, edgeIdOf(graph, pair[0], pair[1])).?;
         try std.testing.expect(t.? == .independent);
     }
 }
@@ -361,13 +361,13 @@ test "one rail's pair survives when no second rail asserts it" {
     const a = arena.allocator();
     const graph = try parse(a, "flowchart TD\n  A --- Z\n  B --- Z\n  A --- W\n  A --- B\n");
     const plan = (try permits.build(a, graph, .joined)).plan;
-    var report: join_commit.Report = .{};
-    const joins = try join_commit.buildReported(a, graph, &plan, &.{}, false, &report);
+    var report: bundle_commit.Report = .{};
+    const bundles = try bundle_commit.buildReported(a, graph, &plan, &.{}, false, &report);
 
     try std.testing.expectEqual(@as(u32, 0), report.rail_closure_undeclared);
-    try std.testing.expectEqual(@as(usize, 1), joins.selected_joins.len);
-    try std.testing.expectEqual(@as(usize, 1), joins.co_realized.len);
-    try std.testing.expectEqual(edgeIdOf(graph, "A", "B"), joins.co_realized[0]);
+    try std.testing.expectEqual(@as(usize, 1), bundles.selected_bundles.len);
+    try std.testing.expectEqual(@as(usize, 1), bundles.discharged.len);
+    try std.testing.expectEqual(edgeIdOf(graph, "A", "B"), bundles.discharged[0]);
 }
 test "a salvaged rail that then loses its pair is one refusal, not two" {
     // A---Z, B---Z, C---Z and A---W, B---W with A---B declared. Z's rail can
@@ -380,19 +380,19 @@ test "a salvaged rail that then loses its pair is one refusal, not two" {
     const a = arena.allocator();
     const graph = try parse(a, "flowchart TD\n  A --- Z\n  B --- Z\n  C --- Z\n  A --- W\n  B --- W\n  A --- B\n");
     const plan = (try permits.build(a, graph, .joined)).plan;
-    var report: join_commit.Report = .{};
-    const joins = try join_commit.buildReported(a, graph, &plan, &.{}, false, &report);
+    var report: bundle_commit.Report = .{};
+    const bundles = try bundle_commit.buildReported(a, graph, &plan, &.{}, false, &report);
 
-    try std.testing.expectEqual(@as(usize, 0), joins.selected_joins.len);
-    try std.testing.expectEqual(@as(usize, 0), joins.co_realized.len);
+    try std.testing.expectEqual(@as(usize, 0), bundles.selected_bundles.len);
+    try std.testing.expectEqual(@as(usize, 0), bundles.discharged.len);
     try std.testing.expectEqual(@as(u32, 2), report.rail_closure_undeclared);
 }
 
 test "a complete bipartite of selected arrivals licenses one fused union" {
-    // K3,3, all nine directed edges declared: the three arrival trunks'
+    // K3,3, all nine directed edges declared: the three arrival rails'
     // member union is EXACTLY srcs x tgts with every member blocking the
     // leaf-to-leaf trace, so the plan records ONE fused union per gap and
-    // the trunks may share one rail row as one channel.
+    // the rails may share one rail row as one bundle.
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
@@ -401,17 +401,17 @@ test "a complete bipartite of selected arrivals licenses one fused union" {
             "  S2 --> M1\n  S2 --> M2\n  S2 --> M3\n" ++
             "  S3 --> M1\n  S3 --> M2\n  S3 --> M3\n");
     const plan = (try permits.build(a, graph, .joined)).plan;
-    const joins = try join_commit.buildReported(a, graph, &plan, &.{}, false, null);
-    try std.testing.expectEqual(@as(usize, 3), joins.selected_joins.len);
-    try std.testing.expectEqual(@as(usize, 1), joins.fused.len);
-    try std.testing.expectEqual(@as(usize, 9), joins.fused[0].len);
+    const bundles = try bundle_commit.buildReported(a, graph, &plan, &.{}, false, null);
+    try std.testing.expectEqual(@as(usize, 3), bundles.selected_bundles.len);
+    try std.testing.expectEqual(@as(usize, 1), bundles.fused.len);
+    try std.testing.expectEqual(@as(usize, 9), bundles.fused[0].len);
 }
 
 test "an incomplete bipartite of selected arrivals licenses no fused union" {
     // The same shape short one declaration (S3 --> M3 absent): the whole
     // union's pairs are 8 of 9, so no all-nine licence exists. The two
     // arrivals over the SAME leaf set {S1,S2,S3} still form a complete
-    // sub-union of six and fuse alone; M3's short trunk joins nothing.
+    // sub-union of six and fuse alone; M3's short rail bundles nothing.
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
@@ -420,20 +420,20 @@ test "an incomplete bipartite of selected arrivals licenses no fused union" {
             "  S2 --> M1\n  S2 --> M2\n  S2 --> M3\n" ++
             "  S3 --> M1\n  S3 --> M2\n");
     const plan = (try permits.build(a, graph, .joined)).plan;
-    const joins = try join_commit.buildReported(a, graph, &plan, &.{}, false, null);
-    try std.testing.expect(joins.selected_joins.len >= 2);
-    try std.testing.expectEqual(@as(usize, 1), joins.fused.len);
-    try std.testing.expectEqual(@as(usize, 6), joins.fused[0].len);
+    const bundles = try bundle_commit.buildReported(a, graph, &plan, &.{}, false, null);
+    try std.testing.expect(bundles.selected_bundles.len >= 2);
+    try std.testing.expectEqual(@as(usize, 1), bundles.fused.len);
+    try std.testing.expectEqual(@as(usize, 6), bundles.fused[0].len);
     // No M3-bound edge rides the union.
-    for (joins.fused[0]) |id| {
+    for (bundles.fused[0]) |id| {
         for (graph.edges) |e| if (e.id == id) {
             try std.testing.expect(e.to != nodeId(graph, "M3"));
         };
     }
 }
 
-test "a head at the source end never joins a fused union" {
-    // A --> C; B --> C; A <-- D; B <-- D: the D trunk's heads sit at the
+test "a head at the source end never bundles a fused union" {
+    // A --> C; B --> C; A <-- D; B <-- D: the D rail's heads sit at the
     // union's SOURCE side, so a fused rail would draw a head-free terminus at
     // D and a reader could trace an undeclared D-to-C pair along it.
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
@@ -441,8 +441,8 @@ test "a head at the source end never joins a fused union" {
     const a = arena.allocator();
     const graph = try parse(a, "flowchart TD\n  A --> C\n  B --> C\n  A <-- D\n  B <-- D\n");
     const plan = (try permits.build(a, graph, .joined)).plan;
-    const joins = try join_commit.buildReported(a, graph, &plan, &.{}, false, null);
-    try std.testing.expectEqual(@as(usize, 0), joins.fused.len);
+    const bundles = try bundle_commit.buildReported(a, graph, &plan, &.{}, false, null);
+    try std.testing.expectEqual(@as(usize, 0), bundles.fused.len);
 }
 
 test "mixed stroke kinds never join a fused union" {
@@ -453,8 +453,8 @@ test "mixed stroke kinds never join a fused union" {
     const a = arena.allocator();
     const graph = try parse(a, "flowchart TD\n  A --> C\n  B --> C\n  A -.-> D\n  B -.-> D\n");
     const plan = (try permits.build(a, graph, .joined)).plan;
-    const joins = try join_commit.buildReported(a, graph, &plan, &.{}, false, null);
-    try std.testing.expectEqual(@as(usize, 0), joins.fused.len);
+    const bundles = try bundle_commit.buildReported(a, graph, &plan, &.{}, false, null);
+    try std.testing.expectEqual(@as(usize, 0), bundles.fused.len);
 }
 
 test "two disjoint complete unions chained by a shared source each fuse alone" {
@@ -468,8 +468,8 @@ test "two disjoint complete unions chained by a shared source each fuse alone" {
         "flowchart TD\n  A --> C\n  A --> D\n  B --> C\n  B --> D\n" ++
             "  B --> F\n  B --> G\n  E --> F\n  E --> G\n");
     const plan = (try permits.build(a, graph, .joined)).plan;
-    const joins = try join_commit.buildReported(a, graph, &plan, &.{}, false, null);
-    try std.testing.expectEqual(@as(usize, 2), joins.fused.len);
-    try std.testing.expectEqual(@as(usize, 4), joins.fused[0].len);
-    try std.testing.expectEqual(@as(usize, 4), joins.fused[1].len);
+    const bundles = try bundle_commit.buildReported(a, graph, &plan, &.{}, false, null);
+    try std.testing.expectEqual(@as(usize, 2), bundles.fused.len);
+    try std.testing.expectEqual(@as(usize, 4), bundles.fused[0].len);
+    try std.testing.expectEqual(@as(usize, 4), bundles.fused[1].len);
 }

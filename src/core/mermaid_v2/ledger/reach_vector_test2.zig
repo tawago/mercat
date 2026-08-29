@@ -41,9 +41,9 @@ const c22_nodes = [_]sg.Node{ node(0, "S1"), node(1, "S2"), node(2, "T1"), node(
 // comptime params: the returned literal must be a static constant — with
 // runtime params the `&.{...}` array is a function-frame temporary and the
 // returned slices dangle (CI-only signal-6 crash in vc.validate).
-fn controlledJoins(comptime members: []const pb.EdgeId, comptime ports: []const pb.TerminalPort, comptime memberships: []const pb.RealizedEdgeMembership) pb.RealizedJoins {
+fn controlledBundles(comptime members: []const pb.EdgeId, comptime ports: []const pb.TerminalPort, comptime memberships: []const pb.RealizedEdgeMembership) pb.RealizedBundles {
     return .{
-        .selected_joins = &.{.{ .id = 0, .proposal = 0, .permission_group = 0, .members = members }},
+        .selected_bundles = &.{.{ .id = 0, .proposal = 0, .candidate_bundle = 0, .members = members }},
         .memberships = memberships,
         .terminal_ports = ports,
     };
@@ -68,7 +68,7 @@ test "V-D-REACH-07/13 (vector): 2x2 controlled source/target/neither plans pass;
     const a = arena.allocator();
     const keys = try nodeKeys(a, &c22_nodes);
 
-    // (07) source-side: FO-S1 trunk {e0,e1}; e2 edge-owned.
+    // (07) source-side: FO-S1 rail {e0,e1}; e2 edge-owned.
     const fo_stem = [_]sk.Point{ .{ .x = 4, .y = 2 }, .{ .x = 4, .y = 4 } };
     const fo_taps = [_]sk.Tap{
         .{ .edge = 0, .node = 2, .at = .{ .x = 2, .y = 4 }, .landing = .{ .x = 2, .y = 8 } },
@@ -77,14 +77,14 @@ test "V-D-REACH-07/13 (vector): 2x2 controlled source/target/neither plans pass;
     const fo_bb = [_]sk.Rail{.{ .pivot = 0, .stem = &fo_stem, .crossbar = .{ .{ .x = 2, .y = 4 }, .{ .x = 8, .y = 4 } }, .taps = &fo_taps, .kind = .solid, .role = .fan_out_dropper }};
     const e2_path = [_]sk.EdgePath{path(2, 1, 3, &.{ .{ .x = 14, .y = 2 }, .{ .x = 14, .y = 8 } })};
     var src_side = sketchOf(&e2_path, &fo_bb);
-    src_side.joins = controlledJoins(&.{ 0, 1 }, &c22_ports, &c22_ms);
+    src_side.bundles = controlledBundles(&.{ 0, 1 }, &c22_ports, &c22_ms);
     const sr = try vc.validate(a, src_side, keys, .flat);
     try expect(zeroCounts(sr.counts));
     try expectEqual(@as(usize, 2), sr.components.len);
     try expect(anyReachable(sr, 0, 2) and anyReachable(sr, 0, 3) and anyReachable(sr, 1, 3));
     try expect(!anyReachable(sr, 1, 2)); // "S2->T2 ... cannot reach T1"
 
-    // (13a) target-side: FI-T2 trunk {e1,e2}; e0 edge-owned.
+    // (13a) target-side: FI-T2 rail {e1,e2}; e0 edge-owned.
     const fi_stem = [_]sk.Point{ .{ .x = 8, .y = 10 }, .{ .x = 8, .y = 8 } };
     const fi_taps = [_]sk.Tap{
         .{ .edge = 1, .node = 0, .at = .{ .x = 2, .y = 8 }, .landing = .{ .x = 2, .y = 4 } },
@@ -93,7 +93,7 @@ test "V-D-REACH-07/13 (vector): 2x2 controlled source/target/neither plans pass;
     const fi_bb = [_]sk.Rail{.{ .pivot = 3, .stem = &fi_stem, .crossbar = .{ .{ .x = 2, .y = 8 }, .{ .x = 14, .y = 8 } }, .taps = &fi_taps, .kind = .solid, .role = .fan_in_dropper }};
     const e0_path = [_]sk.EdgePath{path(0, 0, 2, &.{ .{ .x = 20, .y = 2 }, .{ .x = 20, .y = 8 } })};
     var tgt_side = sketchOf(&e0_path, &fi_bb);
-    tgt_side.joins = controlledJoins(&.{ 1, 2 }, &c22_ports, &c22_ms);
+    tgt_side.bundles = controlledBundles(&.{ 1, 2 }, &c22_ports, &c22_ms);
     const tr = try vc.validate(a, tgt_side, keys, .flat);
     try expect(zeroCounts(tr.counts));
     try expectEqual(@as(usize, 2), tr.components.len);
@@ -106,7 +106,7 @@ test "V-D-REACH-07/13 (vector): 2x2 controlled source/target/neither plans pass;
         path(2, 1, 3, &.{ .{ .x = 14, .y = 2 }, .{ .x = 14, .y = 8 } }),
     };
     var neither = sketchOf(&all_paths, &.{});
-    neither.joins = .{ .memberships = &c22_ms, .terminal_ports = &c22_ports };
+    neither.bundles = .{ .memberships = &c22_ms, .terminal_ports = &c22_ports };
     const nr = try vc.validate(a, neither, keys, .flat);
     try expect(zeroCounts(nr.counts));
     try expectEqual(@as(usize, 3), nr.components.len);
@@ -132,7 +132,7 @@ test "V-D-REACH-08/14 (vector): dual controlled source/target/neither plans pass
     const a = arena.allocator();
     const keys = try nodeKeys(a, &dual_nodes);
 
-    // (08) source-side: FO-S trunk {e0,e1}; e2 edge-owned.
+    // (08) source-side: FO-S rail {e0,e1}; e2 edge-owned.
     const fo_stem = [_]sk.Point{ .{ .x = 4, .y = 2 }, .{ .x = 4, .y = 4 } };
     const fo_taps = [_]sk.Tap{
         .{ .edge = 0, .node = 1, .at = .{ .x = 2, .y = 4 }, .landing = .{ .x = 2, .y = 8 } },
@@ -141,13 +141,13 @@ test "V-D-REACH-08/14 (vector): dual controlled source/target/neither plans pass
     const fo_bb = [_]sk.Rail{.{ .pivot = 0, .stem = &fo_stem, .crossbar = .{ .{ .x = 2, .y = 4 }, .{ .x = 8, .y = 4 } }, .taps = &fo_taps, .kind = .solid, .role = .fan_out_dropper }};
     const e2_path = [_]sk.EdgePath{path(2, 3, 1, &.{ .{ .x = 14, .y = 2 }, .{ .x = 14, .y = 8 } })};
     var src_side = sketchOf(&e2_path, &fo_bb);
-    src_side.joins = controlledJoins(&.{ 0, 1 }, &dual_ports, &dual_ms);
+    src_side.bundles = controlledBundles(&.{ 0, 1 }, &dual_ports, &dual_ms);
     const sr = try vc.validate(a, src_side, keys, .flat);
     try expect(zeroCounts(sr.counts));
     try expectEqual(@as(usize, 2), sr.components.len);
     try expect(!anyReachable(sr, 3, 2)); // "B->X ... cannot reach A"
 
-    // (14a) target-side: FI-X trunk {e0,e2}; e1 edge-owned; S->X's source
+    // (14a) target-side: FI-X rail {e0,e2}; e1 edge-owned; S->X's source
     // end stays an independent port.
     const fi_stem = [_]sk.Point{ .{ .x = 8, .y = 10 }, .{ .x = 8, .y = 8 } };
     const fi_taps = [_]sk.Tap{
@@ -157,7 +157,7 @@ test "V-D-REACH-08/14 (vector): dual controlled source/target/neither plans pass
     const fi_bb = [_]sk.Rail{.{ .pivot = 1, .stem = &fi_stem, .crossbar = .{ .{ .x = 2, .y = 8 }, .{ .x = 14, .y = 8 } }, .taps = &fi_taps, .kind = .solid, .role = .fan_in_dropper }};
     const e1_path = [_]sk.EdgePath{path(1, 0, 2, &.{ .{ .x = 20, .y = 2 }, .{ .x = 20, .y = 8 } })};
     var tgt_side = sketchOf(&e1_path, &fi_bb);
-    tgt_side.joins = controlledJoins(&.{ 0, 2 }, &dual_ports, &dual_ms);
+    tgt_side.bundles = controlledBundles(&.{ 0, 2 }, &dual_ports, &dual_ms);
     const tr = try vc.validate(a, tgt_side, keys, .flat);
     try expect(zeroCounts(tr.counts));
     try expectEqual(@as(usize, 2), tr.components.len);
@@ -170,7 +170,7 @@ test "V-D-REACH-08/14 (vector): dual controlled source/target/neither plans pass
         path(2, 3, 1, &.{ .{ .x = 14, .y = 2 }, .{ .x = 14, .y = 8 } }),
     };
     var neither = sketchOf(&all_paths, &.{});
-    neither.joins = .{ .memberships = &dual_ms, .terminal_ports = &dual_ports };
+    neither.bundles = .{ .memberships = &dual_ms, .terminal_ports = &dual_ports };
     const nr = try vc.validate(a, neither, keys, .flat);
     try expect(zeroCounts(nr.counts));
     try expectEqual(@as(usize, 3), nr.components.len);
@@ -182,7 +182,7 @@ test "V-D-REACH-19(b) (vector): declaration/writer permutation yields identical 
     const a = arena.allocator();
     const keys = try nodeKeys(a, &fan_nodes);
 
-    // V-01's trunk with taps and edge declarations permuted.
+    // V-01's rail with taps and edge declarations permuted.
     const taps_fwd = fanTaps(true);
     const taps_rev = [_]sk.Tap{ taps_fwd[2], taps_fwd[0], taps_fwd[1] };
     const edges_rev = [_]sg.Edge{ fan_edges[2], fan_edges[0], fan_edges[1] };
@@ -203,8 +203,8 @@ test "V-D-REACH-19(b) (vector): declaration/writer permutation yields identical 
     const sa = try realized(a, graphOf(&x_nodes, &x_edges), sketchOf(&.{ p0, p1 }, &.{}));
     const sb = try realized(a, graphOf(&x_nodes, &x_edges), sketchOf(&.{ p1, p0 }, &.{}));
     const ba = try vc.serialize(a, try vc.validate(a, sa, x_keys, .flat), x_keys);
-    const bb = try vc.serialize(a, try vc.validate(a, sb, x_keys, .flat), x_keys);
-    try std.testing.expectEqualStrings(ba, bb);
+    const rail = try vc.serialize(a, try vc.validate(a, sb, x_keys, .flat), x_keys);
+    try std.testing.expectEqualStrings(ba, rail);
 
     // F1: ACTUAL sharing events under writer permutation. Three unlabeled
     // COLLINEARLY-overlapping polylines on one row (cross-owner sharing

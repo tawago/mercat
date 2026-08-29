@@ -252,8 +252,8 @@ test "computeBbox: rail tap label reservation matches Rail.tapLabelSeg + prim.ed
 
     // Independently recompute the anchor exactly as raster/labels does:
     // Rail.tapLabelSeg for the segment, then prim.edgeLabelAnchor.
-    const bb = rails[0].rail;
-    const seg = bb.tapLabelSeg(taps[0]);
+    const rail = rails[0].rail;
+    const seg = rail.tapLabelSeg(taps[0]);
     const lbl_w = prim.displayWidth(taps[0].label.?);
     const anchor = prim.edgeLabelAnchor(seg[0].x, seg[0].y, seg[1].x, seg[1].y, lbl_w, .{});
 

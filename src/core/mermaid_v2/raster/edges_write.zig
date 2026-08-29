@@ -188,7 +188,7 @@ pub fn toCoord(p: sketch.Point) Coord {
 ///
 /// `licence` is the merged flavour of `lattice.CarrierKind` the CALLER
 /// established for the pair (occupant id, `edge_id`) at this cell — the
-/// writer cannot ask, because it holds a `*Cell` and no channel context.
+/// writer cannot ask, because it holds a `*Cell` and no bundle context.
 /// A caller with no context passes `.merged_untested`, which states
 /// nothing; it must never pass `.merged_licensed` to mean "did not ask".
 /// guarded-by: aux_test.zig "an OR-merge onto a foreign cell files a merged carrier; onto its own ink, nothing"
@@ -276,9 +276,9 @@ pub fn writeEdgeCell(
 /// Both id-dropping arms file a merged `.carrier` for the edge whose name the
 /// cell loses: stamping over a foreign run drops the RUN's id (its bits stay
 /// in the mask), and landing on an existing arrowhead drops the incoming
-/// edge's. `licence` carries the caller's channel verdict for that pair,
+/// edge's. `licence` carries the caller's bundle verdict for that pair,
 /// exactly as in `writeEdgeCell` — `.merged_untested` where the caller has
-/// no channel context, never `.merged_licensed` to mean "did not ask".
+/// no bundle context, never `.merged_licensed` to mean "did not ask".
 /// guarded-by: edges_write_test.zig "writeArrowCell stamps the edge's own stroke_kind"
 /// guarded-by: aux_test.zig "an arrowhead stamped over a foreign run files a carrier for the run it covered"
 pub fn writeArrowCell(
@@ -300,7 +300,7 @@ pub fn writeArrowCell(
         // cluster (terminal), which the frame-solid ruling preserves.
         .empty, .edge_segment, .cluster_border => {
             // I2 state: a head on background or its own run is decorated
-            // stroke ink; over a FOREIGN run the two edges' ink joins here
+            // stroke ink; over a FOREIGN run the two edges' ink bundles here
             // (the C2 gate already passed this pair); onto a frame, edge
             // ink meets frame ink. Shared prior states are kept.
             switch (cell.occupant) {
@@ -354,7 +354,7 @@ pub fn writeArrowCell(
 /// The C2 gate covers an arrowhead landing on a RUN only. An arrowhead
 /// landing on an EXISTING arrowhead falls through to `writeArrowCell`'s
 /// `.arrowhead` arm, which the gate never examined — so the licence for
-/// THAT pair is LOOKED UP here, off the channel identity each head's edge
+/// THAT pair is LOOKED UP here, off the bundle identity each head's edge
 /// carries, and only to fill the record's `detail`. It changes no decision
 /// and paints no byte, which is exactly why it may read identity rather
 /// than re-derive the relation the ink gate above still derives.
@@ -377,7 +377,7 @@ pub fn writeArrowGuarded(
 ) void {
     if (cell.occupant == .edge_segment) {
         const seg = cell.occupant.edge_segment;
-        if (crossings.arrowheadTransit(ctx.counts, ctx.joins, ctx.co_sets, seg.edge, edge_id, crossings.cellAt(x, y))) {
+        if (crossings.arrowheadTransit(ctx.counts, ctx.bundles, ctx.bundle_sets, seg.edge, edge_id, crossings.cellAt(x, y))) {
             cell.occupant = .{ .arrowhead = .{ .dir = dir, .edge = edge_id, .arrow = arrow } };
             cell.neighbours = along; // pristine: no foreign junction bits
             cell.stroke_kind = kind;
@@ -389,11 +389,11 @@ pub fn writeArrowGuarded(
     }
     // Reaching here with an `.edge_segment` occupant means the C2 gate passed
     // it; an `.arrowhead` occupant was never examined, so its licence is
-    // LOOKED UP now — the two heads' recorded channel identities, compared.
+    // LOOKED UP now — the two heads' recorded bundle identities, compared.
     // Label only: this fills a record's `detail` and paints no byte.
     const licence: lattice.CarrierKind = switch (cell.occupant) {
         .edge_segment => .merged_licensed,
-        .arrowhead => |h| crossings.licenceFor(h.edge, edge_id, ctx.co_sets, ctx.stamp_state, crossings.cellAt(x, y)),
+        .arrowhead => |h| crossings.licenceFor(h.edge, edge_id, ctx.bundle_sets, ctx.stamp_state, crossings.cellAt(x, y)),
         else => .merged_untested, // no carrier is filed on those arms
     };
     writeArrowCell(cell, edge_id, kind, arrow, dir, along, x, y, cells_lost, heads_lost, licence, rec);

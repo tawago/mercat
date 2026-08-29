@@ -67,17 +67,17 @@ test "fan provenance: first-class fan-out claim is valid metadata and changes no
 test "fan provenance: realized fan-in Rail claims the pivot while labeled fan-in stays private" {
     const nodes = [_]sg.Node{ node(0, "A", null), node(1, "B", null), node(2, "T", null) };
     const edges = [_]sg.Edge{ edge(20, 0, 2), edge(21, 1, 2) };
-    const groups = [_]ledger.JoinGroup{.{ .id = 0, .direction = .in, .pivot = 2, .members = &.{ 20, 21 } }};
-    const memberships = [_]ledger.JoinMembership{
+    const groups = [_]ledger.CandidateBundle{.{ .id = 0, .direction = .in, .pivot = 2, .members = &.{ 20, 21 } }};
+    const memberships = [_]ledger.BundleMembership{
         .{ .edge = 20, .source_group = null, .target_group = 0 },
         .{ .edge = 21, .source_group = null, .target_group = 0 },
     };
-    const permits: ledger.JoinPermits = .{ .policy = .joined, .groups = &groups, .memberships = &memberships };
+    const permits: ledger.BundlePermits = .{ .policy = .joined, .groups = &groups, .memberships = &memberships };
 
     var rail_arena = std.heap.ArenaAllocator.init(testing.allocator);
     defer rail_arena.deinit();
     const rail = try coords.layout(rail_arena.allocator(), graph(.TD, &nodes, &edges, &.{}), .{
-        .join_permits = &permits,
+        .bundle_permits = &permits,
     });
     try testing.expectEqual(@as(usize, 1), rail.rails.len);
     try testing.expectEqual(sketch.EdgeRole.fan_in_dropper, rail.rails[0].role);
@@ -150,7 +150,7 @@ test "fan provenance: forced peer drawing, wrapping, and arrow-style partition" 
     try testing.expectEqual(@as(usize, 0), mixed.rails.len);
     // Construction keeps the stable largest decoration/style class. The other
     // valid-looking class is not lane-proven independent here, so it stays
-    // private rather than creating a second same-row shared channel.
+    // private rather than creating a second same-row shared bundle.
     try testing.expectEqual(@as(usize, 1), mixed.rail_claims.len);
     try testing.expectEqual(@as(usize, 2), mixed.rail_claims[0].members.len);
     try testing.expect(hasMember(mixed.rail_claims[0], 40));
@@ -201,12 +201,12 @@ test "fan provenance: stable sequential local ids and BT mirrored sites" {
 test "fan provenance: plan selection preserves the winning claims" {
     const nodes = [_]sg.Node{ node(0, "P", null), node(1, "A", null), node(2, "B", null) };
     const edges = [_]sg.Edge{ edge(0, 0, 1), edge(1, 0, 2) };
-    const groups = [_]ledger.JoinGroup{.{ .id = 0, .direction = .out, .pivot = 0, .members = &.{ 0, 1 } }};
-    const memberships = [_]ledger.JoinMembership{
+    const groups = [_]ledger.CandidateBundle{.{ .id = 0, .direction = .out, .pivot = 0, .members = &.{ 0, 1 } }};
+    const memberships = [_]ledger.BundleMembership{
         .{ .edge = 0, .source_group = 0, .target_group = null },
         .{ .edge = 1, .source_group = 0, .target_group = null },
     };
-    const permits: ledger.JoinPermits = .{ .policy = .joined, .groups = &groups, .memberships = &memberships };
+    const permits: ledger.BundlePermits = .{ .policy = .joined, .groups = &groups, .memberships = &memberships };
     var arena = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
     const winner = try select.choose(arena.allocator(), graph(.TD, &nodes, &edges, &.{}), &permits, 120, false, false, .bridge);

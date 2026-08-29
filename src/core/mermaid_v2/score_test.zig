@@ -278,12 +278,12 @@ test "dead_space does not double-count cluster frames vs member nodes" {
     try t.expectEqual(@as(u64, 50 - 12), try deadSpace(a, bare));
 }
 
-test "rail bends: trunk junction counted once, one turn per off-column tap" {
+test "rail bends: rail junction counted once, one turn per off-column tap" {
     // Stem straight (no interior flips) from pivot (0,0) down to the
     // junction (0,5); rail runs horizontally from the junction out to
     // (10,5) — a real stem→rail turn (vertical→horizontal). Three taps:
     // one ON the stem column (straight pass-through, no turn) and two
-    // OFF-column (one turn each). If the trunk's junction turn were ever
+    // OFF-column (one turn each). If the rail's junction turn were ever
     // charged per-peer (the old per-peer-polyline distortion this slice
     // removes) the total would scale with taps.len instead of staying
     // fixed at "stem bends + 1 rail turn + off-column tap count".
@@ -309,7 +309,7 @@ test "rail bends: trunk junction counted once, one turn per off-column tap" {
     try t.expectEqual(@as(u64, 3), bends(s));
 }
 
-test "rail crossings: shared trunk registers once, never crosses itself" {
+test "rail crossings: shared rail registers once, never crosses itself" {
     // A rail with a crossbar spanning x=0..10 at y=5, plus a plain edge
     // that runs vertically through x=3 across y=0..10. The edge's
     // vertical segment strictly crosses the rail exactly once. Two of the
@@ -318,7 +318,7 @@ test "rail crossings: shared trunk registers once, never crosses itself" {
     // Under the old per-peer-polyline accounting, the shared rail
     // computed as N private per-tap spans could register the same
     // foreign crossing once per overlapping sibling tap (3, one per tap)
-    // instead of once for the trunk.
+    // instead of once for the rail.
     const stem = [_]sketch.Point{ .{ .x = 0, .y = 0 }, .{ .x = 0, .y = 5 } };
     const taps = [_]sketch.Tap{
         .{ .edge = 0, .node = 10, .at = .{ .x = 0, .y = 5 }, .landing = .{ .x = 0, .y = 8 } },

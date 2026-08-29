@@ -113,8 +113,8 @@ pub fn rasterizeLabels(
 
     // Anchored on `Rail.tapLabelSeg`, the same segment layout/clusters.zig
     // reserved bbox space for, so reservation and paint agree.
-    for (s.rails) |bb| {
-        for (bb.taps) |tap| {
+    for (s.rails) |rail| {
+        for (rail.taps) |tap| {
             const lbl = tap.label orelse continue;
             if (lbl.len == 0) continue;
             attempted += 1;
@@ -123,7 +123,7 @@ pub fn rasterizeLabels(
                 on_run += 1;
                 continue;
             }
-            const seg = bb.tapLabelSeg(tap);
+            const seg = rail.tapLabelSeg(tap);
             switch (try labels_edge.placeLabelAtSeg(allocator, &diags, lat, tap.edge, lbl, seg[0], seg[1], false, &.{}, sink)) {
                 .at_anchor => placed += 1,
                 .displaced => {

@@ -11,7 +11,7 @@ const select = @import("select.zig");
 const permits_mod = @import("ledger/permits.zig");
 const parse = @import("parse.zig").parse;
 
-test "a packed candidate keeps its layout co-sets when no plan realized" {
+test "a packed candidate keeps its layout bundles when no plan realized" {
     // A candidate carrying MOTIF-PACK synthetic frames is off the planner's
     // identity path, so `realize` declines it and the plan stays empty. An
     // empty plan is not the statement "nobody may share": applying it must
@@ -32,22 +32,22 @@ test "a packed candidate keeps its layout co-sets when no plan realized" {
     try std.testing.expect(packed_cands.len > 0);
     var cand = packed_cands[0];
     try std.testing.expect(cand.sketch.clusters.len != 0);
-    const before = cand.sketch.co_sets;
+    const before = cand.sketch.bundle_sets;
     try std.testing.expect(before.len > 0);
 
     select.applyPlan(a, &permits, &cand.sketch);
 
-    try std.testing.expectEqual(@as(usize, 0), cand.sketch.joins.selected_joins.len);
-    try std.testing.expectEqual(before.len, cand.sketch.co_sets.len);
-    for (cand.sketch.co_sets, before) |after, want| {
+    try std.testing.expectEqual(@as(usize, 0), cand.sketch.bundles.selected_bundles.len);
+    try std.testing.expectEqual(before.len, cand.sketch.bundle_sets.len);
+    for (cand.sketch.bundle_sets, before) |after, want| {
         try std.testing.expectEqual(want.origin, after.origin);
         try std.testing.expectEqualSlices(ledger.EdgeId, want.members, after.members);
     }
 }
 
-test "applying a plan keeps the sketch's port-share co-sets" {
+test "applying a plan keeps the sketch's port-share bundles" {
     // A port share is GEOMETRIC: two edges the producers routed through one
-    // perimeter port share their approach ink whatever the join planner
+    // perimeter port share their approach ink whatever the bundle planner
     // decides. So the plan's own population replaces only itself, and every
     // `.port_share` record survives `applyPlan` (and the CI filter's
     // re-derivation, which shares the same rule via `replanSets`).
@@ -61,10 +61,10 @@ test "applying a plan keeps the sketch's port-share co-sets" {
     select.applyPlan(a, &permits, &cand.sketch);
 
     // Non-vacuity: the plan realized (otherwise nothing was replaced at all).
-    try std.testing.expect(cand.sketch.joins.selected_joins.len > 0);
+    try std.testing.expect(cand.sketch.bundles.selected_bundles.len > 0);
     var saw_plan = false;
-    for (cand.sketch.co_sets) |set| switch (set.origin) {
-        .selected_join => saw_plan = true,
+    for (cand.sketch.bundle_sets) |set| switch (set.origin) {
+        .selected_bundle => saw_plan = true,
         // Layout's fans never survive a realized plan; port shares always do.
         .fan_rail => return error.PlanKeptLayoutFanSets,
         .port_share => try std.testing.expect(set.members.len >= 2),
@@ -78,7 +78,7 @@ test "applying a plan keeps the sketch's port-share co-sets" {
             samePoint(first.polyline[first.polyline.len - 1], second.polyline[second.polyline.len - 1]) or
             samePoint(first.polyline[0], second.polyline[second.polyline.len - 1]);
         if (!shares) continue;
-        try std.testing.expect(ledger.coMembers(cand.sketch.co_sets, first.id, second.id));
+        try std.testing.expect(ledger.bundleMembers(cand.sketch.bundle_sets, first.id, second.id));
     };
 }
 

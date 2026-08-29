@@ -132,7 +132,7 @@ fn isSuper(sr: split_mod.SplitResult, node: sketch.NodeId) bool {
 /// input; every other field comes from final endpoints, ports, or rail sites.
 pub fn finalMember(
     paths: []const sketch.EdgePath,
-    bars: []const sketch.Rail,
+    rails_buf: []const sketch.Rail,
     placements: []const sketch.NodePlacement,
     edge: sketch.EdgeId,
     pivot_end: ledger.Endpoint,
@@ -148,21 +148,21 @@ pub fn finalMember(
             .pivot_end = pivot_end,
         };
     }
-    for (bars) |bar| {
-        const fan_in = bar.role == .fan_in_dropper or bar.role == .fan_in_rail;
-        for (bar.taps) |tap| {
-            if (tap.edge != edge or bar.stem.len == 0) continue;
-            const source = if (fan_in) tap.node else bar.pivot;
-            const target = if (fan_in) bar.pivot else tap.node;
+    for (rails_buf) |rail| {
+        const fan_in = rail.role == .fan_in_dropper or rail.role == .fan_in_rail;
+        for (rail.taps) |tap| {
+            if (tap.edge != edge or rail.stem.len == 0) continue;
+            const source = if (fan_in) tap.node else rail.pivot;
+            const target = if (fan_in) rail.pivot else tap.node;
             return .{
                 .edge = edge,
                 .endpoints = .{ source, target },
                 .sites = if (fan_in)
-                    .{ siteFromPoint(placements, source, tap.landing), siteFromPoint(placements, target, bar.stem[0]) }
+                    .{ siteFromPoint(placements, source, tap.landing), siteFromPoint(placements, target, rail.stem[0]) }
                 else
-                    .{ siteFromPoint(placements, source, bar.stem[0]), siteFromPoint(placements, target, tap.landing) },
-                .arrows = if (fan_in) .{ tap.arrow, bar.pivot_arrow } else .{ bar.pivot_arrow, tap.arrow },
-                .kind = bar.kind,
+                    .{ siteFromPoint(placements, source, rail.stem[0]), siteFromPoint(placements, target, tap.landing) },
+                .arrows = if (fan_in) .{ tap.arrow, rail.pivot_arrow } else .{ rail.pivot_arrow, tap.arrow },
+                .kind = rail.kind,
                 .pivot_end = pivot_end,
             };
         }

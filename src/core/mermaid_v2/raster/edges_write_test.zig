@@ -214,7 +214,7 @@ fn recorderOn(a: std.mem.Allocator, lat: *lattice.Lattice, c: *aux.Collector) !a
 }
 
 test "writeEdgeCell files the merged carrier under the licence its caller established" {
-    // The writer holds a `*Cell` and no channel context, so it cannot ask.
+    // The writer holds a `*Cell` and no bundle context, so it cannot ask.
     // Whatever the caller established is what the record states — and the
     // painted cell is identical either way, which is what makes filling
     // this byte render-neutral by construction.
@@ -247,18 +247,18 @@ test "writeEdgeCell files the merged carrier under the licence its caller establ
 
 test "an arrowhead landing on a foreign arrowhead files a foreign carrier" {
     // The C2 gate only examines an `.edge_segment` occupant, so an
-    // arrowhead-over-arrowhead reaches `writeArrowCell` with the channel
+    // arrowhead-over-arrowhead reaches `writeArrowCell` with the bundle
     // question never put. `writeArrowGuarded` puts it there instead — for
     // the record only: the cell keeps the first head, exactly as before.
     var arena = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
 
-    const CoSet = @typeInfo(@TypeOf((crossings.Ctx{ .counts = undefined }).co_sets)).pointer.child;
+    const Bundle = @typeInfo(@TypeOf((crossings.Ctx{ .counts = undefined }).bundle_sets)).pointer.child;
     const members = [_]u32{ 4, 9 };
     // Stamped, as a producer stamps: the licence is read off the recorded
-    // channel identity, and an unstamped roster records none.
-    const mates = [_]CoSet{.{ .origin = .fan_rail, .channel = 1, .members = &members }};
+    // bundle identity, and an unstamped roster records none.
+    const mates = [_]Bundle{.{ .origin = .fan_rail, .bundle = 1, .members = &members }};
 
     for ([2]lattice.CarrierKind{ .merged_foreign, .merged_licensed }) |want| {
         var lat: lattice.Lattice = undefined;
@@ -266,7 +266,7 @@ test "an arrowhead landing on a foreign arrowhead files a foreign carrier" {
         const rec = try recorderOn(a, &lat, &col);
         var counts: crossings.CrossingCounts = .{};
         var ctx: crossings.Ctx = .{ .counts = &counts, .stamp_state = .complete };
-        if (want == .merged_licensed) ctx.co_sets = &mates;
+        if (want == .merged_licensed) ctx.bundle_sets = &mates;
 
         var cell: lattice.Cell = .{
             .occupant = .{ .arrowhead = .{ .dir = .south, .edge = 4, .arrow = .filled } },

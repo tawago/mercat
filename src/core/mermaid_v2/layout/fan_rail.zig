@@ -59,16 +59,16 @@ pub fn resolve(
     fan: fan_mod.Fan,
     graph: sg.SemGraph,
     placements: []const sketch.NodePlacement,
-    joins: pb.RealizedJoins,
+    bundles: pb.RealizedBundles,
     allocated_ports: port_plan.Plan,
 ) error{OutOfMemory}!?Resolved {
     if (!FAN_RAILS) return null;
-    if (joins.memberships.len == 0 and fan.direction != .out) return null;
+    if (bundles.memberships.len == 0 and fan.direction != .out) return null;
     // A rail is ONE crossbar on ONE row, so it can only speak for a fan
     // whose members all belong on that row. When a lane pass has lifted a
     // member off the shared row — the incomplete-bipartite separation, or the
     // clustered closure law's refusal, which has no plan to express itself
-    // through — rebuilding them as a single trunk would put back the very run
+    // through — rebuilding them as a single rail would put back the very run
     // the lift took apart. The per-peer polyline path honours `peer.lane`.
     // guarded-by: fan_rail_test.zig "a fan whose peers were lifted onto separate lanes builds no rail"
     for (fan.peers) |p| {
@@ -98,7 +98,7 @@ pub fn resolve(
         } else kind = e.kind;
         if (e.kind == .invisible) return null;
         const arrow = if (fan.direction == .out) e.arrow_from else e.arrow_to;
-        if (joins.memberships.len == 0 and fan.direction == .out and arrow != .none) return null;
+        if (bundles.memberships.len == 0 and fan.direction == .out and arrow != .none) return null;
         if (pivot_arrow) |expected| {
             if (arrow != expected) return null;
         } else pivot_arrow = arrow;
@@ -111,7 +111,7 @@ pub fn resolve(
             .port = if (fan.direction == .out) ep.target else ep.source,
         };
     }
-    if (joins.memberships.len != 0 and !selected(fan.peers, joins)) return null;
+    if (bundles.memberships.len != 0 and !selected(fan.peers, bundles)) return null;
     const first_ep = allocated_ports.forEdge(peers[0].edge.id) orelse return null;
     return .{
         .pivot = routing.findPlacement(placements, if (fan.direction == .out) peers[0].edge.from else peers[0].edge.to),
@@ -218,7 +218,7 @@ pub fn build(
 /// Integrity gate on a BUILT rail: true iff any of its straight runs
 /// (stem, rail, or a vertical tap) touches a foreign box. Touch semantics:
 /// raster cell ownership includes borders, so border contact amputates the
-/// trunk even though no interior is pierced. Reads the artifact's own
+/// rail even though no interior is pierced. Reads the artifact's own
 /// geometry (never a re-derivation), so it cannot drift from `build`.
 /// A blocked fan falls back to the per-peer polyline path, which can dodge.
 pub fn blocked(
@@ -243,18 +243,18 @@ pub fn blocked(
     return false;
 }
 
-fn selected(peers: []const fan_mod.FanEdge, joins: pb.RealizedJoins) bool {
+fn selected(peers: []const fan_mod.FanEdge, bundles: pb.RealizedBundles) bool {
     var shared_len: usize = 0;
     for (peers) |peer| if (peer.shared) {
         shared_len += 1;
     };
-    for (joins.selected_joins) |join| {
-        if (join.members.len != shared_len) continue;
+    for (bundles.selected_bundles) |sel| {
+        if (sel.members.len != shared_len) continue;
         var all = true;
         for (peers) |peer| {
             if (!peer.shared) continue;
             var found = false;
-            for (join.members) |member| {
+            for (sel.members) |member| {
                 if (member == peer.edge_id) found = true;
             }
             if (!found) all = false;

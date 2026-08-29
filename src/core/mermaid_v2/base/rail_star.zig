@@ -14,7 +14,7 @@ pub const ArrowKind = prim.ArrowKind;
 pub const EdgeKind = prim.EdgeKind;
 
 /// Render-local rail identity. Claims are numbered from one; zero means that
-/// no claim is present. This identity is separate from channel identity.
+/// no claim is present. This identity is separate from bundle identity.
 pub const RailClaimId = u32;
 pub const no_rail_claim: RailClaimId = 0;
 

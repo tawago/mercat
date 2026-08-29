@@ -34,7 +34,7 @@ test "wrapWideFanIn floors the placement gap at 3 when h_spacing halves to 2" {
     // 4 sources, width 10 each, h_spacing 2 (pressure-halved). fit_gap=1
     // forces a wrap (single-row span 10*4+1*3=43 > budget 30). The placed
     // grid must still separate its 2 columns by 3 cells (not h_spacing=2),
-    // so the fan-IN trunk clears both box walls.
+    // so the fan-IN rail clears both box walls.
     var peers = [_]fan.FanEdge{
         .{ .edge_id = 1, .peer_idx = 1, .role = .middle },
         .{ .edge_id = 2, .peer_idx = 2, .role = .middle },
@@ -240,7 +240,7 @@ test "wrapWideFanIn centres a narrow box on its column's centre, not flush to a 
     // Column 1 holds a width-25 and a width-15 member (col_w[1]=25). The
     // narrower width-15 box must be centred within column 1 (offset +5
     // from the column's left edge), not left-jammed flush against the
-    // trunk side (offset 0) nor right-jammed (offset +10).
+    // rail side (offset 0) nor right-jammed (offset +10).
     var peers = [_]fan.FanEdge{
         .{ .edge_id = 1, .peer_idx = 1, .role = .middle },
         .{ .edge_id = 2, .peer_idx = 2, .role = .middle },

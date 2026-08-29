@@ -310,14 +310,14 @@ pub fn routePolyline(
     // Skip-corridor routing (TD/BT): an edge spanning ≥2 layers carries ≥1
     // virtual node. Bending the polyline at each virtual's box row would
     // intrude into the intermediate boxes; instead route it as a vertical
-    // channel beside those boxes — descend into the gap above the first
+    // bundle beside those boxes — descend into the gap above the first
     // intermediate layer, jog once to the virtuals' corridor column, run
     // straight down past every intermediate layer, then jog into the target's
     // column and descend into its port.
     // guarded-by: validate_test.zig "edge through node interior flagged"
     if (!horizontal and virtuals.len > 0) {
         // Corridor column = the virtuals' center x. They are barycenter-
-        // placed into a single near-vertical channel beside the chain.
+        // placed into a single near-vertical bundle beside the chain.
         const first = geom[virtuals[0]];
         const want_x = first.x + @divTrunc(@as(i32, @intCast(first.w)), 2);
         // Gap row immediately above the first intermediate box-top — one

@@ -42,7 +42,7 @@ test "F-A: clearInvisiblePath skips a foreign border-collinear dogleg" {
     try std.testing.expect(!clearance.touchesForeignNode(poly, &placements, 0, 1));
 }
 
-test "reserved departures exempt same selected trunk" {
+test "reserved departures exempt same selected rail" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const placements = [_]sk.NodePlacement{
@@ -56,7 +56,7 @@ test "reserved departures exempt same selected trunk" {
     // Edge 1 (being routed) crosses that reserved departure cell (2,3).
     const poly = [_]sk.Point{ .{ .x = 2, .y = 3 }, .{ .x = 2, .y = 8 } };
 
-    // No join attribution: the foreign departure blocks the route.
+    // No bundle attribution: the foreign departure blocks the route.
     try std.testing.expect(try clearance.conflictsReservedDepartures(
         arena.allocator(),
         1,
@@ -66,21 +66,21 @@ test "reserved departures exempt same selected trunk" {
         .{},
     ));
 
-    // Both edges are members of the same selected trunk: their shared departure
+    // Both edges are members of the same selected rail: their shared departure
     // must not be treated as a foreign obstacle to one another.
     const members = [_]pb.EdgeId{ 0, 1 };
-    const selected = [_]pb.SelectedJoin{.{ .id = 0, .proposal = 0, .permission_group = 0, .members = &members }};
+    const selected = [_]pb.SelectedBundle{.{ .id = 0, .proposal = 0, .candidate_bundle = 0, .members = &members }};
     try std.testing.expect(!try clearance.conflictsReservedDepartures(
         arena.allocator(),
         1,
         &poly,
         &placements,
         &edge_ports,
-        .{ .selected_joins = &selected },
+        .{ .selected_bundles = &selected },
     ));
 }
 
-test "a co-realized edge's port allocation reserves no departure" {
+test "a discharged edge's port allocation reserves no departure" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const placements = [_]sk.NodePlacement{
@@ -103,7 +103,7 @@ test "a co-realized edge's port allocation reserves no departure" {
         .{},
     ));
 
-    // Edge 0 co-realized: its whole rendering is a rail span — no polyline,
+    // Edge 0 discharged: its whole rendering is a rail span — no polyline,
     // no port — so its allocation must reserve nothing.
     const co = [_]pb.EdgeId{0};
     try std.testing.expect(!try clearance.conflictsReservedDepartures(
@@ -112,7 +112,7 @@ test "a co-realized edge's port allocation reserves no departure" {
         &poly,
         &placements,
         &edge_ports,
-        .{ .co_realized = &co },
+        .{ .discharged = &co },
     ));
 }
 
@@ -217,17 +217,17 @@ test "polylineClears refuses every clearance violation regardless of membership 
     // Clear of the rail, its junctions, the foreign box, and the arrow cell.
     const clear = [_]sk.Point{ .{ .x = 4, .y = 2 }, .{ .x = 4, .y = 8 } };
 
-    const with_independent = pb.RealizedJoins{ .memberships = &[_]pb.RealizedEdgeMembership{
-        .{ .edge = 7, .source = .{ .independent = .{ .permission_group = 0, .reason = .not_selected } }, .target = null },
+    const with_independent = pb.RealizedBundles{ .memberships = &[_]pb.RealizedEdgeMembership{
+        .{ .edge = 7, .source = .{ .independent = .{ .candidate_bundle = 0, .reason = .not_selected } }, .target = null },
     } };
-    const all_selected = pb.RealizedJoins{ .memberships = &[_]pb.RealizedEdgeMembership{
+    const all_selected = pb.RealizedBundles{ .memberships = &[_]pb.RealizedEdgeMembership{
         .{ .edge = 7, .source = .{ .selected = 0 }, .target = null },
     } };
 
-    inline for ([2]pb.RealizedJoins{ with_independent, all_selected }) |joins| {
-        try std.testing.expect(!try clearance.polylineClears(a, 0, .solid, &over_arrow, &.{}, &rails, &placements, &edge_ports, joins, 0, 1));
-        try std.testing.expect(!try clearance.polylineClears(a, 0, .solid, &through_foreign, &.{}, &rails, &placements, &edge_ports, joins, 0, 1));
-        try std.testing.expect(try clearance.polylineClears(a, 0, .solid, &clear, &.{}, &rails, &placements, &edge_ports, joins, 0, 1));
+    inline for ([2]pb.RealizedBundles{ with_independent, all_selected }) |bundles| {
+        try std.testing.expect(!try clearance.polylineClears(a, 0, .solid, &over_arrow, &.{}, &rails, &placements, &edge_ports, bundles, 0, 1));
+        try std.testing.expect(!try clearance.polylineClears(a, 0, .solid, &through_foreign, &.{}, &rails, &placements, &edge_ports, bundles, 0, 1));
+        try std.testing.expect(try clearance.polylineClears(a, 0, .solid, &clear, &.{}, &rails, &placements, &edge_ports, bundles, 0, 1));
     }
 }
 

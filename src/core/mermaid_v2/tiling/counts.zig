@@ -105,7 +105,7 @@ pub const Counts = struct {
     /// The base is a fan shared-run (rail) or dropper cell. The fan-strip
     /// stamp rewrites those masks at the end of the edges stage, so such a
     /// base legally lacks the into-arrow arm.
-    c_base_fan_trunk: u32 = 0,
+    c_base_fan_rail: u32 = 0,
     /// The base is a FOREIGN edge's stroke. An into-arrow arm here would
     /// fabricate a junction between two unrelated runs, so none is drawn.
     c_base_foreign: u32 = 0,
@@ -182,15 +182,15 @@ pub const Counts = struct {
     c_run_fused_crossing: u32 = 0,
     /// A junction of that adjacency where a `.carrier` record ON the
     /// junction cell names the OTHER cell's edge and states that the two
-    /// legally shared a channel THERE. The glyph asserts an adjacency the
+    /// legally shared a bundle THERE. The glyph asserts an adjacency the
     /// crossing rule licensed, so the differing id really is a first-writer
     /// artifact.
     /// WEAKER THAN IT READS, for two reasons. The licence was evaluated for
     /// the ordered pair (the id the cell kept, the id it dropped), and on a
     /// rail's shared run the id the cell keeps is an arbitrary member of the
     /// fan: this clears the REPRESENTATIVE pair, not necessarily the two runs
-    /// a reader traces. And a structural co-set (a realized join, a fan rail)
-    /// licenses its members at EVERY cell (`base/co_channel.zig` sets
+    /// a reader traces. And a structural bundle (a realized bundle, a fan rail)
+    /// licenses its members at EVERY cell (`base/bundle.zig` sets
     /// `cells = null`), so a licence here can rest on a shared endpoint
     /// arbitrarily far away; only a `.port_share` licence is local.
     /// Both lean the same way — over-generous — which is what makes `d_` the
@@ -198,7 +198,7 @@ pub const Counts = struct {
     c_run_fused_licensed: u32 = 0,
     /// The same junction where such a record instead states FOREIGN — the
     /// crossing rule refused this edge's ink here (`.suppressed`), or a
-    /// producer merged it with the channel question answered no
+    /// producer merged it with the bundle question answered no
     /// (`.merged_foreign`). The junction glyph asserts an adjacency no
     /// source declares: a fabrication, filed as a defect.
     /// ANY foreign record on EITHER junction cell decides, because a
@@ -341,7 +341,7 @@ pub const Counts = struct {
     // -- expectation tier (expect.zig) --------------------------------
     /// Non-invisible Sketch edges (each declares one terminal approach).
     n_edges_declared: u32 = 0,
-    /// Rail taps: fan edges whose sole geometry is the trunk.
+    /// Rail taps: fan edges whose sole geometry is the rail.
     n_taps_declared: u32 = 0,
     /// A declared edge/tap whose final approach cell (and its one-cell
     /// reprieve) holds no ink at all: the arrival left no evidence.
@@ -441,7 +441,7 @@ pub const Counts = struct {
     /// An asserted pair NO rail of the run declares: the drawn line stands
     /// for a connection nothing branches for. The fabrication itself.
     /// A pure Sketch fact — it needs no side table, so no state of the
-    /// record channel can suppress it.
+    /// record bundle can suppress it.
     d_rail_pair_undeclared: u32 = 0,
     /// A declared asserted pair whose branch cell is on the grid, on a run
     /// whose row does carry records, and carries no `.tap` record of its
@@ -474,28 +474,28 @@ pub const Counts = struct {
     u_rail_claim_unresolved: u32 = 0,
     u_rail_claim_record_invalid: u32 = 0,
     u_rail_claim_population_absent: u32 = 0,
-    // -- channel identity, derivation, and filed claim (channels.zig) --
-    n_channel_carrier_records: u32 = 0,
-    u_channel_record_aux_unavailable: u32 = 0,
-    u_channel_record_owner_absent: u32 = 0,
-    u_channel_record_restates_owner: u32 = 0,
-    n_channel_carrier_pairs: u32 = 0,
-    u_channel_population_absent: u32 = 0,
-    n_channel_pairs_compared: u32 = 0,
-    m_channel_identity_agreed: u32 = 0,
-    u_channel_identity_disagreed: u32 = 0,
-    u_channel_identity_unavailable: u32 = 0,
-    n_channel_details_compared: u32 = 0,
-    m_channel_detail_agreed: u32 = 0,
-    u_channel_detail_disagreed: u32 = 0,
-    u_channel_detail_untested: u32 = 0,
-    u_channel_detail_invalid: u32 = 0,
-    u_channel_detail_identity_unavailable: u32 = 0,
-    n_channel_stamp_complete: u32 = 0,
-    u_channel_stamp_unattempted: u32 = 0,
-    u_channel_stamp_oom: u32 = 0,
-    u_channel_stamp_rail_invariant: u32 = 0,
-    u_channel_roster_inconsistent: u32 = 0,
+    // -- bundle identity, derivation, and filed claim (bundles.zig) --
+    n_bundle_carrier_records: u32 = 0,
+    u_bundle_record_aux_unavailable: u32 = 0,
+    u_bundle_record_owner_absent: u32 = 0,
+    u_bundle_record_restates_owner: u32 = 0,
+    n_bundle_carrier_pairs: u32 = 0,
+    u_bundle_population_absent: u32 = 0,
+    n_bundle_pairs_compared: u32 = 0,
+    m_bundle_identity_agreed: u32 = 0,
+    u_bundle_identity_disagreed: u32 = 0,
+    u_bundle_identity_unavailable: u32 = 0,
+    n_bundle_details_compared: u32 = 0,
+    m_bundle_detail_agreed: u32 = 0,
+    u_bundle_detail_disagreed: u32 = 0,
+    u_bundle_detail_untested: u32 = 0,
+    u_bundle_detail_invalid: u32 = 0,
+    u_bundle_detail_identity_unavailable: u32 = 0,
+    n_bundle_stamp_complete: u32 = 0,
+    u_bundle_stamp_unattempted: u32 = 0,
+    u_bundle_stamp_oom: u32 = 0,
+    u_bundle_stamp_rail_invariant: u32 = 0,
+    u_bundle_roster_inconsistent: u32 = 0,
     // -- EAW label-geometry bridge ------------------------------------
     /// Label cells holding an East-Asian-Wide codepoint. Each such cell
     /// paints two columns while occupying one lattice cell.

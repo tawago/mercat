@@ -372,7 +372,7 @@ test "a licensed shared-source fan moves its whole rail off a static run the sce
     // A STATIC edge runs along the preferred jog row inside only the EAST
     // member's span. The base scene models static edges as heads only, so
     // neither the track pass nor the dodge can see the collision; only the
-    // trunk choice (full static runs) moves the rail, and it moves BOTH
+    // rail choice (full static runs) moves the rail, and it moves BOTH
     // members so the rail never splits.
     const placements = [_]sketch.NodePlacement{
         .{ .id = 0, .rect = .{ .x = 10, .y = 0, .w = 6, .h = 3 }, .shape = .rect, .lines = &.{"O"}, .cluster_id = null },
@@ -401,7 +401,7 @@ test "a licensed shared-source fan moves its whole rail off a static run the sce
         .kind = .solid,
     }};
 
-    const edges = try bridges.route(a, &crossings, &placements, &.{}, &.{}, &statics, .TD, &orig_to_merged, null, .trunked);
+    const edges = try bridges.route(a, &crossings, &placements, &.{}, &.{}, &statics, .TD, &orig_to_merged, null, .railed);
     try std.testing.expectEqual(@as(usize, 2), edges.len);
     // Both members share one start and one jog row, and the row is NOT the
     // head-occupied preferred row 18.

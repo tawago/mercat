@@ -16,20 +16,20 @@ const pb = @import("../base/ledger.zig");
 /// Which step of the frozen selection order decided a group; the first
 /// failing step names the tag (D-JOIN-SELECT item 3). Report-only.
 pub const GroupClause = enum {
-    selected, // (a)–(f) all pass → realized trunk
+    selected, // (a)–(f) all pass → realized rail
     duplicate_key, // item 1 canonicalization block (pre-clause)
     unresolved_member, // defensive: a member with no realized geometry
     incomplete, // (c) the single proposal covers a strict member subset
     overlap, // (d) permission overlap → NEITHER (conservative rule)
     style, // (e) D-TRUNK sub-clause failed (see rail_detail)
-    no_proposal, // (f) zero trunk proposals
-    multiplicity, // (f) two or more trunk proposals (item 3)
+    no_proposal, // (f) zero rail proposals
+    multiplicity, // (f) two or more rail proposals (item 3)
 };
 
 pub const GroupVerdict = struct {
-    group: pb.JoinGroupId,
+    group: pb.CandidateBundleId,
     clause: GroupClause,
-    /// First-fail naming tag (join_select.* family, pinned registry).
+    /// First-fail naming tag (bundle_select.* family, pinned registry).
     tag: pb.DiagnosticTag,
     /// D-TRUNK first-failing sub-clause tag when clause == .style
     /// ((a) invisible → (b) kind mixed → (c) pivot-side arrow mixed).
@@ -37,25 +37,25 @@ pub const GroupVerdict = struct {
     /// Report-only D-TRUNK duplicate-(from,to) inventory; fires regardless
     /// of the first-fail clause (V-D-TRUNK-06 pairs it with duplicate_key).
     duplicate_pair: bool = false,
-    /// Raw trunk-proposal count, identical-key duplicates included —
+    /// Raw rail-proposal count, identical-key duplicates included —
     /// item 3 reads this count and no other proposal property.
     proposal_count: u32 = 0,
 };
 
-/// Report-only planner outputs that do not ride the RealizedJoins
+/// Report-only planner outputs that do not ride the RealizedBundles
 /// envelope (D-JOIN-SELECT item 6: never score input).
 pub const Report = struct {
     verdicts: []const GroupVerdict = &.{},
     /// Canonical proposal records; identical-key entries collapsed into
     /// one multiplicity-counted entry (item 1d). Parallel `multiplicity`.
-    proposals: []const pb.JoinProposal = &.{},
+    proposals: []const pb.BundleProposal = &.{},
     multiplicity: []const u32 = &.{},
     dual_membership_edges: u32 = 0,
     permission_overlap_conflicts: u32 = 0,
-    /// Co-realized edges that ALSO own private geometry in this candidate
+    /// Discharged edges that ALSO own private geometry in this candidate
     /// (`co_double_discharge`). An edge discharged by a rail's crossbar has
     /// no second rendering, so a non-zero count means the withholding leaked.
-    /// guarded-by: realized_test.zig "a co-realized edge that still owns an EdgePath counts as a double discharge"
+    /// guarded-by: realized_test.zig "a discharged edge that still owns an EdgePath counts as a double discharge"
     co_double_discharge: u32 = 0,
     /// Candidate off the flat identity path (D-JOIN-SELECT item 10):
     /// nothing was planned; the plan is the empty `.{}`.
@@ -63,19 +63,19 @@ pub const Report = struct {
 };
 
 pub const Result = struct {
-    plan: pb.RealizedJoins = .{},
+    plan: pb.RealizedBundles = .{},
     report: Report = .{},
 };
 
 /// First-fail naming tag per D-JOIN-SELECT items 3/7 (the pinned
-/// join_select.* registry family).
+/// bundle_select.* registry family).
 pub fn tagFor(clause: GroupClause) pb.DiagnosticTag {
     return switch (clause) {
-        .selected => .join_select_selected,
-        .duplicate_key => .join_select_duplicate_key_blocked,
-        .overlap => .join_select_conflict_neither,
-        .multiplicity => .join_select_proposal_multiplicity_blocked,
-        .unresolved_member, .incomplete, .style, .no_proposal => .join_select_independent_not_selected,
+        .selected => .bundle_select_selected,
+        .duplicate_key => .bundle_select_duplicate_key_blocked,
+        .overlap => .bundle_select_conflict_neither,
+        .multiplicity => .bundle_select_proposal_multiplicity_blocked,
+        .unresolved_member, .incomplete, .style, .no_proposal => .bundle_select_independent_not_selected,
     };
 }
 

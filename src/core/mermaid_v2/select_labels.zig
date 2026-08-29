@@ -67,7 +67,7 @@ pub fn packedGraph(aa: std.mem.Allocator, graph: sem_graph.SemGraph) ?sem_graph.
 pub fn besideVariants(
     aa: std.mem.Allocator,
     graph: sem_graph.SemGraph,
-    join_permits: *const ledger.JoinPermits,
+    bundle_permits: *const ledger.BundlePermits,
     max_width: u32,
     merged: []const ladder.Candidate,
     out: []ladder.Candidate,
@@ -89,7 +89,7 @@ pub fn besideVariants(
             // Bridge twins are appended AFTER the beside pass and never
             // reach it; defensive skip keeps the twin space orthogonal
             // (label policy is varied on the plain build only).
-            .bridge_dodged, .bridge_trunked => continue,
+            .bridge_dodged, .bridge_railed => continue,
             .motif_pack => blk: {
                 if (!packed_tried) {
                     packed_tried = true;
@@ -101,7 +101,7 @@ pub fn besideVariants(
         const result = ladder.runVariant(
             aa,
             source,
-            join_permits,
+            bundle_permits,
             max_width,
             c.rung,
             .beside,

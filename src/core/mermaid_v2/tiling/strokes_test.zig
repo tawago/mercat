@@ -265,7 +265,7 @@ test "fusion: a junction beside a foreign run is a crossing, not a fusion" {
 test "fusion: a rail's crossbar above its tap's dropper is not a fusion" {
     // The rail cell carries only the drop arm on the shared axis, so the
     // "both cells run straight through" gate excludes the pair — which is
-    // what keeps the trunk's shared id from reading as a defect.
+    // what keeps the rail's shared id from reading as a defect.
     var g: Grid = .{};
     g.init();
     g.set(2, 2, roledCell(1, .fan_out_rail, .{ .e = true, .s = true, .w = true }));
@@ -320,7 +320,7 @@ fn junctionPair(g: *Grid, table: []const lattice.Aux) lattice.Lattice {
 }
 
 test "fusion: a foreign record on the junction cell files the defect" {
-    // `.suppressed` IS `!sameChannel` verbatim — the crossing rule refused
+    // `.suppressed` IS `!sameBundle` verbatim — the crossing rule refused
     // edge 1's ink at this very position — and `.merged_foreign` is the
     // same answer from a producer that merged anyway. Either turns the
     // CONVENTION branch into a defect.

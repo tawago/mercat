@@ -3,7 +3,7 @@
 //! Producers hand facts to a `Collector` while they write cells; `finish`
 //! sorts the accumulated records into the canonical (cell, kind, value)
 //! order and hands the slice to the `Lattice`. The collector is the ONLY
-//! writer of that channel — no later pass edits records, which is what
+//! writer of that bundle — no later pass edits records, which is what
 //! makes the anti-desync law in `lattice.zig` mechanically true.
 //!
 //! Every rasterization collects: the table is part of the raster IR, not
@@ -13,14 +13,14 @@
 //! Deliberately Sketch-blind (enforced by a `tools/lint/imports.zig` row):
 //! this file may reach `lattice.zig` and nothing else. A builder that
 //! could see the Sketch would be able to record what the layout INTENDED
-//! rather than what the raster DID, and the channel would stop being
+//! rather than what the raster DID, and the bundle would stop being
 //! evidence.
 
 const std = @import("std");
 const lattice = @import("../lattice.zig");
 
 /// Where a producer sends records. `null` means "this rasterization is
-/// not collecting" — the one mechanism for switching the channel off, so
+/// not collecting" — the one mechanism for switching the bundle off, so
 /// enabled-ness is never represented twice.
 pub const Sink = ?*Collector;
 

@@ -68,9 +68,9 @@ pub fn onFrameBorder(
     return false;
 }
 
-/// Trunk-ink obstacles for jog placement: `heads` are arrowhead CELLS
+/// Rail-ink obstacles for jog placement: `heads` are arrowhead CELLS
 /// (foreign ink there is an I2 transit violation, perpendicular crossing
-/// included); `runs` are the trunk's straight strokes (crossbar, stem,
+/// included); `runs` are the rail's straight strokes (crossbar, stem,
 /// droppers), which — like frame borders — forbid only COLLINEAR jog runs;
 /// a perpendicular crossing rasterizes as a legal crossing.
 pub const Obstacles = struct {
@@ -110,7 +110,7 @@ pub const Obstacles = struct {
 };
 
 /// Displace `coord` outward (per `entry`) until the jog segment no longer
-/// runs along a drawn frame border or through trunk-ink obstacles.
+/// runs along a drawn frame border or through rail-ink obstacles.
 /// On guard expiry the last coordinate is surrendered (possibly still on a
 /// border) and `expired`, when given, is incremented once.
 pub fn clearOfBorders(

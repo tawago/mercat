@@ -13,7 +13,7 @@ test "a rail reports licensed or foreign without changing bytes" {
     defer arena.deinit();
     const a = arena.allocator();
     const members = [_]u32{ 0, 1, 2 };
-    const CoSet = @typeInfo(@TypeOf((sketch.Sketch{
+    const Bundle = @typeInfo(@TypeOf((sketch.Sketch{
         .bbox = .{ .x = 0, .y = 0, .w = 1, .h = 1 },
         .direction = .TD,
         .nodes = &.{},
@@ -21,8 +21,8 @@ test "a rail reports licensed or foreign without changing bytes" {
         .edges = &.{},
         .diagnostics = &.{},
         .budget = .{ .max_width = 80, .rung = 0 },
-    }).co_sets)).pointer.child;
-    const mates = [_]CoSet{.{ .origin = .fan_rail, .channel = 1, .members = &members }};
+    }).bundle_sets)).pointer.child;
+    const mates = [_]Bundle{.{ .origin = .fan_rail, .bundle = 1, .members = &members }};
     var baseline: ?[]const lattice.Cell = null;
 
     for ([2]lattice.CarrierKind{ .merged_foreign, .merged_licensed }) |want| {
@@ -31,8 +31,8 @@ test "a rail reports licensed or foreign without changing bytes" {
         var stem: [2]sketch.Point = undefined;
         var rails: [1]sketch.Rail = undefined;
         var s = rails_test.fanSketch(&nodes, &taps, &stem, &rails);
-        if (want == .merged_licensed) s.co_sets = &mates;
-        s.channel_stamp_state = .complete;
+        if (want == .merged_licensed) s.bundle_sets = &mates;
+        s.bundle_stamp_state = .complete;
 
         const r = try raster.rasterize(a, s, .bridge);
         if (baseline) |cells| try testing.expectEqualSlices(lattice.Cell, cells, r.lattice.cells) else baseline = r.lattice.cells;
@@ -48,7 +48,7 @@ test "every incomplete rail stamp files untested without changing bytes" {
     defer arena.deinit();
     const a = arena.allocator();
     const members = [_]u32{ 0, 1, 2 };
-    const CoSet = @typeInfo(@TypeOf((sketch.Sketch{
+    const Bundle = @typeInfo(@TypeOf((sketch.Sketch{
         .bbox = .{ .x = 0, .y = 0, .w = 1, .h = 1 },
         .direction = .TD,
         .nodes = &.{},
@@ -56,18 +56,18 @@ test "every incomplete rail stamp files untested without changing bytes" {
         .edges = &.{},
         .diagnostics = &.{},
         .budget = .{ .max_width = 80, .rung = 0 },
-    }).co_sets)).pointer.child;
-    const roster = [_]CoSet{.{ .origin = .fan_rail, .channel = 1, .members = &members }};
+    }).bundle_sets)).pointer.child;
+    const roster = [_]Bundle{.{ .origin = .fan_rail, .bundle = 1, .members = &members }};
     var baseline: ?[]const lattice.Cell = null;
 
-    for ([_]sketch.ChannelStampState{ .unattempted, .complete, .out_of_memory, .rail_invariant }) |state| {
+    for ([_]sketch.BundleStampState{ .unattempted, .complete, .out_of_memory, .rail_invariant }) |state| {
         var nodes: [4]sketch.NodePlacement = undefined;
         var taps: [3]sketch.Tap = undefined;
         var stem: [2]sketch.Point = undefined;
         var rails: [1]sketch.Rail = undefined;
         var s = rails_test.fanSketch(&nodes, &taps, &stem, &rails);
-        s.co_sets = &roster;
-        s.channel_stamp_state = state;
+        s.bundle_sets = &roster;
+        s.bundle_stamp_state = state;
 
         const r = try raster.rasterize(a, s, .bridge);
         if (baseline) |cells| try testing.expectEqualSlices(lattice.Cell, cells, r.lattice.cells) else baseline = r.lattice.cells;
@@ -82,8 +82,8 @@ test "every incomplete rail stamp files untested without changing bytes" {
 
 test "a rail off the roster reads every merge as foreign" {
     // A structural set exists on the roster, but it names an edge this rail
-    // never carries — the OFF-roster case `sketch_channels.stamp` mints a
-    // fresh channel for. That channel can never equal the junction's edge 1,
+    // never carries — the OFF-roster case `sketch_bundles.stamp` mints a
+    // fresh bundle for. That bundle can never equal the junction's edge 1,
     // so the merge at (12,5) MUST read `.merged_foreign` — not because
     // anything is broken, but because two edges that share no structural
     // decision are, correctly, strangers. Report-only: pins the outcome, asks
@@ -92,7 +92,7 @@ test "a rail off the roster reads every merge as foreign" {
     defer arena.deinit();
     const a = arena.allocator();
 
-    const CoSet = @typeInfo(@TypeOf((sketch.Sketch{
+    const Bundle = @typeInfo(@TypeOf((sketch.Sketch{
         .bbox = .{ .x = 0, .y = 0, .w = 1, .h = 1 },
         .direction = .TD,
         .nodes = &.{},
@@ -100,23 +100,23 @@ test "a rail off the roster reads every merge as foreign" {
         .edges = &.{},
         .diagnostics = &.{},
         .budget = .{ .max_width = 80, .rung = 0 },
-    }).co_sets)).pointer.child;
+    }).bundle_sets)).pointer.child;
     const unrelated_members = [_]u32{ 90, 91 };
     // Stamped, as a producer stamps — the roster IS numbered here; it simply
     // has nothing to say about this rail's taps, which is the OFF-roster case
     // this test pins, not the unstamped-roster case `licenceAt`'s abstention
     // guard exists for.
-    const unrelated = [_]CoSet{.{ .origin = .fan_rail, .channel = 1, .members = &unrelated_members }};
+    const unrelated = [_]Bundle{.{ .origin = .fan_rail, .bundle = 1, .members = &unrelated_members }};
 
     var nodes: [4]sketch.NodePlacement = undefined;
     var taps: [3]sketch.Tap = undefined;
     var stem: [2]sketch.Point = undefined;
     var rails: [1]sketch.Rail = undefined;
     var s = rails_test.fanSketch(&nodes, &taps, &stem, &rails);
-    s.co_sets = &unrelated;
-    // The producer mints an off-roster rail channel beyond the roster band.
-    rails[0].channel = 2;
-    s.channel_stamp_state = .complete;
+    s.bundle_sets = &unrelated;
+    // The producer mints an off-roster rail bundle beyond the roster band.
+    rails[0].bundle = 2;
+    s.bundle_stamp_state = .complete;
 
     const r = try raster.rasterize(a, s, .bridge);
     const at_junction = try rails_test.recordsAt(a, r.lattice, .carrier, 12, 5);

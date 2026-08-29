@@ -60,22 +60,22 @@ test "V-D-PORT-06: realized Km1 fan-IN derives one north pivot attachment and ke
     const nodes = [_]sg.Node{ node(0, "A"), node(1, "B"), node(2, "T") };
     const edges = [_]sg.Edge{ edge(0, 0), edge(1, 1) };
     const graph: sg.SemGraph = .{ .direction = .TD, .nodes = &nodes, .edges = &edges, .clusters = &.{}, .classes = &.{}, .arena = null };
-    const groups = [_]pb.JoinGroup{.{ .id = 0, .direction = .in, .pivot = 2, .members = &.{ 0, 1 } }};
-    const permit_memberships = [_]pb.JoinMembership{
+    const groups = [_]pb.CandidateBundle{.{ .id = 0, .direction = .in, .pivot = 2, .members = &.{ 0, 1 } }};
+    const permit_memberships = [_]pb.BundleMembership{
         .{ .edge = 0, .source_group = null, .target_group = 0 }, .{ .edge = 1, .source_group = null, .target_group = 0 },
     };
-    const permit: pb.JoinPermits = .{ .policy = .joined, .groups = &groups, .memberships = &permit_memberships };
+    const permit: pb.BundlePermits = .{ .policy = .joined, .groups = &groups, .memberships = &permit_memberships };
     const memberships = [_]pb.RealizedEdgeMembership{
         .{ .edge = 0, .source = null, .target = .{ .selected = 0 } }, .{ .edge = 1, .source = null, .target = .{ .selected = 0 } },
     };
-    const joins: pb.RealizedJoins = .{
-        .selected_joins = &.{.{ .id = 0, .proposal = 0, .permission_group = 0, .members = &.{ 0, 1 } }},
+    const bundles: pb.RealizedBundles = .{
+        .selected_bundles = &.{.{ .id = 0, .proposal = 0, .candidate_bundle = 0, .members = &.{ 0, 1 } }},
         .memberships = &memberships,
     };
-    const derived = try ports.derive(a, graph, permit, joins, .TD, &.{});
+    const derived = try ports.derive(a, graph, permit, bundles, .TD, &.{});
     const target = try ports.forSide(a, derived, 2, .north);
     try std.testing.expectEqual(@as(usize, 1), target.len);
-    try std.testing.expectEqual(ports.AttachmentClass.trunk_pivot, target[0].class);
+    try std.testing.expectEqual(ports.AttachmentClass.rail_pivot, target[0].class);
     try std.testing.expectEqual(pb.EndpointSide.target_entry, target[0].key.endpoint_side);
     try std.testing.expectEqual(@as(usize, 2), target[0].members.len);
     const allocated = switch (try ports.allocate(a, .{}, 2, .north, 7, target)) {

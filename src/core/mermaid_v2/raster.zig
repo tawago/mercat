@@ -145,7 +145,7 @@ pub fn rasterize(
         error.OccupiedCell => return error.OutOfBounds,
     };
 
-    // Rails before ordinary edges (Phase 4b slice iv): the fan trunk claims its cells first, so a later edge can never overwrite trunk kind/role. // guarded-by: raster.zig "a rail rasterizes before edges: its cell keeps trunk kind/role, foreign bits refused"
+    // Rails before ordinary edges (Phase 4b slice iv): the fan rail claims its cells first, so a later edge can never overwrite rail kind/role. // guarded-by: raster.zig "a rail rasterizes before edges: its cell keeps rail kind/role, foreign bits refused"
     const rail_report = rails_r.rasterizeRails(&lat, s, sink);
 
     const edge_report = edges_r.rasterizeEdges(allocator, &lat, s, subgraph_edges, sink) catch |err| switch (err) {
@@ -361,7 +361,7 @@ test "foreign perpendicular crossing reads as a transversal, not a junction" {
     defer arena.deinit();
     const a = arena.allocator();
 
-    // Two crossing edges meeting at (5,5). No nodes, and no channel that
+    // Two crossing edges meeting at (5,5). No nodes, and no bundle that
     // makes them co-members: the crossing rule is unconditional, so the
     // first writer (the horizontal run) keeps its straight stroke and the
     // vertical contributes NO bits — a transversal, not a `┼`.
@@ -417,7 +417,7 @@ test "foreign perpendicular crossing reads as a transversal, not a junction" {
     );
 }
 
-test "a rail rasterizes before edges: its cell keeps trunk kind/role, foreign bits refused" {
+test "a rail rasterizes before edges: its cell keeps rail kind/role, foreign bits refused" {
     var arena = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
@@ -446,7 +446,7 @@ test "a rail rasterizes before edges: its cell keeps trunk kind/role, foreign bi
     // plain rail cell (7,5) that the rail already claims. If edges
     // rasterized before rails, this cell's first-writer-wins `kind`
     // would come out `.dotted` (the crossing edge's), not `.solid` (the
-    // trunk's) — see `writeEdgeCell`'s `.edge_segment` branch, which
+    // rail's) — see `writeEdgeCell`'s `.edge_segment` branch, which
     // never updates `kind` on a second write.
     var poly = [_]sketch.Point{ .{ .x = 7, .y = 1 }, .{ .x = 7, .y = 9 } };
     var edges_buf = [_]sketch.EdgePath{.{
@@ -478,7 +478,7 @@ test "a rail rasterizes before edges: its cell keeps trunk kind/role, foreign bi
     const cell = r.lattice.atConst(7, 5).*;
     switch (cell.occupant) {
         .edge_segment => |seg| {
-            // Trunk-owned kind survives the later crossing edge write.
+            // Rail-owned kind survives the later crossing edge write.
             try testing.expectEqual(lattice.EdgeKind.solid, seg.kind);
             try testing.expectEqual(lattice.EdgeRole.fan_out_rail, seg.role);
         },

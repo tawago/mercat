@@ -61,18 +61,18 @@ pub const NodeGeom = struct {
 pub const EdgesResult = struct {
     edges: []sketch.EdgePath,
     polylines: [][]sketch.Point,
-    /// First-class fan trunks, each holding its
+    /// First-class fan rails, each holding its
     /// `sketch.Rail` plus the MUTABLE tap view so `clusters.computeBbox`'s
     /// shift pass can translate rail + tap points in place (stems are
     /// additionally registered in `polylines` for the same reason). layout.zig
     /// copies the `.rail` fields out AFTER the shift for the final Sketch.
     rails: []fan_rail.Built,
-    /// Co-channel sets from the live fans (`fan.coSets`), read off the same
+    /// Bundle sets from the live fans (`fan.coSets`), read off the same
     /// peer/lane facts this routing pass just used. Geometry-free, so the
     /// bbox shift pass never touches them. On a flat graph select.zig
     /// replaces them with the plan-derived sets; on a clustered one they are
     /// the whole population.
-    co_sets: []const ledger.CoSet,
+    bundle_sets: []const ledger.Bundle,
     /// Semantic fan records derived after every local path and Rail is final.
     rail_claims: []const ledger.RailClaim,
 };
@@ -84,7 +84,7 @@ pub fn buildEdgesWithPlan(
     geom: []const NodeGeom,
     placements: []const sketch.NodePlacement,
     fans: []const fan_mod.Fan,
-    joins: ledger.RealizedJoins,
+    bundles: ledger.RealizedBundles,
     allocated_ports: port_plan.Plan,
 ) error{OutOfMemory}!EdgesResult {
     var out: std.ArrayListUnmanaged(sketch.EdgePath) = .empty;
@@ -99,14 +99,14 @@ pub fn buildEdgesWithPlan(
     // through to the per-peer polyline path.
     var rails: std.ArrayListUnmanaged(fan_rail.Built) = .empty;
     var claimed: std.ArrayListUnmanaged(sg.EdgeId) = .empty;
-    // Resolve every eligible fan FIRST: which lane row each trunk should take
-    // is a question about the gap, not about the trunk, and only the resolved
+    // Resolve every eligible fan FIRST: which lane row each rail should take
+    // is a question about the gap, not about the rail, and only the resolved
     // set knows the placed stem and tap columns it turns on.
     const Pending = struct { fan: fan_mod.Fan, resolved: fan_rail.Resolved, lift: u32 };
     var pending: std.ArrayListUnmanaged(Pending) = .empty;
-    var lane_trunks: std.ArrayListUnmanaged(fan_lane_order.Trunk) = .empty;
+    var lane_rails: std.ArrayListUnmanaged(fan_lane_order.Rail) = .empty;
     for (fans) |f| {
-        const resolved = (try fan_rail.resolve(a, graph.direction, f, graph, placements, joins, allocated_ports)) orelse continue;
+        const resolved = (try fan_rail.resolve(a, graph.direction, f, graph, placements, bundles, allocated_ports)) orelse continue;
         // Shared-rail lift: same rule as the per-peer path below — any peer descending into a cluster lifts the rail above the frame. // guarded-by: routing_test.zig "rail pre-pass and forced per-peer path lift the same fan-OUT geometry to the same rail row"
         var lift: u32 = 0;
         for (resolved.peers) |p| {
@@ -115,7 +115,7 @@ pub fn buildEdgesWithPlan(
         // Buy another tap-anchor block for each label after the first.
         if (f.direction == .out) lift += fan_mod.additionalLabelLift(f, f.lane);
         try pending.append(a, .{ .fan = f, .resolved = resolved, .lift = lift });
-        try lane_trunks.append(a, .{
+        try lane_rails.append(a, .{
             .gap = f.source_layer,
             .lane = f.lane,
             .fan_in = resolved.direction == .in,
@@ -123,11 +123,11 @@ pub fn buildEdgesWithPlan(
             .tap_xs = try fan_lane_order.tapXs(a, resolved),
         });
     }
-    // Stem-corner clearance: permute the packer's lane indices so no trunk's
-    // stem junction sits under a foreign trunk's tap column. Row count is
+    // Stem-corner clearance: permute the packer's lane indices so no rail's
+    // stem junction sits under a foreign rail's tap column. Row count is
     // unchanged, so nothing downstream of the reservation pass moves.
-    try fan_lane_order.reorder(a, lane_trunks.items);
-    for (pending.items, lane_trunks.items) |p, t| {
+    try fan_lane_order.reorder(a, lane_rails.items);
+    for (pending.items, lane_rails.items) |p, t| {
         const built = try fan_rail.build(a, p.resolved, p.lift, t.lane);
         // Integrity gate: a rail is straight-only geometry; if any run touches a foreign box, fall back to the per-peer polyline path, which can dodge. // guarded-by: fan_rail_test.zig "fan_rail.blocked rejects a built rail whose tap drop touches a foreign node's box"
         if (fan_rail.blocked(built, p.resolved.pivot.id, placements)) continue;
@@ -136,14 +136,14 @@ pub fn buildEdgesWithPlan(
         for (p.fan.peers) |peer| if (peer.shared) try claimed.append(a, peer.edge_id);
     }
     const bar_views = try a.alloc(sketch.Rail, rails.items.len);
-    for (rails.items, bar_views) |bar, *view| view.* = bar.rail;
+    for (rails.items, bar_views) |rail, *view| view.* = rail.rail;
 
     var routing_edges: std.ArrayListUnmanaged(sg.Edge) = .empty;
-    if (joins.memberships.len == 0) {
+    if (bundles.memberships.len == 0) {
         try routing_edges.appendSlice(a, graph.edges);
     } else {
-        for (graph.edges) |edge| if (edge.kind != .invisible and !route_clearance.isIndependent(edge.id, joins)) try routing_edges.append(a, edge);
-        for (graph.edges) |edge| if (edge.kind != .invisible and route_clearance.isIndependent(edge.id, joins)) try routing_edges.append(a, edge);
+        for (graph.edges) |edge| if (edge.kind != .invisible and !route_clearance.isIndependent(edge.id, bundles)) try routing_edges.append(a, edge);
+        for (graph.edges) |edge| if (edge.kind != .invisible and route_clearance.isIndependent(edge.id, bundles)) try routing_edges.append(a, edge);
         for (graph.edges) |edge| if (edge.kind == .invisible) try routing_edges.append(a, edge);
     }
     for (routing_edges.items) |orig| {
@@ -151,9 +151,9 @@ pub fn buildEdgesWithPlan(
         // rendered BY that rail's crossbar (base/rail_closure.zig). It owns no
         // polyline, no port and no label of its own — drawing one would state
         // the relation twice — so it never enters the router at all.
-        // guarded-by: routing_test.zig "a co-realized edge is withheld from routing entirely"
-        if (rail_closure.contains(joins.co_realized, orig.id)) continue;
-        // Edge owned by a rail: its sole geometry is the trunk + tap.
+        // guarded-by: routing_test.zig "a discharged edge is withheld from routing entirely"
+        if (rail_closure.contains(bundles.discharged, orig.id)) continue;
+        // Edge owned by a rail: its sole geometry is the rail + tap.
         if (std.mem.indexOfScalar(sg.EdgeId, claimed.items, orig.id) != null) continue;
         // Decision-fan path: if this edge belongs to a detected fan,
         // synthesize the coordinated polyline that shares a rail row
@@ -187,17 +187,17 @@ pub fn buildEdgesWithPlan(
                         try port_plan.duplicateDetour(a, graph.direction, src_p, dst_p, ep, placements)
                     else
                         try fan_polyline.buildPolylineAt(a, graph.direction, routed_fan, pivot_p, peer_p, ep.source, ep.target, routed_role, lane, rail_lift, placements);
-                    if (try route_clearance.polylineClears(a, orig.id, orig.kind, poly, out.items, bar_views, placements, allocated_ports.edges, joins, orig.from, orig.to)) break;
+                    if (try route_clearance.polylineClears(a, orig.id, orig.kind, poly, out.items, bar_views, placements, allocated_ports.edges, bundles, orig.from, orig.to)) break;
                     if (lane >= 16) {
                         if (orig.kind == .invisible) {
-                            poly = try route_clearance.clearInvisiblePath(a, orig.id, orig.kind, src_p, dst_p, ep.source, ep.target, placements, out.items, joins);
+                            poly = try route_clearance.clearInvisiblePath(a, orig.id, orig.kind, src_p, dst_p, ep.source, ep.target, placements, out.items, bundles);
                             break;
                         }
                         var distance: u32 = 0;
                         const limit = route_clearance.detourLimit(out.items.len);
                         while (true) : (distance += 1) {
                             poly = try route_clearance.outsideDetour(a, graph.direction, src_p, dst_p, ep.source, ep.target, placements, distance);
-                            if ((try route_clearance.polylineClears(a, orig.id, orig.kind, poly, out.items, bar_views, placements, allocated_ports.edges, joins, orig.from, orig.to)) or distance >= limit) break;
+                            if ((try route_clearance.polylineClears(a, orig.id, orig.kind, poly, out.items, bar_views, placements, allocated_ports.edges, bundles, orig.from, orig.to)) or distance >= limit) break;
                         }
                         break;
                     }
@@ -239,7 +239,7 @@ pub fn buildEdgesWithPlan(
         // and to the right of the node, so we synthesize that path here.
         if (orig.from == orig.to) {
             const node_p = findPlacement(placements, orig.from);
-            const sl = if (joins.memberships.len == 0)
+            const sl = if (bundles.memberships.len == 0)
                 try self_loops.selfLoop(a, graph.direction, node_p, placements)
             else blk: {
                 const ep = allocated_ports.forEdge(orig.id) orelse unreachable;
@@ -272,12 +272,12 @@ pub fn buildEdgesWithPlan(
             const src_p = findPlacement(placements, orig.from);
             const dst_p = findPlacement(placements, orig.to);
             const ep = allocated_ports.forEdge(orig.id) orelse unreachable;
-            const poly = if (joins.memberships.len == 0)
+            const poly = if (bundles.memberships.len == 0)
                 try back_edges.backEdgePolyline(a, graph.direction, src_p, dst_p, rail, placements)
             else
                 try back_edges.backEdgePolylineAt(a, graph.direction, src_p, dst_p, ep.source, ep.target, rail, placements);
-            const port_from = if (joins.memberships.len == 0) back_edges.backEdgePortFrom(graph.direction, src_p) else ep.source;
-            const port_to = if (joins.memberships.len == 0) back_edges.backEdgePortTo(graph.direction, dst_p) else ep.target;
+            const port_from = if (bundles.memberships.len == 0) back_edges.backEdgePortFrom(graph.direction, src_p) else ep.source;
+            const port_to = if (bundles.memberships.len == 0) back_edges.backEdgePortTo(graph.direction, dst_p) else ep.target;
             // Base-approach GROW is NOT wired on the back-edge path: a back edge's
             // U-shape (and the bidirectional case, where BOTH ends carry an
             // arrow) breaks the "clean perpendicular final approach" the grow
@@ -335,17 +335,17 @@ pub fn buildEdgesWithPlan(
             // rail-arrow contact for every membership disposition.
             if (try route_clearance.conflictsRailArrows(a, poly, bar_views, orig.from, orig.to))
                 poly = try route_clearance.shiftInteriorRun(a, poly, eff_dir, 2 * (lane - ep.route_lane + 1));
-            if (try route_clearance.polylineClears(a, orig.id, orig.kind, poly, out.items, bar_views, placements, allocated_ports.edges, joins, orig.from, orig.to)) break;
+            if (try route_clearance.polylineClears(a, orig.id, orig.kind, poly, out.items, bar_views, placements, allocated_ports.edges, bundles, orig.from, orig.to)) break;
             if (lane >= 16) {
                 if (orig.kind == .invisible) {
-                    poly = try route_clearance.clearInvisiblePath(a, orig.id, orig.kind, eff_from_p, eff_to_p, ep.source, ep.target, placements, out.items, joins);
+                    poly = try route_clearance.clearInvisiblePath(a, orig.id, orig.kind, eff_from_p, eff_to_p, ep.source, ep.target, placements, out.items, bundles);
                     break;
                 }
                 var distance: u32 = 0;
                 const limit = route_clearance.detourLimit(out.items.len);
                 while (true) : (distance += 1) {
                     poly = try route_clearance.outsideDetour(a, eff_dir, eff_from_p, eff_to_p, eff_port_from, eff_port_to, placements, distance);
-                    if ((try route_clearance.polylineClears(a, orig.id, orig.kind, poly, out.items, bar_views, placements, allocated_ports.edges, joins, orig.from, orig.to)) or distance >= limit) break;
+                    if ((try route_clearance.polylineClears(a, orig.id, orig.kind, poly, out.items, bar_views, placements, allocated_ports.edges, bundles, orig.from, orig.to)) or distance >= limit) break;
                 }
                 break;
             }
@@ -360,7 +360,7 @@ pub fn buildEdgesWithPlan(
         // Base-approach: shift a length-1 turn-at-tip in place (byte-identical),
         // else GROW a corner-fed length-2 final into a formal straight base.
         if (!rp.ensureBaseStub(poly, placements, orig.from, orig.to))
-            poly = try growBaseApproach(a, poly, placements, orig, out.items, bar_views, allocated_ports.edges, joins);
+            poly = try growBaseApproach(a, poly, placements, orig, out.items, bar_views, allocated_ports.edges, bundles);
 
         try out.append(a, .{
             .id = orig.id,
@@ -379,12 +379,12 @@ pub fn buildEdgesWithPlan(
     }
     // Attachment sites are side-local offsets, so the later whole-sketch bbox
     // translation cannot stale them.
-    const rail_claims = try fan_provenance.build(a, graph, placements, fans, joins, out.items, bar_views);
+    const rail_claims = try fan_provenance.build(a, graph, placements, fans, bundles, out.items, bar_views);
     return .{
         .edges = try out.toOwnedSlice(a),
         .polylines = try polys.toOwnedSlice(a),
         .rails = try rails.toOwnedSlice(a),
-        .co_sets = try fan_mod.coSets(a, fans),
+        .bundle_sets = try fan_mod.coSets(a, fans),
         .rail_claims = rail_claims,
     };
 }
@@ -448,7 +448,7 @@ fn growBaseApproach(
     existing: []const sketch.EdgePath,
     bar_views: []const sketch.Rail,
     edge_ports: []const port_plan.EdgePorts,
-    joins: ledger.RealizedJoins,
+    bundles: ledger.RealizedBundles,
 ) error{OutOfMemory}![]sketch.Point {
     // A source-side arrowhead means BOTH ends of the polyline are terminals
     // (a bidirectional or reverse-arrow edge); which end is poly[last] is then
@@ -457,7 +457,7 @@ fn growBaseApproach(
     if (edge.arrow_from != .none) return poly;
     const grown = try rt.satisfyApproach(a, poly, placements);
     if (grown.ptr == poly.ptr) return poly; // did not fire
-    if (try route_clearance.polylineClears(a, edge.id, edge.kind, grown, existing, bar_views, placements, edge_ports, joins, edge.from, edge.to))
+    if (try route_clearance.polylineClears(a, edge.id, edge.kind, grown, existing, bar_views, placements, edge_ports, bundles, edge.from, edge.to))
         return grown;
     return poly; // grown geometry conflicts — revert to the ungrown route
 }

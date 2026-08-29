@@ -1,7 +1,7 @@
 //! Unit tests for raster/aux.zig — the lattice side-table builder — and for
 //! the one fact it carries today (`.port`, filed by `drawPortStroke`).
 //!
-//! The load-bearing test here is the last one: the channel's whole premise
+//! The load-bearing test here is the last one: the bundle's whole premise
 //! is that a record outlives every in-place rewrite of the Cell it sits on,
 //! so that premise is measured against the real post-walk passes rather
 //! than argued in a comment.
@@ -58,7 +58,7 @@ test "drawPortStroke files a port record only for a stroke it actually draws" {
         try testing.expectEqual(lattice.portArmDetail(.south), table[0].detail);
     }
 
-    // Refused (invisible edge): no ink, therefore no record. The channel
+    // Refused (invisible edge): no ink, therefore no record. The bundle
     // records what was drawn, never what was intended.
     {
         var lat = try sourceBorderLattice(a);
@@ -242,7 +242,7 @@ fn blankLattice(a: std.mem.Allocator) !lattice.Lattice {
 
 /// A blank w×h lattice, plus the minimal Sketch/EdgePath pair that drives
 /// `rasterizeEdges` — the only way to reach the walk's own corner-cell arm.
-/// The Sketch carries no joins, so the crossing rule is inert.
+/// The Sketch carries no bundles, so the crossing rule is inert.
 fn walkLattice(a: std.mem.Allocator, w: u32, h: u32) !lattice.Lattice {
     const cells = try a.alloc(lattice.Cell, @as(usize, w) * @as(usize, h));
     for (cells) |*c| c.* = lattice.Cell.empty;
@@ -383,7 +383,7 @@ test "a corner arm merged onto a foreign run files a merged carrier; onto its ow
     const a = arena.allocator();
 
     // Edge 3 runs straight down column 4; edge 8 arrives from the west and
-    // turns north ON that run. A co-set makes them ONE channel, so the
+    // turns north ON that run. A bundle makes them ONE bundle, so the
     // (unconditional) crossing rule exempts the pair and the merge — not a
     // refusal — is what happens.
     {
@@ -393,9 +393,9 @@ test "a corner arm merged onto a foreign run files a merged carrier; onto its ow
         const p8 = [_]sketch.Point{ .{ .x = 1, .y = 4 }, .{ .x = 4, .y = 4 }, .{ .x = 4, .y = 3 } };
         const es = [_]sketch.EdgePath{ walkEdge(3, &p3), walkEdge(8, &p8) };
         const members = [_]ledger.EdgeId{ 3, 8 };
-        const co_sets = [_]ledger.CoSet{.{ .origin = .fan_rail, .members = &members }};
+        const bundle_sets = [_]ledger.Bundle{.{ .origin = .fan_rail, .members = &members }};
         var s = walkSketch(&es);
-        s.co_sets = &co_sets;
+        s.bundle_sets = &bundle_sets;
         _ = try edge_walk.rasterizeEdges(a, &lat, s, .bridge, &c);
 
         const table = c.finish();
@@ -405,7 +405,7 @@ test "a corner arm merged onto a foreign run files a merged carrier; onto its ow
         try testing.expectEqual(@as(u32, 8), table[0].value);
         // Merged, not suppressed: the corner arm IS in the mask (the west
         // bit), and only edge 8's name was dropped — and LICENSED, since the
-        // co-set is exactly why the merge happened instead of a refusal.
+        // bundle is exactly why the merge happened instead of a refusal.
         try testing.expectEqual(@intFromEnum(lattice.CarrierKind.merged_licensed), table[0].detail);
         const shared = lat.atConst(4, 4);
         try testing.expectEqual(@as(u32, 3), shared.occupant.edge_segment.edge);

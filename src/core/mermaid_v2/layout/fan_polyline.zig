@@ -57,10 +57,10 @@ pub fn buildPolylineAt(
     const tx = target_point.x;
 
     // Grid fan-OUT (wrapped wide fan): the children are stacked across
-    // multiple rows. Route each child off a shared vertical trunk that
+    // multiple rows. Route each child off a shared vertical rail that
     // descends the pivot column: down to the gap row directly above the
     // child's row, then across to the child column, then into the child
-    // top. Overlapping trunk segments merge in the rasterizer, so this
+    // top. Overlapping rail segments merge in the rasterizer, so this
     // yields a clean comb with one horizontal rail per grid row.
     if (fan.direction == .out and fan.rows > 1 and south_flow) {
         const child_top = peer_p.rect.y;
@@ -69,7 +69,7 @@ pub fn buildPolylineAt(
         const src_bot = source_point.y;
         var gpts: std.ArrayListUnmanaged(sketch.Point) = .empty;
         try gpts.append(a, .{ .x = sx, .y = src_bot });
-        // Pivot-column descent for a row-≥2 child may pass through an earlier row's sibling box; dodge to a touch-free column. guarded-by: fan_polyline_test.zig "grid fan-OUT trunk dodges a sibling box stacked in an earlier grid row"
+        // Pivot-column descent for a row-≥2 child may pass through an earlier row's sibling box; dodge to a touch-free column. guarded-by: fan_polyline_test.zig "grid fan-OUT rail dodges a sibling box stacked in an earlier grid row"
         if (sketch.columnTouchesAny(sx, src_bot + 1, rail, placements, source_p.id, target_p.id)) {
             const jog_y = src_bot + 1;
             const corridor = sketch.clearLine(false, tx, jog_y, rail, placements, source_p.id, target_p.id, .{});
@@ -86,9 +86,9 @@ pub fn buildPolylineAt(
     // rows above the shared target. Mirror of the fan-OUT grid comb: each
     // source drops from its bottom to a short horizontal rail two rows below
     // its own row, then runs across to the TARGET column, then descends a
-    // shared trunk into the target top. The trunk segments at the target
+    // shared rail into the target top. The rail segments at the target
     // column (one per source row) merge in the rasterizer into a single
-    // descending trunk — a clean reverse comb that keeps every source feeding
+    // descending rail — a clean reverse comb that keeps every source feeding
     // the one target without re-attaching to a sibling source.
     if (fan.direction == .in and fan.rows > 1 and south_flow) {
         const source_bottom = source_point.y;
@@ -97,7 +97,7 @@ pub fn buildPolylineAt(
         var gpts: std.ArrayListUnmanaged(sketch.Point) = .empty;
         try gpts.append(a, .{ .x = sx, .y = source_bottom });
         try gpts.append(a, .{ .x = sx, .y = rail });
-        // Mirror of the fan-OUT grid dodge: dodges the trunk through a source box stacked in a LOWER grid row via a touch-free column. guarded-by: fan_polyline_test.zig "grid fan-IN trunk dodges a source stacked in a lower grid row at the shared target column"
+        // Mirror of the fan-OUT grid dodge: dodges the rail through a source box stacked in a LOWER grid row via a touch-free column. guarded-by: fan_polyline_test.zig "grid fan-IN rail dodges a source stacked in a lower grid row at the shared target column"
         if (sketch.columnTouchesAny(tx, rail, target_top - 1, placements, source_p.id, target_p.id)) {
             const land_y = target_top - 2;
             const corridor = sketch.clearLine(false, tx, rail, land_y, placements, source_p.id, target_p.id, .{});

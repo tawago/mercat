@@ -60,7 +60,7 @@ pub const Fan = struct {
     /// Assigned by `fan_lanes.assignLanes`: a fan whose rail would fuse with a
     /// neighbouring fan's into a TWO-SIDED run — one run standing for a pivot
     /// none of its members shares — is lifted to its own lane so every declared
-    /// edge stays traceable. 0 for single-trunk gaps and pure fan-in/out.
+    /// edge stays traceable. 0 for single-rail gaps and pure fan-in/out.
     lane: u32 = 0,
     /// True iff any member edge carries a label. A labeled fan reserves
     /// `LABEL_RUN_EXTRA_ROWS` extra gap rows (extraRowsPerGap) so each
@@ -276,7 +276,7 @@ fn collectFanIn(
     return preparePeers(a, graph, .in, pivot, candidates.items);
 }
 
-fn preparePeers(a: std.mem.Allocator, graph: sg.SemGraph, direction: ledger.JoinDirection, pivot: sg.NodeId, candidates: []const FanEdge) error{OutOfMemory}!?PreparedPeers {
+fn preparePeers(a: std.mem.Allocator, graph: sg.SemGraph, direction: ledger.BundleDirection, pivot: sg.NodeId, candidates: []const FanEdge) error{OutOfMemory}!?PreparedPeers {
     if (candidates.len < 2) return null;
     // Structural detection tests may supply no semantic edge table. Production
     // always has it; keep the pure layered-graph contract for those unit tests.
@@ -403,7 +403,7 @@ pub fn lookup(fans: []const Fan, edge_id: sg.EdgeId) ?LookupHit {
     return null;
 }
 
-/// The co-channel sets the detected fans authorize: one per group of peers
+/// The bundle sets the detected fans authorize: one per group of peers
 /// sharing a rail lane (`effectiveLane` — the row the ink occupies), in fan
 /// order then peer order.
 ///
@@ -418,12 +418,12 @@ pub fn lookup(fans: []const Fan, edge_id: sg.EdgeId) ?LookupHit {
 /// the ordinary result is one set per fan holding all of its peers, which is
 /// what a clustered render (empty realized plan, no per-member lanes) always
 /// gets. Members are edge ids in the caller's own id space.
-/// guarded-by: fan_test.zig "co-sets group a fan's peers by rail lane"
+/// guarded-by: fan_test.zig "bundles group a fan's peers by rail lane"
 pub fn coSets(
     a: std.mem.Allocator,
     fans: []const Fan,
-) error{OutOfMemory}![]const ledger.CoSet {
-    var out: std.ArrayListUnmanaged(ledger.CoSet) = .empty;
+) error{OutOfMemory}![]const ledger.Bundle {
+    var out: std.ArrayListUnmanaged(ledger.Bundle) = .empty;
     var members: std.ArrayListUnmanaged(ledger.EdgeId) = .empty;
     defer members.deinit(a);
     for (fans) |f| {

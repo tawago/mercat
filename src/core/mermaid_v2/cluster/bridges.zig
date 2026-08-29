@@ -12,7 +12,7 @@
 //! at most ONE corridor per display column, and never one on a frame corner;
 //! an offending port slides along its own node face until both hold.
 //!
-//! Routing VARIANTS (plain / dodged / trunked) are a caller decision
+//! Routing VARIANTS (plain / dodged / railed) are a caller decision
 //! (`prim.BridgeBuild`, from LayoutOptions): this router constructs exactly
 //! the variant it is told to and never picks between them — the variants
 //! are laid out as candidates and the selection stage's composite score
@@ -20,7 +20,7 @@
 //!
 //! PURE DATA: Sketch geometry in, Sketch edges out. Imports only std, prim,
 //! sem_graph, sketch, and the cluster-internal tracks.zig / corridors.zig /
-//! bridge_scene.zig / bridge_trunks.zig (licensed shared-source trunk
+//! bridge_scene.zig / bridge_rails.zig (licensed shared-source rail
 //! realization).
 
 const std = @import("std");
@@ -30,7 +30,7 @@ const sg = @import("../sem_graph.zig");
 const tracks = @import("tracks.zig");
 const scene = @import("bridge_scene.zig");
 const corridors = @import("corridors.zig");
-const trunks = @import("bridge_trunks.zig");
+const bridge_rails = @import("bridge_rails.zig");
 
 /// One original edge that crosses a piece boundary. Endpoints are ORIGINAL
 /// SemGraph node ids (resolved to merged placements via `orig_to_merged`).
@@ -65,13 +65,13 @@ pub fn route(
     /// Counts border-clearance searches that expired on SHIPPED coordinates
     /// (tracks.zig surrender); tentative or unshipped attempts never count.
     expired: ?*u32,
-    /// Which routing variant to construct (see the module doc). `.trunked`
+    /// Which routing variant to construct (see the module doc). `.railed`
     /// with no licensed group (or no jog moved) builds the plain geometry.
     build: prim.BridgeBuild,
 ) error{OutOfMemory}![]sketch.EdgePath {
     // Bridges are routed LAST, into a fully-inked scene, so existing ink
     // constrains them: an arrowhead cell refuses any foreign transit, and a
-    // collinear run along a trunk or edge stroke fuses into a foreign
+    // collinear run along a rail or edge stroke fuses into a foreign
     // junction. Heads also repel ports whose outward step would land on
     // them (slideOffHeads).
     const obstacles = try sceneObstacles(arena, rails, edge_paths);
@@ -154,7 +154,7 @@ pub fn route(
     }
 
     // An EXIT port whose first outward step is an arrowhead cell shares its
-    // face column with a trunk stem or tap: every route out of it transits
+    // face column with a rail stem or tap: every route out of it transits
     // the head (the rerouted corridor's first leg included, which no jog or
     // corridor demand can move). Slide it to the nearest interior
     // coordinate whose step touches no scene ink and which no other
@@ -192,14 +192,14 @@ pub fn route(
     //     constructive local placement; which BUILD ships is not decided
     //     here — the variants are scored as candidates against the real
     //     raster (confluence selection note).
-    //   .trunked — each licensed shared-source group jointly moves its
+    //   .railed — each licensed shared-source group jointly moves its
     //     shared jog to the least-conflicted rail coordinate, judged
     //     against the scene WITH static edge runs (which the base scene
     //     models as heads only); with no licensed group, or no jog moved,
     //     the geometry is the plain build.
-    if (build == .trunked) {
-        const full = try trunks.withStaticRuns(arena, obstacles, edge_paths);
-        _ = try trunks.overrideJogs(arena, pends.items, placements, clusters, full);
+    if (build == .railed) {
+        const full = try bridge_rails.withStaticRuns(arena, obstacles, edge_paths);
+        _ = try bridge_rails.overrideJogs(arena, pends.items, placements, clusters, full);
     }
     const built = try buildPaths(arena, pends.items, placements, clusters, obstacles, build == .dodged);
     if (expired) |e| e.* += jog_expired + built.expired;

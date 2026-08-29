@@ -148,7 +148,7 @@ fn centerLayer(
     // constraint here — global left-justification is restored by
     // normalizeX — so the shift is always safe.
     //
-    // `compact` is false for LR/RL flows and for the rotation rung (an LR diagram re-laid-out as TD): re-centering there can slide a source node off its child's vertical trunk, undrilling the port. guarded-by: layout/layout_test.zig "drift compaction fires on natural TD but is suppressed by is_direction_rotated, and never fires for LR"
+    // `compact` is false for LR/RL flows and for the rotation rung (an LR diagram re-laid-out as TD): re-centering there can slide a source node off its child's vertical rail, undrilling the port. guarded-by: layout/layout_test.zig "drift compaction fires on natural TD but is suppressed by is_direction_rotated, and never fires for LR"
     if (!compact) return;
 
     // Skip clustered rows (frame/axis constraints owned by cluster logic downstream) and labelled fork rows (re-centering removes the clearance the label rasterizer needs). guarded-by: layout/x_assign_test.zig "centerLayer skips re-centering a row that is both clustered and a labeled fork"
@@ -207,7 +207,7 @@ fn edgeHasLabel(graph: sg.SemGraph, edge_id: sg.EdgeId) bool {
 /// realized center equals its mean desired center. Pure compaction:
 /// preserves intra-row gaps, removes per-layer drift.
 ///
-/// Averaged over REAL nodes only — including virtuals would shear a real node off its child's trunk. guarded-by: layout/x_assign_test.zig "centerRunOnDesired re-centers using only real nodes, keeping the real node's trunk straight"
+/// Averaged over REAL nodes only — including virtuals would shear a real node off its child's rail. guarded-by: layout/x_assign_test.zig "centerRunOnDesired re-centers using only real nodes, keeping the real node's rail straight"
 fn centerRunOnDesired(geom: []NodeGeom, lg: sugiyama.LayeredGraph, row: []const u32, desired: []const i32) void {
     var sum_actual: i64 = 0;
     var sum_desired: i64 = 0;
@@ -248,11 +248,11 @@ pub fn centerX(g: NodeGeom) i32 {
 /// real-node x), recovering orphan whitespace from rows the barycenter
 /// sweeps drifted rightward under a wider axis.
 ///
-/// Safety contract (so this can never regress the fit gate or break a trunk):
+/// Safety contract (so this can never regress the fit gate or break a rail):
 ///   * The shift is purely LEFTWARD (delta = margin - row_min_x ≤ 0). It can
 ///     only narrow or hold the bounding box, never widen it.
 ///   * SINGLE real-node rows are exempt: a lone node sits on its child's
-///     vertical trunk, and sliding it to the margin would shear the `│`
+///     vertical rail, and sliding it to the margin would shear the `│`
 ///     connector into a jog. Drift is a multi-node-row phenomenon anyway.
 ///   * Clustered rows and labeled-fork-target rows are exempt for the same
 ///     reasons drift compaction (`centerRunOnDesired`) exempts them: cluster
@@ -286,7 +286,7 @@ pub fn flushLeftRows(graph: sg.SemGraph, geom: []NodeGeom, lg: sugiyama.LayeredG
                 .virtual => {},
             }
         }
-        if (real_count < 2) continue; // trunk-critical / nothing to compact
+        if (real_count < 2) continue; // rail-critical / nothing to compact
         if (rowHasClusteredNode(graph, lg, row)) continue;
         if (rowHasLabeledIncomingEdge(graph, geom, lg, row)) continue;
 

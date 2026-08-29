@@ -39,7 +39,7 @@ fn graph(edges: []const sg.Edge) sg.SemGraph {
     };
 }
 
-fn expectClean(allocator: std.mem.Allocator, g: sg.SemGraph, plan: pb.JoinPermits) !void {
+fn expectClean(allocator: std.mem.Allocator, g: sg.SemGraph, plan: pb.BundlePermits) !void {
     const report = try planner.validate(allocator, g, plan);
     try std.testing.expect(report.valid());
 }
@@ -49,7 +49,7 @@ fn hasFinding(report: planner.ValidationReport, tag: planner.ValidationTag) bool
     return false;
 }
 
-fn canonicalBytes(allocator: std.mem.Allocator, plan: pb.JoinPermits) ![]const u8 {
+fn canonicalBytes(allocator: std.mem.Allocator, plan: pb.BundlePermits) ![]const u8 {
     var bytes: std.ArrayListUnmanaged(u8) = .empty;
     for (plan.groups) |group| {
         const header = try std.fmt.allocPrint(allocator, "g:{d}:{s}:{d}:", .{ group.id, @tagName(group.direction), group.pivot });
@@ -85,8 +85,8 @@ test "zero or one edge produces no groups" {
     const one = try planner.build(a, graph(&edges), .joined);
     try std.testing.expectEqual(@as(usize, 0), one.plan.groups.len);
     try std.testing.expectEqual(@as(usize, 1), one.plan.memberships.len);
-    try std.testing.expectEqual(@as(?pb.JoinGroupId, null), one.plan.memberships[0].source_group);
-    try std.testing.expectEqual(@as(?pb.JoinGroupId, null), one.plan.memberships[0].target_group);
+    try std.testing.expectEqual(@as(?pb.CandidateBundleId, null), one.plan.memberships[0].source_group);
+    try std.testing.expectEqual(@as(?pb.CandidateBundleId, null), one.plan.memberships[0].target_group);
     try expectClean(a, graph(&edges), one.plan);
 }
 
@@ -99,7 +99,7 @@ test "two edges with one source produce one fan-out group" {
     const result = try planner.build(a, graph(&edges), .joined);
     try std.testing.expectEqual(@as(usize, 1), result.plan.groups.len);
     const group = result.plan.groups[0];
-    try std.testing.expectEqual(pb.JoinDirection.out, group.direction);
+    try std.testing.expectEqual(pb.BundleDirection.out, group.direction);
     try std.testing.expectEqual(@as(sg.NodeId, 0), group.pivot);
     try std.testing.expectEqualSlices(pb.EdgeId, &.{ 4, 8 }, group.members);
     try expectClean(a, graph(&edges), result.plan);
@@ -113,7 +113,7 @@ test "two edges with one target produce one fan-in group" {
 
     const result = try planner.build(a, graph(&edges), .joined);
     try std.testing.expectEqual(@as(usize, 1), result.plan.groups.len);
-    try std.testing.expectEqual(pb.JoinDirection.in, result.plan.groups[0].direction);
+    try std.testing.expectEqual(pb.BundleDirection.in, result.plan.groups[0].direction);
     try std.testing.expectEqual(@as(sg.NodeId, 4), result.plan.groups[0].pivot);
     try std.testing.expectEqualSlices(pb.EdgeId, &.{ 3, 9 }, result.plan.groups[0].members);
     try expectClean(a, graph(&edges), result.plan);
@@ -173,7 +173,7 @@ test "V-D-EDGE-ID-05: edge-array permutation preserves canonical plan bytes" {
     try expectClean(a, graph(&shuffled), right.plan);
 }
 
-test "duplicate canonical edge keys are counted and block later join selection" {
+test "duplicate canonical edge keys are counted and block later bundle selection" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
@@ -181,7 +181,7 @@ test "duplicate canonical edge keys are counted and block later join selection" 
 
     const result = try planner.build(a, graph(&edges), .joined);
     try std.testing.expectEqual(@as(u32, 1), result.report.duplicate_canonical_edge_keys);
-    try std.testing.expect(result.report.join_select_duplicate_key_blocked);
+    try std.testing.expect(result.report.bundle_select_duplicate_key_blocked);
     try std.testing.expectEqual(@as(usize, 2), result.plan.groups.len);
     try expectClean(a, graph(&edges), result.plan);
 }
@@ -202,10 +202,10 @@ test "V-D-EDGE-ID-02: clustered graph returns empty plan and both skip markers" 
     clustered.clusters = &cluster;
 
     const result = try planner.build(a, clustered, .joined);
-    try std.testing.expectEqual(pb.JoinPolicy.joined, result.plan.policy);
+    try std.testing.expectEqual(pb.BundlePolicy.joined, result.plan.policy);
     try std.testing.expectEqual(@as(usize, 0), result.plan.groups.len);
     try std.testing.expectEqual(@as(usize, 0), result.plan.memberships.len);
-    try std.testing.expect(result.report.join_permits_skipped_clustered);
+    try std.testing.expect(result.report.bundle_permits_skipped_clustered);
     try std.testing.expect(result.report.edgeid_scope_clustered_skipped);
     try expectClean(a, clustered, result.plan);
 }
@@ -225,8 +225,8 @@ test "V-D-JOIN-SELECT-14: self-loop excluded from fan-in group leaves residual m
     // Both edges take null/null memberships and route independently.
     try std.testing.expectEqual(@as(usize, 2), result.plan.memberships.len);
     for (result.plan.memberships) |membership| {
-        try std.testing.expectEqual(@as(?pb.JoinGroupId, null), membership.source_group);
-        try std.testing.expectEqual(@as(?pb.JoinGroupId, null), membership.target_group);
+        try std.testing.expectEqual(@as(?pb.CandidateBundleId, null), membership.source_group);
+        try std.testing.expectEqual(@as(?pb.CandidateBundleId, null), membership.target_group);
     }
     try expectClean(a, graph(&edges), result.plan);
 
@@ -251,13 +251,13 @@ test "V-D-JOIN-SELECT-14: self-loop exclusion does not annihilate real fan-in co
     // Exactly one group: fan-in at Z over the two real edges; self-loop id 2 absent.
     try std.testing.expectEqual(@as(usize, 1), result.plan.groups.len);
     const group = result.plan.groups[0];
-    try std.testing.expectEqual(pb.JoinDirection.in, group.direction);
+    try std.testing.expectEqual(pb.BundleDirection.in, group.direction);
     try std.testing.expectEqual(@as(sg.NodeId, 4), group.pivot);
     try std.testing.expectEqualSlices(pb.EdgeId, &.{ 0, 1 }, group.members);
     // Self-loop membership stays (null, null).
     const self_loop = planner.lookupMembership(result.plan, .{ .original = 2 });
-    try std.testing.expectEqual(@as(?pb.JoinGroupId, null), self_loop.membership.?.source_group);
-    try std.testing.expectEqual(@as(?pb.JoinGroupId, null), self_loop.membership.?.target_group);
+    try std.testing.expectEqual(@as(?pb.CandidateBundleId, null), self_loop.membership.?.source_group);
+    try std.testing.expectEqual(@as(?pb.CandidateBundleId, null), self_loop.membership.?.target_group);
     try expectClean(a, graph(&edges), result.plan);
 }
 
@@ -290,19 +290,19 @@ test "validator rejects each structural invariant corruption" {
     const built = try planner.build(a, g, .joined);
 
     const short_members = [_]pb.EdgeId{0};
-    var groups = try a.dupe(pb.JoinGroup, built.plan.groups);
+    var groups = try a.dupe(pb.CandidateBundle, built.plan.groups);
     groups[0].members = &short_members;
     var report = try planner.validate(a, g, .{ .policy = .joined, .groups = groups, .memberships = built.plan.memberships });
     try std.testing.expect(hasFinding(report, .group_too_small));
     try std.testing.expect(hasFinding(report, .membership_group_lacks_edge));
 
-    groups = try a.dupe(pb.JoinGroup, built.plan.groups);
+    groups = try a.dupe(pb.CandidateBundle, built.plan.groups);
     groups[0].pivot = 1;
     report = try planner.validate(a, g, .{ .policy = .joined, .groups = groups, .memberships = built.plan.memberships });
     try std.testing.expect(hasFinding(report, .member_pivot_mismatch));
 
     const reversed = [_]pb.EdgeId{ 1, 0 };
-    groups = try a.dupe(pb.JoinGroup, built.plan.groups);
+    groups = try a.dupe(pb.CandidateBundle, built.plan.groups);
     groups[0].members = &reversed;
     report = try planner.validate(a, g, .{ .policy = .joined, .groups = groups, .memberships = built.plan.memberships });
     try std.testing.expect(hasFinding(report, .members_not_canonical));
@@ -311,19 +311,19 @@ test "validator rejects each structural invariant corruption" {
     report = try planner.validate(a, g, .{ .policy = .joined, .groups = built.plan.groups, .memberships = missing });
     try std.testing.expect(hasFinding(report, .membership_missing_edge));
 
-    var memberships = try a.dupe(pb.JoinMembership, built.plan.memberships);
+    var memberships = try a.dupe(pb.BundleMembership, built.plan.memberships);
     memberships[0].source_group = 99;
     report = try planner.validate(a, g, .{ .policy = .joined, .groups = built.plan.groups, .memberships = memberships });
     try std.testing.expect(hasFinding(report, .membership_group_missing));
 
-    groups = try a.dupe(pb.JoinGroup, built.plan.groups);
+    groups = try a.dupe(pb.CandidateBundle, built.plan.groups);
     const duplicate = [_]pb.EdgeId{ 0, 0 };
     groups[0].members = &duplicate;
     report = try planner.validate(a, g, .{ .policy = .joined, .groups = groups, .memberships = built.plan.memberships });
     try std.testing.expect(hasFinding(report, .group_duplicate_member));
 
-    groups = try a.dupe(pb.JoinGroup, built.plan.groups);
-    std.mem.swap(pb.JoinGroup, &groups[0], &groups[1]);
+    groups = try a.dupe(pb.CandidateBundle, built.plan.groups);
+    std.mem.swap(pb.CandidateBundle, &groups[0], &groups[1]);
     report = try planner.validate(a, g, .{ .policy = .joined, .groups = groups, .memberships = built.plan.memberships });
     try std.testing.expect(hasFinding(report, .groups_not_canonical));
 }
@@ -465,10 +465,10 @@ test "piece plan licenses a fan in piece-local ids; synthetic edges take no part
     edges[2].origin = 7;
 
     const result = try planner.buildPiece(a, graph(&edges));
-    try std.testing.expectEqual(pb.JoinPermits.Scope.piece, result.plan.scope);
+    try std.testing.expectEqual(pb.BundlePermits.Scope.piece, result.plan.scope);
     try std.testing.expect(!result.plan.isFlat());
     try std.testing.expectEqual(@as(usize, 1), result.plan.groups.len);
-    try std.testing.expectEqual(pb.JoinDirection.out, result.plan.groups[0].direction);
+    try std.testing.expectEqual(pb.BundleDirection.out, result.plan.groups[0].direction);
     try std.testing.expectEqual(@as(sg.NodeId, 0), result.plan.groups[0].pivot);
     // Members are PIECE-LOCAL ids in canonical (raw-id key) order B,C,D.
     try std.testing.expectEqualSlices(pb.EdgeId, &.{ 0, 1, 2 }, result.plan.groups[0].members);
@@ -492,7 +492,7 @@ test "root-level build of a clustered graph is unchanged by the piece path" {
     g.clusters = &clusters;
 
     const result = try planner.build(a, g, .joined);
-    try std.testing.expectEqual(pb.JoinPermits.Scope.skipped_clustered, result.plan.scope);
-    try std.testing.expect(result.report.join_permits_skipped_clustered);
+    try std.testing.expectEqual(pb.BundlePermits.Scope.skipped_clustered, result.plan.scope);
+    try std.testing.expect(result.report.bundle_permits_skipped_clustered);
     try std.testing.expectEqual(@as(usize, 0), result.plan.groups.len);
 }

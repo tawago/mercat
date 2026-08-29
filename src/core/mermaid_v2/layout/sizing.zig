@@ -39,7 +39,7 @@ pub fn shapeMinDims(shape: sg.NodeShape) Dims {
 
 /// Compute the wrapped/segmented display lines of `label` for the given
 /// soft-wrap cap. The lines are the single source of truth for box width,
-/// box height, AND painting (P1a — one channel, no byte-vs-display drift).
+/// box height, AND painting (P1a — one bundle, no byte-vs-display drift).
 ///
 ///   - `max_label_width == null`: split on hard `\n` sentinels only (today's
 ///     behavior — each author segment is one line). No soft wrapping.

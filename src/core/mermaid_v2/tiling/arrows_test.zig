@@ -220,7 +220,7 @@ test "base: an invisible base carrying the bit reads as fed, exactly as the rend
     const lat = g.lat();
     const c = base(&lat, 1, 1);
     try testing.expectEqual(@as(u32, 0), c.defectTotal());
-    try testing.expectEqual(@as(u32, 0), c.c_base_fan_trunk);
+    try testing.expectEqual(@as(u32, 0), c.c_base_fan_rail);
 }
 
 test "base: a label base is the validator's exemption, never a violation" {
@@ -270,7 +270,7 @@ test "base: a coincident frame beside the tip is NOT a side feed" {
     try testing.expectEqual(@as(u32, 1), c.d_base_blank);
 }
 
-test "base: a fan-strip trunk legally lacks the into-arrow arm" {
+test "base: a fan-strip rail legally lacks the into-arrow arm" {
     var g: Grid = .{};
     g.init();
     g.set(1, 1, arrowCell(.south, .{ .n = true, .s = true }));
@@ -280,7 +280,7 @@ test "base: a fan-strip trunk legally lacks the into-arrow arm" {
     ));
     const lat = g.lat();
     const c = base(&lat, 1, 1);
-    try testing.expectEqual(@as(u32, 1), c.c_base_fan_trunk);
+    try testing.expectEqual(@as(u32, 1), c.c_base_fan_rail);
     try testing.expectEqual(@as(u32, 0), c.defectTotal());
 }
 

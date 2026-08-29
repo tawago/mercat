@@ -25,7 +25,7 @@ pub const DispositionClass = enum {
 
 /// The closed tag registry, declared in D-DISPOSITION item 3's own
 /// enumeration order (owning record noted per block). Tags whose
-/// record-verbatim names carry dots (`join_select.*`) spell them with
+/// record-verbatim names carry dots (`bundle_select.*`) spell them with
 /// underscores here; `tagName` returns the verbatim form.
 pub const DiagnosticTag = enum {
     // D-DISPOSITION (3)
@@ -46,17 +46,17 @@ pub const DiagnosticTag = enum {
     dual_membership_selected_both_sides,
     permission_overlap_conflicts,
     // D-JOIN-SELECT (9)
-    join_select_selected,
-    join_select_independent_not_selected,
-    join_select_independent_overlap_conflict,
-    join_select_independent_unsafe_component,
-    join_select_conflict_neither,
-    join_select_invalidated,
-    join_select_cluster_skipped,
-    join_select_duplicate_key_blocked,
-    join_select_proposal_multiplicity_blocked,
+    bundle_select_selected,
+    bundle_select_independent_not_selected,
+    bundle_select_independent_overlap_conflict,
+    bundle_select_independent_unsafe_component,
+    bundle_select_conflict_neither,
+    bundle_select_invalidated,
+    bundle_select_cluster_skipped,
+    bundle_select_duplicate_key_blocked,
+    bundle_select_proposal_multiplicity_blocked,
     // D-JOIN (1)
-    intentional_joins,
+    intentional_bundles,
     // D-PORT (5)
     port_capacity_exceeded,
     port_key_collision,
@@ -68,7 +68,7 @@ pub const DiagnosticTag = enum {
     reach_missing_declared,
     reach_split_trace,
     reach_duplicate_trace,
-    reach_join_split,
+    reach_bundle_split,
     reach_independent_joined,
     reach_cross_connected,
     reach_one_sided_adjacency,
@@ -77,15 +77,15 @@ pub const DiagnosticTag = enum {
     reach_vector_raster_mismatch,
     reach_skipped_clustered,
     // D-IR (3)
-    join_permits_skipped_clustered,
+    bundle_permits_skipped_clustered,
     realized_plan_missing,
-    selected_join_invalidated,
+    selected_bundle_invalidated,
     // D-EDGE-ID (2)
     edgeid_scope_clustered_skipped,
     edgeid_unqualified_local_lookup,
-    // Rail-law refusals (3) and co-set declaration failures (2). The last
+    // Rail-law refusals (3) and bundle declaration failures (2). The last
     // three are fired by the all-arrow-free shared-rail closure law
-    // (base/rail_closure.zig) — the flat commitment in layout/join_commit.zig
+    // (base/rail_closure.zig) — the flat commitment in layout/bundle_commit.zig
     // and the clustered pass in layout/fan_rail_law.zig — and reach stderr on
     // the `MERCAT_INTEGRITY=1` line.
     /// Counts a construction group whose mixed pivot-end arrow decorations
@@ -110,19 +110,19 @@ pub const DiagnosticTag = enum {
     co_double_discharge,
 };
 
-/// Record-verbatim tag string (dotted for the `join_select.*` family).
+/// Record-verbatim tag string (dotted for the `bundle_select.*` family).
 /// guarded-by: diagnostics_test.zig "tag names round-trip through tagByName"
 pub fn tagName(tag: DiagnosticTag) []const u8 {
     return switch (tag) {
-        .join_select_selected => "join_select.selected",
-        .join_select_independent_not_selected => "join_select.independent.not_selected",
-        .join_select_independent_overlap_conflict => "join_select.independent.overlap_conflict",
-        .join_select_independent_unsafe_component => "join_select.independent.unsafe_component",
-        .join_select_conflict_neither => "join_select.conflict_neither",
-        .join_select_invalidated => "join_select.invalidated",
-        .join_select_cluster_skipped => "join_select.cluster_skipped",
-        .join_select_duplicate_key_blocked => "join_select.duplicate_key_blocked",
-        .join_select_proposal_multiplicity_blocked => "join_select.proposal_multiplicity_blocked",
+        .bundle_select_selected => "bundle_select.selected",
+        .bundle_select_independent_not_selected => "bundle_select.independent.not_selected",
+        .bundle_select_independent_overlap_conflict => "bundle_select.independent.overlap_conflict",
+        .bundle_select_independent_unsafe_component => "bundle_select.independent.unsafe_component",
+        .bundle_select_conflict_neither => "bundle_select.conflict_neither",
+        .bundle_select_invalidated => "bundle_select.invalidated",
+        .bundle_select_cluster_skipped => "bundle_select.cluster_skipped",
+        .bundle_select_duplicate_key_blocked => "bundle_select.duplicate_key_blocked",
+        .bundle_select_proposal_multiplicity_blocked => "bundle_select.proposal_multiplicity_blocked",
         inline else => |t| @tagName(t),
     };
 }
@@ -156,12 +156,12 @@ pub fn classOf(tag: DiagnosticTag) DispositionClass {
         // CI (17): the 11 substantive reach_* oracle failures (item 6
         // row 4), the per-candidate port breaches (item 6 rows 5-6),
         // realized_plan_missing (item 6 row 7), and BOTH invalidated-
-        // selected-join tags (item 5 row 4 names the pair).
+        // selected-bundle tags (item 5 row 4 names the pair).
         .reach_undeclared_pair,
         .reach_missing_declared,
         .reach_split_trace,
         .reach_duplicate_trace,
-        .reach_join_split,
+        .reach_bundle_split,
         .reach_independent_joined,
         .reach_cross_connected,
         .reach_one_sided_adjacency,
@@ -172,15 +172,15 @@ pub fn classOf(tag: DiagnosticTag) DispositionClass {
         .port_departure_conflict,
         .port_capacity_exceeded,
         .realized_plan_missing,
-        .selected_join_invalidated,
-        .join_select_invalidated,
+        .selected_bundle_invalidated,
+        .bundle_select_invalidated,
         => .candidate_invalid,
 
         // RO (26): normal-operation inventory/style/safety-filter outcomes
         // (item 6 rows 1-2), the five clustered scope-gate skips (item 6
         // row 3), the terminal-fallback count (item 9(e)), the
-        // count-surfaced intentional_joins, and the five registered-but-
-        // unfired rail-law / co-set tags — a refusal there is discharged by
+        // count-surfaced intentional_bundles, and the five registered-but-
+        // unfired rail-law / bundle tags — a refusal there is discharged by
         // unfusing onto separate lanes, never by invalidating the candidate.
         .disp_terminal_fallback_engaged,
         .rail_member_style_mixed,
@@ -190,17 +190,17 @@ pub fn classOf(tag: DiagnosticTag) DispositionClass {
         .dual_membership_edges,
         .dual_membership_selected_both_sides,
         .permission_overlap_conflicts,
-        .join_select_selected,
-        .join_select_independent_not_selected,
-        .join_select_independent_overlap_conflict,
-        .join_select_independent_unsafe_component,
-        .join_select_conflict_neither,
-        .join_select_cluster_skipped,
-        .join_select_duplicate_key_blocked,
-        .join_select_proposal_multiplicity_blocked,
-        .intentional_joins,
+        .bundle_select_selected,
+        .bundle_select_independent_not_selected,
+        .bundle_select_independent_overlap_conflict,
+        .bundle_select_independent_unsafe_component,
+        .bundle_select_conflict_neither,
+        .bundle_select_cluster_skipped,
+        .bundle_select_duplicate_key_blocked,
+        .bundle_select_proposal_multiplicity_blocked,
+        .intentional_bundles,
         .reach_skipped_clustered,
-        .join_permits_skipped_clustered,
+        .bundle_permits_skipped_clustered,
         .port_skipped_clustered,
         .edgeid_scope_clustered_skipped,
         .rail_deco_mixed,

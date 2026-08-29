@@ -6,7 +6,7 @@
 //!  1. OWNERSHIP — every ink cell is classified relative to the label's own
 //!     edge: `own` (the cell's edge id matches, OR the position lies on the
 //!     label's own routed geometry — its polyline / anchor segment — which
-//!     covers shared fan trunks, suppressed/merged carrier cells, and
+//!     covers shared fan rails, suppressed/merged carrier cells, and
 //!     crossing cells whose single Cell id names another rider),
 //!     `foreign_edge` (another edge's run or arrowhead), `foreign_solid`
 //!     (node or cluster ink). Labels are not ink — their spacing is the
@@ -45,7 +45,7 @@ pub const InkDistances = struct {
 /// The label's own edge, as the ownership tests see it: its id, its routed
 /// polyline (empty for rail taps), and the anchor segment the ladder is
 /// walking (for taps, the tapLabelSeg stretch of shared rail — own ink even
-/// though the trunk Cell names a single other rider).
+/// though the rail Cell names a single other rider).
 pub const Owner = struct {
     edge_id: u32,
     polyline: []const sketch.Point,

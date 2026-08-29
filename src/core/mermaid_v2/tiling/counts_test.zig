@@ -54,12 +54,12 @@ test "counts: a zero record has zero defects" {
     try testing.expectEqual(@as(u32, 0), c.defectTotal());
 }
 
-test "counts: channel audit counters add no defect claims" {
+test "counts: bundle audit counters add no defect claims" {
     var c: counts.Counts = .{};
-    c.u_channel_identity_disagreed = 3;
-    c.u_channel_detail_disagreed = 5;
-    c.u_channel_detail_invalid = 7;
-    c.u_channel_stamp_rail_invariant = 11;
+    c.u_bundle_identity_disagreed = 3;
+    c.u_bundle_detail_disagreed = 5;
+    c.u_bundle_detail_invalid = 7;
+    c.u_bundle_stamp_rail_invariant = 11;
     c.u_aux_collection_oom = 13;
     try testing.expectEqual(@as(u32, 0), c.defectTotal());
 }

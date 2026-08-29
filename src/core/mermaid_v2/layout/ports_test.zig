@@ -162,8 +162,8 @@ test "V-D-PORT-10: clamped L=3 with p=2 emits port_capacity_exceeded with the fu
     const a = arena.allocator();
     var independent = att("X", .source_exit, 7, 0);
     independent.group = 3;
-    const trunk: ports.Attachment = .{
-        .class = .trunk_pivot,
+    const rail: ports.Attachment = .{
+        .class = .rail_pivot,
         .key = .{ .opposite = "Y", .endpoint_side = .source_exit, .kind = 0, .arrow_from = 0, .arrow_to = 2, .label = null },
         .edge = 8,
         .group = 5,
@@ -171,7 +171,7 @@ test "V-D-PORT-10: clamped L=3 with p=2 emits port_capacity_exceeded with the fu
         .opposite_center = 4,
     };
     const candidate: ports.CandidateRef = .{ .candidate = 2, .rung = 1 };
-    const fail = try failed(try ports.allocate(a, candidate, 1, .south, 3, &.{ independent, trunk }));
+    const fail = try failed(try ports.allocate(a, candidate, 1, .south, 3, &.{ independent, rail }));
     const payload = fail.capacity_exceeded;
     try std.testing.expectEqual(pb.DiagnosticTag.port_capacity_exceeded, payload.tag);
     try std.testing.expectEqual(@as(u32, 2), payload.candidate.candidate);
@@ -181,10 +181,10 @@ test "V-D-PORT-10: clamped L=3 with p=2 emits port_capacity_exceeded with the fu
     try std.testing.expectEqual(@as(u32, 2), payload.demand);
     try std.testing.expectEqual(@as(u32, 3), payload.available);
     // Group class per attachment, in the clause-6 recorded order.
-    try std.testing.expectEqualSlices(ports.AttachmentClass, &.{ .independent, .trunk_pivot }, payload.classes);
+    try std.testing.expectEqualSlices(ports.AttachmentClass, &.{ .independent, .rail_pivot }, payload.classes);
     // EVERY involved edge id and branch group id on the side.
     try std.testing.expectEqualSlices(pb.EdgeId, &.{ 7, 8, 9 }, payload.edges);
-    try std.testing.expectEqualSlices(pb.JoinGroupId, &.{ 3, 5 }, payload.groups);
+    try std.testing.expectEqualSlices(pb.CandidateBundleId, &.{ 3, 5 }, payload.groups);
     try std.testing.expectEqualStrings(ports.decision_row_clause_12, payload.decision_row);
     try std.testing.expect(payload.reason.len > 0);
     try std.testing.expect(payload.expected_action.len > 0);
@@ -338,15 +338,15 @@ test "V-D-PORT-09: reversed exit and entry both derive to east in TD and get dis
     try std.testing.expectEqual(@as(u32, 3), out[1].offset);
 }
 
-test "derivation: a committed group consumes one trunk pivot attachment keyed by its smallest member K" {
+test "derivation: a committed group consumes one rail pivot attachment keyed by its smallest member K" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
     const nodes = [_]sg.Node{ mkNode(0, "S"), mkNode(1, "A"), mkNode(2, "B") };
     const edges = [_]sg.Edge{ mkEdge(0, 0, 1), mkEdge(1, 0, 2) };
     const graph = mkGraph(.TD, &nodes, &edges);
-    const groups = [_]pb.JoinGroup{.{ .id = 0, .direction = .out, .pivot = 0, .members = &.{ 0, 1 } }};
-    const plan: pb.JoinPermits = .{
+    const groups = [_]pb.CandidateBundle{.{ .id = 0, .direction = .out, .pivot = 0, .members = &.{ 0, 1 } }};
+    const plan: pb.BundlePermits = .{
         .policy = .joined,
         .groups = &groups,
         .memberships = &.{
@@ -354,26 +354,26 @@ test "derivation: a committed group consumes one trunk pivot attachment keyed by
             .{ .edge = 1, .source_group = 0, .target_group = null },
         },
     };
-    const joins: pb.RealizedJoins = .{
-        .selected_joins = &.{.{ .id = 0, .proposal = 0, .permission_group = 0, .members = &.{ 0, 1 } }},
+    const bundles: pb.RealizedBundles = .{
+        .selected_bundles = &.{.{ .id = 0, .proposal = 0, .candidate_bundle = 0, .members = &.{ 0, 1 } }},
         .memberships = &.{
             .{ .edge = 0, .source = .{ .selected = 0 }, .target = null },
             .{ .edge = 1, .source = .{ .selected = 0 }, .target = null },
         },
     };
-    const derived = try ports.derive(a, graph, plan, joins, .TD, &.{});
+    const derived = try ports.derive(a, graph, plan, bundles, .TD, &.{});
     // ONE pivot attachment on S south (not two member exits); ordinary
     // per-member entries at A and B.
     const south = try ports.forSide(a, derived, 0, .south);
     try std.testing.expectEqual(@as(usize, 1), south.len);
-    try std.testing.expectEqual(ports.AttachmentClass.trunk_pivot, south[0].class);
+    try std.testing.expectEqual(ports.AttachmentClass.rail_pivot, south[0].class);
     try std.testing.expectEqualStrings("A", south[0].key.opposite);
     try std.testing.expectEqual(@as(?pb.EdgeId, 0), south[0].edge);
-    try std.testing.expectEqual(@as(?pb.JoinGroupId, 0), south[0].group);
+    try std.testing.expectEqual(@as(?pb.CandidateBundleId, 0), south[0].group);
     try std.testing.expectEqual(@as(usize, 2), south[0].members.len);
     try std.testing.expectEqual(@as(u32, 1), ports.sideDemand(derived, 1).north);
     try std.testing.expectEqual(@as(u32, 1), ports.sideDemand(derived, 2).north);
-    // Clause 10: a trunk pivot alone on its side keeps the midpoint m —
+    // Clause 10: a rail pivot alone on its side keeps the midpoint m —
     // today's Rail stem geometry, the zero-output-change anchor.
     const out = try assigned(try ports.allocate(a, no_candidate, 0, .south, 7, south));
     try std.testing.expectEqual(@as(u32, 3), out[0].offset);
@@ -384,24 +384,24 @@ test "a fused union's leaf node exits through one shared attachment" {
     defer arena.deinit();
     const a = arena.allocator();
     // Directed K2,2, fused: each source spends ONE south exit for both of
-    // its member edges, keyed by the smallest member K like a trunk pivot.
+    // its member edges, keyed by the smallest member K like a rail pivot.
     const nodes = [_]sg.Node{ mkNode(0, "A"), mkNode(1, "B"), mkNode(2, "X"), mkNode(3, "Y") };
     const edges = [_]sg.Edge{ mkEdge(0, 0, 2), mkEdge(1, 0, 3), mkEdge(2, 1, 2), mkEdge(3, 1, 3) };
     const graph = mkGraph(.TD, &nodes, &edges);
-    const groups = [_]pb.JoinGroup{
+    const groups = [_]pb.CandidateBundle{
         .{ .id = 0, .direction = .in, .pivot = 2, .members = &.{ 0, 2 } },
         .{ .id = 1, .direction = .in, .pivot = 3, .members = &.{ 1, 3 } },
     };
-    const plan: pb.JoinPermits = .{ .policy = .joined, .groups = &groups, .memberships = &.{
+    const plan: pb.BundlePermits = .{ .policy = .joined, .groups = &groups, .memberships = &.{
         .{ .edge = 0, .source_group = null, .target_group = 0 },
         .{ .edge = 1, .source_group = null, .target_group = 1 },
         .{ .edge = 2, .source_group = null, .target_group = 0 },
         .{ .edge = 3, .source_group = null, .target_group = 1 },
     } };
-    const joins: pb.RealizedJoins = .{
-        .selected_joins = &.{
-            .{ .id = 0, .proposal = 0, .permission_group = 0, .members = &.{ 0, 2 } },
-            .{ .id = 1, .proposal = 1, .permission_group = 1, .members = &.{ 1, 3 } },
+    const bundles: pb.RealizedBundles = .{
+        .selected_bundles = &.{
+            .{ .id = 0, .proposal = 0, .candidate_bundle = 0, .members = &.{ 0, 2 } },
+            .{ .id = 1, .proposal = 1, .candidate_bundle = 1, .members = &.{ 1, 3 } },
         },
         .memberships = &.{
             .{ .edge = 0, .source = null, .target = .{ .selected = 0 } },
@@ -411,18 +411,18 @@ test "a fused union's leaf node exits through one shared attachment" {
         },
         .fused = &.{&.{ 0, 1, 2, 3 }},
     };
-    const derived = try ports.derive(a, graph, plan, joins, .TD, &.{});
+    const derived = try ports.derive(a, graph, plan, bundles, .TD, &.{});
     for ([2]u32{ 0, 1 }) |src| {
         const south = try ports.forSide(a, derived, src, .south);
         try std.testing.expectEqual(@as(usize, 1), south.len);
-        try std.testing.expectEqual(ports.AttachmentClass.trunk_pivot, south[0].class);
+        try std.testing.expectEqual(ports.AttachmentClass.rail_pivot, south[0].class);
         try std.testing.expectEqualStrings("X", south[0].key.opposite);
         try std.testing.expectEqual(@as(usize, 2), south[0].members.len);
     }
-    // The pivots keep their one trunk attachment each; without the licence
+    // The pivots keep their one rail attachment each; without the licence
     // the sources fall back to per-edge exits.
     try std.testing.expectEqual(@as(u32, 1), ports.sideDemand(derived, 2).north);
-    var lapsed = joins;
+    var lapsed = bundles;
     lapsed.fused = &.{};
     const per_edge = try ports.derive(a, graph, plan, lapsed, .TD, &.{});
     try std.testing.expectEqual(@as(usize, 2), (try ports.forSide(a, per_edge, 0, .south)).len);

@@ -162,7 +162,7 @@ pub const EdgePath = struct {
     label_left_of_run: bool = false,
 };
 
-// -- Rails (first-class fan trunks) ------------------------------------------
+// -- Rails (first-class fan rails) ------------------------------------------
 
 /// One tap off a fan rail: the branch serving exactly one edge of a
 /// fan. `at` lies ON the crossbar row; `landing` lies on the tap node's
@@ -187,11 +187,11 @@ pub const Tap = struct {
 pub const Rail = struct {
     pivot: NodeId,
     /// This rail's CHANNEL: the identity of the run its taps share, stamped
-    /// from the co-set roster (`sketch_channels.stamp`) so a raster reader
+    /// from the bundle roster (`sketch_bundles.stamp`) so a raster reader
     /// LOOKS the licence up on the rail's own ink instead of re-deriving it
-    /// from membership. `no_channel` = not filed, never "no channel".
-    /// guarded-by: sketch_channels_test.zig "a stamped sketch names its rail's channel and its roster alike"
-    channel: ledger.ChannelId = ledger.no_channel,
+    /// from membership. `no_bundle` = not filed, never "no bundle".
+    /// guarded-by: sketch_bundles_test.zig "a stamped sketch names its rail's bundle and its roster alike"
+    bundle: ledger.BundleId = ledger.no_bundle,
     stem: []const Point,
     crossbar: [2]Point,
     taps: []const Tap,
@@ -257,8 +257,8 @@ pub const Diagnostic = union(enum) {
 
 // -- Sketch ------------------------------------------------------------------
 
-/// Outcome of the latest all-or-nothing channel payload stamp.
-pub const ChannelStampState = enum { unattempted, complete, out_of_memory, rail_invariant };
+/// Outcome of the latest all-or-nothing bundle payload stamp.
+pub const BundleStampState = enum { unattempted, complete, out_of_memory, rail_invariant };
 
 /// Top-level geometric IR. All slices are borrowed from the layout
 /// arena; `bbox` encloses every `NodePlacement.rect`,
@@ -269,22 +269,22 @@ pub const Sketch = struct {
     nodes: []const NodePlacement,
     clusters: []const ClusterFrame,
     edges: []const EdgePath,
-    /// First-class fan trunks. Edges represented by a rail tap do NOT
+    /// First-class fan rails. Edges represented by a rail tap do NOT
     /// appear in `edges`. Defaulted empty so hand-built Sketches (tests)
     /// and pre-rail-aware code stay source-compatible.
     rails: []const Rail = &.{},
     rail_claims: []const ledger.RailClaim = &.{},
-    /// Candidate-local branch realization envelope. // guarded-by: entry.zig "V-D-IR-07: a clustered graph's joins ride piece plans; the root plan stays skipped"
-    joins: ledger.RealizedJoins = .{},
+    /// Candidate-local branch realization envelope. // guarded-by: entry.zig "V-D-IR-07: a clustered graph's bundles ride piece plans; the root plan stays skipped"
+    bundles: ledger.RealizedBundles = .{},
     /// Report-only closure-law inventory for this candidate (never a layout input).
     closure: ledger.ClosureCounts = .{},
-    /// Co-channel membership and, after `sketch_channels.stamp`, this render's
-    /// numbered channel roster. Layout fills it from live fans, stitch rewrites
+    /// Bundle membership and, after `sketch_bundles.stamp`, this render's
+    /// numbered bundle roster. Layout fills it from live fans, stitch rewrites
     /// child sets into the merged id space, and flat selection replaces them
     /// with plan-derived sets. Members use the Sketch's global edge-id space.
-    co_sets: []const ledger.CoSet = &.{},
-    /// Only `.complete` authorizes the stamped co-set and rail identities.
-    channel_stamp_state: ChannelStampState = .unattempted,
+    bundle_sets: []const ledger.Bundle = &.{},
+    /// Only `.complete` authorizes the stamped bundle and rail identities.
+    bundle_stamp_state: BundleStampState = .unattempted,
     diagnostics: []const Diagnostic,
     budget: WidthBudget,
     /// This candidate's label-placement policy (prim.LabelPolicy). Carried on

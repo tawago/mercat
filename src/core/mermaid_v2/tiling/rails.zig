@@ -32,7 +32,7 @@
 //! `raster/rails.zig` files straight from `sketch.Rail.taps[].edge`: one
 //! producer, one id space. That keying is legal precisely where CELL-id
 //! keying is not — a Cell holds one edge id and is first-writer-lossy, while
-//! the aux channel is PLURAL per cell and append-only under the anti-desync
+//! the aux bundle is PLURAL per cell and append-only under the anti-desync
 //! law, so two taps branching at one cell both keep their record. That the
 //! record's `value` really is a Sketch edge id of a rail the record's own
 //! cell belongs to is pinned corpus-wide from the raster side.
@@ -92,7 +92,7 @@
 //!     `sketch.Rail`, so they are outside the population entirely.
 //!   - a `.tap` record naming an edge no rail of the run declares is ignored.
 //!   - the record, not the surviving glyph, is what is read at a branch
-//!     cell. Labels raster after rails and the aux channel is
+//!     cell. Labels raster after rails and the aux bundle is
 //!     append-only, so a branch cell whose glyph was overwritten by opaque
 //!     text keeps its record and still reads as accounted. Same limit
 //!     `expect.zig` states for someone else's opaque ink, and the same
@@ -118,13 +118,13 @@ fn isOut(role: sketch.EdgeRole) bool {
 }
 
 /// The upper-stage endpoint of the pair one tap declares.
-fn upperOf(bb: sketch.Rail, tp: sketch.Tap) u32 {
-    return if (isOut(bb.role)) bb.pivot else tp.node;
+fn upperOf(rail: sketch.Rail, tp: sketch.Tap) u32 {
+    return if (isOut(rail.role)) rail.pivot else tp.node;
 }
 
 /// The lower-stage endpoint of the pair one tap declares.
-fn lowerOf(bb: sketch.Rail, tp: sketch.Tap) u32 {
-    return if (isOut(bb.role)) tp.node else bb.pivot;
+fn lowerOf(rail: sketch.Rail, tp: sketch.Tap) u32 {
+    return if (isOut(rail.role)) tp.node else rail.pivot;
 }
 
 /// Do two crossbars land on one row with touching-or-overlapping spans —
@@ -158,7 +158,7 @@ const Branch = enum { recorded, unrecorded, offgrid };
 /// Does this tap's branch cell carry a `.tap` record naming this member?
 /// The record is filed at the branch cell itself (`raster/rails.zig` files
 /// it at `tap.at` wherever ink landed), so the position is the key and the
-/// edge id picks the member out of a plural channel.
+/// edge id picks the member out of a plural bundle.
 fn branchEvidence(v: cell.View, tp: sketch.Tap) Branch {
     if (tp.at.x < 0 or tp.at.y < 0) return .offgrid;
     const t = v.at(@intCast(tp.at.x), @intCast(tp.at.y)) orelse return .offgrid;
@@ -234,9 +234,9 @@ fn accountPair(v: cell.View, s: sketch.Sketch, gr: []const u32, u: u32, l: u32, 
     var declared = false;
     var readable = false;
     for (gr) |gi| {
-        const bb = s.rails[gi];
-        for (bb.taps) |tp| {
-            if (upperOf(bb, tp) != u or lowerOf(bb, tp) != l) continue;
+        const rail = s.rails[gi];
+        for (rail.taps) |tp| {
+            if (upperOf(rail, tp) != u or lowerOf(rail, tp) != l) continue;
             declared = true;
             switch (branchEvidence(v, tp)) {
                 .recorded => {
@@ -307,7 +307,7 @@ pub fn check(alloc: std.mem.Allocator, v: cell.View, s: sketch.Sketch, c: *count
         };
 
         // Transitive closure of "would raster into one line". Re-runs until
-        // nothing joins, so a chain A-B-C is one run even when A and C do
+        // nothing bundles, so a chain A-B-C is one run even when A and C do
         // not touch each other.
         var grew = true;
         while (grew) {
@@ -338,13 +338,13 @@ pub fn check(alloc: std.mem.Allocator, v: cell.View, s: sketch.Sketch, c: *count
         upper.items.clearRetainingCapacity();
         lower.items.clearRetainingCapacity();
         for (group.items) |gi| {
-            const bb = s.rails[gi];
-            for (bb.taps) |tp| {
-                upper.add(alloc, upperOf(bb, tp)) catch {
+            const rail = s.rails[gi];
+            for (rail.taps) |tp| {
+                upper.add(alloc, upperOf(rail, tp)) catch {
                     c.u_audit_oom += 1;
                     return;
                 };
-                lower.add(alloc, lowerOf(bb, tp)) catch {
+                lower.add(alloc, lowerOf(rail, tp)) catch {
                     c.u_audit_oom += 1;
                     return;
                 };

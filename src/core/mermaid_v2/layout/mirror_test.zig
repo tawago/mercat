@@ -53,12 +53,12 @@ test "vertical mirror preserves the label policy" {
         .rails = &.{},
         .diagnostics = &.{},
         .budget = .{ .max_width = 20, .rung = 0 },
-        .channel_stamp_state = .rail_invariant,
+        .bundle_stamp_state = .rail_invariant,
         .label_policy = .beside,
     };
     const m = try mirror.vertical(a, s, .BT);
     try testing.expectEqual(sketch.Direction.BT, m.direction);
-    try testing.expectEqual(sketch.ChannelStampState.rail_invariant, m.channel_stamp_state);
+    try testing.expectEqual(sketch.BundleStampState.rail_invariant, m.bundle_stamp_state);
     try testing.expectEqual(@as(@TypeOf(m.label_policy), .beside), m.label_policy);
 }
 
@@ -106,21 +106,21 @@ test "vertical mirror deeply mirrors RailClaim sites and preserves identity" {
     try testing.expect(checked.isValid());
 }
 
-test "vertical BT mirror remaps clustered co-set scopes without changing identity" {
-    const flat_cells = [_]ledger.CoCell{ .{ .x = 4, .y = 12 }, .{ .x = 4, .y = 13 } };
-    const pair_12 = [_]ledger.CoCell{.{ .x = 4, .y = 12 }};
-    const pair_13 = [_]ledger.CoCell{ .{ .x = 5, .y = 13 }, .{ .x = 5, .y = 14 } };
+test "vertical BT mirror remaps clustered bundle scopes without changing identity" {
+    const flat_cells = [_]ledger.BundleCell{ .{ .x = 4, .y = 12 }, .{ .x = 4, .y = 13 } };
+    const pair_12 = [_]ledger.BundleCell{.{ .x = 4, .y = 12 }};
+    const pair_13 = [_]ledger.BundleCell{ .{ .x = 5, .y = 13 }, .{ .x = 5, .y = 14 } };
     const pairs = [_]ledger.PairCells{
         .{ .a = 1, .b = 2, .cells = &pair_12 },
         .{ .a = 1, .b = 3, .cells = &pair_13 },
     };
-    const empty_cells = [_]ledger.CoCell{};
+    const empty_cells = [_]ledger.BundleCell{};
     const empty_pairs = [_]ledger.PairCells{};
-    const sets = [_]ledger.CoSet{
-        .{ .origin = .fan_rail, .channel = 3, .members = &.{ 20, 21 } },
-        .{ .origin = .port_share, .channel = 9, .members = &.{ 1, 2, 3 }, .cells = &flat_cells, .pairwise = &pairs },
-        .{ .origin = .port_share, .channel = 10, .members = &.{ 4, 5 } },
-        .{ .origin = .port_share, .channel = 11, .members = &.{ 6, 7 }, .cells = &empty_cells, .pairwise = &empty_pairs },
+    const sets = [_]ledger.Bundle{
+        .{ .origin = .fan_rail, .bundle = 3, .members = &.{ 20, 21 } },
+        .{ .origin = .port_share, .bundle = 9, .members = &.{ 1, 2, 3 }, .cells = &flat_cells, .pairwise = &pairs },
+        .{ .origin = .port_share, .bundle = 10, .members = &.{ 4, 5 } },
+        .{ .origin = .port_share, .bundle = 11, .members = &.{ 6, 7 }, .cells = &empty_cells, .pairwise = &empty_pairs },
     };
     const clusters = [_]sketch.ClusterFrame{.{
         .id = 7,
@@ -135,8 +135,8 @@ test "vertical BT mirror remaps clustered co-set scopes without changing identit
         .nodes = &.{},
         .clusters = &clusters,
         .edges = &.{},
-        .co_sets = &sets,
-        .channel_stamp_state = .complete,
+        .bundle_sets = &sets,
+        .bundle_stamp_state = .complete,
         .diagnostics = &.{},
         .budget = .{ .max_width = 40, .rung = 0 },
     };
@@ -146,26 +146,26 @@ test "vertical BT mirror remaps clustered co-set scopes without changing identit
     const out = try mirror.vertical(arena.allocator(), s, .BT);
 
     try testing.expectEqual(sketch.Direction.BT, out.direction);
-    try testing.expectEqual(sketch.ChannelStampState.complete, out.channel_stamp_state);
+    try testing.expectEqual(sketch.BundleStampState.complete, out.bundle_stamp_state);
     try testing.expectEqual(@as(i32, 16), out.clusters[0].rect.y);
-    try testing.expectEqual(@as(usize, 4), out.co_sets.len);
-    for (sets, out.co_sets) |before, after| {
+    try testing.expectEqual(@as(usize, 4), out.bundle_sets.len);
+    for (sets, out.bundle_sets) |before, after| {
         try testing.expectEqual(before.origin, after.origin);
-        try testing.expectEqual(before.channel, after.channel);
+        try testing.expectEqual(before.bundle, after.bundle);
         try testing.expect(before.members.ptr == after.members.ptr);
     }
 
     // Structural and null-scoped records remain exactly unscoped.
-    try testing.expectEqualDeep(sets[0], out.co_sets[0]);
-    try testing.expect(out.co_sets[2].cells == null);
-    try testing.expect(out.co_sets[2].pairwise == null);
+    try testing.expectEqualDeep(sets[0], out.bundle_sets[0]);
+    try testing.expect(out.bundle_sets[2].cells == null);
+    try testing.expect(out.bundle_sets[2].pairwise == null);
     // Non-null empty scopes remain non-null and empty.
-    try testing.expect(out.co_sets[3].cells != null);
-    try testing.expectEqual(@as(usize, 0), out.co_sets[3].cells.?.len);
-    try testing.expect(out.co_sets[3].pairwise != null);
-    try testing.expectEqual(@as(usize, 0), out.co_sets[3].pairwise.?.len);
+    try testing.expect(out.bundle_sets[3].cells != null);
+    try testing.expectEqual(@as(usize, 0), out.bundle_sets[3].cells.?.len);
+    try testing.expect(out.bundle_sets[3].pairwise != null);
+    try testing.expectEqual(@as(usize, 0), out.bundle_sets[3].pairwise.?.len);
 
-    const scoped = out.co_sets[1];
+    const scoped = out.bundle_sets[1];
     try testing.expectEqual(@as(i32, 19), scoped.cells.?[0].y);
     try testing.expectEqual(@as(i32, 18), scoped.cells.?[1].y);
     try testing.expectEqual(@as(ledger.EdgeId, 1), scoped.pairwise.?[0].a);
@@ -174,18 +174,18 @@ test "vertical BT mirror remaps clustered co-set scopes without changing identit
     try testing.expectEqual(@as(i32, 18), scoped.pairwise.?[1].cells[0].y);
     try testing.expectEqual(@as(i32, 17), scoped.pairwise.?[1].cells[1].y);
 
-    try testing.expect(ledger.channelsAgree(s.co_sets, 1, 2, .{ .x = 4, .y = 12 }));
-    try testing.expect(!ledger.channelsAgree(out.co_sets, 1, 2, .{ .x = 4, .y = 12 }));
-    try testing.expect(ledger.channelsAgree(out.co_sets, 1, 2, .{ .x = 4, .y = 19 }));
+    try testing.expect(ledger.bundlesAgree(s.bundle_sets, 1, 2, .{ .x = 4, .y = 12 }));
+    try testing.expect(!ledger.bundlesAgree(out.bundle_sets, 1, 2, .{ .x = 4, .y = 12 }));
+    try testing.expect(ledger.bundlesAgree(out.bundle_sets, 1, 2, .{ .x = 4, .y = 19 }));
 }
 
 test "vertical mirror fails rather than exposing partially mirrored scopes" {
-    const flat = [_]ledger.CoCell{.{ .x = 4, .y = 12 }};
-    const pair_cells = [_]ledger.CoCell{.{ .x = 4, .y = 12 }};
+    const flat = [_]ledger.BundleCell{.{ .x = 4, .y = 12 }};
+    const pair_cells = [_]ledger.BundleCell{.{ .x = 4, .y = 12 }};
     const pairs = [_]ledger.PairCells{.{ .a = 1, .b = 2, .cells = &pair_cells }};
-    const sets = [_]ledger.CoSet{.{
+    const sets = [_]ledger.Bundle{.{
         .origin = .port_share,
-        .channel = 5,
+        .bundle = 5,
         .members = &.{ 1, 2 },
         .cells = &flat,
         .pairwise = &pairs,
@@ -196,8 +196,8 @@ test "vertical mirror fails rather than exposing partially mirrored scopes" {
         .nodes = &.{},
         .clusters = &.{},
         .edges = &.{},
-        .co_sets = &sets,
-        .channel_stamp_state = .complete,
+        .bundle_sets = &sets,
+        .bundle_stamp_state = .complete,
         .diagnostics = &.{},
         .budget = .{ .max_width = 20, .rung = 0 },
     };
@@ -209,12 +209,12 @@ test "vertical mirror fails rather than exposing partially mirrored scopes" {
         const a = failing.allocator();
         if (mirror.vertical(a, s, .BT)) |out| {
             try testing.expect(!failing.has_induced_failure);
-            try testing.expectEqual(sketch.ChannelStampState.complete, out.channel_stamp_state);
-            try testing.expectEqual(@as(i32, 19), out.co_sets[0].cells.?[0].y);
-            a.free(out.co_sets[0].pairwise.?[0].cells);
-            a.free(out.co_sets[0].pairwise.?);
-            a.free(out.co_sets[0].cells.?);
-            a.free(out.co_sets);
+            try testing.expectEqual(sketch.BundleStampState.complete, out.bundle_stamp_state);
+            try testing.expectEqual(@as(i32, 19), out.bundle_sets[0].cells.?[0].y);
+            a.free(out.bundle_sets[0].pairwise.?[0].cells);
+            a.free(out.bundle_sets[0].pairwise.?);
+            a.free(out.bundle_sets[0].cells.?);
+            a.free(out.bundle_sets);
             try testing.expectEqual(failing.allocations, failing.deallocations);
             saw_success = true;
             break;
@@ -223,8 +223,8 @@ test "vertical mirror fails rather than exposing partially mirrored scopes" {
             try testing.expect(failing.has_induced_failure);
             try testing.expectEqual(failing.allocations, failing.deallocations);
             // The complete source remains the only value available to callers.
-            try testing.expectEqual(sketch.ChannelStampState.complete, s.channel_stamp_state);
-            try testing.expectEqual(@as(i32, 12), s.co_sets[0].cells.?[0].y);
+            try testing.expectEqual(sketch.BundleStampState.complete, s.bundle_stamp_state);
+            try testing.expectEqual(@as(i32, 12), s.bundle_sets[0].cells.?[0].y);
         }
     }
     try testing.expect(saw_success);

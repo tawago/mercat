@@ -221,7 +221,7 @@ test "an invisible link contributes no ink and no arrowhead law" {
 /// validator's EXEMPTION, not one of its violations.
 fn baseViolationBuckets(c: counts.Counts) u32 {
     return c.u_base_oob + c.c_base_side_fed + c.d_base_blank +
-        c.c_base_fan_trunk + c.c_base_foreign + c.c_base_frame + c.d_base_unfed;
+        c.c_base_fan_rail + c.c_base_foreign + c.c_base_frame + c.d_base_unfed;
 }
 
 test "base buckets decompose arrow_base.validate exactly" {
@@ -388,7 +388,7 @@ test "the calibration floor: chains, fans and clusters are defect-free" {
         // TD-CHAIN and LR-CHAIN: the simplest thing the renderer does.
         "flowchart TD\n  A --> B\n  B --> C\n  C --> D\n",
         "flowchart LR\n  A --> B\n  B --> C\n  C --> D\n",
-        // FAN-RAIL: one trunk, many taps, ids shared across the strip.
+        // FAN-RAIL: one rail, many taps, ids shared across the strip.
         "flowchart TD\n  A --> B\n  A --> C\n  A --> D\n  A --> E\n  A --> F\n",
         "flowchart TD\n  B --> A\n  C --> A\n  D --> A\n  E --> A\n",
         // SUBROUTINE and other shapes: inner walls inside the interior.

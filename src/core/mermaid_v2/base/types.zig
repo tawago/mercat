@@ -168,10 +168,10 @@ pub const LabelPolicy = enum { on_run, beside };
 /// `plain` = every jog exactly as the track pass assigned it;
 /// `dodged` = each bridge routes sequentially, its jog displaced off
 /// committed and tentative ink;
-/// `trunked` = each licensed shared-source group jointly moves its shared
+/// `railed` = each licensed shared-source group jointly moves its shared
 /// jog to a rail coordinate judged against the full static scene (falls
 /// back to the plain geometry when no group is licensed or no jog moves).
-pub const BridgeBuild = enum { plain, dodged, trunked };
+pub const BridgeBuild = enum { plain, dodged, railed };
 
 pub const EdgeRole = enum {
     /// Default — straight forward edge between adjacent layers.

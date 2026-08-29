@@ -43,13 +43,13 @@ fn edge(from: u32, to: u32) sugiyama.LayerEdge {
     return .{ .from = from, .to = to, .edge = from, .reversed = false };
 }
 
-// -- claim: anchor on the MOST-drifted trunk node, not the first-drifted ---
+// -- claim: anchor on the MOST-drifted rail node, not the first-drifted ---
 
-test "deCascade anchors on the most-drifted trunk, not the first-drifted one" {
-    // Two disjoint single-node-layer trunks, each hanging off its own
-    // 2-real-node fork layer. Trunk A (layers 1-2) drifts only 6 cells and
-    // is encountered FIRST by the layer scan; trunk B (layers 4-5) drifts
-    // 30 cells and is encountered LATER. Only the most-drifted trunk (B)
+test "deCascade anchors on the most-drifted rail, not the first-drifted one" {
+    // Two disjoint single-node-layer rails, each hanging off its own
+    // 2-real-node fork layer. Rail A (layers 1-2) drifts only 6 cells and
+    // is encountered FIRST by the layer scan; rail B (layers 4-5) drifts
+    // 30 cells and is encountered LATER. Only the most-drifted rail (B)
     // may be picked as the slide anchor, so only B's nodes should move.
     var nodes = [_]sugiyama.LayerNode{
         .{ .real = 0 }, // ForkA
@@ -89,10 +89,10 @@ test "deCascade anchors on the most-drifted trunk, not the first-drifted one" {
 
     try decascade.deCascade(testing.allocator, dummy_graph, &geom, lg);
 
-    // Trunk B (the most-drifted) slid all the way to the margin.
+    // Rail B (the most-drifted) slid all the way to the margin.
     try testing.expectEqual(@as(i32, 0), geom[6].x);
     try testing.expectEqual(@as(i32, 0), geom[7].x);
-    // Trunk A (drifted less, encountered earlier in the scan) is untouched.
+    // Rail A (drifted less, encountered earlier in the scan) is untouched.
     try testing.expectEqual(@as(i32, 6), geom[2].x);
     try testing.expectEqual(@as(i32, 6), geom[3].x);
 }
@@ -151,7 +151,7 @@ test "deCascade head climb stops exactly at a multi-node fork layer" {
 
 // -- claim: head always has a forward parent (precondition for the slide) --
 
-test "deCascade no-ops when the drifted trunk head is a true source (no forward parent)" {
+test "deCascade no-ops when the drifted rail head is a true source (no forward parent)" {
     // Head is a source (no incoming edges at all) that still qualifies by
     // drift and has a valid 2-layer child chain below it (Tail). Without
     // the "head must have a forward parent" guard, this would look like a
@@ -185,13 +185,13 @@ test "deCascade no-ops when the drifted trunk head is a true source (no forward 
     try testing.expectEqual(@as(i32, 6), geom[2].x);
 }
 
-// -- claim: `next` must be the sole real node of its layer (trunk-straight) -
+// -- claim: `next` must be the sole real node of its layer (rail-straight) -
 
-test "deCascade trunk walk stops at a branch instead of treating it as trunk-straight" {
+test "deCascade rail walk stops at a branch instead of treating it as rail-straight" {
     // Head (layer 1, sole, drifted) -> BranchNode (layer 2, which ALSO
     // holds BranchSibling: 2 real nodes) -> FarNode (layer 3, sole). Even
     // though a further sole-real-node layer (FarNode) exists past the
-    // branch, the trunk must stop at Head because its immediate child's
+    // branch, the rail must stop at Head because its immediate child's
     // layer is not sole -- so hi<=lo and the whole call must no-op.
     var nodes = [_]sugiyama.LayerNode{
         .{ .real = 0 }, // Parent

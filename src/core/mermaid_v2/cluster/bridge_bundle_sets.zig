@@ -1,10 +1,10 @@
-//! Final-image resolution and outer structural co-set rebuild after
+//! Final-image resolution and outer structural bundle rebuild after
 //! cross-border routing.
 //!
 //! Outer placement carriers that touch a super-node are not final geometry.
 //! One such carrier may represent zero, one, or many routed bridges;
 //! `finalImages` resolves that relation for the claim rebuild (report tier).
-//! Co-sets never expand across it: bridge fusion authority is the licence
+//! Bundles never expand across it: bridge fusion authority is the licence
 //! tier's recorded verdict (cluster/bridge_plan.zig), so `rebuildOuterSets`
 //! keeps only sets among surviving real-node carriers. Cell-scoped port
 //! shares are excluded here: stitch derives their one final population from
@@ -78,9 +78,9 @@ pub fn rebuildOuterSets(
     final_edges: []const sketch.EdgePath,
     final_bridges: []const sketch.EdgePath,
     final_bars: []const sketch.Rail,
-) error{OutOfMemory}![]const ledger.CoSet {
-    var out: std.ArrayListUnmanaged(ledger.CoSet) = .empty;
-    for (outer.co_sets) |set| {
+) error{OutOfMemory}![]const ledger.Bundle {
+    var out: std.ArrayListUnmanaged(ledger.Bundle) = .empty;
+    for (outer.bundle_sets) |set| {
         if (set.origin == .port_share) continue;
         const polarity = polarityOf(outer, set) orelse continue;
         var groups: std.ArrayListUnmanaged(Group) = .empty;
@@ -114,9 +114,9 @@ pub fn rebuildOuterSets(
         for (groups.items) |*group| {
             if (group.members.items.len < 2 or group.contributors.items.len < 2) continue;
             std.mem.sort(sketch.EdgeId, group.members.items, {}, edgeLess);
-            const rebuilt: ledger.CoSet = .{
+            const rebuilt: ledger.Bundle = .{
                 .origin = set.origin,
-                .channel = ledger.no_channel,
+                .bundle = ledger.no_bundle,
                 // Structural fan authority is intentionally unscoped.
                 .members = try group.members.toOwnedSlice(arena),
             };
@@ -150,7 +150,7 @@ fn groupFor(
     return &groups.items[groups.items.len - 1];
 }
 
-fn polarityOf(outer: sketch.Sketch, set: ledger.CoSet) ?ledger.RailPolarity {
+fn polarityOf(outer: sketch.Sketch, set: ledger.Bundle) ?ledger.RailPolarity {
     var claimed: ?ledger.RailPolarity = null;
     for (outer.rail_claims) |claim| {
         var overlap: usize = 0;
@@ -188,20 +188,20 @@ fn polarityOf(outer: sketch.Sketch, set: ledger.CoSet) ?ledger.RailPolarity {
 
 fn endpointsOf(s: sketch.Sketch, id: sketch.EdgeId) ?Endpoints {
     for (s.edges) |edge| if (edge.id == id) return .{ .from = edge.from, .to = edge.to };
-    for (s.rails) |bar| {
-        const fan_in = bar.role == .fan_in_dropper or bar.role == .fan_in_rail;
-        for (bar.taps) |tap| {
+    for (s.rails) |rail| {
+        const fan_in = rail.role == .fan_in_dropper or rail.role == .fan_in_rail;
+        for (rail.taps) |tap| {
             if (tap.edge != id) continue;
             return if (fan_in)
-                .{ .from = tap.node, .to = bar.pivot }
+                .{ .from = tap.node, .to = rail.pivot }
             else
-                .{ .from = bar.pivot, .to = tap.node };
+                .{ .from = rail.pivot, .to = tap.node };
         }
     }
     return null;
 }
 
-fn finalImage(edges: []const sketch.EdgePath, bars: []const sketch.Rail, id: sketch.EdgeId) ?Image {
+fn finalImage(edges: []const sketch.EdgePath, rails_buf: []const sketch.Rail, id: sketch.EdgeId) ?Image {
     for (edges) |edge| if (edge.id == id) return .{
         .edge = id,
         .from = edge.from,
@@ -209,14 +209,14 @@ fn finalImage(edges: []const sketch.EdgePath, bars: []const sketch.Rail, id: ske
         .kind = edge.kind,
         .arrows = .{ edge.arrow_from, edge.arrow_to },
     };
-    for (bars) |bar| {
-        const fan_in = bar.role == .fan_in_dropper or bar.role == .fan_in_rail;
-        for (bar.taps) |tap| {
+    for (rails_buf) |rail| {
+        const fan_in = rail.role == .fan_in_dropper or rail.role == .fan_in_rail;
+        for (rail.taps) |tap| {
             if (tap.edge != id) continue;
             return if (fan_in)
-                .{ .edge = id, .from = tap.node, .to = bar.pivot, .kind = bar.kind, .arrows = .{ tap.arrow, bar.pivot_arrow } }
+                .{ .edge = id, .from = tap.node, .to = rail.pivot, .kind = rail.kind, .arrows = .{ tap.arrow, rail.pivot_arrow } }
             else
-                .{ .edge = id, .from = bar.pivot, .to = tap.node, .kind = bar.kind, .arrows = .{ bar.pivot_arrow, tap.arrow } };
+                .{ .edge = id, .from = rail.pivot, .to = tap.node, .kind = rail.kind, .arrows = .{ rail.pivot_arrow, tap.arrow } };
         }
     }
     return null;
@@ -255,7 +255,7 @@ fn hasImage(items: []const Image, id: sketch.EdgeId) bool {
     return false;
 }
 
-fn sameSetAlready(sets: []const ledger.CoSet, candidate: ledger.CoSet) bool {
+fn sameSetAlready(sets: []const ledger.Bundle, candidate: ledger.Bundle) bool {
     for (sets) |set| {
         if (set.origin != candidate.origin or set.members.len != candidate.members.len) continue;
         var same = true;

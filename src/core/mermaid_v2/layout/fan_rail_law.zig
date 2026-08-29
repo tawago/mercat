@@ -3,7 +3,7 @@
 //!
 //! Where a plan realized — a flat graph, or a cluster-free piece realizing
 //! its own plan — the law is decided before sizing by
-//! `join_commit.buildReported`: a refused rail's members take `independent`
+//! `bundle_commit.buildReported`: a refused rail's members take `independent`
 //! dispositions and `fan_lanes`' per-member pass gives each its own rail row.
 //! A render with no realized plan (a motif-packed candidate, a plan
 //! failure) has no permits, no dispositions, nothing for that pass to read —
@@ -56,7 +56,7 @@ const Claim = struct {
 ///
 /// `invisible` are edges drawing no ink: they can neither fuse nor fabricate,
 /// so they are outside the rail model entirely (same exclusion `fan_lanes`
-/// applies when it builds its trunks).
+/// applies when it builds its rails).
 /// guarded-by: fan_lanes_test.zig "a clustered undirected fan with no declared leaf pairs unfuses onto separate lanes"
 pub fn refuseUndeclared(
     a: std.mem.Allocator,

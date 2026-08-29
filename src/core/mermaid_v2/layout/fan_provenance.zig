@@ -15,23 +15,23 @@ pub fn build(
     graph: sg.SemGraph,
     placements: []const sketch.NodePlacement,
     fans: []const fan_mod.Fan,
-    joins: ledger.RealizedJoins,
+    bundles: ledger.RealizedBundles,
     paths: []const sketch.EdgePath,
     rails: []const sketch.Rail,
 ) error{OutOfMemory}![]const ledger.RailClaim {
     var out: std.ArrayListUnmanaged(ledger.RailClaim) = .empty;
     for (fans) |f| {
-        // A fan-OUT every one of whose peers rides a selected arrival trunk
+        // A fan-OUT every one of whose peers rides a selected arrival rail
         // draws no run of its own; its members' rail evidence is the
         // arrivals' to claim, so a departure claim here would file a rail
         // that owns no ink (unresolved sites).
-        if (deferredToArrivals(joins, f)) continue;
+        if (deferredToArrivals(bundles, f)) continue;
         for (f.peers, 0..) |seed, i| {
             if (!seed.shared) continue;
             const seed_edge = edgeById(graph, seed.edge_id) orelse continue;
-            if (!effective(joins, seed_edge)) continue;
+            if (!effective(bundles, seed_edge)) continue;
             const lane = fan_mod.effectiveLane(f, seed.lane);
-            if (groupSeen(graph, f, joins, f.peers[0..i], lane)) continue;
+            if (groupSeen(graph, f, bundles, f.peers[0..i], lane)) continue;
 
             // Membership is the recorded decision (`peer.shared`, set from
             // permits, minus plan-discharged edges) partitioned by the rail
@@ -43,7 +43,7 @@ pub fn build(
                 if (!peer.shared) continue;
                 if (fan_mod.effectiveLane(f, peer.lane) != lane) continue;
                 const semantic = edgeById(graph, peer.edge_id) orelse continue;
-                if (!effective(joins, semantic)) continue;
+                if (!effective(bundles, semantic)) continue;
                 try members.append(a, memberFor(f, semantic, placements, paths, rails));
             }
             if (members.items.len < 2) {
@@ -160,23 +160,23 @@ fn siteFromPoint(placements: []const sketch.NodePlacement, node: sketch.NodeId, 
     return null;
 }
 
-fn groupSeen(graph: sg.SemGraph, f: fan_mod.Fan, joins: ledger.RealizedJoins, peers: []const fan_mod.FanEdge, lane: u32) bool {
+fn groupSeen(graph: sg.SemGraph, f: fan_mod.Fan, bundles: ledger.RealizedBundles, peers: []const fan_mod.FanEdge, lane: u32) bool {
     for (peers) |peer| {
         if (!peer.shared) continue;
         if (fan_mod.effectiveLane(f, peer.lane) != lane) continue;
         const prior = edgeById(graph, peer.edge_id) orelse continue;
-        if (effective(joins, prior)) return true;
+        if (effective(bundles, prior)) return true;
     }
     return false;
 }
 
-fn deferredToArrivals(joins: ledger.RealizedJoins, f: fan_mod.Fan) bool {
-    if (f.direction != .out or joins.memberships.len == 0) return false;
+fn deferredToArrivals(bundles: ledger.RealizedBundles, f: fan_mod.Fan) bool {
+    if (f.direction != .out or bundles.memberships.len == 0) return false;
     var any = false;
     for (f.peers) |peer| {
         if (!peer.shared) continue;
         any = true;
-        const arrival = for (joins.memberships) |m| {
+        const arrival = for (bundles.memberships) |m| {
             if (m.edge == peer.edge_id) break m.target orelse return false;
         } else return false;
         if (arrival != .selected) return false;
@@ -184,9 +184,9 @@ fn deferredToArrivals(joins: ledger.RealizedJoins, f: fan_mod.Fan) bool {
     return any;
 }
 
-fn effective(joins: ledger.RealizedJoins, edge: sg.Edge) bool {
+fn effective(bundles: ledger.RealizedBundles, edge: sg.Edge) bool {
     if (edge.kind == .invisible) return false;
-    for (joins.co_realized) |spent| if (spent == edge.id) return false;
+    for (bundles.discharged) |spent| if (spent == edge.id) return false;
     return true;
 }
 

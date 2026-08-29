@@ -17,23 +17,23 @@
 //! OR-merging foreign perpendicular overlap at the raster layer.
 //!
 //! EXEMPTIONS (structural, never seed-keyed): same owner, and co-members of one
-//! realized selected join — that ink sharing is legal join ink (D-JOIN clause
-//! 4). Determined from `Sketch.joins` (RealizedJoins)
-//! and from `Sketch.co_sets`, the co-channel membership the same decisions
+//! realized selected bundle — that ink sharing is legal bundle ink (D-JOIN clause
+//! 4). Determined from `Sketch.bundles` (RealizedBundles)
+//! and from `Sketch.bundle_sets`, the bundle membership the same decisions
 //! record; never from geometry or a fixture name. The two agree by
 //! construction wherever a plan realized — flat sketches directly, clustered
-//! sketches through the piece plans the stitch merges — and `co_sets` alone
+//! sketches through the piece plans the stitch merges — and `bundle_sets` alone
 //! speaks for a sketch with no realized plan (motif-packed, plan failure).
 //!
 //! SCOPE: UNCONDITIONAL. A crossing between two edges that do not legally
-//! share a channel never paints a junction glyph, on every render — flat,
+//! share a bundle never paints a junction glyph, on every render — flat,
 //! clustered, and recursion children alike. There is no arming predicate: the
-//! only question ever asked of the INK is `sameChannel`, the membership
+//! only question ever asked of the INK is `sameBundle`, the membership
 //! derivation. What a record SAYS about a cell is a different question, and it
-//! is answered by looking up the channel identity the producer stamped
-//! (`channelAt` / `licenceFor`); the two are counted against each other on
-//! every render by `tiling/channels.zig`. A sketch may carry legality in
-//! `co_sets` without a realized plan (motif-packed candidates, plan
+//! is answered by looking up the bundle identity the producer stamped
+//! (`bundleAt` / `licenceFor`); the two are counted against each other on
+//! every render by `tiling/bundles.zig`. A sketch may carry legality in
+//! `bundle_sets` without a realized plan (motif-packed candidates, plan
 //! failures), which is exactly why the plan may not gate the rule.
 //!
 //! Counts flow raster → entry → diagnostics, and via audit.zig into
@@ -51,18 +51,18 @@ const ledger = @import("../base/ledger.zig");
 const prim = @import("prim");
 
 pub const EdgeId = ledger.EdgeId;
-pub const CoCell = ledger.CoCell;
+pub const BundleCell = ledger.BundleCell;
 
-/// The lattice cell a crossing decision is about, in the co-set's coordinate
-/// space (`ledger.CoCell` is signed because a Sketch polyline is; a rasterized
+/// The lattice cell a crossing decision is about, in the bundle's coordinate
+/// space (`ledger.BundleCell` is signed because a Sketch polyline is; a rasterized
 /// cell is always non-negative, so the widening is total).
-pub fn cellAt(x: u32, y: u32) ledger.CoCell {
+pub fn cellAt(x: u32, y: u32) ledger.BundleCell {
     return .{ .x = @intCast(x), .y = @intCast(y) };
 }
 
 /// The three painted-crossing outcomes a foreign overlap can classify to.
 pub const CrossingClass = enum {
-    /// A strict orthogonal transversal between unrelated channels: the crossed
+    /// A strict orthogonal transversal between unrelated bundles: the crossed
     /// run keeps its straight stroke, the crossing edge resumes on the opposite
     /// side. Legal (D-CROSS C1 reading requirement, D-REACH clause 7 vector half).
     legal_crossing,
@@ -98,12 +98,12 @@ pub const CrossingCounts = struct {
 /// mode.
 /// Copied by value; `counts` is a pointer so increments persist.
 pub const Ctx = struct {
-    joins: ledger.RealizedJoins = .{},
-    /// Co-channel membership from the Sketch (`Sketch.co_sets`).
-    co_sets: []const ledger.CoSet = &.{},
-    /// Outcome of the producer's transactional channel stamp. This gates only
+    bundles: ledger.RealizedBundles = .{},
+    /// Bundle membership from the Sketch (`Sketch.bundle_sets`).
+    bundle_sets: []const ledger.Bundle = &.{},
+    /// Outcome of the producer's transactional bundle stamp. This gates only
     /// recorded identity lookups; the ink predicates below remain derived.
-    stamp_state: sketch.ChannelStampState = .unattempted,
+    stamp_state: sketch.BundleStampState = .unattempted,
     counts: *CrossingCounts,
     /// Subgraph frame-border notation (owner ruling, tawago 2026-07-19).
     /// `.bridge` (default): frame-solid, edges bridge the border. `.cross`:
@@ -111,52 +111,52 @@ pub const Ctx = struct {
     mode: prim.SubgraphEdges = .bridge,
 };
 
-/// Two edges share LEGAL join ink iff they are the same owner or co-members of
-/// one channel: a declared co-set or a realized selected join (D-JOIN clause
+/// Two edges share LEGAL bundle ink iff they are the same owner or co-members of
+/// one bundle: a declared bundle or a realized selected bundle (D-JOIN clause
 /// 4). This is the structural exemption from the
 /// transversal rule — determined from the recorded membership, never from
 /// geometry or a seed name.
 ///
-/// `co_sets` and `joins` are asked in turn and neither can veto the other, so
-/// on the flat path — where the co-sets ARE the plan's membership — the answer
+/// `bundle_sets` and `bundles` are asked in turn and neither can veto the other, so
+/// on the flat path — where the bundles ARE the plan's membership — the answer
 /// is the plan's answer.
-/// guarded-by: crossings.zig "sameChannel: co-set membership answers what the plan answers"
-/// `at` is the CELL the decision is about. A co-set may be cell-scoped (a
+/// guarded-by: crossings.zig "sameBundle: bundle membership answers what the plan answers"
+/// `at` is the CELL the decision is about. A bundle may be cell-scoped (a
 /// `.port_share` set licenses only the two edges' common approach), so the
 /// membership question is always asked about a position; the structural
 /// origins license every cell and ignore it.
-/// guarded-by: crossings.zig "sameChannel: a cell-scoped co-set answers only on its own cells"
+/// guarded-by: crossings.zig "sameBundle: a cell-scoped bundle answers only on its own cells"
 ///
 /// STANDING. This is the DERIVATION, and it is no longer what establishes a
 /// licence anywhere it only fills in a record's `detail`: those sites read the
-/// channel identity the producer filed (`channelAt` below). It still gates INK
+/// bundle identity the producer filed (`bundleAt` below). It still gates INK
 /// at the two refusal predicates in this file, and it is kept whole as the
-/// witness the recorded identity is measured against — `tiling/channels.zig`
+/// witness the recorded identity is measured against — `tiling/bundles.zig`
 /// runs both answers over every carrier a render files and counts them
 /// agreeing and disagreeing. One copy, in `base/ledger.zig`, so the audit and
 /// the raster can never drift into asking two different questions.
-pub fn sameChannel(
+pub fn sameBundle(
     a: EdgeId,
     b: EdgeId,
-    joins: ledger.RealizedJoins,
-    co_sets: []const ledger.CoSet,
-    at: ledger.CoCell,
+    bundles: ledger.RealizedBundles,
+    bundle_sets: []const ledger.Bundle,
+    at: ledger.BundleCell,
 ) bool {
-    return ledger.derivedSameChannel(joins, co_sets, a, b, at);
+    return ledger.derivedSameBundle(bundles, bundle_sets, a, b, at);
 }
 
-/// The channel `edge` rides at `at`, read off the roster the producer stamped.
-/// Every edge has one: a co-set names a SHARED channel, and an edge no set
+/// The bundle `edge` rides at `at`, read off the roster the producer stamped.
+/// Every edge has one: a bundle names a SHARED bundle, and an edge no set
 /// names rides its own, one edge wide. A reader compares two of these instead
 /// of re-scanning membership — which is the whole point, because the id can
-/// then be said out loud ("this run speaks for channel k") where the relation
+/// then be said out loud ("this run speaks for bundle k") where the relation
 /// could only ever be asserted about a pair.
-pub fn channelAt(co_sets: []const ledger.CoSet, edge: EdgeId, at: ledger.CoCell) ledger.ChannelId {
-    return ledger.channelOf(co_sets, edge, at);
+pub fn bundleAt(bundle_sets: []const ledger.Bundle, edge: EdgeId, at: ledger.BundleCell) ledger.BundleId {
+    return ledger.bundleOf(bundle_sets, edge, at);
 }
 
 /// The merged-carrier flavour for an ordered pair at `at`, decided by RECORDED
-/// IDENTITY: licensed iff the two carriers name one channel. Label-only — no
+/// IDENTITY: licensed iff the two carriers name one bundle. Label-only — no
 /// caller of this moves a byte.
 ///
 /// ABSTAINS unless the producer completed its transactional stamp AND every
@@ -169,13 +169,13 @@ pub fn channelAt(co_sets: []const ledger.CoSet, edge: EdgeId, at: ledger.CoCell)
 pub fn licenceFor(
     held: EdgeId,
     incoming: EdgeId,
-    co_sets: []const ledger.CoSet,
-    stamp_state: sketch.ChannelStampState,
-    at: ledger.CoCell,
+    bundle_sets: []const ledger.Bundle,
+    stamp_state: sketch.BundleStampState,
+    at: ledger.BundleCell,
 ) lattice.CarrierKind {
-    if (stamp_state != .complete or !ledger.rosterNumbered(co_sets)) return .merged_untested;
+    if (stamp_state != .complete or !ledger.rosterNumbered(bundle_sets)) return .merged_untested;
     if (held == incoming) return .merged_licensed;
-    return if (channelAt(co_sets, held, at) == channelAt(co_sets, incoming, at))
+    return if (bundleAt(bundle_sets, held, at) == bundleAt(bundle_sets, incoming, at))
         .merged_licensed
     else
         .merged_foreign;
@@ -209,18 +209,18 @@ pub fn classifySegment(existing: lattice.Neighbours, incoming: lattice.Neighbour
 /// Returns true when the caller must KEEP the first writer's cell untouched (no
 /// OR-merge, no role change) — the transversal / no-foreign-tee behavior — and
 /// records the classified event. Returns false to proceed with the pre-C
-/// merge (same owner or legal join ink).
+/// merge (same owner or legal bundle ink).
 pub fn segmentOverlap(
     counts: *CrossingCounts,
-    joins: ledger.RealizedJoins,
-    co_sets: []const ledger.CoSet,
+    bundles: ledger.RealizedBundles,
+    bundle_sets: []const ledger.Bundle,
     existing_edge: EdgeId,
     existing_mask: lattice.Neighbours,
     incoming_edge: EdgeId,
     incoming_mask: lattice.Neighbours,
-    at: ledger.CoCell,
+    at: ledger.BundleCell,
 ) bool {
-    if (sameChannel(existing_edge, incoming_edge, joins, co_sets, at)) return false;
+    if (sameBundle(existing_edge, incoming_edge, bundles, bundle_sets, at)) return false;
     switch (classifySegment(existing_mask, incoming_mask)) {
         .legal_crossing => counts.legal_crossing += 1,
         .foreign_junction_violation => counts.foreign_junction_violation += 1,
@@ -233,16 +233,16 @@ pub fn segmentOverlap(
 /// landing on an arrowhead, or an arrowhead being written over a foreign
 /// segment). Returns true when the caller must keep the arrowhead cell pristine
 /// (C2), recording the violation; false to proceed with the pre-C behavior (an
-/// edge's own terminal arrowhead or legal join ink).
+/// edge's own terminal arrowhead or legal bundle ink).
 pub fn arrowheadTransit(
     counts: *CrossingCounts,
-    joins: ledger.RealizedJoins,
-    co_sets: []const ledger.CoSet,
+    bundles: ledger.RealizedBundles,
+    bundle_sets: []const ledger.Bundle,
     arrow_edge: EdgeId,
     incoming_edge: EdgeId,
-    at: ledger.CoCell,
+    at: ledger.BundleCell,
 ) bool {
-    if (sameChannel(arrow_edge, incoming_edge, joins, co_sets, at)) return false;
+    if (sameBundle(arrow_edge, incoming_edge, bundles, bundle_sets, at)) return false;
     counts.arrowhead_transit_violation += 1;
     return true;
 }
@@ -251,7 +251,7 @@ pub fn arrowheadTransit(
 
 /// Any cell: the structural origins license every position, so the tests that
 /// speak for them pass an arbitrary one.
-const ANY: ledger.CoCell = .{ .x = 0, .y = 0 };
+const ANY: ledger.BundleCell = .{ .x = 0, .y = 0 };
 
 const H: lattice.Neighbours = .{ .e = true, .w = true };
 const V: lattice.Neighbours = .{ .n = true, .s = true };
@@ -275,51 +275,51 @@ test "classifySegment: perpendicular is legal, collinear/corner are violations" 
     );
 }
 
-test "sameChannel: same owner and selected-join co-members" {
+test "sameBundle: same owner and selected-bundle co-members" {
     var members = [_]EdgeId{ 10, 11, 12 };
-    var sel = [_]ledger.SelectedJoin{.{ .id = 0, .proposal = 0, .permission_group = 0, .members = &members }};
-    const joins: ledger.RealizedJoins = .{ .selected_joins = &sel };
+    var sel = [_]ledger.SelectedBundle{.{ .id = 0, .proposal = 0, .candidate_bundle = 0, .members = &members }};
+    const bundles: ledger.RealizedBundles = .{ .selected_bundles = &sel };
 
-    try std.testing.expect(sameChannel(5, 5, joins, &.{}, ANY)); // same owner
-    try std.testing.expect(sameChannel(10, 12, joins, &.{}, ANY)); // co-members
-    try std.testing.expect(!sameChannel(10, 99, joins, &.{}, ANY)); // one foreign
-    try std.testing.expect(!sameChannel(98, 99, .{}, &.{}, ANY)); // empty plan, distinct
+    try std.testing.expect(sameBundle(5, 5, bundles, &.{}, ANY)); // same owner
+    try std.testing.expect(sameBundle(10, 12, bundles, &.{}, ANY)); // co-members
+    try std.testing.expect(!sameBundle(10, 99, bundles, &.{}, ANY)); // one foreign
+    try std.testing.expect(!sameBundle(98, 99, .{}, &.{}, ANY)); // empty plan, distinct
 }
 
-test "sameChannel: co-set membership answers what the plan answers" {
-    // The flat path derives its co-sets FROM the plan, so the two arguments
+test "sameBundle: bundle membership answers what the plan answers" {
+    // The flat path derives its bundles FROM the plan, so the two arguments
     // are two spellings of one fact. Pin that: asked with only the plan, or
-    // with only the plan's co-sets, the answers agree on every pair.
+    // with only the plan's bundles, the answers agree on every pair.
     var members = [_]EdgeId{ 10, 11, 12 };
     var others = [_]EdgeId{ 20, 21 };
-    var sel = [_]ledger.SelectedJoin{
-        .{ .id = 0, .proposal = 0, .permission_group = 0, .members = &members },
-        .{ .id = 1, .proposal = 1, .permission_group = 1, .members = &others },
+    var sel = [_]ledger.SelectedBundle{
+        .{ .id = 0, .proposal = 0, .candidate_bundle = 0, .members = &members },
+        .{ .id = 1, .proposal = 1, .candidate_bundle = 1, .members = &others },
     };
-    const joins: ledger.RealizedJoins = .{ .selected_joins = &sel };
+    const bundles: ledger.RealizedBundles = .{ .selected_bundles = &sel };
 
-    const derived = try ledger.coSetsFromPlan(std.testing.allocator, joins);
+    const derived = try ledger.bundlesFromPlan(std.testing.allocator, bundles);
     defer std.testing.allocator.free(derived);
 
     for ([_]EdgeId{ 10, 11, 12, 20, 21, 99 }) |a| {
         for ([_]EdgeId{ 10, 11, 12, 20, 21, 99 }) |b| {
             try std.testing.expectEqual(
-                sameChannel(a, b, joins, &.{}, ANY),
-                sameChannel(a, b, .{}, derived, ANY),
+                sameBundle(a, b, bundles, &.{}, ANY),
+                sameBundle(a, b, .{}, derived, ANY),
             );
         }
     }
-    // A co-set with no plan behind it still speaks — that is the clustered
-    // render's only channel evidence.
+    // A bundle with no plan behind it still speaks — that is the clustered
+    // render's only bundle evidence.
     var fan = [_]EdgeId{ 4, 5 };
-    const fan_sets = [_]ledger.CoSet{.{ .origin = .fan_rail, .members = &fan }};
-    try std.testing.expect(sameChannel(4, 5, .{}, &fan_sets, ANY));
-    try std.testing.expect(!sameChannel(4, 6, .{}, &fan_sets, ANY));
+    const fan_sets = [_]ledger.Bundle{.{ .origin = .fan_rail, .members = &fan }};
+    try std.testing.expect(sameBundle(4, 5, .{}, &fan_sets, ANY));
+    try std.testing.expect(!sameBundle(4, 6, .{}, &fan_sets, ANY));
 }
 
 test "segmentOverlap: exempt merges; foreign perpendicular keeps first writer" {
     var counts: CrossingCounts = .{};
-    // With no plan and no co-sets at all, two distinct edges are still foreign:
+    // With no plan and no bundles at all, two distinct edges are still foreign:
     // the rule is unconditional, so this is a legal transversal, not a merge.
     try std.testing.expect(segmentOverlap(&counts, .{}, &.{}, 1, H, 2, V, ANY));
     try std.testing.expectEqual(@as(u32, 1), counts.legal_crossing);
@@ -327,22 +327,22 @@ test "segmentOverlap: exempt merges; foreign perpendicular keeps first writer" {
 
     // Foreign, perpendicular → keep first writer (true), legal event.
     var members = [_]EdgeId{ 1, 3 };
-    var sel = [_]ledger.SelectedJoin{.{ .id = 0, .proposal = 0, .permission_group = 0, .members = &members }};
-    const joins: ledger.RealizedJoins = .{ .selected_joins = &sel };
-    try std.testing.expect(segmentOverlap(&counts, joins, &.{}, 1, H, 2, V, ANY));
+    var sel = [_]ledger.SelectedBundle{.{ .id = 0, .proposal = 0, .candidate_bundle = 0, .members = &members }};
+    const bundles: ledger.RealizedBundles = .{ .selected_bundles = &sel };
+    try std.testing.expect(segmentOverlap(&counts, bundles, &.{}, 1, H, 2, V, ANY));
     try std.testing.expectEqual(@as(u32, 1), counts.legal_crossing);
 
-    // Co-members (1 & 3 share the selected join) → merge (false).
-    try std.testing.expect(!segmentOverlap(&counts, joins, &.{}, 1, H, 3, V, ANY));
+    // Co-members (1 & 3 share the selected bundle) → merge (false).
+    try std.testing.expect(!segmentOverlap(&counts, bundles, &.{}, 1, H, 3, V, ANY));
     try std.testing.expectEqual(@as(u32, 1), counts.legal_crossing);
 
     // Foreign, collinear → keep first writer, junction violation.
-    try std.testing.expect(segmentOverlap(&counts, joins, &.{}, 1, H, 2, H, ANY));
+    try std.testing.expect(segmentOverlap(&counts, bundles, &.{}, 1, H, 2, H, ANY));
     try std.testing.expectEqual(@as(u32, 1), counts.foreign_junction_violation);
 
-    // A co-set exempts on its own, with no plan behind it.
+    // A bundle exempts on its own, with no plan behind it.
     var fan = [_]EdgeId{ 1, 2 };
-    const fan_sets = [_]ledger.CoSet{.{ .origin = .fan_rail, .members = &fan }};
+    const fan_sets = [_]ledger.Bundle{.{ .origin = .fan_rail, .members = &fan }};
     try std.testing.expect(!segmentOverlap(&counts, .{}, &fan_sets, 1, H, 2, V, ANY));
     try std.testing.expectEqual(@as(u32, 1), counts.legal_crossing);
 }
@@ -355,9 +355,9 @@ test "arrowheadTransit: own terminal exempt, foreign refused" {
     // Foreign edge over a foreign arrowhead → C2 violation, keep pristine.
     try std.testing.expect(arrowheadTransit(&counts, .{}, &.{}, 7, 8, ANY));
     try std.testing.expectEqual(@as(u32, 1), counts.arrowhead_transit_violation);
-    // A co-set exempts on its own, with no plan behind it.
+    // A bundle exempts on its own, with no plan behind it.
     var fan = [_]EdgeId{ 7, 8 };
-    const fan_sets = [_]ledger.CoSet{.{ .origin = .fan_rail, .members = &fan }};
+    const fan_sets = [_]ledger.Bundle{.{ .origin = .fan_rail, .members = &fan }};
     try std.testing.expect(!arrowheadTransit(&counts, .{}, &fan_sets, 7, 8, ANY));
     try std.testing.expectEqual(@as(u32, 1), counts.arrowhead_transit_violation);
 }
@@ -366,16 +366,16 @@ test {
     _ = @import("crossings_test.zig");
 }
 
-test "sameChannel: a cell-scoped co-set answers only on its own cells" {
+test "sameBundle: a cell-scoped bundle answers only on its own cells" {
     // A `.port_share` set licenses the two edges' common approach and nothing
     // else: at a crossing far from the shared port the pair is still foreign,
     // so a true transversal there keeps its plain stroke.
-    const licensed = [_]ledger.CoCell{ .{ .x = 30, .y = 12 }, .{ .x = 30, .y = 13 } };
-    const sets = [_]ledger.CoSet{.{ .origin = .port_share, .members = &.{ 9, 11 }, .cells = &licensed }};
-    try std.testing.expect(sameChannel(9, 11, .{}, &sets, .{ .x = 30, .y = 12 }));
-    try std.testing.expect(sameChannel(9, 11, .{}, &sets, .{ .x = 30, .y = 13 }));
-    try std.testing.expect(!sameChannel(9, 11, .{}, &sets, .{ .x = 21, .y = 15 }));
+    const licensed = [_]ledger.BundleCell{ .{ .x = 30, .y = 12 }, .{ .x = 30, .y = 13 } };
+    const sets = [_]ledger.Bundle{.{ .origin = .port_share, .members = &.{ 9, 11 }, .cells = &licensed }};
+    try std.testing.expect(sameBundle(9, 11, .{}, &sets, .{ .x = 30, .y = 12 }));
+    try std.testing.expect(sameBundle(9, 11, .{}, &sets, .{ .x = 30, .y = 13 }));
+    try std.testing.expect(!sameBundle(9, 11, .{}, &sets, .{ .x = 21, .y = 15 }));
     // The unscoped origins are position-blind, on the same cell.
-    const fan = [_]ledger.CoSet{.{ .origin = .fan_rail, .members = &.{ 9, 11 } }};
-    try std.testing.expect(sameChannel(9, 11, .{}, &fan, .{ .x = 21, .y = 15 }));
+    const fan = [_]ledger.Bundle{.{ .origin = .fan_rail, .members = &.{ 9, 11 } }};
+    try std.testing.expect(sameBundle(9, 11, .{}, &fan, .{ .x = 21, .y = 15 }));
 }

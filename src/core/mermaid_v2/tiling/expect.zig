@@ -18,7 +18,7 @@
 //! SOMEONE ELSE's opaque ink that is a separate, non-defect bucket.
 //!
 //! That ban is on CELL-id keying and nothing wider. A `.tap`/`.port`
-//! side-table record is a different key: the aux channel is PLURAL per
+//! side-table record is a different key: the aux bundle is PLURAL per
 //! position and append-only, so two writers at one cell both keep their
 //! record and no first-writer loss exists to fabricate. `rails.zig` keys
 //! that way deliberately; reading a record is sanctioned (`cell.zig`).
@@ -224,8 +224,8 @@ fn labelCensus(s: sketch.Sketch) u32 {
         const l = ep.label orelse continue;
         if (l.len > 0) n += 1;
     }
-    for (s.rails) |bb| {
-        for (bb.taps) |tp| {
+    for (s.rails) |rail| {
+        for (rail.taps) |tp| {
             const l = tp.label orelse continue;
             if (l.len > 0) n += 1;
         }
@@ -301,8 +301,8 @@ fn nodeTier(v: cell.View, s: sketch.Sketch, ring: []bool, c: *counts.Counts) voi
             if (ep.kind == .invisible) continue;
             if (ep.to == np.id) arrivals += 1;
         }
-        for (s.rails) |bb| {
-            for (bb.taps) |tp| {
+        for (s.rails) |rail| {
+            for (rail.taps) |tp| {
                 if (tp.node == np.id) arrivals += 1;
             }
         }
@@ -352,8 +352,8 @@ fn edgeTier(v: cell.View, s: sketch.Sketch, c: *counts.Counts) void {
 }
 
 fn tapTier(v: cell.View, s: sketch.Sketch, c: *counts.Counts) void {
-    for (s.rails) |bb| {
-        for (bb.taps) |tp| {
+    for (s.rails) |rail| {
+        for (rail.taps) |tp| {
             c.n_taps_declared += 1;
             const d = dirOf(tp.at, tp.landing) orelse continue;
             // The dropper stops one cell short of the landing (the node's
@@ -367,12 +367,12 @@ fn tapTier(v: cell.View, s: sketch.Sketch, c: *counts.Counts) void {
                 arrowEvidence(v, evc, d, c);
             }
         }
-        if (bb.pivot_arrow != .none and bb.stem.len >= 2) {
+        if (rail.pivot_arrow != .none and rail.stem.len >= 2) {
             var i: usize = 0;
-            while (i + 1 < bb.stem.len) : (i += 1) {
-                const d = dirOf(bb.stem[i], bb.stem[i + 1]) orelse continue;
+            while (i + 1 < rail.stem.len) : (i += 1) {
+                const d = dirOf(rail.stem[i], rail.stem[i + 1]) orelse continue;
                 c.n_arrows_declared += 1;
-                arrowEvidence(v, stepPt(bb.stem[0], d), d, c);
+                arrowEvidence(v, stepPt(rail.stem[0], d), d, c);
                 break;
             }
         }
@@ -387,7 +387,7 @@ pub fn check(alloc: std.mem.Allocator, in: Input, c: *counts.Counts) void {
     const s = in.sketch;
 
     var taps: u32 = 0;
-    for (s.rails) |bb| taps += @intCast(bb.taps.len);
+    for (s.rails) |rail| taps += @intCast(rail.taps.len);
 
     c.m_graph_nodes = @intCast(in.graph.nodes.len);
     c.m_graph_edges = @intCast(in.graph.edges.len);

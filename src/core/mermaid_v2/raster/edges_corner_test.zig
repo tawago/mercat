@@ -4,7 +4,7 @@
 //!
 //! The walk skips `b` on every segment, so the corner cell is written once
 //! per turn and never as a straight cell — which is what lets a turn onto a
-//! SHARED trunk stay `┴` instead of welding a phantom fourth arm. The same
+//! SHARED rail stay `┴` instead of welding a phantom fourth arm. The same
 //! rule is why ink already on the cell can only have come from somebody
 //! else's run, or from an EARLIER visit of this edge's own route, and both
 //! survive the turn.
@@ -119,7 +119,7 @@ test "a route that doubles back keeps both visits' arms at the cell it re-enters
     );
 }
 
-test "shared trunk corner: sibling drops bending at one cell yield ┴, not a phantom ┼" {
+test "shared rail corner: sibling drops bending at one cell yield ┴, not a phantom ┼" {
     const a = testing.allocator;
     var lat = try makeLattice(a, 12, 12);
     defer a.free(lat.cells);
@@ -127,8 +127,8 @@ test "shared trunk corner: sibling drops bending at one cell yield ┴, not a ph
     // Three `.forward` edges (an UNDETECTED fan: no fan role, so no rail
     // is ever named here and the fan-OUT strip never runs) descend a shared
     // source column to a common rail row (5), then bend to their own
-    // columns. None continues SOUTH past the trunk cell (5,5): the left
-    // two bend west, the right one bends east. The trunk cell must render
+    // columns. None continues SOUTH past the rail cell (5,5): the left
+    // two bend west, the right one bends east. The rail cell must render
     // ┴ ({n,e,w}) — a phantom {s} here (drawn by a sibling's straight
     // endpoint before the corner rewrite) would falsely assert a fourth
     // arm and paint ┼.
@@ -140,18 +140,18 @@ test "shared trunk corner: sibling drops bending at one cell yield ┴, not a ph
         makeEdge(2, &b_pts),
         makeEdge(3, &c_pts),
     };
-    // They share the trunk legally (one channel), so the crossing rule
+    // They share the rail legally (one bundle), so the crossing rule
     // exempts them and the phantom-arm question is the one under test.
     const members = [_]ledger.EdgeId{ 1, 2, 3 };
-    const co_sets = [_]ledger.CoSet{.{ .origin = .fan_rail, .members = &members }};
+    const bundle_sets = [_]ledger.Bundle{.{ .origin = .fan_rail, .members = &members }};
     var s = makeSketch(&es);
-    s.co_sets = &co_sets;
+    s.bundle_sets = &bundle_sets;
     _ = try edges.rasterizeEdges(a, &lat, s, .bridge, null);
 
-    // Trunk cell: north riser + east/west rail, NO south arm.
-    const trunk = lat.atConst(5, 5).neighbours;
-    try testing.expect(trunk.n and trunk.e and trunk.w);
-    try testing.expect(!trunk.s);
+    // Rail cell: north riser + east/west rail, NO south arm.
+    const rail = lat.atConst(5, 5).neighbours;
+    try testing.expect(rail.n and rail.e and rail.w);
+    try testing.expect(!rail.s);
 
     // Contrast: a real sibling drop keeps its south arm (┬ at the bending
     // column), proving the fix suppresses only the phantom, not real drops.

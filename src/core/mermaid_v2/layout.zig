@@ -13,7 +13,7 @@ const ledger = @import("base/ledger.zig");
 const sg = @import("sem_graph.zig");
 const sketch = @import("sketch.zig");
 const sketch_ports = @import("sketch_ports.zig");
-const sketch_channels = @import("sketch_channels.zig");
+const sketch_bundles = @import("sketch_bundles.zig");
 const sugiyama = @import("layout/sugiyama.zig");
 const crossing = @import("layout/crossing.zig");
 const routing = @import("layout/routing.zig");
@@ -27,7 +27,7 @@ const sizing = @import("layout/sizing.zig");
 const components = @import("layout/components.zig");
 const rank_grid = @import("layout/rank_grid.zig");
 const decascade = @import("layout/decascade.zig");
-const join_commit = @import("layout/join_commit.zig");
+const bundle_commit = @import("layout/bundle_commit.zig");
 const options = @import("layout/options.zig");
 const ports = @import("layout/ports.zig");
 const port_plan = @import("layout/port_plan.zig");
@@ -120,17 +120,17 @@ fn buildSketch(
     // The plan this candidate realizes against: the root plan for a flat
     // graph, a piece-scoped plan (piece-local ids) for a cluster-free piece
     // of a clustered original, null otherwise. Every consumer below reads
-    // THIS plan, never opts.join_permits directly.
-    const effective_plan: ?ledger.JoinPermits = try join_commit.effectivePlan(a, graph, opts.join_permits);
-    const plan_ref: ?*const ledger.JoinPermits = if (effective_plan) |*p| p else null;
-    var candidate_joins = try join_commit.buildReported(a, graph, plan_ref, lg.reversed_edges, opts.disable_join_realization, &closure);
+    // THIS plan, never opts.bundle_permits directly.
+    const effective_plan: ?ledger.BundlePermits = try bundle_commit.effectivePlan(a, graph, opts.bundle_permits);
+    const plan_ref: ?*const ledger.BundlePermits = if (effective_plan) |*p| p else null;
+    var candidate_bundles = try bundle_commit.buildReported(a, graph, plan_ref, lg.reversed_edges, opts.disable_bundle_realization, &closure);
     const construction_private = hasPrivatePeers(fans);
-    const port_active = hasPortWork(candidate_joins) or construction_private;
-    const lane_plan = try port_plan.planLanes(a, graph, lg, candidate_joins);
+    const port_active = hasPortWork(candidate_bundles) or construction_private;
+    const lane_plan = try port_plan.planLanes(a, graph, lg, candidate_bundles);
     const derived = if (plan_ref) |plan| blk: {
         if (port_active) {
-            const all = ports.derive(a, graph, plan.*, candidate_joins, graph.direction, lg.reversed_edges) catch &.{};
-            break :blk port_plan.withoutCoRealized(a, all, candidate_joins) catch all;
+            const all = ports.derive(a, graph, plan.*, candidate_bundles, graph.direction, lg.reversed_edges) catch &.{};
+            break :blk port_plan.withoutDischarged(a, all, candidate_bundles) catch all;
         }
         if (construction_private) break :blk port_plan.deriveFanAttachments(a, graph, graph.direction, lg.reversed_edges, fans) catch &.{};
         break :blk &.{};
@@ -176,10 +176,10 @@ fn buildSketch(
     // Two-sided fan lane separation: when >=2 fans in one gap would fuse their
     // rails into a single run whose union has more than one source AND more
     // than one target, that run speaks for a pivot none of its members shares,
-    // so each trunk takes its own rail row via fans[].lane and every declared
-    // edge stays traceable. Single trunks and pure fan-in|out stay lane 0.
+    // so each rail takes its own rail row via fans[].lane and every declared
+    // edge stays traceable. Single rails and pure fan-in|out stay lane 0.
     // guarded-by: layout/fan_lanes_test.zig "incomplete overlapping fans get separate lanes"
-    if (fans.len > 0) try fan_lanes.assignLanes(NodeGeom, a, graph, lg, geom, fans, candidate_joins, &closure);
+    if (fans.len > 0) try fan_lanes.assignLanes(NodeGeom, a, graph, lg, geom, fans, candidate_bundles, &closure);
 
     // Reserve max(lane)+1 gap rows per fan gap (extraRowsPerGap reads fans[].lane).
     // The label-feasibility gate first clears `labeled` on fans whose on-run
@@ -246,7 +246,7 @@ fn buildSketch(
     // weakly-connected component into a tight left-justified column band so the
     // diagram width collapses to ~the widest single component instead of the
     // sum of every component's cross-aligned drift. Pure x-translation per
-    // component (internal trunks preserved, each component stays a contiguous
+    // component (internal rails preserved, each component stays a contiguous
     // rect).
     // No-op for single-component graphs. guarded-by: layout/components_test.zig "packComponents leaves node geometry unchanged for a single connected component"
     if (td_pressure) {
@@ -284,10 +284,10 @@ fn buildSketch(
     mirror.applyDirection(NodeGeom, geom, graph.direction);
 
     const placements = try buildPlacements(a, graph, lg, geom, node_lines);
-    const allocated_ports = try port_plan.allocate(a, graph, placements, derived, candidate_joins, lane_plan, opts.rung);
-    candidate_joins.terminal_ports = allocated_ports.terminals;
+    const allocated_ports = try port_plan.allocate(a, graph, placements, derived, candidate_bundles, lane_plan, opts.rung);
+    candidate_bundles.terminal_ports = allocated_ports.terminals;
     const edges_result = if (port_active)
-        try routing.buildEdgesWithPlan(a, graph, lg, geom, placements, fans, candidate_joins, allocated_ports)
+        try routing.buildEdgesWithPlan(a, graph, lg, geom, placements, fans, candidate_bundles, allocated_ports)
     else
         try routing.buildEdges(a, graph, lg, geom, placements, fans);
     const edges_out = edges_result.edges;
@@ -329,17 +329,17 @@ fn buildSketch(
     // this call is finalizing — the artifact, never a re-derivation.
     const routed = try a.alloc(ledger.EdgeId, edges_out.len);
     for (edges_out, routed) |e, *slot| slot.* = e.id;
-    closure.co_double_discharge = ledger.doubleDischarged(candidate_joins.co_realized, routed);
+    closure.co_double_discharge = ledger.doubleDischarged(candidate_bundles.discharged, routed);
 
     // A piece candidate never passes through select.applyPlan (that gate is
-    // the root plan's), so the plan-derived co-sets that sanction its trunk
+    // the root plan's), so the plan-derived bundles that sanction its rail
     // merges are attached HERE, replacing the fan-derived population exactly
     // as applyPlan does for a flat candidate that realized.
-    const piece_realized = if (plan_ref) |p| p.scope == .piece and candidate_joins.selected_joins.len != 0 else false;
+    const piece_realized = if (plan_ref) |p| p.scope == .piece and candidate_bundles.selected_bundles.len != 0 else false;
     const base_sets = if (piece_realized)
-        ledger.coSetsFromPlan(a, candidate_joins) catch edges_result.co_sets
+        ledger.bundlesFromPlan(a, candidate_bundles) catch edges_result.bundle_sets
     else
-        edges_result.co_sets;
+        edges_result.bundle_sets;
     var out = sketch.Sketch{
         .bbox = bbox,
         .direction = graph.direction, // BT was canonicalized to TD above; unreachable here
@@ -348,7 +348,7 @@ fn buildSketch(
         .edges = edges_out,
         .rails = rails_out,
         .rail_claims = edges_result.rail_claims,
-        .joins = candidate_joins,
+        .bundles = candidate_bundles,
         .closure = closure,
         // Fan-derived sets PLUS the port shares read back off the final
         // polylines: the port plan can route several edges through one
@@ -356,20 +356,20 @@ fn buildSketch(
         // legal ink sharing is the geometry itself. Appended, never
         // substituted (sketch_ports.appendPortShares).
         // guarded-by: sketch_ports_test.zig "shared departure port groups its edges"
-        .co_sets = sketch_ports.appendPortShares(a, base_sets, edges_out) catch base_sets,
+        .bundle_sets = sketch_ports.appendPortShares(a, base_sets, edges_out) catch base_sets,
         .diagnostics = try diagnostics.toOwnedSlice(a),
         .budget = .{ .max_width = opts.max_width, .rung = opts.rung },
         .label_policy = opts.label_policy,
     };
-    // The co-set list is final here, so this is where it becomes a roster: one
-    // identity per channel, and every rail stamped with the one it rides.
-    sketch_channels.stamp(a, &out);
+    // The bundle list is final here, so this is where it becomes a roster: one
+    // identity per bundle, and every rail stamped with the one it rides.
+    sketch_bundles.stamp(a, &out);
     return out;
 }
 
-fn hasPortWork(joins: ledger.RealizedJoins) bool {
-    if (joins.selected_joins.len != 0) return true;
-    for (joins.memberships) |membership| {
+fn hasPortWork(bundles: ledger.RealizedBundles) bool {
+    if (bundles.selected_bundles.len != 0) return true;
+    for (bundles.memberships) |membership| {
         inline for ([2]?ledger.MembershipDisposition{ membership.source, membership.target }) |disposition| {
             if (disposition) |value| if (value == .independent) return true;
         }
@@ -462,7 +462,7 @@ const flushLeftRows = cx_mod.flushLeftRows;
 
 // ===================================================================
 // Placements — see layout/sizing.zig (also owns realNode and the
-// node_lines channel placements reuse).
+// node_lines bundle placements reuse).
 // ===================================================================
 
 const buildPlacements = sizing.buildPlacements;

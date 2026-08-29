@@ -4,7 +4,7 @@
 //! WHY THIS EXISTS. `tiling/strokes.zig`'s fusion pair check used to file
 //! EVERY junction-adjacent id difference as a convention, on the ground
 //! that "the runs genuinely meet there". That ground holds only where the
-//! two edges legally share a channel at the junction; where they do not,
+//! two edges legally share a bundle at the junction; where they do not,
 //! the glyph asserts an adjacency no source declares. Splitting the two
 //! needs the licence, which the raster records on each `.carrier` and the
 //! tiling zone reads back. Neither side may import the other, so the two
@@ -86,7 +86,7 @@ fn expectReconstructedThreeWayPortShare() !void {
     const a = arena.allocator();
     const c = try renderCounts(a, three_way_port_share, 140);
     // The invalid duplicate no longer contributes a junction. All three
-    // remaining junction events are licensed; the three-way port co-set below still has
+    // remaining junction events are licensed; the three-way port bundle below still has
     // exact scope for all three member pairs. The exact
     // partition prevents the stale port-wide union from reintroducing the
     // former eight extra junction readings or hiding one in another verdict.
@@ -104,8 +104,8 @@ fn expectReconstructedThreeWayPortShare() !void {
     const plan = built.plan;
     const winner = try select.choose(a, graph, &plan, 140, false, false, .bridge);
 
-    var found: ?ledger.CoSet = null;
-    for (winner.sketch.co_sets) |set| {
+    var found: ?ledger.Bundle = null;
+    for (winner.sketch.bundle_sets) |set| {
         if (set.origin != .port_share) continue;
         if (!std.mem.eql(ledger.EdgeId, set.members, &.{ 14, 15, 16 })) continue;
         found = set;
@@ -147,11 +147,11 @@ fn expectReconstructedThreeWayPortShare() !void {
         }
     }
 
-    const only_share = [_]ledger.CoSet{share};
-    const long_pair_only: ledger.CoCell = .{ .x = 38, .y = 16 };
-    try testing.expect(ledger.coMembersAt(&only_share, 15, 16, long_pair_only));
-    try testing.expect(!ledger.coMembersAt(&only_share, 14, 15, long_pair_only));
-    try testing.expect(!ledger.coMembersAt(&only_share, 14, 16, long_pair_only));
+    const only_share = [_]ledger.Bundle{share};
+    const long_pair_only: ledger.BundleCell = .{ .x = 38, .y = 16 };
+    try testing.expect(ledger.bundleMembersAt(&only_share, 15, 16, long_pair_only));
+    try testing.expect(!ledger.bundleMembersAt(&only_share, 14, 15, long_pair_only));
+    try testing.expect(!ledger.bundleMembersAt(&only_share, 14, 16, long_pair_only));
 
     try testing.expectEqual(@as(u32, 0), c.d_run_fused_collinear);
     try testing.expectEqual(@as(u32, 0), c.d_rail_star_violation);

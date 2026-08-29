@@ -1,4 +1,4 @@
-//! Port-share co-sets — the geometric half of co-channel membership.
+//! Port-share bundles — the geometric half of bundle membership.
 //!
 //! A producer may deliberately route several edges through ONE perimeter port
 //! of a node: layout's port plan hands two arrivals the same midpoint port,
@@ -9,7 +9,7 @@
 //! junction there is a real junction, not a transversal.
 //!
 //! No producer declares that share (each knows only its own edge), so
-//! `raster/crossings.sameChannel` reads the stem as foreign overlap and
+//! `raster/crossings.sameBundle` reads the stem as foreign overlap and
 //! regresses `├` to `│`. This module recovers the declaration from the
 //! sketch's OWN geometry: the producers already agreed on a coordinate, and
 //! that agreement is the record.
@@ -21,11 +21,11 @@
 //!     port — a cycle return terminating where a fan departs — group together.
 //!   * A set is ONE PER PORT and CELL-SCOPED, and members grouped
 //!     transitively (A shares B's port and B shares C's, so all three name
-//!     ONE channel) do NOT thereby share cell scope: the set's `.pairwise`
+//!     ONE bundle) do NOT thereby share cell scope: the set's `.pairwise`
 //!     table records each PAIR's own common approach separately, and
-//!     `coMembersAt`/`channelOf` consult that pair-specific entry, never a
+//!     `bundleMembersAt`/`bundleOf` consult that pair-specific entry, never a
 //!     flat union over every pair. A member with no direct overlap with
-//!     another stays a named member (the group is one channel for identity
+//!     another stays a named member (the group is one bundle for identity
 //!     purposes) but licenses no cell between the two of them. Where two
 //!     members' paths meet again far from the port they are still strangers
 //!     there and that meeting is still a transversal — a third member's own
@@ -54,7 +54,7 @@ const ledger = @import("base/ledger.zig");
 
 const EdgeId = sketch.EdgeId;
 const Point = sketch.Point;
-const CoCell = ledger.CoCell;
+const BundleCell = ledger.BundleCell;
 
 /// A single edge's cell footprint: every integer cell its polyline passes
 /// through, in path order.
@@ -62,13 +62,13 @@ pub const CarrierTrace = struct {
     id: EdgeId,
     first: Point,
     last: Point,
-    cells: []const CoCell,
+    cells: []const BundleCell,
     rail: bool,
 };
 
-/// One `.port_share` co-set per DISTINCT PORT COORDINATE, gathering EVERY
+/// One `.port_share` bundle per DISTINCT PORT COORDINATE, gathering EVERY
 /// edge terminating there (transitively: A-shares-B and B-shares-C at the
-/// same physical point are ONE group, ONE channel — never two overlapping
+/// same physical point are ONE group, ONE bundle — never two overlapping
 /// pairwise sets over the same trio). No union-find across DIFFERENT ports
 /// happens: an edge with two distinct shared terminals still lands in two
 /// separate sets (see the header's no-fusing invariant and the
@@ -78,7 +78,7 @@ pub const CarrierTrace = struct {
 ///
 /// Set order is by PORT COORDINATE (x then y), never by edge id or input
 /// position: the roster this feeds is renumbered positionally
-/// (`ledger.numberChannels`), and a stitch or re-plan can renumber and
+/// (`ledger.numberBundles`), and a stitch or re-plan can renumber and
 /// reorder edges freely, so the group boundaries and the order sets are
 /// discovered in must be a function of the sketch's own geometry alone.
 ///
@@ -91,11 +91,11 @@ pub const CarrierTrace = struct {
 ///
 /// The result is allocated in `arena`.
 /// guarded-by: sketch_ports_test.zig "shared departure port groups its edges"
-pub fn portShareCoSets(
+pub fn portShareBundles(
     arena: std.mem.Allocator,
     edges: []const sketch.EdgePath,
-) error{OutOfMemory}![]const ledger.CoSet {
-    return portShareCoSetsFromTraces(arena, try finalCarrierTraces(arena, edges, &.{}));
+) error{OutOfMemory}![]const ledger.Bundle {
+    return portShareBundlesFromTraces(arena, try finalCarrierTraces(arena, edges, &.{}));
 }
 
 /// Final carrier population for stitch: ordinary paths plus one exact trace
@@ -104,7 +104,7 @@ pub fn portShareCoSets(
 pub fn finalCarrierTraces(
     arena: std.mem.Allocator,
     edges: []const sketch.EdgePath,
-    bars: []const sketch.Rail,
+    rails_buf: []const sketch.Rail,
 ) error{OutOfMemory}![]const CarrierTrace {
     var traces: std.ArrayListUnmanaged(CarrierTrace) = .empty;
     for (edges) |e| {
@@ -122,16 +122,16 @@ pub fn finalCarrierTraces(
         });
     }
 
-    for (bars) |bar| {
-        if (bar.kind == .invisible or bar.stem.len < 2) continue;
-        const fan_in = bar.role == .fan_in_dropper or bar.role == .fan_in_rail;
-        for (bar.taps) |tap| {
+    for (rails_buf) |rail| {
+        if (rail.kind == .invisible or rail.stem.len < 2) continue;
+        const fan_in = rail.role == .fan_in_dropper or rail.role == .fan_in_rail;
+        for (rail.taps) |tap| {
             if (traceById(traces.items, tap.edge) != null) continue;
-            const first = if (fan_in) tap.landing else bar.stem[0];
-            const last = if (fan_in) bar.stem[0] else tap.landing;
+            const first = if (fan_in) tap.landing else rail.stem[0];
+            const last = if (fan_in) rail.stem[0] else tap.landing;
             if (pointEqual(first, last)) continue;
-            var cells: std.ArrayListUnmanaged(CoCell) = .empty;
-            for (try traceCells(arena, bar.stem)) |cell| {
+            var cells: std.ArrayListUnmanaged(BundleCell) = .empty;
+            for (try traceCells(arena, rail.stem)) |cell| {
                 if (!has(cells.items, cell)) try cells.append(arena, cell);
             }
             const dropper = try traceCells(arena, &.{ tap.at, tap.landing });
@@ -154,32 +154,32 @@ pub fn finalCarrierTraces(
 
 /// Derive one final port-share population from EdgePaths and first-class rail
 /// members together. Pair scopes are always computed from those final traces.
-pub fn portShareCoSetsFromGeometry(
+pub fn portShareBundlesFromGeometry(
     arena: std.mem.Allocator,
     edges: []const sketch.EdgePath,
-    bars: []const sketch.Rail,
-) error{OutOfMemory}![]const ledger.CoSet {
-    return portShareCoSetsFromTraces(arena, try finalCarrierTraces(arena, edges, bars));
+    rails_buf: []const sketch.Rail,
+) error{OutOfMemory}![]const ledger.Bundle {
+    return portShareBundlesFromTraces(arena, try finalCarrierTraces(arena, edges, rails_buf));
 }
 
-fn portShareCoSetsFromTraces(
+fn portShareBundlesFromTraces(
     arena: std.mem.Allocator,
     traces: []const CarrierTrace,
-) error{OutOfMemory}![]const ledger.CoSet {
+) error{OutOfMemory}![]const ledger.Bundle {
 
     // Every distinct terminal coordinate any trace carries, in canonical
     // (x, y) order — the port identity, independent of edge id or input
     // position.
-    var ports: std.ArrayListUnmanaged(CoCell) = .empty;
+    var ports: std.ArrayListUnmanaged(BundleCell) = .empty;
     for (traces) |t| {
         for ([2]Point{ t.first, t.last }) |pt| {
-            const c: CoCell = .{ .x = pt.x, .y = pt.y };
+            const c: BundleCell = .{ .x = pt.x, .y = pt.y };
             if (!has(ports.items, c)) try ports.append(arena, c);
         }
     }
-    std.mem.sort(CoCell, ports.items, {}, portLess);
+    std.mem.sort(BundleCell, ports.items, {}, portLess);
 
-    var out: std.ArrayListUnmanaged(ledger.CoSet) = .empty;
+    var out: std.ArrayListUnmanaged(ledger.Bundle) = .empty;
     for (ports.items) |port| {
         var rail_source = false;
         var rail_target = false;
@@ -208,9 +208,9 @@ const TerminalFilter = enum { any, paths, source, target };
 
 fn appendPortSet(
     arena: std.mem.Allocator,
-    out: *std.ArrayListUnmanaged(ledger.CoSet),
+    out: *std.ArrayListUnmanaged(ledger.Bundle),
     traces: []const CarrierTrace,
-    port: CoCell,
+    port: BundleCell,
     filter: TerminalFilter,
 ) error{OutOfMemory}!void {
     var members: std.ArrayListUnmanaged(EdgeId) = .empty;
@@ -219,7 +219,7 @@ fn appendPortSet(
     }
     if (members.items.len < 2) return;
 
-    var cells: std.ArrayListUnmanaged(CoCell) = .empty;
+    var cells: std.ArrayListUnmanaged(BundleCell) = .empty;
     var pairwise: std.ArrayListUnmanaged(ledger.PairCells) = .empty;
     for (traces, 0..) |a, i| {
         if (!terminalAt(a, port, filter)) continue;
@@ -242,7 +242,7 @@ fn appendPortSet(
     });
 }
 
-fn terminalAt(trace: CarrierTrace, port: CoCell, filter: TerminalFilter) bool {
+fn terminalAt(trace: CarrierTrace, port: BundleCell, filter: TerminalFilter) bool {
     const source = trace.first.x == port.x and trace.first.y == port.y;
     const target = trace.last.x == port.x and trace.last.y == port.y;
     return switch (filter) {
@@ -262,7 +262,7 @@ fn pointEqual(a: Point, b: Point) bool {
     return a.x == b.x and a.y == b.y;
 }
 
-fn portLess(_: void, a: CoCell, b: CoCell) bool {
+fn portLess(_: void, a: BundleCell, b: BundleCell) bool {
     if (a.x != b.x) return a.x < b.x;
     return a.y < b.y;
 }
@@ -271,8 +271,8 @@ fn portLess(_: void, a: CoCell, b: CoCell) bool {
 /// walked cell by cell; a non-orthogonal segment (which routing never emits)
 /// contributes only its endpoints, so the trace can never name a cell the
 /// edge does not touch.
-fn traceCells(arena: std.mem.Allocator, polyline: []const Point) error{OutOfMemory}![]const CoCell {
-    var cells: std.ArrayListUnmanaged(CoCell) = .empty;
+fn traceCells(arena: std.mem.Allocator, polyline: []const Point) error{OutOfMemory}![]const BundleCell {
+    var cells: std.ArrayListUnmanaged(BundleCell) = .empty;
     try cells.append(arena, .{ .x = polyline[0].x, .y = polyline[0].y });
     for (polyline[1..], polyline[0 .. polyline.len - 1]) |to, from| {
         const dx = std.math.sign(to.x - from.x);
@@ -295,11 +295,11 @@ fn traceCells(arena: std.mem.Allocator, polyline: []const Point) error{OutOfMemo
 /// overlap between the same two edges is a separate meeting and stays foreign.
 pub fn commonApproachCells(
     arena: std.mem.Allocator,
-    a: []const CoCell,
-    b: []const CoCell,
-    port: CoCell,
-) error{OutOfMemory}![]const CoCell {
-    var shared: std.ArrayListUnmanaged(CoCell) = .empty;
+    a: []const BundleCell,
+    b: []const BundleCell,
+    port: BundleCell,
+) error{OutOfMemory}![]const BundleCell {
+    var shared: std.ArrayListUnmanaged(BundleCell) = .empty;
     for (a) |c| {
         if (!has(b, c) or has(shared.items, c)) continue;
         try shared.append(arena, c);
@@ -308,12 +308,12 @@ pub fn commonApproachCells(
 
     // Flood the intersection outward from the port; `reached` doubles as the
     // frontier queue and the result.
-    var reached: std.ArrayListUnmanaged(CoCell) = .empty;
+    var reached: std.ArrayListUnmanaged(BundleCell) = .empty;
     try reached.append(arena, port);
     var i: usize = 0;
     while (i < reached.items.len) : (i += 1) {
         const c = reached.items[i];
-        const steps = [4]CoCell{
+        const steps = [4]BundleCell{
             .{ .x = c.x + 1, .y = c.y },
             .{ .x = c.x - 1, .y = c.y },
             .{ .x = c.x, .y = c.y + 1 },
@@ -327,7 +327,7 @@ pub fn commonApproachCells(
     return reached.toOwnedSlice(arena);
 }
 
-fn has(cells: []const CoCell, want: CoCell) bool {
+fn has(cells: []const BundleCell, want: BundleCell) bool {
     for (cells) |c| {
         if (c.x == want.x and c.y == want.y) return true;
     }
@@ -341,33 +341,33 @@ fn has(cells: []const CoCell, want: CoCell) bool {
 /// guarded-by: sketch_ports_test.zig "appendPortShares keeps the existing sets ahead of the derived ones"
 pub fn appendPortShares(
     arena: std.mem.Allocator,
-    existing: []const ledger.CoSet,
+    existing: []const ledger.Bundle,
     edges: []const sketch.EdgePath,
-) error{OutOfMemory}![]const ledger.CoSet {
-    var structural: std.ArrayListUnmanaged(ledger.CoSet) = .empty;
+) error{OutOfMemory}![]const ledger.Bundle {
+    var structural: std.ArrayListUnmanaged(ledger.Bundle) = .empty;
     for (existing) |set| {
         if (set.origin != .port_share) try structural.append(arena, set);
     }
-    return ledger.concatSets(arena, try structural.toOwnedSlice(arena), try portShareCoSets(arena, edges));
+    return ledger.concatBundles(arena, try structural.toOwnedSlice(arena), try portShareBundles(arena, edges));
 }
 
 /// Stitch finalizer variant. Scoped port shares come first so a rail member
-/// can temporarily ride the port channel where a bridge joins it, then fall
-/// back to its structural rail channel everywhere outside that exact scope.
+/// can temporarily ride the port bundle where a bridge joins it, then fall
+/// back to its structural rail bundle everywhere outside that exact scope.
 pub fn rebuildFinalPortShares(
     arena: std.mem.Allocator,
-    existing: []const ledger.CoSet,
+    existing: []const ledger.Bundle,
     edges: []const sketch.EdgePath,
-    bars: []const sketch.Rail,
-) error{OutOfMemory}![]const ledger.CoSet {
-    var structural: std.ArrayListUnmanaged(ledger.CoSet) = .empty;
+    rails_buf: []const sketch.Rail,
+) error{OutOfMemory}![]const ledger.Bundle {
+    var structural: std.ArrayListUnmanaged(ledger.Bundle) = .empty;
     for (existing) |set| {
         if (set.origin != .port_share) try structural.append(arena, set);
     }
-    const traces = try finalCarrierTraces(arena, edges, bars);
-    var mixed: std.ArrayListUnmanaged(ledger.CoSet) = .empty;
-    var path_only: std.ArrayListUnmanaged(ledger.CoSet) = .empty;
-    for (try portShareCoSetsFromTraces(arena, traces)) |share| {
+    const traces = try finalCarrierTraces(arena, edges, rails_buf);
+    var mixed: std.ArrayListUnmanaged(ledger.Bundle) = .empty;
+    var path_only: std.ArrayListUnmanaged(ledger.Bundle) = .empty;
+    for (try portShareBundlesFromTraces(arena, traces)) |share| {
         var has_path = false;
         var has_rail = false;
         for (share.members) |member| {
@@ -378,16 +378,16 @@ pub fn rebuildFinalPortShares(
         // Rail-only sharing is already the structural fan set. Keeping a
         // duplicate scoped origin would add no relationship. Mixed shares go
         // first so scoped rail/bridge lookup can override the rail's structural
-        // channel only on the final common approach. Path-only shares retain
+        // bundle only on the final common approach. Path-only shares retain
         // their historical position after structural authority.
         if (has_rail and has_path) {
             try mixed.append(arena, share);
         } else if (has_path) try path_only.append(arena, share);
     }
-    const with_structural = try ledger.concatSets(
+    const with_structural = try ledger.concatBundles(
         arena,
         try mixed.toOwnedSlice(arena),
         try structural.toOwnedSlice(arena),
     );
-    return ledger.concatSets(arena, with_structural, try path_only.toOwnedSlice(arena));
+    return ledger.concatBundles(arena, with_structural, try path_only.toOwnedSlice(arena));
 }

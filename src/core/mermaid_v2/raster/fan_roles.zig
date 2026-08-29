@@ -2,7 +2,7 @@
 //!
 //! Two questions have to be answered about every fan cell: which cells are
 //! a SHARED RUN of the fan (role `fan_out_rail` / `fan_in_rail`), and, for
-//! fan-OUT, which of two vertical arms at such a cell is a real trunk
+//! fan-OUT, which of two vertical arms at such a cell is a real rail
 //! continuation and which is a child's descent to be dropped so the painter
 //! resolves `┴`/`┬` instead of `┼`.
 //!
@@ -22,10 +22,10 @@
 //!   junction must exist before either can be judged) and decides the
 //!   fan-OUT strip from the authoritative RailClaim on the Lattice. The
 //!   checker-derived PIVOT identifies a Sketch rect and says which side the
-//!   trunk comes from, so the arm facing the pivot is the one that survives.
+//!   rail comes from, so the arm facing the pivot is the one that survives.
 //!   Two grid reads bound it: `continuesColumn`, which asks
 //!   whether a SECOND fan rail row sits one cell away on this column (a
-//!   grid-wrapped fan threads its trunk through such a row, and there both
+//!   grid-wrapped fan threads its rail through such a row, and there both
 //!   arms are real), and `armIsAnswered`, which refuses to sever an arm
 //!   something answers — the stroke an arrowhead receives on its base side
 //!   (owner ruling, see `raster/arrow_base.zig`), or one a neighbouring
@@ -34,7 +34,7 @@
 //!   where one of them is.
 //!
 //! The strip is a VERTICAL-FLOW matter: `pivotSide` reads the pivot rect's
-//! rows, which only says "the trunk arrives from above/below" under TD/BT.
+//! rows, which only says "the rail arrives from above/below" under TD/BT.
 //! Under LR/RL the fan's shared run IS the vertical, so `resolveMasks`
 //! declines outright rather than sever a rail.
 //!
@@ -114,7 +114,7 @@ pub fn markShared(
 /// A `fan_out_rail` cell carrying BOTH vertical arms plus a horizontal one
 /// is a junction that claims to conduct up, down and along. That is true
 /// only where a second rail row of this fan continues on the column (a
-/// grid-wrapped trunk threading row K into row K+1); everywhere else one of
+/// grid-wrapped rail threading row K into row K+1); everywhere else one of
 /// the two verticals is a child's straight descent through the run, and the
 /// arm that survives is the one FACING the fan's pivot.
 ///
@@ -190,7 +190,7 @@ fn pivotSide(rect: sketch.Rect, y: u32) ?enum { north, south } {
 /// is still two rail rows threaded on one column, and the vertical joining
 /// them is still a real continuation. Asking for a matching polarity would
 /// narrow the reprieve to same-family stacks and sever the other case.
-/// guarded-by: fan_roles_test.zig "a grid trunk keeps the rail-to-rail vertical (┼ over ┼)"
+/// guarded-by: fan_roles_test.zig "a grid rail keeps the rail-to-rail vertical (┼ over ┼)"
 /// guarded-by: fan_roles_test.zig "a fan-IN rail row one cell away reprieves the fan-OUT junction too"
 fn continuesColumn(lat: *const lattice.Lattice, x: u32, y: u32) bool {
     for ([_]i64{ -1, 1 }) |dy| {
@@ -289,11 +289,11 @@ fn claimHasEdge(claim: ledger.RailClaim, edge_id: u32) bool {
 fn onRail(s: sketch.Sketch, x: u32, y: u32) bool {
     const px: i32 = @intCast(x);
     const py: i32 = @intCast(y);
-    for (s.rails) |bb| {
-        if (py == bb.crossbar[0].y and px >= bb.crossbar[0].x and px <= bb.crossbar[1].x) return true;
+    for (s.rails) |rail| {
+        if (py == rail.crossbar[0].y and px >= rail.crossbar[0].x and px <= rail.crossbar[1].x) return true;
         var i: usize = 0;
-        while (i + 1 < bb.stem.len) : (i += 1) {
-            if (onSegment(bb.stem[i], bb.stem[i + 1], px, py)) return true;
+        while (i + 1 < rail.stem.len) : (i += 1) {
+            if (onSegment(rail.stem[i], rail.stem[i + 1], px, py)) return true;
         }
     }
     return false;

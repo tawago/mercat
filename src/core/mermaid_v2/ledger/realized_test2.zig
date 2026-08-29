@@ -70,11 +70,11 @@ fn paths(a: std.mem.Allocator, edges: []const sg.Edge) ![]sk.EdgePath {
     return out;
 }
 
-pub fn buildPlan(a: std.mem.Allocator, g: sg.SemGraph) !pb.JoinPermits {
+pub fn buildPlan(a: std.mem.Allocator, g: sg.SemGraph) !pb.BundlePermits {
     return (try planner.build(a, g, .joined)).plan;
 }
 
-pub fn groupIdOf(plan: pb.JoinPermits, dir: pb.JoinDirection, pivot: sg.NodeId) pb.JoinGroupId {
+pub fn groupIdOf(plan: pb.BundlePermits, dir: pb.BundleDirection, pivot: sg.NodeId) pb.CandidateBundleId {
     for (plan.groups) |g| if (g.direction == dir and g.pivot == pivot) return g.id;
     unreachable;
 }
@@ -85,27 +85,27 @@ pub fn hasFinding(report: jpv.ValidationReport, tag: jpv.ValidationTag) bool {
 }
 
 /// Build a CONTROLLED one-side (or partial-member) plan: `sel_members` of
-/// `sel_group` are selected into one join; every other membership is
+/// `sel_group` are selected into one bundle; every other membership is
 /// independent(not_selected). Conflicts are recomputed completely.
 pub fn controlledPlan(
     a: std.mem.Allocator,
-    plan: pb.JoinPermits,
-    sel_group: pb.JoinGroupId,
+    plan: pb.BundlePermits,
+    sel_group: pb.CandidateBundleId,
     sel_members: []const pb.EdgeId,
-) !struct { plan: pb.RealizedJoins, proposals: []const pb.JoinProposal } {
+) !struct { plan: pb.RealizedBundles, proposals: []const pb.BundleProposal } {
     const gi = jp.groupIndexById(plan.groups, sel_group).?;
     const dir = plan.groups[gi].direction;
-    const proposals = try a.alloc(pb.JoinProposal, 1);
-    proposals[0] = .{ .id = 0, .permission_group = sel_group, .members = sel_members, .candidate_geometry = .{ .rail = 0 } };
-    const joins = try a.alloc(pb.SelectedJoin, 1);
-    joins[0] = .{ .id = 0, .proposal = 0, .permission_group = sel_group, .members = sel_members };
+    const proposals = try a.alloc(pb.BundleProposal, 1);
+    proposals[0] = .{ .id = 0, .candidate_bundle = sel_group, .members = sel_members, .candidate_geometry = .{ .rail = 0 } };
+    const bundles = try a.alloc(pb.SelectedBundle, 1);
+    bundles[0] = .{ .id = 0, .proposal = 0, .candidate_bundle = sel_group, .members = sel_members };
 
     const rms = try a.alloc(pb.RealizedEdgeMembership, plan.memberships.len);
     for (plan.memberships, rms) |m, *rm| {
         rm.* = .{ .edge = m.edge, .source = disp(m.edge, m.source_group, sel_group, .out, dir, sel_members), .target = disp(m.edge, m.target_group, sel_group, .in, dir, sel_members) };
     }
 
-    var conflicts: std.ArrayListUnmanaged(pb.JoinConflict) = .empty;
+    var conflicts: std.ArrayListUnmanaged(pb.BundleConflict) = .empty;
     for (plan.groups, 0..) |ga, i| {
         for (plan.groups[i + 1 ..]) |gb| {
             var shared: std.ArrayListUnmanaged(pb.EdgeId) = .empty;
@@ -123,7 +123,7 @@ pub fn controlledPlan(
     }
     return .{
         .plan = .{
-            .selected_joins = joins,
+            .selected_bundles = bundles,
             .memberships = rms,
             .conflicts = try conflicts.toOwnedSlice(a),
         },
@@ -133,16 +133,16 @@ pub fn controlledPlan(
 
 fn disp(
     e: pb.EdgeId,
-    group: ?pb.JoinGroupId,
-    sel_group: pb.JoinGroupId,
-    end: pb.JoinDirection,
-    sel_dir: pb.JoinDirection,
+    group: ?pb.CandidateBundleId,
+    sel_group: pb.CandidateBundleId,
+    end: pb.BundleDirection,
+    sel_dir: pb.BundleDirection,
     sel_members: []const pb.EdgeId,
 ) ?pb.MembershipDisposition {
     const gid = group orelse return null;
     if (gid == sel_group and end == sel_dir and jp.containsEdge(sel_members, e))
         return .{ .selected = 0 };
-    return .{ .independent = .{ .permission_group = gid, .reason = .not_selected } };
+    return .{ .independent = .{ .candidate_bundle = gid, .reason = .not_selected } };
 }
 
 // -- Controlled one-side and partial plans through the validator ---------------
@@ -165,7 +165,7 @@ test "V-D-JOIN-SELECT-04 / V-D-DUAL-01: controlled one-side incomplete-2x2 plans
     // Both are CONTROLLED vectors only — the production result for this
     // topology is NEITHER (V-D-JOIN-SELECT-03) — but each must validate
     // clean at plan level (no both-sides selection, dispositions total).
-    for ([2]pb.JoinGroupId{ fo, fi }) |sel| {
+    for ([2]pb.CandidateBundleId{ fo, fi }) |sel| {
         const members = plan.groups[jp.groupIndexById(plan.groups, sel).?].members;
         const built = try controlledPlan(a, plan, sel, members);
         const report = try jpv.validate(a, plan, built.plan, built.proposals);
@@ -179,7 +179,7 @@ test "V-D-JOIN-SELECT-06 / V-D-DUAL-02: controlled one-side dual-chain plans val
     const a = arena.allocator();
     const g = graph(&dual);
     const plan = try buildPlan(a, g);
-    for ([2]pb.JoinGroupId{ groupIdOf(plan, .out, 4), groupIdOf(plan, .in, 5) }) |sel| {
+    for ([2]pb.CandidateBundleId{ groupIdOf(plan, .out, 4), groupIdOf(plan, .in, 5) }) |sel| {
         const members = plan.groups[jp.groupIndexById(plan.groups, sel).?].members;
         const built = try controlledPlan(a, plan, sel, members);
         const report = try jpv.validate(a, plan, built.plan, built.proposals);
@@ -215,19 +215,19 @@ test "V-D-DUAL-04 analogue: selecting one dual edge at both endpoint sides is re
     const fo_members = plan.groups[jp.groupIndexById(plan.groups, fo).?].members;
     const fi_members = plan.groups[jp.groupIndexById(plan.groups, fi).?].members;
 
-    const proposals = try a.alloc(pb.JoinProposal, 2);
-    proposals[0] = .{ .id = 0, .permission_group = fo, .members = fo_members, .candidate_geometry = .{ .rail = 0 } };
-    proposals[1] = .{ .id = 1, .permission_group = fi, .members = fi_members, .candidate_geometry = .{ .rail = 1 } };
-    const joins = try a.alloc(pb.SelectedJoin, 2);
-    joins[0] = .{ .id = 0, .proposal = 0, .permission_group = fo, .members = fo_members };
-    joins[1] = .{ .id = 1, .proposal = 1, .permission_group = fi, .members = fi_members };
+    const proposals = try a.alloc(pb.BundleProposal, 2);
+    proposals[0] = .{ .id = 0, .candidate_bundle = fo, .members = fo_members, .candidate_geometry = .{ .rail = 0 } };
+    proposals[1] = .{ .id = 1, .candidate_bundle = fi, .members = fi_members, .candidate_geometry = .{ .rail = 1 } };
+    const bundles = try a.alloc(pb.SelectedBundle, 2);
+    bundles[0] = .{ .id = 0, .proposal = 0, .candidate_bundle = fo, .members = fo_members };
+    bundles[1] = .{ .id = 1, .proposal = 1, .candidate_bundle = fi, .members = fi_members };
     const rms = try a.alloc(pb.RealizedEdgeMembership, plan.memberships.len);
     for (plan.memberships, rms) |m, *rm| rm.* = .{
         .edge = m.edge,
         .source = if (m.source_group) |gid| .{ .selected = if (gid == fo) 0 else 1 } else null,
         .target = if (m.target_group) |gid| .{ .selected = if (gid == fi) 1 else 0 } else null,
     };
-    const bad: pb.RealizedJoins = .{ .selected_joins = joins, .memberships = rms };
+    const bad: pb.RealizedBundles = .{ .selected_bundles = bundles, .memberships = rms };
     const report = try jpv.validate(a, plan, bad, proposals);
     try expect(hasFinding(report, .selected_both_sides));
 }
@@ -246,19 +246,19 @@ test "V-D-TRUNK-06: duplicate (from,to) pair is blocked by the item-1 duplicate-
     // overlap conflict between them is still retained.
     for (res.report.verdicts) |v| {
         try expectEqual(jp.GroupClause.duplicate_key, v.clause);
-        try expectEqual(pb.DiagnosticTag.join_select_duplicate_key_blocked, v.tag);
+        try expectEqual(pb.DiagnosticTag.bundle_select_duplicate_key_blocked, v.tag);
         try expect(v.duplicate_pair);
     }
     try expectEqual(@as(usize, 1), res.plan.conflicts.len);
     try expectEqual(@as(usize, 2), res.plan.conflicts[0].shared_edges.len);
-    try expectEqual(@as(usize, 0), res.plan.selected_joins.len);
+    try expectEqual(@as(usize, 0), res.plan.selected_bundles.len);
     for (res.plan.memberships) |rm| {
         if (rm.source) |d| try expectEqual(pb.IndependentReason.not_selected, d.independent.reason);
     }
     try expect((try jpv.validate(a, plan, res.plan, res.report.proposals)).valid());
 }
 
-test "V-D-TRUNK-08: no automatic partial trunk — a subset proposal is rejected whole via clause (c)" {
+test "V-D-TRUNK-08: no automatic partial rail — a subset proposal is rejected whole via clause (c)" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
@@ -277,11 +277,11 @@ test "V-D-TRUNK-08: no automatic partial trunk — a subset proposal is rejected
     const bbs = [_]sk.Rail{.{ .pivot = 8, .stem = &poly, .crossbar = .{ poly[0], poly[1] }, .taps = &taps, .kind = .solid, .role = .fan_out_dropper }};
     const res = try jp.realize(a, plan, sketchOf(try paths(a, four[3..]), &bbs));
     try expectEqual(jp.GroupClause.incomplete, res.report.verdicts[0].clause);
-    try expectEqual(@as(usize, 0), res.plan.selected_joins.len);
+    try expectEqual(@as(usize, 0), res.plan.selected_bundles.len);
     try expectEqual(@as(usize, 1), res.plan.rejected_proposals.len);
 }
 
-test "V-D-TRUNK-10: uniform directed fan-in rail proposal realizes one group-owned join" {
+test "V-D-TRUNK-10: uniform directed fan-in rail proposal realizes one group-owned bundle" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
@@ -294,8 +294,8 @@ test "V-D-TRUNK-10: uniform directed fan-in rail proposal realizes one group-own
     }
     const bbs = [_]sk.Rail{.{ .pivot = 5, .stem = &poly, .crossbar = .{ poly[0], poly[1] }, .taps = &taps, .kind = .solid, .role = .fan_in_dropper }};
     const res = try jp.realize(a, plan, sketchOf(&.{}, &bbs));
-    try expectEqual(@as(usize, 1), res.plan.selected_joins.len);
-    try expectEqual(@as(usize, 4), res.plan.selected_joins[0].members.len);
+    try expectEqual(@as(usize, 1), res.plan.selected_bundles.len);
+    try expectEqual(@as(usize, 4), res.plan.selected_bundles[0].members.len);
     for (res.plan.memberships) |rm| {
         try expect(rm.target != null and rm.target.? == .selected);
         try expect(rm.source == null);
@@ -338,7 +338,7 @@ test "every planner output validates clean across the step-4 vector shapes" {
     const multi = try jp.realize(a, plan3, sketchOf(&.{}, &complete_bb));
     try expect((try jpv.validate(a, plan3, multi.plan, multi.report.proposals)).valid());
     const realized = try jp.realize(a, plan3, sketchOf(&.{}, complete_bb[0..1]));
-    try expectEqual(@as(usize, 1), realized.plan.selected_joins.len);
+    try expectEqual(@as(usize, 1), realized.plan.selected_bundles.len);
     try expect((try jpv.validate(a, plan3, realized.plan, realized.report.proposals)).valid());
 }
 
@@ -376,8 +376,8 @@ test "corrupted plans are rejected rule by rule" {
     // A disposition where no permission membership exists.
     const extra = try a.dupe(pb.RealizedEdgeMembership, res.plan.memberships);
     for (plan.memberships, extra) |m, *rm| {
-        if (m.source_group == null) rm.source = .{ .independent = .{ .permission_group = 0, .reason = .not_selected } };
-        if (m.target_group == null) rm.target = .{ .independent = .{ .permission_group = 0, .reason = .not_selected } };
+        if (m.source_group == null) rm.source = .{ .independent = .{ .candidate_bundle = 0, .reason = .not_selected } };
+        if (m.target_group == null) rm.target = .{ .independent = .{ .candidate_bundle = 0, .reason = .not_selected } };
     }
     p = res.plan;
     p.memberships = extra;
@@ -387,7 +387,7 @@ test "corrupted plans are rejected rule by rule" {
     p = res.plan;
     p.conflicts = &.{};
     try expect(hasFinding(try jpv.validate(a, plan, p, res.report.proposals), .conflict_missing));
-    const short = try a.dupe(pb.JoinConflict, res.plan.conflicts);
+    const short = try a.dupe(pb.BundleConflict, res.plan.conflicts);
     short[0].shared_edges = &.{};
     p = res.plan;
     p.conflicts = short;
@@ -411,17 +411,17 @@ test "corrupted plans are rejected rule by rule" {
     p.rejected_proposals = &.{};
     try expect(hasFinding(try jpv.validate(a, plan3, p, rejected.report.proposals), .proposal_unaccounted));
 
-    // Bullets 2/3/4: a selected join re-pointed at the wrong group.
+    // Bullets 2/3/4: a selected bundle re-pointed at the wrong group.
     const realized = try jp.realize(a, plan3, sketchOf(&.{}, &.{.{ .pivot = 8, .stem = &poly, .crossbar = .{ poly[0], poly[1] }, .taps = &taps, .kind = .solid, .role = .fan_out_dropper }}));
-    try expectEqual(@as(usize, 1), realized.plan.selected_joins.len);
-    const rejoined = try a.dupe(pb.SelectedJoin, realized.plan.selected_joins);
-    const foreign = try a.dupe(pb.EdgeId, realized.plan.selected_joins[0].members);
+    try expectEqual(@as(usize, 1), realized.plan.selected_bundles.len);
+    const rejoined = try a.dupe(pb.SelectedBundle, realized.plan.selected_bundles);
+    const foreign = try a.dupe(pb.EdgeId, realized.plan.selected_bundles[0].members);
     foreign[0] = 99;
     rejoined[0].members = foreign;
     p = realized.plan;
-    p.selected_joins = rejoined;
+    p.selected_bundles = rejoined;
     const rj = try jpv.validate(a, plan3, p, realized.report.proposals);
-    try expect(hasFinding(rj, .selected_join_foreign_member));
+    try expect(hasFinding(rj, .selected_bundle_foreign_member));
 
     // Terminal ports out of canonical order.
     const ports = try a.dupe(pb.TerminalPort, res.plan.terminal_ports);

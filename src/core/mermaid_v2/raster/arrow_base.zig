@@ -245,7 +245,7 @@ test "an unfed own-edge corner base is a counted defect, never welded (I4)" {
     var buf: [3]lattice.Cell = undefined;
     for (&buf) |*c| c.* = lattice.Cell.empty;
     var lat = lattice.Lattice{ .width = 1, .height = 3, .cells = &buf };
-    lat.at(0, 0).* = edgeCellE(7, .{ .n = true, .e = true }); // â own trunk (edge 7)
+    lat.at(0, 0).* = edgeCellE(7, .{ .n = true, .e = true }); // â own rail (edge 7)
     lat.at(0, 1).* = arrowCellE(.south, 7, .{ .n = true, .s = true });
     try testing.expectEqual(@as(u32, 1), validate(&lat).violations);
     // The defect is DECLARED, not repaired: the base keeps its mask.

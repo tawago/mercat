@@ -67,7 +67,7 @@ fn placementNamed(s: sketch.Sketch, name: []const u8) ?sketch.NodePlacement {
     return null;
 }
 
-// An outer fan whose targets are SUBGRAPHS: the outer piece's fan co-set
+// An outer fan whose targets are SUBGRAPHS: the outer piece's fan bundle
 // names the outer PLACEMENT edges, and stitch drops exactly those (they
 // touch a super-node) in favour of bridge EdgePaths keyed by crossing id.
 // Unless the set is rewritten through that swap, its members resolve to
@@ -118,7 +118,7 @@ fn fanIntoTwoSubgraphsGraph(
     };
 }
 
-// An outer fan whose targets are SUBGRAPHS: the outer piece's fan co-set
+// An outer fan whose targets are SUBGRAPHS: the outer piece's fan bundle
 // names the outer PLACEMENT edges, and stitch drops exactly those (they
 // touch a super-node) in favour of bridge EdgePaths keyed by crossing id.
 // Unless the set is rewritten through that swap, its members resolve to
@@ -146,7 +146,7 @@ test "an outer fan into sibling subgraphs names its bridges, not the dropped pla
     // leaving Top, at least two of them landing INSIDE a cluster — i.e. the
     // bridges that replaced Top's dropped placement edges.
     var found = false;
-    for (s.co_sets) |set| {
+    for (s.bundle_sets) |set| {
         var live: usize = 0;
         var into_clusters: usize = 0;
         for (set.members) |m| {
@@ -252,7 +252,7 @@ test "a labeled fan into sibling subgraphs reserves no on-run rows" {
 // crossing becomes its own bridge, minted independently by cluster/bridges,
 // and both elbows land on the target placement's one perimeter port. Neither
 // bridge knows about the other, so only the merged geometry can declare that
-// their approach ink is one channel — which is exactly what stitch reads back
+// their approach ink is one bundle — which is exactly what stitch reads back
 // off the final edge slice.
 fn twoBridgesIntoOnePortGraph(
     nodes_buf: []sem_graph.Node,
@@ -283,7 +283,7 @@ fn twoBridgesIntoOnePortGraph(
     };
 }
 
-test "two bridges into one port declare a port-share co-set" {
+test "two bridges into one port declare a port-share bundle" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
@@ -321,7 +321,7 @@ test "two bridges into one port declare a port-share co-set" {
         if (fe.x != se.x or fe.y != se.y) continue;
         checked = true;
         var named = false;
-        for (s.co_sets) |set| {
+        for (s.bundle_sets) |set| {
             if (set.origin != .port_share) continue;
             var saw_first = false;
             var saw_second = false;
@@ -374,7 +374,7 @@ test "a child rail and cross-border bridge sharing A's final port are licensed" 
 
     var licensed = false;
     for (s.rails[0].taps) |tap| {
-        if (ledger.coMembersAt(s.co_sets, tap.edge, final_bridge.id, .{
+        if (ledger.bundleMembersAt(s.bundle_sets, tap.edge, final_bridge.id, .{
             .x = final_bridge.polyline[0].x,
             .y = final_bridge.polyline[0].y + 1,
         })) licensed = true;

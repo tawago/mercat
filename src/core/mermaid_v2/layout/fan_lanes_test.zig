@@ -54,7 +54,7 @@ pub fn laneOfPivot(fans: []const fan.Fan, dir: fan.Direction, pivot: u32) u32 {
 test "incomplete overlapping fans get separate lanes" {
     // A->X, A->Y, B->Y, C->Y, C->Z. Two fan-OUTs (A: X,Y and C: Y,Z) whose
     // rails abut at Y's column; their union {A,C}×{X,Y,Z} declares 4 of 6
-    // possible pairs → INCOMPLETE → the two trunks must land on distinct lanes.
+    // possible pairs → INCOMPLETE → the two rails must land on distinct lanes.
     const a = testing.allocator;
     var nodes = [_]sugiyama.LayerNode{
         .{ .real = 0 }, .{ .real = 1 }, .{ .real = 2 }, // A B C (layer 0)
@@ -280,10 +280,10 @@ test "a fan of placement proxies for directed crossings is untouched by the clos
     for (lanes) |l| try testing.expectEqual(@as(u32, 0), l);
 }
 
-test "a salvaged fan's excluded members never land on the kept trunk's lane" {
+test "a salvaged fan's excluded members never land on the kept rail's lane" {
     // The closure law's salvage shape: a strict subset of the fan keeps the
-    // trunk (edges 10 and 11 selected) and the rest unfuses. The excluded
-    // member must start ABOVE the trunk's own lane — starting at the fan's
+    // rail (edges 10 and 11 selected) and the rest unfuses. The excluded
+    // member must start ABOVE the rail's own lane — starting at the fan's
     // lane would put it straight back on the crossbar it was excluded from.
     const a = testing.allocator;
     var nodes = [_]sugiyama.LayerNode{ .{ .real = 0 }, .{ .real = 1 }, .{ .real = 2 }, .{ .real = 3 } };
@@ -304,18 +304,18 @@ test "a salvaged fan's excluded members never land on the kept trunk's lane" {
     const graph = try mkGraph(aa, &edges);
     const fans = try fan.detect(aa, graph, lg);
 
-    var trunk = [_]u32{ 10, 11 };
+    var rail = [_]u32{ 10, 11 };
     const selected = [_]sg.EdgeId{ 10, 11 };
     _ = selected;
-    const joins: @import("../base/ledger.zig").RealizedJoins = .{
-        .selected_joins = &.{.{ .id = 0, .proposal = 0, .permission_group = 0, .members = &trunk }},
+    const bundles: @import("../base/ledger.zig").RealizedBundles = .{
+        .selected_bundles = &.{.{ .id = 0, .proposal = 0, .candidate_bundle = 0, .members = &rail }},
         .memberships = &.{
             .{ .edge = 10, .source = null, .target = .{ .selected = 0 } },
             .{ .edge = 11, .source = null, .target = .{ .selected = 0 } },
-            .{ .edge = 12, .source = null, .target = .{ .independent = .{ .permission_group = 0, .reason = .not_selected } } },
+            .{ .edge = 12, .source = null, .target = .{ .independent = .{ .candidate_bundle = 0, .reason = .not_selected } } },
         },
     };
-    try fan_lanes.assignLanes(Geom, aa, graph, lg, &geom, fans, joins, null);
+    try fan_lanes.assignLanes(Geom, aa, graph, lg, &geom, fans, bundles, null);
     var lanes = [_]u32{ 9, 9, 9 };
     peerLanes(fans, .in, 3, &lanes);
     try testing.expectEqual(@as(u32, 0), lanes[0]);
@@ -323,13 +323,13 @@ test "a salvaged fan's excluded members never land on the kept trunk's lane" {
     try testing.expect(lanes[2] != 0);
 }
 
-test "a gap whose departures all defer lane-separates the arrival trunks that draw its rails" {
-    // A,B -> X,Y plus C -> Y. The plan selects the two ARRIVAL trunks (at X and
+test "a gap whose departures all defer lane-separates the arrival rails that draw its rails" {
+    // A,B -> X,Y plus C -> Y. The plan selects the two ARRIVAL rails (at X and
     // at Y); neither departure is selected, so neither draws a run and both
-    // defer their peers. Model those arrivals as the gap's trunks — as the ones
+    // defer their peers. Model those arrivals as the gap's rails — as the ones
     // actually drawing rails — and the group separates. Model them as owned by
     // the departures instead and BOTH arrivals lose every edge, so they model
-    // no trunk, draw crossbars nobody laned, and keep lane 0: hence the
+    // no rail, draw crossbars nobody laned, and keep lane 0: hence the
     // nonzero-lane assertion, not just the inequality.
     // C -> Y keeps the declared set one pair short of {A,B,C} x {X,Y}, so the
     // directed cross-pair test still refuses the fusion.
@@ -357,24 +357,24 @@ test "a gap whose departures all defer lane-separates the arrival trunks that dr
 
     var x_members = [_]pb.EdgeId{ 0, 2 };
     var y_members = [_]pb.EdgeId{ 1, 3, 4 };
-    var selected = [_]pb.SelectedJoin{
-        .{ .id = 0, .proposal = 0, .permission_group = 0, .members = &x_members },
-        .{ .id = 1, .proposal = 1, .permission_group = 1, .members = &y_members },
+    var selected = [_]pb.SelectedBundle{
+        .{ .id = 0, .proposal = 0, .candidate_bundle = 0, .members = &x_members },
+        .{ .id = 1, .proposal = 1, .candidate_bundle = 1, .members = &y_members },
     };
     var memberships: [5]pb.RealizedEdgeMembership = undefined;
     for (&memberships, 0..) |*m, i| m.* = .{
         .edge = @intCast(i),
-        .source = .{ .independent = .{ .permission_group = 2, .reason = .overlap_conflict } },
+        .source = .{ .independent = .{ .candidate_bundle = 2, .reason = .overlap_conflict } },
         .target = .{ .selected = if (i == 0 or i == 2) 0 else 1 },
     };
-    const joins: pb.RealizedJoins = .{ .selected_joins = &selected, .memberships = &memberships };
+    const bundles: pb.RealizedBundles = .{ .selected_bundles = &selected, .memberships = &memberships };
 
     var arena = std.heap.ArenaAllocator.init(a);
     defer arena.deinit();
     const aa = arena.allocator();
     const graph = try mkGraph(aa, &edges);
     const fans = try fan.detect(aa, graph, lg);
-    try fan_lanes.assignLanes(Geom, aa, graph, lg, &geom, fans, joins, null);
+    try fan_lanes.assignLanes(Geom, aa, graph, lg, &geom, fans, bundles, null);
     try testing.expect(laneOfPivot(fans, .in, 3) != 0);
     try testing.expect(laneOfPivot(fans, .in, 3) != laneOfPivot(fans, .in, 4));
 }
@@ -386,7 +386,7 @@ test "two clustered rails implying one declared leaf pair both refuse" {
     // SAME two leaf columns, so a reader walks Z up A's column, along one
     // crossbar, down to W: a Z—W relation nothing declares. A pair is
     // spendable once, so the second claimant makes it nobody's and BOTH
-    // unfuse. One rail alone over the same declaration keeps its trunk.
+    // unfuse. One rail alone over the same declaration keeps its rail.
     const a = testing.allocator;
     var nodes = [_]sugiyama.LayerNode{
         .{ .real = 0 }, .{ .real = 1 }, // A B (layer 0)
@@ -429,7 +429,7 @@ test "two clustered rails implying one declared leaf pair both refuse" {
     }
 
     // ONE rail over the same declaration: nothing competes for the pair, so
-    // the trunk stays fused (the over-refusal boundary).
+    // the rail stays fused (the over-refusal boundary).
     {
         var edges = [_]sugiyama.LayerEdge{
             .{ .from = 0, .to = 2, .reversed = false, .edge = 10 }, // A---Z

@@ -77,7 +77,7 @@ fn wrapGrid(
         // keeps `h_spacing`; fan-IN uses the minimal 1-cell gap so it wraps
         // only when irreducibly too wide. guarded-by: fan_grid_test.zig "wrapWideFanIn wrap decision uses the minimal 1-cell fit gap, not h_spacing"
         const fit_gap: u32 = if (want == .in) 1 else h_spacing;
-        // Placement gap: fan-IN floors at 3 so its shared vertical trunk
+        // Placement gap: fan-IN floors at 3 so its shared vertical rail
         // (routed between the two centre columns) clears box walls even when
         // `h_spacing` halves to 2 under pressure. guarded-by: fan_grid_test.zig "wrapWideFanIn floors the placement gap at 3 when h_spacing halves to 2"
         const place_gap: u32 = if (want == .in) @max(h_spacing, 3) else h_spacing;
@@ -212,7 +212,7 @@ fn wrapGrid(
         // Place each child: column from the bin-pack assignment, row = its rank
         // within that column (top-to-bottom in peer order). Centre each box on
         // its column's CENTRE so a narrow box in a wide column is not
-        // left-jammed against the trunk (cols == 1 reduces to legacy
+        // left-jammed against the rail (cols == 1 reduces to legacy
         // `x = pivot_cx - w/2`). guarded-by: fan_grid_test.zig "wrapWideFanIn centres a narrow box on its column's centre, not flush to a wide neighbour"
         var row_fill_buf: [256]u32 = undefined;
         const row_fill = row_fill_buf[0..cols];

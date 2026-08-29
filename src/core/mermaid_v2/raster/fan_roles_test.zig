@@ -240,7 +240,7 @@ test "an arrowhead facing away grants no reprieve" {
 }
 
 test "under LR/RL the vertical is the rail itself, so nothing is stripped" {
-    // `pivotSide` reads the pivot rect's ROWS, which only means "the trunk
+    // `pivotSide` reads the pivot rect's ROWS, which only means "the rail
     // arrives from above/below" when the flow is vertical. Under LR/RL the
     // fan's shared run runs down a column and the droppers leave sideways,
     // so a row comparison would sever the rail rather than a child's stub.
@@ -259,8 +259,8 @@ test "under LR/RL the vertical is the rail itself, so nothing is stripped" {
     }
 }
 
-test "a grid trunk keeps the rail-to-rail vertical (┼ over ┼)" {
-    // A grid-wrapped (rows > 1) fan threads its trunk THROUGH a second rail
+test "a grid rail keeps the rail-to-rail vertical (┼ over ┼)" {
+    // A grid-wrapped (rows > 1) fan threads its rail THROUGH a second rail
     // row: the arm joining row K to row K+1 is a real continuation, and
     // severing it would orphan the lower half of the fan from the pivot.
     var buf: [15]lattice.Cell = undefined;
@@ -363,7 +363,7 @@ test "a dropper, a lone vertical arm and a bare corner are all out of scope" {
     // A rail with one vertical arm: nothing to choose between.
     lat.at(1, 2).* = fanCell(0, .fan_out_rail, .{ .n = true, .e = true, .w = true });
     // A rail with no horizontal arm is a straight shared stem, not a
-    // junction — stripping here would sever the trunk.
+    // junction — stripping here would sever the rail.
     lat.at(2, 2).* = fanCell(0, .fan_out_rail, .{ .n = true, .s = true });
 
     const nodes = pivotAt(0, 2);

@@ -257,7 +257,7 @@ test "on-run placement over a routed polyline dropper (fan-IN member)" {
     const a = arena.allocator();
 
     var lat = try makeLattice(a, 14, 8);
-    // Private fan-IN descent on column 5, rows 1..3; corner joins a rail
+    // Private fan-IN descent on column 5, rows 1..3; corner bundles a rail
     // at row 4 (not painted here — flanks come from the descent itself).
     dropCell(&lat, 5, 1, 3, .fan_in_dropper);
     dropCell(&lat, 5, 2, 3, .fan_in_dropper);

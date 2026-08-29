@@ -10,7 +10,7 @@ const sketch = @import("../sketch.zig");
 const sketch_ports = @import("../sketch_ports.zig");
 const ledger = @import("../base/ledger.zig");
 const split_mod = @import("split.zig");
-const bridge_cosets = @import("bridge_cosets.zig");
+const bridge_bundle_sets = @import("bridge_bundle_sets.zig");
 const stitch_rails = @import("stitch_rails.zig");
 
 pub fn rebuild(
@@ -22,7 +22,7 @@ pub fn rebuild(
     bridge_base: sketch.EdgeId,
     paths: []const sketch.EdgePath,
     bridges: []const sketch.EdgePath,
-    bars: []const sketch.Rail,
+    rails_buf: []const sketch.Rail,
     placements: []const sketch.NodePlacement,
 ) error{OutOfMemory}![]const ledger.RailClaim {
     var out: std.ArrayListUnmanaged(ledger.RailClaim) = .empty;
@@ -32,7 +32,7 @@ pub fn rebuild(
         for (claim.members) |source| {
             if (source.edge >= outer_base and source.edge < bridge_base) {
                 const old_edge = source.edge - outer_base;
-                const images = try bridge_cosets.finalImages(
+                const images = try bridge_bundle_sets.finalImages(
                     arena,
                     sr,
                     outer,
@@ -41,7 +41,7 @@ pub fn rebuild(
                     bridge_base,
                     paths,
                     bridges,
-                    bars,
+                    rails_buf,
                 );
                 if (images.len == 0) {
                     var unresolved = source;
@@ -51,11 +51,11 @@ pub fn rebuild(
                     continue;
                 }
                 for (images) |image| {
-                    const member = stitch_rails.finalMember(paths, bars, placements, image.edge, claim.polarity.pivotEnd()) orelse continue;
+                    const member = stitch_rails.finalMember(paths, rails_buf, placements, image.edge, claim.polarity.pivotEnd()) orelse continue;
                     try addCandidate(arena, &groups, member, old_edge);
                 }
             } else {
-                const member = stitch_rails.finalMember(paths, bars, placements, source.edge, claim.polarity.pivotEnd()) orelse source;
+                const member = stitch_rails.finalMember(paths, rails_buf, placements, source.edge, claim.polarity.pivotEnd()) orelse source;
                 try addCandidate(arena, &groups, member, source.edge);
             }
         }
@@ -69,7 +69,7 @@ pub fn rebuild(
         }
     }
 
-    try appendNative(arena, &out, bridges, paths, bars, placements);
+    try appendNative(arena, &out, bridges, paths, rails_buf, placements);
     for (out.items, 1..) |*claim, id| claim.id = @intCast(id);
     return out.toOwnedSlice(arena);
 }
@@ -158,9 +158,9 @@ const NativeKey = struct {
     site: ledger.AttachmentSite,
     kind: sketch.EdgeKind,
     arrow: sketch.ArrowKind,
-    port: ledger.CoCell,
+    port: ledger.BundleCell,
     members: std.ArrayListUnmanaged(ledger.RailClaimMember) = .empty,
-    traces: std.ArrayListUnmanaged([]const ledger.CoCell) = .empty,
+    traces: std.ArrayListUnmanaged([]const ledger.BundleCell) = .empty,
 };
 
 fn appendNative(
@@ -168,18 +168,18 @@ fn appendNative(
     out: *std.ArrayListUnmanaged(ledger.RailClaim),
     bridges: []const sketch.EdgePath,
     paths: []const sketch.EdgePath,
-    bars: []const sketch.Rail,
+    rails_buf: []const sketch.Rail,
     placements: []const sketch.NodePlacement,
 ) error{OutOfMemory}!void {
     var groups: std.ArrayListUnmanaged(NativeKey) = .empty;
     const traces = try sketch_ports.finalCarrierTraces(arena, bridges, &.{});
     for (traces) |trace| {
         for ([2]ledger.RailPolarity{ .out, .in }) |polarity| {
-            const member = stitch_rails.finalMember(paths, bars, placements, trace.id, polarity.pivotEnd()) orelse continue;
+            const member = stitch_rails.finalMember(paths, rails_buf, placements, trace.id, polarity.pivotEnd()) orelse continue;
             const pivot_end = polarity.pivotEnd();
             const pivot = member.node(pivot_end) orelse continue;
             const site = member.site(pivot_end) orelse continue;
-            const port: ledger.CoCell = if (polarity == .out)
+            const port: ledger.BundleCell = if (polarity == .out)
                 .{ .x = trace.first.x, .y = trace.first.y }
             else
                 .{ .x = trace.last.x, .y = trace.last.y };
@@ -228,9 +228,9 @@ fn appendNative(
 
 fn sharesAll(
     arena: std.mem.Allocator,
-    existing: []const []const ledger.CoCell,
-    candidate: []const ledger.CoCell,
-    port: ledger.CoCell,
+    existing: []const []const ledger.BundleCell,
+    candidate: []const ledger.BundleCell,
+    port: ledger.BundleCell,
 ) error{OutOfMemory}!bool {
     for (existing) |trace| {
         if ((try sketch_ports.commonApproachCells(arena, trace, candidate, port)).len <= 1) return false;
@@ -277,7 +277,7 @@ fn siteEqual(a: ledger.AttachmentSite, b: ledger.AttachmentSite) bool {
     return a.node == b.node and a.side == b.side and a.offset == b.offset;
 }
 
-fn cellEqual(a: ledger.CoCell, b: ledger.CoCell) bool {
+fn cellEqual(a: ledger.BundleCell, b: ledger.BundleCell) bool {
     return a.x == b.x and a.y == b.y;
 }
 

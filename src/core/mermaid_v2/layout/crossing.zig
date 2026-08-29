@@ -288,7 +288,7 @@ pub fn isBackEndpoint(lg: *const LayeredGraph, idx: u32) bool {
 /// Secondary (crossing-subordinate) objective for `reduceCrossings`: total
 /// distance of every *forward-leaf* reversed-edge endpoint from the last
 /// within-layer index (its rail side). Only forward-leaves qualify — a
-/// back-endpoint still on the trunk would bend it if pulled rail-ward. 0 when
+/// back-endpoint still on the rail would bend it if pulled rail-ward. 0 when
 /// no node qualifies, so this is identically zero on acyclic graphs and the
 /// accept test collapses to the strict crossing comparison (byte-identical).
 /// guarded-by: layout/crossing_test.zig "reduceCrossings parks a back-edge
@@ -305,7 +305,7 @@ pub fn railCost(lg: LayeredGraph) u64 {
     return total;
 }
 
-/// True if `idx` has no non-reversed out-edge (forward flow ends here → a lateral move within its layer bends no trunk).
+/// True if `idx` has no non-reversed out-edge (forward flow ends here → a lateral move within its layer bends no rail).
 fn isForwardLeaf(lg: *const LayeredGraph, idx: u32) bool {
     for (lg.edges) |e| {
         if (!e.reversed and e.from == idx) return false;
