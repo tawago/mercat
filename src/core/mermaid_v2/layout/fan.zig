@@ -217,6 +217,52 @@ pub fn gateLabelReservations(comptime G: type, graph: sg.SemGraph, fans: []Fan, 
     }
 }
 
+/// On-run tap labels of a fan-IN all share the ONE band row the gap reserves
+/// above the crossbar, each centered on its member's own dropper column. A
+/// label is feasible there only when its span clears every sibling dropper
+/// column (span emptiness + foreign-ink margin) and every sibling label's
+/// text by >= 2 blanks — the layout-time mirror of the constraints
+/// raster/labels_onrun.zig enforces (RULE A span emptiness, LAW 2
+/// isolation), judged conservatively on placed x centers. The constants here
+/// MIRROR raster/labels_onrun.zig's RULE A / LAW 2 and can drift from them;
+/// drift degrades to counted displacement via the labels_edge ladder, never
+/// to a lost label or a re-decided sharing question. An infeasible fan
+/// reverts its labeled members to private routes (the pre-rail behavior),
+/// so no label is ever silently lost to an on-run refusal with no lateral
+/// room left for the fallback ladder.
+pub fn gateFanInSharedLabels(comptime G: type, fans: []Fan, geom: []const G) void {
+    for (fans) |*f| {
+        if (f.direction != .in) continue;
+        var infeasible = false;
+        for (f.peers) |p| {
+            if (!p.shared or p.label_width == 0) continue;
+            const cx = centerX(G, geom, p.peer_idx);
+            const w: i32 = @intCast(p.label_width);
+            const left = cx - @divTrunc(w - 1, 2);
+            const right = cx + @divTrunc(w, 2);
+            for (f.peers) |q| {
+                if (q.peer_idx == p.peer_idx or !q.shared) continue;
+                const qx = centerX(G, geom, q.peer_idx);
+                if (q.label_width != 0) {
+                    const qw: i32 = @intCast(q.label_width);
+                    const q_left = qx - @divTrunc(qw - 1, 2);
+                    const q_right = qx + @divTrunc(qw, 2);
+                    if (!(right + 3 <= q_left or q_right + 3 <= left)) infeasible = true;
+                } else if (left - 2 < qx and qx < right + 2) infeasible = true;
+            }
+        }
+        if (!infeasible) continue;
+        for (f.peers) |*p| {
+            if (p.label_width != 0) p.shared = false;
+        }
+    }
+}
+
+fn centerX(comptime G: type, geom: []const G, idx: u32) i32 {
+    const g = geom[idx];
+    return g.x + @as(i32, @intCast(g.w / 2));
+}
+
 fn collectFanOut(
     a: std.mem.Allocator,
     graph: sg.SemGraph,
@@ -288,9 +334,12 @@ fn preparePeers(a: std.mem.Allocator, graph: sg.SemGraph, direction: ledger.Bund
     const shared_ids = prepared.members;
     for (out) |*candidate| {
         candidate.label_width = if (peerLabel(graph, candidate.edge_id)) |label| prim.displayWidth(label) else 0;
-        // Fan-IN has no first-class labeled tap geometry today; its label owns
-        // a source-side private route. Fan-OUT labels can use private Rail taps.
-        candidate.shared = !(direction == .in and candidate.label_width != 0) and containsEdge(shared_ids, candidate.edge_id);
+        // A labeled member stays shared in BOTH directions: fan-OUT labels use
+        // private Rail tap droppers below the crossbar; fan-IN labels use the
+        // member's private drop ABOVE the crossbar (source border to tap) —
+        // the same on-run sandwich, hosted by the gap rows extraRowsPerGap
+        // reserves for a labeled fan.
+        candidate.shared = containsEdge(shared_ids, candidate.edge_id);
     }
     return .{ .peers = out, .deco_mixed = prepared.deco_mixed, .style_mixed = prepared.style_mixed, .star_violation = prepared.star_violation };
 }
@@ -322,6 +371,13 @@ pub fn extraRowsPerGap(
                 if (peer.label_width == 0) continue;
                 const lane = effectiveLane(f, peer.lane);
                 if (!peer.shared) {
+                    need = @max(need, lane + 1 + LABEL_RUN_EXTRA_ROWS);
+                    continue;
+                }
+                // Fan-IN shared labels ride the members' private drops ABOVE
+                // the crossbar — one column per member, so one shared 3-row
+                // band suffices. Fan-OUT tap labels stack one block each.
+                if (f.direction == .in) {
                     need = @max(need, lane + 1 + LABEL_RUN_EXTRA_ROWS);
                     continue;
                 }

@@ -91,7 +91,6 @@ pub fn resolve(
         const out = &peers[peer_i];
         peer_i += 1;
         const e = routing.findGraphEdge(graph, p.edge_id) orelse return null;
-        if (fan.direction == .in and e.label != null) return null;
         const ep = allocated_ports.forEdge(e.id) orelse return null;
         if (kind) |k| {
             if (e.kind != k) return null;

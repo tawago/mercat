@@ -64,7 +64,7 @@ test "fan provenance: first-class fan-out claim is valid metadata and changes no
     try testing.expectEqualStrings(with_bytes, without_bytes);
 }
 
-test "fan provenance: realized fan-in Rail claims the pivot while labeled fan-in stays private" {
+test "fan provenance: realized fan-in Rail claims the pivot; feasible labeled fan-in shares and claims too" {
     const nodes = [_]sg.Node{ node(0, "A", null), node(1, "B", null), node(2, "T", null) };
     const edges = [_]sg.Edge{ edge(20, 0, 2), edge(21, 1, 2) };
     const groups = [_]ledger.CandidateBundle{.{ .id = 0, .direction = .in, .pivot = 2, .members = &.{ 20, 21 } }};
@@ -97,7 +97,12 @@ test "fan provenance: realized fan-in Rail claims the pivot while labeled fan-in
     const peer = try coords.layout(peer_arena.allocator(), graph(.TD, &clustered_nodes, &clustered_edges, &clusters), .{});
     try testing.expectEqual(@as(usize, 0), peer.rails.len);
     try testing.expectEqual(@as(usize, 2), peer.edges.len);
-    try testing.expectEqual(@as(usize, 0), peer.rail_claims.len);
+    // Labeled fan-IN members whose on-run band is feasible STAY shared
+    // (gateFanInSharedLabels): the coordinated peer paths share the rail row,
+    // so the claim follows the fan exactly as a first-class Rail's would.
+    try testing.expectEqual(@as(usize, 1), peer.rail_claims.len);
+    try testing.expectEqual(ledger.RailPolarity.in, peer.rail_claims[0].polarity);
+    try expectAllValid(peer.rail_claims);
     const report = try raster.rasterize(peer_arena.allocator(), peer, .bridge);
     try testing.expectEqual(@as(u32, 0), report.labels_dropped);
 }
@@ -325,4 +330,45 @@ test "fan provenance: several clustered private members receive unique ports" {
     try testing.expect(source_offsets[2] != source_offsets[0]);
     try testing.expect(source_offsets[1] != source_offsets[2]);
     for (target_offsets, 0..) |offset, i| for (target_offsets[0..i]) |prior| try testing.expect(offset != prior);
+}
+
+test "labeled fan-in with feasible on-run bands realizes ONE rail: every tap on one crossbar row, each tap carrying its label" {
+    // Wide source boxes keep the dropper columns far enough apart for every
+    // label's centered on-run span (gateFanInSharedLabels feasibility), so
+    // the whole member set commits as one Rail: one crossbar row, one tap
+    // per member, no per-member polyline — the crossbar shape, never the
+    // staircase of sequential pairwise merges.
+    const nodes = [_]sg.Node{
+        node(0, "Web Tier", null),
+        node(1, "API Tier", null),
+        node(2, "Worker Pool", null),
+        node(3, "Collector", null),
+    };
+    const edges = [_]sg.Edge{
+        styledEdge(20, 0, 3, .solid, .none, .filled, "http"),
+        styledEdge(21, 1, 3, .solid, .none, .filled, "grpc"),
+        styledEdge(22, 2, 3, .solid, .none, .filled, "batch"),
+    };
+    const groups = [_]ledger.CandidateBundle{.{ .id = 0, .direction = .in, .pivot = 3, .members = &.{ 20, 21, 22 } }};
+    const memberships = [_]ledger.BundleMembership{
+        .{ .edge = 20, .source_group = null, .target_group = 0 },
+        .{ .edge = 21, .source_group = null, .target_group = 0 },
+        .{ .edge = 22, .source_group = null, .target_group = 0 },
+    };
+    const permits: ledger.BundlePermits = .{ .policy = .joined, .groups = &groups, .memberships = &memberships };
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const s = try coords.layout(a, graph(.TD, &nodes, &edges, &.{}), .{ .bundle_permits = &permits });
+
+    try testing.expectEqual(@as(usize, 1), s.rails.len);
+    const rail = s.rails[0];
+    try testing.expectEqual(sketch.EdgeRole.fan_in_dropper, rail.role);
+    try testing.expectEqual(@as(usize, 3), rail.taps.len);
+    for (rail.taps) |tap| {
+        try testing.expectEqual(rail.crossbar[0].y, tap.at.y);
+        try testing.expect(tap.label != null);
+    }
+    // No member owns a private polyline: the rail is the members' whole run.
+    try testing.expectEqual(@as(usize, 0), s.edges.len);
 }

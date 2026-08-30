@@ -179,6 +179,10 @@ fn buildSketch(
     // so each rail takes its own rail row via fans[].lane and every declared
     // edge stays traceable. Single rails and pure fan-in|out stay lane 0.
     // guarded-by: layout/fan_lanes_test.zig "incomplete overlapping fans get separate lanes"
+    // Labeled fan-IN sharing is feasibility-gated against the placed columns
+    // BEFORE lanes are assigned, so an infeasible fan's labeled members take
+    // the private-route lanes their labels need.
+    if (fans.len > 0) fan_mod.gateFanInSharedLabels(NodeGeom, fans, geom);
     if (fans.len > 0) try fan_lanes.assignLanes(NodeGeom, a, graph, lg, geom, fans, candidate_bundles, &closure);
 
     // Reserve max(lane)+1 gap rows per fan gap (extraRowsPerGap reads fans[].lane).
