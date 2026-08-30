@@ -241,7 +241,7 @@ fn edgeCellE(edge: lattice.EdgeId, nb: lattice.Neighbours) lattice.Cell {
     return .{ .occupant = .{ .edge_segment = .{ .edge = edge, .kind = .solid } }, .neighbours = nb };
 }
 
-test "an unfed own-edge corner base is a counted defect, never welded (I4)" {
+test "an unfed own-edge corner base is a counted defect, never welded (subtractive repair only)" {
     var buf: [3]lattice.Cell = undefined;
     for (&buf) |*c| c.* = lattice.Cell.empty;
     var lat = lattice.Lattice{ .width = 1, .height = 3, .cells = &buf };
@@ -261,13 +261,13 @@ test "a foreign edge crossing the base stays a counted residual (no fabricated j
     try testing.expectEqual(@as(u32, 1), validate(&lat).violations);
 }
 
-test "a blank base behind a real run is a counted gap, never bridged (I4)" {
+test "a blank base behind a real run is a counted gap, never bridged (subtractive repair only)" {
     var buf: [4]lattice.Cell = undefined;
     for (&buf) |*c| c.* = lattice.Cell.empty;
     var lat = lattice.Lattice{ .width = 1, .height = 4, .cells = &buf };
     lat.at(0, 0).* = .{ .occupant = .{ .node_border = .{ .node = 1, .role = .edge_s } }, .neighbours = .{} };
     // (0,1) blank base, (0,2) arrow south: a 1-cell resume gap in the
-    // positioned layout. The raster may not add ink to patch it (I4); the
+    // positioned layout. The raster may not add ink to patch it (subtractive repair only); the
     // gap ships as a priced violation instead.
     lat.at(0, 2).* = arrowCellE(.south, 7, .{ .n = true, .s = true });
     try testing.expectEqual(@as(u32, 1), validate(&lat).violations);

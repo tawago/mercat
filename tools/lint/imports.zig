@@ -465,7 +465,7 @@ pub const file_allowlists = [_]struct {
         .reason = "tiling/scan may only import std, prim, base/*, sem_graph, sketch, lattice, or tiling siblings",
     },
     .{
-        // The I2-state conformance tier: recorded state vs the retained
+        // The ink-attribution-state conformance tier: recorded state vs the retained
         // re-derivation, compared and counted (contracts item 6 shape).
         .name = "tiling/state.zig",
         .allowed = &.{ .{ .exact = "../lattice.zig" }, .{ .exact = "cell.zig" }, .{ .exact = "counts.zig" } },

@@ -1,6 +1,6 @@
 //! Paint-level pin for the DECORATED on-run label column.
 //!
-//! The whole point of RULE B's line-glyph sandwich is what the column
+//! The whole point of FLANKED-RESUMPTION RULE's line-glyph sandwich is what the column
 //! LOOKS like: full run, text, full run, head. `raster/labels_onrun.zig`
 //! never names a glyph — it only decides which cell the text may take —
 //! so nothing inside the raster stage can prove the picture comes out

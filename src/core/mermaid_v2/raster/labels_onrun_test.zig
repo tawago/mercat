@@ -1,5 +1,5 @@
-//! Unit tests for raster/labels_onrun.zig — RULE A (edge-only interrupt),
-//! RULE B (flanked resumption), lateral isolation, and determinism of the
+//! Unit tests for raster/labels_onrun.zig — OWN-INK RULE (edge-only interrupt),
+//! FLANKED-RESUMPTION RULE, lateral isolation, and determinism of the
 //! on-run fan-dropper label candidate.
 
 const std = @import("std");
@@ -139,7 +139,7 @@ test "the flanks stay ORDINARY full-stroke run cells in the edge's own kind" {
     }
 }
 
-test "RULE B: an arrowhead is not a flank, so the head-adjacent row is refused" {
+test "FLANKED-RESUMPTION RULE: an arrowhead is not a flank, so the head-adjacent row is refused" {
     // The UNDECORATED 3-cell shape (flank, label, head) used to pass under
     // the old rule where an arrowhead counted as a flank. It must now be
     // refused outright and fall to the ordinary labels_edge ladder.
@@ -165,7 +165,7 @@ test "RULE B: an arrowhead is not a flank, so the head-adjacent row is refused" 
     try testing.expectEqual(@as(u21, 0), labelCharAt(lat, 5, 3));
 }
 
-test "RULE A: a rail/crossbar cell is never interrupted" {
+test "OWN-INK RULE: a rail/crossbar cell is never interrupted" {
     var arena = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
@@ -186,7 +186,7 @@ test "RULE A: a rail/crossbar cell is never interrupted" {
     try testing.expectEqual(@as(u21, 0), labelCharAt(lat, 5, 3));
 }
 
-test "RULE A: a cell another tap's drop covers is refused" {
+test "OWN-INK RULE: a cell another tap's drop covers is refused" {
     var arena = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
@@ -207,7 +207,7 @@ test "RULE A: a cell another tap's drop covers is refused" {
     try testing.expectEqual(@as(u21, 0), labelCharAt(lat, 5, 3));
 }
 
-test "RULE B: a 1-cell private dropper has no legal interruption row" {
+test "FLANKED-RESUMPTION RULE: a 1-cell private dropper has no legal interruption row" {
     var arena = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();

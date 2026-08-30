@@ -94,7 +94,7 @@ test "a refused clustered fan files no rail claim and routes every member privat
         try testing.expectEqual(@as(usize, 0), r.sketch.rails.len);
         try testing.expectEqual(@as(usize, 0), r.sketch.rail_claims.len);
         try testing.expectEqual(@as(usize, 0), r.report.lattice.rail_claims.len);
-        // Every declared edge still owns private geometry (I1): one routed
+        // Every declared edge still owns private geometry (traceability): one routed
         // path per edge, none fused, none discharged, none lost.
         try testing.expectEqual(r.graph.edges.len, r.sketch.edges.len);
         for (r.sketch.edges) |edge| try testing.expect(edge.polyline.len != 0);
@@ -416,7 +416,7 @@ test "AUX and RailClaim metadata preserve production cells and audit counts" {
 
 test "a peer-drawn rail role and its membership record are one event" {
     // The write-time role stamp and membership record remain one observation.
-    // Authoritative claims admit only a BND-S-valid family to shared ink.
+    // Authoritative claims admit only a star-law-valid family to shared ink.
     var roles_checked: u32 = 0;
     var records_without_role: u32 = 0;
     for (corpus) |source| for (widths) |width| {

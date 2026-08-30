@@ -71,7 +71,7 @@ pub const RasterReport = struct {
     /// Phantom neighbour-mask arms cleared by the reconcile post-pass
     /// (informational — these are repairs, not shipped defects).
     phantom_arms_cleared: u32,
-    /// Crossing/transversal tallies (Amendment C, C1/C2) — see
+    /// Crossing/transversal tallies (Amendment C: the transversal and arrowhead-sanctity rulings) — see
     /// `raster/crossings.zig`. `foreign_junction_violation` and
     /// `arrowhead_transit_violation` feed selection: `audit.zig` reads them
     /// into `score.RasterCounts`, which `score.eval` weights into the
@@ -163,7 +163,7 @@ pub fn rasterize(
 
     // Arrowhead-base scan (owner ruling 2026-07-18) over the FINAL lattice:
     // an unfed base is COUNTED, never repaired — the raster may remove
-    // nonconforming ink but may never add ink to patch a gap (I4). The count
+    // nonconforming ink but may never add ink to patch a gap (subtractive repair only). The count
     // feeds selection (audit → score), so candidates that produce unfed
     // heads are priced, and the shipped grid shows the reader the truth.
     const arrow_base = arrow_base_r.validate(&lat);

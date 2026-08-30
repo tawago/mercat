@@ -399,7 +399,7 @@ pub fn stitch(
         .closure = closureSum(outer, children),
         // A surrendered bridge-track coordinate may still be collinear with
         // a drawn frame border; the render ships only with the surrender
-        // declared (I6).
+        // declared (honest degradation).
         .diagnostics = try withTrackExpiry(arena, outer.diagnostics, track_expired),
         .budget = outer.budget,
         // The candidate's label policy is a property of the CANDIDATE, not

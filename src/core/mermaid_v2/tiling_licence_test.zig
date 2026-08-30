@@ -262,7 +262,7 @@ const labeled_fan_cases = [_]struct { source: []const u8, labels: u32, arrows: u
     .{ .source = "flowchart TD\n  P -->|x| A\n  P --> B\n  subgraph G\n    B\n  end\n", .labels = 1, .arrows = 2 },
 };
 
-test "fan labels: feasible mixed, in-out, BND-S, clustered and BT renders lose none" {
+test "fan labels: feasible mixed, in-out, star-law-refused, clustered and BT renders lose none" {
     for (labeled_fan_cases) |case| {
         var arena = std.heap.ArenaAllocator.init(testing.allocator);
         defer arena.deinit();

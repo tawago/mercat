@@ -49,7 +49,7 @@ pub fn prepareRailMembers(a: std.mem.Allocator, graph: sg.SemGraph, direction: p
     const source_check = if (canonical.items.len == 0) null else try prospectiveRailCheck(a, graph, direction, pivot, canonical.items);
     const deco_mixed = source_check != null and !source_check.?.decoration.isValid();
     const style_mixed = source_check != null and !source_check.?.style.isValid();
-    if (source_check) |checked| star_violation = star_violation or !checked.bnd_s.isValid();
+    if (source_check) |checked| star_violation = star_violation or !checked.star_law.isValid();
 
     var best_deco: ?sg.ArrowEnd = null;
     var best_deco_n: usize = 0;

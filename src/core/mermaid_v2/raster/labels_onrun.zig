@@ -5,7 +5,7 @@
 //!
 //! Two inviolable laws (owner directive):
 //!
-//!   RULE A (edge-only) — the label may interrupt ONLY the edge's own
+//!   OWN-INK RULE (edge-only) — the label may interrupt ONLY the edge's own
 //!   private ink. The interrupted cell must be an `edge_segment` carrying
 //!   this edge's id with a `fan_*_dropper` role and pure vertical
 //!   neighbour bits (never a rail/crossbar/rail/junction cell), and no
@@ -13,7 +13,7 @@
 //!   sibling tap's drop) may cover it. A reader must never wonder which
 //!   member of a shared run a label names.
 //!
-//!   RULE B (flanked resumption) — the interrupted run must show a LINE
+//!   FLANKED-RESUMPTION RULE — the interrupted run must show a LINE
 //!   GLYPH cell of the SAME edge's run directly above AND below the label
 //!   row. A flank is an `edge_segment` of this edge, non-rail role, with
 //!   collinear vertical neighbour bits (n and s, no e/w). An ARROWHEAD is
@@ -35,7 +35,7 @@
 //!   dotted ones, collapsing relation F1. A label that interrupts a run
 //!   must not perturb how that run's line style reads.
 //!
-//! Everything lateral keeps the ordinary LAW 2 isolation
+//! Everything lateral keeps the ordinary ISOLATION LAW
 //! (labels_ink.spanIsolated): the own-run seams are exempt because the
 //! flanks classify as own ink; foreign ink margins and the 2-blank
 //! same-row separation are enforced untouched.
@@ -162,8 +162,8 @@ fn tryRun(
     return false;
 }
 
-/// One candidate row: RULE A on the interrupted cell, RULE B on the two
-/// flanks, emptiness on every other span cell, LAW 2 isolation laterally,
+/// One candidate row: OWN-INK RULE on the interrupted cell, FLANKED-RESUMPTION RULE on the two
+/// flanks, emptiness on every other span cell, ISOLATION LAW laterally,
 /// then the write. All-or-nothing.
 fn tryAt(
     lat: *lattice.Lattice,
@@ -176,17 +176,17 @@ fn tryAt(
     owner: ink.Owner,
     sink: aux.Sink,
 ) bool {
-    // RULE A, structural half: the interrupted cell is this edge's own
+    // OWN-INK RULE, structural half: the interrupted cell is this edge's own
     // private dropper ink — a straight vertical stroke, never a junction.
-    // guarded-by: labels_onrun_test.zig "RULE A: a rail/crossbar cell is never interrupted"
+    // guarded-by: labels_onrun_test.zig "OWN-INK RULE: a rail/crossbar cell is never interrupted"
     if (!privateDropperCell(lat, edge_id, x, row)) return false;
-    // RULE A, geometric half: no other edge's Sketch geometry rides here.
-    // guarded-by: labels_onrun_test.zig "RULE A: a cell another tap's drop covers is refused"
+    // OWN-INK RULE, geometric half: no other edge's Sketch geometry rides here.
+    // guarded-by: labels_onrun_test.zig "OWN-INK RULE: a cell another tap's drop covers is refused"
     if (coveredByOther(s, edge_id, x, row)) return false;
-    // RULE B: a LINE GLYPH cell of this edge's own run directly above AND
+    // FLANKED-RESUMPTION RULE: a LINE GLYPH cell of this edge's own run directly above AND
     // below. An arrowhead does not qualify — the head must sit below the
     // lower flank, not against the text.
-    // guarded-by: labels_onrun_test.zig "RULE B: an arrowhead is not a flank, so the head-adjacent row is refused"
+    // guarded-by: labels_onrun_test.zig "FLANKED-RESUMPTION RULE: an arrowhead is not a flank, so the head-adjacent row is refused"
     if (!runFlankCell(lat, edge_id, x, row - 1)) return false;
     if (!runFlankCell(lat, edge_id, x, row + 1)) return false;
 
@@ -210,7 +210,7 @@ fn tryAt(
         }
     }
 
-    // LAW 2 lateral isolation: full foreign-ink margin + 2-blank same-row
+    // ISOLATION LAW lateral isolation: full foreign-ink margin + 2-blank same-row
     // separation. The own-run seams are exempt by construction — the flank
     // cells classify as own ink. guarded-by: labels_onrun_test.zig "foreign ink beside the span still refuses the on-run candidate"
     if (!ink.spanIsolated(lat, owner, start_x, row, cell_count, false)) return false;
@@ -257,7 +257,7 @@ fn privateDropperCell(lat: *const lattice.Lattice, edge_id: u32, x: i32, y: i32)
     return n.n and n.s and !n.e and !n.w;
 }
 
-/// RULE B flank: a LINE GLYPH cell of this edge's own run at (x, y) — an
+/// FLANKED-RESUMPTION RULE flank: a LINE GLYPH cell of this edge's own run at (x, y) — an
 /// `edge_segment` of this edge, non-rail role, with collinear vertical
 /// neighbour bits. An arrowhead, a shared rail cell, a corner (which
 /// carries a horizontal arm) and any foreign occupant all fail.
@@ -281,7 +281,7 @@ fn runFlankCell(lat: *const lattice.Lattice, edge_id: u32, x: i32, y: i32) bool 
     return n.n and n.s and !n.e and !n.w;
 }
 
-/// RULE A cross-check against the Sketch: true iff any OTHER edge's
+/// OWN-INK RULE cross-check against the Sketch: true iff any OTHER edge's
 /// geometry covers (x, y) — another EdgePath's polyline, or any rail's
 /// stem, crossbar, or a DIFFERENT tap's drop. The rail's shared run is
 /// shared even for its own members, so it is never exempt.

@@ -66,7 +66,7 @@ pub const Fan = struct {
     /// `LABEL_RUN_EXTRA_ROWS` extra gap rows (extraRowsPerGap) so each
     /// labeled member's PRIVATE vertical dropper is >= 4 cells long —
     /// flank, on-run label row, flank, arrowhead — the DECORATED sandwich
-    /// raster/labels_onrun.zig places over (RULE B: an arrowhead is not a
+    /// raster/labels_onrun.zig places over (FLANKED-RESUMPTION RULE: an arrowhead is not a
     /// flank, so the head needs its own cell below the lower flank).
     /// Unlabeled fans stay byte-identical.
     /// guarded-by: fan_test.zig "a labeled fan reserves three extra gap rows; an unlabeled fan reserves one"
@@ -80,7 +80,7 @@ const PreparedPeers = struct { peers: []FanEdge, deco_mixed: bool = false, style
 
 /// The rail row a member's ink actually occupies within the fan's gap:
 /// `fan_polyline` paints at exactly this lane, so any grouping of peers
-/// into shared-rail sets keys on this value. Sole partition authority (I5);
+/// into shared-rail sets keys on this value. Sole partition authority (single authority);
 /// a partition keyed on `peer.lane` or `f.lane` alone is a re-derivation.
 pub fn effectiveLane(f: Fan, peer_lane: u32) u32 {
     return @max(f.lane, peer_lane);
@@ -222,9 +222,9 @@ pub fn gateLabelReservations(comptime G: type, graph: sg.SemGraph, fans: []Fan, 
 /// label is feasible there only when its span clears every sibling dropper
 /// column (span emptiness + foreign-ink margin) and every sibling label's
 /// text by >= 2 blanks — the layout-time mirror of the constraints
-/// raster/labels_onrun.zig enforces (RULE A span emptiness, LAW 2
+/// raster/labels_onrun.zig enforces (OWN-INK RULE span emptiness, ISOLATION LAW
 /// isolation), judged conservatively on placed x centers. The constants here
-/// MIRROR raster/labels_onrun.zig's RULE A / LAW 2 and can drift from them;
+/// MIRROR raster/labels_onrun.zig's OWN-INK RULE / ISOLATION LAW and can drift from them;
 /// drift degrades to counted displacement via the labels_edge ladder, never
 /// to a lost label or a re-decided sharing question. An infeasible fan
 /// reverts its labeled members to private routes (the pre-rail behavior),

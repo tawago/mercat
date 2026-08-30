@@ -1,7 +1,7 @@
-//! I2-state conformance for the report-only structural audit.
+//! Ink-attribution-state conformance for the report-only structural audit.
 //!
 //! The producer records each ink cell's semantic state in the IR
-//! (`lattice.InkState`, B4); consumers read it. This tier is the ONE
+//! (`lattice.InkState`, the cell-grid boundary); consumers read it. This tier is the ONE
 //! retained re-derivation, kept deliberately as a conformance comparator
 //! (IR-contracts side-channel item 6 shape): it re-derives what the old
 //! geometric heuristics would have said and COUNTS every disagreement,
@@ -30,7 +30,7 @@ pub fn check(t: cell.Typed, aux_complete: bool, c: *counts.Counts) void {
 
     switch (t.kind) {
         .ring_node, .ring_frame => {
-            // A ring cell's ink is its box's (I2); edge attachments merge
+            // A ring cell's ink is its box's (ink attribution); edge attachments merge
             // arms but never the occupant, so any other state is drift.
             if (t.state != .node) c.m_state_ring_not_node += 1;
         },
@@ -49,7 +49,7 @@ pub fn check(t: cell.Typed, aux_complete: bool, c: *counts.Counts) void {
                 .junction => if (!aux_complete) {
                     c.u_state_aux_unavailable += 1;
                 } else if (hasCarrier(t, .suppressed)) {
-                    // I2: a crossing never co-locates with a junction. The
+                    // Ink attribution: a crossing never co-locates with a junction. The
                     // recorded state kept `junction` (never demoted) and
                     // the refusal's transcript survives beside it — this is
                     // the misgeometry the upgrade order defers to the audit.

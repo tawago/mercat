@@ -173,8 +173,8 @@ test "the whole corpus is free of structural defects" {
     };
 }
 
-test "every production ink cell carries a recorded I2 state" {
-    // B4: the producer records the state; the audit consumes it. An
+test "every production ink cell carries a recorded ink-attribution state" {
+    // Cell-grid boundary: the producer records the state; the audit consumes it. An
     // untagged ink cell on a PRODUCTION render means a writer decided
     // without recording — the fallback in strokes.isJunction exists only
     // for hand-built lattices and must be unreachable here. The evidence

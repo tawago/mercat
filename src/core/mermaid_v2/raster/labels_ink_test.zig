@@ -1,5 +1,5 @@
 //! Unit tests for raster/labels_ink.zig — ink ownership classification,
-//! LAW 2 span isolation, and nearest-ink distance measurement.
+//! ISOLATION LAW span isolation, and nearest-ink distance measurement.
 
 const std = @import("std");
 const sketch = @import("../sketch.zig");

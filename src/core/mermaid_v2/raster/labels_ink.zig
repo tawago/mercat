@@ -102,7 +102,7 @@ fn isLabelCell(lat: *const lattice.Lattice, x: i32, y: i32) bool {
     };
 }
 
-/// LAW 2 candidate filter: true iff the 1×`cell_count` span at
+/// ISOLATION LAW candidate filter: true iff the 1×`cell_count` span at
 /// (`start_x`, `row`) keeps a full 8-neighbourhood margin of non-ink cells
 /// against every FOREIGN ink cell (own-edge ink may touch the span), and
 /// keeps >= 2 blank cells of same-row separation from any other label run.

@@ -123,7 +123,7 @@ pub fn mergeStandsFor(a: StandsFor, b: StandsFor) StandsFor {
     return if (a == b) a else .directed;
 }
 
-/// True iff NO end of the ink this edge stands for is directional — the L3
+/// True iff NO end of the ink this edge stands for is directional — the closure law's
 /// ELIGIBILITY question (blocking unsatisfiable). Circle/cross ends are
 /// decoration, not directional, and do not count here. A placement edge
 /// answers for the crossings it proxies, not for its own (always bare)
@@ -136,7 +136,7 @@ pub fn arrowFree(e: Edge) bool {
 /// True iff this edge's rendering carries NO end decoration at all: both
 /// declared ends bare and no proxied ink class. Stricter than `arrowFree` —
 /// circle/cross ends are non-directional yet still decoration, and a rail
-/// discharge must neither erase nor fabricate them (I3). This, not
+/// discharge must neither erase nor fabricate them (trace fidelity). This, not
 /// `arrowFree`, gates rail-closure members and backers.
 pub fn undecorated(e: Edge) bool {
     return e.arrow_from == .none and e.arrow_to == .none and e.stands_for == .arrow_free;

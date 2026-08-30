@@ -1,4 +1,4 @@
-//! Integration tests for the crossing/transversal rule (Amendment C, C1/C2)
+//! Integration tests for the crossing/transversal rule (Amendment C: the transversal and arrowhead-sanctity rulings)
 //! driven through `raster/edges.zig`'s `rasterizeEdges`. Sketches are built by
 //! hand; the realized-bundle plan (`Sketch.bundles`) is set to activate the rule
 //! and to exercise the co-member exemption.
@@ -108,7 +108,7 @@ test "V-D-CROSS-01 companion: same-group perpendicular crossing keeps the ┼ (n
     try testing.expectEqual(@as(u32, 0), r.crossings.foreign_junction_violation);
 }
 
-test "V-D-CROSS-02: a foreign run through an arrowhead cell is refused (C2)" {
+test "V-D-CROSS-02: a foreign run through an arrowhead cell is refused (arrowhead sanctity)" {
     const a = testing.allocator;
     var lat = try makeLattice(a, 11, 11);
     defer a.free(lat.cells);
@@ -135,7 +135,7 @@ test "V-D-CROSS-02: a foreign run through an arrowhead cell is refused (C2)" {
     // (only edge 1's crossing is), so the count is exactly one.
 }
 
-test "C1 violation shape: a foreign collinear/corner overlap keeps first-writer bits (no tee)" {
+test "transversal-violation shape: a foreign collinear/corner overlap keeps first-writer bits (no tee)" {
     const a = testing.allocator;
     var lat = try makeLattice(a, 12, 12);
     defer a.free(lat.cells);

@@ -256,7 +256,7 @@ fn innerClusterDirection(s: sketch.Sketch) ?sem_graph.Direction {
 //   - at a WIDE max_width the declared LR fits, so authored intent is kept
 //     → inner direction == LR.
 // Thus the inner flip happens with NO outer-rung involvement.
-test "B5: inner LR-in-TD subgraph flips to TD at narrow width, stays LR at wide; outer stays TD" {
+test "inner-flip scenario: inner LR-in-TD subgraph flips to TD at narrow width, stays LR at wide; outer stays TD" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();

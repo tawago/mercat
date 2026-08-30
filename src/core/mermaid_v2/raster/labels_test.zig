@@ -414,7 +414,7 @@ test "tryWrite rejects a pre-occupied primary-anchor cell as a real collision, n
     // The obstacle at the primary anchor must survive untouched...
     try testing.expectEqual(@as(u21, 0), cellChar(lat, 3, 2));
     // ...and the label must have been displaced past it. The adjacent walk
-    // slots (2,2)/(4,2) touch the obstacle (foreign ink) inside the LAW 2
+    // slots (2,2)/(4,2) touch the obstacle (foreign ink) inside the ISOLATION LAW
     // margin, so the first legal slot is (1,2) — two columns out.
     try testing.expectEqual(@as(u21, 0), cellChar(lat, 2, 2));
     try testing.expectEqual(@as(u21, 'x'), cellChar(lat, 1, 2));

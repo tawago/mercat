@@ -69,7 +69,7 @@ pub fn onFrameBorder(
 }
 
 /// Rail-ink obstacles for jog placement: `heads` are arrowhead CELLS
-/// (foreign ink there is an I2 transit violation, perpendicular crossing
+/// (foreign ink there is an ink-attribution transit violation, perpendicular crossing
 /// included); `runs` are the rail's straight strokes (crossbar, stem,
 /// droppers), which — like frame borders — forbid only COLLINEAR jog runs;
 /// a perpendicular crossing rasterizes as a legal crossing.

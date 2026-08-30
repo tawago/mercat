@@ -268,7 +268,7 @@ fn pivotOf(claims: []const ledger.RailClaim, edge_id: u32, p: lattice.RailPolari
         };
         if (!same_polarity or !claimHasEdge(claim, edge_id)) continue;
         const checked = ledger.checkRailClaim(claim);
-        if (checked.bnd_s.wrong_polarity_end) return null;
+        if (checked.star_law.wrong_polarity_end) return null;
         const pivot = checked.derived_pivot orelse return null;
         if (found) |prior| {
             if (prior != pivot) return null;

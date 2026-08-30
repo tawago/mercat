@@ -204,6 +204,14 @@ pub const table = [_]Row{
         .token = "bridge_trunks",
         .why = "the licensed shared-source module is cluster/bridge_rails.zig (P8): the rendered shared stretch is a rail everywhere",
     },
+    .{
+        .token = "BndSResult",
+        .why = "renamed to StarLawResult (P10): lettered concept codes are retired for articulated names",
+    },
+    .{
+        .token = "bnd_s",
+        .why = "renamed to star_law (P10): lettered concept codes are retired for articulated names",
+    },
 };
 
 fn basenameOf(rel_path: []const u8) []const u8 {

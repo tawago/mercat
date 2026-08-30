@@ -156,7 +156,7 @@ test "a head refused at a node/label collision counts BOTH cells_lost and heads_
     try testing.expectEqual(@as(u32, 1), hlost);
 }
 
-test "writers record the I2 state at the decision (B4)" {
+test "writers record the ink-attribution state at the decision (cell-grid boundary)" {
     // Fresh claim: role decides stroke vs rail interior.
     var fresh = lattice.Cell.empty;
     var lost: u32 = 0;
@@ -246,7 +246,7 @@ test "writeEdgeCell files the merged carrier under the licence its caller establ
 }
 
 test "an arrowhead landing on a foreign arrowhead files a foreign carrier" {
-    // The C2 gate only examines an `.edge_segment` occupant, so an
+    // The arrowhead-sanctity gate only examines an `.edge_segment` occupant, so an
     // arrowhead-over-arrowhead reaches `writeArrowCell` with the bundle
     // question never put. `writeArrowGuarded` puts it there instead — for
     // the record only: the cell keeps the first head, exactly as before.
@@ -281,7 +281,7 @@ test "an arrowhead landing on a foreign arrowhead files a foreign carrier" {
         try testing.expectEqual(@as(u32, 9), table[0].value);
         try testing.expectEqual(@intFromEnum(want), table[0].detail);
         // Asking cost nothing: the first head still owns the cell and the
-        // C2 tally never moved.
+        // arrowhead-sanctity tally never moved.
         try testing.expectEqual(@as(u32, 4), cell.occupant.arrowhead.edge);
         try testing.expectEqual(@as(u32, 0), counts.arrowhead_transit_violation);
     }

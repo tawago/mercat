@@ -8,19 +8,19 @@
 //! Exact equations and ownership:
 //!   `n_rail_claims == len(Lattice.rail_claims)`
 //!   `n_rail_claim_members == sum(claim.members.len)`
-//!   `c_rail_star_valid == count(!bnd_s && !decoration && !style && !record)`
-//!   `d_rail_star_violation == count(bnd_s)`
+//!   `c_rail_star_valid == count(!star_law && !decoration && !style && !record)`
+//!   `d_rail_star_violation == count(star_law)`
 //!   `d_rail_deco_mixed == count(decoration)`
 //!   `d_rail_member_style_mixed == count(style)`
 //!   `u_rail_claim_unresolved + u_rail_claim_record_invalid == count(record)`
 //! The two record buckets are disjoint: unresolved wins; the latter owns
 //! invalid identity or arity only when resolution is complete.
-//! Families may overlap because one claim may independently violate BND-S,
+//! Families may overlap because one claim may independently violate the star law,
 //! decoration, style, and its record envelope. Such overlap is attribution,
 //! not double-counting within a family.
 //!
 //! Diagnostic registry mapping (the registry remains `base/diagnostics.zig`):
-//! BND-S -> `rail_star_violation`; decoration -> `rail_deco_mixed`; style ->
+//! the star law -> `rail_star_violation`; decoration -> `rail_deco_mixed`; style ->
 //! `rail_member_style_mixed`. This report-only tier files counters, not a
 //! second diagnostic registry, and never changes layout or lattice cells.
 
@@ -41,7 +41,7 @@ pub fn check(lat: *const lattice.Lattice, c: *counts.Counts) void {
         const result = ledger.checkRailClaim(claim);
         const failed = result.partition();
         if (!failed.any()) c.c_rail_star_valid += 1;
-        if (failed.bnd_s) c.d_rail_star_violation += 1;
+        if (failed.star_law) c.d_rail_star_violation += 1;
         if (failed.decoration) c.d_rail_deco_mixed += 1;
         if (failed.style) c.d_rail_member_style_mixed += 1;
         if (failed.record) {

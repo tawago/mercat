@@ -89,7 +89,7 @@ pub const RasterCounts = struct {
     labels_displaced: u32 = 0,
     edge_cells_lost: u32 = 0,
     /// Terminal arrowheads lost to raster collisions: the edge ships with
-    /// its declared decoration missing (I3 untruth by omission; the reader
+    /// its declared decoration missing (a trace-fidelity untruth by omission; the reader
     /// loses the relation's orientation). Subset of `edge_cells_lost`.
     heads_lost: u32 = 0,
     /// Crossing-rule violations (raster/crossings.zig). `legal_crossing` is

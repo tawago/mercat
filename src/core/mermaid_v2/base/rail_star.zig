@@ -1,4 +1,7 @@
 //! Semantic identity and star-law checks for one realized shared rail.
+//! The star law is the checkable structural-clause set of the star
+//! licence — not the licence itself (decoration, style, and the record
+//! envelope are judged separately).
 //!
 //! A `RailClaim` records the final, render-local semantic facts behind shared
 //! rail ink. Members are the single source of truth: `check` derives the
@@ -131,9 +134,9 @@ pub const RailClaim = struct {
     members: []const RailClaimMember,
 };
 
-/// BND-S and attachment-coherence failures. Every field is independent: one
+/// Star-law and attachment-coherence failures. Every field is independent: one
 /// malformed member set may truthfully report several failures at once.
-pub const BndSResult = struct {
+pub const StarLawResult = struct {
     no_common_real_pivot: bool = false,
     wrong_polarity_end: bool = false,
     duplicate_member_edge: bool = false,
@@ -146,13 +149,13 @@ pub const BndSResult = struct {
     /// Licence tier only: a member's pivot end is missing or is not the
     /// claimed pivot. Realized claims derive their pivot; never set there.
     pivot_not_claimed: bool = false,
-    /// L1 blocking predicate: a directional end is present in the star, yet
+    /// Star-licence blocking predicate: a directional end is present in the star, yet
     /// some member does not block (`prim.blocks`) — two directional ends,
     /// or none while another member carries one. An ALL-arrow-free star is
-    /// L3's domain (base/rail_closure.zig) and never sets this.
+    /// the closure law's domain (base/rail_closure.zig) and never sets this.
     non_blocking_member: bool = false,
 
-    pub fn isValid(self: BndSResult) bool {
+    pub fn isValid(self: StarLawResult) bool {
         return !self.no_common_real_pivot and
             !self.wrong_polarity_end and
             !self.duplicate_member_edge and
@@ -178,7 +181,7 @@ pub const DecorationResult = struct {
 };
 
 /// Stroke-class agreement has its own result so it maps to
-/// `rail_member_style_mixed` independently of decoration and BND-S.
+/// `rail_member_style_mixed` independently of decoration and the star law.
 pub const StyleResult = struct {
     style_mismatch: bool = false,
 
@@ -201,18 +204,18 @@ pub const RecordResult = struct {
 /// The non-overlapping diagnostic partitions of a check result. A `true`
 /// field means that partition has at least one failure.
 pub const FailurePartition = struct {
-    bnd_s: bool,
+    star_law: bool,
     decoration: bool,
     style: bool,
     record: bool,
 
     pub fn any(self: FailurePartition) bool {
-        return self.bnd_s or self.decoration or self.style or self.record;
+        return self.star_law or self.decoration or self.style or self.record;
     }
 };
 
 pub const CheckResult = struct {
-    bnd_s: BndSResult,
+    star_law: StarLawResult,
     decoration: DecorationResult,
     style: StyleResult,
     record: RecordResult,
@@ -220,7 +223,7 @@ pub const CheckResult = struct {
     derived_pi: ?AttachmentSite,
     derived_unresolved_members: u32,
 
-    /// Exact validity: identity, arity, resolution, BND-S, decoration,
+    /// Exact validity: identity, arity, resolution, the star law, decoration,
     /// and style must all be valid.
     pub fn isValid(self: CheckResult) bool {
         return !self.partition().any();
@@ -228,7 +231,7 @@ pub const CheckResult = struct {
 
     pub fn partition(self: CheckResult) FailurePartition {
         return .{
-            .bnd_s = !self.bnd_s.isValid(),
+            .star_law = !self.star_law.isValid(),
             .decoration = !self.decoration.isValid(),
             .style = !self.style.isValid(),
             .record = !self.record.isValid(),
@@ -239,14 +242,14 @@ pub const CheckResult = struct {
 /// Licence-tier verdict: the semantic partitions only. Resolution and pi are
 /// realization facts and have no licence-tier meaning.
 pub const LicenceCheckResult = struct {
-    bnd_s: BndSResult,
+    star_law: StarLawResult,
     decoration: DecorationResult,
     style: StyleResult,
     record: RecordResult,
     derived_pivot: ?NodeId,
 
     pub fn isValid(self: LicenceCheckResult) bool {
-        return self.bnd_s.isValid() and self.decoration.isValid() and
+        return self.star_law.isValid() and self.decoration.isValid() and
             self.style.isValid() and self.record.isValid();
     }
 };
@@ -259,7 +262,7 @@ pub fn checkLicence(licence: RailLicence) LicenceCheckResult {
 /// Derive and validate one realized claim without allocation or mutation.
 pub fn check(claim: RailClaim) CheckResult {
     const sem = semanticCore(claim.id, claim.polarity, null, claim.members);
-    var bnd = sem.bnd_s;
+    var law = sem.star_law;
     var record = sem.record;
 
     var unresolved: u32 = 0;
@@ -289,10 +292,10 @@ pub fn check(claim: RailClaim) CheckResult {
         }
     }
     if (!pi_consistent) derived_pi = null;
-    bnd.differing_or_missing_pi = derived_pi == null;
+    law.differing_or_missing_pi = derived_pi == null;
 
     return .{
-        .bnd_s = bnd,
+        .star_law = law,
         .decoration = sem.decoration,
         .style = sem.style,
         .record = record,
@@ -305,7 +308,7 @@ pub fn check(claim: RailClaim) CheckResult {
 /// The checks both tiers share, over any member type carrying graph facts.
 /// `claimed_pivot` is licence-tier only; realized claims pass null.
 fn semanticCore(id: RailClaimId, polarity: RailPolarity, claimed_pivot: ?NodeId, members: anytype) LicenceCheckResult {
-    var bnd: BndSResult = .{};
+    var law: StarLawResult = .{};
     var decoration: DecorationResult = .{};
     var style: StyleResult = .{};
     const record: RecordResult = .{
@@ -318,7 +321,7 @@ fn semanticCore(id: RailClaimId, polarity: RailPolarity, claimed_pivot: ?NodeId,
     var pivot_consistent = members.len != 0;
 
     for (members, 0..) |member, i| {
-        if (member.pivot_end != expected_pivot_end) bnd.wrong_polarity_end = true;
+        if (member.pivot_end != expected_pivot_end) law.wrong_polarity_end = true;
 
         const member_pivot = member.node(member.pivot_end) orelse {
             pivot_consistent = false;
@@ -331,7 +334,7 @@ fn semanticCore(id: RailClaimId, polarity: RailPolarity, claimed_pivot: ?NodeId,
         }
     }
     if (!pivot_consistent) derived_pivot = null;
-    bnd.no_common_real_pivot = derived_pivot == null;
+    law.no_common_real_pivot = derived_pivot == null;
 
     if (claimed_pivot) |pivot| {
         var claimed_ok = members.len != 0;
@@ -342,7 +345,7 @@ fn semanticCore(id: RailClaimId, polarity: RailPolarity, claimed_pivot: ?NodeId,
             };
             if (member_pivot != pivot) claimed_ok = false;
         }
-        bnd.pivot_not_claimed = !claimed_ok;
+        law.pivot_not_claimed = !claimed_ok;
     }
 
     var any_directional = false;
@@ -353,7 +356,7 @@ fn semanticCore(id: RailClaimId, polarity: RailPolarity, claimed_pivot: ?NodeId,
         if (!prim.memberArrowFree(from, to, member.stands_for)) any_directional = true;
         if (!prim.memberBlocks(from, to, member.stands_for)) any_non_blocking = true;
     }
-    bnd.non_blocking_member = any_directional and any_non_blocking;
+    law.non_blocking_member = any_directional and any_non_blocking;
 
     if (members.len != 0) {
         const first = members[0];
@@ -370,26 +373,26 @@ fn semanticCore(id: RailClaimId, polarity: RailPolarity, claimed_pivot: ?NodeId,
         const source = member.node(.source);
         const target = member.node(.target);
         if (source != null and target != null and source.? == target.?)
-            bnd.self_loop = true;
+            law.self_loop = true;
         const member_pivot = member.node(member.pivot_end);
         const member_leaf = member.node(member.pivot_end.opposite());
         if (sameResolvedNode(member_pivot, member_leaf))
-            bnd.leaf_is_pivot = true;
+            law.leaf_is_pivot = true;
 
         for (members[0..i]) |prior| {
-            if (prior.edge == member.edge) bnd.duplicate_member_edge = true;
+            if (prior.edge == member.edge) law.duplicate_member_edge = true;
             if (sameResolvedNode(
                 prior.node(prior.pivot_end.opposite()),
                 member.node(member.pivot_end.opposite()),
             ))
-                bnd.duplicate_leaf = true;
-            if (sameResolvedPair(prior, member, false)) bnd.parallel = true;
-            if (sameResolvedPair(prior, member, true)) bnd.antiparallel = true;
+                law.duplicate_leaf = true;
+            if (sameResolvedPair(prior, member, false)) law.parallel = true;
+            if (sameResolvedPair(prior, member, true)) law.antiparallel = true;
         }
     }
 
     return .{
-        .bnd_s = bnd,
+        .star_law = law,
         .decoration = decoration,
         .style = style,
         .record = record,

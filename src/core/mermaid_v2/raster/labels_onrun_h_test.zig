@@ -1,6 +1,6 @@
 //! Unit tests for raster/labels_onrun_h.zig — the INLINE horizontal on-run
-//! label (`──── label ────`): RULE A (edge-only private run ink, double
-//! enforced), RULE B (full-stroke flanks left and right), isolation,
+//! label (`──── label ────`): OWN-INK RULE (edge-only private run ink, double
+//! enforced), FLANKED-RESUMPTION RULE (full-stroke flanks left and right), isolation,
 //! infeasible fall-through, determinism, and the vertical/horizontal tie
 //! order fixed in labels_onrun.zig.
 
@@ -98,7 +98,7 @@ test "happy path: the label sits inline in its own horizontal run, flanked both 
     try testing.expectEqual(@as(u21, 'o'), labelCharAt(lat, 6, 4));
     try testing.expectEqual(@as(u21, 'k'), labelCharAt(lat, 7, 4));
 
-    // RULE B flanks: ordinary full-stroke run cells of the same edge, both
+    // FLANKED-RESUMPTION RULE flanks: ordinary full-stroke run cells of the same edge, both
     // horizontal bits intact, on the same row.
     for ([_]u32{ 5, 8 }) |x| {
         const c = lat.atConst(x, 4);
@@ -132,7 +132,7 @@ test "the inline flanks keep the edge's own stroke kind on both sides" {
     }
 }
 
-test "RULE A: a shared crossbar cell inside the stretch refuses the inline label" {
+test "OWN-INK RULE: a shared crossbar cell inside the stretch refuses the inline label" {
     var arena = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
@@ -151,7 +151,7 @@ test "RULE A: a shared crossbar cell inside the stretch refuses the inline label
     try testing.expectEqual(@as(u21, 0), labelCharAt(lat, 4, 4));
 }
 
-test "RULE A: a foreign-crossed stretch is refused by the geometry sweep" {
+test "OWN-INK RULE: a foreign-crossed stretch is refused by the geometry sweep" {
     var arena = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
@@ -173,7 +173,7 @@ test "RULE A: a foreign-crossed stretch is refused by the geometry sweep" {
     try testing.expectEqual(@as(u21, 0), labelCharAt(lat, 4, 4));
 }
 
-test "RULE B: a corner or an arrowhead in the flank cell refuses the candidate" {
+test "FLANKED-RESUMPTION RULE: a corner or an arrowhead in the flank cell refuses the candidate" {
     var arena = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
@@ -318,11 +318,11 @@ test "tie order: the longer qualifying stretch is tried first, ties go vertical"
     }
 }
 
-test "RULE A: a private prefix of a collinear shared run is refused" {
+test "OWN-INK RULE: a private prefix of a collinear shared run is refused" {
     // Cell-local ownership is not the reader's unit. A fan-in rail assembled
     // from several ABUTTING per-edge polylines has no crossbar role and no
     // covering foreign polyline over this edge's own stretch, so both
-    // cell-local halves of RULE A pass — yet the reader sees ONE continuous
+    // cell-local halves of OWN-INK RULE pass — yet the reader sees ONE continuous
     // horizontal line and cannot tell which member the label names. The
     // visual-run walk closes that: it follows the row outward to the first
     // non-edge cell and refuses on reaching another edge's ink.

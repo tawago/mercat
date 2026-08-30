@@ -190,7 +190,7 @@ pub fn isIndependent(edge: pb.EdgeId, bundles: pb.RealizedBundles) bool {
 /// no rails, no junctions, no bundle-attributed reservations — so it returns
 /// true (the plain non-bundle path is cleared by the route builders themselves).
 /// All four gates run unconditionally: foreign-node/cross-bundle contact
-/// (T1/I2), rail junctions (I2: unrelated ink over an owner-set change),
+/// (box termination / ink attribution), rail junctions (ink attribution: unrelated ink over an owner-set change),
 /// rail arrowheads, and reserved departures are independent legality facts,
 /// never alternatives.
 /// guarded-by: routing_terminal_test.zig "satisfyApproach grows a corner-fed len-2 final into a straight base approach"
@@ -234,7 +234,7 @@ pub fn detourLimit(routed: usize) u32 {
 }
 
 /// A clear line for a detour's port-adjacent run. No box is exempt — the
-/// route's OWN boxes terminate it too (T1: a box is a terminus, never a
+/// route's OWN boxes terminate it too (box termination: a box is a terminus, never a
 /// corridor); the only legal own-box footprint is the port cell itself,
 /// which sits one cell before `want` and off the searched line. The result
 /// is also confined to the port's outward half-plane, so the perpendicular

@@ -176,7 +176,7 @@ fn fusion(v: cell.View, x: u32, y: u32, t: cell.Typed, c: *counts.Counts) void {
     }
 }
 
-/// The junction question, answered from the RECORDED I2 state (B4): the
+/// The junction question, answered from the RECORDED ink-attribution state (cell-grid boundary): the
 /// producer wrote `.junction` at the moment it merged an owner-set change;
 /// this consumer reads it instead of re-deriving it from arm arity. An
 /// UNTAGGED cell (state `.none` — a hand-built lattice with no producer)
@@ -198,7 +198,7 @@ const Verdict = enum { unlicensed, licensed, unevidenced };
 /// The verdict for one junction pair, from carrier records ALONE.
 ///
 /// The authoritative positions are the JUNCTION cells of the pair — per
-/// the recorded I2 state (`isJunction`) — because a licence CAN be position-scoped (a
+/// the recorded ink-attribution state (`isJunction`) — because a licence CAN be position-scoped (a
 /// `.port_share` bundle answers only on its own cells; a structural one
 /// answers everywhere), and the only position whose answer certainly bears
 /// on the disputed glyph is the one the glyph occupies. Reading only there

@@ -78,7 +78,7 @@ pub const EdgeRasterReport = struct {
     /// events, priced separately (audit → score) because a missing head
     /// loses the relation's orientation, not just one ink cell.
     heads_lost: u32 = 0,
-    /// Crossing/transversal tallies (Amendment C, C1/C2) plus the
+    /// Crossing/transversal tallies (Amendment C: the transversal and arrowhead-sanctity rulings) plus the
     /// frame-solid border-bridge pair (`b_frame_bridge`/
     /// `b_border_fusion_refused`, D-CROSS owner ruling 2026-07-19). The two
     /// violation fields feed selection via `audit.zig` →
@@ -101,7 +101,7 @@ const EdgeWalkResult = struct {
     target_head: ?ep.Head = null,
 };
 
-/// Crossing-rule gate (Amendment C, C1/C2). Returns true when the existing
+/// Crossing-rule gate (Amendment C: transversal + arrowhead sanctity). Returns true when the existing
 /// first-writer cell MUST be kept untouched (a transversal on a foreign run, or
 /// a refused arrowhead transit), recording the classified event; false to
 /// proceed with the pre-C merge. Applies to `edge_segment`/`arrowhead`
@@ -230,7 +230,7 @@ fn walkPolyline(
                 switch (cell.occupant) {
                     .edge_segment => |seg| {
                         // A corner arm onto a FOREIGN run is never a clean
-                        // transversal — a tee here asserts a branch-off (C1).
+                        // transversal — a tee here asserts a branch-off (transversal ruling).
                         // Keep the first writer untouched; record the event.
                         if (seg.edge != edge.id and crossings.segmentOverlap(
                             ctx.counts,
@@ -245,7 +245,7 @@ fn walkPolyline(
                             // No foreign junction ink — and with the corner
                             // arm refused, nothing on the cell records that
                             // this edge turns here. Two paths co-locate
-                            // unjoined: the I2 crossing state.
+                            // unjoined: the ink-attribution crossing state.
                             cell.upgradeState(.crossing);
                             ew.recordCarrier(rec, c.x, c.y, edge.id, .suppressed);
                         } else {
@@ -259,7 +259,7 @@ fn walkPolyline(
                             // edge from itself — the corner turns here, it
                             // does not start here.
                             // guarded-by: edges_corner_test.zig "a route that doubles back keeps both visits' arms at the cell it re-enters"
-                            // I2 state at the merge decision: a foreign
+                            // Ink-attribution state at the merge decision: a foreign
                             // corner arm that lands changes the owner set
                             // (junction); bits already present are a rider.
                             if (!own) {
@@ -302,7 +302,7 @@ fn walkPolyline(
                             ew.recordIntrusion(rec, c.x, c.y, edge.id, .fusion_refused);
                         } else {
                             // `.cross` mode is owner-ruled-legal, standing law
-                            // (spec B3's dual-notation ruling; owner ruling
+                            // (the layout-boundary spec's dual-notation ruling; owner ruling
                             // 2026-07-19) — a co-equal rendering mode, not a
                             // deprecated fallback kept only for byte-compat.
                             // `.cross` mode: the pre-Slice-1 behavior — weld the
@@ -322,7 +322,7 @@ fn walkPolyline(
                         }
                     },
                     else => {
-                        // Arrowhead here → refuse (C2); node/label → normal
+                        // Arrowhead here → refuse (arrowhead sanctity); node/label → normal
                         // loss accounting inside writeEdgeCell.
                         if (crossingKeepsFirstWriter(cell, edge.id, corner_mask, crossings.cellAt(c.x, c.y), ctx)) {
                             cell.upgradeState(.crossing);
@@ -385,7 +385,7 @@ fn walkPolyline(
                 // guarded-by: edges_test.zig "cross mode: through-crossing welds the frame border (pre-slice-1)"
                 const nxt = step(cursor, dir);
                 const terminal_here = is_last and nxt.x == b.x and nxt.y == b.y;
-                // Crossing rule (C1/C2): a foreign perpendicular straight-through
+                // Crossing rule (transversal + arrowhead sanctity): a foreign perpendicular straight-through
                 // reads as a transversal — the crossed run keeps its stroke and
                 // this edge contributes NO bits to the cell (it resumes on the
                 // opposite side). A foreign collinear/arrowhead overlap is
@@ -401,7 +401,7 @@ fn walkPolyline(
                     ew.recordCarrier(rec, c.x, c.y, edge.id, .suppressed);
                 } else {
                     // `.cross` mode is owner-ruled-legal, standing law (spec
-                    // B3's dual-notation ruling; owner ruling 2026-07-19) —
+                    // the layout-boundary spec's dual-notation ruling; owner ruling 2026-07-19) —
                     // not retired/deprecated. It falls through here: writeEdgeCell's
                     // `.cluster_border` arm still holds the pre-Slice-1
                     // overwrite+OR merge (junction weld) — byte-identical.

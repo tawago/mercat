@@ -56,7 +56,7 @@ fn audit(claims: []const ledger.RailClaim) counts.Counts {
 fn expectEquations(claims: []const ledger.RailClaim, c: counts.Counts) !void {
     var members: u32 = 0;
     var valid: u32 = 0;
-    var bnd: u32 = 0;
+    var law_fails: u32 = 0;
     var decoration: u32 = 0;
     var style: u32 = 0;
     var unresolved: u32 = 0;
@@ -66,7 +66,7 @@ fn expectEquations(claims: []const ledger.RailClaim, c: counts.Counts) !void {
         const result = ledger.checkRailClaim(claim);
         const failed = result.partition();
         if (!failed.any()) valid += 1;
-        if (failed.bnd_s) bnd += 1;
+        if (failed.star_law) law_fails += 1;
         if (failed.decoration) decoration += 1;
         if (failed.style) style += 1;
         if (failed.record) {
@@ -76,7 +76,7 @@ fn expectEquations(claims: []const ledger.RailClaim, c: counts.Counts) !void {
     try testing.expectEqual(@as(u32, @intCast(claims.len)), c.n_rail_claims);
     try testing.expectEqual(members, c.n_rail_claim_members);
     try testing.expectEqual(valid, c.c_rail_star_valid);
-    try testing.expectEqual(bnd, c.d_rail_star_violation);
+    try testing.expectEqual(law_fails, c.d_rail_star_violation);
     try testing.expectEqual(decoration, c.d_rail_deco_mixed);
     try testing.expectEqual(style, c.d_rail_member_style_mixed);
     try testing.expectEqual(unresolved, c.u_rail_claim_unresolved);
@@ -95,7 +95,7 @@ test "rail stars: valid fan-out and fan-in claims publish exact populations" {
     try expectEquations(&claims, c);
 }
 
-test "rail stars: BND-S shapes count once per claim, not once per failed clause" {
+test "rail stars: star-law shapes count once per claim, not once per failed clause" {
     const duplicate = [_]ledger.RailClaimMember{ outMember(1, 10, 20), outMember(2, 10, 20) };
     var reverse = outMember(4, 20, 10);
     reverse.pivot_end = .target;
@@ -114,7 +114,7 @@ test "rail stars: BND-S shapes count once per claim, not once per failed clause"
     try expectEquations(&claims, c);
 }
 
-test "rail stars: wrong polarity and differing pi are BND-S, not record limitations" {
+test "rail stars: wrong polarity and differing pi are star-law failures, not record limitations" {
     var wrong_members = [_]ledger.RailClaimMember{ outMember(1, 10, 20), outMember(2, 10, 21) };
     wrong_members[1].pivot_end = .target;
     wrong_members[0].sites[0] = site(10, .south, 3);
@@ -127,14 +127,14 @@ test "rail stars: wrong polarity and differing pi are BND-S, not record limitati
     try expectEquations(&claims, c);
 }
 
-test "rail stars: decoration and style remain separate from BND-S" {
+test "rail stars: decoration and style remain separate from the star law" {
     var decorated = [_]ledger.RailClaimMember{ outMember(1, 10, 20), outMember(2, 10, 21) };
     decorated[1].arrows[0] = .circle;
     var styled = [_]ledger.RailClaimMember{ outMember(3, 10, 30), outMember(4, 10, 31) };
     styled[1].kind = .dotted;
     var both = [_]ledger.RailClaimMember{ outMember(5, 10, 40), outMember(6, 10, 41) };
     // Cross at the pivot: deco-mixed against the others' bare pivot end,
-    // yet still non-directional, so every member keeps blocking (BND-S clean).
+    // yet still non-directional, so every member keeps blocking (star-law clean).
     both[1].arrows[0] = .cross;
     both[1].kind = .thick;
     const claims = [_]ledger.RailClaim{ outClaim(1, &decorated), outClaim(2, &styled), outClaim(3, &both) };

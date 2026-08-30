@@ -59,7 +59,7 @@ test "a placement edge records the directedness of the crossings it stands for" 
         try std.testing.expect(sg.forwardOneWayHead(e));
     }
 
-    // Circle-decorated crossings: decoration, not direction (T3) — the
+    // Circle-decorated crossings: decoration, not direction (direction consistency) — the
     // proxy's ink is arrow-free and neither directed predicate holds.
     const decorated = crossingGraph(&nodes, &edges, &members, &clusters, .circle, .circle);
     const sr_c = try split.split(a, decorated);

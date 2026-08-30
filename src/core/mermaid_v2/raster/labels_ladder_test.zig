@@ -1,5 +1,6 @@
-//! Unit tests for the labels_edge.zig three-pass ladder (LAW 1 relocate-
-//! before-reroute + LAW 2 label-region isolation). Split out of
+//! Unit tests for the labels_edge.zig three-pass ladder (the RELOCATION
+//! LAW's relocate-before-reroute plus the ISOLATION LAW's label-region
+//! isolation). Split out of
 //! labels_test.zig for the mermaid_v2 500-line cap.
 
 const std = @import("std");
@@ -72,7 +73,7 @@ test "own-edge ink beside the anchor does not displace the label" {
     s.edges = &edges;
 
     // Stamp the label's OWN edge's run into the lattice, directly below the
-    // whole anchor row — distance-1 own-ink adjacency, the exemption LAW 2
+    // whole anchor row — distance-1 own-ink adjacency, the exemption ISOLATION LAW
     // grants (the convention anchor sits right beside its own run).
     var x: u32 = 1;
     while (x <= 5) : (x += 1) stampEdgeCell(&lat, x, 3, 42);
@@ -116,11 +117,11 @@ test "isolation rejects a foreign-ink neighbour in every one of the 8 directions
     }
 }
 
-// LAW 1 / P1: when the primary anchor is nowhere near the label's own
+// RELOCATION LAW, own_adjacent pass: when the primary anchor is nowhere near the label's own
 // edge's ink, the first pass relocates the label to a slot whose nearest
 // ink (Chebyshev <= 2) IS its own edge — even though the ownership-blind
 // ladder would have accepted the anchor.
-test "P1 beats the primary anchor: the label relocates to sit by its own edge's ink" {
+test "the own_adjacent pass beats the primary anchor: the label relocates to sit by its own edge's ink" {
     var arena = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
     const alloc = arena.allocator();
@@ -144,17 +145,17 @@ test "P1 beats the primary anchor: the label relocates to sit by its own edge's 
     try testing.expectEqual(@as(u21, 'x'), cellChar(lat, 7, 2));
 }
 
-// LAW 1 / P2: with every P1 (own-adjacent) slot blocked by foreign node
+// RELOCATION LAW, own_nearest pass: with every own_adjacent slot blocked by foreign node
 // ink, the second pass still prefers a slot strictly nearer the label's
 // own ink (within Chebyshev 4) over the earlier-in-ladder anchor slot the
-// ownership-blind pass P3 would take.
-test "P2 walks the label toward its own edge's ink when P1 positions are blocked" {
+// ownership-blind any pass would take.
+test "the own_nearest pass walks the label toward its own edge's ink when own_adjacent positions are blocked" {
     var arena = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
     const alloc = arena.allocator();
 
     // Height 4: the row BELOW the segment is out of bounds, so the walk
-    // cannot find a P1 slot under the far end of the run.
+    // cannot find an own_adjacent slot under the far end of the run.
     var lat = try makeLattice(alloc, 16, 4);
     const poly = [_]sketch.Point{ .{ .x = 1, .y = 3 }, .{ .x = 13, .y = 3 } };
     const edges = [_]sketch.EdgePath{makeEdge(42, &poly, "x")};
@@ -164,7 +165,7 @@ test "P2 walks the label toward its own edge's ink when P1 positions are blocked
     // Own ink only at the far end of the run...
     stampEdgeCell(&lat, 13, 3, 42);
     // ...and foreign node-border ink above it, so every slot within
-    // Chebyshev 2 of the own ink violates the LAW 2 margin (P1 exhausted).
+    // Chebyshev 2 of the own ink violates the ISOLATION LAW margin (own_adjacent exhausted).
     lat.at(12, 1).* = .{ .occupant = .{ .node_border = .{ .node = 1, .role = .edge_s } }, .neighbours = .{} };
     lat.at(13, 1).* = .{ .occupant = .{ .node_border = .{ .node = 1, .role = .edge_s } }, .neighbours = .{} };
 
@@ -172,13 +173,13 @@ test "P2 walks the label toward its own edge's ink when P1 positions are blocked
     try testing.expectEqual(@as(u32, 1), report.placed);
     try testing.expectEqual(@as(u32, 1), report.displaced);
 
-    // P3 alone would take the anchor (7,2); P2 runs first and lands the
+    // The ownership-blind any pass alone would take the anchor (7,2); own_nearest runs first and lands the
     // label at (9,2) — own ink at Chebyshev 4, no competing edge ink.
     try testing.expectEqual(@as(u21, 0), cellChar(lat, 7, 2));
     try testing.expectEqual(@as(u21, 'x'), cellChar(lat, 9, 2));
 }
 
-// LAW 2 / final pass: when every candidate's margin is violated only by
+// ISOLATION LAW / final pass: when every candidate's margin is violated only by
 // node/cluster ink, the `any_solid` pass places the label abutting the
 // border instead of dropping it; when the violator is a foreign EDGE, no
 // pass ever waives the margin and the label drops.

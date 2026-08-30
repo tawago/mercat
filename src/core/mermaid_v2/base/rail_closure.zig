@@ -52,7 +52,7 @@ pub const Member = struct {
     leaf: NodeId,
     /// Stroke-class ordinal (`pb.edgeKindOrdinal`). A backer must match it.
     kind: u8,
-    /// L3 ELIGIBILITY: true iff no end of this member's ink is directional
+    /// CLOSURE-LAW ELIGIBILITY: true iff no end of this member's ink is directional
     /// (sem_graph.arrowFree) — the blocking predicate is unsatisfiable, so
     /// the law decides this rail. Circle/cross ends are non-directional and
     /// do not count here.

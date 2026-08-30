@@ -90,7 +90,7 @@ pub const LabelOwner = struct {
 /// "nothing recorded OR nothing collected" — never "nothing happened".
 pub const Typed = struct {
     kind: Kind,
-    /// The producer-recorded I2 semantic state (`lattice.InkState`),
+    /// The producer-recorded ink-attribution semantic state (`lattice.InkState`),
     /// copied verbatim. Consumed, never re-derived; `state.zig` is the
     /// declared conformance comparator between it and the old geometric
     /// derivations.

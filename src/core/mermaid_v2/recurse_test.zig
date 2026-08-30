@@ -170,7 +170,7 @@ test "nested cluster: width sub-budget shrinks once per nesting level (saturatin
 
 // `layoutClustered`'s never-widen guard (recurse.zig's "declared child
 // sizes are always computed, never widened past the baseline, even when
-// any_flip is true"): force a flip (any_flip=true) via the existing B5-style
+// any_flip is true"): force a flip (any_flip=true) via the existing inner-flip-scenario
 // single-subgraph fixture at a narrow width, independently recompute the
 // all-declared baseline via the same `stitchOuter` the driver uses, and
 // assert the public result never exceeds it.
@@ -185,7 +185,7 @@ test "declared baseline is always computed and never exceeded when a child flips
     var clusters_buf: [1]sem_graph.Cluster = undefined;
     const graph = singleClusterChainGraph(&nodes_buf, &edges_buf, &members_buf, &clusters_buf);
 
-    const opts: coords.LayoutOptions = .{ .max_width = 40 }; // B5's narrow case: the child flips.
+    const opts: coords.LayoutOptions = .{ .max_width = 40 }; // the inner-flip scenario's narrow case: the child flips.
     const sr = try cluster_split.split(a, graph);
     try std.testing.expect(!sr.isFlat());
 

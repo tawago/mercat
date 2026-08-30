@@ -129,8 +129,8 @@ pub const Occupant = union(enum) {
     label_cont,
 };
 
-/// The I2 semantic state of a cell's ink — what the ink IS, recorded by
-/// the producer AT THE MOMENT IT DECIDES (B4: nothing at the cell-grid
+/// The ink-attribution semantic state of a cell's ink — what the ink IS, recorded by
+/// the producer AT THE MOMENT IT DECIDES (the cell-grid boundary contract: nothing at the cell-grid
 /// boundary decides; downstream consumes, it does not re-derive).
 ///
 ///   - `none`: no edge/node ink (background, node interior, label glyph —
@@ -177,7 +177,7 @@ pub const Cell = struct {
     /// occupants this field is meaningless and stays `.rect`. The
     /// painter uses it to pick shape-specific perimeter glyphs.
     shape: Shape = .rect,
-    /// I2 semantic state, recorded by the producer (see `InkState`).
+    /// Ink-attribution semantic state, recorded by the producer (see `InkState`).
     /// The painter never reads it; conformance checks and the tiling
     /// audit consume it instead of re-deriving what the ink is.
     state: InkState = .none,
@@ -192,7 +192,7 @@ pub const Cell = struct {
     };
 
     /// Record `s` unless the cell already holds a stronger claim: a
-    /// `junction` is never demoted (I2: a crossing never co-locates with
+    /// `junction` is never demoted (ink attribution: a crossing never co-locates with
     /// a junction — that misgeometry is the audit's to report), and a
     /// `crossing` yields only to `junction`.
     pub fn upgradeState(self: *Cell, s: InkState) void {
@@ -517,7 +517,7 @@ test "Cell stays 16 bytes: the arrowhead style rides in existing padding" {
     // a style it was already 16 bytes: a 12-byte tagged Occupant plus
     // stroke_kind + shape + neighbours, with one byte of tail padding and
     // two spare bytes inside the 8-byte union payload. `arrow` landed in
-    // union slack; the I2 `state` byte lands in the tail-padding byte, so
+    // union slack; the ink-attribution `state` byte lands in the tail-padding byte, so
     // both widenings are free. A future payload that pushes this past 16
     // is a deliberate decision, not an accident — this pin makes it
     // visible in review.

@@ -7,7 +7,7 @@
 //!
 //! The two inviolable laws are the vertical form's, verbatim:
 //!
-//!   RULE A (edge-only) — every interrupted cell must be this edge's own
+//!   OWN-INK RULE (edge-only) — every interrupted cell must be this edge's own
 //!   PRIVATE horizontal ink: an `edge_segment` carrying this edge's id, a
 //!   non-rail role (never a fan crossbar / rail crossbar cell), and pure
 //!   HORIZONTAL neighbour bits (`e and w`, no `n`/`s` — a corner or a
@@ -17,7 +17,7 @@
 //!   proving no OTHER edge's polyline, rail stem, crossbar or tap drop
 //!   rides any covered cell.
 //!
-//!   RULE B (flanked resumption) — a full-stroke run cell of the SAME
+//!   FLANKED-RESUMPTION RULE — a full-stroke run cell of the SAME
 //!   edge's own kind (`─`/`╌`/`═`) must sit immediately LEFT and
 //!   immediately RIGHT of the label on the same row, and must itself pass
 //!   the horizontal-run test. Arrowheads (a different occupant) and
@@ -31,7 +31,7 @@
 //! infeasible segment simply refuses and the ordinary labels_edge ladder
 //! runs unchanged, byte for byte.
 //!
-//! Isolation is the shared LAW 2 (`labels_ink.spanIsolated`): the full
+//! Isolation is the shared ISOLATION LAW (`labels_ink.spanIsolated`): the full
 //! 8-neighbourhood foreign-ink margin (rows above and below plus the two
 //! diagonal ends) and the 2-blank same-row label separation. The own-run
 //! seams at both ends of the span are exempt by construction — they
@@ -153,8 +153,8 @@ fn tryRunH(
     return false;
 }
 
-/// One candidate span: RULE A over every interrupted cell, RULE B on the
-/// two same-row flanks, LAW 2 isolation, then the write. All-or-nothing.
+/// One candidate span: OWN-INK RULE over every interrupted cell, FLANKED-RESUMPTION RULE on the
+/// two same-row flanks, ISOLATION LAW, then the write. All-or-nothing.
 fn tryAtH(
     lat: *lattice.Lattice,
     s: sketch.Sketch,
@@ -173,11 +173,11 @@ fn tryAtH(
     const urow: u32 = @intCast(row);
     if (sx + cell_count >= lat.width) return false;
 
-    // RULE A, structural half: EVERY interrupted cell is this edge's own
+    // OWN-INK RULE, structural half: EVERY interrupted cell is this edge's own
     // private horizontal run ink — never a rail/crossbar/tap cell, never a
-    // corner. // guarded-by: labels_onrun_h_test.zig "RULE A: a shared crossbar cell inside the stretch refuses the inline label"
-    // RULE A, geometric half: no other edge's Sketch geometry rides here.
-    // guarded-by: labels_onrun_h_test.zig "RULE A: a foreign-crossed stretch is refused by the geometry sweep"
+    // corner. // guarded-by: labels_onrun_h_test.zig "OWN-INK RULE: a shared crossbar cell inside the stretch refuses the inline label"
+    // OWN-INK RULE, geometric half: no other edge's Sketch geometry rides here.
+    // guarded-by: labels_onrun_h_test.zig "OWN-INK RULE: a foreign-crossed stretch is refused by the geometry sweep"
     var i: i32 = 0;
     while (i < cc) : (i += 1) {
         const cx = start_x + i;
@@ -185,24 +185,24 @@ fn tryAtH(
         if (onrun.coveredByOther(s, edge_id, cx, row)) return false;
     }
 
-    // RULE B: a full-stroke run cell of this edge immediately left AND
+    // FLANKED-RESUMPTION RULE: a full-stroke run cell of this edge immediately left AND
     // right, on the same row. An arrowhead or a corner never qualifies.
-    // guarded-by: labels_onrun_h_test.zig "RULE B: a corner or an arrowhead in the flank cell refuses the candidate"
+    // guarded-by: labels_onrun_h_test.zig "FLANKED-RESUMPTION RULE: a corner or an arrowhead in the flank cell refuses the candidate"
     if (!runFlankCellH(lat, edge_id, start_x - 1, row)) return false;
     if (!runFlankCellH(lat, edge_id, start_x + cc, row)) return false;
     if (onrun.coveredByOther(s, edge_id, start_x - 1, row)) return false;
     if (onrun.coveredByOther(s, edge_id, start_x + cc, row)) return false;
 
-    // RULE A, VISUAL-RUN half. Cell-local ownership is not the reader's unit:
+    // OWN-INK RULE, VISUAL-RUN half. Cell-local ownership is not the reader's unit:
     // a PRIVATE PREFIX of a run that continues collinearly, with no break, into
     // ANOTHER edge's ink reads as one long horizontal line, and the label then
     // names an unidentifiable member of it (the fan-in rail assembled from
     // several abutting per-edge polylines is exactly this shape — no crossbar
     // role, no covering polyline, and still ambiguous).
-    // guarded-by: labels_onrun_h_test.zig "RULE A: a private prefix of a collinear shared run is refused"
+    // guarded-by: labels_onrun_h_test.zig "OWN-INK RULE: a private prefix of a collinear shared run is refused"
     if (!visualRunIsPrivate(lat, s, edge_id, start_x, row, cc)) return false;
 
-    // LAW 2 isolation: foreign-ink margin above/below and at the diagonal
+    // ISOLATION LAW: foreign-ink margin above/below and at the diagonal
     // ends, plus the 2-blank same-row label separation. The own-run seams
     // are exempt — they classify as own ink.
     // guarded-by: labels_onrun_h_test.zig "foreign ink above the inline span refuses the candidate"
@@ -281,7 +281,7 @@ fn visualRunIsPrivate(
     return true;
 }
 
-/// RULE B flank. Identical to the interrupt test: a flank is just another
+/// FLANKED-RESUMPTION RULE flank. Identical to the interrupt test: a flank is just another
 /// cell of the same private horizontal run, left untouched by the write so
 /// it keeps painting the edge's own full stroke in its own kind.
 fn runFlankCellH(lat: *const lattice.Lattice, edge_id: u32, x: i32, y: i32) bool {

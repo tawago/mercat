@@ -53,8 +53,8 @@ pub const Counts = struct {
     /// Attempted records withheld by atomic collection failure.
     u_aux_records_lost: u32 = 0,
 
-    // -- I2 state conformance (state.zig) -----------------------------
-    /// Ink cells (stroke/arrow/ring) whose recorded I2 state was checked.
+    // -- Ink-attribution state conformance (state.zig) -----------------------------
+    /// Ink cells (stroke/arrow/ring) whose recorded ink-attribution state was checked.
     n_state_ink_cells: u32 = 0,
     /// Ink cell with no recorded state. Zero on every production render
     /// (pinned); nonzero on hand-built lattices, which carry no producer.
@@ -65,7 +65,7 @@ pub const Counts = struct {
     /// Recorded crossing with no suppressed carrier on the side table.
     m_state_crossing_unevidenced: u32 = 0,
     /// A junction cell with a surviving suppressed carrier: unrelated ink
-    /// was refused over an owner-set change — the I2 co-location
+    /// was refused over an owner-set change — the ink-attribution co-location
     /// misgeometry (a crossing never co-locates with a junction).
     m_state_junction_with_suppressed_carrier: u32 = 0,
     /// Recorded rail interior with neither a rail role nor a membership /
@@ -259,7 +259,7 @@ pub const Counts = struct {
     /// A ring arm OFF the ring's own axes that feeds an arrowhead whose
     /// tip points along it. Checked FIRST for any tip including east/west.
     /// Historically produced by the deleted arrowhead-base weld (additive
-    /// repair, removed per I4); the bucket keeps the shape distinct so a
+    /// repair, removed per the subtractive-repair-only invariant); the bucket keeps the shape distinct so a
     /// reintroduced writer is visible immediately.
     c_border_arm_weld: u32 = 0,
     /// A node ring's off-axis arm landing on the SAME node's own border:

@@ -83,8 +83,8 @@ test "one wrong pivot removes the common real pivot" {
         outMember(2, 11, 21),
     };
     const result = rs.check(outClaim(&members));
-    try testing.expect(result.bnd_s.no_common_real_pivot);
-    try testing.expect(result.partition().bnd_s);
+    try testing.expect(result.star_law.no_common_real_pivot);
+    try testing.expect(result.partition().star_law);
 }
 
 test "multiple member pivots derive no pivot at all" {
@@ -94,7 +94,7 @@ test "multiple member pivots derive no pivot at all" {
         outMember(3, 12, 22),
     };
     const result = rs.check(outClaim(&members));
-    try testing.expect(result.bnd_s.no_common_real_pivot);
+    try testing.expect(result.star_law.no_common_real_pivot);
     try testing.expectEqual(@as(?u32, null), result.derived_pivot);
 }
 
@@ -105,8 +105,8 @@ test "wrong recorded pivot end is a polarity failure" {
     };
     members[1].pivot_end = .target;
     const result = rs.check(outClaim(&members));
-    try testing.expect(result.bnd_s.wrong_polarity_end);
-    try testing.expect(result.bnd_s.no_common_real_pivot);
+    try testing.expect(result.star_law.wrong_polarity_end);
+    try testing.expect(result.star_law.no_common_real_pivot);
 }
 
 test "duplicate member edge is reported independently" {
@@ -115,8 +115,8 @@ test "duplicate member edge is reported independently" {
         outMember(7, 10, 21),
     };
     const result = rs.check(outClaim(&members));
-    try testing.expect(result.bnd_s.duplicate_member_edge);
-    try testing.expect(!result.bnd_s.duplicate_leaf);
+    try testing.expect(result.star_law.duplicate_member_edge);
+    try testing.expect(!result.star_law.duplicate_leaf);
 }
 
 test "duplicate leaf and parallel members are both reported" {
@@ -125,9 +125,9 @@ test "duplicate leaf and parallel members are both reported" {
         outMember(2, 10, 20),
     };
     const result = rs.check(outClaim(&members));
-    try testing.expect(result.bnd_s.duplicate_leaf);
-    try testing.expect(result.bnd_s.parallel);
-    try testing.expect(!result.bnd_s.antiparallel);
+    try testing.expect(result.star_law.duplicate_leaf);
+    try testing.expect(result.star_law.parallel);
+    try testing.expect(!result.star_law.antiparallel);
 }
 
 test "antiparallel members are detected without trusting pivot_end" {
@@ -135,10 +135,10 @@ test "antiparallel members are detected without trusting pivot_end" {
     reverse.pivot_end = .target;
     const members = [_]rs.RailClaimMember{ outMember(1, 10, 20), reverse };
     const result = rs.check(outClaim(&members));
-    try testing.expect(result.bnd_s.antiparallel);
-    try testing.expect(!result.bnd_s.no_common_real_pivot);
-    try testing.expect(result.bnd_s.duplicate_leaf);
-    try testing.expect(result.bnd_s.wrong_polarity_end);
+    try testing.expect(result.star_law.antiparallel);
+    try testing.expect(!result.star_law.no_common_real_pivot);
+    try testing.expect(result.star_law.duplicate_leaf);
+    try testing.expect(result.star_law.wrong_polarity_end);
 }
 
 test "self-loop and leaf equal to pivot remain separate facts" {
@@ -147,8 +147,8 @@ test "self-loop and leaf equal to pivot remain separate facts" {
         outMember(2, 10, 20),
     };
     const result = rs.check(outClaim(&members));
-    try testing.expect(result.bnd_s.self_loop);
-    try testing.expect(result.bnd_s.leaf_is_pivot);
+    try testing.expect(result.star_law.self_loop);
+    try testing.expect(result.star_law.leaf_is_pivot);
 }
 
 test "differing or missing pi is derived from pivot-side member sites" {
@@ -158,12 +158,12 @@ test "differing or missing pi is derived from pivot-side member sites" {
     };
     differing[1].sites[0] = site(10, .south, 3);
     var result = rs.check(outClaim(&differing));
-    try testing.expect(result.bnd_s.differing_or_missing_pi);
+    try testing.expect(result.star_law.differing_or_missing_pi);
     try testing.expectEqual(@as(?rs.AttachmentSite, null), result.derived_pi);
 
     differing[1].sites[0] = null;
     result = rs.check(outClaim(&differing));
-    try testing.expect(result.bnd_s.differing_or_missing_pi);
+    try testing.expect(result.star_law.differing_or_missing_pi);
 }
 
 test "mixed pivot arrows occupy only the decoration partition" {
@@ -175,7 +175,7 @@ test "mixed pivot arrows occupy only the decoration partition" {
     const result = rs.check(outClaim(&members));
     try testing.expect(result.decoration.mixed_pivot_decoration);
     try testing.expect(result.partition().decoration);
-    try testing.expect(!result.partition().bnd_s);
+    try testing.expect(!result.partition().star_law);
     try testing.expect(!result.partition().style);
 }
 
@@ -188,7 +188,7 @@ test "mixed stroke kinds occupy only the style partition" {
     const result = rs.check(outClaim(&members));
     try testing.expect(result.style.style_mismatch);
     try testing.expect(result.partition().style);
-    try testing.expect(!result.partition().bnd_s);
+    try testing.expect(!result.partition().star_law);
     try testing.expect(!result.partition().decoration);
 }
 
@@ -200,7 +200,7 @@ test "unresolved members are counted from final endpoints" {
     const result = rs.check(outClaim(&members));
     try testing.expect(result.record.unresolved);
     try testing.expectEqual(@as(u32, 1), result.derived_unresolved_members);
-    try testing.expect(result.bnd_s.no_common_real_pivot);
+    try testing.expect(result.star_law.no_common_real_pivot);
 }
 
 test "unresolved attachment sites count even when both endpoint nodes exist" {
@@ -251,7 +251,7 @@ test "a star of blocking members holds the licence" {
     };
     const result = rs.checkLicence(outLicence(&members));
     try testing.expect(result.isValid());
-    try testing.expect(!result.bnd_s.non_blocking_member);
+    try testing.expect(!result.star_law.non_blocking_member);
 }
 
 test "a member with directional ends on both sides blocks nothing and refuses the licence" {
@@ -260,7 +260,7 @@ test "a member with directional ends on both sides blocks nothing and refuses th
         licenceMember(2, 10, 21, .{ .filled, .filled }),
     };
     const result = rs.checkLicence(outLicence(&members));
-    try testing.expect(result.bnd_s.non_blocking_member);
+    try testing.expect(result.star_law.non_blocking_member);
     try testing.expect(!result.isValid());
 }
 
@@ -270,18 +270,18 @@ test "a mixed blocking and arrow-free star refuses the licence" {
         licenceMember(2, 10, 21, .{ .none, .none }),
     };
     const result = rs.checkLicence(outLicence(&members));
-    try testing.expect(result.bnd_s.non_blocking_member);
+    try testing.expect(result.star_law.non_blocking_member);
     try testing.expect(!result.isValid());
 }
 
 test "an all-arrow-free star is not refused by the blocking predicate" {
-    // L3's domain: the closure law (rail_closure.zig) decides it against the
-    // declared leaf pairs; the L1 licence stays silent.
+    // the closure law's domain: rail_closure.zig decides it against the
+    // declared leaf pairs; the star licence stays silent.
     const bare = [_]rs.RailLicenceMember{
         licenceMember(1, 10, 20, .{ .none, .none }),
         licenceMember(2, 10, 21, .{ .none, .none }),
     };
-    try testing.expect(!rs.checkLicence(outLicence(&bare)).bnd_s.non_blocking_member);
+    try testing.expect(!rs.checkLicence(outLicence(&bare)).star_law.non_blocking_member);
     try testing.expect(rs.checkLicence(outLicence(&bare)).isValid());
 
     // Circle/cross ends are decoration, not directional: still arrow-free.
@@ -289,7 +289,7 @@ test "an all-arrow-free star is not refused by the blocking predicate" {
         licenceMember(1, 10, 20, .{ .none, .circle }),
         licenceMember(2, 10, 21, .{ .none, .circle }),
     };
-    try testing.expect(!rs.checkLicence(outLicence(&decorated)).bnd_s.non_blocking_member);
+    try testing.expect(!rs.checkLicence(outLicence(&decorated)).star_law.non_blocking_member);
 }
 
 test "a head at the source side alone still blocks under the licence" {
@@ -297,7 +297,7 @@ test "a head at the source side alone still blocks under the licence" {
         licenceMember(1, 10, 20, .{ .filled, .none }),
         licenceMember(2, 10, 21, .{ .none, .filled }),
     };
-    try testing.expect(!rs.checkLicence(outLicence(&members)).bnd_s.non_blocking_member);
+    try testing.expect(!rs.checkLicence(outLicence(&members)).star_law.non_blocking_member);
 }
 
 test "a placement member standing for one-way crossings blocks like a headed member" {
@@ -310,7 +310,7 @@ test "a placement member standing for one-way crossings blocks like a headed mem
             proxy,
         };
         const result = rs.checkLicence(outLicence(&members));
-        try testing.expect(!result.bnd_s.non_blocking_member);
+        try testing.expect(!result.star_law.non_blocking_member);
     }
 }
 
@@ -323,6 +323,6 @@ test "a placement member standing for non-forward directed ink refuses the licen
         proxy,
     };
     const result = rs.checkLicence(outLicence(&members));
-    try testing.expect(result.bnd_s.non_blocking_member);
+    try testing.expect(result.star_law.non_blocking_member);
     try testing.expect(!result.isValid());
 }

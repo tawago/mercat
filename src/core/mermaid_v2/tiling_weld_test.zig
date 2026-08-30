@@ -2,7 +2,7 @@
 //!
 //! WHY THIS EXISTS. The raster used to run a post-walk base weld
 //! (`arrow_base.receiveBase`) that ADDED ink after every producer had
-//! finished — additive repair, forbidden by I4: a downstream stage may
+//! finished — additive repair, forbidden by the subtractive-repair-only invariant: a downstream stage may
 //! remove nonconforming ink, never add ink to patch a gap. The pass is
 //! deleted. This pin holds the deletion in place: a 1-cell resume gap
 //! under an arrowhead stays on the shipped lattice, the raster validator
@@ -84,6 +84,6 @@ test "a 1-cell resume gap ships declared: audit and raster validator agree, no i
     try testing.expectEqual(@as(u32, 1), counts.d_base_blank);
     try testing.expectEqual(@as(u32, 1), counts.defectTotal());
 
-    // The gap is still there — declared, not repaired (I4).
+    // The gap is still there — declared, not repaired (subtractive repair only).
     try testing.expect(lat.atConst(0, 1).occupant == .empty);
 }

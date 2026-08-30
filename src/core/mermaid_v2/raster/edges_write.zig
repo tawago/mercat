@@ -150,7 +150,7 @@ pub fn railPolarity(role: lattice.EdgeRole) ?lattice.RailPolarity {
     };
 }
 
-/// The I2 state a fresh single-owner edge cell records: a rail role is
+/// The ink-attribution state a fresh single-owner edge cell records: a rail role is
 /// bundle-shared ink, anything else is a private stroke. Decided from the
 /// caller's own role input — never re-derived from the grid.
 pub fn roleState(role: lattice.EdgeRole) lattice.InkState {
@@ -220,7 +220,7 @@ pub fn writeEdgeCell(
             cell.upgradeState(.junction);
         },
         .edge_segment => |existing| {
-            // I2 state, decided here where the merge is decided: a foreign
+            // Ink-attribution state, decided here where the merge is decided: a foreign
             // merge that adds an arm changes the owner set along the ink
             // (junction); one whose bits already lie in the mask is a rider
             // on shared ink (rail interior). Own-ink revisits change no
@@ -299,9 +299,9 @@ pub fn writeArrowCell(
         // An arrowhead may stamp onto a cluster_border: an arrival AT the
         // cluster (terminal), which the frame-solid ruling preserves.
         .empty, .edge_segment, .cluster_border => {
-            // I2 state: a head on background or its own run is decorated
+            // Ink-attribution state: a head on background or its own run is decorated
             // stroke ink; over a FOREIGN run the two edges' ink bundles here
-            // (the C2 gate already passed this pair); onto a frame, edge
+            // (the arrowhead-sanctity gate already passed this pair); onto a frame, edge
             // ink meets frame ink. Shared prior states are kept.
             switch (cell.occupant) {
                 .empty => cell.upgradeState(.stroke),
@@ -341,7 +341,7 @@ pub fn writeArrowCell(
 }
 
 /// Write this edge's OWN terminal arrowhead, but refuse to lay it over a
-/// FOREIGN edge's run (C2): stamping an arrowhead onto a foreign segment reads
+/// FOREIGN edge's run (arrowhead sanctity): stamping an arrowhead onto a foreign segment reads
 /// as a fabricated arrival. When refused, keep the arrowhead pristine (drop the
 /// foreign run's bits) and record the violation; otherwise the pre-C write.
 /// `kind` is the arrowhead's OWN edge kind, stamped in both the refuse branch
@@ -351,7 +351,7 @@ pub fn writeArrowCell(
 /// ink runs through this position, and after the refusal neither the mask nor
 /// the occupant says so.
 ///
-/// The C2 gate covers an arrowhead landing on a RUN only. An arrowhead
+/// The arrowhead-sanctity gate covers an arrowhead landing on a RUN only. An arrowhead
 /// landing on an EXISTING arrowhead falls through to `writeArrowCell`'s
 /// `.arrowhead` arm, which the gate never examined — so the licence for
 /// THAT pair is LOOKED UP here, off the bundle identity each head's edge
@@ -387,7 +387,7 @@ pub fn writeArrowGuarded(
             return;
         }
     }
-    // Reaching here with an `.edge_segment` occupant means the C2 gate passed
+    // Reaching here with an `.edge_segment` occupant means the arrowhead-sanctity gate passed
     // it; an `.arrowhead` occupant was never examined, so its licence is
     // LOOKED UP now — the two heads' recorded bundle identities, compared.
     // Label only: this fills a record's `detail` and paints no byte.

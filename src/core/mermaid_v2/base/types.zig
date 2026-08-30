@@ -83,7 +83,7 @@ pub const ArrowKind = enum {
 
 /// True for a directional end: an arrowhead that permits only the
 /// orientation it points. Circle and cross ends are decoration, not
-/// directional, and permit both orientations (trace axiom T3).
+/// directional, and permit both orientations (the direction-consistency axiom).
 pub fn directional(end: ArrowKind) bool {
     return switch (end) {
         .open, .filled => true,
@@ -91,7 +91,7 @@ pub fn directional(end: ArrowKind) bool {
     };
 }
 
-/// Blocking predicate (confluence theory, corollary of T2+T3): an edge
+/// Blocking predicate (confluence theory, corollary of junction traversal plus direction consistency): an edge
 /// blocks leaf-to-leaf traversal through its rail iff exactly one of its
 /// two ends is directional. This is the glyph half only; `memberBlocks`
 /// below extends it to ink a placement edge proxies. (Mermaid syntax gives

@@ -1,15 +1,16 @@
-//! Crossing / transversal semantics for the mermaid_v2 raster (Amendment C,
-//! rulings C1/C2). The rulings' normative text is held by the owner and is
-//! not in-tree; C1 and C2 are restated in full below.
+//! Crossing / transversal semantics for the mermaid_v2 raster (Amendment C).
+//! The amendment's normative text is held by the owner and is not in-tree;
+//! its two rulings — the TRANSVERSAL ruling and the ARROWHEAD-SANCTITY
+//! ruling — are restated in full below.
 //!
 //! This module owns the crossing EVENT vocabulary recorded by
 //! `raster/edges.zig` and the decision predicates that keep foreign ink from
 //! fabricating a junction:
 //!
-//!   * C1 — a crossing of two UNRELATED edges must read as a TRANSVERSAL: the
+//!   * TRANSVERSAL ruling — a crossing of two UNRELATED edges must read as a TRANSVERSAL: the
 //!     crossed run (first writer) keeps its straight stroke; the crossing edge
 //!     contributes NO bits to that cell (no `┬ ├ ┤ ┴` / `┼` on a foreign run).
-//!   * C2 — an edge must never bridge on/through an ARROWHEAD cell; foreign ink
+//!   * ARROWHEAD-SANCTITY ruling — an edge must never bridge on/through an ARROWHEAD cell; foreign ink
 //!     landing on a foreign edge's arrowhead is refused and the arrowhead stays
 //!     pristine.
 //!
@@ -64,13 +65,13 @@ pub fn cellAt(x: u32, y: u32) ledger.BundleCell {
 pub const CrossingClass = enum {
     /// A strict orthogonal transversal between unrelated bundles: the crossed
     /// run keeps its straight stroke, the crossing edge resumes on the opposite
-    /// side. Legal (D-CROSS C1 reading requirement, D-REACH clause 7 vector half).
+    /// side. Legal (the transversal ruling's reading requirement; D-CROSS, D-REACH clause 7 vector half).
     legal_crossing,
     /// A junction glyph would have attached crossing traffic to a foreign edge's
     /// run (collinear overlap, cornering, or a T onto the foreign straight run).
-    /// C1 prohibition; first-writer bits kept, no tee fabricated.
+    /// transversal-ruling prohibition; first-writer bits kept, no tee fabricated.
     foreign_junction_violation,
-    /// Foreign ink met an arrowhead cell (a fabricated second arrival). C2
+    /// Foreign ink met an arrowhead cell (a fabricated second arrival). The arrowhead-sanctity ruling
     /// prohibition; the arrowhead stays pristine.
     arrowhead_transit_violation,
 };
@@ -232,7 +233,7 @@ pub fn segmentOverlap(
 /// Decide a foreign edge meeting an arrowhead cell (either a foreign segment
 /// landing on an arrowhead, or an arrowhead being written over a foreign
 /// segment). Returns true when the caller must keep the arrowhead cell pristine
-/// (C2), recording the violation; false to proceed with the pre-C behavior (an
+/// (arrowhead sanctity), recording the violation; false to proceed with the pre-C behavior (an
 /// edge's own terminal arrowhead or legal bundle ink).
 pub fn arrowheadTransit(
     counts: *CrossingCounts,
@@ -352,7 +353,7 @@ test "arrowheadTransit: own terminal exempt, foreign refused" {
     // Same owner (own terminal) → not a violation.
     try std.testing.expect(!arrowheadTransit(&counts, .{}, &.{}, 7, 7, ANY));
     try std.testing.expectEqual(@as(u32, 0), counts.arrowhead_transit_violation);
-    // Foreign edge over a foreign arrowhead → C2 violation, keep pristine.
+    // Foreign edge over a foreign arrowhead → arrowhead-sanctity violation, keep pristine.
     try std.testing.expect(arrowheadTransit(&counts, .{}, &.{}, 7, 8, ANY));
     try std.testing.expectEqual(@as(u32, 1), counts.arrowhead_transit_violation);
     // A bundle exempts on its own, with no plan behind it.

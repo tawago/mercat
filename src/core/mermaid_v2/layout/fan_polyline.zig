@@ -137,7 +137,7 @@ pub fn buildPolylineAt(
     // Labeled fan-OUT: raise the rail three extra rows (the gap rows
     // fan.extraRowsPerGap reserved) so each member's PRIVATE final descent is
     // 4 cells long — flank, on-run label row, flank, arrowhead — the DECORATED
-    // sandwich raster/labels_onrun.zig interrupts (RULE B refuses an
+    // sandwich raster/labels_onrun.zig interrupts (FLANKED-RESUMPTION RULE refuses an
     // arrowhead as a flank, so the head needs its own cell). Applied only when the raised
     // rail still clears the source perimeter, so a tighter-than-reserved gap
     // (or an unreserved one) keeps today's geometry and the label falls back

@@ -4,14 +4,14 @@
 //! The ladder is a three-pass priority over one fixed candidate order
 //! (primary anchor, own-segment walk, remaining polyline segments):
 //!
-//!   P1 relocate-before-reroute — only positions whose nearest ink within
+//!   own_adjacent (relocate-before-reroute) — only positions whose nearest ink within
 //!      Chebyshev distance 2 is the label's OWN edge's ink (the primary
 //!      anchor is tried first, so unpressured seeds stay put);
-//!   P2 unambiguous ownership — positions strictly nearer (Chebyshev, up
+//!   own_nearest (unambiguous ownership) — positions strictly nearer (Chebyshev, up
 //!      to distance 4) to the own edge's ink than to any other edge's ink;
-//!   P3 far displacement — the remaining candidates, ownership-blind.
+//!   any (far displacement) — the remaining candidates, ownership-blind.
 //!
-//! Every pass additionally enforces LAW 2 label-region isolation
+//! Every pass additionally enforces the ISOLATION LAW (label-region isolation)
 //! (labels_ink.spanIsolated): a full 8-neighbourhood margin against all
 //! FOREIGN ink, own-edge ink exempt, plus >= 2 blank cells of same-row
 //! separation between label runs. Dropped (edge_label_no_space) only when
@@ -31,7 +31,7 @@ const ink = @import("labels_ink.zig");
 
 const log = std.log.scoped(.@"mermaid_v2.raster.labels");
 
-/// LAW 1 ladder pass, in priority order. `own_adjacent` = nearest ink
+/// RELOCATION LAW ladder pass, in priority order. `own_adjacent` = nearest ink
 /// within OWN_ADJ_RADIUS is the label's own edge; `own_nearest` = own ink
 /// within OWN_NEAR_RADIUS and strictly nearer than any foreign edge's ink;
 /// `any` = no ownership requirement (full isolation still enforced);
@@ -42,11 +42,11 @@ const log = std.log.scoped(.@"mermaid_v2.raster.labels");
 const Pass = enum { own_adjacent, own_nearest, any, any_solid };
 const passes = [4]Pass{ .own_adjacent, .own_nearest, .any, .any_solid };
 
-/// P1: how far (Chebyshev) the span may sit from its own edge's ink and
+/// own_adjacent: how far (Chebyshev) the span may sit from its own edge's ink and
 /// still count as "adjacent" — 2 keeps the vertical-rail convention anchor
-/// (mid_x + 2) a P1 position.
+/// (mid_x + 2) an own_adjacent position.
 const OWN_ADJ_RADIUS: u32 = 2;
-/// P2: the bounded search horizon for "strictly nearer to own ink".
+/// own_nearest: the bounded search horizon for "strictly nearer to own ink".
 const OWN_NEAR_RADIUS: u32 = 4;
 
 pub const SegPair = struct { a: sketch.Point, b: sketch.Point };
@@ -120,11 +120,11 @@ pub fn placeLabelAtSeg(
     // rail stretch — own ink even though the rail Cell names one rider).
     const owner: ink.Owner = .{ .edge_id = edge_id, .polyline = polyline, .seg_a = a, .seg_b = b };
 
-    // Three-pass priority (LAW 1) over one fixed candidate order per pass:
+    // Three-pass priority (RELOCATION LAW) over one fixed candidate order per pass:
     // primary anchor, own-segment walk, ladder tail. A position accepted by
     // an earlier pass is never reconsidered — the passes only weaken the
     // ownership requirement, so the walk is deterministic.
-    // guarded-by: labels_ladder_test.zig "P1 beats the primary anchor: the label relocates to sit by its own edge's ink"
+    // guarded-by: labels_ladder_test.zig "the own_adjacent pass beats the primary anchor: the label relocates to sit by its own edge's ink"
     const anchor = anchorFor(a, b, left_of_run, prim.displayWidth(label));
     for (passes) |pass| {
         // Candidate #1: legacy anchor recorded by layout on ep.label_left_of_run (clusters.computeBbox). guarded-by: labels_test.zig "edge label fits above midpoint"
@@ -210,10 +210,10 @@ fn trySegment(
     return false;
 }
 
-/// LAW 1 pass gate for one candidate span. `.any` is ownership-blind; the
+/// RELOCATION LAW pass gate for one candidate span. `.any` is ownership-blind; the
 /// two ownership passes measure nearest-ink Chebyshev distances and demand
 /// the own edge's ink win (strictly, so a tie never yields an ambiguous
-/// owner). // guarded-by: labels_ladder_test.zig "P2 walks the label toward its own edge's ink when P1 positions are blocked"
+/// owner). // guarded-by: labels_ladder_test.zig "the own_nearest pass walks the label toward its own edge's ink when own_adjacent positions are blocked"
 fn passAllows(
     lat: *const lattice.Lattice,
     owner: ink.Owner,
@@ -233,9 +233,9 @@ fn passAllows(
     return true;
 }
 
-/// Bounds-check the span, enforce LAW 2 isolation (foreign-ink margin +
+/// Bounds-check the span, enforce the ISOLATION LAW (foreign-ink margin +
 /// same-row run separation, labels_ink.spanIsolated), require every cell
-/// empty, apply the LAW 1 pass gate, then write one label_char cell per
+/// empty, apply the RELOCATION LAW pass gate, then write one label_char cell per
 /// codepoint. All-or-nothing per candidate.
 fn tryWrite(
     lat: *lattice.Lattice,
@@ -253,7 +253,7 @@ fn tryWrite(
     const row: u32 = @intCast(ly);
     if (start_x + cell_count > lat.width) return false;
 
-    // LAW 2: a candidate touching FOREIGN ink anywhere in the span's
+    // ISOLATION LAW: a candidate touching FOREIGN ink anywhere in the span's
     // 8-neighbourhood is rejected (own-edge ink may abut, so convention
     // anchors beside the label's own run stay legal), and two label runs on
     // the same row keep >= 2 blank cells apart — a continuation column
@@ -273,7 +273,7 @@ fn tryWrite(
         }
     }
 
-    // LAW 1 pass gate, last so every pass sees identical geometry checks.
+    // RELOCATION LAW pass gate, last so every pass sees identical geometry checks.
     if (!passAllows(lat, owner, pass, lx, ly, cell_count)) return false;
 
     // The span was reserved by `cell_count`, so every write below is in
