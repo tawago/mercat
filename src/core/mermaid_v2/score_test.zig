@@ -20,7 +20,6 @@ const edgeStretch = score.edgeStretch;
 const bends = score.bends;
 const countCrossings = score.countCrossings;
 
-
 const t = std.testing;
 
 fn testNode(id: u32, rect: sketch.Rect, cluster_id: ?u32) sketch.NodePlacement {
@@ -56,7 +55,6 @@ fn testSketch(bbox: sketch.Rect, nodes: []const sketch.NodePlacement, edges: []c
 
 test "tier ordering: t0 severity, then composite, then height, then index" {
     const base: Score = .{ .t0_fit = 0, .t1_integrity = 0, .t2_legibility = 0, .t3_height = 0, .t4_index = 0, .t12_composite = 0 };
-    // T0 magnitude dominates everything (and is a magnitude, not a flag).
     var mild_clip = base;
     mild_clip.t0_fit = 3;
     var bad_clip = base;
@@ -66,13 +64,11 @@ test "tier ordering: t0 severity, then composite, then height, then index" {
     var fitting_but_ugly = base;
     fitting_but_ugly.t12_composite = 999_999_999;
     try t.expect(fitting_but_ugly.lessThan(mild_clip));
-    // Composite decides below T0; raw t1/t2 fields are informational only.
     var worse = base;
     worse.t12_composite = 10;
-    worse.t1_integrity = 7; // not consulted by lessThan
+    worse.t1_integrity = 7;
     try t.expect(base.lessThan(worse));
     try t.expectEqualStrings("t12", Score.decidingTier(base, worse));
-    // Equal T0+composite → height; then index.
     var taller = base;
     taller.t3_height = 2;
     try t.expect(base.lessThan(taller));
@@ -85,22 +81,15 @@ test "tier ordering: t0 severity, then composite, then height, then index" {
 }
 
 test "natural-preference margin: sliver composite wins do not displace natural" {
-    // Locks the selection hysteresis (score.displacesNatural, applied by
-    // entry.scoreCandidates): a challenger beating natural's composite by
-    // less than NATURAL_PREFERENCE_MARGIN must NOT displace it (the tiny
-    // bare-label fixture region flips on 8-48-unit slivers), while a
-    // reference-endorsed-scale win (smallest live flip: 212) must.
     const natural: Score = .{ .t0_fit = 0, .t1_integrity = 0, .t2_legibility = 16, .t3_height = 13, .t4_index = 0, .t12_composite = 256 };
     var sliver = natural;
     sliver.t4_index = 1;
     sliver.t12_composite = natural.t12_composite - (score.NATURAL_PREFERENCE_MARGIN - 1);
-    try t.expect(sliver.lessThan(natural)); // wins the plain argmin...
-    try t.expect(!score.displacesNatural(sliver, natural)); // ...but not natural
+    try t.expect(sliver.lessThan(natural));
+    try t.expect(!score.displacesNatural(sliver, natural));
     var big = sliver;
     big.t12_composite = natural.t12_composite - score.NATURAL_PREFERENCE_MARGIN;
     try t.expect(score.displacesNatural(big, natural));
-    // T0-decided displacement (natural overflows, challenger fits) is
-    // exempt from the margin even at equal composites.
     var overflowing_natural = natural;
     overflowing_natural.t0_fit = 5;
     var fitting = natural;
@@ -113,7 +102,6 @@ test "eval: integrity is a large priced cost, not a veto" {
     defer arena.deinit();
     const a = arena.allocator();
 
-    // Two overlapping node rects → node_overlap violation, tiny bbox.
     const dirty_nodes = [_]sketch.NodePlacement{
         testNode(0, .{ .x = 0, .y = 0, .w = 5, .h = 3 }, null),
         testNode(1, .{ .x = 2, .y = 1, .w = 5, .h = 3 }, null),
@@ -125,16 +113,11 @@ test "eval: integrity is a large priced cost, not a veto" {
     const clean_nodes = [_]sketch.NodePlacement{
         testNode(0, .{ .x = 0, .y = 0, .w = 5, .h = 3 }, null),
     };
-    // Clean candidate whose extra dead space is WITHIN one violation's
-    // price (W_INTEGRITY/SCALE_ONE = 1280 cells): clean must win.
     const modest = testSketch(.{ .x = 0, .y = 0, .w = 10, .h = 5 }, &clean_nodes, &.{}, &.{});
     const s_modest = try eval(a, modest, .TD, 5, .{});
     try t.expectEqual(@as(u32, 0), s_modest.t1_integrity);
     try t.expect(s_modest.lessThan(s_dirty));
 
-    // Clean candidate whose dead space EXCEEDS the violation's price
-    // (60x40 bbox → ~2385 dead cells > 1280): the dirty one wins — the
-    // dense_multi_cycle_td_8 w120 lesson (T1=1 must not veto).
     const huge = testSketch(.{ .x = 0, .y = 0, .w = 60, .h = 40 }, &clean_nodes, &.{}, &.{});
     const s_huge = try eval(a, huge, .TD, 5, .{});
     try t.expect(s_dirty.lessThan(s_huge));
@@ -151,8 +134,6 @@ test "eval: a lost terminal head is priced above the plain lost cell it also is"
     const sk = testSketch(.{ .x = 0, .y = 0, .w = 7, .h = 4 }, &nodes, &.{}, &.{});
     const base = try eval(a, sk, .TD, 0, .{ .edge_cells_lost = 1 });
     const headless = try eval(a, sk, .TD, 0, .{ .edge_cells_lost = 1, .heads_lost = 1 });
-    // Same geometry: the head loss adds exactly its own weight on top of
-    // the generic cell loss already counted for the same event.
     try t.expectEqual(base.t12_composite + score.W_HEAD_LOST, headless.t12_composite);
     try t.expect(base.lessThan(headless));
 }
@@ -165,9 +146,6 @@ test "eval: rung multiplier is a fitted degradation prior" {
         testNode(0, .{ .x = 0, .y = 0, .w = 4, .h = 3 }, null),
     };
     var s = testSketch(.{ .x = 0, .y = 0, .w = 8, .h = 3 }, &nodes, &.{}, &.{});
-    // Every rung applies exactly its RUNG_SCALE multiplier (direction kept,
-    // so no infidelity floor kicks in — rung 3's slot holds the vertical
-    // switch scale).
     var rung: u8 = 0;
     while (rung < RUNG_SCALE.len) : (rung += 1) {
         s.budget.rung = rung;
@@ -175,14 +153,11 @@ test "eval: rung multiplier is a fitted degradation prior" {
         try t.expectEqual(RUNG_SCALE[rung] * sc.t2_legibility, sc.t12_composite);
         if (rung > 0) try t.expect(sc.t12_composite > 16 * sc.t2_legibility);
     }
-    // Natural dominates every later rung on identical geometry...
     s.budget.rung = 4;
     const late = try eval(a, s, .TD, 4, .{});
     s.budget.rung = 0;
     const early = try eval(a, s, .TD, 0, .{});
     try t.expect(early.lessThan(late));
-    // ...and the fitted relations hold: horizontal switch above vertical,
-    // truncate above everything.
     try t.expect(score.SWITCH_TO_HORIZONTAL_SCALE > score.SWITCH_TO_VERTICAL_SCALE);
     try t.expect(RUNG_SCALE[4] > score.SWITCH_TO_HORIZONTAL_SCALE);
 }
@@ -196,16 +171,13 @@ test "eval: direction infidelity pays the direction-matched switch scale" {
     };
     var s = testSketch(.{ .x = 0, .y = 0, .w = 8, .h = 3 }, &nodes, &.{}, &.{});
     const faithful = try eval(a, s, .TD, 0, .{});
-    // TD source rotated to horizontal: pays the (dearer) horizontal scale.
-    s.direction = .LR; // rung still 0 — the floor applies regardless of rung
+    s.direction = .LR;
     const to_horiz = try eval(a, s, .TD, 0, .{});
     try t.expectEqual(
         score.SWITCH_TO_HORIZONTAL_SCALE * to_horiz.t2_legibility,
         to_horiz.t12_composite,
     );
     try t.expect(faithful.lessThan(to_horiz));
-    // LR source rotated to vertical: the cheaper vertical scale (the
-    // round-2 asymmetry: fanin_rl/subgraph_rl w120 flips).
     s.direction = .TD;
     const to_vert = try eval(a, s, .LR, 0, .{});
     try t.expectEqual(
@@ -213,8 +185,6 @@ test "eval: direction infidelity pays the direction-matched switch scale" {
         to_vert.t12_composite,
     );
     try t.expect(to_vert.t12_composite < to_horiz.t12_composite);
-    // The rung-4 slot IS the vertical scale (eval reaches the horizontal
-    // value only via the infidelity floor).
     try t.expectEqual(score.SWITCH_TO_VERTICAL_SCALE, RUNG_SCALE[SWITCH_SCALE_INDEX]);
 }
 
@@ -226,15 +196,13 @@ test "fit severity is overflow magnitude, not presence" {
         testNode(0, .{ .x = 0, .y = 0, .w = 4, .h = 3 }, null),
     };
     var mild = testSketch(.{ .x = 0, .y = 0, .w = 8, .h = 3 }, &nodes, &.{}, &.{});
-    mild.budget.max_width = 6; // 2 columns over
+    mild.budget.max_width = 6;
     var bad = mild;
-    bad.bbox.w = 60; // 54 columns over
+    bad.bbox.w = 60;
     const s_mild = try eval(a, mild, .TD, 0, .{});
     const s_bad = try eval(a, bad, .TD, 0, .{});
     try t.expectEqual(@as(u32, 2), s_mild.t0_fit);
     try t.expectEqual(@as(u32, 54), s_bad.t0_fit);
-    // A mild clip beats a catastrophic one even when the catastrophic
-    // side is otherwise "cleaner" (frenzy w60 lesson).
     try t.expect(s_mild.lessThan(s_bad));
 }
 
@@ -245,13 +213,11 @@ test "crossings counter on a known crossing pair" {
     const s = testSketch(.{ .x = 0, .y = 0, .w = 11, .h = 11 }, &.{}, &edges, &.{});
     try t.expectEqual(@as(u64, 1), countCrossings(s));
 
-    // Endpoint touch (T-junction) is NOT a crossing.
     const touch_v = [_]sketch.Point{ .{ .x = 5, .y = 5 }, .{ .x = 5, .y = 10 } };
     const edges2 = [_]sketch.EdgePath{ testEdge(0, &cross_h), testEdge(1, &touch_v) };
     const s2 = testSketch(.{ .x = 0, .y = 0, .w = 11, .h = 11 }, &.{}, &edges2, &.{});
     try t.expectEqual(@as(u64, 0), countCrossings(s2));
 
-    // Same edge never crosses itself (pairs are between DIFFERENT edges).
     const edges3 = [_]sketch.EdgePath{testEdge(0, &cross_h)};
     const s3 = testSketch(.{ .x = 0, .y = 0, .w = 11, .h = 11 }, &.{}, &edges3, &.{});
     try t.expectEqual(@as(u64, 0), countCrossings(s3));
@@ -262,8 +228,6 @@ test "dead_space does not double-count cluster frames vs member nodes" {
     defer arena.deinit();
     const a = arena.allocator();
 
-    // Cluster frame covering the WHOLE bbox with a member node inside:
-    // coverage is the bitmap union, so dead space is exactly 0.
     const clusters = [_]sketch.ClusterFrame{
         .{ .id = 0, .rect = .{ .x = 0, .y = 0, .w = 10, .h = 5 }, .parent_id = null, .label = "c", .depth = 0 },
     };
@@ -273,25 +237,16 @@ test "dead_space does not double-count cluster frames vs member nodes" {
     const covered = testSketch(.{ .x = 0, .y = 0, .w = 10, .h = 5 }, &nodes, &.{}, &clusters);
     try t.expectEqual(@as(u64, 0), try deadSpace(a, covered));
 
-    // Same node WITHOUT the cluster: dead space = bbox area − node area.
     const bare = testSketch(.{ .x = 0, .y = 0, .w = 10, .h = 5 }, &nodes, &.{}, &.{});
     try t.expectEqual(@as(u64, 50 - 12), try deadSpace(a, bare));
 }
 
 test "rail bends: rail junction counted once, one turn per off-column tap" {
-    // Stem straight (no interior flips) from pivot (0,0) down to the
-    // junction (0,5); rail runs horizontally from the junction out to
-    // (10,5) — a real stem→rail turn (vertical→horizontal). Three taps:
-    // one ON the stem column (straight pass-through, no turn) and two
-    // OFF-column (one turn each). If the rail's junction turn were ever
-    // charged per-peer (the old per-peer-polyline distortion this slice
-    // removes) the total would scale with taps.len instead of staying
-    // fixed at "stem bends + 1 rail turn + off-column tap count".
     const stem = [_]sketch.Point{ .{ .x = 0, .y = 0 }, .{ .x = 0, .y = 5 } };
     const taps = [_]sketch.Tap{
-        .{ .edge = 0, .node = 10, .at = .{ .x = 0, .y = 5 }, .landing = .{ .x = 0, .y = 8 } }, // on-column
-        .{ .edge = 1, .node = 11, .at = .{ .x = 5, .y = 5 }, .landing = .{ .x = 5, .y = 8 } }, // off-column
-        .{ .edge = 2, .node = 12, .at = .{ .x = 10, .y = 5 }, .landing = .{ .x = 10, .y = 8 } }, // off-column
+        .{ .edge = 0, .node = 10, .at = .{ .x = 0, .y = 5 }, .landing = .{ .x = 0, .y = 8 } },
+        .{ .edge = 1, .node = 11, .at = .{ .x = 5, .y = 5 }, .landing = .{ .x = 5, .y = 8 } },
+        .{ .edge = 2, .node = 12, .at = .{ .x = 10, .y = 5 }, .landing = .{ .x = 10, .y = 8 } },
     };
     const rails = [_]sketch.Rail{.{
         .pivot = 0,
@@ -302,23 +257,10 @@ test "rail bends: rail junction counted once, one turn per off-column tap" {
     }};
     var s = testSketch(.{ .x = 0, .y = 0, .w = 11, .h = 9 }, &.{}, &.{}, &.{});
     s.rails = &rails;
-    // 0 (straight stem) + 1 (stem→rail junction turn) + 0 (on-column tap)
-    // + 1 + 1 (two off-column taps) = 3. A per-peer-multiplied count would
-    // instead land at 2 turns × 3 taps = 6 (or similar taps.len-scaled
-    // value) — this exact assertion catches that regression.
     try t.expectEqual(@as(u64, 3), bends(s));
 }
 
 test "rail crossings: shared rail registers once, never crosses itself" {
-    // A rail with a crossbar spanning x=0..10 at y=5, plus a plain edge
-    // that runs vertically through x=3 across y=0..10. The edge's
-    // vertical segment strictly crosses the rail exactly once. Two of the
-    // three taps' drops also run vertically near that span (x=5, x=10)
-    // but verticals never cross verticals, so they must not add crossings.
-    // Under the old per-peer-polyline accounting, the shared rail
-    // computed as N private per-tap spans could register the same
-    // foreign crossing once per overlapping sibling tap (3, one per tap)
-    // instead of once for the rail.
     const stem = [_]sketch.Point{ .{ .x = 0, .y = 0 }, .{ .x = 0, .y = 5 } };
     const taps = [_]sketch.Tap{
         .{ .edge = 0, .node = 10, .at = .{ .x = 0, .y = 5 }, .landing = .{ .x = 0, .y = 8 } },
@@ -338,17 +280,13 @@ test "rail crossings: shared rail registers once, never crosses itself" {
     s.rails = &rails;
     try t.expectEqual(@as(u64, 1), countCrossings(s));
 
-    // A rail alone (no other edges/rails) never crosses itself, even
-    // though its taps and rail share endpoints (excluded by strictCross).
     var solo = testSketch(.{ .x = 0, .y = 0, .w = 11, .h = 10 }, &.{}, &.{}, &.{});
     solo.rails = &rails;
     try t.expectEqual(@as(u64, 0), countCrossings(solo));
 }
 
 test "edge stretch and bends" {
-    // Straight vertical edge: stretch 0, bends 0.
     const straight = [_]sketch.Point{ .{ .x = 0, .y = 0 }, .{ .x = 0, .y = 5 } };
-    // Detour: endpoints span 7, walked 15 → stretch 8; (V,H,V,H,V) = 4 bends.
     const detour = [_]sketch.Point{
         .{ .x = 0, .y = 0 }, .{ .x = 0, .y = 2 }, .{ .x = 4, .y = 2 },
         .{ .x = 4, .y = 5 }, .{ .x = 0, .y = 5 }, .{ .x = 0, .y = 7 },

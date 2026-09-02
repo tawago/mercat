@@ -63,7 +63,7 @@ pub fn vertical(a: std.mem.Allocator, s: sketch.Sketch, direction: sketch.Direct
         rails[i] = rail;
         rails[i].stem = stem;
         rails[i].taps = taps;
-        // Vertical mirror keeps x order; only the shared rail row moves. // guarded-by: mirror.zig "vertical mirror preserves rail tap x-order; only the rail row shifts"
+        // Vertical mirror keeps x order; only the shared rail row moves. // @guarded-by: mirror.zig "vertical mirror preserves rail tap x-order; only the rail row shifts"
         rails[i].crossbar = .{ mirrorPoint(s.bbox, rail.crossbar[0]), mirrorPoint(s.bbox, rail.crossbar[1]) };
         rails_done += 1;
     }
@@ -88,7 +88,7 @@ pub fn vertical(a: std.mem.Allocator, s: sketch.Sketch, direction: sketch.Direct
         .budget = s.budget,
         // Policy is a candidate property, not geometry: mirroring must carry it
         // through or the BT canonicalization would drop back to the default.
-        // guarded-by: mirror_test.zig "vertical mirror preserves the label policy"
+        // @guarded-by: mirror_test.zig "vertical mirror preserves the label policy"
         .label_policy = s.label_policy,
     };
 }
@@ -207,7 +207,7 @@ pub fn applyDirection(comptime G: type, geom: []G, dir: sketch.Direction) void {
                 g.w = oh;
                 g.h = ow;
             }
-            // sugiyama.assignLayers already reverses layer order for RL. // guarded-by: mirror.zig "RL: sugiyama's own layer reversal plus applyDirection's axis swap alone yields correct right-to-left order"
+            // sugiyama.assignLayers already reverses layer order for RL. // @guarded-by: mirror.zig "RL: sugiyama's own layer reversal plus applyDirection's axis swap alone yields correct right-to-left order"
         },
     }
 }
@@ -307,8 +307,6 @@ test "vertical mirror preserves rail tap x-order; only the rail row shifts" {
         .{ .pivot = 1, .stem = &stem, .crossbar = .{ .{ .x = 2, .y = 5 }, .{ .x = 22, .y = 5 } }, .taps = &taps, .kind = .solid },
     };
     const s = sketch.Sketch{
-        // h is even (12, rows 0..11) so mirroring has no fixed row: every
-        // y strictly moves, which is what this test needs to observe.
         .bbox = .{ .x = 0, .y = 0, .w = 25, .h = 12 },
         .direction = .TD,
         .nodes = &nodes,
@@ -323,25 +321,17 @@ test "vertical mirror preserves rail tap x-order; only the rail row shifts" {
     defer arena.deinit();
     const out = try vertical(arena.allocator(), s, .BT);
 
-    // Tap x-values (and therefore their relative x-order) are unchanged —
-    // vertical mirroring only touches y.
     try std.testing.expectEqual(taps[0].at.x, out.rails[0].taps[0].at.x);
     try std.testing.expectEqual(taps[1].at.x, out.rails[0].taps[1].at.x);
     try std.testing.expectEqual(taps[0].landing.x, out.rails[0].taps[0].landing.x);
     try std.testing.expectEqual(taps[1].landing.x, out.rails[0].taps[1].landing.x);
 
-    // The rail stays a single shared row (both endpoints keep equal y)
-    // and stays x-ordered — but that row actually moved.
     try std.testing.expect(out.rails[0].crossbar[0].x <= out.rails[0].crossbar[1].x);
     try std.testing.expectEqual(out.rails[0].crossbar[0].y, out.rails[0].crossbar[1].y);
     try std.testing.expect(out.rails[0].crossbar[0].y != rails[0].crossbar[0].y);
 }
 
 test "RL: sugiyama's own layer reversal plus applyDirection's axis swap alone yields correct right-to-left order" {
-    // A -> B -> C, direction RL. sugiyama.assignLayers already reverses
-    // the internal layers array for RL so layer-index 0 (post-reversal)
-    // is the sink end; applyDirection's LR/RL branch then only swaps
-    // x<->y/w<->h — no extra x-reflection is applied on top.
     const nodes = [_]sg.Node{
         .{ .id = 0, .raw_id = "A", .label = "A", .shape = .rect, .classes = &.{}, .cluster = null },
         .{ .id = 1, .raw_id = "B", .label = "B", .shape = .rect, .classes = &.{}, .cluster = null },
@@ -362,9 +352,6 @@ test "RL: sugiyama's own layer reversal plus applyDirection's axis swap alone yi
     var lg = try sugiyama.assignLayers(std.testing.allocator, g);
     defer lg.deinit(std.testing.allocator);
 
-    // Build geometry the way layout.zig's internal-TD coordinate
-    // assignment does: y increases monotonically with (already-reversed)
-    // layer index.
     const TGeom = struct { x: i32, y: i32, w: u32, h: u32 };
     var geom = try std.testing.allocator.alloc(TGeom, lg.nodes.len);
     defer std.testing.allocator.free(geom);
@@ -374,8 +361,6 @@ test "RL: sugiyama's own layer reversal plus applyDirection's axis swap alone yi
 
     applyDirection(TGeom, geom, .RL);
 
-    // RL renders flow right-to-left: the source (A) must land strictly
-    // to the right of the sink (C), using applyDirection's swap alone.
     const idx_a = lg.real_index.get(0).?;
     const idx_c = lg.real_index.get(2).?;
     try std.testing.expect(geom[idx_a].x > geom[idx_c].x);

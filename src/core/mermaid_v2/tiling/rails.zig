@@ -36,7 +36,7 @@
 //! law, so two taps branching at one cell both keep their record. That the
 //! record's `value` really is a Sketch edge id of a rail the record's own
 //! cell belongs to is pinned corpus-wide from the raster side.
-//! guarded-by: tiling_records_test.zig "every rail-membership record names an edge the fan actually serves"
+//! @guarded-by: tiling_records_test.zig "every rail-membership record names an edge the fan actually serves"
 //!
 //! DERIVED POPULATION, NOT A FLAG READ BACK. Nothing upstream is asked
 //! whether it admitted a group. The population is the CONSEQUENCE — rails
@@ -81,7 +81,7 @@
 //!     one-subgraph six-edge TD flowchart draws one continuous row joining
 //!     three upper nodes to two lower ones and the whole audit's
 //!     `d_total` is 0.
-//!     guarded-by: tiling_rails_e2e_test.zig "rails: a run the crossbars under-measure is reported as continued, not as silence"
+//!     @guarded-by: tiling_rails_e2e_test.zig "rails: a run the crossbars under-measure is reported as continued, not as silence"
 //!   - `stands_for` is a SemGraph fact absent from the Sketch, so
 //!     the asserted set used here is the CROSS-pairs floor. A run carrying a
 //!     member that does not block a leaf-to-leaf trace also asserts
@@ -130,7 +130,7 @@ fn lowerOf(rail: sketch.Rail, tp: sketch.Tap) u32 {
 /// Do two crossbars land on one row with touching-or-overlapping spans —
 /// i.e. would they raster into one continuous line? The span predicate is
 /// the same interval test the lane separator groups by.
-/// guarded-by: rails_test.zig "rails: two rails on different rows are two runs, not one"
+/// @guarded-by: rails_test.zig "rails: two rails on different rows are two runs, not one"
 fn fuses(a: sketch.Rail, b: sketch.Rail) bool {
     if (a.crossbar[0].y != b.crossbar[0].y) return false;
     return !(a.crossbar[1].x < b.crossbar[0].x or b.crossbar[1].x < a.crossbar[0].x);
@@ -190,7 +190,7 @@ fn runSpan(s: sketch.Sketch, gr: []const u32) ?struct { y: i32, lo: i32, hi: i32
 /// same reason, so an arrowhead terminating the line is not a continuation.
 /// Ink here belongs to no crossbar of the run (the span covers them all),
 /// so it is exactly the ink whose endpoints this tier cannot attribute.
-/// guarded-by: rails_test.zig "rails: a collinear jog past the crossbar is a continued run"
+/// @guarded-by: rails_test.zig "rails: a collinear jog past the crossbar is a continued run"
 fn runContinues(v: cell.View, s: sketch.Sketch, gr: []const u32) bool {
     const sp = runSpan(s, gr) orelse return false;
     const y: u32 = @intCast(sp.y);
@@ -210,7 +210,7 @@ fn runContinues(v: cell.View, s: sketch.Sketch, gr: []const u32) bool {
 /// the row is off-grid): "nothing recorded OR nothing collected", per
 /// `cell.zig`'s empty-slice rule, and never a defect. It gates only the
 /// branch question — never whether a pair is declared.
-/// guarded-by: rails_test.zig "rails: an uncollected side table still exposes a pair nothing declares"
+/// @guarded-by: rails_test.zig "rails: an uncollected side table still exposes a pair nothing declares"
 fn runHasRecords(v: cell.View, s: sketch.Sketch, gr: []const u32) bool {
     const sp = runSpan(s, gr) orelse return false;
     var x: i32 = @max(sp.lo, 0);
@@ -227,9 +227,9 @@ fn runHasRecords(v: cell.View, s: sketch.Sketch, gr: []const u32) bool {
 /// `row_records` says whether the branch question is answerable at all on
 /// this run; it can only move a DECLARED pair between the lost-trace defect
 /// and the limitation, never rescue an undeclared one.
-/// guarded-by: rails_test.zig "rails: a pair no member declares is the fabrication bucket"
-/// guarded-by: rails_test.zig "rails: a declared pair whose branch left no record is a lost trace"
-/// guarded-by: rails_test.zig "rails: an off-grid branch cell is unreadable, never a lost trace"
+/// @guarded-by: rails_test.zig "rails: a pair no member declares is the fabrication bucket"
+/// @guarded-by: rails_test.zig "rails: a declared pair whose branch left no record is a lost trace"
+/// @guarded-by: rails_test.zig "rails: an off-grid branch cell is unreadable, never a lost trace"
 fn accountPair(v: cell.View, s: sketch.Sketch, gr: []const u32, u: u32, l: u32, row_records: bool, c: *counts.Counts) void {
     var declared = false;
     var readable = false;
@@ -260,24 +260,11 @@ fn accountPair(v: cell.View, s: sketch.Sketch, gr: []const u32, u: u32, l: u32, 
 /// BEFORE that group's first increment, so the bucket-ownership invariant
 /// `n_rail_pairs_asserted == c_ + d_ + d_ + u_rail_pair_unevidenced`
 /// survives a partial run.
-/// guarded-by: rails_test.zig "rails: every asserted pair lands in exactly one bucket"
-/// guarded-by: rails_test.zig "rails: a scratch failure at any point leaves the buckets owned"
+/// @guarded-by: rails_test.zig "rails: every asserted pair lands in exactly one bucket"
+/// @guarded-by: rails_test.zig "rails: a scratch failure at any point leaves the buckets owned"
 pub fn check(alloc: std.mem.Allocator, v: cell.View, s: sketch.Sketch, c: *counts.Counts) void {
-    // The entry denominator, published BEFORE the tier can decline. Without
-    // it the buckets below carry a zero that reads the same whether the tier
-    // measured a population and found nothing or never had a population to
-    // measure — two opposite readings of one number.
     c.n_rails_first_class = @intCast(s.rails.len);
 
-    // No rail, no run. A LONE rail cannot be excused here even though it
-    // fuses with nothing and is never two-sided: its line can still be
-    // continued past its crossbar by ordinary ink, and that is the one
-    // thing this tier reports about a run it cannot otherwise measure.
-    // An EMPTY population is different in kind: every bucket below —
-    // `u_rail_run_continued` included, the one mitigation that exists — is
-    // structurally incapable of firing past this point, so the abstention is
-    // named here rather than left as a silence indistinguishable from a
-    // clean bill.
     if (s.rails.len == 0) {
         c.u_rail_population_absent += 1;
         return;
@@ -306,9 +293,6 @@ pub fn check(alloc: std.mem.Allocator, v: cell.View, s: sketch.Sketch, c: *count
             return;
         };
 
-        // Transitive closure of "would raster into one line". Re-runs until
-        // nothing bundles, so a chain A-B-C is one run even when A and C do
-        // not touch each other.
         var grew = true;
         while (grew) {
             grew = false;
@@ -326,12 +310,6 @@ pub fn check(alloc: std.mem.Allocator, v: cell.View, s: sketch.Sketch, c: *count
                 }
             }
         }
-        // Asked of EVERY run before any gate below it. The shape this most
-        // matters for is a LONE rail whose line is extended at both ends
-        // into a two-sided run: it never reaches the group gate, never
-        // reaches the two-sided gate, and would otherwise leave no trace at
-        // all that the tier's zero was measured over a shorter line than
-        // the one drawn.
         if (runContinues(v, s, group.items)) c.u_rail_run_continued += 1;
         if (group.items.len < 2) continue;
 
@@ -350,17 +328,9 @@ pub fn check(alloc: std.mem.Allocator, v: cell.View, s: sketch.Sketch, c: *count
                 };
             }
         }
-        // One shared pivot on either side is the lone-pivot shape: the run
-        // stands for an endpoint its members really do share, so there is
-        // nothing for it to fabricate.
         if (upper.items.items.len < 2 or lower.items.items.len < 2) continue;
 
         c.n_rail_runs_two_sided += 1;
-        // Records-or-not decides how a DECLARED pair's missing branch is
-        // filed, and nothing else. The ladder still runs: a pair no rail of
-        // the run declares is a Sketch fact that needs no side table, and
-        // skipping it here would let an uncollected table hide the very
-        // fabrication this tier exists to name.
         const row_records = runHasRecords(v, s, group.items);
         if (!row_records) c.u_rail_run_records_absent += 1;
         for (upper.items.items) |u| {

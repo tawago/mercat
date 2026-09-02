@@ -124,7 +124,7 @@ fn addPending(
         if (group.pivot != pivot or group.pi == null or
             group.kind != pending.member.kind or
             group.arrow != pending.member.arrow(pending.member.pivot_end)) continue;
-        if (match != null) return; // More than one final site: do not guess.
+        if (match != null) return;
         match = i;
     }
     if (match) |i| {

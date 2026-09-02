@@ -67,7 +67,6 @@ fn renderMode(a: std.mem.Allocator, source: []const u8, width: u32, mode: prim.S
     const built = try permits.build(a, graph, .joined);
     const plan = built.plan;
     const winner = try select.choose(a, graph, &plan, width, false, false, mode);
-    // The audit reads the side table every rasterization now carries.
     const report = try raster.rasterize(a, winner.sketch, mode);
     return .{ .graph = graph, .sketch = winner.sketch, .report = report, .mode = mode };
 }
@@ -124,7 +123,6 @@ test "tiling audit is idempotent and its meta counters describe the render" {
     try testing.expect(first.n_clustered > 0);
     try testing.expectEqual(@as(u32, 0), first.u_audit_oom);
 
-    // Every arrowhead in the lattice is accounted for.
     var arrowheads: u32 = 0;
     for (lat.cells) |c| {
         if (c.occupant == .arrowhead) arrowheads += 1;
@@ -133,14 +131,6 @@ test "tiling audit is idempotent and its meta counters describe the render" {
 }
 
 test "clustered crossing render has zero orphan arrowhead laterals" {
-    // The clustered-crossing adversarial fixture: on clustered renders
-    // the crossing suppression pass is inert (its permits are skipped)
-    // and the edge writer OR-merges foreign transversal bits into
-    // arrowhead cells. If any of that legal population landed in a
-    // defect bucket, the audit would be measuring the renderer's
-    // conventions instead of its mistakes. The answer to a legal case is
-    // a new `c_` bucket, never a filter — so this asserts ZERO, not
-    // "small".
     const clustered = [_][]const u8{
         "flowchart TD\n  subgraph S1\n    A --> B\n  end\n  subgraph S2\n    C --> D\n  end\n  A --> D\n  C --> B\n",
         "flowchart LR\n  subgraph S1\n    A --> B\n  end\n  subgraph S2\n    C --> D\n  end\n  A --> D\n  C --> B\n",
@@ -162,10 +152,6 @@ test "clustered crossing render has zero orphan arrowhead laterals" {
 }
 
 test "the whole corpus is free of structural defects" {
-    // The calibration floor: every shape in `corpus`, at both widths, and
-    // EVERY defect bucket — not just the one the commit that added the
-    // fixture cared about. A bucket that fires here is either a real
-    // finding or a law that needs a convention bucket; never a filter.
     for (corpus) |source| for ([_]u32{ 60, 120 }) |width| {
         var arena = std.heap.ArenaAllocator.init(testing.allocator);
         defer arena.deinit();
@@ -174,12 +160,6 @@ test "the whole corpus is free of structural defects" {
 }
 
 test "every production ink cell carries a recorded ink-attribution state" {
-    // Cell-grid boundary: the producer records the state; the audit consumes it. An
-    // untagged ink cell on a PRODUCTION render means a writer decided
-    // without recording — the fallback in strokes.isJunction exists only
-    // for hand-built lattices and must be unreachable here. The evidence
-    // measurements must also hold: every recorded crossing has its
-    // suppressed carrier, every off-role rail interior its membership.
     for (corpus) |source| for ([_]u32{ 60, 120 }) |width| {
         var arena = std.heap.ArenaAllocator.init(testing.allocator);
         defer arena.deinit();
@@ -214,8 +194,6 @@ test "an invisible link contributes no ink and no arrowhead law" {
     try testing.expectEqual(@as(u32, 0), scan.run(a, r.ctx()).defectTotal());
 }
 
-// -- Decomposition identity --------------------------------------------------
-
 /// The buckets the base ladder produces from `arrow_base.validate`'s
 /// violation set. `c_base_label` is deliberately absent: it is the
 /// validator's EXEMPTION, not one of its violations.
@@ -225,10 +203,6 @@ fn baseViolationBuckets(c: counts.Counts) u32 {
 }
 
 test "base buckets decompose arrow_base.validate exactly" {
-    // The acceptance gate for the base partition: over every shape in the
-    // corpus, at both widths, the audit's seven violation buckets must sum
-    // to the renderer's own single count. A bucket that swallowed a case
-    // the validator counts (or invented one it does not) breaks this.
     for (corpus) |source| for ([_]u32{ 60, 120 }) |width| {
         var arena = std.heap.ArenaAllocator.init(testing.allocator);
         defer arena.deinit();
@@ -245,13 +219,9 @@ test "base buckets decompose arrow_base.validate exactly" {
             );
             return error.BaseDecompositionMismatch;
         }
-        // Every arrowhead is accounted for exactly once: fed, exempt, or
-        // in one of the violation buckets.
         try testing.expect(c.c_base_label + baseViolationBuckets(c) <= c.n_arrow_cells);
     };
 }
-
-// -- Mirror pins -------------------------------------------------------------
 
 const all_occupants = [_]lattice.Occupant{
     .empty,
@@ -268,9 +238,6 @@ const all_occupants = [_]lattice.Occupant{
 const all_dirs = [_]lattice.Dir4{ .north, .east, .south, .west };
 
 test "the mirror matrices below enumerate every Occupant variant" {
-    // A hand-written literal cannot be checked the way a switch is: without
-    // this, a new Occupant would join the lattice while every drift pin
-    // below kept passing without ever having seen it.
     inline for (@typeInfo(lattice.Occupant).@"union".fields) |f| {
         var seen = false;
         for (all_occupants) |occ| seen = seen or std.mem.eql(u8, @tagName(occ), f.name);
@@ -287,11 +254,6 @@ test "cell.isReal mirrors reconcile.isRealConnection over every occupant" {
 }
 
 test "cell.gapReprieve mirrors reconcile.bitIsPhantom over a mask x occupant matrix" {
-    // The mirrored branch is the one the audit actually uses: the adjacent
-    // cell is EMPTY and the question is whether the run resumes one step
-    // further along the axis. (When the adjacent cell is real, reconcile
-    // answers "not phantom" without walking, and no tiling check calls
-    // gapReprieve there.)
     var buf: [25]lattice.Cell = undefined;
     for (all_dirs) |d| {
         for (all_occupants) |occ| {
@@ -303,8 +265,6 @@ test "cell.gapReprieve mirrors reconcile.bitIsPhantom over a mask x occupant mat
                     .occupant = .{ .edge_segment = .{ .edge = 0, .kind = .solid } },
                     .neighbours = lattice.Neighbours.fromMask(@intCast(m)),
                 };
-                // Two steps along `d` from the centre of a 5x5 is always
-                // in bounds; the cell between them stays empty.
                 const two: struct { x: u32, y: u32 } = switch (d) {
                     .north => .{ .x = 2, .y = 0 },
                     .south => .{ .x = 2, .y = 4 },
@@ -331,7 +291,6 @@ test "the base ladder's fed/exempt steps mirror arrow_base.baseFeedsArrow" {
                 lat.at(1, 1).* = .{ .occupant = occ, .neighbours = lattice.Neighbours.fromMask(@intCast(m)) };
                 const v = cell.View.init(&lat);
                 const t = v.at(1, 1).?;
-                // The audit's steps 2 and 3, in that order.
                 const audit_fed = t.kind == .glyph or (t.mask & cell.intoArrowBit(tip) != 0);
                 try testing.expectEqual(arrow_base.baseFeedsArrow(lat.atConst(1, 1), tip), audit_fed);
             }
@@ -348,8 +307,6 @@ test "sideFed mirrors raster/arrow_base.sideFed over an occupant x mask matrix" 
                 for (&buf) |*c| c.* = lattice.Cell.empty;
                 var lat = lattice.Lattice{ .width = 3, .height = 3, .cells = &buf };
                 lat.at(1, 1).* = .{ .occupant = .{ .arrowhead = .{ .dir = tip, .edge = 0 } }, .neighbours = .{} };
-                // Populate BOTH perpendicular neighbours so the "either
-                // probe fires" disjunction is exercised, then each alone.
                 const perp = cell.perpendicular(tip);
                 for ([3]u2{ 0, 1, 2 }) |which| {
                     for (&buf) |*c| c.* = lattice.Cell.empty;
@@ -368,8 +325,6 @@ test "sideFed mirrors raster/arrow_base.sideFed over an occupant x mask matrix" 
     }
 }
 
-// -- Adversarial fixtures ----------------------------------------------------
-
 /// Assert the audit finds nothing to complain about, printing the whole
 /// counts line when it does — a bare "expected 0" would say nothing about
 /// WHICH law fired.
@@ -385,18 +340,13 @@ fn expectSilent(a: std.mem.Allocator, source: []const u8, width: u32) !void {
 
 test "the calibration floor: chains, fans and clusters are defect-free" {
     const fixtures = [_][]const u8{
-        // TD-CHAIN and LR-CHAIN: the simplest thing the renderer does.
         "flowchart TD\n  A --> B\n  B --> C\n  C --> D\n",
         "flowchart LR\n  A --> B\n  B --> C\n  C --> D\n",
-        // FAN-RAIL: one rail, many taps, ids shared across the strip.
         "flowchart TD\n  A --> B\n  A --> C\n  A --> D\n  A --> E\n  A --> F\n",
         "flowchart TD\n  B --> A\n  C --> A\n  D --> A\n  E --> A\n",
-        // SUBROUTINE and other shapes: inner walls inside the interior.
         "flowchart TD\n  A[[Sub]] --> B{Choice}\n  B --> C((Round))\n",
-        // CROSS-MODE frame welds and nested frames.
         "flowchart TD\n  subgraph S\n    A --> B\n  end\n  B --> C\n  C --> A\n",
         "flowchart LR\n  subgraph Outer\n    subgraph Inner\n      A --> B\n    end\n    B --> C\n  end\n  C --> D\n",
-        // Self-loops, labels, and an invisible link in one diagram.
         "flowchart TD\n  A -->|go| A\n  A ~~~ B\n  A -->|stop| B\n",
     };
     for (fixtures) |source| for ([_]u32{ 40, 60, 120 }) |width| {
@@ -407,10 +357,6 @@ test "the calibration floor: chains, fans and clusters are defect-free" {
 }
 
 test "every terminal abutment a real render makes is a convention" {
-    // The acceptance gate for the terminal law. Chains are the shape it sees
-    // most of, so they are named explicitly alongside the wider corpus:
-    // if a plain `A --> B` chain filed a defect here, the law would be
-    // measuring the renderer's conventions instead of its mistakes.
     const chains = [_][]const u8{
         "flowchart TD\n  A --> B\n  B --> C\n  C --> D\n",
         "flowchart LR\n  A --> B\n  B --> C\n  C --> D\n",
@@ -422,7 +368,6 @@ test "every terminal abutment a real render makes is a convention" {
 
         const r = try render(a, source, width);
         const c = scan.run(a, r.ctx());
-        // Every render lands ink on a ring somewhere.
         try testing.expect(c.n_term_abut > 0);
         if (c.d_term_node_corner != 0 or c.d_term_frame_arrow != 0) {
             var buf: [counts.line_buf_len]u8 = undefined;
@@ -441,11 +386,8 @@ test "the expectation tier finds every declared terminal and arrowhead" {
         const r = try render(a, source, width);
         const c = scan.run(a, r.ctx());
 
-        // The census must agree with the geometry it was derived from.
         try testing.expectEqual(@as(u32, @intCast(r.sketch.nodes.len)), c.m_sketch_nodes);
         try testing.expectEqual(@as(u32, @intCast(r.graph.nodes.len)), c.m_graph_nodes);
-        // Cross-instrument agreement on the label census: a mismatch here
-        // would be an audit bug, not a renderer one.
         try testing.expectEqual(@as(u32, 0), c.u_label_census_mismatch);
         try testing.expectEqual(@as(u32, 0), c.u_audit_oom);
         try testing.expect(c.n_edges_declared <= c.m_sketch_edges);
@@ -453,10 +395,6 @@ test "the expectation tier finds every declared terminal and arrowhead" {
 }
 
 test "cross mode: frame welds move from the defect bucket to the convention bucket" {
-    // The `cross` notation welds edges INTO subgraph borders by design;
-    // `bridge` refuses that fusion outright, so a surviving frame arm
-    // there is a leak. Same source, same geometry, opposite verdicts —
-    // and the audit must read the mode it was actually rendered in.
     const clustered = [_][]const u8{
         "flowchart TD\n  subgraph S\n    A --> B\n  end\n  B --> C\n  C --> A\n",
         "flowchart TD\n  subgraph S1\n    A --> B\n  end\n  subgraph S2\n    C --> D\n  end\n  A --> D\n  C --> B\n",
@@ -470,7 +408,6 @@ test "cross mode: frame welds move from the defect bucket to the convention buck
         const r = try renderMode(a, source, width, .cross);
         const c = scan.run(a, r.ctx());
         try testing.expectEqual(@as(u32, 1), c.n_mode_cross);
-        // Under `cross`, no frame arm may be filed as foreign.
         try testing.expectEqual(@as(u32, 0), c.d_frame_arm_foreign);
         if (c.defectTotal() != 0) {
             var buf: [counts.line_buf_len]u8 = undefined;
@@ -481,10 +418,6 @@ test "cross mode: frame welds move from the defect bucket to the convention buck
 }
 
 test "an all-ASCII render grows no continuation cells" {
-    // The ASCII byte-identity argument, mechanically: `labels.cellSpan` is
-    // 1 for every ASCII codepoint, so every writer advance is the one it
-    // always was and no continuation can exist. A failure here means an
-    // ASCII render moved.
     for (corpus) |source| for ([_]u32{ 60, 120 }) |width| {
         var arena = std.heap.ArenaAllocator.init(testing.allocator);
         defer arena.deinit();
@@ -499,9 +432,6 @@ test "an all-ASCII render grows no continuation cells" {
 }
 
 test "a wide-label render claims exactly the columns it paints" {
-    // The acceptance criterion for the EAW writer fix stated in the
-    // audit's own vocabulary: every wide glyph now holds both the cells it
-    // paints, so no row paints more columns than it has cells.
     const wide = [_][]const u8{
         "flowchart TD\n  A[日本語] --> B[設定]\n",
         "flowchart LR\n  A[日本語] -->|ラベル| B[設定]\n",

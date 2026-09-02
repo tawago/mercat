@@ -70,31 +70,23 @@ test "rail junction bits are explicit: corner, tee, cross" {
 
     const r = try rasterizeForTest(a, s);
 
-    // Left rail end above the left tap: E+S = ┌.
     try testing.expectEqual(@as(u4, 0b0110), r.lattice.atConst(2, 5).neighbours.toMask());
-    // Junction (stem + rail both sides + center tap drop): all four = ┼.
     try testing.expectEqual(@as(u4, 0b1111), r.lattice.atConst(12, 5).neighbours.toMask());
-    // Right rail end above the right tap: W+S = ┐.
     try testing.expectEqual(@as(u4, 0b1100), r.lattice.atConst(22, 5).neighbours.toMask());
-    // Plain rail cell: E+W = ─.
     try testing.expectEqual(@as(u4, 0b1010), r.lattice.atConst(7, 5).neighbours.toMask());
-    // Stem interior: N+S = │, role fan_out_rail.
     const stem_cell = r.lattice.atConst(12, 4).*;
     try testing.expectEqual(@as(u4, 0b0101), stem_cell.neighbours.toMask());
     switch (stem_cell.occupant) {
         .edge_segment => |seg| try testing.expectEqual(lattice.EdgeRole.fan_out_rail, seg.role),
         else => return error.MissingStemCell,
     }
-    // Dropper arrowheads land on the cell above each peer top.
     inline for (.{ 2, 12, 22 }) |x| {
         switch (r.lattice.atConst(x, 6).occupant) {
             .arrowhead => |ah| try testing.expectEqual(lattice.Dir4.south, ah.dir),
             else => return error.MissingArrowhead,
         }
     }
-    // Pivot bottom border gained the stem's exit arm (S bit merged).
     try testing.expect(r.lattice.atConst(12, 2).neighbours.s);
-    // All three taps count as written edges.
     try testing.expectEqual(@as(u32, 3), r.report.taps_written);
     try testing.expectEqual(@as(u32, 0), r.report.cells_lost);
 }
@@ -118,11 +110,6 @@ pub fn recordsAt(
 }
 
 test "a rail files its members on the shared run and a tap at each branch cell" {
-    // The fixture is the standard three-peer fan: pivot 0 over peers at
-    // x = 2 / 12 / 22, junction at (12,5), crossbar 2..22 on row 5. Taps
-    // carry edges 0, 1, 2, and the shared run is attributed to edge 0
-    // throughout — which is exactly why edges 1 and 2 need records to exist
-    // anywhere on the grid at all.
     var arena = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
@@ -136,7 +123,6 @@ test "a rail files its members on the shared run and a tap at each branch cell" 
     const r = try raster.rasterize(a, s, .bridge);
     const lat = r.lattice;
 
-    // One tap record per branch cell, naming that tap's edge, polarity out.
     for ([_]struct { x: u32, edge: u32 }{
         .{ .x = 2, .edge = 0 },
         .{ .x = 12, .edge = 1 },
@@ -153,29 +139,21 @@ test "a rail files its members on the shared run and a tap at each branch cell" 
     }
     try testing.expectEqual(@as(u32, 3), taps_filed);
 
-    // The stem carries every member: all three edges leave the pivot
-    // through it, and the Cell names edge 0.
     const on_stem = try recordsAt(a, lat, .rail_member, 12, 4);
     try testing.expectEqual(@as(usize, 2), on_stem.len);
     try testing.expectEqual(@as(u32, 1), on_stem[0].value);
     try testing.expectEqual(@as(u32, 2), on_stem[1].value);
 
-    // The junction: edge 1 branches here and edge 2 rides on east.
     const at_junction = try recordsAt(a, lat, .rail_member, 12, 5);
     try testing.expectEqual(@as(usize, 2), at_junction.len);
 
-    // East of the junction only edge 2 is still riding …
     const east = try recordsAt(a, lat, .rail_member, 17, 5);
     try testing.expectEqual(@as(usize, 1), east.len);
     try testing.expectEqual(@as(u32, 2), east[0].value);
 
-    // … and west of it nobody is: that stretch conducts edge 0 alone, and
-    // the Cell names edge 0. A record there would be a restatement.
     const west = try recordsAt(a, lat, .rail_member, 7, 5);
     try testing.expectEqual(@as(usize, 0), west.len);
 
-    // Anti-desync, mechanically: no membership record names the id its own
-    // cell carries.
     for (lat.aux) |rec| {
         if (rec.kind != .rail_member) continue;
         switch (lat.cells[rec.cell].occupant) {
@@ -219,8 +197,6 @@ test "a rail without center tap yields a clean ┴ junction" {
     };
 
     const r = try rasterizeForTest(a, s);
-    // No tap under the junction → no S arm: N+E+W = ┴, from geometry
-    // (not from the old sourceReachable probe).
     try testing.expectEqual(@as(u4, 0b1011), r.lattice.atConst(12, 5).neighbours.toMask());
 }
 
@@ -338,11 +314,6 @@ test "a rail plus separated edges is byte and report invariant under edge write 
 }
 
 test "a tap head facing the landing leaves the member border pristine; an undecorated tap tees it" {
-    // Port tees are keyed to head FACING. Each fan-OUT tap lands on its
-    // member's top border with one dropper cell above it: that cell holds
-    // the head, its tip points straight down into the wall, and it already
-    // says "attaches here", so the border keeps its bare {e,w}. With `.none`
-    // nothing declares the landing, so the tap merges `.n` and the border tees.
     var arena = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
@@ -350,7 +321,6 @@ test "a tap head facing the landing leaves the member border pristine; an undeco
     const plain = (lattice.Neighbours{ .e = true, .w = true }).toMask();
     const teed = (lattice.Neighbours{ .e = true, .w = true, .n = true }).toMask();
 
-    // Decorated (the fanSketch default is `.filled`).
     {
         var nodes: [4]sketch.NodePlacement = undefined;
         var taps: [3]sketch.Tap = undefined;
@@ -362,7 +332,6 @@ test "a tap head facing the landing leaves the member border pristine; an undeco
             try testing.expectEqual(plain, r.lattice.atConst(x, 7).neighbours.toMask());
         }
     }
-    // Undecorated: the same geometry with every head dropped.
     {
         var nodes: [4]sketch.NodePlacement = undefined;
         var taps: [3]sketch.Tap = undefined;
@@ -375,10 +344,6 @@ test "a tap head facing the landing leaves the member border pristine; an undeco
             try testing.expectEqual(teed, r.lattice.atConst(x, 7).neighbours.toMask());
         }
     }
-    // Decorated but with NO dropper: the members sit directly under the
-    // rail, so `tap.at` already abuts `landing` and no head is ever
-    // stamped. Decoration alone would have left these walls bare and the
-    // fan would attach to nothing; the facing rule tees them.
     {
         var nodes: [4]sketch.NodePlacement = undefined;
         var taps: [3]sketch.Tap = undefined;
@@ -395,10 +360,6 @@ test "a tap head facing the landing leaves the member border pristine; an undeco
 }
 
 test "a pivot head facing the border leaves it pristine; a detached one tees" {
-    // The fan-IN mirror on the other end of the stem: the pivot's bottom
-    // border at (12,2). With the stem starting ON the border the head lands
-    // at (12,3) looking back north into the wall, so it stays bare; without
-    // a head the stem merges its `.s` arm and the border tees.
     var arena = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
@@ -421,11 +382,6 @@ test "a pivot head facing the border leaves it pristine; a detached one tees" {
             r.lattice.atConst(12, 2).neighbours.toMask(),
         );
     }
-    // Decorated, but the stem starts one cell SHORT of the pivot border
-    // (the gap convention): the port probe crosses the empty gap to reach
-    // the wall at (12,2) while the head sits back at (12,4) — two cells
-    // away, not adjacent. The wall must tee, or the fan-IN rail arrives
-    // at a node it never visibly touches.
     {
         var nodes: [4]sketch.NodePlacement = undefined;
         var taps: [3]sketch.Tap = undefined;
@@ -442,6 +398,5 @@ test "a pivot head facing the border leaves it pristine; a detached one tees" {
 }
 
 test {
-    // Split out at the 500-line cap (tools/lint/line_caps.zig).
     _ = @import("rails_test2.zig");
 }

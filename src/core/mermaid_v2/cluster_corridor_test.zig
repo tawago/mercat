@@ -57,35 +57,16 @@ const testing = std.testing;
 /// subgraph from the same direction, edges aimed near a frame corner, and
 /// crossings through a title row whose text spans the crossing column.
 const corpus = [_][]const u8{
-    // Two producers into one stage — two crossings through one top border,
-    // through the title's own characters.
     "flowchart TD\n  P[Producer]\n  Q[Queue]\n  subgraph S[\"Processing Stage\"]\n    X[Worker A] --> Y[Worker B]\n    Z[Worker C]\n  end\n  P --> X\n  Q --> Z\n  Y --> R[Result]\n",
-    // Three top-level sources into three stacked members.
     "flowchart TD\n  A[Alpha]\n  B[Beta]\n  C[Gamma]\n  subgraph S[\"Core\"]\n    X1[One]\n    X2[Two]\n    X3[Three]\n  end\n  A --> X1\n  B --> X2\n  C --> X3\n",
-    // Sideways entry through a long title that spans the whole top row.
     "flowchart LR\n  A[Src1]\n  B[Src2]\n  subgraph S[\"A very long subgraph title spanning wide\"]\n    M[Mid1]\n    N[Mid2]\n  end\n  A --> M\n  B --> N\n  M --> O[Out]\n",
-    // Two frames side by side with an edge into each and one between them:
-    // the corridor that used to run down a frame's own wall, through both
-    // of its corners.
     "flowchart TD\n  A[In]\n  subgraph S1[\"Left\"]\n    L1[L1] --> L2[L2]\n  end\n  subgraph S2[\"Right\"]\n    R1[R1] --> R2[R2]\n  end\n  A --> L1\n  A --> R1\n  L2 --> R2\n  R2 --> Z[End]\n",
-    // Mutually crossing frames: one crossing leaves a frame where another
-    // enters it, both on the same border row.
     "flowchart TD\n  subgraph S1\n    A --> B\n  end\n  subgraph S2\n    C --> D\n  end\n  A --> D\n  C --> B\n",
-    // A wide fan into one frame: four crossings on a single top border.
     "flowchart TD\n  H[Hub]\n  subgraph S[\"Bank\"]\n    N1[N1]\n    N2[N2]\n    N3[N3]\n    N4[N4]\n  end\n  H --> N1\n  H --> N2\n  H --> N3\n  H --> N4\n",
-    // Two edges into ONE member: they converge before the border and are
-    // one corridor — the case the law must NOT split.
     "flowchart TD\n  A[A]\n  B[B]\n  subgraph S[\"Target\"]\n    T[T]\n  end\n  A --> T\n  B --> T\n",
-    // Nested frames, crossing the inner and the outer border in one run.
     "flowchart TD\n  E[Entry]\n  subgraph OUT[\"Outer\"]\n    subgraph IN[\"Inner\"]\n      I1[I1] --> I2[I2]\n    end\n    P1[P1]\n  end\n  E --> I1\n  E --> P1\n  I2 --> F[Fin]\n",
-    // Members pushed hard against the frame's own corners.
     "flowchart LR\n  S1[S1]\n  S2[S2]\n  subgraph G[\"G\"]\n    G1[G1]\n    G2[G2]\n  end\n  S1 --> G1\n  S2 --> G2\n  G1 --> G2\n",
-    // Labelled crossings, which move the geometry around again.
     "flowchart TD\n  A[A]\n  subgraph S[\"Stage\"]\n    B[B] --> C[C]\n  end\n  A -->|start| B\n  A -->|skip| C\n  C -->|done| D[D]\n",
-    // Four members leaving one frame's bottom border. Narrow widths stack
-    // them, which pushes every corridor onto the obstacle-aware re-route:
-    // the crossings then land at descent columns the port slide never
-    // chose, so no port here may be de-centred.
     "flowchart TD\n  subgraph S\n    M1\n    M2\n    M3\n    M4\n  end\n  M1 --> T1\n  M2 --> T2\n  M3 --> T3\n  M4 --> T4\n",
 };
 
@@ -195,7 +176,6 @@ fn pairSeparable(s: sketch.Sketch, c: Crossing, d: Crossing) bool {
     const cc = clearColumns(s, c, &bc);
     const dd = clearColumns(s, d, &bd);
     if (cc.len == 0 or dd.len == 0) return false;
-    // Two distinct coordinates have to exist across the two sets.
     return !(cc.len == 1 and dd.len == 1 and cc[0] == dd[0]);
 }
 
@@ -254,9 +234,6 @@ test "one crossing corridor per cluster-border cell, and never on a corner" {
             const cx = rec.cell % lat.width;
             const cy = rec.cell / lat.width;
             const cell = lat.at(cx, cy);
-            // A crossing whose cell is no longer a border cell was rewritten
-            // by a later pass; the corner law is about the frame's own
-            // geometry, so only real border cells count.
             const corner = switch (cell.occupant) {
                 .cluster_border => |cb| isCorner(cb.role),
                 else => false,
@@ -285,10 +262,6 @@ test "one crossing corridor per cluster-border cell, and never on a corner" {
             return error.CorridorOnFrameCorner;
         }
 
-        // A port the discipline SLID must have kept a clear approach run:
-        // that is the whole content of the node-clearance term, stated over
-        // a real render. A slide through a box swallows the stroke and puts
-        // a second foot on the box's far border.
         for (seen.items) |c| {
             if (!wasSlid(winner.sketch, c)) continue;
             var buf: [64]i32 = undefined;
@@ -310,8 +283,6 @@ test "one crossing corridor per cluster-border cell, and never on a corner" {
             for (seen.items[i + 1 ..]) |d| {
                 if (c.cell != d.cell or c.edge == d.edge) continue;
                 if (sharePort(winner.sketch.edges, c.edge, d.edge)) continue;
-                // Forced merge: no assignment of distinct cells exists that
-                // keeps both approach runs out of the node boxes.
                 if (!pairSeparable(winner.sketch, c, d)) continue;
                 std.debug.print(
                     "corpus[{d}] w{d}: edges {d} and {d} share border cell ({d},{d}) with no shared port, and a clear pair of columns existed\n",
@@ -321,7 +292,5 @@ test "one crossing corridor per cluster-border cell, and never on a corner" {
             }
         }
     };
-    // Agreement at zero would be no evidence: the corpus has to actually
-    // drive edges through subgraph frames.
     try testing.expect(crossings_seen > 0);
 }

@@ -163,8 +163,6 @@ fn terminalEvidence(v: cell.View, p: Point, d: cell.Dir4, c: *counts.Counts) voi
                 else => c.d_edge_no_terminal_evidence += 1,
             }
         },
-        // Someone else's opaque ink holds the cell. Positional evidence
-        // cannot say whose, and the arrival may well be underneath it.
         else => c.c_edge_absorbed += 1,
     }
 }
@@ -181,8 +179,6 @@ fn arrowEvidence(v: cell.View, p: Point, d: cell.Dir4, c: *counts.Counts) void {
     }
     if (at(v, p)) |t| {
         switch (t.kind) {
-            // The documented refusal paths: an arrowhead write over node
-            // geometry or a label is skipped and counted as a lost cell.
             .ring_node, .fill, .glyph => {
                 c.c_arrow_refused += 1;
                 return;
@@ -356,9 +352,6 @@ fn tapTier(v: cell.View, s: sketch.Sketch, c: *counts.Counts) void {
         for (rail.taps) |tp| {
             c.n_taps_declared += 1;
             const d = dirOf(tp.at, tp.landing) orelse continue;
-            // The dropper stops one cell short of the landing (the node's
-            // perimeter); with no room for a dropper the rail cell itself
-            // is the tap's only ink.
             const back = stepPt(tp.landing, cell.reverse(d));
             const evc = if (back.x == tp.at.x and back.y == tp.at.y) tp.at else back;
             terminalEvidence(v, evc, d, c);

@@ -81,13 +81,6 @@ test "every incomplete rail stamp files untested without changing bytes" {
 }
 
 test "a rail off the roster reads every merge as foreign" {
-    // A structural set exists on the roster, but it names an edge this rail
-    // never carries — the OFF-roster case `sketch_bundles.stamp` mints a
-    // fresh bundle for. That bundle can never equal the junction's edge 1,
-    // so the merge at (12,5) MUST read `.merged_foreign` — not because
-    // anything is broken, but because two edges that share no structural
-    // decision are, correctly, strangers. Report-only: pins the outcome, asks
-    // for no change to what gets drawn.
     var arena = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
@@ -102,10 +95,6 @@ test "a rail off the roster reads every merge as foreign" {
         .budget = .{ .max_width = 80, .rung = 0 },
     }).bundle_sets)).pointer.child;
     const unrelated_members = [_]u32{ 90, 91 };
-    // Stamped, as a producer stamps — the roster IS numbered here; it simply
-    // has nothing to say about this rail's taps, which is the OFF-roster case
-    // this test pins, not the unstamped-roster case `licenceAt`'s abstention
-    // guard exists for.
     const unrelated = [_]Bundle{.{ .origin = .fan_rail, .bundle = 1, .members = &unrelated_members }};
 
     var nodes: [4]sketch.NodePlacement = undefined;
@@ -114,7 +103,6 @@ test "a rail off the roster reads every merge as foreign" {
     var rails: [1]sketch.Rail = undefined;
     var s = rails_test.fanSketch(&nodes, &taps, &stem, &rails);
     s.bundle_sets = &unrelated;
-    // The producer mints an off-roster rail bundle beyond the roster band.
     rails[0].bundle = 2;
     s.bundle_stamp_state = .complete;
 

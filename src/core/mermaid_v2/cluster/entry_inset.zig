@@ -81,9 +81,9 @@ pub fn entryArrivalInset(
     const side = entrySideOf(parent_dir);
     if (super.synthetic) return .{ .extra = 0, .side = side };
     for (crossings) |c| {
-        if (c.arrow_to == .none) continue; // no terminal arrowhead into the box
+        if (c.arrow_to == .none) continue;
         for (child_sketch.nodes) |cp| {
-            if (cp.cluster_id != null) continue; // nested/fan target: not a direct frame arrival
+            if (cp.cluster_id != null) continue;
             if (split_mod.pieceId(piece_orig_ids, child_input_of, cp.id) != c.to) continue;
             if (isEntryLayer(child_sketch, cp.rect, side))
                 return .{ .extra = 1, .side = side };
@@ -106,10 +106,6 @@ fn isEntryLayer(s: sketch.Sketch, rect: sketch.Rect, side: EntrySide) bool {
     return true;
 }
 
-// ====================================================================
-// Tests
-// ====================================================================
-
 fn tNode(id: sketch.NodeId, x: i32, y: i32, cid: ?sketch.ClusterId) sketch.NodePlacement {
     return .{ .id = id, .rect = .{ .x = x, .y = y, .w = 6, .h = 3 }, .shape = .rect, .lines = &.{}, .cluster_id = cid };
 }
@@ -121,13 +117,11 @@ fn tSketch(nodes: []const sketch.NodePlacement) sketch.Sketch {
 test "entryArrivalInset" {
     const t = std.testing;
     const super: split_mod.SuperNode = .{ .outer_node = 0, .cluster_id = 7, .child_piece = 1, .synthetic = false };
-    // child sketch: node 0 at top layer (y=0), node 1 below (y=5); ids map 1:1 to orig.
     const nodes = [_]sketch.NodePlacement{ tNode(0, 0, 0, null), tNode(1, 0, 5, null) };
     const s = tSketch(&nodes);
     const input_of = [_]sketch.NodeId{ 0, 1 };
     const orig = [_]sg.NodeId{ 100, 101 };
 
-    // Crossing terminating on the FIRST-LAYER member (orig 100) → charge north +1.
     const cross_top = [_]split_mod.Crossing{.{ .id = 0, .from = 200, .to = 100, .kind = .solid, .arrow_from = .none, .arrow_to = .filled, .label = null }};
     const hit = entryArrivalInset(&cross_top, super, s, &input_of, &orig, .TD);
     try t.expectEqual(@as(u32, 1), hit.extra);
@@ -136,24 +130,19 @@ test "entryArrivalInset" {
     try t.expectEqual(@as(u32, 0), hit.wExtra());
     try t.expectEqual(@as(i32, 1), hit.dyExtra());
 
-    // Crossing terminating on a LATER-layer member (orig 101) → no charge.
     const cross_deep = [_]split_mod.Crossing{.{ .id = 0, .from = 200, .to = 101, .kind = .solid, .arrow_from = .none, .arrow_to = .filled, .label = null }};
     try t.expectEqual(@as(u32, 0), entryArrivalInset(&cross_deep, super, s, &input_of, &orig, .TD).extra);
 
-    // Arrowless crossing → no charge.
     const cross_none = [_]split_mod.Crossing{.{ .id = 0, .from = 200, .to = 100, .kind = .solid, .arrow_from = .none, .arrow_to = .none, .label = null }};
     try t.expectEqual(@as(u32, 0), entryArrivalInset(&cross_none, super, s, &input_of, &orig, .TD).extra);
 
-    // Nested target (cluster_id set) → pass-through, no charge.
     const nodes_nested = [_]sketch.NodePlacement{ tNode(0, 0, 0, 9), tNode(1, 0, 5, null) };
     try t.expectEqual(@as(u32, 0), entryArrivalInset(&cross_top, super, tSketch(&nodes_nested), &input_of, &orig, .TD).extra);
 
-    // Synthetic super → never charged.
     var syn = super;
     syn.synthetic = true;
     try t.expectEqual(@as(u32, 0), entryArrivalInset(&cross_top, syn, s, &input_of, &orig, .TD).extra);
 
-    // LR parent → west side, extra becomes WIDTH + near-side x-offset.
     const lr = entryArrivalInset(&cross_top, super, s, &input_of, &orig, .LR);
     try t.expectEqual(EntrySide.west, lr.side);
     try t.expectEqual(@as(u32, 1), lr.wExtra());

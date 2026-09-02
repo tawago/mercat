@@ -62,14 +62,11 @@ pub fn choose(
     // CI-filter + score + winner/terminal resolution is `selectWinner` — a
     // byte-identical decomposition, exposed so tests can drive the tail with
     // forged reports.
-    // guarded-by: select_test.zig "report-only pin: reach oracle changes neither argmin nor winner"
+    // @guarded-by: select_test.zig "report-only pin: reach oracle changes neither argmin nor winner"
     const reach = reachReports(aa, graph, bundle_permits.isFlat(), merged);
     return selectWinner(aa, graph, bundle_permits, max_width, merged, reach, incumbent, score_off, shadow, subgraph_edges);
 }
 
-// The Step 8 CI filter + terminal candidate live in select_filter.zig
-// (cap-forced split; see that file). Re-exported so callers/tests keep
-// reaching them as `select.ciFilter` / `select.terminalCandidate`.
 pub const FilterResult = select_filter.FilterResult;
 pub const ciFilter = select_filter.ciFilter;
 pub const terminalCandidate = select_filter.terminalCandidate;
@@ -82,7 +79,7 @@ pub const terminalCandidate = select_filter.terminalCandidate;
 /// terminal is not a scoring-failure fallback). `score_off` returns the
 /// incumbent (A/B hatch); `shadow` emits the disagreement line. Byte-identical
 /// composition of what `choose` used to inline.
-/// guarded-by: disposition_test.zig "V-D-DISPOSITION-06: terminal fallback is built by the selection tail, marks terminal_fallback, validates, and renders"
+/// @guarded-by: disposition_test.zig "V-D-DISPOSITION-06: terminal fallback is built by the selection tail, marks terminal_fallback, validates, and renders"
 pub fn selectWinner(
     aa: std.mem.Allocator,
     graph: sem_graph.SemGraph,
@@ -103,9 +100,6 @@ pub fn selectWinner(
     }
     if (score_off) return incumbent;
     const sel = selection orelse {
-        // Terminal candidate ONLY when the filter emptied the scored set
-        // (D-DISPOSITION item 9(b)); a scoring failure with survivors present
-        // degrades to the incumbent (never terminal while survivors exist).
         if (filtered.survivors.len == 0 and filtered.excluded_any)
             return terminalCandidate(aa, graph, bundle_permits, max_width) catch incumbent;
         return incumbent;
@@ -118,7 +112,7 @@ pub fn selectWinner(
 /// scoring (D-IR items 5/8). FLAT-GATED (D-EDGE-ID item 4): on
 /// clustered inputs `bundles` stays `.{}`, preserving byte-identity. Any
 /// planning failure degrades to the empty plan (the render never fails here).
-/// guarded-by: realized_test.zig "V-D-IR-01: winner bundles artifact survives selection to the entry boundary"
+/// @guarded-by: realized_test.zig "V-D-IR-01: winner bundles artifact survives selection to the entry boundary"
 fn attachBundlePlans(
     aa: std.mem.Allocator,
     bundle_permits: *const ledger.BundlePermits,
@@ -156,22 +150,18 @@ pub fn applyPlan(
     // (realized.zig's `skipped_clustered`), or a planning failure — has said
     // nothing about who may share ink, so it keeps the sets layout gave it
     // rather than being emptied into "nobody may share".
-    // guarded-by: select_test2.zig "a packed candidate keeps its layout bundles when no plan realized"
+    // @guarded-by: select_test2.zig "a packed candidate keeps its layout bundles when no plan realized"
     // INVARIANT: `.port_share` sets are NOT plan-derived and therefore are not
     // the plan's to withdraw — they record a share the producers made in
     // geometry, which no realization decision revokes. So the plan's sets
     // replace only the plan's own population, and the port shares are
     // re-derived from the sketch this call is finalizing.
-    // guarded-by: select_test2.zig "applying a plan keeps the sketch's port-share bundles"
+    // @guarded-by: select_test2.zig "applying a plan keeps the sketch's port-share bundles"
     if (planned.realized) target.bundle_sets = sketch_ports.appendPortShares(
         aa,
         ledger.bundlesFromPlan(aa, planned.plan) catch &.{},
         target.edges,
     ) catch ledger.bundlesFromPlan(aa, planned.plan) catch &.{};
-    // A rebuilt roster is a rebuilt set of names: the plan's sets arrive
-    // unstamped, and layout's names spoke for the decision this call just
-    // replaced. Re-stamping is unconditional so the two cases — plan applied,
-    // plan declined — cannot leave the sketch in different states of filing.
     sketch_bundles.stamp(aa, target);
 }
 
@@ -262,8 +252,6 @@ pub fn enumerateAll(
         extras[n_extras] = c;
         n_extras += 1;
     }
-    // The label-policy twins are picked against the FULL on-run set, so they
-    // are chosen after both extras blocks and appended behind them.
     var on_run: [MAX_CANDIDATES]ladder.Candidate = undefined;
     const on_run_n = enumerated.candidates.len + n_extras;
     if (on_run_n <= on_run.len) {
@@ -272,8 +260,6 @@ pub fn enumerateAll(
         n_extras += select_labels.besideVariants(aa, graph, bundle_permits, max_width, on_run[0..on_run_n], extras[n_extras..]);
     }
 
-    // Bridge-build twins LAST (behind raw, packed and beside), so an exact
-    // score tie keeps the plain build — the incumbent geometry.
     n_extras += bridgeVariants(
         aa,
         graph,
@@ -305,7 +291,7 @@ pub fn enumerateAll(
 /// routing-time proxy decisions). A twin whose edges are byte-identical to
 /// its plain base is dropped (it cannot score differently); failures are
 /// skipped — twins are scoring-only extra work. Returns the number written.
-/// guarded-by: select_test3.zig "bridge variants: a clustered graph enumerates dodged/railed twins behind the raw set"
+/// @guarded-by: select_test3.zig "bridge variants: a clustered graph enumerates dodged/railed twins behind the raw set"
 fn bridgeVariants(
     aa: std.mem.Allocator,
     graph: sem_graph.SemGraph,
@@ -412,12 +398,12 @@ pub const ScoredSelection = struct {
 /// Truncate-eligibility: `truncate` participates in the argmin ONLY when the
 /// RAW natural-rung candidate is broken (t0 > 0 or t1 > 0). Covers packed
 /// truncate candidates too — same lossy rung, same anchor.
-/// guarded-by: select_test.zig "truncate rung is ineligible when natural fits cleanly"
+/// @guarded-by: select_test.zig "truncate rung is ineligible when natural fits cleanly"
 ///
 /// Natural-preference margin: a challenger displaces the RAW natural-rung
 /// candidate only when it beats natural's composite by >=
 /// score.NATURAL_PREFERENCE_MARGIN (T0 wins exempt — see displacesNatural).
-/// guarded-by: score_test.zig "natural-preference margin: sliver composite wins do not displace natural"
+/// @guarded-by: score_test.zig "natural-preference margin: sliver composite wins do not displace natural"
 pub fn scoreCandidates(
     aa: std.mem.Allocator,
     candidates: []const ladder.Candidate,
@@ -430,7 +416,6 @@ pub fn scoreCandidates(
     const n = candidates.len;
     if (n == 0 or n > sel.scores.len) return null;
 
-    // Locate the ladder incumbent up front: it always gets a FULL score.
     var incumbent_idx: ?usize = null;
     for (candidates, 0..) |cand, i| {
         if (cand.transform == .raw and cand.rung == incumbent_rung) {
@@ -439,9 +424,6 @@ pub fn scoreCandidates(
         }
     }
 
-    // Pass 1: T0 fit severity plus the raster audit for EVERY candidate —
-    // the composite prices the audit's violation counters, so every scored
-    // candidate needs its counts. Audit is skipped for n == 1.
     var t0s: [MAX_CANDIDATES]u32 = undefined;
     var rasters: [MAX_CANDIDATES]score_mod.RasterCounts = undefined;
     var min_t0: u32 = std.math.maxInt(u32);
@@ -451,10 +433,6 @@ pub fn scoreCandidates(
         min_t0 = @min(min_t0, t0s[i]);
     }
 
-    // Pass 2: full evaluation (validate + geometry) ONLY for candidates that
-    // can still win (t0 == min) plus the incumbent. The rest get a sentinel
-    // losing score carrying the TRUE t0 (decided at the T0 tier, so
-    // argmin/anchor are unaffected).
     for (candidates, 0..) |cand, i| {
         if (t0s[i] > min_t0 and (incumbent_idx == null or i != incumbent_idx.?)) {
             sel.scores[i] = .{
@@ -477,9 +455,6 @@ pub fn scoreCandidates(
         ) catch return null;
     }
 
-    // Truncate is eligible only when the RAW natural is broken (doc above).
-    // The first raw natural IS the anchor; if absent, keep truncate eligible
-    // and let the plain argmin decide.
     var truncate_eligible = true;
     var natural_idx: ?usize = null;
     for (candidates, 0..) |cand, i| {
@@ -507,10 +482,6 @@ pub fn scoreCandidates(
     }
     sel.n = n;
     sel.argmin_idx = argmin_idx orelse return null;
-    // When the ladder incumbent was CI-filtered out of the candidate list, the
-    // argmin stands in for it (self-comparison → emitScoreShadowLine no-ops via
-    // its argmin==incumbent early return). Byte-for-byte unchanged when the
-    // incumbent IS present; only the filtered-out case reaches the fallback.
     sel.incumbent_idx = incumbent_idx orelse sel.argmin_idx;
     return sel;
 }
@@ -554,6 +525,3 @@ fn emitScoreShadowLine(
         },
     );
 }
-
-// Tests live in select_test.zig (cap-watch mitigation, plan N3),
-// aggregated into the test build from entry.zig's `test {}` block.

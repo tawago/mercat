@@ -17,8 +17,6 @@ const sketch = @import("sketch.zig");
 const validate = @import("layout/validate.zig");
 const geom = @import("score_geom.zig");
 
-// The pure geometric T2 measurements live in score_geom.zig (split for the
-// 500-line cap); re-exported so callers/tests keep one score surface.
 pub const deadSpace = geom.deadSpace;
 pub const edgeStretch = geom.edgeStretch;
 pub const bends = geom.bends;
@@ -27,19 +25,13 @@ pub const countCrossings = geom.countCrossings;
 /// Overall flow direction (re-export so callers need not import prim).
 pub const Direction = sketch.Direction;
 
-// -- Fitted weights -------------------------------------------------------
-//
-// Units: the composite is expressed in SIXTEENTHS of one T2 legibility unit
-// (one dead-space cell = 16), so the rung multipliers below can express
-// fractional ratios in pure integers.
-
 /// Per-rung legibility multipliers, indexed by `Sketch.budget.rung`
 /// (0=natural, 1=tight, 2=wrap_labels, 3=switch_direction, 4=truncate).
 /// 16 = 1.0x. A later rung wins only when it improves legibility by MORE
 /// than its ratio vs the earlier rung's.
 ///
 ///  - natural 16: baseline, by definition.
-///  - tight 30 (1.875x): fitted window (28.1, 31.1) from labeled w60/w90 reference pairs. // guarded-by: score_calibration_test.zig "RUNG_SCALE tight window: flips exactly where the fitted (28.1, 31.1) bound says (live seed numbers)"
+///  - tight 30 (1.875x): fitted window (28.1, 31.1) from labeled w60/w90 reference pairs. // @guarded-by: score_calibration_test.zig "RUNG_SCALE tight window: flips exactly where the fitted (28.1, 31.1) bound says (live seed numbers)"
 ///  - wrap_labels 32: no labeled pair pins it; kept monotone just above
 ///    tight so the ladder prior stays ordered.
 ///  - switch_direction (rung 3): SPLIT by the candidate's FINAL direction —
@@ -53,9 +45,9 @@ pub const Direction = sketch.Direction;
 ///    w90 (the labeled preference flips to truncate; see W_INTEGRITY).
 pub const RUNG_SCALE = [5]u64{ 16, 30, 32, SWITCH_TO_VERTICAL_SCALE, 50 };
 
-/// Rotation asymmetry: rotations INTO vertical (LR/RL->TD) price cheaper (36, window 35.4-42.2) than rotations OUT of TD into horizontal (44). // guarded-by: score_calibration_test.zig "SWITCH_TO_VERTICAL_SCALE window: flips exactly where the fitted (35.4, 42.2) bound says (live seed numbers)"
+/// Rotation asymmetry: rotations INTO vertical (LR/RL->TD) price cheaper (36, window 35.4-42.2) than rotations OUT of TD into horizontal (44). // @guarded-by: score_calibration_test.zig "SWITCH_TO_VERTICAL_SCALE window: flips exactly where the fitted (35.4, 42.2) bound says (live seed numbers)"
 pub const SWITCH_TO_VERTICAL_SCALE: u64 = 36;
-/// Fitted lower bound 40.0. // guarded-by: score_calibration_test.zig "SWITCH_TO_HORIZONTAL_SCALE lower bound: natural stays ahead at the fitted 44 (live seed numbers)"
+/// Fitted lower bound 40.0. // @guarded-by: score_calibration_test.zig "SWITCH_TO_HORIZONTAL_SCALE lower bound: natural stays ahead at the fitted 44 (live seed numbers)"
 pub const SWITCH_TO_HORIZONTAL_SCALE: u64 = 44;
 
 /// One legibility unit in composite space (the 16ths base).
@@ -78,7 +70,7 @@ pub fn switchScale(final_direction: Direction) u64 {
     };
 }
 
-/// Composite cost per integrity violation, in 16ths (= 1280 dead-space cells at natural scale). Large, not a veto. Fitted window (17098, 36200). // guarded-by: score_calibration_test.zig "W_INTEGRITY window: crosses exactly where the fitted (17098, 36200) bound says"
+/// Composite cost per integrity violation, in 16ths (= 1280 dead-space cells at natural scale). Large, not a veto. Fitted window (17098, 36200). // @guarded-by: score_calibration_test.zig "W_INTEGRITY window: crosses exactly where the fitted (17098, 36200) bound says"
 pub const W_INTEGRITY: u64 = 20480;
 
 /// Raster-time shipped-defect counts for one candidate, computed by
@@ -124,7 +116,7 @@ pub const W_HEAD_LOST: u64 = 4096;
 /// worst-case composite stays far below u64 overflow.
 pub const W_RASTER_FAILED: u64 = 1 << 40;
 
-/// Composite cost per raster-DROPPED label, in 16ths; rung-scale-independent (added AFTER the RUNG_SCALE multiply, same tier as W_INTEGRITY). 4096 keeps W_INTEGRITY/label ≈ 5:1 — Sketch-level violations stay dearer. // guarded-by: score_calibration_test.zig "W_LABEL_DROP prices a dropped label + lost cells above the shape_zoo_td_8 legibility margin"
+/// Composite cost per raster-DROPPED label, in 16ths; rung-scale-independent (added AFTER the RUNG_SCALE multiply, same tier as W_INTEGRITY). 4096 keeps W_INTEGRITY/label ≈ 5:1 — Sketch-level violations stay dearer. // @guarded-by: score_calibration_test.zig "W_LABEL_DROP prices a dropped label + lost cells above the shape_zoo_td_8 legibility margin"
 pub const W_LABEL_DROP: u64 = 4096;
 
 /// Composite cost per edge cell lost to collision at raster time, in 16ths.
@@ -134,7 +126,7 @@ pub const W_LABEL_DROP: u64 = 4096;
 /// separating candidates with identical drop counts.
 pub const W_CELL_LOST: u64 = 512;
 
-/// Composite cost per raster-DISPLACED label (placed by the fallback ladder, but not at its primary anchor — see raster/labels_edge.zig). Kept well under a drop (4096) — displacement is degraded legibility, not lost information — and under the shape_zoo upper bound. // guarded-by: score_calibration_test.zig "W_LABEL_DISPLACED upper bound: a displaced label still clears the natural-preference margin (shape_zoo numbers)"
+/// Composite cost per raster-DISPLACED label (placed by the fallback ladder, but not at its primary anchor — see raster/labels_edge.zig). Kept well under a drop (4096) — displacement is degraded legibility, not lost information — and under the shape_zoo upper bound. // @guarded-by: score_calibration_test.zig "W_LABEL_DISPLACED upper bound: a displaced label still clears the natural-preference margin (shape_zoo numbers)"
 pub const W_LABEL_DISPLACED: u64 = 592;
 
 /// Natural-preference (hysteresis) margin, in composite 16ths: a challenger
@@ -157,12 +149,10 @@ pub const NATURAL_PREFERENCE_MARGIN: u64 = 128;
 /// by at least `NATURAL_PREFERENCE_MARGIN`.
 pub fn displacesNatural(challenger: Score, natural: Score) bool {
     if (!challenger.lessThan(natural)) return false;
-    if (challenger.t0_fit != natural.t0_fit) return true; // T0-decided: exempt
-    if (challenger.t12_composite == natural.t12_composite) return true; // T3/T4-decided
+    if (challenger.t0_fit != natural.t0_fit) return true;
+    if (challenger.t12_composite == natural.t12_composite) return true;
     return natural.t12_composite - challenger.t12_composite >= NATURAL_PREFERENCE_MARGIN;
 }
-
-// -- T2 legibility weights -------------------------------------------------
 
 /// Weight per cell of bbox area not covered by any node/cluster/edge.
 const W_DEAD_SPACE: u64 = 1;
@@ -175,8 +165,6 @@ const W_BENDS: u64 = 2;
 const W_CROSSINGS: u64 = 1;
 /// Weight per node whose label was force-wrapped by the budget.
 const W_LABEL_WRAPS: u64 = 2;
-
-// -- Score ---------------------------------------------------------------------
 
 /// Integer score; lower is better. Ordering compares t0_fit, then
 /// t12_composite, then t3_height, then t4_index. `t1_integrity` and
@@ -266,8 +254,6 @@ pub fn eval(
     };
 }
 
-// -- T0: fit severity ----------------------------------------------------------
-
 /// Overflow MAGNITUDE: columns of bbox beyond the budget, plus one per
 /// `width_overflow` diagnostic. 0 = fits. The bbox excess dominates so a
 /// mild clip beats a catastrophic one (frenzy w60: truncate excess ~19 vs
@@ -286,12 +272,6 @@ pub fn fitSeverity(s: sketch.Sketch) u32 {
     };
     return n;
 }
-
-// ====================================================================
-// Tests
-// ====================================================================
-// All unit tests live in score_test.zig (split to keep this file under
-// the mermaid_v2 500-line cap). The chain reference below pulls them in.
 
 test {
     _ = @import("score_test.zig");

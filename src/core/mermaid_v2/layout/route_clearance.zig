@@ -99,11 +99,11 @@ pub fn conflictsReservedDepartures(a: std.mem.Allocator, edge: pb.EdgeId, polyli
         if (item.edge == edge) continue;
         // A selected rail's members share one departure by design (attribution-only
         // merged ink), so they must not reserve departures against each other.
-        // guarded-by: route_clearance_test.zig "reserved departures exempt same selected rail"
+        // @guarded-by: route_clearance_test.zig "reserved departures exempt same selected rail"
         if (sameBundle(edge, item.edge, bundles)) continue;
         // A discharged edge's entire rendering IS a rail span: it owns no
         // polyline and no port, so its port allocation reserves nothing.
-        // guarded-by: route_clearance_test.zig "a discharged edge's port allocation reserves no departure"
+        // @guarded-by: route_clearance_test.zig "a discharged edge's port allocation reserves no departure"
         if (contains(bundles.discharged, item.edge)) continue;
         const placement = placementById(placements, item.source.node) orelse continue;
         const point = offNodePoint(placement, item.source);
@@ -111,12 +111,12 @@ pub fn conflictsReservedDepartures(a: std.mem.Allocator, edge: pb.EdgeId, polyli
         // A decorated departure cell holds the reserved edge's source-end
         // decoration; decoration ink blocks ALL foreign transit — a
         // through-run there ships as an arrowhead transit.
-        // guarded-by: route_clearance_test.zig "a decorated departure cell blocks even a perpendicular crossing"
+        // @guarded-by: route_clearance_test.zig "a decorated departure cell blocks even a perpendicular crossing"
         if (item.source_decorated) return true;
         // An undecorated reservation follows the plain-run obstacle model:
         // only collinear occupancy (or a bend lingering in the cell) claims
         // the departure; a perpendicular through-run is a legal crossing.
-        // guarded-by: route_clearance_test.zig "a reserved departure blocks collinear occupancy and admits a perpendicular crossing"
+        // @guarded-by: route_clearance_test.zig "a reserved departure blocks collinear occupancy and admits a perpendicular crossing"
         var departure: Pass = .{};
         switch (item.source.side) {
             .north, .south => departure.vertical = true,
@@ -193,8 +193,8 @@ pub fn isIndependent(edge: pb.EdgeId, bundles: pb.RealizedBundles) bool {
 /// (box termination / ink attribution), rail junctions (ink attribution: unrelated ink over an owner-set change),
 /// rail arrowheads, and reserved departures are independent legality facts,
 /// never alternatives.
-/// guarded-by: routing_terminal_test.zig "satisfyApproach grows a corner-fed len-2 final into a straight base approach"
-/// guarded-by: route_clearance_test.zig "polylineClears refuses every clearance violation regardless of membership disposition"
+/// @guarded-by: routing_terminal_test.zig "satisfyApproach grows a corner-fed len-2 final into a straight base approach"
+/// @guarded-by: route_clearance_test.zig "polylineClears refuses every clearance violation regardless of membership disposition"
 pub fn polylineClears(
     a: std.mem.Allocator,
     edge: pb.EdgeId,
@@ -227,7 +227,7 @@ pub fn polylineClears(
 ///
 /// This bound is why one unroutable edge in a complete undirected mesh no
 /// longer drags ~60 empty rows of frame around the whole diagram.
-/// guarded-by: route_clearance_test.zig "the detour search widens once per already-routed path, never past the ceiling"
+/// @guarded-by: route_clearance_test.zig "the detour search widens once per already-routed path, never past the ceiling"
 pub fn detourLimit(routed: usize) u32 {
     const want = 2 * @as(u64, routed) + 2;
     return @intCast(@min(want, 64));
@@ -240,7 +240,7 @@ pub fn detourLimit(routed: usize) u32 {
 /// is also confined to the port's outward half-plane, so the perpendicular
 /// leg from the port can never run back through the box; when nothing on
 /// that side is clear, `want` (the first off-box line) stands.
-/// guarded-by: route_clearance_test.zig "a detour's port run never crosses the route's own box"
+/// @guarded-by: route_clearance_test.zig "a detour's port run never crosses the route's own box"
 fn offSideClearLine(horizontal: bool, want: i32, lo: i32, hi: i32, placements: []const sk.NodePlacement, outward: i32) i32 {
     const none = std.math.maxInt(pb.NodeId);
     const found = sk.clearLine(horizontal, want, lo, hi, placements, none, none, .{});

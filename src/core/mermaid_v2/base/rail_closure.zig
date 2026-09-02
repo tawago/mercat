@@ -52,14 +52,14 @@ pub const Member = struct {
     leaf: NodeId,
     /// Stroke-class ordinal (`pb.edgeKindOrdinal`). A backer must match it.
     kind: u8,
-    /// CLOSURE-LAW ELIGIBILITY: true iff no end of this member's ink is directional
+    /// CLOSURE-LICENCE ELIGIBILITY: true iff no end of this member's ink is directional
     /// (sem_graph.arrowFree) — the blocking predicate is unsatisfiable, so
-    /// the law decides this rail. Circle/cross ends are non-directional and
+    /// the licence judges this rail. Circle/cross ends are non-directional and
     /// do not count here.
     arrow_free: bool,
     /// DISCHARGE qualification: true iff the member's ink carries no end
     /// decoration at all (sem_graph.undecorated). A decorated member is
-    /// still inside the law's domain via `arrow_free`, but no crossbar span
+    /// still inside the licence's domain via `arrow_free`, but no crossbar span
     /// can render its pair truthfully, so it can never be kept — it unfuses
     /// to a private stroke.
     undecorated: bool,
@@ -89,7 +89,7 @@ pub const Discharge = struct {
 
 pub const Outcome = enum {
     /// Not an all-arrow-free rail (some directional end, or fewer than two
-    /// members): the blocking predicate is satisfiable, this law says
+    /// members): the blocking predicate is satisfiable, this licence says
     /// nothing, existing behavior stands. Decoration alone does NOT leave
     /// the domain — a circle/cross-decorated star is eligible and then
     /// refused for discharge.
@@ -125,7 +125,7 @@ pub const Verdict = struct {
 pub const max_salvage_members: usize = 16;
 
 /// Decide one proposed rail against the declarations the caller offers it.
-/// guarded-by: rail_closure_test.zig "an undeclared leaf pair refuses the rail"
+/// @guarded-by: rail_closure_test.zig "an undeclared leaf pair refuses the rail"
 pub fn decide(
     allocator: std.mem.Allocator,
     members: []const Member,
@@ -155,12 +155,8 @@ pub fn decide(
     // that with two bit operations rejects almost every mask without an
     // allocation, which is what keeps a wide undeclared rail (the worst case,
     // where nothing closes) from paying 2^n first-fit searches.
-    // guarded-by: rail_closure_test.zig "a wide rail with nothing declared refuses without searching every subset"
+    // @guarded-by: rail_closure_test.zig "a wide rail with nothing declared refuses without searching every subset"
     const compatible = pairMatrix(members, backers);
-    // A closing subset is a clique in `compatible`, so no subset can be larger
-    // than one plus the widest compatibility row. With nothing declared every
-    // row is empty and the search is over before it starts — the case a wide
-    // undeclared fan actually hits.
     var widest: usize = 0;
     for (0..members.len) |i| widest = @max(widest, @popCount(compatible[i]));
     if (widest < 1) return .{ .outcome = .refuse, .undeclared_pairs = undeclared };
@@ -190,7 +186,7 @@ pub fn decide(
 /// visited in `nodes` order and each takes the FIRST usable backer, so the
 /// bijection is deterministic. Repeated node ids are ignored (a node states no
 /// pair with itself).
-/// guarded-by: rail_closure_test.zig "a run whose welded pairs are undeclared is not closed"
+/// @guarded-by: rail_closure_test.zig "a run whose welded pairs are undeclared is not closed"
 pub fn nodesClosed(
     allocator: std.mem.Allocator,
     nodes: []const NodeId,
@@ -203,8 +199,6 @@ pub fn nodesClosed(
     errdefer out.deinit(allocator);
     for (nodes, 0..) |x, i| {
         for (nodes[0..i]) |y| {
-            // Two members landing on ONE leaf state no leaf-to-leaf pair; the
-            // duplicate-member gates own that case.
             if (x == y) continue;
             const b = findBacker(backers, kind, x, y, used.items) orelse {
                 out.deinit(allocator);
@@ -224,14 +218,9 @@ fn attempt(
     members: []const Member,
     backers: []const Backer,
 ) error{OutOfMemory}!?[]const Discharge {
-    // A decorated member's pair cannot be rendered by a bare crossbar span,
-    // so no subset containing one ever closes.
     for (members) |m| {
         if (!m.undecorated) return null;
     }
-    // Members of one rail always share a stroke class (the style gate runs
-    // first), so the first member's kind names the class a backer must match;
-    // a mixed-kind rail can never close and is rejected here.
     for (members[1..]) |m| {
         if (m.kind != members[0].kind) return null;
     }
@@ -357,7 +346,7 @@ pub fn contains(edges: []const EdgeId, edge: EdgeId) bool {
 /// `co_double_discharge` inventory. A discharged edge is rendered by the
 /// rail's crossbar; a second, private rendering would state its relation
 /// twice, so this must stay zero.
-/// guarded-by: rail_closure_test.zig "a discharged edge that still routes privately is a double discharge"
+/// @guarded-by: rail_closure_test.zig "a discharged edge that still routes privately is a double discharge"
 pub fn doubleDischarged(discharged: []const EdgeId, routed: []const EdgeId) u32 {
     var n: u32 = 0;
     for (discharged) |edge| {

@@ -10,10 +10,6 @@ const pb = @import("diagnostics.zig");
 const expectEqual = std.testing.expectEqual;
 const expectEqualStrings = std.testing.expectEqualStrings;
 
-// ---------------------------------------------------------------------------
-// Static diagnostic registry (D-DISPOSITION items 3, 5, 6).
-// ---------------------------------------------------------------------------
-
 const rf_tags = [_]pb.DiagnosticTag{
     .join_policy_not_joined,
     .port_key_collision,
@@ -64,7 +60,6 @@ const ro_tags = [_]pb.DiagnosticTag{
     .bundle_permits_skipped_clustered,
     .edgeid_scope_clustered_skipped,
     .intentional_bundles,
-    // Rail construction/refusal and bundle declaration diagnostics.
     .rail_deco_mixed,
     .rail_star_violation,
     .rail_closure_undeclared,
@@ -73,13 +68,10 @@ const ro_tags = [_]pb.DiagnosticTag{
 };
 
 test "registry partitions the 48 tags RF 5 / CI 17 / RO 26" {
-    // Class assignments per D-DISPOSITION items 5-6, pinned tag by tag.
     for (rf_tags) |t| try expectEqual(pb.DispositionClass.render_fatal, pb.classOf(t));
     for (ci_tags) |t| try expectEqual(pb.DispositionClass.candidate_invalid, pb.classOf(t));
     for (ro_tags) |t| try expectEqual(pb.DispositionClass.report_only, pb.classOf(t));
 
-    // Partition counts pinned to exactly 5 / 17 / 26 = 48, with the SI
-    // class empty of members (D-DISPOSITION item 10).
     try expectEqual(@as(usize, 5), rf_tags.len);
     try expectEqual(@as(usize, 17), ci_tags.len);
     try expectEqual(@as(usize, 26), ro_tags.len);
@@ -93,15 +85,10 @@ test "registry partitions the 48 tags RF 5 / CI 17 / RO 26" {
     try expectEqual(@as(usize, 17), counts[@intFromEnum(pb.DispositionClass.candidate_invalid)]);
     try expectEqual(@as(usize, 5), counts[@intFromEnum(pb.DispositionClass.render_fatal)]);
     try expectEqual(@as(usize, 0), counts[@intFromEnum(pb.DispositionClass.score_input)]);
-    // Four classes verbatim (D-DISPOSITION item 1): score_input exists as
-    // a class even though this slice registers no member.
     try expectEqual(@as(usize, 4), @typeInfo(pb.DispositionClass).@"enum".fields.len);
 }
 
 test "both invalidation tags are candidate-invalid (D-DISPOSITION item 5 row 4)" {
-    // Item 5 row 4 names BOTH tags: `selected_bundle_invalidated` (D-IR) and
-    // `bundle_select.invalidated` (D-JOIN-SELECT) are two registry entries,
-    // each CI. Cross-pinned again by V-D-DISPOSITION-14 in Step 9.
     try expectEqual(pb.DispositionClass.candidate_invalid, pb.classOf(.selected_bundle_invalidated));
     try expectEqual(pb.DispositionClass.candidate_invalid, pb.classOf(.bundle_select_invalidated));
     try expectEqual(pb.DispositionClass.candidate_invalid, pb.classOf(pb.tagByName("selected_bundle_invalidated").?));
@@ -113,7 +100,6 @@ test "tag names round-trip through tagByName" {
         const tag: pb.DiagnosticTag = @enumFromInt(f.value);
         try expectEqual(tag, pb.tagByName(pb.tagName(tag)).?);
     }
-    // The bundle_select family carries its record-verbatim dotted names.
     try expectEqualStrings("bundle_select.selected", pb.tagName(.bundle_select_selected));
     try expectEqualStrings("bundle_select.independent.not_selected", pb.tagName(.bundle_select_independent_not_selected));
     try expectEqualStrings("bundle_select.independent.overlap_conflict", pb.tagName(.bundle_select_independent_overlap_conflict));
@@ -123,9 +109,7 @@ test "tag names round-trip through tagByName" {
     try expectEqualStrings("bundle_select.cluster_skipped", pb.tagName(.bundle_select_cluster_skipped));
     try expectEqualStrings("bundle_select.duplicate_key_blocked", pb.tagName(.bundle_select_duplicate_key_blocked));
     try expectEqualStrings("bundle_select.proposal_multiplicity_blocked", pb.tagName(.bundle_select_proposal_multiplicity_blocked));
-    // Undotted tags spell exactly their field name.
     try expectEqualStrings("selected_bundle_invalidated", pb.tagName(.selected_bundle_invalidated));
-    // Unregistered names resolve to null (item-4 backstop is the caller's).
     try expectEqual(@as(?pb.DiagnosticTag, null), pb.tagByName("not_a_registered_tag"));
     try expectEqual(@as(?pb.DiagnosticTag, null), pb.tagByName("bundle_select.selected_both"));
 }

@@ -21,12 +21,6 @@ const score = @import("score.zig");
 /// violation tier: a candidate that cannot even rasterize must not win
 /// with tv=0 and then fail entry.zig's final re-raster.
 pub fn collect(allocator: std.mem.Allocator, s: sketch.Sketch, subgraph_edges: prim.SubgraphEdges) score.RasterCounts {
-    // Candidates are priced against the raster that will SHIP, so the audit
-    // rasterizes under the selected subgraph-border notation. The modes do
-    // not raster identically: `.cross` welds junctions into cluster-border
-    // cells where `.bridge` refuses them (raster/crossings.zig), so
-    // violation counters differ per mode; auditing a counterfactual mode
-    // would score a grid nobody renders.
     const report = raster.rasterize(allocator, s, subgraph_edges) catch return .{ .raster_failed = 1 };
     return .{
         .labels_dropped = report.labels_dropped,

@@ -56,20 +56,14 @@ pub fn buildPolylineAt(
     const sx = source_point.x;
     const tx = target_point.x;
 
-    // Grid fan-OUT (wrapped wide fan): the children are stacked across
-    // multiple rows. Route each child off a shared vertical rail that
-    // descends the pivot column: down to the gap row directly above the
-    // child's row, then across to the child column, then into the child
-    // top. Overlapping rail segments merge in the rasterizer, so this
-    // yields a clean comb with one horizontal rail per grid row.
     if (fan.direction == .out and fan.rows > 1 and south_flow) {
         const child_top = peer_p.rect.y;
-        // Rail sits two rows above the child top so the descent renders a clean ▼ (`wrapWideFanOut`'s row_step reserves the headroom). guarded-by: fan_polyline_test.zig "grid fan-OUT rail sits exactly 2 rows above the child top (clean descent, not a corner-collision)"
+        // Rail sits two rows above the child top so the descent renders a clean ▼ (`wrapWideFanOut`'s row_step reserves the headroom). @guarded-by: fan_polyline_test.zig "grid fan-OUT rail sits exactly 2 rows above the child top (clean descent, not a corner-collision)"
         const rail = child_top - 2;
         const src_bot = source_point.y;
         var gpts: std.ArrayListUnmanaged(sketch.Point) = .empty;
         try gpts.append(a, .{ .x = sx, .y = src_bot });
-        // Pivot-column descent for a row-≥2 child may pass through an earlier row's sibling box; dodge to a touch-free column. guarded-by: fan_polyline_test.zig "grid fan-OUT rail dodges a sibling box stacked in an earlier grid row"
+        // Pivot-column descent for a row-≥2 child may pass through an earlier row's sibling box; dodge to a touch-free column. @guarded-by: fan_polyline_test.zig "grid fan-OUT rail dodges a sibling box stacked in an earlier grid row"
         if (sketch.columnTouchesAny(sx, src_bot + 1, rail, placements, source_p.id, target_p.id)) {
             const jog_y = src_bot + 1;
             const corridor = sketch.clearLine(false, tx, jog_y, rail, placements, source_p.id, target_p.id, .{});
@@ -82,14 +76,6 @@ pub fn buildPolylineAt(
         return try gpts.toOwnedSlice(a);
     }
 
-    // Grid fan-IN (wrapped wide fan): the SOURCES are stacked across multiple
-    // rows above the shared target. Mirror of the fan-OUT grid comb: each
-    // source drops from its bottom to a short horizontal rail two rows below
-    // its own row, then runs across to the TARGET column, then descends a
-    // shared rail into the target top. The rail segments at the target
-    // column (one per source row) merge in the rasterizer into a single
-    // descending rail — a clean reverse comb that keeps every source feeding
-    // the one target without re-attaching to a sibling source.
     if (fan.direction == .in and fan.rows > 1 and south_flow) {
         const source_bottom = source_point.y;
         const rail = source_bottom + 2;
@@ -97,7 +83,7 @@ pub fn buildPolylineAt(
         var gpts: std.ArrayListUnmanaged(sketch.Point) = .empty;
         try gpts.append(a, .{ .x = sx, .y = source_bottom });
         try gpts.append(a, .{ .x = sx, .y = rail });
-        // Mirror of the fan-OUT grid dodge: dodges the rail through a source box stacked in a LOWER grid row via a touch-free column. guarded-by: fan_polyline_test.zig "grid fan-IN rail dodges a source stacked in a lower grid row at the shared target column"
+        // Mirror of the fan-OUT grid dodge: dodges the rail through a source box stacked in a LOWER grid row via a touch-free column. @guarded-by: fan_polyline_test.zig "grid fan-IN rail dodges a source stacked in a lower grid row at the shared target column"
         if (sketch.columnTouchesAny(tx, rail, target_top - 1, placements, source_p.id, target_p.id)) {
             const land_y = target_top - 2;
             const corridor = sketch.clearLine(false, tx, rail, land_y, placements, source_p.id, target_p.id, .{});
@@ -116,11 +102,8 @@ pub fn buildPolylineAt(
     // For fan-OUT this places the rail one row below the source (because
     // the gap is exactly 2 wide + 1 reserved = 3, and t_peri-2 == s_peri+1).
     // For fan-IN it stays one row above the target perimeter.
-    // `rail_lift` pulls the rail further toward the source perimeter so it doesn't fuse with a cluster's frame-border row when the descent crosses into a cluster. guarded-by: fan_polyline_test.zig "rail_lift moves the single-row rail away from the cluster frame-border row instead of fusing with it"
+    // `rail_lift` pulls the rail further toward the source perimeter so it doesn't fuse with a cluster's frame-border row when the descent crosses into a cluster. @guarded-by: fan_polyline_test.zig "rail_lift moves the single-row rail away from the cluster frame-border row instead of fusing with it"
     const lift: i32 = @intCast(rail_lift);
-    // Lane separation (fan_lanes): an incomplete-bipartite fan is lifted to its
-    // own rail row so its rail no longer fuses with a neighbour's into a
-    // fabricating run. lane 0 == the classic shared row (byte-identical).
     const lane: i32 = @intCast(fan_mod.effectiveLane(fan, member_lane));
     var rail_y: i32 = if (south_flow) t_peri - 2 - lift - lane else t_peri + 2 + lift + lane;
     // A rail belongs to the GAP it crosses. `routing.zig` walks the lane up
@@ -132,7 +115,7 @@ pub fn buildPolylineAt(
     // innermost row still inside the gap makes every over-budget lane say the
     // same unclearable thing, so the escalation reaches the designed
     // outside-detour fallback instead of inventing a path above the diagram.
-    // guarded-by: fan_polyline_test.zig "a lane past the gap's capacity clamps to the innermost in-gap row instead of climbing over the source"
+    // @guarded-by: fan_polyline_test.zig "a lane past the gap's capacity clamps to the innermost in-gap row instead of climbing over the source"
     rail_y = if (south_flow) @max(rail_y, s_peri + 1) else @min(rail_y, s_peri - 1);
     // Labeled fan-OUT: raise the rail three extra rows (the gap rows
     // fan.extraRowsPerGap reserved) so each member's PRIVATE final descent is
@@ -143,7 +126,7 @@ pub fn buildPolylineAt(
     // (or an unreserved one) keeps today's geometry and the label falls back
     // to the ordinary ladder. Fan-IN needs no rail move: its private ink is
     // the source-side descent, which the widened gap stretches by itself.
-    // guarded-by: fan_polyline_test.zig "labeled fan-OUT rail rises three rows for a 4-cell private descent; unlabeled stays put"
+    // @guarded-by: fan_polyline_test.zig "labeled fan-OUT rail rises three rows for a 4-cell private descent; unlabeled stays put"
     if (fan.direction == .out and fan.labeled and south_flow) {
         const raised = rail_y - @as(i32, @intCast(fan_mod.LABEL_RUN_EXTRA_ROWS));
         if (raised > s_peri) rail_y = raised;
@@ -152,11 +135,9 @@ pub fn buildPolylineAt(
     var pts: std.ArrayListUnmanaged(sketch.Point) = .empty;
     try pts.append(a, .{ .x = sx, .y = s_peri });
     switch (role) {
-        .center => {
-            // Straight descent: source column == target column.
-        },
+        .center => {},
         .leftmost, .rightmost, .middle => {
-            // A fan whose peers sit 2+ layers away needs this dodge (same discipline as the grid combs above) since a direct column drop would slice an intermediate box. (Only TD reaches fan routing: BT is canonicalized to TD before layout, and LR/RL fans are not detected — no direction gate needed.) guarded-by: fan_polyline_test.zig "single-row fan spanning 2+ layers dodges an intermediate box instead of slicing it"
+            // A fan whose peers sit 2+ layers away needs this dodge (same discipline as the grid combs above) since a direct column drop would slice an intermediate box. (Only TD reaches fan routing: BT is canonicalized to TD before layout, and LR/RL fans are not detected — no direction gate needed.) @guarded-by: fan_polyline_test.zig "single-row fan spanning 2+ layers dodges an intermediate box instead of slicing it"
             if (sketch.columnTouchesAny(sx, s_peri + 1, rail_y, placements, source_p.id, target_p.id)) {
                 const jog_y = s_peri + 1;
                 const corridor = sketch.clearLine(false, sx, jog_y, rail_y, placements, source_p.id, target_p.id, .{ .margin = true });
@@ -167,7 +148,7 @@ pub fn buildPolylineAt(
                     try pts.append(a, .{ .x = tx, .y = rail_y });
                 }
             }
-            const land_y = t_peri - 2; // >= 1 row of straight final descent
+            const land_y = t_peri - 2;
             if (land_y > rail_y and
                 sketch.columnTouchesAny(tx, rail_y + 1, t_peri - 1, placements, source_p.id, target_p.id))
             {

@@ -16,7 +16,7 @@
 //!       reachable from here;
 //!   (c) a byte snapshot of `lat.cells` before/after `run()`, plus
 //!       painted-string equality, is the pinned proof.
-//! guarded-by: scan_test.zig "scan: run() leaves the lattice byte-identical"
+//! @guarded-by: scan_test.zig "scan: run() leaves the lattice byte-identical"
 //!
 //! BIT OWNERSHIP. `run()` owns the single cell loop and routes every cell
 //! to exactly ONE check family by `Typed.kind`; within a family every
@@ -40,7 +40,7 @@
 //! INSIDE a node's fill is a property of the cell, not of any arm, so
 //! `strokes.inkInInterior` is consulted for stroke AND arrowhead cells.
 //! It can fire at most once per cell, so the ownership property holds.
-//! guarded-by: scan_test.zig "ownership: each seeded defect increments defectTotal by exactly one"
+//! @guarded-by: scan_test.zig "ownership: each seeded defect increments defectTotal by exactly one"
 //!
 //! After the lattice tier, the SKETCH-anchored expectation tier
 //! (`expect.zig`) asks what the geometry declared that the ink does not
@@ -104,7 +104,6 @@ pub fn run(alloc: std.mem.Allocator, ctx: Ctx) counts.Counts {
     const v = cell.View.init(ctx.lat);
     var y: u32 = 0;
     while (y < h) : (y += 1) {
-        // Painted columns of this row, against the w CELLS it occupies.
         var cols: u32 = 0;
         var x: u32 = 0;
         while (x < w) : (x += 1) {
@@ -112,7 +111,6 @@ pub fn run(alloc: std.mem.Allocator, ctx: Ctx) counts.Counts {
             cols += v.columns(x, y);
             if (v.isWideGlyph(x, y)) c.m_wide_label_cells += 1;
 
-            // The single ownership dispatch (see the module doc).
             switch (t.kind) {
                 .arrow, .stroke, .ring_node, .ring_frame => state.check(t, v.auxComplete(), &c),
                 else => {},
@@ -145,8 +143,6 @@ pub fn run(alloc: std.mem.Allocator, ctx: Ctx) counts.Counts {
         if (cols > w) c.m_row_col_overflow += cols - w;
     }
 
-    // These tiers publish declaration/population state even when the cell
-    // loops above visit nothing on a zero-sized lattice.
     expect.check(alloc, .{
         .graph = ctx.graph,
         .sketch = ctx.sketch,
@@ -155,13 +151,8 @@ pub fn run(alloc: std.mem.Allocator, ctx: Ctx) counts.Counts {
         .labels_dropped = ctx.labels_dropped,
         .labels_displaced = ctx.labels_displaced,
     }, &c);
-    // Lattice-only semantic provenance, immediately before Sketch-based rail geometry.
     rail_stars.check(ctx.lat, &c);
     rails.check(alloc, v, ctx.sketch, &c);
-    // Last, and over its own population (carrier records, not cells): the
-    // bundle-identity tier counts the filed identity against the membership
-    // derivation it replaces. Its buckets are disjoint from every family
-    // above — no other check reads a carrier pair as a licence question.
     bundles.check(v, ctx.sketch, &c);
 
     return c;

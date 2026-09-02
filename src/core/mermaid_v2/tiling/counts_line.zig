@@ -19,7 +19,7 @@ pub const prefixes = [_][]const u8{ "n_", "m_", "c_", "d_", "u_" };
 /// case — every counter printed at a u32's full ten digits — leaves the
 /// buffer half empty, so the taxonomy can keep growing; `writeLine`
 /// truncates rather than failing either way.
-/// guarded-by: counts_test.zig "writeLine: the whole taxonomy fits the line buffer with room to grow"
+/// @guarded-by: counts_test.zig "writeLine: the whole taxonomy fits the line buffer with room to grow"
 pub const line_buf_len: usize = 8192;
 
 /// Leading token of the emitted stderr line — the grep handle.

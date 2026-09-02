@@ -44,9 +44,6 @@ pub const RasterReport = struct {
     edges_written: u32,
     labels_placed: u32,
     label_diagnostics: []const labels_r.LabelDiagnostic,
-    // -- Phase 1 integrity counts (flow raster → entry → diagnostics, and
-    //    via `audit.zig` into `score.RasterCounts` for candidate selection;
-    //    never back into layout/budget) -------------------------------------
     /// Edge polyline/arrowhead cells skipped because they collided with
     /// node-owned or label cells (see `raster/edges.zig`). Feeds selection
     /// via `audit.zig` → `score.RasterCounts`.
@@ -145,7 +142,7 @@ pub fn rasterize(
         error.OccupiedCell => return error.OutOfBounds,
     };
 
-    // Rails before ordinary edges (Phase 4b slice iv): the fan rail claims its cells first, so a later edge can never overwrite rail kind/role. // guarded-by: raster.zig "a rail rasterizes before edges: its cell keeps rail kind/role, foreign bits refused"
+    // Rails before ordinary edges (Phase 4b slice iv): the fan rail claims its cells first, so a later edge can never overwrite rail kind/role. // @guarded-by: raster.zig "a rail rasterizes before edges: its cell keeps rail kind/role, foreign bits refused"
     const rail_report = rails_r.rasterizeRails(&lat, s, sink);
 
     const edge_report = edges_r.rasterizeEdges(allocator, &lat, s, subgraph_edges, sink) catch |err| switch (err) {
@@ -154,23 +151,15 @@ pub fn rasterize(
         error.MalformedPolyline => return error.MalformedPolyline,
     };
 
-    // Reconcile junction masks (phantom-arm cleanup) after edges, before labels — order is required, not incidental. // guarded-by: raster/reconcile.zig "reconcile is NOT order-independent w.r.t. labels: swapping the pipeline position changes the result"
+    // Reconcile junction masks (phantom-arm cleanup) after edges, before labels — order is required, not incidental. // @guarded-by: raster/reconcile.zig "reconcile is NOT order-independent w.r.t. labels: swapping the pipeline position changes the result"
     const phantom_arms = reconcile.reconcileNeighbours(&lat);
 
     const label_report = labels_r.rasterizeLabels(allocator, &lat, s, sink) catch |err| switch (err) {
         error.OutOfMemory => return error.OutOfMemory,
     };
 
-    // Arrowhead-base scan (owner ruling 2026-07-18) over the FINAL lattice:
-    // an unfed base is COUNTED, never repaired — the raster may remove
-    // nonconforming ink but may never add ink to patch a gap (subtractive repair only). The count
-    // feeds selection (audit → score), so candidates that produce unfed
-    // heads are priced, and the shipped grid shows the reader the truth.
     const arrow_base = arrow_base_r.validate(&lat);
 
-    // Attach the side table LAST: the passes above rewrite cells in place,
-    // and no pass touches a record (lattice.zig's anti-desync law), so the
-    // table is complete the moment the last producer has run.
     lat.aux = aux_collector.finish();
     lat.aux_collection = aux_collector.report();
 
@@ -246,7 +235,6 @@ test "two nodes + one edge: borders, interiors, and an edge cell" {
         .cluster_id = null,
     };
 
-    // Edge from east-mid of node 1 (2,1) to west-mid of node 2 (7,1).
     var poly = [_]sketch.Point{
         .{ .x = 2, .y = 1 },
         .{ .x = 7, .y = 1 },
@@ -296,8 +284,6 @@ test "two nodes + one edge: borders, interiors, and an edge cell" {
         .node_interior => |n| try testing.expectEqual(@as(u32, 2), n),
         else => return error.MissingNode2Interior,
     }
-    // At least one cell strictly between the nodes (column 3..6 row 1)
-    // should be an edge_segment.
     var found_edge = false;
     var x: u32 = 3;
     while (x <= 6) : (x += 1) {
@@ -361,10 +347,6 @@ test "foreign perpendicular crossing reads as a transversal, not a junction" {
     defer arena.deinit();
     const a = arena.allocator();
 
-    // Two crossing edges meeting at (5,5). No nodes, and no bundle that
-    // makes them co-members: the crossing rule is unconditional, so the
-    // first writer (the horizontal run) keeps its straight stroke and the
-    // vertical contributes NO bits — a transversal, not a `┼`.
     var poly_h = [_]sketch.Point{
         .{ .x = 0, .y = 5 },
         .{ .x = 10, .y = 5 },
@@ -442,12 +424,6 @@ test "a rail rasterizes before edges: its cell keeps rail kind/role, foreign bit
         .kind = .solid,
     }};
 
-    // An unrelated `.dotted` edge whose polyline runs straight through a
-    // plain rail cell (7,5) that the rail already claims. If edges
-    // rasterized before rails, this cell's first-writer-wins `kind`
-    // would come out `.dotted` (the crossing edge's), not `.solid` (the
-    // rail's) — see `writeEdgeCell`'s `.edge_segment` branch, which
-    // never updates `kind` on a second write.
     var poly = [_]sketch.Point{ .{ .x = 7, .y = 1 }, .{ .x = 7, .y = 9 } };
     var edges_buf = [_]sketch.EdgePath{.{
         .id = 99,
@@ -478,15 +454,11 @@ test "a rail rasterizes before edges: its cell keeps rail kind/role, foreign bit
     const cell = r.lattice.atConst(7, 5).*;
     switch (cell.occupant) {
         .edge_segment => |seg| {
-            // Rail-owned kind survives the later crossing edge write.
             try testing.expectEqual(lattice.EdgeKind.solid, seg.kind);
             try testing.expectEqual(lattice.EdgeRole.fan_out_rail, seg.role);
         },
         else => return error.MissingJunctionCell,
     }
-    // The crossing edge is foreign to the rail, so its vertical bits are
-    // refused: the rail's horizontal run stays clean and the edge reads as
-    // a transversal across it.
     try testing.expectEqual(
         (lattice.Neighbours{ .e = true, .w = true }).toMask(),
         cell.neighbours.toMask(),

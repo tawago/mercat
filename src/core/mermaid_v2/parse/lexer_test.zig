@@ -151,9 +151,6 @@ test "peek does not advance" {
 }
 
 test "leading '>' lexes as shape_open, not an edge/arrow char" {
-    // By the time next() reaches the bracket-open branch, '<'/'-' edge
-    // prefixes have already been ruled out, so a bare leading '>' (e.g.
-    // asymmetric-shape syntax `A>label]`) must route to shape_open.
     var lx = Lexer.init(">Foo]");
     const open = lx.next();
     try t.expectEqual(TokenKind.shape_open, open.kind);
@@ -168,10 +165,6 @@ test "CRLF normalises to a single newline token" {
 }
 
 test "inline edge label keeps an embedded dash intact" {
-    // The label text itself contains a solo dash ("pre-check"). A connector
-    // char only closes the label when followed by another connector char or
-    // '.', so the lone dash inside the word must stay part of the label
-    // instead of being mistaken for the start of the closing "-->" run.
     var lx = Lexer.init("A -- pre-check --> B\n");
     try t.expectEqualStrings("A", lx.next().text);
     const e = lx.next();
@@ -184,10 +177,6 @@ test "inline edge label keeps an embedded dash intact" {
 }
 
 test "tight inline label on a dotted edge" {
-    // Mermaid accepts labels tight against the connector runs: `A-.text.->B`
-    // is the same edge as `A -. text .-> B`. The opening run here is just
-    // "-." with no arrow, so the lexer must probe for the label even though
-    // no whitespace follows.
     var lx = Lexer.init("A -.narrates.-> B\n");
     try t.expectEqualStrings("A", lx.next().text);
     const e = lx.next();
@@ -196,14 +185,12 @@ test "tight inline label on a dotted edge" {
     try t.expectEqualStrings("narrates", e.edge_label.?);
     try t.expectEqualStrings("B", lx.next().text);
 
-    // Labels with interior spaces and dashes stay intact in the tight form.
     var lx2 = Lexer.init("A -.captured as-we-build.-> B");
     _ = lx2.next();
     const e2 = lx2.next();
     try t.expectEqual(TokenKind.edge_dotted, e2.kind);
     try t.expectEqualStrings("captured as-we-build", e2.edge_label.?);
 
-    // Tight solid and thick variants take the same path.
     var lx3 = Lexer.init("A --text--> B");
     _ = lx3.next();
     const e3 = lx3.next();
@@ -216,8 +203,6 @@ test "tight inline label on a dotted edge" {
     try t.expectEqual(TokenKind.edge_thick, e4.kind);
     try t.expectEqualStrings("text", e4.edge_label.?);
 
-    // A tight label may begin with 'o'/'x' when the OPENING run is incomplete
-    // (`-.`), which is what puts mermaid.js into its edge-text state.
     var lxd1 = Lexer.init("A -.ok.-> B\n");
     _ = lxd1.next();
     const ed1 = lxd1.next();
@@ -225,7 +210,6 @@ test "tight inline label on a dotted edge" {
     try t.expectEqualStrings("ok", ed1.edge_label.?);
     try t.expectEqualStrings("B", lxd1.next().text);
 
-    // Arrowless dotted with a tight label: `A -.x.- B`.
     var lxd3 = Lexer.init("A -.x.- B\n");
     _ = lxd3.next();
     const ed3 = lxd3.next();
@@ -233,26 +217,16 @@ test "tight inline label on a dotted edge" {
     try t.expectEqualStrings("x", ed3.edge_label.?);
     try t.expectEqualStrings("B", lxd3.next().text);
 
-    // A short run with no closing connector before end-of-line still bails:
-    // "--" followed by an identifier is not an edge.
     var lx5 = Lexer.init("A --B\n");
     _ = lx5.next();
     try t.expect(lx5.next().kind != TokenKind.edge_solid);
 
-    // The pipe-label form keeps its own path: a short run before '|' bails
-    // rather than swallowing the pipe text as an inline label.
     var lx6 = Lexer.init("A --|text| B\n");
     _ = lx6.next();
     try t.expect(lx6.next().kind != TokenKind.edge_solid);
 }
 
 test "glued o/x on a complete run is an arrow end whatever follows" {
-    // mermaid.js decides this on the RUN alone: `--`/`==`/`-.-` is a complete
-    // link, so a following 'o'/'x' is its arrow end and the identifier after
-    // it is a NODE. Ground truth taken from mermaid v11's own flow lexer,
-    // e.g. `A --ok--> B` => LINK " --o", NODE_STRING "k", LINK "--> ",
-    // NODE_STRING "B". Reading the char after the o/x instead deletes that
-    // node and invents an edge label out of it.
     const Case = struct {
         src: []const u8,
         kind: TokenKind,
@@ -271,12 +245,8 @@ test "glued o/x on a complete run is an arrow end whatever follows" {
         .{ .src = "A--xB-->C\n", .kind = .edge_solid, .to = .cross, .node = "B" },
         .{ .src = "A-.-oB-.->C\n", .kind = .edge_dotted, .to = .circle, .node = "B" },
         .{ .src = "A==oB==>C\n", .kind = .edge_thick, .to = .circle, .node = "B" },
-        // Space before the closing run, glued target — still a node, not a label.
         .{ .src = "A --oB --> C\n", .kind = .edge_solid, .to = .circle, .node = "B" },
-        // A ';' statement separator later on the line may not reach back and
-        // turn the earlier link into a label.
         .{ .src = "A --oB; C --> D\n", .kind = .edge_solid, .to = .circle, .node = "B" },
-        // The pipe-label form survives: '|' is not label text glued to the end.
         .{ .src = "A --o|t| B\n", .kind = .edge_solid, .to = .circle, .node = "|" },
     }) |c| {
         var lx = Lexer.init(c.src);
@@ -288,15 +258,12 @@ test "glued o/x on a complete run is an arrow end whatever follows" {
         try t.expectEqualStrings(c.node, lx.next().text);
     }
 
-    // The mirror: an INCOMPLETE run ("-.") is mermaid's edge-text opener, so
-    // there the same letters ARE the label's first character.
     var lxi = Lexer.init("A -.ok.-> B\n");
     _ = lxi.next();
     const ei = lxi.next();
     try t.expectEqual(TokenKind.edge_dotted, ei.kind);
     try t.expectEqualStrings("ok", ei.edge_label.?);
 
-    // Spaced glued ends are unchanged, and no label is invented.
     for ([_][]const u8{ "A --o B\n", "A --x B\n", "A --oB\n", "A -.-o B\n" }) |src| {
         var lxa = Lexer.init(src);
         _ = lxa.next();
@@ -308,10 +275,6 @@ test "glued o/x on a complete run is an arrow end whatever follows" {
 }
 
 test "solo CR (old Mac line ending) emits a newline token but does not bump the line counter" {
-    // Only CRLF collapses into a single line-incrementing newline; a lone
-    // '\r' with no following '\n' still tokenizes as .newline (advanceRaw
-    // resets the column) but leaves the line counter unchanged, per
-    // advanceRaw's "don't bump line for \r alone" contract.
     var lx = Lexer.init("A\rB");
     try t.expectEqual(@as(u32, 1), lx.next().line);
     const cr = lx.next();
@@ -321,8 +284,6 @@ test "solo CR (old Mac line ending) emits a newline token but does not bump the 
 }
 
 test "leading '<' on an edge requires -/=/~ or tryEdge bails" {
-    // Well-formed: '<' followed by a connector run lexes as one bidirectional
-    // edge token.
     var ok = Lexer.init("A <--> B");
     try t.expectEqualStrings("A", ok.next().text);
     const e = ok.next();
@@ -330,9 +291,6 @@ test "leading '<' on an edge requires -/=/~ or tryEdge bails" {
     try t.expectEqualStrings("<-->", e.text);
     try t.expectEqualStrings("B", ok.next().text);
 
-    // Malformed: '<' not followed by -/=/~ makes tryEdge bail, so the '<'
-    // is re-lexed on its own as an error token instead of being absorbed
-    // into a bogus edge.
     var bad = Lexer.init("A <xyz");
     try t.expectEqualStrings("A", bad.next().text);
     const err_tok = bad.next();
@@ -342,9 +300,6 @@ test "leading '<' on an edge requires -/=/~ or tryEdge bails" {
 }
 
 test "double-ended circle/cross edges lex as one edge token with the marker text" {
-    // o--o / x--x / x==x / o-.-o glue a leading circle/cross end-marker to the
-    // connector: one edge_* token whose text carries both end markers, which
-    // decodeArrows turns into from/to = circle/cross.
     var a = Lexer.init("A o--o B");
     try t.expectEqualStrings("A", a.next().text);
     const ea = a.next();
@@ -380,11 +335,8 @@ test "double-ended circle/cross edges lex as one edge token with the marker text
 }
 
 test "leading o/x is an edge marker only when glued to a connector" {
-    // NEGATIVE guards: a bare or spaced leading o/x, or a longer word, stays a
-    // normal identifier — the peekAt(1)-must-be-a-connector gate.
     try expectKinds("order --> next", &.{ .identifier, .edge_solid, .identifier });
     try expectKinds("x --> y", &.{ .identifier, .edge_solid, .identifier });
-    // A node id `o` spaced from the connector keeps its identity.
     var lx = Lexer.init("o --> p");
     const id = lx.next();
     try t.expectEqual(TokenKind.identifier, id.kind);

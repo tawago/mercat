@@ -32,31 +32,17 @@ fn findById2(nodes: []const sketch.NodePlacement, id: sketch.NodeId) sketch.Node
     @panic("missing node");
 }
 
-// coords.layout's Sketch is arena-owned with no public deinit reachable
-// from here; testing.allocator would flag a leak if we tried to free it
-// piecemeal, so (like layout_test.zig) we simply leak within the test's
-// own arena, which the test's `defer arena.deinit()` reclaims.
 fn deinitSketch2(s: *sketch.Sketch, allocator: std.mem.Allocator) void {
     _ = s;
     _ = allocator;
 }
 
-// -- rail freeze happens AFTER the bbox coordinate-shift pass ----------------
-
 test "rail taps stay in sync with their target node's post-shift position" {
-    // P has a fan-out rail to C1/C2 AND a self-loop. The self-loop's
-    // classic "over the top" detour runs above P's north border — since P
-    // sits in the topmost layer (y=0), that detour has negative y, forcing
-    // computeBbox's shift pass to translate every coordinate down (dy>0).
-    // If layout.zig ever copied `.rail` into the Sketch BEFORE that
-    // shift (instead of after), every tap would freeze at its stale
-    // pre-shift y while `s.nodes` reports the shifted (correct) position,
-    // desyncing the rail from the very node it's supposed to land on.
     const nodes = [_]sg.Node{ mkNode(0, "P"), mkNode(1, "C1"), mkNode(2, "C2") };
     const edges = [_]sg.Edge{
         mkEdge2(0, 0, 1),
         mkEdge2(1, 0, 2),
-        mkEdge2(2, 0, 0), // self-loop on P
+        mkEdge2(2, 0, 0),
     };
     const g = sg.SemGraph{
         .direction = .TD,
@@ -72,19 +58,13 @@ test "rail taps stay in sync with their target node's post-shift position" {
     var s = try coords.layout(arena.allocator(), g, .{});
     defer deinitSketch2(&s, arena.allocator());
 
-    // The self-loop's detour must have actually forced a real shift: P's
-    // y must be > 0 (it would be 0, the topmost layer, if no shift fired).
     const p = findById2(s.nodes, 0);
     try testing.expect(p.rect.y > 0);
 
-    // Exactly one rail, with 2 taps (C1, C2).
     try testing.expectEqual(@as(usize, 1), s.rails.len);
     const rail = s.rails[0];
     try testing.expectEqual(@as(usize, 2), rail.taps.len);
 
-    // Every tap must land exactly on its target's final (post-shift) north
-    // border — the same shift that moved `s.nodes` must have moved the
-    // rail by the same amount.
     for (rail.taps) |tap| {
         const child = findById2(s.nodes, tap.node);
         const want_x = child.rect.x + @as(i32, @intCast(child.rect.w / 2));
@@ -93,20 +73,10 @@ test "rail taps stay in sync with their target node's post-shift position" {
     }
 }
 
-// -- claim: fan_rail.blocked (integrity gate) ------------------------------
-
 test "fan_rail.blocked rejects a built rail whose tap drop touches a foreign node's box" {
-    // Pivot P fans out to two peers Q, R on distinct columns from P's own
-    // (so the stem and rail spans stay clear); a foreign box sits exactly
-    // on Q's tap-drop column, in the one row between the rail and Q's top
-    // (a foreign node's owned cells, border included). `blocked` must
-    // reject this artifact rather than let raster amputate the rail.
-    const p = sketch.NodePlacement{ .id = 0, .rect = .{ .x = 20, .y = 0, .w = 10, .h = 3 }, .shape = .rect, .lines = &.{}, .cluster_id = null }; // mid x = 25
-    const q = sketch.NodePlacement{ .id = 1, .rect = .{ .x = 30, .y = 12, .w = 10, .h = 3 }, .shape = .rect, .lines = &.{}, .cluster_id = null }; // mid x = 35
-    const other = sketch.NodePlacement{ .id = 2, .rect = .{ .x = 60, .y = 12, .w = 10, .h = 3 }, .shape = .rect, .lines = &.{}, .cluster_id = null }; // mid x = 65
-    // Foreign box on Q's tap column (x=35) at row 11 only — strictly
-    // between the rail (row 10) and Q's top (row 12), off both the stem
-    // column (25) and the rail span.
+    const p = sketch.NodePlacement{ .id = 0, .rect = .{ .x = 20, .y = 0, .w = 10, .h = 3 }, .shape = .rect, .lines = &.{}, .cluster_id = null };
+    const q = sketch.NodePlacement{ .id = 1, .rect = .{ .x = 30, .y = 12, .w = 10, .h = 3 }, .shape = .rect, .lines = &.{}, .cluster_id = null };
+    const other = sketch.NodePlacement{ .id = 2, .rect = .{ .x = 60, .y = 12, .w = 10, .h = 3 }, .shape = .rect, .lines = &.{}, .cluster_id = null };
     const foreign = sketch.NodePlacement{ .id = 3, .rect = .{ .x = 33, .y = 11, .w = 4, .h = 1 }, .shape = .rect, .lines = &.{}, .cluster_id = null };
     const placements = [_]sketch.NodePlacement{ p, q, other, foreign };
 
@@ -125,132 +95,95 @@ test "fan_rail.blocked rejects a built rail whose tap drop touches a foreign nod
 
     try testing.expect(fan_rail.blocked(built, p.id, &placements));
 
-    // Control: the same fixture minus the foreign box must NOT be blocked.
     const clean_placements = [_]sketch.NodePlacement{ p, q, other };
     try testing.expect(!fan_rail.blocked(built, p.id, &clean_placements));
 }
-
-// -- claim: formal base approach (rail lift for a straight base cell) --------
 
 fn mkPlace(id: sketch.NodeId, x: i32, y: i32, w: u16, h: u16) sketch.NodePlacement {
     return .{ .id = id, .rect = .{ .x = x, .y = y, .w = w, .h = h }, .shape = .rect, .lines = &.{}, .cluster_id = null };
 }
 
 test "formal base approach: rail lifts one row when the gap admits it, holds at a gap of 2" {
-    // LAW (owner ruling): every terminal arrowhead must have >= 1 straight
-    // collinear stroke cell on its base side before any junction. The rail
-    // tap-drop (fan-OUT) / stem (fan-IN) must therefore leave a straight `│`
-    // between the rail junction and the `▼` when the gap admits it (off=3),
-    // but must hold at the old off=2 geometry when lifting the rail would land
-    // it on the pivot border (fan-OUT) / a source border (fan-IN) — the tight
-    // rung halves v_spacing, so the gap can be as small as 2. Geometry-generic:
-    // the guard reads only the rects, never a seed name.
     var arena = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
 
-    // -- fan-OUT, gap = 4 (natural fan headroom) -> rail lifts (off=3) --------
-    // pivot bottom border row = 2; peer top row = 6 (gap 4). off=3 puts the
-    // rail at row 3 (one clear row below the pivot border), so the tap drops
-    // rail(3) -> `│`(4) -> `▼`(5) -> peer top(6): a straight base cell exists.
     {
-        const pivot = mkPlace(0, 20, 0, 10, 3); // bottom()-1 = 2
-        const q = mkPlace(1, 10, 6, 6, 3); // top = 6
-        const r = mkPlace(2, 30, 6, 6, 3); // top = 6
+        const pivot = mkPlace(0, 20, 0, 10, 3);
+        const q = mkPlace(1, 10, 6, 6, 3);
+        const r = mkPlace(2, 30, 6, 6, 3);
         var peers = [_]fan_rail.Peer{
             .{ .edge = mkEdge2(0, 0, 1), .placement = q },
             .{ .edge = mkEdge2(1, 0, 2), .placement = r },
         };
         const resolved = fan_rail.Resolved{ .pivot = pivot, .direction = .out, .peers = &peers };
         const built = try fan_rail.build(a, resolved, 0, 0);
-        try testing.expectEqual(@as(i32, 3), built.rail.crossbar[0].y); // off=3
-        // >= 1 straight base cell: arrowhead sits at landing-1, base at landing-2,
-        // and the base must be strictly below the rail junction.
+        try testing.expectEqual(@as(i32, 3), built.rail.crossbar[0].y);
         for (built.taps) |tap| {
             try testing.expect(built.rail.crossbar[0].y <= tap.landing.y - 3);
         }
-        // Rail stays strictly below the pivot's bottom border row (no overlap).
         try testing.expect(built.rail.crossbar[0].y > pivot.rect.bottom() - 1);
     }
 
-    // -- fan-OUT, gap = 3 -> guard HOLDS at off=2 (a blind -3 would touch) -----
-    // peer top row = 5; a blind off=3 would put the rail on row 2 == the pivot
-    // border. The guard declines and keeps off=2 (rail row 3), still clear.
     {
-        const pivot = mkPlace(0, 20, 0, 10, 3); // bottom()-1 = 2
-        const q = mkPlace(1, 10, 5, 6, 3); // top = 5
-        const r = mkPlace(2, 30, 5, 6, 3); // top = 5
+        const pivot = mkPlace(0, 20, 0, 10, 3);
+        const q = mkPlace(1, 10, 5, 6, 3);
+        const r = mkPlace(2, 30, 5, 6, 3);
         var peers = [_]fan_rail.Peer{
             .{ .edge = mkEdge2(0, 0, 1), .placement = q },
             .{ .edge = mkEdge2(1, 0, 2), .placement = r },
         };
         const resolved = fan_rail.Resolved{ .pivot = pivot, .direction = .out, .peers = &peers };
         const built = try fan_rail.build(a, resolved, 0, 0);
-        try testing.expectEqual(@as(i32, 3), built.rail.crossbar[0].y); // off=2 held
-        try testing.expect(built.rail.crossbar[0].y > pivot.rect.bottom() - 1); // no overlap
+        try testing.expectEqual(@as(i32, 3), built.rail.crossbar[0].y);
+        try testing.expect(built.rail.crossbar[0].y > pivot.rect.bottom() - 1);
     }
 
-    // -- fan-OUT, gap = 2 (tight rung) -> off=2 held, byte-identical to today --
-    // peer top row = 4; off=2 -> rail row 2 (== pivot border, blocked() then
-    // falls back to the polyline path, exactly as today). off=3 must NOT fire.
     {
-        const pivot = mkPlace(0, 20, 0, 10, 3); // bottom()-1 = 2
-        const q = mkPlace(1, 10, 4, 6, 3); // top = 4
-        const r = mkPlace(2, 30, 4, 6, 3); // top = 4
+        const pivot = mkPlace(0, 20, 0, 10, 3);
+        const q = mkPlace(1, 10, 4, 6, 3);
+        const r = mkPlace(2, 30, 4, 6, 3);
         var peers = [_]fan_rail.Peer{
             .{ .edge = mkEdge2(0, 0, 1), .placement = q },
             .{ .edge = mkEdge2(1, 0, 2), .placement = r },
         };
         const resolved = fan_rail.Resolved{ .pivot = pivot, .direction = .out, .peers = &peers };
         const built = try fan_rail.build(a, resolved, 0, 0);
-        try testing.expectEqual(@as(i32, 2), built.rail.crossbar[0].y); // off=2, unchanged
+        try testing.expectEqual(@as(i32, 2), built.rail.crossbar[0].y);
     }
 
-    // -- fan-IN, gap = 8 -> stem lifts (off=3), sink arrowhead gains a base ----
-    // sink top row = 10; sources' bottom border row = 2. off=3 puts the rail at
-    // row 7, so the stem runs rail(7) -> `│`(8) -> `▼`(9) -> sink top(10): the
-    // terminal (sink) arrowhead now has a straight base cell above it.
     {
-        const sink = mkPlace(0, 20, 10, 10, 3); // top = 10
-        const s1 = mkPlace(1, 10, 0, 6, 3); // bottom()-1 = 2
-        const s2 = mkPlace(2, 30, 0, 6, 3); // bottom()-1 = 2
+        const sink = mkPlace(0, 20, 10, 10, 3);
+        const s1 = mkPlace(1, 10, 0, 6, 3);
+        const s2 = mkPlace(2, 30, 0, 6, 3);
         var peers = [_]fan_rail.Peer{
             .{ .edge = mkEdge2(0, 1, 0), .placement = s1 },
             .{ .edge = mkEdge2(1, 2, 0), .placement = s2 },
         };
         const resolved = fan_rail.Resolved{ .pivot = sink, .direction = .in, .peers = &peers };
         const built = try fan_rail.build(a, resolved, 0, 0);
-        try testing.expectEqual(@as(i32, 7), built.rail.crossbar[0].y); // off=3
-        // Stem base cell: sink top - rail >= 3 (arrowhead at top-1, base at top-2).
+        try testing.expectEqual(@as(i32, 7), built.rail.crossbar[0].y);
         try testing.expect(built.rail.crossbar[0].y <= sink.rect.y - 3);
-        // Rail stays above the sink and below every source bottom (no overlap).
         try testing.expect(built.rail.crossbar[0].y < sink.rect.y);
         for (peers) |pr| try testing.expect(built.rail.crossbar[0].y > pr.placement.rect.bottom() - 1);
     }
 
-    // -- fan-IN, gap = 3 -> guard HOLDS at off=2 (a blind -3 would touch) ------
-    // sink top row = 5; sources' bottom = 2. A blind off=3 would put the rail on
-    // row 2 == a source border. The guard declines and keeps off=2 (rail row 3).
     {
-        const sink = mkPlace(0, 20, 5, 10, 3); // top = 5
-        const s1 = mkPlace(1, 10, 0, 6, 3); // bottom()-1 = 2
-        const s2 = mkPlace(2, 30, 0, 6, 3); // bottom()-1 = 2
+        const sink = mkPlace(0, 20, 5, 10, 3);
+        const s1 = mkPlace(1, 10, 0, 6, 3);
+        const s2 = mkPlace(2, 30, 0, 6, 3);
         var peers = [_]fan_rail.Peer{
             .{ .edge = mkEdge2(0, 1, 0), .placement = s1 },
             .{ .edge = mkEdge2(1, 2, 0), .placement = s2 },
         };
         const resolved = fan_rail.Resolved{ .pivot = sink, .direction = .in, .peers = &peers };
         const built = try fan_rail.build(a, resolved, 0, 0);
-        try testing.expectEqual(@as(i32, 3), built.rail.crossbar[0].y); // off=2 held
-        for (peers) |pr| try testing.expect(built.rail.crossbar[0].y > pr.placement.rect.bottom() - 1); // no overlap
+        try testing.expectEqual(@as(i32, 3), built.rail.crossbar[0].y);
+        for (peers) |pr| try testing.expect(built.rail.crossbar[0].y > pr.placement.rect.bottom() - 1);
     }
 }
 
 test "labeled fan-OUT rail lifts the crossbar for a 4-cell dropper when the gap admits it" {
-    // A labeled member's tap must get a 4-cell private dropper (flank +
-    // on-run label row + flank + arrowhead), i.e. rail at landing - 5, when
-    // the reserved gap admits it; with a tight gap the existing off ladder
-    // is kept and the label falls back to the side ladder.
     var arena = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
@@ -260,10 +193,9 @@ test "labeled fan-OUT rail lifts the crossbar for a 4-cell dropper when the gap 
     var lbl_edge_b = mkEdge2(1, 0, 2);
     lbl_edge_b.label = "no";
 
-    // Gap 6 (labeled reservation applied): rail lifts to landing - 5.
     {
-        const pivot = mkPlace(0, 20, 0, 10, 3); // bottom()-1 = 2
-        const q = mkPlace(1, 10, 8, 6, 3); // top = 8
+        const pivot = mkPlace(0, 20, 0, 10, 3);
+        const q = mkPlace(1, 10, 8, 6, 3);
         const r = mkPlace(2, 30, 8, 6, 3);
         var peers = [_]fan_rail.Peer{
             .{ .edge = lbl_edge_a, .placement = q },
@@ -271,18 +203,15 @@ test "labeled fan-OUT rail lifts the crossbar for a 4-cell dropper when the gap 
         };
         const resolved = fan_rail.Resolved{ .pivot = pivot, .direction = .out, .peers = &peers };
         const built = try fan_rail.build(a, resolved, 0, 0);
-        try testing.expectEqual(@as(i32, 3), built.rail.crossbar[0].y); // 8 - 5
+        try testing.expectEqual(@as(i32, 3), built.rail.crossbar[0].y);
         for (built.taps) |tap| {
-            // 4 dropper cells: rows rail+1 .. landing-1.
             try testing.expectEqual(@as(i32, 4), tap.landing.y - tap.at.y - 1);
         }
     }
 
-    // Tight gap (4): the label lift would not clear the pivot; hold at the
-    // existing off=3 base-approach geometry — byte-identical to unlabeled.
     {
         const pivot = mkPlace(0, 20, 0, 10, 3);
-        const q = mkPlace(1, 10, 6, 6, 3); // top = 6
+        const q = mkPlace(1, 10, 6, 6, 3);
         const r = mkPlace(2, 30, 6, 6, 3);
         var peers = [_]fan_rail.Peer{
             .{ .edge = lbl_edge_a, .placement = q },
@@ -290,15 +219,11 @@ test "labeled fan-OUT rail lifts the crossbar for a 4-cell dropper when the gap 
         };
         const resolved = fan_rail.Resolved{ .pivot = pivot, .direction = .out, .peers = &peers };
         const built = try fan_rail.build(a, resolved, 0, 0);
-        try testing.expectEqual(@as(i32, 3), built.rail.crossbar[0].y); // off=3 held
+        try testing.expectEqual(@as(i32, 3), built.rail.crossbar[0].y);
     }
 }
 
 test "a fan whose peers were lifted onto separate lanes builds no rail" {
-    // A rail is one crossbar on one row. When a lane pass has lifted a
-    // member off the shared row — the clustered closure law's refusal is the
-    // case with no plan to say so — resolving it back into a single rail
-    // would rebuild exactly the run the lift took apart.
     var arena = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();

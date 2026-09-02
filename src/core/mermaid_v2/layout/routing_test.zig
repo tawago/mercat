@@ -47,7 +47,7 @@ fn mkForcedPeerEdge(id: sg.EdgeId, from: sg.NodeId, to: sg.NodeId) sg.Edge {
     };
 }
 
-/// Fully arrow-free edge (`A --- B`): the shape the closure law judges.
+/// Fully arrow-free edge (`A --- B`): the shape the closure licence judges.
 fn mkBareEdge(id: sg.EdgeId, from: sg.NodeId, to: sg.NodeId) sg.Edge {
     return .{ .id = id, .from = from, .to = to, .kind = .solid, .arrow_from = .none, .arrow_to = .none, .label = null };
 }
@@ -116,8 +116,6 @@ fn layoutForkIntoCluster(
     return coords.layout(arena, g, .{});
 }
 
-// -- claim: crossesIntoCluster / fanRailLift (routing.zig ~305-327) ---------
-
 test "fan-OUT per-peer rail lifts exactly one row for the peer crossing into a cluster its source is not part of" {
     var arena = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
@@ -129,19 +127,13 @@ test "fan-OUT per-peer rail lifts exactly one row for the peer crossing into a c
 
     const b = findNode(s.nodes, 1);
     const c = findNode(s.nodes, 2);
-    // B and C share a layer (both fed directly by A), so their perimeter
-    // top rows match — an exact baseline to diff the lift against.
     try testing.expectEqual(b.rect.y, c.rect.y);
 
-    const eb = findEdge(s.edges, 0, 1); // non-crossing control peer
-    const ec = findEdge(s.edges, 0, 2); // crosses into cluster X
+    const eb = findEdge(s.edges, 0, 1);
+    const ec = findEdge(s.edges, 0, 2);
 
     const b_rail = railRow(eb.polyline);
     const c_rail = railRow(ec.polyline);
-    // The crossing peer's rail sits exactly one row further from the
-    // target than the non-crossing control's — the fanRailLift(1) that
-    // clears the cluster's leading frame-border row instead of fusing
-    // with it.
     try testing.expectEqual(b_rail - 1, c_rail);
 }
 
@@ -149,9 +141,6 @@ test "fan-OUT per-peer rail does not lift when the source is a member of (or anc
     var arena = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
 
-    // A is a member of cluster X too, so A -> C never crosses INTO X (same
-    // frame interior); crossesIntoCluster's ancestor-walk must treat this as
-    // a non-crossing edge exactly like the top-level-source case.
     const nodes = [_]sg.Node{
         mkNode(0, "A", 0),
         mkNode(1, "B", null),
@@ -180,17 +169,10 @@ test "fan-OUT per-peer rail does not lift when the source is a member of (or anc
 
     const eb = findEdge(s.edges, 0, 1);
     const ec = findEdge(s.edges, 0, 2);
-    // Neither peer crosses into a cluster its source is outside of, so
-    // both rails land on the same (unlifted) row.
     try testing.expectEqual(railRow(eb.polyline), railRow(ec.polyline));
 }
 
 test "rail pre-pass and forced per-peer path lift the same fan-OUT geometry to the same rail row" {
-    // fanRailLift is documented as THE single shared lift rule used by both
-    // the rail pre-pass and the per-peer polyline path. Same fixture
-    // (fan-out peer crossing into cluster X), routed once eligible for the
-    // rail and once forced onto the per-peer path (arrow_from set): the
-    // resulting rail row must match exactly.
     const clusters = [_]sg.Cluster{
         .{ .id = 0, .raw_id = "X", .label = "X", .parent = null, .members = &.{2}, .sub_clusters = &.{} },
     };
@@ -210,12 +192,7 @@ test "rail pre-pass and forced per-peer path lift the same fan-OUT geometry to t
     try testing.expectEqual(bar_rail_y, railRow(ec.polyline));
 }
 
-// -- claim: discharged withholding (routing.zig `routing_edges` loop) ------
-
 test "a discharged edge is withheld from routing entirely" {
-    // A---Z and B---Z fuse on one arrival, and the crossbar between their two
-    // taps IS the rendering of the declared A---B. Routing must therefore emit
-    // NO EdgePath for A---B: a private polyline would draw that relation twice.
     var arena = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();

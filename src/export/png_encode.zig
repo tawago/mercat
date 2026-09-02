@@ -69,9 +69,6 @@ pub fn encodeRgba(
     const expected = std.math.mul(usize, row_bytes, height) catch return error.InvalidDimensions;
     if (pixels.len != expected) return error.PixelBufferSizeMismatch;
 
-    // 1. Build the filtered image data: one 0x00 filter byte per row, then the
-    //    row's RGBA bytes. This is what the zlib stream compresses and what the
-    //    adler32 covers.
     const filtered_len = std.math.mul(usize, height, row_bytes + 1) catch return error.InvalidDimensions;
     const filtered = try allocator.alloc(u8, filtered_len);
     defer allocator.free(filtered);
@@ -80,7 +77,7 @@ pub fn encodeRgba(
         var dst: usize = 0;
         var y: u32 = 0;
         while (y < height) : (y += 1) {
-            filtered[dst] = 0; // filter type 0 (None)
+            filtered[dst] = 0;
             dst += 1;
             @memcpy(filtered[dst .. dst + row_bytes], pixels[src .. src + row_bytes]);
             dst += row_bytes;
@@ -88,10 +85,8 @@ pub fn encodeRgba(
         }
     }
 
-    // 2. zlib stream = 2-byte header + fixed-Huffman DEFLATE + adler32.
     var zlib: std.ArrayList(u8) = .empty;
     defer zlib.deinit(allocator);
-    // 0x78 0x9C: CM=8/CINFO=7 (32K window), FLEVEL=2, FDICT=0; (0x789C % 31 == 0).
     try zlib.appendSlice(allocator, &.{ 0x78, 0x9C });
     try deflateFixed(allocator, &zlib, filtered);
     const adler = std.hash.Adler32.hash(filtered);
@@ -99,7 +94,6 @@ pub fn encodeRgba(
     std.mem.writeInt(u32, &adler_be, adler, .big);
     try zlib.appendSlice(allocator, &adler_be);
 
-    // 3. Assemble the PNG file.
     var out: std.ArrayList(u8) = .empty;
     errdefer out.deinit(allocator);
     try out.appendSlice(allocator, &png_signature);
@@ -107,14 +101,13 @@ pub fn encodeRgba(
     var ihdr: [13]u8 = undefined;
     std.mem.writeInt(u32, ihdr[0..4], width, .big);
     std.mem.writeInt(u32, ihdr[4..8], height, .big);
-    ihdr[8] = 8; // bit depth
-    ihdr[9] = 6; // color type 6 = truecolor + alpha
-    ihdr[10] = 0; // compression method 0 (deflate)
-    ihdr[11] = 0; // filter method 0
-    ihdr[12] = 0; // interlace method 0 (none)
+    ihdr[8] = 8;
+    ihdr[9] = 6;
+    ihdr[10] = 0;
+    ihdr[11] = 0;
+    ihdr[12] = 0;
     try writeChunk(allocator, &out, "IHDR", &ihdr);
 
-    // Fixed chunking policy: exactly one IDAT chunk holds the whole zlib stream.
     try writeChunk(allocator, &out, "IDAT", zlib.items);
     try writeChunk(allocator, &out, "IEND", &.{});
 
@@ -145,10 +138,6 @@ fn writeChunk(
     std.mem.writeInt(u32, &crc_be, crc.final(), .big);
     try out.appendSlice(allocator, &crc_be);
 }
-
-// ===========================================================================
-// DEFLATE: single fixed-Huffman block with greedy LZ77
-// ===========================================================================
 
 const min_match = 3;
 const max_match = 258;
@@ -217,7 +206,6 @@ fn litCode(sym: u16) struct { code: u32, len: u4 } {
 const LenEntry = struct { code: u16, extra_bits: u4, base: u16 };
 const DistEntry = struct { code: u16, extra_bits: u4, base: u16 };
 
-// RFC 1951 §3.2.5 length codes 257..285.
 const length_table = [_]LenEntry{
     .{ .code = 257, .extra_bits = 0, .base = 3 },
     .{ .code = 258, .extra_bits = 0, .base = 4 },
@@ -250,7 +238,6 @@ const length_table = [_]LenEntry{
     .{ .code = 285, .extra_bits = 0, .base = 258 },
 };
 
-// RFC 1951 §3.2.5 distance codes 0..29.
 const dist_table = [_]DistEntry{
     .{ .code = 0, .extra_bits = 0, .base = 1 },
     .{ .code = 1, .extra_bits = 0, .base = 2 },
@@ -285,7 +272,6 @@ const dist_table = [_]DistEntry{
 };
 
 fn lengthEntry(length: u16) LenEntry {
-    // Highest base that does not exceed `length`.
     var chosen = length_table[0];
     for (length_table) |e| {
         if (e.base <= length) chosen = e else break;
@@ -309,12 +295,11 @@ fn deflateFixed(
 ) std.mem.Allocator.Error!void {
     var bw = BitWriter{ .allocator = allocator, .out = out };
 
-    // Block header: BFINAL=1 (1 bit), BTYPE=01 fixed Huffman (2 bits).
     try bw.writeBits(1, 1);
     try bw.writeBits(1, 2);
 
     if (data.len == 0) {
-        try emitLiteralLength(&bw, 256); // end of block
+        try emitLiteralLength(&bw, 256);
         try bw.finish();
         return;
     }
@@ -347,15 +332,12 @@ fn deflateFixed(
                 }
                 cand = prev[cpos];
             }
-            // Insert pos into its hash chain (using the pre-search head).
             prev[pos] = head[h];
             head[h] = @intCast(pos);
         }
 
         if (best_len >= min_match) {
             try emitMatch(&bw, @intCast(best_len), @intCast(best_dist));
-            // Insert the interior positions the match covered so later matches
-            // can reference them.
             var k: usize = 1;
             while (k < best_len) : (k += 1) {
                 const p = pos + k;
@@ -372,7 +354,7 @@ fn deflateFixed(
         }
     }
 
-    try emitLiteralLength(&bw, 256); // end of block
+    try emitLiteralLength(&bw, 256);
     try bw.finish();
 }
 
@@ -400,22 +382,9 @@ fn emitMatch(bw: *BitWriter, length: u16, distance: u16) std.mem.Allocator.Error
     if (le.extra_bits > 0) try bw.writeBits(length - le.base, le.extra_bits);
 
     const de = distEntry(distance);
-    // Fixed-Huffman distance codes are all 5 bits, transmitted MSB-first.
     try bw.writeCode(de.code, 5);
     if (de.extra_bits > 0) try bw.writeBits(distance - de.base, de.extra_bits);
 }
-
-// ===========================================================================
-// PNG decoding
-// ===========================================================================
-//
-// A self-contained reader that walks chunks, verifies each CRC, inflates the
-// IDAT zlib stream, and returns the decoded RGBA plus dimensions. It is public
-// so a consumer can hash the exact decoded-RGBA bytes of a PNG
-// (decoded-RGBA determinism) without a second PNG implementation, and the
-// round-trip tests below reuse it. Unlike the encoder, this path only ever sees
-// this encoder's own output, so the format checks are conservative: 8-bit RGBA,
-// non-interlaced, filter type 0.
 
 pub const DecodeError = std.mem.Allocator.Error || error{
     /// Missing or wrong 8-byte PNG signature.
@@ -490,7 +459,6 @@ pub fn decodeRgba(allocator: std.mem.Allocator, bytes: []const u8) DecodeError!D
         const ctype = bytes[pos + 4 ..][0..4];
         const data_start = pos + 8;
         const data_end = std.math.add(usize, data_start, len) catch return error.TruncatedChunk;
-        // data + 4-byte CRC must fit.
         if (data_end + 4 > bytes.len) return error.TruncatedChunk;
         const data = bytes[data_start..data_end];
 
@@ -521,13 +489,6 @@ pub fn decodeRgba(allocator: std.mem.Allocator, bytes: []const u8) DecodeError!D
     const stride = std.math.add(usize, row_bytes, 1) catch return error.DimensionOverflow;
     const expected_filtered = std.math.mul(usize, stride, height) catch return error.DimensionOverflow;
 
-    // Inflate the zlib stream (this also validates the adler32 footer) directly
-    // into an exactly-sized output buffer. A zero-length window buffer puts
-    // `Decompress` in direct-streaming mode, where LZ77 back-references resolve
-    // against the consumer's output buffer; because that buffer is the full
-    // decompressed size, `flate.history_len` lookback is always in range and the
-    // decoder never needs to rebase (the fixed-writer path that would otherwise
-    // hit `unreachable` for a large image).
     const filtered = try allocator.alloc(u8, expected_filtered);
     defer allocator.free(filtered);
     {
@@ -542,7 +503,6 @@ pub fn decodeRgba(allocator: std.mem.Allocator, bytes: []const u8) DecodeError!D
     const pixels = try allocator.alloc(u8, pixel_len);
     errdefer allocator.free(pixels);
 
-    // Strip the per-row filter bytes (all filter type 0).
     var src: usize = 0;
     var dst: usize = 0;
     var y: u32 = 0;
@@ -557,13 +517,8 @@ pub fn decodeRgba(allocator: std.mem.Allocator, bytes: []const u8) DecodeError!D
     return .{ .width = width, .height = height, .pixels = pixels, .chunk_types = chunk_types };
 }
 
-// ===========================================================================
-// Tests
-// ===========================================================================
-
 const testing = std.testing;
 
-// The round-trip tests below decode through the public `decodeRgba` above.
 const decodePng = decodeRgba;
 
 fn makeGradient(allocator: std.mem.Allocator, w: u32, h: u32) ![]u8 {
@@ -606,8 +561,6 @@ test "solid runs compress and roundtrip (LZ77 match path)" {
     const h: u32 = 40;
     const pixels = try allocator.alloc(u8, @as(usize, w) * h * 4);
     defer allocator.free(pixels);
-    // Mostly white with a black rectangle — long identical runs exercise the
-    // match finder.
     @memset(pixels, 0xFF);
     var y: u32 = 10;
     while (y < 30) : (y += 1) {
@@ -625,7 +578,6 @@ test "solid runs compress and roundtrip (LZ77 match path)" {
     var dec = try decodePng(allocator, enc.bytes);
     defer dec.deinit(allocator);
     try testing.expectEqualSlices(u8, pixels, dec.pixels);
-    // Compression must beat the raw filtered size for such a redundant image.
     try testing.expect(enc.bytes.len < pixels.len);
 }
 

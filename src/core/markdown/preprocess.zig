@@ -20,10 +20,6 @@
 
 const std = @import("std");
 
-// ---------------------------------------------------------------------------
-// Unicode superscript / subscript character helpers
-// ---------------------------------------------------------------------------
-
 /// Return the UTF-8 encoding of the Unicode superscript for `char`, or null
 /// if no superscript equivalent exists.
 fn toSuperscript(char: u8) ?[]const u8 {
@@ -59,7 +55,6 @@ fn toSuperscript(char: u8) ?[]const u8 {
         'n' => "ⁿ",
         'o' => "ᵒ",
         'p' => "ᵖ",
-        // 'q' has no Unicode superscript equivalent
         'r' => "ʳ",
         's' => "ˢ",
         't' => "ᵗ",
@@ -151,10 +146,9 @@ fn convertToSubscript(allocator: std.mem.Allocator, text: []const u8) ![]u8 {
 fn convertToStrikethrough(allocator: std.mem.Allocator, text: []const u8) ![]u8 {
     var out: std.ArrayList(u8) = .empty;
     errdefer out.deinit(allocator);
-    const combining_stroke = "\u{0336}"; // COMBINING LONG STROKE OVERLAY (3 bytes)
+    const combining_stroke = "\u{0336}";
     for (text) |ch| {
         try out.append(allocator, ch);
-        // Don't add stroke to spaces or newlines
         if (ch != ' ' and ch != '\n' and ch != '\r' and ch != '\t') {
             try out.appendSlice(allocator, combining_stroke);
         }
@@ -166,20 +160,13 @@ fn convertToStrikethrough(allocator: std.mem.Allocator, text: []const u8) ![]u8 
 /// Returns a new heap-allocated string that the caller must free.
 /// If no transformations are needed the returned string may still be a copy.
 pub fn preprocess(allocator: std.mem.Allocator, source: []const u8) ![]u8 {
-    // Work in two passes to keep each pass simple and correct.
-    // Pass 1: inline spans (super/sub/highlight) - respects code fences & backticks.
     const after_spans = try transformSpans(allocator, source);
     errdefer allocator.free(after_spans);
 
-    // Pass 2: footnotes - collect definitions, replace references.
     const after_footnotes = try transformFootnotes(allocator, after_spans);
     allocator.free(after_spans);
     return after_footnotes;
 }
-
-// ---------------------------------------------------------------------------
-// Pass 1 – inline span syntax
-// ---------------------------------------------------------------------------
 
 const ConvertMode = enum {
     /// Wrap with open_tag / close_tag HTML tags.
@@ -194,7 +181,7 @@ const ConvertMode = enum {
 
 const SpanRule = struct {
     open_char: u8,
-    open_char2: ?u8, // non-null means the delimiter is two identical chars
+    open_char2: ?u8,
     open_tag: []const u8,
     close_tag: []const u8,
     mode: ConvertMode = .html_tag,
@@ -217,13 +204,11 @@ fn transformSpans(allocator: std.mem.Allocator, source: []const u8) ![]u8 {
     var fence_len: usize = 0;
 
     while (i < source.len) {
-        // ── detect & skip fenced code blocks ──────────────────────────────
         if (!in_code_fence and (source[i] == '`' or source[i] == '~')) {
             const c = source[i];
             var run: usize = 0;
             while (i + run < source.len and source[i + run] == c) run += 1;
             if (run >= 3) {
-                // Opening fence: copy verbatim until matching closing fence.
                 in_code_fence = true;
                 fence_char = c;
                 fence_len = run;
@@ -251,14 +236,11 @@ fn transformSpans(allocator: std.mem.Allocator, source: []const u8) ![]u8 {
             continue;
         }
 
-        // ── skip inline code spans (backtick runs) ────────────────────────
         if (source[i] == '`') {
-            // Count opening backticks.
             var tick_len: usize = 0;
             while (i + tick_len < source.len and source[i + tick_len] == '`') tick_len += 1;
             const code_start = i;
             i += tick_len;
-            // Find matching closing run.
             while (i < source.len) {
                 if (source[i] == '`') {
                     var close_run: usize = 0;
@@ -276,33 +258,25 @@ fn transformSpans(allocator: std.mem.Allocator, source: []const u8) ![]u8 {
             continue;
         }
 
-        // ── escaped characters ────────────────────────────────────────────
         if (source[i] == '\\' and i + 1 < source.len) {
             const next = source[i + 1];
             if (next == '^' or next == '~' or next == '=') {
-                // Emit the escaped character literally (strip the backslash).
                 try out.append(allocator, next);
                 i += 2;
                 continue;
             }
         }
 
-        // ── try each span rule ────────────────────────────────────────────
         var matched = false;
         for (SPAN_RULES) |rule| {
             if (source[i] != rule.open_char) continue;
 
-            // Skip footnote references [^...] - don't treat ^ after [ as superscript
             if (rule.open_char == '^' and i > 0 and source[i - 1] == '[') continue;
 
-            // For two-char delimiters (==), require two chars.
             const delim_len: usize = if (rule.open_char2 != null) 2 else 1;
             if (delim_len == 2) {
                 if (i + 1 >= source.len or source[i + 1] != rule.open_char2.?) continue;
             } else {
-                // For single-char delimiters, skip doubled sequences so that
-                // ~~strikethrough~~ is left for koino to handle.
-                // If the char ahead is the same, emit two chars and skip.
                 if (i + 1 < source.len and source[i + 1] == rule.open_char) {
                     try out.append(allocator, source[i]);
                     try out.append(allocator, source[i + 1]);
@@ -312,16 +286,13 @@ fn transformSpans(allocator: std.mem.Allocator, source: []const u8) ![]u8 {
                 }
             }
 
-            // Must not be followed immediately by whitespace (opening delimiter rule).
             const content_start = i + delim_len;
             if (content_start >= source.len) continue;
             if (source[content_start] == ' ' or source[content_start] == '\t' or source[content_start] == '\n') continue;
 
-            // Find the closing delimiter (same chars, no whitespace before it).
             var j = content_start;
             var close_pos: ?usize = null;
             while (j < source.len) {
-                // Don't span newlines for single-char delimiters (~, ^).
                 if (delim_len == 1 and source[j] == '\n') break;
                 if (source[j] == rule.open_char) {
                     if (delim_len == 2) {
@@ -345,7 +316,6 @@ fn transformSpans(allocator: std.mem.Allocator, source: []const u8) ![]u8 {
 
             if (close_pos) |cp| {
                 const content = source[content_start..cp];
-                // Reject empty content.
                 if (content.len == 0) continue;
                 switch (rule.mode) {
                     .html_tag => {
@@ -384,18 +354,6 @@ fn transformSpans(allocator: std.mem.Allocator, source: []const u8) ![]u8 {
     return try out.toOwnedSlice(allocator);
 }
 
-// ---------------------------------------------------------------------------
-// Pass 2 – footnotes
-// ---------------------------------------------------------------------------
-//
-// Strategy:
-//   - Scan line by line for definition lines: `[^label]: text`
-//   - Replace inline references `[^label]` with <sup>[N]</sup>
-//   - Append a footnote section at the end of the document.
-//
-// Definitions are stripped from their original positions.
-// References are replaced with numbered superscripts.
-
 const FootnoteDef = struct {
     label: []const u8,
     text: []const u8,
@@ -403,7 +361,6 @@ const FootnoteDef = struct {
 };
 
 fn transformFootnotes(allocator: std.mem.Allocator, source: []const u8) ![]u8 {
-    // First pass: collect all definition labels and their text.
     var defs: std.ArrayList(FootnoteDef) = .empty;
     defer {
         for (defs.items) |def| {
@@ -418,7 +375,6 @@ fn transformFootnotes(allocator: std.mem.Allocator, source: []const u8) ![]u8 {
         var number: usize = 1;
         while (lines.next()) |line| {
             if (parseFootnoteDef(line)) |parsed| {
-                // Check if we already have this label.
                 var already = false;
                 for (defs.items) |existing| {
                     if (std.mem.eql(u8, existing.label, parsed.label)) {
@@ -439,11 +395,9 @@ fn transformFootnotes(allocator: std.mem.Allocator, source: []const u8) ![]u8 {
     }
 
     if (defs.items.len == 0) {
-        // No footnotes at all - return a copy unchanged.
         return try allocator.dupe(u8, source);
     }
 
-    // Second pass: rebuild source, stripping definition lines, replacing refs.
     var out: std.ArrayList(u8) = .empty;
     errdefer out.deinit(allocator);
 
@@ -453,16 +407,13 @@ fn transformFootnotes(allocator: std.mem.Allocator, source: []const u8) ![]u8 {
         if (!first_line) try out.append(allocator, '\n');
         first_line = false;
 
-        // Skip definition lines.
         if (parseFootnoteDef(line) != null) continue;
 
-        // Replace inline references within this line.
         const replaced = try replaceFootnoteRefs(allocator, line, defs.items);
         defer allocator.free(replaced);
         try out.appendSlice(allocator, replaced);
     }
 
-    // Append footnote definitions section if any.
     if (defs.items.len > 0) {
         try out.appendSlice(allocator, "\n\n---\n\n");
         for (defs.items) |def| {
@@ -478,11 +429,10 @@ fn transformFootnotes(allocator: std.mem.Allocator, source: []const u8) ![]u8 {
 const FootnoteDefParsed = struct { label: []const u8, text: []const u8 };
 
 fn parseFootnoteDef(line: []const u8) ?FootnoteDefParsed {
-    // Pattern: `[^label]: text`  (may have leading spaces, max 3)
     var rest = line;
     var spaces: usize = 0;
     while (spaces < 4 and spaces < rest.len and rest[spaces] == ' ') spaces += 1;
-    if (spaces == 4) return null; // indented code block
+    if (spaces == 4) return null;
     rest = rest[spaces..];
 
     if (!std.mem.startsWith(u8, rest, "[^")) return null;
@@ -536,10 +486,6 @@ fn replaceFootnoteRefs(allocator: std.mem.Allocator, line: []const u8, defs: []c
     return try out.toOwnedSlice(allocator);
 }
 
-// ---------------------------------------------------------------------------
-// Tests
-// ---------------------------------------------------------------------------
-
 test "superscript basic" {
     const result = try preprocess(std.testing.allocator, "E=mc^2^");
     defer std.testing.allocator.free(result);
@@ -559,7 +505,6 @@ test "superscript letters" {
 }
 
 test "superscript fallback for unknown char" {
-    // 'q' has no Unicode superscript; it should pass through as-is.
     const result = try preprocess(std.testing.allocator, "x^q^");
     defer std.testing.allocator.free(result);
     try std.testing.expectEqualStrings("xq", result);
@@ -613,7 +558,6 @@ test "escaped delimiters" {
 }
 
 test "strikethrough converts to unicode" {
-    // ~~text~~ is converted to Unicode combining long stroke overlay
     const result = try preprocess(std.testing.allocator, "~~deleted~~");
     defer std.testing.allocator.free(result);
     try std.testing.expectEqualStrings("d\u{0336}e\u{0336}l\u{0336}e\u{0336}t\u{0336}e\u{0336}d\u{0336}", result);
@@ -635,7 +579,6 @@ test "footnote definition and reference" {
     defer std.testing.allocator.free(result);
     try std.testing.expect(std.mem.indexOf(u8, result, "<fnref id=\"1\">[1]</fnref>") != null);
     try std.testing.expect(std.mem.indexOf(u8, result, "This is the footnote text.") != null);
-    // Definition line should be stripped from its original location.
     try std.testing.expect(std.mem.indexOf(u8, result, "[^1]:") == null);
 }
 

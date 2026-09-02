@@ -79,8 +79,6 @@ pub const Block = union(enum) {
         raw: []const u8,
         entries: []Entry,
 
-        // Same shape as the parser's output so parsed entries are stored
-        // directly instead of copied into a parallel type.
         pub const Entry = @import("frontmatter.zig").Entry;
     };
 
@@ -95,9 +93,9 @@ pub const Block = union(enum) {
     };
 
     pub const ListItem = struct {
-        marker: []const u8, // "- " or "1. " etc.
+        marker: []const u8,
         content: []Inline,
-        nested: []Block, // nested lists
+        nested: []Block,
     };
 
     pub const TaskItem = struct {

@@ -149,9 +149,9 @@ test "bundles: all available carrier records enter the owner partition" {
 test "bundles: every CarrierKind detail outcome is attributable" {
     var f: Fixture = .{};
     f.init();
-    f.add(idx(1, 0), 1, detail(.merged_licensed)); // strangers: mismatch
-    f.add(idx(1, 0), 2, detail(.merged_foreign)); // strangers: agreement
-    f.add(idx(1, 0), 3, detail(.suppressed)); // strangers: agreement
+    f.add(idx(1, 0), 1, detail(.merged_licensed));
+    f.add(idx(1, 0), 2, detail(.merged_foreign));
+    f.add(idx(1, 0), 3, detail(.suppressed));
     f.add(idx(1, 0), 4, detail(.merged_untested));
     f.add(idx(1, 0), 5, 255);
     const c = run(&f);
@@ -172,13 +172,13 @@ test "bundles: filed detail mismatch is counted in both directions" {
     f.init();
     f.sets[0] = .{ .origin = .fan_rail, .bundle = 1, .members = &members_01 };
     f.n_sets = 1;
-    f.add(idx(1, 0), 1, detail(.merged_foreign)); // claim unequal, identity equal
+    f.add(idx(1, 0), 1, detail(.merged_foreign));
     var c = run(&f);
     try testing.expectEqual(@as(u32, 1), c.u_bundle_detail_disagreed);
 
     f.n_recs = 0;
     f.n_sets = 0;
-    f.add(idx(1, 0), 1, detail(.merged_licensed)); // claim equal, identity unequal
+    f.add(idx(1, 0), 1, detail(.merged_licensed));
     c = run(&f);
     try testing.expectEqual(@as(u32, 1), c.u_bundle_detail_disagreed);
 }

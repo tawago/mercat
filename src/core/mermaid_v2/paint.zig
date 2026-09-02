@@ -39,7 +39,7 @@ pub fn paint(allocator: std.mem.Allocator, lat: lattice.Lattice, max_width: u32)
     while (y < lat.height) : (y += 1) {
         row.clearRetainingCapacity();
 
-        // Track the running display column as we append; a cut only "counts" when the skipped cells hold real, non-blank content. // guarded-by: paint.zig "paint: blank content beyond max_width budget earns no overflow marker"
+        // Track the running display column as we append; a cut only "counts" when the skipped cells hold real, non-blank content. // @guarded-by: paint.zig "paint: blank content beyond max_width budget earns no overflow marker"
         var col: u32 = 0;
         var cut_real_content = false;
         var x: u32 = 0;
@@ -55,7 +55,7 @@ pub fn paint(allocator: std.mem.Allocator, lat: lattice.Lattice, max_width: u32)
         }
 
         if (cut_real_content) {
-            // Stamp the marker at the right edge: overwrite an exact-fill glyph, or fill a width-2 glyph's leftover gap. // guarded-by: paint.zig "paint: marker stamping — width-1-exact-fill overwrites the last glyph" / "paint: marker stamping — width-2-at-boundary fills the leftover gap"
+            // Stamp the marker at the right edge: overwrite an exact-fill glyph, or fill a width-2 glyph's leftover gap. // @guarded-by: paint.zig "paint: marker stamping — width-1-exact-fill overwrites the last glyph" / "paint: marker stamping — width-2-at-boundary fills the leftover gap"
             if (col >= max_width) popLastGlyph(&row);
             try appendCp(allocator, &row, OVERFLOW_MARKER);
         }
@@ -75,7 +75,7 @@ pub fn paint(allocator: std.mem.Allocator, lat: lattice.Lattice, max_width: u32)
 /// by their codepoint. A `label_cont` is the second cell of the wide
 /// glyph already charged to its head — it paints nothing and costs no
 /// column, so the row's cell count and its column count agree.
-/// guarded-by: paint.zig "paint: a wide label glyph plus its continuation paints two columns from two cells"
+/// @guarded-by: paint.zig "paint: a wide label glyph plus its continuation paints two columns from two cells"
 fn cellWidth(cell: lattice.Cell) u32 {
     return switch (cell.occupant) {
         .empty, .node_interior => 1,
@@ -92,9 +92,6 @@ fn rowHasContentFrom(lat: lattice.Lattice, y: u32, from_x: u32) bool {
     while (x < lat.width) : (x += 1) {
         const cell = lat.atConst(x, y).*;
         switch (cell.occupant) {
-            // A continuation carries no bytes of its own: whether real
-            // content was cut is decided by its head, which sits west of
-            // `from_x` whenever a continuation is reached at all.
             .empty, .node_interior, .label_cont => {},
             .label_char => |cp| if (cp != ' ') return true,
             .edge_segment => |seg| if (seg.kind != .invisible) return true,
@@ -125,7 +122,6 @@ fn appendCell(
 ) !void {
     switch (cell.occupant) {
         .empty, .node_interior => try row.append(allocator, ' '),
-        // The head already emitted the whole glyph and both its columns.
         .label_cont => {},
         .label_char => |cp| try appendCp(allocator, row, cp),
         .arrowhead => |a| try appendCp(allocator, row, ag.glyphFor(a.arrow, a.dir)),
@@ -139,7 +135,7 @@ fn appendCell(
             try appendCp(allocator, row, glyph);
         },
         .node_border => |b| {
-            // Non-solid stroke takes precedence over shape-specific glyphs; solid borders use the shape-specific glyph. // guarded-by: paint.zig "paint: non-solid stroke wins over shape glyph on node_border"
+            // Non-solid stroke takes precedence over shape-specific glyphs; solid borders use the shape-specific glyph. // @guarded-by: paint.zig "paint: non-solid stroke wins over shape glyph on node_border"
             const glyph: u21 = switch (cell.stroke_kind) {
                 .solid => sg.glyphFor(cell.shape, b.role, cell.neighbours),
                 .dotted => st.dottedBorderGlyph(cell.neighbours),
@@ -203,7 +199,6 @@ test "paint: single 3x3 rect node renders box-drawing border" {
     for (&cells) |*c| c.* = lattice.Cell.empty;
     var lat = lattice.Lattice{ .width = 3, .height = 3, .cells = &cells };
 
-    // Mirror raster/nodes.zig "single 3x3 rect" expectations.
     lat.at(0, 0).* = .{
         .occupant = .{ .node_border = .{ .node = 7, .role = .corner_nw } },
         .neighbours = .{ .e = true, .s = true },
@@ -244,21 +239,12 @@ test "paint: single 3x3 rect node renders box-drawing border" {
 }
 
 test "paint: an abutting arrowhead shows ▼ over a plain wall; a bare arrival tees" {
-    // The rule in one picture, on the masks the two port writers leave.
-    // Col 0: `A --> B` — the arrowhead sits directly on the wall and
-    // declares the arrival, so the border under it stays a bare `─`.
-    // Col 1: `A --- B` — nothing else declares it, so the border tees to
-    // `┴`. Col 2 is the SAME node as col 1 seen on its west face, arrived
-    // at without a head: the rule is per END, so a mixed node tees on the
-    // face whose arrival is not spoken for.
     const a = testing.allocator;
     const nb = lattice.Neighbours;
     var cells: [6]lattice.Cell = .{
-        // Row 0: the arriving runs' last cells (col 2's arrives sideways).
         .{ .occupant = .{ .arrowhead = .{ .dir = .south, .edge = 0, .arrow = .filled } }, .neighbours = nb{ .n = true } },
         .{ .occupant = .{ .edge_segment = .{ .edge = 1, .kind = .solid } }, .neighbours = nb{ .n = true, .s = true } },
         lattice.Cell.empty,
-        // Row 1: target borders. Abutting head: pristine. Bare: + arm.
         .{ .occupant = .{ .node_border = .{ .node = 1, .role = .edge_n } }, .neighbours = nb{ .e = true, .w = true } },
         .{ .occupant = .{ .node_border = .{ .node = 2, .role = .edge_n } }, .neighbours = nb{ .e = true, .w = true, .n = true } },
         .{ .occupant = .{ .node_border = .{ .node = 2, .role = .edge_w } }, .neighbours = nb{ .n = true, .s = true, .w = true } },
@@ -270,11 +256,6 @@ test "paint: an abutting arrowhead shows ▼ over a plain wall; a bare arrival t
 }
 
 test "paint: arrival port arms paint tees on the target border (unspoken-for ends)" {
-    // A TD arrival merges .n into a box-top edge_n cell → ┴; LR arrivals
-    // merge .w/.e into the side borders → ┤/├. One row of three border
-    // cells, masks as drawTargetPortStroke leaves them at an end no
-    // abutting arrowhead speaks for (one that has a head on the wall draws
-    // nothing — see the test above).
     const a = testing.allocator;
     var cells: [3]lattice.Cell = .{
         .{
@@ -309,8 +290,6 @@ test "paint: label_char overlay in 1x1 lattice" {
 
 test "paint: blank content beyond max_width budget earns no overflow marker" {
     const a = testing.allocator;
-    // width 5, only cells 0..1 hold real content ('A','B'); cells 2..4
-    // stay `.empty` — blank-beyond-budget must not earn a marker.
     var cells: [5]lattice.Cell = undefined;
     for (&cells) |*c| c.* = lattice.Cell.empty;
     cells[0] = .{ .occupant = .{ .label_char = 'A' }, .neighbours = .{} };
@@ -323,9 +302,6 @@ test "paint: blank content beyond max_width budget earns no overflow marker" {
 
 test "paint: real content beyond max_width budget does earn an overflow marker" {
     const a = testing.allocator;
-    // Same shape as above, but cell 2 holds real content — the cut now
-    // "counts" and must produce a marker (sanity check for the sibling
-    // no-marker test above: proves the two cases are distinguishable).
     var cells: [5]lattice.Cell = undefined;
     for (&cells) |*c| c.* = lattice.Cell.empty;
     cells[0] = .{ .occupant = .{ .label_char = 'A' }, .neighbours = .{} };
@@ -339,9 +315,6 @@ test "paint: real content beyond max_width budget does earn an overflow marker" 
 
 test "paint: marker stamping — width-1-exact-fill overwrites the last glyph" {
     const a = testing.allocator;
-    // Three width-1 glyphs exactly fill max_width=3; a 4th real glyph is
-    // cut. col (3) >= max_width (3), so popLastGlyph fires: the last
-    // emitted glyph ('C') is overwritten by the marker.
     var cells: [4]lattice.Cell = undefined;
     cells[0] = .{ .occupant = .{ .label_char = 'A' }, .neighbours = .{} };
     cells[1] = .{ .occupant = .{ .label_char = 'B' }, .neighbours = .{} };
@@ -355,10 +328,6 @@ test "paint: marker stamping — width-1-exact-fill overwrites the last glyph" {
 
 test "paint: marker stamping — width-2-at-boundary fills the leftover gap" {
     const a = testing.allocator;
-    // 'A' (width 1) + '中' (width 2) exactly fill max_width=4 (col=3, one
-    // column short of the budget); the next width-2 glyph is cut. col (3)
-    // < max_width (4), so popLastGlyph does NOT fire: the marker simply
-    // fills the one-column gap after the emitted glyphs.
     var cells: [3]lattice.Cell = undefined;
     cells[0] = .{ .occupant = .{ .label_char = 'A' }, .neighbours = .{} };
     cells[1] = .{ .occupant = .{ .label_char = '\u{4E2D}' }, .neighbours = .{} };
@@ -371,9 +340,6 @@ test "paint: marker stamping — width-2-at-boundary fills the leftover gap" {
 
 test "paint: a wide label glyph plus its continuation paints two columns from two cells" {
     const a = testing.allocator;
-    // The writer's view: '日' claims cells 0 and 1 (head + continuation),
-    // 'x' claims cell 2. Painted, that is exactly three columns from three
-    // cells — the continuation emits no bytes and costs no column.
     var cells: [3]lattice.Cell = undefined;
     cells[0] = .{ .occupant = .{ .label_char = '\u{65E5}' }, .neighbours = .{} };
     cells[1] = .{ .occupant = .label_cont, .neighbours = .{} };
@@ -386,9 +352,6 @@ test "paint: a wide label glyph plus its continuation paints two columns from tw
 
 test "paint: a wide glyph at the clip boundary is never split and earns one marker" {
     const a = testing.allocator;
-    // max_width=3: 'A' fits (col 1), then '日' would need columns 2-3 —
-    // one past the budget — so the head is cut whole. The continuation is
-    // never reached, so no half glyph and exactly one marker.
     var cells: [4]lattice.Cell = undefined;
     cells[0] = .{ .occupant = .{ .label_char = 'A' }, .neighbours = .{} };
     cells[1] = .{ .occupant = .{ .label_char = 'B' }, .neighbours = .{} };
@@ -402,9 +365,6 @@ test "paint: a wide glyph at the clip boundary is never split and earns one mark
 
 test "paint: a trailing continuation alone never fabricates the overflow marker" {
     const a = testing.allocator;
-    // Cell 2 is a continuation whose head painted inside the budget. It is
-    // not real content, so cutting there earns no marker — and it cannot
-    // be cut at all, since it costs zero columns.
     var cells: [3]lattice.Cell = undefined;
     cells[0] = .{ .occupant = .{ .label_char = '\u{65E5}' }, .neighbours = .{} };
     cells[1] = .{ .occupant = .label_cont, .neighbours = .{} };
@@ -419,8 +379,6 @@ test "paint: non-solid stroke wins over shape glyph on node_border" {
     const a = testing.allocator;
     const neighbours = lattice.Neighbours{ .e = true, .s = true };
 
-    // A .round-shaped corner would normally render '╭' (shape override),
-    // but a thick or dotted stroke merging into the border must win.
     {
         var cells: [1]lattice.Cell = .{
             .{
@@ -433,7 +391,6 @@ test "paint: non-solid stroke wins over shape glyph on node_border" {
         const lat = lattice.Lattice{ .width = 1, .height = 1, .cells = &cells };
         const got = try paint(a, lat, 1000);
         defer a.free(got);
-        // thick_border_table[e|s] = '┌', not the round-shape '╭'.
         try testing.expectEqualStrings("\u{250C}\n", got);
     }
     {
@@ -448,8 +405,6 @@ test "paint: non-solid stroke wins over shape glyph on node_border" {
         const lat = lattice.Lattice{ .width = 1, .height = 1, .cells = &cells };
         const got = try paint(a, lat, 1000);
         defer a.free(got);
-        // dottedBorderGlyph falls back to the solid junction table ('┌'),
-        // not the rhombus-shape '◇'.
         try testing.expectEqualStrings("\u{250C}\n", got);
     }
 }

@@ -43,7 +43,10 @@ pub const ParseError = error{
 pub fn parse(allocator: std.mem.Allocator, source: []const u8) !SemGraph {
     const arena_ptr = try allocator.create(std.heap.ArenaAllocator);
     arena_ptr.* = std.heap.ArenaAllocator.init(allocator);
-    errdefer { arena_ptr.deinit(); allocator.destroy(arena_ptr); }
+    errdefer {
+        arena_ptr.deinit();
+        allocator.destroy(arena_ptr);
+    }
 
     var p = Parser.init(arena_ptr.allocator(), source);
     try p.parseHeader();
@@ -84,12 +87,16 @@ const Parser = struct {
 
     fn init(aa: std.mem.Allocator, source: []const u8) Parser {
         return .{
-            .aa = aa, .source = source, .lexer = Lexer.init(source),
+            .aa = aa,
+            .source = source,
+            .lexer = Lexer.init(source),
             .node_index = std.StringHashMap(NodeId).init(aa),
             .class_index = std.StringHashMap(ClassId).init(aa),
             .cluster_index = std.StringHashMap(ClusterId).init(aa),
-            .nodes_list = .empty, .edges_list = .empty,
-            .clusters_list = .empty, .classes_list = .empty,
+            .nodes_list = .empty,
+            .edges_list = .empty,
+            .clusters_list = .empty,
+            .classes_list = .empty,
             .cluster_stack = .empty,
         };
     }
@@ -104,10 +111,22 @@ const Parser = struct {
         if (self.lexer.peek().kind != .kw_flowchart) return;
         _ = self.lexer.next();
         switch (self.lexer.peek().kind) {
-            .dir_td => { self.direction = .TD; _ = self.lexer.next(); },
-            .dir_bt => { self.direction = .BT; _ = self.lexer.next(); },
-            .dir_lr => { self.direction = .LR; _ = self.lexer.next(); },
-            .dir_rl => { self.direction = .RL; _ = self.lexer.next(); },
+            .dir_td => {
+                self.direction = .TD;
+                _ = self.lexer.next();
+            },
+            .dir_bt => {
+                self.direction = .BT;
+                _ = self.lexer.next();
+            },
+            .dir_lr => {
+                self.direction = .LR;
+                _ = self.lexer.next();
+            },
+            .dir_rl => {
+                self.direction = .RL;
+                _ = self.lexer.next();
+            },
             .newline, .eof, .semicolon => {},
             else => return ParseError.InvalidDirection,
         }
@@ -120,10 +139,21 @@ const Parser = struct {
             const tok = self.lexer.peek();
             switch (tok.kind) {
                 .eof => return,
-                .newline, .semicolon, .kw_end => { _ = self.lexer.next(); },
-                .kw_subgraph => { _ = self.lexer.next(); try self.parseSubgraph(); },
-                .kw_classdef => { _ = self.lexer.next(); try self.parseClassDef(); },
-                .kw_class => { _ = self.lexer.next(); try self.parseClassAssignment(); },
+                .newline, .semicolon, .kw_end => {
+                    _ = self.lexer.next();
+                },
+                .kw_subgraph => {
+                    _ = self.lexer.next();
+                    try self.parseSubgraph();
+                },
+                .kw_classdef => {
+                    _ = self.lexer.next();
+                    try self.parseClassDef();
+                },
+                .kw_class => {
+                    _ = self.lexer.next();
+                    try self.parseClassAssignment();
+                },
                 .kw_direction => self.skipLine(),
                 else => try self.parseStatementRecovering(),
             }
@@ -152,8 +182,13 @@ const Parser = struct {
         const cid: ClusterId = @intCast(self.clusters_list.items.len);
         const parent = self.currentCluster();
         try self.clusters_list.append(self.aa, .{
-            .id = cid, .raw_id = raw_id, .label = label, .parent = parent,
-            .members = .empty, .sub_clusters = .empty, .direction = null,
+            .id = cid,
+            .raw_id = raw_id,
+            .label = label,
+            .parent = parent,
+            .members = .empty,
+            .sub_clusters = .empty,
+            .direction = null,
         });
         if (raw_id.len > 0) try self.cluster_index.put(raw_id, cid);
         if (parent) |pid| try self.clusters_list.items[pid].sub_clusters.append(self.aa, cid);
@@ -164,12 +199,30 @@ const Parser = struct {
             const tok = self.lexer.peek();
             switch (tok.kind) {
                 .eof => return ParseError.UnterminatedSubgraph,
-                .newline, .semicolon => { _ = self.lexer.next(); },
-                .kw_end => { _ = self.lexer.next(); self.skipLine(); return; },
-                .kw_subgraph => { _ = self.lexer.next(); try self.parseSubgraph(); },
-                .kw_direction => { _ = self.lexer.next(); self.captureSubgraphDirection(cid); },
-                .kw_classdef => { _ = self.lexer.next(); try self.parseClassDef(); },
-                .kw_class => { _ = self.lexer.next(); try self.parseClassAssignment(); },
+                .newline, .semicolon => {
+                    _ = self.lexer.next();
+                },
+                .kw_end => {
+                    _ = self.lexer.next();
+                    self.skipLine();
+                    return;
+                },
+                .kw_subgraph => {
+                    _ = self.lexer.next();
+                    try self.parseSubgraph();
+                },
+                .kw_direction => {
+                    _ = self.lexer.next();
+                    self.captureSubgraphDirection(cid);
+                },
+                .kw_classdef => {
+                    _ = self.lexer.next();
+                    try self.parseClassDef();
+                },
+                .kw_class => {
+                    _ = self.lexer.next();
+                    try self.parseClassAssignment();
+                },
                 else => try self.parseStatementRecovering(),
             }
         }
@@ -193,7 +246,10 @@ const Parser = struct {
 
     fn parseClassDef(self: *Parser) !void {
         const name_tok = self.lexer.peek();
-        if (name_tok.kind != .identifier) { self.skipLine(); return; }
+        if (name_tok.kind != .identifier) {
+            self.skipLine();
+            return;
+        }
         _ = self.lexer.next();
         const style = sr.readRestOfLine(&self.lexer);
         const id: ClassId = @intCast(self.classes_list.items.len);
@@ -209,11 +265,17 @@ const Parser = struct {
             if (tok.kind != .identifier) break;
             _ = self.lexer.next();
             try ids.append(self.aa, tok.text);
-            if (self.lexer.peek().kind == .comma) { _ = self.lexer.next(); continue; }
+            if (self.lexer.peek().kind == .comma) {
+                _ = self.lexer.next();
+                continue;
+            }
             break;
         }
         const cn = self.lexer.peek();
-        if (cn.kind != .identifier) { self.skipLine(); return; }
+        if (cn.kind != .identifier) {
+            self.skipLine();
+            return;
+        }
         _ = self.lexer.next();
         const class_id = try self.ensureClass(cn.text);
         for (ids.items) |raw| {
@@ -255,8 +317,6 @@ const Parser = struct {
         while (self.nodes_list.items.len > m.nodes_len) {
             const b = self.nodes_list.items[self.nodes_list.items.len - 1];
             _ = self.node_index.remove(b.raw_id);
-            // A rolled-back node is necessarily the last-appended member
-            // of its cluster (later members were popped first).
             if (b.cluster) |cid| _ = self.clusters_list.items[cid].members.pop();
             self.nodes_list.shrinkRetainingCapacity(self.nodes_list.items.len - 1);
         }
@@ -310,7 +370,7 @@ const Parser = struct {
 
     fn parseStatement(self: *Parser) ParseError!void {
         // `&`-joined node lists desugar to the cross-product of edges; sources/targets swap each hop to chain.
-        // guarded-by: parse/parse_test.zig "ampersand both sides: cross-product with shapes and edge label"
+        // @guarded-by: parse/parse_test.zig "ampersand both sides: cross-product with shapes and edge label"
         var sources: std.ArrayList(NodeId) = .empty;
         defer sources.deinit(self.aa);
         var targets: std.ArrayList(NodeId) = .empty;
@@ -326,8 +386,6 @@ const Parser = struct {
             const ek = edgeKind(tok.kind) orelse break;
             const arrow = decodeArrows(tok.text);
             _ = self.lexer.next();
-            // Inline-label form `-- text -->` carries its label on the edge
-            // token; the `|...|` pipe form (which wins) supplies it trailing.
             var elabel: ?[]const u8 = tok.edge_label;
             if (self.lexer.peek().kind == .pipe) {
                 _ = self.lexer.next();
@@ -343,8 +401,13 @@ const Parser = struct {
             for (sources.items) |from_id| for (targets.items) |to_id| {
                 const eid: EdgeId = @intCast(self.edges_list.items.len);
                 try self.edges_list.append(self.aa, .{
-                    .id = eid, .from = from_id, .to = to_id, .kind = ek,
-                    .arrow_from = arrow.from, .arrow_to = arrow.to, .label = elabel,
+                    .id = eid,
+                    .from = from_id,
+                    .to = to_id,
+                    .kind = ek,
+                    .arrow_from = arrow.from,
+                    .arrow_to = arrow.to,
+                    .label = elabel,
                 });
             };
             std.mem.swap(std.ArrayList(NodeId), &sources, &targets);
@@ -394,9 +457,15 @@ const Parser = struct {
         if (self.lexer.peek().kind != .colon) return;
         const saved = self.lexer;
         _ = self.lexer.next();
-        if (self.lexer.peek().kind != .colon) { self.lexer = saved; return; }
+        if (self.lexer.peek().kind != .colon) {
+            self.lexer = saved;
+            return;
+        }
         _ = self.lexer.next();
-        if (self.lexer.peek().kind != .colon) { self.lexer = saved; return; }
+        if (self.lexer.peek().kind != .colon) {
+            self.lexer = saved;
+            return;
+        }
         _ = self.lexer.next();
         const cn = self.lexer.peek();
         if (cn.kind != .identifier) return;
@@ -407,7 +476,10 @@ const Parser = struct {
 
     fn skipLine(self: *Parser) void {
         while (true) switch (self.lexer.peek().kind) {
-            .newline, .semicolon => { _ = self.lexer.next(); return; },
+            .newline, .semicolon => {
+                _ = self.lexer.next();
+                return;
+            },
             .eof => return,
             else => _ = self.lexer.next(),
         };
@@ -417,8 +489,12 @@ const Parser = struct {
         if (self.node_index.get(raw_id)) |id| return id;
         const id: NodeId = @intCast(self.nodes_list.items.len);
         try self.nodes_list.append(self.aa, .{
-            .id = id, .raw_id = raw_id, .label = raw_id, .shape = .rect,
-            .classes = .empty, .cluster = self.currentCluster(),
+            .id = id,
+            .raw_id = raw_id,
+            .label = raw_id,
+            .shape = .rect,
+            .classes = .empty,
+            .cluster = self.currentCluster(),
         });
         try self.node_index.put(raw_id, id);
         if (self.currentCluster()) |cid| try self.clusters_list.items[cid].members.append(self.aa, id);
@@ -428,8 +504,12 @@ const Parser = struct {
     fn materializeNodes(self: *Parser) ![]const Node {
         const out = try self.aa.alloc(Node, self.nodes_list.items.len);
         for (self.nodes_list.items, 0..) |*b, i| out[i] = .{
-            .id = b.id, .raw_id = b.raw_id, .label = b.label, .shape = b.shape,
-            .classes = try b.classes.toOwnedSlice(self.aa), .cluster = b.cluster,
+            .id = b.id,
+            .raw_id = b.raw_id,
+            .label = b.label,
+            .shape = b.shape,
+            .classes = try b.classes.toOwnedSlice(self.aa),
+            .cluster = b.cluster,
         };
         return out;
     }
@@ -437,7 +517,10 @@ const Parser = struct {
     fn materializeClusters(self: *Parser) ![]const Cluster {
         const out = try self.aa.alloc(Cluster, self.clusters_list.items.len);
         for (self.clusters_list.items, 0..) |*b, i| out[i] = .{
-            .id = b.id, .raw_id = b.raw_id, .label = b.label, .parent = b.parent,
+            .id = b.id,
+            .raw_id = b.raw_id,
+            .label = b.label,
+            .parent = b.parent,
             .members = try b.members.toOwnedSlice(self.aa),
             .sub_clusters = try b.sub_clusters.toOwnedSlice(self.aa),
             .direction = b.direction,

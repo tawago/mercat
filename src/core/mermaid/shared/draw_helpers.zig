@@ -13,7 +13,6 @@ pub fn processLabel(label: []const u8, buf: []u8) []const u8 {
     var out_idx: usize = 0;
     var i: usize = 0;
     while (i < label.len and out_idx < buf.len) {
-        // Check for <br/> or <br> tags
         if (i + 4 < label.len and std.mem.eql(u8, label[i .. i + 4], "<br>")) {
             buf[out_idx] = ' ';
             out_idx += 1;
@@ -122,14 +121,12 @@ pub fn drawDiamondNode(canvas: *Canvas, rect: Rect, label: []const u8, options: 
     const mid_y = y + @divFloor(h, 2);
     const mid_x = x + @divFloor(w, 2);
 
-    // Draw < on left, > on right
     canvas.setChar(x, mid_y, '<', .node_border);
     canvas.setChar(x + w - 1, mid_y, '>', .node_border);
 
-    // Draw single macron at top center, single underscore at bottom center
     if (h >= 3) {
-        canvas.setChar(mid_x, y, 0x00AF, .node_border); // ¯ (macron)
-        canvas.setChar(mid_x, y + h - 1, '_', .node_border); // _
+        canvas.setChar(mid_x, y, 0x00AF, .node_border);
+        canvas.setChar(mid_x, y + h - 1, '_', .node_border);
     }
 
     drawWrappedTextCentered(canvas, rect, label, options, 0);

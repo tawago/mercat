@@ -49,9 +49,7 @@ const Fixture = struct {
         for (&self.cells) |*c| c.* = lattice.Cell.empty;
         self.box(0, 0);
         self.box(1, 4);
-        // The source-border merge stamped the departure bit.
         self.cells[2 * 3 + 1].neighbours = .{ .e = true, .w = true, .s = true };
-        // The edge's single interior cell carries its arrowhead.
         self.set(1, 3, .{ .occupant = .{ .arrowhead = .{ .dir = .south, .edge = 0 } }, .neighbours = .{ .n = true, .s = true } });
 
         self.nodes[0] = .{ .id = 0, .rect = .{ .x = 0, .y = 0, .w = 3, .h = 3 }, .shape = .rect, .lines = &self.lines_a, .cluster_id = null };
@@ -131,7 +129,6 @@ test "expect: a blank approach whose run resumes one cell on is reprieved" {
     var f: Fixture = .{};
     f.init();
     f.set(1, 3, lattice.Cell.empty);
-    // The arrival is one cell further along the approach axis.
     f.set(1, 4, .{ .occupant = .{ .arrowhead = .{ .dir = .south, .edge = 0 } }, .neighbours = .{ .n = true } });
     const lat = f.lat();
     const c = run(&f, &lat);
@@ -142,14 +139,11 @@ test "expect: a blank approach whose run resumes one cell on is reprieved" {
 test "expect: foreign opaque ink at the approach is absorbed, never missing" {
     var f: Fixture = .{};
     f.init();
-    // A label landed on the approach cell: the arrival may well be under
-    // it, and positional evidence cannot say whose ink this is.
     f.set(1, 3, .{ .occupant = .{ .label_char = 'x' }, .neighbours = .{} });
     const lat = f.lat();
     const c = run(&f, &lat);
     try testing.expectEqual(@as(u32, 1), c.c_edge_absorbed);
     try testing.expectEqual(@as(u32, 0), c.d_edge_no_terminal_evidence);
-    // The arrowhead write is refused over a label, a documented path.
     try testing.expectEqual(@as(u32, 1), c.c_arrow_refused);
     try testing.expectEqual(@as(u32, 0), c.d_arrow_missing);
     try testing.expectEqual(@as(u32, 0), c.defectTotal());
@@ -158,14 +152,11 @@ test "expect: foreign opaque ink at the approach is absorbed, never missing" {
 test "expect: evidence is positional, so a foreign first writer still counts" {
     var f: Fixture = .{};
     f.init();
-    // Some other edge claimed the approach cell first. Its id is wrong for
-    // this edge; the ink is still there.
     f.set(1, 3, .{ .occupant = .{ .edge_segment = .{ .edge = 99, .kind = .solid } }, .neighbours = .{ .n = true, .s = true } });
     const lat = f.lat();
     const c = run(&f, &lat);
     try testing.expectEqual(@as(u32, 0), c.d_edge_no_terminal_evidence);
     try testing.expectEqual(@as(u32, 0), c.c_edge_absorbed);
-    // No arrowhead anywhere on the axis, though.
     try testing.expectEqual(@as(u32, 1), c.d_arrow_missing);
 }
 
@@ -175,7 +166,6 @@ test "expect: a missing source-merge bit on a vertical departure is a defect" {
     const lat = f.lat();
     try testing.expectEqual(@as(u32, 0), run(&f, &lat).d_source_merge_missing);
 
-    // Strip the departure bit the merge promises.
     f.cells[2 * 3 + 1].neighbours = .{ .e = true, .w = true };
     try testing.expectEqual(@as(u32, 1), run(&f, &lat).d_source_merge_missing);
 }
@@ -183,8 +173,6 @@ test "expect: a missing source-merge bit on a vertical departure is a defect" {
 test "expect: a horizontal departure is outside the source-merge contract" {
     var f: Fixture = .{};
     f.init();
-    // Re-route the edge to leave eastward: the merge is N/S-only, so a
-    // border without the bit is not a defect.
     f.poly = .{ .{ .x = 1, .y = 2 }, .{ .x = 2, .y = 2 } };
     f.cells[2 * 3 + 1].neighbours = .{ .e = true, .w = true };
     const lat = f.lat();
@@ -219,7 +207,6 @@ test "expect: an off-grid placement is a convention, not a missing ring" {
 test "expect: a label with no room refuses rather than fails" {
     var f: Fixture = .{};
     f.init();
-    // Below 3x3 the label placer refuses outright.
     f.nodes[1].rect = .{ .x = 0, .y = 4, .w = 2, .h = 2 };
     const lat = f.lat();
     const c = run(&f, &lat);
@@ -230,8 +217,6 @@ test "expect: a label with no room refuses rather than fails" {
 test "expect: a shadowed arrival shows up in the ink deficit" {
     var f: Fixture = .{};
     f.init();
-    // The arrival cell is gone: node 1 declares one in-arrival and has no
-    // ink abutting its perimeter at all.
     f.set(1, 3, lattice.Cell.empty);
     const lat = f.lat();
     try testing.expectEqual(@as(u32, 1), run(&f, &lat).m_term_ink_deficit);
@@ -256,7 +241,6 @@ test "expect: the census makes sem-to-sketch loss visible without per-edge claim
     }, &c);
     try testing.expectEqual(@as(u32, 3), c.m_graph_nodes);
     try testing.expectEqual(@as(u32, 2), c.m_sketch_nodes);
-    // A census delta is a measurement; it accuses no particular node.
     try testing.expectEqual(@as(u32, 0), c.defectTotal());
 }
 
@@ -264,7 +248,6 @@ test "expect: a tap keys on its landing, so a rail fan needs no polyline" {
     var cells: [35]lattice.Cell = undefined;
     for (&cells) |*c| c.* = lattice.Cell.empty;
     const lat = lattice.Lattice{ .width = 5, .height = 7, .cells = &cells };
-    // Rail along row 3, one tap dropping to a landing at (0,5).
     cells[3 * 5 + 0] = .{ .occupant = .{ .edge_segment = .{ .edge = 4, .kind = .solid, .role = .fan_out_rail } }, .neighbours = .{ .e = true, .s = true } };
     cells[4 * 5 + 0] = .{ .occupant = .{ .arrowhead = .{ .dir = .south, .edge = 7 } }, .neighbours = .{ .n = true, .s = true } };
 
@@ -310,10 +293,8 @@ test "expect: a failing allocator degrades to partial counts, never to a crash" 
     }, &c);
 
     try testing.expectEqual(@as(u32, 1), c.u_audit_oom);
-    // The counters filled in before the allocation survive...
     try testing.expectEqual(@as(u32, 2), c.m_sketch_nodes);
     try testing.expectEqual(@as(u32, 2), c.n_labels_declared);
-    // ...and the tier that needed the scratch simply did not run.
     try testing.expectEqual(@as(u32, 0), c.n_nodes_declared);
     try testing.expectEqual(@as(u32, 0), c.defectTotal());
 }

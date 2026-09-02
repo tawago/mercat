@@ -65,7 +65,7 @@ pub const Owner = struct {
 };
 
 fn onSegment(a: sketch.Point, b: sketch.Point, x: i32, y: i32) bool {
-    if (a.x != b.x and a.y != b.y) return false; // routing-fixup diagonal: skip
+    if (a.x != b.x and a.y != b.y) return false;
     return x >= @min(a.x, b.x) and x <= @max(a.x, b.x) and
         y >= @min(a.y, b.y) and y <= @max(a.y, b.y);
 }
@@ -109,9 +109,9 @@ fn isLabelCell(lat: *const lattice.Lattice, x: i32, y: i32) bool {
 /// `allow_solid` (last-resort ladder pass only) waives the margin against
 /// node/cluster ink — abutting a border beats dropping the label — but the
 /// foreign-EDGE margin and the run separation always hold.
-/// guarded-by: labels_ladder_test.zig "isolation rejects a foreign-ink neighbour in every one of the 8 directions"
-/// guarded-by: labels_ladder_test.zig "own-edge ink beside the anchor does not displace the label"
-/// guarded-by: labels_ladder_test.zig "allow_solid waives only the node/cluster margin, never the foreign-edge margin"
+/// @guarded-by: labels_ladder_test.zig "isolation rejects a foreign-ink neighbour in every one of the 8 directions"
+/// @guarded-by: labels_ladder_test.zig "own-edge ink beside the anchor does not displace the label"
+/// @guarded-by: labels_ladder_test.zig "allow_solid waives only the node/cluster margin, never the foreign-edge margin"
 pub fn spanIsolated(
     lat: *const lattice.Lattice,
     owner: Owner,
@@ -125,7 +125,7 @@ pub fn spanIsolated(
     while (y <= row + 1) : (y += 1) {
         var x: i32 = start_x - 1;
         while (x <= start_x + cc) : (x += 1) {
-            if (y == row and x >= start_x and x < start_x + cc) continue; // span cells themselves
+            if (y == row and x >= start_x and x < start_x + cc) continue;
             switch (classifyAt(lat, owner, x, y)) {
                 .foreign_edge => return false,
                 .foreign_solid => if (!allow_solid) return false,
@@ -135,7 +135,7 @@ pub fn spanIsolated(
     }
     // Same-row run separation: a single blank column between two label runs
     // reads as one merged run, so both flank cells at distance 1 AND 2 must
-    // be label-free. // guarded-by: labels_test.zig "edge-label runs on the same row keep two blank cells apart"
+    // be label-free. // @guarded-by: labels_test.zig "edge-label runs on the same row keep two blank cells apart"
     if (isLabelCell(lat, start_x - 1, row) or isLabelCell(lat, start_x - 2, row)) return false;
     if (isLabelCell(lat, start_x + cc, row) or isLabelCell(lat, start_x + cc + 1, row)) return false;
     return true;

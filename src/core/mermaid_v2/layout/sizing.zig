@@ -56,7 +56,7 @@ pub fn labelLines(
     if (max_label_width) |cap| {
         return prim.wrapToWidth(a, label, cap);
     }
-    // Hard-break split only. Equivalent to wrapToWidth with an infinite cap, but cheaper and a sub-slice of the label. // guarded-by: sizing_test.zig "labelLines hard-break-only path matches wrapToWidth at an effectively infinite cap"
+    // Hard-break split only. Equivalent to wrapToWidth with an infinite cap, but cheaper and a sub-slice of the label. // @guarded-by: sizing_test.zig "labelLines hard-break-only path matches wrapToWidth at an effectively infinite cap"
     var lines: std.ArrayListUnmanaged([]const u8) = .empty;
     var it = std.mem.splitScalar(u8, label, prim.LINE_BREAK);
     while (it.next()) |seg| try lines.append(a, seg);
@@ -115,7 +115,7 @@ pub fn sizeNodes(
     max_label_width: ?u32,
     node_lines: [][]const []const u8,
 ) error{OutOfMemory}!void {
-    // For LR/RL flows, pre-swap dims are transposed so applyDirection's dim-swap restores the visual (label-runs-horizontal) orientation. // guarded-by: sizing_test.zig "sizeNodes pre-swaps an LR multi-line label so post-applyDirection dims match the visual box"
+    // For LR/RL flows, pre-swap dims are transposed so applyDirection's dim-swap restores the visual (label-runs-horizontal) orientation. // @guarded-by: sizing_test.zig "sizeNodes pre-swaps an LR multi-line label so post-applyDirection dims match the visual box"
     const swap = (graph.direction == .LR or graph.direction == .RL);
     for (lg.nodes, 0..) |n, i| {
         switch (n) {
@@ -171,7 +171,6 @@ pub fn buildPlacements(
                     .id = nid,
                     .rect = .{ .x = g.x, .y = g.y, .w = g.w, .h = g.h },
                     .shape = mapShape(node.shape),
-                    // Same lines the sizing pass measured (P1a).
                     .lines = node_lines[i],
                     .cluster_id = node.cluster,
                 });

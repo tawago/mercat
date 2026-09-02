@@ -69,7 +69,7 @@ pub fn finalizeAuthority(
 
 /// Copy a bundle with every member shifted into the piece's id window,
 /// `.cells`/`.pairwise` translated by (dx, dy) rather than dropped.
-/// guarded-by: stitch_bundle_sets.zig "shiftSet carries a port-share set's cell scope and pairwise table across the id shift"
+/// @guarded-by: stitch_bundle_sets.zig "shiftSet carries a port-share set's cell scope and pairwise table across the id shift"
 pub fn shiftSet(
     arena: std.mem.Allocator,
     cs: ledger.Bundle,
@@ -139,7 +139,6 @@ test "shiftSet carries a port-share set's cell scope and pairwise table across t
     try std.testing.expectEqual(@as(i32, 15), shifted.pairwise.?[1].cells[0].x);
     try std.testing.expectEqual(@as(i32, 23), shifted.pairwise.?[1].cells[0].y);
 
-    // A set with no cell scope stays scopeless.
     const wide: ledger.Bundle = .{ .origin = .fan_rail, .members = &.{ 5, 6 } };
     const shifted_wide = try shiftSet(a, wide, 0, 1, 1);
     try std.testing.expect(shifted_wide.cells == null);

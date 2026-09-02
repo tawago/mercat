@@ -5,7 +5,7 @@
 //!   1. ≤ 500 code lines per file (blank and comment-only lines are free).
 //!   2. No path component equals "fallback".
 //!   3. Per-file `@import("...")` rules (tools/lint/imports.zig).
-//!   4. Every `guarded-by: <file> "<test>"` pointer resolves to a real test
+//!   4. Every `@guarded-by: <file> "<test>"` pointer resolves to a real test
 //!      declaration somewhere in the tree (anchors the comment-promotion
 //!      convention so a renamed/deleted test breaks the build, not silently;
 //!      tools/lint/guarded_by.zig).
@@ -15,7 +15,7 @@
 //!
 //! This root file owns the walk, the line cap, the fallback-path check, and
 //! `main`; each per-check engine lives in a `tools/lint/` sibling. The
-//! filename is load-bearing: guarded-by pointers may name it as an external
+//! filename is load-bearing: @guarded-by pointers may name it as an external
 //! target (see `gb_external`).
 
 const std = @import("std");
@@ -45,9 +45,6 @@ pub fn lint(allocator: std.mem.Allocator, root: []const u8) !LintReport {
 
     var violations: std.ArrayList([]const u8) = .empty;
 
-    // Check 4 accumulators, cross-checked after the walk. Every slice below
-    // points into arena-owned storage (file contents are never freed mid-walk),
-    // so they stay valid until the report is deinit'd.
     var test_decls: std.ArrayList(TestDecl) = .empty;
     var gb_refs: std.ArrayList(GbRef) = .empty;
     var seen_files: std.ArrayList([]const u8) = .empty;
@@ -66,7 +63,6 @@ pub fn lint(allocator: std.mem.Allocator, root: []const u8) !LintReport {
         if (entry.kind != .file) continue;
         if (!std.mem.endsWith(u8, entry.path, ".zig")) continue;
 
-        // Check 2: no "fallback" component.
         var it = std.mem.tokenizeScalar(u8, entry.path, std.fs.path.sep);
         while (it.next()) |comp| {
             if (std.mem.eql(u8, comp, "fallback")) {
@@ -76,14 +72,10 @@ pub fn lint(allocator: std.mem.Allocator, root: []const u8) !LintReport {
             }
         }
 
-        // Read the file.
         const file = try entry.dir.openFile(entry.basename, .{});
         defer file.close();
         const contents = try file.readToEndAlloc(a, 8 * 1024 * 1024);
 
-        // Check 1: 500-code-line cap. Blank lines and comment-only lines
-        // (`//`, `///`, `//!` after leading whitespace) are free, so
-        // explanation never competes with functionality for the budget.
         var code_lines: usize = 0;
         var line_it = std.mem.splitScalar(u8, contents, '\n');
         while (line_it.next()) |line| {
@@ -97,13 +89,10 @@ pub fn lint(allocator: std.mem.Allocator, root: []const u8) !LintReport {
             try violations.append(a, msg);
         }
 
-        // Check 5: banned-token tombstones.
         try banned.scan(a, &violations, entry.path, contents, &banned.table);
 
-        // Check 3: import boundaries.
         try imports.scanImports(a, &violations, entry.path, contents);
 
-        // Check 4: collect test declarations and guarded-by pointers.
         const base_owned = try a.dupe(u8, entry.basename);
         try seen_files.append(a, base_owned);
         try gb.collectTests(a, &test_decls, base_owned, contents);
@@ -125,7 +114,6 @@ pub fn main() !void {
 
     const root: []const u8 = if (args.len >= 2) args[1] else "src/core/mermaid_v2";
 
-    // Probe root before walking to give a clean exit-2 error.
     {
         var probe = std.fs.cwd().openDir(root, .{ .iterate = true }) catch |err| {
             std.debug.print("lint: cannot open root '{s}': {s}\n", .{ root, @errorName(err) });
@@ -161,8 +149,6 @@ test "lint flags bad fixtures" {
     try std.testing.expect(report.violations.len >= 3);
     try std.testing.expect(saw_big);
     try std.testing.expect(saw_fallback);
-    // End-to-end proof that check 5 runs inside the wired walk with the
-    // production table, not just in the engine's own unit tests.
     try std.testing.expect(saw_banned);
 }
 

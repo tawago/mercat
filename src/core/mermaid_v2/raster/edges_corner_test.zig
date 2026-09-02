@@ -90,12 +90,6 @@ test "a route that doubles back keeps both visits' arms at the cell it re-enters
     var lat = try makeLattice(a, 12, 12);
     defer a.free(lat.cells);
 
-    // The shape a back edge routed around its own source really takes: the
-    // polyline turns north at (2,5), runs east, then RETURNS along that row
-    // and turns north again at the very same cell. The second turn is a
-    // corner onto this edge's OWN earlier ink — its {e,n} arms join the first
-    // visit's {s,e} rather than displacing them, so the cell is ├ and the
-    // riser coming up from the south still has an arm to meet.
     const pts = [_]sketch.Point{
         .{ .x = 1, .y = 7 }, .{ .x = 2, .y = 7 }, .{ .x = 2, .y = 5 },
         .{ .x = 8, .y = 5 }, .{ .x = 2, .y = 5 }, .{ .x = 2, .y = 3 },
@@ -107,12 +101,7 @@ test "a route that doubles back keeps both visits' arms at the cell it re-enters
         (lattice.Neighbours{ .n = true, .e = true, .s = true }).toMask(),
         lat.atConst(2, 5).neighbours.toMask(),
     );
-    // The south arm is the one a replacing write drops, and it is exactly the
-    // one the riser below reciprocates: without it the edge is cut from
-    // itself and the run below the turn hangs off nothing.
     try testing.expect(lat.atConst(2, 6).neighbours.n);
-    // The far turn of the doubling-back leg keeps its single arm: the return
-    // trip is the same ink, not a second stroke.
     try testing.expectEqual(
         (lattice.Neighbours{ .w = true }).toMask(),
         lat.atConst(8, 5).neighbours.toMask(),
@@ -124,14 +113,6 @@ test "shared rail corner: sibling drops bending at one cell yield ┴, not a pha
     var lat = try makeLattice(a, 12, 12);
     defer a.free(lat.cells);
 
-    // Three `.forward` edges (an UNDETECTED fan: no fan role, so no rail
-    // is ever named here and the fan-OUT strip never runs) descend a shared
-    // source column to a common rail row (5), then bend to their own
-    // columns. None continues SOUTH past the rail cell (5,5): the left
-    // two bend west, the right one bends east. The rail cell must render
-    // ┴ ({n,e,w}) — a phantom {s} here (drawn by a sibling's straight
-    // endpoint before the corner rewrite) would falsely assert a fourth
-    // arm and paint ┼.
     const a_pts = [_]sketch.Point{ .{ .x = 5, .y = 2 }, .{ .x = 5, .y = 5 }, .{ .x = 2, .y = 5 }, .{ .x = 2, .y = 8 } };
     const b_pts = [_]sketch.Point{ .{ .x = 5, .y = 2 }, .{ .x = 5, .y = 5 }, .{ .x = 4, .y = 5 }, .{ .x = 4, .y = 8 } };
     const c_pts = [_]sketch.Point{ .{ .x = 5, .y = 2 }, .{ .x = 5, .y = 5 }, .{ .x = 8, .y = 5 }, .{ .x = 8, .y = 8 } };
@@ -140,21 +121,16 @@ test "shared rail corner: sibling drops bending at one cell yield ┴, not a pha
         makeEdge(2, &b_pts),
         makeEdge(3, &c_pts),
     };
-    // They share the rail legally (one bundle), so the crossing rule
-    // exempts them and the phantom-arm question is the one under test.
     const members = [_]ledger.EdgeId{ 1, 2, 3 };
     const bundle_sets = [_]ledger.Bundle{.{ .origin = .fan_rail, .members = &members }};
     var s = makeSketch(&es);
     s.bundle_sets = &bundle_sets;
     _ = try edges.rasterizeEdges(a, &lat, s, .bridge, null);
 
-    // Rail cell: north riser + east/west rail, NO south arm.
     const rail = lat.atConst(5, 5).neighbours;
     try testing.expect(rail.n and rail.e and rail.w);
     try testing.expect(!rail.s);
 
-    // Contrast: a real sibling drop keeps its south arm (┬ at the bending
-    // column), proving the fix suppresses only the phantom, not real drops.
     const drop = lat.atConst(4, 5).neighbours;
     try testing.expect(drop.s);
 }

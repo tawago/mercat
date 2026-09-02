@@ -26,7 +26,7 @@ const pb = @import("../base/ledger.zig");
 /// A candidate-level reachability failure carries no record-sanctioned
 /// attribution to ONE surviving safe rail, so the conservative rail (spine
 /// item 1(d) "NEITHER") withdraws the entire selected set.
-/// guarded-by: disposition_test.zig "V-D-DISPOSITION-01: incomplete-2x2 conflicts survive disposeUnsafe, all-independent withdrawal, render succeeds"
+/// @guarded-by: disposition_test.zig "V-D-DISPOSITION-01: incomplete-2x2 conflicts survive disposeUnsafe, all-independent withdrawal, render succeeds"
 pub fn disposeUnsafe(a: std.mem.Allocator, plan: pb.RealizedBundles) error{OutOfMemory}!pb.RealizedBundles {
     if (plan.selected_bundles.len == 0) return plan;
 
@@ -49,15 +49,7 @@ pub fn disposeUnsafe(a: std.mem.Allocator, plan: pb.RealizedBundles) error{OutOf
         .memberships = memberships,
         .conflicts = plan.conflicts,
         .terminal_ports = plan.terminal_ports,
-        // Withdrawing a rail is a PERMISSION rewrite; the candidate's already
-        // emitted geometry is untouched, and a discharged edge still has no
-        // private ink in it. Dropping the record would report that edge as
-        // missing from a sketch that never drew it.
         .discharged = plan.discharged,
-        // A fusion licence holds only while every union member rides a
-        // selected rail (realized.keepValidFused); with the whole selected
-        // set withdrawn, a surviving record would declare a licensed bundle
-        // no rail backs.
         .fused = &.{},
     };
 }

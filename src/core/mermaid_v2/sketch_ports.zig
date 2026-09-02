@@ -90,7 +90,7 @@ pub const CarrierTrace = struct {
 /// defensive floor, not a real skip path.
 ///
 /// The result is allocated in `arena`.
-/// guarded-by: sketch_ports_test.zig "shared departure port groups its edges"
+/// @guarded-by: sketch_ports_test.zig "shared departure port groups its edges"
 pub fn portShareBundles(
     arena: std.mem.Allocator,
     edges: []const sketch.EdgePath,
@@ -135,8 +135,6 @@ pub fn finalCarrierTraces(
                 if (!has(cells.items, cell)) try cells.append(arena, cell);
             }
             const dropper = try traceCells(arena, &.{ tap.at, tap.landing });
-            // `tap.at` is shared crossbar ink. The member's terminal approach
-            // starts one step off it and runs through the landing port.
             for (dropper[1..]) |cell| {
                 if (!has(cells.items, cell)) try cells.append(arena, cell);
             }
@@ -166,10 +164,6 @@ fn portShareBundlesFromTraces(
     arena: std.mem.Allocator,
     traces: []const CarrierTrace,
 ) error{OutOfMemory}![]const ledger.Bundle {
-
-    // Every distinct terminal coordinate any trace carries, in canonical
-    // (x, y) order — the port identity, independent of edge id or input
-    // position.
     var ports: std.ArrayListUnmanaged(BundleCell) = .empty;
     for (traces) |t| {
         for ([2]Point{ t.first, t.last }) |pt| {
@@ -191,11 +185,6 @@ fn portShareBundlesFromTraces(
         if (!rail_source and !rail_target) {
             try appendPortSet(arena, &out, traces, port, .any);
         } else {
-            // Preserve the established polarity-blind relationship among
-            // ordinary paths. Rail members have disconnected source/target
-            // components, so they join only matching path ends; an arrival
-            // cannot borrow a fan-out stem merely because both metadata
-            // records name one coordinate.
             try appendPortSet(arena, &out, traces, port, .paths);
             if (rail_source) try appendPortSet(arena, &out, traces, port, .source);
             if (rail_target) try appendPortSet(arena, &out, traces, port, .target);
@@ -306,8 +295,6 @@ pub fn commonApproachCells(
     }
     if (!has(shared.items, port)) return &.{};
 
-    // Flood the intersection outward from the port; `reached` doubles as the
-    // frontier queue and the result.
     var reached: std.ArrayListUnmanaged(BundleCell) = .empty;
     try reached.append(arena, port);
     var i: usize = 0;
@@ -338,7 +325,7 @@ fn has(cells: []const BundleCell, want: BundleCell) bool {
 /// `edges`, while retaining every structural set in order. This is the one way
 /// a finalizer wires port shares in: stale geometry and duplicate first-match
 /// identities cannot survive a second finalization.
-/// guarded-by: sketch_ports_test.zig "appendPortShares keeps the existing sets ahead of the derived ones"
+/// @guarded-by: sketch_ports_test.zig "appendPortShares keeps the existing sets ahead of the derived ones"
 pub fn appendPortShares(
     arena: std.mem.Allocator,
     existing: []const ledger.Bundle,
@@ -375,11 +362,6 @@ pub fn rebuildFinalPortShares(
                 if (trace.rail) has_rail = true else has_path = true;
             }
         }
-        // Rail-only sharing is already the structural fan set. Keeping a
-        // duplicate scoped origin would add no relationship. Mixed shares go
-        // first so scoped rail/bridge lookup can override the rail's structural
-        // bundle only on the final common approach. Path-only shares retain
-        // their historical position after structural authority.
         if (has_rail and has_path) {
             try mixed.append(arena, share);
         } else if (has_path) try path_only.append(arena, share);

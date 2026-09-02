@@ -54,8 +54,6 @@ const Fixture = struct {
 
     fn init(self: *Fixture) void {
         for (&self.cells) |*c| c.* = lattice.Cell.empty;
-        // The fused run itself: one unbroken stroke across the whole span,
-        // so every branch cell holds ink and could carry a record.
         var x: i32 = 1;
         while (x <= 6) : (x += 1) {
             self.cells[idx(x, R)] = .{
@@ -141,9 +139,6 @@ test "rails: a complete fused run accounts for every pair it asserts" {
 test "rails: a fan-IN run resolves its sides from the rail role" {
     var f: Fixture = .{};
     f.init();
-    // Same geometry, opposite polarity: each pivot is now the LOWER-stage
-    // node and the tapped members are the upper ones. The cross product is
-    // the same four pairs, so the verdict must be identical.
     f.rails_buf[0].role = .fan_in_rail;
     f.rails_buf[1].role = .fan_in_rail;
     const c = run(&f);
@@ -155,9 +150,6 @@ test "rails: a fan-IN run resolves its sides from the rail role" {
 test "rails: a pair no member declares is the fabrication bucket" {
     var f: Fixture = .{};
     f.init();
-    // Rail B loses its branch to leaf 3. Leaf 3 is still on the run (rail A
-    // taps it), so the line still asserts pivot 1 -> leaf 3 — and now
-    // nothing branches for it.
     f.rails_buf[1].taps = f.taps_b[0..1];
     const c = run(&f);
     try testing.expectEqual(@as(u32, 1), c.n_rail_runs_two_sided);
@@ -165,8 +157,6 @@ test "rails: a pair no member declares is the fabrication bucket" {
     try testing.expectEqual(@as(u32, 3), c.c_rail_pair_accounted);
     try testing.expectEqual(@as(u32, 1), c.d_rail_pair_undeclared);
     try testing.expectEqual(@as(u32, 0), c.d_rail_branch_unrecorded);
-    // The now-orphaned record for edge 3 is ignored: a record naming an
-    // edge no rail of the run declares cannot rescue an undeclared pair.
     try testing.expectEqual(@as(u32, 1), c.defectTotal());
     try ownership(c);
 }
@@ -174,8 +164,6 @@ test "rails: a pair no member declares is the fabrication bucket" {
 test "rails: a declared pair whose branch left no record is a lost trace" {
     var f: Fixture = .{};
     f.init();
-    // Drop the record for edge 3 only (it sorts last). The pair is honest;
-    // the reader has nothing marking where that member leaves the run.
     f.n_recs = 3;
     const c = run(&f);
     try testing.expectEqual(@as(u32, 4), c.n_rail_pairs_asserted);
@@ -190,7 +178,6 @@ test "rails: a declared pair whose branch left no record is a lost trace" {
 test "rails: two rails on different rows are two runs, not one" {
     var f: Fixture = .{};
     f.init();
-    // The lane-separated shape: distinct crossbar rows cannot fuse.
     f.rails_buf[1].crossbar = .{ .{ .x = 2, .y = R + 1 }, .{ .x = 6, .y = R + 1 } };
     const c = run(&f);
     try testing.expectEqual(@as(u32, 0), c.n_rail_runs_two_sided);
@@ -211,8 +198,6 @@ test "rails: one row but disjoint spans is still two runs" {
 test "rails: rails sharing one pivot are the lone-pivot shape, never two-sided" {
     var f: Fixture = .{};
     f.init();
-    // One endpoint every member really does share: the run stands for it
-    // honestly, so there is nothing here for it to fabricate.
     f.rails_buf[1].pivot = 0;
     const c = run(&f);
     try testing.expectEqual(@as(u32, 0), c.n_rail_runs_two_sided);
@@ -223,10 +208,6 @@ test "rails: rails sharing one pivot are the lone-pivot shape, never two-sided" 
 test "rails: an uncollected side table is a limitation, never a defect" {
     var f: Fixture = .{};
     f.init();
-    // The run is complete and correct; the records were simply not
-    // collected. An empty slice means "nothing recorded OR nothing
-    // collected", so no BRANCH may be judged from it — but every pair is
-    // still asserted and still counted, and every one of them is honest.
     f.n_recs = 0;
     const c = run(&f);
     try testing.expectEqual(@as(u32, 1), c.n_rail_runs_two_sided);
@@ -242,10 +223,6 @@ test "rails: an uncollected side table is a limitation, never a defect" {
 test "rails: an uncollected side table still exposes a pair nothing declares" {
     var f: Fixture = .{};
     f.init();
-    // The fabrication and the missing side table at once. "No rail of this
-    // run declares this pair" is readable off the Sketch alone, so the
-    // absent records may downgrade the three honest pairs to unevidenced
-    // and must NOT take the fabrication down with them.
     f.rails_buf[1].taps = f.taps_b[0..1];
     f.n_recs = 0;
     const c = run(&f);
@@ -261,10 +238,6 @@ test "rails: an uncollected side table still exposes a pair nothing declares" {
 test "rails: an off-grid branch cell is unreadable, never a lost trace" {
     var f: Fixture = .{};
     f.init();
-    // The row is on the grid and carries records, so the run-level gate
-    // passes; this one member's branch cell is off the east edge. Nothing
-    // can be read there, so its pair is an audit limitation and the other
-    // three are untouched.
     f.taps_b[1].at = .{ .x = @intCast(W + 2), .y = R };
     const c = run(&f);
     try testing.expectEqual(@as(u32, 0), c.u_rail_run_records_absent);
@@ -285,11 +258,6 @@ fn outside(f: *Fixture, x: i32, nb: lattice.Neighbours) void {
 }
 
 test "rails: a collinear jog past the crossbar is a continued run" {
-    // The span is [1,6]. An ordinary edge's horizontal jog arriving at x=0
-    // and reciprocating east joins the crossbar into ONE longer line whose
-    // far endpoint this tier cannot attribute. The pairs it can still see
-    // are judged exactly as before — a continued run is a limit on the
-    // answer, never a defect and never a reason to stop answering.
     var f: Fixture = .{};
     f.init();
     outside(&f, 0, .{ .e = true, .w = true });
@@ -300,7 +268,6 @@ test "rails: a collinear jog past the crossbar is a continued run" {
     try testing.expectEqual(@as(u32, 0), c.defectTotal());
     try ownership(c);
 
-    // The east end counts the same way, and one run is counted once.
     f.init();
     outside(&f, 7, .{ .e = true, .w = true });
     try testing.expectEqual(@as(u32, 1), run(&f).u_rail_run_continued);
@@ -309,14 +276,10 @@ test "rails: a collinear jog past the crossbar is a continued run" {
 test "rails: an untouched run, a crossing one, and a terminated one are not continued" {
     var f: Fixture = .{};
     f.init();
-    // Nothing outside the span at all.
     try testing.expectEqual(@as(u32, 0), run(&f).u_rail_run_continued);
-    // Ink that merely passes the row vertically does not lengthen the line.
     f.init();
     outside(&f, 0, .{ .n = true, .s = true });
     try testing.expectEqual(@as(u32, 0), run(&f).u_rail_run_continued);
-    // An arrowhead ENDS the line; it adds no endpoint to attribute. Matching
-    // `strokes.zig`, only a stroke neighbour continues a run.
     f.init();
     f.cells[idx(7, R)] = .{
         .occupant = .{ .arrowhead = .{ .dir = .east, .edge = 9 } },
@@ -326,11 +289,6 @@ test "rails: an untouched run, a crossing one, and a terminated one are not cont
 }
 
 test "rails: a LONE rail whose line is continued is still reported" {
-    // The shape that makes this bucket necessary. One rail is a lone-pivot
-    // run: it fails the group gate and the two-sided gate, so every pair
-    // bucket stays 0. Extended at both ends by ordinary jogs, the line it
-    // draws IS two-sided. The population zero below is therefore not
-    // evidence of no fused line, and this is the counter that says so.
     var f: Fixture = .{};
     f.init();
     outside(&f, 0, .{ .e = true, .w = true });
@@ -348,12 +306,6 @@ test "rails: a LONE rail whose line is continued is still reported" {
 }
 
 test "rails: an empty population is named, not silent" {
-    // The two zeros this pair exists to tell apart. With no first-class rail
-    // the tier declines: every bucket it owns stays 0 — including
-    // `u_rail_run_continued`, which cannot fire past the return — and
-    // without the marker that state is byte-identical to a measured run
-    // that found nothing. `u_` keeps the abstention out of the defect total;
-    // it is a limitation, not a fault in the picture.
     var f: Fixture = .{};
     f.init();
     var s = f.sk();
@@ -371,16 +323,12 @@ test "rails: an empty population is named, not silent" {
 }
 
 test "rails: the entry denominator is published before the tier can decline" {
-    // A NON-empty population reaches every gate, so the marker stays silent
-    // and the denominator says what the zeros below were measured over.
     var f: Fixture = .{};
     f.init();
     const c = run(&f);
     try testing.expectEqual(@as(u32, 2), c.n_rails_first_class);
     try testing.expectEqual(@as(u32, 0), c.u_rail_population_absent);
 
-    // A lone rail is still a population: the tier measures it and declines
-    // nothing, which is exactly the case the marker must NOT claim.
     var f2: Fixture = .{};
     f2.init();
     var one = [_]sketch.Rail{f2.rails_buf[0]};
@@ -394,7 +342,6 @@ test "rails: the entry denominator is published before the tier can decline" {
 }
 
 test "rails: every asserted pair lands in exactly one bucket" {
-    // The invariant, over every divergence the fixture can express.
     var f: Fixture = .{};
     f.init();
     try ownership(run(&f));
@@ -434,11 +381,6 @@ test "rails: a failing allocator reports a skipped tier, never a verdict" {
 }
 
 test "rails: a scratch failure at any point leaves the buckets owned" {
-    // Index 0 alone only shows the tier declining before it starts. Two
-    // independent runs and a SWEEP of every failure point show the claim the
-    // header actually makes: each group's allocations all happen before that
-    // group's first increment, so the four pair buckets partition the
-    // denominator no matter where the scratch runs out.
     var f: Fixture = .{};
     f.init();
     var far_a = f.taps_a;
@@ -472,6 +414,5 @@ test "rails: a scratch failure at any point leaves the buckets owned" {
             try testing.expectEqual(@as(u32, 8), c.n_rail_pairs_asserted);
         }
     }
-    // The sweep has to span both regimes, or it pinned nothing.
     try testing.expect(saw_oom and saw_whole);
 }

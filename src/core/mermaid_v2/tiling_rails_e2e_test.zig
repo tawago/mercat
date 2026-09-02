@@ -67,11 +67,6 @@ const unclustered =
 ;
 
 test "rails: a clustered complete bipartite renders exactly as its flat form" {
-    // Cluster unification: the subgraph piece realizes the same piece plan a
-    // flat graph would, so the graph inside a frame and the graph without one
-    // produce one and the same rail story — the two arrivals fused onto ONE
-    // rail row, licensed because the directed declared set is exactly
-    // srcs x tgts (the two-sided fusion licence; every pair accounted).
     var arena = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
     const in_frame = try renderCounts(arena.allocator(), clustered, 120);
@@ -81,7 +76,6 @@ test "rails: a clustered complete bipartite renders exactly as its flat form" {
     try testing.expectEqual(@as(u32, 0), in_frame.u_rail_run_continued);
     try testing.expectEqual(@as(u32, 0), in_frame.u_rail_run_records_absent);
     try testing.expectEqual(@as(u32, 0), in_frame.u_audit_oom);
-    // The whole rail tier agrees between the two forms, defect for defect.
     try testing.expectEqual(flat.n_rails_first_class, in_frame.n_rails_first_class);
     try testing.expectEqual(flat.n_rail_pairs_asserted, in_frame.n_rail_pairs_asserted);
     try testing.expectEqual(flat.d_rail_pair_undeclared, in_frame.d_rail_pair_undeclared);
@@ -94,7 +88,6 @@ test "rails: the same graph unclustered fuses onto one licensed shared row" {
     defer arena.deinit();
     const c = try renderCounts(arena.allocator(), unclustered, 120);
 
-    // One two-sided run, every asserted pair a declared one, records present.
     try testing.expectEqual(@as(u32, 1), c.n_rail_runs_two_sided);
     try testing.expectEqual(@as(u32, 4), c.n_rail_pairs_asserted);
     try testing.expectEqual(@as(u32, 4), c.c_rail_pair_accounted);
@@ -130,30 +123,17 @@ test "rails: a run the crossbars under-measure is reported as continued, not as 
     defer arena.deinit();
     const c = try renderCounts(arena.allocator(), continued, 140);
 
-    // Neither rail fuses with the other, so every pair bucket is empty and
-    // the population reads zero. The jog that used to extend E's crossbar
-    // into an unbroken foreign line now dodges the row (rail runs are
-    // bridge-router obstacles), so the continued-run counter reads zero
-    // TRUTHFULLY: no drawn row exceeds what its crossbar names.
     try testing.expectEqual(@as(u32, 0), c.n_rail_runs_two_sided);
     try testing.expectEqual(@as(u32, 0), c.n_rail_pairs_asserted);
     try testing.expectEqual(@as(u32, 0), c.u_rail_run_continued);
     try testing.expectEqual(@as(u32, 0), c.d_run_fused_collinear);
 
-    // The dodged jogs still CROSS runs perpendicular (legal). The one
-    // genuinely foreign fused pair this shape used to ship is gone BY
-    // SELECTION: the score's violation tier now prefers the candidate
-    // without it, so the defect population here is empty by repair too —
-    // the counter itself stays, as the floor for any leak selection
-    // cannot dodge.
     try testing.expect(c.c_run_fused_crossing > 0);
     try testing.expectEqual(@as(u32, 0), c.d_run_fused_foreign);
     try testing.expectEqual(@as(u32, 0), c.defectTotal());
 }
 
 test "rails: the audit stays silent on shapes with no fused run" {
-    // A plain fan-OUT is a lone-pivot run and a chain has no rail at all;
-    // neither may enter the population, at either width.
     const quiet = [_][]const u8{
         "flowchart TD\n  A --> B\n  B --> C\n",
         "flowchart TD\n  A --> B\n  A --> C\n  A --> D\n",
@@ -166,8 +146,6 @@ test "rails: the audit stays silent on shapes with no fused run" {
         try testing.expectEqual(@as(u32, 0), c.n_rail_runs_two_sided);
         try testing.expectEqual(@as(u32, 0), c.n_rail_pairs_asserted);
         try testing.expectEqual(@as(u32, 0), c.u_rail_run_records_absent);
-        // Silent means silent: a shape with nothing to measure must not
-        // report a limitation either, or the counter would be noise.
         try testing.expectEqual(@as(u32, 0), c.u_rail_run_continued);
     };
 }
@@ -182,11 +160,6 @@ fn renderCrossings(a: std.mem.Allocator, source: []const u8, width: u32) !raster
 }
 
 test "bridges: a dodge that cannot halve measured conflict never ships" {
-    // A mixed cross-border fan over two subgraphs plus an inter-subgraph
-    // edge: the dodging build wins only marginal proxy points here while
-    // its displaced jogs fuse corners into other bridges' runs at the
-    // raster. The plain build (the incumbent geometry) must ship, keeping
-    // the render violation-free at both widths.
     const source =
         \\flowchart TD
         \\subgraph SG0
@@ -212,9 +185,6 @@ test "bridges: a dodge that cannot halve measured conflict never ships" {
 }
 
 test "bridges: mixed-kind cross-border fans keep a clean scene" {
-    // Dotted, solid and thick bridges from one outer pivot into two
-    // subgraphs, plus a dotted subgraph-to-subgraph edge — a second shape
-    // whose always-dodged build measured worse than plain at the raster.
     const source =
         \\flowchart TD
         \\subgraph SG0
@@ -240,9 +210,6 @@ test "bridges: mixed-kind cross-border fans keep a clean scene" {
 }
 
 test "bridges: a licensed cross-border fan records its realized rail; a mixed fan keeps the refusal" {
-    // O fans across the border into two subgraphs; the crossings leave one
-    // exit port and split cleanly, so the bridge plan flips the group to
-    // SELECTED (one bundle over the bridge edges) and the scene stays clean.
     var arena = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
@@ -272,8 +239,6 @@ test "bridges: a licensed cross-border fan records its realized rail; a mixed fa
     try testing.expectEqual(@as(u32, 0), report.crossings.foreign_junction_violation);
     try testing.expectEqual(@as(u32, 0), report.crossings.arrowhead_transit_violation);
 
-    // Mixed decorations at the pivot: the licence refuses, the record names
-    // it, and no bundle is selected.
     const mixed = try parse(a,
         \\graph TD
         \\    subgraph S

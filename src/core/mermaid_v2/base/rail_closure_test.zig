@@ -1,5 +1,5 @@
 //! Tests for base/rail_closure.zig — the all-arrow-free shared-rail closure
-//! law. Aggregated from entry.zig's test block (base/ files keep their empty
+//! licence. Aggregated from entry.zig's test block (base/ files keep their empty
 //! import allowlist).
 
 const std = @import("std");
@@ -37,8 +37,6 @@ fn free(v: rc.Verdict) void {
 }
 
 test "an undeclared leaf pair refuses the rail" {
-    // A---Z, B---Z, C---Z with nothing declared between the leaves: the
-    // crossbar would assert A—B, A—C and B—C, none of them declared.
     const members = [_]rc.Member{ member(0, 1), member(1, 2), member(2, 3) };
     const v = try decide(&members, &.{});
     defer free(v);
@@ -56,15 +54,12 @@ test "a fully declared clique keeps the rail and discharges every pair edge" {
     try testing.expectEqualSlices(u32, &.{ 0, 1, 2 }, v.members);
     try testing.expectEqual(@as(usize, 3), v.discharges.len);
     try testing.expectEqual(@as(u32, 0), v.undeclared_pairs);
-    // Every declared pair edge is discharged exactly once — the bijection.
     var seen = [_]bool{ false, false, false };
     for (v.discharges) |d| seen[d.backer - 10] = true;
     for (seen) |s| try testing.expect(s);
 }
 
 test "a backing edge is matched on unordered endpoints" {
-    // The declaration reads B---A while the rail's leaves are visited A then
-    // B: a pair is a PAIR, not an ordered arc.
     const members = [_]rc.Member{ member(0, 1), member(1, 2) };
     const backers = [_]rc.Backer{backer(10, 2, 1)};
     const v = try decide(&members, &backers);
@@ -91,9 +86,6 @@ test "a decorated, labeled or wrong-stroke declaration backs nothing" {
 }
 
 test "one declaration cannot back two pairs of the same rail" {
-    // Three leaves, one declaration: the first pair spends it and the other
-    // two pairs find nothing, so no size-3 rail and no size-2 salvage that
-    // needs a second backer.
     const members = [_]rc.Member{ member(0, 1), member(1, 2), member(2, 3) };
     const backers = [_]rc.Backer{backer(10, 1, 2)};
     const v = try decide(&members, &backers);
@@ -105,10 +97,6 @@ test "one declaration cannot back two pairs of the same rail" {
 }
 
 test "a declared pair names the one declaration the rail's crossbar takes over" {
-    // The clique case: the leaf pair IS declared, so the rail keeps its fusion
-    // and the verdict NAMES the declaration whose rendering the crossbar takes
-    // over. Which of the named declarations the caller may actually withhold
-    // is its own plan-wide record, not a property of this predicate.
     const members = [_]rc.Member{ member(0, 1), member(1, 2) };
     const taken = try decide(&members, &[_]rc.Backer{backer(10, 1, 2)});
     defer free(taken);
@@ -119,10 +107,6 @@ test "a declared pair names the one declaration the rail's crossbar takes over" 
 }
 
 test "a wide rail with nothing declared refuses without searching every subset" {
-    // 16 leaves, no declarations: every 2-subset already fails the pair test,
-    // so the compatibility prefilter rejects all 2^16 masks with no allocation
-    // and no first-fit search. A timing floor, not a wall-clock assertion: the
-    // outcome must still be the exhaustive one.
     var members: [rc.max_salvage_members]rc.Member = undefined;
     for (&members, 0..) |*m, i| m.* = member(@intCast(i), @intCast(i + 1));
     var timer = try std.time.Timer.start();
@@ -134,10 +118,6 @@ test "a wide rail with nothing declared refuses without searching every subset" 
 }
 
 test "a run whose welded pairs are undeclared is not closed" {
-    // The complete-bipartite union A—C, A—D, B—C, B—D fuses into ONE run
-    // welding all four endpoints, so it asserts A—B and C—D as well. Its own
-    // members declare the four cross pairs; nothing declares the two same-side
-    // ones, so the union is not closed and may not claim the exemption.
     const nodes = [_]u32{ 1, 2, 3, 4 };
     const members = [_]rc.Backer{ backer(10, 1, 3), backer(11, 1, 4), backer(12, 2, 3), backer(13, 2, 4) };
     try testing.expectEqual(@as(?[]const rc.Discharge, null), try rc.nodesClosed(testing.allocator, &nodes, solid, &members));
@@ -148,8 +128,6 @@ test "a run whose welded pairs are undeclared is not closed" {
 }
 
 test "salvage keeps the largest fully declared subset, earliest members first" {
-    // Four leaves; only the (1,2) and (1,3) and (2,3) triangle is declared, so
-    // the leaf-4 member must go and the remaining three fuse.
     const members = [_]rc.Member{ member(0, 1), member(1, 2), member(2, 3), member(3, 4) };
     const backers = [_]rc.Backer{ backer(10, 1, 2), backer(11, 1, 3), backer(12, 2, 3) };
     const v = try decide(&members, &backers);
@@ -159,7 +137,7 @@ test "salvage keeps the largest fully declared subset, earliest members first" {
     try testing.expectEqual(@as(usize, 3), v.discharges.len);
 }
 
-test "a directed or mixed rail is untouched by this law" {
+test "a directed or mixed rail is untouched by this licence" {
     const directed = [_]rc.Member{ directedMember(0, 1), directedMember(1, 2) };
     const v = try decide(&directed, &.{});
     defer free(v);
@@ -180,8 +158,6 @@ test "a rail with fewer than two members has no pairs to declare" {
 }
 
 test "two members landing on one leaf state no leaf-to-leaf pair" {
-    // A duplicate arrival (both members reach leaf 1) asserts nothing between
-    // distinct leaves, so the law neither demands a declaration nor refuses.
     const members = [_]rc.Member{ member(0, 1), member(1, 1) };
     const v = try decide(&members, &.{});
     defer free(v);
@@ -208,10 +184,7 @@ test "a discharged edge that still routes privately is a double discharge" {
     try testing.expectEqual(@as(u32, 2), rc.doubleDischarged(&.{ 10, 11 }, &.{ 11, 10 }));
 }
 
-test "a decorated star with undeclared pairs refuses instead of escaping the law" {
-    // o--o members: no directional end, so the law decides (eligible) — and
-    // decoration disqualifies every member from discharge, so nothing keeps
-    // the rail and every member unfuses to a private stroke.
+test "a decorated star with undeclared pairs refuses instead of escaping the licence" {
     const members = [_]rc.Member{ decoratedMember(0, 1), decoratedMember(1, 2), decoratedMember(2, 3) };
     const v = try decide(&members, &.{});
     defer free(v);
@@ -221,9 +194,6 @@ test "a decorated star with undeclared pairs refuses instead of escaping the law
 }
 
 test "a decorated star with every pair declared is still refused for discharge" {
-    // Declarations exist for every leaf pair, but a bare crossbar span
-    // cannot render a decorated member's relation truthfully: the
-    // undecorated gate refuses regardless of the backing.
     const members = [_]rc.Member{ decoratedMember(0, 1), decoratedMember(1, 2) };
     const backers = [_]rc.Backer{backer(10, 1, 2)};
     const v = try decide(&members, &backers);

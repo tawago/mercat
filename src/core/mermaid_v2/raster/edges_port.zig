@@ -62,15 +62,15 @@ pub const PortEnd = struct {
 /// head. Suppression is keyed to the head's FACING (see `mergePortBit`):
 /// the bit is dropped only when the tip points AT the border cell, where
 /// the tee behind it would be redundant.
-/// guarded-by: edges_port_test.zig "a decorated source end whose head faces the wall leaves it pristine"
+/// @guarded-by: edges_port_test.zig "a decorated source end whose head faces the wall leaves it pristine"
 /// Every stroke actually drawn also files a `.port` record for `edge_id`
 /// on the side table: the border cell keeps the merged arm but not the
 /// identity of the edge that merged it, so the record adds a fact the
 /// Cell cannot express (lattice.zig's anti-desync law). Refused strokes
 /// (invisible edge, non-border cell) file nothing —
 /// the bundle records what was drawn, never what was intended.
-/// guarded-by: edges_port_test.zig "drawPortStroke: an invisible edge leaves the source node border untouched"
-/// guarded-by: aux_test.zig "drawPortStroke files a port record only for a stroke it actually draws"
+/// @guarded-by: edges_port_test.zig "drawPortStroke: an invisible edge leaves the source node border untouched"
+/// @guarded-by: aux_test.zig "drawPortStroke files a port record only for a stroke it actually draws"
 pub fn drawPortStroke(
     lat: *lattice.Lattice,
     pts: []const sketch.Point,
@@ -102,9 +102,9 @@ pub fn drawPortStroke(
 /// pair, symmetric on all four faces, and both drop the bit only for a head
 /// whose TIP FACES the border (`end.head`), so a `▼` never sits on a `┴`
 /// while every other head still gets its wall attachment.
-/// guarded-by: edges_port_test.zig "drawTargetPortStroke: arrival arms merge on all four faces"
-/// guarded-by: edges_port_test.zig "a decorated arrival whose head faces the wall leaves it pristine"
-/// guarded-by: edges_port_test.zig "a head adjacent to the wall but pointing ALONG the route still tees it"
+/// @guarded-by: edges_port_test.zig "drawTargetPortStroke: arrival arms merge on all four faces"
+/// @guarded-by: edges_port_test.zig "a decorated arrival whose head faces the wall leaves it pristine"
+/// @guarded-by: edges_port_test.zig "a head adjacent to the wall but pointing ALONG the route still tees it"
 pub fn drawTargetPortStroke(
     lat: *lattice.Lattice,
     pts: []const sketch.Point,
@@ -135,7 +135,7 @@ fn samePoint(a: sketch.Point, b: sketch.Point) bool {
 /// pointing ALONG the route (a `◀` one row below a bottom wall, travelling
 /// west) does not face it, and the wall still needs its tap or the run
 /// floats detached beside a closed box.
-/// guarded-by: edges_port_test.zig "a head adjacent to the wall but pointing ALONG the route still tees it"
+/// @guarded-by: edges_port_test.zig "a head adjacent to the wall but pointing ALONG the route still tees it"
 fn tipFaces(h: Head, q: sketch.Point) bool {
     return samePoint(step(h.cell, h.dir), q);
 }
@@ -155,8 +155,6 @@ fn attachment(lat: *const lattice.Lattice, p: sketch.Point, travel: Move) ?Attac
     if (!pointInBounds(p, lat)) return null;
     var q = p;
     var gap: ?sketch.Point = null;
-    // Probe exactly one cell, and only across an EMPTY endpoint, so the
-    // stroke never jumps a real occupant.
     if (lat.atConst(toCoord(q).x, toCoord(q).y).occupant == .empty) {
         gap = q;
         q = step(q, travel);
@@ -193,8 +191,8 @@ fn attachment(lat: *const lattice.Lattice, p: sketch.Point, travel: Move) ?Attac
 /// convention) and the gap-paint below is unreachable for it. The paint
 /// therefore survives only for UNDECORATED gap ends, which have no head and
 /// no tip-side constraint.
-/// guarded-by: edges_slide_test.zig "a decorated gap arrival slides its head onto the border-adjacent cell"
-/// guarded-by: edges_slide_test.zig "an occupied gap cell leaves the head where it is"
+/// @guarded-by: edges_slide_test.zig "a decorated gap arrival slides its head onto the border-adjacent cell"
+/// @guarded-by: edges_slide_test.zig "an occupied gap cell leaves the head where it is"
 pub fn slideHead(lat: *const lattice.Lattice, endpoint: sketch.Point, head: Head) Head {
     const at = attachment(lat, endpoint, head.dir) orelse return head;
     const g = at.gap orelse return head;
@@ -217,7 +215,7 @@ pub fn slideHead(lat: *const lattice.Lattice, endpoint: sketch.Point, head: Head
 /// with no tap, and the arrowheads of a bidirectional pair float detached
 /// below a closed box. Every non-facing head merges, exactly as uniform
 /// erasure requires.
-/// guarded-by: edges_port_test.zig "a head adjacent to the wall but pointing ALONG the route still tees it"
+/// @guarded-by: edges_port_test.zig "a head adjacent to the wall but pointing ALONG the route still tees it"
 ///
 /// THE GAP APPROACH, FOR UNDECORATED ENDS ONLY. When the probe below
 /// crosses a 1-cell port gap, the merge alone would leave `├ ` — a tee, a
@@ -234,8 +232,8 @@ pub fn slideHead(lat: *const lattice.Lattice, endpoint: sketch.Point, head: Head
 /// a head would put ink on its TIP side (`├─◀`), which the arrowhead
 /// contract forbids. Undecorated ends have no head and no tip side, so the
 /// paint is theirs alone.
-/// guarded-by: edges_port_test.zig "an UNDECORATED gap arrival also gets tee, painted gap and run"
-/// guarded-by: edges_slide_test.zig "a decorated gap arrival slides its head onto the border-adjacent cell"
+/// @guarded-by: edges_port_test.zig "an UNDECORATED gap arrival also gets tee, painted gap and run"
+/// @guarded-by: edges_slide_test.zig "a decorated gap arrival slides its head onto the border-adjacent cell"
 fn mergePortBit(
     lat: *lattice.Lattice,
     p: sketch.Point,
@@ -258,14 +256,10 @@ fn mergePortBit(
     // corner glyph AND file the `.port` that excuses the landing from the
     // terminal audit's corner bucket. Nothing is drawn, the gap cell
     // included: no port stroke, nothing approaching.
-    // guarded-by: edges_port_test.zig "a gap arrival merges its port bit across the 1-cell reprieve"
-    // guarded-by: edges_port_test.zig "a corner landing is refused: no merge, no record"
+    // @guarded-by: edges_port_test.zig "a gap arrival merges its port bit across the 1-cell reprieve"
+    // @guarded-by: edges_port_test.zig "a corner landing is refused: no merge, no record"
     const at = attachment(lat, p, reverse(arm)) orelse return;
     const gap = at.gap;
-    // The facing gate, applied to the border cell the probe RESOLVED (not
-    // the polyline endpoint). A gap end's head has already been slid ONTO
-    // the gap by `slideHead`, so its tip faces this border and the tee is
-    // suppressed; a head that did not slide does not face it and merges.
     if (end.head) |h| {
         if (tipFaces(h, at.border)) return;
     }
@@ -277,16 +271,13 @@ fn mergePortBit(
     }
     aux.record(sink, lat.cellIndex(c.x, c.y), .port, edge_id, lattice.portArmDetail(arm));
 
-    // The approach stroke, drawn only now that the wall actually teed: a
-    // run cell on the port axis joining border to head/run. `straightMask`
-    // is axis-symmetric, so the arm direction serves either end.
     if (gap) |g| {
         const gc = toCoord(g);
         // Empty by the probe's own condition, so `writeEdgeCell` takes its
         // `.empty` arm: it claims background, files no record and cannot
         // reach the loss counters. `lost` is therefore provably untouched —
         // the port path stays neutral for `audit.collect`.
-        // guarded-by: edges_port_test.zig "painting the gap cell costs no lost cells"
+        // @guarded-by: edges_port_test.zig "painting the gap cell costs no lost cells"
         var lost: u32 = 0;
         writeEdgeCell(
             lat.at(gc.x, gc.y),
@@ -297,7 +288,7 @@ fn mergePortBit(
             gc.x,
             gc.y,
             &lost,
-            .merged_untested, // the `.empty` arm files no carrier at all
+            .merged_untested,
             aux.Recorder.init(sink, lat),
         );
         std.debug.assert(lost == 0);

@@ -54,8 +54,6 @@ test "ok sketch passes all validators" {
         makeNode(1, 0, 0, 5, 3, null),
         makeNode(2, 10, 0, 5, 3, null),
     };
-    // Endpoint (5,1) is on node 1's east edge; (10,1) is on node 2's
-    // west edge. Segment between them is on neither interior.
     const poly = [_]sketch.Point{
         .{ .x = 5, .y = 1 },
         .{ .x = 10, .y = 1 },
@@ -83,7 +81,7 @@ test "overlapping nodes flagged" {
 
     const nodes = [_]sketch.NodePlacement{
         makeNode(1, 0, 0, 5, 3, null),
-        makeNode(2, 2, 1, 5, 3, null), // overlaps node 1
+        makeNode(2, 2, 1, 5, 3, null),
     };
     const s: sketch.Sketch = .{
         .bbox = .{ .x = 0, .y = 0, .w = 7, .h = 4 },
@@ -109,15 +107,11 @@ test "edge through node interior flagged" {
     defer arena.deinit();
     const a = arena.allocator();
 
-    // Three nodes laid out left-to-right with node 3 (middle) blocking
-    // a direct horizontal path from node 1 to node 2.
     const nodes = [_]sketch.NodePlacement{
         makeNode(1, 0, 0, 5, 5, null),
         makeNode(2, 20, 0, 5, 5, null),
-        makeNode(3, 10, 0, 5, 5, null), // middle blocker
+        makeNode(3, 10, 0, 5, 5, null),
     };
-    // A straight segment from node 1 east edge to node 2 west edge at
-    // y=2 cuts through node 3's interior.
     const poly = [_]sketch.Point{
         .{ .x = 5, .y = 2 },
         .{ .x = 20, .y = 2 },
@@ -144,7 +138,6 @@ test "edge through node interior flagged" {
 }
 
 test "bbox overflow is informational, not a validation failure" {
-    // Phase 2c / A4: over-budget bbox is clipped at paint, not a defect.
     var arena = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
@@ -168,8 +161,6 @@ test "cluster containment violated" {
     defer arena.deinit();
     const a = arena.allocator();
 
-    // Cluster frame at (0,0,10,10); node declared in it but extending
-    // past the right edge.
     const clusters = [_]sketch.ClusterFrame{.{
         .id = 1,
         .rect = .{ .x = 0, .y = 0, .w = 10, .h = 10 },
@@ -178,7 +169,7 @@ test "cluster containment violated" {
         .depth = 0,
     }};
     const nodes = [_]sketch.NodePlacement{
-        makeNode(1, 8, 1, 5, 3, 1), // right edge at 13 > 10
+        makeNode(1, 8, 1, 5, 3, 1),
     };
     const s: sketch.Sketch = .{
         .bbox = .{ .x = 0, .y = 0, .w = 15, .h = 10 },
@@ -204,13 +195,8 @@ test "checkPathInteriors exempts a segment adjacent to its own edge's endpoint b
     defer arena.deinit();
     const a = arena.allocator();
 
-    // Node A: rect (0,0,5,5) — interior cells x in {1,2,3}, y in {1,2,3}.
     const node_a = [_]sketch.NodePlacement{makeNode(1, 0, 0, 5, 5, null)};
 
-    // Edge whose FIRST (and only) segment starts squarely inside A's own
-    // interior. Without the endpoint-adjacency exemption this would read
-    // as A's own edge piercing A; it must be skipped because seg_idx==0
-    // and node.id == edge.from(1).
     const poly_own = [_]sketch.Point{ .{ .x = 2, .y = 2 }, .{ .x = 2, .y = 20 } };
     const edge_own = [_]sketch.EdgePath{makeEdge(10, 1, 99, &poly_own)};
     var v_own: std.ArrayList(validate_mod.Violation) = .empty;
@@ -225,9 +211,6 @@ test "checkPathInteriors exempts a segment adjacent to its own edge's endpoint b
     }, &v_own);
     try testing.expectEqual(@as(usize, 0), v_own.items.len);
 
-    // An unrelated edge (neither endpoint is A) whose single segment
-    // happens to cross straight through A's interior: not adjacent to A
-    // as an endpoint, so the exemption does not apply — must be flagged.
     const poly_foreign = [_]sketch.Point{ .{ .x = -8, .y = 2 }, .{ .x = 13, .y = 2 } };
     const edge_foreign = [_]sketch.EdgePath{makeEdge(11, 3, 4, &poly_foreign)};
     var v_foreign: std.ArrayList(validate_mod.Violation) = .empty;
@@ -249,14 +232,8 @@ test "checkPathInteriors' diagonal fallback is a conservative bbox-overlap test,
     defer arena.deinit();
     const a = arena.allocator();
 
-    // Node rect (10,10,5,5) — interior x in {11,12,13}, y in {11,12,13}.
     const node = [_]sketch.NodePlacement{makeNode(5, 10, 10, 5, 5, null)};
 
-    // Diagonal segment (0,20)->(20,0): the actual line is y = 20 - x, so
-    // at x in [11,13] the real line sits at y in [7,9] — entirely above
-    // the node's interior (y in [11,13]) and never truly touches it.
-    // Its bounding box, x:[0,20] y:[0,20], DOES fully cover the node's
-    // interior bbox though, so the conservative fallback still flags it.
     const poly_bbox_overlap = [_]sketch.Point{ .{ .x = 0, .y = 20 }, .{ .x = 20, .y = 0 } };
     const edge_overlap = [_]sketch.EdgePath{makeEdge(20, 100, 101, &poly_bbox_overlap)};
     var v_overlap: std.ArrayList(validate_mod.Violation) = .empty;
@@ -271,8 +248,6 @@ test "checkPathInteriors' diagonal fallback is a conservative bbox-overlap test,
     }, &v_overlap);
     try testing.expectEqual(@as(usize, 1), v_overlap.items.len);
 
-    // Contrast: a diagonal whose bbox does NOT reach the node at all is
-    // correctly left unflagged.
     const poly_clear = [_]sketch.Point{ .{ .x = 0, .y = 0 }, .{ .x = 5, .y = 5 } };
     const edge_clear = [_]sketch.EdgePath{makeEdge(21, 100, 101, &poly_clear)};
     var v_clear: std.ArrayList(validate_mod.Violation) = .empty;
@@ -287,8 +262,6 @@ test "checkPathInteriors' diagonal fallback is a conservative bbox-overlap test,
     }, &v_clear);
     try testing.expectEqual(@as(usize, 0), v_clear.items.len);
 }
-
-// -- Counts (Phase 1 integrity report) ----------------------------------------
 
 test "counts: clean sketch tallies all-zero" {
     var arena = std.heap.ArenaAllocator.init(testing.allocator);
@@ -324,13 +297,11 @@ test "counts: interior crossing and overlap tally per kind" {
     defer arena.deinit();
     const a = arena.allocator();
 
-    // Node 3 blocks the straight path from 1 to 2 (path_through_interior)
-    // AND overlaps node 4 (node_overlap).
     const nodes = [_]sketch.NodePlacement{
         makeNode(1, 0, 0, 5, 5, null),
         makeNode(2, 20, 0, 5, 5, null),
         makeNode(3, 10, 0, 5, 5, null),
-        makeNode(4, 12, 2, 5, 5, null), // overlaps node 3
+        makeNode(4, 12, 2, 5, 5, null),
     };
     const poly = [_]sketch.Point{
         .{ .x = 5, .y = 2 },
@@ -372,7 +343,7 @@ test "counts: over-budget bbox reports bbox_overflow without a Violation" {
     };
 
     const vr = try validate(a, s);
-    try testing.expect(vr == .ok); // informational — no Violation emitted
+    try testing.expect(vr == .ok);
     const c = validate_mod.counts(vr, s);
     try testing.expectEqual(@as(u32, 1), c.bbox_overflow);
 }

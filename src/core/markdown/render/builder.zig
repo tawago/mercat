@@ -85,8 +85,6 @@ pub const Builder = struct {
     pub fn appendSpanWithUrl(self: *Builder, style: SpanStyle, text: []const u8, url: ?[]const u8) !void {
         if (text.len == 0) return;
         if (!self.hasPending() and self.left_padding != 0) {
-            // Seed the tail with the left padding so a following `.body` span
-            // merges into it, exactly as it did when spans were concatenated.
             try self.tail.appendNTimes(self.allocator, ' ', self.left_padding);
             self.tail_style = .body;
             self.tail_url = null;
@@ -128,9 +126,6 @@ pub const Builder = struct {
             try self.newline();
         }
         for (self.lines.items) |*line| try line.prepareOwned(self.allocator);
-        // `finish` hands ownership of everything to the caller, and callers are
-        // allowed to drop the Builder without `deinit`. Release the tail
-        // buffer's retained capacity so that stays leak-free.
         self.tail.clearAndFree(self.allocator);
         return try self.lines.toOwnedSlice(self.allocator);
     }
@@ -174,10 +169,8 @@ test "consecutive same-style appends merge into one span, including left padding
 
     try std.testing.expectEqual(@as(usize, 2), lines.len);
     try std.testing.expectEqual(@as(usize, 3), lines[0].spans.len);
-    // The left padding is part of the first `.body` run, not a span of its own.
     try std.testing.expectEqualStrings("  abcd", lines[0].spans[0].text);
     try std.testing.expectEqualStrings("ef", lines[0].spans[1].text);
-    // A differing url breaks the merge; a matching one does not.
     try std.testing.expectEqualStrings("ghij", lines[0].spans[2].text);
     try std.testing.expectEqualStrings("u", lines[0].spans[2].url.?);
     try std.testing.expectEqualStrings("  z", lines[1].spans[0].text);

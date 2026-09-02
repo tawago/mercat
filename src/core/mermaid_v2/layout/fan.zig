@@ -69,7 +69,7 @@ pub const Fan = struct {
     /// raster/labels_onrun.zig places over (FLANKED-RESUMPTION RULE: an arrowhead is not a
     /// flank, so the head needs its own cell below the lower flank).
     /// Unlabeled fans stay byte-identical.
-    /// guarded-by: fan_test.zig "a labeled fan reserves three extra gap rows; an unlabeled fan reserves one"
+    /// @guarded-by: fan_test.zig "a labeled fan reserves three extra gap rows; an unlabeled fan reserves one"
     labeled: bool = false,
     construction_deco_mixed: bool = false,
     construction_style_mixed: bool = false,
@@ -122,7 +122,7 @@ pub fn detect(
 
     var fans: std.ArrayListUnmanaged(Fan) = .empty;
 
-    // Two-pass to preserve fan-OUT-then-fan-IN ordering. guarded-by: fan_test.zig "detect distinguishes fan-OUT and fan-IN in the same graph"
+    // Two-pass to preserve fan-OUT-then-fan-IN ordering. @guarded-by: fan_test.zig "detect distinguishes fan-OUT and fan-IN in the same graph"
     var pivot: u32 = 0;
     while (pivot < lg.nodes.len) : (pivot += 1) {
         const pivot_id = switch (lg.nodes[pivot]) {
@@ -281,7 +281,7 @@ fn collectFanOut(
         if (node_layer[le.to] != src_layer + 1) continue;
         switch (lg.nodes[le.to]) {
             .real => {},
-            // guarded-by: fan_test.zig "detect excludes a pivot whose next-layer candidates mix real and virtual peers"
+            // @guarded-by: fan_test.zig "detect excludes a pivot whose next-layer candidates mix real and virtual peers"
             .virtual => return null,
         }
         try candidates.append(a, .{
@@ -324,8 +324,6 @@ fn collectFanIn(
 
 fn preparePeers(a: std.mem.Allocator, graph: sg.SemGraph, direction: ledger.BundleDirection, pivot: sg.NodeId, candidates: []const FanEdge) error{OutOfMemory}!?PreparedPeers {
     if (candidates.len < 2) return null;
-    // Structural detection tests may supply no semantic edge table. Production
-    // always has it; keep the pure layered-graph contract for those unit tests.
     const out = try a.dupe(FanEdge, candidates);
     if (graph.edges.len == 0) return .{ .peers = out };
     const ids = try a.alloc(ledger.EdgeId, candidates.len);
@@ -334,11 +332,6 @@ fn preparePeers(a: std.mem.Allocator, graph: sg.SemGraph, direction: ledger.Bund
     const shared_ids = prepared.members;
     for (out) |*candidate| {
         candidate.label_width = if (peerLabel(graph, candidate.edge_id)) |label| prim.displayWidth(label) else 0;
-        // A labeled member stays shared in BOTH directions: fan-OUT labels use
-        // private Rail tap droppers below the crossbar; fan-IN labels use the
-        // member's private drop ABOVE the crossbar (source border to tap) —
-        // the same on-run sandwich, hosted by the gap rows extraRowsPerGap
-        // reserves for a labeled fan.
         candidate.shared = containsEdge(shared_ids, candidate.edge_id);
     }
     return .{ .peers = out, .deco_mixed = prepared.deco_mixed, .style_mixed = prepared.style_mixed, .star_violation = prepared.star_violation };
@@ -353,7 +346,7 @@ fn containsEdge(edges: []const ledger.EdgeId, edge: ledger.EdgeId) bool {
 /// and layer i+1. Each fan reserves `fan.lane + 1` rows at its `source_layer`
 /// gap; the gap takes the max across its fans. With every `lane == 0` (the
 /// pre-lane-separation default) this is exactly one row per fan gap.
-/// guarded-by: layout/fan_lanes_test.zig "lane assignment reserves one extra gap row per lane"
+/// @guarded-by: layout/fan_lanes_test.zig "lane assignment reserves one extra gap row per lane"
 pub fn extraRowsPerGap(
     a: std.mem.Allocator,
     lg: sugiyama.LayeredGraph,
@@ -374,9 +367,6 @@ pub fn extraRowsPerGap(
                     need = @max(need, lane + 1 + LABEL_RUN_EXTRA_ROWS);
                     continue;
                 }
-                // Fan-IN shared labels ride the members' private drops ABOVE
-                // the crossbar — one column per member, so one shared 3-row
-                // band suffices. Fan-OUT tap labels stack one block each.
                 if (f.direction == .in) {
                     need = @max(need, lane + 1 + LABEL_RUN_EXTRA_ROWS);
                     continue;
@@ -474,7 +464,7 @@ pub fn lookup(fans: []const Fan, edge_id: sg.EdgeId) ?LookupHit {
 /// the ordinary result is one set per fan holding all of its peers, which is
 /// what a clustered render (empty realized plan, no per-member lanes) always
 /// gets. Members are edge ids in the caller's own id space.
-/// guarded-by: fan_test.zig "bundles group a fan's peers by rail lane"
+/// @guarded-by: fan_test.zig "bundles group a fan's peers by rail lane"
 pub fn coSets(
     a: std.mem.Allocator,
     fans: []const Fan,
@@ -485,8 +475,6 @@ pub fn coSets(
     for (fans) |f| {
         for (f.peers, 0..) |seed, i| {
             if (!seed.shared) continue;
-            // First peer on this lane owns the group; later ones are already
-            // inside it.
             const seed_lane = effectiveLane(f, seed.lane);
             var already = false;
             for (f.peers[0..i]) |earlier| {

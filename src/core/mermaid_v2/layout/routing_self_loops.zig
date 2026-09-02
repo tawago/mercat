@@ -19,7 +19,7 @@ pub const SelfLoop = struct {
     port_to: sketch.Port,
 };
 
-// Detour offsets for the classic TD loop (corner+dash east, corner+verticals+arrowhead north). // guarded-by: routing_self_loops_test.zig "self-loop detour offsets match OFF_H=4 (east overshoot) / OFF_V=3 (vertical rise/drop) across TD/BT/LR/RL"
+// Detour offsets for the classic TD loop (corner+dash east, corner+verticals+arrowhead north). // @guarded-by: routing_self_loops_test.zig "self-loop detour offsets match OFF_H=4 (east overshoot) / OFF_V=3 (vertical rise/drop) across TD/BT/LR/RL"
 const OFF_H: i32 = 4;
 const OFF_V: i32 = 3;
 
@@ -67,7 +67,7 @@ pub fn selfLoopAt(
         // PREFER the lifted geometry and fall back to the tight (-1) shape when
         // no overshoot column clears the lifted arms — never fabricate an
         // adjacency to gain a base cell. Also clamps the lift away from a
-        // canvas underflow (top < OFF_V rows). // guarded-by: routing_self_loops_test.zig "selfLoopAt TD lifts the top run OFF_V so the north re-entry has a straight base cell"
+        // canvas underflow (top < OFF_V rows). // @guarded-by: routing_self_loops_test.zig "selfLoopAt TD lifts the top run OFF_V so the north re-entry has a straight base cell"
         const lifted_y = if (r.y >= OFF_V) r.y - OFF_V else r.y - 1;
         const loop_y, const loop_x = choose: {
             if (r.y >= OFF_V) {
@@ -184,10 +184,10 @@ fn belowEastLoop(
 
     var gap_y = south_y + 1;
     while (gap_y <= south_y + 3) : (gap_y += 1) {
-        // The south descent only lengthens with gap_y; once blocked, no deeper row can work either. // guarded-by: routing_self_loops_test.zig "belowEastLoop's south descent blocking is monotonic: an obstacle at the nearest candidate gap row sinks the whole fallback (no deeper gap_y recovers)"
+        // The south descent only lengthens with gap_y; once blocked, no deeper row can work either. // @guarded-by: routing_self_loops_test.zig "belowEastLoop's south descent blocking is monotonic: an obstacle at the nearest candidate gap row sinks the whole fallback (no deeper gap_y recovers)"
         if (sketch.columnTouchesAny(exit_x, south_y + 1, gap_y, placements, id, id)) return null;
         // Base-side law: land the east re-entry with a straight `─` before the
-        // `◀` (arm one cell further east → `◀─┐`, never `◀┐`). // guarded-by: routing_self_loops_test.zig "belowEastLoop lands the east re-entry with a straight base cell (◀─┐)"
+        // `◀` (arm one cell further east → `◀─┐`, never `◀┐`). // @guarded-by: routing_self_loops_test.zig "belowEastLoop lands the east re-entry with a straight base cell (◀─┐)"
         var arm_x = east_x + 3;
         while (arm_x <= east_x + OFF_H + 3) : (arm_x += 1) {
             if (sketch.rowTouchesAny(gap_y, exit_x, arm_x, placements, id, id)) continue;
@@ -210,7 +210,7 @@ fn belowEastLoop(
     return null;
 }
 
-/// LR/RL loop, self-contained BELOW the node (both ports on SOUTH) so the detour never crosses back into the node's own body, and stays clear of the east forward out-edge (re-entering east would collide the return ◀ with the forward ▶, reading as a spurious ◀──▶). // guarded-by: routing_self_loops_test.zig "self-loop detour never crosses back into the source node's own interior, across sizes and directions"
+/// LR/RL loop, self-contained BELOW the node (both ports on SOUTH) so the detour never crosses back into the node's own body, and stays clear of the east forward out-edge (re-entering east would collide the return ◀ with the forward ▶, reading as a spurious ◀──▶). // @guarded-by: routing_self_loops_test.zig "self-loop detour never crosses back into the source node's own interior, across sizes and directions"
 fn southLoop(a: std.mem.Allocator, node_p: sketch.NodePlacement) error{OutOfMemory}!SelfLoop {
     const r = node_p.rect;
     const w_i: i32 = @intCast(r.w);
@@ -223,7 +223,7 @@ fn southLoop(a: std.mem.Allocator, node_p: sketch.NodePlacement) error{OutOfMemo
     try poly.append(a, .{ .x = exit_x, .y = south_y });
     try poly.append(a, .{ .x = exit_x, .y = loop_y });
     try poly.append(a, .{ .x = enter_x, .y = loop_y });
-    // Final segment rises NORTH into the south border so the rasterizer derives a ▲ arrowhead anchored on the bottom wall. // guarded-by: routing_self_loops_test.zig "southLoop's final segment rises north (dy<0), the geometry paint.zig's arrowGlyph maps to the up-arrow ▲"
+    // Final segment rises NORTH into the south border so the rasterizer derives a ▲ arrowhead anchored on the bottom wall. // @guarded-by: routing_self_loops_test.zig "southLoop's final segment rises north (dy<0), the geometry paint.zig's arrowGlyph maps to the up-arrow ▲"
     try poly.append(a, .{ .x = enter_x, .y = south_y });
     return .{
         .polyline = try poly.toOwnedSlice(a),
@@ -240,7 +240,7 @@ fn southLoop(a: std.mem.Allocator, node_p: sketch.NodePlacement) error{OutOfMemo
 pub fn selfLoopHalfGap(w: u32) i32 {
     const w_i: i32 = @intCast(w);
     const half = @divTrunc(w_i, 2);
-    // Largest k keeping both ports in [1, w-2]: k <= half-1 (left bound) and k <= w-2-half (right bound); prefer ~quarter width, clamp to the structural maximum, floor at 1. // guarded-by: routing_self_loops_test.zig "selfLoopHalfGap keeps both south ports strictly inside [1, w-2] for every non-degenerate width"
+    // Largest k keeping both ports in [1, w-2]: k <= half-1 (left bound) and k <= w-2-half (right bound); prefer ~quarter width, clamp to the structural maximum, floor at 1. // @guarded-by: routing_self_loops_test.zig "selfLoopHalfGap keeps both south ports strictly inside [1, w-2] for every non-degenerate width"
     const max_k = @min(half - 1, w_i - 2 - half);
     if (max_k < 1) return 1;
     const want = @divTrunc(w_i, 4);

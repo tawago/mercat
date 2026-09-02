@@ -64,13 +64,7 @@ const corpus = [_][]const u8{
     "flowchart TD\n  A --> D\n  B --> D\n  C --> D\n",
     "flowchart TD\n  A --> B\n  A -.-> C\n  A ==> D\n",
     "flowchart TD\n  A --> B1\n  A --> B2\n  A --> B3\n  A --> B4\n  A --> B5\n  A --> B6\n  A --> B7\n  A --> B8\n",
-    // The kept dotted class {C1, C2} is uniformly forward one-way, so the
-    // clustered fan holds its star licence and files final rail claims.
     "flowchart TD\n  subgraph S1\n    A <-->|a longer label 0| C0\n    A -.->|a longer label 1| C1\n    A -.-> C2\n    A --- C3\n  end\n  C0 -.-> OUT\n  OUT -.- A\n",
-    // Same shape with a mixed kept class {arrow-free C1, forward C2}: the
-    // star licence refuses it (non-blocking member) and every member routes
-    // privately — the record shape a refused clustered fan files is pinned
-    // by "a refused clustered fan files no rail claim ..." below.
     refused_clustered_fan_source,
 };
 
@@ -89,24 +83,15 @@ test "a refused clustered fan files no rail claim and routes every member privat
         const a = arena.allocator();
 
         const r = try render(a, refused_clustered_fan_source, width);
-        // No shared ink anywhere: the refused fan keeps no rail, files no
-        // claim, and the lone non-fan edges never form one.
         try testing.expectEqual(@as(usize, 0), r.sketch.rails.len);
         try testing.expectEqual(@as(usize, 0), r.sketch.rail_claims.len);
         try testing.expectEqual(@as(usize, 0), r.report.lattice.rail_claims.len);
-        // Every declared edge still owns private geometry (traceability): one routed
-        // path per edge, none fused, none discharged, none lost.
         try testing.expectEqual(r.graph.edges.len, r.sketch.edges.len);
         for (r.sketch.edges) |edge| try testing.expect(edge.polyline.len != 0);
     }
 }
 
 test "suppressed carriers and the crossing tallies count the same events" {
-    // The crossing rule's THREE refusal classes are counted in aggregate by
-    // the rasterizer and per-cell by the side table. Each `true` return
-    // from a crossing predicate suppresses exactly one edge at exactly one
-    // position, so the two instruments must agree exactly — and if a
-    // refusal path is ever added without a record, this is what says so.
     for (corpus) |source| for (widths) |width| {
         var arena = std.heap.ArenaAllocator.init(testing.allocator);
         defer arena.deinit();
@@ -132,9 +117,6 @@ test "suppressed carriers and the crossing tallies count the same events" {
 }
 
 test "a merged carrier never restates the id its cell already carries" {
-    // The anti-desync law, mechanically: a record may only carry a fact the
-    // Cell cannot express. A merged carrier naming the cell's OWN occupant
-    // would be a second, staleable copy of a Cell field.
     for (corpus) |source| for (widths) |width| {
         var arena = std.heap.ArenaAllocator.init(testing.allocator);
         defer arena.deinit();
@@ -151,9 +133,6 @@ test "a merged carrier never restates the id its cell already carries" {
                 .arrowhead => |h| h.edge,
                 else => null,
             };
-            // Later passes may replace the occupant entirely (a label, a
-            // weld), which is exactly why the record survives; the law only
-            // bites when the cell still names an edge.
             if (named) |id| try testing.expect(id != rec.value);
         }
     };
@@ -212,11 +191,6 @@ fn ownerExists(s: sketch.Sketch, owner: cell.LabelOwner) bool {
 }
 
 test "the terminal law's departure verdict comes from the records, not the mask" {
-    // The flip, proved on the instrument rather than argued: audit the same
-    // shipped lattice twice, once with its side table and once with the
-    // table hidden. Every departure must move into the unrecorded-arm
-    // bucket, and NOTHING else on the line may move — if the verdict were
-    // still being read off the neighbour mask, both runs would agree.
     var departures_seen: u32 = 0;
     for (corpus) |source| for (widths) |width| {
         var arena = std.heap.ArenaAllocator.init(testing.allocator);
@@ -235,11 +209,6 @@ test "the terminal law's departure verdict comes from the records, not the mask"
         try testing.expectEqual(@as(u32, 0), without.c_term_port_recorded);
         try testing.expectEqual(with.c_term_port_recorded, without.c_term_ring_arm_unrecorded);
 
-        // Same pairs; the record-based buckets trade places. The rings
-        // family is record-based too (uniform port erasure files a `.port`
-        // for every border arm it merges), so blinding the table moves each
-        // port-explained arm into ITS unrecorded bucket — a defect there,
-        // exactly because a real unexplained arm is one.
         try testing.expectEqual(with.n_term_abut, without.n_term_abut);
         try testing.expectEqual(with.c_border_arm_port, without.d_border_arm_unrecorded);
         try testing.expectEqual(
@@ -249,17 +218,10 @@ test "the terminal law's departure verdict comes from the records, not the mask"
         try testing.expectEqual(with.c_term_node_ns_arrow, without.c_term_node_ns_arrow);
         try testing.expectEqual(with.c_term_frame_bare, without.c_term_frame_bare);
     };
-    // Counted over the corpus rather than per render, out of caution for
-    // degenerate entries (an all-invisible flow records nothing).
     try testing.expect(departures_seen > 0);
 }
 
 test "the frame-bridge tallies and the per-cell intrusion records count the same events" {
-    // The frame-solid ruling has two outcomes and counts them in aggregate;
-    // the side table names the edge and the position of each one. The two
-    // instruments are written at the same two sites, so they must agree
-    // exactly — and a third site added without a record is precisely what
-    // this catches.
     var bridges_seen: u32 = 0;
     var refusals_seen: u32 = 0;
     for (corpus) |source| for (widths) |width| {
@@ -288,16 +250,10 @@ test "the frame-bridge tallies and the per-cell intrusion records count the same
         bridges_seen += bridged;
         refusals_seen += refused;
     };
-    // Agreement at zero would be no evidence at all: the corpus has to
-    // actually drive an edge through a subgraph frame.
     try testing.expect(bridges_seen + refusals_seen > 0);
 }
 
 test "every rail-membership record names an edge the fan actually serves" {
-    // A membership record is a claim about geometry the Cell cannot hold,
-    // so it has to be checkable against the geometry: the named edge must
-    // be a member of a fan of the recorded polarity, and no record may
-    // restate the id its own cell carries.
     var rail_members: u32 = 0;
     var peer_members: u32 = 0;
     for (corpus) |source| for (widths) |width| {
@@ -313,8 +269,6 @@ test "every rail-membership record names an edge the fan actually serves" {
                 else => continue,
             }
             const polarity: lattice.RailPolarity = @enumFromInt(rec.detail);
-            // A `.tap` names a branch, which only a first-class rail
-            // declares; a `.rail_member` may also come from a peer-drawn fan.
             const served = if (rec.kind == .tap)
                 railTap(r.sketch, rec.value, polarity)
             else
@@ -329,8 +283,6 @@ test "every rail-membership record names an edge the fan actually serves" {
             if (rec.kind == .rail_member) {
                 rail_members += 1;
                 if (!railTap(r.sketch, rec.value, polarity)) peer_members += 1;
-                // Anti-desync: a membership record may never restate the id
-                // its own cell carries.
                 switch (lat.cells[rec.cell].occupant) {
                     .edge_segment => |seg| try testing.expect(seg.edge != rec.value),
                     .arrowhead => |head| try testing.expect(head.edge != rec.value),
@@ -339,9 +291,6 @@ test "every rail-membership record names an edge the fan actually serves" {
             }
         }
     };
-    // Both producers must actually be exercised, or this test would pass by
-    // checking nothing: the rail rasterizer files for first-class rails,
-    // the edge walk for the peer-drawn fans (declined and grid-wrapped).
     try testing.expect(rail_members > 0);
     try testing.expect(peer_members > 0);
 }
@@ -415,8 +364,6 @@ test "AUX and RailClaim metadata preserve production cells and audit counts" {
 }
 
 test "a peer-drawn rail role and its membership record are one event" {
-    // The write-time role stamp and membership record remain one observation.
-    // Authoritative claims admit only a star-law-valid family to shared ink.
     var roles_checked: u32 = 0;
     var records_without_role: u32 = 0;
     for (corpus) |source| for (widths) |width| {
@@ -430,15 +377,11 @@ test "a peer-drawn rail role and its membership record are one event" {
         while (y < lat.height) : (y += 1) {
             var x: u32 = 0;
             while (x < lat.width) : (x += 1) {
-                // A first-class rail writes both role and geometry itself;
-                // its cells are the rail rasterizer's, not the walk's.
                 if (onOwnedRail(r.sketch, x, y)) continue;
                 const c = lat.atConst(x, y).*;
                 const stamped = railFamilyAt(lat, x, y);
                 const recorded = recordedFamilyAt(lat, x, y);
                 if (stamped == null and recorded == null) continue;
-                // role ⇒ record of the same family; a record with no role is
-                // legal only for a reason the producer states.
                 const agree = if (stamped) |fam|
                     recorded == fam
                 else
@@ -454,10 +397,6 @@ test "a peer-drawn rail role and its membership record are one event" {
             }
         }
     };
-    // The corpus carries peer-drawn shared cells, but the construction gate
-    // keeps incompatible peers private. Record-only membership is retained
-    // for malformed/manual lattices and covered directly by fan_roles_test
-    // "a rider of another family, or of no fan at all, stamps nothing".
     try testing.expect(roles_checked > 0);
     try testing.expectEqual(@as(u32, 0), records_without_role);
 }
@@ -473,9 +412,9 @@ test "a peer-drawn rail role and its membership record are one event" {
 fn recordWithoutRoleIsExplained(c: lattice.Cell, recorded: lattice.RailPolarity) bool {
     const seg = switch (c.occupant) {
         .edge_segment => |q| q,
-        else => return true, // (1) role-less occupant
+        else => return true,
     };
-    return switch (seg.role) { // (2) the other family owns this cell's role
+    return switch (seg.role) {
         .fan_out_rail, .fan_out_dropper => recorded == .in,
         .fan_in_rail, .fan_in_dropper => recorded == .out,
         else => false,

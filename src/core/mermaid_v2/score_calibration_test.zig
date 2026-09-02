@@ -25,10 +25,6 @@ fn testNode(id: u32, rect: sketch.Rect, cluster_id: ?u32) sketch.NodePlacement {
     return .{ .id = id, .rect = rect, .shape = .rect, .lines = &.{}, .cluster_id = cluster_id };
 }
 
-// NOTE: max_width is set far above every bbox width used in this file so
-// T0 fit-severity stays 0 and every comparison below is decided at T12 (the
-// composite tier these tests target) — these bboxes deliberately exceed the
-// 120 default other score_test.zig helpers use.
 fn testSketch(bbox: sketch.Rect, nodes: []const sketch.NodePlacement, edges: []const sketch.EdgePath, clusters: []const sketch.ClusterFrame) sketch.Sketch {
     return .{
         .bbox = bbox,
@@ -42,21 +38,12 @@ fn testSketch(bbox: sketch.Rect, nodes: []const sketch.NodePlacement, edges: []c
 }
 
 test "RUNG_SCALE tight window: flips exactly where the fitted (28.1, 31.1) bound says (live seed numbers)" {
-    // Live-verified via budget_test.zig's score-calibration debug line
-    // (`zig build test`, 2026-07-07):
-    //   self_loop_in_subgraph_td_6 w60 natural-vs-tight t2 = 318 vs 181
-    //     (labeled preference keeps natural -> needs RUNG_SCALE[tight] > 318*16/181 = 28.11)
-    //   td_with_lr_subgraph_7 w60 natural-vs-tight t2 = 362 vs 186
-    //     (labeled preference flips to tight -> needs RUNG_SCALE[tight] < 362*16/186 = 31.14)
-    // The shipped RUNG_SCALE[1] = 30 sits inside (28.11, 31.14); this test
-    // fails the moment a future edit pushes it outside that fitted window.
     var arena = std.heap.ArenaAllocator.init(t.allocator);
     defer arena.deinit();
     const a = arena.allocator();
 
     const one_node = [_]sketch.NodePlacement{testNode(0, .{ .x = 0, .y = 0, .w = 1, .h = 1 }, null)};
 
-    // -- self_loop_in_subgraph_td_6 w60: natural must stay ahead --------
     var natural_keep = testSketch(.{ .x = 0, .y = 0, .w = 319, .h = 1 }, &one_node, &.{}, &.{});
     natural_keep.budget.rung = 0;
     var tight_lose = testSketch(.{ .x = 0, .y = 0, .w = 182, .h = 1 }, &one_node, &.{}, &.{});
@@ -65,9 +52,8 @@ test "RUNG_SCALE tight window: flips exactly where the fitted (28.1, 31.1) bound
     const sc_tight_lose = try eval(a, tight_lose, .TD, 1, .{});
     try t.expectEqual(@as(u64, 318), sc_natural_keep.t2_legibility);
     try t.expectEqual(@as(u64, 181), sc_tight_lose.t2_legibility);
-    try t.expect(sc_natural_keep.lessThan(sc_tight_lose)); // natural wins
+    try t.expect(sc_natural_keep.lessThan(sc_tight_lose));
 
-    // -- td_with_lr_subgraph_7 w60: tight must flip ahead ---------------
     var natural_lose = testSketch(.{ .x = 0, .y = 0, .w = 363, .h = 1 }, &one_node, &.{}, &.{});
     natural_lose.budget.rung = 0;
     var tight_win = testSketch(.{ .x = 0, .y = 0, .w = 187, .h = 1 }, &one_node, &.{}, &.{});
@@ -76,21 +62,15 @@ test "RUNG_SCALE tight window: flips exactly where the fitted (28.1, 31.1) bound
     const sc_tight_win = try eval(a, tight_win, .TD, 1, .{});
     try t.expectEqual(@as(u64, 362), sc_natural_lose.t2_legibility);
     try t.expectEqual(@as(u64, 186), sc_tight_win.t2_legibility);
-    try t.expect(sc_tight_win.lessThan(sc_natural_lose)); // tight wins (flip)
+    try t.expect(sc_tight_win.lessThan(sc_natural_lose));
 }
 
 test "SWITCH_TO_VERTICAL_SCALE window: flips exactly where the fitted (35.4, 42.2) bound says (live seed numbers)" {
-    // Live-verified (cycle_lr_4 w60: natural t2=219 keeps natural over a
-    // rotated t2=99 candidate; fanin_rl_6 w120: a rotated t2=332 candidate
-    // FLIPS ahead of natural t2=875). Both pairs are clean (no integrity
-    // violations, no raster defects), so composite == scale * t2 exactly.
     var arena = std.heap.ArenaAllocator.init(t.allocator);
     defer arena.deinit();
     const a = arena.allocator();
     const one_node = [_]sketch.NodePlacement{testNode(0, .{ .x = 0, .y = 0, .w = 1, .h = 1 }, null)};
 
-    // -- cycle_lr_4 w60: source LR, natural(LR) must stay ahead of a
-    //    rotated-to-TD candidate (lower bound: scale must exceed 3504/99). --
     var natural_lr = testSketch(.{ .x = 0, .y = 0, .w = 220, .h = 1 }, &one_node, &.{}, &.{});
     natural_lr.direction = .LR;
     natural_lr.budget.rung = 0;
@@ -101,10 +81,8 @@ test "SWITCH_TO_VERTICAL_SCALE window: flips exactly where the fitted (35.4, 42.
     const sc_rotated_td = try eval(a, rotated_td, .LR, 4, .{});
     try t.expectEqual(@as(u64, 219), sc_natural_lr.t2_legibility);
     try t.expectEqual(@as(u64, 99), sc_rotated_td.t2_legibility);
-    try t.expect(sc_natural_lr.lessThan(sc_rotated_td)); // natural (LR) wins
+    try t.expect(sc_natural_lr.lessThan(sc_rotated_td));
 
-    // -- fanin_rl_6 w120: source RL, rotated-to-TD candidate FLIPS ahead
-    //    of natural (upper bound: scale must stay below 14000/332 = 42.2). --
     var natural_rl = testSketch(.{ .x = 0, .y = 0, .w = 876, .h = 1 }, &one_node, &.{}, &.{});
     natural_rl.direction = .RL;
     natural_rl.budget.rung = 0;
@@ -115,13 +93,10 @@ test "SWITCH_TO_VERTICAL_SCALE window: flips exactly where the fitted (35.4, 42.
     const sc_rotated_td2 = try eval(a, rotated_td2, .RL, 4, .{});
     try t.expectEqual(@as(u64, 875), sc_natural_rl.t2_legibility);
     try t.expectEqual(@as(u64, 332), sc_rotated_td2.t2_legibility);
-    try t.expect(sc_rotated_td2.lessThan(sc_natural_rl)); // rotated wins (flip)
+    try t.expect(sc_rotated_td2.lessThan(sc_natural_rl));
 }
 
 test "SWITCH_TO_HORIZONTAL_SCALE lower bound: natural stays ahead at the fitted 44 (live seed numbers)" {
-    // Live-verified: subgraph_to_subgraph_td_6 w60 natural(TD) t2=130 keeps
-    // natural over a rotated-to-LR candidate t2=52 (lower bound: scale must
-    // exceed 2080/52 = 40.0; shipped 44 clears it with room).
     var arena = std.heap.ArenaAllocator.init(t.allocator);
     defer arena.deinit();
     const a = arena.allocator();
@@ -136,23 +111,14 @@ test "SWITCH_TO_HORIZONTAL_SCALE lower bound: natural stays ahead at the fitted 
     const sc_rotated_lr = try eval(a, rotated_lr, .TD, 4, .{});
     try t.expectEqual(@as(u64, 130), sc_natural_td.t2_legibility);
     try t.expectEqual(@as(u64, 52), sc_rotated_lr.t2_legibility);
-    try t.expect(sc_natural_td.lessThan(sc_rotated_lr)); // natural wins
+    try t.expect(sc_natural_td.lessThan(sc_rotated_lr));
 }
 
 test "W_INTEGRITY window: crosses exactly where the fitted (17098, 36200) bound says" {
-    // Lower bound: live-verified via budget_test.zig's score-calibration
-    // debug line (microservices_layers_td_16 w90, natural-vs-truncate):
-    // natural t1=3 t2=1595 (+9 raster edge-cells-lost) vs truncate t1=0
-    // t2=1548 clean. The labeled preference flips to truncate -- reproduced
-    // (same raw t1/t2/raster inputs, fed through the SAME eval()) to lock
-    // that W_INTEGRITY's shipped value still crosses this real boundary.
     var arena = std.heap.ArenaAllocator.init(t.allocator);
     defer arena.deinit();
     const a = arena.allocator();
 
-    // Three fully-overlapping node pairs (6 nodes at 3 distinct locations,
-    // each pair identical rects) -> exactly 3 node_overlap violations, with
-    // covered area = 3 cells (union per pair), so dead space is exact.
     var overlap_nodes: [6]sketch.NodePlacement = undefined;
     for (0..3) |k| {
         const x: i32 = @intCast(10 * k);
@@ -171,11 +137,8 @@ test "W_INTEGRITY window: crosses exactly where the fitted (17098, 36200) bound 
     try t.expectEqual(@as(u32, 0), sc_clean.t1_integrity);
     try t.expectEqual(@as(u64, 1548), sc_clean.t2_legibility);
 
-    try t.expect(sc_clean.lessThan(sc_dirty)); // truncate flips ahead of natural
+    try t.expect(sc_clean.lessThan(sc_dirty));
 
-    // Upper bound: the comment's own symbolic pairing (T1=1, t2=1351 vs a
-    // horizontal-switch rival at t2=1314) -- natural must STAY ahead, i.e.
-    // W_INTEGRITY must stay below 44*1314 - 16*1351 = 36200.
     const one_node = [_]sketch.NodePlacement{testNode(0, .{ .x = 0, .y = 0, .w = 1, .h = 1 }, null)};
     const pair_node = [_]sketch.NodePlacement{
         testNode(0, .{ .x = 0, .y = 0, .w = 1, .h = 1 }, null),
@@ -193,16 +156,10 @@ test "W_INTEGRITY window: crosses exactly where the fitted (17098, 36200) bound 
     const sc_switched = try eval(a, switched, .TD, 4, .{});
     try t.expectEqual(@as(u64, 1314), sc_switched.t2_legibility);
 
-    try t.expect(sc_mild_dirty.lessThan(sc_switched)); // natural stays ahead
+    try t.expect(sc_mild_dirty.lessThan(sc_switched));
 }
 
 test "W_LABEL_DROP prices a dropped label + lost cells above the shape_zoo_td_8 legibility margin" {
-    // Live-verified (shape_zoo_td_8, natural-vs-motif-packed, all widths):
-    // raw natural t2=616 vs packed t2=470, both rung=natural (scale 16).
-    // Pre-penalty the packed candidate wins by 16*(616-470) = 2336. If the
-    // packed candidate ships with 1 dropped label + 3 lost edge cells (the
-    // documented shape of this seed's raster defect), W_LABEL_DROP +
-    // 3*W_CELL_LOST must exceed 2336 for raw to stay preferred.
     var arena = std.heap.ArenaAllocator.init(t.allocator);
     defer arena.deinit();
     const a = arena.allocator();
@@ -213,14 +170,12 @@ test "W_LABEL_DROP prices a dropped label + lost cells above the shape_zoo_td_8 
     var motif_packed = testSketch(.{ .x = 0, .y = 0, .w = 471, .h = 1 }, &one_node, &.{}, &.{});
     motif_packed.budget.rung = 0;
 
-    // Without raster defects, packed wins on pure legibility.
     const sc_raw = try eval(a, raw, .TD, 0, .{});
     const sc_packed_clean = try eval(a, motif_packed, .TD, 1, .{});
     try t.expectEqual(@as(u64, 616), sc_raw.t2_legibility);
     try t.expectEqual(@as(u64, 470), sc_packed_clean.t2_legibility);
     try t.expect(sc_packed_clean.lessThan(sc_raw));
 
-    // With the documented 1-drop + 3-lost-cells defect, raw must win instead.
     const sc_packed_dirty = try eval(a, motif_packed, .TD, 1, .{ .labels_dropped = 1, .edge_cells_lost = 3 });
     try t.expect(sc_raw.lessThan(sc_packed_dirty));
 }
@@ -231,11 +186,6 @@ test "W_LABEL_DISPLACED upper bound: a displaced label still clears the natural-
     const a = arena.allocator();
     const one_node = [_]sketch.NodePlacement{testNode(0, .{ .x = 0, .y = 0, .w = 1, .h = 1 }, null)};
 
-    // Upper bound (shape_zoo_td_8 w120 numbers, live-verified): the
-    // motif-packed candidate (t2=470) challenges natural (t2=616) at the
-    // SAME rung (scale 16); with 3 lost cells + 1 displaced label it must
-    // still clear NATURAL_PREFERENCE_MARGIN (128) to legally displace
-    // natural, per score.displacesNatural.
     var natural = testSketch(.{ .x = 0, .y = 0, .w = 617, .h = 1 }, &one_node, &.{}, &.{});
     natural.budget.rung = 0;
     var motif_packed = testSketch(.{ .x = 0, .y = 0, .w = 471, .h = 1 }, &one_node, &.{}, &.{});

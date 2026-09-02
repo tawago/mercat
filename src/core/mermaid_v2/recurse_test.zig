@@ -13,12 +13,6 @@ const cluster_stitch = @import("cluster/stitch.zig");
 const validate = @import("layout/validate.zig");
 const recurse = @import("recurse.zig");
 
-// Two-level nested-cluster fixture shared by the frame-lockstep and
-// sub-budget-shrink tests below: Top -> [S: [T: a->b->c->d (LR chain)]] ->
-// (T nested inside S; S has no direct members, only the sub-cluster T).
-// Laying this out recurses TWICE (S's own recursion cuts T out again), so
-// it exercises the SAME `pieceFrameOverheadX(scale)` shrink applied once
-// per nesting level, and the SAME `superSize` pad applied once per stitch.
 fn nestedTwoLevelGraph(nodes_buf: []sem_graph.Node, edges_buf: []sem_graph.Edge, members_buf: []sem_graph.NodeId, sub_buf: []sem_graph.ClusterId, clusters_buf: []sem_graph.Cluster) sem_graph.SemGraph {
     const NS = sem_graph.NodeShape;
     nodes_buf[0] = .{ .id = 0, .raw_id = "Top", .label = "Top", .shape = NS.rect, .classes = &.{}, .cluster = null };
@@ -47,10 +41,6 @@ fn nestedTwoLevelGraph(nodes_buf: []sem_graph.Node, edges_buf: []sem_graph.Edge,
     };
 }
 
-// Single-cluster chain fixture shared by the never-widen-baseline and
-// rejected-rotation tests: Top -> [S: a->b->c->d (LR chain)], S a
-// direct-membership cluster with no sub-clusters. Caller owns the buffers
-// so the returned SemGraph's borrowed slices outlive the call.
 fn singleClusterChainGraph(nodes_buf: []sem_graph.Node, edges_buf: []sem_graph.Edge, members_buf: []sem_graph.NodeId, clusters_buf: []sem_graph.Cluster) sem_graph.SemGraph {
     const NS = sem_graph.NodeShape;
     nodes_buf[0] = .{ .id = 0, .raw_id = "Top", .label = "Top", .shape = NS.rect, .classes = &.{}, .cluster = null };
@@ -77,13 +67,6 @@ fn singleClusterChainGraph(nodes_buf: []sem_graph.Node, edges_buf: []sem_graph.E
     };
 }
 
-// Frame-chrome scale lockstep across TWO recursion levels (base/types.zig's
-// "cluster frame chrome scale" invariant): S's super-node wraps T's frame by
-// EXACTLY `2 * prim.framePadX(scale)`, at both the natural scale (0) and a
-// pressure scale (1), even though this width was threaded through two
-// nested `layoutClustered` calls (outer stitches S, S's own recursion
-// stitches T). If any site along the way used a different/stale scale, the
-// S-T rect gap would drift from the `framePadX` formula.
 test "nested cluster: outer super-node pad tracks framePadX(scale) across two recursion levels" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
@@ -97,8 +80,6 @@ test "nested cluster: outer super-node pad tracks framePadX(scale) across two re
     const graph = nestedTwoLevelGraph(&nodes_buf, &edges_buf, &members_buf, &sub_buf, &clusters_buf);
 
     for ([_]u8{ 0, 1 }) |scale| {
-        // Wide budget: both S and T stay in their declared (LR) form, so the
-        // rects reflect pure frame-pad arithmetic, not a flip decision.
         const s = try recurse.layoutPieces(a, graph, .{ .max_width = 400, .spacing_scale = scale });
         var t_rect: ?sketch.Rect = null;
         var s_rect: ?sketch.Rect = null;
@@ -121,20 +102,6 @@ fn innerLeafDirection(s: sketch.Sketch, cluster_id: sem_graph.ClusterId) ?sem_gr
     return null;
 }
 
-// Nested sub-budget shrink is applied ONCE PER NESTING LEVEL (recurse.zig's
-// "each child gets a shrunk width sub-budget per nesting level" invariant).
-// T's chain is 72 columns wide declared (LR) and 22 columns wide rotated
-// (TD); the flip only fires when T's EFFECTIVE budget (after subtracting
-// `frameOverheadX(scale)` TWICE — once for S's frame, once for T's own,
-// since T sits two cluster levels deep) is below 72:
-//   scale=0: frameOverheadX(0) = 8, so the flip boundary is exactly
-//            72 + 2*8 = 88 (measured against the real pipeline).
-//   scale=1: frameOverheadX(1) = 4, so the flip boundary is exactly
-//            72 + 2*4 = 80.
-// A regression that shrinks the budget only ONCE (ignoring the second
-// nesting level) would move both boundaries down by one `frameOverheadX`
-// (to 80 and 76 respectively) — this test's near-boundary values (87/88,
-// 79/80) fail under that regression.
 test "nested cluster: width sub-budget shrinks once per nesting level (saturating)" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
@@ -149,11 +116,9 @@ test "nested cluster: width sub-budget shrinks once per nesting level (saturatin
 
     const Case = struct { mw: u32, scale: u8, want: sem_graph.Direction };
     const cases = [_]Case{
-        // scale=0: boundary at mw=88.
         .{ .mw = 84, .scale = 0, .want = .TD },
         .{ .mw = 87, .scale = 0, .want = .TD },
         .{ .mw = 88, .scale = 0, .want = .LR },
-        // scale=1: boundary at mw=80.
         .{ .mw = 78, .scale = 1, .want = .TD },
         .{ .mw = 79, .scale = 1, .want = .TD },
         .{ .mw = 80, .scale = 1, .want = .LR },
@@ -163,17 +128,9 @@ test "nested cluster: width sub-budget shrinks once per nesting level (saturatin
         try std.testing.expectEqual(c.want, innerLeafDirection(s, 200).?);
     }
 
-    // Saturating subtract: an absurdly tiny top-level budget must never
-    // underflow (`-|`) when shrunk twice, just log-only-overflow, not crash.
     _ = try recurse.layoutPieces(a, graph, .{ .max_width = 1, .spacing_scale = 1 });
 }
 
-// `layoutClustered`'s never-widen guard (recurse.zig's "declared child
-// sizes are always computed, never widened past the baseline, even when
-// any_flip is true"): force a flip (any_flip=true) via the existing inner-flip-scenario
-// single-subgraph fixture at a narrow width, independently recompute the
-// all-declared baseline via the same `stitchOuter` the driver uses, and
-// assert the public result never exceeds it.
 test "declared baseline is always computed and never exceeded when a child flips" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
@@ -185,17 +142,15 @@ test "declared baseline is always computed and never exceeded when a child flips
     var clusters_buf: [1]sem_graph.Cluster = undefined;
     const graph = singleClusterChainGraph(&nodes_buf, &edges_buf, &members_buf, &clusters_buf);
 
-    const opts: coords.LayoutOptions = .{ .max_width = 40 }; // the inner-flip scenario's narrow case: the child flips.
+    const opts: coords.LayoutOptions = .{ .max_width = 40 };
     const sr = try cluster_split.split(a, graph);
     try std.testing.expect(!sr.isFlat());
 
     var child_opts = opts;
     child_opts.max_width = opts.max_width -| recurse.pieceFrameOverheadX(sr, 1, opts.spacing_scale);
     const cc = try recurse.layoutChild(a, sr.pieces[1].graph, child_opts);
-    try std.testing.expect(cc.flipped != null); // any_flip is true for this fixture.
+    try std.testing.expect(cc.flipped != null);
 
-    // Independently recompute the all-declared baseline the same way the
-    // driver does, using ONLY `cc.declared` (never `cc.flipped`).
     const declared_children = try a.alloc(cluster_stitch.Clustered, sr.pieces.len);
     declared_children[1] = cc.declared;
     const declared_out = try recurse.stitchOuter(a, sr, opts, declared_children);
@@ -204,16 +159,6 @@ test "declared baseline is always computed and never exceeded when a child flips
     try std.testing.expect(result.bbox.w <= declared_out.sketch.bbox.w);
 }
 
-// Rejected-rotation invariant (recurse.zig's "a rotation that reduces
-// overflow without fully fitting is rejected"): a child whose declared form
-// overflows massively (72 cols) and whose rotated form reduces the overflow
-// a lot (18 cols) but still doesn't fit a very tight sub-budget (14 cols)
-// must be REJECTED (kept declared), not accepted as a "less bad" candidate.
-// Cross-checked against `layout/validate.Counts`: the rejected rotated
-// Sketch is independently confirmed still over its own budget by the same
-// validator the entry point runs (bbox_overflow), i.e. rejecting it is not
-// just an internal accounting quirk — the candidate really would still
-// trip the Sketch validators recurse.zig's own comment refers to.
 test "rotation that reduces but does not eliminate overflow is rejected (validator cross-check)" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
@@ -226,40 +171,25 @@ test "rotation that reduces but does not eliminate overflow is rejected (validat
     const graph = singleClusterChainGraph(&nodes_buf, &edges_buf, &members_buf, &clusters_buf);
 
     const sr = try cluster_split.split(a, graph);
-    // child_opts.max_width = 14: declared LR (72 cols) massively overflows;
-    // rotated TD (22 cols raw, ~18 cols once packed) reduces the overflow a
-    // lot but 18 > 14 still doesn't fit.
     const child_opts: coords.LayoutOptions = .{ .max_width = 14 };
     const cc = try recurse.layoutChild(a, sr.pieces[1].graph, child_opts);
 
-    try std.testing.expect(cc.declared.sketch.bbox.w > child_opts.max_width); // declared overflows
-    try std.testing.expect(cc.flipped == null); // rejected, not "less bad"
+    try std.testing.expect(cc.declared.sketch.bbox.w > child_opts.max_width);
+    try std.testing.expect(cc.flipped == null);
 
-    // Recompute the rotated candidate directly (bypassing recurse's guard)
-    // to confirm it is still over ITS OWN budget per the shared validator.
     var rotated_graph = sr.pieces[1].graph;
     rotated_graph.direction = prim.rotatedDirection(sr.pieces[1].graph.direction);
     const rotated = try recurse.layoutClustered(a, rotated_graph, child_opts);
-    try std.testing.expect(rotated.sketch.bbox.w < cc.declared.sketch.bbox.w); // did reduce overflow...
-    try std.testing.expect(rotated.sketch.bbox.w > child_opts.max_width); // ...but still overflows
+    try std.testing.expect(rotated.sketch.bbox.w < cc.declared.sketch.bbox.w);
+    try std.testing.expect(rotated.sketch.bbox.w > child_opts.max_width);
 
     var budgeted = rotated.sketch;
     budgeted.budget = .{ .max_width = child_opts.max_width, .rung = 0 };
     const vr = try validate.validate(a, budgeted);
     const c = validate.counts(vr, budgeted);
-    try std.testing.expect(c.bbox_overflow >= 1); // validator agrees: still over budget
+    try std.testing.expect(c.bbox_overflow >= 1);
 }
 
-// Rail crossbar re-clamp on a dropped (super-node) tap
-// (`cluster/stitch.zig`'s "Re-clamp the crossbar to the surviving taps +
-// junction" invariant): a fan-OUT pivot P -> {A, B, D} where D lives inside
-// subgraph S. On the OUTER piece (pre-stitch) the fan rail taps A,
-// B, AND the super-node standing in for S (S's real edge is a cross-border
-// crossing, routed separately by `bridges.route`). `stitch` must drop the
-// super-node's tap and re-clamp the rail to just the two surviving taps +
-// the stem junction — if it instead kept the ORIGINAL (pre-drop) rail span,
-// the rail would keep painting a dead arm out to where the super-node's tap
-// used to be, past the real taps that remain.
 test "stitch re-clamps a surviving rail's crossbar past a dropped super-node tap" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
@@ -309,9 +239,6 @@ test "stitch re-clamps a surviving rail's crossbar past a dropped super-node tap
     const outer = try coords.layout(a, sr.pieces[0].graph, outer_opts);
     children[0] = .{ .sketch = outer, .input_of = &.{} };
 
-    // Pre-stitch: the outer fan rail taps all THREE peers, including the
-    // super-node standing in for S — record its x so we can prove it is
-    // later excluded.
     try std.testing.expectEqual(@as(usize, 1), outer.rails.len);
     try std.testing.expectEqual(@as(usize, 3), outer.rails[0].taps.len);
     var dropped_x: ?i32 = null;
@@ -322,9 +249,6 @@ test "stitch re-clamps a surviving rail's crossbar past a dropped super-node tap
 
     const merged = try cluster_stitch.stitch(a, sr, outer, children, opts.spacing_scale, false, .plain);
 
-    // Post-stitch: the same rail survives with only the two real taps —
-    // and its rail must NOT reach out to the dropped tap's x, which would
-    // paint a dead rail arm ending in mid-air past the surviving taps.
     try std.testing.expectEqual(@as(usize, 1), merged.sketch.rails.len);
     try std.testing.expectEqual(@as(usize, 2), merged.sketch.rails[0].taps.len);
     const crossbar = merged.sketch.rails[0].crossbar;
@@ -332,11 +256,6 @@ test "stitch re-clamps a surviving rail's crossbar past a dropped super-node tap
     try std.testing.expect(dropped_x.? > crossbar[1].x or dropped_x.? < crossbar[0].x);
 }
 
-// Two sibling clusters, each with its own fan: S = [a1 -> {a2, a3}],
-// R = [b1 -> {b2, b3}], both entered from Top and both leaving to End,
-// plus one purely-outer edge Top -> End. Every piece numbers its edges
-// from 0, so this is the minimal shape in which the merged Sketch would
-// alias if stitch carried piece-local ids through.
 fn twoSiblingFanGraph(
     nodes_buf: []sem_graph.Node,
     edges_buf: []sem_graph.Edge,
@@ -380,7 +299,6 @@ fn twoSiblingFanGraph(
 /// each rail `Tap.edge`), asserted pairwise distinct, and returned so a
 /// caller can resolve bundle members against it.
 pub fn assertUniqueEdgeIds(a: std.mem.Allocator, s: sketch.Sketch) !std.AutoHashMap(sketch.EdgeId, sketch.NodeId) {
-    // id -> the node the geometry leaves from (edge source / rail pivot).
     var owners = std.AutoHashMap(sketch.EdgeId, sketch.NodeId).init(a);
     for (s.edges) |e| {
         try std.testing.expect(!owners.contains(e.id));
@@ -405,11 +323,6 @@ pub fn clusterOf(s: sketch.Sketch, node: sketch.NodeId) !?sem_graph.ClusterId {
     return error.NodeNotPlaced;
 }
 
-// The merged Sketch has ONE edge-id space: sibling children each renumber
-// from 0, so stitch must slide every piece into a disjoint window and
-// rewrite each id-bearing field (`EdgePath.id`, `Tap.edge`, `Bundle.members`)
-// with the same offset. Carrying ids verbatim aliased unrelated edges — the
-// co-membership oracle then read one child's bundle as covering another's.
 test "stitched sibling clusters share one edge-id space" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
@@ -428,17 +341,7 @@ test "stitched sibling clusters share one edge-id space" {
     var owners = try assertUniqueEdgeIds(a, s);
     defer owners.deinit();
 
-    // A bundle names one structural decision, so all of its members that
-    // still carry geometry must live in the SAME cluster. A member read in
-    // the wrong child's id space lands in the other cluster (or nowhere).
     for (s.bundle_sets) |set| {
-        // SCOPE: the same-cluster claim is about sets naming ONE structural
-        // decision inside one level. A `.port_share` set is inherently
-        // cross-level — an outer fan's two bridges depart one port of a
-        // top-level node and land inside two different subgraphs — so it is
-        // held to the weaker half of the claim (every member resolves to a
-        // placed owner), which still catches a member read in the wrong id
-        // space.
         if (set.origin == .port_share) {
             for (set.members) |m| {
                 const owner = owners.get(m) orelse continue;
@@ -446,9 +349,6 @@ test "stitched sibling clusters share one edge-id space" {
             }
             continue;
         }
-        // Outer `null` = "no member compared yet"; the inner optional is the
-        // owner's cluster (null = top-level). A member carrying no geometry
-        // is skipped, but a member whose owner is unplaced now fails.
         var seen: ??sem_graph.ClusterId = null;
         for (set.members) |m| {
             const owner = owners.get(m) orelse continue;
@@ -458,9 +358,6 @@ test "stitched sibling clusters share one edge-id space" {
     }
 }
 
-// Same invariant one level deeper: an inner merged Sketch already holds a
-// unique id space, and the outer stitch only slides that whole window, so
-// uniqueness composes instead of re-colliding at each nesting level.
 test "edge-id uniqueness survives two stitch levels" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();

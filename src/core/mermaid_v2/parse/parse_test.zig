@@ -77,8 +77,6 @@ test "edge variants" {
 }
 
 test "double-ended circle/cross edge builds one edge, no phantom node" {
-    // `o--o` / `x--x` must parse (not fall back to raw source): two nodes, one
-    // edge with both end markers decoded. No spurious "o"/"x" node.
     var gc = try parse(t.allocator, "flowchart TD\nA o--o B\n");
     defer gc.deinit(t.allocator);
     try t.expectEqual(@as(usize, 2), gc.nodeCount());
@@ -126,7 +124,6 @@ test "multi-word and quoted label" {
 test "inline-label edge form `-- text -->`" {
     var g = try parse(t.allocator, "flowchart TD\nA -- Yes --> B\n");
     defer g.deinit(t.allocator);
-    // The label is on the edge; it does NOT become its own node.
     try t.expectEqual(@as(usize, 2), g.nodeCount());
     try t.expectEqual(@as(usize, 1), g.edgeCount());
     try t.expectEqualStrings("Yes", g.edges[0].label.?);
@@ -134,8 +131,6 @@ test "inline-label edge form `-- text -->`" {
 }
 
 test "inline-label edge keeps bare links intact" {
-    // `A --- B` is a bare link, not an inline-label edge: must not be eaten
-    // by the inline-label scanner.
     var g = try parse(t.allocator, "flowchart TD\nA --- B\nC -.-> D\nE ==> F\n");
     defer g.deinit(t.allocator);
     try t.expectEqual(@as(usize, 3), g.edgeCount());
@@ -154,10 +149,7 @@ test "inline-label edge: dotted and thick carry labels" {
 }
 
 test "quoted label with brackets and operators is opaque" {
-    // Brackets/operators/quotes inside a `"..."` span are literal label
-    // text and must not terminate the shape early.
-    var g = try parse(t.allocator,
-        "flowchart TD\nT[\"Apply Scale[0..100] & Round()\"]\nC{\"if v > 0.5 && v < 9.5\"}\n");
+    var g = try parse(t.allocator, "flowchart TD\nT[\"Apply Scale[0..100] & Round()\"]\nC{\"if v > 0.5 && v < 9.5\"}\n");
     defer g.deinit(t.allocator);
     try t.expectEqual(@as(usize, 2), g.nodeCount());
     try t.expectEqualStrings("Apply Scale[0..100] & Round()", g.nodes[0].label);
@@ -225,7 +217,6 @@ test "ampersand both sides: cross-product with shapes and edge label" {
     var g = try parse(t.allocator, "flowchart TD\nA[Start] & B((Hub)) -->|go| C & D{End?}\n");
     defer g.deinit(t.allocator);
     try t.expectEqual(@as(usize, 4), g.nodeCount());
-    // 2 sources x 2 targets = 4 edges, each carrying the label.
     try t.expectEqual(@as(usize, 4), g.edgeCount());
     for (g.edges) |e| try t.expectEqualStrings("go", e.label.?);
     try t.expectEqualStrings("Start", g.nodes[g.findNode("A").?].label);
@@ -237,7 +228,6 @@ test "ampersand chaining: targets become next hop's sources" {
     var g = try parse(t.allocator, "flowchart TD\nA --> B & C --> D\n");
     defer g.deinit(t.allocator);
     try t.expectEqual(@as(usize, 4), g.nodeCount());
-    // A->B, A->C, B->D, C->D.
     try t.expectEqual(@as(usize, 4), g.edgeCount());
     try t.expectEqual(g.findNode("D").?, g.edges[2].to);
     try t.expectEqual(g.findNode("B").?, g.edges[2].from);
@@ -268,15 +258,12 @@ test "skippable directives are consumed without effect" {
     defer g.deinit(t.allocator);
     try t.expectEqual(@as(usize, 3), g.nodeCount());
     try t.expectEqual(@as(usize, 2), g.edgeCount());
-    // Recognized directives are not "skipped lines" — no warning owed.
     try t.expectEqual(@as(u32, 0), g.skipped_lines);
 }
 
 test "line recovery: bad non-edge line is dropped, rest renders" {
     var g = try parse(t.allocator, "flowchart TD\nA --> B\nC[x] D\nE --> F\n");
     defer g.deinit(t.allocator);
-    // The `C[x] D` line fails at the stray `D` and is rolled back whole:
-    // neither C nor its shape survives.
     try t.expectEqual(@as(usize, 4), g.nodeCount());
     try t.expectEqual(@as(usize, 2), g.edgeCount());
     try t.expectEqual(@as(?NodeId, null), g.findNode("C"));
@@ -284,8 +271,6 @@ test "line recovery: bad non-edge line is dropped, rest renders" {
 }
 
 test "line recovery: bad EDGE line still fails the whole parse" {
-    // `A --> --> B` is unparseable AND edge-bearing: semantic loss is
-    // worse than no render, so the error must propagate.
     try t.expectError(error.InvalidNode, parse(t.allocator, "flowchart TD\nX --> Y\nA --> --> B\n"));
 }
 
@@ -303,8 +288,6 @@ test "empty clusters are pruned (node keeps its first cluster)" {
         \\
     );
     defer g.deinit(t.allocator);
-    // Second/Third own no nodes; they must not survive as empty clusters
-    // (layout rejects an empty child graph).
     try t.expectEqual(@as(usize, 1), g.clusters.len);
     try t.expectEqualStrings("First", g.clusters[0].raw_id);
     try t.expectEqual(@as(usize, 2), g.clusters[0].members.len);
@@ -312,10 +295,6 @@ test "empty clusters are pruned (node keeps its first cluster)" {
 }
 
 test "nested subgraph: parent survives via kept child with no own members" {
-    // Outer has no direct statements of its own — every node lives in the
-    // nested Inner subgraph. builder_types.zig's pruneEmptyClusters keeps
-    // Outer anyway because it has a kept sub-cluster, and remaps Outer's
-    // (still valid) id into Inner.parent unconditionally.
     var g = try parse(t.allocator,
         \\flowchart TD
         \\subgraph Outer
@@ -339,11 +318,6 @@ test "nested subgraph: parent survives via kept child with no own members" {
 }
 
 test "dropped empty cluster leaves no dangling node->cluster reference" {
-    // "Second" is empty and gets pruned entirely; First and Third survive
-    // and shift id-space around the gap Second leaves behind. Every node
-    // that still names a cluster must find itself in that cluster's member
-    // list post-prune — dropped clusters (zero members, by construction)
-    // can never be the dangling target of a node.cluster remap.
     var g = try parse(t.allocator,
         \\flowchart TD
         \\subgraph First

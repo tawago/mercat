@@ -132,8 +132,6 @@ test "bridge members contribute no structural authority; the licence tier owns t
         path(101, 10, 21, .{ .x = 1, .y = 1 }, .{ .x = 2, .y = 8 }),
     };
 
-    // Both contributors' placements touch the super: no rebuilt set. Routed
-    // bridges answer to cluster/bridge_plan.zig; claims (below) still expand.
     const got = try bridge_bundle_sets.rebuildOuterSets(a, sr, outer, 50, 100, &bridges, &bridges, &.{});
     try testing.expectEqual(@as(usize, 0), got.len);
 
@@ -216,8 +214,6 @@ test "a mixed survivor-and-bridge set rebuilds nothing once the bridge member is
         path(100, 10, 20, .{ .x = 3, .y = 1 }, .{ .x = 2, .y = 8 }),
     };
 
-    // The super-touching contributor is excluded, leaving one contributor —
-    // below the two-contributor floor, so no set survives.
     const got = try bridge_bundle_sets.rebuildOuterSets(a, sr, outer, 50, 100, &final, final[1..], &.{});
     try testing.expectEqual(@as(usize, 0), got.len);
 }

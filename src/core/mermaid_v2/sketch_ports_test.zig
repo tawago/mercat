@@ -46,7 +46,6 @@ test "shared departure port groups its edges" {
     defer arena.deinit();
     const a = arena.allocator();
 
-    // Both leave (5,3) — the same south port of one node — then split.
     const one = [_]sketch.Point{ p(5, 3), p(5, 8), p(1, 8) };
     const two = [_]sketch.Point{ p(5, 3), p(5, 8), p(9, 8) };
     const edges = [_]sketch.EdgePath{ edge(0, &one), edge(1, &two) };
@@ -60,8 +59,6 @@ test "an arrival and a departure at one point share the port regardless of polar
     defer arena.deinit();
     const a = arena.allocator();
 
-    // A cycle return TERMINATES at (7,2); a forward edge DEPARTS from it.
-    // Polarity is not a bundle property: the ink at the port is one run.
     const arrival = [_]sketch.Point{ p(0, 9), p(7, 9), p(7, 2) };
     const departure = [_]sketch.Point{ p(7, 2), p(7, 6), p(12, 6) };
     const edges = [_]sketch.EdgePath{ edge(3, &arrival), edge(4, &departure) };
@@ -75,8 +72,6 @@ test "independent ports do not group" {
     defer arena.deinit();
     const a = arena.allocator();
 
-    // The runs CROSS at (4,5), but no terminal coincides: a true transversal
-    // between unrelated bundles, which must stay unrelated.
     const across = [_]sketch.Point{ p(0, 5), p(9, 5) };
     const down = [_]sketch.Point{ p(4, 0), p(4, 9) };
     const edges = [_]sketch.EdgePath{ edge(0, &across), edge(1, &down) };
@@ -92,9 +87,6 @@ test "an edge sharing two ports lands in two sets, never one fused set" {
     defer arena.deinit();
     const a = arena.allocator();
 
-    // Edge 1 shares its head port with edge 0 and its tail port with edge 2.
-    // Union-find would license edges 0 and 2 to share ink along a run neither
-    // producer ever agreed on, so the sets stay separate.
     const zero = [_]sketch.Point{ p(2, 0), p(2, 4) };
     const one = [_]sketch.Point{ p(2, 4), p(8, 4) };
     const two = [_]sketch.Point{ p(8, 4), p(8, 9) };
@@ -113,13 +105,12 @@ test "degenerate and invisible edges license nothing" {
     const a = arena.allocator();
 
     const one_point = [_]sketch.Point{p(5, 3)};
-    const closed = [_]sketch.Point{ p(5, 3), p(6, 3), p(5, 3) }; // first == last
+    const closed = [_]sketch.Point{ p(5, 3), p(6, 3), p(5, 3) };
     const real = [_]sketch.Point{ p(5, 3), p(5, 9) };
     var ghost = edge(9, &real);
     ghost.kind = .invisible;
     const edges = [_]sketch.EdgePath{ edge(0, &one_point), edge(1, &closed), edge(2, &real), ghost };
 
-    // Only edge 2 qualifies at (5,3); a single member is not a share.
     try std.testing.expectEqual(
         @as(usize, 0),
         (try sketch_ports.portShareBundles(a, &edges)).len,
@@ -171,8 +162,6 @@ test "final geometry alone defines shifted pair ids, cells, and bundle agreement
     defer arena.deinit();
     const a = arena.allocator();
 
-    // Old ids and the distant old cell are deliberately unrelated to final
-    // geometry. Final ids 100/101 share only the approach (15,23)..(15,26).
     const first = [_]sketch.Point{ p(15, 23), p(15, 26), p(11, 26) };
     const second = [_]sketch.Point{ p(15, 23), p(15, 26), p(19, 26) };
     const edges = [_]sketch.EdgePath{ edge(100, &first), edge(101, &second) };
@@ -219,24 +208,16 @@ test "a port share licenses only its shared approach" {
     defer arena.deinit();
     const a = arena.allocator();
 
-    // The shape that made a naive port-wide set fabricate a `┼`: an arrival
-    // terminates at the port (30,12) after running west along y=14, and a
-    // departure leaves that same port south and then turns west along y=15,
-    // recrossing the arrival's column at (21,15). They share the port and the
-    // stem (30,12)..(30,14) — and nothing at (21,15).
     const arrival = [_]sketch.Point{ p(33, 22), p(21, 22), p(21, 14), p(30, 14), p(30, 12) };
     const departure = [_]sketch.Point{ p(30, 12), p(30, 15), p(9, 15) };
     const edges = [_]sketch.EdgePath{ edge(9, &arrival), edge(11, &departure) };
 
     const sets = try sketch_ports.portShareBundles(a, &edges);
     try std.testing.expectEqual(@as(usize, 1), sets.len);
-    // Licensed: the port and the common stem above it.
     for ([_]sketch.Point{ p(30, 12), p(30, 13), p(30, 14) }) |cell| {
         try std.testing.expect(ledger.bundleMembersAt(sets, 9, 11, .{ .x = cell.x, .y = cell.y }));
     }
-    // Not licensed: the distant transversal, which must stay a plain crossing.
     try std.testing.expect(!ledger.bundleMembersAt(sets, 9, 11, .{ .x = 21, .y = 15 }));
-    // Position-blind, the pair still reads as co-members.
     try std.testing.expect(ledger.bundleMembers(sets, 9, 11));
 }
 
@@ -245,12 +226,6 @@ test "three members at one port group into one set, but a third member's approac
     defer arena.deinit();
     const a = arena.allocator();
 
-    // A and B share the whole stem out of port (5,3): (5,3)..(5,8). C also
-    // terminates at (5,3), but leaves east, loops south, and crosses A/B's
-    // stem PERPENDICULAR at (5,7) — far from the port, and never walked
-    // together with A or B there. All three are one bundle (transitively,
-    // one physical port), but (5,7) is a stranger meeting for the pairs
-    // (A,C) and (B,C), and must stay a plain transversal.
     const a_path = [_]sketch.Point{ p(5, 3), p(5, 8), p(1, 8) };
     const b_path = [_]sketch.Point{ p(5, 3), p(5, 8), p(9, 8) };
     const c_path = [_]sketch.Point{ p(5, 3), p(9, 3), p(9, 7), p(2, 7) };
@@ -259,21 +234,15 @@ test "three members at one port group into one set, but a third member's approac
     const sets = try sketch_ports.portShareBundles(a, &edges);
     try expectOneSet(sets, &.{ 0, 1, 2 });
 
-    // Transitive identity: all three are declared co-members, position-blind.
     try std.testing.expect(ledger.bundleMembers(sets, 0, 1));
     try std.testing.expect(ledger.bundleMembers(sets, 0, 2));
     try std.testing.expect(ledger.bundleMembers(sets, 1, 2));
 
-    // A and B genuinely share the whole stem, including (5,7).
     try std.testing.expect(ledger.bundleMembersAt(sets, 0, 1, .{ .x = 5, .y = 7 }));
 
-    // C never walked (5,7) with A, nor with B — a third member's own
-    // approach to A and to B separately must not license a cell between A
-    // and C, or between B and C, that neither pair ever agreed on.
     try std.testing.expect(!ledger.bundleMembersAt(sets, 0, 2, .{ .x = 5, .y = 7 }));
     try std.testing.expect(!ledger.bundleMembersAt(sets, 1, 2, .{ .x = 5, .y = 7 }));
 
-    // All three do agree at the port itself.
     try std.testing.expect(ledger.bundleMembersAt(sets, 0, 2, .{ .x = 5, .y = 3 }));
     try std.testing.expect(ledger.bundleMembersAt(sets, 1, 2, .{ .x = 5, .y = 3 }));
 }
@@ -306,8 +275,6 @@ test "a first-class rail member and path share only their exact final approach" 
     try std.testing.expect(ledger.bundleMembersAt(sets, 21, 30, .{ .x = 5, .y = 3 }));
     try std.testing.expect(!ledger.bundleMembersAt(sets, 20, 21, .{ .x = 2, .y = 5 }));
 
-    // Malformed dual representation cannot duplicate one semantic edge in
-    // the carrier population; the explicit EdgePath wins over the rail tap.
     var duplicate = edge(20, &bridge_points);
     duplicate.id = 20;
     const traces = try sketch_ports.finalCarrierTraces(a, &.{duplicate}, &rails_buf);

@@ -127,7 +127,7 @@ fn manhattan(a: sketch.Point, b: sketch.Point) u64 {
 pub fn bends(s: sketch.Sketch) u64 {
     var total: u64 = 0;
     for (s.edges) |e| total += polylineBends(e.polyline);
-    // Rail corners counted once (stem flips + stem→crossbar turn) plus one turn per off-column tap. // guarded-by: score_test.zig "rail bends: rail junction counted once, one turn per off-column tap"
+    // Rail corners counted once (stem flips + stem→crossbar turn) plus one turn per off-column tap. // @guarded-by: score_test.zig "rail bends: rail junction counted once, one turn per off-column tap"
     for (s.rails) |rail| {
         total += polylineBends(rail.stem);
         const junction = rail.stem[rail.stem.len - 1];
@@ -146,7 +146,7 @@ fn polylineBends(poly: []const sketch.Point) u64 {
     while (i + 1 < poly.len) : (i += 1) {
         const a = poly[i];
         const b = poly[i + 1];
-        if (a.x == b.x and a.y == b.y) continue; // zero-length
+        if (a.x == b.x and a.y == b.y) continue;
         const vertical = a.x == b.x;
         if (prev_vertical) |pv| {
             if (pv != vertical) total += 1;
@@ -170,7 +170,7 @@ pub fn countCrossings(s: sketch.Sketch) u64 {
             total += crossingsBetween(ea.polyline, eb.polyline);
         }
     }
-    // Rails cross edges/other rails; a rail never crosses itself. // guarded-by: score_test.zig "rail crossings: shared rail registers once, never crosses itself"
+    // Rails cross edges/other rails; a rail never crosses itself. // @guarded-by: score_test.zig "rail crossings: shared rail registers once, never crosses itself"
     for (s.rails, 0..) |ba, bi| {
         for (s.edges) |e| total += railEdgeCrossings(ba, e.polyline);
         for (s.rails[bi + 1 ..]) |rail| total += railRailCrossings(ba, rail);

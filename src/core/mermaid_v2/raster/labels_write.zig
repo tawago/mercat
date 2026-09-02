@@ -40,8 +40,8 @@ pub const Owner = struct {
 };
 
 /// Claim `(x, y)` for one label codepoint and file its owner.
-/// guarded-by: labels_write_test.zig "a glyph write resets every field of the cell it covers"
-/// guarded-by: labels_write_test.zig "a glyph write files one owner record; a continuation files none"
+/// @guarded-by: labels_write_test.zig "a glyph write resets every field of the cell it covers"
+/// @guarded-by: labels_write_test.zig "a glyph write files one owner record; a continuation files none"
 pub fn writeGlyph(
     lat: *lattice.Lattice,
     x: u32,
@@ -58,7 +58,7 @@ pub fn writeGlyph(
 /// whose head sits immediately west. Same whole-cell reset: a continuation
 /// is as opaque as the head it belongs to. Files no record (see the module
 /// doc's ownership note).
-/// guarded-by: labels_write_test.zig "a continuation write resets every field, exactly as a glyph write does"
+/// @guarded-by: labels_write_test.zig "a continuation write resets every field, exactly as a glyph write does"
 pub fn writeCont(lat: *lattice.Lattice, x: u32, y: u32) void {
     lat.at(x, y).* = .{ .occupant = .label_cont, .neighbours = .{} };
 }
@@ -67,7 +67,7 @@ pub fn writeCont(lat: *lattice.Lattice, x: u32, y: u32) void {
 /// the continuation columns that follow it. `span` comes from
 /// `labels.cellSpan`, the one number every probe and every writer reserves
 /// by, so a wide glyph can never paint more cells than it claimed.
-/// guarded-by: labels_write_test.zig "a span write claims head plus continuations and resets both"
+/// @guarded-by: labels_write_test.zig "a span write claims head plus continuations and resets both"
 pub fn writeSpan(
     lat: *lattice.Lattice,
     x: u32,

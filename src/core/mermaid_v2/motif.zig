@@ -48,16 +48,10 @@ fn decomposeScope(
     const start = out.items.len;
     const roots = try classify.coarsenScope(a, sc, dom, out);
     const end = out.items.len;
-    // Only the motifs THIS scope appended are scanned; deeper cluster
-    // motifs are filled by their own recursion level.
     var i = start;
     while (i < end) : (i += 1) {
         if (out.items[i].kind == .cluster) {
             const cid = out.items[i].cluster_id.?;
-            // NOTE: recurse BEFORE touching out.items[i] — the recursion
-            // appends to `out` and may reallocate its buffer, so a combined
-            // `out.items[i].children = try decomposeScope(...)` would write
-            // through a stale pointer.
             const kids = try decomposeScope(a, graph, cid, out);
             out.items[i].children = kids;
         }

@@ -40,7 +40,6 @@ pub fn parseShape(lx: *Lexer) Error!ShapeInfo {
         const c2 = second.bracket;
         _ = lx.next();
         if (c2 == '(') {
-            // Triple paren `(((label)))` is the double-circle shape.
             const third = lx.peek();
             if (third.kind == .shape_open and third.bracket == '(') {
                 _ = lx.next();
@@ -58,8 +57,14 @@ pub fn parseShape(lx: *Lexer) Error!ShapeInfo {
     }
     switch (c1) {
         '[' => {
-            if (peekRawChar(lx) == '/') { advanceRaw(lx, 1); return readSlashShape(lx, true); }
-            if (peekRawChar(lx) == '\\') { advanceRaw(lx, 1); return readSlashShape(lx, false); }
+            if (peekRawChar(lx) == '/') {
+                advanceRaw(lx, 1);
+                return readSlashShape(lx, true);
+            }
+            if (peekRawChar(lx) == '\\') {
+                advanceRaw(lx, 1);
+                return readSlashShape(lx, false);
+            }
             return .{ .shape = .rect, .label = readRawUntilCloseChar(lx, ']') };
         },
         '(' => return .{ .shape = .round, .label = readRawUntilCloseChar(lx, ')') },
@@ -73,7 +78,10 @@ fn readSlashShape(lx: *Lexer, started_slash: bool) ShapeInfo {
     const start = lx.pos;
     while (lx.pos < lx.source.len) {
         const c = lx.source[lx.pos];
-        if (c == '"') { skipQuotedSpan(lx); continue; }
+        if (c == '"') {
+            skipQuotedSpan(lx);
+            continue;
+        }
         if ((c == '/' or c == '\\') and lx.pos + 1 < lx.source.len and
             lx.source[lx.pos + 1] == ']') break;
         if (c == '\n') break;
@@ -96,7 +104,10 @@ fn readSlashShape(lx: *Lexer, started_slash: bool) ShapeInfo {
 fn readShapeDouble(lx: *Lexer, shape: NodeShape, close: []const u8) ShapeInfo {
     const start = lx.pos;
     while (lx.pos < lx.source.len) {
-        if (lx.source[lx.pos] == '"') { skipQuotedSpan(lx); continue; }
+        if (lx.source[lx.pos] == '"') {
+            skipQuotedSpan(lx);
+            continue;
+        }
         if (lx.pos + close.len <= lx.source.len and
             std.mem.eql(u8, lx.source[lx.pos .. lx.pos + close.len], close)) break;
         if (lx.source[lx.pos] == '\n') break;
@@ -112,8 +123,11 @@ pub fn readRawUntilCloseChar(lx: *Lexer, close: u8) []const u8 {
     const start = lx.pos;
     while (lx.pos < lx.source.len) {
         const c = lx.source[lx.pos];
-        // Quoted span is opaque (close char literal inside it). guarded-by: parse_test.zig "quoted label with brackets and operators is opaque"
-        if (c == '"') { skipQuotedSpan(lx); continue; }
+        // Quoted span is opaque (close char literal inside it). @guarded-by: parse_test.zig "quoted label with brackets and operators is opaque"
+        if (c == '"') {
+            skipQuotedSpan(lx);
+            continue;
+        }
         if (c == close or c == '\n') break;
         advanceRaw(lx, 1);
     }
@@ -125,7 +139,7 @@ pub fn readRawUntilCloseChar(lx: *Lexer, close: u8) []const u8 {
 /// Advance past a `"..."` span starting at the opening quote. Stops
 /// after the closing quote, or at end-of-line if unterminated.
 fn skipQuotedSpan(lx: *Lexer) void {
-    advanceRaw(lx, 1); // opening quote
+    advanceRaw(lx, 1);
     while (lx.pos < lx.source.len) {
         const c = lx.source[lx.pos];
         if (c == '\n') return;
@@ -160,8 +174,9 @@ fn advanceRaw(lx: *Lexer, n: usize) void {
     while (i < n and lx.pos < lx.source.len) : (i += 1) {
         const ch = lx.source[lx.pos];
         lx.pos += 1;
-        if (ch == '\n') { lx.line += 1; lx.col = 1; }
-        else if (ch == '\r') lx.col = 1
-        else lx.col += 1;
+        if (ch == '\n') {
+            lx.line += 1;
+            lx.col = 1;
+        } else if (ch == '\r') lx.col = 1 else lx.col += 1;
     }
 }

@@ -40,17 +40,13 @@ const sugiyama = @import("sugiyama.zig");
 const lanes = @import("../base/lanes.zig");
 const pb = @import("../base/ledger.zig");
 const rc = @import("../base/rail_closure.zig");
-const rail_law = @import("fan_rail_law.zig");
+const rail_licence = @import("fan_rail_licence.zig");
 
 const Fan = fan_mod.Fan;
 const Edge = struct { from: sg.NodeId, to: sg.NodeId, blocks_leaf_trace: bool, style: u16 };
 
 const Pair = struct { lo: sg.NodeId, hi: sg.NodeId };
 
-// The one-way-head-at-target test lives in sem_graph.forwardOneWayHead,
-// shared with the plan-side fusion licence (`layout/bundle_commit.zig`): a head
-// at the SOURCE end also stops a trace, but in the direction a fused rail
-// would read backwards, so only a forward head qualifies a member.
 const forwardOneWayHead = sg.forwardOneWayHead;
 
 /// Stroke kind + both head glyphs: members of ONE fused run must agree on all
@@ -81,8 +77,6 @@ fn centerX(comptime G: type, g: G) i32 {
 fn nodeId(lg: sugiyama.LayeredGraph, idx: u32) sg.NodeId {
     return switch (lg.nodes[idx]) {
         .real => |id| id,
-        // Fans never contain virtual peers/pivots (see fan.detect); this is
-        // unreachable for any fan-derived index.
         .virtual => 0,
     };
 }
@@ -98,13 +92,12 @@ pub fn assignLanes(
     geom: []const G,
     fans: []Fan,
     bundles: pb.RealizedBundles,
-    /// Report-only closure-law sink for the clustered arm (null in tests).
+    /// Report-only closure-licence sink for the clustered arm (null in tests).
     report: ?*pb.ClosureCounts,
 ) error{OutOfMemory}!void {
     if (fans.len == 0 or lg.layers.len < 2) return;
     const ngaps: u32 = @intCast(lg.layers.len - 1);
 
-    // Invisible and discharged links draw no independent rail ink.
     var invisible: std.AutoHashMapUnmanaged(sg.EdgeId, void) = .empty;
     defer invisible.deinit(a);
     var blocking: std.AutoHashMapUnmanaged(sg.EdgeId, void) = .empty;
@@ -118,7 +111,7 @@ pub fn assignLanes(
     }
 
     // A rail model missing ink that still touches a crossbar is not complete.
-    // guarded-by: fan_lanes_test2.zig "a discharged edge never shrinks a group into looking complete"
+    // @guarded-by: fan_lanes_test2.zig "a discharged edge never shrinks a group into looking complete"
     var pruned_gaps: std.AutoHashMapUnmanaged(u32, void) = .empty;
     defer pruned_gaps.deinit(a);
 
@@ -132,7 +125,7 @@ pub fn assignLanes(
     // complete all-to-all takes — every edge is somebody's arrival member —
     // and without this its arrivals model no rail at all, so nothing keeps
     // their crossbars off one shared row.
-    // guarded-by: fan_lanes_test.zig "a gap whose departures all defer lane-separates the arrival rails that draw its rails"
+    // @guarded-by: fan_lanes_test.zig "a gap whose departures all defer lane-separates the arrival rails that draw its rails"
     var fanout_edges: std.AutoHashMapUnmanaged(sg.EdgeId, void) = .empty;
     defer fanout_edges.deinit(a);
     for (fans) |f| {
@@ -155,8 +148,6 @@ pub fn assignLanes(
         errdefer edges.deinit(a);
 
         if (f.direction == .out) {
-            // A fan-OUT draws its rail (first-class or per-peer polyline) for every
-            // visible peer.
             for (f.peers) |p| {
                 if (!p.shared) continue;
                 if (invisible.contains(p.edge_id)) {
@@ -175,9 +166,6 @@ pub fn assignLanes(
                 });
             }
         } else {
-            // A fan-IN draws a rail only for peers it actually owns: edges also
-            // owned by a fan-OUT are drawn by that fan-OUT, and a peer sitting
-            // on the pivot column descends straight (no horizontal rail).
             for (f.peers) |p| {
                 if (!p.shared) continue;
                 if (invisible.contains(p.edge_id)) {
@@ -190,7 +178,7 @@ pub fn assignLanes(
                 // but its vertical still touches the crossbar, so it stays in
                 // the MODEL (never widening the span): dropping it could make
                 // an incomplete group read complete.
-                // guarded-by: fan_lanes_test2.zig "a peer on its pivot's own column never shrinks a group into looking complete"
+                // @guarded-by: fan_lanes_test2.zig "a peer on its pivot's own column never shrinks a group into looking complete"
                 if (cx != pivot_cx) has_run = true;
                 lo = @min(lo, cx);
                 hi = @max(hi, cx);
@@ -228,7 +216,6 @@ pub fn assignLanes(
         try processGap(a, rails.items, members.items, fans, pruned_gaps.contains(gap));
     }
 
-    // Clustered/recursed renders have no plan, so apply the closure law here.
     if (bundles.memberships.len == 0) {
         try refuseSharedOnly(a, graph, lg, fans, invisible, report);
         separatePrivatePeers(fans);
@@ -241,12 +228,9 @@ pub fn assignLanes(
     // own lane would put an excluded member back on the crossbar it was
     // excluded from — re-fusing exactly the pair the salvage refused, and
     // handing the reach oracle an unlicensed shared cell.
-    // guarded-by: fan_lanes_test.zig "a salvaged fan's excluded members never land on the kept rail's lane"
+    // @guarded-by: fan_lanes_test.zig "a salvaged fan's excluded members never land on the kept rail's lane"
     for (fans) |*fan| {
         if (fanSelected(fan.*, bundles)) continue;
-        // A fan-OUT every one of whose peers joined an arrival rail draws no
-        // run of its own: its members' ink belongs to those arrivals, so no
-        // per-member lane (and no reserved row) is owed here.
         if (fan.direction == .out and allPeersJoinArrivals(fan.*, bundles)) continue;
         var next_lane = fan.lane + @as(u32, if (anySelected(fan.*, bundles)) 1 else 0);
         for (fan.peers) |*peer| {
@@ -266,7 +250,7 @@ fn refuseSharedOnly(a: std.mem.Allocator, graph: sg.SemGraph, lg: sugiyama.Layer
         for (source.peers) |peer| if (peer.shared) try peers.append(a, peer);
         target.peers = try peers.toOwnedSlice(a);
     }
-    try rail_law.refuseUndeclared(a, graph, lg, gated, invisible, report);
+    try rail_licence.refuseUndeclared(a, graph, lg, gated, invisible, report);
     for (gated, fans) |source, *target| {
         target.lane = source.lane;
         for (source.peers) |peer| for (target.peers) |*out| if (out.edge_id == peer.edge_id) {
@@ -282,7 +266,6 @@ fn separatePrivatePeers(fans: []Fan) void {
         for (fan.peers) |peer| if (peer.shared) {
             next = @max(next, peer.lane + 1);
         };
-        // Start private rails beyond retained labels' tap-anchor block.
         for (fan.peers) |peer| if (peer.shared and peer.label_width != 0) {
             next += fan_mod.LABEL_RUN_EXTRA_ROWS;
         };
@@ -310,7 +293,7 @@ fn allPeersJoinArrivals(fan: Fan, bundles: pb.RealizedBundles) bool {
 }
 
 /// True iff at least one peer joined a realized rail — the salvage shape the
-/// closure law produces (`fanSelected` demands ALL of them).
+/// closure licence produces (`fanSelected` demands ALL of them).
 fn anySelected(fan: Fan, bundles: pb.RealizedBundles) bool {
     for (fan.peers) |peer| {
         if (!peer.shared) continue;
@@ -359,7 +342,6 @@ fn processGap(
     gap_pruned: bool,
 ) error{OutOfMemory}!void {
     const n = members.len;
-    // Union-find over `members` by overlapping/abutting x-spans.
     const parent = try a.alloc(u32, n);
     defer a.free(parent);
     for (parent, 0..) |*p, i| p.* = @intCast(i);
@@ -371,7 +353,6 @@ fn processGap(
         }
     }
 
-    // For each root, gather its group and process it.
     var seen: std.ArrayListUnmanaged(u32) = .empty;
     defer seen.deinit(a);
     for (0..n) |i| {
@@ -406,12 +387,6 @@ fn laneAssignGroup(
 ) error{OutOfMemory}!void {
     if (!fusionForbidden(a, rails, members, group, gap_pruned)) return;
 
-    // A refused union may still hold complete SUB-unions: rails of one
-    // direction over one and the same leaf set (two disjoint K2,2s chained by
-    // a shared source refuse as a whole, yet each half is licensable alone).
-    // Such a class keeps ONE shared claim; every other rail claims alone.
-    // Model-only rails (pure verticals) own no run: they stay lane 0 and
-    // take no row of their own.
     var runs: std.ArrayListUnmanaged(u32) = .empty;
     defer runs.deinit(a);
     for (group) |gi| if (rails[members[gi]].has_run) try runs.append(a, gi);
@@ -430,9 +405,6 @@ fn laneAssignGroup(
         };
     }
 
-    // Lane-pack: pack each claim's x-span into the innermost lane it fits,
-    // treating overlapping/abutting spans as conflicting (so they land on
-    // distinct rows). `base = 0` — we only want the lane INDEX.
     var min_x: i32 = std.math.maxInt(i32);
     for (runs.items) |gi| min_x = @min(min_x, rails[members[gi]].lo);
 
@@ -497,8 +469,6 @@ fn foreignTouches(a: std.mem.Allocator, rails: []const Rail, members: []const u3
     defer guarded.deinit(a);
     const dir = fans[rails[members[sub[0]]].fan_idx].direction;
     for (sub) |gi| for (rails[members[gi]].edges) |e| {
-        // An arrival class's rail serves its pivot ENTRIES; a departure
-        // class's rail serves both its pivot exits and its target entries.
         addUnique(a, &guarded, e.to) catch return true;
         if (dir == .out) addUnique(a, &guarded, e.from) catch return true;
     };
@@ -543,13 +513,6 @@ fn fusionForbidden(
     defer srcs.deinit(a);
     var tgts: std.ArrayListUnmanaged(sg.NodeId) = .empty;
     defer tgts.deinit(a);
-    // Distinct declared pairs, as unordered {min, max} keys. One declared edge
-    // CAN be modelled by two rails of a group (a fan-OUT all of whose peers
-    // joined arrival rails stays a rail yet is absent from `fanout_edges`),
-    // so "the same declared edge" is its unordered endpoint pair; within a gap
-    // sources sit on the upper stage and targets on the lower one, so the key
-    // never conflates two declarations. Summing `edges.len` would count a
-    // twice-modelled edge twice and wrongly admit an incomplete group.
     var pairs: std.ArrayListUnmanaged(Pair) = .empty;
     defer pairs.deinit(a);
     var any_open_trace = false;
@@ -568,8 +531,6 @@ fn fusionForbidden(
     }
     if (srcs.items.len <= 1 or tgts.items.len <= 1) return false;
     if (any_open_trace) return true;
-    // Mixed stroke kind or head glyphs: one run would restate a member's
-    // declaration in a foreign style, so a two-sided union never fuses mixed.
     if (style_mixed) return true;
     if (gap_pruned) return true;
     return pairs.items.len != srcs.items.len * tgts.items.len;

@@ -41,9 +41,8 @@ pub fn buildClusters(
     placements: []const sketch.NodePlacement,
     pad: u32,
 ) error{OutOfMemory}![]sketch.ClusterFrame {
-    _ = pad; // visual cluster pad is fixed (see H_INSET/V_INSET above)
+    _ = pad;
 
-    // Order clusters deepest-first so outer clusters see expanded inner rects.
     const order = try a.alloc(u32, graph.clusters.len);
     defer a.free(order);
     for (order, 0..) |*slot, i| slot.* = @intCast(i);
@@ -56,7 +55,7 @@ pub fn buildClusters(
     };
     std.mem.sort(u32, order, Ctx{ .graph = graph }, Ctx.lessThan);
 
-    // Parallel array of computed rects so later (outer) iterations see the already-expanded inner rects. // guarded-by: layout/clusters_test.zig "buildClusters: outer cluster bbox unions the already-expanded inner rect, not the raw inner member bbox"
+    // Parallel array of computed rects so later (outer) iterations see the already-expanded inner rects. // @guarded-by: layout/clusters_test.zig "buildClusters: outer cluster bbox unions the already-expanded inner rect, not the raw inner member bbox"
     var rects = try a.alloc(?sketch.Rect, graph.clusters.len);
     defer a.free(rects);
     for (rects) |*r| r.* = null;
@@ -66,7 +65,7 @@ pub fn buildClusters(
         rects[idx] = clusterBbox(graph, c, placements, rects);
     }
 
-    // Emit ClusterFrames in original order (preserves stable IDs/depth). // guarded-by: layout/clusters_test.zig "buildClusters: emitted ClusterFrame order matches input graph.clusters order, not the depth-sorted processing order"
+    // Emit ClusterFrames in original order (preserves stable IDs/depth). // @guarded-by: layout/clusters_test.zig "buildClusters: emitted ClusterFrame order matches input graph.clusters order, not the depth-sorted processing order"
     var out: std.ArrayListUnmanaged(sketch.ClusterFrame) = .empty;
     for (graph.clusters, 0..) |c, i| {
         const r = rects[i] orelse continue;
@@ -195,17 +194,17 @@ pub fn computeBbox(
         if (c.rect.right() > max_x) max_x = c.rect.right();
         if (c.rect.bottom() > max_y) max_y = c.rect.bottom();
     }
-    // Pass 1: polylines + all NON-relocatable labels; relocatable back-edge rail labels are deferred to pass 2 so each can see the diagram's right extent from everything else (its necessity gate). // guarded-by: layout/clusters_test.zig "computeBbox: back-edge rail label relocation depends on the diagram's full right extent, not just its own edge"
+    // Pass 1: polylines + all NON-relocatable labels; relocatable back-edge rail labels are deferred to pass 2 so each can see the diagram's right extent from everything else (its necessity gate). // @guarded-by: layout/clusters_test.zig "computeBbox: back-edge rail label relocation depends on the diagram's full right extent, not just its own edge"
     for (edges) |e| {
         for (e.polyline) |pt| {
-            // Polyline points are inclusive cells but max_x/max_y are exclusive; bump by +1 (needed for self-loop detours past the node bbox). // guarded-by: layout/clusters_test.zig "computeBbox: a self-loop detour point at the diagram's extreme corner extends the exclusive bbox by exactly +1"
+            // Polyline points are inclusive cells but max_x/max_y are exclusive; bump by +1 (needed for self-loop detours past the node bbox). // @guarded-by: layout/clusters_test.zig "computeBbox: a self-loop detour point at the diagram's extreme corner extends the exclusive bbox by exactly +1"
             if (pt.x < min_x) min_x = pt.x;
             if (pt.y < min_y) min_y = pt.y;
             if (pt.x + 1 > max_x) max_x = pt.x + 1;
             if (pt.y + 1 > max_y) max_y = pt.y + 1;
         }
         const relocatable = pressure and e.role == .back_edge;
-        if (relocatable) continue; // deferred to pass 2
+        if (relocatable) continue;
         if (labelFootprint(e, false, max_width, 0)) |fp| {
             if (fp.lx < min_x) min_x = fp.lx;
             if (fp.ly < min_y) min_y = fp.ly;
@@ -213,7 +212,7 @@ pub fn computeBbox(
             if (fp.ly + 1 > max_y) max_y = fp.ly + 1;
         }
     }
-    // Rail geometry + tap labels (non-relocatable, part of pass 1's extent); each tap label's anchor is reserved via the same shared segment (`Rail.tapLabelSeg`) raster/labels paints. // guarded-by: layout/clusters_test.zig "computeBbox: rail tap label reservation matches Rail.tapLabelSeg + prim.edgeLabelAnchor"
+    // Rail geometry + tap labels (non-relocatable, part of pass 1's extent); each tap label's anchor is reserved via the same shared segment (`Rail.tapLabelSeg`) raster/labels paints. // @guarded-by: layout/clusters_test.zig "computeBbox: rail tap label reservation matches Rail.tapLabelSeg + prim.edgeLabelAnchor"
     for (rails) |b| {
         const rail = b.rail;
         for (rail.stem) |pt| extendPoint(&min_x, &min_y, &max_x, &max_y, pt);
@@ -234,7 +233,7 @@ pub fn computeBbox(
         }
     }
 
-    // Pass 2: relocatable back-edge rail labels; the lever moves a label left only if its right placement would bust the budget while `others_right` (max_x so far) already fits, else it stays right. // guarded-by: layout/clusters_test.zig "computeBbox: back-edge rail lever leaves the label right when the right placement already fits the budget"
+    // Pass 2: relocatable back-edge rail labels; the lever moves a label left only if its right placement would bust the budget while `others_right` (max_x so far) already fits, else it stays right. // @guarded-by: layout/clusters_test.zig "computeBbox: back-edge rail lever leaves the label right when the right placement already fits the budget"
     for (edges) |*e| {
         if (!(pressure and e.role == .back_edge)) continue;
         if (labelFootprint(e.*, true, max_width, max_x)) |fp| {
@@ -246,9 +245,6 @@ pub fn computeBbox(
         }
     }
 
-    // Shift all geometry so the bbox starts at (0,0). The slices are
-    // mutable here; the final `Sketch` literal will coerce them to
-    // `[]const` at the moment of construction (see buildSketch).
     const dx: i32 = -min_x;
     const dy: i32 = -min_y;
     if (dx != 0 or dy != 0) {
@@ -272,7 +268,7 @@ fn shiftAll(
     dx: i32,
     dy: i32,
 ) void {
-    _ = edges; // polylines parallel-array is the mutable view of edge geometry
+    _ = edges;
     for (placements) |*p| {
         p.rect.x += dx;
         p.rect.y += dy;
@@ -287,7 +283,7 @@ fn shiftAll(
             pt.y += dy;
         }
     }
-    // Stems live in `polylines` (shifted above); taps shift via the Built's mutable view, which aliases the memory `rail.taps` reads. // guarded-by: layout/clusters_test.zig "computeBbox: the shift pass updates both the Built.taps view and the aliased Rail.taps slice"
+    // Stems live in `polylines` (shifted above); taps shift via the Built's mutable view, which aliases the memory `rail.taps` reads. // @guarded-by: layout/clusters_test.zig "computeBbox: the shift pass updates both the Built.taps view and the aliased Rail.taps slice"
     for (rails) |*b| {
         for (&b.rail.crossbar) |*pt| {
             pt.x += dx;
@@ -303,8 +299,6 @@ fn shiftAll(
 }
 
 fn extendPoint(min_x: *i32, min_y: *i32, max_x: *i32, max_y: *i32, pt: sketch.Point) void {
-    // Points name inclusive cells; the maxima are exclusive (see the
-    // polyline extent loop above), hence the +1.
     if (pt.x < min_x.*) min_x.* = pt.x;
     if (pt.y < min_y.*) min_y.* = pt.y;
     if (pt.x + 1 > max_x.*) max_x.* = pt.x + 1;
@@ -344,7 +338,7 @@ fn labelFootprint(
         .lx = anchor.x,
         .ly = anchor.y,
         .lend_x = anchor.x + @as(i32, @intCast(lbl_w)),
-        // Left of the edge's own run iff x is below the default right position (mid_x + 2). // guarded-by: layout/clusters_test.zig "computeBbox: label_left_of_run is false exactly at prim.edgeLabelAnchor's default mid_x+2 offset"
+        // Left of the edge's own run iff x is below the default right position (mid_x + 2). // @guarded-by: layout/clusters_test.zig "computeBbox: label_left_of_run is false exactly at prim.edgeLabelAnchor's default mid_x+2 offset"
         .left_of_run = anchor.x < mid_x + 2,
     };
 }

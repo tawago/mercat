@@ -133,8 +133,6 @@ test "rail stars: decoration and style remain separate from the star law" {
     var styled = [_]ledger.RailClaimMember{ outMember(3, 10, 30), outMember(4, 10, 31) };
     styled[1].kind = .dotted;
     var both = [_]ledger.RailClaimMember{ outMember(5, 10, 40), outMember(6, 10, 41) };
-    // Cross at the pivot: deco-mixed against the others' bare pivot end,
-    // yet still non-directional, so every member keeps blocking (star-law clean).
     both[1].arrows[0] = .cross;
     both[1].kind = .thick;
     const claims = [_]ledger.RailClaim{ outClaim(1, &decorated), outClaim(2, &styled), outClaim(3, &both) };

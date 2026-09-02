@@ -16,20 +16,10 @@ const builtin = @import("builtin");
 /// relative paths.
 pub const parse = @import("parse.zig").parse;
 
-// --- Layout pipeline re-exports --------------------------------------
-// These let test modules (and any future external consumers) reach the
-// v2 surface through a single module import (`@import("mermaid_v2")`)
-// rather than rooting separate modules at deeply-nested files. The
-// latter pattern fails for layout/*.zig because those files use
-// relative `@import` paths that would cross Zig module boundaries if
-// each layout file became its own module root.
-
 /// Namespace re-export of sem_graph.zig. Callers write e.g.
 /// `v2.sem_graph.Node` instead of the former `v2.SgNode` aliases.
 pub const sem_graph = @import("sem_graph.zig");
 
-// Id typedefs are re-exported at the top level for ergonomic use in
-// tests and tools that already import "mermaid_v2" directly.
 pub const NodeId = sem_graph.NodeId;
 pub const EdgeId = sem_graph.EdgeId;
 pub const ClusterId = sem_graph.ClusterId;
@@ -56,7 +46,6 @@ pub const validateSketch = validate_mod.validate;
 pub const ValidationResult = validate_mod.ValidationResult;
 pub const Violation = validate_mod.Violation;
 
-// --- Raster pipeline re-exports --------------------------------------
 pub const rasterize = rasterize_mod.rasterize;
 pub const RasterReport = rasterize_mod.RasterReport;
 pub const RasterizeError = rasterize_mod.RasterizeError;
@@ -129,7 +118,7 @@ const EnvOptions = struct {
     /// MERCAT_TILING_AUDIT=1: emit one `mercat-tiling:` counts line per
     /// diagram to stderr (tiling/counts.zig). Report-only: reads the FINAL
     /// lattice, mutates nothing, never reaches score/selection.
-    /// guarded-by: scan_test.zig "scan: run() leaves the lattice byte-identical"
+    /// @guarded-by: scan_test.zig "scan: run() leaves the lattice byte-identical"
     tiling_audit: bool,
 
     fn read() EnvOptions {
@@ -172,11 +161,6 @@ pub fn renderFlowchart(
 
     const env = EnvOptions.read();
 
-    // SemGraph's arena was created via the outer caller path; here we
-    // passed `aa` so its arena lives inside our outer arena and is freed
-    // when `arena.deinit()` runs. Calling its deinit would double-free
-    // (it would `destroy` an arena pointer that itself lives in our
-    // arena). Skip explicit deinit — arena cleanup handles it.
     const graph = parse(aa, source) catch |err| {
         std.log.warn("mermaid_v2 parse failed: {s}", .{@errorName(err)});
         return fallback(source, "v2 pipeline error: parse");
@@ -189,29 +173,11 @@ pub fn renderFlowchart(
         std.log.warn("mermaid_v2 branch plan failed: {s}", .{@errorName(err)});
         return fallback(source, "v2 pipeline error: branch plan");
     };
-    // `bundle_permits` lives for the whole render (this frame outlives every
-    // layout pass); the ladder/select drivers take it as *const so
-    // LayoutOptions.bundle_permits aliases THIS plan, never a stack copy.
-    // The plan carries its own scope (flat vs skipped_clustered).
     const bundle_permits = branch_result.plan;
 
-    // MotifTree dump is INERT: nothing downstream reads the result yet
-    // (see EnvOptions.dump_motifs).
     if (env.dump_motifs) motif_mod.dumpToStderr(aa, graph);
 
-    // Every render enumerates all budget-ladder rung candidates
-    // (`budget.enumerate`), plus up to 3 motif-PACKED candidates on TD/BT
-    // graphs with a packable parallel motif (select.zig), and returns the
-    // score's argmin (score.zig), not the ladder's first-accepting rung.
-    // Cost: <=14 layout passes per render instead of the ladder's
-    // short-circuit — acceptable at corpus scale (<=31 nodes), and the
-    // TUI only re-renders on reflow (load/resize/reload), never per
-    // frame. The env knobs steering this block (force_rung / score_off /
-    // shadow_telemetry) are documented on EnvOptions above.
     const ladder_result: ladder_pkg.LadderResult = blk: {
-        // Both debug paths below skip selection, so they must apply the
-        // realized bundle plan themselves (select.applyPlan, flat-gated as in
-        // select.choose) — a debug render carries production bundle semantics.
         if (env.force_rung) |rung| {
             var forced = ladder_pkg.runForced(aa, graph, &bundle_permits, options.max_width, rung) catch |err| {
                 std.log.warn("mermaid_v2/entry: forced-rung layout failed: {s}", .{@errorName(err)});
@@ -221,8 +187,6 @@ pub fn renderFlowchart(
             break :blk forced;
         }
         if (env.score_off and !env.shadow_telemetry) {
-            // Escape hatch without telemetry: the exact original path
-            // (short-circuiting ladder, no enumeration).
             var incumbent = ladder_pkg.run(aa, graph, &bundle_permits, options.max_width) catch |err| {
                 std.log.warn("mermaid_v2/entry: ladder failed: {s}", .{@errorName(err)});
                 return fallback(source, "v2 ladder error");
@@ -237,7 +201,7 @@ pub fn renderFlowchart(
         // its incumbent, so this catch matches the run() error path; any
         // scoring/packing failure degrades internally to the incumbent —
         // the render never fails on selection.
-        // guarded-by: select_test.zig "choose: merged selection anchors to raw natural and never fails the render"
+        // @guarded-by: select_test.zig "choose: merged selection anchors to raw natural and never fails the render"
         break :blk select_mod.choose(aa, graph, &bundle_permits, options.max_width, env.score_off, env.shadow_telemetry, options.subgraph_edges) catch |err| {
             std.log.warn("mermaid_v2/entry: ladder failed: {s}", .{@errorName(err)});
             return fallback(source, "v2 ladder error");
@@ -245,10 +209,6 @@ pub fn renderFlowchart(
     };
     const sketch_val = ladder_result.sketch;
 
-    // Sketch validation runs in EVERY build mode: the structured per-kind
-    // COUNTS must exist in release builds too (external diagnostics
-    // read them via MERCAT_INTEGRITY below), while the per-violation LOG
-    // lines stay Debug-only. Log-only + count-only: never affects output.
     const integrity: validate_mod.Counts = blk: {
         const result = validate_mod.validate(aa, sketch_val) catch break :blk .{};
         if (comptime builtin.mode == .Debug) {
@@ -271,9 +231,6 @@ pub fn renderFlowchart(
 
     if (env.integrity) emitIntegrityLine(integrity, raster_report, graph.skipped_lines, sketch_val.closure);
 
-    // Dark structural audit over the FINAL, SHIPPED lattice (tiling/):
-    // zero output effect, zero selection effect, one stderr line under
-    // the knob.
     if (env.tiling_audit) tiling_scan.emit(aa, .{
         .graph = graph,
         .sketch = sketch_val,
@@ -285,9 +242,6 @@ pub fn renderFlowchart(
         .edge_cells_lost = raster_report.edge_cells_lost,
     });
 
-    // Clip the painter to the winning budget — the honest terminal.
-    // `budget.max_width` already lives in the IR; this is a legal
-    // raster/paint read of a decision layout already made.
     const budget = sketch_val.budget.max_width;
     const true_width = raster_report.lattice.width;
     const painted = paint(allocator, raster_report.lattice, budget) catch |err| {
@@ -302,7 +256,6 @@ pub fn renderFlowchart(
 
     return .{
         .output = painted,
-        // Clipped/emitted width — matches `painted` (A4).
         .width = @min(true_width, budget),
         .height = raster_report.lattice.height,
         .is_fallback = false,
@@ -334,7 +287,7 @@ fn resolveBundlePermits(allocator: std.mem.Allocator, graph: sem_graph.SemGraph)
 /// violation fields are conformance counts against the plan and are
 /// expected zero except where routing genuinely cannot avoid ink (the
 /// counts are the evidence when it cannot); rail_* / co_* are the closure
-/// law's refusal inventory — legitimately nonzero on refusing inputs —
+/// licence's refusal inventory — legitimately nonzero on refusing inputs —
 /// except `co_double_discharge`, which is a conformance assert and must
 /// stay zero. The line's field set and order are frozen for external
 /// tooling; demotions change doc meaning, never fields.
@@ -430,9 +383,6 @@ test "V-D-IR-07: a clustered graph's bundles ride piece plans; the root plan sta
     try std.testing.expect(result.report.bundle_permits_skipped_clustered);
     try std.testing.expect(result.report.edgeid_scope_clustered_skipped);
     const laid_out = try ladder_pkg.run(a, graph, &result.plan, 120);
-    // No fan anywhere: no rail realizes. But the piece plans' membership
-    // rows survive the stitch — one for S's A->B — and the cross-border
-    // edge takes a bridge-scope row (ungrouped: both sides null).
     try std.testing.expectEqual(@as(usize, 0), laid_out.sketch.bundles.selected_bundles.len);
     try std.testing.expectEqual(@as(usize, 2), laid_out.sketch.bundles.memberships.len);
     const bridge_row = laid_out.sketch.bundles.memberships[1];
@@ -452,14 +402,11 @@ test "cluster unification: a subgraph-internal fan-in realizes a rail and ships 
         \\
     );
 
-    // The piece plan realizes the fan-IN inside S and the rail record rides
-    // the stitch into the merged Sketch.
     const result = try resolveBundlePermits(a, graph);
     const laid_out = try ladder_pkg.run(a, graph, &result.plan, 80);
     try std.testing.expectEqual(@as(usize, 1), laid_out.sketch.bundles.selected_bundles.len);
     try std.testing.expectEqual(@as(usize, 2), laid_out.sketch.bundles.selected_bundles[0].members.len);
 
-    // And the shipped bytes draw the fan bundled: one rail into C.
     const rendered = try renderFlowchart(std.testing.allocator, "flowchart TD\nsubgraph S\n  A --> C\n  B --> C\nend\n", .{ .max_width = 80 });
     defer std.testing.allocator.free(rendered.output);
     try std.testing.expect(!rendered.is_fallback);
@@ -498,9 +445,6 @@ test "cluster unification: two subgraph rails keep their own members through non
         \\
     );
 
-    // The second piece merges at a nonzero edge base; a dropped remap would
-    // alias its members onto the first piece's ids. Each rail's member set
-    // must be exactly its own rail's tap edges, and the two sets disjoint.
     const result = try resolveBundlePermits(a, graph);
     const laid_out = try ladder_pkg.run(a, graph, &result.plan, 80);
     const bundles = laid_out.sketch.bundles.selected_bundles;
@@ -525,8 +469,6 @@ test "cluster unification: a bridge never transits a stitched rail's arrowhead" 
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
-    // Two subgraph fan-ins plus cross-border edges whose corridors pass the
-    // realized rails; the bridge router must dodge every head cell.
     const graph = try parse(a,
         \\flowchart TD
         \\subgraph S1
@@ -552,10 +494,6 @@ test "cluster unification: a bridge never transits a stitched rail's arrowhead" 
 }
 
 test "cluster unification: bridges route around each other, not through" {
-    // Three subgraphs, five cross-border edges (dotted, labeled and solid
-    // mixed) whose jogs used to fuse collinear into 45 foreign junctions
-    // at this width; sequential routing with a growing scene dodges them
-    // all. Pinned through the production selection path.
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
@@ -599,9 +537,6 @@ test "cluster unification: bridges route around each other, not through" {
 }
 
 test {
-    // Pull in layout-pipeline tests so `zig build` sees them when the
-    // mermaid_v2 module is exercised. Each referenced file uses its own
-    // `test {}` block to chain its sibling tests.
     _ = @import("layout/sugiyama.zig");
     _ = @import("layout/crossing.zig");
     _ = @import("layout/validate.zig");
@@ -632,7 +567,7 @@ test {
     _ = @import("base/bundle.zig");
     _ = @import("base/rail_closure.zig");
     _ = @import("base/rail_closure_test.zig");
-    _ = @import("layout/fan_rail_law.zig");
+    _ = @import("layout/fan_rail_licence.zig");
     _ = @import("ledger/permits.zig");
     _ = @import("ledger/permits_test.zig");
     _ = @import("ledger/realized.zig");

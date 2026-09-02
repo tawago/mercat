@@ -160,7 +160,7 @@ pub fn build(
 ) BuildError!BuildResult {
     // Child recursion pieces may look cluster-free after IDs were localized;
     // only the original graph's cluster array opens or closes this gate.
-    // guarded-by: permits_test.zig "V-D-EDGE-ID-02: clustered graph returns empty plan and both skip markers"
+    // @guarded-by: permits_test.zig "V-D-EDGE-ID-02: clustered graph returns empty plan and both skip markers"
     if (graph.clusters.len != 0) return .{
         .plan = .{ .policy = policy, .scope = .skipped_clustered },
         .report = .{
@@ -179,7 +179,7 @@ pub fn build(
     const incidence = try allocator.alloc(Incidence, graph.nodes.len);
     for (graph.nodes, incidence) |node, *item| item.* = .{ .pivot = node.id };
 
-    // guarded-by: permits_test.zig "V-D-EDGE-ID-05: edge-array permutation preserves canonical plan bytes"
+    // @guarded-by: permits_test.zig "V-D-EDGE-ID-05: edge-array permutation preserves canonical plan bytes"
     for (graph.edges, 0..) |edge, i| {
         const from = nodeIndex(graph, edge.from) orelse return error.InvalidSemGraph;
         const to = nodeIndex(graph, edge.to) orelse return error.InvalidSemGraph;
@@ -188,8 +188,7 @@ pub fn build(
         // never an endpoint-incidence candidate-bundle member (its source==target makes fan-in/
         // fan-out classification degenerate). Excluded here, before the carve-out predicate;
         // it still takes a (null,null) membership below and still renders its own lollipop.
-        // guarded-by: permits_test.zig "V-D-JOIN-SELECT-14: self-loop excluded from fan-in group leaves residual member independent"
-        // D-JOIN-SELECT self-loop join exclusion (2026-07-18) / V-D-JOIN-SELECT-14.
+        // @guarded-by: permits_test.zig "V-D-JOIN-SELECT-14: self-loop excluded from fan-in group leaves residual member independent"
         if (edge.from == edge.to) continue;
         try incidence[from].outgoing.append(allocator, edge.id);
         try incidence[to].incoming.append(allocator, edge.id);

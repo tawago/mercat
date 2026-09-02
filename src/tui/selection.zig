@@ -99,8 +99,6 @@ pub const Selection = struct {
             c1 = ord.end.col;
         }
 
-        // ordered() guarantees start precedes end, so after clamping both to
-        // width the invariant c0 <= c1 still holds.
         return .{ .start = @min(c0, width), .end = @min(c1, width) };
     }
 
@@ -121,7 +119,6 @@ pub const Selection = struct {
 
             const line_start = out.items.len;
             try out.appendSlice(allocator, try overlappingColumnRange(prepared.source, bounds.start, bounds.end));
-            // Right-trim trailing spaces from this line's contribution only.
             while (out.items.len > line_start and out.items[out.items.len - 1] == ' ') {
                 out.items.len -= 1;
             }
@@ -247,7 +244,7 @@ test "single line partial range extracts substring" {
 }
 
 test "multi line join with trailing-space trim" {
-    var s0 = [_]TestSpan{bodySpan("first line    ")}; // trailing padding
+    var s0 = [_]TestSpan{bodySpan("first line    ")};
     var s1 = [_]TestSpan{bodySpan("middle")};
     var s2 = [_]TestSpan{bodySpan("last")};
     const lines = [_]TestLine{
@@ -257,8 +254,8 @@ test "multi line join with trailing-space trim" {
     };
 
     var sel = Selection{};
-    sel.begin(0, 6); // start mid-first-line
-    sel.extendTo(2, 3); // end mid-last-line
+    sel.begin(0, 6);
+    sel.extendTo(2, 3);
     const text = try sel.extractText(testing.allocator, &lines);
     defer testing.allocator.free(text);
     try testing.expectEqualStrings("line\nmiddle\nlas", text);
@@ -267,20 +264,17 @@ test "multi line join with trailing-space trim" {
 test "rangeForLine clamps to content width and rejects empty" {
     var sel = Selection{};
     sel.begin(0, 3);
-    sel.extendTo(0, 100); // past end of a short line
+    sel.extendTo(0, 100);
     const r = sel.rangeForLine(0, 5).?;
     try testing.expectEqual(@as(usize, 3), r.start);
     try testing.expectEqual(@as(usize, 5), r.end);
 
-    // Zero-width (click without drag) yields no highlight.
     var click = Selection{};
     click.begin(0, 2);
     try testing.expect(click.rangeForLine(0, 10) == null);
 }
 
 test "wide glyphs are copied whole at boundaries" {
-    // "日本語" occupies columns 0..6 (2 each). Select columns 1..3 — should
-    // still pull both leading glyphs because each overlaps the range.
     var spans = [_]TestSpan{bodySpan("日本語")};
     const lines = [_]TestLine{.{ .spans = &spans }};
 
@@ -497,7 +491,7 @@ test "reversed drag (cursor before anchor) normalizes" {
 
     var sel = Selection{};
     sel.begin(0, 8);
-    sel.extendTo(0, 2); // dragged leftwards
+    sel.extendTo(0, 2);
     const text = try sel.extractText(testing.allocator, &lines);
     defer testing.allocator.free(text);
     try testing.expectEqualStrings("cdefgh", text);

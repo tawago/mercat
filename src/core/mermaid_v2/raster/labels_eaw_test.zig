@@ -76,10 +76,6 @@ fn makeEdge(id: u32, poly: []const sketch.Point, label: ?[]const u8) sketch.Edge
 }
 
 test "cellSpan is 1 for every ASCII codepoint including tab" {
-    // The whole ASCII range, exhaustively: tab (4 display columns) and the
-    // C0 controls (0 columns, incl. the LINE_BREAK sentinel) deliberately
-    // keep the frozen one-cell span. This is the mechanical proof that no
-    // ASCII render can grow a continuation cell or shift a cursor.
     var cp: u21 = 0;
     while (cp < 0x80) : (cp += 1) {
         try testing.expectEqual(@as(u32, 1), labels.cellSpan(cp));
@@ -101,8 +97,6 @@ test "cellSpanOf equals prim.displayWidth for tab- and control-free text" {
     for (samples) |s| {
         try testing.expectEqual(prim.displayWidth(s), labels.cellSpanOf(s));
     }
-    // The one documented divergence: a tab paints 4 columns but claims 1
-    // cell (frozen to keep ASCII byte-identity).
     try testing.expectEqual(@as(u32, 4), prim.displayWidth("\t"));
     try testing.expectEqual(@as(u32, 1), labels.cellSpanOf("\t"));
 }
@@ -113,7 +107,6 @@ test "wide node label writes char + continuation and paints two columns" {
     const alloc = arena.allocator();
 
     var lat = try makeLattice(alloc, 12, 5);
-    // inner_w = 6 cells; the label is 3 wide glyphs = 6 display columns.
     const rect: sketch.Rect = .{ .x = 0, .y = 0, .w = 8, .h = 3 };
     fillNodeInterior(&lat, rect, 1);
 
@@ -129,8 +122,6 @@ test "wide node label writes char + continuation and paints two columns" {
 
     const report = try labels.rasterizeLabels(alloc, &lat, s, null);
     try testing.expectEqual(@as(u32, 1), report.placed);
-    // No truncation: the box was sized in display columns and the writer
-    // now advances in the same unit.
     try testing.expectEqual(@as(usize, 0), report.diagnostics.len);
 
     try testing.expectEqual(@as(u21, '日'), cellChar(lat, 1, 1));
@@ -149,7 +140,6 @@ test "a wide node glyph whose second cell is not this node's interior is refused
     var lat = try makeLattice(alloc, 12, 5);
     const rect: sketch.Rect = .{ .x = 0, .y = 0, .w = 8, .h = 3 };
     fillNodeInterior(&lat, rect, 1);
-    // Punch a foreign cell where the first glyph's TAIL would land.
     lat.at(2, 1).* = .{ .occupant = .{ .node_interior = 9 }, .neighbours = .{} };
 
     const nodes = [_]sketch.NodePlacement{.{
@@ -164,8 +154,6 @@ test "a wide node glyph whose second cell is not this node's interior is refused
 
     _ = try labels.rasterizeLabels(alloc, &lat, s, null);
 
-    // Head refused too — never a half glyph — and the cursor still moved,
-    // so the following glyphs keep their columns.
     try testing.expectEqual(@as(u21, 0), cellChar(lat, 1, 1));
     try testing.expect(!isCont(lat, 1, 1));
     try testing.expectEqual(@as(u21, '本'), cellChar(lat, 3, 1));
@@ -204,8 +192,6 @@ test "wide cluster title advances by span and still closes the band" {
     try testing.expect(isCont(lat, 4, 0));
     try testing.expectEqual(@as(u21, '本'), cellChar(lat, 5, 0));
     try testing.expect(isCont(lat, 6, 0));
-    // The trailing space closes the band past the last PAINTED column,
-    // not one cell after the last codepoint.
     try testing.expectEqual(@as(u21, ' '), cellChar(lat, 7, 0));
 }
 
@@ -214,10 +200,6 @@ test "edge-label probe reserves display cells: a wide label no longer overwrites
     defer arena.deinit();
     const alloc = arena.allocator();
 
-    // Row 2 is the only candidate row (the segment sits on row 3 and row 4
-    // is out of bounds). A 2-glyph CJK label needs 4 cells; only 3 are
-    // free before the pre-placed ink, so the probe must refuse this row —
-    // by codepoint count it would have "fit" and clobbered the ink.
     var lat = try makeLattice(alloc, 8, 4);
     lat.at(4, 2).* = .{
         .occupant = .{ .edge_segment = .{ .edge = 77, .kind = .solid } },
@@ -233,7 +215,6 @@ test "edge-label probe reserves display cells: a wide label no longer overwrites
     try testing.expectEqual(@as(u32, 0), report.placed);
     try testing.expectEqual(@as(u32, 1), report.dropped);
 
-    // The pre-placed ink survived untouched.
     try testing.expect(switch (lat.atConst(4, 2).occupant) {
         .edge_segment => |seg| seg.edge == 77,
         else => false,
@@ -270,10 +251,6 @@ test "blank-flank rule treats a continuation as a label neighbour" {
     defer arena.deinit();
     const alloc = arena.allocator();
 
-    // A wide label already occupies cells (2,2)-(3,2): head + continuation.
-    // Every span the ladder can reach on the only candidate row sits within
-    // two cells of the CONTINUATION, so the run-separation rule must refuse
-    // them exactly as it would refuse the head, and the label drops.
     const poly = [_]sketch.Point{ .{ .x = 3, .y = 3 }, .{ .x = 5, .y = 3 } };
     const edges = [_]sketch.EdgePath{makeEdge(5, &poly, "ab")};
     var s = emptySketch(8, 4, .LR);
@@ -287,9 +264,6 @@ test "blank-flank rule treats a continuation as a label neighbour" {
     try testing.expectEqual(@as(u32, 0), report.placed);
     try testing.expectEqual(@as(u32, 1), report.dropped);
 
-    // Control: the continuation is what refuses it. Free that one cell and
-    // the identical ladder places the label (at x=5, two blanks past the
-    // head at x=2).
     var free_lat = try makeLattice(alloc, 8, 4);
     free_lat.at(2, 2).* = .{ .occupant = .{ .label_char = '日' }, .neighbours = .{} };
 

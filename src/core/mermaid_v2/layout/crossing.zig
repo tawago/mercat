@@ -37,11 +37,6 @@ pub fn reduceCrossings(
     defer freeLayers(allocator, best);
 
     var best_crossings: u32 = try countCrossings(allocator, lg.*);
-    // Secondary objective (see railCost): cmpScored biases forward-leaf
-    // back-endpoints toward the rail, but that crossing-NEUTRAL reorder is
-    // dropped by the strict rollback below when declaration order is already
-    // crossing-optimal. Accepting an equal-crossing sweep only when it lowers
-    // railCost lets the tie-break survive, inert on acyclics.
     var best_rail: u64 = railCost(lg.*);
 
     var stagnation: u8 = 0;
@@ -83,8 +78,6 @@ pub fn reduceCrossings(
 pub fn countCrossings(allocator: std.mem.Allocator, lg: LayeredGraph) !u32 {
     if (lg.layers.len < 2) return 0;
 
-    // pos[node_index] = position within its layer (only valid for nodes
-    // in the layer pair currently being scanned; we rebuild it).
     var pos = try allocator.alloc(u32, lg.nodes.len);
     defer allocator.free(pos);
     @memset(pos, 0);
@@ -146,7 +139,7 @@ pub const ScoredNode = struct {
     /// every sibling. 1 for a back-endpoint, else 0; sorts AFTER equal-
     /// barycenter siblings. Crossing-neutral; survives rollback only via
     /// reduceCrossings's railCost secondary objective.
-    /// guarded-by: layout/crossing_test.zig "cmpScored places back-edge
+    /// @guarded-by: layout/crossing_test.zig "cmpScored places back-edge
     /// endpoint after equal-barycenter sibling"
     back: u8 = 0,
 };
@@ -239,7 +232,7 @@ fn reorderLayer(
         };
     }
 
-    // std.mem.sort is not guaranteed stable in 0.15; cmpScored encodes the tie-break (by current position) explicitly instead of relying on it. guarded-by: layout/crossing_test.zig "cmpScored breaks barycenter ties by original position, independent of input order"
+    // std.mem.sort is not guaranteed stable in 0.15; cmpScored encodes the tie-break (by current position) explicitly instead of relying on it. @guarded-by: layout/crossing_test.zig "cmpScored breaks barycenter ties by original position, independent of input order"
     std.mem.sort(ScoredNode, scored, {}, cmpScored);
 
     for (scored, 0..) |s, k| row[k] = s.idx;
@@ -249,7 +242,6 @@ fn cloneLayers(allocator: std.mem.Allocator, layers: [][]u32) ![][]u32 {
     const out = try allocator.alloc([]u32, layers.len);
     var i: usize = 0;
     errdefer {
-        // Free already-cloned rows on partial failure.
         var k: usize = 0;
         while (k < i) : (k += 1) allocator.free(out[k]);
         allocator.free(out);
@@ -291,7 +283,7 @@ pub fn isBackEndpoint(lg: *const LayeredGraph, idx: u32) bool {
 /// back-endpoint still on the rail would bend it if pulled rail-ward. 0 when
 /// no node qualifies, so this is identically zero on acyclic graphs and the
 /// accept test collapses to the strict crossing comparison (byte-identical).
-/// guarded-by: layout/crossing_test.zig "reduceCrossings parks a back-edge
+/// @guarded-by: layout/crossing_test.zig "reduceCrossings parks a back-edge
 /// endpoint at the last within-layer index even when crossings are minimal"
 pub fn railCost(lg: LayeredGraph) u64 {
     var total: u64 = 0;
@@ -362,7 +354,6 @@ test "linear chain has zero crossings before and after" {
     const before = try countCrossings(testing.allocator, lg);
     try testing.expectEqual(@as(u32, 0), before);
 
-    // Capture ordering pre-reduce.
     const snap = try cloneLayers(testing.allocator, lg.layers);
     defer freeLayers(testing.allocator, snap);
 
@@ -371,7 +362,6 @@ test "linear chain has zero crossings before and after" {
     const after = try countCrossings(testing.allocator, lg);
     try testing.expectEqual(@as(u32, 0), after);
 
-    // Ordering should still match (each layer has at most 1 node anyway).
     try testing.expectEqual(snap.len, lg.layers.len);
     for (snap, lg.layers) |s, r| {
         try testing.expectEqualSlices(u32, s, r);
@@ -379,10 +369,6 @@ test "linear chain has zero crossings before and after" {
 }
 
 test "two-layer X pattern reduces from 1 to 0" {
-    // Layer 0: A, B (declaration order). Layer 1: C, D.
-    // Edges A→D and B→C. With initial declaration order this is 1
-    // crossing; reduce should swap layer 1 to [D, C] (or layer 0 to
-    // [B, A]) yielding 0.
     const nodes = [_]sg.Node{
         mkNode(0, "A"),
         mkNode(1, "B"),
@@ -390,8 +376,8 @@ test "two-layer X pattern reduces from 1 to 0" {
         mkNode(3, "D"),
     };
     const edges = [_]sg.Edge{
-        mkEdge(0, 0, 3), // A -> D
-        mkEdge(1, 1, 2), // B -> C
+        mkEdge(0, 0, 3),
+        mkEdge(1, 1, 2),
     };
     const g = sg.SemGraph{
         .direction = .TD,
@@ -404,7 +390,6 @@ test "two-layer X pattern reduces from 1 to 0" {
     var lg = try sugiyama.assignLayers(testing.allocator, g);
     defer lg.deinit(testing.allocator);
 
-    // Sanity: two layers of two real nodes each.
     try testing.expectEqual(@as(usize, 2), lg.layers.len);
     try testing.expectEqual(@as(usize, 2), lg.layers[0].len);
     try testing.expectEqual(@as(usize, 2), lg.layers[1].len);
@@ -412,7 +397,6 @@ test "two-layer X pattern reduces from 1 to 0" {
     const before = try countCrossings(testing.allocator, lg);
     try testing.expectEqual(@as(u32, 1), before);
 
-    // Remember initial layer-1 ordering.
     const orig_lower = try testing.allocator.dupe(u32, lg.layers[1]);
     defer testing.allocator.free(orig_lower);
 
@@ -421,7 +405,6 @@ test "two-layer X pattern reduces from 1 to 0" {
     const after = try countCrossings(testing.allocator, lg);
     try testing.expectEqual(@as(u32, 0), after);
 
-    // Exactly one of the two layers should have been swapped.
     const upper_swapped = lg.layers[0][0] != 0 or lg.layers[0][1] != 1;
     const lower_swapped =
         lg.layers[1][0] != orig_lower[0] or lg.layers[1][1] != orig_lower[1];
@@ -429,10 +412,6 @@ test "two-layer X pattern reduces from 1 to 0" {
 }
 
 test "convergence_window stops early when no improvement" {
-    // A graph that is already at 0 crossings — any number of sweeps
-    // can't improve it. The function must return without iterating
-    // wildly. We assert correctness (still 0) and that the layers are
-    // unchanged from the canonical ordering.
     const nodes = [_]sg.Node{
         mkNode(0, "A"),
         mkNode(1, "B"),
@@ -440,8 +419,8 @@ test "convergence_window stops early when no improvement" {
         mkNode(3, "D"),
     };
     const edges = [_]sg.Edge{
-        mkEdge(0, 0, 1), // A -> B
-        mkEdge(1, 2, 3), // C -> D
+        mkEdge(0, 0, 1),
+        mkEdge(1, 2, 3),
     };
     const g = sg.SemGraph{
         .direction = .TD,
@@ -464,8 +443,6 @@ test "convergence_window stops early when no improvement" {
 }
 
 test "best-of rollback never increases crossings" {
-    // Build a moderately tangled bipartite-ish graph and verify the
-    // final crossing count is no worse than the initial count.
     const nodes = [_]sg.Node{
         mkNode(0, "A"),
         mkNode(1, "B"),

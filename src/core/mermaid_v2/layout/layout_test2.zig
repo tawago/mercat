@@ -13,11 +13,7 @@ const deinitSketch = lt.deinitSketch;
 
 const testing = std.testing;
 
-test "a production render carries the closure law's counts on its Sketch" {
-    // The three registry tags name real events only if a render can fire
-    // them. Z---A, Z---B, Z---C with no plan (the clustered/recursed shape):
-    // the fan asserts three leaf pairs, none declared, so the refusal and its
-    // three unbacked pairs must be READABLE off the Sketch the caller ships.
+test "a production render carries the closure licence's counts on its Sketch" {
     var arena = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
     const nodes = [_]sg.Node{ mkNode(0, "Z"), mkNode(1, "A"), mkNode(2, "B"), mkNode(3, "C") };
@@ -37,7 +33,6 @@ test "a production render carries the closure law's counts on its Sketch" {
     try testing.expectEqual(@as(u32, 3), s.closure.co_undeclared);
     try testing.expectEqual(@as(u32, 0), s.closure.co_double_discharge);
 
-    // Declaring every leaf pair leaves the law with nothing to say.
     var declared = [_]sg.Edge{ mkEdge(0, 0, 1), mkEdge(1, 0, 2), mkEdge(2, 0, 3), mkEdge(3, 1, 2), mkEdge(4, 1, 3), mkEdge(5, 2, 3) };
     for (&declared) |*e| e.arrow_to = .none;
     var clean = try coords.layout(arena.allocator(), .{
@@ -64,6 +59,5 @@ test "construction-time rail exclusions are reported on the shipped Sketch" {
     var s = try coords.layout(arena.allocator(), g, .{});
     defer deinitSketch(&s, arena.allocator());
     try testing.expectEqual(@as(u32, 1), s.closure.rail_deco_mixed);
-    // The duplicate P->A leaf affects both the fan-out at P and fan-in at A.
     try testing.expectEqual(@as(u32, 2), s.closure.rail_star_violation);
 }

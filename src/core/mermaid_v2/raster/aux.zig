@@ -92,8 +92,6 @@ pub fn record(
         .kind = kind,
         .detail = detail,
     }) catch {
-        // One missing record invalidates the evidentiary table. Release the
-        // retained prefix now and stay allocation-free for every later call.
         c.records.deinit(c.allocator);
         c.records = .empty;
         c.state = .out_of_memory;
@@ -111,7 +109,7 @@ pub fn record(
 ///
 /// The default is inert (`sink = null`), so a synthetic caller writes
 /// `.{}` and files nothing.
-/// guarded-by: aux_test.zig "a Recorder with no sink files nothing"
+/// @guarded-by: aux_test.zig "a Recorder with no sink files nothing"
 pub const Recorder = struct {
     sink: Sink = null,
     width: u32 = 0,

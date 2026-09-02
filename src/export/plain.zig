@@ -48,7 +48,6 @@ pub fn serialize(allocator: std.mem.Allocator, rendered: render_model.Rendered) 
         }
     }
 
-    // One final LF when at least one line exists.
     if (rendered.lines.len != 0) try buffer.append(allocator, '\n');
 
     return buffer.toOwnedSlice(allocator);
@@ -60,10 +59,6 @@ fn nextGrapheme(iterator: *unicode.Iterator) Error!?unicode.GraphemeSlice {
         error.DisallowedControl, error.Overflow => error.InvalidPlainByte,
     };
 }
-
-// ---------------------------------------------------------------------------
-// Tests
-// ---------------------------------------------------------------------------
 
 const testing = std.testing;
 
@@ -210,7 +205,6 @@ test "rejects a bare LF inside span text (line breaks are structural)" {
 }
 
 test "rejects utf8-encoded c1 csi introducer" {
-    // U+009B (CSI) encodes as 0xC2 0x9B; xterm interprets it as a live control.
     var spans = [_]Span{makeSpan("\xc2\x9b[31mred")};
     var lines = [_]Line{.{ .spans = &spans }};
     const rendered = Rendered{ .lines = &lines };
@@ -218,7 +212,6 @@ test "rejects utf8-encoded c1 csi introducer" {
 }
 
 test "rejects utf8-encoded c1 osc introducer" {
-    // U+009D (OSC) encodes as 0xC2 0x9D.
     var spans = [_]Span{makeSpan("a\xc2\x9db")};
     var lines = [_]Line{.{ .spans = &spans }};
     const rendered = Rendered{ .lines = &lines };

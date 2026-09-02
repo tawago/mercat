@@ -104,10 +104,8 @@ pub fn render(
     var surface = try Surface.init(allocator, w, h);
     defer surface.deinit(allocator);
 
-    // 1. page background.
     surface.fill(doc.page_background);
 
-    // 2. span background rectangles.
     for (doc.runs) |run| {
         if (run.background) |bg| {
             const left = runLeftPx(doc.geometry, run.start_col);
@@ -117,10 +115,8 @@ pub fn render(
         }
     }
 
-    // 3-5. glyph masks, underline, strikethrough.
     try paintSheet(allocator, &surface, doc, face, diag);
 
-    // No resample/sharpen/crop after rasterization (§7.5).
     const encoded = try png_encode.encodeRgba(allocator, surface.pixels, w, h);
     return .{ .encoded = encoded, .color_mode = color_mode, .font_sha256 = face.sha256 };
 }
@@ -273,7 +269,7 @@ fn drawGlyph(
         }
         return err;
     };
-    if (gi == 0) return; // space / empty glyph — nothing to raster.
+    if (gi == 0) return;
 
     var bmp = try face.rasterizeGlyphIndex(allocator, gi);
     defer bmp.deinit(allocator);
@@ -301,7 +297,6 @@ fn drawUnderline(surface: *Surface, g: Geometry, run: types.PositionedRun) void 
     const t = strokeThickness(g);
     const left = runLeftPx(g, run.start_col);
     const width_px = @as(u32, run.columns) * g.cell_width_px;
-    // Just below the baseline.
     const y = baselinePx(g, run.row) + @as(i64, t);
     surface.fillRect(left, y, width_px, t, run.foreground);
 }
@@ -310,7 +305,6 @@ fn drawStrikethrough(surface: *Surface, g: Geometry, run: types.PositionedRun) v
     const t = strokeThickness(g);
     const left = runLeftPx(g, run.start_col);
     const width_px = @as(u32, run.columns) * g.cell_width_px;
-    // Roughly the x-height midline of the cell.
     const y = runTopPx(g, run.row) + @as(i64, @divFloor(@as(i64, g.cell_height_px) * 45, 100));
     surface.fillRect(left, y, width_px, t, run.foreground);
 }
@@ -341,10 +335,6 @@ fn atomicWrite(allocator: std.mem.Allocator, path: []const u8, bytes: []const u8
     try cwd.rename(temp_path, path);
 }
 
-// ===========================================================================
-// Tests
-// ===========================================================================
-
 const testing = std.testing;
 const render_model = @import("../core/markdown/render/types.zig");
 const theme = @import("../core/theme.zig");
@@ -368,7 +358,6 @@ fn buildDoc(
 /// Minimal in-test PNG reader mirroring png_encode's, used to confirm the CLI
 /// path produced a decodable image at the expected size.
 fn decodeDims(bytes: []const u8) struct { w: u32, h: u32 } {
-    // Signature (8) + IHDR length (4) + "IHDR" (4) => width at offset 16.
     const w = std.mem.readInt(u32, bytes[16..20], .big);
     const h = std.mem.readInt(u32, bytes[20..24], .big);
     return .{ .w = w, .h = h };
@@ -421,7 +410,6 @@ test "monochrome output contains only black, white, and antialias grays" {
     var doc = try buildDoc(allocator, .{ .lines = &lines }, &face, .monochrome);
     defer doc.deinit(allocator);
 
-    // Rasterize to a surface directly so we can inspect pixels.
     const w = try doc.pixelWidth();
     const h = try doc.pixelHeight();
     var surface = try Surface.init(allocator, w, h);
@@ -429,7 +417,6 @@ test "monochrome output contains only black, white, and antialias grays" {
     surface.fill(doc.page_background);
     for (doc.runs) |run| try paintRunGlyphs(allocator, &surface, doc.geometry, run, &face, null);
 
-    // Every pixel is a gray (r==g==b) between black and white, and alpha 255.
     var i: usize = 0;
     while (i < surface.pixels.len) : (i += 4) {
         const r = surface.pixels[i];
@@ -443,7 +430,6 @@ test "combining mark across styles shares the base grapheme geometry and ink" {
     const allocator = testing.allocator;
     const face = try font.Font.init(20);
 
-    // Whole-line segmentation assigns the complete grapheme to the base span.
     var spans_b = [_]Span{ makeSpan("e", .body), makeSpan("\u{0301}", .emphasis) };
     var lines_b = [_]Line{.{ .spans = &spans_b }};
     var doc_b = try buildDoc(allocator, .{ .lines = &lines_b }, &face, .monochrome);
@@ -477,7 +463,6 @@ test "combining mark across styles shares the base grapheme geometry and ink" {
 test "missing glyph fails and writeFile leaves no file" {
     const allocator = testing.allocator;
     const face = try font.Font.init(20);
-    // U+1F4A9 is not covered by JetBrains Mono.
     var spans = [_]Span{makeSpan("\u{1F4A9}", .body)};
     var lines = [_]Line{.{ .spans = &spans }};
     var doc = try buildDoc(allocator, .{ .lines = &lines }, &face, .monochrome);
@@ -494,7 +479,6 @@ test "missing glyph fails and writeFile leaves no file" {
     try testing.expectError(error.MissingGlyph, writeFile(allocator, doc, &face, .monochrome, out_path, &diag));
     try testing.expectEqual(@as(u21, 0x1F4A9), diag.missing_codepoint);
     try testing.expectEqual(@as(u32, 0), diag.row);
-    // No target and no leftover temp files.
     try testing.expectError(error.FileNotFound, std.fs.cwd().access(out_path, .{}));
     var it = tmp.dir.iterate();
     while (try it.next()) |entry| {
@@ -505,8 +489,6 @@ test "missing glyph fails and writeFile leaves no file" {
 test "missing constituent leaves an existing target byte-identical" {
     const allocator = testing.allocator;
     const face = try font.Font.init(20);
-    // U+0483 extends the preceding base into one grapheme but is not covered
-    // by the pinned face. Constituent validation must still fail closed.
     var spans = [_]Span{makeSpan("e\u{0483}", .body)};
     var lines = [_]Line{.{ .spans = &spans }};
     var doc = try buildDoc(allocator, .{ .lines = &lines }, &face, .monochrome);
@@ -556,7 +538,6 @@ test "writeFile atomically creates a decodable PNG" {
     try testing.expectEqual(result.width(), dims.w);
     try testing.expectEqual(result.height(), dims.h);
 
-    // No temp file left behind.
     var it = tmp.dir.iterate();
     while (try it.next()) |entry| {
         try testing.expect(std.mem.indexOf(u8, entry.name, ".mercat-tmp-") == null);

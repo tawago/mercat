@@ -69,14 +69,7 @@ pub fn route(
     /// with no licensed group (or no jog moved) builds the plain geometry.
     build: prim.BridgeBuild,
 ) error{OutOfMemory}![]sketch.EdgePath {
-    // Bridges are routed LAST, into a fully-inked scene, so existing ink
-    // constrains them: an arrowhead cell refuses any foreign transit, and a
-    // collinear run along a rail or edge stroke fuses into a foreign
-    // junction. Heads also repel ports whose outward step would land on
-    // them (slideOffHeads).
     const obstacles = try sceneObstacles(arena, rails, edge_paths);
-    // Pass 1: resolve endpoints, sides and centred ports. The jog
-    // preference waits for pass 2, which may still move a port.
     var pends: std.ArrayListUnmanaged(Pending) = .empty;
     for (crossings) |c| {
         if (c.from >= orig_to_merged.len or c.to >= orig_to_merged.len) continue;
@@ -86,10 +79,6 @@ pub fn route(
         const from_p = placementById(placements, gf) orelse continue;
         const to_p = placementById(placements, gt) orelse continue;
 
-        // Each endpoint's "box": its containing subgraph frame, or its own
-        // rect when top-level. Sides are chosen from how the BOXES face each
-        // other (so the line leaves/enters on the correct edge), but the
-        // ports sit on the actual NODE perimeters.
         const from_box = boxOf(clusters, from_p) orelse from_p.rect;
         const to_box = boxOf(clusters, to_p) orelse to_p.rect;
         const sides = relSides(from_box, to_box, dir);
@@ -131,9 +120,8 @@ pub fn route(
     // the arrow foot and resolves nothing, so that end raises no demand.
     // Deciding it needs the tentative jogs, which need only the centred
     // ports the re-route itself will keep.
-    // guarded-by: bridges_test.zig "a re-routed corridor raises no crossing demand on the frame it leaves"
+    // @guarded-by: bridges_test.zig "a re-routed corridor raises no crossing demand on the frame it leaves"
     for (pends.items) |*p| p.pref = jogPref(p.start, p.end, p.sides.exit, p.to_box);
-    // Tentative jogs (recomputed after the slides below): no expiry counted.
     try assignJogs(arena, pends.items, clusters, obstacles, null);
 
     const pairs = try arena.alloc(corridors.Pair, pends.items.len);
@@ -153,17 +141,6 @@ pub fn route(
         p.jog = null;
     }
 
-    // An EXIT port whose first outward step is an arrowhead cell shares its
-    // face column with a rail stem or tap: every route out of it transits
-    // the head (the rerouted corridor's first leg included, which no jog or
-    // corridor demand can move). Slide it to the nearest interior
-    // coordinate whose step touches no scene ink and which no other
-    // bridge's port on the same face holds. Entry ports stay put — their
-    // final leg is corridor-disciplined, and sliding them against a
-    // neighbour's head only trades the transit for a fused junction.
-    // Bridges sharing one start point are ONE corridor (a shared-port fan)
-    // and must slide together or not at all — a split start breaks the
-    // port-share the raster licenses.
     for (pends.items, 0..) |*p, pi| {
         const shared_start = p.start;
         if (slideOffHeads(&p.start, p.sides.exit, p.gf, p.from_rect, obstacles, pends.items, pi)) {
@@ -183,20 +160,6 @@ pub fn route(
     var jog_expired: u32 = 0;
     try assignJogs(arena, pends.items, clusters, obstacles, &jog_expired);
 
-    // Pass 3: construct exactly the variant the caller decided.
-    //   .plain — every jog exactly as pass 2 assigned it.
-    //   .dodged — each bridge routes SEQUENTIALLY into a scene holding the
-    //     bridges before it, its jog displaced off committed and tentative
-    //     ink; bridges sharing one start stay ONE rail (the leader's dodged
-    //     jog is copied, never re-dodged). The jog search inside a build is
-    //     constructive local placement; which BUILD ships is not decided
-    //     here — the variants are scored as candidates against the real
-    //     raster (confluence selection note).
-    //   .railed — each licensed shared-source group jointly moves its
-    //     shared jog to the least-conflicted rail coordinate, judged
-    //     against the scene WITH static edge runs (which the base scene
-    //     models as heads only); with no licensed group, or no jog moved,
-    //     the geometry is the plain build.
     if (build == .railed) {
         const full = try bridge_rails.withStaticRuns(arena, obstacles, edge_paths);
         _ = try bridge_rails.overrideJogs(arena, pends.items, placements, clusters, full);
@@ -446,7 +409,6 @@ fn assignJogs(
         const row_jog = (p0.sides.entry == .north or p0.sides.entry == .south);
         const sign = tracks.outwardSign(p0.sides.entry);
 
-        // Collect the group and fold same-start members into shared requests.
         var members: std.ArrayListUnmanaged(usize) = .empty;
         var req_of: std.ArrayListUnmanaged(usize) = .empty;
         var starts: std.ArrayListUnmanaged(Pt) = .empty;
@@ -472,7 +434,7 @@ fn assignJogs(
                 const r = &reqs.items[si];
                 r.span_lo = @min(r.span_lo, lo);
                 r.span_hi = @max(r.span_hi, hi);
-                // Innermost (closest-to-target) preference wins for the rail. // guarded-by: bridges_test.zig "assignJogs: shared-request merge across different cluster depths picks the closest-to-target preference"
+                // Innermost (closest-to-target) preference wins for the rail. // @guarded-by: bridges_test.zig "assignJogs: shared-request merge across different cluster depths picks the closest-to-target preference"
                 if (sign * m.pref.? < sign * r.pref) r.pref = m.pref.?;
                 try req_of.append(arena, si);
             } else {
@@ -585,9 +547,9 @@ fn relSides(f: sketch.Rect, t: sketch.Rect, dir: sketch.Direction) Sides {
     const flow_vertical = (dir == .TD or dir == .BT);
 
     const vertical = if (!y_overlap and !x_overlap)
-        flow_vertical // both axes free: follow the flow axis
+        flow_vertical
     else
-        !y_overlap; // only one axis disjoint: must use it
+        !y_overlap;
 
     if (vertical) {
         return if (dy >= 0) .{ .exit = .south, .entry = .north } else .{ .exit = .north, .entry = .south };
@@ -624,9 +586,6 @@ fn buildElbow(arena: std.mem.Allocator, p: Pending) error{OutOfMemory}![]sketch.
     return try poly.toOwnedSlice(arena);
 }
 
-// Obstacle-aware corridor geometry, intrusion test and jog clamping live in
-// bridge_scene.zig (cap-forced split); aliased so this router reads as one
-// vocabulary.
 const verticalCorridor = scene.verticalCorridor;
 const polyIntrudes = scene.polyIntrudes;
 const clampBetween = scene.clampBetween;
@@ -656,7 +615,6 @@ fn placementById(placements: []const sketch.NodePlacement, id: sketch.NodeId) ?s
     }
     return null;
 }
-
 
 test {
     _ = @import("bridges_test.zig");

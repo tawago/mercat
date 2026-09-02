@@ -1,8 +1,8 @@
-//! fan_rail_law.zig — the all-arrow-free shared-rail closure law applied to
+//! fan_rail_licence.zig — the all-arrow-free shared-rail closure licence applied to
 //! DETECTED FANS, for the renders that have no realized plan to apply it to.
 //!
 //! Where a plan realized — a flat graph, or a cluster-free piece realizing
-//! its own plan — the law is decided before sizing by
+//! its own plan — the licence is judged before sizing by
 //! `bundle_commit.buildReported`: a refused rail's members take `independent`
 //! dispositions and `fan_lanes`' per-member pass gives each its own rail row.
 //! A render with no realized plan (a motif-packed candidate, a plan
@@ -51,13 +51,13 @@ const Claim = struct {
 
 /// Give every member of an undeclared all-arrow-free fan its own rail lane,
 /// so the fan's rails no longer fuse into one crossbar asserting leaf pairs
-/// the graph never declared. Fans the law leaves alone (directed, mixed, or
+/// the graph never declared. Fans the licence leaves alone (directed, mixed, or
 /// fully declared) keep every lane at zero — byte-identical.
 ///
 /// `invisible` are edges drawing no ink: they can neither fuse nor fabricate,
 /// so they are outside the rail model entirely (same exclusion `fan_lanes`
 /// applies when it builds its rails).
-/// guarded-by: fan_lanes_test.zig "a clustered undirected fan with no declared leaf pairs unfuses onto separate lanes"
+/// @guarded-by: fan_lanes_test.zig "a clustered undirected fan with no declared leaf pairs unfuses onto separate lanes"
 pub fn refuseUndeclared(
     a: std.mem.Allocator,
     graph: sg.SemGraph,
@@ -68,7 +68,6 @@ pub fn refuseUndeclared(
     /// clustered refusal is counted where a flat one is.
     report: ?*pb.ClosureCounts,
 ) error{OutOfMemory}!void {
-    // Per-rail pass: each fan judged against the declarations around it.
     const claims = try a.alloc(Claim, fans.len);
     defer a.free(claims);
     for (fans, claims) |f, *claim| {
@@ -81,23 +80,17 @@ pub fn refuseUndeclared(
         }
     }
 
-    // Plan-wide pass: at most one rail per implied pair, both refuse otherwise.
     const refused = try reserve(a, claims, report);
     defer a.free(refused);
 
     for (fans, claims, refused) |*f, claim, lost_pair| {
         defer a.free(claim.members);
-        // A rail the reservation took apart keeps nothing: its whole member
-        // set goes to private lanes, exactly like an outright refusal.
         if (lost_pair) {
             assignPrivateLanes(f, claim.members, &.{}, invisible);
             continue;
         }
         switch (claim.verdict.outcome) {
             .untouched, .keep => {},
-            // Refuse: no subset fuses truthfully, so every member gets its own
-            // row. Salvage: the kept subset stays on lane 0 (one truthful
-            // crossbar) and only the excluded members are lifted off it.
             .refuse, .salvage => assignPrivateLanes(f, claim.members, claim.verdict.members, invisible),
         }
     }
@@ -116,7 +109,7 @@ pub fn refuseUndeclared(
 /// them is an intra-layer edge — which no fan can ever hold as a member. A
 /// discharge is therefore never somebody else's rail on this path, and the
 /// clause has nothing to subordinate.
-/// guarded-by: fan_lanes_test.zig "two clustered rails implying one declared leaf pair both refuse"
+/// @guarded-by: fan_lanes_test.zig "two clustered rails implying one declared leaf pair both refuse"
 fn reserve(a: std.mem.Allocator, claims: []Claim, report: ?*pb.ClosureCounts) error{OutOfMemory}![]bool {
     const order = try a.alloc(usize, claims.len);
     defer a.free(order);
@@ -134,8 +127,6 @@ fn reserve(a: std.mem.Allocator, claims: []Claim, report: ?*pb.ClosureCounts) er
         }
     }
     for (refused, claims) |hit, claim| {
-        // A salvage was already counted by the per-rail pass; counting the
-        // same group twice would tell the harness two rails refused.
         if (hit and claim.verdict.outcome != .salvage) {
             if (report) |r| r.rail_closure_undeclared += 1;
         }
@@ -151,7 +142,7 @@ fn widestFirst(claims: []const Claim, x: usize, y: usize) bool {
 }
 
 /// The two rails imply one and the same unordered leaf pair. `pair` is
-/// already normalized low-id first by the closure law.
+/// already normalized low-id first by the closure licence.
 fn sharesPair(x: rc.Verdict, y: rc.Verdict) bool {
     for (x.discharges) |dx| {
         for (y.discharges) |dy| {
@@ -232,7 +223,6 @@ fn assignPrivateLanes(
 fn nodeId(lg: sugiyama.LayeredGraph, idx: u32) sg.NodeId {
     return switch (lg.nodes[idx]) {
         .real => |id| id,
-        // Fans never contain virtual peers (see fan.detect).
         .virtual => 0,
     };
 }

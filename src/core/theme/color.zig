@@ -58,7 +58,6 @@ pub const Ansi16 = enum(u4) {
             .{ .name = "bright_magenta", .value = .bright_magenta },
             .{ .name = "bright_cyan", .value = .bright_cyan },
             .{ .name = "bright_white", .value = .bright_white },
-            // Compact spellings.
             .{ .name = "gray", .value = .bright_black },
             .{ .name = "grey", .value = .bright_black },
         };
@@ -109,7 +108,6 @@ pub fn parseColor(text: []const u8) ParseError!Color {
 
     if (Ansi16.parse(text)) |named| return .{ .ansi16 = named };
 
-    // Bare unsigned integer → xterm-256 index.
     const n = std.fmt.parseUnsigned(u16, text, 10) catch return error.InvalidColor;
     if (n > 255) return error.InvalidColor;
     return .{ .index = @intCast(n) };
@@ -145,10 +143,6 @@ fn hexNibble(c: u8) ParseError!u8 {
     };
 }
 
-// ---------------------------------------------------------------------------
-// Truecolor detection (package-level flag)
-// ---------------------------------------------------------------------------
-
 var truecolor_flag: bool = false;
 
 /// True when the terminal is believed to support 24-bit color. Set once at
@@ -178,10 +172,6 @@ pub fn initTruecolor(allocator: std.mem.Allocator) void {
     setTruecolor(detectTruecolorFromValue(value));
 }
 
-// ---------------------------------------------------------------------------
-// Adapters
-// ---------------------------------------------------------------------------
-
 /// sRGB triple for a color, or null for `default` (which has no numbered
 /// value — the caller supplies a fallback).
 pub fn toSrgb(c: Color) ?Srgb {
@@ -206,7 +196,6 @@ pub fn to256(c: Color) ?u8 {
 }
 
 fn rgbToNearest256(v: Rgb) u8 {
-    // Candidate 1: nearest cell of the 6×6×6 color cube.
     const ri = nearestCubeLevel(v.r);
     const gi = nearestCubeLevel(v.g);
     const bi = nearestCubeLevel(v.b);
@@ -214,13 +203,12 @@ fn rgbToNearest256(v: Rgb) u8 {
     const cube = xterm256ToSrgb(cube_index);
     const cube_err = squaredError(v, cube);
 
-    // Candidate 2: nearest step of the 24-level grayscale ramp.
     const avg: u16 = (@as(u16, v.r) + v.g + v.b) / 3;
     var gray_index: u8 = undefined;
     if (avg < 8) {
-        gray_index = 16; // black cube cell
+        gray_index = 16;
     } else if (avg > 238) {
-        gray_index = 231; // white cube cell
+        gray_index = 231;
     } else {
         gray_index = @intCast(232 + (avg - 8) / 10);
     }
@@ -231,7 +219,6 @@ fn rgbToNearest256(v: Rgb) u8 {
 }
 
 fn nearestCubeLevel(value: u8) u8 {
-    // cube_levels = { 0, 95, 135, 175, 215, 255 }
     if (value < 48) return 0;
     if (value < 115) return 1;
     if (value < 155) return 2;
@@ -246,10 +233,6 @@ fn squaredError(a: Rgb, b: Srgb) u32 {
     const db = @as(i32, a.b) - b.b;
     return @intCast(dr * dr + dg * dg + db * db);
 }
-
-// ---------------------------------------------------------------------------
-// xterm-256 -> sRGB (shared by all backends; re-exported from export/layout)
-// ---------------------------------------------------------------------------
 
 /// The one committed, deterministic xterm-256 → sRGB table. Indexes 0-15 are
 /// the standard system colors; 16-231 are the 6×6×6 cube; 232-255 are the
@@ -287,10 +270,6 @@ const system_colors = [16]Srgb{
     .{ .r = 0, .g = 255, .b = 255 },
     .{ .r = 255, .g = 255, .b = 255 },
 };
-
-// ===========================================================================
-// Tests
-// ===========================================================================
 
 const testing = std.testing;
 
@@ -330,19 +309,14 @@ test "to256 passes through index and ansi16" {
 }
 
 test "to256 maps rgb to nearest cube" {
-    // Pure white → cube cell 231 (255,255,255).
     try testing.expectEqual(@as(?u8, 231), to256(rgb(255, 255, 255)));
-    // Pure black → cube cell 16 (0,0,0).
     try testing.expectEqual(@as(?u8, 16), to256(rgb(0, 0, 0)));
-    // Exact cube anchor 175,0,0 → index 124 (16 + 36*3).
     try testing.expectEqual(@as(?u8, 124), to256(rgb(175, 0, 0)));
-    // A mid gray closer to the ramp than any cube cell.
     const g = to256(rgb(120, 120, 120)).?;
     try testing.expect(g >= 232 and g <= 255);
 }
 
 test "to256 round-trips exact cube anchors" {
-    // Every exact cube color must downgrade back to its own index.
     var i: u16 = 16;
     while (i < 232) : (i += 1) {
         const s = xterm256ToSrgb(@intCast(i));

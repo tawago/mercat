@@ -112,7 +112,7 @@ pub const Typed = struct {
     /// The records of one kind. The table is sorted by (cell, kind, value)
     /// and `aux` is one cell's slice of it, so a kind's records are
     /// contiguous inside it.
-    /// guarded-by: cell_test.zig "ofKind returns the contiguous run of one kind and nothing else"
+    /// @guarded-by: cell_test.zig "ofKind returns the contiguous run of one kind and nothing else"
     pub fn ofKind(self: Typed, kind: lattice.AuxKind) []const lattice.Aux {
         var lo: usize = 0;
         while (lo < self.aux.len and self.aux[lo].kind != kind) lo += 1;
@@ -135,7 +135,7 @@ pub const Typed = struct {
     /// True when a `.port` record claims THIS arm — the record's `detail`
     /// names the direction the stroke merged, so one recorded departure
     /// cannot excuse a different, unexplained arm on the same cell.
-    /// guarded-by: rings_test.zig "fusion: a port record excuses only the arm it merged"
+    /// @guarded-by: rings_test.zig "fusion: a port record excuses only the arm it merged"
     pub fn portArm(self: Typed, arm: Dir4) bool {
         const want = lattice.portArmDetail(arm);
         for (self.ports()) |p| {
@@ -148,7 +148,7 @@ pub const Typed = struct {
     /// most one owner: a label write REPLACES the cell, so the last writer
     /// is the only one whose glyph is still visible — but the records are
     /// append-only history, so the LAST record is the live one.
-    /// guarded-by: cell_test.zig "labelOwner reports the last owner recorded at a cell"
+    /// @guarded-by: cell_test.zig "labelOwner reports the last owner recorded at a cell"
     pub fn labelOwner(self: Typed) ?LabelOwner {
         const rows = self.ofKind(.label_owner);
         if (rows.len == 0) return null;
@@ -176,15 +176,13 @@ fn recordsAt(table: []const lattice.Aux, index: u32) []const lattice.Aux {
 }
 
 /// Total classification of a lattice cell.
-/// guarded-by: cell_test.zig "classify: invisible edge_segment is ghost with zero ink"
+/// @guarded-by: cell_test.zig "classify: invisible edge_segment is ghost with zero ink"
 pub fn classify(c: lattice.Cell) Typed {
     const mask = c.neighbours.toMask();
     const st = c.state;
     return switch (c.occupant) {
         .empty => .{ .kind = .blank, .mask = mask, .state = st },
         .node_interior => |id| .{ .kind = .fill, .mask = mask, .node = id, .state = st },
-        // A continuation is as opaque as the glyph it belongs to: it
-        // conducts nothing and blocks everything.
         .label_char, .label_cont => .{ .kind = .glyph, .mask = mask, .state = st },
         .edge_segment => |seg| if (seg.kind == .invisible) .{
             .kind = .ghost,
@@ -209,7 +207,7 @@ pub fn classify(c: lattice.Cell) Typed {
 /// Mirror of `raster/reconcile.isRealConnection`: everything except
 /// background is a real connection — no reciprocity required, which is
 /// the frame-solid convention.
-/// guarded-by: tiling_crosscheck_test.zig "cell.isReal mirrors reconcile.isRealConnection over every occupant"
+/// @guarded-by: tiling_crosscheck_test.zig "cell.isReal mirrors reconcile.isRealConnection over every occupant"
 pub fn isReal(t: Typed) bool {
     return t.kind != .blank;
 }
@@ -237,7 +235,7 @@ pub fn reverse(d: Dir4) Dir4 {
 /// Mirror of `raster/arrow_base.intoArrowBit`: the bit a base cell must
 /// carry to feed an arrowhead whose tip points `tip` — the arm points
 /// TOWARD the arrowhead, i.e. in the tip direction itself.
-/// guarded-by: cell_test.zig "intoArrowBit is the tip-direction bit for all four tips"
+/// @guarded-by: cell_test.zig "intoArrowBit is the tip-direction bit for all four tips"
 pub fn intoArrowBit(tip: Dir4) u4 {
     return bit(tip);
 }
@@ -270,7 +268,7 @@ pub fn step(x: u32, y: u32, d: Dir4, w: u32, h: u32) ?struct { x: u32, y: u32 } 
 /// depending on the run's axis), so the thin answer is the SUPERSET of
 /// the possible shapes: masks only ever gain bits, so a superset is the
 /// safe denominator when computing a ring cell's "extra" arms.
-/// guarded-by: cell_test.zig "ringAxes matches the nodes.zig full-rect table and contains every thin form"
+/// @guarded-by: cell_test.zig "ringAxes matches the nodes.zig full-rect table and contains every thin form"
 pub fn ringAxes(role: lattice.BorderRole, thin: bool) u4 {
     const e = bit(.east);
     const w = bit(.west);
@@ -278,8 +276,6 @@ pub fn ringAxes(role: lattice.BorderRole, thin: bool) u4 {
     const s = bit(.south);
     if (thin) {
         return switch (role) {
-            // Thin runs collapse the corners: a horizontal run writes
-            // `{e}` / `{w}`, a vertical one `{s}` / `{n}`, a 1x1 none.
             .corner_nw => e | s,
             .corner_ne => w,
             .corner_sw => n,
@@ -300,7 +296,7 @@ pub fn ringAxes(role: lattice.BorderRole, thin: bool) u4 {
 
 /// Read-only window onto the SHIPPED lattice. Hands out `Typed` copies
 /// and never a `*Cell`, so no check can write through it.
-/// guarded-by: scan_test.zig "scan: run() leaves the lattice byte-identical"
+/// @guarded-by: scan_test.zig "scan: run() leaves the lattice byte-identical"
 pub const View = struct {
     lat: *const lattice.Lattice,
 
@@ -355,7 +351,7 @@ pub const View = struct {
     /// charged both columns. A row whose label writers reserved the
     /// glyph's true footprint therefore paints exactly as many columns as
     /// it holds cells — `m_row_col_overflow` is the residual.
-    /// guarded-by: cell_test.zig "columns mirrors paint.cellWidth: wide label glyph is two columns"
+    /// @guarded-by: cell_test.zig "columns mirrors paint.cellWidth: wide label glyph is two columns"
     pub fn columns(self: View, x: u32, y: u32) u32 {
         if (x >= self.lat.width or y >= self.lat.height) return 0;
         return switch (self.lat.atConst(x, y).occupant) {
@@ -395,8 +391,8 @@ pub const View = struct {
     /// (`reverse(d)` set) or is a terminal arrowhead.
     /// Callers apply this only after finding the adjacent cell blank or
     /// out of bounds; an out-of-bounds walk is never reprieved.
-    /// guarded-by: cell_test.zig "gapReprieve honours reciprocation and refuses a non-reciprocating collinear cell"
-    /// guarded-by: tiling_crosscheck_test.zig "cell.gapReprieve mirrors reconcile.bitIsPhantom over a mask x occupant matrix"
+    /// @guarded-by: cell_test.zig "gapReprieve honours reciprocation and refuses a non-reciprocating collinear cell"
+    /// @guarded-by: tiling_crosscheck_test.zig "cell.gapReprieve mirrors reconcile.bitIsPhantom over a mask x occupant matrix"
     pub fn gapReprieve(self: View, x: u32, y: u32, d: Dir4) bool {
         const w = self.lat.width;
         const h = self.lat.height;

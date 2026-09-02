@@ -41,7 +41,6 @@ test "drawPortStroke files a port record only for a stroke it actually draws" {
     defer arena.deinit();
     const a = arena.allocator();
 
-    // Drawn: a solid edge exiting the border southwards.
     {
         var lat = try sourceBorderLattice(a);
         var c = aux.Collector.init(a);
@@ -51,15 +50,10 @@ test "drawPortStroke files a port record only for a stroke it actually draws" {
         try testing.expectEqual(@as(usize, 1), table.len);
         try testing.expectEqual(lat.cellIndex(0, 0), table[0].cell);
         try testing.expectEqual(lattice.AuxKind.port, table[0].kind);
-        try testing.expectEqual(@as(u32, 42), table[0].value); // the attaching edge
-        // The merged arm rides in detail: the bit is a Cell fact, but
-        // OWNERSHIP of the bit is not — the audit needs to know which
-        // arm this record vouches for.
+        try testing.expectEqual(@as(u32, 42), table[0].value);
         try testing.expectEqual(lattice.portArmDetail(.south), table[0].detail);
     }
 
-    // Refused (invisible edge): no ink, therefore no record. The bundle
-    // records what was drawn, never what was intended.
     {
         var lat = try sourceBorderLattice(a);
         var c = aux.Collector.init(a);
@@ -68,7 +62,6 @@ test "drawPortStroke files a port record only for a stroke it actually draws" {
         try testing.expectEqual(@as(usize, 0), c.finish().len);
     }
 
-    // Refused (no node_border under the departure point): likewise nothing.
     {
         var lat = try sourceBorderLattice(a);
         lat.at(0, 0).* = lattice.Cell.empty;
@@ -156,8 +149,6 @@ test "raster distinguishes complete-empty and AUX OOM without changing cells" {
     try testing.expectEqual(lattice.AuxCollectionState.complete, complete.lattice.aux_collection.state);
     try testing.expect(complete.lattice.aux_collection.attempted_records > 0);
 
-    // Cell allocation is allocation 0. Allocation 1 is the first AUX growth;
-    // this fixture has no clusters or labels that allocate afterwards.
     var failed_arena = std.heap.ArenaAllocator.init(testing.allocator);
     defer failed_arena.deinit();
     var failing = std.testing.FailingAllocator.init(failed_arena.allocator(), .{
@@ -172,8 +163,6 @@ test "raster distinguishes complete-empty and AUX OOM without changing cells" {
     try testing.expectEqual(failed.lattice.aux_collection.attempted_records, failed.lattice.aux_collection.lostRecords());
     try testing.expectEqual(@as(usize, 0), failed.lattice.aux.len);
 
-    // AUX collection cannot influence cell writes. Byte-identical cells also
-    // imply paint-neutrality because the painter never reads the AUX fields.
     try testing.expectEqualSlices(
         u8,
         std.mem.sliceAsBytes(complete.lattice.cells),
@@ -187,35 +176,22 @@ test "aux records survive the post-walk mutating passes" {
     const a = arena.allocator();
     const s = try stackedPairSketch(a);
 
-    // The record below is filed DURING the edge walk. Everything the
-    // orchestrator runs afterwards — the fan-OUT mask resolve and
-    // neighbour reconciliation — rewrites cells in place. The record is
-    // still here at the end.
     const report = try raster.rasterize(a, s, .bridge);
     var lat = report.lattice;
 
-    // Port tees are keyed to head adjacency: this edge is `arrow_to =
-    // .filled` and its head abuts the target wall, so the arrival draws no
-    // stroke and files no record — the head already declares the
-    // attachment. The undecorated source departure at (2,2) still strokes
-    // and records.
     const source_port_cell = lat.cellIndex(2, 2);
     const target_port_cell = lat.cellIndex(2, 6);
     var found_source: usize = 0;
     var found_target: usize = 0;
     for (lat.aux) |r| {
         if (r.kind != .port) continue;
-        try testing.expectEqual(@as(u32, 7), r.value); // the attaching edge id
+        try testing.expectEqual(@as(u32, 7), r.value);
         if (r.cell == source_port_cell) found_source += 1;
         if (r.cell == target_port_cell) found_target += 1;
     }
     try testing.expectEqual(@as(usize, 1), found_source);
     try testing.expectEqual(@as(usize, 0), found_target);
 
-    // Snapshot, then run the post-walk passes AGAIN over the shipped
-    // lattice and, harsher than any of them, blank the recorded cell
-    // outright. A record is keyed by position, not by occupant, so none of
-    // this may disturb it.
     const before = try a.dupe(lattice.Aux, lat.aux);
     fan_roles.resolveMasks(&lat, s);
     _ = reconcile.reconcileNeighbours(&lat);
@@ -229,8 +205,6 @@ test "aux records survive the post-walk mutating passes" {
         try testing.expectEqual(b.detail, after.detail);
     }
 }
-
-// -- Carrier records ---------------------------------------------------------
 
 /// A 4x4 lattice, so a Recorder built from it keys records the way the
 /// production one does (`y * width + x`).
@@ -277,8 +251,6 @@ fn walkEdge(id: u32, pts: []const sketch.Point) sketch.EdgePath {
 }
 
 test "a Recorder with no sink files nothing" {
-    // The inert default is what every synthetic caller uses, so it must be
-    // reachable without constructing anything.
     const rec: aux.Recorder = .{};
     rec.at(3, 3, .carrier, 1, 0);
     rec.at(0, 0, .port, 2, 0);
@@ -307,8 +279,6 @@ test "an OR-merge onto a foreign cell files a merged carrier; onto its own ink, 
     const lat = try blankLattice(a);
     var lost: u32 = 0;
 
-    // Foreign: edge 8 merges onto edge 3's run. The cell keeps edge 3, so
-    // edge 8's presence is exactly what it cannot express.
     {
         var c = aux.Collector.init(a);
         const rec = aux.Recorder.init(&c, &lat);
@@ -322,11 +292,9 @@ test "an OR-merge onto a foreign cell files a merged carrier; onto its own ink, 
         try testing.expectEqual(lattice.AuxKind.carrier, table[0].kind);
         try testing.expectEqual(@as(u32, 8), table[0].value);
         try testing.expectEqual(@intFromEnum(lattice.CarrierKind.merged_foreign), table[0].detail);
-        // The Cell still names the first writer: no restatement, no drift.
         try testing.expectEqual(@as(u32, 3), cell.occupant.edge_segment.edge);
     }
 
-    // Own ink: nothing anonymous happened, so nothing is recorded.
     {
         var c = aux.Collector.init(a);
         const rec = aux.Recorder.init(&c, &lat);
@@ -338,7 +306,6 @@ test "an OR-merge onto a foreign cell files a merged carrier; onto its own ink, 
         try testing.expectEqual(@as(usize, 0), c.finish().len);
     }
 
-    // An empty cell is claimed outright: the Cell names the writer.
     {
         var c = aux.Collector.init(a);
         const rec = aux.Recorder.init(&c, &lat);
@@ -366,26 +333,15 @@ test "an arrowhead stamped over a foreign run files a carrier for the run it cov
 
     const table = c.finish();
     try testing.expectEqual(@as(usize, 1), table.len);
-    // The occupant is now edge 9's arrowhead; edge 3's run still passes
-    // through the position and nothing on the cell says so.
     try testing.expectEqual(@as(u32, 3), table[0].value);
     try testing.expectEqual(@intFromEnum(lattice.CarrierKind.merged_foreign), table[0].detail);
 }
 
 test "a corner arm merged onto a foreign run files a merged carrier; onto its own ink, nothing" {
-    // The walk writes corner cells itself instead of going through
-    // `writeEdgeCell`, so its merge arm is a SECOND id-dropping site with the
-    // same consequence: the arm lands in the mask under the first writer's
-    // name. Driven through `rasterizeEdges` because that arm is reachable
-    // only from the walk.
     var arena = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
 
-    // Edge 3 runs straight down column 4; edge 8 arrives from the west and
-    // turns north ON that run. A bundle makes them ONE bundle, so the
-    // (unconditional) crossing rule exempts the pair and the merge — not a
-    // refusal — is what happens.
     {
         var lat = try walkLattice(a, 10, 10);
         var c = aux.Collector.init(a);
@@ -403,18 +359,12 @@ test "a corner arm merged onto a foreign run files a merged carrier; onto its ow
         try testing.expectEqual(lat.cellIndex(4, 4), table[0].cell);
         try testing.expectEqual(lattice.AuxKind.carrier, table[0].kind);
         try testing.expectEqual(@as(u32, 8), table[0].value);
-        // Merged, not suppressed: the corner arm IS in the mask (the west
-        // bit), and only edge 8's name was dropped — and LICENSED, since the
-        // bundle is exactly why the merge happened instead of a refusal.
         try testing.expectEqual(@intFromEnum(lattice.CarrierKind.merged_licensed), table[0].detail);
         const shared = lat.atConst(4, 4);
         try testing.expectEqual(@as(u32, 3), shared.occupant.edge_segment.edge);
         try testing.expect(shared.neighbours.w);
     }
 
-    // Own ink: one edge whose last leg corners back onto a cell it laid down
-    // itself. The cell already names it, so a record would restate a Cell
-    // field.
     {
         var lat = try walkLattice(a, 10, 10);
         var c = aux.Collector.init(a);
@@ -453,7 +403,5 @@ test "a refused arrowhead transit files a suppressed carrier for the crossed run
     const table = c.finish();
     try testing.expectEqual(@as(usize, 1), table.len);
     try testing.expectEqual(@as(u32, 3), table[0].value);
-    // Suppressed, not merged: the refusal dropped edge 3's bits as well as
-    // its name, so the cell carries no trace of it at all.
     try testing.expectEqual(@intFromEnum(lattice.CarrierKind.suppressed), table[0].detail);
 }

@@ -121,12 +121,12 @@ pub const Ctx = struct {
 /// `bundle_sets` and `bundles` are asked in turn and neither can veto the other, so
 /// on the flat path — where the bundles ARE the plan's membership — the answer
 /// is the plan's answer.
-/// guarded-by: crossings.zig "sameBundle: bundle membership answers what the plan answers"
+/// @guarded-by: crossings.zig "sameBundle: bundle membership answers what the plan answers"
 /// `at` is the CELL the decision is about. A bundle may be cell-scoped (a
 /// `.port_share` set licenses only the two edges' common approach), so the
 /// membership question is always asked about a position; the structural
 /// origins license every cell and ignore it.
-/// guarded-by: crossings.zig "sameBundle: a cell-scoped bundle answers only on its own cells"
+/// @guarded-by: crossings.zig "sameBundle: a cell-scoped bundle answers only on its own cells"
 ///
 /// STANDING. This is the DERIVATION, and it is no longer what establishes a
 /// licence anywhere it only fills in a record's `detail`: those sites read the
@@ -166,7 +166,7 @@ pub fn bundleAt(bundle_sets: []const ledger.Bundle, edge: EdgeId, at: ledger.Bun
 /// is not current and therefore cannot establish a licence. Conversely,
 /// `.complete` with an unnumbered entry is inconsistent and also abstains.
 /// The did-not-ask value (`.merged_untested`) is attributable in both cases.
-/// guarded-by: crossings_test.zig "licenceFor trusts identity only after a complete consistent stamp"
+/// @guarded-by: crossings_test.zig "licenceFor trusts identity only after a complete consistent stamp"
 pub fn licenceFor(
     held: EdgeId,
     incoming: EdgeId,
@@ -196,13 +196,9 @@ pub fn classifySegment(existing: lattice.Neighbours, incoming: lattice.Neighbour
     if (isStraightPair(existing) and isStraightPair(incoming)) {
         const existing_h = existing.e and existing.w;
         const incoming_h = incoming.e and incoming.w;
-        // Perpendicular straight-through → a legal transversal; same axis →
-        // collinear overlap (never a legal junction with foreign ink).
         if (existing_h != incoming_h) return .legal_crossing;
         return .foreign_junction_violation;
     }
-    // The existing run is a corner/tee, or the incoming arm corners onto it:
-    // a junction glyph here would assert a branch off the foreign run.
     return .foreign_junction_violation;
 }
 
@@ -248,8 +244,6 @@ pub fn arrowheadTransit(
     return true;
 }
 
-// -- Tests -------------------------------------------------------------------
-
 /// Any cell: the structural origins license every position, so the tests that
 /// speak for them pass an arbitrary one.
 const ANY: ledger.BundleCell = .{ .x = 0, .y = 0 };
@@ -260,9 +254,9 @@ const V: lattice.Neighbours = .{ .n = true, .s = true };
 test "isStraightPair recognizes only clean H/V runs" {
     try std.testing.expect(isStraightPair(H));
     try std.testing.expect(isStraightPair(V));
-    try std.testing.expect(!isStraightPair(.{ .n = true, .e = true })); // corner
-    try std.testing.expect(!isStraightPair(.{ .n = true, .e = true, .s = true })); // tee
-    try std.testing.expect(!isStraightPair(.{})); // empty
+    try std.testing.expect(!isStraightPair(.{ .n = true, .e = true }));
+    try std.testing.expect(!isStraightPair(.{ .n = true, .e = true, .s = true }));
+    try std.testing.expect(!isStraightPair(.{}));
 }
 
 test "classifySegment: perpendicular is legal, collinear/corner are violations" {
@@ -281,16 +275,13 @@ test "sameBundle: same owner and selected-bundle co-members" {
     var sel = [_]ledger.SelectedBundle{.{ .id = 0, .proposal = 0, .candidate_bundle = 0, .members = &members }};
     const bundles: ledger.RealizedBundles = .{ .selected_bundles = &sel };
 
-    try std.testing.expect(sameBundle(5, 5, bundles, &.{}, ANY)); // same owner
-    try std.testing.expect(sameBundle(10, 12, bundles, &.{}, ANY)); // co-members
-    try std.testing.expect(!sameBundle(10, 99, bundles, &.{}, ANY)); // one foreign
-    try std.testing.expect(!sameBundle(98, 99, .{}, &.{}, ANY)); // empty plan, distinct
+    try std.testing.expect(sameBundle(5, 5, bundles, &.{}, ANY));
+    try std.testing.expect(sameBundle(10, 12, bundles, &.{}, ANY));
+    try std.testing.expect(!sameBundle(10, 99, bundles, &.{}, ANY));
+    try std.testing.expect(!sameBundle(98, 99, .{}, &.{}, ANY));
 }
 
 test "sameBundle: bundle membership answers what the plan answers" {
-    // The flat path derives its bundles FROM the plan, so the two arguments
-    // are two spellings of one fact. Pin that: asked with only the plan, or
-    // with only the plan's bundles, the answers agree on every pair.
     var members = [_]EdgeId{ 10, 11, 12 };
     var others = [_]EdgeId{ 20, 21 };
     var sel = [_]ledger.SelectedBundle{
@@ -310,8 +301,6 @@ test "sameBundle: bundle membership answers what the plan answers" {
             );
         }
     }
-    // A bundle with no plan behind it still speaks — that is the clustered
-    // render's only bundle evidence.
     var fan = [_]EdgeId{ 4, 5 };
     const fan_sets = [_]ledger.Bundle{.{ .origin = .fan_rail, .members = &fan }};
     try std.testing.expect(sameBundle(4, 5, .{}, &fan_sets, ANY));
@@ -320,28 +309,22 @@ test "sameBundle: bundle membership answers what the plan answers" {
 
 test "segmentOverlap: exempt merges; foreign perpendicular keeps first writer" {
     var counts: CrossingCounts = .{};
-    // With no plan and no bundles at all, two distinct edges are still foreign:
-    // the rule is unconditional, so this is a legal transversal, not a merge.
     try std.testing.expect(segmentOverlap(&counts, .{}, &.{}, 1, H, 2, V, ANY));
     try std.testing.expectEqual(@as(u32, 1), counts.legal_crossing);
     counts = .{};
 
-    // Foreign, perpendicular → keep first writer (true), legal event.
     var members = [_]EdgeId{ 1, 3 };
     var sel = [_]ledger.SelectedBundle{.{ .id = 0, .proposal = 0, .candidate_bundle = 0, .members = &members }};
     const bundles: ledger.RealizedBundles = .{ .selected_bundles = &sel };
     try std.testing.expect(segmentOverlap(&counts, bundles, &.{}, 1, H, 2, V, ANY));
     try std.testing.expectEqual(@as(u32, 1), counts.legal_crossing);
 
-    // Co-members (1 & 3 share the selected bundle) → merge (false).
     try std.testing.expect(!segmentOverlap(&counts, bundles, &.{}, 1, H, 3, V, ANY));
     try std.testing.expectEqual(@as(u32, 1), counts.legal_crossing);
 
-    // Foreign, collinear → keep first writer, junction violation.
     try std.testing.expect(segmentOverlap(&counts, bundles, &.{}, 1, H, 2, H, ANY));
     try std.testing.expectEqual(@as(u32, 1), counts.foreign_junction_violation);
 
-    // A bundle exempts on its own, with no plan behind it.
     var fan = [_]EdgeId{ 1, 2 };
     const fan_sets = [_]ledger.Bundle{.{ .origin = .fan_rail, .members = &fan }};
     try std.testing.expect(!segmentOverlap(&counts, .{}, &fan_sets, 1, H, 2, V, ANY));
@@ -350,13 +333,10 @@ test "segmentOverlap: exempt merges; foreign perpendicular keeps first writer" {
 
 test "arrowheadTransit: own terminal exempt, foreign refused" {
     var counts: CrossingCounts = .{};
-    // Same owner (own terminal) → not a violation.
     try std.testing.expect(!arrowheadTransit(&counts, .{}, &.{}, 7, 7, ANY));
     try std.testing.expectEqual(@as(u32, 0), counts.arrowhead_transit_violation);
-    // Foreign edge over a foreign arrowhead → arrowhead-sanctity violation, keep pristine.
     try std.testing.expect(arrowheadTransit(&counts, .{}, &.{}, 7, 8, ANY));
     try std.testing.expectEqual(@as(u32, 1), counts.arrowhead_transit_violation);
-    // A bundle exempts on its own, with no plan behind it.
     var fan = [_]EdgeId{ 7, 8 };
     const fan_sets = [_]ledger.Bundle{.{ .origin = .fan_rail, .members = &fan }};
     try std.testing.expect(!arrowheadTransit(&counts, .{}, &fan_sets, 7, 8, ANY));
@@ -368,15 +348,11 @@ test {
 }
 
 test "sameBundle: a cell-scoped bundle answers only on its own cells" {
-    // A `.port_share` set licenses the two edges' common approach and nothing
-    // else: at a crossing far from the shared port the pair is still foreign,
-    // so a true transversal there keeps its plain stroke.
     const licensed = [_]ledger.BundleCell{ .{ .x = 30, .y = 12 }, .{ .x = 30, .y = 13 } };
     const sets = [_]ledger.Bundle{.{ .origin = .port_share, .members = &.{ 9, 11 }, .cells = &licensed }};
     try std.testing.expect(sameBundle(9, 11, .{}, &sets, .{ .x = 30, .y = 12 }));
     try std.testing.expect(sameBundle(9, 11, .{}, &sets, .{ .x = 30, .y = 13 }));
     try std.testing.expect(!sameBundle(9, 11, .{}, &sets, .{ .x = 21, .y = 15 }));
-    // The unscoped origins are position-blind, on the same cell.
     const fan = [_]ledger.Bundle{.{ .origin = .fan_rail, .members = &.{ 9, 11 } }};
     try std.testing.expect(sameBundle(9, 11, .{}, &fan, .{ .x = 21, .y = 15 }));
 }

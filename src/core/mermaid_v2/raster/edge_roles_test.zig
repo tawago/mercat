@@ -13,7 +13,6 @@ const edge_roles = @import("edge_roles.zig");
 const testing = std.testing;
 
 test "mergeRole: a rail outranks a dropper, which outranks routing roles" {
-    // Rails are the top tier: an arriving dropper never demotes one.
     try testing.expectEqual(
         lattice.EdgeRole.fan_out_rail,
         edge_roles.mergeRole(.fan_out_rail, .fan_out_dropper),
@@ -22,7 +21,6 @@ test "mergeRole: a rail outranks a dropper, which outranks routing roles" {
         lattice.EdgeRole.fan_in_rail,
         edge_roles.mergeRole(.fan_in_dropper, .fan_in_rail),
     );
-    // Droppers outrank the routing tier in both directions.
     try testing.expectEqual(
         lattice.EdgeRole.fan_out_dropper,
         edge_roles.mergeRole(.back_edge, .fan_out_dropper),
@@ -31,9 +29,6 @@ test "mergeRole: a rail outranks a dropper, which outranks routing roles" {
         lattice.EdgeRole.fan_in_dropper,
         edge_roles.mergeRole(.fan_in_dropper, .cluster_internal),
     );
-    // …and the routing tier outranks plain forward: this is the lift that
-    // lets `fan_roles.markShared` recognise a fan family on a cell whose
-    // first writer was an ordinary edge.
     try testing.expectEqual(
         lattice.EdgeRole.fan_out_dropper,
         edge_roles.mergeRole(.forward, .fan_out_dropper),
@@ -41,8 +36,6 @@ test "mergeRole: a rail outranks a dropper, which outranks routing roles" {
 }
 
 test "mergeRole: a same-tier arrival never displaces the first writer" {
-    // Ties keep the existing role, so the two members of one tier are not
-    // silently interchangeable at a shared cell.
     try testing.expectEqual(
         lattice.EdgeRole.fan_out_rail,
         edge_roles.mergeRole(.fan_out_rail, .fan_in_rail),

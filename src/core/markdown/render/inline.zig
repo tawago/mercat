@@ -38,19 +38,15 @@ fn appendInlineSliceTokens(allocator: std.mem.Allocator, tokens: *std.ArrayList(
     while (i < inlines.len) {
         const inline_ = inlines[i];
 
-        // Check if this is an opening HTML tag for a known semantic element.
         if (inline_ == .html) {
             const tag_text = inline_.html;
 
-            // Handle footnote navigation tags: <fnref id="N"> and <fndef id="N">
             if (try footnoteNavUrl(allocator, tag_text)) |nav_url| {
                 const close_tag = footnoteNavCloseTag(tag_text).?;
-                // Collect inlines until the matching close tag.
                 var j = i + 1;
                 while (j < inlines.len) : (j += 1) {
                     if (inlines[j] == .html and std.mem.eql(u8, inlines[j].html, close_tag)) break;
                 }
-                // Render content between the tags with superscript style and nav URL.
                 const content = inlines[i + 1 .. j];
                 const start = tokens.items.len;
                 try appendInlineSliceTokens(allocator, tokens, content, .superscript, decor);
@@ -66,15 +62,12 @@ fn appendInlineSliceTokens(allocator: std.mem.Allocator, tokens: *std.ArrayList(
 
             if (htmlOpenTagStyle(tag_text)) |span_style| {
                 const close_tag = htmlCloseTagFor(tag_text);
-                // Collect inlines until the matching close tag.
                 var j = i + 1;
                 while (j < inlines.len) : (j += 1) {
                     if (inlines[j] == .html and std.mem.eql(u8, inlines[j].html, close_tag)) break;
                 }
-                // Render content between the tags with span_style.
                 const content = inlines[i + 1 .. j];
                 try appendInlineSliceTokens(allocator, tokens, content, span_style, decor);
-                // Skip past the closing tag (if found).
                 i = if (j < inlines.len) j + 1 else j;
                 continue;
             }
@@ -89,7 +82,6 @@ pub fn appendInlineTokens(allocator: std.mem.Allocator, tokens: *std.ArrayList(I
     switch (inline_) {
         .text => |text| try splitAndAppendTokens(allocator, tokens, text, parent_style),
         .code => |text| {
-            // Optional per-theme chip prefix/suffix (pink/markview pad inline code).
             const cd = decor.slot(.code);
             if (cd.prefix.len != 0) try tokens.append(allocator, .{ .text = try allocator.dupe(u8, cd.prefix), .style = .code });
             try tokens.append(allocator, .{ .text = try allocator.dupe(u8, text), .style = .code });
@@ -108,24 +100,18 @@ pub fn appendInlineTokens(allocator: std.mem.Allocator, tokens: *std.ArrayList(I
             try appendInlineSliceTokens(allocator, tokens, children, .strikethrough, decor);
         },
         .link => |link| {
-            // Optional leading icon (markview →).
             const ld = decor.slot(.link);
             const start = tokens.items.len;
             if (ld.icon.len != 0) try tokens.append(allocator, .{ .text = try allocator.dupe(u8, ld.icon), .style = .link });
-            // Collect link text tokens, then attach the URL so the text itself is
-            // the OSC 8 hyperlink anchor in capable terminals.
             try appendInlineSliceTokens(allocator, tokens, link.text, .link, decor);
-            // Attach URL to every link-text token so the full text is clickable.
             for (tokens.items[start..]) |*tok| {
                 tok.url = try allocator.dupe(u8, link.url);
             }
-            // Append visible " <url>" suffix as fallback for non-OSC-8 terminals.
             const url_text = try std.fmt.allocPrint(allocator, " <{s}>", .{link.url});
             try tokens.append(allocator, .{ .text = url_text, .style = .link, .url = try allocator.dupe(u8, link.url) });
             if (ld.suffix.len != 0) try tokens.append(allocator, .{ .text = try allocator.dupe(u8, ld.suffix), .style = .link });
         },
         .image => |image| {
-            // Render as [Image: alt] with optional theme icon prefix + suffix.
             const imd = decor.slot(.image_alt);
             if (imd.icon.len != 0) try tokens.append(allocator, .{ .text = try allocator.dupe(u8, imd.icon), .style = .image_alt });
             try tokens.append(allocator, .{ .text = try allocator.dupe(u8, "[Image: "), .style = .image_alt });

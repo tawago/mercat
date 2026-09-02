@@ -36,10 +36,6 @@ pub fn nextBoundaryCounted(text: []const u8, start: usize, operations: ?*usize) 
     var previous_gcb = graphemeBreak(previous.codepoint);
     var boundary = previous.end;
     while (boundary < text.len) {
-        // A malformed lookahead cannot belong to the already-decoded cluster.
-        // Return that valid boundary; a subsequent call at `boundary` reports
-        // the malformed scalar. This keeps permissive callers from splitting
-        // the valid scalar while whole-input validation still rejects it.
         const current = decodeAtCounted(text, boundary, operations) catch return boundary;
         const current_gcb = graphemeBreak(current.codepoint);
         if (shouldBreak(text, start, boundary, previous_gcb, current_gcb, current.codepoint, operations)) return boundary;
@@ -81,24 +77,15 @@ fn shouldBreak(
     current_cp: u21,
     operations: ?*usize,
 ) bool {
-    // GB3
     if (previous == .cr and current == .lf) return false;
-    // GB4, GB5
     if (isControl(previous) or isControl(current)) return true;
-    // GB6
     if (previous == .l and (current == .l or current == .v or current == .lv or current == .lvt)) return false;
-    // GB7
     if ((previous == .lv or previous == .v) and (current == .v or current == .t)) return false;
-    // GB8
     if ((previous == .lvt or previous == .t) and current == .t) return false;
-    // GB9, GB9a, GB9b
     if (current == .extend or current == .zwj or current == .spacing_mark) return false;
     if (previous == .prepend) return false;
-    // GB9c
     if (tables.incb.lookup(current_cp) == 2 and hasIndicLinker(text, cluster_start, boundary, operations)) return false;
-    // GB11
     if (tables.extended_pictographic.contains(current_cp) and hasExtendedPictographicZwj(text, cluster_start, boundary, operations)) return false;
-    // GB12, GB13
     if (previous == .regional_indicator and current == .regional_indicator and precedingRiCount(text, cluster_start, boundary, operations) % 2 == 1) return false;
     return true;
 }

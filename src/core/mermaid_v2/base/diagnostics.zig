@@ -28,24 +28,19 @@ pub const DispositionClass = enum {
 /// record-verbatim names carry dots (`bundle_select.*`) spell them with
 /// underscores here; `tagName` returns the verbatim form.
 pub const DiagnosticTag = enum {
-    // D-DISPOSITION (3)
     disp_terminal_fallback_engaged,
     disp_unregistered_diagnostic,
     ink_grammar_render_fatal,
-    // D-POLICY (1)
     join_policy_not_joined,
-    // D-TRUNK (4)
     /// Counts a construction group whose mixed stroke styles cause incompatible
     /// candidates to remain private; this does not describe shipped ink.
     rail_member_style_mixed,
     rail_member_invisible,
     rail_pivot_side_arrow,
     rail_duplicate_pair,
-    // D-DUAL (3)
     dual_membership_edges,
     dual_membership_selected_both_sides,
     permission_overlap_conflicts,
-    // D-JOIN-SELECT (9)
     bundle_select_selected,
     bundle_select_independent_not_selected,
     bundle_select_independent_overlap_conflict,
@@ -55,15 +50,12 @@ pub const DiagnosticTag = enum {
     bundle_select_cluster_skipped,
     bundle_select_duplicate_key_blocked,
     bundle_select_proposal_multiplicity_blocked,
-    // D-JOIN (1)
     intentional_bundles,
-    // D-PORT (5)
     port_capacity_exceeded,
     port_key_collision,
     port_coalesced,
     port_departure_conflict,
     port_skipped_clustered,
-    // D-REACH (12)
     reach_undeclared_pair,
     reach_missing_declared,
     reach_split_trace,
@@ -76,27 +68,20 @@ pub const DiagnosticTag = enum {
     reach_unknown_continuation,
     reach_vector_raster_mismatch,
     reach_skipped_clustered,
-    // D-IR (3)
     bundle_permits_skipped_clustered,
     realized_plan_missing,
     selected_bundle_invalidated,
-    // D-EDGE-ID (2)
     edgeid_scope_clustered_skipped,
     edgeid_unqualified_local_lookup,
-    // Rail-law refusals (3) and bundle declaration failures (2). The last
-    // three are fired by the all-arrow-free shared-rail closure law
-    // (base/rail_closure.zig) — the flat commitment in layout/bundle_commit.zig
-    // and the clustered pass in layout/fan_rail_law.zig — and reach stderr on
-    // the `MERCAT_INTEGRITY=1` line.
     /// Counts a construction group whose mixed pivot-end arrow decorations
     /// cause incompatible candidates to remain private. It does not describe a
     /// defect in the final private rendering.
     rail_deco_mixed,
     /// Fires when a rail is refused because its members do not form a star
-    /// around one shared pivot — the star-only rail law admits no union of
+    /// around one shared pivot — the star licence admits no union of
     /// two or more pivots.
     rail_star_violation,
-    /// Fires once per rail the closure law refuses: an all-arrow-free rail
+    /// Fires once per rail the closure licence refuses: an all-arrow-free rail
     /// whose crossbar would assert a leaf pair the graph never declared, so
     /// its membership is not closed over the ink the rail actually owns.
     /// Counted for a partial salvage too — the rail as proposed was refused.
@@ -111,7 +96,7 @@ pub const DiagnosticTag = enum {
 };
 
 /// Record-verbatim tag string (dotted for the `bundle_select.*` family).
-/// guarded-by: diagnostics_test.zig "tag names round-trip through tagByName"
+/// @guarded-by: diagnostics_test.zig "tag names round-trip through tagByName"
 pub fn tagName(tag: DiagnosticTag) []const u8 {
     return switch (tag) {
         .bundle_select_selected => "bundle_select.selected",
@@ -140,12 +125,10 @@ pub fn tagByName(name: []const u8) ?DiagnosticTag {
 
 /// The static tag → class registry: every tag by explicit name, no
 /// wildcard, no prefix, no else branch (D-DISPOSITION items 3, 5, 6).
-/// guarded-by: diagnostics_test.zig "registry partitions the 48 tags RF 5 / CI 17 / RO 26"
-/// guarded-by: diagnostics_test.zig "both invalidation tags are candidate-invalid (D-DISPOSITION item 5 row 4)"
+/// @guarded-by: diagnostics_test.zig "registry partitions the 48 tags RF 5 / CI 17 / RO 26"
+/// @guarded-by: diagnostics_test.zig "both invalidation tags are candidate-invalid (D-DISPOSITION item 5 row 4)"
 pub fn classOf(tag: DiagnosticTag) DispositionClass {
     return switch (tag) {
-        // RF (5): D-DISPOSITION item 4 + item 9(e) backstops; item 5 row 1;
-        // item 6 rows for the two semantic/defensive fatals.
         .disp_unregistered_diagnostic,
         .ink_grammar_render_fatal,
         .join_policy_not_joined,
@@ -153,10 +136,6 @@ pub fn classOf(tag: DiagnosticTag) DispositionClass {
         .edgeid_unqualified_local_lookup,
         => .render_fatal,
 
-        // CI (17): the 11 substantive reach_* oracle failures (item 6
-        // row 4), the per-candidate port breaches (item 6 rows 5-6),
-        // realized_plan_missing (item 6 row 7), and BOTH invalidated-
-        // selected-bundle tags (item 5 row 4 names the pair).
         .reach_undeclared_pair,
         .reach_missing_declared,
         .reach_split_trace,
@@ -176,12 +155,6 @@ pub fn classOf(tag: DiagnosticTag) DispositionClass {
         .bundle_select_invalidated,
         => .candidate_invalid,
 
-        // RO (26): normal-operation inventory/style/safety-filter outcomes
-        // (item 6 rows 1-2), the five clustered scope-gate skips (item 6
-        // row 3), the terminal-fallback count (item 9(e)), the
-        // count-surfaced intentional_bundles, and the five registered-but-
-        // unfired rail-law / bundle tags — a refusal there is discharged by
-        // unfusing onto separate lanes, never by invalidating the candidate.
         .disp_terminal_fallback_engaged,
         .rail_member_style_mixed,
         .rail_member_invisible,

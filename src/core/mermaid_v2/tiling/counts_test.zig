@@ -17,8 +17,6 @@ test "counts: every field carries an n_/m_/c_/d_/u_ prefix" {
             std.debug.print("field '{s}' matches {d} prefixes, want exactly 1\n", .{ f.name, matched });
             return error.PrefixContractViolated;
         }
-        // Every counter is a plain u32 with a zero default, so a partial
-        // audit is readable rather than undefined.
         try testing.expectEqual(u32, f.type);
         try testing.expect(f.default_value_ptr != null);
     }
@@ -35,8 +33,6 @@ test "counts: defectTotal sums exactly the d_ fields" {
     }
     try testing.expectEqual(expected, c.defectTotal());
 
-    // A non-defect bucket can grow without moving the defect total — the
-    // whole point of the convention prefixes.
     const before = c.defectTotal();
     c.c_arrow_lat_frame += 1000;
     c.m_wide_label_cells += 1000;
@@ -44,7 +40,6 @@ test "counts: defectTotal sums exactly the d_ fields" {
     c.n_cells += 1000;
     try testing.expectEqual(before, c.defectTotal());
 
-    // ... and a defect bucket does.
     c.d_arrow_lat_orphan += 7;
     try testing.expectEqual(before + 7, c.defectTotal());
 }
@@ -96,10 +91,6 @@ test "writeLine: one token per field plus d_total, mercat-tiling prefix" {
 }
 
 test "writeLine: the whole taxonomy fits the line buffer with room to grow" {
-    // Worst case by construction: every counter printed at its widest
-    // (10 digits for a u32), plus the prefix and the derived total. The
-    // `MissingToken` failure above catches a silent truncation once it
-    // happens; this says how much headroom is left before it can.
     const worst = comptime blk: {
         var n: usize = counts.line_prefix.len + " d_total=".len + 10;
         for (fields) |f| n += 1 + f.name.len + 1 + 10;

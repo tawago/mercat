@@ -58,9 +58,9 @@ test "prim: EdgeRole variants exist" {
 
 test "prim: Shape variants" {
     const shapes = [_]Shape{
-        .rect,           .round,       .stadium,     .subroutine,
-        .cylinder,       .circle,      .asymmetric_left, .asymmetric_right,
-        .rhombus,        .hexagon,     .parallelogram, .trapezoid,
+        .rect,     .round,   .stadium,         .subroutine,
+        .cylinder, .circle,  .asymmetric_left, .asymmetric_right,
+        .rhombus,  .hexagon, .parallelogram,   .trapezoid,
     };
     try std.testing.expectEqual(@as(usize, 12), shapes.len);
 }
@@ -72,40 +72,29 @@ test "prim: displayWidth pure ASCII" {
 }
 
 test "prim: displayWidth CJK is width-2 per char" {
-    // "日本" = two CJK ideographs, each display-width 2.
     try std.testing.expectEqual(@as(u32, 4), displayWidth("日本"));
-    // "한국어" = three Hangul syllables, each width 2.
     try std.testing.expectEqual(@as(u32, 6), displayWidth("한국어"));
 }
 
 test "prim: displayWidth mixed ASCII + CJK" {
-    // "A日B" = 1 + 2 + 1 = 4 columns.
     try std.testing.expectEqual(@as(u32, 4), displayWidth("A日B"));
-    // "x日本y" = 1 + 2 + 2 + 1 = 6.
     try std.testing.expectEqual(@as(u32, 6), displayWidth("x日本y"));
 }
 
 test "prim: truncateToWidth respects budget and codepoint boundary" {
-    // Pure ASCII: exact prefix.
     try std.testing.expectEqualStrings("hel", truncateToWidth("hello", 3));
     try std.testing.expectEqualStrings("hello", truncateToWidth("hello", 99));
     try std.testing.expectEqualStrings("", truncateToWidth("hello", 0));
 
-    // Mixed: budget 3 over "A日B" — "A" (1) + "日" (2) = 3 fits, "B" would
-    // push to 4. Result is "A日" and must NOT split the multibyte "日".
     const out = truncateToWidth("A日B", 3);
     try std.testing.expectEqualStrings("A日", out);
     try std.testing.expectEqual(@as(u32, 3), displayWidth(out));
-    // The returned slice ends exactly after a full UTF-8 codepoint.
     try std.testing.expect(std.unicode.utf8ValidateSlice(out));
 
-    // Budget 2 over "A日B": "A" (1) fits, "日" (2) would push to 3 — so the
-    // wide char is dropped whole rather than split.
     const out2 = truncateToWidth("A日B", 2);
     try std.testing.expectEqualStrings("A", out2);
     try std.testing.expect(std.unicode.utf8ValidateSlice(out2));
 
-    // Budget 1 over a leading wide char: cannot fit width-2 char at all.
     try std.testing.expectEqualStrings("", truncateToWidth("日本", 1));
     try std.testing.expectEqualStrings("日", truncateToWidth("日本", 2));
 }
@@ -119,12 +108,12 @@ test "prim: wrapToWidth ASCII word-wrap + width-0 guard" {
     const a = std.testing.allocator;
     const l1 = try wrapToWidth(a, "the quick brown fox", 10);
     defer a.free(l1);
-    try std.testing.expectEqual(@as(usize, 2), l1.len); // "the quick" | "brown fox"
+    try std.testing.expectEqual(@as(usize, 2), l1.len);
     try std.testing.expectEqualStrings("the quick", l1[0]);
     try std.testing.expectEqualStrings("brown fox", l1[1]);
     for (l1) |l| try std.testing.expect(displayWidth(l) <= 10);
 
-    const l0 = try wrapToWidth(a, "anything here", 0); // degenerate guard
+    const l0 = try wrapToWidth(a, "anything here", 0);
     defer a.free(l0);
     try std.testing.expectEqual(@as(usize, 1), l0.len);
     try std.testing.expectEqualStrings("anything here", l0[0]);
@@ -132,7 +121,7 @@ test "prim: wrapToWidth ASCII word-wrap + width-0 guard" {
 
 test "prim: wrapToWidth hard sentinel breaks combine with soft wrap" {
     const a = std.testing.allocator;
-    const hard = try wrapToWidth(a, "alpha\nbeta gamma", 99); // \n always breaks
+    const hard = try wrapToWidth(a, "alpha\nbeta gamma", 99);
     defer a.free(hard);
     try std.testing.expectEqual(@as(usize, 2), hard.len);
     try std.testing.expectEqualStrings("alpha", hard[0]);
@@ -140,7 +129,6 @@ test "prim: wrapToWidth hard sentinel breaks combine with soft wrap" {
 
     const both = try wrapToWidth(a, "one two\nthree four five", 8);
     defer a.free(both);
-    // "one two" | "three" | "four" | "five"
     try std.testing.expectEqual(@as(usize, 4), both.len);
     try std.testing.expectEqualStrings("one two", both[0]);
     try std.testing.expectEqualStrings("three", both[1]);
@@ -150,7 +138,7 @@ test "prim: wrapToWidth hard sentinel breaks combine with soft wrap" {
 
 test "prim: wrapToWidth hard-splits a spaceless mega-word, bounds every line" {
     const a = std.testing.allocator;
-    const mega = try wrapToWidth(a, "abcdefghij", 4); // "abcd"|"efgh"|"ij"
+    const mega = try wrapToWidth(a, "abcdefghij", 4);
     defer a.free(mega);
     try std.testing.expectEqual(@as(usize, 3), mega.len);
     try std.testing.expectEqualStrings("abcd", mega[0]);
@@ -162,7 +150,7 @@ test "prim: wrapToWidth hard-splits a spaceless mega-word, bounds every line" {
     try std.testing.expectEqualStrings("hi", after[0]);
     for (after) |l| try std.testing.expect(displayWidth(l) <= 6);
 
-    const cjk = try wrapToWidth(a, "日本語テスト", 4); // 2 cols/char
+    const cjk = try wrapToWidth(a, "日本語テスト", 4);
     defer a.free(cjk);
     for (cjk) |l| try std.testing.expect(displayWidth(l) <= 4);
 }

@@ -25,10 +25,16 @@ pub fn decodeArrows(text: []const u8) ArrowPair {
     var ap: ArrowPair = .{ .from = .none, .to = .none };
     if (text.len == 0) return ap;
     switch (text[0]) {
-        '<' => ap.from = .filled, 'o' => ap.from = .circle, 'x' => ap.from = .cross, else => {},
+        '<' => ap.from = .filled,
+        'o' => ap.from = .circle,
+        'x' => ap.from = .cross,
+        else => {},
     }
     switch (text[text.len - 1]) {
-        '>' => ap.to = .filled, 'o' => ap.to = .circle, 'x' => ap.to = .cross, else => {},
+        '>' => ap.to = .filled,
+        'o' => ap.to = .circle,
+        'x' => ap.to = .cross,
+        else => {},
     }
     return ap;
 }

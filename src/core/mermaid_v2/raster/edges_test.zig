@@ -102,13 +102,6 @@ test "arrowhead at end of polyline" {
 }
 
 test "length-1 final segment after a corner points the terminal arrowhead into the port" {
-    // Polyline runs EAST to a corner, then a SINGLE cell SOUTH into the
-    // target port. The final segment writes no interior cell (its only
-    // cell is the skipped target), so the terminal arrowhead lands ON the
-    // corner. It must point SOUTH (the final approach into the port), not
-    // EAST (the incoming run) — an east arrowhead would float sideways
-    // beside the target instead of entering it. Regression guard for the
-    // frenzy Mermaid->DiagramTypes floating-▶ defect.
     const a = testing.allocator;
     var lat = try makeLattice(a, 8, 5);
     defer a.free(lat.cells);
@@ -142,8 +135,6 @@ test "two foreign crossing edges read as a transversal, not a junction" {
         .edge_segment => true,
         else => false,
     });
-    // Unconditional crossing rule: the two edges share no bundle, so the
-    // first writer's horizontal run keeps its straight stroke.
     try testing.expectEqual(
         (lattice.Neighbours{ .e = true, .w = true }).toMask(),
         cell.neighbours.toMask(),
@@ -209,8 +200,6 @@ test "edge cells colliding with node-owned cells are counted as lost" {
     var lat = try makeLattice(a, 10, 10);
     defer a.free(lat.cells);
 
-    // A node interior blocks columns 3..5 of row 2 — the raster-time
-    // signature of a path_through_interior layout defect.
     var x: u32 = 3;
     while (x <= 5) : (x += 1) {
         lat.at(x, 2).* = .{
@@ -223,11 +212,8 @@ test "edge cells colliding with node-owned cells are counted as lost" {
     const es = [_]sketch.EdgePath{makeEdge(1, &pts, .none, .none)};
     const report = try edges.rasterizeEdges(a, &lat, makeSketch(&es), .bridge, null);
 
-    // Cells 3,4,5 collide and are skipped; 6,7 are written ((a,b] walk
-    // excludes the target endpoint 8 on the last segment).
     try testing.expectEqual(@as(u32, 3), report.cells_lost);
     try testing.expectEqual(@as(u32, 1), report.edges_written);
-    // Blocked cells stay node-owned.
     try testing.expect(lat.atConst(4, 2).occupant == .node_interior);
 }
 
@@ -242,11 +228,6 @@ test "collision-free edge reports zero cells lost" {
     try testing.expectEqual(@as(u32, 0), report.cells_lost);
 }
 
-// -- Frame-solid border bridging (D-CROSS, owner ruling 2026-07-19) ----------
-// The V-D-CROSS-01 reading transposed to a subgraph FRAME: a through-going edge
-// crossing a border BRIDGES it (frame glyph continuous, no fabricated tee); a
-// TERMINAL arrival (final segment cell / arrowhead) keeps today's merge.
-
 /// Stamp one `.cluster_border` cell carrying `mask` (a frame run glyph).
 fn stampBorder(lat: *lattice.Lattice, x: u32, y: u32, mask: lattice.Neighbours) void {
     lat.at(x, y).* = .{
@@ -260,20 +241,17 @@ test "through-crossing bridges a subgraph frame border" {
     var lat = try makeLattice(a, 12, 12);
     defer a.free(lat.cells);
 
-    // Horizontal frame run `─` at row 5; a vertical edge crosses it mid-path.
     stampBorder(&lat, 5, 5, .{ .e = true, .w = true });
     const pts = [_]sketch.Point{ .{ .x = 5, .y = 2 }, .{ .x = 5, .y = 8 } };
     const es = [_]sketch.EdgePath{makeEdge(1, &pts, .none, .none)};
     const r = try edges.rasterizeEdges(a, &lat, makeSketch(&es), .bridge, null);
 
-    // The border cell keeps its occupant and its `─` mask — no ┼ fabricated.
     const border = lat.atConst(5, 5).*;
     try testing.expect(border.occupant == .cluster_border);
     try testing.expectEqual(
         (lattice.Neighbours{ .e = true, .w = true }).toMask(),
         border.neighbours.toMask(),
     );
-    // The edge resumes on BOTH adjacent cells (gapless).
     try testing.expectEqual(
         (lattice.Neighbours{ .n = true, .s = true }).toMask(),
         lat.atConst(5, 4).neighbours.toMask(),
@@ -282,7 +260,6 @@ test "through-crossing bridges a subgraph frame border" {
         (lattice.Neighbours{ .n = true, .s = true }).toMask(),
         lat.atConst(5, 6).neighbours.toMask(),
     );
-    // Exactly one bridge event, no corner refusal.
     try testing.expectEqual(@as(u32, 1), r.crossings.b_frame_bridge);
     try testing.expectEqual(@as(u32, 0), r.crossings.b_border_fusion_refused);
 }
@@ -292,8 +269,6 @@ test "terminal segment cell on a frame border keeps today's merge" {
     var lat = try makeLattice(a, 12, 12);
     defer a.free(lat.cells);
 
-    // The edge ENDS on the border (target port at (5,7); last written cell is
-    // (5,6) the border) — a terminal arrival INTO the cluster, which merges.
     stampBorder(&lat, 5, 6, .{ .e = true, .w = true });
     const pts = [_]sketch.Point{ .{ .x = 5, .y = 3 }, .{ .x = 5, .y = 7 } };
     const es = [_]sketch.EdgePath{makeEdge(9, &pts, .none, .none)};
@@ -334,47 +309,31 @@ test "corner arm onto a subgraph frame border is refused" {
     var lat = try makeLattice(a, 12, 12);
     defer a.free(lat.cells);
 
-    // A vertical frame run `│` at (6,5); the edge turns its corner ON it.
     stampBorder(&lat, 6, 5, .{ .n = true, .s = true });
     const pts = [_]sketch.Point{ .{ .x = 2, .y = 5 }, .{ .x = 6, .y = 5 }, .{ .x = 6, .y = 9 } };
     const es = [_]sketch.EdgePath{makeEdge(3, &pts, .none, .none)};
     const r = try edges.rasterizeEdges(a, &lat, makeSketch(&es), .bridge, null);
 
-    // The frame stays pristine: still a cluster_border with its `│` mask, no
-    // ┼/├ welded by the corner arm.
     const border = lat.atConst(6, 5).*;
     try testing.expect(border.occupant == .cluster_border);
     try testing.expectEqual(
         (lattice.Neighbours{ .n = true, .s = true }).toMask(),
         border.neighbours.toMask(),
     );
-    // The corner arm was refused (one report-only event). The incoming east
-    // run STOPS at this cell — it is the segment endpoint, owned by the corner
-    // writer, not a through-going cell — so no frame-bridge event fires for it.
     try testing.expectEqual(@as(u32, 1), r.crossings.b_border_fusion_refused);
     try testing.expectEqual(@as(u32, 0), r.crossings.b_frame_bridge);
 }
-
-// -- `.cross` mode: pre-Slice-1 junction weld (owner ruling 2026-07-19) -------
-// The user-selectable legacy notation. A through-going edge (and a corner)
-// crossing a subgraph frame border WELDS into it exactly as before Slice 1 —
-// the border cell becomes an `edge_segment` with the merged/replaced mask and
-// NO bridge/refusal event fires. These pin the byte-identical restoration.
 
 test "cross mode: through-crossing welds the frame border (pre-slice-1)" {
     const a = testing.allocator;
     var lat = try makeLattice(a, 12, 12);
     defer a.free(lat.cells);
 
-    // Same geometry as the bridge through-crossing test, but `.cross`.
     stampBorder(&lat, 5, 5, .{ .e = true, .w = true });
     const pts = [_]sketch.Point{ .{ .x = 5, .y = 2 }, .{ .x = 5, .y = 8 } };
     const es = [_]sketch.EdgePath{makeEdge(1, &pts, .none, .none)};
     const r = try edges.rasterizeEdges(a, &lat, makeSketch(&es), .cross, null);
 
-    // The border cell is OVERWRITTEN as this edge's segment, its `─` bits
-    // OR-merged with the crossing `│` → a fabricated ┼ (writeEdgeCell's
-    // `.cluster_border` arm). This is the old behavior verbatim.
     const border = lat.atConst(5, 5).*;
     try testing.expect(switch (border.occupant) {
         .edge_segment => |seg| seg.edge == 1,
@@ -384,7 +343,6 @@ test "cross mode: through-crossing welds the frame border (pre-slice-1)" {
         (lattice.Neighbours{ .n = true, .e = true, .s = true, .w = true }).toMask(),
         border.neighbours.toMask(),
     );
-    // No frame-solid event fires in `.cross` mode.
     try testing.expectEqual(@as(u32, 0), r.crossings.b_frame_bridge);
     try testing.expectEqual(@as(u32, 0), r.crossings.b_border_fusion_refused);
 }
@@ -394,15 +352,11 @@ test "cross mode: corner arm onto a subgraph frame border welds a tee (pre-slice
     var lat = try makeLattice(a, 12, 12);
     defer a.free(lat.cells);
 
-    // Same geometry as the bridge corner-refusal test, but `.cross`.
     stampBorder(&lat, 6, 5, .{ .n = true, .s = true });
     const pts = [_]sketch.Point{ .{ .x = 2, .y = 5 }, .{ .x = 6, .y = 5 }, .{ .x = 6, .y = 9 } };
     const es = [_]sketch.EdgePath{makeEdge(3, &pts, .none, .none)};
     const r = try edges.rasterizeEdges(a, &lat, makeSketch(&es), .cross, null);
 
-    // The border is welded into the edge (no pristine frame): the incoming east
-    // run overwrites it, then the corner arm replaces the mask with its
-    // {west,south} corner bits — the old, byte-identical outcome.
     const border = lat.atConst(6, 5).*;
     try testing.expect(switch (border.occupant) {
         .edge_segment => |seg| seg.edge == 3,
@@ -412,7 +366,6 @@ test "cross mode: corner arm onto a subgraph frame border welds a tee (pre-slice
         (lattice.Neighbours{ .w = true, .s = true }).toMask(),
         border.neighbours.toMask(),
     );
-    // No frame-solid events in `.cross` mode.
     try testing.expectEqual(@as(u32, 0), r.crossings.b_border_fusion_refused);
     try testing.expectEqual(@as(u32, 0), r.crossings.b_frame_bridge);
 }

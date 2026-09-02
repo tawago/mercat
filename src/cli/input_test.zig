@@ -66,10 +66,6 @@ test "isMermaidSource dispatches on path vs content" {
     try std.testing.expect(!input.isMermaidSource(null, "# Title\n"));
 }
 
-// The routing vocabulary is owned here, at the cli level, by design: it must
-// cover every diagram type the mermaid renderers dispatch on. When a new
-// diagram type is added, extend `distinct_keywords` in input.zig and add a
-// sample below.
 test "one accepted sample per supported diagram type" {
     const samples = [_][]const u8{
         "flowchart LR\n  A-->B\n",
@@ -85,8 +81,6 @@ test "one accepted sample per supported diagram type" {
     }
 }
 
-// Pull lib/text.zig's own tests into the test binary (it is only reached
-// through imports, which does not collect tests on its own).
 test {
     _ = @import("text");
 }

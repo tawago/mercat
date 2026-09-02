@@ -61,8 +61,6 @@ test "a stamped sketch names its rail's bundle and its roster alike" {
     try testing.expectEqual(sketch.BundleStampState.complete, s.bundle_stamp_state);
     try testing.expect(ledger.rosterNumbered(s.bundle_sets));
     try testing.expectEqual(@as(ledger.BundleId, 1), s.bundle_sets[0].bundle);
-    // The rail rides the set that names its members, so the two agree — which
-    // is what lets the rail writer state a licence without a scan.
     try testing.expectEqual(@as(ledger.BundleId, 1), s.rails[0].bundle);
     try testing.expectEqual(@as(ledger.BundleId, 1), ledger.bundleOf(s.bundle_sets, 0, null));
     try testing.expectEqual(@as(ledger.BundleId, 1), ledger.bundleOf(s.bundle_sets, 1, null));
@@ -70,8 +68,6 @@ test "a stamped sketch names its rail's bundle and its roster alike" {
 }
 
 test "a merged roster names every bundle once" {
-    // Two children's sets, each of which numbered its own fan from one before
-    // the merge: re-numbering is what stops them answering to one name.
     const a = [_]ledger.EdgeId{ 0, 1 };
     const b = [_]ledger.EdgeId{ 2, 3 };
     const sets = [_]ledger.Bundle{
@@ -90,13 +86,6 @@ test "a merged roster names every bundle once" {
 }
 
 test "a rail off the roster is stamped a bundle none of its future merges can ever match" {
-    // A structural set exists, but it names neither of this rail's taps — the
-    // OFF-roster case. The rail still gets a name (past the roster's end),
-    // but that name is a fresh mint no OTHER edge can ever hold, so every
-    // future comparison against it (`ledger.bundleOf` for some foreign edge)
-    // reads unequal. This pins that the rail's bundle and the roster's
-    // bundle are, by construction, disjoint — the fact that makes
-    // `.merged_foreign` the INEVITABLE outcome of such a rail's every merge.
     const unrelated_members = [_]ledger.EdgeId{ 90, 91 };
     const sets = [_]ledger.Bundle{.{ .origin = .fan_rail, .members = &unrelated_members }};
     const rails_buf = [_]sketch.Rail{railAt(&taps_a, 3)};
@@ -108,9 +97,6 @@ test "a rail off the roster is stamped a bundle none of its future merges can ev
 
     try testing.expectEqual(@as(ledger.BundleId, 1), s.bundle_sets[0].bundle);
     try testing.expectEqual(@as(ledger.BundleId, 2), s.rails[0].bundle);
-    // The roster's one set can never answer with 2 — `numberBundles` only
-    // ever mints 1..N over N sets — so no future set on this roster can ever
-    // collide with this rail's name.
     try testing.expect(s.rails[0].bundle != s.bundle_sets[0].bundle);
 }
 
@@ -125,9 +111,6 @@ test "a rail no set holds gets a name of its own, past the roster" {
     sketch_bundles.stamp(arena.allocator(), &s);
 
     try testing.expectEqual(@as(ledger.BundleId, 1), s.rails[0].bundle);
-    // Past the roster's end, so it can collide with neither a set's name nor
-    // the other rail's — and it is a SHARED name, which the one-edge-wide
-    // private band could not express.
     try testing.expectEqual(@as(ledger.BundleId, 2), s.rails[1].bundle);
     try testing.expect(s.rails[1].bundle != s.rails[0].bundle);
 }
@@ -143,8 +126,6 @@ test "a port share is too narrow to name a whole rail" {
     defer arena.deinit();
     sketch_bundles.stamp(arena.allocator(), &s);
 
-    // The share licenses one cell; the crossbar spans five. Adopting its name
-    // would hand the whole run the authority of a share that stops at a port.
     try testing.expectEqual(@as(ledger.BundleId, 2), s.rails[0].bundle);
 }
 

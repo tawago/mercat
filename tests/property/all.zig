@@ -7,6 +7,5 @@ test {
     _ = @import("gen.zig");
     _ = @import("runner.zig");
     _ = @import("sketch_props.zig");
-    // parse_props.zig — property tests against the parser — comes next.
     std.testing.refAllDecls(@This());
 }

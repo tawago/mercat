@@ -46,7 +46,7 @@ pub fn superSize(child_bbox: sketch.Rect, scale: u32, synthetic: bool) struct { 
 /// slice for a given super-node. THE single call site of the shared entry-side
 /// inset predicate — used by both `stitch`'s two child-translate sites and
 /// `recurse.stitchOuter`'s super-sizing site, so sizing and translation can
-/// never disagree on which clusters grow a row. // guarded-by: entry_inset.zig "entryArrivalInset"
+/// never disagree on which clusters grow a row. // @guarded-by: entry_inset.zig "entryArrivalInset"
 pub fn entryInsetFor(
     sr: SplitResult,
     children: []const Clustered,
@@ -160,10 +160,9 @@ pub fn stitch(
     // themselves 0. The scheme composes under nesting: an inner merged Sketch
     // already satisfies the invariant, and the outer stitch only slides its
     // whole (already-disjoint) window by one more offset.
-    // guarded-by: recurse_test.zig "stitched sibling clusters share one edge-id space"
+    // @guarded-by: recurse_test.zig "stitched sibling clusters share one edge-id space"
     var id_base: sketch.EdgeId = 0;
 
-    // Per-piece map: piece SKETCH node id -> merged (global) node id.
     var global_of = try arena.alloc([]sketch.NodeId, split_result.pieces.len);
     global_of[0] = try arena.alloc(sketch.NodeId, outer.nodes.len);
     @memset(global_of[0], sg.SENTINEL);
@@ -172,23 +171,16 @@ pub fn stitch(
         global_of[pi] = try arena.alloc(sketch.NodeId, c.sketch.nodes.len);
         @memset(global_of[pi], sg.SENTINEL);
     }
-    // This-graph node id -> merged id, for routing cross-border edges.
     const orig_to_merged = try arena.alloc(sketch.NodeId, split_result.orig_node_count);
     @memset(orig_to_merged, sg.SENTINEL);
-    // Merged id -> this-graph node id, returned for the parent level.
     var input_of: std.ArrayListUnmanaged(sketch.NodeId) = .empty;
     var next_global: sketch.NodeId = 0;
 
-    // Entry-side inset per super, computed ONCE (entryInsetFor is an
-    // O(crossings×nodes) scan) and shared by BOTH the node-translate loop and
-    // the edge-translate loop, indexed by the super's position in `supers`.
     const insets = try arena.alloc(EntryInset, split_result.supers.len);
     for (split_result.supers, 0..) |super, si| {
         insets[si] = entryInsetFor(split_result, children, super);
     }
 
-    // --- Walk outer placements. Real ones stay; super-nodes become a box +
-    //     their translated child interior (which may itself be nested). ---
     for (outer.nodes) |p| {
         if (superIndexFor(split_result, p.id)) |si| {
             const super = split_result.supers[si];
@@ -198,12 +190,11 @@ pub fn stitch(
             // Entry-side inset (top-arrival terminal): pushes the child content
             // one cell off the frame so the arrowhead gets a straight approach
             // cell. MUST match the superSize sizing site and the edge-translate
-            // site below, both via the same shared predicate. // guarded-by: entry_inset.zig "entryArrivalInset"
+            // site below, both via the same shared predicate. // @guarded-by: entry_inset.zig "entryArrivalInset"
             const ei = insets[si];
             const dx = p.rect.x + @as(i32, @intCast(pad.x)) + ei.dxExtra();
             const dy = p.rect.y + @as(i32, @intCast(pad.y)) + ei.dyExtra();
 
-            // Translate every child placement into the super interior.
             for (child.sketch.nodes) |cp| {
                 const gid = next_global;
                 next_global += 1;
@@ -216,13 +207,10 @@ pub fn stitch(
                     .rect = .{ .x = cp.rect.x + dx, .y = cp.rect.y + dy, .w = cp.rect.w, .h = cp.rect.h },
                     .shape = cp.shape,
                     .lines = cp.lines,
-                    // Preserve a deeper sub-cluster membership; only nodes
-                    // sitting directly in this cluster (null) take its id.
                     .cluster_id = cp.cluster_id orelse super.cluster_id,
                 });
             }
 
-            // Nested boxes from the child come along: shift, deepen, reparent.
             for (child.sketch.clusters) |cf| {
                 try clusters.append(arena, .{
                     .id = cf.id,
@@ -235,9 +223,6 @@ pub fn stitch(
                 });
             }
 
-            // This cluster's own box (depth 0 here; a parent level deepens it).
-            // The super-node's `lines` carry the cluster label; the frame label
-            // is single-line so we flatten (sentinel/wrap rows joined by space).
             try clusters.append(arena, .{
                 .id = super.cluster_id,
                 .rect = p.rect,
@@ -248,7 +233,6 @@ pub fn stitch(
                 .synthetic = super.synthetic,
             });
         } else {
-            // Real top-level node: keep geometry, assign a fresh merged id.
             const gid = next_global;
             next_global += 1;
             global_of[0][p.id] = gid;
@@ -265,13 +249,10 @@ pub fn stitch(
         }
     }
 
-    // --- Child edges (intra + already-routed nested bridges), translated. ---
     for (split_result.supers, 0..) |super, si| {
         const child = children[super.child_piece];
         const sp = placementOf(outer.nodes, super.outer_node);
         const pad = superPad(scale, super.synthetic);
-        // Same entry-side inset as the node-translate site, so child edges/
-        // rails stay aligned with their (offset) child nodes.
         const ei = insets[si];
         const dx = sp.rect.x + @as(i32, @intCast(pad.x)) + ei.dxExtra();
         const dy = sp.rect.y + @as(i32, @intCast(pad.y)) + ei.dyExtra();
@@ -292,9 +273,6 @@ pub fn stitch(
         }
     }
 
-    // --- Outer edges. Keep only edges between two real top-level nodes;
-    //     edges touching a super-node are placement-only (they drove the
-    //     outer layout) and are replaced by routed bridge lines below. ---
     const outer_base = id_base;
     id_base += idSpan(outer);
     try piece_joins.append(arena, .{ .bundles = outer.bundles, .edge_base = outer_base, .node_map = global_of[0] });
@@ -302,10 +280,6 @@ pub fn stitch(
         if (superFor(split_result, oe.from) != null or superFor(split_result, oe.to) != null) continue;
         try edges.append(arena, try translateEdge(arena, oe, global_of[0], 0, 0, outer_base));
     }
-    // --- Outer rails. Same rule per member edge: a tap onto a
-    //     super-node is placement-only (its edge re-routes as a bridge);
-    //     a rail whose pivot is a super-node drops entirely. Surviving
-    //     taps keep the rail; a rail left with zero taps drops too. ---
     for (outer.rails) |ob| {
         if (superFor(split_result, ob.pivot) != null) continue;
         var kept: std.ArrayListUnmanaged(sketch.Tap) = .empty;
@@ -316,7 +290,7 @@ pub fn stitch(
         if (kept.items.len == 0) continue;
         var filtered = ob;
         filtered.taps = try kept.toOwnedSlice(arena);
-        // Re-clamp the crossbar to the surviving taps + junction. // guarded-by: recurse_test.zig "stitch re-clamps a surviving rail's crossbar past a dropped super-node tap"
+        // Re-clamp the crossbar to the surviving taps + junction. // @guarded-by: recurse_test.zig "stitch re-clamps a surviving rail's crossbar past a dropped super-node tap"
         const junction = ob.stem[ob.stem.len - 1];
         var min_x: i32 = junction.x;
         var max_x: i32 = junction.x;
@@ -333,16 +307,12 @@ pub fn stitch(
         }
     }
 
-    // --- Cross-border edges, routed directly between merged placements,
-    //     jogging in the gaps between the now-final boxes. ---
     const node_slice = try nodes.toOwnedSlice(arena);
     const cluster_slice = try clusters.toOwnedSlice(arena);
     const bridge_base = id_base;
     const bridge_start = edges.items.len;
     var track_expired: u32 = 0;
     const bridge_edges = try bridges.route(arena, split_result.crossings, node_slice, cluster_slice, rails.items, edges.items, outer.direction, orig_to_merged, &track_expired, bridge_build);
-    // Bridges carry crossing ids, themselves renumbered from 0 by `split.zig`:
-    // they take the last id window.
     for (bridge_edges) |be| {
         var b = be;
         b.id = be.id + bridge_base;
@@ -352,17 +322,13 @@ pub fn stitch(
     // Reconstruct authority only after bridge routing made every final image,
     // endpoint, port, and id available. Structural outer groups require exact
     // pivot evidence; port shares are one fresh population from final paths.
-    // guarded-by: recurse_test2.zig "two bridges into one port declare a port-share bundle"
+    // @guarded-by: recurse_test2.zig "two bridges into one port declare a port-share bundle"
     const edge_slice = try edges.toOwnedSlice(arena);
     const final_bridges = edge_slice[bridge_start..];
-    // Cross-border bundles answer to the same licence tier as piece fans;
-    // the decision (selected / independent) enters the merged plan below.
     const bridge_joins = if (merge_joins)
         try bridge_plan.plan(arena, split_result.crossings, final_bridges, bridge_base)
     else
         ledger.RealizedBundles{};
-    // A realized bridge rail's sanction also enters the bundle roster, so
-    // the recorded identity (bundleAt) agrees with the plan's own answer.
     for (try ledger.bundlesFromPlan(arena, bridge_joins)) |cs| try bundle_sets.append(arena, cs);
     const bar_slice = try rails.toOwnedSlice(arena);
     const authority = try stitch_bundle_sets.finalizeAuthority(
@@ -381,7 +347,7 @@ pub fn stitch(
     );
 
     var merged: sketch.Sketch = .{
-        .bbox = outer.bbox, // child geometry fits inside super rects ⊂ outer bbox
+        .bbox = outer.bbox,
         .direction = outer.direction,
         .nodes = node_slice,
         .clusters = cluster_slice,
@@ -389,28 +355,23 @@ pub fn stitch(
         .rails = bar_slice,
         .rail_claims = authority.claims,
         .bundle_sets = authority.sets,
-        // Piece records rewritten into merged id spaces (stitch_bundles.zig):
-        // the merged plan is exactly as trustworthy as a flat candidate's.
         .bundles = if (merge_joins) try stitch_bundles.merge(arena, piece_joins.items, bridge_joins) else .{},
         // Report-only counts are per-PIECE facts about one merged picture,
         // so the merged Sketch carries their sum; keeping only the outer's
         // would silently drop every refusal a child's fans decided.
-        // guarded-by: recurse_test2.zig "the merged sketch sums its pieces' closure counts"
+        // @guarded-by: recurse_test2.zig "the merged sketch sums its pieces' closure counts"
         .closure = closureSum(outer, children),
-        // A surrendered bridge-track coordinate may still be collinear with
-        // a drawn frame border; the render ships only with the surrender
-        // declared (honest degradation).
         .diagnostics = try withTrackExpiry(arena, outer.diagnostics, track_expired),
         .budget = outer.budget,
         // The candidate's label policy is a property of the CANDIDATE, not
         // of any one piece: it must survive the cut/glue or the raster (and
         // the scorer's audit re-raster) would silently read the struct
         // default instead of the policy the layout was built for.
-        // guarded-by: select_test3.zig "stitching preserves the outer sketch's label policy"
+        // @guarded-by: select_test3.zig "stitching preserves the outer sketch's label policy"
         .label_policy = outer.label_policy,
     };
     // Each piece numbered from one, so the merged roster is re-numbered here.
-    // guarded-by: sketch_bundles_test.zig "a merged roster names every bundle once"
+    // @guarded-by: sketch_bundles_test.zig "a merged roster names every bundle once"
     sketch_bundles.stamp(arena, &merged);
     return .{
         .sketch = merged,
@@ -524,18 +485,16 @@ fn translateRail(
     return out;
 }
 
-// Tests
-// ====================================================================
 test "superSize wraps child bbox with frame padding (scale 0 = full inset)" {
     const sz = superSize(.{ .x = 0, .y = 0, .w = 20, .h = 8 }, 0, false);
-    try std.testing.expectEqual(@as(u32, 28), sz.w); // 20 + 2*4
-    try std.testing.expectEqual(@as(u32, 12), sz.h); // 8 + 2*2
+    try std.testing.expectEqual(@as(u32, 28), sz.w);
+    try std.testing.expectEqual(@as(u32, 12), sz.h);
 }
 
 test "superSize shrinks x inset under pressure (scale > 0), y unchanged" {
     const sz = superSize(.{ .x = 0, .y = 0, .w = 20, .h = 8 }, 1, false);
-    try std.testing.expectEqual(@as(u32, 24), sz.w); // 20 + 2*2 (padX 4 -> 2)
-    try std.testing.expectEqual(@as(u32, 12), sz.h); // 8 + 2*2 (padY unchanged)
+    try std.testing.expectEqual(@as(u32, 24), sz.w);
+    try std.testing.expectEqual(@as(u32, 12), sz.h);
 }
 
 test "superSize for a synthetic packing cluster is exactly the child bbox" {

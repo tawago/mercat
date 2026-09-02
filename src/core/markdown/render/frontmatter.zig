@@ -12,7 +12,7 @@ const SpanStyle = types.SpanStyle;
 const Entry = Block.FrontMatter.Entry;
 
 /// Leading glyph of the compact one-line style.
-const compact_marker = "\u{25C8}"; // ◈
+const compact_marker = "\u{25C8}";
 
 /// True when this style/front-matter combination renders no output: hidden
 /// always, and empty entries for every style except raw (whose verbatim
@@ -49,12 +49,8 @@ const Row = struct {
 /// wrapped values. `panel` adds the code-block-tinted background and the
 /// half-block top/bottom caps; `dim` is the same grid with no chrome.
 fn renderKeyValues(allocator: std.mem.Allocator, builder: *Builder, fm: Block.FrontMatter, width: usize, look: KeyValueLook) !void {
-    // One column of padding inside each edge of the panel.
     const inner_width = width -| 2;
 
-    // Keys are constrained to leave room for the two-column gap after the key
-    // and at least one value cell, so an unbroken key can never push a line
-    // past the width cap. Truncated keys carry a trailing ellipsis.
     const max_key_width = inner_width -| 3;
     var arena = std.heap.ArenaAllocator.init(allocator);
     defer arena.deinit();
@@ -68,20 +64,11 @@ fn renderKeyValues(allocator: std.mem.Allocator, builder: *Builder, fm: Block.Fr
 
     var key_width: usize = 0;
     for (keys) |key| key_width = @max(key_width, try geometry.displayWidthFrom(key, key_start));
-    // The value column takes whatever the key column and edge padding leave,
-    // but is never allowed to collapse below a single cell (so wrapping always
-    // makes progress). Long tokens are hard-split to fit this width, so the
-    // panel honours the requested width instead of forcing a minimum.
     const value_width = if (key_width == 0)
         @max(inner_width, 1)
     else
         @max(inner_width -| (key_width + 2), 1);
 
-    // Rows and wrapped value lines live in the function-scoped arena, so no
-    // per-row ownership tracking is needed. Raw non-`key: value` lines render
-    // in the value column too (the key cell is emitted for every row), so both
-    // kinds wrap at value_width. `keys` holds the width-constrained (possibly
-    // ellipsized) key for each entry.
     var rows: std.ArrayList(Row) = .empty;
     const value_start = content_origin + 1 + if (key_width == 0) 0 else key_width + 2;
     for (fm.entries, keys) |entry, key| {
@@ -101,7 +88,7 @@ fn renderKeyValues(allocator: std.mem.Allocator, builder: *Builder, fm: Block.Fr
     const key_style: SpanStyle = if (look == .panel) .frontmatter_key else .muted;
     const value_style: SpanStyle = if (look == .panel) .frontmatter_value else .body;
 
-    if (look == .panel) try appendCap(a, builder, "\u{2584}", panel_width); // ▄
+    if (look == .panel) try appendCap(a, builder, "\u{2584}", panel_width);
 
     for (rows.items, 0..) |row, index| {
         if (index != 0 or look == .panel) try builder.newline();
@@ -119,7 +106,7 @@ fn renderKeyValues(allocator: std.mem.Allocator, builder: *Builder, fm: Block.Fr
 
     if (look == .panel) {
         try builder.newline();
-        try appendCap(a, builder, "\u{2580}", panel_width); // ▀
+        try appendCap(a, builder, "\u{2580}", panel_width);
     }
 }
 
@@ -167,12 +154,10 @@ fn wrapValue(a: std.mem.Allocator, text: []const u8, width: usize, initial_colum
                 continue;
             }
             if (current.items.len != 0) {
-                // Flush and retry the word at the start of a fresh line.
                 try lines.append(a, try current.toOwnedSlice(a));
                 current_width = 0;
                 continue;
             }
-            // The word alone is wider than the line: hard-split it.
             const take = try takeWidth(remaining, width, initial_column);
             try current.appendSlice(a, remaining[0..take]);
             try lines.append(a, try current.toOwnedSlice(a));
@@ -195,7 +180,7 @@ fn takeWidth(text: []const u8, width: usize, initial_column: usize) !usize {
 }
 
 /// The single-cell ellipsis appended to a truncated key.
-const ellipsis = "\u{2026}"; // …
+const ellipsis = "\u{2026}";
 
 /// Constrain `text` to at most `max` display cells. If `text` already fits it
 /// is returned as-is (the source outlives the render call); otherwise an arena
@@ -205,11 +190,7 @@ const ellipsis = "\u{2026}"; // …
 fn truncateToWidth(a: std.mem.Allocator, text: []const u8, max: usize, initial_column: usize) ![]const u8 {
     const text_width = try geometry.displayWidthFrom(text, initial_column);
     if (text_width <= max) return text;
-    // No room for even the ellipsis: drop the key entirely.
     if (max == 0) return "";
-    // Reserve the ellipsis at the column where the retained prefix ends. Its
-    // width is currently one cell, but deriving it here avoids a hidden scalar
-    // assumption and keeps clipping strict if the decoration changes.
     const ellipsis_width = try geometry.displayWidthFrom(ellipsis, initial_column + max - 1);
     if (ellipsis_width > max) return "";
     const kept_len = try geometry.takeWidth(text, max - ellipsis_width, initial_column);
@@ -218,8 +199,6 @@ fn truncateToWidth(a: std.mem.Allocator, text: []const u8, max: usize, initial_c
 }
 
 fn renderCompact(allocator: std.mem.Allocator, builder: *Builder, fm: Block.FrontMatter, width: usize) !void {
-    // Keep at least two columns so a value can always take one cell after the
-    // one-column continuation indent.
     const avail = @max(width, 2);
 
     var arena = std.heap.ArenaAllocator.init(allocator);
@@ -231,10 +210,6 @@ fn renderCompact(allocator: std.mem.Allocator, builder: *Builder, fm: Block.Fron
     var used: usize = try geometry.displayWidthFrom(compact_marker, content_origin);
     var first = true;
     for (fm.entries) |entry| {
-        // Raw continuation lines have no key; show the value alone rather than
-        // silently dropping the entry. The key is constrained (marker + lead +
-        // key must fit `avail`) so a single unbroken key can never overflow
-        // the width cap. Truncation ellipsizes.
         const lead: usize = if (first) 1 else 2;
         var key_start = content_origin + used + lead;
         const formatted_key = if (entry.key.len == 0) "" else try std.fmt.allocPrint(a, "{s}:", .{entry.key});
@@ -258,8 +233,6 @@ fn renderCompact(allocator: std.mem.Allocator, builder: *Builder, fm: Block.Fron
             try builder.appendSpan(.muted, key_text);
             used += key_w;
         }
-        // The value wraps onto continuation lines when it overflows, so even a
-        // long first pair is constrained to the requested width.
         try emitValue(builder, entry.value, avail, content_origin, &used);
         first = false;
     }
@@ -288,17 +261,12 @@ fn emitValue(builder: *Builder, value: []const u8, avail: usize, content_origin:
         try builder.newline();
         try builder.appendSpan(.muted, " ");
         used.* = 1;
-        // Drop a leading space so continuation lines start on the next word.
         if (remaining.len != 0 and remaining[0] == ' ') remaining = remaining[1..];
     }
 }
 
 fn renderRaw(builder: *Builder, fm: Block.FrontMatter) !void {
     try builder.appendSpan(.muted, "---");
-    // Verbatim reproduction of the bytes between the fences. `raw` ends with the
-    // newline that separates the last content line from the closing fence; that
-    // single trailing newline is a boundary, not a blank line, so it is dropped.
-    // Every remaining newline (including genuine blank lines) is preserved.
     if (fm.raw.len != 0) {
         const body = if (fm.raw[fm.raw.len - 1] == '\n') fm.raw[0 .. fm.raw.len - 1] else fm.raw;
         var lines = std.mem.splitScalar(u8, body, '\n');
@@ -325,16 +293,10 @@ fn appendCap(a: std.mem.Allocator, builder: *Builder, glyph: []const u8, count: 
     try builder.appendSpan(.frontmatter_cap, row);
 }
 
-// ---------------------------------------------------------------------------
-// Tests
-// ---------------------------------------------------------------------------
-
-// --- render() output helpers -----------------------------------------------
-
 const testing = std.testing;
 
-const cap_top = "\u{2584}"; // ▄
-const cap_bottom = "\u{2580}"; // ▀
+const cap_top = "\u{2584}";
+const cap_bottom = "\u{2580}";
 
 /// Render `fm` through a fresh Builder and return the finished lines. The
 /// caller owns and frees the result. The Builder is torn down on any error so
@@ -389,10 +351,8 @@ test "frontmatter: panel style emits half-block caps around a key/value grid" {
     const lines = try renderLines(alloc, fm, 40, .panel, false);
     defer freeLines(alloc, lines);
 
-    // Three lines: top cap, one content row, bottom cap.
     try testing.expectEqual(@as(usize, 3), lines.len);
 
-    // Top cap: every span is a frontmatter_cap built from the ▄ glyph only.
     try testing.expect(lines[0].spans.len != 0);
     for (lines[0].spans) |span| {
         try testing.expectEqual(SpanStyle.frontmatter_cap, span.style);
@@ -400,11 +360,9 @@ test "frontmatter: panel style emits half-block caps around a key/value grid" {
         try testing.expect(std.mem.indexOf(u8, span.text, cap_bottom) == null);
     }
 
-    // Middle row carries the styled key and value.
     try testing.expect(hasStyledText(lines[1..2], .frontmatter_key, "title"));
     try testing.expect(hasStyledText(lines[1..2], .frontmatter_value, "Test"));
 
-    // Bottom cap uses the ▀ glyph.
     for (lines[2].spans) |span| {
         try testing.expectEqual(SpanStyle.frontmatter_cap, span.style);
         try testing.expect(std.mem.indexOf(u8, span.text, cap_bottom) != null);
@@ -419,7 +377,6 @@ test "frontmatter: dim style is chrome-free with muted key and body value" {
     const lines = try renderLines(alloc, fm, 40, .dim, false);
     defer freeLines(alloc, lines);
 
-    // Exactly one content line, no cap lines.
     try testing.expectEqual(@as(usize, 1), lines.len);
     try testing.expectEqual(@as(usize, 0), countStyle(lines, .frontmatter_cap));
     try testing.expect(hasStyledText(lines, .muted, "title"));
@@ -438,10 +395,8 @@ test "frontmatter: compact style is a single marker-led line of pairs" {
     defer freeLines(alloc, lines);
 
     try testing.expectEqual(@as(usize, 1), lines.len);
-    // Leading ◈ marker.
     try testing.expectEqual(SpanStyle.muted, lines[0].spans[0].style);
     try testing.expectEqualStrings(compact_marker, lines[0].spans[0].text);
-    // Both keys are muted, both values are body.
     try testing.expect(hasStyledText(lines, .muted, "title:"));
     try testing.expect(hasStyledText(lines, .muted, "author:"));
     try testing.expect(hasStyledText(lines, .body, "Test"));
@@ -459,8 +414,6 @@ test "frontmatter: raw style is byte-verbatim between fences without a trailing 
     const lines = try renderLines(alloc, fm, 40, .raw, false);
     defer freeLines(alloc, lines);
 
-    // Opening fence, two interior lines, closing fence — the single trailing
-    // newline before the closing fence is a boundary, not a blank line.
     try testing.expectEqual(@as(usize, 4), lines.len);
     try testing.expectEqualStrings("---", lines[0].spans[0].text);
     try testing.expectEqualStrings("title: Test", lines[1].spans[0].text);

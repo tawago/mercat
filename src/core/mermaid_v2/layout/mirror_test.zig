@@ -14,9 +14,6 @@ const sketch = @import("../sketch.zig");
 const testing = std.testing;
 const NodeGeom = routing.NodeGeom;
 
-// ---------------------------------------------------------------------
-// back_edges.zig: NodeGeom.layer survives applyDirection (near line 67)
-// ---------------------------------------------------------------------
 test "mirror.applyDirection swaps x/y/w/h but leaves NodeGeom.layer untouched" {
     var geom = [_]NodeGeom{
         .{ .x = 2, .y = 5, .w = 7, .h = 3, .layer = 4 },
@@ -24,21 +21,15 @@ test "mirror.applyDirection swaps x/y/w/h but leaves NodeGeom.layer untouched" {
     };
     mirror.applyDirection(NodeGeom, &geom, .LR);
 
-    // Axes swapped (LR path taken, not the TD no-op path).
     try testing.expectEqual(@as(i32, 5), geom[0].x);
     try testing.expectEqual(@as(i32, 2), geom[0].y);
     try testing.expectEqual(@as(u32, 3), geom[0].w);
     try testing.expectEqual(@as(u32, 7), geom[0].h);
 
-    // `.layer` is untouched by the swap — still the pre-swap logical layer.
     try testing.expectEqual(@as(u32, 4), geom[0].layer);
     try testing.expectEqual(@as(u32, 0), geom[1].layer);
 }
 
-// ---------------------------------------------------------------------
-// mirror.zig: the BT canonicalization rebuilds the Sketch literal, so
-// every candidate-level field must be carried across it explicitly.
-// ---------------------------------------------------------------------
 test "vertical mirror preserves the label policy" {
     var arena = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
@@ -155,11 +146,9 @@ test "vertical BT mirror remaps clustered bundle scopes without changing identit
         try testing.expect(before.members.ptr == after.members.ptr);
     }
 
-    // Structural and null-scoped records remain exactly unscoped.
     try testing.expectEqualDeep(sets[0], out.bundle_sets[0]);
     try testing.expect(out.bundle_sets[2].cells == null);
     try testing.expect(out.bundle_sets[2].pairwise == null);
-    // Non-null empty scopes remain non-null and empty.
     try testing.expect(out.bundle_sets[3].cells != null);
     try testing.expectEqual(@as(usize, 0), out.bundle_sets[3].cells.?.len);
     try testing.expect(out.bundle_sets[3].pairwise != null);
@@ -222,7 +211,6 @@ test "vertical mirror fails rather than exposing partially mirrored scopes" {
             try testing.expectEqual(error.OutOfMemory, err);
             try testing.expect(failing.has_induced_failure);
             try testing.expectEqual(failing.allocations, failing.deallocations);
-            // The complete source remains the only value available to callers.
             try testing.expectEqual(sketch.BundleStampState.complete, s.bundle_stamp_state);
             try testing.expectEqual(@as(i32, 12), s.bundle_sets[0].cells.?[0].y);
         }

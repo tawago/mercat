@@ -52,7 +52,6 @@ test "linear chain assigns sequential layers" {
     try testing.expectEqual(@as(usize, 1), lg.layers[1].len);
     try testing.expectEqual(@as(usize, 1), lg.layers[2].len);
     try testing.expectEqual(@as(usize, 3), lg.nodeCount());
-    // No virtual nodes.
     for (lg.nodes) |n| try testing.expect(n == .real);
     try testing.expectEqual(@as(usize, 0), lg.reversed_edges.len);
 }
@@ -101,13 +100,10 @@ test "cycle removed" {
 
     try testing.expectEqual(@as(usize, 1), lg.reversed_edges.len);
     try testing.expectEqual(@as(usize, 2), lg.layerCount());
-    // No virtual nodes (only 1-layer spans).
     for (lg.nodes) |n| try testing.expect(n == .real);
 }
 
 test "long edge inserts virtuals" {
-    // A→B, A→C, C→D, A→D. A is layer 0, B&C at layer 1, D at layer 2.
-    // The A→D edge spans layers 0→2, so 1 virtual node is added.
     const nodes = [_]sg.Node{
         mkNode(0, "A"), mkNode(1, "B"), mkNode(2, "C"), mkNode(3, "D"),
     };
@@ -135,9 +131,7 @@ test "long edge inserts virtuals" {
         .real => {},
     };
     try testing.expectEqual(@as(usize, 1), virtuals);
-    // Total node count = 4 real + 1 virtual.
     try testing.expectEqual(@as(usize, 5), lg.nodeCount());
-    // Every LayerEdge spans exactly one layer.
     for (lg.edges) |e| {
         var lf: usize = std.math.maxInt(usize);
         var lt: usize = std.math.maxInt(usize);
@@ -154,7 +148,6 @@ test "long edge inserts virtuals" {
 }
 
 test "long edge inserts two virtuals" {
-    // A→B, B→C, C→D, A→D. A=0, B=1, C=2, D=3. A→D spans 3 layers → 2 virtuals.
     const nodes = [_]sg.Node{
         mkNode(0, "A"), mkNode(1, "B"), mkNode(2, "C"), mkNode(3, "D"),
     };
@@ -185,11 +178,10 @@ test "long edge inserts two virtuals" {
 }
 
 test "self-loop excluded from LayeredGraph but still drawn by routing.zig from graph.edges" {
-    // A has both a self-loop and a normal outgoing edge to B.
     const nodes = [_]sg.Node{ mkNode(0, "A"), mkNode(1, "B") };
     const edges = [_]sg.Edge{
-        mkEdge(0, 0, 0), // self-loop on A
-        mkEdge(1, 0, 1), // A -> B
+        mkEdge(0, 0, 0),
+        mkEdge(1, 0, 1),
     };
     const g = sg.SemGraph{
         .direction = .TD,
@@ -202,23 +194,16 @@ test "self-loop excluded from LayeredGraph but still drawn by routing.zig from g
     var lg = try assignLayers(testing.allocator, g);
     defer lg.deinit(testing.allocator);
 
-    // The layered graph carries only the A->B edge; the self-loop
-    // contributes no LayerEdge and layering proceeds as if it weren't
-    // there (A=layer0, B=layer1 — not corrupted into a single layer).
     try testing.expectEqual(@as(usize, 1), lg.edges.len);
     try testing.expectEqual(@as(sg.EdgeId, 1), lg.edges[0].edge);
     try testing.expectEqual(@as(usize, 2), lg.layerCount());
 
-    // graph.edges (read independently by routing.zig) still has it.
     var still_has_self_loop = false;
     for (g.edges) |e| {
         if (e.from == e.to) still_has_self_loop = true;
     }
     try testing.expect(still_has_self_loop);
 
-    // routing.zig draws it anyway: it iterates `graph.edges` directly
-    // (not the self-loop-free LayeredGraph) and synthesizes a dedicated
-    // lollipop detour for any from==to edge.
     var arena = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
     const aa = arena.allocator();
@@ -245,9 +230,6 @@ test "self-loop excluded from LayeredGraph but still drawn by routing.zig from g
 }
 
 test "iterative cycle-removal DFS handles a very deep chain without stack overflow" {
-    // A chain of thousands of nodes would overflow a naive recursive DFS
-    // (one stack frame per node); the iterative explicit-stack
-    // implementation must complete and assign strictly increasing layers.
     const n: usize = 20_000;
     const nodes = try testing.allocator.alloc(sg.Node, n);
     defer testing.allocator.free(nodes);

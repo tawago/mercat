@@ -79,7 +79,7 @@ pub fn longestHorizontalInterior(polyline: []const sketch.Point) u32 {
 
 /// Try the inline-horizontal on-run candidate for a routed edge. Returns
 /// true iff the label was written.
-/// guarded-by: labels_onrun_h_test.zig "happy path: the label sits inline in its own horizontal run, flanked both sides"
+/// @guarded-by: labels_onrun_h_test.zig "happy path: the label sits inline in its own horizontal run, flanked both sides"
 pub fn tryOnRunEdgeH(
     lat: *lattice.Lattice,
     s: sketch.Sketch,
@@ -94,9 +94,6 @@ pub fn tryOnRunEdgeH(
     var tried = [_]bool{false} ** MAX_SEGS;
     const nsegs = @min(ep.polyline.len - 1, MAX_SEGS);
 
-    // Longest strict interior first, ties by polyline order: the widest
-    // stretch is the one most likely to hold label + both flanks with the
-    // isolation margin intact.
     var k: usize = 0;
     while (k < nsegs) : (k += 1) {
         var pick: ?usize = null;
@@ -140,7 +137,7 @@ fn tryRunH(
     const cc: i32 = @intCast(cell_count);
     // Feasibility without any layout stretching: label + one flank cell on
     // each side must already fit in the segment's strict interior.
-    // guarded-by: labels_onrun_h_test.zig "a too-short horizontal run falls through to the ordinary ladder"
+    // @guarded-by: labels_onrun_h_test.zig "a too-short horizontal run falls through to the ordinary ladder"
     if (x_hi - x_lo + 1 < cc + 2) return false;
     const start_lo: i32 = x_lo + 1;
     const start_hi: i32 = x_hi - cc;
@@ -175,9 +172,9 @@ fn tryAtH(
 
     // OWN-INK RULE, structural half: EVERY interrupted cell is this edge's own
     // private horizontal run ink — never a rail/crossbar/tap cell, never a
-    // corner. // guarded-by: labels_onrun_h_test.zig "OWN-INK RULE: a shared crossbar cell inside the stretch refuses the inline label"
+    // corner. // @guarded-by: labels_onrun_h_test.zig "OWN-INK RULE: a shared crossbar cell inside the stretch refuses the inline label"
     // OWN-INK RULE, geometric half: no other edge's Sketch geometry rides here.
-    // guarded-by: labels_onrun_h_test.zig "OWN-INK RULE: a foreign-crossed stretch is refused by the geometry sweep"
+    // @guarded-by: labels_onrun_h_test.zig "OWN-INK RULE: a foreign-crossed stretch is refused by the geometry sweep"
     var i: i32 = 0;
     while (i < cc) : (i += 1) {
         const cx = start_x + i;
@@ -187,7 +184,7 @@ fn tryAtH(
 
     // FLANKED-RESUMPTION RULE: a full-stroke run cell of this edge immediately left AND
     // right, on the same row. An arrowhead or a corner never qualifies.
-    // guarded-by: labels_onrun_h_test.zig "FLANKED-RESUMPTION RULE: a corner or an arrowhead in the flank cell refuses the candidate"
+    // @guarded-by: labels_onrun_h_test.zig "FLANKED-RESUMPTION RULE: a corner or an arrowhead in the flank cell refuses the candidate"
     if (!runFlankCellH(lat, edge_id, start_x - 1, row)) return false;
     if (!runFlankCellH(lat, edge_id, start_x + cc, row)) return false;
     if (onrun.coveredByOther(s, edge_id, start_x - 1, row)) return false;
@@ -199,18 +196,15 @@ fn tryAtH(
     // names an unidentifiable member of it (the fan-in rail assembled from
     // several abutting per-edge polylines is exactly this shape — no crossbar
     // role, no covering polyline, and still ambiguous).
-    // guarded-by: labels_onrun_h_test.zig "OWN-INK RULE: a private prefix of a collinear shared run is refused"
+    // @guarded-by: labels_onrun_h_test.zig "OWN-INK RULE: a private prefix of a collinear shared run is refused"
     if (!visualRunIsPrivate(lat, s, edge_id, start_x, row, cc)) return false;
 
     // ISOLATION LAW: foreign-ink margin above/below and at the diagonal
     // ends, plus the 2-blank same-row label separation. The own-run seams
     // are exempt — they classify as own ink.
-    // guarded-by: labels_onrun_h_test.zig "foreign ink above the inline span refuses the candidate"
+    // @guarded-by: labels_onrun_h_test.zig "foreign ink above the inline span refuses the candidate"
     if (!ink.spanIsolated(lat, owner, start_x, row, cell_count, false)) return false;
 
-    // Writer-contract check (labels_write.zig): the inline writer may
-    // legally overwrite exactly the own-edge private run cells verified
-    // above, and nothing else.
     var j: i32 = 0;
     while (j < cc) : (j += 1) std.debug.assert(privateRunCellH(lat, edge_id, start_x + j, row));
 
@@ -271,7 +265,6 @@ fn visualRunIsPrivate(
             const owner: u32 = switch (cell.occupant) {
                 .edge_segment => |seg| seg.edge,
                 .arrowhead => |ah| ah.edge,
-                // Anything else ends the visual run: the line stops here.
                 else => break,
             };
             if (owner != edge_id) return false;

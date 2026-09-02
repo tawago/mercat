@@ -1,4 +1,4 @@
-//! Check 4: `guarded-by: <file> "<test>"` pointer resolution — the anchor
+//! Check 4: `@guarded-by: <file> "<test>"` pointer resolution — the anchor
 //! for the comment-promotion convention (a why-claim in a comment must name
 //! the test that guards it, and a renamed or deleted test must break the
 //! build rather than silently orphan the claim).
@@ -11,10 +11,10 @@ const std = @import("std");
 /// A `test "..."` declaration, keyed by the file basename it lives in.
 pub const TestDecl = struct { file: []const u8, name: []const u8 };
 
-/// A `guarded-by: <file> "<name>"` pointer plus the file it was found in.
+/// A `@guarded-by: <file> "<name>"` pointer plus the file it was found in.
 pub const GbRef = struct { src: []const u8, file: []const u8, name: []const u8 };
 
-/// guarded-by targets that live outside the scanned tree (their existence is
+/// @guarded-by targets that live outside the scanned tree (their existence is
 /// checked elsewhere): a pointer at a lint rule itself, not at a test.
 const gb_external = [_][]const u8{"lint_imports.zig"};
 
@@ -29,19 +29,17 @@ pub fn collectTests(
     var i: usize = 0;
     while (std.mem.indexOfPos(u8, contents, i, needle)) |start| {
         i = start + needle.len;
-        // Require `test "` to be the first token on its line (indent allowed),
-        // so `// test "x"` in a comment or `foo test "` in prose is not counted.
         var p = start;
         while (p > 0 and (contents[p - 1] == ' ' or contents[p - 1] == '\t')) p -= 1;
         if (p != 0 and contents[p - 1] != '\n') continue;
-        const name_start = start + needle.len; // just past the opening quote
+        const name_start = start + needle.len;
         const q_close = std.mem.indexOfScalarPos(u8, contents, name_start, '"') orelse break;
         try list.append(a, .{ .file = file_base, .name = contents[name_start..q_close] });
         i = q_close + 1;
     }
 }
 
-/// Record every `guarded-by: <file> "<name>"` pointer in `contents`. The file
+/// Record every `@guarded-by: <file> "<name>"` pointer in `contents`. The file
 /// is reduced to its basename, so a ref may spell a zone-relative path.
 pub fn collectGuardedBy(
     a: std.mem.Allocator,
@@ -49,7 +47,7 @@ pub fn collectGuardedBy(
     src: []const u8,
     contents: []const u8,
 ) !void {
-    const needle = "guarded-by: ";
+    const needle = "@guarded-by: ";
     var i: usize = 0;
     while (std.mem.indexOfPos(u8, contents, i, needle)) |start| {
         const after = start + needle.len;
@@ -65,7 +63,7 @@ pub fn collectGuardedBy(
     }
 }
 
-/// Flag guarded-by pointers whose target file or test name cannot be found.
+/// Flag @guarded-by pointers whose target file or test name cannot be found.
 /// Test matching is by basename, so the two `clusters_test.zig` siblings both
 /// satisfy a ref that names either — good enough to catch renames/deletions.
 pub fn verifyGuardedBy(
@@ -88,7 +86,7 @@ pub fn verifyGuardedBy(
         if (!file_seen) {
             try violations.append(a, try std.fmt.allocPrint(
                 a,
-                "{s}: guarded-by target file \"{s}\" not found",
+                "{s}: @guarded-by target file \"{s}\" not found",
                 .{ ref.src, ref.file },
             ));
             continue;
@@ -104,14 +102,14 @@ pub fn verifyGuardedBy(
         if (!test_found) {
             try violations.append(a, try std.fmt.allocPrint(
                 a,
-                "{s}: guarded-by test \"{s}\" not found in {s}",
+                "{s}: @guarded-by test \"{s}\" not found in {s}",
                 .{ ref.src, ref.name, ref.file },
             ));
         }
     }
 }
 
-test "guarded-by: a pointer at a missing test is reported" {
+test "a @guarded-by pointer at a missing test is reported" {
     const a = std.testing.allocator;
     var violations: std.ArrayList([]const u8) = .empty;
     defer {
@@ -122,17 +120,14 @@ test "guarded-by: a pointer at a missing test is reported" {
     const seen = [_][]const u8{"widget_test.zig"};
     const tests = [_]TestDecl{.{ .file = "widget_test.zig", .name = "widget holds its shape" }};
     const refs = [_]GbRef{
-        // Resolves: same file, same name.
         .{ .src = "widget.zig", .file = "widget_test.zig", .name = "widget holds its shape" },
-        // Target file exists, test name does not (the rename case).
         .{ .src = "widget.zig", .file = "widget_test.zig", .name = "widget holds its old shape" },
-        // Target file does not exist at all (the deletion case).
         .{ .src = "widget.zig", .file = "gone_test.zig", .name = "widget holds its shape" },
     };
 
     try verifyGuardedBy(a, &violations, &seen, &tests, &refs);
 
     try std.testing.expectEqual(@as(usize, 2), violations.items.len);
-    try std.testing.expect(std.mem.indexOf(u8, violations.items[0], "guarded-by test \"widget holds its old shape\" not found in widget_test.zig") != null);
-    try std.testing.expect(std.mem.indexOf(u8, violations.items[1], "guarded-by target file \"gone_test.zig\" not found") != null);
+    try std.testing.expect(std.mem.indexOf(u8, violations.items[0], "@guarded-by test \"widget holds its old shape\" not found in widget_test.zig") != null);
+    try std.testing.expect(std.mem.indexOf(u8, violations.items[1], "@guarded-by target file \"gone_test.zig\" not found") != null);
 }

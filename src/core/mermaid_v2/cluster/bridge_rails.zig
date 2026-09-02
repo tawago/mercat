@@ -77,7 +77,6 @@ fn licensedOut(
             .edge = if (c.origin == sg.SENTINEL) c.id else c.origin,
             .endpoints = .{ c.from, c.to },
             .arrows = .{ c.arrow_from, c.arrow_to },
-            // A crossing is its own ink, never a proxy: stated, not defaulted.
             .stands_for = .arrow_free,
             .kind = c.kind,
             .pivot_end = .source,
@@ -150,9 +149,6 @@ fn chooseJog(
     }
     const aug = tracks.Obstacles{ .heads = heads.items, .runs = runs.items };
 
-    // A group already conflict-free keeps its coordinate; otherwise the
-    // NEAREST strictly-better coordinate wins (the dodge's own search
-    // shape), and the whole-scene gate still arbitrates the ship.
     const cur = groupScore(pends, members, jc, vertical, placements, clusters, aug);
     if (cur == 0) return null;
     var best: ?i32 = null;
@@ -295,13 +291,10 @@ test "realizedRail accepts a shared stem with disjoint tails and refuses re-cont
     var pb = path(&stem_east);
     try std.testing.expect(try realizedRail(a, &.{ pa, pb }));
 
-    // Split starts: not one rail.
     const other = [_]Pt{ .{ .x = 11, .y = 0 }, .{ .x = 11, .y = 9 } };
     pb = path(&other);
     try std.testing.expect(!try realizedRail(a, &.{ pa, pb }));
 
-    // Re-contact past the split: the tail of one member crosses back onto
-    // the other's tail cell — refused.
     const recross = [_]Pt{ .{ .x = 10, .y = 0 }, .{ .x = 10, .y = 4 }, .{ .x = 16, .y = 4 }, .{ .x = 16, .y = 6 }, .{ .x = 2, .y = 6 }, .{ .x = 2, .y = 8 } };
     pa = path(&stem_west);
     pb = path(&recross);

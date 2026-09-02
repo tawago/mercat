@@ -18,8 +18,6 @@ const labels_onrun = @import("labels_onrun.zig");
 const lw = @import("labels_write.zig");
 const aux = @import("aux.zig");
 
-// Scoped logger — see module docstring. .debug keeps placement diagnostics
-// out of release-build stderr while staying available to developers.
 const log = std.log.scoped(.@"mermaid_v2.raster.labels");
 
 pub const RasterError = error{OutOfMemory};
@@ -95,7 +93,7 @@ pub fn rasterizeLabels(
         attempted += 1;
         // Top-priority on-run candidate: the label sits OVER its own private
         // fan dropper (labels_onrun.zig). Any refusal falls through to the
-        // ordinary ladder below. guarded-by: labels_onrun_test.zig "happy path: the label interrupts its own dropper for one row, sandwiched by run flanks"
+        // ordinary ladder below. @guarded-by: labels_onrun_test.zig "happy path: the label interrupts its own dropper for one row, sandwiched by run flanks"
         if (s.label_policy == .on_run and labels_onrun.tryOnRunEdge(lat, s, ep, lbl, sink)) {
             placed += 1;
             on_run += 1;
@@ -111,8 +109,6 @@ pub fn rasterizeLabels(
         }
     }
 
-    // Anchored on `Rail.tapLabelSeg`, the same segment layout/clusters.zig
-    // reserved bbox space for, so reservation and paint agree.
     for (s.rails) |rail| {
         for (rail.taps) |tap| {
             const lbl = tap.label orelse continue;
@@ -184,7 +180,7 @@ pub fn nextCodepoint(text: []const u8, index: usize) Codepoint {
 /// arithmetic for every ASCII codepoint, which is what makes an
 /// all-ASCII lattice bit-identical to the pre-continuation pipeline.
 /// The tab column/cell skew is documented, not fixed.
-/// guarded-by: labels_eaw_test.zig "cellSpan is 1 for every ASCII codepoint including tab"
+/// @guarded-by: labels_eaw_test.zig "cellSpan is 1 for every ASCII codepoint including tab"
 pub fn cellSpan(cp: u21) u32 {
     return if (prim.codepointWidth(cp) == 2) 2 else 1;
 }
@@ -192,7 +188,7 @@ pub fn cellSpan(cp: u21) u32 {
 /// Lattice cells `text` occupies: the sum of its codepoints' spans. The
 /// one number every writer and every free-space probe reserves by, so
 /// cells reserved and cells written can never disagree.
-/// guarded-by: labels_eaw_test.zig "cellSpanOf equals prim.displayWidth for tab- and control-free text"
+/// @guarded-by: labels_eaw_test.zig "cellSpanOf equals prim.displayWidth for tab- and control-free text"
 pub fn cellSpanOf(text: []const u8) u32 {
     var total: u32 = 0;
     var bi: usize = 0;
@@ -208,7 +204,7 @@ pub fn cellSpanOf(text: []const u8) u32 {
 /// of its footprint. All-or-nothing: every cell must be `np`'s interior,
 /// so a wide glyph is never split across foreign ink and never leaves a
 /// widowed continuation. Returns true if written.
-/// guarded-by: labels_eaw_test.zig "a wide node glyph whose second cell is not this node's interior is refused whole"
+/// @guarded-by: labels_eaw_test.zig "a wide node glyph whose second cell is not this node's interior is refused whole"
 fn writeNodeSpan(
     lat: *lattice.Lattice,
     np: sketch.NodePlacement,
@@ -253,7 +249,7 @@ fn placeNodeLabel(
     if (np.rect.w < 3 or np.rect.h < 3) return false;
 
     const inner_w: u32 = np.rect.w - 2;
-    // Line k paints interior row rect.y+1+k. // guarded-by: raster/labels_test.zig "node label fits centered"
+    // Line k paints interior row rect.y+1+k. // @guarded-by: raster/labels_test.zig "node label fits centered"
     var wrote: u32 = 0;
     var any_truncated = false;
     var max_orig: u32 = 0;
@@ -284,9 +280,6 @@ fn placeNodeLabel(
         while (bi < text.len) {
             const dc = nextCodepoint(text, bi);
             bi += dc.byte_len;
-            // Advance by the glyph's CELL footprint, matching the display
-            // columns layout sized the box in. A refused glyph still
-            // advances so the rest of the line keeps its column.
             const span = cellSpan(dc.cp);
             if (x + span > lat.width) break;
             if (writeNodeSpan(lat, np, x, row, dc.cp, span, sink)) wrote += 1;
@@ -309,9 +302,6 @@ fn placeNodeLabel(
     return wrote > 0;
 }
 
-// Edge and rail tap label placement lives in labels_edge.zig: anchored
-// at the mid-segment with a bounded deterministic fallback ladder.
-
 /// Stamp one cluster-title cell as a `label_char` — EVERY cell, spaces
 /// included. Owner ruling (D2 REJECTED, tawago 2026-07-19): the edge bridges
 /// over the WHOLE title band (spaces and all); the band looks exactly like the
@@ -328,14 +318,6 @@ fn placeClusterLabel(
     cf: sketch.ClusterFrame,
     sink: aux.Sink,
 ) RasterError!bool {
-    // Layout in the top border row:
-    //   ┌─ <label> ───┐
-    //   ^ ^ ^         ^
-    //   0 1 2         w-1
-    //
-    // We write a leading space at col x+2, the label starting at x+3,
-    // and a trailing space immediately after. Need at least width=6
-    // (corners + `─` + space + 1 label col + space).
     if (cf.rect.w < 6 or cf.rect.h < 2) return false;
 
     const inner_w: u32 = cf.rect.w - 5;
@@ -360,7 +342,6 @@ fn placeClusterLabel(
 
     var wrote: u32 = 0;
 
-    // Leading space.
     if (lead < lat.width) {
         stampTitleCell(lat, lead, row, @as(u21, ' '), cf, sink);
         wrote += 1;
@@ -375,10 +356,9 @@ fn placeClusterLabel(
         const cp = sentinelToSpace(dc.cp);
         // The band claims the glyph's whole footprint, so the trailing
         // space that closes it lands past the last painted column.
-        // guarded-by: labels_eaw_test.zig "wide cluster title advances by span and still closes the band"
+        // @guarded-by: labels_eaw_test.zig "wide cluster title advances by span and still closes the band"
         const span = cellSpan(cp);
         if (x + span > lat.width) break;
-        // Overwrite cluster_border edge_n cells (and tolerate empty too).
         stampTitleCell(lat, x, row, cp, cf, sink);
         var i: u32 = 1;
         while (i < span) : (i += 1) lw.writeCont(lat, x + i, row);
@@ -391,7 +371,6 @@ fn placeClusterLabel(
         x += cellSpan(ELLIPSIS);
     }
 
-    // Trailing space (immediately after the last written label cell).
     if (x < lat.width) {
         stampTitleCell(lat, x, row, @as(u21, ' '), cf, sink);
         wrote += 1;
@@ -408,7 +387,6 @@ fn placeClusterLabel(
 
     return wrote > 0;
 }
-
 
 test {
     _ = @import("labels_test.zig");

@@ -22,10 +22,10 @@ const ew = @import("edges_write.zig");
 /// legitimately point at. Only `.empty` is treated as "no connection".
 /// `.cluster_border` counts as real WITHOUT requiring reciprocity, so a
 /// frame-bridge approach arm survives reconciliation (frame-solid
-/// convention). // guarded-by: reconcile_test.zig "reconcileNeighbours: frame-bridge approach arm facing a non-reciprocating cluster_border is kept"
+/// convention). // @guarded-by: reconcile_test.zig "reconcileNeighbours: frame-bridge approach arm facing a non-reciprocating cluster_border is kept"
 /// `pub` for its mirror only: the report-only tiling audit duplicates this
 /// predicate (its lint zone denies `raster/`) and the drift pin needs the
-/// original. // guarded-by: tiling_crosscheck_test.zig "cell.isReal mirrors reconcile.isRealConnection over every occupant"
+/// original. // @guarded-by: tiling_crosscheck_test.zig "cell.isReal mirrors reconcile.isRealConnection over every occupant"
 pub fn isRealConnection(occ: lattice.Occupant) bool {
     return switch (occ) {
         .empty => false,
@@ -64,7 +64,7 @@ fn bitSet(nb: lattice.Neighbours, d: lattice.Dir4) bool {
 /// that merely happens to sit collinear (an incidental perpendicular border
 /// running alongside the rail) does NOT reciprocate, so its reprieve is
 /// denied and the phantom arm is cleared.
-/// // guarded-by: reconcile_test.zig "reconcileNeighbours: 1-cell port gap before a reciprocating node border keeps the bit (duplicate-point reprieve)"
+/// // @guarded-by: reconcile_test.zig "reconcileNeighbours: 1-cell port gap before a reciprocating node border keeps the bit (duplicate-point reprieve)"
 fn reprieveReciprocates(cell: *const lattice.Cell, d: lattice.Dir4) bool {
     return switch (cell.occupant) {
         .empty => false,
@@ -77,13 +77,11 @@ fn reprieveReciprocates(cell: *const lattice.Cell, d: lattice.Dir4) bool {
 /// arm — i.e. no stroke actually continues there. Grants a 1-cell
 /// port-padding reprieve when the adjacent cell is empty but the cell
 /// beyond it (same axis) genuinely continues the run (reciprocates or is a
-/// terminal arrowhead). // guarded-by: reconcile_test.zig "reconcileNeighbours: 1-cell port gap before a reciprocating node border keeps the bit (duplicate-point reprieve)"
+/// terminal arrowhead). // @guarded-by: reconcile_test.zig "reconcileNeighbours: 1-cell port gap before a reciprocating node border keeps the bit (duplicate-point reprieve)"
 /// `pub` for its mirror only: the tiling audit's `gapReprieve` reproduces
 /// the empty-adjacent branch of this walk and the drift pin needs the
-/// original. // guarded-by: tiling_crosscheck_test.zig "cell.gapReprieve mirrors reconcile.bitIsPhantom over a mask x occupant matrix"
+/// original. // @guarded-by: tiling_crosscheck_test.zig "cell.gapReprieve mirrors reconcile.bitIsPhantom over a mask x occupant matrix"
 pub fn bitIsPhantom(lat: *const lattice.Lattice, x: u32, y: u32, d: lattice.Dir4) bool {
-    // Adjacent cell coordinates (ax,ay) and the cell one step beyond
-    // (bx,by) along the same axis. `null` means out of bounds.
     const Pair = struct { ax: ?u32, ay: ?u32, bx: ?u32, by: ?u32 };
     const p: Pair = switch (d) {
         .north => .{
@@ -117,9 +115,6 @@ pub fn bitIsPhantom(lat: *const lattice.Lattice, x: u32, y: u32, d: lattice.Dir4
 
     if (isRealConnection(lat.atConst(ax, ay).occupant)) return false;
 
-    // Adjacent cell is empty. Reprieve only if this is a 1-cell port
-    // gap: the cell one step beyond (collinear) genuinely continues the
-    // run — it reciprocates the arm (or is a terminal arrowhead).
     const bx = p.bx orelse return true;
     const by = p.by orelse return true;
     if (reprieveReciprocates(lat.atConst(bx, by), d)) return false;
@@ -175,8 +170,6 @@ fn edgeCell(nb: lattice.Neighbours) lattice.Cell {
 }
 
 test "┼ with an empty east neighbour reconciles to ┤" {
-    // 3x3 grid. Center (1,1) is a 4-way edge junction. Its N, S, W
-    // neighbours are real strokes; its E neighbour is empty background.
     var buf: [9]lattice.Cell = undefined;
     for (&buf) |*c| c.* = lattice.Cell.empty;
     var lat = lattice.Lattice{ .width = 3, .height = 3, .cells = &buf };
@@ -189,7 +182,6 @@ test "┼ with an empty east neighbour reconciles to ┤" {
     _ = reconcileNeighbours(&lat);
 
     const got = lat.atConst(1, 1).neighbours;
-    // Expect N+S+W = ┤ (mask 0b1101).
     try testing.expectEqual(@as(u4, 0b1101), got.toMask());
     try testing.expect(!got.e);
 }
@@ -215,8 +207,6 @@ test "node_border and arrowhead neighbours keep the bit" {
     for (&buf) |*c| c.* = lattice.Cell.empty;
     var lat = lattice.Lattice{ .width = 3, .height = 3, .cells = &buf };
 
-    // Center edge cell with N (node_border), E (arrowhead), S (empty),
-    // W (cluster_border) bits set.
     lat.at(1, 1).* = edgeCell(.{ .n = true, .e = true, .s = true, .w = true });
     lat.at(1, 0).* = .{ .occupant = .{ .node_border = .{ .node = 1, .role = .edge_s } }, .neighbours = .{} };
     lat.at(2, 1).* = .{ .occupant = .{ .arrowhead = .{ .dir = .west, .edge = 0 } }, .neighbours = .{} };
@@ -224,10 +214,10 @@ test "node_border and arrowhead neighbours keep the bit" {
     _ = reconcileNeighbours(&lat);
 
     const got = lat.atConst(1, 1).neighbours;
-    try testing.expect(got.n); // node_border kept
-    try testing.expect(got.e); // arrowhead kept
-    try testing.expect(!got.s); // empty cleared
-    try testing.expect(got.w); // cluster_border kept
+    try testing.expect(got.n);
+    try testing.expect(got.e);
+    try testing.expect(!got.s);
+    try testing.expect(got.w);
 }
 
 test "non-junction occupants are left untouched" {
@@ -246,8 +236,6 @@ test "non-junction occupants are left untouched" {
 }
 
 test "trailing ┬ on a rail past the last child loses into-empty arms" {
-    // Horizontal rail running along row 1; cell (3,1) is the last rail
-    // cell stamped as ┬ (E+S+W) but nothing lies east or south of it.
     var buf: [12]lattice.Cell = undefined;
     for (&buf) |*c| c.* = lattice.Cell.empty;
     var lat = lattice.Lattice{ .width = 4, .height = 3, .cells = &buf };
@@ -258,22 +246,10 @@ test "trailing ┬ on a rail past the last child loses into-empty arms" {
     _ = reconcileNeighbours(&lat);
 
     const got = lat.atConst(3, 1).neighbours;
-    // Only W survives -> ╴ stub (mask 0b1000).
     try testing.expectEqual(@as(u4, 0b1000), got.toMask());
 }
 
 test "reconcile is NOT order-independent w.r.t. labels: swapping the pipeline position changes the result" {
-    // The module doc's "order-independent" claim only means this pass
-    // never MUTATES an occupant, just reads it — but its *decision*
-    // (phantom or not) depends on what already exists at the neighbour
-    // cell, so WHEN it runs relative to `rasterizeLabels` (which can turn
-    // a previously-`.empty` cell into a `.label_char` cell, e.g. an edge
-    // label's fallback landing beside the line) changes the outcome.
-    // This pins the required order: reconcile before labels.
-
-    // Real pipeline order: reconcile runs first, while (1,2) is still
-    // empty, so the south bit is judged a phantom arm and cleared; the
-    // label write that follows doesn't get consulted retroactively.
     var buf_before: [9]lattice.Cell = undefined;
     for (&buf_before) |*c| c.* = lattice.Cell.empty;
     var lat_before = lattice.Lattice{ .width = 3, .height = 3, .cells = &buf_before };
@@ -282,9 +258,6 @@ test "reconcile is NOT order-independent w.r.t. labels: swapping the pipeline po
     lat_before.at(1, 2).* = .{ .occupant = .{ .label_char = 'x' }, .neighbours = .{} };
     try testing.expect(!lat_before.atConst(1, 1).neighbours.s);
 
-    // Hypothetical reordering: labels write BEFORE reconcile runs. Now
-    // the same south bit survives, because the neighbour already looks
-    // like a "real connection" (a label_char, not a stroke).
     var buf_after: [9]lattice.Cell = undefined;
     for (&buf_after) |*c| c.* = lattice.Cell.empty;
     var lat_after = lattice.Lattice{ .width = 3, .height = 3, .cells = &buf_after };

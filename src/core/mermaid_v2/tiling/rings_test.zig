@@ -87,20 +87,17 @@ test "stencil: a missing ring cell is a break, and who took it decides the bucke
     g.init();
     nodeRing(&g, 3);
 
-    // Blank it out: the outline is genuinely broken from both sides.
     g.set(1, 0, lattice.Cell.empty);
     var lat = g.lat();
     var c = scanAll(&lat, false);
     try testing.expectEqual(@as(u32, 2), c.d_ring_node_break);
 
-    // A cluster frame got there first: the border write legally skipped it.
     g.set(1, 0, frame(0, .edge_n, .{ .e = true, .w = true }));
     lat = g.lat();
     c = scanAll(&lat, false);
     try testing.expectEqual(@as(u32, 0), c.d_ring_node_break);
     try testing.expectEqual(@as(u32, 2), c.c_ring_node_shadowed);
 
-    // A title band overwrote it.
     g.set(1, 0, .{ .occupant = .{ .label_char = 'S' }, .neighbours = .{} });
     lat = g.lat();
     c = scanAll(&lat, false);
@@ -115,15 +112,11 @@ test "stencil: another node's ring cell is shadowing, not a break" {
     g.set(1, 0, border(9, .edge_n, .{ .e = true, .w = true }));
     const lat = g.lat();
     const c = scanAll(&lat, false);
-    // Four sightings: node 3's two corners look at the intruder, and the
-    // intruder looks back at both of them.
     try testing.expectEqual(@as(u32, 4), c.c_ring_node_shadowed);
     try testing.expectEqual(@as(u32, 0), c.defectTotal());
 }
 
 test "stencil: the degenerate-node signature gates the whole stencil" {
-    // A 1xN node collapses its corners to a single arm; without the gate
-    // that missing second axis would read as a break.
     var g: Grid = .{};
     g.init();
     g.set(0, 0, border(3, .corner_nw, .{ .e = true }));
@@ -140,13 +133,10 @@ test "stencil: a frame arm on a title glyph, on edge ink, and on nothing" {
     g.init();
     g.set(1, 1, frame(0, .edge_n, .{ .e = true, .w = true }));
 
-    // Nothing either side: a broken frame, twice.
     var lat = g.lat();
     try testing.expectEqual(@as(u32, 2), one(&lat, 1, 1, false).d_ring_frame_break);
 
-    // The title band stamps every cell of its span, spaces included.
     g.set(0, 1, .{ .occupant = .{ .label_char = ' ' }, .neighbours = .{} });
-    // A terminal arrival replaced the cell on the other side.
     g.set(2, 1, edgeCell(4, .{ .e = true, .w = true }));
     lat = g.lat();
     const c = one(&lat, 1, 1, false);
@@ -168,9 +158,6 @@ test "stencil: an inner frame overwriting an outer one is shadowing" {
 }
 
 test "fusion: a weld-explained east arm is claimed before the axis buckets" {
-    // The arrowhead-base weld ORs an arm into a node border for ANY tip,
-    // east and west included. If the axis buckets ran first this would be
-    // filed as a defect on every horizontal arrival.
     var g: Grid = .{};
     g.init();
     g.set(1, 1, border(3, .edge_e, .{ .n = true, .s = true, .e = true }));
@@ -182,9 +169,6 @@ test "fusion: a weld-explained east arm is claimed before the axis buckets" {
     try testing.expectEqual(@as(u32, 1), c.c_border_arm_weld);
     try testing.expectEqual(@as(u32, 0), c.d_border_arm_unrecorded);
 
-    // The same arm with an arrowhead pointing the other way is NOT a weld
-    // (its base lies elsewhere), so it falls through to the record bucket
-    // — and with no `.port` record, it is unexplained.
     g.set(2, 1, .{ .occupant = .{ .arrowhead = .{ .dir = .west, .edge = 5 } }, .neighbours = .{ .e = true, .w = true } });
     lat = g.lat();
     c = one(&lat, 1, 1, false);
@@ -193,11 +177,6 @@ test "fusion: a weld-explained east arm is claimed before the axis buckets" {
 }
 
 test "fusion: an off-axis arm into the same node's own border is wall structure" {
-    // The subroutine double wall: a top-border cell carries a south arm
-    // down into the node's own inner-wall border cell. No record, no weld
-    // — but the arm lands on the same node's ring, so it is synthesized
-    // structure, not an unexplained attachment. A DIFFERENT node's ring
-    // does not qualify.
     var g: Grid = .{};
     g.init();
     g.set(1, 1, border(3, .edge_n, .{ .e = true, .w = true, .s = true }));
@@ -209,8 +188,6 @@ test "fusion: an off-axis arm into the same node's own border is wall structure"
     try testing.expectEqual(@as(u32, 1), c.c_border_arm_wall);
     try testing.expectEqual(@as(u32, 0), c.defectTotal());
 
-    // Same geometry, foreign node below: falls through to the record
-    // ladder and, unrecorded, is a defect.
     g.set(1, 2, border(4, .edge_w, .{ .n = true, .s = true }));
     lat = g.lat();
     c = one(&lat, 1, 1, false);
@@ -221,8 +198,6 @@ test "fusion: an off-axis arm into the same node's own border is wall structure"
 test "fusion: a port-recorded arm is the convention on every face; unrecorded is a defect" {
     var g: Grid = .{};
     g.init();
-    // A south edge cell with an extra south arm and its `.port` record: a
-    // recorded vertical departure.
     g.set(1, 1, border(3, .edge_s, .{ .e = true, .w = true, .s = true }));
     g.set(0, 1, border(3, .corner_sw, .{ .e = true, .n = true }));
     g.set(2, 1, border(3, .corner_se, .{ .w = true, .n = true }));
@@ -234,8 +209,6 @@ test "fusion: a port-recorded arm is the convention on every face; unrecorded is
     try testing.expectEqual(@as(u32, 1), c.c_border_arm_port);
     try testing.expectEqual(@as(u32, 0), c.defectTotal());
 
-    // An EAST arm with its record — uniform port erasure writes E/W arms
-    // too (LR/RL departures and arrivals) — is the same convention.
     g.set(1, 1, border(3, .edge_w, .{ .n = true, .s = true, .e = true }));
     g.set(1, 0, border(3, .corner_nw, .{ .e = true, .s = true }));
     g.set(1, 2, border(3, .corner_sw, .{ .e = true, .n = true }));
@@ -247,7 +220,6 @@ test "fusion: a port-recorded arm is the convention on every face; unrecorded is
     try testing.expectEqual(@as(u32, 1), c.c_border_arm_port);
     try testing.expectEqual(@as(u32, 0), c.defectTotal());
 
-    // The same arm with the side table empty: no writer on record.
     lat = g.lat();
     c = one(&lat, 1, 1, false);
     try testing.expectEqual(@as(u32, 0), c.c_border_arm_port);
@@ -255,10 +227,6 @@ test "fusion: a port-recorded arm is the convention on every face; unrecorded is
 }
 
 test "fusion: a port record excuses only the arm it merged" {
-    // A south-border cell with an extra SOUTH arm, but the cell's only
-    // `.port` record names an EAST stroke: the record is evidence for a
-    // different arm, so the south arm stays an unexplained defect. A
-    // direction-blind check would have laundered it.
     var g: Grid = .{};
     g.init();
     g.set(1, 1, border(3, .edge_s, .{ .e = true, .w = true, .s = true }));

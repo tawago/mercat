@@ -13,8 +13,6 @@ const sg = @import("../sem_graph.zig");
 const sketch = @import("../sketch.zig");
 const fan_mod = @import("fan.zig");
 const fan_polyline = @import("fan_polyline.zig");
-// Mutual import with routing.zig (legal within the layout zone): routing
-// drives this module; we reuse its edge/placement/arrow lookup helpers.
 const routing = @import("routing.zig");
 const pb = @import("../base/ledger.zig");
 const port_plan = @import("port_plan.zig");
@@ -67,10 +65,10 @@ pub fn resolve(
     // A rail is ONE crossbar on ONE row, so it can only speak for a fan
     // whose members all belong on that row. When a lane pass has lifted a
     // member off the shared row — the incomplete-bipartite separation, or the
-    // clustered closure law's refusal, which has no plan to express itself
+    // clustered closure licence's refusal, which has no plan to express itself
     // through — rebuilding them as a single rail would put back the very run
     // the lift took apart. The per-peer polyline path honours `peer.lane`.
-    // guarded-by: fan_rail_test.zig "a fan whose peers were lifted onto separate lanes builds no rail"
+    // @guarded-by: fan_rail_test.zig "a fan whose peers were lifted onto separate lanes builds no rail"
     for (fan.peers) |p| {
         if (p.lane != fan.peers[0].lane) return null;
     }
@@ -101,9 +99,6 @@ pub fn resolve(
         if (pivot_arrow) |expected| {
             if (arrow != expected) return null;
         } else pivot_arrow = arrow;
-        // Fan peer/pivot indices index the LAYERED graph, which routing
-        // does not see; resolve endpoints from the peer edges instead
-        // (fan-OUT: every member edge runs pivot → peer).
         out.* = .{
             .edge = e,
             .placement = routing.findPlacement(placements, if (fan.direction == .out) e.to else e.from),
@@ -137,8 +132,6 @@ pub fn build(
     const fan_in = resolved.direction == .in;
     const s_peri: i32 = if (fan_in) pivot_p.rect.y else pivot_p.rect.bottom() - 1;
 
-    // All peers share a layer top (assignY top-aligns a layer); take the
-    // min defensively so a shorter rail never cuts into a taller peer.
     var peer_line: i32 = if (fan_in) std.math.minInt(i32) else std.math.maxInt(i32);
     for (resolved.peers) |p| {
         const line = if (fan_in) p.placement.rect.bottom() - 1 else p.placement.rect.y;
@@ -154,7 +147,7 @@ pub fn build(
     // the rail on the pivot/source border — there we keep off=2 (today's
     // geometry) and blocked() still guards. `delta` stays in the guard so each
     // lane/lift keeps its own row.
-    // guarded-by: fan_rail_test.zig "formal base approach: rail lifts one row when the gap admits it, holds at a gap of 2"
+    // @guarded-by: fan_rail_test.zig "formal base approach: rail lifts one row when the gap admits it, holds at a gap of 2"
     const anchor: i32 = if (fan_in) pivot_p.rect.y else peer_line;
     const obstacle: i32 = if (fan_in) peer_line else pivot_p.rect.bottom() - 1;
     // Labeled fan-OUT rail: lift the crossbar two MORE rows (off=5, on top of
@@ -164,7 +157,7 @@ pub fn build(
     // fan.extraRowsPerGap reserved for labeled fans; when a tighter rung
     // shrank the gap below what the lift needs, fall back down the existing
     // ladder of offsets (the label then takes the ordinary side ladder).
-    // guarded-by: fan_rail_test.zig "labeled fan-OUT rail lifts the crossbar for a 4-cell dropper when the gap admits it"
+    // @guarded-by: fan_rail_test.zig "labeled fan-OUT rail lifts the crossbar for a 4-cell dropper when the gap admits it"
     var labeled = false;
     for (resolved.peers) |p| {
         if (p.edge.label) |lbl| {
@@ -204,7 +197,6 @@ pub fn build(
             .stem = stem,
             .crossbar = .{ .{ .x = min_x, .y = rail_y }, .{ .x = max_x, .y = rail_y } },
             .taps = taps,
-            // resolve() proved every member edge shares one stroke kind.
             .kind = resolved.peers[0].edge.kind,
             .role = if (fan_in) .fan_in_dropper else .fan_out_dropper,
             .pivot_arrow = routing.mapArrow(if (fan_in) resolved.peers[0].edge.arrow_to else resolved.peers[0].edge.arrow_from),
@@ -235,8 +227,6 @@ pub fn blocked(
         const hi = if (fan_in) @max(tap.at.y, tap.landing.y) - 1 else tap.landing.y - 1;
         if (lo <= hi and sketch.columnTouchesAny(tap.at.x, lo, hi, placements, tap.node, pivot_id)) return true;
     }
-    // Crossbar span (peers sit >= 2 rows below it, so only the pivot needs
-    // excluding).
     const crossbar = built.rail.crossbar;
     if (sketch.rowTouchesAny(crossbar[0].y, crossbar[0].x, crossbar[1].x, placements, pivot_id, pivot_id)) return true;
     return false;

@@ -64,17 +64,10 @@ test "own-edge ink beside the anchor does not displace the label" {
 
     var lat = try makeLattice(alloc, 12, 6);
     const poly = [_]sketch.Point{ .{ .x = 1, .y = 3 }, .{ .x = 5, .y = 3 } };
-    // A 2-cell label on a 3-cell strict interior: the INLINE on-run
-    // candidate (labels_onrun_h.zig) needs label + 2 flanks = 4 cells and
-    // refuses without stretching, so the ordinary ladder runs — which is
-    // what this test pins.
     const edges = [_]sketch.EdgePath{makeEdge(42, &poly, "xy")};
     var s = emptySketch(12, 6, .LR);
     s.edges = &edges;
 
-    // Stamp the label's OWN edge's run into the lattice, directly below the
-    // whole anchor row — distance-1 own-ink adjacency, the exemption ISOLATION LAW
-    // grants (the convention anchor sits right beside its own run).
     var x: u32 = 1;
     while (x <= 5) : (x += 1) stampEdgeCell(&lat, x, 3, 42);
 
@@ -83,7 +76,6 @@ test "own-edge ink beside the anchor does not displace the label" {
     try testing.expectEqual(@as(u32, 0), report.displaced);
     try testing.expectEqual(@as(usize, 0), report.diagnostics.len);
 
-    // The label lands at its primary anchor (3,2), abutting its own ink.
     try testing.expectEqual(@as(u21, 'x'), cellChar(lat, 3, 2));
 }
 
@@ -94,15 +86,11 @@ test "isolation rejects a foreign-ink neighbour in every one of the 8 directions
 
     const dirs = [8][2]i32{
         .{ -1, -1 }, .{ 0, -1 }, .{ 1, -1 },
-        .{ -1, 0 },  .{ 1, 0 },
-        .{ -1, 1 },  .{ 0, 1 },  .{ 1, 1 },
+        .{ -1, 0 },  .{ 1, 0 },  .{ -1, 1 },
+        .{ 0, 1 },   .{ 1, 1 },
     };
     for (dirs) |d| {
         var lat = try makeLattice(alloc, 12, 7);
-        // Vertical own segment on column 5; the single-char anchor is two
-        // columns right of the rail at mid-height: (7,3). None of its 8
-        // neighbours lie on the own path, so a foreign stamp in any of them
-        // is unambiguous foreign ink.
         const poly = [_]sketch.Point{ .{ .x = 5, .y = 1 }, .{ .x = 5, .y = 5 } };
         const edges = [_]sketch.EdgePath{makeEdge(42, &poly, "x")};
         var s = emptySketch(12, 7, .TD);
@@ -117,10 +105,6 @@ test "isolation rejects a foreign-ink neighbour in every one of the 8 directions
     }
 }
 
-// RELOCATION LAW, own_adjacent pass: when the primary anchor is nowhere near the label's own
-// edge's ink, the first pass relocates the label to a slot whose nearest
-// ink (Chebyshev <= 2) IS its own edge — even though the ownership-blind
-// ladder would have accepted the anchor.
 test "the own_adjacent pass beats the primary anchor: the label relocates to sit by its own edge's ink" {
     var arena = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
@@ -132,40 +116,28 @@ test "the own_adjacent pass beats the primary anchor: the label relocates to sit
     var s = emptySketch(14, 6, .LR);
     s.edges = &edges;
 
-    // The only rasterized ink of edge 42 is the far end of its run.
     stampEdgeCell(&lat, 9, 3, 42);
 
     const report = try labels.rasterizeLabels(alloc, &lat, s, null);
     try testing.expectEqual(@as(u32, 1), report.placed);
     try testing.expectEqual(@as(u32, 1), report.displaced);
 
-    // Not at the anchor (5,2) — own ink is 4 cells away there...
     try testing.expectEqual(@as(u21, 0), cellChar(lat, 5, 2));
-    // ...but at (7,2), the first walk slot within Chebyshev 2 of (9,3).
     try testing.expectEqual(@as(u21, 'x'), cellChar(lat, 7, 2));
 }
 
-// RELOCATION LAW, own_nearest pass: with every own_adjacent slot blocked by foreign node
-// ink, the second pass still prefers a slot strictly nearer the label's
-// own ink (within Chebyshev 4) over the earlier-in-ladder anchor slot the
-// ownership-blind any pass would take.
 test "the own_nearest pass walks the label toward its own edge's ink when own_adjacent positions are blocked" {
     var arena = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
     const alloc = arena.allocator();
 
-    // Height 4: the row BELOW the segment is out of bounds, so the walk
-    // cannot find an own_adjacent slot under the far end of the run.
     var lat = try makeLattice(alloc, 16, 4);
     const poly = [_]sketch.Point{ .{ .x = 1, .y = 3 }, .{ .x = 13, .y = 3 } };
     const edges = [_]sketch.EdgePath{makeEdge(42, &poly, "x")};
     var s = emptySketch(16, 4, .LR);
     s.edges = &edges;
 
-    // Own ink only at the far end of the run...
     stampEdgeCell(&lat, 13, 3, 42);
-    // ...and foreign node-border ink above it, so every slot within
-    // Chebyshev 2 of the own ink violates the ISOLATION LAW margin (own_adjacent exhausted).
     lat.at(12, 1).* = .{ .occupant = .{ .node_border = .{ .node = 1, .role = .edge_s } }, .neighbours = .{} };
     lat.at(13, 1).* = .{ .occupant = .{ .node_border = .{ .node = 1, .role = .edge_s } }, .neighbours = .{} };
 
@@ -173,16 +145,10 @@ test "the own_nearest pass walks the label toward its own edge's ink when own_ad
     try testing.expectEqual(@as(u32, 1), report.placed);
     try testing.expectEqual(@as(u32, 1), report.displaced);
 
-    // The ownership-blind any pass alone would take the anchor (7,2); own_nearest runs first and lands the
-    // label at (9,2) — own ink at Chebyshev 4, no competing edge ink.
     try testing.expectEqual(@as(u21, 0), cellChar(lat, 7, 2));
     try testing.expectEqual(@as(u21, 'x'), cellChar(lat, 9, 2));
 }
 
-// ISOLATION LAW / final pass: when every candidate's margin is violated only by
-// node/cluster ink, the `any_solid` pass places the label abutting the
-// border instead of dropping it; when the violator is a foreign EDGE, no
-// pass ever waives the margin and the label drops.
 test "allow_solid waives only the node/cluster margin, never the foreign-edge margin" {
     var arena = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
@@ -193,9 +159,6 @@ test "allow_solid waives only the node/cluster margin, never the foreign-edge ma
     var s = emptySketch(12, 5, .LR);
     s.edges = &edges;
 
-    // Case 1: node-border ink walls off rows 0 and 4, so both candidate
-    // rows (1 and 3) touch solid ink everywhere. Placed anyway, at the
-    // primary anchor, by the solid-tolerant last pass.
     var lat = try makeLattice(alloc, 12, 5);
     var x: u32 = 0;
     while (x < 12) : (x += 1) {
@@ -206,8 +169,6 @@ test "allow_solid waives only the node/cluster margin, never the foreign-edge ma
     try testing.expectEqual(@as(u32, 1), solid_report.placed);
     try testing.expectEqual(@as(u21, 'x'), cellChar(lat, 5, 1));
 
-    // Case 2: the same walls made of a FOREIGN edge's ink — the margin is
-    // never waived, so the label drops.
     var lat2 = try makeLattice(alloc, 12, 5);
     x = 0;
     while (x < 12) : (x += 1) {

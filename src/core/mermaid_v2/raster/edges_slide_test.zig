@@ -62,15 +62,10 @@ fn walk(x: i32, y: i32, d: lattice.Dir4, n: i32) sketch.Point {
 }
 
 test "a decorated gap arrival slides its head onto the border-adjacent cell" {
-    // All four faces. The wall sits at the centre-relative position 3 steps
-    // out along `dir`; the polyline runs toward it and stops on the gap cell
-    // one short, so the raw head lands two cells from the wall. The slide
-    // moves it onto the gap.
     const a = testing.allocator;
     for (faces) |f| {
         var lat = try blank(a, 9, 9);
         defer a.free(lat.cells);
-        // Start at the centre and travel `dir`: run cell, gap, wall.
         const start: sketch.Point = .{ .x = 4, .y = 4 };
         const gap = walk(start.x, start.y, f.dir, 2);
         const wall = walk(start.x, start.y, f.dir, 3);
@@ -84,8 +79,6 @@ test "a decorated gap arrival slides its head onto the border-adjacent cell" {
 }
 
 test "a head already abutting the wall does not slide" {
-    // No gap: the polyline endpoint IS the border, so there is nothing to
-    // slide onto and the head stays where the walk put it.
     const a = testing.allocator;
     var lat = try blank(a, 9, 9);
     defer a.free(lat.cells);
@@ -96,9 +89,6 @@ test "a head already abutting the wall does not slide" {
 }
 
 test "an occupied gap cell leaves the head where it is" {
-    // The probe fires only across an EMPTY endpoint. A cell somebody else
-    // owns refuses it, so the head does not move and the whole end falls
-    // back to the pre-existing behavior — the slide never overwrites.
     const a = testing.allocator;
     var lat = try blank(a, 9, 9);
     defer a.free(lat.cells);
@@ -114,8 +104,6 @@ test "an occupied gap cell leaves the head where it is" {
 }
 
 test "a gap before a CORNER does not slide: the landing is refused, not attached" {
-    // Ports are face offsets; a corner landing draws no stroke at all. The
-    // head must not advance toward a wall the writer refuses to attach to.
     const a = testing.allocator;
     var lat = try blank(a, 9, 9);
     defer a.free(lat.cells);
@@ -126,9 +114,6 @@ test "a gap before a CORNER does not slide: the landing is refused, not attached
 }
 
 test "a head two or more cells behind the gap does not slide" {
-    // The slide is a ONE-cell advance onto the reprieve. A head further
-    // back is genuinely detached: moving it would teleport the glyph off
-    // its own run, so the end keeps the old behavior (tee + painted gap).
     const a = testing.allocator;
     var lat = try blank(a, 9, 9);
     defer a.free(lat.cells);
@@ -166,11 +151,6 @@ fn gapEdge(pts: []const sketch.Point, arrow_to: sketch.ArrowKind) sketch.EdgePat
 }
 
 test "a decorated gap arrival stamps its head against the wall, run ink behind it" {
-    // End to end, all four faces: `│◀────` and its rotations. The head lands
-    // on the border-adjacent cell, the cell it came from is ordinary run
-    // ink, the wall stays PLAIN (the tip-facing suppression — the abutting
-    // decorated convention), and there is no blank anywhere between run,
-    // head and wall.
     const a = testing.allocator;
     for (faces) |f| {
         var lat = try blank(a, 9, 9);
@@ -180,28 +160,21 @@ test "a decorated gap arrival stamps its head against the wall, run ink behind i
         const gap = walk(start.x, start.y, f.dir, 2);
         const wall = walk(start.x, start.y, f.dir, 3);
         putBorder(&lat, @intCast(wall.x), @intCast(wall.y), f.role, f.mask);
-        // The polyline stops on the gap cell — the 1-cell reprieve.
         const pts = [_]sketch.Point{ start, gap };
         const es = [_]sketch.EdgePath{gapEdge(&pts, .filled)};
         _ = try edges.rasterizeEdges(a, &lat, makeSketch(&es), .bridge, null);
 
-        // Head on the gap cell, pointing at the wall.
         const head = lat.atConst(@intCast(gap.x), @intCast(gap.y));
         try testing.expectEqual(lattice.Occupant.arrowhead, std.meta.activeTag(head.occupant));
         try testing.expectEqual(f.dir, head.occupant.arrowhead.dir);
-        // The vacated cell is run ink of the same edge — a base-side
-        // extension, the only legal side.
         const behind = lat.atConst(@intCast(run_cell.x), @intCast(run_cell.y));
         try testing.expectEqual(lattice.Occupant.edge_segment, std.meta.activeTag(behind.occupant));
         try testing.expectEqual(@as(u32, 1), behind.occupant.edge_segment.edge);
-        // The wall is untouched: no tap behind a tip-facing head.
         try testing.expectEqual(f.mask.toMask(), lat.atConst(@intCast(wall.x), @intCast(wall.y)).neighbours.toMask());
     }
 }
 
 test "an UNDECORATED gap arrival keeps the painted gap and tees the wall" {
-    // No head, no tip side, no constraint: the bare run still closes its
-    // approach the way the port writer has always done it.
     const a = testing.allocator;
     var lat = try blank(a, 9, 9);
     defer a.free(lat.cells);

@@ -70,8 +70,6 @@ pub fn validate(
     const groups = bundle_permits.groups;
     const ms = bundle_permits.memberships;
 
-    // Bullets 1 + 7: exactly one realized membership per declared edge, in
-    // canonical membership order (one declared edge stays one record).
     if (plan.memberships.len != ms.len) {
         try add(&out, allocator, .membership_set_mismatch, null, null);
     } else for (ms, plan.memberships) |bm, rm| {
@@ -81,16 +79,11 @@ pub fn validate(
         }
         try checkDisposition(&out, allocator, plan, rm.edge, bm.source_group, rm.source);
         try checkDisposition(&out, allocator, plan, rm.edge, bm.target_group, rm.target);
-        // Bullet 6: never-both (D-DUAL item 1).
         const src_sel = rm.source != null and rm.source.? == .selected;
         if (src_sel and rm.target != null and rm.target.? == .selected)
             try add(&out, allocator, .selected_both_sides, null, rm.edge);
     }
 
-    // Bullets 2–4: selected bundles reference one existing group + proposal,
-    // contain only its members, every member's disposition at that
-    // endpoint is selected(this bundle) — an independent membership never
-    // appears — and no member holds two bundles at one endpoint.
     var prev_rank: ?usize = null;
     for (plan.selected_bundles) |sel| {
         const gi = groupIndexById(groups, sel.candidate_bundle) orelse {
@@ -125,9 +118,6 @@ pub fn validate(
         }
     }
 
-    // Conflict completeness (bullet 9's retained-permissions half): every
-    // overlapping group pair has ONE conflict retaining the full shared
-    // set, in canonical (group-rank pair) order.
     var prev_pair: ?[2]usize = null;
     for (plan.conflicts) |c| {
         const ia = groupIndexById(groups, c.groups[0]) orelse {
@@ -163,8 +153,6 @@ pub fn validate(
         }
     }
 
-    // Rejections are not defects (item 9), but every proposal is accounted
-    // exactly once (selected XOR rejected) and rejected ids resolve.
     for (plan.rejected_proposals) |pid| {
         var known = false;
         for (proposals) |p| {
@@ -182,8 +170,6 @@ pub fn validate(
         if (!accounted) try add(&out, allocator, .proposal_unaccounted, p.candidate_bundle, null);
     }
 
-    // Terminal ports: known edges, canonical (edge rank, source-then-
-    // target) order, at most one tuple per endpoint.
     var prev_key: ?usize = null;
     for (plan.terminal_ports) |tp| {
         const rank = edgeRank(ms, tp.edge) orelse {

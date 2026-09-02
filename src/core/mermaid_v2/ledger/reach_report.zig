@@ -103,8 +103,6 @@ pub const Report = struct {
     skipped_packed: bool = false,
 };
 
-// -- Internal assembly types (shared with reach_vector.zig) --------
-
 /// One typed terminal occurrence: a geometry attachment matched to its
 /// `bundles.terminal_ports` record, placed in a connectivity component.
 /// `opposite` is the owning edge's other endpoint — the deterministic
@@ -144,8 +142,6 @@ pub fn compHasSide(comp: *const Comp, edge: pb.EdgeId, side: pb.EndpointSide) bo
     }
     return false;
 }
-
-// -- Canonical ordering ----------------------------------------------------
 
 const KeyCtx = struct { keys: []const []const u8 };
 
@@ -195,8 +191,6 @@ const CompOrder = struct {
         return best;
     }
 };
-
-// -- Canonical sharing-event ordering (D-REACH item 12, post-review F1) -----
 
 /// An owner's canonical key: the declared edge's endpoint node keys. A
 /// whole-rail participant (null edge) keys as the empty pair and sorts
@@ -260,8 +254,6 @@ fn dedupPairs(alloc: std.mem.Allocator, keys: []const []const u8, pairs: []const
     return slice;
 }
 
-// -- Component-table construction --------------------------------------------
-
 /// Assemble the ordered component table: per component the typed source/
 /// target terminals, the reachable Cartesian pairs, the declared pairs it
 /// represents, the missing/extra defect lists, and its selected-bundle ids.
@@ -301,7 +293,6 @@ pub fn buildTable(
             }
         }
 
-        // Declared pairs fully represented by this component.
         var declared_pairs: std.ArrayListUnmanaged(pb.NodePair) = .empty;
         for (declared) |d| {
             if (compHasSide(comp, d.id, .source_exit) and compHasSide(comp, d.id, .target_entry))
@@ -309,14 +300,12 @@ pub fn buildTable(
         }
         const declared_sorted = try dedupPairs(alloc, node_keys, declared_pairs.items);
 
-        // Reachable Cartesian product over distinct source/target nodes.
         var reachable: std.ArrayListUnmanaged(pb.NodePair) = .empty;
         for (src_nodes.items) |sn| {
             for (tgt_nodes.items) |tn| try reachable.append(alloc, .{ .source = sn, .target = tn });
         }
         const reachable_sorted = try dedupPairs(alloc, node_keys, reachable.items);
 
-        // Extra = reachable pairs not represented by a declared edge here.
         var extra: std.ArrayListUnmanaged(pb.NodePair) = .empty;
         outer: for (reachable_sorted) |p| {
             for (declared_sorted) |q| {
@@ -348,8 +337,6 @@ fn appendUniqueNode(alloc: std.mem.Allocator, list: *std.ArrayListUnmanaged(sk.N
     for (list.items) |n| if (n == node) return;
     try list.append(alloc, node);
 }
-
-// -- Deterministic serialization (V-D-REACH-19(b) report bytes) ------------
 
 fn appendf(a: std.mem.Allocator, out: *std.ArrayListUnmanaged(u8), comptime fmt: []const u8, args: anytype) Error!void {
     try out.appendSlice(a, try std.fmt.allocPrint(a, fmt, args));
@@ -390,9 +377,6 @@ pub fn serialize(alloc: std.mem.Allocator, report: Report, node_keys: []const []
         try appendf(alloc, &out, "missing_declared membership#{d}\n", .{rank});
     }
     inline for (@typeInfo(Counts).@"struct".fields) |f| {
-        // skipped_packed_candidate is deliberately NOT a registry tag (the
-        // tag registry is closed); emit it without the reach_ prefix so
-        // it can never read as one.
         const prefix = if (comptime std.mem.eql(u8, f.name, "skipped_packed_candidate")) "" else "reach_";
         try appendf(alloc, &out, "{s}{s}={d}\n", .{ prefix, f.name, @field(report.counts, f.name) });
     }

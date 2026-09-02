@@ -214,15 +214,10 @@ test "V-D-JOIN-SELECT-14: self-loop excluded from fan-in group leaves residual m
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
-    // Target-incidence union {P->Z, Z->Z} at shared target Z (node 4): one plain
-    // fan-in member plus the self-loop (the frenzy DiagramTypes->ZILLIONS + self-loop shape).
     const edges = [_]sg.Edge{ edge(0, 0, 4), edge(1, 4, 4) };
 
     const result = try planner.build(a, graph(&edges), .joined);
-    // Self-loop excluded at construction; residual single real member P->Z falls below
-    // the two-member floor, so no >=2-member group forms.
     try std.testing.expectEqual(@as(usize, 0), result.plan.groups.len);
-    // Both edges take null/null memberships and route independently.
     try std.testing.expectEqual(@as(usize, 2), result.plan.memberships.len);
     for (result.plan.memberships) |membership| {
         try std.testing.expectEqual(@as(?pb.CandidateBundleId, null), membership.source_group);
@@ -230,7 +225,6 @@ test "V-D-JOIN-SELECT-14: self-loop excluded from fan-in group leaves residual m
     }
     try expectClean(a, graph(&edges), result.plan);
 
-    // Determinism under member permutation: the two edges in both orders serialize identically.
     const swapped = [_]sg.Edge{ edge(1, 4, 4), edge(0, 0, 4) };
     const other = try planner.build(a, graph(&swapped), .joined);
     try std.testing.expectEqualStrings(
@@ -244,17 +238,14 @@ test "V-D-JOIN-SELECT-14: self-loop exclusion does not annihilate real fan-in co
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
-    // Union {P->Z, Q->Z, Z->Z}: two plain fan-in members plus the self-loop.
     const edges = [_]sg.Edge{ edge(0, 0, 4), edge(1, 1, 4), edge(2, 4, 4) };
 
     const result = try planner.build(a, graph(&edges), .joined);
-    // Exactly one group: fan-in at Z over the two real edges; self-loop id 2 absent.
     try std.testing.expectEqual(@as(usize, 1), result.plan.groups.len);
     const group = result.plan.groups[0];
     try std.testing.expectEqual(pb.BundleDirection.in, group.direction);
     try std.testing.expectEqual(@as(sg.NodeId, 4), group.pivot);
     try std.testing.expectEqualSlices(pb.EdgeId, &.{ 0, 1 }, group.members);
-    // Self-loop membership stays (null, null).
     const self_loop = planner.lookupMembership(result.plan, .{ .original = 2 });
     try std.testing.expectEqual(@as(?pb.CandidateBundleId, null), self_loop.membership.?.source_group);
     try std.testing.expectEqual(@as(?pb.CandidateBundleId, null), self_loop.membership.?.target_group);
@@ -271,7 +262,6 @@ test "builder output always validates clean across discovery shapes" {
         &.{ edge(0, 0, 1), edge(1, 0, 2) },
         &.{ edge(0, 1, 4), edge(1, 2, 4) },
         &.{ edge(0, 0, 4), edge(1, 0, 1), edge(2, 2, 4) },
-        // V-D-JOIN-SELECT-14: self-loop-bearing fan-in union stays clean.
         &.{ edge(0, 0, 4), edge(1, 1, 4), edge(2, 4, 4) },
     };
     for (cases) |edges| {
@@ -454,11 +444,6 @@ test "piece plan licenses a fan in piece-local ids; synthetic edges take no part
     defer arena.deinit();
     const a = arena.allocator();
 
-    // A cluster-free piece as split leaves it: piece-local edge ids 0..2 carry
-    // root origins; one synthetic placement-style edge keeps the SENTINEL
-    // origin. The plan speaks the PIECE's own ids — the id space its layout,
-    // routing, and Sketch use — so realization consumes it unchanged and the
-    // stitch remaps it with the same offsets as every other record.
     var edges = [_]sg.Edge{ edge(0, 0, 1), edge(1, 0, 2), edge(2, 0, 3), edge(3, 4, 0) };
     edges[0].origin = 9;
     edges[1].origin = 5;
@@ -470,9 +455,7 @@ test "piece plan licenses a fan in piece-local ids; synthetic edges take no part
     try std.testing.expectEqual(@as(usize, 1), result.plan.groups.len);
     try std.testing.expectEqual(pb.BundleDirection.out, result.plan.groups[0].direction);
     try std.testing.expectEqual(@as(sg.NodeId, 0), result.plan.groups[0].pivot);
-    // Members are PIECE-LOCAL ids in canonical (raw-id key) order B,C,D.
     try std.testing.expectEqualSlices(pb.EdgeId, &.{ 0, 1, 2 }, result.plan.groups[0].members);
-    // The synthetic edge has no membership row.
     try std.testing.expectEqual(@as(usize, 3), result.plan.memberships.len);
     for (result.plan.memberships) |m| {
         try std.testing.expect(m.edge <= 2);

@@ -163,7 +163,7 @@ pub fn checkPathInteriors(
             const b = edge.polyline[seg_idx + 1];
 
             for (s.nodes) |node| {
-                // Skip a node adjacent to this segment as the edge's own endpoint. // guarded-by: validate_test.zig "checkPathInteriors exempts a segment adjacent to its own edge's endpoint but flags a genuine cross by an unrelated edge"
+                // Skip a node adjacent to this segment as the edge's own endpoint. // @guarded-by: validate_test.zig "checkPathInteriors exempts a segment adjacent to its own edge's endpoint but flags a genuine cross by an unrelated edge"
                 const is_first_seg = seg_idx == 0;
                 const is_last_seg = seg_idx + 2 == edge.polyline.len;
                 if (is_first_seg and node.id == edge.from) continue;
@@ -278,7 +278,7 @@ pub fn checkClusterPorts(
 /// Bbox width vs. budget — informational only: the painter clips
 /// gracefully with an overflow marker, so this logs (Debug-only) but
 /// never emits a `.bbox_overflow` `Violation`.
-/// guarded-by: validate_test.zig "bbox overflow is informational, not a validation failure"
+/// @guarded-by: validate_test.zig "bbox overflow is informational, not a validation failure"
 pub fn checkBboxBudget(
     allocator: std.mem.Allocator,
     s: sketch.Sketch,
@@ -287,16 +287,10 @@ pub fn checkBboxBudget(
     _ = allocator;
     _ = violations;
     if (s.bbox.w > s.budget.max_width) {
-        // .debug level: std.log filters .debug out of release builds
-        // (Debug builds still print it); validate itself runs in every
-        // build mode for `counts`, but this diagnostic shouldn't reach
-        // release stderr.
         const excess = s.bbox.w - s.budget.max_width;
         std.log.debug("mermaid_v2/validate: bbox width {d} exceeds budget {d} by {d} (clipped at paint)", .{ s.bbox.w, s.budget.max_width, excess });
     }
 }
-
-// -- Helpers -----------------------------------------------------------------
 
 fn findNode(s: sketch.Sketch, id: sketch.NodeId) ?sketch.NodePlacement {
     for (s.nodes) |n| {
@@ -349,7 +343,7 @@ fn rectContainsRect(outer: sketch.Rect, inner: sketch.Rect) bool {
 fn segmentCrossesInterior(a: sketch.Point, b: sketch.Point, r: sketch.Rect) bool {
     if (r.w < 3 or r.h < 3) return false;
     const left = r.x;
-    const right_inc = r.right() - 1; // inclusive border; interior is (left, right_inc)
+    const right_inc = r.right() - 1;
     const top = r.y;
     const bottom_inc = r.bottom() - 1;
 
@@ -370,7 +364,7 @@ fn segmentCrossesInterior(a: sketch.Point, b: sketch.Point, r: sketch.Rect) bool
         return x0 < right_inc and x1 > left;
     }
 
-    // Diagonal: conservative bbox-overlap safety net (IR polylines are expected orthogonal). // guarded-by: validate_test.zig "checkPathInteriors' diagonal fallback is a conservative bbox-overlap test, not a precise line-rect intersection"
+    // Diagonal: conservative bbox-overlap safety net (IR polylines are expected orthogonal). // @guarded-by: validate_test.zig "checkPathInteriors' diagonal fallback is a conservative bbox-overlap test, not a precise line-rect intersection"
     const sx0 = @min(a.x, b.x);
     const sx1 = @max(a.x, b.x);
     const sy0 = @min(a.y, b.y);
@@ -386,8 +380,6 @@ fn pointInInterior(p: sketch.Point, r: sketch.Rect) bool {
     return p.x > r.x and p.x < r.right() - 1 and
         p.y > r.y and p.y < r.bottom() - 1;
 }
-
-// -- Tests -------------------------------------------------------------------
 
 test {
     _ = @import("validate_test.zig");

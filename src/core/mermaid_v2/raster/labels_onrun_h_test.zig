@@ -94,12 +94,9 @@ test "happy path: the label sits inline in its own horizontal run, flanked both 
 
     try testing.expect(onrun.tryOnRunEdge(&lat, s, ep, "ok", null));
 
-    // Centered in the interior: start range is 4..9, midpoint 6.
     try testing.expectEqual(@as(u21, 'o'), labelCharAt(lat, 6, 4));
     try testing.expectEqual(@as(u21, 'k'), labelCharAt(lat, 7, 4));
 
-    // FLANKED-RESUMPTION RULE flanks: ordinary full-stroke run cells of the same edge, both
-    // horizontal bits intact, on the same row.
     for ([_]u32{ 5, 8 }) |x| {
         const c = lat.atConst(x, 4);
         try testing.expect(c.occupant == .edge_segment);
@@ -138,10 +135,8 @@ test "OWN-INK RULE: a shared crossbar cell inside the stretch refuses the inline
     const a = arena.allocator();
 
     var lat = try makeLattice(a, 16, 9);
-    // Minimum-width run: exactly one legal start (column 4), so poisoning a
-    // single covered cell leaves no alternative placement.
     paintRun(&lat, 3, 6, 4, 7, .solid);
-    runCell(&lat, 4, 4, 7, .fan_out_rail, .solid); // shared rail ink
+    runCell(&lat, 4, 4, 7, .fan_out_rail, .solid);
     const ep = straightEdge(&tight_poly, .solid);
     var s = emptySketch(16, 9);
     const edges = [_]sketch.EdgePath{ep};
@@ -159,8 +154,6 @@ test "OWN-INK RULE: a foreign-crossed stretch is refused by the geometry sweep" 
     var lat = try makeLattice(a, 16, 9);
     paintRun(&lat, 3, 6, 4, 7, .solid);
     const ep = straightEdge(&tight_poly, .solid);
-    // Another edge's declared geometry crosses the only legal span cell —
-    // sharing the lattice roles cannot see (its single Cell names edge 7).
     const other_poly = [_]sketch.Point{ .{ .x = 4, .y = 1 }, .{ .x = 4, .y = 7 } };
     var other = straightEdge(&other_poly, .solid);
     other.id = 9;
@@ -178,8 +171,6 @@ test "FLANKED-RESUMPTION RULE: a corner or an arrowhead in the flank cell refuse
     defer arena.deinit();
     const a = arena.allocator();
 
-    // (a) left flank is a CORNER: it carries a vertical arm, so it is not a
-    // full-stroke run cell.
     {
         var lat = try makeLattice(a, 16, 9);
         paintRun(&lat, 3, 6, 4, 7, .solid);
@@ -192,7 +183,6 @@ test "FLANKED-RESUMPTION RULE: a corner or an arrowhead in the flank cell refuse
         try testing.expectEqual(@as(u21, 0), labelCharAt(lat, 4, 4));
     }
 
-    // (b) right flank is the ARROWHEAD: a different occupant entirely.
     {
         var lat = try makeLattice(a, 16, 9);
         paintRun(&lat, 3, 5, 4, 7, .solid);
@@ -215,7 +205,6 @@ test "a too-short horizontal run falls through to the ordinary ladder" {
     const a = arena.allocator();
 
     var lat = try makeLattice(a, 16, 9);
-    // Interior 3..5 = 3 cells: label(2) + 2 flanks needs 4. No stretching.
     paintRun(&lat, 3, 5, 4, 7, .solid);
     const short_poly = [_]sketch.Point{ .{ .x = 2, .y = 4 }, .{ .x = 6, .y = 4 } };
     const ep = straightEdge(&short_poly, .solid);
@@ -224,7 +213,6 @@ test "a too-short horizontal run falls through to the ordinary ladder" {
     s.edges = &edges;
 
     try testing.expect(!onrun.tryOnRunEdge(&lat, s, ep, "ok", null));
-    // Nothing was written: the lattice is exactly the painted run.
     var x: u32 = 3;
     while (x <= 5) : (x += 1) try testing.expect(lat.atConst(x, 4).occupant == .edge_segment);
 }
@@ -236,7 +224,7 @@ test "foreign ink above the inline span refuses the candidate" {
 
     var lat = try makeLattice(a, 16, 9);
     paintRun(&lat, 3, 6, 4, 7, .solid);
-    runCell(&lat, 4, 3, 99, .forward, .solid); // foreign edge ink in the ring
+    runCell(&lat, 4, 3, 99, .forward, .solid);
     const ep = straightEdge(&tight_poly, .solid);
     var s = emptySketch(16, 9);
     const edges = [_]sketch.EdgePath{ep};
@@ -281,7 +269,6 @@ test "tie order: the longer qualifying stretch is tried first, ties go vertical"
     defer arena.deinit();
     const a = arena.allocator();
 
-    // (a) horizontal interior 8 > vertical interior 4 -> inline placement.
     {
         var lat = try makeLattice(a, 18, 10);
         for ([_]u32{ 2, 3, 4, 5 }) |y| dropCell(&lat, 5, y, 7, .fan_out_dropper);
@@ -293,13 +280,11 @@ test "tie order: the longer qualifying stretch is tried first, ties go vertical"
         s.edges = &edges;
 
         try testing.expect(onrun.tryOnRunEdge(&lat, s, ep, "ok", null));
-        // Inline on row 6 (start range 7..12, midpoint 9), NOT on the dropper.
         try testing.expectEqual(@as(u21, 'o'), labelCharAt(lat, 9, 6));
         try testing.expectEqual(@as(u21, 'k'), labelCharAt(lat, 10, 6));
         try testing.expectEqual(@as(u21, 0), labelCharAt(lat, 5, 3));
     }
 
-    // (b) both interiors are 4 -> the tie goes to the vertical form.
     {
         var lat = try makeLattice(a, 18, 10);
         for ([_]u32{ 2, 3, 4, 5 }) |y| dropCell(&lat, 5, y, 7, .fan_out_dropper);
@@ -311,7 +296,6 @@ test "tie order: the longer qualifying stretch is tried first, ties go vertical"
         s.edges = &edges;
 
         try testing.expect(onrun.tryOnRunEdge(&lat, s, ep, "ok", null));
-        // Across the dropper at the middle row, span centered on column 5.
         try testing.expectEqual(@as(u21, 'o'), labelCharAt(lat, 5, 3));
         try testing.expectEqual(@as(u21, 'k'), labelCharAt(lat, 6, 3));
         try testing.expectEqual(@as(u21, 0), labelCharAt(lat, 7, 6));
@@ -319,13 +303,6 @@ test "tie order: the longer qualifying stretch is tried first, ties go vertical"
 }
 
 test "OWN-INK RULE: a private prefix of a collinear shared run is refused" {
-    // Cell-local ownership is not the reader's unit. A fan-in rail assembled
-    // from several ABUTTING per-edge polylines has no crossbar role and no
-    // covering foreign polyline over this edge's own stretch, so both
-    // cell-local halves of OWN-INK RULE pass — yet the reader sees ONE continuous
-    // horizontal line and cannot tell which member the label names. The
-    // visual-run walk closes that: it follows the row outward to the first
-    // non-edge cell and refuses on reaching another edge's ink.
     var arena = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
@@ -335,8 +312,6 @@ test "OWN-INK RULE: a private prefix of a collinear shared run is refused" {
     foreign.id = 9;
     const ep = straightEdge(&long_poly, .solid);
 
-    // Contiguous: edge 7's run (3..11) abuts edge 9's run (12..14) with no
-    // break at all — one visual line.
     {
         var lat = try makeLattice(a, 16, 9);
         paintRun(&lat, 3, 11, 4, 7, .solid);
@@ -347,8 +322,6 @@ test "OWN-INK RULE: a private prefix of a collinear shared run is refused" {
         try testing.expect(!onrun.tryOnRunEdge(&lat, s, ep, "ok", null));
     }
 
-    // Positive control: one blank column breaks the run, so the label is
-    // unambiguously on a line of this edge's own and is written as before.
     {
         var lat = try makeLattice(a, 16, 9);
         paintRun(&lat, 3, 11, 4, 7, .solid);

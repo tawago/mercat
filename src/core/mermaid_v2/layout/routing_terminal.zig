@@ -58,16 +58,14 @@ fn clusterAncestorOrSelf(graph: sg.SemGraph, anc: sg.ClusterId, desc: sg.Cluster
     return false;
 }
 
-/// Rows of fan-rail lift for one fan member edge: 1 when it descends into a cluster, else 0. THE shared lift rule for both the rail pre-pass and the per-peer path. // guarded-by: routing_test.zig "rail pre-pass and forced per-peer path lift the same fan-OUT geometry to the same rail row"
+/// Rows of fan-rail lift for one fan member edge: 1 when it descends into a cluster, else 0. THE shared lift rule for both the rail pre-pass and the per-peer path. // @guarded-by: routing_test.zig "rail pre-pass and forced per-peer path lift the same fan-OUT geometry to the same rail row"
 pub fn fanRailLift(graph: sg.SemGraph, from: sg.NodeId, to: sg.NodeId) u32 {
     return if (crossesIntoCluster(graph, from, to)) 1 else 0;
 }
 
-/// True iff an edge from `from` to `to` descends into a cluster `from` is not a member/descendant of (ancestor-chain walk). // guarded-by: routing_test.zig "fan-OUT per-peer rail does not lift when the source is a member of (or ancestor of) the target's cluster"
+/// True iff an edge from `from` to `to` descends into a cluster `from` is not a member/descendant of (ancestor-chain walk). // @guarded-by: routing_test.zig "fan-OUT per-peer rail does not lift when the source is a member of (or ancestor of) the target's cluster"
 fn crossesIntoCluster(graph: sg.SemGraph, from: sg.NodeId, to: sg.NodeId) bool {
     const dst_cluster = nodeCluster(graph, to) orelse return false;
-    // If the source sits inside (or under) the destination's innermost
-    // cluster, no leading border separates them — same frame interior.
     const src_cluster = nodeCluster(graph, from);
     if (src_cluster) |sc| {
         if (clusterAncestorOrSelf(graph, dst_cluster, sc)) return false;
@@ -173,7 +171,7 @@ pub fn mapArrow(e: sg.ArrowEnd) sketch.ArrowKind {
 /// one cell into a neighbour). Returns the same slice when it does not fire.
 /// The point count is preserved — the new straight cell is the vacated corner
 /// position — but the slice is reallocated so callers uniformly rebind.
-/// guarded-by: routing_terminal_test.zig "satisfyApproach grows a corner-fed len-2 final into a straight base approach"
+/// @guarded-by: routing_terminal_test.zig "satisfyApproach grows a corner-fed len-2 final into a straight base approach"
 pub fn satisfyApproach(
     a: std.mem.Allocator,
     poly: []sketch.Point,
@@ -181,40 +179,25 @@ pub fn satisfyApproach(
 ) error{OutOfMemory}![]sketch.Point {
     const fed = rp.detectCornerFedTerminal(poly) orelse return poly;
     const bi = fed.bi;
-    // Need an INTERIOR predecessor vertex (poly[bi-1]) that is not the source
-    // port at index 0, so pulling the run back never detaches the source.
     if (bi < 2) return poly;
     const b = fed.b;
     const p = fed.p;
     const q = poly[bi - 2];
-    // Final leg (b -> c): a single-axis run of length EXACTLY 2 — the
-    // corner-on-base signature (corner at b, arrowhead at c-unit, base = b).
-    // (The detector already confirmed p->b is a perpendicular orthogonal run.)
     const lx = fed.lx;
     const ly = fed.ly;
-    if (lx != 0 and ly != 0) return poly; // not orthogonal
+    if (lx != 0 and ly != 0) return poly;
     if (@as(i32, @intCast(@abs(lx))) + @as(i32, @intCast(@abs(ly))) != 2) return poly;
-    // Unit step along the base axis, from the corner toward the terminal.
     const ux: i32 = if (lx > 0) 1 else if (lx < 0) -1 else 0;
     const uy: i32 = if (ly > 0) 1 else if (ly < 0) -1 else 0;
     const base_horizontal = (ux != 0);
-    // The leg q -> p must run along the base axis, so pulling p back one cell
-    // keeps it a straight (non-reversing, non-degenerate) segment.
     const qp_perp: i32 = if (base_horizontal) (q.y - p.y) else (q.x - p.x);
     if (qp_perp != 0) return poly;
     const q_base: i32 = if (base_horizontal) q.x else q.y;
     const p_base: i32 = if (base_horizontal) p.x else p.y;
     const np_base: i32 = p_base - (if (base_horizontal) ux else uy);
     if (np_base == q_base or (p_base > q_base) != (np_base > q_base)) return poly;
-    // Pull the corner (and its predecessor run) back one cell along -unit(base).
     const nb = sketch.Point{ .x = b.x - ux, .y = b.y - uy };
     const np = sketch.Point{ .x = p.x - ux, .y = p.y - uy };
-    // Zero-DIMENSION gate: the pulled-back corner must not become a NEW extreme
-    // on the base axis of this polyline. When the corner is already the
-    // polyline's outermost point (e.g. a back-edge loop's turn at the canvas
-    // margin), pulling it further out extends the diagram's bounding box — a
-    // bare-gap case, not the reserved inter-rank slack this tranche grows into.
-    // Accept-fallback so height AND width stay fixed.
     var lo_axis: i32 = if (base_horizontal) poly[0].x else poly[0].y;
     var hi_axis: i32 = lo_axis;
     for (poly) |pt| {
@@ -224,12 +207,6 @@ pub fn satisfyApproach(
     }
     const nb_axis: i32 = if (base_horizontal) nb.x else nb.y;
     if (nb_axis < lo_axis or nb_axis > hi_axis) return poly;
-    // Room gate: the pulled-back run lives in the inter-rank gap and must be
-    // touch-free (touch semantics, border-inclusive) of EVERY box — including
-    // from/to. Unlike a route body (which legitimately meets its endpoints at
-    // the ports), this run must not land on any node; skipping from/to here
-    // would let the grow pull the run onto the source/target border and pierce
-    // it. No clear cell -> accept-fallback.
     const run_horizontal = (np.y == nb.y);
     const cross: i32 = if (run_horizontal) np.y else np.x;
     const lo: i32 = if (run_horizontal) @min(np.x, nb.x) else @min(np.y, nb.y);
@@ -268,7 +245,7 @@ pub fn satisfyApproach(
 /// The caller reads the ACCUMULATED gap width and tops up ONLY gaps still at
 /// the bare width, so a fan/lane/skip-widened gap is never double-counted.
 /// `geom` is parallel to `lg.nodes`.
-/// guarded-by: routing_terminal_test.zig "terminalApproachExtraRows flags a bare gap with an offset adjacent forward terminal but not a column-aligned one"
+/// @guarded-by: routing_terminal_test.zig "terminalApproachExtraRows flags a bare gap with an offset adjacent forward terminal but not a column-aligned one"
 pub fn terminalApproachExtraRows(
     comptime NodeGeom: type,
     a: std.mem.Allocator,
@@ -287,8 +264,6 @@ pub fn terminalApproachExtraRows(
         for (row) |idx| node_layer[idx] = @intCast(li);
     }
 
-    // Id -> Edge lookup built ONCE (first-match-wins, mirroring findGraphEdge)
-    // so the per-edge resolve below is O(1) instead of a linear graph.edges scan.
     var edge_by_id = std.AutoHashMap(sg.EdgeId, sg.Edge).init(a);
     defer edge_by_id.deinit();
     for (graph.edges) |e| {
@@ -309,21 +284,19 @@ pub fn terminalApproachExtraRows(
         if (!from_real or !to_real) continue;
         const lf = node_layer[le.from];
         const lt = node_layer[le.to];
-        if (lt != lf + 1) continue; // only adjacent downward segments
+        if (lt != lf + 1) continue;
 
         const oe = edge_by_id.get(le.edge) orelse continue;
         if (oe.arrow_to == .none or oe.arrow_from != .none) continue;
         if (oe.kind == .invisible) continue;
 
-        // Offset test: source-port column != target-port column ⇒ the final
-        // approach turns, so the terminal is corner-fed in a bare gap.
         const s = geom[le.from];
         const t = geom[le.to];
         const scx = s.x + @divTrunc(@as(i32, @intCast(s.w)), 2);
         const tcx = t.x + @divTrunc(@as(i32, @intCast(t.w)), 2);
         if (scx == tcx) continue;
 
-        out[lf] = 1; // gap between layer lf and layer lf+1
+        out[lf] = 1;
     }
     return out;
 }

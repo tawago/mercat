@@ -23,7 +23,6 @@ pub const Color = color.Color;
 /// `muted` color (their SpanStyle palette default), so markers stay muted unless
 /// a theme opts in.
 pub const Slot = enum {
-    // --- mirrors render/types.zig SpanStyle (names must match) ---
     heading1,
     heading2,
     heading3,
@@ -55,17 +54,11 @@ pub const Slot = enum {
     frontmatter_key,
     frontmatter_value,
     frontmatter_cap,
-    // --- list/task marker slots (color-bearing; muted fallback) ---
     bullet,
     ordered,
     task_on,
     task_off,
-    // --- list item text slot (color-bearing; falls back to `body` when unset) ---
     list_item,
-    // --- structural color slots re-added for the reconciled 40-slot union (S2).
-    //     Presets leave these unset; bake defaults them to borrowed tokens
-    //     (table_border/hr/code_fence_banner → muted, table_header → body) for
-    //     byte-parity with #17's un-themed output, but a preset may set them. ---
     table_border,
     table_header,
     hr,
@@ -209,14 +202,9 @@ pub const ThemeSpec = struct {
     canvas: ?bool = null,
 };
 
-// ===========================================================================
-// Tests
-// ===========================================================================
-
 const testing = std.testing;
 
 test "Slot mirrors SpanStyle by name" {
-    // Every SpanStyle has a same-named Slot.
     inline for (@typeInfo(types.SpanStyle).@"enum".fields) |f| {
         _ = Slot.fromSpanStyle(@field(types.SpanStyle, f.name));
     }
@@ -227,7 +215,6 @@ test "SlotMap get/set is sparse" {
     try testing.expect(m.get(.heading1) == null);
     m.set(.heading1, .{ .bold = true });
     try testing.expectEqual(@as(?bool, true), m.get(.heading1).?.bold);
-    // Untouched slot still absent.
     try testing.expect(m.get(.heading2) == null);
 }
 

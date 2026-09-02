@@ -99,20 +99,6 @@ pub fn stamp(allocator: std.mem.Allocator, s: *sketch.Sketch) void {
     };
     @memcpy(rails_buf, s.rails);
 
-    // A rail whose members no set names still rides a bundle — its own. It is
-    // minted past the end of the roster so it can collide with neither a set's
-    // name nor another rail's, and it is a SHARED bundle (several taps ride
-    // it), so the private band, which is one edge wide, cannot express it.
-    // Regression pin, report-only: this is current, intended behaviour,
-    // restated loudly because the census does not cover it. A rail
-    // no structural set names is stamped OFF-roster, on a fresh bundle of its
-    // own (below). That bundle never equals any edge it merges onto, so
-    // EVERY merge such a rail makes reads `.merged_foreign` at the licence
-    // sites (`crossings.licenceFor`, `rails.licenceAt`) and the crossing
-    // audit's `d_run_fused_foreign`. Correct, by the same rule any two
-    // strangers get — but corpus-unexercised until
-    // the off-roster tests in `sketch_bundles_test.zig` and
-    // `rails_test2.zig` gave it explicit coverage.
     var next: ledger.BundleId = @intCast(numbered.len + 1);
     for (rails_buf) |*slot| {
         switch (resolveRailBundle(numbered, slot.*)) {

@@ -53,7 +53,7 @@ fn labelCharAt(lat: lattice.Lattice, x: u32, y: u32) u21 {
 /// border) row 6. Four private cells is the minimum the decorated
 /// sandwich needs: flank, label, flank, head.
 fn paintTapDropper(lat: *lattice.Lattice, edge: u32) void {
-    dropCell(lat, 5, 1, edge, .fan_out_rail); // crossbar branch cell (shared)
+    dropCell(lat, 5, 1, edge, .fan_out_rail);
     dropCell(lat, 5, 2, edge, .fan_out_dropper);
     dropCell(lat, 5, 3, edge, .fan_out_dropper);
     dropCell(lat, 5, 4, edge, .fan_out_dropper);
@@ -91,13 +91,9 @@ test "happy path: the label interrupts its own dropper for one row, sandwiched b
 
     try testing.expect(onrun.tryOnRunTap(&lat, s, taps[0], "ok", null));
 
-    // Label centered on the dropper column: interruption row is the middle
-    // of the private stretch (rows 2..5 -> row 3).
     try testing.expectEqual(@as(u21, 'o'), labelCharAt(lat, 5, 3));
     try testing.expectEqual(@as(u21, 'k'), labelCharAt(lat, 6, 3));
 
-    // Both flanks are LINE cells of the run — never the arrowhead, which
-    // stays below the lower flank.
     const above = lat.atConst(5, 2);
     try testing.expect(above.occupant == .edge_segment);
     const below = lat.atConst(5, 4);
@@ -106,11 +102,6 @@ test "happy path: the label interrupts its own dropper for one row, sandwiched b
 }
 
 test "the flanks stay ORDINARY full-stroke run cells in the edge's own kind" {
-    // Reverted experiment (blind decoder veto): the label-adjacent cells
-    // once tapered to `╵`/`╷` half strokes, and the decoder read the taper
-    // as a dashed line STYLE, reconstructing solid edges as dotted. The
-    // flanks must therefore keep BOTH vertical bits and their own stroke
-    // kind, so the run around a label reads exactly as it did without one.
     var arena = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
@@ -130,25 +121,20 @@ test "the flanks stay ORDINARY full-stroke run cells in the edge's own kind" {
 
     for ([_]u32{ 2, 4 }) |y| {
         const c = lat.atConst(5, y);
-        // Both vertical bits survive: the painter emits the full glyph.
         try testing.expect(c.neighbours.n);
         try testing.expect(c.neighbours.s);
-        // And the edge's own stroke kind is untouched.
         try testing.expectEqual(lattice.EdgeKind.dotted, c.stroke_kind);
         try testing.expectEqual(lattice.EdgeKind.dotted, c.occupant.edge_segment.kind);
     }
 }
 
 test "FLANKED-RESUMPTION RULE: an arrowhead is not a flank, so the head-adjacent row is refused" {
-    // The UNDECORATED 3-cell shape (flank, label, head) used to pass under
-    // the old rule where an arrowhead counted as a flank. It must now be
-    // refused outright and fall to the ordinary labels_edge ladder.
     var arena = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
 
     var lat = try makeLattice(a, 12, 9);
-    dropCell(&lat, 5, 1, 7, .fan_out_rail); // shared crossbar
+    dropCell(&lat, 5, 1, 7, .fan_out_rail);
     dropCell(&lat, 5, 2, 7, .fan_out_dropper);
     dropCell(&lat, 5, 3, 7, .fan_out_dropper);
     arrowCell(&lat, 5, 4, 7);
@@ -159,8 +145,6 @@ test "FLANKED-RESUMPTION RULE: an arrowhead is not a flank, so the head-adjacent
     const rails = [_]sketch.Rail{theRail(&taps, &stem_pts)};
     s.rails = &rails;
 
-    // Row 3: below-flank is the arrowhead -> refused. Row 2: above-flank is
-    // the shared crossbar -> refused. No legal row.
     try testing.expect(!onrun.tryOnRunTap(&lat, s, taps[0], "ok", null));
     try testing.expectEqual(@as(u21, 0), labelCharAt(lat, 5, 3));
 }
@@ -172,16 +156,12 @@ test "OWN-INK RULE: a rail/crossbar cell is never interrupted" {
 
     var lat = try makeLattice(a, 12, 9);
     paintTapDropper(&lat, 7);
-    // Poison the would-be interruption row with a SHARED role: everything
-    // else stays legal, the role alone must refuse the candidate.
     dropCell(&lat, 5, 3, 7, .fan_out_rail);
     const taps = [_]sketch.Tap{theTap(7)};
     var s = emptySketch(12, 9);
     const rails = [_]sketch.Rail{theRail(&taps, &stem_pts)};
     s.rails = &rails;
 
-    // Row 3 refused (rail role); rows 2 and 4 have the poisoned rail cell
-    // as a flank (also refused), and row 5 is the arrowhead. No legal row.
     try testing.expect(!onrun.tryOnRunTap(&lat, s, taps[0], "ok", null));
     try testing.expectEqual(@as(u21, 0), labelCharAt(lat, 5, 3));
 }
@@ -195,8 +175,6 @@ test "OWN-INK RULE: a cell another tap's drop covers is refused" {
     paintTapDropper(&lat, 7);
     const taps = [_]sketch.Tap{
         theTap(7),
-        // A sibling tap whose declared drop covers the same column cells —
-        // geometry-level sharing the lattice roles cannot see.
         .{ .edge = 9, .node = 2, .at = .{ .x = 5, .y = 1 }, .landing = .{ .x = 5, .y = 5 } },
     };
     var s = emptySketch(12, 9);
@@ -213,7 +191,6 @@ test "FLANKED-RESUMPTION RULE: a 1-cell private dropper has no legal interruptio
     const a = arena.allocator();
 
     var lat = try makeLattice(a, 12, 9);
-    // Crossbar at row 1, single dropper cell row 2, arrowhead row 3.
     dropCell(&lat, 5, 1, 7, .fan_out_rail);
     dropCell(&lat, 5, 2, 7, .fan_out_dropper);
     arrowCell(&lat, 5, 3, 7);
@@ -224,8 +201,6 @@ test "FLANKED-RESUMPTION RULE: a 1-cell private dropper has no legal interruptio
     const rails = [_]sketch.Rail{theRail(&taps, &stem_pts)};
     s.rails = &rails;
 
-    // Row 2: above-flank is the shared crossbar cell (refused as flank).
-    // Row 3: an arrowhead, not an interruptible segment. No legal row.
     try testing.expect(!onrun.tryOnRunTap(&lat, s, taps[0], "ok", null));
     try testing.expectEqual(@as(u21, 0), labelCharAt(lat, 5, 2));
 }
@@ -237,16 +212,12 @@ test "foreign ink beside the span still refuses the on-run candidate" {
 
     var lat = try makeLattice(a, 12, 9);
     paintTapDropper(&lat, 7);
-    // Foreign edge ink adjacent to where the span's last cell (col 6, row 3)
-    // would sit: the lateral margin must hold.
     dropCell(&lat, 7, 3, 99, .forward);
     const taps = [_]sketch.Tap{theTap(7)};
     var s = emptySketch(12, 9);
     const rails = [_]sketch.Rail{theRail(&taps, &stem_pts)};
     s.rails = &rails;
 
-    // Row 3 refused by isolation; rows 2 and 4 have the foreign ink in their
-    // span neighbourhood too; row 5 is the arrowhead. Refused.
     try testing.expect(!onrun.tryOnRunTap(&lat, s, taps[0], "ok", null));
     try testing.expectEqual(@as(u21, 0), labelCharAt(lat, 5, 3));
 }
@@ -257,8 +228,6 @@ test "on-run placement over a routed polyline dropper (fan-IN member)" {
     const a = arena.allocator();
 
     var lat = try makeLattice(a, 14, 8);
-    // Private fan-IN descent on column 5, rows 1..3; corner bundles a rail
-    // at row 4 (not painted here — flanks come from the descent itself).
     dropCell(&lat, 5, 1, 3, .fan_in_dropper);
     dropCell(&lat, 5, 2, 3, .fan_in_dropper);
     dropCell(&lat, 5, 3, 3, .fan_in_dropper);
@@ -282,13 +251,10 @@ test "on-run placement over a routed polyline dropper (fan-IN member)" {
     s.edges = &edges;
 
     try testing.expect(onrun.tryOnRunEdge(&lat, s, ep, "grpc", null));
-    // Interruption at the middle of rows 1..3 -> row 2, span centered on
-    // column 5: start = 5 - (4-1)/2 = 4.
     try testing.expectEqual(@as(u21, 'g'), labelCharAt(lat, 4, 2));
     try testing.expectEqual(@as(u21, 'r'), labelCharAt(lat, 5, 2));
     try testing.expectEqual(@as(u21, 'p'), labelCharAt(lat, 6, 2));
     try testing.expectEqual(@as(u21, 'c'), labelCharAt(lat, 7, 2));
-    // Flanks intact: full strokes, both vertical bits.
     try testing.expect(lat.atConst(5, 1).neighbours.s);
     try testing.expect(lat.atConst(5, 3).neighbours.n);
 }

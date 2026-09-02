@@ -36,7 +36,6 @@ const Event = union(enum) {
 };
 
 fn parseContent(allocator: std.mem.Allocator, content: []const u8, input_source: args.Input) !markdown.Document {
-    // Shared classifier keeps a TUI reload (`r`, `e`) in step with CLI rendering.
     if (cli_input.isMermaidSource(input_source.filePath(), content)) {
         const language = try allocator.dupe(u8, "mermaid");
         errdefer allocator.free(language);
@@ -56,31 +55,24 @@ pub const App = struct {
     tty: vaxis.Tty,
     tty_buffer: [4096]u8,
 
-    // Document state
     title: []const u8,
     input_source: args.Input,
     current_content: []u8,
     current_document: markdown.Document,
     editor_command: []const u8,
 
-    // View state
     pager: PagerView,
     view_mode: ViewMode,
     status_message: ?[]const u8,
     needs_redraw: bool,
 
-    // Mermaid layout override
     mermaid_layout: mermaid_types.ForceLayout,
 
-    // Subgraph frame-border notation (config value; a later live toggle may
-    // mutate it, mirroring `mermaid_layout`).
     mermaid_subgraph_edges: SubgraphEdges,
 
-    // Copy confirmation toast (top-right overlay, auto-dismissed after a delay).
     toast_message: ?[]u8,
     toast_deadline_ms: i64,
 
-    // Front matter metadata overlay (top-right panel toggled with `m`).
     metadata: MetadataOverlay,
 
     pub fn init(
@@ -123,7 +115,6 @@ pub const App = struct {
         self.pager.frontmatter_style = frontmatter_style;
 
         self.view_mode = .pager;
-        // Surface theme-resolution diagnostics in the status bar on startup.
         self.status_message = if (theme_warning) |w| try allocator.dupe(u8, w) else null;
         self.needs_redraw = true;
         self.toast_message = null;
@@ -150,7 +141,6 @@ pub const App = struct {
         try self.loop.start();
         try self.vx.enterAltScreen(writer);
 
-        // Detect Apple Terminal and enable legacy SGR mode for color support
         if (std.posix.getenv("TERM_PROGRAM")) |prg| {
             if (std.mem.eql(u8, prg, "Apple_Terminal")) {
                 self.vx.sgr = .legacy;
@@ -169,7 +159,6 @@ pub const App = struct {
             }
 
             const event = self.waitEvent() orelse {
-                // No event before the toast's deadline — dismiss it.
                 self.clearToast();
                 self.needs_redraw = true;
                 continue;
@@ -213,8 +202,6 @@ pub const App = struct {
             .quit => return true,
             .toggle_help => {
                 self.view_mode = if (self.view_mode == .help) .pager else .help;
-                // Keep overlays mutually exclusive so neither paints over the
-                // other (z-order): opening help closes the metadata overlay.
                 if (self.view_mode == .help) try self.setMetadataVisible(false);
             },
             .edit => {
@@ -239,8 +226,6 @@ pub const App = struct {
                 try self.handleSubgraphEdgesChange();
                 return false;
             },
-            // While the metadata overlay is open, navigation keys scroll it
-            // rather than the document underneath.
             .line_up => if (self.metadata.visible) self.metadata.scrollBy(-1) else self.pager.lineUp(),
             .line_down => if (self.metadata.visible) self.metadata.scrollBy(1) else self.pager.lineDown(),
             .page_up => if (self.metadata.visible) self.metadata.scrollBy(-@as(isize, @intCast(self.metadata.visible_rows))) else self.pager.pageUp(),
@@ -259,9 +244,6 @@ pub const App = struct {
     }
 
     fn handleMouse(self: *App, mouse: vaxis.Mouse) !void {
-        // The metadata overlay is modal over its own area: swallow clicks so
-        // they don't select the hidden document beneath it, and map the wheel
-        // to overlay scrolling.
         if (self.metadata.visible and self.metadata.contains(mouse)) {
             switch (mouse.button) {
                 .wheel_up => {
@@ -297,7 +279,6 @@ pub const App = struct {
                         self.needs_redraw = true;
                     },
                     .drag => {
-                        // Auto-scroll when the drag reaches the top/bottom edge.
                         if (mouse.row <= 0) {
                             self.pager.lineUp();
                         } else if (content_height > 0 and mouse.row >= @as(i16, @intCast(content_height - 1))) {
@@ -411,7 +392,6 @@ pub const App = struct {
     /// Draw the copy toast as a soft, themed panel in the top-right corner.
     fn drawToast(self: *App, root: vaxis.Window) !void {
         const message = self.toast_message orelse return;
-        // Box width = text + one space of padding each side + two borders.
         const message_width = unicode.rawDisplayWidth(message) catch |err| switch (err) {
             error.InvalidUtf8 => {
                 try self.setStatusMessage("Cannot show copy preview: invalid UTF-8.", false);
@@ -436,9 +416,6 @@ pub const App = struct {
         const style = theme.toastStyle(self.pager.resolved.accent, self.pager.resolved.base_bg);
         const x_off = root.width -| width;
 
-        // Fill the panel background, draw the rounded border over it, then print
-        // the text directly onto the root window. (Printing onto the bordered
-        // child window does not render reliably in this vaxis version.)
         const panel = root.child(.{ .x_off = x_off, .y_off = 0, .width = width, .height = height });
         panel.fill(.{ .style = style.fill });
         _ = root.child(.{
@@ -464,8 +441,6 @@ pub const App = struct {
     }
 
     fn handleToggleMetadata(self: *App) !void {
-        // `hidden` promises the front matter is stripped entirely (see
-        // config.zig); the overlay must not reveal it either.
         if (self.pager.frontmatter_style == .hidden) {
             try self.setStatusMessage("Front matter is hidden (frontmatter = hidden).", false);
             self.needs_redraw = true;
@@ -478,8 +453,6 @@ pub const App = struct {
         }
         try self.setMetadataVisible(!self.metadata.visible);
         if (self.metadata.visible) {
-            // Keep overlays mutually exclusive (z-order): opening metadata
-            // dismisses the help dialog.
             self.view_mode = .pager;
         }
         self.clearStatusMessage();
@@ -588,9 +561,6 @@ pub const App = struct {
 
         root.clear();
 
-        // Canvas: paint every cell's background with base_bg so blank cells and
-        // the padding to the right of each line read as a solid sheet. Printed
-        // segments carry the same bg (toVaxisSegments), so text cells match.
         if (self.pager.resolved.canvasBg()) |bg| {
             root.fill(.{ .style = .{ .bg = theme.toVaxisColor(bg) } });
         }
@@ -622,12 +592,8 @@ pub const App = struct {
             drawHelp(root);
         }
 
-        // Frame-scoped storage for text handed to vaxis: screen cells borrow
-        // the bytes until `vx.render` below has emitted them.
         var frame_arena = std.heap.ArenaAllocator.init(self.allocator);
         defer frame_arena.deinit();
-        // `hidden` keeps the front matter stripped (see config.zig); pass null
-        // so the overlay never reveals it.
         const overlay_fm = if (self.pager.frontmatter_style == .hidden) null else self.frontMatter();
         const theme_style = theme.metadataPanelStyle(self.pager.resolved.accent, self.pager.resolved.base_bg);
         const metadata_style: MetadataOverlay.PanelStyle = .{
@@ -658,8 +624,6 @@ pub const App = struct {
 /// Entry point for TUI mode - creates and runs the App
 pub fn run(allocator: std.mem.Allocator, title: []const u8, input_source: args.Input, initial_content: []const u8, editor_command: []const u8, resolved: *const ResolvedTheme, theme_warning: ?[]const u8, show_heading_markers: bool, frontmatter_style: config.FrontmatterStyle, initial_layout: mermaid_types.ForceLayout, initial_subgraph_edges: SubgraphEdges) !void {
     var app: App = undefined;
-    // `init` takes an out-pointer, so &self.current_document / &self.tty_buffer
-    // point at this stable `app` — no post-return fix-up needed.
     try app.init(allocator, title, input_source, initial_content, editor_command, resolved, theme_warning, show_heading_markers, frontmatter_style, initial_layout, initial_subgraph_edges);
     defer app.deinit();
     try app.run();
@@ -667,8 +631,6 @@ pub fn run(allocator: std.mem.Allocator, title: []const u8, input_source: args.I
 
 fn toVaxisSegments(allocator: std.mem.Allocator, line: render_model.Line, resolved: *const ResolvedTheme) ![]vaxis.Segment {
     const palette = resolved.styles;
-    // Canvas: spans without their own bg inherit base_bg so the row reads as a
-    // solid sheet (the filled window supplies the trailing/blank-cell bg).
     const canvas_bg = resolved.canvasBg();
     const segments = try allocator.alloc(vaxis.Segment, line.spans.len);
     for (line.spans, 0..) |span, index| {
@@ -726,11 +688,8 @@ test "toVaxisSegments uses the resolved preset palette (dracula, not dark)" {
 
     const dracula = theme_resolve.builtinResolved(allocator, "dracula");
     const dark = theme_resolve.builtinResolved(allocator, "dark");
-    // Presets must diverge, otherwise the wiring guard below is vacuous.
     try std.testing.expect(!std.meta.eql(dracula.styles.heading1.fg, dark.styles.heading1.fg));
 
-    // Every segment must be styled through the *passed* resolved palette, not a
-    // hardcoded dark one — this is the CLI/TUI-divergence guard (Correctness #2).
     const seg = try toVaxisSegments(allocator, rendered.lines[0], &dracula);
     defer allocator.free(seg);
     for (rendered.lines[0].spans, seg) |span, s| {
@@ -746,9 +705,7 @@ test "toast/metadata panel styles derive from the resolved preset accent" {
 
     const pink_toast = theme.toastStyle(pink.accent, pink.base_bg);
     const dark_toast = theme.toastStyle(dark.accent, dark.base_bg);
-    // Different presets must yield different toast border accents.
     try std.testing.expect(!std.meta.eql(pink_toast.border.fg, dark_toast.border.fg));
-    // The metadata panel shares the same accent but is non-bold.
     const pink_meta = theme.metadataPanelStyle(pink.accent, pink.base_bg);
     try std.testing.expectEqual(pink_toast.border.fg, pink_meta.border.fg);
     try std.testing.expect(!pink_meta.text.bold);
@@ -825,7 +782,6 @@ test "toggle metadata is refused when front matter is hidden" {
     defer app.deinit();
 
     try app.handleToggleMetadata();
-    // Hidden means stripped entirely — the overlay must not reveal it.
     try std.testing.expect(!app.metadata.visible);
     try std.testing.expect(app.status_message != null);
 }
@@ -856,7 +812,6 @@ test "opening the metadata overlay hides the inline front matter and closing res
     try app.handleToggleMetadata();
     try std.testing.expect(app.metadata.visible);
     try std.testing.expect(app.pager.suppress_frontmatter);
-    // The inline panel is gone from the canvas while the overlay shows it.
     try std.testing.expect(app.pager.lines.len < lines_with_frontmatter);
 
     try app.handleToggleMetadata();
@@ -866,7 +821,7 @@ test "opening the metadata overlay hides the inline front matter and closing res
 
 test "toggle metadata is refused when the document has no front matter" {
     const allocator = std.testing.allocator;
-    const content = "# Body only\n"; // no --- fenced block
+    const content = "# Body only\n";
     const rt = theme_resolve.builtinResolved(allocator, "dark");
     var app: App = undefined;
     try app.init(allocator, "fixture", .none, content, "vim", &rt, null, true, .panel, .auto, .bridge);

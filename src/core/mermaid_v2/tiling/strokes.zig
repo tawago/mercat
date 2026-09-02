@@ -49,7 +49,7 @@ fn axisPair(d: cell.Dir4) u4 {
 /// is the false-positive guard — a gutter between two boxes has different
 /// ids on its two sides, and a run alongside one box has fill on one side
 /// only.
-/// guarded-by: strokes_test.zig "interior: opposite-side fill of the same node fires, one side or two ids do not"
+/// @guarded-by: strokes_test.zig "interior: opposite-side fill of the same node fires, one side or two ids do not"
 pub fn inkInInterior(v: cell.View, x: u32, y: u32) bool {
     const pairs = [2][2]cell.Dir4{ .{ .north, .south }, .{ .east, .west } };
     for (pairs) |p| {
@@ -102,8 +102,6 @@ fn armPass(v: cell.View, x: u32, y: u32, t: cell.Typed, interior: bool, c: *coun
     for (cell.dirs) |d| {
         if (t.ink & cell.bit(d) == 0) continue;
         const n = v.arm(x, y, d) orelse {
-            // Off-grid: reconcile clears exactly this, so a survivor is a
-            // post-reconcile regression, not an unrepaired upstream mask.
             c.d_arm_dangling += 1;
             continue;
         };
@@ -118,10 +116,6 @@ fn armPass(v: cell.View, x: u32, y: u32, t: cell.Typed, interior: bool, c: *coun
                 c.d_arm_dangling += 1;
             },
             .stroke => if (n.mask & cell.bit(cell.reverse(d)) == 0) {
-                // Measurement only, and deliberately unguarded: every
-                // half-open pair the shipped mask holds is reported, on no
-                // theory of which side meant it. No pass closes such a
-                // pair, so this reads the picture as drawn.
                 c.m_arm_asym += 1;
             },
             .arrow, .glyph, .ring_node, .ring_frame => {},
@@ -211,8 +205,8 @@ const Verdict = enum { unlicensed, licensed, unevidenced };
 /// `value` has ink here that this Cell does not name", and the Cell's own
 /// surviving id supplies the other half of the pair the producer handed to
 /// the crossing rule. Any FOREIGN record decides, from either end.
-/// guarded-by: strokes_test.zig "fusion: only a JUNCTION cell's records answer, and either junction may"
-/// guarded-by: strokes_test.zig "fusion: precedence — any foreign record outranks a licensed one, in either order"
+/// @guarded-by: strokes_test.zig "fusion: only a JUNCTION cell's records answer, and either junction may"
+/// @guarded-by: strokes_test.zig "fusion: precedence — any foreign record outranks a licensed one, in either order"
 fn licence(t: cell.Typed, b: u32, n: cell.Typed, a: u32) Verdict {
     var seen_licensed = false;
     if (isJunction(t) and tally(t, b, &seen_licensed)) return .unlicensed;

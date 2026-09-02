@@ -186,7 +186,6 @@ pub const file_allowlists = [_]struct {
         .reason = "realized may only import std, prim, base/ledger, sketch, dispose, or realized_report",
     },
     .{
-        // The planner's report-only output vocabulary, split off at the cap.
         .name = "ledger/realized_report.zig",
         .allowed = &.{},
         .reason = "realized_report may only import std, prim, or base/ledger",
@@ -207,11 +206,6 @@ pub const file_allowlists = [_]struct {
         .reason = "realized_test2 may only import std, prim, base/ledger, sketch, sem_graph, parse, realized, invariants, permits, or select",
     },
     .{
-        // P2v Step 8 integration test file: drives the CI filter + terminal
-        // candidate through real reach geometry (fusing/complete unions),
-        // disposeUnsafe, and end-to-end render. A dedicated test file with a
-        // broad allowlist (test rows may be extended) rather than spreading
-        // across siblings that would each need new production-adjacent rows.
         .name = "ledger/disposition_test.zig",
         .allowed = &.{ .sem_graph, .sketch, .budget, .parse_zone, .raster_zone, .{ .exact = "permits.zig" }, .{ .exact = "realized.zig" }, .{ .exact = "invariants.zig" }, .{ .exact = "reach_vector.zig" }, .{ .exact = "reach_vector_test.zig" }, .{ .exact = "../select.zig" }, .{ .exact = "../paint.zig" } },
         .reason = "disposition_test may only import std, prim, base/ledger, sem_graph, sketch, budget, parse, permits, realized, invariants, reach_vector, reach_vector_test, select, raster, or paint",
@@ -292,11 +286,6 @@ pub const file_allowlists = [_]struct {
         .reason = "score_calibration_test may only import std, prim, sketch, or score",
     },
     .{
-        // Extension of the Sketch IR root: the pure port-share bundle
-        // derivation over EdgePath polylines. std + prim + base/ledger +
-        // sketch only — it may read the geometry and nothing else, so a
-        // bundle can never be claimed from layout intent or diagram
-        // semantics. `Rule.sketch` grants it wherever sketch.zig is granted.
         .name = "sketch_ports.zig",
         .allowed = &.{ .sketch, .{ .exact = "sketch_ports_test.zig" } },
         .reason = "sketch_ports may only import std, prim, base/ledger, sketch, or sketch_ports_test",
@@ -307,10 +296,6 @@ pub const file_allowlists = [_]struct {
         .reason = "sketch_ports_test may only import std, prim, base/ledger, sketch, sketch_ports, or sketch_bundles",
     },
     .{
-        // Extension of the Sketch IR root: bundle identity stamped over a
-        // FINISHED bundle list. std + prim + base/ledger + sketch only — it
-        // reads no geometry beyond the tap edge ids that key a rail to its
-        // set, so a bundle can never be named from layout intent.
         .name = "sketch_bundles.zig",
         .allowed = &.{ .sketch, .{ .exact = "sketch_bundles_test.zig" } },
         .reason = "sketch_bundles may only import std, prim, base/ledger, sketch, or sketch_bundles_test",
@@ -326,8 +311,6 @@ pub const file_allowlists = [_]struct {
         .reason = "budget_types may only import std, prim, sem_graph, sketch, or budget",
     },
     .{
-        // Cap-forced split of select.zig: the label-placement policy axis
-        // (both candidate variants) + the motif-pack graph rewrite.
         .name = "select_labels.zig",
         .allowed = &.{ .sem_graph, .sketch, .budget, .{ .exact = "score.zig" }, .{ .exact = "motif.zig" }, .{ .exact = "select_test3.zig" } },
         .reason = "select_labels may only import std, prim, base/ledger, sem_graph, sketch, budget, score, motif, or select_test3",
@@ -343,10 +326,6 @@ pub const file_allowlists = [_]struct {
         .reason = "select may only import std, prim, base/ledger, sem_graph, sketch, budget, score, motif, audit, ledger/realized, ledger/invariants, ledger/reach_vector, select_filter, select_labels, or parse",
     },
     .{
-        // P2v Step 8 cap-forced split of select.zig (plan's "Lint: None" line
-        // could not hold once the filter + terminal candidate + `excluded`
-        // surface pushed select.zig over the 500-line cap). Strict subset of
-        // select.zig's imports: no score/audit/motif/sketch/invariants.
         .name = "select_filter.zig",
         .allowed = &.{ .sem_graph, .budget, .{ .exact = "sketch_bundles.zig" }, .{ .exact = "ledger/realized.zig" }, .{ .exact = "ledger/reach_vector.zig" } },
         .reason = "select_filter may only import std, prim, base/ledger, sem_graph, budget, sketch_bundles, ledger/realized, or ledger/reach_vector",
@@ -434,9 +413,6 @@ pub const file_allowlists = [_]struct {
         .reason = "tiling/rails_test may only import std, prim, base/*, sketch, lattice, rails, cell, or counts",
     },
     .{
-        // The bundle-identity tier: roster + carrier records only. It may
-        // NOT reach the raster that filed those records, so the comparison it
-        // publishes is over shipped data and never over a re-run decision.
         .name = "tiling/bundles.zig",
         .allowed = &.{ .sketch, .{ .exact = "cell.zig" }, .{ .exact = "counts.zig" } },
         .reason = "tiling/bundles may only import std, prim, base/*, sketch, cell, or counts",
@@ -447,9 +423,6 @@ pub const file_allowlists = [_]struct {
         .reason = "tiling/bundles_test may only import std, prim, base/*, sketch, lattice, bundles, cell, or counts",
     },
     .{
-        // Cap-forced split of counts.zig: the reflection-driven printer. It
-        // names no field and imports no sibling, so the taxonomy can grow
-        // without it changing at all.
         .name = "tiling/counts_line.zig",
         .allowed = &.{},
         .reason = "tiling/counts_line may only import std",
@@ -465,8 +438,6 @@ pub const file_allowlists = [_]struct {
         .reason = "tiling/scan may only import std, prim, base/*, sem_graph, sketch, lattice, or tiling siblings",
     },
     .{
-        // The ink-attribution-state conformance tier: recorded state vs the retained
-        // re-derivation, compared and counted (contracts item 6 shape).
         .name = "tiling/state.zig",
         .allowed = &.{ .{ .exact = "../lattice.zig" }, .{ .exact = "cell.zig" }, .{ .exact = "counts.zig" } },
         .reason = "tiling/state may only import std, prim, base/*, lattice, cell, or counts",
@@ -576,31 +547,17 @@ pub const file_allowlists = [_]struct {
 pub fn checkImport(rel_path: []const u8, target: []const u8) ?[]const u8 {
     const sep = std.fs.path.sep;
 
-    // "std", "prim", and the Unicode authority (named modules) are always
-    // allowed. The "prim" named
-    // module now resolves to base/types.zig (see build.zig); the name is kept.
     if (std.mem.eql(u8, target, "std")) return null;
     if (std.mem.eql(u8, target, "prim")) return null;
     if (std.mem.eql(u8, target, "unicode")) return null;
 
-    // Anything under base/ (types.zig / lanes.zig / ledger.zig /
-    // diagnostics.zig) is importable from every zone — the no-deps tier —
-    // mirroring the retired per-file universal exemptions the base-tier
-    // modules used to carry. Matches
-    // "base/types.zig", "../base/lanes.zig", "base/ledger.zig", etc. base/
-    // files' OWN rule (std + base siblings only) is the in_base_dir zone block
-    // below.
     if (std.mem.indexOf(u8, target, "base/") != null) return null;
 
-    // The construction-time rail gate is owned by semantic permit discovery
-    // and consumed only at the two layout commitment points.
     if ((std.mem.eql(u8, rel_path, "layout/fan.zig") or std.mem.eql(u8, rel_path, "layout/bundle_commit.zig")) and
         std.mem.eql(u8, target, "../ledger/permits.zig")) return null;
 
-    // entry.zig — composition root, may import anything.
     if (std.mem.eql(u8, rel_path, "entry.zig")) return null;
 
-    // Root-level single-file zones: table-driven (see `file_allowlists`).
     for (file_allowlists) |fa| {
         if (!std.mem.eql(u8, rel_path, fa.name)) continue;
         for (fa.allowed) |rule| {
@@ -609,7 +566,6 @@ pub fn checkImport(rel_path: []const u8, target: []const u8) ?[]const u8 {
         return fa.reason;
     }
 
-    // Determine the zone of the file being checked.
     const in_parse_dir = std.mem.startsWith(u8, rel_path, "parse" ++ &[_]u8{sep});
     const in_layout_dir = std.mem.startsWith(u8, rel_path, "layout" ++ &[_]u8{sep});
     const in_cluster_dir = std.mem.startsWith(u8, rel_path, "cluster" ++ &[_]u8{sep});
@@ -619,9 +575,6 @@ pub fn checkImport(rel_path: []const u8, target: []const u8) ?[]const u8 {
 
     const is_parse_zone = std.mem.eql(u8, rel_path, "parse.zig") or in_parse_dir;
     const is_layout_zone = std.mem.eql(u8, rel_path, "layout.zig") or in_layout_dir;
-    // The cluster zone is folder-only (no `cluster.zig` root file): pure
-    // cut/glue helpers that read SemGraph and edit Sketch, same level as
-    // layout/. Only the driver (budget.zig) may import it.
     const is_cluster_zone = in_cluster_dir;
     const is_raster_zone = std.mem.eql(u8, rel_path, "raster.zig") or in_raster_dir;
     const is_paint_zone = std.mem.eql(u8, rel_path, "paint.zig") or in_paint_dir;
@@ -630,108 +583,71 @@ pub fn checkImport(rel_path: []const u8, target: []const u8) ?[]const u8 {
     const is_lattice = std.mem.eql(u8, rel_path, "lattice.zig");
     const in_base_dir = std.mem.startsWith(u8, rel_path, "base" ++ &[_]u8{sep});
 
-    // base/ files (the no-deps tier): std (above), the "prim" named module
-    // (above), any base/ target (above), and base/ siblings by bare basename.
     if (in_base_dir) {
         if (!std.mem.startsWith(u8, target, "..") and std.mem.endsWith(u8, target, ".zig")) return null;
         return "base/ files may import only std and base/ siblings";
     }
 
-    // Helper: does `target` resolve to one of the named root IR files?
-    // Handles both direct ("sem_graph.zig") and parent-relative ("../sem_graph.zig") forms.
-    // (The single-file zones above match the same patterns via `Rule.allows`.)
     const tgt_is_sem_graph = Rule.allows(.sem_graph, target);
     const tgt_is_sketch = Rule.allows(.sketch, target);
     const tgt_is_lattice = std.mem.endsWith(u8, target, "lattice.zig");
 
-    // sem_graph.zig, sketch.zig, lattice.zig: std + prim + base/* (handled above).
     if (is_sem_graph or is_sketch or is_lattice) {
-        // Only std, prim allowed (already checked above).
         return "IR root file (sem_graph/sketch/lattice) may only import std and prim";
     }
 
-    // parse zone: std, prim, sem_graph, and internal parse/* siblings.
     if (is_parse_zone) {
         if (tgt_is_sem_graph) return null;
-        // Internal parse siblings (from parse.zig: "parse/lexer.zig", "parse/parse_test.zig";
-        // from parse/: bare names like "lexer.zig", "../parse.zig").
-        if (std.mem.startsWith(u8, target, "parse/")) return null; // parse root → subdir
-        if (!std.mem.startsWith(u8, target, "..") and std.mem.endsWith(u8, target, ".zig")) return null; // sibling basename
-        if (std.mem.eql(u8, target, "../parse.zig")) return null; // subfile → parse root
+        if (std.mem.startsWith(u8, target, "parse/")) return null;
+        if (!std.mem.startsWith(u8, target, "..") and std.mem.endsWith(u8, target, ".zig")) return null;
+        if (std.mem.eql(u8, target, "../parse.zig")) return null;
         return "parse zone may only import std, prim, sem_graph, or parse-internal files";
     }
 
-    // layout zone: std, prim, sem_graph, sketch, and internal layout/* siblings.
     if (is_layout_zone) {
         if (tgt_is_sem_graph) return null;
         if (tgt_is_sketch) return null;
-        // Internal layout siblings.
-        if (std.mem.startsWith(u8, target, "layout/")) return null; // layout root → subdir
-        if (!std.mem.startsWith(u8, target, "..") and std.mem.endsWith(u8, target, ".zig")) return null; // sibling basename
-        if (std.mem.eql(u8, target, "../layout.zig")) return null; // layout/layout_test.zig → layout.zig
+        if (std.mem.startsWith(u8, target, "layout/")) return null;
+        if (!std.mem.startsWith(u8, target, "..") and std.mem.endsWith(u8, target, ".zig")) return null;
+        if (std.mem.eql(u8, target, "../layout.zig")) return null;
         return "layout zone may only import std, prim, sem_graph, sketch, or layout-internal files";
     }
 
-    // cluster zone: pure data cut/glue. std, prim, sem_graph, sketch, and
-    // internal cluster/* siblings ONLY. Physically cannot reach right/up
-    // (layout, budget, raster, paint all rejected) — the driver does the
-    // running, cluster/ only transforms data.
     if (is_cluster_zone) {
         if (tgt_is_sem_graph) return null;
         if (tgt_is_sketch) return null;
-        // Sibling basename imports inside cluster/.
         if (!std.mem.startsWith(u8, target, "..") and std.mem.endsWith(u8, target, ".zig")) return null;
         return "cluster zone may only import std, prim, sem_graph, sketch, or cluster-internal files";
     }
 
-    // motif zone: the pure-data MotifTree (IR 1.5) decomposition (Phase 3a
-    // of the integrity-gated-search work). IR-leaf rule:
-    // std, prim, sem_graph, and motif-internal files ONLY — it may
-    // NOT reach layout/ (its cycle removal is a local reimplementation) nor
-    // cluster/ (membership semantics are mirrored, not imported).
     if (std.mem.eql(u8, rel_path, "motif.zig") or in_motif_dir) {
         if (tgt_is_sem_graph) return null;
-        if (std.mem.startsWith(u8, target, "motif/")) return null; // motif root → subdir
-        if (in_motif_dir and !std.mem.startsWith(u8, target, "..") and std.mem.endsWith(u8, target, ".zig")) return null; // sibling basename
-        if (std.mem.eql(u8, target, "../motif.zig")) return null; // subfile → motif root
+        if (std.mem.startsWith(u8, target, "motif/")) return null;
+        if (in_motif_dir and !std.mem.startsWith(u8, target, "..") and std.mem.endsWith(u8, target, ".zig")) return null;
+        if (std.mem.eql(u8, target, "../motif.zig")) return null;
         return "motif zone may only import std, prim, sem_graph, or motif-internal files";
     }
 
-    // tiling zone: the report-only dark structural audit over the FINAL
-    // lattice. LATTICE-ONLY by default; Sketch/SemGraph are granted per-file
-    // (file_allowlists) to expect/scan and their tests only, so an ink law
-    // can never quietly become expectation-driven. Nothing but entry.zig
-    // imports tiling/ (every other zone rejects "../tiling/..." targets),
-    // and no tiling file can reach raster/, select, score or paint — the
-    // audit is physically incapable of steering the pipeline.
     if (std.mem.startsWith(u8, rel_path, "tiling" ++ &[_]u8{sep})) {
         if (tgt_is_lattice) return null;
         if (!std.mem.startsWith(u8, target, "..") and std.mem.endsWith(u8, target, ".zig")) return null;
         return "tiling zone may only import std, prim, base/*, lattice, or tiling-internal files";
     }
 
-    // raster zone: std, prim, sketch, lattice, and internal raster/* siblings.
     if (is_raster_zone) {
         if (tgt_is_sketch) return null;
         if (tgt_is_lattice) return null;
-        // Internal raster siblings.
-        if (std.mem.startsWith(u8, target, "raster/")) return null; // raster root → subdir
-        if (!std.mem.startsWith(u8, target, "..") and std.mem.endsWith(u8, target, ".zig")) return null; // sibling basename
+        if (std.mem.startsWith(u8, target, "raster/")) return null;
+        if (!std.mem.startsWith(u8, target, "..") and std.mem.endsWith(u8, target, ".zig")) return null;
         return "raster zone may only import std, prim, sketch, lattice, or raster-internal files";
     }
 
-    // paint zone: std, prim, lattice, and internal paint/* siblings.
     if (is_paint_zone) {
         if (tgt_is_lattice) return null;
-        // Internal paint siblings.
-        if (std.mem.startsWith(u8, target, "paint/")) return null; // paint root → subdir
-        if (!std.mem.startsWith(u8, target, "..") and std.mem.endsWith(u8, target, ".zig")) return null; // sibling basename
+        if (std.mem.startsWith(u8, target, "paint/")) return null;
+        if (!std.mem.startsWith(u8, target, "..") and std.mem.endsWith(u8, target, ".zig")) return null;
         return "paint zone may only import std, prim, lattice, or paint-internal files";
     }
 
-    // Defensive: any file in an unrecognised folder reaches here. It must
-    // NOT be silently exempt from every rule (that would make a new zone
-    // like cluster/ unrestricted if its allowlist branch were forgotten).
-    // The known zones above all return before this point.
     return "file is in no known zone (add a zone allowlist in checkImport)";
 }

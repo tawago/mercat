@@ -39,15 +39,10 @@ const ep = @import("edges_port.zig");
 const aux = @import("aux.zig");
 const prim = @import("prim");
 
-// Scoped logger: collision/skip diagnostics stay .debug (silent in release
-// unless a developer opts in via `-Dlog_level=debug` or a debug build).
 const log = std.log.scoped(.@"mermaid_v2.raster.edges");
 
 pub const RasterError = error{ OutOfMemory, OutOfBounds, MalformedPolyline };
 
-// Re-exports of the cell-writer + geometry primitives (moved to
-// `edges_write.zig` to keep this file under the 500-line cap). Kept `pub`
-// so `raster/rails.zig` and the raster tests reach them as `edges.<name>`.
 pub const Move = ew.Move;
 pub const straightMask = ew.straightMask;
 pub const bitMask = ew.bitMask;
@@ -96,7 +91,7 @@ const EdgeWalkResult = struct {
     /// POST-SLIDE (`edges_port.slideHead`). Derived once here and handed
     /// both to the port writers and to `rasterizeEdges`' stamp: nothing
     /// downstream re-derives a head position from the polyline.
-    /// guarded-by: edges_slide_test.zig "a decorated gap arrival stamps its head against the wall, run ink behind it"
+    /// @guarded-by: edges_slide_test.zig "a decorated gap arrival stamps its head against the wall, run ink behind it"
     source_head: ?ep.Head = null,
     target_head: ?ep.Head = null,
 };
@@ -162,7 +157,7 @@ fn claimCornerCell(
 /// Walk a single polyline.
 ///
 /// Corner-cell convention: at a turn A → B, corner neighbours =
-/// `bitMask(reverse(A)) | bitMask(B)` (guarded-by: edges_corner_test.zig
+/// `bitMask(reverse(A)) | bitMask(B)` (@guarded-by: edges_corner_test.zig
 /// "L-shaped corner has reverse-incoming + outgoing bits").
 fn walkPolyline(
     lat: *lattice.Lattice,
@@ -181,7 +176,7 @@ fn walkPolyline(
         return .{};
     }
 
-    // Count non-trivial segments so we know which is "last". // guarded-by: edges_test.zig "edge cells colliding with node-owned cells are counted as lost"
+    // Count non-trivial segments so we know which is "last". // @guarded-by: edges_test.zig "edge cells colliding with node-owned cells are counted as lost"
     var nontrivial: usize = 0;
     {
         var i: usize = 0;
@@ -221,7 +216,7 @@ fn walkPolyline(
         // shared rail corner (e.g. an undetected fan's sibling drops all
         // bend at the source column): the OR-merge onto a foreign owner
         // must not carry a spurious straight bit, or the rail renders `┼`
-        // instead of `┴`. // guarded-by: edges_corner_test.zig "shared rail corner: sibling drops bending at one cell yield ┴, not a phantom ┼"
+        // instead of `┴`. // @guarded-by: edges_corner_test.zig "shared rail corner: sibling drops bending at one cell yield ┴, not a phantom ┼"
         if (prev_dir) |prev| {
             if (pointInBounds(a, lat)) {
                 const c = toCoord(a);
@@ -229,9 +224,6 @@ fn walkPolyline(
                 const corner_mask = orMask(bitMask(reverse(prev)), bitMask(dir));
                 switch (cell.occupant) {
                     .edge_segment => |seg| {
-                        // A corner arm onto a FOREIGN run is never a clean
-                        // transversal — a tee here asserts a branch-off (transversal ruling).
-                        // Keep the first writer untouched; record the event.
                         if (seg.edge != edge.id and crossings.segmentOverlap(
                             ctx.counts,
                             ctx.bundles,
@@ -242,10 +234,6 @@ fn walkPolyline(
                             corner_mask,
                             crossings.cellAt(c.x, c.y),
                         )) {
-                            // No foreign junction ink — and with the corner
-                            // arm refused, nothing on the cell records that
-                            // this edge turns here. Two paths co-locate
-                            // unjoined: the ink-attribution crossing state.
                             cell.upgradeState(.crossing);
                             ew.recordCarrier(rec, c.x, c.y, edge.id, .suppressed);
                         } else {
@@ -258,10 +246,7 @@ fn walkPolyline(
                             // would drop the first visit's arms and sever the
                             // edge from itself — the corner turns here, it
                             // does not start here.
-                            // guarded-by: edges_corner_test.zig "a route that doubles back keeps both visits' arms at the cell it re-enters"
-                            // Ink-attribution state at the merge decision: a foreign
-                            // corner arm that lands changes the owner set
-                            // (junction); bits already present are a rider.
+                            // @guarded-by: edges_corner_test.zig "a route that doubles back keeps both visits' arms at the cell it re-enters"
                             if (!own) {
                                 const grows = (cell.neighbours.toMask() | corner_mask.toMask()) != cell.neighbours.toMask();
                                 cell.upgradeState(if (grows) .junction else .rail_interior);
@@ -277,9 +262,7 @@ fn walkPolyline(
                             // corner arm goes into the mask, the cell keeps the
                             // first writer's id, and nothing on it says this
                             // edge turns here.
-                            // guarded-by: aux_test.zig "a corner arm merged onto a foreign run files a merged carrier; onto its own ink, nothing"
-                            // `segmentOverlap` false with a FOREIGN owner is
-                            // `sameBundle` true — the licence, verbatim.
+                            // @guarded-by: aux_test.zig "a corner arm merged onto a foreign run files a merged carrier; onto its own ink, nothing"
                             if (!own) ew.recordCarrier(rec, c.x, c.y, edge.id, .merged_licensed);
                             fan_roles.markShared(rec, cell, c.x, c.y, edge.id, erole);
                         }
@@ -294,43 +277,18 @@ fn walkPolyline(
                             // border would weld a tee (border {e,w} + corner
                             // arms → ┼/├/┤) INTO the frame. Refuse — the frame
                             // stays continuous, the corner contributes no bits.
-                            // guarded-by: edges_test.zig "corner arm onto a subgraph frame border is refused"
+                            // @guarded-by: edges_test.zig "corner arm onto a subgraph frame border is refused"
                             ctx.counts.b_border_fusion_refused += 1;
-                            // The border cell comes out of the refusal
-                            // pristine, so nothing on the grid records that
-                            // this edge ever reached it.
                             ew.recordIntrusion(rec, c.x, c.y, edge.id, .fusion_refused);
                         } else {
-                            // `.cross` mode is owner-ruled-legal, standing law
-                            // (the layout-boundary spec's dual-notation ruling; owner ruling
-                            // 2026-07-19) — a co-equal rendering mode, not a
-                            // deprecated fallback kept only for byte-compat.
-                            // `.cross` mode: the pre-Slice-1 behavior — weld the
-                            // corner into the frame exactly as the old combined
-                            // `.empty, .cluster_border` arm did (occupant/mask/
-                            // stroke_kind identical to `.empty`). Reached only
-                            // when a corner lands on a still-pristine border
-                            // cell; the common case (a prior through-segment
-                            // already converted the cell to `.edge_segment`) is
-                            // handled by the `.edge_segment` arm above and the
-                            // welded OUTCOME is pinned by edges_test.zig
-                            // "cross mode: corner arm onto a subgraph frame
-                            // border welds a tee (pre-slice-1)". The weld is
-                            // byte-identical to the `.empty` claim, so it shares
-                            // `claimCornerCell` (structural equivalence).
                             claimCornerCell(cell, edge.id, ek, erole, corner_mask);
                         }
                     },
                     else => {
-                        // Arrowhead here → refuse (arrowhead sanctity); node/label → normal
-                        // loss accounting inside writeEdgeCell.
                         if (crossingKeepsFirstWriter(cell, edge.id, corner_mask, crossings.cellAt(c.x, c.y), ctx)) {
                             cell.upgradeState(.crossing);
                             ew.recordCarrier(rec, c.x, c.y, edge.id, .suppressed);
                         } else {
-                            // `crossingKeepsFirstWriter` false on an arrowhead
-                            // occupant is `sameBundle` true; the node/label
-                            // arms file no carrier at all.
                             writeEdgeCell(cell, edge.id, ek, erole, corner_mask, c.x, c.y, cells_lost, .merged_licensed, rec);
                             fan_roles.markShared(rec, cell, c.x, c.y, edge.id, erole);
                         }
@@ -350,7 +308,7 @@ fn walkPolyline(
                 // this is the only place last_dir is set for it; recording
                 // `prev` here would orient the arrowhead sideways, floating
                 // it beside the box instead of into the port.
-                // guarded-by: edges_test.zig "length-1 final segment after a corner points the terminal arrowhead into the port"
+                // @guarded-by: edges_test.zig "length-1 final segment after a corner points the terminal arrowhead into the port"
                 result.last_dir = if (is_last) dir else prev;
             }
         }
@@ -361,7 +319,7 @@ fn walkPolyline(
         // writer above owns (drawing it straight here would leave a phantom
         // perpendicular arm at shared corners — see that comment). `a` is
         // skipped automatically since we start at step(a, dir).
-        // guarded-by: edges_test.zig "edge cells colliding with node-owned cells are counted as lost"
+        // @guarded-by: edges_test.zig "edge cells colliding with node-owned cells are counted as lost"
         var cursor = step(a, dir);
         while (true) {
             const at_b = cursor.x == b.x and cursor.y == b.y;
@@ -381,30 +339,17 @@ fn walkPolyline(
                 // through the skipped cell so the downstream arrowhead
                 // placement is unaffected. In `.cross` mode this whole clause
                 // is bypassed and the border is welded (pre-Slice-1 behavior).
-                // guarded-by: edges_test.zig "through-crossing bridges a subgraph frame border"
-                // guarded-by: edges_test.zig "cross mode: through-crossing welds the frame border (pre-slice-1)"
+                // @guarded-by: edges_test.zig "through-crossing bridges a subgraph frame border"
+                // @guarded-by: edges_test.zig "cross mode: through-crossing welds the frame border (pre-slice-1)"
                 const nxt = step(cursor, dir);
                 const terminal_here = is_last and nxt.x == b.x and nxt.y == b.y;
-                // Crossing rule (transversal + arrowhead sanctity): a foreign perpendicular straight-through
-                // reads as a transversal — the crossed run keeps its stroke and
-                // this edge contributes NO bits to the cell (it resumes on the
-                // opposite side). A foreign collinear/arrowhead overlap is
-                // likewise refused. Geometry is unchanged, so first/last cursors
-                // still track this edge's path for arrowhead placement.
                 if (ctx.mode == .bridge and cell.occupant == .cluster_border and !terminal_here) {
                     ctx.counts.b_frame_bridge += 1;
-                    // The frame stays continuous and this edge leaves no
-                    // bits, so the crossing is invisible on the grid.
                     ew.recordIntrusion(rec, c.x, c.y, edge.id, .bridge);
                 } else if (crossingKeepsFirstWriter(cell, edge.id, straightMask(dir), crossings.cellAt(c.x, c.y), ctx)) {
                     cell.upgradeState(.crossing);
                     ew.recordCarrier(rec, c.x, c.y, edge.id, .suppressed);
                 } else {
-                    // `.cross` mode is owner-ruled-legal, standing law (spec
-                    // the layout-boundary spec's dual-notation ruling; owner ruling 2026-07-19) —
-                    // not retired/deprecated. It falls through here: writeEdgeCell's
-                    // `.cluster_border` arm still holds the pre-Slice-1
-                    // overwrite+OR merge (junction weld) — byte-identical.
                     writeEdgeCell(cell, edge.id, ek, erole, straightMask(dir), c.x, c.y, cells_lost, .merged_licensed, rec);
                     fan_roles.markShared(rec, cell, c.x, c.y, edge.id, erole);
                 }
@@ -432,7 +377,7 @@ fn walkPolyline(
     // foreign one). An undecorated end passes null and always merges. The
     // border cells (`pts[0]`/`pts[len-1]`) are the two positions the walk
     // never writes, so drawing the ports after it is order-independent.
-    // guarded-by: edges_port_test.zig "a head adjacent to the wall but pointing ALONG the route still tees it"
+    // @guarded-by: edges_port_test.zig "a head adjacent to the wall but pointing ALONG the route still tees it"
     //
     // THE SLIDE (`ep.slideHead`), applied here before either use: when the
     // polyline stops one cell short of a mergeable face, the head moves
@@ -440,7 +385,7 @@ fn walkPolyline(
     // arrowhead is terminal and ink on its tip side is never legal. The cell
     // it vacates keeps the run ink the walk wrote there, and the slid tip
     // faces the border, so the facing gate leaves the wall plain.
-    // guarded-by: edges_slide_test.zig "a decorated gap arrival stamps its head against the wall, run ink behind it"
+    // @guarded-by: edges_slide_test.zig "a decorated gap arrival stamps its head against the wall, run ink behind it"
     if (edge.arrow_from != .none) if (result.first_cell) |fc| if (result.first_dir) |fd| {
         result.source_head = ep.slideHead(lat, pts[0], .{ .cell = fc, .dir = reverse(fd) });
     };
@@ -463,13 +408,11 @@ pub fn rasterizeEdges(
     subgraph_edges: prim.SubgraphEdges,
     sink: aux.Sink,
 ) RasterError!EdgeRasterReport {
-    _ = allocator; // reserved
+    _ = allocator;
     var written: u32 = 0;
     var cells_lost: u32 = 0;
     var heads_lost: u32 = 0;
     var cross_counts: crossings.CrossingCounts = .{};
-    // The per-cell writers hold a `*Cell`, never the grid; the recorder
-    // carries the width they need to key a record positionally.
     const rec = aux.Recorder.init(sink, lat);
     const ctx: crossings.Ctx = .{
         .bundles = s.bundles,
@@ -482,10 +425,6 @@ pub fn rasterizeEdges(
     for (s.edges) |edge| {
         const r = try walkPolyline(lat, edge, &cells_lost, ctx, sink, rec);
 
-        // Both heads are stamped at the POST-SLIDE cell and tip direction
-        // the walk resolved (`EdgeWalkResult.source_head`/`target_head`) —
-        // the very pair the port gate saw, so gate and glyph cannot
-        // disagree about where the tip is or which way it looks.
         if (r.target_head) |h| {
             if (pointInBounds(h.cell, lat)) {
                 const c = toCoord(h.cell);
@@ -502,10 +441,6 @@ pub fn rasterizeEdges(
         if (r.first_cell != null) written += 1;
     }
 
-    // The fan-OUT strip, from the Sketch's own pivot geometry — the last
-    // producer-derived fact about fan ink, and the only one that needs the
-    // whole walk finished (both arms of a junction must exist before either
-    // can be judged). Roles themselves were stamped as the ink landed.
     fan_roles.resolveMasks(lat, s);
 
     return .{ .edges_written = written, .cells_lost = cells_lost, .heads_lost = heads_lost, .crossings = cross_counts };

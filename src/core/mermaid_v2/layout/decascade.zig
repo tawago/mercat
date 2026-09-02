@@ -47,7 +47,7 @@ pub fn deCascade(
 ) error{OutOfMemory}!void {
     _ = graph;
     const nl = lg.layers.len;
-    if (nl < 3) return; // need a parent + ≥2 chain layers.
+    if (nl < 3) return;
 
     var margin: i32 = std.math.maxInt(i32);
     for (lg.nodes, 0..) |ln, i| {
@@ -55,7 +55,7 @@ pub fn deCascade(
     }
     if (margin == std.math.maxInt(i32)) return;
 
-    // ---- 1. Anchor on the MOST-drifted single-node-layer rail node, not the first-drifted one. // guarded-by: decascade_test.zig "deCascade anchors on the most-drifted rail, not the first-drifted one"
+    // ---- 1. Anchor on the MOST-drifted single-node-layer rail node, not the first-drifted one. // @guarded-by: decascade_test.zig "deCascade anchors on the most-drifted rail, not the first-drifted one"
     var seed_idx: ?u32 = null;
     var best_drift: i32 = MIN_DRIFT;
     {
@@ -71,38 +71,33 @@ pub fn deCascade(
     }
     const seed = seed_idx orelse return;
 
-    // Climb UP through single-parent rail links to the true head, stopping before a multi-node fork layer rather than climbing through it. // guarded-by: decascade_test.zig "deCascade head climb stops exactly at a multi-node fork layer"
+    // Climb UP through single-parent rail links to the true head, stopping before a multi-node fork layer rather than climbing through it. // @guarded-by: decascade_test.zig "deCascade head climb stops exactly at a multi-node fork layer"
     var head = seed;
     while (true) {
         const p = soleForwardParent(lg, head) orelse break;
         if (geom[p].layer + 1 != geom[head].layer) break;
-        if (soleRealNode(lg, geom[p].layer) == null) break; // parent layer forks
-        if (soleForwardChild(lg, p) == null) break; // parent forks downward
+        if (soleRealNode(lg, geom[p].layer) == null) break;
+        if (soleForwardChild(lg, p) == null) break;
         head = p;
     }
-    // The head must hang off a parent in the layer above; a true source with no such parent is already the left edge and this is a no-op. // guarded-by: decascade_test.zig "deCascade no-ops when the drifted rail head is a true source (no forward parent)"
+    // The head must hang off a parent in the layer above; a true source with no such parent is already the left edge and this is a no-op. // @guarded-by: decascade_test.zig "deCascade no-ops when the drifted rail head is a true source (no forward parent)"
     if (soleForwardParent(lg, head) == null) return;
     const lo: usize = geom[head].layer;
 
-    // The bottom may fork; the fork subtree rides along in the flood below.
-    var hi = lo; // last chain layer index
+    var hi = lo;
     var cur = head;
     while (true) {
         const next = soleForwardChild(lg, cur) orelse break;
-        // `next` must be the sole real node of its layer to keep the rail straight; otherwise the chain ends at `cur`. // guarded-by: decascade_test.zig "deCascade rail walk stops at a branch instead of treating it as rail-straight"
+        // `next` must be the sole real node of its layer to keep the rail straight; otherwise the chain ends at `cur`. // @guarded-by: decascade_test.zig "deCascade rail walk stops at a branch instead of treating it as rail-straight"
         if (soleRealNode(lg, geom[next].layer) == null) break;
         if (geom[next].layer != geom[cur].layer + 1) break;
         hi = geom[next].layer;
         cur = next;
     }
 
-    // A genuine CASCADE needs a RUN of ≥ 2 consecutive single-node layers; a lone drifted single-node layer (hi == lo) is not a cascade. // guarded-by: decascade_test.zig "deCascade does not fire for a lone drifted single-node layer (hi==lo)"
+    // A genuine CASCADE needs a RUN of ≥ 2 consecutive single-node layers; a lone drifted single-node layer (hi == lo) is not a cascade. // @guarded-by: decascade_test.zig "deCascade does not fire for a lone drifted single-node layer (hi==lo)"
     if (hi <= lo) return;
 
-    // ---- 3. Flood the rigid unit: every node reachable downward (forward
-    //         edges) from the chain nodes, staying in layers ≥ lo. Includes
-    //         the chain itself, the bottom fork's children + their subtree,
-    //         and any virtual waypoints those edges thread. ------------------
     const n = lg.nodes.len;
     const in_unit = try a.alloc(bool, n);
     defer a.free(in_unit);
@@ -124,24 +119,19 @@ pub fn deCascade(
             c = next;
         }
     }
-    // Flood forward from the rail bottom over forward edges, staying in layers ≥ lo so we never pull a node above the run. // guarded-by: decascade_test.zig "deCascade flood-forward never pulls a node above the run into the unit"
+    // Flood forward from the rail bottom over forward edges, staying in layers ≥ lo so we never pull a node above the run. // @guarded-by: decascade_test.zig "deCascade flood-forward never pulls a node above the run into the unit"
     while (stack.pop()) |node| {
         for (lg.edges) |e| {
             if (e.from != node) continue;
-            if (e.reversed) continue; // back-edges route around; don't drag targets
+            if (e.reversed) continue;
             const t = e.to;
             if (in_unit[t]) continue;
-            if (geom[t].layer < lo) continue; // would pull above the run
+            if (geom[t].layer < lo) continue;
             in_unit[t] = true;
             try stack.append(a, t);
         }
     }
 
-    // ---- 4. Compute the rigid leftward delta and apply it. -----------------
-    // Min x over the unit's real nodes = the unit's left edge; slide it to the
-    // margin. Clamp so the head never crosses left of its parent's center, so
-    // the entry connector (parent → head) stays a clean vertical/elbow rather
-    // than reversing into a rightward jog.
     var unit_min: i32 = std.math.maxInt(i32);
     for (lg.nodes, 0..) |ln, i| {
         if (ln == .real and in_unit[i] and geom[i].x < unit_min) unit_min = geom[i].x;
@@ -149,9 +139,9 @@ pub fn deCascade(
     if (unit_min == std.math.maxInt(i32)) return;
 
     var delta = margin - unit_min;
-    if (delta >= 0) return; // already at/left of margin — nothing to gain.
+    if (delta >= 0) return;
 
-    // Collision floor: bound the leftward slide so no unit node crosses into the right edge (+ a gap) of the nearest non-unit node to its left in the same layer. // guarded-by: decascade_test.zig "deCascade collision floor clamps the slide short of a fixed sibling's right edge"
+    // Collision floor: bound the leftward slide so no unit node crosses into the right edge (+ a gap) of the nearest non-unit node to its left in the same layer. // @guarded-by: decascade_test.zig "deCascade collision floor clamps the slide short of a fixed sibling's right edge"
     var floor: i32 = std.math.minInt(i32);
     for (lg.nodes, 0..) |ln, i| {
         if (ln != .real or !in_unit[i]) continue;
@@ -159,12 +149,11 @@ pub fn deCascade(
         var rail: i32 = std.math.minInt(i32);
         for (lg.layers[layer]) |j| {
             if (lg.nodes[j] != .real or in_unit[j]) continue;
-            if (geom[j].x >= geom[i].x) continue; // not to the left
+            if (geom[j].x >= geom[i].x) continue;
             const r = geom[j].x + @as(i32, @intCast(geom[j].w));
             if (r > rail) rail = r;
         }
-        if (rail == std.math.minInt(i32)) continue; // no left neighbour in layer
-        // node i must stay at ≥ rail + COLLISION_GAP → max leftward shift.
+        if (rail == std.math.minInt(i32)) continue;
         const node_floor = (rail + COLLISION_GAP) - geom[i].x;
         if (node_floor > floor) floor = node_floor;
     }
@@ -175,18 +164,6 @@ pub fn deCascade(
         if (in_unit[i]) geom[i].x += delta;
     }
 
-    // ---- 6. Entry-corridor headroom. The head's parent sits in the (un-moved)
-    //         fork layer above, so after the slide the head's incoming edge
-    //         must travel a long HORIZONTAL run to reach the head's now-far-left
-    //         port. That run lands on the single gap row directly below the fork
-    //         layer — the same row the fork SIBLING boxes (oauth's AccessDenied)
-    //         occupy with their bottom border — and the router collides into
-    //         them. Opening one extra gap row below the fork layer gives the
-    //         horizontal run a clear lane: push every node at layer ≥ lo down by
-    //         the tallest fork-layer box's height so the corridor clears the box
-    //         entirely. Only fires when the head actually slid far enough that
-    //         its port left of a non-unit sibling box in the fork layer — i.e.
-    //         exactly the collision case.
     const head_port = geom[head].x + @divTrunc(@as(i32, @intCast(geom[head].w)), 2);
     var needs_corridor = false;
     var fork_layer_h: i32 = 0;
@@ -195,7 +172,6 @@ pub fn deCascade(
             if (lg.nodes[idx] != .real or in_unit[idx]) continue;
             const r = geom[idx].x + @as(i32, @intCast(geom[idx].w));
             if (geom[idx].x <= head_port and head_port <= r) {
-                // head's entry port falls under a non-unit fork-sibling box.
                 needs_corridor = true;
             }
             const h: i32 = @intCast(geom[idx].h);
@@ -203,7 +179,7 @@ pub fn deCascade(
         }
     }
     if (needs_corridor and fork_layer_h > 0) {
-        // Drop everything at layer ≥ lo by the tallest fork-layer sibling's height so the corridor clears the deepest sibling box, not just the overlapping one. // guarded-by: decascade_test.zig "deCascade entry-corridor drop uses the tallest fork-layer sibling, not just the overlapping one"
+        // Drop everything at layer ≥ lo by the tallest fork-layer sibling's height so the corridor clears the deepest sibling box, not just the overlapping one. // @guarded-by: decascade_test.zig "deCascade entry-corridor drop uses the tallest fork-layer sibling, not just the overlapping one"
         const lo_u: u32 = @intCast(lo);
         for (geom) |*g| {
             if (g.layer >= lo_u) g.y += fork_layer_h;
@@ -218,7 +194,7 @@ fn soleRealNode(lg: sugiyama.LayeredGraph, li: usize) ?u32 {
     var found: ?u32 = null;
     for (lg.layers[li]) |idx| {
         if (lg.nodes[idx] != .real) continue;
-        if (found != null) return null; // ≥2 real nodes
+        if (found != null) return null;
         found = idx;
     }
     return found;

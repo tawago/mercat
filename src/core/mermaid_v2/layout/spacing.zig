@@ -25,7 +25,7 @@ const sugiyama = @import("sugiyama.zig");
 /// Horizontal inflation each cluster rect grows beyond its members on
 /// each side (1 cell border + 3 inset at scale 0). Mirrors `layout/clusters.H_INSET`
 /// + 1 for the border itself. Scaled by `spacing_scale`, in lockstep with
-/// super-node sizing (`cluster/stitch.superSize`) via the shared `prim.framePadX(scale)`. // guarded-by: spacing_test.zig "clusterHPad forwards prim.framePadX exactly, at every scale"
+/// super-node sizing (`cluster/stitch.superSize`) via the shared `prim.framePadX(scale)`. // @guarded-by: spacing_test.zig "clusterHPad forwards prim.framePadX exactly, at every scale"
 pub fn clusterHPad(scale: u8) u32 {
     return prim.framePadX(scale);
 }
@@ -124,14 +124,14 @@ pub fn intraLayerExtra(
     if (ca == null and cb == null) return 0;
     if (ca != null and cb != null and clustersEnclosed(graph, ca.?, cb.?)) return 0;
 
-    // Distinct innermost clusters: 2 cluster pads + SIBLING_GAP_BASE; only the gap shrinks under pressure. // guarded-by: spacing.zig "intraLayerExtra: sibling clusters → 2*pad + base - h_spacing"
+    // Distinct innermost clusters: 2 cluster pads + SIBLING_GAP_BASE; only the gap shrinks under pressure. // @guarded-by: spacing.zig "intraLayerExtra: sibling clusters → 2*pad + base - h_spacing"
     if (ca != null and cb != null) {
         const need: u32 = 2 * clusterHPad(scale) + scaledGap(SIBLING_GAP_BASE, scale);
         if (need > BASE_H_SPACING) return need - BASE_H_SPACING;
         return 0;
     }
 
-    // One clustered, one ungrouped: one inflated side + CLUSTER_NODE_GAP. // guarded-by: spacing.zig "intraLayerExtra: cluster vs ungrouped → pad + node_gap - h_spacing"
+    // One clustered, one ungrouped: one inflated side + CLUSTER_NODE_GAP. // @guarded-by: spacing.zig "intraLayerExtra: cluster vs ungrouped → pad + node_gap - h_spacing"
     const need: u32 = clusterHPad(scale) + scaledGap(CLUSTER_NODE_GAP, scale);
     if (need > BASE_H_SPACING) return need - BASE_H_SPACING;
     return 0;
@@ -193,7 +193,6 @@ test "intraLayerExtra: sibling clusters → 2*pad + base - h_spacing" {
     };
     const lhs: sugiyama.LayerNode = .{ .real = 1 };
     const rhs: sugiyama.LayerNode = .{ .real = 2 };
-    // 2*4 + 5 - 4 = 9
     try t.expectEqual(@as(u32, 9), intraLayerExtra(graph, lhs, rhs, 0));
 }
 
@@ -214,7 +213,6 @@ test "intraLayerExtra: cluster vs ungrouped → pad + node_gap - h_spacing" {
     };
     const lhs: sugiyama.LayerNode = .{ .real = 1 };
     const rhs: sugiyama.LayerNode = .{ .real = 2 };
-    // 4 + 5 - 4 = 5
     try t.expectEqual(@as(u32, 5), intraLayerExtra(graph, lhs, rhs, 0));
 }
 
@@ -258,7 +256,7 @@ pub fn interLayerSpacing(
     // rows at every cluster entry/exit boundary, so an interior
     // intra-cluster edge only needs a small ABSOLUTE floor for its jog row;
     // the floor is absolute (not `base + k`) since TD/BT base=2 and the
-    // transposed-subgraph base both want the same ~3-row interior gap. // guarded-by: spacing_test.zig "interLayerSpacing: interior intra-cluster edge floors a base=2 gap to 3"
+    // transposed-subgraph base both want the same ~3-row interior gap. // @guarded-by: spacing_test.zig "interLayerSpacing: interior intra-cluster edge floors a base=2 gap to 3"
     const INTRA_INTERIOR_MIN: u32 = 3;
     var spacing: u32 = base;
     const interior = @max(base, INTRA_INTERIOR_MIN);
@@ -297,25 +295,16 @@ fn nodeLayerOf(lg: sugiyama.LayeredGraph, idx: u32) ?u32 {
 // just above the cluster's first member layer and the trailing border
 // row just below its last member layer.
 //
-// Without a reservation, the frame border row collides with the FEEDER node row (a non-member node on the previous layer). // guarded-by: spacing_test.zig "addClusterBandReservations: cluster entry band clears a non-member feeder row"
-//
-// Fix as a CLASS: for every cluster, reserve the frame's leading/trailing
-// border+inset thickness in the inter-layer gap at its entry and exit
-// boundaries. Nested clusters stack: a gap that is simultaneously the
-// entry boundary of two nested clusters reserves room for both borders.
-// This is generic over all clusters and all flow directions; it never
-// inspects a seed name or member identity.
+// Without a reservation, the frame border row collides with the FEEDER node row (a non-member node on the previous layer). // @guarded-by: spacing_test.zig "addClusterBandReservations: cluster entry band clears a non-member feeder row"
 
 /// Cells reserved in the layer-axis gap for ONE cluster frame border:
 /// the border glyph (1) plus the inset between border and member box.
 /// The inset differs per axis because clusters inflate asymmetrically
 /// (3 cols horizontally, 1 row vertically — see layout/clusters).
 fn frameBandThickness(dir: sg.Direction) u32 {
-    // Layer axis runs vertically for TD/BT (pre-swap == post), and
-    // horizontally for LR/RL (after the axis swap in coords.applyDirection).
     return switch (dir) {
-        .TD, .BT => 1 + 1, // border + V_INSET
-        .LR, .RL => 1 + 3, // border + H_INSET
+        .TD, .BT => 1 + 1,
+        .LR, .RL => 1 + 3,
     };
 }
 
@@ -404,15 +393,6 @@ pub fn addClusterBandReservations(
 
     const band = frameBandThickness(graph.direction);
 
-    // Per gap, count how many NESTED frame borders must fit. Sibling
-    // clusters that open at the same boundary are laid out side by side,
-    // so their borders share the same row — only the deepest nesting
-    // chain needs stacked rows. We therefore take, per gap, the max over
-    // clusters of (1 + ancestor-clusters that also open/close at the same
-    // boundary). Approximation: weight each opening/closing cluster by its
-    // own nesting depth relative to others opening/closing at that gap,
-    // realised by accumulating `band` per cluster but capping the gap at
-    // `band * deepest_chain`.
     const entry_depth = try a.alloc(u32, gaps.len);
     const exit_depth = try a.alloc(u32, gaps.len);
     defer a.free(entry_depth);
@@ -421,7 +401,7 @@ pub fn addClusterBandReservations(
     @memset(exit_depth, 0);
 
     for (spans, 0..) |s, si| {
-        if (s.min_layer > s.max_layer) continue; // no placed members
+        if (s.min_layer > s.max_layer) continue;
         const chain = openCloseChainDepth(graph, spans, si, true);
         if (s.min_layer > 0) {
             const gi = s.min_layer - 1;

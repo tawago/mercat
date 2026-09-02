@@ -99,7 +99,7 @@ pub fn slide(p: *sketch.Point, side: sketch.Dir4, coord: i32) void {
 /// met), and neither does a bridge whose two endpoints share one drawn
 /// frame. Demands are honoured in bridge order, source end before target
 /// end.
-/// guarded-by: corridors_test.zig "two bridges entering one frame at one column: the later port slides along its face"
+/// @guarded-by: corridors_test.zig "two bridges entering one frame at one column: the later port slides along its face"
 pub fn discipline(
     arena: std.mem.Allocator,
     pairs: []const Pair,
@@ -115,7 +115,6 @@ pub fn discipline(
     };
 
     var reqs: std.ArrayListUnmanaged(Req) = .empty;
-    // Parallel to `reqs`: which bridge raised it, on which end.
     var owner: std.ArrayListUnmanaged(struct { idx: usize, exit: bool }) = .empty;
     for (pairs, 0..) |p, i| {
         if (p.from.frame != null and p.to.frame != null and p.from.frame.? == p.to.frame.?) continue;
@@ -123,9 +122,6 @@ pub fn discipline(
             const e = if (exit) p.from else p.to;
             const f = e.frame orelse continue;
             const rng = faceRange(e.rect, e.side);
-            // The run a shift would drag across the gap between this frame's
-            // border and the port. Unknown frame rect (never happens for a
-            // frame we just looked up) leaves the span empty, i.e. unchecked.
             const run: Span = if (rectOf(clusters, f)) |fr|
                 approachRun(fr, e.rect, e.side)
             else
@@ -237,7 +233,7 @@ const DESCENT_REACH: i32 = 512;
 /// nearest-first in BOTH directions from the node-clear preference, ties
 /// broken toward the target column (the shorter final jog), and it never
 /// leaves the canvas.
-/// guarded-by: corridors_test.zig "a descent escaping a frame wall leaves the frame instead of stepping inside it"
+/// @guarded-by: corridors_test.zig "a descent escaping a frame wall leaves the frame instead of stepping inside it"
 pub fn descentColumn(
     want: i32,
     lo: i32,
@@ -277,11 +273,8 @@ fn frameBlocked(
     if (tracks.onFrameBorder(false, col, lo, hi, clusters)) return true;
     for (clusters) |c| {
         if (c.synthetic or c.rect.w == 0 or c.rect.h == 0) continue;
-        // Strict interior only: the walls are the border term's business.
         if (col <= c.rect.x or col >= c.rect.right() - 1) continue;
         if (lo >= c.rect.bottom() or hi < c.rect.y) continue;
-        // A frame holding an endpoint is one this corridor legitimately
-        // enters or leaves; its crossing is the edge's own.
         if (frameHolds(c.rect, placements, from_id) or frameHolds(c.rect, placements, to_id)) continue;
         return true;
     }
@@ -368,9 +361,6 @@ pub fn resolve(
     const out = try arena.alloc(i32, reqs.len);
     for (reqs, 0..) |r, i| out[i] = r.want;
 
-    // Claims are keyed by (frame, side, coord); groups by (frame, side,
-    // group). Both stay linear scans — a frame side carries a handful of
-    // crossings even on the densest seed.
     var claims: std.ArrayListUnmanaged(Claim) = .empty;
     var groups: std.ArrayListUnmanaged(Grp) = .empty;
 
@@ -379,7 +369,7 @@ pub fn resolve(
 
         // A corridor already resolved for this group is the SAME corridor:
         // it reuses the coordinate and files no second claim.
-        // guarded-by: corridors_test.zig "two edges into one port are one corridor and keep one column"
+        // @guarded-by: corridors_test.zig "two edges into one port are one corridor and keep one column"
         if (findGroup(groups.items, r)) |c| {
             out[i] = c;
             continue;
@@ -407,7 +397,7 @@ fn findGroup(groups: []const Grp, r: Req) ?i32 {
 /// larger side on a tie so the walk is a total order. A candidate must clear
 /// intervening node boxes as well — `want` itself is exempt, so a corridor
 /// that never moves stays byte-identical.
-/// guarded-by: corridors_test.zig "a slide that would drive the approach run through a node box is refused"
+/// @guarded-by: corridors_test.zig "a slide that would drive the approach run through a node box is refused"
 fn search(rect: sketch.Rect, r: Req, claims: []const Claim, placements: []const sketch.NodePlacement) ?i32 {
     if (r.hi < r.lo) return null;
     const reach: i32 = @max(r.want - r.lo, r.hi - r.want);
@@ -425,8 +415,6 @@ fn search(rect: sketch.Rect, r: Req, claims: []const Claim, placements: []const 
 /// node box but its own two. Vacuously true when the caller filed no run span.
 fn runClear(r: Req, coord: i32, placements: []const sketch.NodePlacement) bool {
     if (r.run_hi < r.run_lo) return true;
-    // A north/south face is crossed by a VERTICAL run at column `coord`; an
-    // east/west face by a horizontal run at row `coord`.
     const horizontal = (r.side == .east or r.side == .west);
     return !sketch.lineTouchesAny(horizontal, coord, r.run_lo, r.run_hi, placements, r.skip_a, r.skip_b);
 }

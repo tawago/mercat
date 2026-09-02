@@ -16,7 +16,6 @@ const TableStyle = decor_mod.TableStyle;
 pub fn renderTable(allocator: std.mem.Allocator, builder: *Builder, table: Block.Table, max_width: usize, decor: *const Decor) !void {
     if (table.rows.len == 0) return;
 
-    // Calculate column widths based on inline content
     var max_columns: usize = 0;
     for (table.rows) |row| max_columns = @max(max_columns, row.cells.len);
 
@@ -78,17 +77,17 @@ fn renderGrid(allocator: std.mem.Allocator, builder: *Builder, table: Block.Tabl
 }
 
 const RoundedGlyphs = struct {
-    tl: []const u8 = "\u{256D}", // ╭
-    tr: []const u8 = "\u{256E}", // ╮
-    bl: []const u8 = "\u{2570}", // ╰
-    br: []const u8 = "\u{256F}", // ╯
-    tj: []const u8 = "\u{252C}", // ┬
-    bj: []const u8 = "\u{2534}", // ┴
-    lj: []const u8 = "\u{251C}", // ├
-    rj: []const u8 = "\u{2524}", // ┤
-    cross: []const u8 = "\u{253C}", // ┼
-    h: []const u8 = "\u{2500}", // ─
-    v: []const u8 = "\u{2502}", // │
+    tl: []const u8 = "\u{256D}",
+    tr: []const u8 = "\u{256E}",
+    bl: []const u8 = "\u{2570}",
+    br: []const u8 = "\u{256F}",
+    tj: []const u8 = "\u{252C}",
+    bj: []const u8 = "\u{2534}",
+    lj: []const u8 = "\u{251C}",
+    rj: []const u8 = "\u{2524}",
+    cross: []const u8 = "\u{253C}",
+    h: []const u8 = "\u{2500}",
+    v: []const u8 = "\u{2502}",
 };
 
 /// Rounded box table (markview): full top/bottom/side borders with rounded
@@ -119,8 +118,6 @@ fn appendRoundedBorder(builder: *Builder, widths: []const usize, g: RoundedGlyph
 }
 
 fn appendRoundedRow(allocator: std.mem.Allocator, builder: *Builder, row: Block.TableRow, widths: []const usize, alignments: []const Block.Table.Alignment, g: RoundedGlyphs, cell_style: SpanStyle) !void {
-    // Boxed layout: a `.table_border` vertical rail on both outer edges and
-    // between every column.
     try appendRowCells(allocator, builder, row, widths, alignments, g.v, true, cell_style);
 }
 
@@ -171,7 +168,6 @@ pub fn appendTableRule(builder: *Builder, widths: []const usize, triple: Triple)
 }
 
 pub fn appendTableRow(allocator: std.mem.Allocator, builder: *Builder, row: Block.TableRow, widths: []const usize, alignments: []const Block.Table.Alignment, triple: Triple, cell_style: SpanStyle) !void {
-    // Grid layout: a `.table_border` vertical only between columns, no outer rail.
     try appendRowCells(allocator, builder, row, widths, alignments, triple.v, false, cell_style);
 }
 
@@ -234,9 +230,6 @@ fn wrapCell(allocator: std.mem.Allocator, text: []const u8, width: usize, initia
                 current_width = 0;
                 continue;
             }
-            // Historical table behavior permits one over-wide unbroken word.
-            // Keep that byte output while still validating and measuring it
-            // through the strict authority.
             try current.appendSlice(allocator, remaining);
             current_width = word_width;
             break;
@@ -283,15 +276,9 @@ fn alignmentPadding(text: []const u8, width: usize, base_column: usize, alignmen
     return .{ best_left, best_right };
 }
 
-// ===========================================================================
-// Tests
-// ===========================================================================
-
 const testing = std.testing;
 
 test "tableTriple maps each weighted variant to its box-drawing glyphs" {
-    // The four #17 border weights restored by the widened TableStyle (S4). grid
-    // and rounded share the light triple (rounded draws its own box separately).
     try testing.expectEqualStrings("\u{2500}", tableTriple(.grid).h);
     try testing.expectEqualStrings("\u{253c}", tableTriple(.grid).cross);
     try testing.expectEqualStrings("\u{2501}", tableTriple(.heavy).h);
@@ -320,7 +307,6 @@ fn renderTableWith(allocator: std.mem.Allocator, style: TableStyle) ![]u8 {
     var alignments = [_]Block.Table.Alignment{ .none, .none };
     const table = Block.Table{ .rows = &rows, .alignments = &alignments };
 
-    // Start from the legacy decor (table_style = .grid) and swap only the weight.
     var d = decor_mod.legacy;
     d.glyphs.table_style = style;
 
@@ -345,7 +331,6 @@ fn renderTableWith(allocator: std.mem.Allocator, style: TableStyle) ![]u8 {
 test "renderTable draws all five TableStyle variants with distinct borders" {
     const allocator = testing.allocator;
 
-    // The four grid-style weights each render their own (h, v, cross) triple.
     inline for (.{
         .{ .style = TableStyle.grid, .h = "\u{2500}", .v = "\u{2502}", .cross = "\u{253c}" },
         .{ .style = TableStyle.heavy, .h = "\u{2501}", .v = "\u{2503}", .cross = "\u{254b}" },
@@ -361,27 +346,22 @@ test "renderTable draws all five TableStyle variants with distinct borders" {
         try testing.expect(std.mem.indexOf(u8, out, "2") != null);
     }
 
-    // ascii uses no box-drawing glyphs at all.
     const ascii = try renderTableWith(allocator, .ascii);
     defer allocator.free(ascii);
     try testing.expect(std.mem.indexOf(u8, ascii, "\u{2500}") == null);
 
-    // rounded draws a full box with rounded corners and side rails.
     const rounded = try renderTableWith(allocator, .rounded);
     defer allocator.free(rounded);
-    try testing.expect(std.mem.indexOf(u8, rounded, "\u{256D}") != null); // ╭
-    try testing.expect(std.mem.indexOf(u8, rounded, "\u{256E}") != null); // ╮
-    try testing.expect(std.mem.indexOf(u8, rounded, "\u{2570}") != null); // ╰
-    try testing.expect(std.mem.indexOf(u8, rounded, "\u{256F}") != null); // ╯
-    try testing.expect(std.mem.indexOf(u8, rounded, "\u{2502}") != null); // │
+    try testing.expect(std.mem.indexOf(u8, rounded, "\u{256D}") != null);
+    try testing.expect(std.mem.indexOf(u8, rounded, "\u{256E}") != null);
+    try testing.expect(std.mem.indexOf(u8, rounded, "\u{2570}") != null);
+    try testing.expect(std.mem.indexOf(u8, rounded, "\u{256F}") != null);
+    try testing.expect(std.mem.indexOf(u8, rounded, "\u{2502}") != null);
 }
 
 test "a very wide table row builds in time linear in its width" {
     const allocator = testing.allocator;
 
-    // A single cell far wider than any terminal. Every border row and every
-    // padding run here used to be emitted one glyph at a time and merged by
-    // reallocating the whole span, making a row quadratic in its width.
     const wide = try allocator.alloc(u8, 20_000);
     defer allocator.free(wide);
     @memset(wide, 'w');
@@ -406,13 +386,9 @@ test "a very wide table row builds in time linear in its width" {
         allocator.free(lines);
     }
 
-    // The top border is one rail + a single run of horizontals + one rail, so
-    // it merges down to a handful of spans rather than thousands.
     try testing.expect(lines.len >= 4);
     try testing.expect(lines[0].spans.len <= 4);
 
-    // The column is fitted to the requested width, and the rounded box adds its
-    // two outer rails on top of that.
     var border_width: usize = 0;
     for (lines[0].spans) |span| border_width += try geometry.displayWidth(span.text);
     try testing.expectEqual(@as(usize, 20_002), border_width);
@@ -432,12 +408,10 @@ test "appendRepeated emits one span and matches glyph-by-glyph appends" {
         allocator.free(lines);
     }
 
-    // Same-style neighbours still merge, so this is exactly two spans.
     try testing.expectEqual(@as(usize, 2), lines[0].spans.len);
     try testing.expectEqualStrings("\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}", lines[0].spans[0].text);
     try testing.expectEqualStrings("x   ", lines[0].spans[1].text);
 
-    // A zero count and an empty glyph are both no-ops.
     var empty = Builder.init(allocator);
     defer empty.deinit();
     try empty.appendRepeated(.body, " ", 0);

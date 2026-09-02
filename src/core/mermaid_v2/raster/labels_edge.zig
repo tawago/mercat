@@ -86,9 +86,6 @@ pub fn placeEdgeLabel(
 ) labels.RasterError!Placement {
     if (ep.polyline.len < 2) return .dropped;
 
-    // Midpoint of the polyline: pick the middle non-degenerate segment
-    // (skip zero-length segments produced by routing fixups so e.g. a
-    // [(x,y),(x,y'),(x,y')] polyline yields the (x,y)→(x,y') segment).
     const seg_pair = pickMidSegment(ep.polyline) orelse return .dropped;
     return placeLabelAtSeg(allocator, diags, lat, ep.id, label, seg_pair.a, seg_pair.b, ep.label_left_of_run, ep.polyline, sink);
 }
@@ -112,27 +109,23 @@ pub fn placeLabelAtSeg(
     // one per codepoint, two for an East-Asian-Wide one. Probe, bounds
     // test, flank test, emptiness scan and the write loop all share this
     // single number, so a wide label can never reserve less space than
-    // it paints. // guarded-by: labels_eaw_test.zig "edge-label probe reserves display cells: a wide label no longer overwrites the ink beside it"
+    // it paints. // @guarded-by: labels_eaw_test.zig "edge-label probe reserves display cells: a wide label no longer overwrites the ink beside it"
     const cell_count: u32 = labels.cellSpanOf(label);
 
-    // The ownership context is fixed for the whole ladder: the edge's id,
-    // its routed polyline, and the anchor segment (for taps, the shared
-    // rail stretch — own ink even though the rail Cell names one rider).
     const owner: ink.Owner = .{ .edge_id = edge_id, .polyline = polyline, .seg_a = a, .seg_b = b };
 
     // Three-pass priority (RELOCATION LAW) over one fixed candidate order per pass:
     // primary anchor, own-segment walk, ladder tail. A position accepted by
     // an earlier pass is never reconsidered — the passes only weaken the
     // ownership requirement, so the walk is deterministic.
-    // guarded-by: labels_ladder_test.zig "the own_adjacent pass beats the primary anchor: the label relocates to sit by its own edge's ink"
+    // @guarded-by: labels_ladder_test.zig "the own_adjacent pass beats the primary anchor: the label relocates to sit by its own edge's ink"
     const anchor = anchorFor(a, b, left_of_run, prim.displayWidth(label));
     for (passes) |pass| {
-        // Candidate #1: legacy anchor recorded by layout on ep.label_left_of_run (clusters.computeBbox). guarded-by: labels_test.zig "edge label fits above midpoint"
+        // Candidate #1: legacy anchor recorded by layout on ep.label_left_of_run (clusters.computeBbox). @guarded-by: labels_test.zig "edge label fits above midpoint"
         if (tryWrite(lat, label, cell_count, anchor.x, anchor.y, owner, pass, sink)) return .at_anchor;
 
         if (trySegment(lat, label, cell_count, a, b, left_of_run, owner, pass, sink)) return .displaced;
 
-        // Ladder tail: the remaining non-degenerate segments of the polyline.
         if (polyline.len >= 2) {
             for (polyline[0 .. polyline.len - 1], 0..) |p, i| {
                 const q = polyline[i + 1];
@@ -175,7 +168,7 @@ fn trySegment(
     const orig_len: u32 = prim.displayWidth(label);
 
     if (a.y == b.y) {
-        // Horizontal segment: rows above then below the line, walked outward from the midpoint. guarded-by: labels_test.zig "edge label falls back below the segment when above is out of bounds"
+        // Horizontal segment: rows above then below the line, walked outward from the midpoint. @guarded-by: labels_test.zig "edge label falls back below the segment when above is out of bounds"
         const mid_x: i32 = @divTrunc(a.x + b.x, 2);
         const min_x = @min(a.x, b.x);
         const max_x = @max(a.x, b.x);
@@ -190,9 +183,6 @@ fn trySegment(
         return false;
     }
 
-    // Vertical (or routing-fixup diagonal) segment: convention side first
-    // (right of the rail, or left when the width lever chose left), walking
-    // rows outward from the midpoint within the segment's row span.
     const mid_x: i32 = @divTrunc(a.x + b.x, 2);
     const mid_y: i32 = @divTrunc(a.y + b.y, 2);
     const min_y = @min(a.y, b.y);
@@ -213,7 +203,7 @@ fn trySegment(
 /// RELOCATION LAW pass gate for one candidate span. `.any` is ownership-blind; the
 /// two ownership passes measure nearest-ink Chebyshev distances and demand
 /// the own edge's ink win (strictly, so a tie never yields an ambiguous
-/// owner). // guarded-by: labels_ladder_test.zig "the own_nearest pass walks the label toward its own edge's ink when own_adjacent positions are blocked"
+/// owner). // @guarded-by: labels_ladder_test.zig "the own_nearest pass walks the label toward its own edge's ink when own_adjacent positions are blocked"
 fn passAllows(
     lat: *const lattice.Lattice,
     owner: ink.Owner,
@@ -259,11 +249,11 @@ fn tryWrite(
     // the same row keep >= 2 blank cells apart — a continuation column
     // counts as a label neighbour. The final `any_solid` pass tolerates
     // node/cluster-border abutment only.
-    // guarded-by: labels_test.zig "edge-label runs on the same row keep two blank cells apart"
-    // guarded-by: labels_eaw_test.zig "blank-flank rule treats a continuation as a label neighbour"
+    // @guarded-by: labels_test.zig "edge-label runs on the same row keep two blank cells apart"
+    // @guarded-by: labels_eaw_test.zig "blank-flank rule treats a continuation as a label neighbour"
     if (!ink.spanIsolated(lat, owner, lx, ly, cell_count, pass == .any_solid)) return false;
 
-    // Any non-empty cell is a genuine collision (edges/earlier labels are rasterized first) — reject the candidate. // guarded-by: labels_test.zig "tryWrite rejects a pre-occupied primary-anchor cell as a real collision, not an OOB miss"
+    // Any non-empty cell is a genuine collision (edges/earlier labels are rasterized first) — reject the candidate. // @guarded-by: labels_test.zig "tryWrite rejects a pre-occupied primary-anchor cell as a real collision, not an OOB miss"
     var i: u32 = 0;
     while (i < cell_count) : (i += 1) {
         const cell = lat.atConst(start_x + i, row);
@@ -273,12 +263,8 @@ fn tryWrite(
         }
     }
 
-    // RELOCATION LAW pass gate, last so every pass sees identical geometry checks.
     if (!passAllows(lat, owner, pass, lx, ly, cell_count)) return false;
 
-    // The span was reserved by `cell_count`, so every write below is in
-    // bounds and on an empty cell — head first, then the continuation
-    // columns of a wide glyph.
     var x: u32 = start_x;
     var bi: usize = 0;
     while (bi < label.len) {

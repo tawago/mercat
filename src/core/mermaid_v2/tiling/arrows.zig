@@ -20,7 +20,7 @@
 //! refuse branch of the guarded write lays down a pristine along-axis
 //! mask. Both leave laterals whose neighbours reciprocate, so they land
 //! in `c_arrow_lat_explained`.
-//! guarded-by: tiling_crosscheck_test.zig "clustered crossing render has zero orphan arrowhead laterals"
+//! @guarded-by: tiling_crosscheck_test.zig "clustered crossing render has zero orphan arrowhead laterals"
 //!
 //! BASE SUPPORT: the cell opposite an arrowhead's tip must carry an arm
 //! pointing INTO the triangle. That law already exists in the renderer
@@ -29,7 +29,7 @@
 //! evaluated in exactly that validator's order, so the buckets partition
 //! its violation set and the exemption it grants. The identity is pinned
 //! from the crosscheck, which can see both instruments.
-//! guarded-by: tiling_crosscheck_test.zig "base buckets decompose arrow_base.validate exactly"
+//! @guarded-by: tiling_crosscheck_test.zig "base buckets decompose arrow_base.validate exactly"
 //!
 //! Imports: `std`, `prim`, `lattice.zig`, tiling siblings.
 
@@ -53,8 +53,6 @@ pub fn checkLateral(v: cell.View, x: u32, y: u32, t: cell.Typed, c: *counts.Coun
     for (cell.perpendicular(tip)) |p| {
         if (t.ink & cell.bit(p) == 0) continue;
         const n = v.arm(x, y, p) orelse {
-            // Off-grid: nothing can explain the bit and there is no cell
-            // beyond it to resume from.
             c.d_arrow_lat_orphan += 1;
             continue;
         };
@@ -65,9 +63,6 @@ pub fn checkLateral(v: cell.View, x: u32, y: u32, t: cell.Typed, c: *counts.Coun
             .ring_node, .ring_frame => c.c_arrow_lat_frame += 1,
             .glyph, .fill => c.c_arrow_lat_opaque += 1,
             .blank, .ghost => {
-                // A ghost occupies the cell but paints nothing, so it is
-                // treated exactly like background: the run may still
-                // resume one cell further along the same axis.
                 if (v.gapReprieve(x, y, p)) c.c_arrow_lat_explained += 1 else c.d_arrow_lat_orphan += 1;
             },
         }
@@ -80,7 +75,7 @@ pub fn checkLateral(v: cell.View, x: u32, y: u32, t: cell.Typed, c: *counts.Coun
 /// (a coincident frame passing through is not a side feed), exactly as
 /// the original does; an invisible stroke carrying the bit counts, since
 /// the original is blind to stroke kind.
-/// guarded-by: tiling_crosscheck_test.zig "sideFed mirrors raster/arrow_base.sideFed over an occupant x mask matrix"
+/// @guarded-by: tiling_crosscheck_test.zig "sideFed mirrors raster/arrow_base.sideFed over an occupant x mask matrix"
 pub fn sideFed(v: cell.View, x: u32, y: u32, tip: cell.Dir4) bool {
     for (cell.perpendicular(tip)) |p| {
         const n = v.arm(x, y, p) orelse continue;
@@ -150,8 +145,6 @@ pub fn checkBase(v: cell.View, x: u32, y: u32, t: cell.Typed, c: *counts.Counts)
         },
         .ring_frame => c.c_base_frame += 1,
         .ring_node, .fill, .arrow => c.d_base_unfed += 1,
-        // Handled by step 2 above; kept explicit so a new Kind cannot
-        // slip through without a bucket.
         .glyph => unreachable,
     }
 }

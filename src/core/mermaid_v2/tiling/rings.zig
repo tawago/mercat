@@ -63,11 +63,7 @@ fn stencilNode(v: cell.View, x: u32, y: u32, t: cell.Typed, full: u4, c: *counts
                 const theirs = n.node orelse 0;
                 if (mine != theirs) c.c_ring_node_shadowed += 1;
             },
-            // Clusters rasterize first and a border write skips an
-            // occupied cell, so a frame (or a neighbouring node's ring)
-            // sitting here means this cell was legally never written.
             .ring_frame => c.c_ring_node_shadowed += 1,
-            // A title band stamps every cell of its span.
             .glyph => c.c_ring_node_label += 1,
             else => c.d_ring_node_break += 1,
         }
@@ -91,8 +87,6 @@ fn stencilFrame(v: cell.View, x: u32, y: u32, t: cell.Typed, full: u4, c: *count
                 if (mine != theirs) c.c_ring_frame_shadowed += 1;
             },
             .glyph => c.c_ring_frame_title += 1,
-            // A polyline that TERMINATES on the border replaces the
-            // occupant; only through-going segments bridge it.
             .stroke, .arrow, .ghost => c.c_ring_frame_terminal += 1,
             .ring_node, .fill => c.c_ring_frame_shadowed += 1,
             .blank => c.d_ring_frame_break += 1,
@@ -106,14 +100,12 @@ fn stencilFrame(v: cell.View, x: u32, y: u32, t: cell.Typed, full: u4, c: *count
 /// weld ORs an arm into a node border for ANY tip direction, east and
 /// west included, so checking the axis buckets first would misfile every
 /// horizontal weld as a defect.
-/// guarded-by: rings_test.zig "fusion: a weld-explained east arm is claimed before the axis buckets"
+/// @guarded-by: rings_test.zig "fusion: a weld-explained east arm is claimed before the axis buckets"
 fn fusionArms(v: cell.View, x: u32, y: u32, t: cell.Typed, full: u4, mode_cross: bool, c: *counts.Counts) void {
     const extra = t.ink & ~full;
     for (cell.dirs) |d| {
         if (extra & cell.bit(d) == 0) continue;
         if (v.arm(x, y, d)) |n| {
-            // An arrowhead whose tip points along this arm has its BASE
-            // on this cell: the arm is the weld that feeds it.
             if (n.kind == .arrow and n.tip == d) {
                 c.c_border_arm_weld += 1;
                 continue;
@@ -121,7 +113,7 @@ fn fusionArms(v: cell.View, x: u32, y: u32, t: cell.Typed, full: u4, mode_cross:
             // An off-axis arm into the SAME node's own border is internal
             // structure the node rasterizer synthesized (the subroutine
             // double wall), not an edge attachment.
-            // guarded-by: rings_test.zig "fusion: an off-axis arm into the same node's own border is wall structure"
+            // @guarded-by: rings_test.zig "fusion: an off-axis arm into the same node's own border is wall structure"
             if (t.kind == .ring_node and n.kind == .ring_node and
                 t.node != null and n.node != null and t.node.? == n.node.?)
             {
@@ -137,8 +129,8 @@ fn fusionArms(v: cell.View, x: u32, y: u32, t: cell.Typed, full: u4, mode_cross:
             // with one recorded departure and one further unexplained
             // arm still reports the stray. An arm with neither weld nor
             // matching record has no known writer.
-            // guarded-by: rings_test.zig "fusion: a port-recorded arm is the convention on every face; unrecorded is a defect"
-            // guarded-by: rings_test.zig "fusion: a port record excuses only the arm it merged"
+            // @guarded-by: rings_test.zig "fusion: a port-recorded arm is the convention on every face; unrecorded is a defect"
+            // @guarded-by: rings_test.zig "fusion: a port record excuses only the arm it merged"
             if (!v.auxComplete()) {
                 c.u_border_arm_aux_unavailable += 1;
             } else if (t.portArm(d)) {

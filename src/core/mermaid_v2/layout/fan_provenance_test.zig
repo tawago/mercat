@@ -97,9 +97,6 @@ test "fan provenance: realized fan-in Rail claims the pivot; feasible labeled fa
     const peer = try coords.layout(peer_arena.allocator(), graph(.TD, &clustered_nodes, &clustered_edges, &clusters), .{});
     try testing.expectEqual(@as(usize, 0), peer.rails.len);
     try testing.expectEqual(@as(usize, 2), peer.edges.len);
-    // Labeled fan-IN members whose on-run band is feasible STAY shared
-    // (gateFanInSharedLabels): the coordinated peer paths share the rail row,
-    // so the claim follows the fan exactly as a first-class Rail's would.
     try testing.expectEqual(@as(usize, 1), peer.rail_claims.len);
     try testing.expectEqual(ledger.RailPolarity.in, peer.rail_claims[0].polarity);
     try expectAllValid(peer.rail_claims);
@@ -110,9 +107,6 @@ test "fan provenance: realized fan-in Rail claims the pivot; feasible labeled fa
 test "fan provenance: forced peer drawing, wrapping, and arrow-style partition" {
     const forced_nodes = [_]sg.Node{ node(0, "P", null), node(1, "A", null), node(2, "B", null) };
     const forced_edges = [_]sg.Edge{
-        // Head at the SOURCE only: forces per-peer drawing (a pivot-side
-        // head fails fan_rail.resolve eligibility) while every member still
-        // blocks, so the star keeps its licence.
         styledEdge(0, 0, 1, .solid, .filled, .none, null),
         styledEdge(1, 0, 2, .solid, .filled, .none, null),
     };
@@ -153,9 +147,6 @@ test "fan provenance: forced peer drawing, wrapping, and arrow-style partition" 
     defer mixed_arena.deinit();
     const mixed = try coords.layout(mixed_arena.allocator(), graph(.TD, &mixed_nodes, &mixed_edges, &.{}), .{});
     try testing.expectEqual(@as(usize, 0), mixed.rails.len);
-    // Construction keeps the stable largest decoration/style class. The other
-    // valid-looking class is not lane-proven independent here, so it stays
-    // private rather than creating a second same-row shared bundle.
     try testing.expectEqual(@as(usize, 1), mixed.rail_claims.len);
     try testing.expectEqual(@as(usize, 2), mixed.rail_claims[0].members.len);
     try testing.expect(hasMember(mixed.rail_claims[0], 40));
@@ -323,8 +314,6 @@ test "fan provenance: several clustered private members receive unique ports" {
         source_offsets[path.id - 10] = path.port_from.offset;
         if (path.id <= 12) target_offsets[path.id - 10] = path.port_to.offset;
     }
-    // Retained members 10 and 13 share the one legal pivot attachment. The two
-    // excluded members each own a different source attachment instead.
     try testing.expectEqual(source_offsets[0], source_offsets[3]);
     try testing.expect(source_offsets[1] != source_offsets[0]);
     try testing.expect(source_offsets[2] != source_offsets[0]);
@@ -333,11 +322,6 @@ test "fan provenance: several clustered private members receive unique ports" {
 }
 
 test "labeled fan-in with feasible on-run bands realizes ONE rail: every tap on one crossbar row, each tap carrying its label" {
-    // Wide source boxes keep the dropper columns far enough apart for every
-    // label's centered on-run span (gateFanInSharedLabels feasibility), so
-    // the whole member set commits as one Rail: one crossbar row, one tap
-    // per member, no per-member polyline — the crossbar shape, never the
-    // staircase of sequential pairwise merges.
     const nodes = [_]sg.Node{
         node(0, "Web Tier", null),
         node(1, "API Tier", null),
@@ -369,6 +353,5 @@ test "labeled fan-in with feasible on-run bands realizes ONE rail: every tap on 
         try testing.expectEqual(rail.crossbar[0].y, tap.at.y);
         try testing.expect(tap.label != null);
     }
-    // No member owns a private polyline: the rail is the members' whole run.
     try testing.expectEqual(@as(usize, 0), s.edges.len);
 }

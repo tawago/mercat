@@ -24,25 +24,21 @@ pub const Cell = struct {
     priority: Priority = .background,
 
     pub fn set(self: *Cell, char: u21, priority: Priority) void {
-        // When two edge segments cross at the same cell, merge them into a
-        // junction character rather than letting one overwrite the other.
-        // This preserves visual connectivity for paths that share grid cells.
         if (priority == .edge and self.priority == .edge) {
             const existing = self.char;
-            const h = LineChars.horizontal; // ─
-            const v = LineChars.vertical; // │
+            const h = LineChars.horizontal;
+            const v = LineChars.vertical;
             const is_existing_h = existing == h or existing == '-';
             const is_existing_v = existing == v or existing == '|';
             const is_new_h = char == h or char == '-';
             const is_new_v = char == v or char == '|';
             if (is_existing_h and is_new_v) {
-                return; // horizontal dominant, vertical passes behind
+                return;
             }
             if (is_existing_v and is_new_h) {
-                return; // vertical dominant, horizontal passes behind
+                return;
             }
         }
-        // Only overwrite if new priority is >= current
         if (@intFromEnum(priority) >= @intFromEnum(self.priority)) {
             self.char = char;
             self.priority = priority;
@@ -107,20 +103,17 @@ pub const Canvas = struct {
         const w: i32 = @intCast(rect.width);
         const h: i32 = @intCast(rect.height);
 
-        // Corners
         self.setChar(x, y, style.top_left, priority);
         self.setChar(x + w - 1, y, style.top_right, priority);
         self.setChar(x, y + h - 1, style.bottom_left, priority);
         self.setChar(x + w - 1, y + h - 1, style.bottom_right, priority);
 
-        // Horizontal edges
         var col = x + 1;
         while (col < x + w - 1) : (col += 1) {
             self.setChar(col, y, style.horizontal, priority);
             self.setChar(col, y + h - 1, style.horizontal, priority);
         }
 
-        // Vertical edges
         var row = y + 1;
         while (row < y + h - 1) : (row += 1) {
             self.setChar(x, row, style.vertical, priority);
@@ -198,15 +191,12 @@ pub const Canvas = struct {
 
         for (points[0 .. points.len - 1], points[1..]) |p1, p2| {
             if (p1.y == p2.y) {
-                // Horizontal segment
                 self.drawHorizontalLine(p1.y, p1.x, p2.x, h_char, priority);
             } else if (p1.x == p2.x) {
-                // Vertical segment
                 self.drawVerticalLine(p1.x, p1.y, p2.y, v_char, priority);
             }
         }
 
-        // Draw corners at turning points
         for (1..points.len - 1) |i| {
             const prev = points[i - 1];
             const curr = points[i];
@@ -231,14 +221,9 @@ pub const Canvas = struct {
         const to_above = next.y < curr.y;
         const to_below = next.y > curr.y;
 
-        // Determine corner type based on which sides it connects
-        // ┌ (corner_se) - openings: RIGHT (east) and DOWN (south)
         if ((from_right and to_below) or (from_below and to_right)) return LineChars.corner_se;
-        // ┐ (corner_sw) - openings: LEFT (west) and DOWN (south)
         if ((from_left and to_below) or (from_below and to_left)) return LineChars.corner_sw;
-        // └ (corner_ne) - openings: RIGHT (east) and UP (north)
         if ((from_right and to_above) or (from_above and to_right)) return LineChars.corner_ne;
-        // ┘ (corner_nw) - openings: LEFT (west) and UP (north)
         if ((from_left and to_above) or (from_above and to_left)) return LineChars.corner_nw;
 
         return null;
@@ -282,7 +267,6 @@ pub const Canvas = struct {
         var encode_buf: [4]u8 = undefined;
 
         for (self.cells, 0..) |row, y| {
-            // Find last non-space character in row (trim trailing spaces)
             var last_non_space: usize = 0;
             for (row, 0..) |cell, x| {
                 if (cell.char != ' ') {
@@ -290,13 +274,11 @@ pub const Canvas = struct {
                 }
             }
 
-            // Output characters up to last non-space
             for (row[0..last_non_space]) |cell| {
                 const len = std.unicode.utf8Encode(cell.char, &encode_buf) catch 1;
                 try result.appendSlice(allocator, encode_buf[0..len]);
             }
 
-            // Add newline (except for last row if it's empty)
             if (y < self.cells.len - 1 or last_non_space > 0) {
                 try result.append(allocator, '\n');
             }
@@ -346,7 +328,6 @@ test "Canvas basic operations" {
     const cell = canvas.getCell(5, 5).?;
     try testing.expectEqual(@as(u21, 'X'), cell.char);
 
-    // Out of bounds should be null
     try testing.expect(canvas.getCell(-1, 0) == null);
     try testing.expect(canvas.getCell(20, 0) == null);
 }
@@ -358,7 +339,6 @@ test "Canvas draw box" {
 
     canvas.drawBox(.{ .x = 0, .y = 0, .width = 5, .height = 3 }, types.unicode_square, .node_border);
 
-    // Check corners
     try testing.expectEqual(types.unicode_square.top_left, canvas.getCell(0, 0).?.char);
     try testing.expectEqual(types.unicode_square.top_right, canvas.getCell(4, 0).?.char);
     try testing.expectEqual(types.unicode_square.bottom_left, canvas.getCell(0, 2).?.char);
@@ -384,13 +364,10 @@ test "drawText decodes multi-byte UTF-8 into one scalar per cell" {
     var canvas = try Canvas.init(testing.allocator, 10, 2);
     defer canvas.deinit();
 
-    // Class-relation markers plus ASCII: each must land as ONE u21 scalar, not
-    // as its raw UTF-8 bytes (which would produce U+00E2 + C1 control scalars
-    // that both corrupt toString and trip the strict PNG export validator).
     canvas.drawText(0, 0, "◁A◆", .node_text);
-    try testing.expectEqual(@as(u21, 0x25C1), canvas.getCell(0, 0).?.char); // ◁
+    try testing.expectEqual(@as(u21, 0x25C1), canvas.getCell(0, 0).?.char);
     try testing.expectEqual(@as(u21, 'A'), canvas.getCell(1, 0).?.char);
-    try testing.expectEqual(@as(u21, 0x25C6), canvas.getCell(2, 0).?.char); // ◆
+    try testing.expectEqual(@as(u21, 0x25C6), canvas.getCell(2, 0).?.char);
 
     const str = try canvas.toString(testing.allocator);
     defer testing.allocator.free(str);
@@ -442,17 +419,13 @@ test "Canvas priority" {
     var canvas = try Canvas.init(testing.allocator, 10, 5);
     defer canvas.deinit();
 
-    // Draw with lower priority
     canvas.setChar(2, 2, 'A', .edge);
-    // Try to overwrite with same priority - should work
     canvas.setChar(2, 2, 'B', .edge);
     try testing.expectEqual(@as(u21, 'B'), canvas.getCell(2, 2).?.char);
 
-    // Try to overwrite with lower priority - should not work
     canvas.setChar(2, 2, 'C', .subgraph);
     try testing.expectEqual(@as(u21, 'B'), canvas.getCell(2, 2).?.char);
 
-    // Overwrite with higher priority - should work
     canvas.setChar(2, 2, 'D', .node_text);
     try testing.expectEqual(@as(u21, 'D'), canvas.getCell(2, 2).?.char);
 }

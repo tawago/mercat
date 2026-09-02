@@ -58,9 +58,6 @@ test "a glyph write resets every field of the cell it covers" {
 }
 
 test "a continuation write resets every field, exactly as a glyph write does" {
-    // `label_cont` is the field-reset case most easily forgotten: it carries
-    // no codepoint, so a writer that only cleared the occupant would leave
-    // the covered run's mask conducting through an opaque cell.
     var buf: [1]lattice.Cell = undefined;
     var lat = dirtyLattice(&buf);
 
@@ -89,8 +86,6 @@ test "a span write claims head plus continuations and resets both" {
     );
     try expectReset(lat.atConst(1, 0).*);
 
-    // A span of 2 claims exactly 2 cells: the third is untouched, which is
-    // what makes "reserve by cellSpan, write by cellSpan" checkable.
     try testing.expectEqual(
         lattice.Occupant.edge_segment,
         std.meta.activeTag(lat.atConst(2, 0).occupant),
@@ -98,9 +93,6 @@ test "a span write claims head plus continuations and resets both" {
 }
 
 test "a span of 1 writes no continuation" {
-    // The all-ASCII byte-identity argument in miniature: a narrow glyph
-    // claims its single cell and nothing else, so an ASCII lattice cannot
-    // grow a continuation.
     var buf: [2]lattice.Cell = undefined;
     var lat = dirtyLattice(&buf);
 
@@ -127,9 +119,6 @@ test "a glyph write files one owner record; a continuation files none" {
     lw.writeSpan(&lat, 0, 0, '\u{65e5}', 2, .{ .kind = .cluster, .id = 4 }, &c);
 
     const table = c.finish();
-    // Two cells were claimed, one record filed: `label_cont` is DEFINED as
-    // the tail of the head immediately west, so recording its owner would
-    // restate a fact the grid already carries.
     try testing.expectEqual(@as(usize, 1), table.len);
     try testing.expectEqual(lat.cellIndex(0, 0), table[0].cell);
     try testing.expectEqual(lattice.AuxKind.label_owner, table[0].kind);
@@ -138,7 +127,6 @@ test "a glyph write files one owner record; a continuation files none" {
 }
 
 test "a null sink writes the same cells and files nothing" {
-    // The bundle is opt-in per rasterization; the ink must not depend on it.
     var with_buf: [2]lattice.Cell = undefined;
     var without_buf: [2]lattice.Cell = undefined;
     var with = dirtyLattice(&with_buf);

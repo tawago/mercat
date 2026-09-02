@@ -137,7 +137,7 @@ pub fn memberBlocks(arrow_from: ArrowKind, arrow_to: ArrowKind, stands_for: Stan
 }
 
 /// True iff no end of the ink this member stands for is directional — the
-/// question the rail-closure law asks.
+/// question the rail-closure licence asks.
 pub fn memberArrowFree(arrow_from: ArrowKind, arrow_to: ArrowKind, stands_for: StandsFor) bool {
     return !directional(arrow_from) and !directional(arrow_to) and stands_for == .arrow_free;
 }
@@ -247,13 +247,7 @@ pub const Shape = enum {
 // diagrams; the Y inset is already at its 1-cell minimum and never shrinks. The
 // floor of padX is 2 (1 border + ≥1 inset) so the frame always keeps a border
 // plus one breathing cell, preserving the border-vs-inset distinction.
-// All four geometry sites (superSize, both child translates, sibling gaps, sub-budget overhead) MUST pass the SAME scale within one layout pass, or super-node sizing desyncs from the drawn frame. guarded-by: recurse_test.zig "nested cluster: outer super-node pad tracks framePadX(scale) across two recursion levels"
-//
-// Downstream constants are DERIVED from here, never re-literaled:
-//   - `cluster/stitch` frame_pad_x/y = `framePadX(scale)` / `framePadY(scale)`
-//   - `cluster/stitch.superSize` = child_bbox + 2*framePad{X,Y}(scale)
-//   - `layout/spacing.clusterHPad` = `framePadX(scale)` (same x quantity)
-//   - `recurse` child sub-budget = `frameOverheadX(scale)`
+// All four geometry sites (superSize, both child translates, sibling gaps, sub-budget overhead) MUST pass the SAME scale within one layout pass, or super-node sizing desyncs from the drawn frame. @guarded-by: recurse_test.zig "nested cluster: outer super-node pad tracks framePadX(scale) across two recursion levels"
 
 /// Interior inset inside the cluster border, x axis (columns).
 pub const frame_inset_x: u32 = 3;
@@ -297,7 +291,7 @@ pub fn rotatedDirection(d: Direction) Direction {
     };
 }
 
-// Edge-label placement — shared by layout/clusters.computeBbox (reservation) and raster/labels (painting); they MUST agree on the occupied cell. guarded-by: raster/labels_test.zig "vertical edge label paints at the exact prim anchor for both rail sides"
+// Edge-label placement — shared by layout/clusters.computeBbox (reservation) and raster/labels (painting); they MUST agree on the occupied cell. @guarded-by: raster/labels_test.zig "vertical edge label paints at the exact prim anchor for both rail sides"
 
 /// Top-left cell of an edge label given its mid-segment.
 pub const LabelAnchor = struct { x: i32, y: i32 };
@@ -333,8 +327,8 @@ pub fn edgeLabelAnchor(
 ) LabelAnchor {
     const mid_x: i32 = @divTrunc(ax + bx, 2);
     const mid_y: i32 = @divTrunc(ay + by, 2);
-    if (ay == by) return .{ .x = mid_x, .y = mid_y - 1 }; // horizontal
-    const right_x = mid_x + 2; // default: right of the vertical rail
+    if (ay == by) return .{ .x = mid_x, .y = mid_y - 1 };
+    const right_x = mid_x + 2;
     if (ctx.active) {
         const lw: i32 = @intCast(label_w);
         const budget: i32 = @intCast(ctx.max_width);
@@ -358,7 +352,7 @@ pub fn leftOfRailAnchor(ax: i32, ay: i32, bx: i32, by: i32, label_w: u32) LabelA
 
 // Self-contained EAW-aware column counting, duplicated from lib/unicode.zig
 // because base/ files may only import std.
-// guarded-by: tools/lint_imports.zig "base/ files may import only std and base/ siblings"
+// @guarded-by: tools/lint_imports.zig "base/ files may import only std and base/ siblings"
 
 /// Display-column width of a single decoded codepoint.
 ///   - tab (\t)        -> 4
@@ -420,7 +414,6 @@ pub fn truncateToWidth(text: []const u8, max_w: u32) []const u8 {
             continue;
         };
         if (index + seq_len > text.len) {
-            // Truncated trailing sequence: treat as width-1 byte.
             if (width + 1 > max_w) break;
             width += 1;
             index += 1;
@@ -488,7 +481,7 @@ fn wrapSegment(
     width: u32,
 ) error{OutOfMemory}!void {
     var line_start: usize = 0;
-    var line_end: usize = 0; // exclusive; == line_start means "line empty"
+    var line_end: usize = 0;
     var emitted_any = false;
     var cursor: usize = 0;
 
@@ -503,7 +496,6 @@ fn wrapSegment(
         const word_w = displayWidth(word);
 
         if (line_end == line_start) {
-            // Line empty: this is the first word.
             if (word_w > width) {
                 try splitLongWord(allocator, lines, word, width);
                 emitted_any = true;
@@ -516,14 +508,11 @@ fn wrapSegment(
             continue;
         }
 
-        // Candidate line spans line_start..word_end (the run of source bytes
-        // between the current line's first word and this word, inclusive).
         if (displayWidth(segment[line_start..cursor]) <= width) {
-            line_end = cursor; // fits — absorb the word and its separator
+            line_end = cursor;
             continue;
         }
 
-        // Overflow: flush current line, then restart with this word.
         try lines.append(allocator, segment[line_start..line_end]);
         emitted_any = true;
         if (word_w > width) {
@@ -539,7 +528,6 @@ fn wrapSegment(
     if (line_end > line_start) {
         try lines.append(allocator, segment[line_start..line_end]);
     } else if (!emitted_any) {
-        // Empty/all-space segment: emit one blank line.
         try lines.append(allocator, segment[0..0]);
     }
 }
@@ -556,7 +544,6 @@ fn splitLongWord(
     var rest = word;
     while (displayWidth(rest) > width) {
         const chunk = truncateToWidth(rest, width);
-        // Zero-progress guard (one codepoint wider than width): emit ≥1 cp.
         const advance = if (chunk.len == 0)
             std.unicode.utf8ByteSequenceLength(rest[0]) catch 1
         else

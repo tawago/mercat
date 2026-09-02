@@ -45,9 +45,6 @@ test "a placement edge records the directedness of the crossings it stands for" 
     var members: [2]sg.NodeId = undefined;
     var clusters: [1]sg.Cluster = undefined;
 
-    // Forward one-way crossings: the placement edge stays bare (it drives
-    // layout and is never painted) but must not read as arrow-free ink, and
-    // it qualifies as a forward-one-way member for its crossings.
     const directed = crossingGraph(&nodes, &edges, &members, &clusters, .filled, .filled);
     const sr_d = try split.split(a, directed);
     const outer_d = outerEdges(sr_d);
@@ -59,8 +56,6 @@ test "a placement edge records the directedness of the crossings it stands for" 
         try std.testing.expect(sg.forwardOneWayHead(e));
     }
 
-    // Circle-decorated crossings: decoration, not direction (direction consistency) — the
-    // proxy's ink is arrow-free and neither directed predicate holds.
     const decorated = crossingGraph(&nodes, &edges, &members, &clusters, .circle, .circle);
     const sr_c = try split.split(a, decorated);
     const outer_c = outerEdges(sr_c);
@@ -71,8 +66,6 @@ test "a placement edge records the directedness of the crossings it stands for" 
         try std.testing.expect(!sg.forwardOneWayHead(e));
     }
 
-    // Arrow-free crossings: nothing to stand for, so the proxy answers
-    // arrow-free and the rail-closure law applies to it as declared.
     const undirected = crossingGraph(&nodes, &edges, &members, &clusters, .none, .none);
     const sr_u = try split.split(a, undirected);
     const outer_u = outerEdges(sr_u);
@@ -88,7 +81,6 @@ test "every piece edge carries its root origin; placement edges carry none" {
     defer arena.deinit();
     const a = arena.allocator();
 
-    // Top-level T0->T1, intra-cluster A->B, cross-border T0->A.
     const nodes = [_]sg.Node{
         .{ .id = 0, .raw_id = "T0", .label = "T0", .shape = .rect, .classes = &.{}, .cluster = null },
         .{ .id = 1, .raw_id = "T1", .label = "T1", .shape = .rect, .classes = &.{}, .cluster = null },
@@ -110,7 +102,6 @@ test "every piece edge carries its root origin; placement edges carry none" {
     for (sr.pieces) |p| {
         for (p.graph.edges) |e| {
             if (e.origin == sg.SENTINEL) {
-                // Only synthetic placement edges are origin-free.
                 try std.testing.expect(p.cluster_id == null);
                 try std.testing.expect(split.idAt(p.orig_ids, e.from) == sg.SENTINEL or
                     split.idAt(p.orig_ids, e.to) == sg.SENTINEL);
@@ -132,10 +123,6 @@ test "origin chains through a nested cut to the root id" {
     defer arena.deinit();
     const a = arena.allocator();
 
-    // S contains sub-cluster T; the deep edge lives inside T. A preceding
-    // top-level edge (root id 0) forces the deep edge's root id (1) to differ
-    // from its piece-local id (0) at every level, so plain `e.id` chaining
-    // cannot masquerade as origin chaining.
     const nodes = [_]sg.Node{
         .{ .id = 0, .raw_id = "A1", .label = "A1", .shape = .rect, .classes = &.{}, .cluster = 1 },
         .{ .id = 1, .raw_id = "A2", .label = "A2", .shape = .rect, .classes = &.{}, .cluster = 1 },
@@ -154,7 +141,7 @@ test "origin chains through a nested cut to the root id" {
     const g: sg.SemGraph = .{ .direction = .TD, .nodes = &nodes, .edges = &edges, .clusters = &clusters, .classes = &.{}, .arena = null };
 
     const sr = try split.split(a, g);
-    const child = sr.pieces[1].graph; // S's subtree, T now top-level in it
+    const child = sr.pieces[1].graph;
     try std.testing.expectEqual(@as(usize, 1), child.edges.len);
     try std.testing.expectEqual(@as(sg.EdgeId, 1), child.edges[0].origin);
 
@@ -175,10 +162,6 @@ test "one directed crossing is enough to mark a deduped placement edge" {
     var members: [2]sg.NodeId = undefined;
     var clusters: [1]sg.Cluster = undefined;
 
-    // Both crossings share the outer pair (P, super-S), so ONE placement edge
-    // stands for both. The arrow-free one is seen first: the directed one that
-    // follows still has to be able to speak for the shared proxy — and the
-    // fold of the two classes is neither arrow-free nor forward one-way.
     const mixed = crossingGraph(&nodes, &edges, &members, &clusters, .none, .filled);
     const sr = try split.split(a, mixed);
     const outer = outerEdges(sr);

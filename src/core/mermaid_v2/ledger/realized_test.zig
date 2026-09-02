@@ -13,7 +13,6 @@ const jp = @import("realized.zig");
 const select = @import("../select.zig");
 const expect = std.testing.expect;
 const expectEqual = std.testing.expectEqual;
-// -- Hand-built graph/sketch helpers ----------------------------------------
 const test_nodes = [_]sg.Node{
     node(0, "A"), node(1, "B"),   node(2, "C"), node(3, "D"),
     node(4, "E"), node(5, "Hub"), node(6, "X"),
@@ -188,8 +187,6 @@ fn edgeRankOf(plan: pb.BundlePermits, e: pb.EdgeId) usize {
     return jp.edgeRank(plan.memberships, e).?;
 }
 
-// -- Production-path vectors -------------------------------------------------
-
 test "V-D-JOIN-SELECT-01: complete fan-out rail realizes one selected bundle with full provenance" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
@@ -216,7 +213,6 @@ test "V-D-JOIN-SELECT-02: no rail proposal leaves every member independent(not_s
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
-    // V-D-POLICY-06: permission alone is not a proposal obligation.
     const g = try parse_mod.parse(a, "flowchart LR\n  Hub --> A\n  Hub --> B\n");
     const plan = try buildPlan(a, g);
 
@@ -250,7 +246,6 @@ test "V-D-JOIN-SELECT-07: partial proposal fails clause (c) first" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
-    // Hub -> {A..E}; the candidate proposes a rail for {A,B,C} only.
     const edges = [_]sg.Edge{ edge(0, 5, 0), edge(1, 5, 1), edge(2, 5, 2), edge(3, 5, 3), edge(4, 5, 4) };
     const g = graph(&edges);
     const plan = try buildPlan(a, g);
@@ -272,7 +267,6 @@ test "V-D-JOIN-SELECT-08: plan serialization is byte-identical under edge and sk
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
-    // V-03's topology hand-built in two array orders (ids preserved).
     const ordered = [_]sg.Edge{ edge(10, 0, 2), edge(11, 0, 3), edge(12, 1, 3) };
     const shuffled = [_]sg.Edge{ ordered[2], ordered[0], ordered[1] };
     const g1 = graph(&ordered);
@@ -319,8 +313,6 @@ test "V-D-JOIN-SELECT-13: proposal multiplicity blocks realization, byte-identic
     const plan = try buildPlan(a, g);
     const taps = [_]sk.Tap{ tapFor(edges[0]), tapFor(edges[1]), tapFor(edges[2]) };
     const rail = railFor(5, .solid, .fan_out_dropper, &taps);
-    // TWO complete rail proposals for FO-Hub (distinct rail entries,
-    // identical member-set key → one multiplicity-counted entry).
     const two = [_]sk.Rail{ rail, rail };
     const res = try jp.realize(a, plan, sketchOf(&.{}, &two));
     try expectEqual(jp.GroupClause.multiplicity, res.report.verdicts[0].clause);
@@ -333,7 +325,6 @@ test "V-D-JOIN-SELECT-13: proposal multiplicity blocks realization, byte-identic
     for (res.plan.memberships) |rm| {
         try expectEqual(pb.IndependentReason.not_selected, rm.source.?.independent.reason);
     }
-    // Proposal-enumeration swap (rail array order) → byte-identical.
     const swapped = [_]sk.Rail{ two[1], two[0] };
     const res2 = try jp.realize(a, plan, sketchOf(&.{}, &swapped));
     try std.testing.expectEqualStrings(
@@ -342,29 +333,22 @@ test "V-D-JOIN-SELECT-13: proposal multiplicity blocks realization, byte-identic
     );
 }
 
-// -- V-D-TRUNK predicate/plan halves ------------------------------------------
-
 test "V-D-TRUNK-01/02/03/04: clause (e) sub-clauses fire first-fail in frozen order" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
 
-    // 01: all-solid arrowless-pivot fan-out is style-compatible: with no
-    // proposal the first failure is clause (f), never (e).
     const ok = [_]sg.Edge{ edge(0, 5, 0), edge(1, 5, 1), edge(2, 5, 2), edge(3, 5, 3), edge(4, 5, 4) };
     var g = graph(&ok);
     var res = try jp.realize(a, try buildPlan(a, g), sketchOf(try paths(a, &ok), &.{}));
     try expectEqual(jp.GroupClause.no_proposal, res.report.verdicts[0].clause);
     try expect(res.report.verdicts[0].rail_detail == null);
 
-    // 02: two solid + one dotted → (e)(b) rail_member_style_mixed.
     const mixed = [_]sg.Edge{ edge(0, 5, 0), edge(1, 5, 1), styled(2, 5, 2, .dotted, .none, .filled, null) };
     g = graph(&mixed);
     res = try jp.realize(a, try buildPlan(a, g), sketchOf(try paths(a, &mixed), &.{}));
     try expectEqual(pb.DiagnosticTag.rail_member_style_mixed, res.report.verdicts[0].rail_detail.?);
 
-    // 03: fan-in with one invisible member, visible members ARROWLESS so
-    // sub-clause (a) is isolated → exactly rail_member_invisible.
     const invis = [_]sg.Edge{
         styled(0, 0, 6, .solid, .none, .none, null),
         styled(1, 1, 6, .solid, .none, .none, null),
@@ -374,17 +358,12 @@ test "V-D-TRUNK-01/02/03/04: clause (e) sub-clauses fire first-fail in frozen or
     res = try jp.realize(a, try buildPlan(a, g), sketchOf(try paths(a, &invis), &.{}));
     try expectEqual(pb.DiagnosticTag.rail_member_invisible, res.report.verdicts[0].rail_detail.?);
 
-    // 04: all solid, MIXED pivot-side arrow_from → (e)(c).
     const pivot_arrow = [_]sg.Edge{ edge(0, 5, 0), edge(1, 5, 1), styled(2, 5, 2, .solid, .filled, .filled, null) };
     g = graph(&pivot_arrow);
     res = try jp.realize(a, try buildPlan(a, g), sketchOf(try paths(a, &pivot_arrow), &.{}));
     try expectEqual(jp.GroupClause.style, res.report.verdicts[0].clause);
     try expectEqual(pb.DiagnosticTag.rail_pivot_side_arrow, res.report.verdicts[0].rail_detail.?);
 }
-
-// V-D-TRUNK-06/08/10 live in realized_test2.zig (500-line cap balance).
-
-// -- V-D-IR vectors -----------------------------------------------------------
 
 test "V-D-IR-01: winner bundles artifact survives selection to the entry boundary" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
@@ -393,8 +372,6 @@ test "V-D-IR-01: winner bundles artifact survives selection to the entry boundar
     const g = try parse_mod.parse(a, "flowchart TD\n  Hub --> A\n  Hub --> B\n  Hub --> C\n");
     const built = try planner.build(a, g, .joined);
 
-    // The production call path: choose() returns the envelope entry.zig
-    // keeps; its bundles must arrive populated, not recomputed after.
     const result = try select.choose(a, g, &built.plan, 80, false, false, .bridge);
     try expectEqual(@as(usize, 3), result.sketch.bundles.memberships.len);
     try expectEqual(@as(usize, 1), result.sketch.bundles.selected_bundles.len);
@@ -424,7 +401,6 @@ test "V-D-IR-02: motif_pack candidate is off the identity path and keeps an empt
             }
             saw_raw = true;
         } else if (cand.transform == .motif_pack) {
-            // Packed sketches remain outside the flat identity path.
             try expect(cand.sketch.clusters.len > 0);
             try expect(res.report.skipped_clustered);
             try expectEqual(@as(usize, 0), res.plan.memberships.len);
@@ -458,9 +434,6 @@ test "V-D-IR-04: BundlePermits and RealizedBundles byte-identical across edge or
 }
 
 test "a discharged edge that still owns an EdgePath counts as a double discharge" {
-    // Discharging an edge means the rail's crossbar IS its rendering; a second,
-    // private EdgePath would state the relation twice. The planner re-checks
-    // the candidate's own geometry for exactly that leak.
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
@@ -468,14 +441,12 @@ test "a discharged edge that still owns an EdgePath counts as a double discharge
     const g = graph(&edges);
     const plan = try buildPlan(a, g);
 
-    // Withheld as the law intends: no EdgePath for edge 2, no double discharge.
     var withheld = sketchOf(try paths(a, edges[0..2]), &.{});
     withheld.bundles = .{ .discharged = &.{2} };
     const clean = try jp.realize(a, plan, withheld);
     try expectEqual(@as(u32, 0), clean.report.co_double_discharge);
     try expectEqual(@as(usize, 1), clean.plan.discharged.len);
 
-    // Leaked: edge 2 was discharged AND routed.
     var leaked = sketchOf(try paths(a, &edges), &.{});
     leaked.bundles = .{ .discharged = &.{2} };
     const dirty = try jp.realize(a, plan, leaked);

@@ -156,7 +156,6 @@ fn cut(arena: std.mem.Allocator, graph: sg.SemGraph) error{OutOfMemory}!SplitRes
         };
     }
 
-    // --- Outer piece + cross-border crossings (fills supers[].outer_node) ---
     const ob = try buildOuter(arena, graph, tops.items, supers);
     pieces[0] = ob.piece;
 
@@ -178,8 +177,6 @@ const OuterBuild = struct { piece: Piece, crossings: []const Crossing };
 /// clusters keep their (re-pointed) parents. Cluster ids are preserved; node
 /// ids are re-assigned 0..k-1 and members/edges are remapped to them.
 fn buildChild(arena: std.mem.Allocator, graph: sg.SemGraph, c: sg.Cluster) error{OutOfMemory}!Piece {
-    // 1. Subtree node ids in child order: direct members first, then any node
-    //    living in a descendant cluster (graph order).
     var ids: std.ArrayListUnmanaged(sg.NodeId) = .empty;
     for (c.members) |mid| try ids.append(arena, mid);
     for (graph.nodes) |n| {
@@ -199,14 +196,10 @@ fn buildChild(arena: std.mem.Allocator, graph: sg.SemGraph, c: sg.Cluster) error
             .label = src.label,
             .shape = src.shape,
             .classes = src.classes,
-            // Directly in `c` → top-level in the child (null); otherwise keep
-            // the (preserved-id) descendant cluster.
             .cluster = if (src.cluster) |sc| (if (sc == c.id) null else sc) else null,
         };
     }
 
-    // 2. Descendant clusters, members/sub_clusters kept, direct subs reparented
-    //    to null, members remapped to child-local node ids.
     var child_clusters: std.ArrayListUnmanaged(sg.Cluster) = .empty;
     for (graph.clusters) |d| {
         if (!isDescendant(graph, d.id, c.id)) continue;
@@ -224,7 +217,6 @@ fn buildChild(arena: std.mem.Allocator, graph: sg.SemGraph, c: sg.Cluster) error
         });
     }
 
-    // 3. Edges with both endpoints in the subtree, remapped to child ids.
     var edges: std.ArrayListUnmanaged(sg.Edge) = .empty;
     for (graph.edges) |e| {
         if (inSubtree(graph, e.from, c.id) and inSubtree(graph, e.to, c.id)) {
@@ -236,7 +228,6 @@ fn buildChild(arena: std.mem.Allocator, graph: sg.SemGraph, c: sg.Cluster) error
                 .arrow_from = e.arrow_from,
                 .arrow_to = e.arrow_to,
                 .label = e.label,
-                // Carried through the cut unchanged: stated, not defaulted.
                 .stands_for = e.stands_for,
                 .origin = originOf(e),
             });
@@ -279,7 +270,7 @@ fn buildOuter(arena: std.mem.Allocator, graph: sg.SemGraph, tops: []const usize,
     for (tops, 0..) |ci, k| {
         const c = graph.clusters[ci];
         const super_id: sg.NodeId = @intCast(nodes.items.len);
-        try orig.append(arena, sg.SENTINEL); // synthetic
+        try orig.append(arena, sg.SENTINEL);
         try nodes.append(arena, .{
             .id = super_id,
             .raw_id = c.raw_id,
@@ -293,15 +284,9 @@ fn buildOuter(arena: std.mem.Allocator, graph: sg.SemGraph, tops: []const usize,
 
     var edges: std.ArrayListUnmanaged(sg.Edge) = .empty;
     var crossings: std.ArrayListUnmanaged(Crossing) = .empty;
-    // (from_outer, to_outer, index into `edges`) for the outer pairs already
-    // given a placement edge. The index is kept so a LATER crossing over the
-    // same outer pair can still lend the placement edge its arrowheads.
     var seen: std.ArrayListUnmanaged(SeenPair) = .empty;
 
     for (graph.edges) |e| {
-        // Classify by TOP-LEVEL containing subgraph (or null for top-level
-        // nodes): an edge between two nodes in the same top-level subtree is
-        // routed inside that child's recursion, not here.
         const fa = topClusterOf(graph, e.from);
         const ta = topClusterOf(graph, e.to);
         if (fa == null and ta == null) {
@@ -313,15 +298,10 @@ fn buildOuter(arena: std.mem.Allocator, graph: sg.SemGraph, tops: []const usize,
                 .arrow_from = e.arrow_from,
                 .arrow_to = e.arrow_to,
                 .label = e.label,
-                // Carried through the cut unchanged: stated, not defaulted.
                 .stands_for = e.stands_for,
                 .origin = originOf(e),
             });
-        } else if (sameCluster(fa, ta)) {
-            // Same top-level subtree: lives in the child piece, not here.
-        } else {
-            // Cross-border: record the real crossing + a deduped placement
-            // edge between the two sides' outer representatives.
+        } else if (sameCluster(fa, ta)) {} else {
             try crossings.append(arena, .{
                 .id = @intCast(crossings.items.len),
                 .from = e.from,
@@ -337,9 +317,6 @@ fn buildOuter(arena: std.mem.Allocator, graph: sg.SemGraph, tops: []const usize,
             if (rf == rt) continue;
             const class = sg.standsForClass(e.arrow_from, e.arrow_to);
             if (seenIndex(seen.items, rf, rt)) |at| {
-                // One placement edge already stands for this outer pair, and
-                // it stands for THIS crossing too: its class is the fold of
-                // every crossing behind it.
                 edges.items[at].stands_for =
                     sg.mergeStandsFor(edges.items[at].stands_for, class);
                 continue;
@@ -350,9 +327,6 @@ fn buildOuter(arena: std.mem.Allocator, graph: sg.SemGraph, tops: []const usize,
                 .from = rf,
                 .to = rt,
                 .kind = e.kind,
-                // No arrowheads: this edge only drives the outer layout and is
-                // dropped before painting, so arrowheads here would move boxes
-                // for ink nobody draws. `stands_for` carries the truth instead.
                 .arrow_from = .none,
                 .arrow_to = .none,
                 .label = null,
@@ -451,10 +425,6 @@ pub fn idAt(map: []const sketch.NodeId, i: sketch.NodeId) sketch.NodeId {
     return map[i];
 }
 
-// ====================================================================
-// Tests
-// ====================================================================
-
 test "identity split for clusterless graph" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
@@ -476,8 +446,6 @@ test "single-level disjoint subgraphs cut into outer + children" {
     defer arena.deinit();
     const a = arena.allocator();
 
-    // Two clusters, two members each, intra-cluster edges only, plus one
-    // top-level node outside any cluster.
     const nodes = [_]sg.Node{
         .{ .id = 0, .raw_id = "A", .label = "A", .shape = .rect, .classes = &.{}, .cluster = 0 },
         .{ .id = 1, .raw_id = "B", .label = "B", .shape = .rect, .classes = &.{}, .cluster = 0 },
@@ -499,16 +467,13 @@ test "single-level disjoint subgraphs cut into outer + children" {
 
     const r = try split(a, g);
     try std.testing.expect(!r.isFlat());
-    try std.testing.expectEqual(@as(usize, 3), r.pieces.len); // outer + 2 children
+    try std.testing.expectEqual(@as(usize, 3), r.pieces.len);
     try std.testing.expectEqual(@as(usize, 2), r.supers.len);
 
-    // Each child has 2 nodes, 1 edge, flat.
     try std.testing.expectEqual(@as(usize, 2), r.pieces[1].graph.nodes.len);
     try std.testing.expectEqual(@as(usize, 1), r.pieces[1].graph.edges.len);
-    // Outer has 1 real (T) + 2 supers = 3 nodes, 0 edges.
     try std.testing.expectEqual(@as(usize, 3), r.pieces[0].graph.nodes.len);
     try std.testing.expectEqual(@as(usize, 0), r.pieces[0].graph.edges.len);
-    // Super-nodes point at the right child pieces.
     try std.testing.expectEqual(@as(usize, 1), r.supers[0].child_piece);
     try std.testing.expectEqual(@as(usize, 2), r.supers[1].child_piece);
 }

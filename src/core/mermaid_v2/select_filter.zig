@@ -22,9 +22,6 @@ fn planDerived(sets: []const ledger.Bundle) bool {
     for (sets) |s| {
         switch (s.origin) {
             .selected_bundle => return true,
-            // Neither layout's fans nor the geometric port shares are the
-            // plan's to speak for: re-deriving from a plan does NOT replace
-            // them, so they must not make the sketch look plan-derived.
             .fan_rail, .port_share => {},
         }
     }
@@ -35,7 +32,7 @@ fn planDerived(sets: []const ledger.Bundle) bool {
 /// INVARIANT: a port share is geometric, not planned — withdrawing a rail
 /// says nothing about two edges the producers routed through one port, so the
 /// plan's population is replaced and the port shares ride along unchanged.
-/// guarded-by: select_test2.zig "applying a plan keeps the sketch's port-share bundles"
+/// @guarded-by: select_test2.zig "applying a plan keeps the sketch's port-share bundles"
 fn replanSets(aa: std.mem.Allocator, sets: []const ledger.Bundle, plan: ledger.RealizedBundles) []const ledger.Bundle {
     const derived = ledger.bundlesFromPlan(aa, plan) catch return sets;
     const shares = ledger.keepOrigin(aa, sets, .port_share) catch &.{};
@@ -66,7 +63,7 @@ pub const FilterResult = struct {
 /// candidates are never winners (census 0/114), so excluding them never moves
 /// the argmin (scoreCandidates falls back to the argmin when the incumbent is
 /// filtered out); any allocation failure degrades to the identity.
-/// guarded-by: disposition_test.zig "V-D-DISPOSITION-04: fusing incomplete-union candidate is CI-excluded, independent survivor routes; complete union fires nothing"
+/// @guarded-by: disposition_test.zig "V-D-DISPOSITION-04: fusing incomplete-union candidate is CI-excluded, independent survivor routes; complete union fires nothing"
 pub fn ciFilter(
     aa: std.mem.Allocator,
     candidates: []const ladder.Candidate,
@@ -90,20 +87,9 @@ pub fn ciFilter(
             survivors.append(aa, cand.*) catch return clean;
             kept.append(aa, rep) catch return clean;
         } else {
-            // Clause-(g)-pre: withdraw the excluded candidate's realized rails
-            // so its emitted plan reads independent(unsafe_component); the
-            // re-disposed copy rides `excluded` into Step 10's telemetry.
             cand.sketch.bundles = realized_mod.disposeUnsafe(aa, cand.sketch.bundles) catch cand.sketch.bundles;
-            // The bundles travel with the plan they were derived from, so a
-            // withdrawn rail stops authorizing its members' shared ink. Only
-            // plan-derived sets travel: a candidate the planner declined keeps
-            // layout's fan sets (same invariant as `select.applyPlan`) —
-            // there is no plan of its own to withdraw.
             if (planDerived(cand.sketch.bundle_sets))
                 cand.sketch.bundle_sets = replanSets(aa, cand.sketch.bundle_sets, cand.sketch.bundles);
-            // The withdrawn rail took its bundle's name with it; re-stamp so
-            // the surviving roster reads as one unbroken 1..N and no rail
-            // answers to a name that no longer sits on the list.
             sketch_bundles.stamp(aa, &cand.sketch);
             excluded.append(aa, cand.*) catch return clean;
         }
@@ -130,7 +116,7 @@ pub fn ciFilter(
 /// (9(e) observability; the RO `disp_terminal_fallback_engaged` count
 /// aggregation is Step 10's job). A FALLBACK: never engages on the census-clean
 /// corpus.
-/// guarded-by: disposition_test.zig "V-D-DISPOSITION-06: terminal fallback is built by the selection tail, marks terminal_fallback, validates, and renders"
+/// @guarded-by: disposition_test.zig "V-D-DISPOSITION-06: terminal fallback is built by the selection tail, marks terminal_fallback, validates, and renders"
 pub fn terminalCandidate(
     aa: std.mem.Allocator,
     graph: sem_graph.SemGraph,
@@ -142,11 +128,6 @@ pub fn terminalCandidate(
     if (bundle_permits.isFlat()) {
         if (realized_mod.realize(aa, bundle_permits.*, result.sketch)) |r| {
             result.sketch.bundles = r.plan;
-            // Bundles speak for the plan the sketch ends up holding, so
-            // layout's fan-derived sets do not survive a REALIZED plan. A
-            // failed realize leaves the empty envelope, which states nothing
-            // about sharing — same invariant as `select.applyPlan`, so the
-            // sketch keeps whatever layout gave it.
             if (!r.report.skipped_clustered)
                 result.sketch.bundle_sets = replanSets(aa, result.sketch.bundle_sets, r.plan);
             sketch_bundles.stamp(aa, &result.sketch);

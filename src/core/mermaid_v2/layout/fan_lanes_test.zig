@@ -52,28 +52,24 @@ pub fn laneOfPivot(fans: []const fan.Fan, dir: fan.Direction, pivot: u32) u32 {
 }
 
 test "incomplete overlapping fans get separate lanes" {
-    // A->X, A->Y, B->Y, C->Y, C->Z. Two fan-OUTs (A: X,Y and C: Y,Z) whose
-    // rails abut at Y's column; their union {A,C}×{X,Y,Z} declares 4 of 6
-    // possible pairs → INCOMPLETE → the two rails must land on distinct lanes.
     const a = testing.allocator;
     var nodes = [_]sugiyama.LayerNode{
-        .{ .real = 0 }, .{ .real = 1 }, .{ .real = 2 }, // A B C (layer 0)
-        .{ .real = 3 }, .{ .real = 4 }, .{ .real = 5 }, // X Y Z (layer 1)
+        .{ .real = 0 }, .{ .real = 1 }, .{ .real = 2 },
+        .{ .real = 3 }, .{ .real = 4 }, .{ .real = 5 },
     };
     var row0 = [_]u32{ 0, 1, 2 };
     var row1 = [_]u32{ 3, 4, 5 };
     var layers = [_][]u32{ &row0, &row1 };
     var edges = [_]sugiyama.LayerEdge{
-        .{ .from = 0, .to = 3, .reversed = false, .edge = 100 }, // A->X
-        .{ .from = 0, .to = 4, .reversed = false, .edge = 101 }, // A->Y
-        .{ .from = 1, .to = 4, .reversed = false, .edge = 200 }, // B->Y
-        .{ .from = 2, .to = 4, .reversed = false, .edge = 201 }, // C->Y
-        .{ .from = 2, .to = 5, .reversed = false, .edge = 202 }, // C->Z
+        .{ .from = 0, .to = 3, .reversed = false, .edge = 100 },
+        .{ .from = 0, .to = 4, .reversed = false, .edge = 101 },
+        .{ .from = 1, .to = 4, .reversed = false, .edge = 200 },
+        .{ .from = 2, .to = 4, .reversed = false, .edge = 201 },
+        .{ .from = 2, .to = 5, .reversed = false, .edge = 202 },
     };
     var reversed = [_]sg.EdgeId{};
     const lg = mkLg(&nodes, &layers, &edges, &reversed);
 
-    // Columns: A/X @ centre 1, B/Y @ centre 10, C/Z @ centre 19.
     const geom = [_]Geom{
         .{ .x = 0, .w = 3 }, .{ .x = 9, .w = 3 }, .{ .x = 18, .w = 3 },
         .{ .x = 0, .w = 3 }, .{ .x = 9, .w = 3 }, .{ .x = 18, .w = 3 },
@@ -86,20 +82,17 @@ test "incomplete overlapping fans get separate lanes" {
     const fans = try fan.detect(aa, graph, lg);
     try fan_lanes.assignLanes(Geom, aa, graph, lg, &geom, fans, .{}, null);
 
-    const lane_a = laneOfPivot(fans, .out, 0); // fan-OUT A
-    const lane_c = laneOfPivot(fans, .out, 2); // fan-OUT C
-    try testing.expect(lane_a != lane_c); // distinct rails, no fusion
-    try testing.expectEqual(@as(u32, 0), laneOfPivot(fans, .in, 4)); // fan-IN Y draws no rail → lane 0
+    const lane_a = laneOfPivot(fans, .out, 0);
+    const lane_c = laneOfPivot(fans, .out, 2);
+    try testing.expect(lane_a != lane_c);
+    try testing.expectEqual(@as(u32, 0), laneOfPivot(fans, .in, 4));
 
-    // extraRowsPerGap reserves 2 rows for the two-lane gap.
     const extras = try fan.extraRowsPerGap(aa, lg, fans);
     try testing.expectEqual(@as(usize, 1), extras.len);
     try testing.expectEqual(@as(u32, 2), extras[0]);
 }
 
 test "lane assignment reserves one extra gap row per lane" {
-    // Same graph as above — asserts the reservation contract that
-    // fan.extraRowsPerGap honours fan.lane (the guarded-by target for it).
     const a = testing.allocator;
     var nodes = [_]sugiyama.LayerNode{
         .{ .real = 0 }, .{ .real = 1 }, .{ .real = 2 },
@@ -134,7 +127,7 @@ test "lane assignment reserves one extra gap row per lane" {
 }
 
 /// Like `mkGraph` but every edge is fully arrow-free (`A --- B`) — the shape
-/// the shared-rail closure law judges. `extra` appends declarations that are
+/// the shared-rail closure licence judges. `extra` appends declarations that are
 /// NOT layer edges (the leaf-pair backers).
 pub fn mkBareGraph(a: std.mem.Allocator, ledges: []const sugiyama.LayerEdge, extra: []const sg.Edge) !sg.SemGraph {
     const es = try a.alloc(sg.Edge, ledges.len + extra.len);
@@ -159,14 +152,10 @@ fn peerLanes(fans: []const fan.Fan, dir: fan.Direction, pivot: u32, out: []u32) 
 }
 
 test "a clustered undirected fan with no declared leaf pairs unfuses onto separate lanes" {
-    // A---Z, B---Z, C---Z inside a subgraph: no realized plan exists (the
-    // clustered render carries the empty envelope), so the closure law runs
-    // here or the crossbar silently asserts A—B, A—C and B—C. With the leaf
-    // pairs DECLARED the same fan keeps its single shared rail.
     const a = testing.allocator;
     var nodes = [_]sugiyama.LayerNode{
-        .{ .real = 0 }, .{ .real = 1 }, .{ .real = 2 }, // A B C (layer 0)
-        .{ .real = 3 }, // Z (layer 1)
+        .{ .real = 0 }, .{ .real = 1 }, .{ .real = 2 },
+        .{ .real = 3 },
     };
     var row0 = [_]u32{ 0, 1, 2 };
     var row1 = [_]u32{3};
@@ -186,7 +175,6 @@ test "a clustered undirected fan with no declared leaf pairs unfuses onto separa
     defer arena.deinit();
     const aa = arena.allocator();
 
-    // Undeclared: every member takes a lane of its own.
     {
         const graph = try mkBareGraph(aa, &edges, &.{});
         const fans = try fan.detect(aa, graph, lg);
@@ -198,8 +186,6 @@ test "a clustered undirected fan with no declared leaf pairs unfuses onto separa
         try testing.expect(lanes[0] != lanes[2]);
     }
 
-    // Declared clique A---B, A---C, B---C: the crossbar states only what the
-    // graph already does, so the fan keeps ONE shared rail row.
     {
         const clique = [_]sg.Edge{
             .{ .id = 20, .from = 0, .to = 1, .kind = .solid, .arrow_from = .none, .arrow_to = .none, .label = null },
@@ -215,7 +201,7 @@ test "a clustered undirected fan with no declared leaf pairs unfuses onto separa
     }
 }
 
-test "a clustered DIRECTED fan is untouched by the closure law" {
+test "a clustered DIRECTED fan is untouched by the closure licence" {
     const a = testing.allocator;
     var nodes = [_]sugiyama.LayerNode{ .{ .real = 0 }, .{ .real = 1 }, .{ .real = 2 }, .{ .real = 3 } };
     var row0 = [_]u32{ 0, 1, 2 };
@@ -234,7 +220,6 @@ test "a clustered DIRECTED fan is untouched by the closure law" {
     var arena = std.heap.ArenaAllocator.init(a);
     defer arena.deinit();
     const aa = arena.allocator();
-    // mkGraph's edges all carry `arrow_to = .filled` — a directed fan.
     const graph = try mkGraph(aa, &edges);
     const fans = try fan.detect(aa, graph, lg);
     try fan_lanes.assignLanes(Geom, aa, graph, lg, &geom, fans, .{}, null);
@@ -243,12 +228,7 @@ test "a clustered DIRECTED fan is untouched by the closure law" {
     for (lanes) |l| try testing.expectEqual(@as(u32, 0), l);
 }
 
-test "a fan of placement proxies for directed crossings is untouched by the closure law" {
-    // The outer level of a CLUSTERED render fans through placement edges, which
-    // carry no arrowheads of their own (they drive layout and are never
-    // painted) but stand for directed crossings. Reading their bare arrow
-    // fields made every directed clustered fan unfuse; `stands_for` is what
-    // keeps the law inert on them.
+test "a fan of placement proxies for directed crossings is untouched by the closure licence" {
     const a = testing.allocator;
     var nodes = [_]sugiyama.LayerNode{ .{ .real = 0 }, .{ .real = 1 }, .{ .real = 2 }, .{ .real = 3 } };
     var row0 = [_]u32{ 0, 1, 2 };
@@ -268,8 +248,6 @@ test "a fan of placement proxies for directed crossings is untouched by the clos
     defer arena.deinit();
     const aa = arena.allocator();
 
-    // No declared leaf pairs at all — the exact shape that unfuses when the
-    // members really are arrow-free (the test above).
     const graph = try mkBareGraph(aa, &edges, &.{});
     for (@constCast(graph.edges)) |*e| e.stands_for = .forward_one_way;
 
@@ -281,10 +259,6 @@ test "a fan of placement proxies for directed crossings is untouched by the clos
 }
 
 test "a salvaged fan's excluded members never land on the kept rail's lane" {
-    // The closure law's salvage shape: a strict subset of the fan keeps the
-    // rail (edges 10 and 11 selected) and the rest unfuses. The excluded
-    // member must start ABOVE the rail's own lane — starting at the fan's
-    // lane would put it straight back on the crossbar it was excluded from.
     const a = testing.allocator;
     var nodes = [_]sugiyama.LayerNode{ .{ .real = 0 }, .{ .real = 1 }, .{ .real = 2 }, .{ .real = 3 } };
     var row0 = [_]u32{ 0, 1, 2 };
@@ -324,29 +298,20 @@ test "a salvaged fan's excluded members never land on the kept rail's lane" {
 }
 
 test "a gap whose departures all defer lane-separates the arrival rails that draw its rails" {
-    // A,B -> X,Y plus C -> Y. The plan selects the two ARRIVAL rails (at X and
-    // at Y); neither departure is selected, so neither draws a run and both
-    // defer their peers. Model those arrivals as the gap's rails — as the ones
-    // actually drawing rails — and the group separates. Model them as owned by
-    // the departures instead and BOTH arrivals lose every edge, so they model
-    // no rail, draw crossbars nobody laned, and keep lane 0: hence the
-    // nonzero-lane assertion, not just the inequality.
-    // C -> Y keeps the declared set one pair short of {A,B,C} x {X,Y}, so the
-    // directed cross-pair test still refuses the fusion.
     const a = testing.allocator;
     var nodes = [_]sugiyama.LayerNode{
-        .{ .real = 0 }, .{ .real = 1 }, .{ .real = 2 }, // A B C
-        .{ .real = 3 }, .{ .real = 4 }, // X Y
+        .{ .real = 0 }, .{ .real = 1 }, .{ .real = 2 },
+        .{ .real = 3 }, .{ .real = 4 },
     };
     var row0 = [_]u32{ 0, 1, 2 };
     var row1 = [_]u32{ 3, 4 };
     var layers = [_][]u32{ &row0, &row1 };
     var edges = [_]sugiyama.LayerEdge{
-        .{ .from = 0, .to = 3, .reversed = false, .edge = 0 }, // A->X
-        .{ .from = 0, .to = 4, .reversed = false, .edge = 1 }, // A->Y
-        .{ .from = 1, .to = 3, .reversed = false, .edge = 2 }, // B->X
-        .{ .from = 1, .to = 4, .reversed = false, .edge = 3 }, // B->Y
-        .{ .from = 2, .to = 4, .reversed = false, .edge = 4 }, // C->Y
+        .{ .from = 0, .to = 3, .reversed = false, .edge = 0 },
+        .{ .from = 0, .to = 4, .reversed = false, .edge = 1 },
+        .{ .from = 1, .to = 3, .reversed = false, .edge = 2 },
+        .{ .from = 1, .to = 4, .reversed = false, .edge = 3 },
+        .{ .from = 2, .to = 4, .reversed = false, .edge = 4 },
     };
     var reversed = [_]sg.EdgeId{};
     const lg = mkLg(&nodes, &layers, &edges, &reversed);
@@ -380,22 +345,14 @@ test "a gap whose departures all defer lane-separates the arrival rails that dra
 }
 
 test "two clustered rails implying one declared leaf pair both refuse" {
-    // A---Z, B---Z, A---W, B---W with A---B declared, inside a subgraph (no
-    // realized plan). Each crossbar asserts only A—B, which the graph does
-    // declare — truthfully, one rail at a time. Together they stack over the
-    // SAME two leaf columns, so a reader walks Z up A's column, along one
-    // crossbar, down to W: a Z—W relation nothing declares. A pair is
-    // spendable once, so the second claimant makes it nobody's and BOTH
-    // unfuse. One rail alone over the same declaration keeps its rail.
     const a = testing.allocator;
     var nodes = [_]sugiyama.LayerNode{
-        .{ .real = 0 }, .{ .real = 1 }, // A B (layer 0)
-        .{ .real = 2 }, .{ .real = 3 }, // Z W (layer 1)
+        .{ .real = 0 }, .{ .real = 1 },
+        .{ .real = 2 }, .{ .real = 3 },
     };
     var row0 = [_]u32{ 0, 1 };
     var row1 = [_]u32{ 2, 3 };
     var layers = [_][]u32{ &row0, &row1 };
-    // Columns: A/Z @ centre 1, B/W @ centre 10.
     const geom = [_]Geom{ .{ .x = 0, .w = 3 }, .{ .x = 9, .w = 3 }, .{ .x = 0, .w = 3 }, .{ .x = 9, .w = 3 } };
     const declared_pair = [_]sg.Edge{
         .{ .id = 20, .from = 0, .to = 1, .kind = .solid, .arrow_from = .none, .arrow_to = .none, .label = null },
@@ -405,13 +362,12 @@ test "two clustered rails implying one declared leaf pair both refuse" {
     defer arena.deinit();
     const aa = arena.allocator();
 
-    // Two rails over the one declaration: both refuse.
     {
         var edges = [_]sugiyama.LayerEdge{
-            .{ .from = 0, .to = 2, .reversed = false, .edge = 10 }, // A---Z
-            .{ .from = 1, .to = 2, .reversed = false, .edge = 11 }, // B---Z
-            .{ .from = 0, .to = 3, .reversed = false, .edge = 12 }, // A---W
-            .{ .from = 1, .to = 3, .reversed = false, .edge = 13 }, // B---W
+            .{ .from = 0, .to = 2, .reversed = false, .edge = 10 },
+            .{ .from = 1, .to = 2, .reversed = false, .edge = 11 },
+            .{ .from = 0, .to = 3, .reversed = false, .edge = 12 },
+            .{ .from = 1, .to = 3, .reversed = false, .edge = 13 },
         };
         var reversed = [_]sg.EdgeId{};
         const lg = mkLg(&nodes, &layers, &edges, &reversed);
@@ -428,12 +384,10 @@ test "two clustered rails implying one declared leaf pair both refuse" {
         try testing.expect(w_lanes[0] != w_lanes[1]);
     }
 
-    // ONE rail over the same declaration: nothing competes for the pair, so
-    // the rail stays fused (the over-refusal boundary).
     {
         var edges = [_]sugiyama.LayerEdge{
-            .{ .from = 0, .to = 2, .reversed = false, .edge = 10 }, // A---Z
-            .{ .from = 1, .to = 2, .reversed = false, .edge = 11 }, // B---Z
+            .{ .from = 0, .to = 2, .reversed = false, .edge = 10 },
+            .{ .from = 1, .to = 2, .reversed = false, .edge = 11 },
         };
         var reversed = [_]sg.EdgeId{};
         const lg = mkLg(&nodes, &layers, &edges, &reversed);

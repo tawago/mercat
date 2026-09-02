@@ -69,7 +69,7 @@ test "EAW W and F are two while ambiguous is one" {
     try testing.expectEqual(@as(usize, 2), try unicode.rawDisplayWidth("⌚"));
     try testing.expectEqual(@as(usize, 2), try unicode.rawDisplayWidth("✅"));
     try testing.expectEqual(@as(usize, 2), try unicode.rawDisplayWidth("⭐"));
-    try testing.expectEqual(@as(usize, 2), try unicode.rawDisplayWidth("ꥠ")); // U+A960
+    try testing.expectEqual(@as(usize, 2), try unicode.rawDisplayWidth("ꥠ"));
     try testing.expectEqual(@as(usize, 1), try unicode.rawDisplayWidth("·"));
     try testing.expectEqual(@as(usize, 4), try unicode.rawDisplayWidth("日本"));
     try testing.expect(!tables.wide.contains(0x2309));
@@ -156,26 +156,26 @@ test "strict APIs reject malformed UTF-8 and controls" {
 
 test "format controls are rejected while sanctioned shaping controls remain" {
     const rejected = [_][]const u8{
-        "\u{00ad}", // GCB Control
-        "\u{061c}", // Arabic letter mark
-        "\u{200b}", // Zero-width space
-        "\u{200e}", // Left-to-right mark
-        "\u{202e}", // Right-to-left override
-        "\u{2060}", // Word joiner
-        "\u{2066}", // Left-to-right isolate
-        "\u{feff}", // Zero-width no-break space
-        "\u{e0001}", // Language tag
-        "\u{e0061}", // Isolated emoji tag component
-        "🏴\u{e0061}\u{e007f}", // Not an RGI tag sequence
+        "\u{00ad}",
+        "\u{061c}",
+        "\u{200b}",
+        "\u{200e}",
+        "\u{202e}",
+        "\u{2060}",
+        "\u{2066}",
+        "\u{feff}",
+        "\u{e0001}",
+        "\u{e0061}",
+        "🏴\u{e0061}\u{e007f}",
     };
     for (rejected) |text| try testing.expectError(error.DisallowedControl, unicode.rawDisplayWidth(text));
 
     const allowed = [_][]const u8{
-        "a\u{200c}", // ZWNJ, GCB Extend
-        "a\u{200d}", // ZWJ
-        "a\u{180b}", // Mongolian variation selector
-        "a\u{fe0f}", // Emoji variation selector
-        "a\u{e0100}", // Supplementary variation selector
+        "a\u{200c}",
+        "a\u{200d}",
+        "a\u{180b}",
+        "a\u{fe0f}",
+        "a\u{e0100}",
         "🏴\u{e0067}\u{e0062}\u{e0065}\u{e006e}\u{e0067}\u{e007f}",
     };
     for (allowed) |text| _ = try unicode.rawDisplayWidth(text);

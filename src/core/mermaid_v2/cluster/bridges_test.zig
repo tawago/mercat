@@ -24,7 +24,6 @@ test "vertical stacked bridge routes straight when x-aligned" {
     };
     const edges = try bridges.route(a, &crossings, &placements, &.{}, &.{}, &.{}, .TD, &orig_to_merged, null, .plain);
     try std.testing.expectEqual(@as(usize, 1), edges.len);
-    // straight: 2 points, both at x = 13 (center of x=10,w=6)
     try std.testing.expectEqual(@as(usize, 2), edges[0].polyline.len);
     try std.testing.expectEqual(@as(i32, 13), edges[0].polyline[0].x);
     try std.testing.expectEqual(@as(i32, 13), edges[0].polyline[1].x);
@@ -37,8 +36,6 @@ test "vertical bridge jogs when x-misaligned, final segment vertical" {
     defer arena.deinit();
     const a = arena.allocator();
 
-    // Vertically dominant separation (dy > dx) so the router stacks them and
-    // the connector descends into a north port.
     const placements = [_]sketch.NodePlacement{
         .{ .id = 0, .rect = .{ .x = 0, .y = 0, .w = 6, .h = 3 }, .shape = .rect, .lines = &.{"A"}, .cluster_id = null },
         .{ .id = 1, .rect = .{ .x = 8, .y = 20, .w = 6, .h = 3 }, .shape = .rect, .lines = &.{"B"}, .cluster_id = null },
@@ -50,11 +47,8 @@ test "vertical bridge jogs when x-misaligned, final segment vertical" {
     const edges = try bridges.route(a, &crossings, &placements, &.{}, &.{}, &.{}, .TD, &orig_to_merged, null, .plain);
     const poly = edges[0].polyline;
     try std.testing.expectEqual(@as(usize, 4), poly.len);
-    // Single bridge, no frames: the jog sits at the plain elbow's preferred
-    // row (min(to_box.y-1, end.y-2) = 18), byte-identical to pre-track code.
     try std.testing.expectEqual(@as(i32, 18), poly[1].y);
     try std.testing.expectEqual(@as(i32, 18), poly[2].y);
-    // final segment is vertical (same x), so the arrowhead reads as ▼
     try std.testing.expectEqual(poly[poly.len - 2].x, poly[poly.len - 1].x);
     try std.testing.expectEqual(sketch.Dir4.north, edges[0].port_to.side);
 }
@@ -64,10 +58,6 @@ test "jog landing on a drawn frame border row is displaced outside it" {
     defer arena.deinit();
     const a = arena.allocator();
 
-    // Microservices-shape repro: the target sits in a SYNTHETIC packing
-    // frame (zero pad, top row == node top row) nested in a REAL frame whose
-    // top border row is exactly the elbow's preferred jog row
-    // (min(synthetic.y - 1, end.y - 2) = 6 == real frame top border).
     const placements = [_]sketch.NodePlacement{
         .{ .id = 0, .rect = .{ .x = 0, .y = 0, .w = 6, .h = 3 }, .shape = .rect, .lines = &.{"A"}, .cluster_id = null },
         .{ .id = 1, .rect = .{ .x = 20, .y = 8, .w = 6, .h = 3 }, .shape = .rect, .lines = &.{"B"}, .cluster_id = 9 },
@@ -83,11 +73,8 @@ test "jog landing on a drawn frame border row is displaced outside it" {
     const edges = try bridges.route(a, &crossings, &placements, &clusters, &.{}, &.{}, .TD, &orig_to_merged, null, .plain);
     const poly = edges[0].polyline;
     try std.testing.expectEqual(@as(usize, 4), poly.len);
-    // Preferred row 6 fuses into frame 7's top border → displaced OUTWARD
-    // (up, away from the entered side) to the clear row 5.
     try std.testing.expectEqual(@as(i32, 5), poly[1].y);
     try std.testing.expectEqual(@as(i32, 5), poly[2].y);
-    // Final drop is still perpendicular into the port.
     try std.testing.expectEqual(poly[2].x, poly[3].x);
 }
 
@@ -96,8 +83,6 @@ test "two same-side bridges with overlapping spans get distinct tracks" {
     defer arena.deinit();
     const a = arena.allocator();
 
-    // Two sources whose bridges CROSS into one real frame: overlapping jog
-    // x-spans on the same (north) entry side must not share a jog row.
     const placements = [_]sketch.NodePlacement{
         .{ .id = 0, .rect = .{ .x = 0, .y = 0, .w = 6, .h = 3 }, .shape = .rect, .lines = &.{"A"}, .cluster_id = null },
         .{ .id = 1, .rect = .{ .x = 30, .y = 0, .w = 6, .h = 3 }, .shape = .rect, .lines = &.{"B"}, .cluster_id = null },
@@ -116,8 +101,6 @@ test "two same-side bridges with overlapping spans get distinct tracks" {
     try std.testing.expectEqual(@as(usize, 2), edges.len);
     const jog0 = edges[0].polyline[1].y;
     const jog1 = edges[1].polyline[1].y;
-    // Distinct tracks (stack_gap 1), both strictly above the frame's top
-    // border row (8) and never ON it.
     try std.testing.expect(jog0 != jog1);
     try std.testing.expect(jog0 < 8 and jog1 < 8);
     try std.testing.expectEqual(@as(i32, 1), @max(jog0, jog1) - @min(jog0, jog1));
@@ -128,8 +111,6 @@ test "bridges sharing one source port share a single rail track" {
     defer arena.deinit();
     const a = arena.allocator();
 
-    // A fan: one source, two targets in the same frame. Overlapping spans,
-    // but the shared exit port means one rail row for both (no ladder).
     const placements = [_]sketch.NodePlacement{
         .{ .id = 0, .rect = .{ .x = 12, .y = 0, .w = 6, .h = 3 }, .shape = .rect, .lines = &.{"A"}, .cluster_id = null },
         .{ .id = 1, .rect = .{ .x = 8, .y = 10, .w = 6, .h = 3 }, .shape = .rect, .lines = &.{"P"}, .cluster_id = 7 },
@@ -153,16 +134,11 @@ test "tracks.onFrameBorder ignores synthetic frames and disjoint spans" {
         .{ .id = 1, .rect = .{ .x = 10, .y = 5, .w = 10, .h = 6 }, .parent_id = null, .label = "R", .depth = 0 },
         .{ .id = 2, .rect = .{ .x = 40, .y = 5, .w = 10, .h = 6 }, .parent_id = null, .label = "", .depth = 0, .synthetic = true },
     };
-    // On the real frame's top border row, span overlapping → hit.
     try std.testing.expect(tracks.onFrameBorder(true, 5, 0, 15, &clusters));
-    // Same row but span entirely left of the frame → no hit.
     try std.testing.expect(!tracks.onFrameBorder(true, 5, 0, 9, &clusters));
-    // Synthetic frame's border row → never a hit.
     try std.testing.expect(!tracks.onFrameBorder(true, 5, 40, 49, &clusters));
-    // Bottom border row (y + h - 1 = 10) → hit; interior row → no hit.
     try std.testing.expect(tracks.onFrameBorder(true, 10, 12, 18, &clusters));
     try std.testing.expect(!tracks.onFrameBorder(true, 7, 12, 18, &clusters));
-    // Column form: left border col 10 with y-span overlap → hit.
     try std.testing.expect(tracks.onFrameBorder(false, 10, 6, 9, &clusters));
     try std.testing.expect(!tracks.onFrameBorder(false, 11, 6, 9, &clusters));
 }
@@ -172,14 +148,6 @@ test "assignJogs: shared-request merge across different cluster depths picks the
     defer arena.deinit();
     const a = arena.allocator();
 
-    // One source fans into two targets sharing the same real-frame anchor
-    // but sitting at DIFFERENT nesting depths: P is a direct member of the
-    // real frame (id 7); Q is nested one level deeper inside a synthetic
-    // packing frame (id 8, parent 7). Both crossings share the exact same
-    // source port, so they fold into ONE shared jog request — the
-    // "shared-request merge" whose preference must pick whichever member's
-    // jog sits CLOSEST to the target (the deeper Q, at the inner frame's
-    // border), not whichever crossing happened to be processed first.
     const placements = [_]sketch.NodePlacement{
         .{ .id = 0, .rect = .{ .x = 12, .y = 0, .w = 6, .h = 3 }, .shape = .rect, .lines = &.{"A"}, .cluster_id = null },
         .{ .id = 1, .rect = .{ .x = 8, .y = 25, .w = 6, .h = 3 }, .shape = .rect, .lines = &.{"P"}, .cluster_id = 7 },
@@ -191,17 +159,11 @@ test "assignJogs: shared-request merge across different cluster depths picks the
     };
     const orig_to_merged = [_]sketch.NodeId{ 0, 1, 2 };
     const crossings = [_]Crossing{
-        // P first: if the merge were first-writer-wins, the shared jog
-        // would freeze at P's shallower preference (19) and Q's edge
-        // would inherit it too.
         .{ .id = 0, .from = 0, .to = 1, .kind = .solid, .arrow_from = .none, .arrow_to = .filled, .label = null },
         .{ .id = 1, .from = 0, .to = 2, .kind = .solid, .arrow_from = .none, .arrow_to = .filled, .label = null },
     };
     const edges = try bridges.route(a, &crossings, &placements, &clusters, &.{}, &.{}, .TD, &orig_to_merged, null, .plain);
     try std.testing.expectEqual(@as(usize, 2), edges.len);
-    // P's own preference (to_box=frame7, min(19, 23)=19) loses; the merge
-    // must pick Q's deeper preference (to_box=frame8, min(21, 23)=21) for
-    // BOTH edges, since they share one rail.
     try std.testing.expectEqual(@as(i32, 21), edges[0].polyline[1].y);
     try std.testing.expectEqual(@as(i32, 21), edges[1].polyline[1].y);
 }
@@ -211,11 +173,6 @@ test "verticalCorridor: the source-side jog row (one past the source) is collisi
     defer arena.deinit();
     const a = arena.allocator();
 
-    // The plain elbow's straight vertical run (x=15, source's mid column)
-    // pierces an intra-cluster child sitting directly below the source, so
-    // `route` re-routes via `verticalCorridor`. Its source-side jog sits
-    // one row past the source (y=3) — ABOVE the child (which starts at
-    // y=5, leaving rows 3-4 clear) — and must never collide with it.
     const placements = [_]sketch.NodePlacement{
         .{ .id = 0, .rect = .{ .x = 12, .y = 0, .w = 6, .h = 3 }, .shape = .rect, .lines = &.{"A"}, .cluster_id = null },
         .{ .id = 3, .rect = .{ .x = 10, .y = 5, .w = 10, .h = 3 }, .shape = .rect, .lines = &.{"child"}, .cluster_id = null },
@@ -228,15 +185,10 @@ test "verticalCorridor: the source-side jog row (one past the source) is collisi
     const edges = try bridges.route(a, &crossings, &placements, &.{}, &.{}, &.{}, .TD, &orig_to_merged, null, .plain);
     const poly = edges[0].polyline;
 
-    // Corridor engaged (not the plain 4-point elbow, whose jog row would
-    // have been 18 — straight through the child).
     try std.testing.expectEqual(@as(usize, 5), poly.len);
     try std.testing.expectEqual(@as(i32, 15), poly[1].x);
     try std.testing.expectEqual(@as(i32, 3), poly[1].y);
 
-    // The claim under test: this derived row is ACTUALLY collision-free,
-    // not merely assumed so — checked against every real placement other
-    // than the edge's own endpoints, exactly as `polyIntrudes` would.
     try std.testing.expect(!sketch.columnTouchesAny(poly[1].x, poly[0].y, poly[1].y, &placements, 0, 1));
 }
 
@@ -245,12 +197,6 @@ test "a vertical corridor's descent column never lands on a drawn frame border" 
     defer arena.deinit();
     const a = arena.allocator();
 
-    // The source's own column is blocked by a child directly below it, so
-    // `route` falls to `verticalCorridor`. The nearest margined node-clear
-    // column the shared `clearLine` core offers for the descent is x=9 —
-    // which is exactly the RIGHT BORDER column of the drawn frame the run
-    // passes: descending there would lay the whole run inside the frame's
-    // wall and cross both of that wall's corners on the way.
     const placements = [_]sketch.NodePlacement{
         .{ .id = 0, .rect = .{ .x = 2, .y = 0, .w = 6, .h = 3 }, .shape = .rect, .lines = &.{"A"}, .cluster_id = null },
         .{ .id = 3, .rect = .{ .x = 2, .y = 7, .w = 6, .h = 3 }, .shape = .rect, .lines = &.{"child"}, .cluster_id = 7 },
@@ -267,9 +213,6 @@ test "a vertical corridor's descent column never lands on a drawn frame border" 
     const poly = edges[0].polyline;
     try std.testing.expectEqual(@as(usize, 6), poly.len);
 
-    // The long descent is poly[2]->poly[3]. What the unguarded core alone
-    // would have picked IS the frame's wall — so this fixture really does
-    // exercise the guard rather than agreeing with it by luck.
     const naive = sketch.clearLine(false, poly[5].x, poly[1].y, poly[3].y, &placements, 0, 1, .{ .margin = true });
     try std.testing.expect(tracks.onFrameBorder(false, naive, poly[1].y, poly[3].y, &frames));
 
@@ -284,16 +227,6 @@ test "a re-routed corridor raises no crossing demand on the frame it leaves" {
     defer arena.deinit();
     const a = arena.allocator();
 
-    // Two members stacked inside S, each leaving through S's bottom border to
-    // its own target below. Their centred south ports name the SAME border
-    // column, so the discipline sees a conflict and would slide one of them.
-    //
-    // But both corridors are re-routed: a plain elbow from M1 runs straight
-    // through M2, so pass 3 replaces it with the obstacle-aware corridor,
-    // which jogs one row below its source — INSIDE S — and meets S's bottom
-    // border at its own descent column. Sliding the port cannot move that
-    // crossing; it only de-centres the arrow foot. So both ports must stay
-    // centred, and the offsets must agree with the polyline's own start.
     const placements = [_]sketch.NodePlacement{
         .{ .id = 0, .rect = .{ .x = 4, .y = 2, .w = 6, .h = 3 }, .shape = .rect, .lines = &.{"M1"}, .cluster_id = 1 },
         .{ .id = 1, .rect = .{ .x = 4, .y = 7, .w = 6, .h = 3 }, .shape = .rect, .lines = &.{"M2"}, .cluster_id = 1 },
@@ -311,11 +244,9 @@ test "a re-routed corridor raises no crossing demand on the frame it leaves" {
     const edges = try bridges.route(a, &crossings, &placements, &frames, &.{}, &.{}, .TD, &orig_to_merged, null, .plain);
     try std.testing.expectEqual(@as(usize, 2), edges.len);
 
-    // M1's corridor really is the re-routed kind (more than one bend), so the
-    // fixture exercises the exemption rather than agreeing with it by luck.
     try std.testing.expect(edges[0].polyline.len > 4);
 
-    const centred: u32 = 3; // @divTrunc(6, 2) for a 6-wide south face
+    const centred: u32 = 3;
     for (edges) |e| {
         try std.testing.expectEqual(centred, e.port_from.offset);
         const rect = placements[e.from].rect;
@@ -328,11 +259,6 @@ test "sceneObstacles derives the pivot and tap head cells the raster stamps" {
     defer arena.deinit();
     const a = arena.allocator();
 
-    // Fan-in rail: stem rises from the pivot's north border at (7,10) to the
-    // crossbar row y=8; taps at x=4 and x=10 drop to member borders at y=12.
-    // The raster stamps the pivot head one step out along the stem — (7,9) —
-    // and each decorated tap's head one step back from its landing: (4,11).
-    // The x=10 tap is undecorated and contributes no head.
     const stem = [_]sketch.Point{ .{ .x = 7, .y = 10 }, .{ .x = 7, .y = 8 } };
     const taps = [_]sketch.Tap{
         .{ .edge = 0, .node = 1, .at = .{ .x = 4, .y = 8 }, .landing = .{ .x = 4, .y = 12 }, .arrow = .filled },
@@ -355,12 +281,10 @@ test "sceneObstacles derives the pivot and tap head cells the raster stamps" {
     try std.testing.expectEqual(@as(i32, 4), obs.heads[1].x);
     try std.testing.expectEqual(@as(i32, 11), obs.heads[1].y);
 
-    // Runs cover the crossbar, the stem leg, and both droppers; the head
-    // cells and runs together are exactly what a jog may not lie along.
-    try std.testing.expect(obs.blocks(true, 8, 0, 20)); // crossbar row
-    try std.testing.expect(obs.blocks(false, 7, 8, 10)); // stem column
-    try std.testing.expect(obs.blocks(false, 10, 8, 12)); // undecorated dropper
-    try std.testing.expect(!obs.blocks(true, 7, 0, 20)); // free row
+    try std.testing.expect(obs.blocks(true, 8, 0, 20));
+    try std.testing.expect(obs.blocks(false, 7, 8, 10));
+    try std.testing.expect(obs.blocks(false, 10, 8, 12));
+    try std.testing.expect(!obs.blocks(true, 7, 0, 20));
 }
 
 test "a licensed shared-source fan moves its whole rail off a static run the scene models as no obstacle" {
@@ -368,12 +292,6 @@ test "a licensed shared-source fan moves its whole rail off a static run the sce
     defer arena.deinit();
     const a = arena.allocator();
 
-    // Pivot O fans to B1 (west) and B2 (east); same exit port, one rail.
-    // A STATIC edge runs along the preferred jog row inside only the EAST
-    // member's span. The base scene models static edges as heads only, so
-    // neither the track pass nor the dodge can see the collision; only the
-    // rail choice (full static runs) moves the rail, and it moves BOTH
-    // members so the rail never splits.
     const placements = [_]sketch.NodePlacement{
         .{ .id = 0, .rect = .{ .x = 10, .y = 0, .w = 6, .h = 3 }, .shape = .rect, .lines = &.{"O"}, .cluster_id = null },
         .{ .id = 1, .rect = .{ .x = 2, .y = 20, .w = 6, .h = 3 }, .shape = .rect, .lines = &.{"B1"}, .cluster_id = null },
@@ -385,8 +303,6 @@ test "a licensed shared-source fan moves its whole rail off a static run the sce
         .{ .id = 0, .from = 0, .to = 1, .kind = .solid, .arrow_from = .none, .arrow_to = .filled, .label = null },
         .{ .id = 1, .from = 0, .to = 2, .kind = .solid, .arrow_from = .none, .arrow_to = .filled, .label = null },
     };
-    // Static scene: an arrow-free edge running along row 18 — the shared
-    // preferred jog row (end.y - 2) — east of the pivot column.
     const static_poly = [_]sketch.Point{ .{ .x = 16, .y = 18 }, .{ .x = 30, .y = 18 } };
     const statics = [_]sketch.EdgePath{.{
         .id = 90,
@@ -403,8 +319,6 @@ test "a licensed shared-source fan moves its whole rail off a static run the sce
 
     const edges = try bridges.route(a, &crossings, &placements, &.{}, &.{}, &statics, .TD, &orig_to_merged, null, .railed);
     try std.testing.expectEqual(@as(usize, 2), edges.len);
-    // Both members share one start and one jog row, and the row is NOT the
-    // head-occupied preferred row 18.
     try std.testing.expectEqual(edges[0].polyline[0].x, edges[1].polyline[0].x);
     try std.testing.expectEqual(@as(usize, 4), edges[0].polyline.len);
     try std.testing.expectEqual(edges[0].polyline[1].y, edges[1].polyline[1].y);
@@ -416,8 +330,6 @@ test "clearOfBorders expiry surrenders the coordinate and counts it; a cleared s
     defer arena.deinit();
     const a = arena.allocator();
 
-    // Every row the outward (.north => -y) search can reach holds a
-    // collinear run, so the guard must expire and surrender.
     const runs = try a.alloc([2]sketch.Point, 4200);
     for (runs, 0..) |*r, i| {
         const y: i32 = 10 - @as(i32, @intCast(i));
@@ -428,7 +340,6 @@ test "clearOfBorders expiry surrenders the coordinate and counts it; a cleared s
     try std.testing.expectEqual(@as(u32, 1), expired);
     try std.testing.expectEqual(@as(i32, 10 - 4096), c);
 
-    // Unblocked search: cleared, not surrendered.
     var cleared: u32 = 0;
     const c2 = tracks.clearOfBorders(.north, 10, 0, 20, &.{}, .{ .runs = runs[0..1] }, &cleared);
     try std.testing.expectEqual(@as(u32, 0), cleared);
@@ -445,7 +356,6 @@ test "resolve threads the expiry counter through the lane cascade" {
         const y: i32 = 10 - @as(i32, @intCast(i));
         r.* = .{ .{ .x = 0, .y = y }, .{ .x = 20, .y = y } };
     }
-    // Two overlapping-span requests force the entangled lane cascade.
     const reqs = [_]tracks.Req{
         .{ .span_lo = 0, .span_hi = 20, .pref = 10 },
         .{ .span_lo = 5, .span_hi = 15, .pref = 9 },

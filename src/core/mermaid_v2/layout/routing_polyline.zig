@@ -35,8 +35,6 @@ pub fn skipCorridorExtraRows(
     }
 
     for (lg.edges) |le| {
-        // The corridor's final descent lands on a real target reached
-        // from a virtual predecessor — that is the tell of a skip edge.
         const from_is_virtual = switch (lg.nodes[le.from]) {
             .virtual => true,
             .real => false,
@@ -101,11 +99,6 @@ pub fn absDiff(x: i32, y: i32) i32 {
 }
 
 pub fn portPoint(p: sketch.NodePlacement, port: sketch.Port) sketch.Point {
-    // Endpoints land ON the perimeter border cell (inclusive), not one
-    // cell outside it. The edge rasterizer skips the polyline's source
-    // and target cells when walking, so an OR-merge on the source border
-    // (and the target arrowhead's preceding cell) yields the correct
-    // junction glyph.
     return switch (port.side) {
         .north => .{ .x = p.rect.x + @as(i32, @intCast(port.offset)), .y = p.rect.y },
         .south => .{ .x = p.rect.x + @as(i32, @intCast(port.offset)), .y = p.rect.bottom() - 1 },
@@ -139,7 +132,7 @@ fn oppositeSide(side: sketch.Dir4) sketch.Dir4 {
 /// y-offset), so the approach column/row is unchanged — only the border the
 /// arrowhead lands on moves. No-op when the approach already agrees with the
 /// port (the common case) or disagrees only perpendicularly.
-/// guarded-by: routing_polyline_test.zig "final approach reconciles a below-approach opposite-side port to the entry-side terminal"
+/// @guarded-by: routing_polyline_test.zig "final approach reconciles a below-approach opposite-side port to the entry-side terminal"
 pub fn reconcileTerminalSide(
     poly: []sketch.Point,
     to_p: sketch.NodePlacement,
@@ -154,11 +147,9 @@ pub fn reconcileTerminalSide(
     else if (prev.y == end.y)
         (if (prev.x < end.x) .west else .east)
     else
-        return port_to; // non-orthogonal final leg — leave untouched
-    if (oppositeSide(entry_side) != port_to.side) return port_to; // agrees, or perpendicular
+        return port_to;
+    if (oppositeSide(entry_side) != port_to.side) return port_to;
     const r = to_p.rect;
-    // Require `prev` strictly OUTSIDE the box on the entry side, so the leg
-    // genuinely crosses the interior (an intrusion), not merely a short stub.
     const intrudes = switch (entry_side) {
         .north => prev.y < r.y,
         .south => prev.y > r.bottom() - 1,
@@ -185,8 +176,7 @@ pub const CornerFed = struct { bi: usize, b: sketch.Point, p: sketch.Point, lx: 
 /// caller-specific ones does not change which polylines fire.
 pub fn detectCornerFedTerminal(poly: []const sketch.Point) ?CornerFed {
     if (poly.len < 3) return null;
-    const c = poly[poly.len - 1]; // terminal: the port border cell (raster skips it)
-    // Collapse any trailing duplicate so `b` is the last real vertex.
+    const c = poly[poly.len - 1];
     var bi: usize = poly.len - 2;
     while (bi > 0 and poly[bi].x == c.x and poly[bi].y == c.y) : (bi -= 1) {}
     if (bi == 0) return null;
@@ -194,7 +184,6 @@ pub fn detectCornerFedTerminal(poly: []const sketch.Point) ?CornerFed {
     const p = poly[bi - 1];
     const lx = c.x - b.x;
     const ly = c.y - b.y;
-    // Predecessor leg (p -> b): orthogonal AND perpendicular to the final leg.
     const dx = b.x - p.x;
     const dy = b.y - p.y;
     if (dx != 0 and dy != 0) return null;
@@ -218,7 +207,7 @@ pub fn detectCornerFedTerminal(poly: []const sketch.Point) ?CornerFed {
 /// perpendicular to it (the tell of a turn-at-tip). Accept-fallback: leaves the
 /// polyline untouched when the shifted descent would touch a foreign box (no
 /// room) — the report-only validator keeps counting that residual.
-/// guarded-by: routing_polyline_test.zig "ensureBaseStub shifts a turn-at-tip descent back one cell"
+/// @guarded-by: routing_polyline_test.zig "ensureBaseStub shifts a turn-at-tip descent back one cell"
 pub fn ensureBaseStub(
     poly: []sketch.Point,
     placements: []const sketch.NodePlacement,
@@ -231,12 +220,9 @@ pub fn ensureBaseStub(
     const p = fed.p;
     const lx = fed.lx;
     const ly = fed.ly;
-    // Port-entry leg (b -> c): a single orthogonal step, else not a tip turn.
     if (@as(i32, @intCast(@abs(lx))) + @as(i32, @intCast(@abs(ly))) != 1) return false;
-    // Shift the descent leg one cell back along -unit(b->c).
     const nb = sketch.Point{ .x = b.x - lx, .y = b.y - ly };
     const np = sketch.Point{ .x = p.x - lx, .y = p.y - ly };
-    // The shifted descent runs along the p->b axis at its new cross position.
     const descent_horizontal = (np.y == nb.y);
     const cross: i32 = if (descent_horizontal) np.y else np.x;
     const lo: i32 = if (descent_horizontal) @min(np.x, nb.x) else @min(np.y, nb.y);
@@ -250,10 +236,7 @@ pub fn ensureBaseStub(
 // Strict-interior intrusion predicates: border contact allowed. Use them
 // ONLY to ask "would the validator flag this?" (mirrors
 // `validate.segmentCrossesInterior`).
-// guarded-by: validate_test.zig "edge through node interior flagged"
-// When CHOOSING the row/column an edge run occupies, use the TOUCH-semantics
-// helpers in `sketch.zig` (`sketch.clearLine` / `sketch.lineTouchesAny`)
-// instead — raster cell ownership includes borders.
+// @guarded-by: validate_test.zig "edge through node interior flagged"
 
 /// True iff a vertical segment at column `x` spanning rows
 /// `[y_top, y_bot]` would pass through the strict open interior of `r`.
@@ -314,16 +297,12 @@ pub fn routePolyline(
     // intermediate layer, jog once to the virtuals' corridor column, run
     // straight down past every intermediate layer, then jog into the target's
     // column and descend into its port.
-    // guarded-by: validate_test.zig "edge through node interior flagged"
+    // @guarded-by: validate_test.zig "edge through node interior flagged"
     if (!horizontal and virtuals.len > 0) {
-        // Corridor column = the virtuals' center x. They are barycenter-
-        // placed into a single near-vertical bundle beside the chain.
         const first = geom[virtuals[0]];
         const want_x = first.x + @divTrunc(@as(i32, @intCast(first.w)), 2);
-        // Gap row immediately above the first intermediate box-top — one
-        // row up sits in the inter-layer gap, never on a border.
         const enter_gap_y = first.y - 1;
-        // align_y: gap ABOVE the target, leaving ≥1 row for a vertical descent (falls back to end.y-1 if skipCorridorExtraRows headroom is absent). guarded-by: routing_polyline_test.zig "TD skip-corridor final descent is a clean vertical approach (guards ▼)"
+        // align_y: gap ABOVE the target, leaving ≥1 row for a vertical descent (falls back to end.y-1 if skipCorridorExtraRows headroom is absent). @guarded-by: routing_polyline_test.zig "TD skip-corridor final descent is a clean vertical approach (guards ▼)"
         const lane: i32 = @intCast(route_lane);
         const align_y = if (end.y - 2 - lane > enter_gap_y) end.y - 2 - lane else end.y - 1;
 
@@ -334,8 +313,7 @@ pub fn routePolyline(
         // border column rasterizes as swallowed edge cells even where the
         // interior validator stays silent). Generic — keyed only on the
         // placed rects, never on identities.
-        // guarded-by: validate_test.zig "edge through node interior flagged";
-        //   raster/edges_test.zig "edge cells colliding with node-owned cells are counted as lost"
+        // @guarded-by: validate_test.zig "edge through node interior flagged";
         const run_top = @min(enter_gap_y, align_y);
         const run_bot = @max(enter_gap_y, align_y);
         const corridor_x = sketch.clearLine(false, want_x, run_top, run_bot, placements, from_p.id, to_p.id, .{ .margin = true });
@@ -354,13 +332,12 @@ pub fn routePolyline(
     // below with no obstacle check, and can swallow raster cells on a
     // foreign border. Gated on eastward flow (post-transpose LR invariant);
     // anything else keeps the legacy path.
-    // guarded-by: raster/edges_test.zig "edge cells colliding with node-owned cells are counted as lost"
+    // @guarded-by: raster/edges_test.zig "edge cells colliding with node-owned cells are counted as lost"
     if (horizontal and virtuals.len > 0 and end.x > start.x) {
         const first = geom[virtuals[0]];
         const want_y = first.y + @divTrunc(@as(i32, @intCast(first.h)), 2);
-        // Gap column just before the first intermediate layer's band.
         const enter_gap_x = first.x - 1;
-        // align_x: gap column just before the target, leaving ≥1 cell of straight horizontal approach. guarded-by: routing_polyline_test.zig "LR skip-corridor final approach is a clean horizontal approach (guards ▶)"
+        // align_x: gap column just before the target, leaving ≥1 cell of straight horizontal approach. @guarded-by: routing_polyline_test.zig "LR skip-corridor final approach is a clean horizontal approach (guards ▶)"
         const lane: i32 = @intCast(route_lane);
         const align_x = if (end.x - 2 - lane > enter_gap_x) end.x - 2 - lane else end.x - 1;
         const run_lo = @min(enter_gap_x, align_x);
@@ -398,20 +375,15 @@ pub fn routePolyline(
     // the port's cross-axis (clear of both boxes), then run the final cell
     // straight into the port. Bending at the wall coordinate itself would
     // lay the final/exit segment ALONG a box wall, piercing its border/corner.
-    // guarded-by: validate_test.zig "edge through node interior flagged"
-    //
-    // Applies only to direct (virtual-free) adjacent-layer edges: edges
-    // carrying virtuals already thread mid-segment bends and keep the
-    // original final bend (TD skip edges are handled by the corridor branch
-    // above); forcing the gap-bend on them would disconnect the trailing stub.
+    // @guarded-by: validate_test.zig "edge through node interior flagged"
     if (virtuals.len == 0) {
         if (horizontal) {
-            // West/east port: straight run if already on the port row; otherwise jog out 2 cells (1 if the gap is tight) so the final horizontal approach is never zero-length. guarded-by: routing_polyline_test.zig "west/east port jog pad is never zero, near or far (guards clean </>)"
+            // West/east port: straight run if already on the port row; otherwise jog out 2 cells (1 if the gap is tight) so the final horizontal approach is never zero-length. @guarded-by: routing_polyline_test.zig "west/east port jog pad is never zero, near or far (guards clean </>)"
             if (end.y != prev.y) {
                 // Clamp the jog to at most span-1 (floor 1): a jog ON the
                 // source wall column lays the cross run along the wall — the
                 // raster refuses those cells and the head ships unfed.
-                // guarded-by: routing_polyline_test.zig "the jog never lands on the source wall (span-2 gap and lane escalation clamp)"
+                // @guarded-by: routing_polyline_test.zig "the jog never lands on the source wall (span-2 gap and lane escalation clamp)"
                 const span_x = absDiff(end.x, prev.x);
                 const want_x_pad: i32 = (if (span_x >= 2) @as(i32, 2) else 1) + @as(i32, @intCast(route_lane));
                 const pad: i32 = @max(@min(want_x_pad, span_x - 1), 1);
@@ -420,11 +392,11 @@ pub fn routePolyline(
                 try poly.append(a, .{ .x = jog.x, .y = end.y });
             }
         } else {
-            // North/south port: straight run if already on the port column; otherwise jog out 2 rows (1 if the gap is tight) so the final vertical approach is never zero-length. guarded-by: routing_polyline_test.zig "north/south port jog pad is never zero, near or far (guards clean ^/v)"
+            // North/south port: straight run if already on the port column; otherwise jog out 2 rows (1 if the gap is tight) so the final vertical approach is never zero-length. @guarded-by: routing_polyline_test.zig "north/south port jog pad is never zero, near or far (guards clean ^/v)"
             if (end.x != prev.x) {
                 // Same clamp as the horizontal arm: the jog row must stay
                 // strictly off the source wall row.
-                // guarded-by: routing_polyline_test.zig "the jog never lands on the source wall (span-2 gap and lane escalation clamp)"
+                // @guarded-by: routing_polyline_test.zig "the jog never lands on the source wall (span-2 gap and lane escalation clamp)"
                 const span_y = absDiff(end.y, prev.y);
                 const want_y_pad: i32 = (if (span_y >= 2) @as(i32, 2) else 1) + @as(i32, @intCast(route_lane));
                 const pad: i32 = @max(@min(want_y_pad, span_y - 1), 1);

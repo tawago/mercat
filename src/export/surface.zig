@@ -129,10 +129,6 @@ fn scale255(a: u8, b: u8) u8 {
     return @intCast((@as(u32, a) * @as(u32, b) + 127) / 255);
 }
 
-// ===========================================================================
-// Tests
-// ===========================================================================
-
 const testing = std.testing;
 
 fn pixelAt(s: Surface, x: u32, y: u32) Color {
@@ -151,23 +147,20 @@ test "fillRect clips to surface bounds" {
     var s = try Surface.init(testing.allocator, 4, 4);
     defer s.deinit(testing.allocator);
     s.fill(.{ .r = 0, .g = 0, .b = 0 });
-    // Rectangle starting off the top-left, extending past the bottom-right.
     s.fillRect(-2, -2, 4, 4, .{ .r = 255, .g = 255, .b = 255 });
     try testing.expectEqual(Color{ .r = 255, .g = 255, .b = 255, .a = 255 }, pixelAt(s, 0, 0));
     try testing.expectEqual(Color{ .r = 255, .g = 255, .b = 255, .a = 255 }, pixelAt(s, 1, 1));
-    // Outside the rect stays black.
     try testing.expectEqual(Color{ .r = 0, .g = 0, .b = 0, .a = 255 }, pixelAt(s, 2, 2));
 }
 
 test "blendMask composites coverage over the background" {
     var s = try Surface.init(testing.allocator, 2, 1);
     defer s.deinit(testing.allocator);
-    s.fill(.{ .r = 255, .g = 255, .b = 255 }); // white page
-    // Left pixel full coverage black, right pixel half coverage.
+    s.fill(.{ .r = 255, .g = 255, .b = 255 });
     const mask = [_]u8{ 255, 128 };
     s.blendMask(&mask, 2, 1, 0, 0, .{ .r = 0, .g = 0, .b = 0 });
-    try testing.expectEqual(@as(u8, 0), pixelAt(s, 0, 0).r); // fully black
-    const half = pixelAt(s, 1, 0).r; // ~ (0*128 + 255*127 +127)/255 = 127
+    try testing.expectEqual(@as(u8, 0), pixelAt(s, 0, 0).r);
+    const half = pixelAt(s, 1, 0).r;
     try testing.expectEqual(@as(u8, 127), half);
 }
 
@@ -176,7 +169,6 @@ test "blendMask clips negative and overflowing coordinates" {
     defer s.deinit(testing.allocator);
     s.fill(.{ .r = 255, .g = 255, .b = 255 });
     const mask = [_]u8{ 255, 255, 255, 255 };
-    // Placed so only the bottom-right mask pixel lands on surface pixel (0,0).
     s.blendMask(&mask, 2, 2, -1, -1, .{ .r = 0, .g = 0, .b = 0 });
     try testing.expectEqual(@as(u8, 0), pixelAt(s, 0, 0).r);
     try testing.expectEqual(@as(u8, 255), pixelAt(s, 1, 1).r);

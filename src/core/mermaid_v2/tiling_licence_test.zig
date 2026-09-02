@@ -85,11 +85,6 @@ fn expectReconstructedThreeWayPortShare() !void {
     defer arena.deinit();
     const a = arena.allocator();
     const c = try renderCounts(a, three_way_port_share, 140);
-    // The invalid duplicate no longer contributes a junction. All three
-    // remaining junction events are licensed; the three-way port bundle below still has
-    // exact scope for all three member pairs. The exact
-    // partition prevents the stale port-wide union from reintroducing the
-    // former eight extra junction readings or hiding one in another verdict.
     try testing.expectEqual(@as(u32, 3), c.c_run_fused_crossing);
     try testing.expectEqual(@as(u32, 3), c.c_run_fused_licensed);
     try testing.expectEqual(@as(u32, 0), c.d_run_fused_foreign);
@@ -115,12 +110,6 @@ fn expectReconstructedThreeWayPortShare() !void {
     const cells = share.cells orelse return error.MissingPortShareScope;
     const pairs = share.pairwise orelse return error.MissingPairScopes;
 
-
-    // The flat field is the exact union, retained as the set's narrowness
-    // marker. Licensing reads the three entries below instead.
-    // (Geometry re-pinned when bridge-build variants became scored
-    // candidates: the winner is now the bridge_dodged twin — one fewer
-    // displaced label — whose shared descent runs one cell longer.)
     try testing.expectEqual(@as(usize, 36), cells.len);
     for (cells, 0..) |cell, i| {
         try testing.expectEqual(@as(i32, 38), cell.x);
@@ -162,16 +151,11 @@ test "licence: a reconstructed three-way port share keeps exact pair scopes and 
     try expectReconstructedThreeWayPortShare();
 }
 
-// Historical guarded-by anchor in lattice.zig. It runs the current exact-scope
-// contract rather than preserving the port-wide union interpretation.
 test "licence: a three-way port share the pairwise flood missed is now licensed, and the render files no defect" {
     try expectReconstructedThreeWayPortShare();
 }
 
 test "licence: the three verdicts partition the junction population on every render" {
-    // The parent bucket is kept whole precisely so this identity exists.
-    // A verdict that silently swallowed a case — or a fourth path added
-    // later without a bucket — breaks it here rather than in the field.
     const corpus = [_][]const u8{
         three_way_port_share,
         quiet[0],
@@ -192,8 +176,6 @@ test "licence: the three verdicts partition the junction population on every ren
 }
 
 test "licence: a shape with no foreign meeting reports no foreign junction" {
-    // The complement of the witness. A defect bucket that fired on honest
-    // ink would be worse than useless, so the quiet side is pinned too.
     for (quiet) |source| for ([2]u32{ 60, 120 }) |w| {
         var arena = std.heap.ArenaAllocator.init(testing.allocator);
         defer arena.deinit();
@@ -204,17 +186,6 @@ test "licence: a shape with no foreign meeting reports no foreign junction" {
 }
 
 test "licence: a render that DOES merge, honestly, reports licensed and no defect" {
-    // THE FALSE-DEFECT DIRECTION. The complement test above uses a chain
-    // and a plain fan — neither ever merges, so neither can catch a licence
-    // that got flipped the wrong way: a producer filing `.merged_foreign`
-    // where the crossing rule actually said yes would leave those shapes at
-    // zero and still invent a defect on every real diagram.
-    //
-    // This shape closes that. Two fans overlap enough to put a genuine
-    // junction on the grid and drive a real merge through it, and every one
-    // of those merges IS licensed — so `c_run_fused_licensed` must be the
-    // whole population here. Pinning it as an exact count rather than
-    // `> 0` means the defect bucket cannot borrow from it unnoticed.
     const merges_honestly = "flowchart TD\n  A --> C\n  A --> D\n  B --> C\n  B --> E\n";
     for ([3]u32{ 60, 100, 140 }) |w| {
         var arena = std.heap.ArenaAllocator.init(testing.allocator);
@@ -230,14 +201,6 @@ test "licence: a render that DOES merge, honestly, reports licensed and no defec
 }
 
 test "licence: the two-rail K(2,2) is the smallest render that fabricates" {
-    // Once THE SIZING CASE: two separated rails whose crossbars OR-merged
-    // over each other's tap legs, both fused pairs foreign. The two-sided
-    // fusion licence changed the verdict, not the detector: the DIRECTED
-    // complete K(2,2) declares exactly srcs x tgts with one-way heads, so
-    // the plan records one fused union, the two arrivals share one rail row,
-    // and every fused meeting on it is LICENSED — no defect. Drop one head
-    // (see the arrow-free complement above) or one edge and the licence
-    // lapses, which the incomplete-bipartite pins elsewhere hold.
     const k22 = "flowchart TD\n  A --> C\n  B --> C\n  A --> D\n  B --> D\n";
     for ([3]u32{ 60, 100, 140 }) |w| {
         var arena = std.heap.ArenaAllocator.init(testing.allocator);

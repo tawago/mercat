@@ -89,8 +89,6 @@ pub fn assign(
             }
         }
         const li = chosen orelse blk: {
-            // minInt sentinel: the first member's base always takes (bases
-            // may legitimately be negative, e.g. bridge outward units).
             try lanes_buf.append(a, .{ .members = .empty, .max_base = std.math.minInt(i32) });
             break :blk lanes_buf.items.len - 1;
         };

@@ -69,15 +69,12 @@ fn shrink(
         defer arena.deinit();
         const aa = arena.allocator();
 
-        // Replay the stream up to idx so we get the same value the original
-        // run would have produced at that iteration.
         var j: u32 = 0;
         while (j < idx) : (j += 1) {
             _ = gen(aa, r, j) catch break;
         }
         const param = gen(aa, r, idx) catch continue;
         if (prop(param)) |_| {
-            // Did not reproduce at this index; try a smaller one.
             continue;
         } else |err| {
             std.debug.print(

@@ -12,11 +12,6 @@ const permits_mod = @import("ledger/permits.zig");
 const parse = @import("parse.zig").parse;
 
 test "a packed candidate keeps its layout bundles when no plan realized" {
-    // A candidate carrying MOTIF-PACK synthetic frames is off the planner's
-    // identity path, so `realize` declines it and the plan stays empty. An
-    // empty plan is not the statement "nobody may share": applying it must
-    // leave layout's own sets in place, or the candidate's legal sharers
-    // lose their only permission record.
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
@@ -46,11 +41,6 @@ test "a packed candidate keeps its layout bundles when no plan realized" {
 }
 
 test "applying a plan keeps the sketch's port-share bundles" {
-    // A port share is GEOMETRIC: two edges the producers routed through one
-    // perimeter port share their approach ink whatever the bundle planner
-    // decides. So the plan's own population replaces only itself, and every
-    // `.port_share` record survives `applyPlan` (and the CI filter's
-    // re-derivation, which shares the same rule via `replanSets`).
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
@@ -60,18 +50,15 @@ test "applying a plan keeps the sketch's port-share bundles" {
     var cand = try ladder.run(a, g, &permits, 120);
     select.applyPlan(a, &permits, &cand.sketch);
 
-    // Non-vacuity: the plan realized (otherwise nothing was replaced at all).
     try std.testing.expect(cand.sketch.bundles.selected_bundles.len > 0);
     var saw_plan = false;
     for (cand.sketch.bundle_sets) |set| switch (set.origin) {
         .selected_bundle => saw_plan = true,
-        // Layout's fans never survive a realized plan; port shares always do.
         .fan_rail => return error.PlanKeptLayoutFanSets,
         .port_share => try std.testing.expect(set.members.len >= 2),
     };
     try std.testing.expect(saw_plan);
 
-    // Every port share the geometry declares is present after the plan.
     for (cand.sketch.edges) |first| for (cand.sketch.edges) |second| {
         if (first.id == second.id) continue;
         const shares = samePoint(first.polyline[0], second.polyline[0]) or
@@ -86,8 +73,6 @@ fn samePoint(a: anytype, b: anytype) bool {
     return a.x == b.x and a.y == b.y;
 }
 
-// The label-policy variant suite is aggregated here (entry.zig's test block
-// sits at the 500-line cap).
 test {
     _ = @import("select_test3.zig");
 }

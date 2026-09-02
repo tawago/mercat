@@ -118,7 +118,7 @@ fn fanAttachment(a: std.mem.Allocator, graph: sg.SemGraph, fan: fan_mod.Fan, end
 /// shift its siblings' port ordinals, and reserve a terminal nothing arrives
 /// at. Applied where `derive` is consumed rather than inside it, so the pure
 /// D-PORT derivation keeps reading the permits plan and nothing else.
-/// guarded-by: port_plan_test.zig "a discharged edge claims no attachment and consumes no route lane"
+/// @guarded-by: port_plan_test.zig "a discharged edge claims no attachment and consumes no route lane"
 pub fn withoutDischarged(
     a: std.mem.Allocator,
     derived: []const ports.DerivedAttachment,
@@ -153,10 +153,6 @@ pub fn planLanes(a: std.mem.Allocator, graph: sg.SemGraph, lg: sugiyama.LayeredG
     @memset(next, 0);
     var lanes: std.ArrayListUnmanaged(EdgeLane) = .empty;
     for (sorted) |edge| {
-        // A discharged leaf-pair edge is drawn by a rail's crossbar, never
-        // routed — so it consumes no route lane and reserves no gap row.
-        // Likewise an edge a FUSED union licenses: its whole gap is one rail
-        // (`RealizedBundles.fused`), so it owes no per-edge lane row.
         if (edge.kind == .invisible or edge.from == edge.to or !edgeIsIndependent(bundles.memberships, edge.id) or
             fusedContains(bundles.fused, edge.id) or
             rail_closure.contains(bundles.discharged, edge.id)) continue;
@@ -232,9 +228,6 @@ fn allocateFace(a: std.mem.Allocator, node: pb.NodeId, side: sk.Dir4, side_len: 
     return switch (try ports.allocate(a, .{ .rung = rung }, node, side, side_len, attachments)) {
         .assigned => |items| items,
         .failed => |failure| switch (failure) {
-            // The exact allocator correctly reports equal semantic keys. At
-            // plan level, distinct edge/end claims are the duplicate policy:
-            // each private claim receives its own stable slot.
             .key_collision => allocateCollidingClaims(a, node, side, side_len, attachments),
             .capacity_exceeded => portCapacityInvariant(node, side, side_len, attachments.len),
         },

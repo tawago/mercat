@@ -340,7 +340,6 @@ fn validateGrapheme(bytes: []const u8) MeasureError!void {
     }
 }
 
-// Compatibility surface retained until consumers migrate to strict APIs.
 pub const Glyph = struct { bytes: []const u8, width: usize };
 
 /// Stateless compatibility lookup. It assumes `index` is a grapheme boundary.

@@ -67,17 +67,6 @@ fn placementNamed(s: sketch.Sketch, name: []const u8) ?sketch.NodePlacement {
     return null;
 }
 
-// An outer fan whose targets are SUBGRAPHS: the outer piece's fan bundle
-// names the outer PLACEMENT edges, and stitch drops exactly those (they
-// touch a super-node) in favour of bridge EdgePaths keyed by crossing id.
-// Unless the set is rewritten through that swap, its members resolve to
-// nothing in the merged Sketch and the ink those edges legally share loses
-// its permission record.
-// Fan-into-subgraphs fixture: Top fans out into two sibling subgraphs
-// (Top -> a1 in S, Top -> b1 in R), each subgraph a two-node chain. In the
-// OUTER piece both targets are super-nodes one layer below Top, so the outer
-// layout sees a two-peer fan whose members are placement edges — the exact
-// edges stitch drops in favour of bridges.
 /// `labeled` stamps a label on each of Top's two CROSS-BORDER members, the
 /// only difference between the two variants the row-reservation pin compares.
 fn fanIntoTwoSubgraphsGraph(
@@ -99,8 +88,8 @@ fn fanIntoTwoSubgraphsGraph(
         edges_buf[i] = .{ .id = @intCast(i), .from = p[0], .to = p[1], .kind = .solid, .arrow_from = .none, .arrow_to = .filled, .label = null };
     }
     if (labeled) {
-        edges_buf[0].label = "yes"; // Top -> a1, crosses into S
-        edges_buf[2].label = "no"; // Top -> b1, crosses into R
+        edges_buf[0].label = "yes";
+        edges_buf[2].label = "no";
     }
     members_s[0] = 1;
     members_s[1] = 2;
@@ -118,12 +107,6 @@ fn fanIntoTwoSubgraphsGraph(
     };
 }
 
-// An outer fan whose targets are SUBGRAPHS: the outer piece's fan bundle
-// names the outer PLACEMENT edges, and stitch drops exactly those (they
-// touch a super-node) in favour of bridge EdgePaths keyed by crossing id.
-// Unless the set is rewritten through that swap, its members resolve to
-// nothing in the merged Sketch and the ink those edges legally share loses
-// its permission record.
 test "an outer fan into sibling subgraphs names its bridges, not the dropped placement edges" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
@@ -142,9 +125,6 @@ test "an outer fan into sibling subgraphs names its bridges, not the dropped pla
     var owners = try assertUniqueEdgeIds(a, s);
     defer owners.deinit();
 
-    // A qualifying set: at least two members that still carry geometry, all
-    // leaving Top, at least two of them landing INSIDE a cluster — i.e. the
-    // bridges that replaced Top's dropped placement edges.
     var found = false;
     for (s.bundle_sets) |set| {
         var live: usize = 0;
@@ -162,8 +142,6 @@ test "an outer fan into sibling subgraphs names its bridges, not the dropped pla
     }
     try std.testing.expect(found);
 
-    // The same exact final pivot/site evidence rebuilds the semantic claim;
-    // no super-node endpoint or placement edge may survive in it.
     var claimed = false;
     for (s.rail_claims) |claim| {
         if (claim.polarity != .out or claim.members.len < 2) continue;
@@ -195,22 +173,6 @@ fn topToFrameGap(s: sketch.Sketch) !u32 {
     return @intCast(frame.rect.y - bottom);
 }
 
-// A fan whose members all CROSS a subgraph border pays no on-run label rows.
-//
-// The reservation (fan.LABEL_RUN_EXTRA_ROWS, driven by `Fan.labeled`) buys a
-// 4-cell private dropper for the decorated on-run sandwich. The on-run writer
-// only ever sees edges that SURVIVE the stitch, and stitch drops every outer
-// edge touching a super-node in favour of a bridge EdgePath — so rows bought
-// for a bridge-routed member could never be spent. They are not bought:
-// `split.buildOuter` rewrites each cross-border edge as a LABEL-FREE placement
-// edge, so `fan.detect`, which reads the outer piece's semantic edges, never
-// sees a label on a bridge-routed member and leaves `labeled` clear.
-//
-// This pins that end to end: labelling both members of the outer fan must not
-// move a single row. It is the standing guard on the coupling — a future
-// change that carried crossing labels onto the placement edges (for bridge
-// label placement, say) would start buying rows the raster can never spend,
-// and this test is what would catch it.
 test "a labeled fan into sibling subgraphs reserves no on-run rows" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
@@ -233,12 +195,9 @@ test "a labeled fan into sibling subgraphs reserves no on-run rows" {
     const sp = try recurse.layoutPieces(a, plain, .{ .max_width = 120 });
     const sl = try recurse.layoutPieces(a, labeled, .{ .max_width = 120 });
 
-    // The gap the reservation would inflate, and the whole canvas height.
     try std.testing.expectEqual(try topToFrameGap(sp), try topToFrameGap(sl));
     try std.testing.expectEqual(sp.bbox.h, sl.bbox.h);
 
-    // Guard the guard: both members really are bridge-routed, i.e. Top's
-    // outgoing ink lands INSIDE a cluster rather than on a top-level box.
     const top = placementNamed(sl, "Top") orelse return error.TopNotPlaced;
     var crossings: usize = 0;
     for (sl.edges) |e| {
@@ -248,12 +207,6 @@ test "a labeled fan into sibling subgraphs reserves no on-run rows" {
     try std.testing.expectEqual(@as(usize, 2), crossings);
 }
 
-// Two OUTER nodes both edge into the SAME node inside a subgraph. Each
-// crossing becomes its own bridge, minted independently by cluster/bridges,
-// and both elbows land on the target placement's one perimeter port. Neither
-// bridge knows about the other, so only the merged geometry can declare that
-// their approach ink is one bundle — which is exactly what stitch reads back
-// off the final edge slice.
 fn twoBridgesIntoOnePortGraph(
     nodes_buf: []sem_graph.Node,
     edges_buf: []sem_graph.Edge,
@@ -296,8 +249,6 @@ test "two bridges into one port declare a port-share bundle" {
 
     const s = try recurse.layoutPieces(a, graph, .{ .max_width = 120 });
 
-    // The two bridges: the merged edges that end on C's placement, arriving
-    // from outside the cluster. Named by geometry, never by id arithmetic.
     const c = placementNamed(s, "C") orelse return error.TargetNotPlaced;
     var arrivals: [8]sketch.EdgeId = undefined;
     var n: usize = 0;
@@ -310,8 +261,6 @@ test "two bridges into one port declare a port-share bundle" {
     }
     try std.testing.expect(n >= 2);
 
-    // Every pair of arrivals that lands on the SAME point must be co-members
-    // of a `.port_share` set — the whole point of the stitch-side wire-in.
     var checked = false;
     for (0..n) |i| for (i + 1..n) |j| {
         const first = edgeById(s, arrivals[i]) orelse continue;
@@ -401,10 +350,6 @@ fn edgeById(s: sketch.Sketch, id: sketch.EdgeId) ?sketch.EdgePath {
 }
 
 test "the merged sketch sums its pieces' closure counts" {
-    // The refusal happens INSIDE the child piece: `subgraph S { Z---A; Z---B;
-    // Z---C }`. Report-only counts are per-piece facts about one merged
-    // picture, so keeping only the outer piece's would report a clean render
-    // for a diagram whose fan the law refused.
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();

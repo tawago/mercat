@@ -15,9 +15,9 @@ const std = @import("std");
 
 pub const Row = struct {
     token: []const u8,
-    why: []const u8, // printed with the violation; must name the replacement
-    allow: []const []const u8 = &.{}, // basenames where the token stays legal
-    only: []const []const u8 = &.{}, // if non-empty: row applies ONLY to these basenames
+    why: []const u8,
+    allow: []const []const u8 = &.{},
+    only: []const []const u8 = &.{},
 };
 
 pub const table = [_]Row{
@@ -151,7 +151,6 @@ pub const table = [_]Row{
         .token = "noDuplicateLeafPairs",
         .why = "the union-element legality predicate died with the union path (ledger/leaf_pairs.zig deleted); a star rail's legality is its shared pivot, checked where the group is discovered",
     },
-    // -- P8 vocabulary unification (bundle/rail/discharge, 2026-08-29) -------
     .{
         .token = "JoinGroup",
         .why = "the candidate-bundle record is ledger.CandidateBundle (P8): a bundle is the ONE name for a set of edges licensed to share ink; the Id went with it (CandidateBundleId)",
@@ -207,6 +206,10 @@ pub const table = [_]Row{
     .{
         .token = "BndSResult",
         .why = "renamed to StarLawResult (P10): lettered concept codes are retired for articulated names",
+    },
+    .{
+        .token = "fan_rail_law",
+        .why = "renamed fan_rail_licence.zig (P11): the closure rule is a licence, the same logical level as the star and fusion licences",
     },
     .{
         .token = "bnd_s",
@@ -324,8 +327,6 @@ test "banned token: only scopes a row to named basenames" {
         .only = &.{"lanes.zig"},
     }};
 
-    // Basename matching covers BOTH lanes.zig files — the behaviour the
-    // base/ + layout/ sibling pair relies on.
     var base_hit = try collect(a, "base/lanes.zig", "OldName", &rows);
     defer base_hit.deinit(a);
     try testing.expectEqual(@as(usize, 1), base_hit.list.items.len);
@@ -351,9 +352,6 @@ test "banned token: repeated occurrences report once per file" {
 
 test "banned token: a reverted wave-A spelling fires" {
     const a = testing.allocator;
-    // Synthetic content, so the assertion never depends on tree state: if the
-    // retired lane-type spelling comes back anywhere, the production table
-    // must catch it and name the replacement.
     var got = try collect(a, "layout/thing.zig", "const d = lanes.Demand{};\n", &table);
     defer got.deinit(a);
 
@@ -363,9 +361,6 @@ test "banned token: a reverted wave-A spelling fires" {
 
 test "banned token: a reverted fan-role spelling fires on both families" {
     const a = testing.allocator;
-    // The fan roles were swapped in place (the old shared-run spelling now
-    // names the per-child leg), so a half-reverted file is silently wrong
-    // rather than a compile error: only these two tombstones catch it.
     var out_hit = try collect(a, "raster/rails.zig", "role = .fan_out_trunk;\n", &table);
     defer out_hit.deinit(a);
     try testing.expectEqual(@as(usize, 1), out_hit.list.items.len);
@@ -379,9 +374,6 @@ test "banned token: a reverted fan-role spelling fires on both families" {
 
 test "banned token: a reverted diagnostic-tag spelling fires" {
     const a = testing.allocator;
-    // The registry tags are their own wire names, so a reverted spelling
-    // compiles fine in a stale switch arm and only shows up in emitted
-    // records: the tombstone is the check that catches it.
     var got = try collect(a, "ledger/realized.zig", "return .trunk_pivot_side_arrow;\n", &table);
     defer got.deinit(a);
 

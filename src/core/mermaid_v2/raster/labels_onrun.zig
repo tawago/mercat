@@ -72,7 +72,7 @@ const onrun_h = @import("labels_onrun_h.zig");
 /// plus the isolation margin, which is precisely what feasibility depends
 /// on. The tie going to VERTICAL keeps every render that placed a label
 /// before this file existed byte-identical.
-/// guarded-by: labels_onrun_h_test.zig "tie order: the longer qualifying stretch is tried first, ties go vertical"
+/// @guarded-by: labels_onrun_h_test.zig "tie order: the longer qualifying stretch is tried first, ties go vertical"
 pub fn tryOnRunEdge(
     lat: *lattice.Lattice,
     s: sketch.Sketch,
@@ -115,7 +115,7 @@ fn tryVerticalEdge(
 ) bool {
     for (ep.polyline[0 .. ep.polyline.len - 1], 0..) |p, i| {
         const q = ep.polyline[i + 1];
-        if (p.x != q.x or p.y == q.y) continue; // vertical, non-degenerate only
+        if (p.x != q.x or p.y == q.y) continue;
         const owner: ink.Owner = .{ .edge_id = ep.id, .polyline = ep.polyline, .seg_a = p, .seg_b = q };
         if (tryRun(lat, s, ep.id, p.x, @min(p.y, q.y) + 1, @max(p.y, q.y) - 1, label, owner, sink)) return true;
     }
@@ -178,19 +178,18 @@ fn tryAt(
 ) bool {
     // OWN-INK RULE, structural half: the interrupted cell is this edge's own
     // private dropper ink — a straight vertical stroke, never a junction.
-    // guarded-by: labels_onrun_test.zig "OWN-INK RULE: a rail/crossbar cell is never interrupted"
+    // @guarded-by: labels_onrun_test.zig "OWN-INK RULE: a rail/crossbar cell is never interrupted"
     if (!privateDropperCell(lat, edge_id, x, row)) return false;
     // OWN-INK RULE, geometric half: no other edge's Sketch geometry rides here.
-    // guarded-by: labels_onrun_test.zig "OWN-INK RULE: a cell another tap's drop covers is refused"
+    // @guarded-by: labels_onrun_test.zig "OWN-INK RULE: a cell another tap's drop covers is refused"
     if (coveredByOther(s, edge_id, x, row)) return false;
     // FLANKED-RESUMPTION RULE: a LINE GLYPH cell of this edge's own run directly above AND
     // below. An arrowhead does not qualify — the head must sit below the
     // lower flank, not against the text.
-    // guarded-by: labels_onrun_test.zig "FLANKED-RESUMPTION RULE: an arrowhead is not a flank, so the head-adjacent row is refused"
+    // @guarded-by: labels_onrun_test.zig "FLANKED-RESUMPTION RULE: an arrowhead is not a flank, so the head-adjacent row is refused"
     if (!runFlankCell(lat, edge_id, x, row - 1)) return false;
     if (!runFlankCell(lat, edge_id, x, row + 1)) return false;
 
-    // Center the span on the dropper column.
     const cc: i32 = @intCast(cell_count);
     const start_x: i32 = x - @divTrunc(cc - 1, 2);
     if (row < 0 or @as(i64, row) >= lat.height) return false;
@@ -199,7 +198,6 @@ fn tryAt(
     const urow: u32 = @intCast(row);
     if (sx + cell_count > lat.width) return false;
 
-    // Every span cell other than the interrupted one must be empty.
     var i: u32 = 0;
     while (i < cell_count) : (i += 1) {
         const cx: i32 = start_x + @as(i32, @intCast(i));
@@ -212,12 +210,9 @@ fn tryAt(
 
     // ISOLATION LAW lateral isolation: full foreign-ink margin + 2-blank same-row
     // separation. The own-run seams are exempt by construction — the flank
-    // cells classify as own ink. guarded-by: labels_onrun_test.zig "foreign ink beside the span still refuses the on-run candidate"
+    // cells classify as own ink. @guarded-by: labels_onrun_test.zig "foreign ink beside the span still refuses the on-run candidate"
     if (!ink.spanIsolated(lat, owner, start_x, row, cell_count, false)) return false;
 
-    // Writer-contract check (labels_write.zig): the on-run writer may
-    // legally overwrite exactly the ONE own-edge dropper cell it verified
-    // above; every other covered cell was proven empty.
     std.debug.assert(privateDropperCell(lat, edge_id, x, row));
 
     var wx: u32 = sx;

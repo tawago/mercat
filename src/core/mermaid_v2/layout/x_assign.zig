@@ -93,7 +93,7 @@ fn centerLayer(
     defer a.free(desired);
 
     for (row, 0..) |idx, k| {
-        // Fan-IN override: if ≥2 forward incoming edges from prev layer have all-real sources, weight desired x toward source centroid. guarded-by: layout/x_assign_test.zig "centerLayer's fan-IN override centers on the real-source centroid, excluding a reversed back-edge source"
+        // Fan-IN override: if ≥2 forward incoming edges from prev layer have all-real sources, weight desired x toward source centroid. @guarded-by: layout/x_assign_test.zig "centerLayer's fan-IN override centers on the real-source centroid, excluding a reversed back-edge source"
         if (fan_mod.fanInCentroid(NodeGeom, geom, lg, idx)) |cx| {
             desired[k] = cx;
             continue;
@@ -121,7 +121,7 @@ fn centerLayer(
         }
     }
 
-    // Monotonic left-to-right packing: every node wants to sit centered on its barycenter `desired[k]`, but cannot overlap its left neighbour (the `min_cursor` floor), which left-aligns a shared-barycenter run instead of centering it — the source of cumulative rightward drift, corrected below. guarded-by: layout/x_assign_test.zig "monotonic packing's min_cursor floor drifts a shared-barycenter run right of its target, and compact=true corrects it"
+    // Monotonic left-to-right packing: every node wants to sit centered on its barycenter `desired[k]`, but cannot overlap its left neighbour (the `min_cursor` floor), which left-aligns a shared-barycenter run instead of centering it — the source of cumulative rightward drift, corrected below. @guarded-by: layout/x_assign_test.zig "monotonic packing's min_cursor floor drifts a shared-barycenter run right of its target, and compact=true corrects it"
     var cursor: i32 = std.math.minInt(i32) / 2;
     var prev_idx: ?u32 = null;
     for (row, 0..) |idx, k| {
@@ -148,10 +148,10 @@ fn centerLayer(
     // constraint here — global left-justification is restored by
     // normalizeX — so the shift is always safe.
     //
-    // `compact` is false for LR/RL flows and for the rotation rung (an LR diagram re-laid-out as TD): re-centering there can slide a source node off its child's vertical rail, undrilling the port. guarded-by: layout/layout_test.zig "drift compaction fires on natural TD but is suppressed by is_direction_rotated, and never fires for LR"
+    // `compact` is false for LR/RL flows and for the rotation rung (an LR diagram re-laid-out as TD): re-centering there can slide a source node off its child's vertical rail, undrilling the port. @guarded-by: layout/layout_test.zig "drift compaction fires on natural TD but is suppressed by is_direction_rotated, and never fires for LR"
     if (!compact) return;
 
-    // Skip clustered rows (frame/axis constraints owned by cluster logic downstream) and labelled fork rows (re-centering removes the clearance the label rasterizer needs). guarded-by: layout/x_assign_test.zig "centerLayer skips re-centering a row that is both clustered and a labeled fork"
+    // Skip clustered rows (frame/axis constraints owned by cluster logic downstream) and labelled fork rows (re-centering removes the clearance the label rasterizer needs). @guarded-by: layout/x_assign_test.zig "centerLayer skips re-centering a row that is both clustered and a labeled fork"
     if (!rowHasClusteredNode(graph, lg, row) and
         !rowHasLabeledIncomingEdge(graph, geom, lg, row))
     {
@@ -207,7 +207,7 @@ fn edgeHasLabel(graph: sg.SemGraph, edge_id: sg.EdgeId) bool {
 /// realized center equals its mean desired center. Pure compaction:
 /// preserves intra-row gaps, removes per-layer drift.
 ///
-/// Averaged over REAL nodes only — including virtuals would shear a real node off its child's rail. guarded-by: layout/x_assign_test.zig "centerRunOnDesired re-centers using only real nodes, keeping the real node's rail straight"
+/// Averaged over REAL nodes only — including virtuals would shear a real node off its child's rail. @guarded-by: layout/x_assign_test.zig "centerRunOnDesired re-centers using only real nodes, keeping the real node's rail straight"
 fn centerRunOnDesired(geom: []NodeGeom, lg: sugiyama.LayeredGraph, row: []const u32, desired: []const i32) void {
     var sum_actual: i64 = 0;
     var sum_desired: i64 = 0;
@@ -222,14 +222,11 @@ fn centerRunOnDesired(geom: []NodeGeom, lg: sugiyama.LayeredGraph, row: []const 
             .virtual => {},
         }
     }
-    // No real node to anchor on (all-virtual row) → leave the waypoints at
-    // their packed positions; a pure singleton is already at its barycenter
-    // so its delta is zero and the shift is a no-op anyway.
     if (n == 0) return;
     var delta: i32 = @intCast(@divTrunc(sum_desired - sum_actual, n));
     if (delta == 0) return;
 
-    // Width clamp: never let the shift drive the row's leftmost node past x = 0 (which would otherwise force normalizeX to widen the whole diagram). guarded-by: layout/x_assign_test.zig "centerRunOnDesired's width clamp keeps a recentered row from crossing x=0"
+    // Width clamp: never let the shift drive the row's leftmost node past x = 0 (which would otherwise force normalizeX to widen the whole diagram). @guarded-by: layout/x_assign_test.zig "centerRunOnDesired's width clamp keeps a recentered row from crossing x=0"
     var min_x: i32 = std.math.maxInt(i32);
     for (row) |idx| {
         if (geom[idx].x < min_x) min_x = geom[idx].x;
@@ -261,7 +258,6 @@ pub fn centerX(g: NodeGeom) i32 {
 /// Virtual (long-edge waypoint) nodes ride along by the same per-row delta so
 /// skip-/back-edge routing keeps its offset relative to the row's real content.
 pub fn flushLeftRows(graph: sg.SemGraph, geom: []NodeGeom, lg: sugiyama.LayeredGraph) void {
-    // Global left margin = min x across all real nodes.
     var margin: i32 = std.math.maxInt(i32);
     for (lg.nodes, 0..) |ln, i| {
         switch (ln) {
@@ -274,7 +270,6 @@ pub fn flushLeftRows(graph: sg.SemGraph, geom: []NodeGeom, lg: sugiyama.LayeredG
     if (margin == std.math.maxInt(i32)) return;
 
     for (lg.layers) |row| {
-        // Count real nodes and find the row's leftmost real node x.
         var real_count: u32 = 0;
         var row_min: i32 = std.math.maxInt(i32);
         for (row) |idx| {
@@ -286,14 +281,14 @@ pub fn flushLeftRows(graph: sg.SemGraph, geom: []NodeGeom, lg: sugiyama.LayeredG
                 .virtual => {},
             }
         }
-        if (real_count < 2) continue; // rail-critical / nothing to compact
+        if (real_count < 2) continue;
         if (rowHasClusteredNode(graph, lg, row)) continue;
         if (rowHasLabeledIncomingEdge(graph, geom, lg, row)) continue;
 
         var delta = margin - row_min;
-        if (delta >= 0) continue; // already at (or left of) the margin
+        if (delta >= 0) continue;
 
-        // Connector-stretch floor: bound the leftward shift so no node in this row moves left of the leftmost neighbour it links to in an adjacent (unmoved) layer, else the connecting edge would stretch and widen the diagram (the mermaid_frenzy regression). guarded-by: layout/x_assign_test.zig "flushLeftRows' connector-stretch floor stops short of the margin instead of stretching a connector"
+        // Connector-stretch floor: bound the leftward shift so no node in this row moves left of the leftmost neighbour it links to in an adjacent (unmoved) layer, else the connecting edge would stretch and widen the diagram (the mermaid_frenzy regression). @guarded-by: layout/x_assign_test.zig "flushLeftRows' connector-stretch floor stops short of the margin instead of stretching a connector"
         var floor_x: i32 = std.math.minInt(i32);
         for (row) |idx| {
             const nb = leftmostNeighbourX(geom, lg, idx) orelse continue;

@@ -21,7 +21,7 @@
 //! of those passes fired. Records are therefore append-only history of
 //! what a producer did — which edge attached here, which runs share this
 //! cell — and no pass rewrites them.
-//! guarded-by: raster/aux_test.zig "aux records survive the post-walk mutating passes"
+//! @guarded-by: raster/aux_test.zig "aux records survive the post-walk mutating passes"
 
 const std = @import("std");
 const prim = @import("prim");
@@ -115,7 +115,7 @@ pub const Occupant = union(enum) {
         /// glyph can stop being a function of `dir` alone; the painter
         /// still ignores it, so every cell paints exactly as before.
         /// The default keeps synthetic/test cells at today's shape.
-        /// guarded-by: lattice.zig "Cell stays 16 bytes: the arrowhead style rides in existing padding"
+        /// @guarded-by: lattice.zig "Cell stays 16 bytes: the arrowhead style rides in existing padding"
         arrow: ArrowKind = .filled,
     },
     label_char: u21,
@@ -125,7 +125,7 @@ pub const Occupant = union(enum) {
     /// a wide glyph's true 2-cell footprint. Never written for a
     /// display-width-1 codepoint, so an all-ASCII lattice is bit-identical
     /// to the pre-continuation pipeline.
-    /// guarded-by: labels_eaw_test.zig "wide node label writes char + continuation and paints two columns"
+    /// @guarded-by: labels_eaw_test.zig "wide node label writes char + continuation and paints two columns"
     label_cont,
 };
 
@@ -215,7 +215,7 @@ pub const AuxKind = enum(u8) {
     /// itself is in the mask, but ownership of the bit is not: a border
     /// cell can carry arms from several writers, and the audit must not
     /// let one recorded stroke excuse a different, unexplained arm.
-    /// guarded-by: rings_test.zig "fusion: a port record excuses only the arm it merged"
+    /// @guarded-by: rings_test.zig "fusion: a port record excuses only the arm it merged"
     port,
     /// A carrier: the edge named by `value` has ink at `cell` that the
     /// Cell does not name. A Cell holds exactly ONE edge id, so every
@@ -259,7 +259,7 @@ pub const AuxKind = enum(u8) {
     /// from the grid. Filed by the walk in `raster/edges.zig`; the report's
     /// `b_frame_bridge` / `b_border_fusion_refused` tallies count the same
     /// events in aggregate.
-    /// guarded-by: tiling_records_test.zig "the frame-bridge tallies and the per-cell intrusion records count the same events"
+    /// @guarded-by: tiling_records_test.zig "the frame-bridge tallies and the per-cell intrusion records count the same events"
     intrusion,
 };
 
@@ -287,7 +287,7 @@ pub fn portArmDetail(arm: Dir4) u8 {
 /// (a realized bundle, a fan rail) sets `cells = null` and licenses its
 /// members ANYWHERE (`base/bundle.zig`). A licensed transcript is
 /// position-scoped only when a port share produced it.
-/// guarded-by: tiling_licence_test.zig "licence: a three-way port share the pairwise flood missed is now licensed, and the render files no defect"
+/// @guarded-by: tiling_licence_test.zig "licence: a three-way port share the pairwise flood missed is now licensed, and the render files no defect"
 pub const CarrierKind = enum(u8) {
     /// Merged, licence never asked — a producer with no bundle context at
     /// the moment it writes. It states NOTHING. A reader must treat it as
@@ -454,7 +454,6 @@ test "Neighbours bitmask round-trip across all 16 values" {
         const n = Neighbours.fromMask(mask);
         try std.testing.expectEqual(mask, n.toMask());
 
-        // Spot-check individual bits agree with the documented layout.
         try std.testing.expectEqual((mask & 0b0001) != 0, n.n);
         try std.testing.expectEqual((mask & 0b0010) != 0, n.e);
         try std.testing.expectEqual((mask & 0b0100) != 0, n.s);
@@ -480,7 +479,6 @@ test "Lattice index calculation: row-major, at() returns correct cell" {
 
     var lat = Lattice{ .width = 4, .height = 3, .cells = &buf };
 
-    // Tag each cell with a distinct label_char so we can verify ordering.
     var y: u32 = 0;
     while (y < lat.height) : (y += 1) {
         var x: u32 = 0;
@@ -489,7 +487,6 @@ test "Lattice index calculation: row-major, at() returns correct cell" {
         }
     }
 
-    // Verify row-major linearization: cells[y*w + x].
     for (buf, 0..) |c, i| {
         switch (c.occupant) {
             .label_char => |ch| try std.testing.expectEqual(@as(u21, @intCast(i)), ch),
@@ -512,15 +509,6 @@ test "Lattice index calculation: row-major, at() returns correct cell" {
 }
 
 test "Cell stays 16 bytes: the arrowhead style rides in existing padding" {
-    // The grid is one Cell per terminal column, so Cell's footprint is the
-    // pipeline's dominant allocation. Before the arrowhead payload carried
-    // a style it was already 16 bytes: a 12-byte tagged Occupant plus
-    // stroke_kind + shape + neighbours, with one byte of tail padding and
-    // two spare bytes inside the 8-byte union payload. `arrow` landed in
-    // union slack; the ink-attribution `state` byte lands in the tail-padding byte, so
-    // both widenings are free. A future payload that pushes this past 16
-    // is a deliberate decision, not an accident — this pin makes it
-    // visible in review.
     try std.testing.expectEqual(@as(usize, 16), @sizeOf(Cell));
     try std.testing.expectEqual(@as(usize, 12), @sizeOf(Occupant));
 }
@@ -542,11 +530,11 @@ test "upgradeState: junction is never demoted; crossing yields only to junction"
     try std.testing.expectEqual(InkState.stroke, c.state);
     c.upgradeState(.crossing);
     try std.testing.expectEqual(InkState.crossing, c.state);
-    c.upgradeState(.rail_interior); // crossing yields only to junction
+    c.upgradeState(.rail_interior);
     try std.testing.expectEqual(InkState.crossing, c.state);
     c.upgradeState(.junction);
     try std.testing.expectEqual(InkState.junction, c.state);
-    c.upgradeState(.crossing); // never demoted
+    c.upgradeState(.crossing);
     try std.testing.expectEqual(InkState.junction, c.state);
 }
 

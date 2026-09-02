@@ -10,7 +10,7 @@
 //!
 //! PIN — forbidden codepoints: U+2716 (✖) and U+2A2F (⨯) map to glyph 0 in
 //! the pinned embedded export font and must never appear here. The cross is
-//! U+2715 only. // guarded-by: arrow_glyphs.zig "arrow table never contains the tofu crosses U+2716/U+2A2F"
+//! U+2715 only. // @guarded-by: arrow_glyphs.zig "arrow table never contains the tofu crosses U+2716/U+2A2F"
 //!
 //! All glyphs are display-width 1 (East-Asian narrow/neutral), so swapping
 //! a head glyph can never change a row's column count.
@@ -26,7 +26,7 @@ const lattice = @import("../lattice.zig");
 /// (raster/edges.zig, raster/rails.zig).
 pub fn glyphFor(kind: lattice.ArrowKind, dir: lattice.Dir4) u21 {
     return switch (kind) {
-        .none => unreachable, // raster never emits an arrowhead cell for .none
+        .none => unreachable,
         .filled => switch (dir) {
             .north => '▲',
             .east => '▶',

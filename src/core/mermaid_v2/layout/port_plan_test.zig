@@ -130,17 +130,12 @@ test "port_plan midpoint keeps singleton terminal coordinates" {
 }
 
 test "a discharged edge claims no attachment and consumes no route lane" {
-    // Edge 2 is discharged by an all-arrow-free rail: it is rendered by the
-    // crossbar between the other two members' taps, so it must claim no
-    // perimeter attachment and reserve no gap row of its own.
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
     const nodes = [_]sg.Node{ node(0, "S"), node(1, "A"), node(2, "B") };
     const edges = [_]sg.Edge{ edge(0, 1, .solid), edge(1, 2, .solid), .{ .id = 2, .from = 1, .to = 2, .kind = .solid, .arrow_from = .none, .arrow_to = .none, .label = null } };
     const graph: sg.SemGraph = .{ .direction = .TD, .nodes = &nodes, .edges = &edges, .clusters = &.{}, .classes = &.{}, .arena = null };
-    // out@S = {0,1} and in@B = {1,2}, both left independent — so the withheld
-    // edge 2 DOES derive attachments, which is what the filter must remove.
     const groups = [_]pb.CandidateBundle{
         .{ .id = 0, .direction = .out, .pivot = 0, .members = &.{ 0, 1 } },
         .{ .id = 1, .direction = .in, .pivot = 2, .members = &.{ 1, 2 } },
@@ -167,7 +162,6 @@ test "a discharged edge claims no attachment and consumes no route lane" {
     try std.testing.expect(kept.len < all.len);
     for (kept) |item| try std.testing.expect((item.attachment.edge orelse 99) != 2);
 
-    // Route lanes: only the sibling members of the still-independent group.
     var lg_nodes = [_]sugiyama.LayerNode{ .{ .real = 0 }, .{ .real = 1 }, .{ .real = 2 } };
     var row0 = [_]u32{0};
     var row1 = [_]u32{ 1, 2 };

@@ -13,32 +13,25 @@
 const std = @import("std");
 
 pub const TokenKind = enum {
-    // Diagram opener
-    kw_flowchart, // "flowchart" or "graph"
-    dir_td, // "TD" or "TB"
-    dir_bt, // "BT"
-    dir_lr, // "LR"
-    dir_rl, // "RL"
-    // Structural keywords
+    kw_flowchart,
+    dir_td,
+    dir_bt,
+    dir_lr,
+    dir_rl,
     kw_subgraph,
     kw_end,
     kw_classdef,
     kw_class,
     kw_direction,
-    // Identifiers and literals
     identifier,
     string,
-    // Shape brackets (single-char tokens; see scheme note above)
     shape_open,
     shape_close,
-    // Edges
     edge_solid,
     edge_dotted,
     edge_thick,
     edge_invisible,
-    // Edge label delimiter
     pipe,
-    // Punctuation
     semicolon,
     comma,
     colon,
@@ -109,7 +102,7 @@ pub const Lexer = struct {
             return self.makeTokenAt(k, start, self.pos, sl, sc);
         }
 
-        // Bracket opens. '>' routes to shape_open since edges starting with '<'/'-' are ruled out above. // guarded-by: lexer_test.zig "leading '>' lexes as shape_open, not an edge/arrow char"
+        // Bracket opens. '>' routes to shape_open since edges starting with '<'/'-' are ruled out above. // @guarded-by: lexer_test.zig "leading '>' lexes as shape_open, not an edge/arrow char"
         if (c == '[' or c == '(' or c == '{' or c == '>') {
             self.advanceRaw();
             var tok = self.makeTokenAt(.shape_open, start, self.pos, sl, sc);
@@ -135,7 +128,7 @@ pub const Lexer = struct {
         // starts an edge when GLUED to `-`/`=`/`~`) and fully restores the
         // cursor on bail, so a bare `o`/`x` or a word like `order` falls
         // through to readIdentifier and stays a node id (`o --> p` keeps `o`).
-        // // guarded-by: lexer_test.zig "leading o/x is an edge marker only when glued to a connector"
+        // // @guarded-by: lexer_test.zig "leading o/x is an edge marker only when glued to a connector"
         if (c == 'o' or c == 'x') {
             if (self.tryEdge(start, sl, sc)) |tok| return tok;
         }
@@ -193,7 +186,7 @@ pub const Lexer = struct {
             self.line += 1;
             self.col = 1;
         } else if (ch == '\r') {
-            // Don't bump line for \r alone; \r\n collapses via outer logic. // guarded-by: lexer_test.zig "solo CR (old Mac line ending) emits a newline token but does not bump the line counter"
+            // Don't bump line for \r alone; \r\n collapses via outer logic. // @guarded-by: lexer_test.zig "solo CR (old Mac line ending) emits a newline token but does not bump the line counter"
             self.col = 1;
         } else {
             self.col += 1;
@@ -218,7 +211,7 @@ pub const Lexer = struct {
     }
 
     fn readString(self: *Lexer, sl: u32, sc: u32) Token {
-        self.advanceRaw(); // opening quote
+        self.advanceRaw();
         const inner_start = self.pos;
         while (self.pos < self.source.len and self.source[self.pos] != '"' and self.source[self.pos] != '\n') {
             self.advanceRaw();
@@ -243,7 +236,7 @@ pub const Lexer = struct {
 
         // Optional leading modifier: '<' (open) or a glued 'o'/'x' (circle/
         // cross end); each must be followed by '-', '=', '~', or tryEdge bails.
-        // guarded-by: lexer_test.zig "leading '<' on an edge requires -/=/~ or tryEdge bails"
+        // @guarded-by: lexer_test.zig "leading '<' on an edge requires -/=/~ or tryEdge bails"
         const m0 = self.source[self.pos];
         if (m0 == '<' or m0 == 'o' or m0 == 'x') {
             const n = self.peekAt(1);
@@ -268,9 +261,15 @@ pub const Lexer = struct {
             var last_run_char: u8 = 0;
             while (self.pos < self.source.len) {
                 const ch = self.source[self.pos];
-                if (ch == '-') { saw_dash = true; last_run_char = ch; self.advanceRaw(); }
-                else if (ch == '.') { saw_dot = true; last_run_char = ch; self.advanceRaw(); }
-                else break;
+                if (ch == '-') {
+                    saw_dash = true;
+                    last_run_char = ch;
+                    self.advanceRaw();
+                } else if (ch == '.') {
+                    saw_dot = true;
+                    last_run_char = ch;
+                    self.advanceRaw();
+                } else break;
             }
             if (!saw_dash) return self.restore(saved_pos, saved_line, saved_col);
             // 'o'/'x' arrow tails are ambiguous with a tight inline label that
@@ -278,13 +277,13 @@ pub const Lexer = struct {
             // o/x end only exists on a run that is already a complete link:
             // it must end on '-' and be at least two chars ("--o", "-.-o").
             // "-." is not a link, so its 'o' belongs to the label.
-            // guarded-by: lexer_test.zig "tight inline label on a dotted edge"
+            // @guarded-by: lexer_test.zig "tight inline label on a dotted edge"
             const run_complete = last_run_char == '-' and self.pos - run_start >= 2;
             const had_arrow = self.resolveTail(run_complete);
             // A short dash run with no arrow tail (e.g. bare "--") is only valid as the
             // OPENING of an inline-label edge like "-- text -->"; probe for the label
             // before bailing so a valid inline-label edge is not rejected as a stray link.
-            // guarded-by: parse_test.zig "inline-label edge keeps bare links intact"
+            // @guarded-by: parse_test.zig "inline-label edge keeps bare links intact"
             if (!had_arrow and self.pos - start < 3) {
                 if (!self.atInlineLabel()) return self.restore(saved_pos, saved_line, saved_col);
                 inline_label = self.scanInlineLabel('-', &saw_dot) orelse
@@ -316,7 +315,7 @@ pub const Lexer = struct {
     /// either after whitespace (`-- text -->`) or tight against the opening
     /// run (`-.text.->`). Excludes '|' so the pipe-label form (`---|text|`)
     /// keeps its bail path, and newlines so an unterminated run still bails.
-    /// guarded-by: lexer_test.zig "tight inline label on a dotted edge"
+    /// @guarded-by: lexer_test.zig "tight inline label on a dotted edge"
     fn atInlineLabel(self: *Lexer) bool {
         if (self.pos >= self.source.len) return false;
         const c = self.source[self.pos];
@@ -329,7 +328,6 @@ pub const Lexer = struct {
     /// null (leaving the cursor untouched-enough for the caller to restore)
     /// if no closing connector+arrow is found before end-of-line.
     fn scanInlineLabel(self: *Lexer, connector: u8, saw_dot: *bool) ?[]const u8 {
-        // Skip leading whitespace.
         while (self.pos < self.source.len and
             (self.source[self.pos] == ' ' or self.source[self.pos] == '\t')) self.advanceRaw();
         const label_start = self.pos;
@@ -337,7 +335,7 @@ pub const Lexer = struct {
         // The closing-connector lookahead (peekAt below) only ends the label on a
         // SECOND connector/arrow char, so a lone '-' embedded in the label text
         // (e.g. "well-formed") stays content, not mistaken for the closing run.
-        // guarded-by: lexer_test.zig "inline edge label keeps an embedded dash intact"
+        // @guarded-by: lexer_test.zig "inline edge label keeps an embedded dash intact"
         while (self.pos < self.source.len) {
             const c = self.source[self.pos];
             if (c == '\n' or c == '\r') return null;
@@ -349,13 +347,16 @@ pub const Lexer = struct {
             if (c != ' ' and c != '\t') label_end = self.pos;
         }
         if (self.pos >= self.source.len) return null;
-        // Consume the closing connector run.
         var closed = false;
         while (self.pos < self.source.len) {
             const c = self.source[self.pos];
-            if (c == connector) { closed = true; self.advanceRaw(); }
-            else if (connector == '-' and c == '.') { saw_dot.* = true; self.advanceRaw(); }
-            else break;
+            if (c == connector) {
+                closed = true;
+                self.advanceRaw();
+            } else if (connector == '-' and c == '.') {
+                saw_dot.* = true;
+                self.advanceRaw();
+            } else break;
         }
         if (!closed) return null;
         _ = self.consumeArrowTail();
@@ -377,7 +378,7 @@ pub const Lexer = struct {
     /// run makes an earlier link's meaning depend on unrelated text later on
     /// the line, deletes the node the arrow points at, and breaks the
     /// pipe-label form (`A --o|t| B`).
-    /// guarded-by: lexer_test.zig "glued o/x on a complete run is an arrow end whatever follows"
+    /// @guarded-by: lexer_test.zig "glued o/x on a complete run is an arrow end whatever follows"
     fn resolveTail(self: *Lexer, run_complete: bool) bool {
         const tail = if (self.pos < self.source.len) self.source[self.pos] else 0;
         if (tail == '>') return self.consumeArrowTail();
@@ -389,7 +390,10 @@ pub const Lexer = struct {
     fn consumeArrowTail(self: *Lexer) bool {
         if (self.pos >= self.source.len) return false;
         const tail = self.source[self.pos];
-        if (tail == '>' or tail == 'o' or tail == 'x') { self.advanceRaw(); return true; }
+        if (tail == '>' or tail == 'o' or tail == 'x') {
+            self.advanceRaw();
+            return true;
+        }
         return false;
     }
 
@@ -413,8 +417,6 @@ fn isIdContinue(c: u8) bool {
 }
 
 fn classifyIdentifier(text: []const u8) TokenKind {
-    // Direction keywords (matched as identifiers; parser context decides
-    // whether to honour them — the lexer always emits dir_* for these).
     if (eq(text, "TD") or eq(text, "TB")) return .dir_td;
     if (eq(text, "BT")) return .dir_bt;
     if (eq(text, "LR")) return .dir_lr;

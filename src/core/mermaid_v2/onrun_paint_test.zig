@@ -121,21 +121,14 @@ test "paint: a decorated on-run label reads │ label │ ▼ down its own colum
 
     const col = try paintedColumn(a, .solid);
 
-    // Row 1 is the shared crossbar (a tee, not our business). The label
-    // takes the middle of the private stretch (rows 2..6 -> row 4). The
-    // label glyph 'o' sits on the dropper column because the 2-cell span
-    // centres there.
-    try testing.expectEqual(@as(u21, '│'), col[2]); // run
-    try testing.expectEqual(@as(u21, '│'), col[3]); // upper flank: full stroke
-    try testing.expectEqual(@as(u21, 'o'), col[4]); // the label
-    try testing.expectEqual(@as(u21, '│'), col[5]); // lower flank: full stroke
-    try testing.expectEqual(@as(u21, '▼'), col[6]); // head BELOW the flank
+    try testing.expectEqual(@as(u21, '│'), col[2]);
+    try testing.expectEqual(@as(u21, '│'), col[3]);
+    try testing.expectEqual(@as(u21, 'o'), col[4]);
+    try testing.expectEqual(@as(u21, '│'), col[5]);
+    try testing.expectEqual(@as(u21, '▼'), col[6]);
 }
 
 test "paint: a dotted or thick run keeps its own stroke on BOTH sides of the label" {
-    // The stroke style must survive the interruption unchanged: a decoder
-    // that sees a different glyph beside the text reads a different EDGE
-    // KIND. This is the pin the reverted half-stroke experiment failed.
     var arena = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();

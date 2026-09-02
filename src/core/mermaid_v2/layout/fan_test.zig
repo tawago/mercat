@@ -27,25 +27,19 @@ fn findById2(nodes: []const sketch.NodePlacement, id: sketch.NodeId) sketch.Node
     @panic("missing node");
 }
 
-// coords.layout's Sketch is arena-owned with no public deinit reachable
-// from here; testing.allocator would flag a leak if we tried to free it
-// piecemeal, so (like layout_test.zig) we simply leak within the test's
-// own arena, which the test's `defer arena.deinit()` reclaims.
 fn deinitSketch2(s: *sketch.Sketch, allocator: std.mem.Allocator) void {
     _ = s;
     _ = allocator;
 }
 
 test "detect distinguishes fan-OUT and fan-IN in the same graph" {
-    // Graph: A->B, A->C, A->D (fan-out at A) and B->E, C->E, D->E
-    // (fan-in at E). All on three layers: [A], [B,C,D], [E].
     const a = testing.allocator;
     var nodes = [_]sugiyama.LayerNode{
-        .{ .real = 0 }, // 0: A
-        .{ .real = 1 }, // 1: B
-        .{ .real = 2 }, // 2: C
-        .{ .real = 3 }, // 3: D
-        .{ .real = 4 }, // 4: E
+        .{ .real = 0 },
+        .{ .real = 1 },
+        .{ .real = 2 },
+        .{ .real = 3 },
+        .{ .real = 4 },
     };
     var row0 = [_]u32{0};
     var row1 = [_]u32{ 1, 2, 3 };
@@ -71,8 +65,6 @@ test "detect distinguishes fan-OUT and fan-IN in the same graph" {
 
     var arena = std.heap.ArenaAllocator.init(a);
     defer arena.deinit();
-    // detect() now reads graph.edges (labeled-fan discovery); give it a
-    // real-but-empty edge list instead of `undefined`.
     const dummy_graph: sg.SemGraph = .{ .direction = .TD, .nodes = &.{}, .edges = &.{}, .clusters = &.{}, .classes = &.{}, .arena = null };
     const fans = try fan.detect(arena.allocator(), dummy_graph, lg);
 
@@ -94,26 +86,18 @@ test "detect distinguishes fan-OUT and fan-IN in the same graph" {
     try testing.expect(saw_out);
     try testing.expect(saw_in);
 
-    // detect() runs a fan-OUT pass over every pivot before its fan-IN pass
-    // (matches the pre-unification two-slice router behavior) — assert the
-    // returned slice actually orders the fan-OUT motif ahead of the fan-IN
-    // motif, not just that both are present.
     try testing.expectEqual(fan.Direction.out, fans[0].direction);
     try testing.expectEqual(fan.Direction.in, fans[1].direction);
 }
 
 test "detect excludes a pivot whose next-layer candidates mix real and virtual peers" {
-    // Graph: A->B, A->C (both real, on layer 1) plus A->E where E lives two
-    // layers down, forcing a virtual node V on layer 1 for that edge's span.
-    // A now has 2 real + 1 virtual candidate on layer 1: the fan-OUT
-    // criterion must abort detection for A entirely, not fan just B/C.
     const a = testing.allocator;
     var nodes = [_]sugiyama.LayerNode{
-        .{ .real = 0 }, // 0: A (pivot)
-        .{ .real = 1 }, // 1: B
-        .{ .real = 2 }, // 2: C
-        .{ .virtual = .{ .edge = 300, .index = 0 } }, // 3: V (A->E chain)
-        .{ .real = 3 }, // 4: E
+        .{ .real = 0 },
+        .{ .real = 1 },
+        .{ .real = 2 },
+        .{ .virtual = .{ .edge = 300, .index = 0 } },
+        .{ .real = 3 },
     };
     var row0 = [_]u32{0};
     var row1 = [_]u32{ 1, 2, 3 };
@@ -137,8 +121,6 @@ test "detect excludes a pivot whose next-layer candidates mix real and virtual p
 
     var arena = std.heap.ArenaAllocator.init(a);
     defer arena.deinit();
-    // detect() now reads graph.edges (labeled-fan discovery); give it a
-    // real-but-empty edge list instead of `undefined`.
     const dummy_graph: sg.SemGraph = .{ .direction = .TD, .nodes = &.{}, .edges = &.{}, .clusters = &.{}, .classes = &.{}, .arena = null };
     const fans = try fan.detect(arena.allocator(), dummy_graph, lg);
 
@@ -161,7 +143,6 @@ test "assignRoles handles even-count fan with no center (fan-OUT)" {
         .source_layer = 0,
         .peers = &peers,
     }};
-    // pivot at x=10; peers at x=0,5,15,20 — none equal pivot.
     const center_x = [_]i32{ 10, 0, 5, 15, 20 };
     fan.assignRoles(&fans, &center_x);
     _ = a;
@@ -190,14 +171,7 @@ test "assignRoles handles even-count fan with no center (fan-IN)" {
     try testing.expectEqual(fan.ChildRole.rightmost, fans[0].peers[3].role);
 }
 
-// -- fan-IN 3-pass barycenter convergence (layout.zig buildSketch) -----------
-
 test "5-source fan-IN sink recenters onto the exact mean of its sources" {
-    // 5 independent sources -> F. A 2-pass (.down, .up) barycenter sweep
-    // does not converge for this shape (see the worked example in
-    // buildSketch's comment): F ends up mis-centered relative to its
-    // sources. The third .down sweep re-centers F once the sources have
-    // settled onto their final, evenly-spaced positions.
     const nodes = [_]sg.Node{
         mkNode(0, "S0"), mkNode(1, "S1"), mkNode(2, "S2"), mkNode(3, "S3"), mkNode(4, "S4"), mkNode(5, "F"),
     };
@@ -228,18 +202,12 @@ test "5-source fan-IN sink recenters onto the exact mean of its sources" {
     const f = findById2(s.nodes, 5);
     const f_cx = f.rect.x + @as(i32, @intCast(f.rect.w / 2));
 
-    // Without the third sweep the worked example shows F landing at the
-    // far-left source's position instead of the mean — assert the
-    // converged (not mis-centered) result.
     try testing.expectEqual(mean_cx, f_cx);
 }
 
 test "bundles group a fan's peers by rail lane" {
     const a = testing.allocator;
 
-    // One fan of four peers. Three share lane 0 (the ordinary case: a shared
-    // rail run), one was lifted to its own lane and therefore shares with
-    // nobody. A second, single-lane fan contributes one more set.
     var peers_a = [_]fan.FanEdge{
         .{ .edge_id = 10, .peer_idx = 1, .role = .leftmost, .lane = 0 },
         .{ .edge_id = 11, .peer_idx = 2, .role = .middle, .lane = 1 },
@@ -259,22 +227,17 @@ test "bundles group a fan's peers by rail lane" {
     defer arena.deinit();
     const sets = try fan.coSets(arena.allocator(), &fans);
 
-    // The lone lane-1 peer is not a set; the two surviving groups are.
     try testing.expectEqual(@as(usize, 2), sets.len);
     try testing.expectEqualSlices(u32, &.{ 10, 12, 13 }, sets[0].members);
     try testing.expectEqual(ledger.BundleOrigin.fan_rail, sets[0].origin);
     try testing.expectEqualSlices(u32, &.{ 20, 21 }, sets[1].members);
 
-    // No fans, no sets.
     try testing.expectEqual(@as(usize, 0), (try fan.coSets(arena.allocator(), &.{})).len);
 }
 
 test "bundles partition by the effective lane the ink occupies, not peer.lane alone" {
     const a = testing.allocator;
 
-    // fan.lane = 2 lifts the whole fan: peers with private lanes 0 and 1
-    // both paint on effective lane 2 (the row fan_polyline draws), so they
-    // are one shared set; the lane-3 peer stays above and shares with nobody.
     var peers = [_]fan.FanEdge{
         .{ .edge_id = 50, .peer_idx = 1, .role = .leftmost, .lane = 0 },
         .{ .edge_id = 51, .peer_idx = 2, .role = .middle, .lane = 1 },
@@ -301,10 +264,6 @@ test {
 }
 
 test "a labeled fan reserves three extra gap rows; an unlabeled fan reserves one" {
-    // Same layered shape twice; only `labeled` differs. The labeled fan's
-    // gap must reserve LABEL_RUN_EXTRA_ROWS more rows (the on-run label
-    // shape: flank + label row + flank + head), the unlabeled fan stays at the
-    // classic one-row reservation.
     const a = testing.allocator;
     var arena = std.heap.ArenaAllocator.init(a);
     defer arena.deinit();
@@ -398,25 +357,21 @@ test "label reservation gate clears doomed fans and keeps feasible ones" {
         .classes = &.{},
         .arena = null,
     };
-    // Canvas estimate: rightmost node edge = 9 + 5 = 14.
     const geom = [_]Geom{
         .{ .x = 4, .y = 0, .w = 5, .h = 3 },
         .{ .x = 0, .y = 6, .w = 5, .h = 3 },
         .{ .x = 9, .y = 6, .w = 5, .h = 3 },
     };
 
-    // 1. Feasible: span = 5 + 4 + 5 = 14 <= 20, "yes" (3) <= canvas 14.
     var fans_ok = [_]fan.Fan{.{ .direction = .out, .pivot_idx = 0, .source_layer = 0, .peers = &peers, .labeled = true }};
     fan.gateLabelReservations(Geom, g_short, &fans_ok, &geom, 20, 4);
     try testing.expect(fans_ok[0].labeled);
 
-    // Width pressure is explicit downstream; it never clears declarations.
     var fans_wrap = [_]fan.Fan{.{ .direction = .out, .pivot_idx = 0, .source_layer = 0, .peers = &peers, .labeled = true }};
     fan.gateLabelReservations(Geom, g_short, &fans_wrap, &geom, 13, 4);
     try testing.expect(fans_wrap[0].labeled);
     try testing.expectEqual(@as(u32, 3), fans_wrap[0].peers[0].label_width);
 
-    // 3. No label fits: only label is wider than the 14-cell canvas.
     var wide_edges = [_]sg.Edge{ mkEdge2(0, 0, 1), mkEdge2(1, 0, 2) };
     wide_edges[0].label = "averyveryverylonglabel";
     const g_wide = sg.SemGraph{

@@ -20,8 +20,6 @@ const roles = @import("edge_roles.zig");
 const crossings = @import("crossings.zig");
 const aux = @import("aux.zig");
 
-// Scoped logger: collision/skip diagnostics stay .debug (silent in release
-// unless a developer opts in via `-Dlog_level=debug` or a debug build).
 const log = std.log.scoped(.@"mermaid_v2.raster.edges");
 
 pub const Move = lattice.Dir4;
@@ -191,8 +189,8 @@ pub fn toCoord(p: sketch.Point) Coord {
 /// writer cannot ask, because it holds a `*Cell` and no bundle context.
 /// A caller with no context passes `.merged_untested`, which states
 /// nothing; it must never pass `.merged_licensed` to mean "did not ask".
-/// guarded-by: aux_test.zig "an OR-merge onto a foreign cell files a merged carrier; onto its own ink, nothing"
-/// guarded-by: edges_write_test.zig "writeEdgeCell files the merged carrier under the licence its caller established"
+/// @guarded-by: aux_test.zig "an OR-merge onto a foreign cell files a merged carrier; onto its own ink, nothing"
+/// @guarded-by: edges_write_test.zig "writeEdgeCell files the merged carrier under the licence its caller established"
 pub fn writeEdgeCell(
     cell: *lattice.Cell,
     edge_id: u32,
@@ -216,15 +214,9 @@ pub fn writeEdgeCell(
             cell.occupant = .{ .edge_segment = .{ .edge = edge_id, .kind = kind, .role = role } };
             cell.neighbours = orMask(cell.neighbours, extra);
             cell.stroke_kind = kind;
-            // Edge ink and frame ink share the cell: an owner-set meet.
             cell.upgradeState(.junction);
         },
         .edge_segment => |existing| {
-            // Ink-attribution state, decided here where the merge is decided: a foreign
-            // merge that adds an arm changes the owner set along the ink
-            // (junction); one whose bits already lie in the mask is a rider
-            // on shared ink (rail interior). Own-ink revisits change no
-            // owner set and keep the recorded state.
             if (existing.edge != edge_id) {
                 const grows = (cell.neighbours.toMask() | extra.toMask()) != cell.neighbours.toMask();
                 cell.upgradeState(if (grows) .junction else .rail_interior);
@@ -279,8 +271,8 @@ pub fn writeEdgeCell(
 /// edge's. `licence` carries the caller's bundle verdict for that pair,
 /// exactly as in `writeEdgeCell` — `.merged_untested` where the caller has
 /// no bundle context, never `.merged_licensed` to mean "did not ask".
-/// guarded-by: edges_write_test.zig "writeArrowCell stamps the edge's own stroke_kind"
-/// guarded-by: aux_test.zig "an arrowhead stamped over a foreign run files a carrier for the run it covered"
+/// @guarded-by: edges_write_test.zig "writeArrowCell stamps the edge's own stroke_kind"
+/// @guarded-by: aux_test.zig "an arrowhead stamped over a foreign run files a carrier for the run it covered"
 pub fn writeArrowCell(
     cell: *lattice.Cell,
     edge_id: u32,
@@ -296,18 +288,9 @@ pub fn writeArrowCell(
     rec: aux.Recorder,
 ) void {
     switch (cell.occupant) {
-        // An arrowhead may stamp onto a cluster_border: an arrival AT the
-        // cluster (terminal), which the frame-solid ruling preserves.
         .empty, .edge_segment, .cluster_border => {
-            // Ink-attribution state: a head on background or its own run is decorated
-            // stroke ink; over a FOREIGN run the two edges' ink bundles here
-            // (the arrowhead-sanctity gate already passed this pair); onto a frame, edge
-            // ink meets frame ink. Shared prior states are kept.
             switch (cell.occupant) {
                 .empty => cell.upgradeState(.stroke),
-                // Deliberate asymmetry with `upgradeState`: a head on its
-                // OWN shared run keeps `rail_interior` (the owner set is
-                // unchanged); only an untagged cell is promoted to stroke.
                 .edge_segment => |seg| if (seg.edge != edge_id) cell.upgradeState(.junction) else if (cell.state == .none) {
                     cell.state = .stroke;
                 },
@@ -358,9 +341,9 @@ pub fn writeArrowCell(
 /// carries, and only to fill the record's `detail`. It changes no decision
 /// and paints no byte, which is exactly why it may read identity rather
 /// than re-derive the relation the ink gate above still derives.
-/// guarded-by: edges_write_test.zig "writeArrowGuarded refuse branch stamps the arrowhead's own stroke_kind"
-/// guarded-by: edges_write_test.zig "an arrowhead landing on a foreign arrowhead files a foreign carrier"
-/// guarded-by: aux_test.zig "a refused arrowhead transit files a suppressed carrier for the crossed run"
+/// @guarded-by: edges_write_test.zig "writeArrowGuarded refuse branch stamps the arrowhead's own stroke_kind"
+/// @guarded-by: edges_write_test.zig "an arrowhead landing on a foreign arrowhead files a foreign carrier"
+/// @guarded-by: aux_test.zig "a refused arrowhead transit files a suppressed carrier for the crossed run"
 pub fn writeArrowGuarded(
     cell: *lattice.Cell,
     edge_id: u32,
@@ -379,22 +362,17 @@ pub fn writeArrowGuarded(
         const seg = cell.occupant.edge_segment;
         if (crossings.arrowheadTransit(ctx.counts, ctx.bundles, ctx.bundle_sets, seg.edge, edge_id, crossings.cellAt(x, y))) {
             cell.occupant = .{ .arrowhead = .{ .dir = dir, .edge = edge_id, .arrow = arrow } };
-            cell.neighbours = along; // pristine: no foreign junction bits
+            cell.neighbours = along;
             cell.stroke_kind = kind;
-            // The crossed run's ink still passes this position unjoined.
             cell.upgradeState(.crossing);
             recordCarrier(rec, x, y, seg.edge, .suppressed);
             return;
         }
     }
-    // Reaching here with an `.edge_segment` occupant means the arrowhead-sanctity gate passed
-    // it; an `.arrowhead` occupant was never examined, so its licence is
-    // LOOKED UP now — the two heads' recorded bundle identities, compared.
-    // Label only: this fills a record's `detail` and paints no byte.
     const licence: lattice.CarrierKind = switch (cell.occupant) {
         .edge_segment => .merged_licensed,
         .arrowhead => |h| crossings.licenceFor(h.edge, edge_id, ctx.bundle_sets, ctx.stamp_state, crossings.cellAt(x, y)),
-        else => .merged_untested, // no carrier is filed on those arms
+        else => .merged_untested,
     };
     writeArrowCell(cell, edge_id, kind, arrow, dir, along, x, y, cells_lost, heads_lost, licence, rec);
 }

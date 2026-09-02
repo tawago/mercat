@@ -49,14 +49,11 @@ test "reserved departures exempt same selected rail" {
         node(0, 0, 0, 5, 3),
         node(1, 0, 6, 5, 3),
     };
-    // Edge 0's reserved off-node departure: south port offset 2 -> port (2,2), off (2,3).
     const edge_ports = [_]struct { edge: pb.EdgeId, source: sk.Port, source_decorated: bool = false }{
         .{ .edge = 0, .source = .{ .node = 0, .side = .south, .offset = 2 } },
     };
-    // Edge 1 (being routed) crosses that reserved departure cell (2,3).
     const poly = [_]sk.Point{ .{ .x = 2, .y = 3 }, .{ .x = 2, .y = 8 } };
 
-    // No bundle attribution: the foreign departure blocks the route.
     try std.testing.expect(try clearance.conflictsReservedDepartures(
         arena.allocator(),
         1,
@@ -66,8 +63,6 @@ test "reserved departures exempt same selected rail" {
         .{},
     ));
 
-    // Both edges are members of the same selected rail: their shared departure
-    // must not be treated as a foreign obstacle to one another.
     const members = [_]pb.EdgeId{ 0, 1 };
     const selected = [_]pb.SelectedBundle{.{ .id = 0, .proposal = 0, .candidate_bundle = 0, .members = &members }};
     try std.testing.expect(!try clearance.conflictsReservedDepartures(
@@ -87,13 +82,11 @@ test "a discharged edge's port allocation reserves no departure" {
         node(0, 0, 0, 5, 3),
         node(1, 0, 6, 5, 3),
     };
-    // Edge 0's allocated departure cell is (2,3); edge 1's route crosses it.
     const edge_ports = [_]struct { edge: pb.EdgeId, source: sk.Port, source_decorated: bool = false }{
         .{ .edge = 0, .source = .{ .node = 0, .side = .south, .offset = 2 } },
     };
     const poly = [_]sk.Point{ .{ .x = 2, .y = 3 }, .{ .x = 2, .y = 8 } };
 
-    // Edge 0 routed on its own: the departure is real ink and blocks.
     try std.testing.expect(try clearance.conflictsReservedDepartures(
         arena.allocator(),
         1,
@@ -103,8 +96,6 @@ test "a discharged edge's port allocation reserves no departure" {
         .{},
     ));
 
-    // Edge 0 discharged: its whole rendering is a rail span — no polyline,
-    // no port — so its allocation must reserve nothing.
     const co = [_]pb.EdgeId{0};
     try std.testing.expect(!try clearance.conflictsReservedDepartures(
         arena.allocator(),
@@ -124,21 +115,16 @@ test "a reserved departure blocks collinear occupancy and admits a perpendicular
         node(0, 0, 0, 5, 3),
         node(1, 0, 6, 5, 3),
     };
-    // Edge 0's departure cell: south port offset 2 -> off-node cell (2,3),
-    // vertical axis.
     const edge_ports = [_]struct { edge: pb.EdgeId, source: sk.Port, source_decorated: bool = false }{
         .{ .edge = 0, .source = .{ .node = 0, .side = .south, .offset = 2 } },
     };
 
-    // Collinear: another vertical run through (2,3) claims the departure.
     const collinear = [_]sk.Point{ .{ .x = 2, .y = 3 }, .{ .x = 2, .y = 8 } };
     try std.testing.expect(try clearance.conflictsReservedDepartures(a, 1, &collinear, &placements, &edge_ports, .{}));
 
-    // Bend: a route turning IN the departure cell lingers on its axis.
     const bend = [_]sk.Point{ .{ .x = 8, .y = 3 }, .{ .x = 2, .y = 3 }, .{ .x = 2, .y = 8 } };
     try std.testing.expect(try clearance.conflictsReservedDepartures(a, 1, &bend, &placements, &edge_ports, .{}));
 
-    // Perpendicular: a horizontal through-run over (2,3) is a legal crossing.
     const crossing = [_]sk.Point{ .{ .x = 8, .y = 3 }, .{ .x = 0, .y = 3 } };
     try std.testing.expect(!try clearance.conflictsReservedDepartures(a, 1, &crossing, &placements, &edge_ports, .{}));
 }
@@ -151,8 +137,6 @@ test "a decorated departure cell blocks even a perpendicular crossing" {
         node(0, 0, 0, 5, 3),
         node(1, 0, 6, 5, 3),
     };
-    // Edge 0 carries a source-end decoration: its departure cell (2,3)
-    // will hold that ink, so no foreign transit is legal there.
     const edge_ports = [_]struct { edge: pb.EdgeId, source: sk.Port, source_decorated: bool = false }{
         .{ .edge = 0, .source = .{ .node = 0, .side = .south, .offset = 2 }, .source_decorated = true },
     };
@@ -164,13 +148,10 @@ test "a detour's port run never crosses the route's own box" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
-    // Every row below the source box is walled off, so the old own-box
-    // exemption would have parked the port run INSIDE the source box
-    // (its rows look "clear" once the box is skipped).
     const placements = [_]sk.NodePlacement{
-        node(0, 0, 0, 5, 5), // source, rows 0..4
-        node(1, 0, 40, 5, 5), // target, rows 40..44
-        node(2, -20, 5, 60, 30), // wall, rows 5..34
+        node(0, 0, 0, 5, 5),
+        node(1, 0, 40, 5, 5),
+        node(2, -20, 5, 60, 30),
     };
     const poly = try clearance.outsideDetour(
         a,
@@ -182,10 +163,7 @@ test "a detour's port run never crosses the route's own box" {
         &placements,
         0,
     );
-    // The first leg departs south and stays in the outward half-plane:
-    // no cell of the port run re-enters rows 0..4.
     try std.testing.expect(poly[1].y >= 5);
-    // Symmetric for the target's north port run.
     try std.testing.expect(poly[poly.len - 2].y <= 39);
 }
 
@@ -196,7 +174,7 @@ test "polylineClears refuses every clearance violation regardless of membership 
     const placements = [_]sk.NodePlacement{
         node(0, 0, 0, 5, 3),
         node(1, 0, 10, 5, 3),
-        node(2, 10, 4, 5, 3), // foreign node
+        node(2, 10, 4, 5, 3),
     };
     const taps = [_]sk.Tap{.{ .edge = 7, .node = 1, .at = .{ .x = 2, .y = 6 }, .landing = .{ .x = 2, .y = 10 }, .arrow = .filled }};
     const stem = [_]sk.Point{ .{ .x = 8, .y = 6 }, .{ .x = 2, .y = 6 } };
@@ -209,12 +187,8 @@ test "polylineClears refuses every clearance violation regardless of membership 
     }};
     const edge_ports = [_]struct { edge: pb.EdgeId, source: sk.Port, source_decorated: bool = false }{};
 
-    // The routed edge 0 targets tap node 1; cell (2,9) is that tap's
-    // arrowhead cell (one step off the landing toward the rail).
     const over_arrow = [_]sk.Point{ .{ .x = 4, .y = 9 }, .{ .x = 2, .y = 9 } };
-    // A run whose interior leg crosses foreign node 2's box (x=12, rows 4..6).
     const through_foreign = [_]sk.Point{ .{ .x = 4, .y = 1 }, .{ .x = 12, .y = 1 }, .{ .x = 12, .y = 8 }, .{ .x = 4, .y = 8 } };
-    // Clear of the rail, its junctions, the foreign box, and the arrow cell.
     const clear = [_]sk.Point{ .{ .x = 4, .y = 2 }, .{ .x = 4, .y = 8 } };
 
     const with_independent = pb.RealizedBundles{ .memberships = &[_]pb.RealizedEdgeMembership{
@@ -232,14 +206,9 @@ test "polylineClears refuses every clearance violation regardless of membership 
 }
 
 test "the detour search widens once per already-routed path, never past the ceiling" {
-    // Nothing routed yet: the search still gets its two tracks (one per side)
-    // so a first detour can dodge the boxes it is going around.
     try std.testing.expectEqual(@as(u32, 2), clearance.detourLimit(0));
-    // One track per side per already-placed path — the only obstacles a wider
-    // detour can be dodging.
     try std.testing.expectEqual(@as(u32, 4), clearance.detourLimit(1));
     try std.testing.expectEqual(@as(u32, 20), clearance.detourLimit(9));
-    // The ceiling holds: a huge graph never buys unbounded frame.
     try std.testing.expectEqual(@as(u32, 64), clearance.detourLimit(31));
     try std.testing.expectEqual(@as(u32, 64), clearance.detourLimit(10_000));
 }

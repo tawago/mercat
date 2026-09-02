@@ -51,9 +51,6 @@ fn memberGeom(s: sk.Sketch, edge: pb.EdgeId) MemberGeom {
         .found = true,
     };
     for (s.rails) |rail| for (rail.taps) |tap| if (tap.edge == edge) {
-        // A Rail owns exactly ONE pivot attachment, so the pivot-side
-        // decoration is single-valued by construction (D-TRUNK item 5);
-        // Tap.arrow is the member-end decoration; pivot_arrow is group-owned.
         const out = railDirection(rail) == .out;
         return .{
             .from = if (out) rail.pivot else tap.node,
@@ -89,8 +86,6 @@ pub fn groupIndexById(groups: []const pb.CandidateBundle, id: pb.CandidateBundle
     return null;
 }
 
-// -- Planner -------------------------------------------------------------
-
 const Pending = struct {
     group: usize,
     members: []pb.EdgeId,
@@ -111,7 +106,7 @@ pub fn realize(
     // are piece-local (D-EDGE-ID item 4) — attribution would be unsound. This
     // covers motif-packed candidates (synthetic frames) even on flat
     // inputs; select.zig additionally gates on the top-level flat flag.
-    // guarded-by: realized_test.zig "V-D-IR-02: motif_pack candidate is off the identity path and keeps an empty plan"
+    // @guarded-by: realized_test.zig "V-D-IR-02: motif_pack candidate is off the identity path and keeps an empty plan"
     if (s.clusters.len != 0) return .{ .report = .{ .skipped_clustered = true } };
 
     const groups = bundle_permits.groups;
@@ -124,8 +119,6 @@ pub fn realize(
         slot.* = row;
     }
 
-    // Proposal extraction: one BundleProposal per Rail whose tap set lies
-    // inside a BundlePermits group at the rail's pivot/direction.
     const raw_count = try allocator.alloc(u32, groups.len);
     @memset(raw_count, 0);
     var pend: std.ArrayListUnmanaged(Pending) = .empty;
@@ -149,8 +142,6 @@ pub fn realize(
         const members = try allocator.alloc(pb.EdgeId, rail.taps.len);
         for (rail.taps, members) |tap, *m| m.* = tap.edge;
         std.mem.sort(pb.EdgeId, members, ms, rankLess);
-        // Identical-key collision (item 1d): collapse to one multiplicity-
-        // counted entry; no property of competing proposals is read.
         const merged = blk: {
             for (pend.items) |*p| {
                 if (p.group == gi and std.mem.eql(pb.EdgeId, p.members, members)) {
@@ -171,8 +162,6 @@ pub fn realize(
             .count = 1,
         });
     };
-    // Canonical proposal order: (owning group key = group rank, canonical
-    // member-set key = membership-rank sequence); ids assigned after sort.
     std.mem.sort(Pending, pend.items, {}, pendingLess);
     const proposals = try allocator.alloc(pb.BundleProposal, pend.items.len);
     const multiplicity = try allocator.alloc(u32, pend.items.len);
@@ -187,9 +176,6 @@ pub fn realize(
         mult.* = p.count;
     }
 
-    // Build the overlap graph FIRST, retaining EVERY shared EdgeId; conflicts
-    // ordered by the pair of group ranks, shared edges in the first
-    // group's canonical member order.
     var conflicts: std.ArrayListUnmanaged(pb.BundleConflict) = .empty;
     for (groups, 0..) |ga, i| {
         for (groups[i + 1 ..]) |gb| {
@@ -215,7 +201,7 @@ pub fn realize(
     // come from the BundlePermits and are single-pivot). With ≥2 proposals
     // clause (c) is unreadable — item 3 forbids reading any property of
     // competing proposals — so it applies to the exactly-one case only.
-    // guarded-by: realized_test.zig "V-D-JOIN-SELECT-07: partial proposal fails clause (c) first"
+    // @guarded-by: realized_test.zig "V-D-JOIN-SELECT-07: partial proposal fails clause (c) first"
     const verdicts = try allocator.alloc(GroupVerdict, groups.len);
     const bundle_of_group = try allocator.alloc(?pb.SelectedBundleId, groups.len);
     @memset(bundle_of_group, null);
@@ -226,9 +212,6 @@ pub fn realize(
             for (pend.items) |*p| if (p.group == gi) break :blk p;
             break :blk null;
         };
-        // The pre-sizing commitment is authoritative about which members own
-        // the rail already present in this sketch. Excluded permission members
-        // have private geometry and cannot invalidate or enlarge that rail.
         const row = if (single) |proposal|
             try memberRow(allocator, s, proposal.members)
         else
@@ -237,12 +220,8 @@ pub fn realize(
         const clause: GroupClause = blk: {
             if (hasDuplicate(row, true)) break :blk .duplicate_key;
             if (hasUnresolved(row)) break :blk .unresolved_member;
-            // Completeness (clause c) is measured against the forward-eligible
-            // (non-back-edge) members: a fan-IN rail composes its forward
-            // subset and the reversed member(s) stay independent, exactly as
-            // bundle_commit commits it (keeps the N6 agreement pin exact).
             if (single != null and single.?.members.len < committedCount(s.bundles, g.id, forwardCount(permission_row))) break :blk .incomplete;
-            if (groupHasConflict(conflicts.items, g.id) and !pb.fanInReMergeEligible(groups, gi)) break :blk .overlap; // arrival re-merge: eligible fan-in falls through (conflict still recorded)
+            if (groupHasConflict(conflicts.items, g.id) and !pb.fanInReMergeEligible(groups, gi)) break :blk .overlap;
             if (styleFail(g.direction, row)) |t| {
                 detail = t;
                 break :blk .style;
@@ -271,15 +250,11 @@ pub fn realize(
         };
     }
 
-    // Every proposal of a non-realized group is rejected (ids ascend with
-    // the canonical proposal order, so this list is canonical).
     var rejected: std.ArrayListUnmanaged(pb.BundleProposalId) = .empty;
     for (pend.items) |p| {
         if (verdicts[p.group].clause != .selected) try rejected.append(allocator, p.id);
     }
 
-    // Dispositions: exactly one per endpoint membership, in canonical
-    // membership order (item 7's frozen mapping).
     var dual_edges: u32 = 0;
     const rms = try allocator.alloc(pb.RealizedEdgeMembership, ms.len);
     for (ms, rms) |m, *rm| {
@@ -291,9 +266,6 @@ pub fn realize(
         if (m.source_group != null and m.target_group != null) dual_edges += 1;
     }
 
-    // Terminal ports: identity tuples, source before target per edge in
-    // canonical edge order. Ordinal 0 = today's midpoint semantics until
-    // Step 7's allocator re-derives ordinals (OPEN-6).
     var ports: std.ArrayListUnmanaged(pb.TerminalPort) = .empty;
     for (ms) |m| {
         const geo = memberGeom(s, m.edge);
@@ -307,10 +279,6 @@ pub fn realize(
         try ports.append(allocator, .{ .node = geo.to, .edge = m.edge, .endpoint_side = .target_entry, .port = target_port });
     }
 
-    // Co-realization is a fact of the candidate's OWN emitted geometry, not a
-    // permission re-decided here: the discharges were made before the sketch
-    // existed, so the record travels with the plan describing it. What IS
-    // re-checked is that no discharged edge also owns an EdgePath.
     const routed = try allocator.alloc(pb.EdgeId, s.edges.len);
     for (s.edges, routed) |e, *slot| slot.* = e.id;
     const double_discharge = pb.doubleDischarged(s.bundles.discharged, routed);
@@ -325,9 +293,6 @@ pub fn realize(
             .conflicts = conflict_slice,
             .terminal_ports = try ports.toOwnedSlice(allocator),
             .discharged = s.bundles.discharged,
-            // The fusion licence travels with the plan that earned it, valid
-            // only while every union member still rides a selected rail here
-            // (the N6 agreement pin makes that the common case).
             .fused = keepValidFused(s.bundles.fused, selected_slice),
         },
         .report = .{
@@ -403,7 +368,7 @@ fn hasUnresolved(row: []const MemberGeom) bool {
 /// OWN pre-sizing commitment when it named a strict subset for this group,
 /// otherwise the forward-eligible count.
 ///
-/// A layout builds the rail it was committed to build. The closure law can
+/// A layout builds the rail it was committed to build. The closure licence can
 /// commit a strict subset — the salvage: the members whose leaf pairs the
 /// graph declares keep the rail, the rest unfuse — exactly as the reversal
 /// rule already does. Judging the geometry against the whole PERMISSION group
@@ -413,7 +378,7 @@ fn hasUnresolved(row: []const MemberGeom) bool {
 /// the render falls back to the forced all-independent terminal layout — a
 /// worse picture, produced by two halves of the planner disagreeing about
 /// what was drawn.
-/// guarded-by: realized_production_test.zig "a salvaged rail is complete against the commitment the layout drew"
+/// @guarded-by: realized_production_test.zig "a salvaged rail is complete against the commitment the layout drew"
 fn committedCount(bundles: pb.RealizedBundles, group: pb.CandidateBundleId, forward: usize) usize {
     for (bundles.selected_bundles) |sj| {
         if (sj.candidate_bundle == group) return @min(forward, sj.members.len);
@@ -438,9 +403,6 @@ fn groupHasConflict(conflicts: []const pb.BundleConflict, id: pb.CandidateBundle
 /// D-TRUNK item 1 sub-clauses in frozen order; the FIRST failing
 /// sub-clause names the report-only tag. Null = clause (e) TRUE.
 fn styleFail(direction: pb.BundleDirection, row: []const MemberGeom) ?pb.DiagnosticTag {
-    // Judge the forward-eligible members only: a reversed member is not part
-    // of the rail, so its style never gates the rail (mirrors bundle_commit's
-    // forward-subset eff_group; keeps N6 exact for mixed-style back-edges).
     var ref: ?MemberGeom = null;
     for (row) |g| {
         if (g.back_edge) continue;
@@ -468,8 +430,6 @@ fn dispose(
     const id = group_id orelse return null;
     const gi = groupIndexById(groups, id) orelse return null;
     if (verdicts[gi].clause == .selected) {
-        // The realized rail may carry only the forward subset; a member left
-        // out (a layout-reversed back-edge) is independent, not selected.
         const jid = bundle_of_group[gi].?;
         for (selected) |sj| if (sj.id == jid and containsEdge(sj.members, edge)) return .{ .selected = jid };
         return .{ .independent = .{ .candidate_bundle = id, .reason = .not_selected } };

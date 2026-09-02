@@ -31,7 +31,7 @@
 //!                  never `d_border_arm_unrecorded`/`d_term_*`. A head that
 //!                  is merely ALONGSIDE the wall does merge its bit, and
 //!                  reaches this pair only through the ring's own arm.
-//!                  guarded-by: terminal_test.zig "a tip-facing decorated arrival against a pristine face is a convention with no record"
+//!                  @guarded-by: terminal_test.zig "a tip-facing decorated arrival against a pristine face is a convention with no record"
 //!   NODE CORNER    a defect: ports are issued as face offsets only, so a
 //!                  run that lands on a corner missed the face it aimed at.
 //!   FRAME BARE     frame-solid: a stroke abutting a subgraph border is
@@ -134,7 +134,7 @@ fn abutment(v: cell.View, x: u32, y: u32, d: cell.Dir4, is_arrow: bool, c: *coun
             // arm back toward this ink cell is `reverse(d)`, so only a
             // record for THAT arm claims the pair — a record for some
             // other face's stroke does not launder this landing.
-            // guarded-by: terminal_test.zig "a port record claims the pair before any face verdict"
+            // @guarded-by: terminal_test.zig "a port record claims the pair before any face verdict"
             if (n.portArm(cell.reverse(d))) {
                 c.c_term_port_recorded += 1;
                 return;
@@ -144,7 +144,7 @@ fn abutment(v: cell.View, x: u32, y: u32, d: cell.Dir4, is_arrow: bool, c: *coun
             // departure, and drawing an ARRIVAL verdict from a cell whose
             // mask another pass edited would be the same inference in
             // reverse — so this family stays silent about it.
-            // guarded-by: terminal_test.zig "an unrecorded ring arm is neither a departure nor a face verdict"
+            // @guarded-by: terminal_test.zig "an unrecorded ring arm is neither a departure nor a face verdict"
             if (n.mask & cell.bit(cell.reverse(d)) != 0) {
                 c.c_term_ring_arm_unrecorded += 1;
                 return;
@@ -152,21 +152,6 @@ fn abutment(v: cell.View, x: u32, y: u32, d: cell.Dir4, is_arrow: bool, c: *coun
             bucket(n, is_arrow, c);
         },
         .blank => {
-            // The port-padding reprieve: a run may resume one cell further
-            // along the axis. A ring reached that way is still a terminal
-            // pair, but the gap itself is the rasterizer's convention, so
-            // no face/corner verdict is drawn from it. When the walk is
-            // NOT reprieved the arm is simply dangling — that is the
-            // stroke family's property, and this check stays silent.
-            //
-            // A gap the PORT path resolved is no longer blank. An
-            // UNDECORATED end paints the approach cell, so wall and run
-            // come out contiguous and the pair is classified through
-            // `.ring_node` above on a `.port` record. A DECORATED end
-            // slides its HEAD onto the gap instead (an arrowhead's tip
-            // side may carry no ink), so its pair is an arrow abutting a
-            // pristine face — the tip-facing convention, `bucket` below.
-            // This arm now sees only gaps nobody attached across.
             if (!v.gapReprieve(x, y, d)) return;
             const two = cell.step(x, y, d, v.width(), v.height()) orelse return;
             const beyond = cell.step(two.x, two.y, d, v.width(), v.height()) orelse return;
@@ -183,8 +168,6 @@ fn abutment(v: cell.View, x: u32, y: u32, d: cell.Dir4, is_arrow: bool, c: *coun
 /// dispatch for stroke and arrowhead cells; every other kind is inert.
 pub fn check(v: cell.View, x: u32, y: u32, t: cell.Typed, c: *counts.Counts) void {
     switch (t.kind) {
-        // An arrowhead's run IS its tip axis, and the tip is the only
-        // direction this family owns on such a cell.
         .arrow => {
             const tip = t.tip orelse return;
             abutment(v, x, y, tip, true, c);

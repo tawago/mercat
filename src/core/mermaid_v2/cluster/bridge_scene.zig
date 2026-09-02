@@ -16,7 +16,7 @@ const Pt = sketch.Point;
 /// pivotHead/tapHead, which stamp exactly these cells. Edge heads sit one
 /// step back from a decorated port along the end segment. Runs: crossbars,
 /// stem legs, tap droppers, and every polyline leg.
-// guarded-by: bridges_test.zig "sceneObstacles derives the pivot and tap head cells the raster stamps"
+// @guarded-by: bridges_test.zig "sceneObstacles derives the pivot and tap head cells the raster stamps"
 pub fn sceneObstacles(
     arena: std.mem.Allocator,
     rails: []const sketch.Rail,
@@ -61,7 +61,6 @@ pub fn sceneObstacles(
     }
     return .{ .heads = try heads.toOwnedSlice(arena), .runs = try runs.toOwnedSlice(arena) };
 }
-
 
 /// File a routed polyline's ink into a growing scene: every segment as a
 /// run, plus the head cell one step back from each decorated end — the same
@@ -255,14 +254,13 @@ pub const Step = struct { x: i32, y: i32 };
 pub fn stepDir(a: Pt, b: Pt) ?Step {
     const dx = b.x - a.x;
     const dy = b.y - a.y;
-    if ((dx == 0) == (dy == 0)) return null; // zero-length or diagonal
+    if ((dx == 0) == (dy == 0)) return null;
     return .{ .x = std.math.sign(dx), .y = std.math.sign(dy) };
 }
 
 pub fn stepPt(p: Pt, d: Step) Pt {
     return .{ .x = p.x + d.x, .y = p.y + d.y };
 }
-
 
 /// True iff `p` is one of `cells`.
 pub fn cellIn(cells: []const Pt, p: Pt) bool {
@@ -296,10 +294,8 @@ pub fn verticalCorridor(
     expired: ?*u32,
 ) error{OutOfMemory}![]sketch.Point {
     const descending = (exit == .south);
-    // Gap row just past the source node — collision-free above its child. // guarded-by: bridges_test.zig "verticalCorridor: the source-side jog row (one past the source) is collision-free above the pierced child"
+    // Gap row just past the source node — collision-free above its child. // @guarded-by: bridges_test.zig "verticalCorridor: the source-side jog row (one past the source) is collision-free above the pierced child"
     const src_jog_y = if (descending) start.y + 1 else start.y - 1;
-    // Gap row just outside the target box, ≥2 back from the port — displaced
-    // off any drawn frame border row (same discipline as the plain elbow).
     const entry: sketch.Dir4 = if (descending) .north else .south;
     const tgt_want = tracks.clearOfBorders(
         entry,
@@ -320,7 +316,7 @@ pub fn verticalCorridor(
     // Prefer descending straight into the target column, sliding outward only
     // if blocked; margined over merely touch-free (flush `││` reads as
     // crowding) — sketch.clearLine is the shared clearance core (cluster/ may
-    // import sketch, not layout/). // guarded-by: sketch.zig "clearLine prefers a margined line over a closer touch-free-only line"
+    // import sketch, not layout/). // @guarded-by: sketch.zig "clearLine prefers a margined line over a closer touch-free-only line"
     const run_col = corridors.descentColumn(end.x, lo, hi, placements, from_id, to_id, clusters);
 
     var poly: std.ArrayListUnmanaged(sketch.Point) = .empty;
@@ -334,7 +330,7 @@ pub fn verticalCorridor(
         end,
     };
     for (pts) |p| {
-        if (p.x == prev.x and p.y == prev.y) continue; // skip zero-length
+        if (p.x == prev.x and p.y == prev.y) continue;
         try poly.append(arena, p);
         prev = p;
     }
@@ -370,7 +366,7 @@ pub fn polyIntrudes(
 /// strictly between the two ports even when the preferred gap line would land
 /// on or past a port (tight box spacing).
 pub fn clampBetween(lo: i32, hi: i32, want: i32) i32 {
-    if (hi - lo < 2) return lo + 1; // degenerate: no room, sit just past lo
+    if (hi - lo < 2) return lo + 1;
     if (want <= lo) return lo + 1;
     if (want >= hi) return hi - 1;
     return want;

@@ -11,35 +11,22 @@ const expect = std.testing.expect;
 const expectEqual = std.testing.expectEqual;
 const expectEqualStrings = std.testing.expectEqualStrings;
 
-// ---------------------------------------------------------------------------
-// BundlePolicy (D-POLICY items 1, 10).
-// ---------------------------------------------------------------------------
-
 test "V-D-POLICY-01: BundlePolicy has exactly one variant, named joined" {
     const info = @typeInfo(pb.BundlePolicy).@"enum";
     try expectEqual(@as(usize, 1), info.fields.len);
     try expectEqualStrings("joined", info.fields[0].name);
 }
 
-// The joined invariant, asserted WITHOUT any `switch` on the policy enum:
-// adding a future variant to a policy enum cannot redefine what `joined`
-// asserts (D-POLICY item 10 / V-D-POLICY-05).
 fn expectJoined(policy: anytype) !void {
     try expect(std.mem.eql(u8, @tagName(policy), "joined"));
 }
 
 test "V-D-POLICY-05: joined invariants hold without switching on the policy enum" {
     try expectJoined(pb.BundlePolicy.joined);
-    // Test-only shadow enum with a second variant: the same no-switch
-    // invariant check still compiles and passes for its `joined` value.
     const ShadowPolicy = enum { joined, separate };
     try expectJoined(ShadowPolicy.joined);
     try std.testing.expectError(error.TestUnexpectedResult, expectJoined(ShadowPolicy.separate));
 }
-
-// ---------------------------------------------------------------------------
-// Identity handles and the defaulted envelope.
-// ---------------------------------------------------------------------------
 
 test "identity handles match prim's" {
     try expect(pb.NodeId == prim.NodeId);
@@ -64,8 +51,7 @@ test "co-membership needs both edges inside one set" {
     };
 
     try expect(pb.bundleMembers(&sets, 1, 2));
-    try expect(pb.bundleMembers(&sets, 4, 3)); // order-free
-    // One from each set is NOT co-membership: two bundles are two bundles.
+    try expect(pb.bundleMembers(&sets, 4, 3));
     try expect(!pb.bundleMembers(&sets, 2, 3));
     try expect(!pb.bundleMembers(&sets, 1, 9));
     try expect(!pb.bundleMembers(&.{}, 1, 2));
@@ -88,7 +74,6 @@ test "bundles from a plan name one bundle per selected bundle" {
     try expectEqual(pb.BundleOrigin.selected_bundle, sets[1].origin);
     try std.testing.expectEqualSlices(pb.EdgeId, &.{ 20, 21, 22 }, sets[1].members);
 
-    // An empty plan authorizes nothing and allocates nothing.
     try expectEqual(@as(usize, 0), (try pb.bundlesFromPlan(std.testing.allocator, .{})).len);
 }
 
@@ -105,18 +90,12 @@ test "empty ComponentEntry is default-constructible with all-empty fields" {
     try expectEqual(@as(usize, 0), entry.bridge_ids.len);
 }
 
-// ---------------------------------------------------------------------------
-// Pinned ordinal tables (D-PORT clause 4 — every name→ordinal pair).
-// ---------------------------------------------------------------------------
-
 test "D-PORT clause 4: every EdgeKind name→ordinal pair is pinned" {
     try expectEqual(@as(usize, 4), pb.edge_kind_ordinals.len);
     try expectEqual(@as(?u8, 0), pb.ordinalByName(&pb.edge_kind_ordinals, "solid"));
     try expectEqual(@as(?u8, 1), pb.ordinalByName(&pb.edge_kind_ordinals, "dotted"));
     try expectEqual(@as(?u8, 2), pb.ordinalByName(&pb.edge_kind_ordinals, "thick"));
     try expectEqual(@as(?u8, 3), pb.ordinalByName(&pb.edge_kind_ordinals, "invisible"));
-    // The production enum maps through the table by NAME, so a reorder of
-    // prim.EdgeKind cannot change K.
     try expectEqual(@as(u8, 0), pb.edgeKindOrdinal(prim.EdgeKind.solid));
     try expectEqual(@as(u8, 1), pb.edgeKindOrdinal(prim.EdgeKind.dotted));
     try expectEqual(@as(u8, 2), pb.edgeKindOrdinal(prim.EdgeKind.thick));
@@ -130,9 +109,6 @@ test "D-PORT clause 4: every ArrowEnd name→ordinal pair is pinned" {
     try expectEqual(@as(?u8, 2), pb.ordinalByName(&pb.arrow_end_ordinals, "filled"));
     try expectEqual(@as(?u8, 3), pb.ordinalByName(&pb.arrow_end_ordinals, "circle"));
     try expectEqual(@as(?u8, 4), pb.ordinalByName(&pb.arrow_end_ordinals, "cross"));
-    // Same-shape mirror of sem_graph.ArrowEnd (sem_graph.zig is not
-    // importable from the prim tier); the map is by NAME, so the mirror
-    // exercises exactly what production values will.
     const ArrowEndMirror = enum { none, open, filled, circle, cross };
     try expectEqual(@as(u8, 0), pb.arrowEndOrdinal(ArrowEndMirror.none));
     try expectEqual(@as(u8, 1), pb.arrowEndOrdinal(ArrowEndMirror.open));
@@ -142,16 +118,10 @@ test "D-PORT clause 4: every ArrowEnd name→ordinal pair is pinned" {
     try expectEqual(@as(?u8, null), pb.ordinalByName(&pb.arrow_end_ordinals, "bidirectional"));
 }
 
-// ---------------------------------------------------------------------------
-// Canonical comparators (D-JOIN-SELECT item 1; D-PORT clauses 4, 6).
-// ---------------------------------------------------------------------------
-
 test "node key comparator is bytewise total order" {
     try expectEqual(std.math.Order.eq, pb.nodeKeyOrder("Hub", "Hub"));
     try expectEqual(std.math.Order.lt, pb.nodeKeyOrder("A", "B"));
     try expectEqual(std.math.Order.gt, pb.nodeKeyOrder("B", "A"));
-    // Prefix sorts before its extension, and digits compare as bytes, not
-    // numerically — the order is bytewise, never numeric-ID based.
     try expectEqual(std.math.Order.lt, pb.nodeKeyOrder("A", "AB"));
     try expectEqual(std.math.Order.lt, pb.nodeKeyOrder("A10", "A9"));
 }
@@ -177,23 +147,19 @@ const base_edge_key = pb.EdgeKey{
 test "edge key comparator orders field-by-field with no-label-first" {
     try expectEqual(std.math.Order.eq, pb.edgeKeyOrder(base_edge_key, base_edge_key));
 
-    // Field 1: from (node key bytes) decides before anything else.
     var b = base_edge_key;
     b.from = "R";
     b.label = "zzz";
     try expectEqual(std.math.Order.gt, pb.edgeKeyOrder(base_edge_key, b));
 
-    // Field 2: to.
     b = base_edge_key;
     b.to = "U";
     try expectEqual(std.math.Order.lt, pb.edgeKeyOrder(base_edge_key, b));
 
-    // Field 3: stroke-kind ordinal.
     b = base_edge_key;
     b.kind = 1;
     try expectEqual(std.math.Order.lt, pb.edgeKeyOrder(base_edge_key, b));
 
-    // Fields 4-5: arrow presence/direction (arrow_from then arrow_to).
     b = base_edge_key;
     b.arrow_from = 2;
     try expectEqual(std.math.Order.lt, pb.edgeKeyOrder(base_edge_key, b));
@@ -201,7 +167,6 @@ test "edge key comparator orders field-by-field with no-label-first" {
     b.arrow_to = 0;
     try expectEqual(std.math.Order.gt, pb.edgeKeyOrder(base_edge_key, b));
 
-    // Field 6: label bytes-or-absence, no-label first.
     b = base_edge_key;
     b.label = "hit";
     try expectEqual(std.math.Order.lt, pb.edgeKeyOrder(base_edge_key, b));
@@ -217,28 +182,23 @@ const base_attachment_key = pb.AttachmentKey{
 };
 
 test "attachment key K orders field-by-field with pinned ordinals" {
-    // The pinned endpoint_side values are part of K itself.
     try expectEqual(@as(u1, 0), @intFromEnum(pb.EndpointSide.source_exit));
     try expectEqual(@as(u1, 1), @intFromEnum(pb.EndpointSide.target_entry));
 
     try expectEqual(std.math.Order.eq, pb.attachmentKeyOrder(base_attachment_key, base_attachment_key));
 
-    // Field 1: opposite endpoint raw_id bytes.
     var b = base_attachment_key;
     b.opposite = "A";
     try expectEqual(std.math.Order.gt, pb.attachmentKeyOrder(base_attachment_key, b));
 
-    // Field 2: endpoint_side (source-exit=0 before target-entry=1).
     b = base_attachment_key;
     b.endpoint_side = .target_entry;
     try expectEqual(std.math.Order.lt, pb.attachmentKeyOrder(base_attachment_key, b));
 
-    // Field 3: EdgeKind ordinal.
     b = base_attachment_key;
     b.kind = 3;
     try expectEqual(std.math.Order.lt, pb.attachmentKeyOrder(base_attachment_key, b));
 
-    // Fields 4-5: arrow ordinals.
     b = base_attachment_key;
     b.arrow_from = 4;
     try expectEqual(std.math.Order.lt, pb.attachmentKeyOrder(base_attachment_key, b));
@@ -246,7 +206,6 @@ test "attachment key K orders field-by-field with pinned ordinals" {
     b.arrow_to = 1;
     try expectEqual(std.math.Order.gt, pb.attachmentKeyOrder(base_attachment_key, b));
 
-    // Field 6: label, no-label first.
     b = base_attachment_key;
     b.label = "w";
     try expectEqual(std.math.Order.lt, pb.attachmentKeyOrder(base_attachment_key, b));
@@ -261,16 +220,11 @@ fn expectSemanticFieldsOnly(comptime T: type) !void {
 }
 
 test "comparator keys carry no numeric ids by construction" {
-    // Every key field is raw_id bytes, a pinned u8 ordinal, the typed
-    // endpoint side, or optional label bytes — numeric NodeId/EdgeId
-    // handles cannot appear in any ordering (D-PORT clause 4; spine (vi)).
     try expectSemanticFieldsOnly(pb.EdgeKey);
     try expectSemanticFieldsOnly(pb.AttachmentKey);
 }
 
 test "keepOrigin selects exactly one origin's sets" {
-    // The two helpers that let a producer REPLACE the population it owns
-    // without taking another origin's records down with it.
     const sets = [_]pb.Bundle{
         .{ .origin = .fan_rail, .members = &.{ 0, 1 } },
         .{ .origin = .port_share, .members = &.{ 2, 3 } },
@@ -292,32 +246,23 @@ test "keepOrigin selects exactly one origin's sets" {
     try expect(pb.bundleMembers(joined, 8, 9));
     try expect(pb.bundleMembers(joined, 6, 7));
 
-    // Degenerate arms: an empty side is returned as the other side verbatim.
     const no_joins = [_]pb.Bundle{.{ .origin = .fan_rail, .members = &.{ 0, 1 } }};
     try expectEqual(@as(usize, 0), (try pb.keepOrigin(std.testing.allocator, &no_joins, .selected_bundle)).len);
     try expectEqual(@as(usize, 1), (try pb.concatBundles(std.testing.allocator, &head, &.{})).len);
 }
 
 test "a cell-scoped bundle answers only inside its licensed cells" {
-    // The `.port_share` shape: the pair is one bundle on the common approach
-    // and foreign everywhere else. `at = null` asks the position-blind
-    // question and no scope applies to it.
     const licensed = [_]pb.BundleCell{ .{ .x = 4, .y = 2 }, .{ .x = 4, .y = 3 } };
     const sets = [_]pb.Bundle{.{ .origin = .port_share, .members = &.{ 1, 2 }, .cells = &licensed }};
     try expect(pb.bundleMembersAt(&sets, 1, 2, .{ .x = 4, .y = 2 }));
     try expect(!pb.bundleMembersAt(&sets, 1, 2, .{ .x = 9, .y = 9 }));
     try expect(pb.bundleMembersAt(&sets, 1, 2, null));
     try expect(pb.bundleMembers(&sets, 1, 2));
-    // An unscoped set is position-blind on the very same cell.
     const wide = [_]pb.Bundle{.{ .origin = .fan_rail, .members = &.{ 1, 2 } }};
     try expect(pb.bundleMembersAt(&wide, 1, 2, .{ .x = 9, .y = 9 }));
 }
 
 test "a pairwise-scoped set licenses only a pair's own common approach, never a third member's" {
-    // Three members, one port, one bundle — but member 2's own approach
-    // cells (shared only with member 0) must not license anything between
-    // members 0 and 1, and member 0/1's shared stem must not license
-    // anything between either of them and member 2.
     const stem = [_]pb.BundleCell{ .{ .x = 5, .y = 3 }, .{ .x = 5, .y = 8 } };
     const port_only = [_]pb.BundleCell{.{ .x = 5, .y = 3 }};
     const pairwise = [_]pb.PairCells{
@@ -335,35 +280,21 @@ test "a pairwise-scoped set licenses only a pair's own common approach, never a 
     const sets = try pb.numberBundles(std.testing.allocator, &unnumbered);
     defer std.testing.allocator.free(sets);
 
-    // Transitive identity: all three are declared co-members, position-blind.
     try expect(pb.bundleMembers(sets, 0, 1));
     try expect(pb.bundleMembers(sets, 0, 2));
     try expect(pb.bundleMembers(sets, 1, 2));
 
-    // 0 and 1 share the whole stem.
     try expect(pb.bundleMembersAt(sets, 0, 1, .{ .x = 5, .y = 8 }));
-    // 2's own approach to 0 and to 1 never reached (5,8) — a cell the
-    // flat union would wrongly license via the OTHER pair's agreement.
     try expect(!pb.bundleMembersAt(sets, 0, 2, .{ .x = 5, .y = 8 }));
     try expect(!pb.bundleMembersAt(sets, 1, 2, .{ .x = 5, .y = 8 }));
-    // All three agree at the port itself.
     try expect(pb.bundleMembersAt(sets, 0, 2, .{ .x = 5, .y = 3 }));
     try expect(pb.bundleMembersAt(sets, 1, 2, .{ .x = 5, .y = 3 }));
 
-    // bundleOf: edge 2 does not ride this bundle at (5,8) — its own
-    // approach never reached there — even though the set's flat union does.
     try expect(pb.bundleOf(sets, 0, .{ .x = 5, .y = 8 }) != pb.no_bundle);
     try expect(pb.bundleOf(sets, 2, .{ .x = 5, .y = 8 }) == pb.privateBundle(2));
 }
 
-// ---------------------------------------------------------------------------
-// Bundle identity: the name a bundle carries, and the lookup read off it.
-// ---------------------------------------------------------------------------
-
 test "a numbered roster names every set exactly once" {
-    // Two sets that both arrived carrying the name 1 — the stitch's own case,
-    // where each child numbered its fans from one. Numbering is by POSITION,
-    // so the merged list can never read two distinct bundles as one.
     const a = [_]pb.EdgeId{ 0, 1 };
     const b = [_]pb.EdgeId{ 2, 3 };
     const raw = [_]pb.Bundle{
@@ -378,22 +309,16 @@ test "a numbered roster names every set exactly once" {
     try expectEqual(@as(pb.BundleId, 1), roster[0].bundle);
     try expectEqual(@as(pb.BundleId, 2), roster[1].bundle);
 
-    // The lookup, and the relation read off two of them.
     try expectEqual(@as(pb.BundleId, 1), pb.bundleOf(roster, 0, null));
     try expectEqual(@as(pb.BundleId, 2), pb.bundleOf(roster, 3, null));
     try expect(pb.bundlesAgree(roster, 0, 1, null));
     try expect(!pb.bundlesAgree(roster, 1, 2, null));
 
-    // An edge no set names still rides a bundle — its own, one edge wide,
-    // in a band no roster position can reach.
     try expect(pb.privateBundle(0) != pb.privateBundle(1));
     try expectEqual(pb.privateBundle(9), pb.bundleOf(roster, 9, null));
     try expect(pb.bundleOf(roster, 9, null) != pb.bundleOf(roster, 8, null));
     try expect(pb.bundlesAgree(roster, 9, 9, null));
 
-    // An unstamped set is NOT FILED, never "no bundle": the lookup declines
-    // it and falls through to the private band rather than reading zero as a
-    // name every stranger shares.
     const blank = [_]pb.Bundle{.{ .origin = .fan_rail, .members = &a }};
     try expectEqual(pb.privateBundle(0), pb.bundleOf(&blank, 0, null));
     try expect(!pb.bundlesAgree(&blank, 0, 1, null));
@@ -404,9 +329,7 @@ test "structural set resolution is unique and excludes scoped provenance" {
     const sets = [_]pb.Bundle{
         .{ .origin = .fan_rail, .members = &.{ 1, 2 } },
         .{ .origin = .selected_bundle, .members = &.{ 2, 3 } },
-        // An unscoped port share is still not structural rail provenance.
         .{ .origin = .port_share, .members = &.{4} },
-        // A structural origin with a cell scope cannot name a whole rail.
         .{ .origin = .fan_rail, .members = &.{5}, .cells = &scoped },
     };
 
@@ -429,9 +352,6 @@ test "structural set resolution is unique and excludes scoped provenance" {
 }
 
 test "the derivation and the recorded identity answer alike on a declared bundle" {
-    // One structural set naming both edges: the pairwise scan finds them, and
-    // so does the pair of lookups. This is the agreement the raster's
-    // label-only sites now rely on, stated on the two functions directly.
     const members = [_]pb.EdgeId{ 4, 5 };
     const raw = [_]pb.Bundle{.{ .origin = .fan_rail, .members = &members }};
     const roster = try pb.numberBundles(std.testing.allocator, &raw);
@@ -442,7 +362,6 @@ test "the derivation and the recorded identity answer alike on a declared bundle
     try expect(!pb.derivedSameBundle(.{}, roster, 4, 6, null));
     try expect(!pb.bundlesAgree(roster, 4, 6, null));
 
-    // And on a cell-scoped set, both decline off the licensed cells.
     const here = [_]pb.BundleCell{.{ .x = 2, .y = 2 }};
     const scoped_raw = [_]pb.Bundle{.{ .origin = .port_share, .members = &members, .cells = &here }};
     const scoped = try pb.numberBundles(std.testing.allocator, &scoped_raw);

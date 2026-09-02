@@ -85,7 +85,6 @@ pub fn build(
         max_columns = @max(max_columns, col);
     }
 
-    // §7.4: a zero-row document is laid out as one padded background row.
     const rows: u32 = if (rendered.lines.len == 0)
         1
     else
@@ -100,7 +99,6 @@ pub fn build(
         .font_sha256 = face.sha256,
     };
 
-    // Fail early if the surface would overflow (§7.4).
     _ = try doc.pixelWidth();
     _ = try doc.pixelHeight();
 
@@ -111,7 +109,6 @@ fn buildGeometry(face: *const font.Font, options: Options) Error!Geometry {
     const pad_x = try mulU16(options.horizontal_padding_cells, face.cell_width_px);
     const pad_y = try mulU16(options.vertical_padding_cells, face.cell_height_px);
 
-    // Baseline from the top of the page = top padding + in-cell baseline.
     const baseline_i32 = @as(i32, pad_y) + @as(i32, face.baseline_px);
     if (baseline_i32 > std.math.maxInt(i16)) return error.PixelOverflow;
 
@@ -222,8 +219,6 @@ fn appendRun(
         .monochrome => black,
     };
     const background: ?Color = switch (options.color_mode) {
-        // A span background only exists in themed mode; in monochrome every
-        // span background equals the white page, so no rectangle is painted.
         .theme => if (style.bg) |bg| srgbOf(bg) else null,
         .monochrome => null,
     };
@@ -240,7 +235,6 @@ fn appendRun(
         .columns = columns,
         .foreground = foreground,
         .background = background,
-        // Decorations are geometric and survive monochrome (drawn black).
         .decoration = .{
             .underline = style.underline,
             .strikethrough = style.strikethrough,
@@ -263,7 +257,6 @@ fn freeRuns(allocator: std.mem.Allocator, runs: *std.ArrayList(PositionedRun)) v
 /// foreground luminance: light text implies a dark page, dark text a light one.
 fn pageBackground(options: Options) Color {
     if (options.color_mode == .monochrome) return white;
-    // Canvas themes pin the sheet background to their resolved base_bg.
     if (options.canvas_bg) |bg| {
         if (srgbOf(bg)) |c| return c;
     }
@@ -274,10 +267,6 @@ fn pageBackground(options: Options) Color {
 fn luminance(c: Color) u32 {
     return (@as(u32, c.r) * 299 + @as(u32, c.g) * 587 + @as(u32, c.b) * 114) / 1000;
 }
-
-// ---------------------------------------------------------------------------
-// xterm-256 -> sRGB
-// ---------------------------------------------------------------------------
 
 /// The one committed, deterministic xterm-256 -> sRGB table (§6.4). The table
 /// itself lives in `core/theme/color.zig` so every backend shares one copy;
@@ -293,10 +282,6 @@ fn srgbOf(c: color.Color) ?Color {
     const s = color.toSrgb(c) orelse return null;
     return .{ .r = s.r, .g = s.g, .b = s.b };
 }
-
-// ===========================================================================
-// Tests
-// ===========================================================================
 
 const testing = std.testing;
 
@@ -315,12 +300,9 @@ fn makeSpan(text: []const u8, style: render_model.SpanStyle) Span {
 test "xterm-256 table matches known cube and grayscale anchors" {
     try testing.expectEqual(Color{ .r = 0, .g = 0, .b = 0 }, xterm256ToSrgb(0));
     try testing.expectEqual(Color{ .r = 255, .g = 255, .b = 255 }, xterm256ToSrgb(15));
-    // 16 is the cube origin (0,0,0); 231 is the cube apex (255,255,255).
     try testing.expectEqual(Color{ .r = 0, .g = 0, .b = 0 }, xterm256ToSrgb(16));
     try testing.expectEqual(Color{ .r = 255, .g = 255, .b = 255 }, xterm256ToSrgb(231));
-    // 196 = bright red in the cube (5,0,0).
     try testing.expectEqual(Color{ .r = 255, .g = 0, .b = 0 }, xterm256ToSrgb(196));
-    // grayscale ramp endpoints.
     try testing.expectEqual(Color{ .r = 8, .g = 8, .b = 8 }, xterm256ToSrgb(232));
     try testing.expectEqual(Color{ .r = 238, .g = 238, .b = 238 }, xterm256ToSrgb(255));
 }
@@ -335,7 +317,7 @@ test "span to column mapping records start_col and columns" {
     defer doc.deinit(testing.allocator);
 
     try testing.expectEqual(@as(u32, 1), doc.rows);
-    try testing.expectEqual(@as(u32, 9), doc.columns); // 3 + 6
+    try testing.expectEqual(@as(u32, 9), doc.columns);
     try testing.expectEqual(@as(usize, 2), doc.runs.len);
     try testing.expectEqual(@as(u32, 0), doc.runs[0].start_col);
     try testing.expectEqual(@as(u32, 3), doc.runs[0].columns);
@@ -373,7 +355,6 @@ test "zero-line document lays out one padded row" {
     try testing.expectEqual(@as(u32, 1), doc.rows);
     try testing.expectEqual(@as(u32, 0), doc.columns);
     try testing.expectEqual(@as(usize, 0), doc.runs.len);
-    // One padded background row, never a zero-dimension surface.
     try testing.expect((try doc.pixelHeight()) > 0);
     try testing.expect((try doc.pixelWidth()) > 0);
 }
@@ -392,20 +373,17 @@ test "trailing spaces are preserved in run text and columns" {
 
 test "wide characters occupy two cells" {
     const face = try font.Font.init(20);
-    // U+FF21 FULLWIDTH LATIN CAPITAL A is width-2.
     var spans = [_]Span{makeSpan("Ａb", .body)};
     var lines = [_]Line{.{ .spans = &spans }};
     const rendered = Rendered{ .lines = &lines };
     var doc = try build(testing.allocator, rendered, &face, testOptions(.theme));
     defer doc.deinit(testing.allocator);
-    // width-2 'Ａ' + width-1 'b' = 3 columns.
     try testing.expectEqual(@as(u32, 3), doc.runs[0].columns);
     try testing.expectEqual(@as(u32, 3), doc.columns);
 }
 
 test "combining marks attach without advancing" {
     const face = try font.Font.init(20);
-    // 'e' + U+0301 COMBINING ACUTE ACCENT renders as one cell.
     var spans = [_]Span{makeSpan("e\u{0301}", .body)};
     var lines = [_]Line{.{ .spans = &spans }};
     const rendered = Rendered{ .lines = &lines };
@@ -514,7 +492,6 @@ test "themed color resolution maps through the xterm table" {
     const rendered = Rendered{ .lines = &lines };
     var doc = try build(testing.allocator, rendered, &face, .{ .palette = palette, .color_mode = .theme });
     defer doc.deinit(testing.allocator);
-    // .code -> fg_index 114 in the dark default palette.
     try testing.expectEqual(xterm256ToSrgb(114), doc.runs[0].foreground);
     try testing.expectEqual(@as(?Color, null), doc.runs[0].background);
 }
@@ -527,7 +504,6 @@ test "themed code block resolves a background rectangle" {
     const rendered = Rendered{ .lines = &lines };
     var doc = try build(testing.allocator, rendered, &face, .{ .palette = palette, .color_mode = .theme });
     defer doc.deinit(testing.allocator);
-    // .code_block has bg_index 236 in the dark default palette.
     try testing.expectEqual(@as(?Color, xterm256ToSrgb(236)), doc.runs[0].background);
 }
 
@@ -547,7 +523,6 @@ test "monochrome resolution forces black text, white page, no span background" {
 
 test "monochrome keeps geometric decorations" {
     const face = try font.Font.init(20);
-    // .link is underlined; .strikethrough is struck through.
     var spans = [_]Span{ makeSpan("a", .link), makeSpan("b", .strikethrough) };
     var lines = [_]Line{.{ .spans = &spans }};
     const rendered = Rendered{ .lines = &lines };
@@ -572,12 +547,10 @@ test "geometry derives padding and page baseline from font and options" {
     const rendered = Rendered{ .lines = &.{} };
     var doc = try build(testing.allocator, rendered, &face, testOptions(.theme));
     defer doc.deinit(testing.allocator);
-    // Default 1-cell padding at 9x20 cells.
     try testing.expectEqual(@as(u16, 9), doc.geometry.padding_left_px);
     try testing.expectEqual(@as(u16, 9), doc.geometry.padding_right_px);
     try testing.expectEqual(@as(u16, 20), doc.geometry.padding_top_px);
     try testing.expectEqual(@as(u16, 20), doc.geometry.padding_bottom_px);
-    // Page baseline = top padding (20) + in-cell baseline (16) = 36.
     try testing.expectEqual(@as(i16, 36), doc.geometry.baseline_px);
 }
 
@@ -602,7 +575,6 @@ test "hash is stable across two independent builds of the same document" {
     const hb = doc_b.canonicalSha256();
     try testing.expectEqualSlices(u8, &ha, &hb);
 
-    // Monochrome differs from themed (different colors/page background).
     var doc_m = try build(testing.allocator, rendered, &face, testOptions(.monochrome));
     defer doc_m.deinit(testing.allocator);
     try testing.expect(!std.mem.eql(u8, &ha, &doc_m.canonicalSha256()));

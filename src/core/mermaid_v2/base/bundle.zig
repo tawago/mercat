@@ -15,7 +15,7 @@ const std = @import("std");
 
 /// Structurally the ledger's own handle (`pb.EdgeId`); redeclared rather than
 /// imported so this file never closes an import loop back through ledger.zig.
-/// guarded-by: ledger_test.zig "identity handles match prim's"
+/// @guarded-by: ledger_test.zig "identity handles match prim's"
 const EdgeId = u32;
 
 /// Where a bundle set came from. Provenance only: every reader treats
@@ -86,7 +86,7 @@ pub const Bundle = struct {
     /// id survive a stitch — two children that each numbered their own fans
     /// from one are re-numbered into a single roster — and a re-plan, where
     /// the list is rebuilt and the old names go with it.
-    /// guarded-by: ledger_test.zig "a numbered roster names every set exactly once"
+    /// @guarded-by: ledger_test.zig "a numbered roster names every set exactly once"
     bundle: BundleId = no_bundle,
     members: []const EdgeId,
     /// The cells this set licenses, or `null` for "licenses everywhere".
@@ -96,7 +96,7 @@ pub const Bundle = struct {
     /// `.port_share` set is narrower: two edges routed through one perimeter
     /// port share the ink of their COMMON APPROACH and nothing else. Anywhere
     /// else the two are strangers and a meeting is still a transversal.
-    /// guarded-by: sketch_ports_test.zig "a port share licenses only its shared approach"
+    /// @guarded-by: sketch_ports_test.zig "a port share licenses only its shared approach"
     cells: ?[]const BundleCell = null,
     /// PER-PAIR cell scoping, for a set whose members were grouped
     /// transitively (one physical port, N > 2 edges) rather than by one
@@ -110,7 +110,7 @@ pub const Bundle = struct {
     /// separately, is exactly the fabrication `sketch_ports.zig`'s header
     /// forbids. When set, `bundleMembersAt`/`bundleOf` consult this instead of
     /// the flat union.
-    /// guarded-by: ledger_test.zig "a pairwise-scoped set licenses only a pair's own common approach, never a third member's"
+    /// @guarded-by: ledger_test.zig "a pairwise-scoped set licenses only a pair's own common approach, never a third member's"
     pairwise: ?[]const PairCells = null,
 };
 
@@ -132,7 +132,7 @@ pub const BundleCell = struct {
 
 /// The sets whose origin is `origin`, in order — for a producer that REPLACES
 /// one origin's population and must not take the others down with it.
-/// guarded-by: ledger_test.zig "keepOrigin selects exactly one origin's sets"
+/// @guarded-by: ledger_test.zig "keepOrigin selects exactly one origin's sets"
 pub fn keepOrigin(
     allocator: std.mem.Allocator,
     sets: []const Bundle,
@@ -155,7 +155,7 @@ pub fn keepOrigin(
 
 /// `head ++ tail`, members BORROWED. Order is provenance only (every set is
 /// scanned), but `head` first reads in the order the origins were established.
-/// guarded-by: ledger_test.zig "keepOrigin selects exactly one origin's sets"
+/// @guarded-by: ledger_test.zig "keepOrigin selects exactly one origin's sets"
 pub fn concatBundles(
     allocator: std.mem.Allocator,
     head: []const Bundle,
@@ -172,7 +172,7 @@ pub fn concatBundles(
 /// True iff both edges appear in one bundle. Asked about DISTINCT ids: an
 /// edge and itself is a question about ownership, which the caller answers
 /// before it gets here.
-/// guarded-by: ledger_test.zig "co-membership needs both edges inside one set"
+/// @guarded-by: ledger_test.zig "co-membership needs both edges inside one set"
 pub fn bundleMembers(sets: []const Bundle, first: EdgeId, second: EdgeId) bool {
     return bundleMembersAt(sets, first, second, null);
 }
@@ -181,7 +181,7 @@ pub fn bundleMembers(sets: []const Bundle, first: EdgeId, second: EdgeId) bool {
 /// answers only for the cells it licenses. `at = null` asks the membership
 /// question with NO position — "are these two ever co-members?", the right
 /// question for a report or a test — and no set's scope applies.
-/// guarded-by: ledger_test.zig "a cell-scoped bundle answers only inside its licensed cells"
+/// @guarded-by: ledger_test.zig "a cell-scoped bundle answers only inside its licensed cells"
 pub fn bundleMembersAt(sets: []const Bundle, first: EdgeId, second: EdgeId, at: ?BundleCell) bool {
     for (sets) |set| {
         var saw_first = false;
@@ -252,8 +252,6 @@ fn licensesMember(set: Bundle, edge: EdgeId, at: ?BundleCell) bool {
     return false;
 }
 
-// -- Bundle identity --------------------------------------------------------
-
 /// Result of resolving one edge against the structural, unscoped population
 /// of a bundle roster. `unique` is a roster index: bundle identity stays a
 /// `BundleId`, separate from the set's structural provenance.
@@ -301,7 +299,7 @@ fn hasMember(members: []const EdgeId, edge: EdgeId) bool {
 /// where the roster is rebuilt from a different decision.
 ///
 /// Returns a fresh slice; members and cells are borrowed unchanged.
-/// guarded-by: ledger_test.zig "a numbered roster names every set exactly once"
+/// @guarded-by: ledger_test.zig "a numbered roster names every set exactly once"
 pub fn numberBundles(
     allocator: std.mem.Allocator,
     sets: []const Bundle,
@@ -320,7 +318,7 @@ pub fn numberBundles(
 /// that set's members as riding their own private bundles and report two
 /// declared bundle-mates as strangers — so a reader that needs identity asks
 /// this first and abstains rather than answering wrongly.
-/// guarded-by: ledger_test.zig "a numbered roster names every set exactly once"
+/// @guarded-by: ledger_test.zig "a numbered roster names every set exactly once"
 pub fn rosterNumbered(sets: []const Bundle) bool {
     for (sets) |set| {
         if (set.bundle == no_bundle) return false;

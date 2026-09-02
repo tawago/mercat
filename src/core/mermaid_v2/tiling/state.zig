@@ -30,29 +30,17 @@ pub fn check(t: cell.Typed, aux_complete: bool, c: *counts.Counts) void {
 
     switch (t.kind) {
         .ring_node, .ring_frame => {
-            // A ring cell's ink is its box's (ink attribution); edge attachments merge
-            // arms but never the occupant, so any other state is drift.
             if (t.state != .node) c.m_state_ring_not_node += 1;
         },
         .stroke, .arrow => {
-            // The retired arity heuristic, kept only to be compared: it
-            // called popcount>2 a junction. An owner-set change and a
-            // three-armed mask are different facts; every disagreement is
-            // counted here so neither side is silently trusted.
             const arity_junction = @popCount(t.ink) > 2;
             const recorded_junction = t.state == .junction;
             if (arity_junction != recorded_junction) c.m_state_junction_vs_arity += 1;
 
-            // Plural states must have their plural evidence on the side
-            // table — the owner set behind the discriminant.
             switch (t.state) {
                 .junction => if (!aux_complete) {
                     c.u_state_aux_unavailable += 1;
                 } else if (hasCarrier(t, .suppressed)) {
-                    // Ink attribution: a crossing never co-locates with a junction. The
-                    // recorded state kept `junction` (never demoted) and
-                    // the refusal's transcript survives beside it — this is
-                    // the misgeometry the upgrade order defers to the audit.
                     c.m_state_junction_with_suppressed_carrier += 1;
                 },
                 .crossing => if (!aux_complete) {
@@ -69,8 +57,6 @@ pub fn check(t: cell.Typed, aux_complete: bool, c: *counts.Counts) void {
                     if (!aux_complete) {
                         c.u_state_aux_unavailable += 1;
                     } else if (t.ofKind(.rail_member).len == 0 and !hasCarrier(t, .merged_licensed)) {
-                        // Only a LICENSED merge evidences shared riding; a
-                        // suppressed or foreign carrier states the opposite.
                         c.m_state_rail_unevidenced += 1;
                     }
                 },
@@ -83,14 +69,10 @@ pub fn check(t: cell.Typed, aux_complete: bool, c: *counts.Counts) void {
 
 fn hasCarrier(t: cell.Typed, kind: lattice.CarrierKind) bool {
     for (t.carriers()) |r| {
-        // A corrupt detail byte is deliberately skipped, not reported:
-        // this helper answers presence-of-`kind` only.
         if (std.meta.intToEnum(lattice.CarrierKind, r.detail) catch continue == kind) return true;
     }
     return false;
 }
-
-// -- Tests -------------------------------------------------------------------
 
 const testing = std.testing;
 
@@ -104,15 +86,10 @@ test "state: an untagged ink cell is counted and asks nothing further" {
 
 test "state: recorded junction and the arity heuristic are compared, not trusted" {
     var c: counts.Counts = .{};
-    // Three arms, recorded junction: the two agree.
     check(.{ .kind = .stroke, .ink = 0b0111, .mask = 0b0111, .state = .junction }, true, &c);
     try testing.expectEqual(@as(u32, 0), c.m_state_junction_vs_arity);
-    // Three arms, recorded stroke (own doubling-back): arity heuristic
-    // disagrees — counted, neither side silently wins.
     check(.{ .kind = .stroke, .ink = 0b0111, .mask = 0b0111, .state = .stroke }, true, &c);
     try testing.expectEqual(@as(u32, 1), c.m_state_junction_vs_arity);
-    // Two arms, recorded junction (a rider branch whose arm merged into an
-    // existing mask): also a divergence from the heuristic.
     check(.{ .kind = .stroke, .ink = 0b0101, .mask = 0b0101, .state = .junction }, true, &c);
     try testing.expectEqual(@as(u32, 2), c.m_state_junction_vs_arity);
 }
@@ -152,11 +129,9 @@ test "state: a junction beside a surviving suppressed carrier is the co-location
     const sup = [_]lattice.Aux{.{ .cell = 0, .value = 9, .kind = .carrier, .detail = @intFromEnum(lattice.CarrierKind.suppressed) }};
     check(.{ .kind = .stroke, .ink = 0b0111, .mask = 0b0111, .state = .junction, .aux = &sup }, true, &c);
     try testing.expectEqual(@as(u32, 1), c.m_state_junction_with_suppressed_carrier);
-    // A licensed transcript beside a junction is the ordinary case.
     const lic = [_]lattice.Aux{.{ .cell = 0, .value = 9, .kind = .carrier, .detail = @intFromEnum(lattice.CarrierKind.merged_licensed) }};
     check(.{ .kind = .stroke, .ink = 0b0111, .mask = 0b0111, .state = .junction, .aux = &lic }, true, &c);
     try testing.expectEqual(@as(u32, 1), c.m_state_junction_with_suppressed_carrier);
-    // AUX unavailable: the question abstains.
     check(.{ .kind = .stroke, .ink = 0b0111, .mask = 0b0111, .state = .junction }, false, &c);
     try testing.expectEqual(@as(u32, 1), c.u_state_aux_unavailable);
 }

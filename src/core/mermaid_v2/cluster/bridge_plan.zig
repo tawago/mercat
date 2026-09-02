@@ -132,7 +132,6 @@ fn checkGroup(
             .edge = if (c.origin == sg.SENTINEL) c.id else c.origin,
             .endpoints = .{ c.from, c.to },
             .arrows = .{ c.arrow_from, c.arrow_to },
-            // A crossing is its own ink, never a proxy: stated, not defaulted.
             .stands_for = .arrow_free,
             .kind = c.kind,
             .pivot_end = if (direction == .out) .source else .target,
@@ -162,8 +161,6 @@ test "a licensed cross-border fan-in records deferred; a mixed one records the r
     defer arena.deinit();
     const a = arena.allocator();
 
-    // Crossings 0,1: A(1)->E(9), B(2)->E(9) — uniform filled fan-in.
-    // Crossing 2: C(3)->F(8) lone. Origins are root edge ids.
     const crossings = [_]bridges.Crossing{
         .{ .id = 0, .from = 1, .to = 9, .kind = .solid, .arrow_from = .none, .arrow_to = .filled, .label = null, .origin = 4 },
         .{ .id = 1, .from = 2, .to = 9, .kind = .solid, .arrow_from = .none, .arrow_to = .filled, .label = null, .origin = 5 },
@@ -186,8 +183,6 @@ test "a licensed cross-border fan-in records deferred; a mixed one records the r
     try std.testing.expect(bundles.memberships[0].source == null);
     try std.testing.expect(bundles.memberships[2].source == null and bundles.memberships[2].target == null);
 
-    // Same shape but mixed arrows at the pivot: the licence refuses, and the
-    // record names the refusal.
     var mixed = crossings;
     mixed[1].arrow_to = .circle;
     const refused = try plan(a, &mixed, &routed, base);
@@ -201,9 +196,6 @@ test "invisible crossings sharing a pivot re-form no group and keep one stable i
     defer arena.deinit();
     const a = arena.allocator();
 
-    // Two visible fan-out members plus two invisible crossings on the same
-    // pivot: the invisibles must neither seed a group of their own nor
-    // overwrite the visible group's disposition with a fresh id.
     const crossings = [_]bridges.Crossing{
         .{ .id = 0, .from = 1, .to = 8, .kind = .solid, .arrow_from = .none, .arrow_to = .filled, .label = null, .origin = 3 },
         .{ .id = 1, .from = 1, .to = 9, .kind = .solid, .arrow_from = .none, .arrow_to = .filled, .label = null, .origin = 4 },
@@ -220,7 +212,6 @@ test "invisible crossings sharing a pivot re-form no group and keep one stable i
     const g0 = bundles.memberships[0].source.?.independent.candidate_bundle;
     try std.testing.expectEqual(@as(ledger.CandidateBundleId, 0), g0);
     try std.testing.expectEqual(g0, bundles.memberships[1].source.?.independent.candidate_bundle);
-    // Invisible crossings carry no disposition at all.
     try std.testing.expect(bundles.memberships[2].source == null and bundles.memberships[2].target == null);
     try std.testing.expect(bundles.memberships[3].source == null and bundles.memberships[3].target == null);
 }
@@ -234,7 +225,6 @@ test "a crossing the router skipped takes no membership row" {
         .{ .id = 0, .from = 1, .to = 9, .kind = .solid, .arrow_from = .none, .arrow_to = .filled, .label = null, .origin = 0 },
         .{ .id = 1, .from = 2, .to = 9, .kind = .solid, .arrow_from = .none, .arrow_to = .filled, .label = null, .origin = 1 },
     };
-    // Only crossing 0 routed.
     const routed = [_]sketch.EdgePath{
         .{ .id = 50, .from = 1, .to = 9, .polyline = &.{}, .port_from = .{ .node = 1, .side = .south, .offset = 1 }, .port_to = .{ .node = 9, .side = .north, .offset = 2 }, .arrow_from = .none, .arrow_to = .filled, .label = null, .kind = .solid },
     };

@@ -58,7 +58,7 @@ pub fn tapXs(a: std.mem.Allocator, resolved: fan_rail.Resolved) error{OutOfMemor
 /// falls inside a foreign rail's tap column-run. Mutates `rails[i].lane` in
 /// place and returns nothing: a gap whose precedence cannot be satisfied keeps
 /// the lanes it came in with.
-/// guarded-by: fan_lane_order_test.zig "a stem crossed by a foreign tap is ordered below it"
+/// @guarded-by: fan_lane_order_test.zig "a stem crossed by a foreign tap is ordered below it"
 pub fn reorder(a: std.mem.Allocator, rails: []Rail) error{OutOfMemory}!void {
     if (rails.len < 2) return;
     var gap_seen: std.ArrayListUnmanaged(u32) = .empty;
@@ -82,10 +82,6 @@ fn reorderGap(a: std.mem.Allocator, rails: []Rail, gap: u32) error{OutOfMemory}!
     const n = idx.items.len;
     if (n < 2) return;
 
-    // Only a PERMUTATION of the rows the packer already handed out is on
-    // offer: this pass moves rails between existing rail rows, it never asks
-    // for another one. Two rails sharing a row are the packer saying they do
-    // not fuse, so there is nothing here to re-order.
     const lanes = try a.alloc(u32, n);
     defer a.free(lanes);
     for (idx.items, lanes) |i, *slot| slot.* = rails[i].lane;
@@ -94,16 +90,11 @@ fn reorderGap(a: std.mem.Allocator, rails: []Rail, gap: u32) error{OutOfMemory}!
     defer a.free(sorted);
     std.mem.sort(u32, sorted, {}, std.sort.asc(u32));
 
-    // One direction per gap: the precedence's sign is the direction's (a
-    // fan-IN's taps lie above its rail, a fan-OUT's below), so a mixed gap has
-    // no single order to solve for.
     const fan_in = rails[idx.items[0]].fan_in;
     for (idx.items) |i| {
         if (rails[i].fan_in != fan_in) return;
     }
 
-    // `before[k][j]` — rail k's rail must sit on the peer-side FAR row
-    // relative to rail j's, because j's taps cross k's stem junction.
     const before = try a.alloc(bool, n * n);
     defer a.free(before);
     @memset(before, false);
@@ -118,9 +109,6 @@ fn reorderGap(a: std.mem.Allocator, rails: []Rail, gap: u32) error{OutOfMemory}!
     }
     if (!any) return;
 
-    // Kahn's algorithm over `before`, ties broken by the packer's own lane so
-    // the result is deterministic and stays as close to it as the constraints
-    // allow. `order[p]` is the rail that takes rank p.
     const indeg = try a.alloc(u32, n);
     defer a.free(indeg);
     @memset(indeg, 0);
@@ -141,7 +129,7 @@ fn reorderGap(a: std.mem.Allocator, rails: []Rail, gap: u32) error{OutOfMemory}!
             if (done[k] or indeg[k] != 0) continue;
             if (pick == null or lanes[k] < lanes[pick.?]) pick = k;
         }
-        const k = pick orelse return; // cycle: the packer's order stands
+        const k = pick orelse return;
         done[k] = true;
         order[placed] = k;
         placed += 1;
@@ -150,9 +138,6 @@ fn reorderGap(a: std.mem.Allocator, rails: []Rail, gap: u32) error{OutOfMemory}!
         }
     }
 
-    // Rank 0 takes the row nearest the pivot (lane 0) for a fan-IN, since a
-    // constrained rail must clear the taps that cross it; a fan-OUT's taps
-    // run the other way, so its ranks fill from the far row down.
     for (order, 0..) |k, rank| {
         rails[idx.items[k]].lane = if (fan_in) sorted[rank] else sorted[n - 1 - rank];
     }

@@ -102,15 +102,10 @@ pub const legacy: Decor = blk: {
     break :blk d;
 };
 
-// ===========================================================================
-// Tests
-// ===========================================================================
-
 const testing = std.testing;
 
 test "Decor defaults are total (no null holes)" {
     const d = Decor{};
-    // Every slot has a concrete (empty) decor.
     try testing.expectEqualStrings("", d.slot(.heading1).prefix);
     try testing.expectEqualStrings("─", d.glyphs.hr_glyph);
     try testing.expectEqual(HrMode.full, d.glyphs.hr_mode);

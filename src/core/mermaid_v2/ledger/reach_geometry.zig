@@ -73,15 +73,12 @@ pub fn railDirection(rail: sk.Rail) pb.BundleDirection {
     };
 }
 
-// -- Cell-path construction ---------------------------------------------
-
 /// Append the inclusive unit-step cell path of one straight (or, defensively,
 /// L-decomposed) segment from `a` to `b`, excluding `a` itself when
 /// `skip_first` (chaining).
 fn appendSegment(alloc: std.mem.Allocator, path: *std.ArrayListUnmanaged(Cell), a: sk.Point, b: sk.Point, skip_first: bool) Error!void {
     if (!skip_first) try path.append(alloc, .{ .x = a.x, .y = a.y });
     var cur = a;
-    // Defensive L-decomposition for near-orthogonal segments: walk x, then y.
     while (cur.x != b.x) {
         cur.x += if (b.x > cur.x) 1 else -1;
         try path.append(alloc, .{ .x = cur.x, .y = cur.y });
@@ -126,8 +123,6 @@ fn foldPath(alloc: std.mem.Allocator, map: *CellMap, path: []const Cell) Error!v
     }
 }
 
-// -- Unit builders ------------------------------------------------------
-
 /// Unit for one edge-owned polyline (bundle class (a), D-REACH item 9).
 pub fn edgeUnit(alloc: std.mem.Allocator, e: sk.EdgePath) Error!Unit {
     var cells: CellMap = .empty;
@@ -152,8 +147,6 @@ fn tapAttachments(rail: sk.Rail, tap: sk.Tap, out: *std.ArrayListUnmanaged(Attac
         .{ .x = 0, .y = 0 };
     const landing: Cell = .{ .x = tap.landing.x, .y = tap.landing.y };
     const out_dir = railDirection(rail) == .out;
-    // Pivot-side terminal of this member sits at the stem's perimeter
-    // point; member-side terminal at the tap landing.
     try out.append(alloc, .{
         .edge = tap.edge,
         .node = rail.pivot,
@@ -200,8 +193,6 @@ pub fn tapShareUnit(alloc: std.mem.Allocator, rail: sk.Rail, tap: sk.Tap) Error!
     return .{ .edge = tap.edge, .bundle = null, .cells = cells, .attachments = try att.toOwnedSlice(alloc) };
 }
 
-// -- Connectivity and the transversal test ------------------------------
-
 /// Label 4-adjacency connected sub-components over a deduplicated cell
 /// list. Returns one label per input cell; labels are densely numbered in
 /// first-visit order of the (deterministically ordered) input list.
@@ -239,8 +230,8 @@ pub fn componentLabels(alloc: std.mem.Allocator, cells: []const Cell) Error![]co
 
 fn strictPass(p: PassInfo) ?bool {
     if (p.bend) return null;
-    if (p.straight_h and !p.straight_v) return true; // horizontal
-    if (p.straight_v and !p.straight_h) return false; // vertical
+    if (p.straight_h and !p.straight_v) return true;
+    if (p.straight_v and !p.straight_h) return false;
     return null;
 }
 
@@ -254,8 +245,6 @@ pub fn transversal(a: PassInfo, b: PassInfo) bool {
     const bh = strictPass(b) orelse return false;
     return ah != bh;
 }
-
-// -- Deterministic cell order -------------------------------------------
 
 pub fn cellLess(_: void, a: Cell, b: Cell) bool {
     if (a.y != b.y) return a.y < b.y;

@@ -152,7 +152,7 @@ pub const StarLawResult = struct {
     /// Star-licence blocking predicate: a directional end is present in the star, yet
     /// some member does not block (`prim.blocks`) — two directional ends,
     /// or none while another member carries one. An ALL-arrow-free star is
-    /// the closure law's domain (base/rail_closure.zig) and never sets this.
+    /// the closure licence's domain (base/rail_closure.zig) and never sets this.
     non_blocking_member: bool = false,
 
     pub fn isValid(self: StarLawResult) bool {

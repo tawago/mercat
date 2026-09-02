@@ -49,13 +49,10 @@ fn buildOsc52(allocator: std.mem.Allocator, text: []const u8, wrap: bool) ![]u8 
     var buf: std.ArrayList(u8) = .empty;
     errdefer buf.deinit(allocator);
 
-    // The OSC 52 sequence has exactly one ESC (the OSC introducer); its BEL
-    // terminator is not an ESC. tmux passthrough requires doubling inner ESCs,
-    // which the leading "\x1b" of the envelope achieves for that single ESC.
     if (wrap) try buf.appendSlice(allocator, "\x1bPtmux;\x1b");
     try buf.appendSlice(allocator, "\x1b]52;c;");
     try buf.appendSlice(allocator, b64);
-    try buf.append(allocator, 0x07); // BEL
+    try buf.append(allocator, 0x07);
     if (wrap) try buf.appendSlice(allocator, "\x1b\\");
 
     return buf.toOwnedSlice(allocator);
@@ -75,7 +72,6 @@ fn nativeCandidates() []const []const []const u8 {
             &.{"clip.exe"},
         },
         else => blk: {
-            // Prefer Wayland when its display is present, then X11 tools.
             if (std.posix.getenv("WAYLAND_DISPLAY") != null) {
                 break :blk &.{
                     &.{"wl-copy"},
@@ -124,7 +120,6 @@ const testing = std.testing;
 test "buildOsc52 encodes payload with OSC 52 framing" {
     const seq = try buildOsc52(testing.allocator, "hi", false);
     defer testing.allocator.free(seq);
-    // base64("hi") == "aGk="
     try testing.expectEqualStrings("\x1b]52;c;aGk=\x07", seq);
 }
 
@@ -135,8 +130,6 @@ test "buildOsc52 wraps for multiplexer passthrough" {
 }
 
 test "writeOsc52 writes an OSC 52 sequence to the writer" {
-    // The exact framing (plain vs tmux-wrapped) depends on the environment
-    // this test runs in, so assert on the invariant payload rather than bytes.
     var buf: [128]u8 = undefined;
     var writer = std.Io.Writer.fixed(&buf);
     try writeOsc52(&writer, testing.allocator, "hi");

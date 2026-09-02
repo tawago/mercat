@@ -32,10 +32,6 @@ pub const skipCorridorExtraRows = rp.skipCorridorExtraRows;
 /// routing_terminal.zig.
 pub const terminalApproachExtraRows = rt.terminalApproachExtraRows;
 
-// Graph/placement lookup + perimeter-port + arrow-mapping helpers live in
-// routing_terminal.zig; re-export them so both this file's call sites and
-// external importers (fan_rail.zig, back_edges.zig, ports_test.zig) address
-// them unchanged.
 pub const findGraphEdge = rt.findGraphEdge;
 pub const findPlacement = rt.findPlacement;
 pub const isReversed = rt.isReversed;
@@ -93,26 +89,18 @@ pub fn buildEdgesWithPlan(
     const rail_alloc = try back_edges.allocateBackEdgeRails(a, graph, lg, geom, placements);
     defer a.free(rail_alloc);
 
-    // Rail pre-pass: every ELIGIBLE single-row fan-OUT becomes ONE
-    // sketch.Rail; its member edges are claimed and emit no EdgePath
-    // below. Grid fans / fan-IN / mixed-arrow or mixed-kind fans fall
-    // through to the per-peer polyline path.
     var rails: std.ArrayListUnmanaged(fan_rail.Built) = .empty;
     var claimed: std.ArrayListUnmanaged(sg.EdgeId) = .empty;
-    // Resolve every eligible fan FIRST: which lane row each rail should take
-    // is a question about the gap, not about the rail, and only the resolved
-    // set knows the placed stem and tap columns it turns on.
     const Pending = struct { fan: fan_mod.Fan, resolved: fan_rail.Resolved, lift: u32 };
     var pending: std.ArrayListUnmanaged(Pending) = .empty;
     var lane_rails: std.ArrayListUnmanaged(fan_lane_order.Rail) = .empty;
     for (fans) |f| {
         const resolved = (try fan_rail.resolve(a, graph.direction, f, graph, placements, bundles, allocated_ports)) orelse continue;
-        // Shared-rail lift: same rule as the per-peer path below — any peer descending into a cluster lifts the rail above the frame. // guarded-by: routing_test.zig "rail pre-pass and forced per-peer path lift the same fan-OUT geometry to the same rail row"
+        // Shared-rail lift: same rule as the per-peer path below — any peer descending into a cluster lifts the rail above the frame. // @guarded-by: routing_test.zig "rail pre-pass and forced per-peer path lift the same fan-OUT geometry to the same rail row"
         var lift: u32 = 0;
         for (resolved.peers) |p| {
             lift = @max(lift, fanRailLift(graph, p.edge.from, p.edge.to));
         }
-        // Buy another tap-anchor block for each label after the first.
         if (f.direction == .out) lift += fan_mod.additionalLabelLift(f, f.lane);
         try pending.append(a, .{ .fan = f, .resolved = resolved, .lift = lift });
         try lane_rails.append(a, .{
@@ -123,13 +111,10 @@ pub fn buildEdgesWithPlan(
             .tap_xs = try fan_lane_order.tapXs(a, resolved),
         });
     }
-    // Stem-corner clearance: permute the packer's lane indices so no rail's
-    // stem junction sits under a foreign rail's tap column. Row count is
-    // unchanged, so nothing downstream of the reservation pass moves.
     try fan_lane_order.reorder(a, lane_rails.items);
     for (pending.items, lane_rails.items) |p, t| {
         const built = try fan_rail.build(a, p.resolved, p.lift, t.lane);
-        // Integrity gate: a rail is straight-only geometry; if any run touches a foreign box, fall back to the per-peer polyline path, which can dodge. // guarded-by: fan_rail_test.zig "fan_rail.blocked rejects a built rail whose tap drop touches a foreign node's box"
+        // Integrity gate: a rail is straight-only geometry; if any run touches a foreign box, fall back to the per-peer polyline path, which can dodge. // @guarded-by: fan_rail_test.zig "fan_rail.blocked rejects a built rail whose tap drop touches a foreign node's box"
         if (fan_rail.blocked(built, p.resolved.pivot.id, placements)) continue;
         try rails.append(a, built);
         try polys.append(a, built.stem);
@@ -151,22 +136,17 @@ pub fn buildEdgesWithPlan(
         // rendered BY that rail's crossbar (base/rail_closure.zig). It owns no
         // polyline, no port and no label of its own — drawing one would state
         // the relation twice — so it never enters the router at all.
-        // guarded-by: routing_test.zig "a discharged edge is withheld from routing entirely"
+        // @guarded-by: routing_test.zig "a discharged edge is withheld from routing entirely"
         if (rail_closure.contains(bundles.discharged, orig.id)) continue;
-        // Edge owned by a rail: its sole geometry is the rail + tap.
         if (std.mem.indexOfScalar(sg.EdgeId, claimed.items, orig.id) != null) continue;
-        // Decision-fan path: if this edge belongs to a detected fan,
-        // synthesize the coordinated polyline that shares a rail row
-        // with its siblings (see layout/fan.zig).
         if (orig.from != orig.to) {
             if (fan_mod.lookup(fans, orig.id)) |hit| {
                 const ep = allocated_ports.forEdge(orig.id) orelse unreachable;
                 const src_p = findPlacement(placements, orig.from);
                 const dst_p = findPlacement(placements, orig.to);
-                // For fan-OUT: pivot = source; for fan-IN: pivot = target.
                 const pivot_p = if (hit.fan.direction == .out) src_p else dst_p;
                 const peer_p = if (hit.fan.direction == .out) dst_p else src_p;
-                // Lift the rail above any cluster frame-border row it would otherwise be painted along (fusing sibling peers' top borders). // guarded-by: routing_test.zig "fan-OUT per-peer rail lifts exactly one row for the peer crossing into a cluster its source is not part of"
+                // Lift the rail above any cluster frame-border row it would otherwise be painted along (fusing sibling peers' top borders). // @guarded-by: routing_test.zig "fan-OUT per-peer rail lifts exactly one row for the peer crossing into a cluster its source is not part of"
                 var rail_lift: u32 = if (hit.fan.direction == .out)
                     fanRailLift(graph, orig.from, orig.to)
                 else
@@ -174,13 +154,11 @@ pub fn buildEdgesWithPlan(
                 if (hit.fan.direction == .out)
                     rail_lift += fan_mod.additionalLabelLift(hit.fan.*, fan_mod.effectiveLane(hit.fan.*, hit.peer.lane));
                 var lane = @max(hit.peer.lane, ep.route_lane);
-                // An offset private port turns a geometric center into a jog.
                 const source_x = src_p.rect.x + @as(i32, @intCast(ep.source.offset));
                 const target_x = dst_p.rect.x + @as(i32, @intCast(ep.target.offset));
                 const routed_role: fan_mod.ChildRole = if (hit.peer.role == .center and source_x != target_x) .middle else hit.peer.role;
                 var poly: []sketch.Point = undefined;
                 var routed_fan = hit.fan.*;
-                // Label headroom belongs to this route, not to the whole fan.
                 routed_fan.labeled = orig.label != null and orig.label.?.len != 0;
                 while (true) : (lane += 1) {
                     poly = if (lane == @max(hit.peer.lane, ep.route_lane) and orig.label == null and (ep.source_duplicate or ep.target_duplicate))
@@ -202,15 +180,6 @@ pub fn buildEdgesWithPlan(
                         break;
                     }
                 }
-                // Base-approach GROW is deliberately NOT wired on the fan
-                // per-peer path: a fan peer's second vertex is its point on the
-                // SHARED rail row, so pulling a corner-fed tap back one cell
-                // lifts only that peer's rail segment and de-syncs it from its
-                // siblings (a visible rail break). Fixing a corner-fed fan tap
-                // needs coordinated, rail-aware handling that cannot be done
-                // per-peer without a spare row — out of scope for this
-                // zero-height tranche. Forward + back-edge terminals are grown
-                // below/above; fan taps stay a report-only residual.
                 const role: sketch.EdgeRole = if (hit.fan.direction == .out)
                     .fan_out_dropper
                 else
@@ -232,11 +201,6 @@ pub fn buildEdgesWithPlan(
                 continue;
             }
         }
-        // Self-loop: bypass the layered router entirely. The Sugiyama
-        // pipeline produces a degenerate layer edge (from==to, span=0),
-        // which would otherwise yield a polyline that overlaps the node
-        // body. Goldens render self-loops as a "lollipop" detour above
-        // and to the right of the node, so we synthesize that path here.
         if (orig.from == orig.to) {
             const node_p = findPlacement(placements, orig.from);
             const sl = if (bundles.memberships.len == 0)
@@ -264,9 +228,6 @@ pub fn buildEdgesWithPlan(
 
         const reversed = isReversed(lg, orig.id);
 
-        // Reversed edges become "back edges" that loop UNDER (LR) or
-        // BESIDE (TD) the node row. We synthesize a dedicated U-shape
-        // polyline rather than routing through the layered graph.
         if (reversed) {
             const rail = back_edges.findRail(rail_alloc, orig.id);
             const src_p = findPlacement(placements, orig.from);
@@ -278,12 +239,6 @@ pub fn buildEdgesWithPlan(
                 try back_edges.backEdgePolylineAt(a, graph.direction, src_p, dst_p, ep.source, ep.target, rail, placements);
             const port_from = if (bundles.memberships.len == 0) back_edges.backEdgePortFrom(graph.direction, src_p) else ep.source;
             const port_to = if (bundles.memberships.len == 0) back_edges.backEdgePortTo(graph.direction, dst_p) else ep.target;
-            // Base-approach GROW is NOT wired on the back-edge path: a back edge's
-            // U-shape (and the bidirectional case, where BOTH ends carry an
-            // arrow) breaks the "clean perpendicular final approach" the grow
-            // assumes, and pulling a loop corner can flip the terminal's
-            // direction. Only ensureBaseStub's in-place length-1 shift applies
-            // here; corner-fed back-edge terminals stay a report-only residual.
             _ = rp.ensureBaseStub(poly, placements, orig.from, orig.to);
             try out.append(a, .{
                 .id = orig.id,
@@ -302,9 +257,6 @@ pub fn buildEdgesWithPlan(
             continue;
         }
 
-        // The layered graph routes from eff_from to eff_to. If the edge
-        // was reversed during cycle removal, the layered source is the
-        // original target and vice versa.
         const eff_from: sg.NodeId = if (reversed) orig.to else orig.from;
         const eff_to: sg.NodeId = if (reversed) orig.from else orig.to;
 
@@ -314,10 +266,6 @@ pub fn buildEdgesWithPlan(
         const virtuals = try collectVirtuals(a, lg, orig.id);
         defer a.free(virtuals);
 
-        // Same-subgraph edges never reach this router: a subgraph is laid
-        // out as its own flowchart by the cluster/ recursion, so every edge
-        // here is between top-level (cluster-free) nodes; routing uses the
-        // global direction with on-perimeter endpoints.
         const eff_dir: sg.Direction = graph.direction;
 
         const ep = allocated_ports.forEdge(orig.id) orelse unreachable;
@@ -331,8 +279,6 @@ pub fn buildEdgesWithPlan(
                 try port_plan.duplicateDetour(a, eff_dir, eff_from_p, eff_to_p, ep, placements)
             else
                 try routePolyline(a, eff_dir, eff_from_p, eff_to_p, eff_port_from, eff_port_to, virtuals, geom, placements, 0, 0, lane);
-            // Repair attempt, not a gate: the clearance gate below refuses
-            // rail-arrow contact for every membership disposition.
             if (try route_clearance.conflictsRailArrows(a, poly, bar_views, orig.from, orig.to))
                 poly = try route_clearance.shiftInteriorRun(a, poly, eff_dir, 2 * (lane - ep.route_lane + 1));
             if (try route_clearance.polylineClears(a, orig.id, orig.kind, poly, out.items, bar_views, placements, allocated_ports.edges, bundles, orig.from, orig.to)) break;
@@ -352,13 +298,7 @@ pub fn buildEdgesWithPlan(
         }
 
         const port_from = eff_port_from;
-        // Snap the terminal port to the side the final leg actually enters
-        // from: an obstacle-dodging interior shift can leave the approach on
-        // the OPPOSITE side of the allocated port, piercing the box. See
-        // rp.reconcileTerminalSide (guarded there).
         const port_to = rp.reconcileTerminalSide(poly, eff_to_p, eff_port_to);
-        // Base-approach: shift a length-1 turn-at-tip in place (byte-identical),
-        // else GROW a corner-fed length-2 final into a formal straight base.
         if (!rp.ensureBaseStub(poly, placements, orig.from, orig.to))
             poly = try growBaseApproach(a, poly, placements, orig, out.items, bar_views, allocated_ports.edges, bundles);
 
@@ -377,8 +317,6 @@ pub fn buildEdgesWithPlan(
         });
         try polys.append(a, poly);
     }
-    // Attachment sites are side-local offsets, so the later whole-sketch bbox
-    // translation cannot stale them.
     const rail_claims = try fan_provenance.build(a, graph, placements, fans, bundles, out.items, bar_views);
     return .{
         .edges = try out.toOwnedSlice(a),
@@ -400,7 +338,6 @@ pub fn buildEdges(
     return buildEdgesWithPlan(a, graph, lg, geom, placements, fans, .{}, try port_plan.midpoint(a, graph, placements));
 }
 
-// Polyline routing: delegates to routing_polyline.zig.
 fn routePolyline(
     a: std.mem.Allocator,
     dir: sg.Direction,
@@ -431,9 +368,6 @@ fn routePolyline(
     );
 }
 
-// Self-loop geometry: see routing_self_loops.zig (`self_loops.selfLoop`,
-// called directly at the self-loop branch above).
-
 /// Apply the base-approach GROW (routing_terminal.zig) to a freshly-routed
 /// terminal and keep it only if the grown geometry still clears the same gates
 /// the lane loop enforces — a grown final run can push one cell into a
@@ -450,16 +384,12 @@ fn growBaseApproach(
     edge_ports: []const port_plan.EdgePorts,
     bundles: ledger.RealizedBundles,
 ) error{OutOfMemory}![]sketch.Point {
-    // A source-side arrowhead means BOTH ends of the polyline are terminals
-    // (a bidirectional or reverse-arrow edge); which end is poly[last] is then
-    // ambiguous, and growing one end can re-route the whole edge. Restrict the
-    // grow to pure single-target terminals.
     if (edge.arrow_from != .none) return poly;
     const grown = try rt.satisfyApproach(a, poly, placements);
-    if (grown.ptr == poly.ptr) return poly; // did not fire
+    if (grown.ptr == poly.ptr) return poly;
     if (try route_clearance.polylineClears(a, edge.id, edge.kind, grown, existing, bar_views, placements, edge_ports, bundles, edge.from, edge.to))
         return grown;
-    return poly; // grown geometry conflicts — revert to the ungrown route
+    return poly;
 }
 
 test {

@@ -15,15 +15,15 @@ const lattice = @import("../lattice.zig");
 // Shape stamping copies the tag straight from sketch into lattice cells with no
 // translation table — sound ONLY because sketch.Shape and lattice.Shape are the
 // SAME type. If they ever diverge, this stamp needs a remap.
-// guarded-by: node_shapes.zig "shape identity: sketch.Shape and lattice.Shape are the same type"
+// @guarded-by: node_shapes.zig "shape identity: sketch.Shape and lattice.Shape are the same type"
 
 /// Stamp the shape tag on every node_border / node_interior cell
 /// inside this node's bounding rect. Cells whose occupant doesn't
 /// belong to this node (e.g. clusters, prior edges) are left alone.
 pub fn tagShape(lat: *lattice.Lattice, np: sketch.NodePlacement) void {
-    if (np.shape == .rect) return; // default is already .rect
+    if (np.shape == .rect) return;
     if (!rectFitsLattice(np.rect, lat.*)) return;
-    const shape = np.shape; // sketch.Shape == lattice.Shape == prim.Shape
+    const shape = np.shape;
     const x0: u32 = @intCast(np.rect.x);
     const y0: u32 = @intCast(np.rect.y);
     const x_end: u32 = x0 + np.rect.w;
@@ -49,7 +49,7 @@ pub fn tagShape(lat: *lattice.Lattice, np: sketch.NodePlacement) void {
 /// Subroutine overlay: render the pair of inner vertical walls
 /// `│ … │` two columns in from each side. Only applied when there's
 /// enough horizontal slack (rect width ≥ 5) so we don't overwrite
-/// the label area. // guarded-by: node_shapes_test.zig "rasterizeSubroutineInner: width 4 draws no inner wall, width 5 does"
+/// the label area. // @guarded-by: node_shapes_test.zig "rasterizeSubroutineInner: width 4 draws no inner wall, width 5 does"
 /// The corner where the inner wall meets the top
 /// or bottom edge becomes a `┬` / `┴` tee (the painter picks that
 /// glyph from the standard junction table once we OR the extra
@@ -64,7 +64,7 @@ pub fn rasterizeSubroutineInner(lat: *lattice.Lattice, np: sketch.NodePlacement)
     const y_last: u32 = y0 + np.rect.h - 1;
     const left_x: u32 = x0 + 1;
     const right_x: u32 = x_last - 1;
-    if (right_x <= left_x + 1) return; // no room between walls
+    if (right_x <= left_x + 1) return;
 
     addNeighbourIfBorder(lat, left_x, y0, np.id, .{ .s = true });
     addNeighbourIfBorder(lat, right_x, y0, np.id, .{ .s = true });

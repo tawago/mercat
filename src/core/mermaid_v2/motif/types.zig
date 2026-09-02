@@ -22,7 +22,7 @@ const sg = @import("../sem_graph.zig");
 /// - `fan`      — a pivot node with >= 3 single-vertex dominator children
 ///                (leaf-ish spokes); a diamond's merge sink is one such
 ///                child, so diamonds classify as `fan`, not `prime` —
-///                guarded-by: motif/motif_test.zig "diamond classifies as fan (documented choice)"
+///                @guarded-by: motif/motif_test.zig "diamond classifies as fan (documented choice)"
 /// - `parallel` — >= 2 isomorphic-ish independent sibling dominator subtrees
 ///                under one parent (same dominator-shape signature, subtree
 ///                size >= 2). When every branch is a simple path of plain

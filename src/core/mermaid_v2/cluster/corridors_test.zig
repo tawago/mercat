@@ -45,7 +45,6 @@ test "a corridor demanding a frame corner is moved off it" {
     const frames = [_]sketch.ClusterFrame{
         .{ .id = 1, .rect = .{ .x = 0, .y = 0, .w = 12, .h = 8 }, .parent_id = null, .label = "S", .depth = 0 },
     };
-    // The frame's north side runs x = 0..11; 0 and 11 are its corners.
     const reqs = [_]corridors.Req{
         .{ .frame = 1, .side = .north, .want = 11, .lo = 8, .hi = 12, .group = corridors.groupKey(3, .north) },
         .{ .frame = 1, .side = .west, .want = 0, .lo = 0, .hi = 4, .group = corridors.groupKey(4, .west) },
@@ -64,7 +63,6 @@ test "a corridor with no legal column in its own face keeps its column" {
     const frames = [_]sketch.ClusterFrame{
         .{ .id = 1, .rect = .{ .x = 0, .y = 0, .w = 12, .h = 8 }, .parent_id = null, .label = "S", .depth = 0 },
     };
-    // A 2-wide node has no interior face cell at all: faceRange is empty.
     const rng = corridors.faceRange(.{ .x = 5, .y = 0, .w = 2, .h = 3 }, .north);
     try testing.expect(rng.hi < rng.lo);
     const reqs = [_]corridors.Req{
@@ -80,8 +78,6 @@ test "portOffset inverts the centred sideOffset on both face orientations" {
     const r: sketch.Rect = .{ .x = 5, .y = 3, .w = 6, .h = 4 };
     try testing.expectEqual(@as(u32, 2), corridors.portOffset(r, .north, 7));
     try testing.expectEqual(@as(u32, 2), corridors.portOffset(r, .west, 5));
-    // A crossing left where it was reproduces the centred offset exactly,
-    // which is why an undisturbed bridge is byte-identical.
     const c = corridors.sideOffset(r, .north);
     try testing.expectEqual(c, corridors.portOffset(r, .north, r.x + @as(i32, @intCast(c))));
 }
@@ -90,8 +86,6 @@ test "two bridges entering one frame at one column: the later port slides along 
     var arena = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
-    // Two targets stacked in one column inside S, so both centred north
-    // ports name the same border column.
     const frames = [_]sketch.ClusterFrame{
         .{ .id = 1, .rect = .{ .x = 0, .y = 10, .w = 14, .h = 12 }, .parent_id = null, .label = "S", .depth = 0 },
     };
@@ -114,7 +108,6 @@ test "two bridges entering one frame at one column: the later port slides along 
     try testing.expect(got[1].to_coord != got[0].to_coord);
     try testing.expectEqual(@as(i32, 8), got[1].to_coord);
     try testing.expectEqual(@as(u32, 4), got[1].to_off);
-    // A top-level source raises no demand: its port stays centred.
     try testing.expectEqual(@as(u32, 3), got[0].from_off);
     try testing.expectEqual(@as(u32, 3), got[1].from_off);
 }
@@ -127,11 +120,6 @@ test "a slide that would drive the approach run through a node box is refused" {
     var arena = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
-    // Same geometry as "two bridges entering one frame at one column", where
-    // with no placements to consult the second port slides to column 8. Here
-    // t1 sits between S's north border and t2, so EVERY column of t2's face
-    // would drag the approach run through t1 — a swallowed stroke plus a
-    // fabricated second foot on t1's bottom border. The merge is kept instead.
     const frames = [_]sketch.ClusterFrame{
         .{ .id = 1, .rect = .{ .x = 0, .y = 10, .w = 14, .h = 12 }, .parent_id = null, .label = "S", .depth = 0 },
     };
@@ -156,8 +144,6 @@ test "a slide that would drive the approach run through a node box is refused" {
     try testing.expectEqual(@as(i32, 7), got[1].to_coord);
     try testing.expectEqual(@as(u32, 3), got[1].to_off);
 
-    // Drop the blocker and the same demand slides again: the refusal is the
-    // node term talking, not the search having run out of face.
     const open = [_]sketch.NodePlacement{ place(0, src, null), place(2, t2, 1) };
     const got2 = try corridors.discipline(a, &pairs, &frames, &open);
     try testing.expectEqual(@as(i32, 8), got2[1].to_coord);
@@ -167,10 +153,6 @@ test "the node-clearance run is read along the face's own axis" {
     var arena = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
-    // A west face is entered by a HORIZONTAL run, so the blocker has to be
-    // read as a row span. n1 sits between S's west border and n2, and the
-    // two share a centred port ROW, so the second demand is the one that
-    // would have to move.
     const frames = [_]sketch.ClusterFrame{
         .{ .id = 1, .rect = .{ .x = 10, .y = 0, .w = 14, .h = 14 }, .parent_id = null, .label = "S", .depth = 0 },
     };
@@ -187,12 +169,10 @@ test "the node-clearance run is read along the face's own axis" {
             .to = .{ .node = 2, .rect = n2, .side = .west, .frame = 1 },
         },
     };
-    // With n1 absent from the obstacle list the far demand slides one row.
     const open = [_]sketch.NodePlacement{ place(0, src, null), place(2, n2, 1) };
     const got = try corridors.discipline(a, &pairs, &frames, &open);
     try testing.expect(got[0].to_coord != got[1].to_coord);
 
-    // With n1 present it blocks every row of n2's face, so the merge stands.
     const blocked = [_]sketch.NodePlacement{ place(0, src, null), place(1, n1, 1), place(2, n2, 1) };
     const got2 = try corridors.discipline(a, &pairs, &frames, &blocked);
     try testing.expectEqual(got2[0].to_coord, got2[1].to_coord);
@@ -248,16 +228,9 @@ test "drawnFrame walks through synthetic packing frames to the drawn one" {
 }
 
 test "a descent escaping a frame wall leaves the frame instead of stepping inside it" {
-    // A frame whose LEFT wall is the column the node-clear core prefers, with
-    // the target column to its left. Escaping the wall by stepping in a
-    // direction fixed by the target ("away from want") steps to x=12 — the
-    // frame's own interior — so the whole descent is drawn down through S,
-    // crossing its top and bottom borders on the way in and out.
     const frames = [_]sketch.ClusterFrame{
         .{ .id = 1, .rect = .{ .x = 11, .y = 3, .w = 12, .h = 11 }, .parent_id = null, .label = "S", .depth = 0 },
     };
-    // Endpoints are both OUTSIDE S: it is a frame this corridor has no
-    // business entering. The boxes push the node-clear core onto x=11.
     const placements = [_]sketch.NodePlacement{
         .{ .id = 0, .rect = .{ .x = 4, .y = 0, .w = 6, .h = 3 }, .shape = .rect, .lines = &.{"A"}, .cluster_id = null },
         .{ .id = 1, .rect = .{ .x = 4, .y = 16, .w = 6, .h = 3 }, .shape = .rect, .lines = &.{"B"}, .cluster_id = null },
@@ -267,21 +240,15 @@ test "a descent escaping a frame wall leaves the frame instead of stepping insid
     const hi: i32 = 15;
     const want: i32 = 7;
 
-    // The unguarded core really does land on S's wall, so the fixture
-    // exercises the guard rather than agreeing with it by luck.
     const naive = sketch.clearLine(false, want, lo, hi, &placements, 0, 1, .{ .margin = true });
     try testing.expectEqual(@as(i32, 11), naive);
 
     const col = corridors.descentColumn(want, lo, hi, &placements, 0, 1, &frames);
     const r = frames[0].rect;
-    try testing.expect(col <= r.x or col >= r.right() - 1); // never the interior
-    try testing.expect(col >= 0); // and never off the canvas
-    // Nearest-first in BOTH directions: it steps off the wall to x=10, the
-    // near side, rather than 12 (inside) or all the way past x=22.
+    try testing.expect(col <= r.x or col >= r.right() - 1);
+    try testing.expect(col >= 0);
     try testing.expectEqual(@as(i32, 10), col);
 
-    // A frame that HOLDS an endpoint is one the corridor legitimately enters:
-    // the interior term must not push the descent out of it.
     const inner = [_]sketch.NodePlacement{
         placements[0],
         .{ .id = 1, .rect = .{ .x = 13, .y = 8, .w = 6, .h = 3 }, .shape = .rect, .lines = &.{"B"}, .cluster_id = 1 },

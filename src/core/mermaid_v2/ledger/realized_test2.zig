@@ -145,11 +145,8 @@ fn disp(
     return .{ .independent = .{ .candidate_bundle = gid, .reason = .not_selected } };
 }
 
-// -- Controlled one-side and partial plans through the validator ---------------
-
-// Shared topologies.
-pub const twox2 = [_]sg.Edge{ edge(0, 0, 2), edge(1, 0, 3), edge(2, 1, 3) }; // S1→T1, S1→T2, S2→T2
-pub const dual = [_]sg.Edge{ edge(0, 4, 5), edge(1, 4, 6), edge(2, 7, 5) }; // S→X, S→A, B→X
+pub const twox2 = [_]sg.Edge{ edge(0, 0, 2), edge(1, 0, 3), edge(2, 1, 3) };
+pub const dual = [_]sg.Edge{ edge(0, 4, 5), edge(1, 4, 6), edge(2, 7, 5) };
 pub const fan5 = [_]sg.Edge{ edge(0, 8, 6), edge(1, 8, 7), edge(2, 8, 9), edge(3, 8, 10), edge(4, 8, 11) };
 
 test "V-D-JOIN-SELECT-04 / V-D-DUAL-01: controlled one-side incomplete-2x2 plans pass validation" {
@@ -161,10 +158,6 @@ test "V-D-JOIN-SELECT-04 / V-D-DUAL-01: controlled one-side incomplete-2x2 plans
     const fo = groupIdOf(plan, .out, 0);
     const fi = groupIdOf(plan, .in, 3);
 
-    // (i) source-side FO-S1 selected; (ii) target-side FI-T2 selected.
-    // Both are CONTROLLED vectors only — the production result for this
-    // topology is NEITHER (V-D-JOIN-SELECT-03) — but each must validate
-    // clean at plan level (no both-sides selection, dispositions total).
     for ([2]pb.CandidateBundleId{ fo, fi }) |sel| {
         const members = plan.groups[jp.groupIndexById(plan.groups, sel).?].members;
         const built = try controlledPlan(a, plan, sel, members);
@@ -194,14 +187,13 @@ test "V-D-JOIN-SELECT-12: controlled partial-member subset plan validates clean,
     const g = graph(&fan5);
     const plan = try buildPlan(a, g);
     const fo = groupIdOf(plan, .out, 8);
-    // Subset {A,B,C} selected; D/E independent with their own Hub ports.
     const subset = plan.groups[jp.groupIndexById(plan.groups, fo).?].members[0..3];
     const built = try controlledPlan(a, plan, fo, subset);
     const report = try jpv.validate(a, plan, built.plan, built.proposals);
     try expect(report.valid());
     // The production planner never emits this subset automatically: with
     // the same subset proposed as a rail, clause (c) rejects it whole.
-    // guarded-by: realized_test.zig "V-D-JOIN-SELECT-07: partial proposal fails clause (c) first"
+    // @guarded-by: realized_test.zig "V-D-JOIN-SELECT-07: partial proposal fails clause (c) first"
 }
 
 test "V-D-DUAL-04 analogue: selecting one dual edge at both endpoint sides is rejected by the validator" {
@@ -232,8 +224,6 @@ test "V-D-DUAL-04 analogue: selecting one dual edge at both endpoint sides is re
     try expect(hasFinding(report, .selected_both_sides));
 }
 
-// -- V-D-TRUNK hand-built plan halves (moved from realized_test.zig) ----------
-
 test "V-D-TRUNK-06: duplicate (from,to) pair is blocked by the item-1 duplicate-key rule with the pair inventory tag" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
@@ -242,8 +232,6 @@ test "V-D-TRUNK-06: duplicate (from,to) pair is blocked by the item-1 duplicate-
     const g = graph(&dup);
     const plan = try buildPlan(a, g);
     const res = try jp.realize(a, plan, sketchOf(try paths(a, &dup), &.{}));
-    // Both containing groups (FO-Hub and FI-A) blocked pre-clause; the
-    // overlap conflict between them is still retained.
     for (res.report.verdicts) |v| {
         try expectEqual(jp.GroupClause.duplicate_key, v.clause);
         try expectEqual(pb.DiagnosticTag.bundle_select_duplicate_key_blocked, v.tag);
@@ -268,8 +256,6 @@ test "V-D-TRUNK-08: no automatic partial rail — a subset proposal is rejected 
     };
     const g = graph(&four);
     const plan = try buildPlan(a, g);
-    // A candidate proposing only the 3 style-compatible members: clause
-    // (c) COMPLETE fails first — the whole group routes independently.
     var taps: [3]sk.Tap = undefined;
     for (four[0..3], &taps) |e, *t| {
         t.* = .{ .edge = e.id, .node = e.to, .at = poly[0], .landing = poly[1], .arrow = .filled };
@@ -303,8 +289,6 @@ test "V-D-TRUNK-10: uniform directed fan-in rail proposal realizes one group-own
     try expect((try jpv.validate(a, plan, res.plan, res.report.proposals)).valid());
 }
 
-// -- Planner output always validates clean -------------------------------------
-
 test "every planner output validates clean across the step-4 vector shapes" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
@@ -320,7 +304,6 @@ test "every planner output validates clean across the step-4 vector shapes" {
         try expect(report.valid());
     }
 
-    // Rail-realized fan and partial/multiplicity proposal shapes.
     var taps: [3]sk.Tap = undefined;
     for (fan5[0..3], &taps) |e, *t| {
         t.* = .{ .edge = e.id, .node = e.to, .at = poly[0], .landing = poly[1], .arrow = .filled };
@@ -342,8 +325,6 @@ test "every planner output validates clean across the step-4 vector shapes" {
     try expect((try jpv.validate(a, plan3, realized.plan, realized.report.proposals)).valid());
 }
 
-// -- Corruption rejection per validator rule -----------------------------------
-
 test "corrupted plans are rejected rule by rule" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
@@ -353,19 +334,16 @@ test "corrupted plans are rejected rule by rule" {
     const plan = try buildPlan(a, g);
     const res = try jp.realize(a, plan, sketchOf(try paths(a, &twox2), &.{}));
 
-    // Bullet 1/7: a dropped membership record.
     var p = res.plan;
     p.memberships = res.plan.memberships[0 .. res.plan.memberships.len - 1];
     try expect(hasFinding(try jpv.validate(a, plan, p, res.report.proposals), .membership_set_mismatch));
 
-    // Bullet 1: canonical order violated.
     const swapped = try a.dupe(pb.RealizedEdgeMembership, res.plan.memberships);
     std.mem.swap(pb.RealizedEdgeMembership, &swapped[0], &swapped[1]);
     p = res.plan;
     p.memberships = swapped;
     try expect(hasFinding(try jpv.validate(a, plan, p, res.report.proposals), .membership_set_mismatch));
 
-    // Bullet 1: a group-owned endpoint with no disposition.
     const nulled = try a.dupe(pb.RealizedEdgeMembership, res.plan.memberships);
     nulled[0].source = null;
     nulled[0].target = null;
@@ -373,7 +351,6 @@ test "corrupted plans are rejected rule by rule" {
     p.memberships = nulled;
     try expect(hasFinding(try jpv.validate(a, plan, p, res.report.proposals), .disposition_missing));
 
-    // A disposition where no permission membership exists.
     const extra = try a.dupe(pb.RealizedEdgeMembership, res.plan.memberships);
     for (plan.memberships, extra) |m, *rm| {
         if (m.source_group == null) rm.source = .{ .independent = .{ .candidate_bundle = 0, .reason = .not_selected } };
@@ -383,7 +360,6 @@ test "corrupted plans are rejected rule by rule" {
     p.memberships = extra;
     try expect(hasFinding(try jpv.validate(a, plan, p, res.report.proposals), .disposition_unexpected));
 
-    // Erased or truncated conflicts.
     p = res.plan;
     p.conflicts = &.{};
     try expect(hasFinding(try jpv.validate(a, plan, p, res.report.proposals), .conflict_missing));
@@ -393,7 +369,6 @@ test "corrupted plans are rejected rule by rule" {
     p.conflicts = short;
     try expect(hasFinding(try jpv.validate(a, plan, p, res.report.proposals), .conflict_shared_edges_wrong));
 
-    // Proposal accounting: unknown rejected id / unaccounted proposal.
     p = res.plan;
     p.rejected_proposals = &.{99};
     try expect(hasFinding(try jpv.validate(a, plan, p, res.report.proposals), .rejected_proposal_unknown));
@@ -411,7 +386,6 @@ test "corrupted plans are rejected rule by rule" {
     p.rejected_proposals = &.{};
     try expect(hasFinding(try jpv.validate(a, plan3, p, rejected.report.proposals), .proposal_unaccounted));
 
-    // Bullets 2/3/4: a selected bundle re-pointed at the wrong group.
     const realized = try jp.realize(a, plan3, sketchOf(&.{}, &.{.{ .pivot = 8, .stem = &poly, .crossbar = .{ poly[0], poly[1] }, .taps = &taps, .kind = .solid, .role = .fan_out_dropper }}));
     try expectEqual(@as(usize, 1), realized.plan.selected_bundles.len);
     const rejoined = try a.dupe(pb.SelectedBundle, realized.plan.selected_bundles);
@@ -423,7 +397,6 @@ test "corrupted plans are rejected rule by rule" {
     const rj = try jpv.validate(a, plan3, p, realized.report.proposals);
     try expect(hasFinding(rj, .selected_bundle_foreign_member));
 
-    // Terminal ports out of canonical order.
     const ports = try a.dupe(pb.TerminalPort, res.plan.terminal_ports);
     std.mem.swap(pb.TerminalPort, &ports[0], &ports[1]);
     p = res.plan;

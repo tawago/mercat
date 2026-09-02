@@ -55,8 +55,6 @@ pub const MetadataOverlay = struct {
     visible: bool = false,
     /// Scroll offset (first visible entry index).
     scroll: usize = 0,
-    // Geometry recorded on the last draw, for scroll clamping and mouse
-    // hit-testing. `rect` is null while the overlay is hidden.
     visible_rows: usize = 0,
     total: usize = 0,
     rect: ?Rect = null,
@@ -114,15 +112,11 @@ pub const MetadataOverlay = struct {
         const total = fm.entries.len;
         self.total = total;
 
-        // Rows available inside the borders, bounded so the panel never covers
-        // the status bar at the bottom.
         const max_inner_rows: usize = (@as(usize, root.height) -| 2) -| 2;
         if (max_inner_rows == 0) {
             self.rect = null;
             return;
         }
-        // When entries overflow, reserve the bottom inner row for a scroll
-        // indicator (e.g. `↑ 3-8 / 20 ↓`).
         const overflow = total > max_inner_rows;
         const visible_rows = if (overflow) @min(max_inner_rows -| 1, total) else total;
         if (visible_rows == 0) {
@@ -130,7 +124,6 @@ pub const MetadataOverlay = struct {
             return;
         }
         self.visible_rows = visible_rows;
-        // Clamp scroll now that we know the geometry (window may have shrunk).
         if (self.scroll > total -| visible_rows) {
             self.scroll = total -| visible_rows;
         }
@@ -164,7 +157,6 @@ pub const MetadataOverlay = struct {
             null;
         if (prepared_indicator) |prepared| row_width = @max(row_width, prepared.total_columns);
 
-        // Text + one space padding each side + two border columns.
         const width: u16 = @intCast(@min(root.width -| 2, row_width +| 4));
         const inner_rows = visible_rows + @as(usize, if (overflow) 1 else 0);
         const height: u16 = @intCast(inner_rows + 2);
@@ -223,7 +215,7 @@ test "scrollBy clamps to the last page" {
     try std.testing.expectEqual(@as(usize, 5), overlay.scroll);
 
     overlay.scrollBy(1000);
-    try std.testing.expectEqual(@as(usize, 12), overlay.scroll); // 20 - 8
+    try std.testing.expectEqual(@as(usize, 12), overlay.scroll);
 
     overlay.scrollTo(std.math.maxInt(usize));
     try std.testing.expectEqual(@as(usize, 12), overlay.scroll);
@@ -233,14 +225,12 @@ test "scrollBy clamps to the last page" {
 }
 
 test "scrollTo saturates to zero when everything is visible" {
-    // Visible rows >= total, so maxScroll() saturates to 0 via -|.
     var overlay = MetadataOverlay{ .total = 5, .visible_rows = 8 };
     overlay.scrollTo(1000);
     try std.testing.expectEqual(@as(usize, 0), overlay.scroll);
 }
 
 test "scrollBy keeps scroll at zero when everything is visible" {
-    // total < visible: max scroll saturates to 0, so scrolling down is a no-op.
     var overlay = MetadataOverlay{ .total = 3, .visible_rows = 8 };
     overlay.scrollBy(1);
     try std.testing.expectEqual(@as(usize, 0), overlay.scroll);
@@ -252,16 +242,12 @@ test "contains hit-tests the overlay rectangle" {
     const inside: vaxis.Mouse = .{ .col = 15, .row = 2, .button = .none, .mods = .{}, .type = .motion };
     try std.testing.expect(overlay.contains(inside));
 
-    // Just left of the rect.
     const left: vaxis.Mouse = .{ .col = 9, .row = 2, .button = .none, .mods = .{}, .type = .motion };
     try std.testing.expect(!overlay.contains(left));
-    // Just past the right edge (x + width = 30, exclusive).
     const right: vaxis.Mouse = .{ .col = 30, .row = 2, .button = .none, .mods = .{}, .type = .motion };
     try std.testing.expect(!overlay.contains(right));
-    // Just below the bottom edge (y + height = 6, exclusive).
     const below: vaxis.Mouse = .{ .col = 15, .row = 6, .button = .none, .mods = .{}, .type = .motion };
     try std.testing.expect(!overlay.contains(below));
-    // Negative coordinates are never inside.
     const negative: vaxis.Mouse = .{ .col = -1, .row = -1, .button = .none, .mods = .{}, .type = .motion };
     try std.testing.expect(!overlay.contains(negative));
 }

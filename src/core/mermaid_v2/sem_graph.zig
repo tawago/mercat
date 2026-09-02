@@ -8,8 +8,6 @@
 //! frees storage. Imports `std` and `prim` only (pure data module).
 
 const std = @import("std");
-// prim is a named build dependency (build.zig) so this file works both
-// inside the mermaid_v2 module tree and standalone (tests/property/gen.zig).
 const prim = @import("prim");
 
 /// Stable handle for a node within a SemGraph.
@@ -91,7 +89,7 @@ pub const Edge = struct {
     /// eventually lands for it IS the crossings', and this field carries
     /// their directedness class so `arrowFree` and `forwardOneWayHead`
     /// answer for that ink, not for the proxy's bare ends.
-    /// guarded-by: cluster/split_test.zig "a placement edge records the directedness of the crossings it stands for"
+    /// @guarded-by: cluster/split_test.zig "a placement edge records the directedness of the crossings it stands for"
     stands_for: StandsFor = .arrow_free,
     /// Root-graph EdgeId this edge descends from, chained through nested cuts
     /// (cluster/split.zig). SENTINEL when the edge was born in this graph:
@@ -123,11 +121,11 @@ pub fn mergeStandsFor(a: StandsFor, b: StandsFor) StandsFor {
     return if (a == b) a else .directed;
 }
 
-/// True iff NO end of the ink this edge stands for is directional — the closure law's
+/// True iff NO end of the ink this edge stands for is directional — the closure licence's
 /// ELIGIBILITY question (blocking unsatisfiable). Circle/cross ends are
 /// decoration, not directional, and do not count here. A placement edge
 /// answers for the crossings it proxies, not for its own (always bare)
-/// arrow fields. The closure law's member/backer gate is the stricter
+/// arrow fields. The closure licence's member/backer gate is the stricter
 /// `undecorated` below.
 pub fn arrowFree(e: Edge) bool {
     return prim.memberArrowFree(e.arrow_from, e.arrow_to, e.stands_for);
@@ -151,7 +149,7 @@ pub fn undecorated(e: Edge) bool {
 /// direction-invariant and a head at BOTH ends points the trace along.
 /// A placement edge answers with the folded class of the crossings it
 /// stands for: only a uniformly forward-one-way set qualifies.
-/// guarded-by: fan_lanes_test2.zig "a two-sided group whose heads are direction-invariant still separates"
+/// @guarded-by: fan_lanes_test2.zig "a two-sided group whose heads are direction-invariant still separates"
 pub fn forwardOneWayHead(e: Edge) bool {
     if (e.stands_for != .arrow_free) return e.stands_for == .forward_one_way;
     return prim.directional(e.arrow_to) and !prim.directional(e.arrow_from);
@@ -343,7 +341,6 @@ test "stands-for classes: backward one-way blocks but is never a forward head" {
     try std.testing.expectEqual(StandsFor.forward_one_way, standsForClass(.none, .open));
     try std.testing.expectEqual(StandsFor.arrow_free, standsForClass(.circle, .cross));
     try std.testing.expectEqual(StandsFor.directed, standsForClass(.filled, .filled));
-    // Antiparallel one-way crossings behind one pair: heads land both ends.
     try std.testing.expectEqual(StandsFor.directed, mergeStandsFor(.forward_one_way, .backward_one_way));
 
     try std.testing.expect(prim.memberBlocks(.none, .none, .backward_one_way));

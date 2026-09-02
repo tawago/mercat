@@ -27,7 +27,7 @@ pub fn reflowWideRanks(
     h_spacing: u32,
     v_spacing: u32,
 ) void {
-    // Walk layers top-to-bottom so later layers see already-shifted geom. // guarded-by: layout/rank_grid_test.zig "reflowWideRanks: a second wide layer's base_y reflects the first wide layer's shift, and a leaf further down cascades through both"
+    // Walk layers top-to-bottom so later layers see already-shifted geom. // @guarded-by: layout/rank_grid_test.zig "reflowWideRanks: a second wide layer's base_y reflects the first wide layer's shift, and a leaf further down cascades through both"
     for (lg.layers) |layer| {
         reflowOneLayer(G, lg, geom, budget, h_spacing, v_spacing, layer);
     }
@@ -42,7 +42,7 @@ fn reflowOneLayer(
     v_spacing: u32,
     layer: []const u32,
 ) void {
-    // Gather the REAL nodes of this layer, left-to-right by current x; virtuals carry no box and just ride the downward push. // guarded-by: layout/rank_grid_test.zig "reflowWideRanks: a same-layer virtual node's (oversized) width never enters the column/packing math and its position is untouched"
+    // Gather the REAL nodes of this layer, left-to-right by current x; virtuals carry no box and just ride the downward push. // @guarded-by: layout/rank_grid_test.zig "reflowWideRanks: a same-layer virtual node's (oversized) width never enters the column/packing math and its position is untouched"
     var reals_buf: [256]u32 = undefined;
     var n_reals: usize = 0;
     for (layer) |idx| {
@@ -62,10 +62,9 @@ fn reflowOneLayer(
 
     sortByX(G, reals, geom);
 
-    // Actual rendered span (leftmost left edge → rightmost right edge) drives the overflow check, not tight packed width. // guarded-by: layout/rank_grid_test.zig "reflowWideRanks: nodes drifted far apart by centering are compacted even though their tight packed width already fits the budget"
+    // Actual rendered span (leftmost left edge → rightmost right edge) drives the overflow check, not tight packed width. // @guarded-by: layout/rank_grid_test.zig "reflowWideRanks: nodes drifted far apart by centering are compacted even though their tight packed width already fits the budget"
     var span_min: i32 = std.math.maxInt(i32);
     var span_max: i32 = std.math.minInt(i32);
-    // Tight single-row span = sum(node widths) + inter-node gaps.
     var single_row_w: u32 = 0;
     var max_w: u32 = 0;
     var max_h: u32 = 0;
@@ -80,37 +79,35 @@ fn reflowOneLayer(
         if (right > span_max) span_max = right;
     }
     const span: u32 = @intCast(@max(0, span_max - span_min));
-    if (span <= budget) return; // already fits as positioned — leave it.
+    if (span <= budget) return;
 
     const n: u32 = @intCast(reals.len);
 
-    // Compaction floor keeps near-budget rows OUT of the compact path (no slack for centering/jogs) so they stack instead. // guarded-by: layout/rank_grid_test.zig "reflowWideRanks: a row exactly at the compact_floor boundary compacts to one row; one unit past it stacks into a grid"
+    // Compaction floor keeps near-budget rows OUT of the compact path (no slack for centering/jogs) so they stack instead. // @guarded-by: layout/rank_grid_test.zig "reflowWideRanks: a row exactly at the compact_floor boundary compacts to one row; one unit past it stacks into a grid"
     const compact_floor: u32 = budget - budget / 8;
     if (single_row_w <= compact_floor) {
         compactSingleRow(G, reals, geom, h_spacing);
         return;
     }
 
-    // Otherwise stack into a grid: conservative widest-node-per-slot column count, forced to leave >=2 rows. // guarded-by: layout/rank_grid_test.zig "reflowWideRanks: the widest-node column formula still forces >=2 rows even when the naive per-node-count formula would leave one"
+    // Otherwise stack into a grid: conservative widest-node-per-slot column count, forced to leave >=2 rows. // @guarded-by: layout/rank_grid_test.zig "reflowWideRanks: the widest-node column formula still forces >=2 rows even when the naive per-node-count formula would leave one"
     const slot_w = max_w + h_spacing;
     var cols: u32 = if (slot_w == 0) 1 else (budget + h_spacing) / slot_w;
     if (cols == 0) cols = 1;
-    if (cols >= n) cols = n - 1; // must split into ≥2 rows.
+    if (cols >= n) cols = n - 1;
     const rows: u32 = (n + cols - 1) / cols;
 
-    // Vertical step between grid sub-rows: tallest node + gap so sub-rows never touch and an edge can descend between them. // guarded-by: layout/rank_grid_test.zig "reflowWideRanks: row_step (max_h + v_spacing + 1) keeps a tall sub-row from touching the row below it"
+    // Vertical step between grid sub-rows: tallest node + gap so sub-rows never touch and an edge can descend between them. // @guarded-by: layout/rank_grid_test.zig "reflowWideRanks: row_step (max_h + v_spacing + 1) keeps a tall sub-row from touching the row below it"
     const row_step: i32 = @as(i32, @intCast(max_h)) +
         @as(i32, @intCast(v_spacing)) + 1;
 
-    // Push every node strictly below base_y (real or virtual, incl. same-layer virtuals) down by added_h. guarded-by: layout/rank_grid_test.zig "rank-grid pushes only strictly-below nodes by added_h; same-layer and above nodes are untouched"
+    // Push every node strictly below base_y (real or virtual, incl. same-layer virtuals) down by added_h. @guarded-by: layout/rank_grid_test.zig "rank-grid pushes only strictly-below nodes by added_h; same-layer and above nodes are untouched"
     const base_y: i32 = geom[reals[0]].y;
     const added_h: i32 = @as(i32, @intCast(rows - 1)) * row_step;
     for (geom) |*g| {
         if (g.y > base_y) g.y += added_h;
     }
 
-    // Center the packed block on the layer's current horizontal center so the
-    // grid sits under the same parents that fed the single row.
     const block_cx = layerCenterX(G, reals, geom);
 
     var i: u32 = 0;
@@ -159,15 +156,10 @@ fn layerWrappedByFan(
     lg: sugiyama.LayeredGraph,
     reals: []const u32,
 ) bool {
-    // Disconnected isolates (no forward edges at all) are exempt from rank-grid, left as a no-op to Lever A (component-packing). // guarded-by: layout/rank_grid_test.zig "reflowWideRanks: two edge-free sibling nodes (all-roots AND all-leaves) are left untouched"
+    // Disconnected isolates (no forward edges at all) are exempt from rank-grid, left as a no-op to Lever A (component-packing). // @guarded-by: layout/rank_grid_test.zig "reflowWideRanks: two edge-free sibling nodes (all-roots AND all-leaves) are left untouched"
     if (allRoots(lg, reals) and allLeaves(lg, reals)) return true;
-    // (a) pure fan-IN source rank: ROOT + converges to a single common forward CHILD; the "all roots" qualifier is essential since a fed-from-above multi-layer rank is genuinely wide. // guarded-by: layout/rank_grid_test.zig "reflowWideRanks: a rank fed from above that ALSO converges to one child is not exempted as pure fan-IN — it still grids"
+    // (a) pure fan-IN source rank: ROOT + converges to a single common forward CHILD; the "all roots" qualifier is essential since a fed-from-above multi-layer rank is genuinely wide. // @guarded-by: layout/rank_grid_test.zig "reflowWideRanks: a rank fed from above that ALSO converges to one child is not exempted as pure fan-IN — it still grids"
     if (allRoots(lg, reals) and sharedCommonNeighbour(lg, reals, .child)) return true;
-    // (b) pure single-pivot fan-OUT: every node shares one common forward
-    //     PARENT and is a LEAF below it (no outgoing forward edge), so the
-    //     rank exists solely to diverge — `wrapWideFanOut` owns it. The "all
-    //     leaves" qualifier mirrors (a): a rank that also feeds nodes below is
-    //     genuinely wide and must still grid.
     if (allLeaves(lg, reals) and sharedCommonNeighbour(lg, reals, .parent)) return true;
     return false;
 }
@@ -222,7 +214,7 @@ fn soleForwardNeighbour(lg: sugiyama.LayeredGraph, idx: u32, side: Side) ?u32 {
             .child => if (e.from == idx) e.to else continue,
         };
         if (found) |f| {
-            if (f != other) return null; // 2+ distinct neighbours.
+            if (f != other) return null;
         } else found = other;
     }
     return found;

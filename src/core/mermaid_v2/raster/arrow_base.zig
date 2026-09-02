@@ -51,7 +51,6 @@ fn intoArrowBit(tip: lattice.Dir4) lattice.Neighbours {
 /// Returns `null` when that cell would fall outside the lattice.
 fn baseCoord(x: u32, y: u32, tip: lattice.Dir4, w: u32, h: u32) ?struct { x: u32, y: u32 } {
     return switch (tip) {
-        // tip=south → base is north (y-1); tip=north → base is south (y+1); etc.
         .south => if (y >= 1) .{ .x = x, .y = y - 1 } else null,
         .north => if (y + 1 < h) .{ .x = x, .y = y + 1 } else null,
         .east => if (x >= 1) .{ .x = x - 1, .y = y } else null,
@@ -64,22 +63,10 @@ fn baseCoord(x: u32, y: u32, tip: lattice.Dir4, w: u32, h: u32) ?struct { x: u32
 /// 3): the label/title interruption is a convention, not a break in the run.
 /// `pub` for its mirror only: the report-only tiling audit decomposes
 /// `validate` into buckets and must reproduce this exact test.
-/// guarded-by: tiling_crosscheck_test.zig "the base ladder's fed/exempt steps mirror arrow_base.baseFeedsArrow"
+/// @guarded-by: tiling_crosscheck_test.zig "the base ladder's fed/exempt steps mirror arrow_base.baseFeedsArrow"
 pub fn baseFeedsArrow(cell: *const lattice.Cell, tip: lattice.Dir4) bool {
     switch (cell.occupant) {
-        // Structural exemption (class 3): the base is a node/cluster label or
-        // title glyph. The owner's frame-solid convention leaves such a run
-        // interrupted by the label in place — INCLUDING the inter-word spaces
-        // of a multi-word title, which are still that title's cells (welding a
-        // stroke there would split the title, e.g. `Inventory│Management`). A
-        // label base is therefore never a violation and never welded.
-        // A continuation is the tail column of a wide title/label glyph and
-        // carries the same exemption as its head: welding a stroke there
-        // would split the glyph exactly as it would split the run of text.
         .label_char, .label_cont => return true,
-        // The base must carry the into-arrow arm. Any occupant whose glyph is
-        // driven by the neighbour mask (edge segment, cluster/node border) is
-        // judged purely on that mask, matching what the painter draws.
         else => {
             const need = intoArrowBit(tip).toMask();
             return (cell.neighbours.toMask() & need) == need;
@@ -97,21 +84,20 @@ pub fn baseFeedsArrow(cell: *const lattice.Cell, tip: lattice.Dir4) bool {
 /// arrowhead's own inherited mask.
 /// `pub` for its mirror only: the report-only tiling audit reproduces this
 /// predicate to bucket side-fed arrowheads out of its defect total.
-/// guarded-by: tiling_crosscheck_test.zig "sideFed mirrors raster/arrow_base.sideFed over an occupant x mask matrix"
+/// @guarded-by: tiling_crosscheck_test.zig "sideFed mirrors raster/arrow_base.sideFed over an occupant x mask matrix"
 pub fn sideFed(lat: *const lattice.Lattice, x: u32, y: u32, tip: lattice.Dir4) bool {
     const w = lat.width;
     const h = lat.height;
-    // Perpendicular directions and the arm each neighbour needs to point back.
     const Probe = struct { nx: ?u32, ny: ?u32, need: lattice.Neighbours };
     var probes: [2]Probe = undefined;
     switch (tip) {
         .north, .south => {
-            probes[0] = .{ .nx = if (x >= 1) x - 1 else null, .ny = y, .need = .{ .e = true } }; // west nbr → its east arm
-            probes[1] = .{ .nx = if (x + 1 < w) x + 1 else null, .ny = y, .need = .{ .w = true } }; // east nbr → its west arm
+            probes[0] = .{ .nx = if (x >= 1) x - 1 else null, .ny = y, .need = .{ .e = true } };
+            probes[1] = .{ .nx = if (x + 1 < w) x + 1 else null, .ny = y, .need = .{ .w = true } };
         },
         .east, .west => {
-            probes[0] = .{ .nx = x, .ny = if (y >= 1) y - 1 else null, .need = .{ .s = true } }; // north nbr → its south arm
-            probes[1] = .{ .nx = x, .ny = if (y + 1 < h) y + 1 else null, .need = .{ .n = true } }; // south nbr → its north arm
+            probes[0] = .{ .nx = x, .ny = if (y >= 1) y - 1 else null, .need = .{ .s = true } };
+            probes[1] = .{ .nx = x, .ny = if (y + 1 < h) y + 1 else null, .need = .{ .n = true } };
         },
     }
     for (probes) |p| {
@@ -152,8 +138,6 @@ pub fn validate(lat: *const lattice.Lattice) ArrowBaseCounts {
     return counts;
 }
 
-// -- Tests -------------------------------------------------------------------
-
 const testing = std.testing;
 
 fn arrowCell(dir: lattice.Dir4) lattice.Cell {
@@ -167,7 +151,7 @@ test "clean vertical feed: ▼ under a │ is legal" {
     var buf: [3]lattice.Cell = undefined;
     for (&buf) |*c| c.* = lattice.Cell.empty;
     var lat = lattice.Lattice{ .width = 1, .height = 3, .cells = &buf };
-    lat.at(0, 0).* = edgeCell(.{ .n = true, .s = true }); // │ base
+    lat.at(0, 0).* = edgeCell(.{ .n = true, .s = true });
     lat.at(0, 1).* = arrowCell(.south);
     try testing.expectEqual(@as(u32, 0), validate(&lat).violations);
 }
@@ -176,7 +160,7 @@ test "side-fed ▼ under a plain ─ is a violation (class 1)" {
     var buf: [3]lattice.Cell = undefined;
     for (&buf) |*c| c.* = lattice.Cell.empty;
     var lat = lattice.Lattice{ .width = 1, .height = 3, .cells = &buf };
-    lat.at(0, 0).* = edgeCell(.{ .e = true, .w = true }); // ─ base: no south arm
+    lat.at(0, 0).* = edgeCell(.{ .e = true, .w = true });
     lat.at(0, 1).* = arrowCell(.south);
     try testing.expectEqual(@as(u32, 1), validate(&lat).violations);
 }
@@ -185,10 +169,9 @@ test "corner feed: ┴ (no south arm) under a ▼ is a violation (class 1b)" {
     var buf: [3]lattice.Cell = undefined;
     for (&buf) |*c| c.* = lattice.Cell.empty;
     var lat = lattice.Lattice{ .width = 1, .height = 3, .cells = &buf };
-    lat.at(0, 0).* = edgeCell(.{ .n = true, .e = true, .w = true }); // ┴: N+E+W, no S
+    lat.at(0, 0).* = edgeCell(.{ .n = true, .e = true, .w = true });
     lat.at(0, 1).* = arrowCell(.south);
     try testing.expectEqual(@as(u32, 1), validate(&lat).violations);
-    // Adding the south arm (┼) clears it.
     lat.at(0, 0).*.neighbours.s = true;
     try testing.expectEqual(@as(u32, 0), validate(&lat).violations);
 }
@@ -197,7 +180,7 @@ test "space-fed ▶ (blank base) is a violation (class 2)" {
     var buf: [3]lattice.Cell = undefined;
     for (&buf) |*c| c.* = lattice.Cell.empty;
     var lat = lattice.Lattice{ .width = 3, .height = 1, .cells = &buf };
-    lat.at(0, 0).* = lattice.Cell.empty; // blank base
+    lat.at(0, 0).* = lattice.Cell.empty;
     lat.at(1, 0).* = arrowCell(.east);
     try testing.expectEqual(@as(u32, 1), validate(&lat).violations);
 }
@@ -221,14 +204,11 @@ test "dotted stroke base is legal: bits carry, glyph does not matter (class 4)" 
 }
 
 test "▲/◀ orientations resolve the correct base cell" {
-    // ▲ (tip=north) base is SOUTH; ◀ (tip=west) base is EAST.
     var buf: [9]lattice.Cell = undefined;
     for (&buf) |*c| c.* = lattice.Cell.empty;
     var lat = lattice.Lattice{ .width = 3, .height = 3, .cells = &buf };
-    // ▲ at (1,1), base south (1,2) is a clean │.
     lat.at(1, 1).* = arrowCell(.north);
     lat.at(1, 2).* = edgeCell(.{ .n = true, .s = true });
-    // ◀ at (0,0), base east (1,0) is a clean ─.
     lat.at(0, 0).* = arrowCell(.west);
     lat.at(1, 0).* = edgeCell(.{ .e = true, .w = true });
     try testing.expectEqual(@as(u32, 0), validate(&lat).violations);
@@ -245,10 +225,9 @@ test "an unfed own-edge corner base is a counted defect, never welded (subtracti
     var buf: [3]lattice.Cell = undefined;
     for (&buf) |*c| c.* = lattice.Cell.empty;
     var lat = lattice.Lattice{ .width = 1, .height = 3, .cells = &buf };
-    lat.at(0, 0).* = edgeCellE(7, .{ .n = true, .e = true }); // â own rail (edge 7)
+    lat.at(0, 0).* = edgeCellE(7, .{ .n = true, .e = true });
     lat.at(0, 1).* = arrowCellE(.south, 7, .{ .n = true, .s = true });
     try testing.expectEqual(@as(u32, 1), validate(&lat).violations);
-    // The defect is DECLARED, not repaired: the base keeps its mask.
     try testing.expect(!lat.atConst(0, 0).neighbours.s);
 }
 
@@ -256,8 +235,8 @@ test "a foreign edge crossing the base stays a counted residual (no fabricated j
     var buf: [3]lattice.Cell = undefined;
     for (&buf) |*c| c.* = lattice.Cell.empty;
     var lat = lattice.Lattice{ .width = 1, .height = 3, .cells = &buf };
-    lat.at(0, 0).* = edgeCellE(1, .{ .e = true, .w = true }); // foreign â (edge 1)
-    lat.at(0, 1).* = arrowCellE(.south, 7, .{ .n = true, .s = true }); // arrow is edge 7
+    lat.at(0, 0).* = edgeCellE(1, .{ .e = true, .w = true });
+    lat.at(0, 1).* = arrowCellE(.south, 7, .{ .n = true, .s = true });
     try testing.expectEqual(@as(u32, 1), validate(&lat).violations);
 }
 
@@ -266,9 +245,6 @@ test "a blank base behind a real run is a counted gap, never bridged (subtractiv
     for (&buf) |*c| c.* = lattice.Cell.empty;
     var lat = lattice.Lattice{ .width = 1, .height = 4, .cells = &buf };
     lat.at(0, 0).* = .{ .occupant = .{ .node_border = .{ .node = 1, .role = .edge_s } }, .neighbours = .{} };
-    // (0,1) blank base, (0,2) arrow south: a 1-cell resume gap in the
-    // positioned layout. The raster may not add ink to patch it (subtractive repair only); the
-    // gap ships as a priced violation instead.
     lat.at(0, 2).* = arrowCellE(.south, 7, .{ .n = true, .s = true });
     try testing.expectEqual(@as(u32, 1), validate(&lat).violations);
     try testing.expect(lat.atConst(0, 1).occupant == .empty);

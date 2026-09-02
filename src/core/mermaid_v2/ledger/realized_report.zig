@@ -16,14 +16,14 @@ const pb = @import("../base/ledger.zig");
 /// Which step of the frozen selection order decided a group; the first
 /// failing step names the tag (D-JOIN-SELECT item 3). Report-only.
 pub const GroupClause = enum {
-    selected, // (a)–(f) all pass → realized rail
-    duplicate_key, // item 1 canonicalization block (pre-clause)
-    unresolved_member, // defensive: a member with no realized geometry
-    incomplete, // (c) the single proposal covers a strict member subset
-    overlap, // (d) permission overlap → NEITHER (conservative rule)
-    style, // (e) D-TRUNK sub-clause failed (see rail_detail)
-    no_proposal, // (f) zero rail proposals
-    multiplicity, // (f) two or more rail proposals (item 3)
+    selected,
+    duplicate_key,
+    unresolved_member,
+    incomplete,
+    overlap,
+    style,
+    no_proposal,
+    multiplicity,
 };
 
 pub const GroupVerdict = struct {
@@ -55,7 +55,7 @@ pub const Report = struct {
     /// Discharged edges that ALSO own private geometry in this candidate
     /// (`co_double_discharge`). An edge discharged by a rail's crossbar has
     /// no second rendering, so a non-zero count means the withholding leaked.
-    /// guarded-by: realized_test.zig "a discharged edge that still owns an EdgePath counts as a double discharge"
+    /// @guarded-by: realized_test.zig "a discharged edge that still owns an EdgePath counts as a double discharge"
     co_double_discharge: u32 = 0,
     /// Candidate off the flat identity path (D-JOIN-SELECT item 10):
     /// nothing was planned; the plan is the empty `.{}`.

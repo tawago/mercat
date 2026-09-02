@@ -117,7 +117,6 @@ pub fn rebuildOuterSets(
             const rebuilt: ledger.Bundle = .{
                 .origin = set.origin,
                 .bundle = ledger.no_bundle,
-                // Structural fan authority is intentionally unscoped.
                 .members = try group.members.toOwnedSlice(arena),
             };
             if (!sameSetAlready(out.items, rebuilt)) try out.append(arena, rebuilt);

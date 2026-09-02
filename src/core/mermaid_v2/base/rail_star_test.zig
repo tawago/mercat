@@ -275,8 +275,6 @@ test "a mixed blocking and arrow-free star refuses the licence" {
 }
 
 test "an all-arrow-free star is not refused by the blocking predicate" {
-    // the closure law's domain: rail_closure.zig decides it against the
-    // declared leaf pairs; the star licence stays silent.
     const bare = [_]rs.RailLicenceMember{
         licenceMember(1, 10, 20, .{ .none, .none }),
         licenceMember(2, 10, 21, .{ .none, .none }),
@@ -284,7 +282,6 @@ test "an all-arrow-free star is not refused by the blocking predicate" {
     try testing.expect(!rs.checkLicence(outLicence(&bare)).star_law.non_blocking_member);
     try testing.expect(rs.checkLicence(outLicence(&bare)).isValid());
 
-    // Circle/cross ends are decoration, not directional: still arrow-free.
     const decorated = [_]rs.RailLicenceMember{
         licenceMember(1, 10, 20, .{ .none, .circle }),
         licenceMember(2, 10, 21, .{ .none, .circle }),

@@ -21,10 +21,6 @@ pub fn build(
 ) error{OutOfMemory}![]const ledger.RailClaim {
     var out: std.ArrayListUnmanaged(ledger.RailClaim) = .empty;
     for (fans) |f| {
-        // A fan-OUT every one of whose peers rides a selected arrival rail
-        // draws no run of its own; its members' rail evidence is the
-        // arrivals' to claim, so a departure claim here would file a rail
-        // that owns no ink (unresolved sites).
         if (deferredToArrivals(bundles, f)) continue;
         for (f.peers, 0..) |seed, i| {
             if (!seed.shared) continue;
@@ -33,11 +29,6 @@ pub fn build(
             const lane = fan_mod.effectiveLane(f, seed.lane);
             if (groupSeen(graph, f, bundles, f.peers[0..i], lane)) continue;
 
-            // Membership is the recorded decision (`peer.shared`, set from
-            // permits, minus plan-discharged edges) partitioned by the rail
-            // row the ink occupies. A member whose style disagrees with the
-            // group is reported as-is; the rail-star checker files the
-            // defect (declared vs realized), never this producer.
             var members: std.ArrayListUnmanaged(ledger.RailClaimMember) = .empty;
             for (f.peers) |peer| {
                 if (!peer.shared) continue;
@@ -57,7 +48,6 @@ pub fn build(
                 .polarity = if (f.direction == .out) .out else .in,
                 .members = owned,
             };
-            // Fan discovery and member derivation must agree on the pivot.
             std.debug.assert(ledger.checkRailClaim(claim).derived_pivot == f.pivot);
             try out.append(a, claim);
         }
@@ -79,8 +69,6 @@ fn memberFor(
         return member;
     }
 
-    // The semantic member remains explicit when local routing supplied no
-    // endpoint artifact. Null sites make that lack of final evidence visible.
     return .{
         .edge = semantic.id,
         .endpoints = .{ semantic.from, semantic.to },

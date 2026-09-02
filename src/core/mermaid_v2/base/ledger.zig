@@ -17,7 +17,7 @@
 const std = @import("std");
 
 // Identity handles. Structurally identical to base/types.zig's u32 handles.
-// guarded-by: ledger_test.zig "identity handles match prim's"
+// @guarded-by: ledger_test.zig "identity handles match prim's"
 
 pub const NodeId = u32;
 pub const EdgeId = u32;
@@ -26,15 +26,11 @@ pub const BundleProposalId = u32;
 pub const SelectedBundleId = u32;
 pub const ComponentId = u32;
 
-// Branch policy (D-POLICY item 1).
-
 /// Exactly ONE constructible variant: the type system, not a runtime guard,
 /// makes non-joined policy unrepresentable. Only entry.zig (the composition
 /// root) may originate the value (D-POLICY item 3).
-/// guarded-by: ledger_test.zig "V-D-POLICY-01: BundlePolicy has exactly one variant, named joined"
+/// @guarded-by: ledger_test.zig "V-D-POLICY-01: BundlePolicy has exactly one variant, named joined"
 pub const BundlePolicy = enum { joined };
-
-// Logical records (plan/permission side).
 
 pub const BundleDirection = enum { out, in };
 
@@ -78,8 +74,6 @@ pub const BundlePermits = struct {
         return self.scope == .flat;
     }
 };
-
-// Logical records (candidate-local realization side).
 
 /// `licence_refused`: the group failed the geometry-free licence check —
 /// distinct from `not_selected`, where a licensed bundle simply realized no
@@ -170,7 +164,7 @@ pub fn fanInReMergeEligible(groups: []const CandidateBundle, index: usize) bool 
 
 /// The candidate-local artifact riding `Sketch.bundles` (D-IR item 4). All
 /// fields defaulted so `.{}` is the valid empty plan.
-/// guarded-by: ledger_test.zig "empty RealizedBundles is default-constructible with all-empty fields"
+/// @guarded-by: ledger_test.zig "empty RealizedBundles is default-constructible with all-empty fields"
 pub const RealizedBundles = struct {
     selected_bundles: []const SelectedBundle = &.{},
     rejected_proposals: []const BundleProposalId = &.{},
@@ -179,11 +173,11 @@ pub const RealizedBundles = struct {
     terminal_ports: []const TerminalPort = &.{},
     /// Declared edges whose ENTIRE rendering is another element's shared ink:
     /// the leaf-pair edges an all-arrow-free rail discharges by running its
-    /// crossbar between their two taps (the rail-closure law). A discharged
+    /// crossbar between their two taps (the rail-closure licence). A discharged
     /// edge owns no polyline, no port and no label of its own, so it must be
     /// withheld from independent routing — and it is NOT missing, because the
     /// crossbar between the taps IS its rendering.
-    /// guarded-by: rail_closure_test.zig "a fully declared clique keeps the rail and discharges every pair edge"
+    /// @guarded-by: rail_closure_test.zig "a fully declared clique keeps the rail and discharges every pair edge"
     discharged: []const EdgeId = &.{},
     /// Two-sided fusion licences: each entry is the member-edge UNION of a set
     /// of selected same-direction rails whose declared pairs are EXACTLY
@@ -191,11 +185,9 @@ pub const RealizedBundles = struct {
     /// closure test of base/rail_closure.zig, asked of the whole union). Such
     /// rails may share one rail row and their ink is ONE bundle; anything
     /// short of complete never appears here.
-    /// guarded-by: bundle_commit_test.zig "a complete bipartite of selected arrivals licenses one fused union"
+    /// @guarded-by: bundle_commit_test.zig "a complete bipartite of selected arrivals licenses one fused union"
     fused: []const []const EdgeId = &.{},
 };
-
-// -- Rail-closure report-only inventory --------------------------------------
 
 const rail_closure = @import("rail_closure.zig");
 
@@ -203,8 +195,6 @@ const rail_closure = @import("rail_closure.zig");
 /// the predicate itself lives in the sibling rail_closure.zig.
 pub const doubleDischarged = rail_closure.doubleDischarged;
 
-// The semantic RailClaim vocabulary is kept in a cap-safe base sibling and
-// re-exported here with the other universally importable ledger records.
 const rail_star = @import("rail_star.zig");
 
 pub const RailClaimId = rail_star.RailClaimId;
@@ -221,7 +211,7 @@ pub const RailLicence = rail_star.RailLicence;
 pub const RailLicenceCheck = rail_star.LicenceCheckResult;
 pub const checkRailLicence = rail_star.checkLicence;
 
-/// The all-arrow-free shared-rail closure law's REPORT-ONLY inventory
+/// The all-arrow-free shared-rail closure licence's REPORT-ONLY inventory
 /// (base/rail_closure.zig), carried on the Sketch so the shipped candidate's
 /// counts reach telemetry. Never read by a layout decision: a refusal is
 /// already expressed as the `independent` disposition that unfuses the
@@ -234,7 +224,7 @@ pub const ClosureCounts = struct {
     rail_member_style_mixed: u32 = 0,
     /// Construction-time non-star proposals privatized safely.
     rail_star_violation: u32 = 0,
-    /// Rails the law refused as proposed — outright, or by salvaging a strict
+    /// Rails the licence refused as proposed — outright, or by salvaging a strict
     /// subset. One per refused rail.
     rail_closure_undeclared: u32 = 0,
     /// Leaf pairs of a proposed rail with no usable backing declaration:
@@ -244,11 +234,6 @@ pub const ClosureCounts = struct {
     /// leaked and one relation is stated twice. Must stay zero.
     co_double_discharge: u32 = 0,
 };
-
-// -- Bundle membership ---------------------------------------------------
-// The set vocabulary itself lives in the sibling bundle.zig (split out
-// at the 500-line cap); re-exported so every `pb.Bundle` / `pb.bundleMembers`
-// call site is unchanged and type-identical.
 
 const bundle = @import("bundle.zig");
 
@@ -282,7 +267,7 @@ pub const bundlesAgree = bundle.bundlesAgree;
 /// `bundlesAgree` on every carrier a render files and counts the two
 /// answers agreeing and disagreeing. Nothing that only LABELS a record calls
 /// it any more.
-/// guarded-by: ledger_test.zig "the derivation and the recorded identity answer alike on a declared bundle"
+/// @guarded-by: ledger_test.zig "the derivation and the recorded identity answer alike on a declared bundle"
 pub fn derivedSameBundle(
     bundles: RealizedBundles,
     sets: []const Bundle,
@@ -312,16 +297,13 @@ fn holds(edges: []const EdgeId, edge: EdgeId) bool {
 ///
 /// Membership-equivalent to interrogating the plan directly: `bundleMembers` over
 /// the result answers what a `selected_bundles` scan answers.
-/// guarded-by: select_test.zig "bundles applied with the plan carry the plan's own membership"
+/// @guarded-by: select_test.zig "bundles applied with the plan carry the plan's own membership"
 pub fn bundlesFromPlan(
     allocator: std.mem.Allocator,
     bundles: RealizedBundles,
 ) error{OutOfMemory}![]const Bundle {
     if (bundles.selected_bundles.len == 0) return &.{};
     var out: std.ArrayListUnmanaged(Bundle) = .empty;
-    // A fused union replaces its rails' per-bundle sets: the rail is ONE
-    // bundle, and a member named by two structural sets is no bundle at all
-    // (`resolveStructuralBundle` reads that as .multiple).
     for (bundles.fused) |u| try out.append(allocator, .{ .origin = .selected_bundle, .members = u });
     for (bundles.selected_bundles) |j| {
         if (subsetOfAny(bundles.fused, j.members)) continue;
@@ -340,9 +322,6 @@ fn subsetOfAny(unions: []const []const EdgeId, members: []const EdgeId) bool {
     }
     return false;
 }
-
-// Component-table result types: the one shared output shape
-// emitted by BOTH reachability validators (D-IR items 1, 9, 10).
 
 pub const NodePair = struct {
     source: NodeId,
@@ -365,13 +344,9 @@ pub const ComponentEntry = struct {
 
 pub const ComponentTable = []const ComponentEntry;
 
-// Pinned ordinal tables (D-PORT clause 4, recorded verbatim). These tables
-// are the AUTHORITY for the enum components of canonical keys: values map
-// through them by tag NAME, so a future enum reorder cannot change K.
-
 pub const OrdinalEntry = struct { name: []const u8, ordinal: u8 };
 
-/// guarded-by: ledger_test.zig "D-PORT clause 4: every EdgeKind name→ordinal pair is pinned"
+/// @guarded-by: ledger_test.zig "D-PORT clause 4: every EdgeKind name→ordinal pair is pinned"
 pub const edge_kind_ordinals = [_]OrdinalEntry{
     .{ .name = "solid", .ordinal = 0 },
     .{ .name = "dotted", .ordinal = 1 },
@@ -380,7 +355,7 @@ pub const edge_kind_ordinals = [_]OrdinalEntry{
 };
 
 /// Both arrow fields (`arrow_from` and `arrow_to`) share this table.
-/// guarded-by: ledger_test.zig "D-PORT clause 4: every ArrowEnd name→ordinal pair is pinned"
+/// @guarded-by: ledger_test.zig "D-PORT clause 4: every ArrowEnd name→ordinal pair is pinned"
 pub const arrow_end_ordinals = [_]OrdinalEntry{
     .{ .name = "none", .ordinal = 0 },
     .{ .name = "open", .ordinal = 1 },
@@ -419,7 +394,7 @@ fn enumOrdinal(comptime table: []const OrdinalEntry, value: anytype) u8 {
 // clause 4). Purely semantic: node keys are raw_id BYTES and enum
 // components are pinned ordinals, so numeric NodeId/EdgeId are
 // unrepresentable in any key by construction.
-// guarded-by: ledger_test.zig "comparator keys carry no numeric ids by construction"
+// @guarded-by: ledger_test.zig "comparator keys carry no numeric ids by construction"
 
 /// Canonical NODE key order: source-declared identifier bytes, bytewise.
 pub fn nodeKeyOrder(a: []const u8, b: []const u8) std.math.Order {
@@ -435,7 +410,7 @@ pub fn labelOrder(a: ?[]const u8, b: ?[]const u8) std.math.Order {
 
 /// Canonical EDGE key (D-JOIN-SELECT item 1b), compared field-by-field in
 /// exactly this declaration order.
-/// guarded-by: ledger_test.zig "edge key comparator orders field-by-field with no-label-first"
+/// @guarded-by: ledger_test.zig "edge key comparator orders field-by-field with no-label-first"
 pub const EdgeKey = struct {
     /// `from` node key: raw_id bytes.
     from: []const u8,
@@ -467,7 +442,7 @@ pub fn edgeKeyOrder(a: EdgeKey, b: EdgeKey) std.math.Order {
 /// Canonical attachment key K for one (node, side) attachment (D-PORT
 /// clause 4), compared lexicographically field by field in exactly this
 /// declaration order.
-/// guarded-by: ledger_test.zig "attachment key K orders field-by-field with pinned ordinals"
+/// @guarded-by: ledger_test.zig "attachment key K orders field-by-field with pinned ordinals"
 pub const AttachmentKey = struct {
     /// Opposite endpoint's node key: raw_id bytes.
     opposite: []const u8,
@@ -495,9 +470,6 @@ pub fn attachmentKeyOrder(a: AttachmentKey, b: AttachmentKey) std.math.Order {
     return labelOrder(a.label, b.label);
 }
 
-// The static diagnostic registry lives in the sibling diagnostics.zig
-// (split out at the 500-line cap). Re-exported so every existing `pb.*`
-// call site (realized.zig, invariants.zig, the test tree) is unchanged.
 const diagnostics = @import("diagnostics.zig");
 
 pub const DispositionClass = diagnostics.DispositionClass;

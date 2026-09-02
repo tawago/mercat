@@ -79,8 +79,8 @@ fn railRole(p: lattice.RailPolarity) lattice.EdgeRole {
 /// lifts a plain `forward` first writer to the arriving dropper role).
 /// An ARROWHEAD occupant is recorded but never stamped: it carries no role
 /// at all, so there is nothing on it a rail role could describe.
-/// guarded-by: fan_roles_test.zig "a second rider stamps the family rail role; a lone rider leaves the dropper"
-/// guarded-by: tiling_records_test.zig "every rail-membership record names an edge the fan actually serves"
+/// @guarded-by: fan_roles_test.zig "a second rider stamps the family rail role; a lone rider leaves the dropper"
+/// @guarded-by: tiling_records_test.zig "every rail-membership record names an edge the fan actually serves"
 pub fn markShared(
     rec: aux.Recorder,
     cell: *lattice.Cell,
@@ -124,10 +124,10 @@ pub fn markShared(
 /// left exactly as the walk wrote it. Nor does it strip an ANSWERED arm
 /// (`armIsAnswered`): the pivot says which arm is spurious, but only where
 /// one of them is.
-/// guarded-by: fan_roles_test.zig "a shared run below its pivot keeps N and drops the child's descent"
-/// guarded-by: fan_roles_test.zig "the arm an arrowhead stands on is never the spurious one"
-/// guarded-by: fan_roles_test.zig "an arm a stroke answers back is left for nobody to strip"
-/// guarded-by: fan_roles_test.zig "under LR/RL the vertical is the rail itself, so nothing is stripped"
+/// @guarded-by: fan_roles_test.zig "a shared run below its pivot keeps N and drops the child's descent"
+/// @guarded-by: fan_roles_test.zig "the arm an arrowhead stands on is never the spurious one"
+/// @guarded-by: fan_roles_test.zig "an arm a stroke answers back is left for nobody to strip"
+/// @guarded-by: fan_roles_test.zig "under LR/RL the vertical is the rail itself, so nothing is stripped"
 pub fn resolveMasks(lat: *lattice.Lattice, s: sketch.Sketch) void {
     if (lat.width == 0 or lat.height == 0) return;
     switch (s.direction) {
@@ -141,8 +141,6 @@ pub fn resolveMasks(lat: *lattice.Lattice, s: sketch.Sketch) void {
             const cell = lat.at(x, y);
             const seg = switch (cell.occupant) {
                 .edge_segment => |q| q,
-                // Fan-IN shared runs keep all four bits, so `.fan_in_rail`
-                // is deliberately not matched here.
                 else => continue,
             };
             if (seg.role != .fan_out_rail) continue;
@@ -153,7 +151,6 @@ pub fn resolveMasks(lat: *lattice.Lattice, s: sketch.Sketch) void {
             if (continuesColumn(lat, x, y)) continue;
             const rect = pivotRect(s, lat.rail_claims, seg.edge, .out) orelse continue;
             const side = pivotSide(rect, y) orelse continue;
-            // The arm the pivot does NOT face is the strip candidate.
             const drop: lattice.Dir4 = switch (side) {
                 .north => .south,
                 .south => .north,
@@ -190,8 +187,8 @@ fn pivotSide(rect: sketch.Rect, y: u32) ?enum { north, south } {
 /// is still two rail rows threaded on one column, and the vertical joining
 /// them is still a real continuation. Asking for a matching polarity would
 /// narrow the reprieve to same-family stacks and sever the other case.
-/// guarded-by: fan_roles_test.zig "a grid rail keeps the rail-to-rail vertical (┼ over ┼)"
-/// guarded-by: fan_roles_test.zig "a fan-IN rail row one cell away reprieves the fan-OUT junction too"
+/// @guarded-by: fan_roles_test.zig "a grid rail keeps the rail-to-rail vertical (┼ over ┼)"
+/// @guarded-by: fan_roles_test.zig "a fan-IN rail row one cell away reprieves the fan-OUT junction too"
 fn continuesColumn(lat: *const lattice.Lattice, x: u32, y: u32) bool {
     for ([_]i64{ -1, 1 }) |dy| {
         const yi: i64 = @as(i64, y) + dy;
@@ -226,8 +223,8 @@ fn continuesColumn(lat: *const lattice.Lattice, x: u32, y: u32) bool {
 ///     run the edge writer closed, leaving one end asserting a connection
 ///     the other no longer offers. A spurious arm is one nothing answers;
 ///     an answered arm is, by that definition, not one.
-/// guarded-by: fan_roles_test.zig "the arm an arrowhead stands on is never the spurious one"
-/// guarded-by: fan_roles_test.zig "an arm a stroke answers back is left for nobody to strip"
+/// @guarded-by: fan_roles_test.zig "the arm an arrowhead stands on is never the spurious one"
+/// @guarded-by: fan_roles_test.zig "an arm a stroke answers back is left for nobody to strip"
 fn armIsAnswered(lat: *const lattice.Lattice, x: u32, y: u32, d: lattice.Dir4) bool {
     const dy: i64 = switch (d) {
         .north => -1,
@@ -239,7 +236,6 @@ fn armIsAnswered(lat: *const lattice.Lattice, x: u32, y: u32, d: lattice.Dir4) b
     const c = lat.atConst(x, @intCast(yi));
     return switch (c.occupant) {
         .arrowhead => |head| head.dir == d,
-        // The reciprocal of `.north` is the neighbour's `.s`, and vice versa.
         .edge_segment => switch (d) {
             .north => c.neighbours.s,
             .south => c.neighbours.n,

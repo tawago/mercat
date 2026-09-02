@@ -106,21 +106,15 @@ fn buildSketch(
 ) error{OutOfMemory}!sketch.Sketch {
     const total = lg.nodes.len;
     const geom = try a.alloc(NodeGeom, total);
-    // Parallel to `lg.nodes`: the display rows of each node, computed once
-    // here and reused for box size + painting.
     const node_lines = try a.alloc([]const []const u8, total);
 
     const is_td = graph.direction == .TD;
     const fans: []fan_mod.Fan = if (is_td) try fan_mod.detect(a, graph, lg) else &.{};
-    // The closure law's report-only counts ride the Sketch to telemetry: the
+    // The closure licence's report-only counts ride the Sketch to telemetry: the
     // registry tags name real events only if a production render can fire them.
-    // guarded-by: layout_test2.zig "a production render carries the closure law's counts on its Sketch"
+    // @guarded-by: layout_test2.zig "a production render carries the closure licence's counts on its Sketch"
     var closure: ledger.ClosureCounts = .{};
     addConstructionDiagnostics(&closure, fans);
-    // The plan this candidate realizes against: the root plan for a flat
-    // graph, a piece-scoped plan (piece-local ids) for a cluster-free piece
-    // of a clustered original, null otherwise. Every consumer below reads
-    // THIS plan, never opts.bundle_permits directly.
     const effective_plan: ?ledger.BundlePermits = try bundle_commit.effectivePlan(a, graph, opts.bundle_permits);
     const plan_ref: ?*const ledger.BundlePermits = if (effective_plan) |*p| p else null;
     var candidate_bundles = try bundle_commit.buildReported(a, graph, plan_ref, lg.reversed_edges, opts.disable_bundle_realization, &closure);
@@ -142,7 +136,7 @@ fn buildSketch(
     sizing.applyPortDemand(graph, lg, geom, derived);
     const layer_count: u32 = @intCast(lg.layers.len);
     const layer_h = try computeLayerHeights(a, lg, geom, layer_count);
-    // Inter-layer spacing depends on flow direction (TD=2 rows, LR/RL=4 cols). guarded-by: layout/layout_test.zig "inter-layer gap is 2 rows for TD but 4 columns for LR (same graph, default v_spacing)"
+    // Inter-layer spacing depends on flow direction (TD=2 rows, LR/RL=4 cols). @guarded-by: layout/layout_test.zig "inter-layer gap is 2 rows for TD but 4 columns for LR (same graph, default v_spacing)"
     const v_base: u32 = switch (graph.direction) {
         .TD => opts.v_spacing,
         .BT => unreachable,
@@ -159,7 +153,7 @@ fn buildSketch(
     // barycenter sweeps read geom.y, so running them ahead of assignY leaves x
     // byte-identical to the pre-reorder pipeline.
     //
-    // Drift compaction fires only for natural TD; LR/RL and the rotation rung's is_direction_rotated flag both suppress it. guarded-by: layout/layout_test.zig "drift compaction fires on natural TD but is suppressed by is_direction_rotated, and never fires for LR"
+    // Drift compaction fires only for natural TD; LR/RL and the rotation rung's is_direction_rotated flag both suppress it. @guarded-by: layout/layout_test.zig "drift compaction fires on natural TD but is suppressed by is_direction_rotated, and never fires for LR"
     const compact_x = (graph.direction == .TD) and !opts.is_direction_rotated;
 
     assignInitialX(graph, geom, lg.nodes, lg.layers, opts.h_spacing, opts.spacing_scale);
@@ -168,7 +162,7 @@ fn buildSketch(
 
     normalizeX(geom);
 
-    // Third .down sweep: the 2-pass (.down, .up) barycenter does not converge on fan-IN cases; re-running .down re-centers the sink onto the now-stable sources. guarded-by: layout/fan_test.zig "5-source fan-IN sink recenters onto the exact mean of its sources"
+    // Third .down sweep: the 2-pass (.down, .up) barycenter does not converge on fan-IN cases; re-running .down re-centers the sink onto the now-stable sources. @guarded-by: layout/fan_test.zig "5-source fan-IN sink recenters onto the exact mean of its sources"
     try centerByBarycenter(a, graph, geom, lg, opts.h_spacing, .down, compact_x, opts.spacing_scale);
 
     normalizeX(geom);
@@ -178,17 +172,14 @@ fn buildSketch(
     // than one target, that run speaks for a pivot none of its members shares,
     // so each rail takes its own rail row via fans[].lane and every declared
     // edge stays traceable. Single rails and pure fan-in|out stay lane 0.
-    // guarded-by: layout/fan_lanes_test.zig "incomplete overlapping fans get separate lanes"
-    // Labeled fan-IN sharing is feasibility-gated against the placed columns
-    // BEFORE lanes are assigned, so an infeasible fan's labeled members take
-    // the private-route lanes their labels need.
+    // @guarded-by: layout/fan_lanes_test.zig "incomplete overlapping fans get separate lanes"
     if (fans.len > 0) fan_mod.gateFanInSharedLabels(NodeGeom, fans, geom);
     if (fans.len > 0) try fan_lanes.assignLanes(NodeGeom, a, graph, lg, geom, fans, candidate_bundles, &closure);
 
     // Reserve max(lane)+1 gap rows per fan gap (extraRowsPerGap reads fans[].lane).
     // The label-feasibility gate first clears `labeled` on fans whose on-run
     // candidate is doomed (will grid-wrap / no label can ever fit), so they
-    // reserve no dead label rows. guarded-by: layout/fan_test.zig "label reservation gate clears doomed fans and keeps feasible ones"
+    // reserve no dead label rows. @guarded-by: layout/fan_test.zig "label reservation gate clears doomed fans and keeps feasible ones"
     if (v_sp_per_gap.len > 0 and fans.len > 0) {
         // The fan's reserved gap rows are a LABEL reservation, not an ON-RUN
         // one: a `.beside` fan needs them just as much, because that is where
@@ -197,7 +188,7 @@ fn buildSketch(
         // which the height tier then bought at the price of labels stranded on
         // the rail row next to a dropper they do not belong to. The policy axis
         // is a RASTER-form axis; both twins pay the same layout reservation.
-        // guarded-by: select_test3.zig "the beside twin keeps the labeled fan's reserved rows"
+        // @guarded-by: select_test3.zig "the beside twin keeps the labeled fan's reserved rows"
         fan_mod.gateLabelReservations(NodeGeom, graph, fans, geom, opts.max_width, opts.h_spacing);
         const extras = try fan_mod.extraRowsPerGap(a, lg, fans);
         for (extras, 0..) |x, i| {
@@ -207,7 +198,7 @@ fn buildSketch(
     for (lane_plan.extra_rows, 0..) |extra, i| if (i < v_sp_per_gap.len) {
         v_sp_per_gap[i] += extra;
     };
-    // Skip-corridor headroom (TD): reserves the extra gap row a ≥2-layer edge's target layer needs for a clean vertical descent. guarded-by: layout/layout_test.zig "a skip edge reserves exactly one extra gap row above its target layer, a plain chain reserves none"
+    // Skip-corridor headroom (TD): reserves the extra gap row a ≥2-layer edge's target layer needs for a clean vertical descent. @guarded-by: layout/layout_test.zig "a skip edge reserves exactly one extra gap row above its target layer, a plain chain reserves none"
     if (is_td and v_sp_per_gap.len > 0) {
         const extras = try routing.skipCorridorExtraRows(a, lg);
         for (extras, 0..) |x, i| {
@@ -225,7 +216,7 @@ fn buildSketch(
     // perturbs its height score and can flip candidate selection (GUARD 2 —
     // price the row only where TD is the FINAL direction). Same gate as the
     // other direction-dependent TD levers (compact_x, back-edge rail width).
-    // guarded-by: layout/layout_test.zig "an offset adjacent terminal in a bare TD gap reserves exactly one extra row; a column-aligned terminal reserves none"
+    // @guarded-by: layout/layout_test.zig "an offset adjacent terminal in a bare TD gap reserves exactly one extra row; a column-aligned terminal reserves none"
     if (is_td and !opts.is_direction_rotated and v_sp_per_gap.len > 0) {
         const extras = try routing.terminalApproachExtraRows(NodeGeom, a, graph, lg, geom);
         for (extras, 0..) |x, i| {
@@ -235,10 +226,7 @@ fn buildSketch(
     }
     assignY(geom, lg.layers, layer_h, v_sp_per_gap);
 
-    // Flush-left justification: a pure leftward shift, so it can only narrow or hold the bbox, never widen it. guarded-by: layout/x_assign_test.zig "flushLeftRows never widens the bounding box"
-    // Shared width-pressure gate for the direction-preserving TD reflow levers
-    // (flush-left, component-pack, rank-grid, de-cascade). `compact_x` already
-    // implies TD-and-not-rotated; false on the natural rung (byte-identical).
+    // Flush-left justification: a pure leftward shift, so it can only narrow or hold the bbox, never widen it. @guarded-by: layout/x_assign_test.zig "flushLeftRows never widens the bounding box"
     const td_pressure = opts.justify == .flush_left and compact_x;
     if (td_pressure) {
         flushLeftRows(graph, geom, lg);
@@ -252,32 +240,24 @@ fn buildSketch(
     // sum of every component's cross-aligned drift. Pure x-translation per
     // component (internal rails preserved, each component stays a contiguous
     // rect).
-    // No-op for single-component graphs. guarded-by: layout/components_test.zig "packComponents leaves node geometry unchanged for a single connected component"
+    // No-op for single-component graphs. @guarded-by: layout/components_test.zig "packComponents leaves node geometry unchanged for a single connected component"
     if (td_pressure) {
         try components.packComponents(a, graph, geom, lg);
         normalizeX(geom);
     }
 
-    // Wide fan wrapping (TD): a high-degree fan whose peers, in a single row,
-    // would blow the width budget is re-flowed into a grid of stacked rows —
-    // without it the budget ladder rotates the whole diagram to LR. Fan-OUT
-    // wraps on any TD rung (internally budget-gated); fan-IN additionally
-    // requires `td_pressure` (which implies `is_td`) so a fan-IN that already
-    // fits its width stays byte-identical. See wrapWideFanOut / wrapWideFanIn.
     if (is_td and fans.len > 0) {
         fan_mod.wrapWideFanOut(NodeGeom, fans, geom, opts.max_width, opts.h_spacing, opts.v_spacing);
         if (td_pressure) fan_mod.wrapWideFanIn(NodeGeom, fans, geom, opts.max_width, opts.h_spacing, opts.v_spacing);
         normalizeX(geom);
     }
 
-    // Lever B: rank-grid re-flows any over-wide Sugiyama LAYER into a stacked grid, pushing lower layers down; layers a wide fan-OUT already grid-wrapped are skipped since edges re-route from final geom. guarded-by: layout/rank_grid_test.zig "rank-grid leaves a wrapped fan-OUT layer as one row but still grids an over-wide multi-pivot sibling layer"
+    // Lever B: rank-grid re-flows any over-wide Sugiyama LAYER into a stacked grid, pushing lower layers down; layers a wide fan-OUT already grid-wrapped are skipped since edges re-route from final geom. @guarded-by: layout/rank_grid_test.zig "rank-grid leaves a wrapped fan-OUT layer as one row but still grids an over-wide multi-pivot sibling layer"
     if (td_pressure) {
         rank_grid.reflowWideRanks(NodeGeom, lg, geom, opts.max_width, opts.h_spacing, opts.v_spacing);
         normalizeX(geom);
     }
 
-    // Lever D: TD single-node de-cascade — slide a drifted single-node chain
-    // back to the margin as a rigid unit (no-op on natural). See decascade.zig.
     if (td_pressure) {
         try decascade.deCascade(a, graph, geom, lg);
         normalizeX(geom);
@@ -297,7 +277,7 @@ fn buildSketch(
     const edges_out = edges_result.edges;
     const clusters_out = try clusters.buildClusters(a, graph, placements, opts.node_padding);
 
-    // Arm the back-edge return-rail width lever only for AUTHORED top-down flows; `!is_direction_rotated` excludes an LR seed's TD rotation so the lever never changes a rotated candidate's fit verdict. guarded-by: layout/clusters_test.zig "the back-edge rail label lever fires for authored TD but not for a rotated TD"
+    // Arm the back-edge return-rail width lever only for AUTHORED top-down flows; `!is_direction_rotated` excludes an LR seed's TD rotation so the lever never changes a rotated candidate's fit verdict. @guarded-by: layout/clusters_test.zig "the back-edge rail label lever fires for authored TD but not for a rotated TD"
     const rail_lever = (opts.spacing_scale > 0) and
         (graph.direction == .TD) and !opts.is_direction_rotated;
     const bbox = clusters.computeBbox(placements, edges_out, clusters_out, edges_result.polylines, edges_result.rails, rail_lever, opts.max_width);
@@ -308,9 +288,6 @@ fn buildSketch(
             .in_cluster = null,
         } });
     }
-    // forced_label_wrap: a node whose painted line count exceeds its author
-    // hard-segment count was soft-wrapped under budget pressure. Only the
-    // wrap_labels rung can trigger this (max_label_width set).
     if (opts.max_label_width != null) {
         for (lg.nodes, 0..) |ln, i| {
             const nid = switch (ln) {
@@ -324,21 +301,14 @@ fn buildSketch(
         }
     }
 
-    // Freeze the rails AFTER computeBbox's shift pass — their slices still alias the shifted mutable buffers before that point. guarded-by: layout/fan_rail_test.zig "rail taps stay in sync with their target node's post-shift position"
+    // Freeze the rails AFTER computeBbox's shift pass — their slices still alias the shifted mutable buffers before that point. @guarded-by: layout/fan_rail_test.zig "rail taps stay in sync with their target node's post-shift position"
     const rails_out = try a.alloc(sketch.Rail, edges_result.rails.len);
     for (edges_result.rails, rails_out) |b, *out| out.* = b.rail;
 
-    // A discharged edge is rendered by a rail's crossbar, so owning an
-    // EdgePath too would state its relation twice. Measured over the sketch
-    // this call is finalizing — the artifact, never a re-derivation.
     const routed = try a.alloc(ledger.EdgeId, edges_out.len);
     for (edges_out, routed) |e, *slot| slot.* = e.id;
     closure.co_double_discharge = ledger.doubleDischarged(candidate_bundles.discharged, routed);
 
-    // A piece candidate never passes through select.applyPlan (that gate is
-    // the root plan's), so the plan-derived bundles that sanction its rail
-    // merges are attached HERE, replacing the fan-derived population exactly
-    // as applyPlan does for a flat candidate that realized.
     const piece_realized = if (plan_ref) |p| p.scope == .piece and candidate_bundles.selected_bundles.len != 0 else false;
     const base_sets = if (piece_realized)
         ledger.bundlesFromPlan(a, candidate_bundles) catch edges_result.bundle_sets
@@ -346,7 +316,7 @@ fn buildSketch(
         edges_result.bundle_sets;
     var out = sketch.Sketch{
         .bbox = bbox,
-        .direction = graph.direction, // BT was canonicalized to TD above; unreachable here
+        .direction = graph.direction,
         .nodes = placements,
         .clusters = clusters_out,
         .edges = edges_out,
@@ -359,14 +329,12 @@ fn buildSketch(
         // perimeter port and records nothing, so the only declaration of that
         // legal ink sharing is the geometry itself. Appended, never
         // substituted (sketch_ports.appendPortShares).
-        // guarded-by: sketch_ports_test.zig "shared departure port groups its edges"
+        // @guarded-by: sketch_ports_test.zig "shared departure port groups its edges"
         .bundle_sets = sketch_ports.appendPortShares(a, base_sets, edges_out) catch base_sets,
         .diagnostics = try diagnostics.toOwnedSlice(a),
         .budget = .{ .max_width = opts.max_width, .rung = opts.rung },
         .label_policy = opts.label_policy,
     };
-    // The bundle list is final here, so this is where it becomes a roster: one
-    // identity per bundle, and every rail stamped with the one it rides.
     sketch_bundles.stamp(a, &out);
     return out;
 }
@@ -393,10 +361,6 @@ fn hasPrivatePeers(fans: []const fan_mod.Fan) bool {
     for (fans) |f| for (f.peers) |peer| if (!peer.shared) return true;
     return false;
 }
-
-// ===================================================================
-// Sizing — see layout/sizing.zig
-// ===================================================================
 
 const sizeNodes = sizing.sizeNodes;
 const realNode = sizing.realNode;
@@ -454,20 +418,11 @@ fn computeLayerSpacings(
     return gaps;
 }
 
-// ===================================================================
-// X assignment — see layout/x_assign.zig
-// ===================================================================
-
 const assignInitialX = cx_mod.assignInitialX;
 const centerByBarycenter = cx_mod.centerByBarycenter;
 const normalizeX = cx_mod.normalizeX;
 const centersX = cx_mod.centersX;
 const flushLeftRows = cx_mod.flushLeftRows;
-
-// ===================================================================
-// Placements — see layout/sizing.zig (also owns realNode and the
-// node_lines bundle placements reuse).
-// ===================================================================
 
 const buildPlacements = sizing.buildPlacements;
 

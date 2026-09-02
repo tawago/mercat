@@ -70,7 +70,6 @@ pub fn run(
             };
         }
     }
-    // Unreachable: the loop always returns at rung == .truncate.
     unreachable;
 }
 
@@ -126,7 +125,6 @@ fn tryRung(
 /// non-rotated rung has already had its chance to compact.
 fn ladderAccepts(rung: Rung, result: sketch.Sketch) bool {
     if (rung == .switch_direction) {
-        // Rotated but still overflows: do NOT switch.
         return !hasWidthOverflow(result.diagnostics);
     }
     return rung == .truncate or !hasWidthOverflow(result.diagnostics);
@@ -167,13 +165,12 @@ pub fn enumerate(
                 incumbent = .{ .sketch = attempt.sketch, .final_rung = rung, .attempts = attempts };
             }
         } else {
-            // Post-incumbent: scoring-only extra work; failures skipped.
             const result = layoutRung(arena, graph, bundle_permits, max_width, rung, .on_run) catch continue;
             try candidates.append(arena, .{ .rung = rung, .sketch = result, .accepted = false });
         }
     }
     return .{
-        // guarded-by: budget_test.zig "enumerate/run always resolve an incumbent across degenerate graphs and widths"
+        // @guarded-by: budget_test.zig "enumerate/run always resolve an incumbent across degenerate graphs and widths"
         .incumbent = incumbent.?,
         .candidates = try candidates.toOwnedSlice(arena),
     };
@@ -217,7 +214,7 @@ pub fn runForcedIndependent(
 /// each promising `.on_run` candidate so the score chooses the placement
 /// policy per diagram. Every other driver here is pinned to `.on_run`, so
 /// the debug paths (`runForced`, `MERCAT_FORCE_RUNG`) keep today's behavior.
-/// guarded-by: select_test3.zig "the beside twin keeps the labeled fan's reserved rows"
+/// @guarded-by: select_test3.zig "the beside twin keeps the labeled fan's reserved rows"
 pub fn runVariant(
     arena: std.mem.Allocator,
     graph: sem_graph.SemGraph,
@@ -237,7 +234,7 @@ pub fn runVariant(
 /// raster chooses the bridge routing — routing never picks between the
 /// variants itself (confluence selection note). Every other driver here
 /// keeps the `.plain` default, so the debug paths keep one fixed geometry.
-/// guarded-by: select_test3.zig "bridge variants: the real-raster score decides, and flips when the counts flip"
+/// @guarded-by: select_test3.zig "bridge variants: the real-raster score decides, and flips when the counts flip"
 pub fn runBridgeVariant(
     arena: std.mem.Allocator,
     graph: sem_graph.SemGraph,
@@ -260,10 +257,6 @@ pub fn runBridgeVariant(
 /// (borrowed slices), leaving the caller's graph unmutated.
 fn optionsFor(rung: Rung, max_width: u32) coords.LayoutOptions {
     const defaults: coords.LayoutOptions = .{};
-    // Every rung ABOVE `natural` packs rows flush-left (recovering orphan
-    // whitespace) and halves the pure inter-cluster gaps (frame insets stay
-    // full-size). The `natural` rung keeps centering + full gaps so fitting
-    // seeds stay byte-identical.
     return switch (rung) {
         .natural => .{
             .max_width = max_width,
@@ -284,10 +277,6 @@ fn optionsFor(rung: Rung, max_width: u32) coords.LayoutOptions {
             .spacing_scale = 1,
         },
         .wrap_labels => .{
-            // Tight spacing + a soft word-wrap cap. The cap is the budget
-            // minus the per-box chrome a wrapped label still needs: 2 border
-            // columns + 2*node_padding interior pad. Saturating so a tiny
-            // budget can't underflow (then sizeNodes clamps to shape minima).
             .max_width = max_width,
             .h_spacing = halveAtLeastOne(defaults.h_spacing),
             .v_spacing = halveAtLeastOne(defaults.v_spacing),
@@ -298,10 +287,6 @@ fn optionsFor(rung: Rung, max_width: u32) coords.LayoutOptions {
             .spacing_scale = 1,
         },
         .switch_direction => .{
-            // Rotated direction is applied via `rotateForRung` on the
-            // graph itself; LayoutOptions stays at tight spacing. The
-            // `is_direction_rotated` flag tells layout to suppress drift
-            // compaction for the re-laid LR-as-TD chain.
             .max_width = max_width,
             .h_spacing = halveAtLeastOne(defaults.h_spacing),
             .v_spacing = halveAtLeastOne(defaults.v_spacing),
@@ -312,9 +297,6 @@ fn optionsFor(rung: Rung, max_width: u32) coords.LayoutOptions {
             .spacing_scale = 1,
         },
         .truncate => .{
-            // Tightest options we can express. Layout still produces a
-            // Sketch (possibly with width_overflow); caller treats this
-            // as success regardless.
             .max_width = max_width,
             .h_spacing = halveAtLeastOne(defaults.h_spacing),
             .v_spacing = halveAtLeastOne(defaults.v_spacing),
@@ -351,13 +333,6 @@ pub fn hasWidthOverflow(diagnostics: []const sketch.Diagnostic) bool {
     }
     return false;
 }
-
-// ====================================================================
-// Tests
-// ====================================================================
-// Graph-level ladder tests (run/enumerate/runForced over parsed graphs)
-// live in budget_test.zig to keep this file under the 500-line cap; the
-// tests below cover the pure private helpers only.
 
 test {
     _ = @import("budget_test.zig");

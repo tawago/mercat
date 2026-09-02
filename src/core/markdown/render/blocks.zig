@@ -81,12 +81,8 @@ pub fn renderHeading(allocator: std.mem.Allocator, builder: *Builder, heading: B
 
     const sd = decor.headingSlot(heading.level);
 
-    // `blank_wrap` (pink h1): the heading owns a blank line instead of a marker.
     if (sd.blank_wrap) try builder.newline();
 
-    // Per-slot cumulative indent (markview headings) is emitted as leading
-    // heading-styled spaces so a full-line bg tints them too. The marker prefix
-    // (empty when markers are suppressed) follows the indent.
     const marker = if (show_markers) sd.prefix else "";
     const prefix = if (sd.shift == 0) blk: {
         break :blk try allocator.dupe(u8, marker);
@@ -99,11 +95,6 @@ pub fn renderHeading(allocator: std.mem.Allocator, builder: *Builder, heading: B
 
     try wrap.renderWrappedInlines(allocator, builder, heading.content, width, heading_style, prefix, heading_style, prefix, heading_style, decor);
 
-    // Optional per-heading underline row: one extra row directly below the last
-    // wrapped line, filled edge-to-edge with the slot's glyph in the heading's
-    // own style (fg + bg). A space glyph acts as a padding row; "─"/"═" as a
-    // setext-style rule. `newline` flushes the (last) heading line so the row
-    // lands below it; the block loop then flushes the row itself.
     if (sd.underline_row) {
         try builder.newline();
         try rules.renderUnderlineRow(allocator, builder, width, heading_style, sd.underline_glyph);
@@ -111,14 +102,12 @@ pub fn renderHeading(allocator: std.mem.Allocator, builder: *Builder, heading: B
 }
 
 pub fn renderParagraph(allocator: std.mem.Allocator, builder: *Builder, inlines: []const Inline, width: usize, prefix_style: SpanStyle, indent: u8, decor: *const Decor) !void {
-    // Create indent prefix if needed
     const indent_prefix = if (indent > 0)
         try repeatSpaces(allocator, indent)
     else
         "";
     defer if (indent > 0) allocator.free(indent_prefix);
 
-    // Split by soft_break/line_break for multi-line paragraphs
     var start: usize = 0;
     for (inlines, 0..) |inline_, i| {
         if (inline_ == .soft_break or inline_ == .line_break) {
@@ -132,9 +121,7 @@ pub fn renderParagraph(allocator: std.mem.Allocator, builder: *Builder, inlines:
     if (start < inlines.len) {
         if (start > 0) try builder.newline();
         try wrap.renderWrappedInlines(allocator, builder, inlines[start..], width, .body, indent_prefix, prefix_style, "", prefix_style, decor);
-    } else if (start == 0 and inlines.len == 0) {
-        // Empty paragraph
-    }
+    } else if (start == 0 and inlines.len == 0) {}
 }
 
 pub fn renderListItem(allocator: std.mem.Allocator, builder: *Builder, item: Block.ListItem, width: usize, display_marker: []const u8, marker_style: SpanStyle, depth: u8, decor: *const Decor) anyerror!void {
@@ -151,7 +138,6 @@ pub fn renderListItem(allocator: std.mem.Allocator, builder: *Builder, item: Blo
     const continuation = try std.mem.concat(allocator, u8, &.{ indent, continuation_spaces });
     defer allocator.free(continuation);
 
-    // Render main content
     var start: usize = 0;
     var first = true;
     for (item.content, 0..) |inline_, i| {
@@ -175,7 +161,6 @@ pub fn renderListItem(allocator: std.mem.Allocator, builder: *Builder, item: Blo
         try builder.appendSpan(marker_style, first_prefix);
     }
 
-    // Render nested items
     for (item.nested) |nested| {
         try builder.newline();
         switch (nested) {
@@ -224,35 +209,27 @@ pub fn renderTaskItem(allocator: std.mem.Allocator, builder: *Builder, content: 
 }
 
 pub fn renderBlockQuote(allocator: std.mem.Allocator, builder: *Builder, bq: Block.BlockQuote, width: usize, left_padding: usize, decor: *const Decor) !void {
-    // Build the prefix: left padding, then a per-depth quote bar (from decor) +
-    // one trailing space, or — when the theme carries no bar (dracula) — a flat
-    // `quote_indent` indent.
     var prefix_buf: std.ArrayList(u8) = .empty;
     defer prefix_buf.deinit(allocator);
     try prefix_buf.appendNTimes(allocator, ' ', left_padding);
     try appendQuotePrefix(allocator, &prefix_buf, decor, bq.depth);
     const prefix = prefix_buf.items;
 
-    // Columns, not bytes: the quote bar is a 3-byte, width-1 glyph.
     const content_width = width -| try geometry.displayWidth(prefix);
 
-    // Render each block inside the blockquote with the prefix
     var first_block = true;
     for (bq.blocks) |block| {
         if (!first_block) try builder.newline();
         first_block = false;
 
-        // Check if this is a blockquote - nested blockquotes handle their own prefixing
         if (block == .blockquote) {
             const nested_bq = block.blockquote;
             try renderBlockQuote(allocator, builder, nested_bq, width, left_padding, decor);
             continue;
         }
 
-        // Record the starting line count
         const initial_line_count = builder.lines.items.len;
 
-        // Render the block - this adds new lines to builder
         switch (block) {
             .heading => |h| try renderHeading(allocator, builder, h, content_width, true, decor),
             .paragraph => |p| try renderParagraph(allocator, builder, p.content, content_width, .body, p.indent, decor),
@@ -278,21 +255,17 @@ pub fn renderBlockQuote(allocator: std.mem.Allocator, builder: *Builder, bq: Blo
             else => {},
         }
 
-        // Finalize current line if it has content
         if (builder.hasPending()) {
             try builder.newline();
         }
 
-        // Prefix the newly added lines
         const final_line_count = builder.lines.items.len;
         for (initial_line_count..final_line_count) |line_idx| {
             var line = &builder.lines.items[line_idx];
 
-            // Create a new spans array with the blockquote prefix replacing the left padding
             var new_spans: std.ArrayList(types.Span) = .empty;
             defer new_spans.deinit(allocator);
 
-            // Check if the first span is just padding (spaces) - if so, replace it with the blockquote prefix
             const is_padding_span = blk: {
                 if (line.spans.len == 0) break :blk false;
                 const first_span_text = line.spans[0].text;
@@ -303,21 +276,17 @@ pub fn renderBlockQuote(allocator: std.mem.Allocator, builder: *Builder, bq: Blo
             };
 
             if (is_padding_span) {
-                // Replace the padding span with the blockquote prefix
                 try new_spans.append(allocator, .{ .style = .quote, .text = try allocator.dupe(u8, prefix) });
-                // Add remaining spans
                 for (line.spans[1..]) |span| {
                     try new_spans.append(allocator, .{ .style = span.style, .text = try allocator.dupe(u8, span.text), .url = if (span.url) |url| try allocator.dupe(u8, url) else null });
                 }
             } else {
-                // No padding span found, just prepend the blockquote prefix
                 try new_spans.append(allocator, .{ .style = .quote, .text = try allocator.dupe(u8, prefix) });
                 for (line.spans) |span| {
                     try new_spans.append(allocator, .{ .style = span.style, .text = try allocator.dupe(u8, span.text), .url = if (span.url) |url| try allocator.dupe(u8, url) else null });
                 }
             }
 
-            // Free the old spans and assign the new ones
             for (line.spans) |span| {
                 allocator.free(span.text);
                 if (span.url) |url| allocator.free(url);
@@ -331,7 +300,6 @@ pub fn renderBlockQuote(allocator: std.mem.Allocator, builder: *Builder, bq: Blo
 
 /// Renders a blockquote with a custom base prefix (for blockquotes inside list items)
 pub fn renderBlockQuoteWithPrefix(allocator: std.mem.Allocator, builder: *Builder, bq: Block.BlockQuote, width: usize, base_prefix: []const u8, decor: *const Decor) anyerror!void {
-    // Build the prefix: base_prefix + per-depth quote bar (from decor) + space.
     var prefix_buf: std.ArrayList(u8) = .empty;
     defer prefix_buf.deinit(allocator);
     try prefix_buf.appendSlice(allocator, base_prefix);
@@ -339,10 +307,8 @@ pub fn renderBlockQuoteWithPrefix(allocator: std.mem.Allocator, builder: *Builde
     try appendQuotePrefix(allocator, &prefix_buf, decor, bq.depth);
     const prefix = prefix_buf.items;
 
-    // Columns, not bytes: the quote bar is a 3-byte, width-1 glyph.
     const content_width = width -| try geometry.displayWidth(prefix_buf.items[bar_len_start..]);
 
-    // Render each block inside the blockquote
     var first_block = true;
     for (bq.blocks) |block| {
         if (!first_block) try builder.newline();
@@ -354,10 +320,8 @@ pub fn renderBlockQuoteWithPrefix(allocator: std.mem.Allocator, builder: *Builde
             continue;
         }
 
-        // Record the starting line count
         const initial_line_count = builder.lines.items.len;
 
-        // Render the block
         switch (block) {
             .heading => |h| try renderHeading(allocator, builder, h, content_width, true, decor),
             .paragraph => |p| try renderParagraph(allocator, builder, p.content, content_width, .body, p.indent, decor),
@@ -377,12 +341,10 @@ pub fn renderBlockQuoteWithPrefix(allocator: std.mem.Allocator, builder: *Builde
             else => {},
         }
 
-        // Finalize current line
         if (builder.hasPending()) {
             try builder.newline();
         }
 
-        // Prefix the newly added lines
         const final_line_count = builder.lines.items.len;
         for (initial_line_count..final_line_count) |line_idx| {
             var line = &builder.lines.items[line_idx];

@@ -85,14 +85,11 @@ fn pairAtWithPort(ink: lattice.Cell, d: lattice.Dir4, ring: lattice.Cell) counts
     g.set(p.x, p.y, ring);
     var lat = g.lat();
     const records = [_]lattice.Aux{
-        // The port stroke's merged arm points back toward the ink cell.
         .{ .cell = lat.cellIndex(p.x, p.y), .value = 7, .kind = .port, .detail = lattice.portArmDetail(cell.reverse(d)) },
     };
     lat.aux = &records;
     return scanAll(&lat);
 }
-
-// -- Node faces: all four bare/arrow combinations are conventions -------------
 
 test "node face: a bare stroke arriving vertically is a convention" {
     const c = pairAt(edgeCell(.{ .n = true, .s = true }), .south, border(.edge_n, .{ .e = true, .w = true }));
@@ -109,9 +106,6 @@ test "node face: a bare stroke arriving horizontally is a convention" {
 }
 
 test "node face: an arrowhead tip on a horizontal face is a convention" {
-    // The single most common thing the renderer draws: `A --> B` top-down.
-    // Nothing ever writes a reciprocal bit into the TARGET border, so a
-    // defect bucket here would fire on every diagram in the corpus.
     const c = pairAt(arrowCell(.south, .{ .n = true }), .south, border(.edge_n, .{ .e = true, .w = true }));
     try testing.expectEqual(@as(u32, 1), c.n_term_abut);
     try testing.expectEqual(@as(u32, 1), c.c_term_node_ns_arrow);
@@ -125,11 +119,7 @@ test "node face: an arrowhead tip on a vertical face is a convention" {
     try testing.expectEqual(@as(u32, 0), c.defectTotal());
 }
 
-// -- The one node defect: a corner ------------------------------------------
-
 test "node corner: ink landing on a corner is a defect for stroke and arrowhead alike" {
-    // Perimeter ports are issued as face offsets only, so nothing the
-    // router emits should ever end on a corner cell.
     const bare = pairAt(edgeCell(.{ .n = true, .s = true }), .south, border(.corner_nw, .{ .e = true, .s = true }));
     try testing.expectEqual(@as(u32, 1), bare.d_term_node_corner);
     try testing.expectEqual(@as(u32, 1), bare.defectTotal());
@@ -138,8 +128,6 @@ test "node corner: ink landing on a corner is a defect for stroke and arrowhead 
     try testing.expectEqual(@as(u32, 1), tipped.d_term_node_corner);
     try testing.expectEqual(@as(u32, 1), tipped.defectTotal());
 }
-
-// -- Frames: bare crossings are legal, an arrowhead is not -------------------
 
 test "frame: a bare stroke against a face or a corner is frame-solid" {
     const face = pairAt(edgeCell(.{ .n = true, .s = true }), .south, frame(.edge_n, .{ .e = true, .w = true }));
@@ -152,8 +140,6 @@ test "frame: a bare stroke against a face or a corner is frame-solid" {
 }
 
 test "frame: an arrowhead still abutting untouched frame stopped short" {
-    // A genuine arrival into a cluster REPLACES the frame cell with the
-    // arrowhead, so the pair below cannot be the result of one.
     for ([_]lattice.BorderRole{ .edge_n, .corner_nw }) |role| {
         const c = pairAt(arrowCell(.south, .{ .n = true }), .south, frame(role, .{ .e = true, .w = true }));
         try testing.expectEqual(@as(u32, 1), c.n_term_abut);
@@ -162,12 +148,7 @@ test "frame: an arrowhead still abutting untouched frame stopped short" {
     }
 }
 
-// -- Reciprocation and the reprieved gap ------------------------------------
-
 test "a port record claims the pair before any face verdict" {
-    // The border merge stamps the departure bit into the cell the run
-    // LEAVES and files a `.port` record naming the edge that did it. The
-    // record is the signature; the bit is only a consequence.
     const c = pairAtWithPort(edgeCell(.{ .n = true, .s = true }), .north, border(.edge_s, .{ .e = true, .w = true, .s = true }));
     try testing.expectEqual(@as(u32, 1), c.n_term_abut);
     try testing.expectEqual(@as(u32, 1), c.c_term_port_recorded);
@@ -177,11 +158,6 @@ test "a port record claims the pair before any face verdict" {
 }
 
 test "an unrecorded ring arm is neither a departure nor a face verdict" {
-    // The identical geometry with NO record behind the arm. Something put
-    // that bit there — the arrowhead-base weld ORs one into a border cell
-    // for any tip — but it was not a departure, and the old mask-only
-    // reading called it one. Now it lands in its own bucket, and still
-    // draws no face verdict: the arm's writer accounts for it elsewhere.
     const c = pairAt(edgeCell(.{ .n = true, .s = true }), .north, border(.edge_s, .{ .e = true, .w = true, .s = true }));
     try testing.expectEqual(@as(u32, 1), c.n_term_abut);
     try testing.expectEqual(@as(u32, 0), c.c_term_port_recorded);
@@ -191,9 +167,6 @@ test "an unrecorded ring arm is neither a departure nor a face verdict" {
 }
 
 test "a port record on a ring the pair never reaches changes nothing" {
-    // The record is positional: it claims the pair only when it sits on
-    // the ring cell this arm actually touches. A record one cell away
-    // must not silence an arrival.
     var g: Grid = .{};
     g.init();
     g.set(2, 2, edgeCell(.{ .n = true, .s = true }));
@@ -212,7 +185,6 @@ test "a port record on a ring the pair never reaches changes nothing" {
 test "gap: a ring one cell beyond a reprieved blank is a pair with no face verdict" {
     var g: Grid = .{};
     g.init();
-    // (2,2) stroke -> (2,3) blank -> (2,4) ring that reciprocates.
     g.set(2, 2, edgeCell(.{ .n = true, .s = true }));
     g.set(2, 4, border(.edge_n, .{ .e = true, .w = true, .n = true }));
     const lat = g.lat();
@@ -226,8 +198,6 @@ test "gap: a ring one cell beyond a reprieved blank is a pair with no face verdi
 test "gap: an unreprieved blank is no pair at all - that arm is the stroke family's" {
     var g: Grid = .{};
     g.init();
-    // The ring two cells away does NOT carry the arm back, so the walk is
-    // not reprieved: the arm is dangling, which this family never files.
     g.set(2, 2, edgeCell(.{ .n = true, .s = true }));
     g.set(2, 4, border(.edge_n, .{ .e = true, .w = true }));
     const lat = g.lat();
@@ -236,14 +206,9 @@ test "gap: an unreprieved blank is no pair at all - that arm is the stroke famil
     try testing.expectEqual(@as(u32, 0), c.defectTotal());
 }
 
-// -- Exclusions --------------------------------------------------------------
-
 test "ghost: an invisible edge starts no pair and ends none" {
     var g: Grid = .{};
     g.init();
-    // An invisible segment carrying a full straight mask, sandwiched
-    // between two node borders. It occupies its cell and paints nothing,
-    // so no terminal law may attach to it.
     g.set(2, 1, border(.edge_s, .{ .e = true, .w = true }));
     g.set(2, 2, ghostCell(.{ .n = true, .s = true }));
     g.set(2, 3, border(.edge_n, .{ .e = true, .w = true }));
@@ -252,8 +217,6 @@ test "ghost: an invisible edge starts no pair and ends none" {
     try testing.expectEqual(@as(u32, 0), c.n_term_abut);
     try testing.expectEqual(@as(u32, 0), c.defectTotal());
 
-    // The same geometry with a VISIBLE stroke does produce two pairs —
-    // proof the fixture above is silenced by the ghost and nothing else.
     g.set(2, 2, edgeCell(.{ .n = true, .s = true }));
     const visible = scanAll(&lat);
     try testing.expectEqual(@as(u32, 2), visible.n_term_abut);
@@ -262,7 +225,6 @@ test "ghost: an invisible edge starts no pair and ends none" {
 test "ownership: only arms the mask actually claims produce pairs" {
     var g: Grid = .{};
     g.init();
-    // Rings on all four sides, but the stroke claims only north and south.
     g.set(2, 2, edgeCell(.{ .n = true, .s = true }));
     g.set(2, 1, border(.edge_s, .{ .e = true, .w = true }));
     g.set(2, 3, border(.edge_n, .{ .e = true, .w = true }));
@@ -278,10 +240,6 @@ test "ownership: only arms the mask actually claims produce pairs" {
 test "ownership: an arrowhead contributes its TIP direction only" {
     var g: Grid = .{};
     g.init();
-    // The arrowhead claims all four bits but points south. The lateral
-    // bits belong to `arrows.checkLateral` and the base cell to
-    // `arrows.checkBase`; this family must claim exactly one of the three
-    // rings around it.
     g.set(2, 2, arrowCell(.south, .{ .n = true, .e = true, .s = true, .w = true }));
     g.set(2, 3, border(.edge_n, .{ .e = true, .w = true }));
     g.set(1, 2, border(.corner_ne, .{ .w = true, .s = true }));
@@ -290,31 +248,22 @@ test "ownership: an arrowhead contributes its TIP direction only" {
     const c = scanAll(&lat);
     try testing.expectEqual(@as(u32, 1), c.n_term_abut);
     try testing.expectEqual(@as(u32, 1), c.c_term_node_ns_arrow);
-    // The two corner rings sit on LATERAL bits and must not be filed here.
     try testing.expectEqual(@as(u32, 0), c.d_term_node_corner);
 }
 
 test "a plain TD arrival set contains zero defect buckets" {
-    // The calibration claim in miniature: source node's bottom face, a
-    // one-cell run, an arrowhead on the target's top face. Every pair is a
-    // convention; the whole shape is silent.
     var g: Grid = .{};
     g.init();
-    g.set(2, 0, border(.edge_s, .{ .e = true, .w = true, .s = true })); // merged departure
+    g.set(2, 0, border(.edge_s, .{ .e = true, .w = true, .s = true }));
     g.set(2, 1, edgeCell(.{ .n = true, .s = true }));
     g.set(2, 2, arrowCell(.south, .{ .n = true }));
     g.set(2, 3, border(.edge_n, .{ .e = true, .w = true }));
     var lat = g.lat();
-    // The merged departure comes with its record, exactly as a real
-    // rasterization files one.
     const records = [_]lattice.Aux{
         .{ .cell = lat.cellIndex(2, 0), .value = 7, .kind = .port, .detail = lattice.portArmDetail(.south) },
     };
     lat.aux = &records;
     const c = scanAll(&lat);
-    // Two pairs: the departure off the source face and the arrival on the
-    // target face. The stroke's south arm ends on the arrowhead, which is
-    // not a ring and so ends no pair.
     try testing.expectEqual(@as(u32, 2), c.n_term_abut);
     try testing.expectEqual(@as(u32, 1), c.c_term_port_recorded);
     try testing.expectEqual(@as(u32, 1), c.c_term_node_ns_arrow);
@@ -322,12 +271,6 @@ test "a plain TD arrival set contains zero defect buckets" {
 }
 
 test "a tip-facing decorated arrival against a pristine face is a convention with no record" {
-    // A port tee is refused behind a head whose TIP points at the wall, so such an
-    // arrowheaded terminal legitimately leaves NOTHING on the border: no merged
-    // arm, and therefore no `.port` record. The absence must not read as
-    // evidence of a defect — the ladder falls straight through the record
-    // test and the unrecorded-arm test to the face conventions, on both
-    // axes, and the whole set is silent.
     inline for (.{
         .{ lattice.Dir4.south, lattice.BorderRole.edge_n },
         .{ lattice.Dir4.north, lattice.BorderRole.edge_s },

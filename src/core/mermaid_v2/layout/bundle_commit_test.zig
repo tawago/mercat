@@ -44,10 +44,6 @@ fn railKeysAtD(a: std.mem.Allocator, source: []const u8) ![]const []const u8 {
     return &.{};
 }
 
-// Owner ruling 2026-07-18: a fan-IN group blocked ONLY by a layout-reversed
-// member composes its forward subset as one merged rail (>=2 forward
-// members); the reversed member takes an independent side entry. These pin
-// that bundle_commit and realized.realize agree on the subset (N6 exact).
 const reversed_fanin_source =
     "flowchart TD\n  A --> B\n  A --> C\n  B --> D\n  C --> D\n  D --> E\n  E --> F\n  F --> D\n";
 
@@ -65,7 +61,7 @@ test "N6 reversed: forward-subset fan-in rail agrees across bundle_commit and re
         for (candidate.sketch.bundles.selected_bundles) |sj| {
             for (plan.groups) |g| if (g.id == sj.candidate_bundle and g.direction == .in and g.pivot == nodeId(graph, "D")) {
                 saw_fanin = true;
-                try std.testing.expectEqual(@as(usize, 2), sj.members.len); // forward subset only
+                try std.testing.expectEqual(@as(usize, 2), sj.members.len);
             };
         }
     }
@@ -73,8 +69,6 @@ test "N6 reversed: forward-subset fan-in rail agrees across bundle_commit and re
 }
 
 test "N6 floor: a single-forward-member reversed fan-in commits no rail" {
-    // H has one forward arrival G->H and a back-edge J->H (cycle H->I->J->H):
-    // forward subset {G->H} is one member, below the >=2 floor → no rail.
     const source = "flowchart TD\n  A --> G\n  G --> H\n  H --> I\n  I --> J\n  J --> H\n";
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
@@ -96,7 +90,6 @@ test "forward-subset selection is deterministic under arrival declaration permut
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
-    // The two forward arrivals (and their sources) declared in swapped order.
     const swapped = "flowchart TD\n  A --> C\n  A --> B\n  C --> D\n  B --> D\n  D --> E\n  E --> F\n  F --> D\n";
     const k1 = try railKeysAtD(a, reversed_fanin_source);
     const k2 = try railKeysAtD(a, swapped);
@@ -131,10 +124,6 @@ test "N6: every enumerated candidate agrees on pre-sizing rail commitments and r
     }
 }
 
-// ===================================================================
-// The all-arrow-free shared-rail closure law (base/rail_closure.zig)
-// ===================================================================
-
 fn edgeIdOf(graph: anytype, from: []const u8, to: []const u8) u32 {
     const f = nodeId(graph, from);
     const t = nodeId(graph, to);
@@ -148,9 +137,6 @@ fn targetOf(bundles: anytype, edge: u32) ?@TypeOf(bundles.memberships[0].target)
 }
 
 test "an all-arrow-free fan with undeclared leaf pairs commits no rail" {
-    // A---Z, B---Z, C---Z: the crossbar would assert A—B, A—C and B—C, none
-    // declared. Refusal is expressed as independent dispositions — the same
-    // record a decoration-mixed rail gets — so the members unfuse.
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
@@ -169,7 +155,7 @@ test "an all-arrow-free fan with undeclared leaf pairs commits no rail" {
     }
 }
 
-test "a directed fan is untouched by the closure law" {
+test "a directed fan is untouched by the closure licence" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
@@ -192,7 +178,6 @@ test "a fully declared leaf clique keeps the rail and co-realizes its pair edges
     var report: bundle_commit.Report = .{};
     const bundles = try bundle_commit.buildReported(a, graph, &plan, &.{}, false, &report);
 
-    // The fan-IN at Z fuses, and A---B is discharged by its crossbar.
     try std.testing.expectEqual(@as(u32, 0), report.rail_closure_undeclared);
     try std.testing.expectEqual(@as(usize, 1), bundles.discharged.len);
     try std.testing.expectEqual(edgeIdOf(graph, "A", "B"), bundles.discharged[0]);
@@ -207,9 +192,9 @@ test "a fully declared leaf clique keeps the rail and co-realizes its pair edges
 
 test "a labeled or decorated declaration cannot back a leaf pair" {
     const sources = [_][]const u8{
-        "flowchart TD\n  A --- Z\n  B --- Z\n  A -- why --- B\n", // labeled
-        "flowchart TD\n  A --- Z\n  B --- Z\n  A --> B\n", // arrowed
-        "flowchart TD\n  A --- Z\n  B --- Z\n  A -.- B\n", // wrong stroke class
+        "flowchart TD\n  A --- Z\n  B --- Z\n  A -- why --- B\n",
+        "flowchart TD\n  A --- Z\n  B --- Z\n  A --> B\n",
+        "flowchart TD\n  A --- Z\n  B --- Z\n  A -.- B\n",
     };
     for (sources) |source| {
         var arena2 = std.heap.ArenaAllocator.init(std.testing.allocator);
@@ -225,11 +210,6 @@ test "a labeled or decorated declaration cannot back a leaf pair" {
 }
 
 test "a reversed member does not hide a closure refusal behind a null disposition" {
-    // in@Z = {A---Z, B---Z, Q---Z} with Q---Z layout-reversed: the forward
-    // subset {A---Z, B---Z} is provisionally eligible, and the closure law
-    // then refuses it (A—B undeclared). The refusal MUST reach the members as
-    // `independent` — the null-disposition escape is for a group the reversal
-    // rule left ungrouped, and would silently keep the rail fused.
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
@@ -248,29 +228,18 @@ test "a reversed member does not hide a closure refusal behind a null dispositio
     }
 }
 
-test "every closure-law counter names a registered report-only tag" {
-    // The counters ARE the diagnostics: a report field that stopped naming a
-    // registered tag would be firing something the registry never sanctioned
-    // (D-DISPOSITION item 4's unregistered backstop), and a class other than
-    // report-only would let a refusal invalidate a candidate instead of
-    // unfusing it.
+test "every closure-licence counter names a registered report-only tag" {
     const fields = [_][]const u8{ "rail_closure_undeclared", "co_undeclared", "co_double_discharge" };
     inline for (fields) |name| {
         const tag = pb.tagByName(name) orelse return error.UnregisteredTag;
         try std.testing.expectEqual(pb.DispositionClass.report_only, pb.classOf(tag));
     }
-    // Spelled the same on the structs that carry them.
     try std.testing.expect(@hasField(bundle_commit.Report, fields[0]));
     try std.testing.expect(@hasField(bundle_commit.Report, fields[1]));
     try std.testing.expect(@hasField(realized.Report, fields[2]));
 }
 
 test "a clique whose pair edges are other rails' members keeps a rail" {
-    // Z---A, Z---B, Z---C plus the full leaf clique A---B, A---C, B---C. Every
-    // leaf pair of the widest star is declared, so it must stay fused — and
-    // each of those declarations is itself a member of some OTHER star, so a
-    // rule that withheld another rail's ink as a backer would refuse the whole
-    // clique and rebuild the picture around a fabrication that is not there.
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
@@ -282,8 +251,6 @@ test "a clique whose pair edges are other rails' members keeps a rail" {
     try std.testing.expectEqual(@as(u32, 0), report.rail_closure_undeclared);
     try std.testing.expectEqual(@as(u32, 0), report.co_undeclared);
     try std.testing.expect(bundles.selected_bundles.len > 0);
-    // A declaration is discharged by at most ONE rail plan-wide: the record
-    // carries no duplicates, and no discharged edge is another rail's member.
     for (bundles.discharged, 0..) |co, i| {
         for (bundles.discharged[0..i]) |prev| try std.testing.expect(prev != co);
         for (bundles.selected_bundles) |sj| for (sj.members) |m| try std.testing.expect(m != co);
@@ -291,12 +258,6 @@ test "a clique whose pair edges are other rails' members keeps a rail" {
 }
 
 test "a single fan with its own fully declared clique keeps the whole rail" {
-    // A---Z, B---Z, C---Z plus the leaf clique A---B, A---C, B---C. The star at
-    // Z asserts exactly those three pairs and the graph declares all three, so
-    // the rail keeps every member and its crossbar takes over their rendering.
-    // The clique edges pair up into stars of their own (in@C is {A---C, B---C}),
-    // but those are the star's OWN discharges: discharged ink draws nothing
-    // privately, so it can carry no competing rail and claims no pair.
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
@@ -314,7 +275,6 @@ test "a single fan with its own fully declared clique keeps the whole rail" {
         try std.testing.expectEqual(nodeId(graph, "Z"), g.pivot);
     };
     try std.testing.expectEqual(@as(usize, 3), rail.members.len);
-    // Exactly the three clique declarations are discharged by that crossbar.
     try std.testing.expectEqual(@as(usize, 3), bundles.discharged.len);
     for ([_][2][]const u8{ .{ "A", "B" }, .{ "A", "C" }, .{ "B", "C" } }) |pair| {
         const id = edgeIdOf(graph, pair[0], pair[1]);
@@ -327,11 +287,6 @@ test "a single fan with its own fully declared clique keeps the whole rail" {
 }
 
 test "two rails asserting one declared pair both refuse" {
-    // A---Z, B---Z and A---W, B---W with A---B declared. Each star asserts only
-    // A—B, which the graph does declare — but the two crossbars run over the
-    // SAME leaf columns, so a reader traces Z up A's column, along one
-    // crossbar and down to W: a relation nothing declares. The pair is
-    // spendable exactly once, so neither rail may keep it.
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
@@ -341,10 +296,8 @@ test "two rails asserting one declared pair both refuse" {
     const bundles = try bundle_commit.buildReported(a, graph, &plan, &.{}, false, &report);
 
     try std.testing.expectEqual(@as(usize, 0), bundles.selected_bundles.len);
-    // Nothing is discharged: a refused rail draws no crossbar to render A---B.
     try std.testing.expectEqual(@as(usize, 0), bundles.discharged.len);
     try std.testing.expectEqual(@as(u32, 2), report.rail_closure_undeclared);
-    // The refusal reaches every member as `independent` — that is what unfuses.
     for ([_][2][]const u8{ .{ "A", "Z" }, .{ "B", "Z" }, .{ "A", "W" }, .{ "B", "W" } }) |pair| {
         const t = targetOf(bundles, edgeIdOf(graph, pair[0], pair[1])).?;
         try std.testing.expect(t.? == .independent);
@@ -352,10 +305,6 @@ test "two rails asserting one declared pair both refuse" {
 }
 
 test "one rail's pair survives when no second rail asserts it" {
-    // The same picture minus the second star: A---Z, B---Z, A---W with A---B
-    // declared. Only one rail asserts A—B now, so the reservation has nothing
-    // to refuse and the star at Z keeps its crossbar — the boundary the
-    // both-refuse rule must not overshoot.
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
@@ -370,11 +319,6 @@ test "one rail's pair survives when no second rail asserts it" {
     try std.testing.expectEqual(edgeIdOf(graph, "A", "B"), bundles.discharged[0]);
 }
 test "a salvaged rail that then loses its pair is one refusal, not two" {
-    // A---Z, B---Z, C---Z and A---W, B---W with A---B declared. Z's rail can
-    // only SALVAGE (A—C and B—C are undeclared) — counted once — and the
-    // salvaged subset then asserts A—B, which W's rail asserts too, so both
-    // lose the pair. Two groups refuse, so the report says two: the salvage
-    // must not be counted a second time when the reservation takes it apart.
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
@@ -389,17 +333,12 @@ test "a salvaged rail that then loses its pair is one refusal, not two" {
 }
 
 test "a complete bipartite of selected arrivals licenses one fused union" {
-    // K3,3, all nine directed edges declared: the three arrival rails'
-    // member union is EXACTLY srcs x tgts with every member blocking the
-    // leaf-to-leaf trace, so the plan records ONE fused union per gap and
-    // the rails may share one rail row as one bundle.
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
-    const graph = try parse(a,
-        "flowchart TD\n  S1 --> M1\n  S1 --> M2\n  S1 --> M3\n" ++
-            "  S2 --> M1\n  S2 --> M2\n  S2 --> M3\n" ++
-            "  S3 --> M1\n  S3 --> M2\n  S3 --> M3\n");
+    const graph = try parse(a, "flowchart TD\n  S1 --> M1\n  S1 --> M2\n  S1 --> M3\n" ++
+        "  S2 --> M1\n  S2 --> M2\n  S2 --> M3\n" ++
+        "  S3 --> M1\n  S3 --> M2\n  S3 --> M3\n");
     const plan = (try permits.build(a, graph, .joined)).plan;
     const bundles = try bundle_commit.buildReported(a, graph, &plan, &.{}, false, null);
     try std.testing.expectEqual(@as(usize, 3), bundles.selected_bundles.len);
@@ -408,23 +347,17 @@ test "a complete bipartite of selected arrivals licenses one fused union" {
 }
 
 test "an incomplete bipartite of selected arrivals licenses no fused union" {
-    // The same shape short one declaration (S3 --> M3 absent): the whole
-    // union's pairs are 8 of 9, so no all-nine licence exists. The two
-    // arrivals over the SAME leaf set {S1,S2,S3} still form a complete
-    // sub-union of six and fuse alone; M3's short rail bundles nothing.
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
-    const graph = try parse(a,
-        "flowchart TD\n  S1 --> M1\n  S1 --> M2\n  S1 --> M3\n" ++
-            "  S2 --> M1\n  S2 --> M2\n  S2 --> M3\n" ++
-            "  S3 --> M1\n  S3 --> M2\n");
+    const graph = try parse(a, "flowchart TD\n  S1 --> M1\n  S1 --> M2\n  S1 --> M3\n" ++
+        "  S2 --> M1\n  S2 --> M2\n  S2 --> M3\n" ++
+        "  S3 --> M1\n  S3 --> M2\n");
     const plan = (try permits.build(a, graph, .joined)).plan;
     const bundles = try bundle_commit.buildReported(a, graph, &plan, &.{}, false, null);
     try std.testing.expect(bundles.selected_bundles.len >= 2);
     try std.testing.expectEqual(@as(usize, 1), bundles.fused.len);
     try std.testing.expectEqual(@as(usize, 6), bundles.fused[0].len);
-    // No M3-bound edge rides the union.
     for (bundles.fused[0]) |id| {
         for (graph.edges) |e| if (e.id == id) {
             try std.testing.expect(e.to != nodeId(graph, "M3"));
@@ -433,9 +366,6 @@ test "an incomplete bipartite of selected arrivals licenses no fused union" {
 }
 
 test "a head at the source end never bundles a fused union" {
-    // A --> C; B --> C; A <-- D; B <-- D: the D rail's heads sit at the
-    // union's SOURCE side, so a fused rail would draw a head-free terminus at
-    // D and a reader could trace an undeclared D-to-C pair along it.
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
@@ -446,8 +376,6 @@ test "a head at the source end never bundles a fused union" {
 }
 
 test "mixed stroke kinds never join a fused union" {
-    // A --> C; B --> C; A -.-> D; B -.-> D: fusing would restate the dotted
-    // declarations on a solid run (mirrors realized's per-group style gate).
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
@@ -458,15 +386,11 @@ test "mixed stroke kinds never join a fused union" {
 }
 
 test "two disjoint complete unions chained by a shared source each fuse alone" {
-    // {A,B}x{C,D} and {B,E}x{F,G}: a mere shared leaf must not chain them
-    // into one union that refuses — leaf-set EQUALITY partitions them, and
-    // each half licenses its own four-member union.
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
-    const graph = try parse(a,
-        "flowchart TD\n  A --> C\n  A --> D\n  B --> C\n  B --> D\n" ++
-            "  B --> F\n  B --> G\n  E --> F\n  E --> G\n");
+    const graph = try parse(a, "flowchart TD\n  A --> C\n  A --> D\n  B --> C\n  B --> D\n" ++
+        "  B --> F\n  B --> G\n  E --> F\n  E --> G\n");
     const plan = (try permits.build(a, graph, .joined)).plan;
     const bundles = try bundle_commit.buildReported(a, graph, &plan, &.{}, false, null);
     try std.testing.expectEqual(@as(usize, 2), bundles.fused.len);

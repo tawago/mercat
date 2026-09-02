@@ -17,9 +17,6 @@ const Rung = budget.Rung;
 const run = budget.run;
 const hasWidthOverflow = budget.hasWidthOverflow;
 
-// File-scope const so the returned pointer has static lifetime — the
-// drivers now take `*const BundlePermits` (F6: LayoutOptions.bundle_permits
-// must alias a plan that outlives every layout pass, never a stack copy).
 const test_bundle_permits: ledger.BundlePermits = .{ .policy = .joined };
 
 fn testBundlePermits() *const ledger.BundlePermits {
@@ -48,14 +45,9 @@ test "truncate rung always returns even under impossible budget" {
     var g = try parse_mod.parse(a, "graph TD\nA-->B\nB-->C\nA-->C\n");
     _ = &g;
 
-    // max_width = 1 — every rung overflows. Must still return. The ladder
-    // has five rungs (natural, tight, wrap_labels, switch_direction,
-    // truncate), so an impossible TD graph issues 5 attempts before truncate
-    // wins.
     const result = try run(a, g, testBundlePermits(), 1);
     try std.testing.expectEqual(Rung.truncate, result.final_rung);
     try std.testing.expectEqual(@as(u8, 5), result.attempts);
-    // Sketch is the truncate-rung output; may still report overflow.
 }
 
 test "switch_direction is rejected when rotation also overflows; declared dir kept" {
@@ -63,11 +55,6 @@ test "switch_direction is rejected when rotation also overflows; declared dir ke
     defer arena.deinit();
     const a = arena.allocator();
 
-    // A wide LR chain that cannot fit in either orientation at a tiny
-    // budget. The ladder must NOT settle on switch_direction (which would
-    // flip LR->TD): rotating still overflows, so that would be a strictly
-    // bad trade. It must fall through to `truncate`, which keeps the
-    // DECLARED direction (LR).
     var g = try parse_mod.parse(
         a,
         "graph LR\nA[aaaaaa]-->B[bbbbbb]-->C[cccccc]-->D[dddddd]-->E[eeeeee]\n",
@@ -76,7 +63,6 @@ test "switch_direction is rejected when rotation also overflows; declared dir ke
 
     const result = try run(a, g, testBundlePermits(), 4);
     try std.testing.expectEqual(Rung.truncate, result.final_rung);
-    // Declared direction (LR) is preserved — we did not rotate to TD.
     try std.testing.expectEqual(sem_graph.Direction.LR, result.sketch.direction);
 }
 
@@ -85,9 +71,6 @@ test "a deep LR chain resolves to switch_direction when rotation fits" {
     defer arena.deinit();
     const a = arena.allocator();
 
-    // A deep LR chain whose flow axis busts a narrow budget: a pure chain
-    // rotated to TD is a narrow vertical column that fits any reasonable
-    // width, so the ladder resolves to switch_direction.
     var g = try parse_mod.parse(
         a,
         "graph LR\nA[Alpha]-->B[Bravo]-->C[Charlie]-->D[Delta]-->E[Echo]" ++
@@ -108,19 +91,15 @@ test "enumerate picks the same incumbent as run and keeps every rung" {
     var g = try parse_mod.parse(a, "graph TD\nA-->B\nB-->C\nA-->C\n");
     _ = &g;
 
-    // Fitting graph: incumbent must equal run()'s choice (natural).
     const ladder = try run(a, g, testBundlePermits(), 120);
     const enumd = try budget.enumerate(a, g, testBundlePermits(), 120);
     try std.testing.expectEqual(ladder.final_rung, enumd.incumbent.final_rung);
     try std.testing.expectEqual(Rung.natural, enumd.incumbent.final_rung);
-    // All five rungs laid out and retained, in rung order.
     try std.testing.expectEqual(@as(usize, 5), enumd.candidates.len);
     for (enumd.candidates, 0..) |cand, i| {
         try std.testing.expectEqual(@as(Rung, @enumFromInt(@as(u8, @intCast(i)))), cand.rung);
-        // Only the incumbent rung is marked accepted.
         try std.testing.expectEqual(cand.rung == enumd.incumbent.final_rung, cand.accepted);
     }
-    // The incumbent's Sketch is the accepted candidate's Sketch.
     try std.testing.expectEqual(
         enumd.candidates[0].sketch.bbox,
         enumd.incumbent.sketch.bbox,
@@ -147,9 +126,6 @@ test "runForced returns exactly the requested rung, bypassing acceptance" {
     defer arena.deinit();
     const a = arena.allocator();
 
-    // The deep LR chain from the switch_direction test above: the ladder resolves
-    // it to switch_direction at w40. Forcing `natural` must return the
-    // natural (overflowing, declared-direction) layout anyway.
     var g = try parse_mod.parse(
         a,
         "graph LR\nA[Alpha]-->B[Bravo]-->C[Charlie]-->D[Delta]-->E[Echo]" ++
@@ -162,7 +138,6 @@ test "runForced returns exactly the requested rung, bypassing acceptance" {
     try std.testing.expectEqual(sem_graph.Direction.LR, forced.sketch.direction);
     try std.testing.expect(hasWidthOverflow(forced.sketch.diagnostics));
 
-    // Forcing switch_direction rotates even when unnecessary.
     var g2 = try parse_mod.parse(a, "graph TD\nA-->B\n");
     _ = &g2;
     const rotated = try budget.runForced(a, g2, testBundlePermits(), 120, .switch_direction);
@@ -171,12 +146,6 @@ test "runForced returns exactly the requested rung, bypassing acceptance" {
 }
 
 test "enumerate/run always resolve an incumbent across degenerate graphs and widths" {
-    // The truncate-terminal guarantee (`.incumbent = incumbent.?` in
-    // enumerate() must never panic) holds because ladderAccepts always
-    // returns true once rung == .truncate. Stress that across a spread of
-    // degenerate graph shapes -- a lone node, disconnected nodes, disjoint
-    // edge components -- and a spread of widths, including widths far too
-    // small for any rung to fit cleanly.
     const graphs = [_][]const u8{
         "graph TD\nA\n",
         "graph TD\nA\nB\n",
@@ -203,37 +172,13 @@ test "enumerate/run always resolve an incumbent across degenerate graphs and wid
     }
 }
 
-// ---------------------------------------------------------------------------
-// Phase-2 score calibration.
-//
-// GROUND TRUTH, round 1: 22 (seed x width) score-vs-ladder disagreements
-// whose argmin side was rendered (MERCAT_FORCE_RUNG) and labeled in the
-// maintainer's private evaluation suite.
-// GROUND TRUTH, round 2: 14 more labels from the round-1 score's NEW
-// disagreement surface, labeled the same way. fanin_rl_6 w90 was sampled
-// but its evaluation repeatedly failed to complete — excluded, not
-// fabricated.
-// GROUND TRUTH, round 3 (Phase 4a): 3 raw-vs-PACKED shape_zoo labels,
-// scored through the LIVE path
-// (select.enumerateAll + per-candidate audit.collect) so raster-time
-// defects are priced exactly as in production. w120 is a documented
-// known-sacrifice (see the label block below).
-// The score's fitted weights (score.zig RUNG_SCALE / switch split /
-// W_INTEGRITY / W_LABEL_DROP / W_CELL_LOST / T0 severity) must reproduce
-// the labeled preference on >= 80% of the full 36 (ties satisfied either
-// way; gate 29/36). Reads an explicitly configured private input directory;
-// skips when none is configured.
-// ---------------------------------------------------------------------------
-
 const RefLabel = enum { incumbent, argmin, tie };
 
 const LabeledPair = struct {
     seed: []const u8,
-    width: u32, // the `mercat -w` value; the mermaid budget is width - 2
+    width: u32,
     incumbent: Rung,
-    argmin: Rung, // argmin under the PRE-calibration score (the labeled pair)
-    // Phase 4a: shape_zoo pairs pit a RAW rung against a motif-PACKED
-    // candidate at the same rung; candidates are matched on (rung, transform).
+    argmin: Rung,
     incumbent_transform: budget.Transform = .raw,
     argmin_transform: budget.Transform = .raw,
     label: RefLabel,
@@ -261,7 +206,6 @@ const labeled_pairs = [_]LabeledPair{
     .{ .seed = "flowchart_microservices_layers_td_16", .width = 90, .incumbent = .natural, .argmin = .truncate, .label = .argmin },
     .{ .seed = "flowchart_order_state_machine_lr_9", .width = 120, .incumbent = .natural, .argmin = .switch_direction, .label = .incumbent },
     .{ .seed = "flowchart_td_with_lr_subgraph_7", .width = 60, .incumbent = .natural, .argmin = .tight, .label = .argmin },
-    // -- Round-2 labels ------------------------------------------------------
     .{ .seed = "flowchart_ampersand_fanout_td_6", .width = 60, .incumbent = .natural, .argmin = .tight, .label = .tie },
     .{ .seed = "flowchart_complete_bipartite_k33_td_9", .width = 90, .incumbent = .natural, .argmin = .tight, .label = .incumbent },
     .{ .seed = "flowchart_fanout_into_subgraphs_td_9", .width = 90, .incumbent = .natural, .argmin = .tight, .label = .tie },
@@ -274,13 +218,6 @@ const labeled_pairs = [_]LabeledPair{
     .{ .seed = "flowchart_lr_with_td_subgraph_7", .width = 120, .incumbent = .natural, .argmin = .switch_direction, .label = .tie },
     .{ .seed = "flowchart_subgraph_rl_8", .width = 120, .incumbent = .natural, .argmin = .switch_direction, .label = .argmin },
     .{ .seed = "flowchart_subgraph_to_subgraph_td_6", .width = 60, .incumbent = .natural, .argmin = .switch_direction, .label = .incumbent },
-    // -- Phase-4a labels: raw natural vs the
-    //    motif-PACKED natural on shape_zoo. The packed candidate drops the
-    //    "no" edge label + loses 3 edge cells IDENTICALLY at every width
-    //    (same packed sketch, fits every budget), so no weight window can
-    //    fix w60/w90 and keep w120: the labeled w120 packed preference (5-1)
-    //    is a DOCUMENTED KNOWN-SACRIFICE — an expected MISS, priced into the
-    //    >=80% gate, not silently skipped. See score.W_LABEL_DROP.
     .{ .seed = "flowchart_shape_zoo_td_8", .width = 60, .incumbent = .natural, .argmin = .natural, .argmin_transform = .motif_pack, .label = .incumbent },
     .{ .seed = "flowchart_shape_zoo_td_8", .width = 90, .incumbent = .natural, .argmin = .natural, .argmin_transform = .motif_pack, .label = .incumbent },
     .{ .seed = "flowchart_shape_zoo_td_8", .width = 120, .incumbent = .natural, .argmin = .natural, .argmin_transform = .motif_pack, .label = .argmin },
@@ -305,8 +242,6 @@ test "score calibration: >=80% agreement with the labeled reference set" {
         const path = try std.fmt.allocPrint(a, "{s}.mmd", .{pair.seed});
         const src = try inputs_dir.readFileAlloc(a, path, 1 << 20);
         const g = try parse_mod.parse(a, src);
-        // The LIVE candidate set (raw rungs + motif-packed) and the live
-        // scoring path: per-candidate raster audit (Phase 4a) into eval.
         const set = try select.enumerateAll(a, g, testBundlePermits(), pair.width - 2);
         if (set.incumbent.final_rung != pair.incumbent and pair.incumbent_transform == .raw) {
             std.debug.print(
@@ -356,6 +291,5 @@ test "score calibration: >=80% agreement with the labeled reference set" {
         "score-calibration: agreement {d}/{d} (gate: >= {d})\n",
         .{ agree, labeled_pairs.len, (labeled_pairs.len * 4 + 4) / 5 },
     );
-    // Gate: >= 80% (29/36), ties counting as agreement.
     try std.testing.expect(@as(usize, agree) * 5 >= labeled_pairs.len * 4);
 }

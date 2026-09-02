@@ -63,7 +63,7 @@ pub fn packedGraph(aa: std.mem.Allocator, graph: sem_graph.SemGraph) ?sem_graph.
 ///
 /// Best-effort throughout: a variant that fails to lay out is simply skipped,
 /// leaving the on-run set exactly as it was.
-/// guarded-by: select_test3.zig "a labeled graph yields both policies; the winner is deterministic"
+/// @guarded-by: select_test3.zig "a labeled graph yields both policies; the winner is deterministic"
 pub fn besideVariants(
     aa: std.mem.Allocator,
     graph: sem_graph.SemGraph,
@@ -86,9 +86,6 @@ pub fn besideVariants(
         if (score_mod.fitSeverity(c.sketch) > min_t0) continue;
         const source: sem_graph.SemGraph = switch (c.transform) {
             .raw => graph,
-            // Bridge twins are appended AFTER the beside pass and never
-            // reach it; defensive skip keeps the twin space orthogonal
-            // (label policy is varied on the plain build only).
             .bridge_dodged, .bridge_railed => continue,
             .motif_pack => blk: {
                 if (!packed_tried) {

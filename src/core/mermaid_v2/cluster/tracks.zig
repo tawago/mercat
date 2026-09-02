@@ -175,13 +175,11 @@ pub fn resolve(
 
     // Requests with no overlapping partner keep their preferred jog line; they only
     // need displacing off any drawn frame border (no track separation to negotiate).
-    // guarded-by: bridges_test.zig "vertical bridge jogs when x-misaligned, final segment vertical"
+    // @guarded-by: bridges_test.zig "vertical bridge jogs when x-misaligned, final segment vertical"
     for (reqs, 0..) |r, i| {
         if (!part[i]) out[i] = clearOfBorders(entry, r.pref, r.span_lo, r.span_hi, clusters, obstacles, expired);
     }
 
-    // Entangled requests: sort innermost-preference first (assign packs in
-    // the given order), build outward-unit demands, pack with stack_gap 1.
     var order: std.ArrayListUnmanaged(usize) = .empty;
     for (part, 0..) |p, i| {
         if (p) try order.append(arena, i);
@@ -195,7 +193,7 @@ pub fn resolve(
         demands[k] = .{
             .lo = @intCast(@max(0, r.span_lo)),
             .hi = @intCast(@max(0, r.span_hi)),
-            .base = sign * r.pref, // outward units: larger = further from target
+            .base = sign * r.pref,
         };
     }
     const asg = try lanes.assign(arena, demands, 1);
@@ -211,7 +209,7 @@ pub fn resolve(
         lane_hi[li] = @max(lane_hi[li], reqs[ri].span_hi);
     }
 
-    // guarded-by: bridges_test.zig "two same-side bridges with overlapping spans get distinct tracks"
+    // @guarded-by: bridges_test.zig "two same-side bridges with overlapping spans get distinct tracks"
     var prev: i32 = std.math.minInt(i32);
     for (asg.lane_pos, 0..) |*pos, li| {
         var v = pos.*;

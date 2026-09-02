@@ -13,7 +13,7 @@
 //!
 //! A bucket is added, never suppressed: when a legal rendering lands in a
 //! `d_` field the answer is a new `c_` bucket, not a filter.
-//! guarded-by: counts_test.zig "counts: every field carries an n_/m_/c_/d_/u_ prefix"
+//! @guarded-by: counts_test.zig "counts: every field carries an n_/m_/c_/d_/u_ prefix"
 //!
 //! Flat, all `u32`, reflection-emitted: the struct and the printer cannot
 //! drift because `writeLine` enumerates the fields. The printer itself lives
@@ -30,7 +30,6 @@ pub const line_prefix = line.line_prefix;
 /// family that owns them (see `scan.zig`'s ownership table); a family's
 /// fields appear only once the commit that implements it lands.
 pub const Counts = struct {
-    // -- meta ---------------------------------------------------------
     /// Lattice cells visited (`width * height`). The denominator.
     n_cells: u32 = 0,
     /// Clusters (subgraphs) declared in the SemGraph. Zero on a flat
@@ -53,7 +52,6 @@ pub const Counts = struct {
     /// Attempted records withheld by atomic collection failure.
     u_aux_records_lost: u32 = 0,
 
-    // -- Ink-attribution state conformance (state.zig) -----------------------------
     /// Ink cells (stroke/arrow/ring) whose recorded ink-attribution state was checked.
     n_state_ink_cells: u32 = 0,
     /// Ink cell with no recorded state. Zero on every production render
@@ -76,7 +74,6 @@ pub const Counts = struct {
     /// A plural state's evidence question asked while AUX was unavailable.
     u_state_aux_unavailable: u32 = 0,
 
-    // -- arrowhead lateral exclusivity (arrows.zig) -------------------
     /// Arrowhead cells scanned.
     n_arrow_cells: u32 = 0,
     /// A lateral (tip-perpendicular) arm whose neighbour reciprocates, or
@@ -94,7 +91,6 @@ pub const Counts = struct {
     /// these accumulate rather than being repaired.
     d_arrow_lat_orphan: u32 = 0,
 
-    // -- arrowhead base support (arrows.zig) --------------------------
     /// The base cell is a label/title glyph. `arrow_base.baseFeedsArrow`
     /// exempts these by construction: the owner's convention leaves a run
     /// interrupted by a label in place, so it is never a violation.
@@ -122,7 +118,6 @@ pub const Counts = struct {
     /// much as a defect: the geometry that produced it is off-grid.
     u_base_oob: u32 = 0,
 
-    // -- stroke ink laws (strokes.zig) --------------------------------
     /// Visible edge-segment cells scanned.
     n_stroke_cells: u32 = 0,
     /// Invisible (`~~~`) edge-segment cells: they occupy a cell, paint a
@@ -178,7 +173,7 @@ pub const Counts = struct {
     /// east and south arms, so one fabricated junction glyph is counted once
     /// per fused neighbour it has — a `┼` between two flanking runs scores
     /// TWO. Do not read any of these four numbers as "how many cells".
-    /// guarded-by: strokes_test.zig "fusion: the three junction verdicts partition the crossing population"
+    /// @guarded-by: strokes_test.zig "fusion: the three junction verdicts partition the crossing population"
     c_run_fused_crossing: u32 = 0,
     /// A junction of that adjacency where a `.carrier` record ON the
     /// junction cell names the OTHER cell's edge and states that the two
@@ -210,7 +205,7 @@ pub const Counts = struct {
     /// merely ADJACENT runs never write on each other at all, so neither
     /// cell can carry a record naming the other. That lands in
     /// `u_run_fused_unevidenced`, never here.
-    /// guarded-by: strokes_test.zig "fusion: a foreign record on the junction cell files the defect"
+    /// @guarded-by: strokes_test.zig "fusion: a foreign record on the junction cell files the defect"
     d_run_fused_foreign: u32 = 0,
     /// The same junction where NO record on any junction cell of the pair
     /// names the other cell's edge, or the only ones that do state nothing
@@ -220,7 +215,7 @@ pub const Counts = struct {
     /// OR nothing collected", never "nothing happened" — `cell.zig`).
     /// An audit limitation, never a licence. SILENCE IS NOT ADMISSION: no
     /// path may fall through to `c_run_fused_licensed`.
-    /// guarded-by: strokes_test.zig "fusion: a junction with no usable record is unevidenced, never licensed"
+    /// @guarded-by: strokes_test.zig "fusion: a junction with no usable record is unevidenced, never licensed"
     u_run_fused_unevidenced: u32 = 0,
     /// A stroke arm at a stroke neighbour that does not carry the
     /// reciprocal bit. Pure measurement, deliberately unguarded: it reports
@@ -229,7 +224,6 @@ pub const Counts = struct {
     /// as drawn, never a repair still owed.
     m_arm_asym: u32 = 0,
 
-    // -- ring stencils and fusion (rings.zig) -------------------------
     /// Node-border cells scanned.
     n_ring_node_cells: u32 = 0,
     /// Cluster-frame cells scanned.
@@ -289,7 +283,6 @@ pub const Counts = struct {
     /// outright: a survivor is a leak.
     d_frame_arm_foreign: u32 = 0,
 
-    // -- terminal abutment (terminal.zig) -----------------------------
     /// (ink cell, direction, ring cell) pairs found: every place a run
     /// stops against a node outline or a subgraph frame. The denominator
     /// for the buckets below.
@@ -338,7 +331,6 @@ pub const Counts = struct {
     /// so this one stopped a cell short of what it was aiming at.
     d_term_frame_arrow: u32 = 0,
 
-    // -- expectation tier (expect.zig) --------------------------------
     /// Non-invisible Sketch edges (each declares one terminal approach).
     n_edges_declared: u32 = 0,
     /// Rail taps: fan edges whose sole geometry is the rail.
@@ -396,10 +388,9 @@ pub const Counts = struct {
     /// Sketch edge count (routed polylines plus rail taps).
     m_sketch_edges: u32 = 0,
 
-    // -- fused crossbar runs (rails.zig) ------------------------------
-    /// guarded-by: rails_test.zig "rails: the entry denominator is published before the tier can decline"
+    /// @guarded-by: rails_test.zig "rails: the entry denominator is published before the tier can decline"
     n_rails_first_class: u32 = 0,
-    /// guarded-by: rails_test.zig "rails: an empty population is named, not silent"
+    /// @guarded-by: rails_test.zig "rails: an empty population is named, not silent"
     u_rail_population_absent: u32 = 0,
     /// Fan rails sharing ONE crossbar row with touching spans raster into
     /// one continuous line. This counts such runs that are TWO-SIDED (more
@@ -474,7 +465,6 @@ pub const Counts = struct {
     u_rail_claim_unresolved: u32 = 0,
     u_rail_claim_record_invalid: u32 = 0,
     u_rail_claim_population_absent: u32 = 0,
-    // -- bundle identity, derivation, and filed claim (bundles.zig) --
     n_bundle_carrier_records: u32 = 0,
     u_bundle_record_aux_unavailable: u32 = 0,
     u_bundle_record_owner_absent: u32 = 0,
@@ -496,7 +486,6 @@ pub const Counts = struct {
     u_bundle_stamp_oom: u32 = 0,
     u_bundle_stamp_rail_invariant: u32 = 0,
     u_bundle_roster_inconsistent: u32 = 0,
-    // -- EAW label-geometry bridge ------------------------------------
     /// Label cells holding an East-Asian-Wide codepoint. Each such cell
     /// paints two columns while occupying one lattice cell.
     m_wide_label_cells: u32 = 0,
@@ -505,13 +494,13 @@ pub const Counts = struct {
     /// value means at least one row lies about its own width.
     m_row_col_overflow: u32 = 0,
     /// Sum of exactly the `d_` fields; reflection includes new defect buckets.
-    /// guarded-by: counts_test.zig "counts: defectTotal sums exactly the d_ fields"
+    /// @guarded-by: counts_test.zig "counts: defectTotal sums exactly the d_ fields"
     pub fn defectTotal(self: Counts) u32 {
         return line.defectTotal(Counts, self);
     }
 
     /// Render one line; trailing `d_total` is derived, not a field.
-    /// guarded-by: counts_test.zig "writeLine: one token per field plus d_total, mercat-tiling prefix"
+    /// @guarded-by: counts_test.zig "writeLine: one token per field plus d_total, mercat-tiling prefix"
     pub fn writeLine(self: Counts, buf: []u8) []const u8 {
         return line.writeLine(Counts, self, buf);
     }
