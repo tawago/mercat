@@ -16,6 +16,7 @@
 //! sketch.
 
 const std = @import("std");
+const prim = @import("prim");
 const sk = @import("../sketch.zig");
 const pb = @import("../base/ledger.zig");
 
@@ -52,6 +53,27 @@ pub const Attachment = struct {
 
 pub const CellMap = std.AutoArrayHashMapUnmanaged(Cell, PassInfo);
 
+/// What walking one oriented path in its stated order does to a trace's
+/// orientation (direction consistency). `with`: the path's one directional
+/// end sits at its last cell, so the walk runs with the head. `against`:
+/// the head sits at its first cell. `none`: the path constrains nothing
+/// (no directional end, or one at both ends).
+pub const Head = enum { none, with, against };
+
+/// One contiguous cell path of a unit, in declared from→to order, with the
+/// orientation walking it asserts. A rail unit carries several: its stem,
+/// its crossbar (never oriented), and one drop per member.
+pub const OrientedPath = struct {
+    cells: []const Cell,
+    head: Head,
+};
+
+/// Orientation a walk from `arrow_from`'s end to `arrow_to`'s end asserts.
+pub fn headOf(arrow_from: prim.ArrowKind, arrow_to: prim.ArrowKind) Head {
+    if (!prim.blocks(arrow_from, arrow_to)) return .none;
+    return if (prim.directional(arrow_to)) .with else .against;
+}
+
 /// One conductive geometry unit.
 pub const Unit = struct {
     /// Owning declared edge — set for edge-owned polylines and
@@ -61,6 +83,9 @@ pub const Unit = struct {
     bundle: ?pb.SelectedBundleId,
     cells: CellMap,
     attachments: []const Attachment,
+    /// The unit's ink as oriented paths (see `OrientedPath`); the walk
+    /// reads these, the cell map serves the transversal test.
+    paths: []const OrientedPath = &.{},
 };
 
 /// D-JOIN direction of a Rail read from its role (same mapping as
@@ -128,12 +153,43 @@ pub fn edgeUnit(alloc: std.mem.Allocator, e: sk.EdgePath) Error!Unit {
     var cells: CellMap = .empty;
     const path = try cellPath(alloc, e.polyline);
     try foldPath(alloc, &cells, path);
+    const paths = try alloc.alloc(OrientedPath, 1);
+    paths[0] = .{ .cells = path, .head = headOf(e.arrow_from, e.arrow_to) };
     const att = try alloc.alloc(Attachment, 2);
     const first: Cell = if (path.len > 0) path[0] else .{ .x = 0, .y = 0 };
     const last: Cell = if (path.len > 0) path[path.len - 1] else .{ .x = 0, .y = 0 };
     att[0] = .{ .edge = e.id, .node = e.from, .endpoint_side = .source_exit, .cell = first };
     att[1] = .{ .edge = e.id, .node = e.to, .endpoint_side = .target_entry, .cell = last };
-    return .{ .edge = e.id, .bundle = null, .cells = cells, .attachments = att };
+    return .{ .edge = e.id, .bundle = null, .cells = cells, .attachments = att, .paths = paths };
+}
+
+/// A member's end decorations in declared from→to order: the pivot end
+/// is the rail's uniform `pivot_arrow`, the leaf end is the tap's own.
+fn memberHead(rail: sk.Rail, tap: sk.Tap) Head {
+    return if (railDirection(rail) == .out)
+        headOf(rail.pivot_arrow, tap.arrow)
+    else
+        headOf(tap.arrow, rail.pivot_arrow);
+}
+
+/// The stem carries every member's pivot-side semantics. Under the star
+/// licence all members share one head class, so the stem takes it; a rail
+/// whose members disagree gets an unconstrained stem — the conservative
+/// reading, since fewer blocked steps can only surface more pairs.
+fn stemHead(rail: sk.Rail) Head {
+    if (rail.taps.len == 0) return .none;
+    const first = memberHead(rail, rail.taps[0]);
+    for (rail.taps[1..]) |tap| if (memberHead(rail, tap) != first) return .none;
+    return first;
+}
+
+/// A cell path in declared from→to order: a fan-OUT path is stated pivot
+/// side first, so it stays; a fan-IN path is stated the same way and is
+/// reversed so the declared source (the leaf) comes first.
+fn declaredOrder(alloc: std.mem.Allocator, rail: sk.Rail, pivot_first: []const sk.Point) Error![]const Cell {
+    const path = try alloc.dupe(Cell, try cellPath(alloc, pivot_first));
+    if (railDirection(rail) == .in) std.mem.reverse(Cell, path);
+    return path;
 }
 
 fn railPoint(rail: sk.Rail, x: i32) sk.Point {
@@ -167,14 +223,21 @@ fn tapAttachments(rail: sk.Rail, tap: sk.Tap, out: *std.ArrayListUnmanaged(Attac
 /// terminals (D-REACH clause 6).
 pub fn railUnit(alloc: std.mem.Allocator, rail: sk.Rail, bundle: pb.SelectedBundleId) Error!Unit {
     var cells: CellMap = .empty;
-    try foldPath(alloc, &cells, try cellPath(alloc, rail.stem));
-    try foldPath(alloc, &cells, try cellPath(alloc, &.{ rail.crossbar[0], rail.crossbar[1] }));
+    var paths: std.ArrayListUnmanaged(OrientedPath) = .empty;
+    const stem = try cellPath(alloc, rail.stem);
+    try foldPath(alloc, &cells, stem);
+    try paths.append(alloc, .{ .cells = try declaredOrder(alloc, rail, rail.stem), .head = stemHead(rail) });
+    const crossbar = try cellPath(alloc, &.{ rail.crossbar[0], rail.crossbar[1] });
+    try foldPath(alloc, &cells, crossbar);
+    try paths.append(alloc, .{ .cells = crossbar, .head = .none });
     var att: std.ArrayListUnmanaged(Attachment) = .empty;
     for (rail.taps) |tap| {
-        try foldPath(alloc, &cells, try cellPath(alloc, &.{ tap.at, tap.landing }));
+        const drop = [_]sk.Point{ tap.at, tap.landing };
+        try foldPath(alloc, &cells, try cellPath(alloc, &drop));
+        try paths.append(alloc, .{ .cells = try declaredOrder(alloc, rail, &drop), .head = memberHead(rail, tap) });
         try tapAttachments(rail, tap, &att, alloc);
     }
-    return .{ .edge = null, .bundle = bundle, .cells = cells, .attachments = try att.toOwnedSlice(alloc) };
+    return .{ .edge = null, .bundle = bundle, .cells = cells, .attachments = try att.toOwnedSlice(alloc), .paths = try paths.toOwnedSlice(alloc) };
 }
 
 /// Per-tap share unit for a Rail NOT realized by any selected bundle:
@@ -190,7 +253,17 @@ pub fn tapShareUnit(alloc: std.mem.Allocator, rail: sk.Rail, tap: sk.Tap) Error!
     try foldPath(alloc, &cells, try cellPath(alloc, &.{ tap.at, tap.landing }));
     var att: std.ArrayListUnmanaged(Attachment) = .empty;
     try tapAttachments(rail, tap, &att, alloc);
-    return .{ .edge = tap.edge, .bundle = null, .cells = cells, .attachments = try att.toOwnedSlice(alloc) };
+    // The member's whole conductive path, pivot side first: stem, the
+    // crossbar stretch to its tap, its drop — one oriented path.
+    var pts: std.ArrayListUnmanaged(sk.Point) = .empty;
+    try pts.appendSlice(alloc, rail.stem);
+    try pts.append(alloc, railPoint(rail, junction_x));
+    try pts.append(alloc, railPoint(rail, tap.at.x));
+    try pts.append(alloc, tap.at);
+    try pts.append(alloc, tap.landing);
+    const paths = try alloc.alloc(OrientedPath, 1);
+    paths[0] = .{ .cells = try declaredOrder(alloc, rail, pts.items), .head = memberHead(rail, tap) };
+    return .{ .edge = tap.edge, .bundle = null, .cells = cells, .attachments = try att.toOwnedSlice(alloc), .paths = paths };
 }
 
 /// Label 4-adjacency connected sub-components over a deduplicated cell

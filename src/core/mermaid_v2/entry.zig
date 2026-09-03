@@ -587,6 +587,7 @@ test {
     _ = @import("sketch_ports_test.zig");
     _ = @import("sketch_bundles_test.zig");
     _ = @import("ledger/reach_vector.zig");
+    _ = @import("ledger/reach_walk.zig");
     _ = @import("ledger/reach_vector_test.zig");
     _ = @import("ledger/reach_vector_test2.zig");
     _ = @import("tiling/counts_test.zig");

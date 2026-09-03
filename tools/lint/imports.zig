@@ -222,8 +222,13 @@ pub const file_allowlists = [_]struct {
     },
     .{
         .name = "ledger/reach_vector.zig",
-        .allowed = &.{ .sketch, .{ .exact = "reach_geometry.zig" }, .{ .exact = "reach_report.zig" } },
-        .reason = "reach_vector may only import std, prim, base/ledger, sketch, or its geom/report split siblings",
+        .allowed = &.{ .sketch, .{ .exact = "reach_geometry.zig" }, .{ .exact = "reach_report.zig" }, .{ .exact = "reach_walk.zig" } },
+        .reason = "reach_vector may only import std, prim, base/ledger, sketch, or its geom/report/walk split siblings",
+    },
+    .{
+        .name = "ledger/reach_walk.zig",
+        .allowed = &.{ .sketch, .{ .exact = "reach_geometry.zig" } },
+        .reason = "reach_walk may only import std, prim, base/ledger, sketch, or reach_geometry",
     },
     .{
         .name = "ledger/reach_geometry.zig",

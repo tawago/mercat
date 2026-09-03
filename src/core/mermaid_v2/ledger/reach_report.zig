@@ -121,9 +121,13 @@ pub const Occurrence = struct {
 pub const Comp = struct {
     chan: usize,
     first_cell: geom.Cell,
+    cells: std.ArrayListUnmanaged(geom.Cell) = .empty,
     occ: std.ArrayListUnmanaged(Occurrence) = .empty,
     missing: std.ArrayListUnmanaged(pb.NodePair) = .empty,
     bundles: std.ArrayListUnmanaged(pb.SelectedBundleId) = .empty,
+    /// (source node, target node) pairs an admissible walk joins
+    /// (reach_walk.zig) — the trace model's reading of the component.
+    reachable: []const pb.NodePair = &.{},
 };
 
 pub fn nodeKey(node_keys: []const []const u8, id: sk.NodeId) []const u8 {
@@ -255,7 +259,7 @@ fn dedupPairs(alloc: std.mem.Allocator, keys: []const []const u8, pairs: []const
 }
 
 /// Assemble the ordered component table: per component the typed source/
-/// target terminals, the reachable Cartesian pairs, the declared pairs it
+/// target terminals, the pairs an admissible walk joins, the declared pairs it
 /// represents, the missing/extra defect lists, and its selected-bundle ids.
 /// `bridge_ids` stays empty in the no-bridge P1a slice. Also charges
 /// `counts.undeclared_pair` for every extra pair (clause 10 bullet 1).
@@ -277,19 +281,11 @@ pub fn buildTable(
 
         var sources: std.ArrayListUnmanaged(pb.TerminalPort) = .empty;
         var targets: std.ArrayListUnmanaged(pb.TerminalPort) = .empty;
-        var src_nodes: std.ArrayListUnmanaged(sk.NodeId) = .empty;
-        var tgt_nodes: std.ArrayListUnmanaged(sk.NodeId) = .empty;
         for (comp.occ.items) |o| {
             const term: pb.TerminalPort = .{ .node = o.node, .edge = o.edge, .endpoint_side = o.endpoint_side, .port = o.port };
             switch (o.endpoint_side) {
-                .source_exit => {
-                    try sources.append(alloc, term);
-                    try appendUniqueNode(alloc, &src_nodes, o.node);
-                },
-                .target_entry => {
-                    try targets.append(alloc, term);
-                    try appendUniqueNode(alloc, &tgt_nodes, o.node);
-                },
+                .source_exit => try sources.append(alloc, term),
+                .target_entry => try targets.append(alloc, term),
             }
         }
 
@@ -300,11 +296,7 @@ pub fn buildTable(
         }
         const declared_sorted = try dedupPairs(alloc, node_keys, declared_pairs.items);
 
-        var reachable: std.ArrayListUnmanaged(pb.NodePair) = .empty;
-        for (src_nodes.items) |sn| {
-            for (tgt_nodes.items) |tn| try reachable.append(alloc, .{ .source = sn, .target = tn });
-        }
-        const reachable_sorted = try dedupPairs(alloc, node_keys, reachable.items);
+        const reachable_sorted = try dedupPairs(alloc, node_keys, comp.reachable);
 
         var extra: std.ArrayListUnmanaged(pb.NodePair) = .empty;
         outer: for (reachable_sorted) |p| {
@@ -331,11 +323,6 @@ pub fn buildTable(
         };
     }
     return entries;
-}
-
-fn appendUniqueNode(alloc: std.mem.Allocator, list: *std.ArrayListUnmanaged(sk.NodeId), node: sk.NodeId) Error!void {
-    for (list.items) |n| if (n == node) return;
-    try list.append(alloc, node);
 }
 
 fn appendf(a: std.mem.Allocator, out: *std.ArrayListUnmanaged(u8), comptime fmt: []const u8, args: anytype) Error!void {

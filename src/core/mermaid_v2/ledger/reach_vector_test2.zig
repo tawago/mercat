@@ -161,6 +161,77 @@ test "V-D-REACH-08/14 (vector): dual controlled source/target/neither plans pass
     try expectEqual(@as(usize, 3), nr.components.len);
 }
 
+/// Membership at both ends (confluence theory, "The plan"): A→D is a member
+/// of A's fan-out rail and of D's fan-in rail, joined by its own middle run.
+/// Nodes A=0 B=1 C=2 D=3; edges e0 A→B, e1 A→D, e2 C→D.
+const both_nodes = [_]sg.Node{ node(0, "A"), node(1, "B"), node(2, "C"), node(3, "D") };
+const both_ports = [_]pb.TerminalPort{
+    tp(0, 0, .source_exit), tp(1, 0, .target_entry),
+    tp(0, 1, .source_exit), tp(3, 1, .target_entry),
+    tp(2, 2, .source_exit), tp(3, 2, .target_entry),
+};
+const both_a_stem = [_]sk.Point{ .{ .x = 10, .y = 2 }, .{ .x = 10, .y = 4 } };
+const both_d_stem = [_]sk.Point{ .{ .x = 15, .y = 14 }, .{ .x = 15, .y = 12 } };
+const both_mid = [_]sk.Point{ .{ .x = 20, .y = 6 }, .{ .x = 20, .y = 10 } };
+const both_members_a = [_]pb.EdgeId{ 0, 1 };
+const both_members_d = [_]pb.EdgeId{ 1, 2 };
+const both_selected = [_]pb.SelectedBundle{
+    .{ .id = 0, .proposal = 0, .candidate_bundle = 0, .members = &both_members_a },
+    .{ .id = 1, .proposal = 1, .candidate_bundle = 1, .members = &both_members_d },
+};
+const both_ms = [_]pb.RealizedEdgeMembership{
+    .{ .edge = 0, .source = .{ .selected = 0 }, .target = null },
+    .{ .edge = 1, .source = .{ .selected = 0 }, .target = .{ .selected = 1 } },
+    .{ .edge = 2, .source = null, .target = .{ .selected = 1 } },
+};
+
+fn bothSketch(leaf_head: sk.ArrowKind, pivot_head: sk.ArrowKind, taps_a: []sk.Tap, taps_d: []sk.Tap, rails: []sk.Rail, mid: []sk.EdgePath) sk.Sketch {
+    taps_a[0] = .{ .edge = 0, .node = 1, .at = .{ .x = 10, .y = 4 }, .landing = .{ .x = 10, .y = 6 }, .arrow = leaf_head };
+    taps_a[1] = .{ .edge = 1, .node = 3, .at = .{ .x = 20, .y = 4 }, .landing = .{ .x = 20, .y = 6 }, .arrow = leaf_head };
+    taps_d[0] = .{ .edge = 2, .node = 2, .at = .{ .x = 10, .y = 12 }, .landing = .{ .x = 10, .y = 10 }, .arrow = .none };
+    taps_d[1] = .{ .edge = 1, .node = 0, .at = .{ .x = 20, .y = 12 }, .landing = .{ .x = 20, .y = 10 }, .arrow = .none };
+    rails[0] = .{ .pivot = 0, .stem = &both_a_stem, .crossbar = .{ .{ .x = 10, .y = 4 }, .{ .x = 20, .y = 4 } }, .taps = taps_a, .kind = .solid, .role = .fan_out_dropper, .pivot_arrow = .none };
+    rails[1] = .{ .pivot = 3, .stem = &both_d_stem, .crossbar = .{ .{ .x = 10, .y = 12 }, .{ .x = 20, .y = 12 } }, .taps = taps_d, .kind = .solid, .role = .fan_in_rail, .pivot_arrow = pivot_head };
+    mid[0] = path(1, 0, 3, &both_mid);
+    mid[0].arrow_to = leaf_head;
+    var s = sketchOf(mid, rails);
+    s.bundles = .{ .selected_bundles = &both_selected, .memberships = &both_ms, .terminal_ports = &both_ports };
+    return s;
+}
+
+test "membership at both ends: one-way members at both rails trace only the declared pairs" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    var taps_a: [2]sk.Tap = undefined;
+    var taps_d: [2]sk.Tap = undefined;
+    var rails: [2]sk.Rail = undefined;
+    var mid: [1]sk.EdgePath = undefined;
+    const s = bothSketch(.filled, .filled, &taps_a, &taps_d, &rails, &mid);
+    const report = try vc.validate(a, s, try nodeKeys(a, &both_nodes), .flat);
+    try expect(zeroCounts(report.counts));
+    try expectEqual(@as(usize, 1), report.components.len);
+    try expectEqual(@as(usize, 2), report.components[0].selected_bundle_ids.len);
+    try expect(anyReachable(report, 0, 1));
+    try expect(anyReachable(report, 0, 3));
+    try expect(anyReachable(report, 2, 3));
+    try expect(!anyReachable(report, 2, 1));
+}
+
+test "membership at both ends: arrow-free members let the leaf-to-leaf trace through, and it is undeclared" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    var taps_a: [2]sk.Tap = undefined;
+    var taps_d: [2]sk.Tap = undefined;
+    var rails: [2]sk.Rail = undefined;
+    var mid: [1]sk.EdgePath = undefined;
+    const s = bothSketch(.none, .none, &taps_a, &taps_d, &rails, &mid);
+    const report = try vc.validate(a, s, try nodeKeys(a, &both_nodes), .flat);
+    try expectEqual(@as(u32, 1), report.counts.undeclared_pair);
+    try expect(anyReachable(report, 2, 1));
+}
+
 test "V-D-REACH-19(b) (vector): declaration/writer permutation yields identical report bytes" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();

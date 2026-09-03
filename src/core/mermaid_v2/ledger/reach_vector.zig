@@ -26,7 +26,7 @@
 //!
 //! Allowed imports (tools/lint_imports.zig): std, prim, the base/ no-deps
 //! tier (here ../base/ledger.zig and ../base/rail_closure.zig), sketch,
-//! reach_geometry, reach_report (split
+//! reach_geometry, reach_report, reach_walk (split
 //! siblings for the 500-line cap, mirroring realized/invariants).
 
 const std = @import("std");
@@ -35,6 +35,7 @@ const pb = @import("../base/ledger.zig");
 const rc = @import("../base/rail_closure.zig");
 const geom = @import("reach_geometry.zig");
 const rep = @import("reach_report.zig");
+const walk = @import("reach_walk.zig");
 
 pub const Error = error{OutOfMemory};
 
@@ -198,6 +199,7 @@ pub fn validate(alloc: std.mem.Allocator, s: sk.Sketch, node_keys: []const []con
                 gop.value_ptr.* = comps.items.len;
                 try comps.append(alloc, .{ .chan = chan, .first_cell = c });
             }
+            try comps.items[gop.value_ptr.*].cells.append(alloc, c);
             try cell_comp.put(alloc, .{ .chan = @intCast(chan), .x = c.x, .y = c.y }, gop.value_ptr.*);
         }
     }
@@ -221,6 +223,7 @@ pub fn validate(alloc: std.mem.Allocator, s: sk.Sketch, node_keys: []const []con
         }
     }
 
+    try walkComponents(alloc, units.items, parent, comps.items);
     try oracle(alloc, s, declared, comps.items, &counts);
     const missing = try missingDeclared(alloc, s, declared, comps.items, &counts);
     const table = try rep.buildTable(alloc, node_keys, declared, comps.items, &counts);
@@ -233,6 +236,25 @@ pub fn validate(alloc: std.mem.Allocator, s: sk.Sketch, node_keys: []const []con
         .missing_declared = missing,
         .sharing = sharing_events,
     };
+}
+
+/// Read each component under the trace model: its reachable pairs are the
+/// ones an admissible walk over its channel's units joins.
+fn walkComponents(alloc: std.mem.Allocator, units: []const geom.Unit, parent: []usize, comps: []Comp) Error!void {
+    for (comps) |*comp| {
+        var chan_units: std.ArrayListUnmanaged(geom.Unit) = .empty;
+        for (units, 0..) |u, i| if (find(parent, i) == comp.chan) try chan_units.append(alloc, u);
+        var sources: std.ArrayListUnmanaged(walk.Terminal) = .empty;
+        var targets: std.ArrayListUnmanaged(walk.Terminal) = .empty;
+        for (comp.occ.items) |o| {
+            const term: walk.Terminal = .{ .node = o.node, .cell = o.cell };
+            switch (o.endpoint_side) {
+                .source_exit => try sources.append(alloc, term),
+                .target_entry => try targets.append(alloc, term),
+            }
+        }
+        comp.reachable = try walk.reachablePairs(alloc, chan_units.items, comp.cells.items, sources.items, targets.items);
+    }
 }
 
 fn oppositeNode(d: ?DeclaredEdge, att: geom.Attachment) sk.NodeId {
@@ -316,11 +338,13 @@ fn oracle(
             for (comp.occ.items) |o| {
                 if (containsEdge(sel.members, o.edge)) has_member = true;
             }
-            if (has_member) member_comps += 1;
+            if (!has_member) continue;
+            member_comps += 1;
+            try comp.bundles.append(alloc, sel.id);
         }
         if (member_comps != 1) counts.bundle_split += 1;
-        try foreignCheck(alloc, sel.id, true, fusedUnionOf(s.bundles, sel) orelse sel.members, comps, counts);
     }
+    try foreignCheck(alloc, s.bundles, comps, counts);
 }
 
 fn bundleInUnion(bundles: pb.RealizedBundles, id: pb.SelectedBundleId, u: []const pb.EdgeId) bool {
@@ -343,27 +367,27 @@ fn fusedUnionOf(bundles: pb.RealizedBundles, sel: pb.SelectedBundle) ?[]const pb
     return null;
 }
 
-/// Bullet 5: a component carrying a bundle's/union's members that also
-/// carries any non-member terminal bundles independent memberships.
-fn foreignCheck(
-    alloc: std.mem.Allocator,
-    bundle_id: ?pb.SelectedBundleId,
-    record_bundle: bool,
-    members: []const pb.EdgeId,
-    comps: []Comp,
-    counts: *Counts,
-) Error!void {
+/// Bullet 5: a component carrying realized bundles' members that also
+/// carries a terminal no bundle of the component licenses — an
+/// independent membership joined to shared ink. A component may hold
+/// several bundles (an edge that is a member at both ends joins its two
+/// rails), so "foreign" is measured against the union of every bundle
+/// present, each read through its fused union when it has one.
+fn foreignCheck(alloc: std.mem.Allocator, bundles: pb.RealizedBundles, comps: []Comp, counts: *Counts) Error!void {
     for (comps) |*comp| {
-        var has_member = false;
-        for (comp.occ.items) |o| {
-            if (containsEdge(members, o.edge)) has_member = true;
+        if (comp.bundles.items.len == 0) continue;
+        var covered: std.ArrayListUnmanaged(pb.EdgeId) = .empty;
+        defer covered.deinit(alloc);
+        for (comp.bundles.items) |id| {
+            for (bundles.selected_bundles) |sel| {
+                if (sel.id != id) continue;
+                try covered.appendSlice(alloc, fusedUnionOf(bundles, sel) orelse sel.members);
+            }
         }
-        if (!has_member) continue;
-        if (record_bundle) try comp.bundles.append(alloc, bundle_id.?);
         var foreign: std.ArrayListUnmanaged(pb.EdgeId) = .empty;
         defer foreign.deinit(alloc);
         for (comp.occ.items) |o| {
-            if (!containsEdge(members, o.edge) and !containsEdge(foreign.items, o.edge))
+            if (!containsEdge(covered.items, o.edge) and !containsEdge(foreign.items, o.edge))
                 try foreign.append(alloc, o.edge);
         }
         counts.independent_joined += @intCast(foreign.items.len);

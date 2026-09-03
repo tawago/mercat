@@ -40,10 +40,12 @@ fn twox2Paths() [3]sk.EdgePath {
 /// FUSED-rail polylines: all three edges meet a shared rail row (y=4), so the
 /// both-sides union's members form ONE connected component — the oracle then
 /// reports S2→T1 as an extra (undeclared) reachable pair. (S1 col 2, S2 col 6,
-/// T1 col 2, T2 col 10.)
+/// T2 col 10, T1 col 14.) T1 sits BEYOND T2 so the fabricated trace S2→T1 runs
+/// with every head it passes: under direction consistency a leftward stretch
+/// owned by S1's member alone would be walked against its head and block.
 fn twox2FusedPaths() [3]sk.EdgePath {
     return .{
-        rvt.path(0, 0, 2, &.{ .{ .x = 2, .y = 2 }, .{ .x = 2, .y = 6 } }),
+        rvt.path(0, 0, 2, &.{ .{ .x = 2, .y = 2 }, .{ .x = 2, .y = 4 }, .{ .x = 14, .y = 4 }, .{ .x = 14, .y = 6 } }),
         rvt.path(1, 0, 3, &.{ .{ .x = 2, .y = 2 }, .{ .x = 2, .y = 4 }, .{ .x = 10, .y = 4 }, .{ .x = 10, .y = 6 } }),
         rvt.path(2, 1, 3, &.{ .{ .x = 6, .y = 2 }, .{ .x = 6, .y = 4 }, .{ .x = 10, .y = 4 }, .{ .x = 10, .y = 6 } }),
     };
