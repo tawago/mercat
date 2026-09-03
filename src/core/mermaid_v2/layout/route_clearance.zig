@@ -69,6 +69,8 @@ pub fn conflictsRailArrows(a: std.mem.Allocator, polyline: []const sk.Point, rai
             if ((rail.pivot == from or rail.pivot == to) and rail.pivot_arrow != .none and arrowPoint(rail.stem, cell, true, false)) return true;
             for (rail.taps) |tap| {
                 if (tap.node != from and tap.node != to) continue;
+                // A continuing tap paints no head; its member's head is at the far end.
+                if (tap.continues) continue;
                 const segment = [_]sk.Point{ tap.at, tap.landing };
                 if (tap.arrow != .none and arrowPoint(&segment, cell, false, true)) return true;
             }

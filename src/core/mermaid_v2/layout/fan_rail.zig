@@ -3,10 +3,12 @@
 //! no `EdgePath` — `raster/rails.zig` paints the shared run from the Rail's
 //! explicit junction bits.
 //!
-//! SCOPE: single-row (`rows == 1`) TD-internal fan-OUT only; multi-row fans,
-//! fan-IN, and fans with per-edge stem conflicts (stroke/arrow mismatch)
-//! stay on the per-peer polyline path. Allowed imports (layout zone): std +
-//! sem_graph + sketch + siblings.
+//! SCOPE: single-row (`rows == 1`) TD-internal fans; multi-row fans and
+//! fans with per-edge stem conflicts (stroke/arrow mismatch) stay on the
+//! per-peer polyline path. A `long` peer (leaf beyond the next layer) gets
+//! a one-cell drop whose tap `continues`; routing.zig owns the member's
+//! stroke from there. Allowed imports (layout zone): std + sem_graph +
+//! sketch + siblings.
 
 const std = @import("std");
 const sg = @import("../sem_graph.zig");
@@ -15,6 +17,7 @@ const fan_mod = @import("fan.zig");
 const fan_polyline = @import("fan_polyline.zig");
 const routing = @import("routing.zig");
 const pb = @import("../base/ledger.zig");
+const rail_closure = @import("../base/rail_closure.zig");
 const port_plan = @import("port_plan.zig");
 
 /// Revert flag for the behavior-parity escape hatch: `false` restores the
@@ -35,9 +38,29 @@ pub const Built = struct {
 /// eligibility pass fills these so `build` never re-scans the graph).
 pub const Peer = struct {
     edge: sg.Edge,
+    /// The leaf node's placement (the far end for a long peer).
     placement: sketch.NodePlacement,
     port: ?sketch.Port = null,
+    /// Column the tap descends on: the leaf's port column, or for a long
+    /// peer its first virtual node's centre (the corridor column).
+    column: i32 = 0,
+    /// The row the rail must clear on the peer side: the leaf's near wall,
+    /// or for a long peer the row its first virtual node occupies.
+    line: i32 = 0,
+    long: bool = false,
 };
+
+/// A peer whose leaf sits on the next layer: tap column and near row read
+/// off the leaf's own placement.
+pub fn nearPeer(edge: sg.Edge, placement: sketch.NodePlacement, port: ?sketch.Port, direction: fan_mod.Direction) Peer {
+    return .{
+        .edge = edge,
+        .placement = placement,
+        .port = port,
+        .column = placement.rect.x + @as(i32, @intCast(if (port) |pt| pt.offset else placement.rect.w / 2)),
+        .line = if (direction == .out) placement.rect.y else placement.rect.bottom() - 1,
+    };
+}
 
 /// An eligible fan's pivot placement plus per-peer resolutions.
 pub const Resolved = struct {
@@ -57,6 +80,7 @@ pub fn resolve(
     fan: fan_mod.Fan,
     graph: sg.SemGraph,
     placements: []const sketch.NodePlacement,
+    geom: []const routing.NodeGeom,
     bundles: pb.RealizedBundles,
     allocated_ports: port_plan.Plan,
 ) error{OutOfMemory}!?Resolved {
@@ -75,8 +99,10 @@ pub fn resolve(
     if (fan.rows != 1) return null;
     if (dir != .TD) return null;
     if (fan.peers.len < 2) return null;
+    // A discharged member has no ink of its own — another rail's crossbar
+    // is its rendering — so it can tap nothing here.
     var shared_len: usize = 0;
-    for (fan.peers) |p| if (p.shared) {
+    for (fan.peers) |p| if (p.shared and !rail_closure.contains(bundles.discharged, p.edge_id)) {
         shared_len += 1;
     };
     if (shared_len < 2) return null;
@@ -85,7 +111,7 @@ pub fn resolve(
     var pivot_arrow: ?sg.ArrowEnd = null;
     var peer_i: usize = 0;
     for (fan.peers) |p| {
-        if (!p.shared) continue;
+        if (!p.shared or rail_closure.contains(bundles.discharged, p.edge_id)) continue;
         const out = &peers[peer_i];
         peer_i += 1;
         const e = routing.findGraphEdge(graph, p.edge_id) orelse return null;
@@ -99,11 +125,15 @@ pub fn resolve(
         if (pivot_arrow) |expected| {
             if (arrow != expected) return null;
         } else pivot_arrow = arrow;
-        out.* = .{
-            .edge = e,
-            .placement = routing.findPlacement(placements, if (fan.direction == .out) e.to else e.from),
-            .port = if (fan.direction == .out) ep.target else ep.source,
-        };
+        const placement = routing.findPlacement(placements, if (fan.direction == .out) e.to else e.from);
+        const port: ?sketch.Port = if (fan.direction == .out) ep.target else ep.source;
+        out.* = nearPeer(e, placement, port, fan.direction);
+        if (p.long) {
+            const g = geom[p.peer_idx];
+            out.long = true;
+            out.column = g.x + @divTrunc(@as(i32, @intCast(g.w)), 2);
+            out.line = if (fan.direction == .out) g.y else g.y + @as(i32, @intCast(g.h)) - 1;
+        }
     }
     if (bundles.memberships.len != 0 and !selected(fan.peers, bundles)) return null;
     const first_ep = allocated_ports.forEdge(peers[0].edge.id) orelse return null;
@@ -134,8 +164,7 @@ pub fn build(
 
     var peer_line: i32 = if (fan_in) std.math.minInt(i32) else std.math.maxInt(i32);
     for (resolved.peers) |p| {
-        const line = if (fan_in) p.placement.rect.bottom() - 1 else p.placement.rect.y;
-        peer_line = if (fan_in) @max(peer_line, line) else @min(peer_line, line);
+        peer_line = if (fan_in) @max(peer_line, p.line) else @min(peer_line, p.line);
     }
     const delta: i32 = @intCast(rail_lift + lane);
     // Formal base approach (owner ruling): every terminal arrowhead must have
@@ -178,14 +207,21 @@ pub fn build(
     var min_x: i32 = sx;
     var max_x: i32 = sx;
     for (resolved.peers, taps) |p, *tap| {
-        const tx = p.placement.rect.x + @as(i32, @intCast(if (p.port) |port| port.offset else p.placement.rect.w / 2));
+        const tx = p.column;
+        // A long peer's drop is the rail's one junction-adjacent cell; the
+        // member's own stroke continues from there (routing.zig).
+        // @guarded-by: fan_rail_test.zig "a long member gets a one-cell drop whose tap continues"
+        const landing_y: i32 = if (p.long)
+            (if (fan_in) rail_y - 1 else rail_y + 1)
+        else if (fan_in) p.placement.rect.bottom() - 1 else p.placement.rect.y;
         tap.* = .{
             .edge = p.edge.id,
             .node = p.placement.id,
             .at = .{ .x = tx, .y = rail_y },
-            .landing = .{ .x = tx, .y = if (fan_in) p.placement.rect.bottom() - 1 else p.placement.rect.y },
+            .landing = .{ .x = tx, .y = landing_y },
             .label = p.edge.label,
             .arrow = routing.mapArrow(if (fan_in) p.edge.arrow_from else p.edge.arrow_to),
+            .continues = p.long,
         };
         min_x = @min(min_x, tx);
         max_x = @max(max_x, tx);

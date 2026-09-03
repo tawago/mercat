@@ -198,6 +198,12 @@ pub const EdgeRole = enum {
     /// A fan-IN dropper: the leg rising from one source column to the
     /// crossbar, owned by a single edge.
     fan_in_dropper,
+    /// A rail member's own ink beyond its tap: the stroke from the tap's
+    /// landing to the member's far end. That far end is a private port
+    /// (the stroke paints that port and head) or the other rail's tap
+    /// (the stroke paints neither — the rail's stem carries the head).
+    /// Never rail ink: it is a private stroke in every attribution law.
+    member_stroke,
     /// Self-loop edge — uses the lollipop polyline.
     self_loop,
     /// Forward edge whose both endpoints live in the same innermost

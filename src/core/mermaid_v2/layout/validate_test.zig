@@ -347,3 +347,54 @@ test "counts: over-budget bbox reports bbox_overflow without a Violation" {
     const c = validate_mod.counts(vr, s);
     try testing.expectEqual(@as(u32, 1), c.bbox_overflow);
 }
+
+test "a member stroke's rail end must meet its tap, its private end the perimeter" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+
+    // Pivot 1 over leaf 2 (next layer) and far leaf 3 (two layers down).
+    const nodes = [_]sketch.NodePlacement{
+        makeNode(1, 6, 0, 5, 3, null),
+        makeNode(2, 0, 7, 5, 3, null),
+        makeNode(3, 10, 14, 5, 3, null),
+    };
+    const stem = [_]sketch.Point{ .{ .x = 8, .y = 2 }, .{ .x = 8, .y = 4 } };
+    const taps = [_]sketch.Tap{
+        .{ .edge = 1, .node = 2, .at = .{ .x = 2, .y = 4 }, .landing = .{ .x = 2, .y = 7 } },
+        .{ .edge = 2, .node = 3, .at = .{ .x = 12, .y = 4 }, .landing = .{ .x = 12, .y = 5 }, .continues = true },
+    };
+    const rails = [_]sketch.Rail{.{ .pivot = 1, .stem = &stem, .crossbar = .{ .{ .x = 2, .y = 4 }, .{ .x = 12, .y = 4 } }, .taps = &taps, .kind = .solid }};
+
+    const good_poly = [_]sketch.Point{ .{ .x = 12, .y = 4 }, .{ .x = 12, .y = 14 } };
+    var good = makeEdge(2, 1, 3, &good_poly);
+    good.role = .member_stroke;
+    good.port_to = .{ .node = 3, .side = .north, .offset = 2 };
+    const good_edges = [_]sketch.EdgePath{good};
+    const ok: sketch.Sketch = .{
+        .bbox = .{ .x = 0, .y = 0, .w = 16, .h = 17 },
+        .direction = .TD,
+        .nodes = &nodes,
+        .clusters = &.{},
+        .edges = &good_edges,
+        .rails = &rails,
+        .diagnostics = &.{},
+        .budget = .{ .max_width = 80, .rung = 0 },
+    };
+    try testing.expect((try validate(a, ok)) == .ok);
+
+    // The same stroke starting one cell off its tap is off-perimeter.
+    const bad_poly = [_]sketch.Point{ .{ .x = 13, .y = 4 }, .{ .x = 13, .y = 13 }, .{ .x = 12, .y = 13 }, .{ .x = 12, .y = 14 } };
+    var bad = good;
+    bad.polyline = &bad_poly;
+    const bad_edges = [_]sketch.EdgePath{bad};
+    var wrong = ok;
+    wrong.edges = &bad_edges;
+    const result = try validate(a, wrong);
+    try testing.expect(result == .failed);
+    var saw_off = false;
+    for (result.failed) |v| {
+        if (v.kind == .path_off_perimeter) saw_off = true;
+    }
+    try testing.expect(saw_off);
+}

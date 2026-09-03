@@ -209,6 +209,9 @@ fn tapAttachments(rail: sk.Rail, tap: sk.Tap, out: *std.ArrayListUnmanaged(Attac
         .endpoint_side = if (out_dir) .source_exit else .target_entry,
         .cell = stem_start,
     });
+    // A continuing tap's leaf terminal sits at the member stroke's far end,
+    // which that stroke's own unit files.
+    if (tap.continues) return;
     try out.append(alloc, .{
         .edge = tap.edge,
         .node = tap.node,

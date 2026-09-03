@@ -81,6 +81,14 @@ fn nodeId(lg: sugiyama.LayeredGraph, idx: u32) sg.NodeId {
     };
 }
 
+/// A peer's leaf node. A long peer's index names its corridor (a virtual
+/// node), so its leaf is read off the declared edge instead.
+fn leafOf(graph: sg.SemGraph, lg: sugiyama.LayeredGraph, f: Fan, p: fan_mod.FanEdge) sg.NodeId {
+    if (!p.long) return nodeId(lg, p.peer_idx);
+    for (graph.edges) |e| if (e.id == p.edge_id) return if (f.direction == .out) e.to else e.from;
+    return nodeId(lg, p.peer_idx);
+}
+
 /// Assign `fan.lane` for every fan so that no incomplete-bipartite group of
 /// rails fuses into a fabricating run. Mutates `fans` in place; leaves every
 /// lane at 0 when nothing fabricates. `geom` is parallel to `lg.nodes`.
@@ -160,7 +168,7 @@ pub fn assignLanes(
                 hi = @max(hi, cx);
                 try edges.append(a, .{
                     .from = nodeId(lg, f.pivot_idx),
-                    .to = nodeId(lg, p.peer_idx),
+                    .to = leafOf(graph, lg, f, p),
                     .blocks_leaf_trace = blocking.contains(p.edge_id),
                     .style = style_of.get(p.edge_id) orelse 0,
                 });
@@ -183,7 +191,7 @@ pub fn assignLanes(
                 lo = @min(lo, cx);
                 hi = @max(hi, cx);
                 try edges.append(a, .{
-                    .from = nodeId(lg, p.peer_idx),
+                    .from = leafOf(graph, lg, f, p),
                     .to = nodeId(lg, f.pivot_idx),
                     .blocks_leaf_trace = blocking.contains(p.edge_id),
                     .style = style_of.get(p.edge_id) orelse 0,

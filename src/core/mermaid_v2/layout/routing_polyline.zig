@@ -22,6 +22,9 @@ const sugiyama = @import("sugiyama.zig");
 pub fn skipCorridorExtraRows(
     a: std.mem.Allocator,
     lg: sugiyama.LayeredGraph,
+    /// Skip edges whose arrival is a fan-IN rail's continuing tap: the
+    /// rail's own reserved rows hold that descent, so they reserve nothing.
+    covered: []const sg.EdgeId,
 ) error{OutOfMemory}![]u32 {
     if (lg.layers.len < 2) return try a.alloc(u32, 0);
     const out = try a.alloc(u32, lg.layers.len - 1);
@@ -44,6 +47,7 @@ pub fn skipCorridorExtraRows(
             .virtual => false,
         };
         if (from_is_virtual and to_is_real) {
+            if (std.mem.indexOfScalar(sg.EdgeId, covered, le.edge) != null) continue;
             const tgt_layer = node_layer[le.to];
             if (tgt_layer > 0) {
                 const gap = tgt_layer - 1;

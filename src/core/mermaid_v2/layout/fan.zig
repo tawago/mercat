@@ -36,6 +36,11 @@ pub const FanEdge = struct {
     shared: bool = true,
     /// Display columns in this member's non-empty label; zero means unlabeled.
     label_width: u32 = 0,
+    /// The peer sits beyond the next layer: `peer_idx` names the member's
+    /// first virtual node (the corridor cell the tap descends into), and
+    /// the leaf is the edge's far end. The rail owns one drop cell; the
+    /// member's own `.member_stroke` carries the rest.
+    long: bool = false,
 };
 
 pub const Fan = struct {
@@ -105,9 +110,13 @@ pub fn additionalLabelLift(f: Fan, lane: u32) u32 {
 
 /// Detect every fan in the layered graph (both fan-OUT and fan-IN).
 /// A node qualifies as a fan-OUT pivot iff it has ≥2 outgoing forward
-/// edges to REAL nodes on the immediately-next layer, none through
-/// virtuals. Symmetric criterion for fan-IN. Returned slice and inner
-/// `peers` slices are arena-allocated via `a`.
+/// edges; a peer on the immediately-next layer taps the rail directly, a
+/// peer reached through a virtual node is a `long` member (the licence
+/// reads only the declared graph — distance on the page is not an input).
+/// A labeled long member is the one refusal: its label would ride a
+/// one-cell drop, so it stays a private stroke and the rail keeps the
+/// rest. Symmetric criterion for fan-IN. Returned slice and inner `peers`
+/// slices are arena-allocated via `a`.
 pub fn detect(
     a: std.mem.Allocator,
     graph: sg.SemGraph,
@@ -279,15 +288,17 @@ fn collectFanOut(
         if (le.from != src_idx) continue;
         if (le.reversed) continue;
         if (node_layer[le.to] != src_layer + 1) continue;
-        switch (lg.nodes[le.to]) {
-            .real => {},
-            // @guarded-by: fan_test.zig "detect excludes a pivot whose next-layer candidates mix real and virtual peers"
-            .virtual => return null,
-        }
+        // @guarded-by: fan_test.zig "detect keeps a long member as a peer and refuses only a labeled one"
+        const long = switch (lg.nodes[le.to]) {
+            .real => false,
+            .virtual => true,
+        };
+        if (long and peerLabel(graph, le.edge) != null) continue;
         try candidates.append(a, .{
             .edge_id = le.edge,
             .peer_idx = le.to,
             .role = .middle,
+            .long = long,
         });
     }
     return preparePeers(a, graph, .out, pivot, candidates.items);
@@ -309,14 +320,16 @@ fn collectFanIn(
         if (le.to != tgt_idx) continue;
         if (le.reversed) continue;
         if (node_layer[le.from] != want_src_layer) continue;
-        switch (lg.nodes[le.from]) {
-            .real => {},
-            .virtual => return null,
-        }
+        const long = switch (lg.nodes[le.from]) {
+            .real => false,
+            .virtual => true,
+        };
+        if (long and peerLabel(graph, le.edge) != null) continue;
         try candidates.append(a, .{
             .edge_id = le.edge,
             .peer_idx = le.from,
             .role = .middle,
+            .long = long,
         });
     }
     return preparePeers(a, graph, .in, pivot, candidates.items);

@@ -256,7 +256,7 @@ test "a skip edge reserves exactly one extra gap row above its target layer, a p
     var lg = try sugiyama.assignLayers(testing.allocator, g);
     defer lg.deinit(testing.allocator);
 
-    const extras = try routing.skipCorridorExtraRows(testing.allocator, lg);
+    const extras = try routing.skipCorridorExtraRows(testing.allocator, lg, &.{});
     defer testing.allocator.free(extras);
 
     var flagged: usize = 0;
@@ -277,7 +277,7 @@ test "a skip edge reserves exactly one extra gap row above its target layer, a p
     var plain_lg = try sugiyama.assignLayers(testing.allocator, plain_g);
     defer plain_lg.deinit(testing.allocator);
 
-    const plain_extras = try routing.skipCorridorExtraRows(testing.allocator, plain_lg);
+    const plain_extras = try routing.skipCorridorExtraRows(testing.allocator, plain_lg, &.{});
     defer testing.allocator.free(plain_extras);
     for (plain_extras) |x| try testing.expectEqual(@as(u32, 0), x);
 }

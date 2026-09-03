@@ -298,16 +298,19 @@ fn twoSiblingFanGraph(
 /// Every edge id the merged Sketch names geometrically (`EdgePath.id` plus
 /// each rail `Tap.edge`), asserted pairwise distinct, and returned so a
 /// caller can resolve bundle members against it.
+/// Every edge id has one owner. A member whose tap `continues` is the one
+/// sanctioned repeat: its rail tap (one per rail end) plus its own
+/// `.member_stroke` are one edge's ink, and the first sighting owns it.
 pub fn assertUniqueEdgeIds(a: std.mem.Allocator, s: sketch.Sketch) !std.AutoHashMap(sketch.EdgeId, sketch.NodeId) {
     var owners = std.AutoHashMap(sketch.EdgeId, sketch.NodeId).init(a);
     for (s.edges) |e| {
-        try std.testing.expect(!owners.contains(e.id));
-        try owners.put(e.id, e.from);
+        if (e.role != .member_stroke) try std.testing.expect(!owners.contains(e.id));
+        if (!owners.contains(e.id)) try owners.put(e.id, e.from);
     }
     for (s.rails) |b| {
         for (b.taps) |t| {
-            try std.testing.expect(!owners.contains(t.edge));
-            try owners.put(t.edge, b.pivot);
+            if (!t.continues) try std.testing.expect(!owners.contains(t.edge));
+            if (!owners.contains(t.edge)) try owners.put(t.edge, b.pivot);
         }
     }
     return owners;

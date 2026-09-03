@@ -20,6 +20,7 @@ const routing = @import("layout/routing.zig");
 const clusters = @import("layout/clusters.zig");
 const spacing = @import("layout/spacing.zig");
 const fan_mod = @import("layout/fan.zig");
+const fan_gate = @import("layout/fan_gate.zig");
 const fan_lanes = @import("layout/fan_lanes.zig");
 const mirror = @import("layout/mirror.zig");
 const cx_mod = @import("layout/x_assign.zig");
@@ -109,15 +110,21 @@ fn buildSketch(
     const node_lines = try a.alloc([]const []const u8, total);
 
     const is_td = graph.direction == .TD;
-    const fans: []fan_mod.Fan = if (is_td) try fan_mod.detect(a, graph, lg) else &.{};
+    const fans_detected: []fan_mod.Fan = if (is_td) try fan_mod.detect(a, graph, lg) else &.{};
     // The closure licence's report-only counts ride the Sketch to telemetry: the
     // registry tags name real events only if a production render can fire them.
     // @guarded-by: layout_test2.zig "a production render carries the closure licence's counts on its Sketch"
     var closure: ledger.ClosureCounts = .{};
-    addConstructionDiagnostics(&closure, fans);
+    addConstructionDiagnostics(&closure, fans_detected);
     const effective_plan: ?ledger.BundlePermits = try bundle_commit.effectivePlan(a, graph, opts.bundle_permits);
     const plan_ref: ?*const ledger.BundlePermits = if (effective_plan) |*p| p else null;
     var candidate_bundles = try bundle_commit.buildReported(a, graph, plan_ref, lg.reversed_edges, opts.disable_bundle_realization, &closure);
+    // A long peer taps a rail or nothing: the per-peer polyline path assumes
+    // a next-layer leaf. Where the plan did not select the fan's bundle, a
+    // fan holding a long peer degrades to what it was before long peers
+    // existed — no fan, private routing.
+    // @guarded-by: layout/port_plan_test.zig "a fan with a long peer the plan did not select degrades to private routing"
+    const fans = try fan_gate.keepRealizableLong(a, fans_detected, candidate_bundles);
     const construction_private = hasPrivatePeers(fans);
     const port_active = hasPortWork(candidate_bundles) or construction_private;
     const lane_plan = try port_plan.planLanes(a, graph, lg, candidate_bundles);
@@ -200,7 +207,8 @@ fn buildSketch(
     };
     // Skip-corridor headroom (TD): reserves the extra gap row a ≥2-layer edge's target layer needs for a clean vertical descent. @guarded-by: layout/layout_test.zig "a skip edge reserves exactly one extra gap row above its target layer, a plain chain reserves none"
     if (is_td and v_sp_per_gap.len > 0) {
-        const extras = try routing.skipCorridorExtraRows(a, lg);
+        // @guarded-by: layout/port_plan_test.zig "a long fan-in member the plan selected gets a continuing tap and a member stroke"
+        const extras = try routing.skipCorridorExtraRows(a, lg, try fan_gate.longFanInMembers(a, fans));
         for (extras, 0..) |x, i| {
             if (i < v_sp_per_gap.len) v_sp_per_gap[i] += x;
         }

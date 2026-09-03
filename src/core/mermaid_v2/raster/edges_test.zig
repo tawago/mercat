@@ -369,3 +369,45 @@ test "cross mode: corner arm onto a subgraph frame border welds a tee (pre-slice
     try testing.expectEqual(@as(u32, 0), r.crossings.b_border_fusion_refused);
     try testing.expectEqual(@as(u32, 0), r.crossings.b_frame_bridge);
 }
+
+test "a member stroke paints neither port nor head at its rail end and both at a private end" {
+    const a = testing.allocator;
+    var lat = try makeLattice(a, 12, 12);
+    defer a.free(lat.cells);
+
+    // A fan-OUT rail at node 0 whose tap for edge 7 continues at (8,4);
+    // the member stroke runs from that tap down to node 1's north wall at
+    // (8,10). Node 1's wall row is stamped so the arrival port can merge.
+    const stem = [_]sketch.Point{ .{ .x = 4, .y = 2 }, .{ .x = 4, .y = 4 } };
+    const taps = [_]sketch.Tap{
+        .{ .edge = 6, .node = 2, .at = .{ .x = 4, .y = 4 }, .landing = .{ .x = 4, .y = 7 } },
+        .{ .edge = 7, .node = 1, .at = .{ .x = 8, .y = 4 }, .landing = .{ .x = 8, .y = 5 }, .continues = true },
+    };
+    const rails = [_]sketch.Rail{.{ .pivot = 0, .stem = &stem, .crossbar = .{ .{ .x = 4, .y = 4 }, .{ .x = 8, .y = 4 } }, .taps = &taps, .kind = .solid }};
+    const pts = [_]sketch.Point{ .{ .x = 8, .y = 4 }, .{ .x = 8, .y = 10 } };
+    var stroke = makeEdge(7, &pts, .none, .filled);
+    stroke.role = .member_stroke;
+    stroke.port_from = .{ .node = 0, .side = .south, .offset = 0 };
+    stroke.port_to = .{ .node = 1, .side = .north, .offset = 2 };
+    const es = [_]sketch.EdgePath{stroke};
+    var s = makeSketch(&es);
+    s.rails = &rails;
+    var x: u32 = 6;
+    while (x <= 10) : (x += 1) lat.at(x, 10).* = .{
+        .occupant = .{ .node_border = .{ .node = 1, .role = .edge_n } },
+        .neighbours = .{ .e = x < 10, .w = x > 6 },
+    };
+
+    _ = try edges.rasterizeEdges(a, &lat, s, .bridge, null);
+
+    // The rail end (8,4) is left to the rail: no port bit, no head.
+    try testing.expect(lat.atConst(8, 4).occupant == .empty);
+    try testing.expect(lat.atConst(8, 5).occupant != .arrowhead);
+    // The private end still gets its head at (8,9); its tip faces the wall,
+    // so the port-tee facing rule leaves (8,10) pristine.
+    try testing.expect(switch (lat.atConst(8, 9).occupant) {
+        .arrowhead => |ah| ah.dir == .south and ah.edge == 7,
+        else => false,
+    });
+    try testing.expect(!lat.atConst(8, 10).neighbours.n);
+}

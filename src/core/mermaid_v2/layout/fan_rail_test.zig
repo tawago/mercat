@@ -84,8 +84,8 @@ test "fan_rail.blocked rejects a built rail whose tap drop touches a foreign nod
     const e_po = sg.Edge{ .id = 1, .from = 0, .to = 2, .kind = .solid, .arrow_from = .none, .arrow_to = .filled, .label = null };
 
     var peers = [_]fan_rail.Peer{
-        .{ .edge = e_pq, .placement = q },
-        .{ .edge = e_po, .placement = other },
+        fan_rail.nearPeer(e_pq, q, null, .out),
+        fan_rail.nearPeer(e_po, other, null, .out),
     };
     const resolved = fan_rail.Resolved{ .pivot = p, .peers = &peers };
 
@@ -113,8 +113,8 @@ test "formal base approach: rail lifts one row when the gap admits it, holds at 
         const q = mkPlace(1, 10, 6, 6, 3);
         const r = mkPlace(2, 30, 6, 6, 3);
         var peers = [_]fan_rail.Peer{
-            .{ .edge = mkEdge2(0, 0, 1), .placement = q },
-            .{ .edge = mkEdge2(1, 0, 2), .placement = r },
+            fan_rail.nearPeer(mkEdge2(0, 0, 1), q, null, .out),
+            fan_rail.nearPeer(mkEdge2(1, 0, 2), r, null, .out),
         };
         const resolved = fan_rail.Resolved{ .pivot = pivot, .direction = .out, .peers = &peers };
         const built = try fan_rail.build(a, resolved, 0, 0);
@@ -130,8 +130,8 @@ test "formal base approach: rail lifts one row when the gap admits it, holds at 
         const q = mkPlace(1, 10, 5, 6, 3);
         const r = mkPlace(2, 30, 5, 6, 3);
         var peers = [_]fan_rail.Peer{
-            .{ .edge = mkEdge2(0, 0, 1), .placement = q },
-            .{ .edge = mkEdge2(1, 0, 2), .placement = r },
+            fan_rail.nearPeer(mkEdge2(0, 0, 1), q, null, .out),
+            fan_rail.nearPeer(mkEdge2(1, 0, 2), r, null, .out),
         };
         const resolved = fan_rail.Resolved{ .pivot = pivot, .direction = .out, .peers = &peers };
         const built = try fan_rail.build(a, resolved, 0, 0);
@@ -144,8 +144,8 @@ test "formal base approach: rail lifts one row when the gap admits it, holds at 
         const q = mkPlace(1, 10, 4, 6, 3);
         const r = mkPlace(2, 30, 4, 6, 3);
         var peers = [_]fan_rail.Peer{
-            .{ .edge = mkEdge2(0, 0, 1), .placement = q },
-            .{ .edge = mkEdge2(1, 0, 2), .placement = r },
+            fan_rail.nearPeer(mkEdge2(0, 0, 1), q, null, .out),
+            fan_rail.nearPeer(mkEdge2(1, 0, 2), r, null, .out),
         };
         const resolved = fan_rail.Resolved{ .pivot = pivot, .direction = .out, .peers = &peers };
         const built = try fan_rail.build(a, resolved, 0, 0);
@@ -157,8 +157,8 @@ test "formal base approach: rail lifts one row when the gap admits it, holds at 
         const s1 = mkPlace(1, 10, 0, 6, 3);
         const s2 = mkPlace(2, 30, 0, 6, 3);
         var peers = [_]fan_rail.Peer{
-            .{ .edge = mkEdge2(0, 1, 0), .placement = s1 },
-            .{ .edge = mkEdge2(1, 2, 0), .placement = s2 },
+            fan_rail.nearPeer(mkEdge2(0, 1, 0), s1, null, .out),
+            fan_rail.nearPeer(mkEdge2(1, 2, 0), s2, null, .out),
         };
         const resolved = fan_rail.Resolved{ .pivot = sink, .direction = .in, .peers = &peers };
         const built = try fan_rail.build(a, resolved, 0, 0);
@@ -173,8 +173,8 @@ test "formal base approach: rail lifts one row when the gap admits it, holds at 
         const s1 = mkPlace(1, 10, 0, 6, 3);
         const s2 = mkPlace(2, 30, 0, 6, 3);
         var peers = [_]fan_rail.Peer{
-            .{ .edge = mkEdge2(0, 1, 0), .placement = s1 },
-            .{ .edge = mkEdge2(1, 2, 0), .placement = s2 },
+            fan_rail.nearPeer(mkEdge2(0, 1, 0), s1, null, .in),
+            fan_rail.nearPeer(mkEdge2(1, 2, 0), s2, null, .out),
         };
         const resolved = fan_rail.Resolved{ .pivot = sink, .direction = .in, .peers = &peers };
         const built = try fan_rail.build(a, resolved, 0, 0);
@@ -198,8 +198,8 @@ test "labeled fan-OUT rail lifts the crossbar for a 4-cell dropper when the gap 
         const q = mkPlace(1, 10, 8, 6, 3);
         const r = mkPlace(2, 30, 8, 6, 3);
         var peers = [_]fan_rail.Peer{
-            .{ .edge = lbl_edge_a, .placement = q },
-            .{ .edge = lbl_edge_b, .placement = r },
+            fan_rail.nearPeer(lbl_edge_a, q, null, .out),
+            fan_rail.nearPeer(lbl_edge_b, r, null, .out),
         };
         const resolved = fan_rail.Resolved{ .pivot = pivot, .direction = .out, .peers = &peers };
         const built = try fan_rail.build(a, resolved, 0, 0);
@@ -214,8 +214,8 @@ test "labeled fan-OUT rail lifts the crossbar for a 4-cell dropper when the gap 
         const q = mkPlace(1, 10, 6, 6, 3);
         const r = mkPlace(2, 30, 6, 6, 3);
         var peers = [_]fan_rail.Peer{
-            .{ .edge = lbl_edge_a, .placement = q },
-            .{ .edge = lbl_edge_b, .placement = r },
+            fan_rail.nearPeer(lbl_edge_a, q, null, .out),
+            fan_rail.nearPeer(lbl_edge_b, r, null, .out),
         };
         const resolved = fan_rail.Resolved{ .pivot = pivot, .direction = .out, .peers = &peers };
         const built = try fan_rail.build(a, resolved, 0, 0);
@@ -251,8 +251,40 @@ test "a fan whose peers were lifted onto separate lanes builds no rail" {
         .{ .edge_id = 11, .peer_idx = 2, .role = .rightmost },
     };
     const shared: @import("fan.zig").Fan = .{ .direction = .out, .pivot_idx = 0, .source_layer = 0, .peers = &peers };
-    try testing.expect((try fan_rail.resolve(a, .TD, shared, graph, &placements, .{}, allocated)) != null);
+    const geom = [_]@import("routing.zig").NodeGeom{
+        .{ .x = 6, .y = 0, .w = 5, .h = 3, .layer = 0 },
+        .{ .x = 0, .y = 8, .w = 5, .h = 3, .layer = 1 },
+        .{ .x = 12, .y = 8, .w = 5, .h = 3, .layer = 1 },
+    };
+    try testing.expect((try fan_rail.resolve(a, .TD, shared, graph, &placements, &geom, .{}, allocated)) != null);
 
     peers[1].lane = 1;
-    try testing.expectEqual(@as(?fan_rail.Resolved, null), try fan_rail.resolve(a, .TD, shared, graph, &placements, .{}, allocated));
+    try testing.expectEqual(@as(?fan_rail.Resolved, null), try fan_rail.resolve(a, .TD, shared, graph, &placements, &geom, .{}, allocated));
+}
+
+test "a long member gets a one-cell drop whose tap continues" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const pivot = mkPlace(0, 20, 0, 10, 3);
+    const near = mkPlace(1, 10, 6, 6, 3);
+    const far = mkPlace(2, 30, 14, 6, 3);
+    var peers = [_]fan_rail.Peer{
+        fan_rail.nearPeer(mkEdge2(0, 0, 1), near, null, .out),
+        fan_rail.nearPeer(mkEdge2(1, 0, 2), far, null, .out),
+    };
+    // The far leaf's corridor sits on the next layer at column 33.
+    peers[1].long = true;
+    peers[1].column = 33;
+    peers[1].line = 6;
+    const resolved = fan_rail.Resolved{ .pivot = pivot, .direction = .out, .peers = &peers };
+    const built = try fan_rail.build(a, resolved, 0, 0);
+    try testing.expectEqual(@as(i32, 3), built.rail.crossbar[0].y);
+    try testing.expect(!built.taps[0].continues);
+    try testing.expectEqual(@as(i32, 6), built.taps[0].landing.y);
+    try testing.expect(built.taps[1].continues);
+    try testing.expectEqual(@as(i32, 33), built.taps[1].at.x);
+    try testing.expectEqual(@as(i32, 4), built.taps[1].landing.y);
+    try testing.expectEqual(@as(sketch.NodeId, 2), built.taps[1].node);
+    try testing.expectEqual(@as(i32, 33), built.rail.crossbar[1].x);
 }

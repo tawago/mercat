@@ -281,3 +281,51 @@ test "bidirectional duplicate and self-loop keep independent endpoint identity" 
     const loop = pathById(s, 2);
     try std.testing.expect(!samePort(loop.port_from, loop.port_to));
 }
+
+test "a fan with a long peer the plan did not select degrades to private routing" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    // A's fan-out mixes strokes (solid to B, thick to C), so the plan refuses
+    // it; C sits two layers down, so A's fan holds a long peer.
+    const nodes = [_]sg.Node{ node(0, "A"), node(1, "B"), node(2, "C") };
+    const edges = [_]sg.Edge{
+        edge(0, 1, .solid),
+        .{ .id = 1, .from = 1, .to = 2, .kind = .solid, .arrow_from = .none, .arrow_to = .filled, .label = null },
+        edge(2, 2, .thick),
+    };
+    const s = try productionLayout(a, testGraph(&nodes, &edges, &.{}));
+    for (s.rails) |rail| try std.testing.expect(rail.pivot != 0);
+    for (s.edges) |path| try std.testing.expect(path.role != .member_stroke);
+    try std.testing.expectEqual(sk.EdgeRole.forward, pathById(s, 2).role);
+}
+
+test "a long fan-in member the plan selected gets a continuing tap and a member stroke" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const nodes = [_]sg.Node{ node(0, "A"), node(1, "B"), node(2, "C") };
+    const edges = [_]sg.Edge{
+        edge(0, 1, .solid),
+        .{ .id = 1, .from = 1, .to = 2, .kind = .solid, .arrow_from = .none, .arrow_to = .filled, .label = null },
+        edge(2, 2, .solid),
+    };
+    const s = try productionLayout(a, testGraph(&nodes, &edges, &.{}));
+    var fan_in: ?sk.Rail = null;
+    for (s.rails) |rail| if (rail.pivot == 2) {
+        fan_in = rail;
+    };
+    const rail = fan_in orelse return error.MissingFanInRail;
+    var long_tap: ?sk.Tap = null;
+    for (rail.taps) |tap| if (tap.edge == 2) {
+        long_tap = tap;
+    };
+    const tap = long_tap orelse return error.MissingLongTap;
+    try std.testing.expect(tap.continues);
+    try std.testing.expectEqual(tap.at.y - 1, tap.landing.y);
+    const stroke = pathById(s, 2);
+    try std.testing.expectEqual(sk.EdgeRole.member_stroke, stroke.role);
+    const last = stroke.polyline[stroke.polyline.len - 1];
+    try std.testing.expectEqual(tap.at.x, last.x);
+    try std.testing.expectEqual(tap.at.y, last.y);
+}

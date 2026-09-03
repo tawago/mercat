@@ -121,8 +121,38 @@ fn emit(
     try violations.append(allocator, .{ .kind = kind, .message = msg });
 }
 
+/// Which ends of a `.member_stroke` sit on a rail's continuing tap: those
+/// ends meet the rail's junction cell, not a node perimeter.
+const RailEnds = struct { source: bool = false, target: bool = false };
+
+fn railEnds(s: sketch.Sketch, edge: sketch.EdgePath) RailEnds {
+    var ends: RailEnds = .{};
+    if (edge.role != .member_stroke) return ends;
+    for (s.rails) |rail| {
+        const fan_in = rail.role == .fan_in_dropper or rail.role == .fan_in_rail;
+        for (rail.taps) |tap| {
+            if (tap.edge != edge.id or !tap.continues) continue;
+            if (fan_in) ends.target = true else ends.source = true;
+        }
+    }
+    return ends;
+}
+
+/// A continuing tap's junction cell, for the member stroke end that must
+/// meet it.
+fn continuingTapAt(s: sketch.Sketch, edge: sketch.EdgeId, fan_in: bool) ?sketch.Point {
+    for (s.rails) |rail| {
+        const rail_in = rail.role == .fan_in_dropper or rail.role == .fan_in_rail;
+        if (rail_in != fan_in) continue;
+        for (rail.taps) |tap| if (tap.edge == edge and tap.continues) return tap.at;
+    }
+    return null;
+}
+
 /// Each EdgePath's first/last polyline point must lie on the perimeter
-/// of its source/target NodePlacement.
+/// of its source/target NodePlacement — or, for a `.member_stroke`'s rail
+/// end, exactly on that rail's continuing tap.
+/// @guarded-by: validate_test.zig "a member stroke's rail end must meet its tap, its private end the perimeter"
 pub fn checkPathEndpoints(
     allocator: std.mem.Allocator,
     s: sketch.Sketch,
@@ -137,10 +167,19 @@ pub fn checkPathEndpoints(
         const to_node = findNode(s, edge.to) orelse continue;
         const first = edge.polyline[0];
         const last = edge.polyline[edge.polyline.len - 1];
-        if (!onPerimeter(from_node.rect, first)) {
+        const ends = railEnds(s, edge);
+        if (ends.source) {
+            const at = continuingTapAt(s, edge.id, false) orelse unreachable;
+            if (first.x != at.x or first.y != at.y)
+                try emit(allocator, violations, .path_off_perimeter, "edge {d} start ({d},{d}) not on its rail tap ({d},{d})", .{ edge.id, first.x, first.y, at.x, at.y });
+        } else if (!onPerimeter(from_node.rect, first)) {
             try emit(allocator, violations, .path_off_perimeter, "edge {d} start ({d},{d}) not on perimeter of node {d}", .{ edge.id, first.x, first.y, from_node.id });
         }
-        if (!onPerimeter(to_node.rect, last)) {
+        if (ends.target) {
+            const at = continuingTapAt(s, edge.id, true) orelse unreachable;
+            if (last.x != at.x or last.y != at.y)
+                try emit(allocator, violations, .path_off_perimeter, "edge {d} end ({d},{d}) not on its rail tap ({d},{d})", .{ edge.id, last.x, last.y, at.x, at.y });
+        } else if (!onPerimeter(to_node.rect, last)) {
             try emit(allocator, violations, .path_off_perimeter, "edge {d} end ({d},{d}) not on perimeter of node {d}", .{ edge.id, last.x, last.y, to_node.id });
         }
     }
@@ -205,6 +244,7 @@ pub fn checkRails(
             }
         }
         for (rail.taps) |tap| {
+            if (tap.continues) continue;
             const node = findNode(s, tap.node) orelse continue;
             if (!onPerimeter(node.rect, tap.landing)) {
                 try emit(allocator, violations, .path_off_perimeter, "rail tap for edge {d} lands at ({d},{d}) off perimeter of node {d}", .{ tap.edge, tap.landing.x, tap.landing.y, tap.node });

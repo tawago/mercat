@@ -184,9 +184,12 @@ fn drawRail(lat: *lattice.Lattice, rail: sketch.Rail, report: *Report, chan: Cha
         // rule the polyline ports obey. A tap whose dropper stops short of
         // the wall, or whose head looks the other way, keeps its tee.
         // @guarded-by: rails_test.zig "a tap head facing the landing leaves the member border pristine; an undecorated tap tees it"
-        const tap_head = tapHead(tap, fan_in);
+        // A tap that continues lands on no wall and carries no head: its
+        // member's far end holds both (a private port, or the other rail).
+        // @guarded-by: rails_test.zig "a continuing tap claims its junction arm and paints neither port nor head"
+        const tap_head = if (tap.continues) null else tapHead(tap, fan_in);
         const tap_end: edges_r.PortEnd = .{ .head = tap_head, .role = dropper_role };
-        if (fan_in) {
+        if (tap.continues) {} else if (fan_in) {
             const source_stub = [_]sketch.Point{ tap.landing, tap.at };
             edges_r.drawPortStroke(lat, &source_stub, rail.kind, tap.edge, tap_end, sink);
         } else {
@@ -208,7 +211,7 @@ fn drawRail(lat: *lattice.Lattice, rail: sketch.Rail, report: *Report, chan: Cha
             claim(lat, cursor, tap.edge, rail.kind, dropper_role, edges_r.straightMask(dir), report, chan, rec);
             wrote_any = true;
         }
-        if (tap.arrow != .none) {
+        if (tap.arrow != .none and !tap.continues) {
             if (tap_head) |h| {
                 if (edges_r.pointInBounds(h.cell, lat)) {
                     const c = edges_r.toCoord(h.cell);

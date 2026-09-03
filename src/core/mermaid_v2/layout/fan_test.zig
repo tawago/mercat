@@ -90,7 +90,7 @@ test "detect distinguishes fan-OUT and fan-IN in the same graph" {
     try testing.expectEqual(fan.Direction.in, fans[1].direction);
 }
 
-test "detect excludes a pivot whose next-layer candidates mix real and virtual peers" {
+test "detect keeps a long member as a peer and refuses only a labeled one" {
     const a = testing.allocator;
     var nodes = [_]sugiyama.LayerNode{
         .{ .real = 0 },
@@ -124,9 +124,34 @@ test "detect excludes a pivot whose next-layer candidates mix real and virtual p
     const dummy_graph: sg.SemGraph = .{ .direction = .TD, .nodes = &.{}, .edges = &.{}, .clusters = &.{}, .classes = &.{}, .arena = null };
     const fans = try fan.detect(arena.allocator(), dummy_graph, lg);
 
-    for (fans) |f| {
-        try testing.expect(!(f.direction == .out and f.pivot_idx == 0));
-    }
+    var out: ?fan.Fan = null;
+    for (fans) |f| if (f.direction == .out and f.pivot_idx == 0) {
+        out = f;
+    };
+    const f = out orelse return error.MissingFanOut;
+    try testing.expectEqual(@as(usize, 3), f.peers.len);
+    var long_peers: usize = 0;
+    for (f.peers) |p| if (p.long) {
+        long_peers += 1;
+        try testing.expectEqual(@as(u32, 3), p.peer_idx);
+        try testing.expectEqual(@as(sg.EdgeId, 300), p.edge_id);
+    };
+    try testing.expectEqual(@as(usize, 1), long_peers);
+
+    // The same shape with the long edge labeled: the member stays private,
+    // the rail keeps its two near peers.
+    const g_nodes = [_]sg.Node{ mkNode(0, "P"), mkNode(1, "A"), mkNode(2, "B"), mkNode(3, "D") };
+    var g_edges = [_]sg.Edge{ mkEdge2(100, 0, 1), mkEdge2(101, 0, 2), mkEdge2(300, 0, 3) };
+    g_edges[2].label = "far";
+    const labeled_graph: sg.SemGraph = .{ .direction = .TD, .nodes = &g_nodes, .edges = &g_edges, .clusters = &.{}, .classes = &.{}, .arena = null };
+    const labeled = try fan.detect(arena.allocator(), labeled_graph, lg);
+    var refused: ?fan.Fan = null;
+    for (labeled) |lf| if (lf.direction == .out and lf.pivot_idx == 0) {
+        refused = lf;
+    };
+    const rf = refused orelse return error.MissingFanOut;
+    try testing.expectEqual(@as(usize, 2), rf.peers.len);
+    for (rf.peers) |p| try testing.expect(!p.long);
 }
 
 test "assignRoles handles even-count fan with no center (fan-OUT)" {

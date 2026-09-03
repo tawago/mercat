@@ -159,9 +159,28 @@ fn claimCornerCell(
 /// Corner-cell convention: at a turn A → B, corner neighbours =
 /// `bitMask(reverse(A)) | bitMask(B)` (@guarded-by: edges_corner_test.zig
 /// "L-shaped corner has reverse-incoming + outgoing bits").
+/// Which ends of a `.member_stroke` sit on a rail's continuing tap. Such
+/// an end is no wall and carries no head: the rail's stem holds the head,
+/// and the tap cell is the rail's own junction.
+pub const RailEnds = struct { source: bool = false, target: bool = false };
+
+fn railEnds(s: sketch.Sketch, edge: sketch.EdgePath) RailEnds {
+    var ends: RailEnds = .{};
+    if (edge.role != .member_stroke) return ends;
+    for (s.rails) |rail| {
+        const fan_in = rail.role == .fan_in_dropper or rail.role == .fan_in_rail;
+        for (rail.taps) |tap| {
+            if (tap.edge != edge.id or !tap.continues) continue;
+            if (fan_in) ends.target = true else ends.source = true;
+        }
+    }
+    return ends;
+}
+
 fn walkPolyline(
     lat: *lattice.Lattice,
     edge: sketch.EdgePath,
+    ends: RailEnds,
     cells_lost: *u32,
     ctx: crossings.Ctx,
     sink: aux.Sink,
@@ -386,14 +405,16 @@ fn walkPolyline(
     // it vacates keeps the run ink the walk wrote there, and the slid tip
     // faces the border, so the facing gate leaves the wall plain.
     // @guarded-by: edges_slide_test.zig "a decorated gap arrival stamps its head against the wall, run ink behind it"
-    if (edge.arrow_from != .none) if (result.first_cell) |fc| if (result.first_dir) |fd| {
+    // A member stroke's rail end: no head, no port — the rail owns both.
+    // @guarded-by: edges_test.zig "a member stroke paints neither port nor head at its rail end and both at a private end"
+    if (!ends.source and edge.arrow_from != .none) if (result.first_cell) |fc| if (result.first_dir) |fd| {
         result.source_head = ep.slideHead(lat, pts[0], .{ .cell = fc, .dir = reverse(fd) });
     };
-    if (edge.arrow_to != .none) if (result.last_cell) |lc| if (result.last_dir) |ld| {
+    if (!ends.target and edge.arrow_to != .none) if (result.last_cell) |lc| if (result.last_dir) |ld| {
         result.target_head = ep.slideHead(lat, pts[pts.len - 1], .{ .cell = lc, .dir = ld });
     };
-    drawPortStroke(lat, pts, ek, edge.id, .{ .head = result.source_head, .role = erole }, sink);
-    drawTargetPortStroke(lat, pts, ek, edge.id, .{ .head = result.target_head, .role = erole }, sink);
+    if (!ends.source) drawPortStroke(lat, pts, ek, edge.id, .{ .head = result.source_head, .role = erole }, sink);
+    if (!ends.target) drawTargetPortStroke(lat, pts, ek, edge.id, .{ .head = result.target_head, .role = erole }, sink);
 
     return result;
 }
@@ -423,7 +444,7 @@ pub fn rasterizeEdges(
     };
 
     for (s.edges) |edge| {
-        const r = try walkPolyline(lat, edge, &cells_lost, ctx, sink, rec);
+        const r = try walkPolyline(lat, edge, railEnds(s, edge), &cells_lost, ctx, sink, rec);
 
         if (r.target_head) |h| {
             if (pointInBounds(h.cell, lat)) {

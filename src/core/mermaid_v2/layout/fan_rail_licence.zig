@@ -25,9 +25,12 @@
 //! shared leaf column, and along the other, arriving at a relation neither
 //! declaration covers. Geometry, not bookkeeping, is what makes that trace
 //! readable, so it does not care that this path discharges nothing: both
-//! rails refuse. The over-refusal the flat lever has to guard against — the
-//! fully declared clique, whose pair edges are themselves rails — cannot
-//! arise here, and `reserve` says why.
+//! rails refuse. The over-refusal the flat lever guards against — the fully
+//! declared clique, whose pair edges are themselves fan members — arises
+//! here too once a rail may hold a long member: a member that is a wider
+//! kept rail's backing declaration is that rail's discharge seen from the
+//! other side, so it is subordinated (dropped from the narrower claim)
+//! before pairs are reserved, exactly as the flat lever does.
 //!
 //! Allowed imports (layout zone): std + sem_graph + layout siblings + base.
 
@@ -72,6 +75,33 @@ pub fn refuseUndeclared(
     defer a.free(claims);
     for (fans, claims) |f, *claim| {
         claim.members = try membersOf(a, graph, lg, f, invisible);
+        claim.verdict = .{ .outcome = .untouched };
+        claim.claiming = false;
+    }
+    // Widest proposed rail first (ties by fan order): a later claim whose
+    // member is an earlier kept rail's discharge drops that member — an edge
+    // another rail's crossbar already renders carries no rail of its own.
+    // @guarded-by: layout_test2.zig "a production render carries the closure licence's counts on its Sketch"
+    const order = try a.alloc(usize, claims.len);
+    defer a.free(order);
+    for (order, 0..) |*slot, i| slot.* = i;
+    std.mem.sort(usize, order, claims, widestProposalFirst);
+    for (order, 0..) |ci, rank| {
+        const claim = &claims[ci];
+        var kept: std.ArrayListUnmanaged(rc.Member) = .empty;
+        for (claim.members) |m| {
+            var subordinated = false;
+            for (order[0..rank]) |pi| {
+                if (!claims[pi].claiming) continue;
+                for (claims[pi].verdict.discharges) |d| if (d.backer == m.edge) {
+                    subordinated = true;
+                };
+            }
+            if (!subordinated) try kept.append(a, m);
+        }
+        a.free(claim.members);
+        claim.members = try kept.toOwnedSlice(a);
+        if (claim.members.len < 2) continue;
         claim.verdict = try rc.decide(a, claim.members, try backersOf(a, graph, claim.members));
         claim.claiming = claim.verdict.outcome == .keep or claim.verdict.outcome == .salvage;
         if (report) |r| {
@@ -100,15 +130,9 @@ pub fn refuseUndeclared(
 /// rail, and a second claimant makes it nobody's. Returns one flag per claim
 /// — true where the rail must give its fusion up.
 ///
-/// The flat lever pairs this clause with a SUBORDINATION one: a candidate
-/// every one of whose members is a wider rail's backing declaration is that
-/// rail's discharge seen from the other side, and counting it as a second
-/// claimant refuses the fully declared clique. No such candidate exists here.
-/// `fan.detect` admits only peers exactly one layer from the pivot, so a
-/// rail's leaves all share ONE layer and every declaration between two of
-/// them is an intra-layer edge — which no fan can ever hold as a member. A
-/// discharge is therefore never somebody else's rail on this path, and the
-/// clause has nothing to subordinate.
+/// Subordination (a member that is a wider kept rail's discharge) has
+/// already been applied per member in `refuseUndeclared`, so what reaches
+/// this clause are genuinely competing rails.
 /// @guarded-by: fan_lanes_test.zig "two clustered rails implying one declared leaf pair both refuse"
 fn reserve(a: std.mem.Allocator, claims: []Claim, report: ?*pb.ClosureCounts) error{OutOfMemory}![]bool {
     const order = try a.alloc(usize, claims.len);
@@ -132,6 +156,14 @@ fn reserve(a: std.mem.Allocator, claims: []Claim, report: ?*pb.ClosureCounts) er
         }
     }
     return refused;
+}
+
+/// Wider PROPOSALS first, then by fan order — the order subordination and
+/// the verdicts are taken in.
+fn widestProposalFirst(claims: []const Claim, x: usize, y: usize) bool {
+    const nx = claims[x].members.len;
+    const ny = claims[y].members.len;
+    return if (nx == ny) x < y else nx > ny;
 }
 
 /// Wider rails first, then by fan order — the deterministic claim order.
@@ -165,9 +197,11 @@ fn membersOf(
     for (f.peers) |p| {
         if (invisible.contains(p.edge_id)) continue;
         const edge = edgeById(graph, p.edge_id) orelse continue;
+        // A long peer's index names its corridor, not its leaf.
+        const leaf = if (p.long) (if (f.direction == .out) edge.to else edge.from) else nodeId(lg, p.peer_idx);
         out.append(a, .{
             .edge = p.edge_id,
-            .leaf = nodeId(lg, p.peer_idx),
+            .leaf = leaf,
             .kind = kindOrdinal(edge.kind),
             .arrow_free = sg.arrowFree(edge),
             .undecorated = sg.undecorated(edge),

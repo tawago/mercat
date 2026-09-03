@@ -62,7 +62,7 @@ fn memberFor(
     paths: []const sketch.EdgePath,
     rails: []const sketch.Rail,
 ) ledger.RailClaimMember {
-    if (railMember(f, semantic, placements, rails)) |member| return member;
+    if (railMember(f, semantic, placements, paths, rails)) |member| return member;
     if (pathById(paths, semantic.id)) |path| {
         var member = memberFromPath(f, path);
         member.stands_for = semantic.stands_for;
@@ -95,6 +95,7 @@ fn railMember(
     f: fan_mod.Fan,
     semantic: sg.Edge,
     placements: []const sketch.NodePlacement,
+    paths: []const sketch.EdgePath,
     rails: []const sketch.Rail,
 ) ?ledger.RailClaimMember {
     for (rails) |rail| {
@@ -104,14 +105,20 @@ fn railMember(
             const rail_in = rail.role == .fan_in_dropper or rail.role == .fan_in_rail;
             const artifact_source = if (rail_in) tap.node else rail.pivot;
             const artifact_target = if (rail_in) rail.pivot else tap.node;
-            const source_site = if (artifact_source == semantic.from)
-                siteFromPoint(placements, artifact_source, if (rail_in) tap.landing else rail.stem[0])
+            // A continuing tap's leaf end is wherever its member stroke ends.
+            const stroke = if (tap.continues) pathById(paths, semantic.id) else null;
+            const source_site = if (artifact_source != semantic.from)
+                null
+            else if (rail_in and stroke != null)
+                siteFromPort(stroke.?.port_from, semantic.from)
             else
-                null;
-            const target_site = if (artifact_target == semantic.to)
-                siteFromPoint(placements, artifact_target, if (rail_in) rail.stem[0] else tap.landing)
+                siteFromPoint(placements, artifact_source, if (rail_in) tap.landing else rail.stem[0]);
+            const target_site = if (artifact_target != semantic.to)
+                null
+            else if (!rail_in and stroke != null)
+                siteFromPort(stroke.?.port_to, semantic.to)
             else
-                null;
+                siteFromPoint(placements, artifact_target, if (rail_in) rail.stem[0] else tap.landing);
             return .{
                 .edge = semantic.id,
                 .endpoints = .{ semantic.from, semantic.to },

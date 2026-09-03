@@ -400,3 +400,30 @@ test "a pivot head facing the border leaves it pristine; a detached one tees" {
 test {
     _ = @import("rails_test2.zig");
 }
+
+test "a continuing tap claims its junction arm and paints neither port nor head" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+
+    var nodes: [4]sketch.NodePlacement = undefined;
+    var taps: [3]sketch.Tap = undefined;
+    var stem: [2]sketch.Point = undefined;
+    var rails: [1]sketch.Rail = undefined;
+    const s = fanSketch(&nodes, &taps, &stem, &rails);
+    // The right tap continues: one drop cell under the crossbar, no wall.
+    taps[2].landing = .{ .x = 22, .y = 6 };
+    taps[2].continues = true;
+    taps[2].arrow = .filled;
+
+    const r = try rasterizeForTest(a, s);
+
+    // Junction arm at the tap: the crossbar cell grows its south bit.
+    try testing.expectEqual(@as(u4, 0b1100), r.lattice.atConst(22, 5).neighbours.toMask());
+    // No head anywhere on the tap's column below the crossbar; the member's
+    // own stroke (absent here) owns the far end.
+    var y: u32 = 6;
+    while (y < 10) : (y += 1) try testing.expect(r.lattice.atConst(22, y).occupant != .arrowhead);
+    // No port bit was merged into node 3's wall at (22,7).
+    try testing.expect(!r.lattice.atConst(22, 7).neighbours.n);
+}

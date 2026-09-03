@@ -14,6 +14,7 @@ const sugiyama = @import("sugiyama.zig");
 const back_edges = @import("back_edges.zig");
 const fan_mod = @import("fan.zig");
 const fan_provenance = @import("fan_provenance.zig");
+const member_stroke = @import("member_stroke.zig");
 const fan_polyline = @import("fan_polyline.zig");
 const fan_rail = @import("fan_rail.zig");
 const fan_lane_order = @import("fan_lane_order.zig");
@@ -95,7 +96,7 @@ pub fn buildEdgesWithPlan(
     var pending: std.ArrayListUnmanaged(Pending) = .empty;
     var lane_rails: std.ArrayListUnmanaged(fan_lane_order.Rail) = .empty;
     for (fans) |f| {
-        const resolved = (try fan_rail.resolve(a, graph.direction, f, graph, placements, bundles, allocated_ports)) orelse continue;
+        const resolved = (try fan_rail.resolve(a, graph.direction, f, graph, placements, geom, bundles, allocated_ports)) orelse continue;
         // Shared-rail lift: same rule as the per-peer path below — any peer descending into a cluster lifts the rail above the frame. // @guarded-by: routing_test.zig "rail pre-pass and forced per-peer path lift the same fan-OUT geometry to the same rail row"
         var lift: u32 = 0;
         for (resolved.peers) |p| {
@@ -112,16 +113,45 @@ pub fn buildEdgesWithPlan(
         });
     }
     try fan_lane_order.reorder(a, lane_rails.items);
-    for (pending.items, lane_rails.items) |p, t| {
-        const built = try fan_rail.build(a, p.resolved, p.lift, t.lane);
-        // Integrity gate: a rail is straight-only geometry; if any run touches a foreign box, fall back to the per-peer polyline path, which can dodge. // @guarded-by: fan_rail_test.zig "fan_rail.blocked rejects a built rail whose tap drop touches a foreign node's box"
-        if (fan_rail.blocked(built, p.resolved.pivot.id, placements)) continue;
-        try rails.append(a, built);
-        try polys.append(a, built.stem);
-        for (p.fan.peers) |peer| if (peer.shared) try claimed.append(a, peer.edge_id);
+    // Build the rails, then every long member's own stroke. A stroke that
+    // finds no clear route refuses its member: the member leaves its rail
+    // (the rail stays when two members remain) and routes privately below,
+    // and the rails are rebuilt without it — the theory's per-member
+    // degradation, decided once here.
+    // @guarded-by: port_plan_test.zig "a long fan-in member the plan selected gets a continuing tap and a member stroke"
+    var bar_views: []sketch.Rail = &.{};
+    var attempt: usize = 0;
+    while (true) : (attempt += 1) {
+        rails.clearRetainingCapacity();
+        claimed.clearRetainingCapacity();
+        out.clearRetainingCapacity();
+        polys.clearRetainingCapacity();
+        var rail_pending: std.ArrayListUnmanaged(usize) = .empty;
+        for (pending.items, lane_rails.items, 0..) |p, t, pi| {
+            if (p.resolved.peers.len < 2) continue;
+            const built = try fan_rail.build(a, p.resolved, p.lift, t.lane);
+            // Integrity gate: a rail is straight-only geometry; if any run touches a foreign box, fall back to the per-peer polyline path, which can dodge. // @guarded-by: fan_rail_test.zig "fan_rail.blocked rejects a built rail whose tap drop touches a foreign node's box"
+            if (fan_rail.blocked(built, p.resolved.pivot.id, placements)) continue;
+            try rails.append(a, built);
+            try rail_pending.append(a, pi);
+        }
+        bar_views = try a.alloc(sketch.Rail, rails.items.len);
+        for (rails.items, bar_views) |rail, *view| view.* = rail.rail;
+        const refused = try member_stroke.buildAll(a, graph, lg, geom, placements, rails.items, bar_views, bundles, allocated_ports, &out, &polys);
+        if (refused.len == 0 or attempt >= 8) {
+            for (rails.items) |built| {
+                try polys.append(a, built.stem);
+                for (built.rail.taps) |tap| try claimed.append(a, tap.edge);
+            }
+            break;
+        }
+        for (refused) |r| {
+            const p = &pending.items[rail_pending.items[r.rail]];
+            var kept: std.ArrayListUnmanaged(fan_rail.Peer) = .empty;
+            for (p.resolved.peers) |peer| if (peer.edge.id != r.edge) try kept.append(a, peer);
+            p.resolved.peers = try kept.toOwnedSlice(a);
+        }
     }
-    const bar_views = try a.alloc(sketch.Rail, rails.items.len);
-    for (rails.items, bar_views) |rail, *view| view.* = rail.rail;
 
     var routing_edges: std.ArrayListUnmanaged(sg.Edge) = .empty;
     if (bundles.memberships.len == 0) {
@@ -140,7 +170,9 @@ pub fn buildEdgesWithPlan(
         if (rail_closure.contains(bundles.discharged, orig.id)) continue;
         if (std.mem.indexOfScalar(sg.EdgeId, claimed.items, orig.id) != null) continue;
         if (orig.from != orig.to) {
-            if (fan_mod.lookup(fans, orig.id)) |hit| {
+            // A long peer whose fan built no rail is an ordinary skip edge:
+            // the per-peer fan polyline assumes a next-layer leaf.
+            if (fan_mod.lookup(fans, orig.id)) |hit| if (!hit.peer.long) {
                 const ep = allocated_ports.forEdge(orig.id) orelse unreachable;
                 const src_p = findPlacement(placements, orig.from);
                 const dst_p = findPlacement(placements, orig.to);
@@ -199,7 +231,7 @@ pub fn buildEdgesWithPlan(
                 });
                 try polys.append(a, poly);
                 continue;
-            }
+            };
         }
         if (orig.from == orig.to) {
             const node_p = findPlacement(placements, orig.from);

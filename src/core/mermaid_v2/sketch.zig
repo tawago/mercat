@@ -160,13 +160,22 @@ pub const Tap = struct {
     landing: Point,
     label: ?[]const u8 = null,
     arrow: ArrowKind = .filled,
+    /// The member's ink continues past `landing` as its own
+    /// `.member_stroke` EdgePath: `landing` is then the rail's one
+    /// junction-adjacent drop cell, not a node perimeter cell, and the
+    /// member's far end (a port, or the other rail's tap) is where its
+    /// decoration lives. Set for a member whose leaf sits beyond the next
+    /// layer.
+    continues: bool = false,
 };
 
-/// A first-class fan rail: ONE owned shared run plus per-edge taps, instead
-/// of N overlapping sibling polylines. Every `Tap.edge` here has NO
-/// `EdgePath` in `Sketch.edges` — the rail is that edge's sole geometry, so
-/// score accounting counts the shared run once and raster owns the junction
-/// bits. `stem` runs from the pivot node's perimeter to the crossbar junction
+/// A first-class fan rail: ONE owned rail plus per-edge taps, instead of N
+/// overlapping sibling polylines. A `Tap.edge` here has NO `EdgePath` of
+/// its own ends in `Sketch.edges` — the rail is that end's geometry, so
+/// score accounting counts the rail once and raster owns the junction
+/// bits. A tap that `continues` is the exception's half: the member also
+/// owns a `.member_stroke` EdgePath from the tap's landing to its far end.
+/// `stem` runs from the pivot node's perimeter to the crossbar junction
 /// (>= 2 points, first point on the pivot perimeter). `crossbar` is the
 /// horizontal span, x-ordered (`crossbar[0].x <= crossbar[1].x`, equal y);
 /// it always covers the stem end and every `Tap.at`.

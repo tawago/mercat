@@ -18,7 +18,7 @@ const lattice = @import("../lattice.zig");
 /// Choose the surviving role when a cell already has a role and a new
 /// writer arrives. Precedence (highest first):
 ///   fan_out_rail, fan_in_rail  > fan_out_dropper, fan_in_dropper
-///   > back_edge, self_loop, cluster_internal  > forward.
+///   > back_edge, self_loop, cluster_internal  > forward, member_stroke.
 /// Ties: prefer the existing role (first-writer-wins for same tier).
 pub fn mergeRole(existing: lattice.EdgeRole, incoming: lattice.EdgeRole) lattice.EdgeRole {
     if (priority(incoming) > priority(existing)) return incoming;
@@ -30,7 +30,7 @@ fn priority(r: lattice.EdgeRole) u8 {
         .fan_out_rail, .fan_in_rail => 3,
         .fan_out_dropper, .fan_in_dropper => 2,
         .back_edge, .self_loop, .cluster_internal => 1,
-        .forward => 0,
+        .forward, .member_stroke => 0,
     };
 }
 

@@ -320,23 +320,42 @@ fn hasInteriorGlyph(v: cell.View, r: sketch.Rect) bool {
     return false;
 }
 
+/// Which ends of a `.member_stroke` sit on a rail's continuing tap: such
+/// an end has no head of its own (the rail's stem carries it) and no
+/// wall to merge into.
+const RailEnds = struct { source: bool = false, target: bool = false };
+
+fn railEnds(s: sketch.Sketch, ep: sketch.EdgePath) RailEnds {
+    var ends: RailEnds = .{};
+    if (ep.role != .member_stroke) return ends;
+    for (s.rails) |rail| {
+        const fan_in = rail.role == .fan_in_dropper or rail.role == .fan_in_rail;
+        for (rail.taps) |tp| {
+            if (tp.edge != ep.id or !tp.continues) continue;
+            if (fan_in) ends.target = true else ends.source = true;
+        }
+    }
+    return ends;
+}
+
 fn edgeTier(v: cell.View, s: sketch.Sketch, c: *counts.Counts) void {
     for (s.edges) |ep| {
         if (ep.kind == .invisible) continue;
         c.n_edges_declared += 1;
-        sourceMerge(v, ep, c);
+        const ends = railEnds(s, ep);
+        if (!ends.source) sourceMerge(v, ep, c);
 
         const w = walk(v, ep.polyline);
         if (w.last) |p| {
             if (w.last_dir) |d| {
                 terminalEvidence(v, p, d, c);
-                if (ep.arrow_to != .none) {
+                if (ep.arrow_to != .none and !ends.target) {
                     c.n_arrows_declared += 1;
                     arrowEvidence(v, p, d, c);
                 }
             }
         }
-        if (ep.arrow_from != .none) {
+        if (ep.arrow_from != .none and !ends.source) {
             if (w.first) |p| {
                 if (w.first_dir) |d| {
                     c.n_arrows_declared += 1;
@@ -355,7 +374,9 @@ fn tapTier(v: cell.View, s: sketch.Sketch, c: *counts.Counts) void {
             const back = stepPt(tp.landing, cell.reverse(d));
             const evc = if (back.x == tp.at.x and back.y == tp.at.y) tp.at else back;
             terminalEvidence(v, evc, d, c);
-            if (tp.arrow != .none) {
+            // A continuing tap's member head sits at its far end, which the
+            // member stroke (private end) or the far rail's stem accounts for.
+            if (tp.arrow != .none and !tp.continues) {
                 c.n_arrows_declared += 1;
                 arrowEvidence(v, evc, d, c);
             }
