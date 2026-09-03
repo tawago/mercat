@@ -82,7 +82,7 @@ fn fusedBothSides(a: std.mem.Allocator, plan: pb.BundlePermits, s: sk.Sketch, fo
         .target = if (m.target_group) |gid| (if (gid == fi) pb.MembershipDisposition{ .selected = 1 } else null) else null,
     };
     var out = s;
-    out.bundles = .{ .selected_bundles = bundles, .memberships = rms, .conflicts = base.conflicts, .terminal_ports = base.terminal_ports };
+    out.bundles = .{ .selected_bundles = bundles, .memberships = rms, .terminal_ports = base.terminal_ports };
     return .{ .sketch = out, .proposals = proposals };
 }
 
@@ -177,7 +177,6 @@ test "V-D-DUAL-04: a both-sides proposal set is CI-excluded by the filter and re
         if (rm.source) |d| try expect(d == .independent);
         if (rm.target) |d| try expect(d == .independent);
     }
-    try expectEqual(@as(usize, 1), disposed.conflicts.len);
     try expect((try jpv.validate(a, plan, disposed, fused.proposals)).valid());
     try expectEqual(pb.DispositionClass.report_only, pb.classOf(.dual_membership_selected_both_sides));
 }
@@ -191,10 +190,7 @@ test "V-D-DISPOSITION-01: incomplete-2x2 conflicts survive disposeUnsafe, all-in
     const winner = try select.choose(a, graph, &plan, 94, false, false, .bridge);
     const bundles = winner.sketch.bundles;
 
-    try expectEqual(@as(usize, 1), bundles.conflicts.len);
-
     const disposed = try jp.disposeUnsafe(a, bundles);
-    try expectEqual(@as(usize, 1), disposed.conflicts.len);
     try expectEqual(@as(usize, 0), disposed.selected_bundles.len);
     for (disposed.memberships) |rm| {
         if (rm.source) |d| try expect(d == .independent);

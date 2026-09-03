@@ -113,10 +113,14 @@ pub fn additionalLabelLift(f: Fan, lane: u32) u32 {
 /// edges; a peer on the immediately-next layer taps the rail directly, a
 /// peer reached through a virtual node is a `long` member (the licence
 /// reads only the declared graph — distance on the page is not an input).
-/// A labeled long member is the one refusal: its label would ride a
-/// one-cell drop, so it stays a private stroke and the rail keeps the
-/// rest. Symmetric criterion for fan-IN. Returned slice and inner `peers`
-/// slices are arena-allocated via `a`.
+/// A long member's label rides its own member stroke, not its one-cell
+/// drop, so a fan-IN counts it as unlabeled and keeps it. A fan-OUT
+/// refuses a labeled long member for now: a labeled departure rail pays
+/// label rows for every member, and that price is not worth one long
+/// member's tap; it stays a private stroke and the rail keeps the rest
+/// (the plan says the same in bundle_commit.refuseLabeledLong). Symmetric
+/// criterion for fan-IN otherwise. Returned slice and inner `peers` slices
+/// are arena-allocated via `a`.
 pub fn detect(
     a: std.mem.Allocator,
     graph: sg.SemGraph,
@@ -194,6 +198,7 @@ fn assertPivotConsistency(f: Fan, lg: sugiyama.LayeredGraph) void {
 /// True iff any peer's semantic edge carries a non-empty label.
 fn anyPeerLabeled(graph: sg.SemGraph, peers: []const FanEdge) bool {
     for (peers) |p| {
+        if (p.long) continue;
         if (peerLabel(graph, p.edge_id) != null) return true;
     }
     return false;
@@ -220,7 +225,8 @@ pub fn gateLabelReservations(comptime G: type, graph: sg.SemGraph, fans: []Fan, 
     for (fans) |*f| {
         f.labeled = false;
         for (f.peers) |*p| {
-            p.label_width = if (peerLabel(graph, p.edge_id)) |label| prim.displayWidth(label) else 0;
+            // A long member's label rides its own stroke, never a tap.
+            p.label_width = if (p.long) 0 else if (peerLabel(graph, p.edge_id)) |label| prim.displayWidth(label) else 0;
             if (p.label_width != 0) f.labeled = true;
         }
     }
@@ -259,6 +265,19 @@ pub fn gateFanInSharedLabels(comptime G: type, fans: []Fan, geom: []const G) voi
                     if (!(right + 3 <= q_left or q_right + 3 <= left)) infeasible = true;
                 } else if (left - 2 < qx and qx < right + 2) infeasible = true;
             }
+            // Another fan's drops and stem in the same gap are foreign ink to
+            // this label just as a sibling's are; the raster's OWN-INK RULE
+            // does not care whose rail the ink belongs to.
+            // @guarded-by: fan_test.zig "a fan-in tap label crowded by a neighbouring fan's drop unshares"
+            for (fans) |g| {
+                if (g.source_layer != f.source_layer or g.pivot_idx == f.pivot_idx) continue;
+                if (left - 2 < centerX(G, geom, g.pivot_idx) and centerX(G, geom, g.pivot_idx) < right + 2) infeasible = true;
+                for (g.peers) |q| {
+                    if (!q.shared) continue;
+                    const qx = centerX(G, geom, q.peer_idx);
+                    if (left - 2 < qx and qx < right + 2) infeasible = true;
+                }
+            }
         }
         if (!infeasible) continue;
         for (f.peers) |*p| {
@@ -288,7 +307,7 @@ fn collectFanOut(
         if (le.from != src_idx) continue;
         if (le.reversed) continue;
         if (node_layer[le.to] != src_layer + 1) continue;
-        // @guarded-by: fan_test.zig "detect keeps a long member as a peer and refuses only a labeled one"
+        // @guarded-by: fan_test.zig "detect keeps a long member as a fan-out peer unless it is labeled"
         const long = switch (lg.nodes[le.to]) {
             .real => false,
             .virtual => true,
@@ -324,7 +343,6 @@ fn collectFanIn(
             .real => false,
             .virtual => true,
         };
-        if (long and peerLabel(graph, le.edge) != null) continue;
         try candidates.append(a, .{
             .edge_id = le.edge,
             .peer_idx = le.from,
@@ -344,7 +362,7 @@ fn preparePeers(a: std.mem.Allocator, graph: sg.SemGraph, direction: ledger.Bund
     const prepared = try permits.prepareRailMembers(a, graph, direction, pivot, ids);
     const shared_ids = prepared.members;
     for (out) |*candidate| {
-        candidate.label_width = if (peerLabel(graph, candidate.edge_id)) |label| prim.displayWidth(label) else 0;
+        candidate.label_width = if (!candidate.long) (if (peerLabel(graph, candidate.edge_id)) |label| prim.displayWidth(label) else 0) else 0;
         candidate.shared = containsEdge(shared_ids, candidate.edge_id);
     }
     return .{ .peers = out, .deco_mixed = prepared.deco_mixed, .style_mixed = prepared.style_mixed, .star_violation = prepared.star_violation };

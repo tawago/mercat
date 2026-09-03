@@ -235,17 +235,23 @@ test "two and three identical arrows survive layout raster and paint with face g
     }
 }
 
-test "labelled duplicate plus distinct leaf keeps every private terminal" {
+test "labelled duplicate plus distinct leaf keeps the duplicate private and rails the rest" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
+    // Two "dup" edges S->A share a key, so A's arrival cannot rail. S's
+    // departure keeps one of them plus S->B (a rail never holds two members
+    // with one leaf); the other S->A stays a private terminal at both ends.
     const nodes = [_]sg.Node{ node(0, "S"), node(1, "A"), node(2, "B") };
     var edges = [_]sg.Edge{ edge(0, 1, .solid), edge(1, 1, .solid), edge(2, 2, .solid) };
     edges[0].label = "dup";
     edges[1].label = "dup";
     const g = testGraph(&nodes, &edges, &.{});
     const s = try productionLayout(a, g);
-    try expectPrivatePorts(s, &.{ 0, 1, 2 });
+    try std.testing.expectEqual(@as(usize, 1), s.bundles.selected_bundles.len);
+    try expectPrivatePorts(s, &.{ 0, 1 });
+    try expectPrivatePorts(s, &.{ 1, 2 });
+    try std.testing.expect(samePort(pathById(s, 0).port_from, pathById(s, 2).port_from));
     try expectTerminalEvidence(a, g, s, 3);
 }
 
@@ -328,4 +334,54 @@ test "a long fan-in member the plan selected gets a continuing tap and a member 
     const last = stroke.polyline[stroke.polyline.len - 1];
     try std.testing.expectEqual(tap.at.x, last.x);
     try std.testing.expectEqual(tap.at.y, last.y);
+}
+
+test "a long fan-out member gets a rail tap and a member stroke to its far port" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    // A's departure {A->B, A->C(long)} rails; C's arrival {A->C, B->C} rails
+    // too, so A->C is a member at both ends and its stroke runs rail to rail.
+    const nodes = [_]sg.Node{ node(0, "A"), node(1, "B"), node(2, "C") };
+    const edges = [_]sg.Edge{
+        edge(0, 1, .solid),
+        .{ .id = 1, .from = 1, .to = 2, .kind = .solid, .arrow_from = .none, .arrow_to = .filled, .label = null },
+        edge(2, 2, .solid),
+    };
+    const s = try productionLayout(a, testGraph(&nodes, &edges, &.{}));
+    try std.testing.expectEqual(@as(usize, 2), s.rails.len);
+    var out_tap: ?sk.Tap = null;
+    var in_tap: ?sk.Tap = null;
+    for (s.rails) |rail| for (rail.taps) |tap| if (tap.edge == 2 and tap.continues) {
+        if (rail.pivot == 0) out_tap = tap else in_tap = tap;
+    };
+    const ot = out_tap orelse return error.MissingDepartureTap;
+    const it = in_tap orelse return error.MissingArrivalTap;
+    try std.testing.expectEqual(ot.at.y + 1, ot.landing.y);
+    try std.testing.expectEqual(it.at.y - 1, it.landing.y);
+    const stroke = pathById(s, 2);
+    try std.testing.expectEqual(sk.EdgeRole.member_stroke, stroke.role);
+    try std.testing.expectEqual(ot.at.x, stroke.polyline[0].x);
+    try std.testing.expectEqual(ot.at.y, stroke.polyline[0].y);
+    const last = stroke.polyline[stroke.polyline.len - 1];
+    try std.testing.expectEqual(it.at.x, last.x);
+    try std.testing.expectEqual(it.at.y, last.y);
+    for (s.edges) |e| try std.testing.expect(e.id != 0);
+}
+
+test "a member long at both ends runs straight between its two taps" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const nodes = [_]sg.Node{ node(0, "A"), node(1, "B"), node(2, "C") };
+    const edges = [_]sg.Edge{
+        edge(0, 1, .solid),
+        .{ .id = 1, .from = 1, .to = 2, .kind = .solid, .arrow_from = .none, .arrow_to = .filled, .label = null },
+        edge(2, 2, .solid),
+    };
+    const s = try productionLayout(a, testGraph(&nodes, &edges, &.{}));
+    const stroke = pathById(s, 2);
+    try std.testing.expectEqual(sk.EdgeRole.member_stroke, stroke.role);
+    try std.testing.expectEqual(@as(usize, 2), stroke.polyline.len);
+    try std.testing.expectEqual(stroke.polyline[0].x, stroke.polyline[1].x);
 }

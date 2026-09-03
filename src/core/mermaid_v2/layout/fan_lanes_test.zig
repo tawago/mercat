@@ -329,7 +329,7 @@ test "a gap whose departures all defer lane-separates the arrival rails that dra
     var memberships: [5]pb.RealizedEdgeMembership = undefined;
     for (&memberships, 0..) |*m, i| m.* = .{
         .edge = @intCast(i),
-        .source = .{ .independent = .{ .candidate_bundle = 2, .reason = .overlap_conflict } },
+        .source = .{ .independent = .{ .candidate_bundle = 2, .reason = .not_selected } },
         .target = .{ .selected = if (i == 0 or i == 2) 0 else 1 },
     };
     const bundles: pb.RealizedBundles = .{ .selected_bundles = &selected, .memberships = &memberships };

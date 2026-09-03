@@ -46,35 +46,52 @@ pub const RailBundleResolution = union(enum) {
     invariant,
 };
 
-/// Resolve every tap, not merely the first matching one. A valid roster rail
-/// has exactly one structural, unscoped set per tap and every tap resolves to
-/// the same set. No matching tap is the separate, valid off-roster case; a
-/// mixture, duplicate membership, or distinct sets invalidates the whole rail.
+/// Resolve the rail as a whole: the structural, unscoped set naming ALL of
+/// its taps — its own set, or the fused union that absorbed it. A member
+/// may sit in two such sets (one per end of the edge — membership at both
+/// ends), so the set is identified by the rail's full tap list, never by
+/// one tap. Where several sets hold every tap, the one naming exactly the
+/// taps is the rail's own; two exact sets, or several supersets and no
+/// exact one, invalidate the rail. No set naming any tap is the separate,
+/// valid off-roster case; taps only some set names is not.
 pub fn resolveRailBundle(sets: []const ledger.Bundle, rail: sketch.Rail) RailBundleResolution {
-    var resolved_set: ?usize = null;
-    var saw_absent = false;
-    for (rail.taps) |tap| {
-        switch (ledger.resolveStructuralBundle(sets, tap.edge)) {
-            .absent => {
-                if (resolved_set != null) return .invariant;
-                saw_absent = true;
-            },
-            .multiple => return .invariant,
-            .unique => |set_index| {
-                if (saw_absent) return .invariant;
-                if (resolved_set) |expected| {
-                    if (set_index != expected) return .invariant;
-                } else {
-                    resolved_set = set_index;
-                }
-            },
+    var superset: ?usize = null;
+    var supersets: usize = 0;
+    var exact: ?usize = null;
+    var exacts: usize = 0;
+    for (sets, 0..) |set, i| {
+        if (!ledger.structuralUnscoped(set)) continue;
+        if (!holdsAll(set.members, rail.taps)) continue;
+        supersets += 1;
+        superset = i;
+        if (set.members.len == rail.taps.len) {
+            exacts += 1;
+            exact = i;
         }
     }
-
-    const set_index = resolved_set orelse return .off_roster;
-    const bundle = sets[set_index].bundle;
+    const chosen: usize = if (exacts == 1) exact.? else if (exacts == 0 and supersets == 1) superset.? else {
+        if (supersets != 0) return .invariant;
+        var named: usize = 0;
+        for (rail.taps) |tap| switch (ledger.resolveStructuralBundle(sets, tap.edge)) {
+            .absent => {},
+            .unique, .multiple => named += 1,
+        };
+        return if (named != 0) .invariant else .off_roster;
+    };
+    const bundle = sets[chosen].bundle;
     if (bundle == ledger.no_bundle) return .invariant;
     return .{ .roster = bundle };
+}
+
+fn holdsAll(members: []const ledger.EdgeId, taps: []const sketch.Tap) bool {
+    for (taps) |tap| {
+        var found = false;
+        for (members) |m| if (m == tap.edge) {
+            found = true;
+        };
+        if (!found) return false;
+    }
+    return true;
 }
 
 /// Number `s.bundle_sets` and stamp every rail with the bundle it rides.

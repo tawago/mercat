@@ -104,11 +104,11 @@ test "a directed group whose declared set is short of complete still separates" 
         .{ .id = 1, .proposal = 1, .candidate_bundle = 1, .members = &y_members },
     };
     var memberships = [_]pb.RealizedEdgeMembership{
-        .{ .edge = 0, .source = .{ .independent = .{ .candidate_bundle = 2, .reason = .overlap_conflict } }, .target = null },
-        .{ .edge = 1, .source = .{ .independent = .{ .candidate_bundle = 2, .reason = .overlap_conflict } }, .target = null },
-        .{ .edge = 2, .source = .{ .independent = .{ .candidate_bundle = 2, .reason = .overlap_conflict } }, .target = null },
-        .{ .edge = 3, .source = .{ .independent = .{ .candidate_bundle = 2, .reason = .overlap_conflict } }, .target = .{ .selected = 0 } },
-        .{ .edge = 4, .source = .{ .independent = .{ .candidate_bundle = 2, .reason = .overlap_conflict } }, .target = .{ .selected = 1 } },
+        .{ .edge = 0, .source = .{ .independent = .{ .candidate_bundle = 2, .reason = .not_selected } }, .target = null },
+        .{ .edge = 1, .source = .{ .independent = .{ .candidate_bundle = 2, .reason = .not_selected } }, .target = null },
+        .{ .edge = 2, .source = .{ .independent = .{ .candidate_bundle = 2, .reason = .not_selected } }, .target = null },
+        .{ .edge = 3, .source = .{ .independent = .{ .candidate_bundle = 2, .reason = .not_selected } }, .target = .{ .selected = 0 } },
+        .{ .edge = 4, .source = .{ .independent = .{ .candidate_bundle = 2, .reason = .not_selected } }, .target = .{ .selected = 1 } },
     };
     const bundles: pb.RealizedBundles = .{ .selected_bundles = &selected, .memberships = &memberships };
 

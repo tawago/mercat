@@ -112,6 +112,22 @@ pub fn buildEdgesWithPlan(
             .tap_xs = try fan_lane_order.tapXs(a, resolved),
         });
     }
+    // A member long at both ends taps its two rails on ONE column — the
+    // departure's — so its stroke between them is one straight run.
+    // @guarded-by: port_plan_test.zig "a member long at both ends runs straight between its two taps"
+    for (pending.items) |p| {
+        if (p.resolved.direction != .out) continue;
+        for (p.resolved.peers) |peer| {
+            if (!peer.long) continue;
+            for (pending.items) |q| {
+                if (q.resolved.direction != .in) continue;
+                for (q.resolved.peers) |*other| if (other.long and other.edge.id == peer.edge.id) {
+                    other.column = peer.column;
+                };
+            }
+        }
+    }
+    for (lane_rails.items, pending.items) |*t, p| t.tap_xs = try fan_lane_order.tapXs(a, p.resolved);
     try fan_lane_order.reorder(a, lane_rails.items);
     // Build the rails, then every long member's own stroke. A stroke that
     // finds no clear route refuses its member: the member leaves its rail
@@ -137,7 +153,9 @@ pub fn buildEdgesWithPlan(
         }
         bar_views = try a.alloc(sketch.Rail, rails.items.len);
         for (rails.items, bar_views) |rail, *view| view.* = rail.rail;
-        const refused = try member_stroke.buildAll(a, graph, lg, geom, placements, rails.items, bar_views, bundles, allocated_ports, &out, &polys);
+        const reserved = try a.alloc(i32, rail_alloc.len);
+        for (rail_alloc, reserved) |r, *x| x.* = r.rail_pos;
+        const refused = try member_stroke.buildAll(a, graph, lg, geom, placements, rails.items, bar_views, bundles, allocated_ports, reserved, &out, &polys);
         if (refused.len == 0 or attempt >= 8) {
             for (rails.items) |built| {
                 try polys.append(a, built.stem);

@@ -178,8 +178,6 @@ test "V-D-PORT-16: incomplete 2x2 arrival re-merges the pure fan-in, overlap con
     try std.testing.expectEqual(pb.BundleDirection.in, plan.groups[sel_gi].direction);
     try std.testing.expectEqual(nodeId(graph, "T2"), plan.groups[sel_gi].pivot);
 
-    try std.testing.expectEqual(@as(usize, 1), bundles.conflicts.len);
-    try std.testing.expectEqual(edgeId(graph, "S1", "T2"), bundles.conflicts[0].shared_edges[0]);
 
     const dual = rmByEdge(bundles, edgeId(graph, "S1", "T2"));
     try std.testing.expect(dual.target.? == .selected);
@@ -293,13 +291,17 @@ test "an undeclared all-arrow-free fan unfuses; a declared clique keeps the rail
     try std.testing.expectEqual(@as(usize, 3), refused.routed.len);
     try std.testing.expect(std.mem.indexOf(u8, refused.grid, "┼") == null);
 
+    // Both candidates are judged: A's departure {A—Z, A—B} (Z is a long
+    // member of it) claims first by rank and discharges B—Z; Z's arrival,
+    // left with one member, subordinates. A's rail ships with A—B tapped
+    // and A—Z as the member stroke, so one edge is routed.
     const kept = try renderPlain(a, "flowchart LR\n  A --- Z\n  B --- Z\n  A --- B\n", 70);
     try std.testing.expectEqual(@as(usize, 1), kept.bundles.discharged.len);
-    try std.testing.expectEqual(@as(usize, 2), kept.routed.len);
+    try std.testing.expectEqual(@as(usize, 1), kept.routed.len);
     for (kept.bundles.discharged) |co| {
         for (kept.routed) |id| try std.testing.expect(id != co);
     }
-    try std.testing.expectEqual(@as(usize, 1), rowsWithInk(kept.grid, "├──┤ Z"));
+    try std.testing.expectEqual(@as(usize, 1), rowsWithInk(kept.grid, "├────┐"));
 }
 
 test "a salvaged rail is complete against the commitment the layout drew" {
@@ -441,4 +443,28 @@ test "on the licence's lapse path a rail's junction still clears foreign taps" {
         const report = try reach.validate(a, winner.sketch, keys, .flat);
         try std.testing.expectEqual(@as(u32, 0), report.counts.ciTotal());
     }
+}
+
+test "membership at both ends in production: the skip-layer repro traces only its declared pairs" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const graph = try parse(a, "flowchart TD\n  A --> B\n  B --> C\n  A --> C\n");
+    const plan = (try permits.build(a, graph, .joined)).plan;
+    const winner = try select.choose(a, graph, &plan, 94, false, false, .bridge);
+    const keys = try select.nodeKeyTable(a, graph);
+    const report = try reach.validate(a, winner.sketch, keys, .flat);
+    try std.testing.expectEqual(@as(u32, 0), report.counts.ciTotal());
+    try std.testing.expectEqual(@as(usize, 2), winner.sketch.rails.len);
+    try std.testing.expectEqual(@as(usize, 2), winner.sketch.bundles.selected_bundles.len);
+    const ac = rmByEdge(winner.sketch.bundles, edgeId(graph, "A", "C"));
+    try std.testing.expect(ac.source.? == .selected);
+    try std.testing.expect(ac.target.? == .selected);
+    var strokes: usize = 0;
+    for (winner.sketch.edges) |e| if (e.role == .member_stroke) {
+        strokes += 1;
+    };
+    try std.testing.expectEqual(@as(usize, 1), strokes);
+    try std.testing.expectEqual(@as(usize, 1), report.components.len);
+    try std.testing.expectEqual(@as(usize, 3), report.components[0].reachable_pairs.len);
 }

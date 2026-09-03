@@ -78,7 +78,7 @@ pub const BundlePermits = struct {
 /// `licence_refused`: the group failed the geometry-free licence check —
 /// distinct from `not_selected`, where a licensed bundle simply realized no
 /// shared rail (e.g. bridge-scope groups, whose realization is deferred).
-pub const IndependentReason = enum { not_selected, overlap_conflict, unsafe_component, licence_refused };
+pub const IndependentReason = enum { not_selected, unsafe_component, licence_refused };
 
 pub const MembershipDisposition = union(enum) {
     selected: SelectedBundleId,
@@ -118,22 +118,6 @@ pub const RealizedEdgeMembership = struct {
     target: ?MembershipDisposition,
 };
 
-pub const BundleConflictReason = enum {
-    overlapping_permissions,
-    dual_edge_selected_at_both_ends,
-    unsafe_connected_component,
-};
-
-/// A permission-overlap conflict between two groups. `shared_edges` MUST
-/// retain EVERY shared EdgeId (D-DUAL clause 2: first-overlap-only is
-/// insufficient).
-pub const BundleConflict = struct {
-    groups: [2]CandidateBundleId,
-    shared_edges: []const EdgeId,
-    proposals: []const BundleProposalId = &.{},
-    reason: BundleConflictReason,
-};
-
 /// D-PORT clause 4: which end of the edge an attachment/terminal belongs
 /// to. The numeric values participate in canonical key K
 /// (source-exit=0, target-entry=1).
@@ -148,20 +132,6 @@ pub const TerminalPort = struct {
     port: u32,
 };
 
-/// Owner-directed arrival re-merge preference (2026-07-18): a fan-IN
-/// group whose arrival is a LEGAL PURE fan-in MAY be selected as one merged
-/// entry even when it overlaps a fan-out group at a shared dual edge (the
-/// carve-out's NEITHER output — the recorded conflict — stays retained; only
-/// this group's verdict flips). Eligible iff: direction == .in. No fan-out-pivot
-/// exclusion — OPEN-1 class-1 (D-PORT 2026-07-17 four-way) sets purity by the
-/// ARRIVAL SHAPE alone (A,B,C → D); the mixing prohibition targets ink FUSION,
-/// prevented STRUCTURALLY not here — arrival rail enters the target's entry
-/// side, departures exit other sides, D-JOIN clause 4 keeps junctions group-
-/// internal. Carve-out never checked fan-out pivots, so legality can't hinge on it.
-pub fn fanInReMergeEligible(groups: []const CandidateBundle, index: usize) bool {
-    return groups[index].direction == .in;
-}
-
 /// The candidate-local artifact riding `Sketch.bundles` (D-IR item 4). All
 /// fields defaulted so `.{}` is the valid empty plan.
 /// @guarded-by: ledger_test.zig "empty RealizedBundles is default-constructible with all-empty fields"
@@ -169,7 +139,6 @@ pub const RealizedBundles = struct {
     selected_bundles: []const SelectedBundle = &.{},
     rejected_proposals: []const BundleProposalId = &.{},
     memberships: []const RealizedEdgeMembership = &.{},
-    conflicts: []const BundleConflict = &.{},
     terminal_ports: []const TerminalPort = &.{},
     /// Declared edges whose ENTIRE rendering is another element's shared ink:
     /// the leaf-pair edges an all-arrow-free rail discharges by running its
@@ -252,6 +221,7 @@ pub const numberBundles = bundle.numberBundles;
 pub const rosterNumbered = bundle.rosterNumbered;
 pub const StructuralBundleResolution = bundle.StructuralBundleResolution;
 pub const resolveStructuralBundle = bundle.resolveStructuralBundle;
+pub const structuralUnscoped = bundle.structuralUnscoped;
 pub const bundleOf = bundle.bundleOf;
 pub const bundlesAgree = bundle.bundlesAgree;
 

@@ -39,6 +39,10 @@ pub const DiagnosticTag = enum {
     rail_pivot_side_arrow,
     rail_duplicate_pair,
     dual_membership_edges,
+    /// Retired with the one-bundle-per-edge rule (confluence theory,
+    /// "Membership at both ends"): an edge may be selected at both ends
+    /// and two groups sharing a member is no conflict. Kept for the pinned
+    /// registry; structurally zero.
     dual_membership_selected_both_sides,
     permission_overlap_conflicts,
     bundle_select_selected,

@@ -154,13 +154,6 @@ fn planBytes(a: std.mem.Allocator, g: sg.SemGraph, plan: pb.BundlePermits, res: 
         try dispBytes(a, &out, plan, rm.target);
         try out.append(a, '\n');
     }
-    for (res.plan.conflicts) |c| {
-        try appendf(a, &out, "c:{d}:{d}:", .{ groupRank(plan, c.groups[0]), groupRank(plan, c.groups[1]) });
-        for (c.shared_edges) |e| try appendf(a, &out, "{d},", .{edgeRankOf(plan, e)});
-        try out.append(a, ':');
-        for (c.proposals) |pid| try appendf(a, &out, "{d},", .{pid});
-        try appendf(a, &out, ":{s}\n", .{@tagName(c.reason)});
-    }
     for (res.plan.terminal_ports) |tp| {
         try appendf(a, &out, "t:{s}:{d}:{s}:{d}\n", .{ rawOf(g, tp.node), edgeRankOf(plan, tp.edge), @tagName(tp.endpoint_side), tp.port });
     }

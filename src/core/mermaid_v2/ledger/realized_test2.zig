@@ -105,27 +105,10 @@ pub fn controlledPlan(
         rm.* = .{ .edge = m.edge, .source = disp(m.edge, m.source_group, sel_group, .out, dir, sel_members), .target = disp(m.edge, m.target_group, sel_group, .in, dir, sel_members) };
     }
 
-    var conflicts: std.ArrayListUnmanaged(pb.BundleConflict) = .empty;
-    for (plan.groups, 0..) |ga, i| {
-        for (plan.groups[i + 1 ..]) |gb| {
-            var shared: std.ArrayListUnmanaged(pb.EdgeId) = .empty;
-            for (ga.members) |e| {
-                for (gb.members) |o| if (o == e) try shared.append(a, e);
-            }
-            if (shared.items.len == 0) continue;
-            try conflicts.append(a, .{
-                .groups = .{ ga.id, gb.id },
-                .shared_edges = try shared.toOwnedSlice(a),
-                .proposals = &.{},
-                .reason = .overlapping_permissions,
-            });
-        }
-    }
     return .{
         .plan = .{
             .selected_bundles = bundles,
             .memberships = rms,
-            .conflicts = try conflicts.toOwnedSlice(a),
         },
         .proposals = proposals,
     };
@@ -196,7 +179,7 @@ test "V-D-JOIN-SELECT-12: controlled partial-member subset plan validates clean,
     // @guarded-by: realized_test.zig "V-D-JOIN-SELECT-07: partial proposal fails clause (c) first"
 }
 
-test "V-D-DUAL-04 analogue: selecting one dual edge at both endpoint sides is rejected by the validator" {
+test "membership at both ends: selecting one dual edge at both endpoint sides is a valid plan" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
@@ -219,9 +202,9 @@ test "V-D-DUAL-04 analogue: selecting one dual edge at both endpoint sides is re
         .source = if (m.source_group) |gid| .{ .selected = if (gid == fo) 0 else 1 } else null,
         .target = if (m.target_group) |gid| .{ .selected = if (gid == fi) 1 else 0 } else null,
     };
-    const bad: pb.RealizedBundles = .{ .selected_bundles = bundles, .memberships = rms };
-    const report = try jpv.validate(a, plan, bad, proposals);
-    try expect(hasFinding(report, .selected_both_sides));
+    const both: pb.RealizedBundles = .{ .selected_bundles = bundles, .memberships = rms };
+    const report = try jpv.validate(a, plan, both, proposals);
+    try expect(report.valid());
 }
 
 test "V-D-TRUNK-06: duplicate (from,to) pair is blocked by the item-1 duplicate-key rule with the pair inventory tag" {
@@ -237,8 +220,6 @@ test "V-D-TRUNK-06: duplicate (from,to) pair is blocked by the item-1 duplicate-
         try expectEqual(pb.DiagnosticTag.bundle_select_duplicate_key_blocked, v.tag);
         try expect(v.duplicate_pair);
     }
-    try expectEqual(@as(usize, 1), res.plan.conflicts.len);
-    try expectEqual(@as(usize, 2), res.plan.conflicts[0].shared_edges.len);
     try expectEqual(@as(usize, 0), res.plan.selected_bundles.len);
     for (res.plan.memberships) |rm| {
         if (rm.source) |d| try expectEqual(pb.IndependentReason.not_selected, d.independent.reason);
@@ -359,15 +340,6 @@ test "corrupted plans are rejected rule by rule" {
     p = res.plan;
     p.memberships = extra;
     try expect(hasFinding(try jpv.validate(a, plan, p, res.report.proposals), .disposition_unexpected));
-
-    p = res.plan;
-    p.conflicts = &.{};
-    try expect(hasFinding(try jpv.validate(a, plan, p, res.report.proposals), .conflict_missing));
-    const short = try a.dupe(pb.BundleConflict, res.plan.conflicts);
-    short[0].shared_edges = &.{};
-    p = res.plan;
-    p.conflicts = short;
-    try expect(hasFinding(try jpv.validate(a, plan, p, res.report.proposals), .conflict_shared_edges_wrong));
 
     p = res.plan;
     p.rejected_proposals = &.{99};

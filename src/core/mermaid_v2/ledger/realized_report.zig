@@ -20,7 +20,6 @@ pub const GroupClause = enum {
     duplicate_key,
     unresolved_member,
     incomplete,
-    overlap,
     style,
     no_proposal,
     multiplicity,
@@ -51,7 +50,6 @@ pub const Report = struct {
     proposals: []const pb.BundleProposal = &.{},
     multiplicity: []const u32 = &.{},
     dual_membership_edges: u32 = 0,
-    permission_overlap_conflicts: u32 = 0,
     /// Discharged edges that ALSO own private geometry in this candidate
     /// (`co_double_discharge`). An edge discharged by a rail's crossbar has
     /// no second rendering, so a non-zero count means the withholding leaked.
@@ -73,7 +71,6 @@ pub fn tagFor(clause: GroupClause) pb.DiagnosticTag {
     return switch (clause) {
         .selected => .bundle_select_selected,
         .duplicate_key => .bundle_select_duplicate_key_blocked,
-        .overlap => .bundle_select_conflict_neither,
         .multiplicity => .bundle_select_proposal_multiplicity_blocked,
         .unresolved_member, .incomplete, .style, .no_proposal => .bundle_select_independent_not_selected,
     };

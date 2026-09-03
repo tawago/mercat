@@ -26,7 +26,7 @@ pub fn effectivePlan(a: std.mem.Allocator, graph: sg.SemGraph, root: ?*const pb.
     return piece.plan;
 }
 
-pub fn buildReported(a: std.mem.Allocator, graph: sg.SemGraph, permits: ?*const pb.BundlePermits, reversed_edges: []const pb.EdgeId, disable: bool, report: ?*Report) error{OutOfMemory}!pb.RealizedBundles {
+pub fn buildReported(a: std.mem.Allocator, graph: sg.SemGraph, permits: ?*const pb.BundlePermits, reversed_edges: []const pb.EdgeId, long_edges: []const pb.EdgeId, disable: bool, report: ?*Report) error{OutOfMemory}!pb.RealizedBundles {
     const plan_ptr = permits orelse return .{};
     if (graph.clusters.len != 0) return .{};
     if (plan_ptr.scope == .skipped_clustered) return .{};
@@ -42,8 +42,6 @@ pub fn buildReported(a: std.mem.Allocator, graph: sg.SemGraph, permits: ?*const 
     }
     const eff_of = try a.alloc(?[]const pb.EdgeId, plan.groups.len);
     for (plan.groups, 0..) |group, gi| {
-        const overlap = overlaps(plan.groups, gi);
-        const remerge = overlap and pb.fanInReMergeEligible(plan.groups, gi);
         const reversed = containsReversed(group, reversed_edges);
         const forward = if (reversed and group.direction == .in)
             try forwardSubset(a, group.members, reversed_edges)
@@ -51,7 +49,7 @@ pub fn buildReported(a: std.mem.Allocator, graph: sg.SemGraph, permits: ?*const 
             group.members;
         const eff = (try permit_mod.prepareRailMembers(a, graph, group.direction, group.pivot, forward)).members;
         const eff_group: pb.CandidateBundle = .{ .id = group.id, .direction = group.direction, .pivot = group.pivot, .members = eff };
-        const blocked = (overlap and !remerge) or !styleCompatible(graph, eff_group) or hasDuplicateKey(graph, eff_group) or
+        const blocked = !styleCompatible(graph, eff_group) or hasDuplicateKey(graph, eff_group) or
             containsReversed(eff_group, reversed_edges) or eff.len < 2;
         eff_of[gi] = if (blocked) null else eff;
     }
@@ -79,7 +77,9 @@ pub fn buildReported(a: std.mem.Allocator, graph: sg.SemGraph, permits: ?*const 
         }
         verdicts[gi] = verdict;
     }
-    try reserve(a, eff_of, verdicts, closure_refused, report);
+    try refuseLabeledLong(a, graph, plan, eff_of, verdicts, closure_refused, long_edges);
+    try keepOneNearRail(a, graph, plan, eff_of, verdicts, closure_refused, long_edges);
+    try reserve(a, graph, plan, eff_of, verdicts, closure_refused, report);
 
     // Phase 2b — discharge. `drawn` is the union of the SURVIVING rails' own
     // members: such a declaration already carries ink, so it LICENSES the pair
@@ -259,17 +259,22 @@ fn uniteBundles(parent: []usize, i: usize, j: usize) void {
 /// where the clique edges are themselves stars. It is answered by realizing
 /// the discharge instead of licensing it: a kept rail's backers become
 /// discharged, drawing no private ink, and an edge with no ink can carry no
-/// rail — so a candidate whose every member is another rail's discharge is
-/// not a competing rail at all. The WIDER rail claims first (ties by group
-/// rank), which is the reading that leaves the clique fused.
+/// rail — so a member that is another rail's discharge leaves its candidate
+/// (the candidate stays when two members remain and is judged again over
+/// what is left; the theory's per-member degradation). The WIDER rail
+/// claims first (ties by group rank), which is the reading that leaves the
+/// clique fused. Since a rail may hold a long member, a candidate's members
+/// can be a wider rail's discharges one at a time, not only all at once.
 ///
 /// A refusal never revives a candidate an earlier claim subordinated: the
 /// answer stays the one fewer rails would give, which can only under-fuse.
 /// @guarded-by: bundle_commit_test.zig "two rails asserting one declared pair both refuse"
 fn reserve(
     a: std.mem.Allocator,
+    graph: sg.SemGraph,
+    plan: pb.BundlePermits,
     eff_of: []?[]const pb.EdgeId,
-    verdicts: []const ?rc.Verdict,
+    verdicts: []?rc.Verdict,
     closure_refused: []bool,
     report: ?*Report,
 ) error{OutOfMemory}!void {
@@ -283,9 +288,26 @@ fn reserve(
         if (eff_of[ri] == null) continue;
         for (order.items[rank + 1 ..]) |gi| {
             const eff = eff_of[gi] orelse continue;
-            if (!allDischargedBy(verdicts[ri].?, eff)) continue;
-            eff_of[gi] = null;
-            closure_refused[gi] = true;
+            var kept: std.ArrayListUnmanaged(pb.EdgeId) = .empty;
+            for (eff) |member| if (!dischargedBy(verdicts[ri].?, member)) try kept.append(a, member);
+            if (kept.items.len == eff.len) continue;
+            if (kept.items.len < 2) {
+                eff_of[gi] = null;
+                closure_refused[gi] = true;
+                continue;
+            }
+            const rest = try kept.toOwnedSlice(a);
+            const again = try closureVerdict(a, graph, plan.groups[gi], rest, plan.scope == .piece);
+            switch (again.outcome) {
+                .untouched, .keep => eff_of[gi] = rest,
+                .salvage => eff_of[gi] = again.members,
+                .refuse => {
+                    eff_of[gi] = null;
+                    closure_refused[gi] = true;
+                    continue;
+                },
+            }
+            verdicts[gi] = again;
         }
     }
 
@@ -321,18 +343,111 @@ fn widestFirst(eff_of: []?[]const pb.EdgeId, x: usize, y: usize) bool {
     return if (nx == ny) x < y else nx > ny;
 }
 
-/// Every one of `members` is a declaration the verdict's rail discharges —
-/// so all of them are discharged by that rail's crossbar and none of them
-/// can carry a rail of its own.
-fn allDischargedBy(verdict: rc.Verdict, members: []const pb.EdgeId) bool {
-    for (members) |member| {
-        var found = false;
-        for (verdict.discharges) |d| {
-            if (d.backer == member) found = true;
+/// A labeled LONG member leaves its DEPARTURE candidate for now: a labeled
+/// departure rail pays label rows for every member, and the fan detector
+/// leaves such a member out of every fan-out for that reason; the plan
+/// must say the same, or the port plan hands the member its bundle's
+/// shared port while nothing draws a rail there. Its arrival membership
+/// stays: an arrival rail's long member carries the label on its own
+/// stroke. The member becomes a private departure; the bundle keeps the rest.
+/// @guarded-by: bundle_commit_test.zig "a labeled long member leaves its departure bundle and keeps its arrival"
+fn refuseLabeledLong(
+    a: std.mem.Allocator,
+    graph: sg.SemGraph,
+    plan: pb.BundlePermits,
+    eff_of: []?[]const pb.EdgeId,
+    verdicts: []?rc.Verdict,
+    closure_refused: []bool,
+    long_edges: []const pb.EdgeId,
+) error{OutOfMemory}!void {
+    for (graph.edges) |e| {
+        if (!containsEdge(long_edges, e.id)) continue;
+        const label = e.label orelse continue;
+        if (label.len == 0) continue;
+        for (plan.groups, 0..) |g, gi| {
+            if (g.direction != .out) continue;
+            const eff = eff_of[gi] orelse continue;
+            if (!containsEdge(eff, e.id)) continue;
+            try dropMember(a, graph, plan, eff_of, verdicts, closure_refused, gi, e.id, g);
         }
-        if (!found) return false;
     }
-    return true;
+}
+
+/// Remove one member from a surviving candidate, judging what is left again.
+fn dropMember(
+    a: std.mem.Allocator,
+    graph: sg.SemGraph,
+    plan: pb.BundlePermits,
+    eff_of: []?[]const pb.EdgeId,
+    verdicts: []?rc.Verdict,
+    closure_refused: []bool,
+    gi: usize,
+    member: pb.EdgeId,
+    group: pb.CandidateBundle,
+) error{OutOfMemory}!void {
+    var kept: std.ArrayListUnmanaged(pb.EdgeId) = .empty;
+    for (eff_of[gi].?) |m| if (m != member) try kept.append(a, m);
+    if (kept.items.len < 2) {
+        eff_of[gi] = null;
+        return;
+    }
+    const rest = try kept.toOwnedSlice(a);
+    if (verdicts[gi] != null) {
+        const again = try closureVerdict(a, graph, group, rest, plan.scope == .piece);
+        switch (again.outcome) {
+            .untouched, .keep => eff_of[gi] = rest,
+            .salvage => eff_of[gi] = again.members,
+            .refuse => {
+                eff_of[gi] = null;
+                closure_refused[gi] = true;
+                return;
+            },
+        }
+        verdicts[gi] = again;
+    } else eff_of[gi] = rest;
+}
+
+/// A member selected at both ends whose two pivots sit on adjacent layers
+/// would put two rails in one gap, each owning the whole edge: one path of
+/// ink drawn twice. Realization keeps ONE membership for such a NEAR
+/// member: the arrival's. Two reasons, neither a licence: the two-sided
+/// rail the fusion licence permits is built from same-direction rails, and
+/// keeping arrivals together is what lets a complete S x T fuse into that
+/// one rail; and it is the drawing every existing render already has. A
+/// LONG member (its ends span a gap or more) keeps both: each rail owns one
+/// drop cell and the member's own stroke runs between them. Both
+/// memberships stay licensed; which side of a near member ships could
+/// later be a scored candidate axis.
+/// @guarded-by: bundle_commit_test.zig "a near member selected at both ends keeps its arrival rail, a long member keeps both"
+fn keepOneNearRail(
+    a: std.mem.Allocator,
+    graph: sg.SemGraph,
+    plan: pb.BundlePermits,
+    eff_of: []?[]const pb.EdgeId,
+    verdicts: []?rc.Verdict,
+    closure_refused: []bool,
+    long_edges: []const pb.EdgeId,
+) error{OutOfMemory}!void {
+    for (graph.edges) |e| {
+        if (containsEdge(long_edges, e.id)) continue;
+        var gi_out: ?usize = null;
+        var gi_in: ?usize = null;
+        for (plan.groups, 0..) |g, gi| {
+            const eff = eff_of[gi] orelse continue;
+            if (!containsEdge(eff, e.id)) continue;
+            if (g.direction == .out) gi_out = gi else gi_in = gi;
+        }
+        const o = gi_out orelse continue;
+        if (gi_in == null) continue;
+        try dropMember(a, graph, plan, eff_of, verdicts, closure_refused, o, e.id, plan.groups[o]);
+    }
+}
+
+/// `member` is a declaration the verdict's rail discharges — rendered by
+/// that rail's crossbar, so it carries no rail of its own.
+fn dischargedBy(verdict: rc.Verdict, member: pb.EdgeId) bool {
+    for (verdict.discharges) |d| if (d.backer == member) return true;
+    return false;
 }
 
 /// The two rails assert one and the same unordered leaf pair. `pair` is
@@ -435,20 +550,10 @@ fn disposition(graph: sg.SemGraph, groups: []const pb.CandidateBundle, selected_
         // its own in LR/RL). The null-disposition escape below is for a group
         // the reversal rule left ungrouped, never for a refused rail.
         // @guarded-by: bundle_commit_test.zig "a reversed member does not hide a closure refusal behind a null disposition"
-        if (!closure_refused[i] and containsReversed(g, reversed_edges) and !overlaps(groups, i) and styleCompatible(graph, g) and !hasDuplicateKey(graph, g)) return null;
-        return .{ .independent = .{ .candidate_bundle = gid, .reason = if (overlaps(groups, i)) .overlap_conflict else .not_selected } };
+        if (!closure_refused[i] and containsReversed(g, reversed_edges) and styleCompatible(graph, g) and !hasDuplicateKey(graph, g)) return null;
+        return .{ .independent = .{ .candidate_bundle = gid, .reason = .not_selected } };
     };
     return null;
-}
-
-fn overlaps(groups: []const pb.CandidateBundle, idx: usize) bool {
-    for (groups, 0..) |other, oi| {
-        if (oi == idx) continue;
-        for (groups[idx].members) |edge| for (other.members) |candidate| {
-            if (edge == candidate) return true;
-        };
-    }
-    return false;
 }
 
 fn styleCompatible(graph: sg.SemGraph, group: pb.CandidateBundle) bool {

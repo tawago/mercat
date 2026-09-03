@@ -24,17 +24,12 @@ pub const ValidationTag = enum {
     disposition_unexpected,
     disposition_group_mismatch,
     disposition_bundle_mismatch,
-    selected_both_sides,
     selected_bundle_group_missing,
     selected_bundle_foreign_member,
     selected_bundle_duplicate_member,
     selected_bundle_proposal_missing,
     selected_member_multiple_bundles,
     selected_bundles_not_canonical,
-    conflict_missing,
-    conflict_unknown_group,
-    conflict_shared_edges_wrong,
-    conflicts_not_canonical,
     rejected_proposal_unknown,
     proposal_both_outcomes,
     proposal_unaccounted,
@@ -79,9 +74,6 @@ pub fn validate(
         }
         try checkDisposition(&out, allocator, plan, rm.edge, bm.source_group, rm.source);
         try checkDisposition(&out, allocator, plan, rm.edge, bm.target_group, rm.target);
-        const src_sel = rm.source != null and rm.source.? == .selected;
-        if (src_sel and rm.target != null and rm.target.? == .selected)
-            try add(&out, allocator, .selected_both_sides, null, rm.edge);
     }
 
     var prev_rank: ?usize = null;
@@ -115,41 +107,6 @@ pub fn validate(
             if (groups[oi].direction != groups[gi].direction) continue;
             for (sel.members) |edge| if (containsEdge(other.members, edge))
                 try add(&out, allocator, .selected_member_multiple_bundles, sel.candidate_bundle, edge);
-        }
-    }
-
-    var prev_pair: ?[2]usize = null;
-    for (plan.conflicts) |c| {
-        const ia = groupIndexById(groups, c.groups[0]) orelse {
-            try add(&out, allocator, .conflict_unknown_group, c.groups[0], null);
-            continue;
-        };
-        const ib = groupIndexById(groups, c.groups[1]) orelse {
-            try add(&out, allocator, .conflict_unknown_group, c.groups[1], null);
-            continue;
-        };
-        if (c.reason != .overlapping_permissions) continue;
-        if (prev_pair) |pp| {
-            if (ia < pp[0] or (ia == pp[0] and ib <= pp[1]))
-                try add(&out, allocator, .conflicts_not_canonical, c.groups[0], null);
-        }
-        prev_pair = .{ ia, ib };
-    }
-    for (groups, 0..) |ga, i| {
-        for (groups[i + 1 ..]) |gb| {
-            var shared_n: usize = 0;
-            var retained: usize = 0;
-            const conflict = conflictFor(plan.conflicts, ga.id, gb.id);
-            for (ga.members) |e| if (containsEdge(gb.members, e)) {
-                shared_n += 1;
-                if (conflict != null and containsEdge(conflict.?.shared_edges, e)) retained += 1;
-            };
-            if (shared_n == 0) continue;
-            if (conflict == null) {
-                try add(&out, allocator, .conflict_missing, ga.id, null);
-            } else if (retained != shared_n or conflict.?.shared_edges.len != shared_n) {
-                try add(&out, allocator, .conflict_shared_edges_wrong, ga.id, null);
-            }
         }
     }
 
@@ -188,14 +145,6 @@ pub fn validate(
 fn dispositionAt(plan: pb.RealizedBundles, edge: pb.EdgeId, direction: pb.BundleDirection) ?pb.MembershipDisposition {
     for (plan.memberships) |rm| {
         if (rm.edge == edge) return if (direction == .out) rm.source else rm.target;
-    }
-    return null;
-}
-
-fn conflictFor(conflicts: []const pb.BundleConflict, a: pb.CandidateBundleId, b: pb.CandidateBundleId) ?pb.BundleConflict {
-    for (conflicts) |c| {
-        if (c.reason != .overlapping_permissions) continue;
-        if ((c.groups[0] == a and c.groups[1] == b) or (c.groups[0] == b and c.groups[1] == a)) return c;
     }
     return null;
 }

@@ -118,7 +118,7 @@ fn buildSketch(
     addConstructionDiagnostics(&closure, fans_detected);
     const effective_plan: ?ledger.BundlePermits = try bundle_commit.effectivePlan(a, graph, opts.bundle_permits);
     const plan_ref: ?*const ledger.BundlePermits = if (effective_plan) |*p| p else null;
-    var candidate_bundles = try bundle_commit.buildReported(a, graph, plan_ref, lg.reversed_edges, opts.disable_bundle_realization, &closure);
+    var candidate_bundles = try bundle_commit.buildReported(a, graph, plan_ref, lg.reversed_edges, try longEdges(a, lg), opts.disable_bundle_realization, &closure);
     // A long peer taps a rail or nothing: the per-peer polyline path assumes
     // a next-layer leaf. Where the plan did not select the fan's bundle, a
     // fan holding a long peer degrades to what it was before long peers
@@ -345,6 +345,17 @@ fn buildSketch(
     };
     sketch_bundles.stamp(a, &out);
     return out;
+}
+
+/// Edges whose ends sit more than one layer apart (they route through a
+/// virtual node): the members a rail may hold at both ends.
+fn longEdges(a: std.mem.Allocator, lg: sugiyama.LayeredGraph) error{OutOfMemory}![]const ledger.EdgeId {
+    var out: std.ArrayListUnmanaged(ledger.EdgeId) = .empty;
+    for (lg.nodes) |n| switch (n) {
+        .virtual => |v| if (v.index == 0) try out.append(a, v.edge),
+        .real => {},
+    };
+    return out.toOwnedSlice(a);
 }
 
 fn hasPortWork(bundles: ledger.RealizedBundles) bool {

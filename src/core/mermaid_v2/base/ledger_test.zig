@@ -38,7 +38,6 @@ test "empty RealizedBundles is default-constructible with all-empty fields" {
     try expectEqual(@as(usize, 0), plan.selected_bundles.len);
     try expectEqual(@as(usize, 0), plan.rejected_proposals.len);
     try expectEqual(@as(usize, 0), plan.memberships.len);
-    try expectEqual(@as(usize, 0), plan.conflicts.len);
     try expectEqual(@as(usize, 0), plan.terminal_ports.len);
 }
 

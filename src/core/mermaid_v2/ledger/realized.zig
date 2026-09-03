@@ -176,26 +176,6 @@ pub fn realize(
         mult.* = p.count;
     }
 
-    var conflicts: std.ArrayListUnmanaged(pb.BundleConflict) = .empty;
-    for (groups, 0..) |ga, i| {
-        for (groups[i + 1 ..]) |gb| {
-            var shared: std.ArrayListUnmanaged(pb.EdgeId) = .empty;
-            for (ga.members) |e| if (containsEdge(gb.members, e)) try shared.append(allocator, e);
-            if (shared.items.len == 0) continue;
-            var pids: std.ArrayListUnmanaged(pb.BundleProposalId) = .empty;
-            for (proposals) |p| {
-                if (p.candidate_bundle == ga.id or p.candidate_bundle == gb.id)
-                    try pids.append(allocator, p.id);
-            }
-            try conflicts.append(allocator, .{
-                .groups = .{ ga.id, gb.id },
-                .shared_edges = try shared.toOwnedSlice(allocator),
-                .proposals = try pids.toOwnedSlice(allocator),
-                .reason = .overlapping_permissions,
-            });
-        }
-    }
-
     // Frozen first-fail order per group: item 1 duplicate-key block, then
     // clauses (c) → (d) → (e) → (f); (a)/(b) hold by construction (groups
     // come from the BundlePermits and are single-pivot). With ≥2 proposals
@@ -221,7 +201,6 @@ pub fn realize(
             if (hasDuplicate(row, true)) break :blk .duplicate_key;
             if (hasUnresolved(row)) break :blk .unresolved_member;
             if (single != null and single.?.members.len < committedCount(s.bundles, g.id, forwardCount(permission_row))) break :blk .incomplete;
-            if (groupHasConflict(conflicts.items, g.id) and !pb.fanInReMergeEligible(groups, gi)) break :blk .overlap;
             if (styleFail(g.direction, row)) |t| {
                 detail = t;
                 break :blk .style;
@@ -283,14 +262,12 @@ pub fn realize(
     for (s.edges, routed) |e, *slot| slot.* = e.id;
     const double_discharge = pb.doubleDischarged(s.bundles.discharged, routed);
 
-    const conflict_slice = try conflicts.toOwnedSlice(allocator);
     const selected_slice = try selected.toOwnedSlice(allocator);
     return .{
         .plan = .{
             .selected_bundles = selected_slice,
             .rejected_proposals = try rejected.toOwnedSlice(allocator),
             .memberships = rms,
-            .conflicts = conflict_slice,
             .terminal_ports = try ports.toOwnedSlice(allocator),
             .discharged = s.bundles.discharged,
             .fused = keepValidFused(s.bundles.fused, selected_slice),
@@ -300,7 +277,6 @@ pub fn realize(
             .proposals = proposals,
             .multiplicity = multiplicity,
             .dual_membership_edges = dual_edges,
-            .permission_overlap_conflicts = @intCast(conflict_slice.len),
             .co_double_discharge = double_discharge,
         },
     };
@@ -395,11 +371,6 @@ fn forwardCount(row: []const MemberGeom) usize {
     return n;
 }
 
-fn groupHasConflict(conflicts: []const pb.BundleConflict, id: pb.CandidateBundleId) bool {
-    for (conflicts) |c| if (c.groups[0] == id or c.groups[1] == id) return true;
-    return false;
-}
-
 /// D-TRUNK item 1 sub-clauses in frozen order; the FIRST failing
 /// sub-clause names the report-only tag. Null = clause (e) TRUE.
 fn styleFail(direction: pb.BundleDirection, row: []const MemberGeom) ?pb.DiagnosticTag {
@@ -434,10 +405,7 @@ fn dispose(
         for (selected) |sj| if (sj.id == jid and containsEdge(sj.members, edge)) return .{ .selected = jid };
         return .{ .independent = .{ .candidate_bundle = id, .reason = .not_selected } };
     }
-    return .{ .independent = .{
-        .candidate_bundle = id,
-        .reason = if (verdicts[gi].clause == .overlap) .overlap_conflict else .not_selected,
-    } };
+    return .{ .independent = .{ .candidate_bundle = id, .reason = .not_selected } };
 }
 
 /// Clause-(g)-pre unsafe-component withdrawal (P2v Step 8) lives in

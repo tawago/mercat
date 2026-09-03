@@ -219,7 +219,7 @@ pub fn build(
             .node = p.placement.id,
             .at = .{ .x = tx, .y = rail_y },
             .landing = .{ .x = tx, .y = landing_y },
-            .label = p.edge.label,
+            .label = if (p.long) null else p.edge.label,
             .arrow = routing.mapArrow(if (fan_in) p.edge.arrow_from else p.edge.arrow_to),
             .continues = p.long,
         };

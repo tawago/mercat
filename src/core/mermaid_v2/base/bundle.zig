@@ -275,7 +275,7 @@ pub fn resolveStructuralBundle(sets: []const Bundle, edge: EdgeId) StructuralBun
     return if (found) |i| .{ .unique = i } else .absent;
 }
 
-fn structuralUnscoped(set: Bundle) bool {
+pub fn structuralUnscoped(set: Bundle) bool {
     if (set.cells != null or set.pairwise != null) return false;
     return switch (set.origin) {
         .selected_bundle, .fan_rail => true,

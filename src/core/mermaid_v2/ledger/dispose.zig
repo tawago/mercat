@@ -47,7 +47,6 @@ pub fn disposeUnsafe(a: std.mem.Allocator, plan: pb.RealizedBundles) error{OutOf
         .selected_bundles = &.{},
         .rejected_proposals = rejected_slice,
         .memberships = memberships,
-        .conflicts = plan.conflicts,
         .terminal_ports = plan.terminal_ports,
         .discharged = plan.discharged,
         .fused = &.{},

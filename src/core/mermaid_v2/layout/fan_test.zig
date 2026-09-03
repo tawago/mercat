@@ -90,7 +90,7 @@ test "detect distinguishes fan-OUT and fan-IN in the same graph" {
     try testing.expectEqual(fan.Direction.in, fans[1].direction);
 }
 
-test "detect keeps a long member as a peer and refuses only a labeled one" {
+test "detect keeps a long member as a fan-out peer unless it is labeled" {
     const a = testing.allocator;
     var nodes = [_]sugiyama.LayerNode{
         .{ .real = 0 },
@@ -138,8 +138,9 @@ test "detect keeps a long member as a peer and refuses only a labeled one" {
     };
     try testing.expectEqual(@as(usize, 1), long_peers);
 
-    // The same shape with the long edge labeled: the member stays private,
-    // the rail keeps its two near peers.
+    // The same shape with the long edge labeled: the fan-out leaves it out
+    // (a labeled departure rail pays label rows) and keeps its two near
+    // peers.
     const g_nodes = [_]sg.Node{ mkNode(0, "P"), mkNode(1, "A"), mkNode(2, "B"), mkNode(3, "D") };
     var g_edges = [_]sg.Edge{ mkEdge2(100, 0, 1), mkEdge2(101, 0, 2), mkEdge2(300, 0, 3) };
     g_edges[2].label = "far";
@@ -411,4 +412,31 @@ test "label reservation gate clears doomed fans and keeps feasible ones" {
     fan.gateLabelReservations(Geom, g_wide, &fans_wide, &geom, 20, 4);
     try testing.expect(fans_wide[0].labeled);
     try testing.expectEqual(prim.displayWidth("averyveryverylonglabel"), fans_wide[0].peers[0].label_width);
+}
+
+test "a fan-in tap label crowded by a neighbouring fan's drop unshares" {
+    // Two fan-ins in one gap: P's labeled member sits two columns from
+    // Q's member drop, so the label's span would cover foreign ink.
+    var peers_p = [_]fan.FanEdge{
+        .{ .edge_id = 0, .peer_idx = 0, .role = .leftmost, .label_width = 7 },
+        .{ .edge_id = 1, .peer_idx = 1, .role = .rightmost },
+    };
+    var peers_q = [_]fan.FanEdge{
+        .{ .edge_id = 2, .peer_idx = 2, .role = .leftmost },
+        .{ .edge_id = 3, .peer_idx = 3, .role = .rightmost },
+    };
+    var fans = [_]fan.Fan{
+        .{ .direction = .in, .pivot = 10, .pivot_idx = 4, .source_layer = 0, .peers = &peers_p },
+        .{ .direction = .in, .pivot = 11, .pivot_idx = 5, .source_layer = 0, .peers = &peers_q },
+    };
+    const G = struct { x: i32, w: u32 };
+    const geom = [_]G{
+        .{ .x = 20, .w = 1 }, .{ .x = 4, .w = 1 }, // P's peers at 20 (labeled) and 4
+        .{ .x = 22, .w = 1 }, .{ .x = 40, .w = 1 }, // Q's peers at 22 and 40
+        .{ .x = 12, .w = 1 }, .{ .x = 31, .w = 1 }, // pivots
+    };
+    fan.gateFanInSharedLabels(G, &fans, &geom);
+    try testing.expect(!peers_p[0].shared);
+    try testing.expect(peers_p[1].shared);
+    try testing.expect(peers_q[0].shared);
 }
