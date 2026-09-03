@@ -36,7 +36,6 @@ const select_mod = @import("select.zig");
 const motif_mod = @import("motif.zig");
 const ledger = @import("base/ledger.zig");
 const permits_mod = @import("ledger/permits.zig");
-const tiling_scan = @import("tiling/scan.zig");
 const prim = @import("prim");
 
 pub const Sketch = sketch_types.Sketch;
@@ -115,12 +114,6 @@ const EnvOptions = struct {
     /// MERCAT_INTEGRITY=1: emit one `mercat-integrity:` counts line per diagram
     /// to stderr (see `emitIntegrityLine`).
     integrity: bool,
-    /// MERCAT_TILING_AUDIT=1: emit one `mercat-tiling:` counts line per
-    /// diagram to stderr (tiling/counts.zig). Report-only: reads the FINAL
-    /// lattice, mutates nothing, never reaches score/selection.
-    /// @guarded-by: scan_test.zig "scan: run() leaves the lattice byte-identical"
-    tiling_audit: bool,
-
     fn read() EnvOptions {
         return .{
             .force_rung = blk: {
@@ -131,7 +124,6 @@ const EnvOptions = struct {
             .shadow_telemetry = envIsOne("MERCAT_SCORE_SHADOW"),
             .dump_motifs = envIsOne("MERCAT_DUMP_MOTIFS"),
             .integrity = envIsOne("MERCAT_INTEGRITY"),
-            .tiling_audit = envIsOne("MERCAT_TILING_AUDIT"),
         };
     }
 };
@@ -236,17 +228,6 @@ pub fn renderFlowchart(
     };
 
     if (env.integrity) emitIntegrityLine(integrity, raster_report, graph.skipped_lines, sketch_val.closure);
-
-    if (env.tiling_audit) tiling_scan.emit(aa, .{
-        .graph = graph,
-        .sketch = sketch_val,
-        .lat = &raster_report.lattice,
-        .mode = options.subgraph_edges,
-        .labels_placed = raster_report.labels_placed,
-        .labels_dropped = raster_report.labels_dropped,
-        .labels_displaced = raster_report.labels_displaced,
-        .edge_cells_lost = raster_report.edge_cells_lost,
-    });
 
     const budget = sketch_val.budget.max_width;
     const true_width = raster_report.lattice.width;
@@ -615,22 +596,7 @@ test {
     _ = @import("ledger/reach_walk.zig");
     _ = @import("ledger/reach_vector_test.zig");
     _ = @import("ledger/reach_vector_test2.zig");
-    _ = @import("tiling/counts_test.zig");
-    _ = @import("tiling/cell_test.zig");
-    _ = @import("tiling/arrows_test.zig");
-    _ = @import("tiling/strokes_test.zig");
-    _ = @import("tiling/rings_test.zig");
-    _ = @import("tiling/terminal_test.zig");
-    _ = @import("tiling/expect_test.zig");
-    _ = @import("tiling/rails_test.zig");
-    _ = @import("tiling/bundles_test.zig");
-    _ = @import("tiling/scan_test.zig");
-    _ = @import("tiling_rails_e2e_test.zig");
-    _ = @import("tiling_crosscheck_test.zig");
-    _ = @import("tiling_records_test.zig");
-    _ = @import("tiling_licence_test.zig");
     _ = @import("junction_licence_test.zig");
-    _ = @import("tiling_weld_test.zig");
     _ = @import("cluster_corridor_test.zig");
     _ = @import("decoration_cell_test.zig");
 }

@@ -80,7 +80,6 @@ fn railRole(p: lattice.RailPolarity) lattice.EdgeRole {
 /// An ARROWHEAD occupant is recorded but never stamped: it carries no role
 /// at all, so there is nothing on it a rail role could describe.
 /// @guarded-by: fan_roles_test.zig "a second rider stamps the family rail role; a lone rider leaves the dropper"
-/// @guarded-by: tiling_records_test.zig "every rail-membership record names an edge the fan actually serves"
 pub fn markShared(
     rec: aux.Recorder,
     cell: *lattice.Cell,

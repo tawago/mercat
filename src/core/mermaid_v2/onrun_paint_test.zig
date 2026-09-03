@@ -12,7 +12,7 @@
 //! It lives at the mermaid_v2 root because it must import BOTH the raster
 //! stage and the painter, which no file inside `raster/` may do (the
 //! painter sits above it in the pipeline); an explicit lint row grants the
-//! privilege, exactly as for `tiling_crosscheck_test.zig`.
+//! privilege.
 
 const std = @import("std");
 const lattice = @import("lattice.zig");

@@ -123,42 +123,11 @@ pub const Rule = union(enum) {
 ///   recurse_test.zig integration tests for the cut-layout-stitch recursion
 ///                   that need both cluster/ and layout/ zone privileges
 ///                   (split out to keep recurse.zig under the 500-line cap).
-///   tiling/expect.zig   the report-only audit's expectation tier: the ONE
-///                   tiling file (with scan.zig) allowed to
-///                   see Sketch and SemGraph, so an ink law can never quietly
-///                   become expectation-driven. Everything else in tiling/ is
-///                   lattice-only via the zone block in `checkImport`.
-///   tiling/rails.zig the fused-crossbar accountability tier: Sketch only
-///                   (no SemGraph — it checks asserted-vs-drawn, never
-///                   declared-vs-drawn), plus cell/counts. Same grant shape
-///                   as expect.zig, one notch tighter.
-///   tiling/scan.zig the audit orchestrator: lattice + Sketch/SemGraph for
-///                   the Ctx it assembles, plus its tiling siblings.
-///   tiling_crosscheck_test.zig  root-level e2e cross-check for tiling/:
-///                   needs the privileges the tiling zone denies (raster,
-///                   select, paint, budget, permits) to prove the audit is
-///                   inert against real renders and that its mirrored
-///                   predicates still agree with raster's originals.
-///   tiling_records_test.zig  root-level cross-instrument pin for the
-///                   lattice side table: the raster writes the records and
-///                   the tiling zone reads them, and neither may import the
-///                   other, so their agreement is checkable only here.
-///                   Split from the crosscheck for the cap.
-///   tiling_licence_test.zig  root-level pin that the raster's recorded
-///                   junction LICENCE and the audit's reading of it agree:
-///                   the raster writes the `.carrier` detail and the tiling
-///                   zone decides the verdict, and neither may import the
-///                   other. Same grant as the rails e2e pin.
 ///   junction_licence_test.zig  root-level pin for the junction licence
 ///                   read from the raster alone: the lattice's ink state
 ///                   and side table, the licence lookup, and the sketch's
 ///                   bundles. Needs parse, select and raster for a real
-///                   render; imports nothing from tiling/, so it outlives
-///                   that zone.
-///   tiling_rails_e2e_test.zig  root-level pin that the fused-crossbar
-///                   population is non-empty in PRODUCTION: the tiling zone
-///                   may not import raster or select, so the only place the
-///                   real render and the audit meet is here.
+///                   render.
 ///   cluster_corridor_test.zig  root-level cross-instrument pin for the
 ///                   per-column crossing discipline (cluster/corridors.zig):
 ///                   the law is decided in the cluster zone but is ABOUT the
@@ -171,10 +140,6 @@ pub const Rule = union(enum) {
 ///                   tallies (tip_not_port, arm_into_head) fire on a real
 ///                   render of the seed that shows the sideways head: the
 ///                   producer and the raster meet only through select.
-///   tiling_weld_test.zig  root-level weld-order pin for tiling/: needs
-///                   raster's arrow_base to run the LAST mutation of the
-///                   pipeline by hand and show the audit's buckets move
-///                   across it. Split from the crosscheck for the cap.
 pub const file_allowlists = [_]struct {
     name: []const u8,
     allowed: []const Rule,
@@ -372,8 +337,8 @@ pub const file_allowlists = [_]struct {
     },
     .{
         .name = "layout/port_plan_test.zig",
-        .allowed = &.{ .sem_graph, .sketch, .layout_zone, .raster_zone, .{ .exact = "../paint.zig" }, .{ .exact = "../ledger/permits.zig" }, .{ .exact = "../tiling/scan.zig" }, .{ .exact = "ports.zig" }, .{ .exact = "port_plan.zig" }, .{ .exact = "sugiyama.zig" } },
-        .reason = "port_plan_test may import the focused layout, raster, paint, permit, and terminal-audit surfaces",
+        .allowed = &.{ .sem_graph, .sketch, .layout_zone, .raster_zone, .{ .exact = "../paint.zig" }, .{ .exact = "../ledger/permits.zig" }, .{ .exact = "ports.zig" }, .{ .exact = "port_plan.zig" }, .{ .exact = "sugiyama.zig" } },
+        .reason = "port_plan_test may import the focused layout, raster, paint, and permit surfaces",
     },
     .{
         .name = "layout/fan_provenance_test.zig",
@@ -408,61 +373,6 @@ pub const file_allowlists = [_]struct {
         .reason = "rails_test2 may only import std, prim, sketch, lattice, raster, or rails_test",
     },
     .{
-        .name = "tiling/expect.zig",
-        .allowed = &.{ .sem_graph, .sketch, .{ .exact = "../lattice.zig" }, .{ .exact = "cell.zig" }, .{ .exact = "counts.zig" } },
-        .reason = "tiling/expect may only import std, prim, base/*, sem_graph, sketch, lattice, cell, or counts",
-    },
-    .{
-        .name = "tiling/expect_test.zig",
-        .allowed = &.{ .sem_graph, .sketch, .{ .exact = "../lattice.zig" }, .{ .exact = "expect.zig" }, .{ .exact = "cell.zig" }, .{ .exact = "counts.zig" } },
-        .reason = "tiling/expect_test may only import std, prim, base/*, sem_graph, sketch, lattice, expect, cell, or counts",
-    },
-    .{
-        .name = "tiling/rails.zig",
-        .allowed = &.{ .sketch, .{ .exact = "cell.zig" }, .{ .exact = "counts.zig" } },
-        .reason = "tiling/rails may only import std, prim, base/*, sketch, cell, or counts",
-    },
-    .{
-        .name = "tiling/rails_test.zig",
-        .allowed = &.{ .sketch, .{ .exact = "../lattice.zig" }, .{ .exact = "rails.zig" }, .{ .exact = "cell.zig" }, .{ .exact = "counts.zig" } },
-        .reason = "tiling/rails_test may only import std, prim, base/*, sketch, lattice, rails, cell, or counts",
-    },
-    .{
-        .name = "tiling/bundles.zig",
-        .allowed = &.{ .sketch, .{ .exact = "cell.zig" }, .{ .exact = "counts.zig" } },
-        .reason = "tiling/bundles may only import std, prim, base/*, sketch, cell, or counts",
-    },
-    .{
-        .name = "tiling/bundles_test.zig",
-        .allowed = &.{ .sketch, .{ .exact = "../lattice.zig" }, .{ .exact = "bundles.zig" }, .{ .exact = "cell.zig" }, .{ .exact = "counts.zig" } },
-        .reason = "tiling/bundles_test may only import std, prim, base/*, sketch, lattice, bundles, cell, or counts",
-    },
-    .{
-        .name = "tiling/counts_line.zig",
-        .allowed = &.{},
-        .reason = "tiling/counts_line may only import std",
-    },
-    .{
-        .name = "tiling/counts.zig",
-        .allowed = &.{.{ .exact = "counts_line.zig" }},
-        .reason = "tiling/counts may only import std or counts_line",
-    },
-    .{
-        .name = "tiling/scan.zig",
-        .allowed = &.{ .sem_graph, .sketch, .{ .exact = "../lattice.zig" }, .{ .exact = "counts.zig" }, .{ .exact = "cell.zig" }, .{ .exact = "arrows.zig" }, .{ .exact = "strokes.zig" }, .{ .exact = "rings.zig" }, .{ .exact = "terminal.zig" }, .{ .exact = "expect.zig" }, .{ .exact = "rail_stars.zig" }, .{ .exact = "rails.zig" }, .{ .exact = "bundles.zig" }, .{ .exact = "state.zig" } },
-        .reason = "tiling/scan may only import std, prim, base/*, sem_graph, sketch, lattice, or tiling siblings",
-    },
-    .{
-        .name = "tiling/state.zig",
-        .allowed = &.{ .{ .exact = "../lattice.zig" }, .{ .exact = "cell.zig" }, .{ .exact = "counts.zig" } },
-        .reason = "tiling/state may only import std, prim, base/*, lattice, cell, or counts",
-    },
-    .{
-        .name = "tiling/scan_test.zig",
-        .allowed = &.{ .sem_graph, .sketch, .{ .exact = "../lattice.zig" }, .{ .exact = "scan.zig" }, .{ .exact = "counts.zig" }, .{ .exact = "cell.zig" } },
-        .reason = "tiling/scan_test may only import std, prim, base/*, sem_graph, sketch, lattice, scan, counts, or cell",
-    },
-    .{
         .name = "onrun_paint_test.zig",
         .allowed = &.{
             .sketch,
@@ -473,39 +383,6 @@ pub const file_allowlists = [_]struct {
         .reason = "onrun_paint_test may only import std, prim, base/*, sketch, raster, lattice, or paint",
     },
     .{
-        .name = "tiling_crosscheck_test.zig",
-        .allowed = &.{
-            .sem_graph,                         .sketch,
-            .budget,                            .parse_zone,
-            .raster_zone,                       .{ .exact = "lattice.zig" },
-            .{ .exact = "select.zig" },         .{ .exact = "paint.zig" },
-            .{ .exact = "ledger/permits.zig" }, .{ .exact = "tiling/scan.zig" },
-            .{ .exact = "tiling/counts.zig" },  .{ .exact = "tiling/cell.zig" },
-            .{ .exact = "tiling/arrows.zig" },  .{ .exact = "tiling/terminal.zig" },
-        },
-        .reason = "tiling_crosscheck_test may only import std, prim, base/*, sem_graph, sketch, budget, parse, raster, lattice, select, paint, ledger/permits, or tiling entry points",
-    },
-    .{
-        .name = "tiling_records_test.zig",
-        .allowed = &.{
-            .sem_graph,                      .sketch,
-            .parse_zone,                     .raster_zone,
-            .{ .exact = "lattice.zig" },     .{ .exact = "select.zig" },
-            .{ .exact = "paint.zig" },       .{ .exact = "ledger/permits.zig" },
-            .{ .exact = "tiling/scan.zig" }, .{ .exact = "tiling/cell.zig" },
-        },
-        .reason = "tiling_records_test may only import std, prim, base/*, sem_graph, sketch, parse, raster, lattice, select, paint, ledger/permits, or tiling entry points",
-    },
-    .{
-        .name = "tiling_licence_test.zig",
-        .allowed = &.{
-            .parse_zone,                     .raster_zone,
-            .{ .exact = "select.zig" },      .{ .exact = "ledger/permits.zig" },
-            .{ .exact = "tiling/scan.zig" }, .{ .exact = "tiling/counts.zig" },
-        },
-        .reason = "tiling_licence_test may only import std, prim, base/*, parse, raster, select, ledger/permits, or tiling entry points",
-    },
-    .{
         .name = "junction_licence_test.zig",
         .allowed = &.{
             .sem_graph,                         .sketch,
@@ -513,16 +390,7 @@ pub const file_allowlists = [_]struct {
             .{ .exact = "lattice.zig" },        .{ .exact = "select.zig" },
             .{ .exact = "ledger/permits.zig" },
         },
-        .reason = "junction_licence_test may only import std, prim, base/*, sem_graph, sketch, parse, raster, lattice, select, or ledger/permits — never the tiling zone",
-    },
-    .{
-        .name = "tiling_rails_e2e_test.zig",
-        .allowed = &.{
-            .parse_zone,                     .raster_zone,
-            .{ .exact = "select.zig" },      .{ .exact = "ledger/permits.zig" },
-            .{ .exact = "tiling/scan.zig" }, .{ .exact = "tiling/counts.zig" },
-        },
-        .reason = "tiling_rails_e2e_test may only import std, prim, base/*, parse, raster, select, ledger/permits, or tiling entry points",
+        .reason = "junction_licence_test may only import std, prim, base/*, sem_graph, sketch, parse, raster, lattice, select, or ledger/permits",
     },
     .{
         .name = "cluster_corridor_test.zig",
@@ -542,15 +410,6 @@ pub const file_allowlists = [_]struct {
         },
         .reason = "decoration_cell_test may only import std, prim, base/*, parse, raster, select, or ledger/permits",
     },
-    .{
-        .name = "tiling_weld_test.zig",
-        .allowed = &.{
-            .sem_graph,                      .sketch,
-            .raster_zone,                    .{ .exact = "lattice.zig" },
-            .{ .exact = "tiling/scan.zig" },
-        },
-        .reason = "tiling_weld_test may only import std, prim, base/*, sem_graph, sketch, raster, lattice, or tiling/scan",
-    },
 };
 
 /// Returns null if the import is allowed for this file, else a reason string.
@@ -567,9 +426,6 @@ pub const file_allowlists = [_]struct {
 ///   budget.zig:            + sem_graph.zig, sketch.zig, layout.zig, parse.zig
 ///   raster.zig + raster/*: + sketch.zig, lattice.zig
 ///   paint.zig + paint/*:   + lattice.zig
-///   tiling/*:              + lattice.zig (report-only audit; expect/scan
-///                            additionally get sem_graph + sketch by a
-///                            per-file row, nothing else ever does)
 ///   entry.zig:             anything
 ///
 /// Sibling/internal imports within a zone (relative paths that stay inside
@@ -659,12 +515,6 @@ pub fn checkImport(rel_path: []const u8, target: []const u8) ?[]const u8 {
         if (in_motif_dir and !std.mem.startsWith(u8, target, "..") and std.mem.endsWith(u8, target, ".zig")) return null;
         if (std.mem.eql(u8, target, "../motif.zig")) return null;
         return "motif zone may only import std, prim, sem_graph, or motif-internal files";
-    }
-
-    if (std.mem.startsWith(u8, rel_path, "tiling" ++ &[_]u8{sep})) {
-        if (tgt_is_lattice) return null;
-        if (!std.mem.startsWith(u8, target, "..") and std.mem.endsWith(u8, target, ".zig")) return null;
-        return "tiling zone may only import std, prim, base/*, lattice, or tiling-internal files";
     }
 
     if (is_raster_zone) {

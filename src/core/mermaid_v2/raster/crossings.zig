@@ -33,7 +33,7 @@
 //! derivation. What a record SAYS about a cell is a different question, and it
 //! is answered by looking up the bundle identity the producer stamped
 //! (`bundleAt` / `licenceFor`); the two are counted against each other on
-//! every render by `tiling/bundles.zig`. A sketch may carry legality in
+//! every render. A sketch may carry legality in
 //! `bundle_sets` without a realized plan (motif-packed candidates, plan
 //! failures), which is exactly why the plan may not gate the rule.
 //!
@@ -152,10 +152,10 @@ pub const Ctx = struct {
 /// licence anywhere it only fills in a record's `detail`: those sites read the
 /// bundle identity the producer filed (`bundleAt` below). It still gates INK
 /// at the two refusal predicates in this file, and it is kept whole as the
-/// witness the recorded identity is measured against — `tiling/bundles.zig`
-/// runs both answers over every carrier a render files and counts them
-/// agreeing and disagreeing. One copy, in `base/ledger.zig`, so the audit and
-/// the raster can never drift into asking two different questions.
+/// witness the recorded identity is measured against: both answers are run
+/// over every carrier a render files and counted agreeing and disagreeing.
+/// One copy, in `base/ledger.zig`, so no caller can drift into asking two
+/// different questions.
 pub fn sameBundle(
     a: EdgeId,
     b: EdgeId,

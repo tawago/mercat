@@ -6,7 +6,6 @@ const coords = @import("../layout.zig");
 const paint = @import("../paint.zig");
 const raster = @import("../raster.zig");
 const permits = @import("../ledger/permits.zig");
-const scan = @import("../tiling/scan.zig");
 const ports = @import("ports.zig");
 const port_plan = @import("port_plan.zig");
 const sugiyama = @import("sugiyama.zig");
@@ -63,22 +62,6 @@ fn expectTerminalEvidence(a: std.mem.Allocator, g: sg.SemGraph, s: sk.Sketch, ar
     try std.testing.expectEqual(@as(u32, 0), report.edge_cells_lost);
     try std.testing.expectEqual(@as(u32, 0), report.crossings.foreign_junction_violation);
     try std.testing.expectEqual(@as(u32, 0), report.crossings.arrowhead_transit_violation);
-    const counts = scan.run(a, .{
-        .graph = g,
-        .sketch = s,
-        .lat = &report.lattice,
-        .mode = .bridge,
-        .labels_placed = report.labels_placed,
-        .labels_dropped = report.labels_dropped,
-        .labels_displaced = report.labels_displaced,
-        .edge_cells_lost = report.edge_cells_lost,
-    });
-    try std.testing.expectEqual(g.edges.len, counts.n_edges_declared + counts.n_taps_declared);
-    try std.testing.expectEqual(@as(u32, 0), counts.d_edge_no_terminal_evidence);
-    try std.testing.expectEqual(@as(u32, 0), counts.m_term_ink_deficit);
-    try std.testing.expectEqual(@as(u32, @intCast(arrows)), counts.n_arrows_declared);
-    try std.testing.expectEqual(@as(u32, @intCast(arrows)), counts.n_arrow_cells);
-    try std.testing.expectEqual(@as(u32, 0), counts.d_arrow_missing);
     const output = try paint.paint(a, report.lattice, 200);
     try std.testing.expectEqual(arrows, std.mem.count(u8, output, "▼"));
 }

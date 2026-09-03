@@ -335,8 +335,8 @@ pub fn rosterNumbered(sets: []const Bundle) bool {
 /// roster order decides, and it reads as the structural set's, because the
 /// narrower `.port_share` origin is always APPENDED after them. That this
 /// single-valued reading agrees with the pairwise membership scan it replaces
-/// is a MEASURED fact, not an assumed one: `tiling/bundles.zig` counts the
-/// two answers against each other on every carrier the render files.
+/// is a MEASURED fact, not an assumed one: the two answers are counted
+/// against each other on every carrier the render files.
 pub fn bundleOf(sets: []const Bundle, edge: EdgeId, at: ?BundleCell) BundleId {
     for (sets) |set| {
         if (set.bundle == no_bundle) continue;

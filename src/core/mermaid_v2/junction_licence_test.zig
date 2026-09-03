@@ -15,10 +15,9 @@
 //!
 //! This file reads only raster-side data — the lattice's ink state and
 //! occupant, its side table, the licence lookup, and the sketch's bundles.
-//! It imports nothing from the tiling zone, so the pin survives that zone's
-//! retirement; the old `tiling_licence_test.zig` states the same property
-//! through the audit's counters, on the same shapes, with the same
-//! outcomes.
+//! It supersedes the retired `tiling_licence_test.zig`, which stated the
+//! same property through the report-only audit's counters, on the same
+//! shapes, with the same outcomes.
 //!
 //! The three verdicts partition the junction population exactly, so every
 //! render is its own consistency check; the shapes below add the outcomes
@@ -63,10 +62,9 @@ const Verdict = enum { licensed, foreign, unevidenced };
 /// The population is every (junction cell, anonymous edge) pair: a cell the
 /// producer recorded as `.junction` — the owner set changes there — together
 /// with each edge a `.carrier` record names at that cell other than the
-/// cell's own surviving owner. The verdict for a pair follows the tiling
-/// audit's reading so the two agree while both exist: any record stating
-/// FOREIGN (`suppressed`, `merged_foreign`) decides; else any stating
-/// LICENSED; else nothing was said.
+/// cell's own surviving owner. The verdict for a pair reads the records
+/// directly: any record stating FOREIGN (`suppressed`, `merged_foreign`)
+/// decides; else any stating LICENSED; else nothing was said.
 const Verdicts = struct {
     population: u32 = 0,
     licensed: u32 = 0,

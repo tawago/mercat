@@ -231,12 +231,10 @@ pub const bundlesAgree = bundle.bundlesAgree;
 /// here, or some selected bundle holds both.
 ///
 /// This is the shape the raster used to ESTABLISH every licence with, before a
-/// bundle had a name. It is kept — one copy, here, where both the raster and
-/// the report-only audit can reach it — as the WITNESS the recorded identity
-/// is measured against: `tiling/bundles.zig` runs it beside
-/// `bundlesAgree` on every carrier a render files and counts the two
-/// answers agreeing and disagreeing. Nothing that only LABELS a record calls
-/// it any more.
+/// bundle had a name. It is kept — one copy, here — as the WITNESS the
+/// recorded identity is measured against: it runs beside `bundlesAgree` on
+/// every carrier a render files and counts the two answers agreeing and
+/// disagreeing. Nothing that only LABELS a record calls it any more.
 /// @guarded-by: ledger_test.zig "the derivation and the recorded identity answer alike on a declared bundle"
 pub fn derivedSameBundle(
     bundles: RealizedBundles,

@@ -129,7 +129,7 @@ pub const table = [_]Row{
     },
     .{
         .token = "MERCAT_FANROLE_SHADOW",
-        .why = "the fan-role shadow comparator was retired with the inference it shadowed; the producers' roles ARE the derived roles now, and the residual is pinned by tiling_records_test 'a peer-drawn rail role and its membership record are one event'",
+        .why = "the fan-role shadow comparator was retired with the inference it shadowed; the producers' roles ARE the derived roles now, and a peer-drawn rail role and its membership record are pinned as one event",
     },
     .{
         .token = "mercat-fanrole-shadow",

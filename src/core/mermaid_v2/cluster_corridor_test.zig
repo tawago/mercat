@@ -7,8 +7,8 @@
 //! meets — that only the raster knows, and files as an `.intrusion` record
 //! because the frame-solid ruling leaves the cell itself pristine. The
 //! cluster zone cannot import the raster (it is two stages downstream), so
-//! the two can only be held against each other here at the root, the same
-//! arrangement and the same lint-row grant as `tiling_records_test.zig`.
+//! the two can only be held against each other here at the root, with an
+//! explicit lint-row grant for the crossing.
 //!
 //! The laws, stated over the records, in priority order:
 //!
