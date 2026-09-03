@@ -227,3 +227,34 @@ test "a lane past the gap's capacity clamps to the innermost in-gap row instead 
         try testing.expect(poly[1].y > s_peri);
     }
 }
+
+test "a decorated source's lane clamp and dodge jog stay out of the departure cell" {
+    const a = testing.allocator;
+    var arena = std.heap.ArenaAllocator.init(a);
+    defer arena.deinit();
+
+    const pivot = sketch.NodePlacement{ .id = 0, .rect = .{ .x = 20, .y = 0, .w = 10, .h = 3 }, .shape = .rect, .lines = &.{}, .cluster_id = null };
+    const child = sketch.NodePlacement{ .id = 1, .rect = .{ .x = 40, .y = 8, .w = 10, .h = 3 }, .shape = .rect, .lines = &.{}, .cluster_id = null };
+    const placements = [_]sketch.NodePlacement{ pivot, child };
+    var peers = [_]fan.FanEdge{.{ .edge_id = 1, .peer_idx = 1, .role = .leftmost }};
+    const s_peri = pivot.rect.bottom() - 1;
+    const from = fan_polyline.portFromSource(.TD, pivot);
+    const to = fan_polyline.portToTarget(.TD, child);
+
+    for ([_]u32{ 4, 9 }) |lane| {
+        const over = fan.Fan{ .direction = .out, .pivot_idx = 0, .source_layer = 0, .peers = &peers, .lane = lane };
+        const plain = try fan_polyline.buildPolylineAt(arena.allocator(), .TD, over, pivot, child, from, to, .leftmost, 0, 0, &placements, .{});
+        try testing.expectEqual(s_peri + 1, plain[1].y);
+        const decorated = try fan_polyline.buildPolylineAt(arena.allocator(), .TD, over, pivot, child, from, to, .leftmost, 0, 0, &placements, .{ .from = true });
+        try testing.expectEqual(s_peri + 2, decorated[1].y);
+    }
+
+    // The dodge around an intermediate box jogs on the same row rule.
+    const far = sketch.NodePlacement{ .id = 1, .rect = .{ .x = 40, .y = 20, .w = 10, .h = 3 }, .shape = .rect, .lines = &.{}, .cluster_id = null };
+    const blocker = sketch.NodePlacement{ .id = 2, .rect = .{ .x = 20, .y = 8, .w = 10, .h = 3 }, .shape = .rect, .lines = &.{}, .cluster_id = null };
+    const dodge_placements = [_]sketch.NodePlacement{ pivot, far, blocker };
+    const f = fan.Fan{ .direction = .out, .pivot_idx = 0, .source_layer = 0, .peers = &peers };
+    const dodged = try fan_polyline.buildPolylineAt(arena.allocator(), .TD, f, pivot, far, from, fan_polyline.portToTarget(.TD, far), .leftmost, 0, 0, &dodge_placements, .{ .from = true });
+    try testing.expectEqual(s_peri + 2, dodged[1].y);
+    try expectPolyAvoidsRect(dodged, blocker.rect);
+}

@@ -4,12 +4,14 @@
 //! sketch.zig's touch-semantics helpers whenever a foreign box would
 //! otherwise block a run.
 //!
-//! Imports (layout zone): std + sem_graph + sketch + fan.zig (types).
+//! Imports (layout zone): std + sem_graph + sketch + fan.zig (types) +
+//! routing_polyline.zig (the `Straight` terminal rule).
 
 const std = @import("std");
 const sg = @import("../sem_graph.zig");
 const sketch = @import("../sketch.zig");
 const fan_mod = @import("fan.zig");
+const Straight = @import("routing_polyline.zig").Straight;
 const Fan = fan_mod.Fan;
 const ChildRole = fan_mod.ChildRole;
 
@@ -47,7 +49,12 @@ pub fn buildPolylineAt(
     member_lane: u32,
     rail_lift: u32,
     placements: []const sketch.NodePlacement,
+    straight: Straight,
 ) error{OutOfMemory}![]sketch.Point {
+    // A decorated source keeps its departure cell straight (the head sits
+    // there), so every source-side jog or clamp lands one row further out.
+    // @guarded-by: fan_polyline_test.zig "a decorated source's lane clamp and dodge jog stay out of the departure cell"
+    const off_source: i32 = if (straight.from) 2 else 1;
     const source_p = if (fan.direction == .out) pivot_p else peer_p;
     const target_p = if (fan.direction == .out) peer_p else pivot_p;
     const south_flow = (dir == .TD);
@@ -65,7 +72,7 @@ pub fn buildPolylineAt(
         try gpts.append(a, .{ .x = sx, .y = src_bot });
         // Pivot-column descent for a row-≥2 child may pass through an earlier row's sibling box; dodge to a touch-free column. @guarded-by: fan_polyline_test.zig "grid fan-OUT rail dodges a sibling box stacked in an earlier grid row"
         if (sketch.columnTouchesAny(sx, src_bot + 1, rail, placements, source_p.id, target_p.id)) {
-            const jog_y = src_bot + 1;
+            const jog_y = src_bot + off_source;
             const corridor = sketch.clearLine(false, tx, jog_y, rail, placements, source_p.id, target_p.id, .{});
             try emitDodgedDescent(a, &gpts, sx, tx, jog_y, rail, corridor);
         } else {
@@ -116,7 +123,7 @@ pub fn buildPolylineAt(
     // same unclearable thing, so the escalation reaches the designed
     // outside-detour fallback instead of inventing a path above the diagram.
     // @guarded-by: fan_polyline_test.zig "a lane past the gap's capacity clamps to the innermost in-gap row instead of climbing over the source"
-    rail_y = if (south_flow) @max(rail_y, s_peri + 1) else @min(rail_y, s_peri - 1);
+    rail_y = if (south_flow) @max(rail_y, s_peri + off_source) else @min(rail_y, s_peri - off_source);
     // Labeled fan-OUT: raise the rail three extra rows (the gap rows
     // fan.extraRowsPerGap reserved) so each member's PRIVATE final descent is
     // 4 cells long — flank, on-run label row, flank, arrowhead — the DECORATED
@@ -139,7 +146,7 @@ pub fn buildPolylineAt(
         .leftmost, .rightmost, .middle => {
             // A fan whose peers sit 2+ layers away needs this dodge (same discipline as the grid combs above) since a direct column drop would slice an intermediate box. (Only TD reaches fan routing: BT is canonicalized to TD before layout, and LR/RL fans are not detected — no direction gate needed.) @guarded-by: fan_polyline_test.zig "single-row fan spanning 2+ layers dodges an intermediate box instead of slicing it"
             if (sketch.columnTouchesAny(sx, s_peri + 1, rail_y, placements, source_p.id, target_p.id)) {
-                const jog_y = s_peri + 1;
+                const jog_y = s_peri + off_source;
                 const corridor = sketch.clearLine(false, sx, jog_y, rail_y, placements, source_p.id, target_p.id, .{ .margin = true });
                 try emitDodgedDescent(a, &pts, sx, tx, jog_y, rail_y, corridor);
             } else {
@@ -177,7 +184,7 @@ pub fn buildPolyline(
 ) error{OutOfMemory}![]sketch.Point {
     const source = if (fan.direction == .out) pivot_p else peer_p;
     const target = if (fan.direction == .out) peer_p else pivot_p;
-    return buildPolylineAt(a, dir, fan, pivot_p, peer_p, portFromSource(dir, source), portToTarget(dir, target), role, 0, rail_lift, placements);
+    return buildPolylineAt(a, dir, fan, pivot_p, peer_p, portFromSource(dir, source), portToTarget(dir, target), role, 0, rail_lift, placements, .{});
 }
 
 fn portPoint(p: sketch.NodePlacement, port: sketch.Port) sketch.Point {

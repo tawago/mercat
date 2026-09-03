@@ -98,6 +98,20 @@ pub fn insetPort(pt: sketch.Point, side: sketch.Dir4, pad: i32) sketch.Point {
     };
 }
 
+/// Which of a route's two terminal cells must be run straight through.
+/// A decorated end's departure or arrival cell is that end's decoration
+/// cell: a turn inside it puts a corner where the head must sit, so the
+/// producer bends one cell further out instead. An undecorated end holds
+/// a plain run and may bend in its terminal cell.
+pub const Straight = struct {
+    from: bool = false,
+    to: bool = false,
+
+    pub fn forEdge(edge: sg.Edge) Straight {
+        return .{ .from = edge.arrow_from != .none, .to = edge.arrow_to != .none };
+    }
+};
+
 pub fn absDiff(x: i32, y: i32) i32 {
     return if (x > y) x - y else y - x;
 }
@@ -123,7 +137,7 @@ fn oppositeSide(side: sketch.Dir4) sketch.Dir4 {
 /// Reconcile a terminal port with the side the polyline's final leg
 /// actually approaches from. A route's last segment must enter the target
 /// wall perpendicular, landing ON the allocated port's border. When an
-/// obstacle-dodging shift (see `route_clearance.shiftInteriorRun`) drives
+/// obstacle-dodging shift (see `route_detour.shiftInteriorRun`) drives
 /// the approach run to the side of the target OPPOSITE its allocated port,
 /// the recorded endpoint sits on the far border and the final leg crosses
 /// the whole box interior to reach it — the rasterizer then drops those
@@ -284,6 +298,7 @@ pub fn routePolyline(
     inset_from: i32,
     inset_to: i32,
     route_lane: u32,
+    straight: Straight,
 ) error{OutOfMemory}![]sketch.Point {
     var poly: std.ArrayListUnmanaged(sketch.Point) = .empty;
     const raw_start = portPoint(from_p, port_from);
@@ -305,10 +320,24 @@ pub fn routePolyline(
     if (!horizontal and virtuals.len > 0) {
         const first = geom[virtuals[0]];
         const want_x = first.x + @divTrunc(@as(i32, @intCast(first.w)), 2);
-        const enter_gap_y = first.y - 1;
-        // align_y: gap ABOVE the target, leaving ≥1 row for a vertical descent (falls back to end.y-1 if skipCorridorExtraRows headroom is absent). @guarded-by: routing_polyline_test.zig "TD skip-corridor final descent is a clean vertical approach (guards ▼)"
         const lane: i32 = @intCast(route_lane);
-        const align_y = if (end.y - 2 - lane > enter_gap_y) end.y - 2 - lane else end.y - 1;
+        // enter_gap_y: the entry run's row, three rows above the first
+        // intermediate layer and one higher per lane. The row directly
+        // above that layer is its arrival row — every decorated arrival
+        // cell there is reserved against a foreign through-run — and the
+        // row above that holds those heads' base cells, where a crossing
+        // leaves a head unfed (the raster paints one stroke per cell); an
+        // entry run on either is refused or priced at every lane. The
+        // floor keeps the run off the source wall and, for a decorated
+        // source, out of the departure cell.
+        // @guarded-by: routing_polyline_test.zig "the skip corridor enters three rows above the intermediate layer and climbs with the lane"
+        const enter_floor = start.y + (if (straight.from) @as(i32, 2) else 1);
+        const enter_gap_y = @max(first.y - 3 - lane, enter_floor);
+        // align_y: gap ABOVE the target, leaving ≥1 row for a vertical descent (falls back to end.y-1 if skipCorridorExtraRows headroom is absent). @guarded-by: routing_polyline_test.zig "TD skip-corridor final descent is a clean vertical approach (guards ▼)"
+        // A decorated arrival never takes the end.y-1 fallback — that is a
+        // turn in the arrival cell — it holds the corridor row instead.
+        // @guarded-by: routing_polyline_test.zig "a skip corridor past its lane budget keeps a decorated arrival straight"
+        const align_y = if (end.y - 2 - lane > enter_gap_y) end.y - 2 - lane else if (straight.to) @max(end.y - 2, enter_gap_y) else end.y - 1;
 
         // The virtuals' barycenter column is NOT guaranteed clear: a real
         // node may have drifted onto it, so slide the corridor to the
@@ -340,10 +369,11 @@ pub fn routePolyline(
     if (horizontal and virtuals.len > 0 and end.x > start.x) {
         const first = geom[virtuals[0]];
         const want_y = first.y + @divTrunc(@as(i32, @intCast(first.h)), 2);
-        const enter_gap_x = first.x - 1;
-        // align_x: gap column just before the target, leaving ≥1 cell of straight horizontal approach. @guarded-by: routing_polyline_test.zig "LR skip-corridor final approach is a clean horizontal approach (guards ▶)"
         const lane: i32 = @intCast(route_lane);
-        const align_x = if (end.x - 2 - lane > enter_gap_x) end.x - 2 - lane else end.x - 1;
+        const enter_floor = start.x + (if (straight.from) @as(i32, 2) else 1);
+        const enter_gap_x = @max(first.x - 3 - lane, enter_floor);
+        // align_x: gap column just before the target, leaving ≥1 cell of straight horizontal approach. @guarded-by: routing_polyline_test.zig "LR skip-corridor final approach is a clean horizontal approach (guards ▶)"
+        const align_x = if (end.x - 2 - lane > enter_gap_x) end.x - 2 - lane else if (straight.to) @max(end.x - 2, enter_gap_x) else end.x - 1;
         const run_lo = @min(enter_gap_x, align_x);
         const run_hi = @max(enter_gap_x, align_x);
         const corridor_y = sketch.clearLine(true, want_y, run_lo, run_hi, placements, from_p.id, to_p.id, .{ .margin = true });
@@ -390,7 +420,7 @@ pub fn routePolyline(
                 // @guarded-by: routing_polyline_test.zig "the jog never lands on the source wall (span-2 gap and lane escalation clamp)"
                 const span_x = absDiff(end.x, prev.x);
                 const want_x_pad: i32 = (if (span_x >= 2) @as(i32, 2) else 1) + @as(i32, @intCast(route_lane));
-                const pad: i32 = @max(@min(want_x_pad, span_x - 1), 1);
+                const pad = jogPad(want_x_pad, span_x, straight);
                 const jog = insetPort(end, port_to.side, pad);
                 try poly.append(a, .{ .x = jog.x, .y = prev.y });
                 try poly.append(a, .{ .x = jog.x, .y = end.y });
@@ -403,7 +433,7 @@ pub fn routePolyline(
                 // @guarded-by: routing_polyline_test.zig "the jog never lands on the source wall (span-2 gap and lane escalation clamp)"
                 const span_y = absDiff(end.y, prev.y);
                 const want_y_pad: i32 = (if (span_y >= 2) @as(i32, 2) else 1) + @as(i32, @intCast(route_lane));
-                const pad: i32 = @max(@min(want_y_pad, span_y - 1), 1);
+                const pad = jogPad(want_y_pad, span_y, straight);
                 const jog = insetPort(end, port_to.side, pad);
                 try poly.append(a, .{ .x = prev.x, .y = jog.y });
                 try poly.append(a, .{ .x = end.x, .y = jog.y });
@@ -417,6 +447,21 @@ pub fn routePolyline(
     try poly.append(a, end);
     if (poly.items.len < 2) try poly.append(a, end);
     return try poly.toOwnedSlice(a);
+}
+
+/// The jog's distance from the target wall. A decorated arrival keeps the
+/// jog two cells out (the arrival cell stays straight), a decorated source
+/// keeps it two cells short of the source wall (the departure cell stays
+/// straight); a plain end may bend in its terminal cell. A gap too tight
+/// for both keeps the pre-rule clamp and leaves the refusal to the
+/// straight-through gate, which degrades the route instead of shipping a
+/// corner where a head sits.
+/// @guarded-by: routing_polyline_test.zig "the jog never lands inside a decorated terminal cell"
+pub fn jogPad(want: i32, span: i32, straight: Straight) i32 {
+    const lo: i32 = if (straight.to) 2 else 1;
+    const hi: i32 = span - (if (straight.from) @as(i32, 2) else 1);
+    if (lo > hi) return @max(@min(want, span - 1), 1);
+    return @max(@min(want, hi), lo);
 }
 
 test {

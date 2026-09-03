@@ -17,6 +17,8 @@ const routing = @import("routing.zig");
 const sugiyama = @import("sugiyama.zig");
 const port_plan = @import("port_plan.zig");
 const ledger = @import("../base/ledger.zig");
+const back_edges = @import("back_edges.zig");
+const route_clearance = @import("route_clearance.zig");
 
 const testing = std.testing;
 
@@ -35,6 +37,9 @@ fn mkNode(id: sg.NodeId, raw: []const u8, cluster: ?sg.ClusterId) sg.Node {
 /// the member still blocks and the star keeps its licence): fails
 /// `fan_rail.resolve`'s eligibility check (`e.arrow_from != .none`), forcing
 /// every peer of the fan onto the per-peer polyline path this file exercises.
+/// The decorated source holds its departure cell straight (the head sits
+/// there — routing_terminal.zig's straight-through rule), so a per-peer
+/// turn lands no nearer than two rows below the source wall.
 fn mkForcedPeerEdge(id: sg.EdgeId, from: sg.NodeId, to: sg.NodeId) sg.Edge {
     return .{
         .id = id,
@@ -95,6 +100,7 @@ fn layoutForkIntoCluster(
     clusters: []const sg.Cluster,
     c_cluster: ?sg.ClusterId,
     forced_per_peer: bool,
+    v_spacing: u32,
 ) !sketch.Sketch {
     const nodes = [_]sg.Node{
         mkNode(0, "A", null),
@@ -113,7 +119,7 @@ fn layoutForkIntoCluster(
         .classes = &.{},
         .arena = null,
     };
-    return coords.layout(arena, g, .{});
+    return coords.layout(arena, g, .{ .v_spacing = v_spacing });
 }
 
 test "fan-OUT per-peer rail lifts exactly one row for the peer crossing into a cluster its source is not part of" {
@@ -123,7 +129,9 @@ test "fan-OUT per-peer rail lifts exactly one row for the peer crossing into a c
     const clusters = [_]sg.Cluster{
         .{ .id = 0, .raw_id = "X", .label = "X", .parent = null, .members = &.{2}, .sub_clusters = &.{} },
     };
-    const s = try layoutForkIntoCluster(arena.allocator(), &clusters, 0, true);
+    // One extra gap row: the forced peers' decorated source keeps its
+    // departure cell for the head, and the lift needs a row of its own.
+    const s = try layoutForkIntoCluster(arena.allocator(), &clusters, 0, true, 3);
 
     const b = findNode(s.nodes, 1);
     const c = findNode(s.nodes, 2);
@@ -179,17 +187,22 @@ test "rail pre-pass and forced per-peer path lift the same fan-OUT geometry to t
 
     var arena_bar = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena_bar.deinit();
-    const s_bar = try layoutForkIntoCluster(arena_bar.allocator(), &clusters, 0, false);
+    const s_bar = try layoutForkIntoCluster(arena_bar.allocator(), &clusters, 0, false, 2);
     try testing.expectEqual(@as(usize, 1), s_bar.rails.len);
     const bar_rail_y = s_bar.rails[0].crossbar[0].y;
 
     var arena_peer = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena_peer.deinit();
-    const s_peer = try layoutForkIntoCluster(arena_peer.allocator(), &clusters, 0, true);
+    const s_peer = try layoutForkIntoCluster(arena_peer.allocator(), &clusters, 0, true, 2);
     try testing.expectEqual(@as(usize, 0), s_peer.rails.len);
     const ec = findEdge(s_peer.edges, 0, 2);
 
-    try testing.expectEqual(bar_rail_y, railRow(ec.polyline));
+    // The same lifted row — except that the forced peers' decorated source
+    // holds its departure cell (the head) straight, so where the rail's row
+    // IS that cell the per-peer turn sits one row further out.
+    const a_bottom = findNode(s_peer.nodes, 0).rect.bottom() - 1;
+    try testing.expectEqual(@max(bar_rail_y, a_bottom + 2), railRow(ec.polyline));
+    try testing.expectEqual(bar_rail_y, a_bottom + 1);
 }
 
 test "a discharged edge is withheld from routing entirely" {
@@ -235,4 +248,73 @@ test "a discharged edge is withheld from routing entirely" {
     const withheld = try routing.buildEdgesWithPlan(a, g, lg, &geom, &placements, &.{}, .{ .memberships = &memberships, .discharged = &.{2} }, ports);
     try testing.expectEqual(@as(usize, 2), withheld.edges.len);
     for (withheld.edges) |e| try testing.expect(e.id != 2);
+}
+
+test "the lane ladder climbs from the planned lane, then descends to lane 0, then ends" {
+    var ladder = routing.LaneLadder{ .planned = 2, .lane = 2 };
+    var seen: std.ArrayListUnmanaged(u32) = .empty;
+    defer seen.deinit(testing.allocator);
+    try seen.append(testing.allocator, ladder.lane);
+    while (ladder.next()) try seen.append(testing.allocator, ladder.lane);
+    try testing.expectEqual(@as(usize, 17), seen.items.len);
+    try testing.expectEqual(@as(u32, 2), seen.items[0]);
+    try testing.expectEqual(@as(u32, 16), seen.items[14]);
+    try testing.expectEqual(@as(u32, 1), seen.items[15]);
+    try testing.expectEqual(@as(u32, 0), seen.items[16]);
+
+    var from_zero = routing.LaneLadder{ .planned = 0, .lane = 0 };
+    var count: u32 = 0;
+    while (from_zero.next()) count += 1;
+    try testing.expectEqual(@as(u32, 16), count);
+}
+
+test "the base-approach grow is reverted when it would bend a decorated departure cell" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const placements = [_]sketch.NodePlacement{
+        .{ .id = 0, .rect = .{ .x = 3, .y = 0, .w = 5, .h = 3 }, .shape = .rect, .lines = &.{}, .cluster_id = null },
+        .{ .id = 1, .rect = .{ .x = 7, .y = 6, .w = 5, .h = 3 }, .shape = .rect, .lines = &.{}, .cluster_id = null },
+    };
+    const points = [_]sketch.Point{ .{ .x = 5, .y = 2 }, .{ .x = 5, .y = 4 }, .{ .x = 9, .y = 4 }, .{ .x = 9, .y = 6 } };
+    const ports = [_]port_plan.EdgePorts{};
+
+    const plain_poly = try a.dupe(sketch.Point, &points);
+    const plain = sg.Edge{ .id = 0, .from = 0, .to = 1, .kind = .solid, .arrow_from = .none, .arrow_to = .filled, .label = null };
+    const grown = try routing.growBaseApproach(a, plain_poly, &placements, plain, &.{}, &.{}, &ports, .{});
+    try testing.expect(grown.ptr != plain_poly.ptr);
+    try testing.expectEqual(@as(i32, 3), grown[1].y);
+
+    const decorated_poly = try a.dupe(sketch.Point, &points);
+    const decorated = sg.Edge{ .id = 0, .from = 0, .to = 1, .kind = .solid, .arrow_from = .filled, .arrow_to = .filled, .label = null };
+    const kept = try routing.growBaseApproach(a, decorated_poly, &placements, decorated, &.{}, &.{}, &ports, .{});
+    try testing.expect(kept.ptr == decorated_poly.ptr);
+    try testing.expectEqual(@as(i32, 4), kept[1].y);
+}
+
+test "a back edge's stub hop keeps off a foreign decorated arrival cell" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    // Source A below target B; box C blocks A's east stub row, so the stub
+    // hops up to the nearest clear row toward B.
+    const placements = [_]sketch.NodePlacement{
+        .{ .id = 0, .rect = .{ .x = 0, .y = 10, .w = 5, .h = 3 }, .shape = .rect, .lines = &.{}, .cluster_id = null },
+        .{ .id = 1, .rect = .{ .x = 0, .y = 0, .w = 5, .h = 3 }, .shape = .rect, .lines = &.{}, .cluster_id = null },
+        .{ .id = 2, .rect = .{ .x = 7, .y = 9, .w = 5, .h = 5 }, .shape = .rect, .lines = &.{}, .cluster_id = null },
+    };
+    const from: sketch.Port = .{ .node = 0, .side = .east, .offset = 1 };
+    const to: sketch.Port = .{ .node = 1, .side = .east, .offset = 1 };
+    const bare = try back_edges.backEdgePolylineAt(a, .TD, placements[0], placements[1], from, to, 14, &placements);
+    try testing.expectEqual(@as(i32, 8), bare[2].y);
+
+    // A foreign edge arrives at C's north port (8,9): its decorated arrival
+    // cell (8,8) sits on that hop row, so the hop climbs one more row.
+    const ports = [_]port_plan.EdgePorts{.{ .edge = 9, .source = .{ .node = 1, .side = .south, .offset = 3 }, .target = .{ .node = 2, .side = .north, .offset = 1 }, .source_ordinal = 0, .target_ordinal = 0, .target_decorated = true }};
+    const guarded = try route_clearance.withDecoratedTerminalBoxes(a, 3, &placements, &ports, .{});
+    // The clear-line search keeps its distance order: at the same distance
+    // the far side (row 14) is clear where row 8 now reads as a box.
+    const kept_off = try back_edges.backEdgePolylineAt(a, .TD, placements[0], placements[1], from, to, 14, guarded);
+    try testing.expect(kept_off[2].y != 8);
+    try testing.expectEqual(@as(i32, 14), kept_off[2].y);
 }

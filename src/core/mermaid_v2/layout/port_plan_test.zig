@@ -336,6 +336,26 @@ test "a long fan-in member the plan selected gets a continuing tap and a member 
     try std.testing.expectEqual(tap.at.y, last.y);
 }
 
+test "a decorated long fan-in member's stroke leaves its departure cell straight" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    // C's fan-in {B <-- C, A <-- C} carries its heads at the leaves; A <-- C
+    // is long (A on layer 0, C on layer 2) and decorated at its private
+    // source, so its stroke's first turn sits two rows below A.
+    const nodes = [_]sg.Node{ node(0, "A"), node(1, "B"), node(2, "C") };
+    const edges = [_]sg.Edge{
+        edge(0, 1, .solid),
+        .{ .id = 1, .from = 1, .to = 2, .kind = .solid, .arrow_from = .filled, .arrow_to = .none, .label = null },
+        .{ .id = 2, .from = 0, .to = 2, .kind = .solid, .arrow_from = .filled, .arrow_to = .none, .label = null },
+    };
+    const s = try productionLayout(a, testGraph(&nodes, &edges, &.{}));
+    const stroke = pathById(s, 2);
+    try std.testing.expectEqual(sk.EdgeRole.member_stroke, stroke.role);
+    try std.testing.expect(stroke.polyline.len >= 2);
+    try std.testing.expect(stroke.polyline[1].y - stroke.polyline[0].y >= 2);
+}
+
 test "a long fan-out member gets a rail tap and a member stroke to its far port" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();

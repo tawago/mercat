@@ -77,7 +77,8 @@ test "TD skip-corridor final descent is a clean vertical approach (guards ▼)" 
         0,
         0,
         0,
-    );
+            .{},
+        );
     try expectCleanVerticalFinalApproach(poly, true);
 }
 
@@ -105,7 +106,8 @@ test "LR skip-corridor final approach is a clean horizontal approach (guards ▶
         0,
         0,
         0,
-    );
+            .{},
+        );
     try expectCleanHorizontalFinalApproach(poly, true);
 }
 
@@ -133,6 +135,7 @@ test "west/east port jog pad is never zero, near or far (guards clean </>)" {
             0,
             0,
             0,
+            .{},
         );
         try expectCleanHorizontalFinalApproach(poly, true);
         const last = poly[poly.len - 1];
@@ -157,6 +160,7 @@ test "west/east port jog pad is never zero, near or far (guards clean </>)" {
             0,
             0,
             0,
+            .{},
         );
         try expectCleanHorizontalFinalApproach(poly, true);
         const last = poly[poly.len - 1];
@@ -189,6 +193,7 @@ test "north/south port jog pad is never zero, near or far (guards clean ^/v)" {
             0,
             0,
             0,
+            .{},
         );
         try expectCleanVerticalFinalApproach(poly, true);
         const last = poly[poly.len - 1];
@@ -213,6 +218,7 @@ test "north/south port jog pad is never zero, near or far (guards clean ^/v)" {
             0,
             0,
             0,
+            .{},
         );
         try expectCleanVerticalFinalApproach(poly, true);
         const last = poly[poly.len - 1];
@@ -245,6 +251,7 @@ test "the jog never lands on the source wall (span-2 gap and lane escalation cla
             0,
             0,
             0,
+            .{},
         );
         const wall_y: i32 = 2;
         for (poly[1..]) |pt| try testing.expect(pt.y > wall_y);
@@ -267,6 +274,7 @@ test "the jog never lands on the source wall (span-2 gap and lane escalation cla
             0,
             0,
             1,
+            .{},
         );
         const wall_y: i32 = 2;
         for (poly[1..]) |pt| try testing.expect(pt.y > wall_y);
@@ -289,6 +297,7 @@ test "the jog never lands on the source wall (span-2 gap and lane escalation cla
             0,
             0,
             0,
+            .{},
         );
         const wall_x: i32 = 7;
         for (poly[1..]) |pt| try testing.expect(pt.x > wall_x);
@@ -364,4 +373,82 @@ test "ensureBaseStub accept-fallback: no room to shift leaves the polyline untou
     };
     try testing.expect(!rp.ensureBaseStub(&poly, &boxes, 0, 1));
     try testing.expectEqual(sketch.Point{ .x = 2, .y = 6 }, poly[1]);
+}
+
+test "the jog never lands inside a decorated terminal cell" {
+    // A decorated arrival keeps the jog two cells from the target wall.
+    try testing.expectEqual(@as(i32, 2), rp.jogPad(1, 5, .{ .to = true }));
+    try testing.expectEqual(@as(i32, 2), rp.jogPad(2, 5, .{ .to = true }));
+    // A decorated source keeps it two cells from the source wall.
+    try testing.expectEqual(@as(i32, 3), rp.jogPad(10, 5, .{ .from = true }));
+    try testing.expectEqual(@as(i32, 4), rp.jogPad(10, 5, .{}));
+    // Both ends in the smallest gap that holds them.
+    try testing.expectEqual(@as(i32, 2), rp.jogPad(5, 4, .{ .from = true, .to = true }));
+    // A gap too tight for both keeps the pre-rule clamp; the gate degrades the route.
+    try testing.expectEqual(@as(i32, 2), rp.jogPad(2, 3, .{ .from = true, .to = true }));
+
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const from_p = mkPlacement(0, .{ .x = 0, .y = 0, .w = 8, .h = 3 });
+    const to_p = mkPlacement(1, .{ .x = 3, .y = 6, .w = 8, .h = 3 });
+    const placements = [_]sketch.NodePlacement{ from_p, to_p };
+    const poly = try rp.routePolyline(
+        a,
+        .TD,
+        from_p,
+        to_p,
+        .{ .node = 0, .side = .south, .offset = 4 },
+        .{ .node = 1, .side = .north, .offset = 6 },
+        &.{},
+        @as([]const Geom, &.{}),
+        &placements,
+        0,
+        0,
+        7,
+        .{ .from = true, .to = true },
+    );
+    try testing.expectEqual(@as(usize, 4), poly.len);
+    try testing.expectEqual(@as(i32, 4), poly[1].y);
+    try testing.expectEqual(@as(i32, 4), poly[2].y);
+}
+
+test "the skip corridor enters three rows above the intermediate layer and climbs with the lane" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const from_p = mkPlacement(0, .{ .x = 0, .y = 0, .w = 8, .h = 3 });
+    const to_p = mkPlacement(1, .{ .x = 20, .y = 20, .w = 8, .h = 3 });
+    const placements = [_]sketch.NodePlacement{ from_p, to_p };
+    const geom = [_]Geom{.{ .x = 10, .y = 10, .w = 4, .h = 3 }};
+    const virtuals = [_]u32{0};
+    const from: sketch.Port = .{ .node = 0, .side = .south, .offset = 4 };
+    const to: sketch.Port = .{ .node = 1, .side = .north, .offset = 4 };
+    const lane0 = try rp.routePolyline(a, .TD, from_p, to_p, from, to, &virtuals, geom[0..], &placements, 0, 0, 0, .{});
+    try testing.expectEqual(@as(i32, 7), lane0[1].y);
+    const lane2 = try rp.routePolyline(a, .TD, from_p, to_p, from, to, &virtuals, geom[0..], &placements, 0, 0, 2, .{});
+    try testing.expectEqual(@as(i32, 5), lane2[1].y);
+    // The floor: a plain source may enter on its departure row, a decorated one not.
+    const over = try rp.routePolyline(a, .TD, from_p, to_p, from, to, &virtuals, geom[0..], &placements, 0, 0, 9, .{});
+    try testing.expectEqual(@as(i32, 3), over[1].y);
+    const over_decorated = try rp.routePolyline(a, .TD, from_p, to_p, from, to, &virtuals, geom[0..], &placements, 0, 0, 9, .{ .from = true });
+    try testing.expectEqual(@as(i32, 4), over_decorated[1].y);
+}
+
+test "a skip corridor past its lane budget keeps a decorated arrival straight" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const from_p = mkPlacement(0, .{ .x = 0, .y = 0, .w = 8, .h = 3 });
+    const to_p = mkPlacement(1, .{ .x = 20, .y = 20, .w = 8, .h = 3 });
+    const placements = [_]sketch.NodePlacement{ from_p, to_p };
+    const geom = [_]Geom{.{ .x = 10, .y = 10, .w = 4, .h = 3 }};
+    const virtuals = [_]u32{0};
+    const from: sketch.Port = .{ .node = 0, .side = .south, .offset = 4 };
+    const to: sketch.Port = .{ .node = 1, .side = .north, .offset = 4 };
+    const plain = try rp.routePolyline(a, .TD, from_p, to_p, from, to, &virtuals, geom[0..], &placements, 0, 0, 16, .{});
+    try testing.expectEqual(@as(i32, 19), plain[plain.len - 2].y);
+    const decorated = try rp.routePolyline(a, .TD, from_p, to_p, from, to, &virtuals, geom[0..], &placements, 0, 0, 16, .{ .to = true });
+    try testing.expectEqual(@as(i32, 18), decorated[decorated.len - 2].y);
+    try testing.expectEqual(@as(i32, 24), decorated[decorated.len - 2].x);
 }

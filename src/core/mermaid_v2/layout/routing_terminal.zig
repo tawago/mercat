@@ -221,6 +221,39 @@ pub fn satisfyApproach(
     return try grown.toOwnedSlice(a);
 }
 
+/// The straight-through rule a producer owes a decoration cell: a route
+/// runs straight through its own departure cell and its own arrival cell,
+/// because a turn inside either puts a corner where the head must sit and
+/// the head is drawn sideways or into space. True iff every end `rule`
+/// names is straight — its first (last) turn lies at least two cells from
+/// the port, or there is no turn at all. Collinear consecutive legs count
+/// as one run.
+/// @guarded-by: routing_terminal_test.zig "terminalsStraight refuses a turn inside a decorated terminal cell at either end and admits one two cells out"
+pub fn terminalsStraight(poly: []const sketch.Point, rule: rp.Straight) bool {
+    if (rule.from and distanceToFirstTurn(poly, false) < 2) return false;
+    if (rule.to and distanceToFirstTurn(poly, true) < 2) return false;
+    return true;
+}
+
+/// Cells walked from one end of `poly` before its first change of
+/// direction; the whole length when it never turns.
+fn distanceToFirstTurn(poly: []const sketch.Point, from_end: bool) i32 {
+    var heading: ?[2]i32 = null;
+    var walked: i32 = 0;
+    var i: usize = 0;
+    while (i + 1 < poly.len) : (i += 1) {
+        const p = if (from_end) poly[poly.len - 1 - i] else poly[i];
+        const q = if (from_end) poly[poly.len - 2 - i] else poly[i + 1];
+        const step = [2]i32{ std.math.sign(q.x - p.x), std.math.sign(q.y - p.y) };
+        if (step[0] == 0 and step[1] == 0) continue;
+        if (heading) |h| {
+            if (h[0] != step[0] or h[1] != step[1]) return walked;
+        } else heading = step;
+        walked += rp.absDiff(q.x, p.x) + rp.absDiff(q.y, p.y);
+    }
+    return walked;
+}
+
 /// Per-gap extra rows for OFFSET corner-fed forward terminals sitting in a
 /// BARE inter-rank gap. The row-reservation companion to
 /// `satisfyApproach`: that pass GROWS a corner-fed len-2 final into
@@ -233,10 +266,13 @@ pub fn satisfyApproach(
 /// source-port column differs from its target-port column. A column-aligned
 /// terminal descends straight (already a formal `│` base) and is left at 0.
 ///
-/// Scope (matches the grow pass's own guards, so a reserved row is never
-/// wasted on a case the pass declines):
+/// Scope (matches the producers that consume the row, so a reserved row is
+/// never wasted on a case none of them uses):
 ///   - reversed segments are back edges (`growBaseApproach` skips them),
-///   - bidirectional edges (`arrow_from != none`) are skipped by the grow pass,
+///   - undecorated edges have no head to formalize and no terminal cell the
+///     straight-through rule holds straight; a decorated end on either side
+///     (including a bidirectional edge) needs the jog row `rp.jogPad` keeps
+///     two cells from that wall,
 ///   - invisible links draw no arrowhead to formalize,
 ///   - virtual endpoints are skip corridors — `skipCorridorExtraRows` owns
 ///     those gaps; keying on REAL→REAL keeps the two passes disjoint.
@@ -287,7 +323,7 @@ pub fn terminalApproachExtraRows(
         if (lt != lf + 1) continue;
 
         const oe = edge_by_id.get(le.edge) orelse continue;
-        if (oe.arrow_to == .none or oe.arrow_from != .none) continue;
+        if (oe.arrow_to == .none and oe.arrow_from == .none) continue;
         if (oe.kind == .invisible) continue;
 
         const s = geom[le.from];

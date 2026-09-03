@@ -107,8 +107,10 @@ pub fn buildAll(
             }
             // A rail start keeps its drop cell straight (jog from two rows
             // down); a private port may bend on its first gap row, as the
-            // ordinary skip-corridor route does.
-            const lo = if (fan_in) start.y + 1 else start.y + 2;
+            // ordinary skip-corridor route does — unless it is decorated,
+            // when its departure cell holds the head and stays straight.
+            // @guarded-by: port_plan_test.zig "a decorated long fan-in member's stroke leaves its departure cell straight"
+            const lo = if (fan_in and orig.arrow_from == .none) start.y + 1 else start.y + 2;
             const hi = end.y - 2;
             const poly = (try route(a, orig, start, end, jog, lo, hi, out.items, bar_views, placements, allocated_ports, bundles, reserved_columns)) orelse {
                 try refused.append(a, .{ .rail = ri, .edge = tap.edge });
