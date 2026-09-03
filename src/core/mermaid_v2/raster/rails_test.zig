@@ -427,3 +427,34 @@ test "a continuing tap claims its junction arm and paints neither port nor head"
     // No port bit was merged into node 3's wall at (22,7).
     try testing.expect(!r.lattice.atConst(22, 7).neighbours.n);
 }
+
+test "a rail arm into a foreign head is refused and counted against the rail" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    var nodes: [4]sketch.NodePlacement = undefined;
+    var taps: [3]sketch.Tap = undefined;
+    var stem: [2]sketch.Point = undefined;
+    var rails: [1]sketch.Rail = undefined;
+    const s = fanSketch(&nodes, &taps, &stem, &rails);
+
+    const cells = try a.alloc(lattice.Cell, @as(usize, s.bbox.w) * @as(usize, s.bbox.h));
+    for (cells) |*c| c.* = lattice.Cell.empty;
+    var lat: lattice.Lattice = .{ .width = s.bbox.w, .height = s.bbox.h, .cells = cells };
+    _ = try nodes_r.rasterizeNodes(a, &lat, s);
+    lat.at(7, 5).* = .{
+        .occupant = .{ .arrowhead = .{ .dir = .south, .edge = 9 } },
+        .neighbours = .{ .n = true, .s = true },
+        .state = .stroke,
+    };
+    const report = rails_r.rasterizeRails(&lat, s, null);
+
+    const head = lat.atConst(7, 5);
+    try testing.expectEqual(@as(u32, 9), head.occupant.arrowhead.edge);
+    try testing.expectEqual((lattice.Neighbours{ .n = true, .s = true }).toMask(), head.neighbours.toMask());
+    try testing.expectEqual(lattice.InkState.stroke, head.state);
+    try testing.expectEqual(@as(u32, 2), report.crossings.arm_into_head);
+    try testing.expectEqual(@as(u32, 1), report.cells_lost);
+    try testing.expectEqual(@as(u32, 0), report.heads_lost);
+    try testing.expectEqual(@as(u32, 3), report.taps_written);
+}

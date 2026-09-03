@@ -290,7 +290,10 @@ fn resolveBundlePermits(allocator: std.mem.Allocator, graph: sem_graph.SemGraph)
 /// licence's refusal inventory — legitimately nonzero on refusing inputs —
 /// except `co_double_discharge`, which is a conformance assert and must
 /// stay zero. The line's field set and order are frozen for external
-/// tooling; demotions change doc meaning, never fields.
+/// tooling; demotions change doc meaning, never fields. New fields are
+/// appended at the end: `tip_not_port` (a head whose tip is not on its
+/// port) and `arm_into_head` (an arm into a decoration cell from a
+/// lateral side, refused or shipped) joined 2026-09-03.
 fn emitIntegrityLine(
     v: validate_mod.Counts,
     raster_report: rasterize_mod.RasterReport,
@@ -299,7 +302,7 @@ fn emitIntegrityLine(
     closure: ledger.ClosureCounts,
 ) void {
     std.debug.print(
-        "mercat-integrity: v_node_overlap={d} v_path_off_perimeter={d} v_path_through_interior={d} v_cluster={d} v_bbox={d} r_edge_cells_lost={d} r_labels_dropped={d} r_labels_displaced={d} r_phantom_arms={d} x_legal_crossing={d} x_foreign_junction={d} x_arrowhead_transit={d} b_frame_bridge={d} b_border_fusion_refused={d} a_arrowhead_base={d} skipped_lines={d} rail_deco_mixed={d} rail_member_style_mixed={d} rail_star_violation={d} rail_closure_undeclared={d} co_undeclared={d} co_double_discharge={d}\n",
+        "mercat-integrity: v_node_overlap={d} v_path_off_perimeter={d} v_path_through_interior={d} v_cluster={d} v_bbox={d} r_edge_cells_lost={d} r_labels_dropped={d} r_labels_displaced={d} r_phantom_arms={d} x_legal_crossing={d} x_foreign_junction={d} x_arrowhead_transit={d} b_frame_bridge={d} b_border_fusion_refused={d} a_arrowhead_base={d} skipped_lines={d} rail_deco_mixed={d} rail_member_style_mixed={d} rail_star_violation={d} rail_closure_undeclared={d} co_undeclared={d} co_double_discharge={d} tip_not_port={d} arm_into_head={d}\n",
         .{
             v.node_overlap,
             v.path_off_perimeter,
@@ -323,6 +326,8 @@ fn emitIntegrityLine(
             closure.rail_closure_undeclared,
             closure.co_undeclared,
             closure.co_double_discharge,
+            raster_report.arrow_base.tip_not_port,
+            raster_report.armIntoHead(),
         },
     );
 }
@@ -491,6 +496,8 @@ test "cluster unification: a bridge never transits a stitched rail's arrowhead" 
     try std.testing.expectEqual(@as(u32, 0), report.crossings.arrowhead_transit_violation);
     try std.testing.expectEqual(@as(u32, 0), report.crossings.foreign_junction_violation);
     try std.testing.expectEqual(@as(u32, 0), report.edge_cells_lost);
+    try std.testing.expectEqual(@as(u32, 0), report.arrow_base.tip_not_port);
+    try std.testing.expectEqual(@as(u32, 0), report.armIntoHead());
 }
 
 test "cluster unification: bridges route around each other, not through" {
@@ -534,6 +541,8 @@ test "cluster unification: bridges route around each other, not through" {
     const report = try rasterize(a, winner.sketch, .bridge);
     try std.testing.expectEqual(@as(u32, 0), report.crossings.foreign_junction_violation);
     try std.testing.expectEqual(@as(u32, 0), report.crossings.arrowhead_transit_violation);
+    try std.testing.expectEqual(@as(u32, 0), report.arrow_base.tip_not_port);
+    try std.testing.expectEqual(@as(u32, 0), report.armIntoHead());
 }
 
 test {
@@ -606,4 +615,5 @@ test {
     _ = @import("tiling_licence_test.zig");
     _ = @import("tiling_weld_test.zig");
     _ = @import("cluster_corridor_test.zig");
+    _ = @import("decoration_cell_test.zig");
 }

@@ -27,12 +27,26 @@
 const std = @import("std");
 const lattice = @import("../lattice.zig");
 
-/// Report-only arrowhead-base tally surfaced through the raster report.
+/// Report-only decoration-cell tallies surfaced through the raster report.
+/// A decoration cell has three guarded sides (constitution, ink
+/// attribution): its base, its tip and its two laterals. One field per side
+/// class, each read off the painted lattice.
 pub const ArrowBaseCounts = struct {
     /// Arrowheads whose base-side cell does not carry an arm pointing into
     /// the triangle (blank base, or a stroke missing the into-arrow bit).
     /// Label/title bases are exempt and never counted.
     violations: u32 = 0,
+    /// Arrowheads whose TIP neighbour is not the port of the end they
+    /// decorate: the cell one step along the tip is not a node-border cell
+    /// (blank, another edge's ink, a node interior, or off the lattice).
+    /// The head is drawn sideways or into space — the reader loses the
+    /// orientation the graph states. Attributed to the head's own edge.
+    tip_not_port: u32 = 0,
+    /// Lateral arms that SHIPPED on arrowhead cells: every mask bit off the
+    /// head's axis, one per arm. The painted half of `arm_into_head` (the
+    /// refused half is `crossings.CrossingCounts.arm_into_head`); today's
+    /// only producer is an edge turning inside its own terminal cell.
+    lateral_arms: u32 = 0,
 };
 
 /// The neighbour bit a base cell must carry to feed an arrowhead pointing in
@@ -56,6 +70,26 @@ fn baseCoord(x: u32, y: u32, tip: lattice.Dir4, w: u32, h: u32) ?struct { x: u32
         .east => if (x >= 1) .{ .x = x - 1, .y = y } else null,
         .west => if (x + 1 < w) .{ .x = x + 1, .y = y } else null,
     };
+}
+
+/// The tip cell sits one step along the tip direction from the arrowhead.
+/// Returns `null` when that cell would fall outside the lattice.
+fn tipCoord(x: u32, y: u32, tip: lattice.Dir4, w: u32, h: u32) ?struct { x: u32, y: u32 } {
+    return switch (tip) {
+        .north => if (y >= 1) .{ .x = x, .y = y - 1 } else null,
+        .south => if (y + 1 < h) .{ .x = x, .y = y + 1 } else null,
+        .west => if (x >= 1) .{ .x = x - 1, .y = y } else null,
+        .east => if (x + 1 < w) .{ .x = x + 1, .y = y } else null,
+    };
+}
+
+/// The mask bits of an arrowhead cell that lie off its tip axis.
+fn lateralBits(tip: lattice.Dir4, mask: lattice.Neighbours) u4 {
+    const axis: lattice.Neighbours = switch (tip) {
+        .north, .south => .{ .n = true, .s = true },
+        .east, .west => .{ .e = true, .w = true },
+    };
+    return mask.toMask() & ~axis.toMask();
 }
 
 /// True when a base `cell` (in an already-painted lattice) legitimately feeds
@@ -113,8 +147,12 @@ pub fn sideFed(lat: *const lattice.Lattice, x: u32, y: u32, tip: lattice.Dir4) b
     return false;
 }
 
-/// Scan the final lattice and tally every arrowhead whose base-side cell does
-/// not feed the triangle (owner ruling). Pure read; never mutates.
+/// Scan the final lattice and tally, for every arrowhead: a base-side cell
+/// that does not feed the triangle (owner ruling), a tip neighbour that is
+/// not the port it decorates, and each lateral arm the cell ships. Pure
+/// read; never mutates.
+/// @guarded-by: arrow_base.zig "a tip into blank, into a run, or off the lattice is tip_not_port; a tip into the port is not"
+/// @guarded-by: arrow_base.zig "a lateral arm on a head is counted per arm; an on-axis head counts none"
 pub fn validate(lat: *const lattice.Lattice) ArrowBaseCounts {
     var counts: ArrowBaseCounts = .{};
     if (lat.width == 0 or lat.height == 0) return counts;
@@ -128,6 +166,10 @@ pub fn validate(lat: *const lattice.Lattice) ArrowBaseCounts {
                 .arrowhead => |a| a.dir,
                 else => continue,
             };
+            counts.lateral_arms += @popCount(lateralBits(tip, cell.neighbours));
+            if (tipCoord(x, y, tip, lat.width, lat.height)) |tc| {
+                if (lat.atConst(tc.x, tc.y).occupant != .node_border) counts.tip_not_port += 1;
+            } else counts.tip_not_port += 1;
             const bc = baseCoord(x, y, tip, lat.width, lat.height) orelse {
                 counts.violations += 1;
                 continue;
@@ -248,4 +290,45 @@ test "a blank base behind a real run is a counted gap, never bridged (subtractiv
     lat.at(0, 2).* = arrowCellE(.south, 7, .{ .n = true, .s = true });
     try testing.expectEqual(@as(u32, 1), validate(&lat).violations);
     try testing.expect(lat.atConst(0, 1).occupant == .empty);
+}
+
+fn portCell(node: lattice.NodeId) lattice.Cell {
+    return .{ .occupant = .{ .node_border = .{ .node = node, .role = .edge_n } }, .neighbours = .{} };
+}
+
+test "a tip into blank, into a run, or off the lattice is tip_not_port; a tip into the port is not" {
+    var buf: [3]lattice.Cell = undefined;
+    for (&buf) |*c| c.* = lattice.Cell.empty;
+    var lat = lattice.Lattice{ .width = 1, .height = 3, .cells = &buf };
+    lat.at(0, 0).* = edgeCellE(7, .{ .n = true, .s = true });
+    lat.at(0, 1).* = arrowCellE(.south, 7, .{ .n = true, .s = true });
+    try testing.expectEqual(@as(u32, 1), validate(&lat).tip_not_port);
+
+    lat.at(0, 2).* = portCell(3);
+    try testing.expectEqual(@as(u32, 0), validate(&lat).tip_not_port);
+    try testing.expectEqual(@as(u32, 0), validate(&lat).violations);
+
+    lat.at(0, 2).* = edgeCellE(9, .{ .e = true, .w = true });
+    try testing.expectEqual(@as(u32, 1), validate(&lat).tip_not_port);
+
+    lat.at(0, 2).* = lattice.Cell.empty;
+    lat.at(0, 1).* = edgeCellE(7, .{ .n = true, .s = true });
+    lat.at(0, 2).* = arrowCellE(.south, 7, .{ .n = true, .s = true });
+    try testing.expectEqual(@as(u32, 1), validate(&lat).tip_not_port);
+}
+
+test "a lateral arm on a head is counted per arm; an on-axis head counts none" {
+    var buf: [3]lattice.Cell = undefined;
+    for (&buf) |*c| c.* = lattice.Cell.empty;
+    var lat = lattice.Lattice{ .width = 3, .height = 1, .cells = &buf };
+    lat.at(0, 0).* = edgeCellE(7, .{ .e = true, .w = true });
+    lat.at(1, 0).* = arrowCellE(.east, 7, .{ .e = true, .w = true });
+    lat.at(2, 0).* = portCell(3);
+    try testing.expectEqual(@as(u32, 0), validate(&lat).lateral_arms);
+
+    lat.at(1, 0).*.neighbours.n = true;
+    try testing.expectEqual(@as(u32, 1), validate(&lat).lateral_arms);
+    lat.at(1, 0).*.neighbours.s = true;
+    try testing.expectEqual(@as(u32, 2), validate(&lat).lateral_arms);
+    try testing.expectEqual(@as(u32, 0), validate(&lat).tip_not_port);
 }

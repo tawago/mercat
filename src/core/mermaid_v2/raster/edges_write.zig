@@ -175,7 +175,15 @@ pub fn toCoord(p: sketch.Point) Coord {
 ///   - edge_segment     → OR neighbours; first writer's edge id wins
 ///                        (informational; paint resolves crossings via
 ///                        the 4-bit mask). Role merges per `mergeRole`.
-///   - arrowhead        → leave occupant; OR neighbours.
+///   - arrowhead        → the head's own edge ORs its arms (a shipped
+///                        lateral arm is the producer's defect, counted
+///                        post-raster). Another edge may only RIDE the
+///                        head's axis (rail-interior state, no new arm);
+///                        a lateral arm is refused: occupant, mask and
+///                        state untouched, `cells_lost` and
+///                        `counts.arm_into_head` bumped against the
+///                        writer, a suppressed carrier filed. A decoration
+///                        cell is never a junction (ink attribution).
 ///   - node_interior/border, label_char → conflict; log + skip.
 ///
 /// The two OR-merge arms drop `edge_id`: the cell keeps the first writer's
@@ -189,8 +197,11 @@ pub fn toCoord(p: sketch.Point) Coord {
 /// writer cannot ask, because it holds a `*Cell` and no bundle context.
 /// A caller with no context passes `.merged_untested`, which states
 /// nothing; it must never pass `.merged_licensed` to mean "did not ask".
+/// `counts` receives the head refusal above; every other arm leaves it alone.
 /// @guarded-by: aux_test.zig "an OR-merge onto a foreign cell files a merged carrier; onto its own ink, nothing"
 /// @guarded-by: edges_write_test.zig "writeEdgeCell files the merged carrier under the licence its caller established"
+/// @guarded-by: edges_write_test.zig "a foreign lateral arm into a head is refused and counted against the writer"
+/// @guarded-by: edges_write_test.zig "a co-member riding a head's axis keeps the rail-interior residue"
 pub fn writeEdgeCell(
     cell: *lattice.Cell,
     edge_id: u32,
@@ -200,6 +211,7 @@ pub fn writeEdgeCell(
     x: u32,
     y: u32,
     cells_lost: *u32,
+    counts: *crossings.CrossingCounts,
     licence: lattice.CarrierKind,
     rec: aux.Recorder,
 ) void {
@@ -231,8 +243,11 @@ pub fn writeEdgeCell(
         },
         .arrowhead => |head| {
             if (head.edge != edge_id) {
-                const grows = (cell.neighbours.toMask() | extra.toMask()) != cell.neighbours.toMask();
-                cell.upgradeState(if (grows) .junction else .rail_interior);
+                if (refuseLateral(counts, cells_lost, head.dir, extra)) {
+                    recordCarrier(rec, x, y, edge_id, .suppressed);
+                    return;
+                }
+                cell.upgradeState(.rail_interior);
             }
             cell.neighbours = orMask(cell.neighbours, extra);
             if (head.edge != edge_id) recordCarrier(rec, x, y, edge_id, licence);
@@ -254,6 +269,24 @@ pub fn writeEdgeCell(
     }
 }
 
+/// The decoration-cell refusal shared by the two writers: a foreign write
+/// whose `mask` carries any arm off the head's axis loses the cell. Each
+/// lateral arm is tallied against the writer (`arm_into_head`), the cell
+/// itself is lost ink (`cells_lost`); the head's edge is not touched.
+/// Returns true when the caller must stop without touching the cell.
+fn refuseLateral(
+    counts: *crossings.CrossingCounts,
+    cells_lost: *u32,
+    tip: Move,
+    mask: lattice.Neighbours,
+) bool {
+    const lateral: u32 = @popCount(crossings.lateralArms(tip, mask).toMask());
+    if (lateral == 0) return false;
+    counts.arm_into_head += lateral;
+    cells_lost.* += 1;
+    return true;
+}
+
 /// A refused head is priced separately from a refused run cell: the cell
 /// arm bumps BOTH `cells_lost` (the ink cell) and `heads_lost` (the edge's
 /// declared decoration never ships — the reader loses the orientation the
@@ -271,7 +304,17 @@ pub fn writeEdgeCell(
 /// edge's. `licence` carries the caller's bundle verdict for that pair,
 /// exactly as in `writeEdgeCell` — `.merged_untested` where the caller has
 /// no bundle context, never `.merged_licensed` to mean "did not ask".
+///
+/// A head landing on a FOREIGN head shares the cell only when it points the
+/// same way — one glyph, truthful for both, rail-interior state. A head
+/// pointing any other way is refused: its own edge loses the cell AND its
+/// decoration (`cells_lost`, `heads_lost`), a lateral one is also an arm
+/// into the held head (`counts.arm_into_head`), and a suppressed carrier
+/// names it. The held head is never touched. The head's OWN edge ORs its
+/// arms as before; a lateral arm it ships is the producer's defect, read
+/// post-raster.
 /// @guarded-by: edges_write_test.zig "writeArrowCell stamps the edge's own stroke_kind"
+/// @guarded-by: edges_write_test.zig "a foreign head pointing another way is refused; one pointing the same way rides"
 /// @guarded-by: aux_test.zig "an arrowhead stamped over a foreign run files a carrier for the run it covered"
 pub fn writeArrowCell(
     cell: *lattice.Cell,
@@ -284,6 +327,7 @@ pub fn writeArrowCell(
     y: u32,
     cells_lost: *u32,
     heads_lost: *u32,
+    counts: *crossings.CrossingCounts,
     licence: lattice.CarrierKind,
     rec: aux.Recorder,
 ) void {
@@ -306,8 +350,13 @@ pub fn writeArrowCell(
         },
         .arrowhead => |head| {
             if (head.edge != edge_id) {
-                const grows = (cell.neighbours.toMask() | along.toMask()) != cell.neighbours.toMask();
-                cell.upgradeState(if (grows) .junction else .rail_interior);
+                if (head.dir != dir) {
+                    if (!refuseLateral(counts, cells_lost, head.dir, along)) cells_lost.* += 1;
+                    heads_lost.* += 1;
+                    recordCarrier(rec, x, y, edge_id, .suppressed);
+                    return;
+                }
+                cell.upgradeState(.rail_interior);
             }
             cell.neighbours = orMask(cell.neighbours, along);
             if (head.edge != edge_id) recordCarrier(rec, x, y, edge_id, licence);
@@ -374,7 +423,7 @@ pub fn writeArrowGuarded(
         .arrowhead => |h| crossings.licenceFor(h.edge, edge_id, ctx.bundle_sets, ctx.stamp_state, crossings.cellAt(x, y)),
         else => .merged_untested,
     };
-    writeArrowCell(cell, edge_id, kind, arrow, dir, along, x, y, cells_lost, heads_lost, licence, rec);
+    writeArrowCell(cell, edge_id, kind, arrow, dir, along, x, y, cells_lost, heads_lost, ctx.counts, licence, rec);
 }
 
 test {

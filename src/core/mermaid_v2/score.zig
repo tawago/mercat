@@ -91,6 +91,19 @@ pub const RasterCounts = struct {
     arrowhead_transit: u32 = 0,
     /// Arrowhead-base violations (raster/arrow_base.zig).
     arrow_base: u32 = 0,
+    /// Heads whose tip neighbour is not their port (raster/arrow_base.zig):
+    /// the decoration points sideways or into space, and the relation's
+    /// orientation is silenced — an omission, like a lost head.
+    tip_not_port: u32 = 0,
+    /// Lateral arms that SHIPPED on a decoration cell (raster/arrow_base.zig
+    /// `lateral_arms`): a junction glyph on the one cell that is never a
+    /// junction — a fabrication, like a foreign junction. This is the
+    /// shipped half of the integrity line's `arm_into_head`; the refused
+    /// half is interrupted ink, priced by the counters that already count
+    /// the refusal (`edge_cells_lost`, and `arrowhead_transit` when the
+    /// arm was foreign) — the confluence severity note ranks a refusal
+    /// with lost ink, never with the lie it prevented.
+    arm_into_head: u32 = 0,
     /// 1 when the audit raster itself errored (audit.zig): the candidate's
     /// violations are unknown, so it must never win the composite.
     raster_failed: u32 = 0,
@@ -111,6 +124,15 @@ pub const W_ARROW_BASE: u64 = 4096;
 /// (the run looks complete, the direction is gone). Same tier as the
 /// other omission (W_ARROW_BASE); the cell itself is also in W_CELL_LOST.
 pub const W_HEAD_LOST: u64 = 4096;
+/// A head whose tip is not on its port: the decoration ships but says
+/// nothing true about where the relation ends — the omission tier, with
+/// the lost head and the unfed base (confluence severity note: omission
+/// prices below fabricated structure).
+pub const W_TIP_NOT_PORT: u64 = 4096;
+/// A lateral arm shipped on a decoration cell: a junction glyph on the one
+/// cell that is never a junction. Fabrication tier, with the foreign
+/// junction. Refused arms are not here (see `RasterCounts.arm_into_head`).
+pub const W_ARM_INTO_HEAD: u64 = 8192;
 /// Effectively lexicographic: dominates any realistic composite
 /// (~1e8 16ths) by four orders of magnitude; counts are 0/1 so the
 /// worst-case composite stays far below u64 overflow.
@@ -248,6 +270,8 @@ pub fn eval(
             W_ARROWHEAD_TRANSIT * @as(u64, raster.arrowhead_transit) +
             W_ARROW_BASE * @as(u64, raster.arrow_base) +
             W_HEAD_LOST * @as(u64, raster.heads_lost) +
+            W_TIP_NOT_PORT * @as(u64, raster.tip_not_port) +
+            W_ARM_INTO_HEAD * @as(u64, raster.arm_into_head) +
             W_RASTER_FAILED * @as(u64, raster.raster_failed),
         .r_labels_dropped = raster.labels_dropped,
         .r_edge_cells_lost = raster.edge_cells_lost,

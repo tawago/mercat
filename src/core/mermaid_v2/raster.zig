@@ -74,11 +74,21 @@ pub const RasterReport = struct {
     /// into `score.RasterCounts`, which `score.eval` weights into the
     /// violation tier. The remaining fields are report-only.
     crossings: crossings_r.CrossingCounts = .{},
-    /// Arrowhead-base painted tally (owner ruling 2026-07-18). Counts
-    /// arrowheads whose base cell does not feed the triangle.
-    /// `violations` feeds selection via `audit.zig` → `score.RasterCounts`;
-    /// the remaining fields are report-only — see `raster/arrow_base.zig`.
+    /// Decoration-cell painted tallies (owner ruling 2026-07-18 for the
+    /// base; the constitution's three guarded sides for the rest): heads
+    /// whose base cell does not feed the triangle, heads whose tip is not
+    /// on their port, lateral arms that shipped on a head. All three feed
+    /// selection via `audit.zig` → `score.RasterCounts` — see
+    /// `raster/arrow_base.zig`.
     arrow_base: arrow_base_r.ArrowBaseCounts = .{},
+
+    /// Every arm that entered a decoration cell from a lateral side: the
+    /// refused ones (edge and rail passes, `crossings.arm_into_head`) and
+    /// the shipped ones (`arrow_base.lateral_arms`). One number, because the
+    /// integrity line and the score price the event, not where it was seen.
+    pub fn armIntoHead(self: RasterReport) u32 {
+        return self.crossings.arm_into_head + self.arrow_base.lateral_arms;
+    }
 };
 
 /// Allocate a Lattice sized to `s.bbox` and rasterize all four layers.
@@ -159,6 +169,8 @@ pub fn rasterize(
     };
 
     const arrow_base = arrow_base_r.validate(&lat);
+    var crossings = edge_report.crossings;
+    crossings.add(rail_report.crossings);
 
     lat.aux = aux_collector.finish();
     lat.aux_collection = aux_collector.report();
@@ -176,7 +188,7 @@ pub fn rasterize(
         .labels_displaced = label_report.displaced,
         .labels_on_run = label_report.on_run,
         .phantom_arms_cleared = phantom_arms,
-        .crossings = edge_report.crossings,
+        .crossings = crossings,
         .arrow_base = arrow_base,
     };
 }

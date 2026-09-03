@@ -138,6 +138,26 @@ test "eval: a lost terminal head is priced above the plain lost cell it also is"
     try t.expect(base.lessThan(headless));
 }
 
+test "eval: a tip off its port is an omission, a shipped lateral arm a fabrication, and both enter the composite" {
+    var arena = std.heap.ArenaAllocator.init(t.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+
+    const nodes = [_]sketch.NodePlacement{
+        testNode(0, .{ .x = 0, .y = 0, .w = 5, .h = 3 }, null),
+    };
+    const sk = testSketch(.{ .x = 0, .y = 0, .w = 7, .h = 4 }, &nodes, &.{}, &.{});
+    const base = try eval(a, sk, .TD, 0, .{});
+    const sideways = try eval(a, sk, .TD, 0, .{ .tip_not_port = 1 });
+    const armed = try eval(a, sk, .TD, 0, .{ .arm_into_head = 1 });
+    try t.expectEqual(base.t12_composite + score.W_TIP_NOT_PORT, sideways.t12_composite);
+    try t.expectEqual(base.t12_composite + score.W_ARM_INTO_HEAD, armed.t12_composite);
+    try t.expect(base.lessThan(sideways));
+    try t.expect(sideways.lessThan(armed));
+    try t.expectEqual(score.W_HEAD_LOST, score.W_TIP_NOT_PORT);
+    try t.expectEqual(score.W_FOREIGN_JUNCTION, score.W_ARM_INTO_HEAD);
+}
+
 test "eval: rung multiplier is a fitted degradation prior" {
     var arena = std.heap.ArenaAllocator.init(t.allocator);
     defer arena.deinit();

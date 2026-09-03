@@ -30,6 +30,8 @@ pub fn collect(allocator: std.mem.Allocator, s: sketch.Sketch, subgraph_edges: p
         .foreign_junction = report.crossings.foreign_junction_violation,
         .arrowhead_transit = report.crossings.arrowhead_transit_violation,
         .arrow_base = report.arrow_base.violations,
+        .tip_not_port = report.arrow_base.tip_not_port,
+        .arm_into_head = report.arrow_base.lateral_arms,
     };
 }
 

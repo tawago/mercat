@@ -97,13 +97,15 @@ const EdgeWalkResult = struct {
 };
 
 /// Crossing-rule gate (Amendment C: transversal + arrowhead sanctity). Returns true when the existing
-/// first-writer cell MUST be kept untouched (a transversal on a foreign run, or
-/// a refused arrowhead transit), recording the classified event; false to
-/// proceed with the pre-C merge. Applies to `edge_segment`/`arrowhead`
+/// first-writer cell MUST be kept untouched (a transversal on a foreign run, a
+/// refused arrowhead transit, or a lateral arm into a decoration cell —
+/// refused for bundle co-members too), recording the classified event; false
+/// to proceed with the pre-C merge. Applies to `edge_segment`/`arrowhead`
 /// occupants only — other occupants are handled by the normal write path.
 /// Every `true` return is a suppression: the incoming edge's ink runs
 /// through the position and the cell will say nothing about it, so the
 /// caller files a suppressed `.carrier` for it.
+/// @guarded-by: edges_test.zig "a co-member's corner arm into a head is refused, counted against the corner's edge, and the head keeps its state"
 fn crossingKeepsFirstWriter(
     cell: *const lattice.Cell,
     incoming_edge: u32,
@@ -122,16 +124,25 @@ fn crossingKeepsFirstWriter(
             incoming_mask,
             at,
         ),
-        .arrowhead => |a| crossings.arrowheadTransit(
+        .arrowhead => |a| crossings.headEntry(
             ctx.counts,
             ctx.bundles,
             ctx.bundle_sets,
             a.edge,
+            a.dir,
             incoming_edge,
+            incoming_mask,
             at,
         ),
         else => false,
     };
+}
+
+/// A refusal's mark on the kept cell: a run becomes a crossing (two paths
+/// co-located, not joined); a decoration cell is never a crossing (ink
+/// attribution) and keeps the state its own edge recorded.
+fn markSuppressed(cell: *lattice.Cell) void {
+    if (cell.occupant != .arrowhead) cell.upgradeState(.crossing);
 }
 
 /// Claim a pristine corner cell for `edge_id` with the corner mask (occupant
@@ -305,10 +316,10 @@ fn walkPolyline(
                     },
                     else => {
                         if (crossingKeepsFirstWriter(cell, edge.id, corner_mask, crossings.cellAt(c.x, c.y), ctx)) {
-                            cell.upgradeState(.crossing);
+                            markSuppressed(cell);
                             ew.recordCarrier(rec, c.x, c.y, edge.id, .suppressed);
                         } else {
-                            writeEdgeCell(cell, edge.id, ek, erole, corner_mask, c.x, c.y, cells_lost, .merged_licensed, rec);
+                            writeEdgeCell(cell, edge.id, ek, erole, corner_mask, c.x, c.y, cells_lost, ctx.counts, .merged_licensed, rec);
                             fan_roles.markShared(rec, cell, c.x, c.y, edge.id, erole);
                         }
                     },
@@ -366,10 +377,10 @@ fn walkPolyline(
                     ctx.counts.b_frame_bridge += 1;
                     ew.recordIntrusion(rec, c.x, c.y, edge.id, .bridge);
                 } else if (crossingKeepsFirstWriter(cell, edge.id, straightMask(dir), crossings.cellAt(c.x, c.y), ctx)) {
-                    cell.upgradeState(.crossing);
+                    markSuppressed(cell);
                     ew.recordCarrier(rec, c.x, c.y, edge.id, .suppressed);
                 } else {
-                    writeEdgeCell(cell, edge.id, ek, erole, straightMask(dir), c.x, c.y, cells_lost, .merged_licensed, rec);
+                    writeEdgeCell(cell, edge.id, ek, erole, straightMask(dir), c.x, c.y, cells_lost, ctx.counts, .merged_licensed, rec);
                     fan_roles.markShared(rec, cell, c.x, c.y, edge.id, erole);
                 }
                 if (result.first_cell == null) {

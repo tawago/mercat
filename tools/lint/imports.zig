@@ -161,6 +161,10 @@ pub const Rule = union(enum) {
 ///                   Also imports cluster/corridors for its face/approach
 ///                   primitives, so the pin can re-derive whether a merge
 ///                   was FORCED from geometry rather than restate the policy.
+///   decoration_cell_test.zig  root-level pin that the decoration-cell
+///                   tallies (tip_not_port, arm_into_head) fire on a real
+///                   render of the seed that shows the sideways head: the
+///                   producer and the raster meet only through select.
 ///   tiling_weld_test.zig  root-level weld-order pin for tiling/: needs
 ///                   raster's arrow_base to run the LAST mutation of the
 ///                   pipeline by hand and show the audit's buckets move
@@ -513,6 +517,14 @@ pub const file_allowlists = [_]struct {
             .{ .exact = "cluster/corridors.zig" },
         },
         .reason = "cluster_corridor_test may only import std, prim, base/*, sketch, parse, raster, lattice, select, ledger/permits, or cluster/corridors",
+    },
+    .{
+        .name = "decoration_cell_test.zig",
+        .allowed = &.{
+            .parse_zone,                .raster_zone,
+            .{ .exact = "select.zig" }, .{ .exact = "ledger/permits.zig" },
+        },
+        .reason = "decoration_cell_test may only import std, prim, base/*, parse, raster, select, or ledger/permits",
     },
     .{
         .name = "tiling_weld_test.zig",

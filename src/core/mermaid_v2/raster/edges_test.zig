@@ -141,6 +141,37 @@ test "two foreign crossing edges read as a transversal, not a junction" {
     );
 }
 
+test "a co-member's corner arm into a head is refused, counted against the corner's edge, and the head keeps its state" {
+    const a = testing.allocator;
+    const members = [_]u32{ 1, 2 };
+    const Bundle = @typeInfo(@TypeOf((makeSketch(&.{})).bundle_sets)).pointer.child;
+    const mates = [_]Bundle{.{ .origin = .fan_rail, .members = &members }};
+
+    for ([2]bool{ true, false }) |co_member| {
+        var lat = try makeLattice(a, 12, 10);
+        defer a.free(lat.cells);
+        const pts_v = [_]sketch.Point{ .{ .x = 5, .y = 1 }, .{ .x = 5, .y = 6 } };
+        const pts_turn = [_]sketch.Point{ .{ .x = 1, .y = 5 }, .{ .x = 5, .y = 5 }, .{ .x = 5, .y = 3 } };
+        const es = [_]sketch.EdgePath{
+            makeEdge(1, &pts_v, .none, .filled),
+            makeEdge(2, &pts_turn, .none, .none),
+        };
+        var s = makeSketch(&es);
+        if (co_member) s.bundle_sets = &mates;
+        const report = try edges.rasterizeEdges(a, &lat, s, .bridge, null);
+
+        const head = lat.atConst(5, 5);
+        try testing.expectEqual(@as(u32, 1), head.occupant.arrowhead.edge);
+        try testing.expectEqual(lattice.Dir4.south, head.occupant.arrowhead.dir);
+        try testing.expectEqual((lattice.Neighbours{ .n = true, .s = true }).toMask(), head.neighbours.toMask());
+        try testing.expectEqual(lattice.InkState.stroke, head.state);
+        try testing.expectEqual(@as(u32, 1), report.crossings.arm_into_head);
+        try testing.expectEqual(@as(u32, if (co_member) 0 else 1), report.crossings.arrowhead_transit_violation);
+        try testing.expectEqual(@as(u32, 0), report.heads_lost);
+        try testing.expect(lat.atConst(4, 5).neighbours.e);
+    }
+}
+
 test "degenerate polyline with < 2 points is skipped" {
     const a = testing.allocator;
     var lat = try makeLattice(a, 4, 4);

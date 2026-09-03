@@ -110,7 +110,10 @@ fn expectReconstructedThreeWayPortShare() !void {
     const cells = share.cells orelse return error.MissingPortShareScope;
     const pairs = share.pairwise orelse return error.MissingPairScopes;
 
-    try testing.expectEqual(@as(usize, 36), cells.len);
+    // 35 rows since the decoration-cell tallies entered the score
+    // (2026-09-03): the candidate that shipped two lateral arms into its
+    // heads lost to one shipping one, whose shared approach is a row shorter.
+    try testing.expectEqual(@as(usize, 35), cells.len);
     for (cells, 0..) |cell, i| {
         try testing.expectEqual(@as(i32, 38), cell.x);
         try testing.expectEqual(50 - @as(i32, @intCast(i)), cell.y);
@@ -123,7 +126,7 @@ fn expectReconstructedThreeWayPortShare() !void {
     }{
         .{ .a = 14, .b = 15, .last_y = 45 },
         .{ .a = 14, .b = 16, .last_y = 45 },
-        .{ .a = 15, .b = 16, .last_y = 15 },
+        .{ .a = 15, .b = 16, .last_y = 16 },
     };
     try testing.expectEqual(expected.len, pairs.len);
     for (pairs, expected) |pair, want| {

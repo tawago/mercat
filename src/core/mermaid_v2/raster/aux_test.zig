@@ -278,6 +278,7 @@ test "an OR-merge onto a foreign cell files a merged carrier; onto its own ink, 
     const a = arena.allocator();
     const lat = try blankLattice(a);
     var lost: u32 = 0;
+    var cc: crossings.CrossingCounts = .{};
 
     {
         var c = aux.Collector.init(a);
@@ -286,7 +287,7 @@ test "an OR-merge onto a foreign cell files a merged carrier; onto its own ink, 
             .occupant = .{ .edge_segment = .{ .edge = 3, .kind = .solid } },
             .neighbours = .{ .e = true, .w = true },
         };
-        ew.writeEdgeCell(&cell, 8, .solid, .forward, .{ .n = true, .s = true }, 1, 1, &lost, .merged_foreign, rec);
+        ew.writeEdgeCell(&cell, 8, .solid, .forward, .{ .n = true, .s = true }, 1, 1, &lost, &cc, .merged_foreign, rec);
         const table = c.finish();
         try testing.expectEqual(@as(usize, 1), table.len);
         try testing.expectEqual(lattice.AuxKind.carrier, table[0].kind);
@@ -302,7 +303,7 @@ test "an OR-merge onto a foreign cell files a merged carrier; onto its own ink, 
             .occupant = .{ .edge_segment = .{ .edge = 3, .kind = .solid } },
             .neighbours = .{ .e = true, .w = true },
         };
-        ew.writeEdgeCell(&cell, 3, .solid, .forward, .{ .n = true, .s = true }, 1, 1, &lost, .merged_licensed, rec);
+        ew.writeEdgeCell(&cell, 3, .solid, .forward, .{ .n = true, .s = true }, 1, 1, &lost, &cc, .merged_licensed, rec);
         try testing.expectEqual(@as(usize, 0), c.finish().len);
     }
 
@@ -310,7 +311,7 @@ test "an OR-merge onto a foreign cell files a merged carrier; onto its own ink, 
         var c = aux.Collector.init(a);
         const rec = aux.Recorder.init(&c, &lat);
         var cell = lattice.Cell.empty;
-        ew.writeEdgeCell(&cell, 8, .solid, .forward, .{ .n = true, .s = true }, 1, 1, &lost, .merged_untested, rec);
+        ew.writeEdgeCell(&cell, 8, .solid, .forward, .{ .n = true, .s = true }, 1, 1, &lost, &cc, .merged_untested, rec);
         try testing.expectEqual(@as(usize, 0), c.finish().len);
     }
 }
@@ -321,6 +322,7 @@ test "an arrowhead stamped over a foreign run files a carrier for the run it cov
     const a = arena.allocator();
     const lat = try blankLattice(a);
     var lost: u32 = 0;
+    var cc: crossings.CrossingCounts = .{};
     var hlost: u32 = 0;
 
     var c = aux.Collector.init(a);
@@ -329,7 +331,7 @@ test "an arrowhead stamped over a foreign run files a carrier for the run it cov
         .occupant = .{ .edge_segment = .{ .edge = 3, .kind = .solid } },
         .neighbours = .{ .e = true, .w = true },
     };
-    ew.writeArrowCell(&cell, 9, .solid, .filled, .south, .{ .n = true }, 2, 2, &lost, &hlost, .merged_foreign, rec);
+    ew.writeArrowCell(&cell, 9, .solid, .filled, .south, .{ .n = true }, 2, 2, &lost, &hlost, &cc, .merged_foreign, rec);
 
     const table = c.finish();
     try testing.expectEqual(@as(usize, 1), table.len);

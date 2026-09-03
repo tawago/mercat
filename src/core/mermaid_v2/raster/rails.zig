@@ -93,6 +93,11 @@ pub const Report = struct {
     /// Rail pivot/tap arrowheads refused at a collision — same contract as
     /// `edges.EdgeRasterReport.heads_lost`.
     heads_lost: u32 = 0,
+    /// The one crossing event a rail claim can raise: a lateral arm into
+    /// another edge's decoration cell, refused by the writer and counted
+    /// against the rail's writer (`arm_into_head`). Folded into the raster
+    /// report's crossing tally beside the edge pass's.
+    crossings: crossings.CrossingCounts = .{},
 };
 
 /// Rasterize every rail in `s` into `lat`.
@@ -169,7 +174,7 @@ fn drawRail(lat: *lattice.Lattice, rail: sketch.Rail, report: *Report, chan: Cha
             if (edges_r.pointInBounds(h.cell, lat)) {
                 const c = edges_r.toCoord(h.cell);
                 const lic = licenceAt(lat, c, crossbar_edge, chan);
-                edges_r.writeArrowCell(lat.at(c.x, c.y), crossbar_edge, rail.kind, rail.pivot_arrow, h.dir, edges_r.straightMask(dir), c.x, c.y, &report.cells_lost, &report.heads_lost, lic, rec);
+                edges_r.writeArrowCell(lat.at(c.x, c.y), crossbar_edge, rail.kind, rail.pivot_arrow, h.dir, edges_r.straightMask(dir), c.x, c.y, &report.cells_lost, &report.heads_lost, &report.crossings, lic, rec);
             }
         }
     }
@@ -216,7 +221,7 @@ fn drawRail(lat: *lattice.Lattice, rail: sketch.Rail, report: *Report, chan: Cha
                 if (edges_r.pointInBounds(h.cell, lat)) {
                     const c = edges_r.toCoord(h.cell);
                     const lic = licenceAt(lat, c, tap.edge, chan);
-                    edges_r.writeArrowCell(lat.at(c.x, c.y), tap.edge, rail.kind, tap.arrow, h.dir, edges_r.straightMask(dir), c.x, c.y, &report.cells_lost, &report.heads_lost, lic, rec);
+                    edges_r.writeArrowCell(lat.at(c.x, c.y), tap.edge, rail.kind, tap.arrow, h.dir, edges_r.straightMask(dir), c.x, c.y, &report.cells_lost, &report.heads_lost, &report.crossings, lic, rec);
                 }
             }
         }
@@ -339,12 +344,15 @@ fn onStretch(v: i32, a: i32, b: i32) bool {
 /// Claim one cell through the shared edge cell contract (OR-merge on
 /// existing edge cells, overwrite cluster borders, count collisions).
 ///
-/// The merge itself is unconditional, exactly as before: a rail owns its
+/// The merge onto a run is unconditional, exactly as before: a rail owns its
 /// geometry and the crossing rule is not asked to approve it. `chan` only
 /// supplies the licence the resulting carrier record STATES, so a later
 /// reader can tell a rail welding onto a bundle-mate from a rail welding
 /// onto a stranger. Refusing the latter would change every fan render and
-/// is not this file's decision to take.
+/// is not this file's decision to take. The one claim a rail does NOT own
+/// is a lateral arm into another edge's decoration cell: the writer refuses
+/// it and counts it against the rail (`Report.crossings.arm_into_head`).
+/// @guarded-by: rails_test.zig "a rail arm into a foreign head is refused and counted against the rail"
 fn claim(
     lat: *lattice.Lattice,
     p: sketch.Point,
@@ -359,7 +367,7 @@ fn claim(
     if (!edges_r.pointInBounds(p, lat)) return;
     const c = edges_r.toCoord(p);
     const lic = licenceAt(lat, c, edge_id, chan);
-    edges_r.writeEdgeCell(lat.at(c.x, c.y), edge_id, kind, role, mask, c.x, c.y, &report.cells_lost, lic, rec);
+    edges_r.writeEdgeCell(lat.at(c.x, c.y), edge_id, kind, role, mask, c.x, c.y, &report.cells_lost, &report.crossings, lic, rec);
 }
 
 test "licenceAt trusts identity only after a complete consistent stamp" {

@@ -92,6 +92,26 @@ pub const CrossingCounts = struct {
     /// border stays pristine. Fires only in `.bridge` mode; report-only;
     /// same-ruling companion counter.
     b_border_fusion_refused: u32 = 0,
+    /// A lateral arm REFUSED at a decoration cell: a write from another
+    /// edge (a run, a corner, a rail claim, a perpendicular head) would
+    /// have entered an arrowhead cell from one of its two guarded lateral
+    /// sides, and the raster kept the head untouched instead. Counted per
+    /// arm, against the edge that lost the cell — never against the head
+    /// (constitution, ink attribution: a decoration cell has three guarded
+    /// sides; confluence routing note: the refusal is the outcome that
+    /// ships). The head's edge keeps its own counters. Lateral arms that
+    /// SHIP (an edge turning inside its own terminal cell) are the painted
+    /// half of the same tally, read post-raster by `arrow_base.validate`;
+    /// `raster.RasterReport.armIntoHead` sums both.
+    arm_into_head: u32 = 0,
+
+    /// Fold `other` into `self`: the rail pass and the edge pass each keep
+    /// their own tallies and the raster report ships one.
+    pub fn add(self: *CrossingCounts, other: CrossingCounts) void {
+        inline for (@typeInfo(CrossingCounts).@"struct".fields) |f| {
+            @field(self, f.name) += @field(other, f.name);
+        }
+    }
 };
 
 /// Per-raster crossing context threaded through the edge walk: the realized
@@ -244,6 +264,43 @@ pub fn arrowheadTransit(
     return true;
 }
 
+/// The arms of `mask` that lie OFF the axis of a head pointing `tip`: for
+/// a north/south head the east and west bits, for an east/west head the
+/// north and south bits. These are the head's two guarded lateral sides.
+pub fn lateralArms(tip: lattice.Dir4, mask: lattice.Neighbours) lattice.Neighbours {
+    return switch (tip) {
+        .north, .south => .{ .e = mask.e, .w = mask.w },
+        .east, .west => .{ .n = mask.n, .s = mask.s },
+    };
+}
+
+/// Decide a write of `incoming_mask` by `incoming_edge` onto the arrowhead
+/// cell of `arrow_edge` (tip `tip`). Returns true when the caller must keep
+/// the head untouched, recording every event the write is:
+///   - foreign ink meeting a head is an arrowhead transit (as before —
+///     nothing here weakens that tally);
+///   - a lateral arm is refused whatever the licence, and counted as
+///     `arm_into_head` per arm, against `incoming_edge`.
+/// Returns false only for a bundle co-member riding the head's own axis:
+/// a shared stem cell that carries the head, rail-interior state.
+/// The head's own edge never reaches this: its writes are its own ink.
+/// @guarded-by: crossings.zig "headEntry: a lateral arm is refused for co-members too; an on-axis co-member rides"
+pub fn headEntry(
+    counts: *CrossingCounts,
+    bundles: ledger.RealizedBundles,
+    bundle_sets: []const ledger.Bundle,
+    arrow_edge: EdgeId,
+    tip: lattice.Dir4,
+    incoming_edge: EdgeId,
+    incoming_mask: lattice.Neighbours,
+    at: ledger.BundleCell,
+) bool {
+    const transit = arrowheadTransit(counts, bundles, bundle_sets, arrow_edge, incoming_edge, at);
+    const lateral: u32 = @popCount(lateralArms(tip, incoming_mask).toMask());
+    counts.arm_into_head += lateral;
+    return transit or lateral != 0;
+}
+
 /// Any cell: the structural origins license every position, so the tests that
 /// speak for them pass an arbitrary one.
 const ANY: ledger.BundleCell = .{ .x = 0, .y = 0 };
@@ -341,6 +398,42 @@ test "arrowheadTransit: own terminal exempt, foreign refused" {
     const fan_sets = [_]ledger.Bundle{.{ .origin = .fan_rail, .members = &fan }};
     try std.testing.expect(!arrowheadTransit(&counts, .{}, &fan_sets, 7, 8, ANY));
     try std.testing.expectEqual(@as(u32, 1), counts.arrowhead_transit_violation);
+}
+
+test "headEntry: a lateral arm is refused for co-members too; an on-axis co-member rides" {
+    var counts: CrossingCounts = .{};
+    var fan = [_]EdgeId{ 7, 8 };
+    const fan_sets = [_]ledger.Bundle{.{ .origin = .fan_rail, .members = &fan }};
+    try std.testing.expect(!headEntry(&counts, .{}, &fan_sets, 7, .south, 8, V, ANY));
+    try std.testing.expectEqual(@as(u32, 0), counts.arm_into_head);
+    try std.testing.expectEqual(@as(u32, 0), counts.arrowhead_transit_violation);
+
+    try std.testing.expect(headEntry(&counts, .{}, &fan_sets, 7, .south, 8, .{ .n = true, .e = true }, ANY));
+    try std.testing.expectEqual(@as(u32, 1), counts.arm_into_head);
+    try std.testing.expectEqual(@as(u32, 0), counts.arrowhead_transit_violation);
+
+    try std.testing.expect(headEntry(&counts, .{}, &.{}, 7, .east, 9, V, ANY));
+    try std.testing.expectEqual(@as(u32, 3), counts.arm_into_head);
+    try std.testing.expectEqual(@as(u32, 1), counts.arrowhead_transit_violation);
+
+    try std.testing.expect(headEntry(&counts, .{}, &.{}, 7, .east, 9, H, ANY));
+    try std.testing.expectEqual(@as(u32, 3), counts.arm_into_head);
+    try std.testing.expectEqual(@as(u32, 2), counts.arrowhead_transit_violation);
+}
+
+test "lateralArms keeps only the bits off the head's axis" {
+    const all: lattice.Neighbours = .{ .n = true, .e = true, .s = true, .w = true };
+    try std.testing.expectEqual(H.toMask(), lateralArms(.north, all).toMask());
+    try std.testing.expectEqual(V.toMask(), lateralArms(.west, all).toMask());
+    try std.testing.expectEqual(@as(u4, 0), lateralArms(.south, V).toMask());
+}
+
+test "CrossingCounts.add folds every field" {
+    var a: CrossingCounts = .{ .legal_crossing = 1, .arm_into_head = 2 };
+    a.add(.{ .arm_into_head = 3, .b_frame_bridge = 1 });
+    try std.testing.expectEqual(@as(u32, 1), a.legal_crossing);
+    try std.testing.expectEqual(@as(u32, 5), a.arm_into_head);
+    try std.testing.expectEqual(@as(u32, 1), a.b_frame_bridge);
 }
 
 test {

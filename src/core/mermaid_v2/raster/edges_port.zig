@@ -18,6 +18,7 @@ const sketch = @import("../sketch.zig");
 const lattice = @import("../lattice.zig");
 const ew = @import("edges_write.zig");
 const aux = @import("aux.zig");
+const crossings = @import("crossings.zig");
 
 const Move = ew.Move;
 const step = ew.step;
@@ -279,6 +280,7 @@ fn mergePortBit(
         // the port path stays neutral for `audit.collect`.
         // @guarded-by: edges_port_test.zig "painting the gap cell costs no lost cells"
         var lost: u32 = 0;
+        var counts: crossings.CrossingCounts = .{};
         writeEdgeCell(
             lat.at(gc.x, gc.y),
             edge_id,
@@ -288,6 +290,7 @@ fn mergePortBit(
             gc.x,
             gc.y,
             &lost,
+            &counts,
             .merged_untested,
             aux.Recorder.init(sink, lat),
         );
