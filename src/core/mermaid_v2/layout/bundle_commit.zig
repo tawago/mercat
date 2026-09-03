@@ -77,7 +77,6 @@ pub fn buildReported(a: std.mem.Allocator, graph: sg.SemGraph, permits: ?*const 
         }
         verdicts[gi] = verdict;
     }
-    try refuseLabeledLong(a, graph, plan, eff_of, verdicts, closure_refused, long_edges);
     try keepOneNearRail(a, graph, plan, eff_of, verdicts, closure_refused, long_edges);
     try reserve(a, graph, plan, eff_of, verdicts, closure_refused, report);
 
@@ -341,36 +340,6 @@ fn widestFirst(eff_of: []?[]const pb.EdgeId, x: usize, y: usize) bool {
     const nx = (eff_of[x] orelse &.{}).len;
     const ny = (eff_of[y] orelse &.{}).len;
     return if (nx == ny) x < y else nx > ny;
-}
-
-/// A labeled LONG member leaves its DEPARTURE candidate for now: a labeled
-/// departure rail pays label rows for every member, and the fan detector
-/// leaves such a member out of every fan-out for that reason; the plan
-/// must say the same, or the port plan hands the member its bundle's
-/// shared port while nothing draws a rail there. Its arrival membership
-/// stays: an arrival rail's long member carries the label on its own
-/// stroke. The member becomes a private departure; the bundle keeps the rest.
-/// @guarded-by: bundle_commit_test.zig "a labeled long member leaves its departure bundle and keeps its arrival"
-fn refuseLabeledLong(
-    a: std.mem.Allocator,
-    graph: sg.SemGraph,
-    plan: pb.BundlePermits,
-    eff_of: []?[]const pb.EdgeId,
-    verdicts: []?rc.Verdict,
-    closure_refused: []bool,
-    long_edges: []const pb.EdgeId,
-) error{OutOfMemory}!void {
-    for (graph.edges) |e| {
-        if (!containsEdge(long_edges, e.id)) continue;
-        const label = e.label orelse continue;
-        if (label.len == 0) continue;
-        for (plan.groups, 0..) |g, gi| {
-            if (g.direction != .out) continue;
-            const eff = eff_of[gi] orelse continue;
-            if (!containsEdge(eff, e.id)) continue;
-            try dropMember(a, graph, plan, eff_of, verdicts, closure_refused, gi, e.id, g);
-        }
-    }
 }
 
 /// Remove one member from a surviving candidate, judging what is left again.

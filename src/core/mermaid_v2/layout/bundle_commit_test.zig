@@ -436,7 +436,7 @@ test "a near member selected at both ends keeps its arrival rail, a long member 
     };
 }
 
-test "a labeled long member leaves its departure bundle and keeps its arrival" {
+test "a labeled long member keeps both its departure and its arrival bundle" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
@@ -445,9 +445,9 @@ test "a labeled long member leaves its departure bundle and keeps its arrival" {
     const ac = edgeIdOf(graph, "A", "C");
     const long = [_]u32{ac};
     const bundles = try bundle_commit.buildReported(a, graph, &plan, &.{}, &long, false, null);
-    try std.testing.expectEqual(@as(usize, 1), bundles.selected_bundles.len);
+    try std.testing.expectEqual(@as(usize, 2), bundles.selected_bundles.len);
     for (bundles.memberships) |rm| if (rm.edge == ac) {
-        try std.testing.expect(rm.source.? == .independent);
+        try std.testing.expect(rm.source.? == .selected);
         try std.testing.expect(rm.target.? == .selected);
     };
 }

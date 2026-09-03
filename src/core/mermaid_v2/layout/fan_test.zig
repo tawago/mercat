@@ -90,7 +90,7 @@ test "detect distinguishes fan-OUT and fan-IN in the same graph" {
     try testing.expectEqual(fan.Direction.in, fans[1].direction);
 }
 
-test "detect keeps a long member as a fan-out peer unless it is labeled" {
+test "detect keeps a long member as a fan-out peer, labeled or not" {
     const a = testing.allocator;
     var nodes = [_]sugiyama.LayerNode{
         .{ .real = 0 },
@@ -138,21 +138,22 @@ test "detect keeps a long member as a fan-out peer unless it is labeled" {
     };
     try testing.expectEqual(@as(usize, 1), long_peers);
 
-    // The same shape with the long edge labeled: the fan-out leaves it out
-    // (a labeled departure rail pays label rows) and keeps its two near
-    // peers.
+    // The same shape with the long edge labeled: the label rides the
+    // member's own stroke, so the fan-out keeps all three peers and
+    // reserves no label rows for the long one.
     const g_nodes = [_]sg.Node{ mkNode(0, "P"), mkNode(1, "A"), mkNode(2, "B"), mkNode(3, "D") };
     var g_edges = [_]sg.Edge{ mkEdge2(100, 0, 1), mkEdge2(101, 0, 2), mkEdge2(300, 0, 3) };
     g_edges[2].label = "far";
     const labeled_graph: sg.SemGraph = .{ .direction = .TD, .nodes = &g_nodes, .edges = &g_edges, .clusters = &.{}, .classes = &.{}, .arena = null };
     const labeled = try fan.detect(arena.allocator(), labeled_graph, lg);
-    var refused: ?fan.Fan = null;
+    var kept: ?fan.Fan = null;
     for (labeled) |lf| if (lf.direction == .out and lf.pivot_idx == 0) {
-        refused = lf;
+        kept = lf;
     };
-    const rf = refused orelse return error.MissingFanOut;
-    try testing.expectEqual(@as(usize, 2), rf.peers.len);
-    for (rf.peers) |p| try testing.expect(!p.long);
+    const kf = kept orelse return error.MissingFanOut;
+    try testing.expectEqual(@as(usize, 3), kf.peers.len);
+    fan.gateLabelReservations(fan.FanEdge, labeled_graph, labeled, &.{}, 120, 4);
+    for (kf.peers) |p| if (p.long) try testing.expectEqual(@as(u32, 0), p.label_width);
 }
 
 test "assignRoles handles even-count fan with no center (fan-OUT)" {

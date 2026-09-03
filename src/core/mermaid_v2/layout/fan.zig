@@ -114,13 +114,9 @@ pub fn additionalLabelLift(f: Fan, lane: u32) u32 {
 /// peer reached through a virtual node is a `long` member (the licence
 /// reads only the declared graph — distance on the page is not an input).
 /// A long member's label rides its own member stroke, not its one-cell
-/// drop, so a fan-IN counts it as unlabeled and keeps it. A fan-OUT
-/// refuses a labeled long member for now: a labeled departure rail pays
-/// label rows for every member, and that price is not worth one long
-/// member's tap; it stays a private stroke and the rail keeps the rest
-/// (the plan says the same in bundle_commit.refuseLabeledLong). Symmetric
-/// criterion for fan-IN otherwise. Returned slice and inner `peers` slices
-/// are arena-allocated via `a`.
+/// drop, so a fan counts it as unlabeled (no label rows reserved for it)
+/// and keeps it, labeled or not. Symmetric criterion for fan-IN. Returned
+/// slice and inner `peers` slices are arena-allocated via `a`.
 pub fn detect(
     a: std.mem.Allocator,
     graph: sg.SemGraph,
@@ -307,12 +303,11 @@ fn collectFanOut(
         if (le.from != src_idx) continue;
         if (le.reversed) continue;
         if (node_layer[le.to] != src_layer + 1) continue;
-        // @guarded-by: fan_test.zig "detect keeps a long member as a fan-out peer unless it is labeled"
+        // @guarded-by: fan_test.zig "detect keeps a long member as a fan-out peer, labeled or not"
         const long = switch (lg.nodes[le.to]) {
             .real => false,
             .virtual => true,
         };
-        if (long and peerLabel(graph, le.edge) != null) continue;
         try candidates.append(a, .{
             .edge_id = le.edge,
             .peer_idx = le.to,
