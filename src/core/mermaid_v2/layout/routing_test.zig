@@ -19,6 +19,7 @@ const port_plan = @import("port_plan.zig");
 const ledger = @import("../base/ledger.zig");
 const back_edges = @import("back_edges.zig");
 const route_clearance = @import("route_clearance.zig");
+const route_search = @import("route_search.zig");
 
 const testing = std.testing;
 
@@ -317,4 +318,71 @@ test "a back edge's stub hop keeps off a foreign decorated arrival cell" {
     const kept_off = try back_edges.backEdgePolylineAt(a, .TD, placements[0], placements[1], from, to, 14, guarded);
     try testing.expect(kept_off[2].y != 8);
     try testing.expectEqual(@as(i32, 14), kept_off[2].y);
+}
+
+fn inkRun(id: sg.EdgeId, from: sketch.Point, to: sketch.Point, points: []sketch.Point) sketch.EdgePath {
+    points[0] = from;
+    points[1] = to;
+    return .{ .id = id, .from = 50, .to = 51, .polyline = points, .port_from = .{ .node = 50, .side = .south, .offset = 0 }, .port_to = .{ .node = 51, .side = .north, .offset = 0 }, .arrow_from = .none, .arrow_to = .none, .label = null, .kind = .solid, .role = .forward };
+}
+
+test "the detour ladder pushes a port run past a foreign jog row, and is null when every row is taken" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    // Source box rows 0..2, target rows 20..22; a foreign run lies along
+    // row 3, the detour's nearest source row, so the pushed run on row 4 is
+    // the first accepted candidate. With rows 3, 4 and 5 all taken, no
+    // push clears and the ladder is null: nothing lying collinear ships.
+    const placements = [_]sketch.NodePlacement{
+        .{ .id = 0, .rect = .{ .x = 10, .y = 0, .w = 5, .h = 3 }, .shape = .rect, .lines = &.{}, .cluster_id = null },
+        .{ .id = 1, .rect = .{ .x = 10, .y = 20, .w = 5, .h = 3 }, .shape = .rect, .lines = &.{}, .cluster_id = null },
+    };
+    const edge = sg.Edge{ .id = 0, .from = 0, .to = 1, .kind = .solid, .arrow_from = .none, .arrow_to = .filled, .label = null };
+    const ep = port_plan.EdgePorts{ .edge = 0, .source = .{ .node = 0, .side = .south, .offset = 2 }, .target = .{ .node = 1, .side = .north, .offset = 2 }, .source_ordinal = 0, .target_ordinal = 0, .target_decorated = true };
+    const ports = [_]port_plan.EdgePorts{ep};
+    // The cross-bundle gate reads ink only under a realized plan.
+    const memberships = [_]ledger.RealizedEdgeMembership{.{ .edge = 9, .source = null, .target = null }};
+    const bundles: ledger.RealizedBundles = .{ .memberships = &memberships };
+    var r3: [2]sketch.Point = undefined;
+    var r4: [2]sketch.Point = undefined;
+    var r5: [2]sketch.Point = undefined;
+    const one = [_]sketch.EdgePath{inkRun(7, .{ .x = -40, .y = 3 }, .{ .x = 60, .y = 3 }, &r3)};
+    const pushed = (try routing.detour(a, .TD, edge, placements[0], placements[1], ep, .{ .to = true }, &one, &.{}, &placements, &ports, bundles)).?;
+    try testing.expectEqual(@as(i32, 4), pushed[1].y);
+    try testing.expectEqual(@as(i32, 4), pushed[2].y);
+    try testing.expectEqual(@as(i32, 12), pushed[0].x);
+    const three = [_]sketch.EdgePath{
+        inkRun(7, .{ .x = -40, .y = 3 }, .{ .x = 60, .y = 3 }, &r3),
+        inkRun(8, .{ .x = -40, .y = 4 }, .{ .x = 60, .y = 4 }, &r4),
+        inkRun(9, .{ .x = -40, .y = 5 }, .{ .x = 60, .y = 5 }, &r5),
+    };
+    try testing.expect((try routing.detour(a, .TD, edge, placements[0], placements[1], ep, .{ .to = true }, &three, &.{}, &placements, &ports, bundles)) == null);
+}
+
+test "a self loop lifts past foreign ink instead of lying along it" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    // Node rows 10..12. The classic loop rises three rows above the box to
+    // row 7; a foreign run lies along that row, so every candidate on it is
+    // refused and the first accepted one runs one row higher.
+    const node_p = sketch.NodePlacement{ .id = 0, .rect = .{ .x = 10, .y = 10, .w = 5, .h = 3 }, .shape = .rect, .lines = &.{}, .cluster_id = null };
+    const placements = [_]sketch.NodePlacement{node_p};
+    const edge = sg.Edge{ .id = 0, .from = 0, .to = 0, .kind = .solid, .arrow_from = .none, .arrow_to = .filled, .label = null };
+    const ep = port_plan.EdgePorts{ .edge = 0, .source = .{ .node = 0, .side = .east, .offset = 1 }, .target = .{ .node = 0, .side = .north, .offset = 2 }, .source_ordinal = 0, .target_ordinal = 0, .target_decorated = true };
+    const ports = [_]port_plan.EdgePorts{ep};
+    const memberships = [_]ledger.RealizedEdgeMembership{.{ .edge = 9, .source = null, .target = null }};
+    const bundles: ledger.RealizedBundles = .{ .memberships = &memberships };
+    const clear = try route_search.selfLoop(a, .TD, edge, node_p, ep, &.{}, &.{}, &placements, &ports, bundles);
+    try testing.expectEqual(@as(i32, 7), clear.polyline[2].y);
+    var r7: [2]sketch.Point = undefined;
+    const along = [_]sketch.EdgePath{inkRun(7, .{ .x = 0, .y = 7 }, .{ .x = 40, .y = 7 }, &r7)};
+    const lifted = try route_search.selfLoop(a, .TD, edge, node_p, ep, &along, &.{}, &placements, &ports, bundles);
+    try testing.expectEqual(@as(usize, 5), lifted.polyline.len);
+    try testing.expectEqual(@as(i32, 6), lifted.polyline[2].y);
+    try testing.expectEqual(@as(i32, 6), lifted.polyline[3].y);
+    // The re-entry still runs straight into the decorated north port.
+    try testing.expectEqual(@as(i32, 12), lifted.polyline[4].x);
+    try testing.expectEqual(@as(i32, 10), lifted.polyline[4].y);
 }

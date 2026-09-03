@@ -417,6 +417,20 @@ fn missingDeclared(
         counts.missing_declared += 1;
         try missing.append(alloc, @intCast(rank));
     }
+    // A visible edge the router laid no ink for (an empty polyline) is a
+    // declared pair with no trace whatever its plan; one with no membership
+    // was not visited above and is charged here (count only — it has no
+    // membership rank to name).
+    // @guarded-by: select_test.zig "an unrouted edge is a missing declared pair on a candidate the oracle skipped"
+    for (s.edges) |e| {
+        if (e.polyline.len >= 2 or e.kind == .invisible) continue;
+        if (rc.contains(s.bundles.discharged, e.id)) continue;
+        var member = false;
+        for (s.bundles.memberships) |m| if (m.edge == e.id) {
+            member = true;
+        };
+        if (!member) counts.missing_declared += 1;
+    }
     return missing.toOwnedSlice(alloc);
 }
 

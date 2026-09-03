@@ -22,6 +22,11 @@ pub const Violation = struct {
         cluster_does_not_contain,
         path_crosses_cluster_unauthorized,
         bbox_overflow,
+        /// A visible edge the router laid no ink for (an empty polyline):
+        /// every producer refused every candidate, so the relation is
+        /// declared by the sketch and drawn nowhere — counted, never
+        /// shipped as a lying route (routing.zig `unrouted`).
+        edge_unrouted,
     };
 };
 
@@ -45,6 +50,7 @@ pub const Counts = struct {
     cluster_containment: u32 = 0,
     cluster_port: u32 = 0,
     bbox_overflow: u32 = 0,
+    edge_unrouted: u32 = 0,
 };
 
 /// Tally a `ValidationResult` (plus the Sketch-derived bbox check) into
@@ -61,6 +67,7 @@ pub fn counts(vr: ValidationResult, s: sketch.Sketch) Counts {
             .cluster_does_not_contain => c.cluster_containment += 1,
             .path_crosses_cluster_unauthorized => c.cluster_port += 1,
             .bbox_overflow => c.bbox_overflow += 1,
+            .edge_unrouted => c.edge_unrouted += 1,
         },
     }
     if (s.bbox.w > s.budget.max_width) c.bbox_overflow += 1;
@@ -151,8 +158,11 @@ fn continuingTapAt(s: sketch.Sketch, edge: sketch.EdgeId, fan_in: bool) ?sketch.
 
 /// Each EdgePath's first/last polyline point must lie on the perimeter
 /// of its source/target NodePlacement — or, for a `.member_stroke`'s rail
-/// end, exactly on that rail's continuing tap.
+/// end, exactly on that rail's continuing tap. A visible edge with no
+/// polyline at all is an unrouted edge (its own kind); an invisible one
+/// owns no ink either way and is not a violation.
 /// @guarded-by: validate_test.zig "a member stroke's rail end must meet its tap, its private end the perimeter"
+/// @guarded-by: validate_test.zig "an edge with no polyline counts as unrouted, not off-perimeter"
 pub fn checkPathEndpoints(
     allocator: std.mem.Allocator,
     s: sketch.Sketch,
@@ -160,7 +170,8 @@ pub fn checkPathEndpoints(
 ) !void {
     for (s.edges) |edge| {
         if (edge.polyline.len < 2) {
-            try emit(allocator, violations, .path_off_perimeter, "edge {d} has degenerate polyline (len={d}); missing endpoints", .{ edge.id, edge.polyline.len });
+            if (edge.kind != .invisible)
+                try emit(allocator, violations, .edge_unrouted, "edge {d} ({d} -> {d}) has no polyline; unrouted", .{ edge.id, edge.from, edge.to });
             continue;
         }
         const from_node = findNode(s, edge.from) orelse continue;

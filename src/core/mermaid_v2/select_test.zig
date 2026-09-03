@@ -395,3 +395,34 @@ test "a clustered render's rail bundles come from its piece plan and survive the
     try std.testing.expectEqual(@as(usize, 1), plan_sets.len);
     try std.testing.expectEqualSlices(ledger.EdgeId, rail.members, plan_sets[0].members);
 }
+
+test "an unrouted edge is a missing declared pair on a candidate the oracle skipped" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    // On a candidate it validates, the oracle finds the missing pair itself.
+    const flat = try parse(a, "flowchart TD\n  A --> B\n  B --> C\n");
+    const flat_set = try select.enumerateAll(a, flat, testBundlePermits(), 120);
+    var flat_cand = flat_set.merged[0];
+    try std.testing.expectEqual(@as(usize, 2), flat_cand.sketch.edges.len);
+    try std.testing.expectEqual(@as(u32, 0), select.unroutedEdges(flat_cand.sketch));
+    const flat_edges = try a.dupe(@TypeOf(flat_cand.sketch.edges[0]), flat_cand.sketch.edges);
+    flat_edges[0].polyline = &.{};
+    flat_cand.sketch.edges = flat_edges;
+    try std.testing.expectEqual(@as(u32, 1), select.unroutedEdges(flat_cand.sketch));
+    const flat_reports = select.reachReports(a, flat, true, &[_]ladder.Candidate{flat_cand});
+    try std.testing.expect(!flat_reports[0].skipped_clustered);
+    try std.testing.expectEqual(@as(u32, 1), flat_reports[0].counts.missing_declared);
+    // On a clustered candidate the oracle skips, the pair is counted by
+    // inspection so the filter still sees it.
+    const clustered = try parse(a, "flowchart TD\n  subgraph S\n    A --> B\n  end\n  B --> C\n");
+    const set = try select.enumerateAll(a, clustered, testBundlePermits(), 120);
+    var cand = set.merged[0];
+    try std.testing.expect(cand.sketch.clusters.len != 0);
+    const edges = try a.dupe(@TypeOf(cand.sketch.edges[0]), cand.sketch.edges);
+    edges[0].polyline = &.{};
+    cand.sketch.edges = edges;
+    const reports = select.reachReports(a, clustered, false, &[_]ladder.Candidate{cand});
+    try std.testing.expect(reports[0].skipped_clustered);
+    try std.testing.expectEqual(@as(u32, 1), reports[0].counts.missing_declared);
+}

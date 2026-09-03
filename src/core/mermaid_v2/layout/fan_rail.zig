@@ -130,8 +130,9 @@ pub fn resolve(
         out.* = nearPeer(e, placement, port, fan.direction);
         if (p.long) {
             const g = geom[p.peer_idx];
+            const pivot = routing.findPlacement(placements, if (fan.direction == .out) e.from else e.to);
             out.long = true;
-            out.column = g.x + @divTrunc(@as(i32, @intCast(g.w)), 2);
+            out.column = longColumn(g.x + @divTrunc(@as(i32, @intCast(g.w)), 2), fan.direction, pivot, placement, placements);
             out.line = if (fan.direction == .out) g.y else g.y + @as(i32, @intCast(g.h)) - 1;
         }
     }
@@ -143,6 +144,21 @@ pub fn resolve(
         .direction = fan.direction,
         .peers = peers,
     };
+}
+
+/// The column a long member's tap descends on: its virtual's centre when
+/// that column is touch-free across every intermediate layer between the
+/// pivot and the leaf, else the nearest column that is. The member's
+/// stroke must run that column from the tap to its far end (a drop cell
+/// is entered straight), so a column under an intermediate box can never
+/// be reached and would only refuse the member later; deciding it here,
+/// once, is the producer's feasibility mirror of the stroke's box gate.
+/// @guarded-by: fan_rail_test.zig "a long member's tap column slides off an intermediate box"
+pub fn longColumn(centre: i32, direction: fan_mod.Direction, pivot: sketch.NodePlacement, leaf: sketch.NodePlacement, placements: []const sketch.NodePlacement) i32 {
+    const top = if (direction == .out) pivot.rect.bottom() else leaf.rect.bottom();
+    const bottom = (if (direction == .out) leaf.rect.y else pivot.rect.y) - 1;
+    if (top > bottom) return centre;
+    return sketch.clearLine(false, centre, top, bottom, placements, pivot.id, leaf.id, .{});
 }
 
 /// Build the rail for a resolved fan: stem on the pivot column, crossbar at

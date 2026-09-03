@@ -6,7 +6,9 @@
 //! both its own call sites and external importers (fan_rail.zig,
 //! back_edges.zig, ports_test.zig) address them exactly as before.
 //!
-//! Imports: only `std`, `../sem_graph.zig`, `../sketch.zig`, `sugiyama.zig`.
+//! Imports: only `std`, `../sem_graph.zig`, `../sketch.zig`, `sugiyama.zig`,
+//! `routing_polyline.zig`. The two per-gap extra-row reservations
+//! (`skipCorridorExtraRows`, `terminalApproachExtraRows`) live here too.
 
 const std = @import("std");
 const sg = @import("../sem_graph.zig");
@@ -252,6 +254,52 @@ fn distanceToFirstTurn(poly: []const sketch.Point, from_end: bool) i32 {
         walked += rp.absDiff(q.x, p.x) + rp.absDiff(q.y, p.y);
     }
     return walked;
+}
+
+/// Per-gap extra rows needed for skip-edge corridors (TD/BT). Entry i is
+/// the extra row count in the gap between layer i and layer i+1. A layer
+/// that receives a ≥2-layer-spanning edge (i.e. an edge whose final
+/// segment arrives from a VIRTUAL node) needs one extra row in the gap
+/// directly above it so the corridor can make a clean vertical descent
+/// into the target port. Generic: keyed purely on virtual→real arrivals,
+/// not on any node identity.
+pub fn skipCorridorExtraRows(
+    a: std.mem.Allocator,
+    lg: sugiyama.LayeredGraph,
+    /// Skip edges whose arrival is a fan-IN rail's continuing tap: the
+    /// rail's own reserved rows hold that descent, so they reserve nothing.
+    covered: []const sg.EdgeId,
+) error{OutOfMemory}![]u32 {
+    if (lg.layers.len < 2) return try a.alloc(u32, 0);
+    const out = try a.alloc(u32, lg.layers.len - 1);
+    @memset(out, 0);
+
+    var node_layer = try a.alloc(u32, lg.nodes.len);
+    defer a.free(node_layer);
+    @memset(node_layer, 0);
+    for (lg.layers, 0..) |row, li| {
+        for (row) |idx| node_layer[idx] = @intCast(li);
+    }
+
+    for (lg.edges) |le| {
+        const from_is_virtual = switch (lg.nodes[le.from]) {
+            .virtual => true,
+            .real => false,
+        };
+        const to_is_real = switch (lg.nodes[le.to]) {
+            .real => true,
+            .virtual => false,
+        };
+        if (from_is_virtual and to_is_real) {
+            if (std.mem.indexOfScalar(sg.EdgeId, covered, le.edge) != null) continue;
+            const tgt_layer = node_layer[le.to];
+            if (tgt_layer > 0) {
+                const gap = tgt_layer - 1;
+                if (gap < out.len) out[gap] = 1;
+            }
+        }
+    }
+    return out;
 }
 
 /// Per-gap extra rows for OFFSET corner-fed forward terminals sitting in a

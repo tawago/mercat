@@ -85,8 +85,14 @@ fn expectReconstructedThreeWayPortShare() !void {
     defer arena.deinit();
     const a = arena.allocator();
     const c = try renderCounts(a, three_way_port_share, 140);
-    try testing.expectEqual(@as(u32, 3), c.c_run_fused_crossing);
-    try testing.expectEqual(@as(u32, 3), c.c_run_fused_licensed);
+    // One fused crossing since a refused route stopped shipping
+    // (2026-09-03): the thick C ==> E departure used to leave the shared
+    // port through a fourteen-column loop the detour ladder had refused and
+    // shipped anyway, meeting the share twice more on its way back; it now
+    // departs straight, and the share's column moved fourteen cells left
+    // with it. The pair scopes below are unchanged in shape.
+    try testing.expectEqual(@as(u32, 1), c.c_run_fused_crossing);
+    try testing.expectEqual(@as(u32, 1), c.c_run_fused_licensed);
     try testing.expectEqual(@as(u32, 0), c.d_run_fused_foreign);
     try testing.expectEqual(@as(u32, 0), c.u_run_fused_unevidenced);
     try testing.expectEqual(
@@ -115,7 +121,7 @@ fn expectReconstructedThreeWayPortShare() !void {
     // heads lost to one shipping one, whose shared approach is a row shorter.
     try testing.expectEqual(@as(usize, 35), cells.len);
     for (cells, 0..) |cell, i| {
-        try testing.expectEqual(@as(i32, 38), cell.x);
+        try testing.expectEqual(@as(i32, 24), cell.x);
         try testing.expectEqual(50 - @as(i32, @intCast(i)), cell.y);
     }
 
@@ -134,13 +140,13 @@ fn expectReconstructedThreeWayPortShare() !void {
         try testing.expectEqual(want.b, pair.b);
         try testing.expectEqual(@as(usize, @intCast(50 - want.last_y + 1)), pair.cells.len);
         for (pair.cells, 0..) |cell, i| {
-            try testing.expectEqual(@as(i32, 38), cell.x);
+            try testing.expectEqual(@as(i32, 24), cell.x);
             try testing.expectEqual(50 - @as(i32, @intCast(i)), cell.y);
         }
     }
 
     const only_share = [_]ledger.Bundle{share};
-    const long_pair_only: ledger.BundleCell = .{ .x = 38, .y = 16 };
+    const long_pair_only: ledger.BundleCell = .{ .x = 24, .y = 16 };
     try testing.expect(ledger.bundleMembersAt(&only_share, 15, 16, long_pair_only));
     try testing.expect(!ledger.bundleMembersAt(&only_share, 14, 15, long_pair_only));
     try testing.expect(!ledger.bundleMembersAt(&only_share, 14, 16, long_pair_only));

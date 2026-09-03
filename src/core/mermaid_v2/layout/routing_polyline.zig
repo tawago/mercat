@@ -1,89 +1,18 @@
 //! Orthogonal polyline routing helpers, split from `routing.zig`.
 //!
-//! Contains `routePolyline` (the main forward-edge routing function),
-//! `skipCorridorExtraRows` (per-gap extra row allocation for skip edges),
-//! and the supporting helpers `placementAxis`, `insetPort`, `absDiff`,
-//! `portPoint`, plus the strict-interior intrusion predicates. Touch-semantics
-//! clearance (used when CHOOSING an edge run's line) lives in `sketch.zig`.
-//! Imports: only `std`, `../sem_graph.zig`, `../sketch.zig`, `sugiyama.zig`.
+//! Contains `routePolyline` (the main forward-edge routing function) and
+//! the supporting helpers `insetPort`, `absDiff`, `portPoint`, plus the
+//! strict-interior intrusion predicates. Touch-semantics clearance (used
+//! when CHOOSING an edge run's line) lives in `sketch.zig`; the per-gap
+//! extra-row reservations (`skipCorridorExtraRows`,
+//! `terminalApproachExtraRows`) in `routing_terminal.zig`.
+//! Imports: only `std`, `../sem_graph.zig`, `../sketch.zig`,
+//! `route_clearance.zig`.
 
 const std = @import("std");
 const sg = @import("../sem_graph.zig");
 const sketch = @import("../sketch.zig");
-const sugiyama = @import("sugiyama.zig");
-
-/// Per-gap extra rows needed for skip-edge corridors (TD/BT). Entry i is
-/// the extra row count in the gap between layer i and layer i+1. A layer
-/// that receives a ≥2-layer-spanning edge (i.e. an edge whose final
-/// segment arrives from a VIRTUAL node) needs one extra row in the gap
-/// directly above it so the corridor can make a clean vertical descent
-/// into the target port. Generic: keyed purely on virtual→real arrivals,
-/// not on any node identity.
-pub fn skipCorridorExtraRows(
-    a: std.mem.Allocator,
-    lg: sugiyama.LayeredGraph,
-    /// Skip edges whose arrival is a fan-IN rail's continuing tap: the
-    /// rail's own reserved rows hold that descent, so they reserve nothing.
-    covered: []const sg.EdgeId,
-) error{OutOfMemory}![]u32 {
-    if (lg.layers.len < 2) return try a.alloc(u32, 0);
-    const out = try a.alloc(u32, lg.layers.len - 1);
-    @memset(out, 0);
-
-    var node_layer = try a.alloc(u32, lg.nodes.len);
-    defer a.free(node_layer);
-    @memset(node_layer, 0);
-    for (lg.layers, 0..) |row, li| {
-        for (row) |idx| node_layer[idx] = @intCast(li);
-    }
-
-    for (lg.edges) |le| {
-        const from_is_virtual = switch (lg.nodes[le.from]) {
-            .virtual => true,
-            .real => false,
-        };
-        const to_is_real = switch (lg.nodes[le.to]) {
-            .real => true,
-            .virtual => false,
-        };
-        if (from_is_virtual and to_is_real) {
-            if (std.mem.indexOfScalar(sg.EdgeId, covered, le.edge) != null) continue;
-            const tgt_layer = node_layer[le.to];
-            if (tgt_layer > 0) {
-                const gap = tgt_layer - 1;
-                if (gap < out.len) out[gap] = 1;
-            }
-        }
-    }
-    return out;
-}
-
-/// Effective routing axis for a same-cluster edge, read from the two
-/// endpoints' actual relative placement. Returns a horizontal direction
-/// (LR/RL) when the boxes sit side-by-side (y-ranges overlap, x disjoint)
-/// and a vertical one (TD/BT) when they are stacked. Picks the polarity
-/// (LR vs RL, TD vs BT) from which endpoint leads so the source exits
-/// toward the target. Falls back to `fallback` when the relationship is
-/// ambiguous (overlap on both axes, or neither). Used to keep a
-/// direction-transposed subgraph's internal edges flowing between the
-/// member boxes instead of looping over the cluster frame border.
-pub fn placementAxis(
-    from_p: sketch.NodePlacement,
-    to_p: sketch.NodePlacement,
-    fallback: sg.Direction,
-) sg.Direction {
-    const f = from_p.rect;
-    const t = to_p.rect;
-    const x_overlap = f.x < t.right() and t.x < f.right();
-    const y_overlap = f.y < t.bottom() and t.y < f.bottom();
-    if (y_overlap and !x_overlap) {
-        return if (t.x >= f.right()) .LR else .RL;
-    }
-    if (x_overlap and !y_overlap) {
-        return if (t.y >= f.bottom()) .TD else .BT;
-    }
-    return fallback;
-}
+const route_clearance = @import("route_clearance.zig");
 
 /// Move a perimeter port outward by `pad` cells along the side normal.
 /// Used to introduce a 1-cell whitespace gap between a node border and
@@ -283,6 +212,14 @@ pub fn rowIntrudesRect(y: i32, x_left: i32, x_right: i32, r: sketch.Rect) bool {
 /// slice parameter rather than importing routing.zig (which would create
 /// a circular import). The type must match `routing.NodeGeom` exactly:
 /// { x: i32, y: i32, w: u32, h: u32, layer: u32 }.
+///
+/// A route spanning two or more layers runs a corridor beside its
+/// intermediate layers (`corridorRoute`); a one-layer route is a plain jog
+/// (`plainRoute`) — unless that jog would run through a foreign box (a
+/// rank grid's lower sub-row stacks a box between the two ports), in which
+/// case it too takes the corridor, beside that box: a box is a terminus,
+/// never a corridor.
+/// @guarded-by: routing_polyline_test.zig "a one-layer route runs the corridor beside a box in its way instead of through it"
 pub fn routePolyline(
     a: std.mem.Allocator,
     dir: sg.Direction,
@@ -300,27 +237,77 @@ pub fn routePolyline(
     route_lane: u32,
     straight: Straight,
 ) error{OutOfMemory}![]sketch.Point {
-    var poly: std.ArrayListUnmanaged(sketch.Point) = .empty;
     const raw_start = portPoint(from_p, port_from);
     const raw_end = portPoint(to_p, port_to);
     const start = insetPort(raw_start, port_from.side, inset_from);
     const end = insetPort(raw_end, port_to.side, inset_to);
-    try poly.append(a, start);
-
     const horizontal = (dir == .LR or dir == .RL);
 
-    // Skip-corridor routing (TD/BT): an edge spanning ≥2 layers carries ≥1
-    // virtual node. Bending the polyline at each virtual's box row would
-    // intrude into the intermediate boxes; instead route it as a vertical
-    // bundle beside those boxes — descend into the gap above the first
-    // intermediate layer, jog once to the virtuals' corridor column, run
-    // straight down past every intermediate layer, then jog into the target's
-    // column and descend into its port.
+    // Skip-corridor routing: an edge spanning ≥2 layers carries ≥1 virtual
+    // node. Bending the polyline at each virtual's box row would intrude
+    // into the intermediate boxes; instead route it as a corridor beside
+    // them, aimed at the first virtual's centre line. The horizontal mirror
+    // is gated on eastward flow (post-transpose LR invariant); anything
+    // else keeps the legacy virtual-follower path.
     // @guarded-by: validate_test.zig "edge through node interior flagged"
-    if (!horizontal and virtuals.len > 0) {
+    // @guarded-by: raster/edges_test.zig "edge cells colliding with node-owned cells are counted as lost"
+    if (virtuals.len > 0) {
         const first = geom[virtuals[0]];
-        const want_x = first.x + @divTrunc(@as(i32, @intCast(first.w)), 2);
-        const lane: i32 = @intCast(route_lane);
+        if (!horizontal) {
+            const want_x = first.x + @divTrunc(@as(i32, @intCast(first.w)), 2);
+            return corridorRoute(a, false, start, end, want_x, first.y, route_lane, straight, placements, from_p.id, to_p.id);
+        }
+        if (end.x > start.x) {
+            const want_y = first.y + @divTrunc(@as(i32, @intCast(first.h)), 2);
+            return corridorRoute(a, true, start, end, want_y, first.x, route_lane, straight, placements, from_p.id, to_p.id);
+        }
+    }
+
+    const plain = try plainRoute(a, horizontal, start, end, virtuals, geom, port_to.side, route_lane, straight);
+    if (virtuals.len == 0) {
+        if (obstacleBox(plain, placements, from_p.id, to_p.id)) |box| {
+            if (!horizontal) return corridorRoute(a, false, start, end, end.x, box.y, route_lane, straight, placements, from_p.id, to_p.id);
+            if (end.x > start.x) return corridorRoute(a, true, start, end, end.y, box.x, route_lane, straight, placements, from_p.id, to_p.id);
+        }
+    }
+    return plain;
+}
+
+/// The foreign box a plain route runs through, when one does: the first
+/// placement other than the route's own two that a segment of `poly`
+/// touches. Null for a box-free route.
+fn obstacleBox(poly: []const sketch.Point, placements: []const sketch.NodePlacement, from: sketch.NodeId, to: sketch.NodeId) ?sketch.Rect {
+    for (placements) |p| {
+        if (p.id == from or p.id == to) continue;
+        const one = [_]sketch.NodePlacement{p};
+        if (route_clearance.touchesForeignNode(poly, &one, from, to)) return p.rect;
+    }
+    return null;
+}
+
+/// A corridor route: descend into the gap before `top` (the first line of
+/// the intermediate layer or obstacle box), jog once to the corridor line
+/// nearest `want` that touches no foreign box, run straight past the
+/// obstacle, then jog into the target's line and enter its port. `top` and
+/// `want` are a row and a column for a vertical (TD) route and a column
+/// and a row for a horizontal (LR) one.
+fn corridorRoute(
+    a: std.mem.Allocator,
+    horizontal: bool,
+    start: sketch.Point,
+    end: sketch.Point,
+    want: i32,
+    top: i32,
+    route_lane: u32,
+    straight: Straight,
+    placements: []const sketch.NodePlacement,
+    from_id: sketch.NodeId,
+    to_id: sketch.NodeId,
+) error{OutOfMemory}![]sketch.Point {
+    var poly: std.ArrayListUnmanaged(sketch.Point) = .empty;
+    try poly.append(a, start);
+    const lane: i32 = @intCast(route_lane);
+    if (!horizontal) {
         // enter_gap_y: the entry run's row, three rows above the first
         // intermediate layer and one higher per lane. The row directly
         // above that layer is its arrival row — every decorated arrival
@@ -332,15 +319,16 @@ pub fn routePolyline(
         // source, out of the departure cell.
         // @guarded-by: routing_polyline_test.zig "the skip corridor enters three rows above the intermediate layer and climbs with the lane"
         const enter_floor = start.y + (if (straight.from) @as(i32, 2) else 1);
-        const enter_gap_y = @max(first.y - 3 - lane, enter_floor);
+        const enter_gap_y = @max(top - 3 - lane, enter_floor);
         // align_y: gap ABOVE the target, leaving ≥1 row for a vertical descent (falls back to end.y-1 if skipCorridorExtraRows headroom is absent). @guarded-by: routing_polyline_test.zig "TD skip-corridor final descent is a clean vertical approach (guards ▼)"
         // A decorated arrival never takes the end.y-1 fallback — that is a
         // turn in the arrival cell — it holds the corridor row instead.
         // @guarded-by: routing_polyline_test.zig "a skip corridor past its lane budget keeps a decorated arrival straight"
         const align_y = if (end.y - 2 - lane > enter_gap_y) end.y - 2 - lane else if (straight.to) @max(end.y - 2, enter_gap_y) else end.y - 1;
 
-        // The virtuals' barycenter column is NOT guaranteed clear: a real
-        // node may have drifted onto it, so slide the corridor to the
+        // The wanted column is NOT guaranteed clear: a real node may have
+        // drifted onto the virtuals' barycenter, and an obstacle box sits on
+        // the target's own column by definition; slide the corridor to the
         // nearest column whose run touches NO foreign box cell (touch
         // semantics, not strict-interior intrusion — a corridor on a foreign
         // border column rasterizes as swallowed edge cells even where the
@@ -349,44 +337,46 @@ pub fn routePolyline(
         // @guarded-by: validate_test.zig "edge through node interior flagged";
         const run_top = @min(enter_gap_y, align_y);
         const run_bot = @max(enter_gap_y, align_y);
-        const corridor_x = sketch.clearLine(false, want_x, run_top, run_bot, placements, from_p.id, to_p.id, .{ .margin = true });
+        const corridor_x = sketch.clearLine(false, want, run_top, run_bot, placements, from_id, to_id, .{ .margin = true });
 
         if (enter_gap_y != start.y) try poly.append(a, .{ .x = start.x, .y = enter_gap_y });
         if (corridor_x != start.x) try poly.append(a, .{ .x = corridor_x, .y = enter_gap_y });
         if (align_y != enter_gap_y) try poly.append(a, .{ .x = corridor_x, .y = align_y });
         if (end.x != corridor_x) try poly.append(a, .{ .x = end.x, .y = align_y });
-        try poly.append(a, end);
-        if (poly.items.len < 2) try poly.append(a, end);
-        return try poly.toOwnedSlice(a);
-    }
-
-    // Horizontal (LR) mirror of the TD skip-corridor above. Without it,
-    // horizontal edges with virtuals fall through the virtual-follower loop
-    // below with no obstacle check, and can swallow raster cells on a
-    // foreign border. Gated on eastward flow (post-transpose LR invariant);
-    // anything else keeps the legacy path.
-    // @guarded-by: raster/edges_test.zig "edge cells colliding with node-owned cells are counted as lost"
-    if (horizontal and virtuals.len > 0 and end.x > start.x) {
-        const first = geom[virtuals[0]];
-        const want_y = first.y + @divTrunc(@as(i32, @intCast(first.h)), 2);
-        const lane: i32 = @intCast(route_lane);
+    } else {
         const enter_floor = start.x + (if (straight.from) @as(i32, 2) else 1);
-        const enter_gap_x = @max(first.x - 3 - lane, enter_floor);
+        const enter_gap_x = @max(top - 3 - lane, enter_floor);
         // align_x: gap column just before the target, leaving ≥1 cell of straight horizontal approach. @guarded-by: routing_polyline_test.zig "LR skip-corridor final approach is a clean horizontal approach (guards ▶)"
         const align_x = if (end.x - 2 - lane > enter_gap_x) end.x - 2 - lane else if (straight.to) @max(end.x - 2, enter_gap_x) else end.x - 1;
         const run_lo = @min(enter_gap_x, align_x);
         const run_hi = @max(enter_gap_x, align_x);
-        const corridor_y = sketch.clearLine(true, want_y, run_lo, run_hi, placements, from_p.id, to_p.id, .{ .margin = true });
+        const corridor_y = sketch.clearLine(true, want, run_lo, run_hi, placements, from_id, to_id, .{ .margin = true });
 
         if (enter_gap_x != start.x) try poly.append(a, .{ .x = enter_gap_x, .y = start.y });
         if (corridor_y != start.y) try poly.append(a, .{ .x = enter_gap_x, .y = corridor_y });
         if (align_x != enter_gap_x) try poly.append(a, .{ .x = align_x, .y = corridor_y });
         if (end.y != corridor_y) try poly.append(a, .{ .x = align_x, .y = end.y });
-        try poly.append(a, end);
-        if (poly.items.len < 2) try poly.append(a, end);
-        return try poly.toOwnedSlice(a);
     }
+    try poly.append(a, end);
+    if (poly.items.len < 2) try poly.append(a, end);
+    return try poly.toOwnedSlice(a);
+}
 
+/// The plain route: follow the virtuals' centres (legacy path), then the
+/// final approach jog into the target port.
+fn plainRoute(
+    a: std.mem.Allocator,
+    horizontal: bool,
+    start: sketch.Point,
+    end: sketch.Point,
+    virtuals: []const u32,
+    geom: anytype,
+    to_side: sketch.Dir4,
+    route_lane: u32,
+    straight: Straight,
+) error{OutOfMemory}![]sketch.Point {
+    var poly: std.ArrayListUnmanaged(sketch.Point) = .empty;
+    try poly.append(a, start);
     var prev = start;
     for (virtuals) |idx| {
         const g = geom[idx];
@@ -421,7 +411,7 @@ pub fn routePolyline(
                 const span_x = absDiff(end.x, prev.x);
                 const want_x_pad: i32 = (if (span_x >= 2) @as(i32, 2) else 1) + @as(i32, @intCast(route_lane));
                 const pad = jogPad(want_x_pad, span_x, straight);
-                const jog = insetPort(end, port_to.side, pad);
+                const jog = insetPort(end, to_side, pad);
                 try poly.append(a, .{ .x = jog.x, .y = prev.y });
                 try poly.append(a, .{ .x = jog.x, .y = end.y });
             }
@@ -434,7 +424,7 @@ pub fn routePolyline(
                 const span_y = absDiff(end.y, prev.y);
                 const want_y_pad: i32 = (if (span_y >= 2) @as(i32, 2) else 1) + @as(i32, @intCast(route_lane));
                 const pad = jogPad(want_y_pad, span_y, straight);
-                const jog = insetPort(end, port_to.side, pad);
+                const jog = insetPort(end, to_side, pad);
                 try poly.append(a, .{ .x = prev.x, .y = jog.y });
                 try poly.append(a, .{ .x = end.x, .y = jog.y });
             }

@@ -3,6 +3,7 @@
 
 const std = @import("std");
 const fan = @import("fan.zig");
+const fan_grid = @import("fan_grid.zig");
 
 const testing = std.testing;
 const TestGeom = struct { x: i32, y: i32, w: u32, h: u32, layer: u32 = 0 };
@@ -199,4 +200,40 @@ test "wrapWideFanIn centres a narrow box on its column's centre, not flush to a 
     fan.wrapWideFanIn(TestGeom, &fans, &geom, 50, 4, 2);
     try testing.expectEqual(@as(u32, 2), fans[0].rows);
     try testing.expectEqual(@as(i32, 5), geom[4].x - geom[2].x);
+}
+
+test "a gridded fan keeps three gap rows between its rows at halved spacing" {
+    // A layer spacing of two rows would leave a two-row gap; the grid keeps
+    // three, and a wider spacing keeps its own gap.
+    try testing.expectEqual(@as(i32, 6), fan_grid.rowStep(3, 1));
+    try testing.expectEqual(@as(i32, 6), fan_grid.rowStep(3, 2));
+    try testing.expectEqual(@as(i32, 8), fan_grid.rowStep(3, 4));
+    var peers = [_]fan.FanEdge{
+        .{ .edge_id = 1, .peer_idx = 1, .role = .middle },
+        .{ .edge_id = 2, .peer_idx = 2, .role = .middle },
+        .{ .edge_id = 3, .peer_idx = 3, .role = .middle },
+        .{ .edge_id = 4, .peer_idx = 4, .role = .middle },
+        .{ .edge_id = 5, .peer_idx = 5, .role = .middle },
+        .{ .edge_id = 6, .peer_idx = 6, .role = .middle },
+    };
+    var fans = [_]fan.Fan{.{ .direction = .out, .pivot_idx = 0, .source_layer = 0, .peers = &peers }};
+    var geom = [_]TestGeom{
+        .{ .x = 60, .y = 0, .w = 20, .h = 3 },
+        .{ .x = 0, .y = 6, .w = 20, .h = 3 },
+        .{ .x = 24, .y = 6, .w = 20, .h = 3 },
+        .{ .x = 48, .y = 6, .w = 20, .h = 3 },
+        .{ .x = 72, .y = 6, .w = 20, .h = 3 },
+        .{ .x = 96, .y = 6, .w = 20, .h = 3 },
+        .{ .x = 120, .y = 6, .w = 20, .h = 3 },
+        .{ .x = 60, .y = 200, .w = 20, .h = 3 },
+    };
+    fan.wrapWideFanOut(TestGeom, &fans, &geom, 60, 4, 1);
+    try testing.expect(fans[0].rows >= 2);
+    var min_y: i32 = std.math.maxInt(i32);
+    var next_y: i32 = std.math.maxInt(i32);
+    for (1..7) |i| min_y = @min(min_y, geom[i].y);
+    for (1..7) |i| if (geom[i].y > min_y) {
+        next_y = @min(next_y, geom[i].y);
+    };
+    try testing.expectEqual(@as(i32, 6), next_y - min_y);
 }

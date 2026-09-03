@@ -46,11 +46,26 @@ fn offSideClearLine(horizontal: bool, want: i32, lo: i32, hi: i32, placements: [
     return if ((found - want) * outward >= 0) found else want;
 }
 
+/// How many rows (TD) or columns (LR) beyond its minimum a detour's
+/// port-adjacent run may be pushed into the gap when the nearer line is
+/// taken by foreign ink: the widening ladder tries every pair of
+/// source/target offsets up to this reach at each distance.
+pub const ROW_REACH: u32 = 2;
+
+/// The offsets of one detour candidate's two port-adjacent runs beyond
+/// their minimum distance from the port (see `outsideDetour`).
+pub const Rows = struct { source_extra: u32 = 0, target_extra: u32 = 0 };
+
 /// Route around the outside of the placed diagram when all local gap lanes
 /// are occupied. The first and last legs remain perpendicular to the ports,
 /// and a decorated end's leg is two cells long so its head cell holds no
 /// corner (`straight`, the straight-through rule of routing_terminal.zig).
+/// `rows` pushes either port-adjacent run further out — a foreign jog on
+/// the nearest gap row leaves the next one free — and a pushed run that
+/// would touch a box (or whose leg would) is null: the builder clears its
+/// own boxes, since the plan-blind clearance gates read only ink.
 /// @guarded-by: route_clearance_test.zig "an outside detour bends two cells out from a decorated end and one from a plain end"
+/// @guarded-by: route_clearance_test.zig "a pushed detour run takes the next gap row and is null where the push meets a box"
 pub fn outsideDetour(
     a: std.mem.Allocator,
     direction: sg.Direction,
@@ -61,9 +76,10 @@ pub fn outsideDetour(
     placements: []const sk.NodePlacement,
     distance: u32,
     straight: Straight,
-) error{OutOfMemory}![]sk.Point {
-    const out_from: i32 = if (straight.from) 2 else 1;
-    const out_to: i32 = if (straight.to) 2 else 1;
+    rows: Rows,
+) error{OutOfMemory}!?[]sk.Point {
+    const out_from: i32 = (if (straight.from) @as(i32, 2) else 1) + @as(i32, @intCast(rows.source_extra));
+    const out_to: i32 = (if (straight.to) @as(i32, 2) else 1) + @as(i32, @intCast(rows.target_extra));
     const start = portPoint(from, port_from);
     const end = portPoint(to, port_to);
     var min_x = @min(start.x, end.x);
@@ -80,10 +96,12 @@ pub fn outsideDetour(
     const points = try a.alloc(sk.Point, 6);
     if (direction == .TD or direction == .BT) {
         const outside_x = if (distance % 2 == 0) min_x - offset else max_x + offset;
-        const source_want = start.y + (if (port_from.side == .south) out_from else -out_from);
-        const target_want = end.y + (if (port_to.side == .north) -out_to else out_to);
-        const source_y = offSideClearLine(true, source_want, @min(outside_x, start.x), @max(outside_x, start.x), placements, if (port_from.side == .south) 1 else -1);
-        const target_y = offSideClearLine(true, target_want, @min(outside_x, end.x), @max(outside_x, end.x), placements, if (port_to.side == .north) -1 else 1);
+        const src_out: i32 = if (port_from.side == .south) 1 else -1;
+        const tgt_out: i32 = if (port_to.side == .north) -1 else 1;
+        const source_y = offSideClearLine(true, start.y + src_out * out_from, @min(outside_x, start.x), @max(outside_x, start.x), placements, src_out);
+        const target_y = offSideClearLine(true, end.y + tgt_out * out_to, @min(outside_x, end.x), @max(outside_x, end.x), placements, tgt_out);
+        if (rows.source_extra != 0 and !pushedRunClear(true, start, src_out, source_y, outside_x, placements)) return null;
+        if (rows.target_extra != 0 and !pushedRunClear(true, end, tgt_out, target_y, outside_x, placements)) return null;
         @memcpy(points, &[_]sk.Point{
             start,
             .{ .x = start.x, .y = source_y },
@@ -94,10 +112,12 @@ pub fn outsideDetour(
         });
     } else {
         const outside_y = if (distance % 2 == 0) min_y - offset else max_y + offset;
-        const source_want = start.x + (if (port_from.side == .east) out_from else -out_from);
-        const target_want = end.x + (if (port_to.side == .west) -out_to else out_to);
-        const source_x = offSideClearLine(false, source_want, @min(outside_y, start.y), @max(outside_y, start.y), placements, if (port_from.side == .east) 1 else -1);
-        const target_x = offSideClearLine(false, target_want, @min(outside_y, end.y), @max(outside_y, end.y), placements, if (port_to.side == .west) -1 else 1);
+        const src_out: i32 = if (port_from.side == .east) 1 else -1;
+        const tgt_out: i32 = if (port_to.side == .west) -1 else 1;
+        const source_x = offSideClearLine(false, start.x + src_out * out_from, @min(outside_y, start.y), @max(outside_y, start.y), placements, src_out);
+        const target_x = offSideClearLine(false, end.x + tgt_out * out_to, @min(outside_y, end.y), @max(outside_y, end.y), placements, tgt_out);
+        if (rows.source_extra != 0 and !pushedRunClear(false, start, src_out, source_x, outside_y, placements)) return null;
+        if (rows.target_extra != 0 and !pushedRunClear(false, end, tgt_out, target_x, outside_y, placements)) return null;
         @memcpy(points, &[_]sk.Point{
             start,
             .{ .x = source_x, .y = start.y },
@@ -108,6 +128,20 @@ pub fn outsideDetour(
         });
     }
     return points;
+}
+
+/// True iff a pushed port-adjacent run — the line `line` (a row when
+/// `horizontal`) from the port's cross coordinate out to `outside` — and
+/// the leg from the port to it touch no box. The leg starts one cell off
+/// the port so the route's own box, which the port sits on, is not read.
+fn pushedRunClear(horizontal: bool, port: sk.Point, outward: i32, line: i32, outside: i32, placements: []const sk.NodePlacement) bool {
+    const none = std.math.maxInt(pb.NodeId);
+    const along = if (horizontal) port.x else port.y;
+    const cross = if (horizontal) port.y else port.x;
+    if (sk.lineTouchesAny(horizontal, line, @min(outside, along), @max(outside, along), placements, none, none)) return false;
+    const leg_lo = @min(cross + outward, line);
+    const leg_hi = @max(cross + outward, line);
+    return !sk.lineTouchesAny(!horizontal, along, leg_lo, leg_hi, placements, none, none);
 }
 
 pub fn dogleg(

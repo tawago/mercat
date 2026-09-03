@@ -183,8 +183,26 @@ pub fn reachReports(
     const input: reach_vector.InputKind = if (bundle_permits_flat) .flat else .clustered;
     for (candidates, out) |cand, *r| {
         r.* = reach_vector.validate(aa, cand.sketch, keys, input) catch .{};
+        // An edge the router laid no ink for (routing.zig `unrouted`) is a
+        // declared pair with no trace — the oracle's own `missing_declared`
+        // event. The oracle reads it on the candidates it validates; on the
+        // ones it skips (clustered input, packed frames) the pair is still
+        // verifiably missing by inspection, and the filter must see it there
+        // too, or a candidate could win the fit tier by dropping edges.
+        // @guarded-by: select_test.zig "an unrouted edge is a missing declared pair on a candidate the oracle skipped"
+        if (r.counts.skipped_clustered != 0 or r.counts.skipped_packed_candidate != 0)
+            r.counts.missing_declared += unroutedEdges(cand.sketch);
     }
     return out;
+}
+
+/// Visible edges of `s` with no polyline at all.
+pub fn unroutedEdges(s: sketch_mod.Sketch) u32 {
+    var n: u32 = 0;
+    for (s.edges) |e| if (e.polyline.len < 2 and e.kind != .invisible) {
+        n += 1;
+    };
+    return n;
 }
 
 /// Canonical node-key table: source raw_id bytes indexed by NodeId

@@ -26,13 +26,22 @@ const rail_closure = @import("../base/rail_closure.zig");
 const port_plan = @import("port_plan.zig");
 const route_clearance = @import("route_clearance.zig");
 const route_detour = @import("route_detour.zig");
+const route_search = @import("route_search.zig");
 
 /// Per-gap extra rows for skip-edge corridors. See routing_polyline.zig.
-pub const skipCorridorExtraRows = rp.skipCorridorExtraRows;
+pub const skipCorridorExtraRows = rt.skipCorridorExtraRows;
 
 /// Per-gap extra rows for offset corner-fed forward terminals. See
 /// routing_terminal.zig.
 pub const terminalApproachExtraRows = rt.terminalApproachExtraRows;
+
+/// The lane loops' acceptance, ladder, detour fallback and base-approach
+/// grow live in route_search.zig; re-exported for the tests that pin them.
+pub const LaneLadder = route_search.LaneLadder;
+pub const detour = route_search.detour;
+pub const growBaseApproach = route_search.growBaseApproach;
+const accepts = route_search.accepts;
+const unrouted = route_search.unrouted;
 
 pub const findGraphEdge = rt.findGraphEdge;
 pub const findPlacement = rt.findPlacement;
@@ -224,11 +233,10 @@ pub fn buildEdgesWithPlan(
                         try fan_polyline.buildPolylineAt(a, graph.direction, routed_fan, pivot_p, peer_p, ep.source, ep.target, routed_role, lane, rail_lift, placements, straight);
                     if (try accepts(a, orig, poly, straight, out.items, bar_views, placements, allocated_ports.edges, bundles)) break;
                     if (lane >= 16) {
-                        if (orig.kind == .invisible) {
-                            poly = try route_detour.clearInvisiblePath(a, orig.id, orig.kind, src_p, dst_p, ep.source, ep.target, placements, out.items, bundles);
-                            break;
-                        }
-                        poly = try detour(a, graph.direction, orig, src_p, dst_p, ep, straight, out.items, bar_views, placements, allocated_ports.edges, bundles);
+                        poly = if (orig.kind == .invisible)
+                            try route_detour.clearInvisiblePath(a, orig.id, orig.kind, src_p, dst_p, ep.source, ep.target, placements, out.items, bundles)
+                        else
+                            (try detour(a, graph.direction, orig, src_p, dst_p, ep, straight, out.items, bar_views, placements, allocated_ports.edges, bundles)) orelse try unrouted(a);
                         break;
                     }
                 }
@@ -255,12 +263,12 @@ pub fn buildEdgesWithPlan(
         }
         if (orig.from == orig.to) {
             const node_p = findPlacement(placements, orig.from);
-            const sl = if (bundles.memberships.len == 0)
+            // A planned self loop walks its candidate ladder through the same
+            // acceptance as every other route (route_search.selfLoop).
+            const sl: self_loops.SelfLoop = if (bundles.memberships.len == 0)
                 try self_loops.selfLoop(a, graph.direction, node_p, placements)
-            else blk: {
-                const ep = allocated_ports.forEdge(orig.id) orelse unreachable;
-                break :blk try self_loops.selfLoopAt(a, graph.direction, node_p, placements, ep.source, ep.target);
-            };
+            else
+                try route_search.selfLoop(a, graph.direction, orig, node_p, allocated_ports.forEdge(orig.id) orelse unreachable, out.items, bar_views, placements, allocated_ports.edges, bundles);
             try out.append(a, .{
                 .id = orig.id,
                 .from = orig.from,
@@ -342,17 +350,16 @@ pub fn buildEdgesWithPlan(
                 poly = try route_detour.shiftInteriorRun(a, poly, eff_dir, 2 * ((lane -| ep.route_lane) + 1));
             if (try accepts(a, orig, poly, straight, out.items, bar_views, placements, allocated_ports.edges, bundles)) break;
             if (ladder.next()) continue;
-            if (orig.kind == .invisible) {
-                poly = try route_detour.clearInvisiblePath(a, orig.id, orig.kind, eff_from_p, eff_to_p, ep.source, ep.target, placements, out.items, bundles);
-                break;
-            }
-            poly = try detour(a, eff_dir, orig, eff_from_p, eff_to_p, ep, straight, out.items, bar_views, placements, allocated_ports.edges, bundles);
+            poly = if (orig.kind == .invisible)
+                try route_detour.clearInvisiblePath(a, orig.id, orig.kind, eff_from_p, eff_to_p, ep.source, ep.target, placements, out.items, bundles)
+            else
+                (try detour(a, eff_dir, orig, eff_from_p, eff_to_p, ep, straight, out.items, bar_views, placements, allocated_ports.edges, bundles)) orelse try unrouted(a);
             break;
         }
 
         const port_from = eff_port_from;
         const port_to = rp.reconcileTerminalSide(poly, eff_to_p, eff_port_to);
-        if (!rp.ensureBaseStub(poly, placements, orig.from, orig.to))
+        if (poly.len != 0 and !rp.ensureBaseStub(poly, placements, orig.from, orig.to))
             poly = try growBaseApproach(a, poly, placements, orig, out.items, bar_views, allocated_ports.edges, bundles);
 
         try out.append(a, .{
@@ -389,104 +396,6 @@ pub fn buildEdges(
     fans: []const fan_mod.Fan,
 ) error{OutOfMemory}!EdgesResult {
     return buildEdgesWithPlan(a, graph, lg, geom, placements, fans, .{}, try port_plan.midpoint(a, graph, placements));
-}
-
-/// The lane order a forward route tries: its planned lane and every lane
-/// above it, then the lanes below it nearest first. The plan's lane keeps
-/// a gap's runs apart but is a preference, not a licence: a neighbour's
-/// base-approach grow may have taken the planned row, and a route that
-/// clears nowhere above may still clear below. The outside detour stays
-/// the last resort.
-/// @guarded-by: routing_test.zig "the lane ladder climbs from the planned lane, then descends to lane 0, then ends"
-pub const LaneLadder = struct {
-    planned: u32,
-    lane: u32,
-    descending: bool = false,
-
-    /// Advance to the next lane; false when every lane was tried.
-    pub fn next(self: *LaneLadder) bool {
-        if (!self.descending) {
-            if (self.lane < 16) {
-                self.lane += 1;
-                return true;
-            }
-            if (self.planned == 0) return false;
-            self.descending = true;
-            self.lane = self.planned - 1;
-            return true;
-        }
-        if (self.lane == 0) return false;
-        self.lane -= 1;
-        return true;
-    }
-};
-
-/// The exact break condition of every lane loop: the route keeps each
-/// decorated terminal cell straight AND clears every clearance gate.
-fn accepts(
-    a: std.mem.Allocator,
-    edge: sg.Edge,
-    poly: []const sketch.Point,
-    straight: rp.Straight,
-    existing: []const sketch.EdgePath,
-    bar_views: []const sketch.Rail,
-    placements: []const sketch.NodePlacement,
-    edge_ports: []const port_plan.EdgePorts,
-    bundles: ledger.RealizedBundles,
-) error{OutOfMemory}!bool {
-    return rt.terminalsStraight(poly, straight) and
-        try route_clearance.polylineClears(a, edge.id, edge.kind, poly, existing, bar_views, placements, edge_ports, bundles, edge.from, edge.to);
-}
-
-/// The outside-detour ladder every lane loop falls to: widen until the
-/// detour is accepted or the search limit is reached (the last candidate
-/// ships either way, its crossings priced by the score).
-fn detour(
-    a: std.mem.Allocator,
-    direction: sg.Direction,
-    edge: sg.Edge,
-    from_p: sketch.NodePlacement,
-    to_p: sketch.NodePlacement,
-    ep: port_plan.EdgePorts,
-    straight: rp.Straight,
-    existing: []const sketch.EdgePath,
-    bar_views: []const sketch.Rail,
-    placements: []const sketch.NodePlacement,
-    edge_ports: []const port_plan.EdgePorts,
-    bundles: ledger.RealizedBundles,
-) error{OutOfMemory}![]sketch.Point {
-    var distance: u32 = 0;
-    const limit = route_detour.detourLimit(existing.len);
-    while (true) : (distance += 1) {
-        const poly = try route_detour.outsideDetour(a, direction, from_p, to_p, ep.source, ep.target, placements, distance, straight);
-        if ((try accepts(a, edge, poly, straight, existing, bar_views, placements, edge_ports, bundles)) or distance >= limit) return poly;
-    }
-}
-
-/// Apply the base-approach GROW (routing_terminal.zig) to a freshly-routed
-/// terminal and keep it only if the grown geometry still clears the same gates
-/// the lane loop enforces — a grown final run can push one cell into a
-/// neighbour, and pulling the jog toward the source can shorten the first
-/// leg into a decorated departure cell, so it MUST re-clear through the
-/// same acceptance (straight terminals, then clearance). `satisfyApproach`
-/// never mutates its input, so reverting to the ungrown polyline is exact.
-/// Returns the grown polyline when it fires and is accepted, else the original.
-/// @guarded-by: routing_test.zig "the base-approach grow is reverted when it would bend a decorated departure cell"
-pub fn growBaseApproach(
-    a: std.mem.Allocator,
-    poly: []sketch.Point,
-    placements: []const sketch.NodePlacement,
-    edge: sg.Edge,
-    existing: []const sketch.EdgePath,
-    bar_views: []const sketch.Rail,
-    edge_ports: []const port_plan.EdgePorts,
-    bundles: ledger.RealizedBundles,
-) error{OutOfMemory}![]sketch.Point {
-    const grown = try rt.satisfyApproach(a, poly, placements);
-    if (grown.ptr == poly.ptr) return poly;
-    if (try accepts(a, edge, grown, rp.Straight.forEdge(edge), existing, bar_views, placements, edge_ports, bundles))
-        return grown;
-    return poly;
 }
 
 test {

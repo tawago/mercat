@@ -398,3 +398,26 @@ test "a member stroke's rail end must meet its tap, its private end the perimete
     }
     try testing.expect(saw_off);
 }
+
+test "an edge with no polyline counts as unrouted, not off-perimeter" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const nodes = [_]sketch.NodePlacement{ makeNode(1, 0, 0, 5, 3, null), makeNode(2, 20, 0, 5, 3, null) };
+    const unrouted = makeEdge(1, 1, 2, &.{});
+    var invisible = makeEdge(2, 1, 2, &.{});
+    invisible.kind = .invisible;
+    const edges = [_]sketch.EdgePath{ unrouted, invisible };
+    const s: sketch.Sketch = .{
+        .bbox = .{ .x = 0, .y = 0, .w = 25, .h = 3 },
+        .direction = .LR,
+        .nodes = &nodes,
+        .clusters = &.{},
+        .edges = &edges,
+        .diagnostics = &.{},
+        .budget = .{ .max_width = 80, .rung = 0 },
+    };
+    const c = validate_mod.counts(try validate(a, s), s);
+    try testing.expectEqual(@as(u32, 1), c.edge_unrouted);
+    try testing.expectEqual(@as(u32, 0), c.path_off_perimeter);
+}

@@ -12,6 +12,7 @@
 
 const std = @import("std");
 const sugiyama = @import("sugiyama.zig");
+const fan_grid = @import("fan_grid.zig");
 
 /// Reflow every over-wide layer of `lg` into a stacked grid. `geom` is
 /// parallel to `lg.nodes`; `G` must expose `x: i32, y: i32, w: u32, h: u32`
@@ -97,9 +98,8 @@ fn reflowOneLayer(
     if (cols >= n) cols = n - 1;
     const rows: u32 = (n + cols - 1) / cols;
 
-    // Vertical step between grid sub-rows: tallest node + gap so sub-rows never touch and an edge can descend between them. // @guarded-by: layout/rank_grid_test.zig "reflowWideRanks: row_step (max_h + v_spacing + 1) keeps a tall sub-row from touching the row below it"
-    const row_step: i32 = @as(i32, @intCast(max_h)) +
-        @as(i32, @intCast(v_spacing)) + 1;
+    // Vertical step between grid sub-rows: tallest node + the grid gap (fan_grid.rowStep: at least three rows, so a lower sub-row's arrival can bend outside an upper sub-row's departure cell). // @guarded-by: layout/rank_grid_test.zig "reflowWideRanks: row_step (max_h + the grid gap) keeps a tall sub-row three rows clear of the row below it"
+    const row_step = fan_grid.rowStep(max_h, v_spacing);
 
     // Push every node strictly below base_y (real or virtual, incl. same-layer virtuals) down by added_h. @guarded-by: layout/rank_grid_test.zig "rank-grid pushes only strictly-below nodes by added_h; same-layer and above nodes are untouched"
     const base_y: i32 = geom[reals[0]].y;

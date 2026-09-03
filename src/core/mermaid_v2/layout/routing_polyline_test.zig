@@ -452,3 +452,31 @@ test "a skip corridor past its lane budget keeps a decorated arrival straight" {
     try testing.expectEqual(@as(i32, 18), decorated[decorated.len - 2].y);
     try testing.expectEqual(@as(i32, 24), decorated[decorated.len - 2].x);
 }
+
+test "a one-layer route runs the corridor beside a box in its way instead of through it" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    // Source rows 0..2 and target rows 20..22 share columns 0..7; a foreign
+    // box sits between them on the same columns, where a plain jog would run.
+    const from_p = mkPlacement(0, .{ .x = 0, .y = 0, .w = 8, .h = 3 });
+    const to_p = mkPlacement(1, .{ .x = 0, .y = 20, .w = 8, .h = 3 });
+    const blocker = mkPlacement(2, .{ .x = 0, .y = 10, .w = 8, .h = 3 });
+    const placements = [_]sketch.NodePlacement{ from_p, to_p, blocker };
+    const no_geom: []const Geom = &.{};
+    const poly = try rp.routePolyline(a, .TD, from_p, to_p, .{ .node = 0, .side = .south, .offset = 4 }, .{ .node = 1, .side = .north, .offset = 4 }, &.{}, no_geom, &placements, 0, 0, 0, .{});
+    try testing.expect(poly.len >= 4);
+    var i: usize = 0;
+    while (i + 1 < poly.len) : (i += 1) {
+        var c = poly[i];
+        const q = poly[i + 1];
+        while (true) {
+            const inside = c.x >= blocker.rect.x and c.x < blocker.rect.right() and c.y >= blocker.rect.y and c.y < blocker.rect.bottom();
+            try testing.expect(!inside);
+            if (c.x == q.x and c.y == q.y) break;
+            c = .{ .x = c.x + std.math.sign(q.x - c.x), .y = c.y + std.math.sign(q.y - c.y) };
+        }
+    }
+    try testing.expectEqual(@as(i32, 4), poly[poly.len - 1].x);
+    try testing.expectEqual(@as(i32, 20), poly[poly.len - 1].y);
+}

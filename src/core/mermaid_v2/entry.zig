@@ -224,6 +224,12 @@ pub fn renderFlowchart(
         break :blk validate_mod.counts(result, sketch_val);
     };
 
+    // An unrouted edge is honest degradation of one relation: the sketch
+    // declares it and draws nothing, so the reader is told which one.
+    for (sketch_val.edges) |e| if (e.polyline.len < 2 and e.kind != .invisible) {
+        std.log.warn("mermaid_v2: edge {d} ({s} -> {s}) could not be routed without illegal ink and is not drawn", .{ e.id, nodeRawId(graph, e.from), nodeRawId(graph, e.to) });
+    };
+
     const raster_report = rasterize(aa, sketch_val, options.subgraph_edges) catch |err| {
         std.log.warn("mermaid_v2 rasterize failed: {s}", .{@errorName(err)});
         return fallback(source, "v2 raster error");
@@ -264,6 +270,13 @@ pub fn renderFlowchart(
     };
 }
 
+/// The source spelling of a node by its id (sketch node ids are graph
+/// node ids, not positions in `graph.nodes`).
+fn nodeRawId(graph: sem_graph.SemGraph, id: sem_graph.NodeId) []const u8 {
+    for (graph.nodes) |n| if (n.id == id) return n.raw_id;
+    return "?";
+}
+
 fn resolveBundlePermits(allocator: std.mem.Allocator, graph: sem_graph.SemGraph) !permits_mod.BuildResult {
     const result = try permits_mod.build(allocator, graph, .joined);
     if (result.report.bundle_permits_skipped_clustered) return result;
@@ -293,7 +306,9 @@ fn resolveBundlePermits(allocator: std.mem.Allocator, graph: sem_graph.SemGraph)
 /// tooling; demotions change doc meaning, never fields. New fields are
 /// appended at the end: `tip_not_port` (a head whose tip is not on its
 /// port) and `arm_into_head` (an arm into a decoration cell from a
-/// lateral side, refused or shipped) joined 2026-09-03.
+/// lateral side, refused or shipped) joined 2026-09-03, then
+/// `v_edge_unrouted` (a visible edge the router laid no ink for, because
+/// every producer refused every candidate).
 fn emitIntegrityLine(
     v: validate_mod.Counts,
     raster_report: rasterize_mod.RasterReport,
@@ -302,7 +317,7 @@ fn emitIntegrityLine(
     closure: ledger.ClosureCounts,
 ) void {
     std.debug.print(
-        "mercat-integrity: v_node_overlap={d} v_path_off_perimeter={d} v_path_through_interior={d} v_cluster={d} v_bbox={d} r_edge_cells_lost={d} r_labels_dropped={d} r_labels_displaced={d} r_phantom_arms={d} x_legal_crossing={d} x_foreign_junction={d} x_arrowhead_transit={d} b_frame_bridge={d} b_border_fusion_refused={d} a_arrowhead_base={d} skipped_lines={d} rail_deco_mixed={d} rail_member_style_mixed={d} rail_star_violation={d} rail_closure_undeclared={d} co_undeclared={d} co_double_discharge={d} tip_not_port={d} arm_into_head={d}\n",
+        "mercat-integrity: v_node_overlap={d} v_path_off_perimeter={d} v_path_through_interior={d} v_cluster={d} v_bbox={d} r_edge_cells_lost={d} r_labels_dropped={d} r_labels_displaced={d} r_phantom_arms={d} x_legal_crossing={d} x_foreign_junction={d} x_arrowhead_transit={d} b_frame_bridge={d} b_border_fusion_refused={d} a_arrowhead_base={d} skipped_lines={d} rail_deco_mixed={d} rail_member_style_mixed={d} rail_star_violation={d} rail_closure_undeclared={d} co_undeclared={d} co_double_discharge={d} tip_not_port={d} arm_into_head={d} v_edge_unrouted={d}\n",
         .{
             v.node_overlap,
             v.path_off_perimeter,
@@ -328,6 +343,7 @@ fn emitIntegrityLine(
             closure.co_double_discharge,
             raster_report.arrow_base.tip_not_port,
             raster_report.armIntoHead(),
+            v.edge_unrouted,
         },
     );
 }

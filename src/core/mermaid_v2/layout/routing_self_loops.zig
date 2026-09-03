@@ -98,6 +98,64 @@ pub fn selfLoopAt(
     return .{ .polyline = poly, .port_from = port_from, .port_to = port_to };
 }
 
+/// How far the candidate ladder walks the top run above the node (beyond
+/// `OFF_V`) and the east arm past the border (beyond 1) before it ends.
+const LIFT_REACH: i32 = 4;
+const OVERSHOOT_REACH: i32 = OFF_H + 2;
+
+/// The `step`-th candidate of the port-allocated loop, or null past the
+/// last one. A self loop is routed like every other edge: the caller
+/// clears each candidate through the lane loop's acceptance (straight
+/// re-entry, reservations, rail ink, foreign ink) and ships the first that
+/// clears, so a loop never lies along another edge's run and its decorated
+/// re-entry keeps a straight approach. TD/BT walk the top run's lift
+/// outward first, then the east overshoot, and end on the lowest lift that
+/// still leaves two straight cells before the north port (a box above the
+/// node can block every higher row); LR/RL walk the south depth. The first
+/// candidate is `selfLoopAt`'s lifted shape on the nearest overshoot.
+/// @guarded-by: routing_test.zig "a self loop lifts past foreign ink instead of lying along it"
+pub fn loopCandidate(
+    a: std.mem.Allocator,
+    dir: sg.Direction,
+    node_p: sketch.NodePlacement,
+    port_from: sketch.Port,
+    port_to: sketch.Port,
+    step: u32,
+) error{OutOfMemory}!?SelfLoop {
+    const r = node_p.rect;
+    const k: i32 = @intCast(step);
+    if (dir == .TD or dir == .BT) {
+        const per_lift = OVERSHOOT_REACH;
+        if (k >= per_lift * (LIFT_REACH + 2)) return null;
+        const rung = @divTrunc(k, per_lift);
+        const lift = if (rung <= LIFT_REACH) OFF_V + rung else OFF_V - 1;
+        const overshoot = 1 + @rem(k, per_lift);
+        if (r.y < lift) return null;
+        const east_y = r.y + @as(i32, @intCast(port_from.offset));
+        const north_x = r.x + @as(i32, @intCast(port_to.offset));
+        const loop_x = r.right() - 1 + overshoot;
+        const loop_y = r.y - lift;
+        const poly = try a.alloc(sketch.Point, 5);
+        @memcpy(poly, &[_]sketch.Point{
+            .{ .x = r.right() - 1, .y = east_y }, .{ .x = loop_x, .y = east_y },
+            .{ .x = loop_x, .y = loop_y },        .{ .x = north_x, .y = loop_y },
+            .{ .x = north_x, .y = r.y },
+        });
+        return .{ .polyline = poly, .port_from = port_from, .port_to = port_to };
+    }
+    if (k > LIFT_REACH) return null;
+    const exit_x = r.x + @as(i32, @intCast(port_from.offset));
+    const enter_x = r.x + @as(i32, @intCast(port_to.offset));
+    const south_y = r.bottom() - 1;
+    const loop_y = south_y + OFF_V + k;
+    const poly = try a.alloc(sketch.Point, 4);
+    @memcpy(poly, &[_]sketch.Point{
+        .{ .x = exit_x, .y = south_y }, .{ .x = exit_x, .y = loop_y },
+        .{ .x = enter_x, .y = loop_y }, .{ .x = enter_x, .y = south_y },
+    });
+    return .{ .polyline = poly, .port_from = port_from, .port_to = port_to };
+}
+
 /// Nearest overshoot column east of the node whose lifted top-arm geometry
 /// (east arm, vertical rise, top run, north descent) clears every foreign box,
 /// or null when none within `OFF_H` is clear.

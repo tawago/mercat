@@ -288,3 +288,23 @@ test "a long member gets a one-cell drop whose tap continues" {
     try testing.expectEqual(@as(sketch.NodeId, 2), built.taps[1].node);
     try testing.expectEqual(@as(i32, 33), built.rail.crossbar[1].x);
 }
+
+test "a long member's tap column slides off an intermediate box" {
+    // Fan-IN at pivot 0 (bottom); the long leaf 2 sits two layers up, and
+    // an intermediate box 1 covers columns 20..29 of the layer between.
+    const pivot = mkPlace(0, 15, 20, 20, 3);
+    const between = mkPlace(1, 20, 10, 10, 3);
+    const leaf = mkPlace(2, 22, 0, 6, 3);
+    const placements = [_]sketch.NodePlacement{ pivot, between, leaf };
+    // The virtual's centre 25 runs under box 1; the nearest touch-free column is 19 or 30.
+    const slid = fan_rail.longColumn(25, .in, pivot, leaf, &placements);
+    try testing.expect(slid == 19 or slid == 30);
+    // A centre already clear of every intermediate box stays put.
+    try testing.expectEqual(@as(i32, 32), fan_rail.longColumn(32, .in, pivot, leaf, &placements));
+    // Fan-OUT reads the span the other way round (pivot above, leaf below).
+    const pivot_top = mkPlace(0, 15, 0, 20, 3);
+    const leaf_bottom = mkPlace(2, 22, 20, 6, 3);
+    const out_placements = [_]sketch.NodePlacement{ pivot_top, between, leaf_bottom };
+    const slid_out = fan_rail.longColumn(25, .out, pivot_top, leaf_bottom, &out_placements);
+    try testing.expect(slid_out == 19 or slid_out == 30);
+}

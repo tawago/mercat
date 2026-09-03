@@ -12,12 +12,13 @@
 //! Shape: leave the tap straight (the drop cell must be a plain vertical),
 //! jog once on a gap row, arrive straight; when no jog row clears, run a
 //! separate corridor column between two jogs (the skip corridor's own
-//! search). When nothing clears every gate, the first candidate that at
-//! least keeps out of every box ships, its crossings priced by the score
-//! like any other route's. Only a stroke that cannot keep out of a box is
-//! REFUSED, and the caller drops that member from its rail — the theory's
+//! search). A stroke that clears no gate in any shape is REFUSED — a
+//! candidate the gates refused is never shipped, since its refusal names
+//! ink that would lie collinear with a foreign run or enter a decoration
+//! cell — and the caller drops that member from its rail: the theory's
 //! per-member degradation. (A refused member keeps its bundle's shared
-//! port, so refusing lightly sends a private route into a rail's stem.)
+//! port; its private route then clears against the rail's stem like any
+//! other, and goes unrouted when nothing clears.)
 //!
 //! Allowed imports (layout zone): std + sem_graph + sketch + siblings.
 
@@ -146,7 +147,8 @@ pub fn buildAll(
 /// `[lo, hi]` so both approaches keep a straight cell. Tries the preferred
 /// row first, then its neighbours, then a two-jog corridor column; ships the
 /// first that clears, or null when none does.
-fn route(
+/// @guarded-by: member_stroke_test.zig "a long member whose stroke clears nowhere leaves its rail instead of shipping a refused stroke"
+pub fn route(
     a: std.mem.Allocator,
     orig: sg.Edge,
     start: sketch.Point,
@@ -161,14 +163,12 @@ fn route(
     bundles: pb.RealizedBundles,
     reserved_columns: []const i32,
 ) Error!?[]sketch.Point {
-    var fallback: ?[]sketch.Point = null;
     if (start.x == end.x) {
         const poly = try a.alloc(sketch.Point, 2);
         poly[0] = start;
         poly[1] = end;
         if (!ownsReserved(poly, reserved_columns) and try clears(a, orig, poly, existing, bar_views, placements, allocated_ports, bundles)) return poly;
-        if (!ownsReserved(poly, reserved_columns) and !touchesBox(poly, placements, orig)) fallback = poly;
-        return fallback;
+        return null;
     }
     if (lo > hi) return null;
     const preferred = @min(@max(jog, lo), hi);
@@ -183,7 +183,6 @@ fn route(
             poly[2] = .{ .x = end.x, .y = row };
             poly[3] = end;
             if (!ownsReserved(poly, reserved_columns) and try clears(a, orig, poly, existing, bar_views, placements, allocated_ports, bundles)) return poly;
-            if (fallback == null and !ownsReserved(poly, reserved_columns) and !touchesBox(poly, placements, orig)) fallback = poly;
         }
     }
     // Two jogs around a corridor column the boxes leave clear.
@@ -198,10 +197,9 @@ fn route(
             poly[4] = .{ .x = end.x, .y = hi };
             poly[5] = end;
             if (!ownsReserved(poly, reserved_columns) and try clears(a, orig, poly, existing, bar_views, placements, allocated_ports, bundles)) return poly;
-            if (fallback == null and !ownsReserved(poly, reserved_columns) and !touchesBox(poly, placements, orig)) fallback = poly;
         }
     }
-    return fallback;
+    return null;
 }
 
 /// True iff a vertical segment of `poly` runs down a reserved column.
@@ -210,25 +208,6 @@ fn ownsReserved(poly: []const sketch.Point, reserved: []const i32) bool {
     while (i + 1 < poly.len) : (i += 1) {
         if (poly[i].x != poly[i + 1].x or poly[i].y == poly[i + 1].y) continue;
         for (reserved) |x| if (x == poly[i].x) return true;
-    }
-    return false;
-}
-
-/// Box termination over the stroke's stretch between its two ends (the
-/// ends themselves are rail or port cells): true iff any straight segment
-/// touches a box other than the member's own two.
-fn touchesBox(poly: []const sketch.Point, placements: []const sketch.NodePlacement, orig: sg.Edge) bool {
-    var i: usize = 0;
-    while (i + 1 < poly.len) : (i += 1) {
-        var p = poly[i];
-        var q = poly[i + 1];
-        if (i == 0) p = if (p.y < q.y) .{ .x = p.x, .y = p.y + 1 } else .{ .x = p.x, .y = p.y - 1 };
-        if (i + 2 == poly.len) q = if (q.y > p.y) .{ .x = q.x, .y = q.y - 1 } else if (q.y < p.y) .{ .x = q.x, .y = q.y + 1 } else q;
-        if (p.x == q.x) {
-            if (sketch.columnTouchesAny(p.x, @min(p.y, q.y), @max(p.y, q.y), placements, orig.from, orig.to)) return true;
-        } else if (p.y == q.y) {
-            if (sketch.rowTouchesAny(p.y, @min(p.x, q.x), @max(p.x, q.x), placements, orig.from, orig.to)) return true;
-        }
     }
     return false;
 }
@@ -256,54 +235,12 @@ fn clears(
     // foreign box is refused even where the plan-aware gates stand down.
     if (try route_clearance.blocked(a, orig.id, orig.kind, inner.items, existing, bundles, placements, orig.from, orig.to)) return false;
     // Rail ink is another owner's: a stroke may cross a rail's run, never
-    // lie along it or on its stem or drops.
-    if (try ridesRail(a, inner.items, bar_views)) return false;
+    // lie along it or on its stem or drops (`route_clearance.ridesRail`,
+    // one of the gates below).
     return route_clearance.polylineClears(a, orig.id, orig.kind, inner.items, existing, bar_views, placements, allocated_ports.edges, bundles, orig.from, orig.to);
-}
-
-/// True iff a segment of `poly` shares two or more consecutive cells with a
-/// rail's stem, crossbar, or drop — collinear overlap, as opposed to a
-/// single-cell transversal crossing.
-fn ridesRail(a: std.mem.Allocator, poly: []const sketch.Point, rails: []const sketch.Rail) Error!bool {
-    var cells: std.AutoArrayHashMapUnmanaged(sketch.Point, void) = .empty;
-    defer cells.deinit(a);
-    for (rails) |rail| {
-        var i: usize = 0;
-        while (i + 1 < rail.stem.len) : (i += 1) try addLine(a, &cells, rail.stem[i], rail.stem[i + 1]);
-        try addLine(a, &cells, rail.crossbar[0], rail.crossbar[1]);
-        for (rail.taps) |tap| try addLine(a, &cells, tap.at, tap.landing);
-    }
-    var i: usize = 0;
-    while (i + 1 < poly.len) : (i += 1) {
-        const p = poly[i];
-        const q = poly[i + 1];
-        const dx: i32 = std.math.sign(q.x - p.x);
-        const dy: i32 = std.math.sign(q.y - p.y);
-        if (dx == 0 and dy == 0) continue;
-        var run: u32 = 0;
-        var c = p;
-        while (true) : (c = .{ .x = c.x + dx, .y = c.y + dy }) {
-            if (cells.contains(c)) {
-                run += 1;
-                if (run >= 2) return true;
-            } else run = 0;
-            if (c.x == q.x and c.y == q.y) break;
-        }
-    }
-    return false;
-}
-
-fn addLine(a: std.mem.Allocator, cells: *std.AutoArrayHashMapUnmanaged(sketch.Point, void), p: sketch.Point, q: sketch.Point) Error!void {
-    const dx: i32 = std.math.sign(q.x - p.x);
-    const dy: i32 = std.math.sign(q.y - p.y);
-    var c = p;
-    while (true) : (c = .{ .x = c.x + dx, .y = c.y + dy }) {
-        try cells.put(a, c, {});
-        if (c.x == q.x and c.y == q.y) break;
-        if (dx == 0 and dy == 0) break;
-    }
 }
 
 test {
     std.testing.refAllDecls(@This());
+    _ = @import("member_stroke_test.zig");
 }

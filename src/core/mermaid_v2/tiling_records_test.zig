@@ -66,6 +66,13 @@ const corpus = [_][]const u8{
     "flowchart TD\n  A --> B1\n  A --> B2\n  A --> B3\n  A --> B4\n  A --> B5\n  A --> B6\n  A --> B7\n  A --> B8\n",
     "flowchart TD\n  subgraph S1\n    A <-->|a longer label 0| C0\n    A -.->|a longer label 1| C1\n    A -.-> C2\n    A --- C3\n  end\n  C0 -.-> OUT\n  OUT -.- A\n",
     refused_clustered_fan_source,
+    // A clean clustered fan: its star rail files a first-class claim inside
+    // a cluster. The mixed-class clustered fan above no longer supplies one —
+    // its authored-direction candidate has a member no producer can lay
+    // legally (a decorated arrival under its pivot's rail stem) and now
+    // degrades to an unrouted edge instead of a shipped overlap, and the
+    // rotation that wins carries no rail.
+    "flowchart TD\n  subgraph S1\n    A --> B\n    A --> C\n    A --> D\n  end\n  D --> E\n",
 };
 
 const widths = [_]u32{ 60, 120 };

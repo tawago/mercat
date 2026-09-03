@@ -6,15 +6,36 @@ const sg = @import("../sem_graph.zig");
 const sk = @import("../sketch.zig");
 
 const Cell = struct { x: i32, y: i32 };
+/// The arms a cell's ink shows, one per side: the glyph the raster will
+/// draw there reaches its neighbour on every set side.
+const Arms = struct {
+    north: bool = false,
+    south: bool = false,
+    east: bool = false,
+    west: bool = false,
+
+    fn toward(self: *Arms, from: Cell, to: Cell) void {
+        if (to.x > from.x) self.east = true;
+        if (to.x < from.x) self.west = true;
+        if (to.y > from.y) self.south = true;
+        if (to.y < from.y) self.north = true;
+    }
+};
+
 const Pass = struct {
     horizontal: bool = false,
     vertical: bool = false,
     bend: bool = false,
+    arms: Arms = .{},
 
     fn merge(self: *Pass, other: Pass) void {
         self.horizontal = self.horizontal or other.horizontal;
         self.vertical = self.vertical or other.vertical;
         self.bend = self.bend or other.bend;
+        self.arms.north = self.arms.north or other.arms.north;
+        self.arms.south = self.arms.south or other.arms.south;
+        self.arms.east = self.arms.east or other.arms.east;
+        self.arms.west = self.arms.west or other.arms.west;
     }
 };
 
@@ -79,6 +100,39 @@ pub fn conflictsRailArrows(a: std.mem.Allocator, polyline: []const sk.Point, rai
     return false;
 }
 
+/// True iff a segment of `polyline` shares two or more consecutive cells
+/// with a rail's stem, crossbar, or drop: collinear overlap with another
+/// owner's ink (a junction glyph with no licence behind it), as opposed to
+/// a single-cell transversal crossing, which is legal.
+/// @guarded-by: route_clearance_test.zig "a route may cross a rail's run but never lie along it"
+pub fn ridesRail(a: std.mem.Allocator, polyline: []const sk.Point, rails: []const sk.Rail) error{OutOfMemory}!bool {
+    var ink: CellMap = .empty;
+    defer ink.deinit(a);
+    for (rails) |rail| {
+        try cellsInto(a, &ink, rail.stem);
+        try cellsInto(a, &ink, &rail.crossbar);
+        for (rail.taps) |tap| try cellsInto(a, &ink, &[_]sk.Point{ tap.at, tap.landing });
+    }
+    if (ink.count() == 0) return false;
+    var i: usize = 0;
+    while (i + 1 < polyline.len) : (i += 1) {
+        var c = polyline[i];
+        const q = polyline[i + 1];
+        const dx = std.math.sign(q.x - c.x);
+        const dy = std.math.sign(q.y - c.y);
+        if (dx == 0 and dy == 0) continue;
+        var run: u32 = 0;
+        while (true) : (c = .{ .x = c.x + dx, .y = c.y + dy }) {
+            if (ink.contains(.{ .x = c.x, .y = c.y })) {
+                run += 1;
+                if (run >= 2) return true;
+            } else run = 0;
+            if (c.x == q.x and c.y == q.y) break;
+        }
+    }
+    return false;
+}
+
 pub fn conflictsRailJunctions(a: std.mem.Allocator, polyline: []const sk.Point, rails: []const sk.Rail) error{OutOfMemory}!bool {
     var candidate = try cells(a, polyline);
     defer candidate.deinit(a);
@@ -135,12 +189,14 @@ pub fn conflictsReservedTerminals(a: std.mem.Allocator, edge: pb.EdgeId, polylin
 /// An undecorated cell is a future plain run: collinear occupancy or a bend
 /// there claims it, a perpendicular through-run is a legal crossing. A
 /// decorated cell is a future decoration cell: it blocks all transit, and
-/// its two lateral neighbours admit nothing but a run parallel to the port
-/// axis — a bend or a run toward the cell would put an arm into the head.
+/// its two lateral neighbours are guarded against foreign arms — ink there
+/// whose glyph reaches the head cell (a run toward it, or a bend whose arm
+/// faces it). A run parallel to the port axis, and a bend that turns away
+/// from the head, show no arm on the head's side and are admitted.
 /// @guarded-by: route_clearance_test.zig "a reserved departure blocks collinear occupancy and admits a perpendicular crossing"
 /// @guarded-by: route_clearance_test.zig "a decorated departure cell blocks even a perpendicular crossing"
 /// @guarded-by: route_clearance_test.zig "a decorated arrival cell blocks even a perpendicular crossing"
-/// @guarded-by: route_clearance_test.zig "a decorated terminal's lateral neighbours refuse a foreign bend and a foreign run toward the head, admit a parallel through-run"
+/// @guarded-by: route_clearance_test.zig "a decorated terminal's lateral neighbours refuse a foreign arm toward the head, admit a parallel through-run and a bend turning away"
 fn reservedConflict(candidate: CellMap, reserved: sk.Point, side: sk.Dir4, decorated: bool) bool {
     const vertical = side == .north or side == .south;
     if (candidate.get(.{ .x = reserved.x, .y = reserved.y })) |theirs| {
@@ -149,14 +205,12 @@ fn reservedConflict(candidate: CellMap, reserved: sk.Point, side: sk.Dir4, decor
         if (!transversal(theirs, run)) return true;
     }
     if (!decorated) return false;
-    const laterals = if (vertical)
-        [2]Cell{ .{ .x = reserved.x - 1, .y = reserved.y }, .{ .x = reserved.x + 1, .y = reserved.y } }
-    else
-        [2]Cell{ .{ .x = reserved.x, .y = reserved.y - 1 }, .{ .x = reserved.x, .y = reserved.y + 1 } };
-    for (laterals) |lateral| {
-        const theirs = candidate.get(lateral) orelse continue;
-        if (theirs.bend) return true;
-        if (if (vertical) theirs.horizontal else theirs.vertical) return true;
+    if (vertical) {
+        if (candidate.get(.{ .x = reserved.x - 1, .y = reserved.y })) |west| if (west.arms.east) return true;
+        if (candidate.get(.{ .x = reserved.x + 1, .y = reserved.y })) |east| if (east.arms.west) return true;
+    } else {
+        if (candidate.get(.{ .x = reserved.x, .y = reserved.y - 1 })) |north| if (north.arms.south) return true;
+        if (candidate.get(.{ .x = reserved.x, .y = reserved.y + 1 })) |south| if (south.arms.north) return true;
     }
     return false;
 }
@@ -302,7 +356,9 @@ pub fn isIndependent(edge: pb.EdgeId, bundles: pb.RealizedBundles) bool {
 /// The reserved-terminal gate runs whether or not any bundle was realized:
 /// a port allocation exists for every plan, and a reservation is what
 /// protects a decoration cell from foreign arms regardless of routing
-/// order. The three bundle-attributed gates — foreign-node/cross-bundle
+/// order; so does the rail-ink gate (`ridesRail`) — a rail is laid before
+/// every private route, and a run along it is a foreign junction under any
+/// plan. The three bundle-attributed gates — foreign-node/cross-bundle
 /// contact (box termination / ink attribution), rail junctions (ink
 /// attribution: unrelated ink over an owner-set change) and rail
 /// arrowheads — are independent legality facts, never alternatives; with no
@@ -325,6 +381,12 @@ pub fn polylineClears(
     to: pb.NodeId,
 ) error{OutOfMemory}!bool {
     if (try conflictsReservedTerminals(a, edge, polyline, placements, edge_ports, bundles)) return false;
+    if (try ridesRail(a, polyline, rails)) return false;
+    // Box termination holds under any plan: a box is a terminus, never a
+    // corridor, so a run through a foreign box is refused with or without
+    // realized memberships.
+    // @guarded-by: route_clearance_test.zig "a route through a foreign box is refused with no realized memberships"
+    if (touchesForeignNode(polyline, placements, from, to)) return false;
     if (bundles.memberships.len == 0) return true;
     return !try blocked(a, edge, kind, polyline, existing, bundles, placements, from, to) and
         !try conflictsRailJunctions(a, polyline, rails) and
@@ -368,9 +430,18 @@ pub fn portPoint(placement: sk.NodePlacement, port: sk.Port) sk.Point {
     };
 }
 
+/// True iff `a` and `b` are members of one licensed shared approach: one
+/// selected bundle, or one fused union (ledger: the union's ink is ONE
+/// bundle). A licensed shared approach blocks nothing among its own
+/// members — their shared stub is attribution-only merged ink, not an
+/// overlap.
+/// @guarded-by: route_clearance_test.zig "members of one fused union do not block each other"
 fn sameBundle(a: pb.EdgeId, b: pb.EdgeId, bundles: pb.RealizedBundles) bool {
     for (bundles.selected_bundles) |sel| {
         if (contains(sel.members, a) and contains(sel.members, b)) return true;
+    }
+    for (bundles.fused) |union_members| {
+        if (contains(union_members, a) and contains(union_members, b)) return true;
     }
     return false;
 }
@@ -404,8 +475,20 @@ fn cellsInto(a: std.mem.Allocator, out: *CellMap, points: []const sk.Point) erro
     }
     for (path.items, 0..) |cell, i| {
         var pass: Pass = .{};
+        if (i > 0) pass.arms.toward(cell, path.items[i - 1]);
+        if (i + 1 < path.items.len) pass.arms.toward(cell, path.items[i + 1]);
         if (i == 0 or i + 1 == path.items.len) {
+            // A terminal cell is drawn as a plain line glyph, which reaches
+            // both of its neighbours along the segment's axis.
             pass.bend = true;
+            if (pass.arms.north or pass.arms.south) {
+                pass.arms.north = true;
+                pass.arms.south = true;
+            }
+            if (pass.arms.east or pass.arms.west) {
+                pass.arms.east = true;
+                pass.arms.west = true;
+            }
         } else {
             const prev = path.items[i - 1];
             const next = path.items[i + 1];

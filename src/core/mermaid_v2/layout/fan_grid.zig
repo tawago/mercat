@@ -160,8 +160,7 @@ fn wrapGrid(
 
         f.rows = rows;
 
-        const row_step: i32 = @as(i32, @intCast(max_child_h)) +
-            @as(i32, @intCast(v_spacing)) + 1;
+        const row_step = rowStep(max_child_h, v_spacing);
 
         const base_y: i32 = geom[f.peers[0].peer_idx].y;
         const added_h: i32 = @as(i32, @intCast(rows - 1)) * row_step;
@@ -220,6 +219,23 @@ fn wrapGrid(
     }
 }
 
+/// Rows between two grid rows: `GRID_GAP_ROWS`, or more when the layer
+/// spacing asks for it. The gap holds three distinct cells on any shared
+/// column: the upper row's departure cell, the comb rail row
+/// (`fan_polyline` runs it two rows above the lower row's top), and the
+/// lower row's arrival cell. A two-row gap — the halved spacing of the
+/// tight rungs — puts the rail on the departure cells, so a lower peer
+/// stacked under an upper peer's departure could only reach its port by
+/// turning inside that reserved cell, and the route is refused at every
+/// lane; the extra row is what lets it take its bend one cell further out.
+/// @guarded-by: fan_grid_test.zig "a gridded fan keeps three gap rows between its rows at halved spacing"
+pub const GRID_GAP_ROWS: i32 = 3;
+
+pub fn rowStep(max_child_h: u32, v_spacing: u32) i32 {
+    const gap = @max(@as(i32, @intCast(v_spacing)) + 1, GRID_GAP_ROWS);
+    return @as(i32, @intCast(max_child_h)) + gap;
+}
+
 /// Uniform-slot fan-OUT grid: children packed `cols` per row in reading
 /// order, each row centred as a block under the pivot, packed left-to-right
 /// with `gap` between adjacent boxes (`gap` is the fan-OUT `place_gap`,
@@ -238,8 +254,7 @@ fn legacyUniformGrid(
     if (rows < 2) return;
     f.rows = rows;
 
-    const row_step: i32 = @as(i32, @intCast(max_child_h)) +
-        @as(i32, @intCast(v_spacing)) + 1;
+    const row_step = rowStep(max_child_h, v_spacing);
 
     const base_y: i32 = geom[f.peers[0].peer_idx].y;
     const added_h: i32 = @as(i32, @intCast(rows - 1)) * row_step;

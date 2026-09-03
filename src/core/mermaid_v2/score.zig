@@ -243,7 +243,7 @@ pub fn eval(
     };
     const t1: u32 = counts.node_overlap + counts.path_off_perimeter +
         counts.path_through_interior + counts.cluster_containment +
-        counts.cluster_port;
+        counts.cluster_port + counts.edge_unrouted;
 
     const dead = try geom.deadSpace(allocator, s);
     const t2: u64 = W_DEAD_SPACE * dead +

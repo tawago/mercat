@@ -60,9 +60,9 @@ test "reflowWideRanks: a second wide layer's base_y reflects the first wide laye
 
     rank_grid.reflowWideRanks(NodeGeom, lg, &geom, 20, 2, 1);
 
-    try testing.expectEqual(@as(i32, 105), geom[4].y);
+    try testing.expectEqual(@as(i32, 106), geom[4].y);
 
-    try testing.expectEqual(@as(i32, 210), geom[8].y);
+    try testing.expectEqual(@as(i32, 212), geom[8].y);
 }
 
 test "reflowWideRanks: a same-layer virtual node's (oversized) width never enters the column/packing math and its position is untouched" {
@@ -224,7 +224,7 @@ test "reflowWideRanks: the widest-node column formula still forces >=2 rows even
     while (it.next()) |w| try testing.expect(w.* <= 100);
 }
 
-test "reflowWideRanks: row_step (max_h + v_spacing + 1) keeps a tall sub-row from touching the row below it" {
+test "reflowWideRanks: row_step (max_h + the grid gap) keeps a tall sub-row three rows clear of the row below it" {
     var nodes = [_]sugiyama.LayerNode{
         .{ .real = 1 }, .{ .real = 2 }, .{ .real = 3 }, .{ .real = 4 },
         .{ .real = 5 }, .{ .real = 6 }, .{ .real = 7 }, .{ .real = 8 },
@@ -256,7 +256,8 @@ test "reflowWideRanks: row_step (max_h + v_spacing + 1) keeps a tall sub-row fro
     const row0_y = geom[0].y;
     const row1_y = geom[2].y;
     try testing.expect(row1_y > row0_y);
-    try testing.expectEqual(@as(i32, 11), row1_y - row0_y);
+    // v_spacing 1 would give a two-row gap; the grid keeps three (fan_grid.GRID_GAP_ROWS).
+    try testing.expectEqual(@as(i32, 12), row1_y - row0_y);
     try testing.expect(row0_y + 9 < row1_y);
 }
 
