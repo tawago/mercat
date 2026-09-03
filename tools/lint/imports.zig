@@ -149,6 +149,12 @@ pub const Rule = union(enum) {
 ///                   the raster writes the `.carrier` detail and the tiling
 ///                   zone decides the verdict, and neither may import the
 ///                   other. Same grant as the rails e2e pin.
+///   junction_licence_test.zig  root-level pin for the junction licence
+///                   read from the raster alone: the lattice's ink state
+///                   and side table, the licence lookup, and the sketch's
+///                   bundles. Needs parse, select and raster for a real
+///                   render; imports nothing from tiling/, so it outlives
+///                   that zone.
 ///   tiling_rails_e2e_test.zig  root-level pin that the fused-crossbar
 ///                   population is non-empty in PRODUCTION: the tiling zone
 ///                   may not import raster or select, so the only place the
@@ -498,6 +504,16 @@ pub const file_allowlists = [_]struct {
             .{ .exact = "tiling/scan.zig" }, .{ .exact = "tiling/counts.zig" },
         },
         .reason = "tiling_licence_test may only import std, prim, base/*, parse, raster, select, ledger/permits, or tiling entry points",
+    },
+    .{
+        .name = "junction_licence_test.zig",
+        .allowed = &.{
+            .sem_graph,                         .sketch,
+            .parse_zone,                        .raster_zone,
+            .{ .exact = "lattice.zig" },        .{ .exact = "select.zig" },
+            .{ .exact = "ledger/permits.zig" },
+        },
+        .reason = "junction_licence_test may only import std, prim, base/*, sem_graph, sketch, parse, raster, lattice, select, or ledger/permits — never the tiling zone",
     },
     .{
         .name = "tiling_rails_e2e_test.zig",

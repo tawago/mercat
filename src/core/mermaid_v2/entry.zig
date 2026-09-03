@@ -629,6 +629,7 @@ test {
     _ = @import("tiling_crosscheck_test.zig");
     _ = @import("tiling_records_test.zig");
     _ = @import("tiling_licence_test.zig");
+    _ = @import("junction_licence_test.zig");
     _ = @import("tiling_weld_test.zig");
     _ = @import("cluster_corridor_test.zig");
     _ = @import("decoration_cell_test.zig");
