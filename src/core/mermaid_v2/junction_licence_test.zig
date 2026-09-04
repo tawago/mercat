@@ -82,13 +82,38 @@ const Verdicts = struct {
 };
 
 /// The edge a junction cell's occupant names, or null where the cell is not
-/// edge ink (a frame or border junction carries no owner to pair with).
+/// a stroke: a frame or border junction carries no owner to pair with, and
+/// a decoration cell is never a junction (constitution, ink attribution),
+/// so an arrowhead occupant owns no junction pair — a head the raster left
+/// in junction state fails `expectDecorationCellsHonest` instead.
 fn ownerOf(cell: *const lattice.Cell) ?ledger.EdgeId {
     return switch (cell.occupant) {
         .edge_segment => |seg| seg.edge,
-        .arrowhead => |h| h.edge,
         else => null,
     };
+}
+
+/// Arrowhead cells the raster recorded in junction state — the one ink
+/// state a decoration cell never holds. Today's only way in is a head
+/// stamped over another edge's ink (`edges_write.writeArrowCell`).
+fn headsInJunctionState(lat: *const lattice.Lattice) u32 {
+    var n: u32 = 0;
+    var y: u32 = 0;
+    while (y < lat.height) : (y += 1) {
+        var x: u32 = 0;
+        while (x < lat.width) : (x += 1) {
+            const cell = lat.atConst(x, y);
+            if (cell.occupant == .arrowhead and cell.state == .junction) n += 1;
+        }
+    }
+    return n;
+}
+
+/// The base side of every decoration cell is fed by its own run
+/// (`arrow_base.validate` counts the unfed ones), and no head is a junction.
+fn expectDecorationCellsHonest(report: raster.RasterReport) !void {
+    try testing.expectEqual(@as(u32, 0), report.arrow_base.violations);
+    try testing.expectEqual(@as(u32, 0), headsInJunctionState(&report.lattice));
 }
 
 /// Walk the side table in its sorted (cell, kind, value) order and judge
@@ -149,7 +174,8 @@ fn judge(s: sketch_mod.Sketch, lat: *const lattice.Lattice) !Verdicts {
 /// The raster's own shipped-defect tallies, all of which must stay zero on
 /// a shape that merges honestly: no fabricated junction, no transit through
 /// a decoration cell, no arm into a head, no ink or head lost, every tip on
-/// its port.
+/// its port, every base fed, no head in junction state, and no painted arm
+/// without an owner to explain it.
 fn expectNoRasterDefect(report: raster.RasterReport) !void {
     try testing.expectEqual(@as(u32, 0), report.crossings.foreign_junction_violation);
     try testing.expectEqual(@as(u32, 0), report.crossings.arrowhead_transit_violation);
@@ -157,6 +183,8 @@ fn expectNoRasterDefect(report: raster.RasterReport) !void {
     try testing.expectEqual(@as(u32, 0), report.edge_cells_lost);
     try testing.expectEqual(@as(u32, 0), report.edge_heads_lost);
     try testing.expectEqual(@as(u32, 0), report.arrow_base.tip_not_port);
+    try testing.expectEqual(@as(u32, 0), report.arms_unexplained);
+    try expectDecorationCellsHonest(report);
 }
 
 /// Arrowhead cells on the grid: the raster-side count of heads that shipped.
@@ -212,14 +240,18 @@ fn expectReconstructedThreeWayPortShare() !void {
     const a = arena.allocator();
     const r = try render(a, three_way_port_share, 140);
     const v = try judge(r.sketch, &r.report.lattice);
-    // Nine junction pairs, every one licensed. The unit here is a
+    // Six junction pairs, every one licensed. The unit here is a
     // (junction cell, anonymous edge) pair read off the side table, not the
     // audit's collinear-adjacency count (which saw one): the three-way port
     // share files a record for each co-member at each cell where a member
-    // joins or leaves the shared approach. What matters is the split — no
-    // pair foreign, no pair unevidenced — and that the population is exact.
-    try testing.expectEqual(@as(u32, 9), v.population);
-    try testing.expectEqual(@as(u32, 9), v.licensed);
+    // joins or leaves the shared approach. Three further pairs sit on the
+    // head the members discharge into at B's port; a decoration cell is
+    // never a junction, so the raster records that head rail-interior and
+    // `ownerOf` names no head — those pairs are shared-stem ink, not
+    // junctions. What matters is the split — no pair foreign, no pair
+    // unevidenced — and that the population is exact.
+    try testing.expectEqual(@as(u32, 6), v.population);
+    try testing.expectEqual(@as(u32, 6), v.licensed);
     try testing.expectEqual(@as(u32, 0), v.foreign);
     try testing.expectEqual(@as(u32, 0), v.unevidenced);
     try testing.expectEqual(v.population, v.licensed + v.foreign + v.unevidenced);
@@ -271,23 +303,31 @@ fn expectReconstructedThreeWayPortShare() !void {
     try testing.expect(!ledger.bundleMembersAt(&only_share, 14, 16, long_pair_only));
 
     // No fabricated junction, no transit, no lost ink, every tip on its
-    // port. One lateral arm into a head remains on this seed at w140: the
-    // candidate that ships one beat the candidate that shipped two (the
-    // decoration-cell tallies entered the score 2026-09-03), and that arm is
-    // priced, not hidden.
+    // port, every base fed, no painted arm without an owner. One lateral
+    // arm into a head remains on this seed at w140, and it is the one head
+    // in junction state: the cluster bridge router lands a piece edge's head
+    // on C's centre south port, the cell where the flat plan's C ==> E
+    // departs and bends, and the head is stamped over that corner. The
+    // candidate shipping one such arm beat the one shipping two (the
+    // decoration-cell tallies entered the score 2026-09-03); the arm is
+    // priced, not hidden, and the bridge router's port reservations are
+    // the open producer stage that removes it.
     try testing.expectEqual(@as(u32, 0), r.report.crossings.foreign_junction_violation);
     try testing.expectEqual(@as(u32, 0), r.report.crossings.arrowhead_transit_violation);
     try testing.expectEqual(@as(u32, 0), r.report.edge_cells_lost);
     try testing.expectEqual(@as(u32, 0), r.report.edge_heads_lost);
     try testing.expectEqual(@as(u32, 0), r.report.arrow_base.tip_not_port);
+    try testing.expectEqual(@as(u32, 0), r.report.arrow_base.violations);
+    try testing.expectEqual(@as(u32, 0), r.report.arms_unexplained);
     try testing.expectEqual(@as(u32, 1), r.report.armIntoHead());
+    try testing.expectEqual(@as(u32, 1), headsInJunctionState(&r.report.lattice));
 }
 
 test "junction licence: a reconstructed three-way port share keeps exact pair scopes and partitions junction verdicts" {
     try expectReconstructedThreeWayPortShare();
 }
 
-test "junction licence: a three-way port share the pairwise flood missed is licensed on the raster, and the render files no defect" {
+test "junction licence: a three-way port share the pairwise flood missed is licensed on the raster; the render ships one lateral arm, a bridge-routed head stamped over a departure bend" {
     try expectReconstructedThreeWayPortShare();
 }
 

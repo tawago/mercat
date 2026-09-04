@@ -26,6 +26,7 @@ const labels_r = @import("raster/labels.zig");
 const reconcile = @import("raster/reconcile.zig");
 const crossings_r = @import("raster/crossings.zig");
 const arrow_base_r = @import("raster/arrow_base.zig");
+const arms_r = @import("raster/arms.zig");
 const aux_r = @import("raster/aux.zig");
 
 pub const RasterizeError = error{
@@ -81,6 +82,12 @@ pub const RasterReport = struct {
     /// selection via `audit.zig` → `score.RasterCounts` — see
     /// `raster/arrow_base.zig`.
     arrow_base: arrow_base_r.ArrowBaseCounts = .{},
+    /// Stroke cells whose painted arms no owner set explains: a junction
+    /// glyph with one owner (a join that does not exist) or a one-armed
+    /// run that stops in open space — the two ends of a route that visits
+    /// a cell twice. Feeds selection via `audit.zig` → `score.RasterCounts`
+    /// at the fabrication tier — see `raster/arms.zig`.
+    arms_unexplained: u32 = 0,
 
     /// Every arm that entered a decoration cell from a lateral side: the
     /// refused ones (edge and rail passes, `crossings.arm_into_head`) and
@@ -174,6 +181,9 @@ pub fn rasterize(
 
     lat.aux = aux_collector.finish();
     lat.aux_collection = aux_collector.report();
+    // After the side table is attached: the owner set behind a junction
+    // glyph is read from the records.
+    const arms_unexplained = arms_r.unexplained(&lat);
 
     return .{
         .lattice = lat,
@@ -190,6 +200,7 @@ pub fn rasterize(
         .phantom_arms_cleared = phantom_arms,
         .crossings = crossings,
         .arrow_base = arrow_base,
+        .arms_unexplained = arms_unexplained,
     };
 }
 

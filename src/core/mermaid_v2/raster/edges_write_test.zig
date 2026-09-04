@@ -378,3 +378,27 @@ test "writeEdgeCell files NO carrier on an unowned cell, whatever licence it is 
         try testing.expectEqual(@as(u32, 5), cell.occupant.edge_segment.edge);
     }
 }
+
+test "a head stamped over a co-member's run is rail-interior; over a stranger's, junction" {
+    var lost: u32 = 0;
+    var hlost: u32 = 0;
+    var cc: crossings.CrossingCounts = .{};
+    var shared: lattice.Cell = .{
+        .occupant = .{ .edge_segment = .{ .edge = 3, .kind = .solid, .role = .forward } },
+        .neighbours = .{ .n = true, .s = true },
+        .state = .stroke,
+    };
+    ew.writeArrowCell(&shared, 9, .solid, .filled, .south, .{ .n = true, .s = true }, 1, 1, &lost, &hlost, &cc, .merged_licensed, .{});
+    try testing.expectEqual(lattice.InkState.rail_interior, shared.state);
+    try testing.expect(shared.occupant == .arrowhead);
+
+    for ([_]lattice.CarrierKind{ .merged_foreign, .merged_untested }) |licence| {
+        var foreign: lattice.Cell = .{
+            .occupant = .{ .edge_segment = .{ .edge = 3, .kind = .solid, .role = .forward } },
+            .neighbours = .{ .n = true, .s = true },
+            .state = .stroke,
+        };
+        ew.writeArrowCell(&foreign, 9, .solid, .filled, .south, .{ .n = true, .s = true }, 1, 1, &lost, &hlost, &cc, licence, .{});
+        try testing.expectEqual(lattice.InkState.junction, foreign.state);
+    }
+}

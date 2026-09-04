@@ -104,6 +104,12 @@ pub const RasterCounts = struct {
     /// arm was foreign) — the confluence severity note ranks a refusal
     /// with lost ink, never with the lie it prevented.
     arm_into_head: u32 = 0,
+    /// Stroke cells whose painted arms no owner set explains
+    /// (raster/arms.zig): a junction glyph with one owner, or a run that
+    /// stops in open space — a route that visited a cell twice. The tee
+    /// asserts a join no source declares: a fabrication, like a foreign
+    /// junction.
+    arms_unexplained: u32 = 0,
     /// 1 when the audit raster itself errored (audit.zig): the candidate's
     /// violations are unknown, so it must never win the composite.
     raster_failed: u32 = 0,
@@ -133,6 +139,10 @@ pub const W_TIP_NOT_PORT: u64 = 4096;
 /// cell that is never a junction. Fabrication tier, with the foreign
 /// junction. Refused arms are not here (see `RasterCounts.arm_into_head`).
 pub const W_ARM_INTO_HEAD: u64 = 8192;
+/// A painted arm no owner explains: a one-owner tee is invented structure
+/// (fabrication tier, with the foreign junction), and the stub that comes
+/// with it is the same route defect seen from its other end.
+pub const W_ARMS_UNEXPLAINED: u64 = 8192;
 /// Effectively lexicographic: dominates any realistic composite
 /// (~1e8 16ths) by four orders of magnitude; counts are 0/1 so the
 /// worst-case composite stays far below u64 overflow.
@@ -272,6 +282,7 @@ pub fn eval(
             W_HEAD_LOST * @as(u64, raster.heads_lost) +
             W_TIP_NOT_PORT * @as(u64, raster.tip_not_port) +
             W_ARM_INTO_HEAD * @as(u64, raster.arm_into_head) +
+            W_ARMS_UNEXPLAINED * @as(u64, raster.arms_unexplained) +
             W_RASTER_FAILED * @as(u64, raster.raster_failed),
         .r_labels_dropped = raster.labels_dropped,
         .r_edge_cells_lost = raster.edge_cells_lost,

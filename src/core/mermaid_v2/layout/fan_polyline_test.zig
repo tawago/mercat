@@ -258,3 +258,81 @@ test "a decorated source's lane clamp and dodge jog stay out of the departure ce
     try testing.expectEqual(s_peri + 2, dodged[1].y);
     try expectPolyAvoidsRect(dodged, blocker.rect);
 }
+
+/// Assert every step of `poly` is axis-aligned and no cell is entered
+/// twice: a route visits each cell once, so the raster never paints a tee
+/// one edge owns or a stub that stops in open space.
+fn expectVisitsEachCellOnce(a: std.mem.Allocator, poly: []const sketch.Point) !void {
+    var seen: std.AutoHashMapUnmanaged(sketch.Point, void) = .empty;
+    defer seen.deinit(a);
+    try seen.put(a, poly[0], {});
+    var i: usize = 1;
+    while (i < poly.len) : (i += 1) {
+        const p0 = poly[i - 1];
+        const p1 = poly[i];
+        try testing.expect(p0.x == p1.x or p0.y == p1.y);
+        try testing.expect(!(p0.x == p1.x and p0.y == p1.y));
+        const dx: i32 = std.math.sign(p1.x - p0.x);
+        const dy: i32 = std.math.sign(p1.y - p0.y);
+        var c = p0;
+        while (c.x != p1.x or c.y != p1.y) {
+            c = .{ .x = c.x + dx, .y = c.y + dy };
+            try testing.expect(!seen.contains(c));
+            try seen.put(a, c, {});
+        }
+    }
+}
+
+test "the target-side corridor ends the rail run at the corridor column; the route visits each cell once" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+
+    // Pivot far right (column 48), child at column 31, and a wide box under
+    // the rail across the child's column and everything left of it, so the
+    // only clear corridor lies BETWEEN the child column and the source.
+    const pivot = sketch.NodePlacement{ .id = 0, .rect = .{ .x = 43, .y = 0, .w = 11, .h = 3 }, .shape = .rect, .lines = &.{}, .cluster_id = null };
+    const child = sketch.NodePlacement{ .id = 1, .rect = .{ .x = 26, .y = 20, .w = 11, .h = 3 }, .shape = .rect, .lines = &.{}, .cluster_id = null };
+    const blocker = sketch.NodePlacement{ .id = 2, .rect = .{ .x = 0, .y = 15, .w = 35, .h = 2 }, .shape = .rect, .lines = &.{}, .cluster_id = null };
+    const placements = [_]sketch.NodePlacement{ pivot, child, blocker };
+    var peers = [_]fan.FanEdge{.{ .edge_id = 1, .peer_idx = 1, .role = .leftmost }};
+    const f = fan.Fan{ .direction = .out, .pivot_idx = 0, .source_layer = 0, .peers = &peers, .lane = 5 };
+
+    const poly = try fan_polyline.buildPolyline(a, .TD, f, pivot, child, .leftmost, 0, &placements);
+
+    const rail_y = child.rect.y - 2 - 5;
+    const land_y = child.rect.y - 2;
+    try expectPolyAvoidsRect(poly, blocker.rect);
+    try expectVisitsEachCellOnce(a, poly);
+    // The rail run stops at the corridor column: one point on the rail row
+    // after the descent from the source, and it is the corridor's.
+    try testing.expectEqual(@as(usize, 6), poly.len);
+    try testing.expectEqual(rail_y, poly[1].y);
+    try testing.expectEqual(rail_y, poly[2].y);
+    try testing.expect(poly[2].x > 31 and poly[2].x < 48);
+    try testing.expectEqual(poly[2].x, poly[3].x);
+    try testing.expectEqual(land_y, poly[3].y);
+    try testing.expectEqual(sketch.Point{ .x = 31, .y = land_y }, poly[4]);
+}
+
+test "a target-side corridor under a same-column child adds a rail leg instead of a diagonal step" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+
+    const pivot = sketch.NodePlacement{ .id = 0, .rect = .{ .x = 26, .y = 0, .w = 11, .h = 3 }, .shape = .rect, .lines = &.{}, .cluster_id = null };
+    const child = sketch.NodePlacement{ .id = 1, .rect = .{ .x = 26, .y = 20, .w = 11, .h = 3 }, .shape = .rect, .lines = &.{}, .cluster_id = null };
+    const blocker = sketch.NodePlacement{ .id = 2, .rect = .{ .x = 28, .y = 15, .w = 7, .h = 2 }, .shape = .rect, .lines = &.{}, .cluster_id = null };
+    const placements = [_]sketch.NodePlacement{ pivot, child, blocker };
+    var peers = [_]fan.FanEdge{.{ .edge_id = 1, .peer_idx = 1, .role = .leftmost }};
+    const f = fan.Fan{ .direction = .out, .pivot_idx = 0, .source_layer = 0, .peers = &peers, .lane = 5 };
+
+    const poly = try fan_polyline.buildPolyline(a, .TD, f, pivot, child, .leftmost, 0, &placements);
+
+    try expectPolyAvoidsRect(poly, blocker.rect);
+    try expectVisitsEachCellOnce(a, poly);
+    try testing.expectEqual(@as(usize, 6), poly.len);
+    try testing.expectEqual(sketch.Point{ .x = 31, .y = child.rect.y - 7 }, poly[1]);
+    try testing.expectEqual(child.rect.y - 7, poly[2].y);
+    try testing.expect(poly[2].x != 31);
+}

@@ -285,7 +285,7 @@ pub fn portArmDetail(arm: Dir4) u8 {
 /// (a realized bundle, a fan rail) sets `cells = null` and licenses its
 /// members ANYWHERE (`base/bundle.zig`). A licensed transcript is
 /// position-scoped only when a port share produced it.
-/// @guarded-by: junction_licence_test.zig "junction licence: a three-way port share the pairwise flood missed is licensed on the raster, and the render files no defect"
+/// @guarded-by: junction_licence_test.zig "junction licence: a three-way port share the pairwise flood missed is licensed on the raster; the render ships one lateral arm, a bridge-routed head stamped over a departure bend"
 pub const CarrierKind = enum(u8) {
     /// Merged, licence never asked — a producer with no bundle context at
     /// the moment it writes. It states NOTHING. A reader must treat it as

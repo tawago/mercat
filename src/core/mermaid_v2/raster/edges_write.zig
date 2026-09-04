@@ -313,6 +313,15 @@ fn refuseLateral(
 /// names it. The held head is never touched. The head's OWN edge ORs its
 /// arms as before; a lateral arm it ships is the producer's defect, read
 /// post-raster.
+///
+/// STATE. A decoration cell is never a junction (constitution, ink
+/// attribution): a head stamped over a co-member's run sits on a shared
+/// stem and records `rail_interior`, the licence the caller established
+/// saying so. A head stamped over ink it does NOT share a bundle with is
+/// illegal geometry — transit through a decoration cell — and records
+/// `junction`, the state the raster-side pins refuse on a head, so the
+/// defect is visible rather than filed as legal sharing.
+/// @guarded-by: edges_write_test.zig "a head stamped over a co-member's run is rail-interior; over a stranger's, junction"
 /// @guarded-by: edges_write_test.zig "writeArrowCell stamps the edge's own stroke_kind"
 /// @guarded-by: edges_write_test.zig "a foreign head pointing another way is refused; one pointing the same way rides"
 /// @guarded-by: aux_test.zig "an arrowhead stamped over a foreign run files a carrier for the run it covered"
@@ -335,7 +344,7 @@ pub fn writeArrowCell(
         .empty, .edge_segment, .cluster_border => {
             switch (cell.occupant) {
                 .empty => cell.upgradeState(.stroke),
-                .edge_segment => |seg| if (seg.edge != edge_id) cell.upgradeState(.junction) else if (cell.state == .none) {
+                .edge_segment => |seg| if (seg.edge != edge_id) cell.upgradeState(if (licence == .merged_licensed) .rail_interior else .junction) else if (cell.state == .none) {
                     cell.state = .stroke;
                 },
                 .cluster_border => cell.upgradeState(.junction),

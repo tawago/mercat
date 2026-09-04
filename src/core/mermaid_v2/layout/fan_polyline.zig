@@ -33,6 +33,30 @@ fn emitDodgedDescent(
     if (tx != corridor) try pts.append(a, .{ .x = tx, .y = rail_y });
 }
 
+/// Move the end of the rail run — the last point, at the target column on
+/// row `rail_y` — to `corridor`. When the run already travels along
+/// `rail_y`, the last waypoint is replaced (or dropped, when the run's
+/// earlier point already sits at the corridor column); when the route
+/// reached `rail_y` by a vertical drop at the target column, the run to the
+/// corridor is a new horizontal leg. Either way the route never revisits a
+/// cell and never takes a diagonal step.
+fn endRailRunAt(
+    a: std.mem.Allocator,
+    pts: *std.ArrayListUnmanaged(sketch.Point),
+    corridor: i32,
+    rail_y: i32,
+) error{OutOfMemory}!void {
+    const n = pts.items.len;
+    const prev = pts.items[n - 2];
+    if (prev.y != rail_y) {
+        try pts.append(a, .{ .x = corridor, .y = rail_y });
+    } else if (prev.x == corridor) {
+        _ = pts.pop();
+    } else {
+        pts.items[n - 1] = .{ .x = corridor, .y = rail_y };
+    }
+}
+
 /// Build the polyline for a single fan peer edge. `dir` must be `.TD` or
 /// `.BT` (LR/RL fans unsupported). For fan-OUT the polyline runs
 /// pivot→peer; for fan-IN it runs peer→pivot. In both cases the polyline
@@ -161,7 +185,14 @@ pub fn buildPolylineAt(
             {
                 const corridor = sketch.clearLine(false, tx, rail_y, land_y, placements, source_p.id, target_p.id, .{ .margin = true });
                 if (corridor != tx) {
-                    try pts.append(a, .{ .x = corridor, .y = rail_y });
+                    // The rail run ENDS at the corridor column: the waypoint
+                    // at the target column is retracted, not extended past.
+                    // Appending the corridor after it sent the run to the
+                    // target column and back, and a route that visits a
+                    // cell twice ships a tee no second edge joins and a
+                    // stub that stops in open space.
+                    // @guarded-by: fan_polyline_test.zig "the target-side corridor ends the rail run at the corridor column; the route visits each cell once"
+                    try endRailRunAt(a, &pts, corridor, rail_y);
                     try pts.append(a, .{ .x = corridor, .y = land_y });
                     try pts.append(a, .{ .x = tx, .y = land_y });
                 }
