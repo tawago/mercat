@@ -158,6 +158,21 @@ test "eval: a tip off its port is an omission, a shipped lateral arm a fabricati
     try t.expectEqual(score.W_FOREIGN_JUNCTION, score.W_ARM_INTO_HEAD);
 }
 
+test "an arm no owner explains prices at the fabrication tier, beside a foreign junction" {
+    var arena = std.heap.ArenaAllocator.init(t.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const nodes = [_]sketch.NodePlacement{
+        testNode(0, .{ .x = 0, .y = 0, .w = 5, .h = 3 }, null),
+    };
+    const sk = testSketch(.{ .x = 0, .y = 0, .w = 7, .h = 4 }, &nodes, &.{}, &.{});
+    const base = try eval(a, sk, .TD, 0, .{});
+    const unexplained = try eval(a, sk, .TD, 0, .{ .arms_unexplained = 1 });
+    try t.expectEqual(base.t12_composite + score.W_ARMS_UNEXPLAINED, unexplained.t12_composite);
+    try t.expect(base.lessThan(unexplained));
+    try t.expectEqual(score.W_FOREIGN_JUNCTION, score.W_ARMS_UNEXPLAINED);
+}
+
 test "eval: rung multiplier is a fitted degradation prior" {
     var arena = std.heap.ArenaAllocator.init(t.allocator);
     defer arena.deinit();
