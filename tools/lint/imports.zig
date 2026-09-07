@@ -85,8 +85,10 @@ pub const Rule = union(enum) {
 ///   base/*          the no-deps tier (types.zig / lanes.zig / ledger.zig /
 ///                   diagnostics.zig):
 ///                   std + base siblings only; importable from every zone.
-///                   Enforced by the base/ dir rule + the in_base_dir zone
-///                   block in `checkImport`, not by a `file_allowlists` row.
+///                   types.zig alone may also import "unicode" (the width
+///                   authority). Enforced by the base/ dir rule + the
+///                   in_base_dir zone block in `checkImport`, not by a
+///                   `file_allowlists` row.
 ///   raster/aux.zig  the lattice side-table builder: lattice (plus its own
 ///                   test sibling) only — one step tighter than the raster
 ///                   zone, which would also grant sketch.zig, so the bundle
@@ -144,6 +146,11 @@ pub const Rule = union(enum) {
 ///                   once: the raster's unexplained-arm tally
 ///                   (`raster/arms.zig`) is zero on a real render of the
 ///                   seed that shipped a doubled-back fan polyline.
+///   grapheme_width_test.zig  root-level pin that a painted node box
+///                   closes at one column on every row when a label holds
+///                   an emoji, a combining mark, a ZWJ family or a flag:
+///                   drives the public entry point and re-measures the
+///                   painted text with the width authority from outside.
 pub const file_allowlists = [_]struct {
     name: []const u8,
     allowed: []const Rule,
@@ -422,16 +429,26 @@ pub const file_allowlists = [_]struct {
         },
         .reason = "route_once_test may only import std, prim, base/*, parse, raster, select, or ledger/permits",
     },
+    .{
+        .name = "grapheme_width_test.zig",
+        .allowed = &.{.{ .exact = "entry.zig" }},
+        .reason = "grapheme_width_test may only import std, unicode, base/*, or entry",
+    },
 };
+
+const base_reason = "base/ files may import only std and base/ siblings; types.zig alone may import unicode";
 
 /// Returns null if the import is allowed for this file, else a reason string.
 ///
 /// Per-zone ALLOWLIST. Each zone may import:
 ///   everywhere:  "std", "prim"  (named module, resolves to base/types.zig),
-///                and anything under "base/" (the no-deps tier: types.zig,
-///                lanes.zig, ledger.zig, diagnostics.zig — importable from
-///                every zone)
-///   base/*:      std + base siblings only (no-deps tier)
+///                "unicode" (the width authority, lib/unicode.zig; base/
+///                excepted — see below), and anything under "base/" (the
+///                no-deps tier: types.zig, lanes.zig, ledger.zig,
+///                diagnostics.zig — importable from every zone)
+///   base/*:      std + base siblings only (no-deps tier); base/types.zig
+///                alone may also import "unicode", so the width primitives
+///                every zone measures with have one authority and no copy
 ///   sem_graph.zig / sketch.zig / lattice.zig:   + base/* (they are IR root files)
 ///   parse.zig + parse/*:   + sem_graph.zig
 ///   layout.zig + layout/*: + sem_graph.zig, sketch.zig
@@ -450,7 +467,18 @@ pub fn checkImport(rel_path: []const u8, target: []const u8) ?[]const u8 {
 
     if (std.mem.eql(u8, target, "std")) return null;
     if (std.mem.eql(u8, target, "prim")) return null;
-    if (std.mem.eql(u8, target, "unicode")) return null;
+
+    const in_base_dir = std.mem.startsWith(u8, rel_path, "base" ++ &[_]u8{sep});
+
+    // "unicode" (lib/unicode.zig, the width authority) is open to every zone
+    // but base/: the no-deps tier stays sealed except for types.zig, which
+    // is where the width primitives every zone measures with live. A second
+    // base/ file reaching the authority would be a second place for width
+    // policy to drift.
+    if (std.mem.eql(u8, target, "unicode")) {
+        if (in_base_dir and !std.mem.eql(u8, rel_path, "base" ++ &[_]u8{sep} ++ "types.zig")) return base_reason;
+        return null;
+    }
 
     if (std.mem.indexOf(u8, target, "base/") != null) return null;
 
@@ -482,11 +510,9 @@ pub fn checkImport(rel_path: []const u8, target: []const u8) ?[]const u8 {
     const is_sem_graph = std.mem.eql(u8, rel_path, "sem_graph.zig");
     const is_sketch = std.mem.eql(u8, rel_path, "sketch.zig");
     const is_lattice = std.mem.eql(u8, rel_path, "lattice.zig");
-    const in_base_dir = std.mem.startsWith(u8, rel_path, "base" ++ &[_]u8{sep});
-
     if (in_base_dir) {
         if (!std.mem.startsWith(u8, target, "..") and std.mem.endsWith(u8, target, ".zig")) return null;
-        return "base/ files may import only std and base/ siblings";
+        return base_reason;
     }
 
     const tgt_is_sem_graph = Rule.allows(.sem_graph, target);
@@ -545,4 +571,14 @@ pub fn checkImport(rel_path: []const u8, target: []const u8) ?[]const u8 {
     }
 
     return "file is in no known zone (add a zone allowlist in checkImport)";
+}
+
+test "the width authority is open to every zone but sealed off base/ except types.zig" {
+    try std.testing.expectEqual(@as(?[]const u8, null), checkImport("base/types.zig", "unicode"));
+    try std.testing.expectEqual(@as(?[]const u8, null), checkImport("raster/labels_write.zig", "unicode"));
+    try std.testing.expectEqual(@as(?[]const u8, null), checkImport("grapheme_width_test.zig", "unicode"));
+    try std.testing.expectEqualStrings(base_reason, checkImport("base/lanes.zig", "unicode").?);
+    try std.testing.expectEqualStrings(base_reason, checkImport("base/types_test.zig", "unicode").?);
+    try std.testing.expectEqualStrings(base_reason, checkImport("base/types.zig", "../lattice.zig").?);
+    try std.testing.expectEqual(@as(?[]const u8, null), checkImport("base/types.zig", "types_test.zig"));
 }

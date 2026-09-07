@@ -81,13 +81,13 @@ pub fn placeEdgeLabel(
     diags: *std.ArrayList(labels.LabelDiagnostic),
     lat: *lattice.Lattice,
     ep: sketch.EdgePath,
-    label: []const u8,
+    run: lw.Run,
     sink: aux.Sink,
 ) labels.RasterError!Placement {
     if (ep.polyline.len < 2) return .dropped;
 
     const seg_pair = pickMidSegment(ep.polyline) orelse return .dropped;
-    return placeLabelAtSeg(allocator, diags, lat, ep.id, label, seg_pair.a, seg_pair.b, ep.label_left_of_run, ep.polyline, sink);
+    return placeLabelAtSeg(allocator, diags, lat, ep.id, run, seg_pair.a, seg_pair.b, ep.label_left_of_run, ep.polyline, sink);
 }
 
 /// Shared anchored-placement body for edge and rail tap labels.
@@ -98,20 +98,19 @@ pub fn placeLabelAtSeg(
     diags: *std.ArrayList(labels.LabelDiagnostic),
     lat: *lattice.Lattice,
     edge_id: u32,
-    label: []const u8,
+    run: lw.Run,
     a: sketch.Point,
     b: sketch.Point,
     left_of_run: bool,
     polyline: []const sketch.Point,
     sink: aux.Sink,
 ) labels.RasterError!Placement {
-    // Lattice cells the label occupies, counted the way it is written:
-    // one per codepoint, two for an East-Asian-Wide one. Probe, bounds
-    // test, flank test, emptiness scan and the write loop all share this
-    // single number, so a wide label can never reserve less space than
-    // it paints. // @guarded-by: labels_eaw_test.zig "edge-label probe reserves display cells: a wide label no longer overwrites the ink beside it"
-    const cell_count: u32 = labels.cellSpanOf(label);
-
+    // Lattice cells the label occupies (`run.cell_count`), counted the way
+    // it is written: one per grapheme head, two for an East-Asian-Wide
+    // one. Probe, bounds test, flank test, emptiness scan and the write
+    // loop all share this single number, so a wide label can never reserve
+    // less space than it paints. Anchors use `run.width`, the display
+    // columns the layout reserved. // @guarded-by: labels_eaw_test.zig "edge-label probe reserves display cells: a wide label no longer overwrites the ink beside it"
     const owner: ink.Owner = .{ .edge_id = edge_id, .polyline = polyline, .seg_a = a, .seg_b = b };
 
     // Three-pass priority (RELOCATION LAW) over one fixed candidate order per pass:
@@ -119,24 +118,24 @@ pub fn placeLabelAtSeg(
     // an earlier pass is never reconsidered — the passes only weaken the
     // ownership requirement, so the walk is deterministic.
     // @guarded-by: labels_ladder_test.zig "the own_adjacent pass beats the primary anchor: the label relocates to sit by its own edge's ink"
-    const anchor = anchorFor(a, b, left_of_run, prim.displayWidth(label));
+    const anchor = anchorFor(a, b, left_of_run, run.width);
     for (passes) |pass| {
         // Candidate #1: legacy anchor recorded by layout on ep.label_left_of_run (clusters.computeBbox). @guarded-by: labels_test.zig "edge label fits above midpoint"
-        if (tryWrite(lat, label, cell_count, anchor.x, anchor.y, owner, pass, sink)) return .at_anchor;
+        if (tryWrite(lat, run, anchor.x, anchor.y, owner, pass, sink)) return .at_anchor;
 
-        if (trySegment(lat, label, cell_count, a, b, left_of_run, owner, pass, sink)) return .displaced;
+        if (trySegment(lat, run, a, b, left_of_run, owner, pass, sink)) return .displaced;
 
         if (polyline.len >= 2) {
             for (polyline[0 .. polyline.len - 1], 0..) |p, i| {
                 const q = polyline[i + 1];
                 if (p.x == q.x and p.y == q.y) continue;
                 if (p.x == a.x and p.y == a.y and q.x == b.x and q.y == b.y) continue;
-                if (trySegment(lat, label, cell_count, p, q, left_of_run, owner, pass, sink)) return .displaced;
+                if (trySegment(lat, run, p, q, left_of_run, owner, pass, sink)) return .displaced;
             }
         }
     }
 
-    _ = try emitEdgeNoSpace(allocator, diags, edge_id, prim.displayWidth(label));
+    _ = try emitEdgeNoSpace(allocator, diags, edge_id, run.width);
     return .dropped;
 }
 
@@ -156,8 +155,7 @@ fn anchorFor(a: sketch.Point, b: sketch.Point, left_of_run: bool, label_w: u32) 
 /// ladder-tail segments the anchor cell recurs as the d=0 walk position.
 fn trySegment(
     lat: *lattice.Lattice,
-    label: []const u8,
-    cell_count: u32,
+    run: lw.Run,
     a: sketch.Point,
     b: sketch.Point,
     left_of_run: bool,
@@ -165,7 +163,7 @@ fn trySegment(
     pass: Pass,
     sink: aux.Sink,
 ) bool {
-    const orig_len: u32 = prim.displayWidth(label);
+    const orig_len: u32 = run.width;
 
     if (a.y == b.y) {
         // Horizontal segment: rows above then below the line, walked outward from the midpoint. @guarded-by: labels_test.zig "edge label falls back below the segment when above is out of bounds"
@@ -176,8 +174,8 @@ fn trySegment(
         for (rows) |row| {
             var d: i32 = 0;
             while (mid_x - d >= min_x or mid_x + d <= max_x) : (d += 1) {
-                if (mid_x - d >= min_x and tryWrite(lat, label, cell_count, mid_x - d, row, owner, pass, sink)) return true;
-                if (d > 0 and mid_x + d <= max_x and tryWrite(lat, label, cell_count, mid_x + d, row, owner, pass, sink)) return true;
+                if (mid_x - d >= min_x and tryWrite(lat, run, mid_x - d, row, owner, pass, sink)) return true;
+                if (d > 0 and mid_x + d <= max_x and tryWrite(lat, run, mid_x + d, row, owner, pass, sink)) return true;
             }
         }
         return false;
@@ -193,8 +191,8 @@ fn trySegment(
     for (sides) |x| {
         var d: i32 = 0;
         while (mid_y - d >= min_y or mid_y + d <= max_y) : (d += 1) {
-            if (mid_y - d >= min_y and tryWrite(lat, label, cell_count, x, mid_y - d, owner, pass, sink)) return true;
-            if (d > 0 and mid_y + d <= max_y and tryWrite(lat, label, cell_count, x, mid_y + d, owner, pass, sink)) return true;
+            if (mid_y - d >= min_y and tryWrite(lat, run, x, mid_y - d, owner, pass, sink)) return true;
+            if (d > 0 and mid_y + d <= max_y and tryWrite(lat, run, x, mid_y + d, owner, pass, sink)) return true;
         }
     }
     return false;
@@ -226,11 +224,10 @@ fn passAllows(
 /// Bounds-check the span, enforce the ISOLATION LAW (foreign-ink margin +
 /// same-row run separation, labels_ink.spanIsolated), require every cell
 /// empty, apply the RELOCATION LAW pass gate, then write one label_char cell per
-/// codepoint. All-or-nothing per candidate.
+/// grapheme head. All-or-nothing per candidate.
 fn tryWrite(
     lat: *lattice.Lattice,
-    label: []const u8,
-    cell_count: u32,
+    run: lw.Run,
     lx: i32,
     ly: i32,
     owner: ink.Owner,
@@ -239,6 +236,7 @@ fn tryWrite(
 ) bool {
     if (ly < 0 or @as(i64, ly) >= lat.height) return false;
     if (lx < 0) return false;
+    const cell_count = run.cell_count;
     const start_x: u32 = @intCast(lx);
     const row: u32 = @intCast(ly);
     if (start_x + cell_count > lat.width) return false;
@@ -265,16 +263,7 @@ fn tryWrite(
 
     if (!passAllows(lat, owner, pass, lx, ly, cell_count)) return false;
 
-    var x: u32 = start_x;
-    var bi: usize = 0;
-    while (bi < label.len) {
-        const dc = labels.nextCodepoint(label, bi);
-        bi += dc.byte_len;
-        const cp = labels.sentinelToSpace(dc.cp);
-        const span = labels.cellSpan(cp);
-        lw.writeSpan(lat, x, row, cp, span, .{ .kind = .edge, .id = owner.edge_id }, sink);
-        x += span;
-    }
+    lw.writeRun(lat, start_x, row, run, .{ .kind = .edge, .id = owner.edge_id }, sink);
     return true;
 }
 

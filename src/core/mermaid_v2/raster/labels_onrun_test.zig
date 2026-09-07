@@ -6,6 +6,7 @@ const std = @import("std");
 const sketch = @import("../sketch.zig");
 const lattice = @import("../lattice.zig");
 const onrun = @import("labels_onrun.zig");
+const lw = @import("labels_write.zig");
 
 const testing = std.testing;
 
@@ -89,7 +90,7 @@ test "happy path: the label interrupts its own dropper for one row, sandwiched b
     const rails = [_]sketch.Rail{theRail(&taps, &stem_pts)};
     s.rails = &rails;
 
-    try testing.expect(onrun.tryOnRunTap(&lat, s, taps[0], "ok", null));
+    try testing.expect(onrun.tryOnRunTap(&lat, s, taps[0], lw.asciiRun("ok"), null));
 
     try testing.expectEqual(@as(u21, 'o'), labelCharAt(lat, 5, 3));
     try testing.expectEqual(@as(u21, 'k'), labelCharAt(lat, 6, 3));
@@ -117,7 +118,7 @@ test "the flanks stay ORDINARY full-stroke run cells in the edge's own kind" {
     const rails = [_]sketch.Rail{theRail(&taps, &stem_pts)};
     s.rails = &rails;
 
-    try testing.expect(onrun.tryOnRunTap(&lat, s, taps[0], "ok", null));
+    try testing.expect(onrun.tryOnRunTap(&lat, s, taps[0], lw.asciiRun("ok"), null));
 
     for ([_]u32{ 2, 4 }) |y| {
         const c = lat.atConst(5, y);
@@ -145,7 +146,7 @@ test "FLANKED-RESUMPTION RULE: an arrowhead is not a flank, so the head-adjacent
     const rails = [_]sketch.Rail{theRail(&taps, &stem_pts)};
     s.rails = &rails;
 
-    try testing.expect(!onrun.tryOnRunTap(&lat, s, taps[0], "ok", null));
+    try testing.expect(!onrun.tryOnRunTap(&lat, s, taps[0], lw.asciiRun("ok"), null));
     try testing.expectEqual(@as(u21, 0), labelCharAt(lat, 5, 3));
 }
 
@@ -162,7 +163,7 @@ test "OWN-INK RULE: a rail/crossbar cell is never interrupted" {
     const rails = [_]sketch.Rail{theRail(&taps, &stem_pts)};
     s.rails = &rails;
 
-    try testing.expect(!onrun.tryOnRunTap(&lat, s, taps[0], "ok", null));
+    try testing.expect(!onrun.tryOnRunTap(&lat, s, taps[0], lw.asciiRun("ok"), null));
     try testing.expectEqual(@as(u21, 0), labelCharAt(lat, 5, 3));
 }
 
@@ -181,7 +182,7 @@ test "OWN-INK RULE: a cell another tap's drop covers is refused" {
     const rails = [_]sketch.Rail{theRail(&taps, &stem_pts)};
     s.rails = &rails;
 
-    try testing.expect(!onrun.tryOnRunTap(&lat, s, taps[0], "ok", null));
+    try testing.expect(!onrun.tryOnRunTap(&lat, s, taps[0], lw.asciiRun("ok"), null));
     try testing.expectEqual(@as(u21, 0), labelCharAt(lat, 5, 3));
 }
 
@@ -201,7 +202,7 @@ test "FLANKED-RESUMPTION RULE: a 1-cell private dropper has no legal interruptio
     const rails = [_]sketch.Rail{theRail(&taps, &stem_pts)};
     s.rails = &rails;
 
-    try testing.expect(!onrun.tryOnRunTap(&lat, s, taps[0], "ok", null));
+    try testing.expect(!onrun.tryOnRunTap(&lat, s, taps[0], lw.asciiRun("ok"), null));
     try testing.expectEqual(@as(u21, 0), labelCharAt(lat, 5, 2));
 }
 
@@ -218,7 +219,7 @@ test "foreign ink beside the span still refuses the on-run candidate" {
     const rails = [_]sketch.Rail{theRail(&taps, &stem_pts)};
     s.rails = &rails;
 
-    try testing.expect(!onrun.tryOnRunTap(&lat, s, taps[0], "ok", null));
+    try testing.expect(!onrun.tryOnRunTap(&lat, s, taps[0], lw.asciiRun("ok"), null));
     try testing.expectEqual(@as(u21, 0), labelCharAt(lat, 5, 3));
 }
 
@@ -250,7 +251,7 @@ test "on-run placement over a routed polyline dropper (fan-IN member)" {
     const edges = [_]sketch.EdgePath{ep};
     s.edges = &edges;
 
-    try testing.expect(onrun.tryOnRunEdge(&lat, s, ep, "grpc", null));
+    try testing.expect(onrun.tryOnRunEdge(&lat, s, ep, lw.asciiRun("grpc"), null));
     try testing.expectEqual(@as(u21, 'g'), labelCharAt(lat, 4, 2));
     try testing.expectEqual(@as(u21, 'r'), labelCharAt(lat, 5, 2));
     try testing.expectEqual(@as(u21, 'p'), labelCharAt(lat, 6, 2));
@@ -273,8 +274,8 @@ test "determinism: identical inputs place identically" {
     const rails = [_]sketch.Rail{theRail(&taps, &stem_pts)};
     s.rails = &rails;
 
-    try testing.expect(onrun.tryOnRunTap(&lat1, s, taps[0], "ok", null));
-    try testing.expect(onrun.tryOnRunTap(&lat2, s, taps[0], "ok", null));
+    try testing.expect(onrun.tryOnRunTap(&lat1, s, taps[0], lw.asciiRun("ok"), null));
+    try testing.expect(onrun.tryOnRunTap(&lat2, s, taps[0], lw.asciiRun("ok"), null));
     for (lat1.cells, lat2.cells) |c1, c2| {
         try testing.expect(std.meta.eql(c1, c2));
     }

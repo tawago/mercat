@@ -35,7 +35,7 @@ pub const table = [_]Row{
     },
     .{
         .token = "pub fn codepointWidth",
-        .why = "src/lib/unicode.zig is the Unicode width authority; codepointWidth remains only as its migration wrapper and the existing mermaid_v2 compatibility copy",
+        .why = "src/lib/unicode.zig is the Unicode width authority; codepointWidth exists there and as the delegating prim wrapper in base/types.zig, never as a third table",
         .allow = &.{ "unicode.zig", "types.zig" },
     },
     .{

@@ -1,7 +1,7 @@
 //! Lattice IR — the cell-grid intermediate representation between the
 //! rasterizer and the painter. A `Lattice` is a width × height grid of
 //! `Cell`s; each cell carries an `Occupant` tag (empty, node/cluster
-//! border or interior, edge segment, arrowhead, or label codepoint)
+//! border or interior, edge segment, arrowhead, or label grapheme head)
 //! and a `Neighbours` bitmask consumed by the painter's junction table.
 //!
 //! Beside the grid sits `aux`: a position-keyed side table of `Aux`
@@ -118,6 +118,15 @@ pub const Occupant = union(enum) {
         /// @guarded-by: lattice.zig "Cell stays 16 bytes: the arrowhead style rides in existing padding"
         arrow: ArrowKind = .filled,
     },
+    /// One label glyph: a Unicode scalar, or — above the scalar range, in
+    /// `GLYPH_REF_BASE..` — a reference into `Lattice.glyphs`, the per-lattice
+    /// table of multi-codepoint graphemes (a base plus combining marks, a
+    /// VS16 sequence, a ZWJ family, a flag). One cell holds one grapheme
+    /// head, never one codepoint of a longer grapheme; a single-codepoint
+    /// grapheme stores the scalar itself, so an all-ASCII lattice is
+    /// bit-identical to a lattice that never heard of the table. Read
+    /// through `Lattice.glyphOf`; never re-encode the value blind.
+    /// @guarded-by: labels_eaw_test.zig "a decomposed accent occupies one cell per grapheme and interns base plus mark"
     label_char: u21,
     /// Second terminal column of the East-Asian-Wide `label_char`
     /// immediately WEST. Paints zero bytes and contributes zero display
@@ -404,6 +413,33 @@ pub const AuxCollectionReport = struct {
     }
 };
 
+/// One interned multi-codepoint grapheme: its UTF-8 bytes (owned by the
+/// lattice's allocator, never borrowed from a label) and its terminal width
+/// in columns (1 or 2). Referenced from a `label_char` cell by index.
+pub const Glyph = struct {
+    bytes: []const u8,
+    width: u8,
+};
+
+/// First `label_char` value that is a `Lattice.glyphs` index rather than a
+/// Unicode scalar: one past U+10FFFF, still inside u21.
+pub const GLYPH_REF_BASE: u21 = 0x110000;
+
+/// How many graphemes one lattice can intern: the u21 room above the
+/// scalar range.
+pub const MAX_GLYPHS: usize = @as(usize, std.math.maxInt(u21)) - GLYPH_REF_BASE + 1;
+
+/// True iff `cp` is an interned-glyph reference, not a scalar.
+pub fn isGlyphRef(cp: u21) bool {
+    return cp >= GLYPH_REF_BASE;
+}
+
+/// The `label_char` value that refers to `Lattice.glyphs[index]`.
+pub fn glyphRef(index: usize) u21 {
+    std.debug.assert(index < MAX_GLYPHS);
+    return @intCast(GLYPH_REF_BASE + index);
+}
+
 /// Width × height grid of cells, row-major.
 ///
 /// `cells.len` must equal `width * height`. The lattice does not own
@@ -413,6 +449,11 @@ pub const Lattice = struct {
     width: u32,
     height: u32,
     cells: []Cell,
+    /// Interned multi-codepoint graphemes referenced from `label_char`
+    /// cells (see `Occupant.label_char`). Built by the label rasterizer;
+    /// same lifetime rule as `cells`. Empty for a lattice whose every label
+    /// glyph is a single codepoint.
+    glyphs: []const Glyph = &.{},
     /// Final rail provenance, borrowed independently of AUX and ignored by paint.
     rail_claims: []const ledger.RailClaim = &.{},
     /// Position-keyed side table, sorted by (cell, kind, value). Empty means
@@ -442,6 +483,16 @@ pub const Lattice = struct {
         std.debug.assert(x < self.width);
         std.debug.assert(y < self.height);
         return &self.cells[@as(usize, y) * @as(usize, self.width) + @as(usize, x)];
+    }
+
+    /// The interned grapheme a `label_char` value refers to; null for a
+    /// scalar, and null for a reference past the table (a producer bug the
+    /// painter tolerates rather than trusts).
+    pub fn glyphOf(self: Lattice, cp: u21) ?Glyph {
+        if (!isGlyphRef(cp)) return null;
+        const index: usize = cp - GLYPH_REF_BASE;
+        if (index >= self.glyphs.len) return null;
+        return self.glyphs[index];
     }
 };
 
@@ -509,6 +560,23 @@ test "Lattice index calculation: row-major, at() returns correct cell" {
 test "Cell stays 16 bytes: the arrowhead style rides in existing padding" {
     try std.testing.expectEqual(@as(usize, 16), @sizeOf(Cell));
     try std.testing.expectEqual(@as(usize, 12), @sizeOf(Occupant));
+}
+
+test "glyph references live above the scalar range and resolve through the table" {
+    try std.testing.expect(!isGlyphRef('A'));
+    try std.testing.expect(!isGlyphRef(0x10FFFF));
+    try std.testing.expect(isGlyphRef(glyphRef(0)));
+    try std.testing.expect(isGlyphRef(glyphRef(MAX_GLYPHS - 1)));
+    try std.testing.expectEqual(@as(u21, 0x110000), glyphRef(0));
+    try std.testing.expectEqual(@as(u21, std.math.maxInt(u21)), glyphRef(MAX_GLYPHS - 1));
+
+    var cells: [1]Cell = .{Cell.empty};
+    const table = [_]Glyph{ .{ .bytes = "e\u{0301}", .width = 1 }, .{ .bytes = "\u{1F468}\u{200D}\u{1F469}", .width = 2 } };
+    const lat = Lattice{ .width = 1, .height = 1, .cells = &cells, .glyphs = &table };
+    try std.testing.expectEqualStrings("e\u{0301}", lat.glyphOf(glyphRef(0)).?.bytes);
+    try std.testing.expectEqual(@as(u8, 2), lat.glyphOf(glyphRef(1)).?.width);
+    try std.testing.expectEqual(@as(?Glyph, null), lat.glyphOf('e'));
+    try std.testing.expectEqual(@as(?Glyph, null), lat.glyphOf(glyphRef(2)));
 }
 
 test "cellIndex agrees with at()'s row-major linearization" {

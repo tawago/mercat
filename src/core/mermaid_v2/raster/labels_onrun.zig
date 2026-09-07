@@ -52,7 +52,6 @@
 const std = @import("std");
 const sketch = @import("../sketch.zig");
 const lattice = @import("../lattice.zig");
-const labels = @import("labels.zig");
 const lw = @import("labels_write.zig");
 const aux = @import("aux.zig");
 const ink = @import("labels_ink.zig");
@@ -77,18 +76,18 @@ pub fn tryOnRunEdge(
     lat: *lattice.Lattice,
     s: sketch.Sketch,
     ep: sketch.EdgePath,
-    label: []const u8,
+    run: lw.Run,
     sink: aux.Sink,
 ) bool {
     if (ep.polyline.len < 2) return false;
     const h_len = onrun_h.longestHorizontalInterior(ep.polyline);
     const v_len = longestVerticalInterior(ep.polyline);
     if (h_len > v_len) {
-        if (onrun_h.tryOnRunEdgeH(lat, s, ep, label, sink)) return true;
-        return tryVerticalEdge(lat, s, ep, label, sink);
+        if (onrun_h.tryOnRunEdgeH(lat, s, ep, run, sink)) return true;
+        return tryVerticalEdge(lat, s, ep, run, sink);
     }
-    if (tryVerticalEdge(lat, s, ep, label, sink)) return true;
-    return onrun_h.tryOnRunEdgeH(lat, s, ep, label, sink);
+    if (tryVerticalEdge(lat, s, ep, run, sink)) return true;
+    return onrun_h.tryOnRunEdgeH(lat, s, ep, run, sink);
 }
 
 /// Longest strict-interior length among the polyline's vertical segments.
@@ -110,14 +109,14 @@ fn tryVerticalEdge(
     lat: *lattice.Lattice,
     s: sketch.Sketch,
     ep: sketch.EdgePath,
-    label: []const u8,
+    run: lw.Run,
     sink: aux.Sink,
 ) bool {
     for (ep.polyline[0 .. ep.polyline.len - 1], 0..) |p, i| {
         const q = ep.polyline[i + 1];
         if (p.x != q.x or p.y == q.y) continue;
         const owner: ink.Owner = .{ .edge_id = ep.id, .polyline = ep.polyline, .seg_a = p, .seg_b = q };
-        if (tryRun(lat, s, ep.id, p.x, @min(p.y, q.y) + 1, @max(p.y, q.y) - 1, label, owner, sink)) return true;
+        if (tryRun(lat, s, ep.id, p.x, @min(p.y, q.y) + 1, @max(p.y, q.y) - 1, run, owner, sink)) return true;
     }
     return false;
 }
@@ -129,12 +128,12 @@ pub fn tryOnRunTap(
     lat: *lattice.Lattice,
     s: sketch.Sketch,
     tap: sketch.Tap,
-    label: []const u8,
+    run: lw.Run,
     sink: aux.Sink,
 ) bool {
     if (tap.at.x != tap.landing.x or tap.at.y == tap.landing.y) return false;
     const owner: ink.Owner = .{ .edge_id = tap.edge, .polyline = &.{}, .seg_a = tap.at, .seg_b = tap.landing };
-    return tryRun(lat, s, tap.edge, tap.at.x, @min(tap.at.y, tap.landing.y) + 1, @max(tap.at.y, tap.landing.y) - 1, label, owner, sink);
+    return tryRun(lat, s, tap.edge, tap.at.x, @min(tap.at.y, tap.landing.y) + 1, @max(tap.at.y, tap.landing.y) - 1, run, owner, sink);
 }
 
 /// Walk candidate interruption rows `[y_lo, y_hi]` on column `x` from the
@@ -146,18 +145,17 @@ fn tryRun(
     x: i32,
     y_lo: i32,
     y_hi: i32,
-    label: []const u8,
+    run: lw.Run,
     owner: ink.Owner,
     sink: aux.Sink,
 ) bool {
     if (y_lo > y_hi) return false;
-    const cell_count: u32 = labels.cellSpanOf(label);
-    if (cell_count == 0) return false;
+    if (run.cell_count == 0) return false;
     const mid: i32 = @divTrunc(y_lo + y_hi, 2);
     var d: i32 = 0;
     while (mid - d >= y_lo or mid + d <= y_hi) : (d += 1) {
-        if (mid - d >= y_lo and tryAt(lat, s, edge_id, x, mid - d, label, cell_count, owner, sink)) return true;
-        if (d > 0 and mid + d <= y_hi and tryAt(lat, s, edge_id, x, mid + d, label, cell_count, owner, sink)) return true;
+        if (mid - d >= y_lo and tryAt(lat, s, edge_id, x, mid - d, run, owner, sink)) return true;
+        if (d > 0 and mid + d <= y_hi and tryAt(lat, s, edge_id, x, mid + d, run, owner, sink)) return true;
     }
     return false;
 }
@@ -171,11 +169,11 @@ fn tryAt(
     edge_id: u32,
     x: i32,
     row: i32,
-    label: []const u8,
-    cell_count: u32,
+    run: lw.Run,
     owner: ink.Owner,
     sink: aux.Sink,
 ) bool {
+    const cell_count = run.cell_count;
     // OWN-INK RULE, structural half: the interrupted cell is this edge's own
     // private dropper ink — a straight vertical stroke, never a junction.
     // @guarded-by: labels_onrun_test.zig "OWN-INK RULE: a rail/crossbar cell is never interrupted"
@@ -215,16 +213,7 @@ fn tryAt(
 
     std.debug.assert(privateDropperCell(lat, edge_id, x, row));
 
-    var wx: u32 = sx;
-    var bi: usize = 0;
-    while (bi < label.len) {
-        const dc = labels.nextCodepoint(label, bi);
-        bi += dc.byte_len;
-        const cp = labels.sentinelToSpace(dc.cp);
-        const span = labels.cellSpan(cp);
-        lw.writeSpan(lat, wx, urow, cp, span, .{ .kind = .edge, .id = edge_id }, sink);
-        wx += span;
-    }
+    lw.writeRun(lat, sx, urow, run, .{ .kind = .edge, .id = edge_id }, sink);
 
     return true;
 }

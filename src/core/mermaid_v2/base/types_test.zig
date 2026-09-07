@@ -154,3 +154,98 @@ test "prim: wrapToWidth hard-splits a spaceless mega-word, bounds every line" {
     defer a.free(cjk);
     for (cjk) |l| try std.testing.expect(displayWidth(l) <= 4);
 }
+
+test "prim: displayWidth measures graphemes the way a terminal shows them" {
+    // An emoji-presentation scalar is two columns; the range copy that
+    // used to live here said one, and every emoji box came out a column
+    // narrow.
+    try std.testing.expectEqual(@as(u32, 2), displayWidth("\u{1F680}"));
+    try std.testing.expectEqual(@as(u32, 9), displayWidth("\u{1F680} Launch"));
+    try std.testing.expectEqual(@as(u32, 2), displayWidth("\u{2705}"));
+    // A base plus a combining mark is one grapheme, one column.
+    try std.testing.expectEqual(@as(u32, 4), displayWidth("cafe\u{0301}"));
+    try std.testing.expectEqual(@as(u32, 4), displayWidth("café"));
+    try std.testing.expectEqual(@as(u32, 5), displayWidth("nai\u{0308}ve"));
+    // VS16 promotes a text-default heart to emoji presentation.
+    try std.testing.expectEqual(@as(u32, 2), displayWidth("\u{2764}\u{FE0F}"));
+    // A ZWJ family is one grapheme, two columns.
+    try std.testing.expectEqual(@as(u32, 2), displayWidth("\u{1F468}\u{200D}\u{1F469}\u{200D}\u{1F467}"));
+    // A regional-indicator pair is one flag, two columns.
+    try std.testing.expectEqual(@as(u32, 2), displayWidth("\u{1F1EF}\u{1F1F5}"));
+    // A skin-tone modifier rides its base.
+    try std.testing.expectEqual(@as(u32, 2), displayWidth("\u{1F44D}\u{1F3FD}"));
+}
+
+test "prim: codepointWidth agrees with the authority for a scalar in isolation" {
+    try std.testing.expectEqual(@as(u32, 2), prim.codepointWidth(0x1F680));
+    try std.testing.expectEqual(@as(u32, 2), prim.codepointWidth('日'));
+    try std.testing.expectEqual(@as(u32, 1), prim.codepointWidth('A'));
+    try std.testing.expectEqual(@as(u32, 1), prim.codepointWidth(0x00BB));
+    try std.testing.expectEqual(@as(u32, 4), prim.codepointWidth('\t'));
+    try std.testing.expectEqual(@as(u32, 0), prim.codepointWidth(prim.LINE_BREAK));
+}
+
+test "prim: truncateToWidth never splits inside a grapheme" {
+    // The accent stays with its base: at width 3 the whole "e\u{0301}"
+    // grapheme is out, never a bare "e" with its mark dropped.
+    try std.testing.expectEqualStrings("caf", truncateToWidth("cafe\u{0301}", 3));
+    try std.testing.expectEqualStrings("cafe\u{0301}", truncateToWidth("cafe\u{0301}", 4));
+    // A two-column emoji does not fit in one column, whole or in part.
+    try std.testing.expectEqualStrings("", truncateToWidth("\u{1F680}x", 1));
+    try std.testing.expectEqualStrings("\u{1F680}", truncateToWidth("\u{1F680}x", 2));
+    // A ZWJ family and a flag move as one unit.
+    const family = "\u{1F468}\u{200D}\u{1F469}\u{200D}\u{1F467}";
+    try std.testing.expectEqualStrings("", truncateToWidth(family ++ "!", 1));
+    try std.testing.expectEqualStrings(family, truncateToWidth(family ++ "!", 2));
+    try std.testing.expectEqualStrings("", truncateToWidth("\u{1F1EF}\u{1F1F5}", 1));
+    // VS16 travels with its base.
+    try std.testing.expectEqualStrings("", truncateToWidth("\u{2764}\u{FE0F}", 1));
+    try std.testing.expectEqualStrings("\u{2764}\u{FE0F}", truncateToWidth("\u{2764}\u{FE0F}", 2));
+    for ([_][]const u8{ "cafe\u{0301}", family, "\u{1F1EF}\u{1F1F5}", "\u{2764}\u{FE0F}" }) |text| {
+        var w: u32 = 0;
+        while (w <= 3) : (w += 1) {
+            const cut = truncateToWidth(text, w);
+            try std.testing.expect(cut.len == 0 or cut.len == text.len);
+        }
+    }
+}
+
+test "prim: wrapToWidth hard-splits a word on grapheme boundaries" {
+    const a = std.testing.allocator;
+    const lines = try wrapToWidth(a, "e\u{0301}e\u{0301}e\u{0301}", 2);
+    defer a.free(lines);
+    try std.testing.expectEqual(@as(usize, 2), lines.len);
+    try std.testing.expectEqualStrings("e\u{0301}e\u{0301}", lines[0]);
+    try std.testing.expectEqualStrings("e\u{0301}", lines[1]);
+
+    // A single grapheme wider than the cap still moves whole.
+    const family = "\u{1F468}\u{200D}\u{1F469}\u{200D}\u{1F467}";
+    const one = try wrapToWidth(a, family ++ family, 1);
+    defer a.free(one);
+    try std.testing.expectEqual(@as(usize, 2), one.len);
+    try std.testing.expectEqualStrings(family, one[0]);
+    try std.testing.expectEqualStrings(family, one[1]);
+}
+
+test "prim: wrapToWidth never exceeds its cap on text the strict measure rejects" {
+    const a = std.testing.allocator;
+    const inputs = [_][]const u8{
+        "e\u{0301}\u{200B}e\u{0301}e\u{0301}",
+        "\u{00AD}e\u{0301}e\u{0301}e\u{0301}",
+        "e\u{0301}\x01e\u{0301}e\u{0301}",
+        "e\u{0301}\xffe\u{0301}e\u{0301} \x80\x80e\u{0301}",
+    };
+    for (inputs) |text| {
+        var cap: u32 = 1;
+        while (cap <= 4) : (cap += 1) {
+            const lines = try wrapToWidth(a, text, cap);
+            defer a.free(lines);
+            for (lines) |line| try std.testing.expect(displayWidth(line) <= cap);
+        }
+    }
+    const three = try wrapToWidth(a, "\u{00AD}e\u{0301}e\u{0301}e\u{0301}", 3);
+    defer a.free(three);
+    try std.testing.expectEqual(@as(usize, 2), three.len);
+    try std.testing.expectEqualStrings("\u{00AD}e\u{0301}e\u{0301}", three[0]);
+    try std.testing.expectEqualStrings("e\u{0301}", three[1]);
+}

@@ -1,6 +1,6 @@
 //! ON-RUN edge-label placement in a HORIZONTAL private run: the label text
 //! sits INLINE in the stroke — `────── label ──────` — interrupting the run
-//! for exactly `cellSpanOf(label)` columns on one row. The vertical sibling
+//! for exactly `run.cell_count` columns on one row. The vertical sibling
 //! (labels_onrun.zig) writes the text ACROSS a private dropper; this one
 //! writes it ALONG the run, so the interrupted stretch is the whole label
 //! span rather than a single cell.
@@ -49,7 +49,6 @@
 const std = @import("std");
 const sketch = @import("../sketch.zig");
 const lattice = @import("../lattice.zig");
-const labels = @import("labels.zig");
 const lw = @import("labels_write.zig");
 const aux = @import("aux.zig");
 const ink = @import("labels_ink.zig");
@@ -84,12 +83,11 @@ pub fn tryOnRunEdgeH(
     lat: *lattice.Lattice,
     s: sketch.Sketch,
     ep: sketch.EdgePath,
-    label: []const u8,
+    run: lw.Run,
     sink: aux.Sink,
 ) bool {
     if (ep.polyline.len < 2) return false;
-    const cell_count: u32 = labels.cellSpanOf(label);
-    if (cell_count == 0) return false;
+    if (run.cell_count == 0) return false;
 
     var tried = [_]bool{false} ** MAX_SEGS;
     const nsegs = @min(ep.polyline.len - 1, MAX_SEGS);
@@ -115,7 +113,7 @@ pub fn tryOnRunEdgeH(
         const p = ep.polyline[idx];
         const q = ep.polyline[idx + 1];
         const owner: ink.Owner = .{ .edge_id = ep.id, .polyline = ep.polyline, .seg_a = p, .seg_b = q };
-        if (tryRunH(lat, s, ep.id, p.y, @min(p.x, q.x) + 1, @max(p.x, q.x) - 1, label, cell_count, owner, sink)) return true;
+        if (tryRunH(lat, s, ep.id, p.y, @min(p.x, q.x) + 1, @max(p.x, q.x) - 1, run, owner, sink)) return true;
     }
     return false;
 }
@@ -129,12 +127,11 @@ fn tryRunH(
     row: i32,
     x_lo: i32,
     x_hi: i32,
-    label: []const u8,
-    cell_count: u32,
+    run: lw.Run,
     owner: ink.Owner,
     sink: aux.Sink,
 ) bool {
-    const cc: i32 = @intCast(cell_count);
+    const cc: i32 = @intCast(run.cell_count);
     // Feasibility without any layout stretching: label + one flank cell on
     // each side must already fit in the segment's strict interior.
     // @guarded-by: labels_onrun_h_test.zig "a too-short horizontal run falls through to the ordinary ladder"
@@ -144,8 +141,8 @@ fn tryRunH(
     const mid: i32 = @divTrunc(start_lo + start_hi, 2);
     var d: i32 = 0;
     while (mid - d >= start_lo or mid + d <= start_hi) : (d += 1) {
-        if (mid - d >= start_lo and tryAtH(lat, s, edge_id, mid - d, row, label, cell_count, owner, sink)) return true;
-        if (d > 0 and mid + d <= start_hi and tryAtH(lat, s, edge_id, mid + d, row, label, cell_count, owner, sink)) return true;
+        if (mid - d >= start_lo and tryAtH(lat, s, edge_id, mid - d, row, run, owner, sink)) return true;
+        if (d > 0 and mid + d <= start_hi and tryAtH(lat, s, edge_id, mid + d, row, run, owner, sink)) return true;
     }
     return false;
 }
@@ -158,11 +155,11 @@ fn tryAtH(
     edge_id: u32,
     start_x: i32,
     row: i32,
-    label: []const u8,
-    cell_count: u32,
+    run: lw.Run,
     owner: ink.Owner,
     sink: aux.Sink,
 ) bool {
+    const cell_count = run.cell_count;
     const cc: i32 = @intCast(cell_count);
     if (row < 0 or @as(i64, row) >= lat.height) return false;
     if (start_x < 1) return false;
@@ -208,16 +205,7 @@ fn tryAtH(
     var j: i32 = 0;
     while (j < cc) : (j += 1) std.debug.assert(privateRunCellH(lat, edge_id, start_x + j, row));
 
-    var wx: u32 = sx;
-    var bi: usize = 0;
-    while (bi < label.len) {
-        const dc = labels.nextCodepoint(label, bi);
-        bi += dc.byte_len;
-        const cp = labels.sentinelToSpace(dc.cp);
-        const span = labels.cellSpan(cp);
-        lw.writeSpan(lat, wx, urow, cp, span, .{ .kind = .edge, .id = edge_id }, sink);
-        wx += span;
-    }
+    lw.writeRun(lat, sx, urow, run, .{ .kind = .edge, .id = edge_id }, sink);
     return true;
 }
 

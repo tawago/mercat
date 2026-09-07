@@ -603,4 +603,5 @@ test {
     _ = @import("cluster_corridor_test.zig");
     _ = @import("decoration_cell_test.zig");
     _ = @import("route_once_test.zig");
+    _ = @import("grapheme_width_test.zig");
 }

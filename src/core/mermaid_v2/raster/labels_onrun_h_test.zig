@@ -8,6 +8,7 @@ const std = @import("std");
 const sketch = @import("../sketch.zig");
 const lattice = @import("../lattice.zig");
 const onrun = @import("labels_onrun.zig");
+const lw = @import("labels_write.zig");
 
 const testing = std.testing;
 
@@ -92,7 +93,7 @@ test "happy path: the label sits inline in its own horizontal run, flanked both 
     const edges = [_]sketch.EdgePath{ep};
     s.edges = &edges;
 
-    try testing.expect(onrun.tryOnRunEdge(&lat, s, ep, "ok", null));
+    try testing.expect(onrun.tryOnRunEdge(&lat, s, ep, lw.asciiRun("ok"), null));
 
     try testing.expectEqual(@as(u21, 'o'), labelCharAt(lat, 6, 4));
     try testing.expectEqual(@as(u21, 'k'), labelCharAt(lat, 7, 4));
@@ -119,7 +120,7 @@ test "the inline flanks keep the edge's own stroke kind on both sides" {
         const edges = [_]sketch.EdgePath{ep};
         s.edges = &edges;
 
-        try testing.expect(onrun.tryOnRunEdge(&lat, s, ep, "ok", null));
+        try testing.expect(onrun.tryOnRunEdge(&lat, s, ep, lw.asciiRun("ok"), null));
         for ([_]u32{ 5, 8 }) |x| {
             const c = lat.atConst(x, 4);
             try testing.expectEqual(kind, c.stroke_kind);
@@ -142,7 +143,7 @@ test "OWN-INK RULE: a shared crossbar cell inside the stretch refuses the inline
     const edges = [_]sketch.EdgePath{ep};
     s.edges = &edges;
 
-    try testing.expect(!onrun.tryOnRunEdge(&lat, s, ep, "ok", null));
+    try testing.expect(!onrun.tryOnRunEdge(&lat, s, ep, lw.asciiRun("ok"), null));
     try testing.expectEqual(@as(u21, 0), labelCharAt(lat, 4, 4));
 }
 
@@ -162,7 +163,7 @@ test "OWN-INK RULE: a foreign-crossed stretch is refused by the geometry sweep" 
     const edges = [_]sketch.EdgePath{ ep, other };
     s.edges = &edges;
 
-    try testing.expect(!onrun.tryOnRunEdge(&lat, s, ep, "ok", null));
+    try testing.expect(!onrun.tryOnRunEdge(&lat, s, ep, lw.asciiRun("ok"), null));
     try testing.expectEqual(@as(u21, 0), labelCharAt(lat, 4, 4));
 }
 
@@ -179,7 +180,7 @@ test "FLANKED-RESUMPTION RULE: a corner or an arrowhead in the flank cell refuse
         var s = emptySketch(16, 9);
         const edges = [_]sketch.EdgePath{ep};
         s.edges = &edges;
-        try testing.expect(!onrun.tryOnRunEdge(&lat, s, ep, "ok", null));
+        try testing.expect(!onrun.tryOnRunEdge(&lat, s, ep, lw.asciiRun("ok"), null));
         try testing.expectEqual(@as(u21, 0), labelCharAt(lat, 4, 4));
     }
 
@@ -194,7 +195,7 @@ test "FLANKED-RESUMPTION RULE: a corner or an arrowhead in the flank cell refuse
         var s = emptySketch(16, 9);
         const edges = [_]sketch.EdgePath{ep};
         s.edges = &edges;
-        try testing.expect(!onrun.tryOnRunEdge(&lat, s, ep, "ok", null));
+        try testing.expect(!onrun.tryOnRunEdge(&lat, s, ep, lw.asciiRun("ok"), null));
         try testing.expectEqual(@as(u21, 0), labelCharAt(lat, 4, 4));
     }
 }
@@ -212,7 +213,7 @@ test "a too-short horizontal run falls through to the ordinary ladder" {
     const edges = [_]sketch.EdgePath{ep};
     s.edges = &edges;
 
-    try testing.expect(!onrun.tryOnRunEdge(&lat, s, ep, "ok", null));
+    try testing.expect(!onrun.tryOnRunEdge(&lat, s, ep, lw.asciiRun("ok"), null));
     var x: u32 = 3;
     while (x <= 5) : (x += 1) try testing.expect(lat.atConst(x, 4).occupant == .edge_segment);
 }
@@ -230,7 +231,7 @@ test "foreign ink above the inline span refuses the candidate" {
     const edges = [_]sketch.EdgePath{ep};
     s.edges = &edges;
 
-    try testing.expect(!onrun.tryOnRunEdge(&lat, s, ep, "ok", null));
+    try testing.expect(!onrun.tryOnRunEdge(&lat, s, ep, lw.asciiRun("ok"), null));
     try testing.expectEqual(@as(u21, 0), labelCharAt(lat, 4, 4));
 }
 
@@ -248,8 +249,8 @@ test "determinism: identical inputs place the inline label identically" {
     const edges = [_]sketch.EdgePath{ep};
     s.edges = &edges;
 
-    try testing.expect(onrun.tryOnRunEdge(&lat1, s, ep, "ok", null));
-    try testing.expect(onrun.tryOnRunEdge(&lat2, s, ep, "ok", null));
+    try testing.expect(onrun.tryOnRunEdge(&lat1, s, ep, lw.asciiRun("ok"), null));
+    try testing.expect(onrun.tryOnRunEdge(&lat2, s, ep, lw.asciiRun("ok"), null));
     for (lat1.cells, lat2.cells) |c1, c2| {
         try testing.expect(std.meta.eql(c1, c2));
     }
@@ -279,7 +280,7 @@ test "tie order: the longer qualifying stretch is tried first, ties go vertical"
         const edges = [_]sketch.EdgePath{ep};
         s.edges = &edges;
 
-        try testing.expect(onrun.tryOnRunEdge(&lat, s, ep, "ok", null));
+        try testing.expect(onrun.tryOnRunEdge(&lat, s, ep, lw.asciiRun("ok"), null));
         try testing.expectEqual(@as(u21, 'o'), labelCharAt(lat, 9, 6));
         try testing.expectEqual(@as(u21, 'k'), labelCharAt(lat, 10, 6));
         try testing.expectEqual(@as(u21, 0), labelCharAt(lat, 5, 3));
@@ -295,7 +296,7 @@ test "tie order: the longer qualifying stretch is tried first, ties go vertical"
         const edges = [_]sketch.EdgePath{ep};
         s.edges = &edges;
 
-        try testing.expect(onrun.tryOnRunEdge(&lat, s, ep, "ok", null));
+        try testing.expect(onrun.tryOnRunEdge(&lat, s, ep, lw.asciiRun("ok"), null));
         try testing.expectEqual(@as(u21, 'o'), labelCharAt(lat, 5, 3));
         try testing.expectEqual(@as(u21, 'k'), labelCharAt(lat, 6, 3));
         try testing.expectEqual(@as(u21, 0), labelCharAt(lat, 7, 6));
@@ -319,7 +320,7 @@ test "OWN-INK RULE: a private prefix of a collinear shared run is refused" {
         var s = emptySketch(16, 9);
         const edges = [_]sketch.EdgePath{ ep, foreign };
         s.edges = &edges;
-        try testing.expect(!onrun.tryOnRunEdge(&lat, s, ep, "ok", null));
+        try testing.expect(!onrun.tryOnRunEdge(&lat, s, ep, lw.asciiRun("ok"), null));
     }
 
     {
@@ -329,7 +330,7 @@ test "OWN-INK RULE: a private prefix of a collinear shared run is refused" {
         var s = emptySketch(16, 9);
         const edges = [_]sketch.EdgePath{ ep, foreign };
         s.edges = &edges;
-        try testing.expect(onrun.tryOnRunEdge(&lat, s, ep, "ok", null));
+        try testing.expect(onrun.tryOnRunEdge(&lat, s, ep, lw.asciiRun("ok"), null));
         try testing.expectEqual(@as(u21, 'o'), labelCharAt(lat, 6, 4));
     }
 }

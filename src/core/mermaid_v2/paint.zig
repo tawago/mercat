@@ -16,10 +16,11 @@ const st = @import("paint/stroke_glyphs.zig");
 const sg = @import("paint/shape_glyphs.zig");
 const ag = @import("paint/arrow_glyphs.zig");
 
-/// Right-edge overflow marker. U+00BB (`»`) is below 0x1100 so
-/// `prim.codepointWidth` classifies it as display-width 1 — a hard
-/// requirement: the marker must occupy exactly one terminal column so
-/// the clipped row never exceeds `max_width`.
+/// Right-edge overflow marker. U+00BB (`»`) is neither East-Asian-Wide
+/// nor an emoji, so the width authority (through `prim.displayWidth`)
+/// measures it at one column — a hard requirement: the marker must occupy
+/// exactly one terminal column so the clipped row never exceeds
+/// `max_width`.
 const OVERFLOW_MARKER: u21 = '\u{00BB}';
 
 comptime {
@@ -42,21 +43,27 @@ pub fn paint(allocator: std.mem.Allocator, lat: lattice.Lattice, max_width: u32)
         // Track the running display column as we append; a cut only "counts" when the skipped cells hold real, non-blank content. // @guarded-by: paint.zig "paint: blank content beyond max_width budget earns no overflow marker"
         var col: u32 = 0;
         var cut_real_content = false;
+        // Byte offset where the last cell that painted anything begins:
+        // a whole grapheme, however many codepoints, so the marker can
+        // replace exactly one painted glyph. @guarded-by: paint.zig "paint: marker stamping — an interned grapheme at the boundary is popped whole"
+        var last_glyph_start: usize = 0;
         var x: u32 = 0;
         while (x < lat.width) : (x += 1) {
             const cell = lat.atConst(x, y).*;
-            const w = cellWidth(cell);
+            const before = row.items.len;
+            const w = try appendCell(allocator, &row, lat, cell);
             if (max_width != 0 and col + w > max_width) {
+                row.items.len = before;
                 if (rowHasContentFrom(lat, y, x)) cut_real_content = true;
                 break;
             }
-            try appendCell(allocator, &row, cell);
+            if (row.items.len != before) last_glyph_start = before;
             col += w;
         }
 
         if (cut_real_content) {
             // Stamp the marker at the right edge: overwrite an exact-fill glyph, or fill a width-2 glyph's leftover gap. // @guarded-by: paint.zig "paint: marker stamping — width-1-exact-fill overwrites the last glyph" / "paint: marker stamping — width-2-at-boundary fills the leftover gap"
-            if (col >= max_width) popLastGlyph(&row);
+            if (col >= max_width) row.items.len = last_glyph_start;
             try appendCp(allocator, &row, OVERFLOW_MARKER);
         }
 
@@ -68,22 +75,11 @@ pub fn paint(allocator: std.mem.Allocator, lat: lattice.Lattice, max_width: u32)
     return out.toOwnedSlice(allocator);
 }
 
-/// Display width contributed by one cell when painted. Mirrors
-/// `appendCell`: blanks and node interiors are a single space; every
-/// glyph this painter emits is display-width 1 (all box-drawing,
-/// arrowheads, and shape glyphs are narrow), and label chars are sized
-/// by their codepoint. A `label_cont` is the second cell of the wide
-/// glyph already charged to its head — it paints nothing and costs no
-/// column, so the row's cell count and its column count agree.
-/// @guarded-by: paint.zig "paint: a wide label glyph plus its continuation paints two columns from two cells"
-fn cellWidth(cell: lattice.Cell) u32 {
-    return switch (cell.occupant) {
-        .empty, .node_interior => 1,
-        .label_char => |cp| prim.codepointWidth(cp),
-        .label_cont => 0,
-        else => 1,
-    };
-}
+/// The glyph an interned `label_char` reference paints. A reference the
+/// table cannot resolve is a producer bug; it paints U+FFFD at one column
+/// so the row's column arithmetic never drifts from what was charged.
+/// @guarded-by: paint.zig "paint: a dangling glyph reference paints U+FFFD at one column"
+const dangling_glyph: lattice.Glyph = .{ .bytes = "\u{FFFD}", .width = 1 };
 
 /// True iff any cell in row `y` at column ≥ `from_x` paints a non-space
 /// glyph (i.e. real content was cut, not just trailing blanks).
@@ -105,25 +101,33 @@ fn rowHasContentFrom(lat: lattice.Lattice, y: u32, from_x: u32) bool {
     return false;
 }
 
-/// Remove the bytes of the last UTF-8 glyph appended to `row`. Used to
-/// make room for the overflow marker at the final emitted column.
-fn popLastGlyph(row: *std.ArrayList(u8)) void {
-    var end: usize = row.items.len;
-    if (end == 0) return;
-    end -= 1;
-    while (end > 0 and (row.items[end] & 0xC0) == 0x80) : (end -= 1) {}
-    row.items.len = end;
-}
-
+/// Paint one cell onto `row` and return the display columns it took:
+/// blanks and node interiors are a single space; every glyph this painter
+/// emits is display-width 1 (all box-drawing, arrowheads, and shape glyphs
+/// are narrow); a label head is sized by its grapheme — the scalar's
+/// isolated width, or the interned entry's. A `label_cont` is the second
+/// cell of the wide glyph already charged to its head — it paints nothing
+/// and costs no column, so the row's cell count and its column count agree.
+/// @guarded-by: paint.zig "paint: a wide label glyph plus its continuation paints two columns from two cells"
+/// @guarded-by: paint.zig "paint: an interned grapheme paints its bytes verbatim at its table width"
 fn appendCell(
     allocator: std.mem.Allocator,
     row: *std.ArrayList(u8),
+    lat: lattice.Lattice,
     cell: lattice.Cell,
-) !void {
+) !u32 {
     switch (cell.occupant) {
         .empty, .node_interior => try row.append(allocator, ' '),
-        .label_cont => {},
-        .label_char => |cp| try appendCp(allocator, row, cp),
+        .label_cont => return 0,
+        .label_char => |cp| {
+            if (lattice.isGlyphRef(cp)) {
+                const glyph = lat.glyphOf(cp) orelse dangling_glyph;
+                try row.appendSlice(allocator, glyph.bytes);
+                return glyph.width;
+            }
+            try appendCp(allocator, row, cp);
+            return prim.codepointWidth(cp);
+        },
         .arrowhead => |a| try appendCp(allocator, row, ag.glyphFor(a.arrow, a.dir)),
         .edge_segment => |seg| {
             const glyph: u21 = switch (seg.kind) {
@@ -154,6 +158,7 @@ fn appendCell(
             try appendCp(allocator, row, glyph);
         },
     }
+    return 1;
 }
 
 fn appendCp(
@@ -361,6 +366,59 @@ test "paint: a wide glyph at the clip boundary is never split and earns one mark
     const got = try paint(a, lat, 3);
     defer a.free(got);
     try testing.expectEqualStrings("AB\u{00BB}\n", got);
+}
+
+test "paint: an interned grapheme paints its bytes verbatim at its table width" {
+    const a = testing.allocator;
+    const table = [_]lattice.Glyph{
+        .{ .bytes = "e\u{0301}", .width = 1 },
+        .{ .bytes = "\u{1F468}\u{200D}\u{1F469}\u{200D}\u{1F467}", .width = 2 },
+    };
+    var cells: [5]lattice.Cell = undefined;
+    cells[0] = .{ .occupant = .{ .label_char = 'c' }, .neighbours = .{} };
+    cells[1] = .{ .occupant = .{ .label_char = lattice.glyphRef(0) }, .neighbours = .{} };
+    cells[2] = .{ .occupant = .{ .label_char = lattice.glyphRef(1) }, .neighbours = .{} };
+    cells[3] = .{ .occupant = .label_cont, .neighbours = .{} };
+    cells[4] = .{ .occupant = .{ .label_char = 'x' }, .neighbours = .{} };
+    const lat = lattice.Lattice{ .width = 5, .height = 1, .cells = &cells, .glyphs = &table };
+
+    const got = try paint(a, lat, 0);
+    defer a.free(got);
+    try testing.expectEqualStrings("ce\u{0301}\u{1F468}\u{200D}\u{1F469}\u{200D}\u{1F467}x\n", got);
+
+    // The family is charged two columns: at a budget of 4 the row is
+    // c, é, family — an exact fill — and x is cut, so the marker replaces
+    // the family whole (all five codepoints), never a slice of it.
+    const clipped = try paint(a, lat, 4);
+    defer a.free(clipped);
+    try testing.expectEqualStrings("ce\u{0301}\u{00BB}\n", clipped);
+}
+
+test "paint: marker stamping — an interned grapheme at the boundary is popped whole" {
+    const a = testing.allocator;
+    const table = [_]lattice.Glyph{.{ .bytes = "e\u{0301}", .width = 1 }};
+    var cells: [4]lattice.Cell = undefined;
+    cells[0] = .{ .occupant = .{ .label_char = 'A' }, .neighbours = .{} };
+    cells[1] = .{ .occupant = .{ .label_char = 'B' }, .neighbours = .{} };
+    cells[2] = .{ .occupant = .{ .label_char = lattice.glyphRef(0) }, .neighbours = .{} };
+    cells[3] = .{ .occupant = .{ .label_char = 'D' }, .neighbours = .{} };
+    const lat = lattice.Lattice{ .width = 4, .height = 1, .cells = &cells, .glyphs = &table };
+    const got = try paint(a, lat, 3);
+    defer a.free(got);
+    // Exact fill at 3 columns: the whole "e\u{0301}" (two codepoints) goes,
+    // never a bare "e" with a dangling combining mark under the marker.
+    try testing.expectEqualStrings("AB\u{00BB}\n", got);
+}
+
+test "paint: a dangling glyph reference paints U+FFFD at one column" {
+    const a = testing.allocator;
+    var cells: [2]lattice.Cell = undefined;
+    cells[0] = .{ .occupant = .{ .label_char = lattice.glyphRef(7) }, .neighbours = .{} };
+    cells[1] = .{ .occupant = .{ .label_char = 'x' }, .neighbours = .{} };
+    const lat = lattice.Lattice{ .width = 2, .height = 1, .cells = &cells };
+    const got = try paint(a, lat, 0);
+    defer a.free(got);
+    try testing.expectEqualStrings("\u{FFFD}x\n", got);
 }
 
 test "paint: a trailing continuation alone never fabricates the overflow marker" {

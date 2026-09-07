@@ -142,3 +142,124 @@ test "a null sink writes the same cells and files nothing" {
     try testing.expectEqualSlices(lattice.Cell, with.cells, without.cells);
     try testing.expectEqual(@as(usize, 1), c.finish().len);
 }
+
+test "prepare resolves one cell per grapheme head, interning multi-codepoint graphemes once" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+
+    var table = lw.GlyphTable.init(a);
+    const run = try lw.prepare(a, &table, "e\u{0301}\u{1F680}e\u{0301} 日");
+    try testing.expectEqual(@as(usize, 5), run.cells.len);
+    try testing.expectEqual(@as(u32, 7), run.cell_count);
+    try testing.expectEqual(@as(u32, 7), run.width);
+    try testing.expect(lattice.isGlyphRef(run.cells[0].value));
+    try testing.expectEqual(@as(u8, 1), run.cells[0].span);
+    try testing.expectEqual(@as(u21, 0x1F680), run.cells[1].value);
+    try testing.expectEqual(@as(u8, 2), run.cells[1].span);
+    // The same grapheme interns to the same reference.
+    try testing.expectEqual(run.cells[0].value, run.cells[2].value);
+    try testing.expectEqual(@as(u21, ' '), run.cells[3].value);
+    try testing.expectEqual(@as(u21, '日'), run.cells[4].value);
+    try testing.expectEqual(@as(u8, 2), run.cells[4].span);
+
+    const glyphs = try table.finish();
+    try testing.expectEqual(@as(usize, 1), glyphs.len);
+    try testing.expectEqualStrings("e\u{0301}", glyphs[0].bytes);
+    try testing.expectEqual(@as(u8, 1), glyphs[0].width);
+}
+
+test "prepare walks graphemes through controls and malformed bytes exactly as prim.displayWidth counts them" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    var table = lw.GlyphTable.init(a);
+
+    // The sentinel is a control the strict measure rejects; the walk still
+    // keeps the mark on its base and maps the sentinel to a space.
+    const with_sentinel = try lw.prepare(a, &table, "e\u{0301}\nx");
+    try testing.expectEqual(@as(usize, 3), with_sentinel.cells.len);
+    try testing.expect(lattice.isGlyphRef(with_sentinel.cells[0].value));
+    try testing.expectEqual(@as(u21, ' '), with_sentinel.cells[1].value);
+    try testing.expectEqual(@as(u21, 'x'), with_sentinel.cells[2].value);
+    try testing.expectEqual(@as(u32, 3), with_sentinel.cell_count);
+    try testing.expectEqual(@as(u32, 3), with_sentinel.width);
+
+    // A malformed byte is its own one-cell piece carrying the raw byte;
+    // the graphemes after it are walked whole.
+    const malformed = try lw.prepare(a, &table, "a\xffe\u{0301}");
+    try testing.expectEqual(@as(usize, 3), malformed.cells.len);
+    try testing.expectEqual(@as(u21, 0xFF), malformed.cells[1].value);
+    try testing.expect(lattice.isGlyphRef(malformed.cells[2].value));
+    try testing.expectEqual(@as(u32, 3), malformed.cell_count);
+    try testing.expectEqual(@as(u32, 3), malformed.width);
+
+    // A tab is the one frozen skew: one cell, but measured to the next
+    // four-column stop (column 1 -> 4), so the label is five columns wide.
+    const tabbed = try lw.prepare(a, &table, "a\tb");
+    try testing.expectEqual(@as(u32, 3), tabbed.cell_count);
+    try testing.expectEqual(@as(u32, 5), tabbed.width);
+
+    try testing.expectEqual(@as(usize, 1), (try table.finish()).len);
+}
+
+test "the glyph table owns its bytes" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+
+    var scratch = [_]u8{ 'e', 0xCC, 0x81 };
+    var table = lw.GlyphTable.init(a);
+    const ref = try table.intern(&scratch, 1);
+    try testing.expectEqual(ref, try table.intern("e\u{0301}", 1));
+    scratch[0] = 'x';
+    const glyphs = try table.finish();
+    try testing.expectEqual(@as(usize, 1), glyphs.len);
+    try testing.expectEqualStrings("e\u{0301}", glyphs[0].bytes);
+    try testing.expectEqual(lattice.glyphRef(0), ref);
+}
+
+test "asciiRun spans one cell per byte and maps the sentinel to a space" {
+    const run = lw.asciiRun("a\nb");
+    try testing.expectEqual(@as(u32, 3), run.cell_count);
+    try testing.expectEqual(@as(u32, 3), run.width);
+    try testing.expectEqual(@as(u21, 'a'), run.cells[0].value);
+    try testing.expectEqual(@as(u21, ' '), run.cells[1].value);
+    try testing.expectEqual(@as(u21, 'b'), run.cells[2].value);
+    try testing.expectEqual(@as(u8, 1), run.cells[1].span);
+}
+
+test "a span write with an interned reference stores the reference, not a scalar" {
+    var buf: [2]lattice.Cell = undefined;
+    var lat = dirtyLattice(&buf);
+    const ref = lattice.glyphRef(3);
+    lw.writeSpan(&lat, 0, 0, ref, 2, node_owner, null);
+    switch (lat.atConst(0, 0).occupant) {
+        .label_char => |cp| try testing.expectEqual(ref, cp),
+        else => return error.NotALabelChar,
+    }
+    try testing.expectEqual(lattice.Occupant.label_cont, std.meta.activeTag(lat.atConst(1, 0).occupant));
+}
+
+test "a run write lays every cell out in order and claims exactly cell_count cells" {
+    var buf: [5]lattice.Cell = undefined;
+    var lat = dirtyLattice(&buf);
+    const cells = [_]lw.LabelCell{ .{ .value = 'a', .span = 1 }, .{ .value = '日', .span = 2 }, .{ .value = lattice.glyphRef(0), .span = 1 } };
+    const run: lw.Run = .{ .cells = &cells, .cell_count = 4, .width = 4 };
+
+    lw.writeRun(&lat, 0, 0, run, node_owner, null);
+
+    const expectHead = struct {
+        fn f(l: lattice.Lattice, x: u32, want: u21) !void {
+            switch (l.atConst(x, 0).occupant) {
+                .label_char => |cp| try testing.expectEqual(want, cp),
+                else => return error.NotALabelChar,
+            }
+        }
+    }.f;
+    try expectHead(lat, 0, 'a');
+    try expectHead(lat, 1, '日');
+    try testing.expectEqual(lattice.Occupant.label_cont, std.meta.activeTag(lat.atConst(2, 0).occupant));
+    try expectHead(lat, 3, lattice.glyphRef(0));
+    try testing.expectEqual(lattice.Occupant.edge_segment, std.meta.activeTag(lat.atConst(4, 0).occupant));
+}

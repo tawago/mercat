@@ -2,13 +2,15 @@
 //!
 //! The ONE module every mermaid_v2 stage (parse, layout, sketch, raster,
 //! lattice, paint) may import freely; sits below all import boundaries,
-//! imports only `std`. Carries pure-data types plus shared measurement
-//! primitives (`displayWidth`/`truncateToWidth`/`wrapToWidth`) with a
-//! self-contained East-Asian-Width table so every stage measures label
-//! width identically without crossing the import allowlist. New shared
-//! primitives belong here first; re-export via `pub const Foo = prim.Foo;`.
+//! imports only `std` and the `unicode` width authority. Carries pure-data
+//! types plus shared measurement primitives (`displayWidth`/
+//! `truncateToWidth`/`wrapToWidth`) that delegate to that authority, so
+//! every stage measures label width identically — and identically to the
+//! terminal — without crossing the import allowlist. New shared primitives
+//! belong here first; re-export via `pub const Foo = prim.Foo;`.
 
 const std = @import("std");
+const unicode = @import("unicode");
 
 /// Stable handle for a node within a single graph/sketch/lattice.
 pub const NodeId = u32;
@@ -356,87 +358,48 @@ pub fn leftOfRailAnchor(ax: i32, ay: i32, bx: i32, by: i32, label_w: u32) LabelA
     return .{ .x = mid_x - 1 - lw, .y = mid_y };
 }
 
-// Self-contained EAW-aware column counting, duplicated from lib/unicode.zig
-// because base/ files may only import std.
-// @guarded-by: tools/lint_imports.zig "base/ files may import only std and base/ siblings"
+// Display-column geometry. `lib/unicode.zig` (module `unicode`) is the
+// single width authority for the whole program: Unicode 17 tables,
+// extended-grapheme segmentation, emoji presentation. base/ is the no-deps
+// tier and imports only std and base/ siblings, with this ONE exception:
+// types.zig may reach `unicode`, because a second copy of the width tables
+// drifted once (an emoji counted as one column, a combining mark as one)
+// and every box and rail was off by a column. One authority, no copy.
+// @guarded-by: tools/lint_imports.zig "base/ files may import only std and base/ siblings; types.zig alone may import unicode"
 
-/// Display-column width of a single decoded codepoint.
-///   - tab (\t)        -> 4
-///   - control < 0x20  -> 0
-///   - CJK / Hangul / fullwidth / wide ranges -> 2
-///   - everything else -> 1
+/// Display-column width of a single codepoint, as the authority measures
+/// it in isolation:
+///   - tab (\t)                         -> 4
+///   - C0 / DEL / C1 control            -> 0
+///   - East-Asian-Wide/Fullwidth, emoji-presentation, emoji modifier -> 2
+///   - everything else                  -> 1
+/// A codepoint is not always a grapheme: `displayWidth` measures whole
+/// graphemes (a base plus its combining marks is ONE column; a ZWJ family
+/// is TWO), so sum this only over text known to be one codepoint per glyph.
 pub fn codepointWidth(codepoint: u21) u32 {
-    if (codepoint == '\t') return 4;
-    if (codepoint < 0x20) return 0;
-    if (codepoint >= 0x1100 and (codepoint <= 0x115f or codepoint == 0x2329 or codepoint == 0x232a or (codepoint >= 0x2e80 and codepoint <= 0xa4cf) or (codepoint >= 0xac00 and codepoint <= 0xd7a3) or (codepoint >= 0xf900 and codepoint <= 0xfaff) or (codepoint >= 0xfe10 and codepoint <= 0xfe19) or (codepoint >= 0xfe30 and codepoint <= 0xfe6f) or (codepoint >= 0xff00 and codepoint <= 0xff60) or (codepoint >= 0xffe0 and codepoint <= 0xffe6))) {
-        return 2;
-    }
-    return 1;
+    return @intCast(unicode.codepointWidth(codepoint));
 }
 
-/// East-Asian-Width-aware display-column count of `text`.
+/// Display-column count of `text` as a terminal shows it: extended
+/// graphemes, East-Asian-Width, emoji presentation (VS16, ZWJ sequences,
+/// flags, skin tones), delegated to the authority.
 ///
-/// Decodes `text` as UTF-8 and sums each codepoint's display width. On
-/// malformed UTF-8 it counts 1 column and advances 1 byte (defensive,
-/// matching `lib/unicode.zig`). Pure — imports nothing but `std`.
+/// Text the strict measure rejects (malformed UTF-8, or a control such as
+/// the `LINE_BREAK` sentinel) falls back to the authority's compatibility
+/// count: the same graphemes, a control as one column, one column per
+/// malformed byte. `truncateToWidth` cuts on that same walk, so a cut
+/// prefix never measures wider than its budget.
 pub fn displayWidth(text: []const u8) u32 {
-    var width: u32 = 0;
-    var index: usize = 0;
-    while (index < text.len) {
-        const seq_len = std.unicode.utf8ByteSequenceLength(text[index]) catch {
-            width += 1;
-            index += 1;
-            continue;
-        };
-        if (index + seq_len > text.len) {
-            width += 1;
-            break;
-        }
-        const cp = std.unicode.utf8Decode(text[index .. index + seq_len]) catch {
-            width += 1;
-            index += 1;
-            continue;
-        };
-        width += codepointWidth(cp);
-        index += seq_len;
-    }
-    return width;
+    return @intCast(unicode.displayWidth(text));
 }
 
-/// Return the longest prefix sub-slice of `text` whose `displayWidth` is
-/// ≤ `max_w`, cut on a UTF-8 codepoint boundary (never splitting a
-/// multibyte sequence). Returns a sub-slice of the input — no allocation.
-///
-/// Malformed UTF-8 is treated the same defensive way as `displayWidth`
-/// (width 1, advance 1 byte) so the two measures stay consistent.
+/// The longest prefix of `text` whose `displayWidth` is <= `max_w`, cut on
+/// an extended-grapheme boundary — never inside a base+mark pair or an
+/// emoji sequence. Returns a sub-slice of the input; no allocation. On
+/// malformed UTF-8 the prefix stops before the first bad byte, so the
+/// result is always valid UTF-8.
 pub fn truncateToWidth(text: []const u8, max_w: u32) []const u8 {
-    var width: u32 = 0;
-    var index: usize = 0;
-    while (index < text.len) {
-        const seq_len = std.unicode.utf8ByteSequenceLength(text[index]) catch {
-            if (width + 1 > max_w) break;
-            width += 1;
-            index += 1;
-            continue;
-        };
-        if (index + seq_len > text.len) {
-            if (width + 1 > max_w) break;
-            width += 1;
-            index += 1;
-            continue;
-        }
-        const cp = std.unicode.utf8Decode(text[index .. index + seq_len]) catch {
-            if (width + 1 > max_w) break;
-            width += 1;
-            index += 1;
-            continue;
-        };
-        const cw = codepointWidth(cp);
-        if (width + cw > max_w) break;
-        width += cw;
-        index += seq_len;
-    }
-    return text[0..index];
+    return unicode.clipToWidth(text, max_w);
 }
 
 /// Soft line-break sentinel byte. Author hard breaks (`<br>`, `\n`) are
@@ -452,7 +415,7 @@ pub const LINE_BREAK: u8 = '\n';
 /// `LINE_BREAK` (0x0A) sentinel, so author `<br>`/`\n` break at every width;
 /// (2) SOFT — each hard segment is greedily word-wrapped to `width`, breaking
 /// only at ASCII spaces. A word wider than `width` is hard-split on a
-/// codepoint boundary (via `truncateToWidth`) so no line ever exceeds
+/// grapheme boundary (via `truncateToWidth`) so no line ever exceeds
 /// `width`. `width == 0` is a degenerate guard: one line = the whole `text`.
 pub fn wrapToWidth(
     allocator: std.mem.Allocator,
@@ -539,7 +502,7 @@ fn wrapSegment(
 }
 
 /// Hard-split a single word wider than `width` into chunks each ≤ width,
-/// cut on codepoint boundaries via `truncateToWidth`. Every chunk is
+/// cut on grapheme boundaries via `truncateToWidth`. Every chunk is
 /// appended as its own line (the final remainder ≤ width included).
 fn splitLongWord(
     allocator: std.mem.Allocator,
@@ -550,8 +513,11 @@ fn splitLongWord(
     var rest = word;
     while (displayWidth(rest) > width) {
         const chunk = truncateToWidth(rest, width);
+        // A single grapheme wider than `width` (an emoji at width 1) still
+        // moves whole: never split inside a base+mark pair or an emoji
+        // sequence. A malformed lead byte moves alone.
         const advance = if (chunk.len == 0)
-            std.unicode.utf8ByteSequenceLength(rest[0]) catch 1
+            @max(unicode.nextGlyph(rest, 0).bytes.len, 1)
         else
             chunk.len;
         try lines.append(allocator, rest[0..advance]);

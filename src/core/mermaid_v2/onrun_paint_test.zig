@@ -18,6 +18,7 @@ const std = @import("std");
 const lattice = @import("lattice.zig");
 const sketch = @import("sketch.zig");
 const onrun = @import("raster/labels_onrun.zig");
+const lw = @import("raster/labels_write.zig");
 const paint = @import("paint.zig");
 
 const testing = std.testing;
@@ -108,7 +109,7 @@ fn paintedColumn(a: std.mem.Allocator, kind: lattice.EdgeKind) ![]u21 {
     var s2 = s;
     s2.rails = &rails;
 
-    try testing.expect(onrun.tryOnRunTap(&lat, s2, taps[0], "ok", null));
+    try testing.expect(onrun.tryOnRunTap(&lat, s2, taps[0], lw.asciiRun("ok"), null));
 
     const painted = try paint.paint(a, lat, 0);
     return columnOf(a, painted, 5);

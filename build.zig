@@ -48,6 +48,8 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     });
+    // The one import base/ is granted: lib/unicode is the width authority.
+    prim_mod.addImport("unicode", unicode_mod);
 
     const mermaid_v2_mod = b.createModule(.{
         .root_source_file = b.path("src/core/mermaid_v2/entry.zig"),

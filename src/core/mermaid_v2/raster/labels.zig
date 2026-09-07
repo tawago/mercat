@@ -8,6 +8,10 @@
 //! Measured in display columns (`prim.displayWidth`), EAW-aware
 //! truncation reserves a column for the ellipsis. Diagnostics log at
 //! `.debug` scope only (kept out of release stderr).
+//!
+//! Text becomes cells exactly once, in `labels_write.prepare`: one cell
+//! per grapheme head, multi-codepoint graphemes interned into the lattice's
+//! `glyphs` table, which this entry point builds and attaches.
 
 const std = @import("std");
 const prim = @import("prim");
@@ -76,6 +80,13 @@ pub fn rasterizeLabels(
     var diags = std.ArrayList(LabelDiagnostic){};
     defer diags.deinit(allocator);
 
+    // Interned multi-codepoint graphemes, attached to the lattice on the
+    // way out. Labels are rasterized once per lattice, so nothing can
+    // already refer into a table.
+    std.debug.assert(lat.glyphs.len == 0);
+    var glyphs = lw.GlyphTable.init(allocator);
+    errdefer glyphs.deinit();
+
     var placed: u32 = 0;
     var attempted: u32 = 0;
     var displaced: u32 = 0;
@@ -84,22 +95,23 @@ pub fn rasterizeLabels(
     for (s.nodes) |np| {
         if (np.lines.len == 0) continue;
         attempted += 1;
-        if (try placeNodeLabel(allocator, &diags, lat, np, sink)) placed += 1;
+        if (try placeNodeLabel(allocator, &diags, lat, np, &glyphs, sink)) placed += 1;
     }
 
     for (s.edges) |ep| {
         const lbl = ep.label orelse continue;
         if (lbl.len == 0) continue;
         attempted += 1;
+        const run = try lw.prepare(allocator, &glyphs, lbl);
         // Top-priority on-run candidate: the label sits OVER its own private
         // fan dropper (labels_onrun.zig). Any refusal falls through to the
         // ordinary ladder below. @guarded-by: labels_onrun_test.zig "happy path: the label interrupts its own dropper for one row, sandwiched by run flanks"
-        if (s.label_policy == .on_run and labels_onrun.tryOnRunEdge(lat, s, ep, lbl, sink)) {
+        if (s.label_policy == .on_run and labels_onrun.tryOnRunEdge(lat, s, ep, run, sink)) {
             placed += 1;
             on_run += 1;
             continue;
         }
-        switch (try labels_edge.placeEdgeLabel(allocator, &diags, lat, ep, lbl, sink)) {
+        switch (try labels_edge.placeEdgeLabel(allocator, &diags, lat, ep, run, sink)) {
             .at_anchor => placed += 1,
             .displaced => {
                 placed += 1;
@@ -114,13 +126,14 @@ pub fn rasterizeLabels(
             const lbl = tap.label orelse continue;
             if (lbl.len == 0) continue;
             attempted += 1;
-            if (s.label_policy == .on_run and labels_onrun.tryOnRunTap(lat, s, tap, lbl, sink)) {
+            const run = try lw.prepare(allocator, &glyphs, lbl);
+            if (s.label_policy == .on_run and labels_onrun.tryOnRunTap(lat, s, tap, run, sink)) {
                 placed += 1;
                 on_run += 1;
                 continue;
             }
             const seg = rail.tapLabelSeg(tap);
-            switch (try labels_edge.placeLabelAtSeg(allocator, &diags, lat, tap.edge, lbl, seg[0], seg[1], false, &.{}, sink)) {
+            switch (try labels_edge.placeLabelAtSeg(allocator, &diags, lat, tap.edge, run, seg[0], seg[1], false, &.{}, sink)) {
                 .at_anchor => placed += 1,
                 .displaced => {
                     placed += 1;
@@ -134,8 +147,10 @@ pub fn rasterizeLabels(
     for (s.clusters) |cf| {
         if (cf.label.len == 0) continue;
         attempted += 1;
-        if (try placeClusterLabel(allocator, &diags, lat, cf, sink)) placed += 1;
+        if (try placeClusterLabel(allocator, &diags, lat, cf, &glyphs, sink)) placed += 1;
     }
+
+    lat.glyphs = try glyphs.finish();
 
     return Report{
         .placed = placed,
@@ -146,61 +161,12 @@ pub fn rasterizeLabels(
     };
 }
 
-/// One decoded codepoint of a label plus its UTF-8 byte length.
-const Codepoint = struct { cp: u21, byte_len: usize };
+/// Cells one single-codepoint glyph claims (the ellipsis, the title
+/// band's spaces); the text → cells vocabulary lives with the writer
+/// contract in `labels_write.zig`.
+pub const cellSpan = lw.cellSpan;
 
-/// Map the line-break sentinel (0x0A) to a space; edge and cluster
-/// labels don't support multi-line, unlike node labels.
-pub fn sentinelToSpace(cp: u21) u21 {
-    return if (cp == prim.LINE_BREAK) @as(u21, ' ') else cp;
-}
-
-/// Decode the next UTF-8 codepoint at `text[index]`. On malformed UTF-8,
-/// fall back to the raw byte as a u21 and advance 1 byte — the same
-/// defensive policy as `prim.displayWidth`. `index` must be < text.len.
-pub fn nextCodepoint(text: []const u8, index: usize) Codepoint {
-    const seq_len = std.unicode.utf8ByteSequenceLength(text[index]) catch {
-        return .{ .cp = @as(u21, text[index]), .byte_len = 1 };
-    };
-    if (index + seq_len > text.len) {
-        return .{ .cp = @as(u21, text[index]), .byte_len = 1 };
-    }
-    const cp = std.unicode.utf8Decode(text[index .. index + seq_len]) catch {
-        return .{ .cp = @as(u21, text[index]), .byte_len = 1 };
-    };
-    return .{ .cp = cp, .byte_len = seq_len };
-}
-
-/// Lattice cells one label codepoint occupies: an East-Asian-Wide
-/// codepoint claims 2, everything else 1.
-///
-/// Deliberately NOT `prim.codepointWidth`: a tab (4 columns) stays ONE
-/// cell and the C0 controls (0 columns, including the `prim.LINE_BREAK`
-/// sentinel) stay one cell. That freezes the pre-existing cursor
-/// arithmetic for every ASCII codepoint, which is what makes an
-/// all-ASCII lattice bit-identical to the pre-continuation pipeline.
-/// The tab column/cell skew is documented, not fixed.
-/// @guarded-by: labels_eaw_test.zig "cellSpan is 1 for every ASCII codepoint including tab"
-pub fn cellSpan(cp: u21) u32 {
-    return if (prim.codepointWidth(cp) == 2) 2 else 1;
-}
-
-/// Lattice cells `text` occupies: the sum of its codepoints' spans. The
-/// one number every writer and every free-space probe reserves by, so
-/// cells reserved and cells written can never disagree.
-/// @guarded-by: labels_eaw_test.zig "cellSpanOf equals prim.displayWidth for tab- and control-free text"
-pub fn cellSpanOf(text: []const u8) u32 {
-    var total: u32 = 0;
-    var bi: usize = 0;
-    while (bi < text.len) {
-        const dc = nextCodepoint(text, bi);
-        bi += dc.byte_len;
-        total += cellSpan(dc.cp);
-    }
-    return total;
-}
-
-/// Write one node-label codepoint at (x,row), claiming all `span` cells
+/// Write one node-label grapheme head at (x,row), claiming all `span` cells
 /// of its footprint. All-or-nothing: every cell must be `np`'s interior,
 /// so a wide glyph is never split across foreign ink and never leaves a
 /// widowed continuation. Returns true if written.
@@ -244,6 +210,7 @@ fn placeNodeLabel(
     diags: *std.ArrayList(LabelDiagnostic),
     lat: *lattice.Lattice,
     np: sketch.NodePlacement,
+    glyphs: *lw.GlyphTable,
     sink: aux.Sink,
 ) RasterError!bool {
     if (np.rect.w < 3 or np.rect.h < 3) return false;
@@ -276,14 +243,11 @@ fn placeNodeLabel(
         const start_i: i32 = np.rect.x + 1 + @as(i32, @intCast(left_pad));
         if (start_i < 0) continue;
         var x: u32 = @intCast(start_i);
-        var bi: usize = 0;
-        while (bi < text.len) {
-            const dc = nextCodepoint(text, bi);
-            bi += dc.byte_len;
-            const span = cellSpan(dc.cp);
-            if (x + span > lat.width) break;
-            if (writeNodeSpan(lat, np, x, row, dc.cp, span, sink)) wrote += 1;
-            x += span;
+        const run = try lw.prepare(allocator, glyphs, text);
+        for (run.cells) |cell| {
+            if (x + cell.span > lat.width) break;
+            if (writeNodeSpan(lat, np, x, row, cell.value, cell.span, sink)) wrote += 1;
+            x += cell.span;
         }
         if (truncated and x + cellSpan(ELLIPSIS) <= lat.width) {
             if (writeNodeSpan(lat, np, x, row, ELLIPSIS, cellSpan(ELLIPSIS), sink)) wrote += 1;
@@ -316,6 +280,7 @@ fn placeClusterLabel(
     diags: *std.ArrayList(LabelDiagnostic),
     lat: *lattice.Lattice,
     cf: sketch.ClusterFrame,
+    glyphs: *lw.GlyphTable,
     sink: aux.Sink,
 ) RasterError!bool {
     if (cf.rect.w < 6 or cf.rect.h < 2) return false;
@@ -349,21 +314,17 @@ fn placeClusterLabel(
 
     const start = lead + 1;
     var x: u32 = start;
-    var bi: usize = 0;
-    while (bi < text.len) {
-        const dc = nextCodepoint(text, bi);
-        bi += dc.byte_len;
-        const cp = sentinelToSpace(dc.cp);
+    const run = try lw.prepare(allocator, glyphs, text);
+    for (run.cells) |cell| {
         // The band claims the glyph's whole footprint, so the trailing
         // space that closes it lands past the last painted column.
         // @guarded-by: labels_eaw_test.zig "wide cluster title advances by span and still closes the band"
-        const span = cellSpan(cp);
-        if (x + span > lat.width) break;
-        stampTitleCell(lat, x, row, cp, cf, sink);
+        if (x + cell.span > lat.width) break;
+        stampTitleCell(lat, x, row, cell.value, cf, sink);
         var i: u32 = 1;
-        while (i < span) : (i += 1) lw.writeCont(lat, x + i, row);
+        while (i < cell.span) : (i += 1) lw.writeCont(lat, x + i, row);
         wrote += 1;
-        x += span;
+        x += cell.span;
     }
     if (truncated and x + cellSpan(ELLIPSIS) <= lat.width) {
         stampTitleCell(lat, x, row, ELLIPSIS, cf, sink);

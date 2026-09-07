@@ -392,6 +392,12 @@ fn legacyGlyphAt(text: []const u8, index: usize, column: usize, operations: *usi
     return .{ .glyph = .{ .bytes = bytes, .width = width }, .end = end };
 }
 
+/// Terminal columns of `text`. Text the strict measure accepts is measured
+/// by extended graphemes; text it rejects (malformed UTF-8, a control, a
+/// disallowed format character) falls back to the compatibility measure,
+/// which walks the same graphemes with `LegacyCursor` and counts every
+/// malformed byte as one cell — so `displayWidth(clipToWidth(t, w)) <= w`
+/// holds for every input.
 pub fn displayWidth(text: []const u8) usize {
     return rawDisplayWidth(text) catch legacyDisplayWidth(text);
 }
@@ -451,25 +457,21 @@ pub fn wrapLine(allocator: std.mem.Allocator, text: []const u8, width: usize, in
     return output.toOwnedSlice(allocator);
 }
 
-/// Numeric compatibility keeps the historical fallback: every malformed byte
-/// contributes one cell. Unlike slice-returning APIs, no source bytes escape.
+/// Compatibility measure: the graphemes `LegacyCursor` yields, at the
+/// widths it assigns them, plus one cell for every malformed byte — the
+/// cursor stops at such a byte, the byte is charged, and a fresh cursor
+/// resumes at the next one. The same walk `legacyClipToWidth` cuts on, so
+/// a clipped prefix never measures wider than the width it was cut to.
+/// Unlike slice-returning APIs, no source bytes escape.
 fn legacyDisplayWidth(text: []const u8) usize {
     var width: usize = 0;
-    var index: usize = 0;
-    while (index < text.len) {
-        const len = std.unicode.utf8ByteSequenceLength(text[index]) catch 1;
-        if (index + len > text.len) {
-            width +|= 1;
-            index += 1;
-            continue;
-        }
-        const cp = std.unicode.utf8Decode(text[index .. index + len]) catch {
-            width +|= 1;
-            index += 1;
-            continue;
-        };
-        width +|= codepointWidth(cp);
-        index += len;
+    var rest = text;
+    while (rest.len > 0) {
+        var cursor = LegacyCursor.init(rest);
+        while (cursor.next()) |glyph| width +|= glyph.width;
+        if (cursor.index >= rest.len) break;
+        width +|= 1;
+        rest = rest[cursor.index + 1 ..];
     }
     return width;
 }
