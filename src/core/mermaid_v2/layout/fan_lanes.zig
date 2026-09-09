@@ -274,8 +274,11 @@ fn separatePrivatePeers(fans: []Fan) void {
         for (fan.peers) |peer| if (peer.shared) {
             next = @max(next, peer.lane + 1);
         };
+        // The shared rail's label band is one band however many members are
+        // labeled: every dropper stands on its own column (fan.zig LABEL_RUN_EXTRA_ROWS).
         for (fan.peers) |peer| if (peer.shared and peer.label_width != 0) {
             next += fan_mod.LABEL_RUN_EXTRA_ROWS;
+            break;
         };
         for (fan.peers) |*peer| {
             if (peer.shared) continue;

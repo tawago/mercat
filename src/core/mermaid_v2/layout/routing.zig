@@ -112,7 +112,6 @@ pub fn buildEdgesWithPlan(
         for (resolved.peers) |p| {
             lift = @max(lift, fanRailLift(graph, p.edge.from, p.edge.to));
         }
-        if (f.direction == .out) lift += fan_mod.additionalLabelLift(f, f.lane);
         try pending.append(a, .{ .fan = f, .resolved = resolved, .lift = lift });
         try lane_rails.append(a, .{
             .gap = f.source_layer,
@@ -212,12 +211,10 @@ pub fn buildEdgesWithPlan(
                 const pivot_p = if (hit.fan.direction == .out) src_p else dst_p;
                 const peer_p = if (hit.fan.direction == .out) dst_p else src_p;
                 // Lift the rail above any cluster frame-border row it would otherwise be painted along (fusing sibling peers' top borders). // @guarded-by: routing_test.zig "fan-OUT per-peer rail lifts exactly one row for the peer crossing into a cluster its source is not part of"
-                var rail_lift: u32 = if (hit.fan.direction == .out)
+                const rail_lift: u32 = if (hit.fan.direction == .out)
                     fanRailLift(graph, orig.from, orig.to)
                 else
                     0;
-                if (hit.fan.direction == .out)
-                    rail_lift += fan_mod.additionalLabelLift(hit.fan.*, fan_mod.effectiveLane(hit.fan.*, hit.peer.lane));
                 var lane = @max(hit.peer.lane, ep.route_lane);
                 const source_x = src_p.rect.x + @as(i32, @intCast(ep.source.offset));
                 const target_x = dst_p.rect.x + @as(i32, @intCast(ep.target.offset));

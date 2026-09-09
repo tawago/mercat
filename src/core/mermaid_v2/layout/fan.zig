@@ -73,8 +73,11 @@ pub const Fan = struct {
     /// flank, on-run label row, flank, arrowhead — the DECORATED sandwich
     /// raster/labels_onrun.zig places over (FLANKED-RESUMPTION RULE: an arrowhead is not a
     /// flank, so the head needs its own cell below the lower flank).
+    /// The band is reserved once per fan lane, however many members are
+    /// labeled: each dropper occupies its own column, so they share it.
     /// Unlabeled fans stay byte-identical.
     /// @guarded-by: fan_test.zig "a labeled fan reserves three extra gap rows; an unlabeled fan reserves one"
+    /// @guarded-by: fan_test.zig "a fan-OUT with three labeled members reserves the same gap rows as one with a single labeled member"
     labeled: bool = false,
     construction_deco_mixed: bool = false,
     construction_style_mixed: bool = false,
@@ -93,20 +96,10 @@ pub fn effectiveLane(f: Fan, peer_lane: u32) u32 {
 
 /// Extra gap rows a LABELED fan reserves beyond its lane rows: the
 /// decorated on-run sandwich needs a 4-cell private dropper (flank, label,
-/// flank, head) where the classic gap yields 1.
+/// flank, head) where the classic gap yields 1. Reserved ONCE per lane,
+/// not once per labeled member: every member's dropper stands on its own
+/// column, so all of them share the one band.
 pub const LABEL_RUN_EXTRA_ROWS: u32 = 3;
-
-pub fn labelRowsOnLane(f: Fan, lane: u32) u32 {
-    var labels: u32 = 0;
-    for (f.peers) |peer| {
-        if (peer.label_width != 0 and effectiveLane(f, peer.lane) == lane) labels += 1;
-    }
-    return labels * LABEL_RUN_EXTRA_ROWS;
-}
-
-pub fn additionalLabelLift(f: Fan, lane: u32) u32 {
-    return labelRowsOnLane(f, lane) -| LABEL_RUN_EXTRA_ROWS;
-}
 
 /// Detect every fan in the layered graph (both fan-OUT and fan-IN).
 /// A node qualifies as a fan-OUT pivot iff it has ≥2 outgoing forward
@@ -370,9 +363,12 @@ fn containsEdge(edges: []const ledger.EdgeId, edge: ledger.EdgeId) bool {
 
 /// Per-gap extra rows. Entry i is extra rows in the gap between layer i
 /// and layer i+1. Each fan reserves `fan.lane + 1` rows at its `source_layer`
-/// gap; the gap takes the max across its fans. With every `lane == 0` (the
+/// gap, plus `LABEL_RUN_EXTRA_ROWS` above the lane of any labeled member
+/// (one band per lane, whatever the member count or fan direction); the
+/// gap takes the max across its fans. With every `lane == 0` (the
 /// pre-lane-separation default) this is exactly one row per fan gap.
 /// @guarded-by: layout/fan_lanes_test.zig "lane assignment reserves one extra gap row per lane"
+/// @guarded-by: fan_test.zig "a fan-OUT with three labeled members reserves the same gap rows as one with a single labeled member"
 pub fn extraRowsPerGap(
     a: std.mem.Allocator,
     lg: sugiyama.LayeredGraph,
@@ -388,16 +384,7 @@ pub fn extraRowsPerGap(
             var need = max_lane + 1;
             for (f.peers) |peer| {
                 if (peer.label_width == 0) continue;
-                const lane = effectiveLane(f, peer.lane);
-                if (!peer.shared) {
-                    need = @max(need, lane + 1 + LABEL_RUN_EXTRA_ROWS);
-                    continue;
-                }
-                if (f.direction == .in) {
-                    need = @max(need, lane + 1 + LABEL_RUN_EXTRA_ROWS);
-                    continue;
-                }
-                need = @max(need, lane + 1 + labelRowsOnLane(f, lane));
+                need = @max(need, effectiveLane(f, peer.lane) + 1 + LABEL_RUN_EXTRA_ROWS);
             }
             if (need > out[f.source_layer]) out[f.source_layer] = need;
         }
