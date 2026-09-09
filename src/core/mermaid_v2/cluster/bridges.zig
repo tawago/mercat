@@ -6,7 +6,8 @@
 //!
 //! Track discipline (tracks.zig): jogs are displaced off drawn cluster-frame
 //! borders; overlapping same-side bridges get distinct stacked tracks, but
-//! bridges sharing one source port share a track (fan rail).
+//! bridges sharing one port — source or target — share a track (fan rail;
+//! bridge_requests.zig keys the requests).
 //!
 //! Corridor discipline (corridors.zig): each border a bridge crosses carries
 //! at most ONE corridor per display column, and never one on a frame corner;
@@ -20,8 +21,8 @@
 //!
 //! PURE DATA: Sketch geometry in, Sketch edges out. Imports only std, prim,
 //! sem_graph, sketch, and the cluster-internal tracks.zig / corridors.zig /
-//! bridge_scene.zig / bridge_rails.zig (licensed shared-source rail
-//! realization).
+//! bridge_scene.zig / bridge_requests.zig / bridge_rails.zig (licensed
+//! shared-port rail realization).
 
 const std = @import("std");
 const prim = @import("prim");
@@ -30,6 +31,7 @@ const sg = @import("../sem_graph.zig");
 const tracks = @import("tracks.zig");
 const scene = @import("bridge_scene.zig");
 const corridors = @import("corridors.zig");
+const requests = @import("bridge_requests.zig");
 const bridge_rails = @import("bridge_rails.zig");
 
 /// One original edge that crosses a piece boundary. Endpoints are ORIGINAL
@@ -122,7 +124,7 @@ pub fn route(
     // ports the re-route itself will keep.
     // @guarded-by: bridges_test.zig "a re-routed corridor raises no crossing demand on the frame it leaves"
     for (pends.items) |*p| p.pref = jogPref(p.start, p.end, p.sides.exit, p.to_box);
-    try assignJogs(arena, pends.items, clusters, obstacles, null);
+    try requests.assignJogs(arena, pends.items, clusters, obstacles, null);
 
     const pairs = try arena.alloc(corridors.Pair, pends.items.len);
     for (pends.items, pairs) |p, *q| {
@@ -158,7 +160,7 @@ pub fn route(
     }
 
     var jog_expired: u32 = 0;
-    try assignJogs(arena, pends.items, clusters, obstacles, &jog_expired);
+    try requests.assignJogs(arena, pends.items, clusters, obstacles, &jog_expired);
 
     if (build == .railed) {
         const full = try bridge_rails.withStaticRuns(arena, obstacles, edge_paths);
@@ -194,7 +196,7 @@ fn buildPaths(
         const dyn = tracks.Obstacles{ .heads = dyn_heads.items, .runs = dyn_runs.items };
         const reroute = try rerouted(arena, p.*, placements);
         if (enable_dodge) {
-            if (leaderJog(pends[0..pi], p.*)) |j| {
+            if (requests.leaderJog(pends[0..pi], p.*)) |j| {
                 p.jog = j;
             } else if (p.jog != null and !reroute) {
                 p.jog = try dodgeJog(arena, p.*, pi, pends, placements, clusters, dyn);
@@ -223,20 +225,9 @@ fn buildPaths(
     return .{ .paths = try out.toOwnedSlice(arena), .expired = expired };
 }
 
-/// The jog an earlier same-start, same-exit bridge committed: a follower on
-/// a shared rail keeps the leader's coordinate so the rail never splits.
-fn leaderJog(earlier: []const Pending, p: Pending) ?i32 {
-    for (earlier) |q| {
-        if (q.sides.exit != p.sides.exit) continue;
-        if (q.start.x != p.start.x or q.start.y != p.start.y) continue;
-        return q.jog;
-    }
-    return null;
-}
-
 /// Displace `p`'s jog inside its clamp interval to the least-conflicted
 /// coordinate, judged against the committed scene PLUS the tentative elbows
-/// of the bridges still to route (same-start peers excepted — a shared port
+/// of the bridges still to route (shared-port peers excepted — a shared port
 /// is a licensed rail, never an obstacle). The assigned coordinate is kept
 /// when it is clear and kept when nothing strictly improves on it.
 fn dodgeJog(
@@ -263,7 +254,7 @@ fn dodgeJog(
     try heads.appendSlice(arena, dyn.heads);
     try runs.appendSlice(arena, dyn.runs);
     for (pends[pi + 1 ..]) |q| {
-        if (q.start.x == p.start.x and q.start.y == p.start.y) continue;
+        if (requests.sharesPort(q, p)) continue;
         const qv = (q.sides.exit == .north or q.sides.exit == .south);
         const qj: ?i32 = if (q.jog) |qq| switch (q.sides.exit) {
             .south => clampBetween(q.start.y, q.end.y, qq),
@@ -350,6 +341,8 @@ pub const Pending = struct {
     anchor: Anchor,
     /// Track-resolved jog coordinate (clamped at polyline build).
     jog: ?i32 = null,
+    /// The end whose port keys this pend's jog request (bridge_requests.zig).
+    rail_end: requests.RailEnd = .start,
 };
 
 /// Grouping anchor: the drawn (non-synthetic) frame the target sits in, or
@@ -387,66 +380,6 @@ fn jogPref(start: Pt, end: Pt, exit: sketch.Dir4, to_box: sketch.Rect) ?i32 {
         .east => if (start.y == end.y) null else @min(to_box.x - 1, end.x - 2),
         .west => if (start.y == end.y) null else @max(to_box.right(), end.x + 2),
     };
-}
-
-/// Group jogging bridges by (entry side, target anchor) and resolve each
-/// group's tracks (tracks.resolve: overlap packing + border clearance).
-/// Bridges sharing one start point (the same source port) merge into ONE
-/// request — a shared-port fan reads as a single rail with several drops.
-fn assignJogs(
-    arena: std.mem.Allocator,
-    pends: []Pending,
-    clusters: []const sketch.ClusterFrame,
-    obstacles: tracks.Obstacles,
-    expired: ?*u32,
-) error{OutOfMemory}!void {
-    const done = try arena.alloc(bool, pends.len);
-    @memset(done, false);
-
-    for (0..pends.len) |i| {
-        if (done[i] or pends[i].pref == null) continue;
-        const p0 = pends[i];
-        const row_jog = (p0.sides.entry == .north or p0.sides.entry == .south);
-        const sign = tracks.outwardSign(p0.sides.entry);
-
-        var members: std.ArrayListUnmanaged(usize) = .empty;
-        var req_of: std.ArrayListUnmanaged(usize) = .empty;
-        var starts: std.ArrayListUnmanaged(Pt) = .empty;
-        var reqs: std.ArrayListUnmanaged(tracks.Req) = .empty;
-        for (i..pends.len) |j| {
-            if (done[j] or pends[j].pref == null) continue;
-            const m = pends[j];
-            if (m.sides.entry != p0.sides.entry) continue;
-            if (m.anchor.frame != p0.anchor.frame or m.anchor.id != p0.anchor.id) continue;
-            done[j] = true;
-            try members.append(arena, j);
-
-            const lo = if (row_jog) @min(m.start.x, m.end.x) else @min(m.start.y, m.end.y);
-            const hi = if (row_jog) @max(m.start.x, m.end.x) else @max(m.start.y, m.end.y);
-            var found: ?usize = null;
-            for (starts.items, 0..) |s, si| {
-                if (s.x == m.start.x and s.y == m.start.y) {
-                    found = si;
-                    break;
-                }
-            }
-            if (found) |si| {
-                const r = &reqs.items[si];
-                r.span_lo = @min(r.span_lo, lo);
-                r.span_hi = @max(r.span_hi, hi);
-                // Innermost (closest-to-target) preference wins for the rail. // @guarded-by: bridges_test.zig "assignJogs: shared-request merge across different cluster depths picks the closest-to-target preference"
-                if (sign * m.pref.? < sign * r.pref) r.pref = m.pref.?;
-                try req_of.append(arena, si);
-            } else {
-                try req_of.append(arena, reqs.items.len);
-                try starts.append(arena, m.start);
-                try reqs.append(arena, .{ .span_lo = lo, .span_hi = hi, .pref = m.pref.? });
-            }
-        }
-
-        const coords = try tracks.resolve(arena, reqs.items, p0.sides.entry, clusters, obstacles, expired);
-        for (members.items, req_of.items) |mi, ri| pends[mi].jog = coords[ri];
-    }
 }
 
 /// Scene-ink derivation lives in bridge_scene.zig (cap-forced split);

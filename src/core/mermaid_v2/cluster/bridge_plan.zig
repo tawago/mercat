@@ -4,10 +4,13 @@
 //! licence tier (base/rail_star.checkLicence, members keyed by ROOT edge
 //! ids), and the decision is RECORDED in the merged plan's memberships:
 //! `licence_refused` when the licence fails, `not_selected` when it holds
-//! but no rail realized. A licensed EXIT group whose routed geometry IS a
-//! rail (bridge_rails.realizedRail: shared stem, disjoint tails) flips to
-//! `selected` with one selected bundle over the members — on that shape the
-//! position-independent authority is inert away from the shared run. Any
+//! but no rail realized. A licensed group whose routed geometry IS a rail
+//! read from its convergent end (bridge_rails.realizedRail: shared stem,
+//! disjoint tails — the source-end shape traced outward from the node at
+//! either end) flips to `selected` with one selected bundle over the
+//! members — on that shape the position-independent authority is inert away
+//! from the shared run. An edge may be selected at both ends (rail
+//! membership at both ends). Any
 //! other group stays independent: a global sanction was tried and measured —
 //! it merges member-vs-member crossings away from the approach into junction
 //! glyphs a third edge then lands on. Groups span CROSSINGS only: absorbing
@@ -58,9 +61,7 @@ pub fn plan(
             if (members.items.len < 2) continue;
 
             const licensed = (try checkGroup(arena, crossings, members.items, direction, pivot)).isValid();
-            if (licensed and direction == .out and
-                try realizedOut(arena, crossings, members.items, routed, bridge_base))
-            {
+            if (licensed and try realized(arena, crossings, members.items, routed, bridge_base, direction)) {
                 const medges = try arena.alloc(ledger.EdgeId, members.items.len);
                 for (members.items, medges) |mi, *e| e.* = crossings[mi].id + bridge_base;
                 try selected.append(arena, .{
@@ -95,22 +96,23 @@ pub fn plan(
     };
 }
 
-/// A licensed exit group realized a rail iff EVERY member routed and the
-/// final paths are one rail (bridge_rails.realizedRail): shared stem,
-/// disjoint tails — the shape on which the sanction is inert away from the
-/// shared run.
-fn realizedOut(
+/// A licensed group realized a rail iff EVERY member routed and the final
+/// paths are one rail read from the convergent end
+/// (bridge_rails.realizedRail): shared stem, disjoint tails — the shape on
+/// which the sanction is inert away from the shared run.
+fn realized(
     arena: std.mem.Allocator,
     crossings: []const bridges.Crossing,
     members: []const usize,
     routed: []const sketch.EdgePath,
     bridge_base: sketch.EdgeId,
+    direction: ledger.BundleDirection,
 ) error{OutOfMemory}!bool {
     const paths = try arena.alloc(sketch.EdgePath, members.len);
     for (members, paths) |mi, *p| {
         p.* = routedPath(routed, bridge_base, crossings[mi].id) orelse return false;
     }
-    return rails.realizedRail(arena, paths);
+    return rails.realizedRail(arena, paths, if (direction == .out) .source else .target);
 }
 
 fn pivotOf(c: bridges.Crossing, direction: ledger.BundleDirection) sg.NodeId {
@@ -156,7 +158,11 @@ fn routedPath(
     return null;
 }
 
-test "a licensed cross-border fan-in records deferred; a mixed one records the refusal" {
+fn fanInPath(id: sketch.EdgeId, from: sketch.NodeId, poly: []const sketch.Point) sketch.EdgePath {
+    return .{ .id = id, .from = from, .to = 9, .polyline = poly, .port_from = .{ .node = from, .side = .south, .offset = 1 }, .port_to = .{ .node = 9, .side = .north, .offset = 3 }, .arrow_from = .none, .arrow_to = .filled, .label = null, .kind = .solid };
+}
+
+test "a licensed cross-border fan-in with no routed geometry records not selected; a mixed one records the refusal" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
@@ -168,8 +174,8 @@ test "a licensed cross-border fan-in records deferred; a mixed one records the r
     };
     const base: sketch.EdgeId = 100;
     const routed = [_]sketch.EdgePath{
-        .{ .id = 100, .from = 1, .to = 9, .polyline = &.{}, .port_from = .{ .node = 1, .side = .south, .offset = 1 }, .port_to = .{ .node = 9, .side = .north, .offset = 3 }, .arrow_from = .none, .arrow_to = .filled, .label = null, .kind = .solid },
-        .{ .id = 101, .from = 2, .to = 9, .polyline = &.{}, .port_from = .{ .node = 2, .side = .south, .offset = 1 }, .port_to = .{ .node = 9, .side = .north, .offset = 3 }, .arrow_from = .none, .arrow_to = .filled, .label = null, .kind = .solid },
+        fanInPath(100, 1, &.{}),
+        fanInPath(101, 2, &.{}),
         .{ .id = 102, .from = 3, .to = 8, .polyline = &.{}, .port_from = .{ .node = 3, .side = .south, .offset = 1 }, .port_to = .{ .node = 8, .side = .north, .offset = 0 }, .arrow_from = .none, .arrow_to = .filled, .label = null, .kind = .solid },
     };
 
@@ -189,6 +195,42 @@ test "a licensed cross-border fan-in records deferred; a mixed one records the r
     try std.testing.expectEqual(@as(usize, 0), refused.selected_bundles.len);
     const disp = refused.memberships[0].target.?;
     try std.testing.expectEqual(ledger.IndependentReason.licence_refused, disp.independent.reason);
+}
+
+test "a licensed cross-border fan-in whose members join on one rail from the target port records a selected bundle; re-contact past the rail stays not selected" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+
+    const crossings = [_]bridges.Crossing{
+        .{ .id = 0, .from = 1, .to = 9, .kind = .solid, .arrow_from = .none, .arrow_to = .filled, .label = null, .origin = 4 },
+        .{ .id = 1, .from = 2, .to = 9, .kind = .solid, .arrow_from = .none, .arrow_to = .filled, .label = null, .origin = 5 },
+        .{ .id = 2, .from = 3, .to = 9, .kind = .solid, .arrow_from = .none, .arrow_to = .filled, .label = null, .origin = 6 },
+    };
+    const base: sketch.EdgeId = 100;
+    const from_west = [_]sketch.Point{ .{ .x = 2, .y = 0 }, .{ .x = 2, .y = 4 }, .{ .x = 10, .y = 4 }, .{ .x = 10, .y = 9 } };
+    const straight = [_]sketch.Point{ .{ .x = 10, .y = 0 }, .{ .x = 10, .y = 9 } };
+    const from_east = [_]sketch.Point{ .{ .x = 18, .y = 0 }, .{ .x = 18, .y = 4 }, .{ .x = 10, .y = 4 }, .{ .x = 10, .y = 9 } };
+    const routed = [_]sketch.EdgePath{
+        fanInPath(100, 1, &from_west),
+        fanInPath(101, 2, &straight),
+        fanInPath(102, 3, &from_east),
+    };
+
+    const bundles = try plan(a, &crossings, &routed, base);
+    try std.testing.expectEqual(@as(usize, 1), bundles.selected_bundles.len);
+    try std.testing.expectEqualSlices(ledger.EdgeId, &.{ 100, 101, 102 }, bundles.selected_bundles[0].members);
+    for (bundles.memberships) |m| {
+        try std.testing.expectEqual(ledger.MembershipDisposition{ .selected = 0 }, m.target.?);
+        try std.testing.expect(m.source == null);
+    }
+
+    const retouch = [_]sketch.Point{ .{ .x = 4, .y = 0 }, .{ .x = 4, .y = 2 }, .{ .x = 2, .y = 2 }, .{ .x = 2, .y = 3 }, .{ .x = 18, .y = 3 }, .{ .x = 18, .y = 4 }, .{ .x = 10, .y = 4 }, .{ .x = 10, .y = 9 } };
+    var touching = routed;
+    touching[2] = fanInPath(102, 3, &retouch);
+    const stays = try plan(a, &crossings, &touching, base);
+    try std.testing.expectEqual(@as(usize, 0), stays.selected_bundles.len);
+    try std.testing.expectEqual(ledger.IndependentReason.not_selected, stays.memberships[0].target.?.independent.reason);
 }
 
 test "invisible crossings sharing a pivot re-form no group and keep one stable id" {

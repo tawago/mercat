@@ -170,7 +170,8 @@ pub const LabelPolicy = enum { on_run, beside };
 /// `plain` = every jog exactly as the track pass assigned it;
 /// `dodged` = each bridge routes sequentially, its jog displaced off
 /// committed and tentative ink;
-/// `railed` = each licensed shared-source group jointly moves its shared
+/// `railed` = each licensed group meeting at one port — source or target —
+/// jointly moves its shared
 /// jog to a rail coordinate judged against the full static scene (falls
 /// back to the plain geometry when no group is licensed or no jog moves).
 pub const BridgeBuild = enum { plain, dodged, railed };

@@ -129,6 +129,62 @@ test "bridges sharing one source port share a single rail track" {
     try std.testing.expectEqual(edges[0].polyline[1].y, edges[1].polyline[1].y);
 }
 
+test "bridges sharing one target port share a single rail track" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+
+    const placements = [_]sketch.NodePlacement{
+        .{ .id = 0, .rect = .{ .x = 2, .y = 0, .w = 6, .h = 3 }, .shape = .rect, .lines = &.{"L"}, .cluster_id = null },
+        .{ .id = 1, .rect = .{ .x = 12, .y = 0, .w = 6, .h = 3 }, .shape = .rect, .lines = &.{"M"}, .cluster_id = null },
+        .{ .id = 2, .rect = .{ .x = 22, .y = 0, .w = 6, .h = 3 }, .shape = .rect, .lines = &.{"R"}, .cluster_id = null },
+        .{ .id = 3, .rect = .{ .x = 12, .y = 10, .w = 6, .h = 3 }, .shape = .rect, .lines = &.{"T"}, .cluster_id = 7 },
+    };
+    const clusters = [_]sketch.ClusterFrame{
+        .{ .id = 7, .rect = .{ .x = 6, .y = 8, .w = 24, .h = 7 }, .parent_id = null, .label = "Real", .depth = 0 },
+    };
+    const orig_to_merged = [_]sketch.NodeId{ 0, 1, 2, 3 };
+    const crossings = [_]Crossing{
+        .{ .id = 0, .from = 0, .to = 3, .kind = .solid, .arrow_from = .none, .arrow_to = .filled, .label = null },
+        .{ .id = 1, .from = 1, .to = 3, .kind = .solid, .arrow_from = .none, .arrow_to = .filled, .label = null },
+        .{ .id = 2, .from = 2, .to = 3, .kind = .solid, .arrow_from = .none, .arrow_to = .filled, .label = null },
+    };
+    const edges = try bridges.route(a, &crossings, &placements, &clusters, &.{}, &.{}, .TD, &orig_to_merged, null, .plain);
+    try std.testing.expectEqual(@as(usize, 3), edges.len);
+    try std.testing.expectEqual(@as(usize, 4), edges[0].polyline.len);
+    try std.testing.expectEqual(@as(usize, 2), edges[1].polyline.len);
+    try std.testing.expectEqual(@as(usize, 4), edges[2].polyline.len);
+    try std.testing.expectEqual(edges[0].polyline[1].y, edges[2].polyline[1].y);
+    try std.testing.expectEqual(@as(i32, 7), edges[0].polyline[1].y);
+    try std.testing.expectEqual(edges[0].polyline[3].x, edges[1].polyline[1].x);
+}
+
+test "a bridge sharing a start with one peer and an end with another keys its request at the start" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+
+    const placements = [_]sketch.NodePlacement{
+        .{ .id = 0, .rect = .{ .x = 2, .y = 0, .w = 6, .h = 3 }, .shape = .rect, .lines = &.{"S1"}, .cluster_id = null },
+        .{ .id = 1, .rect = .{ .x = 20, .y = 0, .w = 6, .h = 3 }, .shape = .rect, .lines = &.{"S2"}, .cluster_id = null },
+        .{ .id = 2, .rect = .{ .x = 10, .y = 10, .w = 6, .h = 3 }, .shape = .rect, .lines = &.{"T1"}, .cluster_id = 7 },
+        .{ .id = 3, .rect = .{ .x = 28, .y = 10, .w = 6, .h = 3 }, .shape = .rect, .lines = &.{"T2"}, .cluster_id = 7 },
+    };
+    const clusters = [_]sketch.ClusterFrame{
+        .{ .id = 7, .rect = .{ .x = 6, .y = 8, .w = 32, .h = 7 }, .parent_id = null, .label = "Real", .depth = 0 },
+    };
+    const orig_to_merged = [_]sketch.NodeId{ 0, 1, 2, 3 };
+    const crossings = [_]Crossing{
+        .{ .id = 0, .from = 0, .to = 2, .kind = .solid, .arrow_from = .none, .arrow_to = .filled, .label = null },
+        .{ .id = 1, .from = 1, .to = 2, .kind = .solid, .arrow_from = .none, .arrow_to = .filled, .label = null },
+        .{ .id = 2, .from = 1, .to = 3, .kind = .solid, .arrow_from = .none, .arrow_to = .filled, .label = null },
+    };
+    const edges = try bridges.route(a, &crossings, &placements, &clusters, &.{}, &.{}, .TD, &orig_to_merged, null, .plain);
+    try std.testing.expectEqual(@as(usize, 3), edges.len);
+    try std.testing.expectEqual(edges[1].polyline[1].y, edges[2].polyline[1].y);
+    try std.testing.expect(edges[0].polyline[1].y != edges[1].polyline[1].y);
+}
+
 test "tracks.onFrameBorder ignores synthetic frames and disjoint spans" {
     const clusters = [_]sketch.ClusterFrame{
         .{ .id = 1, .rect = .{ .x = 10, .y = 5, .w = 10, .h = 6 }, .parent_id = null, .label = "R", .depth = 0 },
@@ -321,6 +377,48 @@ test "a licensed shared-source fan moves its whole rail off a static run the sce
     try std.testing.expectEqual(@as(usize, 2), edges.len);
     try std.testing.expectEqual(edges[0].polyline[0].x, edges[1].polyline[0].x);
     try std.testing.expectEqual(@as(usize, 4), edges[0].polyline.len);
+    try std.testing.expectEqual(edges[0].polyline[1].y, edges[1].polyline[1].y);
+    try std.testing.expect(edges[0].polyline[1].y != 18);
+}
+
+test "a licensed shared-target fan moves its whole rail off a static run the scene models as no obstacle" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+
+    const placements = [_]sketch.NodePlacement{
+        .{ .id = 0, .rect = .{ .x = 10, .y = 20, .w = 6, .h = 3 }, .shape = .rect, .lines = &.{"I"}, .cluster_id = null },
+        .{ .id = 1, .rect = .{ .x = 2, .y = 0, .w = 6, .h = 3 }, .shape = .rect, .lines = &.{"B1"}, .cluster_id = null },
+        .{ .id = 2, .rect = .{ .x = 22, .y = 0, .w = 6, .h = 3 }, .shape = .rect, .lines = &.{"B2"}, .cluster_id = null },
+        .{ .id = 3, .rect = .{ .x = 16, .y = 8, .w = 4, .h = 3 }, .shape = .rect, .lines = &.{"P"}, .cluster_id = null },
+    };
+    const orig_to_merged = [_]sketch.NodeId{ 0, 1, 2, 3 };
+    const crossings = [_]Crossing{
+        .{ .id = 0, .from = 1, .to = 0, .kind = .solid, .arrow_from = .none, .arrow_to = .filled, .label = null },
+        .{ .id = 1, .from = 2, .to = 0, .kind = .solid, .arrow_from = .none, .arrow_to = .filled, .label = null },
+    };
+    const static_poly = [_]sketch.Point{ .{ .x = 16, .y = 18 }, .{ .x = 30, .y = 18 } };
+    const statics = [_]sketch.EdgePath{.{
+        .id = 90,
+        .from = 3,
+        .to = 2,
+        .polyline = &static_poly,
+        .port_from = .{ .node = 3, .side = .east, .offset = 1 },
+        .port_to = .{ .node = 2, .side = .east, .offset = 1 },
+        .arrow_from = .none,
+        .arrow_to = .none,
+        .label = null,
+        .kind = .solid,
+    }};
+
+    const plain = try bridges.route(a, &crossings, &placements, &.{}, &.{}, &statics, .TD, &orig_to_merged, null, .plain);
+    try std.testing.expectEqual(@as(i32, 18), plain[0].polyline[1].y);
+    try std.testing.expectEqual(@as(i32, 18), plain[1].polyline[1].y);
+
+    const edges = try bridges.route(a, &crossings, &placements, &.{}, &.{}, &statics, .TD, &orig_to_merged, null, .railed);
+    try std.testing.expectEqual(@as(usize, 2), edges.len);
+    try std.testing.expectEqual(@as(usize, 4), edges[0].polyline.len);
+    try std.testing.expectEqual(edges[0].polyline[3].x, edges[1].polyline[3].x);
     try std.testing.expectEqual(edges[0].polyline[1].y, edges[1].polyline[1].y);
     try std.testing.expect(edges[0].polyline[1].y != 18);
 }

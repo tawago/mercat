@@ -207,6 +207,35 @@ test "a labeled fan into sibling subgraphs reserves no on-run rows" {
     try std.testing.expectEqual(@as(usize, 2), crossings);
 }
 
+test "two bridges into one port are one selected bundle at the target end" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+
+    var nodes_buf: [4]sem_graph.Node = undefined;
+    var edges_buf: [3]sem_graph.Edge = undefined;
+    var members: [2]sem_graph.NodeId = undefined;
+    var clusters_buf: [1]sem_graph.Cluster = undefined;
+    const graph = twoBridgesIntoOnePortGraph(&nodes_buf, &edges_buf, &members, &clusters_buf);
+
+    const permits = ledger.BundlePermits{ .policy = .joined, .scope = .skipped_clustered };
+    const s = try recurse.layoutPieces(a, graph, .{ .max_width = 120, .bundle_permits = &permits });
+    const c = placementNamed(s, "C") orelse return error.TargetNotPlaced;
+
+    var bundle: ?ledger.SelectedBundleId = null;
+    var arrivals: usize = 0;
+    for (s.bundles.memberships) |m| {
+        const e = edgeById(s, m.edge) orelse continue;
+        if (e.to != c.id) continue;
+        arrivals += 1;
+        const disp = m.target orelse return error.ArrivalUndecided;
+        try std.testing.expect(disp == .selected);
+        if (bundle) |b| try std.testing.expectEqual(b, disp.selected) else bundle = disp.selected;
+    }
+    try std.testing.expectEqual(@as(usize, 2), arrivals);
+    try std.testing.expectEqual(@as(usize, 2), s.bundles.selected_bundles[bundle.?].members.len);
+}
+
 fn twoBridgesIntoOnePortGraph(
     nodes_buf: []sem_graph.Node,
     edges_buf: []sem_graph.Edge,
