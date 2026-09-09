@@ -102,6 +102,63 @@ fn innerLeafDirection(s: sketch.Sketch, cluster_id: sem_graph.ClusterId) ?sem_gr
     return null;
 }
 
+/// `X --> A`, X top-level, A the sole member of the innermost of `depth`
+/// nested clusters (ids 100, 200, ...; each the only child of the previous).
+fn nestedArrivalGraph(a: std.mem.Allocator, depth: usize) !sem_graph.SemGraph {
+    const NS = sem_graph.NodeShape;
+    const innermost: sem_graph.ClusterId = @intCast(depth * 100);
+    const nodes = try a.alloc(sem_graph.Node, 2);
+    nodes[0] = .{ .id = 0, .raw_id = "X", .label = "X", .shape = NS.rect, .classes = &.{}, .cluster = null };
+    nodes[1] = .{ .id = 1, .raw_id = "A", .label = "A", .shape = NS.rect, .classes = &.{}, .cluster = innermost };
+    const edges = try a.alloc(sem_graph.Edge, 1);
+    edges[0] = .{ .id = 0, .from = 0, .to = 1, .kind = .solid, .arrow_from = .none, .arrow_to = .filled, .label = null };
+    const members = try a.alloc(sem_graph.NodeId, 1);
+    members[0] = 1;
+    const clusters = try a.alloc(sem_graph.Cluster, depth);
+    for (clusters, 1..) |*c, level| {
+        const id: sem_graph.ClusterId = @intCast(level * 100);
+        const subs = try a.alloc(sem_graph.ClusterId, if (level < depth) 1 else 0);
+        if (level < depth) subs[0] = id + 100;
+        c.* = .{
+            .id = id,
+            .raw_id = "C",
+            .label = "C",
+            .parent = if (level == 1) null else id - 100,
+            .members = if (level == depth) members else &.{},
+            .sub_clusters = subs,
+        };
+    }
+    return .{ .direction = .TD, .nodes = nodes, .edges = edges, .clusters = clusters, .classes = &.{}, .arena = null };
+}
+
+fn clusterRect(s: sketch.Sketch, cluster_id: sem_graph.ClusterId) sketch.Rect {
+    for (s.clusters) |cf| {
+        if (cf.id == cluster_id) return cf.rect;
+    }
+    unreachable;
+}
+
+test "an arrival inherited through every nesting level clears the innermost frame" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+
+    // The arrowhead sits in the arrival cell right above A; the cell above it must be a plain run, never the frame's title row — so the frame A sits in grows one row past its pad, at every depth, and no enclosing frame (which the edge only passes through) grows at all.
+    const pad: i32 = @intCast(prim.framePadY(0));
+    for ([_]usize{ 1, 2, 3 }) |depth| {
+        const graph = try nestedArrivalGraph(a, depth);
+        const s = try recurse.layoutPieces(a, graph, .{ .max_width = 120 });
+        const innermost = clusterRect(s, @intCast(depth * 100));
+        try std.testing.expectEqual(pad + 1, s.nodes[1].rect.y - innermost.y);
+        var level: usize = 1;
+        while (level < depth) : (level += 1) {
+            const outer = clusterRect(s, @intCast(level * 100));
+            const inner = clusterRect(s, @intCast((level + 1) * 100));
+            try std.testing.expectEqual(pad, inner.y - outer.y);
+        }
+    }
+}
+
 test "nested cluster: width sub-budget shrinks once per nesting level (saturating)" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
@@ -143,12 +200,12 @@ test "declared baseline is always computed and never exceeded when a child flips
     const graph = singleClusterChainGraph(&nodes_buf, &edges_buf, &members_buf, &clusters_buf);
 
     const opts: coords.LayoutOptions = .{ .max_width = 40 };
-    const sr = try cluster_split.split(a, graph);
+    const sr = try cluster_split.split(a, graph, &.{});
     try std.testing.expect(!sr.isFlat());
 
     var child_opts = opts;
     child_opts.max_width = opts.max_width -| recurse.pieceFrameOverheadX(sr, 1, opts.spacing_scale);
-    const cc = try recurse.layoutChild(a, sr.pieces[1].graph, child_opts);
+    const cc = try recurse.layoutChild(a, sr.pieces[1].graph, child_opts, &.{});
     try std.testing.expect(cc.flipped != null);
 
     const declared_children = try a.alloc(cluster_stitch.Clustered, sr.pieces.len);
@@ -170,16 +227,16 @@ test "rotation that reduces but does not eliminate overflow is rejected (validat
     var clusters_buf: [1]sem_graph.Cluster = undefined;
     const graph = singleClusterChainGraph(&nodes_buf, &edges_buf, &members_buf, &clusters_buf);
 
-    const sr = try cluster_split.split(a, graph);
+    const sr = try cluster_split.split(a, graph, &.{});
     const child_opts: coords.LayoutOptions = .{ .max_width = 14 };
-    const cc = try recurse.layoutChild(a, sr.pieces[1].graph, child_opts);
+    const cc = try recurse.layoutChild(a, sr.pieces[1].graph, child_opts, &.{});
 
     try std.testing.expect(cc.declared.sketch.bbox.w > child_opts.max_width);
     try std.testing.expect(cc.flipped == null);
 
     var rotated_graph = sr.pieces[1].graph;
     rotated_graph.direction = prim.rotatedDirection(sr.pieces[1].graph.direction);
-    const rotated = try recurse.layoutClustered(a, rotated_graph, child_opts);
+    const rotated = try recurse.layoutClustered(a, rotated_graph, child_opts, &.{});
     try std.testing.expect(rotated.sketch.bbox.w < cc.declared.sketch.bbox.w);
     try std.testing.expect(rotated.sketch.bbox.w > child_opts.max_width);
 
@@ -221,11 +278,11 @@ test "stitch re-clamps a surviving rail's crossbar past a dropped super-node tap
     };
 
     const opts: coords.LayoutOptions = .{ .max_width = 400 };
-    const sr = try cluster_split.split(a, graph);
+    const sr = try cluster_split.split(a, graph, &.{});
     try std.testing.expect(!sr.isFlat());
     try std.testing.expectEqual(@as(usize, 1), sr.supers.len);
 
-    const child = try recurse.layoutChild(a, sr.pieces[1].graph, opts);
+    const child = try recurse.layoutChild(a, sr.pieces[1].graph, opts, &.{});
     const children = try a.alloc(cluster_stitch.Clustered, sr.pieces.len);
     children[1] = child.declared;
 

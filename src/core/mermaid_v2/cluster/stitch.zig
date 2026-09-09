@@ -54,12 +54,11 @@ pub fn entryInsetFor(
 ) EntryInset {
     const child = children[super.child_piece];
     return entry_inset.entryArrivalInset(
-        sr.crossings,
+        sr.arrivals,
         super,
         child.sketch,
         child.input_of,
         sr.pieces[super.child_piece].orig_ids,
-        sr.pieces[0].graph.direction,
     );
 }
 

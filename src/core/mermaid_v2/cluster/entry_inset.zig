@@ -1,13 +1,16 @@
 //! cluster/entry_inset.zig — the shared "entry-side frame inset" predicate.
 //!
-//! A cross-border edge that terminates on a subgraph's FIRST-LAYER member lands
-//! its arrowhead one cell inside the frame; without a straight approach cell the
-//! arrowhead's base is the frame stroke (or a title-band letter). This module
-//! decides, purely, whether a super-node should grow one extra frame-inset cell
-//! on its flow-entry side so the arrowhead gets a collinear base. It is the
-//! SINGLE source of that decision, called from BOTH the `superSize` sizing site
+//! An edge arriving from outside a cluster at one of its FIRST-LAYER members
+//! lands its arrowhead one cell inside the frame; without a straight approach
+//! cell the arrowhead's base is the frame stroke (or a title-band letter) — a
+//! decoration cell against a piercing cell. This module decides, purely,
+//! whether a super-node should grow one extra frame-inset cell on the side the
+//! edge enters so the arrowhead gets a collinear base. It is the SINGLE source
+//! of that decision, called from BOTH the `superSize` sizing site
 //! (`recurse.stitchOuter`) and the child-translate sites (`stitch`), so sizing
-//! and translation can never disagree.
+//! and translation can never disagree. The arrivals it reads are the cut's
+//! record (`split.Arrival`), which the recursion hands down through every
+//! nesting level, so a cluster at any depth answers for its own members.
 //!
 //! Pure data work: no allocation, no drawing. Imports `sketch`, `split`, `sem_graph`.
 
@@ -16,80 +19,71 @@ const sketch = @import("../sketch.zig");
 const split_mod = @import("split.zig");
 const sg = @import("../sem_graph.zig");
 
-/// Which frame side a cross-border terminal arrives on, derived from the PARENT
-/// flow direction (a TD parent drops ▼ onto the target's top; LR enters from the
-/// left with ▶; etc.).
-pub const EntrySide = enum { north, south, east, west };
+/// Which frame side a cross-border terminal arrives on (a TD parent drops ▼
+/// onto the target's top; LR enters from the left with ▶; etc.).
+pub const EntrySide = sketch.Dir4;
 
-fn entrySideOf(dir: sg.Direction) EntrySide {
-    return switch (dir) {
-        .TD => .north,
-        .BT => .south,
-        .LR => .west,
-        .RL => .east,
-    };
-}
-
-/// One extra frame-inset cell on a cluster's flow-entry side, so a terminal
-/// arrowhead landing one cell inside the frame gets a straight collinear
+/// One extra frame-inset cell per side an arriving arrowhead enters through,
+/// so a terminal landing one cell inside the frame gets a straight collinear
 /// approach cell instead of sitting directly on the frame stroke.
 pub const EntryInset = struct {
-    /// 0 (no first-layer terminal) or 1 (raise the entry-side inset).
-    extra: u32,
-    side: EntrySide,
+    north: u32 = 0,
+    south: u32 = 0,
+    east: u32 = 0,
+    west: u32 = 0,
 
+    fn raise(self: *EntryInset, side: EntrySide) void {
+        switch (side) {
+            .north => self.north = 1,
+            .south => self.south = 1,
+            .east => self.east = 1,
+            .west => self.west = 1,
+        }
+    }
     /// Extra super-node width (east/west entry only).
     pub fn wExtra(self: EntryInset) u32 {
-        return switch (self.side) {
-            .east, .west => self.extra,
-            .north, .south => 0,
-        };
+        return self.east + self.west;
     }
     /// Extra super-node height (north/south entry only).
     pub fn hExtra(self: EntryInset) u32 {
-        return switch (self.side) {
-            .north, .south => self.extra,
-            .east, .west => 0,
-        };
+        return self.north + self.south;
     }
     /// Child x-offset when the extra inset sits on the near (west) side.
     pub fn dxExtra(self: EntryInset) i32 {
-        return if (self.side == .west) @intCast(self.extra) else 0;
+        return @intCast(self.west);
     }
     /// Child y-offset when the extra inset sits on the near (north) side.
     pub fn dyExtra(self: EntryInset) i32 {
-        return if (self.side == .north) @intCast(self.extra) else 0;
+        return @intCast(self.north);
     }
 };
 
-/// Decide whether super-node `super` needs an extra frame-inset cell on its
-/// flow-entry side. Returns extra=1 iff some cross-border terminal lands on a
-/// FIRST-LAYER DIRECT member of this cluster. A target inside a NESTED sub-
-/// cluster carries a non-null `cluster_id` in the child sketch → excluded (the
-/// edge only passes THROUGH this frame with no arrowhead here; a target wrapped
-/// only in a chrome-free synthetic packing cluster is a fan branch whose
-/// splitter absorbs the row without yielding a straight base, so excluding it is
-/// correct too). Synthetic packing supers have no frame → never charged.
+/// Decide which sides of super-node `super` need an extra frame-inset cell.
+/// A side is raised iff some arrival through it lands on a FIRST-LAYER DIRECT
+/// member of this cluster. A target inside a NESTED sub-cluster carries a
+/// non-null `cluster_id` in the child sketch → excluded here (the edge only
+/// passes THROUGH this frame; the sub-cluster's own cut inherits the arrival
+/// and answers for it). A target wrapped only in a chrome-free synthetic
+/// packing cluster is a fan branch whose splitter absorbs the row without
+/// yielding a straight base, so excluding it is correct too. Synthetic packing
+/// supers have no frame → never charged.
 pub fn entryArrivalInset(
-    crossings: []const split_mod.Crossing,
+    arrivals: []const split_mod.Arrival,
     super: split_mod.SuperNode,
     child_sketch: sketch.Sketch,
     child_input_of: []const sketch.NodeId,
     piece_orig_ids: []const sg.NodeId,
-    parent_dir: sg.Direction,
 ) EntryInset {
-    const side = entrySideOf(parent_dir);
-    if (super.synthetic) return .{ .extra = 0, .side = side };
-    for (crossings) |c| {
-        if (c.arrow_to == .none) continue;
+    var out: EntryInset = .{};
+    if (super.synthetic) return out;
+    for (arrivals) |a| {
         for (child_sketch.nodes) |cp| {
             if (cp.cluster_id != null) continue;
-            if (split_mod.pieceId(piece_orig_ids, child_input_of, cp.id) != c.to) continue;
-            if (isEntryLayer(child_sketch, cp.rect, side))
-                return .{ .extra = 1, .side = side };
+            if (split_mod.pieceId(piece_orig_ids, child_input_of, cp.id) != a.to) continue;
+            if (isEntryLayer(child_sketch, cp.rect, a.side)) out.raise(a.side);
         }
     }
-    return .{ .extra = 0, .side = side };
+    return out;
 }
 
 /// True if `rect` sits on the entry-side extreme (the first layer) among all
@@ -122,31 +116,33 @@ test "entryArrivalInset" {
     const input_of = [_]sketch.NodeId{ 0, 1 };
     const orig = [_]sg.NodeId{ 100, 101 };
 
-    const cross_top = [_]split_mod.Crossing{.{ .id = 0, .from = 200, .to = 100, .kind = .solid, .arrow_from = .none, .arrow_to = .filled, .label = null }};
-    const hit = entryArrivalInset(&cross_top, super, s, &input_of, &orig, .TD);
-    try t.expectEqual(@as(u32, 1), hit.extra);
-    try t.expectEqual(EntrySide.north, hit.side);
+    const arrive_top = [_]split_mod.Arrival{.{ .to = 100, .side = .north }};
+    const hit = entryArrivalInset(&arrive_top, super, s, &input_of, &orig);
+    try t.expectEqual(@as(u32, 1), hit.north);
     try t.expectEqual(@as(u32, 1), hit.hExtra());
     try t.expectEqual(@as(u32, 0), hit.wExtra());
     try t.expectEqual(@as(i32, 1), hit.dyExtra());
 
-    const cross_deep = [_]split_mod.Crossing{.{ .id = 0, .from = 200, .to = 101, .kind = .solid, .arrow_from = .none, .arrow_to = .filled, .label = null }};
-    try t.expectEqual(@as(u32, 0), entryArrivalInset(&cross_deep, super, s, &input_of, &orig, .TD).extra);
-
-    const cross_none = [_]split_mod.Crossing{.{ .id = 0, .from = 200, .to = 100, .kind = .solid, .arrow_from = .none, .arrow_to = .none, .label = null }};
-    try t.expectEqual(@as(u32, 0), entryArrivalInset(&cross_none, super, s, &input_of, &orig, .TD).extra);
+    const arrive_deep = [_]split_mod.Arrival{.{ .to = 101, .side = .north }};
+    try t.expectEqual(@as(u32, 0), entryArrivalInset(&arrive_deep, super, s, &input_of, &orig).hExtra());
 
     const nodes_nested = [_]sketch.NodePlacement{ tNode(0, 0, 0, 9), tNode(1, 0, 5, null) };
-    try t.expectEqual(@as(u32, 0), entryArrivalInset(&cross_top, super, tSketch(&nodes_nested), &input_of, &orig, .TD).extra);
+    try t.expectEqual(@as(u32, 0), entryArrivalInset(&arrive_top, super, tSketch(&nodes_nested), &input_of, &orig).hExtra());
 
     var syn = super;
     syn.synthetic = true;
-    try t.expectEqual(@as(u32, 0), entryArrivalInset(&cross_top, syn, s, &input_of, &orig, .TD).extra);
+    try t.expectEqual(@as(u32, 0), entryArrivalInset(&arrive_top, syn, s, &input_of, &orig).hExtra());
 
-    const lr = entryArrivalInset(&cross_top, super, s, &input_of, &orig, .LR);
-    try t.expectEqual(EntrySide.west, lr.side);
+    const arrive_left = [_]split_mod.Arrival{.{ .to = 100, .side = .west }};
+    const lr = entryArrivalInset(&arrive_left, super, s, &input_of, &orig);
+    try t.expectEqual(@as(u32, 1), lr.west);
     try t.expectEqual(@as(u32, 1), lr.wExtra());
     try t.expectEqual(@as(u32, 0), lr.hExtra());
     try t.expectEqual(@as(i32, 1), lr.dxExtra());
     try t.expectEqual(@as(i32, 0), lr.dyExtra());
+
+    const arrive_both = [_]split_mod.Arrival{ .{ .to = 100, .side = .north }, .{ .to = 100, .side = .west } };
+    const both = entryArrivalInset(&arrive_both, super, s, &input_of, &orig);
+    try t.expectEqual(@as(u32, 1), both.hExtra());
+    try t.expectEqual(@as(u32, 1), both.wExtra());
 }

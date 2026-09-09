@@ -41,20 +41,24 @@ pub fn layoutPieces(
     graph: sem_graph.SemGraph,
     opts: coords.LayoutOptions,
 ) RecurseError!sketch.Sketch {
-    return (try layoutClustered(arena, graph, opts)).sketch;
+    return (try layoutClustered(arena, graph, opts, &.{})).sketch;
 }
 
 /// Recursively lay out a (possibly clustered, possibly nested) flowchart:
 /// cut the top-level subgraphs, lay each child out the same way (so a child
 /// containing sub-subgraphs recurses), size each super-node to its child's
 /// finished bbox, lay out the outer flowchart, then stitch. Returns the merged
-/// Sketch plus the merged→input id map the parent level needs.
+/// Sketch plus the merged→input id map the parent level needs. `arrivals` are
+/// the decorated ends the cut above recorded into `graph` (empty at the root);
+/// each child inherits the ones aimed at its own subtree.
+/// @guarded-by: recurse_test.zig "an arrival inherited through every nesting level clears the innermost frame"
 pub fn layoutClustered(
     arena: std.mem.Allocator,
     graph: sem_graph.SemGraph,
     opts: coords.LayoutOptions,
+    arrivals: []const cluster_split.Arrival,
 ) RecurseError!cluster_stitch.Clustered {
-    const sr = try cluster_split.split(arena, graph);
+    const sr = try cluster_split.split(arena, graph, arrivals);
 
     if (sr.isFlat()) {
         const s = try coords.layout(arena, sr.pieces[0].graph, opts);
@@ -67,7 +71,7 @@ pub fn layoutClustered(
     for (sr.pieces[1..], 1..) |piece, i| {
         var child_opts = opts;
         child_opts.max_width = opts.max_width -| pieceFrameOverheadX(sr, i, opts.spacing_scale);
-        choices[i] = try layoutChild(arena, piece.graph, child_opts);
+        choices[i] = try layoutChild(arena, piece.graph, child_opts, try sr.childArrivals(arena, i));
         if (choices[i].flipped != null) any_flip = true;
     }
 
@@ -163,15 +167,16 @@ pub fn layoutChild(
     arena: std.mem.Allocator,
     graph: sem_graph.SemGraph,
     child_opts: coords.LayoutOptions,
+    arrivals: []const cluster_split.Arrival,
 ) RecurseError!ChildChoice {
-    const declared = try layoutClustered(arena, graph, child_opts);
+    const declared = try layoutClustered(arena, graph, child_opts, arrivals);
     if (declared.sketch.bbox.w <= child_opts.max_width) {
         return .{ .declared = declared, .flipped = null };
     }
 
     var rotated_graph = graph;
     rotated_graph.direction = prim.rotatedDirection(graph.direction);
-    const rotated = try layoutClustered(arena, rotated_graph, child_opts);
+    const rotated = try layoutClustered(arena, rotated_graph, child_opts, arrivals);
 
     // Offer the rotation as a candidate only when it earns its keep — strictly narrower than declared (never-widen) AND fits the sub-budget declared overflowed; a rotation that reduces overflow without fully fitting is rejected. @guarded-by: recurse_test.zig "rotation that reduces but does not eliminate overflow is rejected (validator cross-check)"
     if (rotated.sketch.bbox.w < declared.sketch.bbox.w and

@@ -15,6 +15,26 @@ const bridges = @import("bridges.zig");
 
 pub const Crossing = bridges.Crossing;
 
+/// A decorated edge end that lands on a node of one of this cut's pieces while
+/// the edge itself is absent from that piece's graph: a crossing this cut
+/// recorded, or one a cut above it recorded and handed down. `to` is an id of
+/// the graph that was cut; `side` is the frame side the edge enters, fixed by
+/// the flow direction of the graph whose cut recorded it (the level that
+/// routes it). `SplitResult.childArrivals` carries the record down every
+/// nesting level, so a cluster at any depth learns which of its members
+/// receive an arrowhead from outside.
+pub const Arrival = struct { to: sg.NodeId, side: sketch.Dir4 };
+
+/// The frame side a cross-border edge enters under flow direction `dir`.
+pub fn entrySide(dir: sg.Direction) sketch.Dir4 {
+    return switch (dir) {
+        .TD => .north,
+        .BT => .south,
+        .LR => .west,
+        .RL => .east,
+    };
+}
+
 /// One independently-layoutable flowchart carved out of the original graph.
 ///
 /// `cluster_id` is null for the outermost piece (the top-level flowchart) and
@@ -51,8 +71,23 @@ pub const SplitResult = struct {
     /// Cross-border edges, routed by `cluster/bridges.zig` after stitch using
     /// the final merged placements. Empty on the flat path.
     crossings: []const Crossing,
+    /// Decorated ends arriving from outside a piece's graph: this cut's own
+    /// decorated crossings plus every arrival inherited from the cut above.
+    arrivals: []const Arrival,
     /// Number of nodes in the ORIGINAL graph — sizes the orig→merged id map.
     orig_node_count: usize,
+
+    /// The arrivals whose target lies in piece `piece_idx`, re-id'd into that
+    /// piece's graph — the `inherited` argument of the piece's own `split`.
+    pub fn childArrivals(self: SplitResult, arena: std.mem.Allocator, piece_idx: usize) error{OutOfMemory}![]const Arrival {
+        var out: std.ArrayListUnmanaged(Arrival) = .empty;
+        for (self.arrivals) |a| {
+            for (self.pieces[piece_idx].orig_ids, 0..) |o, i| {
+                if (o == a.to) try out.append(arena, .{ .to = @intCast(i), .side = a.side });
+            }
+        }
+        return out.toOwnedSlice(arena);
+    }
 
     /// True when there was nothing to cut — a flat flowchart (no subgraphs)
     /// or a structure not yet handled by the cut path. The driver then takes
@@ -62,17 +97,18 @@ pub const SplitResult = struct {
     }
 };
 
-/// Cut `graph` into independently-layoutable pieces.
-pub fn split(arena: std.mem.Allocator, graph: sg.SemGraph) error{OutOfMemory}!SplitResult {
-    if (cuttable(graph)) return cut(arena, graph);
-    return identity(arena, graph);
+/// Cut `graph` into independently-layoutable pieces. `inherited` holds the
+/// arrivals the cut above recorded into this graph (empty at the root).
+pub fn split(arena: std.mem.Allocator, graph: sg.SemGraph, inherited: []const Arrival) error{OutOfMemory}!SplitResult {
+    if (cuttable(graph)) return cut(arena, graph, inherited);
+    return identity(arena, graph, inherited);
 }
 
 /// Identity result: the whole graph as a single flat outer piece.
-fn identity(arena: std.mem.Allocator, graph: sg.SemGraph) error{OutOfMemory}!SplitResult {
+fn identity(arena: std.mem.Allocator, graph: sg.SemGraph, inherited: []const Arrival) error{OutOfMemory}!SplitResult {
     const pieces = try arena.alloc(Piece, 1);
     pieces[0] = .{ .graph = graph, .cluster_id = null, .orig_ids = &.{} };
-    return .{ .pieces = pieces, .supers = &.{}, .crossings = &.{}, .orig_node_count = graph.nodes.len };
+    return .{ .pieces = pieces, .supers = &.{}, .crossings = &.{}, .arrivals = inherited, .orig_node_count = graph.nodes.len };
 }
 
 /// Structural precondition for the cut path: the graph has at least one
@@ -136,7 +172,7 @@ fn topClusterOf(graph: sg.SemGraph, id: sg.NodeId) ?sg.ClusterId {
 /// Cut a graph into outer + one child per TOP-LEVEL subgraph. Each child holds
 /// that subgraph's whole subtree (nested sub-clusters included), so laying it
 /// out recurses through `split` again.
-fn cut(arena: std.mem.Allocator, graph: sg.SemGraph) error{OutOfMemory}!SplitResult {
+fn cut(arena: std.mem.Allocator, graph: sg.SemGraph, inherited: []const Arrival) error{OutOfMemory}!SplitResult {
     var tops: std.ArrayListUnmanaged(usize) = .empty;
     for (graph.clusters, 0..) |c, ci| {
         if (c.parent == null) try tops.append(arena, ci);
@@ -159,10 +195,17 @@ fn cut(arena: std.mem.Allocator, graph: sg.SemGraph) error{OutOfMemory}!SplitRes
     const ob = try buildOuter(arena, graph, tops.items, supers);
     pieces[0] = ob.piece;
 
+    var arrivals: std.ArrayListUnmanaged(Arrival) = .empty;
+    try arrivals.appendSlice(arena, inherited);
+    for (ob.crossings) |c| {
+        if (c.arrow_to != .none) try arrivals.append(arena, .{ .to = c.to, .side = entrySide(graph.direction) });
+    }
+
     return .{
         .pieces = pieces,
         .supers = supers,
         .crossings = ob.crossings,
+        .arrivals = try arrivals.toOwnedSlice(arena),
         .orig_node_count = graph.nodes.len,
     };
 }
@@ -423,57 +466,4 @@ pub fn pieceId(piece_orig_ids: []const sg.NodeId, child_input_of: []const sketch
 pub fn idAt(map: []const sketch.NodeId, i: sketch.NodeId) sketch.NodeId {
     if (i == sg.SENTINEL or i >= map.len) return sg.SENTINEL;
     return map[i];
-}
-
-test "identity split for clusterless graph" {
-    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
-    defer arena.deinit();
-    const a = arena.allocator();
-    const g: sg.SemGraph = .{
-        .direction = .TD,
-        .nodes = &.{},
-        .edges = &.{},
-        .clusters = &.{},
-        .classes = &.{},
-        .arena = null,
-    };
-    const result = try split(a, g);
-    try std.testing.expect(result.isFlat());
-}
-
-test "single-level disjoint subgraphs cut into outer + children" {
-    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
-    defer arena.deinit();
-    const a = arena.allocator();
-
-    const nodes = [_]sg.Node{
-        .{ .id = 0, .raw_id = "A", .label = "A", .shape = .rect, .classes = &.{}, .cluster = 0 },
-        .{ .id = 1, .raw_id = "B", .label = "B", .shape = .rect, .classes = &.{}, .cluster = 0 },
-        .{ .id = 2, .raw_id = "C", .label = "C", .shape = .rect, .classes = &.{}, .cluster = 1 },
-        .{ .id = 3, .raw_id = "D", .label = "D", .shape = .rect, .classes = &.{}, .cluster = 1 },
-        .{ .id = 4, .raw_id = "T", .label = "T", .shape = .rect, .classes = &.{}, .cluster = null },
-    };
-    const edges = [_]sg.Edge{
-        .{ .id = 0, .from = 0, .to = 1, .kind = .solid, .arrow_from = .none, .arrow_to = .filled, .label = null },
-        .{ .id = 1, .from = 2, .to = 3, .kind = .solid, .arrow_from = .none, .arrow_to = .filled, .label = null },
-    };
-    const m0 = [_]sg.NodeId{ 0, 1 };
-    const m1 = [_]sg.NodeId{ 2, 3 };
-    const clusters = [_]sg.Cluster{
-        .{ .id = 0, .raw_id = "c0", .label = "C0", .parent = null, .members = &m0, .sub_clusters = &.{} },
-        .{ .id = 1, .raw_id = "c1", .label = "C1", .parent = null, .members = &m1, .sub_clusters = &.{} },
-    };
-    const g: sg.SemGraph = .{ .direction = .TD, .nodes = &nodes, .edges = &edges, .clusters = &clusters, .classes = &.{}, .arena = null };
-
-    const r = try split(a, g);
-    try std.testing.expect(!r.isFlat());
-    try std.testing.expectEqual(@as(usize, 3), r.pieces.len);
-    try std.testing.expectEqual(@as(usize, 2), r.supers.len);
-
-    try std.testing.expectEqual(@as(usize, 2), r.pieces[1].graph.nodes.len);
-    try std.testing.expectEqual(@as(usize, 1), r.pieces[1].graph.edges.len);
-    try std.testing.expectEqual(@as(usize, 3), r.pieces[0].graph.nodes.len);
-    try std.testing.expectEqual(@as(usize, 0), r.pieces[0].graph.edges.len);
-    try std.testing.expectEqual(@as(usize, 1), r.supers[0].child_piece);
-    try std.testing.expectEqual(@as(usize, 2), r.supers[1].child_piece);
 }
