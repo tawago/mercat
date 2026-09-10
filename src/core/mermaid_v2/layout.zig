@@ -22,6 +22,7 @@ const spacing = @import("layout/spacing.zig");
 const fan_mod = @import("layout/fan.zig");
 const fan_gate = @import("layout/fan_gate.zig");
 const fan_lanes = @import("layout/fan_lanes.zig");
+const gap_rows = @import("layout/gap_rows.zig");
 const mirror = @import("layout/mirror.zig");
 const cx_mod = @import("layout/x_assign.zig");
 const sizing = @import("layout/sizing.zig");
@@ -30,6 +31,7 @@ const rank_grid = @import("layout/rank_grid.zig");
 const decascade = @import("layout/decascade.zig");
 const bundle_commit = @import("layout/bundle_commit.zig");
 const options = @import("layout/options.zig");
+const layer_axis = @import("layout/layer_axis.zig");
 const ports = @import("layout/ports.zig");
 const port_plan = @import("layout/port_plan.zig");
 
@@ -127,7 +129,6 @@ fn buildSketch(
     const fans = try fan_gate.keepRealizableLong(a, fans_detected, candidate_bundles);
     const construction_private = hasPrivatePeers(fans);
     const port_active = hasPortWork(candidate_bundles) or construction_private;
-    const lane_plan = try port_plan.planLanes(a, graph, lg, candidate_bundles);
     const derived = if (plan_ref) |plan| blk: {
         if (port_active) {
             const all = ports.derive(a, graph, plan.*, candidate_bundles, graph.direction, lg.reversed_edges) catch &.{};
@@ -151,12 +152,9 @@ fn buildSketch(
     };
     const v_sp_per_gap = try computeLayerSpacings(a, graph, lg, v_base);
 
-    // Detect decision fans (TD only) and reserve one extra inter-layer row
-    // per fan so the rail row has somewhere to live. Unified detection
-    // returns both fan-OUT and fan-IN entries.
-    // X assignment precedes row reservation: `fan_lanes` groups collinear
-    // rails by their placed columns, so coordinates must exist before we decide
-    // how many rail rows each gap needs. Neither assignInitialX nor the
+    // X assignment precedes row reservation: the row ledger packs every
+    // gap's runs by their placed columns, so coordinates must exist before
+    // we decide how many rows each gap needs. Neither assignInitialX nor the
     // barycenter sweeps read geom.y, so running them ahead of assignY leaves x
     // byte-identical to the pre-reorder pipeline.
     //
@@ -174,65 +172,30 @@ fn buildSketch(
 
     normalizeX(geom);
 
-    // Two-sided fan lane separation: when >=2 fans in one gap would fuse their
+    // Two-sided fan run separation: when >=2 fans in one gap would fuse their
     // rails into a single run whose union has more than one source AND more
     // than one target, that run speaks for a pivot none of its members shares,
-    // so each rail takes its own rail row via fans[].lane and every declared
-    // edge stays traceable. Single rails and pure fan-in|out stay lane 0.
+    // so each rail takes its own run class via fans[].lane and every declared
+    // edge stays traceable. Single rails and pure fan-in|out stay class 0.
     // @guarded-by: layout/fan_lanes_test.zig "incomplete overlapping fans get separate lanes"
     if (fans.len > 0) fan_mod.gateFanInSharedLabels(NodeGeom, fans, geom);
     if (fans.len > 0) try fan_lanes.assignLanes(NodeGeom, a, graph, lg, geom, fans, candidate_bundles, &closure);
 
-    // Reserve max(lane)+1 gap rows per fan gap (extraRowsPerGap reads fans[].lane).
-    // The label-feasibility gate first clears `labeled` on fans whose on-run
-    // candidate is doomed (will grid-wrap / no label can ever fit), so they
-    // reserve no dead label rows. @guarded-by: layout/fan_test.zig "label reservation gate clears doomed fans and keeps feasible ones"
-    if (v_sp_per_gap.len > 0 and fans.len > 0) {
-        // The fan's reserved gap rows are a LABEL reservation, not an ON-RUN
-        // one: a `.beside` fan needs them just as much, because that is where
-        // its labels sit — one per dropper, x-aligned with the dropper they
-        // name. Dropping them for the beside twin made it ~3 rows shorter,
-        // which the height tier then bought at the price of labels stranded on
-        // the rail row next to a dropper they do not belong to. The policy axis
-        // is a RASTER-form axis; both twins pay the same layout reservation.
-        // @guarded-by: select_test3.zig "the beside twin keeps the labeled fan's reserved rows"
-        fan_mod.gateLabelReservations(NodeGeom, graph, fans, geom, opts.max_width, opts.h_spacing);
-        const extras = try fan_mod.extraRowsPerGap(a, lg, fans);
-        for (extras, 0..) |x, i| {
-            if (i < v_sp_per_gap.len) v_sp_per_gap[i] += x;
-        }
-    }
-    for (lane_plan.extra_rows, 0..) |extra, i| if (i < v_sp_per_gap.len) {
-        v_sp_per_gap[i] += extra;
-    };
-    // Skip-corridor headroom (TD): reserves the extra gap row a ≥2-layer edge's target layer needs for a clean vertical descent. @guarded-by: layout/layout_test.zig "a skip edge reserves exactly one extra gap row above its target layer, a plain chain reserves none"
-    if (is_td and v_sp_per_gap.len > 0) {
-        // @guarded-by: layout/port_plan_test.zig "a long fan-in member the plan selected gets a continuing tap and a member stroke"
-        const extras = try routing.skipCorridorExtraRows(a, lg, try fan_gate.longFanInMembers(a, fans));
-        for (extras, 0..) |x, i| {
-            if (i < v_sp_per_gap.len) v_sp_per_gap[i] += x;
-        }
-    }
-    // Terminal-approach headroom (TD): a bare inter-rank gap that receives an
-    // OFFSET corner-fed forward terminal gets one extra row so the arrowhead's
-    // base cell can be a straight collinear stroke instead of a corner. Reads
-    // the ACCUMULATED gap width (after the fan/lane/skip folds above) and tops
-    // up ONLY gaps still at the bare 2-row width — a widened gap is never
-    // double-counted, and the add is bounded to at most +1 per boundary.
-    // Suppressed on the switch_direction rotation (`is_direction_rotated`):
-    // a rotated layout is authored non-TD, and adding a row there
-    // perturbs its height score and can flip candidate selection (GUARD 2 —
-    // price the row only where TD is the FINAL direction). Same gate as the
-    // other direction-dependent TD levers (compact_x, back-edge rail width).
-    // @guarded-by: layout/layout_test.zig "an offset adjacent terminal in a bare TD gap reserves exactly one extra row; a column-aligned terminal reserves none"
-    if (is_td and !opts.is_direction_rotated and v_sp_per_gap.len > 0) {
-        const extras = try routing.terminalApproachExtraRows(NodeGeom, a, graph, lg, geom);
-        for (extras, 0..) |x, i| {
-            if (i < v_sp_per_gap.len and x > 0 and v_sp_per_gap[i] < 3)
-                v_sp_per_gap[i] += 1;
-        }
-    }
-    assignY(geom, lg.layers, layer_h, v_sp_per_gap);
+    // A fan's label band is a LABEL claim, not an ON-RUN one: a `.beside`
+    // fan needs it just as much, because that is where its labels sit — one
+    // per dropper, x-aligned with the dropper they name. Dropping it for the
+    // beside twin made it ~3 rows shorter, which the height tier then bought
+    // at the price of labels stranded on the rail row next to a dropper they
+    // do not belong to. The policy axis is a RASTER-form axis; both twins
+    // claim the same rows.
+    // @guarded-by: select_test3.zig "the beside twin keeps the labeled fan's reserved rows"
+    if (fans.len > 0) fan_mod.gateLabelReservations(NodeGeom, graph, fans, geom, opts.max_width, opts.h_spacing);
+
+    // The levers read and move the layer axis — a grid stacks a layer's
+    // nodes into sub-rows — so the layers are laid out once at base
+    // spacing for them, and their result folded back into per-node
+    // offsets inside each layer before the ledger reads the geometry.
+    layer_axis.assignY(geom, lg.layers, layer_h, v_sp_per_gap);
 
     // Flush-left justification: a pure leftward shift, so it can only narrow or hold the bbox, never widen it. @guarded-by: layout/x_assign_test.zig "flushLeftRows never widens the bounding box"
     const td_pressure = opts.justify == .flush_left and compact_x;
@@ -266,22 +229,65 @@ fn buildSketch(
         normalizeX(geom);
     }
 
+    // Lever D: the rows a de-cascaded head's entry corridor asks for join
+    // that gap's base spacing, which the ledger packs into.
     if (td_pressure) {
-        try decascade.deCascade(a, graph, geom, lg);
+        if (try decascade.deCascade(a, graph, geom, lg)) |drop| v_sp_per_gap[drop.gap] += drop.rows;
         normalizeX(geom);
     }
 
     if (fans.len > 0) fan_mod.assignRoles(fans, try centersX(a, geom));
+    layer_axis.foldLayerOffsets(lg, geom, layer_h);
+
+    // The row ledger: every run the routers will paint in a gap — fan
+    // rails and per-peer runs, private jogs, skip-corridor entries and
+    // exits, member-stroke jogs — claims its rows against the ports the
+    // allocation will hand out, and the gap grows by exactly the rows the
+    // packed claims need. Nothing else adds a row, and every router reads
+    // its row back from this ledger.
+    // @guarded-by: layout/gap_rows_test.zig "four disjoint realized rails share one row and the gap is rail, run, head"
+    // @guarded-by: layout/gap_rows_test.zig "a skip edge claims one row in the gap above its target layer, a plain chain claims none"
+    // @guarded-by: layout/gap_rows_test.zig "an offset decorated terminal claims one row; a column-aligned or undecorated one claims none"
+    const predicted_ports = try gap_rows.predictPorts(NodeGeom, a, graph, lg, geom, derived, candidate_bundles, port_active, opts.rung);
+    const supers = try a.alloc(gap_rows.Super, opts.fixed_sizes.len);
+    for (opts.fixed_sizes, supers) |fixed, *sup| sup.* = .{ .node = fixed.node, .drawn = !fixed.synthetic };
+    const rows = try gap_rows.buildPiece(NodeGeom, a, graph, lg, geom, fans, candidate_bundles, predicted_ports, v_sp_per_gap, supers, opts.departures);
+    for (v_sp_per_gap, 0..) |*g, i| g.* += rows.extraRows(i);
+    layer_axis.growSubGaps(lg, geom, layer_h, rows);
+    layer_axis.assignY(geom, lg.layers, layer_h, v_sp_per_gap);
+    const layer_top = try layer_axis.layerTops(a, geom, lg.layers);
+    // The gap geometry the painted-ink invariant reads back: each gap's
+    // first cell beside its two layers — a sub-gap's beside its two
+    // sub-rows — in the frame the routers paint in.
+    // @guarded-by: ledger/invariants.zig "the painted-ink invariant counts a run on a row no claim of its edge stands on"
+    // In an RL piece layer g is the target side of gap g, so its near wall
+    // is the arrival cell beside layer g and the rows count toward layer g+1.
+    const walls = try a.alloc(gap_rows.GapWalls, rows.gaps.len);
+    for (walls[0..v_sp_per_gap.len], 0..) |*w, g| {
+        var below: i32 = std.math.minInt(i32);
+        var above: i32 = std.math.maxInt(i32);
+        if (g + 1 < lg.layers.len) {
+            for (lg.layers[g]) |idx| below = @max(below, geom[idx].y + @as(i32, @intCast(geom[idx].h)));
+            for (lg.layers[g + 1]) |idx| above = @min(above, geom[idx].y - 1);
+        }
+        w.* = if (graph.direction == .RL) .{ .far = above, .near = below } else .{ .far = below, .near = above };
+    }
+    for (rows.sub_gaps) |sgp| walls[sgp.gap] = .{ .far = layer_top[sgp.layer] + sgp.far, .near = layer_top[sgp.layer] + sgp.top - 1 };
+    const node_of = try a.alloc(u32, lg.nodes.len);
+    for (lg.nodes, node_of) |ln, *id| id.* = switch (ln) {
+        .real => |nid| nid,
+        .virtual => sg.SENTINEL,
+    };
 
     mirror.applyDirection(NodeGeom, geom, graph.direction);
 
     const placements = try buildPlacements(a, graph, lg, geom, node_lines);
-    const allocated_ports = try port_plan.allocate(a, graph, placements, derived, candidate_bundles, lane_plan, opts.rung);
+    const allocated_ports = try port_plan.allocate(a, graph, placements, derived, candidate_bundles, opts.rung);
     candidate_bundles.terminal_ports = allocated_ports.terminals;
     const edges_result = if (port_active)
-        try routing.buildEdgesWithPlan(a, graph, lg, geom, placements, fans, candidate_bundles, allocated_ports)
+        try routing.buildEdgesWithPlan(a, graph, lg, geom, placements, fans, candidate_bundles, allocated_ports, rows)
     else
-        try routing.buildEdges(a, graph, lg, geom, placements, fans);
+        try routing.buildEdges(a, graph, lg, geom, placements, fans, rows);
     const edges_out = edges_result.edges;
     const clusters_out = try clusters.buildClusters(a, graph, placements, opts.node_padding);
 
@@ -332,6 +338,9 @@ fn buildSketch(
         .rail_claims = edges_result.rail_claims,
         .bundles = candidate_bundles,
         .closure = closure,
+        // The gap account the invariant reads: what assignY placed against what the ledger holds.
+        // @guarded-by: ledger/invariants.zig "the gap invariant counts a spacing the ledger did not ask for and a row no claim stands on"
+        .gap_rows = try rows.records(a, v_sp_per_gap, walls, node_of),
         // Fan-derived sets PLUS the port shares read back off the final
         // polylines: the port plan can route several edges through one
         // perimeter port and records nothing, so the only declaration of that
@@ -411,15 +420,6 @@ fn computeLayerHeights(
         }
     }
     return layer_h;
-}
-
-fn assignY(geom: []NodeGeom, layers: [][]u32, layer_h: []const u32, v_sp_per_gap: []const u32) void {
-    var cursor: i32 = 0;
-    for (layers, 0..) |row, li| {
-        for (row) |idx| geom[idx].y = cursor;
-        const gap: u32 = if (li < v_sp_per_gap.len) v_sp_per_gap[li] else 0;
-        cursor += @as(i32, @intCast(layer_h[li])) + @as(i32, @intCast(gap));
-    }
 }
 
 fn computeLayerSpacings(

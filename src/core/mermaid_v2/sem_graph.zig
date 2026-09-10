@@ -91,6 +91,12 @@ pub const Edge = struct {
     /// answer for that ink, not for the proxy's bare ends.
     /// @guarded-by: cluster/split_test.zig "a placement edge records the directedness of the crossings it stands for"
     stands_for: StandsFor = .arrow_free,
+    /// How many crossings a placement edge stands for (cluster/split.zig
+    /// folds every crossing of one outer pair into one placement edge);
+    /// 0 for an edge that is its own ink. Two or more crossings into one
+    /// plain node end on one port, so at most one of their bridges is
+    /// straight: the row ledger claims the jog row for the rest.
+    crossings: u32 = 0,
     /// Root-graph EdgeId this edge descends from, chained through nested cuts
     /// (cluster/split.zig). SENTINEL when the edge was born in this graph:
     /// parse-built edges (their own `id` is the root id) and synthetic

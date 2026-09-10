@@ -102,7 +102,10 @@ fn reflowOneLayer(
     const row_step = fan_grid.rowStep(max_h, v_spacing);
 
     // Push every node strictly below base_y (real or virtual, incl. same-layer virtuals) down by added_h. @guarded-by: layout/rank_grid_test.zig "rank-grid pushes only strictly-below nodes by added_h; same-layer and above nodes are untouched"
-    const base_y: i32 = geom[reals[0]].y;
+    // The grid starts at the layer's top, not at whichever real sorts first
+    // by x — a fan wrap may already have stacked that one lower.
+    var base_y: i32 = std.math.maxInt(i32);
+    for (reals) |idx| base_y = @min(base_y, geom[idx].y);
     const added_h: i32 = @as(i32, @intCast(rows - 1)) * row_step;
     for (geom) |*g| {
         if (g.y > base_y) g.y += added_h;

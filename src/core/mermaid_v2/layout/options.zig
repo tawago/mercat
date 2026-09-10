@@ -39,6 +39,11 @@ pub const LayoutOptions = struct {
     /// Optional per-node size overrides (super-node sizing). Empty by
     /// default — a label-only flowchart sizes every node from its text.
     fixed_sizes: []const FixedSize = &.{},
+    /// The nodes a cross-border edge leaves toward the flow (cluster/split.zig
+    /// `Departure`): the bridge routed above this piece jogs in the row under
+    /// such a node when a box stacked beneath it forces a corridor, and the
+    /// row ledger reserves that row.
+    departures: []const ledger.NodeId = &.{},
     /// Soft word-wrap cap in display columns; null = no soft wrap. Set only
     /// on the budget ladder's `wrap_labels` rung. When non-null, `sizeNodes`
     /// word-wraps each node label to this width (hard `<br>`/`\n` breaks are

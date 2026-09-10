@@ -7,7 +7,8 @@
 //! preserving every internal offset so the vertical rail stays drilled —
 //! instead of moving `x_assign.flushLeftRows`-exempted single-real-node rows
 //! independently, which would shear their `│` connectors into a jog. Only
-//! ever moves a run LEFTWARD, so it can only narrow or hold the bbox.
+//! ever moves a run LEFTWARD, so it can only narrow or hold the bbox; the
+//! rows its entry corridor needs are reported, never placed here.
 //! Downstream routing (`routing.buildEdges` / `back_edges.zig`) re-routes
 //! every edge from the post-slide geom; this module only moves geom.
 //!
@@ -34,26 +35,32 @@ const MIN_DRIFT: i32 = 4;
 /// inter-node breathing room; a fixed function of geometry, never of identity.
 const COLLISION_GAP: i32 = 2;
 
+/// The rows the slid head's entry corridor needs in the gap above it:
+/// the tallest fork-layer sibling's height, so the corridor clears the
+/// deepest sibling box. The caller adds them to that gap's base spacing.
+pub const CorridorDrop = struct { gap: u32, rows: u32 };
+
 /// Detect a rightward single-node cascade and slide it (with its fork/leaf
 /// subtree) left to the diagram margin as a rigid unit. `geom` is parallel to
-/// `lg.nodes`. No-op unless a drifted straight rail of length ≥ 2 layers is
-/// found. TD-only; the caller gates on `compact_x && justify == .flush_left`,
+/// `lg.nodes`; only `x` moves — the rows the slide asks for come back as a
+/// `CorridorDrop`. No-op unless a drifted straight rail of length ≥ 2 layers
+/// is found. TD-only; the caller gates on `compact_x && justify == .flush_left`,
 /// so this never fires on the natural rung (fitting seeds stay byte-identical).
 pub fn deCascade(
     a: std.mem.Allocator,
     graph: sg.SemGraph,
     geom: []NodeGeom,
     lg: sugiyama.LayeredGraph,
-) error{OutOfMemory}!void {
+) error{OutOfMemory}!?CorridorDrop {
     _ = graph;
     const nl = lg.layers.len;
-    if (nl < 3) return;
+    if (nl < 3) return null;
 
     var margin: i32 = std.math.maxInt(i32);
     for (lg.nodes, 0..) |ln, i| {
         if (ln == .real and geom[i].x < margin) margin = geom[i].x;
     }
-    if (margin == std.math.maxInt(i32)) return;
+    if (margin == std.math.maxInt(i32)) return null;
 
     // ---- 1. Anchor on the MOST-drifted single-node-layer rail node, not the first-drifted one. // @guarded-by: decascade_test.zig "deCascade anchors on the most-drifted rail, not the first-drifted one"
     var seed_idx: ?u32 = null;
@@ -69,7 +76,7 @@ pub fn deCascade(
             }
         }
     }
-    const seed = seed_idx orelse return;
+    const seed = seed_idx orelse return null;
 
     // Climb UP through single-parent rail links to the true head, stopping before a multi-node fork layer rather than climbing through it. // @guarded-by: decascade_test.zig "deCascade head climb stops exactly at a multi-node fork layer"
     var head = seed;
@@ -81,7 +88,7 @@ pub fn deCascade(
         head = p;
     }
     // The head must hang off a parent in the layer above; a true source with no such parent is already the left edge and this is a no-op. // @guarded-by: decascade_test.zig "deCascade no-ops when the drifted rail head is a true source (no forward parent)"
-    if (soleForwardParent(lg, head) == null) return;
+    if (soleForwardParent(lg, head) == null) return null;
     const lo: usize = geom[head].layer;
 
     var hi = lo;
@@ -96,7 +103,7 @@ pub fn deCascade(
     }
 
     // A genuine CASCADE needs a RUN of ≥ 2 consecutive single-node layers; a lone drifted single-node layer (hi == lo) is not a cascade. // @guarded-by: decascade_test.zig "deCascade does not fire for a lone drifted single-node layer (hi==lo)"
-    if (hi <= lo) return;
+    if (hi <= lo) return null;
 
     const n = lg.nodes.len;
     const in_unit = try a.alloc(bool, n);
@@ -136,10 +143,10 @@ pub fn deCascade(
     for (lg.nodes, 0..) |ln, i| {
         if (ln == .real and in_unit[i] and geom[i].x < unit_min) unit_min = geom[i].x;
     }
-    if (unit_min == std.math.maxInt(i32)) return;
+    if (unit_min == std.math.maxInt(i32)) return null;
 
     var delta = margin - unit_min;
-    if (delta >= 0) return;
+    if (delta >= 0) return null;
 
     // Collision floor: bound the leftward slide so no unit node crosses into the right edge (+ a gap) of the nearest non-unit node to its left in the same layer. // @guarded-by: decascade_test.zig "deCascade collision floor clamps the slide short of a fixed sibling's right edge"
     var floor: i32 = std.math.minInt(i32);
@@ -158,7 +165,7 @@ pub fn deCascade(
         if (node_floor > floor) floor = node_floor;
     }
     if (floor != std.math.minInt(i32) and delta < floor) delta = floor;
-    if (delta >= 0) return;
+    if (delta >= 0) return null;
 
     for (lg.nodes, 0..) |_, i| {
         if (in_unit[i]) geom[i].x += delta;
@@ -178,13 +185,9 @@ pub fn deCascade(
             if (h > fork_layer_h) fork_layer_h = h;
         }
     }
-    if (needs_corridor and fork_layer_h > 0) {
-        // Drop everything at layer ≥ lo by the tallest fork-layer sibling's height so the corridor clears the deepest sibling box, not just the overlapping one. // @guarded-by: decascade_test.zig "deCascade entry-corridor drop uses the tallest fork-layer sibling, not just the overlapping one"
-        const lo_u: u32 = @intCast(lo);
-        for (geom) |*g| {
-            if (g.layer >= lo_u) g.y += fork_layer_h;
-        }
-    }
+    // The gap above the head grows by the tallest fork-layer sibling's height so the corridor clears the deepest sibling box, not just the overlapping one. // @guarded-by: decascade_test.zig "deCascade entry-corridor drop uses the tallest fork-layer sibling, not just the overlapping one"
+    if (needs_corridor and fork_layer_h > 0) return .{ .gap = @intCast(lo - 1), .rows = @intCast(fork_layer_h) };
+    return null;
 }
 
 /// The sole real-node index of layer `li`, or null if the layer has 0 or ≥2

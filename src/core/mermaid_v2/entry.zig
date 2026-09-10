@@ -36,6 +36,7 @@ const select_mod = @import("select.zig");
 const motif_mod = @import("motif.zig");
 const ledger = @import("base/ledger.zig");
 const permits_mod = @import("ledger/permits.zig");
+const invariants_mod = @import("ledger/invariants.zig");
 const prim = @import("prim");
 
 pub const Sketch = sketch_types.Sketch;
@@ -227,7 +228,14 @@ pub fn renderFlowchart(
         return fallback(source, "v2 raster error");
     };
 
-    if (env.integrity) emitIntegrityLine(integrity, raster_report, graph.skipped_lines, sketch_val.closure);
+    if (env.integrity) emitIntegrityLine(
+        integrity,
+        raster_report,
+        graph.skipped_lines,
+        sketch_val.closure,
+        invariants_mod.gapRowsUnaccounted(sketch_val.gap_rows),
+        invariants_mod.gapRowsUnclaimedInk(sketch_val.direction, sketch_val.edges, sketch_val.rails, sketch_val.gap_rows),
+    );
 
     const budget = sketch_val.budget.max_width;
     const true_width = raster_report.lattice.width;
@@ -298,9 +306,13 @@ fn emitIntegrityLine(
     skipped_lines: u32,
     /// The SHIPPED candidate's report-only rail construction inventory.
     closure: ledger.ClosureCounts,
+    /// Gaps whose spacing disagrees with their row ledger (ledger/invariants.zig).
+    gap_rows_unaccounted: u32,
+    /// Cross-axis runs painted in a gap on a row the ledger did not claim for them.
+    gap_rows_unclaimed_ink: u32,
 ) void {
     std.debug.print(
-        "mercat-integrity: v_node_overlap={d} v_path_off_perimeter={d} v_path_through_interior={d} v_cluster={d} v_bbox={d} r_edge_cells_lost={d} r_labels_dropped={d} r_labels_displaced={d} r_phantom_arms={d} x_legal_crossing={d} x_foreign_junction={d} x_arrowhead_transit={d} b_frame_bridge={d} b_border_fusion_refused={d} a_arrowhead_base={d} skipped_lines={d} rail_deco_mixed={d} rail_member_style_mixed={d} rail_star_violation={d} rail_closure_undeclared={d} co_undeclared={d} co_double_discharge={d} tip_not_port={d} arm_into_head={d} v_edge_unrouted={d} arms_unexplained={d}\n",
+        "mercat-integrity: v_node_overlap={d} v_path_off_perimeter={d} v_path_through_interior={d} v_cluster={d} v_bbox={d} r_edge_cells_lost={d} r_labels_dropped={d} r_labels_displaced={d} r_phantom_arms={d} x_legal_crossing={d} x_foreign_junction={d} x_arrowhead_transit={d} b_frame_bridge={d} b_border_fusion_refused={d} a_arrowhead_base={d} skipped_lines={d} rail_deco_mixed={d} rail_member_style_mixed={d} rail_star_violation={d} rail_closure_undeclared={d} co_undeclared={d} co_double_discharge={d} tip_not_port={d} arm_into_head={d} v_edge_unrouted={d} arms_unexplained={d} gap_rows_unaccounted={d} gap_rows_unclaimed_ink={d}\n",
         .{
             v.node_overlap,
             v.path_off_perimeter,
@@ -328,6 +340,8 @@ fn emitIntegrityLine(
             raster_report.armIntoHead(),
             v.edge_unrouted,
             raster_report.arms_unexplained,
+            gap_rows_unaccounted,
+            gap_rows_unclaimed_ink,
         },
     );
 }

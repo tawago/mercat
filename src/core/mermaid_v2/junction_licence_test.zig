@@ -240,18 +240,21 @@ fn expectReconstructedThreeWayPortShare() !void {
     const a = arena.allocator();
     const r = try render(a, three_way_port_share, 140);
     const v = try judge(r.sketch, &r.report.lattice);
-    // Six junction pairs, every one licensed. The unit here is a
+    // Eight junction pairs, every one licensed. The unit here is a
     // (junction cell, anonymous edge) pair read off the side table, not the
-    // audit's collinear-adjacency count (which saw one): the three-way port
-    // share files a record for each co-member at each cell where a member
-    // joins or leaves the shared approach. Three further pairs sit on the
-    // head the members discharge into at B's port; a decoration cell is
-    // never a junction, so the raster records that head rail-interior and
-    // `ownerOf` names no head — those pairs are shared-stem ink, not
-    // junctions. What matters is the split — no pair foreign, no pair
-    // unevidenced — and that the population is exact.
-    try testing.expectEqual(@as(u32, 6), v.population);
-    try testing.expectEqual(@as(u32, 6), v.licensed);
+    // audit's collinear-adjacency count: the three-way port share files a
+    // record for each co-member at each cell where a member joins or leaves
+    // the shared approach. Three further pairs sit on the head the members
+    // discharge into at B's port; a decoration cell is never a junction, so
+    // the raster records that head rail-interior and `ownerOf` names no
+    // head — those pairs are shared-stem ink, not junctions. Two pairs
+    // joined the population when the row ledger began claiming the band a
+    // bridge lands under an outer node's departure cell (C's and E's south
+    // ports): each bridge now tees into the shared stem below the head
+    // instead of cornering under it. What matters is the split — no pair
+    // foreign, no pair unevidenced — and that the population is exact.
+    try testing.expectEqual(@as(u32, 8), v.population);
+    try testing.expectEqual(@as(u32, 8), v.licensed);
     try testing.expectEqual(@as(u32, 0), v.foreign);
     try testing.expectEqual(@as(u32, 0), v.unevidenced);
     try testing.expectEqual(v.population, v.licensed + v.foreign + v.unevidenced);
@@ -267,13 +270,17 @@ fn expectReconstructedThreeWayPortShare() !void {
     const cells = share.cells orelse return error.MissingPortShareScope;
     const pairs = share.pairwise orelse return error.MissingPairScopes;
 
-    // 35 rows since the decoration-cell tallies entered the score
-    // (2026-09-03): the candidate that shipped two lateral arms into its
-    // heads lost to one shipping one, whose shared approach is a row shorter.
-    try testing.expectEqual(@as(usize, 35), cells.len);
+    // 30 rows: B's port sits at row 48 and the long pair leaves the shared
+    // approach at row 19 — the row ledger sized every gap to its runs (the
+    // F→D gap lost five rows of lane bloat; the C→E and E→F gaps hold the
+    // bands their bridges claim, and the placement edges into the group's
+    // stand-in claim nothing of their own — two rows the outer piece once
+    // reserved for runs the stitch never painted).
+    const port_y: i32 = 48;
+    try testing.expectEqual(@as(usize, 30), cells.len);
     for (cells, 0..) |cell, i| {
         try testing.expectEqual(@as(i32, 24), cell.x);
-        try testing.expectEqual(50 - @as(i32, @intCast(i)), cell.y);
+        try testing.expectEqual(port_y - @as(i32, @intCast(i)), cell.y);
     }
 
     const expected = [_]struct {
@@ -281,37 +288,35 @@ fn expectReconstructedThreeWayPortShare() !void {
         b: ledger.EdgeId,
         last_y: i32,
     }{
-        .{ .a = 14, .b = 15, .last_y = 45 },
-        .{ .a = 14, .b = 16, .last_y = 45 },
-        .{ .a = 15, .b = 16, .last_y = 16 },
+        .{ .a = 14, .b = 15, .last_y = 43 },
+        .{ .a = 14, .b = 16, .last_y = 43 },
+        .{ .a = 15, .b = 16, .last_y = 19 },
     };
     try testing.expectEqual(expected.len, pairs.len);
     for (pairs, expected) |pair, want| {
         try testing.expectEqual(want.a, pair.a);
         try testing.expectEqual(want.b, pair.b);
-        try testing.expectEqual(@as(usize, @intCast(50 - want.last_y + 1)), pair.cells.len);
+        try testing.expectEqual(@as(usize, @intCast(port_y - want.last_y + 1)), pair.cells.len);
         for (pair.cells, 0..) |cell, i| {
             try testing.expectEqual(@as(i32, 24), cell.x);
-            try testing.expectEqual(50 - @as(i32, @intCast(i)), cell.y);
+            try testing.expectEqual(port_y - @as(i32, @intCast(i)), cell.y);
         }
     }
 
     const only_share = [_]ledger.Bundle{share};
-    const long_pair_only: ledger.BundleCell = .{ .x = 24, .y = 16 };
+    const long_pair_only: ledger.BundleCell = .{ .x = 24, .y = 19 };
     try testing.expect(ledger.bundleMembersAt(&only_share, 15, 16, long_pair_only));
     try testing.expect(!ledger.bundleMembersAt(&only_share, 14, 15, long_pair_only));
     try testing.expect(!ledger.bundleMembersAt(&only_share, 14, 16, long_pair_only));
 
     // No fabricated junction, no transit, no lost ink, every tip on its
-    // port, every base fed, no painted arm without an owner. One lateral
-    // arm into a head remains on this seed at w140, and it is the one head
-    // in junction state: the cluster bridge router lands a piece edge's head
+    // port, every base fed, no painted arm without an owner, and no lateral
+    // arm into a head: the cluster bridge router lands a piece edge's head
     // on C's centre south port, the cell where the flat plan's C ==> E
-    // departs and bends, and the head is stamped over that corner. The
-    // candidate shipping one such arm beat the one shipping two (the
-    // decoration-cell tallies entered the score 2026-09-03); the arm is
-    // priced, not hidden, and the bridge router's port reservations are
-    // the open producer stage that removes it.
+    // departs, and once shipped that head stamped over the departure's
+    // corner. The row ledger now claims the band a bridge lands under an
+    // outer node's departure cell, so the departure runs straight through
+    // the head cell and bends two rows lower; no head is in junction state.
     try testing.expectEqual(@as(u32, 0), r.report.crossings.foreign_junction_violation);
     try testing.expectEqual(@as(u32, 0), r.report.crossings.arrowhead_transit_violation);
     try testing.expectEqual(@as(u32, 0), r.report.edge_cells_lost);
@@ -319,8 +324,8 @@ fn expectReconstructedThreeWayPortShare() !void {
     try testing.expectEqual(@as(u32, 0), r.report.arrow_base.tip_not_port);
     try testing.expectEqual(@as(u32, 0), r.report.arrow_base.violations);
     try testing.expectEqual(@as(u32, 0), r.report.arms_unexplained);
-    try testing.expectEqual(@as(u32, 1), r.report.armIntoHead());
-    try testing.expectEqual(@as(u32, 1), headsInJunctionState(&r.report.lattice));
+    try testing.expectEqual(@as(u32, 0), r.report.armIntoHead());
+    try testing.expectEqual(@as(u32, 0), headsInJunctionState(&r.report.lattice));
 }
 
 test "junction licence: a reconstructed three-way port share keeps exact pair scopes and partitions junction verdicts" {

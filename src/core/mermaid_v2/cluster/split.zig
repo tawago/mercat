@@ -14,26 +14,13 @@ const sketch = @import("../sketch.zig");
 const bridges = @import("bridges.zig");
 
 pub const Crossing = bridges.Crossing;
+const inherited_mod = @import("inherited.zig");
 
-/// A decorated edge end that lands on a node of one of this cut's pieces while
-/// the edge itself is absent from that piece's graph: a crossing this cut
-/// recorded, or one a cut above it recorded and handed down. `to` is an id of
-/// the graph that was cut; `side` is the frame side the edge enters, fixed by
-/// the flow direction of the graph whose cut recorded it (the level that
-/// routes it). `SplitResult.childArrivals` carries the record down every
-/// nesting level, so a cluster at any depth learns which of its members
-/// receive an arrowhead from outside.
-pub const Arrival = struct { to: sg.NodeId, side: sketch.Dir4 };
-
-/// The frame side a cross-border edge enters under flow direction `dir`.
-pub fn entrySide(dir: sg.Direction) sketch.Dir4 {
-    return switch (dir) {
-        .TD => .north,
-        .BT => .south,
-        .LR => .west,
-        .RL => .east,
-    };
-}
+pub const Arrival = inherited_mod.Arrival;
+pub const Departure = inherited_mod.Departure;
+pub const Inherited = inherited_mod.Inherited;
+pub const entrySide = inherited_mod.entrySide;
+pub const exitSide = inherited_mod.exitSide;
 
 /// One independently-layoutable flowchart carved out of the original graph.
 ///
@@ -47,8 +34,6 @@ pub const Piece = struct {
     orig_ids: []const sg.NodeId,
 };
 
-/// A subgraph as seen from the outer flowchart: a single stand-in node whose
-/// size is its child's finished bounding box.
 pub const SuperNode = struct {
     /// Node id of the super-node within the OUTER piece (`pieces[0]`).
     outer_node: sg.NodeId,
@@ -74,6 +59,7 @@ pub const SplitResult = struct {
     /// Decorated ends arriving from outside a piece's graph: this cut's own
     /// decorated crossings plus every arrival inherited from the cut above.
     arrivals: []const Arrival,
+    departures: []const Departure,
     /// Number of nodes in the ORIGINAL graph — sizes the orig→merged id map.
     orig_node_count: usize,
 
@@ -89,6 +75,23 @@ pub const SplitResult = struct {
         return out.toOwnedSlice(arena);
     }
 
+    /// The departures whose source lies in piece `piece_idx`, re-id'd into
+    /// that piece's graph.
+    pub fn childDepartures(self: SplitResult, arena: std.mem.Allocator, piece_idx: usize) error{OutOfMemory}![]const Departure {
+        var out: std.ArrayListUnmanaged(Departure) = .empty;
+        for (self.departures) |d| {
+            for (self.pieces[piece_idx].orig_ids, 0..) |o, i| {
+                if (o == d.from) try out.append(arena, .{ .from = @intCast(i), .side = d.side });
+            }
+        }
+        return out.toOwnedSlice(arena);
+    }
+
+    /// Both records for piece `piece_idx`: the `inherited` of its own split.
+    pub fn childInherited(self: SplitResult, arena: std.mem.Allocator, piece_idx: usize) error{OutOfMemory}!Inherited {
+        return .{ .arrivals = try self.childArrivals(arena, piece_idx), .departures = try self.childDepartures(arena, piece_idx) };
+    }
+
     /// True when there was nothing to cut — a flat flowchart (no subgraphs)
     /// or a structure not yet handled by the cut path. The driver then takes
     /// the fast path: lay out the single piece, return its Sketch unchanged.
@@ -99,16 +102,16 @@ pub const SplitResult = struct {
 
 /// Cut `graph` into independently-layoutable pieces. `inherited` holds the
 /// arrivals the cut above recorded into this graph (empty at the root).
-pub fn split(arena: std.mem.Allocator, graph: sg.SemGraph, inherited: []const Arrival) error{OutOfMemory}!SplitResult {
+pub fn split(arena: std.mem.Allocator, graph: sg.SemGraph, inherited: Inherited) error{OutOfMemory}!SplitResult {
     if (cuttable(graph)) return cut(arena, graph, inherited);
     return identity(arena, graph, inherited);
 }
 
 /// Identity result: the whole graph as a single flat outer piece.
-fn identity(arena: std.mem.Allocator, graph: sg.SemGraph, inherited: []const Arrival) error{OutOfMemory}!SplitResult {
+fn identity(arena: std.mem.Allocator, graph: sg.SemGraph, inherited: Inherited) error{OutOfMemory}!SplitResult {
     const pieces = try arena.alloc(Piece, 1);
     pieces[0] = .{ .graph = graph, .cluster_id = null, .orig_ids = &.{} };
-    return .{ .pieces = pieces, .supers = &.{}, .crossings = &.{}, .arrivals = inherited, .orig_node_count = graph.nodes.len };
+    return .{ .pieces = pieces, .supers = &.{}, .crossings = &.{}, .arrivals = inherited.arrivals, .departures = inherited.departures, .orig_node_count = graph.nodes.len };
 }
 
 /// Structural precondition for the cut path: the graph has at least one
@@ -172,7 +175,7 @@ fn topClusterOf(graph: sg.SemGraph, id: sg.NodeId) ?sg.ClusterId {
 /// Cut a graph into outer + one child per TOP-LEVEL subgraph. Each child holds
 /// that subgraph's whole subtree (nested sub-clusters included), so laying it
 /// out recurses through `split` again.
-fn cut(arena: std.mem.Allocator, graph: sg.SemGraph, inherited: []const Arrival) error{OutOfMemory}!SplitResult {
+fn cut(arena: std.mem.Allocator, graph: sg.SemGraph, inherited: Inherited) error{OutOfMemory}!SplitResult {
     var tops: std.ArrayListUnmanaged(usize) = .empty;
     for (graph.clusters, 0..) |c, ci| {
         if (c.parent == null) try tops.append(arena, ci);
@@ -196,9 +199,12 @@ fn cut(arena: std.mem.Allocator, graph: sg.SemGraph, inherited: []const Arrival)
     pieces[0] = ob.piece;
 
     var arrivals: std.ArrayListUnmanaged(Arrival) = .empty;
-    try arrivals.appendSlice(arena, inherited);
+    try arrivals.appendSlice(arena, inherited.arrivals);
+    var departures: std.ArrayListUnmanaged(Departure) = .empty;
+    try departures.appendSlice(arena, inherited.departures);
     for (ob.crossings) |c| {
         if (c.arrow_to != .none) try arrivals.append(arena, .{ .to = c.to, .side = entrySide(graph.direction) });
+        if (topClusterOf(graph, c.from) != null) try departures.append(arena, .{ .from = c.from, .side = exitSide(graph.direction) });
     }
 
     return .{
@@ -206,6 +212,7 @@ fn cut(arena: std.mem.Allocator, graph: sg.SemGraph, inherited: []const Arrival)
         .supers = supers,
         .crossings = ob.crossings,
         .arrivals = try arrivals.toOwnedSlice(arena),
+        .departures = try departures.toOwnedSlice(arena),
         .orig_node_count = graph.nodes.len,
     };
 }
@@ -362,8 +369,11 @@ fn buildOuter(arena: std.mem.Allocator, graph: sg.SemGraph, tops: []const usize,
             if (seenIndex(seen.items, rf, rt)) |at| {
                 edges.items[at].stands_for =
                     sg.mergeStandsFor(edges.items[at].stands_for, class);
+                edges.items[at].crossings += 1;
+                crossings.items[crossings.items.len - 1].proxy = at;
                 continue;
             }
+            crossings.items[crossings.items.len - 1].proxy = @intCast(edges.items.len);
             try seen.append(arena, .{ .from = rf, .to = rt, .edge = @intCast(edges.items.len) });
             try edges.append(arena, .{
                 .id = @intCast(edges.items.len),
@@ -374,6 +384,7 @@ fn buildOuter(arena: std.mem.Allocator, graph: sg.SemGraph, tops: []const usize,
                 .arrow_to = .none,
                 .label = null,
                 .stands_for = class,
+                .crossings = 1,
             });
         }
     }

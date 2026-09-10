@@ -34,6 +34,7 @@ const fan_rail = @import("fan_rail.zig");
 const port_plan = @import("port_plan.zig");
 const rail_closure = @import("../base/rail_closure.zig");
 const sugiyama = @import("sugiyama.zig");
+const gap_rows = @import("gap_rows.zig");
 
 pub const Error = error{OutOfMemory};
 
@@ -67,6 +68,8 @@ pub fn buildAll(
     /// Columns the back-edge return rails own (their runs are routed after
     /// the strokes and check no clearance): a stroke never runs down one.
     reserved_columns: []const i32,
+    /// The gap row ledger: a stroke's jog prefers the row it claimed.
+    rows: gap_rows.Ledger,
     out: *std.ArrayListUnmanaged(sketch.EdgePath),
     polys: *std.ArrayListUnmanaged([]sketch.Point),
 ) Error![]const Refusal {
@@ -95,16 +98,21 @@ pub fn buildAll(
                     jog = end.y - 2;
                 } else {
                     end = rp.portPoint(dst_p, ep.target);
-                    // The head sits on end.y-1; a straight base cell above it
-                    // wants the jog one row higher still.
-                    jog = end.y - 3;
+                    // The head sits on end.y-1 and its straight base cell on
+                    // end.y-2; the jog takes the ledger row above them.
+                    jog = end.y - 3 - (rows.rowOfEdge(orig.id, .exit) orelse 0);
                 }
             } else {
                 end = tap.at;
                 start = rp.portPoint(src_p, ep.source);
                 const virtuals = try rt.collectVirtuals(a, lg, orig.id);
                 defer a.free(virtuals);
-                jog = if (virtuals.len > 0) geom[virtuals[0]].y - 1 else start.y + 2;
+                jog = if (virtuals.len == 0)
+                    start.y + 2
+                else if (rows.rowOfEdge(orig.id, .entry)) |row|
+                    geom[virtuals[0]].y - 3 - row
+                else
+                    geom[virtuals[0]].y - 1;
             }
             // A rail start keeps its drop cell straight (jog from two rows
             // down); a private port may bend on its first gap row, as the

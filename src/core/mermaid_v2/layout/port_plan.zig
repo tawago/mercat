@@ -7,7 +7,6 @@ const sg = @import("../sem_graph.zig");
 const sk = @import("../sketch.zig");
 const fan_mod = @import("fan.zig");
 const ports = @import("ports.zig");
-const sugiyama = @import("sugiyama.zig");
 
 pub const EdgePorts = struct {
     edge: pb.EdgeId,
@@ -24,11 +23,7 @@ pub const EdgePorts = struct {
     /// Target-end decoration exists: the reserved off-node arrival cell
     /// will hold it, with the same all-transit block as a decorated departure.
     target_decorated: bool = false,
-    route_lane: u32 = 0,
 };
-
-pub const LanePlan = struct { lanes: []const EdgeLane = &.{}, extra_rows: []const u32 = &.{} };
-pub const EdgeLane = struct { edge: pb.EdgeId, lane: u32 };
 
 pub const Plan = struct {
     edges: []const EdgePorts = &.{},
@@ -121,7 +116,8 @@ fn fanAttachment(a: std.mem.Allocator, graph: sg.SemGraph, fan: fan_mod.Fan, end
 /// shift its siblings' port ordinals, and reserve a terminal nothing arrives
 /// at. Applied where `derive` is consumed rather than inside it, so the pure
 /// D-PORT derivation keeps reading the permits plan and nothing else.
-/// @guarded-by: port_plan_test.zig "a discharged edge claims no attachment and consumes no route lane"
+/// @guarded-by: port_plan_test.zig "a discharged edge claims no attachment"
+/// @guarded-by: gap_rows_test.zig "a discharged edge claims no gap row"
 pub fn withoutDischarged(
     a: std.mem.Allocator,
     derived: []const ports.DerivedAttachment,
@@ -140,36 +136,6 @@ pub fn withoutDischarged(
     return out.toOwnedSlice(a);
 }
 
-pub fn planLanes(a: std.mem.Allocator, graph: sg.SemGraph, lg: sugiyama.LayeredGraph, bundles: pb.RealizedBundles) error{OutOfMemory}!LanePlan {
-    if (lg.layers.len < 2) return .{};
-    const node_layers = try a.alloc(u32, graph.nodes.len);
-    @memset(node_layers, 0);
-    for (lg.layers, 0..) |layer, li| for (layer) |idx| switch (lg.nodes[idx]) {
-        .real => |id| if (id < node_layers.len) {
-            node_layers[id] = @intCast(li);
-        },
-        .virtual => {},
-    };
-    const sorted = try a.dupe(sg.Edge, graph.edges);
-    std.mem.sort(sg.Edge, sorted, graph, edgeLess);
-    const next = try a.alloc(u32, lg.layers.len - 1);
-    @memset(next, 0);
-    var lanes: std.ArrayListUnmanaged(EdgeLane) = .empty;
-    for (sorted) |edge| {
-        if (edge.kind == .invisible or edge.from == edge.to or !edgeIsIndependent(bundles.memberships, edge.id) or
-            fusedContains(bundles.fused, edge.id) or
-            rail_closure.contains(bundles.discharged, edge.id)) continue;
-        const high = @max(node_layers[edge.from], node_layers[edge.to]);
-        if (high == 0) continue;
-        const gap = high - 1;
-        try lanes.append(a, .{ .edge = edge.id, .lane = next[gap] });
-        next[gap] += 1;
-    }
-    const extras = try a.alloc(u32, next.len);
-    for (next, extras) |count, *extra| extra.* = count -| 1;
-    return .{ .lanes = try lanes.toOwnedSlice(a), .extra_rows = extras };
-}
-
 const FaceAssignments = struct { node: pb.NodeId, side: sk.Dir4, items: []const ports.Assignment };
 
 pub fn allocate(
@@ -178,7 +144,6 @@ pub fn allocate(
     placements: []const sk.NodePlacement,
     derived: []const ports.DerivedAttachment,
     bundles: pb.RealizedBundles,
-    lane_plan: LanePlan,
     rung: u8,
 ) error{OutOfMemory}!Plan {
     const resolved = try a.dupe(ports.DerivedAttachment, derived);
@@ -220,7 +185,6 @@ pub fn allocate(
             .source_decorated = edge.arrow_from != .none,
             .target_duplicate = hasDuplicatePrivateClaim(resolved, bundles, edge.to, edge, .target_entry),
             .target_decorated = edge.arrow_to != .none,
-            .route_lane = laneFor(lane_plan.lanes, edge.id),
         };
         try terminals.append(a, .{ .node = edge.from, .edge = edge.id, .endpoint_side = .source_exit, .port = source.ordinal });
         try terminals.append(a, .{ .node = edge.to, .edge = edge.id, .endpoint_side = .target_entry, .port = target.ordinal });
@@ -313,51 +277,9 @@ fn portPoint(placement: sk.NodePlacement, port: sk.Port) sk.Point {
     };
 }
 
-fn edgeIsIndependent(memberships: []const pb.RealizedEdgeMembership, edge: pb.EdgeId) bool {
-    for (memberships) |membership| {
-        if (membership.edge != edge) continue;
-        inline for ([2]?pb.MembershipDisposition{ membership.source, membership.target }) |disposition| {
-            if (disposition) |d| if (d == .independent) return true;
-        }
-        return false;
-    }
-    return false;
-}
-
-fn fusedContains(fused: []const []const pb.EdgeId, edge: pb.EdgeId) bool {
-    for (fused) |u| if (containsEdge(u, edge)) return true;
-    return false;
-}
-
 fn containsEdge(edges: []const pb.EdgeId, edge: pb.EdgeId) bool {
     for (edges) |candidate| if (candidate == edge) return true;
     return false;
-}
-
-fn laneFor(lanes: []const EdgeLane, edge: pb.EdgeId) u32 {
-    for (lanes) |item| if (item.edge == edge) return item.lane;
-    return 0;
-}
-
-fn edgeLess(graph: sg.SemGraph, x: sg.Edge, y: sg.Edge) bool {
-    const x_from = nodeKey(graph, x.from);
-    const y_from = nodeKey(graph, y.from);
-    const from = std.mem.order(u8, x_from, y_from);
-    if (from != .eq) return from == .lt;
-    const to = std.mem.order(u8, nodeKey(graph, x.to), nodeKey(graph, y.to));
-    if (to != .eq) return to == .lt;
-    if (x.kind != y.kind) return @intFromEnum(x.kind) < @intFromEnum(y.kind);
-    if (x.arrow_from != y.arrow_from) return @intFromEnum(x.arrow_from) < @intFromEnum(y.arrow_from);
-    if (x.arrow_to != y.arrow_to) return @intFromEnum(x.arrow_to) < @intFromEnum(y.arrow_to);
-    const xl = x.label orelse "";
-    const yl = y.label orelse "";
-    const label = std.mem.order(u8, xl, yl);
-    return if (label == .eq) x.id < y.id else label == .lt;
-}
-
-fn nodeKey(graph: sg.SemGraph, id: pb.NodeId) []const u8 {
-    for (graph.nodes) |node| if (node.id == id) return node.raw_id;
-    return "";
 }
 
 const ResolvedPort = struct { port: sk.Port, ordinal: u32 };

@@ -36,7 +36,7 @@ fn twoTargetSplit(crossings: []const split_mod.Crossing) split_mod.SplitResult {
             .{ .outer_node = 2, .cluster_id = 20, .child_piece = 2 },
         };
     };
-    return .{ .pieces = &S.pieces, .supers = &S.supers, .crossings = crossings, .arrivals = &.{}, .orig_node_count = 3 };
+    return .{ .pieces = &S.pieces, .supers = &S.supers, .crossings = crossings, .arrivals = &.{}, .departures = &.{}, .orig_node_count = 3 };
 }
 
 fn outerPath(id: sketch.EdgeId, from: sketch.NodeId, to: sketch.NodeId) sketch.EdgePath {
@@ -163,7 +163,7 @@ test "super-splitting contributors rebuild no sets; per-pivot claims still expan
             .{ .id = 3, .from = 1, .to = 5, .kind = .solid, .arrow_from = .none, .arrow_to = .filled, .label = null },
         };
     };
-    const sr: split_mod.SplitResult = .{ .pieces = &S.pieces, .supers = &S.supers, .crossings = &S.crossings, .arrivals = &.{}, .orig_node_count = 6 };
+    const sr: split_mod.SplitResult = .{ .pieces = &S.pieces, .supers = &S.supers, .crossings = &S.crossings, .arrivals = &.{}, .departures = &.{}, .orig_node_count = 6 };
     const outer_edges = [_]sketch.EdgePath{ outerPath(5, 0, 1), outerPath(6, 0, 2) };
     const sets = [_]ledger.Bundle{.{ .origin = .fan_rail, .members = &.{ 5, 6 } }};
     const outer = outerSketch(&outer_edges, &sets);
@@ -205,7 +205,7 @@ test "a mixed survivor-and-bridge set rebuilds nothing once the bridge member is
         const supers = [_]split_mod.SuperNode{.{ .outer_node = 2, .cluster_id = 10, .child_piece = 1 }};
         const crossings = [_]split_mod.Crossing{.{ .id = 0, .from = 0, .to = 1, .kind = .solid, .arrow_from = .none, .arrow_to = .filled, .label = null }};
     };
-    const sr: split_mod.SplitResult = .{ .pieces = &S.pieces, .supers = &S.supers, .crossings = &S.crossings, .arrivals = &.{}, .orig_node_count = 3 };
+    const sr: split_mod.SplitResult = .{ .pieces = &S.pieces, .supers = &S.supers, .crossings = &S.crossings, .arrivals = &.{}, .departures = &.{}, .orig_node_count = 3 };
     const outer_edges = [_]sketch.EdgePath{ outerPath(5, 0, 1), outerPath(6, 0, 2) };
     const sets = [_]ledger.Bundle{.{ .origin = .fan_rail, .members = &.{ 5, 6 } }};
     const outer = outerSketch(&outer_edges, &sets);

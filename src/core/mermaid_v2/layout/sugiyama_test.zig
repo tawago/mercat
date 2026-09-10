@@ -215,7 +215,7 @@ test "self-loop excluded from LayeredGraph but still drawn by routing.zig from g
         .{ .x = 0, .y = 0, .w = 7, .h = 3, .layer = 0 },
         .{ .x = 0, .y = 6, .w = 7, .h = 3, .layer = 1 },
     };
-    const result = try routing.buildEdges(aa, g, lg, &geom, &placements, &.{});
+    const result = try routing.buildEdges(aa, g, lg, &geom, &placements, &.{}, .{});
 
     var saw_self_loop = false;
     for (result.edges) |e| {

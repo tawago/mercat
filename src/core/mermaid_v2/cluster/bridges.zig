@@ -48,6 +48,10 @@ pub const Crossing = struct {
     /// (SENTINEL only for hand-built test crossings). Same identity rule as
     /// `sem_graph.Edge.origin`.
     origin: sg.EdgeId = sg.SENTINEL,
+    /// The outer piece's placement edge that stands for this crossing
+    /// (SENTINEL for hand-built test crossings): the gap rows the outer
+    /// ledger claimed for the bridge are filed under it.
+    proxy: sg.EdgeId = sg.SENTINEL,
 };
 
 /// Route every crossing into an orthogonal `EdgePath` between its endpoints'

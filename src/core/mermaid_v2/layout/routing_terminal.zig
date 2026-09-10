@@ -7,8 +7,8 @@
 //! back_edges.zig, ports_test.zig) address them exactly as before.
 //!
 //! Imports: only `std`, `../sem_graph.zig`, `../sketch.zig`, `sugiyama.zig`,
-//! `routing_polyline.zig`. The two per-gap extra-row reservations
-//! (`skipCorridorExtraRows`, `terminalApproachExtraRows`) live here too.
+//! `routing_polyline.zig`. The rows a skip corridor or an offset terminal
+//! needs are claimed in `gap_rows.zig`.
 
 const std = @import("std");
 const sg = @import("../sem_graph.zig");
@@ -254,135 +254,6 @@ fn distanceToFirstTurn(poly: []const sketch.Point, from_end: bool) i32 {
         walked += rp.absDiff(q.x, p.x) + rp.absDiff(q.y, p.y);
     }
     return walked;
-}
-
-/// Per-gap extra rows needed for skip-edge corridors (TD/BT). Entry i is
-/// the extra row count in the gap between layer i and layer i+1. A layer
-/// that receives a ≥2-layer-spanning edge (i.e. an edge whose final
-/// segment arrives from a VIRTUAL node) needs one extra row in the gap
-/// directly above it so the corridor can make a clean vertical descent
-/// into the target port. Generic: keyed purely on virtual→real arrivals,
-/// not on any node identity.
-pub fn skipCorridorExtraRows(
-    a: std.mem.Allocator,
-    lg: sugiyama.LayeredGraph,
-    /// Skip edges whose arrival is a fan-IN rail's continuing tap: the
-    /// rail's own reserved rows hold that descent, so they reserve nothing.
-    covered: []const sg.EdgeId,
-) error{OutOfMemory}![]u32 {
-    if (lg.layers.len < 2) return try a.alloc(u32, 0);
-    const out = try a.alloc(u32, lg.layers.len - 1);
-    @memset(out, 0);
-
-    var node_layer = try a.alloc(u32, lg.nodes.len);
-    defer a.free(node_layer);
-    @memset(node_layer, 0);
-    for (lg.layers, 0..) |row, li| {
-        for (row) |idx| node_layer[idx] = @intCast(li);
-    }
-
-    for (lg.edges) |le| {
-        const from_is_virtual = switch (lg.nodes[le.from]) {
-            .virtual => true,
-            .real => false,
-        };
-        const to_is_real = switch (lg.nodes[le.to]) {
-            .real => true,
-            .virtual => false,
-        };
-        if (from_is_virtual and to_is_real) {
-            if (std.mem.indexOfScalar(sg.EdgeId, covered, le.edge) != null) continue;
-            const tgt_layer = node_layer[le.to];
-            if (tgt_layer > 0) {
-                const gap = tgt_layer - 1;
-                if (gap < out.len) out[gap] = 1;
-            }
-        }
-    }
-    return out;
-}
-
-/// Per-gap extra rows for OFFSET corner-fed forward terminals sitting in a
-/// BARE inter-rank gap. The row-reservation companion to
-/// `satisfyApproach`: that pass GROWS a corner-fed len-2 final into
-/// a straight base only when a clear collinear cell already exists; in a bare
-/// TD gap (v_spacing = 2 rows) none does, so it accept-falls-back. This pass
-/// tells the caller which gaps to widen so the room appears.
-///
-/// Entry i is +1 when the gap between layer i and layer i+1 RECEIVES a terminal
-/// whose final approach must TURN: an adjacent REAL→REAL forward edge whose
-/// source-port column differs from its target-port column. A column-aligned
-/// terminal descends straight (already a formal `│` base) and is left at 0.
-///
-/// Scope (matches the producers that consume the row, so a reserved row is
-/// never wasted on a case none of them uses):
-///   - reversed segments are back edges (`growBaseApproach` skips them),
-///   - undecorated edges have no head to formalize and no terminal cell the
-///     straight-through rule holds straight; a decorated end on either side
-///     (including a bidirectional edge) needs the jog row `rp.jogPad` keeps
-///     two cells from that wall,
-///   - invisible links draw no arrowhead to formalize,
-///   - virtual endpoints are skip corridors — `skipCorridorExtraRows` owns
-///     those gaps; keying on REAL→REAL keeps the two passes disjoint.
-///
-/// Report-only, node-identity-free (placed columns + layered adjacency only).
-/// The caller reads the ACCUMULATED gap width and tops up ONLY gaps still at
-/// the bare width, so a fan/lane/skip-widened gap is never double-counted.
-/// `geom` is parallel to `lg.nodes`.
-/// @guarded-by: routing_terminal_test.zig "terminalApproachExtraRows flags a bare gap with an offset adjacent forward terminal but not a column-aligned one"
-pub fn terminalApproachExtraRows(
-    comptime NodeGeom: type,
-    a: std.mem.Allocator,
-    graph: sg.SemGraph,
-    lg: sugiyama.LayeredGraph,
-    geom: []const NodeGeom,
-) error{OutOfMemory}![]u32 {
-    if (lg.layers.len < 2) return try a.alloc(u32, 0);
-    const out = try a.alloc(u32, lg.layers.len - 1);
-    @memset(out, 0);
-
-    var node_layer = try a.alloc(u32, lg.nodes.len);
-    defer a.free(node_layer);
-    @memset(node_layer, 0);
-    for (lg.layers, 0..) |row, li| {
-        for (row) |idx| node_layer[idx] = @intCast(li);
-    }
-
-    var edge_by_id = std.AutoHashMap(sg.EdgeId, sg.Edge).init(a);
-    defer edge_by_id.deinit();
-    for (graph.edges) |e| {
-        const gop = try edge_by_id.getOrPut(e.id);
-        if (!gop.found_existing) gop.value_ptr.* = e;
-    }
-
-    for (lg.edges) |le| {
-        if (le.reversed) continue;
-        const from_real = switch (lg.nodes[le.from]) {
-            .real => true,
-            .virtual => false,
-        };
-        const to_real = switch (lg.nodes[le.to]) {
-            .real => true,
-            .virtual => false,
-        };
-        if (!from_real or !to_real) continue;
-        const lf = node_layer[le.from];
-        const lt = node_layer[le.to];
-        if (lt != lf + 1) continue;
-
-        const oe = edge_by_id.get(le.edge) orelse continue;
-        if (oe.arrow_to == .none and oe.arrow_from == .none) continue;
-        if (oe.kind == .invisible) continue;
-
-        const s = geom[le.from];
-        const t = geom[le.to];
-        const scx = s.x + @divTrunc(@as(i32, @intCast(s.w)), 2);
-        const tcx = t.x + @divTrunc(@as(i32, @intCast(t.w)), 2);
-        if (scx == tcx) continue;
-
-        out[lf] = 1;
-    }
-    return out;
 }
 
 test {

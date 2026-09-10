@@ -3,6 +3,7 @@
 //! `test { _ = @import }`.
 
 const std = @import("std");
+const sg = @import("../sem_graph.zig");
 const fan = @import("fan.zig");
 const fan_polyline = @import("fan_polyline.zig");
 const sketch = @import("../sketch.zig");
@@ -28,6 +29,24 @@ fn expectPolyAvoidsRect(poly: []const sketch.Point, rect: sketch.Rect) !void {
             try testing.expect(!sketch.lineTouchesRect(true, p0.y, x0, x1, rect));
         }
     }
+}
+
+
+/// The member polyline at lane 0 with midpoint ports: the test-side
+/// shorthand for `fan_polyline.buildPolylineAt`.
+fn buildPolyline(
+    a: std.mem.Allocator,
+    dir: sg.Direction,
+    f: fan.Fan,
+    pivot_p: sketch.NodePlacement,
+    peer_p: sketch.NodePlacement,
+    role: fan.ChildRole,
+    rail_lift: u32,
+    placements: []const sketch.NodePlacement,
+) error{OutOfMemory}![]sketch.Point {
+    const source = if (f.direction == .out) pivot_p else peer_p;
+    const target = if (f.direction == .out) peer_p else pivot_p;
+    return fan_polyline.buildPolylineAt(a, dir, f, pivot_p, peer_p, fan_polyline.portFromSource(dir, source), fan_polyline.portToTarget(dir, target), role, 0, rail_lift, null, placements, .{});
 }
 
 test "grid fan-OUT rail dodges a sibling box stacked in an earlier grid row" {
@@ -69,7 +88,7 @@ test "grid fan-OUT rail dodges a sibling box stacked in an earlier grid row" {
         .rows = 2,
     };
 
-    const poly = try fan_polyline.buildPolyline(
+    const poly = try buildPolyline(
         arena.allocator(),
         .TD,
         f,
@@ -85,6 +104,24 @@ test "grid fan-OUT rail dodges a sibling box stacked in an earlier grid row" {
     try testing.expectEqual(@as(i32, 15), poly[poly.len - 1].y);
 }
 
+test "a first-row grid peer's rail rises with its ledger lane and never past the pivot" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const pivot: sketch.NodePlacement = .{ .id = 0, .rect = .{ .x = 10, .y = 0, .w = 5, .h = 3 }, .shape = .rect, .lines = &.{}, .cluster_id = null };
+    const child: sketch.NodePlacement = .{ .id = 1, .rect = .{ .x = 0, .y = 10, .w = 5, .h = 3 }, .shape = .rect, .lines = &.{}, .cluster_id = null };
+    const placements = [_]sketch.NodePlacement{ pivot, child };
+    const f: fan.Fan = .{ .direction = .out, .pivot_idx = 0, .source_layer = 0, .peers = &.{}, .rows = 2 };
+    const from = fan_polyline.portFromSource(.TD, pivot);
+    const to = fan_polyline.portToTarget(.TD, child);
+    const at0 = try fan_polyline.buildPolylineAt(a, .TD, f, pivot, child, from, to, .leftmost, 0, 0, null, &placements, .{});
+    const at1 = try fan_polyline.buildPolylineAt(a, .TD, f, pivot, child, from, to, .leftmost, 1, 0, null, &placements, .{});
+    const far = try fan_polyline.buildPolylineAt(a, .TD, f, pivot, child, from, to, .leftmost, 12, 0, null, &placements, .{});
+    try testing.expectEqual(@as(i32, 8), at0[1].y);
+    try testing.expectEqual(@as(i32, 7), at1[1].y);
+    try testing.expectEqual(@as(i32, 3), far[1].y);
+}
+
 test "grid fan-OUT rail sits exactly 2 rows above the child top (clean descent, not a corner-collision)" {
     const a = testing.allocator;
     var arena = std.heap.ArenaAllocator.init(a);
@@ -96,7 +133,7 @@ test "grid fan-OUT rail sits exactly 2 rows above the child top (clean descent, 
     var peers = [_]fan.FanEdge{.{ .edge_id = 1, .peer_idx = 1, .role = .middle }};
     const f = fan.Fan{ .direction = .out, .pivot_idx = 0, .source_layer = 0, .peers = &peers, .rows = 2 };
 
-    const poly = try fan_polyline.buildPolyline(arena.allocator(), .TD, f, pivot, child, .middle, 0, &placements);
+    const poly = try buildPolyline(arena.allocator(), .TD, f, pivot, child, .middle, 0, &placements);
 
     try testing.expect(poly.len >= 2);
     const last = poly[poly.len - 1];
@@ -119,7 +156,7 @@ test "grid fan-IN rail dodges a source stacked in a lower grid row at the shared
     var peers = [_]fan.FanEdge{.{ .edge_id = 1, .peer_idx = 1, .role = .center }};
     const f = fan.Fan{ .direction = .in, .pivot_idx = 0, .source_layer = 0, .peers = &peers, .rows = 2 };
 
-    const poly = try fan_polyline.buildPolyline(arena.allocator(), .TD, f, target, source, .center, 0, &placements);
+    const poly = try buildPolyline(arena.allocator(), .TD, f, target, source, .center, 0, &placements);
 
     try expectPolyAvoidsRect(poly, lower_row_sibling.rect);
     try testing.expectEqual(source.rect.bottom() - 1, poly[0].y);
@@ -139,8 +176,8 @@ test "rail_lift moves the single-row rail away from the cluster frame-border row
 
     const frame_border_row = child.rect.y - 2;
 
-    const no_lift = try fan_polyline.buildPolyline(arena.allocator(), .TD, f, pivot, child, .leftmost, 0, &placements);
-    const lifted = try fan_polyline.buildPolyline(arena.allocator(), .TD, f, pivot, child, .leftmost, 2, &placements);
+    const no_lift = try buildPolyline(arena.allocator(), .TD, f, pivot, child, .leftmost, 0, &placements);
+    const lifted = try buildPolyline(arena.allocator(), .TD, f, pivot, child, .leftmost, 2, &placements);
 
     try testing.expectEqual(frame_border_row, no_lift[1].y);
     try testing.expect(lifted[1].y != frame_border_row);
@@ -159,14 +196,14 @@ test "single-row fan spanning 2+ layers dodges an intermediate box instead of sl
     var peers = [_]fan.FanEdge{.{ .edge_id = 1, .peer_idx = 1, .role = .leftmost }};
     const f = fan.Fan{ .direction = .out, .pivot_idx = 0, .source_layer = 0, .peers = &peers };
 
-    const poly = try fan_polyline.buildPolyline(arena.allocator(), .TD, f, pivot, child, .leftmost, 0, &placements);
+    const poly = try buildPolyline(arena.allocator(), .TD, f, pivot, child, .leftmost, 0, &placements);
 
     try expectPolyAvoidsRect(poly, in_between.rect);
     try testing.expectEqual(pivot.rect.bottom() - 1, poly[0].y);
     try testing.expectEqual(child.rect.y, poly[poly.len - 1].y);
 }
 
-test "labeled fan-OUT rail rises three rows for a 4-cell private descent; unlabeled stays put" {
+test "labeled fan-OUT rail rises to the rail's labeled row for a 4-cell private descent; unlabeled stays put" {
     const a = testing.allocator;
     var arena = std.heap.ArenaAllocator.init(a);
     defer arena.deinit();
@@ -179,12 +216,12 @@ test "labeled fan-OUT rail rises three rows for a 4-cell private descent; unlabe
     const plain = fan.Fan{ .direction = .out, .pivot_idx = 0, .source_layer = 0, .peers = &peers };
     const labeled = fan.Fan{ .direction = .out, .pivot_idx = 0, .source_layer = 0, .peers = &peers, .labeled = true };
 
-    const p_plain = try fan_polyline.buildPolyline(arena.allocator(), .TD, plain, pivot, child, .leftmost, 0, &placements);
-    const p_lbl = try fan_polyline.buildPolyline(arena.allocator(), .TD, labeled, pivot, child, .leftmost, 0, &placements);
+    const p_plain = try buildPolyline(arena.allocator(), .TD, plain, pivot, child, .leftmost, 0, &placements);
+    const p_lbl = try buildPolyline(arena.allocator(), .TD, labeled, pivot, child, .leftmost, 0, &placements);
 
     const classic = child.rect.y - 2;
     try testing.expectEqual(classic, p_plain[1].y);
-    try testing.expectEqual(classic - @as(i32, @intCast(fan.LABEL_RUN_EXTRA_ROWS)), p_lbl[1].y);
+    try testing.expectEqual(classic - @as(i32, @intCast(fan.LABEL_RUN_EXTRA_ROWS - 1)), p_lbl[1].y);
 }
 
 test "labeled fan-OUT rail holds the classic row when the raised rail would touch the source" {
@@ -198,7 +235,7 @@ test "labeled fan-OUT rail holds the classic row when the raised rail would touc
     var peers = [_]fan.FanEdge{.{ .edge_id = 1, .peer_idx = 1, .role = .leftmost }};
     const labeled = fan.Fan{ .direction = .out, .pivot_idx = 0, .source_layer = 0, .peers = &peers, .labeled = true };
 
-    const poly = try fan_polyline.buildPolyline(arena.allocator(), .TD, labeled, pivot, child, .leftmost, 0, &placements);
+    const poly = try buildPolyline(arena.allocator(), .TD, labeled, pivot, child, .leftmost, 0, &placements);
     try testing.expectEqual(child.rect.y - 2, poly[1].y);
 }
 
@@ -215,14 +252,15 @@ test "a lane past the gap's capacity clamps to the innermost in-gap row instead 
     const s_peri = pivot.rect.bottom() - 1;
     const t_peri = child.rect.y;
 
-    const fits = fan.Fan{ .direction = .out, .pivot_idx = 0, .source_layer = 0, .peers = &peers, .lane = 3 };
-    const p_fits = try fan_polyline.buildPolyline(arena.allocator(), .TD, fits, pivot, child, .leftmost, 0, &placements);
+    const f = fan.Fan{ .direction = .out, .pivot_idx = 0, .source_layer = 0, .peers = &peers };
+    const from = fan_polyline.portFromSource(.TD, pivot);
+    const to = fan_polyline.portToTarget(.TD, child);
+    const p_fits = try fan_polyline.buildPolylineAt(arena.allocator(), .TD, f, pivot, child, from, to, .leftmost, 3, 0, null, &placements, .{});
     try testing.expectEqual(t_peri - 2 - 3, p_fits[1].y);
     try testing.expectEqual(s_peri + 1, p_fits[1].y);
 
     for ([_]u32{ 4, 9 }) |lane| {
-        const over = fan.Fan{ .direction = .out, .pivot_idx = 0, .source_layer = 0, .peers = &peers, .lane = lane };
-        const poly = try fan_polyline.buildPolyline(arena.allocator(), .TD, over, pivot, child, .leftmost, 0, &placements);
+        const poly = try fan_polyline.buildPolylineAt(arena.allocator(), .TD, f, pivot, child, from, to, .leftmost, lane, 0, null, &placements, .{});
         try testing.expectEqual(s_peri + 1, poly[1].y);
         try testing.expect(poly[1].y > s_peri);
     }
@@ -242,10 +280,10 @@ test "a decorated source's lane clamp and dodge jog stay out of the departure ce
     const to = fan_polyline.portToTarget(.TD, child);
 
     for ([_]u32{ 4, 9 }) |lane| {
-        const over = fan.Fan{ .direction = .out, .pivot_idx = 0, .source_layer = 0, .peers = &peers, .lane = lane };
-        const plain = try fan_polyline.buildPolylineAt(arena.allocator(), .TD, over, pivot, child, from, to, .leftmost, 0, 0, &placements, .{});
+        const over = fan.Fan{ .direction = .out, .pivot_idx = 0, .source_layer = 0, .peers = &peers };
+        const plain = try fan_polyline.buildPolylineAt(arena.allocator(), .TD, over, pivot, child, from, to, .leftmost, lane, 0, null, &placements, .{});
         try testing.expectEqual(s_peri + 1, plain[1].y);
-        const decorated = try fan_polyline.buildPolylineAt(arena.allocator(), .TD, over, pivot, child, from, to, .leftmost, 0, 0, &placements, .{ .from = true });
+        const decorated = try fan_polyline.buildPolylineAt(arena.allocator(), .TD, over, pivot, child, from, to, .leftmost, lane, 0, null, &placements, .{ .from = true });
         try testing.expectEqual(s_peri + 2, decorated[1].y);
     }
 
@@ -254,7 +292,7 @@ test "a decorated source's lane clamp and dodge jog stay out of the departure ce
     const blocker = sketch.NodePlacement{ .id = 2, .rect = .{ .x = 20, .y = 8, .w = 10, .h = 3 }, .shape = .rect, .lines = &.{}, .cluster_id = null };
     const dodge_placements = [_]sketch.NodePlacement{ pivot, far, blocker };
     const f = fan.Fan{ .direction = .out, .pivot_idx = 0, .source_layer = 0, .peers = &peers };
-    const dodged = try fan_polyline.buildPolylineAt(arena.allocator(), .TD, f, pivot, far, from, fan_polyline.portToTarget(.TD, far), .leftmost, 0, 0, &dodge_placements, .{ .from = true });
+    const dodged = try fan_polyline.buildPolylineAt(arena.allocator(), .TD, f, pivot, far, from, fan_polyline.portToTarget(.TD, far), .leftmost, 0, 0, null, &dodge_placements, .{ .from = true });
     try testing.expectEqual(s_peri + 2, dodged[1].y);
     try expectPolyAvoidsRect(dodged, blocker.rect);
 }
@@ -296,9 +334,10 @@ test "the target-side corridor ends the rail run at the corridor column; the rou
     const blocker = sketch.NodePlacement{ .id = 2, .rect = .{ .x = 0, .y = 15, .w = 35, .h = 2 }, .shape = .rect, .lines = &.{}, .cluster_id = null };
     const placements = [_]sketch.NodePlacement{ pivot, child, blocker };
     var peers = [_]fan.FanEdge{.{ .edge_id = 1, .peer_idx = 1, .role = .leftmost }};
-    const f = fan.Fan{ .direction = .out, .pivot_idx = 0, .source_layer = 0, .peers = &peers, .lane = 5 };
+    const f = fan.Fan{ .direction = .out, .pivot_idx = 0, .source_layer = 0, .peers = &peers };
 
-    const poly = try fan_polyline.buildPolyline(a, .TD, f, pivot, child, .leftmost, 0, &placements);
+    // The member's row is the ledger's lane (5), handed to the builder directly.
+    const poly = try fan_polyline.buildPolylineAt(a, .TD, f, pivot, child, fan_polyline.portFromSource(.TD, pivot), fan_polyline.portToTarget(.TD, child), .leftmost, 5, 0, null, &placements, .{});
 
     const rail_y = child.rect.y - 2 - 5;
     const land_y = child.rect.y - 2;
@@ -325,9 +364,9 @@ test "a target-side corridor under a same-column child adds a rail leg instead o
     const blocker = sketch.NodePlacement{ .id = 2, .rect = .{ .x = 28, .y = 15, .w = 7, .h = 2 }, .shape = .rect, .lines = &.{}, .cluster_id = null };
     const placements = [_]sketch.NodePlacement{ pivot, child, blocker };
     var peers = [_]fan.FanEdge{.{ .edge_id = 1, .peer_idx = 1, .role = .leftmost }};
-    const f = fan.Fan{ .direction = .out, .pivot_idx = 0, .source_layer = 0, .peers = &peers, .lane = 5 };
+    const f = fan.Fan{ .direction = .out, .pivot_idx = 0, .source_layer = 0, .peers = &peers };
 
-    const poly = try fan_polyline.buildPolyline(a, .TD, f, pivot, child, .leftmost, 0, &placements);
+    const poly = try fan_polyline.buildPolylineAt(a, .TD, f, pivot, child, fan_polyline.portFromSource(.TD, pivot), fan_polyline.portToTarget(.TD, child), .leftmost, 5, 0, null, &placements, .{});
 
     try expectPolyAvoidsRect(poly, blocker.rect);
     try expectVisitsEachCellOnce(a, poly);

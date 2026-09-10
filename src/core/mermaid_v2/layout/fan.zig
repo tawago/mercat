@@ -1,5 +1,6 @@
 //! Unified decision-fan layout: fan-OUT and fan-IN share one rail row with
-//! descent/ascent polylines. `layout.zig` reserves its inter-layer row.
+//! descent/ascent polylines. The row ledger (`gap_rows.zig`) claims the
+//! inter-layer rows a fan's run needs.
 
 const std = @import("std");
 const prim = @import("prim");
@@ -61,23 +62,25 @@ pub const Fan = struct {
     /// its grid row (see buildPolyline's grid branch). Only fan-OUT
     /// wraps; fan-IN keeps rows == 1.
     rows: u32 = 1,
-    /// Rail row within its inter-layer gap, 0 = the classic single shared row.
+    /// Run class within its inter-layer gap, 0 = the classic shared run.
     /// Assigned by `fan_lanes.assignLanes`: a fan whose rail would fuse with a
     /// neighbouring fan's into a TWO-SIDED run — one run standing for a pivot
-    /// none of its members shares — is lifted to its own lane so every declared
-    /// edge stays traceable. 0 for single-rail gaps and pure fan-in/out.
+    /// none of its members shares — takes its own class so every declared
+    /// edge stays traceable; the row ledger (`gap_rows.zig`) keeps distinct
+    /// classes on distinct rows and lets an equal class fuse. 0 for
+    /// single-rail gaps and pure fan-in/out.
     lane: u32 = 0,
-    /// True iff any member edge carries a label. A labeled fan reserves
-    /// `LABEL_RUN_EXTRA_ROWS` extra gap rows (extraRowsPerGap) so each
-    /// labeled member's PRIVATE vertical dropper is >= 4 cells long —
-    /// flank, on-run label row, flank, arrowhead — the DECORATED sandwich
+    /// True iff any member edge carries a label. A labeled fan claims a
+    /// `LABEL_RUN_EXTRA_ROWS` band beside its rail row so each labeled
+    /// member's PRIVATE vertical dropper is >= 4 cells long — flank, on-run
+    /// label row, flank, arrowhead — the DECORATED sandwich
     /// raster/labels_onrun.zig places over (FLANKED-RESUMPTION RULE: an arrowhead is not a
     /// flank, so the head needs its own cell below the lower flank).
-    /// The band is reserved once per fan lane, however many members are
+    /// The band is claimed once per fan run, however many members are
     /// labeled: each dropper occupies its own column, so they share it.
     /// Unlabeled fans stay byte-identical.
-    /// @guarded-by: fan_test.zig "a labeled fan reserves three extra gap rows; an unlabeled fan reserves one"
-    /// @guarded-by: fan_test.zig "a fan-OUT with three labeled members reserves the same gap rows as one with a single labeled member"
+    /// @guarded-by: gap_rows_test.zig "a labeled fan claims its rail row and one label band; an unlabeled fan claims one row"
+    /// @guarded-by: gap_rows_test.zig "a fan-OUT with three labeled members claims the same rows as one with a single labeled member"
     labeled: bool = false,
     construction_deco_mixed: bool = false,
     construction_style_mixed: bool = false,
@@ -86,19 +89,20 @@ pub const Fan = struct {
 
 const PreparedPeers = struct { peers: []FanEdge, deco_mixed: bool = false, style_mixed: bool = false, star_violation: bool = false };
 
-/// The rail row a member's ink actually occupies within the fan's gap:
-/// `fan_polyline` paints at exactly this lane, so any grouping of peers
-/// into shared-rail sets keys on this value. Sole partition authority (single authority);
-/// a partition keyed on `peer.lane` or `f.lane` alone is a re-derivation.
+/// The run a member's ink belongs to within the fan's gap: members of one
+/// class paint one run, and the row ledger gives each class its row, so
+/// any grouping of peers into shared-rail sets keys on this value. Sole
+/// partition authority (single authority); a partition keyed on
+/// `peer.lane` or `f.lane` alone is a re-derivation.
 pub fn effectiveLane(f: Fan, peer_lane: u32) u32 {
     return @max(f.lane, peer_lane);
 }
 
-/// Extra gap rows a LABELED fan reserves beyond its lane rows: the
-/// decorated on-run sandwich needs a 4-cell private dropper (flank, label,
-/// flank, head) where the classic gap yields 1. Reserved ONCE per lane,
-/// not once per labeled member: every member's dropper stands on its own
-/// column, so all of them share the one band.
+/// Extra gap rows a LABELED fan claims beyond its rail row: the decorated
+/// on-run sandwich needs a 4-cell private dropper (flank, label, flank,
+/// head) where the classic gap yields 1. Claimed ONCE per run, not once per
+/// labeled member: every member's dropper stands on its own column, so all
+/// of them share the one band.
 pub const LABEL_RUN_EXTRA_ROWS: u32 = 3;
 
 /// Detect every fan in the layered graph (both fan-OUT and fan-IN).
@@ -359,37 +363,6 @@ fn preparePeers(a: std.mem.Allocator, graph: sg.SemGraph, direction: ledger.Bund
 fn containsEdge(edges: []const ledger.EdgeId, edge: ledger.EdgeId) bool {
     for (edges) |candidate| if (candidate == edge) return true;
     return false;
-}
-
-/// Per-gap extra rows. Entry i is extra rows in the gap between layer i
-/// and layer i+1. Each fan reserves `fan.lane + 1` rows at its `source_layer`
-/// gap, plus `LABEL_RUN_EXTRA_ROWS` above the lane of any labeled member
-/// (one band per lane, whatever the member count or fan direction); the
-/// gap takes the max across its fans. With every `lane == 0` (the
-/// pre-lane-separation default) this is exactly one row per fan gap.
-/// @guarded-by: layout/fan_lanes_test.zig "lane assignment reserves one extra gap row per lane"
-/// @guarded-by: fan_test.zig "a fan-OUT with three labeled members reserves the same gap rows as one with a single labeled member"
-pub fn extraRowsPerGap(
-    a: std.mem.Allocator,
-    lg: sugiyama.LayeredGraph,
-    fans: []const Fan,
-) error{OutOfMemory}![]u32 {
-    if (lg.layers.len < 2) return try a.alloc(u32, 0);
-    const out = try a.alloc(u32, lg.layers.len - 1);
-    @memset(out, 0);
-    for (fans) |f| {
-        if (f.source_layer < out.len) {
-            var max_lane = f.lane;
-            for (f.peers) |peer| max_lane = @max(max_lane, peer.lane);
-            var need = max_lane + 1;
-            for (f.peers) |peer| {
-                if (peer.label_width == 0) continue;
-                need = @max(need, effectiveLane(f, peer.lane) + 1 + LABEL_RUN_EXTRA_ROWS);
-            }
-            if (need > out[f.source_layer]) out[f.source_layer] = need;
-        }
-    }
-    return out;
 }
 
 pub fn wrapWideFanOut(comptime G: type, fans: []Fan, geom: []G, budget: u32, h: u32, v: u32) void {

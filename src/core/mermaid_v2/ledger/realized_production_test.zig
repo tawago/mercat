@@ -252,20 +252,43 @@ test "dominance pin: a complete K2,2 decomposes into star rails, never one union
     }
 }
 
+const Plain = struct { grid: []const u8, bundles: pb.RealizedBundles, routed: []const u32 };
+
+fn finishPlain(a: std.mem.Allocator, s: anytype) !Plain {
+    const rendered = try raster.rasterize(a, s, .bridge);
+    const routed = try a.alloc(u32, s.edges.len);
+    for (s.edges, routed) |e, *slot| slot.* = e.id;
+    return .{
+        .grid = try paint.paint(a, rendered.lattice, s.budget.max_width),
+        .bundles = s.bundles,
+        .routed = routed,
+    };
+}
+
 /// Render a source end-to-end (select → raster → paint) and return the plain
 /// grid plus the winning candidate's plan.
-fn renderPlain(a: std.mem.Allocator, source: []const u8, width: u32) !struct { grid: []const u8, bundles: pb.RealizedBundles, routed: []const u32 } {
+fn renderPlain(a: std.mem.Allocator, source: []const u8, width: u32) !Plain {
     const graph = try parse(a, source);
     const plan = (try permits.build(a, graph, .joined)).plan;
     const winner = try select.choose(a, graph, &plan, width, false, false, .bridge);
-    const rendered = try raster.rasterize(a, winner.sketch, .bridge);
-    const routed = try a.alloc(u32, winner.sketch.edges.len);
-    for (winner.sketch.edges, routed) |e, *slot| slot.* = e.id;
-    return .{
-        .grid = try paint.paint(a, rendered.lattice, winner.sketch.budget.max_width),
-        .bundles = winner.sketch.bundles,
-        .routed = routed,
-    };
+    return finishPlain(a, winner.sketch);
+}
+
+/// Render ONE candidate of the live set — the first on the source's
+/// `switch_direction` rung, planned as selection plans it — so a test can
+/// pin what a layout produces on that candidate without pinning the
+/// score's choice.
+fn renderRotated(a: std.mem.Allocator, source: []const u8, width: u32) !Plain {
+    const graph = try parse(a, source);
+    const plan = (try permits.build(a, graph, .joined)).plan;
+    const set = try select.enumerateAll(a, graph, &plan, width);
+    for (set.merged) |cand| {
+        if (cand.rung != .switch_direction) continue;
+        var s = cand.sketch;
+        select.applyPlan(a, &plan, &s);
+        return finishPlain(a, s);
+    }
+    return error.NoRotatedCandidate;
 }
 
 /// Count how many of `grid`'s rows carry at least one horizontal run glyph —
@@ -294,8 +317,11 @@ test "an undeclared all-arrow-free fan unfuses; a declared clique keeps the rail
     // Both candidates are judged: A's departure {A—Z, A—B} (Z is a long
     // member of it) claims first by rank and discharges B—Z; Z's arrival,
     // left with one member, subordinates. A's rail ships with A—B tapped
-    // and A—Z as the member stroke, so one edge is routed.
-    const kept = try renderPlain(a, "flowchart LR\n  A --- Z\n  B --- Z\n  A --- B\n", 70);
+    // and A—Z as the member stroke, so one edge is routed. Pinned on the
+    // rotated (TD) candidate of the LR source: which candidate the score
+    // picks is not this test's subject, and the row ledger made the natural
+    // LR candidate narrow enough to win at this width.
+    const kept = try renderRotated(a, "flowchart LR\n  A --- Z\n  B --- Z\n  A --- B\n", 70);
     try std.testing.expectEqual(@as(usize, 1), kept.bundles.discharged.len);
     try std.testing.expectEqual(@as(usize, 1), kept.routed.len);
     for (kept.bundles.discharged) |co| {

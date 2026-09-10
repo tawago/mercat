@@ -1,8 +1,8 @@
-//! Two-sided fan lane separation.
-//! Several fans that share one inter-layer gap put their
-//! horizontal rails on the SAME row (`fan_polyline`/`fan_rail` both anchor
-//! `rail_y` to the target perimeter). When two such rails occupy
-//! overlapping-or-abutting x-spans they FUSE at raster time into one
+//! Two-sided fan run separation.
+//! Several fans that share one inter-layer gap may put their horizontal
+//! rails on ONE run: the row ledger (`gap_rows.zig`) fuses the claims of
+//! fans it finds in one run class on a shared column. When two such rails
+//! occupy overlapping-or-abutting x-spans they FUSE at raster time into one
 //! continuous `├──┼──┤` run — one run standing for a shared endpoint. If the
 //! UNION of the fused rails' declared edges is TWO-SIDED (more than one
 //! distinct source AND more than one distinct target) there is no shared
@@ -10,9 +10,10 @@
 //! declares — unless the source declares every pair that run asserts, which is
 //! the closure test stated below.
 //! This pass groups rail-producing rails by collinear overlap and assigns
-//! each a row. Distinct rails land on distinct rows, so each edge
-//! keeps its own traceable rail; honest merges (a shared target column) are
-//! preserved as a single vertical.
+//! each a run class (`Fan.lane`, `FanEdge.lane`). Distinct classes never
+//! share a run — the ledger gives each its own row — so each edge keeps its
+//! own traceable rail; honest merges (a shared target column) are preserved
+//! as a single vertical.
 //! Inert (every `lane == 0`, byte-identical) for gaps with a single rail and
 //! for pure fan-in or fan-out groups (N==1 or M==1; a lone pivot never
 //! fabricates). Beyond that the gate is the declared-pair closure test

@@ -206,6 +206,25 @@ test "rail pre-pass and forced per-peer path lift the same fan-OUT geometry to t
     try testing.expectEqual(bar_rail_y, a_bottom + 1);
 }
 
+test "a placement edge routes last and uncontested" {
+    // A, B, C fan into the stand-in S on one port column: contested, each
+    // member would detour into the left margin. As proxies they take their
+    // plain geometry and the canvas keeps its origin.
+    const nodes = [_]sg.Node{ mkNode(0, "A", null), mkNode(1, "B", null), mkNode(2, "C", null), mkNode(3, "S", null) };
+    const edges = [_]sg.Edge{ mkPlainEdge(0, 0, 3), mkPlainEdge(1, 1, 3), mkPlainEdge(2, 2, 3) };
+    const graph: sg.SemGraph = .{ .direction = .TD, .nodes = &nodes, .edges = &edges, .clusters = &.{}, .classes = &.{}, .arena = null };
+    const fixed = [_]coords.FixedSize{.{ .node = 3, .w = 13, .h = 8 }};
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const s = try coords.layout(arena.allocator(), graph, .{ .fixed_sizes = &fixed });
+    try testing.expectEqual(@as(usize, 3), s.edges.len);
+    for (s.edges) |e| {
+        try testing.expect(e.polyline.len >= 2);
+        for (e.polyline) |p| try testing.expect(p.x >= 0);
+    }
+    try testing.expectEqual(@as(sketch.EdgeId, 2), s.edges[s.edges.len - 1].id);
+}
+
 test "a discharged edge is withheld from routing entirely" {
     var arena = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
@@ -243,10 +262,10 @@ test "a discharged edge is withheld from routing entirely" {
     };
     const ports = try port_plan.midpoint(a, g, &placements);
 
-    const routed = try routing.buildEdgesWithPlan(a, g, lg, &geom, &placements, &.{}, .{ .memberships = &memberships }, ports);
+    const routed = try routing.buildEdgesWithPlan(a, g, lg, &geom, &placements, &.{}, .{ .memberships = &memberships }, ports, .{});
     try testing.expectEqual(@as(usize, 3), routed.edges.len);
 
-    const withheld = try routing.buildEdgesWithPlan(a, g, lg, &geom, &placements, &.{}, .{ .memberships = &memberships, .discharged = &.{2} }, ports);
+    const withheld = try routing.buildEdgesWithPlan(a, g, lg, &geom, &placements, &.{}, .{ .memberships = &memberships, .discharged = &.{2} }, ports, .{});
     try testing.expectEqual(@as(usize, 2), withheld.edges.len);
     for (withheld.edges) |e| try testing.expect(e.id != 2);
 }

@@ -46,7 +46,7 @@ test "a placement edge records the directedness of the crossings it stands for" 
     var clusters: [1]sg.Cluster = undefined;
 
     const directed = crossingGraph(&nodes, &edges, &members, &clusters, .filled, .filled);
-    const sr_d = try split.split(a, directed, &.{});
+    const sr_d = try split.split(a, directed, .{});
     const outer_d = outerEdges(sr_d);
     try std.testing.expect(outer_d.len >= 1);
     for (outer_d) |e| {
@@ -57,7 +57,7 @@ test "a placement edge records the directedness of the crossings it stands for" 
     }
 
     const decorated = crossingGraph(&nodes, &edges, &members, &clusters, .circle, .circle);
-    const sr_c = try split.split(a, decorated, &.{});
+    const sr_c = try split.split(a, decorated, .{});
     const outer_c = outerEdges(sr_c);
     try std.testing.expect(outer_c.len >= 1);
     for (outer_c) |e| {
@@ -67,7 +67,7 @@ test "a placement edge records the directedness of the crossings it stands for" 
     }
 
     const undirected = crossingGraph(&nodes, &edges, &members, &clusters, .none, .none);
-    const sr_u = try split.split(a, undirected, &.{});
+    const sr_u = try split.split(a, undirected, .{});
     const outer_u = outerEdges(sr_u);
     try std.testing.expect(outer_u.len >= 1);
     for (outer_u) |e| {
@@ -98,7 +98,7 @@ test "every piece edge carries its root origin; placement edges carry none" {
     };
     const g: sg.SemGraph = .{ .direction = .TD, .nodes = &nodes, .edges = &edges, .clusters = &clusters, .classes = &.{}, .arena = null };
 
-    const sr = try split.split(a, g, &.{});
+    const sr = try split.split(a, g, .{});
     for (sr.pieces) |p| {
         for (p.graph.edges) |e| {
             if (e.origin == sg.SENTINEL) {
@@ -140,12 +140,12 @@ test "origin chains through a nested cut to the root id" {
     };
     const g: sg.SemGraph = .{ .direction = .TD, .nodes = &nodes, .edges = &edges, .clusters = &clusters, .classes = &.{}, .arena = null };
 
-    const sr = try split.split(a, g, &.{});
+    const sr = try split.split(a, g, .{});
     const child = sr.pieces[1].graph;
     try std.testing.expectEqual(@as(usize, 1), child.edges.len);
     try std.testing.expectEqual(@as(sg.EdgeId, 1), child.edges[0].origin);
 
-    const sr2 = try split.split(a, child, &.{});
+    const sr2 = try split.split(a, child, .{});
     const grandchild = sr2.pieces[1].graph;
     try std.testing.expectEqual(@as(usize, 1), grandchild.edges.len);
     try std.testing.expectEqual(@as(sg.EdgeId, 1), grandchild.edges[0].origin);
@@ -163,7 +163,7 @@ test "one directed crossing is enough to mark a deduped placement edge" {
     var clusters: [1]sg.Cluster = undefined;
 
     const mixed = crossingGraph(&nodes, &edges, &members, &clusters, .none, .filled);
-    const sr = try split.split(a, mixed, &.{});
+    const sr = try split.split(a, mixed, .{});
     const outer = outerEdges(sr);
     try std.testing.expectEqual(@as(usize, 1), outer.len);
     try std.testing.expectEqual(sg.StandsFor.directed, outer[0].stands_for);
@@ -183,7 +183,7 @@ test "identity split for clusterless graph" {
         .classes = &.{},
         .arena = null,
     };
-    const result = try split.split(a, g, &.{});
+    const result = try split.split(a, g, .{});
     try std.testing.expect(result.isFlat());
 }
 
@@ -211,7 +211,7 @@ test "single-level disjoint subgraphs cut into outer + children" {
     };
     const g: sg.SemGraph = .{ .direction = .TD, .nodes = &nodes, .edges = &edges, .clusters = &clusters, .classes = &.{}, .arena = null };
 
-    const r = try split.split(a, g, &.{});
+    const r = try split.split(a, g, .{});
     try std.testing.expect(!r.isFlat());
     try std.testing.expectEqual(@as(usize, 3), r.pieces.len);
     try std.testing.expectEqual(@as(usize, 2), r.supers.len);

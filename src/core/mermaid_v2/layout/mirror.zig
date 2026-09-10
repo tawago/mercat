@@ -71,6 +71,13 @@ pub fn vertical(a: std.mem.Allocator, s: sketch.Sketch, direction: sketch.Direct
     const bundle_sets = try mirrorBundles(a, s.bbox, s.bundle_sets);
     errdefer if (bundle_sets.ptr != s.bundle_sets.ptr) freeMirroredSets(a, @constCast(bundle_sets));
     const rail_claims = try mirrorRailClaims(a, s.nodes, s.rail_claims);
+    // A gap's two wall cells flip with the ink; its rows still count from `near`.
+    const gap_rows = try a.alloc(ledger.GapRows, s.gap_rows.len);
+    for (s.gap_rows, gap_rows) |g, *out| {
+        out.* = g;
+        out.near = mirrorPoint(s.bbox, .{ .x = 0, .y = g.near }).y;
+        out.far = mirrorPoint(s.bbox, .{ .x = 0, .y = g.far }).y;
+    }
 
     return .{
         .bbox = s.bbox,
@@ -82,6 +89,7 @@ pub fn vertical(a: std.mem.Allocator, s: sketch.Sketch, direction: sketch.Direct
         .rail_claims = rail_claims,
         .bundles = s.bundles,
         .closure = s.closure,
+        .gap_rows = gap_rows,
         .bundle_sets = bundle_sets,
         .bundle_stamp_state = s.bundle_stamp_state,
         .diagnostics = s.diagnostics,

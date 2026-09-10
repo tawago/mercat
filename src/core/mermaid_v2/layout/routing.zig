@@ -17,7 +17,7 @@ const fan_provenance = @import("fan_provenance.zig");
 const member_stroke = @import("member_stroke.zig");
 const fan_polyline = @import("fan_polyline.zig");
 const fan_rail = @import("fan_rail.zig");
-const fan_lane_order = @import("fan_lane_order.zig");
+const gap_rows = @import("gap_rows.zig");
 const self_loops = @import("routing_self_loops.zig");
 const rp = @import("routing_polyline.zig");
 const rt = @import("routing_terminal.zig");
@@ -27,13 +27,6 @@ const port_plan = @import("port_plan.zig");
 const route_clearance = @import("route_clearance.zig");
 const route_detour = @import("route_detour.zig");
 const route_search = @import("route_search.zig");
-
-/// Per-gap extra rows for skip-edge corridors. See routing_polyline.zig.
-pub const skipCorridorExtraRows = rt.skipCorridorExtraRows;
-
-/// Per-gap extra rows for offset corner-fed forward terminals. See
-/// routing_terminal.zig.
-pub const terminalApproachExtraRows = rt.terminalApproachExtraRows;
 
 /// The lane loops' acceptance, ladder, detour fallback and base-approach
 /// grow live in route_search.zig; re-exported for the tests that pin them.
@@ -93,6 +86,8 @@ pub fn buildEdgesWithPlan(
     fans: []const fan_mod.Fan,
     bundles: ledger.RealizedBundles,
     allocated_ports: port_plan.Plan,
+    /// The gap row ledger every run reads its row from.
+    rows: gap_rows.Ledger,
 ) error{OutOfMemory}!EdgesResult {
     var out: std.ArrayListUnmanaged(sketch.EdgePath) = .empty;
     var polys: std.ArrayListUnmanaged([]sketch.Point) = .empty;
@@ -104,7 +99,6 @@ pub fn buildEdgesWithPlan(
     var claimed: std.ArrayListUnmanaged(sg.EdgeId) = .empty;
     const Pending = struct { fan: fan_mod.Fan, resolved: fan_rail.Resolved, lift: u32 };
     var pending: std.ArrayListUnmanaged(Pending) = .empty;
-    var lane_rails: std.ArrayListUnmanaged(fan_lane_order.Rail) = .empty;
     for (fans) |f| {
         const resolved = (try fan_rail.resolve(a, graph.direction, f, graph, placements, geom, bundles, allocated_ports)) orelse continue;
         // Shared-rail lift: same rule as the per-peer path below — any peer descending into a cluster lifts the rail above the frame. // @guarded-by: routing_test.zig "rail pre-pass and forced per-peer path lift the same fan-OUT geometry to the same rail row"
@@ -113,13 +107,6 @@ pub fn buildEdgesWithPlan(
             lift = @max(lift, fanRailLift(graph, p.edge.from, p.edge.to));
         }
         try pending.append(a, .{ .fan = f, .resolved = resolved, .lift = lift });
-        try lane_rails.append(a, .{
-            .gap = f.source_layer,
-            .lane = f.lane,
-            .fan_in = resolved.direction == .in,
-            .stem_x = fan_lane_order.stemX(resolved),
-            .tap_xs = try fan_lane_order.tapXs(a, resolved),
-        });
     }
     // A member long at both ends taps its two rails on ONE column — the
     // departure's — so its stroke between them is one straight run.
@@ -136,8 +123,6 @@ pub fn buildEdgesWithPlan(
             }
         }
     }
-    for (lane_rails.items, pending.items) |*t, p| t.tap_xs = try fan_lane_order.tapXs(a, p.resolved);
-    try fan_lane_order.reorder(a, lane_rails.items);
     // Build the rails, then every long member's own stroke. A stroke that
     // finds no clear route refuses its member: the member leaves its rail
     // (the rail stays when two members remain) and routes privately below,
@@ -152,9 +137,11 @@ pub fn buildEdgesWithPlan(
         out.clearRetainingCapacity();
         polys.clearRetainingCapacity();
         var rail_pending: std.ArrayListUnmanaged(usize) = .empty;
-        for (pending.items, lane_rails.items, 0..) |p, t, pi| {
+        for (pending.items, 0..) |p, pi| {
             if (p.resolved.peers.len < 2) continue;
-            const built = try fan_rail.build(a, p.resolved, p.lift, t.lane);
+            // The rail's row is the ledger's — the row its members' per-peer fallback reads too.
+            const row = rows.rowOfFan(p.fan.pivot_idx, p.fan.direction) orelse 0;
+            const built = try fan_rail.build(a, p.resolved, p.lift, @intCast(@max(row, 0)));
             // Integrity gate: a rail is straight-only geometry; if any run touches a foreign box, fall back to the per-peer polyline path, which can dodge. // @guarded-by: fan_rail_test.zig "fan_rail.blocked rejects a built rail whose tap drop touches a foreign node's box"
             if (fan_rail.blocked(built, p.resolved.pivot.id, placements)) continue;
             // A rail is laid before every private route, so it must honour the
@@ -169,7 +156,7 @@ pub fn buildEdgesWithPlan(
         for (rails.items, bar_views) |rail, *view| view.* = rail.rail;
         const reserved = try a.alloc(i32, rail_alloc.len);
         for (rail_alloc, reserved) |r, *x| x.* = r.rail_pos;
-        const refused = try member_stroke.buildAll(a, graph, lg, geom, placements, rails.items, bar_views, bundles, allocated_ports, reserved, &out, &polys);
+        const refused = try member_stroke.buildAll(a, graph, lg, geom, placements, rails.items, bar_views, bundles, allocated_ports, reserved, rows, &out, &polys);
         if (refused.len == 0 or attempt >= 8) {
             for (rails.items) |built| {
                 try polys.append(a, built.stem);
@@ -185,15 +172,21 @@ pub fn buildEdgesWithPlan(
         }
     }
 
+    // A placement edge's ink is the bridges': it is routed last, once, and
+    // without contest, so it never blocks a run the stitch will keep and
+    // never detours into the margin.
+    // @guarded-by: routing_test.zig "a placement edge routes last and uncontested"
     var routing_edges: std.ArrayListUnmanaged(sg.Edge) = .empty;
     if (bundles.memberships.len == 0) {
-        try routing_edges.appendSlice(a, graph.edges);
+        for (graph.edges) |edge| if (!rows.isProxy(edge.id)) try routing_edges.append(a, edge);
     } else {
-        for (graph.edges) |edge| if (edge.kind != .invisible and !route_clearance.isIndependent(edge.id, bundles)) try routing_edges.append(a, edge);
-        for (graph.edges) |edge| if (edge.kind != .invisible and route_clearance.isIndependent(edge.id, bundles)) try routing_edges.append(a, edge);
-        for (graph.edges) |edge| if (edge.kind == .invisible) try routing_edges.append(a, edge);
+        for (graph.edges) |edge| if (edge.kind != .invisible and !rows.isProxy(edge.id) and !route_clearance.isIndependent(edge.id, bundles)) try routing_edges.append(a, edge);
+        for (graph.edges) |edge| if (edge.kind != .invisible and !rows.isProxy(edge.id) and route_clearance.isIndependent(edge.id, bundles)) try routing_edges.append(a, edge);
+        for (graph.edges) |edge| if (edge.kind == .invisible and !rows.isProxy(edge.id)) try routing_edges.append(a, edge);
     }
+    for (graph.edges) |edge| if (rows.isProxy(edge.id)) try routing_edges.append(a, edge);
     for (routing_edges.items) |orig| {
+        const proxy = rows.isProxy(orig.id);
         // CO-REALIZED: a leaf-pair edge an all-arrow-free rail discharges is
         // rendered BY that rail's crossbar (base/rail_closure.zig). It owns no
         // polyline, no port and no label of its own — drawing one would state
@@ -215,7 +208,15 @@ pub fn buildEdgesWithPlan(
                     fanRailLift(graph, orig.from, orig.to)
                 else
                     0;
-                var lane = @max(hit.peer.lane, ep.route_lane);
+                // The member's run sits on the row the ledger gave its fan — the
+                // same row the rail pre-pass would have painted — so the lane
+                // ladder starts there, climbs when the row is refused, and
+                // descends to the base row before the outside detour. A dodge
+                // under the pivot takes the row the ledger gave the fan's jog.
+                // @guarded-by: routing_test.zig "the lane ladder climbs from the planned lane, then descends to lane 0, then ends"
+                const planned = rows.laneOfEdge(orig.id, .exit);
+                var ladder = LaneLadder{ .planned = planned, .lane = planned };
+                const dodge_y: ?i32 = if (hit.fan.direction == .out) dodgeRow(rows, lg, geom, orig) else null;
                 const source_x = src_p.rect.x + @as(i32, @intCast(ep.source.offset));
                 const target_x = dst_p.rect.x + @as(i32, @intCast(ep.target.offset));
                 const routed_role: fan_mod.ChildRole = if (hit.peer.role == .center and source_x != target_x) .middle else hit.peer.role;
@@ -223,19 +224,19 @@ pub fn buildEdgesWithPlan(
                 var routed_fan = hit.fan.*;
                 routed_fan.labeled = orig.label != null and orig.label.?.len != 0;
                 const straight = rp.Straight.forEdge(orig);
-                while (true) : (lane += 1) {
-                    poly = if (lane == @max(hit.peer.lane, ep.route_lane) and orig.label == null and (ep.source_duplicate or ep.target_duplicate))
+                while (true) {
+                    const lane = ladder.lane;
+                    poly = if (lane == planned and orig.label == null and (ep.source_duplicate or ep.target_duplicate))
                         try port_plan.duplicateDetour(a, graph.direction, src_p, dst_p, ep, placements)
                     else
-                        try fan_polyline.buildPolylineAt(a, graph.direction, routed_fan, pivot_p, peer_p, ep.source, ep.target, routed_role, lane, rail_lift, placements, straight);
-                    if (try accepts(a, orig, poly, straight, out.items, bar_views, placements, allocated_ports.edges, bundles)) break;
-                    if (lane >= 16) {
-                        poly = if (orig.kind == .invisible)
-                            try route_detour.clearInvisiblePath(a, orig.id, orig.kind, src_p, dst_p, ep.source, ep.target, placements, out.items, bundles)
-                        else
-                            (try detour(a, graph.direction, orig, src_p, dst_p, ep, straight, out.items, bar_views, placements, allocated_ports.edges, bundles)) orelse try unrouted(a);
-                        break;
-                    }
+                        try fan_polyline.buildPolylineAt(a, graph.direction, routed_fan, pivot_p, peer_p, ep.source, ep.target, routed_role, lane, rail_lift, dodge_y, placements, straight);
+                    if (proxy or try accepts(a, orig, poly, straight, out.items, bar_views, placements, allocated_ports.edges, bundles)) break;
+                    if (ladder.next()) continue;
+                    poly = if (orig.kind == .invisible)
+                        try route_detour.clearInvisiblePath(a, orig.id, orig.kind, src_p, dst_p, ep.source, ep.target, placements, out.items, bundles)
+                    else
+                        (try detour(a, graph.direction, orig, src_p, dst_p, ep, straight, out.items, bar_views, placements, allocated_ports.edges, bundles)) orelse try unrouted(a);
+                    break;
                 }
                 const role: sketch.EdgeRole = if (hit.fan.direction == .out)
                     .fan_out_dropper
@@ -334,17 +335,22 @@ pub fn buildEdgesWithPlan(
         const eff_port_from = ep.source;
         const eff_port_to = ep.target;
 
-        var ladder = LaneLadder{ .planned = ep.route_lane, .lane = ep.route_lane };
+        // The route's runs take the rows the ledger gave them; the ladder
+        // starts at the exit run's lane, and the entry run keeps its own
+        // row — the two are independent claims.
+        const lanes: rp.Lanes = .{ .entry = rows.laneOfEdge(orig.id, .entry), .exit = rows.laneOfEdge(orig.id, .exit) };
+        var ladder = LaneLadder{ .planned = lanes.exit, .lane = lanes.exit };
         const straight = rp.Straight.forEdge(orig);
         var poly: []sketch.Point = undefined;
         while (true) {
             const lane = ladder.lane;
-            poly = if (lane == ep.route_lane and orig.label == null and (ep.source_duplicate or ep.target_duplicate))
+            poly = if (lane == lanes.exit and orig.label == null and (ep.source_duplicate or ep.target_duplicate))
                 try port_plan.duplicateDetour(a, eff_dir, eff_from_p, eff_to_p, ep, placements)
             else
-                try rp.routePolyline(a, eff_dir, eff_from_p, eff_to_p, eff_port_from, eff_port_to, virtuals, geom, placements, 0, 0, lane, straight);
+                try rp.routePolyline(a, eff_dir, eff_from_p, eff_to_p, eff_port_from, eff_port_to, virtuals, geom, placements, 0, 0, .{ .entry = lanes.entry, .exit = lane }, straight);
+            if (proxy) break;
             if (try route_clearance.conflictsRailArrows(a, poly, bar_views, orig.from, orig.to))
-                poly = try route_detour.shiftInteriorRun(a, poly, eff_dir, 2 * ((lane -| ep.route_lane) + 1));
+                poly = try route_detour.shiftInteriorRun(a, poly, eff_dir, 2 * ((lane -| lanes.exit) + 1));
             if (try accepts(a, orig, poly, straight, out.items, bar_views, placements, allocated_ports.edges, bundles)) break;
             if (ladder.next()) continue;
             poly = if (orig.kind == .invisible)
@@ -384,6 +390,21 @@ pub fn buildEdgesWithPlan(
     };
 }
 
+/// The line a fan-OUT member's dodge jog takes under its pivot: the row
+/// the ledger gave the fan's jog, counted from the wall of the gap it
+/// claimed it in — an inter-layer gap's wall is its lower layer's top, a
+/// grid sub-gap's the stacked sub-row's.
+fn dodgeRow(rows: gap_rows.Ledger, lg: sugiyama.LayeredGraph, geom: []const NodeGeom, edge: sg.Edge) ?i32 {
+    const c = rows.claimOfEdge(edge.id, .entry) orelse return null;
+    const real: u32 = @intCast(rows.gaps.len - rows.sub_gaps.len);
+    const layer: u32 = if (c.gap < real) c.gap + 1 else rows.sub_gaps[c.gap - real].layer;
+    if (layer >= lg.layers.len) return null;
+    var wall: i32 = std.math.maxInt(i32);
+    for (lg.layers[layer]) |i| wall = @min(wall, geom[i].y);
+    if (c.gap >= real) wall += rows.sub_gaps[c.gap - real].top;
+    return wall - 3 - c.row;
+}
+
 pub fn buildEdges(
     a: std.mem.Allocator,
     graph: sg.SemGraph,
@@ -391,8 +412,9 @@ pub fn buildEdges(
     geom: []const NodeGeom,
     placements: []const sketch.NodePlacement,
     fans: []const fan_mod.Fan,
+    rows: gap_rows.Ledger,
 ) error{OutOfMemory}!EdgesResult {
-    return buildEdgesWithPlan(a, graph, lg, geom, placements, fans, .{}, try port_plan.midpoint(a, graph, placements));
+    return buildEdgesWithPlan(a, graph, lg, geom, placements, fans, .{}, try port_plan.midpoint(a, graph, placements), rows);
 }
 
 test {

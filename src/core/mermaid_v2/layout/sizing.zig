@@ -25,7 +25,9 @@ pub const NodeGeom = routing.NodeGeom;
 /// node's final visual dimensions; `sizeNodes` applies the same LR/RL axis
 /// pre-swap it applies to label-derived dims so the post-`applyDirection`
 /// result matches.
-pub const FixedSize = struct { node: sg.NodeId, w: u32, h: u32 };
+/// `synthetic`: the stand-in is a packing cluster's, whose frame is not
+/// drawn — a bridge into it lands on a plain node's base row.
+pub const FixedSize = struct { node: sg.NodeId, w: u32, h: u32, synthetic: bool = false };
 
 pub const Dims = struct { w: u32, h: u32 };
 

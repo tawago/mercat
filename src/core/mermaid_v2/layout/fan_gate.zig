@@ -1,5 +1,5 @@
 //! fan_gate.zig — which detected fans holding a long peer go on to the
-//! rail path, and which skip edges the fan rows already shelter.
+//! rail path.
 //!
 //! A long peer taps a rail or nothing: the per-peer polyline path assumes
 //! a next-layer leaf. So a fan with a long peer is kept only where the plan
@@ -33,17 +33,6 @@ pub fn keepRealizableLong(a: std.mem.Allocator, fans: []Fan, bundles: ledger.Rea
             has_long = true;
         };
         if (!has_long or selectedAsOne(f, bundles)) try out.append(a, f);
-    }
-    return out.toOwnedSlice(a);
-}
-
-/// The long members of every fan-IN: skip edges whose descent ends on a
-/// rail's continuing tap rather than at a wall.
-pub fn longFanInMembers(a: std.mem.Allocator, fans: []const Fan) error{OutOfMemory}![]const sg.EdgeId {
-    var out: std.ArrayListUnmanaged(sg.EdgeId) = .empty;
-    for (fans) |f| {
-        if (f.direction != .in) continue;
-        for (f.peers) |p| if (p.long and p.shared) try out.append(a, p.edge_id);
     }
     return out.toOwnedSlice(a);
 }

@@ -76,7 +76,7 @@ test "TD skip-corridor final descent is a clean vertical approach (guards ▼)" 
         &placements,
         0,
         0,
-        0,
+        .{},
             .{},
         );
     try expectCleanVerticalFinalApproach(poly, true);
@@ -105,7 +105,7 @@ test "LR skip-corridor final approach is a clean horizontal approach (guards ▶
         &placements,
         0,
         0,
-        0,
+        .{},
             .{},
         );
     try expectCleanHorizontalFinalApproach(poly, true);
@@ -134,7 +134,7 @@ test "west/east port jog pad is never zero, near or far (guards clean </>)" {
             &placements,
             0,
             0,
-            0,
+            .{},
             .{},
         );
         try expectCleanHorizontalFinalApproach(poly, true);
@@ -159,7 +159,7 @@ test "west/east port jog pad is never zero, near or far (guards clean </>)" {
             &placements,
             0,
             0,
-            0,
+            .{},
             .{},
         );
         try expectCleanHorizontalFinalApproach(poly, true);
@@ -192,7 +192,7 @@ test "north/south port jog pad is never zero, near or far (guards clean ^/v)" {
             &placements,
             0,
             0,
-            0,
+            .{},
             .{},
         );
         try expectCleanVerticalFinalApproach(poly, true);
@@ -217,7 +217,7 @@ test "north/south port jog pad is never zero, near or far (guards clean ^/v)" {
             &placements,
             0,
             0,
-            0,
+            .{},
             .{},
         );
         try expectCleanVerticalFinalApproach(poly, true);
@@ -250,7 +250,7 @@ test "the jog never lands on the source wall (span-2 gap and lane escalation cla
             &placements,
             0,
             0,
-            0,
+            .{},
             .{},
         );
         const wall_y: i32 = 2;
@@ -273,7 +273,7 @@ test "the jog never lands on the source wall (span-2 gap and lane escalation cla
             &placements,
             0,
             0,
-            1,
+            .{ .exit = 1 },
             .{},
         );
         const wall_y: i32 = 2;
@@ -296,7 +296,7 @@ test "the jog never lands on the source wall (span-2 gap and lane escalation cla
             &placements,
             0,
             0,
-            0,
+            .{},
             .{},
         );
         const wall_x: i32 = 7;
@@ -405,7 +405,7 @@ test "the jog never lands inside a decorated terminal cell" {
         &placements,
         0,
         0,
-        7,
+        .{ .exit = 7 },
         .{ .from = true, .to = true },
     );
     try testing.expectEqual(@as(usize, 4), poly.len);
@@ -413,7 +413,7 @@ test "the jog never lands inside a decorated terminal cell" {
     try testing.expectEqual(@as(i32, 4), poly[2].y);
 }
 
-test "the skip corridor enters three rows above the intermediate layer and climbs with the lane" {
+test "the skip corridor enters on its entry lane above the intermediate layer and climbs with it" {
     var arena = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
@@ -424,14 +424,16 @@ test "the skip corridor enters three rows above the intermediate layer and climb
     const virtuals = [_]u32{0};
     const from: sketch.Port = .{ .node = 0, .side = .south, .offset = 4 };
     const to: sketch.Port = .{ .node = 1, .side = .north, .offset = 4 };
-    const lane0 = try rp.routePolyline(a, .TD, from_p, to_p, from, to, &virtuals, geom[0..], &placements, 0, 0, 0, .{});
-    try testing.expectEqual(@as(i32, 7), lane0[1].y);
-    const lane2 = try rp.routePolyline(a, .TD, from_p, to_p, from, to, &virtuals, geom[0..], &placements, 0, 0, 2, .{});
-    try testing.expectEqual(@as(i32, 5), lane2[1].y);
+    const base = try rp.routePolyline(a, .TD, from_p, to_p, from, to, &virtuals, geom[0..], &placements, 0, 0, .{}, .{});
+    try testing.expectEqual(@as(i32, 8), base[1].y);
+    const lane1 = try rp.routePolyline(a, .TD, from_p, to_p, from, to, &virtuals, geom[0..], &placements, 0, 0, .{ .entry = 1 }, .{});
+    try testing.expectEqual(@as(i32, 7), lane1[1].y);
+    const lane3 = try rp.routePolyline(a, .TD, from_p, to_p, from, to, &virtuals, geom[0..], &placements, 0, 0, .{ .entry = 3, .exit = 3 }, .{});
+    try testing.expectEqual(@as(i32, 5), lane3[1].y);
     // The floor: a plain source may enter on its departure row, a decorated one not.
-    const over = try rp.routePolyline(a, .TD, from_p, to_p, from, to, &virtuals, geom[0..], &placements, 0, 0, 9, .{});
+    const over = try rp.routePolyline(a, .TD, from_p, to_p, from, to, &virtuals, geom[0..], &placements, 0, 0, .{ .entry = 9, .exit = 9 }, .{});
     try testing.expectEqual(@as(i32, 3), over[1].y);
-    const over_decorated = try rp.routePolyline(a, .TD, from_p, to_p, from, to, &virtuals, geom[0..], &placements, 0, 0, 9, .{ .from = true });
+    const over_decorated = try rp.routePolyline(a, .TD, from_p, to_p, from, to, &virtuals, geom[0..], &placements, 0, 0, .{ .entry = 9, .exit = 9 }, .{ .from = true });
     try testing.expectEqual(@as(i32, 4), over_decorated[1].y);
 }
 
@@ -446,9 +448,9 @@ test "a skip corridor past its lane budget keeps a decorated arrival straight" {
     const virtuals = [_]u32{0};
     const from: sketch.Port = .{ .node = 0, .side = .south, .offset = 4 };
     const to: sketch.Port = .{ .node = 1, .side = .north, .offset = 4 };
-    const plain = try rp.routePolyline(a, .TD, from_p, to_p, from, to, &virtuals, geom[0..], &placements, 0, 0, 16, .{});
+    const plain = try rp.routePolyline(a, .TD, from_p, to_p, from, to, &virtuals, geom[0..], &placements, 0, 0, .{ .entry = 16, .exit = 16 }, .{});
     try testing.expectEqual(@as(i32, 19), plain[plain.len - 2].y);
-    const decorated = try rp.routePolyline(a, .TD, from_p, to_p, from, to, &virtuals, geom[0..], &placements, 0, 0, 16, .{ .to = true });
+    const decorated = try rp.routePolyline(a, .TD, from_p, to_p, from, to, &virtuals, geom[0..], &placements, 0, 0, .{ .entry = 16, .exit = 16 }, .{ .to = true });
     try testing.expectEqual(@as(i32, 18), decorated[decorated.len - 2].y);
     try testing.expectEqual(@as(i32, 24), decorated[decorated.len - 2].x);
 }
@@ -464,7 +466,7 @@ test "a one-layer route runs the corridor beside a box in its way instead of thr
     const blocker = mkPlacement(2, .{ .x = 0, .y = 10, .w = 8, .h = 3 });
     const placements = [_]sketch.NodePlacement{ from_p, to_p, blocker };
     const no_geom: []const Geom = &.{};
-    const poly = try rp.routePolyline(a, .TD, from_p, to_p, .{ .node = 0, .side = .south, .offset = 4 }, .{ .node = 1, .side = .north, .offset = 4 }, &.{}, no_geom, &placements, 0, 0, 0, .{});
+    const poly = try rp.routePolyline(a, .TD, from_p, to_p, .{ .node = 0, .side = .south, .offset = 4 }, .{ .node = 1, .side = .north, .offset = 4 }, &.{}, no_geom, &placements, 0, 0, .{}, .{});
     try testing.expect(poly.len >= 4);
     var i: usize = 0;
     while (i + 1 < poly.len) : (i += 1) {

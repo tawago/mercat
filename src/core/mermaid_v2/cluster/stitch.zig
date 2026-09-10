@@ -19,6 +19,7 @@ const entry_inset = @import("entry_inset.zig");
 const stitch_bundle_sets = @import("stitch_bundle_sets.zig");
 const stitch_bundles = @import("stitch_bundles.zig");
 const stitch_rails = @import("stitch_rails.zig");
+const stitch_gaps = @import("stitch_gaps.zig");
 
 pub const SplitResult = split_mod.SplitResult;
 /// Re-exported so `recurse.stitchOuter` and the translate sites share one type.
@@ -102,6 +103,9 @@ fn withTrackExpiry(
     return out;
 }
 
+/// A piece's gap row account carried into the merged sketch: its wall
+/// cells shifted with the piece's ink, its claims' edge ids into the
+/// piece's id window, its rail pivots through the node map.
 /// Per-field sum of the outer piece's closure counts and every child's.
 fn closureSum(outer: sketch.Sketch, children: []const Clustered) ledger.ClosureCounts {
     var out = outer.closure;
@@ -146,6 +150,7 @@ pub fn stitch(
     var edges: std.ArrayListUnmanaged(sketch.EdgePath) = .empty;
     var rails: std.ArrayListUnmanaged(sketch.Rail) = .empty;
     var bundle_sets: std.ArrayListUnmanaged(ledger.Bundle) = .empty;
+    var gap_records: std.ArrayListUnmanaged(ledger.GapRows) = .empty;
     var piece_joins: std.ArrayListUnmanaged(stitch_bundles.PieceBundles) = .empty;
     const claim_sources = try arena.alloc(stitch_rails.ChildSource, split_result.supers.len);
 
@@ -270,10 +275,26 @@ pub fn stitch(
         for (child.sketch.bundle_sets) |cs| {
             if (cs.origin != .port_share) try bundle_sets.append(arena, try stitch_bundle_sets.shiftSet(arena, cs, base, dx, dy));
         }
+        for (child.sketch.gap_rows) |g| try gap_records.append(arena, try stitch_gaps.translateGap(arena, g, global_of[super.child_piece], dx, dy, base, child.sketch.direction, &.{}));
     }
 
     const outer_base = id_base;
     id_base += idSpan(outer);
+    // The bridges are numbered after the outer piece; a placement edge's
+    // claims are filed under the bridges that stand for it.
+    const bridge_base = id_base;
+    var proxy_span: usize = 0;
+    for (split_result.crossings) |c| if (c.proxy != sg.SENTINEL) {
+        proxy_span = @max(proxy_span, @as(usize, c.proxy) + 1);
+    };
+    const bridges_of = try arena.alloc([]const sketch.EdgeId, proxy_span);
+    {
+        var lists = try arena.alloc(std.ArrayListUnmanaged(sketch.EdgeId), bridges_of.len);
+        @memset(lists, .empty);
+        for (split_result.crossings) |c| if (c.proxy != sg.SENTINEL and c.proxy < lists.len) try lists[c.proxy].append(arena, c.id + bridge_base);
+        for (lists, bridges_of) |*l, *b| b.* = try l.toOwnedSlice(arena);
+    }
+    for (outer.gap_rows) |g| try gap_records.append(arena, try stitch_gaps.translateGap(arena, g, global_of[0], 0, 0, outer_base, outer.direction, bridges_of));
     try piece_joins.append(arena, .{ .bundles = outer.bundles, .edge_base = outer_base, .node_map = global_of[0] });
     for (outer.edges) |oe| {
         if (superFor(split_result, oe.from) != null or superFor(split_result, oe.to) != null) continue;
@@ -308,7 +329,6 @@ pub fn stitch(
 
     const node_slice = try nodes.toOwnedSlice(arena);
     const cluster_slice = try clusters.toOwnedSlice(arena);
-    const bridge_base = id_base;
     const bridge_start = edges.items.len;
     var track_expired: u32 = 0;
     const bridge_edges = try bridges.route(arena, split_result.crossings, node_slice, cluster_slice, rails.items, edges.items, outer.direction, orig_to_merged, &track_expired, bridge_build);
@@ -317,6 +337,7 @@ pub fn stitch(
         b.id = be.id + bridge_base;
         try edges.append(arena, b);
     }
+    try stitch_gaps.adoptBridgeInk(arena, gap_records.items, edges.items[bridge_start..], outer.direction);
 
     // Reconstruct authority only after bridge routing made every final image,
     // endpoint, port, and id available. Structural outer groups require exact
@@ -360,6 +381,7 @@ pub fn stitch(
         // would silently drop every refusal a child's fans decided.
         // @guarded-by: recurse_test2.zig "the merged sketch sums its pieces' closure counts"
         .closure = closureSum(outer, children),
+        .gap_rows = try gap_records.toOwnedSlice(arena),
         .diagnostics = try withTrackExpiry(arena, outer.diagnostics, track_expired),
         .budget = outer.budget,
         // The candidate's label policy is a property of the CANDIDATE, not

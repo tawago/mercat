@@ -200,12 +200,12 @@ test "declared baseline is always computed and never exceeded when a child flips
     const graph = singleClusterChainGraph(&nodes_buf, &edges_buf, &members_buf, &clusters_buf);
 
     const opts: coords.LayoutOptions = .{ .max_width = 40 };
-    const sr = try cluster_split.split(a, graph, &.{});
+    const sr = try cluster_split.split(a, graph, .{});
     try std.testing.expect(!sr.isFlat());
 
     var child_opts = opts;
     child_opts.max_width = opts.max_width -| recurse.pieceFrameOverheadX(sr, 1, opts.spacing_scale);
-    const cc = try recurse.layoutChild(a, sr.pieces[1].graph, child_opts, &.{});
+    const cc = try recurse.layoutChild(a, sr.pieces[1].graph, child_opts, .{});
     try std.testing.expect(cc.flipped != null);
 
     const declared_children = try a.alloc(cluster_stitch.Clustered, sr.pieces.len);
@@ -227,16 +227,16 @@ test "rotation that reduces but does not eliminate overflow is rejected (validat
     var clusters_buf: [1]sem_graph.Cluster = undefined;
     const graph = singleClusterChainGraph(&nodes_buf, &edges_buf, &members_buf, &clusters_buf);
 
-    const sr = try cluster_split.split(a, graph, &.{});
+    const sr = try cluster_split.split(a, graph, .{});
     const child_opts: coords.LayoutOptions = .{ .max_width = 14 };
-    const cc = try recurse.layoutChild(a, sr.pieces[1].graph, child_opts, &.{});
+    const cc = try recurse.layoutChild(a, sr.pieces[1].graph, child_opts, .{});
 
     try std.testing.expect(cc.declared.sketch.bbox.w > child_opts.max_width);
     try std.testing.expect(cc.flipped == null);
 
     var rotated_graph = sr.pieces[1].graph;
     rotated_graph.direction = prim.rotatedDirection(sr.pieces[1].graph.direction);
-    const rotated = try recurse.layoutClustered(a, rotated_graph, child_opts, &.{});
+    const rotated = try recurse.layoutClustered(a, rotated_graph, child_opts, .{});
     try std.testing.expect(rotated.sketch.bbox.w < cc.declared.sketch.bbox.w);
     try std.testing.expect(rotated.sketch.bbox.w > child_opts.max_width);
 
@@ -278,11 +278,11 @@ test "stitch re-clamps a surviving rail's crossbar past a dropped super-node tap
     };
 
     const opts: coords.LayoutOptions = .{ .max_width = 400 };
-    const sr = try cluster_split.split(a, graph, &.{});
+    const sr = try cluster_split.split(a, graph, .{});
     try std.testing.expect(!sr.isFlat());
     try std.testing.expectEqual(@as(usize, 1), sr.supers.len);
 
-    const child = try recurse.layoutChild(a, sr.pieces[1].graph, opts, &.{});
+    const child = try recurse.layoutChild(a, sr.pieces[1].graph, opts, .{});
     const children = try a.alloc(cluster_stitch.Clustered, sr.pieces.len);
     children[1] = child.declared;
 

@@ -267,6 +267,8 @@ pub const Sketch = struct {
     bundles: ledger.RealizedBundles = .{},
     /// Report-only closure-licence inventory for this candidate (never a layout input).
     closure: ledger.ClosureCounts = .{},
+    /// Report-only row account of every inter-rank gap (never a layout input).
+    gap_rows: []const ledger.GapRows = &.{},
     /// Bundle membership and, after `sketch_bundles.stamp`, this render's
     /// numbered bundle roster. Layout fills it from live fans, stitch rewrites
     /// child sets into the merged id space, and flat selection replaces them

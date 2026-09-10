@@ -8,9 +8,10 @@ const sugiyama = @import("sugiyama.zig");
 const fan = @import("fan.zig");
 const fan_lanes = @import("fan_lanes.zig");
 const pb = @import("../base/ledger.zig");
+const gap_rows = @import("gap_rows.zig");
 
 /// Minimal geometry element: `assignLanes` only reads centre columns (x + w/2).
-pub const Geom = struct { x: i32, w: u32 };
+pub const Geom = struct { x: i32, w: u32, y: i32 = 0, h: u32 = 1 };
 
 pub fn mkLg(
     nodes: []sugiyama.LayerNode,
@@ -87,12 +88,16 @@ test "incomplete overlapping fans get separate lanes" {
     try testing.expect(lane_a != lane_c);
     try testing.expectEqual(@as(u32, 0), laneOfPivot(fans, .in, 4));
 
-    const extras = try fan.extraRowsPerGap(aa, lg, fans);
-    try testing.expectEqual(@as(usize, 1), extras.len);
-    try testing.expectEqual(@as(u32, 2), extras[0]);
+    // The two separated rails conflict, so the row ledger stacks them and
+    // the gap reserves exactly those two rows; the fan-IN's members are
+    // drawn by the rails and claim nothing of their own.
+    const ledger = try gap_rows.buildPiece(Geom, aa, graph, lg, &geom, fans, .{}, .{}, &.{2}, &.{}, &.{});
+    try testing.expectEqual(@as(u32, 2), ledger.rowsUsed(0));
+    try testing.expectEqual(@as(u32, 2), ledger.extraRows(0));
+    try testing.expectEqual(@as(?i32, null), ledger.rowOfFan(4, .in));
 }
 
-test "lane assignment reserves one extra gap row per lane" {
+test "lane-separated rails take distinct ledger rows and the gap reserves exactly those" {
     const a = testing.allocator;
     var nodes = [_]sugiyama.LayerNode{
         .{ .real = 0 }, .{ .real = 1 }, .{ .real = 2 },
@@ -120,10 +125,12 @@ test "lane assignment reserves one extra gap row per lane" {
     const graph = try mkGraph(aa, &edges);
     const fans = try fan.detect(aa, graph, lg);
     try fan_lanes.assignLanes(Geom, aa, graph, lg, &geom, fans, .{}, null);
-    var max_lane: u32 = 0;
-    for (fans) |f| max_lane = @max(max_lane, f.lane);
-    const extras = try fan.extraRowsPerGap(aa, lg, fans);
-    try testing.expectEqual(max_lane + 1, extras[0]);
+    const ledger = try gap_rows.buildPiece(Geom, aa, graph, lg, &geom, fans, .{}, .{}, &.{2}, &.{}, &.{});
+    const row_a = ledger.rowOfFan(0, .out) orelse return error.MissingRail;
+    const row_c = ledger.rowOfFan(2, .out) orelse return error.MissingRail;
+    try testing.expect(row_a != row_c);
+    try testing.expectEqual(@as(u32, 2), ledger.rowsUsed(0));
+    for (ledger.gaps) |g| try testing.expectEqual(g.rows_used -| g.free, ledger.extraRows(0));
 }
 
 /// Like `mkGraph` but every edge is fully arrow-free (`A --- B`) — the shape

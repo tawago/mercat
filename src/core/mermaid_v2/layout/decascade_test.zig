@@ -80,7 +80,7 @@ test "deCascade anchors on the most-drifted rail, not the first-drifted one" {
         geomAt(30, 10, 2, 1, 5),
     };
 
-    try decascade.deCascade(testing.allocator, dummy_graph, &geom, lg);
+    _ = try decascade.deCascade(testing.allocator, dummy_graph, &geom, lg);
 
     try testing.expectEqual(@as(i32, 0), geom[6].x);
     try testing.expectEqual(@as(i32, 0), geom[7].x);
@@ -116,7 +116,7 @@ test "deCascade head climb stops exactly at a multi-node fork layer" {
         geomAt(6, 6, 2, 1, 3),
     };
 
-    try decascade.deCascade(testing.allocator, dummy_graph, &geom, lg);
+    _ = try decascade.deCascade(testing.allocator, dummy_graph, &geom, lg);
 
     try testing.expectEqual(@as(i32, 0), geom[3].x);
     try testing.expectEqual(@as(i32, 0), geom[4].x);
@@ -146,7 +146,7 @@ test "deCascade no-ops when the drifted rail head is a true source (no forward p
         geomAt(6, 4, 2, 1, 2),
     };
 
-    try decascade.deCascade(testing.allocator, dummy_graph, &geom, lg);
+    _ = try decascade.deCascade(testing.allocator, dummy_graph, &geom, lg);
 
     try testing.expectEqual(@as(i32, 0), geom[0].x);
     try testing.expectEqual(@as(i32, 6), geom[1].x);
@@ -183,7 +183,7 @@ test "deCascade rail walk stops at a branch instead of treating it as rail-strai
         geomAt(6, 6, 2, 1, 3),
     };
 
-    try decascade.deCascade(testing.allocator, dummy_graph, &geom, lg);
+    _ = try decascade.deCascade(testing.allocator, dummy_graph, &geom, lg);
 
     try testing.expectEqual(@as(i32, 6), geom[2].x);
     try testing.expectEqual(@as(i32, 6), geom[3].x);
@@ -213,7 +213,7 @@ test "deCascade does not fire for a lone drifted single-node layer (hi==lo)" {
         geomAt(0, 4, 2, 1, 2),
     };
 
-    try decascade.deCascade(testing.allocator, dummy_graph, &geom, lg);
+    _ = try decascade.deCascade(testing.allocator, dummy_graph, &geom, lg);
 
     try testing.expectEqual(@as(i32, 6), geom[2].x);
 }
@@ -243,7 +243,7 @@ test "deCascade flood-forward never pulls a node above the run into the unit" {
         geomAt(6, 4, 2, 1, 2),
     };
 
-    try decascade.deCascade(testing.allocator, dummy_graph, &geom, lg);
+    _ = try decascade.deCascade(testing.allocator, dummy_graph, &geom, lg);
 
     try testing.expectEqual(@as(i32, 0), geom[2].x);
     try testing.expectEqual(@as(i32, 0), geom[3].x);
@@ -280,7 +280,7 @@ test "deCascade collision floor clamps the slide short of a fixed sibling's righ
         geomAt(20, 6, 4, 1, 3),
     };
 
-    try decascade.deCascade(testing.allocator, dummy_graph, &geom, lg);
+    _ = try decascade.deCascade(testing.allocator, dummy_graph, &geom, lg);
 
     try testing.expectEqual(@as(i32, 26), geom[2].x);
     try testing.expectEqual(@as(i32, 26), geom[3].x);
@@ -315,12 +315,13 @@ test "deCascade entry-corridor drop uses the tallest fork-layer sibling, not jus
         geomAt(0, 30, 2, 2, 3),
     };
 
-    try decascade.deCascade(testing.allocator, dummy_graph, &geom, lg);
+    const drop = try decascade.deCascade(testing.allocator, dummy_graph, &geom, lg);
 
     try testing.expectEqual(@as(i32, 0), geom[2].x);
-    try testing.expectEqual(@as(i32, 20), geom[2].y);
-    try testing.expectEqual(@as(i32, 30), geom[3].y);
-    try testing.expectEqual(@as(i32, 40), geom[4].y);
-    try testing.expectEqual(@as(i32, 0), geom[0].y);
-    try testing.expectEqual(@as(i32, 0), geom[1].y);
+    try testing.expectEqual(@as(u32, 0), drop.?.gap);
+    try testing.expectEqual(@as(u32, 10), drop.?.rows);
+    // The slide moves x only; the rows it asks for are the caller's to place.
+    for (geom) |g| try testing.expect(g.y == 0 or g.y == 10 or g.y == 20 or g.y == 30);
+    try testing.expectEqual(@as(i32, 10), geom[2].y);
+    try testing.expectEqual(@as(i32, 20), geom[3].y);
 }

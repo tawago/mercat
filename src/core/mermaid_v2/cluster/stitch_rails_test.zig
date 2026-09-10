@@ -55,7 +55,7 @@ fn emptySketch() sketch.Sketch {
 }
 
 fn emptySplit(supers: []const split_mod.SuperNode) split_mod.SplitResult {
-    return .{ .pieces = &.{}, .supers = supers, .crossings = &.{}, .arrivals = &.{}, .orig_node_count = 0 };
+    return .{ .pieces = &.{}, .supers = supers, .crossings = &.{}, .arrivals = &.{}, .departures = &.{}, .orig_node_count = 0 };
 }
 
 test "stitch rails: child claims deep-remap first-class and peer-drawn carriers in deterministic order" {

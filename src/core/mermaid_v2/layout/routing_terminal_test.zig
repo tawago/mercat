@@ -32,55 +32,6 @@ fn mkGraph(edges: []const sg.Edge) sg.SemGraph {
     };
 }
 
-test "terminalApproachExtraRows flags a bare gap with an offset adjacent forward terminal but not a column-aligned one" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const a = arena.allocator();
-
-    var nodes = [_]sugiyama.LayerNode{ .{ .real = 0 }, .{ .real = 1 } };
-    var l0 = [_]u32{0};
-    var l1 = [_]u32{1};
-    var layers = [_][]u32{ l0[0..], l1[0..] };
-    var edges = [_]sugiyama.LayerEdge{.{ .from = 0, .to = 1, .edge = 0, .reversed = false }};
-    const lg: sugiyama.LayeredGraph = .{
-        .nodes = nodes[0..],
-        .layers = layers[0..],
-        .edges = edges[0..],
-        .reversed_edges = &.{},
-        .real_index = .empty,
-        .arena = null,
-    };
-    const graph_edges = [_]sg.Edge{.{ .id = 0, .from = 0, .to = 1, .kind = .solid, .arrow_from = .none, .arrow_to = .filled, .label = null }};
-    const graph = mkGraph(graph_edges[0..]);
-
-    const offset_geom = [_]G{ .{ .x = 0, .w = 10 }, .{ .x = 20, .w = 10 } };
-    const offset = try rt.terminalApproachExtraRows(G, a, graph, lg, offset_geom[0..]);
-    try testing.expectEqual(@as(usize, 1), offset.len);
-    try testing.expectEqual(@as(u32, 1), offset[0]);
-
-    const aligned_geom = [_]G{ .{ .x = 0, .w = 10 }, .{ .x = 0, .w = 10 } };
-    const aligned = try rt.terminalApproachExtraRows(G, a, graph, lg, aligned_geom[0..]);
-    try testing.expectEqual(@as(u32, 0), aligned[0]);
-
-    var rev_edges = [_]sugiyama.LayerEdge{.{ .from = 0, .to = 1, .edge = 0, .reversed = true }};
-    const rev_lg: sugiyama.LayeredGraph = .{ .nodes = nodes[0..], .layers = layers[0..], .edges = rev_edges[0..], .reversed_edges = &.{}, .real_index = .empty, .arena = null };
-    const rev = try rt.terminalApproachExtraRows(G, a, graph, rev_lg, offset_geom[0..]);
-    try testing.expectEqual(@as(u32, 0), rev[0]);
-
-    const no_arrow = [_]sg.Edge{.{ .id = 0, .from = 0, .to = 1, .kind = .solid, .arrow_from = .none, .arrow_to = .none, .label = null }};
-    const na = try rt.terminalApproachExtraRows(G, a, mkGraph(no_arrow[0..]), lg, offset_geom[0..]);
-    try testing.expectEqual(@as(u32, 0), na[0]);
-
-    // A decorated end on either side needs the row: a bidirectional edge and
-    // a source-only decoration both keep a terminal cell straight.
-    const both = [_]sg.Edge{.{ .id = 0, .from = 0, .to = 1, .kind = .solid, .arrow_from = .filled, .arrow_to = .filled, .label = null }};
-    const bi = try rt.terminalApproachExtraRows(G, a, mkGraph(both[0..]), lg, offset_geom[0..]);
-    try testing.expectEqual(@as(u32, 1), bi[0]);
-    const source_only = [_]sg.Edge{.{ .id = 0, .from = 0, .to = 1, .kind = .solid, .arrow_from = .filled, .arrow_to = .none, .label = null }};
-    const so = try rt.terminalApproachExtraRows(G, a, mkGraph(source_only[0..]), lg, offset_geom[0..]);
-    try testing.expectEqual(@as(u32, 1), so[0]);
-}
-
 test "terminalsStraight refuses a turn inside a decorated terminal cell at either end and admits one two cells out" {
     const turn_in_departure = [_]sketch.Point{ .{ .x = 5, .y = 2 }, .{ .x = 5, .y = 3 }, .{ .x = 9, .y = 3 }, .{ .x = 9, .y = 8 } };
     try testing.expect(!rt.terminalsStraight(&turn_in_departure, .{ .from = true }));

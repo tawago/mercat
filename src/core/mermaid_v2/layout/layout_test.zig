@@ -242,66 +242,6 @@ test "reversed edge swaps arrow direction" {
     }
 }
 
-test "a skip edge reserves exactly one extra gap row above its target layer, a plain chain reserves none" {
-    const nodes = [_]sg.Node{ mkNode(0, "A"), mkNode(1, "B"), mkNode(2, "C"), mkNode(3, "X") };
-    const edges = [_]sg.Edge{ mkEdge(0, 0, 1), mkEdge(1, 1, 2), mkEdge(2, 3, 2) };
-    const g = sg.SemGraph{
-        .direction = .TD,
-        .nodes = &nodes,
-        .edges = &edges,
-        .clusters = &.{},
-        .classes = &.{},
-        .arena = null,
-    };
-    var lg = try sugiyama.assignLayers(testing.allocator, g);
-    defer lg.deinit(testing.allocator);
-
-    const extras = try routing.skipCorridorExtraRows(testing.allocator, lg, &.{});
-    defer testing.allocator.free(extras);
-
-    var flagged: usize = 0;
-    for (extras) |x| {
-        if (x > 0) flagged += 1;
-    }
-    try testing.expectEqual(@as(usize, 1), flagged);
-
-    const plain_edges = [_]sg.Edge{ mkEdge(0, 0, 1), mkEdge(1, 1, 2) };
-    const plain_g = sg.SemGraph{
-        .direction = .TD,
-        .nodes = nodes[0..3],
-        .edges = &plain_edges,
-        .clusters = &.{},
-        .classes = &.{},
-        .arena = null,
-    };
-    var plain_lg = try sugiyama.assignLayers(testing.allocator, plain_g);
-    defer plain_lg.deinit(testing.allocator);
-
-    const plain_extras = try routing.skipCorridorExtraRows(testing.allocator, plain_lg, &.{});
-    defer testing.allocator.free(plain_extras);
-    for (plain_extras) |x| try testing.expectEqual(@as(u32, 0), x);
-}
-
-test "an offset adjacent terminal in a bare TD gap reserves exactly one extra row; a column-aligned terminal reserves none" {
-    const nodes = [_]sg.Node{ mkNode(0, "A"), mkNode(1, "B") };
-    const edges = [_]sg.Edge{mkEdge(0, 0, 1)};
-    const g = sg.SemGraph{ .direction = .TD, .nodes = &nodes, .edges = &edges, .clusters = &.{}, .classes = &.{}, .arena = null };
-    var lg = try sugiyama.assignLayers(testing.allocator, g);
-    defer lg.deinit(testing.allocator);
-    const G = routing.NodeGeom;
-    var geom = [_]G{ mkGeom(0, 10), mkGeom(0, 10) };
-    const ib = lg.real_index.get(1).?;
-    geom[ib] = mkGeom(20, 10);
-    const offset = try routing.terminalApproachExtraRows(G, testing.allocator, g, lg, &geom);
-    defer testing.allocator.free(offset);
-    try testing.expectEqual(@as(u32, 1), offset[0]);
-
-    geom[ib] = mkGeom(0, 10);
-    const aligned = try routing.terminalApproachExtraRows(G, testing.allocator, g, lg, &geom);
-    defer testing.allocator.free(aligned);
-    try testing.expectEqual(@as(u32, 0), aligned[0]);
-}
-
 const self_loops = @import("routing_self_loops.zig");
 
 fn slPlacement(id: sg.NodeId, x: i32, y: i32, w: u32, h: u32) sketch.NodePlacement {

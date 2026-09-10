@@ -204,6 +204,54 @@ pub const ClosureCounts = struct {
     co_double_discharge: u32 = 0,
 };
 
+/// One inter-rank gap's row account, written by layout for the report-only
+/// invariant: the gap's spacing is its base plus what the row ledger holds,
+/// and every row the ledger holds is stood on by a claim.
+pub const GapRows = struct {
+    gap: u32,
+    /// Rows the plain inter-layer spacing gives the gap before any claim.
+    base: u32,
+    /// Rows the layout placed between the two layers.
+    reserved: u32,
+    /// Ledger rows the base spacing already contains.
+    free: u32,
+    /// Ledger rows the packed claims occupy, counted from row 0.
+    rows_used: u32,
+    /// Bit r set iff some claim stands on ledger row r.
+    claimed: u64,
+    /// A claim stands on the base row (`wall - 2`).
+    base_used: bool,
+    /// The gap's first cell beside the target layer (`wall - 1`) and beside
+    /// the source layer, on the layer axis, in the frame the ink is painted
+    /// in: row r is `near - 2 - r` counted toward `far`.
+    near: i32 = 0,
+    far: i32 = 0,
+    /// Every claim packed into this gap, so painted ink can be traced to it.
+    claims: []const GapClaim = &.{},
+};
+
+/// The rail a gap claim answers for: a fan's pivot and its direction.
+pub const RailKey = struct { pivot: NodeId, out: bool };
+
+/// One packed claim: the rows it stands on and the ink it stands for. A
+/// `bridge` claim stands for the cluster bridges routed after the piece,
+/// whose edge ids the piece never learns.
+pub const GapClaim = struct {
+    row: i32,
+    height: u32,
+    edges: []const EdgeId = &.{},
+    rails: []const RailKey = &.{},
+    bridge: bool = false,
+};
+
+/// The spacing a gap needs for its claims: row 0 is `wall - 3`, so a gap
+/// with a claimed row holds `rows_used + 2` cells, and one whose only run
+/// is on the base row holds two.
+pub fn gapSpacingNeeded(rows_used: u32, base_used: bool) u32 {
+    if (rows_used > 0) return rows_used + 2;
+    return if (base_used) 2 else 0;
+}
+
 const bundle = @import("bundle.zig");
 
 pub const BundleOrigin = bundle.BundleOrigin;

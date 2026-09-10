@@ -4,8 +4,8 @@
 //! the supporting helpers `insetPort`, `absDiff`, `portPoint`, plus the
 //! strict-interior intrusion predicates. Touch-semantics clearance (used
 //! when CHOOSING an edge run's line) lives in `sketch.zig`; the per-gap
-//! extra-row reservations (`skipCorridorExtraRows`,
-//! `terminalApproachExtraRows`) in `routing_terminal.zig`.
+//! rows a run takes in each gap come from `gap_rows.zig`'s ledger as
+//! `Lanes` (lane 0 is the base row next to the arrival cell).
 //! Imports: only `std`, `../sem_graph.zig`, `../sketch.zig`,
 //! `route_clearance.zig`.
 
@@ -39,6 +39,15 @@ pub const Straight = struct {
     pub fn forEdge(edge: sg.Edge) Straight {
         return .{ .from = edge.arrow_from != .none, .to = edge.arrow_to != .none };
     }
+};
+
+/// The rows a route's two runs take, as polyline lanes: lane 0 is the
+/// base row next to the arrival cell (`wall - 2`), lane k the row k above
+/// it — the ledger's row plus one. `entry` is the run in the source's gap
+/// (a skip corridor's entry), `exit` the run in the target's gap.
+pub const Lanes = struct {
+    entry: u32 = 0,
+    exit: u32 = 0,
 };
 
 pub fn absDiff(x: i32, y: i32) i32 {
@@ -234,7 +243,7 @@ pub fn routePolyline(
     placements: []const sketch.NodePlacement,
     inset_from: i32,
     inset_to: i32,
-    route_lane: u32,
+    lanes: Lanes,
     straight: Straight,
 ) error{OutOfMemory}![]sketch.Point {
     const raw_start = portPoint(from_p, port_from);
@@ -242,6 +251,7 @@ pub fn routePolyline(
     const start = insetPort(raw_start, port_from.side, inset_from);
     const end = insetPort(raw_end, port_to.side, inset_to);
     const horizontal = (dir == .LR or dir == .RL);
+    const route_lane = lanes.exit;
 
     // Skip-corridor routing: an edge spanning ≥2 layers carries ≥1 virtual
     // node. Bending the polyline at each virtual's box row would intrude
@@ -255,19 +265,19 @@ pub fn routePolyline(
         const first = geom[virtuals[0]];
         if (!horizontal) {
             const want_x = first.x + @divTrunc(@as(i32, @intCast(first.w)), 2);
-            return corridorRoute(a, false, start, end, want_x, first.y, route_lane, straight, placements, from_p.id, to_p.id);
+            return corridorRoute(a, false, start, end, want_x, first.y, lanes, straight, placements, from_p.id, to_p.id);
         }
         if (end.x > start.x) {
             const want_y = first.y + @divTrunc(@as(i32, @intCast(first.h)), 2);
-            return corridorRoute(a, true, start, end, want_y, first.x, route_lane, straight, placements, from_p.id, to_p.id);
+            return corridorRoute(a, true, start, end, want_y, first.x, lanes, straight, placements, from_p.id, to_p.id);
         }
     }
 
     const plain = try plainRoute(a, horizontal, start, end, virtuals, geom, port_to.side, route_lane, straight);
     if (virtuals.len == 0) {
         if (obstacleBox(plain, placements, from_p.id, to_p.id)) |box| {
-            if (!horizontal) return corridorRoute(a, false, start, end, end.x, box.y, route_lane, straight, placements, from_p.id, to_p.id);
-            if (end.x > start.x) return corridorRoute(a, true, start, end, end.y, box.x, route_lane, straight, placements, from_p.id, to_p.id);
+            if (!horizontal) return corridorRoute(a, false, start, end, end.x, box.y, lanes, straight, placements, from_p.id, to_p.id);
+            if (end.x > start.x) return corridorRoute(a, true, start, end, end.y, box.x, lanes, straight, placements, from_p.id, to_p.id);
         }
     }
     return plain;
@@ -298,7 +308,7 @@ fn corridorRoute(
     end: sketch.Point,
     want: i32,
     top: i32,
-    route_lane: u32,
+    lanes: Lanes,
     straight: Straight,
     placements: []const sketch.NodePlacement,
     from_id: sketch.NodeId,
@@ -306,21 +316,20 @@ fn corridorRoute(
 ) error{OutOfMemory}![]sketch.Point {
     var poly: std.ArrayListUnmanaged(sketch.Point) = .empty;
     try poly.append(a, start);
-    const lane: i32 = @intCast(route_lane);
+    const lane: i32 = @intCast(lanes.exit);
+    const entry: i32 = @intCast(lanes.entry);
     if (!horizontal) {
-        // enter_gap_y: the entry run's row, three rows above the first
-        // intermediate layer and one higher per lane. The row directly
-        // above that layer is its arrival row — every decorated arrival
-        // cell there is reserved against a foreign through-run — and the
-        // row above that holds those heads' base cells, where a crossing
-        // leaves a head unfed (the raster paints one stroke per cell); an
-        // entry run on either is refused or priced at every lane. The
-        // floor keeps the run off the source wall and, for a decorated
-        // source, out of the departure cell.
-        // @guarded-by: routing_polyline_test.zig "the skip corridor enters three rows above the intermediate layer and climbs with the lane"
+        // enter_gap_y: the entry run's row, two rows above the first
+        // intermediate layer and one higher per entry lane — the row the
+        // ledger gave this run in the source's gap. The row directly above
+        // that layer is its arrival row — every decorated arrival cell
+        // there is reserved against a foreign through-run — so the run
+        // never enters it. The floor keeps the run off the source wall
+        // and, for a decorated source, out of the departure cell.
+        // @guarded-by: routing_polyline_test.zig "the skip corridor enters on its entry lane above the intermediate layer and climbs with it"
         const enter_floor = start.y + (if (straight.from) @as(i32, 2) else 1);
-        const enter_gap_y = @max(top - 3 - lane, enter_floor);
-        // align_y: gap ABOVE the target, leaving ≥1 row for a vertical descent (falls back to end.y-1 if skipCorridorExtraRows headroom is absent). @guarded-by: routing_polyline_test.zig "TD skip-corridor final descent is a clean vertical approach (guards ▼)"
+        const enter_gap_y = @max(top - 2 - entry, enter_floor);
+        // align_y: gap ABOVE the target, leaving ≥1 row for a vertical descent (falls back to end.y-1 when the exit run's row is absent). @guarded-by: routing_polyline_test.zig "TD skip-corridor final descent is a clean vertical approach (guards ▼)"
         // A decorated arrival never takes the end.y-1 fallback — that is a
         // turn in the arrival cell — it holds the corridor row instead.
         // @guarded-by: routing_polyline_test.zig "a skip corridor past its lane budget keeps a decorated arrival straight"
@@ -345,7 +354,7 @@ fn corridorRoute(
         if (end.x != corridor_x) try poly.append(a, .{ .x = end.x, .y = align_y });
     } else {
         const enter_floor = start.x + (if (straight.from) @as(i32, 2) else 1);
-        const enter_gap_x = @max(top - 3 - lane, enter_floor);
+        const enter_gap_x = @max(top - 2 - entry, enter_floor);
         // align_x: gap column just before the target, leaving ≥1 cell of straight horizontal approach. @guarded-by: routing_polyline_test.zig "LR skip-corridor final approach is a clean horizontal approach (guards ▶)"
         const align_x = if (end.x - 2 - lane > enter_gap_x) end.x - 2 - lane else if (straight.to) @max(end.x - 2, enter_gap_x) else end.x - 1;
         const run_lo = @min(enter_gap_x, align_x);

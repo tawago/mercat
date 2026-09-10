@@ -70,6 +70,48 @@ pub const Resolved = struct {
     peers: []Peer,
 };
 
+/// The declared half of a rail's qualification: true iff `fan` will build
+/// a rail on what the graph and the plan say, before any placement is
+/// read. `resolve` asks it first; the row ledger asks it to know which
+/// fans draw a rail and which members that rail draws.
+pub fn eligible(fan: fan_mod.Fan, graph: sg.SemGraph, bundles: pb.RealizedBundles) bool {
+    if (!FAN_RAILS) return false;
+    if (bundles.memberships.len == 0 and fan.direction != .out) return false;
+    // A rail is ONE crossbar on ONE row, so it can only speak for a fan
+    // whose members all belong on that row. When a lane pass has lifted a
+    // member off the shared row — the incomplete-bipartite separation, or the
+    // clustered closure licence's refusal, which has no plan to express itself
+    // through — rebuilding them as a single rail would put back the very run
+    // the lift took apart. The per-peer polyline path honours `peer.lane`.
+    // @guarded-by: fan_rail_test.zig "a fan whose peers were lifted onto separate lanes builds no rail"
+    for (fan.peers) |p| {
+        if (p.lane != fan.peers[0].lane) return false;
+    }
+    if (fan.rows != 1) return false;
+    if (fan.peers.len < 2) return false;
+    // A discharged member has no ink of its own — another rail's crossbar
+    // is its rendering — so it can tap nothing here.
+    var shared_len: usize = 0;
+    var kind: ?sg.EdgeKind = null;
+    var pivot_arrow: ?sg.ArrowEnd = null;
+    for (fan.peers) |p| {
+        if (!p.shared or rail_closure.contains(bundles.discharged, p.edge_id)) continue;
+        shared_len += 1;
+        const e = routing.findGraphEdge(graph, p.edge_id) orelse return false;
+        if (kind) |k| {
+            if (e.kind != k) return false;
+        } else kind = e.kind;
+        if (e.kind == .invisible) return false;
+        const arrow = if (fan.direction == .out) e.arrow_from else e.arrow_to;
+        if (bundles.memberships.len == 0 and fan.direction == .out and arrow != .none) return false;
+        if (pivot_arrow) |expected| {
+            if (arrow != expected) return false;
+        } else pivot_arrow = arrow;
+    }
+    if (shared_len < 2) return false;
+    return bundles.memberships.len == 0 or selected(fan.peers, bundles);
+}
+
 /// Resolve `fan` for rail routing, or null when it does not qualify
 /// (see module docs). `dir` is the layout-internal direction (BT already
 /// canonicalized to TD upstream; LR/RL never detect fans today). Each
@@ -84,31 +126,12 @@ pub fn resolve(
     bundles: pb.RealizedBundles,
     allocated_ports: port_plan.Plan,
 ) error{OutOfMemory}!?Resolved {
-    if (!FAN_RAILS) return null;
-    if (bundles.memberships.len == 0 and fan.direction != .out) return null;
-    // A rail is ONE crossbar on ONE row, so it can only speak for a fan
-    // whose members all belong on that row. When a lane pass has lifted a
-    // member off the shared row — the incomplete-bipartite separation, or the
-    // clustered closure licence's refusal, which has no plan to express itself
-    // through — rebuilding them as a single rail would put back the very run
-    // the lift took apart. The per-peer polyline path honours `peer.lane`.
-    // @guarded-by: fan_rail_test.zig "a fan whose peers were lifted onto separate lanes builds no rail"
-    for (fan.peers) |p| {
-        if (p.lane != fan.peers[0].lane) return null;
-    }
-    if (fan.rows != 1) return null;
-    if (dir != .TD) return null;
-    if (fan.peers.len < 2) return null;
-    // A discharged member has no ink of its own — another rail's crossbar
-    // is its rendering — so it can tap nothing here.
+    if (dir != .TD or !eligible(fan, graph, bundles)) return null;
     var shared_len: usize = 0;
     for (fan.peers) |p| if (p.shared and !rail_closure.contains(bundles.discharged, p.edge_id)) {
         shared_len += 1;
     };
-    if (shared_len < 2) return null;
     const peers = try a.alloc(Peer, shared_len);
-    var kind: ?sg.EdgeKind = null;
-    var pivot_arrow: ?sg.ArrowEnd = null;
     var peer_i: usize = 0;
     for (fan.peers) |p| {
         if (!p.shared or rail_closure.contains(bundles.discharged, p.edge_id)) continue;
@@ -116,15 +139,6 @@ pub fn resolve(
         peer_i += 1;
         const e = routing.findGraphEdge(graph, p.edge_id) orelse return null;
         const ep = allocated_ports.forEdge(e.id) orelse return null;
-        if (kind) |k| {
-            if (e.kind != k) return null;
-        } else kind = e.kind;
-        if (e.kind == .invisible) return null;
-        const arrow = if (fan.direction == .out) e.arrow_from else e.arrow_to;
-        if (bundles.memberships.len == 0 and fan.direction == .out and arrow != .none) return null;
-        if (pivot_arrow) |expected| {
-            if (arrow != expected) return null;
-        } else pivot_arrow = arrow;
         const placement = routing.findPlacement(placements, if (fan.direction == .out) e.to else e.from);
         const port: ?sketch.Port = if (fan.direction == .out) ep.target else ep.source;
         out.* = nearPeer(e, placement, port, fan.direction);
@@ -136,7 +150,6 @@ pub fn resolve(
             out.line = if (fan.direction == .out) g.y else g.y + @as(i32, @intCast(g.h)) - 1;
         }
     }
-    if (bundles.memberships.len != 0 and !selected(fan.peers, bundles)) return null;
     const first_ep = allocated_ports.forEdge(peers[0].edge.id) orelse return null;
     return .{
         .pivot = routing.findPlacement(placements, if (fan.direction == .out) peers[0].edge.from else peers[0].edge.to),
@@ -162,10 +175,10 @@ pub fn longColumn(centre: i32, direction: fan_mod.Direction, pivot: sketch.NodeP
 }
 
 /// Build the rail for a resolved fan: stem on the pivot column, crossbar at
-/// `t_peri - 2 - rail_lift - lane`, one straight drop per peer. `lane` is the
-/// fan's `fan_lanes`-assigned rail row (0 = the classic shared row); a lifted
-/// lane keeps an incomplete-bipartite fan's rail off its neighbour's row so
-/// the two never fuse into a fabricating rail.
+/// `anchor - 3 - rail_lift - lane`, one straight drop per peer. `lane` is the
+/// gap row the row ledger gave the rail (0 = the row next to the base cell);
+/// a higher row keeps a rail off a neighbour's row so the two never fuse
+/// into a fabricating rail.
 pub fn build(
     a: std.mem.Allocator,
     resolved: Resolved,
@@ -198,10 +211,10 @@ pub fn build(
     // Labeled fan-OUT rail: lift the crossbar two MORE rows (off=5, on top of
     // the base-approach off=3) so each tap's private dropper is 4 cells —
     // flank, on-run label row, flank, arrowhead — the DECORATED sandwich
-    // raster/labels_onrun.zig places over. Uses the gap rows
-    // fan.extraRowsPerGap reserved for labeled fans; when a tighter rung
-    // shrank the gap below what the lift needs, fall back down the existing
-    // ladder of offsets (the label then takes the ordinary side ladder).
+    // raster/labels_onrun.zig places over. Uses the label band the row
+    // ledger claims for a labeled fan; when a tighter rung shrank the gap
+    // below what the lift needs, fall back down the existing ladder of
+    // offsets (the label then takes the ordinary side ladder).
     // @guarded-by: fan_rail_test.zig "labeled fan-OUT rail lifts the crossbar for a 4-cell dropper when the gap admits it"
     var labeled = false;
     for (resolved.peers) |p| {

@@ -91,7 +91,7 @@ test "V-D-PORT-01: port_plan gives an unrealized mixed-kind 1x3 fan three pitch-
         .{ .id = 2, .rect = .{ .x = 10, .y = 7, .w = 5, .h = 3 }, .shape = .rect, .lines = &.{}, .cluster_id = null },
         .{ .id = 3, .rect = .{ .x = 20, .y = 7, .w = 5, .h = 3 }, .shape = .rect, .lines = &.{}, .cluster_id = null },
     };
-    const plan = try port_plan.allocate(a, graph, &placements, derived, bundles, .{}, 0);
+    const plan = try port_plan.allocate(a, graph, &placements, derived, bundles, 0);
     try std.testing.expectEqual(@as(u32, 1), plan.forEdge(0).?.source.offset);
     try std.testing.expectEqual(@as(u32, 3), plan.forEdge(1).?.source.offset);
     try std.testing.expectEqual(@as(u32, 5), plan.forEdge(2).?.source.offset);
@@ -112,7 +112,7 @@ test "port_plan midpoint keeps singleton terminal coordinates" {
     try std.testing.expectEqual(@as(u32, 2), plan.forEdge(0).?.target.offset);
 }
 
-test "a discharged edge claims no attachment and consumes no route lane" {
+test "a discharged edge claims no attachment" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
@@ -145,17 +145,6 @@ test "a discharged edge claims no attachment and consumes no route lane" {
     try std.testing.expect(kept.len < all.len);
     for (kept) |item| try std.testing.expect((item.attachment.edge orelse 99) != 2);
 
-    var lg_nodes = [_]sugiyama.LayerNode{ .{ .real = 0 }, .{ .real = 1 }, .{ .real = 2 } };
-    var row0 = [_]u32{0};
-    var row1 = [_]u32{ 1, 2 };
-    var layers = [_][]u32{ &row0, &row1 };
-    var lg_edges = [_]sugiyama.LayerEdge{
-        .{ .edge = 0, .from = 0, .to = 1, .reversed = false },
-        .{ .edge = 1, .from = 0, .to = 2, .reversed = false },
-    };
-    const lg: sugiyama.LayeredGraph = .{ .nodes = &lg_nodes, .layers = &layers, .edges = &lg_edges, .reversed_edges = &.{}, .real_index = .empty, .arena = null };
-    const lanes = try port_plan.planLanes(a, graph, lg, discharged);
-    for (lanes.lanes) |l| try std.testing.expect(l.edge != 2);
 }
 
 test "duplicate private claims receive stable distinct source and target slots" {
@@ -186,7 +175,7 @@ test "duplicate private claims receive stable distinct source and target slots" 
             .{ .id = 0, .rect = .{ .x = 0, .y = 0, .w = 5, .h = 3 }, .shape = .rect, .lines = &.{}, .cluster_id = null },
             .{ .id = 1, .rect = .{ .x = 0, .y = 7, .w = 5, .h = 3 }, .shape = .rect, .lines = &.{}, .cluster_id = null },
         };
-        const plan = try port_plan.allocate(a, g, &placements, derived, bundles, .{}, 0);
+        const plan = try port_plan.allocate(a, g, &placements, derived, bundles, 0);
         offsets[run] = .{
             plan.forEdge(4).?.source.offset,
             plan.forEdge(9).?.source.offset,
