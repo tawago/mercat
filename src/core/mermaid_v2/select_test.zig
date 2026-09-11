@@ -340,7 +340,7 @@ test "bundles applied with the plan carry the plan's own membership" {
                 if (first == second) continue;
                 try std.testing.expectEqual(
                     planCoMembers(winner.sketch.bundles, first, second),
-                    ledger.bundleMembers(only_plan, first, second),
+                    ledger.bundleMembersAt(only_plan, first, second, null),
                 );
             }
         }

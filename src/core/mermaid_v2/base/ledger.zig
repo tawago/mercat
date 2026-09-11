@@ -260,7 +260,6 @@ pub const BundleCell = bundle.BundleCell;
 pub const PairCells = bundle.PairCells;
 pub const keepOrigin = bundle.keepOrigin;
 pub const concatBundles = bundle.concatBundles;
-pub const bundleMembers = bundle.bundleMembers;
 pub const bundleMembersAt = bundle.bundleMembersAt;
 pub const BundleId = bundle.BundleId;
 pub const no_bundle = bundle.no_bundle;
@@ -271,7 +270,6 @@ pub const StructuralBundleResolution = bundle.StructuralBundleResolution;
 pub const resolveStructuralBundle = bundle.resolveStructuralBundle;
 pub const structuralUnscoped = bundle.structuralUnscoped;
 pub const bundleOf = bundle.bundleOf;
-pub const bundlesAgree = bundle.bundlesAgree;
 
 /// The pre-identity DERIVATION of the bundle relation: a pairwise
 /// membership scan over the roster AND the realized plan, asked at a position.
@@ -280,9 +278,9 @@ pub const bundlesAgree = bundle.bundlesAgree;
 ///
 /// This is the shape the raster used to ESTABLISH every licence with, before a
 /// bundle had a name. It is kept — one copy, here — as the WITNESS the
-/// recorded identity is measured against: it runs beside `bundlesAgree` on
-/// every carrier a render files and counts the two answers agreeing and
-/// disagreeing. Nothing that only LABELS a record calls it any more.
+/// recorded identity is measured against: it runs beside a `bundleOf`
+/// comparison on every carrier a render files and counts the two answers
+/// agreeing and disagreeing. Nothing that only LABELS a record calls it any more.
 /// @guarded-by: ledger_test.zig "the derivation and the recorded identity answer alike on a declared bundle"
 pub fn derivedSameBundle(
     bundles: RealizedBundles,
@@ -311,7 +309,7 @@ fn holds(edges: []const EdgeId, edge: EdgeId) bool {
 /// population; the caller applies it exactly where it applies the plan,
 /// because nowhere earlier is the plan final.
 ///
-/// Membership-equivalent to interrogating the plan directly: `bundleMembers` over
+/// Membership-equivalent to interrogating the plan directly: `bundleMembersAt` over
 /// the result answers what a `selected_bundles` scan answers.
 /// @guarded-by: select_test.zig "bundles applied with the plan carry the plan's own membership"
 pub fn bundlesFromPlan(

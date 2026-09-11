@@ -65,7 +65,7 @@ test "applying a plan keeps the sketch's port-share bundles" {
             samePoint(first.polyline[first.polyline.len - 1], second.polyline[second.polyline.len - 1]) or
             samePoint(first.polyline[0], second.polyline[second.polyline.len - 1]);
         if (!shares) continue;
-        try std.testing.expect(ledger.bundleMembers(cand.sketch.bundle_sets, first.id, second.id));
+        try std.testing.expect(ledger.bundleMembersAt(cand.sketch.bundle_sets, first.id, second.id, null));
     };
 }
 

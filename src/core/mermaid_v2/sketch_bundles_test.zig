@@ -64,7 +64,7 @@ test "a stamped sketch names its rail's bundle and its roster alike" {
     try testing.expectEqual(@as(ledger.BundleId, 1), s.rails[0].bundle);
     try testing.expectEqual(@as(ledger.BundleId, 1), ledger.bundleOf(s.bundle_sets, 0, null));
     try testing.expectEqual(@as(ledger.BundleId, 1), ledger.bundleOf(s.bundle_sets, 1, null));
-    try testing.expect(ledger.bundlesAgree(s.bundle_sets, 0, 1, null));
+    try testing.expect(ledger.bundleOf(s.bundle_sets, 0, null) == ledger.bundleOf(s.bundle_sets, 1, null));
 }
 
 test "a merged roster names every bundle once" {
@@ -82,7 +82,7 @@ test "a merged roster names every bundle once" {
 
     try testing.expectEqual(@as(ledger.BundleId, 1), s.bundle_sets[0].bundle);
     try testing.expectEqual(@as(ledger.BundleId, 2), s.bundle_sets[1].bundle);
-    try testing.expect(!ledger.bundlesAgree(s.bundle_sets, 0, 2, null));
+    try testing.expect(ledger.bundleOf(s.bundle_sets, 0, null) != ledger.bundleOf(s.bundle_sets, 2, null));
 }
 
 test "a rail off the roster is stamped a bundle none of its future merges can ever match" {

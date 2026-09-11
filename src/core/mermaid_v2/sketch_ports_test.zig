@@ -94,9 +94,9 @@ test "an edge sharing two ports lands in two sets, never one fused set" {
 
     const sets = try sketch_ports.portShareBundles(a, &edges);
     try std.testing.expectEqual(@as(usize, 2), sets.len);
-    try std.testing.expect(ledger.bundleMembers(sets, 0, 1));
-    try std.testing.expect(ledger.bundleMembers(sets, 1, 2));
-    try std.testing.expect(!ledger.bundleMembers(sets, 0, 2));
+    try std.testing.expect(ledger.bundleMembersAt(sets, 0, 1, null));
+    try std.testing.expect(ledger.bundleMembersAt(sets, 1, 2, null));
+    try std.testing.expect(!ledger.bundleMembersAt(sets, 0, 2, null));
 }
 
 test "degenerate and invisible edges license nothing" {
@@ -131,8 +131,8 @@ test "appendPortShares keeps the existing sets ahead of the derived ones" {
     try std.testing.expectEqual(@as(usize, 2), sets.len);
     try std.testing.expectEqual(ledger.BundleOrigin.fan_rail, sets[0].origin);
     try std.testing.expectEqual(ledger.BundleOrigin.port_share, sets[1].origin);
-    try std.testing.expect(ledger.bundleMembers(sets, 7, 8));
-    try std.testing.expect(ledger.bundleMembers(sets, 0, 1));
+    try std.testing.expect(ledger.bundleMembersAt(sets, 7, 8, null));
+    try std.testing.expect(ledger.bundleMembersAt(sets, 0, 1, null));
 }
 
 test "appendPortShares replaces stale port-share origins instead of creating first-match duplicates" {
@@ -154,7 +154,7 @@ test "appendPortShares replaces stale port-share origins instead of creating fir
     try std.testing.expectEqual(ledger.BundleOrigin.port_share, sets[1].origin);
     try std.testing.expectEqual(ledger.no_bundle, sets[1].bundle);
     try std.testing.expectEqualSlices(sketch.EdgeId, &.{ 20, 21 }, sets[1].members);
-    try std.testing.expect(!ledger.bundleMembers(sets, 0, 1));
+    try std.testing.expect(!ledger.bundleMembersAt(sets, 0, 1, null));
 }
 
 test "final geometry alone defines shifted pair ids, cells, and bundle agreement" {
@@ -190,8 +190,8 @@ test "final geometry alone defines shifted pair ids, cells, and bundle agreement
     try std.testing.expectEqualSlices(sketch.EdgeId, &.{ 100, 101 }, final.bundle_sets[0].members);
     try std.testing.expectEqual(@as(sketch.EdgeId, 100), final.bundle_sets[0].pairwise.?[0].a);
     try std.testing.expectEqual(@as(sketch.EdgeId, 101), final.bundle_sets[0].pairwise.?[0].b);
-    try std.testing.expect(ledger.bundlesAgree(final.bundle_sets, 100, 101, .{ .x = 15, .y = 25 }));
-    try std.testing.expect(!ledger.bundlesAgree(final.bundle_sets, 100, 101, .{ .x = 99, .y = 99 }));
+    try std.testing.expect(ledger.bundleOf(final.bundle_sets, 100, .{ .x = 15, .y = 25 }) == ledger.bundleOf(final.bundle_sets, 101, .{ .x = 15, .y = 25 }));
+    try std.testing.expect(ledger.bundleOf(final.bundle_sets, 100, .{ .x = 99, .y = 99 }) != ledger.bundleOf(final.bundle_sets, 101, .{ .x = 99, .y = 99 }));
 }
 
 test "no edges, no sets" {
@@ -218,7 +218,7 @@ test "a port share licenses only its shared approach" {
         try std.testing.expect(ledger.bundleMembersAt(sets, 9, 11, .{ .x = cell.x, .y = cell.y }));
     }
     try std.testing.expect(!ledger.bundleMembersAt(sets, 9, 11, .{ .x = 21, .y = 15 }));
-    try std.testing.expect(ledger.bundleMembers(sets, 9, 11));
+    try std.testing.expect(ledger.bundleMembersAt(sets, 9, 11, null));
 }
 
 test "three members at one port group into one set, but a third member's approach licenses nothing between the other two" {
@@ -234,9 +234,9 @@ test "three members at one port group into one set, but a third member's approac
     const sets = try sketch_ports.portShareBundles(a, &edges);
     try expectOneSet(sets, &.{ 0, 1, 2 });
 
-    try std.testing.expect(ledger.bundleMembers(sets, 0, 1));
-    try std.testing.expect(ledger.bundleMembers(sets, 0, 2));
-    try std.testing.expect(ledger.bundleMembers(sets, 1, 2));
+    try std.testing.expect(ledger.bundleMembersAt(sets, 0, 1, null));
+    try std.testing.expect(ledger.bundleMembersAt(sets, 0, 2, null));
+    try std.testing.expect(ledger.bundleMembersAt(sets, 1, 2, null));
 
     try std.testing.expect(ledger.bundleMembersAt(sets, 0, 1, .{ .x = 5, .y = 7 }));
 
@@ -320,5 +320,5 @@ test "a rail member and path at one port with no common run license no merge" {
     };
     sketch_bundles.stamp(a, &final);
     try std.testing.expectEqual(sketch.BundleStampState.complete, final.bundle_stamp_state);
-    try std.testing.expect(!ledger.bundlesAgree(final.bundle_sets, 20, 30, .{ .x = 5, .y = 1 }));
+    try std.testing.expect(ledger.bundleOf(final.bundle_sets, 20, .{ .x = 5, .y = 1 }) != ledger.bundleOf(final.bundle_sets, 30, .{ .x = 5, .y = 1 }));
 }

@@ -159,7 +159,7 @@ pub fn stitch(
     // a disjoint contiguous id window here — children in append order, then the
     // outer piece, then the routed bridges — and EVERY id-bearing field copied
     // out of a piece (`EdgePath.id`, `Tap.edge`, `Bundle.members`) is rewritten
-    // with that piece's offset. Without it, `ledger.bundleMembers` and the identity
+    // with that piece's offset. Without it, `ledger.bundleMembersAt` and the identity
     // comparisons in `raster/` alias two unrelated edges that both numbered
     // themselves 0. The scheme composes under nesting: an inner merged Sketch
     // already satisfies the invariant, and the outer stitch only slides its

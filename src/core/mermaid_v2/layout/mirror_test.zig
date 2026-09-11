@@ -163,9 +163,9 @@ test "vertical BT mirror remaps clustered bundle scopes without changing identit
     try testing.expectEqual(@as(i32, 18), scoped.pairwise.?[1].cells[0].y);
     try testing.expectEqual(@as(i32, 17), scoped.pairwise.?[1].cells[1].y);
 
-    try testing.expect(ledger.bundlesAgree(s.bundle_sets, 1, 2, .{ .x = 4, .y = 12 }));
-    try testing.expect(!ledger.bundlesAgree(out.bundle_sets, 1, 2, .{ .x = 4, .y = 12 }));
-    try testing.expect(ledger.bundlesAgree(out.bundle_sets, 1, 2, .{ .x = 4, .y = 19 }));
+    try testing.expect(ledger.bundleOf(s.bundle_sets, 1, .{ .x = 4, .y = 12 }) == ledger.bundleOf(s.bundle_sets, 2, .{ .x = 4, .y = 12 }));
+    try testing.expect(ledger.bundleOf(out.bundle_sets, 1, .{ .x = 4, .y = 12 }) != ledger.bundleOf(out.bundle_sets, 2, .{ .x = 4, .y = 12 }));
+    try testing.expect(ledger.bundleOf(out.bundle_sets, 1, .{ .x = 4, .y = 19 }) == ledger.bundleOf(out.bundle_sets, 2, .{ .x = 4, .y = 19 }));
 }
 
 test "vertical mirror fails rather than exposing partially mirrored scopes" {

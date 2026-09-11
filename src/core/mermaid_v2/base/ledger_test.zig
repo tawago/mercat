@@ -49,11 +49,11 @@ test "co-membership needs both edges inside one set" {
         .{ .origin = .fan_rail, .members = &right },
     };
 
-    try expect(pb.bundleMembers(&sets, 1, 2));
-    try expect(pb.bundleMembers(&sets, 4, 3));
-    try expect(!pb.bundleMembers(&sets, 2, 3));
-    try expect(!pb.bundleMembers(&sets, 1, 9));
-    try expect(!pb.bundleMembers(&.{}, 1, 2));
+    try expect(pb.bundleMembersAt(&sets, 1, 2, null));
+    try expect(pb.bundleMembersAt(&sets, 4, 3, null));
+    try expect(!pb.bundleMembersAt(&sets, 2, 3, null));
+    try expect(!pb.bundleMembersAt(&sets, 1, 9, null));
+    try expect(!pb.bundleMembersAt(&.{}, 1, 2, null));
 }
 
 test "bundles from a plan name one bundle per selected bundle" {
@@ -233,17 +233,17 @@ test "keepOrigin selects exactly one origin's sets" {
     const shares = try pb.keepOrigin(std.testing.allocator, &sets, .port_share);
     defer std.testing.allocator.free(shares);
     try expectEqual(@as(usize, 2), shares.len);
-    try expect(pb.bundleMembers(shares, 2, 3));
-    try expect(pb.bundleMembers(shares, 6, 7));
-    try expect(!pb.bundleMembers(shares, 0, 1));
+    try expect(pb.bundleMembersAt(shares, 2, 3, null));
+    try expect(pb.bundleMembersAt(shares, 6, 7, null));
+    try expect(!pb.bundleMembersAt(shares, 0, 1, null));
 
     const head = [_]pb.Bundle{.{ .origin = .selected_bundle, .members = &.{ 8, 9 } }};
     const joined = try pb.concatBundles(std.testing.allocator, &head, shares);
     defer std.testing.allocator.free(joined);
     try expectEqual(@as(usize, 3), joined.len);
     try expectEqual(pb.BundleOrigin.selected_bundle, joined[0].origin);
-    try expect(pb.bundleMembers(joined, 8, 9));
-    try expect(pb.bundleMembers(joined, 6, 7));
+    try expect(pb.bundleMembersAt(joined, 8, 9, null));
+    try expect(pb.bundleMembersAt(joined, 6, 7, null));
 
     const no_joins = [_]pb.Bundle{.{ .origin = .fan_rail, .members = &.{ 0, 1 } }};
     try expectEqual(@as(usize, 0), (try pb.keepOrigin(std.testing.allocator, &no_joins, .selected_bundle)).len);
@@ -256,7 +256,7 @@ test "a cell-scoped bundle answers only inside its licensed cells" {
     try expect(pb.bundleMembersAt(&sets, 1, 2, .{ .x = 4, .y = 2 }));
     try expect(!pb.bundleMembersAt(&sets, 1, 2, .{ .x = 9, .y = 9 }));
     try expect(pb.bundleMembersAt(&sets, 1, 2, null));
-    try expect(pb.bundleMembers(&sets, 1, 2));
+    try expect(pb.bundleMembersAt(&sets, 1, 2, null));
     const wide = [_]pb.Bundle{.{ .origin = .fan_rail, .members = &.{ 1, 2 } }};
     try expect(pb.bundleMembersAt(&wide, 1, 2, .{ .x = 9, .y = 9 }));
 }
@@ -279,9 +279,9 @@ test "a pairwise-scoped set licenses only a pair's own common approach, never a 
     const sets = try pb.numberBundles(std.testing.allocator, &unnumbered);
     defer std.testing.allocator.free(sets);
 
-    try expect(pb.bundleMembers(sets, 0, 1));
-    try expect(pb.bundleMembers(sets, 0, 2));
-    try expect(pb.bundleMembers(sets, 1, 2));
+    try expect(pb.bundleMembersAt(sets, 0, 1, null));
+    try expect(pb.bundleMembersAt(sets, 0, 2, null));
+    try expect(pb.bundleMembersAt(sets, 1, 2, null));
 
     try expect(pb.bundleMembersAt(sets, 0, 1, .{ .x = 5, .y = 8 }));
     try expect(!pb.bundleMembersAt(sets, 0, 2, .{ .x = 5, .y = 8 }));
@@ -310,17 +310,16 @@ test "a numbered roster names every set exactly once" {
 
     try expectEqual(@as(pb.BundleId, 1), pb.bundleOf(roster, 0, null));
     try expectEqual(@as(pb.BundleId, 2), pb.bundleOf(roster, 3, null));
-    try expect(pb.bundlesAgree(roster, 0, 1, null));
-    try expect(!pb.bundlesAgree(roster, 1, 2, null));
+    try expect(pb.bundleOf(roster, 0, null) == pb.bundleOf(roster, 1, null));
+    try expect(pb.bundleOf(roster, 1, null) != pb.bundleOf(roster, 2, null));
 
     try expect(pb.privateBundle(0) != pb.privateBundle(1));
     try expectEqual(pb.privateBundle(9), pb.bundleOf(roster, 9, null));
     try expect(pb.bundleOf(roster, 9, null) != pb.bundleOf(roster, 8, null));
-    try expect(pb.bundlesAgree(roster, 9, 9, null));
 
     const blank = [_]pb.Bundle{.{ .origin = .fan_rail, .members = &a }};
     try expectEqual(pb.privateBundle(0), pb.bundleOf(&blank, 0, null));
-    try expect(!pb.bundlesAgree(&blank, 0, 1, null));
+    try expect(pb.bundleOf(&blank, 0, null) != pb.bundleOf(&blank, 1, null));
 }
 
 test "structural set resolution is unique and excludes scoped provenance" {
@@ -357,18 +356,18 @@ test "the derivation and the recorded identity answer alike on a declared bundle
     defer std.testing.allocator.free(roster);
 
     try expect(pb.derivedSameBundle(.{}, roster, 4, 5, null));
-    try expect(pb.bundlesAgree(roster, 4, 5, null));
+    try expect(pb.bundleOf(roster, 4, null) == pb.bundleOf(roster, 5, null));
     try expect(!pb.derivedSameBundle(.{}, roster, 4, 6, null));
-    try expect(!pb.bundlesAgree(roster, 4, 6, null));
+    try expect(pb.bundleOf(roster, 4, null) != pb.bundleOf(roster, 6, null));
 
     const here = [_]pb.BundleCell{.{ .x = 2, .y = 2 }};
     const scoped_raw = [_]pb.Bundle{.{ .origin = .port_share, .members = &members, .cells = &here }};
     const scoped = try pb.numberBundles(std.testing.allocator, &scoped_raw);
     defer std.testing.allocator.free(scoped);
     try expect(pb.derivedSameBundle(.{}, scoped, 4, 5, .{ .x = 2, .y = 2 }));
-    try expect(pb.bundlesAgree(scoped, 4, 5, .{ .x = 2, .y = 2 }));
+    try expect(pb.bundleOf(scoped, 4, .{ .x = 2, .y = 2 }) == pb.bundleOf(scoped, 5, .{ .x = 2, .y = 2 }));
     try expect(!pb.derivedSameBundle(.{}, scoped, 4, 5, .{ .x = 7, .y = 7 }));
-    try expect(!pb.bundlesAgree(scoped, 4, 5, .{ .x = 7, .y = 7 }));
+    try expect(pb.bundleOf(scoped, 4, .{ .x = 7, .y = 7 }) != pb.bundleOf(scoped, 5, .{ .x = 7, .y = 7 }));
 }
 
 test {

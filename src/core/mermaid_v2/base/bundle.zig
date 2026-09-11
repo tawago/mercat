@@ -169,18 +169,14 @@ pub fn concatBundles(
     return out;
 }
 
-/// True iff both edges appear in one bundle. Asked about DISTINCT ids: an
-/// edge and itself is a question about ownership, which the caller answers
-/// before it gets here.
+/// True iff both edges appear in one bundle that speaks for the position
+/// `at`: a set whose `cells` list is non-null answers only for the cells it
+/// licenses. `at = null` asks the membership question with NO position —
+/// "are these two ever co-members?", the right question for a report or a
+/// test — and no set's scope applies. Asked about DISTINCT ids: an edge and
+/// itself is a question about ownership, which the caller answers before it
+/// gets here.
 /// @guarded-by: ledger_test.zig "co-membership needs both edges inside one set"
-pub fn bundleMembers(sets: []const Bundle, first: EdgeId, second: EdgeId) bool {
-    return bundleMembersAt(sets, first, second, null);
-}
-
-/// `bundleMembers`, asked ABOUT A CELL: a set whose `cells` list is non-null
-/// answers only for the cells it licenses. `at = null` asks the membership
-/// question with NO position — "are these two ever co-members?", the right
-/// question for a report or a test — and no set's scope applies.
 /// @guarded-by: ledger_test.zig "a cell-scoped bundle answers only inside its licensed cells"
 pub fn bundleMembersAt(sets: []const Bundle, first: EdgeId, second: EdgeId, at: ?BundleCell) bool {
     for (sets) |set| {
@@ -346,13 +342,4 @@ pub fn bundleOf(sets: []const Bundle, edge: EdgeId, at: ?BundleCell) BundleId {
         }
     }
     return privateBundle(edge);
-}
-
-/// Do two carriers share a bundle at `at`, read off RECORDED IDENTITY: both
-/// sides name the same bundle. Nothing is recomputed from membership here —
-/// two lookups and one comparison — which is the whole difference from
-/// `bundleMembersAt`.
-pub fn bundlesAgree(sets: []const Bundle, first: EdgeId, second: EdgeId, at: ?BundleCell) bool {
-    if (first == second) return true;
-    return bundleOf(sets, first, at) == bundleOf(sets, second, at);
 }
