@@ -4,7 +4,7 @@
 //!
 //! Split out of realized.zig, which sat at the mermaid_v2 500-line cap.
 //! realized.zig re-exports every symbol here, so existing
-//! `realized.GroupClause` / `realized.Report` / `realized.Result` call sites
+//! `realized.GroupClause` / `realized.Result` call sites
 //! are source-compatible and type-identical.
 //!
 //! Pure data; imports base/ledger only (for the id + tag handles).

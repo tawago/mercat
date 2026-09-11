@@ -178,7 +178,6 @@ test "V-D-DUAL-04: a both-sides proposal set is CI-excluded by the filter and re
         if (rm.target) |d| try expect(d == .independent);
     }
     try expect((try jpv.validate(a, plan, disposed, fused.proposals)).valid());
-    try expectEqual(pb.DispositionClass.report_only, pb.classOf(.dual_membership_selected_both_sides));
 }
 
 test "V-D-DISPOSITION-01: incomplete-2x2 conflicts survive disposeUnsafe, all-independent withdrawal, render succeeds" {
@@ -196,7 +195,6 @@ test "V-D-DISPOSITION-01: incomplete-2x2 conflicts survive disposeUnsafe, all-in
         if (rm.source) |d| try expect(d == .independent);
         if (rm.target) |d| try expect(d == .independent);
     }
-    try expectEqual(pb.DispositionClass.report_only, pb.classOf(.bundle_select_independent_unsafe_component));
 
     const rendered = try raster.rasterize(a, winner.sketch, .bridge);
     const bytes = try paint.paint(a, rendered.lattice, winner.sketch.budget.max_width);

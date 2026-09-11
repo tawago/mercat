@@ -6,12 +6,11 @@ pub const Error = error{OutOfMemory};
 
 /// The report-only output vocabulary lives in the sibling
 /// realized_report.zig (split out at the 500-line cap); re-exported so every
-/// `realized.GroupClause` / `realized.Report` call site is unchanged.
+/// `realized.GroupClause` / `realized.Result` call site is unchanged.
 const report_types = @import("realized_report.zig");
 
 pub const GroupClause = report_types.GroupClause;
 pub const GroupVerdict = report_types.GroupVerdict;
-pub const Report = report_types.Report;
 pub const Result = report_types.Result;
 const tagFor = report_types.tagFor;
 

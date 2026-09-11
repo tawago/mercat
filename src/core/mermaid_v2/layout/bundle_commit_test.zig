@@ -234,17 +234,6 @@ test "a reversed member does not hide a closure refusal behind a null dispositio
     }
 }
 
-test "every closure-licence counter names a registered report-only tag" {
-    const fields = [_][]const u8{ "rail_closure_undeclared", "co_undeclared", "co_double_discharge" };
-    inline for (fields) |name| {
-        const tag = pb.tagByName(name) orelse return error.UnregisteredTag;
-        try std.testing.expectEqual(pb.DispositionClass.report_only, pb.classOf(tag));
-    }
-    try std.testing.expect(@hasField(bundle_commit.Report, fields[0]));
-    try std.testing.expect(@hasField(bundle_commit.Report, fields[1]));
-    try std.testing.expect(@hasField(realized.Report, fields[2]));
-}
-
 test "a clique whose pair edges are other rails' members keeps a rail" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();

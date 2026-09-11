@@ -488,8 +488,5 @@ pub fn attachmentKeyOrder(a: AttachmentKey, b: AttachmentKey) std.math.Order {
 
 const diagnostics = @import("diagnostics.zig");
 
-pub const DispositionClass = diagnostics.DispositionClass;
 pub const DiagnosticTag = diagnostics.DiagnosticTag;
 pub const tagName = diagnostics.tagName;
-pub const tagByName = diagnostics.tagByName;
-pub const classOf = diagnostics.classOf;

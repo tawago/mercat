@@ -231,15 +231,11 @@ test "Counts fields mirror the registered reach_* tags (11 CI + 1 RO skip) plus 
     inline for (@typeInfo(vc.Counts).@"struct".fields) |f| {
         n_fields += 1;
         if (comptime std.mem.eql(u8, f.name, "skipped_packed_candidate")) {
-            try expect(pb.tagByName("reach_" ++ f.name) == null);
-            try expect(pb.tagByName(f.name) == null);
+            try expect(!@hasField(pb.DiagnosticTag, "reach_" ++ f.name));
+            try expect(!@hasField(pb.DiagnosticTag, f.name));
             continue;
         }
-        const tag = pb.tagByName("reach_" ++ f.name) orelse
-            return error.UnregisteredCountField;
-        const expected_class: pb.DispositionClass =
-            if (comptime std.mem.eql(u8, f.name, "skipped_clustered")) .report_only else .candidate_invalid;
-        try expectEqual(expected_class, pb.classOf(tag));
+        try expect(@hasField(pb.DiagnosticTag, "reach_" ++ f.name));
     }
     try expectEqual(@as(usize, 13), n_fields);
 }

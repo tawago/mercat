@@ -1,27 +1,16 @@
-//! Static diagnostic registry (D-DISPOSITION items 1, 3, 5, 6): the four
-//! disposition classes, the closed tag enum, the record-verbatim name
-//! table, and the exhaustive tag -> class map.
+//! Static diagnostic registry (D-DISPOSITION items 1, 3): the closed tag
+//! enum and the record-verbatim name table.
 //!
 //! Split out of base/ledger.zig, which sat exactly at the mermaid_v2
 //! 500-line cap. ledger.zig re-exports every symbol here, so existing
-//! `pb.DiagnosticTag` / `pb.tagName` / `pb.tagByName` / `pb.classOf`
-//! call sites are source-compatible and type-identical.
+//! `pb.DiagnosticTag` / `pb.tagName` call sites are source-compatible and
+//! type-identical.
 //!
 //! Pure data + pure functions; imports only std. Universally importable
 //! (base/ no-deps tier) — enforced by tools/lint_imports.zig's base/ rule.
 //! Tests live in diagnostics_test.zig, aggregated from entry.zig.
 
 const std = @import("std");
-
-/// The four disposition classes are exhaustive. The
-/// `score_input` class is approved EMPTY of new members in this slice: no
-/// registered tag maps to it.
-pub const DispositionClass = enum {
-    report_only,
-    candidate_invalid,
-    render_fatal,
-    score_input,
-};
 
 /// The closed tag registry, declared in D-DISPOSITION item 3's own
 /// enumeration order (owning record noted per block). Tags whose
@@ -100,7 +89,7 @@ pub const DiagnosticTag = enum {
 };
 
 /// Record-verbatim tag string (dotted for the `bundle_select.*` family).
-/// @guarded-by: diagnostics_test.zig "tag names round-trip through tagByName"
+/// @guarded-by: diagnostics_test.zig "bundle_select tags spell their record-verbatim dotted names"
 pub fn tagName(tag: DiagnosticTag) []const u8 {
     return switch (tag) {
         .bundle_select_selected => "bundle_select.selected",
@@ -113,78 +102,5 @@ pub fn tagName(tag: DiagnosticTag) []const u8 {
         .bundle_select_duplicate_key_blocked => "bundle_select.duplicate_key_blocked",
         .bundle_select_proposal_multiplicity_blocked => "bundle_select.proposal_multiplicity_blocked",
         inline else => |t| @tagName(t),
-    };
-}
-
-/// Registry lookup by record-verbatim name. Null means UNREGISTERED — the
-/// disposition for firing such a tag is `disp_unregistered_diagnostic`
-/// (render-fatal backstop, D-DISPOSITION item 4).
-pub fn tagByName(name: []const u8) ?DiagnosticTag {
-    inline for (@typeInfo(DiagnosticTag).@"enum".fields) |f| {
-        const tag: DiagnosticTag = @enumFromInt(f.value);
-        if (std.mem.eql(u8, tagName(tag), name)) return tag;
-    }
-    return null;
-}
-
-/// The static tag → class registry: every tag by explicit name, no
-/// wildcard, no prefix, no else branch (D-DISPOSITION items 3, 5, 6).
-/// @guarded-by: diagnostics_test.zig "registry partitions the 48 tags RF 5 / CI 17 / RO 26"
-/// @guarded-by: diagnostics_test.zig "both invalidation tags are candidate-invalid (D-DISPOSITION item 5 row 4)"
-pub fn classOf(tag: DiagnosticTag) DispositionClass {
-    return switch (tag) {
-        .disp_unregistered_diagnostic,
-        .ink_grammar_render_fatal,
-        .join_policy_not_joined,
-        .port_key_collision,
-        .edgeid_unqualified_local_lookup,
-        => .render_fatal,
-
-        .reach_undeclared_pair,
-        .reach_missing_declared,
-        .reach_split_trace,
-        .reach_duplicate_trace,
-        .reach_bundle_split,
-        .reach_independent_joined,
-        .reach_cross_connected,
-        .reach_one_sided_adjacency,
-        .reach_mixed_stroke_junction,
-        .reach_unknown_continuation,
-        .reach_vector_raster_mismatch,
-        .port_coalesced,
-        .port_departure_conflict,
-        .port_capacity_exceeded,
-        .realized_plan_missing,
-        .selected_bundle_invalidated,
-        .bundle_select_invalidated,
-        => .candidate_invalid,
-
-        .disp_terminal_fallback_engaged,
-        .rail_member_style_mixed,
-        .rail_member_invisible,
-        .rail_pivot_side_arrow,
-        .rail_duplicate_pair,
-        .dual_membership_edges,
-        .dual_membership_selected_both_sides,
-        .permission_overlap_conflicts,
-        .bundle_select_selected,
-        .bundle_select_independent_not_selected,
-        .bundle_select_independent_overlap_conflict,
-        .bundle_select_independent_unsafe_component,
-        .bundle_select_conflict_neither,
-        .bundle_select_cluster_skipped,
-        .bundle_select_duplicate_key_blocked,
-        .bundle_select_proposal_multiplicity_blocked,
-        .intentional_bundles,
-        .reach_skipped_clustered,
-        .bundle_permits_skipped_clustered,
-        .port_skipped_clustered,
-        .edgeid_scope_clustered_skipped,
-        .rail_deco_mixed,
-        .rail_star_violation,
-        .rail_closure_undeclared,
-        .co_undeclared,
-        .co_double_discharge,
-        => .report_only,
     };
 }
