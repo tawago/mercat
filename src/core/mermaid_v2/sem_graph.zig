@@ -210,42 +210,6 @@ pub const SemGraph = struct {
         }
         self.* = undefined;
     }
-
-    /// Look up a node by raw_id (linear scan, fine for fixture-sized graphs).
-    pub fn findNode(self: SemGraph, raw_id: []const u8) ?NodeId {
-        for (self.nodes) |n| {
-            if (std.mem.eql(u8, n.raw_id, raw_id)) return n.id;
-        }
-        return null;
-    }
-
-    /// Look up a cluster by raw_id (linear scan).
-    pub fn findCluster(self: SemGraph, raw_id: []const u8) ?ClusterId {
-        for (self.clusters) |c| {
-            if (std.mem.eql(u8, c.raw_id, raw_id)) return c.id;
-        }
-        return null;
-    }
-
-    /// Number of nodes in the graph.
-    pub fn nodeCount(self: SemGraph) usize {
-        return self.nodes.len;
-    }
-
-    /// Number of edges in the graph.
-    pub fn edgeCount(self: SemGraph) usize {
-        return self.edges.len;
-    }
-
-    /// Allocate and return ids of all nodes whose `cluster` is null. Caller owns the slice.
-    pub fn topLevelNodes(self: SemGraph, allocator: std.mem.Allocator) ![]const NodeId {
-        var list = std.ArrayList(NodeId){};
-        errdefer list.deinit(allocator);
-        for (self.nodes) |n| {
-            if (n.cluster == null) try list.append(allocator, n.id);
-        }
-        return try list.toOwnedSlice(allocator);
-    }
 };
 
 test "SemGraph manual construction round-trip" {
@@ -321,16 +285,16 @@ test "SemGraph manual construction round-trip" {
         .arena = null,
     };
 
-    try std.testing.expectEqual(@as(usize, 3), g.nodeCount());
-    try std.testing.expectEqual(@as(usize, 2), g.edgeCount());
+    try std.testing.expectEqual(@as(usize, 3), g.nodes.len);
+    try std.testing.expectEqual(@as(usize, 2), g.edges.len);
 
-    try std.testing.expectEqual(@as(?NodeId, 0), g.findNode("A"));
-    try std.testing.expectEqual(@as(?NodeId, 1), g.findNode("B"));
-    try std.testing.expectEqual(@as(?NodeId, 2), g.findNode("C"));
-    try std.testing.expectEqual(@as(?NodeId, null), g.findNode("Z"));
+    try std.testing.expectEqualStrings("A", g.nodes[0].raw_id);
+    try std.testing.expectEqualStrings("B", g.nodes[1].raw_id);
+    try std.testing.expectEqualStrings("C", g.nodes[2].raw_id);
+    for (g.nodes, 0..) |n, i| try std.testing.expectEqual(@as(NodeId, @intCast(i)), n.id);
 
-    try std.testing.expectEqual(@as(?ClusterId, 0), g.findCluster("inner"));
-    try std.testing.expectEqual(@as(?ClusterId, null), g.findCluster("outer"));
+    try std.testing.expectEqualStrings("inner", g.clusters[0].raw_id);
+    try std.testing.expectEqual(@as(ClusterId, 0), g.clusters[0].id);
 
     try std.testing.expectEqual(Direction.LR, g.direction);
     try std.testing.expectEqual(NodeShape.rhombus, g.nodes[2].shape);

@@ -15,12 +15,20 @@ const ClusterId = sg.ClusterId;
 
 const t = std.testing;
 
+/// Look up a node by raw_id (linear scan over fixture-sized graphs).
+fn findNode(g: sg.SemGraph, raw_id: []const u8) ?NodeId {
+    for (g.nodes) |n| {
+        if (std.mem.eql(u8, n.raw_id, raw_id)) return n.id;
+    }
+    return null;
+}
+
 test "empty graph" {
     var g = try parse(t.allocator, "flowchart TD\n");
     defer g.deinit(t.allocator);
     try t.expectEqual(Direction.TD, g.direction);
-    try t.expectEqual(@as(usize, 0), g.nodeCount());
-    try t.expectEqual(@as(usize, 0), g.edgeCount());
+    try t.expectEqual(@as(usize, 0), g.nodes.len);
+    try t.expectEqual(@as(usize, 0), g.edges.len);
 }
 
 test "TB normalises to TD" {
@@ -32,8 +40,8 @@ test "TB normalises to TD" {
 test "single edge implicit nodes" {
     var g = try parse(t.allocator, "flowchart TD\nA --> B\n");
     defer g.deinit(t.allocator);
-    try t.expectEqual(@as(usize, 2), g.nodeCount());
-    try t.expectEqual(@as(usize, 1), g.edgeCount());
+    try t.expectEqual(@as(usize, 2), g.nodes.len);
+    try t.expectEqual(@as(usize, 1), g.edges.len);
     try t.expectEqual(EdgeKind.solid, g.edges[0].kind);
     try t.expectEqual(ArrowEnd.filled, g.edges[0].arrow_to);
     try t.expectEqual(ArrowEnd.none, g.edges[0].arrow_from);
@@ -44,7 +52,7 @@ test "all shapes" {
     var g = try parse(t.allocator, src);
     defer g.deinit(t.allocator);
     const want = [_]NodeShape{ .rect, .round, .circle, .subroutine, .cylinder, .stadium, .rhombus, .hexagon, .asymmetric_right, .parallelogram, .parallelogram_alt, .trapezoid, .trapezoid_alt };
-    try t.expectEqual(want.len, g.nodeCount());
+    try t.expectEqual(want.len, g.nodes.len);
     for (want, 0..) |w, i| try t.expectEqual(w, g.nodes[i].shape);
     try t.expectEqualStrings("rect", g.nodes[0].label);
 }
@@ -62,14 +70,14 @@ test "subgraph with members" {
 test "edge label" {
     var g = try parse(t.allocator, "flowchart TD\nA -->|yes| B\n");
     defer g.deinit(t.allocator);
-    try t.expectEqual(@as(usize, 1), g.edgeCount());
+    try t.expectEqual(@as(usize, 1), g.edges.len);
     try t.expectEqualStrings("yes", g.edges[0].label.?);
 }
 
 test "edge variants" {
     var g = try parse(t.allocator, "flowchart TD\nA --> B\nB --- C\nC -.-> D\nD ==> E\nE ~~~ F\n");
     defer g.deinit(t.allocator);
-    try t.expectEqual(@as(usize, 5), g.edgeCount());
+    try t.expectEqual(@as(usize, 5), g.edges.len);
     try t.expectEqual(EdgeKind.solid, g.edges[0].kind);
     try t.expectEqual(EdgeKind.dotted, g.edges[2].kind);
     try t.expectEqual(EdgeKind.thick, g.edges[3].kind);
@@ -79,16 +87,16 @@ test "edge variants" {
 test "double-ended circle/cross edge builds one edge, no phantom node" {
     var gc = try parse(t.allocator, "flowchart TD\nA o--o B\n");
     defer gc.deinit(t.allocator);
-    try t.expectEqual(@as(usize, 2), gc.nodeCount());
-    try t.expectEqual(@as(usize, 1), gc.edgeCount());
+    try t.expectEqual(@as(usize, 2), gc.nodes.len);
+    try t.expectEqual(@as(usize, 1), gc.edges.len);
     try t.expectEqual(EdgeKind.solid, gc.edges[0].kind);
     try t.expectEqual(ArrowEnd.circle, gc.edges[0].arrow_from);
     try t.expectEqual(ArrowEnd.circle, gc.edges[0].arrow_to);
 
     var gx = try parse(t.allocator, "flowchart TD\nA x--x B\n");
     defer gx.deinit(t.allocator);
-    try t.expectEqual(@as(usize, 2), gx.nodeCount());
-    try t.expectEqual(@as(usize, 1), gx.edgeCount());
+    try t.expectEqual(@as(usize, 2), gx.nodes.len);
+    try t.expectEqual(@as(usize, 1), gx.edges.len);
     try t.expectEqual(ArrowEnd.cross, gx.edges[0].arrow_from);
     try t.expectEqual(ArrowEnd.cross, gx.edges[0].arrow_to);
 }
@@ -110,8 +118,8 @@ test "inline class via :::" {
 test "chained edges" {
     var g = try parse(t.allocator, "flowchart TD\nA --> B --> C\n");
     defer g.deinit(t.allocator);
-    try t.expectEqual(@as(usize, 3), g.nodeCount());
-    try t.expectEqual(@as(usize, 2), g.edgeCount());
+    try t.expectEqual(@as(usize, 3), g.nodes.len);
+    try t.expectEqual(@as(usize, 2), g.edges.len);
 }
 
 test "multi-word and quoted label" {
@@ -124,8 +132,8 @@ test "multi-word and quoted label" {
 test "inline-label edge form `-- text -->`" {
     var g = try parse(t.allocator, "flowchart TD\nA -- Yes --> B\n");
     defer g.deinit(t.allocator);
-    try t.expectEqual(@as(usize, 2), g.nodeCount());
-    try t.expectEqual(@as(usize, 1), g.edgeCount());
+    try t.expectEqual(@as(usize, 2), g.nodes.len);
+    try t.expectEqual(@as(usize, 1), g.edges.len);
     try t.expectEqualStrings("Yes", g.edges[0].label.?);
     try t.expectEqual(EdgeKind.solid, g.edges[0].kind);
 }
@@ -133,7 +141,7 @@ test "inline-label edge form `-- text -->`" {
 test "inline-label edge keeps bare links intact" {
     var g = try parse(t.allocator, "flowchart TD\nA --- B\nC -.-> D\nE ==> F\n");
     defer g.deinit(t.allocator);
-    try t.expectEqual(@as(usize, 3), g.edgeCount());
+    try t.expectEqual(@as(usize, 3), g.edges.len);
     try t.expectEqual(@as(?[]const u8, null), g.edges[0].label);
     try t.expectEqual(EdgeKind.solid, g.edges[0].kind);
 }
@@ -141,7 +149,7 @@ test "inline-label edge keeps bare links intact" {
 test "inline-label edge: dotted and thick carry labels" {
     var g = try parse(t.allocator, "flowchart TD\nA -. retry .-> B\nB == go ==> C\n");
     defer g.deinit(t.allocator);
-    try t.expectEqual(@as(usize, 2), g.edgeCount());
+    try t.expectEqual(@as(usize, 2), g.edges.len);
     try t.expectEqualStrings("retry", g.edges[0].label.?);
     try t.expectEqual(EdgeKind.dotted, g.edges[0].kind);
     try t.expectEqualStrings("go", g.edges[1].label.?);
@@ -151,7 +159,7 @@ test "inline-label edge: dotted and thick carry labels" {
 test "quoted label with brackets and operators is opaque" {
     var g = try parse(t.allocator, "flowchart TD\nT[\"Apply Scale[0..100] & Round()\"]\nC{\"if v > 0.5 && v < 9.5\"}\n");
     defer g.deinit(t.allocator);
-    try t.expectEqual(@as(usize, 2), g.nodeCount());
+    try t.expectEqual(@as(usize, 2), g.nodes.len);
     try t.expectEqualStrings("Apply Scale[0..100] & Round()", g.nodes[0].label);
     try t.expectEqual(NodeShape.rect, g.nodes[0].shape);
     try t.expectEqualStrings("if v > 0.5 && v < 9.5", g.nodes[1].label);
@@ -161,14 +169,14 @@ test "quoted label with brackets and operators is opaque" {
 test "quoted edge label with special chars" {
     var g = try parse(t.allocator, "flowchart TD\nA -->|\"pass: in range\"| B\n");
     defer g.deinit(t.allocator);
-    try t.expectEqual(@as(usize, 1), g.edgeCount());
+    try t.expectEqual(@as(usize, 1), g.edges.len);
     try t.expectEqualStrings("pass: in range", g.edges[0].label.?);
 }
 
 test "stadium shape `([...])`" {
     var g = try parse(t.allocator, "flowchart TD\nA([Access Denied])\n");
     defer g.deinit(t.allocator);
-    try t.expectEqual(@as(usize, 1), g.nodeCount());
+    try t.expectEqual(@as(usize, 1), g.nodes.len);
     try t.expectEqual(NodeShape.stadium, g.nodes[0].shape);
     try t.expectEqualStrings("Access Denied", g.nodes[0].label);
 }
@@ -187,57 +195,57 @@ test "cluster endpoints desugar to representative members" {
     );
     defer g.deinit(t.allocator);
 
-    try t.expectEqual(@as(usize, 4), g.nodeCount());
-    try t.expectEqual(@as(?NodeId, null), g.findNode("Source"));
-    try t.expectEqual(@as(?NodeId, null), g.findNode("Target"));
-    try t.expectEqual(@as(usize, 3), g.edgeCount());
-    try t.expectEqual(g.findNode("B").?, g.edges[2].from);
-    try t.expectEqual(g.findNode("C").?, g.edges[2].to);
+    try t.expectEqual(@as(usize, 4), g.nodes.len);
+    try t.expectEqual(@as(?NodeId, null), findNode(g, "Source"));
+    try t.expectEqual(@as(?NodeId, null), findNode(g, "Target"));
+    try t.expectEqual(@as(usize, 3), g.edges.len);
+    try t.expectEqual(findNode(g, "B").?, g.edges[2].from);
+    try t.expectEqual(findNode(g, "C").?, g.edges[2].to);
 }
 
 test "ampersand fan-out: targets" {
     var g = try parse(t.allocator, "flowchart TD\nLB --> Web1 & Web2 & Web3\n");
     defer g.deinit(t.allocator);
-    try t.expectEqual(@as(usize, 4), g.nodeCount());
-    try t.expectEqual(@as(usize, 3), g.edgeCount());
-    for (g.edges) |e| try t.expectEqual(g.findNode("LB").?, e.from);
-    try t.expectEqual(g.findNode("Web3").?, g.edges[2].to);
+    try t.expectEqual(@as(usize, 4), g.nodes.len);
+    try t.expectEqual(@as(usize, 3), g.edges.len);
+    for (g.edges) |e| try t.expectEqual(findNode(g, "LB").?, e.from);
+    try t.expectEqual(findNode(g, "Web3").?, g.edges[2].to);
 }
 
 test "ampersand fan-in: sources" {
     var g = try parse(t.allocator, "flowchart TD\nD & E & F --> G\n");
     defer g.deinit(t.allocator);
-    try t.expectEqual(@as(usize, 4), g.nodeCount());
-    try t.expectEqual(@as(usize, 3), g.edgeCount());
-    for (g.edges) |e| try t.expectEqual(g.findNode("G").?, e.to);
-    try t.expectEqual(g.findNode("D").?, g.edges[0].from);
+    try t.expectEqual(@as(usize, 4), g.nodes.len);
+    try t.expectEqual(@as(usize, 3), g.edges.len);
+    for (g.edges) |e| try t.expectEqual(findNode(g, "G").?, e.to);
+    try t.expectEqual(findNode(g, "D").?, g.edges[0].from);
 }
 
 test "ampersand both sides: cross-product with shapes and edge label" {
     var g = try parse(t.allocator, "flowchart TD\nA[Start] & B((Hub)) -->|go| C & D{End?}\n");
     defer g.deinit(t.allocator);
-    try t.expectEqual(@as(usize, 4), g.nodeCount());
-    try t.expectEqual(@as(usize, 4), g.edgeCount());
+    try t.expectEqual(@as(usize, 4), g.nodes.len);
+    try t.expectEqual(@as(usize, 4), g.edges.len);
     for (g.edges) |e| try t.expectEqualStrings("go", e.label.?);
-    try t.expectEqualStrings("Start", g.nodes[g.findNode("A").?].label);
-    try t.expectEqual(NodeShape.circle, g.nodes[g.findNode("B").?].shape);
-    try t.expectEqual(NodeShape.rhombus, g.nodes[g.findNode("D").?].shape);
+    try t.expectEqualStrings("Start", g.nodes[findNode(g, "A").?].label);
+    try t.expectEqual(NodeShape.circle, g.nodes[findNode(g, "B").?].shape);
+    try t.expectEqual(NodeShape.rhombus, g.nodes[findNode(g, "D").?].shape);
 }
 
 test "ampersand chaining: targets become next hop's sources" {
     var g = try parse(t.allocator, "flowchart TD\nA --> B & C --> D\n");
     defer g.deinit(t.allocator);
-    try t.expectEqual(@as(usize, 4), g.nodeCount());
-    try t.expectEqual(@as(usize, 4), g.edgeCount());
-    try t.expectEqual(g.findNode("D").?, g.edges[2].to);
-    try t.expectEqual(g.findNode("B").?, g.edges[2].from);
-    try t.expectEqual(g.findNode("C").?, g.edges[3].from);
+    try t.expectEqual(@as(usize, 4), g.nodes.len);
+    try t.expectEqual(@as(usize, 4), g.edges.len);
+    try t.expectEqual(findNode(g, "D").?, g.edges[2].to);
+    try t.expectEqual(findNode(g, "B").?, g.edges[2].from);
+    try t.expectEqual(findNode(g, "C").?, g.edges[3].from);
 }
 
 test "double-circle shape `(((...)))`" {
     var g = try parse(t.allocator, "flowchart TD\nS(((Start))) --> E(((Finished)))\n");
     defer g.deinit(t.allocator);
-    try t.expectEqual(@as(usize, 2), g.nodeCount());
+    try t.expectEqual(@as(usize, 2), g.nodes.len);
     try t.expectEqual(NodeShape.double_circle, g.nodes[0].shape);
     try t.expectEqualStrings("Start", g.nodes[0].label);
     try t.expectEqual(NodeShape.double_circle, g.nodes[1].shape);
@@ -256,17 +264,17 @@ test "skippable directives are consumed without effect" {
         \\
     );
     defer g.deinit(t.allocator);
-    try t.expectEqual(@as(usize, 3), g.nodeCount());
-    try t.expectEqual(@as(usize, 2), g.edgeCount());
+    try t.expectEqual(@as(usize, 3), g.nodes.len);
+    try t.expectEqual(@as(usize, 2), g.edges.len);
     try t.expectEqual(@as(u32, 0), g.skipped_lines);
 }
 
 test "line recovery: bad non-edge line is dropped, rest renders" {
     var g = try parse(t.allocator, "flowchart TD\nA --> B\nC[x] D\nE --> F\n");
     defer g.deinit(t.allocator);
-    try t.expectEqual(@as(usize, 4), g.nodeCount());
-    try t.expectEqual(@as(usize, 2), g.edgeCount());
-    try t.expectEqual(@as(?NodeId, null), g.findNode("C"));
+    try t.expectEqual(@as(usize, 4), g.nodes.len);
+    try t.expectEqual(@as(usize, 2), g.edges.len);
+    try t.expectEqual(@as(?NodeId, null), findNode(g, "C"));
     try t.expectEqual(@as(u32, 1), g.skipped_lines);
 }
 
@@ -291,7 +299,7 @@ test "empty clusters are pruned (node keeps its first cluster)" {
     try t.expectEqual(@as(usize, 1), g.clusters.len);
     try t.expectEqualStrings("First", g.clusters[0].raw_id);
     try t.expectEqual(@as(usize, 2), g.clusters[0].members.len);
-    try t.expectEqual(@as(usize, 2), g.edgeCount());
+    try t.expectEqual(@as(usize, 2), g.edges.len);
 }
 
 test "nested subgraph: parent survives via kept child with no own members" {
@@ -332,8 +340,8 @@ test "dropped empty cluster leaves no dangling node->cluster reference" {
     );
     defer g.deinit(t.allocator);
     try t.expectEqual(@as(usize, 2), g.clusters.len);
-    const first_id = g.nodes[g.findNode("L").?].cluster.?;
-    const third_id = g.nodes[g.findNode("X").?].cluster.?;
+    const first_id = g.nodes[findNode(g, "L").?].cluster.?;
+    const third_id = g.nodes[findNode(g, "X").?].cluster.?;
     try t.expectEqualStrings("First", g.clusters[first_id].raw_id);
     try t.expectEqualStrings("Third", g.clusters[third_id].raw_id);
     for (g.nodes, 0..) |node, nid| {
@@ -360,8 +368,8 @@ test "cluster id node declarations still create ordinary nodes" {
     );
     defer g.deinit(t.allocator);
 
-    const sid = g.findNode("S") orelse return error.TestExpectedEqual;
-    try t.expectEqual(@as(usize, 2), g.nodeCount());
+    const sid = findNode(g, "S") orelse return error.TestExpectedEqual;
+    try t.expectEqual(@as(usize, 2), g.nodes.len);
     try t.expectEqualStrings("Standalone", g.nodes[sid].label);
     try t.expectEqual(@as(?ClusterId, null), g.nodes[sid].cluster);
 }

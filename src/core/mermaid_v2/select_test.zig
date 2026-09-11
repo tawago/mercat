@@ -278,8 +278,16 @@ test "reachReports: node-key table maps raw_id bytes and tolerates sparse ids" {
     const g = try parse(a, "flowchart TD\n  Alpha --> Beta\n");
     const keys = try select.nodeKeyTable(a, g);
     try std.testing.expectEqual(@as(usize, 2), keys.len);
-    try std.testing.expectEqualStrings("Alpha", keys[g.findNode("Alpha").?]);
-    try std.testing.expectEqualStrings("Beta", keys[g.findNode("Beta").?]);
+    try std.testing.expectEqualStrings("Alpha", keys[nodeIdOf(g, "Alpha").?]);
+    try std.testing.expectEqualStrings("Beta", keys[nodeIdOf(g, "Beta").?]);
+}
+
+/// Look up a node id by raw_id (linear scan over the parsed fixture).
+fn nodeIdOf(g: anytype, raw_id: []const u8) ?@TypeOf(g.nodes[0].id) {
+    for (g.nodes) |n| {
+        if (std.mem.eql(u8, n.raw_id, raw_id)) return n.id;
+    }
+    return null;
 }
 
 /// The plan's own answer to "may these two edges share ink": co-membership of

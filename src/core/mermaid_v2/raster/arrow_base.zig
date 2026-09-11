@@ -105,42 +105,6 @@ pub fn baseFeedsArrow(cell: *const lattice.Cell, tip: lattice.Dir4) bool {
     }
 }
 
-/// True when the arrowhead at `(x,y)` (tip `tip`) is fed by an EDGE stroke
-/// coming in PERPENDICULAR to the tip axis — i.e. the edge turned the corner
-/// AT the arrowhead (`─▼`, `───▲`). Those are routing/orientation artifacts,
-/// not a missing base stub: the ink genuinely arrives from the side, so a base
-/// weld would fabricate a connection the edge never made. A perpendicular
-/// FRAME/BORDER cell coincident with the arrowhead is NOT a side-feed (the
-/// frame just passes through), so this checks the neighbour's OCCUPANT, not the
-/// arrowhead's own inherited mask.
-pub fn sideFed(lat: *const lattice.Lattice, x: u32, y: u32, tip: lattice.Dir4) bool {
-    const w = lat.width;
-    const h = lat.height;
-    const Probe = struct { nx: ?u32, ny: ?u32, need: lattice.Neighbours };
-    var probes: [2]Probe = undefined;
-    switch (tip) {
-        .north, .south => {
-            probes[0] = .{ .nx = if (x >= 1) x - 1 else null, .ny = y, .need = .{ .e = true } };
-            probes[1] = .{ .nx = if (x + 1 < w) x + 1 else null, .ny = y, .need = .{ .w = true } };
-        },
-        .east, .west => {
-            probes[0] = .{ .nx = x, .ny = if (y >= 1) y - 1 else null, .need = .{ .s = true } };
-            probes[1] = .{ .nx = x, .ny = if (y + 1 < h) y + 1 else null, .need = .{ .n = true } };
-        },
-    }
-    for (probes) |p| {
-        const nx = p.nx orelse continue;
-        const ny = p.ny orelse continue;
-        const c = lat.atConst(nx, ny);
-        const is_edgey = switch (c.occupant) {
-            .edge_segment, .arrowhead => true,
-            else => false,
-        };
-        if (is_edgey and (c.neighbours.toMask() & p.need.toMask()) != 0) return true;
-    }
-    return false;
-}
-
 /// Scan the final lattice and tally, for every arrowhead: a base-side cell
 /// that does not feed the triangle (owner ruling), a tip neighbour that is
 /// not the port it decorates, and each lateral arm the cell ships. Pure
