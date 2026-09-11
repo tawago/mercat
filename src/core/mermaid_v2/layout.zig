@@ -188,7 +188,7 @@ fn buildSketch(
     // do not belong to. The policy axis is a RASTER-form axis; both twins
     // claim the same rows.
     // @guarded-by: select_test3.zig "the beside twin keeps the labeled fan's reserved rows"
-    if (fans.len > 0) fan_mod.gateLabelReservations(NodeGeom, graph, fans, geom, opts.max_width, opts.h_spacing);
+    if (fans.len > 0) fan_mod.refreshLabelWidths(graph, fans);
 
     // The levers read and move the layer axis — a grid stacks a layer's
     // nodes into sub-rows — so the layers are laid out once at base

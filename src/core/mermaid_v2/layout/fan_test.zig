@@ -153,7 +153,7 @@ test "detect keeps a long member as a fan-out peer, labeled or not" {
     };
     const kf = kept orelse return error.MissingFanOut;
     try testing.expectEqual(@as(usize, 3), kf.peers.len);
-    fan.gateLabelReservations(fan.FanEdge, labeled_graph, labeled, &.{}, 120, 4);
+    fan.refreshLabelWidths(labeled_graph, labeled);
     for (kf.peers) |p| if (p.long) try testing.expectEqual(@as(u32, 0), p.label_width);
 }
 
@@ -328,9 +328,7 @@ test "detect marks a fan labeled iff a member edge carries a label" {
     try testing.expect(fans_lbl[0].labeled);
 }
 
-test "label reservation gate clears doomed fans and keeps feasible ones" {
-    const Geom = struct { x: i32, y: i32, w: u32, h: u32 };
-
+test "refreshLabelWidths reads each member's label width and flags the fan labeled" {
     var peers = [_]fan.FanEdge{
         .{ .edge_id = 0, .peer_idx = 1, .role = .leftmost },
         .{ .edge_id = 1, .peer_idx = 2, .role = .rightmost },
@@ -347,20 +345,10 @@ test "label reservation gate clears doomed fans and keeps feasible ones" {
         .classes = &.{},
         .arena = null,
     };
-    const geom = [_]Geom{
-        .{ .x = 4, .y = 0, .w = 5, .h = 3 },
-        .{ .x = 0, .y = 6, .w = 5, .h = 3 },
-        .{ .x = 9, .y = 6, .w = 5, .h = 3 },
-    };
-
-    var fans_ok = [_]fan.Fan{.{ .direction = .out, .pivot_idx = 0, .source_layer = 0, .peers = &peers, .labeled = true }};
-    fan.gateLabelReservations(Geom, g_short, &fans_ok, &geom, 20, 4);
-    try testing.expect(fans_ok[0].labeled);
-
-    var fans_wrap = [_]fan.Fan{.{ .direction = .out, .pivot_idx = 0, .source_layer = 0, .peers = &peers, .labeled = true }};
-    fan.gateLabelReservations(Geom, g_short, &fans_wrap, &geom, 13, 4);
-    try testing.expect(fans_wrap[0].labeled);
-    try testing.expectEqual(@as(u32, 3), fans_wrap[0].peers[0].label_width);
+    var fans_short = [_]fan.Fan{.{ .direction = .out, .pivot_idx = 0, .source_layer = 0, .peers = &peers, .labeled = true }};
+    fan.refreshLabelWidths(g_short, &fans_short);
+    try testing.expect(fans_short[0].labeled);
+    try testing.expectEqual(@as(u32, 3), fans_short[0].peers[0].label_width);
 
     var wide_edges = [_]sg.Edge{ mkEdge2(0, 0, 1), mkEdge2(1, 0, 2) };
     wide_edges[0].label = "averyveryverylonglabel";
@@ -373,7 +361,7 @@ test "label reservation gate clears doomed fans and keeps feasible ones" {
         .arena = null,
     };
     var fans_wide = [_]fan.Fan{.{ .direction = .out, .pivot_idx = 0, .source_layer = 0, .peers = &peers, .labeled = true }};
-    fan.gateLabelReservations(Geom, g_wide, &fans_wide, &geom, 20, 4);
+    fan.refreshLabelWidths(g_wide, &fans_wide);
     try testing.expect(fans_wide[0].labeled);
     try testing.expectEqual(prim.displayWidth("averyveryverylonglabel"), fans_wide[0].peers[0].label_width);
 }

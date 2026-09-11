@@ -209,12 +209,10 @@ fn peerLabel(graph: sg.SemGraph, edge_id: u32) ?[]const u8 {
     return null;
 }
 
-/// Refresh per-member display widths before row reservation. Width pressure is
-/// explicit in the bbox diagnostic; it never licenses silent label loss.
-pub fn gateLabelReservations(comptime G: type, graph: sg.SemGraph, fans: []Fan, geom: []const G, budget: u32, h_spacing: u32) void {
-    _ = geom;
-    _ = budget;
-    _ = h_spacing;
+/// Refresh per-member label display widths before row reservation and flag
+/// each fan that carries at least one. Width pressure is explicit in the bbox
+/// diagnostic; it never licenses silent label loss, so no width is refused here.
+pub fn refreshLabelWidths(graph: sg.SemGraph, fans: []Fan) void {
     for (fans) |*f| {
         f.labeled = false;
         for (f.peers) |*p| {
