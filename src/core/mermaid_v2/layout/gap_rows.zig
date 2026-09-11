@@ -53,13 +53,10 @@ const fans_mod = @import("gap_rows_fans.zig");
 
 pub const Kind = pack_mod.Kind;
 pub const End = pack_mod.End;
-pub const FanKey = pack_mod.FanKey;
 pub const Claim = pack_mod.Claim;
 pub const Post = pack_mod.Post;
-pub const GapAccount = pack_mod.GapAccount;
 pub const GapWalls = pack_mod.GapWalls;
 pub const Ledger = pack_mod.Ledger;
-pub const pack = pack_mod.pack;
 pub const Super = census_mod.Super;
 pub const predictPorts = census_mod.predictPorts;
 const packSub = pack_mod.packSub;

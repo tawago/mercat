@@ -17,10 +17,7 @@ const rp = @import("routing_polyline.zig");
 const lanes = @import("../base/lanes.zig");
 
 pub const LaneClaim = lanes.LaneClaim;
-pub const Assignment = lanes.Assignment;
 pub const assign = lanes.assign;
-pub const Gutter = lanes.Gutter;
-pub const gutter = lanes.gutter;
 
 /// Inflate `r` by `pad + 1` on the CROSS axis only (the axis the run's
 /// position lives on), leaving the flow axis untouched. With the inflation,

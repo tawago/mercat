@@ -90,7 +90,7 @@ test "an RL piece claims its offset jogs in the gap beside the target" {
     const bases = [_]u32{4};
     const ledger = try gap_rows.buildPiece(Geom, aa, graph, lg, &geom, &.{}, .{}, .{}, &bases, &.{}, &.{});
     try testing.expectEqual(@as(?i32, 0), ledger.rowOfEdge(0, .exit));
-    try testing.expectEqual(@as(u32, 1), ledger.rowsUsed(0));
+    try testing.expectEqual(@as(u32, 1), ledger.gaps[0].rows_used);
     try testing.expectEqual(@as(u32, 0), ledger.extraRows(0));
 }
 
@@ -131,7 +131,7 @@ test "a sub-gap grows by the rows its packed claims need beyond the grid's" {
     var subs = [_]grid.SubGap{.{ .gap = 1, .layer = 0, .top = 6, .far = 3, .base = 3 }};
     const claims = [_]Claim{ claim(1, 0, 10, .run), claim(1, 5, 20, .corridor_entry) };
     const l = try pack_mod.packSub(a, &claims, &.{}, &bases, &subs);
-    try testing.expectEqual(@as(u32, 2), l.rowsUsed(1));
+    try testing.expectEqual(@as(u32, 2), l.gaps[1].rows_used);
     try testing.expectEqual(@as(u32, 1), l.extraRows(1));
     const walls = [_]gap_rows.GapWalls{ .{ .far = 3, .near = 5 }, .{ .far = 3, .near = 6 } };
     const reserved = [_]u32{2};
@@ -156,7 +156,7 @@ test "a run arriving down a column another run departs from sits nearer the targ
         .{ .gap = 0, .lo = 30, .hi = 59, .kind = .corridor_entry, .end = .entry, .stems = &x_stem, .taps = &x_tap },
         .{ .gap = 0, .lo = 51, .hi = 71, .kind = .fan_out, .stems = &y_stem, .taps = &y_tap },
     };
-    const l = try gap_rows.pack(a, &claims, &.{}, &bases);
+    const l = try pack_mod.pack(a, &claims, &.{}, &bases);
     try testing.expectEqual(@as(i32, 0), rowOf(l, 51));
     try testing.expectEqual(@as(i32, 1), rowOf(l, 30));
 }
@@ -271,7 +271,7 @@ test "a fan-OUT run whose span holds another fan-OUT's taps sits nearer the sour
         .{ .gap = 0, .lo = 28, .hi = 70, .kind = .fan_out, .stems = &dotted_stems, .taps = &dotted_taps },
         .{ .gap = 0, .lo = 52, .hi = 92, .kind = .fan_out, .stems = &right_stem, .taps = &right_tap },
     };
-    const ledger = try gap_rows.pack(a, &claims, &.{}, &bases);
+    const ledger = try pack_mod.pack(a, &claims, &.{}, &bases);
     try testing.expectEqual(@as(i32, 0), rowOf(ledger, 28));
     try testing.expectEqual(@as(i32, 1), rowOf(ledger, 8));
     try testing.expectEqual(@as(i32, 1), rowOf(ledger, 52));
@@ -287,7 +287,7 @@ test "a fan-OUT run whose span holds another fan-OUT's taps sits nearer the sour
         .{ .gap = 0, .lo = 8, .hi = 92, .kind = .fan_in, .stems = &outer_stem, .taps = &outer_taps },
         .{ .gap = 0, .lo = 28, .hi = 70, .kind = .fan_in, .stems = &inner_stem, .taps = &inner_taps },
     };
-    const li = try gap_rows.pack(a, &arrivals, &.{}, &bases);
+    const li = try pack_mod.pack(a, &arrivals, &.{}, &bases);
     try testing.expectEqual(@as(i32, 0), rowOf(li, 8));
     try testing.expectEqual(@as(i32, 1), rowOf(li, 28));
 }

@@ -20,11 +20,6 @@ const pb = @import("../base/ledger.zig");
 const rail_closure = @import("../base/rail_closure.zig");
 const port_plan = @import("port_plan.zig");
 
-/// Revert flag for the behavior-parity escape hatch: `false` restores the
-/// per-peer fan polylines (the old `fan.buildPolyline` path, which stays
-/// compiled for grid fans regardless). Not score-inert either way.
-pub const FAN_RAILS = true;
-
 /// One built rail plus the MUTABLE views layout retains so
 /// `clusters.computeBbox`'s shift pass can translate the geometry in
 /// place (same pattern as `routing.EdgesResult.polylines`).
@@ -75,7 +70,6 @@ pub const Resolved = struct {
 /// read. `resolve` asks it first; the row ledger asks it to know which
 /// fans draw a rail and which members that rail draws.
 pub fn eligible(fan: fan_mod.Fan, graph: sg.SemGraph, bundles: pb.RealizedBundles) bool {
-    if (!FAN_RAILS) return false;
     if (bundles.memberships.len == 0 and fan.direction != .out) return false;
     // A rail is ONE crossbar on ONE row, so it can only speak for a fan
     // whose members all belong on that row. When a lane pass has lifted a

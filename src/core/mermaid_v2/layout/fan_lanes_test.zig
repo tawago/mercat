@@ -92,7 +92,7 @@ test "incomplete overlapping fans get separate lanes" {
     // the gap reserves exactly those two rows; the fan-IN's members are
     // drawn by the rails and claim nothing of their own.
     const ledger = try gap_rows.buildPiece(Geom, aa, graph, lg, &geom, fans, .{}, .{}, &.{2}, &.{}, &.{});
-    try testing.expectEqual(@as(u32, 2), ledger.rowsUsed(0));
+    try testing.expectEqual(@as(u32, 2), ledger.gaps[0].rows_used);
     try testing.expectEqual(@as(u32, 2), ledger.extraRows(0));
     try testing.expectEqual(@as(?i32, null), ledger.rowOfFan(4, .in));
 }
@@ -129,7 +129,7 @@ test "lane-separated rails take distinct ledger rows and the gap reserves exactl
     const row_a = ledger.rowOfFan(0, .out) orelse return error.MissingRail;
     const row_c = ledger.rowOfFan(2, .out) orelse return error.MissingRail;
     try testing.expect(row_a != row_c);
-    try testing.expectEqual(@as(u32, 2), ledger.rowsUsed(0));
+    try testing.expectEqual(@as(u32, 2), ledger.gaps[0].rows_used);
     for (ledger.gaps) |g| try testing.expectEqual(g.rows_used -| g.free, ledger.extraRows(0));
 }
 

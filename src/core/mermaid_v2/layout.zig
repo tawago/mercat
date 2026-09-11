@@ -43,7 +43,6 @@ const port_plan = @import("layout/port_plan.zig");
 pub const FixedSize = sizing.FixedSize;
 
 pub const LayoutOptions = options.LayoutOptions;
-pub const Justify = options.Justify;
 
 pub const CoordsError = error{
     OutOfMemory,

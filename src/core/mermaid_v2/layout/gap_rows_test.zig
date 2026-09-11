@@ -8,6 +8,7 @@ const pb = @import("../base/ledger.zig");
 const sugiyama = @import("sugiyama.zig");
 const fan = @import("fan.zig");
 const gap_rows = @import("gap_rows.zig");
+const pack_mod = @import("gap_rows_pack.zig");
 const port_plan = @import("port_plan.zig");
 const ports = @import("ports.zig");
 const flt = @import("fan_lanes_test.zig");
@@ -31,13 +32,13 @@ test "spans separated by one blank cell share a row; abutting spans do not" {
     const bases = [_]u32{2};
 
     const apart = [_]Claim{ claim(0, 7, 13, .fan_in), claim(0, 15, 36, .fan_in) };
-    const l1 = try gap_rows.pack(a, &apart, &.{}, &bases);
-    try testing.expectEqual(@as(u32, 1), l1.rowsUsed(0));
+    const l1 = try pack_mod.pack(a, &apart, &.{}, &bases);
+    try testing.expectEqual(@as(u32, 1), l1.gaps[0].rows_used);
     try testing.expectEqual(rowOf(l1, 7), rowOf(l1, 15));
 
     const abutting = [_]Claim{ claim(0, 7, 14, .fan_in), claim(0, 15, 36, .fan_in) };
-    const l2 = try gap_rows.pack(a, &abutting, &.{}, &bases);
-    try testing.expectEqual(@as(u32, 2), l2.rowsUsed(0));
+    const l2 = try pack_mod.pack(a, &abutting, &.{}, &bases);
+    try testing.expectEqual(@as(u32, 2), l2.gaps[0].rows_used);
     try testing.expect(rowOf(l2, 7) != rowOf(l2, 15));
 }
 
@@ -48,7 +49,7 @@ test "an arrival rail stacks nearer the target than the departure rail it confli
     const bases = [_]u32{2};
     // The departure comes first by left endpoint; the order still puts the arrival at row 0.
     const claims = [_]Claim{ claim(0, 0, 20, .fan_out), claim(0, 5, 25, .fan_in) };
-    const l = try gap_rows.pack(a, &claims, &.{}, &bases);
+    const l = try pack_mod.pack(a, &claims, &.{}, &bases);
     try testing.expectEqual(@as(i32, 0), rowOf(l, 5));
     try testing.expectEqual(@as(i32, 1), rowOf(l, 0));
     try testing.expectEqual(@as(u32, 2), l.extraRows(0));
@@ -68,7 +69,7 @@ test "a rail whose stem column is a foreign tap's column sits where that tap end
         .{ .gap = 0, .lo = 0, .hi = 10, .kind = .fan_in, .stems = &x_stem, .taps = &x_taps },
         .{ .gap = 0, .lo = 10, .hi = 30, .kind = .fan_in, .stems = &y_stem, .taps = &y_taps },
     };
-    const li = try gap_rows.pack(a, &arrivals, &.{}, &bases);
+    const li = try pack_mod.pack(a, &arrivals, &.{}, &bases);
     try testing.expectEqual(@as(i32, 0), rowOf(li, 0));
     try testing.expectEqual(@as(i32, 1), rowOf(li, 10));
     // Departure rails: the same column facts put X above Y.
@@ -76,7 +77,7 @@ test "a rail whose stem column is a foreign tap's column sits where that tap end
         .{ .gap = 0, .lo = 0, .hi = 10, .kind = .fan_out, .stems = &x_stem, .taps = &x_taps },
         .{ .gap = 0, .lo = 10, .hi = 30, .kind = .fan_out, .stems = &y_stem, .taps = &y_taps },
     };
-    const lo = try gap_rows.pack(a, &departures, &.{}, &bases);
+    const lo = try pack_mod.pack(a, &departures, &.{}, &bases);
     try testing.expectEqual(@as(i32, 1), rowOf(lo, 0));
     try testing.expectEqual(@as(i32, 0), rowOf(lo, 10));
 }
@@ -94,8 +95,8 @@ test "a precedence cycle falls back to left-endpoint order" {
         .{ .gap = 0, .lo = 0, .hi = 20, .kind = .fan_in, .stems = &x_stem, .taps = &x_taps },
         .{ .gap = 0, .lo = 0, .hi = 20, .kind = .fan_in, .stems = &y_stem, .taps = &y_taps },
     };
-    const l = try gap_rows.pack(a, &claims, &.{}, &bases);
-    try testing.expectEqual(@as(u32, 2), l.rowsUsed(0));
+    const l = try pack_mod.pack(a, &claims, &.{}, &bases);
+    try testing.expectEqual(@as(u32, 2), l.gaps[0].rows_used);
 }
 
 test "a run with no decorated end keeps the base row only when no claim or post shares a column with it" {
@@ -105,18 +106,18 @@ test "a run with no decorated end keeps the base row only when no claim or post 
     const bases = [_]u32{2};
     var alone = [_]Claim{claim(0, 0, 10, .run)};
     alone[0].base_ok = true;
-    const l1 = try gap_rows.pack(a, &alone, &.{}, &bases);
+    const l1 = try pack_mod.pack(a, &alone, &.{}, &bases);
     try testing.expectEqual(@as(i32, -1), rowOf(l1, 0));
     try testing.expectEqual(@as(u32, 0), l1.extraRows(0));
 
     const posts = [_]gap_rows.Post{.{ .gap = 0, .x = 5 }};
-    const l2 = try gap_rows.pack(a, &alone, &posts, &bases);
+    const l2 = try pack_mod.pack(a, &alone, &posts, &bases);
     try testing.expectEqual(@as(i32, 0), rowOf(l2, 0));
     try testing.expectEqual(@as(u32, 1), l2.extraRows(0));
 
     var crowded = [_]Claim{ claim(0, 0, 10, .run), claim(0, 8, 30, .fan_in) };
     crowded[0].base_ok = true;
-    const l3 = try gap_rows.pack(a, &crowded, &.{}, &bases);
+    const l3 = try pack_mod.pack(a, &crowded, &.{}, &bases);
     try testing.expect(rowOf(l3, 0) >= 0);
 }
 
@@ -126,8 +127,8 @@ test "rows the base spacing already holds cost nothing" {
     const a = arena.allocator();
     const bases = [_]u32{4};
     const claims = [_]Claim{ claim(0, 0, 10, .run), claim(0, 5, 15, .run), claim(0, 8, 20, .run) };
-    const l = try gap_rows.pack(a, &claims, &.{}, &bases);
-    try testing.expectEqual(@as(u32, 3), l.rowsUsed(0));
+    const l = try pack_mod.pack(a, &claims, &.{}, &bases);
+    try testing.expectEqual(@as(u32, 3), l.gaps[0].rows_used);
     try testing.expectEqual(@as(u32, 1), l.extraRows(0));
 }
 
@@ -139,16 +140,16 @@ test "fans of one class sharing a column fuse into one claim; other classes stay
     var fused = [_]Claim{ claim(0, 0, 20, .fan_in), claim(0, 0, 20, .fan_in) };
     fused[0].fuse = 0;
     fused[1].fuse = 0;
-    const l1 = try gap_rows.pack(a, &fused, &.{}, &bases);
+    const l1 = try pack_mod.pack(a, &fused, &.{}, &bases);
     try testing.expectEqual(@as(usize, 1), l1.claims.len);
-    try testing.expectEqual(@as(u32, 1), l1.rowsUsed(0));
+    try testing.expectEqual(@as(u32, 1), l1.gaps[0].rows_used);
 
     var apart = [_]Claim{ claim(0, 0, 20, .fan_in), claim(0, 0, 20, .fan_in) };
     apart[0].fuse = 0;
     apart[1].fuse = 1;
-    const l2 = try gap_rows.pack(a, &apart, &.{}, &bases);
+    const l2 = try pack_mod.pack(a, &apart, &.{}, &bases);
     try testing.expectEqual(@as(usize, 2), l2.claims.len);
-    try testing.expectEqual(@as(u32, 2), l2.rowsUsed(0));
+    try testing.expectEqual(@as(u32, 2), l2.gaps[0].rows_used);
 }
 
 fn port(node: sg.NodeId, side: @import("../sketch.zig").Dir4, offset: u32) @import("../sketch.zig").Port {
@@ -216,7 +217,7 @@ test "four disjoint realized rails share one row and the gap is rail, run, head"
 
     try testing.expectEqual(@as(usize, 4), ledger.claims.len);
     for (ledger.claims) |c| try testing.expectEqual(@as(i32, 0), c.row);
-    try testing.expectEqual(@as(u32, 1), ledger.rowsUsed(0));
+    try testing.expectEqual(@as(u32, 1), ledger.gaps[0].rows_used);
     try testing.expectEqual(@as(u32, 1), ledger.extraRows(0));
     try testing.expectEqual(@as(?i32, 0), ledger.rowOfFan(4, .in));
     try testing.expectEqual(@as(?i32, 0), ledger.rowOfFan(5, .in));
@@ -329,12 +330,12 @@ test "a labeled fan claims its rail row and one label band; an unlabeled fan cla
     };
     const unlabeled = [_]fan.Fan{.{ .direction = .out, .pivot_idx = 0, .source_layer = 0, .peers = &peers }};
     const lu = try gap_rows.buildPiece(Geom, aa, graph, lg, &geom, &unlabeled, .{}, .{}, &bases, &.{}, &.{});
-    try testing.expectEqual(@as(u32, 1), lu.rowsUsed(0));
+    try testing.expectEqual(@as(u32, 1), lu.gaps[0].rows_used);
 
     peers[0].label_width = 3;
     const labeled = [_]fan.Fan{.{ .direction = .out, .pivot_idx = 0, .source_layer = 0, .peers = &peers, .labeled = true }};
     const ll = try gap_rows.buildPiece(Geom, aa, graph, lg, &geom, &labeled, .{}, .{}, &bases, &.{}, &.{});
-    try testing.expectEqual(fan.LABEL_RUN_EXTRA_ROWS, ll.rowsUsed(0));
+    try testing.expectEqual(fan.LABEL_RUN_EXTRA_ROWS, ll.gaps[0].rows_used);
 }
 
 test "a fan-OUT with three labeled members claims the same rows as one with a single labeled member" {
@@ -363,13 +364,13 @@ test "a fan-OUT with three labeled members claims the same rows as one with a si
     };
     const one = [_]fan.Fan{.{ .direction = .out, .pivot_idx = 0, .source_layer = 0, .peers = &peers, .labeled = true }};
     const l_one = try gap_rows.buildPiece(Geom, aa, graph, lg, &geom, &one, .{}, .{}, &bases, &.{}, &.{});
-    try testing.expectEqual(fan.LABEL_RUN_EXTRA_ROWS, l_one.rowsUsed(0));
+    try testing.expectEqual(fan.LABEL_RUN_EXTRA_ROWS, l_one.gaps[0].rows_used);
 
     peers[1].label_width = 3;
     peers[2].label_width = 3;
     const three = [_]fan.Fan{.{ .direction = .out, .pivot_idx = 0, .source_layer = 0, .peers = &peers, .labeled = true }};
     const l_three = try gap_rows.buildPiece(Geom, aa, graph, lg, &geom, &three, .{}, .{}, &bases, &.{}, &.{});
-    try testing.expectEqual(l_one.rowsUsed(0), l_three.rowsUsed(0));
+    try testing.expectEqual(l_one.gaps[0].rows_used, l_three.gaps[0].rows_used);
 }
 
 test "predicted ports give a side face its real length: three back edges on a TD node's east face allocate" {
@@ -439,7 +440,7 @@ test "two unlabeled duplicate arrows claim the detour bands and the gap reaches 
     // and both span from the track left of every node (x 0) to the
     // rightmost port (x 6).
     try testing.expectEqual(@as(usize, 2), ledger.claims.len);
-    try testing.expectEqual(@as(u32, 4), ledger.rowsUsed(0));
+    try testing.expectEqual(@as(u32, 4), ledger.gaps[0].rows_used);
     try testing.expectEqual(@as(u32, 4), ledger.extraRows(0));
     for (ledger.claims) |c| {
         try testing.expectEqual(@as(i32, 0), c.lo);

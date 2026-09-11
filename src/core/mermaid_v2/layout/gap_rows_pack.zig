@@ -121,10 +121,6 @@ pub const Ledger = struct {
         return pb.gapSpacingNeeded(g.rows_used, g.base_used) -| g.base;
     }
 
-    pub fn rowsUsed(self: Ledger, gap: usize) u32 {
-        return if (gap < self.gaps.len) self.gaps[gap].rows_used else 0;
-    }
-
     /// The rail row of a fan (null when the fan draws no run).
     pub fn rowOfFan(self: Ledger, pivot_idx: u32, direction: fan_mod.Direction) ?i32 {
         for (self.claims) |c| for (c.fans) |k| {
