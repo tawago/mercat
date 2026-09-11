@@ -52,12 +52,6 @@ pub fn midpoint(side_len: u32) u32 {
     return side_len / 2;
 }
 
-/// Capacity of one side: floor((L-1)/2). Demand p is satisfiable iff L >= 2p+1.
-/// @guarded-by: ports_test.zig "V-D-PORT-04: capacity boundary L=2p+1 allocates and L=2p fails typed"
-pub fn capacity(side_len: u32) u32 {
-    return (side_len -| 1) / 2;
-}
-
 pub fn satisfiable(side_len: u32, demand: u32) bool {
     return side_len >= 2 * demand + 1;
 }
@@ -413,62 +407,6 @@ fn capacityPayload(a: std.mem.Allocator, candidate: CandidateRef, node: pb.NodeI
         .edges = try edges.toOwnedSlice(a),
         .groups = try groups.toOwnedSlice(a),
     };
-}
-
-/// The two cells one attachment owns: its border attachment cell and the
-/// first off-node cell collinear with the port. The route MUST run
-/// straight (perpendicular to the side) through the departure cell — no
-/// turn there — and no other attachment's ink may enter it.
-pub const DepartureOwnership = struct { port_cell: sk.Point, departure_cell: sk.Point };
-
-/// @guarded-by: ports_test.zig "departure ownership: first off-node cell collinear with the port on all four sides"
-pub fn departureOwnership(rect: sk.Rect, side: sk.Dir4, offset: u32) DepartureOwnership {
-    const off: i32 = @intCast(offset);
-    const x = rect.x + off;
-    const y = rect.y + off;
-    return switch (side) {
-        .north => .{ .port_cell = .{ .x = x, .y = rect.y }, .departure_cell = .{ .x = x, .y = rect.y - 1 } },
-        .south => .{ .port_cell = .{ .x = x, .y = rect.bottom() - 1 }, .departure_cell = .{ .x = x, .y = rect.bottom() } },
-        .west => .{ .port_cell = .{ .x = rect.x, .y = y }, .departure_cell = .{ .x = rect.x - 1, .y = y } },
-        .east => .{ .port_cell = .{ .x = rect.right() - 1, .y = y }, .departure_cell = .{ .x = rect.right(), .y = y } },
-    };
-}
-
-/// shared_cell: two terminals resolve to one cell. departure_ownership:
-/// departure cells 4-adjacent (offset delta 1) — clause-8 ownership
-/// breached even though the border cells are distinct. offset_formula:
-/// offsets/ordinals drift from the clause-7 formula.
-pub const CoalesceDetail = enum { shared_cell, departure_ownership, offset_formula };
-
-pub const Coalesced = struct {
-    tag: pb.DiagnosticTag = .port_coalesced,
-    node: pb.NodeId,
-    side: sk.Dir4,
-    detail: CoalesceDetail,
-    /// The offending offset pair (equal for a single-assignment breach).
-    offsets: [2]u32,
-};
-
-/// Verify an allocation result: no two terminals on one cell, clause-8
-/// departure ownership, clause-7 offsets. Null = clean. Checks run in
-/// that order so each detail is reachable.
-/// @guarded-by: ports_test.zig "validateAssignments accepts clause-7 output and flags shared cells, departure breaches, and formula drift as port_coalesced"
-pub fn validateAssignments(node: pb.NodeId, side: sk.Dir4, side_len: u32, assignments: []const Assignment) ?Coalesced {
-    const p: u32 = @intCast(assignments.len);
-    for (assignments, 0..) |x, i| for (assignments[0..i]) |y| {
-        if (x.offset == y.offset)
-            return .{ .node = node, .side = side, .detail = .shared_cell, .offsets = .{ y.offset, x.offset } };
-    };
-    for (assignments, 0..) |x, i| for (assignments[0..i]) |y| {
-        const delta = if (x.offset > y.offset) x.offset - y.offset else y.offset - x.offset;
-        if (delta == 1)
-            return .{ .tag = .port_departure_conflict, .node = node, .side = side, .detail = .departure_ownership, .offsets = .{ y.offset, x.offset } };
-    };
-    for (assignments, 0..) |x, i| {
-        if (x.ordinal != i or !satisfiable(side_len, p) or x.offset != offsetAt(side_len, p, @intCast(i)))
-            return .{ .node = node, .side = side, .detail = .offset_formula, .offsets = .{ x.offset, x.offset } };
-    }
-    return null;
 }
 
 fn nodeById(graph: sg.SemGraph, id: sg.NodeId) ?sg.Node {

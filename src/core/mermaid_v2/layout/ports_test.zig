@@ -59,7 +59,7 @@ test "V-D-PORT-03: offsets follow o_i = m-(p-1)+2i with pitch 2 and corners excl
     while (side_len <= 13) : (side_len += 1) {
         const m = ports.midpoint(side_len);
         var p: u32 = 1;
-        while (p <= ports.capacity(side_len) and p <= names.len) : (p += 1) {
+        while (p <= (side_len -| 1) / 2 and p <= names.len) : (p += 1) {
             var atts: std.ArrayListUnmanaged(ports.Attachment) = .empty;
             for (names[0..p], 0..) |name, i|
                 try atts.append(a, att(name, .source_exit, @intCast(i), 0));
@@ -83,7 +83,6 @@ test "V-D-PORT-03: p=3 on a w=5 node demands w_min=7 and allocates offsets 1,3,5
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
-    try std.testing.expectEqual(@as(u32, 2), ports.capacity(5));
     try std.testing.expect(!ports.satisfiable(5, 3));
     const dims = ports.demandDims(.{ .south = 3 });
     try std.testing.expectEqual(@as(u32, 7), dims.w_min);
@@ -431,57 +430,6 @@ test "side conventions are frozen per direction for forward, reversed, and self-
     try t.expectEqual(sk.Dir4.south, ports.selfLoopSide(.LR, .target_entry));
     try t.expectEqual(sk.Dir4.south, ports.selfLoopSide(.RL, .source_exit));
     try t.expectEqual(sk.Dir4.south, ports.selfLoopSide(.RL, .target_entry));
-}
-
-test "departure ownership: first off-node cell collinear with the port on all four sides" {
-    const t = std.testing;
-    const rect: sk.Rect = .{ .x = 10, .y = 20, .w = 5, .h = 3 };
-    const north = ports.departureOwnership(rect, .north, 2);
-    try t.expectEqual(sk.Point{ .x = 12, .y = 20 }, north.port_cell);
-    try t.expectEqual(sk.Point{ .x = 12, .y = 19 }, north.departure_cell);
-    const south = ports.departureOwnership(rect, .south, 2);
-    try t.expectEqual(sk.Point{ .x = 12, .y = 22 }, south.port_cell);
-    try t.expectEqual(sk.Point{ .x = 12, .y = 23 }, south.departure_cell);
-    const west = ports.departureOwnership(rect, .west, 1);
-    try t.expectEqual(sk.Point{ .x = 10, .y = 21 }, west.port_cell);
-    try t.expectEqual(sk.Point{ .x = 9, .y = 21 }, west.departure_cell);
-    const east = ports.departureOwnership(rect, .east, 1);
-    try t.expectEqual(sk.Point{ .x = 14, .y = 21 }, east.port_cell);
-    try t.expectEqual(sk.Point{ .x = 15, .y = 21 }, east.departure_cell);
-    const d1 = ports.departureOwnership(rect, .south, 1).departure_cell;
-    const d2 = ports.departureOwnership(rect, .south, 3).departure_cell;
-    try t.expectEqual(@as(i32, 2), d2.x - d1.x);
-    try t.expectEqual(d1.y, d2.y);
-}
-
-test "validateAssignments accepts clause-7 output and flags shared cells, departure breaches, and formula drift as port_coalesced" {
-    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
-    defer arena.deinit();
-    const a = arena.allocator();
-    const atts = [_]ports.Attachment{
-        att("a", .source_exit, 0, 0),
-        att("b", .source_exit, 1, 0),
-        att("c", .source_exit, 2, 0),
-    };
-    const good = try assigned(try ports.allocate(a, no_candidate, 0, .south, 9, &atts));
-    try std.testing.expectEqual(@as(?ports.Coalesced, null), ports.validateAssignments(0, .south, 9, good));
-
-    var mutated = try a.dupe(ports.Assignment, good);
-    mutated[1].offset = mutated[0].offset;
-    const shared = ports.validateAssignments(0, .south, 9, mutated).?;
-    try std.testing.expectEqual(pb.DiagnosticTag.port_coalesced, shared.tag);
-    try std.testing.expectEqual(ports.CoalesceDetail.shared_cell, shared.detail);
-
-    mutated = try a.dupe(ports.Assignment, good);
-    mutated[1].offset = mutated[0].offset + 1;
-    const breach = ports.validateAssignments(0, .south, 9, mutated).?;
-    try std.testing.expectEqual(pb.DiagnosticTag.port_departure_conflict, breach.tag);
-    try std.testing.expectEqual(ports.CoalesceDetail.departure_ownership, breach.detail);
-
-    mutated = try a.dupe(ports.Assignment, good);
-    for (mutated) |*assignment| assignment.offset -= 2;
-    const drift = ports.validateAssignments(0, .south, 9, mutated).?;
-    try std.testing.expectEqual(ports.CoalesceDetail.offset_formula, drift.detail);
 }
 
 test "demandDims computes 2*max+1 per axis" {
