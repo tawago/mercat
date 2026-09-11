@@ -4,6 +4,7 @@ const std = @import("std");
 const sketch = @import("../sketch.zig");
 const sg = @import("../sem_graph.zig");
 const ledger = @import("../base/ledger.zig");
+const rail_star = @import("../base/rail_star.zig");
 const split_mod = @import("split.zig");
 const stitch_rails = @import("stitch_rails.zig");
 
@@ -23,7 +24,7 @@ fn member(edge: sketch.EdgeId, from: sketch.NodeId, to: sketch.NodeId, pivot_end
     };
 }
 
-fn claim(id: ledger.RailClaimId, polarity: ledger.RailPolarity, members: []const ledger.RailClaimMember) ledger.RailClaim {
+fn claim(id: rail_star.RailClaimId, polarity: ledger.RailPolarity, members: []const ledger.RailClaimMember) ledger.RailClaim {
     return .{ .id = id, .polarity = polarity, .members = members };
 }
 
@@ -106,9 +107,9 @@ test "stitch rails: child claims deep-remap first-class and peer-drawn carriers 
 
     const got = try stitch_rails.transport(a, emptySplit(&.{}), &sources, outer, &.{ 50, 51, 52 }, 60);
     try testing.expectEqual(@as(usize, 3), got.len);
-    try testing.expectEqual(@as(ledger.RailClaimId, 1), got[0].id);
-    try testing.expectEqual(@as(ledger.RailClaimId, 2), got[1].id);
-    try testing.expectEqual(@as(ledger.RailClaimId, 3), got[2].id);
+    try testing.expectEqual(@as(rail_star.RailClaimId, 1), got[0].id);
+    try testing.expectEqual(@as(rail_star.RailClaimId, 2), got[1].id);
+    try testing.expectEqual(@as(rail_star.RailClaimId, 3), got[2].id);
     try testing.expect(got[0].members.ptr != first_members[0..].ptr);
 
     try testing.expectEqual(@as(sketch.EdgeId, 20), got[0].members[0].edge);

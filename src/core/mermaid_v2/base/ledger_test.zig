@@ -6,6 +6,7 @@
 const std = @import("std");
 const prim = @import("prim");
 const pb = @import("ledger.zig");
+const bundle_mod = @import("bundle.zig");
 
 const expect = std.testing.expect;
 const expectEqual = std.testing.expectEqual;
@@ -68,9 +69,9 @@ test "bundles from a plan name one bundle per selected bundle" {
     defer std.testing.allocator.free(sets);
 
     try expectEqual(@as(usize, 2), sets.len);
-    try expectEqual(pb.BundleOrigin.selected_bundle, sets[0].origin);
+    try expectEqual(bundle_mod.BundleOrigin.selected_bundle, sets[0].origin);
     try std.testing.expectEqualSlices(pb.EdgeId, &.{ 7, 8 }, sets[0].members);
-    try expectEqual(pb.BundleOrigin.selected_bundle, sets[1].origin);
+    try expectEqual(bundle_mod.BundleOrigin.selected_bundle, sets[1].origin);
     try std.testing.expectEqualSlices(pb.EdgeId, &.{ 20, 21, 22 }, sets[1].members);
 
     try expectEqual(@as(usize, 0), (try pb.bundlesFromPlan(std.testing.allocator, .{})).len);
@@ -241,7 +242,7 @@ test "keepOrigin selects exactly one origin's sets" {
     const joined = try pb.concatBundles(std.testing.allocator, &head, shares);
     defer std.testing.allocator.free(joined);
     try expectEqual(@as(usize, 3), joined.len);
-    try expectEqual(pb.BundleOrigin.selected_bundle, joined[0].origin);
+    try expectEqual(bundle_mod.BundleOrigin.selected_bundle, joined[0].origin);
     try expect(pb.bundleMembersAt(joined, 8, 9, null));
     try expect(pb.bundleMembersAt(joined, 6, 7, null));
 
@@ -290,7 +291,7 @@ test "a pairwise-scoped set licenses only a pair's own common approach, never a 
     try expect(pb.bundleMembersAt(sets, 1, 2, .{ .x = 5, .y = 3 }));
 
     try expect(pb.bundleOf(sets, 0, .{ .x = 5, .y = 8 }) != pb.no_bundle);
-    try expect(pb.bundleOf(sets, 2, .{ .x = 5, .y = 8 }) == pb.privateBundle(2));
+    try expect(pb.bundleOf(sets, 2, .{ .x = 5, .y = 8 }) == bundle_mod.privateBundle(2));
 }
 
 test "a numbered roster names every set exactly once" {
@@ -313,12 +314,12 @@ test "a numbered roster names every set exactly once" {
     try expect(pb.bundleOf(roster, 0, null) == pb.bundleOf(roster, 1, null));
     try expect(pb.bundleOf(roster, 1, null) != pb.bundleOf(roster, 2, null));
 
-    try expect(pb.privateBundle(0) != pb.privateBundle(1));
-    try expectEqual(pb.privateBundle(9), pb.bundleOf(roster, 9, null));
+    try expect(bundle_mod.privateBundle(0) != bundle_mod.privateBundle(1));
+    try expectEqual(bundle_mod.privateBundle(9), pb.bundleOf(roster, 9, null));
     try expect(pb.bundleOf(roster, 9, null) != pb.bundleOf(roster, 8, null));
 
     const blank = [_]pb.Bundle{.{ .origin = .fan_rail, .members = &a }};
-    try expectEqual(pb.privateBundle(0), pb.bundleOf(&blank, 0, null));
+    try expectEqual(bundle_mod.privateBundle(0), pb.bundleOf(&blank, 0, null));
     try expect(pb.bundleOf(&blank, 0, null) != pb.bundleOf(&blank, 1, null));
 }
 

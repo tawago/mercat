@@ -6,6 +6,7 @@ const std = @import("std");
 const sketch = @import("sketch.zig");
 const sem_graph = @import("sem_graph.zig");
 const ledger = @import("base/ledger.zig");
+const rail_star = @import("base/rail_star.zig");
 const lattice = @import("lattice.zig");
 const recurse = @import("recurse.zig");
 const raster = @import("raster.zig");
@@ -45,7 +46,7 @@ test "a nested clustered fan-in loses no RailClaim during either stitch" {
     const s = try recurse.layoutPieces(a, graph, .{ .max_width = 120 });
     try std.testing.expectEqual(@as(usize, 1), s.rail_claims.len);
     const claim = s.rail_claims[0];
-    try std.testing.expectEqual(@as(ledger.RailClaimId, 1), claim.id);
+    try std.testing.expectEqual(@as(rail_star.RailClaimId, 1), claim.id);
     try std.testing.expectEqual(ledger.RailPolarity.in, claim.polarity);
     try std.testing.expectEqual(@as(usize, 2), claim.members.len);
     try std.testing.expect(ledger.checkRailClaim(claim).isValid());

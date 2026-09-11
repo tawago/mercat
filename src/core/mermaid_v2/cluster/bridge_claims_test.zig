@@ -4,6 +4,7 @@ const std = @import("std");
 const sketch = @import("../sketch.zig");
 const sg = @import("../sem_graph.zig");
 const ledger = @import("../base/ledger.zig");
+const rail_star = @import("../base/rail_star.zig");
 const bridge_bundle_sets = @import("bridge_bundle_sets.zig");
 const bridge_claims = @import("bridge_claims.zig");
 const split_mod = @import("split.zig");
@@ -236,7 +237,7 @@ test "missing routed bridge leaves the proven claim member unresolved" {
 
     const got = try bridge_claims.rebuild(a, sr, outer, &claims, 50, 100, &routed, &routed, &.{}, &.{});
     try testing.expectEqual(@as(usize, 1), got.len);
-    try testing.expectEqual(@as(ledger.RailClaimId, 1), got[0].id);
+    try testing.expectEqual(@as(rail_star.RailClaimId, 1), got[0].id);
     try testing.expectEqual(@as(usize, 2), got[0].members.len);
     const checked = ledger.checkRailClaim(got[0]);
     try testing.expectEqual(@as(u32, 1), checked.derived_unresolved_members);
@@ -271,7 +272,7 @@ test "bridge-native claim uses exact final endpoint and site" {
 
     const got = try bridge_claims.rebuild(a, sr, outer, &.{}, 50, 100, &routed, &routed, &.{}, &.{});
     try testing.expectEqual(@as(usize, 1), got.len);
-    try testing.expectEqual(@as(ledger.RailClaimId, 1), got[0].id);
+    try testing.expectEqual(@as(rail_star.RailClaimId, 1), got[0].id);
     try testing.expectEqualSlices(sketch.EdgeId, &.{ 100, 101 }, &.{ got[0].members[0].edge, got[0].members[1].edge });
     const native = ledger.checkRailClaim(got[0]);
     try testing.expectEqual(@as(?sketch.NodeId, 10), native.derived_pivot);

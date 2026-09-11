@@ -166,17 +166,13 @@ pub const doubleDischarged = rail_closure.doubleDischarged;
 
 const rail_star = @import("rail_star.zig");
 
-pub const RailClaimId = rail_star.RailClaimId;
-pub const no_rail_claim = rail_star.no_rail_claim;
 pub const RailPolarity = rail_star.RailPolarity;
 pub const Endpoint = rail_star.Endpoint;
 pub const AttachmentSite = rail_star.AttachmentSite;
 pub const RailClaimMember = rail_star.RailClaimMember;
 pub const RailClaim = rail_star.RailClaim;
-pub const RailClaimCheck = rail_star.CheckResult;
 pub const checkRailClaim = rail_star.check;
 pub const RailLicenceMember = rail_star.RailLicenceMember;
-pub const RailLicence = rail_star.RailLicence;
 pub const RailLicenceCheck = rail_star.LicenceCheckResult;
 pub const checkRailLicence = rail_star.checkLicence;
 
@@ -254,7 +250,6 @@ pub fn gapSpacingNeeded(rows_used: u32, base_used: bool) u32 {
 
 const bundle = @import("bundle.zig");
 
-pub const BundleOrigin = bundle.BundleOrigin;
 pub const Bundle = bundle.Bundle;
 pub const BundleCell = bundle.BundleCell;
 pub const PairCells = bundle.PairCells;
@@ -263,10 +258,8 @@ pub const concatBundles = bundle.concatBundles;
 pub const bundleMembersAt = bundle.bundleMembersAt;
 pub const BundleId = bundle.BundleId;
 pub const no_bundle = bundle.no_bundle;
-pub const privateBundle = bundle.privateBundle;
 pub const numberBundles = bundle.numberBundles;
 pub const rosterNumbered = bundle.rosterNumbered;
-pub const StructuralBundleResolution = bundle.StructuralBundleResolution;
 pub const resolveStructuralBundle = bundle.resolveStructuralBundle;
 pub const structuralUnscoped = bundle.structuralUnscoped;
 pub const bundleOf = bundle.bundleOf;

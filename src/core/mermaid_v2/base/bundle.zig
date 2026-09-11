@@ -5,7 +5,7 @@
 //!
 //! Split out of base/ledger.zig, which sat exactly at the mermaid_v2
 //! 500-line cap. ledger.zig re-exports every symbol here, so existing
-//! `pb.Bundle` / `pb.bundleMembers` / `pb.bundlesFromPlan` call sites are
+//! `pb.Bundle` / `pb.bundleMembersAt` / `pb.bundlesFromPlan` call sites are
 //! source-compatible and type-identical.
 //!
 //! Pure data + pure functions; imports only base siblings. Universally

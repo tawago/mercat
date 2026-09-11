@@ -2,6 +2,7 @@
 
 const std = @import("std");
 const ledger = @import("../base/ledger.zig");
+const rail_star = @import("../base/rail_star.zig");
 const sg = @import("../sem_graph.zig");
 const sketch = @import("../sketch.zig");
 const coords = @import("../layout.zig");
@@ -49,7 +50,7 @@ test "fan provenance: first-class fan-out claim is valid metadata and changes no
     try testing.expectEqual(@as(usize, 1), s.rails.len);
     try testing.expectEqual(@as(usize, 1), s.rail_claims.len);
     const claim = s.rail_claims[0];
-    try testing.expectEqual(@as(ledger.RailClaimId, 1), claim.id);
+    try testing.expectEqual(@as(rail_star.RailClaimId, 1), claim.id);
     try testing.expectEqual(ledger.RailPolarity.out, claim.polarity);
     try testing.expectEqual(@as(?ledger.NodeId, 0), ledger.checkRailClaim(claim).derived_pivot);
     try testing.expectEqual(@as(usize, 3), claim.members.len);
@@ -178,8 +179,8 @@ test "fan provenance: stable sequential local ids and BT mirrored sites" {
     defer arena.deinit();
     const s = try coords.layout(arena.allocator(), graph(.TD, &nodes, &edges, &.{}), .{});
     try testing.expectEqual(@as(usize, 2), s.rail_claims.len);
-    try testing.expectEqual(@as(ledger.RailClaimId, 1), s.rail_claims[0].id);
-    try testing.expectEqual(@as(ledger.RailClaimId, 2), s.rail_claims[1].id);
+    try testing.expectEqual(@as(rail_star.RailClaimId, 1), s.rail_claims[0].id);
+    try testing.expectEqual(@as(rail_star.RailClaimId, 2), s.rail_claims[1].id);
     try expectAllValid(s.rail_claims);
 
     const bt_nodes = [_]sg.Node{ node(0, "P", null), node(1, "A", null), node(2, "B", null) };
@@ -208,7 +209,7 @@ test "fan provenance: plan selection preserves the winning claims" {
     const winner = try select.choose(arena.allocator(), graph(.TD, &nodes, &edges, &.{}), &permits, 120, false, false, .bridge);
 
     try testing.expectEqual(@as(usize, 1), winner.sketch.rail_claims.len);
-    try testing.expectEqual(@as(ledger.RailClaimId, 1), winner.sketch.rail_claims[0].id);
+    try testing.expectEqual(@as(rail_star.RailClaimId, 1), winner.sketch.rail_claims[0].id);
     try testing.expect(ledger.checkRailClaim(winner.sketch.rail_claims[0]).isValid());
 }
 

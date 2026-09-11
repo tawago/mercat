@@ -7,6 +7,7 @@
 
 const std = @import("std");
 const ledger = @import("../base/ledger.zig");
+const rail_star = @import("../base/rail_star.zig");
 const mirror = @import("mirror.zig");
 const routing = @import("routing.zig");
 const sketch = @import("../sketch.zig");
@@ -84,7 +85,7 @@ test "vertical mirror deeply mirrors RailClaim sites and preserves identity" {
     const out = try mirror.vertical(arena.allocator(), s, .BT);
     const claim = out.rail_claims[0];
 
-    try testing.expectEqual(@as(ledger.RailClaimId, 7), claim.id);
+    try testing.expectEqual(@as(rail_star.RailClaimId, 7), claim.id);
     try testing.expectEqual(ledger.RailPolarity.out, claim.polarity);
     const checked = ledger.checkRailClaim(claim);
     try testing.expectEqual(@as(?ledger.NodeId, 10), checked.derived_pivot);

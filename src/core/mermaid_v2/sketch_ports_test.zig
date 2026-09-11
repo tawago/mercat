@@ -7,6 +7,7 @@ const sketch = @import("sketch.zig");
 const sketch_ports = @import("sketch_ports.zig");
 const sketch_bundles = @import("sketch_bundles.zig");
 const ledger = @import("base/ledger.zig");
+const bundle_mod = @import("base/bundle.zig");
 
 fn edge(id: sketch.EdgeId, poly: []const sketch.Point) sketch.EdgePath {
     return .{
@@ -30,7 +31,7 @@ fn p(x: i32, y: i32) sketch.Point {
 /// The single set whose members are exactly `want`, order-insensitive.
 fn expectOneSet(sets: []const ledger.Bundle, want: []const sketch.EdgeId) !void {
     try std.testing.expectEqual(@as(usize, 1), sets.len);
-    try std.testing.expectEqual(ledger.BundleOrigin.port_share, sets[0].origin);
+    try std.testing.expectEqual(bundle_mod.BundleOrigin.port_share, sets[0].origin);
     try std.testing.expectEqual(want.len, sets[0].members.len);
     for (want) |w| {
         var saw = false;
@@ -129,8 +130,8 @@ test "appendPortShares keeps the existing sets ahead of the derived ones" {
 
     const sets = try sketch_ports.appendPortShares(a, &existing, &edges);
     try std.testing.expectEqual(@as(usize, 2), sets.len);
-    try std.testing.expectEqual(ledger.BundleOrigin.fan_rail, sets[0].origin);
-    try std.testing.expectEqual(ledger.BundleOrigin.port_share, sets[1].origin);
+    try std.testing.expectEqual(bundle_mod.BundleOrigin.fan_rail, sets[0].origin);
+    try std.testing.expectEqual(bundle_mod.BundleOrigin.port_share, sets[1].origin);
     try std.testing.expect(ledger.bundleMembersAt(sets, 7, 8, null));
     try std.testing.expect(ledger.bundleMembersAt(sets, 0, 1, null));
 }
@@ -150,8 +151,8 @@ test "appendPortShares replaces stale port-share origins instead of creating fir
 
     const sets = try sketch_ports.appendPortShares(a, &stale, &edges);
     try std.testing.expectEqual(@as(usize, 2), sets.len);
-    try std.testing.expectEqual(ledger.BundleOrigin.fan_rail, sets[0].origin);
-    try std.testing.expectEqual(ledger.BundleOrigin.port_share, sets[1].origin);
+    try std.testing.expectEqual(bundle_mod.BundleOrigin.fan_rail, sets[0].origin);
+    try std.testing.expectEqual(bundle_mod.BundleOrigin.port_share, sets[1].origin);
     try std.testing.expectEqual(ledger.no_bundle, sets[1].bundle);
     try std.testing.expectEqualSlices(sketch.EdgeId, &.{ 20, 21 }, sets[1].members);
     try std.testing.expect(!ledger.bundleMembersAt(sets, 0, 1, null));

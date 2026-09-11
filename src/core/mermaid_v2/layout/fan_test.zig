@@ -10,6 +10,7 @@ const fan = @import("fan.zig");
 const sg = @import("../sem_graph.zig");
 const sketch = @import("../sketch.zig");
 const ledger = @import("../base/ledger.zig");
+const bundle = @import("../base/bundle.zig");
 const sugiyama = @import("sugiyama.zig");
 
 const testing = std.testing;
@@ -256,7 +257,7 @@ test "bundles group a fan's peers by rail lane" {
 
     try testing.expectEqual(@as(usize, 2), sets.len);
     try testing.expectEqualSlices(u32, &.{ 10, 12, 13 }, sets[0].members);
-    try testing.expectEqual(ledger.BundleOrigin.fan_rail, sets[0].origin);
+    try testing.expectEqual(bundle.BundleOrigin.fan_rail, sets[0].origin);
     try testing.expectEqualSlices(u32, &.{ 20, 21 }, sets[1].members);
 
     try testing.expectEqual(@as(usize, 0), (try fan.coSets(arena.allocator(), &.{})).len);
