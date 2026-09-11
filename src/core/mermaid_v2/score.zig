@@ -17,11 +17,6 @@ const sketch = @import("sketch.zig");
 const validate = @import("layout/validate.zig");
 const geom = @import("score_geom.zig");
 
-pub const deadSpace = geom.deadSpace;
-pub const edgeStretch = geom.edgeStretch;
-pub const bends = geom.bends;
-pub const countCrossings = geom.countCrossings;
-
 /// Overall flow direction (re-export so callers need not import prim).
 pub const Direction = sketch.Direction;
 
@@ -49,16 +44,6 @@ pub const RUNG_SCALE = [5]u64{ 16, 30, 32, SWITCH_TO_VERTICAL_SCALE, 50 };
 pub const SWITCH_TO_VERTICAL_SCALE: u64 = 36;
 /// Fitted lower bound 40.0. // @guarded-by: score_calibration_test.zig "SWITCH_TO_HORIZONTAL_SCALE lower bound: natural stays ahead at the fitted 44 (live seed numbers)"
 pub const SWITCH_TO_HORIZONTAL_SCALE: u64 = 44;
-
-/// One legibility unit in composite space (the 16ths base).
-const SCALE_ONE: u64 = 16;
-
-/// `RUNG_SCALE` index of the switch_direction rung: any candidate whose
-/// direction differs from the source pays AT LEAST the direction-matched
-/// switch multiplier, even if its recorded rung is lower (belt-and-braces;
-/// today only rung 3 rotates — and rung 3 always rotates, so this same
-/// `@max` path is what applies the vertical/horizontal split to it).
-pub const SWITCH_SCALE_INDEX: usize = 3;
 
 /// Switch multiplier for a rotated candidate, keyed by its FINAL
 /// (post-rotation) direction — `Sketch.direction` is post-rotation (see

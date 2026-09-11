@@ -24,12 +24,9 @@ pub const NodeId = sem_graph.NodeId;
 pub const EdgeId = sem_graph.EdgeId;
 pub const ClusterId = sem_graph.ClusterId;
 
-const sketch_types = @import("sketch.zig");
 const coords_mod = @import("layout.zig");
 const validate_mod = @import("layout/validate.zig");
-const lattice_types = @import("lattice.zig");
 const rasterize_mod = @import("raster.zig");
-const labels_mod = @import("raster/labels.zig");
 const paint_mod = @import("paint.zig");
 const ladder_pkg = @import("budget.zig");
 const select_mod = @import("select.zig");
@@ -38,22 +35,10 @@ const permits_mod = @import("ledger/permits.zig");
 const invariants_mod = @import("ledger/invariants.zig");
 const prim = @import("prim");
 
-pub const Sketch = sketch_types.Sketch;
 pub const layoutFlowchart = coords_mod.layout;
-pub const LayoutOptions = coords_mod.LayoutOptions;
 pub const validateSketch = validate_mod.validate;
-pub const ValidationResult = validate_mod.ValidationResult;
-pub const Violation = validate_mod.Violation;
 
 pub const rasterize = rasterize_mod.rasterize;
-pub const RasterReport = rasterize_mod.RasterReport;
-pub const RasterizeError = rasterize_mod.RasterizeError;
-pub const LabelDiagnostic = labels_mod.LabelDiagnostic;
-pub const Lattice = lattice_types.Lattice;
-pub const Cell = lattice_types.Cell;
-pub const Occupant = lattice_types.Occupant;
-pub const Neighbours = lattice_types.Neighbours;
-pub const BorderRole = lattice_types.BorderRole;
 
 pub const paint = paint_mod.paint;
 

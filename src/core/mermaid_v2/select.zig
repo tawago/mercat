@@ -67,7 +67,6 @@ pub fn choose(
     return selectWinner(aa, graph, bundle_permits, max_width, merged, reach, incumbent, score_off, shadow, subgraph_edges);
 }
 
-pub const FilterResult = select_filter.FilterResult;
 pub const ciFilter = select_filter.ciFilter;
 pub const terminalCandidate = select_filter.terminalCandidate;
 

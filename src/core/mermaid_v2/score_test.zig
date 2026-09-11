@@ -10,15 +10,15 @@
 const std = @import("std");
 const sketch = @import("sketch.zig");
 const score = @import("score.zig");
+const geom = @import("score_geom.zig");
 
 const Score = score.Score;
 const eval = score.eval;
 const RUNG_SCALE = score.RUNG_SCALE;
-const SWITCH_SCALE_INDEX = score.SWITCH_SCALE_INDEX;
-const deadSpace = score.deadSpace;
-const edgeStretch = score.edgeStretch;
-const bends = score.bends;
-const countCrossings = score.countCrossings;
+const deadSpace = geom.deadSpace;
+const edgeStretch = geom.edgeStretch;
+const bends = geom.bends;
+const countCrossings = geom.countCrossings;
 
 const t = std.testing;
 
@@ -220,7 +220,7 @@ test "eval: direction infidelity pays the direction-matched switch scale" {
         to_vert.t12_composite,
     );
     try t.expect(to_vert.t12_composite < to_horiz.t12_composite);
-    try t.expectEqual(score.SWITCH_TO_VERTICAL_SCALE, RUNG_SCALE[SWITCH_SCALE_INDEX]);
+    try t.expectEqual(score.SWITCH_TO_VERTICAL_SCALE, RUNG_SCALE[3]);
 }
 
 test "fit severity is overflow magnitude, not presence" {

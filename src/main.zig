@@ -309,7 +309,6 @@ fn exportDetail(buf: []u8, err: anyerror, diag: export_png.Diagnostic) []const u
         error.PixelOverflow => "pixel dimensions overflow the u32 surface limit",
         error.ColumnOverflow => "rendered column count overflows",
         error.InvalidUtf8 => "invalid UTF-8 in rendered text",
-        error.InvalidTabInRendered => "tab scalar in rendered text",
         error.InvalidControlScalar, error.InvalidPlainByte => "control scalar in rendered text",
         error.OutOfMemory => "out of memory",
         else => @errorName(err),

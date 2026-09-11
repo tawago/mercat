@@ -114,7 +114,7 @@ pub const Rule = union(enum) {
 ///   score.zig       pure candidate score; layout/validate.zig is the ONE
 ///                   layout file it may reach (NOT the layout zone).
 ///   score_geom.zig  pure geometric T2 measurements over a Sketch.
-///   score_test.zig  drives the pub score surface over hand-built Sketches.
+///   score_test.zig  drives the pub score and score_geom surfaces over hand-built Sketches.
 ///   score_calibration_test.zig  isolated boundary-crossing tests for the
 ///                   fitted RUNG_SCALE/switch-scale/W_* constants (split out
 ///                   of score_test.zig to keep both under the 500-line cap).
@@ -268,8 +268,8 @@ pub const file_allowlists = [_]struct {
     },
     .{
         .name = "score_test.zig",
-        .allowed = &.{ .sketch, .{ .exact = "score.zig" } },
-        .reason = "score_test may only import std, prim, sketch, or score",
+        .allowed = &.{ .sketch, .{ .exact = "score.zig" }, .{ .exact = "score_geom.zig" } },
+        .reason = "score_test may only import std, prim, sketch, score, or score_geom",
     },
     .{
         .name = "score_calibration_test.zig",
