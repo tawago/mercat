@@ -10,6 +10,37 @@ const sketch = @import("../sketch.zig");
 
 const testing = std.testing;
 
+/// Perimeter-midpoint ports the fan tests feed to `buildPolylineAt`: the
+/// source leaves through the flow-side face, the target is entered through
+/// the opposite face, both at the face's centre column or row.
+fn portFromSource(dir: sg.Direction, source_p: sketch.NodePlacement) sketch.Port {
+    const side: sketch.Dir4 = switch (dir) {
+        .TD => .south,
+        .BT => .north,
+        .LR => .east,
+        .RL => .west,
+    };
+    const offset: u32 = switch (side) {
+        .north, .south => @divTrunc(source_p.rect.w, 2),
+        .east, .west => @divTrunc(source_p.rect.h, 2),
+    };
+    return .{ .node = source_p.id, .side = side, .offset = offset };
+}
+
+fn portToTarget(dir: sg.Direction, target_p: sketch.NodePlacement) sketch.Port {
+    const side: sketch.Dir4 = switch (dir) {
+        .TD => .north,
+        .BT => .south,
+        .LR => .west,
+        .RL => .east,
+    };
+    const offset: u32 = switch (side) {
+        .north, .south => @divTrunc(target_p.rect.w, 2),
+        .east, .west => @divTrunc(target_p.rect.h, 2),
+    };
+    return .{ .node = target_p.id, .side = side, .offset = offset };
+}
+
 /// Assert no segment of `poly` touches `rect` (border-inclusive touch
 /// semantics, matching `sketch.lineTouchesRect`). Shared by the dodge
 /// tests below, which construct an obstruction a naive straight run
@@ -46,7 +77,7 @@ fn buildPolyline(
 ) error{OutOfMemory}![]sketch.Point {
     const source = if (f.direction == .out) pivot_p else peer_p;
     const target = if (f.direction == .out) peer_p else pivot_p;
-    return fan_polyline.buildPolylineAt(a, dir, f, pivot_p, peer_p, fan_polyline.portFromSource(dir, source), fan_polyline.portToTarget(dir, target), role, 0, rail_lift, null, placements, .{});
+    return fan_polyline.buildPolylineAt(a, dir, f, pivot_p, peer_p, portFromSource(dir, source), portToTarget(dir, target), role, 0, rail_lift, null, placements, .{});
 }
 
 test "grid fan-OUT rail dodges a sibling box stacked in an earlier grid row" {
@@ -112,8 +143,8 @@ test "a first-row grid peer's rail rises with its ledger lane and never past the
     const child: sketch.NodePlacement = .{ .id = 1, .rect = .{ .x = 0, .y = 10, .w = 5, .h = 3 }, .shape = .rect, .lines = &.{}, .cluster_id = null };
     const placements = [_]sketch.NodePlacement{ pivot, child };
     const f: fan.Fan = .{ .direction = .out, .pivot_idx = 0, .source_layer = 0, .peers = &.{}, .rows = 2 };
-    const from = fan_polyline.portFromSource(.TD, pivot);
-    const to = fan_polyline.portToTarget(.TD, child);
+    const from = portFromSource(.TD, pivot);
+    const to = portToTarget(.TD, child);
     const at0 = try fan_polyline.buildPolylineAt(a, .TD, f, pivot, child, from, to, .leftmost, 0, 0, null, &placements, .{});
     const at1 = try fan_polyline.buildPolylineAt(a, .TD, f, pivot, child, from, to, .leftmost, 1, 0, null, &placements, .{});
     const far = try fan_polyline.buildPolylineAt(a, .TD, f, pivot, child, from, to, .leftmost, 12, 0, null, &placements, .{});
@@ -253,8 +284,8 @@ test "a lane past the gap's capacity clamps to the innermost in-gap row instead 
     const t_peri = child.rect.y;
 
     const f = fan.Fan{ .direction = .out, .pivot_idx = 0, .source_layer = 0, .peers = &peers };
-    const from = fan_polyline.portFromSource(.TD, pivot);
-    const to = fan_polyline.portToTarget(.TD, child);
+    const from = portFromSource(.TD, pivot);
+    const to = portToTarget(.TD, child);
     const p_fits = try fan_polyline.buildPolylineAt(arena.allocator(), .TD, f, pivot, child, from, to, .leftmost, 3, 0, null, &placements, .{});
     try testing.expectEqual(t_peri - 2 - 3, p_fits[1].y);
     try testing.expectEqual(s_peri + 1, p_fits[1].y);
@@ -276,8 +307,8 @@ test "a decorated source's lane clamp and dodge jog stay out of the departure ce
     const placements = [_]sketch.NodePlacement{ pivot, child };
     var peers = [_]fan.FanEdge{.{ .edge_id = 1, .peer_idx = 1, .role = .leftmost }};
     const s_peri = pivot.rect.bottom() - 1;
-    const from = fan_polyline.portFromSource(.TD, pivot);
-    const to = fan_polyline.portToTarget(.TD, child);
+    const from = portFromSource(.TD, pivot);
+    const to = portToTarget(.TD, child);
 
     for ([_]u32{ 4, 9 }) |lane| {
         const over = fan.Fan{ .direction = .out, .pivot_idx = 0, .source_layer = 0, .peers = &peers };
@@ -292,7 +323,7 @@ test "a decorated source's lane clamp and dodge jog stay out of the departure ce
     const blocker = sketch.NodePlacement{ .id = 2, .rect = .{ .x = 20, .y = 8, .w = 10, .h = 3 }, .shape = .rect, .lines = &.{}, .cluster_id = null };
     const dodge_placements = [_]sketch.NodePlacement{ pivot, far, blocker };
     const f = fan.Fan{ .direction = .out, .pivot_idx = 0, .source_layer = 0, .peers = &peers };
-    const dodged = try fan_polyline.buildPolylineAt(arena.allocator(), .TD, f, pivot, far, from, fan_polyline.portToTarget(.TD, far), .leftmost, 0, 0, null, &dodge_placements, .{ .from = true });
+    const dodged = try fan_polyline.buildPolylineAt(arena.allocator(), .TD, f, pivot, far, from, portToTarget(.TD, far), .leftmost, 0, 0, null, &dodge_placements, .{ .from = true });
     try testing.expectEqual(s_peri + 2, dodged[1].y);
     try expectPolyAvoidsRect(dodged, blocker.rect);
 }
@@ -337,7 +368,7 @@ test "the target-side corridor ends the rail run at the corridor column; the rou
     const f = fan.Fan{ .direction = .out, .pivot_idx = 0, .source_layer = 0, .peers = &peers };
 
     // The member's row is the ledger's lane (5), handed to the builder directly.
-    const poly = try fan_polyline.buildPolylineAt(a, .TD, f, pivot, child, fan_polyline.portFromSource(.TD, pivot), fan_polyline.portToTarget(.TD, child), .leftmost, 5, 0, null, &placements, .{});
+    const poly = try fan_polyline.buildPolylineAt(a, .TD, f, pivot, child, portFromSource(.TD, pivot), portToTarget(.TD, child), .leftmost, 5, 0, null, &placements, .{});
 
     const rail_y = child.rect.y - 2 - 5;
     const land_y = child.rect.y - 2;
@@ -366,7 +397,7 @@ test "a target-side corridor under a same-column child adds a rail leg instead o
     var peers = [_]fan.FanEdge{.{ .edge_id = 1, .peer_idx = 1, .role = .leftmost }};
     const f = fan.Fan{ .direction = .out, .pivot_idx = 0, .source_layer = 0, .peers = &peers };
 
-    const poly = try fan_polyline.buildPolylineAt(a, .TD, f, pivot, child, fan_polyline.portFromSource(.TD, pivot), fan_polyline.portToTarget(.TD, child), .leftmost, 5, 0, null, &placements, .{});
+    const poly = try fan_polyline.buildPolylineAt(a, .TD, f, pivot, child, portFromSource(.TD, pivot), portToTarget(.TD, child), .leftmost, 5, 0, null, &placements, .{});
 
     try expectPolyAvoidsRect(poly, blocker.rect);
     try expectVisitsEachCellOnce(a, poly);

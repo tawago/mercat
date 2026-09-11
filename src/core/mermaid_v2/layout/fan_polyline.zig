@@ -219,36 +219,3 @@ pub fn portPoint(p: sketch.NodePlacement, port: sketch.Port) sketch.Point {
         .east => .{ .x = p.rect.right() - 1, .y = p.rect.y + offset },
     };
 }
-
-/// Center column of a placement (shared with fan_rail.zig).
-pub fn midX(p: sketch.NodePlacement) i32 {
-    return p.rect.x + @divTrunc(@as(i32, @intCast(p.rect.w)), 2);
-}
-
-pub fn portFromSource(dir: sg.Direction, source_p: sketch.NodePlacement) sketch.Port {
-    const side: sketch.Dir4 = switch (dir) {
-        .TD => .south,
-        .BT => .north,
-        .LR => .east,
-        .RL => .west,
-    };
-    const offset: u32 = switch (side) {
-        .north, .south => @divTrunc(source_p.rect.w, 2),
-        .east, .west => @divTrunc(source_p.rect.h, 2),
-    };
-    return .{ .node = source_p.id, .side = side, .offset = offset };
-}
-
-pub fn portToTarget(dir: sg.Direction, target_p: sketch.NodePlacement) sketch.Port {
-    const side: sketch.Dir4 = switch (dir) {
-        .TD => .north,
-        .BT => .south,
-        .LR => .west,
-        .RL => .east,
-    };
-    const offset: u32 = switch (side) {
-        .north, .south => @divTrunc(target_p.rect.w, 2),
-        .east, .west => @divTrunc(target_p.rect.h, 2),
-    };
-    return .{ .node = target_p.id, .side = side, .offset = offset };
-}
