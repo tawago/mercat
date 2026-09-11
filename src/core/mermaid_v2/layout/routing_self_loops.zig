@@ -47,57 +47,6 @@ pub fn selfLoop(
     }
 }
 
-/// Port-allocated production entry. Singleton offsets reproduce `selfLoop`.
-pub fn selfLoopAt(
-    a: std.mem.Allocator,
-    dir: sg.Direction,
-    node_p: sketch.NodePlacement,
-    placements: []const sketch.NodePlacement,
-    port_from: sketch.Port,
-    port_to: sketch.Port,
-) error{OutOfMemory}!SelfLoop {
-    const r = node_p.rect;
-    if (dir == .TD or dir == .BT) {
-        const east_y = r.y + @as(i32, @intCast(port_from.offset));
-        const north_x = r.x + @as(i32, @intCast(port_to.offset));
-        const east_x = r.right() - 1;
-        // Base-side law: lift the top run OFF_V rows (matching the clean
-        // `topLoop`) so the final descent carries a straight `│` before the
-        // `▼`. But the taller loop can foul a neighbour in a dense layout, so
-        // PREFER the lifted geometry and fall back to the tight (-1) shape when
-        // no overshoot column clears the lifted arms — never fabricate an
-        // adjacency to gain a base cell. Also clamps the lift away from a
-        // canvas underflow (top < OFF_V rows). // @guarded-by: routing_self_loops_test.zig "selfLoopAt TD lifts the top run OFF_V so the north re-entry has a straight base cell"
-        const lifted_y = if (r.y >= OFF_V) r.y - OFF_V else r.y - 1;
-        const loop_y, const loop_x = choose: {
-            if (r.y >= OFF_V) {
-                if (clearLoopX(node_p.id, east_x, east_y, north_x, lifted_y, r.y, placements)) |lx|
-                    break :choose .{ lifted_y, lx };
-            }
-            const tight_y = r.y - 1;
-            const tx = clearLoopX(node_p.id, east_x, east_y, north_x, tight_y, r.y, placements) orelse (east_x + OFF_H);
-            break :choose .{ tight_y, tx };
-        };
-        const poly = try a.alloc(sketch.Point, 5);
-        @memcpy(poly, &[_]sketch.Point{
-            .{ .x = r.right() - 1, .y = east_y }, .{ .x = loop_x, .y = east_y },
-            .{ .x = loop_x, .y = loop_y },        .{ .x = north_x, .y = loop_y },
-            .{ .x = north_x, .y = r.y },
-        });
-        return .{ .polyline = poly, .port_from = port_from, .port_to = port_to };
-    }
-    const exit_x = r.x + @as(i32, @intCast(port_from.offset));
-    const enter_x = r.x + @as(i32, @intCast(port_to.offset));
-    const south_y = r.bottom() - 1;
-    const loop_y = south_y + OFF_V;
-    const poly = try a.alloc(sketch.Point, 4);
-    @memcpy(poly, &[_]sketch.Point{
-        .{ .x = exit_x, .y = south_y }, .{ .x = exit_x, .y = loop_y },
-        .{ .x = enter_x, .y = loop_y }, .{ .x = enter_x, .y = south_y },
-    });
-    return .{ .polyline = poly, .port_from = port_from, .port_to = port_to };
-}
-
 /// How far the candidate ladder walks the top run above the node (beyond
 /// `OFF_V`) and the east arm past the border (beyond 1) before it ends.
 const LIFT_REACH: i32 = 4;
@@ -154,24 +103,6 @@ pub fn loopCandidate(
         .{ .x = enter_x, .y = loop_y }, .{ .x = enter_x, .y = south_y },
     });
     return .{ .polyline = poly, .port_from = port_from, .port_to = port_to };
-}
-
-/// Nearest overshoot column east of the node whose lifted top-arm geometry
-/// (east arm, vertical rise, top run, north descent) clears every foreign box,
-/// or null when none within `OFF_H` is clear.
-fn clearLoopX(id: sketch.NodeId, east_x: i32, east_y: i32, north_x: i32, loop_y: i32, north_y: i32, placements: []const sketch.NodePlacement) ?i32 {
-    var loop_x = east_x + 1;
-    while (loop_x < east_x + OFF_H) : (loop_x += 1) {
-        if (!allocatedTopArmBlocked(id, east_x, east_y, north_x, loop_x, loop_y, north_y, placements)) return loop_x;
-    }
-    return null;
-}
-
-fn allocatedTopArmBlocked(id: sketch.NodeId, east_x: i32, east_y: i32, north_x: i32, loop_x: i32, loop_y: i32, north_y: i32, placements: []const sketch.NodePlacement) bool {
-    if (sketch.rowTouchesAny(east_y, east_x + 1, loop_x, placements, id, id)) return true;
-    if (sketch.columnTouchesAny(loop_x, loop_y, east_y, placements, id, id)) return true;
-    if (sketch.rowTouchesAny(loop_y, north_x, loop_x, placements, id, id)) return true;
-    return sketch.columnTouchesAny(north_x, loop_y, north_y - 1, placements, id, id);
 }
 
 const TopGeom = struct { east_x: i32, east_y: i32, north_x: i32, north_y: i32, loop_x: i32, loop_y: i32 };

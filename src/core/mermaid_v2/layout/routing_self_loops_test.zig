@@ -136,25 +136,6 @@ test "selfLoopHalfGap boundary: w=4 is the last degenerate width, w=5 is the fir
     try testing.expect(2 + k5 <= 5 - 2);
 }
 
-test "selfLoopAt TD lifts the top run OFF_V so the north re-entry has a straight base cell" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const node = mkPlacement(0, 4, 6, 7, 3);
-    const placements = [_]sketch.NodePlacement{node};
-    const pf: sketch.Port = .{ .node = 0, .side = .east, .offset = 1 };
-    const pt: sketch.Port = .{ .node = 0, .side = .north, .offset = 3 };
-
-    const sl = try self_loops.selfLoopAt(arena.allocator(), .TD, node, &placements, pf, pt);
-    const descent = sl.polyline[4].y - sl.polyline[3].y;
-    try testing.expectEqual(@as(i32, 3), descent);
-    try testing.expectEqual(node.rect.y - 3, sl.polyline[3].y);
-
-    const top_node = mkPlacement(0, 0, 1, 7, 3);
-    const top_pl = [_]sketch.NodePlacement{top_node};
-    const sl_top = try self_loops.selfLoopAt(arena.allocator(), .TD, top_node, &top_pl, pf, pt);
-    try testing.expectEqual(top_node.rect.y - 1, sl_top.polyline[3].y);
-}
-
 test "belowEastLoop lands the east re-entry with a straight base cell (◀─┐)" {
     var arena = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
