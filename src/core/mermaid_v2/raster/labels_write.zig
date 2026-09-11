@@ -139,18 +139,6 @@ pub fn cellSpan(cp: u21) u32 {
     return if (prim.codepointWidth(cp) == 2) 2 else 1;
 }
 
-/// Lattice cells `text` occupies: the sum of its graphemes' spans, walked
-/// exactly as `prepare` walks them. The one number every writer and every
-/// free-space probe reserves by, so cells reserved and cells written can
-/// never disagree.
-/// @guarded-by: labels_eaw_test.zig "cellSpanOf equals prim.displayWidth for tab- and control-free text"
-pub fn cellSpanOf(text: []const u8) u32 {
-    var total: u32 = 0;
-    var pieces = Pieces.init(text);
-    while (pieces.next()) |piece| total += piece.span;
-    return total;
-}
-
 /// One lattice write of a prepared label: the `label_char` value and the
 /// cells it claims (head plus continuations).
 pub const LabelCell = struct {
@@ -188,21 +176,6 @@ pub fn prepare(allocator: std.mem.Allocator, table: *GlyphTable, text: []const u
         .cell_count = total,
         .width = prim.displayWidth(text),
     };
-}
-
-/// A `Run` for an ASCII literal, built at compile time: for synthetic
-/// writers constructed outside a rasterization (tests), where there is no
-/// table and nothing to intern. Every ASCII codepoint spans one cell.
-pub fn asciiRun(comptime text: []const u8) Run {
-    const cells = comptime blk: {
-        var out: [text.len]LabelCell = undefined;
-        for (text, 0..) |byte, i| {
-            std.debug.assert(byte < 0x80);
-            out[i] = .{ .value = sentinelToSpace(byte), .span = 1 };
-        }
-        break :blk out;
-    };
-    return .{ .cells = &cells, .cell_count = text.len, .width = text.len };
 }
 
 /// Builder for `Lattice.glyphs`: interns multi-codepoint graphemes,

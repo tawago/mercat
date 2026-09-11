@@ -21,6 +21,17 @@ const onrun = @import("raster/labels_onrun.zig");
 const lw = @import("raster/labels_write.zig");
 const paint = @import("paint.zig");
 
+/// A `Run` for an ASCII literal, built at compile time: these synthetic
+/// writers run outside a rasterization, with no table to intern into.
+fn asciiRun(comptime text: []const u8) lw.Run {
+    const cells = comptime blk: {
+        var out: [text.len]lw.LabelCell = undefined;
+        for (text, 0..) |byte, i| out[i] = .{ .value = byte, .span = 1 };
+        break :blk out;
+    };
+    return .{ .cells = &cells, .cell_count = text.len, .width = text.len };
+}
+
 const testing = std.testing;
 
 /// A decorated fan-OUT tap dropper on column 5: shared crossbar row 1,
@@ -109,7 +120,7 @@ fn paintedColumn(a: std.mem.Allocator, kind: lattice.EdgeKind) ![]u21 {
     var s2 = s;
     s2.rails = &rails;
 
-    try testing.expect(onrun.tryOnRunTap(&lat, s2, taps[0], lw.asciiRun("ok"), null));
+    try testing.expect(onrun.tryOnRunTap(&lat, s2, taps[0], asciiRun("ok"), null));
 
     const painted = try paint.paint(a, lat, 0);
     return columnOf(a, painted, 5);

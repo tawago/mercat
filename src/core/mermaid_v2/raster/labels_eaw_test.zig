@@ -1,6 +1,6 @@
 //! Unit tests for the East-Asian-Width label geometry: `labels.cellSpan`
-//! / `cellSpanOf` and the three writers that advance by it (node label,
-//! cluster title, edge/tap label).
+//! / `prepare`'s cell count and the three writers that advance by it (node
+//! label, cluster title, edge/tap label).
 //!
 //! The acceptance rail these pin is ASCII byte-identity: every ASCII
 //! codepoint spans exactly one cell, so every cursor advance and every
@@ -15,6 +15,16 @@ const labels = @import("labels.zig");
 const lw = @import("labels_write.zig");
 
 const testing = std.testing;
+
+/// Lattice cells `text` claims, as `prepare` resolves them — the footprint
+/// every writer and free-space probe reserves by.
+fn cellSpanOf(text: []const u8) !u32 {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    var table = lw.GlyphTable.init(arena.allocator());
+    const run = try lw.prepare(arena.allocator(), &table, text);
+    return run.cell_count;
+}
 
 fn makeLattice(alloc: std.mem.Allocator, w: u32, h: u32) !lattice.Lattice {
     const cells = try alloc.alloc(lattice.Cell, @as(usize, w) * @as(usize, h));
@@ -85,7 +95,7 @@ test "cellSpan is 1 for every ASCII codepoint including tab" {
     try testing.expectEqual(@as(u32, 2), labels.cellSpan('日'));
 }
 
-test "cellSpanOf equals prim.displayWidth for tab- and control-free text" {
+test "a prepared label's cell count equals prim.displayWidth for tab- and control-free text" {
     const samples = [_][]const u8{
         "",
         "A",
@@ -96,10 +106,10 @@ test "cellSpanOf equals prim.displayWidth for tab- and control-free text" {
         "…",
     };
     for (samples) |s| {
-        try testing.expectEqual(prim.displayWidth(s), lw.cellSpanOf(s));
+        try testing.expectEqual(prim.displayWidth(s), try cellSpanOf(s));
     }
     try testing.expectEqual(@as(u32, 4), prim.displayWidth("\t"));
-    try testing.expectEqual(@as(u32, 1), lw.cellSpanOf("\t"));
+    try testing.expectEqual(@as(u32, 1), try cellSpanOf("\t"));
 }
 
 test "wide node label writes char + continuation and paints two columns" {
@@ -289,20 +299,20 @@ fn nodeSketch(rect: sketch.Rect, lines: []const []const u8) struct { nodes: [1]s
     }} };
 }
 
-test "cellSpanOf counts graphemes: a combining mark claims no cell, an emoji sequence claims two" {
-    try testing.expectEqual(@as(u32, 4), lw.cellSpanOf("cafe\u{0301}"));
-    try testing.expectEqual(@as(u32, 2), lw.cellSpanOf("\u{1F680}"));
-    try testing.expectEqual(@as(u32, 2), lw.cellSpanOf("\u{1F468}\u{200D}\u{1F469}\u{200D}\u{1F467}"));
-    try testing.expectEqual(@as(u32, 2), lw.cellSpanOf("\u{1F1EF}\u{1F1F5}"));
-    try testing.expectEqual(@as(u32, 2), lw.cellSpanOf("\u{2764}\u{FE0F}"));
-    try testing.expectEqual(@as(u32, 1), lw.cellSpanOf("\u{2764}"));
+test "a prepared label counts graphemes: a combining mark claims no cell, an emoji sequence claims two" {
+    try testing.expectEqual(@as(u32, 4), try cellSpanOf("cafe\u{0301}"));
+    try testing.expectEqual(@as(u32, 2), try cellSpanOf("\u{1F680}"));
+    try testing.expectEqual(@as(u32, 2), try cellSpanOf("\u{1F468}\u{200D}\u{1F469}\u{200D}\u{1F467}"));
+    try testing.expectEqual(@as(u32, 2), try cellSpanOf("\u{1F1EF}\u{1F1F5}"));
+    try testing.expectEqual(@as(u32, 2), try cellSpanOf("\u{2764}\u{FE0F}"));
+    try testing.expectEqual(@as(u32, 1), try cellSpanOf("\u{2764}"));
     for ([_][]const u8{ "\u{1F680} Launch", "\u{2705} Done", "cafe\u{0301}", "nai\u{0308}ve", "\u{1F44D}\u{1F3FD} OK" }) |s| {
-        try testing.expectEqual(prim.displayWidth(s), lw.cellSpanOf(s));
+        try testing.expectEqual(prim.displayWidth(s), try cellSpanOf(s));
     }
     // Text the strict measure rejects (a malformed byte) is counted per
     // codepoint, one cell per bad byte — exactly as prim.displayWidth does.
-    try testing.expectEqual(prim.displayWidth("a\xffb"), lw.cellSpanOf("a\xffb"));
-    try testing.expectEqual(@as(u32, 3), lw.cellSpanOf("a\xffb"));
+    try testing.expectEqual(prim.displayWidth("a\xffb"), try cellSpanOf("a\xffb"));
+    try testing.expectEqual(@as(u32, 3), try cellSpanOf("a\xffb"));
 }
 
 test "emoji node label writes head + continuation and is charged two columns" {
@@ -446,8 +456,8 @@ test "an edge label with a decomposed accent and a line break claims the same ce
     // per-codepoint walk that would give the combining mark its own cell.
     const with_break = "e\u{0301}" ++ [_]u8{prim.LINE_BREAK} ++ "x";
     const plain = "e\u{0301} x";
-    try testing.expectEqual(lw.cellSpanOf(plain), lw.cellSpanOf(with_break));
-    try testing.expectEqual(prim.displayWidth(with_break), lw.cellSpanOf(with_break));
+    try testing.expectEqual(try cellSpanOf(plain), try cellSpanOf(with_break));
+    try testing.expectEqual(prim.displayWidth(with_break), try cellSpanOf(with_break));
 
     var lats: [2]lattice.Lattice = .{ try makeLattice(alloc, 12, 6), try makeLattice(alloc, 12, 6) };
     const poly = [_]sketch.Point{ .{ .x = 1, .y = 3 }, .{ .x = 9, .y = 3 } };

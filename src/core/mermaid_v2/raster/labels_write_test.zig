@@ -219,16 +219,6 @@ test "the glyph table owns its bytes" {
     try testing.expectEqual(lattice.glyphRef(0), ref);
 }
 
-test "asciiRun spans one cell per byte and maps the sentinel to a space" {
-    const run = lw.asciiRun("a\nb");
-    try testing.expectEqual(@as(u32, 3), run.cell_count);
-    try testing.expectEqual(@as(u32, 3), run.width);
-    try testing.expectEqual(@as(u21, 'a'), run.cells[0].value);
-    try testing.expectEqual(@as(u21, ' '), run.cells[1].value);
-    try testing.expectEqual(@as(u21, 'b'), run.cells[2].value);
-    try testing.expectEqual(@as(u8, 1), run.cells[1].span);
-}
-
 test "a span write with an interned reference stores the reference, not a scalar" {
     var buf: [2]lattice.Cell = undefined;
     var lat = dirtyLattice(&buf);
