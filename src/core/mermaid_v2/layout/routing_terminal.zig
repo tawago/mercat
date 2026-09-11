@@ -16,8 +16,6 @@ const sketch = @import("../sketch.zig");
 const sugiyama = @import("sugiyama.zig");
 const rp = @import("routing_polyline.zig");
 
-pub const PortDir = enum { out, in };
-
 pub fn findGraphEdge(graph: sg.SemGraph, id: sg.EdgeId) ?sg.Edge {
     for (graph.edges) |e| {
         if (e.id == id) return e;
@@ -112,24 +110,6 @@ pub fn collectVirtuals(
     };
     std.mem.sort(u32, list.items, Ctx{ .nodes = lg.nodes }, Ctx.lt);
     return try list.toOwnedSlice(a);
-}
-
-pub fn perimeterPort(
-    p: sketch.NodePlacement,
-    dir: sg.Direction,
-    pd: PortDir,
-) sketch.Port {
-    const side: sketch.Dir4 = switch (dir) {
-        .TD => if (pd == .out) .south else .north,
-        .BT => if (pd == .out) .north else .south,
-        .LR => if (pd == .out) .east else .west,
-        .RL => if (pd == .out) .west else .east,
-    };
-    const offset: u32 = switch (side) {
-        .north, .south => @divTrunc(p.rect.w, 2),
-        .east, .west => @divTrunc(p.rect.h, 2),
-    };
-    return .{ .node = p.id, .side = side, .offset = offset };
 }
 
 pub fn mapArrow(e: sg.ArrowEnd) sketch.ArrowKind {

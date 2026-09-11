@@ -39,7 +39,6 @@ const unrouted = route_search.unrouted;
 pub const findGraphEdge = rt.findGraphEdge;
 pub const findPlacement = rt.findPlacement;
 pub const isReversed = rt.isReversed;
-pub const perimeterPort = rt.perimeterPort;
 pub const mapArrow = rt.mapArrow;
 const fanRailLift = rt.fanRailLift;
 const collectVirtuals = rt.collectVirtuals;

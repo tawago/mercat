@@ -7,7 +7,6 @@
 
 const std = @import("std");
 const ports = @import("ports.zig");
-const routing = @import("routing.zig");
 const pb = @import("../base/ledger.zig");
 const sg = @import("../sem_graph.zig");
 const sk = @import("../sketch.zig");
@@ -109,22 +108,6 @@ test "V-D-PORT-04: a singleton port is exactly today's midpoint floor(L/2)" {
         const out = try assigned(try ports.allocate(a, no_candidate, 0, .south, side_len, &atts));
         try std.testing.expectEqual(side_len / 2, out[0].offset);
     }
-
-    const placement: sk.NodePlacement = .{
-        .id = 0,
-        .rect = .{ .x = 0, .y = 0, .w = 7, .h = 3 },
-        .shape = .rect,
-        .lines = &.{},
-        .cluster_id = null,
-    };
-    const south = routing.perimeterPort(placement, .TD, .out);
-    const south_atts = [_]ports.Attachment{att("B", .source_exit, 0, 0)};
-    const south_out = try assigned(try ports.allocate(a, no_candidate, 0, .south, placement.rect.w, &south_atts));
-    try std.testing.expectEqual(south.offset, south_out[0].offset);
-    const east = routing.perimeterPort(placement, .LR, .out);
-    const east_atts = [_]ports.Attachment{att("B", .source_exit, 0, 0)};
-    const east_out = try assigned(try ports.allocate(a, no_candidate, 0, .east, placement.rect.h, &east_atts));
-    try std.testing.expectEqual(east.offset, east_out[0].offset);
 }
 
 test "V-D-PORT-04: capacity boundary L=2p+1 allocates and L=2p fails typed" {
