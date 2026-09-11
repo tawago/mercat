@@ -179,3 +179,104 @@ test "frontmatter: a keyless continuation entry renders its value in the panel" 
     defer freeLines(alloc, lines);
     try testing.expect(anySpanContains(lines, "- Foo"));
 }
+
+const compact_marker = "\u{25C8}";
+const cap_top = "\u{2584}";
+const cap_bottom = "\u{2580}";
+
+fn countStyle(lines: []types.Line, style: types.SpanStyle) usize {
+    var total: usize = 0;
+    for (lines) |line| for (line.spans) |span| {
+        if (span.style == style) total += 1;
+    };
+    return total;
+}
+
+/// True when some span has `style` and, after trimming surrounding spaces (the
+/// key/value cells are padded), its text equals `want`.
+fn hasStyledText(lines: []types.Line, style: types.SpanStyle, want: []const u8) bool {
+    for (lines) |line| for (line.spans) |span| {
+        if (span.style != style) continue;
+        if (std.mem.eql(u8, std.mem.trim(u8, span.text, " "), want)) return true;
+    };
+    return false;
+}
+
+test "frontmatter: panel style emits half-block caps around a key/value grid" {
+    const alloc = testing.allocator;
+    var entries = [_]Entry{.{ .key = "title", .value = "Test" }};
+    const fm = Block.FrontMatter{ .raw = "title: Test\n", .entries = &entries };
+
+    const lines = try renderLines(alloc, fm, 40, .panel, false);
+    defer freeLines(alloc, lines);
+
+    try testing.expectEqual(@as(usize, 3), lines.len);
+
+    try testing.expect(lines[0].spans.len != 0);
+    for (lines[0].spans) |span| {
+        try testing.expectEqual(types.SpanStyle.frontmatter_cap, span.style);
+        try testing.expect(std.mem.indexOf(u8, span.text, cap_top) != null);
+        try testing.expect(std.mem.indexOf(u8, span.text, cap_bottom) == null);
+    }
+
+    try testing.expect(hasStyledText(lines[1..2], .frontmatter_key, "title"));
+    try testing.expect(hasStyledText(lines[1..2], .frontmatter_value, "Test"));
+
+    for (lines[2].spans) |span| {
+        try testing.expectEqual(types.SpanStyle.frontmatter_cap, span.style);
+        try testing.expect(std.mem.indexOf(u8, span.text, cap_bottom) != null);
+    }
+}
+
+test "frontmatter: dim style is chrome-free with muted key and body value" {
+    const alloc = testing.allocator;
+    var entries = [_]Entry{.{ .key = "title", .value = "Test" }};
+    const fm = Block.FrontMatter{ .raw = "title: Test\n", .entries = &entries };
+
+    const lines = try renderLines(alloc, fm, 40, .dim, false);
+    defer freeLines(alloc, lines);
+
+    try testing.expectEqual(@as(usize, 1), lines.len);
+    try testing.expectEqual(@as(usize, 0), countStyle(lines, .frontmatter_cap));
+    try testing.expect(hasStyledText(lines, .muted, "title"));
+    try testing.expect(hasStyledText(lines, .body, "Test"));
+}
+
+test "frontmatter: compact style is a single marker-led line of pairs" {
+    const alloc = testing.allocator;
+    var entries = [_]Entry{
+        .{ .key = "title", .value = "Test" },
+        .{ .key = "author", .value = "Foo" },
+    };
+    const fm = Block.FrontMatter{ .raw = "", .entries = &entries };
+
+    const lines = try renderLines(alloc, fm, 60, .compact, false);
+    defer freeLines(alloc, lines);
+
+    try testing.expectEqual(@as(usize, 1), lines.len);
+    try testing.expectEqual(types.SpanStyle.muted, lines[0].spans[0].style);
+    try testing.expectEqualStrings(compact_marker, lines[0].spans[0].text);
+    try testing.expect(hasStyledText(lines, .muted, "title:"));
+    try testing.expect(hasStyledText(lines, .muted, "author:"));
+    try testing.expect(hasStyledText(lines, .body, "Test"));
+    try testing.expect(hasStyledText(lines, .body, "Foo"));
+}
+
+test "frontmatter: raw style is byte-verbatim between fences without a trailing blank" {
+    const alloc = testing.allocator;
+    var entries = [_]Entry{
+        .{ .key = "title", .value = "Test" },
+        .{ .key = "author", .value = "Foo" },
+    };
+    const fm = Block.FrontMatter{ .raw = "title: Test\nauthor: Foo\n", .entries = &entries };
+
+    const lines = try renderLines(alloc, fm, 40, .raw, false);
+    defer freeLines(alloc, lines);
+
+    try testing.expectEqual(@as(usize, 4), lines.len);
+    try testing.expectEqualStrings("---", lines[0].spans[0].text);
+    try testing.expectEqualStrings("title: Test", lines[1].spans[0].text);
+    try testing.expectEqualStrings("author: Foo", lines[2].spans[0].text);
+    try testing.expectEqualStrings("---", lines[3].spans[0].text);
+    try testing.expectEqual(types.SpanStyle.muted, lines[0].spans[0].style);
+}

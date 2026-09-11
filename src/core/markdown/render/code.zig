@@ -274,3 +274,7 @@ fn tokenStyle(style: highlight.TokenStyle) SpanStyle {
         .comment => .code_block_comment,
     };
 }
+
+test {
+    _ = @import("code_test.zig");
+}
