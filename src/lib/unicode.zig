@@ -7,7 +7,6 @@ const segmentation = @import("unicode/segmentation.zig");
 const tables = @import("unicode/tables.zig");
 
 pub const manifest = @import("unicode/generated/manifest.zig");
-pub const unicode_version = manifest.unicode_version;
 
 pub const MeasureError = error{
     InvalidUtf8,
@@ -44,8 +43,6 @@ pub const Entry = struct {
         };
     }
 };
-
-pub const GraphemeEntry = Entry;
 
 /// Stateful whole-string extended-grapheme iterator. The current display
 /// column is part of the state because a tab's width depends on its position.
@@ -173,23 +170,6 @@ pub const PreparedLine = struct {
         }
         return self.bytes[0..byte_end];
     }
-
-    /// Graphemes wholly contained in the half-open column range. A boundary
-    /// that crosses a width-two grapheme clips inward rather than splitting it.
-    pub fn columnRange(self: PreparedLine, start: usize, end: usize) []const u8 {
-        if (start >= end) return self.bytes[0..0];
-        var byte_start: ?usize = null;
-        var byte_end: usize = 0;
-        for (self.entries) |entry| {
-            if (entry.column_end <= start) continue;
-            if (entry.column_start < start) continue;
-            if (entry.column_end > end) break;
-            if (byte_start == null) byte_start = entry.byte_start;
-            byte_end = entry.byte_end;
-        }
-        const first = byte_start orelse return self.bytes[0..0];
-        return self.bytes[first..byte_end];
-    }
 };
 
 pub const PreparedIterator = struct {
@@ -201,24 +181,6 @@ pub const PreparedIterator = struct {
         const result = self.line.entries[self.index].slice(self.line.bytes);
         self.index += 1;
         return result;
-    }
-};
-
-pub fn prepare(allocator: std.mem.Allocator, text: []const u8) (MeasureError || std.mem.Allocator.Error)!PreparedLine {
-    return PreparedLine.init(allocator, text);
-}
-
-pub const raw = struct {
-    pub fn displayWidth(text: []const u8) MeasureError!usize {
-        return rawDisplayWidth(text);
-    }
-
-    pub fn prefixToWidth(text: []const u8, width: usize) MeasureError![]const u8 {
-        return rawPrefixToWidth(text, width);
-    }
-
-    pub fn columnRange(text: []const u8, start: usize, end: usize) MeasureError![]const u8 {
-        return rawColumnRange(text, start, end);
     }
 };
 
@@ -243,23 +205,6 @@ pub fn rawPrefixToWidth(text: []const u8, width: usize) MeasureError![]const u8 
         byte_end = grapheme.byte_end;
     }
     return text[0..byte_end];
-}
-
-pub fn rawColumnRange(text: []const u8, start: usize, end: usize) MeasureError![]const u8 {
-    try validateInput(text);
-    if (start >= end) return text[0..0];
-    var iter = Iterator.initValidated(text, 0);
-    var byte_start: ?usize = null;
-    var byte_end: usize = 0;
-    while (try iter.next()) |grapheme| {
-        if (grapheme.column_end <= start) continue;
-        if (grapheme.column_start < start) continue;
-        if (grapheme.column_end > end) break;
-        if (byte_start == null) byte_start = grapheme.byte_start;
-        byte_end = grapheme.byte_end;
-    }
-    const first = byte_start orelse return text[0..0];
-    return text[first..byte_end];
 }
 
 fn graphemeWidth(bytes: []const u8) CellWidth {
@@ -419,44 +364,6 @@ pub fn codepointWidth(codepoint: u21) usize {
     return 1;
 }
 
-pub fn wrapLine(allocator: std.mem.Allocator, text: []const u8, width: usize, indent: []const u8) ![][]const u8 {
-    const valid_text = legacyValidPrefix(text);
-    const valid_indent = legacyValidPrefix(indent);
-    if (width == 0 or displayWidth(valid_text) <= width) {
-        const lines = try allocator.alloc([]const u8, 1);
-        lines[0] = try allocator.dupe(u8, valid_text);
-        return lines;
-    }
-
-    var words = std.mem.tokenizeScalar(u8, valid_text, ' ');
-    var output: std.ArrayList([]const u8) = .empty;
-    errdefer {
-        for (output.items) |line| allocator.free(line);
-        output.deinit(allocator);
-    }
-    var current: std.ArrayList(u8) = .empty;
-    defer current.deinit(allocator);
-    var current_width: usize = 0;
-    while (words.next()) |word| {
-        const word_width = displayWidth(word);
-        const extra: usize = if (current.items.len == 0) 0 else 1;
-        const target_width = if (output.items.len == 0) width else width -| displayWidth(valid_indent);
-        if (current.items.len != 0 and current_width + extra + word_width > target_width) {
-            try output.append(allocator, try allocator.dupe(u8, current.items));
-            current.clearRetainingCapacity();
-            try current.appendSlice(allocator, valid_indent);
-            try current.appendSlice(allocator, word);
-            current_width = displayWidth(current.items);
-            continue;
-        }
-        if (extra == 1) try current.append(allocator, ' ');
-        try current.appendSlice(allocator, word);
-        current_width += extra + word_width;
-    }
-    if (current.items.len != 0) try output.append(allocator, try allocator.dupe(u8, current.items));
-    return output.toOwnedSlice(allocator);
-}
-
 /// Compatibility measure: the graphemes `LegacyCursor` yields, at the
 /// widths it assigns them, plus one cell for every malformed byte — the
 /// cursor stops at such a byte, the byte is charged, and a fresh cursor
@@ -486,12 +393,6 @@ fn legacyClipToWidth(text: []const u8, width: usize) []const u8 {
         byte_end = cursor.index;
     }
     return text[0..byte_end];
-}
-
-fn legacyValidPrefix(text: []const u8) []const u8 {
-    var cursor = LegacyCursor.init(text);
-    while (cursor.next()) |_| {}
-    return text[0..cursor.index];
 }
 
 test {

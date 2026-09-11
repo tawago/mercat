@@ -61,7 +61,7 @@ const Rendered = struct {
         for (self.boxes) |box| {
             var y = box.top + 1;
             while (y < box.bottom) : (y += 1) {
-                const inside = unicode.rawColumnRange(self.lines[y], box.left + 1, box.right) catch continue;
+                const inside = columnRange(self.lines[y], box.left + 1, box.right) catch continue;
                 if (std.mem.indexOf(u8, inside, label) != null) return box;
             }
         }
@@ -69,6 +69,23 @@ const Rendered = struct {
         return error.LabelNotInAnyBox;
     }
 };
+
+/// The bytes of `line` whose graphemes lie wholly inside the half-open
+/// column range; a grapheme the range cuts is left out at either edge.
+fn columnRange(line: []const u8, start: usize, end: usize) unicode.MeasureError![]const u8 {
+    var iter = unicode.Iterator.init(line);
+    var byte_start: ?usize = null;
+    var byte_end: usize = 0;
+    while (try iter.next()) |grapheme| {
+        if (grapheme.column_end <= start) continue;
+        if (grapheme.column_start < start) continue;
+        if (grapheme.column_end > end) break;
+        if (byte_start == null) byte_start = grapheme.byte_start;
+        byte_end = grapheme.byte_end;
+    }
+    const first = byte_start orelse return line[0..0];
+    return line[first..byte_end];
+}
 
 fn renderPlain(source: []const u8) ![]const u8 {
     const result = try entry.renderFlowchart(testing.allocator, source, .{ .max_width = budget });

@@ -29,9 +29,6 @@ test "Markdown clipping is inward around a width-two grapheme" {
     try std.testing.expectEqual(@as(usize, 1), try geometry.takeWidth(text, 1, 0));
     try std.testing.expectEqual(@as(usize, 1), try geometry.takeWidth(text, 2, 0));
     try std.testing.expectEqual(@as(usize, 4), try geometry.takeWidth(text, 3, 0));
-    try std.testing.expectEqualStrings("", try unicode.rawColumnRange(text, 2, 3));
-    try std.testing.expectEqualStrings("日", try unicode.rawColumnRange(text, 1, 3));
-    try std.testing.expectEqualStrings("日B", try unicode.rawColumnRange(text, 1, 4));
 }
 
 test "Markdown strict geometry propagates invalid input" {

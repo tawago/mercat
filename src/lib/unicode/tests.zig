@@ -184,25 +184,19 @@ test "format controls are rejected while sanctioned shaping controls remain" {
 test "strict clipping validates suffixes before returning" {
     try testing.expectError(error.InvalidUtf8, unicode.rawPrefixToWidth("a\x80", 1));
     try testing.expectError(error.DisallowedControl, unicode.rawPrefixToWidth("a\u{2060}", 1));
-    try testing.expectError(error.InvalidUtf8, unicode.rawColumnRange("a\x80", 0, 0));
-    try testing.expectError(error.DisallowedControl, unicode.rawColumnRange("a\u{2060}", 0, 1));
 
     var iterator = unicode.Iterator.init("a\x80");
     try testing.expectError(error.InvalidUtf8, iterator.next());
 }
 
-test "prefix and column ranges never split graphemes" {
+test "prefixes never split graphemes" {
     const text = "A👩‍💻e\u{0301}日Z";
     try testing.expectEqualStrings("A", try unicode.rawPrefixToWidth(text, 2));
     try testing.expectEqualStrings("A👩‍💻", try unicode.rawPrefixToWidth(text, 3));
-    try testing.expectEqualStrings("👩‍💻e\u{0301}", try unicode.rawColumnRange(text, 1, 4));
-    try testing.expectEqualStrings("", try unicode.rawColumnRange(text, 2, 3));
-    try testing.expectEqualStrings("日", try unicode.rawColumnRange(text, 4, 6));
 
     var line = try unicode.PreparedLine.init(testing.allocator, text);
     defer line.deinit();
     try testing.expectEqualStrings("A👩‍💻", line.prefixToWidth(3));
-    try testing.expectEqualStrings("👩‍💻e\u{0301}", line.columnRange(1, 4));
 }
 
 test "legacy wrappers remain available during migration" {
@@ -265,15 +259,6 @@ test "legacy clipping returns only valid UTF-8 around malformed boundaries" {
             try testing.expect(std.unicode.utf8ValidateSlice(clipped));
         }
     }
-
-    const wrapped = try unicode.wrapLine(testing.allocator, "ok 日\x80bad", 80, "\x80");
-    defer {
-        for (wrapped) |line| testing.allocator.free(line);
-        testing.allocator.free(wrapped);
-    }
-    try testing.expectEqual(@as(usize, 1), wrapped.len);
-    try testing.expectEqualStrings("ok 日", wrapped[0]);
-    try testing.expect(std.unicode.utf8ValidateSlice(wrapped[0]));
 }
 
 test "legacy cursor walks long input with linear counted work" {
