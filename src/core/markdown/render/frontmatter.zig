@@ -21,9 +21,8 @@ pub fn rendersNothing(fm: Block.FrontMatter, style: config.FrontmatterStyle) boo
     return style == .hidden or (fm.entries.len == 0 and style != .raw);
 }
 
-pub fn render(allocator: std.mem.Allocator, builder: *Builder, fm: Block.FrontMatter, width: usize, style: config.FrontmatterStyle, for_export: bool) !void {
+pub fn render(allocator: std.mem.Allocator, builder: *Builder, fm: Block.FrontMatter, width: usize, style: config.FrontmatterStyle) !void {
     if (rendersNothing(fm, style)) return;
-    _ = for_export;
 
     switch (style) {
         .panel => try renderKeyValues(allocator, builder, fm, width, .panel),

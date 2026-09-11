@@ -43,7 +43,7 @@ pub fn renderBlock(allocator: std.mem.Allocator, builder: *Builder, block: Block
     const content_width = options.width -| options.left_padding;
     const decor = options.decor;
     switch (block) {
-        .frontmatter => |fm| try frontmatter_mod.render(allocator, builder, fm, content_width, options.frontmatter_style, options.for_export),
+        .frontmatter => |fm| try frontmatter_mod.render(allocator, builder, fm, content_width, options.frontmatter_style),
         .heading => |h| try renderHeading(allocator, builder, h, content_width, options.show_heading_markers, decor),
         .paragraph => |p| try renderParagraph(allocator, builder, p.content, content_width, .body, p.indent, decor),
         .unordered_list_item => |item| {

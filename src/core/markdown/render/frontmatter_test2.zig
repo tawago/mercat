@@ -11,9 +11,9 @@ const Entry = Block.FrontMatter.Entry;
 const testing = std.testing;
 const ellipsis = "\u{2026}";
 
-fn renderLines(allocator: std.mem.Allocator, fm: Block.FrontMatter, width: usize, style: config.FrontmatterStyle, for_export: bool) ![]types.Line {
+fn renderLines(allocator: std.mem.Allocator, fm: Block.FrontMatter, width: usize, style: config.FrontmatterStyle) ![]types.Line {
     var builder = Builder.init(allocator);
-    frontmatter.render(allocator, &builder, fm, width, style, for_export) catch |err| {
+    frontmatter.render(allocator, &builder, fm, width, style) catch |err| {
         builder.deinit();
         return err;
     };
@@ -57,7 +57,7 @@ test "frontmatter: raw style preserves a genuine blank middle line" {
     const alloc = testing.allocator;
     var no_entries = [_]Entry{};
     const fm = Block.FrontMatter{ .raw = "a: 1\n\nb: 2\n", .entries = &no_entries };
-    const lines = try renderLines(alloc, fm, 40, .raw, false);
+    const lines = try renderLines(alloc, fm, 40, .raw);
     defer freeLines(alloc, lines);
     try testing.expectEqual(@as(usize, 5), lines.len);
     try testing.expectEqualStrings("a: 1", lines[1].spans[0].text);
@@ -70,11 +70,11 @@ test "frontmatter: empty non-raw front matter emits nothing but raw keeps its fe
     var no_entries = [_]Entry{};
     const empty = Block.FrontMatter{ .raw = "", .entries = &no_entries };
     inline for (.{ config.FrontmatterStyle.panel, .dim, .compact }) |style| {
-        const lines = try renderLines(alloc, empty, 40, style, false);
+        const lines = try renderLines(alloc, empty, 40, style);
         defer freeLines(alloc, lines);
         try testing.expectEqual(@as(usize, 0), totalSpans(lines));
     }
-    const raw_lines = try renderLines(alloc, empty, 40, .raw, false);
+    const raw_lines = try renderLines(alloc, empty, 40, .raw);
     defer freeLines(alloc, raw_lines);
     try testing.expectEqual(@as(usize, 2), raw_lines.len);
     try testing.expectEqualStrings("---", raw_lines[0].spans[0].text);
@@ -85,7 +85,7 @@ test "frontmatter: hidden style emits nothing" {
     const alloc = testing.allocator;
     var entries = [_]Entry{.{ .key = "title", .value = "Test" }};
     const fm = Block.FrontMatter{ .raw = "title: Test\n", .entries = &entries };
-    const lines = try renderLines(alloc, fm, 40, .hidden, false);
+    const lines = try renderLines(alloc, fm, 40, .hidden);
     defer freeLines(alloc, lines);
     try testing.expectEqual(@as(usize, 0), totalSpans(lines));
 }
@@ -95,7 +95,7 @@ test "frontmatter: an over-wide key is truncated with an ellipsis inside the wid
     const width: usize = 12;
     var entries = [_]Entry{.{ .key = "averylongkeyname", .value = "v" }};
     const fm = Block.FrontMatter{ .raw = "", .entries = &entries };
-    const lines = try renderLines(alloc, fm, width, .dim, false);
+    const lines = try renderLines(alloc, fm, width, .dim);
     defer freeLines(alloc, lines);
     const max_key_width: usize = width - 2 - 3;
     var found_key = false;
@@ -116,7 +116,7 @@ test "frontmatter: a long value wraps onto padded continuation rows within width
     const width: usize = 20;
     var entries = [_]Entry{.{ .key = "k", .value = "one two three four five" }};
     const fm = Block.FrontMatter{ .raw = "", .entries = &entries };
-    const lines = try renderLines(alloc, fm, width, .panel, false);
+    const lines = try renderLines(alloc, fm, width, .panel);
     defer freeLines(alloc, lines);
     try testing.expect(lines.len >= 4);
     try testing.expect(allLinesWithin(lines, width));
@@ -128,7 +128,7 @@ test "frontmatter: an unbreakable token is hard-split at the value column width"
     const alloc = testing.allocator;
     var entries = [_]Entry{.{ .key = "k", .value = "superlongunbrokentoken" }};
     const fm = Block.FrontMatter{ .raw = "", .entries = &entries };
-    const lines = try renderLines(alloc, fm, 12, .panel, false);
+    const lines = try renderLines(alloc, fm, 12, .panel);
     defer freeLines(alloc, lines);
     try testing.expect(lines.len >= 4);
     try testing.expect(allLinesWithin(lines, 12));
@@ -138,25 +138,21 @@ test "frontmatter: tabs expand to four-column stops" {
     const alloc = testing.allocator;
     var entries = [_]Entry{.{ .key = "k", .value = "a\tb" }};
     const fm = Block.FrontMatter{ .raw = "", .entries = &entries };
-    const lines = try renderLines(alloc, fm, 40, .panel, true);
+    const lines = try renderLines(alloc, fm, 40, .panel);
     defer freeLines(alloc, lines);
     try testing.expect(!anySpanHasByte(lines, '\t'));
     try testing.expect(anySpanContains(lines, "a   b"));
     for (lines) |line| try testing.expect(line.displayWidth() <= 40);
 }
 
-test "frontmatter: raw tabs expand identically for terminal and export" {
+test "frontmatter: raw tabs expand to four-column stops" {
     const alloc = testing.allocator;
     var no_entries = [_]Entry{};
     const fm = Block.FrontMatter{ .raw = "a\tb\n", .entries = &no_entries };
-    const term = try renderLines(alloc, fm, 40, .raw, false);
-    defer freeLines(alloc, term);
-    try testing.expect(!anySpanHasByte(term, '\t'));
-    try testing.expect(anySpanContains(term, "a   b"));
-    const exp = try renderLines(alloc, fm, 40, .raw, true);
-    defer freeLines(alloc, exp);
-    try testing.expect(!anySpanHasByte(exp, '\t'));
-    try testing.expect(anySpanContains(exp, "a   b"));
+    const lines = try renderLines(alloc, fm, 40, .raw);
+    defer freeLines(alloc, lines);
+    try testing.expect(!anySpanHasByte(lines, '\t'));
+    try testing.expect(anySpanContains(lines, "a   b"));
 }
 
 test "frontmatter: narrow widths do not underflow and still emit a line" {
@@ -164,7 +160,7 @@ test "frontmatter: narrow widths do not underflow and still emit a line" {
     var entries = [_]Entry{.{ .key = "k", .value = "v" }};
     const fm = Block.FrontMatter{ .raw = "", .entries = &entries };
     inline for (.{ 1, 2 }) |width| {
-        const lines = try renderLines(alloc, fm, width, .panel, false);
+        const lines = try renderLines(alloc, fm, width, .panel);
         defer freeLines(alloc, lines);
         try testing.expect(lines.len >= 1);
         try testing.expect(anySpanContains(lines, "v"));
@@ -175,7 +171,7 @@ test "frontmatter: a keyless continuation entry renders its value in the panel" 
     const alloc = testing.allocator;
     var entries = [_]Entry{.{ .key = "", .value = "  - Foo" }};
     const fm = Block.FrontMatter{ .raw = "", .entries = &entries };
-    const lines = try renderLines(alloc, fm, 40, .panel, false);
+    const lines = try renderLines(alloc, fm, 40, .panel);
     defer freeLines(alloc, lines);
     try testing.expect(anySpanContains(lines, "- Foo"));
 }
@@ -207,7 +203,7 @@ test "frontmatter: panel style emits half-block caps around a key/value grid" {
     var entries = [_]Entry{.{ .key = "title", .value = "Test" }};
     const fm = Block.FrontMatter{ .raw = "title: Test\n", .entries = &entries };
 
-    const lines = try renderLines(alloc, fm, 40, .panel, false);
+    const lines = try renderLines(alloc, fm, 40, .panel);
     defer freeLines(alloc, lines);
 
     try testing.expectEqual(@as(usize, 3), lines.len);
@@ -233,7 +229,7 @@ test "frontmatter: dim style is chrome-free with muted key and body value" {
     var entries = [_]Entry{.{ .key = "title", .value = "Test" }};
     const fm = Block.FrontMatter{ .raw = "title: Test\n", .entries = &entries };
 
-    const lines = try renderLines(alloc, fm, 40, .dim, false);
+    const lines = try renderLines(alloc, fm, 40, .dim);
     defer freeLines(alloc, lines);
 
     try testing.expectEqual(@as(usize, 1), lines.len);
@@ -250,7 +246,7 @@ test "frontmatter: compact style is a single marker-led line of pairs" {
     };
     const fm = Block.FrontMatter{ .raw = "", .entries = &entries };
 
-    const lines = try renderLines(alloc, fm, 60, .compact, false);
+    const lines = try renderLines(alloc, fm, 60, .compact);
     defer freeLines(alloc, lines);
 
     try testing.expectEqual(@as(usize, 1), lines.len);
@@ -270,7 +266,7 @@ test "frontmatter: raw style is byte-verbatim between fences without a trailing 
     };
     const fm = Block.FrontMatter{ .raw = "title: Test\nauthor: Foo\n", .entries = &entries };
 
-    const lines = try renderLines(alloc, fm, 40, .raw, false);
+    const lines = try renderLines(alloc, fm, 40, .raw);
     defer freeLines(alloc, lines);
 
     try testing.expectEqual(@as(usize, 4), lines.len);
