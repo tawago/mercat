@@ -66,10 +66,6 @@ pub const Decor = struct {
         return self.slots[@intFromEnum(s)];
     }
 
-    pub fn slotPtr(self: *Decor, s: Slot) *SlotDecor {
-        return &self.slots[@intFromEnum(s)];
-    }
-
     /// Decor for a heading of `level` (1..6), clamped to the 6 heading slots.
     pub fn headingSlot(self: *const Decor, level: usize) SlotDecor {
         const s: Slot = switch (@min(@max(level, 1), 6)) {

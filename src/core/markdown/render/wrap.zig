@@ -111,11 +111,6 @@ fn isWhitespaceByte(byte: u8) bool {
     return byte == ' ' or byte == '\t';
 }
 
-pub fn isWhitespace(text: []const u8) bool {
-    for (text) |byte| if (!isWhitespaceByte(byte)) return false;
-    return text.len != 0;
-}
-
 test "wrapping measures a variation-selector grapheme across style spans" {
     const allocator = std.testing.allocator;
     var base = [_]Inline{.{ .text = "©" }};

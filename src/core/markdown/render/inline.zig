@@ -198,10 +198,6 @@ pub fn splitAndAppendTokens(allocator: std.mem.Allocator, tokens: *std.ArrayList
     }
 }
 
-pub fn inlinesDisplayWidth(allocator: std.mem.Allocator, inlines: []const Inline) !usize {
-    return inlinesDisplayWidthFrom(allocator, inlines, 0);
-}
-
 pub fn inlinesDisplayWidthFrom(allocator: std.mem.Allocator, inlines: []const Inline, initial_column: usize) !usize {
     var text: std.ArrayList(u8) = .empty;
     defer text.deinit(allocator);

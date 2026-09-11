@@ -44,7 +44,7 @@ test "markview heading emits its prefix and a full-line bg fill span" {
 test "heading underline_row: default glyph renders a full-width rule row in heading style" {
     const allocator = std.testing.allocator;
     var decor = decor_mod.Decor{};
-    decor.slotPtr(.heading1).* = .{ .prefix = "# ", .underline_row = true };
+    decor.slots[@intFromEnum(decor_mod.Slot.heading1)] = .{ .prefix = "# ", .underline_row = true };
     var document = try markdown.parse(allocator, "# Title");
     defer document.deinit(allocator);
 
@@ -63,7 +63,7 @@ test "heading underline_row: default glyph renders a full-width rule row in head
 test "heading underline_row: space glyph is a padded blank row carrying the heading bg (full_line_bg)" {
     const allocator = std.testing.allocator;
     var decor = decor_mod.Decor{};
-    decor.slotPtr(.heading2).* = .{ .prefix = "## ", .underline_row = true, .underline_glyph = " ", .full_line_bg = true };
+    decor.slots[@intFromEnum(decor_mod.Slot.heading2)] = .{ .prefix = "## ", .underline_row = true, .underline_glyph = " ", .full_line_bg = true };
     var document = try markdown.parse(allocator, "## Head");
     defer document.deinit(allocator);
 
@@ -81,7 +81,7 @@ test "heading underline_row: space glyph is a padded blank row carrying the head
 test "heading underline_row: wrapped heading gets exactly one row below the last line" {
     const allocator = std.testing.allocator;
     var decor = decor_mod.Decor{};
-    decor.slotPtr(.heading1).* = .{ .underline_row = true };
+    decor.slots[@intFromEnum(decor_mod.Slot.heading1)] = .{ .underline_row = true };
     var document = try markdown.parse(allocator, "# aaaa bbbb cccc dddd");
     defer document.deinit(allocator);
 
