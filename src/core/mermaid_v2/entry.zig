@@ -33,7 +33,6 @@ const labels_mod = @import("raster/labels.zig");
 const paint_mod = @import("paint.zig");
 const ladder_pkg = @import("budget.zig");
 const select_mod = @import("select.zig");
-const motif_mod = @import("motif.zig");
 const ledger = @import("base/ledger.zig");
 const permits_mod = @import("ledger/permits.zig");
 const invariants_mod = @import("ledger/invariants.zig");
@@ -108,10 +107,6 @@ const EnvOptions = struct {
     /// combined with MERCAT_SCORE_OFF=1 it reproduces the original shadow mode
     /// exactly (incumbent returned, disagreement line emitted).
     shadow_telemetry: bool,
-    /// MERCAT_DUMP_MOTIFS=1 (INERT): emit one `mercat-motifs:`-prefixed
-    /// indented MotifTree per diagram to stderr. The decomposition is
-    /// computed ONLY under the env var — a normal render never pays for it.
-    dump_motifs: bool,
     /// MERCAT_INTEGRITY=1: emit one `mercat-integrity:` counts line per diagram
     /// to stderr (see `emitIntegrityLine`).
     integrity: bool,
@@ -123,7 +118,6 @@ const EnvOptions = struct {
             },
             .score_off = envIsOne("MERCAT_SCORE_OFF"),
             .shadow_telemetry = envIsOne("MERCAT_SCORE_SHADOW"),
-            .dump_motifs = envIsOne("MERCAT_DUMP_MOTIFS"),
             .integrity = envIsOne("MERCAT_INTEGRITY"),
         };
     }
@@ -167,8 +161,6 @@ pub fn renderFlowchart(
         return fallback(source, "v2 pipeline error: branch plan");
     };
     const bundle_permits = branch_result.plan;
-
-    if (env.dump_motifs) motif_mod.dumpToStderr(aa, graph);
 
     const ladder_result: ladder_pkg.LadderResult = blk: {
         if (env.force_rung) |rung| {

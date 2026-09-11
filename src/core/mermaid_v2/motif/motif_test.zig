@@ -314,20 +314,3 @@ test "branching cluster vertex wraps in prime; the cluster motif stays pure" {
     try std.testing.expect(found_cluster);
     try expectPartition(tree, g);
 }
-
-test "dump emits begin/end markers and one line per motif" {
-    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
-    defer arena.deinit();
-    const a = arena.allocator();
-
-    const nodes = [_]sg.Node{ node(0, null), node(1, null), node(2, null), node(3, null) };
-    const edges = [_]sg.Edge{ edge(0, 0, 1), edge(1, 1, 2), edge(2, 2, 3) };
-    const g = graphOf(&nodes, &edges, &.{});
-
-    const tree = try motif.decompose(a, g);
-    const text = try motif.dump(a, g, tree);
-    try std.testing.expect(std.mem.startsWith(u8, text, "mercat-motifs: begin nodes=4"));
-    try std.testing.expect(std.mem.indexOf(u8, text, "- spine size=4 members=4") != null);
-    try std.testing.expect(std.mem.indexOf(u8, text, "mercat-motifs: end motifs=1") != null);
-    try std.testing.expect(std.mem.indexOf(u8, text, "nonprime=4/4") != null);
-}

@@ -2,8 +2,7 @@
 //!
 //! Sits between SemGraph and Sketch: the dominator tree of the
 //! cycle-removed digraph, coarsened into typed motifs. Consumed live by
-//! motif/pack.zig (via select.zig's motif-packed candidates) and by
-//! entry.zig's `MERCAT_DUMP_MOTIFS=1` diagnostic dump.
+//! motif/pack.zig (via select.zig's motif-packed candidates).
 //!
 //! Lint zone: motif.zig + motif/* may import only std, prim, sem_graph,
 //! and motif-internal files (tools/lint_imports.zig).

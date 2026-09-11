@@ -51,7 +51,6 @@ const steering_env_names = [_][]const u8{
     "MERCAT_FORCE_RUNG",
     "MERCAT_SCORE_OFF",
     "MERCAT_SCORE_SHADOW",
-    "MERCAT_DUMP_MOTIFS",
     "MERCAT_INTEGRITY",
     "MERCAT_WIDTH",
     "MERCAT_THEME",
