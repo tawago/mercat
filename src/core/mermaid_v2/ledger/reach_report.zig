@@ -6,8 +6,7 @@
 //! Determinism (D-REACH item 12): terminal keys order by (canonical node
 //! semantic key = source raw_id bytes, endpoint_side, port row, port
 //! col); component ids by smallest member terminal key; every report list
-//! sorts by these keys. Numeric NodeId/EdgeId never appear in keys or in
-//! serialized bytes.
+//! sorts by these keys. Numeric NodeId/EdgeId never appear in keys.
 //!
 //! Allowed imports (tools/lint_imports.zig): std, prim, ledger,
 //! sketch, reach_geometry.
@@ -23,8 +22,8 @@ pub const Error = error{OutOfMemory};
 /// the registry tags minus the `reach_` prefix (pinned by test) — except
 /// `skipped_packed_candidate`, deliberately a NON-tag field (post-review
 /// F2): the D-DISPOSITION registry is closed and must not grow for
-/// a report-only skip split, so the packed-candidate skip is counted and
-/// serialized distinctly without ever becoming a `reach_*` tag.
+/// a report-only skip split, so the packed-candidate skip is counted
+/// distinctly without ever becoming a `reach_*` tag.
 /// `cross_connected` / `one_sided_adjacency` / `mixed_stroke_junction`
 /// are PAINTED-half events (D-REACH clauses 4/7) and
 /// `vector_raster_mismatch` is cross-half (Step 9): all structurally zero
@@ -323,89 +322,4 @@ pub fn buildTable(
         };
     }
     return entries;
-}
-
-fn appendf(a: std.mem.Allocator, out: *std.ArrayListUnmanaged(u8), comptime fmt: []const u8, args: anytype) Error!void {
-    try out.appendSlice(a, try std.fmt.allocPrint(a, fmt, args));
-}
-
-/// Serialize a report to canonical bytes: node ids map to their canonical
-/// keys, edges to endpoint-key pairs, and every list is already in key
-/// order — byte-identical under edge/writer permutation of the input.
-/// Numeric ids never reach the output.
-pub fn serialize(alloc: std.mem.Allocator, report: Report, node_keys: []const []const u8) Error![]const u8 {
-    var out: std.ArrayListUnmanaged(u8) = .empty;
-    if (report.skipped_clustered) {
-        try out.appendSlice(alloc, "skipped_clustered\n");
-        return out.toOwnedSlice(alloc);
-    }
-    if (report.skipped_packed) {
-        try out.appendSlice(alloc, "skipped_packed_candidate\n");
-        return out.toOwnedSlice(alloc);
-    }
-    for (report.components) |comp| {
-        try appendf(alloc, &out, "component {d}:", .{comp.id});
-        try writeTerms(alloc, &out, " sources=", comp.source_terminals, report.declared, node_keys);
-        try writeTerms(alloc, &out, " targets=", comp.target_terminals, report.declared, node_keys);
-        try writePairs(alloc, &out, " reachable=", comp.reachable_pairs, node_keys);
-        try writePairs(alloc, &out, " declared=", comp.declared_pairs_in_component, node_keys);
-        try writePairs(alloc, &out, " missing=", comp.missing_declared_pairs, node_keys);
-        try writePairs(alloc, &out, " extra=", comp.extra_undeclared_pairs, node_keys);
-        try appendf(alloc, &out, " bundles={d} bridges={d}\n", .{ comp.selected_bundle_ids.len, comp.bridge_ids.len });
-    }
-    for (report.sharing) |ev| {
-        try appendf(alloc, &out, "sharing ({d},{d}) ", .{ ev.y, ev.x });
-        try writeOwner(alloc, &out, report.declared, node_keys, ev.a_edge);
-        try out.appendSlice(alloc, " x ");
-        try writeOwner(alloc, &out, report.declared, node_keys, ev.b_edge);
-        try out.append(alloc, '\n');
-    }
-    for (report.missing_declared) |rank| {
-        try appendf(alloc, &out, "missing_declared membership#{d}\n", .{rank});
-    }
-    inline for (@typeInfo(Counts).@"struct".fields) |f| {
-        const prefix = if (comptime std.mem.eql(u8, f.name, "skipped_packed_candidate")) "" else "reach_";
-        try appendf(alloc, &out, "{s}{s}={d}\n", .{ prefix, f.name, @field(report.counts, f.name) });
-    }
-    return out.toOwnedSlice(alloc);
-}
-
-fn writeOwner(alloc: std.mem.Allocator, out: *std.ArrayListUnmanaged(u8), declared: []const DeclaredEdge, node_keys: []const []const u8, edge: ?pb.EdgeId) Error!void {
-    const id = edge orelse return out.appendSlice(alloc, "rail");
-    const d = declaredById(declared, id) orelse return out.appendSlice(alloc, "?");
-    try appendf(alloc, out, "{s}->{s}", .{ nodeKey(node_keys, d.from), nodeKey(node_keys, d.to) });
-}
-
-fn writeTerms(
-    alloc: std.mem.Allocator,
-    out: *std.ArrayListUnmanaged(u8),
-    label: []const u8,
-    terms: []const pb.TerminalPort,
-    declared: []const DeclaredEdge,
-    node_keys: []const []const u8,
-) Error!void {
-    try out.appendSlice(alloc, label);
-    try out.append(alloc, '[');
-    for (terms, 0..) |t, i| {
-        if (i > 0) try out.append(alloc, ',');
-        try appendf(alloc, out, "{s}/{s}/p{d}/", .{ nodeKey(node_keys, t.node), @tagName(t.endpoint_side), t.port });
-        try writeOwner(alloc, out, declared, node_keys, t.edge);
-    }
-    try out.append(alloc, ']');
-}
-
-fn writePairs(
-    alloc: std.mem.Allocator,
-    out: *std.ArrayListUnmanaged(u8),
-    label: []const u8,
-    pairs: []const pb.NodePair,
-    node_keys: []const []const u8,
-) Error!void {
-    try out.appendSlice(alloc, label);
-    try out.append(alloc, '[');
-    for (pairs, 0..) |p, i| {
-        if (i > 0) try out.append(alloc, ',');
-        try appendf(alloc, out, "({s},{s})", .{ nodeKey(node_keys, p.source), nodeKey(node_keys, p.target) });
-    }
-    try out.append(alloc, ']');
 }

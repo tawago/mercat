@@ -43,9 +43,7 @@ pub const Counts = rep.Counts;
 pub const Report = rep.Report;
 pub const SharingEvent = rep.SharingEvent;
 pub const DeclaredEdge = rep.DeclaredEdge;
-pub const serialize = rep.serialize;
 
-const Occurrence = rep.Occurrence;
 const Comp = rep.Comp;
 
 const ChanCell = struct { chan: u32, x: i32, y: i32 };

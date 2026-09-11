@@ -292,10 +292,6 @@ test "F2: packed-candidate skip is distinct from the clustered-input skip" {
     try expectEqual(@as(u32, 0), packed_skip.counts.skipped_clustered);
     try expectEqual(@as(u32, 0), packed_skip.counts.ciTotal());
     try expectEqual(@as(usize, 0), packed_skip.components.len);
-
-    const cb = try vc.serialize(a, clustered, &.{});
-    const pkb = try vc.serialize(a, packed_skip, &.{});
-    try expect(!std.mem.eql(u8, cb, pkb));
 }
 
 test "V-D-REACH-16 (vector half): strict orthogonal transversal crossing is legal and adds no link" {

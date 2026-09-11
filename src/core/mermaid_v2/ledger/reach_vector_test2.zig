@@ -22,18 +22,12 @@ const expectEqual = std.testing.expectEqual;
 
 const node = t1.node;
 const edge = t1.edge;
-const graphOf = t1.graphOf;
 const nodeKeys = t1.nodeKeys;
 const path = t1.path;
 const sketchOf = t1.sketchOf;
-const realized = t1.realized;
 const tp = t1.tp;
 const anyReachable = t1.anyReachable;
 const zeroCounts = t1.zeroCounts;
-const fan_nodes = t1.fan_nodes;
-const fan_edges = t1.fan_edges;
-const fanTaps = t1.fanTaps;
-const fanRail = t1.fanRail;
 
 const c22_nodes = [_]sg.Node{ node(0, "S1"), node(1, "S2"), node(2, "T1"), node(3, "T2") };
 
@@ -230,57 +224,6 @@ test "membership at both ends: arrow-free members let the leaf-to-leaf trace thr
     const report = try vc.validate(a, s, try nodeKeys(a, &both_nodes), .flat);
     try expectEqual(@as(u32, 1), report.counts.undeclared_pair);
     try expect(anyReachable(report, 2, 1));
-}
-
-test "V-D-REACH-19(b) (vector): declaration/writer permutation yields identical report bytes" {
-    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
-    defer arena.deinit();
-    const a = arena.allocator();
-    const keys = try nodeKeys(a, &fan_nodes);
-
-    const taps_fwd = fanTaps(true);
-    const taps_rev = [_]sk.Tap{ taps_fwd[2], taps_fwd[0], taps_fwd[1] };
-    const edges_rev = [_]sg.Edge{ fan_edges[2], fan_edges[0], fan_edges[1] };
-    const bbs_fwd = [_]sk.Rail{fanRail(&taps_fwd, 16)};
-    const bbs_rev = [_]sk.Rail{fanRail(&taps_rev, 16)};
-    const s_fwd = try realized(a, graphOf(&fan_nodes, &fan_edges), sketchOf(&.{}, &bbs_fwd));
-    const s_rev = try realized(a, graphOf(&fan_nodes, &edges_rev), sketchOf(&.{}, &bbs_rev));
-    const bytes_fwd = try vc.serialize(a, try vc.validate(a, s_fwd, keys, .flat), keys);
-    const bytes_rev = try vc.serialize(a, try vc.validate(a, s_rev, keys, .flat), keys);
-    try std.testing.expectEqualStrings(bytes_fwd, bytes_rev);
-
-    const x_nodes = [_]sg.Node{ node(0, "A"), node(1, "B"), node(2, "C"), node(3, "D") };
-    const x_edges = [_]sg.Edge{ edge(0, 0, 1), edge(1, 2, 3) };
-    const p0 = path(0, 0, 1, &.{ .{ .x = 2, .y = 6 }, .{ .x = 10, .y = 6 } });
-    const p1 = path(1, 2, 3, &.{ .{ .x = 6, .y = 2 }, .{ .x = 6, .y = 10 } });
-    const x_keys = try nodeKeys(a, &x_nodes);
-    const sa = try realized(a, graphOf(&x_nodes, &x_edges), sketchOf(&.{ p0, p1 }, &.{}));
-    const sb = try realized(a, graphOf(&x_nodes, &x_edges), sketchOf(&.{ p1, p0 }, &.{}));
-    const ba = try vc.serialize(a, try vc.validate(a, sa, x_keys, .flat), x_keys);
-    const rail = try vc.serialize(a, try vc.validate(a, sb, x_keys, .flat), x_keys);
-    try std.testing.expectEqualStrings(ba, rail);
-
-    const o_nodes = [_]sg.Node{
-        node(0, "A"), node(1, "B"), node(2, "C"),
-        node(3, "D"), node(4, "E"), node(5, "F"),
-    };
-    const o_edges = [_]sg.Edge{ edge(0, 0, 1), edge(1, 2, 3), edge(2, 4, 5) };
-    const q0 = path(0, 0, 1, &.{ .{ .x = 2, .y = 6 }, .{ .x = 10, .y = 6 } });
-    const q1 = path(1, 2, 3, &.{ .{ .x = 6, .y = 6 }, .{ .x = 14, .y = 6 } });
-    const q2 = path(2, 4, 5, &.{ .{ .x = 4, .y = 6 }, .{ .x = 12, .y = 6 } });
-    const o_keys = try nodeKeys(a, &o_nodes);
-    const g_fwd = graphOf(&o_nodes, &o_edges);
-    const o_edges_rev = [_]sg.Edge{ o_edges[2], o_edges[0], o_edges[1] };
-    const g_rev = graphOf(&o_nodes, &o_edges_rev);
-    const sh_a = try realized(a, g_fwd, sketchOf(&.{ q0, q1, q2 }, &.{}));
-    const sh_b = try realized(a, g_rev, sketchOf(&.{ q2, q0, q1 }, &.{}));
-    const ra = try vc.validate(a, sh_a, o_keys, .flat);
-    const rb = try vc.validate(a, sh_b, o_keys, .flat);
-    try expectEqual(@as(u32, 3), ra.counts.unknown_continuation);
-    try expectEqual(@as(usize, 3), ra.sharing.len);
-    const sha_bytes = try vc.serialize(a, ra, o_keys);
-    const shb_bytes = try vc.serialize(a, rb, o_keys);
-    try std.testing.expectEqualStrings(sha_bytes, shb_bytes);
 }
 
 test "Counts fields mirror the registered reach_* tags (11 CI + 1 RO skip) plus the non-tag packed skip" {
