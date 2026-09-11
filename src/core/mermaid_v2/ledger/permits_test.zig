@@ -49,6 +49,11 @@ fn hasFinding(report: planner.ValidationReport, tag: planner.ValidationTag) bool
     return false;
 }
 
+fn membershipOf(plan: pb.BundlePermits, id: pb.EdgeId) ?pb.BundleMembership {
+    for (plan.memberships) |membership| if (membership.edge == id) return membership;
+    return null;
+}
+
 fn canonicalBytes(allocator: std.mem.Allocator, plan: pb.BundlePermits) ![]const u8 {
     var bytes: std.ArrayListUnmanaged(u8) = .empty;
     for (plan.groups) |group| {
@@ -126,10 +131,9 @@ test "one dual edge receives source and target memberships" {
     const edges = [_]sg.Edge{ edge(11, 0, 4), edge(12, 0, 1), edge(13, 2, 4) };
 
     const result = try planner.build(a, graph(&edges), .joined);
-    const lookup = planner.lookupMembership(result.plan, .{ .original = 11 });
-    try std.testing.expect(lookup.diagnostic == null);
-    try std.testing.expect(lookup.membership.?.source_group != null);
-    try std.testing.expect(lookup.membership.?.target_group != null);
+    const membership = membershipOf(result.plan, 11).?;
+    try std.testing.expect(membership.source_group != null);
+    try std.testing.expect(membership.target_group != null);
     try expectClean(a, graph(&edges), result.plan);
 }
 
@@ -246,9 +250,9 @@ test "V-D-JOIN-SELECT-14: self-loop exclusion does not annihilate real fan-in co
     try std.testing.expectEqual(pb.BundleDirection.in, group.direction);
     try std.testing.expectEqual(@as(sg.NodeId, 4), group.pivot);
     try std.testing.expectEqualSlices(pb.EdgeId, &.{ 0, 1 }, group.members);
-    const self_loop = planner.lookupMembership(result.plan, .{ .original = 2 });
-    try std.testing.expectEqual(@as(?pb.CandidateBundleId, null), self_loop.membership.?.source_group);
-    try std.testing.expectEqual(@as(?pb.CandidateBundleId, null), self_loop.membership.?.target_group);
+    const self_loop = membershipOf(result.plan, 2).?;
+    try std.testing.expectEqual(@as(?pb.CandidateBundleId, null), self_loop.source_group);
+    try std.testing.expectEqual(@as(?pb.CandidateBundleId, null), self_loop.target_group);
     try expectClean(a, graph(&edges), result.plan);
 }
 
@@ -316,19 +320,6 @@ test "validator rejects each structural invariant corruption" {
     std.mem.swap(pb.CandidateBundle, &groups[0], &groups[1]);
     report = try planner.validate(a, g, .{ .policy = .joined, .groups = groups, .memberships = built.plan.memberships });
     try std.testing.expect(hasFinding(report, .groups_not_canonical));
-}
-
-test "V-D-EDGE-ID-03: unqualified local lookup returns no membership and RF tag" {
-    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
-    defer arena.deinit();
-    const a = arena.allocator();
-    const edges = [_]sg.Edge{ edge(0, 0, 1), edge(1, 0, 2) };
-    const result = try planner.build(a, graph(&edges), .joined);
-
-    const lookup = planner.lookupMembership(result.plan, .{ .unqualified_local = 0 });
-    try std.testing.expect(lookup.membership == null);
-    try std.testing.expectEqual(pb.DiagnosticTag.edgeid_unqualified_local_lookup, lookup.diagnostic.?);
-    try std.testing.expectEqual(pb.DispositionClass.render_fatal, pb.classOf(lookup.diagnostic.?));
 }
 
 test "rail preparation salvages distinct leaves and rejects antiparallel or self-loop members" {

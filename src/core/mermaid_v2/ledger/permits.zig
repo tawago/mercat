@@ -489,22 +489,3 @@ fn add(
 ) error{OutOfMemory}!void {
     try out.append(allocator, .{ .tag = tag, .group = group, .edge = edge });
 }
-
-pub const EdgeIdentity = union(enum) {
-    original: prim.EdgeId,
-    unqualified_local: prim.EdgeId,
-};
-
-pub const MembershipLookup = struct {
-    membership: ?pb.BundleMembership = null,
-    diagnostic: ?pb.DiagnosticTag = null,
-};
-
-/// Membership lookup accepts an explicit identity domain. A local ID without
-/// an original-edge mapping can never alias an original membership.
-pub fn lookupMembership(plan: pb.BundlePermits, identity: EdgeIdentity) MembershipLookup {
-    return switch (identity) {
-        .original => |id| .{ .membership = membershipByEdge(plan.memberships, id) },
-        .unqualified_local => .{ .diagnostic = .edgeid_unqualified_local_lookup },
-    };
-}
