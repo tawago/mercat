@@ -46,12 +46,10 @@ const CellMap = std.AutoArrayHashMapUnmanaged(Cell, Pass);
 pub fn conflicts(
     a: std.mem.Allocator,
     edge: pb.EdgeId,
-    kind: sk.EdgeKind,
     polyline: []const sk.Point,
     existing: []const sk.EdgePath,
     bundles: pb.RealizedBundles,
 ) error{OutOfMemory}!bool {
-    _ = kind;
     var candidate = try cells(a, polyline);
     defer candidate.deinit(a);
     for (existing) |other| {
@@ -300,7 +298,6 @@ fn offNodePoint(placement: sk.NodePlacement, port: sk.Port) sk.Point {
 pub fn blocked(
     a: std.mem.Allocator,
     edge: pb.EdgeId,
-    kind: sk.EdgeKind,
     polyline: []const sk.Point,
     existing: []const sk.EdgePath,
     bundles: pb.RealizedBundles,
@@ -309,7 +306,7 @@ pub fn blocked(
     to: pb.NodeId,
 ) error{OutOfMemory}!bool {
     if (touchesForeignNode(polyline, placements, from, to)) return true;
-    return conflicts(a, edge, kind, polyline, existing, bundles);
+    return conflicts(a, edge, polyline, existing, bundles);
 }
 
 pub fn isIndependent(edge: pb.EdgeId, bundles: pb.RealizedBundles) bool {
@@ -345,7 +342,6 @@ pub fn isIndependent(edge: pb.EdgeId, bundles: pb.RealizedBundles) bool {
 pub fn polylineClears(
     a: std.mem.Allocator,
     edge: pb.EdgeId,
-    kind: sk.EdgeKind,
     polyline: []const sk.Point,
     existing: []const sk.EdgePath,
     rails: []const sk.Rail,
@@ -363,7 +359,7 @@ pub fn polylineClears(
     // @guarded-by: route_clearance_test.zig "a route through a foreign box is refused with no realized memberships"
     if (touchesForeignNode(polyline, placements, from, to)) return false;
     if (bundles.memberships.len == 0) return true;
-    return !try blocked(a, edge, kind, polyline, existing, bundles, placements, from, to) and
+    return !try blocked(a, edge, polyline, existing, bundles, placements, from, to) and
         !try conflictsRailJunctions(a, polyline, rails) and
         !try conflictsRailArrows(a, polyline, rails, from, to);
 }

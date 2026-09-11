@@ -241,11 +241,11 @@ fn clears(
     try inner.append(a, .{ .x = end.x, .y = end.y - 1 });
     // Box termination holds with or without a plan: a stroke through a
     // foreign box is refused even where the plan-aware gates stand down.
-    if (try route_clearance.blocked(a, orig.id, orig.kind, inner.items, existing, bundles, placements, orig.from, orig.to)) return false;
+    if (try route_clearance.blocked(a, orig.id, inner.items, existing, bundles, placements, orig.from, orig.to)) return false;
     // Rail ink is another owner's: a stroke may cross a rail's run, never
     // lie along it or on its stem or drops (`route_clearance.ridesRail`,
     // one of the gates below).
-    return route_clearance.polylineClears(a, orig.id, orig.kind, inner.items, existing, bar_views, placements, allocated_ports.edges, bundles, orig.from, orig.to);
+    return route_clearance.polylineClears(a, orig.id, inner.items, existing, bar_views, placements, allocated_ports.edges, bundles, orig.from, orig.to);
 }
 
 test {

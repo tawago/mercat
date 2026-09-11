@@ -232,7 +232,7 @@ pub fn buildEdgesWithPlan(
                     if (proxy or try accepts(a, orig, poly, straight, out.items, bar_views, placements, allocated_ports.edges, bundles)) break;
                     if (ladder.next()) continue;
                     poly = if (orig.kind == .invisible)
-                        try route_detour.clearInvisiblePath(a, orig.id, orig.kind, src_p, dst_p, ep.source, ep.target, placements, out.items, bundles)
+                        try route_detour.clearInvisiblePath(a, orig.id, src_p, dst_p, ep.source, ep.target, placements, out.items, bundles)
                     else
                         (try detour(a, graph.direction, orig, src_p, dst_p, ep, straight, out.items, bar_views, placements, allocated_ports.edges, bundles)) orelse try unrouted(a);
                     break;
@@ -353,7 +353,7 @@ pub fn buildEdgesWithPlan(
             if (try accepts(a, orig, poly, straight, out.items, bar_views, placements, allocated_ports.edges, bundles)) break;
             if (ladder.next()) continue;
             poly = if (orig.kind == .invisible)
-                try route_detour.clearInvisiblePath(a, orig.id, orig.kind, eff_from_p, eff_to_p, ep.source, ep.target, placements, out.items, bundles)
+                try route_detour.clearInvisiblePath(a, orig.id, eff_from_p, eff_to_p, ep.source, ep.target, placements, out.items, bundles)
             else
                 (try detour(a, eff_dir, orig, eff_from_p, eff_to_p, ep, straight, out.items, bar_views, placements, allocated_ports.edges, bundles)) orelse try unrouted(a);
             break;

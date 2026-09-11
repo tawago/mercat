@@ -34,7 +34,6 @@ test "F-A: clearInvisiblePath skips a foreign border-collinear dogleg" {
     const poly = try detour.clearInvisiblePath(
         arena.allocator(),
         0,
-        .invisible,
         placements[0],
         placements[1],
         .{ .node = 0, .side = .east, .offset = 2 },
@@ -205,9 +204,9 @@ test "polylineClears refuses every clearance violation regardless of membership 
     } };
 
     inline for ([2]pb.RealizedBundles{ with_independent, all_selected }) |bundles| {
-        try std.testing.expect(!try clearance.polylineClears(a, 0, .solid, &over_arrow, &.{}, &rails, &placements, &edge_ports, bundles, 0, 1));
-        try std.testing.expect(!try clearance.polylineClears(a, 0, .solid, &through_foreign, &.{}, &rails, &placements, &edge_ports, bundles, 0, 1));
-        try std.testing.expect(try clearance.polylineClears(a, 0, .solid, &clear, &.{}, &rails, &placements, &edge_ports, bundles, 0, 1));
+        try std.testing.expect(!try clearance.polylineClears(a, 0, &over_arrow, &.{}, &rails, &placements, &edge_ports, bundles, 0, 1));
+        try std.testing.expect(!try clearance.polylineClears(a, 0, &through_foreign, &.{}, &rails, &placements, &edge_ports, bundles, 0, 1));
+        try std.testing.expect(try clearance.polylineClears(a, 0, &clear, &.{}, &rails, &placements, &edge_ports, bundles, 0, 1));
     }
 }
 
@@ -296,8 +295,8 @@ test "reservations hold with no realized memberships" {
     const decorated = [_]EP{.{ .edge = 0, .source = .{ .node = 0, .side = .south, .offset = 2 }, .target = .{ .node = 1, .side = .north, .offset = 2 }, .target_decorated = true }};
     const crossing = [_]sk.Point{ .{ .x = 8, .y = 9 }, .{ .x = 0, .y = 9 } };
     const clear = [_]sk.Point{ .{ .x = 8, .y = 6 }, .{ .x = 0, .y = 6 } };
-    try std.testing.expect(!try clearance.polylineClears(a, 1, .solid, &crossing, &.{}, &.{}, &placements, &decorated, .{}, 0, 1));
-    try std.testing.expect(try clearance.polylineClears(a, 1, .solid, &clear, &.{}, &.{}, &placements, &decorated, .{}, 0, 1));
+    try std.testing.expect(!try clearance.polylineClears(a, 1, &crossing, &.{}, &.{}, &placements, &decorated, .{}, 0, 1));
+    try std.testing.expect(try clearance.polylineClears(a, 1, &clear, &.{}, &.{}, &placements, &decorated, .{}, 0, 1));
 }
 
 test "two edges the plan attached to one port do not reserve that port's cell against each other" {
@@ -434,11 +433,11 @@ test "members of one fused union do not block each other" {
     const existing = [_]sk.EdgePath{.{ .id = 0, .from = 0, .to = 1, .polyline = &laid, .port_from = .{ .node = 0, .side = .east, .offset = 1 }, .port_to = .{ .node = 1, .side = .west, .offset = 1 }, .arrow_from = .none, .arrow_to = .filled, .label = null, .kind = .solid }};
     const candidate = [_]sk.Point{ .{ .x = 5, .y = 1 }, .{ .x = 8, .y = 1 }, .{ .x = 8, .y = 15 } };
     // Unrelated: a collinear overlap is a foreign junction.
-    try std.testing.expect(try clearance.conflicts(a, 1, .solid, &candidate, &existing, .{}));
+    try std.testing.expect(try clearance.conflicts(a, 1, &candidate, &existing, .{}));
     // One fused union: the shared stub is one bundle's ink.
     const both = [_]pb.EdgeId{ 0, 1 };
     const unions = [_][]const pb.EdgeId{&both};
-    try std.testing.expect(!try clearance.conflicts(a, 1, .solid, &candidate, &existing, .{ .fused = &unions }));
+    try std.testing.expect(!try clearance.conflicts(a, 1, &candidate, &existing, .{ .fused = &unions }));
 }
 
 test "a route through a foreign box is refused with no realized memberships" {
@@ -453,10 +452,10 @@ test "a route through a foreign box is refused with no realized memberships" {
     const ports = [_]EP{.{ .edge = 0, .source = .{ .node = 0, .side = .south, .offset = 2 }, .target = .{ .node = 1, .side = .north, .offset = 2 } }};
     // Down column 3 from node 0 to node 1: the middle run crosses node 2's box.
     const through = [_]sk.Point{ .{ .x = 2, .y = 2 }, .{ .x = 2, .y = 6 }, .{ .x = 3, .y = 6 }, .{ .x = 3, .y = 16 }, .{ .x = 2, .y = 16 }, .{ .x = 2, .y = 20 } };
-    try std.testing.expect(!try clearance.polylineClears(a, 0, .solid, &through, &.{}, &.{}, &placements, &ports, .{}, 0, 1));
+    try std.testing.expect(!try clearance.polylineClears(a, 0, &through, &.{}, &.{}, &placements, &ports, .{}, 0, 1));
     // Beside it, the same route clears.
     const beside = [_]sk.Point{ .{ .x = 2, .y = 2 }, .{ .x = 2, .y = 5 }, .{ .x = 8, .y = 5 }, .{ .x = 8, .y = 17 }, .{ .x = 2, .y = 17 }, .{ .x = 2, .y = 20 } };
-    try std.testing.expect(try clearance.polylineClears(a, 0, .solid, &beside, &.{}, &.{}, &placements, &ports, .{}, 0, 1));
+    try std.testing.expect(try clearance.polylineClears(a, 0, &beside, &.{}, &.{}, &placements, &ports, .{}, 0, 1));
 }
 
 test "a route may cross a rail's run but never lie along it" {

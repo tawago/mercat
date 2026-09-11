@@ -192,7 +192,6 @@ pub fn shiftInteriorRun(a: std.mem.Allocator, polyline: []const sk.Point, direct
 pub fn clearInvisiblePath(
     a: std.mem.Allocator,
     edge: pb.EdgeId,
-    kind: sk.EdgeKind,
     from: sk.NodePlacement,
     to: sk.NodePlacement,
     port_from: sk.Port,
@@ -214,12 +213,12 @@ pub fn clearInvisiblePath(
     var x = min_x;
     while (x <= max_x) : (x += 1) {
         const poly = try dogleg(a, from, to, port_from, port_to, x, true);
-        if (!try blocked(a, edge, kind, poly, existing, bundles, placements, from.id, to.id)) return poly;
+        if (!try blocked(a, edge, poly, existing, bundles, placements, from.id, to.id)) return poly;
     }
     var y = min_y;
     while (y <= max_y) : (y += 1) {
         const poly = try dogleg(a, from, to, port_from, port_to, y, false);
-        if (!try blocked(a, edge, kind, poly, existing, bundles, placements, from.id, to.id)) return poly;
+        if (!try blocked(a, edge, poly, existing, bundles, placements, from.id, to.id)) return poly;
     }
     return a.alloc(sk.Point, 0);
 }

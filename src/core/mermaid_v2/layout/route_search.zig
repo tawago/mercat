@@ -63,7 +63,7 @@ pub fn accepts(
     bundles: ledger.RealizedBundles,
 ) error{OutOfMemory}!bool {
     return rt.terminalsStraight(poly, straight) and
-        try route_clearance.polylineClears(a, edge.id, edge.kind, poly, existing, bar_views, placements, edge_ports, bundles, edge.from, edge.to);
+        try route_clearance.polylineClears(a, edge.id, poly, existing, bar_views, placements, edge_ports, bundles, edge.from, edge.to);
 }
 
 /// The outside-detour ladder every lane loop falls to: widen until a
