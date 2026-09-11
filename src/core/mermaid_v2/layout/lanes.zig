@@ -1,6 +1,6 @@
 //! Lane-packing primitives for fitting several parallel runs (e.g. back-edge
 //! rails, bridge tracks) into a shared cross-axis "gutter". Re-exports the
-//! pure interval-packer core (`LaneClaim`, `assign`, `Gutter`, `gutter`) from
+//! pure interval-packer core (`LaneClaim`, `assign`) from
 //! `../base/lanes.zig`, so cluster/ can use it too (the linter forbids
 //! cluster/ → layout/ imports); adds the placement-aware obstacle search
 //! (`runClear`, `clearRunBase`), which needs sketch geometry and so stays
