@@ -268,7 +268,7 @@ test "a first-class rail member and path share only their exact final approach" 
     const bridge_points = [_]sketch.Point{ p(5, 1), p(5, 4), p(11, 4) };
     const edges = [_]sketch.EdgePath{edge(30, &bridge_points)};
 
-    const sets = try sketch_ports.portShareBundlesFromGeometry(a, &edges, &rails_buf);
+    const sets = try sketch_ports.rebuildFinalPortShares(a, &.{}, &edges, &rails_buf);
     try std.testing.expectEqual(@as(usize, 1), sets.len);
     try std.testing.expectEqualSlices(sketch.EdgeId, &.{ 30, 20, 21 }, sets[0].members);
     try std.testing.expect(ledger.bundleMembersAt(sets, 20, 30, .{ .x = 5, .y = 3 }));
@@ -304,7 +304,7 @@ test "a rail member and path at one port with no common run license no merge" {
     const bridge_points = [_]sketch.Point{ p(5, 1), p(6, 1), p(11, 4) };
     const edges = [_]sketch.EdgePath{edge(30, &bridge_points)};
 
-    const sets = try sketch_ports.portShareBundlesFromGeometry(a, &edges, &rails_buf);
+    const sets = try sketch_ports.rebuildFinalPortShares(a, &.{}, &edges, &rails_buf);
     try std.testing.expectEqual(@as(usize, 0), sets.len);
 
     const structural = [_]ledger.Bundle{.{ .origin = .fan_rail, .members = &.{20} }};

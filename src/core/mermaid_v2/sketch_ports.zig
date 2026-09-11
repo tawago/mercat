@@ -150,16 +150,6 @@ pub fn finalCarrierTraces(
     return traces.toOwnedSlice(arena);
 }
 
-/// Derive one final port-share population from EdgePaths and first-class rail
-/// members together. Pair scopes are always computed from those final traces.
-pub fn portShareBundlesFromGeometry(
-    arena: std.mem.Allocator,
-    edges: []const sketch.EdgePath,
-    rails_buf: []const sketch.Rail,
-) error{OutOfMemory}![]const ledger.Bundle {
-    return portShareBundlesFromTraces(arena, try finalCarrierTraces(arena, edges, rails_buf));
-}
-
 fn portShareBundlesFromTraces(
     arena: std.mem.Allocator,
     traces: []const CarrierTrace,

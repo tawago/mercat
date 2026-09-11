@@ -118,7 +118,6 @@ test "every rasterization carries its complete side table" {
     try testing.expect(on.lattice.aux.len > 0);
     try testing.expectEqual(lattice.AuxCollectionState.complete, on.lattice.aux_collection.state);
     try testing.expectEqual(@as(u64, @intCast(on.lattice.aux.len)), on.lattice.aux_collection.attempted_records);
-    try testing.expectEqual(@as(u64, 0), on.lattice.aux_collection.lostRecords());
 }
 
 test "raster distinguishes complete-empty and AUX OOM without changing cells" {
@@ -159,8 +158,6 @@ test "raster distinguishes complete-empty and AUX OOM without changing cells" {
     try testing.expect(failing.has_induced_failure);
     try testing.expectEqual(lattice.AuxCollectionState.out_of_memory, failed.lattice.aux_collection.state);
     try testing.expectEqual(complete.lattice.aux_collection.attempted_records, failed.lattice.aux_collection.attempted_records);
-    try testing.expectEqual(@as(u64, 0), failed.lattice.aux_collection.retainedRecords());
-    try testing.expectEqual(failed.lattice.aux_collection.attempted_records, failed.lattice.aux_collection.lostRecords());
     try testing.expectEqual(@as(usize, 0), failed.lattice.aux.len);
 
     try testing.expectEqualSlices(

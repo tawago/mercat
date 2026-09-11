@@ -160,8 +160,6 @@ test "Lattice defaults to AUX not collected and copies collection reports" {
     const copied = original;
     try testing.expectEqual(failed.state, copied.aux_collection.state);
     try testing.expectEqual(failed.attempted_records, copied.aux_collection.attempted_records);
-    try testing.expectEqual(@as(u64, 0), copied.aux_collection.retainedRecords());
-    try testing.expectEqual(@as(u64, 7), copied.aux_collection.lostRecords());
 }
 
 test "collector sorts records and keeps producer order on ties" {
@@ -176,8 +174,7 @@ test "collector sorts records and keeps producer order on ties" {
     const table = c.finish();
     try testing.expectEqual(@as(usize, 5), table.len);
     try testing.expectEqual(lattice.AuxCollectionState.complete, c.report().state);
-    try testing.expectEqual(@as(u64, 5), c.report().retainedRecords());
-    try testing.expectEqual(@as(u64, 0), c.report().lostRecords());
+    try testing.expectEqual(@as(u64, 5), c.report().attempted_records);
     try testing.expectEqual(@as(u32, 2), table[0].value);
     try testing.expectEqual(@as(u32, 7), table[3].value);
     try testing.expectEqual(@as(u32, 9), table[4].cell);
@@ -212,13 +209,12 @@ test "collector distinguishes complete empty from OOM and counts after poison" {
     try testing.expectEqual(lattice.AuxCollectionState.out_of_memory, poisoned.report().state);
     try testing.expectEqual(@as(usize, 0), poisoned.finish().len);
     try testing.expectEqual(@as(u64, 7), poisoned.report().attempted_records);
-    try testing.expectEqual(@as(u64, 7), poisoned.report().lostRecords());
     try testing.expectEqual(@as(usize, 0), poisoned.records.capacity);
 
     const allocations = failing.alloc_index;
     record(&poisoned, 99, .port, 99, 0);
     try testing.expectEqual(allocations, failing.alloc_index);
-    try testing.expectEqual(@as(u64, 8), poisoned.report().lostRecords());
+    try testing.expectEqual(@as(u64, 8), poisoned.report().attempted_records);
 }
 
 test "collector allocation sweep poisons every growth without a prefix" {
@@ -241,15 +237,13 @@ test "collector allocation sweep poisons every growth without a prefix" {
         try testing.expect(failing.has_induced_failure);
         try testing.expectEqual(lattice.AuxCollectionState.out_of_memory, c.report().state);
         try testing.expectEqual(@as(u64, count), c.report().attempted_records);
-        try testing.expectEqual(@as(u64, 0), c.report().retainedRecords());
-        try testing.expectEqual(@as(u64, count), c.report().lostRecords());
         try testing.expectEqual(@as(usize, 0), c.finish().len);
         try testing.expectEqual(@as(usize, 0), c.records.capacity);
 
         const allocations = failing.alloc_index;
         record(&c, 999, .port, 999, 0);
         try testing.expectEqual(allocations, failing.alloc_index);
-        try testing.expectEqual(@as(u64, count + 1), c.report().lostRecords());
+        try testing.expectEqual(@as(u64, count + 1), c.report().attempted_records);
         c.deinit();
     }
 }

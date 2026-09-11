@@ -395,22 +395,6 @@ pub const AuxCollectionState = enum {
 pub const AuxCollectionReport = struct {
     state: AuxCollectionState = .not_collected,
     attempted_records: u64 = 0,
-
-    /// Records exposed in `Lattice.aux` for this report.
-    pub fn retainedRecords(self: AuxCollectionReport) u64 {
-        return switch (self.state) {
-            .complete => self.attempted_records,
-            .not_collected, .out_of_memory => 0,
-        };
-    }
-
-    /// Attempted records withheld because collection failed.
-    pub fn lostRecords(self: AuxCollectionReport) u64 {
-        return switch (self.state) {
-            .out_of_memory => self.attempted_records,
-            .not_collected, .complete => 0,
-        };
-    }
 };
 
 /// One interned multi-codepoint grapheme: its UTF-8 bytes (owned by the
