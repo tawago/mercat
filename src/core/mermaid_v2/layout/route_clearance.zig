@@ -68,20 +68,6 @@ pub fn conflicts(
     return false;
 }
 
-pub fn conflictsRails(a: std.mem.Allocator, polyline: []const sk.Point, rails: []const sk.Rail) error{OutOfMemory}!bool {
-    var candidate = try cells(a, polyline);
-    defer candidate.deinit(a);
-    for (rails) |rail| {
-        if (try conflictsPolyline(a, candidate, rail.stem, rail.pivot_arrow != .none, false)) return true;
-        if (try conflictsPolyline(a, candidate, &rail.crossbar, false, false)) return true;
-        for (rail.taps) |tap| {
-            const segment = [_]sk.Point{ tap.at, tap.landing };
-            if (try conflictsPolyline(a, candidate, &segment, false, tap.arrow != .none)) return true;
-        }
-    }
-    return false;
-}
-
 pub fn conflictsRailArrows(a: std.mem.Allocator, polyline: []const sk.Point, rails: []const sk.Rail, from: pb.NodeId, to: pb.NodeId) error{OutOfMemory}!bool {
     var candidate = try cells(a, polyline);
     defer candidate.deinit(a);
@@ -307,17 +293,6 @@ fn offNodePoint(placement: sk.NodePlacement, port: sk.Port) sk.Point {
         .west => .{ .x = point.x - 1, .y = point.y },
         .east => .{ .x = point.x + 1, .y = point.y },
     };
-}
-
-fn conflictsPolyline(a: std.mem.Allocator, candidate: CellMap, points: []const sk.Point, arrow_from: bool, arrow_to: bool) error{OutOfMemory}!bool {
-    var occupied = try cells(a, points);
-    defer occupied.deinit(a);
-    for (candidate.keys()) |cell| {
-        const theirs = occupied.get(cell) orelse continue;
-        if ((arrow_from or arrow_to) and arrowPoint(points, cell, arrow_from, arrow_to)) return true;
-        if (!transversal(candidate.get(cell).?, theirs)) return true;
-    }
-    return false;
 }
 
 /// True when a candidate either shares a non-transversal cell with another
