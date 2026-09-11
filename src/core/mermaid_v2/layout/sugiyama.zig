@@ -23,16 +23,6 @@ pub const LayerNode = union(enum) {
     },
 };
 
-/// Stable hash key for a LayerNode (lets crossing.zig keep adjacency maps).
-pub fn layerNodeKey(n: LayerNode) u64 {
-    return switch (n) {
-        .real => |id| (@as(u64, 0) << 63) | @as(u64, id),
-        .virtual => |v| (@as(u64, 1) << 63) |
-            (@as(u64, v.edge) << 16) |
-            @as(u64, v.index),
-    };
-}
-
 pub const LayerEdge = struct {
     from: u32,
     to: u32,
@@ -68,16 +58,6 @@ pub const LayeredGraph = struct {
             allocator.destroy(a);
         }
         self.* = undefined;
-    }
-
-    /// Number of layers.
-    pub fn layerCount(self: LayeredGraph) usize {
-        return self.layers.len;
-    }
-
-    /// Total node count (real + virtual).
-    pub fn nodeCount(self: LayeredGraph) usize {
-        return self.nodes.len;
     }
 };
 

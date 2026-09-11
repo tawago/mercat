@@ -48,7 +48,7 @@ test "allocateBackEdgeRails: span-ascending sort shares the innermost rail betwe
     };
     var lg = try sugiyama.assignLayers(a, graph);
     defer lg.deinit(a);
-    try testing.expectEqual(@as(usize, N), lg.layerCount());
+    try testing.expectEqual(@as(usize, N), lg.layers.len);
 
     var geom: [N]NodeGeom = undefined;
     var placements: [N]sketch.NodePlacement = undefined;

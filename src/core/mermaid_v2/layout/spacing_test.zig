@@ -39,7 +39,7 @@ test "interLayerSpacing: interior intra-cluster edge floors a base=2 gap to 3" {
     var lg = try sugiyama.assignLayers(testing.allocator, graph);
     defer lg.deinit(testing.allocator);
 
-    try testing.expectEqual(@as(usize, 2), lg.layerCount());
+    try testing.expectEqual(@as(usize, 2), lg.layers.len);
     try testing.expectEqual(@as(u32, 3), spacing.interLayerSpacing(graph, lg, 0, 1, 2));
     try testing.expectEqual(@as(u32, 2), spacing.interLayerSpacing(graph, lg, 1, 5, 2));
 }

@@ -47,11 +47,11 @@ test "linear chain assigns sequential layers" {
     var lg = try assignLayers(testing.allocator, g);
     defer lg.deinit(testing.allocator);
 
-    try testing.expectEqual(@as(usize, 3), lg.layerCount());
+    try testing.expectEqual(@as(usize, 3), lg.layers.len);
     try testing.expectEqual(@as(usize, 1), lg.layers[0].len);
     try testing.expectEqual(@as(usize, 1), lg.layers[1].len);
     try testing.expectEqual(@as(usize, 1), lg.layers[2].len);
-    try testing.expectEqual(@as(usize, 3), lg.nodeCount());
+    try testing.expectEqual(@as(usize, 3), lg.nodes.len);
     for (lg.nodes) |n| try testing.expect(n == .real);
     try testing.expectEqual(@as(usize, 0), lg.reversed_edges.len);
 }
@@ -77,7 +77,7 @@ test "diamond" {
     var lg = try assignLayers(testing.allocator, g);
     defer lg.deinit(testing.allocator);
 
-    try testing.expectEqual(@as(usize, 3), lg.layerCount());
+    try testing.expectEqual(@as(usize, 3), lg.layers.len);
     try testing.expectEqual(@as(usize, 1), lg.layers[0].len);
     try testing.expectEqual(@as(usize, 2), lg.layers[1].len);
     try testing.expectEqual(@as(usize, 1), lg.layers[2].len);
@@ -99,7 +99,7 @@ test "cycle removed" {
     defer lg.deinit(testing.allocator);
 
     try testing.expectEqual(@as(usize, 1), lg.reversed_edges.len);
-    try testing.expectEqual(@as(usize, 2), lg.layerCount());
+    try testing.expectEqual(@as(usize, 2), lg.layers.len);
     for (lg.nodes) |n| try testing.expect(n == .real);
 }
 
@@ -124,14 +124,14 @@ test "long edge inserts virtuals" {
     var lg = try assignLayers(testing.allocator, g);
     defer lg.deinit(testing.allocator);
 
-    try testing.expectEqual(@as(usize, 3), lg.layerCount());
+    try testing.expectEqual(@as(usize, 3), lg.layers.len);
     var virtuals: usize = 0;
     for (lg.nodes) |n| switch (n) {
         .virtual => virtuals += 1,
         .real => {},
     };
     try testing.expectEqual(@as(usize, 1), virtuals);
-    try testing.expectEqual(@as(usize, 5), lg.nodeCount());
+    try testing.expectEqual(@as(usize, 5), lg.nodes.len);
     for (lg.edges) |e| {
         var lf: usize = std.math.maxInt(usize);
         var lt: usize = std.math.maxInt(usize);
@@ -168,7 +168,7 @@ test "long edge inserts two virtuals" {
     var lg = try assignLayers(testing.allocator, g);
     defer lg.deinit(testing.allocator);
 
-    try testing.expectEqual(@as(usize, 4), lg.layerCount());
+    try testing.expectEqual(@as(usize, 4), lg.layers.len);
     var virtuals: usize = 0;
     for (lg.nodes) |n| switch (n) {
         .virtual => virtuals += 1,
@@ -196,7 +196,7 @@ test "self-loop excluded from LayeredGraph but still drawn by routing.zig from g
 
     try testing.expectEqual(@as(usize, 1), lg.edges.len);
     try testing.expectEqual(@as(sg.EdgeId, 1), lg.edges[0].edge);
-    try testing.expectEqual(@as(usize, 2), lg.layerCount());
+    try testing.expectEqual(@as(usize, 2), lg.layers.len);
 
     var still_has_self_loop = false;
     for (g.edges) |e| {
@@ -249,7 +249,7 @@ test "iterative cycle-removal DFS handles a very deep chain without stack overfl
     var lg = try assignLayers(testing.allocator, g);
     defer lg.deinit(testing.allocator);
 
-    try testing.expectEqual(n, lg.layerCount());
+    try testing.expectEqual(n, lg.layers.len);
     for (lg.layers) |row| try testing.expectEqual(@as(usize, 1), row.len);
 }
 
