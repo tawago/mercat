@@ -133,7 +133,8 @@ fn appendSliceByDisplayCols(
             // Overlap test: [col, col+width) intersects [c0, c1); col < c1 holds.
             if (col + glyph.width > c0) try out.appendSlice(allocator, glyph.bytes);
             col += glyph.width;
-            index += glyph.bytes.len;
+            // A malformed byte yields an empty glyph; step over it as one byte.
+            index += @max(glyph.bytes.len, 1);
         }
     }
 }
@@ -200,6 +201,19 @@ test "wide glyphs are copied whole at boundaries" {
     const text = try sel.extractText(testing.allocator, &lines);
     defer testing.allocator.free(text);
     try testing.expectEqualStrings("日本", text);
+}
+
+test "a malformed byte inside a span does not stall extraction" {
+    var spans = [_]render_model.Span{bodySpan("ab\xe9cd")};
+    const lines = [_]render_model.Line{.{ .spans = &spans }};
+
+    var sel = Selection{};
+    sel.begin(0, 0);
+    sel.extendTo(0, 5);
+    const text = try sel.extractText(testing.allocator, &lines);
+    defer testing.allocator.free(text);
+    // The malformed byte is neither copied nor allowed to stop the walk.
+    try testing.expectEqualStrings("abcd", text);
 }
 
 test "inactive selection extracts nothing" {
