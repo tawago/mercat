@@ -10,12 +10,8 @@ pub const BlockTag = document.BlockTag;
 pub const Document = document.Document;
 
 pub fn parse(allocator: std.mem.Allocator, source: []const u8) !Document {
-    // Peel off YAML front matter before koino ever sees the buffer — its
-    // closing `---` would otherwise parse as a setext underline or thematic
-    // break and turn metadata lines into headings.
     const front = frontmatter.split(source);
 
-    // Apply extended-syntax pre-processing before handing off to koino.
     const preprocessed = try preprocess.preprocess(allocator, front.body);
     defer allocator.free(preprocessed);
 
@@ -99,8 +95,6 @@ fn appendParagraphBlockWithSource(allocator: std.mem.Allocator, blocks: *std.Arr
         return;
     }
 
-    // Detect leading indentation from source using start_line
-    // koino's start_line is 1-indexed
     var indent: u8 = 0;
     const start_line = node.data.start_line;
     if (start_line == 0) {
@@ -109,9 +103,8 @@ fn appendParagraphBlockWithSource(allocator: std.mem.Allocator, blocks: *std.Arr
     }
 
     var line_start: usize = 0;
-    var current_line: usize = 1; // 1-indexed to match koino
+    var current_line: usize = 1;
 
-    // Find the start of the target line
     for (source, 0..) |char, idx| {
         if (current_line == start_line) {
             line_start = idx;
@@ -122,7 +115,6 @@ fn appendParagraphBlockWithSource(allocator: std.mem.Allocator, blocks: *std.Arr
         }
     }
 
-    // Count leading spaces on that line
     var spaces: u8 = 0;
     var idx = line_start;
     while (idx < source.len) : (idx += 1) {
@@ -132,18 +124,14 @@ fn appendParagraphBlockWithSource(allocator: std.mem.Allocator, blocks: *std.Arr
         } else if (char == '\t') {
             spaces +|= 4;
         } else if (char == '\n' or char == '\r') {
-            // Empty line
             break;
         } else {
-            // Hit non-whitespace content
             break;
         }
     }
-    // Only count indentation if it's less than 4 spaces (not a code block)
     if (spaces < 4) {
         indent = @min(spaces, 255);
     }
-
 
     try blocks.append(allocator, .{ .paragraph = .{ .content = content, .indent = indent } });
 }
@@ -306,7 +294,6 @@ fn collectListInlines(allocator: std.mem.Allocator, list_node: *koino.nodes.AstN
     while (item) |list_item| : (item = list_item.next) {
         if (list_item.data.value != .Item) continue;
 
-        // Build marker
         const indent = try allocator.alloc(u8, depth * 2);
         @memset(indent, ' ');
         defer allocator.free(indent);
@@ -321,11 +308,9 @@ fn collectListInlines(allocator: std.mem.Allocator, list_node: *koino.nodes.AstN
         };
         defer allocator.free(marker);
 
-        // Collect item content
         const item_inlines = try collectListItemInlines(allocator, list_item, depth);
         defer allocator.free(item_inlines);
 
-        // Add marker as text, then content
         try result.append(allocator, .{ .text = try allocator.dupe(u8, marker) });
         for (item_inlines) |inline_| try result.append(allocator, inline_);
     }
@@ -435,7 +420,6 @@ fn appendTable(allocator: std.mem.Allocator, blocks: *std.ArrayList(Block), tabl
         rows.deinit(allocator);
     }
 
-    // Get alignments from table node
     const koino_alignments = switch (table.data.value) {
         .Table => |value| value,
         else => unreachable,
@@ -495,7 +479,6 @@ fn appendList(allocator: std.mem.Allocator, blocks: *std.ArrayList(Block), list_
             allocator.free(content.nested);
         }
 
-        // Check for task item
         if (isTaskItem(content.inlines)) |checked| {
             const task_content = try skipTaskMarker(allocator, content.inlines);
             freeInlines(allocator, content.inlines);
@@ -558,11 +541,9 @@ fn collectListItemContent(allocator: std.mem.Allocator, item_node: *koino.nodes.
                 try inlines.append(allocator, .{ .text = try allocator.dupe(u8, code.literal.items) });
             },
             .List => |nested_list| {
-                // Collect nested list as blocks
                 try appendNestedList(allocator, &nested, current, nested_list);
             },
             .BlockQuote => {
-                // Collect blockquote as a nested block
                 const bq = try collectBlockQuoteBlocks(allocator, current, 1);
                 try nested.append(allocator, .{ .blockquote = bq });
             },
@@ -814,7 +795,6 @@ test "parses headings lists fences and tables" {
 test "parses paragraph with inline styles" {
     const allocator = std.testing.allocator;
 
-    // Test emphasis
     {
         var doc = try parse(allocator, "Hello *emphasis* world");
         defer doc.deinit(allocator);
@@ -825,7 +805,6 @@ test "parses paragraph with inline styles" {
         try std.testing.expect(found);
     }
 
-    // Test strong
     {
         var doc = try parse(allocator, "Hello **strong** world");
         defer doc.deinit(allocator);
@@ -836,7 +815,6 @@ test "parses paragraph with inline styles" {
         try std.testing.expect(found);
     }
 
-    // Test code
     {
         var doc = try parse(allocator, "Hello `code` world");
         defer doc.deinit(allocator);
@@ -847,7 +825,6 @@ test "parses paragraph with inline styles" {
         try std.testing.expect(found);
     }
 
-    // Test link
     {
         var doc = try parse(allocator, "Hello [link](url) world");
         defer doc.deinit(allocator);
@@ -877,7 +854,6 @@ test "parses thematic breaks and html blocks" {
 test "preserves paragraph indentation" {
     const allocator = std.testing.allocator;
 
-    // Test 3-space indentation
     {
         var doc = try parse(allocator, "   Indented paragraph");
         defer doc.deinit(allocator);
@@ -886,7 +862,6 @@ test "preserves paragraph indentation" {
         try std.testing.expectEqual(@as(u8, 3), doc.blocks[0].paragraph.indent);
     }
 
-    // Test no indentation
     {
         var doc = try parse(allocator, "Normal paragraph");
         defer doc.deinit(allocator);
@@ -895,7 +870,6 @@ test "preserves paragraph indentation" {
         try std.testing.expectEqual(@as(u8, 0), doc.blocks[0].paragraph.indent);
     }
 
-    // Test 1-space indentation
     {
         var doc = try parse(allocator, " Single space indent");
         defer doc.deinit(allocator);
@@ -904,7 +878,6 @@ test "preserves paragraph indentation" {
         try std.testing.expectEqual(@as(u8, 1), doc.blocks[0].paragraph.indent);
     }
 
-    // Test that 4 spaces becomes code block, not indented paragraph
     {
         var doc = try parse(allocator, "    Code block");
         defer doc.deinit(allocator);
@@ -917,23 +890,18 @@ test "strikethrough preprocessing converts to unicode" {
     const allocator = std.testing.allocator;
     var doc = try parse(allocator, "~~hello~~");
     defer doc.deinit(allocator);
-    
-    // After preprocessing, ~~hello~~ becomes h̶e̶l̶l̶o̶ (text with combining chars)
-    // Koino should see this as plain text, not strikethrough
+
     try std.testing.expectEqual(@as(usize, 1), doc.blocks.len);
     const para = doc.blocks[0].paragraph;
-    
-    // Check the text contains the combining character U+0336
+
     var has_combining = false;
     for (para.content) |inline_| {
         if (inline_ == .text) {
             const text = inline_.text;
-            // U+0336 is encoded as 0xCC 0xB6 in UTF-8
             if (std.mem.indexOf(u8, text, "\xcc\xb6") != null) {
                 has_combining = true;
             }
         }
-        // Should NOT be strikethrough inline (that would mean koino processed it)
         if (inline_ == .strikethrough) {
             std.debug.print("ERROR: Found strikethrough inline - preprocessing failed\n", .{});
         }
@@ -942,6 +910,5 @@ test "strikethrough preprocessing converts to unicode" {
 }
 
 test {
-    // Collect the front matter splitter's own tests into this test graph.
     _ = frontmatter;
 }

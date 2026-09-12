@@ -75,8 +75,6 @@ pub fn write(w: anytype, name: []const u8, merged: *const ThemeSpec) !void {
         try w.print("palette = \"{s}\"\n", .{s});
     }
 
-    // Slots, in `Slot` enum order (the four re-added structural slots trail the
-    // list and emit for free).
     inline for (@typeInfo(spec.Slot).@"enum".fields) |f| {
         const slot: spec.Slot = @enumFromInt(f.value);
         if (merged.slots.get(slot)) |ss| {
@@ -122,7 +120,6 @@ fn writeQuotedKv(w: anytype, key: []const u8, value: []const u8) !void {
 }
 
 fn writeGlyphs(w: anytype, g: spec.GlyphSet) !void {
-    // Emit the [theme.glyphs] table only when at least one field is set.
     const any = g.ordered_prefix != null or g.task_ticked != null or
         g.task_unticked != null or g.quote_bar != null or g.hr_glyph != null or
         g.hr_center != null or g.quote_indent != null or g.hr_count != null or
@@ -147,8 +144,6 @@ fn writeGlyphs(w: anytype, g: spec.GlyphSet) !void {
         if (g.hr_center) |v| try writeQuotedKv(w, "hr_center", v);
         if (g.hr_count) |v| try w.print("hr_count = {d}\n", .{v});
         if (g.hr_mode) |v| try w.print("hr_mode = \"{s}\"\n", .{@tagName(v)});
-        // `table_style` serializes via @tagName, so the widened enum
-        // (grid/heavy/double/ascii/rounded) round-trips for free.
         if (g.table_style) |v| try w.print("table_style = \"{s}\"\n", .{@tagName(v)});
     }
     if (g.code_frame) |cf| {
@@ -162,8 +157,6 @@ fn writeGlyphs(w: anytype, g: spec.GlyphSet) !void {
 }
 
 fn writeTokens(w: anytype, t: spec.TokenColors) !void {
-    // `function` is a parse-time alias of `keyword`, so only `keyword` is
-    // emitted; a dumped theme still re-reads either spelling.
     const any = t.keyword != null or t.string != null or t.number != null or
         t.comment != null;
     if (!any) return;
@@ -176,10 +169,6 @@ fn writeTokens(w: anytype, t: spec.TokenColors) !void {
         }
     }
 }
-
-// ===========================================================================
-// Tests
-// ===========================================================================
 
 const testing = std.testing;
 const resolve = @import("resolve.zig");
@@ -200,7 +189,6 @@ fn roundTrip(name: []const u8) !void {
     defer buf.deinit(alloc);
     try write(buf.writer(alloc), name, &merged);
 
-    // Parse the dumped TOML back through the production user-file path.
     var tables = try loadfile.parseThemeTables(alloc, buf.items);
     defer tables.deinit(alloc);
     var user = resolve.specFromRaw(alloc, tables.view(), &diag);
@@ -214,7 +202,6 @@ fn roundTrip(name: []const u8) !void {
     inline for (@typeInfo(resolve.StyleMap).@"struct".fields) |f| {
         try testing.expect(std.meta.eql(@field(original.styles, f.name), @field(dumped.styles, f.name)));
     }
-    // Decor round-trips too (quote bar, glyphs, code frame).
     try testing.expectEqualStrings(original.decor.glyphs.quote_bar, dumped.decor.glyphs.quote_bar);
     try testing.expectEqualStrings(original.decor.slot(.heading1).prefix, dumped.decor.slot(.heading1).prefix);
     try testing.expectEqual(original.canvas, dumped.canvas);
@@ -244,9 +231,7 @@ test "underline_row + underline_glyph round-trip through dump + loadfile" {
     var diag = resolve.Diagnostics.init(alloc);
     defer diag.deinit();
 
-    // A user theme that enables the underline row on heading1.
-    var raw = try loadfile.parseThemeTables(alloc,
-        "extends = \"dark\"\n[theme.heading1]\nunderline_row = true\nunderline_glyph = \"\u{2550}\"\n");
+    var raw = try loadfile.parseThemeTables(alloc, "extends = \"dark\"\n[theme.heading1]\nunderline_row = true\nunderline_glyph = \"\u{2550}\"\n");
     defer raw.deinit(alloc);
     var user = resolve.specFromRaw(alloc, raw.view(), &diag);
     user.name = "uline";
@@ -256,11 +241,9 @@ test "underline_row + underline_glyph round-trip through dump + loadfile" {
     var buf = std.ArrayList(u8).empty;
     defer buf.deinit(alloc);
     try write(buf.writer(alloc), "uline", &merged);
-    // Dump emits both keys.
     try testing.expect(std.mem.indexOf(u8, buf.items, "underline_row = true") != null);
     try testing.expect(std.mem.indexOf(u8, buf.items, "underline_glyph = \"\u{2550}\"") != null);
 
-    // Parse the dump back and confirm the baked decor matches.
     var tables = try loadfile.parseThemeTables(alloc, buf.items);
     defer tables.deinit(alloc);
     var dumped = resolve.specFromRaw(alloc, tables.view(), &diag);
@@ -280,12 +263,7 @@ test "re-added structural slots + widened table_style round-trip through dump + 
     var diag = resolve.Diagnostics.init(alloc);
     defer diag.deinit();
 
-    // A user theme that colors the re-added structural slots (hr/table_border/
-    // table_header/code_fence_banner) and selects a restored border weight. All
-    // of these are S2/S4 additions #22 did not have; this pins that the dumper
-    // emits them and the parser reads them back.
-    var raw = try loadfile.parseThemeTables(alloc,
-        "extends = \"dark\"\n" ++
+    var raw = try loadfile.parseThemeTables(alloc, "extends = \"dark\"\n" ++
         "[theme.hr]\nfg = \"202\"\n" ++
         "[theme.table_border]\nfg = \"45\"\n" ++
         "[theme.table_header]\nfg = \"213\"\nbold = true\n" ++
@@ -301,15 +279,12 @@ test "re-added structural slots + widened table_style round-trip through dump + 
     defer buf.deinit(alloc);
     try write(buf.writer(alloc), "structural", &merged);
 
-    // The dump serializes each re-added slot section and the widened weight.
     try testing.expect(std.mem.indexOf(u8, buf.items, "[theme.hr]") != null);
     try testing.expect(std.mem.indexOf(u8, buf.items, "[theme.table_border]") != null);
     try testing.expect(std.mem.indexOf(u8, buf.items, "[theme.table_header]") != null);
     try testing.expect(std.mem.indexOf(u8, buf.items, "[theme.code_fence_banner]") != null);
     try testing.expect(std.mem.indexOf(u8, buf.items, "table_style = \"heavy\"") != null);
 
-    // Parse the dump back through the production path and confirm the baked
-    // palette + decor survived the round-trip with zero diagnostics.
     var tables = try loadfile.parseThemeTables(alloc, buf.items);
     defer tables.deinit(alloc);
     var dumped = resolve.specFromRaw(alloc, tables.view(), &diag);
@@ -327,7 +302,6 @@ test "re-added structural slots + widened table_style round-trip through dump + 
 }
 
 test "markview's custom bullets survive dump -> reload" {
-    // The bullet strings are allocated by the parser, so run on an arena.
     var arena = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
     const alloc = arena.allocator();
@@ -354,8 +328,6 @@ test "markview's custom bullets survive dump -> reload" {
 }
 
 test "glyphs containing quotes and backslashes round-trip through dump + loadfile" {
-    // The escaping contract: writeQuoted is the exact inverse of
-    // decodeQuotedString, so even hostile glyph strings survive dump -> reload.
     var arena = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
     const alloc = arena.allocator();
@@ -364,9 +336,7 @@ test "glyphs containing quotes and backslashes round-trip through dump + loadfil
     defer reg.deinit();
     var diag = resolve.Diagnostics.init(alloc);
 
-    // prefix ends up as the literal bytes: a"b\c
-    const raw = try loadfile.parseThemeTables(alloc,
-        "extends = \"dark\"\n[theme.heading1]\nprefix = \"a\\\"b\\\\c\"\n" ++
+    const raw = try loadfile.parseThemeTables(alloc, "extends = \"dark\"\n[theme.heading1]\nprefix = \"a\\\"b\\\\c\"\n" ++
         "[theme.glyphs]\nbullets = [\"\\\"\", \"\\\\\"]\n");
     var user = resolve.specFromRaw(alloc, raw.view(), &diag);
     user.name = "hostile";
@@ -377,7 +347,6 @@ test "glyphs containing quotes and backslashes round-trip through dump + loadfil
 
     var buf = std.ArrayList(u8).empty;
     try write(buf.writer(alloc), "hostile", &merged);
-    // The dump re-escapes rather than emitting raw quotes/backslashes.
     try testing.expect(std.mem.indexOf(u8, buf.items, "prefix = \"a\\\"b\\\\c\"") != null);
     try testing.expect(std.mem.indexOf(u8, buf.items, "bullets = [\"\\\"\", \"\\\\\"]") != null);
 
@@ -410,6 +379,5 @@ test "dumped dark contains the expected round-trip keys" {
     try testing.expect(std.mem.indexOf(u8, s, "fg = \"81\"") != null);
     try testing.expect(std.mem.indexOf(u8, s, "prefix = \"# \"") != null);
     try testing.expect(std.mem.indexOf(u8, s, "quote_bar =") != null);
-    // extends must never appear (spec is flattened).
     try testing.expect(std.mem.indexOf(u8, s, "extends") == null);
 }

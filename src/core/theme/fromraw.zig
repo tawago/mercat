@@ -37,7 +37,6 @@ const RawThemeTables = loadfile.RawThemeTables;
 pub fn specFromRaw(alloc: std.mem.Allocator, raw: RawThemeTables, diag: *Diagnostics) ThemeSpec {
     var out = ThemeSpec{ .name = "" };
 
-    // Top-level keys.
     for (raw.top) |kv| {
         if (std.mem.eql(u8, kv.key, "extends")) {
             out.extends = kv.value;
@@ -49,13 +48,12 @@ pub fn specFromRaw(alloc: std.mem.Allocator, raw: RawThemeTables, diag: *Diagnos
             if (parseBool(kv.value)) |b| out.canvas = b else diag.warnFmt(.unknown_key, "invalid [theme] canvas value '{s}'", .{kv.value});
         } else if (std.mem.eql(u8, kv.key, "base_bg")) {
             out.base_bg = parseColorOrWarn(kv.value, "base_bg", diag) orelse out.base_bg;
-                } else {
+        } else {
             diag.warnFmt(.unknown_key, "unknown [theme] key '{s}'", .{kv.key});
         }
     }
 
     for (raw.slots) |raw_slot| {
-        // Non-slot sub-tables: glyph vocabulary, code frame, syntax tokens.
         if (std.mem.eql(u8, raw_slot.name, "glyphs")) {
             for (raw_slot.kvs.items) |kv| applyGlyphKv(alloc, &out.glyphs, kv, diag);
             continue;
@@ -143,13 +141,9 @@ fn applyGlyphKv(alloc: std.mem.Allocator, g: *spec.GlyphSet, kv: loadfile.RawKV,
         g.quote_indent = std.fmt.parseUnsigned(u8, v, 10) catch 0;
     } else if (std.mem.eql(u8, k, "hr_count")) {
         g.hr_count = std.fmt.parseUnsigned(u16, v, 10) catch 0;
-        } else if (std.mem.eql(u8, k, "hr_mode")) {
+    } else if (std.mem.eql(u8, k, "hr_mode")) {
         if (std.mem.eql(u8, v, "full")) g.hr_mode = .full else if (std.mem.eql(u8, v, "fixed")) g.hr_mode = .fixed else diag.warnFmt(.unknown_key, "invalid hr_mode '{s}'", .{v});
     } else if (std.mem.eql(u8, k, "bullets")) {
-        // The one array-valued glyph key: `bullets = ["•", "◦", "‣"]`, cycled
-        // by list nesting depth. Elements go through safeGlyph like any other
-        // user glyph. A malformed (non-bracketed) value is reported rather
-        // than silently treated as a one-element list.
         const items = loadfile.parseInlineArray(alloc, v) catch null;
         if (items) |list| {
             if (list.len == 0) {
@@ -162,9 +156,6 @@ fn applyGlyphKv(alloc: std.mem.Allocator, g: *spec.GlyphSet, kv: loadfile.RawKV,
             diag.warnFmt(.unknown_key, "bullets must be an array of strings, got '{s}'", .{v});
         }
     } else if (std.mem.eql(u8, k, "table_style")) {
-        // Widened table_style vocabulary (restored #17 border weights): the
-        // full enum is grid|heavy|double|ascii|rounded. Use stringToEnum so
-        // any future variant is covered for free.
         if (std.meta.stringToEnum(spec.TableStyle, v)) |ts| g.table_style = ts else diag.warnFmt(.unknown_key, "invalid table_style '{s}'", .{v});
     } else {
         diag.warnFmt(.unknown_key, "unknown key '{s}' in [theme.glyphs]", .{k});
@@ -184,7 +175,7 @@ fn applyCodeFrameKv(cf: *spec.CodeFrameDelta, kv: loadfile.RawKV, diag: *Diagnos
         cf.pad = std.fmt.parseUnsigned(u8, v, 10) catch null;
     } else if (std.mem.eql(u8, k, "language_label")) {
         cf.language_label = parseBool(v);
-        } else {
+    } else {
         diag.warnFmt(.unknown_key, "unknown key '{s}' in [theme.code_frame]", .{k});
     }
 }
@@ -201,8 +192,6 @@ fn applyTokenKv(t: *spec.TokenColors, kv: loadfile.RawKV, diag: *Diagnostics) vo
     } else if (std.mem.eql(u8, k, "comment")) {
         if (c) |v| t.comment = v;
     } else if (std.mem.eql(u8, k, "function")) {
-        // `function` is an accepted alias of `keyword`, canonicalized here so
-        // the fold sees one field (last key in the file wins).
         if (c) |v| t.keyword = v;
     } else {
         diag.warnFmt(.unknown_key, "unknown key '{s}' in [theme.tokens]", .{k});
@@ -210,7 +199,7 @@ fn applyTokenKv(t: *spec.TokenColors, kv: loadfile.RawKV, diag: *Diagnostics) vo
 }
 
 fn parseColorOrWarn(v: []const u8, slot_name: []const u8, diag: *Diagnostics) ?Color {
-    if (v.len == 0) return null; // "" clears; leave inherited (S3 minimal)
+    if (v.len == 0) return null;
     return color.parseColor(v) catch {
         diag.warnFmt(.bad_color, "bad color '{s}' in [theme.{s}]", .{ v, slot_name });
         return null;
@@ -229,7 +218,6 @@ fn parseBool(v: []const u8) ?bool {
 fn safeGlyph(alloc: std.mem.Allocator, s: []const u8, diag: *Diagnostics) []const u8 {
     if (!containsPua(s)) return s;
     diag.warnFmt(.glyph_fallback, "glyph '{s}' uses a private-use codepoint; substituting", .{s});
-    // Replace each PUA codepoint with '?'; keep other bytes.
     var out = std.ArrayList(u8).empty;
     var view = std.unicode.Utf8View.init(s) catch return "?";
     var it = view.iterator();
@@ -256,30 +244,23 @@ fn isPua(cp: u21) bool {
     return (cp >= 0xE000 and cp <= 0xF8FF) or (cp >= 0xF0000 and cp <= 0xFFFFD) or (cp >= 0x100000 and cp <= 0x10FFFD);
 }
 
-// ===========================================================================
-// Tests
-// ===========================================================================
-
 const testing = std.testing;
 
 test "isPua/containsPua flag the three private-use ranges only" {
-    // BMP PUA, and the two supplementary PUA planes.
     try testing.expect(isPua(0xE000));
     try testing.expect(isPua(0xF8FF));
     try testing.expect(isPua(0xF0000));
     try testing.expect(isPua(0x100000));
-    // Ordinary glyphs (arrow, bullet, box-drawing) are not PUA.
     try testing.expect(!isPua('a'));
-    try testing.expect(!isPua(0x2192)); // →
-    try testing.expect(!isPua(0x2022)); // •
+    try testing.expect(!isPua(0x2192));
+    try testing.expect(!isPua(0x2022));
     try testing.expect(containsPua("x\u{F011}y"));
     try testing.expect(!containsPua("plain text →"));
 }
 
 test "specFromRaw parses the re-added structural slots (S2)" {
     const alloc = testing.allocator;
-    var tables = try loadfile.parseThemeTables(alloc,
-        "[theme.hr]\nfg = \"202\"\n" ++
+    var tables = try loadfile.parseThemeTables(alloc, "[theme.hr]\nfg = \"202\"\n" ++
         "[theme.table_border]\nfg = \"45\"\n" ++
         "[theme.table_header]\nfg = \"213\"\nbold = true\n" ++
         "[theme.code_fence_banner]\nfg = \"99\"\n");
@@ -297,7 +278,6 @@ test "specFromRaw parses the re-added structural slots (S2)" {
 }
 
 test "specFromRaw parses a user bullets array (documented [theme.glyphs] key)" {
-    // Bullet strings are allocated, so run the whole conversion on an arena.
     var arena = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
     const alloc = arena.allocator();
@@ -332,7 +312,6 @@ test "a scalar or empty bullets value is reported, not silently accepted" {
 
 test "specFromRaw parses the widened table_style weights and reports invalid ones" {
     const alloc = testing.allocator;
-    // Every restored #17 weight parses via stringToEnum.
     inline for (.{
         .{ .name = "grid", .want = spec.TableStyle.grid },
         .{ .name = "heavy", .want = spec.TableStyle.heavy },
@@ -349,7 +328,6 @@ test "specFromRaw parses the widened table_style weights and reports invalid one
         try testing.expectEqual(c.want, s.glyphs.table_style.?);
     }
 
-    // An unknown weight is reported and leaves the field unset.
     var bad = try loadfile.parseThemeTables(alloc, "[theme.glyphs]\ntable_style = \"triple\"\n");
     defer bad.deinit(alloc);
     var diag = resolve.Diagnostics.init(alloc);

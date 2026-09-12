@@ -6,7 +6,6 @@ const blocks = @import("render/blocks.zig");
 const render_frontmatter = @import("render/frontmatter.zig");
 const decor_mod = @import("render/decor.zig");
 
-// Re-export types
 pub const Options = types.Options;
 pub const SpanStyle = types.SpanStyle;
 pub const Span = types.Span;
@@ -20,9 +19,6 @@ pub fn renderDocument(allocator: std.mem.Allocator, document: markdown.Document,
 
     var previous: ?markdown.Block = null;
     for (document.blocks) |block| {
-        // Front matter that would render nothing is skipped before spacing so
-        // the document starts flush at its first real block with no phantom
-        // leading blank lines.
         if (block == .frontmatter and
             render_frontmatter.rendersNothing(block.frontmatter, options.frontmatter_style)) continue;
         if (previous) |prev| {
@@ -65,6 +61,7 @@ fn materializeLineFill(allocator: std.mem.Allocator, lines: []Line, options: Opt
         new_spans[line.spans.len] = .{ .text = buf, .style = style };
         allocator.free(line.spans);
         line.spans = new_spans;
+        line.display_columns = options.width;
     }
 }
 

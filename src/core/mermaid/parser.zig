@@ -65,12 +65,10 @@ pub const Parser = struct {
 
         self.skipWhitespaceAndComments();
 
-        // Parse diagram type and direction
         const diagram_type = DiagramType.fromSource(self.source[self.pos..]);
         graph.diagram_type = diagram_type;
 
         if (diagram_type == .flowchart) {
-            // Parse "graph" or "flowchart" keyword
             if (self.consumeKeyword("graph") or self.consumeKeyword("flowchart")) {
                 self.skipWhitespace();
                 graph.direction = self.parseDirection();
@@ -81,24 +79,20 @@ pub const Parser = struct {
 
         self.skipToNextLine();
 
-        // Parse body
         while (!self.isAtEnd()) {
             self.skipWhitespaceAndComments();
             if (self.isAtEnd()) break;
 
-            // Check for subgraph
             if (self.consumeKeyword("subgraph")) {
                 try self.parseSubgraph(&graph, null);
                 continue;
             }
 
-            // Check for end keyword
             if (self.consumeKeyword("end")) {
                 self.skipToNextLine();
                 continue;
             }
 
-            // Check for style/class definitions (skip them)
             if (self.consumeKeyword("style") or
                 self.consumeKeyword("classDef") or
                 self.consumeKeyword("class") or
@@ -108,25 +102,17 @@ pub const Parser = struct {
                 continue;
             }
 
-            // Try to parse a node/edge statement
             try self.parseStatement(&graph);
         }
 
-        // Post-process: detect subgraph-level edges.
-        // An edge endpoint is a subgraph ID if it matches a subgraph.id
-        // and either (a) has no corresponding real node definition, or
-        // (b) has a node whose label == id (auto-generated placeholder).
         if (graph.subgraphs.items.len > 0) {
-            // Build set of subgraph IDs.
             var sg_ids = std.StringHashMap(void).init(self.allocator);
             defer sg_ids.deinit();
             for (graph.subgraphs.items) |*sg| {
                 try sg_ids.put(sg.id, {});
             }
-            // Check each edge.
             for (graph.edges.items) |*edge| {
                 if (sg_ids.contains(edge.from)) {
-                    // Check if "from" is purely a subgraph ref (placeholder node).
                     if (graph.nodes.get(edge.from)) |node| {
                         if (std.mem.eql(u8, node.label, edge.from)) {
                             edge.from_is_subgraph = true;
@@ -141,7 +127,6 @@ pub const Parser = struct {
                     }
                 }
             }
-            // Remove placeholder nodes that are purely subgraph refs.
             var to_remove: std.ArrayListUnmanaged([]const u8) = .empty;
             defer to_remove.deinit(self.allocator);
             for (graph.node_order.items) |nid| {
@@ -155,7 +140,6 @@ pub const Parser = struct {
             }
             for (to_remove.items) |nid| {
                 _ = graph.nodes.remove(nid);
-                // Remove from node_order.
                 var i: usize = 0;
                 while (i < graph.node_order.items.len) {
                     if (std.mem.eql(u8, graph.node_order.items[i], nid)) {
@@ -176,26 +160,22 @@ pub const Parser = struct {
         if (self.consumeKeyword("TD")) return .TD;
         if (self.consumeKeyword("TB")) return .TB;
         if (self.consumeKeyword("BT")) return .BT;
-        return .TD; // Default
+        return .TD;
     }
 
     fn parseSubgraph(self: *Parser, graph: *Graph, parent_id: ?[]const u8) !void {
         self.skipWhitespace();
 
-        // Parse subgraph ID
-        // Handle case where subgraph is given a quoted title with no bracket ID,
-        // e.g.: subgraph "My Group"
-        // In that case, treat the quoted string as the label and generate a synthetic ID.
         var label: ?[]const u8 = null;
         const id_start = self.pos;
         if (!self.isAtEnd() and self.current() == '"') {
-            self.advance(); // consume opening quote
+            self.advance();
             const quoted_start = self.pos;
             while (!self.isAtEnd() and self.current() != '"' and self.current() != '\n') {
                 self.advance();
             }
             label = self.source[quoted_start..self.pos];
-            if (!self.isAtEnd() and self.current() == '"') self.advance(); // consume closing quote
+            if (!self.isAtEnd() and self.current() == '"') self.advance();
         } else {
             while (!self.isAtEnd() and !self.isWhitespace(self.current()) and self.current() != '[' and self.current() != '\n') {
                 self.advance();
@@ -203,7 +183,6 @@ pub const Parser = struct {
         }
         const id = self.source[id_start..self.pos];
 
-        // Parse optional label in brackets
         self.skipWhitespace();
         if (self.current() == '[') {
             self.advance();
@@ -212,7 +191,6 @@ pub const Parser = struct {
                 self.advance();
             }
             var raw_label = self.source[label_start..self.pos];
-            // Strip surrounding quotes if present
             if (raw_label.len >= 2) {
                 if ((raw_label[0] == '"' and raw_label[raw_label.len - 1] == '"') or
                     (raw_label[0] == '\'' and raw_label[raw_label.len - 1] == '\''))
@@ -221,7 +199,7 @@ pub const Parser = struct {
                 }
             }
             label = raw_label;
-            if (!self.isAtEnd()) self.advance(); // consume ']'
+            if (!self.isAtEnd()) self.advance();
         }
 
         var subgraph = Subgraph.init(self.allocator, id, label, parent_id);
@@ -229,30 +207,26 @@ pub const Parser = struct {
 
         self.skipToNextLine();
 
-        // Parse subgraph contents until "end"
         while (!self.isAtEnd()) {
             self.skipWhitespaceAndComments();
             if (self.isAtEnd()) break;
 
-            if (self.consumeKeyword("end")) { self.skipToNextLine(); break; }
+            if (self.consumeKeyword("end")) {
+                self.skipToNextLine();
+                break;
+            }
             if (self.consumeKeyword("subgraph")) {
                 try self.parseSubgraph(graph, id);
                 continue;
             }
-            // Subgraph-local direction directive (e.g. `direction TB`).
-            // We parse and discard it — per-subgraph direction override is not
-            // yet implemented, so ignoring it is better than creating a phantom
-            // node named "direction".
             if (self.peekKeyword("direction")) {
                 self.skipToNextLine();
                 continue;
             }
 
-            // Parse statement and track nodes
             const prev_node_count = graph.node_order.items.len;
             try self.parseStatement(graph);
 
-            // Add new nodes to subgraph
             for (graph.node_order.items[prev_node_count..]) |node_id| {
                 try subgraph.addNode(node_id);
                 if (graph.getNodeMut(node_id)) |node| {
@@ -271,25 +245,20 @@ pub const Parser = struct {
             return;
         }
 
-        // Parse first node
         const first_node = try self.parseNodeDef();
         try graph.addNode(first_node);
 
         self.skipWhitespace();
 
-        // Check for edge(s). Chained syntax `A --> B --> C` creates A→B then B→C.
         var current_source_id = first_node.id;
         while (!self.isAtEnd() and !self.isLineEnd()) {
             self.skipWhitespace();
             if (self.isLineEnd()) break;
 
-            // Try to parse an edge
             const edge_info = self.parseEdgeOperator() orelse break;
 
             self.skipWhitespace();
 
-            // Parse edge label: pipe syntax |label| takes priority;
-            // fall back to embedded label already extracted by parseEdgeOperator.
             var label: ?[]const u8 = edge_info.embedded_label;
             if (self.current() == '|') {
                 self.advance();
@@ -298,7 +267,6 @@ pub const Parser = struct {
                     self.advance();
                 }
                 var raw_label = self.source[label_start..self.pos];
-                // Strip surrounding quotes if present
                 if (raw_label.len >= 2) {
                     if ((raw_label[0] == '"' and raw_label[raw_label.len - 1] == '"') or
                         (raw_label[0] == '\'' and raw_label[raw_label.len - 1] == '\''))
@@ -307,15 +275,13 @@ pub const Parser = struct {
                     }
                 }
                 label = raw_label;
-                if (!self.isAtEnd()) self.advance(); // consume '|'
+                if (!self.isAtEnd()) self.advance();
                 self.skipWhitespace();
             }
 
-            // Parse target node
             const target_node = try self.parseNodeDef();
             try graph.addNode(target_node);
 
-            // Add edge from current source to this target
             try graph.addEdge(.{
                 .from = current_source_id,
                 .to = target_node.id,
@@ -325,7 +291,6 @@ pub const Parser = struct {
                 .arrow_end = edge_info.arrow_end,
             });
 
-            // Advance source for the next edge in the chain
             current_source_id = target_node.id;
         }
 
@@ -344,23 +309,10 @@ pub const Parser = struct {
     fn parseEdgeOperator(self: *Parser) ?EdgeInfo {
         const start = self.pos;
 
-        // Check for various edge patterns
-        // --> solid arrow
-        // --- solid line
-        // -.-> dotted arrow
-        // -.- dotted line
-        // ==> thick arrow
-        // === thick line
-        // <--> bidirectional
-        // o--o circles
-        // x--x crosses
-        // --label--> embedded label (mermaid "text on edge" syntax)
-
         var arrow_start: ArrowHead = .none;
         var arrow_end: ArrowHead = .none;
         var style: EdgeStyle = .solid;
 
-        // Check start arrow/modifier
         if (self.matchChar('<')) {
             arrow_start = .arrow;
         } else if (self.matchChar('o')) {
@@ -369,53 +321,41 @@ pub const Parser = struct {
             arrow_start = .cross;
         }
 
-        // Parse line style
         if (self.matchString("==")) {
             style = .thick;
-            // Consume remaining = chars
             while (self.matchChar('=')) {}
         } else if (self.matchString("-.")) {
             style = .dotted;
-            // Consume middle dots
             while (self.matchChar('.') or self.matchChar('-')) {}
         } else if (self.matchChar('-')) {
             style = .solid;
-            // Consume remaining - chars
             while (self.matchChar('-')) {}
         } else {
-            // Not an edge operator
             self.pos = start;
             return null;
         }
 
-        // Check for embedded label: --label--> or --label--
-        // If the next character is not an arrow/circle/cross/space/newline,
-        // scan for a closing dash sequence to extract the embedded label.
         var embedded_label: ?[]const u8 = null;
         if (!self.isAtEnd() and self.current() != '>' and self.current() != 'o' and
             self.current() != 'x' and !self.isWhitespace(self.current()) and
             !self.isLineEnd() and self.current() != '|')
         {
-            // Scan ahead: label ends at the next '-' that begins a closing dash sequence
             const label_start = self.pos;
             while (!self.isAtEnd() and !self.isLineEnd()) {
-                if (self.current() == '-') break; // start of closing dashes
+                if (self.current() == '-') break;
                 self.advance();
             }
             const label_end = self.pos;
             if (label_end > label_start) {
                 var lbl = self.source[label_start..label_end];
-                // Trim trailing whitespace from label
                 while (lbl.len > 0 and (lbl[lbl.len - 1] == ' ' or lbl[lbl.len - 1] == '\t')) {
                     lbl = lbl[0 .. lbl.len - 1];
                 }
                 if (lbl.len > 0) embedded_label = lbl;
             }
-            // Consume the closing dash sequence (e.g. `--` or `-`)
             while (self.matchChar('-')) {}
         }
 
-        // Check end arrow/modifier
         if (self.matchChar('>')) {
             arrow_end = .arrow;
         } else if (self.matchChar('o')) {
@@ -424,7 +364,6 @@ pub const Parser = struct {
             arrow_end = .cross;
         }
 
-        // Verify we consumed something that looks like an edge
         if (self.pos == start) {
             return null;
         }
@@ -440,7 +379,6 @@ pub const Parser = struct {
     fn parseNodeDef(self: *Parser) !Node {
         self.skipWhitespace();
 
-        // Parse node ID (alphanumeric + underscore)
         const id_start = self.pos;
         while (!self.isAtEnd() and self.isIdChar(self.current())) {
             self.advance();
@@ -451,7 +389,6 @@ pub const Parser = struct {
             return ParseError.InvalidSyntax;
         }
 
-        // Check for shape definition
         var shape: NodeShape = .rectangle;
         var label: []const u8 = id;
 
@@ -478,23 +415,18 @@ pub const Parser = struct {
     fn parseNodeShape(self: *Parser) ?ShapeResult {
         const c = self.current();
 
-        // [text] rectangle variants
         if (c == '[') {
             self.advance();
 
-            // Check for special shapes
             if (self.matchChar('[')) {
-                // [[text]] subroutine
                 const label = self.readUntilClose("]]");
                 return .{ .shape = .subroutine, .label = label };
             }
             if (self.matchChar('(')) {
-                // [(text)] cylinder
                 const label = self.readUntilClose(")]");
                 return .{ .shape = .cylinder, .label = label };
             }
             if (self.matchChar('/')) {
-                // [/text/] or [/text\] parallelogram/trapezoid
                 const label_start = self.pos;
                 while (!self.isAtEnd() and self.current() != '/' and self.current() != '\\' and self.current() != ']') {
                     self.advance();
@@ -511,7 +443,6 @@ pub const Parser = struct {
                 return .{ .shape = .rectangle, .label = label };
             }
             if (self.matchChar('\\')) {
-                // [\text\] or [\text/]
                 const label_start = self.pos;
                 while (!self.isAtEnd() and self.current() != '/' and self.current() != '\\' and self.current() != ']') {
                     self.advance();
@@ -528,47 +459,38 @@ pub const Parser = struct {
                 return .{ .shape = .rectangle, .label = label };
             }
 
-            // [text] plain rectangle
             const label = self.readUntilClose("]");
             return .{ .shape = .rectangle, .label = label };
         }
 
-        // (text) rounded variants
         if (c == '(') {
             self.advance();
 
             if (self.matchChar('[')) {
-                // ([text]) stadium
                 const label = self.readUntilClose("])");
                 return .{ .shape = .stadium, .label = label };
             }
             if (self.matchChar('(')) {
-                // ((text)) circle
                 const label = self.readUntilClose("))");
                 return .{ .shape = .circle, .label = label };
             }
 
-            // (text) rounded
             const label = self.readUntilClose(")");
             return .{ .shape = .rounded, .label = label };
         }
 
-        // {text} diamond variants
         if (c == '{') {
             self.advance();
 
             if (self.matchChar('{')) {
-                // {{text}} hexagon
                 const label = self.readUntilClose("}}");
                 return .{ .shape = .hexagon, .label = label };
             }
 
-            // {text} diamond
             const label = self.readUntilClose("}");
             return .{ .shape = .diamond, .label = label };
         }
 
-        // >text] asymmetric
         if (c == '>') {
             self.advance();
             const label = self.readUntilClose("]");
@@ -600,7 +522,6 @@ pub const Parser = struct {
         return label;
     }
 
-    // Helper methods
     fn current(self: *Parser) u8 {
         if (self.isAtEnd()) return 0;
         return self.source[self.pos];
@@ -654,7 +575,6 @@ pub const Parser = struct {
                 self.advance();
                 continue;
             }
-            // Skip %% comments
             if (self.current() == '%' and self.peek(1) == '%') {
                 self.skipToNextLine();
                 continue;
@@ -668,7 +588,7 @@ pub const Parser = struct {
             self.advance();
         }
         if (!self.isAtEnd()) {
-            self.advance(); // consume newline
+            self.advance();
         }
     }
 
@@ -693,7 +613,6 @@ pub const Parser = struct {
         if (self.pos + keyword.len > self.source.len) return false;
         if (!std.mem.eql(u8, self.source[self.pos .. self.pos + keyword.len], keyword)) return false;
 
-        // Make sure it's a complete keyword (not a prefix of something else)
         if (self.pos + keyword.len < self.source.len) {
             const next = self.source[self.pos + keyword.len];
             if (self.isIdChar(next)) return false;
@@ -715,10 +634,6 @@ pub const Parser = struct {
         return true;
     }
 
-    // =====================================================
-    // Sequence Diagram Parsing
-    // =====================================================
-
     /// Parse a sequence diagram
     pub fn parseSequence(allocator: Allocator, source: []const u8) !SequenceDiagram {
         var parser = Parser.init(allocator, source);
@@ -731,7 +646,6 @@ pub const Parser = struct {
 
         self.skipWhitespaceAndComments();
 
-        // Skip "sequenceDiagram" keyword
         _ = self.consumeKeyword("sequenceDiagram");
         self.skipWhitespace();
         if (self.consumeKeyword("direction")) {
@@ -741,12 +655,10 @@ pub const Parser = struct {
         }
         self.skipToNextLine();
 
-        // Parse body
         while (!self.isAtEnd()) {
             self.skipWhitespaceAndComments();
             if (self.isAtEnd()) break;
 
-            // Parse different statement types
             if (self.consumeKeyword("participant")) {
                 try self.parseParticipantDecl(&diagram, .participant);
                 continue;
@@ -789,15 +701,12 @@ pub const Parser = struct {
                 self.consumeKeyword("rect") or
                 self.consumeKeyword("end"))
             {
-                // Skip control flow keywords for now
                 self.skipToNextLine();
                 continue;
             }
 
-            // Try to parse a message
             const msg_result = try self.parseSequenceMessage(&diagram);
             if (!msg_result) {
-                // Unknown line, skip it
                 self.skipToNextLine();
             }
         }
@@ -808,7 +717,6 @@ pub const Parser = struct {
     fn parseParticipantDecl(self: *Parser, diagram: *SequenceDiagram, ptype: ParticipantType) !void {
         self.skipWhitespace();
 
-        // Parse participant ID
         const id_start = self.pos;
         while (!self.isAtEnd() and (self.isIdChar(self.current()) or self.current() == '_')) {
             self.advance();
@@ -820,12 +728,10 @@ pub const Parser = struct {
             return;
         }
 
-        // Check for "as" alias
         self.skipWhitespace();
         var alias: ?[]const u8 = null;
         if (self.consumeKeyword("as")) {
             self.skipWhitespace();
-            // Alias can be quoted or unquoted
             if (self.current() == '"' or self.current() == '\'') {
                 const quote = self.current();
                 self.advance();
@@ -834,7 +740,7 @@ pub const Parser = struct {
                     self.advance();
                 }
                 alias = self.source[alias_start..self.pos];
-                if (!self.isAtEnd()) self.advance(); // consume closing quote
+                if (!self.isAtEnd()) self.advance();
             } else {
                 const alias_start = self.pos;
                 while (!self.isAtEnd() and !self.isLineEnd() and !self.isWhitespace(self.current())) {
@@ -856,7 +762,6 @@ pub const Parser = struct {
     fn parseSequenceMessage(self: *Parser, diagram: *SequenceDiagram) !bool {
         const start_pos = self.pos;
 
-        // Parse "from" participant
         const from_start = self.pos;
         while (!self.isAtEnd() and self.isIdChar(self.current())) {
             self.advance();
@@ -870,7 +775,6 @@ pub const Parser = struct {
 
         self.skipWhitespace();
 
-        // Parse arrow type
         const arrow = self.parseSequenceArrow() orelse {
             self.pos = start_pos;
             return false;
@@ -878,7 +782,6 @@ pub const Parser = struct {
 
         self.skipWhitespace();
 
-        // Parse "to" participant
         const to_start = self.pos;
         while (!self.isAtEnd() and self.isIdChar(self.current())) {
             self.advance();
@@ -890,7 +793,6 @@ pub const Parser = struct {
             return false;
         }
 
-        // Parse message text (after colon)
         self.skipWhitespace();
         var text: []const u8 = "";
         if (self.matchChar(':')) {
@@ -902,11 +804,9 @@ pub const Parser = struct {
             text = std.mem.trimRight(u8, self.source[text_start..self.pos], " \t\r");
         }
 
-        // Auto-create participants if they don't exist
         try diagram.addParticipant(.{ .id = from });
         try diagram.addParticipant(.{ .id = to });
 
-        // Add message
         try diagram.addMessage(.{
             .from = from,
             .to = to,
@@ -920,22 +820,13 @@ pub const Parser = struct {
     }
 
     fn parseSequenceArrow(self: *Parser) ?SequenceArrowType {
-        // Order matters - check longer patterns first
-        // -->>  dashed with arrowhead
         if (self.matchString("-->>")) return .dashed_arrow;
-        // ->>   solid with arrowhead
         if (self.matchString("->>")) return .solid_arrow;
-        // --x   dashed with cross
         if (self.matchString("--x")) return .dashed_cross;
-        // -x    solid with cross
         if (self.matchString("-x")) return .solid_cross;
-        // --)   dashed async (open)
         if (self.matchString("--)")) return .dashed_open;
-        // -)    solid async (open)
         if (self.matchString("-)")) return .solid_open;
-        // -->   dashed line
         if (self.matchString("-->")) return .dashed_line;
-        // ->    solid line
         if (self.matchString("->")) return .solid_line;
 
         return null;
@@ -944,7 +835,6 @@ pub const Parser = struct {
     fn parseSequenceNote(self: *Parser, diagram: *SequenceDiagram) !void {
         self.skipWhitespace();
 
-        // Parse note position: "right of", "left of", or "over"
         var position: types.NotePosition = .over;
         var participant1: ?[]const u8 = null;
         var participant2: ?[]const u8 = null;
@@ -963,14 +853,12 @@ pub const Parser = struct {
 
         self.skipWhitespace();
 
-        // Parse first participant
         const p1_start = self.pos;
         while (!self.isAtEnd() and self.isIdChar(self.current())) {
             self.advance();
         }
         participant1 = self.source[p1_start..self.pos];
 
-        // Check for second participant (for "over A,B")
         self.skipWhitespace();
         if (self.matchChar(',')) {
             self.skipWhitespace();
@@ -981,7 +869,6 @@ pub const Parser = struct {
             participant2 = self.source[p2_start..self.pos];
         }
 
-        // Parse note text (after colon)
         self.skipWhitespace();
         var text: []const u8 = "";
         if (self.matchChar(':')) {
@@ -993,10 +880,8 @@ pub const Parser = struct {
             text = std.mem.trimRight(u8, self.source[text_start..self.pos], " \t\r");
         }
 
-        // Store note
         if (participant1) |p1| {
             if (p1.len > 0) {
-                // Ensure participants exist
                 try diagram.addParticipant(.{ .id = p1 });
                 if (participant2) |p2| {
                     if (p2.len > 0) {
@@ -1004,7 +889,6 @@ pub const Parser = struct {
                     }
                 }
 
-                // Add note
                 try diagram.addNote(.{
                     .position = position,
                     .participant1 = p1,
@@ -1020,7 +904,6 @@ pub const Parser = struct {
     fn parseActivation(self: *Parser, diagram: *SequenceDiagram, is_activate: bool) !void {
         self.skipWhitespace();
 
-        // Parse participant ID
         const id_start = self.pos;
         while (!self.isAtEnd() and (self.isIdChar(self.current()) or self.current() == '_')) {
             self.advance();
@@ -1028,10 +911,8 @@ pub const Parser = struct {
         const participant_id = self.source[id_start..self.pos];
 
         if (participant_id.len > 0) {
-            // Ensure participant exists
             try diagram.addParticipant(.{ .id = participant_id });
 
-            // Add activation element
             try diagram.addActivation(.{
                 .participant = participant_id,
                 .is_activate = is_activate,
@@ -1040,10 +921,6 @@ pub const Parser = struct {
 
         self.skipToNextLine();
     }
-
-    // =====================================================
-    // Class Diagram Parsing
-    // =====================================================
 
     /// Parse a class diagram
     pub fn parseClassDiagram(allocator: Allocator, source: []const u8) !ClassDiagram {
@@ -1057,16 +934,13 @@ pub const Parser = struct {
 
         self.skipWhitespaceAndComments();
 
-        // Skip "classDiagram" keyword
         _ = self.consumeKeyword("classDiagram");
         self.skipToNextLine();
 
-        // Parse body
         while (!self.isAtEnd()) {
             self.skipWhitespaceAndComments();
             if (self.isAtEnd()) break;
 
-            // Skip known keywords that we don't handle
             if (self.consumeKeyword("direction") or
                 self.consumeKeyword("note") or
                 self.consumeKeyword("callback") or
@@ -1077,7 +951,6 @@ pub const Parser = struct {
                 continue;
             }
 
-            // Handle "class ClassName" definition
             if (self.consumeKeyword("class")) {
                 self.skipWhitespace();
                 const name_start = self.pos;
@@ -1096,7 +969,6 @@ pub const Parser = struct {
                 continue;
             }
 
-            // Try to parse a relationship or member definition
             const parsed = try self.parseClassStatement(&diagram);
             if (!parsed) {
                 self.skipToNextLine();
@@ -1109,7 +981,6 @@ pub const Parser = struct {
     fn parseClassStatement(self: *Parser, diagram: *ClassDiagram) !bool {
         const start_pos = self.pos;
 
-        // Parse first identifier (class name)
         const first_name = self.parseClassName();
         if (first_name.len == 0) {
             self.pos = start_pos;
@@ -1118,26 +989,22 @@ pub const Parser = struct {
 
         self.skipWhitespace();
 
-        // Check for member definition: ClassName : member
         if (self.matchChar(':')) {
             self.skipWhitespace();
             try self.parseClassMember(diagram, first_name);
             return true;
         }
 
-        // Check for relationship
         const rel_type = self.parseClassRelation();
         if (rel_type) |relation_type| {
             self.skipWhitespace();
 
-            // Parse second class name
             const second_name = self.parseClassName();
             if (second_name.len == 0) {
                 self.pos = start_pos;
                 return false;
             }
 
-            // Parse optional label after colon
             self.skipWhitespace();
             var label: ?[]const u8 = null;
             if (self.matchChar(':')) {
@@ -1149,11 +1016,9 @@ pub const Parser = struct {
                 label = std.mem.trimRight(u8, self.source[label_start..self.pos], " \t\r");
             }
 
-            // Ensure both classes exist
             try self.ensureClass(diagram, first_name);
             try self.ensureClass(diagram, second_name);
 
-            // Add the relation
             try diagram.addRelation(.{
                 .from = first_name,
                 .to = second_name,
@@ -1171,7 +1036,6 @@ pub const Parser = struct {
 
     fn parseClassName(self: *Parser) []const u8 {
         const start = self.pos;
-        // Class names can have hyphens and underscores
         while (!self.isAtEnd()) {
             const c = self.current();
             if (self.isIdChar(c) or c == '-') {
@@ -1184,41 +1048,29 @@ pub const Parser = struct {
     }
 
     fn parseClassRelation(self: *Parser) ?ClassRelationType {
-        // Order matters - check longer patterns first
-        // <|-- inheritance (extends)
         if (self.matchString("<|--")) return .inheritance;
         if (self.matchString("--|>")) return .inheritance;
-        // ..|> realization (implements)
         if (self.matchString("..|>")) return .realization;
         if (self.matchString("<|..")) return .realization;
-        // *-- composition
         if (self.matchString("*--")) return .composition;
         if (self.matchString("--*")) return .composition;
-        // o-- aggregation
         if (self.matchString("o--")) return .aggregation;
         if (self.matchString("--o")) return .aggregation;
-        // ..> dependency
         if (self.matchString("..>")) return .dependency;
         if (self.matchString("<..")) return .dependency;
-        // --> association
         if (self.matchString("-->")) return .association;
         if (self.matchString("<--")) return .association;
-        // -- link
         if (self.matchString("--")) return .link;
-        // .. dotted link (treat as dependency)
         if (self.matchString("..")) return .dependency;
 
         return null;
     }
 
     fn parseClassMember(self: *Parser, diagram: *ClassDiagram, class_name: []const u8) !void {
-        // Ensure the class exists
         try self.ensureClass(diagram, class_name);
 
-        // Get the class to add member to
         const class = diagram.getClassMut(class_name) orelse return;
 
-        // Parse visibility
         var visibility: Visibility = .none;
         const first_char = self.current();
         if (first_char == '+' or first_char == '-' or first_char == '#' or first_char == '~') {
@@ -1226,7 +1078,6 @@ pub const Parser = struct {
             self.advance();
         }
 
-        // Parse the rest of the member definition
         const member_start = self.pos;
         while (!self.isAtEnd() and self.current() != '\n') {
             self.advance();
@@ -1235,14 +1086,11 @@ pub const Parser = struct {
 
         if (member_text.len == 0) return;
 
-        // Check if it's a method (contains parentheses)
         const is_method = std.mem.indexOf(u8, member_text, "(") != null;
 
-        // Parse type and name
         var member_type: []const u8 = "";
         var name: []const u8 = member_text;
 
-        // For "Type name" or "name Type" patterns
         if (std.mem.indexOf(u8, member_text, " ")) |space_idx| {
             if (!is_method) {
                 member_type = member_text[0..space_idx];
@@ -1268,10 +1116,6 @@ pub const Parser = struct {
         }
     }
 
-    // =====================================================
-    // ER Diagram Parsing
-    // =====================================================
-
     /// Parse an ER diagram
     pub fn parseERDiagram(allocator: Allocator, source: []const u8) !ERDiagram {
         var parser = Parser.init(allocator, source);
@@ -1284,16 +1128,13 @@ pub const Parser = struct {
 
         self.skipWhitespaceAndComments();
 
-        // Skip "erDiagram" keyword
         _ = self.consumeKeyword("erDiagram");
         self.skipToNextLine();
 
-        // Parse body
         while (!self.isAtEnd()) {
             self.skipWhitespaceAndComments();
             if (self.isAtEnd()) break;
 
-            // Try to parse a relationship
             const parsed = try self.parseERStatement(&diagram);
             if (!parsed) {
                 self.skipToNextLine();
@@ -1306,7 +1147,6 @@ pub const Parser = struct {
     fn parseERStatement(self: *Parser, diagram: *ERDiagram) !bool {
         const start_pos = self.pos;
 
-        // Parse first entity name
         const first_name = self.parseEntityName();
         if (first_name.len == 0) {
             self.pos = start_pos;
@@ -1315,19 +1155,16 @@ pub const Parser = struct {
 
         self.skipWhitespace();
 
-        // Check for relationship
         const rel = self.parseERRelation();
         if (rel) |relation| {
             self.skipWhitespace();
 
-            // Parse second entity name
             const second_name = self.parseEntityName();
             if (second_name.len == 0) {
                 self.pos = start_pos;
                 return false;
             }
 
-            // Parse optional label after colon
             self.skipWhitespace();
             var label: ?[]const u8 = null;
             if (self.matchChar(':')) {
@@ -1339,11 +1176,9 @@ pub const Parser = struct {
                 label = std.mem.trimRight(u8, self.source[label_start..self.pos], " \t\r");
             }
 
-            // Ensure both entities exist
             try self.ensureEntity(diagram, first_name);
             try self.ensureEntity(diagram, second_name);
 
-            // Add the relation
             try diagram.addRelation(.{
                 .from = first_name,
                 .to = second_name,
@@ -1356,8 +1191,6 @@ pub const Parser = struct {
             return true;
         }
 
-        // Could be entity definition with attributes (ENTITY { ... })
-        // For now, just ensure the entity exists
         if (first_name.len > 0) {
             try self.ensureEntity(diagram, first_name);
             self.skipToNextLine();
@@ -1370,7 +1203,6 @@ pub const Parser = struct {
 
     fn parseEntityName(self: *Parser) []const u8 {
         const start = self.pos;
-        // Entity names can have hyphens and underscores
         while (!self.isAtEnd()) {
             const c = self.current();
             if (self.isIdChar(c) or c == '-') {
@@ -1388,11 +1220,9 @@ pub const Parser = struct {
     };
 
     fn parseERRelation(self: *Parser) ?ERRelationResult {
-        // Parse left cardinality
         var left: Cardinality = .exactly_one;
         var right: Cardinality = .exactly_one;
 
-        // Left side: ||, |o, }|, }o
         if (self.matchString("||")) {
             left = .exactly_one;
         } else if (self.matchString("|o")) {
@@ -1405,12 +1235,10 @@ pub const Parser = struct {
             return null;
         }
 
-        // Middle: -- or ..
         if (!self.matchString("--") and !self.matchString("..")) {
             return null;
         }
 
-        // Right side: ||, o|, |{, o{
         if (self.matchString("||")) {
             right = .exactly_one;
         } else if (self.matchString("o|")) {
@@ -1437,10 +1265,6 @@ pub const Parser = struct {
         }
     }
 
-    // =====================================================
-    // State Diagram Parsing
-    // =====================================================
-
     /// Parse a state diagram
     pub fn parseStateDiagram(allocator: Allocator, source: []const u8) !StateDiagram {
         var parser = Parser.init(allocator, source);
@@ -1453,9 +1277,7 @@ pub const Parser = struct {
 
         self.skipWhitespaceAndComments();
 
-        // Skip "stateDiagram" or "stateDiagram-v2" keyword
         if (self.consumeKeyword("stateDiagram-v2") or self.consumeKeyword("stateDiagram")) {
-            // Check for direction
             self.skipWhitespace();
             if (self.consumeKeyword("direction")) {
                 self.skipWhitespace();
@@ -1464,11 +1286,9 @@ pub const Parser = struct {
         }
         self.skipToNextLine();
 
-        // Track start/end state counters for unique IDs
         var start_count: u32 = 0;
         var end_count: u32 = 0;
 
-        // Parse body at top level (no parent)
         try self.parseStateDiagramBody(&diagram, null, &start_count, &end_count);
 
         return diagram;
@@ -1485,12 +1305,10 @@ pub const Parser = struct {
             self.skipWhitespaceAndComments();
             if (self.isAtEnd()) break;
 
-            // Check for end of composite state
             if (self.peekKeyword("end") or self.current() == '}') {
                 break;
             }
 
-            // Check for direction directive
             if (self.consumeKeyword("direction")) {
                 self.skipWhitespace();
                 diagram.direction = self.parseDirection();
@@ -1498,19 +1316,16 @@ pub const Parser = struct {
                 continue;
             }
 
-            // Check for state declaration with composite body
             if (self.consumeKeyword("state")) {
                 try self.parseStateDeclaration(diagram, parent_id, start_count, end_count);
                 continue;
             }
 
-            // Check for note
             if (self.consumeKeyword("note") or self.consumeKeyword("Note")) {
                 try self.parseStateNote(diagram);
                 continue;
             }
 
-            // Try to parse a transition or state reference
             try self.parseStateStatement(diagram, parent_id, start_count, end_count);
         }
     }
@@ -1524,7 +1339,6 @@ pub const Parser = struct {
     ) Allocator.Error!void {
         self.skipWhitespace();
 
-        // Parse state ID
         const id = self.parseStateId();
         if (id.len == 0) {
             self.skipToNextLine();
@@ -1533,7 +1347,6 @@ pub const Parser = struct {
 
         self.skipWhitespace();
 
-        // Check for <<choice>>, <<fork>>, <<join>>
         var state_type: types.StateType = .regular;
         if (self.matchString("<<choice>>")) {
             state_type = .choice;
@@ -1545,7 +1358,6 @@ pub const Parser = struct {
 
         self.skipWhitespace();
 
-        // Check for description after colon
         var label: ?[]const u8 = null;
         if (self.matchChar(':')) {
             self.skipWhitespace();
@@ -1559,10 +1371,8 @@ pub const Parser = struct {
 
         self.skipWhitespace();
 
-        // Check for composite state body
         const is_composite = self.matchChar('{');
 
-        // Add the state
         try diagram.addState(.{
             .id = id,
             .label = label,
@@ -1573,15 +1383,9 @@ pub const Parser = struct {
 
         if (is_composite) {
             self.skipToNextLine();
-            // Parse nested body
             try self.parseStateDiagramBody(diagram, id, start_count, end_count);
-            // Consume closing brace or 'end'
             self.skipWhitespaceAndComments();
-            if (self.matchChar('}')) {
-                // OK
-            } else if (self.consumeKeyword("end")) {
-                // OK
-            }
+            if (self.matchChar('}')) {} else if (self.consumeKeyword("end")) {}
         }
 
         self.skipToNextLine();
@@ -1600,7 +1404,6 @@ pub const Parser = struct {
             return;
         }
 
-        // Parse first state reference (could be [*] or state ID)
         const first_state = try self.parseStateReference(diagram, parent_id, start_count, end_count, true);
         if (first_state.len == 0) {
             self.skipToNextLine();
@@ -1609,17 +1412,13 @@ pub const Parser = struct {
 
         self.skipWhitespace();
 
-        // Check for transition arrow -->
         if (self.matchString("-->")) {
             self.skipWhitespace();
 
-            // Parse optional label after :
             var label: ?[]const u8 = null;
 
-            // Parse target state
             const second_state = try self.parseStateReference(diagram, parent_id, start_count, end_count, false);
 
-            // Check for label after target with :
             self.skipWhitespace();
             if (self.matchChar(':')) {
                 self.skipWhitespace();
@@ -1631,14 +1430,12 @@ pub const Parser = struct {
                 if (label.?.len == 0) label = null;
             }
 
-            // Add the transition
             try diagram.addTransition(.{
                 .from = first_state,
                 .to = second_state,
                 .label = label,
             });
         } else if (self.matchChar(':')) {
-            // State description: "StateId : description"
             self.skipWhitespace();
             const label_start = self.pos;
             while (!self.isAtEnd() and self.current() != '\n') {
@@ -1646,7 +1443,6 @@ pub const Parser = struct {
             }
             const label = std.mem.trimRight(u8, self.source[label_start..self.pos], " \t\r");
 
-            // Update state with label
             if (diagram.getStateMut(first_state)) |state| {
                 if (state.label == null and label.len > 0) {
                     state.label = label;
@@ -1667,13 +1463,8 @@ pub const Parser = struct {
     ) Allocator.Error![]const u8 {
         self.skipWhitespace();
 
-        // Check for [*] - start or end state
         if (self.matchString("[*]")) {
-            // Determine if this is start or end based on position
-            // [*] --> X means [*] is start
-            // X --> [*] means [*] is end
             if (is_source) {
-                // This is a start state
                 const id = try self.makeStartId(start_count);
                 try diagram.trackAllocatedId(id);
                 try diagram.addState(.{
@@ -1683,12 +1474,9 @@ pub const Parser = struct {
                 });
                 return id;
             } else {
-                // This is an end state - reuse existing end state at same scope if available
-                // Search for existing end state with same parent
                 for (diagram.state_order.items) |existing_id| {
                     if (diagram.getState(existing_id)) |existing_state| {
                         if (existing_state.state_type == .end) {
-                            // Check if parent matches
                             const existing_parent = existing_state.parent_id;
                             const parents_match = if (parent_id) |p|
                                 (existing_parent != null and std.mem.eql(u8, existing_parent.?, p))
@@ -1700,7 +1488,6 @@ pub const Parser = struct {
                         }
                     }
                 }
-                // No existing end state found, create new one
                 const id = try self.makeEndId(end_count);
                 try diagram.trackAllocatedId(id);
                 try diagram.addState(.{
@@ -1712,10 +1499,8 @@ pub const Parser = struct {
             }
         }
 
-        // Parse regular state ID
         const id = self.parseStateId();
         if (id.len > 0) {
-            // Ensure state exists
             const result = try diagram.states.getOrPut(id);
             if (!result.found_existing) {
                 result.value_ptr.* = .{
@@ -1730,7 +1515,6 @@ pub const Parser = struct {
 
     fn parseStateId(self: *Parser) []const u8 {
         const start = self.pos;
-        // State IDs can contain letters, digits, underscores
         while (!self.isAtEnd()) {
             const c = self.current();
             if (self.isIdChar(c)) {
@@ -1743,15 +1527,12 @@ pub const Parser = struct {
     }
 
     fn makeStartId(self: *Parser, count: *u32) Allocator.Error![]const u8 {
-        // Generate unique start state ID
-        // We use a simple scheme: [*]_start_0, [*]_start_1, etc.
         const id = try std.fmt.allocPrint(self.allocator, "[*]_start_{d}", .{count.*});
         count.* += 1;
         return id;
     }
 
     fn makeEndId(self: *Parser, count: *u32) Allocator.Error![]const u8 {
-        // Generate unique end state ID
         const id = try std.fmt.allocPrint(self.allocator, "[*]_end_{d}", .{count.*});
         count.* += 1;
         return id;
@@ -1760,7 +1541,6 @@ pub const Parser = struct {
     fn parseStateNote(self: *Parser, diagram: *StateDiagram) !void {
         self.skipWhitespace();
 
-        // Parse position: "left of", "right of"
         var position: types.NotePosition = .right_of;
         if (self.consumeKeyword("left")) {
             self.skipWhitespace();
@@ -1774,7 +1554,6 @@ pub const Parser = struct {
 
         self.skipWhitespace();
 
-        // Parse state ID
         const state_id = self.parseStateId();
         if (state_id.len == 0) {
             self.skipToNextLine();
@@ -1783,7 +1562,6 @@ pub const Parser = struct {
 
         self.skipWhitespace();
 
-        // Parse note text after colon
         if (!self.matchChar(':')) {
             self.skipToNextLine();
             return;
@@ -1928,16 +1706,11 @@ test "parse subgraph preserves node labels" {
     var graph = try Parser.parse(testing.allocator, source);
     defer graph.deinit();
 
-    // Both nodes should have their full labels
     const node_a = graph.getNode("A").?;
     const node_b = graph.getNode("B").?;
     try testing.expectEqualStrings("Node A", node_a.label);
     try testing.expectEqualStrings("Node B", node_b.label);
 }
-
-// =====================================================
-// Sequence Diagram Tests
-// =====================================================
 
 test "parse simple sequence diagram" {
     const testing = std.testing;
@@ -2040,7 +1813,6 @@ test "parse complex label with special chars" {
     defer graph.deinit();
 
     try testing.expectEqual(@as(usize, 2), graph.node_order.items.len);
-    // Verify quotes are stripped from labels
     const fe = graph.getNode("FE").?;
     try testing.expectEqualStrings("Neo Frontend<br/>:9001", fe.label);
 }
@@ -2063,12 +1835,10 @@ test "parse sequence diagram with notes" {
     try testing.expectEqual(@as(usize, 2), diagram.messages.items.len);
     try testing.expectEqual(@as(usize, 2), diagram.notes.items.len);
 
-    // Check first note
     try testing.expectEqual(types.NotePosition.right_of, diagram.notes.items[0].position);
     try testing.expectEqualStrings("Bob", diagram.notes.items[0].participant1);
     try testing.expectEqualStrings("Bob thinks", diagram.notes.items[0].text);
 
-    // Check second note
     try testing.expectEqual(types.NotePosition.over, diagram.notes.items[1].position);
     try testing.expectEqualStrings("Alice", diagram.notes.items[1].participant1);
     try testing.expectEqualStrings("Bob", diagram.notes.items[1].participant2.?);
@@ -2090,10 +1860,6 @@ test "parse sequence diagram direction" {
     try testing.expectEqual(Direction.LR, diagram.direction);
 }
 
-// =====================================================
-// Class Diagram Tests
-// =====================================================
-
 test "parse simple class diagram" {
     const testing = std.testing;
 
@@ -2111,17 +1877,14 @@ test "parse simple class diagram" {
     try testing.expectEqual(@as(usize, 2), diagram.class_order.items.len);
     try testing.expectEqual(@as(usize, 1), diagram.relations.items.len);
 
-    // Check classes exist
     try testing.expect(diagram.getClass("Animal") != null);
     try testing.expect(diagram.getClass("Duck") != null);
 
-    // Check relation
     const rel = diagram.relations.items[0];
     try testing.expectEqualStrings("Animal", rel.from);
     try testing.expectEqualStrings("Duck", rel.to);
     try testing.expectEqual(ClassRelationType.inheritance, rel.relation_type);
 
-    // Check members
     const animal = diagram.getClass("Animal").?;
     try testing.expectEqual(@as(usize, 2), animal.members.items.len);
 
@@ -2151,10 +1914,6 @@ test "parse class diagram with various relations" {
     try testing.expectEqual(ClassRelationType.association, diagram.relations.items[3].relation_type);
 }
 
-// =====================================================
-// ER Diagram Tests
-// =====================================================
-
 test "parse simple ER diagram" {
     const testing = std.testing;
 
@@ -2170,12 +1929,10 @@ test "parse simple ER diagram" {
     try testing.expectEqual(@as(usize, 3), diagram.entity_order.items.len);
     try testing.expectEqual(@as(usize, 2), diagram.relations.items.len);
 
-    // Check entities exist
     try testing.expect(diagram.getEntity("CUSTOMER") != null);
     try testing.expect(diagram.getEntity("ORDER") != null);
     try testing.expect(diagram.getEntity("LINE-ITEM") != null);
 
-    // Check first relation
     const rel1 = diagram.relations.items[0];
     try testing.expectEqualStrings("CUSTOMER", rel1.from);
     try testing.expectEqualStrings("ORDER", rel1.to);
@@ -2183,17 +1940,12 @@ test "parse simple ER diagram" {
     try testing.expectEqual(Cardinality.zero_or_more, rel1.to_cardinality);
     try testing.expectEqualStrings("places", rel1.label.?);
 
-    // Check second relation
     const rel2 = diagram.relations.items[1];
     try testing.expectEqualStrings("ORDER", rel2.from);
     try testing.expectEqualStrings("LINE-ITEM", rel2.to);
     try testing.expectEqual(Cardinality.exactly_one, rel2.from_cardinality);
     try testing.expectEqual(Cardinality.one_or_more, rel2.to_cardinality);
 }
-
-// =====================================================
-// State Diagram Tests
-// =====================================================
 
 test "parse simple state diagram" {
     const testing = std.testing;
@@ -2211,20 +1963,16 @@ test "parse simple state diagram" {
     var diagram = try Parser.parseStateDiagram(testing.allocator, source);
     defer diagram.deinit();
 
-    // Should have: 1 start, 1 end (reused), 3 regular states = 5 total
     try testing.expectEqual(@as(usize, 5), diagram.state_order.items.len);
     try testing.expectEqual(@as(usize, 6), diagram.transitions.items.len);
 
-    // Check states exist
     try testing.expect(diagram.getState("Still") != null);
     try testing.expect(diagram.getState("Moving") != null);
     try testing.expect(diagram.getState("Crash") != null);
 
-    // Check start state
     try testing.expect(diagram.getState("[*]_start_0") != null);
     try testing.expectEqual(StateType.start, diagram.getState("[*]_start_0").?.state_type);
 
-    // Check end states - there's only one end state (multiple transitions go to it)
     try testing.expect(diagram.getState("[*]_end_0") != null);
     try testing.expectEqual(StateType.end, diagram.getState("[*]_end_0").?.state_type);
 }
@@ -2283,11 +2031,9 @@ test "parse state diagram with composite state" {
     var diagram = try Parser.parseStateDiagram(testing.allocator, source);
     defer diagram.deinit();
 
-    // Check First is composite
     const first = diagram.getState("First").?;
     try testing.expect(first.is_composite);
 
-    // Check second is inside First
     const second = diagram.getState("second").?;
     try testing.expect(second.parent_id != null);
     try testing.expectEqualStrings("First", second.parent_id.?);
@@ -2308,7 +2054,6 @@ test "parse state diagram with choice" {
     var diagram = try Parser.parseStateDiagram(testing.allocator, source);
     defer diagram.deinit();
 
-    // Check choice state
     const choice = diagram.getState("if_state").?;
     try testing.expectEqual(StateType.choice, choice.state_type);
 }
@@ -2346,16 +2091,12 @@ test "parse subgraph-level edges" {
     var graph = try Parser.parse(testing.allocator, source);
     defer graph.deinit();
 
-    // Should have 4 nodes: a1, a2, b1, b2
-    // "one" and "two" should be removed as they're subgraph refs
     try testing.expectEqual(@as(usize, 4), graph.node_order.items.len);
     try testing.expect(graph.nodes.get("one") == null);
     try testing.expect(graph.nodes.get("two") == null);
 
-    // Should have 3 edges: a1-->a2, b1-->b2, one-->two
     try testing.expectEqual(@as(usize, 3), graph.edges.items.len);
 
-    // The subgraph-level edge should be marked
     var found_sg_edge = false;
     for (graph.edges.items) |e| {
         if (std.mem.eql(u8, e.from, "one") and std.mem.eql(u8, e.to, "two")) {
@@ -2390,21 +2131,16 @@ test "parse subgraph-level edges fixture" {
     var graph = try Parser.parse(testing.allocator, source);
     defer graph.deinit();
 
-    // Should have 6 nodes: a1, a2, b1, b2, c1, c2
-    // "one", "two", "three" should be removed as they're subgraph refs
     try testing.expectEqual(@as(usize, 6), graph.node_order.items.len);
     try testing.expect(graph.nodes.get("one") == null);
     try testing.expect(graph.nodes.get("two") == null);
     try testing.expect(graph.nodes.get("three") == null);
 
-    // Count subgraph-level edges
     var sg_edge_count: usize = 0;
     for (graph.edges.items) |e| {
         if (e.from_is_subgraph or e.to_is_subgraph) {
             sg_edge_count += 1;
         }
     }
-    // one --> two, three --> two are pure sg edges (both endpoints are subgraphs)
-    // two --> c2 has from_is_subgraph=true (two is subgraph), to_is_subgraph=false (c2 is node)
     try testing.expectEqual(@as(usize, 3), sg_edge_count);
 }

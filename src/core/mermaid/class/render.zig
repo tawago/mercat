@@ -29,7 +29,6 @@ pub fn renderClassDiagram(allocator: Allocator, source: []const u8, options: Ren
         };
     }
 
-    // Layout constants
     const class_padding: u32 = 2;
     const min_class_width: u32 = 16;
     const horizontal_spacing: u32 = 6;

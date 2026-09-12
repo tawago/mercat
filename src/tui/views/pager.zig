@@ -162,8 +162,6 @@ pub const PagerView = struct {
     }
 
     fn reflow(self: *PagerView) !void {
-        // Line indices change when the document is re-rendered, so any existing
-        // selection no longer refers to the same text.
         self.selection.clear();
         self.freeLines();
         self.allocator.free(self.footnote_index);
@@ -181,7 +179,6 @@ pub const PagerView = struct {
         rendered.lines = &.{};
         self.viewport.setMetrics(self.viewport.height, self.lines.len);
 
-        // Build footnote index: scan all lines for #fn:N and #fnref:N pseudo-URLs.
         var index: std.ArrayList(FootnoteEntry) = .empty;
         errdefer index.deinit(self.allocator);
 
@@ -191,7 +188,6 @@ pub const PagerView = struct {
                 if (std.mem.startsWith(u8, url, "#fn:")) {
                     const n = std.fmt.parseInt(usize, url[4..], 10) catch continue;
                     if (n == 0) continue;
-                    // Grow index if needed.
                     while (index.items.len < n) try index.append(self.allocator, .{});
                     if (index.items[n - 1].ref_line == null) index.items[n - 1].ref_line = li;
                 } else if (std.mem.startsWith(u8, url, "#fnref:")) {
@@ -226,18 +222,14 @@ test "builds footnote index from rendered lines" {
     defer pager.deinit();
     try pager.resize(80, 20);
 
-    // Should have exactly one footnote entry.
     try std.testing.expectEqual(@as(usize, 1), pager.footnote_index.len);
-    // Both ref and def lines must have been found.
     try std.testing.expect(pager.footnote_index[0].ref_line != null);
     try std.testing.expect(pager.footnote_index[0].def_line != null);
-    // The ref line must come before the def line.
     try std.testing.expect(pager.footnote_index[0].ref_line.? < pager.footnote_index[0].def_line.?);
 }
 
 test "followFootnoteLink jumps to definition" {
     const allocator = std.testing.allocator;
-    // Use a longer document so there are enough lines to scroll.
     var document = try markdown.parse(allocator,
         \\See note[^note] here.
         \\
@@ -259,14 +251,11 @@ test "followFootnoteLink jumps to definition" {
     const rt = resolveMod.builtinResolved(allocator, "dark");
     var pager = PagerView.init(allocator, "fixture", &document, &rt, true, .auto, .bridge);
     defer pager.deinit();
-    // Small viewport so we can actually scroll.
     try pager.resize(80, 3);
 
-    // Start at top (ref is visible on line 0).
     pager.viewport.top = 0;
     const jumped = pager.followFootnoteLink();
     try std.testing.expect(jumped);
-    // After jump, the def line should be at or near the top of the viewport.
     const def_line = pager.footnote_index[0].def_line.?;
     try std.testing.expect(pager.viewport.top <= def_line);
     try std.testing.expect(pager.viewport.top + pager.viewport.height > def_line);
@@ -282,7 +271,6 @@ test "selection maps screen rows to document text" {
     defer pager.deinit();
     try pager.resize(80, 10);
 
-    // Columns 0-1 are the left padding; select "Hello" (display columns 2..7).
     pager.beginSelectionAt(0, 2);
     pager.extendSelectionAt(0, 7);
 
@@ -329,7 +317,6 @@ test "selection is cleared when the document reflows" {
     pager.extendSelectionAt(0, 5);
     try std.testing.expect(pager.selection.active);
 
-    // Reflow at a new width invalidates line indices, so the selection drops.
     try pager.resize(20, 10);
     try std.testing.expect(!pager.selection.active);
 }

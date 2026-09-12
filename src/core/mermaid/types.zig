@@ -1,6 +1,6 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
-const text = @import("../../lib/text.zig");
+const text = @import("text");
 
 /// Supported diagram types
 pub const DiagramType = enum {
@@ -12,7 +12,6 @@ pub const DiagramType = enum {
     unsupported,
 
     pub fn fromSource(source: []const u8) DiagramType {
-        // Blank lines, a UTF-8 BOM and `%%` comments may precede the keyword.
         const trimmed = text.firstMeaningfulLine(source, "%%");
         if (std.mem.startsWith(u8, trimmed, "graph") or
             std.mem.startsWith(u8, trimmed, "flowchart"))
@@ -29,11 +28,11 @@ pub const DiagramType = enum {
 
 /// Graph direction for flowcharts
 pub const Direction = enum {
-    LR, // Left to Right
-    RL, // Right to Left
-    TD, // Top Down (same as TB)
-    TB, // Top to Bottom
-    BT, // Bottom to Top
+    LR,
+    RL,
+    TD,
+    TB,
+    BT,
 
     pub fn isHorizontal(self: Direction) bool {
         return self == .LR or self == .RL;
@@ -46,19 +45,19 @@ pub const Direction = enum {
 
 /// Node shapes supported in flowcharts
 pub const NodeShape = enum {
-    rectangle, // [text]
-    rounded, // (text)
-    stadium, // ([text])
-    diamond, // {text}
-    hexagon, // {{text}}
-    parallelogram, // [/text/]
-    parallelogram_alt, // [\text\]
-    trapezoid, // [/text\]
-    trapezoid_alt, // [\text/]
-    cylinder, // [(text)]
-    circle, // ((text))
-    asymmetric, // >text]
-    subroutine, // [[text]]
+    rectangle,
+    rounded,
+    stadium,
+    diamond,
+    hexagon,
+    parallelogram,
+    parallelogram_alt,
+    trapezoid,
+    trapezoid_alt,
+    cylinder,
+    circle,
+    asymmetric,
+    subroutine,
 
     /// Get box-drawing characters for this shape
     pub fn getBoxChars(self: NodeShape, unicode_mode: bool) BoxChars {
@@ -89,19 +88,19 @@ pub const NodeShape = enum {
 
 /// Edge line styles
 pub const EdgeStyle = enum {
-    solid, // ---
-    dotted, // -.-
-    thick, // ===
-    dashed, // - - (for back-edges in cyclic graphs)
+    solid,
+    dotted,
+    thick,
+    dashed,
 };
 
 /// Arrow head styles
 pub const ArrowHead = enum {
-    arrow, // >
-    open_arrow, // >
-    circle, // o
-    cross, // x
-    none, // (no arrow)
+    arrow,
+    open_arrow,
+    circle,
+    cross,
+    none,
 };
 
 /// A node in the graph
@@ -109,16 +108,13 @@ pub const Node = struct {
     id: []const u8,
     label: []const u8,
     shape: NodeShape = .rectangle,
-    // Layout properties (assigned during layout phase)
     layer: ?u32 = null,
     order: ?u32 = null,
     x: ?i32 = null,
     y: ?i32 = null,
     width: u32 = 0,
     height: u32 = 0,
-    // Subgraph containment
     subgraph_id: ?[]const u8 = null,
-    // For dummy nodes in long edges
     is_dummy: bool = false,
 };
 
@@ -130,13 +126,9 @@ pub const Edge = struct {
     style: EdgeStyle = .solid,
     arrow_start: ArrowHead = .none,
     arrow_end: ArrowHead = .arrow,
-    // Layout: is this edge reversed to break cycles?
     reversed: bool = false,
-    // For edges that span multiple layers
     dummy_nodes: ?[][]const u8 = null,
-    // True if 'from' is a subgraph ID (not a regular node).
     from_is_subgraph: bool = false,
-    // True if 'to' is a subgraph ID (not a regular node).
     to_is_subgraph: bool = false,
 };
 
@@ -147,7 +139,6 @@ pub const Subgraph = struct {
     parent_id: ?[]const u8 = null,
     node_ids: std.ArrayList([]const u8),
     allocator: Allocator,
-    // Bounding box (calculated during layout)
     x: ?i32 = null,
     y: ?i32 = null,
     width: ?u32 = null,
@@ -180,7 +171,6 @@ pub const Graph = struct {
     nodes: std.StringHashMap(Node),
     edges: std.ArrayList(Edge),
     subgraphs: std.ArrayList(Subgraph),
-    // Ordered list of node IDs for deterministic iteration
     node_order: std.ArrayList([]const u8),
 
     pub fn init(allocator: Allocator) Graph {
@@ -273,7 +263,6 @@ pub const Graph = struct {
     }
 };
 
-// Box drawing character sets
 pub const BoxChars = struct {
     top_left: u21,
     top_right: u21,
@@ -284,90 +273,84 @@ pub const BoxChars = struct {
 };
 
 pub const unicode_square: BoxChars = .{
-    .top_left = 0x250C, // ┌
-    .top_right = 0x2510, // ┐
-    .bottom_left = 0x2514, // └
-    .bottom_right = 0x2518, // ┘
-    .horizontal = 0x2500, // ─
-    .vertical = 0x2502, // │
+    .top_left = 0x250C,
+    .top_right = 0x2510,
+    .bottom_left = 0x2514,
+    .bottom_right = 0x2518,
+    .horizontal = 0x2500,
+    .vertical = 0x2502,
 };
 
 pub const unicode_rounded: BoxChars = .{
-    .top_left = 0x256D, // ╭
-    .top_right = 0x256E, // ╮
-    .bottom_left = 0x2570, // ╰
-    .bottom_right = 0x256F, // ╯
-    .horizontal = 0x2500, // ─
-    .vertical = 0x2502, // │
+    .top_left = 0x256D,
+    .top_right = 0x256E,
+    .bottom_left = 0x2570,
+    .bottom_right = 0x256F,
+    .horizontal = 0x2500,
+    .vertical = 0x2502,
 };
 
 pub const unicode_diamond: BoxChars = .{
-    .top_left = 0x25C7, // ◇
-    .top_right = 0x25C7, // ◇
-    .bottom_left = 0x25C7, // ◇
-    .bottom_right = 0x25C7, // ◇
-    .horizontal = 0x2500, // ─
-    .vertical = 0x2502, // │
+    .top_left = 0x25C7,
+    .top_right = 0x25C7,
+    .bottom_left = 0x25C7,
+    .bottom_right = 0x25C7,
+    .horizontal = 0x2500,
+    .vertical = 0x2502,
 };
 
-// Stadium shape: uses rounded corners ╭╮╰╯
 pub const unicode_stadium: BoxChars = .{
-    .top_left = 0x256D, // ╭
-    .top_right = 0x256E, // ╮
-    .bottom_left = 0x2570, // ╰
-    .bottom_right = 0x256F, // ╯
-    .horizontal = 0x2500, // ─
-    .vertical = 0x2502, // │
+    .top_left = 0x256D,
+    .top_right = 0x256E,
+    .bottom_left = 0x2570,
+    .bottom_right = 0x256F,
+    .horizontal = 0x2500,
+    .vertical = 0x2502,
 };
 
-// Circle shape: ╱─╲ │ │ ╲─╱
 pub const unicode_circle: BoxChars = .{
-    .top_left = 0x2571, // ╱
-    .top_right = 0x2572, // ╲
-    .bottom_left = 0x2572, // ╲
-    .bottom_right = 0x2571, // ╱
-    .horizontal = 0x2500, // ─
-    .vertical = 0x2502, // │
+    .top_left = 0x2571,
+    .top_right = 0x2572,
+    .bottom_left = 0x2572,
+    .bottom_right = 0x2571,
+    .horizontal = 0x2500,
+    .vertical = 0x2502,
 };
 
-// Hexagon shape: ╱─╲ < > ╲─╱
 pub const unicode_hexagon: BoxChars = .{
-    .top_left = 0x2571, // ╱
-    .top_right = 0x2572, // ╲
-    .bottom_left = 0x2572, // ╲
-    .bottom_right = 0x2571, // ╱
-    .horizontal = 0x2500, // ─
-    .vertical = 0x2502, // │ (< > used for sides)
+    .top_left = 0x2571,
+    .top_right = 0x2572,
+    .bottom_left = 0x2572,
+    .bottom_right = 0x2571,
+    .horizontal = 0x2500,
+    .vertical = 0x2502,
 };
 
-// Cylinder shape: ╭═╮ │ │ ╰─╯
 pub const unicode_cylinder: BoxChars = .{
-    .top_left = 0x256D, // ╭
-    .top_right = 0x256E, // ╮
-    .bottom_left = 0x2570, // ╰
-    .bottom_right = 0x256F, // ╯
-    .horizontal = 0x2550, // ═ (for top)
-    .vertical = 0x2502, // │
+    .top_left = 0x256D,
+    .top_right = 0x256E,
+    .bottom_left = 0x2570,
+    .bottom_right = 0x256F,
+    .horizontal = 0x2550,
+    .vertical = 0x2502,
 };
 
-// Subroutine: ┌─┬─┬─┐ │ │ │ │ └─┴─┴─┘
 pub const unicode_subroutine: BoxChars = .{
-    .top_left = 0x250C, // ┌
-    .top_right = 0x2510, // ┐
-    .bottom_left = 0x2514, // └
-    .bottom_right = 0x2518, // ┘
-    .horizontal = 0x2500, // ─
-    .vertical = 0x2502, // │
+    .top_left = 0x250C,
+    .top_right = 0x2510,
+    .bottom_left = 0x2514,
+    .bottom_right = 0x2518,
+    .horizontal = 0x2500,
+    .vertical = 0x2502,
 };
 
-// Asymmetric (flag): right side uses >
 pub const unicode_asymmetric: BoxChars = .{
-    .top_left = 0x250C, // ┌
-    .top_right = '>', // >
-    .bottom_left = 0x2514, // └
-    .bottom_right = '>', // >
-    .horizontal = 0x2500, // ─
-    .vertical = 0x2502, // │
+    .top_left = 0x250C,
+    .top_right = '>',
+    .bottom_left = 0x2514,
+    .bottom_right = '>',
+    .horizontal = 0x2500,
+    .vertical = 0x2502,
 };
 
 pub const ascii_box: BoxChars = .{
@@ -381,11 +364,11 @@ pub const ascii_box: BoxChars = .{
 
 /// Box drawing style selection for ASCII-specific rendering
 pub const BoxDrawingStyle = enum {
-    standard, // ─ │ ┌ ┐ └ ┘
-    rounded, // ╭ ╮ ╰ ╯ (rounded corners)
-    heavy, // ━ ┃ ┏ ┓ ┗ ┛ (heavy/thick lines)
-    double, // ═ ║ ╔ ╗ ╚ ╝ (double lines)
-    ascii, // - | + (simple ASCII)
+    standard,
+    rounded,
+    heavy,
+    double,
+    ascii,
 
     /// Get BoxChars for this style
     pub fn getBoxChars(self: BoxDrawingStyle) BoxChars {
@@ -401,36 +384,34 @@ pub const BoxDrawingStyle = enum {
 
 /// Heavy box-drawing characters (━ ┃ ┏ ┓ ┗ ┛ ┣ ┫ ┳ ┻ ╋)
 pub const box_chars_heavy: BoxChars = .{
-    .top_left = 0x250F, // ┏
-    .top_right = 0x2513, // ┓
-    .bottom_left = 0x2517, // ┗
-    .bottom_right = 0x251B, // ┛
-    .horizontal = 0x2501, // ━
-    .vertical = 0x2503, // ┃
+    .top_left = 0x250F,
+    .top_right = 0x2513,
+    .bottom_left = 0x2517,
+    .bottom_right = 0x251B,
+    .horizontal = 0x2501,
+    .vertical = 0x2503,
 };
 
 /// Double box-drawing characters (═ ║ ╔ ╗ ╚ ╝ ╠ ╣ ╦ ╩ ╬)
 pub const box_chars_double: BoxChars = .{
-    .top_left = 0x2554, // ╔
-    .top_right = 0x2557, // ╗
-    .bottom_left = 0x255A, // ╚
-    .bottom_right = 0x255D, // ╝
-    .horizontal = 0x2550, // ═
-    .vertical = 0x2551, // ║
+    .top_left = 0x2554,
+    .top_right = 0x2557,
+    .bottom_left = 0x255A,
+    .bottom_right = 0x255D,
+    .horizontal = 0x2550,
+    .vertical = 0x2551,
 };
 
-// Arrow characters - use filled triangles for better visibility
 pub const Arrows = struct {
-    pub const right: u21 = 0x25B6; // ▶
-    pub const left: u21 = 0x25C0; // ◀
-    pub const up: u21 = 0x25B2; // ▲
-    pub const down: u21 = 0x25BC; // ▼
+    pub const right: u21 = 0x25B6;
+    pub const left: u21 = 0x25C0;
+    pub const up: u21 = 0x25B2;
+    pub const down: u21 = 0x25BC;
 
-    // Use filled triangles by default (more visible than thin arrows)
-    pub const right_thin: u21 = 0x25BA; // ►
-    pub const left_thin: u21 = 0x25C4; // ◄
-    pub const up_thin: u21 = 0x25B2; // ▲
-    pub const down_thin: u21 = 0x25BC; // ▼
+    pub const right_thin: u21 = 0x25BA;
+    pub const left_thin: u21 = 0x25C4;
+    pub const up_thin: u21 = 0x25B2;
+    pub const down_thin: u21 = 0x25BC;
 
     pub const right_ascii: u21 = '>';
     pub const left_ascii: u21 = '<';
@@ -438,42 +419,36 @@ pub const Arrows = struct {
     pub const down_ascii: u21 = 'v';
 };
 
-// T-junction characters for clean edge connections
 pub const Junctions = struct {
-    pub const tee_up: u21 = 0x2534; // ┴ - edge exits upward
-    pub const tee_down: u21 = 0x252C; // ┬ - edge exits downward
-    pub const tee_left: u21 = 0x2524; // ┤ - edge exits leftward
-    pub const tee_right: u21 = 0x251C; // ├ - edge exits rightward
+    pub const tee_up: u21 = 0x2534;
+    pub const tee_down: u21 = 0x252C;
+    pub const tee_left: u21 = 0x2524;
+    pub const tee_right: u21 = 0x251C;
 };
 
-// Line characters for edges
 pub const LineChars = struct {
-    pub const horizontal: u21 = 0x2500; // ─
-    pub const vertical: u21 = 0x2502; // │
-    pub const corner_ne: u21 = 0x2514; // └
-    pub const corner_nw: u21 = 0x2518; // ┘
-    pub const corner_se: u21 = 0x250C; // ┌
-    pub const corner_sw: u21 = 0x2510; // ┐
-    pub const tee_left: u21 = 0x2524; // ┤
-    pub const tee_right: u21 = 0x251C; // ├
-    pub const tee_up: u21 = 0x2534; // ┴
-    pub const tee_down: u21 = 0x252C; // ┬
-    pub const cross: u21 = 0x253C; // ┼
+    pub const horizontal: u21 = 0x2500;
+    pub const vertical: u21 = 0x2502;
+    pub const corner_ne: u21 = 0x2514;
+    pub const corner_nw: u21 = 0x2518;
+    pub const corner_se: u21 = 0x250C;
+    pub const corner_sw: u21 = 0x2510;
+    pub const tee_left: u21 = 0x2524;
+    pub const tee_right: u21 = 0x251C;
+    pub const tee_up: u21 = 0x2534;
+    pub const tee_down: u21 = 0x252C;
+    pub const cross: u21 = 0x253C;
 
-    // Dotted variants (triple dash)
-    pub const horizontal_dotted: u21 = 0x2504; // ┄
-    pub const vertical_dotted: u21 = 0x2506; // ┆
+    pub const horizontal_dotted: u21 = 0x2504;
+    pub const vertical_dotted: u21 = 0x2506;
 
-    // Dashed variants (quadruple dash - visually distinct from dotted)
-    pub const horizontal_dashed: u21 = 0x2508; // ┈
-    pub const vertical_dashed: u21 = 0x250A; // ┊
+    pub const horizontal_dashed: u21 = 0x2508;
+    pub const vertical_dashed: u21 = 0x250A;
 
-    // Thick/double edge junction (down through horizontal): ╥
-    pub const tee_down_double: u21 = 0x2565; // ╥
+    pub const tee_down_double: u21 = 0x2565;
 
-    // Thick variants
-    pub const horizontal_thick: u21 = 0x2501; // ━
-    pub const vertical_thick: u21 = 0x2503; // ┃
+    pub const horizontal_thick: u21 = 0x2501;
+    pub const vertical_thick: u21 = 0x2503;
 };
 
 /// 2D point for coordinates
@@ -558,7 +533,7 @@ pub const LayoutAlgorithm = enum {
     kamada_kawai,
     stress_majorization,
     dominance_drawing,
-    layered_bfs, // used by state diagrams
+    layered_bfs,
     unknown,
 
     /// Returns true if this algorithm produces layered output directly
@@ -573,12 +548,12 @@ pub const LayoutAlgorithm = enum {
 /// Stages of width fitting, in escalation order
 /// Each stage attempts to fit the diagram within max_width
 pub const FitStage = enum {
-    natural, // No fitting needed - natural layout fits
-    label_wrap, // Wrapped labels to 2 lines
-    direction_switch, // Switched layout direction (TD ↔ LR)
-    spacing_compress, // Compressed spacing to minimum
-    label_truncate, // Truncated labels with ellipsis
-    overflow, // Could not fit - fallback required
+    natural,
+    label_wrap,
+    direction_switch,
+    spacing_compress,
+    label_truncate,
+    overflow,
 
     pub fn description(self: FitStage) []const u8 {
         return switch (self) {
@@ -600,8 +575,8 @@ pub const LayoutNode = struct {
     y: i32,
     width: u32,
     height: u32,
-    layer: ?u32 = null, // Assigned by layered algorithms or inferred from coordinates
-    order: ?u32 = null, // Position within layer
+    layer: ?u32 = null,
+    order: ?u32 = null,
 };
 
 /// Normalized layout result produced by all flowchart layout algorithms
@@ -628,9 +603,9 @@ pub const LayoutResult = struct {
 
     /// Width fitting metadata
     fit_stage: FitStage = .natural,
-    original_direction: ?Direction = null, // Set if direction was switched
-    natural_width: u32 = 0, // Width before any fitting
-    final_width: u32 = 0, // Width after fitting
+    original_direction: ?Direction = null,
+    natural_width: u32 = 0,
+    final_width: u32 = 0,
 
     pub fn init(allocator: Allocator) LayoutResult {
         return .{
@@ -676,8 +651,8 @@ pub const RenderOptions = struct {
     max_width: u32 = 120,
     unicode_mode: bool = true,
     node_padding: u32 = 1,
-    horizontal_spacing: u32 = 8, // Increased for labels
-    vertical_spacing: u32 = 3, // Space for: line with label, line, arrow
+    horizontal_spacing: u32 = 8,
+    vertical_spacing: u32 = 3,
     max_label_width: ?u32 = null,
     /// Crossing reduction heuristic (default: median)
     crossing_reduction_heuristic: CrossingReductionHeuristic = .median,
@@ -688,7 +663,7 @@ pub const RenderOptions = struct {
     /// Subgraph frame-border notation (owner ruling 2026-07-19; bridge default)
     subgraph_edges: @import("prim").SubgraphEdges = .bridge,
     /// Aspect ratio correction for terminal cells (visual_x = grid_x * aspect_ratio_x)
-    aspect_ratio_x: f32 = 1.0, // Set to 2.0 for typical 2:1 terminal cell aspect ratio
+    aspect_ratio_x: f32 = 1.0,
     aspect_ratio_y: f32 = 1.0,
     /// Emit debug block showing layout decisions
     debug_mermaid: bool = false,
@@ -737,20 +712,16 @@ pub const RenderResult = struct {
     original_direction: ?Direction = null,
 };
 
-// =====================================================
-// Sequence Diagram Types
-// =====================================================
-
 /// Arrow types for sequence diagram messages
 pub const SequenceArrowType = enum {
-    solid_arrow, // ->>  solid line with arrowhead
-    solid_line, // --   solid line without arrowhead
-    dashed_arrow, // -->> dashed line with arrowhead
-    dashed_line, // --   dashed line without arrowhead
-    solid_cross, // -x   solid line with cross
-    dashed_cross, // --x  dashed line with cross
-    solid_open, // -)   solid line with open arrow
-    dashed_open, // --)  dashed line with open arrow
+    solid_arrow,
+    solid_line,
+    dashed_arrow,
+    dashed_line,
+    solid_cross,
+    dashed_cross,
+    solid_open,
+    dashed_open,
 
     pub fn isDashed(self: SequenceArrowType) bool {
         return switch (self) {
@@ -770,9 +741,8 @@ pub const SequenceArrowType = enum {
 /// A participant in a sequence diagram
 pub const Participant = struct {
     id: []const u8,
-    alias: ?[]const u8 = null, // Display name if different from id
+    alias: ?[]const u8 = null,
     participant_type: ParticipantType = .participant,
-    // Layout properties
     x: ?i32 = null,
     y: ?i32 = null,
     box_width: u32 = 0,
@@ -784,8 +754,8 @@ pub const Participant = struct {
 
 /// Type of participant (affects rendering style)
 pub const ParticipantType = enum {
-    participant, // Default box
-    actor, // Stick figure
+    participant,
+    actor,
 };
 
 /// A message between participants
@@ -794,15 +764,14 @@ pub const Message = struct {
     to: []const u8,
     text: []const u8,
     arrow_type: SequenceArrowType = .solid_arrow,
-    // For self-messages (from == to)
     is_self_message: bool = false,
 };
 
 /// A note in a sequence diagram
 pub const SequenceNote = struct {
     position: NotePosition,
-    participant1: []const u8, // Primary participant
-    participant2: ?[]const u8 = null, // Second participant for "over A,B"
+    participant1: []const u8,
+    participant2: ?[]const u8 = null,
     text: []const u8,
 };
 
@@ -815,7 +784,7 @@ pub const NotePosition = enum {
 /// Activation state change
 pub const Activation = struct {
     participant: []const u8,
-    is_activate: bool, // true = activate, false = deactivate
+    is_activate: bool,
 };
 
 /// A sequence element that can be a message, note, or activation, preserving order
@@ -831,10 +800,9 @@ pub const SequenceDiagram = struct {
     participants: std.ArrayList(Participant),
     messages: std.ArrayList(Message),
     notes: std.ArrayList(SequenceNote),
-    elements: std.ArrayList(SequenceElement), // Ordered list of all elements
+    elements: std.ArrayList(SequenceElement),
     direction: Direction = .TB,
     direction_explicit: bool = false,
-    // Auto-numbered messages
     auto_number: bool = false,
 
     pub fn init(allocator: Allocator) SequenceDiagram {
@@ -855,10 +823,9 @@ pub const SequenceDiagram = struct {
     }
 
     pub fn addParticipant(self: *SequenceDiagram, participant: Participant) !void {
-        // Check if participant already exists
         for (self.participants.items) |p| {
             if (std.mem.eql(u8, p.id, participant.id)) {
-                return; // Already exists
+                return;
             }
         }
         try self.participants.append(self.allocator, participant);
@@ -906,16 +873,12 @@ pub const SequenceDiagram = struct {
     }
 };
 
-// =====================================================
-// Class Diagram Types
-// =====================================================
-
 /// Visibility modifier for class members
 pub const Visibility = enum {
-    public, // +
-    private, // -
-    protected, // #
-    package, // ~
+    public,
+    private,
+    protected,
+    package,
     none,
 
     pub fn toChar(self: Visibility) ?u8 {
@@ -942,7 +905,7 @@ pub const Visibility = enum {
 /// A member (attribute or method) of a class
 pub const ClassMember = struct {
     name: []const u8,
-    member_type: []const u8, // e.g., "int", "String", return type for methods
+    member_type: []const u8,
     visibility: Visibility = .none,
     is_method: bool = false,
     is_static: bool = false,
@@ -951,13 +914,13 @@ pub const ClassMember = struct {
 
 /// Relationship types between classes
 pub const ClassRelationType = enum {
-    inheritance, // <|-- (extends)
-    composition, // *-- (has, owns)
-    aggregation, // o-- (has)
-    association, // --> (uses)
-    dependency, // ..> (depends on)
-    realization, // ..|> (implements)
-    link, // -- (link)
+    inheritance,
+    composition,
+    aggregation,
+    association,
+    dependency,
+    realization,
+    link,
 
     pub fn getArrowChars(self: ClassRelationType, unicode_mode: bool) struct { start: []const u8, end: []const u8, line: u21 } {
         if (!unicode_mode) {
@@ -972,11 +935,11 @@ pub const ClassRelationType = enum {
             };
         }
         return switch (self) {
-            .inheritance => .{ .start = "", .end = "◁", .line = 0x2500 }, // ─
+            .inheritance => .{ .start = "", .end = "◁", .line = 0x2500 },
             .composition => .{ .start = "◆", .end = "", .line = 0x2500 },
             .aggregation => .{ .start = "◇", .end = "", .line = 0x2500 },
             .association => .{ .start = "", .end = "▶", .line = 0x2500 },
-            .dependency => .{ .start = "", .end = "▶", .line = 0x2504 }, // ┄
+            .dependency => .{ .start = "", .end = "▶", .line = 0x2504 },
             .realization => .{ .start = "", .end = "◁", .line = 0x2504 },
             .link => .{ .start = "", .end = "", .line = 0x2500 },
         };
@@ -988,7 +951,6 @@ pub const Class = struct {
     name: []const u8,
     members: std.ArrayList(ClassMember),
     allocator: Allocator,
-    // Layout properties
     x: ?i32 = null,
     y: ?i32 = null,
     width: u32 = 0,
@@ -1016,7 +978,6 @@ pub const Class = struct {
         for (self.members.items) |m| {
             if (!m.is_method) count += 1;
         }
-        // Note: This returns the full slice; caller filters
         return self.members.items;
     }
 
@@ -1083,16 +1044,12 @@ pub const ClassDiagram = struct {
     }
 };
 
-// =====================================================
-// ER Diagram Types
-// =====================================================
-
 /// Cardinality for ER relationships
 pub const Cardinality = enum {
-    zero_or_one, // |o or o|
-    exactly_one, // ||
-    zero_or_more, // }o or o{
-    one_or_more, // }| or |{
+    zero_or_one,
+    exactly_one,
+    zero_or_more,
+    one_or_more,
 
     pub fn toStringLeft(self: Cardinality, unicode_mode: bool) []const u8 {
         _ = unicode_mode;
@@ -1120,7 +1077,6 @@ pub const Entity = struct {
     name: []const u8,
     attributes: std.ArrayList(EntityAttribute),
     allocator: Allocator,
-    // Layout properties
     x: ?i32 = null,
     y: ?i32 = null,
     width: u32 = 0,
@@ -1207,19 +1163,15 @@ pub const ERDiagram = struct {
     }
 };
 
-// =====================================================
-// State Diagram Types
-// =====================================================
-
 /// Type of state in a state diagram
 pub const StateType = enum {
-    start, // [*] as source - filled circle
-    end, // [*] as target - circled dot
-    regular, // Normal state box
-    choice, // <<choice>> - diamond
-    fork, // <<fork>> - horizontal bar
-    join, // <<join>> - horizontal bar
-    composite, // State containing other states
+    start,
+    end,
+    regular,
+    choice,
+    fork,
+    join,
+    composite,
 
     pub fn isSpecial(self: StateType) bool {
         return self == .start or self == .end or self == .choice or self == .fork or self == .join;
@@ -1229,17 +1181,15 @@ pub const StateType = enum {
 /// A state in a state diagram
 pub const State = struct {
     id: []const u8,
-    label: ?[]const u8 = null, // Description after ":"
+    label: ?[]const u8 = null,
     state_type: StateType = .regular,
-    // For composite states
     is_composite: bool = false,
-    parent_id: ?[]const u8 = null, // ID of containing composite state
-    // Layout properties
+    parent_id: ?[]const u8 = null,
     x: ?i32 = null,
     y: ?i32 = null,
     width: u32 = 0,
     height: u32 = 0,
-    layer: ?u32 = null, // For layered layout
+    layer: ?u32 = null,
 
     pub fn displayName(self: *const State) []const u8 {
         if (self.state_type == .start) return "[*]";
@@ -1256,7 +1206,7 @@ pub const State = struct {
 pub const StateTransition = struct {
     from: []const u8,
     to: []const u8,
-    label: ?[]const u8 = null, // Transition label after ":"
+    label: ?[]const u8 = null,
 };
 
 /// A note attached to a state
@@ -1272,10 +1222,8 @@ pub const StateDiagram = struct {
     states: std.StringHashMap(State),
     transitions: std.ArrayList(StateTransition),
     notes: std.ArrayList(StateNote),
-    state_order: std.ArrayList([]const u8), // Ordered list for deterministic iteration
-    // Allocated strings that need to be freed (e.g., generated start/end IDs)
+    state_order: std.ArrayList([]const u8),
     allocated_ids: std.ArrayList([]const u8),
-    // Direction (default is top-down)
     direction: Direction = .TD,
 
     pub fn init(allocator: Allocator) StateDiagram {
@@ -1290,7 +1238,6 @@ pub const StateDiagram = struct {
     }
 
     pub fn deinit(self: *StateDiagram) void {
-        // Free allocated IDs
         for (self.allocated_ids.items) |id| {
             self.allocator.free(id);
         }
@@ -1312,7 +1259,6 @@ pub const StateDiagram = struct {
             result.value_ptr.* = state;
             try self.state_order.append(self.allocator, state.id);
         } else {
-            // Update existing state if it has more info (e.g., label added later)
             if (state.label != null and result.value_ptr.label == null) {
                 result.value_ptr.label = state.label;
             }
@@ -1370,7 +1316,6 @@ pub const StateDiagram = struct {
         for (self.state_order.items) |id| {
             if (self.states.getPtr(id)) |state| {
                 if (state.state_type == .start) {
-                    // Check if this start state is in the right scope
                     const in_scope = if (parent_id) |pid|
                         (state.parent_id != null and std.mem.eql(u8, state.parent_id.?, pid))
                     else
@@ -1435,13 +1380,11 @@ test "StateDiagram basic operations" {
     var diagram = StateDiagram.init(testing.allocator);
     defer diagram.deinit();
 
-    // Add states
     try diagram.addState(.{ .id = "s1", .label = "State 1" });
     try diagram.addState(.{ .id = "s2", .label = "State 2" });
     try diagram.addState(.{ .id = "[*]_start", .state_type = .start });
     try diagram.addState(.{ .id = "[*]_end", .state_type = .end });
 
-    // Add transitions
     try diagram.addTransition(.{ .from = "[*]_start", .to = "s1" });
     try diagram.addTransition(.{ .from = "s1", .to = "s2", .label = "go" });
     try diagram.addTransition(.{ .from = "s2", .to = "[*]_end" });

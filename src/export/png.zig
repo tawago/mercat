@@ -13,12 +13,12 @@
 //!   4. underline geometry
 //!   5. strikethrough geometry
 //!
-//! Because a `PositionedRun` records only `start_col`/`columns`, the painter
-//! re-traverses each run's text scalar-by-scalar using the same display-width
-//! policy the layout stage used (`unicode.codepointWidth` + `layout.isCombining`)
-//! to place and center each glyph. Every non-space scalar must resolve to a real
-//! glyph; a `.notdef` mapping is `error.MissingGlyph` (§7.3), reported with the
-//! offending code point and its row/column, and no output file is written.
+//! The painter traverses each run with the Unicode authority. It advances once
+//! by each grapheme's recorded `CellWidth`; constituent scalars are drawn from
+//! the same pen and are never remeasured. Every rendered non-space constituent
+//! must resolve to a real glyph. A `.notdef` mapping is `error.MissingGlyph`
+//! (§7.3), reported with the offending code point and grapheme row/column, and
+//! no output file is written.
 //!
 //! `writeFile` performs the §5.2 atomic output: the surface is fully rasterized
 //! and every glyph validated *before* any file is created, then the bytes are
@@ -27,7 +27,7 @@
 
 const std = @import("std");
 
-const unicode = @import("../lib/unicode.zig");
+const unicode = @import("unicode");
 const font = @import("font.zig");
 const layout = @import("layout.zig");
 const types = @import("types.zig");
@@ -41,7 +41,7 @@ const Geometry = types.Geometry;
 
 /// `font.Error` (which includes `MissingGlyph`, reported per §7.3 with the
 /// offending code point and its row/column) plus the surface/encoder errors.
-pub const RenderError = std.mem.Allocator.Error || Geometry.PixelError || png_encode.Error || font.Error;
+pub const RenderError = layout.Error || png_encode.Error || font.Error;
 
 pub const WriteError = RenderError || std.fs.File.OpenError || std.fs.File.WriteError || std.posix.RenameError;
 
@@ -104,10 +104,8 @@ pub fn render(
     var surface = try Surface.init(allocator, w, h);
     defer surface.deinit(allocator);
 
-    // 1. page background.
     surface.fill(doc.page_background);
 
-    // 2. span background rectangles.
     for (doc.runs) |run| {
         if (run.background) |bg| {
             const left = runLeftPx(doc.geometry, run.start_col);
@@ -117,10 +115,8 @@ pub fn render(
         }
     }
 
-    // 3-5. glyph masks, underline, strikethrough.
     try paintSheet(allocator, &surface, doc, face, diag);
 
-    // No resample/sharpen/crop after rasterization (§7.5).
     const encoded = try png_encode.encodeRgba(allocator, surface.pixels, w, h);
     return .{ .encoded = encoded, .color_mode = color_mode, .font_sha256 = face.sha256 };
 }
@@ -194,43 +190,65 @@ fn paintRunGlyphs(
 ) RenderError!void {
     const baseline_y = baselinePx(g, run.row);
 
-    var col_cursor: u32 = run.start_col;
-    // Pen origin x of the most recently advanced cell — combining marks draw
-    // relative to it without advancing (§7.2 "draw relative to the preceding
-    // occupied cell without advancing"). When a run BEGINS with a combining
-    // mark, the preceding occupied cell belongs to the previous span's run and
-    // sits one cell to the LEFT of this run's start column, so seed the pen
-    // there. At column 0 there is no preceding cell, so fall back to start_col.
-    var last_pen_left: i64 = if (run.start_col > 0)
-        runLeftPx(g, run.start_col - 1)
-    else
-        runLeftPx(g, run.start_col);
-
-    const view = std.unicode.Utf8View.init(run.text) catch return; // layout already validated
-    var it = view.iterator();
-    while (it.nextCodepoint()) |cp| {
-        if (layout.isCombining(cp)) {
-            try drawGlyph(allocator, surface, face, cp, last_pen_left, baseline_y, run.foreground, run.row, col_cursor, diag);
-            continue;
-        }
-
-        const cells: u32 = @intCast(unicode.codepointWidth(cp));
-        if (cells == 0) {
-            // Defensive: treat any other zero-width scalar like a combining mark.
-            try drawGlyph(allocator, surface, face, cp, last_pen_left, baseline_y, run.foreground, run.row, col_cursor, diag);
-            continue;
-        }
-
-        const box_left = runLeftPx(g, col_cursor);
-        // Center the single-advance monospace glyph within a wide (2-cell) box.
-        const box_px = @as(i64, cells) * @as(i64, g.cell_width_px);
+    var graphemes = unicode.Iterator.initAt(run.text, run.start_col);
+    while (try nextGrapheme(&graphemes)) |grapheme| {
+        const col = std.math.cast(u32, grapheme.column_start) orelse return error.ColumnOverflow;
+        const box_left = runLeftPx(g, col);
+        const box_px = @as(i64, grapheme.width) * @as(i64, g.cell_width_px);
         const pen_left = box_left + @divFloor(box_px - @as(i64, g.cell_width_px), 2);
-
-        try drawGlyph(allocator, surface, face, cp, pen_left, baseline_y, run.foreground, run.row, col_cursor, diag);
-
-        last_pen_left = pen_left;
-        col_cursor += cells;
+        try drawGrapheme(
+            allocator,
+            surface,
+            face,
+            grapheme.bytes,
+            pen_left,
+            baseline_y,
+            run.foreground,
+            run.row,
+            col,
+            diag,
+        );
     }
+}
+
+fn nextGrapheme(iterator: *unicode.Iterator) RenderError!?unicode.GraphemeSlice {
+    return iterator.next() catch |err| switch (err) {
+        error.InvalidUtf8 => error.InvalidUtf8,
+        error.DisallowedControl => error.InvalidControlScalar,
+        error.Overflow => error.ColumnOverflow,
+    };
+}
+
+fn drawGrapheme(
+    allocator: std.mem.Allocator,
+    surface: *Surface,
+    face: *const font.Font,
+    bytes: []const u8,
+    pen_left: i64,
+    baseline_y: i64,
+    color: Color,
+    row: u32,
+    col: u32,
+    diag: ?*Diagnostic,
+) RenderError!void {
+    if (bytes.len == 1 and bytes[0] == '\t') return;
+    const view = std.unicode.Utf8View.init(bytes) catch return error.InvalidUtf8;
+    var scalars = view.iterator();
+    while (scalars.nextCodepoint()) |cp| {
+        if (isNonRenderingConstituent(cp)) continue;
+        try drawGlyph(allocator, surface, face, cp, pen_left, baseline_y, color, row, col, diag);
+    }
+}
+
+/// Shaping constituents accepted by the Unicode authority but intentionally
+/// carrying no standalone ink. This is raster policy only; width and boundaries
+/// remain exclusively authority-owned.
+fn isNonRenderingConstituent(cp: u21) bool {
+    return cp == 0x200c or cp == 0x200d or
+        (cp >= 0x180b and cp <= 0x180d) or
+        (cp >= 0xfe00 and cp <= 0xfe0f) or
+        (cp >= 0xe0020 and cp <= 0xe007f) or
+        (cp >= 0xe0100 and cp <= 0xe01ef);
 }
 
 fn drawGlyph(
@@ -251,7 +269,7 @@ fn drawGlyph(
         }
         return err;
     };
-    if (gi == 0) return; // space / empty glyph — nothing to raster.
+    if (gi == 0) return;
 
     var bmp = try face.rasterizeGlyphIndex(allocator, gi);
     defer bmp.deinit(allocator);
@@ -279,7 +297,6 @@ fn drawUnderline(surface: *Surface, g: Geometry, run: types.PositionedRun) void 
     const t = strokeThickness(g);
     const left = runLeftPx(g, run.start_col);
     const width_px = @as(u32, run.columns) * g.cell_width_px;
-    // Just below the baseline.
     const y = baselinePx(g, run.row) + @as(i64, t);
     surface.fillRect(left, y, width_px, t, run.foreground);
 }
@@ -288,7 +305,6 @@ fn drawStrikethrough(surface: *Surface, g: Geometry, run: types.PositionedRun) v
     const t = strokeThickness(g);
     const left = runLeftPx(g, run.start_col);
     const width_px = @as(u32, run.columns) * g.cell_width_px;
-    // Roughly the x-height midline of the cell.
     const y = runTopPx(g, run.row) + @as(i64, @divFloor(@as(i64, g.cell_height_px) * 45, 100));
     surface.fillRect(left, y, width_px, t, run.foreground);
 }
@@ -319,12 +335,8 @@ fn atomicWrite(allocator: std.mem.Allocator, path: []const u8, bytes: []const u8
     try cwd.rename(temp_path, path);
 }
 
-// ===========================================================================
-// Tests
-// ===========================================================================
-
 const testing = std.testing;
-const render_model = @import("../core/markdown/render.zig");
+const render_model = @import("../core/markdown/render/types.zig");
 const theme = @import("../core/theme.zig");
 
 const Span = render_model.Span;
@@ -346,7 +358,6 @@ fn buildDoc(
 /// Minimal in-test PNG reader mirroring png_encode's, used to confirm the CLI
 /// path produced a decodable image at the expected size.
 fn decodeDims(bytes: []const u8) struct { w: u32, h: u32 } {
-    // Signature (8) + IHDR length (4) + "IHDR" (4) => width at offset 16.
     const w = std.mem.readInt(u32, bytes[16..20], .big);
     const h = std.mem.readInt(u32, bytes[20..24], .big);
     return .{ .w = w, .h = h };
@@ -399,7 +410,6 @@ test "monochrome output contains only black, white, and antialias grays" {
     var doc = try buildDoc(allocator, .{ .lines = &lines }, &face, .monochrome);
     defer doc.deinit(allocator);
 
-    // Rasterize to a surface directly so we can inspect pixels.
     const w = try doc.pixelWidth();
     const h = try doc.pixelHeight();
     var surface = try Surface.init(allocator, w, h);
@@ -407,7 +417,6 @@ test "monochrome output contains only black, white, and antialias grays" {
     surface.fill(doc.page_background);
     for (doc.runs) |run| try paintRunGlyphs(allocator, &surface, doc.geometry, run, &face, null);
 
-    // Every pixel is a gray (r==g==b) between black and white, and alpha 255.
     var i: usize = 0;
     while (i < surface.pixels.len) : (i += 4) {
         const r = surface.pixels[i];
@@ -417,27 +426,25 @@ test "monochrome output contains only black, white, and antialias grays" {
     }
 }
 
-test "run-initial combining mark attaches to the preceding cell (§7.2)" {
+test "combining mark across styles shares the base grapheme geometry and ink" {
     const allocator = testing.allocator;
     const face = try font.Font.init(20);
 
-    // A style boundary splits the base char 'e' from its combining acute mark,
-    // so the mark begins its own run at column 1 with zero columns. Its ink MUST
-    // draw over the preceding occupied cell (column 0) — not over its own
-    // column 1, which the pre-fix pen seed did.
     var spans_b = [_]Span{ makeSpan("e", .body), makeSpan("\u{0301}", .emphasis) };
     var lines_b = [_]Line{.{ .spans = &spans_b }};
     var doc_b = try buildDoc(allocator, .{ .lines = &lines_b }, &face, .monochrome);
     defer doc_b.deinit(allocator);
 
-    var spans_a = [_]Span{makeSpan("e", .body)};
+    var spans_a = [_]Span{makeSpan("e\u{0301}", .body)};
     var lines_a = [_]Line{.{ .spans = &spans_a }};
     var doc_a = try buildDoc(allocator, .{ .lines = &lines_a }, &face, .monochrome);
     defer doc_a.deinit(allocator);
 
     const w = try doc_b.pixelWidth();
     const h = try doc_b.pixelHeight();
-    // Combining mark adds no column, so both documents share pixel dimensions.
+    try testing.expectEqual(@as(usize, 1), doc_b.runs.len);
+    try testing.expectEqual(render_model.SpanStyle.body, doc_b.runs[0].semantic_style);
+    try testing.expectEqualStrings("e\u{0301}", doc_b.runs[0].text);
     try testing.expectEqual(w, try doc_a.pixelWidth());
     try testing.expectEqual(h, try doc_a.pixelHeight());
 
@@ -450,30 +457,12 @@ test "run-initial combining mark attaches to the preceding cell (§7.2)" {
     for (doc_a.runs) |run| try paintRunGlyphs(allocator, &sa, doc_a.geometry, run, &face, null);
     for (doc_b.runs) |run| try paintRunGlyphs(allocator, &sb, doc_b.geometry, run, &face, null);
 
-    // Every pixel where B differs from A is the combining-mark ink. It must lie
-    // in column 0's x-band (left of column 1).
-    const g = doc_b.geometry;
-    const col1_left: usize = @as(usize, g.padding_left_px) + g.cell_width_px;
-    var diff_found = false;
-    var y: usize = 0;
-    while (y < h) : (y += 1) {
-        var x: usize = 0;
-        while (x < w) : (x += 1) {
-            const i = (y * @as(usize, w) + x) * 4;
-            if (sa.pixels[i] != sb.pixels[i]) {
-                diff_found = true;
-                try testing.expect(x < col1_left);
-            }
-        }
-    }
-    // The mark must actually paint something, or the test proves nothing.
-    try testing.expect(diff_found);
+    try testing.expectEqualSlices(u8, sa.pixels, sb.pixels);
 }
 
 test "missing glyph fails and writeFile leaves no file" {
     const allocator = testing.allocator;
     const face = try font.Font.init(20);
-    // U+1F4A9 is not covered by JetBrains Mono.
     var spans = [_]Span{makeSpan("\u{1F4A9}", .body)};
     var lines = [_]Line{.{ .spans = &spans }};
     var doc = try buildDoc(allocator, .{ .lines = &lines }, &face, .monochrome);
@@ -490,12 +479,38 @@ test "missing glyph fails and writeFile leaves no file" {
     try testing.expectError(error.MissingGlyph, writeFile(allocator, doc, &face, .monochrome, out_path, &diag));
     try testing.expectEqual(@as(u21, 0x1F4A9), diag.missing_codepoint);
     try testing.expectEqual(@as(u32, 0), diag.row);
-    // No target and no leftover temp files.
     try testing.expectError(error.FileNotFound, std.fs.cwd().access(out_path, .{}));
     var it = tmp.dir.iterate();
     while (try it.next()) |entry| {
         try testing.expect(std.mem.indexOf(u8, entry.name, ".mercat-tmp-") == null);
     }
+}
+
+test "missing constituent leaves an existing target byte-identical" {
+    const allocator = testing.allocator;
+    const face = try font.Font.init(20);
+    var spans = [_]Span{makeSpan("e\u{0483}", .body)};
+    var lines = [_]Line{.{ .spans = &spans }};
+    var doc = try buildDoc(allocator, .{ .lines = &lines }, &face, .monochrome);
+    defer doc.deinit(allocator);
+
+    var tmp = testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+    try tmp.dir.writeFile(.{ .sub_path = "existing.png", .data = "original" });
+    const dir_path = try tmp.dir.realpathAlloc(allocator, ".");
+    defer allocator.free(dir_path);
+    const out_path = try std.fs.path.join(allocator, &.{ dir_path, "existing.png" });
+    defer allocator.free(out_path);
+
+    var diag: Diagnostic = .{};
+    try testing.expectError(error.MissingGlyph, writeFile(allocator, doc, &face, .monochrome, out_path, &diag));
+    try testing.expectEqual(@as(u21, 0x0483), diag.missing_codepoint);
+    try testing.expectEqual(@as(u32, 0), diag.column);
+    const after = try tmp.dir.readFileAlloc(allocator, "existing.png", 32);
+    defer allocator.free(after);
+    try testing.expectEqualStrings("original", after);
+    var it = tmp.dir.iterate();
+    while (try it.next()) |entry| try testing.expect(std.mem.indexOf(u8, entry.name, ".mercat-tmp-") == null);
 }
 
 test "writeFile atomically creates a decodable PNG" {
@@ -523,7 +538,6 @@ test "writeFile atomically creates a decodable PNG" {
     try testing.expectEqual(result.width(), dims.w);
     try testing.expectEqual(result.height(), dims.h);
 
-    // No temp file left behind.
     var it = tmp.dir.iterate();
     while (try it.next()) |entry| {
         try testing.expect(std.mem.indexOf(u8, entry.name, ".mercat-tmp-") == null);

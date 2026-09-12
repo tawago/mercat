@@ -47,10 +47,6 @@ pub const StyleToken = theme.StyleToken;
 pub const specFromRaw = fromraw.specFromRaw;
 const containsPua = fromraw.containsPua;
 
-// ---------------------------------------------------------------------------
-// Diagnostics
-// ---------------------------------------------------------------------------
-
 pub const DiagKind = enum {
     unknown_key,
     bad_color,
@@ -102,10 +98,6 @@ pub const Diagnostics = struct {
     }
 };
 
-// ---------------------------------------------------------------------------
-// Resolved theme
-// ---------------------------------------------------------------------------
-
 pub const ResolvedTheme = struct {
     styles: StyleMap,
     decor: Decor,
@@ -127,15 +119,7 @@ pub const ResolvedTheme = struct {
     }
 };
 
-// ---------------------------------------------------------------------------
-// Built-in specs — the seven presets (S4).
-// ---------------------------------------------------------------------------
-
 const builtins = presets.ALL;
-
-// ---------------------------------------------------------------------------
-// Registry
-// ---------------------------------------------------------------------------
 
 pub const Registry = struct {
     /// In-memory user specs (tests, or specs inserted before resolve). Consulted
@@ -189,7 +173,7 @@ pub const Registry = struct {
     pub fn lookup(self: *Registry, name: []const u8, diag: *Diagnostics) ?*const ThemeSpec {
         for (builtins) |b| if (std.mem.eql(u8, b.name, name)) return b;
         for (self.user.items) |u| if (std.mem.eql(u8, u.name, name)) return u;
-        if (self.cache.get(name)) |cached| return cached; // present entry (may be a negative null)
+        if (self.cache.get(name)) |cached| return cached;
         return self.loadUserFile(name, diag);
     }
 
@@ -198,7 +182,6 @@ pub const Registry = struct {
     /// failure is reported and cached negative so it isn't retried.
     fn loadUserFile(self: *Registry, name: []const u8, diag: *Diagnostics) ?*const ThemeSpec {
         const arena = self.arena.allocator();
-        // The cache key doubles as the spec's canonical name, so dupe once.
         const key = arena.dupe(u8, name) catch return null;
 
         const dir = self.dir orelse {
@@ -217,7 +200,7 @@ pub const Registry = struct {
 
         const s = arena.create(ThemeSpec) catch return null;
         s.* = specFromRaw(arena, raw.view(), diag);
-        s.name = key; // file identity wins the name (`<name>.toml` -> spec.name = name)
+        s.name = key;
         self.cache.put(self.alloc, key, s) catch {};
         return s;
     }
@@ -237,15 +220,10 @@ pub const Registry = struct {
         inline_overrides: ?RawThemeTables,
         diag: *Diagnostics,
     ) !ResolvedTheme {
-        // An inline `[theme] extends = "..."` re-roots the chain: the named
-        // target becomes the chain leaf and the remaining inline keys fold on
-        // top of it, exactly as a user file's own `extends` behaves. Without
-        // this the inline extends would be parsed and then silently dropped by
-        // the fold (mergeInto consumes it as "already handled").
         var inline_extends: ?[]const u8 = null;
         if (inline_overrides) |raw| {
             for (raw.top) |kv| {
-                if (std.mem.eql(u8, kv.key, "extends")) inline_extends = kv.value; // last key wins
+                if (std.mem.eql(u8, kv.key, "extends")) inline_extends = kv.value;
             }
         }
 
@@ -262,9 +240,6 @@ pub const Registry = struct {
         var chain_buf: [max_chain]*const ThemeSpec = undefined;
         const chain = self.buildChain(leaf.?, &chain_buf, diag);
 
-        // The `classic` syntax variant folds the chain root's code-token recolor
-        // delta. Presets without one carry an empty `slots_classic`, so the fold
-        // is a self-evident no-op there — no per-name allowlist needed.
         const classic_delta: ?spec.SlotMap =
             if (syntax_theme == .classic and chain.len != 0) chain[0].slots_classic else null;
 
@@ -298,14 +273,12 @@ pub const Registry = struct {
         buf: *[max_chain]*const ThemeSpec,
         diag: *Diagnostics,
     ) []const *const ThemeSpec {
-        // Collect leaf→root, then reverse.
         var n: usize = 0;
         var visited: [max_chain][]const u8 = undefined;
         var vn: usize = 0;
         var cur: ?*const ThemeSpec = leaf;
 
         while (cur) |node| {
-            // Cycle guard: name already seen.
             var seen = false;
             for (visited[0..vn]) |name| {
                 if (std.mem.eql(u8, name, node.name)) {
@@ -328,7 +301,6 @@ pub const Registry = struct {
                 cur = next;
             } else {
                 diag.warnFmt(.missing_extends, "extends target '{s}' not found (using dark)", .{target});
-                // Fall back to dark as the base of the chain.
                 if (self.lookup("dark", diag)) |dark_spec| {
                     if (n < max_chain and !std.mem.eql(u8, dark_spec.name, node.name)) {
                         buf[n] = dark_spec;
@@ -339,17 +311,12 @@ pub const Registry = struct {
             }
         }
 
-        // Reverse in place → root-first.
         std.mem.reverse(*const ThemeSpec, buf[0..n]);
         return buf[0..n];
     }
 };
 
 const max_chain = 16;
-
-// ---------------------------------------------------------------------------
-// Folding
-// ---------------------------------------------------------------------------
 
 /// Fold a root→leaf chain (plus an optional `classic` slot delta and inline
 /// overrides) into one dense-ish spec. Later layers override earlier: absent
@@ -372,9 +339,6 @@ pub fn mergeChain(
 
     for (chain) |s| merge.mergeInto(&out, s);
 
-    // Classic syntax-variant delta (code-token recolor) folds after the chain
-    // but before inline overrides. Wrap it as a slots-only spec so it reuses the
-    // same `mergeInto` overlay (all other fields null → identity).
     if (classic_slots) |cs| {
         const classic_spec = ThemeSpec{ .name = out.name, .slots = cs };
         merge.mergeInto(&out, &classic_spec);
@@ -386,10 +350,6 @@ pub fn mergeChain(
     }
     return out;
 }
-
-// ---------------------------------------------------------------------------
-// Bake: merged spec → concrete StyleMap + Decor
-// ---------------------------------------------------------------------------
 
 pub fn bake(merged: *const ThemeSpec, base_light: bool) ResolvedTheme {
     var style_map = theme.overlaySlots(if (base_light) theme.neutralLight else theme.neutralDark, merged.slots);
@@ -413,8 +373,6 @@ pub fn builtinResolved(alloc: std.mem.Allocator, name: []const u8) ResolvedTheme
 }
 
 fn applyTokens(style_map: *StyleMap, t: spec.TokenColors) void {
-    // Each token class recolors its inline and block code slots
-    // (`code_<name>` / `code_block_<name>`).
     inline for (@typeInfo(spec.TokenColors).@"struct".fields) |f| {
         if (@field(t, f.name)) |c| {
             @field(style_map, "code_" ++ f.name).fg = c;
@@ -429,14 +387,10 @@ pub fn bakeDecor(merged: *const ThemeSpec) Decor {
     while (i < spec.slot_count) : (i += 1) {
         if (merged.slots.entries[i]) |ss| {
             var sd = unwrapWithDefaults(decor_mod.SlotDecor, ss);
-            // null (unset) and explicit "" both bake to the default "─".
             if (sd.underline_glyph.len == 0) sd.underline_glyph = "\u{2500}";
             d.slots[i] = sd;
         }
     }
-    // `code_frame` passes through still sparse; its .panel/false defaults land
-    // at the render read sites (`kind orelse .panel`), so the fold keeps
-    // "unset" distinct from "explicitly panel / no label".
     d.glyphs = unwrapWithDefaults(decor_mod.ResolvedGlyphSet, merged.glyphs);
     return d;
 }
