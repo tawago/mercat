@@ -625,7 +625,8 @@ fn formatCopyPreview(allocator: std.mem.Allocator, text: []const u8) ![]u8 {
     var truncated = false;
     while (index < text.len) {
         const glyph = unicode.nextGlyph(text, index);
-        index += glyph.bytes.len;
+        // A malformed byte yields an empty glyph; step over it as one byte.
+        index += @max(glyph.bytes.len, 1);
         const is_space = glyph.bytes.len == 1 and switch (glyph.bytes[0]) {
             ' ', '\t', '\n', '\r' => true,
             else => false,
@@ -853,6 +854,13 @@ test "formatCopyPreview collapses whitespace and drops leading padding" {
     const message = try formatCopyPreview(allocator, "  first\nsecond\t third  ");
     defer allocator.free(message);
     try std.testing.expectEqualStrings("Copied \"first second third\"", message);
+}
+
+test "formatCopyPreview terminates on a malformed byte" {
+    const allocator = std.testing.allocator;
+    const message = try formatCopyPreview(allocator, "ab\xe9cd");
+    defer allocator.free(message);
+    try std.testing.expectEqualStrings("Copied \"abcd\"", message);
 }
 
 test "formatCopyPreview truncates long text with an ellipsis" {

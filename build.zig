@@ -3,6 +3,22 @@ const std = @import("std");
 pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
+
+    const unicode_check = b.addExecutable(.{
+        .name = "unicode-check",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("tools/unicode/check.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+    const unicode_check_run = b.addRunArtifact(unicode_check);
+    unicode_check_run.setCwd(b.path("."));
+    const unicode_cache_dir = b.cache_root.join(b.allocator, &.{"unicode-17-generated"}) catch @panic("out of memory");
+    unicode_check_run.addArg(unicode_cache_dir);
+    const unicode_check_step = b.step("unicode-check", "Offline regenerate and byte-compare Unicode 17 tables");
+    unicode_check_step.dependOn(&unicode_check_run.step);
+
     const options = b.addOptions();
     const koino_dep = b.dependency("koino", .{ .target = target, .optimize = optimize });
     const vaxis_dep = b.dependency("vaxis", .{ .target = target, .optimize = optimize });
@@ -244,6 +260,18 @@ pub fn build(b: *std.Build) void {
     const lint_step = b.step("lint", "Run mermaid_v2 import boundary lint");
     lint_step.dependOn(&lint_cmd.step);
     test_step.dependOn(&lint_cmd.step);
+
+    const unicode_test_module = b.createModule(.{
+        .root_source_file = b.path("src/lib/unicode.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    const unicode_tests = b.addTest(.{ .root_module = unicode_test_module });
+    const unicode_test_run = b.addRunArtifact(unicode_tests);
+    unicode_test_run.setCwd(b.path("."));
+    const unicode_test_step = b.step("test-unicode", "Run Unicode authority tests");
+    unicode_test_step.dependOn(&unicode_test_run.step);
+    test_step.dependOn(&unicode_test_run.step);
 
     // =====================================================
     // Visual Samples Harness (mermaid_v2)

@@ -220,11 +220,12 @@ fn wrapValue(a: std.mem.Allocator, text: []const u8, width: usize) ![][]const u8
 }
 
 /// Byte length of the longest prefix of `text` that fits within `width`
-/// display cells. Always advances by at least one grapheme so callers make
-/// progress even when a single wide glyph exceeds `width`.
+/// display cells. Always advances by at least one grapheme — or one byte,
+/// when the text starts with a malformed byte and the glyph is empty — so
+/// callers make progress even when a single wide glyph exceeds `width`.
 fn takeWidth(text: []const u8, width: usize) usize {
     const clipped = unicode.clipToWidth(text, width);
-    if (clipped.len == 0 and text.len != 0) return unicode.nextGlyph(text, 0).bytes.len;
+    if (clipped.len == 0 and text.len != 0) return @max(unicode.nextGlyph(text, 0).bytes.len, 1);
     return clipped.len;
 }
 
@@ -625,6 +626,23 @@ test "frontmatter: an unbreakable token is hard-split at the value column width"
     // every one of which respects the panel width.
     try testing.expect(lines.len >= 4); // caps + >= 2 split rows
     try testing.expect(allLinesWithin(lines, width));
+}
+
+test "frontmatter: a malformed byte inside an over-wide value still terminates every style" {
+    const alloc = testing.allocator;
+    // A lone 0xE9 lead byte in the middle of a token wider than any value
+    // column: the wrap (panel, dim) and compact paths must step past it.
+    const value = "abc\xe9" ++ ("d" ** 40);
+    var entries = [_]Entry{.{ .key = "k", .value = value }};
+    const fm = Block.FrontMatter{ .raw = "", .entries = &entries };
+
+    inline for (.{ .panel, .dim, .compact }) |style| {
+        const lines = try renderLines(alloc, fm, 12, style, false);
+        defer freeLines(alloc, lines);
+        try testing.expect(lines.len >= 1);
+        try testing.expect(anySpanContains(lines, "abc"));
+        try testing.expect(anySpanContains(lines, "dddd"));
+    }
 }
 
 test "frontmatter: tabs are sanitized to spaces on the export path" {
