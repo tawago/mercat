@@ -1,23 +1,60 @@
 const std = @import("std");
 const vaxis = @import("vaxis");
-const markdown = @import("../../core/markdown/parser.zig");
-const config = @import("../../core/config.zig");
-const theme = @import("../../core/theme.zig");
-const ResolvedTheme = @import("../../core/theme/resolve.zig").ResolvedTheme;
-const unicode = @import("../../lib/unicode.zig");
+const markdown = @import("../../core/markdown/document.zig");
+const unicode = @import("unicode");
+
+const PreparedMetadataLine = struct {
+    line: unicode.PreparedLine,
+    key_columns: usize,
+
+    fn deinit(self: *PreparedMetadataLine) void {
+        self.line.deinit();
+    }
+
+    fn clipped(self: PreparedMetadataLine, width: usize) struct { key: []const u8, rest: []const u8 } {
+        const bytes = self.line.prefixToWidth(width);
+        const key_end = @min(self.line.prefixToWidth(self.key_columns).len, bytes.len);
+        return .{ .key = bytes[0..key_end], .rest = bytes[key_end..] };
+    }
+};
+
+fn prepareMetadataLine(
+    allocator: std.mem.Allocator,
+    entry: markdown.Block.FrontMatter.Entry,
+    key_width: usize,
+) !PreparedMetadataLine {
+    var key = try unicode.PreparedLine.init(allocator, entry.key);
+    defer key.deinit();
+
+    var raw: std.ArrayList(u8) = .empty;
+    defer raw.deinit(allocator);
+    if (entry.key.len != 0) {
+        try raw.appendSlice(allocator, entry.key);
+        try raw.appendNTimes(allocator, ' ', key_width + 2 - key.total_columns);
+    }
+    try raw.appendSlice(allocator, entry.value);
+    return .{
+        .line = try unicode.PreparedLine.init(allocator, raw.items),
+        .key_columns = key.total_columns,
+    };
+}
 
 /// Front matter metadata overlay: a top-right panel toggled with `m`, showing
 /// one `key  value` row per entry aligned on the key column, scrollable when
 /// the entries overflow the window.
 pub const MetadataOverlay = struct {
+    pub const PanelStyle = struct {
+        fill: vaxis.Style,
+        border: vaxis.Style,
+        text: vaxis.Style,
+    };
+
     /// Screen rectangle (cells) of a drawn overlay, used for mouse hit-testing.
     pub const Rect = struct { x: u16, y: u16, width: u16, height: u16 };
 
     visible: bool = false,
     /// Scroll offset (first visible entry index).
     scroll: usize = 0,
-    // Geometry recorded on the last draw, for scroll clamping and mouse
-    // hit-testing. `rect` is null while the overlay is hidden.
     visible_rows: usize = 0,
     total: usize = 0,
     rect: ?Rect = null,
@@ -61,29 +98,25 @@ pub const MetadataOverlay = struct {
         root: vaxis.Window,
         frame_allocator: std.mem.Allocator,
         fm_opt: ?markdown.Block.FrontMatter,
-        resolved: *const ResolvedTheme,
+        style: PanelStyle,
     ) !void {
         if (!self.visible) {
             self.rect = null;
             return;
         }
+        self.rect = null;
         const fm = fm_opt orelse {
-            self.rect = null;
             return;
         };
 
         const total = fm.entries.len;
         self.total = total;
 
-        // Rows available inside the borders, bounded so the panel never covers
-        // the status bar at the bottom.
         const max_inner_rows: usize = (@as(usize, root.height) -| 2) -| 2;
         if (max_inner_rows == 0) {
             self.rect = null;
             return;
         }
-        // When entries overflow, reserve the bottom inner row for a scroll
-        // indicator (e.g. `↑ 3-8 / 20 ↓`).
         const overflow = total > max_inner_rows;
         const visible_rows = if (overflow) @min(max_inner_rows -| 1, total) else total;
         if (visible_rows == 0) {
@@ -91,7 +124,6 @@ pub const MetadataOverlay = struct {
             return;
         }
         self.visible_rows = visible_rows;
-        // Clamp scroll now that we know the geometry (window may have shrunk).
         if (self.scroll > total -| visible_rows) {
             self.scroll = total -| visible_rows;
         }
@@ -99,14 +131,14 @@ pub const MetadataOverlay = struct {
         const end = @min(start + visible_rows, total);
 
         var key_width: usize = 0;
-        for (fm.entries) |entry| key_width = @max(key_width, unicode.displayWidth(entry.key));
+        for (fm.entries) |entry| {
+            const key = try unicode.PreparedLine.init(frame_allocator, entry.key);
+            key_width = @max(key_width, key.total_columns);
+        }
         var row_width: usize = 0;
         for (fm.entries) |entry| {
-            const w = if (entry.key.len == 0)
-                unicode.displayWidth(entry.value)
-            else
-                key_width + 2 + unicode.displayWidth(entry.value);
-            row_width = @max(row_width, w);
+            const line = try prepareMetadataLine(frame_allocator, entry, key_width);
+            row_width = @max(row_width, line.line.total_columns);
         }
 
         const indicator = if (overflow)
@@ -119,10 +151,13 @@ pub const MetadataOverlay = struct {
             })
         else
             "";
-        if (overflow) row_width = @max(row_width, unicode.displayWidth(indicator));
+        const prepared_indicator = if (overflow)
+            try unicode.PreparedLine.init(frame_allocator, indicator)
+        else
+            null;
+        if (prepared_indicator) |prepared| row_width = @max(row_width, prepared.total_columns);
 
-        // Text + one space padding each side + two border columns.
-        const width: u16 = @intCast(@min(root.width -| 2, row_width + 4));
+        const width: u16 = @intCast(@min(root.width -| 2, row_width +| 4));
         const inner_rows = visible_rows + @as(usize, if (overflow) 1 else 0);
         const height: u16 = @intCast(inner_rows + 2);
         if (width < 5 or height < 3) {
@@ -130,7 +165,6 @@ pub const MetadataOverlay = struct {
             return;
         }
 
-        const style = theme.metadataPanelStyle(resolved.accent, resolved.base_bg);
         const x_off = root.width -| width;
         self.rect = .{ .x = x_off, .y = 0, .width = width, .height = height };
 
@@ -148,18 +182,11 @@ pub const MetadataOverlay = struct {
         key_style.dim = true;
         const inner_width = width -| 4;
         for (fm.entries[start..end], 0..) |entry, row| {
-            var line: std.ArrayList(u8) = .empty;
-            if (entry.key.len != 0) {
-                try line.appendSlice(frame_allocator, entry.key);
-                var pad = key_width + 2 - unicode.displayWidth(entry.key);
-                while (pad > 0) : (pad -= 1) try line.append(frame_allocator, ' ');
-            }
-            try line.appendSlice(frame_allocator, entry.value);
-            const clipped = unicode.clipToWidth(line.items, inner_width);
-            const key_cols = if (entry.key.len == 0) 0 else @min(entry.key.len, clipped.len);
+            const prepared = try prepareMetadataLine(frame_allocator, entry, key_width);
+            const clipped = prepared.clipped(inner_width);
             _ = root.print(&.{
-                .{ .text = clipped[0..key_cols], .style = key_style },
-                .{ .text = clipped[key_cols..], .style = style.text },
+                .{ .text = clipped.key, .style = key_style },
+                .{ .text = clipped.rest, .style = style.text },
             }, .{
                 .row_offset = @intCast(row + 1),
                 .col_offset = x_off + 2,
@@ -168,7 +195,7 @@ pub const MetadataOverlay = struct {
         }
 
         if (overflow) {
-            const clipped = unicode.clipToWidth(indicator, inner_width);
+            const clipped = prepared_indicator.?.prefixToWidth(inner_width);
             _ = root.print(&.{.{ .text = clipped, .style = key_style }}, .{
                 .row_offset = @intCast(inner_rows),
                 .col_offset = x_off + 2,
@@ -188,7 +215,7 @@ test "scrollBy clamps to the last page" {
     try std.testing.expectEqual(@as(usize, 5), overlay.scroll);
 
     overlay.scrollBy(1000);
-    try std.testing.expectEqual(@as(usize, 12), overlay.scroll); // 20 - 8
+    try std.testing.expectEqual(@as(usize, 12), overlay.scroll);
 
     overlay.scrollTo(std.math.maxInt(usize));
     try std.testing.expectEqual(@as(usize, 12), overlay.scroll);
@@ -198,14 +225,12 @@ test "scrollBy clamps to the last page" {
 }
 
 test "scrollTo saturates to zero when everything is visible" {
-    // Visible rows >= total, so maxScroll() saturates to 0 via -|.
     var overlay = MetadataOverlay{ .total = 5, .visible_rows = 8 };
     overlay.scrollTo(1000);
     try std.testing.expectEqual(@as(usize, 0), overlay.scroll);
 }
 
 test "scrollBy keeps scroll at zero when everything is visible" {
-    // total < visible: max scroll saturates to 0, so scrolling down is a no-op.
     var overlay = MetadataOverlay{ .total = 3, .visible_rows = 8 };
     overlay.scrollBy(1);
     try std.testing.expectEqual(@as(usize, 0), overlay.scroll);
@@ -217,16 +242,79 @@ test "contains hit-tests the overlay rectangle" {
     const inside: vaxis.Mouse = .{ .col = 15, .row = 2, .button = .none, .mods = .{}, .type = .motion };
     try std.testing.expect(overlay.contains(inside));
 
-    // Just left of the rect.
     const left: vaxis.Mouse = .{ .col = 9, .row = 2, .button = .none, .mods = .{}, .type = .motion };
     try std.testing.expect(!overlay.contains(left));
-    // Just past the right edge (x + width = 30, exclusive).
     const right: vaxis.Mouse = .{ .col = 30, .row = 2, .button = .none, .mods = .{}, .type = .motion };
     try std.testing.expect(!overlay.contains(right));
-    // Just below the bottom edge (y + height = 6, exclusive).
     const below: vaxis.Mouse = .{ .col = 15, .row = 6, .button = .none, .mods = .{}, .type = .motion };
     try std.testing.expect(!overlay.contains(below));
-    // Negative coordinates are never inside.
     const negative: vaxis.Mouse = .{ .col = -1, .row = -1, .button = .none, .mods = .{}, .type = .motion };
     try std.testing.expect(!overlay.contains(negative));
+}
+
+test "metadata line width and clipping use complete display graphemes" {
+    const Entry = markdown.Block.FrontMatter.Entry;
+    const cases = [_]Entry{
+        .{ .key = "e\u{0301}", .value = "value" },
+        .{ .key = "👩‍💻", .value = "value" },
+        .{ .key = "🇯🇵", .value = "value" },
+        .{ .key = "©️", .value = "value" },
+        .{ .key = "日", .value = "value" },
+    };
+    for (cases) |entry| {
+        var key = try unicode.PreparedLine.init(std.testing.allocator, entry.key);
+        defer key.deinit();
+        var line = try prepareMetadataLine(std.testing.allocator, entry, key.total_columns);
+        defer line.deinit();
+
+        const before = line.clipped(key.total_columns - 1);
+        try std.testing.expectEqual(@as(usize, 0), before.key.len);
+        try std.testing.expectEqual(@as(usize, 0), before.rest.len);
+        const at_marker = line.clipped(key.total_columns);
+        try std.testing.expectEqualStrings(entry.key, at_marker.key);
+        try std.testing.expectEqual(@as(usize, 0), at_marker.rest.len);
+    }
+}
+
+test "metadata tabs expand at stops after the displayed key column" {
+    const entry: markdown.Block.FrontMatter.Entry = .{ .key = "日", .value = "\tX" };
+    var line = try prepareMetadataLine(std.testing.allocator, entry, 2);
+    defer line.deinit();
+    try std.testing.expectEqualStrings("日      X", line.line.bytes);
+    try std.testing.expectEqual(@as(usize, 9), line.line.total_columns);
+
+    const tab_key: markdown.Block.FrontMatter.Entry = .{ .key = "a\t", .value = "X" };
+    var tabbed = try prepareMetadataLine(std.testing.allocator, tab_key, 4);
+    defer tabbed.deinit();
+    try std.testing.expectEqualStrings("a     X", tabbed.line.bytes);
+    try std.testing.expectEqual(@as(usize, 7), tabbed.line.total_columns);
+}
+
+test "metadata clipping does not cross a wide marker boundary" {
+    const entry: markdown.Block.FrontMatter.Entry = .{ .key = "key", .value = "A日B" };
+    var line = try prepareMetadataLine(std.testing.allocator, entry, 3);
+    defer line.deinit();
+
+    const before_wide = line.clipped(6);
+    try std.testing.expectEqualStrings("key", before_wide.key);
+    try std.testing.expectEqualStrings("  A", before_wide.rest);
+    const inside_wide = line.clipped(7);
+    try std.testing.expectEqualStrings("  A", inside_wide.rest);
+    const after_wide = line.clipped(8);
+    try std.testing.expectEqualStrings("  A日", after_wide.rest);
+}
+
+test "metadata preparation rejects invalid UTF-8 and ASCII controls" {
+    const invalid: markdown.Block.FrontMatter.Entry = .{ .key = "key", .value = "bad\x80" };
+    try std.testing.expectError(error.InvalidUtf8, prepareMetadataLine(std.testing.allocator, invalid, 3));
+    const control: markdown.Block.FrontMatter.Entry = .{ .key = "key", .value = "bad\x01" };
+    try std.testing.expectError(error.DisallowedControl, prepareMetadataLine(std.testing.allocator, control, 3));
+}
+
+test "metadata prepares long lines without repeated prefix scans" {
+    const entry: markdown.Block.FrontMatter.Entry = .{ .key = "key", .value = "a" ** 32768 };
+    var line = try prepareMetadataLine(std.testing.allocator, entry, 3);
+    defer line.deinit();
+    try std.testing.expectEqual(@as(usize, 32773), line.line.total_columns);
+    try std.testing.expectEqual(@as(usize, 80), line.line.prefixToWidth(80).len);
 }

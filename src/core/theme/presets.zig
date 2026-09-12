@@ -42,12 +42,6 @@ fn a16(named: color.Ansi16) Color {
     return .{ .ansi16 = named };
 }
 
-// ---------------------------------------------------------------------------
-// dark / light — full data specs (single source of truth; every slot + the
-// classic-variant delta, matching the historical `theme.darkPalette`/
-// `lightPalette` byte-for-byte).
-// ---------------------------------------------------------------------------
-
 fn ix(n: u8) Color {
     return color.idx(n);
 }
@@ -103,7 +97,6 @@ fn darkSlots() SlotMap {
     m.set(.ordered, .{ .fg = ix(74) });
     m.set(.task_on, .{ .fg = ix(244) });
     m.set(.task_off, .{ .fg = ix(244) });
-    // Item text gets its own register: one step softer than the 254 body.
     m.set(.list_item, .{ .fg = ix(250) });
     withHeadingPrefixes(&m);
     return m;
@@ -159,7 +152,6 @@ fn lightSlots() SlotMap {
     m.set(.ordered, .{ .fg = ix(31) });
     m.set(.task_on, .{ .fg = ix(245) });
     m.set(.task_off, .{ .fg = ix(245) });
-    // Item text gets its own register: one step softer than the 234 body.
     m.set(.list_item, .{ .fg = ix(236) });
     withHeadingPrefixes(&m);
     return m;
@@ -189,18 +181,11 @@ pub const dark = ThemeSpec{
 pub const light = ThemeSpec{
     .name = "light",
     .base_bg = rgb(0xff, 0xff, 0xff),
-    // Light is designed against a white canvas; without the fill it is
-    // illegible on dark terminals, so it paints by default (unlike dark/ansi,
-    // which stay terminal-native).
     .canvas = true,
     .slots = lightSlots(),
     .slots_classic = lightClassic(),
     .glyphs = legacy_glyphs,
 };
-
-// ---------------------------------------------------------------------------
-// ansi — 16-color model: named ANSI slots, SGR-driven hues.
-// ---------------------------------------------------------------------------
 
 pub const ansi = ThemeSpec{
     .name = "ansi",
@@ -250,10 +235,6 @@ pub const ansi = ThemeSpec{
     },
 };
 
-// ---------------------------------------------------------------------------
-// dracula
-// ---------------------------------------------------------------------------
-
 pub const dracula = ThemeSpec{
     .name = "dracula",
     .base_bg = rgb(0x28, 0x2a, 0x36),
@@ -300,10 +281,6 @@ pub const dracula = ThemeSpec{
     },
 };
 
-// ---------------------------------------------------------------------------
-// tokyo-night
-// ---------------------------------------------------------------------------
-
 pub const tokyo_night = ThemeSpec{
     .name = "tokyo-night",
     .base_bg = rgb(0x1a, 0x1b, 0x26),
@@ -349,10 +326,6 @@ pub const tokyo_night = ThemeSpec{
     },
 };
 
-// ---------------------------------------------------------------------------
-// pink
-// ---------------------------------------------------------------------------
-
 pub const pink = ThemeSpec{
     .name = "pink",
     .base_bg = rgb(0x1c, 0x1c, 0x1c),
@@ -397,10 +370,6 @@ pub const pink = ThemeSpec{
         .comment = rgb(0x76, 0x76, 0x76),
     },
 };
-
-// ---------------------------------------------------------------------------
-// markview — Nerd-font source adapted to safe Unicode (PUA-free).
-// ---------------------------------------------------------------------------
 
 pub const markview = ThemeSpec{
     .name = "markview",
@@ -456,10 +425,6 @@ fn mergePrefix(base: SlotSpec, prefix: []const u8) SlotSpec {
     return s;
 }
 
-// ---------------------------------------------------------------------------
-// Registry seed
-// ---------------------------------------------------------------------------
-
 pub const ALL = [_]*const ThemeSpec{
     &dark,
     &light,
@@ -469,10 +434,6 @@ pub const ALL = [_]*const ThemeSpec{
     &pink,
     &markview,
 };
-
-// ===========================================================================
-// Tests
-// ===========================================================================
 
 const testing = std.testing;
 

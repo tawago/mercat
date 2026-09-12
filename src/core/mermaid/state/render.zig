@@ -134,7 +134,7 @@ fn drawState(canvas: *Canvas, state: *const State, options: RenderOptions) void 
     switch (state.state_type) {
         .start => {
             if (options.unicode_mode) {
-                canvas.setChar(x + 1, y, 0x25CF, .node_text); // ●
+                canvas.setChar(x + 1, y, 0x25CF, .node_text);
             } else {
                 canvas.setChar(x, y, '(', .node_border);
                 canvas.setChar(x + 1, y, '*', .node_text);
@@ -143,7 +143,7 @@ fn drawState(canvas: *Canvas, state: *const State, options: RenderOptions) void 
         },
         .end => {
             if (options.unicode_mode) {
-                canvas.setChar(x + 1, y, 0x25CE, .node_text); // ◎
+                canvas.setChar(x + 1, y, 0x25CE, .node_text);
             } else {
                 canvas.setChar(x, y, '(', .node_border);
                 canvas.setChar(x + 1, y, 'o', .node_text);
@@ -194,7 +194,7 @@ fn drawStateTransition(canvas: *Canvas, transition: *const StateTransition, diag
     const h_char: u21 = if (options.unicode_mode) LineChars.horizontal else '-';
     const v_char: u21 = if (options.unicode_mode) LineChars.vertical else '|';
     const arrow_down: u21 = if (options.unicode_mode) Arrows.down else 'v';
-    _ = if (options.unicode_mode) Arrows.up else '^'; // arrow_up - reserved for future use
+    _ = if (options.unicode_mode) Arrows.up else '^';
 
     const from_center_x = from_x + @as(i32, @intCast(from_state.width / 2));
     const from_bottom = from_y + @as(i32, @intCast(from_state.height));
@@ -241,7 +241,7 @@ fn drawStateTransition(canvas: *Canvas, transition: *const StateTransition, diag
         var y = to_bottom;
         while (y < from_top) : (y += 1) {
             if (y == arrow_y) {
-                const arrow_up: u21 = if (options.unicode_mode) 0x25B3 else '^'; // △
+                const arrow_up: u21 = if (options.unicode_mode) 0x25B3 else '^';
                 canvas.setChar(edge_x, y, arrow_up, .edge);
             } else {
                 canvas.setChar(edge_x, y, v_char, .edge);
@@ -270,8 +270,8 @@ fn drawStateTransition(canvas: *Canvas, transition: *const StateTransition, diag
             }
 
             const route_x = min_x - 3;
-            const corner_se: u21 = if (options.unicode_mode) LineChars.corner_se else '+'; // ┌
-            const corner_ne: u21 = if (options.unicode_mode) LineChars.corner_ne else '+'; // └
+            const corner_se: u21 = if (options.unicode_mode) LineChars.corner_se else '+';
+            const corner_ne: u21 = if (options.unicode_mode) LineChars.corner_ne else '+';
 
             const exit_y = from_y + @as(i32, @intCast(from_state.height / 2));
             const enter_y = to_y + @as(i32, @intCast(to_state.height / 2));
@@ -348,15 +348,15 @@ fn drawStateTransition(canvas: *Canvas, transition: *const StateTransition, diag
         while (hx <= max_x) : (hx += 1) {
             if (hx == from_center_x) {
                 const corner: u21 = if (to_center_x > from_center_x)
-                    (if (options.unicode_mode) 0x2514 else '+') // └
+                    (if (options.unicode_mode) 0x2514 else '+')
                 else
-                    (if (options.unicode_mode) 0x2518 else '+'); // ┘
+                    (if (options.unicode_mode) 0x2518 else '+');
                 canvas.setChar(hx, mid_y, corner, .edge);
             } else if (hx == to_center_x) {
                 const corner: u21 = if (to_center_x > from_center_x)
-                    (if (options.unicode_mode) 0x2510 else '+') // ┐
+                    (if (options.unicode_mode) 0x2510 else '+')
                 else
-                    (if (options.unicode_mode) 0x250C else '+'); // ┌
+                    (if (options.unicode_mode) 0x250C else '+');
                 canvas.setChar(hx, mid_y, corner, .edge);
             } else {
                 canvas.setChar(hx, mid_y, h_char, .edge);

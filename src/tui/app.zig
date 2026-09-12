@@ -17,13 +17,11 @@ const input = @import("input.zig");
 const statusbar = @import("widgets/statusbar.zig");
 const args = @import("../cli/args.zig");
 const clipboard = @import("../platform/clipboard.zig");
-const unicode = @import("../lib/unicode.zig");
+const unicode = @import("unicode");
+const selection_mod = @import("selection.zig");
 
 /// How long a copy confirmation toast stays visible.
 const toast_duration_ms: i64 = 1400;
-
-/// Maximum display columns of copied-text preview shown in the toast.
-const copy_preview_cols: usize = 40;
 
 const ViewMode = enum {
     pager,
@@ -38,7 +36,6 @@ const Event = union(enum) {
 };
 
 fn parseContent(allocator: std.mem.Allocator, content: []const u8, input_source: args.Input) !markdown.Document {
-    // Shared classifier keeps a TUI reload (`r`, `e`) in step with CLI rendering.
     if (cli_input.isMermaidSource(input_source.filePath(), content)) {
         const language = try allocator.dupe(u8, "mermaid");
         errdefer allocator.free(language);
@@ -58,31 +55,24 @@ pub const App = struct {
     tty: vaxis.Tty,
     tty_buffer: [4096]u8,
 
-    // Document state
     title: []const u8,
     input_source: args.Input,
     current_content: []u8,
     current_document: markdown.Document,
     editor_command: []const u8,
 
-    // View state
     pager: PagerView,
     view_mode: ViewMode,
     status_message: ?[]const u8,
     needs_redraw: bool,
 
-    // Mermaid layout override
     mermaid_layout: mermaid_types.ForceLayout,
 
-    // Subgraph frame-border notation (config value; a later live toggle may
-    // mutate it, mirroring `mermaid_layout`).
     mermaid_subgraph_edges: SubgraphEdges,
 
-    // Copy confirmation toast (top-right overlay, auto-dismissed after a delay).
     toast_message: ?[]u8,
     toast_deadline_ms: i64,
 
-    // Front matter metadata overlay (top-right panel toggled with `m`).
     metadata: MetadataOverlay,
 
     pub fn init(
@@ -125,7 +115,6 @@ pub const App = struct {
         self.pager.frontmatter_style = frontmatter_style;
 
         self.view_mode = .pager;
-        // Surface theme-resolution diagnostics in the status bar on startup.
         self.status_message = if (theme_warning) |w| try allocator.dupe(u8, w) else null;
         self.needs_redraw = true;
         self.toast_message = null;
@@ -152,7 +141,6 @@ pub const App = struct {
         try self.loop.start();
         try self.vx.enterAltScreen(writer);
 
-        // Detect Apple Terminal and enable legacy SGR mode for color support
         if (std.posix.getenv("TERM_PROGRAM")) |prg| {
             if (std.mem.eql(u8, prg, "Apple_Terminal")) {
                 self.vx.sgr = .legacy;
@@ -171,7 +159,6 @@ pub const App = struct {
             }
 
             const event = self.waitEvent() orelse {
-                // No event before the toast's deadline — dismiss it.
                 self.clearToast();
                 self.needs_redraw = true;
                 continue;
@@ -215,8 +202,6 @@ pub const App = struct {
             .quit => return true,
             .toggle_help => {
                 self.view_mode = if (self.view_mode == .help) .pager else .help;
-                // Keep overlays mutually exclusive so neither paints over the
-                // other (z-order): opening help closes the metadata overlay.
                 if (self.view_mode == .help) try self.setMetadataVisible(false);
             },
             .edit => {
@@ -241,8 +226,6 @@ pub const App = struct {
                 try self.handleSubgraphEdgesChange();
                 return false;
             },
-            // While the metadata overlay is open, navigation keys scroll it
-            // rather than the document underneath.
             .line_up => if (self.metadata.visible) self.metadata.scrollBy(-1) else self.pager.lineUp(),
             .line_down => if (self.metadata.visible) self.metadata.scrollBy(1) else self.pager.lineDown(),
             .page_up => if (self.metadata.visible) self.metadata.scrollBy(-@as(isize, @intCast(self.metadata.visible_rows))) else self.pager.pageUp(),
@@ -261,9 +244,6 @@ pub const App = struct {
     }
 
     fn handleMouse(self: *App, mouse: vaxis.Mouse) !void {
-        // The metadata overlay is modal over its own area: swallow clicks so
-        // they don't select the hidden document beneath it, and map the wheel
-        // to overlay scrolling.
         if (self.metadata.visible and self.metadata.contains(mouse)) {
             switch (mouse.button) {
                 .wheel_up => {
@@ -299,7 +279,6 @@ pub const App = struct {
                         self.needs_redraw = true;
                     },
                     .drag => {
-                        // Auto-scroll when the drag reaches the top/bottom edge.
                         if (mouse.row <= 0) {
                             self.pager.lineUp();
                         } else if (content_height > 0 and mouse.row >= @as(i16, @intCast(content_height - 1))) {
@@ -320,8 +299,28 @@ pub const App = struct {
     }
 
     /// Overpaint reverse-video on the selected cells of the just-drawn `row`.
-    fn highlightRow(self: *App, root: vaxis.Window, row: usize) void {
-        const range = self.pager.selectionRangeForRow(row) orelse return;
+    fn highlightRow(self: *App, root: vaxis.Window, row: usize) !void {
+        const line_idx = self.pager.viewport.top + row;
+        if (line_idx >= self.pager.lines.len) return;
+        const range = self.pager.selection.rangeForRenderedLine(
+            self.allocator,
+            line_idx,
+            self.pager.lines[line_idx],
+        ) catch |err| switch (err) {
+            error.InvalidUtf8 => {
+                try self.setStatusMessage("Cannot select text: invalid UTF-8.", false);
+                return;
+            },
+            error.DisallowedControl => {
+                try self.setStatusMessage("Cannot select text: unsupported control character.", false);
+                return;
+            },
+            error.Overflow => {
+                try self.setStatusMessage("Cannot select text: line is too wide.", false);
+                return;
+            },
+            else => return err,
+        } orelse return;
         const cy: u16 = @intCast(row);
         var col: usize = range.start;
         while (col < range.end) : (col += 1) {
@@ -335,7 +334,21 @@ pub const App = struct {
     }
 
     fn copySelection(self: *App) !void {
-        const text = try self.pager.selectedText(self.allocator);
+        const text = self.pager.selectedText(self.allocator) catch |err| switch (err) {
+            error.InvalidUtf8 => {
+                try self.setStatusMessage("Cannot copy selection: invalid UTF-8.", false);
+                return;
+            },
+            error.DisallowedControl => {
+                try self.setStatusMessage("Cannot copy selection: unsupported control character.", false);
+                return;
+            },
+            error.Overflow => {
+                try self.setStatusMessage("Cannot copy selection: line is too wide.", false);
+                return;
+            },
+            else => return err,
+        };
         defer self.allocator.free(text);
         if (text.len == 0) return;
 
@@ -349,7 +362,21 @@ pub const App = struct {
 
     /// Show a top-right toast previewing the copied text, e.g. `Copied "hi …"`.
     fn showCopyToast(self: *App, text: []const u8) !void {
-        const message = try formatCopyPreview(self.allocator, text);
+        const message = selection_mod.formatCopyPreview(self.allocator, text) catch |err| switch (err) {
+            error.InvalidUtf8 => {
+                try self.setStatusMessage("Cannot preview copied text: invalid UTF-8.", false);
+                return;
+            },
+            error.DisallowedControl => {
+                try self.setStatusMessage("Cannot preview copied text: unsupported control character.", false);
+                return;
+            },
+            error.Overflow => {
+                try self.setStatusMessage("Cannot preview copied text: line is too wide.", false);
+                return;
+            },
+            else => return err,
+        };
         self.clearToast();
         self.toast_message = message;
         self.toast_deadline_ms = std.time.milliTimestamp() + toast_duration_ms;
@@ -363,19 +390,32 @@ pub const App = struct {
     }
 
     /// Draw the copy toast as a soft, themed panel in the top-right corner.
-    fn drawToast(self: *App, root: vaxis.Window) void {
+    fn drawToast(self: *App, root: vaxis.Window) !void {
         const message = self.toast_message orelse return;
-        // Box width = text + one space of padding each side + two borders.
-        const width = @min(root.width -| 2, unicode.displayWidth(message) + 4);
+        const message_width = unicode.rawDisplayWidth(message) catch |err| switch (err) {
+            error.InvalidUtf8 => {
+                try self.setStatusMessage("Cannot show copy preview: invalid UTF-8.", false);
+                self.clearToast();
+                return;
+            },
+            error.DisallowedControl => {
+                try self.setStatusMessage("Cannot show copy preview: unsupported control character.", false);
+                self.clearToast();
+                return;
+            },
+            error.Overflow => {
+                try self.setStatusMessage("Cannot show copy preview: line is too wide.", false);
+                self.clearToast();
+                return;
+            },
+        };
+        const width = @min(root.width -| 2, message_width +| 4);
         const height: usize = 3;
         if (width < 3 or root.height < height) return;
 
         const style = theme.toastStyle(self.pager.resolved.accent, self.pager.resolved.base_bg);
         const x_off = root.width -| width;
 
-        // Fill the panel background, draw the rounded border over it, then print
-        // the text directly onto the root window. (Printing onto the bordered
-        // child window does not render reliably in this vaxis version.)
         const panel = root.child(.{ .x_off = x_off, .y_off = 0, .width = width, .height = height });
         panel.fill(.{ .style = style.fill });
         _ = root.child(.{
@@ -401,8 +441,6 @@ pub const App = struct {
     }
 
     fn handleToggleMetadata(self: *App) !void {
-        // `hidden` promises the front matter is stripped entirely (see
-        // config.zig); the overlay must not reveal it either.
         if (self.pager.frontmatter_style == .hidden) {
             try self.setStatusMessage("Front matter is hidden (frontmatter = hidden).", false);
             self.needs_redraw = true;
@@ -415,8 +453,6 @@ pub const App = struct {
         }
         try self.setMetadataVisible(!self.metadata.visible);
         if (self.metadata.visible) {
-            // Keep overlays mutually exclusive (z-order): opening metadata
-            // dismisses the help dialog.
             self.view_mode = .pager;
         }
         self.clearStatusMessage();
@@ -525,9 +561,6 @@ pub const App = struct {
 
         root.clear();
 
-        // Canvas: paint every cell's background with base_bg so blank cells and
-        // the padding to the right of each line read as a solid sheet. Printed
-        // segments carry the same bg (toVaxisSegments), so text cells match.
         if (self.pager.resolved.canvasBg()) |bg| {
             root.fill(.{ .style = .{ .bg = theme.toVaxisColor(bg) } });
         }
@@ -542,7 +575,7 @@ pub const App = struct {
                     .col_offset = 0,
                     .wrap = .none,
                 });
-                self.highlightRow(root, row);
+                try self.highlightRow(root, row);
             }
         }
 
@@ -559,15 +592,28 @@ pub const App = struct {
             drawHelp(root);
         }
 
-        // Frame-scoped storage for text handed to vaxis: screen cells borrow
-        // the bytes until `vx.render` below has emitted them.
         var frame_arena = std.heap.ArenaAllocator.init(self.allocator);
         defer frame_arena.deinit();
-        // `hidden` keeps the front matter stripped (see config.zig); pass null
-        // so the overlay never reveals it.
         const overlay_fm = if (self.pager.frontmatter_style == .hidden) null else self.frontMatter();
-        try self.metadata.draw(root, frame_arena.allocator(), overlay_fm, self.pager.resolved);
-        self.drawToast(root);
+        const theme_style = theme.metadataPanelStyle(self.pager.resolved.accent, self.pager.resolved.base_bg);
+        const metadata_style: MetadataOverlay.PanelStyle = .{
+            .fill = theme_style.fill,
+            .border = theme_style.border,
+            .text = theme_style.text,
+        };
+        self.metadata.draw(root, frame_arena.allocator(), overlay_fm, metadata_style) catch |err| switch (err) {
+            error.InvalidUtf8 => {
+                try self.setStatusMessage("Cannot show metadata: invalid UTF-8.", false);
+            },
+            error.DisallowedControl => {
+                try self.setStatusMessage("Cannot show metadata: unsupported control character.", false);
+            },
+            error.Overflow => {
+                try self.setStatusMessage("Cannot show metadata: line is too wide.", false);
+            },
+            else => return err,
+        };
+        try self.drawToast(root);
 
         const writer = self.tty.writer();
         try self.vx.render(writer);
@@ -578,8 +624,6 @@ pub const App = struct {
 /// Entry point for TUI mode - creates and runs the App
 pub fn run(allocator: std.mem.Allocator, title: []const u8, input_source: args.Input, initial_content: []const u8, editor_command: []const u8, resolved: *const ResolvedTheme, theme_warning: ?[]const u8, show_heading_markers: bool, frontmatter_style: config.FrontmatterStyle, initial_layout: mermaid_types.ForceLayout, initial_subgraph_edges: SubgraphEdges) !void {
     var app: App = undefined;
-    // `init` takes an out-pointer, so &self.current_document / &self.tty_buffer
-    // point at this stable `app` — no post-return fix-up needed.
     try app.init(allocator, title, input_source, initial_content, editor_command, resolved, theme_warning, show_heading_markers, frontmatter_style, initial_layout, initial_subgraph_edges);
     defer app.deinit();
     try app.run();
@@ -587,8 +631,6 @@ pub fn run(allocator: std.mem.Allocator, title: []const u8, input_source: args.I
 
 fn toVaxisSegments(allocator: std.mem.Allocator, line: render_model.Line, resolved: *const ResolvedTheme) ![]vaxis.Segment {
     const palette = resolved.styles;
-    // Canvas: spans without their own bg inherit base_bg so the row reads as a
-    // solid sheet (the filled window supplies the trailing/blank-cell bg).
     const canvas_bg = resolved.canvasBg();
     const segments = try allocator.alloc(vaxis.Segment, line.spans.len);
     for (line.spans, 0..) |span, index| {
@@ -610,50 +652,6 @@ fn syncPagerSize(pager: *PagerView, width: usize, height: usize) !bool {
     if (pager.width == width and pager.viewport.height == height) return false;
     try pager.resize(width, height);
     return true;
-}
-
-/// Build the toast label previewing copied `text`, e.g. `Copied "hello …"`.
-/// Runs of whitespace (including line breaks) collapse to a single space, and
-/// the preview is truncated to `copy_preview_cols` display columns with a
-/// trailing ` …`. Caller owns the returned slice.
-fn formatCopyPreview(allocator: std.mem.Allocator, text: []const u8) ![]u8 {
-    var preview: std.ArrayList(u8) = .empty;
-    defer preview.deinit(allocator);
-
-    var cols: usize = 0;
-    var index: usize = 0;
-    var truncated = false;
-    while (index < text.len) {
-        const glyph = unicode.nextGlyph(text, index);
-        // A malformed byte yields an empty glyph; step over it as one byte.
-        index += @max(glyph.bytes.len, 1);
-        const is_space = glyph.bytes.len == 1 and switch (glyph.bytes[0]) {
-            ' ', '\t', '\n', '\r' => true,
-            else => false,
-        };
-        if (is_space) {
-            // Collapse runs of whitespace (incl. line breaks) to one space,
-            // dropping any leading whitespace.
-            if (preview.items.len == 0 or preview.items[preview.items.len - 1] == ' ') continue;
-            try preview.append(allocator, ' ');
-            cols += 1;
-        } else {
-            if (cols + glyph.width > copy_preview_cols) {
-                truncated = true;
-                break;
-            }
-            try preview.appendSlice(allocator, glyph.bytes);
-            cols += glyph.width;
-        }
-    }
-    if (preview.items.len > 0 and preview.items[preview.items.len - 1] == ' ') {
-        preview.items.len -= 1;
-    }
-
-    return std.fmt.allocPrint(allocator, "Copied \"{s}{s}\"", .{
-        preview.items,
-        if (truncated) " …" else "",
-    });
 }
 
 fn drawHelp(root: vaxis.Window) void {
@@ -690,11 +688,8 @@ test "toVaxisSegments uses the resolved preset palette (dracula, not dark)" {
 
     const dracula = theme_resolve.builtinResolved(allocator, "dracula");
     const dark = theme_resolve.builtinResolved(allocator, "dark");
-    // Presets must diverge, otherwise the wiring guard below is vacuous.
     try std.testing.expect(!std.meta.eql(dracula.styles.heading1.fg, dark.styles.heading1.fg));
 
-    // Every segment must be styled through the *passed* resolved palette, not a
-    // hardcoded dark one — this is the CLI/TUI-divergence guard (Correctness #2).
     const seg = try toVaxisSegments(allocator, rendered.lines[0], &dracula);
     defer allocator.free(seg);
     for (rendered.lines[0].spans, seg) |span, s| {
@@ -710,9 +705,7 @@ test "toast/metadata panel styles derive from the resolved preset accent" {
 
     const pink_toast = theme.toastStyle(pink.accent, pink.base_bg);
     const dark_toast = theme.toastStyle(dark.accent, dark.base_bg);
-    // Different presets must yield different toast border accents.
     try std.testing.expect(!std.meta.eql(pink_toast.border.fg, dark_toast.border.fg));
-    // The metadata panel shares the same accent but is non-bold.
     const pink_meta = theme.metadataPanelStyle(pink.accent, pink.base_bg);
     try std.testing.expectEqual(pink_toast.border.fg, pink_meta.border.fg);
     try std.testing.expect(!pink_meta.text.bold);
@@ -789,7 +782,6 @@ test "toggle metadata is refused when front matter is hidden" {
     defer app.deinit();
 
     try app.handleToggleMetadata();
-    // Hidden means stripped entirely — the overlay must not reveal it.
     try std.testing.expect(!app.metadata.visible);
     try std.testing.expect(app.status_message != null);
 }
@@ -820,7 +812,6 @@ test "opening the metadata overlay hides the inline front matter and closing res
     try app.handleToggleMetadata();
     try std.testing.expect(app.metadata.visible);
     try std.testing.expect(app.pager.suppress_frontmatter);
-    // The inline panel is gone from the canvas while the overlay shows it.
     try std.testing.expect(app.pager.lines.len < lines_with_frontmatter);
 
     try app.handleToggleMetadata();
@@ -830,7 +821,7 @@ test "opening the metadata overlay hides the inline front matter and closing res
 
 test "toggle metadata is refused when the document has no front matter" {
     const allocator = std.testing.allocator;
-    const content = "# Body only\n"; // no --- fenced block
+    const content = "# Body only\n";
     const rt = theme_resolve.builtinResolved(allocator, "dark");
     var app: App = undefined;
     try app.init(allocator, "fixture", .none, content, "vim", &rt, null, true, .panel, .auto, .bridge);
@@ -840,34 +831,4 @@ test "toggle metadata is refused when the document has no front matter" {
     try std.testing.expect(!app.metadata.visible);
     try std.testing.expect(app.status_message != null);
     try std.testing.expectEqualStrings("No front matter metadata in this document.", app.status_message.?);
-}
-
-test "formatCopyPreview quotes short text" {
-    const allocator = std.testing.allocator;
-    const message = try formatCopyPreview(allocator, "hello");
-    defer allocator.free(message);
-    try std.testing.expectEqualStrings("Copied \"hello\"", message);
-}
-
-test "formatCopyPreview collapses whitespace and drops leading padding" {
-    const allocator = std.testing.allocator;
-    const message = try formatCopyPreview(allocator, "  first\nsecond\t third  ");
-    defer allocator.free(message);
-    try std.testing.expectEqualStrings("Copied \"first second third\"", message);
-}
-
-test "formatCopyPreview terminates on a malformed byte" {
-    const allocator = std.testing.allocator;
-    const message = try formatCopyPreview(allocator, "ab\xe9cd");
-    defer allocator.free(message);
-    try std.testing.expectEqualStrings("Copied \"abcd\"", message);
-}
-
-test "formatCopyPreview truncates long text with an ellipsis" {
-    const allocator = std.testing.allocator;
-    const long = "a" ** 60;
-    const message = try formatCopyPreview(allocator, long);
-    defer allocator.free(message);
-    const expected = "Copied \"" ++ ("a" ** copy_preview_cols) ++ " …\"";
-    try std.testing.expectEqualStrings(expected, message);
 }

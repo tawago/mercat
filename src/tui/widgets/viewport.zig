@@ -65,16 +65,13 @@ test "lineForRow maps visible rows to document lines" {
     const view = Viewport{ .top = 3, .height = 5, .total = 20 };
     try std.testing.expectEqual(@as(usize, 3), view.lineForRow(0));
     try std.testing.expectEqual(@as(usize, 7), view.lineForRow(4));
-    // A row past the visible height clamps to the last visible row.
     try std.testing.expectEqual(@as(usize, 7), view.lineForRow(100));
 }
 
 test "lineForRow clamps to content bounds" {
-    // Near the bottom, the line index is clamped to total-1.
     const bottom = Viewport{ .top = 18, .height = 5, .total = 20 };
     try std.testing.expectEqual(@as(usize, 19), bottom.lineForRow(4));
 
-    // Empty content maps every row to 0.
     const empty = Viewport{};
     try std.testing.expectEqual(@as(usize, 0), empty.lineForRow(3));
 }
