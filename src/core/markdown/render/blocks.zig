@@ -63,7 +63,7 @@ pub fn renderBlock(allocator: std.mem.Allocator, builder: *Builder, block: Block
         },
         .fenced_code => |code| try code_mod.render(allocator, builder, code, content_width, options.mermaid_box_style, options.mermaid_crossing_heuristic, options.mermaid_force_layout, options.mermaid_aspect_ratio, options.mermaid_debug, options.mermaid_subgraph_edges, decor),
         .html_block => |html| try builder.appendSpan(.muted, html),
-        .thematic_break => try rules.renderHr(allocator, builder, content_width, decor),
+        .thematic_break => try rules.renderHr(builder, content_width, decor),
         .table => |table| try table_mod.renderTable(allocator, builder, table, content_width, decor),
         .blockquote => |bq| try renderBlockQuote(allocator, builder, bq, content_width, options.left_padding, decor),
     }
@@ -97,7 +97,7 @@ pub fn renderHeading(allocator: std.mem.Allocator, builder: *Builder, heading: B
 
     if (sd.underline_row) {
         try builder.newline();
-        try rules.renderUnderlineRow(allocator, builder, width, heading_style, sd.underline_glyph);
+        try rules.renderUnderlineRow(builder, width, heading_style, sd.underline_glyph);
     }
 }
 
@@ -121,7 +121,7 @@ pub fn renderParagraph(allocator: std.mem.Allocator, builder: *Builder, inlines:
     if (start < inlines.len) {
         if (start > 0) try builder.newline();
         try wrap.renderWrappedInlines(allocator, builder, inlines[start..], width, .body, indent_prefix, prefix_style, "", prefix_style, decor);
-    } else if (start == 0 and inlines.len == 0) {}
+    }
 }
 
 pub fn renderListItem(allocator: std.mem.Allocator, builder: *Builder, item: Block.ListItem, width: usize, display_marker: []const u8, marker_style: SpanStyle, depth: u8, decor: *const Decor) anyerror!void {
@@ -250,7 +250,7 @@ pub fn renderBlockQuote(allocator: std.mem.Allocator, builder: *Builder, bq: Blo
             },
             .fenced_code => |code| try code_mod.render(allocator, builder, code, content_width, .standard, .median, .auto, 1.0, false, .bridge, decor),
             .html_block => |html| try builder.appendSpan(.muted, html),
-            .thematic_break => try rules.renderHr(allocator, builder, content_width, decor),
+            .thematic_break => try rules.renderHr(builder, content_width, decor),
             .table => |table| try table_mod.renderTable(allocator, builder, table, content_width, decor),
             else => {},
         }
@@ -293,7 +293,6 @@ pub fn renderBlockQuote(allocator: std.mem.Allocator, builder: *Builder, bq: Blo
             }
             allocator.free(line.spans);
             line.spans = try new_spans.toOwnedSlice(allocator);
-            try line.reprepareOwned(allocator);
         }
     }
 }
@@ -337,7 +336,7 @@ pub fn renderBlockQuoteWithPrefix(allocator: std.mem.Allocator, builder: *Builde
             },
             .fenced_code => |code| try code_mod.render(allocator, builder, code, content_width, .standard, .median, .auto, 1.0, false, .bridge, decor),
             .html_block => |html| try builder.appendSpan(.muted, html),
-            .thematic_break => try rules.renderHr(allocator, builder, content_width, decor),
+            .thematic_break => try rules.renderHr(builder, content_width, decor),
             else => {},
         }
 
@@ -363,7 +362,6 @@ pub fn renderBlockQuoteWithPrefix(allocator: std.mem.Allocator, builder: *Builde
             }
             allocator.free(line.spans);
             line.spans = try new_spans.toOwnedSlice(allocator);
-            try line.reprepareOwned(allocator);
         }
     }
 }

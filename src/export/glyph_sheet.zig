@@ -305,10 +305,9 @@ test "glyph sheet export dimensions follow the fixture and §7.4" {
 
     var expect_cols: u32 = 0;
     for (rendered.lines) |line| {
-        var text: std.ArrayList(u8) = .empty;
-        defer text.deinit(testing.allocator);
-        for (line.spans) |span| try text.appendSlice(testing.allocator, span.text);
-        const columns = try unicode.rawDisplayWidth(text.items);
+        const text = try line.joinedText(testing.allocator);
+        defer testing.allocator.free(text);
+        const columns = try unicode.rawDisplayWidth(text);
         expect_cols = @max(expect_cols, std.math.cast(u32, columns) orelse return error.Overflow);
     }
     try testing.expectEqual(expect_cols, doc.columns);

@@ -1385,7 +1385,7 @@ pub const Parser = struct {
             self.skipToNextLine();
             try self.parseStateDiagramBody(diagram, id, start_count, end_count);
             self.skipWhitespaceAndComments();
-            if (self.matchChar('}')) {} else if (self.consumeKeyword("end")) {}
+            _ = self.matchChar('}') or self.consumeKeyword("end");
         }
 
         self.skipToNextLine();

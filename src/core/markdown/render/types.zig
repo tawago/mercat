@@ -26,10 +26,6 @@ pub const Options = struct {
     decor: *const decor_mod.Decor = &decor_mod.legacy,
     /// YAML front matter display style (issue #9; panel default).
     frontmatter_style: config.FrontmatterStyle = .panel,
-    /// True when the render model feeds a file exporter (plain/PNG) rather than
-    /// an interactive terminal. Retained for backend-specific render policy;
-    /// Unicode preparation itself is identical for terminal and export output.
-    for_export: bool = false,
     mermaid_box_style: mermaid_types.BoxDrawingStyle = .standard,
     mermaid_crossing_heuristic: mermaid_types.CrossingReductionHeuristic = .median,
     mermaid_force_layout: mermaid_types.ForceLayout = .auto,

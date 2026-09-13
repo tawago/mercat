@@ -55,16 +55,16 @@ fn renderPanel(allocator: std.mem.Allocator, builder: *Builder, code: Block.Code
     try builder.appendSpan(.code_fence_banner, "```");
 }
 
+/// Each code line as one row: a single cell of padding, then the highlighted
+/// text with no right fill.
 fn renderPlain(allocator: std.mem.Allocator, builder: *Builder, code: Block.CodeBlock) !void {
     var lines = std.mem.splitScalar(u8, code.code, '\n');
     var first = true;
     while (lines.next()) |line| {
         if (!first) try builder.newline();
         first = false;
-        const trimmed = std.mem.trimRight(u8, line, "\r");
-        _ = try geometry.displayWidthFrom(trimmed, builder.left_padding + 1);
         try appendPadding(builder, 1);
-        try appendHighlighted(allocator, builder, code.language, trimmed);
+        try appendHighlighted(allocator, builder, code.language, std.mem.trimRight(u8, line, "\r"));
     }
 }
 
@@ -73,18 +73,11 @@ fn renderRule(allocator: std.mem.Allocator, builder: *Builder, code: Block.CodeB
     const glyph_width = @max(try geometry.displayWidth(glyph), 1);
     const cap: usize = if (frame.border_cap) |value| value else content_width;
     const count = @min(cap, content_width / glyph_width);
-    try appendRule(allocator, builder, glyph, count);
-
-    var lines = std.mem.splitScalar(u8, code.code, '\n');
-    while (lines.next()) |line| {
-        try builder.newline();
-        const trimmed = std.mem.trimRight(u8, line, "\r");
-        _ = try geometry.displayWidthFrom(trimmed, builder.left_padding + 1);
-        try appendPadding(builder, 1);
-        try appendHighlighted(allocator, builder, code.language, trimmed);
-    }
+    try builder.appendRepeated(.muted, glyph, count);
     try builder.newline();
-    try appendRule(allocator, builder, glyph, count);
+    try renderPlain(allocator, builder, code);
+    try builder.newline();
+    try builder.appendRepeated(.muted, glyph, count);
 }
 
 fn renderFramedBlock(allocator: std.mem.Allocator, builder: *Builder, code: Block.CodeBlock, content_width: usize, frame: decor_mod.CodeFrameDelta) !void {
@@ -150,8 +143,8 @@ fn renderMermaid(allocator: std.mem.Allocator, builder: *Builder, source: []cons
     }
 }
 
-fn appendMermaidDebug(allocator: std.mem.Allocator, builder: *Builder, result: anytype) !void {
-    const algorithm = switch (result.algorithm_used) {
+fn appendMermaidDebug(allocator: std.mem.Allocator, builder: *Builder, result: mermaid.RenderResult) !void {
+    const algorithm: []const u8 = switch (result.algorithm_used) {
         .sugiyama => "Sugiyama",
         .reingold_tilford => "Reingold-Tilford",
         .fruchterman_reingold => "Fruchterman-Reingold",
@@ -162,55 +155,36 @@ fn appendMermaidDebug(allocator: std.mem.Allocator, builder: *Builder, result: a
         .unknown => "Unknown",
     };
     try builder.appendSpan(.muted, "---debug-mermaid---");
-    inline for (.{
-        .{ "Algorithm: {s}", algorithm },
-    }) |entry| {
-        try builder.newline();
-        const line = try std.fmt.allocPrint(allocator, entry[0], .{entry[1]});
-        defer allocator.free(line);
-        try builder.appendSpan(.muted, line);
-    }
-    const numeric = [_]struct { label: []const u8, value: usize }{
-        .{ .label = "Nodes", .value = result.node_count },
-        .{ .label = "Edges", .value = result.edge_count },
-    };
-    for (numeric) |entry| {
-        try builder.newline();
-        const line = try std.fmt.allocPrint(allocator, "{s}: {d}", .{ entry.label, entry.value });
-        defer allocator.free(line);
-        try builder.appendSpan(.muted, line);
-    }
-    try appendDebugBool(allocator, builder, "Tree detected", result.is_tree);
-    try appendDebugBool(allocator, builder, "Cyclic", result.is_cyclic);
-    try appendDebugBool(allocator, builder, "Width constraint triggered", result.width_constraint_triggered);
+    try appendDebugLine(allocator, builder, "Algorithm: {s}", .{algorithm});
+    try appendDebugLine(allocator, builder, "Nodes: {d}", .{result.node_count});
+    try appendDebugLine(allocator, builder, "Edges: {d}", .{result.edge_count});
+    try appendDebugLine(allocator, builder, "Tree detected: {s}", .{yesNo(result.is_tree)});
+    try appendDebugLine(allocator, builder, "Cyclic: {s}", .{yesNo(result.is_cyclic)});
+    try appendDebugLine(allocator, builder, "Width constraint triggered: {s}", .{yesNo(result.width_constraint_triggered)});
     if (result.fit_stage != FitStage.natural) {
-        try builder.newline();
-        const line = try std.fmt.allocPrint(allocator, "Fit stage: {s}", .{result.fit_stage.description()});
-        defer allocator.free(line);
-        try builder.appendSpan(.muted, line);
+        try appendDebugLine(allocator, builder, "Fit stage: {s}", .{result.fit_stage.description()});
     }
     if (result.original_direction) |direction| {
-        try builder.newline();
-        const line = try std.fmt.allocPrint(allocator, "Original direction: {s} (switched for width)", .{@tagName(direction)});
-        defer allocator.free(line);
-        try builder.appendSpan(.muted, line);
+        try appendDebugLine(allocator, builder, "Original direction: {s} (switched for width)", .{@tagName(direction)});
     }
     if (result.crossing_reduction_iterations > 0) {
-        try builder.newline();
-        const line = try std.fmt.allocPrint(allocator, "Crossing reduction iterations: {d}", .{result.crossing_reduction_iterations});
-        defer allocator.free(line);
-        try builder.appendSpan(.muted, line);
+        try appendDebugLine(allocator, builder, "Crossing reduction iterations: {d}", .{result.crossing_reduction_iterations});
     }
     try builder.newline();
     try builder.appendSpan(.muted, "---debug-mermaid---");
     try builder.newline();
 }
 
-fn appendDebugBool(allocator: std.mem.Allocator, builder: *Builder, label: []const u8, value: bool) !void {
+/// One muted debug row on a fresh line.
+fn appendDebugLine(allocator: std.mem.Allocator, builder: *Builder, comptime fmt: []const u8, args: anytype) !void {
     try builder.newline();
-    const line = try std.fmt.allocPrint(allocator, "{s}: {s}", .{ label, if (value) "yes" else "no" });
+    const line = try std.fmt.allocPrint(allocator, fmt, args);
     defer allocator.free(line);
     try builder.appendSpan(.muted, line);
+}
+
+fn yesNo(value: bool) []const u8 {
+    return if (value) "yes" else "no";
 }
 
 fn renderFallback(allocator: std.mem.Allocator, builder: *Builder, language: []const u8, source: []const u8) !void {
@@ -241,14 +215,6 @@ fn appendHighlighted(allocator: std.mem.Allocator, builder: *Builder, language: 
     const tokens = try highlight.tokenizeLine(allocator, language, text);
     defer highlight.freeTokens(allocator, tokens);
     for (tokens) |token| try builder.appendSpan(tokenStyle(token.style), token.text);
-}
-
-fn appendRule(allocator: std.mem.Allocator, builder: *Builder, glyph: []const u8, count: usize) !void {
-    if (count == 0) return;
-    const text = try allocator.alloc(u8, glyph.len * count);
-    defer allocator.free(text);
-    for (0..count) |index| @memcpy(text[index * glyph.len ..][0..glyph.len], glyph);
-    try builder.appendSpan(.muted, text);
 }
 
 fn maxLineWidth(source: []const u8, initial_column: usize) !usize {

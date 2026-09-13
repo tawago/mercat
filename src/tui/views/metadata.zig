@@ -1,6 +1,7 @@
 const std = @import("std");
 const vaxis = @import("vaxis");
 const markdown = @import("../../core/markdown/document.zig");
+const theme = @import("../../core/theme.zig");
 const unicode = @import("unicode");
 
 const PreparedMetadataLine = struct {
@@ -23,19 +24,18 @@ fn prepareMetadataLine(
     entry: markdown.Block.FrontMatter.Entry,
     key_width: usize,
 ) !PreparedMetadataLine {
-    var key = try unicode.PreparedLine.init(allocator, entry.key);
-    defer key.deinit();
+    const key_columns = try unicode.rawDisplayWidth(entry.key);
 
     var raw: std.ArrayList(u8) = .empty;
     defer raw.deinit(allocator);
     if (entry.key.len != 0) {
         try raw.appendSlice(allocator, entry.key);
-        try raw.appendNTimes(allocator, ' ', key_width + 2 - key.total_columns);
+        try raw.appendNTimes(allocator, ' ', key_width + 2 - key_columns);
     }
     try raw.appendSlice(allocator, entry.value);
     return .{
         .line = try unicode.PreparedLine.init(allocator, raw.items),
-        .key_columns = key.total_columns,
+        .key_columns = key_columns,
     };
 }
 
@@ -43,11 +43,7 @@ fn prepareMetadataLine(
 /// one `key  value` row per entry aligned on the key column, scrollable when
 /// the entries overflow the window.
 pub const MetadataOverlay = struct {
-    pub const PanelStyle = struct {
-        fill: vaxis.Style,
-        border: vaxis.Style,
-        text: vaxis.Style,
-    };
+    pub const PanelStyle = theme.ToastStyle;
 
     /// Screen rectangle (cells) of a drawn overlay, used for mouse hit-testing.
     pub const Rect = struct { x: u16, y: u16, width: u16, height: u16 };
@@ -131,14 +127,15 @@ pub const MetadataOverlay = struct {
         const end = @min(start + visible_rows, total);
 
         var key_width: usize = 0;
-        for (fm.entries) |entry| {
-            const key = try unicode.PreparedLine.init(frame_allocator, entry.key);
-            key_width = @max(key_width, key.total_columns);
-        }
+        for (fm.entries) |entry| key_width = @max(key_width, try unicode.rawDisplayWidth(entry.key));
+
+        // Prepare every row once per frame: the panel width needs them all and
+        // the visible ones are printed from the same preparation.
+        const rows = try frame_allocator.alloc(PreparedMetadataLine, total);
         var row_width: usize = 0;
-        for (fm.entries) |entry| {
-            const line = try prepareMetadataLine(frame_allocator, entry, key_width);
-            row_width = @max(row_width, line.line.total_columns);
+        for (fm.entries, rows) |entry, *row| {
+            row.* = try prepareMetadataLine(frame_allocator, entry, key_width);
+            row_width = @max(row_width, row.line.total_columns);
         }
 
         const indicator = if (overflow)
@@ -181,8 +178,7 @@ pub const MetadataOverlay = struct {
         var key_style = style.text;
         key_style.dim = true;
         const inner_width = width -| 4;
-        for (fm.entries[start..end], 0..) |entry, row| {
-            const prepared = try prepareMetadataLine(frame_allocator, entry, key_width);
+        for (rows[start..end], 0..) |prepared, row| {
             const clipped = prepared.clipped(inner_width);
             _ = root.print(&.{
                 .{ .text = clipped.key, .style = key_style },
@@ -262,15 +258,14 @@ test "metadata line width and clipping use complete display graphemes" {
         .{ .key = "日", .value = "value" },
     };
     for (cases) |entry| {
-        var key = try unicode.PreparedLine.init(std.testing.allocator, entry.key);
-        defer key.deinit();
-        var line = try prepareMetadataLine(std.testing.allocator, entry, key.total_columns);
+        const key_columns = try unicode.rawDisplayWidth(entry.key);
+        var line = try prepareMetadataLine(std.testing.allocator, entry, key_columns);
         defer line.deinit();
 
-        const before = line.clipped(key.total_columns - 1);
+        const before = line.clipped(key_columns - 1);
         try std.testing.expectEqual(@as(usize, 0), before.key.len);
         try std.testing.expectEqual(@as(usize, 0), before.rest.len);
-        const at_marker = line.clipped(key.total_columns);
+        const at_marker = line.clipped(key_columns);
         try std.testing.expectEqualStrings(entry.key, at_marker.key);
         try std.testing.expectEqual(@as(usize, 0), at_marker.rest.len);
     }

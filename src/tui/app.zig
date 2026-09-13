@@ -307,16 +307,8 @@ pub const App = struct {
             line_idx,
             self.pager.lines[line_idx],
         ) catch |err| switch (err) {
-            error.InvalidUtf8 => {
-                try self.setStatusMessage("Cannot select text: invalid UTF-8.", false);
-                return;
-            },
-            error.DisallowedControl => {
-                try self.setStatusMessage("Cannot select text: unsupported control character.", false);
-                return;
-            },
-            error.Overflow => {
-                try self.setStatusMessage("Cannot select text: line is too wide.", false);
+            error.InvalidUtf8, error.DisallowedControl, error.Overflow => |e| {
+                try self.reportMeasureError("select text", e);
                 return;
             },
             else => return err,
@@ -335,16 +327,8 @@ pub const App = struct {
 
     fn copySelection(self: *App) !void {
         const text = self.pager.selectedText(self.allocator) catch |err| switch (err) {
-            error.InvalidUtf8 => {
-                try self.setStatusMessage("Cannot copy selection: invalid UTF-8.", false);
-                return;
-            },
-            error.DisallowedControl => {
-                try self.setStatusMessage("Cannot copy selection: unsupported control character.", false);
-                return;
-            },
-            error.Overflow => {
-                try self.setStatusMessage("Cannot copy selection: line is too wide.", false);
+            error.InvalidUtf8, error.DisallowedControl, error.Overflow => |e| {
+                try self.reportMeasureError("copy selection", e);
                 return;
             },
             else => return err,
@@ -363,16 +347,8 @@ pub const App = struct {
     /// Show a top-right toast previewing the copied text, e.g. `Copied "hi …"`.
     fn showCopyToast(self: *App, text: []const u8) !void {
         const message = selection_mod.formatCopyPreview(self.allocator, text) catch |err| switch (err) {
-            error.InvalidUtf8 => {
-                try self.setStatusMessage("Cannot preview copied text: invalid UTF-8.", false);
-                return;
-            },
-            error.DisallowedControl => {
-                try self.setStatusMessage("Cannot preview copied text: unsupported control character.", false);
-                return;
-            },
-            error.Overflow => {
-                try self.setStatusMessage("Cannot preview copied text: line is too wide.", false);
+            error.InvalidUtf8, error.DisallowedControl, error.Overflow => |e| {
+                try self.reportMeasureError("preview copied text", e);
                 return;
             },
             else => return err,
@@ -392,22 +368,10 @@ pub const App = struct {
     /// Draw the copy toast as a soft, themed panel in the top-right corner.
     fn drawToast(self: *App, root: vaxis.Window) !void {
         const message = self.toast_message orelse return;
-        const message_width = unicode.rawDisplayWidth(message) catch |err| switch (err) {
-            error.InvalidUtf8 => {
-                try self.setStatusMessage("Cannot show copy preview: invalid UTF-8.", false);
-                self.clearToast();
-                return;
-            },
-            error.DisallowedControl => {
-                try self.setStatusMessage("Cannot show copy preview: unsupported control character.", false);
-                self.clearToast();
-                return;
-            },
-            error.Overflow => {
-                try self.setStatusMessage("Cannot show copy preview: line is too wide.", false);
-                self.clearToast();
-                return;
-            },
+        const message_width = unicode.rawDisplayWidth(message) catch |err| {
+            try self.reportMeasureError("show copy preview", err);
+            self.clearToast();
+            return;
         };
         const width = @min(root.width -| 2, message_width +| 4);
         const height: usize = 3;
@@ -554,6 +518,17 @@ pub const App = struct {
         self.status_message = if (owned) message else try self.allocator.dupe(u8, message);
     }
 
+    /// Explain a text-measurement failure in the status bar: "Cannot <action>: <reason>."
+    fn reportMeasureError(self: *App, action: []const u8, err: unicode.MeasureError) !void {
+        const reason: []const u8 = switch (err) {
+            error.InvalidUtf8 => "invalid UTF-8",
+            error.DisallowedControl => "unsupported control character",
+            error.Overflow => "line is too wide",
+        };
+        const message = try std.fmt.allocPrint(self.allocator, "Cannot {s}: {s}.", .{ action, reason });
+        try self.setStatusMessage(message, true);
+    }
+
     fn drawAndRender(self: *App) !void {
         const root = self.vx.window();
         const content_height: usize = root.height -| 1;
@@ -595,22 +570,9 @@ pub const App = struct {
         var frame_arena = std.heap.ArenaAllocator.init(self.allocator);
         defer frame_arena.deinit();
         const overlay_fm = if (self.pager.frontmatter_style == .hidden) null else self.frontMatter();
-        const theme_style = theme.metadataPanelStyle(self.pager.resolved.accent, self.pager.resolved.base_bg);
-        const metadata_style: MetadataOverlay.PanelStyle = .{
-            .fill = theme_style.fill,
-            .border = theme_style.border,
-            .text = theme_style.text,
-        };
+        const metadata_style = theme.metadataPanelStyle(self.pager.resolved.accent, self.pager.resolved.base_bg);
         self.metadata.draw(root, frame_arena.allocator(), overlay_fm, metadata_style) catch |err| switch (err) {
-            error.InvalidUtf8 => {
-                try self.setStatusMessage("Cannot show metadata: invalid UTF-8.", false);
-            },
-            error.DisallowedControl => {
-                try self.setStatusMessage("Cannot show metadata: unsupported control character.", false);
-            },
-            error.Overflow => {
-                try self.setStatusMessage("Cannot show metadata: line is too wide.", false);
-            },
+            error.InvalidUtf8, error.DisallowedControl, error.Overflow => |e| try self.reportMeasureError("show metadata", e),
             else => return err,
         };
         try self.drawToast(root);
