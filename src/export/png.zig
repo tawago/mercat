@@ -191,7 +191,7 @@ fn paintRunGlyphs(
     const baseline_y = baselinePx(g, run.row);
 
     var graphemes = unicode.Iterator.initAt(run.text, run.start_col);
-    while (try nextGrapheme(&graphemes)) |grapheme| {
+    while (try layout.nextGrapheme(&graphemes)) |grapheme| {
         const col = std.math.cast(u32, grapheme.column_start) orelse return error.ColumnOverflow;
         const box_left = runLeftPx(g, col);
         const box_px = @as(i64, grapheme.width) * @as(i64, g.cell_width_px);
@@ -209,14 +209,6 @@ fn paintRunGlyphs(
             diag,
         );
     }
-}
-
-fn nextGrapheme(iterator: *unicode.Iterator) RenderError!?unicode.GraphemeSlice {
-    return iterator.next() catch |err| switch (err) {
-        error.InvalidUtf8 => error.InvalidUtf8,
-        error.DisallowedControl => error.InvalidControlScalar,
-        error.Overflow => error.ColumnOverflow,
-    };
 }
 
 fn drawGrapheme(

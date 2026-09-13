@@ -135,19 +135,19 @@ fn appendLineRuns(
     line: render_model.Line,
     options: Options,
 ) Error!u32 {
-    var text: std.ArrayList(u8) = .empty;
-    defer text.deinit(allocator);
-    for (line.spans) |span| try text.appendSlice(allocator, span.text);
+    // Segment the joined line so a grapheme may cross a span boundary; each
+    // run is then a contiguous slice of that text owned by one span.
+    const text = try line.joinedText(allocator);
+    defer allocator.free(text);
 
-    var run_text: std.ArrayList(u8) = .empty;
-    defer run_text.deinit(allocator);
     var run_span_index: ?usize = null;
     var run_start_col: u32 = 0;
+    var run_byte_start: usize = 0;
     var run_columns: u32 = 0;
 
     var span_index: usize = 0;
     var span_end: usize = if (line.spans.len == 0) 0 else line.spans[0].text.len;
-    var graphemes = unicode.Iterator.init(text.items);
+    var graphemes = unicode.Iterator.init(text);
     while (try nextGrapheme(&graphemes)) |grapheme| {
         while (span_index < line.spans.len and grapheme.byte_start >= span_end) {
             span_index += 1;
@@ -162,20 +162,19 @@ fn appendLineRuns(
                 row,
                 run_start_col,
                 run_columns,
-                run_text.items,
+                text[run_byte_start..grapheme.byte_start],
                 line.spans[run_span_index.?],
                 options,
             );
-            run_text.clearRetainingCapacity();
             run_columns = 0;
             run_span_index = null;
         }
         if (run_span_index == null) {
             run_span_index = span_index;
             run_start_col = std.math.cast(u32, grapheme.column_start) orelse return error.ColumnOverflow;
+            run_byte_start = grapheme.byte_start;
         }
 
-        try run_text.appendSlice(allocator, grapheme.bytes);
         run_columns = std.math.add(u32, run_columns, @intCast(grapheme.width)) catch return error.ColumnOverflow;
     }
 
@@ -186,7 +185,7 @@ fn appendLineRuns(
             row,
             run_start_col,
             run_columns,
-            run_text.items,
+            text[run_byte_start..],
             line.spans[owner],
             options,
         );
@@ -194,7 +193,8 @@ fn appendLineRuns(
     return std.math.cast(u32, graphemes.column) orelse return error.ColumnOverflow;
 }
 
-fn nextGrapheme(iterator: *unicode.Iterator) Error!?unicode.GraphemeSlice {
+/// Advance the authority's iterator, naming its failures in export terms.
+pub fn nextGrapheme(iterator: *unicode.Iterator) Error!?unicode.GraphemeSlice {
     return iterator.next() catch |err| switch (err) {
         error.InvalidUtf8 => error.InvalidUtf8,
         error.DisallowedControl => error.InvalidControlScalar,

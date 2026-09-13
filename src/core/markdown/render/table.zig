@@ -23,18 +23,16 @@ pub fn renderTable(allocator: std.mem.Allocator, builder: *Builder, table: Block
     defer allocator.free(widths);
     @memset(widths, 0);
 
+    // Natural widths first, column by column: each column's text position
+    // depends on the widths already settled to its left.
     const boxed = decor.glyphs.table_style == .rounded;
-    const natural_widths = try allocator.alloc(usize, max_columns);
-    defer allocator.free(natural_widths);
-    @memset(natural_widths, 0);
     for (0..max_columns) |index| {
-        const text_column = cellTextColumn(builder.left_padding, natural_widths, index, boxed);
+        const text_column = cellTextColumn(builder.left_padding, widths, index, boxed);
         for (table.rows) |row| {
             if (index >= row.cells.len) continue;
-            natural_widths[index] = @max(natural_widths[index], try inline_mod.inlinesDisplayWidthFrom(allocator, row.cells[index], text_column));
+            widths[index] = @max(widths[index], try inline_mod.inlinesDisplayWidthFrom(allocator, row.cells[index], text_column));
         }
     }
-    @memcpy(widths, natural_widths);
 
     try fitColumnWidths(widths, max_width);
 
@@ -203,7 +201,6 @@ pub fn appendSpaces(builder: *Builder, count: usize, style: SpanStyle) !void {
 /// extended-grapheme boundaries; tabs retain their source byte here and are
 /// expanded later when the complete output row is prepared.
 fn wrapCell(allocator: std.mem.Allocator, text: []const u8, width: usize, initial_column: usize) ![][]const u8 {
-    _ = try geometry.displayWidth(text);
     var output: std.ArrayList([]const u8) = .empty;
     errdefer {
         for (output.items) |line| allocator.free(line);
@@ -247,18 +244,24 @@ fn cellTextColumn(left_padding: usize, widths: []const usize, index: usize, boxe
 }
 
 fn alignmentPadding(text: []const u8, width: usize, base_column: usize, alignment: Block.Table.Alignment) !struct { usize, usize } {
-    if (alignment == .left or alignment == .none) {
-        const text_width = try geometry.displayWidthFrom(text, base_column);
-        return .{ 0, width -| text_width };
+    const text_width = try geometry.displayWidthFrom(text, base_column);
+    if (alignment == .left or alignment == .none) return .{ 0, width -| text_width };
+
+    // Only a tab makes the text's width depend on where it starts; any other
+    // cell aligns arithmetically from the one measurement above.
+    if (std.mem.indexOfScalar(u8, text, '\t') == null) {
+        const remaining = width -| text_width;
+        const left = if (alignment == .right) remaining else remaining / 2;
+        return .{ left, remaining - left };
     }
 
     var best_left: usize = 0;
     var best_right: usize = 0;
     var best_balance: usize = std.math.maxInt(usize);
     for (0..width + 1) |left| {
-        const text_width = try geometry.displayWidthFrom(text, base_column + left);
-        if (left + text_width > width) continue;
-        const right = width - left - text_width;
+        const shifted_width = try geometry.displayWidthFrom(text, base_column + left);
+        if (left + shifted_width > width) continue;
+        const right = width - left - shifted_width;
         if (alignment == .right) {
             if (left >= best_left) {
                 best_left = left;
