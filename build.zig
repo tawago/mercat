@@ -27,6 +27,18 @@ pub fn build(b: *std.Build) void {
     // =====================================================
     // Shared Modules (for reuse across targets)
     // =====================================================
+    const text_mod = b.createModule(.{
+        .root_source_file = b.path("src/lib/text.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+
+    const unicode_mod = b.createModule(.{
+        .root_source_file = b.path("src/lib/unicode.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+
     const prim_mod = b.createModule(.{
         .root_source_file = b.path("src/core/mermaid_v2/base/types.zig"),
         .target = target,
@@ -52,6 +64,8 @@ pub fn build(b: *std.Build) void {
     root_module.addImport("koino", koino_dep.module("koino"));
     root_module.addImport("vaxis", vaxis_dep.module("vaxis"));
     root_module.addImport("prim", prim_mod);
+    root_module.addImport("text", text_mod);
+    root_module.addImport("unicode", unicode_mod);
     // Native export font service (src/export/font.zig): embedded JetBrains Mono
     // + vendored stb_truetype. See linkExportFont below.
     linkExportFont(b, root_module);
@@ -87,6 +101,8 @@ pub fn build(b: *std.Build) void {
     test_module.addImport("koino", koino_dep.module("koino"));
     test_module.addImport("vaxis", vaxis_dep.module("vaxis"));
     test_module.addImport("prim", prim_mod);
+    test_module.addImport("text", text_mod);
+    test_module.addImport("unicode", unicode_mod);
     linkExportFont(b, test_module);
 
     const unit_tests = b.addTest(.{
@@ -99,6 +115,23 @@ pub fn build(b: *std.Build) void {
     test_run.step.dependOn(b.getInstallStep());
     const test_step = b.step("test", "Run unit tests");
     test_step.dependOn(&test_run.step);
+
+    // =====================================================
+    // Legacy Mermaid Tests (standalone root at src/core/mermaid/legacy_test.zig)
+    // =====================================================
+    const legacy_mermaid_test_module = b.createModule(.{
+        .root_source_file = b.path("src/core/mermaid/legacy_test.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    legacy_mermaid_test_module.addImport("prim", prim_mod);
+    legacy_mermaid_test_module.addImport("text", text_mod);
+    legacy_mermaid_test_module.addImport("unicode", unicode_mod);
+    const legacy_mermaid_tests = b.addTest(.{ .root_module = legacy_mermaid_test_module });
+    const legacy_mermaid_test_run = b.addRunArtifact(legacy_mermaid_tests);
+    const legacy_mermaid_test_step = b.step("test-mermaid-legacy", "Run legacy Mermaid renderer tests");
+    legacy_mermaid_test_step.dependOn(&legacy_mermaid_test_run.step);
+    test_step.dependOn(&legacy_mermaid_test_run.step);
 
     // =====================================================
     // Export Font Tests (standalone root at src/export/font.zig)

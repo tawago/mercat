@@ -29,7 +29,6 @@ pub fn renderERDiagram(allocator: Allocator, source: []const u8, options: Render
         };
     }
 
-    // Layout constants
     const entity_padding: u32 = 2;
     const min_entity_width: u32 = 12;
     const entity_height: u32 = 3;

@@ -29,21 +29,12 @@ const buildChain = resolve.buildChain;
 const PaletteMode = resolve.PaletteMode;
 const containsPua = @import("fromraw.zig").containsPua;
 
-// ===========================================================================
-// Tests
-// ===========================================================================
-
 const testing = std.testing;
 
 fn rawFrom(alloc: std.mem.Allocator, text: []const u8) !loadfile.RawThemeBuilder {
     return loadfile.parseThemeTables(alloc, text);
 }
 
-// Byte-identity guard for the dark/light data-spec migration: resolving the
-// un-themed presets must reproduce the neutral base palettes across EVERY
-// slot (dark/light carry no delta over their own base, so any difference
-// means the bake drifted), plus numeric anchors pinning the historical
-// literals themselves.
 test "resolve(dark/light) == the neutral base palettes across all slots" {
     var reg = Registry.init(testing.allocator);
     defer reg.deinit();
@@ -61,9 +52,6 @@ test "resolve(dark/light) == the neutral base palettes across all slots" {
             try testing.expect(std.meta.eql(@field(c.want, f.name), @field(r.styles, f.name)));
         }
     }
-    // Independent numeric anchors (default variant) so the historical values
-    // are pinned even if the derived paths were to drift together. The classic
-    // anchors live in the adjacent syntax-variant test.
     try testing.expectEqual(color.idx(254), theme.neutralDark.body.fg);
     try testing.expectEqual(color.idx(141), theme.neutralDark.code_block_keyword.fg);
     try testing.expectEqual(color.idx(250), theme.neutralDark.code_block.fg);
@@ -71,8 +59,6 @@ test "resolve(dark/light) == the neutral base palettes across all slots" {
     try testing.expectEqual(color.idx(92), theme.neutralLight.code_block_keyword.fg);
 }
 
-// Classic syntax variant threaded end-to-end through the resolver (S5): the
-// `dark`/`light` bases carry a `slots_classic` delta that recolors code tokens.
 test "resolve(dark/light, .classic) recolors code tokens; default is unchanged" {
     var reg = Registry.init(testing.allocator);
     defer reg.deinit();
@@ -90,21 +76,16 @@ test "resolve(dark/light, .classic) recolors code tokens; default is unchanged" 
     const light_c = try reg.resolve("light", .classic, null, &diag);
     try testing.expectEqual(color.idx(25), light_c.styles.code_block_keyword.fg);
 
-    // Non-dark/light preset ignores the variant (no delta): dracula unchanged.
     const drac_def = try reg.resolve("dracula", .default, null, &diag);
     const drac_cls = try reg.resolve("dracula", .classic, null, &diag);
     try testing.expectEqual(drac_def.styles.code_block_keyword.fg, drac_cls.styles.code_block_keyword.fg);
 
-    // Inline overrides still win over the classic delta.
     var raw = try rawFrom(testing.allocator, "[theme.code_block_keyword]\nfg = \"#ff0000\"\n");
     defer raw.deinit(testing.allocator);
     const overridden = try reg.resolve("dark", .classic, raw.view(), &diag);
     try testing.expectEqual(color.rgb(0xff, 0, 0), overridden.styles.code_block_keyword.fg);
 }
 
-// The four structural color slots re-added in S2 bake to their #17 borrowed
-// tokens (muted / body) for every un-themed built-in, so the default path is
-// byte-identical.
 test "re-added structural slots default to muted/body" {
     var reg = Registry.init(testing.allocator);
     defer reg.deinit();
@@ -125,11 +106,9 @@ test "resolve dark yields a full palette + total decor" {
 
     const r = try reg.resolve("dark", .default, null, &diag);
     try testing.expectEqual(@as(usize, 0), diag.count());
-    // dark bakes to the neutral dark base exactly.
     const expected = theme.neutralDark;
     try testing.expectEqual(expected.heading1.fg, r.styles.heading1.fg);
     try testing.expectEqual(expected.body.fg, r.styles.body.fg);
-    // Default decor is total.
     try testing.expectEqualStrings("─", r.decor.glyphs.hr_glyph);
 }
 
@@ -141,10 +120,8 @@ test "dark/light bake to the render/decor legacy Decor (goldens safety net)" {
         defer diag.deinit();
         const r = try reg.resolve(name, .default, null, &diag);
         const legacy = decor_mod.legacy;
-        // Heading prefixes match the historical `#`.. markers.
         try testing.expectEqualStrings(legacy.slot(.heading1).prefix, r.decor.slot(.heading1).prefix);
         try testing.expectEqualStrings(legacy.slot(.heading6).prefix, r.decor.slot(.heading6).prefix);
-        // Glyph vocabulary matches (bullets, tasks, quote bar, hr, table, frame).
         try testing.expectEqualStrings(legacy.glyphs.quote_bar, r.decor.glyphs.quote_bar);
         try testing.expectEqualStrings(legacy.glyphs.task_ticked, r.decor.glyphs.task_ticked);
         try testing.expectEqualStrings(legacy.glyphs.bulletAt(0), r.decor.glyphs.bulletAt(0));
@@ -162,7 +139,6 @@ test "every built-in preset resolves with zero diagnostics" {
         defer diag.deinit();
         const r = try reg.resolve(p.name, .default, null, &diag);
         try testing.expectEqual(@as(usize, 0), diag.count());
-        // Bake is total: hr glyph is always populated.
         try testing.expect(r.decor.glyphs.hr_glyph.len > 0);
     }
 }
@@ -213,7 +189,6 @@ test "inline override changes a slot color" {
 }
 
 test "sparse merge: child sets fg only, inherits prefix from base" {
-    // Base spec with a prefix; leaf overrides only fg. Fold keeps the prefix.
     const base = ThemeSpec{ .name = "base", .slots = blk: {
         var m = spec.SlotMap{};
         m.set(.heading1, .{ .prefix = ">> ", .fg = color.idx(10) });
@@ -234,20 +209,16 @@ test "sparse merge: child sets fg only, inherits prefix from base" {
 }
 
 test "canvas merges through the extends chain (absent inherits, present wins)" {
-    // Base turns canvas on; a middle spec leaves it absent (inherits true); the
-    // leaf turns it off. Fold must end at the leaf's explicit false.
     const base = ThemeSpec{ .name = "cbase", .canvas = true };
-    const mid = ThemeSpec{ .name = "cmid", .extends = "cbase" }; // canvas absent
+    const mid = ThemeSpec{ .name = "cmid", .extends = "cbase" };
     const leaf = ThemeSpec{ .name = "cleaf", .extends = "cmid", .canvas = false };
     var diag = Diagnostics.init(testing.allocator);
     defer diag.deinit();
 
-    // Inherit-through-absent: base(true) → mid(absent) folds to true.
     const chain_inherit = [_]*const ThemeSpec{ &base, &mid };
     const folded_inherit = mergeChain(testing.allocator, &chain_inherit, null, null, &diag);
     try testing.expectEqual(@as(?bool, true), folded_inherit.canvas);
 
-    // Explicit override: leaf(false) wins over inherited true.
     const chain_override = [_]*const ThemeSpec{ &base, &mid, &leaf };
     const folded_override = mergeChain(testing.allocator, &chain_override, null, null, &diag);
     try testing.expectEqual(@as(?bool, false), folded_override.canvas);
@@ -259,13 +230,10 @@ test "canvas preset defaults + canvasBg gating" {
     var diag = Diagnostics.init(testing.allocator);
     defer diag.deinit();
 
-    // dracula: canvas on, concrete base_bg → canvasBg non-null.
     const dracula = try reg.resolve("dracula", .default, null, &diag);
     try testing.expect(dracula.canvas and dracula.canvasBg() != null);
-    // dark: canvas off → canvasBg null even though base_bg is concrete.
     const dark = try reg.resolve("dark", .default, null, &diag);
     try testing.expect(!dark.canvas and dark.canvasBg() == null);
-    // ansi: canvas off and base_bg .default → canvasBg null.
     const ansi = try reg.resolve("ansi", .default, null, &diag);
     try testing.expect(!ansi.canvas and ansi.canvasBg() == null);
 }
@@ -275,7 +243,6 @@ test "inline [theme] canvas = true overrides a preset default" {
     defer reg.deinit();
     var diag = Diagnostics.init(testing.allocator);
     defer diag.deinit();
-    // dark is canvas=false by default; the inline override flips it on.
     var raw = try rawFrom(testing.allocator, "canvas = true\n");
     defer raw.deinit(testing.allocator);
     const r = try reg.resolve("dark", .default, raw.view(), &diag);
@@ -302,7 +269,6 @@ test "empty-string prefix clears inherited prefix" {
 }
 
 test "underline_row inherits through extends; glyph bakes concretely" {
-    // Base enables the row with "═"; leaf inherits the flag and keeps the glyph.
     const base = ThemeSpec{ .name = "ubase", .slots = blk: {
         var m = spec.SlotMap{};
         m.set(.heading1, .{ .underline_row = true, .underline_glyph = "\u{2550}" });
@@ -310,7 +276,7 @@ test "underline_row inherits through extends; glyph bakes concretely" {
     } };
     const leaf = ThemeSpec{ .name = "uleaf", .extends = "ubase", .slots = blk: {
         var m = spec.SlotMap{};
-        m.set(.heading1, .{ .fg = color.idx(5) }); // unrelated override
+        m.set(.heading1, .{ .fg = color.idx(5) });
         break :blk m;
     } };
     var diag = Diagnostics.init(testing.allocator);
@@ -330,7 +296,7 @@ test "underline_glyph empty string clears an inherited glyph back to the default
     } };
     const leaf = ThemeSpec{ .name = "gleaf", .extends = "gbase", .slots = blk: {
         var m = spec.SlotMap{};
-        m.set(.heading1, .{ .underline_glyph = "" }); // clear → default "─"
+        m.set(.heading1, .{ .underline_glyph = "" });
         break :blk m;
     } };
     var diag = Diagnostics.init(testing.allocator);
@@ -343,7 +309,6 @@ test "underline_glyph empty string clears an inherited glyph back to the default
 }
 
 test "buildChain detects a cycle and still resolves" {
-    // A→B→A. Register user specs forming a cycle.
     const a = ThemeSpec{ .name = "acyc", .extends = "bcyc" };
     const b = ThemeSpec{ .name = "bcyc", .extends = "acyc" };
     var reg = Registry.init(testing.allocator);
@@ -355,7 +320,7 @@ test "buildChain detects a cycle and still resolves" {
 
     const r = try reg.resolve("acyc", .default, null, &diag);
     try testing.expect(diag.has(.cyclic_extends));
-    _ = r; // still usable
+    _ = r;
 }
 
 test "missing extends target reports and falls back to dark" {
@@ -368,7 +333,6 @@ test "missing extends target reports and falls back to dark" {
 
     const r = try reg.resolve("orphan", .default, null, &diag);
     try testing.expect(diag.has(.missing_extends));
-    // Base is dark.
     const expected = theme.neutralDark;
     try testing.expectEqual(expected.body.fg, r.styles.body.fg);
 }
@@ -405,8 +369,7 @@ test "extends chain depth >= 2 folds correctly" {
 }
 
 test "specFromRaw reports bad color and unknown key, keeps good ones" {
-    var raw = try rawFrom(testing.allocator,
-        "[theme.heading1]\nfg = \"notacolor\"\nbold = true\nbogus = \"x\"\n");
+    var raw = try rawFrom(testing.allocator, "[theme.heading1]\nfg = \"notacolor\"\nbold = true\nbogus = \"x\"\n");
     defer raw.deinit(testing.allocator);
     var diag = Diagnostics.init(testing.allocator);
     defer diag.deinit();
@@ -415,7 +378,7 @@ test "specFromRaw reports bad color and unknown key, keeps good ones" {
     try testing.expect(diag.has(.bad_color));
     try testing.expect(diag.has(.unknown_key));
     const h1 = s.slots.get(.heading1).?;
-    try testing.expect(h1.fg == null); // bad color dropped
+    try testing.expect(h1.fg == null);
     try testing.expectEqual(@as(?bool, true), h1.bold);
 }
 
@@ -446,7 +409,6 @@ test "user file as named theme resolves via specFromRaw" {
 }
 
 test "user file as extends= target folds into the chain" {
-    // A user base + a user leaf extending it.
     var base_raw = try rawFrom(testing.allocator, "[theme.body]\nfg = \"#0a0b0c\"\n");
     defer base_raw.deinit(testing.allocator);
     var diag = Diagnostics.init(testing.allocator);
@@ -471,10 +433,7 @@ test "user file as extends= target folds into the chain" {
 }
 
 test "user file as extends= built-in preset: non-overridden slots equal the preset" {
-    // Mirrors the repro: a user file whose root `extends = "dracula"` plus a
-    // single heading1 override. Every non-overridden slot must equal dracula.
-    var raw = try rawFrom(testing.allocator,
-        "extends = \"dracula\"\n[theme.heading1]\nfg = \"#ff0000\"\n");
+    var raw = try rawFrom(testing.allocator, "extends = \"dracula\"\n[theme.heading1]\nfg = \"#ff0000\"\n");
     defer raw.deinit(testing.allocator);
     var diag = Diagnostics.init(testing.allocator);
     defer diag.deinit();
@@ -491,23 +450,19 @@ test "user file as extends= built-in preset: non-overridden slots equal the pres
     try testing.expectEqual(@as(usize, 0), diag.count());
 
     const drac = try reg.resolve("dracula", .default, null, &diag);
-    // Overridden slot differs; everything else matches dracula exactly.
     try testing.expectEqual(color.rgb(0xff, 0, 0), r.styles.heading1.fg);
     try testing.expectEqual(drac.styles.body.fg, r.styles.body.fg);
     try testing.expectEqual(drac.styles.link.fg, r.styles.link.fg);
     try testing.expectEqual(drac.styles.code.fg, r.styles.code.fg);
     try testing.expectEqual(drac.styles.strong.fg, r.styles.strong.fg);
-    // And it did NOT collapse to the built-in dark base.
     const dark_base = theme.neutralDark;
     try testing.expect(!std.meta.eql(r.styles.body.fg, dark_base.body.fg));
 }
 
 test "extends chain through a second user file (leaf → user base → built-in)" {
-    var base_raw = try rawFrom(testing.allocator,
-        "extends = \"dracula\"\n[theme.link]\nfg = \"#010203\"\n");
+    var base_raw = try rawFrom(testing.allocator, "extends = \"dracula\"\n[theme.link]\nfg = \"#010203\"\n");
     defer base_raw.deinit(testing.allocator);
-    var leaf_raw = try rawFrom(testing.allocator,
-        "extends = \"userbase\"\n[theme.heading1]\nfg = \"#040506\"\n");
+    var leaf_raw = try rawFrom(testing.allocator, "extends = \"userbase\"\n[theme.heading1]\nfg = \"#040506\"\n");
     defer leaf_raw.deinit(testing.allocator);
     var diag = Diagnostics.init(testing.allocator);
     defer diag.deinit();
@@ -524,7 +479,6 @@ test "extends chain through a second user file (leaf → user base → built-in)
 
     const r = try reg.resolve("userleaf", .default, null, &diag);
     try testing.expectEqual(@as(usize, 0), diag.count());
-    // leaf override, user-base override, and inherited built-in dracula slot all present.
     try testing.expectEqual(color.rgb(0x04, 0x05, 0x06), r.styles.heading1.fg);
     try testing.expectEqual(color.rgb(0x01, 0x02, 0x03), r.styles.link.fg);
     const drac = try reg.resolve("dracula", .default, null, &diag);
@@ -532,7 +486,6 @@ test "extends chain through a second user file (leaf → user base → built-in)
 }
 
 test "user file with missing/cyclic root extends still reports diagnostics" {
-    // Missing target.
     var miss_raw = try rawFrom(testing.allocator, "extends = \"ghost\"\n");
     defer miss_raw.deinit(testing.allocator);
     var d1 = Diagnostics.init(testing.allocator);
@@ -545,7 +498,6 @@ test "user file with missing/cyclic root extends still reports diagnostics" {
     _ = try reg1.resolve("orphanfile", .default, null, &d1);
     try testing.expect(d1.has(.missing_extends));
 
-    // Cyclic: two user files extending each other.
     var a_raw = try rawFrom(testing.allocator, "extends = \"fileb\"\n");
     defer a_raw.deinit(testing.allocator);
     var b_raw = try rawFrom(testing.allocator, "extends = \"filea\"\n");
@@ -565,7 +517,6 @@ test "user file with missing/cyclic root extends still reports diagnostics" {
 }
 
 test "glyph_fallback fires on PUA user glyph and substitutes" {
-    // U+F011 is in the Nerd PUA range.
     var raw = try rawFrom(testing.allocator, "[theme.heading1]\nprefix = \"\u{f011} \"\n");
     defer raw.deinit(testing.allocator);
     var diag = Diagnostics.init(testing.allocator);
@@ -574,8 +525,6 @@ test "glyph_fallback fires on PUA user glyph and substitutes" {
     const s = specFromRaw(testing.allocator, raw.view(), &diag);
     try testing.expect(diag.has(.glyph_fallback));
     const h1 = s.slots.get(.heading1).?;
-    // PUA codepoint replaced; no PUA byte survives. The substituted buffer is
-    // heap-owned (arena-owned in production); free it here for the leak check.
     defer testing.allocator.free(h1.prefix.?);
     try testing.expect(!containsPua(h1.prefix.?));
 }
@@ -589,16 +538,12 @@ test "unknown palette mode and ansi16 mode" {
     try testing.expectEqual(PaletteMode.ansi16, s.palette_mode.?);
 }
 
-// --- Cluster B: theme resolution semantics -------------------------------
-
 test "inline [theme] extends re-roots the chain" {
     var reg = Registry.init(testing.allocator);
     defer reg.deinit();
     var diag = Diagnostics.init(testing.allocator);
     defer diag.deinit();
 
-    // `--style dark` plus an inline `extends = "dracula"`: dracula becomes the
-    // chain leaf, so every slot the inline keys do not touch comes from dracula.
     var raw = try rawFrom(testing.allocator, "extends = \"dracula\"\n[theme.heading1]\nfg = \"#ff0000\"\n");
     defer raw.deinit(testing.allocator);
     const r = try reg.resolve("dark", .default, raw.view(), &diag);
@@ -607,10 +552,8 @@ test "inline [theme] extends re-roots the chain" {
     const drac = try reg.resolve("dracula", .default, null, &diag);
     try testing.expect(std.meta.eql(drac.styles.body, r.styles.body));
     try testing.expect(std.meta.eql(drac.styles.code_block, r.styles.code_block));
-    // The inline key itself still wins over the inherited value.
     try testing.expectEqual(color.rgb(0xff, 0, 0), r.styles.heading1.fg);
 
-    // An unknown inline target reports missing_extends and falls back to dark.
     var bad = try rawFrom(testing.allocator, "extends = \"ghost\"\n");
     defer bad.deinit(testing.allocator);
     const fb = try reg.resolve("dracula", .default, bad.view(), &diag);
@@ -625,8 +568,6 @@ test "code_frame folds per field: a pad-only child keeps kind/language_label" {
     var diag = Diagnostics.init(testing.allocator);
     defer diag.deinit();
 
-    // markview frames code blocks as a labelled block; a child that touches only
-    // `pad` must inherit both `kind = block` and `language_label = true`.
     var raw = try rawFrom(testing.allocator, "extends = \"markview\"\n[theme.code_frame]\npad = 4\n");
     defer raw.deinit(testing.allocator);
     var child = specFromRaw(testing.allocator, raw.view(), &diag);
@@ -639,8 +580,6 @@ test "code_frame folds per field: a pad-only child keeps kind/language_label" {
     try testing.expectEqual(true, r.decor.glyphs.code_frame.language_label);
     try testing.expectEqual(@as(?u8, 4), r.decor.glyphs.code_frame.pad);
 
-    // A theme with no code_frame at all stays fully sparse; the .panel/false
-    // defaults land at the render read sites (`kind orelse .panel`).
     const bare = try reg.resolve("dark", .default, null, &diag);
     try testing.expectEqual(@as(?spec.CodeFrameKind, null), bare.decor.glyphs.code_frame.kind);
     try testing.expectEqual(@as(?bool, null), bare.decor.glyphs.code_frame.language_label);
@@ -652,7 +591,6 @@ test "tokens.function is an alias that overrides an inherited keyword" {
     var diag = Diagnostics.init(testing.allocator);
     defer diag.deinit();
 
-    // dracula sets tokens.keyword; a child spelling the alias must win.
     var raw = try rawFrom(testing.allocator, "extends = \"dracula\"\n[theme.tokens]\nfunction = \"#00ff00\"\n");
     defer raw.deinit(testing.allocator);
     var child = specFromRaw(testing.allocator, raw.view(), &diag);
@@ -667,8 +605,6 @@ test "tokens.function is an alias that overrides an inherited keyword" {
 }
 
 test "inline PUA glyph substitution is registry-arena owned (no leak)" {
-    // The substituted buffer is allocated while folding the inline overrides;
-    // it must come from the registry arena, or testing.allocator reports a leak.
     var reg = Registry.init(testing.allocator);
     defer reg.deinit();
     var diag = Diagnostics.init(testing.allocator);

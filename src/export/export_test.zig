@@ -39,14 +39,68 @@ fn requireBinary() !void {
 /// Run `mercat <extra_args...>` with no stdin. Returns captured stdout/stderr and
 /// the exit status. `argv0` is prepended automatically.
 fn runMercat(allocator: std.mem.Allocator, extra_args: []const []const u8) !Run {
+    return runMercatWithEnv(allocator, extra_args, &.{});
+}
+
+const EnvVar = struct {
+    name: []const u8,
+    value: []const u8,
+};
+
+const steering_env_names = [_][]const u8{
+    "MERCAT_FORCE_RUNG",
+    "MERCAT_SCORE_OFF",
+    "MERCAT_SCORE_SHADOW",
+    "MERCAT_INTEGRITY",
+    "MERCAT_WIDTH",
+    "MERCAT_THEME",
+    "MERCAT_SYNTAX_THEME",
+    "MERCAT_FRONTMATTER",
+    "MERCAT_SUBGRAPH_EDGES",
+};
+
+fn childEnv(allocator: std.mem.Allocator, config_home: []const u8, overrides: []const EnvVar) !std.process.EnvMap {
+    var env = try std.process.getEnvMap(allocator);
+    errdefer env.deinit();
+    for (steering_env_names) |name| env.remove(name);
+    try env.put("HOME", config_home);
+    try env.put("XDG_CONFIG_HOME", config_home);
+    for (overrides) |item| try env.put(item.name, item.value);
+    return env;
+}
+
+/// A child environment rooted in a fresh temporary config home.
+const ChildEnv = struct {
+    tmp: testing.TmpDir,
+    env: std.process.EnvMap,
+
+    fn init(allocator: std.mem.Allocator, overrides: []const EnvVar) !ChildEnv {
+        var tmp = testing.tmpDir(.{});
+        errdefer tmp.cleanup();
+        const config_home = try tmp.dir.realpathAlloc(allocator, ".");
+        defer allocator.free(config_home);
+        return .{ .tmp = tmp, .env = try childEnv(allocator, config_home, overrides) };
+    }
+
+    fn deinit(self: *ChildEnv) void {
+        self.env.deinit();
+        self.tmp.cleanup();
+    }
+};
+
+fn runMercatWithEnv(allocator: std.mem.Allocator, extra_args: []const []const u8, overrides: []const EnvVar) !Run {
     var argv: std.ArrayList([]const u8) = .empty;
     defer argv.deinit(allocator);
     try argv.append(allocator, mercat_exe_path);
     for (extra_args) |a| try argv.append(allocator, a);
 
+    var child_env = try ChildEnv.init(allocator, overrides);
+    defer child_env.deinit();
+
     const result = try std.process.Child.run(.{
         .allocator = allocator,
         .argv = argv.items,
+        .env_map = &child_env.env,
         .max_output_bytes = 16 * 1024 * 1024,
     });
     return .{
@@ -64,13 +118,16 @@ fn runMercatStdin(allocator: std.mem.Allocator, extra_args: []const []const u8, 
     try argv.append(allocator, mercat_exe_path);
     for (extra_args) |a| try argv.append(allocator, a);
 
+    var child_env = try ChildEnv.init(allocator, &.{});
+    defer child_env.deinit();
+
     var child = std.process.Child.init(argv.items, allocator);
+    child.env_map = &child_env.env;
     child.stdin_behavior = .Pipe;
     child.stdout_behavior = .Pipe;
     child.stderr_behavior = .Pipe;
     try child.spawn();
 
-    // Small payloads: write stdin fully, close, then drain stdout/stderr.
     try child.stdin.?.writeAll(stdin_bytes);
     child.stdin.?.close();
     child.stdin = null;
@@ -117,10 +174,6 @@ const wide_markdown =
 
 const sample_mermaid = "flowchart TD\n  A[Start] --> B[Middle]\n  B --> C[End]\n";
 
-// ===========================================================================
-// §8.2 — separate-process PNG determinism
-// ===========================================================================
-
 test "two separate-process PNG exports are byte-identical" {
     try requireBinary();
     const allocator = testing.allocator;
@@ -148,13 +201,8 @@ test "two separate-process PNG exports are byte-identical" {
     defer allocator.free(bytes_b);
     try testing.expect(bytes_a.len > 0);
     try testing.expectEqualSlices(u8, bytes_a, bytes_b);
-    // A PNG signature confirms it really is an image.
     try testing.expectEqualSlices(u8, "\x89PNG\r\n\x1a\n", bytes_a[0..8]);
 }
-
-// ===========================================================================
-// §8.3 — width resolution
-// ===========================================================================
 
 test "non-terminal plain output defaults to 120 columns" {
     try requireBinary();
@@ -174,7 +222,6 @@ test "non-terminal plain output defaults to 120 columns" {
     const w90 = try runMercat(allocator, &.{ "--format", "plain", "-w", "90", in_path });
     defer w90.deinit(allocator);
 
-    // Default equals an explicit 120 and differs from 90 → the default is 120.
     try testing.expectEqualSlices(u8, w120.stdout, def.stdout);
     try testing.expect(!std.mem.eql(u8, w90.stdout, def.stdout));
     try testing.expect(maxLineBytes(def.stdout) <= 120);
@@ -206,10 +253,6 @@ test "explicit 60/90/120 widths bound the output width" {
     try testing.expect(maxLineBytes(w60.stdout) <= 60);
 }
 
-// ===========================================================================
-// §8.3 — input sources
-// ===========================================================================
-
 test "renders a .mmd flowchart to plain text with box-drawing" {
     try requireBinary();
     const allocator = testing.allocator;
@@ -223,12 +266,10 @@ test "renders a .mmd flowchart to plain text with box-drawing" {
     const r = try runMercat(allocator, &.{ "--format", "plain", "-w", "80", in_path });
     defer r.deinit(allocator);
     try testing.expect(r.exited_zero);
-    // Node labels appear and at least one box-drawing stroke was rendered.
     try testing.expect(std.mem.indexOf(u8, r.stdout, "Start") != null);
-    const has_box = std.mem.indexOf(u8, r.stdout, "\u{2500}") != null or // ─
-        std.mem.indexOf(u8, r.stdout, "\u{2502}") != null; // │
+    const has_box = std.mem.indexOf(u8, r.stdout, "\u{2500}") != null or
+        std.mem.indexOf(u8, r.stdout, "\u{2502}") != null;
     try testing.expect(has_box);
-    // Plain output carries no ANSI escape.
     try testing.expect(std.mem.indexOfScalar(u8, r.stdout, 0x1b) == null);
 }
 
@@ -260,10 +301,6 @@ test "reads Markdown from stdin via -" {
     try testing.expect(std.mem.indexOf(u8, r.stdout, "hello world") != null);
 }
 
-// ===========================================================================
-// §8.3 — file output, no pager, atomic replacement
-// ===========================================================================
-
 test "plain file output writes the file and emits nothing to stdout (no pager)" {
     try requireBinary();
     const allocator = testing.allocator;
@@ -279,7 +316,6 @@ test "plain file output writes the file and emits nothing to stdout (no pager)" 
     const r = try runMercat(allocator, &.{ "--format", "plain", "-w", "80", "-o", out_path, in_path });
     defer r.deinit(allocator);
     try testing.expect(r.exited_zero);
-    // Nothing is piped to stdout when writing to a file.
     try testing.expectEqual(@as(usize, 0), r.stdout.len);
 
     const written = try tmp.dir.readFileAlloc(allocator, "out.txt", 16 * 1024 * 1024);
@@ -307,8 +343,6 @@ test "png file output emits nothing to stdout and re-export replaces the file at
     defer allocator.free(bytes1);
     try testing.expectEqualSlices(u8, "\x89PNG\r\n\x1a\n", bytes1[0..8]);
 
-    // A second export over the same path replaces it (same deterministic bytes)
-    // and leaves no temp sibling behind.
     const second = try runMercat(allocator, &.{ "--format", "png", "--monochrome", "-w", "90", "-o", out_path, in_path });
     defer second.deinit(allocator);
     try testing.expect(second.exited_zero);
@@ -328,7 +362,6 @@ test "png export of an uncovered glyph fails without leaving a file" {
 
     var tmp = testing.tmpDir(.{ .iterate = true });
     defer tmp.cleanup();
-    // U+1F4A9 is not in JetBrains Mono → MissingGlyph at paint time.
     try writeTmpFile(&tmp, "emoji.md", "# Oops \u{1F4A9}\n");
     const in_path = try tmpPath(allocator, &tmp, "emoji.md");
     defer allocator.free(in_path);
@@ -338,17 +371,12 @@ test "png export of an uncovered glyph fails without leaving a file" {
     const r = try runMercat(allocator, &.{ "--format", "png", "-w", "80", "-o", out_path, in_path });
     defer r.deinit(allocator);
     try testing.expect(!r.exited_zero);
-    // No target file and no leftover temp file.
     try testing.expectError(error.FileNotFound, tmp.dir.access("should_not_exist.png", .{}));
     var it = tmp.dir.iterate();
     while (try it.next()) |entry| {
         try testing.expect(std.mem.indexOf(u8, entry.name, ".mercat-tmp-") == null);
     }
 }
-
-// ===========================================================================
-// §8.3 — valid/invalid format+output combinations at the CLI boundary
-// ===========================================================================
 
 test "invalid format/output combinations exit non-zero end-to-end" {
     try requireBinary();
@@ -362,25 +390,21 @@ test "invalid format/output combinations exit non-zero end-to-end" {
     const out_path = try tmpPath(allocator, &tmp, "out");
     defer allocator.free(out_path);
 
-    // png without --output.
     {
         const r = try runMercat(allocator, &.{ "--format", "png", in_path });
         defer r.deinit(allocator);
         try testing.expect(!r.exited_zero);
     }
-    // terminal format with --output.
     {
         const r = try runMercat(allocator, &.{ "-o", out_path, in_path });
         defer r.deinit(allocator);
         try testing.expect(!r.exited_zero);
     }
-    // png with a pager.
     {
         const r = try runMercat(allocator, &.{ "--format", "png", "-o", out_path, "-p", in_path });
         defer r.deinit(allocator);
         try testing.expect(!r.exited_zero);
     }
-    // unknown format value.
     {
         const r = try runMercat(allocator, &.{ "--format", "svg", in_path });
         defer r.deinit(allocator);
@@ -400,20 +424,17 @@ test "valid format/output combinations succeed end-to-end" {
     const txt_path = try tmpPath(allocator, &tmp, "out.txt");
     defer allocator.free(txt_path);
 
-    // plain to stdout.
     {
         const r = try runMercat(allocator, &.{ "--format", "plain", "-w", "80", in_path });
         defer r.deinit(allocator);
         try testing.expect(r.exited_zero);
         try testing.expect(r.stdout.len > 0);
     }
-    // plain to a file.
     {
         const r = try runMercat(allocator, &.{ "--format", "plain", "-w", "80", "-o", txt_path, in_path });
         defer r.deinit(allocator);
         try testing.expect(r.exited_zero);
     }
-    // terminal (default) to stdout: monochrome flag is accepted but inert.
     {
         const r = try runMercat(allocator, &.{ "--monochrome", in_path });
         defer r.deinit(allocator);

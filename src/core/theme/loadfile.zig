@@ -111,16 +111,10 @@ pub fn assignThemeValue(
 ) !void {
     const slot: ?[]const u8 = if (subtable.len == 0) null else subtable;
     if (value.len >= 2 and value[0] == '"' and value[value.len - 1] == '"') {
-        // Quoted string: strip the quotes and decode escapes, so a dumped
-        // `prefix = "a\"b"` stores the literal bytes `a"b` (the dumper's
-        // `writeQuoted` is the inverse).
         const decoded = try decodeQuotedString(alloc, value);
         defer alloc.free(decoded);
         try builder.set(alloc, slot, key, decoded);
     } else {
-        // Unquoted (bools, numbers, inline arrays): store verbatim — escapes
-        // only exist inside quoted strings, and arrays are split (and their
-        // elements decoded) later by `parseInlineArray`.
         try builder.set(alloc, slot, key, value);
     }
 }
@@ -139,12 +133,6 @@ pub fn parseThemeTables(alloc: std.mem.Allocator, text: []const u8) !RawThemeBui
 }
 
 fn applyThemeLines(alloc: std.mem.Allocator, builder: *RawThemeBuilder, text: []const u8) !void {
-    // A dedicated theme file *is* the `[theme]` table: its document-root keys
-    // (e.g. a top-of-file `extends = "dracula"`) belong to the top-level theme
-    // table without needing an explicit `[theme]` header. So the scanner starts
-    // in section `theme` with an empty subtable. A later `[display]` (or any
-    // non-theme) header parks `event.table` off `theme`, which we skip;
-    // `[theme]`/`[theme.<slot>]` bring it back.
     var scanner = scanLines(text, "theme");
     while (scanner.next()) |event| {
         if (!std.mem.eql(u8, event.table, "theme")) continue;
@@ -192,8 +180,6 @@ pub const LineScanner = struct {
 
             const equals_index = std.mem.indexOfScalar(u8, trimmed, '=') orelse continue;
             const key = std.mem.trim(u8, trimmed[0..equals_index], " \t");
-            // A trailing `# ...` is an inline comment, but a `#` inside a
-            // quoted string stays literal (see stripInlineComment).
             const value = stripInlineComment(std.mem.trim(u8, trimmed[equals_index + 1 ..], " \t"));
             return .{
                 .section = self.section,
@@ -241,7 +227,7 @@ pub fn stripInlineComment(value: []const u8) []const u8 {
     while (i < value.len) : (i += 1) {
         const ch = value[i];
         if (in_quotes and ch == '\\') {
-            i += 1; // skip the escaped char so a \" cannot toggle quote state
+            i += 1;
             continue;
         }
         if (ch == '"') {
@@ -279,7 +265,7 @@ pub fn parseInlineArray(alloc: std.mem.Allocator, value: []const u8) !?[][]const
         if (!at_end) {
             const ch = body[i];
             if (in_quotes and ch == '\\') {
-                i += 1; // skip the escaped char so a \" cannot toggle quote state
+                i += 1;
                 continue;
             }
             if (ch == '"') {
@@ -360,14 +346,12 @@ pub fn decodeQuotedString(allocator: std.mem.Allocator, raw: []const u8) ![]u8 {
                     len += n;
                     i += 2 + digits;
                 } else {
-                    // Malformed \u/\U: keep the backslash literal and move on.
                     buf[len] = ch;
                     len += 1;
                     i += 1;
                 }
             },
             else => {
-                // Unknown escape: keep the backslash literal (lenient).
                 buf[len] = ch;
                 len += 1;
                 i += 1;

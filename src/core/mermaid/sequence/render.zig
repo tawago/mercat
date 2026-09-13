@@ -26,7 +26,6 @@ const processLabel = draw_helpers.processLabel;
 const processedLabelLen = draw_helpers.processedLabelLen;
 
 pub fn renderSequence(allocator: Allocator, source: []const u8, options: RenderOptions) !RenderResult {
-    // Parse the diagram
     var diagram = try Parser.parseSequence(allocator, source);
     defer diagram.deinit();
 
@@ -69,7 +68,6 @@ fn renderSequenceTB(allocator: Allocator, source: []const u8, diagram: *Sequence
         };
     }
 
-    // Layout constants
     const participant_height: u32 = 3;
     const normal_row_height: u32 = 2;
     const self_msg_row_height: u32 = 4;
@@ -94,7 +92,6 @@ fn renderSequenceTB(allocator: Allocator, source: []const u8, diagram: *Sequence
     }
     total_message_height += @intCast(diagram.notes.items.len * note_row_height);
 
-    // Calculate participant widths and positions
     var total_width: u32 = padding;
     for (diagram.participants.items) |*p| {
         const name = p.displayName();

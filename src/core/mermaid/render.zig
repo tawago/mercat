@@ -7,7 +7,6 @@ const render_class = @import("class/render.zig");
 const render_er = @import("er/render.zig");
 const render_state = @import("state/render.zig");
 
-// Re-export types for external consumers
 pub const RenderOptions = types.RenderOptions;
 pub const RenderResult = types.RenderResult;
 

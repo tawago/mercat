@@ -25,7 +25,6 @@ test "parseThemeTables collects slot KVs (read through the borrowed view)" {
     try std.testing.expectEqual(@as(usize, 1), v.slots.len);
     try std.testing.expectEqualStrings("heading1", v.slots[0].name);
     try std.testing.expectEqual(@as(usize, 3), v.slots[0].kvs.items.len);
-    // Quotes are stripped so spaces inside the prefix survive.
     try std.testing.expectEqualStrings("fg", v.slots[0].kvs.items[0].key);
     try std.testing.expectEqualStrings("#ff0000", v.slots[0].kvs.items[0].value);
     try std.testing.expectEqualStrings("> ", v.slots[0].kvs.items[2].value);
@@ -50,8 +49,6 @@ test "parseThemeTables lands top-level [theme] keys in .top" {
 }
 
 test "document-root keys before any header land in top-level [theme]" {
-    // A theme file IS the [theme] table: a bare top-of-file `extends` must be
-    // collected as a top-level key, no explicit [theme] header required.
     const text =
         \\extends = "dracula"
         \\[theme.heading1]
@@ -75,7 +72,6 @@ test "a non-theme header after root keys turns collection off" {
     ;
     var tables = try parseThemeTables(std.testing.allocator, text);
     defer tables.deinit(std.testing.allocator);
-    // Only the root `extends` is a theme key; the [display] value is ignored.
     try std.testing.expectEqual(@as(usize, 1), tables.top.items.len);
     try std.testing.expectEqualStrings("extends", tables.top.items[0].key);
     try std.testing.expectEqual(@as(usize, 0), tables.slots.items.len);
@@ -92,18 +88,15 @@ test "repeated [theme.link] blocks merge last-wins per key" {
     var tables = try parseThemeTables(std.testing.allocator, text);
     defer tables.deinit(std.testing.allocator);
 
-    // One merged slot, not two.
     try std.testing.expectEqual(@as(usize, 1), tables.slots.items.len);
     const kvs = tables.slots.items[0].kvs.items;
     try std.testing.expectEqual(@as(usize, 2), kvs.len);
     try std.testing.expectEqualStrings("fg", kvs[0].key);
-    // Last write wins in place.
     try std.testing.expectEqualStrings("#222222", kvs[0].value);
     try std.testing.expectEqualStrings("underline", kvs[1].key);
 }
 
 test "unknown slot name is retained raw, not dropped" {
-    // Validation is deferred to S3; the parser keeps whatever slot it sees.
     const text =
         \\[theme.not_a_real_slot]
         \\fg = "#abcdef"
@@ -160,7 +153,6 @@ test "readThemeFile round-trips a temp theme file; missing returns null" {
     try std.testing.expectEqual(@as(usize, 1), tables.slots.items.len);
     try std.testing.expectEqualStrings("heading1", tables.slots.items[0].name);
 
-    // A name with no file returns null rather than erroring.
     const missing = try readThemeFile(std.testing.allocator, dir_path, "nonexistent");
     try std.testing.expect(missing == null);
 }
@@ -208,7 +200,6 @@ test "parseInlineArray splits top-level commas and strips per-element quotes" {
     try std.testing.expectEqualStrings("\u{25E6}", items[1]);
     try std.testing.expectEqualStrings("\u{2023}", items[2]);
 
-    // A comma inside quotes is literal, and a trailing comma yields no element.
     const commas = (try parseInlineArray(alloc, "[ \"a,b\" , \"c\" , ]")).?;
     defer {
         for (commas) |it| alloc.free(it);
@@ -217,7 +208,6 @@ test "parseInlineArray splits top-level commas and strips per-element quotes" {
     try std.testing.expectEqual(@as(usize, 2), commas.len);
     try std.testing.expectEqualStrings("a,b", commas[0]);
 
-    // Empty array, and a non-bracketed (scalar) value.
     const empty = (try parseInlineArray(alloc, "[]")).?;
     defer alloc.free(empty);
     try std.testing.expectEqual(@as(usize, 0), empty.len);
@@ -235,7 +225,6 @@ test "an array value survives the scanner, including a quoted `#` element" {
     try std.testing.expectEqual(@as(usize, 1), tables.slots.items.len);
     const kv = tables.slots.items[0].kvs.items[0];
     try std.testing.expectEqualStrings("bullets", kv.key);
-    // The inline comment is gone; the quoted `#` element is not.
     try std.testing.expectEqualStrings("[\"#\", \"\u{25CF}\"]", kv.value);
 
     const items = (try parseInlineArray(alloc, kv.value)).?;
