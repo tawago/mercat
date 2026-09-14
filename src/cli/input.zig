@@ -21,7 +21,7 @@
 //! `DiagramType.fromSource` so the two cannot drift.
 
 const std = @import("std");
-const text = @import("../lib/text.zig");
+const text = @import("text");
 const terminal = @import("../platform/terminal.zig");
 
 pub const stripBom = text.stripBom;
@@ -71,7 +71,6 @@ pub fn isMermaidExtension(path: []const u8) bool {
 /// of being handed to the markdown parser.
 pub fn looksLikeBareMermaid(raw_content: []const u8) bool {
     const content = stripBom(raw_content);
-    // A document that already fences a diagram is markdown; leave it alone.
     if (hasMermaidFence(content)) return false;
     const line = firstColumnZeroLine(content) orelse return false;
     return startsWithDiagramKeyword(line);
@@ -88,7 +87,6 @@ pub fn hasMermaidFence(raw_content: []const u8) bool {
             line[3..]
         else
             continue;
-        // Allow ````mermaid and any extra fence characters before the info string.
         const info = std.mem.trimLeft(u8, rest, "`~ \t");
         if (std.mem.startsWith(u8, info, "mermaid")) return true;
     }
@@ -118,8 +116,6 @@ fn startsWithDiagramKeyword(line: []const u8) bool {
     for (ambiguous_keywords) |keyword| {
         const rest = matchesKeyword(line, keyword) orelse continue;
         const tail = std.mem.trim(u8, rest, " \t;:");
-        // A bare `graph` / `flowchart` with nothing after it is far more likely
-        // to be a prose title line than a diagram, so require a direction.
         if (hasDirectionPrefix(tail)) return true;
     }
     return false;

@@ -238,9 +238,6 @@ pub fn main() !void {
         .show_heading_markers = show_heading_markers,
         .decor = &resolved.decor,
         .frontmatter_style = frontmatter_style,
-        // Raw front matter keeps tabs verbatim for the terminal, but the
-        // plain/PNG exporters reject tab scalars, so expand them on export.
-        .for_export = parsed.format != .terminal,
         .mermaid_box_style = parsed.box_style orelse .standard,
         .mermaid_crossing_heuristic = parsed.crossing_heuristic orelse .median,
         .mermaid_force_layout = parsed.force_layout orelse .auto,
@@ -404,7 +401,6 @@ fn exportDetail(buf: []u8, err: anyerror, diag: export_png.Diagnostic) []const u
         error.PixelOverflow => "pixel dimensions overflow the u32 surface limit",
         error.ColumnOverflow => "rendered column count overflows",
         error.InvalidUtf8 => "invalid UTF-8 in rendered text",
-        error.InvalidTabInRendered => "tab scalar in rendered text",
         error.InvalidControlScalar, error.InvalidPlainByte => "control scalar in rendered text",
         error.OutOfMemory => "out of memory",
         // Encode/write/rename/open failures surface under their Zig error name.

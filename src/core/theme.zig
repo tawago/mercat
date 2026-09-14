@@ -70,17 +70,11 @@ pub const StyleMap = struct {
     frontmatter_key: StyleToken,
     frontmatter_value: StyleToken,
     frontmatter_cap: StyleToken,
-    // #22's marker taxonomy (replaces #17's list_marker/task_checkbox_done/
-    // task_checkbox_todo). Field names are name-for-name identical to SpanStyle
-    // so spec.Slot.fromSpanStyle (stringToEnum(Slot, @tagName(style)).?) resolves.
     bullet: StyleToken,
     ordered: StyleToken,
     task_on: StyleToken,
     task_off: StyleToken,
     list_item: StyleToken,
-    // Structural color slots re-added for the reconciled 40-slot union (S2). Bake
-    // defaults them to borrowed tokens (table_border/hr/code_fence_banner → muted,
-    // table_header → body) for byte-parity with #17's un-themed output.
     table_border: StyleToken,
     table_header: StyleToken,
     hr: StyleToken,
@@ -233,11 +227,6 @@ test "toVaxisColor downgrades rgb when truecolor is off" {
 }
 
 test "structural slots bake to their borrowed defaults (byte-parity)" {
-    // The four re-added slots are unset in every preset, so they default to the
-    // same tokens #17 stamped for them (table_border/hr/code_fence_banner →
-    // muted, table_header → body). This is the byte-parity anchor for the
-    // un-themed table/hr/fence rendering. (list_item is NOT one of these four —
-    // dark/light presets explicitly color it, so it is asserted separately.)
     inline for (.{ neutralDark, neutralLight }) |pal| {
         try std.testing.expectEqual(token(pal, .muted), token(pal, .table_border));
         try std.testing.expectEqual(token(pal, .muted), token(pal, .hr));
@@ -247,9 +236,6 @@ test "structural slots bake to their borrowed defaults (byte-parity)" {
 }
 
 test "list_item defaults to body only when a preset leaves it unset" {
-    // The bake fallback stamps list_item = body, but a preset may override it.
-    // markview leaves list_item unset → it must equal body; dark sets it to a
-    // dimmer register (ix(250)) → it must differ from body.
     const markview = bakeSlots(presets.markview.slots);
     try std.testing.expectEqual(token(markview, .body), token(markview, .list_item));
 
@@ -257,8 +243,6 @@ test "list_item defaults to body only when a preset leaves it unset" {
 }
 
 test "neutral palette anchors match the preset specs" {
-    // Classic-variant anchors live in resolve_test.zig — the resolver is the
-    // only path that bakes the `classic` delta.
     try std.testing.expectEqual(idx(254), neutralDark.body.fg);
     try std.testing.expectEqual(idx(141), neutralDark.code_block_keyword.fg);
     try std.testing.expectEqual(idx(234), neutralLight.body.fg);

@@ -5,7 +5,6 @@ const std = @import("std");
 /// A front matter block is only recognized at byte offset 0: an opening
 /// `---` line, then anything up to the next line that is exactly `---`.
 /// A `---` later in the document is a thematic break and is never touched.
-
 pub const Split = struct {
     /// Text between the fences, excluding both `---` lines. Null when the
     /// source has no front matter block.
@@ -85,15 +84,12 @@ fn topLevelKeyLength(line: []const u8) ?usize {
     var colon: usize = undefined;
     if (line[0] == '"' or line[0] == '\'') {
         const close = quotedScalarEnd(line, line[0]) orelse return null;
-        // The mapping colon must immediately follow the closing quote.
         if (close + 1 >= line.len or line[close + 1] != ':') return null;
         colon = close + 1;
     } else {
         colon = std.mem.indexOfScalar(u8, line, ':') orelse return null;
         if (colon == 0) return null;
     }
-    // `key:` must be followed by a space, a tab, or the end of the line
-    // (an empty value). YAML permits a tab after the colon just like a space.
     if (colon + 1 < line.len and line[colon + 1] != ' ' and line[colon + 1] != '\t') return null;
     return colon;
 }
@@ -105,12 +101,12 @@ fn quotedScalarEnd(line: []const u8, quote: u8) ?usize {
     var i: usize = 1;
     while (i < line.len) : (i += 1) {
         if (quote == '"' and line[i] == '\\') {
-            i += 1; // skip the escaped character
+            i += 1;
             continue;
         }
         if (line[i] == quote) {
             if (quote == '\'' and i + 1 < line.len and line[i + 1] == '\'') {
-                i += 1; // '' is an escaped single quote, not the terminator
+                i += 1;
                 continue;
             }
             return i;
@@ -174,10 +170,8 @@ test "parseEntries splits simple pairs and keeps complex lines raw" {
     try std.testing.expectEqualStrings("[a, b]", entries[1].value);
     try std.testing.expectEqualStrings("authors", entries[2].key);
     try std.testing.expectEqualStrings("", entries[2].value);
-    // Indented list item stays a raw line.
     try std.testing.expectEqualStrings("", entries[3].key);
     try std.testing.expectEqualStrings("  - Foo", entries[3].value);
-    // The colon inside the URL does not re-split the value.
     try std.testing.expectEqualStrings("url", entries[4].key);
     try std.testing.expectEqualStrings("https://example.com/x", entries[4].value);
 }
@@ -188,19 +182,15 @@ test "parseEntries handles quoted keys and tab-after-colon" {
     defer allocator.free(entries);
 
     try std.testing.expectEqual(@as(usize, 3), entries.len);
-    // A colon inside a quoted key is not the mapping separator.
     try std.testing.expectEqualStrings("\"a:b\"", entries[0].key);
     try std.testing.expectEqualStrings("value", entries[0].value);
-    // A tab after the colon is a valid mapping separator.
     try std.testing.expectEqualStrings("key", entries[1].key);
     try std.testing.expectEqualStrings("value", entries[1].value);
-    // Single-quoted keys work too.
     try std.testing.expectEqualStrings("'q'", entries[2].key);
     try std.testing.expectEqualStrings("v", entries[2].value);
 }
 
 test "frontmatter: opening fence with trailing content is rejected" {
-    // A trailing space on the opener means it is not exactly "---\n".
     const source = "--- \ntitle: x\n---\n";
     const result = split(source);
     try std.testing.expect(result.yaml == null);
@@ -215,8 +205,6 @@ test "frontmatter: four dashes is not a fence opener" {
 }
 
 test "frontmatter: closing fence with trailing space does not match" {
-    // Only \r is trimmed from the candidate closing line, not spaces, so
-    // "--- " is not recognized as the closing fence and no block is found.
     const source = "---\ntitle: x\n--- \nbody";
     const result = split(source);
     try std.testing.expect(result.yaml == null);
@@ -248,7 +236,6 @@ test "frontmatter: parseEntries treats a comment line as raw" {
     defer allocator.free(entries);
 
     try std.testing.expectEqual(@as(usize, 2), entries.len);
-    // A leading '#' makes topLevelKeyLength return null, so the whole line is raw.
     try std.testing.expectEqualStrings("", entries[0].key);
     try std.testing.expectEqualStrings("# comment", entries[0].value);
     try std.testing.expectEqualStrings("key", entries[1].key);
@@ -271,7 +258,6 @@ test "frontmatter: parseEntries rejects colon with no following space" {
     defer allocator.free(entries);
 
     try std.testing.expectEqual(@as(usize, 1), entries.len);
-    // The mapping colon must be followed by space, tab, or EOL, so this is raw.
     try std.testing.expectEqualStrings("", entries[0].key);
     try std.testing.expectEqualStrings("a:b", entries[0].value);
 }
@@ -282,7 +268,6 @@ test "frontmatter: parseEntries unterminated quoted key falls back to raw" {
     defer allocator.free(entries);
 
     try std.testing.expectEqual(@as(usize, 1), entries.len);
-    // quotedScalarEnd returns null for the unclosed quote, so the line is raw.
     try std.testing.expectEqualStrings("", entries[0].key);
     try std.testing.expectEqualStrings("\"unclosed: value", entries[0].value);
 }
@@ -293,7 +278,6 @@ test "frontmatter: parseEntries single-quote doubling inside key" {
     defer allocator.free(entries);
 
     try std.testing.expectEqual(@as(usize, 1), entries.len);
-    // The '' is an escaped quote, so the key includes it and the value is v.
     try std.testing.expectEqualStrings("'it''s'", entries[0].key);
     try std.testing.expectEqualStrings("v", entries[0].value);
 }
@@ -326,7 +310,6 @@ test "frontmatter: parseEntries splits non-ASCII keys correctly" {
     defer allocator.free(entries);
 
     try std.testing.expectEqual(@as(usize, 1), entries.len);
-    // The key slice is the raw multibyte bytes, unmodified.
     try std.testing.expectEqualStrings("café", entries[0].key);
     try std.testing.expectEqualStrings("value", entries[0].value);
 }

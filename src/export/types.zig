@@ -203,16 +203,11 @@ pub fn semanticStyleTag(style: render_model.SpanStyle) u16 {
         .frontmatter_key => 29,
         .frontmatter_value => 30,
         .frontmatter_cap => 31,
-        // Reconciled marker taxonomy (S2): the #17 list_marker/task_checkbox_*
-        // tags are retired; bullet/ordered/task_on/task_off/list_item take
-        // 32..36 (matches PR #22's renumbering).
         .bullet => 32,
         .ordered => 33,
         .task_on => 34,
         .task_off => 35,
         .list_item => 36,
-        // Structural color slots re-added for the 40-slot union (S2). Appended
-        // after #22's set so the earlier tags stay put.
         .table_border => 37,
         .table_header => 38,
         .hr => 39,
@@ -284,10 +279,6 @@ const Writer = struct {
     }
 };
 
-// ===========================================================================
-// Tests
-// ===========================================================================
-
 const testing = std.testing;
 
 fn sampleDoc(runs: []PositionedRun) ExportDocument {
@@ -311,7 +302,6 @@ fn sampleDoc(runs: []PositionedRun) ExportDocument {
 
 test "pixel dimensions follow §7.4" {
     const doc = sampleDoc(&.{});
-    // width = 9 + 5*9 + 9 = 63; height = 20 + 2*20 + 20 = 80.
     try testing.expectEqual(@as(u32, 63), try doc.pixelWidth());
     try testing.expectEqual(@as(u32, 80), try doc.pixelHeight());
 }
@@ -346,13 +336,11 @@ test "canonical hash is deterministic and depends on content" {
     const h2 = doc_a.canonicalSha256();
     try testing.expectEqualSlices(u8, &h1, &h2);
 
-    // A single differing text byte changes the hash.
     var run_b = [_]PositionedRun{run_a[0]};
     run_b[0].text = "hellp";
     const doc_b = sampleDoc(&run_b);
     try testing.expect(!std.mem.eql(u8, &h1, &doc_b.canonicalSha256()));
 
-    // A differing decoration changes the hash.
     var run_c = [_]PositionedRun{run_a[0]};
     run_c[0].decoration = .{ .underline = true };
     try testing.expect(!std.mem.eql(u8, &h1, &sampleDoc(&run_c).canonicalSha256()));

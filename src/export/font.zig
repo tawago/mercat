@@ -60,11 +60,17 @@ pub const stb_truetype_version = "v1.26";
 /// cover. The glyph-sheet test asserts each resolves to a non-`.notdef`
 /// glyph.
 pub const required_shape_scalars = [_]u21{
-    0x25B2, // BLACK UP-POINTING TRIANGLE
-    0x25B6, // BLACK RIGHT-POINTING TRIANGLE
-    0x25BC, // BLACK DOWN-POINTING TRIANGLE
-    0x25C0, // BLACK LEFT-POINTING TRIANGLE
-    0x25C7, // WHITE DIAMOND
+    0x25B2,
+    0x25B6,
+    0x25BC,
+    0x25C0,
+    0x25C7,
+    0x25B3,
+    0x25B7,
+    0x25BD,
+    0x25C1,
+    0x25CB,
+    0x2715,
 };
 
 pub const Error = error{
@@ -100,12 +106,10 @@ pub const Font = struct {
     /// Requested pixel height passed to `init`.
     pixel_height: u16,
 
-    // Raw unscaled vertical metrics (font design units).
     ascent_units: i32,
     descent_units: i32,
     line_gap_units: i32,
 
-    // Fixed-cell metrics derived per §7.1.
     /// Integer advance width of every cell (rounded common monospace advance).
     cell_width_px: u16,
     /// Row height: `ceil((ascent - descent + line_gap) * scale)`.
@@ -120,29 +124,24 @@ pub const Font = struct {
     pub fn init(pixel_height: u16) Error!Font {
         if (pixel_height == 0) return Error.InconsistentMetrics;
 
-        // 1. Hash the embedded bytes and verify the pin.
         var digest: [32]u8 = undefined;
         std.crypto.hash.sha2.Sha256.hash(ttf_bytes, &digest, .{});
         if (!std.mem.eql(u8, &digest, &expected_sha256)) return Error.FontHashMismatch;
 
-        // 2. Initialize stbtt at font index zero.
         var info: c.stbtt_fontinfo = undefined;
         const offset = c.stbtt_GetFontOffsetForIndex(ttf_bytes.ptr, 0);
         if (offset < 0) return Error.InvalidFontData;
         if (c.stbtt_InitFont(&info, ttf_bytes.ptr, offset) == 0) return Error.InvalidFontData;
 
-        // 3. Scale for the requested pixel height.
         const scale = c.stbtt_ScaleForPixelHeight(&info, @floatFromInt(pixel_height));
         if (!(scale > 0.0)) return Error.InconsistentMetrics;
 
-        // 4. Vertical metrics.
         var ascent: c_int = 0;
         var descent: c_int = 0;
         var line_gap: c_int = 0;
         c.stbtt_GetFontVMetrics(&info, &ascent, &descent, &line_gap);
         if (ascent <= 0 or descent >= 0) return Error.InconsistentMetrics;
 
-        // 5-6. Advance width of U+0020 and U+004D must agree (monospace).
         const space_adv = advanceUnits(&info, ' ');
         const m_adv = advanceUnits(&info, 'M');
         if (space_adv <= 0 or m_adv <= 0) return Error.InconsistentMetrics;
@@ -150,17 +149,14 @@ pub const Font = struct {
         const m_px = @as(f32, @floatFromInt(m_adv)) * scale;
         if (@abs(space_px - m_px) >= fixed_point_unit) return Error.InconsistentMetrics;
 
-        // 7. Round the common advance to an integer cell width.
         const common_px = (space_px + m_px) * 0.5;
         const cell_w = @as(i64, @intFromFloat(@round(common_px)));
         if (cell_w <= 0 or cell_w > std.math.maxInt(u16)) return Error.InconsistentMetrics;
 
-        // 8. Cell height = ceil((ascent - descent + line_gap) * scale).
         const extent_units = @as(f32, @floatFromInt(ascent - descent + line_gap));
         const cell_h = @as(i64, @intFromFloat(@ceil(extent_units * scale)));
         if (cell_h <= 0 or cell_h > std.math.maxInt(u16)) return Error.InconsistentMetrics;
 
-        // 9. In-cell baseline = ceil(ascent * scale).
         const baseline = @as(i64, @intFromFloat(@ceil(@as(f32, @floatFromInt(ascent)) * scale)));
         if (baseline <= 0 or baseline > std.math.maxInt(i16)) return Error.InconsistentMetrics;
         if (baseline > cell_h) return Error.InconsistentMetrics;
@@ -261,7 +257,7 @@ pub const Font = struct {
             buf.ptr,
             w,
             h,
-            w, // stride == width (tightly packed)
+            w,
             self.scale,
             self.scale,
             glyph_index,
@@ -278,20 +274,13 @@ fn advanceUnits(info: *const c.stbtt_fontinfo, codepoint: u21) i32 {
     return advance;
 }
 
-// ===========================================================================
-// Tests
-// ===========================================================================
-
 const testing = std.testing;
 
 test "font provenance metadata is exposed for the manifest API (§4.3)" {
-    // The font release/version and stb_truetype revision MUST be programmatic,
-    // not prose-only in PIN.txt — the §9.3 manifest producer reads them here.
     try testing.expect(font_release_version.len != 0);
     try testing.expect(stb_truetype_revision.len != 0);
     try testing.expect(font_name.len != 0);
     try testing.expect(stb_truetype_version.len != 0);
-    // The revision is a full 40-char git commit hash.
     try testing.expectEqual(@as(usize, 40), stb_truetype_revision.len);
 }
 
@@ -310,20 +299,16 @@ test "font initializes with sane monospace metrics at 20px" {
     try testing.expect(font.cell_width_px > 0);
     try testing.expect(font.cell_height_px > 0);
     try testing.expect(font.baseline_px > 0);
-    // Baseline must sit within the row.
     try testing.expect(@as(u16, @intCast(font.baseline_px)) <= font.cell_height_px);
-    // JetBrains Mono at 20px: verified integer cell metrics.
     try testing.expectEqual(@as(u16, 20), font.cell_height_px);
     try testing.expectEqual(@as(u16, 9), font.cell_width_px);
     try testing.expectEqual(@as(i16, 16), font.baseline_px);
-    // Monospace: space and 'M' share the same integer advance == cell width.
     try testing.expectEqual(@as(i32, font.cell_width_px), font.advancePx(' '));
     try testing.expectEqual(@as(i32, font.cell_width_px), font.advancePx('M'));
 }
 
 test "cell metrics are integer and internally consistent" {
     const font = try Font.init(20);
-    // ascent - descent + line_gap, scaled and ceiled, equals the stored height.
     const extent: f32 = @floatFromInt(font.ascent_units - font.descent_units + font.line_gap_units);
     const expect_h: u16 = @intFromFloat(@ceil(extent * font.scale));
     try testing.expectEqual(expect_h, font.cell_height_px);
@@ -342,16 +327,10 @@ test "the five geometric shape code points resolve to real glyphs" {
 
 test "ASCII printable and box-drawing code points resolve" {
     const font = try Font.init(20);
-    // A sample of renderer-owned box/line/arrow glyphs plus ASCII.
     const sample = [_]u21{
-        'A', 'z', '0', '#', ' ', // space allowed either way
-        0x2500, // ─ box horizontal
-        0x2502, // │ box vertical
-        0x250C, // ┌ corner
-        0x2514, // └ corner
-        0x253C, // ┼ cross junction
-        0x2022, // • bullet
-        0x2192, // → arrow
+        'A',    'z',    '0',    '#',    ' ',
+        0x2500, 0x2502, 0x250C, 0x2514, 0x253C,
+        0x2022, 0x2192,
     };
     for (sample) |cp| {
         _ = try font.requireGlyph(cp);
@@ -360,18 +339,14 @@ test "ASCII printable and box-drawing code points resolve" {
 
 test "missing glyph fails closed with error.MissingGlyph" {
     const font = try Font.init(20);
-    // U+1F4A9 (PILE OF POO) — a color-emoji scalar JetBrains Mono does not map.
     const absent: u21 = 0x1F4A9;
     try testing.expect(!font.hasGlyph(absent));
     try testing.expectError(Error.MissingGlyph, font.requireGlyph(absent));
-    // Sanity: the absent scalar really is .notdef (index 0), not merely unmapped
-    // by our helper.
     try testing.expectEqual(@as(i32, 0), font.glyphIndex(absent));
 }
 
 test "space may map to glyph zero without erroring" {
     const font = try Font.init(20);
-    // requireGlyph must never reject U+0020, regardless of its glyph index.
     _ = try font.requireGlyph(' ');
 }
 
@@ -383,7 +358,6 @@ test "rasterizing a covered glyph yields a non-empty coverage mask" {
     try testing.expect(bmp.width > 0);
     try testing.expect(bmp.height > 0);
     try testing.expectEqual(@as(usize, @intCast(bmp.width * bmp.height)), bmp.coverage.len);
-    // 'M' must have at least one inked pixel.
     var any_ink = false;
     for (bmp.coverage) |px| {
         if (px != 0) {

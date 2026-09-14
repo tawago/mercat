@@ -1,6 +1,6 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
-const unicode = @import("../../../lib/unicode.zig");
+const unicode = @import("unicode");
 const types = @import("../types.zig");
 const Point = types.Point;
 const Rect = types.Rect;
@@ -24,25 +24,21 @@ pub const Cell = struct {
     priority: Priority = .background,
 
     pub fn set(self: *Cell, char: u21, priority: Priority) void {
-        // When two edge segments cross at the same cell, merge them into a
-        // junction character rather than letting one overwrite the other.
-        // This preserves visual connectivity for paths that share grid cells.
         if (priority == .edge and self.priority == .edge) {
             const existing = self.char;
-            const h = LineChars.horizontal; // ─
-            const v = LineChars.vertical;   // │
+            const h = LineChars.horizontal;
+            const v = LineChars.vertical;
             const is_existing_h = existing == h or existing == '-';
             const is_existing_v = existing == v or existing == '|';
             const is_new_h = char == h or char == '-';
             const is_new_v = char == v or char == '|';
             if (is_existing_h and is_new_v) {
-                return; // horizontal dominant, vertical passes behind
+                return;
             }
             if (is_existing_v and is_new_h) {
-                return; // vertical dominant, horizontal passes behind
+                return;
             }
         }
-        // Only overwrite if new priority is >= current
         if (@intFromEnum(priority) >= @intFromEnum(self.priority)) {
             self.char = char;
             self.priority = priority;
@@ -107,20 +103,17 @@ pub const Canvas = struct {
         const w: i32 = @intCast(rect.width);
         const h: i32 = @intCast(rect.height);
 
-        // Corners
         self.setChar(x, y, style.top_left, priority);
         self.setChar(x + w - 1, y, style.top_right, priority);
         self.setChar(x, y + h - 1, style.bottom_left, priority);
         self.setChar(x + w - 1, y + h - 1, style.bottom_right, priority);
 
-        // Horizontal edges
         var col = x + 1;
         while (col < x + w - 1) : (col += 1) {
             self.setChar(col, y, style.horizontal, priority);
             self.setChar(col, y + h - 1, style.horizontal, priority);
         }
 
-        // Vertical edges
         var row = y + 1;
         while (row < y + h - 1) : (row += 1) {
             self.setChar(x, row, style.vertical, priority);
@@ -128,40 +121,28 @@ pub const Canvas = struct {
         }
     }
 
-    /// Draw text at position, one Unicode scalar per display cell.
+    /// Draw text at position when every grapheme is exactly one scalar.
     ///
-    /// Each cell holds one `u21` scalar, so the text MUST be decoded as UTF-8
-    /// rather than written byte-per-cell: a multi-byte glyph such as '◁'
-    /// (E2 97 81) written as raw bytes would land three separate scalars —
-    /// U+00E2 plus the C1 control scalars U+0097/U+0081 — corrupting `toString`
-    /// output and tripping the strict export validator (§7.2). The cursor
-    /// advances by the scalar's terminal display width (never less than one
-    /// cell) so wide scalars reserve two columns and combining marks stack on
-    /// the preceding cell.
+    /// This legacy canvas stores one `u21` scalar per cell. It has no grapheme
+    /// storage or continuation-cell metadata, so combining and ZWJ sequences
+    /// cannot be represented honestly. Strict Unicode authority supplies
+    /// validation and width for accepted scalar graphemes; malformed input,
+    /// controls, tabs, and multi-scalar graphemes are declined atomically.
     pub fn drawText(self: *Canvas, x: i32, y: i32, text: []const u8, priority: Priority) void {
+        if (legacyScalarTextWidth(text) == null) return;
+
         var col = x;
-        const view = std.unicode.Utf8View.init(text) catch {
-            // Not valid UTF-8: degrade to byte-per-cell so no content is lost.
-            for (text) |c| {
-                self.setChar(col, y, c, priority);
-                col += 1;
-            }
-            return;
-        };
-        var it = view.iterator();
-        while (it.nextCodepoint()) |cp| {
+        var it = unicode.Iterator.init(text);
+        while (it.next() catch unreachable) |grapheme| {
+            const cp = singleScalar(grapheme.bytes).?;
             self.setChar(col, y, cp, priority);
-            // One cell minimum; wide scalars reserve two columns.
-            const w = unicode.codepointWidth(cp);
-            col += if (w >= 2) 2 else 1;
+            col += @intCast(grapheme.width);
         }
     }
 
-    /// Draw text centered within a box. Centering uses the text's terminal
-    /// display width (not its UTF-8 byte length) so multi-byte glyphs center
-    /// correctly.
+    /// Draw supported legacy scalar text centered using authority width.
     pub fn drawTextCentered(self: *Canvas, rect: Rect, text: []const u8, priority: Priority) void {
-        const text_len: i32 = @intCast(unicode.displayWidth(text));
+        const text_len: i32 = @intCast(legacyScalarTextWidth(text) orelse return);
         const box_width: i32 = @intCast(rect.width);
         const box_height: i32 = @intCast(rect.height);
 
@@ -210,15 +191,12 @@ pub const Canvas = struct {
 
         for (points[0 .. points.len - 1], points[1..]) |p1, p2| {
             if (p1.y == p2.y) {
-                // Horizontal segment
                 self.drawHorizontalLine(p1.y, p1.x, p2.x, h_char, priority);
             } else if (p1.x == p2.x) {
-                // Vertical segment
                 self.drawVerticalLine(p1.x, p1.y, p2.y, v_char, priority);
             }
         }
 
-        // Draw corners at turning points
         for (1..points.len - 1) |i| {
             const prev = points[i - 1];
             const curr = points[i];
@@ -243,14 +221,9 @@ pub const Canvas = struct {
         const to_above = next.y < curr.y;
         const to_below = next.y > curr.y;
 
-        // Determine corner type based on which sides it connects
-        // ┌ (corner_se) - openings: RIGHT (east) and DOWN (south)
         if ((from_right and to_below) or (from_below and to_right)) return LineChars.corner_se;
-        // ┐ (corner_sw) - openings: LEFT (west) and DOWN (south)
         if ((from_left and to_below) or (from_below and to_left)) return LineChars.corner_sw;
-        // └ (corner_ne) - openings: RIGHT (east) and UP (north)
         if ((from_right and to_above) or (from_above and to_right)) return LineChars.corner_ne;
-        // ┘ (corner_nw) - openings: LEFT (west) and UP (north)
         if ((from_left and to_above) or (from_above and to_left)) return LineChars.corner_nw;
 
         return null;
@@ -294,7 +267,6 @@ pub const Canvas = struct {
         var encode_buf: [4]u8 = undefined;
 
         for (self.cells, 0..) |row, y| {
-            // Find last non-space character in row (trim trailing spaces)
             var last_non_space: usize = 0;
             for (row, 0..) |cell, x| {
                 if (cell.char != ' ') {
@@ -302,13 +274,11 @@ pub const Canvas = struct {
                 }
             }
 
-            // Output characters up to last non-space
             for (row[0..last_non_space]) |cell| {
                 const len = std.unicode.utf8Encode(cell.char, &encode_buf) catch 1;
                 try result.appendSlice(allocator, encode_buf[0..len]);
             }
 
-            // Add newline (except for last row if it's empty)
             if (y < self.cells.len - 1 or last_non_space > 0) {
                 try result.append(allocator, '\n');
             }
@@ -331,6 +301,24 @@ pub const Canvas = struct {
     }
 };
 
+fn legacyScalarTextWidth(text: []const u8) ?usize {
+    var width: usize = 0;
+    var it = unicode.Iterator.init(text);
+    while (it.next() catch return null) |grapheme| {
+        const cp = singleScalar(grapheme.bytes) orelse return null;
+        if (cp == '\t') return null;
+        width = grapheme.column_end;
+    }
+    return width;
+}
+
+fn singleScalar(bytes: []const u8) ?u21 {
+    if (bytes.len == 0) return null;
+    const len = std.unicode.utf8ByteSequenceLength(bytes[0]) catch return null;
+    if (len != bytes.len) return null;
+    return std.unicode.utf8Decode(bytes) catch null;
+}
+
 test "Canvas basic operations" {
     const testing = std.testing;
     var canvas = try Canvas.init(testing.allocator, 20, 10);
@@ -340,7 +328,6 @@ test "Canvas basic operations" {
     const cell = canvas.getCell(5, 5).?;
     try testing.expectEqual(@as(u21, 'X'), cell.char);
 
-    // Out of bounds should be null
     try testing.expect(canvas.getCell(-1, 0) == null);
     try testing.expect(canvas.getCell(20, 0) == null);
 }
@@ -352,7 +339,6 @@ test "Canvas draw box" {
 
     canvas.drawBox(.{ .x = 0, .y = 0, .width = 5, .height = 3 }, types.unicode_square, .node_border);
 
-    // Check corners
     try testing.expectEqual(types.unicode_square.top_left, canvas.getCell(0, 0).?.char);
     try testing.expectEqual(types.unicode_square.top_right, canvas.getCell(4, 0).?.char);
     try testing.expectEqual(types.unicode_square.bottom_left, canvas.getCell(0, 2).?.char);
@@ -378,17 +364,54 @@ test "drawText decodes multi-byte UTF-8 into one scalar per cell" {
     var canvas = try Canvas.init(testing.allocator, 10, 2);
     defer canvas.deinit();
 
-    // Class-relation markers plus ASCII: each must land as ONE u21 scalar, not
-    // as its raw UTF-8 bytes (which would produce U+00E2 + C1 control scalars
-    // that both corrupt toString and trip the strict PNG export validator).
     canvas.drawText(0, 0, "◁A◆", .node_text);
-    try testing.expectEqual(@as(u21, 0x25C1), canvas.getCell(0, 0).?.char); // ◁
+    try testing.expectEqual(@as(u21, 0x25C1), canvas.getCell(0, 0).?.char);
     try testing.expectEqual(@as(u21, 'A'), canvas.getCell(1, 0).?.char);
-    try testing.expectEqual(@as(u21, 0x25C6), canvas.getCell(2, 0).?.char); // ◆
+    try testing.expectEqual(@as(u21, 0x25C6), canvas.getCell(2, 0).?.char);
 
     const str = try canvas.toString(testing.allocator);
     defer testing.allocator.free(str);
     try testing.expectEqualStrings("◁A◆\n", str);
+}
+
+test "drawText uses authority width for ASCII and CJK scalars" {
+    const testing = std.testing;
+    var canvas = try Canvas.init(testing.allocator, 12, 1);
+    defer canvas.deinit();
+
+    canvas.drawText(0, 0, "A日B", .node_text);
+    try testing.expectEqual(@as(u21, 'A'), canvas.getCell(0, 0).?.char);
+    try testing.expectEqual(@as(u21, 0x65E5), canvas.getCell(1, 0).?.char);
+    try testing.expectEqual(@as(u21, ' '), canvas.getCell(2, 0).?.char);
+    try testing.expectEqual(@as(u21, 'B'), canvas.getCell(3, 0).?.char);
+
+    const str = try canvas.toString(testing.allocator);
+    defer testing.allocator.free(str);
+    try testing.expectEqualStrings("A日 B\n", str);
+
+    canvas.drawTextCentered(.{ .x = 4, .y = 0, .width = 7, .height = 1 }, "日", .node_text);
+    try testing.expectEqual(@as(u21, 0x65E5), canvas.getCell(6, 0).?.char);
+}
+
+test "drawText declines invalid UTF-8 controls and tabs atomically" {
+    const testing = std.testing;
+    var canvas = try Canvas.init(testing.allocator, 12, 1);
+    defer canvas.deinit();
+
+    canvas.drawText(0, 0, "A\x80B", .node_text);
+    canvas.drawText(3, 0, "A\nB", .node_text);
+    canvas.drawText(6, 0, "A\tB", .node_text);
+    for (canvas.cells[0]) |cell| try testing.expectEqual(@as(u21, ' '), cell.char);
+}
+
+test "drawText declines combining and ZWJ graphemes atomically" {
+    const testing = std.testing;
+    var canvas = try Canvas.init(testing.allocator, 12, 1);
+    defer canvas.deinit();
+
+    canvas.drawText(0, 0, "e\u{0301}X", .node_text);
+    canvas.drawTextCentered(.{ .x = 4, .y = 0, .width = 8, .height = 1 }, "👩‍💻", .node_text);
+    for (canvas.cells[0]) |cell| try testing.expectEqual(@as(u21, ' '), cell.char);
 }
 
 test "Canvas priority" {
@@ -396,17 +419,13 @@ test "Canvas priority" {
     var canvas = try Canvas.init(testing.allocator, 10, 5);
     defer canvas.deinit();
 
-    // Draw with lower priority
     canvas.setChar(2, 2, 'A', .edge);
-    // Try to overwrite with same priority - should work
     canvas.setChar(2, 2, 'B', .edge);
     try testing.expectEqual(@as(u21, 'B'), canvas.getCell(2, 2).?.char);
 
-    // Try to overwrite with lower priority - should not work
     canvas.setChar(2, 2, 'C', .subgraph);
     try testing.expectEqual(@as(u21, 'B'), canvas.getCell(2, 2).?.char);
 
-    // Overwrite with higher priority - should work
     canvas.setChar(2, 2, 'D', .node_text);
     try testing.expectEqual(@as(u21, 'D'), canvas.getCell(2, 2).?.char);
 }
