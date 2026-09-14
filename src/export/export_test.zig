@@ -69,23 +69,38 @@ fn childEnv(allocator: std.mem.Allocator, config_home: []const u8, overrides: []
     return env;
 }
 
+/// A child environment rooted in a fresh temporary config home.
+const ChildEnv = struct {
+    tmp: testing.TmpDir,
+    env: std.process.EnvMap,
+
+    fn init(allocator: std.mem.Allocator, overrides: []const EnvVar) !ChildEnv {
+        var tmp = testing.tmpDir(.{});
+        errdefer tmp.cleanup();
+        const config_home = try tmp.dir.realpathAlloc(allocator, ".");
+        defer allocator.free(config_home);
+        return .{ .tmp = tmp, .env = try childEnv(allocator, config_home, overrides) };
+    }
+
+    fn deinit(self: *ChildEnv) void {
+        self.env.deinit();
+        self.tmp.cleanup();
+    }
+};
+
 fn runMercatWithEnv(allocator: std.mem.Allocator, extra_args: []const []const u8, overrides: []const EnvVar) !Run {
     var argv: std.ArrayList([]const u8) = .empty;
     defer argv.deinit(allocator);
     try argv.append(allocator, mercat_exe_path);
     for (extra_args) |a| try argv.append(allocator, a);
 
-    var env_tmp = testing.tmpDir(.{});
-    defer env_tmp.cleanup();
-    const config_home = try env_tmp.dir.realpathAlloc(allocator, ".");
-    defer allocator.free(config_home);
-    var env = try childEnv(allocator, config_home, overrides);
-    defer env.deinit();
+    var child_env = try ChildEnv.init(allocator, overrides);
+    defer child_env.deinit();
 
     const result = try std.process.Child.run(.{
         .allocator = allocator,
         .argv = argv.items,
-        .env_map = &env,
+        .env_map = &child_env.env,
         .max_output_bytes = 16 * 1024 * 1024,
     });
     return .{
@@ -103,15 +118,11 @@ fn runMercatStdin(allocator: std.mem.Allocator, extra_args: []const []const u8, 
     try argv.append(allocator, mercat_exe_path);
     for (extra_args) |a| try argv.append(allocator, a);
 
-    var env_tmp = testing.tmpDir(.{});
-    defer env_tmp.cleanup();
-    const config_home = try env_tmp.dir.realpathAlloc(allocator, ".");
-    defer allocator.free(config_home);
-    var env = try childEnv(allocator, config_home, &.{});
-    defer env.deinit();
+    var child_env = try ChildEnv.init(allocator, &.{});
+    defer child_env.deinit();
 
     var child = std.process.Child.init(argv.items, allocator);
-    child.env_map = &env;
+    child.env_map = &child_env.env;
     child.stdin_behavior = .Pipe;
     child.stdout_behavior = .Pipe;
     child.stderr_behavior = .Pipe;

@@ -34,11 +34,10 @@ pub fn serialize(allocator: std.mem.Allocator, rendered: render_model.Rendered) 
 
     for (rendered.lines, 0..) |line, line_index| {
         if (line_index != 0) try buffer.append(allocator, '\n');
-        var logical_line: std.ArrayList(u8) = .empty;
-        defer logical_line.deinit(allocator);
-        for (line.spans) |span| try logical_line.appendSlice(allocator, span.text);
+        const logical_line = try line.joinedText(allocator);
+        defer allocator.free(logical_line);
 
-        var graphemes = unicode.Iterator.init(logical_line.items);
+        var graphemes = unicode.Iterator.init(logical_line);
         while (try nextGrapheme(&graphemes)) |grapheme| {
             if (grapheme.bytes.len == 1 and grapheme.bytes[0] == '\t') {
                 try buffer.appendNTimes(allocator, ' ', grapheme.width);

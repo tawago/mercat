@@ -67,18 +67,29 @@ pub const Line = struct {
     /// span boundary into the prepared bytes. This keeps style and URL
     /// provenance byte-exact even when one grapheme crosses span boundaries.
     pub fn prepareOwned(self: *Line, allocator: std.mem.Allocator) !void {
-        var source: std.ArrayList(u8) = .empty;
-        defer source.deinit(allocator);
-        for (self.spans) |span| try source.appendSlice(allocator, span.text);
+        const source = try self.joinedText(allocator);
+        defer allocator.free(source);
 
-        var prepared = try unicode.PreparedLine.init(allocator, source.items);
+        // Only a tab changes the bytes, and only an empty span vanishes in the
+        // remap below. Otherwise the prepared line is the source line and every
+        // span boundary already maps onto itself: measure it and keep the spans.
+        const needs_remap = std.mem.indexOfScalar(u8, source, '\t') != null or blk: {
+            for (self.spans) |span| if (span.text.len == 0) break :blk true;
+            break :blk false;
+        };
+        if (!needs_remap) {
+            self.display_columns = try unicode.rawDisplayWidth(source);
+            return;
+        }
+
+        var prepared = try unicode.PreparedLine.init(allocator, source);
         defer prepared.deinit();
 
-        const source_to_prepared = try allocator.alloc(usize, source.items.len + 1);
+        const source_to_prepared = try allocator.alloc(usize, source.len + 1);
         defer allocator.free(source_to_prepared);
         source_to_prepared[0] = 0;
 
-        var source_iterator = unicode.Iterator.init(source.items);
+        var source_iterator = unicode.Iterator.init(source);
         var prepared_index: usize = 0;
         while (try source_iterator.next()) |grapheme| {
             if (grapheme.bytes.len == 1 and grapheme.bytes[0] == '\t') {
@@ -131,9 +142,18 @@ pub const Line = struct {
         self.display_columns = prepared.total_columns;
     }
 
-    pub fn reprepareOwned(self: *Line, allocator: std.mem.Allocator) !void {
-        self.display_columns = null;
-        try self.prepareOwned(allocator);
+    /// Every span's bytes concatenated: the rendered line as one slice.
+    /// Caller owns the result.
+    pub fn joinedText(self: Line, allocator: std.mem.Allocator) ![]u8 {
+        var total: usize = 0;
+        for (self.spans) |span| total += span.text.len;
+        const text = try allocator.alloc(u8, total);
+        var offset: usize = 0;
+        for (self.spans) |span| {
+            @memcpy(text[offset..][0..span.text.len], span.text);
+            offset += span.text.len;
+        }
+        return text;
     }
 
     pub fn deinit(self: Line, allocator: std.mem.Allocator) void {

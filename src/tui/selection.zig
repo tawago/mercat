@@ -12,6 +12,9 @@
 
 const std = @import("std");
 const unicode = @import("unicode");
+const line_mod = @import("../core/markdown/render/line.zig");
+
+const Line = line_mod.Line;
 
 const copy_preview_cols: usize = 40;
 
@@ -69,22 +72,28 @@ pub const Selection = struct {
         self: Selection,
         allocator: std.mem.Allocator,
         line_idx: usize,
-        line: anytype,
+        line: Line,
     ) !?Range {
-        if (!self.active) return null;
-        var prepared = try prepareRenderedLine(allocator, line);
-        defer prepared.deinit();
-        const bounds = self.columnBounds(line_idx, prepared.prepared.total_columns) orelse return null;
+        if (!self.active or !self.coversLine(line_idx)) return null;
+        const source = try line.joinedText(allocator);
+        defer allocator.free(source);
+        const bounds = self.columnBounds(line_idx, try unicode.rawDisplayWidth(source)) orelse return null;
         if (bounds.end <= bounds.start) return null;
-        return try overlappingColumnBounds(prepared.source, bounds.start, bounds.end);
+        const overlap = try overlappingGraphemes(source, bounds.start, bounds.end) orelse return null;
+        return .{ .start = overlap.column_start, .end = overlap.column_end };
+    }
+
+    fn coversLine(self: Selection, line_idx: usize) bool {
+        const ord = self.ordered();
+        return line_idx >= ord.start.line and line_idx <= ord.end.line;
     }
 
     /// Raw column bounds for a line, clamped to `width`.  Unlike `rangeForLine`
     /// this keeps empty ranges (start == end) so that extraction can still emit
     /// a blank line for a fully-selected empty middle line.
     fn columnBounds(self: Selection, line_idx: usize, width: usize) ?Range {
+        if (!self.coversLine(line_idx)) return null;
         const ord = self.ordered();
-        if (line_idx < ord.start.line or line_idx > ord.end.line) return null;
 
         var c0: usize = 0;
         var c1: usize = width;
@@ -105,7 +114,7 @@ pub const Selection = struct {
     /// Concatenate the selected text across lines, joined with '\n'.  Each
     /// line's slice is right-trimmed of trailing spaces (rendered padding).
     /// Caller owns the returned slice.
-    pub fn extractText(self: Selection, allocator: std.mem.Allocator, lines: anytype) ![]u8 {
+    pub fn extractText(self: Selection, allocator: std.mem.Allocator, lines: []const Line) ![]u8 {
         var out: std.ArrayList(u8) = .empty;
         errdefer out.deinit(allocator);
         if (!self.active) return out.toOwnedSlice(allocator);
@@ -113,12 +122,16 @@ pub const Selection = struct {
         const ord = self.ordered();
         var line_idx = ord.start.line;
         while (line_idx <= ord.end.line and line_idx < lines.len) : (line_idx += 1) {
-            var prepared = try prepareRenderedLine(allocator, lines[line_idx]);
-            defer prepared.deinit();
-            const bounds = self.columnBounds(line_idx, prepared.prepared.total_columns) orelse continue;
+            // Styled spans are only presentation boundaries: segment the joined
+            // bytes so a grapheme may cross a style boundary without splitting.
+            const source = try lines[line_idx].joinedText(allocator);
+            defer allocator.free(source);
+            const bounds = self.columnBounds(line_idx, try unicode.rawDisplayWidth(source)) orelse continue;
 
             const line_start = out.items.len;
-            try out.appendSlice(allocator, try overlappingColumnRange(prepared.source, bounds.start, bounds.end));
+            if (try overlappingGraphemes(source, bounds.start, bounds.end)) |overlap| {
+                try out.appendSlice(allocator, source[overlap.byte_start..overlap.byte_end]);
+            }
             while (out.items.len > line_start and out.items[out.items.len - 1] == ' ') {
                 out.items.len -= 1;
             }
@@ -130,63 +143,36 @@ pub const Selection = struct {
     }
 };
 
-const PreparedRenderedLine = struct {
-    allocator: std.mem.Allocator,
-    source: []u8,
-    prepared: unicode.PreparedLine,
-
-    fn deinit(self: *PreparedRenderedLine) void {
-        self.prepared.deinit();
-        self.allocator.free(self.source);
-    }
+/// The byte and column extent of the complete graphemes overlapping a
+/// half-open column range.
+const Overlap = struct {
+    byte_start: usize,
+    byte_end: usize,
+    column_start: usize,
+    column_end: usize,
 };
 
-/// Styled spans are only presentation boundaries. Preparing their concatenated
-/// bytes lets an extended grapheme cross a style boundary without being split.
-fn prepareRenderedLine(allocator: std.mem.Allocator, line: anytype) !PreparedRenderedLine {
-    var text: std.ArrayList(u8) = .empty;
-    errdefer text.deinit(allocator);
-    for (line.spans) |span| {
-        try text.appendSlice(allocator, span.text);
-    }
-    const source = try text.toOwnedSlice(allocator);
-    errdefer allocator.free(source);
-    return .{
-        .allocator = allocator,
-        .source = source,
-        .prepared = try unicode.PreparedLine.init(allocator, source),
-    };
-}
-
-/// Return complete source graphemes whose cell ranges overlap `[start, end)`.
+/// Locate the complete source graphemes whose cell ranges overlap `[start, end)`.
 /// The start is inclusive and the end is exclusive. A bound inside a two-cell
-/// grapheme expands outward to include that grapheme in full.
-fn overlappingColumnRange(source: []const u8, start: usize, end: usize) ![]const u8 {
-    if (start >= end) return source[0..0];
-    var byte_start: ?usize = null;
-    var byte_end: usize = 0;
+/// grapheme expands outward to include that grapheme in full. Null when no
+/// grapheme overlaps.
+fn overlappingGraphemes(source: []const u8, start: usize, end: usize) !?Overlap {
+    if (start >= end) return null;
+    var overlap: ?Overlap = null;
     var iterator = unicode.Iterator.init(source);
     while (try iterator.next()) |grapheme| {
         if (grapheme.column_end <= start) continue;
         if (grapheme.column_start >= end) break;
-        if (byte_start == null) byte_start = grapheme.byte_start;
-        byte_end = grapheme.byte_end;
+        if (overlap == null) overlap = .{
+            .byte_start = grapheme.byte_start,
+            .byte_end = grapheme.byte_end,
+            .column_start = grapheme.column_start,
+            .column_end = grapheme.column_end,
+        };
+        overlap.?.byte_end = grapheme.byte_end;
+        overlap.?.column_end = grapheme.column_end;
     }
-    const first = byte_start orelse return source[0..0];
-    return source[first..byte_end];
-}
-
-fn overlappingColumnBounds(source: []const u8, start: usize, end: usize) !?Range {
-    var column_start: ?usize = null;
-    var column_end: usize = 0;
-    var iterator = unicode.Iterator.init(source);
-    while (try iterator.next()) |grapheme| {
-        if (grapheme.column_end <= start) continue;
-        if (grapheme.column_start >= end) break;
-        if (column_start == null) column_start = grapheme.column_start;
-        column_end = grapheme.column_end;
-    }
-    return .{ .start = column_start orelse return null, .end = column_end };
+    return overlap;
 }
 
 /// Build the copy-toast label. ASCII whitespace collapses to one space and the
@@ -223,17 +209,15 @@ pub fn formatCopyPreview(allocator: std.mem.Allocator, text: []const u8) ![]u8 {
 
 const testing = std.testing;
 
-const TestStyle = enum { body, emphasis, strong };
-const TestSpan = struct { text: []const u8, style: TestStyle = .body };
-const TestLine = struct { spans: []const TestSpan };
+const Span = line_mod.Span;
 
-fn bodySpan(text: []const u8) TestSpan {
-    return .{ .text = text };
+fn bodySpan(text: []const u8) Span {
+    return .{ .text = text, .style = .body };
 }
 
 test "single line partial range extracts substring" {
-    var spans = [_]TestSpan{bodySpan("hello world")};
-    const lines = [_]TestLine{.{ .spans = &spans }};
+    var spans = [_]Span{bodySpan("hello world")};
+    const lines = [_]Line{.{ .spans = &spans }};
 
     var sel = Selection{};
     sel.begin(0, 2);
@@ -244,10 +228,10 @@ test "single line partial range extracts substring" {
 }
 
 test "multi line join with trailing-space trim" {
-    var s0 = [_]TestSpan{bodySpan("first line    ")};
-    var s1 = [_]TestSpan{bodySpan("middle")};
-    var s2 = [_]TestSpan{bodySpan("last")};
-    const lines = [_]TestLine{
+    var s0 = [_]Span{bodySpan("first line    ")};
+    var s1 = [_]Span{bodySpan("middle")};
+    var s2 = [_]Span{bodySpan("last")};
+    const lines = [_]Line{
         .{ .spans = &s0 },
         .{ .spans = &s1 },
         .{ .spans = &s2 },
@@ -275,8 +259,8 @@ test "rangeForLine clamps to content width and rejects empty" {
 }
 
 test "wide glyphs are copied whole at boundaries" {
-    var spans = [_]TestSpan{bodySpan("日本語")};
-    const lines = [_]TestLine{.{ .spans = &spans }};
+    var spans = [_]Span{bodySpan("日本語")};
+    const lines = [_]Line{.{ .spans = &spans }};
 
     var sel = Selection{};
     sel.begin(0, 1);
@@ -287,8 +271,8 @@ test "wide glyphs are copied whole at boundaries" {
 }
 
 test "selection bounds are inclusive at start exclusive at end and expand inside wide graphemes" {
-    var spans = [_]TestSpan{bodySpan("A日B")};
-    const lines = [_]TestLine{.{ .spans = &spans }};
+    var spans = [_]Span{bodySpan("A日B")};
+    const lines = [_]Line{.{ .spans = &spans }};
 
     const cases = [_]struct { start: usize, end: usize, expected: []const u8 }{
         .{ .start = 0, .end = 1, .expected = "A" },
@@ -316,8 +300,8 @@ test "selection preserves complete Unicode grapheme families" {
         .{ .text = "日", .start = 1, .end = 2 },
     };
     for (cases) |case| {
-        var spans = [_]TestSpan{bodySpan(case.text)};
-        const lines = [_]TestLine{.{ .spans = &spans }};
+        var spans = [_]Span{bodySpan(case.text)};
+        const lines = [_]Line{.{ .spans = &spans }};
         var sel = Selection{};
         sel.begin(0, case.start);
         sel.extendTo(0, case.end);
@@ -328,15 +312,15 @@ test "selection preserves complete Unicode grapheme families" {
 }
 
 test "graphemes may cross style boundaries" {
-    var combining_spans = [_]TestSpan{
+    var combining_spans = [_]Span{
         bodySpan("e"),
         .{ .text = "\u{0301}", .style = .emphasis },
     };
-    var zwj_spans = [_]TestSpan{
+    var zwj_spans = [_]Span{
         bodySpan("👩‍"),
         .{ .text = "💻", .style = .strong },
     };
-    const lines = [_]TestLine{
+    const lines = [_]Line{
         .{ .spans = &combining_spans },
         .{ .spans = &zwj_spans },
     };
@@ -357,10 +341,10 @@ test "graphemes may cross style boundaries" {
 }
 
 test "selection preserves raw tabs while using actual line stops" {
-    var first_spans = [_]TestSpan{ bodySpan("a"), bodySpan("\tb") };
-    var wide_spans = [_]TestSpan{ bodySpan("日"), bodySpan("\tX") };
-    var stop_spans = [_]TestSpan{ bodySpan("abcd"), bodySpan("\tX") };
-    const lines = [_]TestLine{
+    var first_spans = [_]Span{ bodySpan("a"), bodySpan("\tb") };
+    var wide_spans = [_]Span{ bodySpan("日"), bodySpan("\tX") };
+    var stop_spans = [_]Span{ bodySpan("abcd"), bodySpan("\tX") };
+    const lines = [_]Line{
         .{ .spans = &first_spans },
         .{ .spans = &wide_spans },
         .{ .spans = &stop_spans },
@@ -398,8 +382,8 @@ test "selection preserves raw tabs while using actual line stops" {
 }
 
 test "highlight ranges expand to complete grapheme and tab cells" {
-    var spans = [_]TestSpan{ bodySpan("A\t"), bodySpan("日B") };
-    const line: TestLine = .{ .spans = &spans };
+    var spans = [_]Span{ bodySpan("A\t"), bodySpan("日B") };
+    const line: Line = .{ .spans = &spans };
 
     var wide = Selection{};
     wide.begin(0, 5);
@@ -415,15 +399,15 @@ test "highlight ranges expand to complete grapheme and tab cells" {
 }
 
 test "selection rejects invalid UTF-8 and disallowed controls" {
-    var invalid_spans = [_]TestSpan{bodySpan("ok\x80")};
-    const invalid_lines = [_]TestLine{.{ .spans = &invalid_spans }};
+    var invalid_spans = [_]Span{bodySpan("ok\x80")};
+    const invalid_lines = [_]Line{.{ .spans = &invalid_spans }};
     var invalid = Selection{};
     invalid.begin(0, 0);
     invalid.extendTo(0, 8);
     try testing.expectError(error.InvalidUtf8, invalid.extractText(testing.allocator, &invalid_lines));
 
-    var control_spans = [_]TestSpan{bodySpan("a\x01b")};
-    const control_lines = [_]TestLine{.{ .spans = &control_spans }};
+    var control_spans = [_]Span{bodySpan("a\x01b")};
+    const control_lines = [_]Line{.{ .spans = &control_spans }};
     var control = Selection{};
     control.begin(0, 0);
     control.extendTo(0, 3);
@@ -432,8 +416,8 @@ test "selection rejects invalid UTF-8 and disallowed controls" {
 
 test "selection prepares a long line in one linear pass" {
     const long = "a" ** 32768;
-    var spans = [_]TestSpan{bodySpan(long)};
-    const lines = [_]TestLine{.{ .spans = &spans }};
+    var spans = [_]Span{bodySpan(long)};
+    const lines = [_]Line{.{ .spans = &spans }};
     var sel = Selection{};
     sel.begin(0, long.len - 8);
     sel.extendTo(0, long.len);
@@ -476,8 +460,8 @@ test "copy preview truncates long ASCII and rejects invalid input" {
 }
 
 test "inactive selection extracts nothing" {
-    var spans = [_]TestSpan{bodySpan("hello")};
-    const lines = [_]TestLine{.{ .spans = &spans }};
+    var spans = [_]Span{bodySpan("hello")};
+    const lines = [_]Line{.{ .spans = &spans }};
 
     const sel = Selection{};
     const text = try sel.extractText(testing.allocator, &lines);
@@ -486,8 +470,8 @@ test "inactive selection extracts nothing" {
 }
 
 test "reversed drag (cursor before anchor) normalizes" {
-    var spans = [_]TestSpan{bodySpan("abcdefghij")};
-    const lines = [_]TestLine{.{ .spans = &spans }};
+    var spans = [_]Span{bodySpan("abcdefghij")};
+    const lines = [_]Line{.{ .spans = &spans }};
 
     var sel = Selection{};
     sel.begin(0, 8);

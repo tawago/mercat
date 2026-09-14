@@ -167,7 +167,6 @@ fn runCli(
         .show_heading_markers = display.show_heading_markers,
         .decor = &resolved.decor,
         .frontmatter_style = display.frontmatter_style,
-        .for_export = parsed.format != .terminal,
         .mermaid_box_style = parsed.box_style orelse .standard,
         .mermaid_crossing_heuristic = parsed.crossing_heuristic orelse .median,
         .mermaid_force_layout = parsed.force_layout orelse .auto,
