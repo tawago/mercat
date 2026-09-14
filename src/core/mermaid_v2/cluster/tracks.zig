@@ -2,7 +2,12 @@
 //!
 //! BORDER CLEARANCE: a jog must never run along a drawn cluster-frame
 //! border (the corner glyph would fuse into it); an offending coordinate
-//! is displaced outward until clear. Synthetic frames never constrain.
+//! is displaced outward on a bounded search (at most 4096 steps). An
+//! expired search SURRENDERS: the last coordinate is returned even though
+//! it may still sit on a border, and each surrender is counted through the
+//! caller's `expired` out-counter (surfaced as the Sketch diagnostic
+//! `track_clearance_expired`), so a surrendered coordinate is always
+//! distinguishable from a cleared one. Synthetic frames never constrain.
 //! TRACK SEPARATION: same-side bridges whose jog spans overlap pack into
 //! distinct tracks (lanes.assign, stack_gap 1); untangled requests
 //! keep their preferred, border-cleared coordinate. PURE DATA: rects/coords
@@ -63,20 +68,70 @@ pub fn onFrameBorder(
     return false;
 }
 
+/// Rail-ink obstacles for jog placement: `heads` are arrowhead CELLS
+/// (foreign ink there is an ink-attribution transit violation, perpendicular crossing
+/// included); `runs` are the rail's straight strokes (crossbar, stem,
+/// droppers), which — like frame borders — forbid only COLLINEAR jog runs;
+/// a perpendicular crossing rasterizes as a legal crossing.
+pub const Obstacles = struct {
+    heads: []const sketch.Point = &.{},
+    runs: []const [2]sketch.Point = &.{},
+
+    pub fn blocks(o: Obstacles, row_jog: bool, coord: i32, lo: i32, hi: i32) bool {
+        for (o.heads) |h| {
+            if (row_jog) {
+                if (h.y == coord and h.x >= lo and h.x <= hi) return true;
+            } else {
+                if (h.x == coord and h.y >= lo and h.y <= hi) return true;
+            }
+        }
+        for (o.runs) |s| {
+            const horizontal = s[0].y == s[1].y;
+            if (row_jog and horizontal) {
+                if (s[0].y == coord and @min(s[0].x, s[1].x) <= hi and @max(s[0].x, s[1].x) >= lo) return true;
+            } else if (!row_jog and !horizontal) {
+                if (s[0].x == coord and @min(s[0].y, s[1].y) <= hi and @max(s[0].y, s[1].y) >= lo) return true;
+            }
+        }
+        return false;
+    }
+
+    /// True iff `p` lies on a head cell or any run stroke.
+    pub fn covers(o: Obstacles, p: sketch.Point) bool {
+        for (o.heads) |h| {
+            if (h.x == p.x and h.y == p.y) return true;
+        }
+        for (o.runs) |s| {
+            if (@min(s[0].x, s[1].x) <= p.x and p.x <= @max(s[0].x, s[1].x) and
+                @min(s[0].y, s[1].y) <= p.y and p.y <= @max(s[0].y, s[1].y)) return true;
+        }
+        return false;
+    }
+};
+
 /// Displace `coord` outward (per `entry`) until the jog segment no longer
-/// runs along a drawn frame border.
+/// runs along a drawn frame border or through rail-ink obstacles.
+/// On guard expiry the last coordinate is surrendered (possibly still on a
+/// border) and `expired`, when given, is incremented once.
 pub fn clearOfBorders(
     entry: sketch.Dir4,
     coord: i32,
     lo: i32,
     hi: i32,
     clusters: []const sketch.ClusterFrame,
+    obstacles: Obstacles,
+    expired: ?*u32,
 ) i32 {
     const sign = outwardSign(entry);
     const row = isRowJog(entry);
     var c = coord;
     var guard: u32 = 0;
-    while (guard < 4096 and onFrameBorder(row, c, lo, hi, clusters)) : (guard += 1) {
+    while (onFrameBorder(row, c, lo, hi, clusters) or obstacles.blocks(row, c, lo, hi)) {
+        if (guard == 4096) {
+            if (expired) |e| e.* += 1;
+            break;
+        }
+        guard += 1;
         c += sign;
     }
     return c;
@@ -100,6 +155,8 @@ pub fn resolve(
     reqs: []const Req,
     entry: sketch.Dir4,
     clusters: []const sketch.ClusterFrame,
+    obstacles: Obstacles,
+    expired: ?*u32,
 ) error{OutOfMemory}![]i32 {
     const out = try arena.alloc(i32, reqs.len);
     const sign = outwardSign(entry);
@@ -118,13 +175,11 @@ pub fn resolve(
 
     // Requests with no overlapping partner keep their preferred jog line; they only
     // need displacing off any drawn frame border (no track separation to negotiate).
-    // guarded-by: bridges_test.zig "vertical bridge jogs when x-misaligned, final segment vertical"
+    // @guarded-by: bridges_test.zig "vertical bridge jogs when x-misaligned, final segment vertical"
     for (reqs, 0..) |r, i| {
-        if (!part[i]) out[i] = clearOfBorders(entry, r.pref, r.span_lo, r.span_hi, clusters);
+        if (!part[i]) out[i] = clearOfBorders(entry, r.pref, r.span_lo, r.span_hi, clusters, obstacles, expired);
     }
 
-    // Entangled requests: sort innermost-preference first (assign packs in
-    // the given order), build outward-unit demands, pack with stack_gap 1.
     var order: std.ArrayListUnmanaged(usize) = .empty;
     for (part, 0..) |p, i| {
         if (p) try order.append(arena, i);
@@ -132,13 +187,13 @@ pub fn resolve(
     if (order.items.len == 0) return out;
     std.mem.sort(usize, order.items, SortCtx{ .reqs = reqs, .sign = sign }, SortCtx.lessThan);
 
-    const demands = try arena.alloc(lanes.Demand, order.items.len);
+    const demands = try arena.alloc(lanes.LaneClaim, order.items.len);
     for (order.items, 0..) |ri, k| {
         const r = reqs[ri];
         demands[k] = .{
             .lo = @intCast(@max(0, r.span_lo)),
             .hi = @intCast(@max(0, r.span_hi)),
-            .base = sign * r.pref, // outward units: larger = further from target
+            .base = sign * r.pref,
         };
     }
     const asg = try lanes.assign(arena, demands, 1);
@@ -154,13 +209,18 @@ pub fn resolve(
         lane_hi[li] = @max(lane_hi[li], reqs[ri].span_hi);
     }
 
-    // guarded-by: bridges_test.zig "two same-side bridges with overlapping spans get distinct tracks"
+    // @guarded-by: bridges_test.zig "two same-side bridges with overlapping spans get distinct tracks"
     var prev: i32 = std.math.minInt(i32);
     for (asg.lane_pos, 0..) |*pos, li| {
         var v = pos.*;
         if (prev != std.math.minInt(i32) and v <= prev) v = prev + 1;
         var guard: u32 = 0;
-        while (guard < 4096 and onFrameBorder(row, sign * v, lane_lo[li], lane_hi[li], clusters)) : (guard += 1) {
+        while (onFrameBorder(row, sign * v, lane_lo[li], lane_hi[li], clusters) or obstacles.blocks(row, sign * v, lane_lo[li], lane_hi[li])) {
+            if (guard == 4096) {
+                if (expired) |e| e.* += 1;
+                break;
+            }
+            guard += 1;
             v += 1;
         }
         pos.* = v;

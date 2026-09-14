@@ -129,6 +129,7 @@ fn appendWrapped(a: std.mem.Allocator, rows: *std.ArrayList(Row), key: []const u
 /// reclaimed by the arena, not freed here.
 fn wrapValue(a: std.mem.Allocator, text: []const u8, width: usize, initial_column: usize) ![][]const u8 {
     std.debug.assert(width >= 1);
+    _ = try geometry.displayWidth(text);
 
     var lines: std.ArrayList([]const u8) = .empty;
     var current: std.ArrayList(u8) = .empty;

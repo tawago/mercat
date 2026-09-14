@@ -17,7 +17,6 @@ pub const FrontmatterStyle = enum { panel, dim, compact, raw, hidden };
 /// vocabulary (`prim.SubgraphEdges`, itself std-only pure data) is stored
 /// directly here — no config-local twin — so it flows to the render options
 /// with no enum translation, matching how `ForceLayout` is handled.
-
 pub const Config = struct {
     general: General = .{},
     display: Display = .{},
@@ -148,11 +147,6 @@ fn initDefaults(allocator: std.mem.Allocator) !Config {
 }
 
 pub fn applyTomlLike(allocator: std.mem.Allocator, cfg: *Config, source: []const u8) !void {
-    // Walk lines with the shared scanner (comments/blank lines/headers handled
-    // there). The section header is split on its first `.` into
-    // `(table, subtable)`: dotted `[theme.<slot>]` tables route into the sparse
-    // raw-theme builder; every other section keeps flat typed-field behavior,
-    // dispatched on the full section string.
     var scanner = loadfile.scanLines(source, "");
     while (scanner.next()) |event| {
         if (std.mem.eql(u8, event.table, "theme")) {
@@ -242,10 +236,6 @@ fn parseBool(value: []const u8) bool {
 const stripQuotes = loadfile.stripQuotes;
 
 fn replaceString(allocator: std.mem.Allocator, target: *[]const u8, value: []const u8) !void {
-    // Decode into a fresh allocation first so an OOM leaves the prior value
-    // intact (no dangling pointer, no double-free): only free the old value once
-    // the new allocation has succeeded. `value` is the raw TOML value — quotes
-    // are stripped and escapes decoded here.
     const dup = try decodeQuotedString(allocator, value);
     allocator.free(target.*);
     target.* = dup;
@@ -265,7 +255,6 @@ fn applyEnvOverrides(allocator: std.mem.Allocator, cfg: *Config) !void {
     const theme = std.process.getEnvVarOwned(std.heap.page_allocator, "MERCAT_THEME") catch null;
     defer if (theme) |value| std.heap.page_allocator.free(value);
     if (theme) |value| {
-        // Free-form name; the registry validates it later.
         try replaceString(allocator, &cfg.display.theme, value);
     }
 
@@ -289,7 +278,6 @@ fn applyEnvOverrides(allocator: std.mem.Allocator, cfg: *Config) !void {
 }
 
 test {
-    // Pull loadfile's own unit tests into the `zig build test` run.
     _ = @import("theme/loadfile.zig");
     _ = @import("theme/color.zig");
     _ = @import("theme/spec.zig");

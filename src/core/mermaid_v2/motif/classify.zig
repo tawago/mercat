@@ -63,7 +63,7 @@ fn computeMeta(ctx: *Ctx, v: u32) void {
     }
     const m = @min(kids.len, child_sigs.len);
     std.mem.sort(u64, child_sigs[0..m], {}, std.sort.asc(u64));
-    var h = std.hash.Wyhash.init(0x6d6f7469); // "moti"
+    var h = std.hash.Wyhash.init(0x6d6f7469);
     const tag: u8 = switch (ctx.sc.verts[v]) {
         .node => 1,
         .cluster => 2,
@@ -116,7 +116,7 @@ fn parallelMotif(ctx: *Ctx, branches: []const u32) Error!usize {
         }
     }
     if (all_simple) {
-        // Record per-branch spans while flattening. // guarded-by: pack.zig "parallel TD graph: one synthetic cluster per branch, members reassigned"
+        // Record per-branch spans while flattening. // @guarded-by: pack.zig "parallel TD graph: one synthetic cluster per branch, members reassigned"
         var members: std.ArrayListUnmanaged(sg.NodeId) = .empty;
         var spans: std.ArrayListUnmanaged([2]usize) = .empty;
         for (branches) |b| {
@@ -196,7 +196,7 @@ fn coarsenSubtree(ctx: *Ctx, v: u32) Error!usize {
         break;
     }
     const pm: ?usize = if (tail) |t| try pivotMotif(ctx, t) else null;
-    if (chain.items.len == 0) return pm.?; // v itself branches
+    if (chain.items.len == 0) return pm.?;
 
     var members: std.ArrayListUnmanaged(sg.NodeId) = .empty;
     var children: std.ArrayListUnmanaged(usize) = .empty;
@@ -208,7 +208,7 @@ fn coarsenSubtree(ctx: *Ctx, v: u32) Error!usize {
     }
     if (pm) |p| try children.append(ctx.a, p);
 
-    // A lone cluster vertex with nothing downstream IS its cluster motif. // guarded-by: motif_test.zig "lone cluster vertex classifies as the cluster motif directly (not wrapped)"
+    // A lone cluster vertex with nothing downstream IS its cluster motif. // @guarded-by: motif_test.zig "lone cluster vertex classifies as the cluster motif directly (not wrapped)"
     if (chain.items.len == 1 and members.items.len == 0 and pm == null)
         return children.items[0];
 
@@ -217,7 +217,7 @@ fn coarsenSubtree(ctx: *Ctx, v: u32) Error!usize {
     else if (chain.items.len == 1 and members.items.len == 1)
         .atom
     else
-        .prime; // 2-chains and node→cluster stubs: below the spine minimum
+        .prime;
     const entry: ?sg.NodeId = switch (ctx.sc.verts[chain.items[0]]) {
         .node => |nid| nid,
         .cluster => null,
@@ -289,7 +289,7 @@ fn pivotMotif(ctx: *Ctx, p: u32) Error!usize {
             .children = grouped,
         });
     }
-    // Branching cluster vertex: wrap in a prime so cluster motifs stay pure. // guarded-by: motif_test.zig "branching cluster vertex wraps in prime; the cluster motif stays pure"
+    // Branching cluster vertex: wrap in a prime so cluster motifs stay pure. // @guarded-by: motif_test.zig "branching cluster vertex wraps in prime; the cluster motif stays pure"
     var children: std.ArrayListUnmanaged(usize) = .empty;
     try children.append(ctx.a, try clusterMotif(ctx, ctx.sc.verts[p].cluster));
     for (grouped) |mi| try children.append(ctx.a, mi);

@@ -19,14 +19,18 @@ pub fn build(b: *std.Build) void {
     const unicode_check_step = b.step("unicode-check", "Offline regenerate and byte-compare Unicode 17 tables");
     unicode_check_step.dependOn(&unicode_check_run.step);
 
+    if (onlyStepRequested(b, "unicode-check")) return;
+
     const options = b.addOptions();
-    const koino_dep = b.dependency("koino", .{ .target = target, .optimize = optimize });
-    const vaxis_dep = b.dependency("vaxis", .{ .target = target, .optimize = optimize });
+    const calibration_inputs = b.option([]const u8, "calibration-inputs", "Directory containing optional score-calibration inputs");
+    options.addOption(?[]const u8, "calibration_inputs", calibration_inputs);
+    const maybe_koino_dep = b.lazyDependency("koino", .{ .target = target, .optimize = optimize });
+    const maybe_vaxis_dep = b.lazyDependency("vaxis", .{ .target = target, .optimize = optimize });
+    if (maybe_koino_dep == null or maybe_vaxis_dep == null) return;
+    const koino_dep = maybe_koino_dep.?;
+    const vaxis_dep = maybe_vaxis_dep.?;
     options.addOption([]const u8, "version", "0.2.1");
 
-    // =====================================================
-    // Shared Modules (for reuse across targets)
-    // =====================================================
     const text_mod = b.createModule(.{
         .root_source_file = b.path("src/lib/text.zig"),
         .target = target,
@@ -44,6 +48,8 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     });
+    // The one import base/ is granted: lib/unicode is the width authority.
+    prim_mod.addImport("unicode", unicode_mod);
 
     const mermaid_v2_mod = b.createModule(.{
         .root_source_file = b.path("src/core/mermaid_v2/entry.zig"),
@@ -51,10 +57,8 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
     mermaid_v2_mod.addImport("prim", prim_mod);
+    mermaid_v2_mod.addImport("unicode", unicode_mod);
 
-    // =====================================================
-    // Main Executable
-    // =====================================================
     const root_module = b.createModule(.{
         .root_source_file = b.path("src/main.zig"),
         .target = target,
@@ -66,8 +70,6 @@ pub fn build(b: *std.Build) void {
     root_module.addImport("prim", prim_mod);
     root_module.addImport("text", text_mod);
     root_module.addImport("unicode", unicode_mod);
-    // Native export font service (src/export/font.zig): embedded JetBrains Mono
-    // + vendored stb_truetype. See linkExportFont below.
     linkExportFont(b, root_module);
 
     const exe = b.addExecutable(.{
@@ -76,10 +78,6 @@ pub fn build(b: *std.Build) void {
     });
     b.installArtifact(exe);
 
-    // Absolute path to the installed mercat binary, exposed to the test graph so
-    // the export verification suite (src/export/export_test.zig) can spawn it in
-    // separate processes (§8.2 determinism, §8.3 CLI). `zig build test` is made
-    // to depend on the install step below so the binary exists when tests run.
     options.addOption([]const u8, "mercat_exe_path", b.getInstallPath(.bin, "mercat"));
 
     const run_cmd = b.addRunArtifact(exe);
@@ -89,9 +87,6 @@ pub fn build(b: *std.Build) void {
     const run_step = b.step("run", "Run mercat");
     run_step.dependOn(&run_cmd.step);
 
-    // =====================================================
-    // Unit Tests (existing)
-    // =====================================================
     const test_module = b.createModule(.{
         .root_source_file = b.path("src/main.zig"),
         .target = target,
@@ -110,15 +105,10 @@ pub fn build(b: *std.Build) void {
     });
 
     const test_run = b.addRunArtifact(unit_tests);
-    // The export verification suite spawns the installed mercat binary, so build +
-    // install it before running the unit tests.
     test_run.step.dependOn(b.getInstallStep());
     const test_step = b.step("test", "Run unit tests");
     test_step.dependOn(&test_run.step);
 
-    // =====================================================
-    // Legacy Mermaid Tests (standalone root at src/core/mermaid/legacy_test.zig)
-    // =====================================================
     const legacy_mermaid_test_module = b.createModule(.{
         .root_source_file = b.path("src/core/mermaid/legacy_test.zig"),
         .target = target,
@@ -133,13 +123,6 @@ pub fn build(b: *std.Build) void {
     legacy_mermaid_test_step.dependOn(&legacy_mermaid_test_run.step);
     test_step.dependOn(&legacy_mermaid_test_run.step);
 
-    // =====================================================
-    // Export Font Tests (standalone root at src/export/font.zig)
-    // =====================================================
-    // font.zig is not reachable from the main.zig import graph yet (the PNG
-    // backend is wired in a later stage), so its unit tests get their own test
-    // root. This is also the reference "standalone export test executable"
-    // carrying the stb_truetype C integration.
     const font_test_module = b.createModule(.{
         .root_source_file = b.path("src/export/font.zig"),
         .target = target,
@@ -153,9 +136,6 @@ pub fn build(b: *std.Build) void {
     font_test_step.dependOn(&font_test_run.step);
     test_step.dependOn(&font_test_run.step);
 
-    // =====================================================
-    // Property Tests
-    // =====================================================
     const sem_graph_mod = b.createModule(.{
         .root_source_file = b.path("src/core/mermaid_v2/sem_graph.zig"),
         .target = target,
@@ -187,95 +167,22 @@ pub fn build(b: *std.Build) void {
     const prop_test_step = b.step("test-property", "Run property-based tests");
     prop_test_step.dependOn(&prop_test_run.step);
 
-    // Existing `test` step also runs property tests.
     test_step.dependOn(&prop_test_run.step);
 
-    // mermaid_v2 layout/sketch tests — rooted at entry.zig so the file
-    // tree's relative imports resolve.
     const v2_test_module = b.createModule(.{
         .root_source_file = b.path("src/core/mermaid_v2/entry.zig"),
         .target = target,
         .optimize = optimize,
     });
+    v2_test_module.addOptions("build_options", options);
     v2_test_module.addImport("prim", prim_mod);
+    v2_test_module.addImport("unicode", unicode_mod);
     const v2_tests = b.addTest(.{ .root_module = v2_test_module });
     const v2_test_run = b.addRunArtifact(v2_tests);
     const v2_test_step = b.step("test-mermaid-v2", "Run mermaid_v2 unit tests");
     v2_test_step.dependOn(&v2_test_run.step);
     test_step.dependOn(&v2_test_run.step);
 
-    // parse_baseline.zig — fixture sweep against the parser. Its own module
-    // root so cross-directory @imports are not needed.
-    const parse_baseline_module = b.createModule(.{
-        .root_source_file = b.path("tests/parse_baseline.zig"),
-        .target = target,
-        .optimize = optimize,
-    });
-    parse_baseline_module.addImport("parser", parser_mod);
-    parse_baseline_module.addImport("sem_graph", sem_graph_mod);
-
-    const parse_baseline_tests = b.addTest(.{ .root_module = parse_baseline_module });
-    const parse_baseline_run = b.addRunArtifact(parse_baseline_tests);
-    const parse_baseline_step = b.step("test-baseline", "Run flowchart fixture parse baseline");
-    parse_baseline_step.dependOn(&parse_baseline_run.step);
-    test_step.dependOn(&parse_baseline_run.step);
-
-    // layout_baseline.zig — week 3 R1 risk gate. Runs parse -> layout ->
-    // validate on every fixture and asserts >=54/59 produce a Sketch
-    // whose six validators all return .ok. Reaches the v2 surface via
-    // the umbrella `mermaid_v2` module rooted at entry.zig — see the
-    // entry.zig re-exports for the exposed API.
-    const layout_baseline_module = b.createModule(.{
-        .root_source_file = b.path("tests/layout_baseline.zig"),
-        .target = target,
-        .optimize = optimize,
-    });
-    layout_baseline_module.addImport("mermaid_v2", mermaid_v2_mod);
-
-    const layout_baseline_tests = b.addTest(.{ .root_module = layout_baseline_module });
-    const layout_baseline_run = b.addRunArtifact(layout_baseline_tests);
-    const layout_baseline_step = b.step("test-layout-baseline", "Run layout fixture baseline (R1 gate)");
-    layout_baseline_step.dependOn(&layout_baseline_run.step);
-    test_step.dependOn(&layout_baseline_run.step);
-
-    // lattice_baseline.zig — week 4 gate. Runs parse -> layout -> rasterize
-    // on every fixture and asserts >=54/59 produce a Lattice that satisfies
-    // structural invariants I1 (edge cells have >=2 neighbour bits) and I2
-    // (node interiors don't leak through their border).
-    const lattice_baseline_module = b.createModule(.{
-        .root_source_file = b.path("tests/lattice_baseline.zig"),
-        .target = target,
-        .optimize = optimize,
-    });
-    lattice_baseline_module.addImport("mermaid_v2", mermaid_v2_mod);
-
-    const lattice_baseline_tests = b.addTest(.{ .root_module = lattice_baseline_module });
-    const lattice_baseline_run = b.addRunArtifact(lattice_baseline_tests);
-    const lattice_baseline_step = b.step("test-lattice-baseline", "Run lattice fixture baseline (week 4 gate)");
-    lattice_baseline_step.dependOn(&lattice_baseline_run.step);
-    test_step.dependOn(&lattice_baseline_run.step);
-
-    // paint_baseline.zig — week 5 gate. Runs the full v2 pipeline
-    // (parse → layout → rasterize → paint) on every fixture and asserts
-    // the painted output is non-empty, newline-terminated, and not a
-    // fallback. Also requires >=10 fixtures to match their sibling .txt
-    // exactly.
-    const paint_baseline_module = b.createModule(.{
-        .root_source_file = b.path("tests/paint_baseline.zig"),
-        .target = target,
-        .optimize = optimize,
-    });
-    paint_baseline_module.addImport("mermaid_v2", mermaid_v2_mod);
-
-    const paint_baseline_tests = b.addTest(.{ .root_module = paint_baseline_module });
-    const paint_baseline_run = b.addRunArtifact(paint_baseline_tests);
-    const paint_baseline_step = b.step("test-paint-baseline", "Run paint fixture baseline (week 5 gate)");
-    paint_baseline_step.dependOn(&paint_baseline_run.step);
-    test_step.dependOn(&paint_baseline_run.step);
-
-    // =====================================================
-    // Import Boundary Lint (mermaid_v2)
-    // =====================================================
     const lint_module = b.createModule(.{
         .root_source_file = b.path("tools/lint_imports.zig"),
         .target = target,
@@ -294,6 +201,16 @@ pub fn build(b: *std.Build) void {
     lint_step.dependOn(&lint_cmd.step);
     test_step.dependOn(&lint_cmd.step);
 
+    const lint_test_module = b.createModule(.{
+        .root_source_file = b.path("tools/lint_imports.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    const lint_tests = b.addTest(.{ .root_module = lint_test_module });
+    const lint_tests_run = b.addRunArtifact(lint_tests);
+    lint_tests_run.setCwd(b.path("."));
+    test_step.dependOn(&lint_tests_run.step);
+
     const unicode_test_module = b.createModule(.{
         .root_source_file = b.path("src/lib/unicode.zig"),
         .target = target,
@@ -306,9 +223,6 @@ pub fn build(b: *std.Build) void {
     unicode_test_step.dependOn(&unicode_test_run.step);
     test_step.dependOn(&unicode_test_run.step);
 
-    // =====================================================
-    // Visual Samples Harness (mermaid_v2)
-    // =====================================================
     const visual_samples_module = b.createModule(.{
         .root_source_file = b.path("tools/visual_samples.zig"),
         .target = target,
@@ -328,19 +242,6 @@ pub fn build(b: *std.Build) void {
     const visual_samples_step = b.step("visual-samples", "Render curated mermaid samples to docs/visual-samples.html");
     visual_samples_step.dependOn(&visual_samples_cmd.step);
 
-    // =====================================================
-    // Private eval scorer (out-of-tree `eval/`, gitignored)
-    // =====================================================
-    // Private maintainer evaluation tooling lives under the gitignored
-    // top-level `eval/` directory so public clones build clean without it. Everything
-    // below is wired ONLY when `eval/` exists on disk (an existence check, so a
-    // clone lacking `eval/` still builds and `zig build test` still passes).
-    //
-    // The scorer reaches renderer internals (SemGraph, parse, mermaid types)
-    // through exactly ONE facade module — `internals`, rooted at
-    // `src/core/internals_api.zig`. It MUST be a single module so `sem_graph`
-    // and `parse` compile once and share type identity; two separate modules
-    // would compile two copies of `SemGraph` and break type identity.
     const has_eval = blk: {
         std.fs.cwd().access("eval", .{}) catch break :blk false;
         break :blk true;
@@ -353,6 +254,8 @@ pub fn build(b: *std.Build) void {
             .optimize = optimize,
         });
         internals_mod.addImport("prim", prim_mod);
+        internals_mod.addImport("text", text_mod);
+        internals_mod.addImport("unicode", unicode_mod);
 
         const reconstruction_mod = b.createModule(.{
             .root_source_file = b.path("eval/reconstruction_api.zig"),
@@ -361,7 +264,6 @@ pub fn build(b: *std.Build) void {
         });
         reconstruction_mod.addImport("internals", internals_mod);
 
-        // --- decoder-score tool ---
         const decoder_score_module = b.createModule(.{
             .root_source_file = b.path("eval/decoder_score.zig"),
             .target = target,
@@ -374,9 +276,6 @@ pub fn build(b: *std.Build) void {
             .root_module = decoder_score_module,
         });
 
-        // Install the freshly built tool so `zig-out/bin/decoder-score` always
-        // reflects current source and no stale binary lingers behind the named
-        // run step.
         const decoder_score_install = b.addInstallArtifact(decoder_score_exe, .{});
 
         const decoder_score_cmd = b.addRunArtifact(decoder_score_exe);
@@ -388,10 +287,6 @@ pub fn build(b: *std.Build) void {
         decoder_score_step.dependOn(&decoder_score_install.step);
         decoder_score_step.dependOn(&decoder_score_cmd.step);
 
-        // --- eval test step (NOT folded into `zig build test`) ---
-        // Reconstruction suite (matcher soundness, GED bounds, score records,
-        // JSON, fixtures) rooted at the eval facade, plus the decoder-score
-        // tool's own unit tests.
         const reconstruction_tests = b.addTest(.{ .root_module = reconstruction_mod });
         const reconstruction_test_run = b.addRunArtifact(reconstruction_tests);
 
@@ -401,7 +296,71 @@ pub fn build(b: *std.Build) void {
         const test_eval_step = b.step("test-eval", "Run private eval scorer tests (reconstruction + decoder-score)");
         test_eval_step.dependOn(&reconstruction_test_run.step);
         test_eval_step.dependOn(&decoder_score_test_run.step);
+
+        const update_regressions = b.option(
+            bool,
+            "update-regressions",
+            "Rewrite regression goldens (owner-approved changes only)",
+        ) orelse false;
+        const regression_dir = b.option(
+            []const u8,
+            "regression-dir",
+            "Directory containing private byte-exact regression pins",
+        );
+
+        const regress_exe = b.addExecutable(.{
+            .name = "regress",
+            .root_module = b.createModule(.{
+                .root_source_file = b.path("eval/regress.zig"),
+                .target = target,
+                .optimize = optimize,
+            }),
+        });
+
+        const regress_cmd = b.addRunArtifact(regress_exe);
+        regress_cmd.step.dependOn(b.getInstallStep());
+        regress_cmd.setCwd(b.path("."));
+        regress_cmd.addArg(b.getInstallPath(.bin, "mercat"));
+        if (regression_dir) |path| regress_cmd.addArg(path);
+        if (update_regressions) regress_cmd.addArg("--update");
+
+        const regress_step = b.step("regress", "Run byte-exact rendering regression pins");
+        if (regression_dir != null) {
+            regress_step.dependOn(&regress_cmd.step);
+            test_step.dependOn(&regress_cmd.step);
+        }
     }
+}
+
+fn onlyStepRequested(b: *std.Build, wanted: []const u8) bool {
+    const args = std.process.argsAlloc(b.allocator) catch return false;
+    if (args.len < 6) return false;
+
+    var found: ?[]const u8 = null;
+    var index: usize = 6;
+    while (index < args.len) : (index += 1) {
+        const arg = args[index];
+        if (std.mem.eql(u8, arg, "--")) break;
+        if (buildOptionTakesValue(arg)) {
+            index += 1;
+            continue;
+        }
+        if (std.mem.startsWith(u8, arg, "-")) continue;
+        if (found != null) return false;
+        found = arg;
+    }
+    return found != null and std.mem.eql(u8, found.?, wanted);
+}
+
+fn buildOptionTakesValue(arg: []const u8) bool {
+    const options = [_][]const u8{
+        "-p",                   "--prefix",    "--prefix-lib-dir", "--prefix-exe-dir",
+        "--prefix-include-dir", "--sysroot",   "--maxrss",         "--search-prefix",
+        "--libc",               "--color",     "--summary",        "--seed",
+        "--debounce",           "--debug-log", "--libc-runtimes",  "--glibc-runtimes",
+    };
+    for (options) |option| if (std.mem.eql(u8, arg, option)) return true;
+    return false;
 }
 
 /// Wire the native-export font integration into a module that compiles

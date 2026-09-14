@@ -41,13 +41,13 @@ pub fn deadSpace(allocator: std.mem.Allocator, s: sketch.Sketch) !u64 {
             markSegment(&covered, s.bbox, e.polyline[i], e.polyline[i + 1]);
         }
     }
-    for (s.busbars) |bb| {
+    for (s.rails) |rail| {
         var i: usize = 0;
-        while (i + 1 < bb.stem.len) : (i += 1) {
-            markSegment(&covered, s.bbox, bb.stem[i], bb.stem[i + 1]);
+        while (i + 1 < rail.stem.len) : (i += 1) {
+            markSegment(&covered, s.bbox, rail.stem[i], rail.stem[i + 1]);
         }
-        markSegment(&covered, s.bbox, bb.rail[0], bb.rail[1]);
-        for (bb.taps) |tap| markSegment(&covered, s.bbox, tap.at, tap.landing);
+        markSegment(&covered, s.bbox, rail.crossbar[0], rail.crossbar[1]);
+        for (rail.taps) |tap| markSegment(&covered, s.bbox, tap.at, tap.landing);
     }
     return area - covered.count();
 }
@@ -90,7 +90,7 @@ fn markCell(covered: *std.DynamicBitSet, bbox: sketch.Rect, x: i32, y: i32) void
 /// Σ over edges of (manhattan polyline length − manhattan endpoint span):
 /// how much farther every edge travels than a straight L-route would.
 ///
-/// Bus-bars: the TRUNK is counted ONCE — only the stem's own detour (0 for
+/// Rails: the RAIL is counted ONCE — only the stem's own detour (0 for
 /// a straight stem). The rail is NOT detour: it exists exactly to reach the
 /// taps, and each tap's direct route covers its own share of it. Tap drops
 /// are straight (walked == direct), contributing nothing.
@@ -106,13 +106,13 @@ pub fn edgeStretch(s: sketch.Sketch) u64 {
         const direct = manhattan(e.polyline[0], e.polyline[e.polyline.len - 1]);
         total += walked -| direct;
     }
-    for (s.busbars) |bb| {
+    for (s.rails) |rail| {
         var walked: u64 = 0;
         var i: usize = 0;
-        while (i + 1 < bb.stem.len) : (i += 1) {
-            walked += manhattan(bb.stem[i], bb.stem[i + 1]);
+        while (i + 1 < rail.stem.len) : (i += 1) {
+            walked += manhattan(rail.stem[i], rail.stem[i + 1]);
         }
-        total += walked -| manhattan(bb.stem[0], bb.stem[bb.stem.len - 1]);
+        total += walked -| manhattan(rail.stem[0], rail.stem[rail.stem.len - 1]);
     }
     return total;
 }
@@ -127,12 +127,12 @@ fn manhattan(a: sketch.Point, b: sketch.Point) u64 {
 pub fn bends(s: sketch.Sketch) u64 {
     var total: u64 = 0;
     for (s.edges) |e| total += polylineBends(e.polyline);
-    // Bus-bar trunk corners counted once (stem flips + stem→rail turn) plus one turn per off-column tap. // guarded-by: score_test.zig "bus-bar bends: trunk junction counted once, one turn per off-column tap"
-    for (s.busbars) |bb| {
-        total += polylineBends(bb.stem);
-        const junction = bb.stem[bb.stem.len - 1];
-        if (bb.rail[0].x != bb.rail[1].x) total += 1;
-        for (bb.taps) |tap| {
+    // Rail corners counted once (stem flips + stem→crossbar turn) plus one turn per off-column tap. // @guarded-by: score_test.zig "rail bends: rail junction counted once, one turn per off-column tap"
+    for (s.rails) |rail| {
+        total += polylineBends(rail.stem);
+        const junction = rail.stem[rail.stem.len - 1];
+        if (rail.crossbar[0].x != rail.crossbar[1].x) total += 1;
+        for (rail.taps) |tap| {
             if (tap.at.x != junction.x) total += 1;
         }
     }
@@ -146,7 +146,7 @@ fn polylineBends(poly: []const sketch.Point) u64 {
     while (i + 1 < poly.len) : (i += 1) {
         const a = poly[i];
         const b = poly[i + 1];
-        if (a.x == b.x and a.y == b.y) continue; // zero-length
+        if (a.x == b.x and a.y == b.y) continue;
         const vertical = a.x == b.x;
         if (prev_vertical) |pv| {
             if (pv != vertical) total += 1;
@@ -170,33 +170,33 @@ pub fn countCrossings(s: sketch.Sketch) u64 {
             total += crossingsBetween(ea.polyline, eb.polyline);
         }
     }
-    // Bus-bars cross edges/other bus-bars; a bus-bar never crosses itself. // guarded-by: score_test.zig "bus-bar crossings: shared trunk registers once, never crosses itself"
-    for (s.busbars, 0..) |ba, bi| {
-        for (s.edges) |e| total += busbarEdgeCrossings(ba, e.polyline);
-        for (s.busbars[bi + 1 ..]) |bb| total += busbarBusbarCrossings(ba, bb);
+    // Rails cross edges/other rails; a rail never crosses itself. // @guarded-by: score_test.zig "rail crossings: shared rail registers once, never crosses itself"
+    for (s.rails, 0..) |ba, bi| {
+        for (s.edges) |e| total += railEdgeCrossings(ba, e.polyline);
+        for (s.rails[bi + 1 ..]) |rail| total += railRailCrossings(ba, rail);
     }
     return total;
 }
 
-/// Iterate a bus-bar's segments: stem segments, the rail, one drop per
+/// Iterate a rail's segments: stem segments, the crossbar, one drop per
 /// tap. Index-addressed so crossing loops stay allocation-free.
-fn busbarSegCount(bb: sketch.BusBar) usize {
-    return (bb.stem.len - 1) + 1 + bb.taps.len;
+fn railSegCount(rail: sketch.Rail) usize {
+    return (rail.stem.len - 1) + 1 + rail.taps.len;
 }
 
-fn busbarSeg(bb: sketch.BusBar, i: usize) [2]sketch.Point {
-    const stem_segs = bb.stem.len - 1;
-    if (i < stem_segs) return .{ bb.stem[i], bb.stem[i + 1] };
-    if (i == stem_segs) return .{ bb.rail[0], bb.rail[1] };
-    const tap = bb.taps[i - stem_segs - 1];
+fn railSeg(rail: sketch.Rail, i: usize) [2]sketch.Point {
+    const stem_segs = rail.stem.len - 1;
+    if (i < stem_segs) return .{ rail.stem[i], rail.stem[i + 1] };
+    if (i == stem_segs) return .{ rail.crossbar[0], rail.crossbar[1] };
+    const tap = rail.taps[i - stem_segs - 1];
     return .{ tap.at, tap.landing };
 }
 
-fn busbarEdgeCrossings(bb: sketch.BusBar, poly: []const sketch.Point) u64 {
+fn railEdgeCrossings(rail: sketch.Rail, poly: []const sketch.Point) u64 {
     var total: u64 = 0;
     var i: usize = 0;
-    while (i < busbarSegCount(bb)) : (i += 1) {
-        const sa = busbarSeg(bb, i);
+    while (i < railSegCount(rail)) : (i += 1) {
+        const sa = railSeg(rail, i);
         var j: usize = 0;
         while (j + 1 < poly.len) : (j += 1) {
             if (segmentsCross(sa[0], sa[1], poly[j], poly[j + 1])) total += 1;
@@ -205,14 +205,14 @@ fn busbarEdgeCrossings(bb: sketch.BusBar, poly: []const sketch.Point) u64 {
     return total;
 }
 
-fn busbarBusbarCrossings(ba: sketch.BusBar, bb: sketch.BusBar) u64 {
+fn railRailCrossings(ba: sketch.Rail, rail: sketch.Rail) u64 {
     var total: u64 = 0;
     var i: usize = 0;
-    while (i < busbarSegCount(ba)) : (i += 1) {
-        const sa = busbarSeg(ba, i);
+    while (i < railSegCount(ba)) : (i += 1) {
+        const sa = railSeg(ba, i);
         var j: usize = 0;
-        while (j < busbarSegCount(bb)) : (j += 1) {
-            const sb = busbarSeg(bb, j);
+        while (j < railSegCount(rail)) : (j += 1) {
+            const sb = railSeg(rail, j);
             if (segmentsCross(sa[0], sa[1], sb[0], sb[1])) total += 1;
         }
     }

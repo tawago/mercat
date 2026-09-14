@@ -3,15 +3,41 @@
 //! deviation from the plan's "Lint: None" line; documented in the Step 8
 //! report). Pure data/plan surface — no scoring, no geometry ranking.
 //!
-//! Allowed imports (tools/lint_imports.zig): std, prim, base/ledger,
-//! sem_graph, budget, realized, reach_vector.
+//! Allowed imports (tools/lint_imports.zig): std, prim, the base/ no-deps
+//! tier, sem_graph, budget, ledger/realized, ledger/reach_vector. Actually
+//! imports std, base/ledger, sem_graph, budget, ledger/realized and
+//! ledger/reach_vector — not prim.
 
 const std = @import("std");
 const ledger = @import("base/ledger.zig");
+const sketch_bundles = @import("sketch_bundles.zig");
 const sem_graph = @import("sem_graph.zig");
 const ladder = @import("budget.zig");
 const realized_mod = @import("ledger/realized.zig");
 const reach_vector = @import("ledger/reach_vector.zig");
+
+/// True iff these bundles speak for a realized plan (rather than layout's
+/// fans), so re-deriving them from a plan replaces like with like.
+fn planDerived(sets: []const ledger.Bundle) bool {
+    for (sets) |s| {
+        switch (s.origin) {
+            .selected_bundle => return true,
+            .fan_rail, .port_share => {},
+        }
+    }
+    return false;
+}
+
+/// Re-derive `sets` from `plan`, KEEPING the sketch's `.port_share` records.
+/// INVARIANT: a port share is geometric, not planned — withdrawing a rail
+/// says nothing about two edges the producers routed through one port, so the
+/// plan's population is replaced and the port shares ride along unchanged.
+/// @guarded-by: select_test2.zig "applying a plan keeps the sketch's port-share bundles"
+fn replanSets(aa: std.mem.Allocator, sets: []const ledger.Bundle, plan: ledger.RealizedBundles) []const ledger.Bundle {
+    const derived = ledger.bundlesFromPlan(aa, plan) catch return sets;
+    const shares = ledger.keepOrigin(aa, sets, .port_share) catch &.{};
+    return ledger.concatBundles(aa, derived, shares) catch derived;
+}
 
 /// The CI-filter partition. `survivors` (+ aligned `reports`) are the
 /// CI-clean candidates the scorer sees; `excluded` holds the re-disposed
@@ -26,18 +52,18 @@ pub const FilterResult = struct {
     excluded_any: bool = false,
 };
 
-/// P2v Step 8 pre-raster CI safety filter (D-JOIN-SELECT item 6; TSD §13.2;
+/// P2v Step 8 pre-raster CI safety filter (D-JOIN-SELECT item 6;
 /// D-DISPOSITION item 5 row 3). Partitions `candidates` by CI-class reach
 /// EVENTS: any candidate whose parallel `reports[i]` is not `ciClean` is
 /// EXCLUDED (no rung carve-out) and its emitted plan re-disposed clause-(g)-pre
-/// (`realized.disposeUnsafe`) into `excluded`; survivors keep their plan,
+/// (ledger/dispose.zig, via realized's re-export) into `excluded`; survivors keep their plan,
 /// order, and aligned report. SCORE-BLIND: reads reach EVENTS only, never a
 /// score, magnitude, or geometry. Clustered/packed SKIPS pass (`ciTotal`
 /// excludes both skip counts — OPEN-8). On the census-clean corpus red
 /// candidates are never winners (census 0/114), so excluding them never moves
 /// the argmin (scoreCandidates falls back to the argmin when the incumbent is
 /// filtered out); any allocation failure degrades to the identity.
-/// guarded-by: disposition_test.zig "V-D-DISPOSITION-04: fusing incomplete-union candidate is CI-excluded, independent survivor routes; complete union fires nothing"
+/// @guarded-by: disposition_test.zig "V-D-DISPOSITION-04: fusing incomplete-union candidate is CI-excluded, independent survivor routes; complete union fires nothing"
 pub fn ciFilter(
     aa: std.mem.Allocator,
     candidates: []const ladder.Candidate,
@@ -61,10 +87,10 @@ pub fn ciFilter(
             survivors.append(aa, cand.*) catch return clean;
             kept.append(aa, rep) catch return clean;
         } else {
-            // Clause-(g)-pre: withdraw the excluded candidate's realized trunks
-            // so its emitted plan reads independent(unsafe_component); the
-            // re-disposed copy rides `excluded` into Step 10's telemetry.
-            cand.sketch.joins = realized_mod.disposeUnsafe(aa, cand.sketch.joins) catch cand.sketch.joins;
+            cand.sketch.bundles = realized_mod.disposeUnsafe(aa, cand.sketch.bundles) catch cand.sketch.bundles;
+            if (planDerived(cand.sketch.bundle_sets))
+                cand.sketch.bundle_sets = replanSets(aa, cand.sketch.bundle_sets, cand.sketch.bundles);
+            sketch_bundles.stamp(aa, &cand.sketch);
             excluded.append(aa, cand.*) catch return clean;
         }
     }
@@ -78,31 +104,33 @@ pub fn ciFilter(
 
 /// D-DISPOSITION item 9(b) terminal candidate: the forced all-independent
 /// fallback returned when the CI filter EMPTIES the scored set. Laid out by
-/// `budget.runForcedIndependent` at the RAW `.natural` rung with trunk
-/// realization DISABLED (`LayoutOptions.disable_join_realization`): `join_commit`
-/// emits an all-independent plan over the REAL permits, so `fan_busbar` builds
-/// no trunk and `ports.derive` gives every edge its own D-PORT port — no shared
-/// trunk ink between a permit group's edges. Its EMITTED plan is the
-/// all-independent realization over the REAL `join_permits` (`realized.realize`
-/// over the trunk-free sketch → every group falls to clause (f) →
+/// `budget.runForcedIndependent` at the RAW `.natural` rung with rail
+/// realization DISABLED (`LayoutOptions.disable_bundle_realization`): `bundle_commit`
+/// emits an all-independent plan over the REAL permits, so `fan_rail` builds
+/// no rail and `ports.derive` gives every edge its own D-PORT port — no shared
+/// rail ink between a permit group's edges. Its EMITTED plan is the
+/// all-independent realization over the REAL `bundle_permits` (`realized.realize`
+/// over the rail-free sketch → every group falls to clause (f) →
 /// `independent(not_selected)`, fully-populated memberships + per-edge terminal
-/// ports, §6.7-valid — NOT the bare `.{}` envelope). `terminal_fallback` is set
+/// ports, invariant-valid — NOT the bare `.{}` envelope). `terminal_fallback` is set
 /// (9(e) observability; the RO `disp_terminal_fallback_engaged` count
 /// aggregation is Step 10's job). A FALLBACK: never engages on the census-clean
 /// corpus.
-/// guarded-by: disposition_test.zig "V-D-DISPOSITION-06: terminal fallback is built by the selection tail, marks terminal_fallback, validates, and renders"
+/// @guarded-by: disposition_test.zig "V-D-DISPOSITION-06: terminal fallback is built by the selection tail, marks terminal_fallback, validates, and renders"
 pub fn terminalCandidate(
     aa: std.mem.Allocator,
     graph: sem_graph.SemGraph,
-    join_permits: *const ledger.JoinPermits,
-    join_permits_flat: bool,
+    bundle_permits: *const ledger.BundlePermits,
     max_width: u32,
 ) !ladder.LadderResult {
-    var result = try ladder.runForcedIndependent(aa, graph, join_permits, join_permits_flat, max_width);
+    var result = try ladder.runForcedIndependent(aa, graph, bundle_permits, max_width);
     result.terminal_fallback = true;
-    if (join_permits_flat) {
-        if (realized_mod.realize(aa, join_permits.*, result.sketch, &.{})) |r| {
-            result.sketch.joins = r.plan;
+    if (bundle_permits.isFlat()) {
+        if (realized_mod.realize(aa, bundle_permits.*, result.sketch)) |r| {
+            result.sketch.bundles = r.plan;
+            if (!r.report.skipped_clustered)
+                result.sketch.bundle_sets = replanSets(aa, result.sketch.bundle_sets, r.plan);
+            sketch_bundles.stamp(aa, &result.sketch);
         } else |err| {
             std.log.warn("mermaid_v2/select: terminal fallback realize failed ({s}); emitting the empty envelope", .{@errorName(err)});
         }

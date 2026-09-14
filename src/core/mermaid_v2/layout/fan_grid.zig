@@ -75,11 +75,11 @@ fn wrapGrid(
 
         // Single-row span = sum(peer widths) + gaps between them. fan-OUT
         // keeps `h_spacing`; fan-IN uses the minimal 1-cell gap so it wraps
-        // only when irreducibly too wide. guarded-by: fan_grid_test.zig "wrapWideFanIn wrap decision uses the minimal 1-cell fit gap, not h_spacing"
+        // only when irreducibly too wide. @guarded-by: fan_grid_test.zig "wrapWideFanIn wrap decision uses the minimal 1-cell fit gap, not h_spacing"
         const fit_gap: u32 = if (want == .in) 1 else h_spacing;
-        // Placement gap: fan-IN floors at 3 so its shared vertical trunk
+        // Placement gap: fan-IN floors at 3 so its shared vertical rail
         // (routed between the two centre columns) clears box walls even when
-        // `h_spacing` halves to 2 under pressure. guarded-by: fan_grid_test.zig "wrapWideFanIn floors the placement gap at 3 when h_spacing halves to 2"
+        // `h_spacing` halves to 2 under pressure. @guarded-by: fan_grid_test.zig "wrapWideFanIn floors the placement gap at 3 when h_spacing halves to 2"
         const place_gap: u32 = if (want == .in) @max(h_spacing, 3) else h_spacing;
         var single_row_w: u32 = 0;
         var max_child_w: u32 = 0;
@@ -91,7 +91,7 @@ fn wrapGrid(
             if (g.w > max_child_w) max_child_w = g.w;
             if (g.h > max_child_h) max_child_h = g.h;
         }
-        if (single_row_w <= budget) continue; // fits — leave classic fan.
+        if (single_row_w <= budget) continue;
 
         const n: u32 = @intCast(f.peers.len);
 
@@ -99,7 +99,7 @@ fn wrapGrid(
         // ONLY as a GATE: when it already yields a real grid (`legacy_cols >=
         // 2`) we reproduce the original per-row-centred layout via
         // `legacyUniformGrid`. Fan-IN never had a legacy path (gated by
-        // `want == .out`). guarded-by: fan_grid_test.zig "wrapWideFanOut legacy grid centres EACH row independently under the pivot"
+        // `want == .out`). @guarded-by: fan_grid_test.zig "wrapWideFanOut legacy grid centres EACH row independently under the pivot"
         const slot_w = max_child_w + place_gap;
         const legacy_cols: u32 = blk: {
             var lc: u32 = if (slot_w == 0) 1 else (budget + place_gap) / slot_w;
@@ -107,8 +107,6 @@ fn wrapGrid(
             break :blk lc;
         };
         if (want == .out and legacy_cols >= 2 and legacy_cols < n) {
-            // The uniform-slot grid is feasible. Reproduce the original layout
-            // exactly so previously-good fan-OUT grids stay byte-identical.
             legacyUniformGrid(G, f, geom, legacy_cols, n, max_child_h, place_gap, v_spacing);
             continue;
         }
@@ -122,20 +120,11 @@ fn wrapGrid(
         // what makes a wider budget (w90) pack more columns and stay short,
         // instead of over-stacking into a tall narrow grid. It also escapes the
         // old bug where the uniform widest-slot math forced `cols` to 1 even
-        // when a real ≥2-column pack of the actual widths fit. guarded-by: fan_grid_test.zig "wrapWideFanOut P5 pack finds a 2-column layout the old widest-slot math missed (29/25/25 @ budget 58)"
-        //
-        // The feasibility row width is tested against the FULL budget: a row
-        // exactly == budget still fits the canvas, and `normalizeX` after this
-        // pass slides the centred block back inside the left margin. If no
-        // `cols >= 2` is feasible we fall back to `cols = 1` — byte-identical to
-        // the historical single-column stack.
+        // when a real ≥2-column pack of the actual widths fit. @guarded-by: fan_grid_test.zig "wrapWideFanOut P5 pack finds a 2-column layout the old widest-slot math missed (29/25/25 @ budget 58)"
         const fit_budget: u32 = budget;
         var col_of_buf: [256]u8 = undefined;
         var cols: u32 = 1;
         {
-            // Largest feasible cols, from n-1 downward. The first feasible wins
-            // (fewest grid rows). cols == n would be a single row, which already
-            // failed the `single_row_w` test above, so start at n - 1.
             var try_cols: u32 = @min(n - 1, @as(u32, @intCast(col_of_buf.len)));
             while (try_cols >= 2) : (try_cols -= 1) {
                 if (n > col_of_buf.len) break;
@@ -148,13 +137,13 @@ fn wrapGrid(
         // No feasible multi-column pack → fall back to the historical single
         // column: every child on its own row, centred under the pivot.
         // Skipping the wrap entirely would instead leave the row to clip, a
-        // regression — so we always stack, never `continue` here. guarded-by: fan_grid_test.zig "wrapWideFanOut falls back to a single column matching the legacy per-box centering"
+        // regression — so we always stack, never `continue` here. @guarded-by: fan_grid_test.zig "wrapWideFanOut falls back to a single column matching the legacy per-box centering"
         if (cols < 2) {
             cols = 1;
             for (col_of_buf[0..n]) |*c| c.* = 0;
         }
 
-        // Rows = the tallest column's member count. For cols == 1 this is n. guarded-by: fan_grid_test.zig "wrapWideFanOut falls back to a single column matching the legacy per-box centering"
+        // Rows = the tallest column's member count. For cols == 1 this is n. @guarded-by: fan_grid_test.zig "wrapWideFanOut falls back to a single column matching the legacy per-box centering"
         const rows: u32 = blk: {
             var max_row: u32 = 0;
             var r: u32 = 0;
@@ -171,8 +160,7 @@ fn wrapGrid(
 
         f.rows = rows;
 
-        const row_step: i32 = @as(i32, @intCast(max_child_h)) +
-            @as(i32, @intCast(v_spacing)) + 1;
+        const row_step = rowStep(max_child_h, v_spacing);
 
         const base_y: i32 = geom[f.peers[0].peer_idx].y;
         const added_h: i32 = @as(i32, @intCast(rows - 1)) * row_step;
@@ -182,7 +170,7 @@ fn wrapGrid(
 
         // Per-column x-offsets: each column is as wide as its widest member
         // (VARIABLE column widths, not max_child_w for every column), so 2
-        // narrow columns can't re-overflow. guarded-by: fan_grid_test.zig "wrapWideFanOut variable per-column widths avoid re-overflow from 2 narrow columns"
+        // narrow columns can't re-overflow. @guarded-by: fan_grid_test.zig "wrapWideFanOut variable per-column widths avoid re-overflow from 2 narrow columns"
         var col_w_buf: [256]u32 = undefined;
         const col_w = col_w_buf[0..cols];
         for (col_w) |*w| w.* = 0;
@@ -212,8 +200,8 @@ fn wrapGrid(
         // Place each child: column from the bin-pack assignment, row = its rank
         // within that column (top-to-bottom in peer order). Centre each box on
         // its column's CENTRE so a narrow box in a wide column is not
-        // left-jammed against the trunk (cols == 1 reduces to legacy
-        // `x = pivot_cx - w/2`). guarded-by: fan_grid_test.zig "wrapWideFanIn centres a narrow box on its column's centre, not flush to a wide neighbour"
+        // left-jammed against the rail (cols == 1 reduces to legacy
+        // `x = pivot_cx - w/2`). @guarded-by: fan_grid_test.zig "wrapWideFanIn centres a narrow box on its column's centre, not flush to a wide neighbour"
         var row_fill_buf: [256]u32 = undefined;
         const row_fill = row_fill_buf[0..cols];
         for (row_fill) |*r| r.* = 0;
@@ -229,6 +217,23 @@ fn wrapGrid(
             geom[peer.peer_idx].y = base_y + @as(i32, @intCast(row_idx)) * row_step;
         }
     }
+}
+
+/// Rows between two grid rows: `GRID_GAP_ROWS`, or more when the layer
+/// spacing asks for it. The gap holds three distinct cells on any shared
+/// column: the upper row's departure cell, the comb rail row
+/// (`fan_polyline` runs it two rows above the lower row's top), and the
+/// lower row's arrival cell. A two-row gap — the halved spacing of the
+/// tight rungs — puts the rail on the departure cells, so a lower peer
+/// stacked under an upper peer's departure could only reach its port by
+/// turning inside that reserved cell, and the route is refused at every
+/// lane; the extra row is what lets it take its bend one cell further out.
+/// @guarded-by: fan_grid_test.zig "a gridded fan keeps three gap rows between its rows at halved spacing"
+pub const GRID_GAP_ROWS: i32 = 3;
+
+pub fn rowStep(max_child_h: u32, v_spacing: u32) i32 {
+    const gap = @max(@as(i32, @intCast(v_spacing)) + 1, GRID_GAP_ROWS);
+    return @as(i32, @intCast(max_child_h)) + gap;
 }
 
 /// Uniform-slot fan-OUT grid: children packed `cols` per row in reading
@@ -249,8 +254,7 @@ fn legacyUniformGrid(
     if (rows < 2) return;
     f.rows = rows;
 
-    const row_step: i32 = @as(i32, @intCast(max_child_h)) +
-        @as(i32, @intCast(v_spacing)) + 1;
+    const row_step = rowStep(max_child_h, v_spacing);
 
     const base_y: i32 = geom[f.peers[0].peer_idx].y;
     const added_h: i32 = @as(i32, @intCast(rows - 1)) * row_step;

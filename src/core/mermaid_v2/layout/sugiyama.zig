@@ -23,18 +23,8 @@ pub const LayerNode = union(enum) {
     },
 };
 
-/// Stable hash key for a LayerNode (lets crossing.zig keep adjacency maps).
-pub fn layerNodeKey(n: LayerNode) u64 {
-    return switch (n) {
-        .real => |id| (@as(u64, 0) << 63) | @as(u64, id),
-        .virtual => |v| (@as(u64, 1) << 63) |
-            (@as(u64, v.edge) << 16) |
-            @as(u64, v.index),
-    };
-}
-
 pub const LayerEdge = struct {
-    from: u32, // index into the flat layer_nodes array
+    from: u32,
     to: u32,
     /// Original SemGraph edge id (one virtual chain shares the same edge_id).
     edge: sg.EdgeId,
@@ -69,16 +59,6 @@ pub const LayeredGraph = struct {
         }
         self.* = undefined;
     }
-
-    /// Number of layers.
-    pub fn layerCount(self: LayeredGraph) usize {
-        return self.layers.len;
-    }
-
-    /// Total node count (real + virtual).
-    pub fn nodeCount(self: LayeredGraph) usize {
-        return self.nodes.len;
-    }
 };
 
 pub const LayoutError = error{
@@ -101,7 +81,6 @@ const Color = enum(u2) { white, gray, black };
 pub fn assignLayers(allocator: std.mem.Allocator, graph: sg.SemGraph) LayoutError!LayeredGraph {
     if (graph.nodes.len == 0) return error.EmptyGraph;
 
-    // All allocations go through this arena, returned with the graph.
     const arena = try allocator.create(std.heap.ArenaAllocator);
     arena.* = std.heap.ArenaAllocator.init(allocator);
     errdefer {
@@ -110,7 +89,7 @@ pub fn assignLayers(allocator: std.mem.Allocator, graph: sg.SemGraph) LayoutErro
     }
     const a = arena.allocator();
 
-    // Self-loops (from == to) are excluded from the layered graph. // guarded-by: sugiyama_test.zig "self-loop excluded from LayeredGraph but still drawn by routing.zig from graph.edges"
+    // Self-loops (from == to) are excluded from the layered graph. // @guarded-by: sugiyama_test.zig "self-loop excluded from LayeredGraph but still drawn by routing.zig from graph.edges"
     var work_edges_list = std.ArrayListUnmanaged(WorkEdge).empty;
     {
         var valid = std.AutoHashMapUnmanaged(sg.NodeId, void).empty;
@@ -142,7 +121,7 @@ pub fn assignLayers(allocator: std.mem.Allocator, graph: sg.SemGraph) LayoutErro
 
     var reversed_list = std.ArrayListUnmanaged(sg.EdgeId).empty;
 
-    // Iterative DFS to avoid stack blow-up on large graphs. // guarded-by: sugiyama_test.zig "iterative cycle-removal DFS handles a very deep chain without stack overflow"
+    // Iterative DFS to avoid stack blow-up on large graphs. // @guarded-by: sugiyama_test.zig "iterative cycle-removal DFS handles a very deep chain without stack overflow"
     var stack = std.ArrayListUnmanaged(struct { node: sg.NodeId, cursor: u32 }).empty;
     for (graph.nodes) |seed| {
         const c = color.get(seed.id).?;
@@ -160,7 +139,6 @@ pub fn assignLayers(allocator: std.mem.Allocator, graph: sg.SemGraph) LayoutErro
                 &[_]u32{};
 
             if (top.cursor >= edges_for_node.len) {
-                // Done with this node — mark black, pop.
                 try color.put(a, top.node, .black);
                 _ = stack.pop();
                 continue;
@@ -175,7 +153,6 @@ pub fn assignLayers(allocator: std.mem.Allocator, graph: sg.SemGraph) LayoutErro
             const tc = color.get(target).?;
             switch (tc) {
                 .gray => {
-                    // Back edge → flip.
                     we.reversed = true;
                     try reversed_list.append(a, we.id);
                 },
@@ -216,7 +193,6 @@ pub fn assignLayers(allocator: std.mem.Allocator, graph: sg.SemGraph) LayoutErro
         }
     }
 
-    // Outgoing adjacency keyed by effective source for the layering walk.
     var out_eff = std.AutoHashMapUnmanaged(sg.NodeId, std.ArrayListUnmanaged(u32)).empty;
     for (work_edges, 0..) |we, i| {
         const s = EffEdge.from(we);
@@ -245,7 +221,6 @@ pub fn assignLayers(allocator: std.mem.Allocator, graph: sg.SemGraph) LayoutErro
         }
     }
 
-    // Compute layer count.
     var max_layer: u32 = 0;
     for (graph.nodes) |n| {
         const l = layer_of.get(n.id).?;
@@ -253,11 +228,9 @@ pub fn assignLayers(allocator: std.mem.Allocator, graph: sg.SemGraph) LayoutErro
     }
     const layer_count: u32 = max_layer + 1;
 
-    // ---- Build flat nodes array + real_index, layer order = decl order
     var flat_nodes = std.ArrayListUnmanaged(LayerNode).empty;
     var real_index_map = std.AutoHashMapUnmanaged(sg.NodeId, u32).empty;
 
-    // Bucket node ids per layer in declaration order.
     const buckets = try a.alloc(std.ArrayListUnmanaged(sg.NodeId), layer_count);
     for (buckets) |*b| b.* = .empty;
     for (graph.nodes) |n| {
@@ -265,7 +238,6 @@ pub fn assignLayers(allocator: std.mem.Allocator, graph: sg.SemGraph) LayoutErro
         try buckets[l].append(a, n.id);
     }
 
-    // Flatten real nodes, assigning indices as we go.
     var layers_out = try a.alloc([]u32, layer_count);
     for (buckets, 0..) |bucket, li| {
         var row = try a.alloc(u32, bucket.items.len);
@@ -278,11 +250,6 @@ pub fn assignLayers(allocator: std.mem.Allocator, graph: sg.SemGraph) LayoutErro
         layers_out[li] = row;
     }
 
-    // ---- Virtual-node insertion + per-layer LayerEdges ------------------
-    // We rebuild `layers_out[i]` to include virtuals, in declaration order
-    // of their generating edges.
-
-    // Build per-layer lists as growable arrays first.
     var grow_layers = try a.alloc(std.ArrayListUnmanaged(u32), layer_count);
     for (grow_layers, 0..) |*gl, i| {
         gl.* = .empty;
@@ -296,7 +263,6 @@ pub fn assignLayers(allocator: std.mem.Allocator, graph: sg.SemGraph) LayoutErro
         const dst = EffEdge.to(we);
         const ls = layer_of.get(src).?;
         const ld = layer_of.get(dst).?;
-        // If somehow ls >= ld (unassigned cycle remnant), force a one-step.
         const lo = if (ls < ld) ls else ld;
         const hi = if (ls < ld) ld else ls;
         const span = hi - lo;
@@ -314,7 +280,6 @@ pub fn assignLayers(allocator: std.mem.Allocator, graph: sg.SemGraph) LayoutErro
             continue;
         }
 
-        // Insert (span - 1) virtual nodes on layers lo+1 .. hi-1.
         var prev_idx: u32 = if (ls < ld) src_idx else dst_idx;
         const end_idx: u32 = if (ls < ld) dst_idx else src_idx;
         var vi: u16 = 0;
@@ -340,13 +305,10 @@ pub fn assignLayers(allocator: std.mem.Allocator, graph: sg.SemGraph) LayoutErro
         });
     }
 
-    // Finalise layers_out from grow_layers.
     for (grow_layers, 0..) |gl, i| {
         layers_out[i] = try a.dupe(u32, gl.items);
     }
 
-    // ---- Sort edges by source layer ascending --------------------------
-    // We need the layer of each flat node — recompute via lookup.
     const node_layer = try a.alloc(u32, flat_nodes.items.len);
     for (layers_out, 0..) |row, li| {
         for (row) |idx| node_layer[idx] = @intCast(li);
@@ -359,7 +321,6 @@ pub fn assignLayers(allocator: std.mem.Allocator, graph: sg.SemGraph) LayoutErro
     };
     std.mem.sort(LayerEdge, edges_out.items, SortCtx{ .layers = node_layer }, SortCtx.lessThan);
 
-    // ---- BT/RL: reverse the layers array so layer 0 is render-top -----
     switch (graph.direction) {
         .BT, .RL => {
             const n = layers_out.len;

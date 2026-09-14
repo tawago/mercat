@@ -1,8 +1,9 @@
 //! score.zig — pure integer candidate score. Evaluates a laid-out `Sketch`
 //! into a deterministic `Score`, ordered lexicographically: T0 fit severity
 //! (width-overflow magnitude, not a count) > T12 composite (RUNG_SCALE[rung]
-//! * t2_legibility + W_INTEGRITY * t1_integrity + raster-defect weights;
-//! integrity is a large cost, not a veto) > T3 height > T4 rung index (total
+//! * t2_legibility + W_INTEGRITY * t1_integrity + raster-defect and
+//! raster-violation weights; integrity is a large cost, not a veto —
+//! only W_RASTER_FAILED is) > T3 height > T4 rung index (total
 //! order, unique argmin). Raw t1/t2 stay on `Score` for the shadow line;
 //! only `lessThan`/`decidingTier` consult the composite. Raster-time
 //! defects arrive via `RasterCounts` — this file stays raster-blind.
@@ -16,40 +17,19 @@ const sketch = @import("sketch.zig");
 const validate = @import("layout/validate.zig");
 const geom = @import("score_geom.zig");
 
-// The pure geometric T2 measurements live in score_geom.zig (split for the
-// 500-line cap); re-exported so callers/tests keep one score surface.
-pub const deadSpace = geom.deadSpace;
-pub const edgeStretch = geom.edgeStretch;
-pub const bends = geom.bends;
-pub const countCrossings = geom.countCrossings;
-
 /// Overall flow direction (re-export so callers need not import prim).
 pub const Direction = sketch.Direction;
 
-// -- Fitted weights -------------------------------------------------------
-//
-// Units: the composite is expressed in SIXTEENTHS of one T2 legibility unit
-// (one dead-space cell = 16), so the rung multipliers below can express
-// fractional ratios in pure integers.
-
 /// Per-rung legibility multipliers, indexed by `Sketch.budget.rung`
-/// (0=natural, 1=tight, 2=wrap_labels, 3=chain_wrap, 4=switch_direction,
-/// 5=truncate). 16 = 1.0x. A later rung wins only when it improves
-/// legibility by MORE than its ratio vs the earlier rung's.
+/// (0=natural, 1=tight, 2=wrap_labels, 3=switch_direction, 4=truncate).
+/// 16 = 1.0x. A later rung wins only when it improves legibility by MORE
+/// than its ratio vs the earlier rung's.
 ///
 ///  - natural 16: baseline, by definition.
-///  - tight 30 (1.875x): fitted window (28.1, 31.1) from labeled w60/w90 reference pairs. // guarded-by: score_calibration_test.zig "RUNG_SCALE tight window: flips exactly where the fitted (28.1, 31.1) bound says (live seed numbers)"
+///  - tight 30 (1.875x): fitted window (28.1, 31.1) from labeled w60/w90 reference pairs. // @guarded-by: score_calibration_test.zig "RUNG_SCALE tight window: flips exactly where the fitted (28.1, 31.1) bound says (live seed numbers)"
 ///  - wrap_labels 32: no labeled pair pins it; kept monotone just above
 ///    tight so the ladder prior stays ordered.
-///  - chain_wrap 48: ABOVE both switch scales, deliberately breaking the
-///    ladder's direction-preserving prior. All three labeled fold pairs go
-///    against the fold: self_loop_lr_4 w60 6-1, pr_review_lr_10 w90 9-1,
-///    cicd_pipeline_lr_10 w90 6-5 (near-tie) — this encodes "folds strand
-///    dead space until the motif/lanes work lands" (re-audit when folds
-///    improve). Lower bound 47.8 from self_loop_lr w60 (36*203 <
-///    scale*153); ceiling 50 (truncate) keeps a fold preferable to
-///    clipping. The self_loop_lr margin is thin (7308-vs-7344).
-///  - switch_direction (rung 4): SPLIT by the candidate's FINAL direction —
+///  - switch_direction (rung 3): SPLIT by the candidate's FINAL direction —
 ///    see SWITCH_TO_VERTICAL_SCALE / SWITCH_TO_HORIZONTAL_SCALE below. The
 ///    array slot holds the vertical (lower) value; `eval` overrides via
 ///    `switchScale`.
@@ -58,34 +38,12 @@ pub const Direction = sketch.Direction;
 ///    scale > 44.0) and 31.4 from ampersand_fanout w60 (natural over
 ///    truncate at 445-vs-227); upper bound 56.6 from microservices_layers
 ///    w90 (the labeled preference flips to truncate; see W_INTEGRITY).
-pub const RUNG_SCALE = [6]u64{ 16, 30, 32, 48, SWITCH_TO_VERTICAL_SCALE, 50 };
+pub const RUNG_SCALE = [5]u64{ 16, 30, 32, SWITCH_TO_VERTICAL_SCALE, 50 };
 
-/// Rotation asymmetry: rotations INTO vertical (LR/RL->TD) price cheaper (36, window 35.4-42.2) than rotations OUT of TD into horizontal (44). // guarded-by: score_calibration_test.zig "SWITCH_TO_VERTICAL_SCALE window: flips exactly where the fitted (35.4, 42.2) bound says (live seed numbers)"
+/// Rotation asymmetry: rotations INTO vertical (LR/RL->TD) price cheaper (36, window 35.4-42.2) than rotations OUT of TD into horizontal (44). // @guarded-by: score_calibration_test.zig "SWITCH_TO_VERTICAL_SCALE window: flips exactly where the fitted (35.4, 42.2) bound says (live seed numbers)"
 pub const SWITCH_TO_VERTICAL_SCALE: u64 = 36;
-/// Fitted lower bound 40.0. // guarded-by: score_calibration_test.zig "SWITCH_TO_HORIZONTAL_SCALE lower bound: natural stays ahead at the fitted 44 (live seed numbers)"
+/// Fitted lower bound 40.0. // @guarded-by: score_calibration_test.zig "SWITCH_TO_HORIZONTAL_SCALE lower bound: natural stays ahead at the fitted 44 (live seed numbers)"
 pub const SWITCH_TO_HORIZONTAL_SCALE: u64 = 44;
-
-/// PROVISIONAL scale for the NEGOTIATED chain-wrap fold candidate; applied
-/// by select.zig via `evalScaled`, keyed off `Transform.negotiated_fold`
-/// — the candidate's recorded rung is still chain_wrap. Rationale:
-/// chain_wrap's 48 encodes "folds strand dead space until the motif/lanes
-/// work lands"; a negotiated fold whose band breaks reserve MEASURED
-/// back-edge gutters (chain_wrap.bandMargin via lanes.gutter) no longer
-/// earns the blind fold's stranded-dead-space reputation tax. Priced at
-/// switch_to_horizontal's 44: below the blind fold (48) and truncate (50),
-/// but still above switch_to_vertical (36) until new labeled reference
-/// pairs re-fit this constant.
-pub const CHAIN_WRAP_NEGOTIATED_SCALE: u64 = 44;
-
-/// One legibility unit in composite space (the 16ths base).
-const SCALE_ONE: u64 = 16;
-
-/// `RUNG_SCALE` index of the switch_direction rung: any candidate whose
-/// direction differs from the source pays AT LEAST the direction-matched
-/// switch multiplier, even if its recorded rung is lower (belt-and-braces;
-/// today only rung 4 rotates — and rung 4 always rotates, so this same
-/// `@max` path is what applies the vertical/horizontal split to it).
-pub const SWITCH_SCALE_INDEX: usize = 4;
 
 /// Switch multiplier for a rotated candidate, keyed by its FINAL
 /// (post-rotation) direction — `Sketch.direction` is post-rotation (see
@@ -97,7 +55,7 @@ pub fn switchScale(final_direction: Direction) u64 {
     };
 }
 
-/// Composite cost per integrity violation, in 16ths (= 1280 dead-space cells at natural scale). Large, not a veto. Fitted window (17098, 36200). // guarded-by: score_calibration_test.zig "W_INTEGRITY window: crosses exactly where the fitted (17098, 36200) bound says"
+/// Composite cost per integrity violation, in 16ths (= 1280 dead-space cells at natural scale). Large, not a veto. Fitted window (17098, 36200). // @guarded-by: score_calibration_test.zig "W_INTEGRITY window: crosses exactly where the fitted (17098, 36200) bound says"
 pub const W_INTEGRITY: u64 = 20480;
 
 /// Raster-time shipped-defect counts for one candidate, computed by
@@ -107,9 +65,75 @@ pub const RasterCounts = struct {
     /// Labels the fallback ladder placed away from their primary anchor.
     labels_displaced: u32 = 0,
     edge_cells_lost: u32 = 0,
+    /// Terminal arrowheads lost to raster collisions: the edge ships with
+    /// its declared decoration missing (a trace-fidelity untruth by omission; the reader
+    /// loses the relation's orientation). Subset of `edge_cells_lost`.
+    heads_lost: u32 = 0,
+    /// Crossing-rule violations (raster/crossings.zig). `legal_crossing` is
+    /// deliberately absent: legal crossings are already priced by the
+    /// geometric W_CROSSINGS term.
+    foreign_junction: u32 = 0,
+    arrowhead_transit: u32 = 0,
+    /// Arrowhead-base violations (raster/arrow_base.zig).
+    arrow_base: u32 = 0,
+    /// Heads whose tip neighbour is not their port (raster/arrow_base.zig):
+    /// the decoration points sideways or into space, and the relation's
+    /// orientation is silenced — an omission, like a lost head.
+    tip_not_port: u32 = 0,
+    /// Lateral arms that SHIPPED on a decoration cell (raster/arrow_base.zig
+    /// `lateral_arms`): a junction glyph on the one cell that is never a
+    /// junction — a fabrication, like a foreign junction. This is the
+    /// shipped half of the integrity line's `arm_into_head`; the refused
+    /// half is interrupted ink, priced by the counters that already count
+    /// the refusal (`edge_cells_lost`, and `arrowhead_transit` when the
+    /// arm was foreign) — the confluence severity note ranks a refusal
+    /// with lost ink, never with the lie it prevented.
+    arm_into_head: u32 = 0,
+    /// Stroke cells whose painted arms no owner set explains
+    /// (raster/arms.zig): a junction glyph with one owner, or a run that
+    /// stops in open space — a route that visited a cell twice. The tee
+    /// asserts a join no source declares: a fabrication, like a foreign
+    /// junction.
+    arms_unexplained: u32 = 0,
+    /// 1 when the audit raster itself errored (audit.zig): the candidate's
+    /// violations are unknown, so it must never win the composite.
+    raster_failed: u32 = 0,
 };
 
-/// Composite cost per raster-DROPPED label, in 16ths; rung-scale-independent (added AFTER the RUNG_SCALE multiply, same tier as W_INTEGRITY). 4096 keeps W_INTEGRITY/label ≈ 5:1 — Sketch-level violations stay dearer. // guarded-by: score_calibration_test.zig "W_LABEL_DROP prices a dropped label + lost cells above the shape_zoo_td_8 legibility margin"
+/// Composite cost per crossing-rule violation, in 16ths. Lower bound:
+/// dense_multi_cycle_td_8 w60 keeps its transit-free render only above 4096.
+/// Upper bound: microservices_layers_td_16 w60's ruled preference (all-ink
+/// fj=9/at=4/ab=2 over fj=5/at=3/ab=1 with 9 lost cells + 3 interior
+/// crossings) caps 4*fj + at + ab under that pair's integrity+lost slack —
+/// it holds at 8192/8192/4096 and flips by ab=8192.
+pub const W_FOREIGN_JUNCTION: u64 = 8192;
+pub const W_ARROWHEAD_TRANSIT: u64 = 8192;
+/// Floating arrowhead: milder (omitted feed, not fabricated structure);
+/// 8192 breaks the microservices w60 ruling above, 4096 holds it.
+pub const W_ARROW_BASE: u64 = 4096;
+/// Terminal head lost to a collision: an omission the reader cannot see
+/// (the run looks complete, the direction is gone). Same tier as the
+/// other omission (W_ARROW_BASE); the cell itself is also in W_CELL_LOST.
+pub const W_HEAD_LOST: u64 = 4096;
+/// A head whose tip is not on its port: the decoration ships but says
+/// nothing true about where the relation ends — the omission tier, with
+/// the lost head and the unfed base (confluence severity note: omission
+/// prices below fabricated structure).
+pub const W_TIP_NOT_PORT: u64 = 4096;
+/// A lateral arm shipped on a decoration cell: a junction glyph on the one
+/// cell that is never a junction. Fabrication tier, with the foreign
+/// junction. Refused arms are not here (see `RasterCounts.arm_into_head`).
+pub const W_ARM_INTO_HEAD: u64 = 8192;
+/// A painted arm no owner explains: a one-owner tee is invented structure
+/// (fabrication tier, with the foreign junction), and the stub that comes
+/// with it is the same route defect seen from its other end.
+pub const W_ARMS_UNEXPLAINED: u64 = 8192;
+/// Effectively lexicographic: dominates any realistic composite
+/// (~1e8 16ths) by four orders of magnitude; counts are 0/1 so the
+/// worst-case composite stays far below u64 overflow.
+pub const W_RASTER_FAILED: u64 = 1 << 40;
+
+/// Composite cost per raster-DROPPED label, in 16ths; rung-scale-independent (added AFTER the RUNG_SCALE multiply, same tier as W_INTEGRITY). 4096 keeps W_INTEGRITY/label ≈ 5:1 — Sketch-level violations stay dearer. // @guarded-by: score_calibration_test.zig "W_LABEL_DROP prices a dropped label + lost cells above the shape_zoo_td_8 legibility margin"
 pub const W_LABEL_DROP: u64 = 4096;
 
 /// Composite cost per edge cell lost to collision at raster time, in 16ths.
@@ -119,7 +143,7 @@ pub const W_LABEL_DROP: u64 = 4096;
 /// separating candidates with identical drop counts.
 pub const W_CELL_LOST: u64 = 512;
 
-/// Composite cost per raster-DISPLACED label (placed by the fallback ladder, but not at its primary anchor — see raster/labels_edge.zig). Fitted window [577, 608], well under a drop (4096) — displacement is degraded legibility, not lost information. // guarded-by: score_calibration_test.zig "W_LABEL_DISPLACED window: crosses exactly where the fitted [577, 608]-ish bound says (self_loop_lr_4 + shape_zoo numbers)"
+/// Composite cost per raster-DISPLACED label (placed by the fallback ladder, but not at its primary anchor — see raster/labels_edge.zig). Kept well under a drop (4096) — displacement is degraded legibility, not lost information — and under the shape_zoo upper bound. // @guarded-by: score_calibration_test.zig "W_LABEL_DISPLACED upper bound: a displaced label still clears the natural-preference margin (shape_zoo numbers)"
 pub const W_LABEL_DISPLACED: u64 = 592;
 
 /// Natural-preference (hysteresis) margin, in composite 16ths: a challenger
@@ -142,12 +166,10 @@ pub const NATURAL_PREFERENCE_MARGIN: u64 = 128;
 /// by at least `NATURAL_PREFERENCE_MARGIN`.
 pub fn displacesNatural(challenger: Score, natural: Score) bool {
     if (!challenger.lessThan(natural)) return false;
-    if (challenger.t0_fit != natural.t0_fit) return true; // T0-decided: exempt
-    if (challenger.t12_composite == natural.t12_composite) return true; // T3/T4-decided
+    if (challenger.t0_fit != natural.t0_fit) return true;
+    if (challenger.t12_composite == natural.t12_composite) return true;
     return natural.t12_composite - challenger.t12_composite >= NATURAL_PREFERENCE_MARGIN;
 }
-
-// -- T2 legibility weights -------------------------------------------------
 
 /// Weight per cell of bbox area not covered by any node/cluster/edge.
 const W_DEAD_SPACE: u64 = 1;
@@ -161,8 +183,6 @@ const W_CROSSINGS: u64 = 1;
 /// Weight per node whose label was force-wrapped by the budget.
 const W_LABEL_WRAPS: u64 = 2;
 
-// -- Score ---------------------------------------------------------------------
-
 /// Integer score; lower is better. Ordering compares t0_fit, then
 /// t12_composite, then t3_height, then t4_index. `t1_integrity` and
 /// `t2_legibility` are the raw pre-weight measurements, kept for the
@@ -174,7 +194,8 @@ pub const Score = struct {
     t3_height: u32,
     t4_index: u32,
     /// RUNG_SCALE[rung]*t2 + W_INTEGRITY*t1 + W_LABEL_DROP*drops +
-    /// W_LABEL_DISPLACED*displaced + W_CELL_LOST*lost.
+    /// W_LABEL_DISPLACED*displaced + W_CELL_LOST*lost + the raster
+    /// violation weights (W_FOREIGN_JUNCTION..W_RASTER_FAILED).
     t12_composite: u64,
     /// Raw raster audit counts, kept for shadow telemetry.
     r_labels_dropped: u32 = 0,
@@ -211,31 +232,13 @@ pub fn eval(
     candidate_index: u32,
     raster: RasterCounts,
 ) !Score {
-    return evalScaled(allocator, s, source_direction, candidate_index, raster, false);
-}
-
-/// `eval` for a possibly-NEGOTIATED candidate. When `negotiated_fold` is
-/// true the rung-scale lookup is replaced by CHAIN_WRAP_NEGOTIATED_SCALE
-/// (the direction-infidelity floor still applies on top): the candidate's
-/// Sketch records the chain_wrap rung, whose 48 would overtax the
-/// measured-gutter fold. select.zig passes
-/// `cand.transform == .negotiated_fold`; the scale decision lives HERE so
-/// score.zig is the single producer of composite scales.
-pub fn evalScaled(
-    allocator: std.mem.Allocator,
-    s: sketch.Sketch,
-    source_direction: Direction,
-    candidate_index: u32,
-    raster: RasterCounts,
-    negotiated_fold: bool,
-) !Score {
     const counts = blk: {
         const vr = try validate.validate(allocator, s);
         break :blk validate.counts(vr, s);
     };
     const t1: u32 = counts.node_overlap + counts.path_off_perimeter +
         counts.path_through_interior + counts.cluster_containment +
-        counts.cluster_port;
+        counts.cluster_port + counts.edge_unrouted;
 
     const dead = try geom.deadSpace(allocator, s);
     const t2: u64 = W_DEAD_SPACE * dead +
@@ -245,7 +248,7 @@ pub fn evalScaled(
         W_LABEL_WRAPS * geom.labelWraps(s);
 
     const rung_idx: usize = @min(s.budget.rung, RUNG_SCALE.len - 1);
-    var scale = if (negotiated_fold) CHAIN_WRAP_NEGOTIATED_SCALE else RUNG_SCALE[rung_idx];
+    var scale = RUNG_SCALE[rung_idx];
     if (s.direction != source_direction) scale = @max(scale, switchScale(s.direction));
 
     return .{
@@ -257,13 +260,19 @@ pub fn evalScaled(
         .t12_composite = scale * t2 + W_INTEGRITY * @as(u64, t1) +
             W_LABEL_DROP * @as(u64, raster.labels_dropped) +
             W_LABEL_DISPLACED * @as(u64, raster.labels_displaced) +
-            W_CELL_LOST * @as(u64, raster.edge_cells_lost),
+            W_CELL_LOST * @as(u64, raster.edge_cells_lost) +
+            W_FOREIGN_JUNCTION * @as(u64, raster.foreign_junction) +
+            W_ARROWHEAD_TRANSIT * @as(u64, raster.arrowhead_transit) +
+            W_ARROW_BASE * @as(u64, raster.arrow_base) +
+            W_HEAD_LOST * @as(u64, raster.heads_lost) +
+            W_TIP_NOT_PORT * @as(u64, raster.tip_not_port) +
+            W_ARM_INTO_HEAD * @as(u64, raster.arm_into_head) +
+            W_ARMS_UNEXPLAINED * @as(u64, raster.arms_unexplained) +
+            W_RASTER_FAILED * @as(u64, raster.raster_failed),
         .r_labels_dropped = raster.labels_dropped,
         .r_edge_cells_lost = raster.edge_cells_lost,
     };
 }
-
-// -- T0: fit severity ----------------------------------------------------------
 
 /// Overflow MAGNITUDE: columns of bbox beyond the budget, plus one per
 /// `width_overflow` diagnostic. 0 = fits. The bbox excess dominates so a
@@ -283,12 +292,6 @@ pub fn fitSeverity(s: sketch.Sketch) u32 {
     };
     return n;
 }
-
-// ====================================================================
-// Tests
-// ====================================================================
-// All unit tests live in score_test.zig (split to keep this file under
-// the mermaid_v2 500-line cap). The chain reference below pulls them in.
 
 test {
     _ = @import("score_test.zig");

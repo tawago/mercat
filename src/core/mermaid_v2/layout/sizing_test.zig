@@ -14,10 +14,6 @@ const routing = @import("routing.zig");
 const testing = std.testing;
 const NodeGeom = routing.NodeGeom;
 
-// ---------------------------------------------------------------------
-// sizing.zig: hard-break-only path == wrapToWidth(effectively-infinite)
-// (near line 58)
-// ---------------------------------------------------------------------
 test "labelLines hard-break-only path matches wrapToWidth at an effectively infinite cap" {
     const a = testing.allocator;
     const label = "Alpha One\nBeta Gamma Delta\nEcho";
@@ -33,10 +29,6 @@ test "labelLines hard-break-only path matches wrapToWidth at an effectively infi
     }
 }
 
-// ---------------------------------------------------------------------
-// sizing.zig: LR/RL pre-swap restores the correct post-swap visual size
-// (near line 118)
-// ---------------------------------------------------------------------
 test "sizeNodes pre-swaps an LR multi-line label so post-applyDirection dims match the visual box" {
     const a = testing.allocator;
     const nodes = [_]sg.Node{
@@ -58,8 +50,6 @@ test "sizeNodes pre-swaps an LR multi-line label so post-applyDirection dims mat
     try sizing.sizeNodes(a, graph, lg, &geom, 0, &.{}, null, &node_lines);
     defer a.free(node_lines[0]);
 
-    // Visual (label-oriented) expectation: widest line "CDEF" (4 cols) + 2
-    // border cols = 6 wide; 2 lines + 2 border rows = 4 tall.
     mirror.applyDirection(NodeGeom, &geom, .LR);
     try testing.expectEqual(@as(u32, 6), geom[0].w);
     try testing.expectEqual(@as(u32, 4), geom[0].h);

@@ -1,18 +1,16 @@
 //! reach_vector.zig — pre-raster VECTOR-half D-REACH reachability
-//! oracle (P2v Step 6; TSD §12.4 / §17 step 15 first half; D-REACH items
-//! 5, 9, 10, 12–13; SDD §12.4 component table), modeled on score_geom.zig.
+//! oracle (P2v Step 6; D-REACH items 5, 9, 10, 12–13), modeled on
+//! score_geom.zig and emitting the shared component-table shape.
 //!
 //! PURE REPORT-ONLY in this step: `validate` computes and records — it
 //! feeds no CI filter, rejects no candidate, updates no disposition,
 //! constructs no terminal candidate, and is never score input.
 //! Enforcement lands in Step 8, after the output-changing Step 7.
 //!
-//! Model (D-REACH item 9): conductive channels are (a) edge-owned
-//! `EdgePath` polylines, (b) realized trunks (BusBars backing
-//! `joins.selected_joins`, complete member provenance), (c) labeled
-//! exempt mesh unions (`joins.mesh_unions` provenance elements — recorded
-//! provenance, never geometric inference). Terminals are typed from
-//! `joins.terminal_ports`; a node is a terminal — traversal never
+//! Model (D-REACH item 9): conductive bundles are (a) edge-owned
+//! `EdgePath` polylines and (b) realized rails (Rails backing
+//! `bundles.selected_bundles`, complete member provenance). Terminals are typed from
+//! `bundles.terminal_ports`; a node is a terminal — traversal never
 //! continues through it (item 5), so equal-NodeId terminals add no link.
 //! Cross-owner cell sharing links nothing: a strict orthogonal
 //! transversal is legal (clause 7), any other sharing fires
@@ -24,28 +22,28 @@
 //! report-only `reach_skipped_clustered` marker; a flat input whose
 //! candidate carries (synthetic) packed frames fires the distinct
 //! non-tag `skipped_packed_candidate` count (OPEN-8: the packed-winner
-//! validation gap must stay visible, and the 43-tag registry is pinned).
+//! validation gap must stay visible, and the tag registry is closed).
 //!
-//! Allowed imports (tools/lint_imports.zig): std, prim, ledger,
-//! sketch, reach_geometry, reach_report (split
+//! Allowed imports (tools/lint_imports.zig): std, prim, the base/ no-deps
+//! tier (here ../base/ledger.zig and ../base/rail_closure.zig), sketch,
+//! reach_geometry, reach_report, reach_walk (split
 //! siblings for the 500-line cap, mirroring realized/invariants).
 
 const std = @import("std");
 const sk = @import("../sketch.zig");
 const pb = @import("../base/ledger.zig");
+const rc = @import("../base/rail_closure.zig");
 const geom = @import("reach_geometry.zig");
 const rep = @import("reach_report.zig");
+const walk = @import("reach_walk.zig");
 
 pub const Error = error{OutOfMemory};
 
-// Public result surface (types + serializer live in the report sibling).
 pub const Counts = rep.Counts;
 pub const Report = rep.Report;
 pub const SharingEvent = rep.SharingEvent;
 pub const DeclaredEdge = rep.DeclaredEdge;
-pub const serialize = rep.serialize;
 
-const Occurrence = rep.Occurrence;
 const Comp = rep.Comp;
 
 const ChanCell = struct { chan: u32, x: i32, y: i32 };
@@ -55,20 +53,18 @@ fn containsEdge(edges: []const pb.EdgeId, edge: pb.EdgeId) bool {
     return false;
 }
 
-fn tapSetEquals(bb: sk.BusBar, members: []const pb.EdgeId) bool {
-    if (bb.taps.len != members.len) return false;
-    for (bb.taps) |tap| if (!containsEdge(members, tap.edge)) return false;
+fn tapSetEquals(rail: sk.Rail, members: []const pb.EdgeId) bool {
+    if (rail.taps.len != members.len) return false;
+    for (rail.taps) |tap| if (!containsEdge(members, tap.edge)) return false;
     for (members) |m| {
         var found = false;
-        for (bb.taps) |tap| {
+        for (rail.taps) |tap| {
             if (tap.edge == m) found = true;
         }
         if (!found) return false;
     }
     return true;
 }
-
-// -- Union-find over units (co-ownership channels) -------------------------
 
 fn find(parent: []usize, i: usize) usize {
     var root = i;
@@ -94,7 +90,7 @@ fn unite(parent: []usize, a: usize, b: usize) void {
 /// authored subgraphs.
 pub const InputKind = enum { flat, clustered };
 
-/// Run the vector-half oracle over one candidate Sketch + its `joins`
+/// Run the vector-half oracle over one candidate Sketch + its `bundles`
 /// envelope. `node_keys` maps NodeId → source raw_id bytes (the canonical
 /// node semantic key, D-REACH item 12); ids beyond the table order as the
 /// empty key. `input` is the ORIGINAL-input fact (see `InputKind`) — it
@@ -107,68 +103,55 @@ pub fn validate(alloc: std.mem.Allocator, s: sk.Sketch, node_keys: []const []con
             .skipped_clustered = true,
             .counts = .{ .skipped_clustered = 1 },
         },
-        // Flat input, framed candidate: the frames are synthetic packing
-        // chrome (motif pack). Recorded distinctly so the packed-winner
-        // validation gap (OPEN-8) is visible, never conflated with the
-        // clustered-input scope gate.
         .flat => .{
             .skipped_packed = true,
             .counts = .{ .skipped_packed_candidate = 1 },
         },
     };
-    const joins = s.joins;
+    const bundles = s.bundles;
     const declared = try declaredEdges(alloc, s);
 
-    // 1. Units. A BusBar realizing a selected join is ONE trunk channel;
-    // any other BusBar decomposes into per-tap member shares (an
-    // unrealized fusion is a channel of NO class — D-REACH clause 9 —
-    // so sibling shares are cross-owner and report, never link).
     var units: std.ArrayListUnmanaged(geom.Unit) = .empty;
-    const bb_join = try alloc.alloc(?pb.RealizedJoinId, s.busbars.len);
-    @memset(bb_join, null);
-    for (joins.selected_joins) |join| {
-        for (s.busbars, 0..) |bb, bi| {
-            if (bb_join[bi] == null and tapSetEquals(bb, join.members)) {
-                bb_join[bi] = join.id;
+    const rail_bundle = try alloc.alloc(?pb.SelectedBundleId, s.rails.len);
+    @memset(rail_bundle, null);
+    for (bundles.selected_bundles) |sel| {
+        for (s.rails, 0..) |rail, bi| {
+            if (rail_bundle[bi] == null and tapSetEquals(rail, sel.members)) {
+                rail_bundle[bi] = sel.id;
                 break;
             }
         }
     }
-    for (s.busbars, 0..) |bb, bi| {
-        if (bb_join[bi]) |jid| {
-            try units.append(alloc, try geom.trunkUnit(alloc, bb, jid));
+    for (s.rails, 0..) |rail, bi| {
+        if (rail_bundle[bi]) |jid| {
+            try units.append(alloc, try geom.railUnit(alloc, rail, jid));
         } else {
-            for (bb.taps) |tap| try units.append(alloc, try geom.tapShareUnit(alloc, bb, tap));
+            for (rail.taps) |tap| try units.append(alloc, try geom.tapShareUnit(alloc, rail, tap));
         }
     }
     for (s.edges) |e| try units.append(alloc, try geom.edgeUnit(alloc, e));
 
-    // 2. Channels: co-ownership union-find. Links exist only inside a
-    // channel + trunk arms: a selected join co-owns its trunk and its
-    // members' continuations; a labeled mesh union co-owns ALL member
-    // geometry as one conductive channel (clause 9(c)).
     const parent = try alloc.alloc(usize, units.items.len);
     for (parent, 0..) |*p, i| p.* = i;
-    for (joins.selected_joins) |join| {
+    for (bundles.selected_bundles) |sel| {
         var anchor: ?usize = null;
         for (units.items, 0..) |u, i| {
-            const owns = (u.join != null and u.join.? == join.id) or
-                (u.edge != null and containsEdge(join.members, u.edge.?));
+            const owns = (u.bundle != null and u.bundle.? == sel.id) or
+                (u.edge != null and containsEdge(sel.members, u.edge.?));
             if (!owns) continue;
             if (anchor) |a| unite(parent, a, i) else anchor = i;
         }
     }
-    for (joins.mesh_unions) |mu| {
+    for (bundles.fused) |u| {
         var anchor: ?usize = null;
-        for (units.items, 0..) |u, i| {
-            if (u.edge == null or !containsEdge(mu.members, u.edge.?)) continue;
+        for (units.items, 0..) |unit, i| {
+            const owns = (unit.edge != null and containsEdge(u, unit.edge.?)) or
+                (unit.bundle != null and bundleInUnion(bundles, unit.bundle.?, u));
+            if (!owns) continue;
             if (anchor) |a| unite(parent, a, i) else anchor = i;
         }
     }
 
-    // 3. Cross-channel sharing (clauses 7/9): a strict orthogonal
-    // transversal is legal and links nothing; ANY other cross-owner
-    // sharing fires reach_unknown_continuation once per offending pair.
     var counts: Counts = .{};
     var sharing: std.ArrayListUnmanaged(SharingEvent) = .empty;
     var all_cells: std.AutoArrayHashMapUnmanaged(geom.Cell, void) = .empty;
@@ -194,8 +177,6 @@ pub fn validate(alloc: std.mem.Allocator, s: sk.Sketch, node_keys: []const []con
         }
     }
 
-    // 4. Connectivity sub-components per channel: a channel whose cells
-    // do not all connect splits (the V-D-REACH-18 broken-trunk surface).
     var comps: std.ArrayListUnmanaged(Comp) = .empty;
     var cell_comp: std.AutoArrayHashMapUnmanaged(ChanCell, usize) = .empty;
     var chan_seen: std.AutoArrayHashMapUnmanaged(usize, void) = .empty;
@@ -216,19 +197,15 @@ pub fn validate(alloc: std.mem.Allocator, s: sk.Sketch, node_keys: []const []con
                 gop.value_ptr.* = comps.items.len;
                 try comps.append(alloc, .{ .chan = chan, .first_cell = c });
             }
+            try comps.items[gop.value_ptr.*].cells.append(alloc, c);
             try cell_comp.put(alloc, .{ .chan = @intCast(chan), .x = c.x, .y = c.y }, gop.value_ptr.*);
         }
     }
 
-    // 5. Terminals: typed records only, never inferred by geometry scan
-    // (clause 2). A geometry attachment becomes a terminal occurrence iff
-    // a matching (edge, endpoint_side, node) record exists in
-    // joins.terminal_ports; its border-cell location is the attachment
-    // cell, derived from the owning Sketch at consumption time.
     for (units.items, 0..) |u, i| {
         const chan: u32 = @intCast(find(parent, i));
         for (u.attachments) |att| {
-            const port = matchRecord(joins.terminal_ports, att) orelse continue;
+            const port = matchRecord(bundles.terminal_ports, att) orelse continue;
             const ci = cell_comp.get(.{ .chan = chan, .x = att.cell.x, .y = att.cell.y }) orelse continue;
             const comp = &comps.items[ci];
             if (rep.compHasSide(comp, att.edge, att.endpoint_side)) continue;
@@ -244,12 +221,10 @@ pub fn validate(alloc: std.mem.Allocator, s: sk.Sketch, node_keys: []const []con
         }
     }
 
+    try walkComponents(alloc, units.items, parent, comps.items);
     try oracle(alloc, s, declared, comps.items, &counts);
     const missing = try missingDeclared(alloc, s, declared, comps.items, &counts);
     const table = try rep.buildTable(alloc, node_keys, declared, comps.items, &counts);
-    // Canonical sharing order (D-REACH item 12, post-review F1): owners
-    // within each event and the event list itself are keyed, so the
-    // emitted report is byte-identical under s.edges writer permutation.
     const sharing_events = try sharing.toOwnedSlice(alloc);
     rep.canonicalizeSharing(sharing_events, declared, node_keys);
     return .{
@@ -259,6 +234,25 @@ pub fn validate(alloc: std.mem.Allocator, s: sk.Sketch, node_keys: []const []con
         .missing_declared = missing,
         .sharing = sharing_events,
     };
+}
+
+/// Read each component under the trace model: its reachable pairs are the
+/// ones an admissible walk over its channel's units joins.
+fn walkComponents(alloc: std.mem.Allocator, units: []const geom.Unit, parent: []usize, comps: []Comp) Error!void {
+    for (comps) |*comp| {
+        var chan_units: std.ArrayListUnmanaged(geom.Unit) = .empty;
+        for (units, 0..) |u, i| if (find(parent, i) == comp.chan) try chan_units.append(alloc, u);
+        var sources: std.ArrayListUnmanaged(walk.Terminal) = .empty;
+        var targets: std.ArrayListUnmanaged(walk.Terminal) = .empty;
+        for (comp.occ.items) |o| {
+            const term: walk.Terminal = .{ .node = o.node, .cell = o.cell };
+            switch (o.endpoint_side) {
+                .source_exit => try sources.append(alloc, term),
+                .target_entry => try targets.append(alloc, term),
+            }
+        }
+        comp.reachable = try walk.reachablePairs(alloc, chan_units.items, comp.cells.items, sources.items, targets.items);
+    }
 }
 
 fn oppositeNode(d: ?DeclaredEdge, att: geom.Attachment) sk.NodeId {
@@ -278,16 +272,16 @@ fn matchRecord(records: []const pb.TerminalPort, att: geom.Attachment) ?u32 {
 }
 
 /// Declared edge relation, read from the candidate's own geometry
-/// (EdgePath.id/from/to + trunk taps — D-IR item 9), first occurrence per
+/// (EdgePath.id/from/to + rail taps — D-IR item 9), first occurrence per
 /// id wins (a second instance of one id is the V-D-REACH-17 duplicate).
 fn declaredEdges(alloc: std.mem.Allocator, s: sk.Sketch) Error![]const DeclaredEdge {
     var list: std.ArrayListUnmanaged(DeclaredEdge) = .empty;
     for (s.edges) |e| try addDeclared(alloc, &list, e.id, e.from, e.to);
-    for (s.busbars) |bb| {
-        const out_dir = geom.busBarDirection(bb) == .out;
-        for (bb.taps) |tap| {
-            const from = if (out_dir) bb.pivot else tap.node;
-            const to = if (out_dir) tap.node else bb.pivot;
+    for (s.rails) |rail| {
+        const out_dir = geom.railDirection(rail) == .out;
+        for (rail.taps) |tap| {
+            const from = if (out_dir) rail.pivot else tap.node;
+            const to = if (out_dir) tap.node else rail.pivot;
             try addDeclared(alloc, &list, tap.edge, from, to);
         }
     }
@@ -299,7 +293,7 @@ fn addDeclared(alloc: std.mem.Allocator, list: *std.ArrayListUnmanaged(DeclaredE
     try list.append(alloc, .{ .id = id, .from = from, .to = to });
 }
 
-/// Clause-10 per-edge placement + clause-6 join/union provenance checks.
+/// Clause-10 per-edge placement + clause-6 bundle/union provenance checks.
 fn oracle(
     alloc: std.mem.Allocator,
     s: sk.Sketch,
@@ -307,8 +301,6 @@ fn oracle(
     comps: []Comp,
     counts: *Counts,
 ) Error!void {
-    // Every declared edge MUST have its source and target terminals in
-    // exactly one component (TSD §12.4, cross-gap condition vacuous).
     for (declared) |d| {
         var n_both: u32 = 0;
         var n_src: u32 = 0;
@@ -328,58 +320,72 @@ fn oracle(
             }
             if (has_src and has_tgt) n_both += 1;
         }
-        if (n_src == 0 and n_tgt == 0) continue; // absence half → missingDeclared
+        if (n_src == 0 and n_tgt == 0) continue;
         if (n_both >= 2 or (n_both == 1 and (n_src > 1 or n_tgt > 1))) {
-            counts.duplicate_trace += 1; // bullet 3: multi-component edge
+            counts.duplicate_trace += 1;
         } else if (n_both == 0) {
-            counts.split_trace += 1; // bullet 2: ink present across >1 fragment
+            counts.split_trace += 1;
             const home = src_comp orelse tgt_comp.?;
             try comps[home].missing.append(alloc, .{ .source = d.from, .target = d.to });
         }
     }
-    // Bullet 4: a selected trunk MUST form one component containing the
-    // pivot terminal and exactly its member terminals.
-    for (s.joins.selected_joins) |join| {
+    for (s.bundles.selected_bundles) |sel| {
         var member_comps: u32 = 0;
         for (comps) |*comp| {
             var has_member = false;
             for (comp.occ.items) |o| {
-                if (containsEdge(join.members, o.edge)) has_member = true;
+                if (containsEdge(sel.members, o.edge)) has_member = true;
             }
-            if (has_member) member_comps += 1;
+            if (!has_member) continue;
+            member_comps += 1;
+            try comp.bundles.append(alloc, sel.id);
         }
-        if (member_comps != 1) counts.join_split += 1;
-        try foreignCheck(alloc, join.id, true, join.members, comps, counts);
+        if (member_comps != 1) counts.bundle_split += 1;
     }
-    // A labeled mesh union's channel must likewise carry members only;
-    // within the union, member sharing is intra-channel and bullet 5
-    // never fires among members (clause 9(c)).
-    for (s.joins.mesh_unions) |mu| {
-        try foreignCheck(alloc, null, false, mu.members, comps, counts);
-    }
+    try foreignCheck(alloc, s.bundles, comps, counts);
 }
 
-/// Bullet 5: a component carrying a join's/union's members that also
-/// carries any non-member terminal joins independent memberships.
-fn foreignCheck(
-    alloc: std.mem.Allocator,
-    join_id: ?pb.RealizedJoinId,
-    record_join: bool,
-    members: []const pb.EdgeId,
-    comps: []Comp,
-    counts: *Counts,
-) Error!void {
-    for (comps) |*comp| {
-        var has_member = false;
-        for (comp.occ.items) |o| {
-            if (containsEdge(members, o.edge)) has_member = true;
+fn bundleInUnion(bundles: pb.RealizedBundles, id: pb.SelectedBundleId, u: []const pb.EdgeId) bool {
+    for (bundles.selected_bundles) |j| {
+        if (j.id != id) continue;
+        for (j.members) |m| if (containsEdge(u, m)) return true;
+        return false;
+    }
+    return false;
+}
+
+fn fusedUnionOf(bundles: pb.RealizedBundles, sel: pb.SelectedBundle) ?[]const pb.EdgeId {
+    for (bundles.fused) |u| {
+        var all = true;
+        for (sel.members) |m| {
+            if (!containsEdge(u, m)) all = false;
         }
-        if (!has_member) continue;
-        if (record_join) try comp.joins.append(alloc, join_id.?);
+        if (all and sel.members.len > 0) return u;
+    }
+    return null;
+}
+
+/// Bullet 5: a component carrying realized bundles' members that also
+/// carries a terminal no bundle of the component licenses — an
+/// independent membership joined to shared ink. A component may hold
+/// several bundles (an edge that is a member at both ends joins its two
+/// rails), so "foreign" is measured against the union of every bundle
+/// present, each read through its fused union when it has one.
+fn foreignCheck(alloc: std.mem.Allocator, bundles: pb.RealizedBundles, comps: []Comp, counts: *Counts) Error!void {
+    for (comps) |*comp| {
+        if (comp.bundles.items.len == 0) continue;
+        var covered: std.ArrayListUnmanaged(pb.EdgeId) = .empty;
+        defer covered.deinit(alloc);
+        for (comp.bundles.items) |id| {
+            for (bundles.selected_bundles) |sel| {
+                if (sel.id != id) continue;
+                try covered.appendSlice(alloc, fusedUnionOf(bundles, sel) orelse sel.members);
+            }
+        }
         var foreign: std.ArrayListUnmanaged(pb.EdgeId) = .empty;
         defer foreign.deinit(alloc);
         for (comp.occ.items) |o| {
-            if (!containsEdge(members, o.edge) and !containsEdge(foreign.items, o.edge))
+            if (!containsEdge(covered.items, o.edge) and !containsEdge(foreign.items, o.edge))
                 try foreign.append(alloc, o.edge);
         }
         counts.independent_joined += @intCast(foreign.items.len);
@@ -387,7 +393,7 @@ fn foreignCheck(
 }
 
 /// Bullet 2 absence half (clause 8): a declared edge with no conductive
-/// ink and no terminals at all. Surfaces via `joins.memberships` entries
+/// ink and no terminals at all. Surfaces via `bundles.memberships` entries
 /// whose edge has neither geometry nor a terminal occurrence.
 fn missingDeclared(
     alloc: std.mem.Allocator,
@@ -397,11 +403,31 @@ fn missingDeclared(
     counts: *Counts,
 ) Error![]const u32 {
     var missing: std.ArrayListUnmanaged(u32) = .empty;
-    for (s.joins.memberships, 0..) |m, rank| {
+    for (s.bundles.memberships, 0..) |m, rank| {
+        // A CO-REALIZED edge is present, not absent: an all-arrow-free rail
+        // discharged it, so the crossbar ink between its two taps IS its
+        // rendering. It owns no geometry of its own by construction, and
+        // charging it here would report the licence's success as a lost edge.
+        // @guarded-by: reach_vector_test.zig "a discharged edge is not charged as a missing declared edge"
+        if (rc.contains(s.bundles.discharged, m.edge)) continue;
         const has_geometry = rep.declaredById(declared, m.edge) != null;
         if (has_geometry and edgeHasOccurrence(comps, m.edge)) continue;
         counts.missing_declared += 1;
         try missing.append(alloc, @intCast(rank));
+    }
+    // A visible edge the router laid no ink for (an empty polyline) is a
+    // declared pair with no trace whatever its plan; one with no membership
+    // was not visited above and is charged here (count only — it has no
+    // membership rank to name).
+    // @guarded-by: select_test.zig "an unrouted edge is a missing declared pair on a candidate the oracle skipped"
+    for (s.edges) |e| {
+        if (e.polyline.len >= 2 or e.kind == .invisible) continue;
+        if (rc.contains(s.bundles.discharged, e.id)) continue;
+        var member = false;
+        for (s.bundles.memberships) |m| if (m.edge == e.id) {
+            member = true;
+        };
+        if (!member) counts.missing_declared += 1;
     }
     return missing.toOwnedSlice(alloc);
 }

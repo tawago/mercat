@@ -69,7 +69,7 @@ pub fn packComponents(
     }
 
     // ---- Collect component roots and their current real-node x-span. -------
-    // Only real nodes define a component's visible span; virtuals follow. guarded-by: components.zig "packComponents: virtual-node geometry cannot widen a component's span"
+    // Only real nodes define a component's visible span; virtuals follow. @guarded-by: components.zig "packComponents: virtual-node geometry cannot widen a component's span"
     var roots: std.ArrayListUnmanaged(u32) = .empty;
     const min_x = try a.alloc(i32, n);
     defer a.free(min_x);
@@ -91,13 +91,13 @@ pub fn packComponents(
     }
     defer roots.deinit(a);
 
-    if (roots.items.len < 2) return; // single component → nothing to pack.
+    if (roots.items.len < 2) return;
 
-    // Stable horizontal reading order: leftmost x, then root index. guarded-by: components.zig "packComponents: equal-min_x components tiebreak by ascending root index"
+    // Stable horizontal reading order: leftmost x, then root index. @guarded-by: components.zig "packComponents: equal-min_x components tiebreak by ascending root index"
     std.sort.pdq(u32, roots.items, SortCtx{ .min_x = min_x }, SortCtx.less);
 
     // ---- Compute a per-component left-justified delta and apply it. --------
-    // Monotone cursor, gap exactly COMPONENT_GAP: contiguous, non-overlapping. guarded-by: components.zig "packComponents: packed components are contiguous with exactly COMPONENT_GAP between them"
+    // Monotone cursor, gap exactly COMPONENT_GAP: contiguous, non-overlapping. @guarded-by: components.zig "packComponents: packed components are contiguous with exactly COMPONENT_GAP between them"
     const delta = try a.alloc(i32, n);
     defer a.free(delta);
     for (delta) |*d| d.* = 0;
@@ -148,7 +148,7 @@ fn unite(parent: []u32, a_idx: u32, b_idx: u32) void {
     const ra = find(parent, a_idx);
     const rb = find(parent, b_idx);
     if (ra == rb) return;
-    // Lower-index root wins for determinism. guarded-by: components.zig "unite: lower-index root always wins, regardless of call order"
+    // Lower-index root wins for determinism. @guarded-by: components.zig "unite: lower-index root always wins, regardless of call order"
     if (ra < rb) parent[rb] = ra else parent[ra] = rb;
 }
 
@@ -162,38 +162,29 @@ fn mkEdge(id: sg.EdgeId, from: sg.NodeId, to: sg.NodeId) sg.Edge {
 }
 
 test "unite: lower-index root always wins, regardless of call order" {
-    // Union-find must be deterministic across runs — the root of any
-    // merged set is always the smallest original index, never whichever
-    // side happened to be passed first.
     {
         var parent = [_]u32{ 0, 1, 2, 3 };
-        unite(&parent, 3, 1); // higher index passed first
+        unite(&parent, 3, 1);
         try testing.expectEqual(@as(u32, 1), find(&parent, 3));
         try testing.expectEqual(@as(u32, 1), find(&parent, 1));
     }
     {
         var parent = [_]u32{ 0, 1, 2, 3 };
-        unite(&parent, 1, 3); // lower index passed first — same result
+        unite(&parent, 1, 3);
         try testing.expectEqual(@as(u32, 1), find(&parent, 3));
         try testing.expectEqual(@as(u32, 1), find(&parent, 1));
     }
 }
 
 test "packComponents: virtual-node geometry cannot widen a component's span" {
-    // Component 0: real nodes A,B (small span) plus a virtual waypoint
-    // riding on their connecting edge, but positioned far to the right —
-    // if the virtual's geometry ever leaked into the min/max span
-    // computation, component 0 would appear far wider than its real
-    // content and would shove component 1 much further right than
-    // `COMPONENT_GAP` allows.
     const nodes = [_]sg.Node{
-        mkNode(20, "PA"), // real_index 0 -> lg index 3
-        mkNode(21, "PB"), // lg index 4
-        mkNode(10, "QA"), // lg index 1
-        mkNode(11, "QB"), // lg index 2
+        mkNode(20, "PA"),
+        mkNode(21, "PB"),
+        mkNode(10, "QA"),
+        mkNode(11, "QB"),
     };
     const edges = [_]sg.Edge{
-        mkEdge(100, 20, 21), // A-B edge; virtual (edge=100) rides with it
+        mkEdge(100, 20, 21),
     };
     const graph = sg.SemGraph{
         .direction = .TD,
@@ -214,7 +205,7 @@ test "packComponents: virtual-node geometry cannot widen a component's span" {
     var lg_nodes = [_]sugiyama.LayerNode{
         .{ .real = 20 },
         .{ .real = 21 },
-        .{ .virtual = .{ .edge = 100, .index = 0 } }, // huge geom below
+        .{ .virtual = .{ .edge = 100, .index = 0 } },
         .{ .real = 10 },
         .{ .real = 11 },
     };
@@ -228,42 +219,30 @@ test "packComponents: virtual-node geometry cannot widen a component's span" {
     };
 
     var geom = [_]NodeGeom{
-        .{ .x = 0, .y = 0, .w = 10, .h = 1, .layer = 0 }, // PA: [0,10]
-        .{ .x = 5, .y = 0, .w = 5, .h = 1, .layer = 0 }, // PB: [5,10] (component span [0,10])
-        .{ .x = 1000, .y = 0, .w = 900, .h = 1, .layer = 0 }, // virtual: [1000,1900] — must be ignored
-        .{ .x = 20, .y = 0, .w = 5, .h = 1, .layer = 0 }, // QA: [20,25]
-        .{ .x = 25, .y = 0, .w = 5, .h = 1, .layer = 0 }, // QB: [25,30] (component span [20,30])
+        .{ .x = 0, .y = 0, .w = 10, .h = 1, .layer = 0 },
+        .{ .x = 5, .y = 0, .w = 5, .h = 1, .layer = 0 },
+        .{ .x = 1000, .y = 0, .w = 900, .h = 1, .layer = 0 },
+        .{ .x = 20, .y = 0, .w = 5, .h = 1, .layer = 0 },
+        .{ .x = 25, .y = 0, .w = 5, .h = 1, .layer = 0 },
     };
 
     try packComponents(testing.allocator, graph, &geom, lg);
 
-    // Component P (PA/PB) has real span width 10; it packs first at
-    // cursor 0. Component Q must land at exactly 10 + COMPONENT_GAP,
-    // not at some position inflated by the virtual's [1000,1900] span.
-    try testing.expectEqual(@as(i32, 0), geom[0].x); // PA unmoved
-    try testing.expectEqual(@as(i32, 14), geom[3].x); // QA shifted to 10+4
-    // The virtual rides along with its component's delta (0) — its own
-    // huge span is untouched, proving it was never load-bearing.
+    try testing.expectEqual(@as(i32, 0), geom[0].x);
+    try testing.expectEqual(@as(i32, 14), geom[3].x);
     try testing.expectEqual(@as(i32, 1000), geom[2].x);
 }
 
 test "packComponents: equal-min_x components tiebreak by ascending root index" {
-    // Build two single-node components that both start at x=0 so the
-    // primary sort key (min_x) ties. Component P's *root* ends up as
-    // the virtual node's own low index (0) via the edge it rides on;
-    // component Q's root is a plain real node with a higher index (1).
-    // The pre-sort collection order below is deliberately [Q-root=1,
-    // P-root=0] (reverse of ascending) so this test would fail if the
-    // comparator's tiebreak (`lhs < rhs`) were ever dropped.
     const nodes = [_]sg.Node{
-        mkNode(10, "QA"), // lg index 1
-        mkNode(11, "QB"), // lg index 2
-        mkNode(20, "PA"), // lg index 3
-        mkNode(21, "PB"), // lg index 4
+        mkNode(10, "QA"),
+        mkNode(11, "QB"),
+        mkNode(20, "PA"),
+        mkNode(21, "PB"),
     };
     const edges = [_]sg.Edge{
-        mkEdge(200, 10, 11), // unions Q's two real nodes
-        mkEdge(100, 20, 21), // unions P's two real nodes; virtual rides this
+        mkEdge(200, 10, 11),
+        mkEdge(100, 20, 21),
     };
     const graph = sg.SemGraph{
         .direction = .TD,
@@ -282,7 +261,7 @@ test "packComponents: equal-min_x components tiebreak by ascending root index" {
     try real_index.put(testing.allocator, 21, 4);
 
     var lg_nodes = [_]sugiyama.LayerNode{
-        .{ .virtual = .{ .edge = 100, .index = 0 } }, // index 0: pulls P's root down to 0
+        .{ .virtual = .{ .edge = 100, .index = 0 } },
         .{ .real = 10 },
         .{ .real = 11 },
         .{ .real = 20 },
@@ -298,20 +277,17 @@ test "packComponents: equal-min_x components tiebreak by ascending root index" {
     };
 
     var geom = [_]NodeGeom{
-        .{ .x = 0, .y = 0, .w = 1, .h = 1, .layer = 0 }, // virtual placeholder, irrelevant
-        .{ .x = 0, .y = 0, .w = 6, .h = 1, .layer = 0 }, // QA: [0,6]
-        .{ .x = 3, .y = 0, .w = 3, .h = 1, .layer = 0 }, // QB: [3,6]
-        .{ .x = 0, .y = 0, .w = 4, .h = 1, .layer = 0 }, // PA: [0,4]
-        .{ .x = 2, .y = 0, .w = 2, .h = 1, .layer = 0 }, // PB: [2,4]
+        .{ .x = 0, .y = 0, .w = 1, .h = 1, .layer = 0 },
+        .{ .x = 0, .y = 0, .w = 6, .h = 1, .layer = 0 },
+        .{ .x = 3, .y = 0, .w = 3, .h = 1, .layer = 0 },
+        .{ .x = 0, .y = 0, .w = 4, .h = 1, .layer = 0 },
+        .{ .x = 2, .y = 0, .w = 2, .h = 1, .layer = 0 },
     };
 
     try packComponents(testing.allocator, graph, &geom, lg);
 
-    // Root 0 (P) must be treated as coming first despite Q's root (1)
-    // being collected first — P stays put (delta 0) and Q gets pushed
-    // out to P's width (4) + COMPONENT_GAP (4) = 8.
-    try testing.expectEqual(@as(i32, 0), geom[3].x); // PA unmoved
-    try testing.expectEqual(@as(i32, 8), geom[1].x); // QA shifted to 4+4
+    try testing.expectEqual(@as(i32, 0), geom[3].x);
+    try testing.expectEqual(@as(i32, 8), geom[1].x);
 }
 
 test "packComponents: packed components are contiguous with exactly COMPONENT_GAP between them" {
@@ -323,7 +299,7 @@ test "packComponents: packed components are contiguous with exactly COMPONENT_GA
     const graph = sg.SemGraph{
         .direction = .TD,
         .nodes = &nodes,
-        .edges = &.{}, // no edges: each node is its own component
+        .edges = &.{},
         .clusters = &.{},
         .classes = &.{},
         .arena = null,
@@ -349,7 +325,6 @@ test "packComponents: packed components are contiguous with exactly COMPONENT_GA
         .arena = null,
     };
 
-    // Widely separated so packing must actually pull them together.
     var geom = [_]NodeGeom{
         .{ .x = 0, .y = 0, .w = 6, .h = 1, .layer = 0 },
         .{ .x = 50, .y = 0, .w = 8, .h = 1, .layer = 0 },
@@ -358,8 +333,6 @@ test "packComponents: packed components are contiguous with exactly COMPONENT_GA
 
     try packComponents(testing.allocator, graph, &geom, lg);
 
-    // Sort by final x and check every adjacent pair is separated by
-    // exactly COMPONENT_GAP, with no overlap and no slack.
     const Span = struct { left: i32, right: i32 };
     var spans: [3]Span = undefined;
     for (geom, 0..) |g, i| spans[i] = .{ .left = g.x, .right = g.x + @as(i32, @intCast(g.w)) };

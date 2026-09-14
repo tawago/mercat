@@ -1,13 +1,12 @@
 //! reach_report.zig — result types, canonical ordering, and
-//! SDD §12.4 component-table construction for the pre-raster D-REACH
+//! component-table construction for the pre-raster D-REACH
 //! vector oracle (P2v Step 6). Split sibling of `reach_vector.zig`
 //! for the 500-line cap; the traversal/oracle logic lives there.
 //!
 //! Determinism (D-REACH item 12): terminal keys order by (canonical node
 //! semantic key = source raw_id bytes, endpoint_side, port row, port
 //! col); component ids by smallest member terminal key; every report list
-//! sorts by these keys. Numeric NodeId/EdgeId never appear in keys or in
-//! serialized bytes.
+//! sorts by these keys. Numeric NodeId/EdgeId never appear in keys.
 //!
 //! Allowed imports (tools/lint_imports.zig): std, prim, ledger,
 //! sketch, reach_geometry.
@@ -22,9 +21,9 @@ pub const Error = error{OutOfMemory};
 /// Per-candidate counts for every D-REACH diagnostic tag. Field names are
 /// the registry tags minus the `reach_` prefix (pinned by test) — except
 /// `skipped_packed_candidate`, deliberately a NON-tag field (post-review
-/// F2): the 43-tag D-DISPOSITION registry is pinned and must not grow for
-/// a report-only skip split, so the packed-candidate skip is counted and
-/// serialized distinctly without ever becoming a `reach_*` tag.
+/// F2): the D-DISPOSITION registry is closed and must not grow for
+/// a report-only skip split, so the packed-candidate skip is counted
+/// distinctly without ever becoming a `reach_*` tag.
 /// `cross_connected` / `one_sided_adjacency` / `mixed_stroke_junction`
 /// are PAINTED-half events (D-REACH clauses 4/7) and
 /// `vector_raster_mismatch` is cross-half (Step 9): all structurally zero
@@ -34,7 +33,7 @@ pub const Counts = struct {
     missing_declared: u32 = 0,
     split_trace: u32 = 0,
     duplicate_trace: u32 = 0,
-    join_split: u32 = 0,
+    bundle_split: u32 = 0,
     independent_joined: u32 = 0,
     cross_connected: u32 = 0,
     one_sided_adjacency: u32 = 0,
@@ -60,7 +59,7 @@ pub const Counts = struct {
         return total;
     }
 
-    /// P2v Step 8 safety-filter verdict (D-JOIN-SELECT item 6; TSD §13.2):
+    /// P2v Step 8 safety-filter verdict (D-JOIN-SELECT item 6):
     /// the candidate carries NO CI-class reach event, so it survives the
     /// pre-raster filter. A skip (clustered/packed) is CI-clean by this
     /// predicate — `ciTotal` excludes both skip counts (OPEN-8), yet the
@@ -72,8 +71,8 @@ pub const Counts = struct {
 };
 
 /// One illegal cross-owner sharing event (`reach_unknown_continuation`):
-/// the first offending cell (row/col scan order) of one cross-channel
-/// unit pair. Owning declared edges are null for a realized whole-trunk
+/// the first offending cell (row/col scan order) of one cross-bundle
+/// unit pair. Owning declared edges are null for a realized whole-rail
 /// participant. Canonical after `canonicalizeSharing` (D-REACH item 12):
 /// within an event the smaller owner key is `a_edge`, and the list sorts
 /// by (cell, owner keys) — never by writer/unit index.
@@ -85,7 +84,7 @@ pub const SharingEvent = struct {
 };
 
 /// One declared edge as read from the candidate's own geometry
-/// (EdgePath.id/from/to + trunk taps — D-IR item 9).
+/// (EdgePath.id/from/to + rail taps — D-IR item 9).
 pub const DeclaredEdge = struct { id: pb.EdgeId, from: sk.NodeId, to: sk.NodeId };
 
 pub const Report = struct {
@@ -94,7 +93,7 @@ pub const Report = struct {
     /// Declared relation the oracle checked against (geometry-derived).
     declared: []const DeclaredEdge = &.{},
     /// Declared edges with no conductive ink and no terminals at all
-    /// (`reach_missing_declared`), as canonical `joins.memberships` ranks.
+    /// (`reach_missing_declared`), as canonical `bundles.memberships` ranks.
     missing_declared: []const u32 = &.{},
     sharing: []const SharingEvent = &.{},
     skipped_clustered: bool = false,
@@ -103,12 +102,10 @@ pub const Report = struct {
     skipped_packed: bool = false,
 };
 
-// -- Internal assembly types (shared with reach_vector.zig) --------
-
 /// One typed terminal occurrence: a geometry attachment matched to its
-/// `joins.terminal_ports` record, placed in a connectivity component.
+/// `bundles.terminal_ports` record, placed in a connectivity component.
 /// `opposite` is the owning edge's other endpoint — the deterministic
-/// tie-break for equal-(node, side, cell) trunk-pivot terminals, keeping
+/// tie-break for equal-(node, side, cell) rail-pivot terminals, keeping
 /// numeric ids out of every ordering decision.
 pub const Occurrence = struct {
     edge: pb.EdgeId,
@@ -119,13 +116,17 @@ pub const Occurrence = struct {
     port: u32,
 };
 
-/// One connectivity component under assembly (a channel sub-component).
+/// One connectivity component under assembly (a bundle sub-component).
 pub const Comp = struct {
     chan: usize,
     first_cell: geom.Cell,
+    cells: std.ArrayListUnmanaged(geom.Cell) = .empty,
     occ: std.ArrayListUnmanaged(Occurrence) = .empty,
     missing: std.ArrayListUnmanaged(pb.NodePair) = .empty,
-    joins: std.ArrayListUnmanaged(pb.RealizedJoinId) = .empty,
+    bundles: std.ArrayListUnmanaged(pb.SelectedBundleId) = .empty,
+    /// (source node, target node) pairs an admissible walk joins
+    /// (reach_walk.zig) — the trace model's reading of the component.
+    reachable: []const pb.NodePair = &.{},
 };
 
 pub fn nodeKey(node_keys: []const []const u8, id: sk.NodeId) []const u8 {
@@ -144,8 +145,6 @@ pub fn compHasSide(comp: *const Comp, edge: pb.EdgeId, side: pb.EndpointSide) bo
     }
     return false;
 }
-
-// -- Canonical ordering ----------------------------------------------------
 
 const KeyCtx = struct { keys: []const []const u8 };
 
@@ -196,13 +195,11 @@ const CompOrder = struct {
     }
 };
 
-// -- Canonical sharing-event ordering (D-REACH item 12, post-review F1) -----
-
 /// An owner's canonical key: the declared edge's endpoint node keys. A
-/// whole-trunk participant (null edge) keys as the empty pair and sorts
+/// whole-rail participant (null edge) keys as the empty pair and sorts
 /// first, mirroring `labelOrder`'s null-first rule; every edge-owned unit
 /// is in `declared` by construction (units and declared edges are built
-/// from the same s.edges/s.busbars).
+/// from the same s.edges/s.rails).
 const OwnerKey = struct { from: []const u8, to: []const u8 };
 
 fn ownerKey(declared: []const DeclaredEdge, keys: []const []const u8, edge: ?pb.EdgeId) OwnerKey {
@@ -260,11 +257,9 @@ fn dedupPairs(alloc: std.mem.Allocator, keys: []const []const u8, pairs: []const
     return slice;
 }
 
-// -- SDD §12.4 component-table construction --------------------------------
-
 /// Assemble the ordered component table: per component the typed source/
-/// target terminals, the reachable Cartesian pairs, the declared pairs it
-/// represents, the missing/extra defect lists, and its selected-join ids.
+/// target terminals, the pairs an admissible walk joins, the declared pairs it
+/// represents, the missing/extra defect lists, and its selected-bundle ids.
 /// `bridge_ids` stays empty in the no-bridge P1a slice. Also charges
 /// `counts.undeclared_pair` for every extra pair (clause 10 bullet 1).
 pub fn buildTable(
@@ -285,23 +280,14 @@ pub fn buildTable(
 
         var sources: std.ArrayListUnmanaged(pb.TerminalPort) = .empty;
         var targets: std.ArrayListUnmanaged(pb.TerminalPort) = .empty;
-        var src_nodes: std.ArrayListUnmanaged(sk.NodeId) = .empty;
-        var tgt_nodes: std.ArrayListUnmanaged(sk.NodeId) = .empty;
         for (comp.occ.items) |o| {
             const term: pb.TerminalPort = .{ .node = o.node, .edge = o.edge, .endpoint_side = o.endpoint_side, .port = o.port };
             switch (o.endpoint_side) {
-                .source_exit => {
-                    try sources.append(alloc, term);
-                    try appendUniqueNode(alloc, &src_nodes, o.node);
-                },
-                .target_entry => {
-                    try targets.append(alloc, term);
-                    try appendUniqueNode(alloc, &tgt_nodes, o.node);
-                },
+                .source_exit => try sources.append(alloc, term),
+                .target_entry => try targets.append(alloc, term),
             }
         }
 
-        // Declared pairs fully represented by this component.
         var declared_pairs: std.ArrayListUnmanaged(pb.NodePair) = .empty;
         for (declared) |d| {
             if (compHasSide(comp, d.id, .source_exit) and compHasSide(comp, d.id, .target_entry))
@@ -309,14 +295,8 @@ pub fn buildTable(
         }
         const declared_sorted = try dedupPairs(alloc, node_keys, declared_pairs.items);
 
-        // Reachable Cartesian product over distinct source/target nodes.
-        var reachable: std.ArrayListUnmanaged(pb.NodePair) = .empty;
-        for (src_nodes.items) |sn| {
-            for (tgt_nodes.items) |tn| try reachable.append(alloc, .{ .source = sn, .target = tn });
-        }
-        const reachable_sorted = try dedupPairs(alloc, node_keys, reachable.items);
+        const reachable_sorted = try dedupPairs(alloc, node_keys, comp.reachable);
 
-        // Extra = reachable pairs not represented by a declared edge here.
         var extra: std.ArrayListUnmanaged(pb.NodePair) = .empty;
         outer: for (reachable_sorted) |p| {
             for (declared_sorted) |q| {
@@ -326,8 +306,8 @@ pub fn buildTable(
         }
         counts.undeclared_pair += @intCast(extra.items.len);
 
-        const join_ids = try alloc.dupe(pb.RealizedJoinId, comp.joins.items);
-        std.mem.sort(pb.RealizedJoinId, join_ids, {}, std.sort.asc(pb.RealizedJoinId));
+        const bundle_ids = try alloc.dupe(pb.SelectedBundleId, comp.bundles.items);
+        std.mem.sort(pb.SelectedBundleId, bundle_ids, {}, std.sort.asc(pb.SelectedBundleId));
 
         entries[rank] = .{
             .id = @intCast(rank),
@@ -337,104 +317,9 @@ pub fn buildTable(
             .reachable_pairs = reachable_sorted,
             .missing_declared_pairs = try dedupPairs(alloc, node_keys, comp.missing.items),
             .extra_undeclared_pairs = try extra.toOwnedSlice(alloc),
-            .selected_join_ids = join_ids,
+            .selected_bundle_ids = bundle_ids,
             .bridge_ids = &.{},
         };
     }
     return entries;
-}
-
-fn appendUniqueNode(alloc: std.mem.Allocator, list: *std.ArrayListUnmanaged(sk.NodeId), node: sk.NodeId) Error!void {
-    for (list.items) |n| if (n == node) return;
-    try list.append(alloc, node);
-}
-
-// -- Deterministic serialization (V-D-REACH-19(b) report bytes) ------------
-
-fn appendf(a: std.mem.Allocator, out: *std.ArrayListUnmanaged(u8), comptime fmt: []const u8, args: anytype) Error!void {
-    try out.appendSlice(a, try std.fmt.allocPrint(a, fmt, args));
-}
-
-/// Serialize a report to canonical bytes: node ids map to their canonical
-/// keys, edges to endpoint-key pairs, and every list is already in key
-/// order — byte-identical under edge/writer permutation of the input.
-/// Numeric ids never reach the output.
-pub fn serialize(alloc: std.mem.Allocator, report: Report, node_keys: []const []const u8) Error![]const u8 {
-    var out: std.ArrayListUnmanaged(u8) = .empty;
-    if (report.skipped_clustered) {
-        try out.appendSlice(alloc, "skipped_clustered\n");
-        return out.toOwnedSlice(alloc);
-    }
-    if (report.skipped_packed) {
-        try out.appendSlice(alloc, "skipped_packed_candidate\n");
-        return out.toOwnedSlice(alloc);
-    }
-    for (report.components) |comp| {
-        try appendf(alloc, &out, "component {d}:", .{comp.id});
-        try writeTerms(alloc, &out, " sources=", comp.source_terminals, report.declared, node_keys);
-        try writeTerms(alloc, &out, " targets=", comp.target_terminals, report.declared, node_keys);
-        try writePairs(alloc, &out, " reachable=", comp.reachable_pairs, node_keys);
-        try writePairs(alloc, &out, " declared=", comp.declared_pairs_in_component, node_keys);
-        try writePairs(alloc, &out, " missing=", comp.missing_declared_pairs, node_keys);
-        try writePairs(alloc, &out, " extra=", comp.extra_undeclared_pairs, node_keys);
-        try appendf(alloc, &out, " joins={d} bridges={d}\n", .{ comp.selected_join_ids.len, comp.bridge_ids.len });
-    }
-    for (report.sharing) |ev| {
-        try appendf(alloc, &out, "sharing ({d},{d}) ", .{ ev.y, ev.x });
-        try writeOwner(alloc, &out, report.declared, node_keys, ev.a_edge);
-        try out.appendSlice(alloc, " x ");
-        try writeOwner(alloc, &out, report.declared, node_keys, ev.b_edge);
-        try out.append(alloc, '\n');
-    }
-    for (report.missing_declared) |rank| {
-        try appendf(alloc, &out, "missing_declared membership#{d}\n", .{rank});
-    }
-    inline for (@typeInfo(Counts).@"struct".fields) |f| {
-        // skipped_packed_candidate is deliberately NOT a registry tag (the
-        // 43-tag registry is pinned); emit it without the reach_ prefix so
-        // it can never read as one.
-        const prefix = if (comptime std.mem.eql(u8, f.name, "skipped_packed_candidate")) "" else "reach_";
-        try appendf(alloc, &out, "{s}{s}={d}\n", .{ prefix, f.name, @field(report.counts, f.name) });
-    }
-    return out.toOwnedSlice(alloc);
-}
-
-fn writeOwner(alloc: std.mem.Allocator, out: *std.ArrayListUnmanaged(u8), declared: []const DeclaredEdge, node_keys: []const []const u8, edge: ?pb.EdgeId) Error!void {
-    const id = edge orelse return out.appendSlice(alloc, "trunk");
-    const d = declaredById(declared, id) orelse return out.appendSlice(alloc, "?");
-    try appendf(alloc, out, "{s}->{s}", .{ nodeKey(node_keys, d.from), nodeKey(node_keys, d.to) });
-}
-
-fn writeTerms(
-    alloc: std.mem.Allocator,
-    out: *std.ArrayListUnmanaged(u8),
-    label: []const u8,
-    terms: []const pb.TerminalPort,
-    declared: []const DeclaredEdge,
-    node_keys: []const []const u8,
-) Error!void {
-    try out.appendSlice(alloc, label);
-    try out.append(alloc, '[');
-    for (terms, 0..) |t, i| {
-        if (i > 0) try out.append(alloc, ',');
-        try appendf(alloc, out, "{s}/{s}/p{d}/", .{ nodeKey(node_keys, t.node), @tagName(t.endpoint_side), t.port });
-        try writeOwner(alloc, out, declared, node_keys, t.edge);
-    }
-    try out.append(alloc, ']');
-}
-
-fn writePairs(
-    alloc: std.mem.Allocator,
-    out: *std.ArrayListUnmanaged(u8),
-    label: []const u8,
-    pairs: []const pb.NodePair,
-    node_keys: []const []const u8,
-) Error!void {
-    try out.appendSlice(alloc, label);
-    try out.append(alloc, '[');
-    for (pairs, 0..) |p, i| {
-        if (i > 0) try out.append(alloc, ',');
-        try appendf(alloc, out, "({s},{s})", .{ nodeKey(node_keys, p.source), nodeKey(node_keys, p.target) });
-    }
-    try out.append(alloc, ']');
 }

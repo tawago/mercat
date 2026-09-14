@@ -2,13 +2,15 @@
 //!
 //! The ONE module every mermaid_v2 stage (parse, layout, sketch, raster,
 //! lattice, paint) may import freely; sits below all import boundaries,
-//! imports only `std`. Carries pure-data types plus shared measurement
-//! primitives (`displayWidth`/`truncateToWidth`/`wrapToWidth`) with a
-//! self-contained East-Asian-Width table so every stage measures label
-//! width identically without crossing the import allowlist. New shared
-//! primitives belong here first; re-export via `pub const Foo = prim.Foo;`.
+//! imports only `std` and the `unicode` width authority. Carries pure-data
+//! types plus shared measurement primitives (`displayWidth`/
+//! `truncateToWidth`/`wrapToWidth`) that delegate to that authority, so
+//! every stage measures label width identically — and identically to the
+//! terminal — without crossing the import allowlist. New shared primitives
+//! belong here first; re-export via `pub const Foo = prim.Foo;`.
 
 const std = @import("std");
+const unicode = @import("unicode");
 
 /// Stable handle for a node within a single graph/sketch/lattice.
 pub const NodeId = u32;
@@ -70,6 +72,78 @@ pub const Dir4 = enum {
     west,
 };
 
+/// Arrowhead style at one end of an edge. Shared by the geometric IR
+/// (`sketch.zig`) and the cell grid (`lattice.zig`), which may not import
+/// sketch — hence its home here in the no-deps tier.
+pub const ArrowKind = enum {
+    none,
+    open,
+    filled,
+    circle,
+    cross,
+};
+
+/// True for a directional end: an arrowhead that permits only the
+/// orientation it points. Circle and cross ends are decoration, not
+/// directional, and permit both orientations (the direction-consistency axiom).
+pub fn directional(end: ArrowKind) bool {
+    return switch (end) {
+        .open, .filled => true,
+        .none, .circle, .cross => false,
+    };
+}
+
+/// Blocking predicate (confluence theory, corollary of junction traversal plus direction consistency): an edge
+/// blocks leaf-to-leaf traversal through its rail iff exactly one of its
+/// two ends is directional. This is the glyph half only; `memberBlocks`
+/// below extends it to ink a placement edge proxies. (Mermaid syntax gives
+/// an ordinary edge no head-free directedness, so glyphs are its whole
+/// testimony.)
+pub fn blocks(arrow_from: ArrowKind, arrow_to: ArrowKind) bool {
+    return directional(arrow_from) != directional(arrow_to);
+}
+
+/// Directedness class of ink an edge stands for beyond its own end glyphs.
+/// Ordinary edges stand only for themselves and stay `.arrow_free`; a
+/// cross-border placement edge (cluster/split.zig) carries here the folded
+/// class of the crossings whose ink it proxies.
+pub const StandsFor = enum {
+    /// No directional end on any proxied crossing (circle/cross ends
+    /// included: decoration, not directional). Also every ordinary edge.
+    arrow_free,
+    /// Every proxied crossing carries exactly one directional head, at its
+    /// target — the crossing is semantically one-way toward it.
+    forward_one_way,
+    /// Every proxied crossing carries exactly one directional head, at its
+    /// source: still one-way (it blocks), but a two-sided fusion reads it
+    /// backwards, so it is not a forward head.
+    backward_one_way,
+    /// Directional ends are present but not uniformly one-way in one
+    /// direction: heads at both ends, or a mix of classes (antiparallel
+    /// one-way crossings fold here too — their combined ink is headed at
+    /// both ends).
+    directed,
+};
+
+/// The blocking predicate over one member's whole testimony: its own end
+/// glyphs plus the class of any ink it stands for. A one-way class blocks
+/// in either direction — the same verdict `blocks` gives the equivalent
+/// glyphs on a direct member. `.directed` folds double-headed with mixed
+/// ink, so it cannot claim to block.
+pub fn memberBlocks(arrow_from: ArrowKind, arrow_to: ArrowKind, stands_for: StandsFor) bool {
+    return switch (stands_for) {
+        .arrow_free => blocks(arrow_from, arrow_to),
+        .forward_one_way, .backward_one_way => true,
+        .directed => false,
+    };
+}
+
+/// True iff no end of the ink this member stands for is directional — the
+/// question the rail-closure licence asks.
+pub fn memberArrowFree(arrow_from: ArrowKind, arrow_to: ArrowKind, stands_for: StandsFor) bool {
+    return !directional(arrow_from) and !directional(arrow_to) and stands_for == .arrow_free;
+}
+
 /// Stroke style of an edge. Represents the visual weight / dash pattern of
 /// the drawn line, independent of routing intent.
 pub const EdgeKind = enum {
@@ -82,22 +156,57 @@ pub const EdgeKind = enum {
 /// Routing-intent role of an edge or edge-segment cell. Carries downstream
 /// the "why" of the polyline so raster/paint can resolve junction glyphs
 /// without re-deriving topology from cell geometry.
+/// Where a candidate places its edge labels. A SCORED policy, not a
+/// preference: select.zig lays out both variants and the score picks.
+/// `on_run` = try the on-run forms first (and reserve fan label rows);
+/// `beside` = skip on-run entirely and reserve no label rows.
+pub const LabelPolicy = enum { on_run, beside };
+
+/// How a candidate builds its cross-border bridge paths. A SCORED routing
+/// variant, not a routing-time decision: select.zig lays out the variants
+/// and the composite score against the real raster picks (confluence
+/// selection note — a local sketch-side proxy may not decide fused vs
+/// separate or dodge vs plain).
+/// `plain` = every jog exactly as the track pass assigned it;
+/// `dodged` = each bridge routes sequentially, its jog displaced off
+/// committed and tentative ink;
+/// `railed` = each licensed group meeting at one port — source or target —
+/// jointly moves its shared
+/// jog to a rail coordinate judged against the full static scene (falls
+/// back to the plain geometry when no group is licensed or no jog moves).
+pub const BridgeBuild = enum { plain, dodged, railed };
+
 pub const EdgeRole = enum {
     /// Default — straight forward edge between adjacent layers.
     forward,
     /// Edge whose direction was reversed by sugiyama for cycle removal;
     /// rasterizes as a back-edge rail beneath the node row.
     back_edge,
-    /// A fan-OUT trunk cell at the source-column rail-row intersection.
-    /// Painter forces `┴`/`┬`/`├`/`┤` (no continuing trunk past rail).
-    fan_out_trunk,
-    /// A fan-OUT rail or descent segment from source to per-child column.
+    /// A cell of a fan-OUT's SHARED run: the pivot stem, the WHOLE
+    /// crossbar span, and every tap cell sitting on it — all the ink two
+    /// or more sibling edges have in common, not merely the stem/crossbar
+    /// intersection. Rails stamp it directly; on the per-peer fan path
+    /// the post-walk pass upgrades the shared cells it detects. Painter
+    /// strips the junction to `┴`/`┬`/`├`/`┤` (nothing continues past the
+    /// crossbar).
     fan_out_rail,
-    /// A fan-IN trunk cell at the target-column rail-row intersection.
-    /// Painter keeps `┼` semantics (vertical pass-through preserved).
-    fan_in_trunk,
-    /// A fan-IN rail or ascent segment from per-source column to target.
+    /// A fan-OUT dropper: the leg descending from the crossbar to one
+    /// child column, owned by a single edge.
+    fan_out_dropper,
+    /// A cell of a fan-IN's SHARED run (target stem, crossbar span, and
+    /// every tap cell on it), from the same two producers as
+    /// `fan_out_rail`. Painter keeps `┼` semantics: the vertical
+    /// pass-through survives.
     fan_in_rail,
+    /// A fan-IN dropper: the leg rising from one source column to the
+    /// crossbar, owned by a single edge.
+    fan_in_dropper,
+    /// A rail member's own ink beyond its tap: the stroke from the tap's
+    /// landing to the member's far end. That far end is a private port
+    /// (the stroke paints that port and head) or the other rail's tap
+    /// (the stroke paints neither — the rail's stem carries the head).
+    /// Never rail ink: it is a private stroke in every attribution law.
+    member_stroke,
     /// Self-loop edge — uses the lollipop polyline.
     self_loop,
     /// Forward edge whose both endpoints live in the same innermost
@@ -147,13 +256,7 @@ pub const Shape = enum {
 // diagrams; the Y inset is already at its 1-cell minimum and never shrinks. The
 // floor of padX is 2 (1 border + ≥1 inset) so the frame always keeps a border
 // plus one breathing cell, preserving the border-vs-inset distinction.
-// All four geometry sites (superSize, both child translates, sibling gaps, sub-budget overhead) MUST pass the SAME scale within one layout pass, or super-node sizing desyncs from the drawn frame. guarded-by: recurse_test.zig "nested cluster: outer super-node pad tracks framePadX(scale) across two recursion levels"
-//
-// Downstream constants are DERIVED from here, never re-literaled:
-//   - `cluster/stitch` frame_pad_x/y = `framePadX(scale)` / `framePadY(scale)`
-//   - `cluster/stitch.superSize` = child_bbox + 2*framePad{X,Y}(scale)
-//   - `layout/spacing.clusterHPad` = `framePadX(scale)` (same x quantity)
-//   - `recurse` child sub-budget = `frameOverheadX(scale)`
+// All four geometry sites (superSize, both child translates, sibling gaps, sub-budget overhead) MUST pass the SAME scale within one layout pass, or super-node sizing desyncs from the drawn frame. @guarded-by: recurse_test.zig "nested cluster: outer super-node pad tracks framePadX(scale) across two recursion levels"
 
 /// Interior inset inside the cluster border, x axis (columns).
 pub const frame_inset_x: u32 = 3;
@@ -197,7 +300,7 @@ pub fn rotatedDirection(d: Direction) Direction {
     };
 }
 
-// Edge-label placement — shared by layout/clusters.computeBbox (reservation) and raster/labels (painting); they MUST agree on the occupied cell. guarded-by: raster/labels_test.zig "vertical edge label paints at the exact prim anchor for both rail sides"
+// Edge-label placement — shared by layout/clusters.computeBbox (reservation) and raster/labels (painting); they MUST agree on the occupied cell. @guarded-by: raster/labels_test.zig "vertical edge label paints at the exact prim anchor for both rail sides"
 
 /// Top-left cell of an edge label given its mid-segment.
 pub const LabelAnchor = struct { x: i32, y: i32 };
@@ -233,8 +336,8 @@ pub fn edgeLabelAnchor(
 ) LabelAnchor {
     const mid_x: i32 = @divTrunc(ax + bx, 2);
     const mid_y: i32 = @divTrunc(ay + by, 2);
-    if (ay == by) return .{ .x = mid_x, .y = mid_y - 1 }; // horizontal
-    const right_x = mid_x + 2; // default: right of the vertical rail
+    if (ay == by) return .{ .x = mid_x, .y = mid_y - 1 };
+    const right_x = mid_x + 2;
     if (ctx.active) {
         const lw: i32 = @intCast(label_w);
         const budget: i32 = @intCast(ctx.max_width);
@@ -256,88 +359,48 @@ pub fn leftOfRailAnchor(ax: i32, ay: i32, bx: i32, by: i32, label_w: u32) LabelA
     return .{ .x = mid_x - 1 - lw, .y = mid_y };
 }
 
-// Self-contained EAW-aware column counting, duplicated from lib/unicode.zig
-// because base/ files may only import std.
-// guarded-by: tools/lint_imports.zig "base/ files may import only std and base/ siblings"
+// Display-column geometry. `lib/unicode.zig` (module `unicode`) is the
+// single width authority for the whole program: Unicode 17 tables,
+// extended-grapheme segmentation, emoji presentation. base/ is the no-deps
+// tier and imports only std and base/ siblings, with this ONE exception:
+// types.zig may reach `unicode`, because a second copy of the width tables
+// drifted once (an emoji counted as one column, a combining mark as one)
+// and every box and rail was off by a column. One authority, no copy.
+// @guarded-by: tools/lint_imports.zig "base/ files may import only std and base/ siblings; types.zig alone may import unicode"
 
-/// Display-column width of a single decoded codepoint.
-///   - tab (\t)        -> 4
-///   - control < 0x20  -> 0
-///   - CJK / Hangul / fullwidth / wide ranges -> 2
-///   - everything else -> 1
+/// Display-column width of a single codepoint, as the authority measures
+/// it in isolation:
+///   - tab (\t)                         -> 4
+///   - C0 / DEL / C1 control            -> 0
+///   - East-Asian-Wide/Fullwidth, emoji-presentation, emoji modifier -> 2
+///   - everything else                  -> 1
+/// A codepoint is not always a grapheme: `displayWidth` measures whole
+/// graphemes (a base plus its combining marks is ONE column; a ZWJ family
+/// is TWO), so sum this only over text known to be one codepoint per glyph.
 pub fn codepointWidth(codepoint: u21) u32 {
-    if (codepoint == '\t') return 4;
-    if (codepoint < 0x20) return 0;
-    if (codepoint >= 0x1100 and (codepoint <= 0x115f or codepoint == 0x2329 or codepoint == 0x232a or (codepoint >= 0x2e80 and codepoint <= 0xa4cf) or (codepoint >= 0xac00 and codepoint <= 0xd7a3) or (codepoint >= 0xf900 and codepoint <= 0xfaff) or (codepoint >= 0xfe10 and codepoint <= 0xfe19) or (codepoint >= 0xfe30 and codepoint <= 0xfe6f) or (codepoint >= 0xff00 and codepoint <= 0xff60) or (codepoint >= 0xffe0 and codepoint <= 0xffe6))) {
-        return 2;
-    }
-    return 1;
+    return @intCast(unicode.codepointWidth(codepoint));
 }
 
-/// East-Asian-Width-aware display-column count of `text`.
+/// Display-column count of `text` as a terminal shows it: extended
+/// graphemes, East-Asian-Width, emoji presentation (VS16, ZWJ sequences,
+/// flags, skin tones), delegated to the authority.
 ///
-/// Decodes `text` as UTF-8 and sums each codepoint's display width. On
-/// malformed UTF-8 it counts 1 column and advances 1 byte (defensive,
-/// matching `lib/unicode.zig`). Pure — imports nothing but `std`.
+/// Text the strict measure rejects (malformed UTF-8, or a control such as
+/// the `LINE_BREAK` sentinel) falls back to the authority's compatibility
+/// count: the same graphemes, a control as one column, one column per
+/// malformed byte. `truncateToWidth` cuts on that same walk, so a cut
+/// prefix never measures wider than its budget.
 pub fn displayWidth(text: []const u8) u32 {
-    var width: u32 = 0;
-    var index: usize = 0;
-    while (index < text.len) {
-        const seq_len = std.unicode.utf8ByteSequenceLength(text[index]) catch {
-            width += 1;
-            index += 1;
-            continue;
-        };
-        if (index + seq_len > text.len) {
-            width += 1;
-            break;
-        }
-        const cp = std.unicode.utf8Decode(text[index .. index + seq_len]) catch {
-            width += 1;
-            index += 1;
-            continue;
-        };
-        width += codepointWidth(cp);
-        index += seq_len;
-    }
-    return width;
+    return @intCast(unicode.displayWidth(text));
 }
 
-/// Return the longest prefix sub-slice of `text` whose `displayWidth` is
-/// ≤ `max_w`, cut on a UTF-8 codepoint boundary (never splitting a
-/// multibyte sequence). Returns a sub-slice of the input — no allocation.
-///
-/// Malformed UTF-8 is treated the same defensive way as `displayWidth`
-/// (width 1, advance 1 byte) so the two measures stay consistent.
+/// The longest prefix of `text` whose `displayWidth` is <= `max_w`, cut on
+/// an extended-grapheme boundary — never inside a base+mark pair or an
+/// emoji sequence. Returns a sub-slice of the input; no allocation. On
+/// malformed UTF-8 the prefix stops before the first bad byte, so the
+/// result is always valid UTF-8.
 pub fn truncateToWidth(text: []const u8, max_w: u32) []const u8 {
-    var width: u32 = 0;
-    var index: usize = 0;
-    while (index < text.len) {
-        const seq_len = std.unicode.utf8ByteSequenceLength(text[index]) catch {
-            if (width + 1 > max_w) break;
-            width += 1;
-            index += 1;
-            continue;
-        };
-        if (index + seq_len > text.len) {
-            // Truncated trailing sequence: treat as width-1 byte.
-            if (width + 1 > max_w) break;
-            width += 1;
-            index += 1;
-            continue;
-        }
-        const cp = std.unicode.utf8Decode(text[index .. index + seq_len]) catch {
-            if (width + 1 > max_w) break;
-            width += 1;
-            index += 1;
-            continue;
-        };
-        const cw = codepointWidth(cp);
-        if (width + cw > max_w) break;
-        width += cw;
-        index += seq_len;
-    }
-    return text[0..index];
+    return unicode.clipToWidth(text, max_w);
 }
 
 /// Soft line-break sentinel byte. Author hard breaks (`<br>`, `\n`) are
@@ -353,7 +416,7 @@ pub const LINE_BREAK: u8 = '\n';
 /// `LINE_BREAK` (0x0A) sentinel, so author `<br>`/`\n` break at every width;
 /// (2) SOFT — each hard segment is greedily word-wrapped to `width`, breaking
 /// only at ASCII spaces. A word wider than `width` is hard-split on a
-/// codepoint boundary (via `truncateToWidth`) so no line ever exceeds
+/// grapheme boundary (via `truncateToWidth`) so no line ever exceeds
 /// `width`. `width == 0` is a degenerate guard: one line = the whole `text`.
 pub fn wrapToWidth(
     allocator: std.mem.Allocator,
@@ -388,7 +451,7 @@ fn wrapSegment(
     width: u32,
 ) error{OutOfMemory}!void {
     var line_start: usize = 0;
-    var line_end: usize = 0; // exclusive; == line_start means "line empty"
+    var line_end: usize = 0;
     var emitted_any = false;
     var cursor: usize = 0;
 
@@ -403,7 +466,6 @@ fn wrapSegment(
         const word_w = displayWidth(word);
 
         if (line_end == line_start) {
-            // Line empty: this is the first word.
             if (word_w > width) {
                 try splitLongWord(allocator, lines, word, width);
                 emitted_any = true;
@@ -416,14 +478,11 @@ fn wrapSegment(
             continue;
         }
 
-        // Candidate line spans line_start..word_end (the run of source bytes
-        // between the current line's first word and this word, inclusive).
         if (displayWidth(segment[line_start..cursor]) <= width) {
-            line_end = cursor; // fits — absorb the word and its separator
+            line_end = cursor;
             continue;
         }
 
-        // Overflow: flush current line, then restart with this word.
         try lines.append(allocator, segment[line_start..line_end]);
         emitted_any = true;
         if (word_w > width) {
@@ -439,13 +498,12 @@ fn wrapSegment(
     if (line_end > line_start) {
         try lines.append(allocator, segment[line_start..line_end]);
     } else if (!emitted_any) {
-        // Empty/all-space segment: emit one blank line.
         try lines.append(allocator, segment[0..0]);
     }
 }
 
 /// Hard-split a single word wider than `width` into chunks each ≤ width,
-/// cut on codepoint boundaries via `truncateToWidth`. Every chunk is
+/// cut on grapheme boundaries via `truncateToWidth`. Every chunk is
 /// appended as its own line (the final remainder ≤ width included).
 fn splitLongWord(
     allocator: std.mem.Allocator,
@@ -456,9 +514,11 @@ fn splitLongWord(
     var rest = word;
     while (displayWidth(rest) > width) {
         const chunk = truncateToWidth(rest, width);
-        // Zero-progress guard (one codepoint wider than width): emit ≥1 cp.
+        // A single grapheme wider than `width` (an emoji at width 1) still
+        // moves whole: never split inside a base+mark pair or an emoji
+        // sequence. A malformed lead byte moves alone.
         const advance = if (chunk.len == 0)
-            std.unicode.utf8ByteSequenceLength(rest[0]) catch 1
+            @max(unicode.nextGlyph(rest, 0).bytes.len, 1)
         else
             chunk.len;
         try lines.append(allocator, rest[0..advance]);

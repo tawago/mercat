@@ -40,10 +40,10 @@ const Item = struct {
     eid: sg.EdgeId,
     from: sg.NodeId,
     to: sg.NodeId,
-    lo: u32, // min layer of {source, target}
-    hi: u32, // max layer
+    lo: u32,
+    hi: u32,
     span: u32,
-    base: i32, // natural rail position (no stacking yet)
+    base: i32,
 };
 
 pub fn allocateBackEdgeRails(
@@ -64,15 +64,12 @@ pub fn allocateBackEdgeRails(
 
         const src_geom_idx = nodeGeomIndex(lg, orig.from) orelse continue;
         const dst_geom_idx = nodeGeomIndex(lg, orig.to) orelse continue;
-        // After applyDirection swaps axes for LR/RL, NodeGeom.layer is still the logical (pre-swap) layer, which is what "layers traversed" needs. // guarded-by: mirror_test.zig "mirror.applyDirection swaps x/y/w/h but leaves NodeGeom.layer untouched"
+        // After applyDirection swaps axes for LR/RL, NodeGeom.layer is still the logical (pre-swap) layer, which is what "layers traversed" needs. // @guarded-by: mirror_test.zig "mirror.applyDirection swaps x/y/w/h but leaves NodeGeom.layer untouched"
         const sl = geom[src_geom_idx].layer;
         const dl = geom[dst_geom_idx].layer;
         const lo = if (sl < dl) sl else dl;
         const hi = if (sl < dl) dl else sl;
 
-        // Fallback base: max far-edge over every node in the spanned
-        // layer range, padded out by RAIL_PAD. Used when an endpoint
-        // placement can't be located.
         var max_extent: i32 = 0;
         for (placements) |p| {
             const pidx = nodeGeomIndex(lg, p.id) orelse continue;
@@ -83,7 +80,7 @@ pub fn allocateBackEdgeRails(
         }
         const fallback_base = max_extent + RAIL_PAD;
 
-        // Obstacle-aware base: parks the rail at the first clear cross position past the endpoints, byte-identical to fallback_base when unobstructed. guarded-by: lanes_test.zig "clearRunBase: vertical run parks just past endpoints when unobstructed"
+        // Obstacle-aware base: parks the rail at the first clear cross position past the endpoints, byte-identical to fallback_base when unobstructed. @guarded-by: lanes_test.zig "clearRunBase: vertical run parks just past endpoints when unobstructed"
         const base = lanes.clearRunBase(
             horizontal,
             placements,
@@ -103,7 +100,7 @@ pub fn allocateBackEdgeRails(
         });
     }
 
-    // Sort by span ascending: shortest back-edge claims the innermost lane first, biasing tightly-nested loops toward sharing. // guarded-by: back_edges_test.zig "allocateBackEdgeRails: span-ascending sort shares the innermost rail between disjoint short loops"
+    // Sort by span ascending: shortest back-edge claims the innermost lane first, biasing tightly-nested loops toward sharing. // @guarded-by: back_edges_test.zig "allocateBackEdgeRails: span-ascending sort shares the innermost rail between disjoint short loops"
     const SortCtx = struct {
         pub fn lt(_: @This(), x: Item, y: Item) bool {
             return x.span < y.span;
@@ -111,8 +108,8 @@ pub fn allocateBackEdgeRails(
     };
     std.mem.sort(Item, items.items, SortCtx{}, SortCtx.lt);
 
-    // Lane assignment: disjoint-span back-edges share a rail column; overlapping spans get distinct outer lanes. guarded-by: lanes_test.zig "assign: greedy 4-demand hand example with a tie"
-    var demands = try a.alloc(lanes.Demand, items.items.len);
+    // Lane assignment: disjoint-span back-edges share a rail column; overlapping spans get distinct outer lanes. @guarded-by: lanes_test.zig "assign: greedy 4-claim hand example with a tie"
+    var demands = try a.alloc(lanes.LaneClaim, items.items.len);
     defer a.free(demands);
     for (items.items, 0..) |it, i| {
         demands[i] = .{ .lo = it.lo, .hi = it.hi, .base = it.base };
@@ -170,12 +167,12 @@ pub fn backEdgePolylineAt(
 ) error{OutOfMemory}![]sketch.Point {
     const sr = src_p.rect;
     const dr = dst_p.rect;
-    const rows = (dir == .TD or dir == .BT); // stub lines are rows
+    const rows = (dir == .TD or dir == .BT);
 
     const src_line: i32 = if (rows) sr.y + @as(i32, @intCast(port_from.offset)) else sr.x + @as(i32, @intCast(port_from.offset));
     const dst_line: i32 = if (rows) dr.y + @as(i32, @intCast(port_to.offset)) else dr.x + @as(i32, @intCast(port_to.offset));
-    const src_on: i32 = if (rows) sr.right() - 1 else sr.bottom() - 1; // ON the border cell
-    const src_out: i32 = if (rows) sr.right() else sr.bottom(); // first cell outside
+    const src_on: i32 = if (rows) sr.right() - 1 else sr.bottom() - 1;
+    const src_out: i32 = if (rows) sr.right() else sr.bottom();
     const dst_out: i32 = if (rows) dr.right() else dr.bottom();
     const end_along: i32 = if (rows) dr.right() else dr.bottom() - 1;
 
@@ -188,7 +185,6 @@ pub fn backEdgePolylineAt(
     var poly: std.ArrayListUnmanaged(sketch.Point) = .empty;
     try poly.append(a, pt(rows, src_on, src_line));
 
-    // Escape stub: source border -> rail, at the source's mid-line.
     var rail_start_line = src_line;
     if (sketch.lineTouchesAny(rows, src_line, src_out, rail_pos, placements, src_p.id, dst_p.id)) {
         const esc = sketch.clearLine(rows, src_line, src_out, rail_pos, placements, src_p.id, dst_p.id, .{ .toward = dst_line });
@@ -202,7 +198,6 @@ pub fn backEdgePolylineAt(
     }
     try poly.append(a, pt(rows, rail_pos, rail_start_line));
 
-    // Entry stub: rail -> target border, at the target's mid-line.
     if (sketch.lineTouchesAny(rows, dst_line, dst_out, rail_pos, placements, src_p.id, dst_p.id)) {
         const ent = sketch.clearLine(rows, dst_line, dst_out, rail_pos, placements, src_p.id, dst_p.id, .{ .toward = src_line });
         if (ent != dst_line) {

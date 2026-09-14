@@ -207,7 +207,6 @@ pub fn main() !void {
 
     try writeFooter(allocator, &out, samples.len, fallback_count);
 
-    // Make sure docs/ exists.
     std.fs.cwd().makePath("docs") catch |err| {
         const stderr = std.fs.File.stderr();
         var buf: [256]u8 = undefined;
@@ -317,13 +316,15 @@ fn writeSample(
     var stats_buf: [256]u8 = undefined;
     if (result.is_fallback) {
         const reason = result.fallback_reason orelse "fallback";
-        const stats = try std.fmt.bufPrint(&stats_buf,
+        const stats = try std.fmt.bufPrint(
+            &stats_buf,
             "<p class=\"stats\"><span class=\"fallback\">fallback:</span> {s}</p>\n",
             .{reason},
         );
         try out.appendSlice(allocator, stats);
     } else {
-        const stats = try std.fmt.bufPrint(&stats_buf,
+        const stats = try std.fmt.bufPrint(
+            &stats_buf,
             "<p class=\"stats\">width: {d} · height: {d}</p>\n",
             .{ result.width, result.height },
         );
@@ -350,7 +351,8 @@ fn writeErrorSample(
     try out.appendSlice(allocator, "</code></pre>\n<hr>\n");
 
     var err_buf: [256]u8 = undefined;
-    const msg = try std.fmt.bufPrint(&err_buf,
+    const msg = try std.fmt.bufPrint(
+        &err_buf,
         "<p class=\"stats\"><span class=\"fallback\">render error:</span> {s}</p>\n",
         .{err_name},
     );

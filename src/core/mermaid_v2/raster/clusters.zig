@@ -26,8 +26,6 @@ pub fn rasterizeClusters(
 ) RasterError!u32 {
     if (s.clusters.len == 0) return 0;
 
-    // Copy cluster indices into a sortable buffer so we can sort by
-    // depth ascending without mutating the borrowed slice.
     const order = try allocator.alloc(u32, s.clusters.len);
     defer allocator.free(order);
     for (order, 0..) |*slot, i| slot.* = @intCast(i);
@@ -43,7 +41,7 @@ pub fn rasterizeClusters(
     var written: u32 = 0;
     for (order) |idx| {
         const frame = s.clusters[idx];
-        // Synthetic packing frames are invisible by design (zero pad at stitch), regardless of the rect they carry. // guarded-by: clusters_test.zig "rasterizeClusters: a synthetic frame with a nonzero rect still paints nothing"
+        // Synthetic packing frames are invisible by design (zero pad at stitch), regardless of the rect they carry. // @guarded-by: clusters_test.zig "rasterizeClusters: a synthetic frame with a nonzero rect still paints nothing"
         if (frame.synthetic) continue;
         if (rasterizeOne(lat, frame)) {
             written += 1;
@@ -121,13 +119,15 @@ fn tryWrite(
             cell.* = .{
                 .occupant = .{ .cluster_border = .{ .cluster = cluster_id, .role = role } },
                 .neighbours = nb,
+                .state = .node,
             };
         },
         .cluster_border => {
-            // Sort order ensures outer arrives first; inner overwrites. guarded-by: clusters.zig "nested clusters: inner overwrites outer at coincident cells"
+            // Sort order ensures outer arrives first; inner overwrites. @guarded-by: clusters.zig "nested clusters: inner overwrites outer at coincident cells"
             cell.* = .{
                 .occupant = .{ .cluster_border = .{ .cluster = cluster_id, .role = role } },
                 .neighbours = nb,
+                .state = .node,
             };
         },
         .node_border, .node_interior => {
@@ -142,7 +142,7 @@ fn tryWrite(
                 .{ cluster_id, x, y },
             );
         },
-        .label_char => {
+        .label_char, .label_cont => {
             log.warn(
                 "cluster {d} border at ({d},{d}) conflicts with label cell, skipped",
                 .{ cluster_id, x, y },
@@ -150,10 +150,6 @@ fn tryWrite(
         },
     }
 }
-
-// ---------------------------------------------------------------------
-// Tests
-// ---------------------------------------------------------------------
 
 const testing = std.testing;
 
@@ -223,14 +219,13 @@ test "single cluster: 4 corners + 6 edge cells with correct roles" {
     try expectClusterBorder(lat, 2, 2, 7, .edge_s);
     try expectClusterBorder(lat, 3, 2, 7, .edge_s);
 
-    // Left/right edges only exist when h > 2; here h=3 so y=1 is the middle row.
     try expectClusterBorder(lat, 0, 1, 7, .edge_w);
     try expectClusterBorder(lat, 4, 1, 7, .edge_e);
 
-    try testing.expectEqual(@as(u4, 0b0110), lat.atConst(0, 0).neighbours.toMask()); // E|S
-    try testing.expectEqual(@as(u4, 0b1100), lat.atConst(4, 0).neighbours.toMask()); // S|W
-    try testing.expectEqual(@as(u4, 0b1010), lat.atConst(1, 0).neighbours.toMask()); // E|W
-    try testing.expectEqual(@as(u4, 0b0101), lat.atConst(0, 1).neighbours.toMask()); // N|S
+    try testing.expectEqual(@as(u4, 0b0110), lat.atConst(0, 0).neighbours.toMask());
+    try testing.expectEqual(@as(u4, 0b1100), lat.atConst(4, 0).neighbours.toMask());
+    try testing.expectEqual(@as(u4, 0b1010), lat.atConst(1, 0).neighbours.toMask());
+    try testing.expectEqual(@as(u4, 0b0101), lat.atConst(0, 1).neighbours.toMask());
 }
 
 test "nested clusters: non-coincident inner and outer both rendered" {
@@ -288,11 +283,8 @@ test "nested clusters: inner overwrites outer at coincident cells" {
     const s = makeSketch(&frames);
     _ = try rasterizeClusters(allocator, &lat, s);
 
-    // (0,0) is shared: inner (id 20) must win.
     try expectClusterBorder(lat, 0, 0, 20, .corner_nw);
-    // (1,0) is on both top edges: inner wins.
     try expectClusterBorder(lat, 1, 0, 20, .edge_n);
-    // (6,0) is only on the outer top edge.
     try expectClusterBorder(lat, 6, 0, 10, .edge_n);
 }
 

@@ -353,23 +353,3 @@ test "compatibility width charges every malformed byte one cell and resumes afte
     try testing.expectEqual(@as(usize, 4), unicode.displayWidth("\x80\u{1F468}\u{200D}\u{1F469}\u{200D}\u{1F467}\x80"));
     try testing.expectEqual(@as(usize, 4), unicode.displayWidth("e\u{0301}\xffe\u{0301}e\u{0301}"));
 }
-
-test "wrapLine breaks on spaces, indents continuation lines, and never returns invalid UTF-8" {
-    const wrapped = try unicode.wrapLine(testing.allocator, "alpha beta gamma", 10, "> ");
-    defer {
-        for (wrapped) |line| testing.allocator.free(line);
-        testing.allocator.free(wrapped);
-    }
-    try testing.expectEqual(@as(usize, 2), wrapped.len);
-    try testing.expectEqualStrings("alpha beta", wrapped[0]);
-    try testing.expectEqualStrings("> gamma", wrapped[1]);
-
-    const malformed = try unicode.wrapLine(testing.allocator, "ok 日\x80bad", 80, "\x80");
-    defer {
-        for (malformed) |line| testing.allocator.free(line);
-        testing.allocator.free(malformed);
-    }
-    try testing.expectEqual(@as(usize, 1), malformed.len);
-    try testing.expectEqualStrings("ok 日", malformed[0]);
-    try testing.expect(std.unicode.utf8ValidateSlice(malformed[0]));
-}

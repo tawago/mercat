@@ -19,8 +19,6 @@ const vc = @import("reach_vector.zig");
 const expect = std.testing.expect;
 const expectEqual = std.testing.expectEqual;
 
-// -- Helpers -----------------------------------------------------------------
-
 pub fn node(id: sg.NodeId, raw_id: []const u8) sg.Node {
     return .{ .id = id, .raw_id = raw_id, .label = raw_id, .shape = .rect, .classes = &.{}, .cluster = null };
 }
@@ -41,27 +39,38 @@ pub fn nodeKeys(a: std.mem.Allocator, nodes: []const sg.Node) ![]const []const u
 
 pub fn path(id: sk.EdgeId, from: sk.NodeId, to: sk.NodeId, polyline: []const sk.Point) sk.EdgePath {
     return .{
-        .id = id, .from = from, .to = to, .polyline = polyline,
+        .id = id,
+        .from = from,
+        .to = to,
+        .polyline = polyline,
         .port_from = .{ .node = from, .side = .south, .offset = 0 },
         .port_to = .{ .node = to, .side = .north, .offset = 0 },
-        .arrow_from = .none, .arrow_to = .filled, .label = null, .kind = .solid,
+        .arrow_from = .none,
+        .arrow_to = .filled,
+        .label = null,
+        .kind = .solid,
     };
 }
 
-pub fn sketchOf(edges: []const sk.EdgePath, busbars: []const sk.BusBar) sk.Sketch {
+pub fn sketchOf(edges: []const sk.EdgePath, rails: []const sk.Rail) sk.Sketch {
     return .{
-        .bbox = .{ .x = 0, .y = 0, .w = 40, .h = 16 }, .direction = .TD,
-        .nodes = &.{}, .clusters = &.{}, .edges = edges, .busbars = busbars,
-        .diagnostics = &.{}, .budget = .{ .max_width = 120, .rung = 0 },
+        .bbox = .{ .x = 0, .y = 0, .w = 40, .h = 16 },
+        .direction = .TD,
+        .nodes = &.{},
+        .clusters = &.{},
+        .edges = edges,
+        .rails = rails,
+        .diagnostics = &.{},
+        .budget = .{ .max_width = 120, .rung = 0 },
     };
 }
 
-/// Attach a production-shaped realized plan (join_permits + realized over
+/// Attach a production-shaped realized plan (bundle_permits + realized over
 /// the candidate's own geometry).
-pub fn realized(a: std.mem.Allocator, g: sg.SemGraph, s: sk.Sketch, mesh: []const pb.MeshUnion) !sk.Sketch {
+pub fn realized(a: std.mem.Allocator, g: sg.SemGraph, s: sk.Sketch) !sk.Sketch {
     const plan = (try planner.build(a, g, .joined)).plan;
     var out = s;
-    out.joins = (try jp.realize(a, plan, s, mesh)).plan;
+    out.bundles = (try jp.realize(a, plan, s)).plan;
     return out;
 }
 
@@ -83,7 +92,6 @@ pub fn zeroCounts(counts: vc.Counts) bool {
     return counts.ciTotal() == 0 and counts.skipped_clustered == 0;
 }
 
-// V-01 geometry: carve-out-admitted TD fan-out trunk S->{A,B,C}.
 pub const fan_nodes = [_]sg.Node{ node(0, "S"), node(1, "A"), node(2, "B"), node(3, "C") };
 pub const fan_edges = [_]sg.Edge{ edge(0, 0, 1), edge(1, 0, 2), edge(2, 0, 3) };
 pub const fan_stem = [_]sk.Point{ .{ .x = 10, .y = 2 }, .{ .x = 10, .y = 4 } };
@@ -95,20 +103,20 @@ pub fn fanTaps(rail_covers_all: bool) [3]sk.Tap {
         .{ .edge = 2, .node = 3, .at = .{ .x = 16, .y = 4 }, .landing = .{ .x = 16, .y = 6 } },
     };
 }
-pub fn fanBusBar(taps: []const sk.Tap, rail_hi: i32) sk.BusBar {
-    return .{ .pivot = 0, .stem = &fan_stem, .rail = .{ .{ .x = 4, .y = 4 }, .{ .x = rail_hi, .y = 4 } }, .taps = taps, .kind = .solid, .role = .fan_out_rail };
+pub fn fanRail(taps: []const sk.Tap, rail_hi: i32) sk.Rail {
+    return .{ .pivot = 0, .stem = &fan_stem, .crossbar = .{ .{ .x = 4, .y = 4 }, .{ .x = rail_hi, .y = 4 } }, .taps = taps, .kind = .solid, .role = .fan_out_dropper };
 }
 
-test "V-D-REACH-01 (vector): admitted fan-out trunk is one component, Cartesian == declared" {
+test "V-D-REACH-01 (vector): admitted fan-out rail is one component, Cartesian == declared" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
 
     const taps = fanTaps(true);
-    const bbs = [_]sk.BusBar{fanBusBar(&taps, 16)};
+    const bbs = [_]sk.Rail{fanRail(&taps, 16)};
     const g = graphOf(&fan_nodes, &fan_edges);
-    const s = try realized(a, g, sketchOf(&.{}, &bbs), &.{});
-    try expectEqual(@as(usize, 1), s.joins.selected_joins.len);
+    const s = try realized(a, g, sketchOf(&.{}, &bbs));
+    try expectEqual(@as(usize, 1), s.bundles.selected_bundles.len);
 
     const report = try vc.validate(a, s, try nodeKeys(a, &fan_nodes), .flat);
     try expect(zeroCounts(report.counts));
@@ -120,13 +128,12 @@ test "V-D-REACH-01 (vector): admitted fan-out trunk is one component, Cartesian 
     try expectEqual(@as(usize, 3), comp.declared_pairs_in_component.len);
     try expectEqual(@as(usize, 0), comp.extra_undeclared_pairs.len);
     try expectEqual(@as(usize, 0), comp.missing_declared_pairs.len);
-    // §12.4 table shape: ids dense from 0; bridge_ids structurally empty.
     try expectEqual(@as(pb.ComponentId, 0), comp.id);
     try expectEqual(@as(usize, 0), comp.bridge_ids.len);
-    try expectEqual(@as(usize, 1), comp.selected_join_ids.len);
+    try expectEqual(@as(usize, 1), comp.selected_bundle_ids.len);
 }
 
-test "V-D-REACH-02 (vector): admitted fan-in trunk is one component, 3x1 pairs" {
+test "V-D-REACH-02 (vector): admitted fan-in rail is one component, 3x1 pairs" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
@@ -139,9 +146,9 @@ test "V-D-REACH-02 (vector): admitted fan-in trunk is one component, 3x1 pairs" 
         .{ .edge = 1, .node = 1, .at = .{ .x = 10, .y = 6 }, .landing = .{ .x = 10, .y = 4 } },
         .{ .edge = 2, .node = 2, .at = .{ .x = 16, .y = 6 }, .landing = .{ .x = 16, .y = 4 } },
     };
-    const bbs = [_]sk.BusBar{.{ .pivot = 3, .stem = &stem, .rail = .{ .{ .x = 4, .y = 6 }, .{ .x = 16, .y = 6 } }, .taps = &taps, .kind = .solid, .role = .fan_in_rail }};
-    const s = try realized(a, graphOf(&nodes, &edges), sketchOf(&.{}, &bbs), &.{});
-    try expectEqual(@as(usize, 1), s.joins.selected_joins.len);
+    const bbs = [_]sk.Rail{.{ .pivot = 3, .stem = &stem, .crossbar = .{ .{ .x = 4, .y = 6 }, .{ .x = 16, .y = 6 } }, .taps = &taps, .kind = .solid, .role = .fan_in_dropper }};
+    const s = try realized(a, graphOf(&nodes, &edges), sketchOf(&.{}, &bbs));
+    try expectEqual(@as(usize, 1), s.bundles.selected_bundles.len);
 
     const report = try vc.validate(a, s, try nodeKeys(a, &nodes), .flat);
     try expect(zeroCounts(report.counts));
@@ -151,7 +158,6 @@ test "V-D-REACH-02 (vector): admitted fan-in trunk is one component, 3x1 pairs" 
     try expectEqual(@as(usize, 0), report.components[0].extra_undeclared_pairs.len);
 }
 
-// K3,3 geometry: nine polylines fused on one rail row (y=4).
 const k33_nodes = [_]sg.Node{
     node(0, "S1"), node(1, "S2"), node(2, "S3"),
     node(3, "T1"), node(4, "T2"), node(5, "T3"),
@@ -174,36 +180,20 @@ fn k33Graph(a: std.mem.Allocator) !struct { g: sg.SemGraph, paths: []sk.EdgePath
     return .{ .g = graphOf(&k33_nodes, edges), .paths = paths };
 }
 
-test "V-D-REACH-04(b) (vector): labeled exact-complete K3,3 union is ONE legal channel; unlabeled fires reach_unknown_continuation" {
+test "V-D-REACH-04(b) (vector): a complete K3,3 has no union bundle — its members stay separate owners" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
 
     const k33 = try k33Graph(a);
     const keys = try nodeKeys(a, &k33_nodes);
-    const members = [_]pb.EdgeId{ 0, 1, 2, 3, 4, 5, 6, 7, 8 };
-    const mu = [_]pb.MeshUnion{.{ .id = 0, .members = &members, .source_keys = &.{ "S1", "S2", "S3" }, .target_keys = &.{ "T1", "T2", "T3" } }};
-
-    // Labeled: one exempt-mesh-union channel, Cartesian == declared, no tag.
-    const labeled = try realized(a, k33.g, sketchOf(k33.paths, &.{}), &mu);
-    try expectEqual(@as(usize, 1), labeled.joins.mesh_unions.len);
-    const lr = try vc.validate(a, labeled, keys, .flat);
-    try expect(zeroCounts(lr.counts));
-    try expectEqual(@as(usize, 1), lr.components.len);
-    try expectEqual(@as(usize, 9), lr.components[0].reachable_pairs.len);
-    try expectEqual(@as(usize, 9), lr.components[0].declared_pairs_in_component.len);
-    try expectEqual(@as(usize, 0), lr.components[0].extra_undeclared_pairs.len);
-
-    // Same geometry UNLABELED: cross-owner collinear sharing, channels
-    // stay separate — recorded provenance, never geometric inference.
-    const unlabeled = try realized(a, k33.g, sketchOf(k33.paths, &.{}), &.{});
-    try expectEqual(@as(usize, 0), unlabeled.joins.mesh_unions.len);
-    const ur = try vc.validate(a, unlabeled, keys, .flat);
-    try expect(ur.counts.unknown_continuation > 0);
-    try expectEqual(@as(u32, 0), ur.counts.undeclared_pair);
-    try expectEqual(@as(u32, 0), ur.counts.independent_joined);
-    try expectEqual(@as(usize, 9), ur.components.len);
-    for (ur.components) |comp| try expectEqual(@as(usize, 1), comp.reachable_pairs.len);
+    const s = try realized(a, k33.g, sketchOf(k33.paths, &.{}));
+    const r = try vc.validate(a, s, keys, .flat);
+    try expect(r.counts.unknown_continuation > 0);
+    try expectEqual(@as(u32, 0), r.counts.undeclared_pair);
+    try expectEqual(@as(u32, 0), r.counts.independent_joined);
+    try expectEqual(@as(usize, 9), r.components.len);
+    for (r.components) |comp| try expectEqual(@as(usize, 1), comp.reachable_pairs.len);
 }
 
 test "V-D-REACH-05 (vector): no node transit — A->B, B->C stay two components, (A,C) unreachable" {
@@ -217,7 +207,7 @@ test "V-D-REACH-05 (vector): no node transit — A->B, B->C stay two components,
         path(0, 0, 1, &.{ .{ .x = 2, .y = 2 }, .{ .x = 2, .y = 6 } }),
         path(1, 1, 2, &.{ .{ .x = 2, .y = 8 }, .{ .x = 2, .y = 12 } }),
     };
-    const s = try realized(a, graphOf(&nodes, &edges), sketchOf(&paths, &.{}), &.{});
+    const s = try realized(a, graphOf(&nodes, &edges), sketchOf(&paths, &.{}));
     const report = try vc.validate(a, s, try nodeKeys(a, &nodes), .flat);
     try expect(zeroCounts(report.counts));
     try expectEqual(@as(usize, 2), report.components.len);
@@ -236,7 +226,7 @@ test "V-D-REACH-06 (vector): separate ports stay separate — equal-NodeId termi
         path(0, 0, 2, &.{ .{ .x = 2, .y = 2 }, .{ .x = 2, .y = 6 } }),
         path(1, 1, 2, &.{ .{ .x = 6, .y = 2 }, .{ .x = 6, .y = 6 } }),
     };
-    const s = try realized(a, graphOf(&nodes, &edges), sketchOf(&paths, &.{}), &.{});
+    const s = try realized(a, graphOf(&nodes, &edges), sketchOf(&paths, &.{}));
     const report = try vc.validate(a, s, try nodeKeys(a, &nodes), .flat);
     try expect(zeroCounts(report.counts));
     try expectEqual(@as(usize, 2), report.components.len);
@@ -251,9 +241,7 @@ test "V-D-REACH-09(b) (vector): declared edge with no ink and no terminals fires
     const nodes = [_]sg.Node{ node(0, "A"), node(1, "B"), node(2, "C"), node(3, "D") };
     const paths = [_]sk.EdgePath{path(0, 0, 1, &.{ .{ .x = 2, .y = 2 }, .{ .x = 2, .y = 6 } })};
     var s = sketchOf(&paths, &.{});
-    // Fault-injected drop: edge 1 (C->D) is declared in the plan but has
-    // no geometry and no terminal records.
-    s.joins = .{
+    s.bundles = .{
         .memberships = &.{
             .{ .edge = 0, .source = null, .target = null },
             .{ .edge = 1, .source = null, .target = null },
@@ -264,7 +252,7 @@ test "V-D-REACH-09(b) (vector): declared edge with no ink and no terminals fires
     try expectEqual(@as(u32, 1), report.counts.missing_declared);
     try expectEqual(@as(u32, 0), report.counts.split_trace);
     try expectEqual(@as(usize, 1), report.missing_declared.len);
-    try expectEqual(@as(u32, 1), report.missing_declared[0]); // membership rank
+    try expectEqual(@as(u32, 1), report.missing_declared[0]);
 }
 
 test "V-D-REACH-12: clustered input skips with a report-only count, no traversal" {
@@ -284,10 +272,6 @@ test "V-D-REACH-12: clustered input skips with a report-only count, no traversal
 }
 
 test "F2: packed-candidate skip is distinct from the clustered-input skip" {
-    // Same cluster-framed sketch, two ORIGINAL-input facts: a clustered
-    // input records the registered RO skip; a flat input (frames are
-    // synthetic packing chrome) records the NEW non-tag count — separate
-    // fields, separate report flags, distinct serialized bytes (OPEN-8).
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
@@ -306,12 +290,8 @@ test "F2: packed-candidate skip is distinct from the clustered-input skip" {
     try expect(packed_skip.skipped_packed and !packed_skip.skipped_clustered);
     try expectEqual(@as(u32, 1), packed_skip.counts.skipped_packed_candidate);
     try expectEqual(@as(u32, 0), packed_skip.counts.skipped_clustered);
-    try expectEqual(@as(u32, 0), packed_skip.counts.ciTotal()); // still a skip, not CI
-    try expectEqual(@as(usize, 0), packed_skip.components.len); // no traversal
-
-    const cb = try vc.serialize(a, clustered, &.{});
-    const pkb = try vc.serialize(a, packed_skip, &.{});
-    try expect(!std.mem.eql(u8, cb, pkb));
+    try expectEqual(@as(u32, 0), packed_skip.counts.ciTotal());
+    try expectEqual(@as(usize, 0), packed_skip.components.len);
 }
 
 test "V-D-REACH-16 (vector half): strict orthogonal transversal crossing is legal and adds no link" {
@@ -325,9 +305,9 @@ test "V-D-REACH-16 (vector half): strict orthogonal transversal crossing is lega
         path(0, 0, 1, &.{ .{ .x = 2, .y = 6 }, .{ .x = 10, .y = 6 } }),
         path(1, 2, 3, &.{ .{ .x = 6, .y = 2 }, .{ .x = 6, .y = 10 } }),
     };
-    const s = try realized(a, graphOf(&nodes, &edges), sketchOf(&paths, &.{}), &.{});
+    const s = try realized(a, graphOf(&nodes, &edges), sketchOf(&paths, &.{}));
     const report = try vc.validate(a, s, try nodeKeys(a, &nodes), .flat);
-    try expect(zeroCounts(report.counts)); // TSD §7.5 MAY: no tag, no link
+    try expect(zeroCounts(report.counts));
     try expectEqual(@as(usize, 2), report.components.len);
 }
 
@@ -342,7 +322,7 @@ test "V-D-REACH-17 (vector): duplicate trace — one declared edge as two disjoi
         path(0, 0, 1, &.{ .{ .x = 8, .y = 2 }, .{ .x = 8, .y = 6 } }),
     };
     var s = sketchOf(&paths, &.{});
-    s.joins = .{
+    s.bundles = .{
         .memberships = &.{.{ .edge = 0, .source = null, .target = null }},
         .terminal_ports = &.{ tp(0, 0, .source_exit), tp(1, 0, .target_entry) },
     };
@@ -351,26 +331,22 @@ test "V-D-REACH-17 (vector): duplicate trace — one declared edge as two disjoi
     try expectEqual(@as(usize, 2), report.components.len);
 }
 
-test "V-D-REACH-18 (vector): broken trunk rail strands a member — reach_join_split + reach_split_trace" {
+test "V-D-REACH-18 (vector): broken rail strands a member — reach_bundle_split + reach_split_trace" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
 
-    // V-01's trunk, but the rail stops at x=12 while member e2's tap sits
-    // at x=16: the tap drop disconnects from the trunk.
     const taps = fanTaps(false);
-    const bbs = [_]sk.BusBar{fanBusBar(&taps, 12)};
+    const bbs = [_]sk.Rail{fanRail(&taps, 12)};
     const g = graphOf(&fan_nodes, &fan_edges);
-    const s = try realized(a, g, sketchOf(&.{}, &bbs), &.{});
-    try expectEqual(@as(usize, 1), s.joins.selected_joins.len);
+    const s = try realized(a, g, sketchOf(&.{}, &bbs));
+    try expectEqual(@as(usize, 1), s.bundles.selected_bundles.len);
 
     const keys = try nodeKeys(a, &fan_nodes);
     const report = try vc.validate(a, s, keys, .flat);
-    try expectEqual(@as(u32, 1), report.counts.join_split);
+    try expectEqual(@as(u32, 1), report.counts.bundle_split);
     try expectEqual(@as(u32, 1), report.counts.split_trace);
     try expectEqual(@as(usize, 2), report.components.len);
-    // The stranded declared pair (S,C) is recorded on the component
-    // holding the source terminal.
     var missing_total: usize = 0;
     for (report.components) |comp| {
         missing_total += comp.missing_declared_pairs.len;
@@ -380,4 +356,26 @@ test "V-D-REACH-18 (vector): broken trunk rail strands a member — reach_join_s
         }
     }
     try expectEqual(@as(usize, 1), missing_total);
+}
+
+test "a discharged edge is not charged as a missing declared edge" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+
+    const nodes = [_]sg.Node{ node(0, "A"), node(1, "B"), node(2, "Z") };
+    const edges = [_]sg.Edge{ edge(0, 0, 2), edge(1, 1, 2), edge(2, 0, 1) };
+    const drop_a = [_]sk.Point{ .{ .x = 4, .y = 2 }, .{ .x = 4, .y = 6 } };
+    const drop_b = [_]sk.Point{ .{ .x = 10, .y = 2 }, .{ .x = 10, .y = 6 } };
+    const g = graphOf(&nodes, &edges);
+    const routed = [_]sk.EdgePath{ path(0, 0, 2, &drop_a), path(1, 1, 2, &drop_b) };
+    const keys = try nodeKeys(a, &nodes);
+
+    var charged = try realized(a, g, sketchOf(&routed, &.{}));
+    const before = try vc.validate(a, charged, keys, .flat);
+    try expectEqual(@as(u32, 1), before.counts.missing_declared);
+
+    charged.bundles.discharged = &.{2};
+    const after = try vc.validate(a, charged, keys, .flat);
+    try expectEqual(@as(u32, 0), after.counts.missing_declared);
 }

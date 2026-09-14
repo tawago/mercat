@@ -37,9 +37,9 @@ pub fn transform(
     for (tree.motifs) |m| {
         if (m.kind != .parallel or m.branches.len < 2) continue;
         for (m.branches) |run| {
-            if (run.len < 2) continue; // a 1-node branch gains nothing rigid
+            if (run.len < 2) continue;
             const parent: ?sg.ClusterId = scope.clusterOf(graph, run[0]);
-            // Defensive: all branch nodes must share one enclosing cluster. // guarded-by: pack.zig "parallel branch straddling two clusters: transform skips it (defensive)"
+            // Defensive: all branch nodes must share one enclosing cluster. // @guarded-by: pack.zig "parallel branch straddling two clusters: transform skips it (defensive)"
             var consistent = true;
             for (run[1..]) |nid| {
                 if (!scope.eqOpt(scope.clusterOf(graph, nid), parent)) {
@@ -58,7 +58,6 @@ pub fn transform(
         if (c.id >= next_id) next_id = c.id + 1;
     }
 
-    // node id -> synthetic cluster id (dense map over node ids).
     var max_node_id: usize = 0;
     for (graph.nodes) |n| max_node_id = @max(max_node_id, @as(usize, n.id));
     const reassign = try a.alloc(?sg.ClusterId, max_node_id + 1);
@@ -76,7 +75,7 @@ pub fn transform(
             .parent = b.parent,
             .members = b.nodes,
             .sub_clusters = &.{},
-            .direction = null, // inherit: branch stacks along the flow axis
+            .direction = null,
             .synthetic = true,
         };
     }
@@ -87,8 +86,6 @@ pub fn transform(
         if (reassign[n.id]) |cid| nodes[i].cluster = cid;
     }
 
-    // Rebuild existing clusters: parents of injected branches lose those
-    // nodes from `members` and gain the synthetic ids in `sub_clusters`.
     const clusters = try a.alloc(sg.Cluster, graph.clusters.len + synth.len);
     for (graph.clusters, 0..) |c, i| {
         clusters[i] = c;
@@ -122,10 +119,6 @@ pub fn transform(
     out.clusters = clusters;
     return out;
 }
-
-// ====================================================================
-// Tests
-// ====================================================================
 
 const motif = @import("../motif.zig");
 
@@ -171,7 +164,6 @@ test "parallel TD graph: one synthetic cluster per branch, members reassigned" {
             try std.testing.expectEqual(@as(?sg.ClusterId, c.id), packed_g.nodes[m].cluster);
         }
     }
-    // The fork node A stays top-level; the original graph is untouched.
     try std.testing.expectEqual(@as(?sg.ClusterId, null), packed_g.nodes[0].cluster);
     try std.testing.expectEqual(@as(?sg.ClusterId, null), g.nodes[1].cluster);
 }
@@ -193,7 +185,6 @@ test "no parallel motif: transform declines (null)" {
     defer arena.deinit();
     const a = arena.allocator();
 
-    // Plain 3-chain: spine, no parallel.
     const nodes = [_]sg.Node{
         .{ .id = 0, .raw_id = "A", .label = "A", .shape = .rect, .classes = &.{}, .cluster = null },
         .{ .id = 1, .raw_id = "B", .label = "B", .shape = .rect, .classes = &.{}, .cluster = null },
@@ -213,12 +204,6 @@ test "parallel branch straddling two clusters: transform skips it (defensive)" {
     defer arena.deinit();
     const a = arena.allocator();
 
-    // Two nodes in two DIFFERENT clusters, hand-fed as one parallel motif's
-    // branch. Per-scope decomposition never produces this in practice (every
-    // scope's vertices share one enclosing cluster by construction), so this
-    // drives the defensive consistency check directly: if it were removed,
-    // transform would wrongly reassign node 1 out of cluster 2 into a fresh
-    // synthetic cluster parented under cluster 1 instead of skipping.
     const nodes = [_]sg.Node{
         .{ .id = 0, .raw_id = "A", .label = "A", .shape = .rect, .classes = &.{}, .cluster = 1 },
         .{ .id = 1, .raw_id = "B", .label = "B", .shape = .rect, .classes = &.{}, .cluster = 2 },
@@ -246,8 +231,6 @@ test "parallel branch straddling two clusters: transform skips it (defensive)" {
     }};
     const tree: types.MotifTree = .{ .motifs = &motifs, .roots = &[_]usize{0}, .node_count = 2 };
 
-    // No consistent branch survives the check, so transform declines
-    // entirely rather than mis-decomposing the straddling branch.
     try std.testing.expectEqual(@as(?sg.SemGraph, null), try transform(a, g, tree));
 }
 
@@ -256,8 +239,6 @@ test "parallel nested in a real cluster: parent wiring correct (microservices sh
     defer arena.deinit();
     const a = arena.allocator();
 
-    // Cluster M (id 7) holds two isomorphic 2-node branches fed from a
-    // top-level node A: A -> B1 -> C1, A -> B2 -> C2 with B*,C* in M.
     var nodes = parallelNodes();
     for (nodes[1..]) |*n| n.cluster = 7;
     const edges = parallelEdges();
@@ -270,11 +251,9 @@ test "parallel nested in a real cluster: parent wiring correct (microservices sh
     const tree = try motif.decompose(a, g);
     const packed_g = (try transform(a, g, tree)) orelse return error.ExpectedPack;
 
-    try std.testing.expectEqual(@as(usize, 3), packed_g.clusters.len); // M + 2 synthetic
+    try std.testing.expectEqual(@as(usize, 3), packed_g.clusters.len);
     const m = packed_g.clusters[0];
     try std.testing.expect(!m.synthetic);
-    // M keeps no direct members (all four went into branch clusters) and
-    // registers both synthetic children.
     try std.testing.expectEqual(@as(usize, 0), m.members.len);
     try std.testing.expectEqual(@as(usize, 2), m.sub_clusters.len);
     for (packed_g.clusters[1..]) |c| {

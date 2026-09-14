@@ -1,26 +1,33 @@
 //! Raster pipeline orchestrator.
 //!
 //! Allocates a `Lattice` sized to `Sketch.bbox` and runs clusters →
-//! nodes → bus-bars → edges → reconcile → labels in order, returning a
+//! nodes → rails → edges → reconcile → labels in order, returning a
 //! `RasterReport` with per-stage counts. Order matters: each stage
 //! skips cells already claimed by an earlier one, except labels, which
 //! intentionally overwrite node interiors last.
+//!
+//! The producers also file records into the lattice's position-keyed side
+//! table (`raster/aux.zig`), attached to the Lattice once every pass has
+//! run — every rasterization carries its complete side table.
 //!
 //! Allowed imports: `std`, sibling `raster/*` files, `sketch.zig`,
 //! `lattice.zig`. No `paint/` or `parse/` (enforced by `tools/lint_imports.zig`).
 
 const std = @import("std");
 const prim = @import("prim");
+const ledger = @import("base/ledger.zig");
 const sketch = @import("sketch.zig");
 const lattice = @import("lattice.zig");
 const nodes_r = @import("raster/nodes.zig");
 const edges_r = @import("raster/edges.zig");
-const busbars_r = @import("raster/busbars.zig");
+const rails_r = @import("raster/rails.zig");
 const clusters_r = @import("raster/clusters.zig");
 const labels_r = @import("raster/labels.zig");
 const reconcile = @import("raster/reconcile.zig");
 const crossings_r = @import("raster/crossings.zig");
 const arrow_base_r = @import("raster/arrow_base.zig");
+const arms_r = @import("raster/arms.zig");
+const aux_r = @import("raster/aux.zig");
 
 pub const RasterizeError = error{
     OutOfMemory,
@@ -38,11 +45,14 @@ pub const RasterReport = struct {
     edges_written: u32,
     labels_placed: u32,
     label_diagnostics: []const labels_r.LabelDiagnostic,
-    // -- Phase 1 integrity counts (report-only; flow raster → entry →
-    //    diagnostics, never back into layout/budget) ------------------------
     /// Edge polyline/arrowhead cells skipped because they collided with
-    /// node-owned or label cells (see `raster/edges.zig`).
+    /// node-owned or label cells (see `raster/edges.zig`). Feeds selection
+    /// via `audit.zig` → `score.RasterCounts`.
     edge_cells_lost: u32,
+    /// Terminal arrowheads among those refusals: the edge ships without its
+    /// declared decoration. Subset of `edge_cells_lost` events; priced
+    /// separately in selection (audit.zig → score.RasterCounts).
+    edge_heads_lost: u32 = 0,
     /// Labels present in the Sketch that could not be placed at all
     /// (see `raster/labels.zig`).
     labels_dropped: u32,
@@ -50,20 +60,42 @@ pub const RasterReport = struct {
     /// anchor (see `raster/labels_edge.zig`) — cheaper than a drop, still
     /// a shipped legibility defect the score prices.
     labels_displaced: u32,
+    /// Edge/tap labels placed ON their own private fan dropper by the
+    /// top-priority on-run candidate (`raster/labels_onrun.zig`). These are
+    /// PLACED labels (counted in `labels_placed`, excluded from
+    /// `labels_displaced`); reported for diagnostic honesty only — never
+    /// consumed by audit/score.
+    labels_on_run: u32 = 0,
     /// Phantom neighbour-mask arms cleared by the reconcile post-pass
     /// (informational — these are repairs, not shipped defects).
     phantom_arms_cleared: u32,
-    /// Half-open split-junction arms re-added by the reciprocity-repair
-    /// post-pass (informational — repairs, not shipped defects; EXCLUDED
-    /// from audit's RasterCounts, exactly like `phantom_arms_cleared`).
-    arms_repaired: u32 = 0,
-    /// Crossing/transversal tallies (Amendment C, C1/C2; report-only). Never
-    /// consumed by score/audit/selection — see `raster/crossings.zig`.
+    /// Crossing/transversal tallies (Amendment C: the transversal and arrowhead-sanctity rulings) — see
+    /// `raster/crossings.zig`. `foreign_junction_violation` and
+    /// `arrowhead_transit_violation` feed selection: `audit.zig` reads them
+    /// into `score.RasterCounts`, which `score.eval` weights into the
+    /// violation tier. The remaining fields are report-only.
     crossings: crossings_r.CrossingCounts = .{},
-    /// Arrowhead-base painted tally (owner ruling 2026-07-18; report-only).
-    /// Counts arrowheads whose base cell does not feed the triangle. Never
-    /// consumed by score/audit/selection — see `raster/arrow_base.zig`.
+    /// Decoration-cell painted tallies (owner ruling 2026-07-18 for the
+    /// base; the constitution's three guarded sides for the rest): heads
+    /// whose base cell does not feed the triangle, heads whose tip is not
+    /// on their port, lateral arms that shipped on a head. All three feed
+    /// selection via `audit.zig` → `score.RasterCounts` — see
+    /// `raster/arrow_base.zig`.
     arrow_base: arrow_base_r.ArrowBaseCounts = .{},
+    /// Stroke cells whose painted arms no owner set explains: a junction
+    /// glyph with one owner (a join that does not exist) or a one-armed
+    /// run that stops in open space — the two ends of a route that visits
+    /// a cell twice. Feeds selection via `audit.zig` → `score.RasterCounts`
+    /// at the fabrication tier — see `raster/arms.zig`.
+    arms_unexplained: u32 = 0,
+
+    /// Every arm that entered a decoration cell from a lateral side: the
+    /// refused ones (edge and rail passes, `crossings.arm_into_head`) and
+    /// the shipped ones (`arrow_base.lateral_arms`). One number, because the
+    /// integrity line and the score price the event, not where it was seen.
+    pub fn armIntoHead(self: RasterReport) u32 {
+        return self.crossings.arm_into_head + self.arrow_base.lateral_arms;
+    }
 };
 
 /// Allocate a Lattice sized to `s.bbox` and rasterize all four layers.
@@ -79,13 +111,20 @@ pub fn rasterize(
 
     if (w == 0 or h == 0) {
         return .{
-            .lattice = .{ .width = 0, .height = 0, .cells = &[_]lattice.Cell{} },
+            .lattice = .{
+                .width = 0,
+                .height = 0,
+                .cells = &[_]lattice.Cell{},
+                .rail_claims = s.rail_claims,
+                .aux_collection = .{ .state = .complete },
+            },
             .nodes_written = 0,
             .clusters_written = 0,
             .edges_written = 0,
             .labels_placed = 0,
             .label_diagnostics = &.{},
             .edge_cells_lost = 0,
+            .edge_heads_lost = 0,
             .labels_dropped = 0,
             .labels_displaced = 0,
             .phantom_arms_cleared = 0,
@@ -98,7 +137,16 @@ pub fn rasterize(
     };
     for (cells) |*c| c.* = lattice.Cell.empty;
 
-    var lat: lattice.Lattice = .{ .width = w, .height = h, .cells = cells };
+    var lat: lattice.Lattice = .{
+        .width = w,
+        .height = h,
+        .cells = cells,
+        .rail_claims = s.rail_claims,
+    };
+
+    var aux_collector = aux_r.Collector.init(allocator);
+    errdefer aux_collector.deinit();
+    const sink: aux_r.Sink = &aux_collector;
 
     const clusters_n = clusters_r.rasterizeClusters(allocator, &lat, s) catch |err| switch (err) {
         error.OutOfMemory => return error.OutOfMemory,
@@ -111,60 +159,59 @@ pub fn rasterize(
         error.OccupiedCell => return error.OutOfBounds,
     };
 
-    // Bus-bars before ordinary edges (Phase 4b slice iv): the fan trunk claims its cells first, so edges OR their bits in afterwards without overwriting trunk kind/role. // guarded-by: raster.zig "bus-bar rasterizes before edges: junction cell keeps trunk kind/role, edge bits fold in"
-    const busbar_report = busbars_r.rasterizeBusBars(&lat, s);
+    // Rails before ordinary edges (Phase 4b slice iv): the fan rail claims its cells first, so a later edge can never overwrite rail kind/role. // @guarded-by: raster.zig "a rail rasterizes before edges: its cell keeps rail kind/role, foreign bits refused"
+    const rail_report = rails_r.rasterizeRails(&lat, s, sink);
 
-    const edge_report = edges_r.rasterizeEdges(allocator, &lat, s, subgraph_edges) catch |err| switch (err) {
+    const edge_report = edges_r.rasterizeEdges(allocator, &lat, s, subgraph_edges, sink) catch |err| switch (err) {
         error.OutOfMemory => return error.OutOfMemory,
         error.OutOfBounds => return error.OutOfBounds,
         error.MalformedPolyline => return error.MalformedPolyline,
     };
 
-    // Reconcile junction masks (phantom-arm cleanup) after edges, before labels — order is required, not incidental. // guarded-by: raster/reconcile.zig "reconcile is NOT order-independent w.r.t. labels: swapping the pipeline position changes the result"
+    // Reconcile junction masks (phantom-arm cleanup) after edges, before labels — order is required, not incidental. // @guarded-by: raster/reconcile.zig "reconcile is NOT order-independent w.r.t. labels: swapping the pipeline position changes the result"
     const phantom_arms = reconcile.reconcileNeighbours(&lat);
 
-    // Repair half-open split-junctions (clear-then-repair order): clear only
-    // removes into-empty arms, repair only adds toward a reciprocating
-    // edge_segment, so the two passes never conflict. // guarded-by: raster/reconcile_test.zig "repairReciprocalArms: half-open split-junction corner regains its arm (┘→┤)"
-    const arms_repaired = reconcile.repairReciprocalArms(&lat);
-
-    const label_report = labels_r.rasterizeLabels(allocator, &lat, s) catch |err| switch (err) {
+    const label_report = labels_r.rasterizeLabels(allocator, &lat, s, sink) catch |err| switch (err) {
         error.OutOfMemory => return error.OutOfMemory,
     };
 
-    // Arrowhead-base weld (owner ruling 2026-07-18): after reconcile and
-    // labels, weld the connecting stroke onto arrowhead base cells so each tip
-    // is received on its base side. Truthful welds only (own ink / genuine
-    // resume gaps); foreign crossings and side-fed corners are left for the
-    // validator to report. Then scan the FINAL lattice for any residual.
-    _ = arrow_base_r.weld(&lat);
     const arrow_base = arrow_base_r.validate(&lat);
+    var crossings = edge_report.crossings;
+    crossings.add(rail_report.crossings);
+
+    lat.aux = aux_collector.finish();
+    lat.aux_collection = aux_collector.report();
+    // After the side table is attached: the owner set behind a junction
+    // glyph is read from the records.
+    const arms_unexplained = arms_r.unexplained(&lat);
 
     return .{
         .lattice = lat,
         .nodes_written = nodes_n,
         .clusters_written = clusters_n,
-        .edges_written = edge_report.edges_written + busbar_report.taps_written,
+        .edges_written = edge_report.edges_written + rail_report.taps_written,
         .labels_placed = label_report.placed,
         .label_diagnostics = label_report.diagnostics,
-        .edge_cells_lost = edge_report.cells_lost + busbar_report.cells_lost,
+        .edge_cells_lost = edge_report.cells_lost + rail_report.cells_lost,
+        .edge_heads_lost = edge_report.heads_lost + rail_report.heads_lost,
         .labels_dropped = label_report.dropped,
         .labels_displaced = label_report.displaced,
+        .labels_on_run = label_report.on_run,
         .phantom_arms_cleared = phantom_arms,
-        .arms_repaired = arms_repaired,
-        .crossings = edge_report.crossings,
+        .crossings = crossings,
         .arrow_base = arrow_base,
+        .arms_unexplained = arms_unexplained,
     };
 }
 
 const testing = std.testing;
 
-test "zero-sized bbox returns empty report" {
+test "zero-sized bbox returns empty report and borrows final rail claims" {
     var arena = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
 
-    const s = sketch.Sketch{
+    var s = sketch.Sketch{
         .bbox = .{ .x = 0, .y = 0, .w = 0, .h = 0 },
         .direction = .TD,
         .nodes = &.{},
@@ -173,6 +220,8 @@ test "zero-sized bbox returns empty report" {
         .diagnostics = &.{},
         .budget = .{ .max_width = 80, .rung = 0 },
     };
+    const claims = [_]ledger.RailClaim{.{ .id = 1, .polarity = .out, .members = &.{} }};
+    s.rail_claims = &claims;
 
     const r = try rasterize(a, s, .bridge);
     try testing.expectEqual(@as(u32, 0), r.lattice.width);
@@ -182,6 +231,10 @@ test "zero-sized bbox returns empty report" {
     try testing.expectEqual(@as(u32, 0), r.edges_written);
     try testing.expectEqual(@as(u32, 0), r.labels_placed);
     try testing.expectEqual(@as(usize, 0), r.label_diagnostics.len);
+    try testing.expectEqualSlices(ledger.RailClaim, &claims, r.lattice.rail_claims);
+    try testing.expectEqual(lattice.AuxCollectionState.complete, r.lattice.aux_collection.state);
+    try testing.expectEqual(@as(u64, 0), r.lattice.aux_collection.attempted_records);
+    try testing.expectEqual(@as(usize, 0), r.lattice.aux.len);
 }
 
 test "two nodes + one edge: borders, interiors, and an edge cell" {
@@ -205,7 +258,6 @@ test "two nodes + one edge: borders, interiors, and an edge cell" {
         .cluster_id = null,
     };
 
-    // Edge from east-mid of node 1 (2,1) to west-mid of node 2 (7,1).
     var poly = [_]sketch.Point{
         .{ .x = 2, .y = 1 },
         .{ .x = 7, .y = 1 },
@@ -255,8 +307,6 @@ test "two nodes + one edge: borders, interiors, and an edge cell" {
         .node_interior => |n| try testing.expectEqual(@as(u32, 2), n),
         else => return error.MissingNode2Interior,
     }
-    // At least one cell strictly between the nodes (column 3..6 row 1)
-    // should be an edge_segment.
     var found_edge = false;
     var x: u32 = 3;
     while (x <= 6) : (x += 1) {
@@ -315,13 +365,11 @@ test "single cluster around one node" {
     }
 }
 
-test "edge crossing produces a full junction cell" {
+test "foreign perpendicular crossing reads as a transversal, not a junction" {
     var arena = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
 
-    // Two crossing edges meeting at (5,5). No nodes — just verify the
-    // edge rasterizer OR-merges neighbour bits at the crossing.
     var poly_h = [_]sketch.Point{
         .{ .x = 0, .y = 5 },
         .{ .x = 10, .y = 5 },
@@ -368,10 +416,13 @@ test "edge crossing produces a full junction cell" {
 
     const r = try rasterize(a, s, .bridge);
     const c = r.lattice.atConst(5, 5).*;
-    try testing.expectEqual(@as(u4, 0b1111), c.neighbours.toMask());
+    try testing.expectEqual(
+        (lattice.Neighbours{ .e = true, .w = true }).toMask(),
+        c.neighbours.toMask(),
+    );
 }
 
-test "bus-bar rasterizes before edges: junction cell keeps trunk kind/role, edge bits fold in" {
+test "a rail rasterizes before edges: its cell keeps rail kind/role, foreign bits refused" {
     var arena = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
@@ -388,20 +439,14 @@ test "bus-bar rasterizes before edges: junction cell keeps trunk kind/role, edge
         .{ .edge = 11, .node = 2, .at = .{ .x = 12, .y = 5 }, .landing = .{ .x = 12, .y = 7 } },
         .{ .edge = 12, .node = 3, .at = .{ .x = 22, .y = 5 }, .landing = .{ .x = 22, .y = 7 } },
     };
-    var busbars_buf = [_]sketch.BusBar{.{
+    var rails_buf = [_]sketch.Rail{.{
         .pivot = 0,
         .stem = &stem,
-        .rail = .{ .{ .x = 2, .y = 5 }, .{ .x = 22, .y = 5 } },
+        .crossbar = .{ .{ .x = 2, .y = 5 }, .{ .x = 22, .y = 5 } },
         .taps = &taps,
         .kind = .solid,
     }};
 
-    // An unrelated `.dotted` edge whose polyline runs straight through a
-    // plain rail cell (7,5) that the bus-bar already claims. If edges
-    // rasterized before bus-bars, this cell's first-writer-wins `kind`
-    // would come out `.dotted` (the crossing edge's), not `.solid` (the
-    // trunk's) — see `writeEdgeCell`'s `.edge_segment` branch, which
-    // never updates `kind` on a second write.
     var poly = [_]sketch.Point{ .{ .x = 7, .y = 1 }, .{ .x = 7, .y = 9 } };
     var edges_buf = [_]sketch.EdgePath{.{
         .id = 99,
@@ -422,7 +467,7 @@ test "bus-bar rasterizes before edges: junction cell keeps trunk kind/role, edge
         .nodes = nodes_buf[0..],
         .clusters = &.{},
         .edges = edges_buf[0..],
-        .busbars = busbars_buf[0..],
+        .rails = rails_buf[0..],
         .diagnostics = &.{},
         .budget = .{ .max_width = 80, .rung = 0 },
     };
@@ -432,13 +477,13 @@ test "bus-bar rasterizes before edges: junction cell keeps trunk kind/role, edge
     const cell = r.lattice.atConst(7, 5).*;
     switch (cell.occupant) {
         .edge_segment => |seg| {
-            // Trunk-owned kind survives the later crossing edge write.
             try testing.expectEqual(lattice.EdgeKind.solid, seg.kind);
-            try testing.expectEqual(lattice.EdgeRole.fan_out_trunk, seg.role);
+            try testing.expectEqual(lattice.EdgeRole.fan_out_rail, seg.role);
         },
         else => return error.MissingJunctionCell,
     }
-    // The crossing edge's vertical bits fold into the rail's existing
-    // horizontal bits (OR-merge) rather than replacing them: full 4-way.
-    try testing.expectEqual(@as(u4, 0b1111), cell.neighbours.toMask());
+    try testing.expectEqual(
+        (lattice.Neighbours{ .e = true, .w = true }).toMask(),
+        cell.neighbours.toMask(),
+    );
 }
