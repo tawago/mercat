@@ -234,24 +234,14 @@ pub const file_allowlists = [_]struct {
         .reason = "budget_types may only import std, prim, sem_graph, sketch, or budget",
     },
     .{
-        .name = "select_labels.zig",
-        .allowed = &.{ .sem_graph, .sketch, .budget, .{ .exact = "score.zig" }, .{ .exact = "motif.zig" }, .{ .exact = "select_test3.zig" } },
-        .reason = "select_labels may only import std, prim, base/ledger, sem_graph, sketch, budget, score, motif, or select_test3",
-    },
-    .{
-        .name = "select_test3.zig",
-        .allowed = &.{ .sem_graph, .sketch, .budget, .parse_zone, .{ .exact = "score.zig" }, .{ .exact = "select.zig" }, .{ .exact = "select_labels.zig" }, .{ .exact = "audit.zig" }, .{ .exact = "raster.zig" }, .{ .exact = "ledger/permits.zig" } },
-        .reason = "select_test3 may only import std, prim, base/ledger, sem_graph, sketch, budget, parse, score, select, select_labels, audit, raster, or ledger/permits",
-    },
-    .{
         .name = "select.zig",
-        .allowed = &.{ .sem_graph, .sketch, .budget, .parse_zone, .{ .exact = "score.zig" }, .{ .exact = "motif.zig" }, .{ .exact = "audit.zig" }, .{ .exact = "select_labels.zig" } },
-        .reason = "select may only import std, prim, base/ledger, sem_graph, sketch, budget, score, motif, audit, select_labels, or parse",
+        .allowed = &.{ .sem_graph, .sketch, .budget, .parse_zone, .{ .exact = "score.zig" }, .{ .exact = "motif.zig" }, .{ .exact = "audit.zig" } },
+        .reason = "select may only import std, prim, base/ledger, sem_graph, sketch, budget, score, motif, audit, or parse",
     },
     .{
         .name = "select_test.zig",
-        .allowed = &.{ .budget, .parse_zone, .{ .exact = "select.zig" }, .{ .exact = "ledger/permits.zig" } },
-        .reason = "select_test may only import std, prim, base/ledger, budget, parse, select, or ledger/permits",
+        .allowed = &.{ .sem_graph, .sketch, .budget, .parse_zone, .{ .exact = "select.zig" }, .{ .exact = "ledger/permits.zig" }, .{ .exact = "audit.zig" }, .{ .exact = "raster.zig" }, .{ .exact = "score.zig" } },
+        .reason = "select_test may only import std, prim, base/ledger, sem_graph, sketch, budget, parse, select, ledger/permits, audit, raster, or score",
     },
     .{
         .name = "audit.zig",

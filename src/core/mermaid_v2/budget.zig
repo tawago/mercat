@@ -80,11 +80,9 @@ fn layoutRung(
     bundle_permits: *const ledger.BundlePermits,
     max_width: u32,
     rung: Rung,
-    policy: prim.LabelPolicy,
 ) !sketch.Sketch {
     var opts = optionsFor(rung, max_width);
     opts.bundle_permits = bundle_permits;
-    opts.label_policy = policy;
     return recurse.layoutPieces(arena, rotateForRung(graph, rung), opts);
 }
 
@@ -99,7 +97,7 @@ fn tryRung(
     max_width: u32,
     rung: Rung,
 ) !RungAttempt {
-    const result = try layoutRung(arena, graph, bundle_permits, max_width, rung, .on_run);
+    const result = try layoutRung(arena, graph, bundle_permits, max_width, rung);
     return .{
         .sketch = result,
         .accepted = ladderAccepts(rung, result),
@@ -160,7 +158,7 @@ pub fn enumerate(
                 incumbent = .{ .sketch = attempt.sketch, .final_rung = rung, .attempts = attempts };
             }
         } else {
-            const result = layoutRung(arena, graph, bundle_permits, max_width, rung, .on_run) catch continue;
+            const result = layoutRung(arena, graph, bundle_permits, max_width, rung) catch continue;
             try candidates.append(arena, .{ .rung = rung, .sketch = result, .accepted = false });
         }
     }
@@ -183,26 +181,7 @@ pub fn runForced(
     max_width: u32,
     rung: Rung,
 ) !LadderResult {
-    const result = try layoutRung(arena, graph, bundle_permits, max_width, rung, .on_run);
-    return .{ .sketch = result, .final_rung = rung, .attempts = 1 };
-}
-
-/// Lay out ONE candidate's LABEL-POLICY VARIANT: the same recipe (graph,
-/// rung) under a different `prim.LabelPolicy`, bypassing
-/// acceptance like `runForced`. select.zig pairs a `.beside` variant with
-/// each promising `.on_run` candidate so the score chooses the placement
-/// policy per diagram. Every other driver here is pinned to `.on_run`, so
-/// the debug paths (`runForced`, `MERCAT_FORCE_RUNG`) keep today's behavior.
-/// @guarded-by: select_test3.zig "the beside twin keeps the labeled fan's reserved rows"
-pub fn runVariant(
-    arena: std.mem.Allocator,
-    graph: sem_graph.SemGraph,
-    bundle_permits: *const ledger.BundlePermits,
-    max_width: u32,
-    rung: Rung,
-    policy: prim.LabelPolicy,
-) !LadderResult {
-    const result = try layoutRung(arena, graph, bundle_permits, max_width, rung, policy);
+    const result = try layoutRung(arena, graph, bundle_permits, max_width, rung);
     return .{ .sketch = result, .final_rung = rung, .attempts = 1 };
 }
 
@@ -213,7 +192,7 @@ pub fn runVariant(
 /// raster chooses the bridge routing — routing never picks between the
 /// variants itself (confluence selection note). Every other driver here
 /// keeps the `.plain` default, so the debug paths keep one fixed geometry.
-/// @guarded-by: select_test3.zig "bridge variants: the real-raster score decides, and flips when the counts flip"
+/// @guarded-by: select_test.zig "bridge variants: the real-raster score decides, and flips when the counts flip"
 pub fn runBridgeVariant(
     arena: std.mem.Allocator,
     graph: sem_graph.SemGraph,

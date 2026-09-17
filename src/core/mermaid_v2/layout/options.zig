@@ -60,12 +60,6 @@ pub const LayoutOptions = struct {
     /// are intentionally NOT scaled here (must move in lockstep with
     /// super-node sizing + the drawn frame).
     spacing_scale: u8 = 0,
-    /// This candidate's label-placement policy. `.on_run` (default, and what
-    /// every debug/forced driver uses) reserves the fan label rows and lets
-    /// the raster pass try the on-run forms; `.beside` clears both, so labels
-    /// land only via the beside-run ladder. select.zig lays out BOTH variants
-    /// for a labeled graph and the score decides — never a global preference.
-    label_policy: prim.LabelPolicy = .on_run,
     /// This candidate's cross-border bridge build (`prim.BridgeBuild`).
     /// `.plain` (default, and what every debug/forced driver uses) keeps
     /// the track-assigned jogs; select.zig lays out the dodged/railed

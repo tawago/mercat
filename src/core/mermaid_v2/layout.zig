@@ -176,14 +176,9 @@ fn buildSketch(
     if (fans.len > 0) fan_mod.gateFanInSharedLabels(NodeGeom, fans, geom);
     if (fans.len > 0) try fan_lanes.assignLanes(NodeGeom, a, graph, lg, geom, fans, candidate_bundles);
 
-    // A fan's label band is a LABEL claim, not an ON-RUN one: a `.beside`
-    // fan needs it just as much, because that is where its labels sit — one
-    // per dropper, x-aligned with the dropper they name. Dropping it for the
-    // beside twin made it ~3 rows shorter, which the height tier then bought
-    // at the price of labels stranded on the rail row next to a dropper they
-    // do not belong to. The policy axis is a RASTER-form axis; both twins
-    // claim the same rows.
-    // @guarded-by: select_test3.zig "the beside twin keeps the labeled fan's reserved rows"
+    // A fan's label band is a LABEL claim: that is where its labels sit — one
+    // per dropper, x-aligned with the dropper they name — so the rows are
+    // claimed whatever form the raster gives the labels.
     if (fans.len > 0) fan_mod.refreshLabelWidths(graph, fans);
 
     // The levers read and move the layer axis — a grid stacks a layer's
@@ -350,7 +345,6 @@ fn buildSketch(
         .bundle_sets = sketch_ports.appendPortShares(a, base_sets, edges_out) catch base_sets,
         .diagnostics = try diagnostics.toOwnedSlice(a),
         .budget = .{ .max_width = opts.max_width, .rung = opts.rung },
-        .label_policy = opts.label_policy,
     };
     sketch_bundles.stamp(a, &out);
     return out;

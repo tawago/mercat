@@ -31,7 +31,7 @@ test "mirror.applyDirection swaps x/y/w/h but leaves NodeGeom.layer untouched" {
     try testing.expectEqual(@as(u32, 0), geom[1].layer);
 }
 
-test "vertical mirror preserves the label policy" {
+test "vertical mirror preserves the bundle stamp state" {
     var arena = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
@@ -46,12 +46,10 @@ test "vertical mirror preserves the label policy" {
         .diagnostics = &.{},
         .budget = .{ .max_width = 20, .rung = 0 },
         .bundle_stamp_state = .rail_invariant,
-        .label_policy = .beside,
     };
     const m = try mirror.vertical(a, s, .BT);
     try testing.expectEqual(sketch.Direction.BT, m.direction);
     try testing.expectEqual(sketch.BundleStampState.rail_invariant, m.bundle_stamp_state);
-    try testing.expectEqual(@as(@TypeOf(m.label_policy), .beside), m.label_policy);
 }
 
 test "vertical mirror deeply mirrors RailClaim sites and preserves identity" {

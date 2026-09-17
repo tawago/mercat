@@ -7,8 +7,8 @@
 //! anchored to the raw natural; failures degrade to the ladder incumbent.
 //!
 //! Allowed imports (tools/lint_imports.zig): std, prim, sem_graph, sketch,
-//! budget, score, motif, audit, select_labels, parse (tests only). In-file
-//! tests live in select_test.zig (plan N3 cap-watch).
+//! budget, score, motif, audit, parse (tests only). In-file tests live in
+//! select_test.zig (plan N3 cap-watch).
 //!
 //! Every candidate carries the bundle plan its layout committed
 //! (layout/bundle_commit.zig) and the bundle sets layout derived from it;
@@ -22,13 +22,13 @@ const sketch_mod = @import("sketch.zig");
 const ladder = @import("budget.zig");
 const score_mod = @import("score.zig");
 const audit_mod = @import("audit.zig");
-const select_labels = @import("select_labels.zig");
+const motif_mod = @import("motif.zig");
 
 /// Packed candidates' capped rung set (see budget.Transform.rungs).
 const PACK_RUNGS = ladder.Transform.motif_pack.rungs();
 
 /// Upper bound on the merged candidate list: 5 raw rungs + 3 packed +
-/// 4 beside twins + up to 4 bridge-build twins (capped at append time).
+/// up to 4 bridge-build twins (capped at append time), with headroom.
 const MAX_CANDIDATES = 16;
 
 /// Bridge-build twins: {dodged, railed} x {raw natural, ladder incumbent}.
@@ -69,10 +69,9 @@ pub const CandidateSet = struct {
 };
 
 /// Enumerate raw + packed candidates, RAW FIRST (T4 index ties prefer raw),
-/// then — for a graph with labeled edges — the `.beside` LABEL-POLICY twins of
-/// the promising candidates, appended LAST so an exact score tie keeps the
-/// on-run placement (select_labels.zig). Packing is best-effort: any failure
-/// leaves the raw set.
+/// then the bridge-build twins of a clustered graph, appended LAST so an
+/// exact score tie keeps the plain build. Packing is best-effort: any
+/// failure leaves the raw set.
 pub fn enumerateAll(
     aa: std.mem.Allocator,
     graph: sem_graph.SemGraph,
@@ -81,18 +80,11 @@ pub fn enumerateAll(
 ) !CandidateSet {
     const enumerated = try ladder.enumerate(aa, graph, bundle_permits, max_width);
 
-    var extras: [PACK_RUNGS.len + 1 + select_labels.MAX_BESIDE + MAX_BRIDGE]ladder.Candidate = undefined;
+    var extras: [PACK_RUNGS.len + 1 + MAX_BRIDGE]ladder.Candidate = undefined;
     var n_extras: usize = 0;
     for (packedCandidates(aa, graph, bundle_permits, max_width) catch &.{}) |c| {
         extras[n_extras] = c;
         n_extras += 1;
-    }
-    var on_run: [MAX_CANDIDATES]ladder.Candidate = undefined;
-    const on_run_n = enumerated.candidates.len + n_extras;
-    if (on_run_n <= on_run.len) {
-        @memcpy(on_run[0..enumerated.candidates.len], enumerated.candidates);
-        @memcpy(on_run[enumerated.candidates.len..on_run_n], extras[0..n_extras]);
-        n_extras += select_labels.besideVariants(aa, graph, bundle_permits, max_width, on_run[0..on_run_n], extras[n_extras..]);
     }
 
     n_extras += bridgeVariants(
@@ -126,7 +118,7 @@ pub fn enumerateAll(
 /// routing-time proxy decisions). A twin whose edges are byte-identical to
 /// its plain base is dropped (it cannot score differently); failures are
 /// skipped — twins are scoring-only extra work. Returns the number written.
-/// @guarded-by: select_test3.zig "bridge variants: a clustered graph enumerates dodged/railed twins behind the raw set"
+/// @guarded-by: select_test.zig "bridge variants: a clustered graph enumerates dodged/railed twins behind the raw set"
 fn bridgeVariants(
     aa: std.mem.Allocator,
     graph: sem_graph.SemGraph,
@@ -187,6 +179,14 @@ fn sameEdgeGeometry(a: sketch_mod.Sketch, b: sketch_mod.Sketch) bool {
     return true;
 }
 
+/// The motif-packed rewrite of `graph`, or null when packing declines (wrong
+/// direction, or `pack.transform` found nothing to pack). Pure.
+fn packedGraph(aa: std.mem.Allocator, graph: sem_graph.SemGraph) ?sem_graph.SemGraph {
+    if (!ladder.Transform.motif_pack.appliesTo(graph.direction)) return null;
+    const tree = motif_mod.decompose(aa, graph) catch return null;
+    return (motif_mod.pack.transform(aa, graph, tree) catch return null) orelse null;
+}
+
 /// Lay out the motif-packed graph (when packing applies) at the capped rung
 /// set. Empty slice when the transform declines; per-rung failures are
 /// skipped (packed candidates are scoring-only extra work).
@@ -196,7 +196,7 @@ pub fn packedCandidates(
     bundle_permits: *const ledger.BundlePermits,
     max_width: u32,
 ) error{OutOfMemory}![]const ladder.Candidate {
-    const packed_graph = select_labels.packedGraph(aa, graph) orelse return &.{};
+    const packed_graph = packedGraph(aa, graph) orelse return &.{};
 
     var list: std.ArrayListUnmanaged(ladder.Candidate) = .empty;
     for (PACK_RUNGS) |rung| {
