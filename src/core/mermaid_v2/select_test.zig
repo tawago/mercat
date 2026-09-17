@@ -4,7 +4,8 @@
 //! build from entry.zig's `test {}` block.
 //!
 //! Allowed imports (tools/lint_imports.zig): std, prim, ledger,
-//! sem_graph, sketch, budget, parse, select, permits, audit, raster, score.
+//! sem_graph, sketch, budget, parse, select, select_filter, permits, audit,
+//! raster, score.
 
 const std = @import("std");
 const ledger = @import("base/ledger.zig");
@@ -12,6 +13,7 @@ const sem_graph = @import("sem_graph.zig");
 const sketch_mod = @import("sketch.zig");
 const ladder = @import("budget.zig");
 const select = @import("select.zig");
+const select_filter = @import("select_filter.zig");
 const permits_mod = @import("ledger/permits.zig");
 const audit = @import("audit.zig");
 const raster = @import("raster.zig");
@@ -304,4 +306,28 @@ test "bridge variants: a clustered graph enumerates dodged/railed twins behind t
         }
     }
     try std.testing.expect(first_bridge > last_raw);
+}
+
+test "a candidate with an unrouted visible edge is filtered out before scoring" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const g = try parse(a, "flowchart TD\n  A --> B\n  B --> C\n");
+    const set = try select.enumerateAll(a, g, testBundlePermits(), 120);
+    try std.testing.expect(set.merged.len >= 2);
+    // Every enumerated candidate drew both edges: the filter is the identity.
+    for (set.merged) |cand| try std.testing.expectEqual(@as(u32, 0), select_filter.unroutedEdges(cand.sketch));
+    try std.testing.expectEqual(set.merged.len, select_filter.ciFilter(a, set.merged).len);
+
+    // Blank one candidate's first polyline: that candidate alone is excluded,
+    // whatever its rung; the others keep their order.
+    const forged = try a.dupe(ladder.Candidate, set.merged);
+    const edges = try a.dupe(@TypeOf(forged[1].sketch.edges[0]), forged[1].sketch.edges);
+    edges[0].polyline = &.{};
+    forged[1].sketch.edges = edges;
+    try std.testing.expectEqual(@as(u32, 1), select_filter.unroutedEdges(forged[1].sketch));
+    const survivors = select_filter.ciFilter(a, forged);
+    try std.testing.expectEqual(forged.len - 1, survivors.len);
+    try std.testing.expectEqual(forged[0].rung, survivors[0].rung);
+    for (survivors) |cand| try std.testing.expect(cand.rung != forged[1].rung);
 }
