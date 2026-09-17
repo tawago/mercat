@@ -37,6 +37,14 @@ Before opening a pull request:
 2. Follow existing naming and layout conventions.
 3. Avoid unrelated refactors in the same change.
 
+## Guarded Claims
+
+A doc comment may point at the test that proves its claim:
+`/// @guarded-by: some_test.zig "test name"`. `zig build test` fails if that
+test does not exist, so rename or delete the test and the comment together.
+The lint accepts `guarded-by:` with or without the `@`; `@guarded-by:` is the
+preferred spelling.
+
 ## Reporting Issues
 
 Include your platform, terminal, Zig version, reproduction steps, and sample markdown when relevant.

@@ -224,6 +224,16 @@ pub fn build(b: *std.Build) void {
     lint_step.dependOn(&lint_cmd.step);
     test_step.dependOn(&lint_cmd.step);
 
+    const lint_test_module = b.createModule(.{
+        .root_source_file = b.path("tools/lint_imports.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    const lint_tests = b.addTest(.{ .root_module = lint_test_module });
+    const lint_tests_run = b.addRunArtifact(lint_tests);
+    lint_tests_run.setCwd(b.path("."));
+    test_step.dependOn(&lint_tests_run.step);
+
     const unicode_test_module = b.createModule(.{
         .root_source_file = b.path("src/lib/unicode.zig"),
         .target = target,
