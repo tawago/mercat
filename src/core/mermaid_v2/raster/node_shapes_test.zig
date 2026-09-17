@@ -35,9 +35,13 @@ fn buildNodeRect(lat: *lattice.Lattice, rect: sketch.Rect, id: u32) void {
     }
 }
 
+// ---------------------------------------------------------------------
+// node_shapes.zig: rasterizeSubroutineInner's width>=5 gate (near line 46)
+// ---------------------------------------------------------------------
 test "rasterizeSubroutineInner: width 4 draws no inner wall, width 5 does" {
     const allocator = testing.allocator;
 
+    // Width 4 (< 5): the gate must reject the overlay entirely.
     {
         var lat = try makeLattice(allocator, 10, 5);
         defer allocator.free(lat.cells);
@@ -47,6 +51,7 @@ test "rasterizeSubroutineInner: width 4 draws no inner wall, width 5 does" {
 
         node_shapes.rasterizeSubroutineInner(&lat, np);
 
+        // Middle row interior cells stay plain node_interior — no wall.
         switch (lat.atConst(1, 1).occupant) {
             .node_interior => {},
             else => return error.UnexpectedOverlayAtWidth4,
@@ -57,6 +62,7 @@ test "rasterizeSubroutineInner: width 4 draws no inner wall, width 5 does" {
         }
     }
 
+    // Width 5 (>= 5): the overlay must be drawn at columns x0+1 / x_last-1.
     {
         var lat = try makeLattice(allocator, 10, 5);
         defer allocator.free(lat.cells);

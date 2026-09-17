@@ -18,21 +18,21 @@ const lattice = @import("../lattice.zig");
 pub const dotted_table: [16]u21 = blk: {
     var t: [16]u21 = undefined;
     t[0b0000] = ' ';
-    t[0b0001] = '┊';
-    t[0b0010] = '╌';
-    t[0b0011] = '└';
-    t[0b0100] = '┊';
-    t[0b0101] = '┊';
-    t[0b0110] = '┌';
-    t[0b0111] = '├';
-    t[0b1000] = '╌';
-    t[0b1001] = '┘';
-    t[0b1010] = '╌';
-    t[0b1011] = '┴';
-    t[0b1100] = '┐';
-    t[0b1101] = '┤';
-    t[0b1110] = '┬';
-    t[0b1111] = '┼';
+    t[0b0001] = '┊'; // N
+    t[0b0010] = '╌'; // E
+    t[0b0011] = '└'; // N+E
+    t[0b0100] = '┊'; // S
+    t[0b0101] = '┊'; // N+S
+    t[0b0110] = '┌'; // E+S
+    t[0b0111] = '├'; // N+E+S
+    t[0b1000] = '╌'; // W
+    t[0b1001] = '┘'; // N+W
+    t[0b1010] = '╌'; // E+W
+    t[0b1011] = '┴'; // N+E+W
+    t[0b1100] = '┐'; // S+W
+    t[0b1101] = '┤'; // N+S+W
+    t[0b1110] = '┬'; // E+S+W
+    t[0b1111] = '┼'; // all
     break :blk t;
 };
 
@@ -42,21 +42,21 @@ pub const dotted_table: [16]u21 = blk: {
 pub const thick_table: [16]u21 = blk: {
     var t: [16]u21 = undefined;
     t[0b0000] = ' ';
-    t[0b0001] = '║';
-    t[0b0010] = '═';
-    t[0b0011] = '╚';
-    t[0b0100] = '║';
-    t[0b0101] = '║';
-    t[0b0110] = '╔';
-    t[0b0111] = '╠';
-    t[0b1000] = '═';
-    t[0b1001] = '╝';
-    t[0b1010] = '═';
-    t[0b1011] = '╩';
-    t[0b1100] = '╗';
-    t[0b1101] = '╣';
-    t[0b1110] = '╦';
-    t[0b1111] = '╬';
+    t[0b0001] = '║'; // N
+    t[0b0010] = '═'; // E
+    t[0b0011] = '╚'; // N+E
+    t[0b0100] = '║'; // S
+    t[0b0101] = '║'; // N+S
+    t[0b0110] = '╔'; // E+S
+    t[0b0111] = '╠'; // N+E+S
+    t[0b1000] = '═'; // W
+    t[0b1001] = '╝'; // N+W
+    t[0b1010] = '═'; // E+W
+    t[0b1011] = '╩'; // N+E+W
+    t[0b1100] = '╗'; // S+W
+    t[0b1101] = '╣'; // N+S+W
+    t[0b1110] = '╦'; // E+S+W
+    t[0b1111] = '╬'; // all
     break :blk t;
 };
 
@@ -73,14 +73,14 @@ pub const thick_table: [16]u21 = blk: {
 pub const thick_border_table: [16]u21 = blk: {
     var t: [16]u21 = undefined;
     t[0b0000] = ' ';
-    t[0b0001] = '╨';
-    t[0b0010] = '╞';
+    t[0b0001] = '╨'; // N (vertical edge above a horizontal border)
+    t[0b0010] = '╞'; // E (horizontal edge right of a vertical border)
     t[0b0011] = '└';
-    t[0b0100] = '╥';
+    t[0b0100] = '╥'; // S (vertical edge below a horizontal border)
     t[0b0101] = '║';
     t[0b0110] = '┌';
     t[0b0111] = '╞';
-    t[0b1000] = '╡';
+    t[0b1000] = '╡'; // W (horizontal edge left of a vertical border)
     t[0b1001] = '┘';
     t[0b1010] = '═';
     t[0b1011] = '╨';
@@ -125,6 +125,8 @@ test "thick_table: straight strokes match goldens" {
 }
 
 test "thick_border_table: south-of-border picks ╥" {
+    // Border south side (horizontal: e+w) with thick edge departing
+    // south: mask = e|w|s = 1110.
     const n = lattice.Neighbours{ .e = true, .w = true, .s = true };
     try std.testing.expectEqual(@as(u21, '╥'), thickBorderGlyph(n));
 }

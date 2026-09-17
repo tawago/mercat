@@ -34,6 +34,8 @@ fn mkEdge(id: sg.EdgeId, from: sg.NodeId, to: sg.NodeId) sg.Edge {
     };
 }
 
+// -- component packing no-op (layout/components.zig `packComponents`) -------
+
 test "packComponents leaves node geometry unchanged for a single connected component" {
     const nodes = [_]sg.Node{ mkNode(0, "A"), mkNode(1, "B"), mkNode(2, "C") };
     const edges = [_]sg.Edge{ mkEdge(0, 0, 1), mkEdge(1, 1, 2) };

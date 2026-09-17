@@ -33,6 +33,11 @@ fn makeClusterSketch(frames: []const sketch.ClusterFrame) sketch.Sketch {
     };
 }
 
+// ---------------------------------------------------------------------
+// clusters.zig: synthetic packing frames never rasterize, even if the
+// zero-pad invariant they depend on (stitch.zig) is violated and they
+// carry a nonzero rect (near line 46).
+// ---------------------------------------------------------------------
 test "rasterizeClusters: a synthetic frame with a nonzero rect still paints nothing" {
     const allocator = testing.allocator;
     var lat = try makeLattice(allocator, 10, 10);
@@ -41,7 +46,7 @@ test "rasterizeClusters: a synthetic frame with a nonzero rect still paints noth
     const frames = [_]sketch.ClusterFrame{
         .{
             .id = 1,
-            .rect = .{ .x = 1, .y = 1, .w = 6, .h = 6 },
+            .rect = .{ .x = 1, .y = 1, .w = 6, .h = 6 }, // nonzero: violates the zero-pad invariant
             .parent_id = null,
             .label = "",
             .depth = 0,

@@ -2,7 +2,8 @@
 //!
 //! Sits between SemGraph and Sketch: the dominator tree of the
 //! cycle-removed digraph, coarsened into typed motifs. Consumed live by
-//! motif/pack.zig (via select.zig's motif-packed candidates).
+//! motif/pack.zig (via select.zig's motif-packed candidates) and by
+//! entry.zig's `MERCAT_DUMP_MOTIFS=1` diagnostic dump.
 //!
 //! Lint zone: motif.zig + motif/* may import only std, prim, sem_graph,
 //! and motif-internal files (tools/lint_imports.zig).
@@ -21,7 +22,7 @@ const sg = @import("../sem_graph.zig");
 /// - `fan`      — a pivot node with >= 3 single-vertex dominator children
 ///                (leaf-ish spokes); a diamond's merge sink is one such
 ///                child, so diamonds classify as `fan`, not `prime` —
-///                @guarded-by: motif/motif_test.zig "diamond classifies as fan (documented choice)"
+///                guarded-by: motif/motif_test.zig "diamond classifies as fan (documented choice)"
 /// - `parallel` — >= 2 isomorphic-ish independent sibling dominator subtrees
 ///                under one parent (same dominator-shape signature, subtree
 ///                size >= 2). When every branch is a simple path of plain

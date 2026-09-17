@@ -56,6 +56,8 @@ pub fn compute(
             try pred[v].append(a, r);
         }
     }
+    // Defensive: connect any vertex unreachable from the root (cannot
+    // happen in a DAG where every source is a root child, but cheap).
     {
         const seen = try a.alloc(bool, n + 1);
         var progress = true;
@@ -149,6 +151,7 @@ fn reverseBackEdges(
     const color = try a.alloc(Color, n);
     @memset(color, .white);
 
+    // Out-edge indices per vertex, original orientation.
     var out = try a.alloc(std.ArrayListUnmanaged(u32), n);
     for (out) |*l| l.* = .empty;
     for (edges, 0..) |e, i| try out[e[0]].append(a, @intCast(i));
