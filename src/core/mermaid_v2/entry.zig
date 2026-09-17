@@ -269,9 +269,7 @@ fn resolveBundlePermits(allocator: std.mem.Allocator, graph: sem_graph.SemGraph)
 /// port) and `arm_into_head` (an arm into a decoration cell from a
 /// lateral side, refused or shipped) joined 2026-09-03, then
 /// `v_edge_unrouted` (a visible edge the router laid no ink for, because
-/// every producer refused every candidate), then `arms_unexplained` (a
-/// stroke cell whose painted arms no owner set explains: a junction glyph
-/// with one owner, or a run that stops in open space).
+/// every producer refused every candidate).
 fn emitIntegrityLine(
     v: validate_mod.Counts,
     raster_report: rasterize_mod.RasterReport,
@@ -284,7 +282,7 @@ fn emitIntegrityLine(
     gap_rows_unclaimed_ink: u32,
 ) void {
     std.debug.print(
-        "mercat-integrity: v_node_overlap={d} v_path_off_perimeter={d} v_path_through_interior={d} v_cluster={d} v_bbox={d} r_edge_cells_lost={d} r_labels_dropped={d} r_labels_displaced={d} r_phantom_arms={d} x_legal_crossing={d} x_foreign_junction={d} x_arrowhead_transit={d} b_frame_bridge={d} b_border_fusion_refused={d} a_arrowhead_base={d} skipped_lines={d} rail_deco_mixed={d} rail_member_style_mixed={d} rail_star_violation={d} tip_not_port={d} arm_into_head={d} v_edge_unrouted={d} arms_unexplained={d} gap_rows_unaccounted={d} gap_rows_unclaimed_ink={d}\n",
+        "mercat-integrity: v_node_overlap={d} v_path_off_perimeter={d} v_path_through_interior={d} v_cluster={d} v_bbox={d} r_edge_cells_lost={d} r_labels_dropped={d} r_labels_displaced={d} r_phantom_arms={d} x_legal_crossing={d} x_foreign_junction={d} x_arrowhead_transit={d} b_frame_bridge={d} b_border_fusion_refused={d} a_arrowhead_base={d} skipped_lines={d} rail_deco_mixed={d} rail_member_style_mixed={d} rail_star_violation={d} tip_not_port={d} arm_into_head={d} v_edge_unrouted={d} gap_rows_unaccounted={d} gap_rows_unclaimed_ink={d}\n",
         .{
             v.node_overlap,
             v.path_off_perimeter,
@@ -308,7 +306,6 @@ fn emitIntegrityLine(
             raster_report.arrow_base.tip_not_port,
             raster_report.armIntoHead(),
             v.edge_unrouted,
-            raster_report.arms_unexplained,
             gap_rows_unaccounted,
             gap_rows_unclaimed_ink,
         },

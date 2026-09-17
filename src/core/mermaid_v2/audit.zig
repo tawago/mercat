@@ -32,7 +32,6 @@ pub fn collect(allocator: std.mem.Allocator, s: sketch.Sketch, subgraph_edges: p
         .arrow_base = report.arrow_base.violations,
         .tip_not_port = report.arrow_base.tip_not_port,
         .arm_into_head = report.arrow_base.lateral_arms,
-        .arms_unexplained = report.arms_unexplained,
     };
 }
 

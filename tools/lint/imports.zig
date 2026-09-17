@@ -135,8 +135,7 @@ pub const Rule = union(enum) {
 ///                   render of the seed that shows the sideways head: the
 ///                   producer and the raster meet only through select.
 ///   route_once_test.zig  root-level pin that a route visits each cell
-///                   once: the raster's unexplained-arm tally
-///                   (`raster/arms.zig`) is zero on a real render of the
+///                   once: no one-armed stroke cell on a real render of the
 ///                   seed that shipped a doubled-back fan polyline.
 ///   grapheme_width_test.zig  root-level pin that a painted node box
 ///                   closes at one column on every row when a label holds

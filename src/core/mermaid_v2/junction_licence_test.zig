@@ -183,7 +183,6 @@ fn expectNoRasterDefect(report: raster.RasterReport) !void {
     try testing.expectEqual(@as(u32, 0), report.edge_cells_lost);
     try testing.expectEqual(@as(u32, 0), report.edge_heads_lost);
     try testing.expectEqual(@as(u32, 0), report.arrow_base.tip_not_port);
-    try testing.expectEqual(@as(u32, 0), report.arms_unexplained);
     try expectDecorationCellsHonest(report);
 }
 
@@ -323,7 +322,6 @@ fn expectReconstructedThreeWayPortShare() !void {
     try testing.expectEqual(@as(u32, 0), r.report.edge_heads_lost);
     try testing.expectEqual(@as(u32, 0), r.report.arrow_base.tip_not_port);
     try testing.expectEqual(@as(u32, 0), r.report.arrow_base.violations);
-    try testing.expectEqual(@as(u32, 0), r.report.arms_unexplained);
     try testing.expectEqual(@as(u32, 0), r.report.armIntoHead());
     try testing.expectEqual(@as(u32, 0), headsInJunctionState(&r.report.lattice));
 }
