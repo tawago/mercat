@@ -10,15 +10,10 @@ const cli_input_test = @import("cli/input_test.zig");
 const render_model = @import("core/markdown/render.zig");
 const theme = @import("core/theme.zig");
 const plain = @import("export/plain.zig");
-// Backend-neutral export document + layout. Not yet
-// used by the terminal/plain paths; imported so its unit tests run under the
-// main `zig build test` graph (the PNG backend wires it into the output path).
 const export_types = @import("export/types.zig");
 const export_layout = @import("export/layout.zig");
 const export_font = @import("export/font.zig");
 const export_png = @import("export/png.zig");
-// Glyph-sheet fixture + export verification suite.
-// Imported so their tests run under the main `zig build test` graph.
 const export_glyph_sheet = @import("export/glyph_sheet.zig");
 const export_test = @import("export/export_test.zig");
 const terminal = @import("platform/terminal.zig");
@@ -29,19 +24,6 @@ const theme_dump = @import("core/theme/dump.zig");
 
 const VERSION = @import("build_options").version;
 
-// Two layers gate log output so it never corrupts the TUI alternate screen:
-//
-//   1. Level cap. The mermaid_v2 pipeline emits `std.log.debug` diagnostics
-//      (validate/raster integrity counts) that the codebase treats as
-//      "Debug-only, never affects output" — but the Debug build's default log
-//      level is `.debug`, so they spill to stderr. Capping at `.warn` in every
-//      build mode drops those.
-//   2. Runtime gate. `.warn`-level messages (e.g. "mermaid_v2: diagram
-//      clipped: ...") are genuine problems worth printing on the CLI path, but
-//      while vaxis owns the alternate screen any stderr write lands on top of
-//      the UI and every re-render prints another line. `tui_active` is set for
-//      the duration of the TUI event loop; while it is set, `logFn` drops the
-//      message. CLI mode leaves the flag clear, so warnings still reach stderr.
 pub const std_options: std.Options = .{
     .log_level = .warn,
     .logFn = logFn,
@@ -65,61 +47,11 @@ fn logFn(
     std.log.defaultLog(level, scope, format, args_);
 }
 
-fn showVersion(allocator: std.mem.Allocator) !void {
+fn showVersion() !void {
     const stdout = std.fs.File.stdout();
     try stdout.writeAll("mercat ");
     try stdout.writeAll(VERSION);
-
-    // Try to fetch latest version from GitHub API
-    if (fetchLatestVersion(allocator)) |latest| {
-        defer allocator.free(latest);
-        try stdout.writeAll(" (latest: ");
-        try stdout.writeAll(latest);
-        try stdout.writeAll(")");
-    } else |_| {
-        // Silently continue if latest version check fails
-    }
-
     try stdout.writeAll("\n");
-}
-
-fn fetchLatestVersion(allocator: std.mem.Allocator) ![]u8 {
-    // Try using curl if available
-    var child = std.process.Child.init(&.{
-        "curl",
-        "-s",
-        "--max-time",
-        "2",
-        "https://api.github.com/repos/tawago/mercat/releases/latest",
-    }, allocator);
-    child.stdout_behavior = .Pipe;
-    child.stderr_behavior = .Pipe;
-
-    try child.spawn();
-
-    const stdout = try child.stdout.?.readToEndAlloc(allocator, 8192);
-    defer allocator.free(stdout);
-
-    const term = try child.wait();
-    if (term != .Exited or term.Exited != 0) {
-        return error.FetchFailed;
-    }
-
-    // Parse JSON to find tag_name
-    if (std.mem.indexOf(u8, stdout, "\"tag_name\":\"")) |start| {
-        const begin = start + 12; // Length of "\"tag_name\":\""
-        if (std.mem.indexOf(u8, stdout[begin..], "\"")) |end| {
-            const tag = stdout[begin .. begin + end];
-            // Return the tag without the 'v' prefix if present
-            const version = if (std.mem.startsWith(u8, tag, "v"))
-                tag[1..]
-            else
-                tag;
-            return try allocator.dupe(u8, version);
-        }
-    }
-
-    return error.ParseFailed;
 }
 
 pub fn main() !void {
@@ -136,31 +68,23 @@ pub fn main() !void {
             return;
         },
         error.ShowVersion => {
-            try showVersion(allocator);
+            try showVersion();
             return;
         },
         else => return err,
     };
     defer parsed.deinit(allocator);
 
-    // Detect truecolor support once (COLORTERM=truecolor|24bit); the ANSI writer
-    // reads this to decide whether to emit 24-bit rgb or downgrade to xterm-256.
     theme_color.initTruecolor(allocator);
 
     var loaded_config = try config.load(allocator);
     defer loaded_config.deinit(allocator);
 
-    // `--dump-theme <name>`: resolve the theme (preset or user file) and print it
-    // as editable TOML, then exit. Runs before input is read (no file needed).
     if (parsed.dump_theme) |name| {
         try runDumpTheme(allocator, name);
         return;
     }
 
-    // No file argument and stdin is an interactive terminal: there is nothing
-    // to read and waiting on the tty would look like a hang, so show the usage
-    // text on stderr and exit non-zero. (A pipe or redirect on stdin is read
-    // implicitly — `cat file.md | mercat` needs no `-`.)
     const raw_content = readInput(allocator, parsed.input) catch |err| switch (err) {
         error.MissingInput => {
             std.fs.File.stderr().writeAll(args.usage_text) catch {};
@@ -169,40 +93,23 @@ pub fn main() !void {
         else => return err,
     };
     defer allocator.free(raw_content);
-    // A UTF-8 BOM (common in Windows-authored files) is not content: leaving it
-    // in place turns the first markdown/mermaid line into an unparseable one.
     const content = cli_input.stripBom(raw_content);
 
-    // Theme resolution: build the registry (built-in presets + user theme
-    // files), resolve the selected name into a concrete StyleMap + Decor, and
-    // collect diagnostics for the CLI dim-comment / TUI status-bar surfaces.
     var diag = theme_resolve.Diagnostics.init(allocator);
     defer diag.deinit();
 
     var registry = theme_resolve.Registry.init(allocator);
     defer registry.deinit();
 
-    // Point the registry at `~/.config/mercat/themes`; it reads only the files
-    // the resolved chain actually references (the selected name + its `extends`
-    // targets), lazily, and owns their lifetime.
     registry.useThemeDir();
 
     const theme_name = parsed.effectiveTheme(loaded_config.display.theme);
 
-    // Inline `[theme.*]` config tables are the highest-priority override layer;
-    // borrow the builder's slices into an immutable view for the resolver. The
-    // view only has to outlive the `resolve` call below.
     const inline_overrides = loaded_config.raw_theme.view();
 
-    // S5 threads the legacy `syntax_theme=classic` code-token variant as an
-    // extra fold layer (before inline overrides) for chains rooted at
-    // `dark`/`light`; `.default` is a no-op.
     var resolved = try registry.resolve(theme_name, loaded_config.display.syntax_theme, inline_overrides, &diag);
     const show_heading_markers = parsed.effectiveHeadingMarkers(loaded_config.display.heading_markers);
     const frontmatter_style = parsed.effectiveFrontmatter(loaded_config.display.frontmatter);
-    // §5.3: terminal output keeps the terminal-aware resolution; plain/png
-    // output resolve explicit -w > configured non-zero width > 120 and never
-    // consult the terminal.
     const render_width = switch (parsed.format) {
         .terminal => blk: {
             const configured = parsed.effectiveWidth(loaded_config.display.width);
@@ -215,52 +122,73 @@ pub fn main() !void {
             try std.fs.File.stderr().writeAll("TUI mode requires an interactive terminal with /dev/tty available.\n");
             return;
         }
-        // Gate warnings while vaxis owns the alternate screen (see `logFn`); the
-        // flag is cleared on return so a later CLI invocation still prints.
         tui_active.store(true, .monotonic);
         defer tui_active.store(false, .monotonic);
-        // TUI surfaces diagnostics in the status bar, not on stderr.
         const theme_warning = try themeWarning(allocator, &diag);
         defer if (theme_warning) |w| allocator.free(w);
         try tui.run(allocator, inputTitle(parsed.input), parsed.input, content, loaded_config.general.editor, &resolved, theme_warning, show_heading_markers, frontmatter_style, parsed.force_layout orelse .auto, loaded_config.mermaid.subgraph_edges);
         return;
     }
 
+    try runCli(allocator, parsed, &loaded_config, &resolved, &diag, content, .{
+        .width = render_width,
+        .show_heading_markers = show_heading_markers,
+        .frontmatter_style = frontmatter_style,
+    });
+}
+
+/// Per-invocation display settings already folded from CLI flags + config,
+/// passed to the CLI render path as one bundle.
+const CliDisplay = struct {
+    width: usize,
+    show_heading_markers: bool,
+    frontmatter_style: config.FrontmatterStyle,
+};
+
+/// The non-TUI path: parse the input, build the render model once, then
+/// serialize per output format (§6.1).
+fn runCli(
+    allocator: std.mem.Allocator,
+    parsed: args.Parsed,
+    loaded_config: *const config.Config,
+    resolved: *theme_resolve.ResolvedTheme,
+    diag: *const theme_resolve.Diagnostics,
+    content: []const u8,
+    display: CliDisplay,
+) !void {
     var document = if (cli_input.isMermaidSource(parsed.input.filePath(), content))
         try createMermaidDocument(allocator, content)
     else
         try markdown.parse(allocator, content);
     defer document.deinit(allocator);
 
-    // §6.1: build the render model exactly once, then dispatch on format.
     var rendered = try render_model.renderDocument(allocator, document, .{
-        .width = render_width,
-        .show_heading_markers = show_heading_markers,
+        .width = display.width,
+        .show_heading_markers = display.show_heading_markers,
         .decor = &resolved.decor,
-        .frontmatter_style = frontmatter_style,
+        .frontmatter_style = display.frontmatter_style,
         .mermaid_box_style = parsed.box_style orelse .standard,
         .mermaid_crossing_heuristic = parsed.crossing_heuristic orelse .median,
         .mermaid_force_layout = parsed.force_layout orelse .auto,
         .mermaid_aspect_ratio = parsed.aspect_ratio orelse 1.0,
         .mermaid_debug = parsed.debug_mermaid,
-        // Subgraph-border notation is a config value (owner ruling
-        // 2026-07-19); config stores the shared `prim.SubgraphEdges` directly,
-        // so it flows through with no enum translation.
         .mermaid_subgraph_edges = loaded_config.mermaid.subgraph_edges,
     });
     defer rendered.deinit(allocator);
 
-    // §S6: theme-resolution diagnostics go to stderr as dim comment lines.
-    // stderr is a separate channel, so a piped/redirected stdout stays
-    // byte-clean regardless — surface the warnings unconditionally, for every
-    // output format, so an interactive `mercat --style typo file.md` still gets
-    // told. (The TUI returned above; it shows diagnostics in the status bar.)
-    emitCliDiagnostics(&diag);
+    emitCliDiagnostics(diag);
+
+    const ctx = ExportContext{
+        .input_path = inputTitle(parsed.input),
+        .format = @tagName(parsed.format),
+        .output_path = parsed.output_path,
+        .width = display.width,
+    };
 
     switch (parsed.format) {
         .terminal => {
             const canvas: ?renderer.Canvas = if (resolved.canvasBg()) |bg|
-                .{ .bg = bg, .width = render_width }
+                .{ .bg = bg, .width = display.width }
             else
                 null;
             const output = try renderer.serialize(
@@ -273,37 +201,18 @@ pub fn main() !void {
             try pager.writeOutput(allocator, output, loaded_config.general.pager, parsed.pager);
         },
         .plain => {
-            // §20: every export failure class reports the shared context (input
-            // path, format, output path, width) plus a failure-specific detail
-            // on one stderr line, then exits non-zero.
-            const ctx = ExportContext{
-                .input_path = inputTitle(parsed.input),
-                .format = "plain",
-                .output_path = parsed.output_path,
-                .width = render_width,
-            };
             exportPlain(allocator, rendered, parsed.output_path) catch |err| {
                 var buf: [192]u8 = undefined;
                 exportFailure(ctx, exportDetail(&buf, err, .{}));
             };
         },
         .png => {
-            // §5.2: PNG is binary and always targets a file (parse-time
-            // validation guarantees --output is present), so it never writes to
-            // an interactive terminal.
             const output_path = parsed.output_path orelse return error.PngRequiresOutput;
 
             const options = export_layout.Options{
                 .palette = resolved.styles,
                 .color_mode = if (parsed.monochrome) .monochrome else .theme,
                 .canvas_bg = resolved.canvasBg(),
-            };
-
-            const ctx = ExportContext{
-                .input_path = inputTitle(parsed.input),
-                .format = "png",
-                .output_path = output_path,
-                .width = render_width,
             };
 
             var png_diag: export_png.Diagnostic = .{};
@@ -322,7 +231,6 @@ fn runDumpTheme(allocator: std.mem.Allocator, name: []const u8) !void {
     defer diag.deinit();
     var registry = theme_resolve.Registry.init(allocator);
     defer registry.deinit();
-    // The registry lazily reads only `<name>.toml` (+ its `extends` targets).
     registry.useThemeDir();
 
     const folded = registry.mergedSpec(name, &diag);
@@ -332,7 +240,6 @@ fn runDumpTheme(allocator: std.mem.Allocator, name: []const u8) !void {
         try theme_dump.write(buf.writer(allocator), name, &f);
         try std.fs.File.stdout().writeAll(buf.items);
     }
-    // Surface diagnostics (unknown theme, glyph fallback, ...) on stderr.
     emitCliDiagnostics(&diag);
     if (folded == null) std.process.exit(1);
 }
@@ -403,7 +310,6 @@ fn exportDetail(buf: []u8, err: anyerror, diag: export_png.Diagnostic) []const u
         error.InvalidUtf8 => "invalid UTF-8 in rendered text",
         error.InvalidControlScalar, error.InvalidPlainByte => "control scalar in rendered text",
         error.OutOfMemory => "out of memory",
-        // Encode/write/rename/open failures surface under their Zig error name.
         else => @errorName(err),
     };
 }
@@ -421,9 +327,6 @@ fn exportPng(
     output_path: []const u8,
     diag: *export_png.Diagnostic,
 ) !void {
-    // One embedded JetBrains Mono face at the export pixel height; the layout
-    // and painter both read metrics/glyphs from it. A font-init failure is
-    // remapped to a typed error so the §20 diagnostic can name it.
     const face = export_font.Font.init(options.font_pixel_height) catch return error.FontInitFailed;
 
     var doc = try export_layout.build(allocator, rendered, &face, options);
@@ -450,15 +353,21 @@ fn inputTitle(input: args.Input) []const u8 {
     };
 }
 
+/// Upper bound on input size (size only — content/extension are not checked
+/// here). Sources are text; anything past this is almost certainly a mistyped
+/// path (or `mercat < /dev/zero`) and is better refused than swallowed into
+/// memory.
+const max_input_bytes = 256 * 1024 * 1024;
+
 fn readInput(allocator: std.mem.Allocator, input: args.Input) ![]u8 {
     return switch (input) {
-        .stdin => std.fs.File.stdin().readToEndAlloc(allocator, std.math.maxInt(usize)),
+        .stdin => std.fs.File.stdin().readToEndAlloc(allocator, max_input_bytes),
         .file => |path| blk: {
             const cwd = std.fs.cwd();
-            break :blk try cwd.readFileAlloc(allocator, path, std.math.maxInt(usize));
+            break :blk try cwd.readFileAlloc(allocator, path, max_input_bytes);
         },
         .none => if (cli_input.shouldReadImplicitStdin())
-            std.fs.File.stdin().readToEndAlloc(allocator, std.math.maxInt(usize))
+            std.fs.File.stdin().readToEndAlloc(allocator, max_input_bytes)
         else
             error.MissingInput,
     };
@@ -478,9 +387,6 @@ fn createMermaidDocument(allocator: std.mem.Allocator, content: []const u8) !mar
 
 test {
     std.testing.refAllDecls(@This());
-    // Explicitly pull the imported files' `test` blocks into this test binary.
-    // `refAllDecls` references decls but does not, on its own, collect tests
-    // from imported files; `_ = @import(...)` does.
     _ = export_glyph_sheet;
     _ = export_test;
     _ = cli_input_test;
