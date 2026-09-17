@@ -112,13 +112,14 @@ fn buildSketch(
 
     const is_td = graph.direction == .TD;
     const fans_detected: []fan_mod.Fan = if (is_td) try fan_mod.detect(a, graph, lg) else &.{};
-    // The rail construction's report-only counts ride the Sketch to telemetry.
-    // @guarded-by: layout_test2.zig "construction-time rail exclusions are reported on the shipped Sketch"
+    // The closure licence's report-only counts ride the Sketch to telemetry: the
+    // registry tags name real events only if a production render can fire them.
+    // @guarded-by: layout_test2.zig "a production render carries the closure licence's counts on its Sketch"
     var closure: ledger.ClosureCounts = .{};
     addConstructionDiagnostics(&closure, fans_detected);
     const effective_plan: ?ledger.BundlePermits = try bundle_commit.effectivePlan(a, graph, opts.bundle_permits);
     const plan_ref: ?*const ledger.BundlePermits = if (effective_plan) |*p| p else null;
-    var candidate_bundles = try bundle_commit.buildReported(a, graph, plan_ref, lg.reversed_edges, try longEdges(a, lg));
+    var candidate_bundles = try bundle_commit.buildReported(a, graph, plan_ref, lg.reversed_edges, try longEdges(a, lg), &closure);
     // A long peer taps a rail or nothing: the per-peer polyline path assumes
     // a next-layer leaf. Where the plan did not select the fan's bundle, a
     // fan holding a long peer degrades to what it was before long peers
@@ -128,7 +129,10 @@ fn buildSketch(
     const construction_private = hasPrivatePeers(fans);
     const port_active = hasPortWork(candidate_bundles) or construction_private;
     const derived = if (plan_ref) |plan| blk: {
-        if (port_active) break :blk ports.derive(a, graph, plan.*, candidate_bundles, graph.direction, lg.reversed_edges) catch &.{};
+        if (port_active) {
+            const all = ports.derive(a, graph, plan.*, candidate_bundles, graph.direction, lg.reversed_edges) catch &.{};
+            break :blk port_plan.withoutDischarged(a, all, candidate_bundles) catch all;
+        }
         if (construction_private) break :blk port_plan.deriveFanAttachments(a, graph, graph.direction, lg.reversed_edges, fans) catch &.{};
         break :blk &.{};
     } else if (construction_private)
@@ -174,7 +178,7 @@ fn buildSketch(
     // edge stays traceable. Single rails and pure fan-in|out stay class 0.
     // @guarded-by: layout/fan_lanes_test.zig "incomplete overlapping fans get separate lanes"
     if (fans.len > 0) fan_mod.gateFanInSharedLabels(NodeGeom, fans, geom);
-    if (fans.len > 0) try fan_lanes.assignLanes(NodeGeom, a, graph, lg, geom, fans, candidate_bundles);
+    if (fans.len > 0) try fan_lanes.assignLanes(NodeGeom, a, graph, lg, geom, fans, candidate_bundles, &closure);
 
     // A fan's label band is a LABEL claim: that is where its labels sit — one
     // per dropper, x-aligned with the dropper they name — so the rows are
@@ -308,6 +312,10 @@ fn buildSketch(
     // Freeze the rails AFTER computeBbox's shift pass — their slices still alias the shifted mutable buffers before that point. @guarded-by: layout/fan_rail_test.zig "rail taps stay in sync with their target node's post-shift position"
     const rails_out = try a.alloc(sketch.Rail, edges_result.rails.len);
     for (edges_result.rails, rails_out) |b, *out| out.* = b.rail;
+
+    const routed = try a.alloc(ledger.EdgeId, edges_out.len);
+    for (edges_out, routed) |e, *slot| slot.* = e.id;
+    closure.co_double_discharge = ledger.doubleDischarged(candidate_bundles.discharged, routed);
 
     // The plan this layout committed authorizes the bundle sets: a flat plan
     // always (a plan that selected no bundle authorizes none), a piece plan

@@ -86,24 +86,9 @@ pub fn prepareRailMembers(a: std.mem.Allocator, graph: sg.SemGraph, direction: p
         try kept.append(a, id);
     }
     if (kept.items.len < 2) return .{ .deco_mixed = deco_mixed, .style_mixed = style_mixed, .star_violation = star_violation, .members = &.{} };
-    // A group whose members are all arrow-free forms no rail. An undirected
-    // fan's crossbar would assert every leaf pair among its endpoints, and the
-    // source declares none of them; each member draws its own ink instead.
-    // @guarded-by: bundle_commit_test.zig "an all-arrow-free fan commits no rail and every member routes on its own"
-    if (allArrowFree(graph, kept.items)) return .{ .deco_mixed = deco_mixed, .style_mixed = style_mixed, .star_violation = star_violation, .members = &.{} };
     const members = try kept.toOwnedSlice(a);
     if (!(try prospectiveRailCheck(a, graph, direction, pivot, members)).isValid()) return .{ .members = &.{}, .deco_mixed = deco_mixed, .style_mixed = style_mixed, .star_violation = true };
     return .{ .members = members, .deco_mixed = deco_mixed, .style_mixed = style_mixed, .star_violation = star_violation };
-}
-
-/// Every member carries no directional end at all (`A --- B`, or a placement
-/// proxy standing for arrow-free ink).
-fn allArrowFree(graph: sg.SemGraph, members: []const pb.EdgeId) bool {
-    for (members) |id| {
-        const edge = edgeById(graph, id) orelse return false;
-        if (!sg.arrowFree(edge)) return false;
-    }
-    return members.len > 0;
 }
 
 fn railCandidate(graph: sg.SemGraph, direction: pb.BundleDirection, pivot: sg.NodeId, source: []const pb.EdgeId, index: usize) ?RailCandidate {

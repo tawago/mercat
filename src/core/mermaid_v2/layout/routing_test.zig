@@ -225,7 +225,7 @@ test "a placement edge routes last and uncontested" {
     try testing.expectEqual(@as(sketch.EdgeId, 2), s.edges[s.edges.len - 1].id);
 }
 
-test "every declared edge of an all-independent plan is routed" {
+test "a discharged edge is withheld from routing entirely" {
     var arena = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
@@ -264,6 +264,10 @@ test "every declared edge of an all-independent plan is routed" {
 
     const routed = try routing.buildEdgesWithPlan(a, g, lg, &geom, &placements, &.{}, .{ .memberships = &memberships }, ports, .{});
     try testing.expectEqual(@as(usize, 3), routed.edges.len);
+
+    const withheld = try routing.buildEdgesWithPlan(a, g, lg, &geom, &placements, &.{}, .{ .memberships = &memberships, .discharged = &.{2} }, ports, .{});
+    try testing.expectEqual(@as(usize, 2), withheld.edges.len);
+    for (withheld.edges) |e| try testing.expect(e.id != 2);
 }
 
 test "the lane ladder climbs from the planned lane, then descends to lane 0, then ends" {

@@ -323,6 +323,51 @@ test "derivation: a committed group consumes one rail pivot attachment keyed by 
     try std.testing.expectEqual(@as(u32, 3), out[0].offset);
 }
 
+test "a fused union's leaf node exits through one shared attachment" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const nodes = [_]sg.Node{ mkNode(0, "A"), mkNode(1, "B"), mkNode(2, "X"), mkNode(3, "Y") };
+    const edges = [_]sg.Edge{ mkEdge(0, 0, 2), mkEdge(1, 0, 3), mkEdge(2, 1, 2), mkEdge(3, 1, 3) };
+    const graph = mkGraph(.TD, &nodes, &edges);
+    const groups = [_]pb.CandidateBundle{
+        .{ .id = 0, .direction = .in, .pivot = 2, .members = &.{ 0, 2 } },
+        .{ .id = 1, .direction = .in, .pivot = 3, .members = &.{ 1, 3 } },
+    };
+    const plan: pb.BundlePermits = .{ .policy = .joined, .groups = &groups, .memberships = &.{
+        .{ .edge = 0, .source_group = null, .target_group = 0 },
+        .{ .edge = 1, .source_group = null, .target_group = 1 },
+        .{ .edge = 2, .source_group = null, .target_group = 0 },
+        .{ .edge = 3, .source_group = null, .target_group = 1 },
+    } };
+    const bundles: pb.RealizedBundles = .{
+        .selected_bundles = &.{
+            .{ .id = 0, .proposal = 0, .candidate_bundle = 0, .members = &.{ 0, 2 } },
+            .{ .id = 1, .proposal = 1, .candidate_bundle = 1, .members = &.{ 1, 3 } },
+        },
+        .memberships = &.{
+            .{ .edge = 0, .source = null, .target = .{ .selected = 0 } },
+            .{ .edge = 1, .source = null, .target = .{ .selected = 1 } },
+            .{ .edge = 2, .source = null, .target = .{ .selected = 0 } },
+            .{ .edge = 3, .source = null, .target = .{ .selected = 1 } },
+        },
+        .fused = &.{&.{ 0, 1, 2, 3 }},
+    };
+    const derived = try ports.derive(a, graph, plan, bundles, .TD, &.{});
+    for ([2]u32{ 0, 1 }) |src| {
+        const south = try ports.forSide(a, derived, src, .south);
+        try std.testing.expectEqual(@as(usize, 1), south.len);
+        try std.testing.expectEqual(ports.AttachmentClass.rail_pivot, south[0].class);
+        try std.testing.expectEqualStrings("X", south[0].key.opposite);
+        try std.testing.expectEqual(@as(usize, 2), south[0].members.len);
+    }
+    try std.testing.expectEqual(@as(u32, 1), ports.sideDemand(derived, 2).north);
+    var lapsed = bundles;
+    lapsed.fused = &.{};
+    const per_edge = try ports.derive(a, graph, plan, lapsed, .TD, &.{});
+    try std.testing.expectEqual(@as(usize, 2), (try ports.forSide(a, per_edge, 0, .south)).len);
+}
+
 test "graph edge-array permutation leaves derived allocation identical" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();

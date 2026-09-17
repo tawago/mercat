@@ -265,7 +265,7 @@ pub const Sketch = struct {
     rail_claims: []const ledger.RailClaim = &.{},
     /// Candidate-local branch realization envelope. // @guarded-by: entry.zig "V-D-IR-07: a clustered graph's bundles ride piece plans; the root plan stays skipped"
     bundles: ledger.RealizedBundles = .{},
-    /// Report-only rail construction inventory for this candidate (never a layout input).
+    /// Report-only closure-licence inventory for this candidate (never a layout input).
     closure: ledger.ClosureCounts = .{},
     /// Report-only row account of every inter-rank gap (never a layout input).
     gap_rows: []const ledger.GapRows = &.{},

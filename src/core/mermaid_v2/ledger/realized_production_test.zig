@@ -263,26 +263,147 @@ fn renderPlain(a: std.mem.Allocator, source: []const u8, width: u32) !Plain {
     return finishPlain(a, winner.sketch);
 }
 
-test "an all-arrow-free fan draws every edge on its own: no rail, no crossbar, nothing withheld" {
+/// Render ONE candidate of the live set — the first on the source's
+/// `switch_direction` rung, carrying the plan its layout committed — so a
+/// test can pin what a layout produces on that candidate without pinning
+/// the score's choice.
+fn renderRotated(a: std.mem.Allocator, source: []const u8, width: u32) !Plain {
+    const graph = try parse(a, source);
+    const plan = (try permits.build(a, graph, .joined)).plan;
+    const set = try select.enumerateAll(a, graph, &plan, width);
+    for (set.merged) |cand| {
+        if (cand.rung != .switch_direction) continue;
+        return finishPlain(a, cand.sketch);
+    }
+    return error.NoRotatedCandidate;
+}
+
+/// Count how many of `grid`'s rows carry at least one horizontal run glyph —
+/// a shared crossbar occupies ONE such row, unfused private lanes occupy one
+/// each.
+fn rowsWithInk(grid: []const u8, glyph: []const u8) usize {
+    var n: usize = 0;
+    var it = std.mem.splitScalar(u8, grid, '\n');
+    while (it.next()) |line| {
+        if (std.mem.indexOf(u8, line, glyph) != null) n += 1;
+    }
+    return n;
+}
+
+test "an undeclared all-arrow-free fan unfuses; a declared clique keeps the rail and withholds its pair edges" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
 
-    for ([_][]const u8{
-        "flowchart TD\n  A --- Z\n  B --- Z\n  C --- Z\n",
-        "flowchart TD\n  A --- Z\n  B --- Z\n  A --- B\n",
-        "flowchart TD\n  A --- X\n  A --- Y\n  B --- X\n  B --- Y\n",
-    }) |source| {
-        const rendered = try renderPlain(a, source, 70);
-        try std.testing.expectEqual(@as(usize, 0), rendered.bundles.selected_bundles.len);
-        try std.testing.expectEqual((try parse(a, source)).edges.len, rendered.routed.len);
+    const refused = try renderPlain(a, "flowchart TD\n  A --- Z\n  B --- Z\n  C --- Z\n", 70);
+    try std.testing.expectEqual(@as(usize, 0), refused.bundles.selected_bundles.len);
+    try std.testing.expectEqual(@as(usize, 0), refused.bundles.discharged.len);
+    try std.testing.expectEqual(@as(usize, 3), refused.routed.len);
+    try std.testing.expect(std.mem.indexOf(u8, refused.grid, "┼") == null);
+
+    // Both candidates are judged: A's departure {A—Z, A—B} (Z is a long
+    // member of it) claims first by rank and discharges B—Z; Z's arrival,
+    // left with one member, subordinates. A's rail ships with A—B tapped
+    // and A—Z as the member stroke, so one edge is routed. Pinned on the
+    // rotated (TD) candidate of the LR source: which candidate the score
+    // picks is not this test's subject, and the row ledger made the natural
+    // LR candidate narrow enough to win at this width.
+    const kept = try renderRotated(a, "flowchart LR\n  A --- Z\n  B --- Z\n  A --- B\n", 70);
+    try std.testing.expectEqual(@as(usize, 1), kept.bundles.discharged.len);
+    try std.testing.expectEqual(@as(usize, 1), kept.routed.len);
+    for (kept.bundles.discharged) |co| {
+        for (kept.routed) |id| try std.testing.expect(id != co);
     }
-    // A fan with nothing to cross ships no crossbar glyph at all.
-    const fan = try renderPlain(a, "flowchart TD\n  A --- Z\n  B --- Z\n  C --- Z\n", 70);
-    try std.testing.expect(std.mem.indexOf(u8, fan.grid, "┼") == null);
+    try std.testing.expectEqual(@as(usize, 1), rowsWithInk(kept.grid, "├────┐"));
 }
 
-test "an incomplete bipartite's rails take separate rows, and a rail's junction clears foreign taps" {
+test "a salvaged rail is complete against the commitment the layout drew" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const graph = try parse(a, "flowchart TD\n  A --- Z\n  B --- Z\n  C --- Z\n  A --- B\n  B --- C\n");
+    const plan = (try permits.build(a, graph, .joined)).plan;
+    const winner = try select.choose(a, graph, &plan, 60, false, false, .bridge);
+    var rail_members: usize = 0;
+    for (winner.sketch.bundles.selected_bundles) |sj| rail_members = @max(rail_members, sj.members.len);
+    try std.testing.expectEqual(@as(usize, 2), rail_members);
+    const report = try raster.rasterize(a, winner.sketch, .bridge);
+    try std.testing.expectEqual(@as(u32, 0), report.edge_cells_lost);
+}
+
+test "a complete all-to-all draws one rail per shared endpoint, and the fused run spends one stub per source" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+
+    const directed = try renderPlain(a, "flowchart TD\n  A --> X\n  A --> Y\n  B --> X\n  B --> Y\n", 70);
+    try std.testing.expectEqual(@as(usize, 2), directed.bundles.selected_bundles.len);
+    for (directed.bundles.selected_bundles) |sj| try std.testing.expectEqual(@as(usize, 2), sj.members.len);
+    for (0..4) |edge| {
+        var owners: usize = 0;
+        for (directed.bundles.selected_bundles) |sj| {
+            for (sj.members) |m| {
+                if (m == edge) owners += 1;
+            }
+        }
+        try std.testing.expectEqual(@as(usize, 1), owners);
+    }
+    try std.testing.expectEqual(@as(usize, 1), directed.bundles.fused.len);
+    try std.testing.expectEqual(@as(usize, 4), directed.bundles.fused[0].len);
+    var stubs: usize = 0;
+    var i: usize = 0;
+    while (std.mem.indexOfPos(u8, directed.grid, i, "┬")) |at| : (i = at + 1) stubs += 1;
+    try std.testing.expectEqual(@as(usize, 2), stubs);
+
+    const undirected = try renderPlain(a, "flowchart TD\n  A --- X\n  A --- Y\n  B --- X\n  B --- Y\n", 70);
+    try std.testing.expectEqual(@as(usize, 0), undirected.bundles.selected_bundles.len);
+    try std.testing.expectEqual(@as(usize, 0), undirected.bundles.discharged.len);
+    try std.testing.expectEqual(@as(usize, 4), undirected.routed.len);
+}
+
+test "a directed complete bipartite keeps its TD star decomposition on clearing rows" {
+    const source =
+        \\flowchart TD
+        \\    S1[Order Received] --> M1[Validate Payment]
+        \\    S1 --> M2[Check Inventory]
+        \\    S1 --> M3[Apply Discount]
+        \\    S2[Webhook Triggered] --> M1
+        \\    S2 --> M2
+        \\    S2 --> M3
+        \\    S3[Manual Entry] --> M1
+        \\    S3 --> M2
+        \\    S3 --> M3
+        \\
+    ;
+    for ([_]u32{ 60, 90, 120 }) |width| {
+        var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+        defer arena.deinit();
+        const a = arena.allocator();
+        const graph = try parse(a, source);
+        const plan = (try permits.build(a, graph, .joined)).plan;
+        const winner = try select.choose(a, graph, &plan, width, false, false, .bridge);
+
+        try std.testing.expectEqual(graph.direction, winner.sketch.direction);
+        try std.testing.expectEqual(@as(usize, 3), winner.sketch.rails.len);
+        for (winner.sketch.rails) |rail| {
+            try std.testing.expectEqual(@as(usize, 3), rail.taps.len);
+            try std.testing.expectEqual(winner.sketch.rails[0].crossbar[0].y, rail.crossbar[0].y);
+        }
+
+        try std.testing.expectEqual(@as(usize, 1), winner.sketch.bundles.fused.len);
+        try std.testing.expectEqual(@as(usize, 9), winner.sketch.bundles.fused[0].len);
+
+        for (winner.sketch.rails) |rail| for (rail.taps) |tap| {
+            for (winner.sketch.rails) |other| for (other.taps) |t2| {
+                if (t2.node == tap.node) try std.testing.expectEqual(tap.at.x, t2.at.x);
+            };
+        };
+
+        try std.testing.expect(winner.sketch.bbox.w <= width);
+    }
+}
+
+test "on the licence's lapse path a rail's junction still clears foreign taps" {
     const source =
         \\flowchart TD
         \\    S1[Order Received] --> M1[Validate Payment]

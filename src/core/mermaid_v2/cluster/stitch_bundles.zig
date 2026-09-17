@@ -25,6 +25,7 @@ pub fn merge(a: std.mem.Allocator, pieces: []const PieceBundles, bridge: ledger.
     var selected: std.ArrayListUnmanaged(ledger.SelectedBundle) = .empty;
     var memberships: std.ArrayListUnmanaged(ledger.RealizedEdgeMembership) = .empty;
     var terminals: std.ArrayListUnmanaged(ledger.TerminalPort) = .empty;
+    var discharged: std.ArrayListUnmanaged(ledger.EdgeId) = .empty;
 
     for (pieces) |piece| {
         const j = piece.bundles;
@@ -57,6 +58,7 @@ pub fn merge(a: std.mem.Allocator, pieces: []const PieceBundles, bridge: ledger.
                 .port = t.port,
             });
         }
+        for (j.discharged) |e| try discharged.append(a, e + piece.edge_base);
     }
 
     const bridge_jid_base: ledger.SelectedBundleId = @intCast(selected.items.len);
@@ -80,6 +82,7 @@ pub fn merge(a: std.mem.Allocator, pieces: []const PieceBundles, bridge: ledger.
         .selected_bundles = try selected.toOwnedSlice(a),
         .memberships = try memberships.toOwnedSlice(a),
         .terminal_ports = try terminals.toOwnedSlice(a),
+        .discharged = try discharged.toOwnedSlice(a),
     };
 }
 
@@ -104,6 +107,7 @@ test "merge renumbers bundles per piece and shifts every edge id" {
             .{ .edge = 0, .source = .{ .selected = 0 }, .target = null },
             .{ .edge = 1, .source = .{ .selected = 0 }, .target = null },
         },
+        .discharged = &.{1},
     };
     const piece_b: ledger.RealizedBundles = .{
         .selected_bundles = &.{.{ .id = 0, .proposal = 1, .candidate_bundle = 2, .members = &m1 }},
@@ -125,6 +129,7 @@ test "merge renumbers bundles per piece and shifts every edge id" {
     try std.testing.expectEqualSlices(ledger.EdgeId, &.{ 12, 13 }, merged.selected_bundles[1].members);
     try std.testing.expectEqual(@as(ledger.EdgeId, 12), merged.memberships[2].edge);
     try std.testing.expectEqual(ledger.MembershipDisposition{ .selected = 1 }, merged.memberships[2].target.?);
+    try std.testing.expectEqualSlices(ledger.EdgeId, &.{1}, merged.discharged);
 }
 
 test "merge drops a terminal port whose node did not survive the stitch" {

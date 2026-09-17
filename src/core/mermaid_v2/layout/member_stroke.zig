@@ -32,6 +32,7 @@ const rt = @import("routing_terminal.zig");
 const route_clearance = @import("route_clearance.zig");
 const fan_rail = @import("fan_rail.zig");
 const port_plan = @import("port_plan.zig");
+const rail_closure = @import("../base/rail_closure.zig");
 const sugiyama = @import("sugiyama.zig");
 const gap_rows = @import("gap_rows.zig");
 
@@ -77,6 +78,7 @@ pub fn buildAll(
         const fan_in = isIn(built.rail.role);
         for (built.rail.taps) |tap| {
             if (!tap.continues) continue;
+            if (rail_closure.contains(bundles.discharged, tap.edge)) continue;
             // A member selected at both ends is routed once, from its fan-OUT tap.
             if (fan_in and farTap(rails, tap.edge, false) != null) continue;
             const orig = routing.findGraphEdge(graph, tap.edge) orelse continue;

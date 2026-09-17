@@ -391,9 +391,9 @@ test "the merged sketch sums its pieces' closure counts" {
         .{ .id = 3, .raw_id = "C", .label = "C", .shape = .rect, .classes = &.{}, .cluster = 0 },
     };
     var edges = [_]sem_graph.Edge{
-        .{ .id = 0, .from = 0, .to = 1, .kind = .solid, .arrow_from = .none, .arrow_to = .filled, .label = null },
-        .{ .id = 1, .from = 0, .to = 2, .kind = .solid, .arrow_from = .none, .arrow_to = .filled, .label = null },
-        .{ .id = 2, .from = 0, .to = 3, .kind = .dotted, .arrow_from = .none, .arrow_to = .filled, .label = null },
+        .{ .id = 0, .from = 0, .to = 1, .kind = .solid, .arrow_from = .none, .arrow_to = .none, .label = null },
+        .{ .id = 1, .from = 0, .to = 2, .kind = .solid, .arrow_from = .none, .arrow_to = .none, .label = null },
+        .{ .id = 2, .from = 0, .to = 3, .kind = .solid, .arrow_from = .none, .arrow_to = .none, .label = null },
     };
     var members = [_]sem_graph.NodeId{ 0, 1, 2, 3 };
     var clusters = [_]sem_graph.Cluster{
@@ -408,6 +408,6 @@ test "the merged sketch sums its pieces' closure counts" {
         .arena = null,
     };
     const s = try recurse.layoutPieces(a, graph, .{ .max_width = 120 });
-    try std.testing.expectEqual(@as(u32, 1), s.closure.rail_member_style_mixed);
-    try std.testing.expectEqual(@as(u32, 0), s.closure.rail_deco_mixed);
+    try std.testing.expectEqual(@as(u32, 1), s.closure.rail_closure_undeclared);
+    try std.testing.expectEqual(@as(u32, 3), s.closure.co_undeclared);
 }

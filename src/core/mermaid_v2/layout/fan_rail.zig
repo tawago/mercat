@@ -17,6 +17,7 @@ const fan_mod = @import("fan.zig");
 const fan_polyline = @import("fan_polyline.zig");
 const routing = @import("routing.zig");
 const pb = @import("../base/ledger.zig");
+const rail_closure = @import("../base/rail_closure.zig");
 const port_plan = @import("port_plan.zig");
 
 /// One built rail plus the MUTABLE views layout retains so
@@ -82,11 +83,13 @@ pub fn eligible(fan: fan_mod.Fan, graph: sg.SemGraph, bundles: pb.RealizedBundle
     }
     if (fan.rows != 1) return false;
     if (fan.peers.len < 2) return false;
+    // A discharged member has no ink of its own — another rail's crossbar
+    // is its rendering — so it can tap nothing here.
     var shared_len: usize = 0;
     var kind: ?sg.EdgeKind = null;
     var pivot_arrow: ?sg.ArrowEnd = null;
     for (fan.peers) |p| {
-        if (!p.shared) continue;
+        if (!p.shared or rail_closure.contains(bundles.discharged, p.edge_id)) continue;
         shared_len += 1;
         const e = routing.findGraphEdge(graph, p.edge_id) orelse return false;
         if (kind) |k| {
@@ -119,13 +122,13 @@ pub fn resolve(
 ) error{OutOfMemory}!?Resolved {
     if (dir != .TD or !eligible(fan, graph, bundles)) return null;
     var shared_len: usize = 0;
-    for (fan.peers) |p| if (p.shared) {
+    for (fan.peers) |p| if (p.shared and !rail_closure.contains(bundles.discharged, p.edge_id)) {
         shared_len += 1;
     };
     const peers = try a.alloc(Peer, shared_len);
     var peer_i: usize = 0;
     for (fan.peers) |p| {
-        if (!p.shared) continue;
+        if (!p.shared or rail_closure.contains(bundles.discharged, p.edge_id)) continue;
         const out = &peers[peer_i];
         peer_i += 1;
         const e = routing.findGraphEdge(graph, p.edge_id) orelse return null;

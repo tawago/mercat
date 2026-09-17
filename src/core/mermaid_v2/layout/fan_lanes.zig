@@ -16,8 +16,8 @@
 //! as a single vertical.
 //! Inert (every `lane == 0`, byte-identical) for gaps with a single rail and
 //! for pure fan-in or fan-out groups (N==1 or M==1; a lone pivot never
-//! fabricates). Beyond that the gate is the declared-pair closure test: a run
-//! may fuse only
+//! fabricates). Beyond that the gate is the declared-pair closure test
+//! `base/rail_closure.zig` states: a run may fuse only
 //! where the source DECLARES every leaf pair the run would ASSERT, and what
 //! it asserts turns on whether a leaf-to-leaf trace RUNS AGAINST AN ARROW,
 //! which takes a one-way head. A run one of whose members does not block the
@@ -28,9 +28,9 @@
 //! asserts nothing undeclared and keeps one shared row.
 //!
 //! The test is asked of the group's MODEL. A model missing ink is not a
-//! declaration count: a peer on its pivot's own column draws no run of its
-//! own yet touches the shared crossbar, and dropping it can make an
-//! incomplete group read complete.
+//! declaration count: a discharged edge and a peer on its pivot's own column
+//! draw no run of their own yet touch the shared crossbar, and dropping them
+//! can make an incomplete group read complete. Such a gap never takes it.
 //!
 //! Runs after x-assignment and before row reservation. It is keyed only on gap
 //! topology and geometry.
@@ -40,6 +40,8 @@ const fan_mod = @import("fan.zig");
 const sugiyama = @import("sugiyama.zig");
 const lanes = @import("../base/lanes.zig");
 const pb = @import("../base/ledger.zig");
+const rc = @import("../base/rail_closure.zig");
+const rail_licence = @import("fan_rail_licence.zig");
 
 const Fan = fan_mod.Fan;
 const Edge = struct { from: sg.NodeId, to: sg.NodeId, blocks_leaf_trace: bool, style: u16 };
@@ -99,6 +101,8 @@ pub fn assignLanes(
     geom: []const G,
     fans: []Fan,
     bundles: pb.RealizedBundles,
+    /// Report-only closure-licence sink for the clustered arm (null in tests).
+    report: ?*pb.ClosureCounts,
 ) error{OutOfMemory}!void {
     if (fans.len == 0 or lg.layers.len < 2) return;
     const ngaps: u32 = @intCast(lg.layers.len - 1);
@@ -110,10 +114,15 @@ pub fn assignLanes(
     var style_of: std.AutoHashMapUnmanaged(sg.EdgeId, u16) = .empty;
     defer style_of.deinit(a);
     for (graph.edges) |e| {
-        if (e.kind == .invisible) try invisible.put(a, e.id, {});
+        if (e.kind == .invisible or rc.contains(bundles.discharged, e.id)) try invisible.put(a, e.id, {});
         if (forwardOneWayHead(e)) try blocking.put(a, e.id, {});
         try style_of.put(a, e.id, styleKey(e));
     }
+
+    // A rail model missing ink that still touches a crossbar is not complete.
+    // @guarded-by: fan_lanes_test2.zig "a discharged edge never shrinks a group into looking complete"
+    var pruned_gaps: std.AutoHashMapUnmanaged(u32, void) = .empty;
+    defer pruned_gaps.deinit(a);
 
     // Edges that a fan-OUT owns: their rail belongs to the fan-OUT rail, so a
     // fan-IN into the same target must NOT double-count them as its own rail
@@ -150,7 +159,10 @@ pub fn assignLanes(
         if (f.direction == .out) {
             for (f.peers) |p| {
                 if (!p.shared) continue;
-                if (invisible.contains(p.edge_id)) continue;
+                if (invisible.contains(p.edge_id)) {
+                    if (rc.contains(bundles.discharged, p.edge_id)) try pruned_gaps.put(a, f.source_layer, {});
+                    continue;
+                }
                 const cx = centerX(G, geom[p.peer_idx]);
                 if (cx != pivot_cx) has_run = true;
                 lo = @min(lo, cx);
@@ -165,7 +177,10 @@ pub fn assignLanes(
         } else {
             for (f.peers) |p| {
                 if (!p.shared) continue;
-                if (invisible.contains(p.edge_id)) continue;
+                if (invisible.contains(p.edge_id)) {
+                    if (rc.contains(bundles.discharged, p.edge_id)) try pruned_gaps.put(a, f.source_layer, {});
+                    continue;
+                }
                 if (fanout_edges.contains(p.edge_id)) continue;
                 const cx = centerX(G, geom[p.peer_idx]);
                 // A peer on the pivot's own column draws no horizontal run,
@@ -207,10 +222,11 @@ pub fn assignLanes(
             if (t.gap == gap) try members.append(a, @intCast(ti));
         }
         if (members.items.len < 2) continue;
-        try processGap(a, rails.items, members.items, fans);
+        try processGap(a, rails.items, members.items, fans, pruned_gaps.contains(gap));
     }
 
     if (bundles.memberships.len == 0) {
+        try refuseSharedOnly(a, graph, lg, fans, invisible, report);
         separatePrivatePeers(fans);
         return;
     }
@@ -234,6 +250,23 @@ pub fn assignLanes(
         }
     }
     separatePrivatePeers(fans);
+}
+
+fn refuseSharedOnly(a: std.mem.Allocator, graph: sg.SemGraph, lg: sugiyama.LayeredGraph, fans: []Fan, invisible: std.AutoHashMapUnmanaged(sg.EdgeId, void), report: ?*pb.ClosureCounts) error{OutOfMemory}!void {
+    const gated = try a.dupe(Fan, fans);
+    for (fans, gated) |source, *target| {
+        var peers: std.ArrayListUnmanaged(fan_mod.FanEdge) = .empty;
+        for (source.peers) |peer| if (peer.shared) try peers.append(a, peer);
+        target.peers = try peers.toOwnedSlice(a);
+    }
+    try rail_licence.refuseUndeclared(a, graph, lg, gated, invisible, report);
+    for (gated, fans) |source, *target| {
+        target.lane = source.lane;
+        for (source.peers) |peer| for (target.peers) |*out| if (out.edge_id == peer.edge_id) {
+            out.lane = peer.lane;
+            break;
+        };
+    }
 }
 
 fn separatePrivatePeers(fans: []Fan) void {
@@ -318,6 +351,7 @@ fn processGap(
     rails: []const Rail,
     members: []const u32,
     fans: []Fan,
+    gap_pruned: bool,
 ) error{OutOfMemory}!void {
     const n = members.len;
     const parent = try a.alloc(u32, n);
@@ -351,7 +385,7 @@ fn processGap(
             if (find(parent, @intCast(k)) == r) try group.append(a, @intCast(k));
         }
         if (group.items.len < 2) continue;
-        try laneAssignGroup(a, rails, members, group.items, fans);
+        try laneAssignGroup(a, rails, members, group.items, fans, gap_pruned);
     }
 }
 
@@ -361,8 +395,9 @@ fn laneAssignGroup(
     members: []const u32,
     group: []const u32,
     fans: []Fan,
+    gap_pruned: bool,
 ) error{OutOfMemory}!void {
-    if (!fusionForbidden(a, rails, members, group)) return;
+    if (!fusionForbidden(a, rails, members, group, gap_pruned)) return;
 
     var runs: std.ArrayListUnmanaged(u32) = .empty;
     defer runs.deinit(a);
@@ -374,7 +409,7 @@ fn laneAssignGroup(
     for (runs.items, 0..) |gi, i| {
         claim_of[i] = for (runs.items[0..i], 0..) |gj, j| {
             if (sameFusionClass(rails, members, fans, gi, gj) and
-                classFusable(a, rails, members, group, fans, runs.items[0..i], claim_of[0..i], claim_of[j], gi))
+                classFusable(a, rails, members, group, fans, runs.items[0..i], claim_of[0..i], claim_of[j], gap_pruned, gi))
                 break claim_of[j];
         } else blk: {
             nclaims += 1;
@@ -430,14 +465,14 @@ fn leafSubset(dir: fan_mod.Direction, xs: []const Edge, ys: []const Edge) bool {
 /// entry (or, for a departure class, any face) the class's rail serves could
 /// merge with the rail at that node, so a reader would trace pairs the class
 /// never declared. Placement never decides this: the node incidence does.
-fn classFusable(a: std.mem.Allocator, rails: []const Rail, members: []const u32, group: []const u32, fans: []const Fan, runs: []const u32, claim_of: []const u32, ci: u32, gi: u32) bool {
+fn classFusable(a: std.mem.Allocator, rails: []const Rail, members: []const u32, group: []const u32, fans: []const Fan, runs: []const u32, claim_of: []const u32, ci: u32, gap_pruned: bool, gi: u32) bool {
     var sub: std.ArrayListUnmanaged(u32) = .empty;
     defer sub.deinit(a);
     for (runs, claim_of) |gj, c| {
         if (c == ci) sub.append(a, gj) catch return false;
     }
     sub.append(a, gi) catch return false;
-    if (fusionForbidden(a, rails, members, sub.items)) return false;
+    if (fusionForbidden(a, rails, members, sub.items, gap_pruned)) return false;
     return !foreignTouches(a, rails, members, group, sub.items, fans);
 }
 
@@ -467,21 +502,24 @@ fn spansTouch(x: Rail, y: Rail) bool {
 }
 
 /// The group's rails must not fuse into one run when the run would assert a
-/// leaf pair the source does not declare — the declared-pair closure test,
-/// asked of a whole group.
+/// leaf pair the source does not declare — the closure test of
+/// `base/rail_closure.zig`, asked of a whole group.
 ///
 /// Order matters. A lone pivot on either side (N==1 or M==1) can never
 /// fabricate and escapes first. Then a member that does not block the
 /// leaf-to-leaf trace makes the run assert UNORDERED pairs, so a two-sided
-/// group carrying one is refused outright. A group surviving that asserts
-/// only the CROSS pairs, so it may fuse exactly when its declared set IS
-/// srcs x tgts. Keyed only on the group's declared edges and their arrow
-/// fields: never on a fixture, label, node count, width, or direction.
+/// group carrying one is refused outright. Then a gap whose model lost ink is
+/// refused, its counts not being a declaration count. A group surviving both
+/// asserts only the CROSS pairs, so it may fuse exactly when its declared set
+/// IS srcs x tgts. Keyed only on the group's declared edges, their arrow
+/// fields, and whether the model is whole: never on a fixture, label, node
+/// count, width, or direction.
 fn fusionForbidden(
     a: std.mem.Allocator,
     rails: []const Rail,
     members: []const u32,
     group: []const u32,
+    gap_pruned: bool,
 ) bool {
     var srcs: std.ArrayListUnmanaged(sg.NodeId) = .empty;
     defer srcs.deinit(a);
@@ -506,6 +544,7 @@ fn fusionForbidden(
     if (srcs.items.len <= 1 or tgts.items.len <= 1) return false;
     if (any_open_trace) return true;
     if (style_mixed) return true;
+    if (gap_pruned) return true;
     return pairs.items.len != srcs.items.len * tgts.items.len;
 }
 

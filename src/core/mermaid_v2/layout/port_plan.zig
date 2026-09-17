@@ -2,6 +2,7 @@
 
 const std = @import("std");
 const pb = @import("../base/ledger.zig");
+const rail_closure = @import("../base/rail_closure.zig");
 const sg = @import("../sem_graph.zig");
 const sk = @import("../sketch.zig");
 const fan_mod = @import("fan.zig");
@@ -107,6 +108,32 @@ fn fanAttachment(a: std.mem.Allocator, graph: sg.SemGraph, fan: fan_mod.Fan, end
         .edge = best_edge,
         .members = try members.toOwnedSlice(a),
     };
+}
+
+/// The derived attachment set minus every CO-REALIZED edge. Such an edge is
+/// rendered by an all-arrow-free rail's crossbar and never routed, so it
+/// claims no attachment on either endpoint: leaving it in would widen a face,
+/// shift its siblings' port ordinals, and reserve a terminal nothing arrives
+/// at. Applied where `derive` is consumed rather than inside it, so the pure
+/// D-PORT derivation keeps reading the permits plan and nothing else.
+/// @guarded-by: port_plan_test.zig "a discharged edge claims no attachment"
+/// @guarded-by: gap_rows_test.zig "a discharged edge claims no gap row"
+pub fn withoutDischarged(
+    a: std.mem.Allocator,
+    derived: []const ports.DerivedAttachment,
+    bundles: pb.RealizedBundles,
+) error{OutOfMemory}![]const ports.DerivedAttachment {
+    if (bundles.discharged.len == 0) return derived;
+    var out: std.ArrayListUnmanaged(ports.DerivedAttachment) = .empty;
+    for (derived) |item| {
+        const edge = item.attachment.edge orelse {
+            try out.append(a, item);
+            continue;
+        };
+        if (rail_closure.contains(bundles.discharged, edge)) continue;
+        try out.append(a, item);
+    }
+    return out.toOwnedSlice(a);
 }
 
 const FaceAssignments = struct { node: pb.NodeId, side: sk.Dir4, items: []const ports.Assignment };

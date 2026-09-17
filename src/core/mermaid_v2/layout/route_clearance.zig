@@ -149,6 +149,10 @@ pub fn conflictsReservedTerminals(a: std.mem.Allocator, edge: pb.EdgeId, polylin
         // merged ink), so they must not reserve departures against each other.
         // @guarded-by: route_clearance_test.zig "reserved departures exempt same selected rail"
         if (sameBundle(edge, item.edge, bundles)) continue;
+        // A discharged edge's entire rendering IS a rail span: it owns no
+        // polyline and no port, so its port allocation reserves nothing.
+        // @guarded-by: route_clearance_test.zig "a discharged edge's port allocation reserves no departure"
+        if (contains(bundles.discharged, item.edge)) continue;
         const ends = [2]struct { port: sk.Port, decorated: bool }{
             .{ .port = item.source, .decorated = item.source_decorated },
             .{ .port = item.target, .decorated = item.target_decorated },
@@ -208,6 +212,7 @@ pub fn railConflictsReservedTerminals(a: std.mem.Allocator, rail: sk.Rail, place
     for (rail.taps) |tap| try cellsInto(a, &candidate, &[_]sk.Point{ tap.at, tap.landing });
     for (edge_ports) |item| {
         if (railMember(rail, item.edge, bundles)) continue;
+        if (contains(bundles.discharged, item.edge)) continue;
         const ends = [2]struct { port: sk.Port, decorated: bool }{
             .{ .port = item.source, .decorated = item.source_decorated },
             .{ .port = item.target, .decorated = item.target_decorated },
@@ -238,7 +243,7 @@ pub fn withDecoratedTerminalBoxes(a: std.mem.Allocator, edge: pb.EdgeId, placeme
     try out.appendSlice(a, placements);
     var sentinel: pb.NodeId = std.math.maxInt(pb.NodeId);
     for (edge_ports) |item| {
-        if (item.edge == edge or sameBundle(edge, item.edge, bundles)) continue;
+        if (item.edge == edge or sameBundle(edge, item.edge, bundles) or contains(bundles.discharged, item.edge)) continue;
         const ends = [2]struct { port: sk.Port, decorated: bool }{
             .{ .port = item.source, .decorated = item.source_decorated },
             .{ .port = item.target, .decorated = item.target_decorated },
@@ -396,12 +401,18 @@ pub fn portPoint(placement: sk.NodePlacement, port: sk.Port) sk.Point {
     };
 }
 
-/// True iff `a` and `b` are members of one selected bundle. A licensed shared
-/// approach blocks nothing among its own members — their shared stub is
-/// attribution-only merged ink, not an overlap.
+/// True iff `a` and `b` are members of one licensed shared approach: one
+/// selected bundle, or one fused union (ledger: the union's ink is ONE
+/// bundle). A licensed shared approach blocks nothing among its own
+/// members — their shared stub is attribution-only merged ink, not an
+/// overlap.
+/// @guarded-by: route_clearance_test.zig "members of one fused union do not block each other"
 fn sameBundle(a: pb.EdgeId, b: pb.EdgeId, bundles: pb.RealizedBundles) bool {
     for (bundles.selected_bundles) |sel| {
         if (contains(sel.members, a) and contains(sel.members, b)) return true;
+    }
+    for (bundles.fused) |union_members| {
+        if (contains(union_members, a) and contains(union_members, b)) return true;
     }
     return false;
 }

@@ -78,6 +78,38 @@ test "reserved departures exempt same selected rail" {
     ));
 }
 
+test "a discharged edge's port allocation reserves no departure" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const placements = [_]sk.NodePlacement{
+        node(0, 0, 0, 5, 3),
+        node(1, 0, 6, 5, 3),
+    };
+    const edge_ports = [_]EP{
+        .{ .edge = 0, .source = .{ .node = 0, .side = .south, .offset = 2 } },
+    };
+    const poly = [_]sk.Point{ .{ .x = 2, .y = 3 }, .{ .x = 2, .y = 8 } };
+
+    try std.testing.expect(try clearance.conflictsReservedTerminals(
+        arena.allocator(),
+        1,
+        &poly,
+        &placements,
+        &edge_ports,
+        .{},
+    ));
+
+    const co = [_]pb.EdgeId{0};
+    try std.testing.expect(!try clearance.conflictsReservedTerminals(
+        arena.allocator(),
+        1,
+        &poly,
+        &placements,
+        &edge_ports,
+        .{ .discharged = &co },
+    ));
+}
+
 test "a reserved departure blocks collinear occupancy and admits a perpendicular crossing" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
@@ -389,6 +421,23 @@ test "decorated terminal pseudo-boxes cover the head cell and its laterals for f
     try std.testing.expectEqual(sk.Rect{ .x = 1, .y = 9, .w = 3, .h = 1 }, foreign[2].rect);
     const own = try clearance.withDecoratedTerminalBoxes(a, 0, &placements, &ports, .{});
     try std.testing.expectEqual(@as(usize, 2), own.len);
+}
+
+test "members of one fused union do not block each other" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    // Edge 0 already departs east along row 1; edge 1 leaves the same port
+    // and shares its first three cells collinearly.
+    const laid = [_]sk.Point{ .{ .x = 5, .y = 1 }, .{ .x = 8, .y = 1 }, .{ .x = 8, .y = 8 } };
+    const existing = [_]sk.EdgePath{.{ .id = 0, .from = 0, .to = 1, .polyline = &laid, .port_from = .{ .node = 0, .side = .east, .offset = 1 }, .port_to = .{ .node = 1, .side = .west, .offset = 1 }, .arrow_from = .none, .arrow_to = .filled, .label = null, .kind = .solid }};
+    const candidate = [_]sk.Point{ .{ .x = 5, .y = 1 }, .{ .x = 8, .y = 1 }, .{ .x = 8, .y = 15 } };
+    // Unrelated: a collinear overlap is a foreign junction.
+    try std.testing.expect(try clearance.conflicts(a, 1, &candidate, &existing, .{}));
+    // One fused union: the shared stub is one bundle's ink.
+    const both = [_]pb.EdgeId{ 0, 1 };
+    const unions = [_][]const pb.EdgeId{&both};
+    try std.testing.expect(!try clearance.conflicts(a, 1, &candidate, &existing, .{ .fused = &unions }));
 }
 
 test "a route through a foreign box is refused with no realized memberships" {
