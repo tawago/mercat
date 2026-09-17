@@ -395,50 +395,6 @@ fn legacyClipToWidth(text: []const u8, width: usize) []const u8 {
     return text[0..byte_end];
 }
 
-pub fn wrapLine(allocator: std.mem.Allocator, text: []const u8, width: usize, indent: []const u8) ![][]const u8 {
-    const valid_text = legacyValidPrefix(text);
-    const valid_indent = legacyValidPrefix(indent);
-    if (width == 0 or displayWidth(valid_text) <= width) {
-        const lines = try allocator.alloc([]const u8, 1);
-        lines[0] = try allocator.dupe(u8, valid_text);
-        return lines;
-    }
-
-    var words = std.mem.tokenizeScalar(u8, valid_text, ' ');
-    var output: std.ArrayList([]const u8) = .empty;
-    errdefer {
-        for (output.items) |line| allocator.free(line);
-        output.deinit(allocator);
-    }
-    var current: std.ArrayList(u8) = .empty;
-    defer current.deinit(allocator);
-    var current_width: usize = 0;
-    while (words.next()) |word| {
-        const word_width = displayWidth(word);
-        const extra: usize = if (current.items.len == 0) 0 else 1;
-        const target_width = if (output.items.len == 0) width else width -| displayWidth(valid_indent);
-        if (current.items.len != 0 and current_width + extra + word_width > target_width) {
-            try output.append(allocator, try allocator.dupe(u8, current.items));
-            current.clearRetainingCapacity();
-            try current.appendSlice(allocator, valid_indent);
-            try current.appendSlice(allocator, word);
-            current_width = displayWidth(current.items);
-            continue;
-        }
-        if (extra == 1) try current.append(allocator, ' ');
-        try current.appendSlice(allocator, word);
-        current_width += extra + word_width;
-    }
-    if (current.items.len != 0) try output.append(allocator, try allocator.dupe(u8, current.items));
-    return output.toOwnedSlice(allocator);
-}
-
-fn legacyValidPrefix(text: []const u8) []const u8 {
-    var cursor = LegacyCursor.init(text);
-    while (cursor.next()) |_| {}
-    return text[0..cursor.index];
-}
-
 test {
     _ = @import("unicode/tests.zig");
 }

@@ -7,10 +7,12 @@
         .koino = .{
             .url = "git+https://github.com/kivikakk/koino#0f10363e02ff575b008f219e54dc30ef8fad55db",
             .hash = "koino-0.1.0-S9LuWkK-AgAjKVVFM7QfdiGiab87w3H9iSJJLI0ynuHr",
+            .lazy = true,
         },
         .vaxis = .{
             .url = "git+https://github.com/rockorager/libvaxis.git#3d37f043a161fd32897ad44a2dddbfaab75faa8a",
             .hash = "vaxis-0.5.1-BWNV_JJOCQAtdJyLvrYCKbKIhX9q3liQkKMAzujWS4HJ",
+            .lazy = true,
         },
     },
     .paths = .{
@@ -19,6 +21,7 @@
         "src",
         "config",
         "assets",
+        "tools",
         "vendor",
     },
 }

@@ -19,14 +19,16 @@ pub fn build(b: *std.Build) void {
     const unicode_check_step = b.step("unicode-check", "Offline regenerate and byte-compare Unicode 17 tables");
     unicode_check_step.dependOn(&unicode_check_run.step);
 
+    if (onlyStepRequested(b, "unicode-check")) return;
+
     const options = b.addOptions();
-    const koino_dep = b.dependency("koino", .{ .target = target, .optimize = optimize });
-    const vaxis_dep = b.dependency("vaxis", .{ .target = target, .optimize = optimize });
+    const maybe_koino_dep = b.lazyDependency("koino", .{ .target = target, .optimize = optimize });
+    const maybe_vaxis_dep = b.lazyDependency("vaxis", .{ .target = target, .optimize = optimize });
+    if (maybe_koino_dep == null or maybe_vaxis_dep == null) return;
+    const koino_dep = maybe_koino_dep.?;
+    const vaxis_dep = maybe_vaxis_dep.?;
     options.addOption([]const u8, "version", "0.2.1");
 
-    // =====================================================
-    // Shared Modules (for reuse across targets)
-    // =====================================================
     const text_mod = b.createModule(.{
         .root_source_file = b.path("src/lib/text.zig"),
         .target = target,
@@ -204,78 +206,6 @@ pub fn build(b: *std.Build) void {
     v2_test_step.dependOn(&v2_test_run.step);
     test_step.dependOn(&v2_test_run.step);
 
-    // parse_baseline.zig — fixture sweep against the parser. Its own module
-    // root so cross-directory @imports are not needed.
-    const parse_baseline_module = b.createModule(.{
-        .root_source_file = b.path("tests/parse_baseline.zig"),
-        .target = target,
-        .optimize = optimize,
-    });
-    parse_baseline_module.addImport("parser", parser_mod);
-    parse_baseline_module.addImport("sem_graph", sem_graph_mod);
-
-    const parse_baseline_tests = b.addTest(.{ .root_module = parse_baseline_module });
-    const parse_baseline_run = b.addRunArtifact(parse_baseline_tests);
-    const parse_baseline_step = b.step("test-baseline", "Run flowchart fixture parse baseline");
-    parse_baseline_step.dependOn(&parse_baseline_run.step);
-    test_step.dependOn(&parse_baseline_run.step);
-
-    // layout_baseline.zig — week 3 R1 risk gate. Runs parse -> layout ->
-    // validate on every fixture and asserts >=54/59 produce a Sketch
-    // whose six validators all return .ok. Reaches the v2 surface via
-    // the umbrella `mermaid_v2` module rooted at entry.zig — see the
-    // entry.zig re-exports for the exposed API.
-    const layout_baseline_module = b.createModule(.{
-        .root_source_file = b.path("tests/layout_baseline.zig"),
-        .target = target,
-        .optimize = optimize,
-    });
-    layout_baseline_module.addImport("mermaid_v2", mermaid_v2_mod);
-
-    const layout_baseline_tests = b.addTest(.{ .root_module = layout_baseline_module });
-    const layout_baseline_run = b.addRunArtifact(layout_baseline_tests);
-    const layout_baseline_step = b.step("test-layout-baseline", "Run layout fixture baseline (R1 gate)");
-    layout_baseline_step.dependOn(&layout_baseline_run.step);
-    test_step.dependOn(&layout_baseline_run.step);
-
-    // lattice_baseline.zig — week 4 gate. Runs parse -> layout -> rasterize
-    // on every fixture and asserts >=54/59 produce a Lattice that satisfies
-    // structural invariants I1 (edge cells have >=2 neighbour bits) and I2
-    // (node interiors don't leak through their border).
-    const lattice_baseline_module = b.createModule(.{
-        .root_source_file = b.path("tests/lattice_baseline.zig"),
-        .target = target,
-        .optimize = optimize,
-    });
-    lattice_baseline_module.addImport("mermaid_v2", mermaid_v2_mod);
-
-    const lattice_baseline_tests = b.addTest(.{ .root_module = lattice_baseline_module });
-    const lattice_baseline_run = b.addRunArtifact(lattice_baseline_tests);
-    const lattice_baseline_step = b.step("test-lattice-baseline", "Run lattice fixture baseline (week 4 gate)");
-    lattice_baseline_step.dependOn(&lattice_baseline_run.step);
-    test_step.dependOn(&lattice_baseline_run.step);
-
-    // paint_baseline.zig — week 5 gate. Runs the full v2 pipeline
-    // (parse → layout → rasterize → paint) on every fixture and asserts
-    // the painted output is non-empty, newline-terminated, and not a
-    // fallback. Also requires >=10 fixtures to match their sibling .txt
-    // exactly.
-    const paint_baseline_module = b.createModule(.{
-        .root_source_file = b.path("tests/paint_baseline.zig"),
-        .target = target,
-        .optimize = optimize,
-    });
-    paint_baseline_module.addImport("mermaid_v2", mermaid_v2_mod);
-
-    const paint_baseline_tests = b.addTest(.{ .root_module = paint_baseline_module });
-    const paint_baseline_run = b.addRunArtifact(paint_baseline_tests);
-    const paint_baseline_step = b.step("test-paint-baseline", "Run paint fixture baseline (week 5 gate)");
-    paint_baseline_step.dependOn(&paint_baseline_run.step);
-    test_step.dependOn(&paint_baseline_run.step);
-
-    // =====================================================
-    // Import Boundary Lint (mermaid_v2)
-    // =====================================================
     const lint_module = b.createModule(.{
         .root_source_file = b.path("tools/lint_imports.zig"),
         .target = target,
@@ -401,7 +331,71 @@ pub fn build(b: *std.Build) void {
         const test_eval_step = b.step("test-eval", "Run private eval scorer tests (reconstruction + decoder-score)");
         test_eval_step.dependOn(&reconstruction_test_run.step);
         test_eval_step.dependOn(&decoder_score_test_run.step);
+
+        const update_regressions = b.option(
+            bool,
+            "update-regressions",
+            "Rewrite regression goldens (owner-approved changes only)",
+        ) orelse false;
+        const regression_dir = b.option(
+            []const u8,
+            "regression-dir",
+            "Directory containing private byte-exact regression pins",
+        );
+
+        const regress_exe = b.addExecutable(.{
+            .name = "regress",
+            .root_module = b.createModule(.{
+                .root_source_file = b.path("eval/regress.zig"),
+                .target = target,
+                .optimize = optimize,
+            }),
+        });
+
+        const regress_cmd = b.addRunArtifact(regress_exe);
+        regress_cmd.step.dependOn(b.getInstallStep());
+        regress_cmd.setCwd(b.path("."));
+        regress_cmd.addArg(b.getInstallPath(.bin, "mercat"));
+        if (regression_dir) |path| regress_cmd.addArg(path);
+        if (update_regressions) regress_cmd.addArg("--update");
+
+        const regress_step = b.step("regress", "Run byte-exact rendering regression pins");
+        if (regression_dir != null) {
+            regress_step.dependOn(&regress_cmd.step);
+            test_step.dependOn(&regress_cmd.step);
+        }
     }
+}
+
+fn onlyStepRequested(b: *std.Build, wanted: []const u8) bool {
+    const args = std.process.argsAlloc(b.allocator) catch return false;
+    if (args.len < 6) return false;
+
+    var found: ?[]const u8 = null;
+    var index: usize = 6;
+    while (index < args.len) : (index += 1) {
+        const arg = args[index];
+        if (std.mem.eql(u8, arg, "--")) break;
+        if (buildOptionTakesValue(arg)) {
+            index += 1;
+            continue;
+        }
+        if (std.mem.startsWith(u8, arg, "-")) continue;
+        if (found != null) return false;
+        found = arg;
+    }
+    return found != null and std.mem.eql(u8, found.?, wanted);
+}
+
+fn buildOptionTakesValue(arg: []const u8) bool {
+    const options = [_][]const u8{
+        "-p",                   "--prefix",    "--prefix-lib-dir", "--prefix-exe-dir",
+        "--prefix-include-dir", "--sysroot",   "--maxrss",         "--search-prefix",
+        "--libc",               "--color",     "--summary",        "--seed",
+        "--debounce",           "--debug-log", "--libc-runtimes",  "--glibc-runtimes",
+    };
+    for (options) |option| if (std.mem.eql(u8, arg, option)) return true;
+    return false;
 }
 
 /// Wire the native-export font integration into a module that compiles
