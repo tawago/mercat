@@ -39,11 +39,6 @@ pub const LadderResult = struct {
     sketch: sketch.Sketch,
     final_rung: Rung,
     attempts: u8,
-    /// P2v Step 8 (D-DISPOSITION item 9(b)/9(e)): true only for the forced
-    /// all-independent TERMINAL candidate. Lets a caller observe engagement
-    /// without a debug log (the RO `disp_terminal_fallback_engaged` count
-    /// aggregation itself is Step 10's telemetry job — this is just the flag).
-    terminal_fallback: bool = false,
 };
 
 /// Run the WidthBudget ladder against `graph`. Returns the first Sketch that
@@ -190,22 +185,6 @@ pub fn runForced(
 ) !LadderResult {
     const result = try layoutRung(arena, graph, bundle_permits, max_width, rung, .on_run);
     return .{ .sketch = result, .final_rung = rung, .attempts = 1 };
-}
-
-/// P2v Step 8 (D-DISPOSITION item 9(b)): lay out the raw `.natural` rung with
-/// rail realization DISABLED (`LayoutOptions.disable_bundle_realization`), so
-/// `bundle_commit` emits an all-independent plan and no fan rail is realized —
-/// the rail-free CI-filter terminal geometry. Caller marks `terminal_fallback`.
-pub fn runForcedIndependent(
-    arena: std.mem.Allocator,
-    graph: sem_graph.SemGraph,
-    bundle_permits: *const ledger.BundlePermits,
-    max_width: u32,
-) !LadderResult {
-    var opts = optionsFor(.natural, max_width);
-    opts.bundle_permits = bundle_permits;
-    opts.disable_bundle_realization = true;
-    return .{ .sketch = try recurse.layoutPieces(arena, graph, opts), .final_rung = .natural, .attempts = 1 };
 }
 
 /// Lay out ONE candidate's LABEL-POLICY VARIANT: the same recipe (graph,

@@ -177,9 +177,6 @@ test "debug paths keep the on-run policy" {
     const plain = try ladder.run(a, g, &permits, 120);
     try std.testing.expect(plain.sketch.label_policy == .on_run);
 
-    const independent = try ladder.runForcedIndependent(a, g, &permits, 120);
-    try std.testing.expect(independent.sketch.label_policy == .on_run);
-
     const off = try select.choose(a, g, &permits, 120, true, false, .bridge);
     try std.testing.expect(off.sketch.label_policy == .on_run);
 }

@@ -18,13 +18,6 @@ pub const LayoutOptions = struct {
     /// Carries its own scope (flat vs skipped_clustered); never re-derived
     /// from recursion pieces.
     bundle_permits: ?*const ledger.BundlePermits = null,
-    /// P2v Step 8 (D-DISPOSITION item 9(b)): force the forced all-independent
-    /// TERMINAL layout. `bundle_commit.build` emits an all-independent plan (no
-    /// selected bundle at all), so no fan rail is realized and every
-    /// edge keeps its own D-PORT-allocated port — the rail-free geometry the
-    /// CI-filter terminal candidate needs. Off (default) leaves normal rail
-    /// realization untouched, so every other candidate stays byte-identical.
-    disable_bundle_realization: bool = false,
     /// Width budget in display columns.
     max_width: u32 = 120,
     /// Horizontal spacing between adjacent nodes in the same layer.

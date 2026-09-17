@@ -119,7 +119,7 @@ fn buildSketch(
     addConstructionDiagnostics(&closure, fans_detected);
     const effective_plan: ?ledger.BundlePermits = try bundle_commit.effectivePlan(a, graph, opts.bundle_permits);
     const plan_ref: ?*const ledger.BundlePermits = if (effective_plan) |*p| p else null;
-    var candidate_bundles = try bundle_commit.buildReported(a, graph, plan_ref, lg.reversed_edges, try longEdges(a, lg), opts.disable_bundle_realization, &closure);
+    var candidate_bundles = try bundle_commit.buildReported(a, graph, plan_ref, lg.reversed_edges, try longEdges(a, lg), &closure);
     // A long peer taps a rail or nothing: the per-peer polyline path assumes
     // a next-layer leaf. Where the plan did not select the fan's bundle, a
     // fan holding a long peer degrades to what it was before long peers

@@ -26,20 +26,11 @@ pub fn effectivePlan(a: std.mem.Allocator, graph: sg.SemGraph, root: ?*const pb.
     return piece.plan;
 }
 
-pub fn buildReported(a: std.mem.Allocator, graph: sg.SemGraph, permits: ?*const pb.BundlePermits, reversed_edges: []const pb.EdgeId, long_edges: []const pb.EdgeId, disable: bool, report: ?*Report) error{OutOfMemory}!pb.RealizedBundles {
+pub fn buildReported(a: std.mem.Allocator, graph: sg.SemGraph, permits: ?*const pb.BundlePermits, reversed_edges: []const pb.EdgeId, long_edges: []const pb.EdgeId, report: ?*Report) error{OutOfMemory}!pb.RealizedBundles {
     const plan_ptr = permits orelse return .{};
     if (graph.clusters.len != 0) return .{};
     if (plan_ptr.scope == .skipped_clustered) return .{};
     const plan = plan_ptr.*;
-    if (disable) {
-        const memberships = try a.alloc(pb.RealizedEdgeMembership, plan.memberships.len);
-        for (plan.memberships, memberships) |m, *out| out.* = .{
-            .edge = m.edge,
-            .source = independentOf(m.source_group),
-            .target = independentOf(m.target_group),
-        };
-        return .{ .memberships = memberships };
-    }
     const eff_of = try a.alloc(?[]const pb.EdgeId, plan.groups.len);
     for (plan.groups, 0..) |group, gi| {
         const reversed = containsReversed(group, reversed_edges);
@@ -474,13 +465,6 @@ fn undecorated(edge: sg.Edge) bool {
 fn containsEdge(edges: []const pb.EdgeId, edge: pb.EdgeId) bool {
     for (edges) |e| if (e == edge) return true;
     return false;
-}
-
-/// An all-independent(not_selected) disposition for a grouped endpoint (null
-/// when the endpoint has no ≥2-member group). The terminal-layout builder.
-fn independentOf(group: ?pb.CandidateBundleId) ?pb.MembershipDisposition {
-    const gid = group orelse return null;
-    return .{ .independent = .{ .candidate_bundle = gid, .reason = .not_selected } };
 }
 
 fn containsReversed(group: pb.CandidateBundle, reversed_edges: []const pb.EdgeId) bool {

@@ -77,19 +77,6 @@ test "bundles from a plan name one bundle per selected bundle" {
     try expectEqual(@as(usize, 0), (try pb.bundlesFromPlan(std.testing.allocator, .{})).len);
 }
 
-test "empty ComponentEntry is default-constructible with all-empty fields" {
-    const entry: pb.ComponentEntry = .{};
-    try expectEqual(@as(pb.ComponentId, 0), entry.id);
-    try expectEqual(@as(usize, 0), entry.source_terminals.len);
-    try expectEqual(@as(usize, 0), entry.target_terminals.len);
-    try expectEqual(@as(usize, 0), entry.declared_pairs_in_component.len);
-    try expectEqual(@as(usize, 0), entry.reachable_pairs.len);
-    try expectEqual(@as(usize, 0), entry.missing_declared_pairs.len);
-    try expectEqual(@as(usize, 0), entry.extra_undeclared_pairs.len);
-    try expectEqual(@as(usize, 0), entry.selected_bundle_ids.len);
-    try expectEqual(@as(usize, 0), entry.bridge_ids.len);
-}
-
 test "D-PORT clause 4: every EdgeKind name→ordinal pair is pinned" {
     try expectEqual(@as(usize, 4), pb.edge_kind_ordinals.len);
     try expectEqual(@as(?u8, 0), pb.ordinalByName(&pb.edge_kind_ordinals, "solid"));

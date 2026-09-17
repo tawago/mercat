@@ -4,13 +4,12 @@
 //! (motif-packed TD/BT parallel graphs at capped rungs). Raster-audits each multi-candidate
 //! selection (audit.zig; skipped when only one) and picks the argmin of
 //! score.eval, gated by truncate-eligibility and a natural-preference margin
-//! anchored to the raw natural; the P2v Step 8 CI safety filter runs BEFORE
-//! scoring (score-blind); failures degrade to the ladder incumbent.
+//! anchored to the raw natural; the CI safety filter (select_filter.zig)
+//! runs BEFORE scoring (score-blind); failures degrade to the ladder incumbent.
 //!
 //! Allowed imports (tools/lint_imports.zig): std, prim, sem_graph, sketch,
-//! budget, score, motif, audit, reach_vector, select_filter (the Step 8 CI
-//! filter + terminal candidate), parse (tests only). In-file tests live in
-//! select_test.zig (plan N3 cap-watch).
+//! budget, score, motif, audit, select_filter, select_labels, parse (tests
+//! only). In-file tests live in select_test.zig (plan N3 cap-watch).
 //!
 //! Every candidate carries the bundle plan its layout committed
 //! (layout/bundle_commit.zig) and the bundle sets layout derived from it;
@@ -24,7 +23,6 @@ const sketch_mod = @import("sketch.zig");
 const ladder = @import("budget.zig");
 const score_mod = @import("score.zig");
 const audit_mod = @import("audit.zig");
-const reach_vector = @import("ledger/reach_vector.zig");
 const select_filter = @import("select_filter.zig");
 const select_labels = @import("select_labels.zig");
 
@@ -52,105 +50,21 @@ pub fn choose(
     subgraph_edges: prim.SubgraphEdges,
 ) !ladder.LadderResult {
     const set = try enumerateAll(aa, graph, bundle_permits, max_width);
-    const merged = set.merged;
+    const incumbent = set.incumbent;
 
-    // D-REACH pre-raster vector reachability oracle per merged candidate,
-    // BEFORE scoring (D-REACH items 5/9/10/12-13). The CI-filter + score +
-    // winner/terminal resolution is `selectWinner` — a byte-identical
-    // decomposition, exposed so tests can drive the tail with forged reports.
-    // @guarded-by: select_test.zig "report-only pin: reach oracle changes neither argmin nor winner"
-    const reach = reachReports(aa, graph, bundle_permits.isFlat(), merged);
-    return selectWinner(aa, graph, bundle_permits, max_width, merged, reach, set.incumbent, score_off, shadow, subgraph_edges);
-}
-
-pub const ciFilter = select_filter.ciFilter;
-pub const terminalCandidate = select_filter.terminalCandidate;
-
-/// choose's post-oracle tail (D-JOIN-SELECT item 6; D-DISPOSITION item 9(b)):
-/// CI-filter the merged candidates by their parallel `reach` reports, score the
-/// survivors, and resolve the winner. The terminal all-independent candidate is
-/// built ONLY when the filter EMPTIES the scored set (`survivors.len == 0`); a
-/// scoring failure with survivors present degrades to the incumbent (spec:
-/// terminal is not a scoring-failure fallback). `score_off` returns the
-/// incumbent (A/B hatch); `shadow` emits the disagreement line. Byte-identical
-/// composition of what `choose` used to inline.
-pub fn selectWinner(
-    aa: std.mem.Allocator,
-    graph: sem_graph.SemGraph,
-    bundle_permits: *const ledger.BundlePermits,
-    max_width: u32,
-    merged: []const ladder.Candidate,
-    reach: []const reach_vector.Report,
-    incumbent: ladder.LadderResult,
-    score_off: bool,
-    shadow: bool,
-    subgraph_edges: prim.SubgraphEdges,
-) !ladder.LadderResult {
-    const filtered = ciFilter(aa, merged, reach);
-    var selection = scoreCandidates(aa, filtered.survivors, incumbent.final_rung, graph.direction, subgraph_edges);
-    if (selection) |*s| s.reach_reports = filtered.reports;
+    // The CI safety filter runs BEFORE scoring and reads no score: a
+    // candidate that drew nothing for a visible edge is not a candidate. A
+    // filter that empties the set, like a scoring failure, leaves the ladder
+    // incumbent.
+    const survivors = select_filter.ciFilter(aa, set.merged);
+    const selection = scoreCandidates(aa, survivors, incumbent.final_rung, graph.direction, subgraph_edges);
     if (shadow) {
-        if (selection) |sel| emitScoreShadowLine(filtered.survivors, sel, max_width);
+        if (selection) |sel| emitScoreShadowLine(survivors, sel, max_width);
     }
     if (score_off) return incumbent;
-    const sel = selection orelse {
-        if (filtered.survivors.len == 0 and filtered.excluded_any)
-            return terminalCandidate(aa, graph, bundle_permits, max_width) catch incumbent;
-        return incumbent;
-    };
-    const winner = filtered.survivors[sel.argmin_idx];
-    return .{ .sketch = winner.sketch, .final_rung = winner.rung, .attempts = @intCast(merged.len) };
-}
-
-/// P2v Step 6: one pre-raster vector reachability report per candidate
-/// (parallel to `candidates`), each from the candidate's OWN Sketch + `bundles`
-/// (D-IR items 5/9). Node keys (D-REACH item 12) are raw_id bytes; failures
-/// degrade to the empty report. `bundle_permits_flat` selects which skip a
-/// cluster-framed sketch records — `reach_skipped_clustered` (clustered) vs.
-/// `skipped_packed_candidate` (flat, synthetic packed frames — OPEN-8). Step
-/// 8's filter consumes these; never score input.
-pub fn reachReports(
-    aa: std.mem.Allocator,
-    graph: sem_graph.SemGraph,
-    bundle_permits_flat: bool,
-    candidates: []const ladder.Candidate,
-) []const reach_vector.Report {
-    const keys = nodeKeyTable(aa, graph) catch &.{};
-    const out = aa.alloc(reach_vector.Report, candidates.len) catch return &.{};
-    const input: reach_vector.InputKind = if (bundle_permits_flat) .flat else .clustered;
-    for (candidates, out) |cand, *r| {
-        r.* = reach_vector.validate(aa, cand.sketch, keys, input) catch .{};
-        // An edge the router laid no ink for (routing.zig `unrouted`) is a
-        // declared pair with no trace — the oracle's own `missing_declared`
-        // event. The oracle reads it on the candidates it validates; on the
-        // ones it skips (clustered input, packed frames) the pair is still
-        // verifiably missing by inspection, and the filter must see it there
-        // too, or a candidate could win the fit tier by dropping edges.
-        // @guarded-by: select_test.zig "an unrouted edge is a missing declared pair on a candidate the oracle skipped"
-        if (r.counts.skipped_clustered != 0 or r.counts.skipped_packed_candidate != 0)
-            r.counts.missing_declared += unroutedEdges(cand.sketch);
-    }
-    return out;
-}
-
-/// Visible edges of `s` with no polyline at all.
-pub fn unroutedEdges(s: sketch_mod.Sketch) u32 {
-    var n: u32 = 0;
-    for (s.edges) |e| if (e.polyline.len < 2 and e.kind != .invisible) {
-        n += 1;
-    };
-    return n;
-}
-
-/// Canonical node-key table: source raw_id bytes indexed by NodeId
-/// (D-REACH item 12; the D-PORT canonical attachment key component).
-pub fn nodeKeyTable(aa: std.mem.Allocator, graph: sem_graph.SemGraph) ![]const []const u8 {
-    var max_id: usize = 0;
-    for (graph.nodes) |n| max_id = @max(max_id, n.id);
-    const keys = try aa.alloc([]const u8, if (graph.nodes.len == 0) 0 else max_id + 1);
-    @memset(keys, "");
-    for (graph.nodes) |n| keys[n.id] = n.raw_id;
-    return keys;
+    const sel = selection orelse return incumbent;
+    const winner = survivors[sel.argmin_idx];
+    return .{ .sketch = winner.sketch, .final_rung = winner.rung, .attempts = @intCast(set.merged.len) };
 }
 
 /// The full live candidate set: raw ladder rungs merged with the motif-packed
@@ -311,10 +225,6 @@ pub const ScoredSelection = struct {
     n: usize,
     incumbent_idx: usize,
     argmin_idx: usize,
-    /// The per-SURVIVOR D-REACH vector reports, parallel to the scored
-    /// candidate list (borrowed into choose's `aa`). Report-only — scoring
-    /// never reads it; `scoreCandidates` leaves it empty, choose attaches it.
-    reach_reports: []const reach_vector.Report = &.{},
 };
 
 /// Score every candidate (score.zig) and locate the argmin and the ladder
@@ -340,7 +250,6 @@ pub fn scoreCandidates(
     subgraph_edges: prim.SubgraphEdges,
 ) ?ScoredSelection {
     var sel: ScoredSelection = undefined;
-    sel.reach_reports = &.{};
     const n = candidates.len;
     if (n == 0 or n > sel.scores.len) return null;
 

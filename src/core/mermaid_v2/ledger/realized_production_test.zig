@@ -3,7 +3,6 @@
 const std = @import("std");
 const parse = @import("../parse.zig").parse;
 const permits = @import("permits.zig");
-const reach = @import("reach_vector.zig");
 const select = @import("../select.zig");
 const raster = @import("../raster.zig");
 const paint = @import("../paint.zig");
@@ -31,7 +30,7 @@ fn rmByEdge(plan: pb.RealizedBundles, e: u32) pb.RealizedEdgeMembership {
     unreachable;
 }
 
-test "Step 7 mixing cases have exact reach and no fused edge junction" {
+test "Step 7 mixing cases realize one rail and no fused edge junction" {
     const sources = [_][]const u8{
         "flowchart TD\n  S1 --> T1\n  S1 --> T2\n  S2 --> T2\n",
         "flowchart TD\n  S --> X\n  S --> A\n  B --> X\n",
@@ -43,11 +42,7 @@ test "Step 7 mixing cases have exact reach and no fused edge junction" {
         const graph = try parse(a, source);
         const plan = (try permits.build(a, graph, .joined)).plan;
         const winner = try select.choose(a, graph, &plan, width, false, false, .bridge);
-        const keys = try select.nodeKeyTable(a, graph);
-        const report = try reach.validate(a, winner.sketch, keys, .flat);
 
-        try std.testing.expectEqual(@as(u32, 0), report.counts.ciTotal());
-        try std.testing.expectEqual(graph.edges.len, report.declared.len);
         try std.testing.expectEqual(@as(usize, 1), winner.sketch.rails.len);
 
         const rendered = try raster.rasterize(a, winner.sketch, .bridge);
@@ -98,9 +93,6 @@ test "forward-subset composition: reversed fan-in member independent, forward pa
             const t_sel = rm.target != null and rm.target.? == .selected;
             try std.testing.expect(!(s_sel and t_sel));
         }
-        const report = try reach.validate(a, winner.sketch, try select.nodeKeyTable(a, graph), .flat);
-        try std.testing.expectEqual(@as(u32, 0), report.counts.ciTotal());
-
         var has_d_rail = false;
         for (winner.sketch.rails) |rail| {
             if (rail.pivot == nodeId(graph, "D")) has_d_rail = true;
@@ -128,9 +120,6 @@ test "V-D-PORT-01: mixed-kind 1x3 renders as three pitch-2 independent component
     std.mem.sort(u32, &offsets, {}, std.sort.asc(u32));
     try std.testing.expectEqualSlices(u32, &.{ 1, 3, 5 }, &offsets);
 
-    const report = try reach.validate(a, winner.sketch, try select.nodeKeyTable(a, graph), .flat);
-    try std.testing.expectEqual(@as(usize, 3), report.components.len);
-    try std.testing.expectEqual(@as(u32, 0), report.counts.ciTotal());
     try std.testing.expectEqual(@as(u32, 0), (try raster.rasterize(a, winner.sketch, .bridge)).edge_cells_lost);
 }
 
@@ -334,12 +323,6 @@ test "a salvaged rail is complete against the commitment the layout drew" {
     const a = arena.allocator();
     const graph = try parse(a, "flowchart TD\n  A --- Z\n  B --- Z\n  C --- Z\n  A --- B\n  B --- C\n");
     const plan = (try permits.build(a, graph, .joined)).plan;
-    const set = try select.enumerateAll(a, graph, &plan, 60);
-    const merged = set.merged;
-    const reports = select.reachReports(a, graph, true, merged);
-    try std.testing.expectEqual(merged.len, reports.len);
-    for (reports) |r| try std.testing.expect(r.counts.ciClean());
-
     const winner = try select.choose(a, graph, &plan, 60, false, false, .bridge);
     var rail_members: usize = 0;
     for (winner.sketch.bundles.selected_bundles) |sj| rail_members = @max(rail_members, sj.members.len);
@@ -416,9 +399,6 @@ test "a directed complete bipartite keeps its TD star decomposition on clearing 
             };
         };
 
-        const keys = try select.nodeKeyTable(a, graph);
-        const report = try reach.validate(a, winner.sketch, keys, .flat);
-        try std.testing.expectEqual(@as(u32, 0), report.counts.ciTotal());
         try std.testing.expect(winner.sketch.bbox.w <= width);
     }
 }
@@ -462,10 +442,6 @@ test "on the licence's lapse path a rail's junction still clears foreign taps" {
                 }
             }
         }
-
-        const keys = try select.nodeKeyTable(a, graph);
-        const report = try reach.validate(a, winner.sketch, keys, .flat);
-        try std.testing.expectEqual(@as(u32, 0), report.counts.ciTotal());
     }
 }
 
@@ -476,9 +452,6 @@ test "membership at both ends in production: the skip-layer repro traces only it
     const graph = try parse(a, "flowchart TD\n  A --> B\n  B --> C\n  A --> C\n");
     const plan = (try permits.build(a, graph, .joined)).plan;
     const winner = try select.choose(a, graph, &plan, 94, false, false, .bridge);
-    const keys = try select.nodeKeyTable(a, graph);
-    const report = try reach.validate(a, winner.sketch, keys, .flat);
-    try std.testing.expectEqual(@as(u32, 0), report.counts.ciTotal());
     try std.testing.expectEqual(@as(usize, 2), winner.sketch.rails.len);
     try std.testing.expectEqual(@as(usize, 2), winner.sketch.bundles.selected_bundles.len);
     const ac = rmByEdge(winner.sketch.bundles, edgeId(graph, "A", "C"));
@@ -489,6 +462,4 @@ test "membership at both ends in production: the skip-layer repro traces only it
         strokes += 1;
     };
     try std.testing.expectEqual(@as(usize, 1), strokes);
-    try std.testing.expectEqual(@as(usize, 1), report.components.len);
-    try std.testing.expectEqual(@as(usize, 3), report.components[0].reachable_pairs.len);
 }

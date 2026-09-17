@@ -2,8 +2,7 @@
 //! candidate-local realized-bundle artifact (D-IR item 1): the
 //! BundlePolicy storage, the BundlePermits / RealizedBundles logical records,
 //! the bundle membership sets riding the Sketch beside that plan,
-//! terminal-port identities, the component-table result types
-//! shared by both reachability validators, the canonical semantic-key
+//! terminal-port identities, the canonical semantic-key
 //! comparators with the pinned D-PORT clause-4 ordinal tables, and the
 //! D-DISPOSITION diagnostic registry (in the sibling diagnostics.zig,
 //! re-exported below).
@@ -24,7 +23,6 @@ pub const EdgeId = u32;
 pub const CandidateBundleId = u32;
 pub const BundleProposalId = u32;
 pub const SelectedBundleId = u32;
-pub const ComponentId = u32;
 
 /// Exactly ONE constructible variant: the type system, not a runtime guard,
 /// makes non-joined policy unrepresentable. Only entry.zig (the composition
@@ -78,7 +76,7 @@ pub const BundlePermits = struct {
 /// `licence_refused`: the group failed the geometry-free licence check —
 /// distinct from `not_selected`, where a licensed bundle simply realized no
 /// shared rail (e.g. bridge-scope groups, whose realization is deferred).
-pub const IndependentReason = enum { not_selected, unsafe_component, licence_refused };
+pub const IndependentReason = enum { not_selected, licence_refused };
 
 pub const MembershipDisposition = union(enum) {
     selected: SelectedBundleId,
@@ -329,27 +327,6 @@ fn subsetOfAny(unions: []const []const EdgeId, members: []const EdgeId) bool {
     }
     return false;
 }
-
-pub const NodePair = struct {
-    source: NodeId,
-    target: NodeId,
-};
-
-pub const ComponentEntry = struct {
-    id: ComponentId = 0,
-    source_terminals: []const TerminalPort = &.{},
-    target_terminals: []const TerminalPort = &.{},
-    declared_pairs_in_component: []const NodePair = &.{},
-    reachable_pairs: []const NodePair = &.{},
-    missing_declared_pairs: []const NodePair = &.{},
-    extra_undeclared_pairs: []const NodePair = &.{},
-    selected_bundle_ids: []const SelectedBundleId = &.{},
-    /// Structurally empty in the no-bridge P1a slice; carried so the shared
-    /// table shape is complete.
-    bridge_ids: []const u32 = &.{},
-};
-
-pub const ComponentTable = []const ComponentEntry;
 
 pub const OrdinalEntry = struct { name: []const u8, ordinal: u8 };
 

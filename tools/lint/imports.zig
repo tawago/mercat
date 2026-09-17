@@ -98,15 +98,11 @@ pub const Rule = union(enum) {
 ///                   base/ledger + sem_graph.
 ///   ledger/invariants.zig  the report-only gap-row invariants over the
 ///                   Sketch's gap records.
-///   ledger/reach_vector.zig  pre-raster D-REACH vector reachability
-///                   oracle (P2v Step 6, report-only; D-IR item 9):
-///                   candidate Sketch + bundles only, plus its two split
-///                   siblings (reach_geometry decomposition, reach_report
-///                   table types).
 ///   select_test.zig  select.zig's test sibling (Step 4 cap-watch
 ///                   mitigation, plan N3): drives the pub select surface
-///                   over parsed graphs and pins Step 6 report-only
-///                   inertness against ledger/reach_vector.
+///                   over parsed graphs.
+///   select_filter.zig  the pre-raster CI safety filter over the
+///                   candidates' own polylines: sketch + budget only.
 ///   budget.zig      the ladder driver (+ its split-out test sibling).
 ///   recurse.zig     cut-layout-stitch recursion: layout/ + cluster/ pairing.
 ///   score.zig       pure candidate score; layout/validate.zig is the ONE
@@ -165,39 +161,14 @@ pub const file_allowlists = [_]struct {
         .reason = "permits_test may only import std, prim, base/ledger, sem_graph, parse, or permits",
     },
     .{
-        .name = "ledger/dispose.zig",
-        .allowed = &.{},
-        .reason = "dispose may only import std, prim, or base/ledger",
-    },
-    .{
         .name = "ledger/realized_production_test.zig",
-        .allowed = &.{ .parse_zone, .{ .exact = "permits.zig" }, .{ .exact = "reach_vector.zig" }, .{ .exact = "../select.zig" }, .{ .exact = "../raster.zig" }, .{ .exact = "../paint.zig" } },
-        .reason = "realized_production_test may only import std, prim, base/ledger, parse, permits, reach_vector, select, raster, or paint",
+        .allowed = &.{ .parse_zone, .{ .exact = "permits.zig" }, .{ .exact = "../select.zig" }, .{ .exact = "../raster.zig" }, .{ .exact = "../paint.zig" } },
+        .reason = "realized_production_test may only import std, prim, base/ledger, parse, permits, select, raster, or paint",
     },
     .{
         .name = "ledger/invariants.zig",
         .allowed = &.{.sketch},
         .reason = "invariants may only import std, prim, base/ledger, or sketch",
-    },
-    .{
-        .name = "ledger/reach_vector.zig",
-        .allowed = &.{ .sketch, .{ .exact = "reach_geometry.zig" }, .{ .exact = "reach_report.zig" }, .{ .exact = "reach_walk.zig" } },
-        .reason = "reach_vector may only import std, prim, base/ledger, sketch, or its geom/report/walk split siblings",
-    },
-    .{
-        .name = "ledger/reach_walk.zig",
-        .allowed = &.{ .sketch, .{ .exact = "reach_geometry.zig" } },
-        .reason = "reach_walk may only import std, prim, base/ledger, sketch, or reach_geometry",
-    },
-    .{
-        .name = "ledger/reach_geometry.zig",
-        .allowed = &.{.sketch},
-        .reason = "reach_geometry may only import std, prim, base/ledger, or sketch",
-    },
-    .{
-        .name = "ledger/reach_report.zig",
-        .allowed = &.{ .sketch, .{ .exact = "reach_geometry.zig" } },
-        .reason = "reach_report may only import std, prim, base/ledger, sketch, or reach_geometry",
     },
     .{
         .name = "budget.zig",
@@ -276,18 +247,18 @@ pub const file_allowlists = [_]struct {
     },
     .{
         .name = "select.zig",
-        .allowed = &.{ .sem_graph, .sketch, .budget, .parse_zone, .{ .exact = "score.zig" }, .{ .exact = "motif.zig" }, .{ .exact = "audit.zig" }, .{ .exact = "ledger/reach_vector.zig" }, .{ .exact = "select_filter.zig" }, .{ .exact = "select_labels.zig" } },
-        .reason = "select may only import std, prim, base/ledger, sem_graph, sketch, budget, score, motif, audit, ledger/reach_vector, select_filter, select_labels, or parse",
+        .allowed = &.{ .sem_graph, .sketch, .budget, .parse_zone, .{ .exact = "score.zig" }, .{ .exact = "motif.zig" }, .{ .exact = "audit.zig" }, .{ .exact = "select_filter.zig" }, .{ .exact = "select_labels.zig" } },
+        .reason = "select may only import std, prim, base/ledger, sem_graph, sketch, budget, score, motif, audit, select_filter, select_labels, or parse",
     },
     .{
         .name = "select_filter.zig",
-        .allowed = &.{ .sem_graph, .budget, .{ .exact = "sketch_bundles.zig" }, .{ .exact = "ledger/dispose.zig" }, .{ .exact = "ledger/reach_vector.zig" } },
-        .reason = "select_filter may only import std, prim, base/ledger, sem_graph, budget, sketch_bundles, ledger/dispose, or ledger/reach_vector",
+        .allowed = &.{ .sketch, .budget },
+        .reason = "select_filter may only import std, prim, base/*, sketch, or budget",
     },
     .{
         .name = "select_test.zig",
-        .allowed = &.{ .budget, .parse_zone, .{ .exact = "select.zig" }, .{ .exact = "ledger/permits.zig" }, .{ .exact = "ledger/reach_vector.zig" } },
-        .reason = "select_test may only import std, prim, base/ledger, budget, parse, select, ledger/permits, or ledger/reach_vector",
+        .allowed = &.{ .budget, .parse_zone, .{ .exact = "select.zig" }, .{ .exact = "select_filter.zig" }, .{ .exact = "ledger/permits.zig" } },
+        .reason = "select_test may only import std, prim, base/ledger, budget, parse, select, select_filter, or ledger/permits",
     },
     .{
         .name = "audit.zig",
