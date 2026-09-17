@@ -19,14 +19,16 @@ pub fn build(b: *std.Build) void {
     const unicode_check_step = b.step("unicode-check", "Offline regenerate and byte-compare Unicode 17 tables");
     unicode_check_step.dependOn(&unicode_check_run.step);
 
+    if (onlyStepRequested(b, "unicode-check")) return;
+
     const options = b.addOptions();
-    const koino_dep = b.dependency("koino", .{ .target = target, .optimize = optimize });
-    const vaxis_dep = b.dependency("vaxis", .{ .target = target, .optimize = optimize });
+    const maybe_koino_dep = b.lazyDependency("koino", .{ .target = target, .optimize = optimize });
+    const maybe_vaxis_dep = b.lazyDependency("vaxis", .{ .target = target, .optimize = optimize });
+    if (maybe_koino_dep == null or maybe_vaxis_dep == null) return;
+    const koino_dep = maybe_koino_dep.?;
+    const vaxis_dep = maybe_vaxis_dep.?;
     options.addOption([]const u8, "version", "0.2.1");
 
-    // =====================================================
-    // Shared Modules (for reuse across targets)
-    // =====================================================
     const text_mod = b.createModule(.{
         .root_source_file = b.path("src/lib/text.zig"),
         .target = target,
@@ -329,7 +331,71 @@ pub fn build(b: *std.Build) void {
         const test_eval_step = b.step("test-eval", "Run private eval scorer tests (reconstruction + decoder-score)");
         test_eval_step.dependOn(&reconstruction_test_run.step);
         test_eval_step.dependOn(&decoder_score_test_run.step);
+
+        const update_regressions = b.option(
+            bool,
+            "update-regressions",
+            "Rewrite regression goldens (owner-approved changes only)",
+        ) orelse false;
+        const regression_dir = b.option(
+            []const u8,
+            "regression-dir",
+            "Directory containing private byte-exact regression pins",
+        );
+
+        const regress_exe = b.addExecutable(.{
+            .name = "regress",
+            .root_module = b.createModule(.{
+                .root_source_file = b.path("eval/regress.zig"),
+                .target = target,
+                .optimize = optimize,
+            }),
+        });
+
+        const regress_cmd = b.addRunArtifact(regress_exe);
+        regress_cmd.step.dependOn(b.getInstallStep());
+        regress_cmd.setCwd(b.path("."));
+        regress_cmd.addArg(b.getInstallPath(.bin, "mercat"));
+        if (regression_dir) |path| regress_cmd.addArg(path);
+        if (update_regressions) regress_cmd.addArg("--update");
+
+        const regress_step = b.step("regress", "Run byte-exact rendering regression pins");
+        if (regression_dir != null) {
+            regress_step.dependOn(&regress_cmd.step);
+            test_step.dependOn(&regress_cmd.step);
+        }
     }
+}
+
+fn onlyStepRequested(b: *std.Build, wanted: []const u8) bool {
+    const args = std.process.argsAlloc(b.allocator) catch return false;
+    if (args.len < 6) return false;
+
+    var found: ?[]const u8 = null;
+    var index: usize = 6;
+    while (index < args.len) : (index += 1) {
+        const arg = args[index];
+        if (std.mem.eql(u8, arg, "--")) break;
+        if (buildOptionTakesValue(arg)) {
+            index += 1;
+            continue;
+        }
+        if (std.mem.startsWith(u8, arg, "-")) continue;
+        if (found != null) return false;
+        found = arg;
+    }
+    return found != null and std.mem.eql(u8, found.?, wanted);
+}
+
+fn buildOptionTakesValue(arg: []const u8) bool {
+    const options = [_][]const u8{
+        "-p",                   "--prefix",    "--prefix-lib-dir", "--prefix-exe-dir",
+        "--prefix-include-dir", "--sysroot",   "--maxrss",         "--search-prefix",
+        "--libc",               "--color",     "--summary",        "--seed",
+        "--debounce",           "--debug-log", "--libc-runtimes",  "--glibc-runtimes",
+    };
+    for (options) |option| if (std.mem.eql(u8, arg, option)) return true;
+    return false;
 }
 
 /// Wire the native-export font integration into a module that compiles
