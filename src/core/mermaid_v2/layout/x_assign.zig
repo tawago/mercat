@@ -207,7 +207,7 @@ fn edgeHasLabel(graph: sg.SemGraph, edge_id: sg.EdgeId) bool {
 /// realized center equals its mean desired center. Pure compaction:
 /// preserves intra-row gaps, removes per-layer drift.
 ///
-/// Averaged over REAL nodes only — including virtuals would shear a real node off its child's trunk. guarded-by: layout/x_assign_test.zig "centerRunOnDesired re-centers using only real nodes, keeping the real node's trunk straight"
+/// Averaged over REAL nodes only — including virtuals would shear a real node off its child's trunk. guarded-by: layout/x_assign_test.zig "centerRunOnDesired re-centers using only real nodes, keeping the real node's rail straight"
 fn centerRunOnDesired(geom: []NodeGeom, lg: sugiyama.LayeredGraph, row: []const u32, desired: []const i32) void {
     var sum_actual: i64 = 0;
     var sum_desired: i64 = 0;
