@@ -1,12 +1,17 @@
 #!/usr/bin/env bash
-# Enforce a soft 500-line-per-file ceiling on Zig sources under src/.
+# Implementation modules are capped at 500 code lines; test files are not capped.
 #
-# The ceiling applies to production modules. `*_test.zig` sibling files are
-# exempt (tests are extracted there to keep their module small; test length is
-# tracked separately). A production file over the limit fails CI unless it is
-# grandfathered below. The grandfather list is the set of files that already
-# exceeded the limit when the check was introduced (plus pure-data tables); it
-# must only ever shrink. Do NOT add new entries — split the file instead.
+# A code line is a line that is not blank and whose first non-space characters
+# are not `//`, so doc comments and blank lines are free. The cap applies to
+# every Zig source under src/ except `*_test*.zig` files (tests are extracted
+# into sibling files to keep their module small; test length is not tracked).
+# The mermaid_v2 lint (tools/lint_imports.zig, `zig build lint`) applies the
+# same rule, counted the same way, to its tree.
+#
+# A module over the cap fails CI unless it is grandfathered below. The
+# grandfather list is the set of files that already exceeded the limit when
+# the check was introduced (plus pure-data tables); it must only ever shrink.
+# Do NOT add new entries — split the file instead.
 set -euo pipefail
 
 limit=500
@@ -36,16 +41,22 @@ is_grandfathered() {
   return 1
 }
 
+# Count lines that are neither blank nor `//`-prefixed after leading whitespace,
+# exactly as tools/lint_imports.zig counts them.
+code_lines() {
+  awk '{ t = $0; sub(/^[ \t\r]+/, "", t) } t != "" && t !~ /^\/\// { c++ } END { print c + 0 }' "$1"
+}
+
 fail=0
 while IFS= read -r f; do
-  n=$(wc -l < "$f")
+  n=$(code_lines "$f")
   if [ "$n" -gt "$limit" ] && ! is_grandfathered "$f"; then
-    echo "line-count: $f has $n lines (limit $limit) — split it or (last resort) grandfather it"
+    echo "line-count: $f has $n code lines (limit $limit) — split it or (last resort) grandfather it"
     fail=1
   fi
-done < <(find src -name '*.zig' -not -name '*_test.zig' | sort)
+done < <(find src -name '*.zig' -not -name '*_test*.zig' | sort)
 
 if [ "$fail" -eq 0 ]; then
-  echo "line-count: OK (all non-grandfathered Zig files <= $limit lines)"
+  echo "line-count: OK (all non-grandfathered implementation modules <= $limit code lines)"
 fi
 exit $fail

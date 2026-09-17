@@ -381,6 +381,29 @@ test "banned token: a reverted diagnostic-tag spelling fires" {
     try testing.expect(std.mem.indexOf(u8, got.list.items[0], "rail_pivot_side_arrow") != null);
 }
 
+test "banned token: an env read outside entry.zig fires, and entry.zig is exempt" {
+    const a = testing.allocator;
+    var hit = try collect(a, "layout/thing.zig", "const v = std.posix.getenv(\"MERCAT_X\");\n", &table);
+    defer hit.deinit(a);
+    try testing.expectEqual(@as(usize, 1), hit.list.items.len);
+    try testing.expect(std.mem.indexOf(u8, hit.list.items[0], "entry.zig is the sole env-knob reader") != null);
+
+    var exempt = try collect(a, "entry.zig", "const v = std.posix.getenv(\"MERCAT_X\");\n", &table);
+    defer exempt.deinit(a);
+    try testing.expectEqual(@as(usize, 0), exempt.list.items.len);
+}
+
+test "banned token: a third codepointWidth table fires, the two authorities are exempt" {
+    const a = testing.allocator;
+    var hit = try collect(a, "raster/labels.zig", "pub fn codepointWidth(cp: u21) u32 {\n", &table);
+    defer hit.deinit(a);
+    try testing.expectEqual(@as(usize, 1), hit.list.items.len);
+
+    var prim = try collect(a, "base/types.zig", "pub fn codepointWidth(cp: u21) u32 {\n", &table);
+    defer prim.deinit(a);
+    try testing.expectEqual(@as(usize, 0), prim.list.items.len);
+}
+
 test "banned token: production table is well-formed" {
     for (table) |row| {
         const short_privacy_token = std.mem.eql(u8, row.token, "TSD") or
