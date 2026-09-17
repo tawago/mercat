@@ -180,9 +180,8 @@ fn deferredToArrivals(bundles: ledger.RealizedBundles, f: fan_mod.Fan) bool {
 }
 
 fn effective(bundles: ledger.RealizedBundles, edge: sg.Edge) bool {
-    if (edge.kind == .invisible) return false;
-    for (bundles.discharged) |spent| if (spent == edge.id) return false;
-    return true;
+    _ = bundles;
+    return edge.kind != .invisible;
 }
 
 fn pathById(paths: []const sketch.EdgePath, edge: sg.EdgeId) ?sketch.EdgePath {

@@ -34,25 +34,6 @@ fn twoByTwo() struct { nodes: [4]sugiyama.LayerNode, edges: [4]sugiyama.LayerEdg
     };
 }
 
-test "an arrow-free group whose declared set is complete still separates" {
-    const a = testing.allocator;
-    var fixture = twoByTwo();
-    var row0 = [_]u32{ 0, 1 };
-    var row1 = [_]u32{ 2, 3 };
-    var layers = [_][]u32{ &row0, &row1 };
-    var reversed = [_]sg.EdgeId{};
-    const lg = mkLg(&fixture.nodes, &layers, &fixture.edges, &reversed);
-    const geom = [_]Geom{ .{ .x = 0, .w = 3 }, .{ .x = 9, .w = 3 }, .{ .x = 0, .w = 3 }, .{ .x = 9, .w = 3 } };
-
-    var arena = std.heap.ArenaAllocator.init(a);
-    defer arena.deinit();
-    const aa = arena.allocator();
-    const graph = try mkBareGraph(aa, &fixture.edges, &.{});
-    const fans = try fan.detect(aa, graph, lg);
-    try fan_lanes.assignLanes(Geom, aa, graph, lg, &geom, fans, .{}, null);
-    try testing.expect(laneOfPivot(fans, .out, 0) != laneOfPivot(fans, .out, 1));
-}
-
 test "a directed group whose declared set is complete keeps one shared row" {
     const a = testing.allocator;
     var fixture = twoByTwo();
@@ -68,7 +49,7 @@ test "a directed group whose declared set is complete keeps one shared row" {
     const aa = arena.allocator();
     const graph = try mkGraph(aa, &fixture.edges);
     const fans = try fan.detect(aa, graph, lg);
-    try fan_lanes.assignLanes(Geom, aa, graph, lg, &geom, fans, .{}, null);
+    try fan_lanes.assignLanes(Geom, aa, graph, lg, &geom, fans, .{});
     for (fans) |f| try testing.expectEqual(@as(u32, 0), f.lane);
 }
 
@@ -117,7 +98,7 @@ test "a directed group whose declared set is short of complete still separates" 
     const aa = arena.allocator();
     const graph = try mkGraph(aa, &edges);
     const fans = try fan.detect(aa, graph, lg);
-    try fan_lanes.assignLanes(Geom, aa, graph, lg, &geom, fans, bundles, null);
+    try fan_lanes.assignLanes(Geom, aa, graph, lg, &geom, fans, bundles);
     try testing.expect(laneOfPivot(fans, .out, 0) != laneOfPivot(fans, .out, 1));
 }
 
@@ -154,18 +135,13 @@ fn runFiveOfSix(cx_c: i32, bundles: pb.RealizedBundles) !bool {
     const aa = arena.allocator();
     const graph = try mkGraph(aa, &fixture.edges);
     const fans = try fan.detect(aa, graph, lg);
-    try fan_lanes.assignLanes(Geom, aa, graph, lg, &geom, fans, bundles, null);
+    try fan_lanes.assignLanes(Geom, aa, graph, lg, &geom, fans, bundles);
     return laneOfPivot(fans, .out, 0) != laneOfPivot(fans, .out, 1);
 }
 
 test "a peer on its pivot's own column never shrinks a group into looking complete" {
     try testing.expect(try runFiveOfSix(21, .{}));
     try testing.expect(try runFiveOfSix(31, .{}));
-}
-
-test "a discharged edge never shrinks a group into looking complete" {
-    var co = [_]pb.EdgeId{4};
-    try testing.expect(try runFiveOfSix(31, .{ .discharged = &co }));
 }
 
 test "a two-sided group whose heads are direction-invariant still separates" {
@@ -196,8 +172,17 @@ test "a two-sided group whose heads are direction-invariant still separates" {
         };
         const graph: sg.SemGraph = .{ .direction = .TD, .nodes = &.{}, .edges = es, .clusters = &.{}, .classes = &.{}, .arena = null };
         const fans = try fan.detect(aa, graph, lg);
-        try fan_lanes.assignLanes(Geom, aa, graph, lg, &geom, fans, .{}, null);
-        try testing.expect(laneOfPivot(fans, .out, 0) != laneOfPivot(fans, .out, 1));
+        try fan_lanes.assignLanes(Geom, aa, graph, lg, &geom, fans, .{});
+        // A direction-invariant head blocks no trace, so the group is
+        // arrow-free and forms no rail at all: every peer draws its own run
+        // on a lane of its own.
+        try testing.expect(fans.len >= 2);
+        for (fans) |f| {
+            for (f.peers, 0..) |p, i| {
+                try testing.expect(!p.shared);
+                for (f.peers[0..i]) |q| try testing.expect(q.lane != p.lane);
+            }
+        }
     }
 }
 
@@ -229,5 +214,5 @@ test "a two-sided group of double-headed members loses the star licence outright
         try testing.expect(f.construction_star_violation);
         for (f.peers) |p| try testing.expect(!p.shared);
     }
-    try fan_lanes.assignLanes(Geom, aa, graph, lg, &geom, fans, .{}, null);
+    try fan_lanes.assignLanes(Geom, aa, graph, lg, &geom, fans, .{});
 }

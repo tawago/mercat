@@ -138,29 +138,7 @@ pub const RealizedBundles = struct {
     rejected_proposals: []const BundleProposalId = &.{},
     memberships: []const RealizedEdgeMembership = &.{},
     terminal_ports: []const TerminalPort = &.{},
-    /// Declared edges whose ENTIRE rendering is another element's shared ink:
-    /// the leaf-pair edges an all-arrow-free rail discharges by running its
-    /// crossbar between their two taps (the rail-closure licence). A discharged
-    /// edge owns no polyline, no port and no label of its own, so it must be
-    /// withheld from independent routing — and it is NOT missing, because the
-    /// crossbar between the taps IS its rendering.
-    /// @guarded-by: rail_closure_test.zig "a fully declared clique keeps the rail and discharges every pair edge"
-    discharged: []const EdgeId = &.{},
-    /// Two-sided fusion licences: each entry is the member-edge UNION of a set
-    /// of selected same-direction rails whose declared pairs are EXACTLY
-    /// srcs x tgts with every member blocking the leaf-to-leaf trace (the
-    /// closure test of base/rail_closure.zig, asked of the whole union). Such
-    /// rails may share one rail row and their ink is ONE bundle; anything
-    /// short of complete never appears here.
-    /// @guarded-by: bundle_commit_test.zig "a complete bipartite of selected arrivals licenses one fused union"
-    fused: []const []const EdgeId = &.{},
 };
-
-const rail_closure = @import("rail_closure.zig");
-
-/// How many discharged edges also own private geometry (`co_double_discharge`);
-/// the predicate itself lives in the sibling rail_closure.zig.
-pub const doubleDischarged = rail_closure.doubleDischarged;
 
 const rail_star = @import("rail_star.zig");
 
@@ -174,12 +152,11 @@ pub const RailLicenceMember = rail_star.RailLicenceMember;
 pub const RailLicenceCheck = rail_star.LicenceCheckResult;
 pub const checkRailLicence = rail_star.checkLicence;
 
-/// The all-arrow-free shared-rail closure licence's REPORT-ONLY inventory
-/// (base/rail_closure.zig), carried on the Sketch so the shipped candidate's
-/// counts reach telemetry. Never read by a layout decision: a refusal is
-/// already expressed as the `independent` disposition that unfuses the
-/// members, and these fields only NAME what happened. Field names are
-/// the registry tags verbatim (pinned by test).
+/// The rail construction's REPORT-ONLY inventory (ledger/permits.zig
+/// `prepareRailMembers`, read off the detected fans), carried on the Sketch
+/// so the shipped candidate's counts reach telemetry. Never read by a layout
+/// decision: an exclusion is already expressed as the private peer it left
+/// behind, and these fields only NAME what happened.
 pub const ClosureCounts = struct {
     /// Construction groups with candidates excluded for mixed pivot decoration.
     rail_deco_mixed: u32 = 0,
@@ -187,15 +164,6 @@ pub const ClosureCounts = struct {
     rail_member_style_mixed: u32 = 0,
     /// Construction-time non-star proposals privatized safely.
     rail_star_violation: u32 = 0,
-    /// Rails the licence refused as proposed — outright, or by salvaging a strict
-    /// subset. One per refused rail.
-    rail_closure_undeclared: u32 = 0,
-    /// Leaf pairs of a proposed rail with no usable backing declaration:
-    /// undeclared, decorated, labeled, or of the wrong stroke class.
-    co_undeclared: u32 = 0,
-    /// Discharged edges that ALSO kept private geometry — the withholding
-    /// leaked and one relation is stated twice. Must stay zero.
-    co_double_discharge: u32 = 0,
 };
 
 /// One inter-rank gap's row account, written by layout for the report-only
@@ -309,23 +277,10 @@ pub fn bundlesFromPlan(
 ) error{OutOfMemory}![]const Bundle {
     if (bundles.selected_bundles.len == 0) return &.{};
     var out: std.ArrayListUnmanaged(Bundle) = .empty;
-    for (bundles.fused) |u| try out.append(allocator, .{ .origin = .selected_bundle, .members = u });
     for (bundles.selected_bundles) |j| {
-        if (subsetOfAny(bundles.fused, j.members)) continue;
         try out.append(allocator, .{ .origin = .selected_bundle, .members = j.members });
     }
     return out.toOwnedSlice(allocator);
-}
-
-fn subsetOfAny(unions: []const []const EdgeId, members: []const EdgeId) bool {
-    for (unions) |u| {
-        var all = true;
-        for (members) |m| {
-            if (!holds(u, m)) all = false;
-        }
-        if (all) return true;
-    }
-    return false;
 }
 
 pub const OrdinalEntry = struct { name: []const u8, ordinal: u8 };

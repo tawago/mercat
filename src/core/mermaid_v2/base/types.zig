@@ -139,7 +139,7 @@ pub fn memberBlocks(arrow_from: ArrowKind, arrow_to: ArrowKind, stands_for: Stan
 }
 
 /// True iff no end of the ink this member stands for is directional — the
-/// question the rail-closure licence asks.
+/// question the rail construction asks before it admits a shared rail.
 pub fn memberArrowFree(arrow_from: ArrowKind, arrow_to: ArrowKind, stands_for: StandsFor) bool {
     return !directional(arrow_from) and !directional(arrow_to) and stands_for == .arrow_free;
 }

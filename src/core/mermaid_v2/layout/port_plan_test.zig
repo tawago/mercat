@@ -112,41 +112,6 @@ test "port_plan midpoint keeps singleton terminal coordinates" {
     try std.testing.expectEqual(@as(u32, 2), plan.forEdge(0).?.target.offset);
 }
 
-test "a discharged edge claims no attachment" {
-    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
-    defer arena.deinit();
-    const a = arena.allocator();
-    const nodes = [_]sg.Node{ node(0, "S"), node(1, "A"), node(2, "B") };
-    const edges = [_]sg.Edge{ edge(0, 1, .solid), edge(1, 2, .solid), .{ .id = 2, .from = 1, .to = 2, .kind = .solid, .arrow_from = .none, .arrow_to = .none, .label = null } };
-    const graph: sg.SemGraph = .{ .direction = .TD, .nodes = &nodes, .edges = &edges, .clusters = &.{}, .classes = &.{}, .arena = null };
-    const groups = [_]pb.CandidateBundle{
-        .{ .id = 0, .direction = .out, .pivot = 0, .members = &.{ 0, 1 } },
-        .{ .id = 1, .direction = .in, .pivot = 2, .members = &.{ 1, 2 } },
-    };
-    const ind0: pb.MembershipDisposition = .{ .independent = .{ .candidate_bundle = 0, .reason = .not_selected } };
-    const ind1: pb.MembershipDisposition = .{ .independent = .{ .candidate_bundle = 1, .reason = .not_selected } };
-    const memberships = [_]pb.RealizedEdgeMembership{
-        .{ .edge = 0, .source = ind0, .target = null },
-        .{ .edge = 1, .source = ind0, .target = ind1 },
-        .{ .edge = 2, .source = null, .target = ind1 },
-    };
-    const permit_memberships = [_]pb.BundleMembership{
-        .{ .edge = 0, .source_group = 0, .target_group = null },
-        .{ .edge = 1, .source_group = 0, .target_group = 1 },
-        .{ .edge = 2, .source_group = null, .target_group = 1 },
-    };
-    const permit: pb.BundlePermits = .{ .policy = .joined, .groups = &groups, .memberships = &permit_memberships };
-
-    const with_ink: pb.RealizedBundles = .{ .memberships = &memberships };
-    const discharged: pb.RealizedBundles = .{ .memberships = &memberships, .discharged = &.{2} };
-
-    const all = try ports.derive(a, graph, permit, with_ink, .TD, &.{});
-    const kept = try port_plan.withoutDischarged(a, all, discharged);
-    try std.testing.expect(kept.len < all.len);
-    for (kept) |item| try std.testing.expect((item.attachment.edge orelse 99) != 2);
-
-}
-
 test "duplicate private claims receive stable distinct source and target slots" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();

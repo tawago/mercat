@@ -460,31 +460,3 @@ test "two unlabeled duplicate arrows claim the detour bands and the gap reaches 
     try testing.expectEqual(@as(?i32, null), ledger.rowOfFan(0, .out));
 }
 
-test "a discharged edge claims no gap row" {
-    const a = testing.allocator;
-    var arena = std.heap.ArenaAllocator.init(a);
-    defer arena.deinit();
-    const aa = arena.allocator();
-    var nodes = [_]sugiyama.LayerNode{ .{ .real = 0 }, .{ .real = 1 }, .{ .real = 2 } };
-    var row0 = [_]u32{0};
-    var row1 = [_]u32{ 1, 2 };
-    var layers = [_][]u32{ &row0, &row1 };
-    var edges = [_]sugiyama.LayerEdge{
-        .{ .from = 0, .to = 1, .reversed = false, .edge = 0 },
-        .{ .from = 0, .to = 2, .reversed = false, .edge = 1 },
-    };
-    var reversed = [_]sg.EdgeId{};
-    const lg = flt.mkLg(&nodes, &layers, &edges, &reversed);
-    const geom = [_]Geom{ .{ .x = 10, .w = 3 }, .{ .x = 0, .w = 3 }, .{ .x = 20, .w = 3 } };
-    const graph = try flt.mkGraph(aa, &edges);
-    const ind: pb.MembershipDisposition = .{ .independent = .{ .candidate_bundle = 0, .reason = .not_selected } };
-    const memberships = [_]pb.RealizedEdgeMembership{
-        .{ .edge = 0, .source = ind, .target = null },
-        .{ .edge = 1, .source = ind, .target = null },
-    };
-    const discharged: pb.RealizedBundles = .{ .memberships = &memberships, .discharged = &.{1} };
-    const rows = try gap_rows.buildPiece(Geom, aa, graph, lg, &geom, &.{}, discharged, .{}, &.{2}, &.{}, &.{});
-    try testing.expectEqual(@as(usize, 1), rows.claims.len);
-    for (rows.claims) |c| try testing.expect(std.mem.indexOfScalar(pb.EdgeId, c.edges, 1) == null);
-}
-

@@ -388,9 +388,13 @@ test "junction licence: the two-rail K(2,2) is the smallest render that fabricat
         defer arena.deinit();
         const r = try render(arena.allocator(), k22, w);
         const v = try judge(r.sketch, &r.report.lattice);
-        try testing.expectEqual(@as(u32, 3), v.population);
-        try testing.expectEqual(@as(u32, 3), v.licensed);
-        try testing.expectEqual(@as(u32, 0), v.foreign);
+        // Two arrival rails, each its own bundle: where one rail's member
+        // meets the other's run the raster records a foreign meeting and
+        // draws a crossing, never a tee — so no defect tally moves.
+        try testing.expectEqual(@as(usize, 2), r.sketch.rails.len);
+        try testing.expectEqual(@as(u32, 4), v.population);
+        try testing.expectEqual(@as(u32, 2), v.licensed);
+        try testing.expectEqual(@as(u32, 2), v.foreign);
         try testing.expectEqual(@as(u32, 0), v.unevidenced);
         try expectNoRasterDefect(r.report);
     }

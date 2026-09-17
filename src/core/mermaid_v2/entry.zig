@@ -261,10 +261,9 @@ fn resolveBundlePermits(allocator: std.mem.Allocator, graph: sem_graph.SemGraph)
 /// piece plans like flat; nothing is licensed post-routing): the x_*
 /// violation fields are conformance counts against the plan and are
 /// expected zero except where routing genuinely cannot avoid ink (the
-/// counts are the evidence when it cannot); rail_* / co_* are the closure
-/// licence's refusal inventory — legitimately nonzero on refusing inputs —
-/// except `co_double_discharge`, which is a conformance assert and must
-/// stay zero. The line's field set and order are frozen for external
+/// counts are the evidence when it cannot); the rail_* fields are the rail
+/// construction's exclusion inventory — legitimately nonzero on mixed
+/// inputs. The line's field set and order are frozen for external
 /// tooling; demotions change doc meaning, never fields. New fields are
 /// appended at the end: `tip_not_port` (a head whose tip is not on its
 /// port) and `arm_into_head` (an arm into a decoration cell from a
@@ -285,7 +284,7 @@ fn emitIntegrityLine(
     gap_rows_unclaimed_ink: u32,
 ) void {
     std.debug.print(
-        "mercat-integrity: v_node_overlap={d} v_path_off_perimeter={d} v_path_through_interior={d} v_cluster={d} v_bbox={d} r_edge_cells_lost={d} r_labels_dropped={d} r_labels_displaced={d} r_phantom_arms={d} x_legal_crossing={d} x_foreign_junction={d} x_arrowhead_transit={d} b_frame_bridge={d} b_border_fusion_refused={d} a_arrowhead_base={d} skipped_lines={d} rail_deco_mixed={d} rail_member_style_mixed={d} rail_star_violation={d} rail_closure_undeclared={d} co_undeclared={d} co_double_discharge={d} tip_not_port={d} arm_into_head={d} v_edge_unrouted={d} arms_unexplained={d} gap_rows_unaccounted={d} gap_rows_unclaimed_ink={d}\n",
+        "mercat-integrity: v_node_overlap={d} v_path_off_perimeter={d} v_path_through_interior={d} v_cluster={d} v_bbox={d} r_edge_cells_lost={d} r_labels_dropped={d} r_labels_displaced={d} r_phantom_arms={d} x_legal_crossing={d} x_foreign_junction={d} x_arrowhead_transit={d} b_frame_bridge={d} b_border_fusion_refused={d} a_arrowhead_base={d} skipped_lines={d} rail_deco_mixed={d} rail_member_style_mixed={d} rail_star_violation={d} tip_not_port={d} arm_into_head={d} v_edge_unrouted={d} arms_unexplained={d} gap_rows_unaccounted={d} gap_rows_unclaimed_ink={d}\n",
         .{
             v.node_overlap,
             v.path_off_perimeter,
@@ -306,9 +305,6 @@ fn emitIntegrityLine(
             closure.rail_deco_mixed,
             closure.rail_member_style_mixed,
             closure.rail_star_violation,
-            closure.rail_closure_undeclared,
-            closure.co_undeclared,
-            closure.co_double_discharge,
             raster_report.arrow_base.tip_not_port,
             raster_report.armIntoHead(),
             v.edge_unrouted,
@@ -561,9 +557,6 @@ test {
     _ = @import("base/diagnostics.zig");
     _ = @import("base/diagnostics_test.zig");
     _ = @import("base/bundle.zig");
-    _ = @import("base/rail_closure.zig");
-    _ = @import("base/rail_closure_test.zig");
-    _ = @import("layout/fan_rail_licence.zig");
     _ = @import("ledger/permits.zig");
     _ = @import("ledger/permits_test.zig");
     _ = @import("ledger/invariants.zig");

@@ -2,14 +2,8 @@
 
 const std = @import("std");
 const pb = @import("../base/ledger.zig");
-const rc = @import("../base/rail_closure.zig");
 const sg = @import("../sem_graph.zig");
 const permit_mod = @import("../ledger/permits.zig");
-
-/// The closure licence's report-only inventory (base/ledger.zig). One type for
-/// every producer — the flat commitment here and the clustered lane pass —
-/// so the shipped Sketch carries a single set of counts.
-pub const Report = pb.ClosureCounts;
 
 /// The plan THIS graph's layout realizes against: the root plan when it is
 /// flat, a fresh piece-scoped plan (piece-local edge ids) for a cluster-free
@@ -26,7 +20,12 @@ pub fn effectivePlan(a: std.mem.Allocator, graph: sg.SemGraph, root: ?*const pb.
     return piece.plan;
 }
 
-pub fn buildReported(a: std.mem.Allocator, graph: sg.SemGraph, permits: ?*const pb.BundlePermits, reversed_edges: []const pb.EdgeId, long_edges: []const pb.EdgeId, report: ?*Report) error{OutOfMemory}!pb.RealizedBundles {
+/// Commit the rails this layout will build: one selected bundle per permit
+/// group whose eligible members (`permits.prepareRailMembers`) are two or
+/// more, style-compatible, free of duplicate keys and of layout-reversed
+/// edges — then the one-rail-per-near-member rule below. Every grouped
+/// endpoint gets a disposition: `selected` into its rail, or `independent`.
+pub fn buildReported(a: std.mem.Allocator, graph: sg.SemGraph, permits: ?*const pb.BundlePermits, reversed_edges: []const pb.EdgeId, long_edges: []const pb.EdgeId) error{OutOfMemory}!pb.RealizedBundles {
     const plan_ptr = permits orelse return .{};
     if (graph.clusters.len != 0) return .{};
     if (plan_ptr.scope == .skipped_clustered) return .{};
@@ -44,54 +43,7 @@ pub fn buildReported(a: std.mem.Allocator, graph: sg.SemGraph, permits: ?*const 
             containsReversed(eff_group, reversed_edges) or eff.len < 2;
         eff_of[gi] = if (blocked) null else eff;
     }
-
-    const closure_refused = try a.alloc(bool, plan.groups.len);
-    @memset(closure_refused, false);
-    const verdicts = try a.alloc(?rc.Verdict, plan.groups.len);
-    @memset(verdicts, null);
-    for (plan.groups, 0..) |group, gi| {
-        const eff = eff_of[gi] orelse continue;
-        const verdict = try closureVerdict(a, graph, group, eff, plan.scope == .piece);
-        if (report) |r| {
-            if (verdict.outcome == .refuse or verdict.outcome == .salvage) r.rail_closure_undeclared += 1;
-            r.co_undeclared += verdict.undeclared_pairs;
-        }
-        switch (verdict.outcome) {
-            .untouched => continue,
-            .keep => {},
-            .salvage => eff_of[gi] = verdict.members,
-            .refuse => {
-                eff_of[gi] = null;
-                closure_refused[gi] = true;
-                continue;
-            },
-        }
-        verdicts[gi] = verdict;
-    }
-    try keepOneNearRail(a, graph, plan, eff_of, verdicts, closure_refused, long_edges);
-    try reserve(a, graph, plan, eff_of, verdicts, closure_refused, report);
-
-    // Phase 2b — discharge. `drawn` is the union of the SURVIVING rails' own
-    // members: such a declaration already carries ink, so it LICENSES the pair
-    // (the crossbar states nothing the page does not) without handing over its
-    // rendering a second time. Every other backing declaration is discharged —
-    // the crossbar between its two taps IS its rendering — and, being spent,
-    // backs nothing else plan-wide.
-    // @guarded-by: bundle_commit_test.zig "a clique whose pair edges are other rails' members keeps a rail"
-    var discharged: std.ArrayListUnmanaged(pb.EdgeId) = .empty;
-    var drawn: std.ArrayListUnmanaged(pb.EdgeId) = .empty;
-    for (eff_of) |maybe| {
-        if (maybe) |eff| try drawn.appendSlice(a, eff);
-    }
-    for (verdicts, 0..) |maybe, gi| {
-        const verdict = maybe orelse continue;
-        if (eff_of[gi] == null) continue;
-        for (verdict.discharges) |d| {
-            if (containsEdge(drawn.items, d.backer)) continue;
-            try discharged.append(a, d.backer);
-            try drawn.append(a, d.backer);
-        }
-    }
+    try keepOneNearRail(a, graph, plan, eff_of, long_edges);
 
     const selected_group = try a.alloc(?pb.SelectedBundleId, plan.groups.len);
     @memset(selected_group, null);
@@ -112,280 +64,45 @@ pub fn buildReported(a: std.mem.Allocator, graph: sg.SemGraph, permits: ?*const 
     for (plan.memberships, memberships) |m, *out| {
         out.* = .{
             .edge = m.edge,
-            .source = disposition(graph, plan.groups, selected_group, closure_refused, selected.items, m.source_group, reversed_edges, m.edge),
-            .target = disposition(graph, plan.groups, selected_group, closure_refused, selected.items, m.target_group, reversed_edges, m.edge),
+            .source = disposition(graph, plan.groups, selected_group, selected.items, m.source_group, reversed_edges, m.edge),
+            .target = disposition(graph, plan.groups, selected_group, selected.items, m.target_group, reversed_edges, m.edge),
         };
     }
-    const selected_slice = try selected.toOwnedSlice(a);
     return .{
-        .selected_bundles = selected_slice,
+        .selected_bundles = try selected.toOwnedSlice(a),
         .memberships = memberships,
-        .discharged = try discharged.toOwnedSlice(a),
-        .fused = try fusionLicence(a, graph, plan.groups, selected_slice),
     };
 }
 
-/// Phase 4 — the two-sided fusion licence. Selected SAME-direction rails
-/// over ONE AND THE SAME leaf set form a candidate union (a mere shared leaf
-/// would chain two disjoint complete unions into one that refuses); the union
-/// is licensed iff every member edge carries its one-way head at the union's
-/// TARGET side (a head at the source stops a trace only in the direction a
-/// fused rail reads backwards), all members agree on stroke kind and head
-/// glyphs, and the distinct declared pairs are EXACTLY srcs x tgts with both
-/// sides plural — then the rails' shared rail asserts only cross pairs the
-/// source declares, and its ink is one bundle. Keyed on the plan and the
-/// declared edges only.
-/// @guarded-by: bundle_commit_test.zig "a complete bipartite of selected arrivals licenses one fused union"
-fn fusionLicence(a: std.mem.Allocator, graph: sg.SemGraph, groups: []const pb.CandidateBundle, selected: []const pb.SelectedBundle) error{OutOfMemory}![]const []const pb.EdgeId {
-    const n = selected.len;
-    if (n < 2) return &.{};
-    const parent = try a.alloc(usize, n);
-    for (parent, 0..) |*p, i| p.* = i;
-    for (selected, 0..) |x, i| {
-        const dx = directionOf(groups, x.candidate_bundle) orelse continue;
-        for (selected[i + 1 ..], i + 1..) |y, j| {
-            if (directionOf(groups, y.candidate_bundle) != dx) continue;
-            if (leafSetEqual(graph, dx, x.members, y.members)) uniteBundles(parent, i, j);
-        }
-    }
-    var out: std.ArrayListUnmanaged([]const pb.EdgeId) = .empty;
-    for (0..n) |root| {
-        if (findBundle(parent, root) != root) continue;
-        var member_joins: u32 = 0;
-        var edges: std.ArrayListUnmanaged(pb.EdgeId) = .empty;
-        for (selected, 0..) |j, ji| {
-            if (findBundle(parent, ji) != root) continue;
-            member_joins += 1;
-            try edges.appendSlice(a, j.members);
-        }
-        if (member_joins < 2) continue;
-        if (try unionComplete(a, graph, edges.items)) {
-            std.mem.sort(pb.EdgeId, edges.items, {}, std.sort.asc(pb.EdgeId));
-            try out.append(a, try edges.toOwnedSlice(a));
-        } else edges.deinit(a);
-    }
-    return out.toOwnedSlice(a);
-}
-
-fn directionOf(groups: []const pb.CandidateBundle, id: pb.CandidateBundleId) ?pb.BundleDirection {
-    for (groups) |g| if (g.id == id) return g.direction;
-    return null;
-}
-
-fn leafSetEqual(graph: sg.SemGraph, dir: pb.BundleDirection, xs: []const pb.EdgeId, ys: []const pb.EdgeId) bool {
-    return leafSubset(graph, dir, xs, ys) and leafSubset(graph, dir, ys, xs);
-}
-
-fn leafSubset(graph: sg.SemGraph, dir: pb.BundleDirection, xs: []const pb.EdgeId, ys: []const pb.EdgeId) bool {
-    for (xs) |xi| {
-        const x = edgeById(graph, xi) orelse return false;
-        const lx = if (dir == .in) x.from else x.to;
-        const held = for (ys) |yi| {
-            const y = edgeById(graph, yi) orelse return false;
-            if ((if (dir == .in) y.from else y.to) == lx) break true;
-        } else false;
-        if (!held) return false;
-    }
-    return true;
-}
-
-fn unionComplete(a: std.mem.Allocator, graph: sg.SemGraph, members: []const pb.EdgeId) error{OutOfMemory}!bool {
-    var srcs: std.ArrayListUnmanaged(pb.NodeId) = .empty;
-    defer srcs.deinit(a);
-    var tgts: std.ArrayListUnmanaged(pb.NodeId) = .empty;
-    defer tgts.deinit(a);
-    var pairs: std.ArrayListUnmanaged([2]pb.NodeId) = .empty;
-    defer pairs.deinit(a);
-    var style: ?u48 = null;
-    for (members) |id| {
-        const e = edgeById(graph, id) orelse return false;
-        if (e.kind == .invisible or !sg.forwardOneWayHead(e)) return false;
-        const key: u48 = (@as(u48, pb.edgeKindOrdinal(e.kind)) << 8) |
-            (@as(u48, @intFromEnum(e.arrow_from)) << 4) | @intFromEnum(e.arrow_to);
-        if (style) |st| {
-            if (st != key) return false;
-        } else style = key;
-        try addUniqueNode(a, &srcs, e.from);
-        try addUniqueNode(a, &tgts, e.to);
-        var seen = false;
-        for (pairs.items) |p| if (p[0] == e.from and p[1] == e.to) {
-            seen = true;
-        };
-        if (!seen) try pairs.append(a, .{ e.from, e.to });
-    }
-    if (srcs.items.len <= 1 or tgts.items.len <= 1) return false;
-    return pairs.items.len == srcs.items.len * tgts.items.len;
-}
-
-fn addUniqueNode(a: std.mem.Allocator, list: *std.ArrayListUnmanaged(pb.NodeId), v: pb.NodeId) error{OutOfMemory}!void {
-    for (list.items) |x| if (x == v) return;
-    try list.append(a, v);
-}
-
-fn findBundle(parent: []usize, i: usize) usize {
-    var r = i;
-    while (parent[r] != r) r = parent[r];
-    return r;
-}
-
-fn uniteBundles(parent: []usize, i: usize, j: usize) void {
-    const ri = findBundle(parent, i);
-    const rj = findBundle(parent, j);
-    if (ri != rj) parent[@max(ri, rj)] = @min(ri, rj);
-}
-
-/// The plan-wide clause of the closure licence: an implied leaf pair may be
-/// claimed by AT MOST ONE rail. Mutates `eff_of`/`closure_refused` in place.
-///
-/// Two rails may each assert a pair the graph declares and still fabricate
-/// TOGETHER. `A---Z; B---Z` and `A---W; B---W` with `A---B` declared put two
-/// crossbars over the SAME leaf columns, so a reader traces Z up A's column,
-/// along crossbar one, down to... W — a Z—W relation no declaration covers.
-/// The pair is what is spendable, so a second rail implying an already-claimed
-/// pair refuses, and so does the first: neither may keep ink the other's
-/// existence turned into a lie.
-///
-/// The over-refusal that ruling guards against is a fully declared clique,
-/// where the clique edges are themselves stars. It is answered by realizing
-/// the discharge instead of licensing it: a kept rail's backers become
-/// discharged, drawing no private ink, and an edge with no ink can carry no
-/// rail — so a member that is another rail's discharge leaves its candidate
-/// (the candidate stays when two members remain and is judged again over
-/// what is left; the theory's per-member degradation). The WIDER rail
-/// claims first (ties by group rank), which is the reading that leaves the
-/// clique fused. Since a rail may hold a long member, a candidate's members
-/// can be a wider rail's discharges one at a time, not only all at once.
-///
-/// A refusal never revives a candidate an earlier claim subordinated: the
-/// answer stays the one fewer rails would give, which can only under-fuse.
-/// @guarded-by: bundle_commit_test.zig "two rails asserting one declared pair both refuse"
-fn reserve(
-    a: std.mem.Allocator,
-    graph: sg.SemGraph,
-    plan: pb.BundlePermits,
-    eff_of: []?[]const pb.EdgeId,
-    verdicts: []?rc.Verdict,
-    closure_refused: []bool,
-    report: ?*Report,
-) error{OutOfMemory}!void {
-    var order: std.ArrayListUnmanaged(usize) = .empty;
-    for (verdicts, 0..) |verdict, gi| {
-        if (verdict != null and eff_of[gi] != null) try order.append(a, gi);
-    }
-    std.mem.sort(usize, order.items, eff_of, widestFirst);
-
-    for (order.items, 0..) |ri, rank| {
-        if (eff_of[ri] == null) continue;
-        for (order.items[rank + 1 ..]) |gi| {
-            const eff = eff_of[gi] orelse continue;
-            var kept: std.ArrayListUnmanaged(pb.EdgeId) = .empty;
-            for (eff) |member| if (!dischargedBy(verdicts[ri].?, member)) try kept.append(a, member);
-            if (kept.items.len == eff.len) continue;
-            if (kept.items.len < 2) {
-                eff_of[gi] = null;
-                closure_refused[gi] = true;
-                continue;
-            }
-            const rest = try kept.toOwnedSlice(a);
-            const again = try closureVerdict(a, graph, plan.groups[gi], rest, plan.scope == .piece);
-            switch (again.outcome) {
-                .untouched, .keep => eff_of[gi] = rest,
-                .salvage => eff_of[gi] = again.members,
-                .refuse => {
-                    eff_of[gi] = null;
-                    closure_refused[gi] = true;
-                    continue;
-                },
-            }
-            verdicts[gi] = again;
-        }
-    }
-
-    const conflicted = try a.alloc(bool, eff_of.len);
-    @memset(conflicted, false);
-    for (order.items, 0..) |x, rank| {
-        if (eff_of[x] == null) continue;
-        for (order.items[rank + 1 ..]) |y| {
-            if (eff_of[y] == null or !sharesPair(verdicts[x].?, verdicts[y].?)) continue;
-            conflicted[x] = true;
-            conflicted[y] = true;
-        }
-    }
-    for (conflicted, 0..) |hit, gi| {
-        if (!hit) continue;
-        eff_of[gi] = null;
-        closure_refused[gi] = true;
-        // One group, one count. A SALVAGE was already counted by the per-rail
-        // pass above (it refused part of its own rail); counting it again here
-        // reports one more rail refused than the plan holds groups.
-        // @guarded-by: bundle_commit_test.zig "a salvaged rail that then loses its pair is one refusal, not two"
-        const counted = if (verdicts[gi]) |v| v.outcome == .salvage else false;
-        if (!counted) {
-            if (report) |r| r.rail_closure_undeclared += 1;
-        }
-    }
-}
-
-/// Wider rails first, then by group rank — the deterministic claim order.
-fn widestFirst(eff_of: []?[]const pb.EdgeId, x: usize, y: usize) bool {
-    const nx = (eff_of[x] orelse &.{}).len;
-    const ny = (eff_of[y] orelse &.{}).len;
-    return if (nx == ny) x < y else nx > ny;
-}
-
-/// Remove one member from a surviving candidate, judging what is left again.
+/// Remove one member from a surviving candidate; a candidate left with one
+/// member builds no rail.
 fn dropMember(
     a: std.mem.Allocator,
-    graph: sg.SemGraph,
-    plan: pb.BundlePermits,
     eff_of: []?[]const pb.EdgeId,
-    verdicts: []?rc.Verdict,
-    closure_refused: []bool,
     gi: usize,
     member: pb.EdgeId,
-    group: pb.CandidateBundle,
 ) error{OutOfMemory}!void {
     var kept: std.ArrayListUnmanaged(pb.EdgeId) = .empty;
     for (eff_of[gi].?) |m| if (m != member) try kept.append(a, m);
-    if (kept.items.len < 2) {
-        eff_of[gi] = null;
-        return;
-    }
-    const rest = try kept.toOwnedSlice(a);
-    if (verdicts[gi] != null) {
-        const again = try closureVerdict(a, graph, group, rest, plan.scope == .piece);
-        switch (again.outcome) {
-            .untouched, .keep => eff_of[gi] = rest,
-            .salvage => eff_of[gi] = again.members,
-            .refuse => {
-                eff_of[gi] = null;
-                closure_refused[gi] = true;
-                return;
-            },
-        }
-        verdicts[gi] = again;
-    } else eff_of[gi] = rest;
+    eff_of[gi] = if (kept.items.len < 2) null else try kept.toOwnedSlice(a);
 }
 
 /// A member selected at both ends whose two pivots sit on adjacent layers
 /// would put two rails in one gap, each owning the whole edge: one path of
 /// ink drawn twice. Realization keeps ONE membership for such a NEAR
-/// member: the arrival's. Two reasons, neither a licence: the two-sided
-/// rail the fusion licence permits is built from same-direction rails, and
-/// keeping arrivals together is what lets a complete S x T fuse into that
-/// one rail; and it is the drawing every existing render already has. A
-/// LONG member (its ends span a gap or more) keeps both: each rail owns one
-/// drop cell and the member's own stroke runs between them. Both
-/// memberships stay licensed; which side of a near member ships could
-/// later be a scored candidate axis.
+/// member: the arrival's. Two reasons, neither a licence: a two-sided rail
+/// is built from same-direction rails, and keeping arrivals together is
+/// what lets a complete S x T share one rail row; and it is the drawing
+/// every existing render already has. A LONG member (its ends span a gap or
+/// more) keeps both: each rail owns one drop cell and the member's own
+/// stroke runs between them. Both memberships stay licensed; which side of
+/// a near member ships could later be a scored candidate axis.
 /// @guarded-by: bundle_commit_test.zig "a near member selected at both ends keeps its arrival rail, a long member keeps both"
 fn keepOneNearRail(
     a: std.mem.Allocator,
     graph: sg.SemGraph,
     plan: pb.BundlePermits,
     eff_of: []?[]const pb.EdgeId,
-    verdicts: []?rc.Verdict,
-    closure_refused: []bool,
     long_edges: []const pb.EdgeId,
 ) error{OutOfMemory}!void {
     for (graph.edges) |e| {
@@ -399,67 +116,8 @@ fn keepOneNearRail(
         }
         const o = gi_out orelse continue;
         if (gi_in == null) continue;
-        try dropMember(a, graph, plan, eff_of, verdicts, closure_refused, o, e.id, plan.groups[o]);
+        try dropMember(a, eff_of, o, e.id);
     }
-}
-
-/// `member` is a declaration the verdict's rail discharges — rendered by
-/// that rail's crossbar, so it carries no rail of its own.
-fn dischargedBy(verdict: rc.Verdict, member: pb.EdgeId) bool {
-    for (verdict.discharges) |d| if (d.backer == member) return true;
-    return false;
-}
-
-/// The two rails assert one and the same unordered leaf pair. `pair` is
-/// already normalized low-id first by the closure licence.
-fn sharesPair(x: rc.Verdict, y: rc.Verdict) bool {
-    for (x.discharges) |dx| {
-        for (y.discharges) |dy| {
-            if (dx.pair[0] == dy.pair[0] and dx.pair[1] == dy.pair[1]) return true;
-        }
-    }
-    return false;
-}
-
-/// Project one provisionally eligible group into the closure licence's own
-/// vocabulary and ask it. Members carry the LEAF endpoint (the one that is
-/// not the pivot); every other declared non-self edge is a candidate backer.
-fn closureVerdict(
-    a: std.mem.Allocator,
-    graph: sg.SemGraph,
-    group: pb.CandidateBundle,
-    eff: []const pb.EdgeId,
-    piece_scope: bool,
-) error{OutOfMemory}!rc.Verdict {
-    const members = try a.alloc(rc.Member, eff.len);
-    for (eff, members) |id, *m| {
-        const edge = edgeById(graph, id) orelse return .{ .outcome = .untouched, .members = eff };
-        m.* = .{
-            .edge = id,
-            .leaf = if (group.direction == .out) edge.to else edge.from,
-            .kind = pb.edgeKindOrdinal(edge.kind),
-            .arrow_free = sg.arrowFree(edge),
-            .undecorated = undecorated(edge),
-        };
-    }
-    var backers: std.ArrayListUnmanaged(rc.Backer) = .empty;
-    for (graph.edges) |edge| {
-        if (edge.from == edge.to or containsEdge(eff, edge.id)) continue;
-        if (piece_scope and edge.origin == sg.SENTINEL) continue;
-        try backers.append(a, .{
-            .edge = edge.id,
-            .a = edge.from,
-            .b = edge.to,
-            .kind = pb.edgeKindOrdinal(edge.kind),
-            .undecorated = undecorated(edge),
-            .unlabeled = edge.label == null or edge.label.?.len == 0,
-        });
-    }
-    return rc.decide(a, members, backers.items);
-}
-
-fn undecorated(edge: sg.Edge) bool {
-    return sg.undecorated(edge);
 }
 
 fn containsEdge(edges: []const pb.EdgeId, edge: pb.EdgeId) bool {
@@ -489,7 +147,7 @@ fn forwardSubset(a: std.mem.Allocator, members: []const pb.EdgeId, reversed_edge
     return out.toOwnedSlice(a);
 }
 
-fn disposition(graph: sg.SemGraph, groups: []const pb.CandidateBundle, selected_group: []const ?pb.SelectedBundleId, closure_refused: []const bool, selected_bundles: []const pb.SelectedBundle, id: ?pb.CandidateBundleId, reversed_edges: []const pb.EdgeId, edge: pb.EdgeId) ?pb.MembershipDisposition {
+fn disposition(graph: sg.SemGraph, groups: []const pb.CandidateBundle, selected_group: []const ?pb.SelectedBundleId, selected_bundles: []const pb.SelectedBundle, id: ?pb.CandidateBundleId, reversed_edges: []const pb.EdgeId, edge: pb.EdgeId) ?pb.MembershipDisposition {
     const gid = id orelse return null;
     for (groups, 0..) |g, i| if (g.id == gid) {
         if (selected_group[i]) |jid| {
@@ -498,12 +156,11 @@ fn disposition(graph: sg.SemGraph, groups: []const pb.CandidateBundle, selected_
             };
             return .{ .independent = .{ .candidate_bundle = gid, .reason = .not_selected } };
         }
-        // A closure refusal must reach the member as `independent`: that
-        // disposition is what unfuses it (per-member fan lanes in TD, a port of
-        // its own in LR/RL). The null-disposition escape below is for a group
-        // the reversal rule left ungrouped, never for a refused rail.
-        // @guarded-by: bundle_commit_test.zig "a reversed member does not hide a closure refusal behind a null disposition"
-        if (!closure_refused[i] and containsReversed(g, reversed_edges) and styleCompatible(graph, g) and !hasDuplicateKey(graph, g)) return null;
+        // A group the reversal rule left ungrouped keeps the null disposition;
+        // every other unselected group reaches its members as `independent`,
+        // which is what unfuses them (per-member fan lanes in TD, a port of
+        // their own in LR/RL).
+        if (containsReversed(g, reversed_edges) and styleCompatible(graph, g) and !hasDuplicateKey(graph, g)) return null;
         return .{ .independent = .{ .candidate_bundle = gid, .reason = .not_selected } };
     };
     return null;

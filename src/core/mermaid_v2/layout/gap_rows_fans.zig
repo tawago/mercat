@@ -7,7 +7,6 @@
 const std = @import("std");
 const sg = @import("../sem_graph.zig");
 const pb = @import("../base/ledger.zig");
-const rail_closure = @import("../base/rail_closure.zig");
 const sugiyama = @import("sugiyama.zig");
 const fan_mod = @import("fan.zig");
 const rt = @import("routing_terminal.zig");
@@ -63,10 +62,10 @@ pub fn detourClaims(comptime G: type, a: std.mem.Allocator, lg: sugiyama.Layered
     }
 }
 
-pub fn drawnByEligible(fans: []const fan_mod.Fan, eligible: []const bool, edge: sg.EdgeId, direction: fan_mod.Direction, discharged: []const pb.EdgeId) bool {
+pub fn drawnByEligible(fans: []const fan_mod.Fan, eligible: []const bool, edge: sg.EdgeId, direction: fan_mod.Direction) bool {
     for (fans, eligible) |f, ok| {
         if (!ok or f.direction != direction) continue;
-        for (f.peers) |p| if (p.edge_id == edge and p.shared and !rail_closure.contains(discharged, edge)) return true;
+        for (f.peers) |p| if (p.edge_id == edge and p.shared) return true;
     }
     return false;
 }
@@ -84,7 +83,6 @@ pub fn fanClaims(
     geom: []const G,
     fans: []const fan_mod.Fan,
     eligible: []const bool,
-    bundles: pb.RealizedBundles,
     claims: *std.ArrayListUnmanaged(Claim),
     per_peer: *std.AutoHashMapUnmanaged(sg.EdgeId, void),
     detours: *std.ArrayListUnmanaged(Detour),
@@ -95,7 +93,7 @@ pub fn fanClaims(
         var dodges: std.ArrayListUnmanaged(Group) = .empty;
         for (f.peers) |p| {
             const e = edgeById(c.graph, p.edge_id) orelse continue;
-            if (e.kind == .invisible or c.isPlacement(e) or rail_closure.contains(bundles.discharged, e.id)) continue;
+            if (e.kind == .invisible or c.isPlacement(e)) continue;
             // The rail draws its shared members — unless a box stacked over
             // the member blocks the tap, which the stroke pass refuses and
             // hands to the per-peer path; every other member the router's
@@ -106,7 +104,7 @@ pub fn fanClaims(
             const drawn_here = by_rail or blk: {
                 if (p.long) break :blk false;
                 const other: fan_mod.Direction = if (f.direction == .out) .in else .out;
-                if (drawnByEligible(fans, eligible, e.id, other, bundles.discharged)) break :blk false;
+                if (drawnByEligible(fans, eligible, e.id, other)) break :blk false;
                 const hit = fan_mod.lookup(fans, e.id) orelse break :blk false;
                 break :blk hit.fan == &fans[fi];
             };
@@ -234,15 +232,15 @@ fn labelsCollide(taps: []const i32, widths: []const u32) bool {
 }
 
 /// The jogs of the member strokes an eligible rail's long members own.
-pub fn strokeClaims(comptime G: type, a: std.mem.Allocator, c: Census, geom: []const G, fans: []const fan_mod.Fan, eligible: []const bool, bundles: pb.RealizedBundles, claims: *std.ArrayListUnmanaged(Claim)) error{OutOfMemory}!void {
+pub fn strokeClaims(comptime G: type, a: std.mem.Allocator, c: Census, geom: []const G, fans: []const fan_mod.Fan, eligible: []const bool, claims: *std.ArrayListUnmanaged(Claim)) error{OutOfMemory}!void {
     for (fans, eligible) |f, ok| {
         if (!ok) continue;
         for (f.peers) |p| {
-            if (!p.long or !p.shared or rail_closure.contains(bundles.discharged, p.edge_id)) continue;
+            if (!p.long or !p.shared) continue;
             const e = edgeById(c.graph, p.edge_id) orelse continue;
             if (c.isPlacement(e)) continue;
             const other: fan_mod.Direction = if (f.direction == .out) .in else .out;
-            if (drawnByEligible(fans, eligible, e.id, other, bundles.discharged)) continue;
+            if (drawnByEligible(fans, eligible, e.id, other)) continue;
             const corridor = centerOf(G, geom, p.peer_idx);
             if (f.direction == .out) {
                 const tl = c.layerOfNode(e.to) orelse continue;

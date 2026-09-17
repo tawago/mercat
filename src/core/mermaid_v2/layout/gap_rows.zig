@@ -39,7 +39,6 @@
 const std = @import("std");
 const sg = @import("../sem_graph.zig");
 const pb = @import("../base/ledger.zig");
-const rail_closure = @import("../base/rail_closure.zig");
 const sugiyama = @import("sugiyama.zig");
 const fan_mod = @import("fan.zig");
 const fan_rail = @import("fan_rail.zig");
@@ -80,16 +79,11 @@ pub fn edgeClaim(a: std.mem.Allocator, gap: u32, dep: i32, arr: i32, kind: Kind,
 
 /// The claims of every edge the forward router draws: a jog per adjacent
 /// offset edge, an entry and an exit run per skip corridor.
-fn edgeClaims(comptime G: type, a: std.mem.Allocator, c: Census, geom: []const G, fans: []const fan_mod.Fan, eligible: []const bool, bundles: pb.RealizedBundles, per_peer: std.AutoHashMapUnmanaged(sg.EdgeId, void), claims: *std.ArrayListUnmanaged(Claim), posts: *std.ArrayListUnmanaged(Post)) error{OutOfMemory}!void {
+fn edgeClaims(comptime G: type, a: std.mem.Allocator, c: Census, geom: []const G, fans: []const fan_mod.Fan, eligible: []const bool, per_peer: std.AutoHashMapUnmanaged(sg.EdgeId, void), claims: *std.ArrayListUnmanaged(Claim), posts: *std.ArrayListUnmanaged(Post)) error{OutOfMemory}!void {
     for (c.graph.edges) |e| {
         if (e.kind == .invisible or e.from == e.to or c.isReversed(e.id) or c.isPlacement(e)) continue;
-        if (rail_closure.contains(bundles.discharged, e.id) or per_peer.contains(e.id)) continue;
-        if (drawnByEligible(fans, eligible, e.id, .out, bundles.discharged) or drawnByEligible(fans, eligible, e.id, .in, bundles.discharged)) continue;
-        var fused = false;
-        for (bundles.fused) |u| if (std.mem.indexOfScalar(pb.EdgeId, u, e.id) != null) {
-            fused = true;
-        };
-        if (fused) continue;
+        if (per_peer.contains(e.id)) continue;
+        if (drawnByEligible(fans, eligible, e.id, .out) or drawnByEligible(fans, eligible, e.id, .in)) continue;
         const sl = c.layerOfNode(e.from) orelse continue;
         const tl = c.layerOfNode(e.to) orelse continue;
         const target_gap = c.gapOf(sl, tl) orelse continue;
@@ -225,10 +219,10 @@ pub fn buildPiece(
     var detours: std.ArrayListUnmanaged(fans_mod.Detour) = .empty;
     var proxies: std.ArrayListUnmanaged(sg.EdgeId) = .empty;
     for (graph.edges) |e| if (c.isPlacement(e)) try proxies.append(a, e.id);
-    try fans_mod.fanClaims(G, a, c, geom, fans, eligible, bundles, &claims, &per_peer, &detours);
+    try fans_mod.fanClaims(G, a, c, geom, fans, eligible, &claims, &per_peer, &detours);
     try fans_mod.detourClaims(G, a, lg, geom, detours.items, &claims);
-    try fans_mod.strokeClaims(G, a, c, geom, fans, eligible, bundles, &claims);
-    try edgeClaims(G, a, c, geom, fans, eligible, bundles, per_peer, &claims, &posts);
+    try fans_mod.strokeClaims(G, a, c, geom, fans, eligible, &claims);
+    try edgeClaims(G, a, c, geom, fans, eligible, per_peer, &claims, &posts);
     try returnClaims(G, a, c, geom, &claims);
     try bridge.jogClaims(G, a, c, geom, &claims);
     try departureClaims(G, a, c, geom, &claims);

@@ -81,7 +81,7 @@ test "incomplete overlapping fans get separate lanes" {
     const aa = arena.allocator();
     const graph = try mkGraph(aa, &edges);
     const fans = try fan.detect(aa, graph, lg);
-    try fan_lanes.assignLanes(Geom, aa, graph, lg, &geom, fans, .{}, null);
+    try fan_lanes.assignLanes(Geom, aa, graph, lg, &geom, fans, .{});
 
     const lane_a = laneOfPivot(fans, .out, 0);
     const lane_c = laneOfPivot(fans, .out, 2);
@@ -124,7 +124,7 @@ test "lane-separated rails take distinct ledger rows and the gap reserves exactl
     const aa = arena.allocator();
     const graph = try mkGraph(aa, &edges);
     const fans = try fan.detect(aa, graph, lg);
-    try fan_lanes.assignLanes(Geom, aa, graph, lg, &geom, fans, .{}, null);
+    try fan_lanes.assignLanes(Geom, aa, graph, lg, &geom, fans, .{});
     const ledger = try gap_rows.buildPiece(Geom, aa, graph, lg, &geom, fans, .{}, .{}, &.{2}, &.{}, &.{});
     const row_a = ledger.rowOfFan(0, .out) orelse return error.MissingRail;
     const row_c = ledger.rowOfFan(2, .out) orelse return error.MissingRail;
@@ -158,57 +158,7 @@ fn peerLanes(fans: []const fan.Fan, dir: fan.Direction, pivot: u32, out: []u32) 
     }
 }
 
-test "a clustered undirected fan with no declared leaf pairs unfuses onto separate lanes" {
-    const a = testing.allocator;
-    var nodes = [_]sugiyama.LayerNode{
-        .{ .real = 0 }, .{ .real = 1 }, .{ .real = 2 },
-        .{ .real = 3 },
-    };
-    var row0 = [_]u32{ 0, 1, 2 };
-    var row1 = [_]u32{3};
-    var layers = [_][]u32{ &row0, &row1 };
-    var edges = [_]sugiyama.LayerEdge{
-        .{ .from = 0, .to = 3, .reversed = false, .edge = 10 },
-        .{ .from = 1, .to = 3, .reversed = false, .edge = 11 },
-        .{ .from = 2, .to = 3, .reversed = false, .edge = 12 },
-    };
-    var reversed = [_]sg.EdgeId{};
-    const lg = mkLg(&nodes, &layers, &edges, &reversed);
-    const geom = [_]Geom{
-        .{ .x = 0, .w = 3 }, .{ .x = 9, .w = 3 }, .{ .x = 18, .w = 3 }, .{ .x = 9, .w = 3 },
-    };
-
-    var arena = std.heap.ArenaAllocator.init(a);
-    defer arena.deinit();
-    const aa = arena.allocator();
-
-    {
-        const graph = try mkBareGraph(aa, &edges, &.{});
-        const fans = try fan.detect(aa, graph, lg);
-        try fan_lanes.assignLanes(Geom, aa, graph, lg, &geom, fans, .{}, null);
-        var lanes = [_]u32{ 0, 0, 0 };
-        peerLanes(fans, .in, 3, &lanes);
-        try testing.expect(lanes[0] != lanes[1]);
-        try testing.expect(lanes[1] != lanes[2]);
-        try testing.expect(lanes[0] != lanes[2]);
-    }
-
-    {
-        const clique = [_]sg.Edge{
-            .{ .id = 20, .from = 0, .to = 1, .kind = .solid, .arrow_from = .none, .arrow_to = .none, .label = null },
-            .{ .id = 21, .from = 0, .to = 2, .kind = .solid, .arrow_from = .none, .arrow_to = .none, .label = null },
-            .{ .id = 22, .from = 1, .to = 2, .kind = .solid, .arrow_from = .none, .arrow_to = .none, .label = null },
-        };
-        const graph = try mkBareGraph(aa, &edges, &clique);
-        const fans = try fan.detect(aa, graph, lg);
-        try fan_lanes.assignLanes(Geom, aa, graph, lg, &geom, fans, .{}, null);
-        var lanes = [_]u32{ 9, 9, 9 };
-        peerLanes(fans, .in, 3, &lanes);
-        for (lanes) |l| try testing.expectEqual(@as(u32, 0), l);
-    }
-}
-
-test "a clustered DIRECTED fan is untouched by the closure licence" {
+test "a clustered directed fan keeps every peer on the shared lane" {
     const a = testing.allocator;
     var nodes = [_]sugiyama.LayerNode{ .{ .real = 0 }, .{ .real = 1 }, .{ .real = 2 }, .{ .real = 3 } };
     var row0 = [_]u32{ 0, 1, 2 };
@@ -229,13 +179,13 @@ test "a clustered DIRECTED fan is untouched by the closure licence" {
     const aa = arena.allocator();
     const graph = try mkGraph(aa, &edges);
     const fans = try fan.detect(aa, graph, lg);
-    try fan_lanes.assignLanes(Geom, aa, graph, lg, &geom, fans, .{}, null);
+    try fan_lanes.assignLanes(Geom, aa, graph, lg, &geom, fans, .{});
     var lanes = [_]u32{ 9, 9, 9 };
     peerLanes(fans, .in, 3, &lanes);
     for (lanes) |l| try testing.expectEqual(@as(u32, 0), l);
 }
 
-test "a fan of placement proxies for directed crossings is untouched by the closure licence" {
+test "a fan of placement proxies for directed crossings keeps every peer on the shared lane" {
     const a = testing.allocator;
     var nodes = [_]sugiyama.LayerNode{ .{ .real = 0 }, .{ .real = 1 }, .{ .real = 2 }, .{ .real = 3 } };
     var row0 = [_]u32{ 0, 1, 2 };
@@ -259,7 +209,7 @@ test "a fan of placement proxies for directed crossings is untouched by the clos
     for (@constCast(graph.edges)) |*e| e.stands_for = .forward_one_way;
 
     const fans = try fan.detect(aa, graph, lg);
-    try fan_lanes.assignLanes(Geom, aa, graph, lg, &geom, fans, .{}, null);
+    try fan_lanes.assignLanes(Geom, aa, graph, lg, &geom, fans, .{});
     var lanes = [_]u32{ 9, 9, 9 };
     peerLanes(fans, .in, 3, &lanes);
     for (lanes) |l| try testing.expectEqual(@as(u32, 0), l);
@@ -296,7 +246,7 @@ test "a salvaged fan's excluded members never land on the kept rail's lane" {
             .{ .edge = 12, .source = null, .target = .{ .independent = .{ .candidate_bundle = 0, .reason = .not_selected } } },
         },
     };
-    try fan_lanes.assignLanes(Geom, aa, graph, lg, &geom, fans, bundles, null);
+    try fan_lanes.assignLanes(Geom, aa, graph, lg, &geom, fans, bundles);
     var lanes = [_]u32{ 9, 9, 9 };
     peerLanes(fans, .in, 3, &lanes);
     try testing.expectEqual(@as(u32, 0), lanes[0]);
@@ -346,64 +296,7 @@ test "a gap whose departures all defer lane-separates the arrival rails that dra
     const aa = arena.allocator();
     const graph = try mkGraph(aa, &edges);
     const fans = try fan.detect(aa, graph, lg);
-    try fan_lanes.assignLanes(Geom, aa, graph, lg, &geom, fans, bundles, null);
+    try fan_lanes.assignLanes(Geom, aa, graph, lg, &geom, fans, bundles);
     try testing.expect(laneOfPivot(fans, .in, 3) != 0);
     try testing.expect(laneOfPivot(fans, .in, 3) != laneOfPivot(fans, .in, 4));
-}
-
-test "two clustered rails implying one declared leaf pair both refuse" {
-    const a = testing.allocator;
-    var nodes = [_]sugiyama.LayerNode{
-        .{ .real = 0 }, .{ .real = 1 },
-        .{ .real = 2 }, .{ .real = 3 },
-    };
-    var row0 = [_]u32{ 0, 1 };
-    var row1 = [_]u32{ 2, 3 };
-    var layers = [_][]u32{ &row0, &row1 };
-    const geom = [_]Geom{ .{ .x = 0, .w = 3 }, .{ .x = 9, .w = 3 }, .{ .x = 0, .w = 3 }, .{ .x = 9, .w = 3 } };
-    const declared_pair = [_]sg.Edge{
-        .{ .id = 20, .from = 0, .to = 1, .kind = .solid, .arrow_from = .none, .arrow_to = .none, .label = null },
-    };
-
-    var arena = std.heap.ArenaAllocator.init(a);
-    defer arena.deinit();
-    const aa = arena.allocator();
-
-    {
-        var edges = [_]sugiyama.LayerEdge{
-            .{ .from = 0, .to = 2, .reversed = false, .edge = 10 },
-            .{ .from = 1, .to = 2, .reversed = false, .edge = 11 },
-            .{ .from = 0, .to = 3, .reversed = false, .edge = 12 },
-            .{ .from = 1, .to = 3, .reversed = false, .edge = 13 },
-        };
-        var reversed = [_]sg.EdgeId{};
-        const lg = mkLg(&nodes, &layers, &edges, &reversed);
-        const graph = try mkBareGraph(aa, &edges, &declared_pair);
-        const fans = try fan.detect(aa, graph, lg);
-        var report: pb.ClosureCounts = .{};
-        try fan_lanes.assignLanes(Geom, aa, graph, lg, &geom, fans, .{}, &report);
-
-        var z_lanes = [_]u32{ 0, 0 };
-        peerLanes(fans, .in, 2, &z_lanes);
-        var w_lanes = [_]u32{ 0, 0 };
-        peerLanes(fans, .in, 3, &w_lanes);
-        try testing.expect(z_lanes[0] != z_lanes[1]);
-        try testing.expect(w_lanes[0] != w_lanes[1]);
-    }
-
-    {
-        var edges = [_]sugiyama.LayerEdge{
-            .{ .from = 0, .to = 2, .reversed = false, .edge = 10 },
-            .{ .from = 1, .to = 2, .reversed = false, .edge = 11 },
-        };
-        var reversed = [_]sg.EdgeId{};
-        const lg = mkLg(&nodes, &layers, &edges, &reversed);
-        const graph = try mkBareGraph(aa, &edges, &declared_pair);
-        const fans = try fan.detect(aa, graph, lg);
-        try fan_lanes.assignLanes(Geom, aa, graph, lg, &geom, fans, .{}, null);
-
-        var z_lanes = [_]u32{ 9, 9 };
-        peerLanes(fans, .in, 2, &z_lanes);
-        for (z_lanes) |l| try testing.expectEqual(@as(u32, 0), l);
-    }
 }
