@@ -41,7 +41,7 @@ pub const table = [_]Row{
     .{
         .token = "lib/unicode.zig",
         .why = "import the Unicode authority as the named module \"unicode\" so consumers cannot bypass one shared module identity",
-        .allow = &.{ "types.zig", "imports.zig", "banned_tokens.zig" },
+        .allow = &.{ "types.zig", "imports.zig", "vocabulary.zig" },
     },
     .{
         .token = "getenv",

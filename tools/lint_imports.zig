@@ -12,7 +12,7 @@
 //!      `@guarded-by:`) resolves to a real test declaration somewhere in the
 //!      tree (anchors the comment-promotion convention so a renamed/deleted
 //!      test breaks the build, not silently; tools/lint/guarded_by.zig).
-//!   5. No banned token (zone invariants; tools/lint/banned_tokens.zig).
+//!   5. No banned token (zone invariants; tools/lint/vocabulary.zig).
 //!
 //! Exits 0 on success, 1 on any violation, 2 on I/O / missing-root errors.
 //!
@@ -25,7 +25,7 @@ const std = @import("std");
 
 const imports = @import("lint/imports.zig");
 const gb = @import("lint/guarded_by.zig");
-const banned = @import("lint/banned_tokens.zig");
+const banned = @import("lint/vocabulary.zig");
 const TestDecl = gb.TestDecl;
 const GbRef = gb.GbRef;
 
