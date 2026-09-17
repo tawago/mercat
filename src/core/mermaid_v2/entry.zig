@@ -551,8 +551,6 @@ test {
     _ = @import("cluster/bridge_bundle_sets.zig");
     _ = @import("base/ledger.zig");
     _ = @import("base/ledger_test.zig");
-    _ = @import("base/diagnostics.zig");
-    _ = @import("base/diagnostics_test.zig");
     _ = @import("base/bundle.zig");
     _ = @import("ledger/permits.zig");
     _ = @import("ledger/permits_test.zig");

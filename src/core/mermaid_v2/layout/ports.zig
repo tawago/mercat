@@ -259,7 +259,6 @@ pub const capacity_action = "reject candidate and report, per D-DISPOSITION";
 /// recorded order; `edges`/`groups` list every involved edge id and
 /// branch group id demanded on the side (rail members included).
 pub const CapacityExceeded = struct {
-    tag: pb.DiagnosticTag = .port_capacity_exceeded,
     candidate: CandidateRef,
     node: pb.NodeId,
     side: sk.Dir4,
@@ -278,7 +277,6 @@ pub const CapacityExceeded = struct {
 /// disposition per D-DISPOSITION, multiplicity D-DUPLICATE's. `edges` is a
 /// canonicalized report inventory (ascending, deduped), never a port order.
 pub const KeyCollision = struct {
-    tag: pb.DiagnosticTag = .port_key_collision,
     node: pb.NodeId,
     side: sk.Dir4,
     key: pb.AttachmentKey,

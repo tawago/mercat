@@ -122,7 +122,7 @@ test "V-D-PORT-04: capacity boundary L=2p+1 allocates and L=2p fails typed" {
         const ok = try assigned(try ports.allocate(a, no_candidate, 0, .south, 2 * p + 1, atts.items));
         try std.testing.expectEqual(@as(usize, p), ok.len);
         const fail = try failed(try ports.allocate(a, no_candidate, 0, .south, 2 * p, atts.items));
-        try std.testing.expectEqual(pb.DiagnosticTag.port_capacity_exceeded, fail.capacity_exceeded.tag);
+        try std.testing.expect(fail == .capacity_exceeded);
     }
 }
 
@@ -143,7 +143,6 @@ test "V-D-PORT-10: clamped L=3 with p=2 emits port_capacity_exceeded with the fu
     const candidate: ports.CandidateRef = .{ .candidate = 2, .rung = 1 };
     const fail = try failed(try ports.allocate(a, candidate, 1, .south, 3, &.{ independent, rail }));
     const payload = fail.capacity_exceeded;
-    try std.testing.expectEqual(pb.DiagnosticTag.port_capacity_exceeded, payload.tag);
     try std.testing.expectEqual(@as(u32, 2), payload.candidate.candidate);
     try std.testing.expectEqual(@as(u8, 1), payload.candidate.rung);
     try std.testing.expectEqual(@as(pb.NodeId, 1), payload.node);
@@ -168,7 +167,6 @@ test "V-D-PORT-11: byte-identical K fails with port_key_collision naming D-DUPLI
     const second = try failed(try ports.allocate(a, no_candidate, 0, .south, 9, &.{ twin_b, twin_a }));
     for ([_]ports.Failure{ first, second }) |fail| {
         const payload = fail.key_collision;
-        try std.testing.expectEqual(pb.DiagnosticTag.port_key_collision, payload.tag);
         try std.testing.expectEqualStrings("B", payload.key.opposite);
         try std.testing.expectEqualSlices(pb.EdgeId, &.{ 4, 9 }, payload.edges);
         try std.testing.expectEqualStrings("D-DUPLICATE", payload.deferred_to);

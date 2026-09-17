@@ -2,10 +2,8 @@
 //! candidate-local realized-bundle artifact (D-IR item 1): the
 //! BundlePolicy storage, the BundlePermits / RealizedBundles logical records,
 //! the bundle membership sets riding the Sketch beside that plan,
-//! terminal-port identities, the canonical semantic-key
-//! comparators with the pinned D-PORT clause-4 ordinal tables, and the
-//! D-DISPOSITION diagnostic registry (in the sibling diagnostics.zig,
-//! re-exported below).
+//! terminal-port identities, and the canonical semantic-key
+//! comparators with the pinned D-PORT clause-4 ordinal tables.
 //!
 //! Pure data + pure functions only; imports only std. Universally
 //! importable (every zone may reach it), mirroring base/lanes.zig —
@@ -408,8 +406,3 @@ pub fn attachmentKeyOrder(a: AttachmentKey, b: AttachmentKey) std.math.Order {
     if (at != .eq) return at;
     return labelOrder(a.label, b.label);
 }
-
-const diagnostics = @import("diagnostics.zig");
-
-pub const DiagnosticTag = diagnostics.DiagnosticTag;
-pub const tagName = diagnostics.tagName;
