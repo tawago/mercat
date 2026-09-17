@@ -4,12 +4,11 @@
 //! (motif-packed TD/BT parallel graphs at capped rungs). Raster-audits each multi-candidate
 //! selection (audit.zig; skipped when only one) and picks the argmin of
 //! score.eval, gated by truncate-eligibility and a natural-preference margin
-//! anchored to the raw natural; the CI safety filter (select_filter.zig)
-//! runs BEFORE scoring (score-blind); failures degrade to the ladder incumbent.
+//! anchored to the raw natural; failures degrade to the ladder incumbent.
 //!
 //! Allowed imports (tools/lint_imports.zig): std, prim, sem_graph, sketch,
-//! budget, score, motif, audit, select_filter, select_labels, parse (tests
-//! only). In-file tests live in select_test.zig (plan N3 cap-watch).
+//! budget, score, motif, audit, select_labels, parse (tests only). In-file
+//! tests live in select_test.zig (plan N3 cap-watch).
 //!
 //! Every candidate carries the bundle plan its layout committed
 //! (layout/bundle_commit.zig) and the bundle sets layout derived from it;
@@ -23,7 +22,6 @@ const sketch_mod = @import("sketch.zig");
 const ladder = @import("budget.zig");
 const score_mod = @import("score.zig");
 const audit_mod = @import("audit.zig");
-const select_filter = @import("select_filter.zig");
 const select_labels = @import("select_labels.zig");
 
 /// Packed candidates' capped rung set (see budget.Transform.rungs).
@@ -36,10 +34,11 @@ const MAX_CANDIDATES = 16;
 /// Bridge-build twins: {dodged, railed} x {raw natural, ladder incumbent}.
 const MAX_BRIDGE = 4;
 
-/// Enumerate raw + packed candidates, CI-filter, score them, and return the
-/// winning `LadderResult`. `score_off` returns the ladder incumbent (A/B
-/// escape hatch); `shadow` emits one `mercat-score-shadow:` line on disagreement.
-/// Errors are exactly `budget.enumerate`'s (pre-incumbent layout failures).
+/// Enumerate raw + packed candidates, score them, and return the winning
+/// `LadderResult`. `score_off` returns the ladder incumbent (A/B escape
+/// hatch); `shadow` emits one `mercat-score-shadow:` line on disagreement.
+/// A scoring failure leaves the ladder incumbent. Errors are exactly
+/// `budget.enumerate`'s (pre-incumbent layout failures).
 pub fn choose(
     aa: std.mem.Allocator,
     graph: sem_graph.SemGraph,
@@ -51,19 +50,13 @@ pub fn choose(
 ) !ladder.LadderResult {
     const set = try enumerateAll(aa, graph, bundle_permits, max_width);
     const incumbent = set.incumbent;
-
-    // The CI safety filter runs BEFORE scoring and reads no score: a
-    // candidate that drew nothing for a visible edge is not a candidate. A
-    // filter that empties the set, like a scoring failure, leaves the ladder
-    // incumbent.
-    const survivors = select_filter.ciFilter(aa, set.merged);
-    const selection = scoreCandidates(aa, survivors, incumbent.final_rung, graph.direction, subgraph_edges);
+    const selection = scoreCandidates(aa, set.merged, incumbent.final_rung, graph.direction, subgraph_edges);
     if (shadow) {
-        if (selection) |sel| emitScoreShadowLine(survivors, sel, max_width);
+        if (selection) |sel| emitScoreShadowLine(set.merged, sel, max_width);
     }
     if (score_off) return incumbent;
     const sel = selection orelse return incumbent;
-    const winner = survivors[sel.argmin_idx];
+    const winner = set.merged[sel.argmin_idx];
     return .{ .sketch = winner.sketch, .final_rung = winner.rung, .attempts = @intCast(set.merged.len) };
 }
 
