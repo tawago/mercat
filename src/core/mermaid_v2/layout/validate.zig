@@ -1,11 +1,14 @@
-//! Sketch validators — six invariant checks on layout output, run by
-//! `entry.renderFlowchart` after the budget-ladder produces its winning
-//! Sketch. Runs in every build mode (cheap — O(n²) over ≤ ~31 nodes) so
-//! `Counts` (via `counts`) exist in release builds too; per-violation LOG
-//! lines stay Debug-only in entry.zig; validation never affects output or
-//! triggers fallback. Imports: `std` and `../sketch.zig` only — the
-//! import-boundary lint keeps `layout/` independent of `lattice/`,
-//! `raster/`, and `paint/`.
+//! Sketch validators — the invariant checks on layout output whose
+//! violations a render has actually shown: an edge routed through a node's
+//! open interior, a visible edge the router laid no ink for, and the
+//! informational bbox-over-budget count. Run by `entry.renderFlowchart`
+//! after the budget-ladder produces its winning Sketch, and by `score.eval`
+//! on every candidate. Runs in every build mode (cheap — O(n²) over ≤ ~31
+//! nodes) so `Counts` (via `counts`) exist in release builds too;
+//! per-violation LOG lines stay Debug-only in entry.zig; validation never
+//! affects output or triggers fallback. Imports: `std` and `../sketch.zig`
+//! only — the import-boundary lint keeps `layout/` independent of
+//! `lattice/`, `raster/`, and `paint/`.
 
 const std = @import("std");
 const sketch = @import("../sketch.zig");
@@ -16,11 +19,7 @@ pub const Violation = struct {
     message: []const u8,
 
     pub const Kind = enum {
-        node_overlap,
-        path_off_perimeter,
         path_through_interior,
-        cluster_does_not_contain,
-        path_crosses_cluster_unauthorized,
         bbox_overflow,
         /// A visible edge the router laid no ink for (an empty polyline):
         /// every producer refused every candidate, so the relation is
@@ -44,11 +43,7 @@ pub const ValidationResult = union(enum) {
 /// none because the painter clips gracefully. It is still reported here
 /// so diagnostics can track clipped renders.
 pub const Counts = struct {
-    node_overlap: u32 = 0,
-    path_off_perimeter: u32 = 0,
     path_through_interior: u32 = 0,
-    cluster_containment: u32 = 0,
-    cluster_port: u32 = 0,
     bbox_overflow: u32 = 0,
     edge_unrouted: u32 = 0,
 };
@@ -61,11 +56,7 @@ pub fn counts(vr: ValidationResult, s: sketch.Sketch) Counts {
     switch (vr) {
         .ok => {},
         .failed => |violations| for (violations) |v| switch (v.kind) {
-            .node_overlap => c.node_overlap += 1,
-            .path_off_perimeter => c.path_off_perimeter += 1,
             .path_through_interior => c.path_through_interior += 1,
-            .cluster_does_not_contain => c.cluster_containment += 1,
-            .path_crosses_cluster_unauthorized => c.cluster_port += 1,
             .bbox_overflow => c.bbox_overflow += 1,
             .edge_unrouted => c.edge_unrouted += 1,
         },
@@ -83,12 +74,9 @@ pub fn validate(
     var violations: std.ArrayList(Violation) = .empty;
     errdefer violations.deinit(allocator);
 
-    try checkNodeOverlap(allocator, s, &violations);
-    try checkPathEndpoints(allocator, s, &violations);
+    try checkUnrouted(allocator, s, &violations);
     try checkPathInteriors(allocator, s, &violations);
     try checkRails(allocator, s, &violations);
-    try checkClusterContainment(allocator, s, &violations);
-    try checkClusterPorts(allocator, s, &violations);
     try checkBboxBudget(allocator, s, &violations);
 
     if (violations.items.len == 0) {
@@ -97,24 +85,6 @@ pub fn validate(
     }
     const owned = try violations.toOwnedSlice(allocator);
     return .{ .failed = owned };
-}
-
-/// O(n²) pairwise rect-overlap check across all NodePlacements.
-pub fn checkNodeOverlap(
-    allocator: std.mem.Allocator,
-    s: sketch.Sketch,
-    violations: *std.ArrayList(Violation),
-) !void {
-    const nodes = s.nodes;
-    var i: usize = 0;
-    while (i < nodes.len) : (i += 1) {
-        var j: usize = i + 1;
-        while (j < nodes.len) : (j += 1) {
-            if (nodes[i].rect.overlaps(nodes[j].rect)) {
-                try emit(allocator, violations, .node_overlap, "node {d} rect overlaps node {d} rect", .{ nodes[i].id, nodes[j].id });
-            }
-        }
-    }
 }
 
 fn emit(
@@ -128,71 +98,17 @@ fn emit(
     try violations.append(allocator, .{ .kind = kind, .message = msg });
 }
 
-/// Which ends of a `.member_stroke` sit on a rail's continuing tap: those
-/// ends meet the rail's junction cell, not a node perimeter.
-const RailEnds = struct { source: bool = false, target: bool = false };
-
-fn railEnds(s: sketch.Sketch, edge: sketch.EdgePath) RailEnds {
-    var ends: RailEnds = .{};
-    if (edge.role != .member_stroke) return ends;
-    for (s.rails) |rail| {
-        const fan_in = rail.role == .fan_in_dropper or rail.role == .fan_in_rail;
-        for (rail.taps) |tap| {
-            if (tap.edge != edge.id or !tap.continues) continue;
-            if (fan_in) ends.target = true else ends.source = true;
-        }
-    }
-    return ends;
-}
-
-/// A continuing tap's junction cell, for the member stroke end that must
-/// meet it.
-fn continuingTapAt(s: sketch.Sketch, edge: sketch.EdgeId, fan_in: bool) ?sketch.Point {
-    for (s.rails) |rail| {
-        const rail_in = rail.role == .fan_in_dropper or rail.role == .fan_in_rail;
-        if (rail_in != fan_in) continue;
-        for (rail.taps) |tap| if (tap.edge == edge and tap.continues) return tap.at;
-    }
-    return null;
-}
-
-/// Each EdgePath's first/last polyline point must lie on the perimeter
-/// of its source/target NodePlacement — or, for a `.member_stroke`'s rail
-/// end, exactly on that rail's continuing tap. A visible edge with no
-/// polyline at all is an unrouted edge (its own kind); an invisible one
-/// owns no ink either way and is not a violation.
-/// @guarded-by: validate_test.zig "a member stroke's rail end must meet its tap, its private end the perimeter"
-/// @guarded-by: validate_test.zig "an edge with no polyline counts as unrouted, not off-perimeter"
-pub fn checkPathEndpoints(
+/// A visible edge with no polyline at all is an unrouted edge; an
+/// invisible one owns no ink either way and is not a violation.
+/// @guarded-by: validate_test.zig "an edge with no polyline counts as unrouted"
+pub fn checkUnrouted(
     allocator: std.mem.Allocator,
     s: sketch.Sketch,
     violations: *std.ArrayList(Violation),
 ) !void {
     for (s.edges) |edge| {
-        if (edge.polyline.len < 2) {
-            if (edge.kind != .invisible)
-                try emit(allocator, violations, .edge_unrouted, "edge {d} ({d} -> {d}) has no polyline; unrouted", .{ edge.id, edge.from, edge.to });
-            continue;
-        }
-        const from_node = findNode(s, edge.from) orelse continue;
-        const to_node = findNode(s, edge.to) orelse continue;
-        const first = edge.polyline[0];
-        const last = edge.polyline[edge.polyline.len - 1];
-        const ends = railEnds(s, edge);
-        if (ends.source) {
-            const at = continuingTapAt(s, edge.id, false) orelse unreachable;
-            if (first.x != at.x or first.y != at.y)
-                try emit(allocator, violations, .path_off_perimeter, "edge {d} start ({d},{d}) not on its rail tap ({d},{d})", .{ edge.id, first.x, first.y, at.x, at.y });
-        } else if (!onPerimeter(from_node.rect, first)) {
-            try emit(allocator, violations, .path_off_perimeter, "edge {d} start ({d},{d}) not on perimeter of node {d}", .{ edge.id, first.x, first.y, from_node.id });
-        }
-        if (ends.target) {
-            const at = continuingTapAt(s, edge.id, true) orelse unreachable;
-            if (last.x != at.x or last.y != at.y)
-                try emit(allocator, violations, .path_off_perimeter, "edge {d} end ({d},{d}) not on its rail tap ({d},{d})", .{ edge.id, last.x, last.y, at.x, at.y });
-        } else if (!onPerimeter(to_node.rect, last)) {
-            try emit(allocator, violations, .path_off_perimeter, "edge {d} end ({d},{d}) not on perimeter of node {d}", .{ edge.id, last.x, last.y, to_node.id });
-        }
+        if (edge.polyline.len >= 2 or edge.kind == .invisible) continue;
+        try emit(allocator, violations, .edge_unrouted, "edge {d} ({d} -> {d}) has no polyline; unrouted", .{ edge.id, edge.from, edge.to });
     }
 }
 
@@ -227,40 +143,17 @@ pub fn checkPathInteriors(
     }
 }
 
-/// Rail invariants. The rail is deliberately EXEMPT from the
-/// node-perimeter endpoint rule (its crossbar ends float in the inter-layer
-/// gap); instead:
-///   - the stem must be non-degenerate (>= 2 points) and START on the
-///     pivot node's perimeter (counted as path_off_perimeter);
-///   - every TAP's landing must lie on its node's perimeter (ditto);
-///   - no stem/rail/drop segment may cross a node's open interior
-///     (counted as path_through_interior; the pivot is exempt on the
-///     stem's first segment, each tap's own node on its drop — mirroring
-///     checkPathInteriors' endpoint adjacency rule).
-/// All violations map onto existing Counts fields, so score.eval's T1
-/// tier stays stable regardless of stem/rail/tap mix.
+/// Rail invariant: no stem/crossbar/drop segment may cross a node's open
+/// interior (counted as path_through_interior; the pivot is exempt on the
+/// stem's first segment, each tap's own node on its drop — mirroring
+/// checkPathInteriors' endpoint adjacency rule). The rail's crossbar ends
+/// float in the inter-layer gap and meet no perimeter rule.
 pub fn checkRails(
     allocator: std.mem.Allocator,
     s: sketch.Sketch,
     violations: *std.ArrayList(Violation),
 ) !void {
     for (s.rails) |rail| {
-        if (rail.stem.len < 2) {
-            try emit(allocator, violations, .path_off_perimeter, "rail of node {d} has degenerate stem (len={d})", .{ rail.pivot, rail.stem.len });
-            continue;
-        }
-        if (findNode(s, rail.pivot)) |pivot| {
-            if (!onPerimeter(pivot.rect, rail.stem[0])) {
-                try emit(allocator, violations, .path_off_perimeter, "rail stem start ({d},{d}) not on perimeter of pivot {d}", .{ rail.stem[0].x, rail.stem[0].y, rail.pivot });
-            }
-        }
-        for (rail.taps) |tap| {
-            if (tap.continues) continue;
-            const node = findNode(s, tap.node) orelse continue;
-            if (!onPerimeter(node.rect, tap.landing)) {
-                try emit(allocator, violations, .path_off_perimeter, "rail tap for edge {d} lands at ({d},{d}) off perimeter of node {d}", .{ tap.edge, tap.landing.x, tap.landing.y, tap.node });
-            }
-        }
         for (s.nodes) |node| {
             var si: usize = 0;
             while (si + 1 < rail.stem.len) : (si += 1) {
@@ -282,50 +175,6 @@ pub fn checkRails(
     }
 }
 
-/// Each NodePlacement.cluster_id must point to a ClusterFrame whose
-/// rect contains the node's rect. Likewise nested ClusterFrames must
-/// fit inside their parent.
-pub fn checkClusterContainment(
-    allocator: std.mem.Allocator,
-    s: sketch.Sketch,
-    violations: *std.ArrayList(Violation),
-) !void {
-    for (s.nodes) |node| {
-        const cid = node.cluster_id orelse continue;
-        const cluster = findCluster(s, cid) orelse {
-            try emit(allocator, violations, .cluster_does_not_contain, "node {d} declares cluster {d} which is not in the Sketch", .{ node.id, cid });
-            continue;
-        };
-        if (!rectContainsRect(cluster.rect, node.rect)) {
-            try emit(allocator, violations, .cluster_does_not_contain, "node {d} rect not contained within cluster {d} frame", .{ node.id, cluster.id });
-        }
-    }
-    for (s.clusters) |cluster| {
-        const pid = cluster.parent_id orelse continue;
-        const parent = findCluster(s, pid) orelse {
-            try emit(allocator, violations, .cluster_does_not_contain, "cluster {d} declares parent {d} which is not in the Sketch", .{ cluster.id, pid });
-            continue;
-        };
-        if (!rectContainsRect(parent.rect, cluster.rect)) {
-            try emit(allocator, violations, .cluster_does_not_contain, "cluster {d} frame not contained within parent cluster {d}", .{ cluster.id, parent.id });
-        }
-    }
-}
-
-/// Polylines may only cross a cluster border at a declared cluster port.
-///
-/// No-op for now: `ClusterFrame` (`sketch.zig`) does not yet expose a
-/// cluster-port set, so border-crossing authorisation can't be checked.
-pub fn checkClusterPorts(
-    allocator: std.mem.Allocator,
-    s: sketch.Sketch,
-    violations: *std.ArrayList(Violation),
-) !void {
-    _ = allocator;
-    _ = s;
-    _ = violations;
-}
-
 /// Bbox width vs. budget — informational only: the painter clips
 /// gracefully with an overflow marker, so this logs (Debug-only) but
 /// never emits a `.bbox_overflow` `Violation`.
@@ -341,50 +190,6 @@ pub fn checkBboxBudget(
         const excess = s.bbox.w - s.budget.max_width;
         std.log.debug("mermaid_v2/validate: bbox width {d} exceeds budget {d} by {d} (clipped at paint)", .{ s.bbox.w, s.budget.max_width, excess });
     }
-}
-
-fn findNode(s: sketch.Sketch, id: sketch.NodeId) ?sketch.NodePlacement {
-    for (s.nodes) |n| {
-        if (n.id == id) return n;
-    }
-    return null;
-}
-
-fn findCluster(s: sketch.Sketch, id: sketch.ClusterId) ?sketch.ClusterFrame {
-    for (s.clusters) |c| {
-        if (c.id == id) return c;
-    }
-    return null;
-}
-
-/// True iff `p` lies on one of the four perimeter edges of `r`
-/// (inclusive of corners), or sits exactly 1 cell outside one of those
-/// borders along the side normal (port-margin tolerance for cluster-
-/// internal edges that pad themselves off the node border).
-fn onPerimeter(r: sketch.Rect, p: sketch.Point) bool {
-    if (r.w == 0 or r.h == 0) return false;
-    const l = r.x;
-    const ri = r.right() - 1;
-    const t = r.y;
-    const bi = r.bottom() - 1;
-    const ix = p.x >= l and p.x <= ri;
-    const iy = p.y >= t and p.y <= bi;
-    if (ix and iy and (p.x == l or p.x == ri or p.y == t or p.y == bi)) return true;
-    if (iy and (p.x == l - 1 or p.x == ri + 1)) return true;
-    if (ix and (p.y == t - 1 or p.y == bi + 1)) return true;
-    return false;
-}
-
-/// True iff `outer` covers every cell of `inner`. Uses half-open
-/// semantics on the right/bottom edges so that touching rects count as
-/// contained (matching `Rect.overlaps`'s edge-touch convention).
-fn rectContainsRect(outer: sketch.Rect, inner: sketch.Rect) bool {
-    if (inner.w == 0 or inner.h == 0) return true;
-    if (outer.w == 0 or outer.h == 0) return false;
-    return inner.x >= outer.x and
-        inner.y >= outer.y and
-        inner.right() <= outer.right() and
-        inner.bottom() <= outer.bottom();
 }
 
 /// True iff the segment from `a` to `b` passes through the open

@@ -282,12 +282,9 @@ fn emitIntegrityLine(
     gap_rows_unclaimed_ink: u32,
 ) void {
     std.debug.print(
-        "mercat-integrity: v_node_overlap={d} v_path_off_perimeter={d} v_path_through_interior={d} v_cluster={d} v_bbox={d} r_edge_cells_lost={d} r_labels_dropped={d} r_labels_displaced={d} r_phantom_arms={d} x_legal_crossing={d} x_foreign_junction={d} x_arrowhead_transit={d} b_frame_bridge={d} b_border_fusion_refused={d} a_arrowhead_base={d} skipped_lines={d} rail_deco_mixed={d} rail_member_style_mixed={d} rail_star_violation={d} tip_not_port={d} arm_into_head={d} v_edge_unrouted={d} gap_rows_unaccounted={d} gap_rows_unclaimed_ink={d}\n",
+        "mercat-integrity: v_path_through_interior={d} v_bbox={d} r_edge_cells_lost={d} r_labels_dropped={d} r_labels_displaced={d} r_phantom_arms={d} x_legal_crossing={d} x_foreign_junction={d} x_arrowhead_transit={d} b_frame_bridge={d} b_border_fusion_refused={d} a_arrowhead_base={d} skipped_lines={d} rail_deco_mixed={d} rail_member_style_mixed={d} rail_star_violation={d} tip_not_port={d} arm_into_head={d} v_edge_unrouted={d} gap_rows_unaccounted={d} gap_rows_unclaimed_ink={d}\n",
         .{
-            v.node_overlap,
-            v.path_off_perimeter,
             v.path_through_interior,
-            v.cluster_containment + v.cluster_port,
             v.bbox_overflow,
             raster_report.edge_cells_lost,
             raster_report.labels_dropped,

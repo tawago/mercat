@@ -102,11 +102,15 @@ test "eval: integrity is a large priced cost, not a veto" {
     defer arena.deinit();
     const a = arena.allocator();
 
+    // An edge from node 0 to node 1 routed straight through node 2's interior.
     const dirty_nodes = [_]sketch.NodePlacement{
-        testNode(0, .{ .x = 0, .y = 0, .w = 5, .h = 3 }, null),
-        testNode(1, .{ .x = 2, .y = 1, .w = 5, .h = 3 }, null),
+        testNode(0, .{ .x = 0, .y = 0, .w = 5, .h = 5 }, null),
+        testNode(1, .{ .x = 20, .y = 0, .w = 5, .h = 5 }, null),
+        testNode(2, .{ .x = 10, .y = 0, .w = 5, .h = 5 }, null),
     };
-    const dirty = testSketch(.{ .x = 0, .y = 0, .w = 7, .h = 4 }, &dirty_nodes, &.{}, &.{});
+    const through = [_]sketch.Point{ .{ .x = 5, .y = 2 }, .{ .x = 20, .y = 2 } };
+    const dirty_edges = [_]sketch.EdgePath{testEdge(0, &through)};
+    const dirty = testSketch(.{ .x = 0, .y = 0, .w = 25, .h = 5 }, &dirty_nodes, &dirty_edges, &.{});
     const s_dirty = try eval(a, dirty, .TD, 0, .{});
     try t.expect(s_dirty.t1_integrity >= 1);
 
@@ -123,22 +127,7 @@ test "eval: integrity is a large priced cost, not a veto" {
     try t.expect(s_dirty.lessThan(s_huge));
 }
 
-test "eval: a lost terminal head is priced above the plain lost cell it also is" {
-    var arena = std.heap.ArenaAllocator.init(t.allocator);
-    defer arena.deinit();
-    const a = arena.allocator();
-
-    const nodes = [_]sketch.NodePlacement{
-        testNode(0, .{ .x = 0, .y = 0, .w = 5, .h = 3 }, null),
-    };
-    const sk = testSketch(.{ .x = 0, .y = 0, .w = 7, .h = 4 }, &nodes, &.{}, &.{});
-    const base = try eval(a, sk, .TD, 0, .{ .edge_cells_lost = 1 });
-    const headless = try eval(a, sk, .TD, 0, .{ .edge_cells_lost = 1, .heads_lost = 1 });
-    try t.expectEqual(base.t12_composite + score.W_HEAD_LOST, headless.t12_composite);
-    try t.expect(base.lessThan(headless));
-}
-
-test "eval: a tip off its port is an omission, a shipped lateral arm a fabrication, and both enter the composite" {
+test "eval: a shipped lateral arm is a fabrication and enters the composite at the foreign-junction tier" {
     var arena = std.heap.ArenaAllocator.init(t.allocator);
     defer arena.deinit();
     const a = arena.allocator();
@@ -148,13 +137,9 @@ test "eval: a tip off its port is an omission, a shipped lateral arm a fabricati
     };
     const sk = testSketch(.{ .x = 0, .y = 0, .w = 7, .h = 4 }, &nodes, &.{}, &.{});
     const base = try eval(a, sk, .TD, 0, .{});
-    const sideways = try eval(a, sk, .TD, 0, .{ .tip_not_port = 1 });
     const armed = try eval(a, sk, .TD, 0, .{ .arm_into_head = 1 });
-    try t.expectEqual(base.t12_composite + score.W_TIP_NOT_PORT, sideways.t12_composite);
     try t.expectEqual(base.t12_composite + score.W_ARM_INTO_HEAD, armed.t12_composite);
-    try t.expect(base.lessThan(sideways));
-    try t.expect(sideways.lessThan(armed));
-    try t.expectEqual(score.W_HEAD_LOST, score.W_TIP_NOT_PORT);
+    try t.expect(base.lessThan(armed));
     try t.expectEqual(score.W_FOREIGN_JUNCTION, score.W_ARM_INTO_HEAD);
 }
 

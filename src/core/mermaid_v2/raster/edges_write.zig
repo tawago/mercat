@@ -290,7 +290,8 @@ fn refuseLateral(
 /// A refused head is priced separately from a refused run cell: the cell
 /// arm bumps BOTH `cells_lost` (the ink cell) and `heads_lost` (the edge's
 /// declared decoration never ships — the reader loses the orientation the
-/// graph states). `heads_lost` feeds selection via audit → score.
+/// graph states). `heads_lost` is a raster tally for the integrity report;
+/// selection prices the cell through `cells_lost`.
 /// `kind` is the arrowhead's OWN edge kind. It is stamped onto the cell's
 /// `stroke_kind` so an arrowhead landing on a FOREIGN edge's run no longer
 /// inherits that run's stroke — the arrowhead cell's stroke agrees with the

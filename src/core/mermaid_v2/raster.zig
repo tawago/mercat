@@ -49,8 +49,8 @@ pub const RasterReport = struct {
     /// via `audit.zig` → `score.RasterCounts`.
     edge_cells_lost: u32,
     /// Terminal arrowheads among those refusals: the edge ships without its
-    /// declared decoration. Subset of `edge_cells_lost` events; priced
-    /// separately in selection (audit.zig → score.RasterCounts).
+    /// declared decoration. Subset of `edge_cells_lost` events; a report
+    /// tally, priced in selection only through the cell it also is.
     edge_heads_lost: u32 = 0,
     /// Labels present in the Sketch that could not be placed at all
     /// (see `raster/labels.zig`).
@@ -77,9 +77,9 @@ pub const RasterReport = struct {
     /// Decoration-cell painted tallies (owner ruling 2026-07-18 for the
     /// base; the constitution's three guarded sides for the rest): heads
     /// whose base cell does not feed the triangle, heads whose tip is not
-    /// on their port, lateral arms that shipped on a head. All three feed
-    /// selection via `audit.zig` → `score.RasterCounts` — see
-    /// `raster/arrow_base.zig`.
+    /// on their port, lateral arms that shipped on a head. The base and the
+    /// shipped arms feed selection via `audit.zig` → `score.RasterCounts`;
+    /// the tip tally is report-only — see `raster/arrow_base.zig`.
     arrow_base: arrow_base_r.ArrowBaseCounts = .{},
 
     /// Every arm that entered a decoration cell from a lateral side: the

@@ -139,7 +139,7 @@ pub fn selfLoop(
 /// still declares it; the validator counts it (`edge_unrouted`), the
 /// raster draws nothing for it, and the relation's absence surfaces as its
 /// own defect — honest degradation, never a lying route.
-/// @guarded-by: validate_test.zig "an edge with no polyline counts as unrouted, not off-perimeter"
+/// @guarded-by: validate_test.zig "an edge with no polyline counts as unrouted"
 pub fn unrouted(a: std.mem.Allocator) error{OutOfMemory}![]sketch.Point {
     return a.alloc(sketch.Point, 0);
 }

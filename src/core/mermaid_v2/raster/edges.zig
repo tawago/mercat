@@ -70,8 +70,8 @@ pub const EdgeRasterReport = struct {
     cells_lost: u32 = 0,
     /// Terminal arrowheads refused at a node/label collision: the edge's
     /// declared decoration never ships. A strict subset of `cells_lost`
-    /// events, priced separately (audit → score) because a missing head
-    /// loses the relation's orientation, not just one ink cell.
+    /// events, tallied separately for the integrity report because a
+    /// missing head loses the relation's orientation, not just one ink cell.
     heads_lost: u32 = 0,
     /// Crossing/transversal tallies (Amendment C: the transversal and arrowhead-sanctity rulings) plus the
     /// frame-solid border-bridge pair (`b_frame_bridge`/

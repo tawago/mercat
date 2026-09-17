@@ -255,27 +255,24 @@ pub fn scoreCandidates(
     }
 
     var t0s: [MAX_CANDIDATES]u32 = undefined;
-    var rasters: [MAX_CANDIDATES]score_mod.RasterCounts = undefined;
+    var rasters: [MAX_CANDIDATES]?score_mod.RasterCounts = undefined;
     var min_t0: u32 = std.math.maxInt(u32);
     for (candidates, 0..) |cand, i| {
         t0s[i] = score_mod.fitSeverity(cand.sketch);
-        rasters[i] = if (n > 1) audit_mod.collect(aa, cand.sketch, subgraph_edges) else .{};
+        rasters[i] = if (n > 1) audit_mod.collect(aa, cand.sketch, subgraph_edges) else score_mod.RasterCounts{};
         min_t0 = @min(min_t0, t0s[i]);
     }
 
     for (candidates, 0..) |cand, i| {
         if (t0s[i] > min_t0 and (incumbent_idx == null or i != incumbent_idx.?)) {
-            sel.scores[i] = .{
-                .t0_fit = t0s[i],
-                .t1_integrity = 0,
-                .t2_legibility = 0,
-                .t3_height = std.math.maxInt(u32),
-                .t4_index = @intCast(i),
-                .t12_composite = std.math.maxInt(u64),
-            };
+            sel.scores[i] = unscored(t0s[i], @intCast(i));
             continue;
         }
-        const raster = rasters[i];
+        // A candidate whose raster failed is not a candidate.
+        const raster = rasters[i] orelse {
+            sel.scores[i] = unscored(t0s[i], @intCast(i));
+            continue;
+        };
         sel.scores[i] = score_mod.eval(
             aa,
             cand.sketch,
@@ -314,6 +311,21 @@ pub fn scoreCandidates(
     sel.argmin_idx = argmin_idx orelse return null;
     sel.incumbent_idx = incumbent_idx orelse sel.argmin_idx;
     return sel;
+}
+
+/// The score of a candidate `scoreCandidates` never evaluated — a T0 loser
+/// the pre-pass skipped, or one whose raster failed. It keeps its fit
+/// severity and its ladder index and is worst at every other tier, so it
+/// never beats an evaluated candidate.
+fn unscored(t0_fit: u32, index: u32) score_mod.Score {
+    return .{
+        .t0_fit = t0_fit,
+        .t1_integrity = 0,
+        .t2_legibility = 0,
+        .t3_height = std.math.maxInt(u32),
+        .t4_index = index,
+        .t12_composite = std.math.maxInt(u64),
+    };
 }
 
 /// When the argmin differs from the ladder incumbent, emit ONE machine-

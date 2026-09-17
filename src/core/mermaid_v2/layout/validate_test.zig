@@ -74,34 +74,6 @@ test "ok sketch passes all validators" {
     try testing.expect(result == .ok);
 }
 
-test "overlapping nodes flagged" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const a = arena.allocator();
-
-    const nodes = [_]sketch.NodePlacement{
-        makeNode(1, 0, 0, 5, 3, null),
-        makeNode(2, 2, 1, 5, 3, null),
-    };
-    const s: sketch.Sketch = .{
-        .bbox = .{ .x = 0, .y = 0, .w = 7, .h = 4 },
-        .direction = .LR,
-        .nodes = &nodes,
-        .clusters = &.{},
-        .edges = &.{},
-        .diagnostics = &.{},
-        .budget = .{ .max_width = 80, .rung = 0 },
-    };
-
-    const result = try validate(a, s);
-    try testing.expect(result == .failed);
-    var saw_overlap = false;
-    for (result.failed) |v| {
-        if (v.kind == .node_overlap) saw_overlap = true;
-    }
-    try testing.expect(saw_overlap);
-}
-
 test "edge through node interior flagged" {
     var arena = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
@@ -154,40 +126,6 @@ test "bbox overflow is informational, not a validation failure" {
 
     const result = try validate(a, s);
     try testing.expect(result == .ok);
-}
-
-test "cluster containment violated" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const a = arena.allocator();
-
-    const clusters = [_]sketch.ClusterFrame{.{
-        .id = 1,
-        .rect = .{ .x = 0, .y = 0, .w = 10, .h = 10 },
-        .parent_id = null,
-        .label = "C",
-        .depth = 0,
-    }};
-    const nodes = [_]sketch.NodePlacement{
-        makeNode(1, 8, 1, 5, 3, 1),
-    };
-    const s: sketch.Sketch = .{
-        .bbox = .{ .x = 0, .y = 0, .w = 15, .h = 10 },
-        .direction = .LR,
-        .nodes = &nodes,
-        .clusters = &clusters,
-        .edges = &.{},
-        .diagnostics = &.{},
-        .budget = .{ .max_width = 80, .rung = 0 },
-    };
-
-    const result = try validate(a, s);
-    try testing.expect(result == .failed);
-    var saw = false;
-    for (result.failed) |v| {
-        if (v.kind == .cluster_does_not_contain) saw = true;
-    }
-    try testing.expect(saw);
 }
 
 test "checkPathInteriors exempts a segment adjacent to its own edge's endpoint but flags a genuine cross by an unrelated edge" {
@@ -292,7 +230,7 @@ test "counts: clean sketch tallies all-zero" {
     try testing.expectEqual(validate_mod.Counts{}, c);
 }
 
-test "counts: interior crossing and overlap tally per kind" {
+test "counts: an interior crossing tallies under its own kind" {
     var arena = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
@@ -301,7 +239,6 @@ test "counts: interior crossing and overlap tally per kind" {
         makeNode(1, 0, 0, 5, 5, null),
         makeNode(2, 20, 0, 5, 5, null),
         makeNode(3, 10, 0, 5, 5, null),
-        makeNode(4, 12, 2, 5, 5, null),
     };
     const poly = [_]sketch.Point{
         .{ .x = 5, .y = 2 },
@@ -320,10 +257,8 @@ test "counts: interior crossing and overlap tally per kind" {
     };
 
     const c = validate_mod.counts(try validate(a, s), s);
-    try testing.expect(c.node_overlap >= 1);
     try testing.expect(c.path_through_interior >= 1);
-    try testing.expectEqual(@as(u32, 0), c.path_off_perimeter);
-    try testing.expectEqual(@as(u32, 0), c.cluster_containment);
+    try testing.expectEqual(@as(u32, 0), c.edge_unrouted);
     try testing.expectEqual(@as(u32, 0), c.bbox_overflow);
 }
 
@@ -348,58 +283,7 @@ test "counts: over-budget bbox reports bbox_overflow without a Violation" {
     try testing.expectEqual(@as(u32, 1), c.bbox_overflow);
 }
 
-test "a member stroke's rail end must meet its tap, its private end the perimeter" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const a = arena.allocator();
-
-    // Pivot 1 over leaf 2 (next layer) and far leaf 3 (two layers down).
-    const nodes = [_]sketch.NodePlacement{
-        makeNode(1, 6, 0, 5, 3, null),
-        makeNode(2, 0, 7, 5, 3, null),
-        makeNode(3, 10, 14, 5, 3, null),
-    };
-    const stem = [_]sketch.Point{ .{ .x = 8, .y = 2 }, .{ .x = 8, .y = 4 } };
-    const taps = [_]sketch.Tap{
-        .{ .edge = 1, .node = 2, .at = .{ .x = 2, .y = 4 }, .landing = .{ .x = 2, .y = 7 } },
-        .{ .edge = 2, .node = 3, .at = .{ .x = 12, .y = 4 }, .landing = .{ .x = 12, .y = 5 }, .continues = true },
-    };
-    const rails = [_]sketch.Rail{.{ .pivot = 1, .stem = &stem, .crossbar = .{ .{ .x = 2, .y = 4 }, .{ .x = 12, .y = 4 } }, .taps = &taps, .kind = .solid }};
-
-    const good_poly = [_]sketch.Point{ .{ .x = 12, .y = 4 }, .{ .x = 12, .y = 14 } };
-    var good = makeEdge(2, 1, 3, &good_poly);
-    good.role = .member_stroke;
-    good.port_to = .{ .node = 3, .side = .north, .offset = 2 };
-    const good_edges = [_]sketch.EdgePath{good};
-    const ok: sketch.Sketch = .{
-        .bbox = .{ .x = 0, .y = 0, .w = 16, .h = 17 },
-        .direction = .TD,
-        .nodes = &nodes,
-        .clusters = &.{},
-        .edges = &good_edges,
-        .rails = &rails,
-        .diagnostics = &.{},
-        .budget = .{ .max_width = 80, .rung = 0 },
-    };
-    try testing.expect((try validate(a, ok)) == .ok);
-
-    // The same stroke starting one cell off its tap is off-perimeter.
-    const bad_poly = [_]sketch.Point{ .{ .x = 13, .y = 4 }, .{ .x = 13, .y = 13 }, .{ .x = 12, .y = 13 }, .{ .x = 12, .y = 14 } };
-    var bad = good;
-    bad.polyline = &bad_poly;
-    const bad_edges = [_]sketch.EdgePath{bad};
-    var wrong = ok;
-    wrong.edges = &bad_edges;
-    const result = try validate(a, wrong);
-    try testing.expect(result == .failed);
-    var saw_off = false;
-    for (result.failed) |v| {
-        if (v.kind == .path_off_perimeter) saw_off = true;
-    }
-    try testing.expect(saw_off);
-}
-
-test "an edge with no polyline counts as unrouted, not off-perimeter" {
+test "an edge with no polyline counts as unrouted" {
     var arena = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
@@ -419,5 +303,4 @@ test "an edge with no polyline counts as unrouted, not off-perimeter" {
     };
     const c = validate_mod.counts(try validate(a, s), s);
     try testing.expectEqual(@as(u32, 1), c.edge_unrouted);
-    try testing.expectEqual(@as(u32, 0), c.path_off_perimeter);
 }

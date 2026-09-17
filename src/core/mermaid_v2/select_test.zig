@@ -156,13 +156,13 @@ test "the audit prices the raster that ships: mode reaches collect and changes t
     const winner = try select.choose(a, g, &permits, 90, false, false, .cross);
 
     const shipped = try raster.rasterize(a, winner.sketch, .cross);
-    const priced = audit.collect(a, winner.sketch, .cross);
+    const priced = audit.collect(a, winner.sketch, .cross) orelse return error.RasterFailed;
     try std.testing.expectEqual(shipped.arrow_base.violations, priced.arrow_base);
     try std.testing.expectEqual(shipped.crossings.foreign_junction_violation, priced.foreign_junction);
     try std.testing.expectEqual(shipped.crossings.arrowhead_transit_violation, priced.arrowhead_transit);
     try std.testing.expectEqual(shipped.edge_cells_lost, priced.edge_cells_lost);
 
-    const counterfactual = audit.collect(a, winner.sketch, .bridge);
+    const counterfactual = audit.collect(a, winner.sketch, .bridge) orelse return error.RasterFailed;
     try std.testing.expect(counterfactual.arrow_base != priced.arrow_base);
 }
 
@@ -229,8 +229,8 @@ test "bridge variants: the real-raster score decides, and flips when the counts 
     var edges_bad: [2]sketch_mod.EdgePath = undefined;
     const bad = bridgePinSketch(7, &polys_bad, &nodes_bad, &edges_bad);
 
-    const c_clean = audit.collect(a, clean, .bridge);
-    const c_bad = audit.collect(a, bad, .bridge);
+    const c_clean = audit.collect(a, clean, .bridge) orelse return error.RasterFailed;
+    const c_bad = audit.collect(a, bad, .bridge) orelse return error.RasterFailed;
     try std.testing.expectEqual(@as(u32, 0), c_clean.arrowhead_transit);
     try std.testing.expect(c_bad.arrowhead_transit > 0);
 

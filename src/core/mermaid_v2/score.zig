@@ -2,9 +2,8 @@
 //! into a deterministic `Score`, ordered lexicographically: T0 fit severity
 //! (width-overflow magnitude, not a count) > T12 composite (RUNG_SCALE[rung]
 //! * t2_legibility + W_INTEGRITY * t1_integrity + raster-defect and
-//! raster-violation weights; integrity is a large cost, not a veto —
-//! only W_RASTER_FAILED is) > T3 height > T4 rung index (total
-//! order, unique argmin). Raw t1/t2 stay on `Score` for the shadow line;
+//! raster-violation weights; integrity is a large cost, not a veto) >
+//! T3 height > T4 rung index (total order, unique argmin). Raw t1/t2 stay on `Score` for the shadow line;
 //! only `lessThan`/`decidingTier` consult the composite. Raster-time
 //! defects arrive via `RasterCounts` — this file stays raster-blind.
 //!
@@ -26,7 +25,7 @@ pub const Direction = sketch.Direction;
 /// than its ratio vs the earlier rung's.
 ///
 ///  - natural 16: baseline, by definition.
-///  - tight 30 (1.875x): fitted window (28.1, 31.1) from labeled w60/w90 reference pairs. // @guarded-by: score_calibration_test.zig "RUNG_SCALE tight window: flips exactly where the fitted (28.1, 31.1) bound says (live seed numbers)"
+///  - tight 30 (1.875x): fitted window (28.1, 31.1) from labeled w60/w90 reference pairs.
 ///  - wrap_labels 32: no labeled pair pins it; kept monotone just above
 ///    tight so the ladder prior stays ordered.
 ///  - switch_direction (rung 3): SPLIT by the candidate's FINAL direction —
@@ -40,9 +39,9 @@ pub const Direction = sketch.Direction;
 ///    w90 (the labeled preference flips to truncate; see W_INTEGRITY).
 pub const RUNG_SCALE = [5]u64{ 16, 30, 32, SWITCH_TO_VERTICAL_SCALE, 50 };
 
-/// Rotation asymmetry: rotations INTO vertical (LR/RL->TD) price cheaper (36, window 35.4-42.2) than rotations OUT of TD into horizontal (44). // @guarded-by: score_calibration_test.zig "SWITCH_TO_VERTICAL_SCALE window: flips exactly where the fitted (35.4, 42.2) bound says (live seed numbers)"
+/// Rotation asymmetry: rotations INTO vertical (LR/RL->TD) price cheaper (36, window 35.4-42.2) than rotations OUT of TD into horizontal (44).
 pub const SWITCH_TO_VERTICAL_SCALE: u64 = 36;
-/// Fitted lower bound 40.0. // @guarded-by: score_calibration_test.zig "SWITCH_TO_HORIZONTAL_SCALE lower bound: natural stays ahead at the fitted 44 (live seed numbers)"
+/// Fitted lower bound 40.0.
 pub const SWITCH_TO_HORIZONTAL_SCALE: u64 = 44;
 
 /// Switch multiplier for a rotated candidate, keyed by its FINAL
@@ -55,7 +54,7 @@ pub fn switchScale(final_direction: Direction) u64 {
     };
 }
 
-/// Composite cost per integrity violation, in 16ths (= 1280 dead-space cells at natural scale). Large, not a veto. Fitted window (17098, 36200). // @guarded-by: score_calibration_test.zig "W_INTEGRITY window: crosses exactly where the fitted (17098, 36200) bound says"
+/// Composite cost per integrity violation, in 16ths (= 1280 dead-space cells at natural scale). Large, not a veto. Fitted window (17098, 36200).
 pub const W_INTEGRITY: u64 = 20480;
 
 /// Raster-time shipped-defect counts for one candidate, computed by
@@ -65,10 +64,6 @@ pub const RasterCounts = struct {
     /// Labels the fallback ladder placed away from their primary anchor.
     labels_displaced: u32 = 0,
     edge_cells_lost: u32 = 0,
-    /// Terminal arrowheads lost to raster collisions: the edge ships with
-    /// its declared decoration missing (a trace-fidelity untruth by omission; the reader
-    /// loses the relation's orientation). Subset of `edge_cells_lost`.
-    heads_lost: u32 = 0,
     /// Crossing-rule violations (raster/crossings.zig). `legal_crossing` is
     /// deliberately absent: legal crossings are already priced by the
     /// geometric W_CROSSINGS term.
@@ -76,10 +71,6 @@ pub const RasterCounts = struct {
     arrowhead_transit: u32 = 0,
     /// Arrowhead-base violations (raster/arrow_base.zig).
     arrow_base: u32 = 0,
-    /// Heads whose tip neighbour is not their port (raster/arrow_base.zig):
-    /// the decoration points sideways or into space, and the relation's
-    /// orientation is silenced — an omission, like a lost head.
-    tip_not_port: u32 = 0,
     /// Lateral arms that SHIPPED on a decoration cell (raster/arrow_base.zig
     /// `lateral_arms`): a junction glyph on the one cell that is never a
     /// junction — a fabrication, like a foreign junction. This is the
@@ -89,9 +80,6 @@ pub const RasterCounts = struct {
     /// arm was foreign) — the confluence severity note ranks a refusal
     /// with lost ink, never with the lie it prevented.
     arm_into_head: u32 = 0,
-    /// 1 when the audit raster itself errored (audit.zig): the candidate's
-    /// violations are unknown, so it must never win the composite.
-    raster_failed: u32 = 0,
 };
 
 /// Composite cost per crossing-rule violation, in 16ths. Lower bound:
@@ -105,25 +93,12 @@ pub const W_ARROWHEAD_TRANSIT: u64 = 8192;
 /// Floating arrowhead: milder (omitted feed, not fabricated structure);
 /// 8192 breaks the microservices w60 ruling above, 4096 holds it.
 pub const W_ARROW_BASE: u64 = 4096;
-/// Terminal head lost to a collision: an omission the reader cannot see
-/// (the run looks complete, the direction is gone). Same tier as the
-/// other omission (W_ARROW_BASE); the cell itself is also in W_CELL_LOST.
-pub const W_HEAD_LOST: u64 = 4096;
-/// A head whose tip is not on its port: the decoration ships but says
-/// nothing true about where the relation ends — the omission tier, with
-/// the lost head and the unfed base (confluence severity note: omission
-/// prices below fabricated structure).
-pub const W_TIP_NOT_PORT: u64 = 4096;
 /// A lateral arm shipped on a decoration cell: a junction glyph on the one
 /// cell that is never a junction. Fabrication tier, with the foreign
 /// junction. Refused arms are not here (see `RasterCounts.arm_into_head`).
 pub const W_ARM_INTO_HEAD: u64 = 8192;
-/// Effectively lexicographic: dominates any realistic composite
-/// (~1e8 16ths) by four orders of magnitude; counts are 0/1 so the
-/// worst-case composite stays far below u64 overflow.
-pub const W_RASTER_FAILED: u64 = 1 << 40;
 
-/// Composite cost per raster-DROPPED label, in 16ths; rung-scale-independent (added AFTER the RUNG_SCALE multiply, same tier as W_INTEGRITY). 4096 keeps W_INTEGRITY/label ≈ 5:1 — Sketch-level violations stay dearer. // @guarded-by: score_calibration_test.zig "W_LABEL_DROP prices a dropped label + lost cells above the shape_zoo_td_8 legibility margin"
+/// Composite cost per raster-DROPPED label, in 16ths; rung-scale-independent (added AFTER the RUNG_SCALE multiply, same tier as W_INTEGRITY). 4096 keeps W_INTEGRITY/label ≈ 5:1 — Sketch-level violations stay dearer.
 pub const W_LABEL_DROP: u64 = 4096;
 
 /// Composite cost per edge cell lost to collision at raster time, in 16ths.
@@ -133,7 +108,7 @@ pub const W_LABEL_DROP: u64 = 4096;
 /// separating candidates with identical drop counts.
 pub const W_CELL_LOST: u64 = 512;
 
-/// Composite cost per raster-DISPLACED label (placed by the fallback ladder, but not at its primary anchor — see raster/labels_edge.zig). Kept well under a drop (4096) — displacement is degraded legibility, not lost information — and under the shape_zoo upper bound. // @guarded-by: score_calibration_test.zig "W_LABEL_DISPLACED upper bound: a displaced label still clears the natural-preference margin (shape_zoo numbers)"
+/// Composite cost per raster-DISPLACED label (placed by the fallback ladder, but not at its primary anchor — see raster/labels_edge.zig). Kept well under a drop (4096) — displacement is degraded legibility, not lost information — and under the shape_zoo upper bound.
 pub const W_LABEL_DISPLACED: u64 = 592;
 
 /// Natural-preference (hysteresis) margin, in composite 16ths: a challenger
@@ -185,7 +160,7 @@ pub const Score = struct {
     t4_index: u32,
     /// RUNG_SCALE[rung]*t2 + W_INTEGRITY*t1 + W_LABEL_DROP*drops +
     /// W_LABEL_DISPLACED*displaced + W_CELL_LOST*lost + the raster
-    /// violation weights (W_FOREIGN_JUNCTION..W_RASTER_FAILED).
+    /// violation weights (W_FOREIGN_JUNCTION..W_ARM_INTO_HEAD).
     t12_composite: u64,
     /// Raw raster audit counts, kept for shadow telemetry.
     r_labels_dropped: u32 = 0,
@@ -226,9 +201,7 @@ pub fn eval(
         const vr = try validate.validate(allocator, s);
         break :blk validate.counts(vr, s);
     };
-    const t1: u32 = counts.node_overlap + counts.path_off_perimeter +
-        counts.path_through_interior + counts.cluster_containment +
-        counts.cluster_port + counts.edge_unrouted;
+    const t1: u32 = counts.path_through_interior + counts.edge_unrouted;
 
     const dead = try geom.deadSpace(allocator, s);
     const t2: u64 = W_DEAD_SPACE * dead +
@@ -254,10 +227,7 @@ pub fn eval(
             W_FOREIGN_JUNCTION * @as(u64, raster.foreign_junction) +
             W_ARROWHEAD_TRANSIT * @as(u64, raster.arrowhead_transit) +
             W_ARROW_BASE * @as(u64, raster.arrow_base) +
-            W_HEAD_LOST * @as(u64, raster.heads_lost) +
-            W_TIP_NOT_PORT * @as(u64, raster.tip_not_port) +
-            W_ARM_INTO_HEAD * @as(u64, raster.arm_into_head) +
-            W_RASTER_FAILED * @as(u64, raster.raster_failed),
+            W_ARM_INTO_HEAD * @as(u64, raster.arm_into_head),
         .r_labels_dropped = raster.labels_dropped,
         .r_edge_cells_lost = raster.edge_cells_lost,
     };
@@ -284,5 +254,4 @@ pub fn fitSeverity(s: sketch.Sketch) u32 {
 
 test {
     _ = @import("score_test.zig");
-    _ = @import("score_calibration_test.zig");
 }

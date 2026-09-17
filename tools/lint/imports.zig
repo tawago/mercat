@@ -107,9 +107,6 @@ pub const Rule = union(enum) {
 ///                   layout file it may reach (NOT the layout zone).
 ///   score_geom.zig  pure geometric T2 measurements over a Sketch.
 ///   score_test.zig  drives the pub score and score_geom surfaces over hand-built Sketches.
-///   score_calibration_test.zig  isolated boundary-crossing tests for the
-///                   fitted RUNG_SCALE/switch-scale/W_* constants (split out
-///                   of score_test.zig to keep both under the 500-line cap).
 ///   select.zig      candidate construction + live selection (Phase 3b/4a).
 ///   audit.zig       per-candidate raster audit (Phase 4a).
 ///   budget_test.zig graph-level ladder tests + the labeled-set calibration
@@ -189,8 +186,8 @@ pub const file_allowlists = [_]struct {
     },
     .{
         .name = "score.zig",
-        .allowed = &.{ .sem_graph, .sketch, .{ .exact = "layout/validate.zig" }, .{ .exact = "score_geom.zig" }, .{ .exact = "score_test.zig" }, .{ .exact = "score_calibration_test.zig" } },
-        .reason = "score may only import std, prim, sem_graph, sketch, layout/validate.zig, score_geom, score_test, or score_calibration_test",
+        .allowed = &.{ .sem_graph, .sketch, .{ .exact = "layout/validate.zig" }, .{ .exact = "score_geom.zig" }, .{ .exact = "score_test.zig" } },
+        .reason = "score may only import std, prim, sem_graph, sketch, layout/validate.zig, score_geom, or score_test",
     },
     .{
         .name = "score_geom.zig",
@@ -201,11 +198,6 @@ pub const file_allowlists = [_]struct {
         .name = "score_test.zig",
         .allowed = &.{ .sketch, .{ .exact = "score.zig" }, .{ .exact = "score_geom.zig" } },
         .reason = "score_test may only import std, prim, sketch, score, or score_geom",
-    },
-    .{
-        .name = "score_calibration_test.zig",
-        .allowed = &.{ .sketch, .{ .exact = "score.zig" } },
-        .reason = "score_calibration_test may only import std, prim, sketch, or score",
     },
     .{
         .name = "sketch_ports.zig",
