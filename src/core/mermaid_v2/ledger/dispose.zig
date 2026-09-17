@@ -26,7 +26,6 @@ const pb = @import("../base/ledger.zig");
 /// A candidate-level reachability failure carries no record-sanctioned
 /// attribution to ONE surviving safe rail, so the conservative rail (spine
 /// item 1(d) "NEITHER") withdraws the entire selected set.
-/// @guarded-by: disposition_test.zig "V-D-DISPOSITION-01: incomplete-2x2 conflicts survive disposeUnsafe, all-independent withdrawal, render succeeds"
 pub fn disposeUnsafe(a: std.mem.Allocator, plan: pb.RealizedBundles) error{OutOfMemory}!pb.RealizedBundles {
     if (plan.selected_bundles.len == 0) return plan;
 

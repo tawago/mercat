@@ -270,9 +270,10 @@ pub const Sketch = struct {
     /// Report-only row account of every inter-rank gap (never a layout input).
     gap_rows: []const ledger.GapRows = &.{},
     /// Bundle membership and, after `sketch_bundles.stamp`, this render's
-    /// numbered bundle roster. Layout fills it from live fans, stitch rewrites
-    /// child sets into the merged id space, and flat selection replaces them
-    /// with plan-derived sets. Members use the Sketch's global edge-id space.
+    /// numbered bundle roster. Layout fills it from live fans (or from the
+    /// piece plan on a clustered piece) plus the port shares read off the
+    /// final polylines; stitch rewrites child sets into the merged id space.
+    /// Members use the Sketch's global edge-id space.
     bundle_sets: []const ledger.Bundle = &.{},
     /// Only `.complete` authorizes the stamped bundle and rail identities.
     bundle_stamp_state: BundleStampState = .unattempted,

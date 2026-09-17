@@ -8,23 +8,22 @@
 //! scoring (score-blind); failures degrade to the ladder incumbent.
 //!
 //! Allowed imports (tools/lint_imports.zig): std, prim, sem_graph, sketch,
-//! sketch_ports (the Sketch-root extension deriving port-share bundles),
-//! budget, score, motif, audit, realized, invariants, reach_vector,
-//! select_filter (the Step 8 CI filter + terminal candidate), parse (tests
-//! only). In-file tests live in select_test.zig (plan N3 cap-watch).
+//! budget, score, motif, audit, reach_vector, select_filter (the Step 8 CI
+//! filter + terminal candidate), parse (tests only). In-file tests live in
+//! select_test.zig (plan N3 cap-watch).
+//!
+//! Every candidate carries the bundle plan its layout committed
+//! (layout/bundle_commit.zig) and the bundle sets layout derived from it;
+//! selection reads them and never rewrites them.
 
 const std = @import("std");
 const prim = @import("prim");
 const ledger = @import("base/ledger.zig");
 const sem_graph = @import("sem_graph.zig");
 const sketch_mod = @import("sketch.zig");
-const sketch_ports = @import("sketch_ports.zig");
-const sketch_bundles = @import("sketch_bundles.zig");
 const ladder = @import("budget.zig");
 const score_mod = @import("score.zig");
 const audit_mod = @import("audit.zig");
-const realized_mod = @import("ledger/realized.zig");
-const invariants = @import("ledger/invariants.zig");
 const reach_vector = @import("ledger/reach_vector.zig");
 const select_filter = @import("select_filter.zig");
 const select_labels = @import("select_labels.zig");
@@ -53,18 +52,15 @@ pub fn choose(
     subgraph_edges: prim.SubgraphEdges,
 ) !ladder.LadderResult {
     const set = try enumerateAll(aa, graph, bundle_permits, max_width);
-    const merged = attachBundlePlans(aa, bundle_permits, set.merged);
-    var incumbent = set.incumbent;
-    if (bundle_permits.isFlat()) applyPlan(aa, bundle_permits, &incumbent.sketch);
+    const merged = set.merged;
 
     // D-REACH pre-raster vector reachability oracle per merged candidate,
-    // AFTER realized and BEFORE scoring (D-REACH items 5/9/10/12-13). The
-    // CI-filter + score + winner/terminal resolution is `selectWinner` — a
-    // byte-identical decomposition, exposed so tests can drive the tail with
-    // forged reports.
+    // BEFORE scoring (D-REACH items 5/9/10/12-13). The CI-filter + score +
+    // winner/terminal resolution is `selectWinner` — a byte-identical
+    // decomposition, exposed so tests can drive the tail with forged reports.
     // @guarded-by: select_test.zig "report-only pin: reach oracle changes neither argmin nor winner"
     const reach = reachReports(aa, graph, bundle_permits.isFlat(), merged);
-    return selectWinner(aa, graph, bundle_permits, max_width, merged, reach, incumbent, score_off, shadow, subgraph_edges);
+    return selectWinner(aa, graph, bundle_permits, max_width, merged, reach, set.incumbent, score_off, shadow, subgraph_edges);
 }
 
 pub const ciFilter = select_filter.ciFilter;
@@ -78,7 +74,6 @@ pub const terminalCandidate = select_filter.terminalCandidate;
 /// terminal is not a scoring-failure fallback). `score_off` returns the
 /// incumbent (A/B hatch); `shadow` emits the disagreement line. Byte-identical
 /// composition of what `choose` used to inline.
-/// @guarded-by: disposition_test.zig "V-D-DISPOSITION-06: terminal fallback is built by the selection tail, marks terminal_fallback, validates, and renders"
 pub fn selectWinner(
     aa: std.mem.Allocator,
     graph: sem_graph.SemGraph,
@@ -105,63 +100,6 @@ pub fn selectWinner(
     };
     const winner = filtered.survivors[sel.argmin_idx];
     return .{ .sketch = winner.sketch, .final_rung = winner.rung, .attempts = @intCast(merged.len) };
-}
-
-/// P2v Step 4: populate every merged candidate's `Sketch.bundles` BEFORE
-/// scoring (D-IR items 5/8). FLAT-GATED (D-EDGE-ID item 4): on
-/// clustered inputs `bundles` stays `.{}`, preserving byte-identity. Any
-/// planning failure degrades to the empty plan (the render never fails here).
-/// @guarded-by: realized_test.zig "V-D-IR-01: winner bundles artifact survives selection to the entry boundary"
-fn attachBundlePlans(
-    aa: std.mem.Allocator,
-    bundle_permits: *const ledger.BundlePermits,
-    candidates: []const ladder.Candidate,
-) []const ladder.Candidate {
-    if (!bundle_permits.isFlat()) return candidates;
-    const mut = aa.dupe(ladder.Candidate, candidates) catch return candidates;
-    for (mut) |*cand| applyPlan(aa, bundle_permits, &cand.sketch);
-    return mut;
-}
-
-/// Apply one candidate's realized plan to its Sketch: the plan itself AND the
-/// bundle sets derived from it.
-///
-/// Both land here, at the single point where the plan becomes the candidate's
-/// own. Deriving bundles at layout time instead would be writing them where
-/// this call overwrites them — except where no plan realized, which is where
-/// layout's fan-derived sets are the candidate's only record (see below). A
-/// derivation failure degrades to no sets, matching how a planning failure
-/// degrades to the empty plan.
-///
-/// Shared with entry.zig's forced-rung / score-off paths, which bypass
-/// selection: a debug render must carry the same production bundle plan, or its
-/// crossing semantics diverge from the render it is meant to explain.
-pub fn applyPlan(
-    aa: std.mem.Allocator,
-    bundle_permits: *const ledger.BundlePermits,
-    target: *sketch_mod.Sketch,
-) void {
-    const planned = planBundles(aa, bundle_permits, target.*);
-    target.bundles = planned.plan;
-    // INVARIANT: plan-derived bundles REPLACE layout's fan-derived sets only
-    // when a plan actually realized. A candidate the planner never planned —
-    // a motif-packed one, whose synthetic frames put it off the identity path
-    // (realized.zig's `skipped_clustered`), or a planning failure — has said
-    // nothing about who may share ink, so it keeps the sets layout gave it
-    // rather than being emptied into "nobody may share".
-    // @guarded-by: select_test2.zig "a packed candidate keeps its layout bundles when no plan realized"
-    // INVARIANT: `.port_share` sets are NOT plan-derived and therefore are not
-    // the plan's to withdraw — they record a share the producers made in
-    // geometry, which no realization decision revokes. So the plan's sets
-    // replace only the plan's own population, and the port shares are
-    // re-derived from the sketch this call is finalizing.
-    // @guarded-by: select_test2.zig "applying a plan keeps the sketch's port-share bundles"
-    if (planned.realized) target.bundle_sets = sketch_ports.appendPortShares(
-        aa,
-        ledger.bundlesFromPlan(aa, planned.plan) catch &.{},
-        target.edges,
-    ) catch ledger.bundlesFromPlan(aa, planned.plan) catch &.{};
-    sketch_bundles.stamp(aa, target);
 }
 
 /// P2v Step 6: one pre-raster vector reachability report per candidate
@@ -214,33 +152,6 @@ pub fn nodeKeyTable(aa: std.mem.Allocator, graph: sem_graph.SemGraph) ![]const [
     for (graph.nodes) |n| keys[n.id] = n.raw_id;
     return keys;
 }
-
-/// One candidate's realized-bundle plan; invariant-validated on safety-checked builds (log-only).
-fn planBundles(
-    aa: std.mem.Allocator,
-    bundle_permits: *const ledger.BundlePermits,
-    candidate_sketch: sketch_mod.Sketch,
-) PlanOutcome {
-    const result = realized_mod.realize(aa, bundle_permits.*, candidate_sketch) catch return .{};
-    const out: PlanOutcome = .{ .plan = result.plan, .realized = !result.report.skipped_clustered };
-    if (std.debug.runtime_safety) {
-        const report = invariants.validate(aa, bundle_permits.*, result.plan, result.report.proposals) catch
-            return out;
-        if (!report.valid()) {
-            std.log.debug("mermaid_v2/select: realized-bundle plan failed invariant validation ({d} findings)", .{report.findings.len});
-        }
-    }
-    return out;
-}
-
-/// A candidate's plan plus whether the planner actually planned it: false for
-/// a candidate it declined (off the identity path) or a planning failure —
-/// both of which leave the empty envelope, which is NOT the same statement as
-/// a realized plan that selected no bundle.
-const PlanOutcome = struct {
-    plan: ledger.RealizedBundles = .{},
-    realized: bool = false,
-};
 
 /// The full live candidate set: raw ladder rungs merged with the motif-packed
 /// candidates, plus the ladder incumbent. Exposed so budget_test.zig scores

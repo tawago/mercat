@@ -304,7 +304,7 @@ fn holds(edges: []const EdgeId, edge: EdgeId) bool {
 ///
 /// Membership-equivalent to interrogating the plan directly: `bundleMembersAt` over
 /// the result answers what a `selected_bundles` scan answers.
-/// @guarded-by: select_test.zig "bundles applied with the plan carry the plan's own membership"
+/// @guarded-by: select_test.zig "a clustered render's rail bundles come from its piece plan and survive the stitch"
 pub fn bundlesFromPlan(
     allocator: std.mem.Allocator,
     bundles: RealizedBundles,

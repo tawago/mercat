@@ -275,18 +275,16 @@ fn renderPlain(a: std.mem.Allocator, source: []const u8, width: u32) !Plain {
 }
 
 /// Render ONE candidate of the live set — the first on the source's
-/// `switch_direction` rung, planned as selection plans it — so a test can
-/// pin what a layout produces on that candidate without pinning the
-/// score's choice.
+/// `switch_direction` rung, carrying the plan its layout committed — so a
+/// test can pin what a layout produces on that candidate without pinning
+/// the score's choice.
 fn renderRotated(a: std.mem.Allocator, source: []const u8, width: u32) !Plain {
     const graph = try parse(a, source);
     const plan = (try permits.build(a, graph, .joined)).plan;
     const set = try select.enumerateAll(a, graph, &plan, width);
     for (set.merged) |cand| {
         if (cand.rung != .switch_direction) continue;
-        var s = cand.sketch;
-        select.applyPlan(a, &plan, &s);
-        return finishPlain(a, s);
+        return finishPlain(a, cand.sketch);
     }
     return error.NoRotatedCandidate;
 }

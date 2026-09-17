@@ -408,7 +408,6 @@ fn missingDeclared(
         // discharged it, so the crossbar ink between its two taps IS its
         // rendering. It owns no geometry of its own by construction, and
         // charging it here would report the licence's success as a lost edge.
-        // @guarded-by: reach_vector_test.zig "a discharged edge is not charged as a missing declared edge"
         if (rc.contains(s.bundles.discharged, m.edge)) continue;
         const has_geometry = rep.declaredById(declared, m.edge) != null;
         if (has_geometry and edgeHasOccurrence(comps, m.edge)) continue;

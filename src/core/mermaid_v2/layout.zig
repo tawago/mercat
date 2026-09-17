@@ -322,8 +322,17 @@ fn buildSketch(
     for (edges_out, routed) |e, *slot| slot.* = e.id;
     closure.co_double_discharge = ledger.doubleDischarged(candidate_bundles.discharged, routed);
 
-    const piece_realized = if (plan_ref) |p| p.scope == .piece and candidate_bundles.selected_bundles.len != 0 else false;
-    const base_sets = if (piece_realized)
+    // The plan this layout committed authorizes the bundle sets: a flat plan
+    // always (a plan that selected no bundle authorizes none), a piece plan
+    // once it selected one. The fan-derived sets are the candidate's only
+    // record where no plan applied — a motif-packed candidate, whose
+    // synthetic frames put it off the identity path, or a piece whose plan
+    // selected nothing.
+    const plan_realized = if (plan_ref) |p|
+        p.scope == .flat or (p.scope == .piece and candidate_bundles.selected_bundles.len != 0)
+    else
+        false;
+    const base_sets = if (plan_realized)
         ledger.bundlesFromPlan(a, candidate_bundles) catch edges_result.bundle_sets
     else
         edges_result.bundle_sets;

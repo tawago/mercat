@@ -149,20 +149,16 @@ pub fn renderFlowchart(
 
     const ladder_result: ladder_pkg.LadderResult = blk: {
         if (env.force_rung) |rung| {
-            var forced = ladder_pkg.runForced(aa, graph, &bundle_permits, options.max_width, rung) catch |err| {
+            break :blk ladder_pkg.runForced(aa, graph, &bundle_permits, options.max_width, rung) catch |err| {
                 std.log.warn("mermaid_v2/entry: forced-rung layout failed: {s}", .{@errorName(err)});
                 return fallback(source, "v2 ladder error");
             };
-            if (bundle_permits.isFlat()) select_mod.applyPlan(aa, &bundle_permits, &forced.sketch);
-            break :blk forced;
         }
         if (env.score_off and !env.shadow_telemetry) {
-            var incumbent = ladder_pkg.run(aa, graph, &bundle_permits, options.max_width) catch |err| {
+            break :blk ladder_pkg.run(aa, graph, &bundle_permits, options.max_width) catch |err| {
                 std.log.warn("mermaid_v2/entry: ladder failed: {s}", .{@errorName(err)});
                 return fallback(source, "v2 ladder error");
             };
-            if (bundle_permits.isFlat()) select_mod.applyPlan(aa, &bundle_permits, &incumbent.sketch);
-            break :blk incumbent;
         }
         // LIVE selection (select.zig): raw ladder candidates + motif-
         // packed candidates, scored; argmin wins with the truncate gate
@@ -570,12 +566,8 @@ test {
     _ = @import("layout/fan_rail_licence.zig");
     _ = @import("ledger/permits.zig");
     _ = @import("ledger/permits_test.zig");
-    _ = @import("ledger/realized.zig");
     _ = @import("ledger/invariants.zig");
-    _ = @import("ledger/realized_test.zig");
-    _ = @import("ledger/realized_test2.zig");
     _ = @import("ledger/realized_production_test.zig");
-    _ = @import("ledger/disposition_test.zig");
     _ = @import("layout/ports.zig");
     _ = @import("layout/ports_test.zig");
     _ = @import("layout/ports_step7_test.zig");
@@ -583,13 +575,10 @@ test {
     _ = @import("layout/bundle_commit_test.zig");
     _ = @import("layout/route_clearance_test.zig");
     _ = @import("select_test.zig");
-    _ = @import("select_test2.zig");
     _ = @import("sketch_ports_test.zig");
     _ = @import("sketch_bundles_test.zig");
     _ = @import("ledger/reach_vector.zig");
     _ = @import("ledger/reach_walk.zig");
-    _ = @import("ledger/reach_vector_test.zig");
-    _ = @import("ledger/reach_vector_test2.zig");
     _ = @import("junction_licence_test.zig");
     _ = @import("cluster_corridor_test.zig");
     _ = @import("decoration_cell_test.zig");

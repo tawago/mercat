@@ -1,18 +1,9 @@
 const std = @import("std");
 const parse = @import("../parse.zig").parse;
 const permits = @import("../ledger/permits.zig");
-const realized = @import("../ledger/realized.zig");
 const select = @import("../select.zig");
 const bundle_commit = @import("bundle_commit.zig");
 const pb = @import("../base/ledger.zig");
-
-fn expectSelectedEqual(expected: anytype, actual: anytype) !void {
-    try std.testing.expectEqual(expected.len, actual.len);
-    for (expected, actual) |want, got| {
-        try std.testing.expectEqual(want.candidate_bundle, got.candidate_bundle);
-        try std.testing.expectEqualSlices(u32, want.members, got.members);
-    }
-}
 
 fn nodeId(graph: anytype, raw: []const u8) u32 {
     for (graph.nodes) |n| if (std.mem.eql(u8, n.raw_id, raw)) return n.id;
@@ -47,7 +38,7 @@ fn railKeysAtD(a: std.mem.Allocator, source: []const u8) ![]const []const u8 {
 const reversed_fanin_source =
     "flowchart TD\n  A --> B\n  A --> C\n  B --> D\n  C --> D\n  D --> E\n  E --> F\n  F --> D\n";
 
-test "N6 reversed: forward-subset fan-in rail agrees across bundle_commit and realized" {
+test "N6 reversed: every candidate commits the forward-subset fan-in rail" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
@@ -56,8 +47,6 @@ test "N6 reversed: forward-subset fan-in rail agrees across bundle_commit and re
     const set = try select.enumerateAll(a, graph, &plan, 94);
     var saw_fanin = false;
     for (set.merged) |candidate| {
-        const checked = try realized.realize(a, plan, candidate.sketch);
-        try expectSelectedEqual(candidate.sketch.bundles.selected_bundles, checked.plan.selected_bundles);
         for (candidate.sketch.bundles.selected_bundles) |sj| {
             for (plan.groups) |g| if (g.id == sj.candidate_bundle and g.direction == .in and g.pivot == nodeId(graph, "D")) {
                 saw_fanin = true;
@@ -77,8 +66,6 @@ test "N6 floor: a single-forward-member reversed fan-in commits no rail" {
     const plan = (try permits.build(a, graph, .joined)).plan;
     const set = try select.enumerateAll(a, graph, &plan, 94);
     for (set.merged) |candidate| {
-        const checked = try realized.realize(a, plan, candidate.sketch);
-        try expectSelectedEqual(candidate.sketch.bundles.selected_bundles, checked.plan.selected_bundles);
         for (candidate.sketch.bundles.selected_bundles) |sj| {
             for (plan.groups) |g| if (g.id == sj.candidate_bundle)
                 try std.testing.expect(!(g.direction == .in and g.pivot == nodeId(graph, "H")));
@@ -96,32 +83,6 @@ test "forward-subset selection is deterministic under arrival declaration permut
     try std.testing.expectEqual(@as(usize, 2), k1.len);
     try std.testing.expectEqual(k1.len, k2.len);
     for (k1, k2) |x, y| try std.testing.expectEqualStrings(x, y);
-}
-
-test "N6: every enumerated candidate agrees on pre-sizing rail commitments and realized selected bundles" {
-    const sources = [_][]const u8{
-        "flowchart TD\n  S --> A\n  S --> B\n  S --> C\n",
-        "flowchart TD\n  A --> T\n  B --> T\n  C --> T\n",
-        "flowchart LR\n  SourceWithLongLabel --> A\n  SourceWithLongLabel --> B\n  SourceWithLongLabel --> C\n",
-        "flowchart TD\n  S1 --> T1\n  S1 --> T2\n  S2 --> T2\n",
-        "flowchart TD\n  S1 --> T1\n  S1 --> T2\n  S2 --> T1\n  S2 --> T2\n",
-        "flowchart TD\n  S --> A\n  S --> B\n  S -.-> C\n",
-    };
-    for (sources, 0..) |source, source_i| {
-        var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
-        defer arena.deinit();
-        const a = arena.allocator();
-        const graph = try parse(a, source);
-        const plan = (try permits.build(a, graph, .joined)).plan;
-        const set = try select.enumerateAll(a, graph, &plan, if (source_i == 2) 24 else 94);
-        var saw_switch = false;
-        for (set.merged) |candidate| {
-            if (candidate.rung == .switch_direction) saw_switch = true;
-            const checked = try realized.realize(a, plan, candidate.sketch);
-            try expectSelectedEqual(candidate.sketch.bundles.selected_bundles, checked.plan.selected_bundles);
-        }
-        if (source_i == 2) try std.testing.expect(saw_switch);
-    }
 }
 
 fn edgeIdOf(graph: anytype, from: []const u8, to: []const u8) u32 {
