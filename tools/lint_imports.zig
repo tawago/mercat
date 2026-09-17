@@ -2,7 +2,10 @@
 //!
 //! Run via `zig build lint`. Walks the root directory recursively, reads every
 //! `.zig` file, and checks:
-//!   1. ≤ 500 newlines per file.
+//!   1. Implementation modules are capped at 500 code lines; test files are
+//!      not capped. A code line is neither blank nor `//`-prefixed after
+//!      leading whitespace, and `*_test*.zig` files are exempt — the same
+//!      rule tools/check_line_count.sh applies to all of src/.
 //!   2. No path component equals "fallback".
 //!   3. Per-file `@import("...")` rules (tools/lint/imports.zig).
 //!   4. Every `guarded-by: <file> "<test>"` pointer (preferred spelling
@@ -81,14 +84,14 @@ pub fn lint(allocator: std.mem.Allocator, root: []const u8) !LintReport {
         defer file.close();
         const contents = try file.readToEndAlloc(a, 8 * 1024 * 1024);
 
-        // Check 1: 500-line cap (count newlines).
-        var newlines: usize = 0;
-        for (contents) |c| {
-            if (c == '\n') newlines += 1;
-        }
-        if (newlines > 500) {
-            const msg = try std.fmt.allocPrint(a, "{s}: {d} newlines exceeds 500-line cap", .{ entry.path, newlines });
-            try violations.append(a, msg);
+        // Check 1: implementation modules are capped at 500 code lines; test
+        // files are not capped.
+        if (!isTestFile(entry.basename)) {
+            const code_lines = codeLines(contents);
+            if (code_lines > 500) {
+                const msg = try std.fmt.allocPrint(a, "{s}: {d} code lines exceeds the 500-code-line cap (blank and // lines are free)", .{ entry.path, code_lines });
+                try violations.append(a, msg);
+            }
         }
 
         // Check 5: banned tokens.
@@ -107,6 +110,26 @@ pub fn lint(allocator: std.mem.Allocator, root: []const u8) !LintReport {
     try gb.verifyGuardedBy(a, &violations, seen_files.items, test_decls.items, gb_refs.items);
 
     return LintReport{ .violations = try violations.toOwnedSlice(a), .arena = arena_ptr };
+}
+
+/// A code line is neither blank nor `//`-prefixed after leading whitespace.
+/// tools/check_line_count.sh counts the same way (its `code_lines` awk).
+fn codeLines(contents: []const u8) usize {
+    var count: usize = 0;
+    var line_it = std.mem.splitScalar(u8, contents, '\n');
+    while (line_it.next()) |line| {
+        const trimmed = std.mem.trimLeft(u8, line, " \t\r");
+        if (trimmed.len == 0) continue;
+        if (std.mem.startsWith(u8, trimmed, "//")) continue;
+        count += 1;
+    }
+    return count;
+}
+
+/// `*_test*.zig` — the exemption glob tools/check_line_count.sh uses. Every
+/// walked file already ends in `.zig`, so the basename test is the infix.
+fn isTestFile(basename: []const u8) bool {
+    return std.mem.indexOf(u8, basename, "_test") != null;
 }
 
 pub fn main() !void {
@@ -156,6 +179,21 @@ test "lint flags bad fixtures" {
     try std.testing.expect(saw_big);
     try std.testing.expect(saw_fallback);
     try std.testing.expect(saw_banned);
+}
+
+test "code lines: blank and //-prefixed lines are free, indentation and CR are ignored" {
+    try std.testing.expectEqual(@as(usize, 0), codeLines(""));
+    try std.testing.expectEqual(@as(usize, 1), codeLines("const x = 1;"));
+    try std.testing.expectEqual(@as(usize, 2), codeLines("//! doc\n\nconst x = 1;\n    // note\n\t/// doc\r\n  const y = 2;\n\r\n"));
+}
+
+test "the cap exempts *_test*.zig and nothing else" {
+    try std.testing.expect(isTestFile("widget_test.zig"));
+    try std.testing.expect(isTestFile("widget_test2.zig"));
+    try std.testing.expect(isTestFile("layout_test_helpers.zig"));
+    try std.testing.expect(!isTestFile("widget.zig"));
+    try std.testing.expect(!isTestFile("latest.zig"));
+    try std.testing.expect(!isTestFile("testing.zig"));
 }
 
 test {

@@ -1,502 +1,502 @@
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
-// pad
+// 501 code lines: trips the 500-code-line cap (comment/blank lines are free).
+const pad_0: u32 = 0;
+const pad_1: u32 = 1;
+const pad_2: u32 = 2;
+const pad_3: u32 = 3;
+const pad_4: u32 = 4;
+const pad_5: u32 = 5;
+const pad_6: u32 = 6;
+const pad_7: u32 = 7;
+const pad_8: u32 = 8;
+const pad_9: u32 = 9;
+const pad_10: u32 = 10;
+const pad_11: u32 = 11;
+const pad_12: u32 = 12;
+const pad_13: u32 = 13;
+const pad_14: u32 = 14;
+const pad_15: u32 = 15;
+const pad_16: u32 = 16;
+const pad_17: u32 = 17;
+const pad_18: u32 = 18;
+const pad_19: u32 = 19;
+const pad_20: u32 = 20;
+const pad_21: u32 = 21;
+const pad_22: u32 = 22;
+const pad_23: u32 = 23;
+const pad_24: u32 = 24;
+const pad_25: u32 = 25;
+const pad_26: u32 = 26;
+const pad_27: u32 = 27;
+const pad_28: u32 = 28;
+const pad_29: u32 = 29;
+const pad_30: u32 = 30;
+const pad_31: u32 = 31;
+const pad_32: u32 = 32;
+const pad_33: u32 = 33;
+const pad_34: u32 = 34;
+const pad_35: u32 = 35;
+const pad_36: u32 = 36;
+const pad_37: u32 = 37;
+const pad_38: u32 = 38;
+const pad_39: u32 = 39;
+const pad_40: u32 = 40;
+const pad_41: u32 = 41;
+const pad_42: u32 = 42;
+const pad_43: u32 = 43;
+const pad_44: u32 = 44;
+const pad_45: u32 = 45;
+const pad_46: u32 = 46;
+const pad_47: u32 = 47;
+const pad_48: u32 = 48;
+const pad_49: u32 = 49;
+const pad_50: u32 = 50;
+const pad_51: u32 = 51;
+const pad_52: u32 = 52;
+const pad_53: u32 = 53;
+const pad_54: u32 = 54;
+const pad_55: u32 = 55;
+const pad_56: u32 = 56;
+const pad_57: u32 = 57;
+const pad_58: u32 = 58;
+const pad_59: u32 = 59;
+const pad_60: u32 = 60;
+const pad_61: u32 = 61;
+const pad_62: u32 = 62;
+const pad_63: u32 = 63;
+const pad_64: u32 = 64;
+const pad_65: u32 = 65;
+const pad_66: u32 = 66;
+const pad_67: u32 = 67;
+const pad_68: u32 = 68;
+const pad_69: u32 = 69;
+const pad_70: u32 = 70;
+const pad_71: u32 = 71;
+const pad_72: u32 = 72;
+const pad_73: u32 = 73;
+const pad_74: u32 = 74;
+const pad_75: u32 = 75;
+const pad_76: u32 = 76;
+const pad_77: u32 = 77;
+const pad_78: u32 = 78;
+const pad_79: u32 = 79;
+const pad_80: u32 = 80;
+const pad_81: u32 = 81;
+const pad_82: u32 = 82;
+const pad_83: u32 = 83;
+const pad_84: u32 = 84;
+const pad_85: u32 = 85;
+const pad_86: u32 = 86;
+const pad_87: u32 = 87;
+const pad_88: u32 = 88;
+const pad_89: u32 = 89;
+const pad_90: u32 = 90;
+const pad_91: u32 = 91;
+const pad_92: u32 = 92;
+const pad_93: u32 = 93;
+const pad_94: u32 = 94;
+const pad_95: u32 = 95;
+const pad_96: u32 = 96;
+const pad_97: u32 = 97;
+const pad_98: u32 = 98;
+const pad_99: u32 = 99;
+const pad_100: u32 = 100;
+const pad_101: u32 = 101;
+const pad_102: u32 = 102;
+const pad_103: u32 = 103;
+const pad_104: u32 = 104;
+const pad_105: u32 = 105;
+const pad_106: u32 = 106;
+const pad_107: u32 = 107;
+const pad_108: u32 = 108;
+const pad_109: u32 = 109;
+const pad_110: u32 = 110;
+const pad_111: u32 = 111;
+const pad_112: u32 = 112;
+const pad_113: u32 = 113;
+const pad_114: u32 = 114;
+const pad_115: u32 = 115;
+const pad_116: u32 = 116;
+const pad_117: u32 = 117;
+const pad_118: u32 = 118;
+const pad_119: u32 = 119;
+const pad_120: u32 = 120;
+const pad_121: u32 = 121;
+const pad_122: u32 = 122;
+const pad_123: u32 = 123;
+const pad_124: u32 = 124;
+const pad_125: u32 = 125;
+const pad_126: u32 = 126;
+const pad_127: u32 = 127;
+const pad_128: u32 = 128;
+const pad_129: u32 = 129;
+const pad_130: u32 = 130;
+const pad_131: u32 = 131;
+const pad_132: u32 = 132;
+const pad_133: u32 = 133;
+const pad_134: u32 = 134;
+const pad_135: u32 = 135;
+const pad_136: u32 = 136;
+const pad_137: u32 = 137;
+const pad_138: u32 = 138;
+const pad_139: u32 = 139;
+const pad_140: u32 = 140;
+const pad_141: u32 = 141;
+const pad_142: u32 = 142;
+const pad_143: u32 = 143;
+const pad_144: u32 = 144;
+const pad_145: u32 = 145;
+const pad_146: u32 = 146;
+const pad_147: u32 = 147;
+const pad_148: u32 = 148;
+const pad_149: u32 = 149;
+const pad_150: u32 = 150;
+const pad_151: u32 = 151;
+const pad_152: u32 = 152;
+const pad_153: u32 = 153;
+const pad_154: u32 = 154;
+const pad_155: u32 = 155;
+const pad_156: u32 = 156;
+const pad_157: u32 = 157;
+const pad_158: u32 = 158;
+const pad_159: u32 = 159;
+const pad_160: u32 = 160;
+const pad_161: u32 = 161;
+const pad_162: u32 = 162;
+const pad_163: u32 = 163;
+const pad_164: u32 = 164;
+const pad_165: u32 = 165;
+const pad_166: u32 = 166;
+const pad_167: u32 = 167;
+const pad_168: u32 = 168;
+const pad_169: u32 = 169;
+const pad_170: u32 = 170;
+const pad_171: u32 = 171;
+const pad_172: u32 = 172;
+const pad_173: u32 = 173;
+const pad_174: u32 = 174;
+const pad_175: u32 = 175;
+const pad_176: u32 = 176;
+const pad_177: u32 = 177;
+const pad_178: u32 = 178;
+const pad_179: u32 = 179;
+const pad_180: u32 = 180;
+const pad_181: u32 = 181;
+const pad_182: u32 = 182;
+const pad_183: u32 = 183;
+const pad_184: u32 = 184;
+const pad_185: u32 = 185;
+const pad_186: u32 = 186;
+const pad_187: u32 = 187;
+const pad_188: u32 = 188;
+const pad_189: u32 = 189;
+const pad_190: u32 = 190;
+const pad_191: u32 = 191;
+const pad_192: u32 = 192;
+const pad_193: u32 = 193;
+const pad_194: u32 = 194;
+const pad_195: u32 = 195;
+const pad_196: u32 = 196;
+const pad_197: u32 = 197;
+const pad_198: u32 = 198;
+const pad_199: u32 = 199;
+const pad_200: u32 = 200;
+const pad_201: u32 = 201;
+const pad_202: u32 = 202;
+const pad_203: u32 = 203;
+const pad_204: u32 = 204;
+const pad_205: u32 = 205;
+const pad_206: u32 = 206;
+const pad_207: u32 = 207;
+const pad_208: u32 = 208;
+const pad_209: u32 = 209;
+const pad_210: u32 = 210;
+const pad_211: u32 = 211;
+const pad_212: u32 = 212;
+const pad_213: u32 = 213;
+const pad_214: u32 = 214;
+const pad_215: u32 = 215;
+const pad_216: u32 = 216;
+const pad_217: u32 = 217;
+const pad_218: u32 = 218;
+const pad_219: u32 = 219;
+const pad_220: u32 = 220;
+const pad_221: u32 = 221;
+const pad_222: u32 = 222;
+const pad_223: u32 = 223;
+const pad_224: u32 = 224;
+const pad_225: u32 = 225;
+const pad_226: u32 = 226;
+const pad_227: u32 = 227;
+const pad_228: u32 = 228;
+const pad_229: u32 = 229;
+const pad_230: u32 = 230;
+const pad_231: u32 = 231;
+const pad_232: u32 = 232;
+const pad_233: u32 = 233;
+const pad_234: u32 = 234;
+const pad_235: u32 = 235;
+const pad_236: u32 = 236;
+const pad_237: u32 = 237;
+const pad_238: u32 = 238;
+const pad_239: u32 = 239;
+const pad_240: u32 = 240;
+const pad_241: u32 = 241;
+const pad_242: u32 = 242;
+const pad_243: u32 = 243;
+const pad_244: u32 = 244;
+const pad_245: u32 = 245;
+const pad_246: u32 = 246;
+const pad_247: u32 = 247;
+const pad_248: u32 = 248;
+const pad_249: u32 = 249;
+const pad_250: u32 = 250;
+const pad_251: u32 = 251;
+const pad_252: u32 = 252;
+const pad_253: u32 = 253;
+const pad_254: u32 = 254;
+const pad_255: u32 = 255;
+const pad_256: u32 = 256;
+const pad_257: u32 = 257;
+const pad_258: u32 = 258;
+const pad_259: u32 = 259;
+const pad_260: u32 = 260;
+const pad_261: u32 = 261;
+const pad_262: u32 = 262;
+const pad_263: u32 = 263;
+const pad_264: u32 = 264;
+const pad_265: u32 = 265;
+const pad_266: u32 = 266;
+const pad_267: u32 = 267;
+const pad_268: u32 = 268;
+const pad_269: u32 = 269;
+const pad_270: u32 = 270;
+const pad_271: u32 = 271;
+const pad_272: u32 = 272;
+const pad_273: u32 = 273;
+const pad_274: u32 = 274;
+const pad_275: u32 = 275;
+const pad_276: u32 = 276;
+const pad_277: u32 = 277;
+const pad_278: u32 = 278;
+const pad_279: u32 = 279;
+const pad_280: u32 = 280;
+const pad_281: u32 = 281;
+const pad_282: u32 = 282;
+const pad_283: u32 = 283;
+const pad_284: u32 = 284;
+const pad_285: u32 = 285;
+const pad_286: u32 = 286;
+const pad_287: u32 = 287;
+const pad_288: u32 = 288;
+const pad_289: u32 = 289;
+const pad_290: u32 = 290;
+const pad_291: u32 = 291;
+const pad_292: u32 = 292;
+const pad_293: u32 = 293;
+const pad_294: u32 = 294;
+const pad_295: u32 = 295;
+const pad_296: u32 = 296;
+const pad_297: u32 = 297;
+const pad_298: u32 = 298;
+const pad_299: u32 = 299;
+const pad_300: u32 = 300;
+const pad_301: u32 = 301;
+const pad_302: u32 = 302;
+const pad_303: u32 = 303;
+const pad_304: u32 = 304;
+const pad_305: u32 = 305;
+const pad_306: u32 = 306;
+const pad_307: u32 = 307;
+const pad_308: u32 = 308;
+const pad_309: u32 = 309;
+const pad_310: u32 = 310;
+const pad_311: u32 = 311;
+const pad_312: u32 = 312;
+const pad_313: u32 = 313;
+const pad_314: u32 = 314;
+const pad_315: u32 = 315;
+const pad_316: u32 = 316;
+const pad_317: u32 = 317;
+const pad_318: u32 = 318;
+const pad_319: u32 = 319;
+const pad_320: u32 = 320;
+const pad_321: u32 = 321;
+const pad_322: u32 = 322;
+const pad_323: u32 = 323;
+const pad_324: u32 = 324;
+const pad_325: u32 = 325;
+const pad_326: u32 = 326;
+const pad_327: u32 = 327;
+const pad_328: u32 = 328;
+const pad_329: u32 = 329;
+const pad_330: u32 = 330;
+const pad_331: u32 = 331;
+const pad_332: u32 = 332;
+const pad_333: u32 = 333;
+const pad_334: u32 = 334;
+const pad_335: u32 = 335;
+const pad_336: u32 = 336;
+const pad_337: u32 = 337;
+const pad_338: u32 = 338;
+const pad_339: u32 = 339;
+const pad_340: u32 = 340;
+const pad_341: u32 = 341;
+const pad_342: u32 = 342;
+const pad_343: u32 = 343;
+const pad_344: u32 = 344;
+const pad_345: u32 = 345;
+const pad_346: u32 = 346;
+const pad_347: u32 = 347;
+const pad_348: u32 = 348;
+const pad_349: u32 = 349;
+const pad_350: u32 = 350;
+const pad_351: u32 = 351;
+const pad_352: u32 = 352;
+const pad_353: u32 = 353;
+const pad_354: u32 = 354;
+const pad_355: u32 = 355;
+const pad_356: u32 = 356;
+const pad_357: u32 = 357;
+const pad_358: u32 = 358;
+const pad_359: u32 = 359;
+const pad_360: u32 = 360;
+const pad_361: u32 = 361;
+const pad_362: u32 = 362;
+const pad_363: u32 = 363;
+const pad_364: u32 = 364;
+const pad_365: u32 = 365;
+const pad_366: u32 = 366;
+const pad_367: u32 = 367;
+const pad_368: u32 = 368;
+const pad_369: u32 = 369;
+const pad_370: u32 = 370;
+const pad_371: u32 = 371;
+const pad_372: u32 = 372;
+const pad_373: u32 = 373;
+const pad_374: u32 = 374;
+const pad_375: u32 = 375;
+const pad_376: u32 = 376;
+const pad_377: u32 = 377;
+const pad_378: u32 = 378;
+const pad_379: u32 = 379;
+const pad_380: u32 = 380;
+const pad_381: u32 = 381;
+const pad_382: u32 = 382;
+const pad_383: u32 = 383;
+const pad_384: u32 = 384;
+const pad_385: u32 = 385;
+const pad_386: u32 = 386;
+const pad_387: u32 = 387;
+const pad_388: u32 = 388;
+const pad_389: u32 = 389;
+const pad_390: u32 = 390;
+const pad_391: u32 = 391;
+const pad_392: u32 = 392;
+const pad_393: u32 = 393;
+const pad_394: u32 = 394;
+const pad_395: u32 = 395;
+const pad_396: u32 = 396;
+const pad_397: u32 = 397;
+const pad_398: u32 = 398;
+const pad_399: u32 = 399;
+const pad_400: u32 = 400;
+const pad_401: u32 = 401;
+const pad_402: u32 = 402;
+const pad_403: u32 = 403;
+const pad_404: u32 = 404;
+const pad_405: u32 = 405;
+const pad_406: u32 = 406;
+const pad_407: u32 = 407;
+const pad_408: u32 = 408;
+const pad_409: u32 = 409;
+const pad_410: u32 = 410;
+const pad_411: u32 = 411;
+const pad_412: u32 = 412;
+const pad_413: u32 = 413;
+const pad_414: u32 = 414;
+const pad_415: u32 = 415;
+const pad_416: u32 = 416;
+const pad_417: u32 = 417;
+const pad_418: u32 = 418;
+const pad_419: u32 = 419;
+const pad_420: u32 = 420;
+const pad_421: u32 = 421;
+const pad_422: u32 = 422;
+const pad_423: u32 = 423;
+const pad_424: u32 = 424;
+const pad_425: u32 = 425;
+const pad_426: u32 = 426;
+const pad_427: u32 = 427;
+const pad_428: u32 = 428;
+const pad_429: u32 = 429;
+const pad_430: u32 = 430;
+const pad_431: u32 = 431;
+const pad_432: u32 = 432;
+const pad_433: u32 = 433;
+const pad_434: u32 = 434;
+const pad_435: u32 = 435;
+const pad_436: u32 = 436;
+const pad_437: u32 = 437;
+const pad_438: u32 = 438;
+const pad_439: u32 = 439;
+const pad_440: u32 = 440;
+const pad_441: u32 = 441;
+const pad_442: u32 = 442;
+const pad_443: u32 = 443;
+const pad_444: u32 = 444;
+const pad_445: u32 = 445;
+const pad_446: u32 = 446;
+const pad_447: u32 = 447;
+const pad_448: u32 = 448;
+const pad_449: u32 = 449;
+const pad_450: u32 = 450;
+const pad_451: u32 = 451;
+const pad_452: u32 = 452;
+const pad_453: u32 = 453;
+const pad_454: u32 = 454;
+const pad_455: u32 = 455;
+const pad_456: u32 = 456;
+const pad_457: u32 = 457;
+const pad_458: u32 = 458;
+const pad_459: u32 = 459;
+const pad_460: u32 = 460;
+const pad_461: u32 = 461;
+const pad_462: u32 = 462;
+const pad_463: u32 = 463;
+const pad_464: u32 = 464;
+const pad_465: u32 = 465;
+const pad_466: u32 = 466;
+const pad_467: u32 = 467;
+const pad_468: u32 = 468;
+const pad_469: u32 = 469;
+const pad_470: u32 = 470;
+const pad_471: u32 = 471;
+const pad_472: u32 = 472;
+const pad_473: u32 = 473;
+const pad_474: u32 = 474;
+const pad_475: u32 = 475;
+const pad_476: u32 = 476;
+const pad_477: u32 = 477;
+const pad_478: u32 = 478;
+const pad_479: u32 = 479;
+const pad_480: u32 = 480;
+const pad_481: u32 = 481;
+const pad_482: u32 = 482;
+const pad_483: u32 = 483;
+const pad_484: u32 = 484;
+const pad_485: u32 = 485;
+const pad_486: u32 = 486;
+const pad_487: u32 = 487;
+const pad_488: u32 = 488;
+const pad_489: u32 = 489;
+const pad_490: u32 = 490;
+const pad_491: u32 = 491;
+const pad_492: u32 = 492;
+const pad_493: u32 = 493;
+const pad_494: u32 = 494;
+const pad_495: u32 = 495;
+const pad_496: u32 = 496;
+const pad_497: u32 = 497;
+const pad_498: u32 = 498;
+const pad_499: u32 = 499;
+const pad_500: u32 = 500;
