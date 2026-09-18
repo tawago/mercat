@@ -211,31 +211,22 @@ test "comparator keys carry no numeric ids by construction" {
     try expectSemanticFieldsOnly(pb.AttachmentKey);
 }
 
-test "keepOrigin selects exactly one origin's sets" {
-    const sets = [_]pb.Bundle{
-        .{ .origin = .fan_rail, .members = &.{ 0, 1 } },
+test "concatBundles joins two populations and keeps the head first" {
+    const shares = [_]pb.Bundle{
         .{ .origin = .port_share, .members = &.{ 2, 3 } },
-        .{ .origin = .selected_bundle, .members = &.{ 4, 5 } },
         .{ .origin = .port_share, .members = &.{ 6, 7 } },
     };
-    const shares = try pb.keepOrigin(std.testing.allocator, &sets, .port_share);
-    defer std.testing.allocator.free(shares);
-    try expectEqual(@as(usize, 2), shares.len);
-    try expect(pb.bundleMembersAt(shares, 2, 3, null));
-    try expect(pb.bundleMembersAt(shares, 6, 7, null));
-    try expect(!pb.bundleMembersAt(shares, 0, 1, null));
-
     const head = [_]pb.Bundle{.{ .origin = .selected_bundle, .members = &.{ 8, 9 } }};
-    const joined = try pb.concatBundles(std.testing.allocator, &head, shares);
+    const joined = try pb.concatBundles(std.testing.allocator, &head, &shares);
     defer std.testing.allocator.free(joined);
     try expectEqual(@as(usize, 3), joined.len);
     try expectEqual(bundle_mod.BundleOrigin.selected_bundle, joined[0].origin);
     try expect(pb.bundleMembersAt(joined, 8, 9, null));
+    try expect(pb.bundleMembersAt(joined, 2, 3, null));
     try expect(pb.bundleMembersAt(joined, 6, 7, null));
 
-    const no_joins = [_]pb.Bundle{.{ .origin = .fan_rail, .members = &.{ 0, 1 } }};
-    try expectEqual(@as(usize, 0), (try pb.keepOrigin(std.testing.allocator, &no_joins, .selected_bundle)).len);
     try expectEqual(@as(usize, 1), (try pb.concatBundles(std.testing.allocator, &head, &.{})).len);
+    try expectEqual(@as(usize, 2), (try pb.concatBundles(std.testing.allocator, &.{}, &shares)).len);
 }
 
 test "a cell-scoped bundle answers only inside its licensed cells" {
@@ -277,8 +268,10 @@ test "a pairwise-scoped set licenses only a pair's own common approach, never a 
     try expect(pb.bundleMembersAt(sets, 0, 2, .{ .x = 5, .y = 3 }));
     try expect(pb.bundleMembersAt(sets, 1, 2, .{ .x = 5, .y = 3 }));
 
-    try expect(pb.bundleOf(sets, 0, .{ .x = 5, .y = 8 }) != pb.no_bundle);
-    try expect(pb.bundleOf(sets, 2, .{ .x = 5, .y = 8 }) == bundle_mod.privateBundle(2));
+    // The same scoping asked of ONE member by the set's name: edge 0 reached
+    // (5, 8) with a partner, edge 2 never did.
+    try expect(pb.memberOfBundleAt(sets, 1, 0, .{ .x = 5, .y = 8 }));
+    try expect(!pb.memberOfBundleAt(sets, 1, 2, .{ .x = 5, .y = 8 }));
 }
 
 test "a numbered bundle set names every set exactly once" {
@@ -296,18 +289,26 @@ test "a numbered bundle set names every set exactly once" {
     try expectEqual(@as(pb.BundleId, 1), bundle_sets[0].bundle);
     try expectEqual(@as(pb.BundleId, 2), bundle_sets[1].bundle);
 
-    try expectEqual(@as(pb.BundleId, 1), pb.bundleOf(bundle_sets, 0, null));
-    try expectEqual(@as(pb.BundleId, 2), pb.bundleOf(bundle_sets, 3, null));
-    try expect(pb.bundleOf(bundle_sets, 0, null) == pb.bundleOf(bundle_sets, 1, null));
-    try expect(pb.bundleOf(bundle_sets, 1, null) != pb.bundleOf(bundle_sets, 2, null));
+    // Each name holds its own members and nobody else's.
+    try expect(pb.memberOfBundleAt(bundle_sets, 1, 0, null));
+    try expect(pb.memberOfBundleAt(bundle_sets, 1, 1, null));
+    try expect(pb.memberOfBundleAt(bundle_sets, 2, 3, null));
+    try expect(!pb.memberOfBundleAt(bundle_sets, 2, 0, null));
+    try expect(!pb.memberOfBundleAt(bundle_sets, 1, 2, null));
+    try expect(pb.bundleMembersAt(bundle_sets, 0, 1, null));
+    try expect(!pb.bundleMembersAt(bundle_sets, 1, 2, null));
 
-    try expect(bundle_mod.privateBundle(0) != bundle_mod.privateBundle(1));
-    try expectEqual(bundle_mod.privateBundle(9), pb.bundleOf(bundle_sets, 9, null));
-    try expect(pb.bundleOf(bundle_sets, 9, null) != pb.bundleOf(bundle_sets, 8, null));
+    // An edge no set names is on no bundle at all, and two such edges share
+    // nothing with each other.
+    try expect(!pb.memberOfBundleAt(bundle_sets, 1, 9, null));
+    try expect(!pb.memberOfBundleAt(bundle_sets, 2, 9, null));
+    try expect(!pb.bundleMembersAt(bundle_sets, 9, 8, null));
 
+    // An unstamped set carries no name, so no name reaches its members and
+    // two declared bundle-mates read as strangers.
     const blank = [_]pb.Bundle{.{ .origin = .fan_rail, .members = &a }};
-    try expectEqual(bundle_mod.privateBundle(0), pb.bundleOf(&blank, 0, null));
-    try expect(pb.bundleOf(&blank, 0, null) != pb.bundleOf(&blank, 1, null));
+    try expect(!pb.memberOfBundleAt(&blank, 1, 0, null));
+    try expect(!pb.memberOfBundleAt(&blank, pb.no_bundle, 0, null));
 }
 
 test "structural set resolution is unique and excludes scoped provenance" {
@@ -340,8 +341,8 @@ test "structural set resolution is unique and excludes scoped provenance" {
 test "a bundle asked by name holds its member on every cell, whichever set names the edge first" {
     // Edge 1 is a member of two structural sets: the fan-out {0, 1} stamped
     // first and the fan-in {1, 2} stamped second (rail membership at both
-    // ends). Both license everywhere, so `bundleOf` resolves edge 1 to the
-    // first one at every cell; asked by NAME, each set holds it.
+    // ends). Both license everywhere, so no position can tell the two apart;
+    // asked by NAME, each set holds it.
     const fan_out = [_]pb.EdgeId{ 0, 1 };
     const fan_in = [_]pb.EdgeId{ 1, 2 };
     const raw = [_]pb.Bundle{
@@ -352,7 +353,6 @@ test "a bundle asked by name holds its member on every cell, whichever set names
     defer std.testing.allocator.free(sets);
     const here: pb.BundleCell = .{ .x = 9, .y = 9 };
 
-    try expectEqual(@as(pb.BundleId, 1), pb.bundleOf(sets, 1, here));
     try expect(pb.memberOfBundleAt(sets, 1, 1, here));
     try expect(pb.memberOfBundleAt(sets, 2, 1, here));
     try expect(pb.memberOfBundleAt(sets, 2, 2, here));
@@ -381,18 +381,21 @@ test "the derivation and the recorded identity answer alike on a declared bundle
     defer std.testing.allocator.free(bundle_sets);
 
     try expect(pb.derivedSameBundle(.{}, bundle_sets, 4, 5, null));
-    try expect(pb.bundleOf(bundle_sets, 4, null) == pb.bundleOf(bundle_sets, 5, null));
+    try expect(pb.memberOfBundleAt(bundle_sets, 1, 4, null));
+    try expect(pb.memberOfBundleAt(bundle_sets, 1, 5, null));
     try expect(!pb.derivedSameBundle(.{}, bundle_sets, 4, 6, null));
-    try expect(pb.bundleOf(bundle_sets, 4, null) != pb.bundleOf(bundle_sets, 6, null));
+    try expect(!pb.memberOfBundleAt(bundle_sets, 1, 6, null));
 
     const here = [_]pb.BundleCell{.{ .x = 2, .y = 2 }};
     const scoped_raw = [_]pb.Bundle{.{ .origin = .port_share, .members = &members, .cells = &here }};
     const scoped = try pb.numberBundles(std.testing.allocator, &scoped_raw);
     defer std.testing.allocator.free(scoped);
     try expect(pb.derivedSameBundle(.{}, scoped, 4, 5, .{ .x = 2, .y = 2 }));
-    try expect(pb.bundleOf(scoped, 4, .{ .x = 2, .y = 2 }) == pb.bundleOf(scoped, 5, .{ .x = 2, .y = 2 }));
+    try expect(pb.memberOfBundleAt(scoped, 1, 4, .{ .x = 2, .y = 2 }));
+    try expect(pb.memberOfBundleAt(scoped, 1, 5, .{ .x = 2, .y = 2 }));
     try expect(!pb.derivedSameBundle(.{}, scoped, 4, 5, .{ .x = 7, .y = 7 }));
-    try expect(pb.bundleOf(scoped, 4, .{ .x = 7, .y = 7 }) != pb.bundleOf(scoped, 5, .{ .x = 7, .y = 7 }));
+    try expect(!pb.memberOfBundleAt(scoped, 1, 4, .{ .x = 7, .y = 7 }));
+    try expect(!pb.memberOfBundleAt(scoped, 1, 5, .{ .x = 7, .y = 7 }));
 }
 
 test {

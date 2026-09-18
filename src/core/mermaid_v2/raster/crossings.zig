@@ -167,19 +167,6 @@ pub fn sameBundle(
     return ledger.derivedSameBundle(bundles, bundle_sets, a, b, at);
 }
 
-/// The bundle `edge` rides at `at`, read off the bundle sets the producer stamped.
-/// Every edge has one: a bundle names a SHARED bundle, and an edge no set
-/// names rides its own, one edge wide.
-///
-/// NO CALLER. An edge can ride two bundles at one cell (rail membership at
-/// both ends), so a single-valued answer is the wrong shape for a label;
-/// `carrierKind` below asks by the rail's name or by the pair instead.
-/// Kept for one commit so the removal of `ledger.bundleOf` and its
-/// private band is its own change.
-pub fn bundleAt(bundle_sets: []const ledger.Bundle, edge: EdgeId, at: ledger.BundleCell) ledger.BundleId {
-    return ledger.bundleOf(bundle_sets, edge, at);
-}
-
 /// The `CarrierKind` a merged `.carrier` record STATES: `held` is the edge
 /// the cell already names, `writer` the edge writing now, `at` the cell.
 /// Every site that files a merged carrier reads its `detail` from here and

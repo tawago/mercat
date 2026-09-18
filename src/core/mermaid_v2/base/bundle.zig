@@ -43,9 +43,11 @@ pub const BundleOrigin = enum {
 /// group of edges on one run. Until this handle existed the decision had no
 /// NAME, so every reader that wanted "do these two share a bundle here"
 /// re-derived the relation by scanning both membership lists at the point of
-/// decision. The id is the name, `bundleOf` is the lookup, and the relation
-/// is read off two lookups instead of recomputed — the direction of
-/// derivation inverts.
+/// decision. The id is the name, `memberOfBundleAt` is the lookup asked BY
+/// that name, and the relation is read off the name instead of recomputed —
+/// the direction of derivation inverts. An id outside the numbered range is
+/// a name no set carries (`sketch_bundles.stamp`'s `.no_set` branch, for a
+/// rail no set matched); it holds nobody, which is the right answer.
 pub const BundleId = u32;
 
 /// "NOT FILED" — never "no bundle". Zero on purpose, the same rule the side
@@ -53,19 +55,6 @@ pub const BundleId = u32;
 /// stale copy all land here, on the value that names nothing, so silence can
 /// never be read back as identity.
 pub const no_bundle: BundleId = 0;
-
-/// Base of the PRIVATE band: the bundle an edge that shares with nobody
-/// rides. Every edge is on a bundle — a bundle names a SHARED one, and an
-/// edge no set names still has its own, which is exactly one edge wide. Held
-/// apart from the numbered band (1..N, one per set) by the high bit, so a
-/// private id can never collide with a set's however many sets there are.
-/// Edge ids are `u32` handles well under 2^31 in every producer.
-pub const private_band: BundleId = 0x8000_0000;
-
-/// The one-edge-wide bundle `edge` rides when no set names it here.
-pub fn privateBundle(edge: EdgeId) BundleId {
-    return private_band | edge;
-}
 
 /// A CO-CHANNEL set: edges that legally share ink because ONE structural
 /// decision put them on the same bundle.
@@ -108,8 +97,8 @@ pub const Bundle = struct {
     /// members licensed at a cell neither of THEM ever walked together,
     /// merely because a THIRD member walked it with each of them
     /// separately, is exactly the fabrication `sketch_ports.zig`'s header
-    /// forbids. When set, `bundleMembersAt`/`bundleOf` consult this instead of
-    /// the flat union.
+    /// forbids. When set, `bundleMembersAt`/`memberOfBundleAt` consult this
+    /// instead of the flat union.
     /// @guarded-by: ledger_test.zig "a pairwise-scoped set licenses only a pair's own common approach, never a third member's"
     pairwise: ?[]const PairCells = null,
 };
@@ -130,32 +119,9 @@ pub const BundleCell = struct {
     y: i32,
 };
 
-/// The sets whose origin is `origin`, in order — for a producer that REPLACES
-/// one origin's population and must not take the others down with it.
-/// @guarded-by: ledger_test.zig "keepOrigin selects exactly one origin's sets"
-pub fn keepOrigin(
-    allocator: std.mem.Allocator,
-    sets: []const Bundle,
-    origin: BundleOrigin,
-) error{OutOfMemory}![]const Bundle {
-    var n: usize = 0;
-    for (sets) |s| {
-        if (s.origin == origin) n += 1;
-    }
-    if (n == 0) return &.{};
-    const out = try allocator.alloc(Bundle, n);
-    var i: usize = 0;
-    for (sets) |s| {
-        if (s.origin != origin) continue;
-        out[i] = s;
-        i += 1;
-    }
-    return out;
-}
-
 /// `head ++ tail`, members BORROWED. Order is provenance only (every set is
 /// scanned), but `head` first reads in the order the origins were established.
-/// @guarded-by: ledger_test.zig "keepOrigin selects exactly one origin's sets"
+/// @guarded-by: ledger_test.zig "concatBundles joins two populations and keeps the head first"
 pub fn concatBundles(
     allocator: std.mem.Allocator,
     head: []const Bundle,
@@ -201,10 +167,10 @@ pub fn bundleMembersAt(sets: []const Bundle, first: EdgeId, second: EdgeId, at: 
 /// a single bundle first: an edge may be a member of two structural sets,
 /// one at each end (theory 10-confluence, "Rail membership at both ends"),
 /// both with `cells = null`, so no position can tell those two apart — only
-/// the name of the set being asked about can. `bundleOf`'s single-valued
-/// reading answered for whichever set came first in slice order, which on
-/// a fan-in rail is the fan-out set at the other end; a question asked by
-/// name has no other end to answer for.
+/// the name of the set being asked about can. Resolving an edge to ONE id
+/// answered for whichever set came first in slice order, which on a fan-in
+/// rail is the fan-out set at the other end; a question asked by name has no
+/// other end to answer for.
 ///
 /// Scoping is the member scoping: a `.pairwise` set answers yes where
 /// `edge` reached `at` with any partner. A name no set carries — a rail the
@@ -259,7 +225,7 @@ fn licensesPair(set: Bundle, first: EdgeId, second: EdgeId, at: ?BundleCell) boo
 }
 
 /// Does this set license MEMBER `edge` at `at`, over EVERY pair it appears
-/// in? Used where only one edge is known (`memberOfBundleAt`, `bundleOf`): a `.pairwise` set
+/// in? Used where only one edge is known (`memberOfBundleAt`): a `.pairwise` set
 /// answers yes if `edge` reached `at` together with ANY other member: its
 /// own approach ink includes that cell, whichever partner it shared it
 /// with.
@@ -337,36 +303,14 @@ pub fn numberBundles(
 }
 
 /// True iff every one of these bundle sets has been stamped. A list holding an
-/// unstamped set cannot answer the identity question — `bundleOf` would read
-/// that set's members as riding their own private bundles and report two
-/// declared bundle-mates as strangers — so a reader that needs identity asks
-/// this first and abstains rather than answering wrongly.
+/// unstamped set carries no name, so a question asked by name can never
+/// reach it and two declared bundle-mates read as strangers — so a reader
+/// that needs identity asks this first and abstains rather than answering
+/// wrongly.
 /// @guarded-by: ledger_test.zig "a numbered bundle set names every set exactly once"
 pub fn bundleSetsNumbered(sets: []const Bundle) bool {
     for (sets) |set| {
         if (set.bundle == no_bundle) return false;
     }
     return true;
-}
-
-/// The bundle `edge` rides AT `at`: the identity of the first stamped set
-/// that both names it and licenses that cell, and otherwise the edge's own
-/// private bundle.
-///
-/// ONE edge, ONE bundle at one cell. Where two stamped sets both name an edge
-/// at one position — a fan rail whose member also shares a perimeter port —
-/// list order decides, and it reads as the structural set's, because the
-/// narrower `.port_share` origin is always APPENDED after them. That this
-/// single-valued reading agrees with the pairwise membership scan it replaces
-/// is a MEASURED fact, not an assumed one: the two answers are counted
-/// against each other on every carrier the render files.
-pub fn bundleOf(sets: []const Bundle, edge: EdgeId, at: ?BundleCell) BundleId {
-    for (sets) |set| {
-        if (set.bundle == no_bundle) continue;
-        if (!licensesMember(set, edge, at)) continue;
-        for (set.members) |m| {
-            if (m == edge) return set.bundle;
-        }
-    }
-    return privateBundle(edge);
 }

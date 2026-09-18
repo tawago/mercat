@@ -191,8 +191,8 @@ test "final geometry alone defines shifted pair ids, cells, and bundle agreement
     try std.testing.expectEqualSlices(sketch.EdgeId, &.{ 100, 101 }, final.bundle_sets[0].members);
     try std.testing.expectEqual(@as(sketch.EdgeId, 100), final.bundle_sets[0].pairwise.?[0].a);
     try std.testing.expectEqual(@as(sketch.EdgeId, 101), final.bundle_sets[0].pairwise.?[0].b);
-    try std.testing.expect(ledger.bundleOf(final.bundle_sets, 100, .{ .x = 15, .y = 25 }) == ledger.bundleOf(final.bundle_sets, 101, .{ .x = 15, .y = 25 }));
-    try std.testing.expect(ledger.bundleOf(final.bundle_sets, 100, .{ .x = 99, .y = 99 }) != ledger.bundleOf(final.bundle_sets, 101, .{ .x = 99, .y = 99 }));
+    try std.testing.expect(ledger.bundleMembersAt(final.bundle_sets, 100, 101, .{ .x = 15, .y = 25 }));
+    try std.testing.expect(!ledger.bundleMembersAt(final.bundle_sets, 100, 101, .{ .x = 99, .y = 99 }));
 }
 
 test "no edges, no sets" {
@@ -321,5 +321,5 @@ test "a rail member and path at one port with no common run license no merge" {
     };
     sketch_bundles.stamp(a, &final);
     try std.testing.expectEqual(sketch.BundleStampState.complete, final.bundle_stamp_state);
-    try std.testing.expect(ledger.bundleOf(final.bundle_sets, 20, .{ .x = 5, .y = 1 }) != ledger.bundleOf(final.bundle_sets, 30, .{ .x = 5, .y = 1 }));
+    try std.testing.expect(!ledger.bundleMembersAt(final.bundle_sets, 20, 30, .{ .x = 5, .y = 1 }));
 }

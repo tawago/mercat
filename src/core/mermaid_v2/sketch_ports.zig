@@ -23,7 +23,7 @@
 //!     transitively (A shares B's port and B shares C's, so all three name
 //!     ONE bundle) do NOT thereby share cell scope: the set's `.pairwise`
 //!     table records each PAIR's own common approach separately, and
-//!     `bundleMembersAt`/`bundleOf` consult that pair-specific entry, never a
+//!     `bundleMembersAt`/`memberOfBundleAt` consult that pair-specific entry, never a
 //!     flat union over every pair. A member with no direct overlap with
 //!     another stays a named member (the group is one bundle for identity
 //!     purposes) but licenses no cell between the two of them. Where two

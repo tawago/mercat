@@ -249,7 +249,6 @@ const bundle = @import("bundle.zig");
 pub const Bundle = bundle.Bundle;
 pub const BundleCell = bundle.BundleCell;
 pub const PairCells = bundle.PairCells;
-pub const keepOrigin = bundle.keepOrigin;
 pub const concatBundles = bundle.concatBundles;
 pub const bundleMembersAt = bundle.bundleMembersAt;
 pub const memberOfBundleAt = bundle.memberOfBundleAt;
@@ -259,7 +258,6 @@ pub const numberBundles = bundle.numberBundles;
 pub const bundleSetsNumbered = bundle.bundleSetsNumbered;
 pub const resolveStructuralBundle = bundle.resolveStructuralBundle;
 pub const structuralUnscoped = bundle.structuralUnscoped;
-pub const bundleOf = bundle.bundleOf;
 
 /// The pre-identity DERIVATION of the bundle relation: a pairwise
 /// membership scan over the bundle sets AND the realized plan, asked at a position.
@@ -268,8 +266,8 @@ pub const bundleOf = bundle.bundleOf;
 ///
 /// This is the shape the raster used to ESTABLISH every licence with, before a
 /// bundle had a name. It is kept — one copy, here — as the WITNESS the
-/// recorded identity is measured against: it runs beside a `bundleOf`
-/// comparison on every carrier a render files and counts the two answers
+/// recorded identity is measured against: it runs beside the by-name
+/// reading on every carrier a render files and counts the two answers
 /// agreeing and disagreeing. Nothing that only LABELS a record calls it any more.
 /// @guarded-by: ledger_test.zig "the derivation and the recorded identity answer alike on a declared bundle"
 pub fn derivedSameBundle(

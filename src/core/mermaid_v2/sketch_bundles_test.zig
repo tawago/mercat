@@ -62,9 +62,9 @@ test "a stamped sketch names its rail's bundle and its bundle sets alike" {
     try testing.expect(ledger.bundleSetsNumbered(s.bundle_sets));
     try testing.expectEqual(@as(ledger.BundleId, 1), s.bundle_sets[0].bundle);
     try testing.expectEqual(@as(ledger.BundleId, 1), s.rails[0].bundle);
-    try testing.expectEqual(@as(ledger.BundleId, 1), ledger.bundleOf(s.bundle_sets, 0, null));
-    try testing.expectEqual(@as(ledger.BundleId, 1), ledger.bundleOf(s.bundle_sets, 1, null));
-    try testing.expect(ledger.bundleOf(s.bundle_sets, 0, null) == ledger.bundleOf(s.bundle_sets, 1, null));
+    try testing.expect(ledger.memberOfBundleAt(s.bundle_sets, 1, 0, null));
+    try testing.expect(ledger.memberOfBundleAt(s.bundle_sets, 1, 1, null));
+    try testing.expect(ledger.bundleMembersAt(s.bundle_sets, 0, 1, null));
 }
 
 test "merged bundle sets name every bundle once" {
@@ -82,7 +82,10 @@ test "merged bundle sets name every bundle once" {
 
     try testing.expectEqual(@as(ledger.BundleId, 1), s.bundle_sets[0].bundle);
     try testing.expectEqual(@as(ledger.BundleId, 2), s.bundle_sets[1].bundle);
-    try testing.expect(ledger.bundleOf(s.bundle_sets, 0, null) != ledger.bundleOf(s.bundle_sets, 2, null));
+    try testing.expect(ledger.memberOfBundleAt(s.bundle_sets, 1, 0, null));
+    try testing.expect(ledger.memberOfBundleAt(s.bundle_sets, 2, 2, null));
+    try testing.expect(!ledger.memberOfBundleAt(s.bundle_sets, 1, 2, null));
+    try testing.expect(!ledger.bundleMembersAt(s.bundle_sets, 0, 2, null));
 }
 
 test "a rail in no bundle set is stamped a bundle none of its future merges can ever match" {

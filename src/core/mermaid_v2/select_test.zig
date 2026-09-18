@@ -123,9 +123,13 @@ test "a clustered render's rail bundles come from its piece plan and survive the
         try std.testing.expect(set.origin == .selected_bundle or set.origin == .port_share);
         try std.testing.expect(set.members.len >= 2);
     }
-    const plan_sets = try ledger.keepOrigin(a, winner.sketch.bundle_sets, .selected_bundle);
-    try std.testing.expectEqual(@as(usize, 1), plan_sets.len);
-    try std.testing.expectEqualSlices(ledger.EdgeId, rail.members, plan_sets[0].members);
+    var plan_sets: usize = 0;
+    for (winner.sketch.bundle_sets) |set| {
+        if (set.origin != .selected_bundle) continue;
+        plan_sets += 1;
+        try std.testing.expectEqualSlices(ledger.EdgeId, rail.members, set.members);
+    }
+    try std.testing.expectEqual(@as(usize, 1), plan_sets);
 }
 
 /// The root plan of a graph marked clustered-skipped: the candidates enumerate

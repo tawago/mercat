@@ -467,10 +467,10 @@ fn twoStructuralSets(sets: []const ledger.Bundle, edge: ledger.EdgeId) ![2]ledge
 // for, here (`ledger.memberOfBundleAt`) — and two edges ask the pair
 // question (`ledger.bundleMembersAt`). One function answers both,
 // `crossings.carrierKind`, and every record's `detail` comes from it.
-// (`ledger.bundleOf`, which answered for the first set in slice order —
-// the other end's, on every fan-in rail whose member also fans out — has
-// no caller left; `sketch_bundles.resolveRailBundle` refuses to key a rail
-// by one tap for the same reason.)
+// (The single-valued lookup this replaced answered for the first set in
+// slice order — the other end's, on every fan-in rail whose member also
+// fans out — and is gone; `sketch_bundles.resolveRailBundle` refuses to
+// key a rail by one tap for the same reason.)
 //
 // Two shapes, four widths each, one render per width (the picture does
 // not move between 60 and 120):
