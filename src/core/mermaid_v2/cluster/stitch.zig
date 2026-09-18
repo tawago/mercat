@@ -385,8 +385,8 @@ pub fn stitch(
         .diagnostics = try withTrackExpiry(arena, outer.diagnostics, track_expired),
         .budget = outer.budget,
     };
-    // Each piece numbered from one, so the merged roster is re-numbered here.
-    // @guarded-by: sketch_bundles_test.zig "a merged roster names every bundle once"
+    // Each piece numbered from one, so the merged sets are re-numbered here.
+    // @guarded-by: sketch_bundles_test.zig "merged bundle sets name every bundle once"
     sketch_bundles.stamp(arena, &merged);
     return .{
         .sketch = merged,

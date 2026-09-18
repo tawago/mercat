@@ -281,29 +281,29 @@ test "a pairwise-scoped set licenses only a pair's own common approach, never a 
     try expect(pb.bundleOf(sets, 2, .{ .x = 5, .y = 8 }) == bundle_mod.privateBundle(2));
 }
 
-test "a numbered roster names every set exactly once" {
+test "a numbered bundle set names every set exactly once" {
     const a = [_]pb.EdgeId{ 0, 1 };
     const b = [_]pb.EdgeId{ 2, 3 };
     const raw = [_]pb.Bundle{
         .{ .origin = .fan_rail, .bundle = 1, .members = &a },
         .{ .origin = .fan_rail, .bundle = 1, .members = &b },
     };
-    try expect(!pb.rosterNumbered(&[_]pb.Bundle{.{ .origin = .fan_rail, .members = &a }}));
+    try expect(!pb.bundleSetsNumbered(&[_]pb.Bundle{.{ .origin = .fan_rail, .members = &a }}));
 
-    const roster = try pb.numberBundles(std.testing.allocator, &raw);
-    defer std.testing.allocator.free(roster);
-    try expect(pb.rosterNumbered(roster));
-    try expectEqual(@as(pb.BundleId, 1), roster[0].bundle);
-    try expectEqual(@as(pb.BundleId, 2), roster[1].bundle);
+    const bundle_sets = try pb.numberBundles(std.testing.allocator, &raw);
+    defer std.testing.allocator.free(bundle_sets);
+    try expect(pb.bundleSetsNumbered(bundle_sets));
+    try expectEqual(@as(pb.BundleId, 1), bundle_sets[0].bundle);
+    try expectEqual(@as(pb.BundleId, 2), bundle_sets[1].bundle);
 
-    try expectEqual(@as(pb.BundleId, 1), pb.bundleOf(roster, 0, null));
-    try expectEqual(@as(pb.BundleId, 2), pb.bundleOf(roster, 3, null));
-    try expect(pb.bundleOf(roster, 0, null) == pb.bundleOf(roster, 1, null));
-    try expect(pb.bundleOf(roster, 1, null) != pb.bundleOf(roster, 2, null));
+    try expectEqual(@as(pb.BundleId, 1), pb.bundleOf(bundle_sets, 0, null));
+    try expectEqual(@as(pb.BundleId, 2), pb.bundleOf(bundle_sets, 3, null));
+    try expect(pb.bundleOf(bundle_sets, 0, null) == pb.bundleOf(bundle_sets, 1, null));
+    try expect(pb.bundleOf(bundle_sets, 1, null) != pb.bundleOf(bundle_sets, 2, null));
 
     try expect(bundle_mod.privateBundle(0) != bundle_mod.privateBundle(1));
-    try expectEqual(bundle_mod.privateBundle(9), pb.bundleOf(roster, 9, null));
-    try expect(pb.bundleOf(roster, 9, null) != pb.bundleOf(roster, 8, null));
+    try expectEqual(bundle_mod.privateBundle(9), pb.bundleOf(bundle_sets, 9, null));
+    try expect(pb.bundleOf(bundle_sets, 9, null) != pb.bundleOf(bundle_sets, 8, null));
 
     const blank = [_]pb.Bundle{.{ .origin = .fan_rail, .members = &a }};
     try expectEqual(bundle_mod.privateBundle(0), pb.bundleOf(&blank, 0, null));
@@ -340,13 +340,13 @@ test "structural set resolution is unique and excludes scoped provenance" {
 test "the derivation and the recorded identity answer alike on a declared bundle" {
     const members = [_]pb.EdgeId{ 4, 5 };
     const raw = [_]pb.Bundle{.{ .origin = .fan_rail, .members = &members }};
-    const roster = try pb.numberBundles(std.testing.allocator, &raw);
-    defer std.testing.allocator.free(roster);
+    const bundle_sets = try pb.numberBundles(std.testing.allocator, &raw);
+    defer std.testing.allocator.free(bundle_sets);
 
-    try expect(pb.derivedSameBundle(.{}, roster, 4, 5, null));
-    try expect(pb.bundleOf(roster, 4, null) == pb.bundleOf(roster, 5, null));
-    try expect(!pb.derivedSameBundle(.{}, roster, 4, 6, null));
-    try expect(pb.bundleOf(roster, 4, null) != pb.bundleOf(roster, 6, null));
+    try expect(pb.derivedSameBundle(.{}, bundle_sets, 4, 5, null));
+    try expect(pb.bundleOf(bundle_sets, 4, null) == pb.bundleOf(bundle_sets, 5, null));
+    try expect(!pb.derivedSameBundle(.{}, bundle_sets, 4, 6, null));
+    try expect(pb.bundleOf(bundle_sets, 4, null) != pb.bundleOf(bundle_sets, 6, null));
 
     const here = [_]pb.BundleCell{.{ .x = 2, .y = 2 }};
     const scoped_raw = [_]pb.Bundle{.{ .origin = .port_share, .members = &members, .cells = &here }};

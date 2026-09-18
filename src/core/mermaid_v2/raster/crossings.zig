@@ -166,7 +166,7 @@ pub fn sameBundle(
     return ledger.derivedSameBundle(bundles, bundle_sets, a, b, at);
 }
 
-/// The bundle `edge` rides at `at`, read off the roster the producer stamped.
+/// The bundle `edge` rides at `at`, read off the bundle sets the producer stamped.
 /// Every edge has one: a bundle names a SHARED bundle, and an edge no set
 /// names rides its own, one edge wide. A reader compares two of these instead
 /// of re-scanning membership — which is the whole point, because the id can
@@ -181,7 +181,7 @@ pub fn bundleAt(bundle_sets: []const ledger.Bundle, edge: EdgeId, at: ledger.Bun
 /// caller of this moves a byte.
 ///
 /// ABSTAINS unless the producer completed its transactional stamp AND every
-/// roster entry is numbered. A failed or refused re-stamp can leave an old,
+/// bundle set is numbered. A failed or refused re-stamp can leave an old,
 /// internally numbered payload in place; the explicit state says that payload
 /// is not current and therefore cannot establish a licence. Conversely,
 /// `.complete` with an unnumbered entry is inconsistent and also abstains.
@@ -194,7 +194,7 @@ pub fn licenceFor(
     stamp_state: sketch.BundleStampState,
     at: ledger.BundleCell,
 ) lattice.CarrierKind {
-    if (stamp_state != .complete or !ledger.rosterNumbered(bundle_sets)) return .merged_untested;
+    if (stamp_state != .complete or !ledger.bundleSetsNumbered(bundle_sets)) return .merged_untested;
     if (held == incoming) return .merged_licensed;
     return if (bundleAt(bundle_sets, held, at) == bundleAt(bundle_sets, incoming, at))
         .merged_licensed

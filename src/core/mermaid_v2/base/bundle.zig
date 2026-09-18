@@ -57,8 +57,8 @@ pub const no_bundle: BundleId = 0;
 /// Base of the PRIVATE band: the bundle an edge that shares with nobody
 /// rides. Every edge is on a bundle — a bundle names a SHARED one, and an
 /// edge no set names still has its own, which is exactly one edge wide. Held
-/// apart from the roster band (1..N, one per set) by the high bit, so a
-/// private id can never collide with a set's however long the roster grows.
+/// apart from the numbered band (1..N, one per set) by the high bit, so a
+/// private id can never collide with a set's however many sets there are.
 /// Edge ids are `u32` handles well under 2^31 in every producer.
 pub const private_band: BundleId = 0x8000_0000;
 
@@ -82,11 +82,11 @@ pub const Bundle = struct {
     /// This bundle's recorded identity, or `no_bundle` for "not filed".
     ///
     /// Producers never mint it: they state membership, and the finaliser of a
-    /// bundle list stamps the roster (`numberBundles`). That is what lets an
+    /// bundle list numbers the sets (`numberBundles`). That is what lets an
     /// id survive a stitch — two children that each numbered their own fans
-    /// from one are re-numbered into a single roster — and a re-plan, where
+    /// from one are re-numbered into a single space — and a re-plan, where
     /// the list is rebuilt and the old names go with it.
-    /// @guarded-by: ledger_test.zig "a numbered roster names every set exactly once"
+    /// @guarded-by: ledger_test.zig "a numbered bundle set names every set exactly once"
     bundle: BundleId = no_bundle,
     members: []const EdgeId,
     /// The cells this set licenses, or `null` for "licenses everywhere".
@@ -249,7 +249,7 @@ fn licensesMember(set: Bundle, edge: EdgeId, at: ?BundleCell) bool {
 }
 
 /// Result of resolving one edge against the structural, unscoped population
-/// of a bundle roster. `unique` is a roster index: bundle identity stays a
+/// of the bundle sets. `unique` is an index into them: bundle identity stays a
 /// `BundleId`, separate from the set's structural provenance.
 pub const StructuralBundleResolution = union(enum) {
     absent,
@@ -288,14 +288,14 @@ fn hasMember(members: []const EdgeId, edge: EdgeId) bool {
 
 /// Stamp every set with its identity: its 1-based position in THIS list.
 ///
-/// The list a Sketch carries IS that render's bundle roster, so a position is
+/// The list a Sketch carries IS that render's bundle sets, so a position is
 /// a name that is unique inside the render by construction — which is the
 /// property the stitch needs, where children that each numbered their own fans
-/// from one are merged into one roster, and the property a re-plan needs,
-/// where the roster is rebuilt from a different decision.
+/// from one are merged into one list, and the property a re-plan needs,
+/// where the list is rebuilt from a different decision.
 ///
 /// Returns a fresh slice; members and cells are borrowed unchanged.
-/// @guarded-by: ledger_test.zig "a numbered roster names every set exactly once"
+/// @guarded-by: ledger_test.zig "a numbered bundle set names every set exactly once"
 pub fn numberBundles(
     allocator: std.mem.Allocator,
     sets: []const Bundle,
@@ -309,13 +309,13 @@ pub fn numberBundles(
     return out;
 }
 
-/// True iff every set on this roster has been stamped. A roster holding an
+/// True iff every one of these bundle sets has been stamped. A list holding an
 /// unstamped set cannot answer the identity question — `bundleOf` would read
 /// that set's members as riding their own private bundles and report two
 /// declared bundle-mates as strangers — so a reader that needs identity asks
 /// this first and abstains rather than answering wrongly.
-/// @guarded-by: ledger_test.zig "a numbered roster names every set exactly once"
-pub fn rosterNumbered(sets: []const Bundle) bool {
+/// @guarded-by: ledger_test.zig "a numbered bundle set names every set exactly once"
+pub fn bundleSetsNumbered(sets: []const Bundle) bool {
     for (sets) |set| {
         if (set.bundle == no_bundle) return false;
     }
@@ -328,7 +328,7 @@ pub fn rosterNumbered(sets: []const Bundle) bool {
 ///
 /// ONE edge, ONE bundle at one cell. Where two stamped sets both name an edge
 /// at one position — a fan rail whose member also shares a perimeter port —
-/// roster order decides, and it reads as the structural set's, because the
+/// list order decides, and it reads as the structural set's, because the
 /// narrower `.port_share` origin is always APPENDED after them. That this
 /// single-valued reading agrees with the pairwise membership scan it replaces
 /// is a MEASURED fact, not an assumed one: the two answers are counted

@@ -1,9 +1,9 @@
-//! Unit tests for `sketch_bundles.zig`: the roster gets one name per set,
+//! Unit tests for `sketch_bundles.zig`: the bundle sets get one name per set,
 //! a rail adopts the name of the set that holds its members, and a rail no
 //! set holds still gets a name of its own.
 //!
 //! Plus the end-to-end fact the raster depends on: a real render's Sketch
-//! reaches the rasterizer with its roster numbered, so a reader downstream is
+//! reaches the rasterizer with its bundle sets numbered, so a reader downstream is
 //! never handed a blank identity to compare against.
 
 const std = @import("std");
@@ -48,7 +48,7 @@ fn sketchWith(sets: []const ledger.Bundle, rails_buf: []const sketch.Rail) sketc
     };
 }
 
-test "a stamped sketch names its rail's bundle and its roster alike" {
+test "a stamped sketch names its rail's bundle and its bundle sets alike" {
     const members = [_]ledger.EdgeId{ 0, 1 };
     const sets = [_]ledger.Bundle{.{ .origin = .fan_rail, .members = &members }};
     const rails_buf = [_]sketch.Rail{railAt(&taps_a, 3)};
@@ -59,7 +59,7 @@ test "a stamped sketch names its rail's bundle and its roster alike" {
     sketch_bundles.stamp(arena.allocator(), &s);
 
     try testing.expectEqual(sketch.BundleStampState.complete, s.bundle_stamp_state);
-    try testing.expect(ledger.rosterNumbered(s.bundle_sets));
+    try testing.expect(ledger.bundleSetsNumbered(s.bundle_sets));
     try testing.expectEqual(@as(ledger.BundleId, 1), s.bundle_sets[0].bundle);
     try testing.expectEqual(@as(ledger.BundleId, 1), s.rails[0].bundle);
     try testing.expectEqual(@as(ledger.BundleId, 1), ledger.bundleOf(s.bundle_sets, 0, null));
@@ -67,7 +67,7 @@ test "a stamped sketch names its rail's bundle and its roster alike" {
     try testing.expect(ledger.bundleOf(s.bundle_sets, 0, null) == ledger.bundleOf(s.bundle_sets, 1, null));
 }
 
-test "a merged roster names every bundle once" {
+test "merged bundle sets name every bundle once" {
     const a = [_]ledger.EdgeId{ 0, 1 };
     const b = [_]ledger.EdgeId{ 2, 3 };
     const sets = [_]ledger.Bundle{
@@ -85,7 +85,7 @@ test "a merged roster names every bundle once" {
     try testing.expect(ledger.bundleOf(s.bundle_sets, 0, null) != ledger.bundleOf(s.bundle_sets, 2, null));
 }
 
-test "a rail off the roster is stamped a bundle none of its future merges can ever match" {
+test "a rail in no bundle set is stamped a bundle none of its future merges can ever match" {
     const unrelated_members = [_]ledger.EdgeId{ 90, 91 };
     const sets = [_]ledger.Bundle{.{ .origin = .fan_rail, .members = &unrelated_members }};
     const rails_buf = [_]sketch.Rail{railAt(&taps_a, 3)};
@@ -100,7 +100,7 @@ test "a rail off the roster is stamped a bundle none of its future merges can ev
     try testing.expect(s.rails[0].bundle != s.bundle_sets[0].bundle);
 }
 
-test "a rail no set holds gets a name of its own, past the roster" {
+test "a rail no set holds gets a name of its own, past the bundle sets" {
     const members = [_]ledger.EdgeId{ 0, 1 };
     const sets = [_]ledger.Bundle{.{ .origin = .fan_rail, .members = &members }};
     const rails_buf = [_]sketch.Rail{ railAt(&taps_a, 3), railAt(&taps_b, 5) };
@@ -231,7 +231,7 @@ test "stamp is transactional across both allocation failures and success" {
     }
 }
 
-test "a production render reaches the raster with its roster numbered" {
+test "a production render reaches the raster with its bundle sets numbered" {
     var arena = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
@@ -242,7 +242,7 @@ test "a production render reaches the raster with its roster numbered" {
     const chosen = try select.choose(a, graph, &plan, 80, false, false, .bridge);
 
     try testing.expectEqual(sketch.BundleStampState.complete, chosen.sketch.bundle_stamp_state);
-    try testing.expect(ledger.rosterNumbered(chosen.sketch.bundle_sets));
+    try testing.expect(ledger.bundleSetsNumbered(chosen.sketch.bundle_sets));
     for (chosen.sketch.rails) |rail| {
         try testing.expect(rail.bundle != ledger.no_bundle);
     }

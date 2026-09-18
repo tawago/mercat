@@ -182,10 +182,10 @@ pub const Tap = struct {
 pub const Rail = struct {
     pivot: NodeId,
     /// This rail's CHANNEL: the identity of the run its taps share, stamped
-    /// from the bundle roster (`sketch_bundles.stamp`) so a raster reader
+    /// from the bundle sets (`sketch_bundles.stamp`) so a raster reader
     /// LOOKS the licence up on the rail's own ink instead of re-deriving it
     /// from membership. `no_bundle` = not filed, never "no bundle".
-    /// @guarded-by: sketch_bundles_test.zig "a stamped sketch names its rail's bundle and its roster alike"
+    /// @guarded-by: sketch_bundles_test.zig "a stamped sketch names its rail's bundle and its bundle sets alike"
     bundle: ledger.BundleId = ledger.no_bundle,
     stem: []const Point,
     crossbar: [2]Point,
@@ -270,7 +270,7 @@ pub const Sketch = struct {
     /// Report-only row account of every inter-rank gap (never a layout input).
     gap_rows: []const ledger.GapRows = &.{},
     /// Bundle membership and, after `sketch_bundles.stamp`, this render's
-    /// numbered bundle roster. Layout fills it from live fans (or from the
+    /// numbered bundle sets. Layout fills it from live fans (or from the
     /// piece plan on a clustered piece) plus the port shares read off the
     /// final polylines; stitch rewrites child sets into the merged id space.
     /// Members use the Sketch's global edge-id space.

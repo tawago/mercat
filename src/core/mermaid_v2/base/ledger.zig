@@ -255,13 +255,13 @@ pub const bundleMembersAt = bundle.bundleMembersAt;
 pub const BundleId = bundle.BundleId;
 pub const no_bundle = bundle.no_bundle;
 pub const numberBundles = bundle.numberBundles;
-pub const rosterNumbered = bundle.rosterNumbered;
+pub const bundleSetsNumbered = bundle.bundleSetsNumbered;
 pub const resolveStructuralBundle = bundle.resolveStructuralBundle;
 pub const structuralUnscoped = bundle.structuralUnscoped;
 pub const bundleOf = bundle.bundleOf;
 
 /// The pre-identity DERIVATION of the bundle relation: a pairwise
-/// membership scan over the roster AND the realized plan, asked at a position.
+/// membership scan over the bundle sets AND the realized plan, asked at a position.
 /// Two edges are on one bundle iff the same owner, or some set names both
 /// here, or some selected bundle holds both.
 ///

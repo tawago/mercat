@@ -8,11 +8,11 @@
 //!
 //! Two facts are stamped, and both are the PRODUCER's, never a reader's:
 //!
-//!   * the roster — every `Bundle` gets its 1-based position as its
+//!   * the bundle sets — every `Bundle` gets its 1-based position as its
 //!     `BundleId` (`ledger.numberBundles`). Positions are unique inside one
 //!     Sketch by construction, which is exactly the property a stitch needs:
 //!     two children that each numbered their own fans from one are re-numbered
-//!     into a single roster, so a merged picture can never read two distinct
+//!     into a single numbering, so a merged picture can never read two distinct
 //!     bundles as one.
 //!   * the rails — every `sketch.Rail` gets the bundle of the set that names
 //!     its members, so raster's rail writer states the licence on its own
@@ -22,7 +22,7 @@
 //! else: `layout.zig` (flat and recursion-child layouts), `cluster/stitch.zig`
 //! (the merged Sketch), `select.zig` (the plan replaces layout's sets), and
 //! `select_filter.zig` (a withdrawn or re-realized plan does the same). A
-//! roster that is rebuilt is re-numbered, because the old names named the old
+//! bundle-set list that is rebuilt is re-numbered, because the old names named the old
 //! decision.
 //!
 //! ABSTENTION, NOT GUESSWORK. Allocation failure or an invalid rail publishes
@@ -37,12 +37,12 @@ const std = @import("std");
 const ledger = @import("base/ledger.zig");
 const sketch = @import("sketch.zig");
 
-/// Result of resolving one whole rail against a numbered roster. Off-roster
-/// rails deliberately carry no `BundleId` here; the stamping transaction
-/// mints their fresh identities after the roster band.
+/// Result of resolving one whole rail against numbered bundle sets. A rail no
+/// set holds deliberately carries no `BundleId` here; the stamping transaction
+/// mints their fresh identities after the bundle-set band.
 pub const RailBundleResolution = union(enum) {
-    roster: ledger.BundleId,
-    off_roster,
+    set: ledger.BundleId,
+    no_set,
     invariant,
 };
 
@@ -53,7 +53,7 @@ pub const RailBundleResolution = union(enum) {
 /// one tap. Where several sets hold every tap, the one naming exactly the
 /// taps is the rail's own; two exact sets, or several supersets and no
 /// exact one, invalidate the rail. No set naming any tap is the separate,
-/// valid off-roster case; taps only some set names is not.
+/// valid no-set case; taps only some set names is not.
 pub fn resolveRailBundle(sets: []const ledger.Bundle, rail: sketch.Rail) RailBundleResolution {
     var superset: ?usize = null;
     var supersets: usize = 0;
@@ -76,11 +76,11 @@ pub fn resolveRailBundle(sets: []const ledger.Bundle, rail: sketch.Rail) RailBun
             .absent => {},
             .unique, .multiple => named += 1,
         };
-        return if (named != 0) .invariant else .off_roster;
+        return if (named != 0) .invariant else .no_set;
     };
     const bundle = sets[chosen].bundle;
     if (bundle == ledger.no_bundle) return .invariant;
-    return .{ .roster = bundle };
+    return .{ .set = bundle };
 }
 
 fn holdsAll(members: []const ledger.EdgeId, taps: []const sketch.Tap) bool {
@@ -96,7 +96,7 @@ fn holdsAll(members: []const ledger.EdgeId, taps: []const sketch.Tap) bool {
 
 /// Number `s.bundle_sets` and stamp every rail with the bundle it rides.
 ///
-/// Idempotent in effect: re-stamping a Sketch whose roster is unchanged
+/// Idempotent in effect: re-stamping a Sketch whose bundle sets are unchanged
 /// produces the same names, because a name is a position. Cheap to call twice
 /// (one allocation per list), which is why every finaliser calls it rather
 /// than reasoning about whether an earlier one already did.
@@ -119,8 +119,8 @@ pub fn stamp(allocator: std.mem.Allocator, s: *sketch.Sketch) void {
     var next: ledger.BundleId = @intCast(numbered.len + 1);
     for (rails_buf) |*slot| {
         switch (resolveRailBundle(numbered, slot.*)) {
-            .roster => |bundle| slot.bundle = bundle,
-            .off_roster => {
+            .set => |bundle| slot.bundle = bundle,
+            .no_set => {
                 slot.bundle = next;
                 next += 1;
             },

@@ -214,7 +214,7 @@ test "stamp state and BundleId never change derived crossing ink" {
     var have_baseline = false;
 
     for ([_]ledger.BundleId{ 1, 97 }) |bundle| {
-        const roster = [_]ledger.Bundle{.{
+        const bundle_sets = [_]ledger.Bundle{.{
             .origin = .fan_rail,
             .bundle = bundle,
             .members = &.{ 0, 1 },
@@ -223,7 +223,7 @@ test "stamp state and BundleId never change derived crossing ink" {
             var lat = try makeLattice(a, 11, 11);
             defer a.free(lat.cells);
             var s = sketchWith(&es, .{});
-            s.bundle_sets = &roster;
+            s.bundle_sets = &bundle_sets;
             s.bundle_stamp_state = state;
 
             const r = try edges.rasterizeEdges(a, &lat, s, .bridge, null);

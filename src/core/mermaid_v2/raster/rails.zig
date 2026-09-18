@@ -43,10 +43,10 @@ const aux = @import("aux.zig");
 /// producer (`sketch_bundles.stamp`) and swapped per rail by
 /// `rasterizeRails`. It is what makes this a lookup: the writer already knows
 /// which bundle its ink speaks for and does not reconstruct it from a
-/// membership scan. `roster` answers the same question for whoever it MEETS.
+/// membership scan. `bundle_sets` answers the same question for whoever it MEETS.
 /// @guarded-by: rails_test2.zig "a rail reports licensed or foreign without changing bytes"
 const Chan = struct {
-    roster: []const ledger.Bundle = &.{},
+    bundle_sets: []const ledger.Bundle = &.{},
     bundle: ledger.BundleId = ledger.no_bundle,
     stamp_state: sketch.BundleStampState = .unattempted,
 };
@@ -61,9 +61,9 @@ const Chan = struct {
 /// the producer filed one; where it did not, `incoming` still has the bundle
 /// every edge has, and the comparison is the same comparison.
 ///
-/// ABSTAINS unless the producer's transaction completed AND every roster set
+/// ABSTAINS unless the producer's transaction completed AND every bundle set
 /// is numbered. A failed/refused re-stamp deliberately preserves the old
-/// payload, so neither a nonzero rail name nor a numbered roster is sufficient
+/// payload, so neither a nonzero rail name nor numbered bundle sets are sufficient
 /// without `.complete`; the inverse inconsistency also abstains.
 /// @guarded-by: rails.zig "licenceAt trusts identity only after a complete consistent stamp"
 fn licenceAt(lat: *const lattice.Lattice, c: ew.Coord, incoming: u32, chan: Chan) lattice.CarrierKind {
@@ -72,14 +72,14 @@ fn licenceAt(lat: *const lattice.Lattice, c: ew.Coord, incoming: u32, chan: Chan
         .arrowhead => |h| h.edge,
         else => return .merged_untested,
     };
-    if (chan.stamp_state != .complete or !ledger.rosterNumbered(chan.roster)) return .merged_untested;
+    if (chan.stamp_state != .complete or !ledger.bundleSetsNumbered(chan.bundle_sets)) return .merged_untested;
     if (held == incoming) return .merged_licensed;
     const at = crossings.cellAt(c.x, c.y);
     const mine = if (chan.bundle != ledger.no_bundle)
         chan.bundle
     else
-        crossings.bundleAt(chan.roster, incoming, at);
-    return if (mine == crossings.bundleAt(chan.roster, held, at))
+        crossings.bundleAt(chan.bundle_sets, incoming, at);
+    return if (mine == crossings.bundleAt(chan.bundle_sets, held, at))
         .merged_licensed
     else
         .merged_foreign;
@@ -105,7 +105,7 @@ pub fn rasterizeRails(lat: *lattice.Lattice, s: sketch.Sketch, sink: aux.Sink) R
     var report: Report = .{};
     for (s.rails) |rail| {
         drawRail(lat, rail, &report, .{
-            .roster = s.bundle_sets,
+            .bundle_sets = s.bundle_sets,
             .bundle = rail.bundle,
             .stamp_state = s.bundle_stamp_state,
         }, sink);
@@ -389,17 +389,17 @@ test "licenceAt trusts identity only after a complete consistent stamp" {
     defer std_testing.allocator.free(stamped);
 
     for ([_]sketch.BundleStampState{ .unattempted, .out_of_memory, .rail_invariant }) |state| {
-        const chan: Chan = .{ .roster = stamped, .bundle = 1, .stamp_state = state };
+        const chan: Chan = .{ .bundle_sets = stamped, .bundle = 1, .stamp_state = state };
         try std_testing.expectEqual(lattice.CarrierKind.merged_untested, licenceAt(&lat, c, 1, chan));
     }
 
-    const inconsistent: Chan = .{ .roster = &unstamped, .bundle = 1, .stamp_state = .complete };
+    const inconsistent: Chan = .{ .bundle_sets = &unstamped, .bundle = 1, .stamp_state = .complete };
     try std_testing.expectEqual(lattice.CarrierKind.merged_untested, licenceAt(&lat, c, 1, inconsistent));
 
-    const complete: Chan = .{ .roster = stamped, .bundle = 1, .stamp_state = .complete };
+    const complete: Chan = .{ .bundle_sets = stamped, .bundle = 1, .stamp_state = .complete };
     try std_testing.expectEqual(lattice.CarrierKind.merged_licensed, licenceAt(&lat, c, 1, complete));
-    const off_roster: Chan = .{ .roster = stamped, .bundle = 2, .stamp_state = .complete };
-    try std_testing.expectEqual(lattice.CarrierKind.merged_foreign, licenceAt(&lat, c, 2, off_roster));
+    const off_sets: Chan = .{ .bundle_sets = stamped, .bundle = 2, .stamp_state = .complete };
+    try std_testing.expectEqual(lattice.CarrierKind.merged_foreign, licenceAt(&lat, c, 2, off_sets));
 }
 
 test {

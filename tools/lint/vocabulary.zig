@@ -215,6 +215,10 @@ pub const table = [_]Row{
         .token = "bnd_s",
         .why = "renamed to star_law (P10): lettered concept codes are retired for articulated names",
     },
+    .{
+        .token = "roster",
+        .why = "a set of things is named by its plain plural: `bundles`, not `the bundle roster`; the collective synonym adds a second word for a collection the plural already names",
+    },
 };
 
 fn basenameOf(rel_path: []const u8) []const u8 {

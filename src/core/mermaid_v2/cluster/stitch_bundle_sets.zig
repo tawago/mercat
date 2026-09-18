@@ -22,7 +22,7 @@ pub const Authority = struct {
     claims: []const ledger.RailClaim,
 };
 
-/// Finalize the two authority rosters after routed bridges have final ids and
+/// Finalize the two authority bundle sets after routed bridges have final ids and
 /// geometry. All returned bundles are unstamped; stitch stamps once, last.
 pub fn finalizeAuthority(
     arena: std.mem.Allocator,

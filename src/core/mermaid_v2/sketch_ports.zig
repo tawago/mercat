@@ -77,7 +77,7 @@ pub const CarrierTrace = struct {
 /// and never chains through an intermediate edge to a second point.
 ///
 /// Set order is by PORT COORDINATE (x then y), never by edge id or input
-/// position: the roster this feeds is renumbered positionally
+/// position: the bundle sets this feeds are renumbered positionally
 /// (`ledger.numberBundles`), and a stitch or re-plan can renumber and
 /// reorder edges freely, so the group boundaries and the order sets are
 /// discovered in must be a function of the sketch's own geometry alone.

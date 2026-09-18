@@ -57,7 +57,7 @@ test "every incomplete rail stamp files untested without changing bytes" {
         .diagnostics = &.{},
         .budget = .{ .max_width = 80, .rung = 0 },
     }).bundle_sets)).pointer.child;
-    const roster = [_]Bundle{.{ .origin = .fan_rail, .bundle = 1, .members = &members }};
+    const bundle_sets = [_]Bundle{.{ .origin = .fan_rail, .bundle = 1, .members = &members }};
     var baseline: ?[]const lattice.Cell = null;
 
     for ([_]sketch.BundleStampState{ .unattempted, .complete, .out_of_memory, .rail_invariant }) |state| {
@@ -66,7 +66,7 @@ test "every incomplete rail stamp files untested without changing bytes" {
         var stem: [2]sketch.Point = undefined;
         var rails: [1]sketch.Rail = undefined;
         var s = rails_test.fanSketch(&nodes, &taps, &stem, &rails);
-        s.bundle_sets = &roster;
+        s.bundle_sets = &bundle_sets;
         s.bundle_stamp_state = state;
 
         const r = try raster.rasterize(a, s, .bridge);
@@ -80,7 +80,7 @@ test "every incomplete rail stamp files untested without changing bytes" {
     }
 }
 
-test "a rail off the roster reads every merge as foreign" {
+test "a rail in no bundle set reads every merge as foreign" {
     var arena = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
