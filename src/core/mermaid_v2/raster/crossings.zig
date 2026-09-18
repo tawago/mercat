@@ -31,8 +31,9 @@
 //! clustered, and recursion children alike. There is no arming predicate: the
 //! only question ever asked of the INK is `sameBundle`, the membership
 //! derivation. What a record SAYS about a cell is a different question, and it
-//! is answered by looking up the bundle identity the producer stamped
-//! (`bundleAt` / `licenceFor`); the two are counted against each other on
+//! is answered in one place, `carrierKind`, from the stamped bundle sets —
+//! by the rail's own name where a rail writes, by the pair where two edges
+//! meet; the two are counted against each other on
 //! every render. A sketch may carry legality in
 //! `bundle_sets` without a realized plan (motif-packed candidates, plan
 //! failures), which is exactly why the plan may not gate the rule.
@@ -149,10 +150,10 @@ pub const Ctx = struct {
 /// @guarded-by: crossings.zig "sameBundle: a cell-scoped bundle answers only on its own cells"
 ///
 /// STANDING. This is the DERIVATION, and it is no longer what establishes a
-/// licence anywhere it only fills in a record's `detail`: those sites read the
-/// bundle identity the producer filed (`bundleAt` below). It still gates INK
+/// licence anywhere it only fills in a record's `detail`: those sites read
+/// `carrierKind` below. It still gates INK
 /// at the two refusal predicates in this file, and it is kept whole as the
-/// witness the recorded identity is measured against: both answers are run
+/// witness the recorded label is measured against: both answers are run
 /// over every carrier a render files and counted agreeing and disagreeing.
 /// One copy, in `base/ledger.zig`, so no caller can drift into asking two
 /// different questions.
@@ -168,38 +169,103 @@ pub fn sameBundle(
 
 /// The bundle `edge` rides at `at`, read off the bundle sets the producer stamped.
 /// Every edge has one: a bundle names a SHARED bundle, and an edge no set
-/// names rides its own, one edge wide. A reader compares two of these instead
-/// of re-scanning membership — which is the whole point, because the id can
-/// then be said out loud ("this run speaks for bundle k") where the relation
-/// could only ever be asserted about a pair.
+/// names rides its own, one edge wide.
+///
+/// NO CALLER. An edge can ride two bundles at one cell (rail membership at
+/// both ends), so a single-valued answer is the wrong shape for a label;
+/// `carrierKind` below asks by the rail's name or by the pair instead.
+/// Kept for one commit so the removal of `ledger.bundleOf` and its
+/// private band is its own change.
 pub fn bundleAt(bundle_sets: []const ledger.Bundle, edge: EdgeId, at: ledger.BundleCell) ledger.BundleId {
     return ledger.bundleOf(bundle_sets, edge, at);
 }
 
-/// The merged-carrier flavour for an ordered pair at `at`, decided by RECORDED
-/// IDENTITY: licensed iff the two carriers name one bundle. Label-only — no
-/// caller of this moves a byte.
+/// The `CarrierKind` a merged `.carrier` record STATES: `held` is the edge
+/// the cell already names, `writer` the edge writing now, `at` the cell.
+/// Every site that files a merged carrier reads its `detail` from here and
+/// nowhere else, so one question has one answer on the whole raster.
+///
+/// A DESCRIPTION, never a decision. The plan is final before the raster
+/// runs (constitution, single authority); what the raster owes it is
+/// conformance reporting — one record per cell saying whether the ink it
+/// merged is ink the plan licensed. Nothing here grants, refuses, or moves
+/// a byte. The ink GATE is a different question — "may this ink merge
+/// here" — answered by `sameBundle` (`ledger.derivedSameBundle`) at
+/// `segmentOverlap` and `arrowheadTransit`; it reads the realized plan as
+/// well as the sets and never abstains on stamp state. The gate and the
+/// label are two questions and both stay: folding one into the other would
+/// change renders.
+///
+/// `rail` is the bundle the writer's ink speaks for when it writes on
+/// behalf of a stamped rail (`sketch.Rail.bundle`), else null:
+///   * with a rail, the question is whether `held` is a member of THAT
+///     bundle at `at`, asked by name (`ledger.memberOfBundleAt`). An edge
+///     can be a member of two structural bundles, one per end (theory
+///     10-confluence, "Rail membership at both ends"), and resolving it to
+///     one id first answered for the wrong end on every fan-in rail whose
+///     member also fans out;
+///   * without one, both sides are edges and the question is the pair's
+///     (`ledger.bundleMembersAt`), which never resolves an edge to a single
+///     id and so has no wrong end either.
+/// No caller resolves an edge to one `BundleId` any more; that
+/// single-valued reading was the defect.
 ///
 /// ABSTAINS unless the producer completed its transactional stamp AND every
 /// bundle set is numbered. A failed or refused re-stamp can leave an old,
 /// internally numbered payload in place; the explicit state says that payload
-/// is not current and therefore cannot establish a licence. Conversely,
+/// is not current and therefore cannot describe a licence. Conversely,
 /// `.complete` with an unnumbered entry is inconsistent and also abstains.
 /// The did-not-ask value (`.merged_untested`) is attributable in both cases.
-/// @guarded-by: crossings_test.zig "licenceFor trusts identity only after a complete consistent stamp"
-pub fn licenceFor(
+/// @guarded-by: crossings_test.zig "carrierKindFor trusts identity only after a complete consistent stamp"
+/// @guarded-by: crossings_test.zig "carrierKind asks a rail's bundle by name, so a member of two bundles is licensed on both rails"
+pub fn carrierKind(
+    bundle_sets: []const ledger.Bundle,
+    stamp_state: sketch.BundleStampState,
+    held: EdgeId,
+    writer: EdgeId,
+    rail: ?ledger.BundleId,
+    at: ledger.BundleCell,
+) lattice.CarrierKind {
+    if (stamp_state != .complete or !ledger.bundleSetsNumbered(bundle_sets)) return .merged_untested;
+    if (held == writer) return .merged_licensed;
+    const licensed = if (rail) |id|
+        ledger.memberOfBundleAt(bundle_sets, id, held, at)
+    else
+        ledger.bundleMembersAt(bundle_sets, held, writer, at);
+    return if (licensed) .merged_licensed else .merged_foreign;
+}
+
+/// `carrierKind` for an ordered pair of edges with no rail on either side:
+/// the crossing rule's transcript for (`held`, `incoming`) at `at`.
+pub fn carrierKindFor(
     held: EdgeId,
     incoming: EdgeId,
     bundle_sets: []const ledger.Bundle,
     stamp_state: sketch.BundleStampState,
     at: ledger.BundleCell,
 ) lattice.CarrierKind {
-    if (stamp_state != .complete or !ledger.bundleSetsNumbered(bundle_sets)) return .merged_untested;
-    if (held == incoming) return .merged_licensed;
-    return if (bundleAt(bundle_sets, held, at) == bundleAt(bundle_sets, incoming, at))
-        .merged_licensed
-    else
-        .merged_foreign;
+    return carrierKind(bundle_sets, stamp_state, held, incoming, null, at);
+}
+
+/// `carrierKind` for `writer` merging ONTO whatever `cell` already names.
+/// Read before the write: afterwards the cell names the first writer either
+/// way and the pair is unrecoverable. A cell naming nobody files no carrier,
+/// so its value is `.merged_untested` — never `.merged_licensed`, which
+/// would state a licence no one asked for.
+pub fn carrierKindOnto(
+    cell: *const lattice.Cell,
+    bundle_sets: []const ledger.Bundle,
+    stamp_state: sketch.BundleStampState,
+    writer: EdgeId,
+    rail: ?ledger.BundleId,
+    at: ledger.BundleCell,
+) lattice.CarrierKind {
+    const held: EdgeId = switch (cell.occupant) {
+        .edge_segment => |seg| seg.edge,
+        .arrowhead => |h| h.edge,
+        else => return .merged_untested,
+    };
+    return carrierKind(bundle_sets, stamp_state, held, writer, rail, at);
 }
 
 /// A mask is a clean straight run iff exactly its two collinear arms are set.

@@ -51,38 +51,22 @@ const Chan = struct {
     stamp_state: sketch.BundleStampState = .unattempted,
 };
 
-/// The merged-carrier flavour for whatever the cell at `c` ALREADY names,
-/// against `incoming`. Read before the write: afterwards the cell names the
-/// first writer either way and the pair is unrecoverable. A cell naming
-/// nobody files no carrier, so its value is `.merged_untested` — never
-/// `.merged_licensed`, which would state a licence no one asked for.
-///
-/// Both sides are read as identities. The rail's own is `chan.bundle` when
-/// the producer filed one; where it did not, `incoming` still has the bundle
-/// every edge has, and the comparison is the same comparison.
+/// The `CarrierKind` the record STATES for `incoming` welding onto whatever
+/// the cell at `c` ALREADY names (`crossings.carrierKindOnto`, read before
+/// the write). The rail's own name, `chan.bundle`, is the question's
+/// subject: is the occupant a member of THAT bundle here? Asked by name, a
+/// member that also belongs to a bundle at its other end (rail membership
+/// at both ends) reads as this rail's on this rail's cells. Where the
+/// producer filed no name, the question falls back to the pair's.
 ///
 /// ABSTAINS unless the producer's transaction completed AND every bundle set
 /// is numbered. A failed/refused re-stamp deliberately preserves the old
 /// payload, so neither a nonzero rail name nor numbered bundle sets are sufficient
 /// without `.complete`; the inverse inconsistency also abstains.
-/// @guarded-by: rails.zig "licenceAt trusts identity only after a complete consistent stamp"
-fn licenceAt(lat: *const lattice.Lattice, c: ew.Coord, incoming: u32, chan: Chan) lattice.CarrierKind {
-    const held: u32 = switch (lat.atConst(c.x, c.y).occupant) {
-        .edge_segment => |seg| seg.edge,
-        .arrowhead => |h| h.edge,
-        else => return .merged_untested,
-    };
-    if (chan.stamp_state != .complete or !ledger.bundleSetsNumbered(chan.bundle_sets)) return .merged_untested;
-    if (held == incoming) return .merged_licensed;
-    const at = crossings.cellAt(c.x, c.y);
-    const mine = if (chan.bundle != ledger.no_bundle)
-        chan.bundle
-    else
-        crossings.bundleAt(chan.bundle_sets, incoming, at);
-    return if (mine == crossings.bundleAt(chan.bundle_sets, held, at))
-        .merged_licensed
-    else
-        .merged_foreign;
+/// @guarded-by: rails.zig "carrierKindAt trusts identity only after a complete consistent stamp"
+fn carrierKindAt(lat: *const lattice.Lattice, c: ew.Coord, incoming: u32, chan: Chan) lattice.CarrierKind {
+    const rail: ?ledger.BundleId = if (chan.bundle != ledger.no_bundle) chan.bundle else null;
+    return crossings.carrierKindOnto(lat.atConst(c.x, c.y), chan.bundle_sets, chan.stamp_state, incoming, rail, crossings.cellAt(c.x, c.y));
 }
 
 pub const Report = struct {
@@ -173,7 +157,7 @@ fn drawRail(lat: *lattice.Lattice, rail: sketch.Rail, report: *Report, chan: Cha
         if (pivotStemDir(rail)) |dir| {
             if (edges_r.pointInBounds(h.cell, lat)) {
                 const c = edges_r.toCoord(h.cell);
-                const lic = licenceAt(lat, c, crossbar_edge, chan);
+                const lic = carrierKindAt(lat, c, crossbar_edge, chan);
                 edges_r.writeArrowCell(lat.at(c.x, c.y), crossbar_edge, rail.kind, rail.pivot_arrow, h.dir, edges_r.straightMask(dir), c.x, c.y, &report.cells_lost, &report.heads_lost, &report.crossings, lic, rec);
             }
         }
@@ -220,7 +204,7 @@ fn drawRail(lat: *lattice.Lattice, rail: sketch.Rail, report: *Report, chan: Cha
             if (tap_head) |h| {
                 if (edges_r.pointInBounds(h.cell, lat)) {
                     const c = edges_r.toCoord(h.cell);
-                    const lic = licenceAt(lat, c, tap.edge, chan);
+                    const lic = carrierKindAt(lat, c, tap.edge, chan);
                     edges_r.writeArrowCell(lat.at(c.x, c.y), tap.edge, rail.kind, tap.arrow, h.dir, edges_r.straightMask(dir), c.x, c.y, &report.cells_lost, &report.heads_lost, &report.crossings, lic, rec);
                 }
             }
@@ -366,11 +350,11 @@ fn claim(
 ) void {
     if (!edges_r.pointInBounds(p, lat)) return;
     const c = edges_r.toCoord(p);
-    const lic = licenceAt(lat, c, edge_id, chan);
+    const lic = carrierKindAt(lat, c, edge_id, chan);
     edges_r.writeEdgeCell(lat.at(c.x, c.y), edge_id, kind, role, mask, c.x, c.y, &report.cells_lost, &report.crossings, lic, rec);
 }
 
-test "licenceAt trusts identity only after a complete consistent stamp" {
+test "carrierKindAt trusts identity only after a complete consistent stamp" {
     const std_testing = std.testing;
     var lat = lattice.Lattice{
         .width = 1,
@@ -390,16 +374,16 @@ test "licenceAt trusts identity only after a complete consistent stamp" {
 
     for ([_]sketch.BundleStampState{ .unattempted, .out_of_memory, .rail_invariant }) |state| {
         const chan: Chan = .{ .bundle_sets = stamped, .bundle = 1, .stamp_state = state };
-        try std_testing.expectEqual(lattice.CarrierKind.merged_untested, licenceAt(&lat, c, 1, chan));
+        try std_testing.expectEqual(lattice.CarrierKind.merged_untested, carrierKindAt(&lat, c, 1, chan));
     }
 
     const inconsistent: Chan = .{ .bundle_sets = &unstamped, .bundle = 1, .stamp_state = .complete };
-    try std_testing.expectEqual(lattice.CarrierKind.merged_untested, licenceAt(&lat, c, 1, inconsistent));
+    try std_testing.expectEqual(lattice.CarrierKind.merged_untested, carrierKindAt(&lat, c, 1, inconsistent));
 
     const complete: Chan = .{ .bundle_sets = stamped, .bundle = 1, .stamp_state = .complete };
-    try std_testing.expectEqual(lattice.CarrierKind.merged_licensed, licenceAt(&lat, c, 1, complete));
+    try std_testing.expectEqual(lattice.CarrierKind.merged_licensed, carrierKindAt(&lat, c, 1, complete));
     const off_sets: Chan = .{ .bundle_sets = stamped, .bundle = 2, .stamp_state = .complete };
-    try std_testing.expectEqual(lattice.CarrierKind.merged_foreign, licenceAt(&lat, c, 2, off_sets));
+    try std_testing.expectEqual(lattice.CarrierKind.merged_foreign, carrierKindAt(&lat, c, 2, off_sets));
 }
 
 test {

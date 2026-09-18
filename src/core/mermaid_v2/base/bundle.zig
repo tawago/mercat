@@ -193,6 +193,33 @@ pub fn bundleMembersAt(sets: []const Bundle, first: EdgeId, second: EdgeId, at: 
     return false;
 }
 
+/// True iff the set NAMED `bundle` holds `edge` as a member at `at`. This is
+/// the question a rail asks about the ink it welds onto: the rail already
+/// knows which bundle its run speaks for (the producer stamped it on the
+/// rail), so the only open fact is whether the occupant it meets is one of
+/// THAT bundle's members there. Asked by NAME, never by resolving `edge` to
+/// a single bundle first: an edge may be a member of two structural sets,
+/// one at each end (theory 10-confluence, "Rail membership at both ends"),
+/// both with `cells = null`, so no position can tell those two apart — only
+/// the name of the set being asked about can. `bundleOf`'s single-valued
+/// reading answered for whichever set came first in slice order, which on
+/// a fan-in rail is the fan-out set at the other end; a question asked by
+/// name has no other end to answer for.
+///
+/// Scoping is the member scoping: a `.pairwise` set answers yes where
+/// `edge` reached `at` with any partner. A name no set carries — a rail the
+/// producer numbered past the sets because no set held its taps — holds
+/// nobody, and `no_bundle` holds nobody.
+/// @guarded-by: ledger_test.zig "a bundle asked by name holds its member on every cell, whichever set names the edge first"
+pub fn memberOfBundleAt(sets: []const Bundle, bundle: BundleId, edge: EdgeId, at: ?BundleCell) bool {
+    if (bundle == no_bundle) return false;
+    for (sets) |set| {
+        if (set.bundle != bundle) continue;
+        if (hasMember(set.members, edge) and licensesMember(set, edge, at)) return true;
+    }
+    return false;
+}
+
 /// Does this set speak for the position `at`? A set with no `cells` list
 /// licenses everywhere; `at = null` is the position-free question, which no
 /// set's scope narrows.
@@ -232,7 +259,7 @@ fn licensesPair(set: Bundle, first: EdgeId, second: EdgeId, at: ?BundleCell) boo
 }
 
 /// Does this set license MEMBER `edge` at `at`, over EVERY pair it appears
-/// in? Used where only one edge is known (`bundleOf`): a `.pairwise` set
+/// in? Used where only one edge is known (`memberOfBundleAt`, `bundleOf`): a `.pairwise` set
 /// answers yes if `edge` reached `at` together with ANY other member: its
 /// own approach ink includes that cell, whichever partner it shared it
 /// with.

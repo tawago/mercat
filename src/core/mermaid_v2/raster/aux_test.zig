@@ -350,7 +350,8 @@ test "a corner arm merged onto a foreign run files a merged carrier; onto its ow
         const members = [_]ledger.EdgeId{ 3, 8 };
         const bundle_sets = [_]ledger.Bundle{.{ .origin = .fan_rail, .members = &members }};
         var s = walkSketch(&es);
-        s.bundle_sets = &bundle_sets;
+        s.bundle_sets = try ledger.numberBundles(a, &bundle_sets);
+        s.bundle_stamp_state = .complete;
         _ = try edge_walk.rasterizeEdges(a, &lat, s, .bridge, &c);
 
         const table = c.finish();
@@ -362,6 +363,29 @@ test "a corner arm merged onto a foreign run files a merged carrier; onto its ow
         const shared = lat.atConst(4, 4);
         try testing.expectEqual(@as(u32, 3), shared.occupant.edge_segment.edge);
         try testing.expect(shared.neighbours.w);
+    }
+
+    {
+        // The same walk over sets nobody stamped: the merge still goes
+        // through (the ink gate derives it), but the record says nobody
+        // asked — the label is read from the stamped sets, never inferred
+        // from the gate having let the merge through.
+        var lat = try walkLattice(a, 10, 10);
+        var c = aux.Collector.init(a);
+        const p3 = [_]sketch.Point{ .{ .x = 4, .y = 2 }, .{ .x = 4, .y = 7 } };
+        const p8 = [_]sketch.Point{ .{ .x = 1, .y = 4 }, .{ .x = 4, .y = 4 }, .{ .x = 4, .y = 3 } };
+        const es = [_]sketch.EdgePath{ walkEdge(3, &p3), walkEdge(8, &p8) };
+        const members = [_]ledger.EdgeId{ 3, 8 };
+        const bundle_sets = [_]ledger.Bundle{.{ .origin = .fan_rail, .members = &members }};
+        var s = walkSketch(&es);
+        s.bundle_sets = &bundle_sets;
+        _ = try edge_walk.rasterizeEdges(a, &lat, s, .bridge, &c);
+
+        const table = c.finish();
+        try testing.expectEqual(@as(usize, 1), table.len);
+        try testing.expectEqual(@as(u32, 8), table[0].value);
+        try testing.expectEqual(@intFromEnum(lattice.CarrierKind.merged_untested), table[0].detail);
+        try testing.expect(lat.atConst(4, 4).neighbours.w);
     }
 
     {

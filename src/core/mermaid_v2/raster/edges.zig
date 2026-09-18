@@ -96,6 +96,17 @@ const EdgeWalkResult = struct {
     target_head: ?ep.Head = null,
 };
 
+/// The `CarrierKind` a merge of `edge` onto `cell` files, read from the one
+/// shared answer (`crossings.carrierKind`) before the write. The gate above
+/// letting a merge through is NOT that answer: the gate derives "may this
+/// ink merge here" from the realized plan as well as the sets, the label
+/// states what the stamped sets say and abstains where nothing was stamped.
+/// Inferring `.merged_licensed` from the gate stated a licence nobody had
+/// looked up.
+fn carrierKindOnto(cell: *const lattice.Cell, edge: u32, c: ew.Coord, ctx: crossings.Ctx) lattice.CarrierKind {
+    return crossings.carrierKindOnto(cell, ctx.bundle_sets, ctx.stamp_state, edge, null, crossings.cellAt(c.x, c.y));
+}
+
 /// Crossing-rule gate (Amendment C: transversal + arrowhead sanctity). Returns true when the existing
 /// first-writer cell MUST be kept untouched (a transversal on a foreign run, a
 /// refused arrowhead transit, or a lateral arm into a decoration cell —
@@ -293,7 +304,7 @@ fn walkPolyline(
                             // first writer's id, and nothing on it says this
                             // edge turns here.
                             // @guarded-by: aux_test.zig "a corner arm merged onto a foreign run files a merged carrier; onto its own ink, nothing"
-                            if (!own) ew.recordCarrier(rec, c.x, c.y, edge.id, .merged_licensed);
+                            if (!own) ew.recordCarrier(rec, c.x, c.y, edge.id, crossings.carrierKindFor(seg.edge, edge.id, ctx.bundle_sets, ctx.stamp_state, crossings.cellAt(c.x, c.y)));
                             fan_roles.markShared(rec, cell, c.x, c.y, edge.id, erole);
                         }
                     },
@@ -319,7 +330,7 @@ fn walkPolyline(
                             markSuppressed(cell);
                             ew.recordCarrier(rec, c.x, c.y, edge.id, .suppressed);
                         } else {
-                            writeEdgeCell(cell, edge.id, ek, erole, corner_mask, c.x, c.y, cells_lost, ctx.counts, .merged_licensed, rec);
+                            writeEdgeCell(cell, edge.id, ek, erole, corner_mask, c.x, c.y, cells_lost, ctx.counts, carrierKindOnto(cell, edge.id, c, ctx), rec);
                             fan_roles.markShared(rec, cell, c.x, c.y, edge.id, erole);
                         }
                     },
@@ -380,7 +391,7 @@ fn walkPolyline(
                     markSuppressed(cell);
                     ew.recordCarrier(rec, c.x, c.y, edge.id, .suppressed);
                 } else {
-                    writeEdgeCell(cell, edge.id, ek, erole, straightMask(dir), c.x, c.y, cells_lost, ctx.counts, .merged_licensed, rec);
+                    writeEdgeCell(cell, edge.id, ek, erole, straightMask(dir), c.x, c.y, cells_lost, ctx.counts, carrierKindOnto(cell, edge.id, c, ctx), rec);
                     fan_roles.markShared(rec, cell, c.x, c.y, edge.id, erole);
                 }
                 if (result.first_cell == null) {

@@ -8,7 +8,7 @@
 //! crossing rule's transcript for the ordered pair at that position —
 //! `merged_licensed` where the two carriers name one bundle, `merged_foreign`
 //! or `suppressed` where they do not, `merged_untested` where nobody asked
-//! (`raster/crossings.zig` `licenceFor`; `lattice.CarrierKind`). The
+//! (`raster/crossings.zig` `carrierKind`; `lattice.CarrierKind`). The
 //! sketch's bundles are the witness the record is measured against: a
 //! record that admits a sharing must agree with the membership derivation,
 //! and a record that denies one must agree with the identity lookup.
@@ -143,7 +143,7 @@ fn judge(s: sketch_mod.Sketch, lat: *const lattice.Lattice) !Verdicts {
 
         const at = crossings.cellAt(x, y);
         const derived = ledger.derivedSameBundle(s.bundles, s.bundle_sets, owner, other, at);
-        const identity = crossings.licenceFor(owner, other, s.bundle_sets, s.bundle_stamp_state, at);
+        const identity = crossings.carrierKindFor(owner, other, s.bundle_sets, s.bundle_stamp_state, at);
 
         var foreign = false;
         var licensed = false;
@@ -342,6 +342,7 @@ test "junction licence: the three verdicts partition the junction population on 
         "flowchart TD\n  A --> D\n  B --> D\n  C --> D\n",
         "flowchart TD\n  subgraph S1\n    A --> B\n  end\n  subgraph S2\n    C --> D\n  end\n  A --> D\n  C --> B\n",
         "flowchart TD\n  A[Start] --> B{Check}\n  B -->|yes| C[Run]\n  B -->|no| D[Stop]\n  C --> E[Done]\n  D --> E\n",
+        both_ends,
         both_ends_mirrored,
     };
     for (corpus) |source| for ([3]u32{ 60, 100, 140 }) |w| {
@@ -456,40 +457,36 @@ fn twoStructuralSets(sets: []const ledger.Bundle, edge: ledger.EdgeId) ![2]ledge
     return out;
 }
 
-// PINS TODAY'S ANSWER, WHICH IS WRONG. Theory 10-confluence, "Rail
-// membership at both ends": each end of an edge is judged on its own, so
-// A --> C is a member of the fan-out bundle at A AND of the fan-in bundle
-// at C, and a cell of C's rail should read it as C's bundle. Today
-// `ledger.bundleOf(sets, edge, at)` returns the FIRST numbered set in slice
-// order that names the edge and licenses the cell; both sets are structural
-// with `cells = null`, so both license everywhere, `at` cannot tell them
-// apart, and the edge resolves to the fan-out set on every cell of the
-// fan-in rail. `sketch_bundles.resolveRailBundle` refuses to key a rail by
-// one tap for exactly this reason; `bundleOf` does what it refuses to do.
+// RAIL MEMBERSHIP AT BOTH ENDS (theory 10-confluence): each end of an edge
+// is judged on its own, so A --> C is a member of the fan-out bundle at A
+// AND of the fan-in bundle at C, and a cell of C's rail reads it as C's
+// bundle. Both sets are structural with `cells = null`, so both license
+// everywhere and no position can tell them apart; the per-cell carrier
+// label therefore never resolves an edge to ONE bundle. A rail asks by
+// its own name — is the occupant a member of the bundle this rail speaks
+// for, here (`ledger.memberOfBundleAt`) — and two edges ask the pair
+// question (`ledger.bundleMembersAt`). One function answers both,
+// `crossings.carrierKind`, and every record's `detail` comes from it.
+// (`ledger.bundleOf`, which answered for the first set in slice order —
+// the other end's, on every fan-in rail whose member also fans out — has
+// no caller left; `sketch_bundles.resolveRailBundle` refuses to key a rail
+// by one tap for the same reason.)
 //
 // Two shapes, four widths each, one render per width (the picture does
 // not move between 60 and 120):
 //
-//   * `both_ends`: A --> C is the LAST tap of C's rail, so the rail writer
-//     compares its own stamped identity against the crossbar's owner
-//     B --> C and files `.merged_licensed` — the right record by luck of
-//     tap order. But the identity lookup the record is measured against,
-//     `crossings.licenceFor(B-->C, A-->C, at)`, answers `.merged_foreign`
-//     at that same cell, and the `judge` helper's record-versus-identity
-//     check refuses the render. That is why this shape is NOT in the
-//     partition corpus above: it cannot pass today.
+//   * `both_ends`: A --> C is the LAST tap of C's rail; B --> C owns the
+//     crossbar. The rail writer files `.merged_licensed` for A --> C at
+//     its branch cell, and the pair lookup the judge measures it against
+//     agrees, so the render passes the judge: two junction pairs (this
+//     one and the fan-out at A), both licensed.
 //
 //   * `both_ends_mirrored`: A --> C is the FIRST tap of C's rail and owns
-//     the crossbar, so `rails.licenceAt` compares the rail's identity (3)
-//     against `bundleOf(A-->C)` (1, the fan-out set) at B --> C's branch
-//     cell and FILES `.merged_foreign` on ink the plan licensed. The
-//     derivation (`derivedSameBundle`) knows better at the same cell. The
-//     judge counts the pair foreign; nothing else refuses, so the raster's
-//     defect tallies stay zero — the wrong record is label-only.
-//
-// When the per-cell carrier-label path is refactored to read the rail's
-// own membership, every `WRONG` line below flips; change them deliberately.
-test "junction licence: rail membership at both ends — bundleOf resolves the both-ends member to the earlier set on the fan-in rail (today's answer, wrong)" {
+//     the crossbar; B --> C branches onto it. The rail writer asks C's
+//     bundle (3) by name whether A --> C is a member here — it is — and
+//     files `.merged_licensed` on B --> C's branch cell. Three junction
+//     pairs, all licensed: this one, the fan-in at B, and A's port share.
+test "junction licence: rail membership at both ends — a cell of the fan-in rail reads the both-ends member as the fan-in bundle's" {
     for ([4]u32{ 60, 90, 94, 120 }) |w| {
         var arena = std.heap.ArenaAllocator.init(testing.allocator);
         defer arena.deinit();
@@ -525,23 +522,28 @@ test "junction licence: rail membership at both ends — bundleOf resolves the b
         try testing.expectEqual(bc, ownerOf(cell).?);
         const here = crossings.cellAt(x, y);
 
-        // The derivation knows the two share C's bundle here.
+        // The derivation knows the two share C's bundle here, and so does
+        // every form of the label: A --> C is a member of BOTH bundles at
+        // this cell, asked by name; the pair (B-->C, A--> C) is licensed.
         try testing.expect(ledger.derivedSameBundle(s.bundles, s.bundle_sets, bc, ac, here));
-        // WRONG: a cell of C's rail (bundle 2) resolves A --> C to bundle 1.
-        try testing.expectEqual(@as(ledger.BundleId, 1), ledger.bundleOf(s.bundle_sets, ac, here));
-        try testing.expectEqual(@as(ledger.BundleId, 2), ledger.bundleOf(s.bundle_sets, bc, here));
-        // WRONG: the identity lookup calls the licensed pair foreign.
-        try testing.expectEqual(lattice.CarrierKind.merged_foreign, crossings.licenceFor(bc, ac, s.bundle_sets, s.bundle_stamp_state, here));
-        // The record the rail writer filed is right (it compared the rail's
-        // own stamped identity, not `bundleOf(A-->C)`), so record and
-        // identity disagree and the judge refuses the render.
+        try testing.expect(ledger.memberOfBundleAt(s.bundle_sets, 2, ac, here));
+        try testing.expect(ledger.memberOfBundleAt(s.bundle_sets, 1, ac, here));
+        try testing.expect(!ledger.memberOfBundleAt(s.bundle_sets, 1, bc, here));
+        try testing.expectEqual(lattice.CarrierKind.merged_licensed, crossings.carrierKindFor(bc, ac, s.bundle_sets, s.bundle_stamp_state, here));
+        // The rail writer filed the same answer, so record and lookup
+        // agree and the judge accepts the render: two junction pairs, this
+        // one and the fan-out at A, both licensed.
         try testing.expectEqual(lattice.CarrierKind.merged_licensed, try carrierAt(lat, x, y, ac));
-        try testing.expectError(error.TestExpectedEqual, judge(s, lat));
+        const v = try judge(s, lat);
+        try testing.expectEqual(@as(u32, 2), v.population);
+        try testing.expectEqual(@as(u32, 2), v.licensed);
+        try testing.expectEqual(@as(u32, 0), v.foreign);
+        try testing.expectEqual(@as(u32, 0), v.unevidenced);
         try expectNoRasterDefect(r.report);
     }
 }
 
-test "junction licence: rail membership at both ends, mirrored — the rail writer files merged_foreign on licensed ink when the both-ends member owns the crossbar (today's answer, wrong)" {
+test "junction licence: rail membership at both ends, mirrored — the rail writer files merged_licensed on licensed ink when the both-ends member owns the crossbar" {
     for ([4]u32{ 60, 90, 94, 120 }) |w| {
         var arena = std.heap.ArenaAllocator.init(testing.allocator);
         defer arena.deinit();
@@ -580,22 +582,22 @@ test "junction licence: rail membership at both ends, mirrored — the rail writ
         const here = crossings.cellAt(x, y);
 
         try testing.expect(ledger.derivedSameBundle(s.bundles, s.bundle_sets, ac, bc, here));
-        // WRONG: a cell of C's rail (bundle 3) resolves A --> C to bundle 1.
-        try testing.expectEqual(@as(ledger.BundleId, 1), ledger.bundleOf(s.bundle_sets, ac, here));
-        try testing.expectEqual(@as(ledger.BundleId, 3), ledger.bundleOf(s.bundle_sets, bc, here));
-        // WRONG: the identity lookup calls the licensed pair foreign ...
-        try testing.expectEqual(lattice.CarrierKind.merged_foreign, crossings.licenceFor(ac, bc, s.bundle_sets, s.bundle_stamp_state, here));
-        // ... and this time the rail writer FILED that answer: `rails.licenceAt`
-        // held the rail's identity (3) against `bundleOf(A-->C)` (1).
-        try testing.expectEqual(lattice.CarrierKind.merged_foreign, try carrierAt(lat, x, y, bc));
+        // A cell of C's rail (bundle 3) holds A --> C as a member, asked by
+        // that rail's own name; the fan-out's name (1) holds it too, and
+        // holds B --> C nowhere. The pair lookup agrees.
+        try testing.expect(ledger.memberOfBundleAt(s.bundle_sets, 3, ac, here));
+        try testing.expect(ledger.memberOfBundleAt(s.bundle_sets, 1, ac, here));
+        try testing.expect(!ledger.memberOfBundleAt(s.bundle_sets, 1, bc, here));
+        try testing.expectEqual(lattice.CarrierKind.merged_licensed, crossings.carrierKindFor(ac, bc, s.bundle_sets, s.bundle_stamp_state, here));
+        // The rail writer asked by name and FILED that answer.
+        try testing.expectEqual(lattice.CarrierKind.merged_licensed, try carrierAt(lat, x, y, bc));
 
-        // Record and identity agree (both wrong), so the judge accepts the
-        // render and counts the pair foreign: one foreign among three
-        // junction pairs, the other two the fan-in at B and A's port share.
+        // Three junction pairs — this one, the fan-in at B, and A's port
+        // share — every one licensed.
         const v = try judge(s, lat);
         try testing.expectEqual(@as(u32, 3), v.population);
-        try testing.expectEqual(@as(u32, 2), v.licensed);
-        try testing.expectEqual(@as(u32, 1), v.foreign); // WRONG: should be 0
+        try testing.expectEqual(@as(u32, 3), v.licensed);
+        try testing.expectEqual(@as(u32, 0), v.foreign);
         try testing.expectEqual(@as(u32, 0), v.unevidenced);
         // Label-only: nothing refused a byte.
         try expectNoRasterDefect(r.report);

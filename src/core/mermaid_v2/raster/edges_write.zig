@@ -395,11 +395,12 @@ pub fn writeArrowCell(
 ///
 /// The arrowhead-sanctity gate covers an arrowhead landing on a RUN only. An arrowhead
 /// landing on an EXISTING arrowhead falls through to `writeArrowCell`'s
-/// `.arrowhead` arm, which the gate never examined — so the licence for
-/// THAT pair is LOOKED UP here, off the bundle identity each head's edge
-/// carries, and only to fill the record's `detail`. It changes no decision
-/// and paints no byte, which is exactly why it may read identity rather
-/// than re-derive the relation the ink gate above still derives.
+/// `.arrowhead` arm, which the gate never examined. The `CarrierKind` the
+/// record states — for a run the gate let through and for a head alike —
+/// is read from the one shared answer (`crossings.carrierKindOnto`), never
+/// inferred from the gate: the gate derives "may this ink merge here", the
+/// label states what the stamped sets say. It changes no decision and
+/// paints no byte.
 /// @guarded-by: edges_write_test.zig "writeArrowGuarded refuse branch stamps the arrowhead's own stroke_kind"
 /// @guarded-by: edges_write_test.zig "an arrowhead landing on a foreign arrowhead files a foreign carrier"
 /// @guarded-by: aux_test.zig "a refused arrowhead transit files a suppressed carrier for the crossed run"
@@ -428,11 +429,7 @@ pub fn writeArrowGuarded(
             return;
         }
     }
-    const licence: lattice.CarrierKind = switch (cell.occupant) {
-        .edge_segment => .merged_licensed,
-        .arrowhead => |h| crossings.licenceFor(h.edge, edge_id, ctx.bundle_sets, ctx.stamp_state, crossings.cellAt(x, y)),
-        else => .merged_untested,
-    };
+    const licence = crossings.carrierKindOnto(cell, ctx.bundle_sets, ctx.stamp_state, edge_id, null, crossings.cellAt(x, y));
     writeArrowCell(cell, edge_id, kind, arrow, dir, along, x, y, cells_lost, heads_lost, ctx.counts, licence, rec);
 }
 

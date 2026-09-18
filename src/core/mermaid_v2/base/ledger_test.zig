@@ -337,6 +337,43 @@ test "structural set resolution is unique and excludes scoped provenance" {
     }
 }
 
+test "a bundle asked by name holds its member on every cell, whichever set names the edge first" {
+    // Edge 1 is a member of two structural sets: the fan-out {0, 1} stamped
+    // first and the fan-in {1, 2} stamped second (rail membership at both
+    // ends). Both license everywhere, so `bundleOf` resolves edge 1 to the
+    // first one at every cell; asked by NAME, each set holds it.
+    const fan_out = [_]pb.EdgeId{ 0, 1 };
+    const fan_in = [_]pb.EdgeId{ 1, 2 };
+    const raw = [_]pb.Bundle{
+        .{ .origin = .fan_rail, .members = &fan_out },
+        .{ .origin = .fan_rail, .members = &fan_in },
+    };
+    const sets = try pb.numberBundles(std.testing.allocator, &raw);
+    defer std.testing.allocator.free(sets);
+    const here: pb.BundleCell = .{ .x = 9, .y = 9 };
+
+    try expectEqual(@as(pb.BundleId, 1), pb.bundleOf(sets, 1, here));
+    try expect(pb.memberOfBundleAt(sets, 1, 1, here));
+    try expect(pb.memberOfBundleAt(sets, 2, 1, here));
+    try expect(pb.memberOfBundleAt(sets, 2, 2, here));
+    try expect(!pb.memberOfBundleAt(sets, 1, 2, here));
+    try expect(!pb.memberOfBundleAt(sets, 2, 0, here));
+    // A name no set carries holds nobody; so does "not filed".
+    try expect(!pb.memberOfBundleAt(sets, 3, 1, here));
+    try expect(!pb.memberOfBundleAt(sets, pb.no_bundle, 1, here));
+    // An unnumbered list names nothing, so nothing is a member of anything.
+    try expect(!pb.memberOfBundleAt(&raw, 1, 1, here));
+
+    // A cell-scoped set holds its member only on its own cells.
+    const cells = [_]pb.BundleCell{.{ .x = 2, .y = 2 }};
+    const scoped_raw = [_]pb.Bundle{.{ .origin = .port_share, .members = &fan_out, .cells = &cells }};
+    const scoped = try pb.numberBundles(std.testing.allocator, &scoped_raw);
+    defer std.testing.allocator.free(scoped);
+    try expect(pb.memberOfBundleAt(scoped, 1, 0, .{ .x = 2, .y = 2 }));
+    try expect(!pb.memberOfBundleAt(scoped, 1, 0, .{ .x = 7, .y = 7 }));
+    try expect(pb.memberOfBundleAt(scoped, 1, 0, null));
+}
+
 test "the derivation and the recorded identity answer alike on a declared bundle" {
     const members = [_]pb.EdgeId{ 4, 5 };
     const raw = [_]pb.Bundle{.{ .origin = .fan_rail, .members = &members }};

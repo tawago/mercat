@@ -252,6 +252,7 @@ pub const PairCells = bundle.PairCells;
 pub const keepOrigin = bundle.keepOrigin;
 pub const concatBundles = bundle.concatBundles;
 pub const bundleMembersAt = bundle.bundleMembersAt;
+pub const memberOfBundleAt = bundle.memberOfBundleAt;
 pub const BundleId = bundle.BundleId;
 pub const no_bundle = bundle.no_bundle;
 pub const numberBundles = bundle.numberBundles;

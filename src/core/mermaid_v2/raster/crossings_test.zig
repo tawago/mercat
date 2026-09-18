@@ -176,7 +176,7 @@ test "determinism: crossing outcome is deterministic under edge-array permutatio
     }
 }
 
-test "licenceFor trusts identity only after a complete consistent stamp" {
+test "carrierKindFor trusts identity only after a complete consistent stamp" {
     var members = [_]u32{ 0, 1 };
     const unstamped = [_]ledger.Bundle{.{ .origin = .fan_rail, .members = &members }};
     const at: ledger.BundleCell = .{ .x = 0, .y = 0 };
@@ -186,23 +186,67 @@ test "licenceFor trusts identity only after a complete consistent stamp" {
     for ([_]sketch.BundleStampState{ .unattempted, .out_of_memory, .rail_invariant }) |state| {
         try testing.expectEqual(
             lattice.CarrierKind.merged_untested,
-            crossings.licenceFor(0, 1, stamped, state, at),
+            crossings.carrierKindFor(0, 1, stamped, state, at),
         );
     }
 
     try testing.expectEqual(
         lattice.CarrierKind.merged_untested,
-        crossings.licenceFor(0, 1, &unstamped, .complete, at),
+        crossings.carrierKindFor(0, 1, &unstamped, .complete, at),
     );
 
     try testing.expectEqual(
         lattice.CarrierKind.merged_licensed,
-        crossings.licenceFor(0, 1, stamped, .complete, at),
+        crossings.carrierKindFor(0, 1, stamped, .complete, at),
     );
     try testing.expectEqual(
         lattice.CarrierKind.merged_foreign,
-        crossings.licenceFor(0, 2, stamped, .complete, at),
+        crossings.carrierKindFor(0, 2, stamped, .complete, at),
     );
+}
+
+test "carrierKind asks a rail's bundle by name, so a member of two bundles is licensed on both rails" {
+    // Edge 1 fans out with 0 (set 1) and fans in with 2 (set 2): rail
+    // membership at both ends. Both sets license everywhere.
+    var fan_out = [_]u32{ 0, 1 };
+    var fan_in = [_]u32{ 1, 2 };
+    const raw = [_]ledger.Bundle{
+        .{ .origin = .fan_rail, .members = &fan_out },
+        .{ .origin = .fan_rail, .members = &fan_in },
+    };
+    const sets = try ledger.numberBundles(testing.allocator, &raw);
+    defer testing.allocator.free(sets);
+    const at: ledger.BundleCell = .{ .x = 4, .y = 4 };
+
+    // The fan-in rail (2) welds onto 1's ink, and 1's ink welds onto 2's,
+    // on rail 2's cells: licensed both ways, by rail 2's own name.
+    try testing.expectEqual(lattice.CarrierKind.merged_licensed, crossings.carrierKind(sets, .complete, 1, 2, 2, at));
+    try testing.expectEqual(lattice.CarrierKind.merged_licensed, crossings.carrierKind(sets, .complete, 2, 1, 2, at));
+    // The fan-out rail (1) likewise on its own cells.
+    try testing.expectEqual(lattice.CarrierKind.merged_licensed, crossings.carrierKind(sets, .complete, 1, 0, 1, at));
+    // Rail 1 meeting an edge only rail 2 names is foreign, and a rail no set
+    // names (the producer numbered it past the sets) holds nobody.
+    try testing.expectEqual(lattice.CarrierKind.merged_foreign, crossings.carrierKind(sets, .complete, 2, 0, 1, at));
+    try testing.expectEqual(lattice.CarrierKind.merged_foreign, crossings.carrierKind(sets, .complete, 1, 2, 3, at));
+    // Two edges with no rail ask the pair: 1 and 2 share set 2, 0 and 2 nothing.
+    try testing.expectEqual(lattice.CarrierKind.merged_licensed, crossings.carrierKind(sets, .complete, 1, 2, null, at));
+    try testing.expectEqual(lattice.CarrierKind.merged_licensed, crossings.carrierKindFor(2, 1, sets, .complete, at));
+    try testing.expectEqual(lattice.CarrierKind.merged_foreign, crossings.carrierKind(sets, .complete, 0, 2, null, at));
+    // Same edge on both sides is its own ink, whatever the rail.
+    try testing.expectEqual(lattice.CarrierKind.merged_licensed, crossings.carrierKind(sets, .complete, 1, 1, 3, at));
+
+    // `carrierKindOnto` reads the occupant and abstains on a cell naming nobody.
+    var run = lattice.Cell.empty;
+    run.occupant = .{ .edge_segment = .{ .edge = 1, .kind = .solid, .role = .forward } };
+    try testing.expectEqual(lattice.CarrierKind.merged_licensed, crossings.carrierKindOnto(&run, sets, .complete, 2, 2, at));
+    var stranger = lattice.Cell.empty;
+    stranger.occupant = .{ .edge_segment = .{ .edge = 0, .kind = .solid, .role = .forward } };
+    try testing.expectEqual(lattice.CarrierKind.merged_foreign, crossings.carrierKindOnto(&stranger, sets, .complete, 1, 2, at));
+    var head = lattice.Cell.empty;
+    head.occupant = .{ .arrowhead = .{ .dir = .south, .edge = 2, .arrow = .filled } };
+    try testing.expectEqual(lattice.CarrierKind.merged_licensed, crossings.carrierKindOnto(&head, sets, .complete, 1, null, at));
+    const nobody = lattice.Cell.empty;
+    try testing.expectEqual(lattice.CarrierKind.merged_untested, crossings.carrierKindOnto(&nobody, sets, .complete, 1, 2, at));
 }
 
 test "stamp state and BundleId never change derived crossing ink" {
