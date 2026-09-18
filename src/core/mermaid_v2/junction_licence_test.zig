@@ -342,6 +342,7 @@ test "junction licence: the three verdicts partition the junction population on 
         "flowchart TD\n  A --> D\n  B --> D\n  C --> D\n",
         "flowchart TD\n  subgraph S1\n    A --> B\n  end\n  subgraph S2\n    C --> D\n  end\n  A --> D\n  C --> B\n",
         "flowchart TD\n  A[Start] --> B{Check}\n  B -->|yes| C[Run]\n  B -->|no| D[Stop]\n  C --> E[Done]\n  D --> E\n",
+        both_ends_mirrored,
     };
     for (corpus) |source| for ([3]u32{ 60, 100, 140 }) |w| {
         var arena = std.heap.ArenaAllocator.init(testing.allocator);
@@ -390,6 +391,213 @@ test "junction licence: the two-rail K(2,2) is the smallest render that fabricat
         try testing.expectEqual(@as(u32, 3), v.licensed);
         try testing.expectEqual(@as(u32, 0), v.foreign);
         try testing.expectEqual(@as(u32, 0), v.unevidenced);
+        try expectNoRasterDefect(r.report);
+    }
+}
+
+/// The edge `from --> to` names in `graph`.
+fn edgeId(graph: sem_graph.SemGraph, from: []const u8, to: []const u8) ledger.EdgeId {
+    for (graph.edges) |e| {
+        if (std.mem.eql(u8, nodeRaw(graph, e.from), from) and std.mem.eql(u8, nodeRaw(graph, e.to), to)) return e.id;
+    }
+    unreachable;
+}
+
+fn nodeRaw(graph: sem_graph.SemGraph, id: u32) []const u8 {
+    for (graph.nodes) |n| if (n.id == id) return n.raw_id;
+    unreachable;
+}
+
+/// The rail whose taps name `edge` and whose role is a fan-IN.
+fn fanInRailOf(s: sketch_mod.Sketch, edge: ledger.EdgeId) sketch_mod.Rail {
+    for (s.rails) |rail| {
+        if (rail.role != .fan_in_dropper and rail.role != .fan_in_rail) continue;
+        for (rail.taps) |tap| if (tap.edge == edge) return rail;
+    }
+    unreachable;
+}
+
+/// The one `.carrier` record `edge` filed at (x, y), as its `CarrierKind`.
+/// Errors when the cell holds no record for the edge, or more than one.
+fn carrierAt(lat: *const lattice.Lattice, x: u32, y: u32, edge: ledger.EdgeId) !lattice.CarrierKind {
+    var found: ?lattice.CarrierKind = null;
+    for (lat.aux) |r| {
+        if (r.kind != .carrier or r.cell != y * lat.width + x or r.value != edge) continue;
+        if (found != null) return error.SecondCarrierRecord;
+        found = try std.meta.intToEnum(lattice.CarrierKind, r.detail);
+    }
+    return found orelse error.NoCarrierRecord;
+}
+
+/// The skip-layer repro: A --> C is a member of the fan-OUT at A and of the
+/// fan-IN at C (theory 10-confluence, "Rail membership at both ends").
+const both_ends = "flowchart TD\n  A --> B\n  B --> C\n  A --> C\n";
+
+/// The same both-ends member, left-handed. D --> B moves A to the left of
+/// B, so A --> C reaches C's rail from the LEFT and is that rail's first
+/// tap — the crossbar's owner — instead of its last; A --> E keeps a
+/// fan-out at A so the edge still sits in two structural sets.
+const both_ends_mirrored = "flowchart TD\n  A --> B\n  B --> C\n  A --> C\n  D --> B\n  A --> E\n";
+
+/// Both structural sets in `sets` that name `edge`: the earlier one in
+/// slice order and the later one. Errors unless there are exactly two.
+fn twoStructuralSets(sets: []const ledger.Bundle, edge: ledger.EdgeId) ![2]ledger.Bundle {
+    var out: [2]ledger.Bundle = undefined;
+    var n: usize = 0;
+    for (sets) |set| {
+        if (!ledger.structuralUnscoped(set)) continue;
+        for (set.members) |m| if (m == edge) {
+            if (n == 2) return error.ThirdStructuralSet;
+            out[n] = set;
+            n += 1;
+        };
+    }
+    if (n != 2) return error.NotTwoStructuralSets;
+    return out;
+}
+
+// PINS TODAY'S ANSWER, WHICH IS WRONG. Theory 10-confluence, "Rail
+// membership at both ends": each end of an edge is judged on its own, so
+// A --> C is a member of the fan-out bundle at A AND of the fan-in bundle
+// at C, and a cell of C's rail should read it as C's bundle. Today
+// `ledger.bundleOf(sets, edge, at)` returns the FIRST numbered set in slice
+// order that names the edge and licenses the cell; both sets are structural
+// with `cells = null`, so both license everywhere, `at` cannot tell them
+// apart, and the edge resolves to the fan-out set on every cell of the
+// fan-in rail. `sketch_bundles.resolveRailBundle` refuses to key a rail by
+// one tap for exactly this reason; `bundleOf` does what it refuses to do.
+//
+// Two shapes, four widths each, one render per width (the picture does
+// not move between 60 and 120):
+//
+//   * `both_ends`: A --> C is the LAST tap of C's rail, so the rail writer
+//     compares its own stamped identity against the crossbar's owner
+//     B --> C and files `.merged_licensed` — the right record by luck of
+//     tap order. But the identity lookup the record is measured against,
+//     `crossings.licenceFor(B-->C, A-->C, at)`, answers `.merged_foreign`
+//     at that same cell, and the `judge` helper's record-versus-identity
+//     check refuses the render. That is why this shape is NOT in the
+//     partition corpus above: it cannot pass today.
+//
+//   * `both_ends_mirrored`: A --> C is the FIRST tap of C's rail and owns
+//     the crossbar, so `rails.licenceAt` compares the rail's identity (3)
+//     against `bundleOf(A-->C)` (1, the fan-out set) at B --> C's branch
+//     cell and FILES `.merged_foreign` on ink the plan licensed. The
+//     derivation (`derivedSameBundle`) knows better at the same cell. The
+//     judge counts the pair foreign; nothing else refuses, so the raster's
+//     defect tallies stay zero — the wrong record is label-only.
+//
+// When the per-cell carrier-label path is refactored to read the rail's
+// own membership, every `WRONG` line below flips; change them deliberately.
+test "junction licence: rail membership at both ends — bundleOf resolves the both-ends member to the earlier set on the fan-in rail (today's answer, wrong)" {
+    for ([4]u32{ 60, 90, 94, 120 }) |w| {
+        var arena = std.heap.ArenaAllocator.init(testing.allocator);
+        defer arena.deinit();
+        const r = try render(arena.allocator(), both_ends, w);
+        const s = r.sketch;
+        const lat = &r.report.lattice;
+        const bc = edgeId(r.graph, "B", "C");
+        const ac = edgeId(r.graph, "A", "C");
+        try testing.expectEqual(sketch_mod.BundleStampState.complete, s.bundle_stamp_state);
+
+        // Two structural sets name A --> C: the fan-out at A first (1), the
+        // fan-in at C second (2). Both license everywhere.
+        const sets = try twoStructuralSets(s.bundle_sets, ac);
+        try testing.expectEqual(@as(ledger.BundleId, 1), sets[0].bundle);
+        try testing.expectEqual(@as(ledger.BundleId, 2), sets[1].bundle);
+        try testing.expect(std.mem.indexOfScalar(ledger.EdgeId, sets[1].members, bc) != null);
+
+        // C's rail is bundle 2; A --> C is its LAST tap and continues on as
+        // a member stroke; B --> C is its first tap and owns the crossbar.
+        const rail = fanInRailOf(s, ac);
+        try testing.expectEqual(@as(ledger.BundleId, 2), rail.bundle);
+        try testing.expectEqual(@as(usize, 2), rail.taps.len);
+        try testing.expectEqual(bc, rail.taps[0].edge);
+        try testing.expectEqual(ac, rail.taps[1].edge);
+        try testing.expect(rail.taps[1].continues);
+        const at = rail.taps[1].at;
+        try testing.expectEqual(@as(i32, 9), at.x);
+        try testing.expectEqual(@as(i32, 9), at.y);
+        const x: u32 = @intCast(at.x);
+        const y: u32 = @intCast(at.y);
+        const cell = lat.atConst(x, y);
+        try testing.expectEqual(lattice.InkState.junction, cell.state);
+        try testing.expectEqual(bc, ownerOf(cell).?);
+        const here = crossings.cellAt(x, y);
+
+        // The derivation knows the two share C's bundle here.
+        try testing.expect(ledger.derivedSameBundle(s.bundles, s.bundle_sets, bc, ac, here));
+        // WRONG: a cell of C's rail (bundle 2) resolves A --> C to bundle 1.
+        try testing.expectEqual(@as(ledger.BundleId, 1), ledger.bundleOf(s.bundle_sets, ac, here));
+        try testing.expectEqual(@as(ledger.BundleId, 2), ledger.bundleOf(s.bundle_sets, bc, here));
+        // WRONG: the identity lookup calls the licensed pair foreign.
+        try testing.expectEqual(lattice.CarrierKind.merged_foreign, crossings.licenceFor(bc, ac, s.bundle_sets, s.bundle_stamp_state, here));
+        // The record the rail writer filed is right (it compared the rail's
+        // own stamped identity, not `bundleOf(A-->C)`), so record and
+        // identity disagree and the judge refuses the render.
+        try testing.expectEqual(lattice.CarrierKind.merged_licensed, try carrierAt(lat, x, y, ac));
+        try testing.expectError(error.TestExpectedEqual, judge(s, lat));
+        try expectNoRasterDefect(r.report);
+    }
+}
+
+test "junction licence: rail membership at both ends, mirrored — the rail writer files merged_foreign on licensed ink when the both-ends member owns the crossbar (today's answer, wrong)" {
+    for ([4]u32{ 60, 90, 94, 120 }) |w| {
+        var arena = std.heap.ArenaAllocator.init(testing.allocator);
+        defer arena.deinit();
+        const r = try render(arena.allocator(), both_ends_mirrored, w);
+        const s = r.sketch;
+        const lat = &r.report.lattice;
+        const bc = edgeId(r.graph, "B", "C");
+        const ac = edgeId(r.graph, "A", "C");
+        const ae = edgeId(r.graph, "A", "E");
+        try testing.expectEqual(sketch_mod.BundleStampState.complete, s.bundle_stamp_state);
+
+        // The fan-out at A {A-->C, A-->E} is stamped first (1); the fan-in
+        // at B sits between (2); the fan-in at C {A-->C, B-->C} is third (3).
+        const sets = try twoStructuralSets(s.bundle_sets, ac);
+        try testing.expectEqual(@as(ledger.BundleId, 1), sets[0].bundle);
+        try testing.expect(std.mem.indexOfScalar(ledger.EdgeId, sets[0].members, ae) != null);
+        try testing.expectEqual(@as(ledger.BundleId, 3), sets[1].bundle);
+        try testing.expect(std.mem.indexOfScalar(ledger.EdgeId, sets[1].members, bc) != null);
+
+        // C's rail is bundle 3; A --> C is its FIRST tap, from the left, and
+        // owns the crossbar; B --> C branches onto it at (16, 11).
+        const rail = fanInRailOf(s, ac);
+        try testing.expectEqual(@as(ledger.BundleId, 3), rail.bundle);
+        try testing.expectEqual(@as(usize, 2), rail.taps.len);
+        try testing.expectEqual(ac, rail.taps[0].edge);
+        try testing.expect(rail.taps[0].continues);
+        try testing.expectEqual(bc, rail.taps[1].edge);
+        const at = rail.taps[1].at;
+        try testing.expectEqual(@as(i32, 16), at.x);
+        try testing.expectEqual(@as(i32, 11), at.y);
+        const x: u32 = @intCast(at.x);
+        const y: u32 = @intCast(at.y);
+        const cell = lat.atConst(x, y);
+        try testing.expectEqual(lattice.InkState.junction, cell.state);
+        try testing.expectEqual(ac, ownerOf(cell).?);
+        const here = crossings.cellAt(x, y);
+
+        try testing.expect(ledger.derivedSameBundle(s.bundles, s.bundle_sets, ac, bc, here));
+        // WRONG: a cell of C's rail (bundle 3) resolves A --> C to bundle 1.
+        try testing.expectEqual(@as(ledger.BundleId, 1), ledger.bundleOf(s.bundle_sets, ac, here));
+        try testing.expectEqual(@as(ledger.BundleId, 3), ledger.bundleOf(s.bundle_sets, bc, here));
+        // WRONG: the identity lookup calls the licensed pair foreign ...
+        try testing.expectEqual(lattice.CarrierKind.merged_foreign, crossings.licenceFor(ac, bc, s.bundle_sets, s.bundle_stamp_state, here));
+        // ... and this time the rail writer FILED that answer: `rails.licenceAt`
+        // held the rail's identity (3) against `bundleOf(A-->C)` (1).
+        try testing.expectEqual(lattice.CarrierKind.merged_foreign, try carrierAt(lat, x, y, bc));
+
+        // Record and identity agree (both wrong), so the judge accepts the
+        // render and counts the pair foreign: one foreign among three
+        // junction pairs, the other two the fan-in at B and A's port share.
+        const v = try judge(s, lat);
+        try testing.expectEqual(@as(u32, 3), v.population);
+        try testing.expectEqual(@as(u32, 2), v.licensed);
+        try testing.expectEqual(@as(u32, 1), v.foreign); // WRONG: should be 0
+        try testing.expectEqual(@as(u32, 0), v.unevidenced);
+        // Label-only: nothing refused a byte.
         try expectNoRasterDefect(r.report);
     }
 }
