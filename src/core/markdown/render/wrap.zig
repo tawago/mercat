@@ -49,9 +49,6 @@ pub fn renderWrappedInlines(allocator: std.mem.Allocator, builder: *Builder, inl
     }
 }
 
-/// Preserve the historical token-boundary wrapping policy, but admit a token
-/// boundary only when it is also a whole-line grapheme boundary. Adjacent style
-/// tokens that form one grapheme therefore wrap as one indivisible group.
 fn lineEnd(allocator: std.mem.Allocator, initial_column: usize, prefix: []const u8, text: []const u8, ranges: []const TokenRange, content_start: usize, width: usize) !usize {
     const candidate = try std.mem.concat(allocator, u8, &.{ prefix, text[content_start..] });
     defer allocator.free(candidate);

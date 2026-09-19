@@ -1,11 +1,3 @@
-//! fan_lanes_test2.zig — continuation of fan_lanes_test.zig, split at the
-//! mermaid_v2 500-line cap. Same zone privileges; the shared graph/geometry
-//! builders are imported from fan_lanes_test.zig.
-//!
-//! These pin the closure test `fusionForbidden` asks of a fused group: what a
-//! run ASSERTS depends on its arrowheads, and a group keeps one shared row
-//! only when the source DECLARES all of it.
-
 const std = @import("std");
 const testing = std.testing;
 const sg = @import("../sem_graph.zig");
@@ -20,8 +12,6 @@ const mkGraph = flt.mkGraph;
 const mkBareGraph = flt.mkBareGraph;
 const laneOfPivot = flt.laneOfPivot;
 
-/// A,B on one stage, X,Y on the next, every cross pair declared — the shape
-/// whose declared set is complete. Callers supply the arrowheads.
 fn twoByTwo() struct { nodes: [4]sugiyama.LayerNode, edges: [4]sugiyama.LayerEdge } {
     return .{
         .nodes = .{ .{ .real = 0 }, .{ .real = 1 }, .{ .real = 2 }, .{ .real = 3 } },
@@ -121,8 +111,6 @@ test "a directed group whose declared set is short of complete still separates" 
     try testing.expect(laneOfPivot(fans, .out, 0) != laneOfPivot(fans, .out, 1));
 }
 
-/// A,B,C on one stage, X,Y on the next. A and B declare both cross pairs; C
-/// declares only C->X, so the union is 5 of 6 and must never fuse.
 fn fiveOfSix() struct { nodes: [5]sugiyama.LayerNode, edges: [5]sugiyama.LayerEdge } {
     return .{
         .nodes = .{ .{ .real = 0 }, .{ .real = 1 }, .{ .real = 2 }, .{ .real = 3 }, .{ .real = 4 } },
@@ -136,7 +124,6 @@ fn fiveOfSix() struct { nodes: [5]sugiyama.LayerNode, edges: [5]sugiyama.LayerEd
     };
 }
 
-/// Run `fiveOfSix` with C placed at centre `cx_c` and the given plan.
 fn runFiveOfSix(cx_c: i32, bundles: pb.RealizedBundles) !bool {
     const a = testing.allocator;
     var fixture = fiveOfSix();

@@ -1,23 +1,8 @@
-//! Pure D-PORT allocator consumed by the Step 7 layout path.
-//!
-//! Split per D-PORT clause 5: the attachment SET per (node, side) + each
-//! terminal's identity derive from SemGraph + plan records only (`derive` —
-//! never geometry); perimeter COORDINATES are a pure function of (final
-//! placements, K) (`allocate` — caller fills `opposite_center`). Whether a
-//! fan group yields one rail pivot or per-member independents is the input
-//! plan's statement (`bundles.selected_bundles`), never a default here (both
-//! OPEN-1 readings stay expressible). Failures are typed DATA results (never
-//! panics, never silent coalescing).
-//!
-//! Imports (layout/ zone): std, ../ledger.zig, ../sem_graph.zig,
-//! ../sketch.zig. Tests live in ports_test.zig (aggregated from entry.zig).
-
 const std = @import("std");
 const pb = @import("../base/ledger.zig");
 const sg = @import("../sem_graph.zig");
 const sk = @import("../sketch.zig");
 
-/// Forward: TD out=south/in=north; BT out=north/in=south; LR out=east/in=west; RL out=west/in=east (routing.zig:355-360).
 /// @guarded-by: ports_test.zig "side conventions are frozen per direction for forward, reversed, and self-loop attachments"
 pub fn forwardSide(direction: sg.Direction, endpoint_side: pb.EndpointSide) sk.Dir4 {
     const out = endpoint_side == .source_exit;
@@ -29,7 +14,6 @@ pub fn forwardSide(direction: sg.Direction, endpoint_side: pb.EndpointSide) sk.D
     };
 }
 
-/// Reversed (back-)edges, exit and entry alike: TD/BT → east, LR/RL → south (back_edges.zig:132-144).
 pub fn reversedSide(direction: sg.Direction) sk.Dir4 {
     return switch (direction) {
         .TD, .BT => .east,
@@ -37,7 +21,6 @@ pub fn reversedSide(direction: sg.Direction) sk.Dir4 {
     };
 }
 
-/// Self-loops keep their classic side pairs but occupy TWO distinct typed terminals.
 /// @guarded-by: ports_test.zig "V-D-PORT-12: a TD self-loop derives two typed terminals (east exit, north entry)"
 pub fn selfLoopSide(direction: sg.Direction, endpoint_side: pb.EndpointSide) sk.Dir4 {
     return switch (direction) {
@@ -46,7 +29,6 @@ pub fn selfLoopSide(direction: sg.Direction, endpoint_side: pb.EndpointSide) sk.
     };
 }
 
-/// p = 1 yields exactly today's midpoint (routing.zig:361-365) — the zero-change anchor.
 /// @guarded-by: ports_test.zig "V-D-PORT-04: a singleton port is exactly today's midpoint floor(L/2)"
 pub fn midpoint(side_len: u32) u32 {
     return side_len / 2;
@@ -56,7 +38,6 @@ pub fn satisfiable(side_len: u32, demand: u32) bool {
     return side_len >= 2 * demand + 1;
 }
 
-/// o_i = m - (p-1) + 2*i, m = floor(L/2) — pitch 2, centered on m, corners excluded. Needs `satisfiable(side_len, demand)`.
 /// @guarded-by: ports_test.zig "V-D-PORT-03: offsets follow o_i = m-(p-1)+2i with pitch 2 and corners excluded on odd and even faces"
 pub fn offsetAt(side_len: u32, demand: u32, i: u32) u32 {
     return midpoint(side_len) + 1 - demand + 2 * i;
@@ -64,27 +45,15 @@ pub fn offsetAt(side_len: u32, demand: u32, i: u32) u32 {
 
 pub const AttachmentClass = enum { independent, rail_pivot };
 
-/// One demanded terminal on a (node, side) face. Identity fields derive
-/// from SemGraph + plan records only; `opposite_center` is the ONE geometric
-/// input (clause 6 primary), filled by the caller. A self-loop terminal's
-/// opposite center is the node's own center.
 pub const Attachment = struct {
     class: AttachmentClass = .independent,
-    /// Canonical attachment key K (clause 4); rail pivot: smallest member K (clause 10).
     key: pb.AttachmentKey,
-    /// independent: the owning edge. rail_pivot: clause-10 smallest member (whose opposite center the pivot orders by).
     edge: ?pb.EdgeId = null,
-    /// independent: its permission group, if any. rail_pivot: the committed group.
     group: ?pb.CandidateBundleId = null,
-    /// rail_pivot: the full committed member set; else empty.
     members: []const pb.EdgeId = &.{},
-    /// Opposite endpoint's placed center along the side axis (clause 6: x for north/south, y for east/west).
     opposite_center: i32 = 0,
 };
 
-/// Clause-6 within-side total order: opposite placed center ascending, then K
-/// ascending. Byte-identical K is a clause-13 collision caught before this, so
-/// the order is total and input-order-independent.
 /// @guarded-by: ports_test.zig "clause-6 order: opposite center is primary, K breaks ties with no-label first and pinned ordinals"
 fn attachmentLess(_: void, x: Attachment, y: Attachment) bool {
     if (x.opposite_center != y.opposite_center) return x.opposite_center < y.opposite_center;
@@ -99,8 +68,6 @@ pub const DerivedAttachment = struct {
 
 pub const DeriveError = error{ OutOfMemory, InvalidSemGraph };
 
-/// Canonical attachment key K for one endpoint of one edge (clause 4):
-/// (opposite raw_id, endpoint_side, EdgeKind ordinal, arrow ordinals, label). Purely semantic.
 pub fn edgeAttachmentKey(graph: sg.SemGraph, edge: sg.Edge, endpoint_side: pb.EndpointSide) error{InvalidSemGraph}!pb.AttachmentKey {
     const opposite_id = if (endpoint_side == .source_exit) edge.to else edge.from;
     const opposite = nodeById(graph, opposite_id) orelse return error.InvalidSemGraph;
@@ -114,11 +81,6 @@ pub fn edgeAttachmentKey(graph: sg.SemGraph, edge: sg.Edge, endpoint_side: pb.En
     };
 }
 
-/// Derive the attachment set per (node, side): independent attachments +
-/// one rail pivot per committed group (clause 10) + self-loop terminals
-/// (two typed terminals, clause 3) + reversed-edge side entries/exits
-/// (endpoint_side splits K). `direction`/`reversed_edges` are plan-level
-/// records, not geometry. Output order is incidental (`allocate` sorts).
 pub fn derive(
     a: std.mem.Allocator,
     graph: sg.SemGraph,
@@ -143,11 +105,6 @@ pub fn derive(
         const membership = membershipOf(bundles, edge.id);
         const reversed = containsEdge(reversed_edges, edge.id);
         if (!reversed and (membership == null or (membership.?.source == null and membership.?.target == null))) {
-            // Plain forward edge keeps its midpoint UNLESS an endpoint lands on
-            // a (node, side) hosting a self-loop terminal: then it bundles that
-            // side's allocation so the two get distinct pitch-2 cells, never a
-            // shared midpoint (D-PORT clause 3 / D-REACH clause 9(a): a self-
-            // loop owns its own two terminals, unshared with a foreign edge).
             // @guarded-by: ports_step7_test.zig "a plain forward arrival co-located with a self-loop terminal joins the side allocation"
             inline for ([2]pb.EndpointSide{ .source_exit, .target_entry }) |es| {
                 const n = if (es == .source_exit) edge.from else edge.to;
@@ -159,12 +116,6 @@ pub fn derive(
         }
         inline for ([2]pb.EndpointSide{ .source_exit, .target_entry }) |es| {
             const disp = if (membership) |m| (if (es == .source_exit) m.source else m.target) else null;
-            // A selected endpoint is covered by its group's one pivot
-            // attachment; the opposite endpoint stays a per-member entry/exit —
-            // UNLESS a fused union licenses the edge: the union's one crossbar
-            // asserts every declared pair, so its leaf endpoints pool into ONE
-            // shared attachment per (union, node, side) below (discharge —
-            // one ink span witnessing several declared edges).
             // @guarded-by: ports_test.zig "a fused union's leaf node exits through one shared attachment"
             if (!isSelected(disp)) {
                 const n = if (es == .source_exit) edge.from else edge.to;
@@ -187,8 +138,6 @@ pub fn derive(
             }
         }
     }
-    // One pivot attachment per committed group (clause 10), keyed by the
-    // lexicographically-smallest member K; forward Rail geometry → forward side.
     // @guarded-by: ports_test.zig "derivation: a committed group consumes one rail pivot attachment keyed by its smallest member K"
     for (bundles.selected_bundles) |sel| {
         const gi = groupIndexById(plan.groups, sel.candidate_bundle) orelse return error.InvalidSemGraph;
@@ -257,8 +206,6 @@ fn fusedUnionIndex(fused: []const []const pb.EdgeId, edge: pb.EdgeId) ?usize {
     return null;
 }
 
-/// Attachments of one (node, side) face, in derived (incidental) order —
-/// the `allocate` input shape.
 pub fn forSide(a: std.mem.Allocator, derived: []const DerivedAttachment, node: pb.NodeId, side: sk.Dir4) error{OutOfMemory}![]const Attachment {
     var out: std.ArrayListUnmanaged(Attachment) = .empty;
     for (derived) |item| {
@@ -285,18 +232,13 @@ pub fn sideDemand(derived: []const DerivedAttachment, node: pb.NodeId) SideDeman
 
 pub const MinDims = struct { w_min: u32, h_min: u32 };
 
-/// Visual (pre-LR/RL-swap) capacity minima: w_min = 2*max(p_n, p_s)+1,
-/// h_min = 2*max(p_e, p_w)+1; maxed against today's minima, mapped like label dims.
 /// @guarded-by: ports_test.zig "demandDims computes 2*max+1 per axis"
 pub fn demandDims(d: SideDemand) MinDims {
     return .{ .w_min = 2 * @max(d.north, d.south) + 1, .h_min = 2 * @max(d.east, d.west) + 1 };
 }
 
-/// Candidate/rung attribution for the capacity payload (allocator is candidate-blind).
 pub const CandidateRef = struct { candidate: u32 = 0, rung: u8 = 0 };
 
-/// `ordinal` = rank i in the clause-6 total order (0..p-1); `offset` =
-/// clause-7 o_i along the side (sketch.Port.offset semantics).
 pub const Assignment = struct { attachment: Attachment, ordinal: u32, offset: u32 };
 
 pub const decision_row_clause_12 = "D-PORT clause 12";
@@ -305,9 +247,6 @@ pub const capacity_reason =
     "drop an attachment, or fall back to the shared midpoint";
 pub const capacity_action = "reject candidate and report, per D-DISPOSITION";
 
-/// Full capacity-failure payload. `classes` follows the clause-6
-/// recorded order; `edges`/`groups` list every involved edge id and
-/// branch group id demanded on the side (rail members included).
 pub const CapacityExceeded = struct {
     candidate: CandidateRef,
     node: pb.NodeId,
@@ -322,10 +261,6 @@ pub const CapacityExceeded = struct {
     expected_action: []const u8 = capacity_action,
 };
 
-/// Clause 13: byte-identical K = duplicate parallel edges. NO order is
-/// frozen between the twins (declaration order is the forbidden default);
-/// disposition per D-DISPOSITION, multiplicity D-DUPLICATE's. `edges` is a
-/// canonicalized report inventory (ascending, deduped), never a port order.
 pub const KeyCollision = struct {
     node: pb.NodeId,
     side: sk.Dir4,
@@ -338,13 +273,6 @@ pub const Failure = union(enum) { capacity_exceeded: CapacityExceeded, key_colli
 
 pub const Allocation = union(enum) { assigned: []const Assignment, failed: Failure };
 
-/// Map one (node, side) attachment set onto a face of length `side_len`:
-/// clause-6 total order → clause-7 offsets. Same attachment set in any
-/// input order → identical assignments. The clause-13 identity check runs
-/// FIRST — identity precedes coordinates (clause 5) and the collision is
-/// semantic (RF, recurs in every candidate), so it outranks the coordinate-
-/// level capacity check. On failure NOTHING is allocated: never a shared
-/// cell, never a dropped attachment, never a midpoint fallback.
 /// @guarded-by: ports_test.zig "V-D-PORT-02: attachment input permutation yields byte-identical assignments"
 /// @guarded-by: ports_test.zig "V-D-PORT-10: clamped L=3 with p=2 emits port_capacity_exceeded with the full clause-12 payload and no allocation"
 pub fn allocate(a: std.mem.Allocator, candidate: CandidateRef, node: pb.NodeId, side: sk.Dir4, side_len: u32, attachments: []const Attachment) error{OutOfMemory}!Allocation {
@@ -422,8 +350,6 @@ fn containsEdge(edges: []const pb.EdgeId, edge: pb.EdgeId) bool {
     return false;
 }
 
-/// True iff `node` hosts a self-loop whose (clause-3) terminal occupies
-/// `side` — the side a co-located plain forward edge must join.
 fn hasSelfLoopSide(graph: sg.SemGraph, dir: sg.Direction, node: pb.NodeId, side: sk.Dir4) bool {
     for (graph.edges) |e|
         if (e.from == e.to and e.from == node and

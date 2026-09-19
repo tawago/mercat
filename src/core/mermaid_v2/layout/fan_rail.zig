@@ -1,15 +1,3 @@
-//! First-class fan-RAIL construction for fan-OUT layouts: one `sketch.Rail`
-//! per eligible fan (stem + crossbar + one `Tap` per peer). Tapped edges get
-//! no `EdgePath` — `raster/rails.zig` paints the shared run from the Rail's
-//! explicit junction bits.
-//!
-//! SCOPE: single-row (`rows == 1`) TD-internal fans; multi-row fans and
-//! fans with per-edge stem conflicts (stroke/arrow mismatch) stay on the
-//! per-peer polyline path. A `long` peer (leaf beyond the next layer) gets
-//! a one-cell drop whose tap `continues`; routing.zig owns the member's
-//! stroke from there. Allowed imports (layout zone): std + sem_graph +
-//! sketch + siblings.
-
 const std = @import("std");
 const sg = @import("../sem_graph.zig");
 const sketch = @import("../sketch.zig");
@@ -20,33 +8,21 @@ const pb = @import("../base/ledger.zig");
 const rail_closure = @import("../base/rail_closure.zig");
 const port_plan = @import("port_plan.zig");
 
-/// One built rail plus the MUTABLE views layout retains so
-/// `clusters.computeBbox`'s shift pass can translate the geometry in
-/// place (same pattern as `routing.EdgesResult.polylines`).
 pub const Built = struct {
     rail: sketch.Rail,
     stem: []sketch.Point,
     taps: []sketch.Tap,
 };
 
-/// One fan member with its edge and peer placement resolved (once — the
-/// eligibility pass fills these so `build` never re-scans the graph).
 pub const Peer = struct {
     edge: sg.Edge,
-    /// The leaf node's placement (the far end for a long peer).
     placement: sketch.NodePlacement,
     port: ?sketch.Port = null,
-    /// Column the tap descends on: the leaf's port column, or for a long
-    /// peer its first virtual node's centre (the corridor column).
     column: i32 = 0,
-    /// The row the rail must clear on the peer side: the leaf's near wall,
-    /// or for a long peer the row its first virtual node occupies.
     line: i32 = 0,
     long: bool = false,
 };
 
-/// A peer whose leaf sits on the next layer: tap column and near row read
-/// off the leaf's own placement.
 pub fn nearPeer(edge: sg.Edge, placement: sketch.NodePlacement, port: ?sketch.Port, direction: fan_mod.Direction) Peer {
     return .{
         .edge = edge,
@@ -57,7 +33,6 @@ pub fn nearPeer(edge: sg.Edge, placement: sketch.NodePlacement, port: ?sketch.Po
     };
 }
 
-/// An eligible fan's pivot placement plus per-peer resolutions.
 pub const Resolved = struct {
     pivot: sketch.NodePlacement,
     pivot_port: ?sketch.Port = null,
@@ -65,26 +40,14 @@ pub const Resolved = struct {
     peers: []Peer,
 };
 
-/// The declared half of a rail's qualification: true iff `fan` will build
-/// a rail on what the graph and the plan say, before any placement is
-/// read. `resolve` asks it first; the row ledger asks it to know which
-/// fans draw a rail and which members that rail draws.
 pub fn eligible(fan: fan_mod.Fan, graph: sg.SemGraph, bundles: pb.RealizedBundles) bool {
     if (bundles.memberships.len == 0 and fan.direction != .out) return false;
-    // A rail is ONE crossbar on ONE row, so it can only speak for a fan
-    // whose members all belong on that row. When a lane pass has lifted a
-    // member off the shared row — the incomplete-bipartite separation, or the
-    // clustered closure licence's refusal, which has no plan to express itself
-    // through — rebuilding them as a single rail would put back the very run
-    // the lift took apart. The per-peer polyline path honours `peer.lane`.
     // @guarded-by: fan_rail_test.zig "a fan whose peers were lifted onto separate lanes builds no rail"
     for (fan.peers) |p| {
         if (p.lane != fan.peers[0].lane) return false;
     }
     if (fan.rows != 1) return false;
     if (fan.peers.len < 2) return false;
-    // A discharged member has no ink of its own — another rail's crossbar
-    // is its rendering — so it can tap nothing here.
     var shared_len: usize = 0;
     var kind: ?sg.EdgeKind = null;
     var pivot_arrow: ?sg.ArrowEnd = null;
@@ -106,10 +69,6 @@ pub fn eligible(fan: fan_mod.Fan, graph: sg.SemGraph, bundles: pb.RealizedBundle
     return bundles.memberships.len == 0 or selected(fan.peers, bundles);
 }
 
-/// Resolve `fan` for rail routing, or null when it does not qualify
-/// (see module docs). `dir` is the layout-internal direction (BT already
-/// canonicalized to TD upstream; LR/RL never detect fans today). Each
-/// peer's (edge, placement) is resolved exactly once, into `a` (arena).
 pub fn resolve(
     a: std.mem.Allocator,
     dir: sg.Direction,
@@ -153,13 +112,6 @@ pub fn resolve(
     };
 }
 
-/// The column a long member's tap descends on: its virtual's centre when
-/// that column is touch-free across every intermediate layer between the
-/// pivot and the leaf, else the nearest column that is. The member's
-/// stroke must run that column from the tap to its far end (a drop cell
-/// is entered straight), so a column under an intermediate box can never
-/// be reached and would only refuse the member later; deciding it here,
-/// once, is the producer's feasibility mirror of the stroke's box gate.
 /// @guarded-by: fan_rail_test.zig "a long member's tap column slides off an intermediate box"
 pub fn longColumn(centre: i32, direction: fan_mod.Direction, pivot: sketch.NodePlacement, leaf: sketch.NodePlacement, placements: []const sketch.NodePlacement) i32 {
     const top = if (direction == .out) pivot.rect.bottom() else leaf.rect.bottom();
@@ -168,11 +120,6 @@ pub fn longColumn(centre: i32, direction: fan_mod.Direction, pivot: sketch.NodeP
     return sketch.clearLine(false, centre, top, bottom, placements, pivot.id, leaf.id, .{});
 }
 
-/// Build the rail for a resolved fan: stem on the pivot column, crossbar at
-/// `anchor - 3 - rail_lift - lane`, one straight drop per peer. `lane` is the
-/// gap row the row ledger gave the rail (0 = the row next to the base cell);
-/// a higher row keeps a rail off a neighbour's row so the two never fuse
-/// into a fabricating rail.
 pub fn build(
     a: std.mem.Allocator,
     resolved: Resolved,
@@ -190,25 +137,9 @@ pub fn build(
         peer_line = if (fan_in) @max(peer_line, p.line) else @min(peer_line, p.line);
     }
     const delta: i32 = @intCast(rail_lift + lane);
-    // Formal base approach (owner ruling): every terminal arrowhead must have
-    // >= 1 straight collinear stroke cell on its base side before any junction.
-    // Lifting the rail one extra row (off=3) makes the terminal drop write one
-    // straight `│` then the `▼` (`┬│▼`, not `┬▼`). off=3 is used ONLY when the
-    // raised rail still clears the pivot (fan-OUT) / the sources (fan-IN); a
-    // tight rung halves v_spacing so the gap can be 2, where off=3 would land
-    // the rail on the pivot/source border — there we keep off=2 (today's
-    // geometry) and blocked() still guards. `delta` stays in the guard so each
-    // lane/lift keeps its own row.
     // @guarded-by: fan_rail_test.zig "formal base approach: rail lifts one row when the gap admits it, holds at a gap of 2"
     const anchor: i32 = if (fan_in) pivot_p.rect.y else peer_line;
     const obstacle: i32 = if (fan_in) peer_line else pivot_p.rect.bottom() - 1;
-    // Labeled fan-OUT rail: lift the crossbar two MORE rows (off=5, on top of
-    // the base-approach off=3) so each tap's private dropper is 4 cells —
-    // flank, on-run label row, flank, arrowhead — the DECORATED sandwich
-    // raster/labels_onrun.zig places over. Uses the label band the row
-    // ledger claims for a labeled fan; when a tighter rung shrank the gap
-    // below what the lift needs, fall back down the existing ladder of
-    // offsets (the label then takes the ordinary side ladder).
     // @guarded-by: fan_rail_test.zig "labeled fan-OUT rail lifts the crossbar for a 4-cell dropper when the gap admits it"
     var labeled = false;
     for (resolved.peers) |p| {
@@ -231,8 +162,6 @@ pub fn build(
     var max_x: i32 = sx;
     for (resolved.peers, taps) |p, *tap| {
         const tx = p.column;
-        // A long peer's drop is the rail's one junction-adjacent cell; the
-        // member's own stroke continues from there (routing.zig).
         // @guarded-by: fan_rail_test.zig "a long member gets a one-cell drop whose tap continues"
         const landing_y: i32 = if (p.long)
             (if (fan_in) rail_y - 1 else rail_y + 1)
@@ -265,12 +194,6 @@ pub fn build(
     };
 }
 
-/// Integrity gate on a BUILT rail: true iff any of its straight runs
-/// (stem, rail, or a vertical tap) touches a foreign box. Touch semantics:
-/// raster cell ownership includes borders, so border contact amputates the
-/// rail even though no interior is pierced. Reads the artifact's own
-/// geometry (never a re-derivation), so it cannot drift from `build`.
-/// A blocked fan falls back to the per-peer polyline path, which can dodge.
 pub fn blocked(
     built: Built,
     pivot_id: sketch.NodeId,

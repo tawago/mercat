@@ -1,57 +1,12 @@
-//! Arrowhead-base painted validator (owner ruling, tawago 2026-07-18):
-//!
-//!   "make sure that the arrowhead is receiving the tip of the edge line on
-//!    the triangle surface (eg: ▲ needs to receive a tip of the edge line │
-//!    or ┘ from the bottom, ▶ needs to receive the tip from left ─ or └)".
-//!
-//! I.e. the cell on an arrowhead's BASE side (opposite the tip direction) must
-//! carry that connecting stroke with an arm pointing INTO the arrowhead. A base
-//! cell that is blank, or a stroke whose neighbour mask lacks the into-arrow
-//! arm, is a violation.
-//!
-//! This is a PAINTED post-raster scan over the final `Lattice`: it reads the
-//! neighbour bits already committed by the edge/rail/reconcile stages, so it
-//! automatically excludes dotted-stroke feeds (they carry the correct axis bits
-//! even though their glyph is `┊`/`╎`) — that removes the python corpus scan's
-//! "class 4" artifact without any glyph table.
-//!
-//! EXEMPTION (structural, never seed-keyed): a base cell whose occupant is a
-//! `.label_char` is an on-run label or a cluster-title glyph (frame-solid
-//! interruption). The owner's convention leaves those interruptions in place,
-//! so a label base is NOT a violation ("class 3").
-//!
-//! The count flows raster → entry → the MERCAT_INTEGRITY stderr line, and via
-//! `audit.zig` into `score.RasterCounts`' violation tier of candidate
-//! selection; it never mutates a cell. Allowed imports: `std`, `lattice.zig` (raster zone).
-
 const std = @import("std");
 const lattice = @import("../lattice.zig");
 
-/// Report-only decoration-cell tallies surfaced through the raster report.
-/// A decoration cell has three guarded sides (constitution, ink
-/// attribution): its base, its tip and its two laterals. One field per side
-/// class, each read off the painted lattice.
 pub const ArrowBaseCounts = struct {
-    /// Arrowheads whose base-side cell does not carry an arm pointing into
-    /// the triangle (blank base, or a stroke missing the into-arrow bit).
-    /// Label/title bases are exempt and never counted.
     violations: u32 = 0,
-    /// Arrowheads whose TIP neighbour is not the port of the end they
-    /// decorate: the cell one step along the tip is not a node-border cell
-    /// (blank, another edge's ink, a node interior, or off the lattice).
-    /// The head is drawn sideways or into space — the reader loses the
-    /// orientation the graph states. Attributed to the head's own edge.
     tip_not_port: u32 = 0,
-    /// Lateral arms that SHIPPED on arrowhead cells: every mask bit off the
-    /// head's axis, one per arm. The painted half of `arm_into_head` (the
-    /// refused half is `crossings.CrossingCounts.arm_into_head`); today's
-    /// only producer is an edge turning inside its own terminal cell.
     lateral_arms: u32 = 0,
 };
 
-/// The neighbour bit a base cell must carry to feed an arrowhead pointing in
-/// direction `tip`: the arm on the base points TOWARD the arrowhead, i.e. in
-/// the tip direction itself (a `▼` (tip=south) base needs a south arm `.s`).
 fn intoArrowBit(tip: lattice.Dir4) lattice.Neighbours {
     return switch (tip) {
         .north => .{ .n = true },
@@ -61,8 +16,6 @@ fn intoArrowBit(tip: lattice.Dir4) lattice.Neighbours {
     };
 }
 
-/// The base cell sits one step opposite the tip direction from the arrowhead.
-/// Returns `null` when that cell would fall outside the lattice.
 fn baseCoord(x: u32, y: u32, tip: lattice.Dir4, w: u32, h: u32) ?struct { x: u32, y: u32 } {
     return switch (tip) {
         .south => if (y >= 1) .{ .x = x, .y = y - 1 } else null,
@@ -72,8 +25,6 @@ fn baseCoord(x: u32, y: u32, tip: lattice.Dir4, w: u32, h: u32) ?struct { x: u32
     };
 }
 
-/// The tip cell sits one step along the tip direction from the arrowhead.
-/// Returns `null` when that cell would fall outside the lattice.
 fn tipCoord(x: u32, y: u32, tip: lattice.Dir4, w: u32, h: u32) ?struct { x: u32, y: u32 } {
     return switch (tip) {
         .north => if (y >= 1) .{ .x = x, .y = y - 1 } else null,
@@ -83,7 +34,6 @@ fn tipCoord(x: u32, y: u32, tip: lattice.Dir4, w: u32, h: u32) ?struct { x: u32,
     };
 }
 
-/// The mask bits of an arrowhead cell that lie off its tip axis.
 fn lateralBits(tip: lattice.Dir4, mask: lattice.Neighbours) u4 {
     const axis: lattice.Neighbours = switch (tip) {
         .north, .south => .{ .n = true, .s = true },
@@ -92,9 +42,6 @@ fn lateralBits(tip: lattice.Dir4, mask: lattice.Neighbours) u4 {
     return mask.toMask() & ~axis.toMask();
 }
 
-/// True when a base `cell` (in an already-painted lattice) legitimately feeds
-/// an arrowhead whose tip points `tip`. A `.label_char` base is exempt (class
-/// 3): the label/title interruption is a convention, not a break in the run.
 pub fn baseFeedsArrow(cell: *const lattice.Cell, tip: lattice.Dir4) bool {
     switch (cell.occupant) {
         .label_char, .label_cont => return true,
@@ -105,10 +52,6 @@ pub fn baseFeedsArrow(cell: *const lattice.Cell, tip: lattice.Dir4) bool {
     }
 }
 
-/// Scan the final lattice and tally, for every arrowhead: a base-side cell
-/// that does not feed the triangle (owner ruling), a tip neighbour that is
-/// not the port it decorates, and each lateral arm the cell ships. Pure
-/// read; never mutates.
 /// @guarded-by: arrow_base.zig "a tip into blank, into a run, or off the lattice is tip_not_port; a tip into the port is not"
 /// @guarded-by: arrow_base.zig "a lateral arm on a head is counted per arm; an on-axis head counts none"
 pub fn validate(lat: *const lattice.Lattice) ArrowBaseCounts {

@@ -1,41 +1,3 @@
-//! gap_rows.zig — the one row ledger of every inter-rank gap.
-//!
-//! An inter-rank gap holds the horizontal runs of the ink that crosses it:
-//! fan rails, per-peer fan runs, private jogs, skip-corridor entries and
-//! exits, member-stroke jogs, the jogs of the cluster bridges. Each run
-//! claims the rows it needs here with its cross-axis span; the gap's
-//! spacing is its base spacing plus the rows the packed claims occupy,
-//! nothing else adds a row, and every producer reads its row back from
-//! this ledger.
-//!
-//! Row r of a gap is the line `wall - 3 - r`, `wall` being the target
-//! layer's near edge: `wall-1` and `wall-2` are the arrival cell and its
-//! straight base cell and hold verticals only. Row -1 (`wall-2`) is open
-//! to a run with no decorated end in that gap when no other claim shares a
-//! column with it. Two claims share a row only when at least one blank
-//! cell separates their ink, so no two runs ever abut. Rows the base
-//! spacing already contains cost nothing; the rest widen the gap. In an RL
-//! piece the layers run the other way and the wall is the target's far
-//! side; the rows count from it just the same.
-//!
-//! Only realized ink claims. A fan claims through the one producer that
-//! draws its members — its rail, or the per-peer path — and a member drawn
-//! by another fan's rail claims nothing of its own. A fan whose lane pass
-//! licensed its fusion with a neighbour (same lane, shared column) is one
-//! claim with it. A placement edge into a cluster stand-in claims nothing
-//! of its own: the bridges paint its ink, and their jogs are claimed for
-//! them (`gap_rows_bridge.zig`).
-//!
-//! When an arrival rail and a departure rail stack in one gap the arrival
-//! sits nearer the target. A rail whose stem column is a foreign tap's
-//! column sits where that tap ends before reaching its junction.
-//!
-//! A gridded layer's stacked sub-rows add sub-gaps (`gap_rows_grid.zig`):
-//! a run claims the gap above the sub-row it lands in, a route that must
-//! corridor past a stacked box claims its entry in the gap above that box.
-//!
-//! Imports (layout zone): std + sem_graph + sketch + base/* + siblings.
-
 const std = @import("std");
 const sg = @import("../sem_graph.zig");
 const pb = @import("../base/ledger.zig");
@@ -64,10 +26,6 @@ const Census = census_mod.Census;
 const centerOf = census_mod.centerOf;
 const drawnByEligible = fans_mod.drawnByEligible;
 
-/// A run from the column `dep`, where its ink comes down from the source
-/// side, to the column `arr`, where it goes on toward the target.
-/// `decorated_source`: the run leaves a decorated port, whose departure
-/// cell stays straight, so the band holds the row above the run too.
 pub fn edgeClaim(a: std.mem.Allocator, gap: u32, dep: i32, arr: i32, kind: Kind, end: End, base_ok: bool, decorated_source: bool, edge: sg.EdgeId) error{OutOfMemory}!Claim {
     const edges = try a.alloc(sg.EdgeId, 1);
     edges[0] = edge;
@@ -78,8 +36,6 @@ pub fn edgeClaim(a: std.mem.Allocator, gap: u32, dep: i32, arr: i32, kind: Kind,
     return .{ .gap = gap, .lo = @min(dep, arr), .hi = @max(dep, arr), .height = 1 + @as(u32, @intFromBool(decorated_source)), .kind = kind, .end = end, .base_ok = base_ok, .edges = edges, .stems = stems, .taps = taps };
 }
 
-/// The claims of every edge the forward router draws: a jog per adjacent
-/// offset edge, an entry and an exit run per skip corridor.
 fn edgeClaims(comptime G: type, a: std.mem.Allocator, c: Census, geom: []const G, fans: []const fan_mod.Fan, eligible: []const bool, bundles: pb.RealizedBundles, per_peer: std.AutoHashMapUnmanaged(sg.EdgeId, void), claims: *std.ArrayListUnmanaged(Claim), posts: *std.ArrayListUnmanaged(Post)) error{OutOfMemory}!void {
     for (c.graph.edges) |e| {
         if (e.kind == .invisible or e.from == e.to or c.isReversed(e.id) or c.isPlacement(e)) continue;
@@ -97,10 +53,6 @@ fn edgeClaims(comptime G: type, a: std.mem.Allocator, c: Census, geom: []const G
         const tcol = c.portCol(G, geom, e, .target_entry);
         const virtuals = try rt.collectVirtuals(a, c.lg, e.id);
         if (virtuals.len == 0) {
-            // The jog lands in the gap above the target's sub-row. A
-            // stacked box on the source column makes the route a corridor
-            // beside it: an entry run in the gap above that box, the exit
-            // run from the corridor column.
             const si = c.idx_of.get(e.from) orelse continue;
             const ti = c.idx_of.get(e.to) orelse continue;
             const exit_gap = if (c.flow_down) c.sub.gapAbove(G, geom, ti) orelse continue else target_gap;
@@ -115,8 +67,6 @@ fn edgeClaims(comptime G: type, a: std.mem.Allocator, c: Census, geom: []const G
             } else if (e.arrow_to != .none) try posts.append(a, .{ .gap = exit_gap, .x = tcol });
             continue;
         }
-        // An RL corridor follows its virtuals through the layer bands; only a
-        // flow-down corridor runs in the gaps.
         if (!c.flow_down) continue;
         const corridor = centerOf(G, geom, virtuals[0]);
         if (scol != corridor) try claims.append(a, try edgeClaim(a, sl, scol, corridor, .corridor_entry, .entry, e.arrow_from == .none, e.arrow_from != .none, e.id));
@@ -126,11 +76,6 @@ fn edgeClaims(comptime G: type, a: std.mem.Allocator, c: Census, geom: []const G
     }
 }
 
-/// The bands the cluster bridges paint when a placement edge is reversed:
-/// the bridge climbs back to the upper node and lands on its far face from
-/// below — its head in the node's departure cell, its turn one row below,
-/// from the port column to the corridor at the lower box's centre — a band
-/// under the departure cells, above every run it conflicts with.
 fn returnClaims(comptime G: type, a: std.mem.Allocator, c: Census, geom: []const G, claims: *std.ArrayListUnmanaged(Claim)) error{OutOfMemory}!void {
     for (c.graph.edges) |e| {
         if (!c.isPlacement(e) or e.from == e.to or !c.isReversed(e.id)) continue;
@@ -146,13 +91,6 @@ fn returnClaims(comptime G: type, a: std.mem.Allocator, c: Census, geom: []const
     }
 }
 
-/// The band a bridge leaving a member of this piece paints under it: where
-/// a box of a lower layer stands on the member's column, the bridge's
-/// straight elbow would pierce it and the stitch routes a corridor instead
-/// (`bridge_scene.verticalCorridor`), which jogs in the row under the
-/// member from its port to a column the stitch chooses — a band under the
-/// departure cells, over the whole width, above every run it conflicts
-/// with. The bridge's id is unknown here; the stitch files it in.
 fn departureClaims(comptime G: type, a: std.mem.Allocator, c: Census, geom: []const G, claims: *std.ArrayListUnmanaged(Claim)) error{OutOfMemory}!void {
     var lo: i32 = std.math.maxInt(i32);
     var hi: i32 = std.math.minInt(i32);
@@ -160,16 +98,12 @@ fn departureClaims(comptime G: type, a: std.mem.Allocator, c: Census, geom: []co
         lo = @min(lo, geom[i].x);
         hi = @max(hi, geom[i].x + @as(i32, @intCast(geom[i].w)) - 1);
     };
-    // A node's departures leave by one port and jog on one row
-    // (`bridge_requests.assignJogs` merges bridges sharing a source port):
-    // one band per node.
     for (c.departures, 0..) |node, di| {
         if (std.mem.indexOfScalar(sg.NodeId, c.departures[0..di], node) != null) continue;
         const mi = c.idx_of.get(node) orelse continue;
         const layer = c.node_layer[mi];
         const gap = c.gapBelow(layer) orelse continue;
         const col = centerOf(G, geom, mi);
-        // A box in a lower layer, or stacked under the member in its own.
         var pierced = false;
         for (c.lg.nodes, 0..) |ln, i| {
             if (ln != .real or i == mi) continue;
@@ -181,11 +115,6 @@ fn departureClaims(comptime G: type, a: std.mem.Allocator, c: Census, geom: []co
     }
 }
 
-/// Census every run the routers will paint and pack them. `bases[g]` is the
-/// base spacing of gap g; `plan` the ports the routers will read; `supers`
-/// the cluster stand-ins of a piece whose graph holds them; `departures`
-/// the nodes a cross-border edge leaves. A node's `y` is its offset inside
-/// its layer (zero unless a grid stacked it).
 pub fn buildPiece(
     comptime G: type,
     a: std.mem.Allocator,

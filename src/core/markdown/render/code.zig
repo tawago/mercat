@@ -55,8 +55,6 @@ fn renderPanel(allocator: std.mem.Allocator, builder: *Builder, code: Block.Code
     try builder.appendSpan(.code_fence_banner, "```");
 }
 
-/// Each code line as one row: a single cell of padding, then the highlighted
-/// text with no right fill.
 fn renderPlain(allocator: std.mem.Allocator, builder: *Builder, code: Block.CodeBlock) !void {
     var lines = std.mem.splitScalar(u8, code.code, '\n');
     var first = true;
@@ -175,7 +173,6 @@ fn appendMermaidDebug(allocator: std.mem.Allocator, builder: *Builder, result: m
     try builder.newline();
 }
 
-/// One muted debug row on a fresh line.
 fn appendDebugLine(allocator: std.mem.Allocator, builder: *Builder, comptime fmt: []const u8, args: anytype) !void {
     try builder.newline();
     const line = try std.fmt.allocPrint(allocator, fmt, args);

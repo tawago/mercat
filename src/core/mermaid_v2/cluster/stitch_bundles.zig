@@ -1,10 +1,3 @@
-//! Realized-bundle transport for stitch: piece RealizedBundles records merge
-//! into the one record the merged Sketch carries, rewritten into merged id
-//! spaces — edge ids by the piece's stitch offset, node ids through the
-//! piece's node map, selected-bundle ids renumbered across the merge. Group
-//! and proposal ids stay piece-plan-internal (their plans do not survive
-//! the piece); no merged-sketch consumer dereferences them.
-
 const std = @import("std");
 const sketch = @import("../sketch.zig");
 const sg = @import("../sem_graph.zig");
@@ -13,14 +6,9 @@ const ledger = @import("../base/ledger.zig");
 pub const PieceBundles = struct {
     bundles: ledger.RealizedBundles,
     edge_base: sketch.EdgeId,
-    /// Piece sketch node id -> merged node id (SENTINEL where unmapped).
     node_map: []const sketch.NodeId,
 };
 
-/// Merge piece records in order, then the bridge-scope fragment
-/// (cluster/bridge_plan.zig — already in merged edge ids, no offset).
-/// selected-bundle ids are renumbered to one ascending sequence and every
-/// `.selected` disposition follows its bundle.
 pub fn merge(a: std.mem.Allocator, pieces: []const PieceBundles, bridge: ledger.RealizedBundles) error{OutOfMemory}!ledger.RealizedBundles {
     var selected: std.ArrayListUnmanaged(ledger.SelectedBundle) = .empty;
     var memberships: std.ArrayListUnmanaged(ledger.RealizedEdgeMembership) = .empty;

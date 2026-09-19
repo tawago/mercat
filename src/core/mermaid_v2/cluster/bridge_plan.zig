@@ -1,27 +1,3 @@
-//! cluster/bridge_plan.zig — outer-scope sharing plan for cross-border
-//! edges. A group of crossings sharing one original endpoint is a bundle
-//! candidate exactly like a piece fan; it answers to the same geometry-free
-//! licence tier (base/rail_star.checkLicence, members keyed by ROOT edge
-//! ids), and the decision is RECORDED in the merged plan's memberships:
-//! `licence_refused` when the licence fails, `not_selected` when it holds
-//! but no rail realized. A licensed group whose routed geometry IS a rail
-//! read from its convergent end (bridge_rails.realizedRail: shared stem,
-//! disjoint tails — the source-end shape traced outward from the node at
-//! either end) flips to `selected` with one selected bundle over the
-//! members — on that shape the position-independent authority is inert away
-//! from the shared run. An edge may be selected at both ends (rail
-//! membership at both ends). Any
-//! other group stays independent: a global sanction was tried and measured —
-//! it merges member-vs-member crossings away from the approach into junction
-//! glyphs a third edge then lands on. Groups span CROSSINGS only: absorbing
-//! a piece edge sharing the pivot is licence-permitted but its committed
-//! geometry starts one column over with its arrowhead on the shared face
-//! (decorations refuse transit even among members), so no rail containing
-//! it can exist and the honest record is the crossing-only group.
-//! Group ids are bridge-plan-internal (same rule as piece plans crossing the
-//! stitch); membership edge ids are merged-sketch bridge ids. PURE DATA:
-//! crossings + routed paths in, one RealizedBundles fragment out.
-
 const std = @import("std");
 const sketch = @import("../sketch.zig");
 const sg = @import("../sem_graph.zig");
@@ -29,9 +5,6 @@ const ledger = @import("../base/ledger.zig");
 const bridges = @import("bridges.zig");
 const rails = @import("bridge_rails.zig");
 
-/// Plan the cross-border bundles over the routed bridges. `routed` are the
-/// final merged-sketch bridge paths (ids already offset by `bridge_base`);
-/// `crossings[i]` maps to merged edge id `crossings[i].id + bridge_base`.
 pub fn plan(
     arena: std.mem.Allocator,
     crossings: []const bridges.Crossing,
@@ -96,10 +69,6 @@ pub fn plan(
     };
 }
 
-/// A licensed group realized a rail iff EVERY member routed and the final
-/// paths are one rail read from the convergent end
-/// (bridge_rails.realizedRail): shared stem, disjoint tails — the shape on
-/// which the sanction is inert away from the shared run.
 fn realized(
     arena: std.mem.Allocator,
     crossings: []const bridges.Crossing,
@@ -119,7 +88,6 @@ fn pivotOf(c: bridges.Crossing, direction: ledger.BundleDirection) sg.NodeId {
     return if (direction == .out) c.from else c.to;
 }
 
-/// The geometry-free licence over the group, members keyed by root edge ids.
 fn checkGroup(
     arena: std.mem.Allocator,
     crossings: []const bridges.Crossing,

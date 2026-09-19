@@ -1,8 +1,3 @@
-//! Integration tests for `recurse.zig` that need both `cluster/`- and
-//! `layout/`-zone privileges (split out to keep `recurse.zig` under the
-//! mermaid_v2 500-line cap). Discovered by `recurse.zig`'s own top-level
-//! `test { ... }` block, the established `x.zig` -> `x_test.zig` pattern.
-
 const std = @import("std");
 const prim = @import("prim");
 const sketch = @import("sketch.zig");
@@ -93,8 +88,6 @@ test "nested cluster: outer super-node pad tracks framePadX(scale) across two re
     }
 }
 
-/// Find a specific cluster's recorded direction (by id) in a stitched
-/// Sketch, regardless of nesting depth.
 fn innerLeafDirection(s: sketch.Sketch, cluster_id: sem_graph.ClusterId) ?sem_graph.Direction {
     for (s.clusters) |cf| {
         if (cf.id == cluster_id) return cf.direction;
@@ -102,8 +95,6 @@ fn innerLeafDirection(s: sketch.Sketch, cluster_id: sem_graph.ClusterId) ?sem_gr
     return null;
 }
 
-/// `X --> A`, X top-level, A the sole member of the innermost of `depth`
-/// nested clusters (ids 100, 200, ...; each the only child of the previous).
 fn nestedArrivalGraph(a: std.mem.Allocator, depth: usize) !sem_graph.SemGraph {
     const NS = sem_graph.NodeShape;
     const innermost: sem_graph.ClusterId = @intCast(depth * 100);
@@ -143,7 +134,6 @@ test "an arrival inherited through every nesting level clears the innermost fram
     defer arena.deinit();
     const a = arena.allocator();
 
-    // The arrowhead sits in the arrival cell right above A; the cell above it must be a plain run, never the frame's title row — so the frame A sits in grows one row past its pad, at every depth, and no enclosing frame (which the edge only passes through) grows at all.
     const pad: i32 = @intCast(prim.framePadY(0));
     for ([_]usize{ 1, 2, 3 }) |depth| {
         const graph = try nestedArrivalGraph(a, depth);
@@ -352,12 +342,6 @@ fn twoSiblingFanGraph(
     };
 }
 
-/// Every edge id the merged Sketch names geometrically (`EdgePath.id` plus
-/// each rail `Tap.edge`), asserted pairwise distinct, and returned so a
-/// caller can resolve bundle members against it.
-/// Every edge id has one owner. A member whose tap `continues` is the one
-/// sanctioned repeat: its rail tap (one per rail end) plus its own
-/// `.member_stroke` are one edge's ink, and the first sighting owns it.
 pub fn assertUniqueEdgeIds(a: std.mem.Allocator, s: sketch.Sketch) !std.AutoHashMap(sketch.EdgeId, sketch.NodeId) {
     var owners = std.AutoHashMap(sketch.EdgeId, sketch.NodeId).init(a);
     for (s.edges) |e| {
@@ -373,9 +357,6 @@ pub fn assertUniqueEdgeIds(a: std.mem.Allocator, s: sketch.Sketch) !std.AutoHash
     return owners;
 }
 
-/// The cluster owning `node` in a merged Sketch. A node the Sketch does not
-/// place is a FAILURE, never a skip: silently treating "no such node" as
-/// "top-level" would let a comparison pass by finding nothing to compare.
 pub fn clusterOf(s: sketch.Sketch, node: sketch.NodeId) !?sem_graph.ClusterId {
     for (s.nodes) |p| {
         if (p.id == node) return p.cluster_id;

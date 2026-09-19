@@ -1,25 +1,9 @@
-//! Shape-aware post-processing for node rasterization.
-//!
-//! `raster/nodes.zig` lays down a rectangular perimeter + interior
-//! fill; this pass stamps the shape tag onto every node-owned cell
-//! (so the painter picks shape-specific glyphs: rounded corners,
-//! parenthesis caps, slash diagonals, …) and renders overlays that
-//! can't be expressed via glyph swaps alone (subroutine inner walls).
-//!
-//! Allowed imports: `std`, sketch types, lattice types — same boundary as `raster/nodes.zig`.
-
 const std = @import("std");
 const sketch = @import("../sketch.zig");
 const lattice = @import("../lattice.zig");
 
-// Shape stamping copies the tag straight from sketch into lattice cells with no
-// translation table — sound ONLY because sketch.Shape and lattice.Shape are the
-// SAME type. If they ever diverge, this stamp needs a remap.
 // @guarded-by: node_shapes.zig "shape identity: sketch.Shape and lattice.Shape are the same type"
 
-/// Stamp the shape tag on every node_border / node_interior cell
-/// inside this node's bounding rect. Cells whose occupant doesn't
-/// belong to this node (e.g. clusters, prior edges) are left alone.
 pub fn tagShape(lat: *lattice.Lattice, np: sketch.NodePlacement) void {
     if (np.shape == .rect) return;
     if (!rectFitsLattice(np.rect, lat.*)) return;
@@ -46,14 +30,7 @@ pub fn tagShape(lat: *lattice.Lattice, np: sketch.NodePlacement) void {
     }
 }
 
-/// Subroutine overlay: render the pair of inner vertical walls
-/// `│ … │` two columns in from each side. Only applied when there's
-/// enough horizontal slack (rect width ≥ 5) so we don't overwrite
-/// the label area. // @guarded-by: node_shapes_test.zig "rasterizeSubroutineInner: width 4 draws no inner wall, width 5 does"
-/// The corner where the inner wall meets the top
-/// or bottom edge becomes a `┬` / `┴` tee (the painter picks that
-/// glyph from the standard junction table once we OR the extra
-/// south/north bit into the existing edge cell's neighbours).
+/// @guarded-by: node_shapes_test.zig "rasterizeSubroutineInner: width 4 draws no inner wall, width 5 does"
 pub fn rasterizeSubroutineInner(lat: *lattice.Lattice, np: sketch.NodePlacement) void {
     if (np.shape != .subroutine) return;
     if (!rectFitsLattice(np.rect, lat.*)) return;

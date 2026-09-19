@@ -1,25 +1,7 @@
-//! Lever B — rank-grid reflow for `layout.zig`.
-//!
-//! Generalizes `fan_grid.zig`: reflows an over-wide Sugiyama layer (not
-//! just one fan-OUT pivot's children) into a compact grid — `cols` nodes
-//! per sub-row, stacked downward, lower layers pushed down to make room.
-//! No rail synthesis: edges re-route from nodes' final geom in
-//! `routing.buildEdges`. Pressure-gated to rungs > `natural` (TD-only,
-//! no-op otherwise); conservative single-pass column calc, no fixpoint.
-//! Fan coexistence decided by topology (`layerWrappedByFan`), not the fan list.
-//!
-//! Imports (layout/ zone): only `std` and `sugiyama.zig`.
-
 const std = @import("std");
 const sugiyama = @import("sugiyama.zig");
 const fan_grid = @import("fan_grid.zig");
 
-/// Reflow every over-wide layer of `lg` into a stacked grid. `geom` is
-/// parallel to `lg.nodes`; `G` must expose `x: i32, y: i32, w: u32, h: u32`
-/// fields (NodeGeom).
-///
-/// Mutates `geom` in place. Emits no rails: the repacked nodes' forward
-/// edges re-route from their final positions in `routing.buildEdges`.
 pub fn reflowWideRanks(
     comptime G: type,
     lg: sugiyama.LayeredGraph,
@@ -28,7 +10,7 @@ pub fn reflowWideRanks(
     h_spacing: u32,
     v_spacing: u32,
 ) void {
-    // Walk layers top-to-bottom so later layers see already-shifted geom. // @guarded-by: layout/rank_grid_test.zig "reflowWideRanks: a second wide layer's base_y reflects the first wide layer's shift, and a leaf further down cascades through both"
+    // @guarded-by: layout/rank_grid_test.zig "reflowWideRanks: a second wide layer's base_y reflects the first wide layer's shift, and a leaf further down cascades through both"
     for (lg.layers) |layer| {
         reflowOneLayer(G, lg, geom, budget, h_spacing, v_spacing, layer);
     }
@@ -43,7 +25,7 @@ fn reflowOneLayer(
     v_spacing: u32,
     layer: []const u32,
 ) void {
-    // Gather the REAL nodes of this layer, left-to-right by current x; virtuals carry no box and just ride the downward push. // @guarded-by: layout/rank_grid_test.zig "reflowWideRanks: a same-layer virtual node's (oversized) width never enters the column/packing math and its position is untouched"
+    // @guarded-by: layout/rank_grid_test.zig "reflowWideRanks: a same-layer virtual node's (oversized) width never enters the column/packing math and its position is untouched"
     var reals_buf: [256]u32 = undefined;
     var n_reals: usize = 0;
     for (layer) |idx| {
@@ -63,7 +45,7 @@ fn reflowOneLayer(
 
     sortByX(G, reals, geom);
 
-    // Actual rendered span (leftmost left edge → rightmost right edge) drives the overflow check, not tight packed width. // @guarded-by: layout/rank_grid_test.zig "reflowWideRanks: nodes drifted far apart by centering are compacted even though their tight packed width already fits the budget"
+    // @guarded-by: layout/rank_grid_test.zig "reflowWideRanks: nodes drifted far apart by centering are compacted even though their tight packed width already fits the budget"
     var span_min: i32 = std.math.maxInt(i32);
     var span_max: i32 = std.math.minInt(i32);
     var single_row_w: u32 = 0;
@@ -84,26 +66,24 @@ fn reflowOneLayer(
 
     const n: u32 = @intCast(reals.len);
 
-    // Compaction floor keeps near-budget rows OUT of the compact path (no slack for centering/jogs) so they stack instead. // @guarded-by: layout/rank_grid_test.zig "reflowWideRanks: a row exactly at the compact_floor boundary compacts to one row; one unit past it stacks into a grid"
+    // @guarded-by: layout/rank_grid_test.zig "reflowWideRanks: a row exactly at the compact_floor boundary compacts to one row; one unit past it stacks into a grid"
     const compact_floor: u32 = budget - budget / 8;
     if (single_row_w <= compact_floor) {
         compactSingleRow(G, reals, geom, h_spacing);
         return;
     }
 
-    // Otherwise stack into a grid: conservative widest-node-per-slot column count, forced to leave >=2 rows. // @guarded-by: layout/rank_grid_test.zig "reflowWideRanks: the widest-node column formula still forces >=2 rows even when the naive per-node-count formula would leave one"
+    // @guarded-by: layout/rank_grid_test.zig "reflowWideRanks: the widest-node column formula still forces >=2 rows even when the naive per-node-count formula would leave one"
     const slot_w = max_w + h_spacing;
     var cols: u32 = if (slot_w == 0) 1 else (budget + h_spacing) / slot_w;
     if (cols == 0) cols = 1;
     if (cols >= n) cols = n - 1;
     const rows: u32 = (n + cols - 1) / cols;
 
-    // Vertical step between grid sub-rows: tallest node + the grid gap (fan_grid.rowStep: at least three rows, so a lower sub-row's arrival can bend outside an upper sub-row's departure cell). // @guarded-by: layout/rank_grid_test.zig "reflowWideRanks: row_step (max_h + the grid gap) keeps a tall sub-row three rows clear of the row below it"
+    // @guarded-by: layout/rank_grid_test.zig "reflowWideRanks: row_step (max_h + the grid gap) keeps a tall sub-row three rows clear of the row below it"
     const row_step = fan_grid.rowStep(max_h, v_spacing);
 
-    // Push every node strictly below base_y (real or virtual, incl. same-layer virtuals) down by added_h. @guarded-by: layout/rank_grid_test.zig "rank-grid pushes only strictly-below nodes by added_h; same-layer and above nodes are untouched"
-    // The grid starts at the layer's top, not at whichever real sorts first
-    // by x — a fan wrap may already have stacked that one lower.
+    // @guarded-by: layout/rank_grid_test.zig "rank-grid pushes only strictly-below nodes by added_h; same-layer and above nodes are untouched"
     var base_y: i32 = std.math.maxInt(i32);
     for (reals) |idx| base_y = @min(base_y, geom[idx].y);
     const added_h: i32 = @as(i32, @intCast(rows - 1)) * row_step;
@@ -138,36 +118,18 @@ fn reflowOneLayer(
     }
 }
 
-/// True iff this layer is a single-pivot "fan rank" already governed by the
-/// fan machinery / budget-ladder rotation, so rank-gridding it would fight
-/// that machinery and change otherwise-fitting seeds. Two structural cases,
-/// both keyed only on forward-edge topology (never on node identity):
-///
-///   (a) every real node converges to a SINGLE common forward CHILD — a pure
-///       fan-IN rank; the budget ladder owns it (it rotates such a fan-IN to
-///       fit). E.g. flowchart_fanin's source rank (4 roots → one Confirm).
-///   (b) every real node shares a SINGLE common forward PARENT — a pure
-///       single-pivot fan-OUT, which `wrapWideFanOut` already owns. E.g. the
-///       spoke rank of flowchart_hub_and_spoke.
-///
-/// A genuine MULTI-pivot rank — whose nodes are fed by, or feed into, several
-/// independent neighbours (multilayer_dag's mid/bottom ranks, frenzy's
-/// rank-2, microservices' 4 disjoint service→DB chains) — fails both tests
-/// and falls through to rank-grid. That is precisely the case
-/// `wrapWideFanOut` cannot handle.
 fn layerWrappedByFan(
     lg: sugiyama.LayeredGraph,
     reals: []const u32,
 ) bool {
-    // Disconnected isolates (no forward edges at all) are exempt from rank-grid, left as a no-op to Lever A (component-packing). // @guarded-by: layout/rank_grid_test.zig "reflowWideRanks: two edge-free sibling nodes (all-roots AND all-leaves) are left untouched"
+    // @guarded-by: layout/rank_grid_test.zig "reflowWideRanks: two edge-free sibling nodes (all-roots AND all-leaves) are left untouched"
     if (allRoots(lg, reals) and allLeaves(lg, reals)) return true;
-    // (a) pure fan-IN source rank: ROOT + converges to a single common forward CHILD; the "all roots" qualifier is essential since a fed-from-above multi-layer rank is genuinely wide. // @guarded-by: layout/rank_grid_test.zig "reflowWideRanks: a rank fed from above that ALSO converges to one child is not exempted as pure fan-IN — it still grids"
+    // @guarded-by: layout/rank_grid_test.zig "reflowWideRanks: a rank fed from above that ALSO converges to one child is not exempted as pure fan-IN — it still grids"
     if (allRoots(lg, reals) and sharedCommonNeighbour(lg, reals, .child)) return true;
     if (allLeaves(lg, reals) and sharedCommonNeighbour(lg, reals, .parent)) return true;
     return false;
 }
 
-/// True iff no node in `reals` has an incoming forward (non-reversed) edge.
 fn allRoots(lg: sugiyama.LayeredGraph, reals: []const u32) bool {
     for (reals) |idx| {
         for (lg.edges) |e| {
@@ -178,7 +140,6 @@ fn allRoots(lg: sugiyama.LayeredGraph, reals: []const u32) bool {
     return true;
 }
 
-/// True iff no node in `reals` has an outgoing forward (non-reversed) edge.
 fn allLeaves(lg: sugiyama.LayeredGraph, reals: []const u32) bool {
     for (reals) |idx| {
         for (lg.edges) |e| {
@@ -191,10 +152,6 @@ fn allLeaves(lg: sugiyama.LayeredGraph, reals: []const u32) bool {
 
 const Side = enum { parent, child };
 
-/// True iff every node in `reals` has exactly one distinct forward neighbour
-/// on `side` (parent = source of an incoming edge; child = target of an
-/// outgoing edge) AND that neighbour is the SAME single node for all of them.
-/// A node with zero or 2+ distinct such neighbours breaks the property.
 fn sharedCommonNeighbour(lg: sugiyama.LayeredGraph, reals: []const u32, side: Side) bool {
     var common: ?u32 = null;
     for (reals) |idx| {
@@ -206,8 +163,6 @@ fn sharedCommonNeighbour(lg: sugiyama.LayeredGraph, reals: []const u32, side: Si
     return common != null;
 }
 
-/// If `idx` has exactly one distinct forward neighbour on `side`, return it;
-/// else null (zero, or 2+ distinct).
 fn soleForwardNeighbour(lg: sugiyama.LayeredGraph, idx: u32, side: Side) ?u32 {
     var found: ?u32 = null;
     for (lg.edges) |e| {
@@ -223,9 +178,6 @@ fn soleForwardNeighbour(lg: sugiyama.LayeredGraph, idx: u32, side: Side) ?u32 {
     return found;
 }
 
-/// Pack `reals` (already sorted L→R) into a single tight row, centered on the
-/// span's current center. Used when a layer overflows by positional spread
-/// rather than breadth: its boxes fit in one row, they were just drifted apart.
 fn compactSingleRow(comptime G: type, reals: []const u32, geom: []G, h_spacing: u32) void {
     var rw: u32 = 0;
     for (reals, 0..) |idx, i| {
@@ -251,8 +203,6 @@ fn sortByX(comptime G: type, idxs: []u32, geom: []const G) void {
     std.mem.sort(u32, idxs, Ctx{ .g = geom }, Ctx.lt);
 }
 
-/// Center x of the span covered by `reals` (leftmost left edge → rightmost
-/// right edge), in the same coordinate frame as `geom`.
 fn layerCenterX(comptime G: type, reals: []const u32, geom: []const G) i32 {
     var min_x: i32 = std.math.maxInt(i32);
     var max_x: i32 = std.math.minInt(i32);

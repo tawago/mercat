@@ -1,18 +1,3 @@
-//! Unit tests for THE HEAD SLIDE (`edges_port.slideHead`) and the shape it
-//! produces end to end through `edges.rasterizeEdges`.
-//!
-//! An arrowhead cell is TERMINAL: its base side is fed by its own collinear
-//! run and its TIP side must abut the attachment directly. So a decorated
-//! end that stops one cell short of the wall (the 1-cell port reprieve)
-//! must not paint that gap behind its head — `├─◀` puts run ink on the tip
-//! side, which the contract forbids. The head slides FORWARD onto the gap
-//! instead, and the cell it vacates keeps the run ink the walk already
-//! wrote: `│◀────┐`.
-//!
-//! Split from `edges_port_test.zig`/`edges_test.zig`, both at the 500-line
-//! cap. Imports: `std`, `sketch.zig`, `lattice.zig`, `edges.zig`,
-//! `edges_port.zig`.
-
 const std = @import("std");
 const sketch = @import("../sketch.zig");
 const lattice = @import("../lattice.zig");
@@ -36,8 +21,6 @@ fn putBorder(lat: *lattice.Lattice, x: u32, y: u32, role: lattice.BorderRole, ma
     };
 }
 
-/// The four faces, as (travel toward the wall, border role, wall run mask).
-/// A vertical face is reached along the vertical axis and carries {e,w}.
 const Face = struct {
     dir: lattice.Dir4,
     role: lattice.BorderRole,
@@ -51,7 +34,6 @@ const faces = [_]Face{
     .{ .dir = .north, .role = .edge_s, .mask = .{ .e = true, .w = true } },
 };
 
-/// Walk `n` steps from (x, y) along `d` on a 7×7 grid.
 fn walk(x: i32, y: i32, d: lattice.Dir4, n: i32) sketch.Point {
     return switch (d) {
         .north => .{ .x = x, .y = y - n },

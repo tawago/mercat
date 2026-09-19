@@ -1,15 +1,3 @@
-//! Lane-packing primitives for fitting several parallel runs (e.g. back-edge
-//! rails, bridge tracks) into a shared cross-axis "gutter". Re-exports the
-//! pure interval-packer core (`LaneClaim`, `assign`) from
-//! `../base/lanes.zig`, so cluster/ can use it too (the linter forbids
-//! cluster/ → layout/ imports); adds the placement-aware obstacle search
-//! (`runClear`, `clearRunBase`), which needs sketch geometry and so stays
-//! here. Axis-parameterized via `horizontal`; makes no post-`applyDirection`
-//! assumptions, so usable both pre- and post-direction-transform.
-//!
-//! Imports (layout/ zone): `std`, `../base/lanes.zig`, `../sem_graph.zig`,
-//! `../sketch.zig`, `routing_polyline.zig`.
-
 const std = @import("std");
 const sg = @import("../sem_graph.zig");
 const sketch = @import("../sketch.zig");
@@ -19,13 +7,6 @@ const lanes = @import("../base/lanes.zig");
 pub const LaneClaim = lanes.LaneClaim;
 pub const assign = lanes.assign;
 
-/// Inflate `r` by `pad + 1` on the CROSS axis only (the axis the run's
-/// position lives on), leaving the flow axis untouched. With the inflation,
-/// the first cross position a run can occupy clear of `r` equals
-/// `r.far_edge + pad`.
-///
-/// `horizontal` true  → run is a y-row; cross axis = y (inflate .y/.h).
-/// `horizontal` false → run is an x-column; cross axis = x (inflate .x/.w).
 fn inflateCross(horizontal: bool, r: sketch.Rect, pad: i32) sketch.Rect {
     const pad2: i32 = 2 * (pad + 1);
     if (horizontal) {
@@ -47,10 +28,6 @@ fn inflateCross(horizontal: bool, r: sketch.Rect, pad: i32) sketch.Rect {
     }
 }
 
-/// True iff a straight run at cross position `c` over the flow interval
-/// `[lo, hi]` is CLEAR — that is, it intrudes into the interior of NO node box
-/// — EXCLUDING the two endpoint boxes — after cross-axis inflation by `pad + 1`.
-/// Returns false on the first intrusion.
 pub fn runClear(
     horizontal: bool,
     c: i32,
@@ -73,11 +50,6 @@ pub fn runClear(
     return true;
 }
 
-/// Search outward (increasing cross coordinate) from just past the two
-/// endpoints' own far edge for the first clear run cross-position. The run's
-/// flow interval spans the two endpoints' centre lines. Returns null if
-/// either endpoint placement is missing (caller falls back to its own
-/// conservative base).
 pub fn clearRunBase(
     horizontal: bool,
     placements: []const sketch.NodePlacement,

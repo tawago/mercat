@@ -1,10 +1,3 @@
-//! Unit tests for `base/types.zig`.
-//!
-//! Split out of `base/types.zig` (the established `x.zig` → `x_test.zig` pattern:
-//! see `layout.zig` → `layout/layout_test.zig`, `layout/fan.zig` →
-//! `fan_test.zig`) so the primitive module stays under the stricter
-//! mermaid_v2 500-line cap with room for new shared helpers.
-
 const std = @import("std");
 const prim = @import("types.zig");
 
@@ -156,23 +149,15 @@ test "prim: wrapToWidth hard-splits a spaceless mega-word, bounds every line" {
 }
 
 test "prim: displayWidth measures graphemes the way a terminal shows them" {
-    // An emoji-presentation scalar is two columns; the range copy that
-    // used to live here said one, and every emoji box came out a column
-    // narrow.
     try std.testing.expectEqual(@as(u32, 2), displayWidth("\u{1F680}"));
     try std.testing.expectEqual(@as(u32, 9), displayWidth("\u{1F680} Launch"));
     try std.testing.expectEqual(@as(u32, 2), displayWidth("\u{2705}"));
-    // A base plus a combining mark is one grapheme, one column.
     try std.testing.expectEqual(@as(u32, 4), displayWidth("cafe\u{0301}"));
     try std.testing.expectEqual(@as(u32, 4), displayWidth("café"));
     try std.testing.expectEqual(@as(u32, 5), displayWidth("nai\u{0308}ve"));
-    // VS16 promotes a text-default heart to emoji presentation.
     try std.testing.expectEqual(@as(u32, 2), displayWidth("\u{2764}\u{FE0F}"));
-    // A ZWJ family is one grapheme, two columns.
     try std.testing.expectEqual(@as(u32, 2), displayWidth("\u{1F468}\u{200D}\u{1F469}\u{200D}\u{1F467}"));
-    // A regional-indicator pair is one flag, two columns.
     try std.testing.expectEqual(@as(u32, 2), displayWidth("\u{1F1EF}\u{1F1F5}"));
-    // A skin-tone modifier rides its base.
     try std.testing.expectEqual(@as(u32, 2), displayWidth("\u{1F44D}\u{1F3FD}"));
 }
 
@@ -186,19 +171,14 @@ test "prim: codepointWidth agrees with the authority for a scalar in isolation" 
 }
 
 test "prim: truncateToWidth never splits inside a grapheme" {
-    // The accent stays with its base: at width 3 the whole "e\u{0301}"
-    // grapheme is out, never a bare "e" with its mark dropped.
     try std.testing.expectEqualStrings("caf", truncateToWidth("cafe\u{0301}", 3));
     try std.testing.expectEqualStrings("cafe\u{0301}", truncateToWidth("cafe\u{0301}", 4));
-    // A two-column emoji does not fit in one column, whole or in part.
     try std.testing.expectEqualStrings("", truncateToWidth("\u{1F680}x", 1));
     try std.testing.expectEqualStrings("\u{1F680}", truncateToWidth("\u{1F680}x", 2));
-    // A ZWJ family and a flag move as one unit.
     const family = "\u{1F468}\u{200D}\u{1F469}\u{200D}\u{1F467}";
     try std.testing.expectEqualStrings("", truncateToWidth(family ++ "!", 1));
     try std.testing.expectEqualStrings(family, truncateToWidth(family ++ "!", 2));
     try std.testing.expectEqualStrings("", truncateToWidth("\u{1F1EF}\u{1F1F5}", 1));
-    // VS16 travels with its base.
     try std.testing.expectEqualStrings("", truncateToWidth("\u{2764}\u{FE0F}", 1));
     try std.testing.expectEqualStrings("\u{2764}\u{FE0F}", truncateToWidth("\u{2764}\u{FE0F}", 2));
     for ([_][]const u8{ "cafe\u{0301}", family, "\u{1F1EF}\u{1F1F5}", "\u{2764}\u{FE0F}" }) |text| {
@@ -218,7 +198,6 @@ test "prim: wrapToWidth hard-splits a word on grapheme boundaries" {
     try std.testing.expectEqualStrings("e\u{0301}e\u{0301}", lines[0]);
     try std.testing.expectEqualStrings("e\u{0301}", lines[1]);
 
-    // A single grapheme wider than the cap still moves whole.
     const family = "\u{1F468}\u{200D}\u{1F469}\u{200D}\u{1F467}";
     const one = try wrapToWidth(a, family ++ family, 1);
     defer a.free(one);

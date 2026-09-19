@@ -1,12 +1,3 @@
-//! Unit tests for the East-Asian-Width label geometry: `labels.cellSpan`
-//! / `prepare`'s cell count and the three writers that advance by it (node
-//! label, cluster title, edge/tap label).
-//!
-//! The acceptance rail these pin is ASCII byte-identity: every ASCII
-//! codepoint spans exactly one cell, so every cursor advance and every
-//! free-space reservation is bit-for-bit what it was before continuation
-//! cells existed. Split out of labels_test.zig to stay under the cap.
-
 const std = @import("std");
 const prim = @import("prim");
 const sketch = @import("../sketch.zig");
@@ -16,8 +7,6 @@ const lw = @import("labels_write.zig");
 
 const testing = std.testing;
 
-/// Lattice cells `text` claims, as `prepare` resolves them — the footprint
-/// every writer and free-space probe reserves by.
 fn cellSpanOf(text: []const u8) !u32 {
     var arena = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
@@ -282,13 +271,10 @@ test "blank-flank rule treats a continuation as a label neighbour" {
     try testing.expectEqual(@as(u32, 1), free_report.placed);
 }
 
-/// The interned grapheme a head cell refers to, or null for a scalar head.
 fn glyphAt(lat: lattice.Lattice, x: u32, y: u32) ?lattice.Glyph {
     return lat.glyphOf(cellChar(lat, x, y));
 }
 
-/// One rect node (id 1) with the given label lines, as a one-element
-/// array the sketch can borrow.
 fn nodeSketch(rect: sketch.Rect, lines: []const []const u8) struct { nodes: [1]sketch.NodePlacement } {
     return .{ .nodes = .{.{
         .id = 1,
@@ -309,8 +295,6 @@ test "a prepared label counts graphemes: a combining mark claims no cell, an emo
     for ([_][]const u8{ "\u{1F680} Launch", "\u{2705} Done", "cafe\u{0301}", "nai\u{0308}ve", "\u{1F44D}\u{1F3FD} OK" }) |s| {
         try testing.expectEqual(prim.displayWidth(s), try cellSpanOf(s));
     }
-    // Text the strict measure rejects (a malformed byte) is counted per
-    // codepoint, one cell per bad byte — exactly as prim.displayWidth does.
     try testing.expectEqual(prim.displayWidth("a\xffb"), try cellSpanOf("a\xffb"));
     try testing.expectEqual(@as(u32, 3), try cellSpanOf("a\xffb"));
 }
@@ -331,16 +315,12 @@ test "emoji node label writes head + continuation and is charged two columns" {
     try testing.expectEqual(@as(u32, 1), report.placed);
     try testing.expectEqual(@as(usize, 0), report.diagnostics.len);
 
-    // inner width 6, label 5 columns: pad 0, so the rocket heads cell 1.
     try testing.expectEqual(@as(u21, 0x1F680), cellChar(lat, 1, 1));
     try testing.expect(isCont(lat, 2, 1));
     try testing.expectEqual(@as(u21, ' '), cellChar(lat, 3, 1));
     try testing.expectEqual(@as(u21, 'G'), cellChar(lat, 4, 1));
     try testing.expectEqual(@as(u21, 'o'), cellChar(lat, 5, 1));
-    // A single-codepoint grapheme is stored as the scalar: no table entry.
     try testing.expectEqual(@as(usize, 0), lat.glyphs.len);
-    // The head is charged two columns, as the painter will paint it
-    // (paint.zig "paint: a wide label glyph plus its continuation paints two columns from two cells").
     try testing.expectEqual(@as(u32, 2), prim.codepointWidth(cellChar(lat, 1, 1)));
 }
 
@@ -359,7 +339,6 @@ test "a decomposed accent occupies one cell per grapheme and interns base plus m
     const report = try labels.rasterizeLabels(alloc, &lat, s, null);
     try testing.expectEqual(@as(u32, 1), report.placed);
 
-    // Four cells: c a f é — the accent rides the e, claiming no cell.
     try testing.expectEqual(@as(u21, 'c'), cellChar(lat, 1, 1));
     try testing.expectEqual(@as(u21, 'a'), cellChar(lat, 2, 1));
     try testing.expectEqual(@as(u21, 'f'), cellChar(lat, 3, 1));
@@ -428,7 +407,6 @@ test "the interned table copies grapheme bytes: the label string may die before 
     defer arena.deinit();
     const alloc = arena.allocator();
 
-    // The label lives in its own buffer, scribbled over after the write.
     var label_buf: [8]u8 = undefined;
     @memcpy(label_buf[0..5], "e\u{0301}ab");
     const label: []const u8 = label_buf[0..5];
@@ -452,8 +430,6 @@ test "an edge label with a decomposed accent and a line break claims the same ce
     defer arena.deinit();
     const alloc = arena.allocator();
 
-    // The sentinel is a control; it must not push the whole label onto a
-    // per-codepoint walk that would give the combining mark its own cell.
     const with_break = "e\u{0301}" ++ [_]u8{prim.LINE_BREAK} ++ "x";
     const plain = "e\u{0301} x";
     try testing.expectEqual(try cellSpanOf(plain), try cellSpanOf(with_break));

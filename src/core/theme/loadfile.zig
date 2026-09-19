@@ -1,28 +1,9 @@
-//! Stage S1: nested-TOML `[theme.<slot>]` raw table parsing + user theme-file
-//! discovery/loading. This module is deliberately "dumb": it collects RAW
-//! string key/value pairs per slot with no color/enum interpretation. Typed
-//! interpretation (parseColor, glyph validation, extends folding) is S3's job
-//! (`theme/resolve.zig`). Keeping the parser interpretation-free keeps it
-//! trivially testable and makes the inline-config path and the user-file path
-//! share exactly one storage + merge code path (`RawThemeBuilder.set`).
-
 const std = @import("std");
 
-/// One raw, uninterpreted `key = value` pair (both strings owned by the
-/// containing builder's allocator).
 pub const RawKV = struct { key: []const u8, value: []const u8 };
 
-/// A growable accumulator for `[theme]` / `[theme.<slot>]` tables — the one
-/// storage form for raw theme data. The inline config path (`config.zig`)
-/// feeds this incrementally line-by-line across multiple `applyTomlLike` calls
-/// (default text then user config), and the file path (`parseThemeTables`)
-/// fills one from a whole file. Consumers read it through the borrowed
-/// `RawThemeTables` view (`view`). `set` implements the locked merge policy:
-/// last-wins per key within a slot.
 pub const RawThemeBuilder = struct {
-    /// Top-level `[theme]` keys (e.g. `extends`, `palette`).
     top: std.ArrayList(RawKV) = .empty,
-    /// One entry per distinct `[theme.<slot>]` table.
     slots: std.ArrayList(Slot) = .empty,
 
     pub const Slot = struct {
@@ -39,8 +20,6 @@ pub const RawThemeBuilder = struct {
         self.slots.deinit(alloc);
     }
 
-    /// Set `key = value` under `slot` (null => top-level `[theme]`). Last-wins:
-    /// a repeated key overwrites the earlier value in place.
     pub fn set(
         self: *RawThemeBuilder,
         alloc: std.mem.Allocator,
@@ -60,17 +39,11 @@ pub const RawThemeBuilder = struct {
         return &self.slots.items[self.slots.items.len - 1].kvs;
     }
 
-    /// Borrow the current contents as an immutable `RawThemeTables` view
-    /// (allocation-free, no ownership transfer). The view only stays valid
-    /// until the next `set` (which may reallocate the lists), and the strings
-    /// it references live exactly as long as the builder.
     pub fn view(self: *const RawThemeBuilder) RawThemeTables {
         return .{ .top = self.top.items, .slots = self.slots.items };
     }
 };
 
-/// Immutable, borrowed view of a `RawThemeBuilder` (the resolver-facing
-/// handoff form). Owns nothing — per-slot KVs are read via `slot.kvs.items`.
 pub const RawThemeTables = struct {
     top: []const RawKV,
     slots: []const RawThemeBuilder.Slot,
@@ -99,9 +72,6 @@ fn setKv(alloc: std.mem.Allocator, list: *std.ArrayList(RawKV), key: []const u8,
     try list.append(alloc, .{ .key = k, .value = v });
 }
 
-/// Route a single `[theme.<subtable>]` key/value into the builder. `subtable`
-/// == "" targets the top-level `[theme]` table. Shared by the inline-config
-/// path (`config.zig`) and the file path so both use one merge code path.
 pub fn assignThemeValue(
     alloc: std.mem.Allocator,
     builder: *RawThemeBuilder,
@@ -119,12 +89,6 @@ pub fn assignThemeValue(
     }
 }
 
-/// Parse a whole theme-file text into a raw builder (read it via `view`).
-/// Only `[theme]` / `[theme.<slot>]` sections are collected; any other section
-/// is ignored (a user theme file is expected to contain only theme tables, but
-/// non-theme noise is tolerated rather than rejected — validation is S3's
-/// job). The caller owns the result: `deinit` it, or parse into an arena (the
-/// production path — `Registry.loadUserFile` — does the latter).
 pub fn parseThemeTables(alloc: std.mem.Allocator, text: []const u8) !RawThemeBuilder {
     var builder = RawThemeBuilder{};
     errdefer builder.deinit(alloc);
@@ -140,14 +104,6 @@ fn applyThemeLines(alloc: std.mem.Allocator, builder: *RawThemeBuilder, text: []
     }
 }
 
-/// The one line/section walker shared by the inline-config path (`config.zig`)
-/// and the theme-file path (`applyThemeLines`). It walks TOML-like text and,
-/// for each `key = value` line, yields the key/value alongside the current
-/// section — both raw (`section`) and split into `(table, subtable)`. Blank
-/// lines, `#` comment lines, and `[section]` / `[table.subtable]` headers are
-/// consumed silently, as is an inline `# ...` trailer on a value line. Values
-/// are otherwise returned verbatim (quotes intact); consumers
-/// decode/strip as they see fit — this scanner is decode-free.
 pub const LineScanner = struct {
     lines: std.mem.SplitIterator(u8, .scalar),
     section: []const u8,
@@ -155,11 +111,8 @@ pub const LineScanner = struct {
     subtable: []const u8,
 
     pub const Event = struct {
-        /// The full current section header text (undotted or `table.subtable`).
         section: []const u8,
-        /// `section` split on its first `.` — the part before the dot.
         table: []const u8,
-        /// `section` split on its first `.` — the part after it (else "").
         subtable: []const u8,
         key: []const u8,
         value: []const u8,
@@ -193,10 +146,6 @@ pub const LineScanner = struct {
     }
 };
 
-/// Open a `LineScanner` over `text`, starting in `initial_section` (before any
-/// header is seen). Pass "" for the config path (document-root keys have no
-/// section); pass "theme" for the theme-file path (a theme file's root keys
-/// belong to the implicit top-level `[theme]` table).
 pub fn scanLines(text: []const u8, initial_section: []const u8) LineScanner {
     const split = splitSection(initial_section);
     return .{
@@ -207,8 +156,6 @@ pub fn scanLines(text: []const u8, initial_section: []const u8) LineScanner {
     };
 }
 
-/// Split a section header on its first `.` into `(table, subtable)`. Undotted
-/// sections yield an empty subtable, preserving flat behavior.
 pub fn splitSection(section: []const u8) struct { table: []const u8, subtable: []const u8 } {
     if (std.mem.indexOfScalar(u8, section, '.')) |dot| {
         return .{ .table = section[0..dot], .subtable = section[dot + 1 ..] };
@@ -216,11 +163,6 @@ pub fn splitSection(section: []const u8) struct { table: []const u8, subtable: [
     return .{ .table = section, .subtable = "" };
 }
 
-/// Strip an inline TOML comment from an already-trimmed value: a `#` outside a
-/// double-quoted string begins a comment; inside quotes it is literal (so
-/// `heading_prefix = "#"` keeps its glyph). Quote tracking is escape-aware — a
-/// `\"` inside a string does not end the string and expose a following `#`.
-/// Whitespace between the value and the comment is trimmed off.
 pub fn stripInlineComment(value: []const u8) []const u8 {
     var in_quotes = false;
     var i: usize = 0;
@@ -239,13 +181,6 @@ pub fn stripInlineComment(value: []const u8) []const u8 {
     return value;
 }
 
-/// Parse a TOML inline array of strings (`["•", "◦", "‣"]`) into an owned slice
-/// of element strings (each element is duped into `alloc`, as is the outer
-/// slice). Returns null when `value` is not bracketed, so callers can fall back
-/// to scalar handling. Splitting is quote- and escape-aware (the same rules
-/// `stripInlineComment` uses), so an element may contain a comma or a `#`;
-/// each element is decoded with `decodeQuotedString` (quotes stripped, escapes
-/// resolved). Empty elements (a trailing comma, `""`, or `[]`) are skipped.
 pub fn parseInlineArray(alloc: std.mem.Allocator, value: []const u8) !?[][]const u8 {
     const trimmed = std.mem.trim(u8, value, " \t");
     if (trimmed.len < 2 or trimmed[0] != '[' or trimmed[trimmed.len - 1] != ']') return null;
@@ -291,13 +226,6 @@ pub fn stripQuotes(value: []const u8) []const u8 {
     return value;
 }
 
-/// Strip surrounding quotes and decode the basic TOML escape sequences a string
-/// value may contain: \" \\ \n \t \r \uXXXX \UXXXXXXXX. Returns freshly-owned
-/// bytes the caller must free. A malformed or unknown escape is kept verbatim
-/// (backslash preserved) — this is a deliberately small TOML-like parser, not a
-/// validator. Decoded output is never longer than the input (every escape
-/// shrinks: \n's two chars -> 1 byte, \uXXXX's six -> at most 3 UTF-8 bytes,
-/// \U's ten -> at most 4), so a single input-sized buffer always suffices.
 pub fn decodeQuotedString(allocator: std.mem.Allocator, raw: []const u8) ![]u8 {
     const inner = stripQuotes(raw);
     var buf = try allocator.alloc(u8, inner.len);
@@ -363,19 +291,12 @@ pub fn decodeQuotedString(allocator: std.mem.Allocator, raw: []const u8) ![]u8 {
     return allocator.realloc(buf, len);
 }
 
-/// Decode a `\uXXXX`/`\UXXXXXXXX` escape at the start of `seq` (which points at
-/// the leading backslash), writing the UTF-8 encoding into `out`. `digits` is 4
-/// or 8. Returns the number of bytes written, or null if the escape is
-/// truncated, not valid hex, or not a valid Unicode scalar.
 fn decodeUnicodeEscape(seq: []const u8, digits: usize, out: []u8) ?usize {
     if (seq.len < 2 + digits) return null;
     const code = std.fmt.parseInt(u21, seq[2 .. 2 + digits], 16) catch return null;
     return std.unicode.utf8Encode(code, out) catch null;
 }
 
-/// Resolve the user theme directory: `$XDG_CONFIG_HOME/mercat/themes` else
-/// `$HOME/.config/mercat/themes`. Returns null when neither env var is set.
-/// Caller owns the returned path.
 pub fn resolveThemeDir(alloc: std.mem.Allocator) !?[]u8 {
     if (std.process.getEnvVarOwned(alloc, "XDG_CONFIG_HOME")) |xdg| {
         defer alloc.free(xdg);
@@ -390,9 +311,6 @@ pub fn resolveThemeDir(alloc: std.mem.Allocator) !?[]u8 {
     return null;
 }
 
-/// Read + parse `<dir>/<name>.toml` into a raw builder (see
-/// `parseThemeTables` for ownership). Returns null when the file does not
-/// exist; other IO errors propagate.
 pub fn readThemeFile(alloc: std.mem.Allocator, dir: []const u8, name: []const u8) !?RawThemeBuilder {
     const filename = try std.fmt.allocPrint(alloc, "{s}.toml", .{name});
     defer alloc.free(filename);

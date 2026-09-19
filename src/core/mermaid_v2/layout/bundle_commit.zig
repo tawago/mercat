@@ -1,20 +1,11 @@
-//! Pre-sizing realization commitment for the flat layout path.
-
 const std = @import("std");
 const pb = @import("../base/ledger.zig");
 const rc = @import("../base/rail_closure.zig");
 const sg = @import("../sem_graph.zig");
 const permit_mod = @import("../ledger/permits.zig");
 
-/// The closure licence's report-only inventory (base/ledger.zig). One type for
-/// every producer — the flat commitment here and the clustered lane pass —
-/// so the shipped Sketch carries a single set of counts.
 pub const Report = pb.ClosureCounts;
 
-/// The plan THIS graph's layout realizes against: the root plan when it is
-/// flat, a fresh piece-scoped plan (piece-local edge ids) for a cluster-free
-/// piece of a clustered original, and null when no plan applies (no permits,
-/// clusters present — authored or motif-pack synthetic — or invalid piece).
 pub fn effectivePlan(a: std.mem.Allocator, graph: sg.SemGraph, root: ?*const pb.BundlePermits) error{OutOfMemory}!?pb.BundlePermits {
     const rp = root orelse return null;
     if (graph.clusters.len != 0) return null;
@@ -71,12 +62,6 @@ pub fn buildReported(a: std.mem.Allocator, graph: sg.SemGraph, permits: ?*const 
     try keepOneNearRail(a, graph, plan, eff_of, verdicts, closure_refused, long_edges);
     try reserve(a, graph, plan, eff_of, verdicts, closure_refused, report);
 
-    // Phase 2b — discharge. `drawn` is the union of the SURVIVING rails' own
-    // members: such a declaration already carries ink, so it LICENSES the pair
-    // (the crossbar states nothing the page does not) without handing over its
-    // rendering a second time. Every other backing declaration is discharged —
-    // the crossbar between its two taps IS its rendering — and, being spent,
-    // backs nothing else plan-wide.
     // @guarded-by: bundle_commit_test.zig "a clique whose pair edges are other rails' members keeps a rail"
     var discharged: std.ArrayListUnmanaged(pb.EdgeId) = .empty;
     var drawn: std.ArrayListUnmanaged(pb.EdgeId) = .empty;
@@ -125,16 +110,6 @@ pub fn buildReported(a: std.mem.Allocator, graph: sg.SemGraph, permits: ?*const 
     };
 }
 
-/// Phase 4 — the two-sided fusion licence. Selected SAME-direction rails
-/// over ONE AND THE SAME leaf set form a candidate union (a mere shared leaf
-/// would chain two disjoint complete unions into one that refuses); the union
-/// is licensed iff every member edge carries its one-way head at the union's
-/// TARGET side (a head at the source stops a trace only in the direction a
-/// fused rail reads backwards), all members agree on stroke kind and head
-/// glyphs, and the distinct declared pairs are EXACTLY srcs x tgts with both
-/// sides plural — then the rails' shared rail asserts only cross pairs the
-/// source declares, and its ink is one bundle. Keyed on the plan and the
-/// declared edges only.
 /// @guarded-by: bundle_commit_test.zig "a complete bipartite of selected arrivals licenses one fused union"
 fn fusionLicence(a: std.mem.Allocator, graph: sg.SemGraph, groups: []const pb.CandidateBundle, selected: []const pb.SelectedBundle) error{OutOfMemory}![]const []const pb.EdgeId {
     const n = selected.len;
@@ -234,30 +209,6 @@ fn uniteBundles(parent: []usize, i: usize, j: usize) void {
     if (ri != rj) parent[@max(ri, rj)] = @min(ri, rj);
 }
 
-/// The plan-wide clause of the closure licence: an implied leaf pair may be
-/// claimed by AT MOST ONE rail. Mutates `eff_of`/`closure_refused` in place.
-///
-/// Two rails may each assert a pair the graph declares and still fabricate
-/// TOGETHER. `A---Z; B---Z` and `A---W; B---W` with `A---B` declared put two
-/// crossbars over the SAME leaf columns, so a reader traces Z up A's column,
-/// along crossbar one, down to... W — a Z—W relation no declaration covers.
-/// The pair is what is spendable, so a second rail implying an already-claimed
-/// pair refuses, and so does the first: neither may keep ink the other's
-/// existence turned into a lie.
-///
-/// The over-refusal that ruling guards against is a fully declared clique,
-/// where the clique edges are themselves stars. It is answered by realizing
-/// the discharge instead of licensing it: a kept rail's backers become
-/// discharged, drawing no private ink, and an edge with no ink can carry no
-/// rail — so a member that is another rail's discharge leaves its candidate
-/// (the candidate stays when two members remain and is judged again over
-/// what is left; the theory's per-member degradation). The WIDER rail
-/// claims first (ties by group rank), which is the reading that leaves the
-/// clique fused. Since a rail may hold a long member, a candidate's members
-/// can be a wider rail's discharges one at a time, not only all at once.
-///
-/// A refusal never revives a candidate an earlier claim subordinated: the
-/// answer stays the one fewer rails would give, which can only under-fuse.
 /// @guarded-by: bundle_commit_test.zig "two rails asserting one declared pair both refuse"
 fn reserve(
     a: std.mem.Allocator,
@@ -315,9 +266,6 @@ fn reserve(
         if (!hit) continue;
         eff_of[gi] = null;
         closure_refused[gi] = true;
-        // One group, one count. A SALVAGE was already counted by the per-rail
-        // pass above (it refused part of its own rail); counting it again here
-        // reports one more rail refused than the plan holds groups.
         // @guarded-by: bundle_commit_test.zig "a salvaged rail that then loses its pair is one refusal, not two"
         const counted = if (verdicts[gi]) |v| v.outcome == .salvage else false;
         if (!counted) {
@@ -326,14 +274,12 @@ fn reserve(
     }
 }
 
-/// Wider rails first, then by group rank — the deterministic claim order.
 fn widestFirst(eff_of: []?[]const pb.EdgeId, x: usize, y: usize) bool {
     const nx = (eff_of[x] orelse &.{}).len;
     const ny = (eff_of[y] orelse &.{}).len;
     return if (nx == ny) x < y else nx > ny;
 }
 
-/// Remove one member from a surviving candidate, judging what is left again.
 fn dropMember(
     a: std.mem.Allocator,
     graph: sg.SemGraph,
@@ -367,17 +313,6 @@ fn dropMember(
     } else eff_of[gi] = rest;
 }
 
-/// A member selected at both ends whose two pivots sit on adjacent layers
-/// would put two rails in one gap, each owning the whole edge: one path of
-/// ink drawn twice. Realization keeps ONE membership for such a NEAR
-/// member: the arrival's. Two reasons, neither a licence: the two-sided
-/// rail the fusion licence permits is built from same-direction rails, and
-/// keeping arrivals together is what lets a complete S x T fuse into that
-/// one rail; and it is the drawing every existing render already has. A
-/// LONG member (its ends span a gap or more) keeps both: each rail owns one
-/// drop cell and the member's own stroke runs between them. Both
-/// memberships stay licensed; which side of a near member ships could
-/// later be a scored candidate axis.
 /// @guarded-by: bundle_commit_test.zig "a near member selected at both ends keeps its arrival rail, a long member keeps both"
 fn keepOneNearRail(
     a: std.mem.Allocator,
@@ -403,15 +338,11 @@ fn keepOneNearRail(
     }
 }
 
-/// `member` is a declaration the verdict's rail discharges — rendered by
-/// that rail's crossbar, so it carries no rail of its own.
 fn dischargedBy(verdict: rc.Verdict, member: pb.EdgeId) bool {
     for (verdict.discharges) |d| if (d.backer == member) return true;
     return false;
 }
 
-/// The two rails assert one and the same unordered leaf pair. `pair` is
-/// already normalized low-id first by the closure licence.
 fn sharesPair(x: rc.Verdict, y: rc.Verdict) bool {
     for (x.discharges) |dx| {
         for (y.discharges) |dy| {
@@ -421,9 +352,6 @@ fn sharesPair(x: rc.Verdict, y: rc.Verdict) bool {
     return false;
 }
 
-/// Project one provisionally eligible group into the closure licence's own
-/// vocabulary and ask it. Members carry the LEAF endpoint (the one that is
-/// not the pivot); every other declared non-self edge is a candidate backer.
 fn closureVerdict(
     a: std.mem.Allocator,
     graph: sg.SemGraph,
@@ -474,9 +402,6 @@ fn containsReversed(group: pb.CandidateBundle, reversed_edges: []const pb.EdgeId
     return false;
 }
 
-/// The group's forward (non-layout-reversed) members, in canonical member
-/// order (deterministic under edge-array permutation because `members` is
-/// already canonical). Used as the rail-eligible subset for a fan-IN group.
 fn forwardSubset(a: std.mem.Allocator, members: []const pb.EdgeId, reversed_edges: []const pb.EdgeId) error{OutOfMemory}![]const pb.EdgeId {
     var out: std.ArrayListUnmanaged(pb.EdgeId) = .empty;
     for (members) |m| {
@@ -498,10 +423,6 @@ fn disposition(graph: sg.SemGraph, groups: []const pb.CandidateBundle, selected_
             };
             return .{ .independent = .{ .candidate_bundle = gid, .reason = .not_selected } };
         }
-        // A closure refusal must reach the member as `independent`: that
-        // disposition is what unfuses it (per-member fan lanes in TD, a port of
-        // its own in LR/RL). The null-disposition escape below is for a group
-        // the reversal rule left ungrouped, never for a refused rail.
         // @guarded-by: bundle_commit_test.zig "a reversed member does not hide a closure refusal behind a null disposition"
         if (!closure_refused[i] and containsReversed(g, reversed_edges) and styleCompatible(graph, g) and !hasDuplicateKey(graph, g)) return null;
         return .{ .independent = .{ .candidate_bundle = gid, .reason = .not_selected } };

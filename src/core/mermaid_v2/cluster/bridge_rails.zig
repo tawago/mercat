@@ -1,28 +1,3 @@
-//! cluster/bridge_rails.zig — selective realization of cross-border bundles.
-//!
-//! A LICENSED group of crossings sharing one original endpoint (same licence
-//! tier as a piece fan — base/rail_star.checkLicence) whose pends meet at one
-//! port of that convergent node is already ONE rail in geometry; what it
-//! lacks is a clean rail row. `overrideJogs` moves the group's shared jog
-//! jointly to the least-conflicted coordinate, judged exactly like the gated
-//! dodge (committed scene + tentative non-member ink; a shared port is a
-//! licensed rail, never an obstacle) — at the source end and at the target
-//! end alike (realization across a boundary). Whether the railed build SHIPS
-//! is not decided here or by any sketch-side proxy: the railed variant is
-//! laid out as a candidate and the selection stage's composite score against
-//! the real raster picks (confluence selection note).
-//!
-//! `realizedRail` is the plan tier's witness over FINAL geometry: a group
-//! realized a rail iff every routed member leaves one shared point at the
-//! convergent end and the members never touch again past the shared prefix —
-//! the shape on which a structural sanction is inert away from the rail (the
-//! always-on failure mode was sanctioning member-vs-member contact AWAY from
-//! the approach). The shape reads the same from either end.
-//!
-//! PURE DATA: pends/paths in, jog mutations + one predicate out. Imports the
-//! cluster-internal bridges.zig / bridge_requests.zig / bridge_scene.zig /
-//! tracks.zig plus sketch, sem_graph, base/ledger.
-
 const std = @import("std");
 const sketch = @import("../sketch.zig");
 const sg = @import("../sem_graph.zig");
@@ -34,9 +9,6 @@ const tracks = @import("tracks.zig");
 
 const Pt = sketch.Point;
 
-/// Jointly re-place the shared jog of every licensed group, convergent at
-/// the source end first, then at the target end. Mutates `pends`; returns
-/// true iff any jog moved (so the caller knows a rebuild can differ at all).
 /// @guarded-by: bridges_test.zig "a licensed shared-target fan moves its whole rail off a static run the scene models as no obstacle"
 pub fn overrideJogs(
     arena: std.mem.Allocator,
@@ -77,8 +49,6 @@ fn railEnd(end: ledger.Endpoint) requests.RailEnd {
     return if (end == .source) .start else .end;
 }
 
-/// The licence over the group at its convergent end — the same geometry-free
-/// tier a piece fan answers, members keyed by root edge ids.
 fn licensed(
     arena: std.mem.Allocator,
     pends: []const bridges.Pending,
@@ -105,10 +75,6 @@ fn licensed(
     }).isValid();
 }
 
-/// A group is rail-shaped at `end` only when every member meets ONE port on
-/// one side there, each carries a jog to move, none was re-routed as a
-/// corridor (whose descent column this layer never chose), and none rides a
-/// rail keyed at its other end (one jog serves one rail).
 fn railable(
     arena: std.mem.Allocator,
     pends: []const bridges.Pending,
@@ -129,11 +95,6 @@ fn railable(
     return true;
 }
 
-/// The least-conflicted shared jog coordinate for the group, judged member by
-/// member with `scene.jogScore` against the static scene plus the tentative
-/// elbows of every non-member (the dodge's own metric, applied jointly).
-/// Null when the assigned coordinate is already clear or nothing strictly
-/// improves on it.
 fn chooseJog(
     arena: std.mem.Allocator,
     pends: []const bridges.Pending,
@@ -189,9 +150,6 @@ fn chooseJog(
     return best;
 }
 
-/// Joint conflict at shared jog `c`: the dodge's own band metric PLUS each
-/// member's full elbow scored the way the whole-scene gate scores it
-/// (polyScore sees a head mid-rail, which the band metric cannot).
 fn groupScore(
     pends: []const bridges.Pending,
     members: []const usize,
@@ -214,7 +172,6 @@ fn groupScore(
     return sum;
 }
 
-/// The member's legal jog interval (jog strictly between these), per exit.
 fn boundsOf(p: bridges.Pending) [2]i32 {
     return switch (p.sides.exit) {
         .south => .{ p.start.y, p.end.y },
@@ -224,10 +181,6 @@ fn boundsOf(p: bridges.Pending) [2]i32 {
     };
 }
 
-/// `base` widened with every static edge path's segments as run obstacles.
-/// The bridge scene deliberately models static edges as heads only; the
-/// rail choice and its gate use this fuller picture LOCALLY, so a rail can
-/// step off a piece edge's run without changing any other routing decision.
 pub fn withStaticRuns(
     arena: std.mem.Allocator,
     base: tracks.Obstacles,
@@ -251,9 +204,6 @@ fn inGroup(members: []const usize, i: usize) bool {
     return false;
 }
 
-/// True iff the routed members ARE one rail at `end`: every path, traced
-/// outward from that end, leaves one shared point and, past the pairwise
-/// shared prefix, no two members touch again.
 pub fn realizedRail(
     arena: std.mem.Allocator,
     paths: []const sketch.EdgePath,
@@ -277,8 +227,6 @@ pub fn realizedRail(
     return true;
 }
 
-/// Two member cell traces share a prefix from the convergent port and then
-/// stay apart.
 fn cleanSplit(ca: []const Pt, cb: []const Pt) bool {
     var k: usize = 0;
     while (k < ca.len and k < cb.len and requests.samePt(ca[k], cb[k])) : (k += 1) {}
@@ -288,8 +236,6 @@ fn cleanSplit(ca: []const Pt, cb: []const Pt) bool {
     return true;
 }
 
-/// The polyline expanded to unit-step cells, endpoints included, in trace
-/// order from `end`: as drawn from the source, reversed from the target.
 fn cellsOf(arena: std.mem.Allocator, poly: []const Pt, end: ledger.Endpoint) error{OutOfMemory}![]const Pt {
     var out: std.ArrayListUnmanaged(Pt) = .empty;
     if (poly.len == 0) return &.{};

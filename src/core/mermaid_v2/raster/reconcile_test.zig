@@ -1,10 +1,3 @@
-//! Tests for `reconcile.zig`'s `bitIsPhantom` port-gap reprieve. Split out
-//! of the former misc grab-bag test file (since dissolved) into
-//! reconcile.zig's own sibling, per the mermaid_v2/ test-file convention.
-//! Discovered via reconcile.zig's top-level
-//! `test { _ = @import("reconcile_test.zig"); }` block. (reconcile.zig's
-//! own junction/order tests stay inline in reconcile.zig itself.)
-
 const std = @import("std");
 const lattice = @import("../lattice.zig");
 const reconcile = @import("reconcile.zig");
@@ -18,7 +11,6 @@ fn edgeCell(nb: lattice.Neighbours) lattice.Cell {
     };
 }
 
-/// Fill `buf` with empty cells and wrap it in a `w`×`h` lattice.
 fn emptyLattice(buf: []lattice.Cell, w: u32, h: u32) lattice.Lattice {
     for (buf) |*c| c.* = lattice.Cell.empty;
     return .{ .width = w, .height = h, .cells = buf };

@@ -1,13 +1,9 @@
-//! Cross-bundle vector clearance for candidate edge routes.
-
 const std = @import("std");
 const pb = @import("../base/ledger.zig");
 const sg = @import("../sem_graph.zig");
 const sk = @import("../sketch.zig");
 
 const Cell = struct { x: i32, y: i32 };
-/// The arms a cell's ink shows, one per side: the glyph the raster will
-/// draw there reaches its neighbour on every set side.
 const Arms = struct {
     north: bool = false,
     south: bool = false,
@@ -41,8 +37,6 @@ const Pass = struct {
 
 const CellMap = std.AutoArrayHashMapUnmanaged(Cell, Pass);
 
-/// True when `polyline` has a non-transversal cell contact with an existing
-/// edge from another ownership bundle.
 pub fn conflicts(
     a: std.mem.Allocator,
     edge: pb.EdgeId,
@@ -74,7 +68,6 @@ pub fn conflictsRailArrows(a: std.mem.Allocator, polyline: []const sk.Point, rai
             if ((rail.pivot == from or rail.pivot == to) and rail.pivot_arrow != .none and arrowPoint(rail.stem, cell, true, false)) return true;
             for (rail.taps) |tap| {
                 if (tap.node != from and tap.node != to) continue;
-                // A continuing tap paints no head; its member's head is at the far end.
                 if (tap.continues) continue;
                 const segment = [_]sk.Point{ tap.at, tap.landing };
                 if (tap.arrow != .none and arrowPoint(&segment, cell, false, true)) return true;
@@ -84,10 +77,6 @@ pub fn conflictsRailArrows(a: std.mem.Allocator, polyline: []const sk.Point, rai
     return false;
 }
 
-/// True iff a segment of `polyline` shares two or more consecutive cells
-/// with a rail's stem, crossbar, or drop: collinear overlap with another
-/// owner's ink (a junction glyph with no licence behind it), as opposed to
-/// a single-cell transversal crossing, which is legal.
 /// @guarded-by: route_clearance_test.zig "a route may cross a rail's run but never lie along it"
 pub fn ridesRail(a: std.mem.Allocator, polyline: []const sk.Point, rails: []const sk.Rail) error{OutOfMemory}!bool {
     var ink: CellMap = .empty;
@@ -132,10 +121,6 @@ pub fn conflictsRailJunctions(a: std.mem.Allocator, polyline: []const sk.Point, 
     return false;
 }
 
-/// True when `polyline` enters a terminal cell another edge's port
-/// allocation reserved — its departure cell or its arrival cell — in a way
-/// the reservation forbids. Both ends are reserved before any route is
-/// laid, so the protection does not depend on routing order.
 pub fn conflictsReservedTerminals(a: std.mem.Allocator, edge: pb.EdgeId, polyline: []const sk.Point, placements: []const sk.NodePlacement, edge_ports: anytype, bundles: pb.RealizedBundles) error{OutOfMemory}!bool {
     var candidate = try cells(a, polyline);
     defer candidate.deinit(a);
@@ -145,12 +130,8 @@ pub fn conflictsReservedTerminals(a: std.mem.Allocator, edge: pb.EdgeId, polylin
     };
     for (edge_ports) |item| {
         if (item.edge == edge) continue;
-        // A selected rail's members share one departure by design (attribution-only
-        // merged ink), so they must not reserve departures against each other.
         // @guarded-by: route_clearance_test.zig "reserved departures exempt same selected rail"
         if (sameBundle(edge, item.edge, bundles)) continue;
-        // A discharged edge's entire rendering IS a rail span: it owns no
-        // polyline and no port, so its port allocation reserves nothing.
         // @guarded-by: route_clearance_test.zig "a discharged edge's port allocation reserves no departure"
         if (contains(bundles.discharged, item.edge)) continue;
         const ends = [2]struct { port: sk.Port, decorated: bool }{
@@ -158,9 +139,6 @@ pub fn conflictsReservedTerminals(a: std.mem.Allocator, edge: pb.EdgeId, polylin
             .{ .port = item.target, .decorated = item.target_decorated },
         };
         for (ends) |end| {
-            // Two edges the plan attached to ONE port share that port's
-            // terminal cell by construction (a fan's shared pivot); the
-            // shared cell is not a reservation against its own co-attached edge.
             if (own) |ports| if (samePort(ports[0], end.port) or samePort(ports[1], end.port)) continue;
             const placement = placementById(placements, end.port.node) orelse continue;
             if (reservedConflict(candidate, offNodePoint(placement, end.port), end.port.side, end.decorated)) return true;
@@ -169,14 +147,6 @@ pub fn conflictsReservedTerminals(a: std.mem.Allocator, edge: pb.EdgeId, polylin
     return false;
 }
 
-/// The reservation one terminal cell holds against a candidate's occupancy.
-/// An undecorated cell is a future plain run: collinear occupancy or a bend
-/// there claims it, a perpendicular through-run is a legal crossing. A
-/// decorated cell is a future decoration cell: it blocks all transit, and
-/// its two lateral neighbours are guarded against foreign arms — ink there
-/// whose glyph reaches the head cell (a run toward it, or a bend whose arm
-/// faces it). A run parallel to the port axis, and a bend that turns away
-/// from the head, show no arm on the head's side and are admitted.
 /// @guarded-by: route_clearance_test.zig "a reserved departure blocks collinear occupancy and admits a perpendicular crossing"
 /// @guarded-by: route_clearance_test.zig "a decorated departure cell blocks even a perpendicular crossing"
 /// @guarded-by: route_clearance_test.zig "a decorated arrival cell blocks even a perpendicular crossing"
@@ -199,10 +169,6 @@ fn reservedConflict(candidate: CellMap, reserved: sk.Point, side: sk.Dir4, decor
     return false;
 }
 
-/// True when a built rail's ink (stem, crossbar, drops) enters a terminal
-/// cell reserved by an edge that is not one of the rail's members. Rails
-/// are laid before every private route, so this is the only gate between a
-/// rail and the reservations it must honour.
 /// @guarded-by: route_clearance_test.zig "a rail honours a foreign decorated terminal's reservation and ignores its own members'"
 pub fn railConflictsReservedTerminals(a: std.mem.Allocator, rail: sk.Rail, placements: []const sk.NodePlacement, edge_ports: anytype, bundles: pb.RealizedBundles) error{OutOfMemory}!bool {
     var candidate: CellMap = .empty;
@@ -219,9 +185,6 @@ pub fn railConflictsReservedTerminals(a: std.mem.Allocator, rail: sk.Rail, place
         };
         for (ends) |end| {
             const placement = placementById(placements, end.port.node) orelse continue;
-            // A port the rail already lands on (a tap's landing, the stem's
-            // pivot port) is shared with that edge by the plan — a fused
-            // run's far-side port share — not reserved against the rail.
             if (railLandsOn(rail, portPoint(placement, end.port))) continue;
             if (reservedConflict(candidate, offNodePoint(placement, end.port), end.port.side, end.decorated)) return true;
         }
@@ -229,14 +192,6 @@ pub fn railConflictsReservedTerminals(a: std.mem.Allocator, rail: sk.Rail, place
     return false;
 }
 
-/// `placements` plus one pseudo-box per DECORATED terminal cell another
-/// edge reserved — the cell and its two lateral neighbours as a 3x1 (or
-/// 1x3) rect under a sentinel id — for producers that search clear lines
-/// against boxes only (the back-edge stub hop). A line through the head
-/// cell or a lateral then reads as touching a box, so the hop lands on a
-/// row the reservation admits. Conservative on purpose: a parallel run
-/// through a lateral is legal, and this refuses it too; back-edge stubs
-/// rarely want one. Same exemptions as `conflictsReservedTerminals`.
 /// @guarded-by: route_clearance_test.zig "decorated terminal pseudo-boxes cover the head cell and its laterals for foreign edges only"
 pub fn withDecoratedTerminalBoxes(a: std.mem.Allocator, edge: pb.EdgeId, placements: []const sk.NodePlacement, edge_ports: anytype, bundles: pb.RealizedBundles) error{OutOfMemory}![]const sk.NodePlacement {
     var out: std.ArrayListUnmanaged(sk.NodePlacement) = .empty;
@@ -293,8 +248,6 @@ fn offNodePoint(placement: sk.NodePlacement, port: sk.Port) sk.Point {
     };
 }
 
-/// True when a candidate either shares a non-transversal cell with another
-/// ownership bundle or touches a foreign node, including its border cells.
 pub fn blocked(
     a: std.mem.Allocator,
     edge: pb.EdgeId,
@@ -320,22 +273,6 @@ pub fn isIndependent(edge: pb.EdgeId, bundles: pb.RealizedBundles) bool {
     return false;
 }
 
-/// True iff `polyline` clears every gate the forward/fan lane loop uses to
-/// ACCEPT a route — the exact break condition inlined at those loops. Callers
-/// that MUTATE a polyline after routing (the base-approach GROW in
-/// routing_terminal.zig) use this to re-validate the mutated geometry against
-/// rails and reservations, reverting to the ungrown route on failure.
-/// The reserved-terminal gate runs whether or not any bundle was realized:
-/// a port allocation exists for every plan, and a reservation is what
-/// protects a decoration cell from foreign arms regardless of routing
-/// order; so does the rail-ink gate (`ridesRail`) — a rail is laid before
-/// every private route, and a run along it is a foreign junction under any
-/// plan. The three bundle-attributed gates — foreign-node/cross-bundle
-/// contact (box termination / ink attribution), rail junctions (ink
-/// attribution: unrelated ink over an owner-set change) and rail
-/// arrowheads — are independent legality facts, never alternatives; with no
-/// realized bundles they have nothing to read (the plain non-bundle path is
-/// cleared by the route builders themselves).
 /// @guarded-by: routing_terminal_test.zig "satisfyApproach grows a corner-fed len-2 final into a straight base approach"
 /// @guarded-by: route_clearance_test.zig "polylineClears refuses every clearance violation regardless of membership disposition"
 /// @guarded-by: route_clearance_test.zig "reservations hold with no realized memberships"
@@ -353,9 +290,6 @@ pub fn polylineClears(
 ) error{OutOfMemory}!bool {
     if (try conflictsReservedTerminals(a, edge, polyline, placements, edge_ports, bundles)) return false;
     if (try ridesRail(a, polyline, rails)) return false;
-    // Box termination holds under any plan: a box is a terminus, never a
-    // corridor, so a run through a foreign box is refused with or without
-    // realized memberships.
     // @guarded-by: route_clearance_test.zig "a route through a foreign box is refused with no realized memberships"
     if (touchesForeignNode(polyline, placements, from, to)) return false;
     if (bundles.memberships.len == 0) return true;
@@ -401,11 +335,6 @@ pub fn portPoint(placement: sk.NodePlacement, port: sk.Port) sk.Point {
     };
 }
 
-/// True iff `a` and `b` are members of one licensed shared approach: one
-/// selected bundle, or one fused union (ledger: the union's ink is ONE
-/// bundle). A licensed shared approach blocks nothing among its own
-/// members — their shared stub is attribution-only merged ink, not an
-/// overlap.
 /// @guarded-by: route_clearance_test.zig "members of one fused union do not block each other"
 fn sameBundle(a: pb.EdgeId, b: pb.EdgeId, bundles: pb.RealizedBundles) bool {
     for (bundles.selected_bundles) |sel| {
@@ -449,8 +378,6 @@ fn cellsInto(a: std.mem.Allocator, out: *CellMap, points: []const sk.Point) erro
         if (i > 0) pass.arms.toward(cell, path.items[i - 1]);
         if (i + 1 < path.items.len) pass.arms.toward(cell, path.items[i + 1]);
         if (i == 0 or i + 1 == path.items.len) {
-            // A terminal cell is drawn as a plain line glyph, which reaches
-            // both of its neighbours along the segment's axis.
             pass.bend = true;
             if (pass.arms.north or pass.arms.south) {
                 pass.arms.north = true;

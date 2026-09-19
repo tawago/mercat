@@ -1,14 +1,3 @@
-//! Tests for routing.zig's cluster-aware fan-rail lift: `fanRailLift` /
-//! `crossesIntoCluster` decide whether a fan member's rail needs to clear a
-//! cluster's leading frame-border row. Exercised through the public
-//! `coords.layout` entry (same convention as `layout_test.zig`) with
-//! hand-built `.cluster` fields on nodes, so the invariant is checked
-//! end-to-end through `buildEdges` rather than by re-deriving it.
-//!
-//! `fan_rail.blocked`'s integrity gate (tested directly against the
-//! rail artifact it reads) lives in `fan_rail_test.zig`, next to the
-//! module it exercises.
-
 const std = @import("std");
 const sg = @import("../sem_graph.zig");
 const sketch = @import("../sketch.zig");
@@ -34,13 +23,6 @@ fn mkNode(id: sg.NodeId, raw: []const u8, cluster: ?sg.ClusterId) sg.Node {
     };
 }
 
-/// Fan-OUT edge with `arrow_from = .filled` (and nothing at the target, so
-/// the member still blocks and the star keeps its licence): fails
-/// `fan_rail.resolve`'s eligibility check (`e.arrow_from != .none`), forcing
-/// every peer of the fan onto the per-peer polyline path this file exercises.
-/// The decorated source holds its departure cell straight (the head sits
-/// there — routing_terminal.zig's straight-through rule), so a per-peer
-/// turn lands no nearer than two rows below the source wall.
 fn mkForcedPeerEdge(id: sg.EdgeId, from: sg.NodeId, to: sg.NodeId) sg.Edge {
     return .{
         .id = id,
@@ -53,12 +35,10 @@ fn mkForcedPeerEdge(id: sg.EdgeId, from: sg.NodeId, to: sg.NodeId) sg.Edge {
     };
 }
 
-/// Fully arrow-free edge (`A --- B`): the shape the closure licence judges.
 fn mkBareEdge(id: sg.EdgeId, from: sg.NodeId, to: sg.NodeId) sg.Edge {
     return .{ .id = id, .from = from, .to = to, .kind = .solid, .arrow_from = .none, .arrow_to = .none, .label = null };
 }
 
-/// Plain fan-OUT edge (arrow_from = .none): stays rail eligible.
 fn mkPlainEdge(id: sg.EdgeId, from: sg.NodeId, to: sg.NodeId) sg.Edge {
     return .{
         .id = id,
@@ -83,19 +63,10 @@ fn findNode(nodes: []const sketch.NodePlacement, id: sketch.NodeId) sketch.NodeP
     @panic("missing node");
 }
 
-/// The rail row a fan-OUT peer's polyline bends through. For an
-/// undodged leftmost/rightmost/middle peer (no obstruction — true for
-/// every fixture below), `fan_polyline.buildPolyline` unconditionally
-/// appends `(sx, rail_y)` as its second point before any column-vs-tx
-/// branch, so `poly[1].y` is exactly `rail_y` regardless of whether the
-/// peer's column happens to coincide with the pivot's.
 fn railRow(poly: []const sketch.Point) i32 {
     return poly[1].y;
 }
 
-/// Builds A -[fan-out]-> {B, C}, both on A's next layer. `c_cluster` is C's
-/// (and only C's) cluster membership; B always stays top-level (cluster
-/// null), so B is the non-crossing control peer in every fixture.
 fn layoutForkIntoCluster(
     arena: std.mem.Allocator,
     clusters: []const sg.Cluster,
@@ -130,8 +101,6 @@ test "fan-OUT per-peer rail lifts exactly one row for the peer crossing into a c
     const clusters = [_]sg.Cluster{
         .{ .id = 0, .raw_id = "X", .label = "X", .parent = null, .members = &.{2}, .sub_clusters = &.{} },
     };
-    // One extra gap row: the forced peers' decorated source keeps its
-    // departure cell for the head, and the lift needs a row of its own.
     const s = try layoutForkIntoCluster(arena.allocator(), &clusters, 0, true, 3);
 
     const b = findNode(s.nodes, 1);
@@ -198,18 +167,12 @@ test "rail pre-pass and forced per-peer path lift the same fan-OUT geometry to t
     try testing.expectEqual(@as(usize, 0), s_peer.rails.len);
     const ec = findEdge(s_peer.edges, 0, 2);
 
-    // The same lifted row — except that the forced peers' decorated source
-    // holds its departure cell (the head) straight, so where the rail's row
-    // IS that cell the per-peer turn sits one row further out.
     const a_bottom = findNode(s_peer.nodes, 0).rect.bottom() - 1;
     try testing.expectEqual(@max(bar_rail_y, a_bottom + 2), railRow(ec.polyline));
     try testing.expectEqual(bar_rail_y, a_bottom + 1);
 }
 
 test "a placement edge routes last and uncontested" {
-    // A, B, C fan into the stand-in S on one port column: contested, each
-    // member would detour into the left margin. As proxies they take their
-    // plain geometry and the canvas keeps its origin.
     const nodes = [_]sg.Node{ mkNode(0, "A", null), mkNode(1, "B", null), mkNode(2, "C", null), mkNode(3, "S", null) };
     const edges = [_]sg.Edge{ mkPlainEdge(0, 0, 3), mkPlainEdge(1, 1, 3), mkPlainEdge(2, 2, 3) };
     const graph: sg.SemGraph = .{ .direction = .TD, .nodes = &nodes, .edges = &edges, .clusters = &.{}, .classes = &.{}, .arena = null };
@@ -316,8 +279,6 @@ test "a back edge's stub hop keeps off a foreign decorated arrival cell" {
     var arena = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
-    // Source A below target B; box C blocks A's east stub row, so the stub
-    // hops up to the nearest clear row toward B.
     const placements = [_]sketch.NodePlacement{
         .{ .id = 0, .rect = .{ .x = 0, .y = 10, .w = 5, .h = 3 }, .shape = .rect, .lines = &.{}, .cluster_id = null },
         .{ .id = 1, .rect = .{ .x = 0, .y = 0, .w = 5, .h = 3 }, .shape = .rect, .lines = &.{}, .cluster_id = null },
@@ -328,12 +289,8 @@ test "a back edge's stub hop keeps off a foreign decorated arrival cell" {
     const bare = try back_edges.backEdgePolylineAt(a, .TD, placements[0], placements[1], from, to, 14, &placements);
     try testing.expectEqual(@as(i32, 8), bare[2].y);
 
-    // A foreign edge arrives at C's north port (8,9): its decorated arrival
-    // cell (8,8) sits on that hop row, so the hop climbs one more row.
     const ports = [_]port_plan.EdgePorts{.{ .edge = 9, .source = .{ .node = 1, .side = .south, .offset = 3 }, .target = .{ .node = 2, .side = .north, .offset = 1 }, .source_ordinal = 0, .target_ordinal = 0, .target_decorated = true }};
     const guarded = try route_clearance.withDecoratedTerminalBoxes(a, 3, &placements, &ports, .{});
-    // The clear-line search keeps its distance order: at the same distance
-    // the far side (row 14) is clear where row 8 now reads as a box.
     const kept_off = try back_edges.backEdgePolylineAt(a, .TD, placements[0], placements[1], from, to, 14, guarded);
     try testing.expect(kept_off[2].y != 8);
     try testing.expectEqual(@as(i32, 14), kept_off[2].y);
@@ -349,10 +306,6 @@ test "the detour ladder pushes a port run past a foreign jog row, and is null wh
     var arena = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
-    // Source box rows 0..2, target rows 20..22; a foreign run lies along
-    // row 3, the detour's nearest source row, so the pushed run on row 4 is
-    // the first accepted candidate. With rows 3, 4 and 5 all taken, no
-    // push clears and the ladder is null: nothing lying collinear ships.
     const placements = [_]sketch.NodePlacement{
         .{ .id = 0, .rect = .{ .x = 10, .y = 0, .w = 5, .h = 3 }, .shape = .rect, .lines = &.{}, .cluster_id = null },
         .{ .id = 1, .rect = .{ .x = 10, .y = 20, .w = 5, .h = 3 }, .shape = .rect, .lines = &.{}, .cluster_id = null },
@@ -360,7 +313,6 @@ test "the detour ladder pushes a port run past a foreign jog row, and is null wh
     const edge = sg.Edge{ .id = 0, .from = 0, .to = 1, .kind = .solid, .arrow_from = .none, .arrow_to = .filled, .label = null };
     const ep = port_plan.EdgePorts{ .edge = 0, .source = .{ .node = 0, .side = .south, .offset = 2 }, .target = .{ .node = 1, .side = .north, .offset = 2 }, .source_ordinal = 0, .target_ordinal = 0, .target_decorated = true };
     const ports = [_]port_plan.EdgePorts{ep};
-    // The cross-bundle gate reads ink only under a realized plan.
     const memberships = [_]ledger.RealizedEdgeMembership{.{ .edge = 9, .source = null, .target = null }};
     const bundles: ledger.RealizedBundles = .{ .memberships = &memberships };
     var r3: [2]sketch.Point = undefined;
@@ -383,9 +335,6 @@ test "a self loop lifts past foreign ink instead of lying along it" {
     var arena = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
-    // Node rows 10..12. The classic loop rises three rows above the box to
-    // row 7; a foreign run lies along that row, so every candidate on it is
-    // refused and the first accepted one runs one row higher.
     const node_p = sketch.NodePlacement{ .id = 0, .rect = .{ .x = 10, .y = 10, .w = 5, .h = 3 }, .shape = .rect, .lines = &.{}, .cluster_id = null };
     const placements = [_]sketch.NodePlacement{node_p};
     const edge = sg.Edge{ .id = 0, .from = 0, .to = 0, .kind = .solid, .arrow_from = .none, .arrow_to = .filled, .label = null };
@@ -401,7 +350,6 @@ test "a self loop lifts past foreign ink instead of lying along it" {
     try testing.expectEqual(@as(usize, 5), lifted.polyline.len);
     try testing.expectEqual(@as(i32, 6), lifted.polyline[2].y);
     try testing.expectEqual(@as(i32, 6), lifted.polyline[3].y);
-    // The re-entry still runs straight into the decorated north port.
     try testing.expectEqual(@as(i32, 12), lifted.polyline[4].x);
     try testing.expectEqual(@as(i32, 10), lifted.polyline[4].y);
 }

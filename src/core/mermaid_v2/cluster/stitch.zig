@@ -1,11 +1,3 @@
-//! cluster/stitch.zig — glue the finished per-piece Sketches into one.
-//!
-//! Counterpart to `cluster/split.zig`: glues each piece's `layout/`-produced
-//! Sketch into the outer one, translating child geometry into its super-node's
-//! interior and drawing the box (ClusterFrame) around it. PURE DATA WORK:
-//! Sketches in, one Sketch out; the driver's arena owns all slices for the
-//! whole cut → layout → stitch run (no deinit here).
-
 const std = @import("std");
 const prim = @import("prim");
 const sketch = @import("../sketch.zig");
@@ -22,32 +14,19 @@ const stitch_rails = @import("stitch_rails.zig");
 const stitch_gaps = @import("stitch_gaps.zig");
 
 pub const SplitResult = split_mod.SplitResult;
-/// Re-exported so `recurse.stitchOuter` and the translate sites share one type.
 pub const EntryInset = entry_inset.EntryInset;
 
-/// THE single source of the per-super frame pad: full `prim` frame pad for a
-/// real cluster, ZERO on every side for a SYNTHETIC packing cluster (no
-/// border, no label, no inset). Used by `superSize` and BOTH child-translate
-/// sites in `stitch`, so sizing and translation cannot desync.
 fn superPad(scale: u32, synthetic: bool) struct { x: u32, y: u32 } {
     if (synthetic) return .{ .x = 0, .y = 0 };
     return .{ .x = prim.framePadX(scale), .y = prim.framePadY(scale) };
 }
 
-/// Size a super-node so its interior exactly holds `child_bbox` plus the frame
-/// border+inset on every side, at the given `scale`. The driver feeds this into
-/// `layout.LayoutOptions.fixed_sizes` for each super-node and MUST pass the same
-/// `scale` it later hands `stitch` (the driver passes `opts.spacing_scale`).
 pub fn superSize(child_bbox: sketch.Rect, scale: u32, synthetic: bool) struct { w: u32, h: u32 } {
     const pad = superPad(scale, synthetic);
     return .{ .w = child_bbox.w + 2 * pad.x, .h = child_bbox.h + 2 * pad.y };
 }
 
-/// Resolve `entry_inset.entryArrivalInset`'s inputs from a `SplitResult` + child
-/// slice for a given super-node. THE single call site of the shared entry-side
-/// inset predicate — used by both `stitch`'s two child-translate sites and
-/// `recurse.stitchOuter`'s super-sizing site, so sizing and translation can
-/// never disagree on which clusters grow a row. // @guarded-by: entry_inset.zig "entryArrivalInset"
+/// @guarded-by: entry_inset.zig "entryArrivalInset"
 pub fn entryInsetFor(
     sr: SplitResult,
     children: []const Clustered,
@@ -68,29 +47,17 @@ pub const StitchError = error{
     PieceSketchMismatch,
 };
 
-/// Flatten a node's display rows back into one flat label string for a
-/// single-line ClusterFrame label. The common case is one row (returned as
-/// the borrowed sub-slice, zero alloc); multiple rows are joined with a
-/// single space into the arena.
 fn flattenLines(arena: std.mem.Allocator, lines: []const []const u8) error{OutOfMemory}![]const u8 {
     if (lines.len == 0) return "";
     if (lines.len == 1) return lines[0];
     return std.mem.join(arena, " ", lines);
 }
 
-/// A laid-out (possibly clustered) flowchart plus the map from each Sketch
-/// node id back to the id it had in the graph that produced it. The map lets a
-/// PARENT stitch resolve this piece's nodes to the parent graph's ids (and
-/// thence to bridge endpoints), which is what makes nesting recurse.
 pub const Clustered = struct {
     sketch: sketch.Sketch,
-    /// `input_of[sketch_node_id]` = the node's id in this piece's input graph.
-    /// Identity for a flat `layout()` result; rebuilt at each stitch level.
     input_of: []const sketch.NodeId,
 };
 
-/// `base` plus one `track_clearance_expired` diagnostic when any bridge-jog
-/// border-clearance search surrendered (count == surrendered coordinates).
 fn withTrackExpiry(
     arena: std.mem.Allocator,
     base: []const sketch.Diagnostic,
@@ -103,10 +70,6 @@ fn withTrackExpiry(
     return out;
 }
 
-/// A piece's gap row account carried into the merged sketch: its wall
-/// cells shifted with the piece's ink, its claims' edge ids into the
-/// piece's id window, its rail pivots through the node map.
-/// Per-field sum of the outer piece's closure counts and every child's.
 fn closureSum(outer: sketch.Sketch, children: []const Clustered) ledger.ClosureCounts {
     var out = outer.closure;
     for (children) |child| {
@@ -117,30 +80,13 @@ fn closureSum(outer: sketch.Sketch, children: []const Clustered) ledger.ClosureC
     return out;
 }
 
-/// Glue the outer Sketch + each super-node's child `Clustered` into one
-/// `Clustered`. `children[i]` aligns with `split_result.pieces[i]`
-/// (`children[0]` is unused; the outer is passed separately). A child may
-/// itself be a nested stitch result — its own boxes/edges come along and are
-/// translated into place.
 pub fn stitch(
     arena: std.mem.Allocator,
     split_result: SplitResult,
     outer: sketch.Sketch,
     children: []const Clustered,
-    /// LayoutOptions.spacing_scale for this pass: selects the frame pad used by
-    /// BOTH translate sites below (via `superPad`, per super-node). MUST be the
-    /// same scale the driver passed to `superSize` so sizing and translation
-    /// never diverge.
     scale: u32,
-    /// True only for an AUTHORED-cluster recursion (non-flat root plan),
-    /// where pieces realized piece-scoped plans worth carrying. A motif-pack
-    /// recursion of a flat graph keeps the empty record: its pieces were
-    /// handed the root plan whose ids do not match theirs, so their bundles
-    /// are not testimony (and selection later overwrites them).
     merge_joins: bool,
-    /// This candidate's bridge build (LayoutOptions.bridge_build): which
-    /// routing variant `bridges.route` constructs. A decision made above
-    /// (selection scores the variants); routing obeys it.
     bridge_build: prim.BridgeBuild,
 ) StitchError!Clustered {
     if (children.len != split_result.pieces.len) return error.PieceSketchMismatch;
@@ -154,16 +100,6 @@ pub fn stitch(
     var piece_joins: std.ArrayListUnmanaged(stitch_bundles.PieceBundles) = .empty;
     const claim_sources = try arena.alloc(stitch_rails.ChildSource, split_result.supers.len);
 
-    // INVARIANT: edge ids are globally unique inside the merged Sketch.
-    // Every piece renumbers its edges from 0 (`split.zig`), so each piece gets
-    // a disjoint contiguous id window here — children in append order, then the
-    // outer piece, then the routed bridges — and EVERY id-bearing field copied
-    // out of a piece (`EdgePath.id`, `Tap.edge`, `Bundle.members`) is rewritten
-    // with that piece's offset. Without it, `ledger.bundleMembersAt` and the identity
-    // comparisons in `raster/` alias two unrelated edges that both numbered
-    // themselves 0. The scheme composes under nesting: an inner merged Sketch
-    // already satisfies the invariant, and the outer stitch only slides its
-    // whole (already-disjoint) window by one more offset.
     // @guarded-by: recurse_test.zig "stitched sibling clusters share one edge-id space"
     var id_base: sketch.EdgeId = 0;
 
@@ -191,10 +127,7 @@ pub fn stitch(
             const child = children[super.child_piece];
             const piece = split_result.pieces[super.child_piece];
             const pad = superPad(scale, super.synthetic);
-            // Entry-side inset (top-arrival terminal): pushes the child content
-            // one cell off the frame so the arrowhead gets a straight approach
-            // cell. MUST match the superSize sizing site and the edge-translate
-            // site below, both via the same shared predicate. // @guarded-by: entry_inset.zig "entryArrivalInset"
+            // @guarded-by: entry_inset.zig "entryArrivalInset"
             const ei = insets[si];
             const dx = p.rect.x + @as(i32, @intCast(pad.x)) + ei.dxExtra();
             const dy = p.rect.y + @as(i32, @intCast(pad.y)) + ei.dyExtra();
@@ -280,8 +213,6 @@ pub fn stitch(
 
     const outer_base = id_base;
     id_base += idSpan(outer);
-    // The bridges are numbered after the outer piece; a placement edge's
-    // claims are filed under the bridges that stand for it.
     const bridge_base = id_base;
     var proxy_span: usize = 0;
     for (split_result.crossings) |c| if (c.proxy != sg.SENTINEL) {
@@ -310,7 +241,7 @@ pub fn stitch(
         if (kept.items.len == 0) continue;
         var filtered = ob;
         filtered.taps = try kept.toOwnedSlice(arena);
-        // Re-clamp the crossbar to the surviving taps + junction. // @guarded-by: recurse_test.zig "stitch re-clamps a surviving rail's crossbar past a dropped super-node tap"
+        // @guarded-by: recurse_test.zig "stitch re-clamps a surviving rail's crossbar past a dropped super-node tap"
         const junction = ob.stem[ob.stem.len - 1];
         var min_x: i32 = junction.x;
         var max_x: i32 = junction.x;
@@ -339,9 +270,6 @@ pub fn stitch(
     }
     try stitch_gaps.adoptBridgeInk(arena, gap_records.items, edges.items[bridge_start..], outer.direction);
 
-    // Reconstruct authority only after bridge routing made every final image,
-    // endpoint, port, and id available. Structural outer groups require exact
-    // pivot evidence; port shares are one fresh population from final paths.
     // @guarded-by: recurse_test2.zig "two bridges into one port declare a port-share bundle"
     const edge_slice = try edges.toOwnedSlice(arena);
     const final_bridges = edge_slice[bridge_start..];
@@ -376,16 +304,12 @@ pub fn stitch(
         .rail_claims = authority.claims,
         .bundle_sets = authority.sets,
         .bundles = if (merge_joins) try stitch_bundles.merge(arena, piece_joins.items, bridge_joins) else .{},
-        // Report-only counts are per-PIECE facts about one merged picture,
-        // so the merged Sketch carries their sum; keeping only the outer's
-        // would silently drop every refusal a child's fans decided.
         // @guarded-by: recurse_test2.zig "the merged sketch sums its pieces' closure counts"
         .closure = closureSum(outer, children),
         .gap_rows = try gap_records.toOwnedSlice(arena),
         .diagnostics = try withTrackExpiry(arena, outer.diagnostics, track_expired),
         .budget = outer.budget,
     };
-    // Each piece numbered from one, so the merged sets are re-numbered here.
     // @guarded-by: sketch_bundles_test.zig "merged bundle sets name every bundle once"
     sketch_bundles.stamp(arena, &merged);
     return .{
@@ -394,13 +318,11 @@ pub fn stitch(
     };
 }
 
-/// Grow `list` to index `i` (filling with SENTINEL) and set `list[i] = val`.
 fn setAt(arena: std.mem.Allocator, list: *std.ArrayListUnmanaged(sketch.NodeId), i: sketch.NodeId, val: sketch.NodeId) error{OutOfMemory}!void {
     while (list.items.len <= i) try list.append(arena, sg.SENTINEL);
     list.items[i] = val;
 }
 
-/// If `outer_node_id` is a super-node, return its SuperNode record.
 fn superFor(sr: SplitResult, outer_node_id: sketch.NodeId) ?split_mod.SuperNode {
     for (sr.supers) |s| {
         if (s.outer_node == outer_node_id) return s;
@@ -408,8 +330,6 @@ fn superFor(sr: SplitResult, outer_node_id: sketch.NodeId) ?split_mod.SuperNode 
     return null;
 }
 
-/// If `outer_node_id` is a super-node, return its index in `sr.supers` (so a
-/// caller can index arrays computed parallel to `supers`).
 fn superIndexFor(sr: SplitResult, outer_node_id: sketch.NodeId) ?usize {
     for (sr.supers, 0..) |s, i| {
         if (s.outer_node == outer_node_id) return i;
@@ -424,7 +344,6 @@ fn placementOf(placements: []const sketch.NodePlacement, id: sketch.NodeId) sket
     return placements[0];
 }
 
-/// One past the largest edge id a piece can name in geometry or metadata.
 fn idSpan(s: sketch.Sketch) sketch.EdgeId {
     var max_id: ?sketch.EdgeId = null;
     const bump = struct {
@@ -439,8 +358,6 @@ fn idSpan(s: sketch.Sketch) sketch.EdgeId {
     return if (max_id) |m| m + 1 else 0;
 }
 
-/// Copy an edge with its endpoints remapped through `gmap`, its polyline +
-/// ports translated by (dx, dy) and its id shifted into the piece's window.
 fn translateEdge(
     arena: std.mem.Allocator,
     e: sketch.EdgePath,
@@ -466,9 +383,6 @@ fn translateEdge(
     };
 }
 
-/// Copy a rail with node ids remapped through `gmap` and all geometry
-/// translated by (dx, dy). Returns null when any referenced node maps to
-/// SENTINEL (defensive; callers filter super-node members beforehand).
 fn translateRail(
     arena: std.mem.Allocator,
     rail: sketch.Rail,

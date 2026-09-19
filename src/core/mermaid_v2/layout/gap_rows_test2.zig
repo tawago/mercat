@@ -1,7 +1,3 @@
-//! Tests for gap_rows.zig (continued): grid sub-gaps, RL pieces, bridge
-//! bands, departure bands and the departure/arrival column order.
-//! Discovered via gap_rows.zig's `test { _ = @import }`.
-
 const std = @import("std");
 const testing = std.testing;
 const sg = @import("../sem_graph.zig");
@@ -25,9 +21,6 @@ const pack_mod = @import("gap_rows_pack.zig");
 const grid = @import("gap_rows_grid.zig");
 
 test "a route past a box stacked under its source claims its entry in the sub-gap above that box" {
-    // J heads layer 0, P is stacked 6 rows under it on J's port column
-    // (a grid's second sub-row); K in layer 1 sits far left. J -> K must
-    // corridor past P: its entry run belongs to the band between J and P.
     const a = testing.allocator;
     var arena = std.heap.ArenaAllocator.init(a);
     defer arena.deinit();
@@ -46,20 +39,15 @@ test "a route past a box stacked under its source claims its entry in the sub-ga
     try testing.expectEqual(@as(usize, 1), ledger.sub_gaps.len);
     try testing.expectEqual(@as(u32, 1), ledger.sub_gaps[0].gap);
     try testing.expectEqual(@as(u32, 3), ledger.sub_gaps[0].base);
-    // The band has no comb (a rank grid, not a fan grid) and the source is
-    // undecorated, so the entry keeps the band's base row.
     const entry = ledger.claimOfEdge(0, .entry).?;
     try testing.expectEqual(@as(u32, 1), entry.gap);
     try testing.expectEqual(@as(i32, -1), entry.row);
     try testing.expectEqual(@as(u32, 0), ledger.laneOfEdge(0, .entry));
     try testing.expectEqual(gap_rows.Kind.corridor_entry, entry.kind);
-    // The corridor lands on K's own column, so no exit run and no row in the inter-layer gap.
     try testing.expectEqual(@as(?i32, null), ledger.rowOfEdge(0, .exit));
     try testing.expectEqual(@as(u32, 0), ledger.extraRows(0));
     try testing.expectEqual(@as(u32, 0), ledger.extraRows(1));
 
-    // The same J with a cross-border edge leaving it: the bridge above this
-    // piece will corridor past P too, and its jog row is reserved under J.
     const departures = [_]sg.NodeId{0};
     const with = try gap_rows.buildPiece(Geom, aa, graph, lg, &geom, &.{}, .{}, .{}, &bases, &.{}, &departures);
     try testing.expectEqual(@as(u32, 1), with.extraRows(0));
@@ -71,8 +59,6 @@ test "a route past a box stacked under its source claims its entry in the sub-ga
 }
 
 test "an RL piece claims its offset jogs in the gap beside the target" {
-    // Layers run the other way in RL: layer 0 holds the target D, layer 1
-    // the source A. The jog lands in gap 0, whose wall is D's far side.
     const a = testing.allocator;
     var arena = std.heap.ArenaAllocator.init(a);
     defer arena.deinit();
@@ -126,7 +112,6 @@ test "a sub-gap grows by the rows its packed claims need beyond the grid's" {
     var arena = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
-    // Gap 1 is a three-row grid band (one free row); two conflicting runs need two.
     const bases = [_]u32{ 2, 3 };
     var subs = [_]grid.SubGap{.{ .gap = 1, .layer = 0, .top = 6, .far = 3, .base = 3 }};
     const claims = [_]Claim{ claim(1, 0, 10, .run), claim(1, 5, 20, .corridor_entry) };
@@ -141,9 +126,6 @@ test "a sub-gap grows by the rows its packed claims need beyond the grid's" {
 }
 
 test "a run arriving down a column another run departs from sits nearer the target" {
-    // X leaves its source at column 51 and jogs right; Y arrives at column
-    // 51 from the right. Y above X would send both verticals down column 51
-    // between the rows, so Y takes the lower row whatever its left end.
     var arena = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
@@ -163,9 +145,6 @@ test "a run arriving down a column another run departs from sits nearer the targ
 
 test "a skip edge into a plain node joins the bridge band that ends on its port" {
     const a = testing.allocator;
-    // Start(0) -> One(1), Two(2) (drawn stand-ins) -> End(4); Start -> End
-    // through virtual 3 in layer 1. The bridges out of the stand-ins and the
-    // skip's exit all end on End's port: one band on the base row.
     var nodes = [_]sugiyama.LayerNode{
         .{ .real = 0 }, .{ .real = 1 }, .{ .real = 2 }, .{ .virtual = .{ .edge = 4, .index = 0 } }, .{ .real = 4 },
     };
@@ -206,16 +185,11 @@ test "a skip edge into a plain node joins the bridge band that ends on its port"
     try testing.expect(band.kind == .bridge_jog and band.row == -1);
     try testing.expectEqual(@as(usize, 2), band.edges.len);
     for (ledger.claims) |c| if (c.gap == 1) try testing.expectEqual(@as(i32, -1), c.row);
-    // The skip's corridor entry under Start keeps its own row.
     try testing.expectEqual(@as(?i32, 0), ledger.rowOfEdge(4, .entry));
 }
 
 test "a placement edge that stands for two crossings into a plain node claims the base row across its frame" {
     const a = testing.allocator;
-    // S(0), a drawn stand-in, -> End(1) by one placement edge; End's port
-    // is on S's centre. Standing for one crossing the bridge is straight
-    // and claims nothing; standing for two, one bridge must leave the
-    // frame off the port column and jog to it on the base row.
     var nodes = [_]sugiyama.LayerNode{ .{ .real = 0 }, .{ .real = 1 } };
     var row0 = [_]u32{0};
     var row1 = [_]u32{1};
@@ -254,12 +228,6 @@ test "a fan-OUT run whose span holds another fan-OUT's taps sits nearer the sour
     defer arena.deinit();
     const a = arena.allocator();
     const bases = [_]u32{2};
-    // A pivot's solid members leave per peer from ports 46 and 52 to 8 and
-    // 92; its dotted rail leaves from port 50 to 28 and 70. Packed by left
-    // endpoint alone the solid run 8..46 takes row 0 and the dotted rail
-    // stacks above it, so its tap at 28 drops through the solid run.
-    // The dotted rail's taps lie inside both solid spans, and each solid
-    // stem lies inside the dotted span: the dotted rail sits under both.
     var left_stem = [_]i32{46};
     var left_tap = [_]i32{8};
     var right_stem = [_]i32{52};
@@ -276,9 +244,6 @@ test "a fan-OUT run whose span holds another fan-OUT's taps sits nearer the sour
     try testing.expectEqual(@as(i32, 1), rowOf(ledger, 8));
     try testing.expectEqual(@as(i32, 1), rowOf(ledger, 52));
     try testing.expectEqual(@as(u32, 2), ledger.extraRows(0));
-    // Two fan-IN rails with nested spans cross either way — the inner
-    // stem is inside the outer span whichever sits nearer the source —
-    // so they stay unordered and pack by left endpoint.
     var outer_stem = [_]i32{50};
     var outer_taps = [_]i32{ 8, 92 };
     var inner_stem = [_]i32{40};

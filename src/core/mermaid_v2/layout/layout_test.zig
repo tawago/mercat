@@ -1,5 +1,3 @@
-//! Tests for `layout.zig`.
-
 const std = @import("std");
 const sg = @import("../sem_graph.zig");
 const sketch = @import("../sketch.zig");

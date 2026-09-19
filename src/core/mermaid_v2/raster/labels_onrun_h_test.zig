@@ -1,17 +1,9 @@
-//! Unit tests for raster/labels_onrun_h.zig — the INLINE horizontal on-run
-//! label (`──── label ────`): OWN-INK RULE (edge-only private run ink, double
-//! enforced), FLANKED-RESUMPTION RULE (full-stroke flanks left and right), isolation,
-//! infeasible fall-through, determinism, and the vertical/horizontal tie
-//! order fixed in labels_onrun.zig.
-
 const std = @import("std");
 const sketch = @import("../sketch.zig");
 const lattice = @import("../lattice.zig");
 const onrun = @import("labels_onrun.zig");
 const lw = @import("labels_write.zig");
 
-/// A `Run` for an ASCII literal, built at compile time: these synthetic
-/// writers run outside a rasterization, with no table to intern into.
 fn asciiRun(comptime text: []const u8) lw.Run {
     const cells = comptime blk: {
         var out: [text.len]lw.LabelCell = undefined;
@@ -41,7 +33,6 @@ fn emptySketch(bw: u32, bh: u32) sketch.Sketch {
     };
 }
 
-/// One horizontal private run cell of `edge` at (x, y).
 fn runCell(lat: *lattice.Lattice, x: u32, y: u32, edge: u32, role: lattice.EdgeRole, kind: lattice.EdgeKind) void {
     lat.at(x, y).* = .{
         .occupant = .{ .edge_segment = .{ .edge = edge, .kind = kind, .role = role } },
@@ -50,7 +41,6 @@ fn runCell(lat: *lattice.Lattice, x: u32, y: u32, edge: u32, role: lattice.EdgeR
     };
 }
 
-/// One vertical private dropper cell of `edge` at (x, y).
 fn dropCell(lat: *lattice.Lattice, x: u32, y: u32, edge: u32, role: lattice.EdgeRole) void {
     lat.at(x, y).* = .{
         .occupant = .{ .edge_segment = .{ .edge = edge, .kind = .solid, .role = role } },
@@ -70,8 +60,6 @@ fn paintRun(lat: *lattice.Lattice, x0: u32, x1: u32, y: u32, edge: u32, kind: la
     while (x <= x1) : (x += 1) runCell(lat, x, y, edge, .forward, kind);
 }
 
-/// A straight LR edge whose polyline runs (2,4) → (12,4): strict interior
-/// columns 3..11, painted as this edge's own private forward run.
 fn straightEdge(poly: []const sketch.Point, kind: lattice.EdgeKind) sketch.EdgePath {
     return .{
         .id = 7,
@@ -89,7 +77,6 @@ fn straightEdge(poly: []const sketch.Point, kind: lattice.EdgeKind) sketch.EdgeP
 }
 
 const long_poly = [_]sketch.Point{ .{ .x = 2, .y = 4 }, .{ .x = 12, .y = 4 } };
-/// Exactly the minimum feasible shape: interior 3..6 = label(2) + 2 flanks.
 const tight_poly = [_]sketch.Point{ .{ .x = 2, .y = 4 }, .{ .x = 7, .y = 4 } };
 
 test "happy path: the label sits inline in its own horizontal run, flanked both sides" {
@@ -267,8 +254,6 @@ test "determinism: identical inputs place the inline label identically" {
     }
 }
 
-/// An elbow that offers BOTH forms: a vertical dropper on column 5 (rows
-/// 2..5 private) and a horizontal run on row 6 starting at column 6.
 fn elbow(poly: []const sketch.Point) sketch.EdgePath {
     var ep = straightEdge(poly, .solid);
     ep.port_from = .{ .node = 0, .side = .south, .offset = 0 };

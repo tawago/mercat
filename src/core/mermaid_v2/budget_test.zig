@@ -1,8 +1,3 @@
-//! Graph-level tests for the budget.zig rung ladder (run / enumerate /
-//! runForced over parsed SemGraphs). Split from budget.zig to keep it
-//! under the 500-line cap; pure-helper tests (optionsFor, rotateForRung,
-//! halveAtLeastOne) stay in budget.zig where the private functions live.
-
 const std = @import("std");
 const build_options = @import("build_options");
 const ledger = @import("base/ledger.zig");

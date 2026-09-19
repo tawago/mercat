@@ -1,12 +1,3 @@
-//! Back-edge (reversed-edge) routing for `layout/routing.zig`.
-//! Builds the U-shape path for Sugiyama-reversed edges: TD/BT exit
-//! source EAST to a rail column past the widest spanned node then enter
-//! target EAST; LR/RL exit SOUTH to a rail row then enter target SOUTH.
-//! `lanes.zig` packs back-edges into shared/stacked rails and finds the
-//! obstacle-aware base; this module builds span demands and maps
-//! resolved lanes to edge ids. Imports: std, sem_graph.zig, sketch.zig,
-//! sugiyama.zig, routing.zig, lanes.zig only; must not reach raster/lattice/paint.
-
 const std = @import("std");
 const sg = @import("../sem_graph.zig");
 const sketch = @import("../sketch.zig");
@@ -16,9 +7,6 @@ const lanes = @import("lanes.zig");
 
 pub const BackEdgeRail = struct {
     edge_id: sg.EdgeId,
-    /// Perpendicular distance from the node row to the rail line.
-    /// TD/BT: x-column of the vertical rail. LR/RL: y-row of the
-    /// horizontal rail.
     rail_pos: i32,
 };
 
@@ -64,7 +52,7 @@ pub fn allocateBackEdgeRails(
 
         const src_geom_idx = nodeGeomIndex(lg, orig.from) orelse continue;
         const dst_geom_idx = nodeGeomIndex(lg, orig.to) orelse continue;
-        // After applyDirection swaps axes for LR/RL, NodeGeom.layer is still the logical (pre-swap) layer, which is what "layers traversed" needs. // @guarded-by: mirror_test.zig "mirror.applyDirection swaps x/y/w/h but leaves NodeGeom.layer untouched"
+        // @guarded-by: mirror_test.zig "mirror.applyDirection swaps x/y/w/h but leaves NodeGeom.layer untouched"
         const sl = geom[src_geom_idx].layer;
         const dl = geom[dst_geom_idx].layer;
         const lo = if (sl < dl) sl else dl;
@@ -80,7 +68,7 @@ pub fn allocateBackEdgeRails(
         }
         const fallback_base = max_extent + RAIL_PAD;
 
-        // Obstacle-aware base: parks the rail at the first clear cross position past the endpoints, byte-identical to fallback_base when unobstructed. @guarded-by: lanes_test.zig "clearRunBase: vertical run parks just past endpoints when unobstructed"
+        // @guarded-by: lanes_test.zig "clearRunBase: vertical run parks just past endpoints when unobstructed"
         const base = lanes.clearRunBase(
             horizontal,
             placements,
@@ -100,7 +88,7 @@ pub fn allocateBackEdgeRails(
         });
     }
 
-    // Sort by span ascending: shortest back-edge claims the innermost lane first, biasing tightly-nested loops toward sharing. // @guarded-by: back_edges_test.zig "allocateBackEdgeRails: span-ascending sort shares the innermost rail between disjoint short loops"
+    // @guarded-by: back_edges_test.zig "allocateBackEdgeRails: span-ascending sort shares the innermost rail between disjoint short loops"
     const SortCtx = struct {
         pub fn lt(_: @This(), x: Item, y: Item) bool {
             return x.span < y.span;
@@ -108,7 +96,7 @@ pub fn allocateBackEdgeRails(
     };
     std.mem.sort(Item, items.items, SortCtx{}, SortCtx.lt);
 
-    // Lane assignment: disjoint-span back-edges share a rail column; overlapping spans get distinct outer lanes. @guarded-by: lanes_test.zig "assign: greedy 4-claim hand example with a tie"
+    // @guarded-by: lanes_test.zig "assign: greedy 4-claim hand example with a tie"
     var demands = try a.alloc(lanes.LaneClaim, items.items.len);
     defer a.free(demands);
     for (items.items, 0..) |it, i| {
@@ -140,21 +128,6 @@ pub fn backEdgePortTo(dir: sg.Direction, p: sketch.NodePlacement) sketch.Port {
     };
 }
 
-/// Build the U-shape polyline for one back edge. The rail leg is
-/// obstacle-checked at allocation time (lanes.clearRunBase); each STUB
-/// leg (endpoint mid-line out to the rail) also checks its straight run
-/// with touch semantics (sketch.lineTouchesAny) and, when blocked, hops
-/// one clear line sideways (toward the rail's far end first, via
-/// sketch.clearLine/hopPos) to avoid slicing through a same-layer box.
-///
-/// Axis frame: TD/BT exit EAST (stub lines are rows, the rail is a
-/// column); LR/RL exit SOUTH (stub lines are columns, the rail is a
-/// row). `pt(along, line)` maps the axis-neutral pair back to a Point:
-/// `along` runs along the stub (toward the rail), `line` is the stub's
-/// cross position. The endpoints differ per axis by convention: TD/BT
-/// ends one cell PAST the target's east border; LR/RL ends ON the south
-/// border cell (the rasterizer skips it, landing the arrowhead on the
-/// south-perimeter cell just below the box).
 pub fn backEdgePolylineAt(
     a: std.mem.Allocator,
     dir: sg.Direction,

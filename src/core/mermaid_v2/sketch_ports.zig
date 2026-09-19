@@ -1,53 +1,3 @@
-//! Port-share bundles — the geometric half of bundle membership.
-//!
-//! A producer may deliberately route several edges through ONE perimeter port
-//! of a node: layout's port plan hands two arrivals the same midpoint port,
-//! `cluster/bridges.zig` mints two bridge elbows landing on the same placement
-//! port, and after `cluster/stitch.zig` a child edge and a bridge can meet at
-//! one port across tiers. In every case the edges legally share the approach
-//! ink at that port — the stem below a shared north port is ONE run, and the
-//! junction there is a real junction, not a transversal.
-//!
-//! No producer declares that share (each knows only its own edge), so
-//! `raster/crossings.sameBundle` reads the stem as foreign overlap and
-//! regresses `├` to `│`. This module recovers the declaration from the
-//! sketch's OWN geometry: the producers already agreed on a coordinate, and
-//! that agreement is the record.
-//!
-//! INVARIANTS
-//!   * Grouping is by PHYSICAL PORT POINT ONLY, never by polarity: an edge
-//!     contributes both its first polyline point (its departure port) and its
-//!     last (its arrival port), so an in-edge and an out-edge meeting at one
-//!     port — a cycle return terminating where a fan departs — group together.
-//!   * A set is ONE PER PORT and CELL-SCOPED, and members grouped
-//!     transitively (A shares B's port and B shares C's, so all three name
-//!     ONE bundle) do NOT thereby share cell scope: the set's `.pairwise`
-//!     table records each PAIR's own common approach separately, and
-//!     `bundleMembersAt`/`memberOfBundleAt` consult that pair-specific entry, never a
-//!     flat union over every pair. A member with no direct overlap with
-//!     another stays a named member (the group is one bundle for identity
-//!     purposes) but licenses no cell between the two of them. Where two
-//!     members' paths meet again far from the port they are still strangers
-//!     there and that meeting is still a transversal — a third member's own
-//!     agreement with each of them separately licenses nothing between the
-//!     two that never agreed with each other. (The flat `.cells` field is
-//!     kept as the union anyway, purely so a reader can ask "is this a
-//!     narrower-than-a-rail set at all" without walking `.pairwise`; no
-//!     licensing decision reads it when `.pairwise` is present.)
-//!   * No union-find across ports: transitively fusing two ports would license
-//!     ink sharing along a run neither producer ever agreed on.
-//!   * Final stitch reconstruction also includes first-class rail members. A
-//!     rail member contributes only its two real terminal approaches: the
-//!     pivot stem and its own tap dropper. It never connects those components
-//!     through the crossbar or claims another member's stretch.
-//!   * Pure and total: reads only final geometry, allocates only the result,
-//!     and never inspects names or layout intent.
-//!
-//! Allowed imports (tools/lint_imports.zig): `std`, `prim`, the `base/`
-//! no-deps tier, `sketch.zig`, and `sketch_ports_test.zig`. Actually imports
-//! `std`, `sketch.zig` and `base/ledger.zig` (it is an extension of the
-//! Sketch IR root).
-
 const std = @import("std");
 const sketch = @import("sketch.zig");
 const ledger = @import("base/ledger.zig");
@@ -56,8 +6,6 @@ const EdgeId = sketch.EdgeId;
 const Point = sketch.Point;
 const BundleCell = ledger.BundleCell;
 
-/// A single edge's cell footprint: every integer cell its polyline passes
-/// through, in path order.
 pub const CarrierTrace = struct {
     id: EdgeId,
     first: Point,
@@ -66,30 +14,6 @@ pub const CarrierTrace = struct {
     rail: bool,
 };
 
-/// One `.port_share` bundle per DISTINCT PORT COORDINATE, gathering EVERY
-/// edge terminating there (transitively: A-shares-B and B-shares-C at the
-/// same physical point are ONE group, ONE bundle — never two overlapping
-/// pairwise sets over the same trio). No union-find across DIFFERENT ports
-/// happens: an edge with two distinct shared terminals still lands in two
-/// separate sets (see the header's no-fusing invariant and the
-/// "an edge sharing two ports lands in two sets" test) because grouping keys
-/// on the literal coordinate value, which is transitive by equality alone
-/// and never chains through an intermediate edge to a second point.
-///
-/// Set order is by PORT COORDINATE (x then y), never by edge id or input
-/// position: the bundle sets this feeds are renumbered positionally
-/// (`ledger.numberBundles`), and a stitch or re-plan can renumber and
-/// reorder edges freely, so the group boundaries and the order sets are
-/// discovered in must be a function of the sketch's own geometry alone.
-///
-/// Skipped: invisible edges (they paint no ink, so they may license none),
-/// degenerate polylines (fewer than two points, or a first point equal to the
-/// last). The `cells.items.len == 0` guard below is dead in practice — every
-/// member's trace contains the port cell itself by construction, so the
-/// union is never empty once two members are present — kept only as a
-/// defensive floor, not a real skip path.
-///
-/// The result is allocated in `arena`.
 /// @guarded-by: sketch_ports_test.zig "shared departure port groups its edges"
 pub fn portShareBundles(
     arena: std.mem.Allocator,
@@ -98,9 +22,6 @@ pub fn portShareBundles(
     return portShareBundlesFromTraces(arena, try finalCarrierTraces(arena, edges, &.{}));
 }
 
-/// Final carrier population for stitch: ordinary paths plus one exact trace
-/// per first-class rail tap. EdgePath geometry wins if malformed input names
-/// one semantic edge in both forms; no edge can enter the population twice.
 pub fn finalCarrierTraces(
     arena: std.mem.Allocator,
     edges: []const sketch.EdgePath,
@@ -246,10 +167,6 @@ fn portLess(_: void, a: BundleCell, b: BundleCell) bool {
     return a.y < b.y;
 }
 
-/// Every cell a polyline passes through, in order. Orthogonal segments are
-/// walked cell by cell; a non-orthogonal segment (which routing never emits)
-/// contributes only its endpoints, so the trace can never name a cell the
-/// edge does not touch.
 fn traceCells(arena: std.mem.Allocator, polyline: []const Point) error{OutOfMemory}![]const BundleCell {
     var cells: std.ArrayListUnmanaged(BundleCell) = .empty;
     try cells.append(arena, .{ .x = polyline[0].x, .y = polyline[0].y });
@@ -269,9 +186,6 @@ fn traceCells(arena: std.mem.Allocator, polyline: []const Point) error{OutOfMemo
     return cells.toOwnedSlice(arena);
 }
 
-/// The cells BOTH edges occupy that are 4-connected to `port` through the
-/// intersection — the shared approach and nothing beyond it. A second, distant
-/// overlap between the same two edges is a separate meeting and stays foreign.
 pub fn commonApproachCells(
     arena: std.mem.Allocator,
     a: []const BundleCell,
@@ -311,10 +225,6 @@ fn has(cells: []const BundleCell, want: BundleCell) bool {
     return false;
 }
 
-/// Replace the existing `.port_share` population with the one derived from
-/// `edges`, while retaining every structural set in order. This is the one way
-/// a finalizer wires port shares in: stale geometry and duplicate first-match
-/// identities cannot survive a second finalization.
 /// @guarded-by: sketch_ports_test.zig "appendPortShares keeps the existing sets ahead of the derived ones"
 pub fn appendPortShares(
     arena: std.mem.Allocator,
@@ -328,9 +238,6 @@ pub fn appendPortShares(
     return ledger.concatBundles(arena, try structural.toOwnedSlice(arena), try portShareBundles(arena, edges));
 }
 
-/// Stitch finalizer variant. Scoped port shares come first so a rail member
-/// can temporarily ride the port bundle where a bridge joins it, then fall
-/// back to its structural rail bundle everywhere outside that exact scope.
 pub fn rebuildFinalPortShares(
     arena: std.mem.Allocator,
     existing: []const ledger.Bundle,

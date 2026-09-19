@@ -1,9 +1,3 @@
-//! Tests for routing_self_loops.zig. Discovered via `test { _ = @import }`.
-//!
-//! These promote comment claims about the self-loop "lollipop" detour into
-//! machine checks against the real `selfLoop`/`selfLoopHalfGap` output —
-//! not a re-implementation of the geometry.
-
 const std = @import("std");
 const sg = @import("../sem_graph.zig");
 const sketch = @import("../sketch.zig");

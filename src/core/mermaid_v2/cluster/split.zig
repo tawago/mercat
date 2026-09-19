@@ -1,13 +1,3 @@
-//! cluster/split.zig — cuts one SemGraph into independently-layoutable pieces:
-//! the outer flowchart plus one inner flowchart per subgraph, glued back by
-//! `cluster/stitch.zig`. Pure data work (SemGraph in, smaller SemGraphs out);
-//! runs nothing itself — only `budget.zig` calls `layout()` on the pieces.
-//! May import only std, prim, sem_graph, sketch, and cluster-internal files.
-//!
-//! Cuts single-level subgraphs whose edges never cross a border; anything
-//! else falls back to the identity result (one flat outer piece), keyed
-//! purely on graph shape.
-
 const std = @import("std");
 const sg = @import("../sem_graph.zig");
 const sketch = @import("../sketch.zig");
@@ -22,12 +12,6 @@ pub const Inherited = inherited_mod.Inherited;
 pub const entrySide = inherited_mod.entrySide;
 pub const exitSide = inherited_mod.exitSide;
 
-/// One independently-layoutable flowchart carved out of the original graph.
-///
-/// `cluster_id` is null for the outermost piece (the top-level flowchart) and
-/// set to the subgraph's id for a child piece. `orig_ids[new_id]` maps a
-/// node's re-assigned id within this piece back to its original SemGraph id,
-/// or `sg.SENTINEL` for synthetic nodes (super-nodes / future port-nodes).
 pub const Piece = struct {
     graph: sg.SemGraph,
     cluster_id: ?sg.ClusterId,
@@ -35,36 +19,20 @@ pub const Piece = struct {
 };
 
 pub const SuperNode = struct {
-    /// Node id of the super-node within the OUTER piece (`pieces[0]`).
     outer_node: sg.NodeId,
-    /// The original cluster this super-node stands in for.
     cluster_id: sg.ClusterId,
-    /// Index into `SplitResult.pieces` of this cluster's child flowchart.
     child_piece: usize,
-    /// Copied from `Cluster.synthetic`: a packing cluster whose frame is
-    /// invisible — stitch/superSize/sub-budget all use ZERO frame pad.
     synthetic: bool = false,
 };
 
-/// The result of cutting a graph. `pieces[0]` is always the outer flowchart;
-/// entries `1..` are child flowcharts (one per subgraph). `supers` ties each
-/// outer super-node to its child piece so the driver can size it and `stitch`
-/// can glue the child in.
 pub const SplitResult = struct {
     pieces: []const Piece,
     supers: []const SuperNode,
-    /// Cross-border edges, routed by `cluster/bridges.zig` after stitch using
-    /// the final merged placements. Empty on the flat path.
     crossings: []const Crossing,
-    /// Decorated ends arriving from outside a piece's graph: this cut's own
-    /// decorated crossings plus every arrival inherited from the cut above.
     arrivals: []const Arrival,
     departures: []const Departure,
-    /// Number of nodes in the ORIGINAL graph — sizes the orig→merged id map.
     orig_node_count: usize,
 
-    /// The arrivals whose target lies in piece `piece_idx`, re-id'd into that
-    /// piece's graph — the `inherited` argument of the piece's own `split`.
     pub fn childArrivals(self: SplitResult, arena: std.mem.Allocator, piece_idx: usize) error{OutOfMemory}![]const Arrival {
         var out: std.ArrayListUnmanaged(Arrival) = .empty;
         for (self.arrivals) |a| {
@@ -75,8 +43,6 @@ pub const SplitResult = struct {
         return out.toOwnedSlice(arena);
     }
 
-    /// The departures whose source lies in piece `piece_idx`, re-id'd into
-    /// that piece's graph.
     pub fn childDepartures(self: SplitResult, arena: std.mem.Allocator, piece_idx: usize) error{OutOfMemory}![]const Departure {
         var out: std.ArrayListUnmanaged(Departure) = .empty;
         for (self.departures) |d| {
@@ -87,36 +53,26 @@ pub const SplitResult = struct {
         return out.toOwnedSlice(arena);
     }
 
-    /// Both records for piece `piece_idx`: the `inherited` of its own split.
     pub fn childInherited(self: SplitResult, arena: std.mem.Allocator, piece_idx: usize) error{OutOfMemory}!Inherited {
         return .{ .arrivals = try self.childArrivals(arena, piece_idx), .departures = try self.childDepartures(arena, piece_idx) };
     }
 
-    /// True when there was nothing to cut — a flat flowchart (no subgraphs)
-    /// or a structure not yet handled by the cut path. The driver then takes
-    /// the fast path: lay out the single piece, return its Sketch unchanged.
     pub fn isFlat(self: SplitResult) bool {
         return self.pieces.len == 1 and self.supers.len == 0;
     }
 };
 
-/// Cut `graph` into independently-layoutable pieces. `inherited` holds the
-/// arrivals the cut above recorded into this graph (empty at the root).
 pub fn split(arena: std.mem.Allocator, graph: sg.SemGraph, inherited: Inherited) error{OutOfMemory}!SplitResult {
     if (cuttable(graph)) return cut(arena, graph, inherited);
     return identity(arena, graph, inherited);
 }
 
-/// Identity result: the whole graph as a single flat outer piece.
 fn identity(arena: std.mem.Allocator, graph: sg.SemGraph, inherited: Inherited) error{OutOfMemory}!SplitResult {
     const pieces = try arena.alloc(Piece, 1);
     pieces[0] = .{ .graph = graph, .cluster_id = null, .orig_ids = &.{} };
     return .{ .pieces = pieces, .supers = &.{}, .crossings = &.{}, .arrivals = inherited.arrivals, .departures = inherited.departures, .orig_node_count = graph.nodes.len };
 }
 
-/// Structural precondition for the cut path: the graph has at least one
-/// top-level subgraph. Nested subgraphs are handled by recursion (each child
-/// graph is itself cut). Keyed purely on graph shape, never on identity.
 fn cuttable(graph: sg.SemGraph) bool {
     for (graph.clusters) |c| {
         if (c.parent == null) return true;
@@ -124,8 +80,6 @@ fn cuttable(graph: sg.SemGraph) bool {
     return false;
 }
 
-/// The direct cluster of node `id`, or null if top-level. Linear scan (graphs
-/// are fixture-sized).
 fn clusterOf(graph: sg.SemGraph, id: sg.NodeId) ?sg.ClusterId {
     for (graph.nodes) |n| {
         if (n.id == id) return n.cluster;
@@ -133,7 +87,6 @@ fn clusterOf(graph: sg.SemGraph, id: sg.NodeId) ?sg.ClusterId {
     return null;
 }
 
-/// Parent of cluster `cid`, or null if top-level.
 fn parentOf(graph: sg.SemGraph, cid: sg.ClusterId) ?sg.ClusterId {
     for (graph.clusters) |c| {
         if (c.id == cid) return c.parent;
@@ -141,15 +94,12 @@ fn parentOf(graph: sg.SemGraph, cid: sg.ClusterId) ?sg.ClusterId {
     return null;
 }
 
-/// The top-level (parent==null) ancestor of cluster `cid` — walks up the
-/// parent chain.
 fn topAncestor(graph: sg.SemGraph, cid: sg.ClusterId) sg.ClusterId {
     var cur = cid;
     while (parentOf(graph, cur)) |p| cur = p;
     return cur;
 }
 
-/// True iff cluster `d` is a proper descendant of cluster `anc`.
 fn isDescendant(graph: sg.SemGraph, d: sg.ClusterId, anc: sg.ClusterId) bool {
     if (d == anc) return false;
     var cur: ?sg.ClusterId = d;
@@ -159,22 +109,16 @@ fn isDescendant(graph: sg.SemGraph, d: sg.ClusterId, anc: sg.ClusterId) bool {
     return false;
 }
 
-/// True iff node `id` lies anywhere inside cluster `c`'s subtree (in `c`
-/// directly or in a descendant cluster).
 fn inSubtree(graph: sg.SemGraph, id: sg.NodeId, c: sg.ClusterId) bool {
     const nc = clusterOf(graph, id) orelse return false;
     return nc == c or isDescendant(graph, nc, c);
 }
 
-/// The top-level cluster containing node `id`, or null if `id` is top-level.
 fn topClusterOf(graph: sg.SemGraph, id: sg.NodeId) ?sg.ClusterId {
     const nc = clusterOf(graph, id) orelse return null;
     return topAncestor(graph, nc);
 }
 
-/// Cut a graph into outer + one child per TOP-LEVEL subgraph. Each child holds
-/// that subgraph's whole subtree (nested sub-clusters included), so laying it
-/// out recurses through `split` again.
 fn cut(arena: std.mem.Allocator, graph: sg.SemGraph, inherited: Inherited) error{OutOfMemory}!SplitResult {
     var tops: std.ArrayListUnmanaged(usize) = .empty;
     for (graph.clusters, 0..) |c, ci| {
@@ -219,13 +163,6 @@ fn cut(arena: std.mem.Allocator, graph: sg.SemGraph, inherited: Inherited) error
 
 const OuterBuild = struct { piece: Piece, crossings: []const Crossing };
 
-/// Build the child flowchart for cluster `c`: its whole subtree re-id'd into a
-/// self-contained SemGraph. Direct members come first (preserving member order
-/// and ids, so a sub-cluster-free child is identical to the flat case), then
-/// descendant nodes. `c`'s direct sub-clusters are re-parented to null so they
-/// become the child's own top-level subgraphs for the recursive cut; deeper
-/// clusters keep their (re-pointed) parents. Cluster ids are preserved; node
-/// ids are re-assigned 0..k-1 and members/edges are remapped to them.
 fn buildChild(arena: std.mem.Allocator, graph: sg.SemGraph, c: sg.Cluster) error{OutOfMemory}!Piece {
     var ids: std.ArrayListUnmanaged(sg.NodeId) = .empty;
     for (c.members) |mid| try ids.append(arena, mid);
@@ -295,11 +232,6 @@ fn buildChild(arena: std.mem.Allocator, graph: sg.SemGraph, c: sg.Cluster) error
     return .{ .graph = child_graph, .cluster_id = c.id, .orig_ids = orig };
 }
 
-/// Build the outer flowchart: every top-level (cluster==null) node plus one
-/// synthetic super-node per cluster, the top-level edges, a deduped super↔
-/// super (or top-level↔super) "placement" edge per cross-border connection so
-/// the outer layout stacks the boxes correctly, and the list of cross-border
-/// crossings for `bridges` to route later.
 fn buildOuter(arena: std.mem.Allocator, graph: sg.SemGraph, tops: []const usize, supers: []SuperNode) error{OutOfMemory}!OuterBuild {
     var nodes: std.ArrayListUnmanaged(sg.Node) = .empty;
     var orig: std.ArrayListUnmanaged(sg.NodeId) = .empty;
@@ -407,13 +339,10 @@ fn sameCluster(a: ?sg.ClusterId, b: ?sg.ClusterId) bool {
     return a != null and b != null and a.? == b.?;
 }
 
-/// The root-graph id of `e`: its own id when it was born in the graph being
-/// cut (first cut), else the origin it already carries (nested cut).
 fn originOf(e: sg.Edge) sg.EdgeId {
     return if (e.origin == sg.SENTINEL) e.id else e.origin;
 }
 
-/// One outer pair that already owns a placement edge, and where that edge sits.
 const SeenPair = struct { from: sg.NodeId, to: sg.NodeId, edge: u32 };
 
 fn seenIndex(seen: []const SeenPair, f: sg.NodeId, t: sg.NodeId) ?u32 {
@@ -423,8 +352,6 @@ fn seenIndex(seen: []const SeenPair, f: sg.NodeId, t: sg.NodeId) ?u32 {
     return null;
 }
 
-/// The outer-graph node that stands in for an original node: the super-node of
-/// its TOP-LEVEL containing subgraph, else its own outer-local real id.
 fn outerRepr(graph: sg.SemGraph, supers: []const SuperNode, orig: []const sg.NodeId, id: sg.NodeId) sg.NodeId {
     if (topClusterOf(graph, id)) |cid| {
         for (supers) |s| {
@@ -451,7 +378,6 @@ fn nodeById(graph: sg.SemGraph, id: sg.NodeId) sg.Node {
     return graph.nodes[0];
 }
 
-/// Map an original node id to its piece-local id via the piece's orig_ids.
 fn localId(orig: []const sg.NodeId, original: sg.NodeId) sg.NodeId {
     for (orig, 0..) |o, i| {
         if (o == original) return @intCast(i);
@@ -463,17 +389,11 @@ fn localIdList(orig: []const sg.NodeId, original: sg.NodeId) sg.NodeId {
     return localId(orig, original);
 }
 
-/// Resolve a child SKETCH node id to its id in the graph that produced a stitch
-/// level: child sketch id -> child input-graph id (`child_input_of`) ->
-/// this-graph id (`piece_orig_ids`). Either hop may be `SENTINEL` (synthetic
-/// node). Shared by `stitch.zig` and `entry_inset.zig`.
 pub fn pieceId(piece_orig_ids: []const sg.NodeId, child_input_of: []const sketch.NodeId, sketch_id: sketch.NodeId) sketch.NodeId {
     const child_graph_id = idAt(child_input_of, sketch_id);
     return idAt(piece_orig_ids, child_graph_id);
 }
 
-/// Index into a node-id map, returning `SENTINEL` for a sentinel/out-of-range
-/// index (a synthetic node has no entry).
 pub fn idAt(map: []const sketch.NodeId, i: sketch.NodeId) sketch.NodeId {
     if (i == sg.SENTINEL or i >= map.len) return sg.SENTINEL;
     return map[i];

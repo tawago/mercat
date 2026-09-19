@@ -1,39 +1,3 @@
-//! Two-sided fan run separation.
-//! Several fans that share one inter-layer gap may put their horizontal
-//! rails on ONE run: the row ledger (`gap_rows.zig`) fuses the claims of
-//! fans it finds in one run class on a shared column. When two such rails
-//! occupy overlapping-or-abutting x-spans they FUSE at raster time into one
-//! continuous `├──┼──┤` run — one run standing for a shared endpoint. If the
-//! UNION of the fused rails' declared edges is TWO-SIDED (more than one
-//! distinct source AND more than one distinct target) there is no shared
-//! endpoint to stand for, and the run speaks for a pivot nothing in the source
-//! declares — unless the source declares every pair that run asserts, which is
-//! the closure test stated below.
-//! This pass groups rail-producing rails by collinear overlap and assigns
-//! each a run class (`Fan.lane`, `FanEdge.lane`). Distinct classes never
-//! share a run — the ledger gives each its own row — so each edge keeps its
-//! own traceable rail; honest merges (a shared target column) are preserved
-//! as a single vertical.
-//! Inert (every `lane == 0`, byte-identical) for gaps with a single rail and
-//! for pure fan-in or fan-out groups (N==1 or M==1; a lone pivot never
-//! fabricates). Beyond that the gate is the declared-pair closure test
-//! `base/rail_closure.zig` states: a run may fuse only
-//! where the source DECLARES every leaf pair the run would ASSERT, and what
-//! it asserts turns on whether a leaf-to-leaf trace RUNS AGAINST AN ARROW,
-//! which takes a one-way head. A run one of whose members does not block the
-//! trace asserts every unordered pair among its endpoints, so a two-sided
-//! group asserts within-side pairs no two-sided source declares and is refused
-//! — unchanged. A run every member of which blocks it asserts only the cross
-//! pairs, so a two-sided group whose declared set is the whole of srcs x tgts
-//! asserts nothing undeclared and keeps one shared row.
-//!
-//! The test is asked of the group's MODEL. A model missing ink is not a
-//! declaration count: a discharged edge and a peer on its pivot's own column
-//! draw no run of their own yet touch the shared crossbar, and dropping them
-//! can make an incomplete group read complete. Such a gap never takes it.
-//!
-//! Runs after x-assignment and before row reservation. It is keyed only on gap
-//! topology and geometry.
 const std = @import("std");
 const sg = @import("../sem_graph.zig");
 const fan_mod = @import("fan.zig");
@@ -50,8 +14,6 @@ const Pair = struct { lo: sg.NodeId, hi: sg.NodeId };
 
 const forwardOneWayHead = sg.forwardOneWayHead;
 
-/// Stroke kind + both head glyphs: members of ONE fused run must agree on all
-/// three, or the shared ink restates somebody's declaration in a foreign style.
 fn styleKey(e: sg.Edge) u16 {
     return (@as(u16, pb.edgeKindOrdinal(e.kind)) << 8) |
         (@as(u16, @intFromEnum(e.arrow_from)) << 4) | @intFromEnum(e.arrow_to);
@@ -63,11 +25,7 @@ const Rail = struct {
     lo: i32,
     hi: i32,
     edges: []Edge,
-    /// False for a MODEL-ONLY rail: every member sits on the pivot column,
-    /// so it draws pure verticals and owns no run to lane-separate.
     has_run: bool,
-    /// A fan-OUT whose every peer rides a selected arrival rail: it stays in
-    /// the MODEL yet draws nothing, so it is never foreign ink to a class.
     phantom: bool,
 };
 
@@ -82,17 +40,12 @@ fn nodeId(lg: sugiyama.LayeredGraph, idx: u32) sg.NodeId {
     };
 }
 
-/// A peer's leaf node. A long peer's index names its corridor (a virtual
-/// node), so its leaf is read off the declared edge instead.
 fn leafOf(graph: sg.SemGraph, lg: sugiyama.LayeredGraph, f: Fan, p: fan_mod.FanEdge) sg.NodeId {
     if (!p.long) return nodeId(lg, p.peer_idx);
     for (graph.edges) |e| if (e.id == p.edge_id) return if (f.direction == .out) e.to else e.from;
     return nodeId(lg, p.peer_idx);
 }
 
-/// Assign `fan.lane` for every fan so that no incomplete-bipartite group of
-/// rails fuses into a fabricating run. Mutates `fans` in place; leaves every
-/// lane at 0 when nothing fabricates. `geom` is parallel to `lg.nodes`.
 pub fn assignLanes(
     comptime G: type,
     a: std.mem.Allocator,
@@ -101,7 +54,6 @@ pub fn assignLanes(
     geom: []const G,
     fans: []Fan,
     bundles: pb.RealizedBundles,
-    /// Report-only closure-licence sink for the clustered arm (null in tests).
     report: ?*pb.ClosureCounts,
 ) error{OutOfMemory}!void {
     if (fans.len == 0 or lg.layers.len < 2) return;
@@ -119,21 +71,10 @@ pub fn assignLanes(
         try style_of.put(a, e.id, styleKey(e));
     }
 
-    // A rail model missing ink that still touches a crossbar is not complete.
     // @guarded-by: fan_lanes_test2.zig "a discharged edge never shrinks a group into looking complete"
     var pruned_gaps: std.AutoHashMapUnmanaged(u32, void) = .empty;
     defer pruned_gaps.deinit(a);
 
-    // Edges that a fan-OUT owns: their rail belongs to the fan-OUT rail, so a
-    // fan-IN into the same target must NOT double-count them as its own rail
-    // (the fan-IN would otherwise inflate a group with a phantom rail).
-    //
-    // A fan-OUT EVERY one of whose peers was selected into an arrival rail is
-    // the exception: it draws no run of its own, so there is nothing to defer
-    // to and the arrivals ARE the rails of that gap. That is the shape a
-    // complete all-to-all takes — every edge is somebody's arrival member —
-    // and without this its arrivals model no rail at all, so nothing keeps
-    // their crossbars off one shared row.
     // @guarded-by: fan_lanes_test.zig "a gap whose departures all defer lane-separates the arrival rails that draw its rails"
     var fanout_edges: std.AutoHashMapUnmanaged(sg.EdgeId, void) = .empty;
     defer fanout_edges.deinit(a);
@@ -183,10 +124,6 @@ pub fn assignLanes(
                 }
                 if (fanout_edges.contains(p.edge_id)) continue;
                 const cx = centerX(G, geom[p.peer_idx]);
-                // A peer on the pivot's own column draws no horizontal run,
-                // but its vertical still touches the crossbar, so it stays in
-                // the MODEL (never widening the span): dropping it could make
-                // an incomplete group read complete.
                 // @guarded-by: fan_lanes_test2.zig "a peer on its pivot's own column never shrinks a group into looking complete"
                 if (cx != pivot_cx) has_run = true;
                 lo = @min(lo, cx);
@@ -231,12 +168,6 @@ pub fn assignLanes(
         return;
     }
 
-    // A carve-out-unrealized fan is edge-owned. A PARTLY selected fan still
-    // owns lane `fan.lane`, so
-    // the independent members start one lane ABOVE it. Starting at the fan's
-    // own lane would put an excluded member back on the crossbar it was
-    // excluded from — re-fusing exactly the pair the salvage refused, and
-    // handing the reach oracle an unlicensed shared cell.
     // @guarded-by: fan_lanes_test.zig "a salvaged fan's excluded members never land on the kept rail's lane"
     for (fans) |*fan| {
         if (fanSelected(fan.*, bundles)) continue;
@@ -275,8 +206,6 @@ fn separatePrivatePeers(fans: []Fan) void {
         for (fan.peers) |peer| if (peer.shared) {
             next = @max(next, peer.lane + 1);
         };
-        // The shared rail's label band is one band however many members are
-        // labeled: every dropper stands on its own column (fan.zig LABEL_RUN_EXTRA_ROWS).
         for (fan.peers) |peer| if (peer.shared and peer.label_width != 0) {
             next += fan_mod.LABEL_RUN_EXTRA_ROWS;
             break;
@@ -289,8 +218,6 @@ fn separatePrivatePeers(fans: []Fan) void {
     }
 }
 
-/// True iff a realized plan put EVERY peer of this fan-OUT into an arrival
-/// rail, so the departure side draws no run of its own.
 fn allPeersJoinArrivals(fan: Fan, bundles: pb.RealizedBundles) bool {
     if (bundles.memberships.len == 0 or fan.peers.len == 0) return false;
     var any = false;
@@ -304,8 +231,6 @@ fn allPeersJoinArrivals(fan: Fan, bundles: pb.RealizedBundles) bool {
     return any;
 }
 
-/// True iff at least one peer joined a realized rail — the salvage shape the
-/// closure licence produces (`fanSelected` demands ALL of them).
 fn anySelected(fan: Fan, bundles: pb.RealizedBundles) bool {
     for (fan.peers) |peer| {
         if (!peer.shared) continue;
@@ -439,7 +364,6 @@ fn laneAssignGroup(
     }
 }
 
-/// One direction, one and the same leaf set — the sub-union key.
 fn sameFusionClass(rails: []const Rail, members: []const u32, fans: []const Fan, x_gi: u32, y_gi: u32) bool {
     const x = rails[members[x_gi]];
     const y = rails[members[y_gi]];
@@ -459,12 +383,6 @@ fn leafSubset(dir: fan_mod.Direction, xs: []const Edge, ys: []const Edge) bool {
     return true;
 }
 
-/// Would the claim `ci` STAY complete with `gi` joined? Asked of the same
-/// closure test the whole group failed, over the claim's current rails + gi —
-/// and of the group's OTHER ink: a foreign rail incident to a node whose
-/// entry (or, for a departure class, any face) the class's rail serves could
-/// merge with the rail at that node, so a reader would trace pairs the class
-/// never declared. Placement never decides this: the node incidence does.
 fn classFusable(a: std.mem.Allocator, rails: []const Rail, members: []const u32, group: []const u32, fans: []const Fan, runs: []const u32, claim_of: []const u32, ci: u32, gap_pruned: bool, gi: u32) bool {
     var sub: std.ArrayListUnmanaged(u32) = .empty;
     defer sub.deinit(a);
@@ -501,19 +419,6 @@ fn spansTouch(x: Rail, y: Rail) bool {
     return !(x.hi < y.lo or y.hi < x.lo);
 }
 
-/// The group's rails must not fuse into one run when the run would assert a
-/// leaf pair the source does not declare — the closure test of
-/// `base/rail_closure.zig`, asked of a whole group.
-///
-/// Order matters. A lone pivot on either side (N==1 or M==1) can never
-/// fabricate and escapes first. Then a member that does not block the
-/// leaf-to-leaf trace makes the run assert UNORDERED pairs, so a two-sided
-/// group carrying one is refused outright. Then a gap whose model lost ink is
-/// refused, its counts not being a declaration count. A group surviving both
-/// asserts only the CROSS pairs, so it may fuse exactly when its declared set
-/// IS srcs x tgts. Keyed only on the group's declared edges, their arrow
-/// fields, and whether the model is whole: never on a fixture, label, node
-/// count, width, or direction.
 fn fusionForbidden(
     a: std.mem.Allocator,
     rails: []const Rail,

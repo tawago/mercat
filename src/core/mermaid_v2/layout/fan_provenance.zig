@@ -1,9 +1,3 @@
-//! Final-artifact production of semantic fan RailClaims.
-//!
-//! A claim follows the detected fan and its effective member lane, not the
-//! drawing form selected for that lane. First-class Rails, coordinated peer
-//! paths, grids, and detours therefore produce the same record shape.
-
 const std = @import("std");
 const ledger = @import("../base/ledger.zig");
 const sg = @import("../sem_graph.zig");
@@ -105,7 +99,6 @@ fn railMember(
             const rail_in = rail.role == .fan_in_dropper or rail.role == .fan_in_rail;
             const artifact_source = if (rail_in) tap.node else rail.pivot;
             const artifact_target = if (rail_in) rail.pivot else tap.node;
-            // A continuing tap's leaf end is wherever its member stroke ends.
             const stroke = if (tap.continues) pathById(paths, semantic.id) else null;
             const source_site = if (artifact_source != semantic.from)
                 null

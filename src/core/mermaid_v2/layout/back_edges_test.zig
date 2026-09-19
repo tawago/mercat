@@ -1,8 +1,3 @@
-//! Tests for `back_edges.zig`. Split out of the former misc grab-bag test
-//! file (since dissolved) into back_edges.zig's own sibling, per the
-//! mermaid_v2/ test-file convention. Discovered via back_edges.zig's
-//! top-level `test { _ = @import("back_edges_test.zig"); }` block.
-
 const std = @import("std");
 const sg = @import("../sem_graph.zig");
 const sketch = @import("../sketch.zig");

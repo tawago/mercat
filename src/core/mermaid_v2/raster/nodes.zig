@@ -1,12 +1,3 @@
-//! Node rasterization — turns `NodePlacement` rects from a Sketch into
-//! `node_border` and `node_interior` cells in a Lattice.
-//!
-//! Import allowlist (enforced by `tools/lint_imports.zig`): `std`,
-//! `../sketch.zig`, `../lattice.zig` only — no `parse/` or `paint/`.
-//!
-//! All shapes rasterize as a rectangular border; round/circle/cylinder/
-//! asymmetric variants await refined glyphs in `paint/`.
-
 const std = @import("std");
 const sketch = @import("../sketch.zig");
 
@@ -20,15 +11,6 @@ pub const RasterError = error{
     OccupiedCell,
 };
 
-/// Rasterize all `NodePlacement`s in `s` into `lat`. Returns the number
-/// of nodes that were successfully written to the lattice in full
-/// (nodes skipped due to out-of-bounds rects are not counted; nodes
-/// with per-cell conflicts ARE counted, since the warning + skip is a
-/// best-effort partial write).
-///
-/// The lattice must be pre-sized by the caller (typically to
-/// `s.bbox.w × s.bbox.h`). This function only mutates `*lat`; it owns
-/// no state.
 pub fn rasterizeNodes(
     allocator: std.mem.Allocator,
     lat: *lattice.Lattice,
@@ -62,7 +44,6 @@ fn rectFitsLattice(r: sketch.Rect, lat: lattice.Lattice) bool {
     return true;
 }
 
-/// Write the perimeter + interior of a single rect-shaped node.
 fn rasterizeRect(lat: *lattice.Lattice, np: sketch.NodePlacement) void {
     const rx: u32 = @intCast(np.rect.x);
     const ry: u32 = @intCast(np.rect.y);
@@ -102,8 +83,6 @@ fn rasterizeRect(lat: *lattice.Lattice, np: sketch.NodePlacement) void {
     }
 }
 
-/// Defensive shim for 1xN or Nx1 rects: lay down border cells along
-/// the run with horizontal-or-vertical neighbour bits. No interior.
 fn writeThinRect(
     lat: *lattice.Lattice,
     np: sketch.NodePlacement,

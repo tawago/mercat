@@ -1,12 +1,7 @@
-//! Unit tests for `cluster/split.zig` that need no layout-zone privileges.
-//! Aggregated from entry.zig, the established `x.zig` -> `x_test.zig` pattern.
-
 const std = @import("std");
 const sg = @import("../sem_graph.zig");
 const split = @import("split.zig");
 
-/// One top-level node fanning into two members of one subgraph, with the
-/// arrowheads of each crossing chosen by the caller.
 fn crossingGraph(
     nodes: *[3]sg.Node,
     edges: *[2]sg.Edge,
@@ -26,8 +21,6 @@ fn crossingGraph(
     return .{ .direction = .TD, .nodes = nodes, .edges = edges, .clusters = clusters, .classes = &.{}, .arena = null };
 }
 
-/// The outer graph's placement edges: everything `buildOuter` emitted for the
-/// cross-border crossings. The outer piece is the one with no cluster id.
 fn outerEdges(sr: split.SplitResult) []const sg.Edge {
     for (sr.pieces) |p| {
         if (p.cluster_id == null) return p.graph.edges;

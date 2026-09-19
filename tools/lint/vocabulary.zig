@@ -1,16 +1,3 @@
-//! Check 5: banned-token tombstones. Each row is a spelling deliberately
-//! retired (a completed rename's old identifier, a deleted mechanism's
-//! symbol) or a zone invariant cheaper to state as a token than as an
-//! import rule. Matching is a plain case-sensitive substring scan over the
-//! whole file, comments included: a tombstone also stops the old word
-//! returning as prose. POLICY: tokens are FULL identifiers or longer
-//! (e.g. "lanes.Demand", "fan_in_trunk", "pub fn weld") — never bare word
-//! stems. The three short privacy-boundary tokens are complete acronyms or a
-//! complete sigil, not stems. Exemptions are by basename (the matching
-//! gb_external uses), via `allow` (everywhere except) or `only` (nowhere except).
-//! Consequence for authors: never spell a retired name in a migration
-//! note — describe it ("the pre-rename lane type").
-
 const std = @import("std");
 
 pub const Row = struct {
@@ -235,8 +222,6 @@ fn applies(row: Row, base: []const u8) bool {
     return true;
 }
 
-/// One violation per (file, row): the fix is always "remove every occurrence".
-/// Reports the 1-based line of the first hit.
 pub fn scan(
     a: std.mem.Allocator,
     violations: *std.ArrayList([]const u8),
@@ -262,7 +247,6 @@ pub fn scan(
 
 const testing = std.testing;
 
-/// Collects into a caller-freed list so each test can inspect the messages.
 const Collected = struct {
     list: std.ArrayList([]const u8),
 

@@ -1,26 +1,9 @@
-//! audit.zig — per-candidate raster audit. Rasterizes a candidate Sketch
-//! via raster.zig and returns shipped-defect counts for score.eval:
-//! `labels_dropped`, `edge_cells_lost` (`phantom_arms_cleared` excluded —
-//! repairs, not defects). score.zig's integrity term only reads
-//! Sketch-level validate counts, so raster-introduced defects must be
-//! measured here; `raster.rasterize` reads the Sketch as const, so
-//! auditing cannot perturb the render. A candidate whose raster fails is
-//! not a candidate: `collect` returns null and select.zig leaves it out of
-//! the running instead of failing the render.
-//!
-//! Allowed imports (tools/lint_imports.zig): std, prim, sketch, raster,
-//! score (for the RasterCounts type consumed by score.eval).
-
 const std = @import("std");
 const prim = @import("prim");
 const sketch = @import("sketch.zig");
 const raster = @import("raster.zig");
 const score = @import("score.zig");
 
-/// Rasterize `s` and collect the shipped-defect counts for score.eval.
-/// Null on failure (OOM included): a candidate that cannot even rasterize
-/// must not win with a clean score and then fail entry.zig's final
-/// re-raster.
 pub fn collect(allocator: std.mem.Allocator, s: sketch.Sketch, subgraph_edges: prim.SubgraphEdges) ?score.RasterCounts {
     const report = raster.rasterize(allocator, s, subgraph_edges) catch return null;
     return .{

@@ -1,6 +1,3 @@
-//! Unit tests for raster/labels_ink.zig — ink ownership classification,
-//! ISOLATION LAW span isolation, and nearest-ink distance measurement.
-
 const std = @import("std");
 const sketch = @import("../sketch.zig");
 const lattice = @import("../lattice.zig");
@@ -21,8 +18,6 @@ fn stampEdge(lat: *lattice.Lattice, x: u32, y: u32, edge_id: u32) void {
     };
 }
 
-/// Owner with a degenerate far-away segment and no polyline: ownership
-/// then rests purely on cell ids.
 fn idOwner(edge_id: u32) ink.Owner {
     const far: sketch.Point = .{ .x = -100, .y = -100 };
     return .{ .edge_id = edge_id, .polyline = &.{}, .seg_a = far, .seg_b = far };

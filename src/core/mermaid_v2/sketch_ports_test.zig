@@ -1,7 +1,3 @@
-//! Unit tests for sketch_ports.zig — the geometric port-share bundle
-//! derivation. Hand-built EdgePaths only: the point of the module is that it
-//! reads nothing but the polylines it is handed.
-
 const std = @import("std");
 const sketch = @import("sketch.zig");
 const sketch_ports = @import("sketch_ports.zig");
@@ -28,7 +24,6 @@ fn p(x: i32, y: i32) sketch.Point {
     return .{ .x = x, .y = y };
 }
 
-/// The single set whose members are exactly `want`, order-insensitive.
 fn expectOneSet(sets: []const ledger.Bundle, want: []const sketch.EdgeId) !void {
     try std.testing.expectEqual(@as(usize, 1), sets.len);
     try std.testing.expectEqual(bundle_mod.BundleOrigin.port_share, sets[0].origin);

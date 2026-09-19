@@ -1,5 +1,3 @@
-//! Candidate-local D-PORT sizing, allocation, and routing lookup.
-
 const std = @import("std");
 const pb = @import("../base/ledger.zig");
 const rail_closure = @import("../base/rail_closure.zig");
@@ -15,13 +13,8 @@ pub const EdgePorts = struct {
     source_ordinal: u32,
     target_ordinal: u32,
     source_duplicate: bool = false,
-    /// Source-end decoration exists: the reserved off-node departure cell
-    /// will hold it, so that cell blocks ALL foreign transit (the plain-run
-    /// obstacle model applies only to undecorated departures).
     source_decorated: bool = false,
     target_duplicate: bool = false,
-    /// Target-end decoration exists: the reserved off-node arrival cell
-    /// will hold it, with the same all-transit block as a decorated departure.
     target_decorated: bool = false,
 };
 
@@ -47,10 +40,6 @@ pub fn midpoint(a: std.mem.Allocator, graph: sg.SemGraph, placements: []const sk
     return .{ .edges = edges };
 }
 
-/// Derive the structural fan attachment population when no flat realization
-/// plan exists. Shared members consume one pivot attachment per fan; private
-/// members and every leaf endpoint stay independent. This preserves the shared
-/// rail while preventing an excluded member from reusing its attachment.
 pub fn deriveFanAttachments(a: std.mem.Allocator, graph: sg.SemGraph, direction: sg.Direction, reversed_edges: []const pb.EdgeId, fans: []const fan_mod.Fan) ports.DeriveError![]const ports.DerivedAttachment {
     var out: std.ArrayListUnmanaged(ports.DerivedAttachment) = .empty;
     for (graph.edges) |edge| {
@@ -110,12 +99,6 @@ fn fanAttachment(a: std.mem.Allocator, graph: sg.SemGraph, fan: fan_mod.Fan, end
     };
 }
 
-/// The derived attachment set minus every CO-REALIZED edge. Such an edge is
-/// rendered by an all-arrow-free rail's crossbar and never routed, so it
-/// claims no attachment on either endpoint: leaving it in would widen a face,
-/// shift its siblings' port ordinals, and reserve a terminal nothing arrives
-/// at. Applied where `derive` is consumed rather than inside it, so the pure
-/// D-PORT derivation keeps reading the permits plan and nothing else.
 /// @guarded-by: port_plan_test.zig "a discharged edge claims no attachment"
 /// @guarded-by: gap_rows_test.zig "a discharged edge claims no gap row"
 pub fn withoutDischarged(
@@ -233,8 +216,6 @@ fn portCapacityInvariant(node: pb.NodeId, side: sk.Dir4, side_len: u32, demand: 
     std.debug.panic("port demand was not applied before allocation: node={d} side={s} len={d} demand={d}", .{ node, @tagName(side), side_len, demand });
 }
 
-/// Exact private duplicates use separate outside tracks. Endpoint ordinals
-/// select both the track and the perpendicular bases.
 pub fn duplicateDetour(a: std.mem.Allocator, direction: sg.Direction, from: sk.NodePlacement, to: sk.NodePlacement, owner: EdgePorts, placements: []const sk.NodePlacement) error{OutOfMemory}![]sk.Point {
     const start = portPoint(from, owner.source);
     const end = portPoint(to, owner.target);

@@ -1,7 +1,3 @@
-//! Tests for fan_polyline.zig. Split out from fan_test.zig to keep both
-//! files under the 500-line mermaid_v2/ cap. Discovered via fan_test.zig's
-//! `test { _ = @import }`.
-
 const std = @import("std");
 const sg = @import("../sem_graph.zig");
 const fan = @import("fan.zig");
@@ -10,9 +6,6 @@ const sketch = @import("../sketch.zig");
 
 const testing = std.testing;
 
-/// Perimeter-midpoint ports the fan tests feed to `buildPolylineAt`: the
-/// source leaves through the flow-side face, the target is entered through
-/// the opposite face, both at the face's centre column or row.
 fn portFromSource(dir: sg.Direction, source_p: sketch.NodePlacement) sketch.Port {
     const side: sketch.Dir4 = switch (dir) {
         .TD => .south,
@@ -41,10 +34,6 @@ fn portToTarget(dir: sg.Direction, target_p: sketch.NodePlacement) sketch.Port {
     return .{ .node = target_p.id, .side = side, .offset = offset };
 }
 
-/// Assert no segment of `poly` touches `rect` (border-inclusive touch
-/// semantics, matching `sketch.lineTouchesRect`). Shared by the dodge
-/// tests below, which construct an obstruction a naive straight run
-/// would slice and check the real dodge geometry actually avoids it.
 fn expectPolyAvoidsRect(poly: []const sketch.Point, rect: sketch.Rect) !void {
     var i: usize = 1;
     while (i < poly.len) : (i += 1) {
@@ -62,9 +51,6 @@ fn expectPolyAvoidsRect(poly: []const sketch.Point, rect: sketch.Rect) !void {
     }
 }
 
-
-/// The member polyline at lane 0 with midpoint ports: the test-side
-/// shorthand for `fan_polyline.buildPolylineAt`.
 fn buildPolyline(
     a: std.mem.Allocator,
     dir: sg.Direction,
@@ -318,7 +304,6 @@ test "a decorated source's lane clamp and dodge jog stay out of the departure ce
         try testing.expectEqual(s_peri + 2, decorated[1].y);
     }
 
-    // The dodge around an intermediate box jogs on the same row rule.
     const far = sketch.NodePlacement{ .id = 1, .rect = .{ .x = 40, .y = 20, .w = 10, .h = 3 }, .shape = .rect, .lines = &.{}, .cluster_id = null };
     const blocker = sketch.NodePlacement{ .id = 2, .rect = .{ .x = 20, .y = 8, .w = 10, .h = 3 }, .shape = .rect, .lines = &.{}, .cluster_id = null };
     const dodge_placements = [_]sketch.NodePlacement{ pivot, far, blocker };
@@ -328,9 +313,6 @@ test "a decorated source's lane clamp and dodge jog stay out of the departure ce
     try expectPolyAvoidsRect(dodged, blocker.rect);
 }
 
-/// Assert every step of `poly` is axis-aligned and no cell is entered
-/// twice: a route visits each cell once, so the raster never paints a tee
-/// one edge owns or a stub that stops in open space.
 fn expectVisitsEachCellOnce(a: std.mem.Allocator, poly: []const sketch.Point) !void {
     var seen: std.AutoHashMapUnmanaged(sketch.Point, void) = .empty;
     defer seen.deinit(a);
@@ -357,9 +339,6 @@ test "the target-side corridor ends the rail run at the corridor column; the rou
     defer arena.deinit();
     const a = arena.allocator();
 
-    // Pivot far right (column 48), child at column 31, and a wide box under
-    // the rail across the child's column and everything left of it, so the
-    // only clear corridor lies BETWEEN the child column and the source.
     const pivot = sketch.NodePlacement{ .id = 0, .rect = .{ .x = 43, .y = 0, .w = 11, .h = 3 }, .shape = .rect, .lines = &.{}, .cluster_id = null };
     const child = sketch.NodePlacement{ .id = 1, .rect = .{ .x = 26, .y = 20, .w = 11, .h = 3 }, .shape = .rect, .lines = &.{}, .cluster_id = null };
     const blocker = sketch.NodePlacement{ .id = 2, .rect = .{ .x = 0, .y = 15, .w = 35, .h = 2 }, .shape = .rect, .lines = &.{}, .cluster_id = null };
@@ -367,15 +346,12 @@ test "the target-side corridor ends the rail run at the corridor column; the rou
     var peers = [_]fan.FanEdge{.{ .edge_id = 1, .peer_idx = 1, .role = .leftmost }};
     const f = fan.Fan{ .direction = .out, .pivot_idx = 0, .source_layer = 0, .peers = &peers };
 
-    // The member's row is the ledger's lane (5), handed to the builder directly.
     const poly = try fan_polyline.buildPolylineAt(a, .TD, f, pivot, child, portFromSource(.TD, pivot), portToTarget(.TD, child), .leftmost, 5, 0, null, &placements, .{});
 
     const rail_y = child.rect.y - 2 - 5;
     const land_y = child.rect.y - 2;
     try expectPolyAvoidsRect(poly, blocker.rect);
     try expectVisitsEachCellOnce(a, poly);
-    // The rail run stops at the corridor column: one point on the rail row
-    // after the descent from the source, and it is the corridor's.
     try testing.expectEqual(@as(usize, 6), poly.len);
     try testing.expectEqual(rail_y, poly[1].y);
     try testing.expectEqual(rail_y, poly[2].y);

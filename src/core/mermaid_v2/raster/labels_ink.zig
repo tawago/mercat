@@ -1,59 +1,20 @@
-//! Ink-ownership and label-region-isolation predicates for edge/tap label
-//! placement (consumed by raster/labels_edge.zig).
-//!
-//! Two laws live here:
-//!
-//!  1. OWNERSHIP — every ink cell is classified relative to the label's own
-//!     edge: `own` (the cell's edge id matches, OR the position lies on the
-//!     label's own routed geometry — its polyline / anchor segment — which
-//!     covers shared fan rails, suppressed/merged carrier cells, and
-//!     crossing cells whose single Cell id names another rider),
-//!     `foreign_edge` (another edge's run or arrowhead), `foreign_solid`
-//!     (node or cluster ink). Labels are not ink — their spacing is the
-//!     run-separation rule below.
-//!
-//!  2. ISOLATION — a placed label span must keep a 1-cell margin (full
-//!     8-neighbourhood) of non-ink cells against ALL foreign ink; only the
-//!     label's own edge may touch the span. Two label runs on the same row
-//!     additionally need >= 2 blank cells between them (a single space
-//!     reads as one merged run). The final ladder pass relaxes ONLY the
-//!     `foreign_solid` half (`allow_solid`): abutting a node or cluster
-//!     border is a cheaper shipped defect than dropping the label, while
-//!     the foreign-EDGE margin (mis-attribution risk) is never waived.
-//!
-//! The lattice side table (`lat.aux`) is deliberately never consulted:
-//! production attaches it AFTER label placement (raster.zig attaches
-//! last), so placement depends only on cell ids and the Sketch geometry.
-//!
-//! Import boundary: std, sketch, lattice, raster siblings only (raster
-//! zone; enforced by tools/lint_imports.zig).
-
 const std = @import("std");
 const sketch = @import("../sketch.zig");
 const lattice = @import("../lattice.zig");
 
-/// Classification of one cell's ink relative to one label's edge.
 pub const InkClass = enum { none, own, foreign_edge, foreign_solid };
 
-/// Nearest-ink Chebyshev distances from a label span, per competing class.
-/// `null` means "none found within the scanned radius".
 pub const InkDistances = struct {
     own: ?u32 = null,
     foreign_edge: ?u32 = null,
 };
 
-/// The label's own edge, as the ownership tests see it: its id, its routed
-/// polyline (empty for rail taps), and the anchor segment the ladder is
-/// walking (for taps, the tapLabelSeg stretch of shared rail — own ink even
-/// though the rail Cell names a single other rider).
 pub const Owner = struct {
     edge_id: u32,
     polyline: []const sketch.Point,
     seg_a: sketch.Point,
     seg_b: sketch.Point,
 
-    /// True iff (x, y) lies on the owner's routed geometry: the anchor
-    /// segment or any axis-aligned polyline segment.
     fn onOwnPath(self: Owner, x: i32, y: i32) bool {
         if (onSegment(self.seg_a, self.seg_b, x, y)) return true;
         if (self.polyline.len < 2) return false;
@@ -70,8 +31,6 @@ fn onSegment(a: sketch.Point, b: sketch.Point, x: i32, y: i32) bool {
         y >= @min(a.y, b.y) and y <= @max(a.y, b.y);
 }
 
-/// Classify the ink at (x, y) relative to `owner`. Out-of-bounds positions,
-/// empty cells and label cells are `.none`.
 pub fn classifyAt(lat: *const lattice.Lattice, owner: Owner, x: i32, y: i32) InkClass {
     if (x < 0 or y < 0) return .none;
     const ux: u32 = @intCast(x);
@@ -102,13 +61,6 @@ fn isLabelCell(lat: *const lattice.Lattice, x: i32, y: i32) bool {
     };
 }
 
-/// ISOLATION LAW candidate filter: true iff the 1×`cell_count` span at
-/// (`start_x`, `row`) keeps a full 8-neighbourhood margin of non-ink cells
-/// against every FOREIGN ink cell (own-edge ink may touch the span), and
-/// keeps >= 2 blank cells of same-row separation from any other label run.
-/// `allow_solid` (last-resort ladder pass only) waives the margin against
-/// node/cluster ink — abutting a border beats dropping the label — but the
-/// foreign-EDGE margin and the run separation always hold.
 /// @guarded-by: labels_ladder_test.zig "isolation rejects a foreign-ink neighbour in every one of the 8 directions"
 /// @guarded-by: labels_ladder_test.zig "own-edge ink beside the anchor does not displace the label"
 /// @guarded-by: labels_ladder_test.zig "allow_solid waives only the node/cluster margin, never the foreign-edge margin"
@@ -133,19 +85,12 @@ pub fn spanIsolated(
             }
         }
     }
-    // Same-row run separation: a single blank column between two label runs
-    // reads as one merged run, so both flank cells at distance 1 AND 2 must
-    // be label-free. // @guarded-by: labels_test.zig "edge-label runs on the same row keep two blank cells apart"
+    // @guarded-by: labels_test.zig "edge-label runs on the same row keep two blank cells apart"
     if (isLabelCell(lat, start_x - 1, row) or isLabelCell(lat, start_x - 2, row)) return false;
     if (isLabelCell(lat, start_x + cc, row) or isLabelCell(lat, start_x + cc + 1, row)) return false;
     return true;
 }
 
-/// Nearest own-edge ink and nearest foreign EDGE ink (node/cluster ink does
-/// not compete for label ownership), measured as the minimum Chebyshev
-/// distance from any span cell, scanning expanding rings up to `radius`.
-/// Deterministic: pure function of the lattice, the owner geometry and the
-/// span.
 pub fn inkDistances(
     lat: *const lattice.Lattice,
     owner: Owner,

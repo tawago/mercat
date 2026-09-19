@@ -1,27 +1,5 @@
-//! Extended Markdown Syntax Pre-processor
-//!
-//! Transforms extended syntax not supported by koino into HTML tags that the
-//! render pipeline can recognise and style appropriately.
-//!
-//! Transformations applied (outside code spans and fenced code blocks):
-//!   ^text^        →  <sup>text</sup>      (superscript)
-//!   ~text~        →  <sub>text</sub>      (subscript, single tilde only)
-//!   ==text==      →  <mark>text</mark>    (highlighted text)
-//!
-//! Footnotes:
-//!   [^label]: definition   →  definition line collected and appended at end
-//!   [^label]               →  [^label] marker replaced with superscript ref
-//!
-//! Guarantees:
-//!   - Content inside `backtick` inline code is never modified.
-//!   - Content inside fenced code blocks (``` or ~~~) is never modified.
-//!   - Escaped characters (\^ \~ \=) are not treated as syntax.
-//!   - The returned slice is always caller-owned (allocator.free).
-
 const std = @import("std");
 
-/// Return the UTF-8 encoding of the Unicode superscript for `char`, or null
-/// if no superscript equivalent exists.
 fn toSuperscript(char: u8) ?[]const u8 {
     return switch (char) {
         '0' => "⁰",
@@ -68,8 +46,6 @@ fn toSuperscript(char: u8) ?[]const u8 {
     };
 }
 
-/// Return the UTF-8 encoding of the Unicode subscript for `char`, or null
-/// if no subscript equivalent exists.
 fn toSubscript(char: u8) ?[]const u8 {
     return switch (char) {
         '0' => "₀",
@@ -108,9 +84,6 @@ fn toSubscript(char: u8) ?[]const u8 {
     };
 }
 
-/// Convert each character of `text` to its Unicode superscript equivalent.
-/// Characters without a superscript mapping are kept as-is.
-/// Caller owns the returned slice.
 fn convertToSuperscript(allocator: std.mem.Allocator, text: []const u8) ![]u8 {
     var out: std.ArrayList(u8) = .empty;
     errdefer out.deinit(allocator);
@@ -124,9 +97,6 @@ fn convertToSuperscript(allocator: std.mem.Allocator, text: []const u8) ![]u8 {
     return try out.toOwnedSlice(allocator);
 }
 
-/// Convert each character of `text` to its Unicode subscript equivalent.
-/// Characters without a subscript mapping are kept as-is.
-/// Caller owns the returned slice.
 fn convertToSubscript(allocator: std.mem.Allocator, text: []const u8) ![]u8 {
     var out: std.ArrayList(u8) = .empty;
     errdefer out.deinit(allocator);
@@ -140,9 +110,6 @@ fn convertToSubscript(allocator: std.mem.Allocator, text: []const u8) ![]u8 {
     return try out.toOwnedSlice(allocator);
 }
 
-/// Convert text to strikethrough by adding U+0336 (COMBINING LONG STROKE OVERLAY)
-/// after each character. This creates a visual strikethrough effect: h̶e̶l̶l̶o̶
-/// Caller owns the returned slice.
 fn convertToStrikethrough(allocator: std.mem.Allocator, text: []const u8) ![]u8 {
     var out: std.ArrayList(u8) = .empty;
     errdefer out.deinit(allocator);
@@ -156,9 +123,6 @@ fn convertToStrikethrough(allocator: std.mem.Allocator, text: []const u8) ![]u8 
     return try out.toOwnedSlice(allocator);
 }
 
-/// Apply all extended-syntax transformations to `source`.
-/// Returns a new heap-allocated string that the caller must free.
-/// If no transformations are needed the returned string may still be a copy.
 pub fn preprocess(allocator: std.mem.Allocator, source: []const u8) ![]u8 {
     const after_spans = try transformSpans(allocator, source);
     errdefer allocator.free(after_spans);
@@ -169,13 +133,9 @@ pub fn preprocess(allocator: std.mem.Allocator, source: []const u8) ![]u8 {
 }
 
 const ConvertMode = enum {
-    /// Wrap with open_tag / close_tag HTML tags.
     html_tag,
-    /// Convert each character to its Unicode superscript equivalent.
     unicode_superscript,
-    /// Convert each character to its Unicode subscript equivalent.
     unicode_subscript,
-    /// Add combining long stroke overlay (U+0336) after each character.
     unicode_strikethrough,
 };
 

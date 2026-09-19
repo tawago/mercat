@@ -1,5 +1,3 @@
-//! Post-routing bridge authority reconstruction tests.
-
 const std = @import("std");
 const sketch = @import("../sketch.zig");
 const sg = @import("../sem_graph.zig");

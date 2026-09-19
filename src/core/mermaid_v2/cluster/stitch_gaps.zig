@@ -1,18 +1,8 @@
-//! cluster/stitch_gaps.zig — the gap row records a stitch carries up:
-//! each piece's records translated into the merged frame and id space,
-//! and the bridge bands a piece reserved without knowing the bridge filed
-//! under the bridges that landed on them.
-//!
-//! Imports: std + sem_graph + sketch + base/ledger.
-
 const std = @import("std");
 const sg = @import("../sem_graph.zig");
 const sketch = @import("../sketch.zig");
 const ledger = @import("../base/ledger.zig");
 
-/// `bridges` maps a placement edge of the piece to the merged ids of the
-/// bridges that stand for it (empty for a child piece): a bridge claim's
-/// edges become the ink the stitch actually paints for them.
 pub fn translateGap(arena: std.mem.Allocator, g: ledger.GapRows, gmap: []const sketch.NodeId, dx: i32, dy: i32, id_base: sketch.EdgeId, dir: sketch.Direction, bridges_of: []const []const sketch.EdgeId) error{OutOfMemory}!ledger.GapRows {
     const along: i32 = if (dir == .LR or dir == .RL) dx else dy;
     var out = g;
@@ -35,10 +25,6 @@ pub fn translateGap(arena: std.mem.Allocator, g: ledger.GapRows, gmap: []const s
     return out;
 }
 
-/// A piece reserved a bridge band without knowing the bridge's id (a
-/// departure band, `gap_rows.departureClaims`): every bridge run that
-/// lands on such a band's rows is filed under it, so the painted-ink
-/// invariant can trace the ink to the claim that reserved its row.
 pub fn adoptBridgeInk(arena: std.mem.Allocator, records: []ledger.GapRows, paths: []const sketch.EdgePath, dir: sketch.Direction) error{OutOfMemory}!void {
     const vertical = dir == .TD or dir == .BT;
     for (records) |*g| {
@@ -70,4 +56,3 @@ pub fn adoptBridgeInk(arena: std.mem.Allocator, records: []ledger.GapRows, paths
         if (changed) g.claims = claims;
     }
 }
-

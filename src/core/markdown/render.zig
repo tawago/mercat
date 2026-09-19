@@ -34,11 +34,6 @@ pub fn renderDocument(allocator: std.mem.Allocator, document: markdown.Document,
     return .{ .lines = lines };
 }
 
-/// Post-pass for `full_line_bg` slots (markview headings): for any line carrying
-/// a span whose slot tints the whole row, append a trailing padding span in that
-/// slot's style so the background extends to the full render width. Backends are
-/// dumb — they just paint each span's bg — so the fill materializes as ordinary
-/// styled spaces here.
 fn materializeLineFill(allocator: std.mem.Allocator, lines: []Line, options: Options) !void {
     for (lines) |*line| {
         var fill_style: ?SpanStyle = null;

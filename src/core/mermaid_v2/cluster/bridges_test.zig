@@ -1,7 +1,3 @@
-//! Unit tests for cluster/bridges.zig + cluster/tracks.zig, split out to
-//! keep bridges.zig under the 500-line cap. Hand-built placements/frames in,
-//! routed polylines out — no layout involvement.
-
 const std = @import("std");
 const sketch = @import("../sketch.zig");
 const bridges = @import("bridges.zig");

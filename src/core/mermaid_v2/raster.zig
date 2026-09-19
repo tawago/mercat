@@ -1,18 +1,3 @@
-//! Raster pipeline orchestrator.
-//!
-//! Allocates a `Lattice` sized to `Sketch.bbox` and runs clusters →
-//! nodes → rails → edges → reconcile → labels in order, returning a
-//! `RasterReport` with per-stage counts. Order matters: each stage
-//! skips cells already claimed by an earlier one, except labels, which
-//! intentionally overwrite node interiors last.
-//!
-//! The producers also file records into the lattice's position-keyed side
-//! table (`raster/aux.zig`), attached to the Lattice once every pass has
-//! run — every rasterization carries its complete side table.
-//!
-//! Allowed imports: `std`, sibling `raster/*` files, `sketch.zig`,
-//! `lattice.zig`. No `paint/` or `parse/` (enforced by `tools/lint_imports.zig`).
-
 const std = @import("std");
 const prim = @import("prim");
 const ledger = @import("base/ledger.zig");
@@ -36,64 +21,26 @@ pub const RasterizeError = error{
 };
 
 pub const RasterReport = struct {
-    /// Allocated within the caller-provided allocator. Lifetime is tied
-    /// to that allocator (typically an arena owning Sketch + diagnostics).
     lattice: lattice.Lattice,
     nodes_written: u32,
     clusters_written: u32,
     edges_written: u32,
     labels_placed: u32,
     label_diagnostics: []const labels_r.LabelDiagnostic,
-    /// Edge polyline/arrowhead cells skipped because they collided with
-    /// node-owned or label cells (see `raster/edges.zig`). Feeds selection
-    /// via `audit.zig` → `score.RasterCounts`.
     edge_cells_lost: u32,
-    /// Terminal arrowheads among those refusals: the edge ships without its
-    /// declared decoration. Subset of `edge_cells_lost` events; a report
-    /// tally, priced in selection only through the cell it also is.
     edge_heads_lost: u32 = 0,
-    /// Labels present in the Sketch that could not be placed at all
-    /// (see `raster/labels.zig`).
     labels_dropped: u32,
-    /// Edge/tap labels the fallback ladder placed away from their primary
-    /// anchor (see `raster/labels_edge.zig`) — cheaper than a drop, still
-    /// a shipped legibility defect the score prices.
     labels_displaced: u32,
-    /// Edge/tap labels placed ON their own private fan dropper by the
-    /// top-priority on-run candidate (`raster/labels_onrun.zig`). These are
-    /// PLACED labels (counted in `labels_placed`, excluded from
-    /// `labels_displaced`); reported for diagnostic honesty only — never
-    /// consumed by audit/score.
     labels_on_run: u32 = 0,
-    /// Phantom neighbour-mask arms cleared by the reconcile post-pass
-    /// (informational — these are repairs, not shipped defects).
     phantom_arms_cleared: u32,
-    /// Crossing/transversal tallies (Amendment C: the transversal and arrowhead-sanctity rulings) — see
-    /// `raster/crossings.zig`. `foreign_junction_violation` and
-    /// `arrowhead_transit_violation` feed selection: `audit.zig` reads them
-    /// into `score.RasterCounts`, which `score.eval` weights into the
-    /// violation tier. The remaining fields are report-only.
     crossings: crossings_r.CrossingCounts = .{},
-    /// Decoration-cell painted tallies (owner ruling 2026-07-18 for the
-    /// base; the constitution's three guarded sides for the rest): heads
-    /// whose base cell does not feed the triangle, heads whose tip is not
-    /// on their port, lateral arms that shipped on a head. The base and the
-    /// shipped arms feed selection via `audit.zig` → `score.RasterCounts`;
-    /// the tip tally is report-only — see `raster/arrow_base.zig`.
     arrow_base: arrow_base_r.ArrowBaseCounts = .{},
 
-    /// Every arm that entered a decoration cell from a lateral side: the
-    /// refused ones (edge and rail passes, `crossings.arm_into_head`) and
-    /// the shipped ones (`arrow_base.lateral_arms`). One number, because the
-    /// integrity line and the score price the event, not where it was seen.
     pub fn armIntoHead(self: RasterReport) u32 {
         return self.crossings.arm_into_head + self.arrow_base.lateral_arms;
     }
 };
 
-/// Allocate a Lattice sized to `s.bbox` and rasterize all four layers.
-/// On a zero-sized bbox returns an empty report with a zero-cell
-/// lattice and no diagnostics.
 pub fn rasterize(
     allocator: std.mem.Allocator,
     s: sketch.Sketch,
@@ -152,7 +99,7 @@ pub fn rasterize(
         error.OccupiedCell => return error.OutOfBounds,
     };
 
-    // Rails before ordinary edges (Phase 4b slice iv): the fan rail claims its cells first, so a later edge can never overwrite rail kind/role. // @guarded-by: raster.zig "a rail rasterizes before edges: its cell keeps rail kind/role, foreign bits refused"
+    // @guarded-by: raster.zig "a rail rasterizes before edges: its cell keeps rail kind/role, foreign bits refused"
     const rail_report = rails_r.rasterizeRails(&lat, s, sink);
 
     const edge_report = edges_r.rasterizeEdges(allocator, &lat, s, subgraph_edges, sink) catch |err| switch (err) {
@@ -161,7 +108,7 @@ pub fn rasterize(
         error.MalformedPolyline => return error.MalformedPolyline,
     };
 
-    // Reconcile junction masks (phantom-arm cleanup) after edges, before labels — order is required, not incidental. // @guarded-by: raster/reconcile.zig "reconcile is NOT order-independent w.r.t. labels: swapping the pipeline position changes the result"
+    // @guarded-by: raster/reconcile.zig "reconcile is NOT order-independent w.r.t. labels: swapping the pipeline position changes the result"
     const phantom_arms = reconcile.reconcileNeighbours(&lat);
 
     const label_report = labels_r.rasterizeLabels(allocator, &lat, s, sink) catch |err| switch (err) {

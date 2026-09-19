@@ -1,5 +1,3 @@
-//! Production tests for semantic fan RailClaims.
-
 const std = @import("std");
 const ledger = @import("../base/ledger.zig");
 const rail_star = @import("../base/rail_star.zig");

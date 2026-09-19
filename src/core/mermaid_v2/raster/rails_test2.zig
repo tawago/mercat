@@ -1,6 +1,3 @@
-//! Split from rails_test.zig at the 500-line cap (tools/lint/line_caps.zig).
-//! Chained via rails_test.zig's own `test {}` block.
-
 const std = @import("std");
 const testing = std.testing;
 const sketch = @import("../sketch.zig");

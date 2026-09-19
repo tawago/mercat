@@ -29,14 +29,8 @@ pub const std_options: std.Options = .{
     .logFn = logFn,
 };
 
-/// Set while the TUI owns the terminal (see the `tui.run` call site). Atomic so
-/// the flag is well-defined regardless of which thread a log call originates on;
-/// the TUI runs single-threaded today, so contention is not a concern.
 var tui_active = std.atomic.Value(bool).init(false);
 
-/// Custom log sink: swallow messages while the TUI owns the alternate screen,
-/// otherwise fall through to the default stderr logger. The level cap in
-/// `std_options` has already filtered out `.debug`/`.info` before we get here.
 fn logFn(
     comptime level: std.log.Level,
     comptime scope: @TypeOf(.enum_literal),
@@ -137,16 +131,12 @@ pub fn main() !void {
     });
 }
 
-/// Per-invocation display settings already folded from CLI flags + config,
-/// passed to the CLI render path as one bundle.
 const CliDisplay = struct {
     width: usize,
     show_heading_markers: bool,
     frontmatter_style: config.FrontmatterStyle,
 };
 
-/// The non-TUI path: parse the input, build the render model once, then
-/// serialize per output format (§6.1).
 fn runCli(
     allocator: std.mem.Allocator,
     parsed: args.Parsed,
@@ -224,8 +214,6 @@ fn runCli(
     }
 }
 
-/// Resolve `name` (preset or user theme file) and write it to stdout as
-/// round-trippable TOML. Unknown names report `unknown_theme` and exit non-zero.
 fn runDumpTheme(allocator: std.mem.Allocator, name: []const u8) !void {
     var diag = theme_resolve.Diagnostics.init(allocator);
     defer diag.deinit();
@@ -244,8 +232,6 @@ fn runDumpTheme(allocator: std.mem.Allocator, name: []const u8) !void {
     if (folded == null) std.process.exit(1);
 }
 
-/// Build a one-line theme-warning summary for the TUI status bar, or null when
-/// resolution produced no diagnostics. Owned by the caller.
 fn themeWarning(allocator: std.mem.Allocator, diag: *const theme_resolve.Diagnostics) !?[]u8 {
     const n = diag.count();
     if (n == 0) return null;
@@ -256,10 +242,6 @@ fn themeWarning(allocator: std.mem.Allocator, diag: *const theme_resolve.Diagnos
         try std.fmt.allocPrint(allocator, "theme: {s} (+{d} more)", .{ first, n - 1 });
 }
 
-/// Emit each theme diagnostic as a dim ANSI comment line on stderr. stderr is
-/// a distinct channel from the rendered stdout, so pipes/redirects stay
-/// byte-clean while the warnings still reach the user's terminal — interactive
-/// and piped invocations alike.
 fn emitCliDiagnostics(diag: *const theme_resolve.Diagnostics) void {
     if (diag.count() == 0) return;
     const stderr = std.fs.File.stderr();
@@ -270,7 +252,6 @@ fn emitCliDiagnostics(diag: *const theme_resolve.Diagnostics) void {
     }
 }
 
-/// Shared §20 diagnostic context printed on every export failure.
 const ExportContext = struct {
     input_path: []const u8,
     format: []const u8,
@@ -278,10 +259,6 @@ const ExportContext = struct {
     width: usize,
 };
 
-/// Print one §20 diagnostic line to stderr and exit non-zero. The common
-/// context (input path, output format/path, width) is always shown; `detail`
-/// carries the failure-specific fields (missing glyph + row/col, pixel
-/// overflow, font-init, encode/write, ...) built by `exportDetail`.
 fn exportFailure(ctx: ExportContext, detail: []const u8) noreturn {
     const out = ctx.output_path orelse "<stdout>";
     var buf: [512]u8 = undefined;
@@ -294,9 +271,6 @@ fn exportFailure(ctx: ExportContext, detail: []const u8) noreturn {
     std.process.exit(1);
 }
 
-/// Map an export error (plus, for `MissingGlyph`, the PNG diagnostic) to the
-/// §20 failure-specific detail string. `buf` backs the one case that formats
-/// dynamic fields; every other case returns a static string.
 fn exportDetail(buf: []u8, err: anyerror, diag: export_png.Diagnostic) []const u8 {
     return switch (err) {
         error.MissingGlyph => std.fmt.bufPrint(
@@ -353,10 +327,6 @@ fn inputTitle(input: args.Input) []const u8 {
     };
 }
 
-/// Upper bound on input size (size only — content/extension are not checked
-/// here). Sources are text; anything past this is almost certainly a mistyped
-/// path (or `mercat < /dev/zero`) and is better refused than swallowed into
-/// memory.
 const max_input_bytes = 256 * 1024 * 1024;
 
 fn readInput(allocator: std.mem.Allocator, input: args.Input) ![]u8 {

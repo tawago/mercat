@@ -1,6 +1,3 @@
-//! Unit tests for `lanes.zig` — lane packing, gutter query, and the
-//! obstacle-aware clear-run search (including axis parameterization).
-
 const std = @import("std");
 const lanes = @import("lanes.zig");
 const sketch = @import("../sketch.zig");

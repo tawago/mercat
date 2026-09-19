@@ -1,13 +1,3 @@
-//! Node dimensioning helpers for `layout.zig`.
-//! Owns per-shape minimum boxes, label-derived sizing, caller-imposed size
-//! overrides (super-node sizing), the `sizeNodes` pass (writes initial w/h
-//! into `NodeGeom`), and `buildPlacements` (geom+lines → sketch.NodePlacement).
-//! For LR/RL, dims are pre-swapped so `layout.applyDirection`'s post-layout
-//! swap restores the visual (label-runs-horizontal) orientation.
-//!
-//! Lint zone: may import std, prim, sem_graph, sketch, sugiyama, sibling
-//! layout/* files; must not reach raster/, lattice/, paint/.
-
 const std = @import("std");
 const prim = @import("prim");
 const sg = @import("../sem_graph.zig");
@@ -18,15 +8,6 @@ const ports = @import("ports.zig");
 
 pub const NodeGeom = routing.NodeGeom;
 
-/// A caller-imposed size override for one node, keyed by SemGraph NodeId.
-/// Used by the cluster driver to size a "super-node" (a subgraph seen from
-/// the outer flowchart) to the bounding box of its already-laid-out child,
-/// since layout cannot derive that size from a label. The `w`/`h` are the
-/// node's final visual dimensions; `sizeNodes` applies the same LR/RL axis
-/// pre-swap it applies to label-derived dims so the post-`applyDirection`
-/// result matches.
-/// `synthetic`: the stand-in is a packing cluster's, whose frame is not
-/// drawn — a bridge into it lands on a plain node's base row.
 pub const FixedSize = struct { node: sg.NodeId, w: u32, h: u32, synthetic: bool = false };
 
 pub const Dims = struct { w: u32, h: u32 };
@@ -39,17 +20,6 @@ pub fn shapeMinDims(shape: sg.NodeShape) Dims {
     };
 }
 
-/// Compute the wrapped/segmented display lines of `label` for the given
-/// soft-wrap cap. The lines are the single source of truth for box width,
-/// box height, AND painting (P1a — one bundle, no byte-vs-display drift).
-///
-///   - `max_label_width == null`: split on hard `\n` sentinels only (today's
-///     behavior — each author segment is one line). No soft wrapping.
-///   - else: `prim.wrapToWidth` — hard breaks honored, then each segment is
-///     soft-wrapped to the cap.
-///
-/// Returned slice is arena-allocated; element slices are sub-slices of the
-/// label (zero text duplication). An empty label yields one empty line.
 pub fn labelLines(
     a: std.mem.Allocator,
     label: []const u8,
@@ -58,16 +28,13 @@ pub fn labelLines(
     if (max_label_width) |cap| {
         return prim.wrapToWidth(a, label, cap);
     }
-    // Hard-break split only. Equivalent to wrapToWidth with an infinite cap, but cheaper and a sub-slice of the label. // @guarded-by: sizing_test.zig "labelLines hard-break-only path matches wrapToWidth at an effectively infinite cap"
+    // @guarded-by: sizing_test.zig "labelLines hard-break-only path matches wrapToWidth at an effectively infinite cap"
     var lines: std.ArrayListUnmanaged([]const u8) = .empty;
     var it = std.mem.splitScalar(u8, label, prim.LINE_BREAK);
     while (it.next()) |seg| try lines.append(a, seg);
     return try lines.toOwnedSlice(a);
 }
 
-/// Visual (pre-axis-swap) dimensions of a node from its already-computed
-/// `lines`. Width = widest line + horizontal chrome; height = line count +
-/// top/bottom border, each clamped up to the shape minimum.
 pub fn dimsFromLines(lines: []const []const u8, shape: sg.NodeShape, node_padding: u32) Dims {
     const min = shapeMinDims(shape);
     var widest: u32 = 0;
@@ -83,7 +50,6 @@ pub fn dimsFromLines(lines: []const []const u8, shape: sg.NodeShape, node_paddin
     return .{ .w = w, .h = h };
 }
 
-/// Look up a caller-imposed size override for `id`, or null if none.
 pub fn fixedSize(overrides: []const FixedSize, id: sg.NodeId) ?Dims {
     for (overrides) |f| {
         if (f.node == id) return .{ .w = f.w, .h = f.h };
@@ -98,15 +64,6 @@ pub fn realNode(graph: sg.SemGraph, id: sg.NodeId) sg.Node {
     return graph.nodes[0];
 }
 
-/// Size every node and capture its label lines in one pass.
-///
-/// Writes initial (w, h) into `geom` and a parallel `node_lines[i]` (indexed
-/// like `lg.nodes`; virtual nodes → empty slice). The lines are the single
-/// authority later reused by `buildPlacements` → painting (P1a).
-///
-/// P1b — wrap axis: visual dims are computed from the lines FIRST (wrapping
-/// decided on the visual width budget), THEN the LR/RL transpose is applied,
-/// so soft-wrap always measures the axis the label actually runs along.
 pub fn sizeNodes(
     a: std.mem.Allocator,
     graph: sg.SemGraph,
@@ -117,7 +74,7 @@ pub fn sizeNodes(
     max_label_width: ?u32,
     node_lines: [][]const []const u8,
 ) error{OutOfMemory}!void {
-    // For LR/RL flows, pre-swap dims are transposed so applyDirection's dim-swap restores the visual (label-runs-horizontal) orientation. // @guarded-by: sizing_test.zig "sizeNodes pre-swaps an LR multi-line label so post-applyDirection dims match the visual box"
+    // @guarded-by: sizing_test.zig "sizeNodes pre-swaps an LR multi-line label so post-applyDirection dims match the visual box"
     const swap = (graph.direction == .LR or graph.direction == .RL);
     for (lg.nodes, 0..) |n, i| {
         switch (n) {
@@ -139,7 +96,6 @@ pub fn sizeNodes(
     }
 }
 
-/// Apply D-PORT clause-9 minima after label sizing and before coordinates.
 pub fn applyPortDemand(graph: sg.SemGraph, lg: sugiyama.LayeredGraph, geom: []NodeGeom, derived: []const ports.DerivedAttachment) void {
     const swap = graph.direction == .LR or graph.direction == .RL;
     for (lg.nodes, 0..) |node, i| switch (node) {
@@ -154,8 +110,6 @@ pub fn applyPortDemand(graph: sg.SemGraph, lg: sugiyama.LayeredGraph, geom: []No
     };
 }
 
-/// Turn the final geometry + the sizing pass's label lines into Sketch
-/// NodePlacements (real nodes only — virtuals exist for routing alone).
 pub fn buildPlacements(
     a: std.mem.Allocator,
     graph: sg.SemGraph,

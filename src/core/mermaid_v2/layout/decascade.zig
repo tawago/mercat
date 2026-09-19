@@ -1,21 +1,3 @@
-//! Lever D — TD single-node de-cascade for `layout.zig`.
-//!
-//! Detects a straight run of single-node layers whose indentation
-//! accumulates layer-by-layer under a fork (drifting far right of the
-//! diagram's left margin and busting the width budget) and slides the whole
-//! drifted subtree (chain + its fork/leaf children) left as one rigid unit,
-//! preserving every internal offset so the vertical rail stays drilled —
-//! instead of moving `x_assign.flushLeftRows`-exempted single-real-node rows
-//! independently, which would shear their `│` connectors into a jog. Only
-//! ever moves a run LEFTWARD, so it can only narrow or hold the bbox; the
-//! rows its entry corridor needs are reported, never placed here.
-//! Downstream routing (`routing.buildEdges` / `back_edges.zig`) re-routes
-//! every edge from the post-slide geom; this module only moves geom.
-//!
-//! Imports (layout/ zone): `std`, `../sem_graph.zig`, `sugiyama.zig`, and the
-//! NodeGeom type from `routing.zig`. Must not reach into cluster/, recurse,
-//! budget, raster/, lattice, or paint/.
-
 const std = @import("std");
 const sg = @import("../sem_graph.zig");
 const sugiyama = @import("sugiyama.zig");
@@ -23,29 +5,12 @@ const routing = @import("routing.zig");
 
 pub const NodeGeom = routing.NodeGeom;
 
-/// Minimum drift (cells) a chain head must sit right of the margin before the
-/// slide is worth doing. Below this the run is essentially already left and a
-/// shift would be churn (and risk crossing fitting seeds). A fixed function of
-/// layout geometry, never of any seed identity.
 const MIN_DRIFT: i32 = 4;
 
-/// Horizontal gap (cells) kept between a slid unit node and the nearest
-/// non-unit node to its left in the same layer, so the de-cascaded chain never
-/// collides with the fork siblings it slides past. Matches the layout's default
-/// inter-node breathing room; a fixed function of geometry, never of identity.
 const COLLISION_GAP: i32 = 2;
 
-/// The rows the slid head's entry corridor needs in the gap above it:
-/// the tallest fork-layer sibling's height, so the corridor clears the
-/// deepest sibling box. The caller adds them to that gap's base spacing.
 pub const CorridorDrop = struct { gap: u32, rows: u32 };
 
-/// Detect a rightward single-node cascade and slide it (with its fork/leaf
-/// subtree) left to the diagram margin as a rigid unit. `geom` is parallel to
-/// `lg.nodes`; only `x` moves — the rows the slide asks for come back as a
-/// `CorridorDrop`. No-op unless a drifted straight rail of length ≥ 2 layers
-/// is found. TD-only; the caller gates on `compact_x && justify == .flush_left`,
-/// so this never fires on the natural rung (fitting seeds stay byte-identical).
 pub fn deCascade(
     a: std.mem.Allocator,
     graph: sg.SemGraph,
@@ -62,7 +27,7 @@ pub fn deCascade(
     }
     if (margin == std.math.maxInt(i32)) return null;
 
-    // ---- 1. Anchor on the MOST-drifted single-node-layer rail node, not the first-drifted one. // @guarded-by: decascade_test.zig "deCascade anchors on the most-drifted rail, not the first-drifted one"
+    // @guarded-by: decascade_test.zig "deCascade anchors on the most-drifted rail, not the first-drifted one"
     var seed_idx: ?u32 = null;
     var best_drift: i32 = MIN_DRIFT;
     {
@@ -78,7 +43,7 @@ pub fn deCascade(
     }
     const seed = seed_idx orelse return null;
 
-    // Climb UP through single-parent rail links to the true head, stopping before a multi-node fork layer rather than climbing through it. // @guarded-by: decascade_test.zig "deCascade head climb stops exactly at a multi-node fork layer"
+    // @guarded-by: decascade_test.zig "deCascade head climb stops exactly at a multi-node fork layer"
     var head = seed;
     while (true) {
         const p = soleForwardParent(lg, head) orelse break;
@@ -87,7 +52,7 @@ pub fn deCascade(
         if (soleForwardChild(lg, p) == null) break;
         head = p;
     }
-    // The head must hang off a parent in the layer above; a true source with no such parent is already the left edge and this is a no-op. // @guarded-by: decascade_test.zig "deCascade no-ops when the drifted rail head is a true source (no forward parent)"
+    // @guarded-by: decascade_test.zig "deCascade no-ops when the drifted rail head is a true source (no forward parent)"
     if (soleForwardParent(lg, head) == null) return null;
     const lo: usize = geom[head].layer;
 
@@ -95,14 +60,14 @@ pub fn deCascade(
     var cur = head;
     while (true) {
         const next = soleForwardChild(lg, cur) orelse break;
-        // `next` must be the sole real node of its layer to keep the rail straight; otherwise the chain ends at `cur`. // @guarded-by: decascade_test.zig "deCascade rail walk stops at a branch instead of treating it as rail-straight"
+        // @guarded-by: decascade_test.zig "deCascade rail walk stops at a branch instead of treating it as rail-straight"
         if (soleRealNode(lg, geom[next].layer) == null) break;
         if (geom[next].layer != geom[cur].layer + 1) break;
         hi = geom[next].layer;
         cur = next;
     }
 
-    // A genuine CASCADE needs a RUN of ≥ 2 consecutive single-node layers; a lone drifted single-node layer (hi == lo) is not a cascade. // @guarded-by: decascade_test.zig "deCascade does not fire for a lone drifted single-node layer (hi==lo)"
+    // @guarded-by: decascade_test.zig "deCascade does not fire for a lone drifted single-node layer (hi==lo)"
     if (hi <= lo) return null;
 
     const n = lg.nodes.len;
@@ -126,7 +91,7 @@ pub fn deCascade(
             c = next;
         }
     }
-    // Flood forward from the rail bottom over forward edges, staying in layers ≥ lo so we never pull a node above the run. // @guarded-by: decascade_test.zig "deCascade flood-forward never pulls a node above the run into the unit"
+    // @guarded-by: decascade_test.zig "deCascade flood-forward never pulls a node above the run into the unit"
     while (stack.pop()) |node| {
         for (lg.edges) |e| {
             if (e.from != node) continue;
@@ -148,7 +113,7 @@ pub fn deCascade(
     var delta = margin - unit_min;
     if (delta >= 0) return null;
 
-    // Collision floor: bound the leftward slide so no unit node crosses into the right edge (+ a gap) of the nearest non-unit node to its left in the same layer. // @guarded-by: decascade_test.zig "deCascade collision floor clamps the slide short of a fixed sibling's right edge"
+    // @guarded-by: decascade_test.zig "deCascade collision floor clamps the slide short of a fixed sibling's right edge"
     var floor: i32 = std.math.minInt(i32);
     for (lg.nodes, 0..) |ln, i| {
         if (ln != .real or !in_unit[i]) continue;
@@ -185,13 +150,11 @@ pub fn deCascade(
             if (h > fork_layer_h) fork_layer_h = h;
         }
     }
-    // The gap above the head grows by the tallest fork-layer sibling's height so the corridor clears the deepest sibling box, not just the overlapping one. // @guarded-by: decascade_test.zig "deCascade entry-corridor drop uses the tallest fork-layer sibling, not just the overlapping one"
+    // @guarded-by: decascade_test.zig "deCascade entry-corridor drop uses the tallest fork-layer sibling, not just the overlapping one"
     if (needs_corridor and fork_layer_h > 0) return .{ .gap = @intCast(lo - 1), .rows = @intCast(fork_layer_h) };
     return null;
 }
 
-/// The sole real-node index of layer `li`, or null if the layer has 0 or ≥2
-/// real nodes (virtuals are ignored for the count).
 fn soleRealNode(lg: sugiyama.LayeredGraph, li: usize) ?u32 {
     if (li >= lg.layers.len) return null;
     var found: ?u32 = null;
@@ -203,8 +166,6 @@ fn soleRealNode(lg: sugiyama.LayeredGraph, li: usize) ?u32 {
     return found;
 }
 
-/// The single forward (non-reversed) parent of `idx` if it has exactly one,
-/// else null. "Parent" = a node with a forward edge INTO `idx`.
 fn soleForwardParent(lg: sugiyama.LayeredGraph, idx: u32) ?u32 {
     var found: ?u32 = null;
     for (lg.edges) |e| {
@@ -216,8 +177,6 @@ fn soleForwardParent(lg: sugiyama.LayeredGraph, idx: u32) ?u32 {
     return found;
 }
 
-/// The single forward (non-reversed) child of `idx` if it has exactly one,
-/// else null. "Child" = a node `idx` has a forward edge to.
 fn soleForwardChild(lg: sugiyama.LayeredGraph, idx: u32) ?u32 {
     var found: ?u32 = null;
     for (lg.edges) |e| {

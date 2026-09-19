@@ -1,15 +1,3 @@
-//! Final-image resolution and outer structural bundle rebuild after
-//! cross-border routing.
-//!
-//! Outer placement carriers that touch a super-node are not final geometry.
-//! One such carrier may represent zero, one, or many routed bridges;
-//! `finalImages` resolves that relation for the claim rebuild (report tier).
-//! Bundles never expand across it: bridge fusion authority is the licence
-//! tier's recorded verdict (cluster/bridge_plan.zig), so `rebuildOuterSets`
-//! keeps only sets among surviving real-node carriers. Cell-scoped port
-//! shares are excluded here: stitch derives their one final population from
-//! final `EdgePath` geometry instead.
-
 const std = @import("std");
 const sg = @import("../sem_graph.zig");
 const sketch = @import("../sketch.zig");
@@ -24,9 +12,6 @@ pub const Image = struct {
     arrows: [2]sketch.ArrowKind,
 };
 
-/// Every final carrier represented by one outer placement member. A surviving
-/// carrier has one image. A dropped carrier expands to every matching bridge
-/// that routing actually produced; absent routes produce no image.
 pub fn finalImages(
     arena: std.mem.Allocator,
     sr: split_mod.SplitResult,
@@ -63,12 +48,6 @@ pub fn finalImages(
     return out.toOwnedSlice(arena);
 }
 
-/// Rebuild only structural outer sets. Polarity must be proven by an outer
-/// claim or by a unique common placement endpoint. Final images are grouped by
-/// their exact real pivot, and a group needs two distinct old contributors.
-/// Members whose placement touches a super-node contribute nothing: routed
-/// bridges answer to the licence tier (cluster/bridge_plan.zig), and its
-/// recorded verdict — not a rebuilt set — is their fusion authority.
 pub fn rebuildOuterSets(
     arena: std.mem.Allocator,
     sr: split_mod.SplitResult,

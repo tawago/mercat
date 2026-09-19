@@ -1,27 +1,3 @@
-//! member_stroke.zig — the ink a rail member owns beyond its tap.
-//!
-//! A tap that `continues` is one drop cell under (fan-OUT) or over
-//! (fan-IN) the crossbar; the member's leaf lies beyond the next layer.
-//! This file routes the member's own stroke from that tap to its far end:
-//! the other rail's continuing tap when the member is selected at both
-//! ends, else the far node's allocated port. The stroke paints the far
-//! port and head when that end is private, and nothing at a rail end (the
-//! rail's stem carries the head). Emitted before ordinary routing so every
-//! later route clears it.
-//!
-//! Shape: leave the tap straight (the drop cell must be a plain vertical),
-//! jog once on a gap row, arrive straight; when no jog row clears, run a
-//! separate corridor column between two jogs (the skip corridor's own
-//! search). A stroke that clears no gate in any shape is REFUSED — a
-//! candidate the gates refused is never shipped, since its refusal names
-//! ink that would lie collinear with a foreign run or enter a decoration
-//! cell — and the caller drops that member from its rail: the theory's
-//! per-member degradation. (A refused member keeps its bundle's shared
-//! port; its private route then clears against the rail's stem like any
-//! other, and goes unrouted when nothing clears.)
-//!
-//! Allowed imports (layout zone): std + sem_graph + sketch + siblings.
-
 const std = @import("std");
 const sg = @import("../sem_graph.zig");
 const sketch = @import("../sketch.zig");
@@ -38,14 +14,12 @@ const gap_rows = @import("gap_rows.zig");
 
 pub const Error = error{OutOfMemory};
 
-/// A continuing tap whose member stroke found no clear route.
 pub const Refusal = struct { rail: usize, edge: sg.EdgeId };
 
 fn isIn(role: sketch.EdgeRole) bool {
     return role == .fan_in_dropper or role == .fan_in_rail;
 }
 
-/// The continuing tap for `edge` on a rail of the given polarity.
 fn farTap(rails: []const fan_rail.Built, edge: sg.EdgeId, want_in: bool) ?sketch.Tap {
     for (rails) |built| {
         if (isIn(built.rail.role) != want_in) continue;
@@ -54,7 +28,6 @@ fn farTap(rails: []const fan_rail.Built, edge: sg.EdgeId, want_in: bool) ?sketch
     return null;
 }
 
-/// Route every continuing tap's member stroke, appending to `out`/`polys`.
 pub fn buildAll(
     a: std.mem.Allocator,
     graph: sg.SemGraph,
@@ -65,10 +38,7 @@ pub fn buildAll(
     bar_views: []const sketch.Rail,
     bundles: pb.RealizedBundles,
     allocated_ports: port_plan.Plan,
-    /// Columns the back-edge return rails own (their runs are routed after
-    /// the strokes and check no clearance): a stroke never runs down one.
     reserved_columns: []const i32,
-    /// The gap row ledger: a stroke's jog prefers the row it claimed.
     rows: gap_rows.Ledger,
     out: *std.ArrayListUnmanaged(sketch.EdgePath),
     polys: *std.ArrayListUnmanaged([]sketch.Point),
@@ -79,7 +49,6 @@ pub fn buildAll(
         for (built.rail.taps) |tap| {
             if (!tap.continues) continue;
             if (rail_closure.contains(bundles.discharged, tap.edge)) continue;
-            // A member selected at both ends is routed once, from its fan-OUT tap.
             if (fan_in and farTap(rails, tap.edge, false) != null) continue;
             const orig = routing.findGraphEdge(graph, tap.edge) orelse continue;
             const ep = allocated_ports.forEdge(orig.id) orelse continue;
@@ -98,8 +67,6 @@ pub fn buildAll(
                     jog = end.y - 2;
                 } else {
                     end = rp.portPoint(dst_p, ep.target);
-                    // The head sits on end.y-1 and its straight base cell on
-                    // end.y-2; the jog takes the ledger row above them.
                     jog = end.y - 3 - (rows.rowOfEdge(orig.id, .exit) orelse 0);
                 }
             } else {
@@ -114,10 +81,6 @@ pub fn buildAll(
                 else
                     geom[virtuals[0]].y - 1;
             }
-            // A rail start keeps its drop cell straight (jog from two rows
-            // down); a private port may bend on its first gap row, as the
-            // ordinary skip-corridor route does — unless it is decorated,
-            // when its departure cell holds the head and stays straight.
             // @guarded-by: port_plan_test.zig "a decorated long fan-in member's stroke leaves its departure cell straight"
             const lo = if (fan_in and orig.arrow_from == .none) start.y + 1 else start.y + 2;
             const hi = end.y - 2;
@@ -151,10 +114,6 @@ pub fn buildAll(
     return refused.toOwnedSlice(a);
 }
 
-/// Straight when the columns agree; otherwise one jog on `jog`, clamped to
-/// `[lo, hi]` so both approaches keep a straight cell. Tries the preferred
-/// row first, then its neighbours, then a two-jog corridor column; ships the
-/// first that clears, or null when none does.
 /// @guarded-by: member_stroke_test.zig "a long member whose stroke clears nowhere leaves its rail instead of shipping a refused stroke"
 pub fn route(
     a: std.mem.Allocator,
@@ -193,7 +152,6 @@ pub fn route(
             if (!ownsReserved(poly, reserved_columns) and try clears(a, orig, poly, existing, bar_views, placements, allocated_ports, bundles)) return poly;
         }
     }
-    // Two jogs around a corridor column the boxes leave clear.
     if (hi - lo >= 2) {
         const corridor = sketch.clearLine(false, end.x, lo, hi, placements, orig.from, orig.to, .{ .margin = true });
         if (corridor != start.x and corridor != end.x) {
@@ -210,7 +168,6 @@ pub fn route(
     return null;
 }
 
-/// True iff a vertical segment of `poly` runs down a reserved column.
 fn ownsReserved(poly: []const sketch.Point, reserved: []const i32) bool {
     var i: usize = 0;
     while (i + 1 < poly.len) : (i += 1) {
@@ -220,8 +177,6 @@ fn ownsReserved(poly: []const sketch.Point, reserved: []const i32) bool {
     return false;
 }
 
-/// The stroke's own rail cells are legal by construction; the stretch
-/// between them must clear every gate an ordinary route clears.
 fn clears(
     a: std.mem.Allocator,
     orig: sg.Edge,
@@ -239,12 +194,7 @@ fn clears(
     try inner.append(a, .{ .x = start.x, .y = start.y + 1 });
     for (poly[1 .. poly.len - 1]) |p| try inner.append(a, p);
     try inner.append(a, .{ .x = end.x, .y = end.y - 1 });
-    // Box termination holds with or without a plan: a stroke through a
-    // foreign box is refused even where the plan-aware gates stand down.
     if (try route_clearance.blocked(a, orig.id, inner.items, existing, bundles, placements, orig.from, orig.to)) return false;
-    // Rail ink is another owner's: a stroke may cross a rail's run, never
-    // lie along it or on its stem or drops (`route_clearance.ridesRail`,
-    // one of the gates below).
     return route_clearance.polylineClears(a, orig.id, inner.items, existing, bar_views, placements, allocated_ports.edges, bundles, orig.from, orig.to);
 }
 

@@ -1,11 +1,3 @@
-//! Tests for `edge_roles.zig`'s `mergeRole` precedence — the one question
-//! that file answers. Discovered via edge_roles.zig's top-level
-//! `test { _ = @import("edge_roles_test.zig"); }` block, per the
-//! mermaid_v2/ test-file convention.
-//!
-//! The shared-run ROLE itself (which cells are a fan's rail) and the
-//! fan-OUT mask strip are producer facts and live in `fan_roles_test.zig`.
-
 const std = @import("std");
 const lattice = @import("../lattice.zig");
 const edge_roles = @import("edge_roles.zig");

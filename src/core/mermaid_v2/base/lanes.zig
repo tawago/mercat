@@ -1,33 +1,15 @@
-//! Pure interval "lane" packer shared by the layout zone (back-edge rails)
-//! and the cluster zone (cross-border bridge track discipline). `LaneClaim`
-//! is a flow-axis interval `[lo, hi]` plus a natural (unstacked) cross-axis
-//! `base`; `assign` greedily packs claims into the innermost compatible lane
-//! and resolves each lane's physical cross position.
-//! No geometry/placement/sketch types: pure integers in/out.
-//! Importable from every zone; may itself import only std (and prim) —
-//! enforced by tools/lint_imports.zig.
-
 const std = @import("std");
 
-/// One request for gutter space: a run that occupies the flow-axis interval
-/// `[lo, hi]` (inclusive, e.g. a back-edge's spanned layer range) and would
-/// naturally sit at cross position `base` (no stacking applied yet).
 pub const LaneClaim = struct {
     lo: u32,
     hi: u32,
     base: i32,
 };
 
-/// Result of `assign`: which lane each claim landed in, and where each lane
-/// physically sits on the cross axis.
 pub const Assignment = struct {
-    /// Parallel to the input claims: `lane_of[i]` is the lane index that
-    /// `claims[i]` was packed into (0 = innermost).
     lane_of: []u32,
-    /// Resolved cross position per lane, innermost first.
     lane_pos: []i32,
 
-    /// Resolved cross position for the `i`-th input claim.
     pub fn posOf(self: Assignment, i: usize) i32 {
         return self.lane_pos[self.lane_of[i]];
     }
@@ -38,9 +20,6 @@ pub const Assignment = struct {
     }
 };
 
-/// True iff claim `c` overlaps any lane member's flow interval. Overlapping
-/// intervals cannot share a lane (their runs would coexist on shared flow
-/// rows/columns and merge into one line).
 fn overlapsAny(claims: []const LaneClaim, members: []const u32, c: LaneClaim) bool {
     for (members) |mi| {
         const m = claims[mi];
@@ -49,19 +28,6 @@ fn overlapsAny(claims: []const LaneClaim, members: []const u32, c: LaneClaim) bo
     return false;
 }
 
-/// Greedy lane assignment over `claims` IN THE GIVEN ORDER (callers that
-/// want span-ascending packing must pre-sort; the order is part of the
-/// packing's tie-break contract).
-///
-/// A "lane" is a shared cross position occupied by one or more claims whose
-/// flow intervals are mutually disjoint — their runs never coexist on the
-/// same flow row/column, so they can safely share without merging. Each
-/// claim picks the innermost (smallest-index) lane it fits in; if it
-/// overlaps a member of every existing lane, a new outer lane is created.
-///
-/// A lane's physical position is the max of its members' `base`s, floored to
-/// sit at least `stack_gap` outside the previous (inner) lane so adjacent
-/// lanes' runs stay visually distinct.
 pub fn assign(
     a: std.mem.Allocator,
     claims: []const LaneClaim,

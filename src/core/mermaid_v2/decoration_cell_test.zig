@@ -1,24 +1,9 @@
-//! Root-level pin for the decoration cell's guarded sides against a REAL
-//! render: parse -> permits -> select -> rasterize. The constitution gives
-//! an arrowhead cell three guarded sides (base, tip, laterals); the raster
-//! counts a tip that is not on its port (`tip_not_port`) and every arm that
-//! entered from a lateral side (`arm_into_head`, refused or shipped). The
-//! producers keep a route straight through its own decorated terminal
-//! cells and reserve arrival cells and decoration laterals before any route
-//! is laid, so the seed that used to show the defect now pins its absence.
-
 const std = @import("std");
 const parse = @import("parse.zig").parse;
 const permits = @import("ledger/permits.zig");
 const select = @import("select.zig");
 const raster = @import("raster.zig");
 
-// flowchart_arrow_ends_td_6 at w90: the bidirectional Worker <--> Ledger
-// route used to turn inside its own departure cell, so the source head was
-// stamped on a corner — tip into blank, one lateral arm. The straight-through
-// rule now bends the route one cell further out: the source head points
-// north into Worker's port, nothing transits a head, and both counters are
-// zero on the whole render.
 test "flowchart_arrow_ends_td_6 at w90 draws every head into its port with no lateral arm" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
@@ -50,7 +35,6 @@ test "flowchart_arrow_ends_td_6 at w90 draws every head into its port with no la
     try std.testing.expectEqual(@as(u32, 0), report.crossings.arrowhead_transit_violation);
     try std.testing.expectEqual(@as(u32, 0), report.edge_heads_lost);
 
-    // The bidirectional edge's source head points north, its tip on Worker's border.
     var worker_edge: ?u32 = null;
     for (graph.edges) |e| if (e.arrow_from != .none and e.arrow_to != .none) {
         worker_edge = e.id;

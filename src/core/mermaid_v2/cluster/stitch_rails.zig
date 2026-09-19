@@ -1,27 +1,15 @@
-//! Transport semantic RailClaims from piece-local Sketches into one stitch.
-//!
-//! Child claims follow the same node maps and edge-id windows as their paths
-//! and taps. Outer placement members that touch a super-node are not replaced
-//! here: their shifted edge id remains reserved, while the unavailable end is
-//! made explicitly unresolved for the later bridge-expansion phase.
-
 const std = @import("std");
 const sketch = @import("../sketch.zig");
 const sg = @import("../sem_graph.zig");
 const ledger = @import("../base/ledger.zig");
 const split_mod = @import("split.zig");
 
-/// One child in stitch order, with the exact maps/windows used for its paths.
 pub const ChildSource = struct {
     sketch: sketch.Sketch,
     node_map: []const sketch.NodeId,
     edge_base: sketch.EdgeId,
 };
 
-/// Deep-copy and globally number all child claims, then all outer claims.
-/// Outer bridge substitution deliberately remains pending in the returned
-/// unresolved members; a follow-up can resolve them from `sr`, `outer`, and
-/// the reserved `outer_edge_base` window without recovering child-local ids.
 pub fn transport(
     arena: std.mem.Allocator,
     sr: split_mod.SplitResult,
@@ -103,8 +91,6 @@ fn mapSite(node_map: []const sketch.NodeId, site: ?ledger.AttachmentSite) ?ledge
     return .{ .node = node, .side = old.side, .offset = old.offset };
 }
 
-/// Ends that belonged to a placement carrier which stitch drops. The edge id
-/// itself remains in the outer reserved window as the bridge-pending key.
 fn droppedEnds(sr: split_mod.SplitResult, outer: sketch.Sketch, edge: sketch.EdgeId) [2]bool {
     for (outer.edges) |path| {
         if (path.id != edge) continue;
@@ -128,8 +114,6 @@ fn isSuper(sr: split_mod.SplitResult, node: sketch.NodeId) bool {
     return false;
 }
 
-/// Rebuild one claim member from a final carrier. `pivot_end` remains semantic
-/// input; every other field comes from final endpoints, ports, or rail sites.
 pub fn finalMember(
     paths: []const sketch.EdgePath,
     rails_buf: []const sketch.Rail,

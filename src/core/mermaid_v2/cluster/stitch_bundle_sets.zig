@@ -1,13 +1,3 @@
-//! Bundle transport and final-geometry derivation for stitch.
-//!
-//! Structural child sets shift into merged id space (transport of the piece
-//! plans' records — nothing is decided here). Port shares do not pass
-//! through this path in production; `finalizeAuthority` derives their whole
-//! population from final merged paths (the coordinate agreement IS the
-//! declaration), and rebuilds the report-tier claims. `shiftSet` still
-//! performs an exact scoped translation for callers and its regression
-//! fixture.
-
 const std = @import("std");
 const sketch = @import("../sketch.zig");
 const sketch_ports = @import("../sketch_ports.zig");
@@ -22,8 +12,6 @@ pub const Authority = struct {
     claims: []const ledger.RailClaim,
 };
 
-/// Finalize the two authority bundle sets after routed bridges have final ids and
-/// geometry. All returned bundles are unstamped; stitch stamps once, last.
 pub fn finalizeAuthority(
     arena: std.mem.Allocator,
     sr: split_mod.SplitResult,
@@ -67,8 +55,6 @@ pub fn finalizeAuthority(
     };
 }
 
-/// Copy a bundle with every member shifted into the piece's id window,
-/// `.cells`/`.pairwise` translated by (dx, dy) rather than dropped.
 /// @guarded-by: stitch_bundle_sets.zig "shiftSet carries a port-share set's cell scope and pairwise table across the id shift"
 pub fn shiftSet(
     arena: std.mem.Allocator,
@@ -94,8 +80,6 @@ pub fn shiftSet(
     return .{ .origin = cs.origin, .members = members, .cells = cells, .pairwise = pairwise };
 }
 
-/// `cells`, each translated by (dx, dy) into the merged coordinate space —
-/// the same translation `translateEdge` applies to a child's polyline.
 fn translateCells(
     arena: std.mem.Allocator,
     cells: []const ledger.BundleCell,

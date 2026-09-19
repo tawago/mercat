@@ -1,8 +1,3 @@
-//! Unit tests for the labels_edge.zig three-pass ladder (the RELOCATION
-//! LAW's relocate-before-reroute plus the ISOLATION LAW's label-region
-//! isolation). Split out of
-//! labels_test.zig for the mermaid_v2 500-line cap.
-
 const std = @import("std");
 const sketch = @import("../sketch.zig");
 const lattice = @import("../lattice.zig");

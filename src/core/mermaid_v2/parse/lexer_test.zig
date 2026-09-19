@@ -1,6 +1,3 @@
-//! Tests for `lexer.zig`. Token-level checks: kinds, text, bracket
-//! fields, positional tokens, inline-label edges, and comment skipping.
-
 const std = @import("std");
 const lex = @import("lexer.zig");
 const th = @import("token_helpers.zig");
@@ -231,7 +228,6 @@ test "glued o/x on a complete run is an arrow end whatever follows" {
         src: []const u8,
         kind: TokenKind,
         to: ArrowEnd,
-        /// The node identifier the glued end points at.
         node: []const u8,
     };
     for ([_]Case{

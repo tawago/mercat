@@ -1,23 +1,3 @@
-//! Fixed-cell export layout: `Rendered` -> `ExportDocument`.
-//!
-//!
-//! This stage projects the semantic `Rendered` value onto a fixed monospace
-//! cell grid and resolves each span's color/decoration for the chosen color
-//! mode. It is backend-neutral: it produces the `types.ExportDocument` that the
-//! PNG (and future PDF) writer consumes, and never touches pixels itself.
-//!
-//! Each logical line is concatenated before the Unicode authority segments it.
-//! A grapheme crossing a span boundary is therefore one geometry unit. Its
-//! style is the style of the span containing the grapheme's first (base/leading)
-//! scalar; all remaining constituents inherit that style and never advance on
-//! their own. Tabs occupy the authority's four-column stops. Other controls
-//! and malformed UTF-8 are rejected before a document is returned.
-//!
-//! A `PositionedRun` is emitted for each contiguous source-span-owned sequence
-//! of graphemes. A span containing only non-owning constituents may therefore
-//! emit no run. An empty line still contributes exactly one row (§7.2), and a
-//! zero-line document is laid out as one padded background row (§7.4).
-
 const std = @import("std");
 
 const render_model = @import("../core/markdown/render/types.zig");
@@ -35,14 +15,9 @@ const ExportDocument = types.ExportDocument;
 
 pub const ColorMode = enum { theme, monochrome };
 
-/// Export options (§6.4). `.auto` theme MUST already be resolved into a
-/// concrete `theme.StyleMap` before this stage — the export backend cannot
-/// inspect terminal state.
 pub const Options = struct {
     palette: theme.StyleMap,
     color_mode: ColorMode,
-    /// When set (canvas=true theme with a concrete base_bg), the sheet uses this
-    /// as its page background instead of the luminance-derived black/white.
     canvas_bg: ?color.Color = null,
     font_pixel_height: u16 = 20,
     horizontal_padding_cells: u16 = 1,
@@ -50,22 +25,14 @@ pub const Options = struct {
 };
 
 pub const Error = std.mem.Allocator.Error || Geometry.PixelError || error{
-    /// A control scalar other than a permitted line boundary appeared in a
-    /// span (§7.2). Line breaks are structural (between `Line` values) and
-    /// never appear inside span text.
     InvalidControlScalar,
-    /// Span text was not valid UTF-8.
     InvalidUtf8,
-    /// A column index or count exceeded `u32`.
     ColumnOverflow,
 };
 
 const white: Color = .{ .r = 255, .g = 255, .b = 255 };
 const black: Color = .{ .r = 0, .g = 0, .b = 0 };
 
-/// Build a backend-neutral export document from an owned `Rendered` value and
-/// an initialized font face. The document owns copies of every string, so it
-/// may outlive `rendered`.
 pub fn build(
     allocator: std.mem.Allocator,
     rendered: render_model.Rendered,
@@ -135,8 +102,6 @@ fn appendLineRuns(
     line: render_model.Line,
     options: Options,
 ) Error!u32 {
-    // Segment the joined line so a grapheme may cross a span boundary; each
-    // run is then a contiguous slice of that text owned by one span.
     const text = try line.joinedText(allocator);
     defer allocator.free(text);
 
@@ -193,7 +158,6 @@ fn appendLineRuns(
     return std.math.cast(u32, graphemes.column) orelse return error.ColumnOverflow;
 }
 
-/// Advance the authority's iterator, naming its failures in export terms.
 pub fn nextGrapheme(iterator: *unicode.Iterator) Error!?unicode.GraphemeSlice {
     return iterator.next() catch |err| switch (err) {
         error.InvalidUtf8 => error.InvalidUtf8,
@@ -252,9 +216,6 @@ fn freeRuns(allocator: std.mem.Allocator, runs: *std.ArrayList(PositionedRun)) v
     runs.deinit(allocator);
 }
 
-/// Page background (§6.4). Monochrome is always white. In themed mode the
-/// terminal has no numbered page color, so it is chosen from the palette's body
-/// foreground luminance: light text implies a dark page, dark text a light one.
 fn pageBackground(options: Options) Color {
     if (options.color_mode == .monochrome) return white;
     if (options.canvas_bg) |bg| {
@@ -268,16 +229,11 @@ fn luminance(c: Color) u32 {
     return (@as(u32, c.r) * 299 + @as(u32, c.g) * 587 + @as(u32, c.b) * 114) / 1000;
 }
 
-/// The one committed, deterministic xterm-256 -> sRGB table (§6.4). The table
-/// itself lives in `core/theme/color.zig` so every backend shares one copy;
-/// this re-export adapts its `Srgb` result to the export `Color` type.
 pub fn xterm256ToSrgb(index: u8) Color {
     const s = color.xterm256ToSrgb(index);
     return .{ .r = s.r, .g = s.g, .b = s.b };
 }
 
-/// Resolve a theme `Color` union to an sRGB export color, or null for the
-/// terminal-default arm (which has no numbered value on the export path).
 fn srgbOf(c: color.Color) ?Color {
     const s = color.toSrgb(c) orelse return null;
     return .{ .r = s.r, .g = s.g, .b = s.b };

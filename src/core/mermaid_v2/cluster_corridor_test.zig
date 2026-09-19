@@ -1,47 +1,3 @@
-//! Cross-instrument pin for the per-column crossing discipline
-//! (`cluster/corridors.zig`), run against REAL renders: parse -> permits ->
-//! select -> rasterize -> read the side table.
-//!
-//! WHY THIS EXISTS. The discipline is decided at LAYOUT time, over rects and
-//! ports; what it is ABOUT is a painted fact — which border cell an edge
-//! meets — that only the raster knows, and files as an `.intrusion` record
-//! because the frame-solid ruling leaves the cell itself pristine. The
-//! cluster zone cannot import the raster (it is two stages downstream), so
-//! the two can only be held against each other here at the root, with an
-//! explicit lint-row grant for the crossing.
-//!
-//! The laws, stated over the records, in priority order:
-//!
-//!   * a port the discipline SLID keeps a clear approach run. Separating two
-//!     crossings by shifting one behind an intervening node box swallows the
-//!     stroke for that box's whole height and re-emerges as a second foot on
-//!     its far border — the reader sees an edge leaving a node that has
-//!     none. This outranks the next law: a merged pair of crossings LOSES an
-//!     edge, a pierced box INVENTS one, and invention is worse;
-//!
-//!   * no border cell carries crossings from two DIFFERENT corridors —
-//!     several edges converging on one port are one corridor and legally
-//!     share their cell, which is why the check is "share a port", not
-//!     "share a record". The exemption is a merge the geometry FORCED: when
-//!     no assignment of distinct cells keeps both approach runs out of the
-//!     node boxes, the merge stands. Targets stacked in one column are the
-//!     standing case — every column of the far one's face lies behind the
-//!     near one's box, so nothing can be separated there by sliding ports;
-//!
-//!   * no crossing sits on a frame CORNER cell.
-//!
-//! NOT pinned here, because the discipline's lever is a PORT slide and
-//! neither is reachable by one:
-//!   * that a MERGED corridor's own descent misses the boxes between it and
-//!     its port. It does not — a stacked pair's second stroke runs down
-//!     through the first target — and only an obstacle-aware reroute could
-//!     fix it;
-//!   * that two corridors RE-ROUTED by `bridges.verticalCorridor` meet a
-//!     border at different cells. Those meet it at their descent columns,
-//!     which no port slide chooses; `bridges.route` therefore withholds
-//!     their demands rather than de-centring arrow feet for nothing, and the
-//!     corpus's four-members-leaving-one-frame scene pins that it does.
-
 const std = @import("std");
 const lattice = @import("lattice.zig");
 const sketch = @import("sketch.zig");
@@ -53,9 +9,6 @@ const corridors = @import("cluster/corridors.zig");
 
 const testing = std.testing;
 
-/// Cluster scenes built to crowd one frame side: several edges entering a
-/// subgraph from the same direction, edges aimed near a frame corner, and
-/// crossings through a title row whose text spans the crossing column.
 const corpus = [_][]const u8{
     "flowchart TD\n  P[Producer]\n  Q[Queue]\n  subgraph S[\"Processing Stage\"]\n    X[Worker A] --> Y[Worker B]\n    Z[Worker C]\n  end\n  P --> X\n  Q --> Z\n  Y --> R[Result]\n",
     "flowchart TD\n  A[Alpha]\n  B[Beta]\n  C[Gamma]\n  subgraph S[\"Core\"]\n    X1[One]\n    X2[Two]\n    X3[Three]\n  end\n  A --> X1\n  B --> X2\n  C --> X3\n",
@@ -72,14 +25,10 @@ const corpus = [_][]const u8{
 
 const widths = [_]u32{ 24, 30, 40, 60, 80, 120 };
 
-/// Every `.intrusion` record, decorated with what the grid says about the
-/// cell it names.
 const Crossing = struct {
     cell: u32,
     edge: u32,
     corner: bool,
-    /// Which frame side the cell sits on, or null when the cell is no longer
-    /// a plain border cell.
     side: ?sketch.Dir4,
     x: i32,
     y: i32,
@@ -102,8 +51,6 @@ fn sideOf(role: lattice.BorderRole) ?sketch.Dir4 {
     };
 }
 
-/// The drawn frame whose `side` border owns cell (x, y). Synthetic frames
-/// paint nothing, so a border cell is never theirs.
 fn frameOn(clusters: []const sketch.ClusterFrame, side: sketch.Dir4, x: i32, y: i32) ?sketch.Rect {
     for (clusters) |c| {
         if (c.synthetic) continue;
@@ -119,8 +66,6 @@ fn frameOn(clusters: []const sketch.ClusterFrame, side: sketch.Dir4, x: i32, y: 
     return null;
 }
 
-/// The port `edge` presents to a frame side: the end whose node face is on
-/// `side` and whose box sits inside `frame`.
 const Approach = struct { rect: sketch.Rect, node: sketch.NodeId, peer: sketch.NodeId };
 
 fn approachOf(s: sketch.Sketch, edge_id: u32, side: sketch.Dir4, frame: sketch.Rect) ?Approach {
@@ -138,11 +83,6 @@ fn approachOf(s: sketch.Sketch, edge_id: u32, side: sketch.Dir4, frame: sketch.R
     return null;
 }
 
-/// Every coordinate on `c`'s own node face that this crossing could legally
-/// meet its frame at: off the frame's corners, and with an approach run
-/// (border cell to port) that clears every other node box. Written into
-/// `buf`; a face longer than the buffer is truncated, which can only make
-/// the caller more permissive, never falsely strict.
 fn clearColumns(s: sketch.Sketch, c: Crossing, buf: []i32) []i32 {
     const side = c.side orelse return buf[0..0];
     const frame = frameOn(s.clusters, side, c.x, c.y) orelse return buf[0..0];
@@ -162,14 +102,6 @@ fn clearColumns(s: sketch.Sketch, c: Crossing, buf: []i32) []i32 {
     return buf[0..n];
 }
 
-/// True iff the two crossings could have been given DIFFERENT border cells
-/// without either stroke being driven through a node box.
-///
-/// The question is about the pair, not about one end: freeing a cell by
-/// moving `c` only helps if `d` has somewhere clear to be. Stacked targets
-/// are the standing counter-example — every column of the far one's face
-/// lies behind the near one's box, so no assignment separates them and the
-/// merge is forced.
 fn pairSeparable(s: sketch.Sketch, c: Crossing, d: Crossing) bool {
     var bc: [64]i32 = undefined;
     var bd: [64]i32 = undefined;
@@ -179,7 +111,6 @@ fn pairSeparable(s: sketch.Sketch, c: Crossing, d: Crossing) bool {
     return !(cc.len == 1 and dd.len == 1 and cc[0] == dd[0]);
 }
 
-/// True iff `c`'s port was SLID off its centred offset by the discipline.
 fn wasSlid(s: sketch.Sketch, c: Crossing) bool {
     const side = c.side orelse return false;
     const e = pathById(s.edges, c.edge) orelse return false;
@@ -193,9 +124,6 @@ fn wasSlid(s: sketch.Sketch, c: Crossing) bool {
     return false;
 }
 
-/// True iff the two edges meet at a common port — the same node face at the
-/// same offset. That is exactly what "one corridor, several riders" means
-/// geometrically: the strokes are already fused before they reach the frame.
 fn sharePort(edges: []const sketch.EdgePath, a: u32, b: u32) bool {
     const ea = pathById(edges, a) orelse return false;
     const eb = pathById(edges, b) orelse return false;

@@ -1,34 +1,15 @@
-//! SemGraph: post-syntax, pre-geometry IR for mermaid v2 flowcharts.
-//! Produced by the parser, consumed by layout. Holds meaning only —
-//! nodes, edges, clusters, direction, class definitions — no
-//! coordinates, glyphs, or render options.
-//!
-//! Ownership: all slices are caller-owned; if `arena` is set, `deinit`
-//! frees everything transitively via the arena, otherwise the caller
-//! frees storage. Imports `std` and `prim` only (pure data module).
-
 const std = @import("std");
 const prim = @import("prim");
 
-/// Stable handle for a node within a SemGraph.
 pub const NodeId = prim.NodeId;
-/// Stable handle for an edge within a SemGraph.
 pub const EdgeId = prim.EdgeId;
-/// Stable handle for a cluster (subgraph) within a SemGraph.
 pub const ClusterId = prim.ClusterId;
-/// Stable handle for a class definition within a SemGraph.
 pub const ClassId = u32;
 
-/// Sentinel value meaning "absent" for raw u32 id fields.
 pub const SENTINEL: u32 = std.math.maxInt(u32);
 
-/// Flowchart layout direction declared by the source.
 pub const Direction = prim.Direction;
 
-/// All flowchart node shapes mermaid supports. This is the *parse-level*
-/// shape set (15 variants). Layout maps it to `prim.Shape` (12 variants)
-/// by collapsing `double_circle → circle`, `parallelogram_alt →
-/// parallelogram`, and `trapezoid_alt → trapezoid`.
 pub const NodeShape = enum {
     rect,
     round,
@@ -47,29 +28,19 @@ pub const NodeShape = enum {
     trapezoid_alt,
 };
 
-/// Stroke style for an edge.
 pub const EdgeKind = prim.EdgeKind;
 
-/// Arrowhead glyph at one end of an edge. The same enum the geometric IRs
-/// carry, so end predicates (`prim.directional`, `prim.blocks`) apply to a
-/// semantic edge without translation.
 pub const ArrowEnd = prim.ArrowKind;
 
-/// A semantic node — an identifier, label, shape, and class membership.
 pub const Node = struct {
     id: NodeId,
-    /// User-given identifier like "A".
     raw_id: []const u8,
-    /// Displayed text (equals raw_id when no label was supplied).
     label: []const u8,
     shape: NodeShape,
-    /// Class ids attached via `:::` or `class` statements. Empty if none.
     classes: []const ClassId,
-    /// Containing cluster, or null if top-level.
     cluster: ?ClusterId,
 };
 
-/// A semantic edge between two nodes.
 pub const Edge = struct {
     id: EdgeId,
     from: NodeId,
@@ -77,41 +48,15 @@ pub const Edge = struct {
     kind: EdgeKind,
     arrow_from: ArrowEnd,
     arrow_to: ArrowEnd,
-    /// Optional edge label text.
     label: ?[]const u8,
-    /// Directedness class of the ink this edge stands for. An ordinary edge
-    /// stands only for itself and stays `.arrow_free` here; its own arrow
-    /// fields answer the predicates below. A cross-border PLACEMENT edge
-    /// (cluster/split.zig) is never painted — `stitch` drops every edge
-    /// touching a super-node and `bridges` routes the real crossings instead
-    /// — so it deliberately carries no arrowheads of its own: giving it any
-    /// would perturb the outer layout it exists to drive. But the ink that
-    /// eventually lands for it IS the crossings', and this field carries
-    /// their directedness class so `arrowFree` and `forwardOneWayHead`
-    /// answer for that ink, not for the proxy's bare ends.
     /// @guarded-by: cluster/split_test.zig "a placement edge records the directedness of the crossings it stands for"
     stands_for: StandsFor = .arrow_free,
-    /// How many crossings a placement edge stands for (cluster/split.zig
-    /// folds every crossing of one outer pair into one placement edge);
-    /// 0 for an edge that is its own ink. Two or more crossings into one
-    /// plain node end on one port, so at most one of their bridges is
-    /// straight: the row ledger claims the jog row for the rest.
     crossings: u32 = 0,
-    /// Root-graph EdgeId this edge descends from, chained through nested cuts
-    /// (cluster/split.zig). SENTINEL when the edge was born in this graph:
-    /// parse-built edges (their own `id` is the root id) and synthetic
-    /// placement edges (no root counterpart).
     origin: EdgeId = SENTINEL,
 };
 
-/// Directedness class of the ink a placement edge stands for, folded over
-/// every crossing behind it (one placement edge may proxy several crossings
-/// of one outer pair). Lives in prim so licence-tier member types
-/// (base/rail_star.zig) can carry it too.
 pub const StandsFor = prim.StandsFor;
 
-/// The class of one crossing's own ends, for folding into a placement
-/// edge's `stands_for` (cluster/split.zig).
 pub fn standsForClass(arrow_from: ArrowEnd, arrow_to: ArrowEnd) StandsFor {
     if (!prim.directional(arrow_from) and !prim.directional(arrow_to)) return .arrow_free;
     if (prim.directional(arrow_to) and !prim.directional(arrow_from)) return .forward_one_way;
@@ -119,90 +64,50 @@ pub fn standsForClass(arrow_from: ArrowEnd, arrow_to: ArrowEnd) StandsFor {
     return .directed;
 }
 
-/// Fold a further crossing's class into a placement edge that already
-/// stands for this outer pair. Agreement keeps the class; any mix folds to
-/// `.directed` — the combined ink is not uniformly one-way in one direction
-/// (forward+backward, for instance, lands heads at both ends of the pair).
 pub fn mergeStandsFor(a: StandsFor, b: StandsFor) StandsFor {
     return if (a == b) a else .directed;
 }
 
-/// True iff NO end of the ink this edge stands for is directional — the closure licence's
-/// ELIGIBILITY question (blocking unsatisfiable). Circle/cross ends are
-/// decoration, not directional, and do not count here. A placement edge
-/// answers for the crossings it proxies, not for its own (always bare)
-/// arrow fields. The closure licence's member/backer gate is the stricter
-/// `undecorated` below.
 pub fn arrowFree(e: Edge) bool {
     return prim.memberArrowFree(e.arrow_from, e.arrow_to, e.stands_for);
 }
 
-/// True iff this edge's rendering carries NO end decoration at all: both
-/// declared ends bare and no proxied ink class. Stricter than `arrowFree` —
-/// circle/cross ends are non-directional yet still decoration, and a rail
-/// discharge must neither erase nor fabricate them (trace fidelity). This, not
-/// `arrowFree`, gates rail-closure members and backers.
 pub fn undecorated(e: Edge) bool {
     return e.arrow_from == .none and e.arrow_to == .none and e.stands_for == .arrow_free;
 }
 
-/// True iff this edge carries its ONE-WAY head at the declared TARGET end
-/// and nothing directional at the source — the member shape a two-sided
-/// fusion may admit: every leaf-to-leaf trace over the fused rail then runs
-/// against a head on the union's one arrow side. A head at the SOURCE end
-/// blocks a trace too, but in the direction a fused rail would read
-/// backwards, so it does not qualify. `circle`/`cross` are
-/// direction-invariant and a head at BOTH ends points the trace along.
-/// A placement edge answers with the folded class of the crossings it
-/// stands for: only a uniformly forward-one-way set qualifies.
 /// @guarded-by: fan_lanes_test2.zig "a two-sided group whose heads are direction-invariant still separates"
 pub fn forwardOneWayHead(e: Edge) bool {
     if (e.stands_for != .arrow_free) return e.stands_for == .forward_one_way;
     return prim.directional(e.arrow_to) and !prim.directional(e.arrow_from);
 }
 
-/// A subgraph grouping. Members are direct only; nested groups go in `sub_clusters`.
 pub const Cluster = struct {
     id: ClusterId,
     raw_id: []const u8,
     label: []const u8,
     parent: ?ClusterId,
-    /// Direct member nodes (not transitive through sub_clusters).
     members: []const NodeId,
     sub_clusters: []const ClusterId,
-    /// Layout direction declared by an in-body `direction` line, or null
-    /// to inherit from the parent cluster / top-level graph.
     direction: ?Direction = null,
-    /// True for a layout-synthesized packing cluster (motif/pack.zig):
-    /// pure grouping chrome-free containment — zero frame pad everywhere,
-    /// no drawn border, no label. Never set by the parser.
     synthetic: bool = false,
 };
 
-/// A `classDef` statement: a named bag of raw mermaid style declarations.
 pub const ClassDef = struct {
     id: ClassId,
     name: []const u8,
-    /// Raw mermaid style string; layout/paint may inspect to extract css-like props.
     style: []const u8,
 };
 
-/// The semantic graph. This is what the parser returns and layout consumes.
 pub const SemGraph = struct {
     direction: Direction,
     nodes: []const Node,
     edges: []const Edge,
     clusters: []const Cluster,
     classes: []const ClassDef,
-    /// Number of source lines the parser dropped via line-level recovery
-    /// (unparseable non-edge statements). Zero for a clean parse. Known
-    /// directives (`click`, `style`, ...) are consumed silently and do
-    /// NOT count here.
     skipped_lines: u32 = 0,
-    /// Optional owning arena. If set, deinit() frees all SemGraph storage.
     arena: ?*std.heap.ArenaAllocator,
 
-    /// Free all storage if this SemGraph owns an arena; otherwise just invalidate.
     pub fn deinit(self: *SemGraph, allocator: std.mem.Allocator) void {
         if (self.arena) |a| {
             a.deinit();

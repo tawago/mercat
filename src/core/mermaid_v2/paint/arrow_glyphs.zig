@@ -1,29 +1,9 @@
-//! Arrowhead glyph table keyed by (ArrowKind, Dir4).
-//!
-//! Every declared head style paints its own glyph instead of collapsing to
-//! the filled triangles, so `-->`, `--o` and `--x` stay distinguishable in
-//! the painted grid:
-//!   * filled → ▲ ▶ ▼ ◀ (the historical direction-only set, unchanged)
-//!   * open   → △ ▷ ▽ ◁
-//!   * circle → ○ (direction-invariant)
-//!   * cross  → ✕ (U+2715; direction-invariant)
-//!
-//! PIN — forbidden codepoints: U+2716 (✖) and U+2A2F (⨯) map to glyph 0 in
-//! the pinned embedded export font and must never appear here. The cross is
-//! U+2715 only. // @guarded-by: arrow_glyphs.zig "arrow table never contains the tofu crosses U+2716/U+2A2F"
-//!
-//! All glyphs are display-width 1 (East-Asian narrow/neutral), so swapping
-//! a head glyph can never change a row's column count.
-//!
-//! Imports only `std`, `prim`, and the lattice types module.
+//! @guarded-by: arrow_glyphs.zig "arrow table never contains the tofu crosses U+2716/U+2A2F"
 
 const std = @import("std");
 const prim = @import("prim");
 const lattice = @import("../lattice.zig");
 
-/// Glyph for one arrowhead cell. `.none` never reaches an arrowhead cell:
-/// the raster stage writes arrowheads only behind `arrow != .none` guards
-/// (raster/edges.zig, raster/rails.zig).
 pub fn glyphFor(kind: lattice.ArrowKind, dir: lattice.Dir4) u21 {
     return switch (kind) {
         .none => unreachable,

@@ -1,7 +1,3 @@
-//! Tests for base/rail_closure.zig — the all-arrow-free shared-rail closure
-//! licence. Aggregated from entry.zig's test block (base/ files keep their empty
-//! import allowlist).
-
 const std = @import("std");
 const testing = std.testing;
 const rc = @import("rail_closure.zig");
@@ -17,8 +13,6 @@ fn directedMember(edge: u32, leaf: u32) rc.Member {
     return .{ .edge = edge, .leaf = leaf, .kind = solid, .arrow_free = false, .undecorated = false };
 }
 
-/// Circle/cross-decorated: no directional end (eligible), yet decorated
-/// (never discharge-qualified).
 fn decoratedMember(edge: u32, leaf: u32) rc.Member {
     return .{ .edge = edge, .leaf = leaf, .kind = solid, .arrow_free = true, .undecorated = false };
 }

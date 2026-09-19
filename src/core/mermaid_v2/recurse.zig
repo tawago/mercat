@@ -1,13 +1,3 @@
-//! Cluster cut-layout-stitch recursion: cuts top-level subgraphs
-//! (`cluster/split.zig`), recursively lays out each child, sizes each
-//! super-node to its child's bbox, lays out the outer via `layout/`, then
-//! stitches pieces back (`cluster/stitch.zig`). Lives at the mermaid_v2 root
-//! (not under `cluster/`) since it needs both `cluster/`- and `layout/`-zone
-//! import privileges to run layout; only `budget.zig` shares that pairing.
-//!
-//! Allowed imports (`is_recurse` zone in `tools/lint_imports.zig`): `std`,
-//! `prim`, `sem_graph.zig`, `sketch.zig`, `layout.zig` + `layout/*`, `cluster/*`.
-
 const std = @import("std");
 const prim = @import("prim");
 const sketch = @import("sketch.zig");
@@ -16,25 +6,8 @@ const coords = @import("layout.zig");
 const cluster_split = @import("cluster/split.zig");
 const cluster_stitch = @import("cluster/stitch.zig");
 
-/// Explicit error set for the cluster recursion. Required because
-/// `layoutClustered`/`layoutChild` are mutually recursive: Zig cannot resolve
-/// an inferred error set through a recursion cycle. Union of the errors raised
-/// by `coords.layout` (`CoordsError`), `cluster_split.split` (`OutOfMemory`),
-/// and `cluster_stitch.stitch` (`StitchError`).
 pub const RecurseError = coords.CoordsError || cluster_stitch.StitchError;
 
-/// Cut the graph into pieces, lay out each piece with the flat `layout/`
-/// path, then glue the finished Sketches into one. This is the only place
-/// (besides `budget.zig`, which calls in here) allowed to import BOTH
-/// `cluster/` (the cut/glue) and `layout/` (the running) — `cluster/` is pure
-/// data work and never runs layout itself.
-///
-/// For a flat flowchart this is exactly the former single `coords.layout`
-/// call: one piece in, one Sketch out, returned unchanged by `stitch`.
-/// `opts` carries the original graph's BundlePermits (with its own scope)
-/// unchanged through every recursive piece; recursion never re-derives it.
-/// A cluster-free piece builds and realizes its OWN piece plan inside
-/// `bundle_commit.buildReported` — the root plan's scope only tells it to.
 /// @guarded-by: entry.zig "V-D-IR-07: a clustered graph's bundles ride piece plans; the root plan stays skipped"
 pub fn layoutPieces(
     arena: std.mem.Allocator,
@@ -44,13 +17,6 @@ pub fn layoutPieces(
     return (try layoutClustered(arena, graph, opts, .{})).sketch;
 }
 
-/// Recursively lay out a (possibly clustered, possibly nested) flowchart:
-/// cut the top-level subgraphs, lay each child out the same way (so a child
-/// containing sub-subgraphs recurses), size each super-node to its child's
-/// finished bbox, lay out the outer flowchart, then stitch. Returns the merged
-/// Sketch plus the merged→input id map the parent level needs. `arrivals` are
-/// the decorated ends the cut above recorded into `graph` (empty at the root);
-/// each child inherits the ones aimed at its own subtree.
 /// @guarded-by: recurse_test.zig "an arrival inherited through every nesting level clears the innermost frame"
 pub fn layoutClustered(
     arena: std.mem.Allocator,
@@ -66,12 +32,10 @@ pub fn layoutClustered(
         const s = try coords.layout(arena, sr.pieces[0].graph, flat_opts);
         return .{ .sketch = s, .input_of = try identityMap(arena, s.nodes) };
     }
-    // The outer piece keeps the inherited departures of its free nodes; a
-    // child's are handed down with its arrivals.
     var outer_opts = opts;
     outer_opts.departures = try departingNodes(arena, inherited.departures, sr.pieces[0].orig_ids);
 
-    // Bottom-up: lay out each child first (recursing for nested ones). Each child gets a shrunk width sub-budget per nesting level; deeper nests shrink again via a saturating subtract. @guarded-by: recurse_test.zig "nested cluster: width sub-budget shrinks once per nesting level (saturating)"
+    // @guarded-by: recurse_test.zig "nested cluster: width sub-budget shrinks once per nesting level (saturating)"
     const choices = try arena.alloc(ChildChoice, sr.pieces.len);
     var any_flip = false;
     for (sr.pieces[1..], 1..) |piece, i| {
@@ -81,7 +45,7 @@ pub fn layoutClustered(
         if (choices[i].flipped != null) any_flip = true;
     }
 
-    // Outer stitch with the DECLARED child sizes — always computed, never widened past, even when any_flip is true. @guarded-by: recurse_test.zig "declared baseline is always computed and never exceeded when a child flips"
+    // @guarded-by: recurse_test.zig "declared baseline is always computed and never exceeded when a child flips"
     const declared_children = try arena.alloc(cluster_stitch.Clustered, sr.pieces.len);
     for (choices[1..], 1..) |c, i| declared_children[i] = c.declared;
     const declared_out = try stitchOuter(arena, sr, outer_opts, declared_children);
@@ -96,11 +60,6 @@ pub fn layoutClustered(
     return declared_out;
 }
 
-/// Size every super-node to its (chosen) child's bbox + frame padding, lay out
-/// the outer flowchart with those fixed sizes so the boxes get real room, then
-/// stitch the children into it. Factored out so `layoutClustered` can run it
-/// twice — once with all-declared children, once with greedy-flipped — to pick
-/// the globally narrower result (the overall-width non-regression guard).
 pub fn stitchOuter(
     arena: std.mem.Allocator,
     sr: cluster_split.SplitResult,
@@ -121,10 +80,6 @@ pub fn stitchOuter(
     return cluster_stitch.stitch(arena, sr, outer, children, opts.spacing_scale, authored_cluster_run, opts.bridge_build);
 }
 
-/// Horizontal frame chrome the child piece at `piece_idx` sits inside: zero
-/// for a synthetic packing cluster (its frame is invisible), the full
-/// `prim.frameOverheadX` for a real one. Same lockstep-scale rule as every
-/// other frame-pad site.
 pub fn pieceFrameOverheadX(sr: cluster_split.SplitResult, piece_idx: usize, scale: u32) u32 {
     for (sr.supers) |s| {
         if (s.child_piece == piece_idx) {
@@ -134,41 +89,11 @@ pub fn pieceFrameOverheadX(sr: cluster_split.SplitResult, piece_idx: usize, scal
     return prim.frameOverheadX(scale);
 }
 
-/// A child laid out in (at most) two ways: its `declared` orientation, always;
-/// and a `flipped` 90°-rotated candidate, present only when the declared form
-/// overflowed its width sub-budget AND the rotation was strictly narrower and
-/// fit. `layoutClustered` decides which to commit by OVERALL stitched width.
 const ChildChoice = struct {
     declared: cluster_stitch.Clustered,
     flipped: ?cluster_stitch.Clustered,
 };
 
-/// Lay out one child subgraph under its own width sub-budget, producing a
-/// `ChildChoice`: the DECLARED orientation always, plus a `flipped` candidate
-/// when the declared form overflows AND a 90°-rotation is strictly narrower and
-/// fits:
-///
-///   1. Lay out the child in its DECLARED direction (recursing as normal).
-///   2. If it already fits its sub-budget (`bbox.w <= child_opts.max_width`),
-///      there is NO flip candidate — authored intent is kept wherever it fits.
-///   3. Otherwise lay out a rotated copy (TD↔LR, BT↔RL via
-///      `prim.rotatedDirection`) on a struct COPY of the child `SemGraph`
-///      (never mutating the split's shared arena data). Offer it as the
-///      `flipped` candidate only if it is STRICTLY NARROWER than declared AND
-///      actually fits the sub-budget declared overflowed. A rotation that does
-///      not reduce width is never offered (per-child never-widen invariant).
-///
-/// IMPORTANT — the flip is only a CANDIDATE here, not a commitment. The caller
-/// (`layoutClustered`) decides whether to take it by OVERALL stitched width, so
-/// a child that fits its sub-budget compactly when declared yet would balloon
-/// the outer flow if flipped is never chosen. This file therefore never widens
-/// the child; the caller never widens the whole diagram.
-///
-/// RECURSION BOUND: at most 2 layout passes per child (declared + at most one
-/// rotated). No feedback to the outer rung ladder; locally bounded and
-/// deterministic (same input + same `max_width` ⇒ same output). Per-child flip
-/// composes with the top-level `switch_direction` rung but is independent of
-/// it — an inner flip can fire on the `natural` rung.
 pub fn layoutChild(
     arena: std.mem.Allocator,
     graph: sem_graph.SemGraph,
@@ -184,7 +109,7 @@ pub fn layoutChild(
     rotated_graph.direction = prim.rotatedDirection(graph.direction);
     const rotated = try layoutClustered(arena, rotated_graph, child_opts, inherited);
 
-    // Offer the rotation as a candidate only when it earns its keep — strictly narrower than declared (never-widen) AND fits the sub-budget declared overflowed; a rotation that reduces overflow without fully fitting is rejected. @guarded-by: recurse_test.zig "rotation that reduces but does not eliminate overflow is rejected (validator cross-check)"
+    // @guarded-by: recurse_test.zig "rotation that reduces but does not eliminate overflow is rejected (validator cross-check)"
     if (rotated.sketch.bbox.w < declared.sketch.bbox.w and
         rotated.sketch.bbox.w <= child_opts.max_width)
     {
@@ -193,9 +118,6 @@ pub fn layoutChild(
     return .{ .declared = declared, .flipped = null };
 }
 
-/// The nodes of a piece a cross-border edge departs: every inherited
-/// departure when the piece is the graph itself (`orig_ids` null), else
-/// those whose source is one of the piece's free nodes, re-id'd.
 fn departingNodes(arena: std.mem.Allocator, departures: []const cluster_split.Departure, orig_ids: ?[]const sem_graph.NodeId) RecurseError![]const sem_graph.NodeId {
     var out: std.ArrayListUnmanaged(sem_graph.NodeId) = .empty;
     for (departures) |d| {
@@ -206,8 +128,6 @@ fn departingNodes(arena: std.mem.Allocator, departures: []const cluster_split.De
     return out.toOwnedSlice(arena);
 }
 
-/// `input_of[id] = id` over the laid-out node ids — a flat `layout()` keeps the
-/// graph's node ids as its Sketch node ids.
 fn identityMap(arena: std.mem.Allocator, nodes: []const sketch.NodePlacement) RecurseError![]sketch.NodeId {
     var max: sketch.NodeId = 0;
     for (nodes) |n| {
@@ -219,9 +139,6 @@ fn identityMap(arena: std.mem.Allocator, nodes: []const sketch.NodePlacement) Re
     return m;
 }
 
-/// Find the inner subgraph's recorded direction in a stitched Sketch by its
-/// (single) ClusterFrame. The frame carries `child.sketch.direction`, i.e. the
-/// orientation the child was actually laid out in after the per-child flip.
 fn innerClusterDirection(s: sketch.Sketch) ?sem_graph.Direction {
     for (s.clusters) |cf| {
         if (cf.parent_id == null) return cf.direction;

@@ -39,8 +39,6 @@ pub const Viewport = struct {
         return @min(self.top + self.height, self.total);
     }
 
-    /// Document line index shown at visible `row` (0-based from the top of the
-    /// viewport), clamped to the last visible row and the content bounds.
     pub fn lineForRow(self: Viewport, row: usize) usize {
         const clamped_row = if (self.height > 0) @min(row, self.height - 1) else row;
         if (self.total == 0) return 0;

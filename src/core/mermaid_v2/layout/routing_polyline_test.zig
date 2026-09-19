@@ -1,16 +1,3 @@
-//! Tests for routing_polyline.zig. Discovered via `test { _ = @import }`.
-//!
-//! These promote comment claims about `routePolyline`'s terminal-segment
-//! geometry into machine checks. The painter maps an arrowhead's glyph
-//! purely from the direction of the polyline's FINAL segment (north→▲,
-//! east→▶, south→▼, west→◀ — see `paint.zig`'s `arrowGlyph` and its own
-//! "arrowhead glyphs for all four directions" test). So the invariant that
-//! actually prevents a sideways/degenerate arrowhead is: the last two
-//! points of the returned polyline differ on exactly one axis, in the
-//! direction the comment promises, by a non-zero amount. These tests
-//! assert that directly against the real `routePolyline` output — not a
-//! re-implementation of it — using minimal hand-built geometry.
-
 const std = @import("std");
 const sketch = @import("../sketch.zig");
 const rp = @import("routing_polyline.zig");
@@ -22,10 +9,6 @@ fn mkPlacement(id: sketch.NodeId, rect: sketch.Rect) sketch.NodePlacement {
 
 const Geom = struct { x: i32, y: i32, w: u32, h: u32 };
 
-/// Assert the final segment of `poly` is a non-degenerate vertical run
-/// (same x, y differing) and that it moves in `expect_down`'s direction
-/// (true = south/downward, false = north/upward) — the geometry the
-/// painter reads as a clean ▼/▲ rather than a sideways glyph.
 fn expectCleanVerticalFinalApproach(poly: []const sketch.Point, expect_down: bool) !void {
     try testing.expect(poly.len >= 2);
     const last = poly[poly.len - 1];
@@ -39,7 +22,6 @@ fn expectCleanVerticalFinalApproach(poly: []const sketch.Point, expect_down: boo
     }
 }
 
-/// Horizontal analogue of `expectCleanVerticalFinalApproach` (clean ▶/◀).
 fn expectCleanHorizontalFinalApproach(poly: []const sketch.Point, expect_right: bool) !void {
     try testing.expect(poly.len >= 2);
     const last = poly[poly.len - 1];
@@ -77,8 +59,8 @@ test "TD skip-corridor final descent is a clean vertical approach (guards ▼)" 
         0,
         0,
         .{},
-            .{},
-        );
+        .{},
+    );
     try expectCleanVerticalFinalApproach(poly, true);
 }
 
@@ -106,8 +88,8 @@ test "LR skip-corridor final approach is a clean horizontal approach (guards ▶
         0,
         0,
         .{},
-            .{},
-        );
+        .{},
+    );
     try expectCleanHorizontalFinalApproach(poly, true);
 }
 
@@ -304,8 +286,6 @@ test "the jog never lands on the source wall (span-2 gap and lane escalation cla
     }
 }
 
-/// True iff the vertical/horizontal segment prev->end passes through the
-/// strict open interior of `r` (the validator-mirror intrusion predicates).
 fn finalLegIntrudes(prev: sketch.Point, end: sketch.Point, r: sketch.Rect) bool {
     if (prev.x == end.x) return rp.columnIntrudesRect(prev.x, @min(prev.y, end.y), @max(prev.y, end.y), r);
     return rp.rowIntrudesRect(prev.y, @min(prev.x, end.x), @max(prev.x, end.x), r);
@@ -376,15 +356,11 @@ test "ensureBaseStub accept-fallback: no room to shift leaves the polyline untou
 }
 
 test "the jog never lands inside a decorated terminal cell" {
-    // A decorated arrival keeps the jog two cells from the target wall.
     try testing.expectEqual(@as(i32, 2), rp.jogPad(1, 5, .{ .to = true }));
     try testing.expectEqual(@as(i32, 2), rp.jogPad(2, 5, .{ .to = true }));
-    // A decorated source keeps it two cells from the source wall.
     try testing.expectEqual(@as(i32, 3), rp.jogPad(10, 5, .{ .from = true }));
     try testing.expectEqual(@as(i32, 4), rp.jogPad(10, 5, .{}));
-    // Both ends in the smallest gap that holds them.
     try testing.expectEqual(@as(i32, 2), rp.jogPad(5, 4, .{ .from = true, .to = true }));
-    // A gap too tight for both keeps the pre-rule clamp; the gate degrades the route.
     try testing.expectEqual(@as(i32, 2), rp.jogPad(2, 3, .{ .from = true, .to = true }));
 
     var arena = std.heap.ArenaAllocator.init(testing.allocator);
@@ -430,7 +406,6 @@ test "the skip corridor enters on its entry lane above the intermediate layer an
     try testing.expectEqual(@as(i32, 7), lane1[1].y);
     const lane3 = try rp.routePolyline(a, .TD, from_p, to_p, from, to, &virtuals, geom[0..], &placements, 0, 0, .{ .entry = 3, .exit = 3 }, .{});
     try testing.expectEqual(@as(i32, 5), lane3[1].y);
-    // The floor: a plain source may enter on its departure row, a decorated one not.
     const over = try rp.routePolyline(a, .TD, from_p, to_p, from, to, &virtuals, geom[0..], &placements, 0, 0, .{ .entry = 9, .exit = 9 }, .{});
     try testing.expectEqual(@as(i32, 3), over[1].y);
     const over_decorated = try rp.routePolyline(a, .TD, from_p, to_p, from, to, &virtuals, geom[0..], &placements, 0, 0, .{ .entry = 9, .exit = 9 }, .{ .from = true });
@@ -459,8 +434,6 @@ test "a one-layer route runs the corridor beside a box in its way instead of thr
     var arena = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
-    // Source rows 0..2 and target rows 20..22 share columns 0..7; a foreign
-    // box sits between them on the same columns, where a plain jog would run.
     const from_p = mkPlacement(0, .{ .x = 0, .y = 0, .w = 8, .h = 3 });
     const to_p = mkPlacement(1, .{ .x = 0, .y = 20, .w = 8, .h = 3 });
     const blocker = mkPlacement(2, .{ .x = 0, .y = 10, .w = 8, .h = 3 });

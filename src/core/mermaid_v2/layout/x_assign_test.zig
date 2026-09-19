@@ -1,8 +1,3 @@
-//! Unit tests for `x_assign.zig`: `centerLayer`'s fan-IN centroid override,
-//! the min_cursor packing-drift/correction pair, the clustered+labeled-fork
-//! skip gate, `flushLeftRows`'s bbox-never-widens invariant, and
-//! `centerRunOnDesired`'s real-nodes-only averaging + width clamp.
-
 const std = @import("std");
 const sg = @import("../sem_graph.zig");
 const sugiyama = @import("sugiyama.zig");

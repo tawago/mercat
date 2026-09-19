@@ -1,9 +1,3 @@
-//! motif/motif_test.zig — unit tests for the MotifTree decomposition.
-//!
-//! Hand-built SemGraphs only (no parser dependency — the motif zone may
-//! not import parse/). Each test pins one classification rule from
-//! motif/classify.zig; the partition test pins the global invariant.
-
 const std = @import("std");
 const sg = @import("../sem_graph.zig");
 const motif = @import("../motif.zig");
@@ -57,7 +51,6 @@ fn countKind(tree: motif.MotifTree, kind: motif.MotifKind) usize {
     return n;
 }
 
-/// Assert every graph node id appears in exactly one motif's members.
 fn expectPartition(tree: motif.MotifTree, graph: sg.SemGraph) !void {
     for (graph.nodes) |n| {
         var owners: usize = 0;

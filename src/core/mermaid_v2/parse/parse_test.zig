@@ -1,6 +1,3 @@
-//! Tests for parse.zig. Split out of parse.zig to keep the parser under
-//! the 500-line cap. Discovered by parse.zig via a `test { _ = @import }`.
-
 const std = @import("std");
 const parser = @import("../parse.zig");
 const sg = @import("../sem_graph.zig");
@@ -15,7 +12,6 @@ const ClusterId = sg.ClusterId;
 
 const t = std.testing;
 
-/// Look up a node by raw_id (linear scan over fixture-sized graphs).
 fn findNode(g: sg.SemGraph, raw_id: []const u8) ?NodeId {
     for (g.nodes) |n| {
         if (std.mem.eql(u8, n.raw_id, raw_id)) return n.id;

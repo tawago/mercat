@@ -1,17 +1,3 @@
-//! Unit tests for THE CORNER-CELL WRITER in `edges.zig`: the mask a turn
-//! deposits at the point where the polyline bends, and what that mask does
-//! to whatever the cell already carries.
-//!
-//! The walk skips `b` on every segment, so the corner cell is written once
-//! per turn and never as a straight cell — which is what lets a turn onto a
-//! SHARED rail stay `┴` instead of welding a phantom fourth arm. The same
-//! rule is why ink already on the cell can only have come from somebody
-//! else's run, or from an EARLIER visit of this edge's own route, and both
-//! survive the turn.
-//!
-//! Split from `edges_test.zig`, at the 500-line cap. Imports: `std`,
-//! `sketch.zig`, `lattice.zig`, `edges.zig`, `base/ledger.zig`.
-
 const std = @import("std");
 const sketch = @import("../sketch.zig");
 const lattice = @import("../lattice.zig");

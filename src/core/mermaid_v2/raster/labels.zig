@@ -1,18 +1,3 @@
-//! Label rasterization — writes node, edge, and cluster labels into a
-//! Lattice as `label_char` occupant cells. Runs last in the raster pass
-//! (after nodes/clusters/edges) so it can detect conflicts defensively.
-//!
-//! Import boundary: only `std`, `prim`, `../sketch.zig`, `../lattice.zig`
-//! (enforced by `tools/lint_imports.zig`); no `parse/` or `paint/`.
-//!
-//! Measured in display columns (`prim.displayWidth`), EAW-aware
-//! truncation reserves a column for the ellipsis. Diagnostics log at
-//! `.debug` scope only (kept out of release stderr).
-//!
-//! Text becomes cells exactly once, in `labels_write.prepare`: one cell
-//! per grapheme head, multi-codepoint graphemes interned into the lattice's
-//! `glyphs` table, which this entry point builds and attaches.
-
 const std = @import("std");
 const prim = @import("prim");
 const sketch = @import("../sketch.zig");
@@ -26,8 +11,6 @@ const log = std.log.scoped(.@"mermaid_v2.raster.labels");
 
 pub const RasterError = error{OutOfMemory};
 
-/// Codepoint U+2026 HORIZONTAL ELLIPSIS, used when truncating labels
-/// that overflow their available width.
 const ELLIPSIS: u21 = 0x2026;
 
 pub const LabelDiagnostic = struct {
@@ -36,10 +19,6 @@ pub const LabelDiagnostic = struct {
         edge_label_no_space,
         cluster_label_truncated,
     },
-    /// Which entity the diagnostic refers to. Disambiguated by `kind`:
-    ///   node_label_truncated    -> NodeId
-    ///   edge_label_no_space     -> EdgeId
-    ///   cluster_label_truncated -> ClusterId
     node_or_edge_or_cluster_id: u32,
     original_len: u32,
     placed_len: u32,
@@ -47,30 +26,12 @@ pub const LabelDiagnostic = struct {
 
 pub const Report = struct {
     placed: u32,
-    /// Labels that were present in the Sketch (non-empty node lines,
-    /// edge label, cluster label) but could NOT be placed at all —
-    /// attempted minus placed (report-only).
     dropped: u32,
-    /// Edge/tap labels placed by the fallback ladder at a position other
-    /// than their primary anchor (see labels_edge.Placement) — a cheaper
-    /// shipped defect than `dropped`, priced separately by the score.
     displaced: u32,
-    /// Edge/tap labels placed ON their own private fan dropper (the
-    /// top-priority on-run candidate, labels_onrun.zig). A PLACED label —
-    /// counted in `placed`, never in `displaced` — reported separately for
-    /// diagnostic honesty.
     on_run: u32,
-    /// Arena-allocated. Lifetime matches the allocator passed to
-    /// `rasterizeLabels` (callers should pass the same arena that owns
-    /// the Sketch and Lattice).
     diagnostics: []const LabelDiagnostic,
 };
 
-/// Place labels (node, edge, cluster) into the lattice as `label_char`
-/// occupant cells. Reads from the Sketch; mutates `lat` in place.
-///
-/// Allocator MUST be the same arena used for the Sketch + Lattice so
-/// the returned diagnostics' lifetime matches.
 pub fn rasterizeLabels(
     allocator: std.mem.Allocator,
     lat: *lattice.Lattice,
@@ -80,9 +41,6 @@ pub fn rasterizeLabels(
     var diags = std.ArrayList(LabelDiagnostic){};
     defer diags.deinit(allocator);
 
-    // Interned multi-codepoint graphemes, attached to the lattice on the
-    // way out. Labels are rasterized once per lattice, so nothing can
-    // already refer into a table.
     std.debug.assert(lat.glyphs.len == 0);
     var glyphs = lw.GlyphTable.init(allocator);
     errdefer glyphs.deinit();
@@ -103,9 +61,7 @@ pub fn rasterizeLabels(
         if (lbl.len == 0) continue;
         attempted += 1;
         const run = try lw.prepare(allocator, &glyphs, lbl);
-        // Top-priority on-run candidate: the label sits OVER its own private
-        // fan dropper (labels_onrun.zig). Any refusal falls through to the
-        // ordinary ladder below. @guarded-by: labels_onrun_test.zig "happy path: the label interrupts its own dropper for one row, sandwiched by run flanks"
+        // @guarded-by: labels_onrun_test.zig "happy path: the label interrupts its own dropper for one row, sandwiched by run flanks"
         if (labels_onrun.tryOnRunEdge(lat, s, ep, run, sink)) {
             placed += 1;
             on_run += 1;
@@ -161,15 +117,8 @@ pub fn rasterizeLabels(
     };
 }
 
-/// Cells one single-codepoint glyph claims (the ellipsis, the title
-/// band's spaces); the text → cells vocabulary lives with the writer
-/// contract in `labels_write.zig`.
 pub const cellSpan = lw.cellSpan;
 
-/// Write one node-label grapheme head at (x,row), claiming all `span` cells
-/// of its footprint. All-or-nothing: every cell must be `np`'s interior,
-/// so a wide glyph is never split across foreign ink and never leaves a
-/// widowed continuation. Returns true if written.
 /// @guarded-by: labels_eaw_test.zig "a wide node glyph whose second cell is not this node's interior is refused whole"
 fn writeNodeSpan(
     lat: *lattice.Lattice,
@@ -216,7 +165,7 @@ fn placeNodeLabel(
     if (np.rect.w < 3 or np.rect.h < 3) return false;
 
     const inner_w: u32 = np.rect.w - 2;
-    // Line k paints interior row rect.y+1+k. // @guarded-by: raster/labels_test.zig "node label fits centered"
+    // @guarded-by: raster/labels_test.zig "node label fits centered"
     var wrote: u32 = 0;
     var any_truncated = false;
     var max_orig: u32 = 0;
@@ -266,11 +215,6 @@ fn placeNodeLabel(
     return wrote > 0;
 }
 
-/// Stamp one cluster-title cell as a `label_char` — EVERY cell, spaces
-/// included. Owner ruling (D2 REJECTED, tawago 2026-07-19): the edge bridges
-/// over the WHOLE title band (spaces and all); the band looks exactly like the
-/// old render and the arrowhead below the band is the resumed edge. No
-/// title-space conduction.
 fn stampTitleCell(lat: *lattice.Lattice, x: u32, row: u32, cp: u21, cf: sketch.ClusterFrame, sink: aux.Sink) void {
     lw.writeGlyph(lat, x, row, cp, .{ .kind = .cluster, .id = cf.id }, sink);
 }
@@ -316,8 +260,6 @@ fn placeClusterLabel(
     var x: u32 = start;
     const run = try lw.prepare(allocator, glyphs, text);
     for (run.cells) |cell| {
-        // The band claims the glyph's whole footprint, so the trailing
-        // space that closes it lands past the last painted column.
         // @guarded-by: labels_eaw_test.zig "wide cluster title advances by span and still closes the band"
         if (x + cell.span > lat.width) break;
         stampTitleCell(lat, x, row, cell.value, cf, sink);

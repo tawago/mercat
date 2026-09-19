@@ -1,6 +1,3 @@
-//! Tests for `sugiyama.zig`, split out to keep that file under the
-//! 500-line cap enforced by `tools/lint_imports.zig`.
-
 const std = @import("std");
 const sg = @import("../sem_graph.zig");
 const sketch = @import("../sketch.zig");

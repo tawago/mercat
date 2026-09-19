@@ -1,21 +1,7 @@
-//! Per-shape glyph selection for node-border cells. Rect boxes use the
-//! base `junction_table` (`┌─┐│└┘` + tee/cross); non-rect shapes
-//! (round, stadium, subroutine, cylinder, circle, asymmetric, rhombus,
-//! hexagon, parallelogram, trapezoid) override a handful of perimeter
-//! cells with shape-specific glyphs.
-//!
-//! Dispatch uses `BorderRole` (corner/edge) + `Neighbours` mask, since
-//! same-mask cells can need distinct glyphs (e.g. stadium `(` vs `)`);
-//! unoverridden roles fall through to `jt.glyphFor`. Imports only
-//! `std`, `lattice.zig`, `junction_glyphs.zig`.
-
 const std = @import("std");
 const lattice = @import("../lattice.zig");
 const jt = @import("junction_glyphs.zig");
 
-/// Pick the glyph for a node-border cell with the given shape, role,
-/// and neighbour mask. Falls back to `jt.glyphFor` when the shape
-/// doesn't override that particular role.
 pub fn glyphFor(
     shape: lattice.Shape,
     role: lattice.BorderRole,
@@ -70,9 +56,6 @@ fn cylinderGlyph(role: lattice.BorderRole, n: lattice.Neighbours) u21 {
         .corner_ne => '╮',
         .corner_se => '╯',
         .corner_sw => '╰',
-        // Top/bottom rail is double-line `═`; an attachment arm on either
-        // side (source departure OR target arrival — uniform port erasure)
-        // gets the hybrid tee whose stem points along the arm.
         // @guarded-by: shape_glyphs.zig "cylinder: top/bottom edges use double rail; tees use ╤/╧"
         .edge_n => if (n.s) '╤' else if (n.n) '╧' else '═',
         .edge_s => if (n.n) '╧' else if (n.s) '╤' else '═',

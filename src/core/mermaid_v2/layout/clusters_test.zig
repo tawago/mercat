@@ -1,12 +1,3 @@
-//! Tests for clusters.zig. Discovered via clusters.zig's `test { _ =
-//! @import(...) }`. Only `buildClusters` and `computeBbox` are `pub` in
-//! clusters.zig; most tests here drive those two entry points directly
-//! (plus the shared sketch/prim primitives clusters.zig itself uses),
-//! never reaching into its private helpers. One test (the back-edge rail
-//! label lever) exercises `computeBbox`'s pass-2 relocation end-to-end
-//! through `coords.layout`, since the lever's arming condition lives one
-//! layer up in layout.zig.
-
 const std = @import("std");
 const sg = @import("../sem_graph.zig");
 const sketch = @import("../sketch.zig");

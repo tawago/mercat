@@ -7,8 +7,6 @@ const code = @import("code.zig");
 const Block = markdown.Block;
 const testing = std.testing;
 
-/// Render `source` as a plain fenced block through the default (panel) code
-/// frame and return the rows joined by newlines, styles dropped.
 fn renderPanelText(allocator: std.mem.Allocator, source: []const u8, content_width: usize) ![]u8 {
     const block = Block.CodeBlock{ .language = "", .code = source };
     const decor = decor_mod.Decor{};

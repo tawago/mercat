@@ -1,6 +1,3 @@
-//! Tests for member_stroke.zig's route search. Discovered via
-//! member_stroke.zig's `test { _ = @import("member_stroke_test.zig"); }`.
-
 const std = @import("std");
 const sg = @import("../sem_graph.zig");
 const sketch = @import("../sketch.zig");
@@ -16,11 +13,6 @@ fn inkRun(id: sg.EdgeId, row: i32, points: []sketch.Point) sketch.EdgePath {
     return .{ .id = id, .from = 50, .to = 51, .polyline = points, .port_from = .{ .node = 50, .side = .south, .offset = 0 }, .port_to = .{ .node = 51, .side = .north, .offset = 0 }, .arrow_from = .none, .arrow_to = .none, .label = null, .kind = .solid, .role = .forward };
 }
 
-// A fan-OUT member's stroke from its tap (5,5) to a private port at (15,20)
-// may jog on rows 7..18. Foreign runs along every one of those rows, and a
-// corridor column that would be the target's own, leave no clearing shape.
-// The search is then null — the member leaves its rail — where it used to
-// ship the first box-free candidate over the foreign ink.
 test "a long member whose stroke clears nowhere leaves its rail instead of shipping a refused stroke" {
     var arena = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena.deinit();

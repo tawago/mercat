@@ -1,15 +1,3 @@
-//! Graph/placement lookup + perimeter-port + arrow-mapping helpers, split
-//! from `routing.zig` to keep it under the 500-line mermaid_v2 cap. These are
-//! pure lookups over the SemGraph, the placement slice, and the layered graph,
-//! plus the perimeter-port geometry and SemGraph→Sketch arrow mapping — no
-//! routing state of their own. `routing.zig` re-exports every symbol here so
-//! both its own call sites and external importers (fan_rail.zig,
-//! back_edges.zig, ports_test.zig) address them exactly as before.
-//!
-//! Imports: only `std`, `../sem_graph.zig`, `../sketch.zig`, `sugiyama.zig`,
-//! `routing_polyline.zig`. The rows a skip corridor or an offset terminal
-//! needs are claimed in `gap_rows.zig`.
-
 const std = @import("std");
 const sg = @import("../sem_graph.zig");
 const sketch = @import("../sketch.zig");
@@ -33,7 +21,6 @@ pub fn findPlacement(
     return placements[0];
 }
 
-/// Innermost cluster id of a node, or null if top-level.
 fn nodeCluster(graph: sg.SemGraph, nid: sg.NodeId) ?sg.ClusterId {
     for (graph.nodes) |n| {
         if (n.id == nid) return n.cluster;
@@ -41,7 +28,6 @@ fn nodeCluster(graph: sg.SemGraph, nid: sg.NodeId) ?sg.ClusterId {
     return null;
 }
 
-/// True iff cluster `anc` is `desc` or a (transitive) ancestor of it.
 fn clusterAncestorOrSelf(graph: sg.SemGraph, anc: sg.ClusterId, desc: sg.ClusterId) bool {
     var cur: ?sg.ClusterId = desc;
     while (cur) |id| {
@@ -58,12 +44,12 @@ fn clusterAncestorOrSelf(graph: sg.SemGraph, anc: sg.ClusterId, desc: sg.Cluster
     return false;
 }
 
-/// Rows of fan-rail lift for one fan member edge: 1 when it descends into a cluster, else 0. THE shared lift rule for both the rail pre-pass and the per-peer path. // @guarded-by: routing_test.zig "rail pre-pass and forced per-peer path lift the same fan-OUT geometry to the same rail row"
+/// @guarded-by: routing_test.zig "rail pre-pass and forced per-peer path lift the same fan-OUT geometry to the same rail row"
 pub fn fanRailLift(graph: sg.SemGraph, from: sg.NodeId, to: sg.NodeId) u32 {
     return if (crossesIntoCluster(graph, from, to)) 1 else 0;
 }
 
-/// True iff an edge from `from` to `to` descends into a cluster `from` is not a member/descendant of (ancestor-chain walk). // @guarded-by: routing_test.zig "fan-OUT per-peer rail does not lift when the source is a member of (or ancestor of) the target's cluster"
+/// @guarded-by: routing_test.zig "fan-OUT per-peer rail does not lift when the source is a member of (or ancestor of) the target's cluster"
 fn crossesIntoCluster(graph: sg.SemGraph, from: sg.NodeId, to: sg.NodeId) bool {
     const dst_cluster = nodeCluster(graph, to) orelse return false;
     const src_cluster = nodeCluster(graph, from);
@@ -122,37 +108,6 @@ pub fn mapArrow(e: sg.ArrowEnd) sketch.ArrowKind {
     };
 }
 
-/// Base-approach LENGTHEN pass — the "corner-fed" companion to
-/// routing_polyline.zig's `ensureBaseStub` (which handles the length-1
-/// turn-at-tip by SHIFTING the descent leg in place). This targets the
-/// case `ensureBaseStub` cannot: a perpendicular predecessor run turns at a
-/// corner that sits DIRECTLY on the arrowhead's base cell. The rasterizer
-/// stamps the arrowhead one cell inside the terminal port and skips the port
-/// itself, so a final leg of length EXACTLY 2 renders `[corner][arrow]` — the
-/// glyph behind the tip is a `┌┐└┘`, not a straight stroke. The owner
-/// arrow-base rule (2026-07-18) requires a STRAIGHT collinear stroke on the
-/// base side before any corner. This pulls the corner back one cell along the
-/// base axis — carrying its perpendicular predecessor run with it, since the
-/// corner's row/column is bound to that run — so the final leg grows to length
-/// 3, rendering `[corner][straight][arrow]`: a formal base approach.
-///
-/// ZERO-HEIGHT / accept-fallback: fires only when a CLEAR collinear cell (the
-/// reserved inter-rank row) already exists to grow into — the pulled-back
-/// predecessor run must be touch-free (border-inclusive) of EVERY box
-/// (`sketch.lineTouchesRect`, no from/to exemption: the run lives in the gap
-/// and must not land on any node), AND the pulled-back corner must not become a
-/// new extreme on the base axis (that would extend the bounding box — a
-/// bare-gap loop turn at the margin). When either fails it returns the polyline
-/// UNCHANGED (the report-only validator keeps counting the residual) rather
-/// than fabricating overlap or adding a layout row. Requires an interior
-/// predecessor vertex (not the source port, index 0) so the source attachment
-/// never moves.
-///
-/// Grows onto a FRESH buffer (never mutates the input) so the caller retains
-/// the ungrown polyline for a clearance-driven revert (a grown run can push
-/// one cell into a neighbour). Returns the same slice when it does not fire.
-/// The point count is preserved — the new straight cell is the vacated corner
-/// position — but the slice is reallocated so callers uniformly rebind.
 /// @guarded-by: routing_terminal_test.zig "satisfyApproach grows a corner-fed len-2 final into a straight base approach"
 pub fn satisfyApproach(
     a: std.mem.Allocator,
@@ -203,13 +158,6 @@ pub fn satisfyApproach(
     return try grown.toOwnedSlice(a);
 }
 
-/// The straight-through rule a producer owes a decoration cell: a route
-/// runs straight through its own departure cell and its own arrival cell,
-/// because a turn inside either puts a corner where the head must sit and
-/// the head is drawn sideways or into space. True iff every end `rule`
-/// names is straight — its first (last) turn lies at least two cells from
-/// the port, or there is no turn at all. Collinear consecutive legs count
-/// as one run.
 /// @guarded-by: routing_terminal_test.zig "terminalsStraight refuses a turn inside a decorated terminal cell at either end and admits one two cells out"
 pub fn terminalsStraight(poly: []const sketch.Point, rule: rp.Straight) bool {
     if (rule.from and distanceToFirstTurn(poly, false) < 2) return false;
@@ -217,8 +165,6 @@ pub fn terminalsStraight(poly: []const sketch.Point, rule: rp.Straight) bool {
     return true;
 }
 
-/// Cells walked from one end of `poly` before its first change of
-/// direction; the whole length when it never turns.
 fn distanceToFirstTurn(poly: []const sketch.Point, from_end: bool) i32 {
     var heading: ?[2]i32 = null;
     var walked: i32 = 0;

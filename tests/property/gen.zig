@@ -1,26 +1,15 @@
-//! Generic value generators for property tests.
-//!
-//! Each generator takes a `std.Random` (and `std.mem.Allocator` where needed)
-//! and produces a deterministic value seeded from upstream. Generators here
-//! depend only on `std`. The `semGraph` generator is a placeholder until
-//! build.zig wires the property-test module to the mermaid_v2 parse module.
 const std = @import("std");
 
-/// Uniform integer in the inclusive range [lo, hi]. Asserts lo <= hi.
 pub fn intRange(rng: std.Random, comptime T: type, lo: T, hi: T) T {
     std.debug.assert(lo <= hi);
     return rng.intRangeAtMost(T, lo, hi);
 }
 
-/// Bernoulli draw: returns true with probability `p_true` (clamped to [0,1]).
 pub fn boolWeighted(rng: std.Random, p_true: f32) bool {
     const p = std.math.clamp(p_true, 0.0, 1.0);
     return rng.float(f32) < p;
 }
 
-/// Allocate a slice of length in [0, max_len] filled by `gen_elem`.
-/// Caller owns returned slice; on partial failure already-built elements
-/// are not freed (callers should use arenas for complex element types).
 pub fn slice(
     allocator: std.mem.Allocator,
     comptime T: type,
@@ -38,7 +27,6 @@ pub fn slice(
     return buf;
 }
 
-/// ASCII alphabetic string of length in [0, max_len], allocator-owned.
 pub fn alphabeticString(allocator: std.mem.Allocator, rng: std.Random, max_len: usize) ![]u8 {
     const len = if (max_len == 0) 0 else rng.intRangeAtMost(usize, 0, max_len);
     const buf = try allocator.alloc(u8, len);
@@ -52,7 +40,6 @@ pub fn alphabeticString(allocator: std.mem.Allocator, rng: std.Random, max_len: 
     return buf;
 }
 
-/// Pick one tag of an enum uniformly at random.
 pub fn pickEnum(rng: std.Random, comptime E: type) E {
     const fields = @typeInfo(E).@"enum".fields;
     comptime std.debug.assert(fields.len > 0);
@@ -63,9 +50,6 @@ pub fn pickEnum(rng: std.Random, comptime E: type) E {
     unreachable;
 }
 
-/// TODO(parser-agent, next round): wire to
-/// `src/core/mermaid_v2/sem_graph.zig` once build.zig exposes it as
-/// a module to the property-test step. Until then this stub panics.
 pub fn semGraph(allocator: std.mem.Allocator, rng: std.Random, opts: anytype) !void {
     _ = allocator;
     _ = rng;

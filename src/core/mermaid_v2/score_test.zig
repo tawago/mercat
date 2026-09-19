@@ -1,12 +1,3 @@
-//! score_test.zig — unit tests for score.zig, split out to keep score.zig
-//! under the mermaid_v2 500-line cap. Covers tier ordering, the fitted
-//! composite semantics (integrity priced not vetoed; monotone rung
-//! degradation prior; direction-infidelity floor; T0 overflow magnitude)
-//! and the raw T2 metric functions.
-//!
-//! The 36-pair labeled-reference CALIBRATION test (which needs parse+budget)
-//! lives in budget_test.zig, not here — score_test may not import parse.
-
 const std = @import("std");
 const sketch = @import("sketch.zig");
 const score = @import("score.zig");
@@ -102,7 +93,6 @@ test "eval: integrity is a large priced cost, not a veto" {
     defer arena.deinit();
     const a = arena.allocator();
 
-    // An edge from node 0 to node 1 routed straight through node 2's interior.
     const dirty_nodes = [_]sketch.NodePlacement{
         testNode(0, .{ .x = 0, .y = 0, .w = 5, .h = 5 }, null),
         testNode(1, .{ .x = 20, .y = 0, .w = 5, .h = 5 }, null),

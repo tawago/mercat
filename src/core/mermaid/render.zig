@@ -12,11 +12,6 @@ pub const RenderResult = types.RenderResult;
 
 const DiagramType = types.DiagramType;
 
-/// Main entry point for rendering mermaid diagrams.
-///
-/// Flowcharts are routed unconditionally through the mermaid_v2 pipeline
-/// (the legacy `flowchart/` tree was removed in W10 cutover). Other
-/// diagram types continue to use their existing renderers.
 pub fn render(allocator: Allocator, source: []const u8, options: RenderOptions) !RenderResult {
     const diagram_type = DiagramType.fromSource(source);
 
@@ -30,14 +25,12 @@ pub fn render(allocator: Allocator, source: []const u8, options: RenderOptions) 
     };
 }
 
-/// Render a mermaid diagram or return fallback
 pub fn renderOrFallback(allocator: Allocator, source: []const u8, options: RenderOptions) RenderResult {
     return render(allocator, source, options) catch {
         return fallback(source, "Render failed");
     };
 }
 
-/// Check if source is a mermaid diagram
 pub fn isMermaidBlock(source: []const u8) bool {
     return DiagramType.fromSource(source) != .unsupported;
 }

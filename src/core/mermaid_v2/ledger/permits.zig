@@ -1,6 +1,3 @@
-//! Semantic branch-permission discovery and structural validation.
-//! Groups come only from original SemGraph endpoint incidence.
-
 const std = @import("std");
 const prim = @import("prim");
 const pb = @import("../base/ledger.zig");
@@ -24,11 +21,6 @@ pub const RailPreparation = struct { members: []const pb.EdgeId, deco_mixed: boo
 
 const RailCandidate = struct { edge: sg.Edge, leaf: sg.NodeId };
 
-/// Select one deterministic maximal star before layout can commit shared ink.
-/// Decoration gets largest-class priority; style then selects the largest
-/// class inside it. Invisible edges never compete with drawable classes. Ties
-/// retain the class of the smallest canonical edge, independent of caller
-/// order.
 pub fn prepareRailMembers(a: std.mem.Allocator, graph: sg.SemGraph, direction: pb.BundleDirection, pivot: sg.NodeId, source: []const pb.EdgeId) error{OutOfMemory}!RailPreparation {
     var star_violation = false;
     var canonical: std.ArrayListUnmanaged(pb.EdgeId) = .empty;
@@ -151,15 +143,11 @@ fn mapArrow(arrow: sg.ArrowEnd) prim.ArrowKind {
     return @enumFromInt(@intFromEnum(arrow));
 }
 
-/// Build the one render-wide permission plan. Policy is explicit because only
-/// the composition root may originate it.
 pub fn build(
     allocator: std.mem.Allocator,
     graph: sg.SemGraph,
     policy: pb.BundlePolicy,
 ) BuildError!BuildResult {
-    // Child recursion pieces may look cluster-free after IDs were localized;
-    // only the original graph's cluster array opens or closes this gate.
     // @guarded-by: permits_test.zig "V-D-EDGE-ID-02: clustered graph returns empty plan and both skip markers"
     if (graph.clusters.len != 0) return .{
         .plan = .{ .policy = policy, .scope = .skipped_clustered },
@@ -184,10 +172,6 @@ pub fn build(
         const from = nodeIndex(graph, edge.from) orelse return error.InvalidSemGraph;
         const to = nodeIndex(graph, edge.to) orelse return error.InvalidSemGraph;
         for (graph.edges[0..i]) |prior| if (prior.id == edge.id) return error.InvalidSemGraph;
-        // A self-loop is not a plain directed edge between two distinct nodes, so it is
-        // never an endpoint-incidence candidate-bundle member (its source==target makes fan-in/
-        // fan-out classification degenerate). Excluded here, before the carve-out predicate;
-        // it still takes a (null,null) membership below and still renders its own lollipop.
         // @guarded-by: permits_test.zig "V-D-JOIN-SELECT-14: self-loop excluded from fan-in group leaves residual member independent"
         if (edge.from == edge.to) continue;
         try incidence[from].outgoing.append(allocator, edge.id);
@@ -224,14 +208,6 @@ pub fn build(
     };
 }
 
-/// Piece-scoped licence discovery: the same endpoint-incidence discovery as
-/// `build`, run on one CLUSTER-FREE recursion piece of a clustered original,
-/// in PIECE-LOCAL edge ids — the id space the piece's own layout, routing,
-/// and Sketch speak, so realization consumes the plan unchanged and the
-/// stitch remaps it with the same per-piece offsets as every other record.
-/// (`origin` stays split-level identity for the cross-border step.) Edges
-/// born synthetic (origin == SENTINEL, e.g. placement edges) never enter a
-/// bundle and take no membership row.
 pub fn buildPiece(allocator: std.mem.Allocator, graph: sg.SemGraph) BuildError!BuildResult {
     std.debug.assert(graph.clusters.len == 0);
     var edges: std.ArrayListUnmanaged(sg.Edge) = .empty;
@@ -399,7 +375,6 @@ pub const ValidationReport = struct {
     }
 };
 
-/// Validate plan structure without logging, mutation, or disposition policy.
 pub fn validate(allocator: std.mem.Allocator, graph: sg.SemGraph, plan: pb.BundlePermits) error{OutOfMemory}!ValidationReport {
     var out: std.ArrayListUnmanaged(Finding) = .empty;
 

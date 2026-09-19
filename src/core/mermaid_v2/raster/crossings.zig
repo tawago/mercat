@@ -1,51 +1,3 @@
-//! Crossing / transversal semantics for the mermaid_v2 raster (Amendment C).
-//! The amendment's normative text is held by the owner and is not in-tree;
-//! its two rulings — the TRANSVERSAL ruling and the ARROWHEAD-SANCTITY
-//! ruling — are restated in full below.
-//!
-//! This module owns the crossing EVENT vocabulary recorded by
-//! `raster/edges.zig` and the decision predicates that keep foreign ink from
-//! fabricating a junction:
-//!
-//!   * TRANSVERSAL ruling — a crossing of two UNRELATED edges must read as a TRANSVERSAL: the
-//!     crossed run (first writer) keeps its straight stroke; the crossing edge
-//!     contributes NO bits to that cell (no `┬ ├ ┤ ┴` / `┼` on a foreign run).
-//!   * ARROWHEAD-SANCTITY ruling — an edge must never bridge on/through an ARROWHEAD cell; foreign ink
-//!     landing on a foreign edge's arrowhead is refused and the arrowhead stays
-//!     pristine.
-//!
-//! No new glyph and no painter change: the transversal is produced by NOT
-//! OR-merging foreign perpendicular overlap at the raster layer.
-//!
-//! EXEMPTIONS (structural, never seed-keyed): same owner, and co-members of one
-//! realized selected bundle — that ink sharing is legal bundle ink (D-JOIN clause
-//! 4). Determined from `Sketch.bundles` (RealizedBundles)
-//! and from `Sketch.bundle_sets`, the bundle membership the same decisions
-//! record; never from geometry or a fixture name. The two agree by
-//! construction wherever a plan realized — flat sketches directly, clustered
-//! sketches through the piece plans the stitch merges — and `bundle_sets` alone
-//! speaks for a sketch with no realized plan (motif-packed, plan failure).
-//!
-//! SCOPE: UNCONDITIONAL. A crossing between two edges that do not legally
-//! share a bundle never paints a junction glyph, on every render — flat,
-//! clustered, and recursion children alike. There is no arming predicate: the
-//! only question ever asked of the INK is `sameBundle`, the membership
-//! derivation. What a record SAYS about a cell is a different question, and it
-//! is answered in one place, `carrierKind`, from the stamped bundle sets —
-//! by the rail's own name where a rail writes, by the pair where two edges
-//! meet; the two are counted against each other on
-//! every render. A sketch may carry legality in
-//! `bundle_sets` without a realized plan (motif-packed candidates, plan
-//! failures), which is exactly why the plan may not gate the rule.
-//!
-//! Counts flow raster → entry → diagnostics, and via audit.zig into
-//! score.RasterCounts' violation tier of candidate selection; the shipped
-//! lattice is never modified by them. No new DiagnosticTag.
-//!
-//! Allowed imports: `std`, `sketch.zig`, `lattice.zig`, `base/ledger.zig`,
-//! the `prim` module (base/types.zig — universally importable; enforced by
-//! `tools/lint_imports.zig`).
-
 const std = @import("std");
 const sketch = @import("../sketch.zig");
 const lattice = @import("../lattice.zig");
@@ -55,59 +7,24 @@ const prim = @import("prim");
 pub const EdgeId = ledger.EdgeId;
 pub const BundleCell = ledger.BundleCell;
 
-/// The lattice cell a crossing decision is about, in the bundle's coordinate
-/// space (`ledger.BundleCell` is signed because a Sketch polyline is; a rasterized
-/// cell is always non-negative, so the widening is total).
 pub fn cellAt(x: u32, y: u32) ledger.BundleCell {
     return .{ .x = @intCast(x), .y = @intCast(y) };
 }
 
-/// The three painted-crossing outcomes a foreign overlap can classify to.
 pub const CrossingClass = enum {
-    /// A strict orthogonal transversal between unrelated bundles: the crossed
-    /// run keeps its straight stroke, the crossing edge resumes on the opposite
-    /// side. Legal (the transversal ruling's reading requirement; D-CROSS, D-REACH clause 7 vector half).
     legal_crossing,
-    /// A junction glyph would have attached crossing traffic to a foreign edge's
-    /// run (collinear overlap, cornering, or a T onto the foreign straight run).
-    /// transversal-ruling prohibition; first-writer bits kept, no tee fabricated.
     foreign_junction_violation,
-    /// Foreign ink met an arrowhead cell (a fabricated second arrival). The arrowhead-sanctity ruling
-    /// prohibition; the arrowhead stays pristine.
     arrowhead_transit_violation,
 };
 
-/// Report-only crossing tallies surfaced through the raster report.
 pub const CrossingCounts = struct {
     legal_crossing: u32 = 0,
     foreign_junction_violation: u32 = 0,
     arrowhead_transit_violation: u32 = 0,
-    /// Frame-solid border bridging (D-CROSS, owner ruling 2026-07-19): a
-    /// THROUGH-GOING edge segment that crossed a `.cluster_border` cell and
-    /// contributed NO bits — the frame glyph stays continuous and the edge
-    /// resumes on the far side. Fires only in `.bridge` mode (the default);
-    /// `.cross` mode welds instead. Report-only; no DiagnosticTag.
     b_frame_bridge: u32 = 0,
-    /// A corner arm that landed on a `.cluster_border` cell and was refused —
-    /// welding a tee (`┼ ├ ┤`) into the frame is forbidden (frame-solid). The
-    /// border stays pristine. Fires only in `.bridge` mode; report-only;
-    /// same-ruling companion counter.
     b_border_fusion_refused: u32 = 0,
-    /// A lateral arm REFUSED at a decoration cell: a write from another
-    /// edge (a run, a corner, a rail claim, a perpendicular head) would
-    /// have entered an arrowhead cell from one of its two guarded lateral
-    /// sides, and the raster kept the head untouched instead. Counted per
-    /// arm, against the edge that lost the cell — never against the head
-    /// (constitution, ink attribution: a decoration cell has three guarded
-    /// sides; confluence routing note: the refusal is the outcome that
-    /// ships). The head's edge keeps its own counters. Lateral arms that
-    /// SHIP (an edge turning inside its own terminal cell) are the painted
-    /// half of the same tally, read post-raster by `arrow_base.validate`;
-    /// `raster.RasterReport.armIntoHead` sums both.
     arm_into_head: u32 = 0,
 
-    /// Fold `other` into `self`: the rail pass and the edge pass each keep
-    /// their own tallies and the raster report ships one.
     pub fn add(self: *CrossingCounts, other: CrossingCounts) void {
         inline for (@typeInfo(CrossingCounts).@"struct".fields) |f| {
             @field(self, f.name) += @field(other, f.name);
@@ -115,48 +32,16 @@ pub const CrossingCounts = struct {
     }
 };
 
-/// Per-raster crossing context threaded through the edge walk: the realized
-/// plan (for the exemption), the tally sink, and the subgraph-border notation
-/// mode.
-/// Copied by value; `counts` is a pointer so increments persist.
 pub const Ctx = struct {
     bundles: ledger.RealizedBundles = .{},
-    /// Bundle membership from the Sketch (`Sketch.bundle_sets`).
     bundle_sets: []const ledger.Bundle = &.{},
-    /// Outcome of the producer's transactional bundle stamp. This gates only
-    /// recorded identity lookups; the ink predicates below remain derived.
     stamp_state: sketch.BundleStampState = .unattempted,
     counts: *CrossingCounts,
-    /// Subgraph frame-border notation (owner ruling, tawago 2026-07-19).
-    /// `.bridge` (default): frame-solid, edges bridge the border. `.cross`:
-    /// the pre-Slice-1 junction-weld behavior — byte-identical to before.
     mode: prim.SubgraphEdges = .bridge,
 };
 
-/// Two edges share LEGAL bundle ink iff they are the same owner or co-members of
-/// one bundle: a declared bundle or a realized selected bundle (D-JOIN clause
-/// 4). This is the structural exemption from the
-/// transversal rule — determined from the recorded membership, never from
-/// geometry or a seed name.
-///
-/// `bundle_sets` and `bundles` are asked in turn and neither can veto the other, so
-/// on the flat path — where the bundles ARE the plan's membership — the answer
-/// is the plan's answer.
 /// @guarded-by: crossings.zig "sameBundle: bundle membership answers what the plan answers"
-/// `at` is the CELL the decision is about. A bundle may be cell-scoped (a
-/// `.port_share` set licenses only the two edges' common approach), so the
-/// membership question is always asked about a position; the structural
-/// origins license every cell and ignore it.
 /// @guarded-by: crossings.zig "sameBundle: a cell-scoped bundle answers only on its own cells"
-///
-/// STANDING. This is the DERIVATION, and it is no longer what establishes a
-/// licence anywhere it only fills in a record's `detail`: those sites read
-/// `carrierKind` below. It still gates INK
-/// at the two refusal predicates in this file, and it is kept whole as the
-/// witness the recorded label is measured against: both answers are run
-/// over every carrier a render files and counted agreeing and disagreeing.
-/// One copy, in `base/ledger.zig`, so no caller can drift into asking two
-/// different questions.
 pub fn sameBundle(
     a: EdgeId,
     b: EdgeId,
@@ -167,42 +52,6 @@ pub fn sameBundle(
     return ledger.derivedSameBundle(bundles, bundle_sets, a, b, at);
 }
 
-/// The `CarrierKind` a merged `.carrier` record STATES: `held` is the edge
-/// the cell already names, `writer` the edge writing now, `at` the cell.
-/// Every site that files a merged carrier reads its `detail` from here and
-/// nowhere else, so one question has one answer on the whole raster.
-///
-/// A DESCRIPTION, never a decision. The plan is final before the raster
-/// runs (constitution, single authority); what the raster owes it is
-/// conformance reporting — one record per cell saying whether the ink it
-/// merged is ink the plan licensed. Nothing here grants, refuses, or moves
-/// a byte. The ink GATE is a different question — "may this ink merge
-/// here" — answered by `sameBundle` (`ledger.derivedSameBundle`) at
-/// `segmentOverlap` and `arrowheadTransit`; it reads the realized plan as
-/// well as the sets and never abstains on stamp state. The gate and the
-/// label are two questions and both stay: folding one into the other would
-/// change renders.
-///
-/// `rail` is the bundle the writer's ink speaks for when it writes on
-/// behalf of a stamped rail (`sketch.Rail.bundle`), else null:
-///   * with a rail, the question is whether `held` is a member of THAT
-///     bundle at `at`, asked by name (`ledger.memberOfBundleAt`). An edge
-///     can be a member of two structural bundles, one per end (theory
-///     10-confluence, "Rail membership at both ends"), and resolving it to
-///     one id first answered for the wrong end on every fan-in rail whose
-///     member also fans out;
-///   * without one, both sides are edges and the question is the pair's
-///     (`ledger.bundleMembersAt`), which never resolves an edge to a single
-///     id and so has no wrong end either.
-/// No caller resolves an edge to one `BundleId` any more; that
-/// single-valued reading was the defect.
-///
-/// ABSTAINS unless the producer completed its transactional stamp AND every
-/// bundle set is numbered. A failed or refused re-stamp can leave an old,
-/// internally numbered payload in place; the explicit state says that payload
-/// is not current and therefore cannot describe a licence. Conversely,
-/// `.complete` with an unnumbered entry is inconsistent and also abstains.
-/// The did-not-ask value (`.merged_untested`) is attributable in both cases.
 /// @guarded-by: crossings_test.zig "carrierKindFor trusts identity only after a complete consistent stamp"
 /// @guarded-by: crossings_test.zig "carrierKind asks a rail's bundle by name, so a member of two bundles is licensed on both rails"
 pub fn carrierKind(
@@ -222,8 +71,6 @@ pub fn carrierKind(
     return if (licensed) .merged_licensed else .merged_foreign;
 }
 
-/// `carrierKind` for an ordered pair of edges with no rail on either side:
-/// the crossing rule's transcript for (`held`, `incoming`) at `at`.
 pub fn carrierKindFor(
     held: EdgeId,
     incoming: EdgeId,
@@ -234,11 +81,6 @@ pub fn carrierKindFor(
     return carrierKind(bundle_sets, stamp_state, held, incoming, null, at);
 }
 
-/// `carrierKind` for `writer` merging ONTO whatever `cell` already names.
-/// Read before the write: afterwards the cell names the first writer either
-/// way and the pair is unrecoverable. A cell naming nobody files no carrier,
-/// so its value is `.merged_untested` — never `.merged_licensed`, which
-/// would state a licence no one asked for.
 pub fn carrierKindOnto(
     cell: *const lattice.Cell,
     bundle_sets: []const ledger.Bundle,
@@ -255,16 +97,12 @@ pub fn carrierKindOnto(
     return carrierKind(bundle_sets, stamp_state, held, writer, rail, at);
 }
 
-/// A mask is a clean straight run iff exactly its two collinear arms are set.
 pub fn isStraightPair(m: lattice.Neighbours) bool {
     const h = m.e and m.w and !m.n and !m.s;
     const v = m.n and m.s and !m.e and !m.w;
     return h or v;
 }
 
-/// Classify a FOREIGN, non-exempt edge-segment overlap onto an existing
-/// edge-segment cell. `existing` is the first-writer's mask; `incoming` is the
-/// arriving straight-or-corner mask.
 pub fn classifySegment(existing: lattice.Neighbours, incoming: lattice.Neighbours) CrossingClass {
     if (isStraightPair(existing) and isStraightPair(incoming)) {
         const existing_h = existing.e and existing.w;
@@ -275,11 +113,6 @@ pub fn classifySegment(existing: lattice.Neighbours, incoming: lattice.Neighbour
     return .foreign_junction_violation;
 }
 
-/// Decide a foreign edge-segment overlap onto an existing edge-segment cell.
-/// Returns true when the caller must KEEP the first writer's cell untouched (no
-/// OR-merge, no role change) — the transversal / no-foreign-tee behavior — and
-/// records the classified event. Returns false to proceed with the pre-C
-/// merge (same owner or legal bundle ink).
 pub fn segmentOverlap(
     counts: *CrossingCounts,
     bundles: ledger.RealizedBundles,
@@ -299,11 +132,6 @@ pub fn segmentOverlap(
     return true;
 }
 
-/// Decide a foreign edge meeting an arrowhead cell (either a foreign segment
-/// landing on an arrowhead, or an arrowhead being written over a foreign
-/// segment). Returns true when the caller must keep the arrowhead cell pristine
-/// (arrowhead sanctity), recording the violation; false to proceed with the pre-C behavior (an
-/// edge's own terminal arrowhead or legal bundle ink).
 pub fn arrowheadTransit(
     counts: *CrossingCounts,
     bundles: ledger.RealizedBundles,
@@ -317,9 +145,6 @@ pub fn arrowheadTransit(
     return true;
 }
 
-/// The arms of `mask` that lie OFF the axis of a head pointing `tip`: for
-/// a north/south head the east and west bits, for an east/west head the
-/// north and south bits. These are the head's two guarded lateral sides.
 pub fn lateralArms(tip: lattice.Dir4, mask: lattice.Neighbours) lattice.Neighbours {
     return switch (tip) {
         .north, .south => .{ .e = mask.e, .w = mask.w },
@@ -327,16 +152,6 @@ pub fn lateralArms(tip: lattice.Dir4, mask: lattice.Neighbours) lattice.Neighbou
     };
 }
 
-/// Decide a write of `incoming_mask` by `incoming_edge` onto the arrowhead
-/// cell of `arrow_edge` (tip `tip`). Returns true when the caller must keep
-/// the head untouched, recording every event the write is:
-///   - foreign ink meeting a head is an arrowhead transit (as before —
-///     nothing here weakens that tally);
-///   - a lateral arm is refused whatever the licence, and counted as
-///     `arm_into_head` per arm, against `incoming_edge`.
-/// Returns false only for a bundle co-member riding the head's own axis:
-/// a shared stem cell that carries the head, rail-interior state.
-/// The head's own edge never reaches this: its writes are its own ink.
 /// @guarded-by: crossings.zig "headEntry: a lateral arm is refused for co-members too; an on-axis co-member rides"
 pub fn headEntry(
     counts: *CrossingCounts,
@@ -354,8 +169,6 @@ pub fn headEntry(
     return transit or lateral != 0;
 }
 
-/// Any cell: the structural origins license every position, so the tests that
-/// speak for them pass an arbitrary one.
 const ANY: ledger.BundleCell = .{ .x = 0, .y = 0 };
 
 const H: lattice.Neighbours = .{ .e = true, .w = true };

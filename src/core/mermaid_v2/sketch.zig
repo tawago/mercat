@@ -1,67 +1,38 @@
-//! Sketch — geometric IR for the mermaid_v2 flowchart pipeline: sole output
-//! of layout, sole input to rasterization. Pure integer geometry (rects,
-//! polylines, discrete perimeter ports) — no characters, glyphs, cells, or
-//! terminal concepts; those live downstream in `lattice.zig`/`paint.zig`.
-//!
-//! Coordinates are signed `i32` (off-canvas construction during routing);
-//! sizes/counts are `u32`. Slice fields are caller-allocated and borrowed;
-//! `label` strings are owned by the producer (typically the layout arena)
-//! and must outlive any consumer.
-//!
-//! Allowed imports (tools/lint_imports.zig): `std`, `prim`, `base/*` (no-deps
-//! tier, universally importable) — no `paint`, `lattice`, `parse`, nothing else.
-
 const std = @import("std");
 const prim = @import("prim");
 const ledger = @import("base/ledger.zig");
 
-/// Stable identifier for a node within a single Sketch.
 pub const NodeId = prim.NodeId;
 
-/// Stable identifier for an edge within a single Sketch.
 pub const EdgeId = prim.EdgeId;
 
-/// Stable identifier for a cluster (subgraph) within a single Sketch.
 pub const ClusterId = prim.ClusterId;
 
-/// A 2D integer point. Coordinates may be negative during intermediate
-/// layout computation; the final Sketch's `bbox` defines the inhabited
-/// region.
 pub const Point = struct {
     x: i32,
     y: i32,
 };
 
-/// Axis-aligned rectangle with integer origin and unsigned size.
-/// `(x, y)` is the top-left corner; `w` and `h` are exclusive extents,
-/// so a rect with `w = 0` or `h = 0` is empty.
 pub const Rect = struct {
     x: i32,
     y: i32,
     w: u32,
     h: u32,
 
-    /// Exclusive right edge: x + w.
     pub fn right(self: Rect) i32 {
         return self.x + @as(i32, @intCast(self.w));
     }
 
-    /// Exclusive bottom edge: y + h.
     pub fn bottom(self: Rect) i32 {
         return self.y + @as(i32, @intCast(self.h));
     }
 
-    /// True iff `p` lies inside the half-open rectangle
-    /// `[x, x+w) × [y, y+h)`. Empty rects contain no points.
     pub fn contains(self: Rect, p: Point) bool {
         if (self.w == 0 or self.h == 0) return false;
         return p.x >= self.x and p.x < self.right() and
             p.y >= self.y and p.y < self.bottom();
     }
 
-    /// True iff `self` and `o` share at least one interior cell.
-    /// Touching edges only (zero-area intersection) does NOT count as
-    /// overlap. Empty rects never overlap.
     pub fn overlaps(self: Rect, o: Rect) bool {
         if (self.w == 0 or self.h == 0) return false;
         if (o.w == 0 or o.h == 0) return false;
@@ -70,31 +41,18 @@ pub const Rect = struct {
     }
 };
 
-/// Cardinal direction of a port on a node perimeter.
 pub const Dir4 = prim.Dir4;
 
-/// Overall flowchart layout direction, mirroring Mermaid's TD/BT/LR/RL.
 pub const Direction = prim.Direction;
 
-/// Visual shape of a node. Layout uses this to choose perimeter
-/// geometry; paint uses it (downstream) to choose glyphs.
 pub const Shape = prim.Shape;
 
-/// A discrete attachment point on a node's perimeter. `offset` is the
-/// 0-based cell index along the chosen `side`, measured from the
-/// north-or-west corner. The producing layout pass guarantees
-/// `offset < (side is north|south ? node.rect.w : node.rect.h)`.
 pub const Port = struct {
     node: NodeId,
     side: Dir4,
     offset: u32,
 };
 
-/// One placed node in the Sketch. `rect` is the bounding box of the
-/// shape's drawn perimeter; `lines` are the node's display rows — already
-/// hard-break-split and (under budget pressure) soft-wrapped — borrowed from
-/// the layout arena. The rows are the exact text painted, computed once at
-/// sizing time so box dimensions and rasterization never disagree (P1a/P1d).
 pub const NodePlacement = struct {
     id: NodeId,
     rect: Rect,
@@ -103,37 +61,22 @@ pub const NodePlacement = struct {
     cluster_id: ?ClusterId,
 };
 
-/// Frame of a cluster (subgraph). `parent_id` is null for top-level
-/// clusters; `depth` is 0 at the top level and increments with nesting.
 pub const ClusterFrame = struct {
     id: ClusterId,
     rect: Rect,
     parent_id: ?ClusterId,
     label: []const u8,
     depth: u8,
-    /// Layout direction this cluster declared via an in-body `direction`
-    /// line, or null if it inherits from its parent / the top-level graph.
     direction: ?Direction = null,
-    /// Mirrors `sem_graph.Cluster.synthetic`: an invisible packing frame
-    /// (motif/pack.zig) — sized with zero pad at stitch and skipped by the
-    /// cluster rasterizer, so it never paints.
     synthetic: bool = false,
 };
 
-/// Arrowhead style at one end of an edge. Shared with `lattice.zig` via
-/// `prim` (the cell grid may not import sketch).
 pub const ArrowKind = prim.ArrowKind;
 
-/// Stroke style of an edge. Shared with `sem_graph.zig` via `prim`.
 pub const EdgeKind = prim.EdgeKind;
 
-/// Routing intent of an edge. Carries downstream the "why" of the
-/// polyline so raster/paint don't have to re-derive it from cell geometry.
 pub const EdgeRole = prim.EdgeRole;
 
-/// One routed edge in the Sketch. `polyline` is the orthogonal (or
-/// near-orthogonal) sequence of points the edge passes through, from
-/// `from`'s port to `to`'s port inclusive. The slice has length ≥ 2.
 pub const EdgePath = struct {
     id: EdgeId,
     from: NodeId,
@@ -146,13 +89,10 @@ pub const EdgePath = struct {
     label: ?[]const u8,
     kind: EdgeKind,
     role: EdgeRole = .forward,
-    /// Set by `layout/clusters.computeBbox` when the width lever relocates a back-edge label LEFT of its own vertical run (`prim.edgeLabelAnchor`); `raster/labels` honors it. // @guarded-by: raster/labels_test.zig "vertical edge label paints at the exact prim anchor for both rail sides"
+    /// @guarded-by: raster/labels_test.zig "vertical edge label paints at the exact prim anchor for both rail sides"
     label_left_of_run: bool = false,
 };
 
-/// One tap off a fan rail: the branch serving exactly one edge of a
-/// fan. `at` lies ON the crossbar row; `landing` lies on the tap node's
-/// perimeter. The drop between them is one straight orthogonal segment.
 pub const Tap = struct {
     edge: EdgeId,
     node: NodeId,
@@ -160,42 +100,21 @@ pub const Tap = struct {
     landing: Point,
     label: ?[]const u8 = null,
     arrow: ArrowKind = .filled,
-    /// The member's ink continues past `landing` as its own
-    /// `.member_stroke` EdgePath: `landing` is then the rail's one
-    /// junction-adjacent drop cell, not a node perimeter cell, and the
-    /// member's far end (a port, or the other rail's tap) is where its
-    /// decoration lives. Set for a member whose leaf sits beyond the next
-    /// layer.
     continues: bool = false,
 };
 
-/// A first-class fan rail: ONE owned rail plus per-edge taps, instead of N
-/// overlapping sibling polylines. A `Tap.edge` here has NO `EdgePath` of
-/// its own ends in `Sketch.edges` — the rail is that end's geometry, so
-/// score accounting counts the rail once and raster owns the junction
-/// bits. A tap that `continues` is the exception's half: the member also
-/// owns a `.member_stroke` EdgePath from the tap's landing to its far end.
-/// `stem` runs from the pivot node's perimeter to the crossbar junction
-/// (>= 2 points, first point on the pivot perimeter). `crossbar` is the
-/// horizontal span, x-ordered (`crossbar[0].x <= crossbar[1].x`, equal y);
-/// it always covers the stem end and every `Tap.at`.
 pub const Rail = struct {
     pivot: NodeId,
-    /// This rail's CHANNEL: the identity of the run its taps share, stamped
-    /// from the bundle sets (`sketch_bundles.stamp`) so a raster reader
-    /// LOOKS the licence up on the rail's own ink instead of re-deriving it
-    /// from membership. `no_bundle` = not filed, never "no bundle".
     /// @guarded-by: sketch_bundles_test.zig "a stamped sketch names its rail's bundle and its bundle sets alike"
     bundle: ledger.BundleId = ledger.no_bundle,
     stem: []const Point,
     crossbar: [2]Point,
     taps: []const Tap,
     kind: EdgeKind,
-    /// Direction discriminant only: any fan-OUT role reads as OUT, any fan-IN role as IN.
     role: EdgeRole = .fan_out_dropper,
     pivot_arrow: ArrowKind = .none,
 
-    /// Segment a tap's label anchors to (off-column: junction→tap crossbar stretch; on-column: tap→landing drop); shared by bbox reservation and rasterization. // @guarded-by: raster/labels_test.zig "rail tap labels paint at the tapLabelSeg-predicted segment for off-column and on-column taps"
+    /// @guarded-by: raster/labels_test.zig "rail tap labels paint at the tapLabelSeg-predicted segment for off-column and on-column taps"
     pub fn tapLabelSeg(self: Rail, tap: Tap) [2]Point {
         const junction = self.stem[self.stem.len - 1];
         if (tap.at.x != junction.x) {
@@ -205,94 +124,49 @@ pub const Rail = struct {
     }
 };
 
-/// State of the WidthBudget ladder at the time this Sketch was
-/// produced. `rung` ranges 0..4:
-///   0 = natural,
-///   1 = tight,
-///   2 = wrap_labels,
-///   3 = switch_direction,
-///   4 = truncate (terminating).
 pub const WidthBudget = struct {
     max_width: u32,
     rung: u8,
 };
 
-/// Structured diagnostic emitted by layout and consumed by the budget
-/// ladder and downstream rasterization. Tagged-union shape lets each
-/// variant carry exactly the data its consumer needs.
 pub const Diagnostic = union(enum) {
-    /// Layout could not fit within `WidthBudget.max_width`. `excess` is
-    /// the number of columns over budget; `in_cluster` localizes the
-    /// overflow when possible.
     width_overflow: struct {
         excess: u32,
         in_cluster: ?ClusterId,
     },
-    /// A node label was shortened (e.g. with an ellipsis) to fit.
     label_truncated: struct {
         node: NodeId,
         original_len: u32,
     },
-    /// A node label was wrapped onto extra lines to fit.
     forced_label_wrap: struct {
         node: NodeId,
     },
-    /// Total number of edge crossings in the routed Sketch.
     crossing_count: u32,
-    /// Bridge-jog track coordinates surrendered by the bounded border-
-    /// clearance search (`cluster/tracks.zig`): each counted coordinate may
-    /// still run along a drawn cluster-frame border. Declared degradation
-    /// (honest degradation), never a cleared coordinate.
     track_clearance_expired: u32,
 };
 
-/// Outcome of the latest all-or-nothing bundle payload stamp.
 pub const BundleStampState = enum { unattempted, complete, out_of_memory, rail_invariant };
 
-/// Top-level geometric IR. All slices are borrowed from the layout
-/// arena; `bbox` encloses every `NodePlacement.rect`,
-/// `ClusterFrame.rect`, and every point of every `EdgePath.polyline`.
 pub const Sketch = struct {
     bbox: Rect,
     direction: Direction,
     nodes: []const NodePlacement,
     clusters: []const ClusterFrame,
     edges: []const EdgePath,
-    /// First-class fan rails. Edges represented by a rail tap do NOT
-    /// appear in `edges`. Defaulted empty so hand-built Sketches (tests)
-    /// and pre-rail-aware code stay source-compatible.
     rails: []const Rail = &.{},
     rail_claims: []const ledger.RailClaim = &.{},
-    /// Candidate-local branch realization envelope. // @guarded-by: entry.zig "V-D-IR-07: a clustered graph's bundles ride piece plans; the root plan stays skipped"
+    /// @guarded-by: entry.zig "V-D-IR-07: a clustered graph's bundles ride piece plans; the root plan stays skipped"
     bundles: ledger.RealizedBundles = .{},
-    /// Report-only closure-licence inventory for this candidate (never a layout input).
     closure: ledger.ClosureCounts = .{},
-    /// Report-only row account of every inter-rank gap (never a layout input).
     gap_rows: []const ledger.GapRows = &.{},
-    /// Bundle membership and, after `sketch_bundles.stamp`, this render's
-    /// numbered bundle sets. Layout fills it from live fans (or from the
-    /// piece plan on a clustered piece) plus the port shares read off the
-    /// final polylines; stitch rewrites child sets into the merged id space.
-    /// Members use the Sketch's global edge-id space.
     bundle_sets: []const ledger.Bundle = &.{},
-    /// Only `.complete` authorizes the stamped bundle and rail identities.
     bundle_stamp_state: BundleStampState = .unattempted,
     diagnostics: []const Diagnostic,
     budget: WidthBudget,
 };
 
-// -- Straight-run clearance (touch semantics) ---------------------------------
-//
-// Shared by the layout AND cluster zones (both may import sketch.zig; the
-// linter forbids cluster/ → layout/, which is why these live here and not in
-// layout/routing_polyline.zig). "Touch" means border cells count as occupied:
-// raster cell ownership includes borders, so an edge run along a foreign
-// border row/column loses its cells at raster time even though the
-// strict-interior validator stays silent
-// (@guarded-by: layout/validate_test.zig "edge through node interior flagged").
+// @guarded-by: layout/validate_test.zig "edge through node interior flagged").
 
-/// True iff a straight run at cross position `c` over `[lo, hi]` touches
-/// ANY cell of `r` (borders included).
 pub fn lineTouchesRect(horizontal: bool, c: i32, lo: i32, hi: i32, r: Rect) bool {
     if (horizontal) {
         if (c < r.y or c >= r.bottom()) return false;
@@ -303,8 +177,6 @@ pub fn lineTouchesRect(horizontal: bool, c: i32, lo: i32, hi: i32, r: Rect) bool
     }
 }
 
-/// True iff the run touches any placement other than the two excluded
-/// endpoint nodes.
 pub fn lineTouchesAny(
     horizontal: bool,
     c: i32,
@@ -321,7 +193,6 @@ pub fn lineTouchesAny(
     return false;
 }
 
-/// Column/row conveniences for call-site readability.
 pub fn columnTouchesAny(x: i32, y_top: i32, y_bot: i32, placements: []const NodePlacement, skip_a: NodeId, skip_b: NodeId) bool {
     return lineTouchesAny(false, x, y_top, y_bot, placements, skip_a, skip_b);
 }
@@ -329,25 +200,14 @@ pub fn rowTouchesAny(y: i32, x_left: i32, x_right: i32, placements: []const Node
     return lineTouchesAny(true, y, x_left, x_right, placements, skip_a, skip_b);
 }
 
-/// How far `clearLine` searches for a margined line before settling for merely touch-free (a lane flush against a box border reads as crowding). // @guarded-by: raster/labels_test.zig "clearLine settles for touch-free line at the MARGIN_BOUND boundary rather than searching further for a margined one"
+/// @guarded-by: raster/labels_test.zig "clearLine settles for touch-free line at the MARGIN_BOUND boundary rather than searching further for a margined one"
 const MARGIN_BOUND: i32 = 24;
 
 pub const ClearLineOpts = struct {
-    /// Prefer a line whose both cross-axis neighbours are ALSO clear
-    /// (1-cell visual gap), falling back to plain touch-free.
     margin: bool = false,
-    /// When set, try the side toward this cross position first at each
-    /// distance, and do NOT test `want` itself (the caller knows it is
-    /// blocked). Used by back-edge stub jogs so a jogged stub shortens the
-    /// rail rather than lengthening it.
     toward: ?i32 = null,
 };
 
-/// Outward search from `want` for the nearest clear straight run. Single
-/// sweep: while hunting for a margined line it remembers the nearest plain
-/// touch-free line, so a margin miss costs no second window walk. Returns
-/// `want` itself when nothing within the search bound is clear (caller
-/// falls back to its pre-clearance geometry).
 pub fn clearLine(
     horizontal: bool,
     want: i32,
@@ -387,12 +247,6 @@ pub fn clearLine(
     return plain orelse want;
 }
 
-/// First cross position at/after `start` whose perpendicular hop over
-/// `[hop_lo, hop_hi]` is clear,
-/// with the stub-line cells walked so far also clear. The walk tests only
-/// the newly entered stub cell each step (the blocked predicate is monotone
-/// in the span). Null when the stub line is blocked before any usable hop
-/// position (caller falls back to its straight geometry).
 pub fn hopPos(
     horizontal: bool,
     stub: i32,

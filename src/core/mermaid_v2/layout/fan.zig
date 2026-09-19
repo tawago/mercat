@@ -1,7 +1,3 @@
-//! Unified decision-fan layout: fan-OUT and fan-IN share one rail row with
-//! descent/ascent polylines. The row ledger (`gap_rows.zig`) claims the
-//! inter-layer rows a fan's run needs.
-
 const std = @import("std");
 const prim = @import("prim");
 const sg = @import("../sem_graph.zig");
@@ -13,72 +9,31 @@ const fan_grid = @import("fan_grid.zig");
 
 pub const Direction = enum { out, in };
 
-/// Positional role of a peer within its fan.
 pub const ChildRole = enum {
-    /// Left-most peer. Owns the outer rail corner.
     leftmost,
-    /// Right-most peer. Owns the outer rail corner.
     rightmost,
-    /// Middle peer whose column ≠ pivot column.
     middle,
-    /// Middle peer whose column == pivot column.
     center,
 };
 
 pub const FanEdge = struct {
     edge_id: sg.EdgeId,
-    /// Index into lg.nodes of the peer node (child for fan-OUT, source
-    /// for fan-IN).
     peer_idx: u32,
     role: ChildRole,
-    /// Per-member rail lane for unrealized groups; zero preserves merged ink.
     lane: u32 = 0,
-    /// False when the construction gate retained the edge only as private ink.
     shared: bool = true,
-    /// Display columns in this member's non-empty label; zero means unlabeled.
     label_width: u32 = 0,
-    /// The peer sits beyond the next layer: `peer_idx` names the member's
-    /// first virtual node (the corridor cell the tap descends into), and
-    /// the leaf is the edge's far end. The rail owns one drop cell; the
-    /// member's own `.member_stroke` carries the rest.
     long: bool = false,
 };
 
 pub const Fan = struct {
     direction: Direction,
     pivot: sg.NodeId = 0,
-    /// Index into lg.nodes of the pivot (source for fan-OUT, target for
-    /// fan-IN). Always a real node and always names `pivot`.
     pivot_idx: u32,
-    /// Layer index where the SOURCES sit. The rail row lives in the gap
-    /// between `source_layer` and `source_layer + 1`.
     source_layer: u32,
-    /// Peer edges, in left-to-right order after `assignRoles`.
     peers: []FanEdge,
-    /// Number of stacked child rows. 1 = the classic single-row fan
-    /// (rail row + one child layer). >1 means a wide fan-OUT was wrapped
-    /// into a grid by `wrapWideFanOut` because a single row would exceed
-    /// the width budget; each child then carries its own short rail at
-    /// its grid row (see buildPolyline's grid branch). Only fan-OUT
-    /// wraps; fan-IN keeps rows == 1.
     rows: u32 = 1,
-    /// Run class within its inter-layer gap, 0 = the classic shared run.
-    /// Assigned by `fan_lanes.assignLanes`: a fan whose rail would fuse with a
-    /// neighbouring fan's into a TWO-SIDED run — one run standing for a pivot
-    /// none of its members shares — takes its own class so every declared
-    /// edge stays traceable; the row ledger (`gap_rows.zig`) keeps distinct
-    /// classes on distinct rows and lets an equal class fuse. 0 for
-    /// single-rail gaps and pure fan-in/out.
     lane: u32 = 0,
-    /// True iff any member edge carries a label. A labeled fan claims a
-    /// `LABEL_RUN_EXTRA_ROWS` band beside its rail row so each labeled
-    /// member's PRIVATE vertical dropper is >= 4 cells long — flank, on-run
-    /// label row, flank, arrowhead — the DECORATED sandwich
-    /// raster/labels_onrun.zig places over (FLANKED-RESUMPTION RULE: an arrowhead is not a
-    /// flank, so the head needs its own cell below the lower flank).
-    /// The band is claimed once per fan run, however many members are
-    /// labeled: each dropper occupies its own column, so they share it.
-    /// Unlabeled fans stay byte-identical.
     /// @guarded-by: gap_rows_test.zig "a labeled fan claims its rail row and one label band; an unlabeled fan claims one row"
     /// @guarded-by: gap_rows_test.zig "a fan-OUT with three labeled members claims the same rows as one with a single labeled member"
     labeled: bool = false,
@@ -89,31 +44,12 @@ pub const Fan = struct {
 
 const PreparedPeers = struct { peers: []FanEdge, deco_mixed: bool = false, style_mixed: bool = false, star_violation: bool = false };
 
-/// The run a member's ink belongs to within the fan's gap: members of one
-/// class paint one run, and the row ledger gives each class its row, so
-/// any grouping of peers into shared-rail sets keys on this value. Sole
-/// partition authority (single authority); a partition keyed on
-/// `peer.lane` or `f.lane` alone is a re-derivation.
 pub fn effectiveLane(f: Fan, peer_lane: u32) u32 {
     return @max(f.lane, peer_lane);
 }
 
-/// Extra gap rows a LABELED fan claims beyond its rail row: the decorated
-/// on-run sandwich needs a 4-cell private dropper (flank, label, flank,
-/// head) where the classic gap yields 1. Claimed ONCE per run, not once per
-/// labeled member: every member's dropper stands on its own column, so all
-/// of them share the one band.
 pub const LABEL_RUN_EXTRA_ROWS: u32 = 3;
 
-/// Detect every fan in the layered graph (both fan-OUT and fan-IN).
-/// A node qualifies as a fan-OUT pivot iff it has ≥2 outgoing forward
-/// edges; a peer on the immediately-next layer taps the rail directly, a
-/// peer reached through a virtual node is a `long` member (the licence
-/// reads only the declared graph — distance on the page is not an input).
-/// A long member's label rides its own member stroke, not its one-cell
-/// drop, so a fan counts it as unlabeled (no label rows reserved for it)
-/// and keeps it, labeled or not. Symmetric criterion for fan-IN. Returned
-/// slice and inner `peers` slices are arena-allocated via `a`.
 pub fn detect(
     a: std.mem.Allocator,
     graph: sg.SemGraph,
@@ -128,7 +64,7 @@ pub fn detect(
 
     var fans: std.ArrayListUnmanaged(Fan) = .empty;
 
-    // Two-pass to preserve fan-OUT-then-fan-IN ordering. @guarded-by: fan_test.zig "detect distinguishes fan-OUT and fan-IN in the same graph"
+    // @guarded-by: fan_test.zig "detect distinguishes fan-OUT and fan-IN in the same graph"
     var pivot: u32 = 0;
     while (pivot < lg.nodes.len) : (pivot += 1) {
         const pivot_id = switch (lg.nodes[pivot]) {
@@ -188,7 +124,6 @@ fn assertPivotConsistency(f: Fan, lg: sugiyama.LayeredGraph) void {
     }
 }
 
-/// True iff any peer's semantic edge carries a non-empty label.
 fn anyPeerLabeled(graph: sg.SemGraph, peers: []const FanEdge) bool {
     for (peers) |p| {
         if (p.long) continue;
@@ -197,7 +132,6 @@ fn anyPeerLabeled(graph: sg.SemGraph, peers: []const FanEdge) bool {
     return false;
 }
 
-/// The non-empty semantic label of edge `edge_id`, or null.
 fn peerLabel(graph: sg.SemGraph, edge_id: u32) ?[]const u8 {
     for (graph.edges) |e| {
         if (e.id != edge_id) continue;
@@ -209,33 +143,16 @@ fn peerLabel(graph: sg.SemGraph, edge_id: u32) ?[]const u8 {
     return null;
 }
 
-/// Refresh per-member label display widths before row reservation and flag
-/// each fan that carries at least one. Width pressure is explicit in the bbox
-/// diagnostic; it never licenses silent label loss, so no width is refused here.
 pub fn refreshLabelWidths(graph: sg.SemGraph, fans: []Fan) void {
     for (fans) |*f| {
         f.labeled = false;
         for (f.peers) |*p| {
-            // A long member's label rides its own stroke, never a tap.
             p.label_width = if (p.long) 0 else if (peerLabel(graph, p.edge_id)) |label| prim.displayWidth(label) else 0;
             if (p.label_width != 0) f.labeled = true;
         }
     }
 }
 
-/// On-run tap labels of a fan-IN all share the ONE band row the gap reserves
-/// above the crossbar, each centered on its member's own dropper column. A
-/// label is feasible there only when its span clears every sibling dropper
-/// column (span emptiness + foreign-ink margin) and every sibling label's
-/// text by >= 2 blanks — the layout-time mirror of the constraints
-/// raster/labels_onrun.zig enforces (OWN-INK RULE span emptiness, ISOLATION LAW
-/// isolation), judged conservatively on placed x centers. The constants here
-/// MIRROR raster/labels_onrun.zig's OWN-INK RULE / ISOLATION LAW and can drift from them;
-/// drift degrades to counted displacement via the labels_edge ladder, never
-/// to a lost label or a re-decided sharing question. An infeasible fan
-/// reverts its labeled members to private routes (the pre-rail behavior),
-/// so no label is ever silently lost to an on-run refusal with no lateral
-/// room left for the fallback ladder.
 pub fn gateFanInSharedLabels(comptime G: type, fans: []Fan, geom: []const G) void {
     for (fans) |*f| {
         if (f.direction != .in) continue;
@@ -256,9 +173,6 @@ pub fn gateFanInSharedLabels(comptime G: type, fans: []Fan, geom: []const G) voi
                     if (!(right + 3 <= q_left or q_right + 3 <= left)) infeasible = true;
                 } else if (left - 2 < qx and qx < right + 2) infeasible = true;
             }
-            // Another fan's drops and stem in the same gap are foreign ink to
-            // this label just as a sibling's are; the raster's OWN-INK RULE
-            // does not care whose rail the ink belongs to.
             // @guarded-by: fan_test.zig "a fan-in tap label crowded by a neighbouring fan's drop unshares"
             for (fans) |g| {
                 if (g.source_layer != f.source_layer or g.pivot_idx == f.pivot_idx) continue;
@@ -384,9 +298,6 @@ fn wrapGated(comptime G: type, direction: Direction, fans: []Fan, geom: []G, bud
     }
 }
 
-/// Fill in peer roles based on each peer's center x. Must be called
-/// AFTER coords.assignInitialX / centerByBarycenter / normalizeX but
-/// BEFORE applyDirection.
 pub fn assignRoles(fans: []Fan, center_x: []const i32) void {
     for (fans) |*f| {
         const Ctx = struct {
@@ -422,8 +333,6 @@ pub const LookupHit = struct {
     peer: *const FanEdge,
 };
 
-/// Find the fan/peer matching `edge_id`. Returns null if not part of
-/// any detected fan.
 pub fn lookup(fans: []const Fan, edge_id: sg.EdgeId) ?LookupHit {
     for (fans) |*f| {
         for (f.peers) |*p| {
@@ -433,21 +342,6 @@ pub fn lookup(fans: []const Fan, edge_id: sg.EdgeId) ?LookupHit {
     return null;
 }
 
-/// The bundle sets the detected fans authorize: one per group of peers
-/// sharing a rail lane (`effectiveLane` — the row the ink occupies), in fan
-/// order then peer order.
-///
-/// Peers on one effective lane paint one shared rail run, so their ink
-/// sharing is a structural consequence of the fan, not an accident of
-/// routing — exactly the sharing a crossing law must not read as a
-/// fabricated junction. A lane holding a single peer is no set: that peer
-/// shares with nobody.
-///
-/// `peer.lane` is the per-member lane `fan_lanes.assignLanes` hands out when
-/// a carve-out leaves a group unrealized, and stays 0 everywhere else — so
-/// the ordinary result is one set per fan holding all of its peers, which is
-/// what a clustered render (empty realized plan, no per-member lanes) always
-/// gets. Members are edge ids in the caller's own id space.
 /// @guarded-by: fan_test.zig "bundles group a fan's peers by rail lane"
 pub fn coSets(
     a: std.mem.Allocator,
@@ -481,9 +375,6 @@ pub fn coSets(
     return out.toOwnedSlice(a);
 }
 
-/// Returns the source-centroid x for a node iff it satisfies the fan-IN
-/// criterion. Caller (layout.zig::centerByBarycenter) uses this as the
-/// desired-x override during initial centering.
 pub fn fanInCentroid(
     comptime G: type,
     geom: []const G,

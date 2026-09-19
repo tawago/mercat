@@ -15,8 +15,6 @@ fn rawOf(graph: anytype, id: u32) []const u8 {
     unreachable;
 }
 
-/// The identity keys ("from->to" node raw_ids, in committed member order) of
-/// the fan-IN rail at node `D`, or empty when there is no such rail.
 fn railKeysAtD(a: std.mem.Allocator, source: []const u8) ![]const []const u8 {
     const graph = try parse(a, source);
     const plan = (try permits.build(a, graph, .joined)).plan;
@@ -152,11 +150,6 @@ test "a fully declared leaf clique keeps the rail and co-realizes its pair edges
 }
 
 test "a labeled or decorated declaration cannot back a leaf pair" {
-    // Z's arrival rail needs A—B as a bare backer and is refused in every
-    // shape. In the first, A's departure rail {A—Z, A—B(labeled)} is a
-    // separate candidate: its own pair Z—B is backed by the bare B—Z, so it
-    // keeps and discharges B—Z — a labeled MEMBER is fine, a labeled BACKER
-    // is not. The other two shapes mix decoration or kind at A, so no rail.
     const sources = [_][]const u8{
         "flowchart TD\n  A --- Z\n  B --- Z\n  A -- why --- B\n",
         "flowchart TD\n  A --- Z\n  B --- Z\n  A --> B\n",
@@ -253,9 +246,6 @@ test "two rails asserting one declared pair both refuse" {
 
     try std.testing.expectEqual(@as(usize, 0), bundles.selected_bundles.len);
     try std.testing.expectEqual(@as(usize, 0), bundles.discharged.len);
-    // Four: Z's and W's arrival rails refuse each other over A—B, and the
-    // two departure candidates carry their own verdicts now that every
-    // candidate is judged — A's salvages (Z—W undeclared), B's refuses.
     try std.testing.expectEqual(@as(u32, 4), report.rail_closure_undeclared);
     for ([_][2][]const u8{ .{ "A", "Z" }, .{ "B", "Z" }, .{ "A", "W" }, .{ "B", "W" } }) |pair| {
         const t = targetOf(bundles, edgeIdOf(graph, pair[0], pair[1])).?;
@@ -272,8 +262,6 @@ test "one rail's pair survives when no second rail asserts it" {
     var report: bundle_commit.Report = .{};
     const bundles = try bundle_commit.buildReported(a, graph, &plan, &.{}, &.{}, &report);
 
-    // One: A's departure candidate {A—Z, A—W, A—B} salvages (Z—W is
-    // undeclared) before its near member A—Z yields to Z's arrival rail.
     try std.testing.expectEqual(@as(u32, 1), report.rail_closure_undeclared);
     try std.testing.expectEqual(@as(usize, 1), bundles.selected_bundles.len);
     try std.testing.expectEqual(@as(usize, 1), bundles.discharged.len);
@@ -290,8 +278,6 @@ test "a salvaged rail that then loses its pair is one refusal, not two" {
 
     try std.testing.expectEqual(@as(usize, 0), bundles.selected_bundles.len);
     try std.testing.expectEqual(@as(usize, 0), bundles.discharged.len);
-    // Z salvages once and is not counted again when it loses A—B to W; W
-    // counts once. The departure candidates add their own two verdicts.
     try std.testing.expectEqual(@as(u32, 4), report.rail_closure_undeclared);
 }
 
@@ -365,9 +351,6 @@ test "a near member selected at both ends keeps its arrival rail, a long member 
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
-    // A --> C is a member of A's departure {A->B, A->C} and of C's arrival
-    // {A->C, B->C}. Near (no long edge named): the arrival keeps it and A's
-    // departure, left with one member, builds no rail.
     const graph = try parse(a, "flowchart TD\n  A --> B\n  A --> C\n  B --> C\n");
     const plan = (try permits.build(a, graph, .joined)).plan;
     const near = try bundle_commit.buildReported(a, graph, &plan, &.{}, &.{}, null);
@@ -376,7 +359,6 @@ test "a near member selected at both ends keeps its arrival rail, a long member 
     try std.testing.expect(targetOf(near, ac).?.? == .selected);
     for (near.memberships) |rm| if (rm.edge == ac) try std.testing.expect(rm.source.? == .independent);
 
-    // Long (A --> C spans two layers): both memberships stay selected.
     const long = [_]u32{ac};
     const both = try bundle_commit.buildReported(a, graph, &plan, &.{}, &long, null);
     try std.testing.expectEqual(@as(usize, 2), both.selected_bundles.len);

@@ -144,7 +144,6 @@ test "a discharged edge claims no attachment" {
     const kept = try port_plan.withoutDischarged(a, all, discharged);
     try std.testing.expect(kept.len < all.len);
     for (kept) |item| try std.testing.expect((item.attachment.edge orelse 99) != 2);
-
 }
 
 test "duplicate private claims receive stable distinct source and target slots" {
@@ -211,9 +210,6 @@ test "labelled duplicate plus distinct leaf keeps the duplicate private and rail
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
-    // Two "dup" edges S->A share a key, so A's arrival cannot rail. S's
-    // departure keeps one of them plus S->B (a rail never holds two members
-    // with one leaf); the other S->A stays a private terminal at both ends.
     const nodes = [_]sg.Node{ node(0, "S"), node(1, "A"), node(2, "B") };
     var edges = [_]sg.Edge{ edge(0, 1, .solid), edge(1, 1, .solid), edge(2, 2, .solid) };
     edges[0].label = "dup";
@@ -264,8 +260,6 @@ test "a fan with a long peer the plan did not select degrades to private routing
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
-    // A's fan-out mixes strokes (solid to B, thick to C), so the plan refuses
-    // it; C sits two layers down, so A's fan holds a long peer.
     const nodes = [_]sg.Node{ node(0, "A"), node(1, "B"), node(2, "C") };
     const edges = [_]sg.Edge{
         edge(0, 1, .solid),
@@ -312,9 +306,6 @@ test "a decorated long fan-in member's stroke leaves its departure cell straight
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
-    // C's fan-in {B <-- C, A <-- C} carries its heads at the leaves; A <-- C
-    // is long (A on layer 0, C on layer 2) and decorated at its private
-    // source, so its stroke's first turn sits two rows below A.
     const nodes = [_]sg.Node{ node(0, "A"), node(1, "B"), node(2, "C") };
     const edges = [_]sg.Edge{
         edge(0, 1, .solid),
@@ -332,8 +323,6 @@ test "a long fan-out member gets a rail tap and a member stroke to its far port"
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
-    // A's departure {A->B, A->C(long)} rails; C's arrival {A->C, B->C} rails
-    // too, so A->C is a member at both ends and its stroke runs rail to rail.
     const nodes = [_]sg.Node{ node(0, "A"), node(1, "B"), node(2, "C") };
     const edges = [_]sg.Edge{
         edge(0, 1, .solid),

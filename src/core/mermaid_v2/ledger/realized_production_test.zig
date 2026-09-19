@@ -1,5 +1,3 @@
-//! Step 7 production-path structural vectors for mixed fan-in/fan-out cases.
-
 const std = @import("std");
 const parse = @import("../parse.zig").parse;
 const permits = @import("permits.zig");
@@ -167,7 +165,6 @@ test "V-D-PORT-16: incomplete 2x2 arrival re-merges the pure fan-in, overlap con
     try std.testing.expectEqual(pb.BundleDirection.in, plan.groups[sel_gi].direction);
     try std.testing.expectEqual(nodeId(graph, "T2"), plan.groups[sel_gi].pivot);
 
-
     const dual = rmByEdge(bundles, edgeId(graph, "S1", "T2"));
     try std.testing.expect(dual.target.? == .selected);
     try std.testing.expect(dual.source.? == .independent);
@@ -254,8 +251,6 @@ fn finishPlain(a: std.mem.Allocator, s: anytype) !Plain {
     };
 }
 
-/// Render a source end-to-end (select → raster → paint) and return the plain
-/// grid plus the winning candidate's plan.
 fn renderPlain(a: std.mem.Allocator, source: []const u8, width: u32) !Plain {
     const graph = try parse(a, source);
     const plan = (try permits.build(a, graph, .joined)).plan;
@@ -263,10 +258,6 @@ fn renderPlain(a: std.mem.Allocator, source: []const u8, width: u32) !Plain {
     return finishPlain(a, winner.sketch);
 }
 
-/// Render ONE candidate of the live set — the first on the source's
-/// `switch_direction` rung, carrying the plan its layout committed — so a
-/// test can pin what a layout produces on that candidate without pinning
-/// the score's choice.
 fn renderRotated(a: std.mem.Allocator, source: []const u8, width: u32) !Plain {
     const graph = try parse(a, source);
     const plan = (try permits.build(a, graph, .joined)).plan;
@@ -278,9 +269,6 @@ fn renderRotated(a: std.mem.Allocator, source: []const u8, width: u32) !Plain {
     return error.NoRotatedCandidate;
 }
 
-/// Count how many of `grid`'s rows carry at least one horizontal run glyph —
-/// a shared crossbar occupies ONE such row, unfused private lanes occupy one
-/// each.
 fn rowsWithInk(grid: []const u8, glyph: []const u8) usize {
     var n: usize = 0;
     var it = std.mem.splitScalar(u8, grid, '\n');
@@ -301,13 +289,6 @@ test "an undeclared all-arrow-free fan unfuses; a declared clique keeps the rail
     try std.testing.expectEqual(@as(usize, 3), refused.routed.len);
     try std.testing.expect(std.mem.indexOf(u8, refused.grid, "┼") == null);
 
-    // Both candidates are judged: A's departure {A—Z, A—B} (Z is a long
-    // member of it) claims first by rank and discharges B—Z; Z's arrival,
-    // left with one member, subordinates. A's rail ships with A—B tapped
-    // and A—Z as the member stroke, so one edge is routed. Pinned on the
-    // rotated (TD) candidate of the LR source: which candidate the score
-    // picks is not this test's subject, and the row ledger made the natural
-    // LR candidate narrow enough to win at this width.
     const kept = try renderRotated(a, "flowchart LR\n  A --- Z\n  B --- Z\n  A --- B\n", 70);
     try std.testing.expectEqual(@as(usize, 1), kept.bundles.discharged.len);
     try std.testing.expectEqual(@as(usize, 1), kept.routed.len);

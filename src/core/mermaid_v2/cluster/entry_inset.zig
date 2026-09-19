@@ -1,31 +1,10 @@
-//! cluster/entry_inset.zig — the shared "entry-side frame inset" predicate.
-//!
-//! An edge arriving from outside a cluster at one of its FIRST-LAYER members
-//! lands its arrowhead one cell inside the frame; without a straight approach
-//! cell the arrowhead's base is the frame stroke (or a title-band letter) — a
-//! decoration cell against a piercing cell. This module decides, purely,
-//! whether a super-node should grow one extra frame-inset cell on the side the
-//! edge enters so the arrowhead gets a collinear base. It is the SINGLE source
-//! of that decision, called from BOTH the `superSize` sizing site
-//! (`recurse.stitchOuter`) and the child-translate sites (`stitch`), so sizing
-//! and translation can never disagree. The arrivals it reads are the cut's
-//! record (`split.Arrival`), which the recursion hands down through every
-//! nesting level, so a cluster at any depth answers for its own members.
-//!
-//! Pure data work: no allocation, no drawing. Imports `sketch`, `split`, `sem_graph`.
-
 const std = @import("std");
 const sketch = @import("../sketch.zig");
 const split_mod = @import("split.zig");
 const sg = @import("../sem_graph.zig");
 
-/// Which frame side a cross-border terminal arrives on (a TD parent drops ▼
-/// onto the target's top; LR enters from the left with ▶; etc.).
 pub const EntrySide = sketch.Dir4;
 
-/// One extra frame-inset cell per side an arriving arrowhead enters through,
-/// so a terminal landing one cell inside the frame gets a straight collinear
-/// approach cell instead of sitting directly on the frame stroke.
 pub const EntryInset = struct {
     north: u32 = 0,
     south: u32 = 0,
@@ -40,33 +19,20 @@ pub const EntryInset = struct {
             .west => self.west = 1,
         }
     }
-    /// Extra super-node width (east/west entry only).
     pub fn wExtra(self: EntryInset) u32 {
         return self.east + self.west;
     }
-    /// Extra super-node height (north/south entry only).
     pub fn hExtra(self: EntryInset) u32 {
         return self.north + self.south;
     }
-    /// Child x-offset when the extra inset sits on the near (west) side.
     pub fn dxExtra(self: EntryInset) i32 {
         return @intCast(self.west);
     }
-    /// Child y-offset when the extra inset sits on the near (north) side.
     pub fn dyExtra(self: EntryInset) i32 {
         return @intCast(self.north);
     }
 };
 
-/// Decide which sides of super-node `super` need an extra frame-inset cell.
-/// A side is raised iff some arrival through it lands on a FIRST-LAYER DIRECT
-/// member of this cluster. A target inside a NESTED sub-cluster carries a
-/// non-null `cluster_id` in the child sketch → excluded here (the edge only
-/// passes THROUGH this frame; the sub-cluster's own cut inherits the arrival
-/// and answers for it). A target wrapped only in a chrome-free synthetic
-/// packing cluster is a fan branch whose splitter absorbs the row without
-/// yielding a straight base, so excluding it is correct too. Synthetic packing
-/// supers have no frame → never charged.
 pub fn entryArrivalInset(
     arrivals: []const split_mod.Arrival,
     super: split_mod.SuperNode,
@@ -86,8 +52,6 @@ pub fn entryArrivalInset(
     return out;
 }
 
-/// True if `rect` sits on the entry-side extreme (the first layer) among all
-/// child nodes — no node is further toward the entry side.
 fn isEntryLayer(s: sketch.Sketch, rect: sketch.Rect, side: EntrySide) bool {
     for (s.nodes) |n| {
         switch (side) {

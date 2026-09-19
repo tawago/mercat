@@ -1,8 +1,3 @@
-//! Unit tests for ledger.zig (P2v Step 1 vectors). Aggregated into the
-//! test build from entry.zig's `test {}` block — NOT imported by
-//! ledger.zig itself — so the module keeps D-IR item 1's literal
-//! `&.{}` lint allowlist.
-
 const std = @import("std");
 const prim = @import("prim");
 const pb = @import("ledger.zig");
@@ -268,8 +263,6 @@ test "a pairwise-scoped set licenses only a pair's own common approach, never a 
     try expect(pb.bundleMembersAt(sets, 0, 2, .{ .x = 5, .y = 3 }));
     try expect(pb.bundleMembersAt(sets, 1, 2, .{ .x = 5, .y = 3 }));
 
-    // The same scoping asked of ONE member by the set's name: edge 0 reached
-    // (5, 8) with a partner, edge 2 never did.
     try expect(pb.memberOfBundleAt(sets, 1, 0, .{ .x = 5, .y = 8 }));
     try expect(!pb.memberOfBundleAt(sets, 1, 2, .{ .x = 5, .y = 8 }));
 }
@@ -289,7 +282,6 @@ test "a numbered bundle set names every set exactly once" {
     try expectEqual(@as(pb.BundleId, 1), bundle_sets[0].bundle);
     try expectEqual(@as(pb.BundleId, 2), bundle_sets[1].bundle);
 
-    // Each name holds its own members and nobody else's.
     try expect(pb.memberOfBundleAt(bundle_sets, 1, 0, null));
     try expect(pb.memberOfBundleAt(bundle_sets, 1, 1, null));
     try expect(pb.memberOfBundleAt(bundle_sets, 2, 3, null));
@@ -298,14 +290,10 @@ test "a numbered bundle set names every set exactly once" {
     try expect(pb.bundleMembersAt(bundle_sets, 0, 1, null));
     try expect(!pb.bundleMembersAt(bundle_sets, 1, 2, null));
 
-    // An edge no set names is on no bundle at all, and two such edges share
-    // nothing with each other.
     try expect(!pb.memberOfBundleAt(bundle_sets, 1, 9, null));
     try expect(!pb.memberOfBundleAt(bundle_sets, 2, 9, null));
     try expect(!pb.bundleMembersAt(bundle_sets, 9, 8, null));
 
-    // An unstamped set carries no name, so no name reaches its members and
-    // two declared bundle-mates read as strangers.
     const blank = [_]pb.Bundle{.{ .origin = .fan_rail, .members = &a }};
     try expect(!pb.memberOfBundleAt(&blank, 1, 0, null));
     try expect(!pb.memberOfBundleAt(&blank, pb.no_bundle, 0, null));
@@ -339,10 +327,6 @@ test "structural set resolution is unique and excludes scoped provenance" {
 }
 
 test "a bundle asked by name holds its member on every cell, whichever set names the edge first" {
-    // Edge 1 is a member of two structural sets: the fan-out {0, 1} stamped
-    // first and the fan-in {1, 2} stamped second (rail membership at both
-    // ends). Both license everywhere, so no position can tell the two apart;
-    // asked by NAME, each set holds it.
     const fan_out = [_]pb.EdgeId{ 0, 1 };
     const fan_in = [_]pb.EdgeId{ 1, 2 };
     const raw = [_]pb.Bundle{
@@ -358,13 +342,10 @@ test "a bundle asked by name holds its member on every cell, whichever set names
     try expect(pb.memberOfBundleAt(sets, 2, 2, here));
     try expect(!pb.memberOfBundleAt(sets, 1, 2, here));
     try expect(!pb.memberOfBundleAt(sets, 2, 0, here));
-    // A name no set carries holds nobody; so does "not filed".
     try expect(!pb.memberOfBundleAt(sets, 3, 1, here));
     try expect(!pb.memberOfBundleAt(sets, pb.no_bundle, 1, here));
-    // An unnumbered list names nothing, so nothing is a member of anything.
     try expect(!pb.memberOfBundleAt(&raw, 1, 1, here));
 
-    // A cell-scoped set holds its member only on its own cells.
     const cells = [_]pb.BundleCell{.{ .x = 2, .y = 2 }};
     const scoped_raw = [_]pb.Bundle{.{ .origin = .port_share, .members = &fan_out, .cells = &cells }};
     const scoped = try pb.numberBundles(std.testing.allocator, &scoped_raw);

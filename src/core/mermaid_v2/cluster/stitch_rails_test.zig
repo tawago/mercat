@@ -1,5 +1,3 @@
-//! RailClaim stitch transport tests, imported by stitch_rails.zig.
-
 const std = @import("std");
 const sketch = @import("../sketch.zig");
 const sg = @import("../sem_graph.zig");

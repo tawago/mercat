@@ -1,10 +1,3 @@
-//! ports_test.zig — unit vectors for the pure D-PORT allocator (P2v Step
-//! 5): V-D-PORT-02 (allocator half), -03, -04, -06 (allocator half), -09
-//! (unit half), -10, -11, -12 (unit half), clause-6 K-ordering vectors,
-//! the clause-14 post-allocation check, and the clause-9 sizing helper.
-//! Aggregated from entry.zig's test block (ports.zig has no production
-//! call site until Step 7).
-
 const std = @import("std");
 const ports = @import("ports.zig");
 const pb = @import("../base/ledger.zig");
@@ -23,8 +16,6 @@ fn mkGraph(direction: sg.Direction, nodes: []const sg.Node, edges: []const sg.Ed
     return .{ .direction = direction, .nodes = nodes, .edges = edges, .clusters = &.{}, .classes = &.{}, .arena = null };
 }
 
-/// Independent solid no-label attachment (kind/arrow ordinals from the
-/// pinned tables: solid=0, none=0, filled=2).
 fn att(opposite: []const u8, es: pb.EndpointSide, edge_id: u32, center: i32) ports.Attachment {
     return .{
         .key = .{ .opposite = opposite, .endpoint_side = es, .kind = 0, .arrow_from = 0, .arrow_to = 2, .label = null },

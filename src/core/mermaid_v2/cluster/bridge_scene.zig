@@ -1,8 +1,3 @@
-//! cluster/bridge_scene.zig — the merged scene's ink, derived for the
-//! bridge router (cap-forced split of bridges.zig). Heads and runs follow
-//! the three-relation rule recorded in tracks.Obstacles: heads block any
-//! transit, runs block only collinear runs, licensed shares block nothing.
-
 const std = @import("std");
 const sketch = @import("../sketch.zig");
 const tracks = @import("tracks.zig");
@@ -10,12 +5,6 @@ const corridors = @import("corridors.zig");
 
 const Pt = sketch.Point;
 
-/// Sketch-space ink already in the merged scene. Rail heads: the pivot head
-/// one step out from `stem[0]` along the stem, each decorated tap's head one
-/// step back from its landing — cell-twin of raster/rails.zig
-/// pivotHead/tapHead, which stamp exactly these cells. Edge heads sit one
-/// step back from a decorated port along the end segment. Runs: crossbars,
-/// stem legs, tap droppers, and every polyline leg.
 // @guarded-by: bridges_test.zig "sceneObstacles derives the pivot and tap head cells the raster stamps"
 pub fn sceneObstacles(
     arena: std.mem.Allocator,
@@ -62,9 +51,6 @@ pub fn sceneObstacles(
     return .{ .heads = try heads.toOwnedSlice(arena), .runs = try runs.toOwnedSlice(arena) };
 }
 
-/// File a routed polyline's ink into a growing scene: every segment as a
-/// run, plus the head cell one step back from each decorated end — the same
-/// derivation `sceneObstacles` uses for edge paths.
 pub fn commitPoly(
     arena: std.mem.Allocator,
     heads: *std.ArrayListUnmanaged(Pt),
@@ -87,10 +73,6 @@ pub fn commitPoly(
     }
 }
 
-/// File a pending bridge's TENTATIVE elbow (its current jog, already
-/// clamped) into a growing scene, so an earlier bridge's dodge sees the
-/// paths its successors are about to draw. A jogless unaligned pending
-/// (a re-route this layer cannot model) files nothing.
 pub fn tentInk(
     arena: std.mem.Allocator,
     heads: *std.ArrayListUnmanaged(Pt),
@@ -123,12 +105,6 @@ pub fn tentInk(
     try commitPoly(arena, heads, runs, buf[0..n], arrow_from, arrow_to);
 }
 
-/// Conflict count of the elbow through jog `c` against `aug` (committed +
-/// tentative scene ink), per the three-relation rule: heads conflict with
-/// any transit, runs only with collinear runs and with corner cells landing
-/// on them; perpendicular crossings are free. A jog line along a drawn
-/// frame border or through a foreign node box is never placeable (large
-/// score). Zero means clear.
 pub fn jogScore(
     start: Pt,
     end: Pt,
@@ -178,11 +154,6 @@ pub fn jogScore(
     return score;
 }
 
-/// Conflict count of one routed polyline against boxed ink the run/head
-/// scene cannot see: a segment running through a foreign node rect (touch
-/// semantics) or collinear along a drawn frame border row/column, counted
-/// per CELL — the raster's violation counters are per-cell, and a
-/// comparison metric must weigh a long fusion by its length.
 pub fn boxScore(
     poly: []const Pt,
     gf: sketch.NodeId,
@@ -215,12 +186,6 @@ pub fn boxScore(
     return score;
 }
 
-/// Conflict count of one routed polyline against the scene, per the
-/// three-relation rule: a segment collinear-overlapping a scene run (counted
-/// per overlapping CELL), an interior corner landing on scene ink, or any
-/// cell covering a scene head each count; perpendicular crossings are free.
-/// Comparison metric for whole-set routing attempts — licensed shared-start
-/// overlap counts equally in every attempt and cancels.
 pub fn polyScore(poly: []const Pt, dyn: tracks.Obstacles) u64 {
     var score: u64 = 0;
     if (poly.len < 2) return 0;
@@ -262,7 +227,6 @@ pub fn stepPt(p: Pt, d: Step) Pt {
     return .{ .x = p.x + d.x, .y = p.y + d.y };
 }
 
-/// True iff `p` is one of `cells`.
 pub fn cellIn(cells: []const Pt, p: Pt) bool {
     for (cells) |c| {
         if (c.x == p.x and c.y == p.y) return true;
@@ -270,16 +234,10 @@ pub fn cellIn(cells: []const Pt, p: Pt) bool {
     return false;
 }
 
-/// Inclusive-interval membership, order-free endpoints.
 pub fn between(v: i32, a: i32, b: i32) bool {
     return v >= @min(a, b) and v <= @max(a, b);
 }
 
-/// Obstacle-aware vertical route. Exits the source into the gap immediately
-/// below/above it (above its intra-cluster child), jogs to a column clear of
-/// every node over the run span, descends/ascends, then jogs to the target's
-/// column in the gap outside the target box and runs into the port. Degenerate
-/// (zero-length) segments collapse to the simple elbow.
 pub fn verticalCorridor(
     arena: std.mem.Allocator,
     start: sketch.Point,
@@ -294,7 +252,7 @@ pub fn verticalCorridor(
     expired: ?*u32,
 ) error{OutOfMemory}![]sketch.Point {
     const descending = (exit == .south);
-    // Gap row just past the source node — collision-free above its child. // @guarded-by: bridges_test.zig "verticalCorridor: the source-side jog row (one past the source) is collision-free above the pierced child"
+    // @guarded-by: bridges_test.zig "verticalCorridor: the source-side jog row (one past the source) is collision-free above the pierced child"
     const src_jog_y = if (descending) start.y + 1 else start.y - 1;
     const entry: sketch.Dir4 = if (descending) .north else .south;
     const tgt_want = tracks.clearOfBorders(
@@ -313,10 +271,7 @@ pub fn verticalCorridor(
 
     const lo = @min(src_jog_y, tgt_jog_y);
     const hi = @max(src_jog_y, tgt_jog_y);
-    // Prefer descending straight into the target column, sliding outward only
-    // if blocked; margined over merely touch-free (flush `││` reads as
-    // crowding) — sketch.clearLine is the shared clearance core (cluster/ may
-    // import sketch, not layout/). // @guarded-by: sketch.zig "clearLine prefers a margined line over a closer touch-free-only line"
+    // @guarded-by: sketch.zig "clearLine prefers a margined line over a closer touch-free-only line"
     const run_col = corridors.descentColumn(end.x, lo, hi, placements, from_id, to_id, clusters);
 
     var poly: std.ArrayListUnmanaged(sketch.Point) = .empty;
@@ -337,11 +292,6 @@ pub fn verticalCorridor(
     return try poly.toOwnedSlice(arena);
 }
 
-/// True iff any straight vertical segment of `poly` touches a node box
-/// (excluding the edge's own endpoints). Touch semantics — borders count —
-/// because the raster owns border cells: a bridge leg running along a
-/// foreign border column rasterizes as swallowed edge cells even though
-/// the strict-interior validator stays silent.
 pub fn polyIntrudes(
     poly: []const sketch.Point,
     placements: []const sketch.NodePlacement,
@@ -362,9 +312,6 @@ pub fn polyIntrudes(
     return false;
 }
 
-/// Clamp `want` into the open interval (lo, hi). Keeps the jog coordinate
-/// strictly between the two ports even when the preferred gap line would land
-/// on or past a port (tight box spacing).
 pub fn clampBetween(lo: i32, hi: i32, want: i32) i32 {
     if (hi - lo < 2) return lo + 1;
     if (want <= lo) return lo + 1;

@@ -1,17 +1,3 @@
-//! Tests for `fan_rail.zig`. Discovered via fan_rail.zig's top-level
-//! `test { _ = @import("fan_rail_test.zig"); }` block.
-//!
-//! "rail taps stay in sync..." moved from `fan_test.zig` (which built
-//! this fixture but was really exercising fan_rail's `Built.taps`
-//! aliasing contract through the full `coords.layout` pipeline); its
-//! `mkNode`/`mkEdge2`/`findById2`/`deinitSketch2` helpers are duplicated
-//! here (rather than moved) since fan_test.zig's OWN remaining
-//! "5-source fan-IN sink recenters..." test still uses them.
-//!
-//! "fan_rail.blocked rejects..." moved from `routing_test.zig` (which
-//! tested `fan_rail.blocked` directly, unlike the rest of that file's
-//! `coords.layout`-driven fan-rail-lift tests).
-
 const std = @import("std");
 const sg = @import("../sem_graph.zig");
 const sketch = @import("../sketch.zig");
@@ -273,7 +259,6 @@ test "a long member gets a one-cell drop whose tap continues" {
         fan_rail.nearPeer(mkEdge2(0, 0, 1), near, null, .out),
         fan_rail.nearPeer(mkEdge2(1, 0, 2), far, null, .out),
     };
-    // The far leaf's corridor sits on the next layer at column 33.
     peers[1].long = true;
     peers[1].column = 33;
     peers[1].line = 6;
@@ -290,18 +275,13 @@ test "a long member gets a one-cell drop whose tap continues" {
 }
 
 test "a long member's tap column slides off an intermediate box" {
-    // Fan-IN at pivot 0 (bottom); the long leaf 2 sits two layers up, and
-    // an intermediate box 1 covers columns 20..29 of the layer between.
     const pivot = mkPlace(0, 15, 20, 20, 3);
     const between = mkPlace(1, 20, 10, 10, 3);
     const leaf = mkPlace(2, 22, 0, 6, 3);
     const placements = [_]sketch.NodePlacement{ pivot, between, leaf };
-    // The virtual's centre 25 runs under box 1; the nearest touch-free column is 19 or 30.
     const slid = fan_rail.longColumn(25, .in, pivot, leaf, &placements);
     try testing.expect(slid == 19 or slid == 30);
-    // A centre already clear of every intermediate box stays put.
     try testing.expectEqual(@as(i32, 32), fan_rail.longColumn(32, .in, pivot, leaf, &placements));
-    // Fan-OUT reads the span the other way round (pivot above, leaf below).
     const pivot_top = mkPlace(0, 15, 0, 20, 3);
     const leaf_bottom = mkPlace(2, 22, 20, 6, 3);
     const out_placements = [_]sketch.NodePlacement{ pivot_top, between, leaf_bottom };

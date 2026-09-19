@@ -1,13 +1,3 @@
-//! Tests for routing_terminal.zig's base-approach LENGTHEN pass.
-//!
-//! `satisfyApproach` promotes a "corner-fed" terminal (a
-//! perpendicular run turning at a corner that sits directly on the
-//! arrowhead's base cell — a final leg of length exactly 2) into a formal
-//! `[corner][straight][arrow]` approach by pulling the corner back one cell,
-//! but ONLY when a clear collinear cell exists to grow into (zero-height,
-//! accept-fallback otherwise). The lookup helpers re-exported here are
-//! exercised end-to-end through `buildEdges` in routing_test.zig.
-
 const std = @import("std");
 const sg = @import("../sem_graph.zig");
 const sketch = @import("../sketch.zig");
@@ -45,11 +35,9 @@ test "terminalsStraight refuses a turn inside a decorated terminal cell at eithe
     const two_out = [_]sketch.Point{ .{ .x = 5, .y = 2 }, .{ .x = 5, .y = 4 }, .{ .x = 9, .y = 4 }, .{ .x = 9, .y = 8 } };
     try testing.expect(rt.terminalsStraight(&two_out, .{ .from = true, .to = true }));
 
-    // Collinear consecutive legs are one run: the turn is two cells out.
     const collinear = [_]sketch.Point{ .{ .x = 5, .y = 2 }, .{ .x = 5, .y = 3 }, .{ .x = 5, .y = 4 }, .{ .x = 9, .y = 4 }, .{ .x = 9, .y = 8 } };
     try testing.expect(rt.terminalsStraight(&collinear, .{ .from = true, .to = true }));
 
-    // A straight two-point route has no turn at all.
     const straight = [_]sketch.Point{ .{ .x = 5, .y = 2 }, .{ .x = 5, .y = 8 } };
     try testing.expect(rt.terminalsStraight(&straight, .{ .from = true, .to = true }));
 }

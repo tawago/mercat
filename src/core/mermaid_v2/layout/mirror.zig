@@ -1,5 +1,3 @@
-//! Sketch mirroring helpers for direction canonicalization in layout/.
-
 const std = @import("std");
 const ledger = @import("../base/ledger.zig");
 const sg = @import("../sem_graph.zig");
@@ -63,7 +61,7 @@ pub fn vertical(a: std.mem.Allocator, s: sketch.Sketch, direction: sketch.Direct
         rails[i] = rail;
         rails[i].stem = stem;
         rails[i].taps = taps;
-        // Vertical mirror keeps x order; only the shared rail row moves. // @guarded-by: mirror.zig "vertical mirror preserves rail tap x-order; only the rail row shifts"
+        // @guarded-by: mirror.zig "vertical mirror preserves rail tap x-order; only the rail row shifts"
         rails[i].crossbar = .{ mirrorPoint(s.bbox, rail.crossbar[0]), mirrorPoint(s.bbox, rail.crossbar[1]) };
         rails_done += 1;
     }
@@ -71,7 +69,6 @@ pub fn vertical(a: std.mem.Allocator, s: sketch.Sketch, direction: sketch.Direct
     const bundle_sets = try mirrorBundles(a, s.bbox, s.bundle_sets);
     errdefer if (bundle_sets.ptr != s.bundle_sets.ptr) freeMirroredSets(a, @constCast(bundle_sets));
     const rail_claims = try mirrorRailClaims(a, s.nodes, s.rail_claims);
-    // A gap's two wall cells flip with the ink; its rows still count from `near`.
     const gap_rows = try a.alloc(ledger.GapRows, s.gap_rows.len);
     for (s.gap_rows, gap_rows) |g, *out| {
         out.* = g;
@@ -188,14 +185,6 @@ fn freeMirroredSets(a: std.mem.Allocator, sets: []const ledger.Bundle) void {
     a.free(sets);
 }
 
-/// Transpose node geometry for the declared flow direction. Layout runs in an
-/// internal top-down frame (flow axis = y); for LR/RL we swap positions AND
-/// dimensions so the stack runs horizontally. TD is identity; BT is
-/// canonicalized to TD upstream and must never reach here. Generic over the
-/// NodeGeom type via `comptime G` (exposes `x,y: i32` and `w,h: u32`), mirroring
-/// the lever modules so this stays in the layout/ zone without importing
-/// routing.zig. `sketch.Direction` is the same `prim.Direction` the SemGraph
-/// uses, so the caller passes `graph.direction` directly.
 pub fn applyDirection(comptime G: type, geom: []G, dir: sketch.Direction) void {
     switch (dir) {
         .TD => {},
@@ -211,7 +200,7 @@ pub fn applyDirection(comptime G: type, geom: []G, dir: sketch.Direction) void {
                 g.w = oh;
                 g.h = ow;
             }
-            // sugiyama.assignLayers already reverses layer order for RL. // @guarded-by: mirror.zig "RL: sugiyama's own layer reversal plus applyDirection's axis swap alone yields correct right-to-left order"
+            // @guarded-by: mirror.zig "RL: sugiyama's own layer reversal plus applyDirection's axis swap alone yields correct right-to-left order"
         },
     }
 }

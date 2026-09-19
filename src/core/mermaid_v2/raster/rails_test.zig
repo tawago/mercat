@@ -1,6 +1,3 @@
-//! Unit tests for raster/rails.zig — junction bits must come out of
-//! tap geometry deterministically (the point of Phase 4b slice iv).
-
 const std = @import("std");
 const testing = std.testing;
 const sketch = @import("../sketch.zig");
@@ -9,8 +6,6 @@ const nodes_r = @import("nodes.zig");
 const rails_r = @import("rails.zig");
 const raster = @import("../raster.zig");
 
-/// Allocate a lattice sized to the sketch bbox, rasterize nodes (so the
-/// pivot border exists for the stem-exit merge), then rails.
 const Raster = struct { lattice: lattice.Lattice, report: rails_r.Report };
 fn rasterizeForTest(a: std.mem.Allocator, s: sketch.Sketch) !Raster {
     const cells = try a.alloc(lattice.Cell, @as(usize, s.bbox.w) * @as(usize, s.bbox.h));
@@ -21,8 +16,6 @@ fn rasterizeForTest(a: std.mem.Allocator, s: sketch.Sketch) !Raster {
     return .{ .lattice = lat, .report = report };
 }
 
-/// Standard single-row fan: pivot over three peers (left / center /
-/// right). The center tap drops straight through the junction.
 pub fn fanSketch(
     nodes: []sketch.NodePlacement,
     taps: []sketch.Tap,
@@ -91,9 +84,6 @@ test "rail junction bits are explicit: corner, tee, cross" {
     try testing.expectEqual(@as(u32, 0), r.report.cells_lost);
 }
 
-/// Every record of `kind` filed at (x, y), by ascending `value`. The table
-/// is sorted by (cell, kind, value), so a scan of the whole slice is both
-/// the simplest and the order-faithful way to ask.
 pub fn recordsAt(
     a: std.mem.Allocator,
     lat: lattice.Lattice,
@@ -411,20 +401,15 @@ test "a continuing tap claims its junction arm and paints neither port nor head"
     var stem: [2]sketch.Point = undefined;
     var rails: [1]sketch.Rail = undefined;
     const s = fanSketch(&nodes, &taps, &stem, &rails);
-    // The right tap continues: one drop cell under the crossbar, no wall.
     taps[2].landing = .{ .x = 22, .y = 6 };
     taps[2].continues = true;
     taps[2].arrow = .filled;
 
     const r = try rasterizeForTest(a, s);
 
-    // Junction arm at the tap: the crossbar cell grows its south bit.
     try testing.expectEqual(@as(u4, 0b1100), r.lattice.atConst(22, 5).neighbours.toMask());
-    // No head anywhere on the tap's column below the crossbar; the member's
-    // own stroke (absent here) owns the far end.
     var y: u32 = 6;
     while (y < 10) : (y += 1) try testing.expect(r.lattice.atConst(22, y).occupant != .arrowhead);
-    // No port bit was merged into node 3's wall at (22,7).
     try testing.expect(!r.lattice.atConst(22, 7).neighbours.n);
 }
 

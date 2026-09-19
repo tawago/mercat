@@ -1,12 +1,3 @@
-//! Cluster border rasterizer.
-//!
-//! Walks each `ClusterFrame.rect` and writes perimeter cells into the
-//! Lattice as `Occupant.cluster_border` with `BorderRole`/`Neighbours`
-//! bits; interiors stay `.empty`. Rasterized depth-ascending so inner
-//! cluster borders overwrite coincident outer borders.
-//!
-//! Imports: only `std`, `../sketch.zig`, `../lattice.zig` (lint-enforced).
-
 const std = @import("std");
 const sketch = @import("../sketch.zig");
 const lattice = @import("../lattice.zig");
@@ -15,10 +6,6 @@ pub const RasterError = error{ OutOfMemory, OutOfBounds };
 
 const log = std.log.scoped(.mermaid_v2_raster_clusters);
 
-/// Rasterize every ClusterFrame in `s` into `lat` as cluster_border
-/// cells along the perimeter of each cluster's rect. Returns the number
-/// of cluster frames successfully rasterized (frames clipped for OOB are
-/// not counted).
 pub fn rasterizeClusters(
     allocator: std.mem.Allocator,
     lat: *lattice.Lattice,
@@ -41,7 +28,7 @@ pub fn rasterizeClusters(
     var written: u32 = 0;
     for (order) |idx| {
         const frame = s.clusters[idx];
-        // Synthetic packing frames are invisible by design (zero pad at stitch), regardless of the rect they carry. // @guarded-by: clusters_test.zig "rasterizeClusters: a synthetic frame with a nonzero rect still paints nothing"
+        // @guarded-by: clusters_test.zig "rasterizeClusters: a synthetic frame with a nonzero rect still paints nothing"
         if (frame.synthetic) continue;
         if (rasterizeOne(lat, frame)) {
             written += 1;
@@ -50,9 +37,6 @@ pub fn rasterizeClusters(
     return written;
 }
 
-/// Rasterize a single cluster frame. Returns true if the frame was
-/// drawn (even partially-conflicted), false if it was rejected for OOB
-/// or degenerate geometry.
 fn rasterizeOne(lat: *lattice.Lattice, frame: sketch.ClusterFrame) bool {
     const r = frame.rect;
     if (r.w < 2 or r.h < 2) {
@@ -103,8 +87,6 @@ fn rasterizeOne(lat: *lattice.Lattice, frame: sketch.ClusterFrame) bool {
     return true;
 }
 
-/// Attempt to write a single cluster border cell. Implements the
-/// conflict policy documented at the top of the file.
 fn tryWrite(
     lat: *lattice.Lattice,
     x: u32,
@@ -123,7 +105,7 @@ fn tryWrite(
             };
         },
         .cluster_border => {
-            // Sort order ensures outer arrives first; inner overwrites. @guarded-by: clusters.zig "nested clusters: inner overwrites outer at coincident cells"
+            // @guarded-by: clusters.zig "nested clusters: inner overwrites outer at coincident cells"
             cell.* = .{
                 .occupant = .{ .cluster_border = .{ .cluster = cluster_id, .role = role } },
                 .neighbours = nb,

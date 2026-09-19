@@ -1,6 +1,3 @@
-//! Unit tests for layout/validate.zig. Split out to keep validate.zig
-//! under the 500-line cap.
-
 const std = @import("std");
 const sketch = @import("../sketch.zig");
 const validate_mod = @import("validate.zig");

@@ -1,13 +1,3 @@
-//! motif.zig — MotifTree (IR 1.5) decomposition of a SemGraph: a pure-data
-//! motif tree. select.zig packs it into the motif-packed candidate; no other
-//! layout decision reads it.
-//!
-//! Pipeline per cluster scope (motif/): scope.zig builds the scope digraph,
-//! dominator.zig removes cycles and computes the dominator tree, classify.zig
-//! coarsens it into typed motifs. This file drives cluster-scope recursion
-//! (motifs never span a cluster border) and fills covered/ext_in/ext_out
-//! metrics.
-
 const std = @import("std");
 const prim = @import("prim");
 const sg = @import("sem_graph.zig");
@@ -20,12 +10,8 @@ pub const MotifKind = types.MotifKind;
 pub const Motif = types.Motif;
 pub const MotifTree = types.MotifTree;
 
-/// Namespace re-export of the synthetic-cluster packer so callers outside
-/// the motif zone (select.zig) reach it through this root file.
 pub const pack = @import("motif/pack.zig");
 
-/// Decompose `graph` into a MotifTree. All storage comes from `a`; pass an
-/// arena (repo IR convention) — there is no deinit.
 pub fn decompose(a: std.mem.Allocator, graph: sg.SemGraph) error{OutOfMemory}!MotifTree {
     var motifs: std.ArrayListUnmanaged(Motif) = .empty;
     const roots = try decomposeScope(a, graph, null, &motifs);
@@ -34,8 +20,6 @@ pub fn decompose(a: std.mem.Allocator, graph: sg.SemGraph) error{OutOfMemory}!Mo
     return .{ .motifs = ms, .roots = roots, .node_count = graph.nodes.len };
 }
 
-/// Decompose one cluster scope (null = top level) and recurse into every
-/// cluster motif it produced, filling the placeholder children.
 fn decomposeScope(
     a: std.mem.Allocator,
     graph: sg.SemGraph,
@@ -59,9 +43,6 @@ fn decomposeScope(
     return roots;
 }
 
-/// Fill `covered`, `ext_in`, `ext_out` for every motif: covered = real
-/// nodes owned by the motif's subtree; ext counts scan the ORIGINAL edge
-/// list against the covered set (O(motifs × edges), corpus-sized).
 fn computeMetrics(a: std.mem.Allocator, graph: sg.SemGraph, motifs: []Motif) error{OutOfMemory}!void {
     var node_idx = std.AutoHashMapUnmanaged(sg.NodeId, usize).empty;
     for (graph.nodes, 0..) |n, i| try node_idx.put(a, n.id, i);

@@ -1,7 +1,3 @@
-//! layout_test2.zig — continuation of layout_test.zig, split at the
-//! mermaid_v2 500-line cap. Same zone privileges; the shared node/edge
-//! builders are imported from layout_test.zig.
-
 const std = @import("std");
 const sg = @import("../sem_graph.zig");
 const sketch = @import("../sketch.zig");

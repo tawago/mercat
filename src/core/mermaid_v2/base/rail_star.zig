@@ -1,13 +1,3 @@
-//! Semantic identity and star-law checks for one realized shared rail.
-//! The star law is the checkable structural-clause set of the star
-//! licence — not the licence itself (decoration, style, and the record
-//! envelope are judged separately).
-//!
-//! A `RailClaim` records the final, render-local semantic facts behind shared
-//! rail ink. Members are the single source of truth: `check` derives the
-//! pivot, its attachment site, and the unresolved count from them on demand.
-//! Pure data and pure functions only; imports the canonical primitive module.
-
 const prim = @import("prim");
 
 pub const NodeId = prim.NodeId;
@@ -16,8 +6,6 @@ pub const Dir4 = prim.Dir4;
 pub const ArrowKind = prim.ArrowKind;
 pub const EdgeKind = prim.EdgeKind;
 
-/// Render-local rail identity. Claims are numbered from one; zero means that
-/// no claim is present. This identity is separate from bundle identity.
 pub const RailClaimId = u32;
 pub const no_rail_claim: RailClaimId = 0;
 
@@ -25,11 +13,8 @@ pub fn validId(id: RailClaimId) bool {
     return id != no_rail_claim;
 }
 
-/// Which endpoint all members of a rail share.
 pub const RailPolarity = enum(u1) {
-    /// Members share their source and fan out to distinct targets.
     out = 0,
-    /// Members share their target and fan in from distinct sources.
     in = 1,
 
     pub fn pivotEnd(self: RailPolarity) Endpoint {
@@ -40,8 +25,6 @@ pub const RailPolarity = enum(u1) {
     }
 };
 
-/// One of an edge's two declared ends. Its ordinal indexes the endpoint,
-/// attachment-site, and arrow arrays in `RailClaimMember`.
 pub const Endpoint = enum(u1) {
     source = 0,
     target = 1,
@@ -58,28 +41,19 @@ pub const Endpoint = enum(u1) {
     }
 };
 
-/// A final perimeter attachment. `offset` has the same side-local, zero-based
-/// meaning as `sketch.Port.offset`; `node` makes the site self-identifying
-/// after cluster and stitch remaps.
 pub const AttachmentSite = struct {
     node: NodeId,
     side: Dir4,
     offset: u32,
 };
 
-/// One semantic edge carried by a rail. Null endpoints or sites mean that the
-/// producer could not finish the corresponding final-space remap.
 pub const RailClaimMember = struct {
     edge: EdgeId,
     endpoints: [2]?NodeId,
     sites: [2]?AttachmentSite,
     arrows: [2]ArrowKind,
-    /// Class of ink this member stands for beyond its own end glyphs
-    /// (a placement edge proxies its crossings' decoration).
     stands_for: prim.StandsFor = .arrow_free,
     kind: EdgeKind,
-    /// Producer's assertion about which end meets the pivot. The checker also
-    /// derives this from `polarity` and reports disagreement independently.
     pivot_end: Endpoint,
 
     pub fn node(self: RailClaimMember, end: Endpoint) ?NodeId {
@@ -95,14 +69,10 @@ pub const RailClaimMember = struct {
     }
 };
 
-/// Licence-tier member: the graph facts of one edge, no geometry. The type
-/// has no site fields, so a pre-layout producer cannot fabricate them.
 pub const RailLicenceMember = struct {
     edge: EdgeId,
     endpoints: [2]?NodeId,
     arrows: [2]ArrowKind,
-    /// Class of ink this member stands for beyond its own end glyphs
-    /// (a placement edge proxies its crossings' decoration).
     stands_for: prim.StandsFor = .arrow_free,
     kind: EdgeKind,
     pivot_end: Endpoint,
@@ -116,9 +86,6 @@ pub const RailLicenceMember = struct {
     }
 };
 
-/// Licence-tier claim: the semantic sharing question, asked of the graph
-/// alone. `pivot` is the caller's claimed pivot; the checker reports both the
-/// member consensus and disagreement with the claim.
 pub const RailLicence = struct {
     id: RailClaimId,
     polarity: RailPolarity,
@@ -126,16 +93,12 @@ pub const RailLicence = struct {
     members: []const RailLicenceMember,
 };
 
-/// One render-local semantic claim for shared rail ink. Pivot, pivot site,
-/// and resolution state are derived from members by `check`, never stored.
 pub const RailClaim = struct {
     id: RailClaimId,
     polarity: RailPolarity,
     members: []const RailClaimMember,
 };
 
-/// Star-law and attachment-coherence failures. Every field is independent: one
-/// malformed member set may truthfully report several failures at once.
 pub const StarLawResult = struct {
     no_common_real_pivot: bool = false,
     wrong_polarity_end: bool = false,
@@ -146,13 +109,7 @@ pub const StarLawResult = struct {
     self_loop: bool = false,
     leaf_is_pivot: bool = false,
     differing_or_missing_pi: bool = false,
-    /// Licence tier only: a member's pivot end is missing or is not the
-    /// claimed pivot. Realized claims derive their pivot; never set there.
     pivot_not_claimed: bool = false,
-    /// Star-licence blocking predicate: a directional end is present in the star, yet
-    /// some member does not block (`prim.blocks`) — two directional ends,
-    /// or none while another member carries one. An ALL-arrow-free star is
-    /// the closure licence's domain (base/rail_closure.zig) and never sets this.
     non_blocking_member: bool = false,
 
     pub fn isValid(self: StarLawResult) bool {
@@ -170,8 +127,6 @@ pub const StarLawResult = struct {
     }
 };
 
-/// Pivot-end decoration has its own result so it maps to `rail_deco_mixed`,
-/// not the structural star diagnostic.
 pub const DecorationResult = struct {
     mixed_pivot_decoration: bool = false,
 
@@ -180,8 +135,6 @@ pub const DecorationResult = struct {
     }
 };
 
-/// Stroke-class agreement has its own result so it maps to
-/// `rail_member_style_mixed` independently of decoration and the star law.
 pub const StyleResult = struct {
     style_mismatch: bool = false,
 
@@ -190,7 +143,6 @@ pub const StyleResult = struct {
     }
 };
 
-/// Envelope failures. `unresolved` is derived from members.
 pub const RecordResult = struct {
     invalid_id: bool = false,
     arity: bool = false,
@@ -201,8 +153,6 @@ pub const RecordResult = struct {
     }
 };
 
-/// The non-overlapping diagnostic partitions of a check result. A `true`
-/// field means that partition has at least one failure.
 pub const FailurePartition = struct {
     star_law: bool,
     decoration: bool,
@@ -223,8 +173,6 @@ pub const CheckResult = struct {
     derived_pi: ?AttachmentSite,
     derived_unresolved_members: u32,
 
-    /// Exact validity: identity, arity, resolution, the star law, decoration,
-    /// and style must all be valid.
     pub fn isValid(self: CheckResult) bool {
         return !self.partition().any();
     }
@@ -239,8 +187,6 @@ pub const CheckResult = struct {
     }
 };
 
-/// Licence-tier verdict: the semantic partitions only. Resolution and pi are
-/// realization facts and have no licence-tier meaning.
 pub const LicenceCheckResult = struct {
     star_law: StarLawResult,
     decoration: DecorationResult,
@@ -254,12 +200,10 @@ pub const LicenceCheckResult = struct {
     }
 };
 
-/// Validate one licence-tier claim from graph facts alone.
 pub fn checkLicence(licence: RailLicence) LicenceCheckResult {
     return semanticCore(licence.id, licence.polarity, licence.pivot, licence.members);
 }
 
-/// Derive and validate one realized claim without allocation or mutation.
 pub fn check(claim: RailClaim) CheckResult {
     const sem = semanticCore(claim.id, claim.polarity, null, claim.members);
     var law = sem.star_law;
@@ -305,8 +249,6 @@ pub fn check(claim: RailClaim) CheckResult {
     };
 }
 
-/// The checks both tiers share, over any member type carrying graph facts.
-/// `claimed_pivot` is licence-tier only; realized claims pass null.
 fn semanticCore(id: RailClaimId, polarity: RailPolarity, claimed_pivot: ?NodeId, members: anytype) LicenceCheckResult {
     var law: StarLawResult = .{};
     var decoration: DecorationResult = .{};

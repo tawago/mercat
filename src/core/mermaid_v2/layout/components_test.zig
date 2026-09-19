@@ -1,9 +1,3 @@
-//! Tests for `components.zig`'s `packComponents` no-op invariant. Moved
-//! here from `sugiyama_test.zig` (which built the synthetic `LayeredGraph`
-//! fixtures by hand but was testing `components.zig`, not `sugiyama.zig`),
-//! per the mermaid_v2/ test-file convention. Discovered via components.zig's
-//! top-level `test { _ = @import("components_test.zig"); }` block.
-
 const std = @import("std");
 const sg = @import("../sem_graph.zig");
 const sugiyama = @import("sugiyama.zig");
@@ -33,8 +27,6 @@ fn mkEdge(id: sg.EdgeId, from: sg.NodeId, to: sg.NodeId) sg.Edge {
         .label = null,
     };
 }
-
-// -- component packing no-op (layout/components.zig `packComponents`) -------
 
 test "packComponents leaves node geometry unchanged for a single connected component" {
     const nodes = [_]sg.Node{ mkNode(0, "A"), mkNode(1, "B"), mkNode(2, "C") };

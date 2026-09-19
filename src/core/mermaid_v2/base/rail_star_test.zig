@@ -1,5 +1,3 @@
-//! Unit tests for the semantic RailClaim model and its pure checker.
-
 const std = @import("std");
 const prim = @import("prim");
 const rs = @import("rail_star.zig");

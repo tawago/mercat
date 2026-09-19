@@ -1,45 +1,21 @@
-//! gap_rows_grid.zig — the sub-rows a gridded layer stacks, as the row
-//! ledger sees them.
-//!
-//! A wide fan-OUT or a wide rank is re-flowed into stacked sub-rows of one
-//! layer (`fan_grid`, `rank_grid`). Between two sub-rows the grid reserves
-//! a fixed band — the upper sub-row's departure row, a comb row, the lower
-//! sub-row's arrival row — that no spacing grows. The ledger accounts each
-//! band as a sub-gap: the row numbering of an inter-layer gap, its wall
-//! the lower sub-row's top, its base the band's rows, and every run that
-//! lands in it — a gridded fan's comb on the base row, an obstacle
-//! corridor's entry on row 0 — packed there. When the census runs a node's
-//! `y` is its offset inside its layer, so a stacked node is one with `y > 0`.
-//!
-//! Imports (layout zone): std + sugiyama.
-
 const std = @import("std");
 const sugiyama = @import("sugiyama.zig");
 
-/// How far a corridor column search looks for a margined column before
-/// settling for a merely box-free one (`sketch.clearLine`'s bound).
 const MARGIN_BOUND: i32 = 24;
 
 pub const SubGap = struct {
-    /// The ledger's gap id: `real + i`.
     gap: u32,
     layer: u32,
-    /// Offset of the lower sub-row's top inside the layer: the wall.
     top: i32,
-    /// Offset of the first row under the upper sub-row's tallest box.
     far: i32,
-    /// The band's rows, fixed by the grid.
     base: u32,
 };
 
 pub const SubRows = struct {
     layer_of: []const u32,
     gaps: []SubGap = &.{},
-    /// Inter-layer gaps; sub-gaps are numbered after them.
     real: u32,
 
-    /// The gap whose wall is `idx`'s top: the inter-layer gap above its
-    /// layer when it heads the layer, else the sub-gap above its sub-row.
     pub fn gapAbove(self: SubRows, comptime G: type, geom: []const G, idx: u32) ?u32 {
         const layer = self.layer_of[idx];
         if (geom[idx].y == 0) return if (layer == 0) null else layer - 1;
@@ -47,9 +23,6 @@ pub const SubRows = struct {
         return null;
     }
 
-    /// The stacked box the column `col` runs through on its way from
-    /// `from` (above) to `to` (below): a box under `from` in its layer, or
-    /// above `to` in its; the highest such box.
     pub fn stackedObstacle(self: SubRows, comptime G: type, geom: []const G, lg: sugiyama.LayeredGraph, from: u32, to: u32, col: i32) ?u32 {
         var best: ?u32 = null;
         for (lg.layers[self.layer_of[from]]) |idx| {
@@ -66,11 +39,6 @@ pub const SubRows = struct {
         return best;
     }
 
-    /// The column a corridor takes past the boxes between `from` (above)
-    /// and `to` (below) — those stacked under `from` in its layer and over
-    /// `to` in its: the one nearest `want` that no such box covers, left
-    /// first, and with `margin` one whose neighbours are box-free too, the
-    /// way `sketch.clearLine` chooses it.
     pub fn corridorColumn(self: SubRows, comptime G: type, geom: []const G, lg: sugiyama.LayeredGraph, from: u32, to: u32, want: i32, margin: bool) i32 {
         var plain: ?i32 = null;
         var delta: i32 = 0;
@@ -104,8 +72,6 @@ fn coversColumn(comptime G: type, g: G, col: i32) bool {
     return g.x <= col and col < g.x + @as(i32, @intCast(g.w));
 }
 
-/// Every sub-gap of the layered graph: one per pair of consecutive
-/// sub-rows of a layer, numbered from `real`.
 pub fn census(comptime G: type, a: std.mem.Allocator, lg: sugiyama.LayeredGraph, geom: []const G, real: u32) error{OutOfMemory}!SubRows {
     const layer_of = try a.alloc(u32, lg.nodes.len);
     @memset(layer_of, 0);

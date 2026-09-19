@@ -1,11 +1,3 @@
-//! Unit tests for raster/aux.zig — the lattice side-table builder — and for
-//! the one fact it carries today (`.port`, filed by `drawPortStroke`).
-//!
-//! The load-bearing test here is the last one: the bundle's whole premise
-//! is that a record outlives every in-place rewrite of the Cell it sits on,
-//! so that premise is measured against the real post-walk passes rather
-//! than argued in a comment.
-
 const std = @import("std");
 const sketch = @import("../sketch.zig");
 const lattice = @import("../lattice.zig");
@@ -21,9 +13,6 @@ const ledger = @import("../base/ledger.zig");
 
 const testing = std.testing;
 
-/// A 1×2 lattice whose cell at row 0 is a solid rect `node_border` carrying
-/// a horizontal {e,w} run — a box bottom. A polyline leaving it southwards
-/// is a port departure.
 fn sourceBorderLattice(a: std.mem.Allocator) !lattice.Lattice {
     const cells = try a.alloc(lattice.Cell, 2);
     for (cells) |*c| c.* = lattice.Cell.empty;
@@ -72,8 +61,6 @@ test "drawPortStroke files a port record only for a stroke it actually draws" {
     }
 }
 
-/// Two stacked nodes joined by one downward edge: the edge departs node 1's
-/// south border at (2,2), which is exactly one port stroke.
 fn stackedPairSketch(a: std.mem.Allocator) !sketch.Sketch {
     const nodes = try a.alloc(sketch.NodePlacement, 2);
     nodes[0] = .{ .id = 1, .rect = .{ .x = 0, .y = 0, .w = 5, .h = 3 }, .shape = .rect, .lines = &.{}, .cluster_id = null };
@@ -203,17 +190,12 @@ test "aux records survive the post-walk mutating passes" {
     }
 }
 
-/// A 4x4 lattice, so a Recorder built from it keys records the way the
-/// production one does (`y * width + x`).
 fn blankLattice(a: std.mem.Allocator) !lattice.Lattice {
     const cells = try a.alloc(lattice.Cell, 16);
     for (cells) |*c| c.* = lattice.Cell.empty;
     return .{ .width = 4, .height = 4, .cells = cells };
 }
 
-/// A blank w×h lattice, plus the minimal Sketch/EdgePath pair that drives
-/// `rasterizeEdges` — the only way to reach the walk's own corner-cell arm.
-/// The Sketch carries no bundles, so the crossing rule is inert.
 fn walkLattice(a: std.mem.Allocator, w: u32, h: u32) !lattice.Lattice {
     const cells = try a.alloc(lattice.Cell, @as(usize, w) * @as(usize, h));
     for (cells) |*c| c.* = lattice.Cell.empty;
@@ -366,10 +348,6 @@ test "a corner arm merged onto a foreign run files a merged carrier; onto its ow
     }
 
     {
-        // The same walk over sets nobody stamped: the merge still goes
-        // through (the ink gate derives it), but the record says nobody
-        // asked — the label is read from the stamped sets, never inferred
-        // from the gate having let the merge through.
         var lat = try walkLattice(a, 10, 10);
         var c = aux.Collector.init(a);
         const p3 = [_]sketch.Point{ .{ .x = 4, .y = 2 }, .{ .x = 4, .y = 7 } };

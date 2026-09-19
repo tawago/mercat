@@ -1,23 +1,8 @@
-//! mermaid_v2 entry point.
-//!
-//! Composition root for the flowchart rendering pipeline: Parse ->
-//! SemGraph -> Layout -> Sketch -> Rasterize -> Lattice -> Paint. Sole
-//! flowchart renderer; `src/core/mermaid/render.zig` dispatches here and
-//! maps the result back into the legacy `types.RenderResult` shape.
-//!
-//! `RenderResult`/`RenderOptions` are redeclared here (not imported from
-//! `../mermaid/types.zig`) because Zig modules cannot import files outside their own module root.
-
 const std = @import("std");
 const builtin = @import("builtin");
 
-/// Re-export of the flowchart parser entry point. Allows callers outside
-/// the parse subdir to reach the parser without importing through deep
-/// relative paths.
 pub const parse = @import("parse.zig").parse;
 
-/// Namespace re-export of sem_graph.zig. Callers write e.g.
-/// `v2.sem_graph.Node` instead of the former `v2.SgNode` aliases.
 pub const sem_graph = @import("sem_graph.zig");
 
 pub const NodeId = sem_graph.NodeId;
@@ -47,53 +32,23 @@ pub const LadderResult = ladder_pkg.LadderResult;
 
 pub const RenderResult = struct {
     output: []const u8,
-    /// Columns actually emitted (clipped to the budget); the true
-    /// geometric width lives in the sketch bbox. The painter clips to
-    /// `budget.max_width`, so this is `min(lattice.width,
-    /// budget.max_width)` and matches what was painted — it flows into
-    /// the surrounding markdown layout, which must size to the real
-    /// output width, not the pre-clip geometry.
     width: u32,
     height: u32,
     is_fallback: bool,
     fallback_reason: ?[]const u8 = null,
-    /// Set when the diagram's true geometric width exceeded the budget
-    /// and the painter clipped it. `null` when the diagram fit. Optional
-    /// + defaulted so existing consumers compile unchanged.
     width_overflow: ?struct { true_width: u32, budget: u32 } = null,
 };
 
 pub const RenderOptions = struct {
     max_width: u32 = 120,
     unicode_mode: bool = true,
-    /// Subgraph frame-border notation (owner ruling, tawago 2026-07-19): a
-    /// user choice threaded down to the raster. `.bridge` (default) draws
-    /// frame-solid; `.cross` reproduces the pre-Slice-1 junction weld.
     subgraph_edges: prim.SubgraphEdges = .bridge,
 };
 
-/// Environment knobs, read ONCE at the top of `renderFlowchart` — the
-/// composition root is the only getenv site in the pipeline (budget.zig
-/// et al. never call getenv) — and passed down as plain values.
 const EnvOptions = struct {
-    /// MERCAT_FORCE_RUNG=<natural|tight|wrap_labels|
-    /// switch_direction|truncate>: lay out and return exactly that rung
-    /// (bypassing both the ladder acceptance AND the score) so external
-    /// diagnostics tooling can render any single candidate for audit. An
-    /// unrecognized value is ignored. Takes precedence over the other knobs.
     force_rung: ?ladder_pkg.Rung,
-    /// MERCAT_SCORE_OFF=1: restore the original ladder behavior (the
-    /// incumbent: first-accepting rung wins) — the A/B escape hatch.
     score_off: bool,
-    /// MERCAT_SCORE_SHADOW=1: emit one machine-readable `mercat-score-shadow:`
-    /// line to stderr when the score's argmin differs from the ladder
-    /// incumbent. With the score live this is behavior-DELTA telemetry
-    /// ("this render differs from what the old ladder would have shipped");
-    /// combined with MERCAT_SCORE_OFF=1 it reproduces the original shadow mode
-    /// exactly (incumbent returned, disagreement line emitted).
     shadow_telemetry: bool,
-    /// MERCAT_INTEGRITY=1: emit one `mercat-integrity:` counts line per diagram
-    /// to stderr (see `emitIntegrityLine`).
     integrity: bool,
     fn read() EnvOptions {
         return .{
@@ -108,20 +63,10 @@ const EnvOptions = struct {
     }
 };
 
-/// Top-level render entry — mirrors the legacy `mermaid.render` shape
-/// used by `src/core/mermaid/render.zig`'s dispatcher.
 pub fn render(allocator: std.mem.Allocator, source: []const u8, options: RenderOptions) !RenderResult {
     return renderFlowchart(allocator, source, options);
 }
 
-/// Render a flowchart through the v2 pipeline. The painted bytes are
-/// allocated from `allocator` and owned by the caller. All intermediate
-/// allocations (SemGraph, Sketch, Lattice, diagnostics) live in an
-/// internal arena released before return.
-///
-/// On any pipeline error this falls back to `is_fallback=true` with the
-/// original source as `output`. The caller (`src/core/render/blocks.zig`)
-/// will defer to the legacy renderer in that case.
 pub fn renderFlowchart(
     allocator: std.mem.Allocator,
     source: []const u8,
@@ -160,13 +105,6 @@ pub fn renderFlowchart(
                 return fallback(source, "v2 ladder error");
             };
         }
-        // LIVE selection (select.zig): raw ladder candidates + motif-
-        // packed candidates, scored; argmin wins with the truncate gate
-        // and natural-preference margin anchored to the RAW natural.
-        // `choose` propagates exactly the errors `run()` would hit before
-        // its incumbent, so this catch matches the run() error path; any
-        // scoring/packing failure degrades internally to the incumbent —
-        // the render never fails on selection.
         // @guarded-by: select_test.zig "choose: merged selection anchors to raw natural and never fails the render"
         break :blk select_mod.choose(aa, graph, &bundle_permits, options.max_width, env.score_off, env.shadow_telemetry, options.subgraph_edges) catch |err| {
             std.log.warn("mermaid_v2/entry: ladder failed: {s}", .{@errorName(err)});
@@ -190,8 +128,6 @@ pub fn renderFlowchart(
         break :blk validate_mod.counts(result, sketch_val);
     };
 
-    // An unrouted edge is honest degradation of one relation: the sketch
-    // declares it and draws nothing, so the reader is told which one.
     for (sketch_val.edges) |e| if (e.polyline.len < 2 and e.kind != .invisible) {
         std.log.warn("mermaid_v2: edge {d} ({s} -> {s}) could not be routed without illegal ink and is not drawn", .{ e.id, nodeRawId(graph, e.from), nodeRawId(graph, e.to) });
     };
@@ -232,8 +168,6 @@ pub fn renderFlowchart(
     };
 }
 
-/// The source spelling of a node by its id (sketch node ids are graph
-/// node ids, not positions in `graph.nodes`).
 fn nodeRawId(graph: sem_graph.SemGraph, id: sem_graph.NodeId) []const u8 {
     for (graph.nodes) |n| if (n.id == id) return n.raw_id;
     return "?";
@@ -247,39 +181,12 @@ fn resolveBundlePermits(allocator: std.mem.Allocator, graph: sem_graph.SemGraph)
     return result;
 }
 
-/// Emit one machine-readable integrity line per rendered diagram to
-/// STDERR. The caller gates on `EnvOptions.integrity` (MERCAT_INTEGRITY=1).
-/// External diagnostics tooling captures these lines; normal CLI/TUI use never
-/// sets the variable. Stdout bytes are identical whether or
-/// not the variable is set — this writes to stderr only and changes no
-/// pipeline decision.
-///
-/// `r_phantom_arms` is informational (repaired masks, not shipped
-/// defects) and is EXCLUDED from the per-render violation total.
-///
-/// Field roles under the plan-governed regime (clustered sharing rides
-/// piece plans like flat; nothing is licensed post-routing): the x_*
-/// violation fields are conformance counts against the plan and are
-/// expected zero except where routing genuinely cannot avoid ink (the
-/// counts are the evidence when it cannot); rail_* / co_* are the closure
-/// licence's refusal inventory — legitimately nonzero on refusing inputs —
-/// except `co_double_discharge`, which is a conformance assert and must
-/// stay zero. The line's field set and order are frozen for external
-/// tooling; demotions change doc meaning, never fields. New fields are
-/// appended at the end: `tip_not_port` (a head whose tip is not on its
-/// port) and `arm_into_head` (an arm into a decoration cell from a
-/// lateral side, refused or shipped) joined 2026-09-03, then
-/// `v_edge_unrouted` (a visible edge the router laid no ink for, because
-/// every producer refused every candidate).
 fn emitIntegrityLine(
     v: validate_mod.Counts,
     raster_report: rasterize_mod.RasterReport,
     skipped_lines: u32,
-    /// The SHIPPED candidate's report-only rail construction inventory.
     closure: ledger.ClosureCounts,
-    /// Gaps whose spacing disagrees with their row ledger (ledger/invariants.zig).
     gap_rows_unaccounted: u32,
-    /// Cross-axis runs painted in a gap on a row the ledger did not claim for them.
     gap_rows_unclaimed_ink: u32,
 ) void {
     std.debug.print(

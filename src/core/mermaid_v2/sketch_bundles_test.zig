@@ -1,11 +1,3 @@
-//! Unit tests for `sketch_bundles.zig`: the bundle sets get one name per set,
-//! a rail adopts the name of the set that holds its members, and a rail no
-//! set holds still gets a name of its own.
-//!
-//! Plus the end-to-end fact the raster depends on: a real render's Sketch
-//! reaches the rasterizer with its bundle sets numbered, so a reader downstream is
-//! never handed a blank identity to compare against.
-
 const std = @import("std");
 const ledger = @import("base/ledger.zig");
 const sketch = @import("sketch.zig");

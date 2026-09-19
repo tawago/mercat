@@ -1,12 +1,3 @@
-//! Edge routing helpers for `layout.zig`: orthogonal polylines through
-//! virtual nodes from `sugiyama.zig`, perimeter ports, and SemGraph→Sketch
-//! arrow mapping. Self-loop geometry lives in `routing_self_loops.zig`;
-//! polyline + skip-corridor routing lives in `routing_polyline.zig`; fan
-//! and back-edge routing delegate to their sibling layout/ modules.
-//!
-//! Imports: `std`, `../sem_graph.zig`, `../sketch.zig`, and layout/*
-//! siblings only. layout/* must not reach into raster/lattice/paint.
-
 const std = @import("std");
 const sg = @import("../sem_graph.zig");
 const sketch = @import("../sketch.zig");
@@ -28,8 +19,6 @@ const route_clearance = @import("route_clearance.zig");
 const route_detour = @import("route_detour.zig");
 const route_search = @import("route_search.zig");
 
-/// The lane loops' acceptance, ladder, detour fallback and base-approach
-/// grow live in route_search.zig; re-exported for the tests that pin them.
 pub const LaneLadder = route_search.LaneLadder;
 pub const detour = route_search.detour;
 pub const growBaseApproach = route_search.growBaseApproach;
@@ -51,28 +40,11 @@ pub const NodeGeom = struct {
     layer: u32,
 };
 
-/// Result of `buildEdges`: the produced `EdgePath` slice plus a
-/// parallel slice of mutable polyline buffers. Layout retains the
-/// mutable view so `computeBbox` can shift polyline points in place
-/// without const-cast escape hatches — the `EdgePath.polyline` field still presents
-/// the same underlying memory as `[]const Point` to downstream
-/// consumers.
 pub const EdgesResult = struct {
     edges: []sketch.EdgePath,
     polylines: [][]sketch.Point,
-    /// First-class fan rails, each holding its
-    /// `sketch.Rail` plus the MUTABLE tap view so `clusters.computeBbox`'s
-    /// shift pass can translate rail + tap points in place (stems are
-    /// additionally registered in `polylines` for the same reason). layout.zig
-    /// copies the `.rail` fields out AFTER the shift for the final Sketch.
     rails: []fan_rail.Built,
-    /// Bundle sets from the live fans (`fan.coSets`), read off the same
-    /// peer/lane facts this routing pass just used. Geometry-free, so the
-    /// bbox shift pass never touches them. On a flat graph select.zig
-    /// replaces them with the plan-derived sets; on a clustered one they are
-    /// the whole population.
     bundle_sets: []const ledger.Bundle,
-    /// Semantic fan records derived after every local path and Rail is final.
     rail_claims: []const ledger.RailClaim,
 };
 
@@ -85,7 +57,6 @@ pub fn buildEdgesWithPlan(
     fans: []const fan_mod.Fan,
     bundles: ledger.RealizedBundles,
     allocated_ports: port_plan.Plan,
-    /// The gap row ledger every run reads its row from.
     rows: gap_rows.Ledger,
 ) error{OutOfMemory}!EdgesResult {
     var out: std.ArrayListUnmanaged(sketch.EdgePath) = .empty;
@@ -100,15 +71,13 @@ pub fn buildEdgesWithPlan(
     var pending: std.ArrayListUnmanaged(Pending) = .empty;
     for (fans) |f| {
         const resolved = (try fan_rail.resolve(a, graph.direction, f, graph, placements, geom, bundles, allocated_ports)) orelse continue;
-        // Shared-rail lift: same rule as the per-peer path below — any peer descending into a cluster lifts the rail above the frame. // @guarded-by: routing_test.zig "rail pre-pass and forced per-peer path lift the same fan-OUT geometry to the same rail row"
+        // @guarded-by: routing_test.zig "rail pre-pass and forced per-peer path lift the same fan-OUT geometry to the same rail row"
         var lift: u32 = 0;
         for (resolved.peers) |p| {
             lift = @max(lift, fanRailLift(graph, p.edge.from, p.edge.to));
         }
         try pending.append(a, .{ .fan = f, .resolved = resolved, .lift = lift });
     }
-    // A member long at both ends taps its two rails on ONE column — the
-    // departure's — so its stroke between them is one straight run.
     // @guarded-by: port_plan_test.zig "a member long at both ends runs straight between its two taps"
     for (pending.items) |p| {
         if (p.resolved.direction != .out) continue;
@@ -122,11 +91,6 @@ pub fn buildEdgesWithPlan(
             }
         }
     }
-    // Build the rails, then every long member's own stroke. A stroke that
-    // finds no clear route refuses its member: the member leaves its rail
-    // (the rail stays when two members remain) and routes privately below,
-    // and the rails are rebuilt without it — the theory's per-member
-    // degradation, decided once here.
     // @guarded-by: port_plan_test.zig "a long fan-in member the plan selected gets a continuing tap and a member stroke"
     var bar_views: []sketch.Rail = &.{};
     var attempt: usize = 0;
@@ -138,14 +102,10 @@ pub fn buildEdgesWithPlan(
         var rail_pending: std.ArrayListUnmanaged(usize) = .empty;
         for (pending.items, 0..) |p, pi| {
             if (p.resolved.peers.len < 2) continue;
-            // The rail's row is the ledger's — the row its members' per-peer fallback reads too.
             const row = rows.rowOfFan(p.fan.pivot_idx, p.fan.direction) orelse 0;
             const built = try fan_rail.build(a, p.resolved, p.lift, @intCast(@max(row, 0)));
-            // Integrity gate: a rail is straight-only geometry; if any run touches a foreign box, fall back to the per-peer polyline path, which can dodge. // @guarded-by: fan_rail_test.zig "fan_rail.blocked rejects a built rail whose tap drop touches a foreign node's box"
+            // @guarded-by: fan_rail_test.zig "fan_rail.blocked rejects a built rail whose tap drop touches a foreign node's box"
             if (fan_rail.blocked(built, p.resolved.pivot.id, placements)) continue;
-            // A rail is laid before every private route, so it must honour the
-            // terminal cells those routes' ports reserve (a foreign decorated
-            // cell and its laterals) or yield to the per-peer path.
             // @guarded-by: route_clearance_test.zig "a rail honours a foreign decorated terminal's reservation and ignores its own members'"
             if (try route_clearance.railConflictsReservedTerminals(a, built.rail, placements, allocated_ports.edges, bundles)) continue;
             try rails.append(a, built);
@@ -171,9 +131,6 @@ pub fn buildEdgesWithPlan(
         }
     }
 
-    // A placement edge's ink is the bridges': it is routed last, once, and
-    // without contest, so it never blocks a run the stitch will keep and
-    // never detours into the margin.
     // @guarded-by: routing_test.zig "a placement edge routes last and uncontested"
     var routing_edges: std.ArrayListUnmanaged(sg.Edge) = .empty;
     if (bundles.memberships.len == 0) {
@@ -186,32 +143,21 @@ pub fn buildEdgesWithPlan(
     for (graph.edges) |edge| if (rows.isProxy(edge.id)) try routing_edges.append(a, edge);
     for (routing_edges.items) |orig| {
         const proxy = rows.isProxy(orig.id);
-        // CO-REALIZED: a leaf-pair edge an all-arrow-free rail discharges is
-        // rendered BY that rail's crossbar (base/rail_closure.zig). It owns no
-        // polyline, no port and no label of its own — drawing one would state
-        // the relation twice — so it never enters the router at all.
         // @guarded-by: routing_test.zig "a discharged edge is withheld from routing entirely"
         if (rail_closure.contains(bundles.discharged, orig.id)) continue;
         if (std.mem.indexOfScalar(sg.EdgeId, claimed.items, orig.id) != null) continue;
         if (orig.from != orig.to) {
-            // A long peer whose fan built no rail is an ordinary skip edge:
-            // the per-peer fan polyline assumes a next-layer leaf.
             if (fan_mod.lookup(fans, orig.id)) |hit| if (!hit.peer.long) {
                 const ep = allocated_ports.forEdge(orig.id) orelse unreachable;
                 const src_p = findPlacement(placements, orig.from);
                 const dst_p = findPlacement(placements, orig.to);
                 const pivot_p = if (hit.fan.direction == .out) src_p else dst_p;
                 const peer_p = if (hit.fan.direction == .out) dst_p else src_p;
-                // Lift the rail above any cluster frame-border row it would otherwise be painted along (fusing sibling peers' top borders). // @guarded-by: routing_test.zig "fan-OUT per-peer rail lifts exactly one row for the peer crossing into a cluster its source is not part of"
+                // @guarded-by: routing_test.zig "fan-OUT per-peer rail lifts exactly one row for the peer crossing into a cluster its source is not part of"
                 const rail_lift: u32 = if (hit.fan.direction == .out)
                     fanRailLift(graph, orig.from, orig.to)
                 else
                     0;
-                // The member's run sits on the row the ledger gave its fan — the
-                // same row the rail pre-pass would have painted — so the lane
-                // ladder starts there, climbs when the row is refused, and
-                // descends to the base row before the outside detour. A dodge
-                // under the pivot takes the row the ledger gave the fan's jog.
                 // @guarded-by: routing_test.zig "the lane ladder climbs from the planned lane, then descends to lane 0, then ends"
                 const planned = rows.laneOfEdge(orig.id, .exit);
                 var ladder = LaneLadder{ .planned = planned, .lane = planned };
@@ -260,8 +206,6 @@ pub fn buildEdgesWithPlan(
         }
         if (orig.from == orig.to) {
             const node_p = findPlacement(placements, orig.from);
-            // A planned self loop walks its candidate ladder through the same
-            // acceptance as every other route (route_search.selfLoop).
             const sl: self_loops.SelfLoop = if (bundles.memberships.len == 0)
                 try self_loops.selfLoop(a, graph.direction, node_p, placements)
             else
@@ -290,9 +234,6 @@ pub fn buildEdgesWithPlan(
             const src_p = findPlacement(placements, orig.from);
             const dst_p = findPlacement(placements, orig.to);
             const ep = allocated_ports.forEdge(orig.id) orelse unreachable;
-            // A back edge's stub hop searches clear lines against boxes
-            // only; the decorated terminal cells other edges reserved join
-            // that search as pseudo-boxes so the hop never runs a head.
             // @guarded-by: routing_test.zig "a back edge's stub hop keeps off a foreign decorated arrival cell"
             const guarded = try route_clearance.withDecoratedTerminalBoxes(a, orig.id, placements, allocated_ports.edges, bundles);
             const poly = if (bundles.memberships.len == 0)
@@ -334,9 +275,6 @@ pub fn buildEdgesWithPlan(
         const eff_port_from = ep.source;
         const eff_port_to = ep.target;
 
-        // The route's runs take the rows the ledger gave them; the ladder
-        // starts at the exit run's lane, and the entry run keeps its own
-        // row — the two are independent claims.
         const lanes: rp.Lanes = .{ .entry = rows.laneOfEdge(orig.id, .entry), .exit = rows.laneOfEdge(orig.id, .exit) };
         var ladder = LaneLadder{ .planned = lanes.exit, .lane = lanes.exit };
         const straight = rp.Straight.forEdge(orig);
@@ -389,10 +327,6 @@ pub fn buildEdgesWithPlan(
     };
 }
 
-/// The line a fan-OUT member's dodge jog takes under its pivot: the row
-/// the ledger gave the fan's jog, counted from the wall of the gap it
-/// claimed it in — an inter-layer gap's wall is its lower layer's top, a
-/// grid sub-gap's the stacked sub-row's.
 fn dodgeRow(rows: gap_rows.Ledger, lg: sugiyama.LayeredGraph, geom: []const NodeGeom, edge: sg.Edge) ?i32 {
     const c = rows.claimOfEdge(edge.id, .entry) orelse return null;
     const real: u32 = @intCast(rows.gaps.len - rows.sub_gaps.len);

@@ -1,5 +1,3 @@
-//! Tests for resolve.zig (split out to keep the module under the line-count
-//! limit). Exercises the Registry/resolve pipeline and the merge/bake helpers.
 const std = @import("std");
 const spec = @import("spec.zig");
 const color = @import("color.zig");

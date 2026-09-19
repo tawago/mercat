@@ -1,9 +1,3 @@
-//! Sparse-spec merge primitives for the extends-chain fold. Pure data
-//! transforms over `spec` types — no diagnostics, no I/O — split out of
-//! resolve.zig so that module stays under the line-count limit. `mergeChain`
-//! (in resolve.zig) drives these; later layers override earlier (absent field
-//! inherits, present field wins; a present `""` prefix/glyph deliberately
-//! clears — see bake).
 const spec = @import("spec.zig");
 
 const ThemeSpec = spec.ThemeSpec;
@@ -25,11 +19,6 @@ pub fn mergeInto(out: *ThemeSpec, s: *const ThemeSpec) void {
     out.tokens = overlay(spec.TokenColors, out.tokens, s.tokens);
 }
 
-/// Field-wise overlay over an all-optional-field struct: an absent (`null`)
-/// field of `over` inherits `base`'s value, a present field wins (so a present
-/// `""` prefix/glyph deliberately clears — see bake). Sparse-struct fields
-/// (`GlyphSet.code_frame`) recurse rather than replacing wholesale, so
-/// `[theme.code_frame] pad = 2` inherits the base's kind/language_label.
 pub fn overlay(comptime T: type, base: T, over: T) T {
     var r = base;
     inline for (@typeInfo(T).@"struct".fields) |f| {

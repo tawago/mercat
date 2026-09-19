@@ -1,9 +1,3 @@
-//! Tests for `rank_grid.zig`'s invariants — split out to keep the file
-//! under the 500-line cap. Builds synthetic `LayeredGraph`s by hand and
-//! drives only the public `reflowWideRanks` entry point, observing effects
-//! on `geom` (private helpers like `layerWrappedByFan` are file-private to
-//! rank_grid.zig and not reachable from here).
-
 const std = @import("std");
 const sg = @import("../sem_graph.zig");
 const sugiyama = @import("sugiyama.zig");
@@ -256,7 +250,6 @@ test "reflowWideRanks: row_step (max_h + the grid gap) keeps a tall sub-row thre
     const row0_y = geom[0].y;
     const row1_y = geom[2].y;
     try testing.expect(row1_y > row0_y);
-    // v_spacing 1 would give a two-row gap; the grid keeps three (fan_grid.GRID_GAP_ROWS).
     try testing.expectEqual(@as(i32, 12), row1_y - row0_y);
     try testing.expect(row0_y + 9 < row1_y);
 }

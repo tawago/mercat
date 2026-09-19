@@ -1,6 +1,3 @@
-//! Tests for gap_rows.zig / gap_rows_pack.zig (the gap row ledger).
-//! Discovered via gap_rows.zig's `test { _ = @import }`.
-
 const std = @import("std");
 const testing = std.testing;
 const sg = @import("../sem_graph.zig");
@@ -47,7 +44,6 @@ test "an arrival rail stacks nearer the target than the departure rail it confli
     defer arena.deinit();
     const a = arena.allocator();
     const bases = [_]u32{2};
-    // The departure comes first by left endpoint; the order still puts the arrival at row 0.
     const claims = [_]Claim{ claim(0, 0, 20, .fan_out), claim(0, 5, 25, .fan_in) };
     const l = try pack_mod.pack(a, &claims, &.{}, &bases);
     try testing.expectEqual(@as(i32, 0), rowOf(l, 5));
@@ -64,7 +60,6 @@ test "a rail whose stem column is a foreign tap's column sits where that tap end
     var x_taps = [_]i32{ 0, 10 };
     var y_stem = [_]i32{30};
     var y_taps = [_]i32{ 10, 30 };
-    // Arrival rails: Y's tap at 10 is X's stem; X must sit below Y.
     const arrivals = [_]Claim{
         .{ .gap = 0, .lo = 0, .hi = 10, .kind = .fan_in, .stems = &x_stem, .taps = &x_taps },
         .{ .gap = 0, .lo = 10, .hi = 30, .kind = .fan_in, .stems = &y_stem, .taps = &y_taps },
@@ -72,7 +67,6 @@ test "a rail whose stem column is a foreign tap's column sits where that tap end
     const li = try pack_mod.pack(a, &arrivals, &.{}, &bases);
     try testing.expectEqual(@as(i32, 0), rowOf(li, 0));
     try testing.expectEqual(@as(i32, 1), rowOf(li, 10));
-    // Departure rails: the same column facts put X above Y.
     const departures = [_]Claim{
         .{ .gap = 0, .lo = 0, .hi = 10, .kind = .fan_out, .stems = &x_stem, .taps = &x_taps },
         .{ .gap = 0, .lo = 10, .hi = 30, .kind = .fan_out, .stems = &y_stem, .taps = &y_taps },
@@ -157,12 +151,11 @@ fn port(node: sg.NodeId, side: @import("../sketch.zig").Dir4, offset: u32) @impo
 }
 
 test "four disjoint realized rails share one row and the gap is rail, run, head" {
-    // Three sources over four targets: two selected arrival rails and two
-    // private departures whose ports leave one blank cell between the runs.
     const a = testing.allocator;
     var nodes = [_]sugiyama.LayerNode{
         .{ .real = 0 }, .{ .real = 1 }, .{ .real = 2 },
-        .{ .real = 3 }, .{ .real = 4 }, .{ .real = 5 }, .{ .real = 6 },
+        .{ .real = 3 }, .{ .real = 4 }, .{ .real = 5 },
+        .{ .real = 6 },
     };
     var row0 = [_]u32{ 0, 1, 2 };
     var row1 = [_]u32{ 3, 4, 5, 6 };
@@ -179,7 +172,8 @@ test "four disjoint realized rails share one row and the gap is rail, run, head"
     const lg = flt.mkLg(&nodes, &layers, &edges, &reversed);
     const geom = [_]Geom{
         .{ .x = 10, .w = 3 }, .{ .x = 28, .w = 3 }, .{ .x = 46, .w = 3 },
-        .{ .x = 1, .w = 3 },  .{ .x = 19, .w = 3 }, .{ .x = 37, .w = 3 }, .{ .x = 55, .w = 3 },
+        .{ .x = 1, .w = 3 },  .{ .x = 19, .w = 3 }, .{ .x = 37, .w = 3 },
+        .{ .x = 55, .w = 3 },
     };
     var ad_members = [_]pb.EdgeId{ 1, 2 };
     var rs_members = [_]pb.EdgeId{ 3, 4 };
@@ -228,7 +222,6 @@ test "four disjoint realized rails share one row and the gap is rail, run, head"
 
 test "a skip edge claims one row in the gap above its target layer, a plain chain claims none" {
     const a = testing.allocator;
-    // A(0) -> B(1) -> C(2), X(3) -> C through virtual 4 in layer 1.
     var nodes = [_]sugiyama.LayerNode{
         .{ .real = 0 }, .{ .real = 1 }, .{ .real = 2 }, .{ .real = 3 }, .{ .virtual = .{ .edge = 2, .index = 0 } },
     };
@@ -244,7 +237,6 @@ test "a skip edge claims one row in the gap above its target layer, a plain chai
     };
     var reversed = [_]sg.EdgeId{};
     const lg = flt.mkLg(&nodes, &layers, &edges, &reversed);
-    // The virtual sits on X's port column (x 20, width 3 → port 21).
     const geom = [_]Geom{ .{ .x = 0, .w = 3 }, .{ .x = 0, .w = 3 }, .{ .x = 0, .w = 3 }, .{ .x = 20, .w = 3 }, .{ .x = 21, .w = 1 } };
     var arena = std.heap.ArenaAllocator.init(a);
     defer arena.deinit();
@@ -374,10 +366,6 @@ test "a fan-OUT with three labeled members claims the same rows as one with a si
 }
 
 test "predicted ports give a side face its real length: three back edges on a TD node's east face allocate" {
-    // Reversed edges attach on a TD node's east face, whose length is the
-    // node's HEIGHT (`applyPortDemand` grew it to 7); the cross-axis width
-    // stays 5. A square stand-in would hand the allocator len 5 for demand
-    // 3 and trip its capacity invariant.
     const a = testing.allocator;
     var arena = std.heap.ArenaAllocator.init(a);
     defer arena.deinit();
@@ -420,8 +408,6 @@ test "two unlabeled duplicate arrows claim the detour bands and the gap reaches 
     const lg = flt.mkLg(&nodes, &layers, &edges, &reversed);
     const geom = [_]Geom{ .{ .x = 3, .w = 5 }, .{ .x = 3, .w = 5 } };
     const graph = try flt.mkGraph(aa, &edges);
-    // Independent at both ends, as the plan leaves exact duplicates: no rail
-    // draws them, so the router's per-peer path takes the detour.
     var peers = [_]fan.FanEdge{
         .{ .edge_id = 0, .peer_idx = 1, .role = .leftmost, .shared = false },
         .{ .edge_id = 1, .peer_idx = 1, .role = .rightmost, .shared = false },
@@ -435,10 +421,6 @@ test "two unlabeled duplicate arrows claim the detour bands and the gap reaches 
     const bases = [_]u32{2};
     const ledger = try gap_rows.buildPiece(Geom, aa, graph, lg, &geom, &fans, .{}, plan, &bases, &.{}, &.{});
 
-    // Depth 3 for the deeper duplicate: the target band is rows -1..0 (the
-    // shallower detour turns on the base row), the source band rows 1..3,
-    // and both span from the track left of every node (x 0) to the
-    // rightmost port (x 6).
     try testing.expectEqual(@as(usize, 2), ledger.claims.len);
     try testing.expectEqual(@as(u32, 4), ledger.gaps[0].rows_used);
     try testing.expectEqual(@as(u32, 4), ledger.extraRows(0));
@@ -487,4 +469,3 @@ test "a discharged edge claims no gap row" {
     try testing.expectEqual(@as(usize, 1), rows.claims.len);
     for (rows.claims) |c| try testing.expect(std.mem.indexOfScalar(pb.EdgeId, c.edges, 1) == null);
 }
-

@@ -1,8 +1,3 @@
-//! Unit tests for raster/edges.zig. Split out to keep edges.zig under
-//! the 500-line cap. The corner-cell writer's own mask tests moved on to
-//! `edges_corner_test.zig` when THIS file reached that cap; the head slide
-//! lives in `edges_slide_test.zig`.
-
 const std = @import("std");
 const sketch = @import("../sketch.zig");
 const lattice = @import("../lattice.zig");
@@ -259,7 +254,6 @@ test "collision-free edge reports zero cells lost" {
     try testing.expectEqual(@as(u32, 0), report.cells_lost);
 }
 
-/// Stamp one `.cluster_border` cell carrying `mask` (a frame run glyph).
 fn stampBorder(lat: *lattice.Lattice, x: u32, y: u32, mask: lattice.Neighbours) void {
     lat.at(x, y).* = .{
         .occupant = .{ .cluster_border = .{ .cluster = 0, .role = .edge_s } },
@@ -406,9 +400,6 @@ test "a member stroke paints neither port nor head at its rail end and both at a
     var lat = try makeLattice(a, 12, 12);
     defer a.free(lat.cells);
 
-    // A fan-OUT rail at node 0 whose tap for edge 7 continues at (8,4);
-    // the member stroke runs from that tap down to node 1's north wall at
-    // (8,10). Node 1's wall row is stamped so the arrival port can merge.
     const stem = [_]sketch.Point{ .{ .x = 4, .y = 2 }, .{ .x = 4, .y = 4 } };
     const taps = [_]sketch.Tap{
         .{ .edge = 6, .node = 2, .at = .{ .x = 4, .y = 4 }, .landing = .{ .x = 4, .y = 7 } },
@@ -431,11 +422,8 @@ test "a member stroke paints neither port nor head at its rail end and both at a
 
     _ = try edges.rasterizeEdges(a, &lat, s, .bridge, null);
 
-    // The rail end (8,4) is left to the rail: no port bit, no head.
     try testing.expect(lat.atConst(8, 4).occupant == .empty);
     try testing.expect(lat.atConst(8, 5).occupant != .arrowhead);
-    // The private end still gets its head at (8,9); its tip faces the wall,
-    // so the port-tee facing rule leaves (8,10) pristine.
     try testing.expect(switch (lat.atConst(8, 9).occupant) {
         .arrowhead => |ah| ah.dir == .south and ah.edge == 7,
         else => false,

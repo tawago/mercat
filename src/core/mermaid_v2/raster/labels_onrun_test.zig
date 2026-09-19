@@ -1,15 +1,9 @@
-//! Unit tests for raster/labels_onrun.zig — OWN-INK RULE (edge-only interrupt),
-//! FLANKED-RESUMPTION RULE, lateral isolation, and determinism of the
-//! on-run fan-dropper label candidate.
-
 const std = @import("std");
 const sketch = @import("../sketch.zig");
 const lattice = @import("../lattice.zig");
 const onrun = @import("labels_onrun.zig");
 const lw = @import("labels_write.zig");
 
-/// A `Run` for an ASCII literal, built at compile time: these synthetic
-/// writers run outside a rasterization, with no table to intern into.
 fn asciiRun(comptime text: []const u8) lw.Run {
     const cells = comptime blk: {
         var out: [text.len]lw.LabelCell = undefined;
@@ -60,10 +54,6 @@ fn labelCharAt(lat: lattice.Lattice, x: u32, y: u32) u21 {
     };
 }
 
-/// A DECORATED (4-cell) fan-OUT tap dropper on column 5: crossbar row 1
-/// (shared), dropper cells rows 2..4, arrowhead row 5, landing (node
-/// border) row 6. Four private cells is the minimum the decorated
-/// sandwich needs: flank, label, flank, head.
 fn paintTapDropper(lat: *lattice.Lattice, edge: u32) void {
     dropCell(lat, 5, 1, edge, .fan_out_rail);
     dropCell(lat, 5, 2, edge, .fan_out_dropper);

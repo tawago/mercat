@@ -30,7 +30,6 @@ pub fn nextBoundary(text: []const u8, start: usize) Utf8Error!usize {
     return nextBoundaryCounted(text, start, null);
 }
 
-/// As `nextBoundary`, while counting scalar decodes performed by segmentation.
 pub fn nextBoundaryCounted(text: []const u8, start: usize, operations: ?*usize) Utf8Error!usize {
     var previous = try decodeAtCounted(text, start, operations);
     var previous_gcb = graphemeBreak(previous.codepoint);

@@ -1,19 +1,3 @@
-//! Paint-level pin for the DECORATED on-run label column.
-//!
-//! The whole point of FLANKED-RESUMPTION RULE's line-glyph sandwich is what the column
-//! LOOKS like: full run, text, full run, head. `raster/labels_onrun.zig`
-//! never names a glyph — it only decides which cell the text may take —
-//! so nothing inside the raster stage can prove the picture comes out
-//! right. This pin also guards the reverted half-stroke experiment: the
-//! flanks must paint as unremarkable full strokes in the edge's own kind,
-//! because a taper (`╵`/`╷`) made the blind decoder read solid edges as
-//! dotted ones.
-//!
-//! It lives at the mermaid_v2 root because it must import BOTH the raster
-//! stage and the painter, which no file inside `raster/` may do (the
-//! painter sits above it in the pipeline); an explicit lint row grants the
-//! privilege.
-
 const std = @import("std");
 const lattice = @import("lattice.zig");
 const sketch = @import("sketch.zig");
@@ -21,8 +5,6 @@ const onrun = @import("raster/labels_onrun.zig");
 const lw = @import("raster/labels_write.zig");
 const paint = @import("paint.zig");
 
-/// A `Run` for an ASCII literal, built at compile time: these synthetic
-/// writers run outside a rasterization, with no table to intern into.
 fn asciiRun(comptime text: []const u8) lw.Run {
     const cells = comptime blk: {
         var out: [text.len]lw.LabelCell = undefined;
@@ -34,10 +16,6 @@ fn asciiRun(comptime text: []const u8) lw.Run {
 
 const testing = std.testing;
 
-/// A decorated fan-OUT tap dropper on column 5: shared crossbar row 1,
-/// four private dropper cells rows 2..5, arrowhead row 6, landing (node
-/// border) row 7. Four private cells is the decorated minimum — flank,
-/// label, flank, head.
 fn buildFixture(a: std.mem.Allocator, kind: lattice.EdgeKind) !lattice.Lattice {
     const w: u32 = 9;
     const h: u32 = 9;
@@ -84,7 +62,6 @@ fn theSketch() sketch.Sketch {
     };
 }
 
-/// Column `x` of a painted diagram, top to bottom, one codepoint per row.
 fn columnOf(a: std.mem.Allocator, painted: []const u8, x: usize) ![]u21 {
     var out: std.ArrayListUnmanaged(u21) = .empty;
     var it = std.mem.splitScalar(u8, painted, '\n');

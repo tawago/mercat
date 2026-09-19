@@ -1,11 +1,3 @@
-//! Tests for decascade.zig. Discovered by decascade.zig via `test { _ = @import }`.
-//!
-//! Builds `sugiyama.LayeredGraph` + `NodeGeom` slices by hand (rather than
-//! running the full `assignLayers` pipeline) so each test can pin exact
-//! drift/collision/fork geometry and exercise `deCascade` in isolation. The
-//! `graph: sg.SemGraph` parameter is unused by `deCascade` (`_ = graph;`),
-//! so every test passes the same empty dummy graph.
-
 const std = @import("std");
 const sg = @import("../sem_graph.zig");
 const sugiyama = @import("sugiyama.zig");
@@ -320,7 +312,6 @@ test "deCascade entry-corridor drop uses the tallest fork-layer sibling, not jus
     try testing.expectEqual(@as(i32, 0), geom[2].x);
     try testing.expectEqual(@as(u32, 0), drop.?.gap);
     try testing.expectEqual(@as(u32, 10), drop.?.rows);
-    // The slide moves x only; the rows it asks for are the caller's to place.
     for (geom) |g| try testing.expect(g.y == 0 or g.y == 10 or g.y == 20 or g.y == 30);
     try testing.expectEqual(@as(i32, 10), geom[2].y);
     try testing.expectEqual(@as(i32, 20), geom[3].y);

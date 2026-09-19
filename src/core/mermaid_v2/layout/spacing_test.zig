@@ -1,8 +1,3 @@
-//! Tests for `spacing.zig`. Split out of the former misc grab-bag test
-//! file (since dissolved) into spacing.zig's own sibling, per the
-//! mermaid_v2/ test-file convention. Discovered via spacing.zig's
-//! top-level `test { _ = @import("spacing_test.zig"); }` block.
-
 const std = @import("std");
 const prim = @import("prim");
 const sg = @import("../sem_graph.zig");

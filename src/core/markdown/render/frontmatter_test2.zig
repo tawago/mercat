@@ -188,8 +188,6 @@ fn countStyle(lines: []types.Line, style: types.SpanStyle) usize {
     return total;
 }
 
-/// True when some span has `style` and, after trimming surrounding spaces (the
-/// key/value cells are padded), its text equals `want`.
 fn hasStyledText(lines: []types.Line, style: types.SpanStyle, want: []const u8) bool {
     for (lines) |line| for (line.spans) |span| {
         if (span.style != style) continue;

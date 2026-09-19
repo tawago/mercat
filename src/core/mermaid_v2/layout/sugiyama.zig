@@ -1,24 +1,10 @@
-//! Sugiyama layered-graph layout for mermaid_v2 flowcharts: cycle removal
-//! (DFS, back-edges reversed), layer assignment (Kahn / longest-path), and
-//! virtual-node insertion so every LayerEdge spans exactly one layer.
-//! Feeds `crossing.zig` (crossing reduction) and `layout.zig` (coordinate
-//! assignment), which consume the `LayeredGraph` produced here.
-//! Runs top-to-bottom internally (layer 0 = sources); for BT/RL the final
-//! layers array is reversed so layout.zig treats layer 0 as top/left
-//! uniformly. Imports: only `std` and `../sem_graph.zig` (lint-enforced).
-
 const std = @import("std");
 const sg = @import("../sem_graph.zig");
 
-/// A node in the layered graph — either a real node from SemGraph or a
-/// virtual node inserted to span an edge across multiple layers.
 pub const LayerNode = union(enum) {
     real: sg.NodeId,
     virtual: struct {
-        /// The original edge this virtual node belongs to.
         edge: sg.EdgeId,
-        /// Index of this virtual node along the edge's chain
-        /// (0 = first virtual after source, monotone increasing).
         index: u16,
     },
 };
@@ -26,28 +12,19 @@ pub const LayerNode = union(enum) {
 pub const LayerEdge = struct {
     from: u32,
     to: u32,
-    /// Original SemGraph edge id (one virtual chain shares the same edge_id).
     edge: sg.EdgeId,
-    /// True if this edge was reversed during cycle removal.
     reversed: bool,
 };
 
 pub const LayeredGraph = struct {
-    /// All nodes (real + virtual) in a single flat array, indexed by u32.
     nodes: []LayerNode,
 
-    /// layers[i] is a list of node indices into `nodes`, in their current
-    /// horizontal order. Crossing reduction mutates these in place.
     layers: [][]u32,
 
-    /// Every edge in the layered graph, ordered by source layer ascending.
     edges: []LayerEdge,
 
-    /// Set of original SemGraph edge ids that were reversed during cycle
-    /// removal — layout.zig needs this to flip arrows back at paint time.
     reversed_edges: []sg.EdgeId,
 
-    /// Reverse lookup: original NodeId → index in `nodes` (real nodes only).
     real_index: std.AutoHashMapUnmanaged(sg.NodeId, u32),
 
     arena: ?*std.heap.ArenaAllocator,
@@ -67,7 +44,6 @@ pub const LayoutError = error{
     InconsistentEdge,
 };
 
-/// Working edge during cycle removal — tracks reversal state.
 const WorkEdge = struct {
     id: sg.EdgeId,
     from: sg.NodeId,
@@ -77,7 +53,6 @@ const WorkEdge = struct {
 
 const Color = enum(u2) { white, gray, black };
 
-/// Run cycle removal + layer assignment + virtual-node insertion.
 pub fn assignLayers(allocator: std.mem.Allocator, graph: sg.SemGraph) LayoutError!LayeredGraph {
     if (graph.nodes.len == 0) return error.EmptyGraph;
 
@@ -89,7 +64,7 @@ pub fn assignLayers(allocator: std.mem.Allocator, graph: sg.SemGraph) LayoutErro
     }
     const a = arena.allocator();
 
-    // Self-loops (from == to) are excluded from the layered graph. // @guarded-by: sugiyama_test.zig "self-loop excluded from LayeredGraph but still drawn by routing.zig from graph.edges"
+    // @guarded-by: sugiyama_test.zig "self-loop excluded from LayeredGraph but still drawn by routing.zig from graph.edges"
     var work_edges_list = std.ArrayListUnmanaged(WorkEdge).empty;
     {
         var valid = std.AutoHashMapUnmanaged(sg.NodeId, void).empty;
@@ -121,7 +96,7 @@ pub fn assignLayers(allocator: std.mem.Allocator, graph: sg.SemGraph) LayoutErro
 
     var reversed_list = std.ArrayListUnmanaged(sg.EdgeId).empty;
 
-    // Iterative DFS to avoid stack blow-up on large graphs. // @guarded-by: sugiyama_test.zig "iterative cycle-removal DFS handles a very deep chain without stack overflow"
+    // @guarded-by: sugiyama_test.zig "iterative cycle-removal DFS handles a very deep chain without stack overflow"
     var stack = std.ArrayListUnmanaged(struct { node: sg.NodeId, cursor: u32 }).empty;
     for (graph.nodes) |seed| {
         const c = color.get(seed.id).?;

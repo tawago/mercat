@@ -1,11 +1,3 @@
-//! Check 3: per-file `@import("...")` boundary rules for
-//! src/core/mermaid_v2/ — the zone allowlist that keeps each pipeline stage
-//! reaching only the stages below it.
-//!
-//! Split out of the tools/lint_imports.zig root (which keeps the walk, the
-//! line cap, the fallback-path check, and `main`). Every violation message
-//! here is unchanged by the split.
-
 const std = @import("std");
 
 pub fn scanImports(
@@ -28,30 +20,15 @@ pub fn scanImports(
     }
 }
 
-/// One allowed-import pattern for a table-driven per-file allowlist.
-/// The zone patterns replicate the `tgt_is_*` booleans in `checkImport`.
 pub const Rule = union(enum) {
-    /// endsWith "sem_graph.zig" (direct or parent-relative).
     sem_graph,
-    /// endsWith "sketch.zig", "sketch_ports.zig" OR "sketch_bundles.zig":
-    /// both siblings are extensions of the Sketch IR root (a pure derivation
-    /// over `EdgePath` polylines; a pure stamping of bundle identity over the
-    /// finished bundle list), so they are granted exactly where `sketch.zig`
-    /// is granted and nowhere else.
     sketch,
-    /// endsWith "budget.zig".
     budget,
-    /// endsWith "recurse.zig".
     recurse,
-    /// The layout zone: layout.zig or anything under layout/.
     layout_zone,
-    /// The parse zone: parse.zig or anything under parse/.
     parse_zone,
-    /// The cluster zone (folder-only).
     cluster_zone,
-    /// The raster zone: raster.zig or anything under raster/.
     raster_zone,
-    /// Exact target string.
     exact: []const u8,
 
     fn allows(rule: Rule, target: []const u8) bool {
@@ -78,69 +55,6 @@ pub const Rule = union(enum) {
     }
 };
 
-/// Table-driven allowlists for the root-level single-file zones (files whose
-/// rules are keyed on an exact rel_path rather than a directory). Rationale
-/// for each list lives with the file's own header docs:
-///
-///   base/*          the no-deps tier (types.zig / lanes.zig / ledger.zig /
-///                   diagnostics.zig):
-///                   std + base siblings only; importable from every zone.
-///                   types.zig alone may also import "unicode" (the width
-///                   authority). Enforced by the base/ dir rule + the
-///                   in_base_dir zone block in `checkImport`, not by a
-///                   `file_allowlists` row.
-///   raster/aux.zig  the lattice side-table builder: lattice (plus its own
-///                   test sibling) only — one step tighter than the raster
-///                   zone, which would also grant sketch.zig, so the bundle
-///                   can only record what was rasterized, never what the
-///                   layout intended.
-///   ledger/permits.zig  semantic permission discovery (D-IR item 3):
-///                   base/ledger + sem_graph.
-///   ledger/invariants.zig  the report-only gap-row invariants over the
-///                   Sketch's gap records.
-///   select_test.zig  select.zig's test sibling (Step 4 cap-watch
-///                   mitigation, plan N3): drives the pub select surface
-///                   over parsed graphs.
-///   select_filter.zig  the pre-raster CI safety filter over the
-///                   candidates' own polylines: sketch + budget only.
-///   budget.zig      the ladder driver (+ its split-out test sibling).
-///   recurse.zig     cut-layout-stitch recursion: layout/ + cluster/ pairing.
-///   score.zig       pure candidate score; layout/validate.zig is the ONE
-///                   layout file it may reach (NOT the layout zone).
-///   score_geom.zig  pure geometric T2 measurements over a Sketch.
-///   score_test.zig  drives the pub score and score_geom surfaces over hand-built Sketches.
-///   select.zig      candidate construction + live selection (Phase 3b/4a).
-///   audit.zig       per-candidate raster audit (Phase 4a).
-///   budget_test.zig graph-level ladder tests + the labeled-set calibration
-///                   test (parse → select → audit → score = the live path).
-///   recurse_test.zig integration tests for the cut-layout-stitch recursion
-///                   that need both cluster/ and layout/ zone privileges
-///                   (split out to keep recurse.zig under the 500-line cap).
-///   junction_licence_test.zig  root-level pin for the junction licence
-///                   read from the raster alone: the lattice's ink state
-///                   and side table, the licence lookup, and the sketch's
-///                   bundles. Needs parse, select and raster for a real
-///                   render.
-///   cluster_corridor_test.zig  root-level cross-instrument pin for the
-///                   per-column crossing discipline (cluster/corridors.zig):
-///                   the law is decided in the cluster zone but is ABOUT the
-///                   `.intrusion` records the raster files, and the cluster
-///                   zone may not import raster, so the two meet only here.
-///                   Also imports cluster/corridors for its face/approach
-///                   primitives, so the pin can re-derive whether a merge
-///                   was FORCED from geometry rather than restate the policy.
-///   decoration_cell_test.zig  root-level pin that the decoration-cell
-///                   tallies (tip_not_port, arm_into_head) fire on a real
-///                   render of the seed that shows the sideways head: the
-///                   producer and the raster meet only through select.
-///   route_once_test.zig  root-level pin that a route visits each cell
-///                   once: no one-armed stroke cell on a real render of the
-///                   seed that shipped a doubled-back fan polyline.
-///   grapheme_width_test.zig  root-level pin that a painted node box
-///                   closes at one column on every row when a label holds
-///                   an emoji, a combining mark, a ZWJ family or a flag:
-///                   drives the public entry point and re-measures the
-///                   painted text with the width authority from outside.
 pub const file_allowlists = [_]struct {
     name: []const u8,
     allowed: []const Rule,
@@ -348,30 +262,6 @@ pub const file_allowlists = [_]struct {
 
 const base_reason = "base/ files may import only std and base/ siblings; types.zig alone may import unicode";
 
-/// Returns null if the import is allowed for this file, else a reason string.
-///
-/// Per-zone ALLOWLIST. Each zone may import:
-///   everywhere:  "std", "prim"  (named module, resolves to base/types.zig),
-///                "unicode" (the width authority, lib/unicode.zig; base/
-///                excepted — see below), and anything under "base/" (the
-///                no-deps tier: types.zig, lanes.zig, ledger.zig,
-///                diagnostics.zig — importable from every zone)
-///   base/*:      std + base siblings only (no-deps tier); base/types.zig
-///                alone may also import "unicode", so the width primitives
-///                every zone measures with have one authority and no copy
-///   sem_graph.zig / sketch.zig / lattice.zig:   + base/* (they are IR root files)
-///   parse.zig + parse/*:   + sem_graph.zig
-///   layout.zig + layout/*: + sem_graph.zig, sketch.zig
-///   budget.zig:            + sem_graph.zig, sketch.zig, layout.zig, parse.zig
-///   raster.zig + raster/*: + sketch.zig, lattice.zig
-///   paint.zig + paint/*:   + lattice.zig
-///   entry.zig:             anything
-///
-/// Sibling/internal imports within a zone (relative paths that stay inside
-/// the zone, i.e. no ".." crossing to a different zone, or subdir imports
-/// from the zone root file) are always allowed.
-///
-/// *_test.zig files follow their location's zone rules.
 pub fn checkImport(rel_path: []const u8, target: []const u8) ?[]const u8 {
     const sep = std.fs.path.sep;
 
@@ -380,11 +270,6 @@ pub fn checkImport(rel_path: []const u8, target: []const u8) ?[]const u8 {
 
     const in_base_dir = std.mem.startsWith(u8, rel_path, "base" ++ &[_]u8{sep});
 
-    // "unicode" (lib/unicode.zig, the width authority) is open to every zone
-    // but base/: the no-deps tier stays sealed except for types.zig, which
-    // is where the width primitives every zone measures with live. A second
-    // base/ file reaching the authority would be a second place for width
-    // policy to drift.
     if (std.mem.eql(u8, target, "unicode")) {
         if (in_base_dir and !std.mem.eql(u8, rel_path, "base" ++ &[_]u8{sep} ++ "types.zig")) return base_reason;
         return null;

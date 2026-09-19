@@ -1,34 +1,14 @@
-//! End-to-end pin that a painted node box closes at ONE display column on
-//! every row — top border, label row, bottom border — when the label
-//! carries a grapheme whose terminal width is not its codepoint count: an
-//! emoji (two columns), a combining mark (zero), a ZWJ family, a flag, a
-//! variation-selector heart, a skin-tone thumb. The renderer sizes the box
-//! from the label's measured width; when that measure disagrees with the
-//! terminal the border comes out one column short of the text and the
-//! frame breaks on screen (`┌──────────┐` over `│ 🚀 Launch │`).
-//!
-//! The oracle is the Unicode width authority (`unicode.displayWidth`, the
-//! grapheme-aware measure a real terminal applies) — never the renderer's
-//! own notion of width. The two must agree, and this file is where they
-//! meet: it drives the public entry point (`entry.renderFlowchart`, the
-//! same call the CLI makes) and re-measures the painted text from the
-//! outside.
-
 const std = @import("std");
 const unicode = @import("unicode");
 const entry = @import("entry.zig");
 
 const testing = std.testing;
 
-/// Every fixture renders at this budget — wide enough that the natural
-/// rung always fits, so the picture is the plain layout with no wrapping,
-/// truncation, or direction switch to blur the geometry.
 const budget: u32 = 90;
 
 const verticals = [_][]const u8{ "│", "├", "┤" };
 const top_fill = [_][]const u8{ "─", "┴", "┬" };
 
-/// One node box, located by display column (not byte offset).
 const Box = struct {
     top: usize,
     bottom: usize,
@@ -40,7 +20,6 @@ const Box = struct {
     }
 };
 
-/// A rendered diagram, split into rows and framed into boxes.
 const Rendered = struct {
     output: []const u8,
     lines: []const []const u8,
@@ -52,11 +31,6 @@ const Rendered = struct {
         testing.allocator.free(self.output);
     }
 
-    /// The box whose label row carries `label` verbatim between its own
-    /// edges. The search is confined to the box's column span: a row can
-    /// hold several boxes side by side, and a label that is a prefix of a
-    /// neighbour's (`café` inside `café` + combining mark) must not match
-    /// across the gap.
     fn boxLabelled(self: Rendered, label: []const u8) !Box {
         for (self.boxes) |box| {
             var y = box.top + 1;
@@ -70,8 +44,6 @@ const Rendered = struct {
     }
 };
 
-/// The bytes of `line` whose graphemes lie wholly inside the half-open
-/// column range; a grapheme the range cuts is left out at either edge.
 fn columnRange(line: []const u8, start: usize, end: usize) unicode.MeasureError![]const u8 {
     var iter = unicode.Iterator.init(line);
     var byte_start: ?usize = null;
@@ -89,8 +61,6 @@ fn columnRange(line: []const u8, start: usize, end: usize) unicode.MeasureError!
 
 fn renderPlain(source: []const u8) ![]const u8 {
     const result = try entry.renderFlowchart(testing.allocator, source, .{ .max_width = budget });
-    // On fallback `output` aliases `source`; there is nothing to free and
-    // nothing to measure.
     if (result.is_fallback) return error.RenderFellBack;
     return result.output;
 }
@@ -108,8 +78,6 @@ fn isOneOf(bytes: []const u8, set: []const []const u8) bool {
     return false;
 }
 
-/// The grapheme whose first display column is `col`, or null when `col`
-/// is past the row's end or falls inside a wide grapheme.
 fn glyphAt(line: []const u8, col: usize) ?[]const u8 {
     var it = unicode.Iterator.init(line);
     while (it.next() catch return null) |g| {
@@ -119,8 +87,6 @@ fn glyphAt(line: []const u8, col: usize) ?[]const u8 {
     return null;
 }
 
-/// Display column of the first grapheme in `line` that is one of `wanted`
-/// and starts strictly after column `after`, or null.
 fn firstColumnOf(line: []const u8, after: usize, wanted: []const []const u8) ?usize {
     var it = unicode.Iterator.init(line);
     while (it.next() catch return null) |g| {
@@ -132,8 +98,6 @@ fn firstColumnOf(line: []const u8, after: usize, wanted: []const []const u8) ?us
 
 const corners_and_heads = [_][]const u8{ "┌", "┐", "└", "┘", "▼", "▲", "◀", "▶" };
 
-/// A node's label row carries text between its edges — never a corner or
-/// an arrowhead. Rows failing this belong to routing, not to a box.
 fn isLabelRow(line: []const u8, left: usize, right: usize) bool {
     var it = unicode.Iterator.init(line);
     while (it.next() catch return false) |g| {
@@ -144,12 +108,6 @@ fn isLabelRow(line: []const u8, left: usize, right: usize) bool {
     return true;
 }
 
-/// The bottom border of a box whose top border spans `left..right` on row
-/// `top`: the first row below whose glyph at `left` is `└`, with only
-/// label rows in between. Borders are pure box glyphs, so a neighbour's
-/// mis-measured label cannot shift them — the walk keys on borders alone
-/// and leaves the label rows for the tests to judge. Null when the span
-/// was an edge corner, not a box.
 fn bottomOf(lines: []const []const u8, top: usize, left: usize, right: usize) ?usize {
     var y = top + 1;
     while (y < lines.len) : (y += 1) {
@@ -160,9 +118,6 @@ fn bottomOf(lines: []const []const u8, top: usize, left: usize, right: usize) ?u
     return null;
 }
 
-/// Every node box in `lines`: a `┌` followed by border fill and `┐` on one
-/// row, confirmed by the `└` under the `┌`. Neither edge of any label row
-/// is consulted here — those are what the tests judge.
 fn findBoxes(a: std.mem.Allocator, lines: []const []const u8) ![]const Box {
     var boxes: std.ArrayListUnmanaged(Box) = .empty;
     errdefer boxes.deinit(a);
@@ -192,8 +147,6 @@ fn printBox(r: Rendered, box: Box) void {
     while (y <= box.bottom) : (y += 1) std.debug.print("  {s}\n", .{r.lines[y]});
 }
 
-/// Row `y` of `box` must hold one of `wanted` exactly at display column
-/// `col` — the column where the top border put that edge.
 fn expectEdgeAt(r: Rendered, box: Box, y: usize, col: usize, wanted: []const []const u8) !void {
     const got = glyphAt(r.lines[y], col) orelse "";
     if (isOneOf(got, wanted)) return;
@@ -205,8 +158,6 @@ fn expectEdgeAt(r: Rendered, box: Box, y: usize, col: usize, wanted: []const []c
     return error.BoxEdgeDrifted;
 }
 
-/// Both edges of every row of `box` sit under the top border's corners: a
-/// `│`/`├`/`┤` on each label row, `┘` under the `┐` on the bottom border.
 fn expectBoxClosesAtOneColumn(r: Rendered, box: Box) !void {
     var y = box.top + 1;
     while (y < box.bottom) : (y += 1) {
@@ -216,8 +167,6 @@ fn expectBoxClosesAtOneColumn(r: Rendered, box: Box) !void {
     try expectEdgeAt(r, box, box.bottom, box.right, &.{"┘"});
 }
 
-/// No painted row is wider than the budget the render was asked for,
-/// measured as a terminal would.
 fn expectFitsBudget(r: Rendered) !void {
     for (r.lines, 0..) |line, y| {
         const w = unicode.displayWidth(line);
@@ -228,9 +177,6 @@ fn expectFitsBudget(r: Rendered) !void {
     }
 }
 
-/// Render `source`, frame its boxes, and hold the whole picture to the
-/// oracle: exactly `node_count` boxes, each closing at one column on every
-/// row, and no row over the budget. The caller owns the result.
 fn renderFramed(source: []const u8, node_count: usize) !Rendered {
     const output = try renderPlain(source);
     errdefer testing.allocator.free(output);
@@ -267,11 +213,6 @@ test "an emoji-labelled return rail runs straight down under its corner" {
     );
     defer r.deinit();
 
-    // The return edge C --> A lands on A's side as `◀───┐`; the `┐` is the
-    // corner of a vertical rail that must run straight down to its `┘`.
-    // Its two-column label `🔥` sits beside the rail like any other
-    // two-column back-edge label (`xy`, `日`) — it is not painted inline,
-    // so the test only requires it to survive verbatim somewhere.
     try testing.expect(std.mem.indexOf(u8, r.output, "🔥") != null);
     var corner_row: ?usize = null;
     for (r.lines, 0..) |line, y| {

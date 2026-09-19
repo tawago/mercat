@@ -1,6 +1,3 @@
-//! Tests for fan_lanes.zig (incomplete-bipartite lane separation). Discovered
-//! via fan_lanes.zig's `test { _ = @import }`.
-
 const std = @import("std");
 const testing = std.testing;
 const sg = @import("../sem_graph.zig");
@@ -10,7 +7,6 @@ const fan_lanes = @import("fan_lanes.zig");
 const pb = @import("../base/ledger.zig");
 const gap_rows = @import("gap_rows.zig");
 
-/// Minimal geometry element: `assignLanes` only reads centre columns (x + w/2).
 pub const Geom = struct { x: i32, w: u32, y: i32 = 0, h: u32 = 1 };
 
 pub fn mkLg(
@@ -29,8 +25,6 @@ pub fn mkLg(
     };
 }
 
-/// Build a minimal SemGraph whose `edges` mirror the layer edges (all solid);
-/// `assignLanes` only reads edge id + kind.
 pub fn mkGraph(a: std.mem.Allocator, ledges: []const sugiyama.LayerEdge) !sg.SemGraph {
     const es = try a.alloc(sg.Edge, ledges.len);
     for (ledges, es) |le, *e| e.* = .{
@@ -88,9 +82,6 @@ test "incomplete overlapping fans get separate lanes" {
     try testing.expect(lane_a != lane_c);
     try testing.expectEqual(@as(u32, 0), laneOfPivot(fans, .in, 4));
 
-    // The two separated rails conflict, so the row ledger stacks them and
-    // the gap reserves exactly those two rows; the fan-IN's members are
-    // drawn by the rails and claim nothing of their own.
     const ledger = try gap_rows.buildPiece(Geom, aa, graph, lg, &geom, fans, .{}, .{}, &.{2}, &.{}, &.{});
     try testing.expectEqual(@as(u32, 2), ledger.gaps[0].rows_used);
     try testing.expectEqual(@as(u32, 2), ledger.extraRows(0));
@@ -133,9 +124,6 @@ test "lane-separated rails take distinct ledger rows and the gap reserves exactl
     for (ledger.gaps) |g| try testing.expectEqual(g.rows_used -| g.free, ledger.extraRows(0));
 }
 
-/// Like `mkGraph` but every edge is fully arrow-free (`A --- B`) — the shape
-/// the shared-rail closure licence judges. `extra` appends declarations that are
-/// NOT layer edges (the leaf-pair backers).
 pub fn mkBareGraph(a: std.mem.Allocator, ledges: []const sugiyama.LayerEdge, extra: []const sg.Edge) !sg.SemGraph {
     const es = try a.alloc(sg.Edge, ledges.len + extra.len);
     for (ledges, es[0..ledges.len]) |le, *e| e.* = .{

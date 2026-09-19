@@ -1,9 +1,3 @@
-//! Tests for fan.zig. Discovered by fan.zig via `test { _ = @import }`.
-//! fan_grid.zig-specific tests live in the sibling fan_grid_test.zig, and
-//! fan_polyline.zig-specific tests live in fan_polyline_test.zig (both kept
-//! under the 500-line mermaid_v2/ cap); imported below so `zig build test`
-//! still discovers them.
-
 const std = @import("std");
 const prim = @import("prim");
 const fan = @import("fan.zig");
@@ -139,9 +133,6 @@ test "detect keeps a long member as a fan-out peer, labeled or not" {
     };
     try testing.expectEqual(@as(usize, 1), long_peers);
 
-    // The same shape with the long edge labeled: the label rides the
-    // member's own stroke, so the fan-out keeps all three peers and
-    // reserves no label rows for the long one.
     const g_nodes = [_]sg.Node{ mkNode(0, "P"), mkNode(1, "A"), mkNode(2, "B"), mkNode(3, "D") };
     var g_edges = [_]sg.Edge{ mkEdge2(100, 0, 1), mkEdge2(101, 0, 2), mkEdge2(300, 0, 3) };
     g_edges[2].label = "far";
@@ -367,8 +358,6 @@ test "refreshLabelWidths reads each member's label width and flags the fan label
 }
 
 test "a fan-in tap label crowded by a neighbouring fan's drop unshares" {
-    // Two fan-ins in one gap: P's labeled member sits two columns from
-    // Q's member drop, so the label's span would cover foreign ink.
     var peers_p = [_]fan.FanEdge{
         .{ .edge_id = 0, .peer_idx = 0, .role = .leftmost, .label_width = 7 },
         .{ .edge_id = 1, .peer_idx = 1, .role = .rightmost },
@@ -383,9 +372,9 @@ test "a fan-in tap label crowded by a neighbouring fan's drop unshares" {
     };
     const G = struct { x: i32, w: u32 };
     const geom = [_]G{
-        .{ .x = 20, .w = 1 }, .{ .x = 4, .w = 1 }, // P's peers at 20 (labeled) and 4
-        .{ .x = 22, .w = 1 }, .{ .x = 40, .w = 1 }, // Q's peers at 22 and 40
-        .{ .x = 12, .w = 1 }, .{ .x = 31, .w = 1 }, // pivots
+        .{ .x = 20, .w = 1 }, .{ .x = 4, .w = 1 },
+        .{ .x = 22, .w = 1 }, .{ .x = 40, .w = 1 },
+        .{ .x = 12, .w = 1 }, .{ .x = 31, .w = 1 },
     };
     fan.gateFanInSharedLabels(G, &fans, &geom);
     try testing.expect(!peers_p[0].shared);

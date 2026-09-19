@@ -1,12 +1,3 @@
-//! Unit tests for raster/edges_write.zig — the cell-writer contract at the
-//! `cluster_border` occupant (frame-solid ruling, terminal-arrival half).
-//! Through-going bridging lives in the caller (`walkPolyline`) and is pinned
-//! in edges_test.zig; here we pin the writer-level behaviors those callers
-//! rely on: a TERMINAL segment cell and an ARROWHEAD still land on a border.
-//! The PORT-STROKE half (`drawPortStroke`/`drawTargetPortStroke`, the facing
-//! rule, the gap probe and its painted approach) lives in the sibling
-//! `edges_port_test.zig` — split for the 500-line cap.
-
 const std = @import("std");
 const sketch = @import("../sketch.zig");
 const lattice = @import("../lattice.zig");
@@ -186,7 +177,6 @@ test "directional primitives round-trip (straightMask/bitMask/reverse)" {
     );
 }
 
-/// A 4x4 blank lattice plus a recorder writing into `c`.
 fn recorderOn(a: std.mem.Allocator, lat: *lattice.Lattice, c: *aux.Collector) !aux.Recorder {
     const cells = try a.alloc(lattice.Cell, 16);
     for (cells) |*cc| cc.* = lattice.Cell.empty;

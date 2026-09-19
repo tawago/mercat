@@ -48,7 +48,6 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     });
-    // The one import base/ is granted: lib/unicode is the width authority.
     prim_mod.addImport("unicode", unicode_mod);
 
     const mermaid_v2_mod = b.createModule(.{
@@ -363,11 +362,6 @@ fn buildOptionTakesValue(arg: []const u8) bool {
     return false;
 }
 
-/// Wire the native-export font integration into a module that compiles
-/// `src/export/font.zig`: the vendored stb_truetype
-/// implementation translation unit, its include directory, libc, and the
-/// embedded JetBrains Mono TTF asset. The module already carries the root's
-/// optimize mode, satisfying "same optimization mode as the root artifact".
 fn linkExportFont(b: *std.Build, module: *std.Build.Module) void {
     module.addIncludePath(b.path("vendor/stb"));
     module.addCSourceFile(.{

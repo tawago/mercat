@@ -1,9 +1,3 @@
-//! Stage S3 (data) / S5 (consumption): the *resolved* structural-decor
-//! vocabulary. Where `theme/spec.zig` is sparse and optional (a theme's
-//! deltas), `Decor` is concrete and total — every slot has a definite
-//! prefix/suffix/shift/icon and the glyph set is fully populated. `resolve.bake`
-//! produces one of these; the block/inline/table renderers consume it in S5.
-
 const std = @import("std");
 const spec = @import("../../theme/spec.zig");
 
@@ -13,8 +7,6 @@ pub const HrMode = spec.HrMode;
 pub const TableStyle = spec.TableStyle;
 pub const CodeFrameDelta = spec.CodeFrameDelta;
 
-/// Resolved per-slot structural decoration. All fields concrete: an empty
-/// string means "no prefix/suffix/icon", never "inherit".
 pub const SlotDecor = struct {
     prefix: []const u8 = "",
     suffix: []const u8 = "",
@@ -22,17 +14,10 @@ pub const SlotDecor = struct {
     shift: u8 = 0,
     blank_wrap: bool = false,
     full_line_bg: bool = false,
-    /// Heading slots only: emit one extra row below the heading, filled with
-    /// `underline_glyph`. Concrete (no null): `false` means no row.
     underline_row: bool = false,
-    /// Concrete fill glyph for `underline_row` (default "─"; never empty).
     underline_glyph: []const u8 = "─",
 };
 
-/// Resolved, non-optional glyph vocabulary. Backed by string constants (from
-/// presets or user files); the renderer never sees a `null` here — except the
-/// `code_frame`, which stays sparse and whose `.panel`/`false` defaults land at
-/// the render read sites (`kind orelse .panel`).
 pub const ResolvedGlyphSet = struct {
     bullets: []const []const u8 = &default_bullets,
     ordered_prefix: []const u8 = "",
@@ -47,7 +32,6 @@ pub const ResolvedGlyphSet = struct {
     table_style: TableStyle = .grid,
     code_frame: CodeFrameDelta = .{},
 
-    /// Bullet glyph for a given (0-based) list depth, clamping to the last.
     pub fn bulletAt(self: ResolvedGlyphSet, depth: usize) []const u8 {
         if (self.bullets.len == 0) return "•";
         const i = @min(depth, self.bullets.len - 1);
@@ -57,7 +41,6 @@ pub const ResolvedGlyphSet = struct {
 
 pub const default_bullets = [_][]const u8{ "•", "◦", "‣" };
 
-/// The concrete decor produced by baking a resolved theme.
 pub const Decor = struct {
     slots: [slot_count]SlotDecor = [_]SlotDecor{.{}} ** slot_count,
     glyphs: ResolvedGlyphSet = .{},
@@ -66,7 +49,6 @@ pub const Decor = struct {
         return self.slots[@intFromEnum(s)];
     }
 
-    /// Decor for a heading of `level` (1..6), clamped to the 6 heading slots.
     pub fn headingSlot(self: *const Decor, level: usize) SlotDecor {
         const s: Slot = switch (@min(@max(level, 1), 6)) {
             1 => .heading1,
@@ -80,12 +62,6 @@ pub const Decor = struct {
     }
 };
 
-/// The default structural decor that reproduces mercat's historical hardcoded
-/// literals byte-for-byte (`# ` heading prefixes, `• ◦ ‣` bullets, `[x]`/`[ ]`
-/// tasks, `▎` quote bar, full-width `─` rules, grid tables, panel code frames).
-/// `Options.decor` defaults to `&legacy`, so every un-themed render path — and
-/// every existing golden — is unchanged. The `dark`/`light` presets bake to an
-/// equal `Decor` (guarded by a resolve-side field-by-field test).
 pub const legacy: Decor = blk: {
     var d = Decor{};
     d.slots[@intFromEnum(Slot.heading1)] = .{ .prefix = "# " };

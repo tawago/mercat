@@ -1,7 +1,3 @@
-//! recurse_test2.zig — continuation of recurse_test.zig, split at the
-//! mermaid_v2 500-line cap. Same zone privileges (cluster/ + layout/); the
-//! shared merged-Sketch helpers are imported from recurse_test.zig.
-
 const std = @import("std");
 const sketch = @import("sketch.zig");
 const sem_graph = @import("sem_graph.zig");
@@ -60,7 +56,6 @@ test "a nested clustered fan-in loses no RailClaim during either stitch" {
     }
 }
 
-/// The merged placement whose label reads `name`, or null.
 fn placementNamed(s: sketch.Sketch, name: []const u8) ?sketch.NodePlacement {
     for (s.nodes) |p| {
         if (p.lines.len != 0 and std.mem.eql(u8, p.lines[0], name)) return p;
@@ -68,8 +63,6 @@ fn placementNamed(s: sketch.Sketch, name: []const u8) ?sketch.NodePlacement {
     return null;
 }
 
-/// `labeled` stamps a label on each of Top's two CROSS-BORDER members, the
-/// only difference between the two variants the row-reservation pin compares.
 fn fanIntoTwoSubgraphsGraph(
     nodes_buf: []sem_graph.Node,
     edges_buf: []sem_graph.Edge,
@@ -156,7 +149,6 @@ test "an outer fan into sibling subgraphs names its bridges, not the dropped pla
     try std.testing.expect(claimed);
 }
 
-/// The merged frame of cluster `id`, or null.
 fn frameOf(s: sketch.Sketch, id: sem_graph.ClusterId) ?sketch.ClusterFrame {
     for (s.clusters) |c| {
         if (c.id == id) return c;
@@ -164,8 +156,6 @@ fn frameOf(s: sketch.Sketch, id: sem_graph.ClusterId) ?sketch.ClusterFrame {
     return null;
 }
 
-/// Rows between Top's bottom edge and the top of subgraph S's frame — the
-/// inter-layer gap the labeled-fan reservation would inflate.
 fn topToFrameGap(s: sketch.Sketch) !u32 {
     const top = placementNamed(s, "Top") orelse return error.TopNotPlaced;
     const frame = frameOf(s, 100) orelse return error.FrameNotPlaced;

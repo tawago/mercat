@@ -1,54 +1,3 @@
-//! ON-RUN edge-label placement for fan members: a horizontal label written
-//! OVER the member's own PRIVATE vertical dropper, interrupting the stroke
-//! for exactly one row. Tried BEFORE the labels_edge ladder (top priority);
-//! any refusal falls through to that ladder unchanged.
-//!
-//! Two inviolable laws (owner directive):
-//!
-//!   OWN-INK RULE (edge-only) — the label may interrupt ONLY the edge's own
-//!   private ink. The interrupted cell must be an `edge_segment` carrying
-//!   this edge's id with a `fan_*_dropper` role and pure vertical
-//!   neighbour bits (never a rail/crossbar/rail/junction cell), and no
-//!   OTHER edge's Sketch geometry (polyline, rail stem/crossbar, or a
-//!   sibling tap's drop) may cover it. A reader must never wonder which
-//!   member of a shared run a label names.
-//!
-//!   FLANKED-RESUMPTION RULE — the interrupted run must show a LINE
-//!   GLYPH cell of the SAME edge's run directly above AND below the label
-//!   row. A flank is an `edge_segment` of this edge, non-rail role, with
-//!   collinear vertical neighbour bits (n and s, no e/w). An ARROWHEAD is
-//!   NOT a flank: the canonical decorated column reads
-//!   `│` (run), label, `│` (run), `▼` (head), border — the head sits BELOW
-//!   the lower flank, never adjacent to the text. If either flank is
-//!   missing the candidate is illegal. A decorated member therefore needs
-//!   a private interior of >= 4 cells (flank, label, flank, head) where an
-//!   undecorated one needs 3; `layout/fan.zig`'s LABEL_RUN_EXTRA_ROWS
-//!   reserves for that, and a run that still cannot host the full sandwich
-//!   simply refuses and falls to the ordinary labels_edge ladder.
-//!
-//!   The flanks paint as ORDINARY full strokes in the edge's own kind
-//!   (`│`, `┊`, `║`) and keep both vertical neighbour bits — the label row
-//!   interrupts the run visually, but the cells around it stay unremarkable
-//!   run cells. A half-stroke variant (`╵`/`╷` leads tapering into the
-//!   text) was tried and REVERTED: the blind decoder read the tapered
-//!   glyphs as a dashed stroke STYLE and reconstructed solid edges as
-//!   dotted ones, collapsing relation F1. A label that interrupts a run
-//!   must not perturb how that run's line style reads.
-//!
-//! Everything lateral keeps the ordinary ISOLATION LAW
-//! (labels_ink.spanIsolated): the own-run seams are exempt because the
-//! flanks classify as own ink; foreign ink margins and the 2-blank
-//! same-row separation are enforced untouched.
-//!
-//! SCOPE of THIS file: vertical droppers (TD fans) — the label is written
-//! ACROSS the run. The INLINE horizontal form (`──── label ────`, the text
-//! written ALONG a private horizontal run) lives in the sibling
-//! `labels_onrun_h.zig` under the same two rules; `tryOnRunEdge` below is
-//! the single entry point that offers both and fixes their order.
-//!
-//! Import boundary: std, sketch, lattice, raster siblings only (raster
-//! zone; enforced by tools/lint_imports.zig).
-
 const std = @import("std");
 const sketch = @import("../sketch.zig");
 const lattice = @import("../lattice.zig");
@@ -57,20 +6,6 @@ const aux = @import("aux.zig");
 const ink = @import("labels_ink.zig");
 const onrun_h = @import("labels_onrun_h.zig");
 
-/// Try BOTH on-run forms for a routed edge and return true iff either
-/// wrote the label.
-///
-/// TIE ORDER — the LONGER qualifying stretch is offered first, measured as
-/// the longest strict interior among the polyline's vertical segments
-/// versus its horizontal ones, with a VERTICAL win on an exact tie. Two
-/// reasons for this rule over a direction-shaped one (TD → vertical first,
-/// LR → horizontal first): it is a pure function of the polyline, so it
-/// needs neither the Sketch direction nor a per-graph special case and
-/// stays correct for the mixed elbows both directions produce; and it
-/// picks the stretch with the most room for the label plus its two flanks
-/// plus the isolation margin, which is precisely what feasibility depends
-/// on. The tie going to VERTICAL keeps every render that placed a label
-/// before this file existed byte-identical.
 /// @guarded-by: labels_onrun_h_test.zig "tie order: the longer qualifying stretch is tried first, ties go vertical"
 pub fn tryOnRunEdge(
     lat: *lattice.Lattice,
@@ -90,7 +25,6 @@ pub fn tryOnRunEdge(
     return onrun_h.tryOnRunEdgeH(lat, s, ep, run, sink);
 }
 
-/// Longest strict-interior length among the polyline's vertical segments.
 fn longestVerticalInterior(polyline: []const sketch.Point) u32 {
     if (polyline.len < 2) return 0;
     var best: u32 = 0;
@@ -103,8 +37,6 @@ fn longestVerticalInterior(polyline: []const sketch.Point) u32 {
     return best;
 }
 
-/// The vertical (across-the-run) form: every vertical polyline segment
-/// offers its strict interior rows, walked from the middle outward.
 fn tryVerticalEdge(
     lat: *lattice.Lattice,
     s: sketch.Sketch,
@@ -121,9 +53,6 @@ fn tryVerticalEdge(
     return false;
 }
 
-/// Try the on-run candidate for a rail tap: the run is the tap's own
-/// drop, `tap.at` (crossbar cell, shared — never interruptible) exclusive
-/// to `tap.landing` (node border) exclusive.
 pub fn tryOnRunTap(
     lat: *lattice.Lattice,
     s: sketch.Sketch,
@@ -136,8 +65,6 @@ pub fn tryOnRunTap(
     return tryRun(lat, s, tap.edge, tap.at.x, @min(tap.at.y, tap.landing.y) + 1, @max(tap.at.y, tap.landing.y) - 1, run, owner, sink);
 }
 
-/// Walk candidate interruption rows `[y_lo, y_hi]` on column `x` from the
-/// middle outward (deterministic) and place at the first legal row.
 fn tryRun(
     lat: *lattice.Lattice,
     s: sketch.Sketch,
@@ -160,9 +87,6 @@ fn tryRun(
     return false;
 }
 
-/// One candidate row: OWN-INK RULE on the interrupted cell, FLANKED-RESUMPTION RULE on the two
-/// flanks, emptiness on every other span cell, ISOLATION LAW laterally,
-/// then the write. All-or-nothing.
 fn tryAt(
     lat: *lattice.Lattice,
     s: sketch.Sketch,
@@ -174,16 +98,10 @@ fn tryAt(
     sink: aux.Sink,
 ) bool {
     const cell_count = run.cell_count;
-    // OWN-INK RULE, structural half: the interrupted cell is this edge's own
-    // private dropper ink — a straight vertical stroke, never a junction.
     // @guarded-by: labels_onrun_test.zig "OWN-INK RULE: a rail/crossbar cell is never interrupted"
     if (!privateDropperCell(lat, edge_id, x, row)) return false;
-    // OWN-INK RULE, geometric half: no other edge's Sketch geometry rides here.
     // @guarded-by: labels_onrun_test.zig "OWN-INK RULE: a cell another tap's drop covers is refused"
     if (coveredByOther(s, edge_id, x, row)) return false;
-    // FLANKED-RESUMPTION RULE: a LINE GLYPH cell of this edge's own run directly above AND
-    // below. An arrowhead does not qualify — the head must sit below the
-    // lower flank, not against the text.
     // @guarded-by: labels_onrun_test.zig "FLANKED-RESUMPTION RULE: an arrowhead is not a flank, so the head-adjacent row is refused"
     if (!runFlankCell(lat, edge_id, x, row - 1)) return false;
     if (!runFlankCell(lat, edge_id, x, row + 1)) return false;
@@ -206,9 +124,7 @@ fn tryAt(
         }
     }
 
-    // ISOLATION LAW lateral isolation: full foreign-ink margin + 2-blank same-row
-    // separation. The own-run seams are exempt by construction — the flank
-    // cells classify as own ink. @guarded-by: labels_onrun_test.zig "foreign ink beside the span still refuses the on-run candidate"
+    // @guarded-by: labels_onrun_test.zig "foreign ink beside the span still refuses the on-run candidate"
     if (!ink.spanIsolated(lat, owner, start_x, row, cell_count, false)) return false;
 
     std.debug.assert(privateDropperCell(lat, edge_id, x, row));
@@ -218,9 +134,6 @@ fn tryAt(
     return true;
 }
 
-/// True iff the cell at (x, y) is a private dropper cell of `edge_id`:
-/// edge_segment, matching id, fan dropper role, and pure vertical
-/// neighbour bits (a junction/corner has a horizontal arm and is refused).
 fn privateDropperCell(lat: *const lattice.Lattice, edge_id: u32, x: i32, y: i32) bool {
     if (x < 0 or y < 0) return false;
     const ux: u32 = @intCast(x);
@@ -241,10 +154,6 @@ fn privateDropperCell(lat: *const lattice.Lattice, edge_id: u32, x: i32, y: i32)
     return n.n and n.s and !n.e and !n.w;
 }
 
-/// FLANKED-RESUMPTION RULE flank: a LINE GLYPH cell of this edge's own run at (x, y) — an
-/// `edge_segment` of this edge, non-rail role, with collinear vertical
-/// neighbour bits. An arrowhead, a shared rail cell, a corner (which
-/// carries a horizontal arm) and any foreign occupant all fail.
 fn runFlankCell(lat: *const lattice.Lattice, edge_id: u32, x: i32, y: i32) bool {
     if (x < 0 or y < 0) return false;
     const ux: u32 = @intCast(x);
@@ -265,10 +174,6 @@ fn runFlankCell(lat: *const lattice.Lattice, edge_id: u32, x: i32, y: i32) bool 
     return n.n and n.s and !n.e and !n.w;
 }
 
-/// OWN-INK RULE cross-check against the Sketch: true iff any OTHER edge's
-/// geometry covers (x, y) — another EdgePath's polyline, or any rail's
-/// stem, crossbar, or a DIFFERENT tap's drop. The rail's shared run is
-/// shared even for its own members, so it is never exempt.
 pub fn coveredByOther(s: sketch.Sketch, edge_id: u32, x: i32, y: i32) bool {
     for (s.edges) |other| {
         if (other.id == edge_id) continue;

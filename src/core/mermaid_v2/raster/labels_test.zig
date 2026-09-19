@@ -1,6 +1,3 @@
-//! Unit tests for raster/labels.zig. Split out to keep labels.zig under
-//! the 500-line cap.
-
 const std = @import("std");
 const prim = @import("prim");
 const sketch = @import("../sketch.zig");

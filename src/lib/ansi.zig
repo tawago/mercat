@@ -1,15 +1,3 @@
-//! ANSI Escape Sequence Utilities
-//!
-//! This module provides ANSI output for CLI rendering:
-//!
-//!   - writeTokenStyled(): Converts StyleToken → ANSI escape codes
-//!   - stripAlloc(): Removes ANSI codes from text
-//!   - parseStyledLinesAlloc(): Parses ANSI text into vaxis.Segment for TUI
-//!
-//! In the styled text pipeline:
-//!   CLI: Span.style → theme.token() → StyleToken → writeTokenStyled() → ANSI output
-//!   TUI: Span.style → theme.token() → StyleToken → theme.vaxisStyle() → vaxis.Style
-
 const std = @import("std");
 const vaxis = @import("vaxis");
 const theme = @import("../core/theme.zig");
@@ -31,35 +19,24 @@ pub fn writeStyled(allocator: std.mem.Allocator, buffer: *std.ArrayList(u8), sty
     try buffer.appendSlice(allocator, reset);
 }
 
-/// Writes text as an OSC 8 hyperlink with optional styling.
-/// OSC 8 format: ESC ] 8 ; params ; URI ST text ESC ] 8 ; ; ST
 pub fn writeHyperlink(allocator: std.mem.Allocator, buffer: *std.ArrayList(u8), url: []const u8, text: []const u8, token: theme.StyleToken) !void {
-    // OSC 8 hyperlink start
     try buffer.appendSlice(allocator, "\x1b]8;;");
     try buffer.appendSlice(allocator, url);
     try buffer.appendSlice(allocator, "\x1b\\");
 
-    // Write the text with styling
     try writeTokenStyled(allocator, buffer, token, text);
 
-    // OSC 8 hyperlink end
     try buffer.appendSlice(allocator, "\x1b]8;;\x1b\\");
 }
 
-/// SGR reset sequence closing a styled run.
 pub const reset_sequence = "\x1b[0m";
 
-/// Writes the SGR style prefix for a StyleToken without any text or reset.
-/// Lets callers coalesce a run of same-token spans behind one prefix/reset
-/// pair, appending span text straight into the output buffer in between.
 pub fn writeTokenPrefix(allocator: std.mem.Allocator, buffer: *std.ArrayList(u8), token: theme.StyleToken) !void {
     var prefix: [48]u8 = undefined;
     const style = try formatStyle(&prefix, token);
     try buffer.appendSlice(allocator, style);
 }
 
-/// Writes text with ANSI styling based on a StyleToken.
-/// This is the CLI equivalent of theme.vaxisStyle() used by the TUI.
 pub fn writeTokenStyled(allocator: std.mem.Allocator, buffer: *std.ArrayList(u8), token: theme.StyleToken, text: []const u8) !void {
     try writeTokenPrefix(allocator, buffer, token);
     try buffer.appendSlice(allocator, text);
@@ -102,11 +79,6 @@ fn formatStyle(buffer: []u8, token: theme.StyleToken) ![]const u8 {
 
 const Layer = enum { fg, bg };
 
-/// Emit the SGR color parameters (no leading/trailing separators, no `m`) for
-/// one color on one layer. `rgb` emits `38;2;r;g;b` when the terminal supports
-/// truecolor, otherwise downgrades to the nearest xterm-256 index. `ansi16`
-/// emits the named-color codes (30-37/90-97 fg, 40-47/100-107 bg) so the
-/// terminal's own palette decides the hue.
 fn writeColorSgr(writer: anytype, c: Color, layer: Layer) !void {
     const is_fg = layer == .fg;
     switch (c) {
@@ -279,7 +251,6 @@ test "formatStyle emits xterm-256 for index colors" {
 
 test "formatStyle emits named SGR for ansi16 colors" {
     var buf: [48]u8 = undefined;
-    // blue (slot 4) fg → 34; bright_green (slot 10) bg → 102.
     const out = try formatStyle(&buf, .{ .fg = .{ .ansi16 = .blue }, .bg = .{ .ansi16 = .bright_green } });
     try std.testing.expectEqualStrings("\x1b[34;102m", out);
 }
@@ -295,7 +266,6 @@ test "formatStyle emits truecolor when enabled, downgrades when off" {
     color.setTruecolor(false);
     var buf2: [48]u8 = undefined;
     const off = try formatStyle(&buf2, tok);
-    // Pure white downgrades to cube index 231.
     try std.testing.expectEqualStrings("\x1b[38;5;231m", off);
     color.setTruecolor(false);
 }

@@ -1,6 +1,3 @@
-//! Tests for fan_grid.zig. Discovered via fan_test.zig's `test { _ = @import }`
-//! (kept in a sibling file to stay under the 500-line mermaid_v2/ cap).
-
 const std = @import("std");
 const fan = @import("fan.zig");
 const fan_grid = @import("fan_grid.zig");
@@ -203,8 +200,6 @@ test "wrapWideFanIn centres a narrow box on its column's centre, not flush to a 
 }
 
 test "a gridded fan keeps three gap rows between its rows at halved spacing" {
-    // A layer spacing of two rows would leave a two-row gap; the grid keeps
-    // three, and a wider spacing keeps its own gap.
     try testing.expectEqual(@as(i32, 6), fan_grid.rowStep(3, 1));
     try testing.expectEqual(@as(i32, 6), fan_grid.rowStep(3, 2));
     try testing.expectEqual(@as(i32, 8), fan_grid.rowStep(3, 4));

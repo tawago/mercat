@@ -1,12 +1,3 @@
-//! select_test.zig — tests for select.zig, split out of the module under
-//! the Step 4 cap watch (plan N3: keep select.zig's call sites thin and
-//! its line count clear of the 500-line cap). Aggregated into the test
-//! build from entry.zig's `test {}` block.
-//!
-//! Allowed imports (tools/lint_imports.zig): std, prim, ledger,
-//! sem_graph, sketch, budget, parse, select, select_filter, permits, audit,
-//! raster, score.
-
 const std = @import("std");
 const ledger = @import("base/ledger.zig");
 const sem_graph = @import("sem_graph.zig");
@@ -132,9 +123,6 @@ test "a clustered render's rail bundles come from its piece plan and survive the
     try std.testing.expectEqual(@as(usize, 1), plan_sets);
 }
 
-/// The root plan of a graph marked clustered-skipped: the candidates enumerate
-/// with every fan detected and no rail committed, so the tests below read the
-/// enumeration order and the scorer's choice with no plan in the way.
 fn permitsFor(a: std.mem.Allocator, g: sem_graph.SemGraph) !ledger.BundlePermits {
     var plan = (try permits_mod.build(a, g, .joined)).plan;
     plan.scope = .skipped_clustered;
@@ -172,9 +160,6 @@ test "the audit prices the raster that ships: mode reaches collect and changes t
     try std.testing.expect(counterfactual.arrow_base != priced.arrow_base);
 }
 
-/// Two-node fixture whose second edge either transits the first edge's
-/// arrowhead cell (x = 7 — a raster violation the sketch-side proxy could
-/// not classify) or crosses its plain run legally (x = 6).
 fn bridgePinSketch(cross_x: i32, polys: *[2][2]sketch_mod.Point, nodes: *[2]sketch_mod.NodePlacement, edges: *[2]sketch_mod.EdgePath) sketch_mod.Sketch {
     nodes.* = .{
         .{ .id = 1, .rect = .{ .x = 0, .y = 0, .w = 5, .h = 3 }, .shape = .rect, .lines = &.{}, .cluster_id = null },
@@ -319,12 +304,9 @@ test "a candidate with an unrouted visible edge is filtered out before scoring" 
     const g = try parse(a, "flowchart TD\n  A --> B\n  B --> C\n");
     const set = try select.enumerateAll(a, g, testBundlePermits(), 120);
     try std.testing.expect(set.merged.len >= 2);
-    // Every enumerated candidate drew both edges: the filter is the identity.
     for (set.merged) |cand| try std.testing.expectEqual(@as(u32, 0), select_filter.unroutedEdges(cand.sketch));
     try std.testing.expectEqual(set.merged.len, select_filter.ciFilter(a, set.merged).len);
 
-    // Blank one candidate's first polyline: that candidate alone is excluded,
-    // whatever its rung; the others keep their order.
     const forged = try a.dupe(ladder.Candidate, set.merged);
     const edges = try a.dupe(@TypeOf(forged[1].sketch.edges[0]), forged[1].sketch.edges);
     edges[0].polyline = &.{};

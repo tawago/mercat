@@ -39,23 +39,17 @@ fn prepareMetadataLine(
     };
 }
 
-/// Front matter metadata overlay: a top-right panel toggled with `m`, showing
-/// one `key  value` row per entry aligned on the key column, scrollable when
-/// the entries overflow the window.
 pub const MetadataOverlay = struct {
     pub const PanelStyle = theme.ToastStyle;
 
-    /// Screen rectangle (cells) of a drawn overlay, used for mouse hit-testing.
     pub const Rect = struct { x: u16, y: u16, width: u16, height: u16 };
 
     visible: bool = false,
-    /// Scroll offset (first visible entry index).
     scroll: usize = 0,
     visible_rows: usize = 0,
     total: usize = 0,
     rect: ?Rect = null,
 
-    /// Clamp the scroll offset to the last valid page.
     fn maxScroll(self: *MetadataOverlay) usize {
         return self.total -| self.visible_rows;
     }
@@ -73,7 +67,6 @@ pub const MetadataOverlay = struct {
         self.scroll = @min(offset, self.maxScroll());
     }
 
-    /// True when `mouse` falls inside the overlay's drawn rectangle.
     pub fn contains(self: *MetadataOverlay, mouse: vaxis.Mouse) bool {
         const rect = self.rect orelse return false;
         if (mouse.col < 0 or mouse.row < 0) return false;
@@ -83,12 +76,6 @@ pub const MetadataOverlay = struct {
             row >= rect.y and row < rect.y + rect.height;
     }
 
-    /// Draw the panel in the top-right corner. `frame_allocator` must outlive
-    /// `vx.render()` — vaxis stores borrowed grapheme slices in screen cells,
-    /// so the row buffers are read at render time. `fm` is null when the
-    /// document has no front matter or the style keeps it hidden (`hidden`
-    /// keeps the front matter stripped — see config.zig — so the overlay must
-    /// not reveal it even if the visible flag somehow got set).
     pub fn draw(
         self: *MetadataOverlay,
         root: vaxis.Window,
@@ -129,8 +116,6 @@ pub const MetadataOverlay = struct {
         var key_width: usize = 0;
         for (fm.entries) |entry| key_width = @max(key_width, try unicode.rawDisplayWidth(entry.key));
 
-        // Prepare every row once per frame: the panel width needs them all and
-        // the visible ones are printed from the same preparation.
         const rows = try frame_allocator.alloc(PreparedMetadataLine, total);
         var row_width: usize = 0;
         for (fm.entries, rows) |entry, *row| {

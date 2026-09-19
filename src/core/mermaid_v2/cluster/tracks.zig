@@ -1,33 +1,13 @@
-//! cluster/tracks.zig — track discipline for cross-border bridge jogs.
-//!
-//! BORDER CLEARANCE: a jog must never run along a drawn cluster-frame
-//! border (the corner glyph would fuse into it); an offending coordinate
-//! is displaced outward on a bounded search (at most 4096 steps). An
-//! expired search SURRENDERS: the last coordinate is returned even though
-//! it may still sit on a border, and each surrender is counted through the
-//! caller's `expired` out-counter (surfaced as the Sketch diagnostic
-//! `track_clearance_expired`), so a surrendered coordinate is always
-//! distinguishable from a cleared one. Synthetic frames never constrain.
-//! TRACK SEPARATION: same-side bridges whose jog spans overlap pack into
-//! distinct tracks (lanes.assign, stack_gap 1); untangled requests
-//! keep their preferred, border-cleared coordinate. PURE DATA: rects/coords
-//! in, resolved coords out; imports std, lanes, sketch.
-
 const std = @import("std");
 const sketch = @import("../sketch.zig");
 const lanes = @import("../base/lanes.zig");
 
-/// One jog request within a same-side group: the cross-axis interval the jog
-/// segment spans (inclusive; x-range for a row jog, y-range for a column
-/// jog) and the preferred jog coordinate the plain elbow formula produced.
 pub const Req = struct {
     span_lo: i32,
     span_hi: i32,
     pref: i32,
 };
 
-/// Direction that moves a jog AWAY from the box being entered: entering a
-/// north port ⇒ the jog sits above the box ⇒ outward is -y; and so on.
 pub fn outwardSign(entry: sketch.Dir4) i32 {
     return switch (entry) {
         .north, .west => -1,
@@ -35,16 +15,10 @@ pub fn outwardSign(entry: sketch.Dir4) i32 {
     };
 }
 
-/// A north/south entry jogs along a ROW (the coordinate is a y); an
-/// east/west entry jogs along a COLUMN (the coordinate is an x).
 fn isRowJog(entry: sketch.Dir4) bool {
     return entry == .north or entry == .south;
 }
 
-/// True iff a jog at `coord` spanning `[lo, hi]` on the cross axis runs
-/// ALONG the border row/column of any drawn (non-synthetic) cluster frame.
-/// Crossing a PERPENDICULAR border is fine — the raster makes a clean
-/// T-junction; only coincident-parallel runs fuse.
 pub fn onFrameBorder(
     row_jog: bool,
     coord: i32,
@@ -68,11 +42,6 @@ pub fn onFrameBorder(
     return false;
 }
 
-/// Rail-ink obstacles for jog placement: `heads` are arrowhead CELLS
-/// (foreign ink there is an ink-attribution transit violation, perpendicular crossing
-/// included); `runs` are the rail's straight strokes (crossbar, stem,
-/// droppers), which — like frame borders — forbid only COLLINEAR jog runs;
-/// a perpendicular crossing rasterizes as a legal crossing.
 pub const Obstacles = struct {
     heads: []const sketch.Point = &.{},
     runs: []const [2]sketch.Point = &.{},
@@ -96,7 +65,6 @@ pub const Obstacles = struct {
         return false;
     }
 
-    /// True iff `p` lies on a head cell or any run stroke.
     pub fn covers(o: Obstacles, p: sketch.Point) bool {
         for (o.heads) |h| {
             if (h.x == p.x and h.y == p.y) return true;
@@ -109,10 +77,6 @@ pub const Obstacles = struct {
     }
 };
 
-/// Displace `coord` outward (per `entry`) until the jog segment no longer
-/// runs along a drawn frame border or through rail-ink obstacles.
-/// On guard expiry the last coordinate is surrendered (possibly still on a
-/// border) and `expired`, when given, is incremented once.
 pub fn clearOfBorders(
     entry: sketch.Dir4,
     coord: i32,
@@ -146,10 +110,6 @@ const SortCtx = struct {
     }
 };
 
-/// Resolve one same-side group of jog requests to final jog coordinates
-/// (parallel to `reqs`, arena-owned). Overlapping-span requests are packed
-/// into distinct tracks innermost-first; every resolved coordinate is
-/// displaced off drawn frame borders, cascading so tracks stay distinct.
 pub fn resolve(
     arena: std.mem.Allocator,
     reqs: []const Req,
@@ -173,8 +133,6 @@ pub fn resolve(
         }
     }
 
-    // Requests with no overlapping partner keep their preferred jog line; they only
-    // need displacing off any drawn frame border (no track separation to negotiate).
     // @guarded-by: bridges_test.zig "vertical bridge jogs when x-misaligned, final segment vertical"
     for (reqs, 0..) |r, i| {
         if (!part[i]) out[i] = clearOfBorders(entry, r.pref, r.span_lo, r.span_hi, clusters, obstacles, expired);

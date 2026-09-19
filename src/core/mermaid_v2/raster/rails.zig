@@ -1,28 +1,3 @@
-//! Rail rasterizer: paints each `sketch.Rail` as one owned rail (stem
-//! + crossbar) plus direction-aware per-tap droppers; junction cells get explicit neighbour bits from tap
-//! geometry so the painter's mask→glyph table yields `┬`/`┴`/`┼`/`├`.
-//!
-//! Ordering (see raster.zig): runs after nodes, before edges. Cell-claim
-//! semantics match `edges.zig` (`writeEdgeCell`/`writeArrowCell`) for
-//! collision accounting (`cells_lost`) and cluster-border overwrite.
-//!
-//! SIDE TABLE. A rail's taps have no `EdgePath` anywhere in the Sketch —
-//! the shared run IS their geometry — so a member is invisible to the cell
-//! grid except on its own dropper. This file therefore files the two
-//! records that recover them: a `.rail_member` for every member riding a
-//! shared-run cell the Cell does not name, and a `.tap` at each member's
-//! branch cell. Both only where ink actually landed; a cell the rail lost
-//! to a node or a label carries no membership.
-//!
-//! GAP (honest, not a to-do disguised as prose): peer-drawn fans — grid-
-//! wrapped fan-OUT, declined fans, fan-IN routed as per-peer polylines —
-//! reach the grid through `edges.zig` instead, which files their
-//! `.rail_member` records but NO `.tap`. Their branch point is implicit in
-//! a polyline corner, and the raster refuses to infer a fact the geometry
-//! never states. Closing it means naming the branch in the Sketch.
-//!
-//! Allowed imports: std, prim, sketch, lattice, raster-internal siblings.
-
 const std = @import("std");
 const sketch = @import("../sketch.zig");
 const lattice = @import("../lattice.zig");
@@ -32,18 +7,6 @@ const crossings = @import("crossings.zig");
 const ledger = @import("../base/ledger.zig");
 const aux = @import("aux.zig");
 
-/// The bundle identity a rail needs in order to STATE the licence on
-/// every carrier it files. A rail's cells are the one merge path in the
-/// raster that never consulted the crossing rule — it does not need to, it
-/// owns its geometry — so without this the records it leaves could not say
-/// whether a junction glyph it painted over someone else's ink was legal.
-/// Carried, never acted on: nothing here refuses a merge or moves a byte.
-///
-/// `bundle` is the CURRENT rail's own identity, stamped on the Sketch by the
-/// producer (`sketch_bundles.stamp`) and swapped per rail by
-/// `rasterizeRails`. It is what makes this a lookup: the writer already knows
-/// which bundle its ink speaks for and does not reconstruct it from a
-/// membership scan. `bundle_sets` answers the same question for whoever it MEETS.
 /// @guarded-by: rails_test2.zig "a rail reports licensed or foreign without changing bytes"
 const Chan = struct {
     bundle_sets: []const ledger.Bundle = &.{},
@@ -51,18 +14,6 @@ const Chan = struct {
     stamp_state: sketch.BundleStampState = .unattempted,
 };
 
-/// The `CarrierKind` the record STATES for `incoming` welding onto whatever
-/// the cell at `c` ALREADY names (`crossings.carrierKindOnto`, read before
-/// the write). The rail's own name, `chan.bundle`, is the question's
-/// subject: is the occupant a member of THAT bundle here? Asked by name, a
-/// member that also belongs to a bundle at its other end (rail membership
-/// at both ends) reads as this rail's on this rail's cells. Where the
-/// producer filed no name, the question falls back to the pair's.
-///
-/// ABSTAINS unless the producer's transaction completed AND every bundle set
-/// is numbered. A failed/refused re-stamp deliberately preserves the old
-/// payload, so neither a nonzero rail name nor numbered bundle sets are sufficient
-/// without `.complete`; the inverse inconsistency also abstains.
 /// @guarded-by: rails.zig "carrierKindAt trusts identity only after a complete consistent stamp"
 fn carrierKindAt(lat: *const lattice.Lattice, c: ew.Coord, incoming: u32, chan: Chan) lattice.CarrierKind {
     const rail: ?ledger.BundleId = if (chan.bundle != ledger.no_bundle) chan.bundle else null;
@@ -70,21 +21,12 @@ fn carrierKindAt(lat: *const lattice.Lattice, c: ew.Coord, incoming: u32, chan: 
 }
 
 pub const Report = struct {
-    /// Taps that claimed at least one cell (each tap represents one edge).
     taps_written: u32 = 0,
-    /// Rail/drop/arrow cells lost to node/label collisions.
     cells_lost: u32 = 0,
-    /// Rail pivot/tap arrowheads refused at a collision — same contract as
-    /// `edges.EdgeRasterReport.heads_lost`.
     heads_lost: u32 = 0,
-    /// The one crossing event a rail claim can raise: a lateral arm into
-    /// another edge's decoration cell, refused by the writer and counted
-    /// against the rail's writer (`arm_into_head`). Folded into the raster
-    /// report's crossing tally beside the edge pass's.
     crossings: crossings.CrossingCounts = .{},
 };
 
-/// Rasterize every rail in `s` into `lat`.
 pub fn rasterizeRails(lat: *lattice.Lattice, s: sketch.Sketch, sink: aux.Sink) Report {
     var report: Report = .{};
     for (s.rails) |rail| {
@@ -106,7 +48,6 @@ fn drawRail(lat: *lattice.Lattice, rail: sketch.Rail, report: *Report, chan: Cha
     const dropper_role: lattice.EdgeRole = if (fan_in) .fan_in_dropper else .fan_out_dropper;
     const polarity: lattice.RailPolarity = if (fan_in) .in else .out;
 
-    // Rail: every cell carries exactly its inward arm(s), from geometry.
     // @guarded-by: rails_test.zig "rail junction bits are explicit: corner, tee, cross"
     const x0 = rail.crossbar[0].x;
     const x1 = rail.crossbar[1].x;
@@ -117,16 +58,6 @@ fn drawRail(lat: *lattice.Lattice, rail: sketch.Rail, report: *Report, chan: Cha
         claim(lat, .{ .x = x, .y = rail_y }, crossbar_edge, rail.kind, crossbar_role, mask, report, chan, rec);
     }
 
-    // -- Stem: pivot exit bit into the node border, interior cells, and
-    //    the stem arm OR'd into the junction (a rail cell).
-    // The stem departs the pivot, so the port belongs to the run's owner id
-    // (the same informational id the shared-run cells carry).
-    // The pivot end is decorated exactly when `pivot_arrow` is declared, and
-    // its head is stamped one cell out from `stem[0]` pointing back down the
-    // stem (see the stamping block below, which reads the same geometry).
-    // The port tee is dropped only when that head's TIP FACES the border
-    // cell — the redundant-tee case; any other head keeps its tee so the
-    // stem still visibly attaches.
     // @guarded-by: rails_test.zig "a pivot head facing the border leaves it pristine; a detached one tees"
     const pivot_head = pivotHead(rail);
     const pivot_end: edges_r.PortEnd = .{ .head = pivot_head, .role = crossbar_role };
@@ -164,17 +95,7 @@ fn drawRail(lat: *lattice.Lattice, rail: sketch.Rail, report: *Report, chan: Cha
     }
 
     for (rail.taps) |tap| {
-        // The MEMBER end of a tap is decorated exactly when `tap.arrow` is
-        // declared: fan-OUT stamps that head pointing INTO the landing,
-        // fan-IN stamps it reversed (a back-arrow at the member). Either
-        // way the head lands on the tap's LAST dropper cell with its tip
-        // toward the landing (fan-OUT) or away from it (fan-IN), so the port
-        // tee is dropped only when that tip FACES the landing — the same
-        // rule the polyline ports obey. A tap whose dropper stops short of
-        // the wall, or whose head looks the other way, keeps its tee.
         // @guarded-by: rails_test.zig "a tap head facing the landing leaves the member border pristine; an undecorated tap tees it"
-        // A tap that continues lands on no wall and carries no head: its
-        // member's far end holds both (a private port, or the other rail).
         // @guarded-by: rails_test.zig "a continuing tap claims its junction arm and paints neither port nor head"
         const tap_head = if (tap.continues) null else tapHead(tap, fan_in);
         const tap_end: edges_r.PortEnd = .{ .head = tap_head, .role = dropper_role };
@@ -187,11 +108,6 @@ fn drawRail(lat: *lattice.Lattice, rail: sketch.Rail, report: *Report, chan: Cha
         }
         const dir = edges_r.segmentDir(tap.at, tap.landing) orelse continue;
         claim(lat, tap.at, tap.edge, rail.kind, crossbar_role, edges_r.bitMask(dir), report, chan, rec);
-        // The branch itself: the cell just grew this tap's drop arm, and
-        // nothing on it says whose arm that is (the run belongs to the
-        // shared owner id, and the mask is a merge). A tap with no drop
-        // reached `continue` above and files nothing — the record follows
-        // the ink, not the Sketch.
         // @guarded-by: rails_test.zig "a rail files its members on the shared run and a tap at each branch cell"
         if (inkAt(lat, tap.at)) |c| ew.recordTap(rec, c.x, c.y, tap.edge, polarity);
         var wrote_any = false;
@@ -215,7 +131,6 @@ fn drawRail(lat: *lattice.Lattice, rail: sketch.Rail, report: *Report, chan: Cha
     recordMembership(lat, rail, polarity, rec);
 }
 
-/// The stem's first real direction — the axis the pivot head points along.
 fn pivotStemDir(rail: sketch.Rail) ?edges_r.Move {
     var si: usize = 0;
     while (si + 1 < rail.stem.len) : (si += 1) {
@@ -224,21 +139,12 @@ fn pivotStemDir(rail: sketch.Rail) ?edges_r.Move {
     return null;
 }
 
-/// The pivot arrowhead: stamped one step out from `stem[0]` along the stem,
-/// pointing BACK at the pivot. Null when the pivot end carries no head.
-/// Sole derivation: both the port gate and the arrow stamp read it, so the
-/// tip direction the gate tests is the one the painter draws.
 fn pivotHead(rail: sketch.Rail) ?edges_r.Head {
     if (rail.pivot_arrow == .none) return null;
     const dir = pivotStemDir(rail) orelse return null;
     return .{ .cell = edges_r.step(rail.stem[0], dir), .dir = edges_r.reverse(dir) };
 }
 
-/// A tap's arrowhead: the LAST dropper cell, one step back from the landing,
-/// pointing INTO the landing on a fan-OUT and away from it on a fan-IN (a
-/// back-arrow at the member). Null when the tap carries no head, has no
-/// direction, or has no dropper at all (`at` already abuts `landing`, so
-/// the loop writes nothing and no head is stamped).
 fn tapHead(tap: sketch.Tap, fan_in: bool) ?edges_r.Head {
     if (tap.arrow == .none) return null;
     const dir = edges_r.segmentDir(tap.at, tap.landing) orelse return null;
@@ -250,9 +156,6 @@ fn tapHead(tap: sketch.Tap, fan_in: bool) ?edges_r.Head {
     };
 }
 
-/// Coordinates of `p` when the cell there carries edge ink, else null.
-/// Membership is a claim about ink: a position the rail never won (a node,
-/// a label, out of bounds) has no riders to record.
 fn inkAt(lat: *const lattice.Lattice, p: sketch.Point) ?ew.Coord {
     if (!edges_r.pointInBounds(p, lat)) return null;
     const c = edges_r.toCoord(p);
@@ -262,16 +165,6 @@ fn inkAt(lat: *const lattice.Lattice, p: sketch.Point) ?ew.Coord {
     };
 }
 
-/// File `.rail_member` records over the rail's whole shared run: the stem
-/// (every member's ink leaves the pivot through it) and the crossbar (a
-/// member rides it between the junction and its own branch cell, and no
-/// further). Runs last, over the finished ink, so a cell lost to a
-/// collision records nobody.
-///
-/// The member the Cell already names is skipped: that one IS on the grid,
-/// and restating it would put a second, staleable copy of a Cell field on
-/// the side table (lattice.zig's anti-desync law). Droppers are skipped for
-/// the same reason — a dropper carries exactly one member and says so.
 /// @guarded-by: rails_test.zig "a rail files its members on the shared run and a tap at each branch cell"
 fn recordMembership(
     lat: *const lattice.Lattice,
@@ -297,8 +190,6 @@ fn recordMembership(
     }
 }
 
-/// One shared-run cell: file every member whose ink rides it and whom the
-/// Cell does not name.
 fn recordMembersAt(
     lat: *const lattice.Lattice,
     p: sketch.Point,
@@ -325,17 +216,6 @@ fn onStretch(v: i32, a: i32, b: i32) bool {
     return v >= @min(a, b) and v <= @max(a, b);
 }
 
-/// Claim one cell through the shared edge cell contract (OR-merge on
-/// existing edge cells, overwrite cluster borders, count collisions).
-///
-/// The merge onto a run is unconditional, exactly as before: a rail owns its
-/// geometry and the crossing rule is not asked to approve it. `chan` only
-/// supplies the licence the resulting carrier record STATES, so a later
-/// reader can tell a rail welding onto a bundle-mate from a rail welding
-/// onto a stranger. Refusing the latter would change every fan render and
-/// is not this file's decision to take. The one claim a rail does NOT own
-/// is a lateral arm into another edge's decoration cell: the writer refuses
-/// it and counts it against the rail (`Report.crossings.arm_into_head`).
 /// @guarded-by: rails_test.zig "a rail arm into a foreign head is refused and counted against the rail"
 fn claim(
     lat: *lattice.Lattice,

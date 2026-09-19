@@ -1,14 +1,3 @@
-//! Tests for `fan_roles.zig` — the producer-derived fan role stamp
-//! (`markShared`, at write time) and the fan-OUT mask resolve
-//! (`resolveMasks`, from the Sketch's pivot geometry). Discovered via
-//! fan_roles.zig's top-level `test { _ = @import("fan_roles_test.zig"); }`
-//! block, per the mermaid_v2/ test-file convention.
-//!
-//! All fixtures are hand-built lattices + Sketches (shape-generic — no seed
-//! names). Bit layout: N=0, E=1, S=2, W=3 (see `lattice.Neighbours`). The
-//! full `┼` is N+E+S+W = 0b1111; `┴` is N+E+W = 0b1011; `┬` is E+S+W =
-//! 0b1110.
-
 const std = @import("std");
 const ledger = @import("../base/ledger.zig");
 const sketch = @import("../sketch.zig");
@@ -45,14 +34,11 @@ fn arrowNorth(edge: u32) lattice.Cell {
     return .{ .occupant = .{ .arrowhead = .{ .dir = .north, .edge = edge } }, .neighbours = .{} };
 }
 
-/// A 3-wide, 5-tall grid; every cell empty.
 fn blank(buf: []lattice.Cell) lattice.Lattice {
     for (buf) |*c| c.* = lattice.Cell.empty;
     return .{ .width = 3, .height = 5, .cells = buf, .rail_claims = &out_claims };
 }
 
-/// A Sketch holding one placed pivot node (id 5) and one fan-OUT member
-/// edge (id 0) departing it, plus whatever rails the caller supplies.
 fn fanSketch(
     nodes: []const sketch.NodePlacement,
     edges: []const sketch.EdgePath,

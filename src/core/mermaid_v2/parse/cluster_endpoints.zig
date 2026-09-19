@@ -1,13 +1,3 @@
-//! Cluster-endpoint desugaring for `parse.zig`: resolves a cluster id used
-//! as an edge source/target to a representative member node — exit node
-//! (no internal outgoing edges) for source role, entry node (no internal
-//! incoming edges) for target role, falling back to the first member.
-//!
-//! Helpers are comptime-generic over builder slice types so `parse.zig`
-//! passes its slices directly without conversion overhead.
-//!
-//! Imports: only `std`, `../sem_graph.zig`.
-
 const sg = @import("../sem_graph.zig");
 
 const NodeId = sg.NodeId;
@@ -15,9 +5,6 @@ const ClusterId = sg.ClusterId;
 
 pub const ClusterEndpointRole = enum { source, target };
 
-/// True iff node `nid` is a transitive member of cluster `cid`.
-/// `nodes` items must have `.id: NodeId` and `.cluster: ?ClusterId`.
-/// `clusters` items must have `.parent: ?ClusterId`.
 pub fn nodeInCluster(
     nodes: anytype,
     clusters: anytype,
@@ -58,10 +45,6 @@ fn hasInternalIncoming(
     return false;
 }
 
-/// Resolve a cluster id to a representative member node id.
-/// `nodes` items need `.id: NodeId` and `.cluster: ?ClusterId`.
-/// `clusters` items need `.parent: ?ClusterId`.
-/// `edges` items need `.from: NodeId` and `.to: NodeId`.
 pub fn clusterRepresentative(
     nodes: anytype,
     clusters: anytype,

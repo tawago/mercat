@@ -1,10 +1,3 @@
-//! Rebuild stitched RailClaims from final carriers.
-//!
-//! Transported outer members use shifted placement ids as pending keys. This
-//! pass expands those keys through final routed bridges, rebuilds facts from
-//! final paths or rails, splits on exact real pivots, and derives bridge-native
-//! claims only from a shared final endpoint and attachment site.
-
 const std = @import("std");
 const sketch = @import("../sketch.zig");
 const sketch_ports = @import("../sketch_ports.zig");

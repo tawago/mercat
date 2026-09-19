@@ -1,22 +1,9 @@
-//! Root-level pin that a route visits each cell once, against a REAL
-//! render: parse -> permits -> select -> rasterize. A one-armed stroke cell
-//! is a run that stops in open space — the far end of a route that visited
-//! a cell twice. A fan member's polyline used to double back along its
-//! rail row when the target-side corridor lay between the target column
-//! and the source (`layout/fan_polyline.zig`), and the seed below shipped
-//! exactly that: an eight-cell dead-end run beside a foreign head, with a
-//! tee no second edge joined. The producer now ends the rail run at the
-//! corridor column, and the seed pins the stub count at zero on every width.
-
 const std = @import("std");
 const parse = @import("parse.zig").parse;
 const permits = @import("ledger/permits.zig");
 const select = @import("select.zig");
 const raster = @import("raster.zig");
 
-// flowchart_multilayer_dag_td_12: at w60 the VerifyAddress -> UpdateShipping
-// member's rail ran west past its target column and came back to the
-// corridor, leaving `╶───────┬` on the row above ApplyDiscount's head.
 const multilayer =
     \\flowchart TD
     \\    OR[OrderReceived]
@@ -52,9 +39,6 @@ const multilayer =
     \\
 ;
 
-/// Stroke cells painting a single arm: the stub a doubled-back route
-/// leaves where it turned around. Read off the grid, independently of
-/// the counter, so the pin does not trust the counter alone.
 fn stubCells(lat: anytype) u32 {
     var n: u32 = 0;
     var y: u32 = 0;

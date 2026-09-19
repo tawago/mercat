@@ -1,9 +1,3 @@
-//! The detour builders a lane loop falls to when no gap lane clears: the
-//! outside detour around the placed diagram, the invisible-link dogleg
-//! search, the interior-run shift, and the widening bound. Split from
-//! route_clearance.zig (500-line cap); the clearance gates stay there.
-//! Imports (layout zone): std, sem_graph, sketch, base/ledger, siblings.
-
 const std = @import("std");
 const pb = @import("../base/ledger.zig");
 const sg = @import("../sem_graph.zig");
@@ -14,31 +8,12 @@ const Straight = @import("routing_polyline.zig").Straight;
 const portPoint = route_clearance.portPoint;
 const blocked = route_clearance.blocked;
 
-/// How far the outside-detour search may widen before it gives up.
-///
-/// Each step pushes the detour one cell further outside every placement, and
-/// the canvas bbox grows with it, so a search that never clears is billed for
-/// every step it took. What it dodges is the paths already routed: with
-/// `routed` of them and two sides to alternate between, `2 * routed + 2`
-/// tracks exhaust every distinct answer widening can give — past that the
-/// walk is only buying frame. The absolute ceiling stays 64 so a pathological
-/// graph cannot make it quadratic.
-///
-/// This bound is why one unroutable edge in a complete undirected mesh no
-/// longer drags ~60 empty rows of frame around the whole diagram.
 /// @guarded-by: route_clearance_test.zig "the detour search widens once per already-routed path, never past the ceiling"
 pub fn detourLimit(routed: usize) u32 {
     const want = 2 * @as(u64, routed) + 2;
     return @intCast(@min(want, 64));
 }
 
-/// A clear line for a detour's port-adjacent run. No box is exempt — the
-/// route's OWN boxes terminate it too (box termination: a box is a terminus, never a
-/// corridor); the only legal own-box footprint is the port cell itself,
-/// which sits one cell before `want` and off the searched line. The result
-/// is also confined to the port's outward half-plane, so the perpendicular
-/// leg from the port can never run back through the box; when nothing on
-/// that side is clear, `want` (the first off-box line) stands.
 /// @guarded-by: route_clearance_test.zig "a detour's port run never crosses the route's own box"
 fn offSideClearLine(horizontal: bool, want: i32, lo: i32, hi: i32, placements: []const sk.NodePlacement, outward: i32) i32 {
     const none = std.math.maxInt(pb.NodeId);
@@ -46,24 +21,10 @@ fn offSideClearLine(horizontal: bool, want: i32, lo: i32, hi: i32, placements: [
     return if ((found - want) * outward >= 0) found else want;
 }
 
-/// How many rows (TD) or columns (LR) beyond its minimum a detour's
-/// port-adjacent run may be pushed into the gap when the nearer line is
-/// taken by foreign ink: the widening ladder tries every pair of
-/// source/target offsets up to this reach at each distance.
 pub const ROW_REACH: u32 = 2;
 
-/// The offsets of one detour candidate's two port-adjacent runs beyond
-/// their minimum distance from the port (see `outsideDetour`).
 pub const Rows = struct { source_extra: u32 = 0, target_extra: u32 = 0 };
 
-/// Route around the outside of the placed diagram when all local gap lanes
-/// are occupied. The first and last legs remain perpendicular to the ports,
-/// and a decorated end's leg is two cells long so its head cell holds no
-/// corner (`straight`, the straight-through rule of routing_terminal.zig).
-/// `rows` pushes either port-adjacent run further out — a foreign jog on
-/// the nearest gap row leaves the next one free — and a pushed run that
-/// would touch a box (or whose leg would) is null: the builder clears its
-/// own boxes, since the plan-blind clearance gates read only ink.
 /// @guarded-by: route_clearance_test.zig "an outside detour bends two cells out from a decorated end and one from a plain end"
 /// @guarded-by: route_clearance_test.zig "a pushed detour run takes the next gap row and is null where the push meets a box"
 pub fn outsideDetour(
@@ -130,10 +91,6 @@ pub fn outsideDetour(
     return points;
 }
 
-/// True iff a pushed port-adjacent run — the line `line` (a row when
-/// `horizontal`) from the port's cross coordinate out to `outside` — and
-/// the leg from the port to it touch no box. The leg starts one cell off
-/// the port so the route's own box, which the port sits on, is not read.
 fn pushedRunClear(horizontal: bool, port: sk.Point, outward: i32, line: i32, outside: i32, placements: []const sk.NodePlacement) bool {
     const none = std.math.maxInt(pb.NodeId);
     const along = if (horizontal) port.x else port.y;

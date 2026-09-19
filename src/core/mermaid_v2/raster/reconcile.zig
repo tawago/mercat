@@ -1,28 +1,8 @@
-//! Neighbour-reconciliation post-pass for the lattice, run after
-//! `rasterizeEdges` (fan roles and the fan-OUT strip included). Clears
-//! junction-bearing cells'
-//! neighbour bits pointing at an out-of-bounds or `.empty` adjacent
-//! cell (a "phantom arm"); bits pointing at a real occupant are kept.
-//! Only `.edge_segment`/`.cluster_border` are touched; `.arrowhead`/
-//! `.node_border` glyphs are left alone. Order-independent: each bit's
-//! decision depends only on the neighbour's occupant, never mutated
-//! here. This module only ever CLEARS a bit: nothing in it may add one.
-//! An arm the edge writer declined to paint stays unpainted — restoring it
-//! from geometry alone would assert an adjacency the writer refused on
-//! edge identity, a question no pass here is in a position to re-ask.
-//! Imports: `std`, `lattice.zig`, and the raster-zone sibling
-//! `edges_write.zig` (shared Dir4 mask helpers; any bare-name raster
-//! sibling is legal, see `tools/lint_imports.zig`).
-
 const std = @import("std");
 const lattice = @import("../lattice.zig");
 const ew = @import("edges_write.zig");
 
-/// True if `occ` represents a real stroke/structure a neighbour bit may
-/// legitimately point at. Only `.empty` is treated as "no connection".
-/// `.cluster_border` counts as real WITHOUT requiring reciprocity, so a
-/// frame-bridge approach arm survives reconciliation (frame-solid
-/// convention). // @guarded-by: reconcile_test.zig "reconcileNeighbours: frame-bridge approach arm facing a non-reciprocating cluster_border is kept"
+/// @guarded-by: reconcile_test.zig "reconcileNeighbours: frame-bridge approach arm facing a non-reciprocating cluster_border is kept"
 pub fn isRealConnection(occ: lattice.Occupant) bool {
     return switch (occ) {
         .empty => false,
@@ -37,8 +17,6 @@ pub fn isRealConnection(occ: lattice.Occupant) bool {
     };
 }
 
-/// True if the cell's occupant is one whose junction glyph is picked
-/// from the neighbour mask, i.e. a cell this pass may modify.
 fn isJunctionBearing(occ: lattice.Occupant) bool {
     return switch (occ) {
         .edge_segment, .cluster_border => true,
@@ -46,22 +24,11 @@ fn isJunctionBearing(occ: lattice.Occupant) bool {
     };
 }
 
-/// True if `nb`'s bit in direction `d` is set. Thin wrapper over the shared
-/// raster Dir4 mask helper (`edges_write.bitMask`) so no Dir4 switch is
-/// duplicated here.
 fn bitSet(nb: lattice.Neighbours, d: lattice.Dir4) bool {
     return nb.toMask() & ew.bitMask(d).toMask() != 0;
 }
 
-/// True if the 1-cell-port reprieve target `cell` genuinely continues the
-/// run arriving from direction `d` (the junction bit points toward `cell`).
-/// A reprieve is only justified when the target reciprocates — it carries
-/// the neighbour bit pointing BACK toward the junction (`reverse(d)`) — or
-/// is an `.arrowhead` (a genuine terminal always faces its run). A cell
-/// that merely happens to sit collinear (an incidental perpendicular border
-/// running alongside the rail) does NOT reciprocate, so its reprieve is
-/// denied and the phantom arm is cleared.
-/// // @guarded-by: reconcile_test.zig "reconcileNeighbours: 1-cell port gap before a reciprocating node border keeps the bit (duplicate-point reprieve)"
+/// @guarded-by: reconcile_test.zig "reconcileNeighbours: 1-cell port gap before a reciprocating node border keeps the bit (duplicate-point reprieve)"
 fn reprieveReciprocates(cell: *const lattice.Cell, d: lattice.Dir4) bool {
     return switch (cell.occupant) {
         .empty => false,
@@ -70,11 +37,7 @@ fn reprieveReciprocates(cell: *const lattice.Cell, d: lattice.Dir4) bool {
     };
 }
 
-/// True if the neighbour bit in direction `d` from `(x,y)` is a phantom
-/// arm — i.e. no stroke actually continues there. Grants a 1-cell
-/// port-padding reprieve when the adjacent cell is empty but the cell
-/// beyond it (same axis) genuinely continues the run (reciprocates or is a
-/// terminal arrowhead). // @guarded-by: reconcile_test.zig "reconcileNeighbours: 1-cell port gap before a reciprocating node border keeps the bit (duplicate-point reprieve)"
+/// @guarded-by: reconcile_test.zig "reconcileNeighbours: 1-cell port gap before a reciprocating node border keeps the bit (duplicate-point reprieve)"
 pub fn bitIsPhantom(lat: *const lattice.Lattice, x: u32, y: u32, d: lattice.Dir4) bool {
     const Pair = struct { ax: ?u32, ay: ?u32, bx: ?u32, by: ?u32 };
     const p: Pair = switch (d) {
@@ -116,10 +79,6 @@ pub fn bitIsPhantom(lat: *const lattice.Lattice, x: u32, y: u32, d: lattice.Dir4
     return true;
 }
 
-/// Final reconciliation pass: clear neighbour bits that point into empty
-/// background (a "phantom arm") on junction-bearing cells. Returns the
-/// number of bits cleared, for reporting only — a cleared arm is a
-/// *repaired* upstream mask, not a shipped defect.
 pub fn reconcileNeighbours(lat: *lattice.Lattice) u32 {
     if (lat.width == 0 or lat.height == 0) return 0;
 

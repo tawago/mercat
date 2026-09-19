@@ -2,7 +2,6 @@ const std = @import("std");
 const Allocator = std.mem.Allocator;
 const text = @import("text");
 
-/// Supported diagram types
 pub const DiagramType = enum {
     flowchart,
     sequence,
@@ -26,7 +25,6 @@ pub const DiagramType = enum {
     }
 };
 
-/// Graph direction for flowcharts
 pub const Direction = enum {
     LR,
     RL,
@@ -43,7 +41,6 @@ pub const Direction = enum {
     }
 };
 
-/// Node shapes supported in flowcharts
 pub const NodeShape = enum {
     rectangle,
     rounded,
@@ -59,7 +56,6 @@ pub const NodeShape = enum {
     asymmetric,
     subroutine,
 
-    /// Get box-drawing characters for this shape
     pub fn getBoxChars(self: NodeShape, unicode_mode: bool) BoxChars {
         if (!unicode_mode) return ascii_box;
 
@@ -77,7 +73,6 @@ pub const NodeShape = enum {
         };
     }
 
-    /// Check if shape needs special rendering (not standard box)
     pub fn needsSpecialRendering(self: NodeShape) bool {
         return switch (self) {
             .diamond, .circle, .cylinder, .hexagon, .parallelogram, .parallelogram_alt, .trapezoid, .trapezoid_alt, .stadium, .subroutine, .asymmetric => true,
@@ -86,7 +81,6 @@ pub const NodeShape = enum {
     }
 };
 
-/// Edge line styles
 pub const EdgeStyle = enum {
     solid,
     dotted,
@@ -94,7 +88,6 @@ pub const EdgeStyle = enum {
     dashed,
 };
 
-/// Arrow head styles
 pub const ArrowHead = enum {
     arrow,
     open_arrow,
@@ -103,7 +96,6 @@ pub const ArrowHead = enum {
     none,
 };
 
-/// A node in the graph
 pub const Node = struct {
     id: []const u8,
     label: []const u8,
@@ -118,7 +110,6 @@ pub const Node = struct {
     is_dummy: bool = false,
 };
 
-/// An edge connecting two nodes
 pub const Edge = struct {
     from: []const u8,
     to: []const u8,
@@ -132,7 +123,6 @@ pub const Edge = struct {
     to_is_subgraph: bool = false,
 };
 
-/// A subgraph/cluster containing nodes
 pub const Subgraph = struct {
     id: []const u8,
     label: ?[]const u8,
@@ -163,7 +153,6 @@ pub const Subgraph = struct {
     }
 };
 
-/// The complete graph structure
 pub const Graph = struct {
     allocator: Allocator,
     diagram_type: DiagramType,
@@ -219,7 +208,6 @@ pub const Graph = struct {
         try self.subgraphs.append(self.allocator, subgraph);
     }
 
-    /// Get all nodes in a specific layer
     pub fn getNodesInLayer(self: *const Graph, allocator: Allocator, layer: u32, out: *std.ArrayList(*const Node)) !void {
         for (self.node_order.items) |id| {
             if (self.nodes.getPtr(id)) |node| {
@@ -230,7 +218,6 @@ pub const Graph = struct {
         }
     }
 
-    /// Count the number of layers
     pub fn getLayerCount(self: *const Graph) u32 {
         var max_layer: u32 = 0;
         var it = self.nodes.valueIterator();
@@ -242,7 +229,6 @@ pub const Graph = struct {
         return max_layer + 1;
     }
 
-    /// Get edges originating from a node
     pub fn getOutgoingEdges(self: *const Graph, allocator: Allocator, node_id: []const u8, out: *std.ArrayList(*const Edge)) !void {
         for (self.edges.items) |*edge| {
             const from = if (edge.reversed) edge.to else edge.from;
@@ -252,7 +238,6 @@ pub const Graph = struct {
         }
     }
 
-    /// Get edges pointing to a node
     pub fn getIncomingEdges(self: *const Graph, allocator: Allocator, node_id: []const u8, out: *std.ArrayList(*const Edge)) !void {
         for (self.edges.items) |*edge| {
             const to = if (edge.reversed) edge.from else edge.to;
@@ -362,7 +347,6 @@ pub const ascii_box: BoxChars = .{
     .vertical = '|',
 };
 
-/// Box drawing style selection for ASCII-specific rendering
 pub const BoxDrawingStyle = enum {
     standard,
     rounded,
@@ -370,7 +354,6 @@ pub const BoxDrawingStyle = enum {
     double,
     ascii,
 
-    /// Get BoxChars for this style
     pub fn getBoxChars(self: BoxDrawingStyle) BoxChars {
         return switch (self) {
             .standard => unicode_square,
@@ -382,7 +365,6 @@ pub const BoxDrawingStyle = enum {
     }
 };
 
-/// Heavy box-drawing characters (━ ┃ ┏ ┓ ┗ ┛ ┣ ┫ ┳ ┻ ╋)
 pub const box_chars_heavy: BoxChars = .{
     .top_left = 0x250F,
     .top_right = 0x2513,
@@ -392,7 +374,6 @@ pub const box_chars_heavy: BoxChars = .{
     .vertical = 0x2503,
 };
 
-/// Double box-drawing characters (═ ║ ╔ ╗ ╚ ╝ ╠ ╣ ╦ ╩ ╬)
 pub const box_chars_double: BoxChars = .{
     .top_left = 0x2554,
     .top_right = 0x2557,
@@ -451,7 +432,6 @@ pub const LineChars = struct {
     pub const vertical_thick: u21 = 0x2503;
 };
 
-/// 2D point for coordinates
 pub const Point = struct {
     x: i32,
     y: i32,
@@ -461,7 +441,6 @@ pub const Point = struct {
     }
 };
 
-/// Bounding rectangle
 pub const Rect = struct {
     x: i32,
     y: i32,
@@ -484,26 +463,17 @@ pub const Rect = struct {
     }
 };
 
-/// Heuristic for crossing reduction in layered graph layout
 pub const CrossingReductionHeuristic = enum {
-    /// Median (default): O(n log n)/layer, 3-approx; good performance + stability
     median,
-    /// Barycenter: O(n)/layer, O(√n)-approx; often better empirically, less stable
     barycenter,
 };
 
-/// Force a specific layout algorithm regardless of automatic selection
 pub const ForceLayout = enum {
-    /// Automatic selection (default): tree → force-directed → Sugiyama
     auto,
-    /// Force Sugiyama layered layout (best for DAGs)
     sugiyama,
-    /// Force Reingold-Tilford tree layout (best for trees)
     tree,
-    /// Force force-directed layout (Kamada-Kawai for small graphs, Fruchterman-Reingold otherwise)
     force,
 
-    /// Returns user-friendly name for status bar display
     pub fn displayName(self: ForceLayout) []const u8 {
         return switch (self) {
             .auto => "auto",
@@ -513,7 +483,6 @@ pub const ForceLayout = enum {
         };
     }
 
-    /// Cycle to next layout algorithm
     pub fn next(self: ForceLayout) ForceLayout {
         return switch (self) {
             .auto => .sugiyama,
@@ -524,8 +493,6 @@ pub const ForceLayout = enum {
     }
 };
 
-/// Render options
-/// Which layout algorithm was actually selected during rendering
 pub const LayoutAlgorithm = enum {
     sugiyama,
     reingold_tilford,
@@ -536,7 +503,6 @@ pub const LayoutAlgorithm = enum {
     layered_bfs,
     unknown,
 
-    /// Returns true if this algorithm produces layered output directly
     pub fn isLayered(self: LayoutAlgorithm) bool {
         return switch (self) {
             .sugiyama, .reingold_tilford, .layered_bfs => true,
@@ -545,8 +511,6 @@ pub const LayoutAlgorithm = enum {
     }
 };
 
-/// Stages of width fitting, in escalation order
-/// Each stage attempts to fit the diagram within max_width
 pub const FitStage = enum {
     natural,
     label_wrap,
@@ -567,8 +531,6 @@ pub const FitStage = enum {
     }
 };
 
-/// Normalized node layout information for downstream stages
-/// This provides a consistent interface regardless of which layout algorithm was used
 pub const LayoutNode = struct {
     id: []const u8,
     x: i32,
@@ -579,29 +541,20 @@ pub const LayoutNode = struct {
     order: ?u32 = null,
 };
 
-/// Normalized layout result produced by all flowchart layout algorithms
-/// This is the contract between layout and downstream stages (routing, compaction, canvas)
 pub const LayoutResult = struct {
     allocator: Allocator,
 
-    /// Final node coordinates for all non-dummy nodes
     nodes: std.ArrayList(LayoutNode),
 
-    /// Layer structure - non-null for layered algorithms, inferred for free-placement
-    /// Each inner slice contains node indices in order within that layer
     layers: ?[][]usize = null,
 
-    /// Indices into the original edge list for edges that were reversed during cycle breaking
-    /// These should be rendered as dashed back-edges
     back_edges: std.ArrayList(usize),
 
-    /// Metadata about the layout process
     algorithm_used: LayoutAlgorithm = .unknown,
     is_tree: bool = false,
     is_cyclic: bool = false,
     crossing_reduction_iterations: u32 = 0,
 
-    /// Width fitting metadata
     fit_stage: FitStage = .natural,
     original_direction: ?Direction = null,
     natural_width: u32 = 0,
@@ -626,17 +579,14 @@ pub const LayoutResult = struct {
         }
     }
 
-    /// Add a node to the layout result
     pub fn addNode(self: *LayoutResult, node: LayoutNode) !void {
         try self.nodes.append(self.allocator, node);
     }
 
-    /// Record a back-edge (reversed during cycle breaking)
     pub fn addBackEdge(self: *LayoutResult, edge_index: usize) !void {
         try self.back_edges.append(self.allocator, edge_index);
     }
 
-    /// Get a node by ID
     pub fn getNode(self: *const LayoutResult, id: []const u8) ?*const LayoutNode {
         for (self.nodes.items) |*node| {
             if (std.mem.eql(u8, node.id, id)) {
@@ -654,18 +604,12 @@ pub const RenderOptions = struct {
     horizontal_spacing: u32 = 8,
     vertical_spacing: u32 = 3,
     max_label_width: ?u32 = null,
-    /// Crossing reduction heuristic (default: median)
     crossing_reduction_heuristic: CrossingReductionHeuristic = .median,
-    /// Box drawing style (standard, rounded, heavy, double, ascii)
     box_drawing_style: BoxDrawingStyle = .standard,
-    /// Force a specific layout algorithm (default: auto)
     force_layout: ForceLayout = .auto,
-    /// Subgraph frame-border notation (owner ruling 2026-07-19; bridge default)
     subgraph_edges: @import("prim").SubgraphEdges = .bridge,
-    /// Aspect ratio correction for terminal cells (visual_x = grid_x * aspect_ratio_x)
     aspect_ratio_x: f32 = 1.0,
     aspect_ratio_y: f32 = 1.0,
-    /// Emit debug block showing layout decisions
     debug_mermaid: bool = false,
 };
 
@@ -685,34 +629,23 @@ pub const CompactionHints = struct {
     sequence_direction: ?Direction = null,
 };
 
-/// Result of rendering
 pub const RenderResult = struct {
     output: []const u8,
     width: u32,
     height: u32,
     is_fallback: bool = false,
     fallback_reason: ?[]const u8 = null,
-    /// Which layout algorithm was used (set by layout phase)
     algorithm_used: LayoutAlgorithm = .unknown,
-    /// Number of nodes in the graph (0 for non-flowchart types)
     node_count: u32 = 0,
-    /// Number of edges in the graph (0 for non-flowchart types)
     edge_count: u32 = 0,
-    /// Whether the graph was detected as a tree
     is_tree: bool = false,
-    /// Whether the graph contains cycles
     is_cyclic: bool = false,
-    /// Whether width constraint triggered compaction
     width_constraint_triggered: bool = false,
-    /// Crossing reduction iterations used (Sugiyama only)
     crossing_reduction_iterations: u32 = 0,
-    /// Which width fitting stage succeeded
     fit_stage: FitStage = .natural,
-    /// Original direction if switched for width fitting
     original_direction: ?Direction = null,
 };
 
-/// Arrow types for sequence diagram messages
 pub const SequenceArrowType = enum {
     solid_arrow,
     solid_line,
@@ -738,7 +671,6 @@ pub const SequenceArrowType = enum {
     }
 };
 
-/// A participant in a sequence diagram
 pub const Participant = struct {
     id: []const u8,
     alias: ?[]const u8 = null,
@@ -752,13 +684,11 @@ pub const Participant = struct {
     }
 };
 
-/// Type of participant (affects rendering style)
 pub const ParticipantType = enum {
     participant,
     actor,
 };
 
-/// A message between participants
 pub const Message = struct {
     from: []const u8,
     to: []const u8,
@@ -767,7 +697,6 @@ pub const Message = struct {
     is_self_message: bool = false,
 };
 
-/// A note in a sequence diagram
 pub const SequenceNote = struct {
     position: NotePosition,
     participant1: []const u8,
@@ -781,20 +710,17 @@ pub const NotePosition = enum {
     over,
 };
 
-/// Activation state change
 pub const Activation = struct {
     participant: []const u8,
     is_activate: bool,
 };
 
-/// A sequence element that can be a message, note, or activation, preserving order
 pub const SequenceElement = union(enum) {
     message: Message,
     note: SequenceNote,
     activation: Activation,
 };
 
-/// Complete sequence diagram structure
 pub const SequenceDiagram = struct {
     allocator: Allocator,
     participants: std.ArrayList(Participant),
@@ -873,7 +799,6 @@ pub const SequenceDiagram = struct {
     }
 };
 
-/// Visibility modifier for class members
 pub const Visibility = enum {
     public,
     private,
@@ -902,7 +827,6 @@ pub const Visibility = enum {
     }
 };
 
-/// A member (attribute or method) of a class
 pub const ClassMember = struct {
     name: []const u8,
     member_type: []const u8,
@@ -912,7 +836,6 @@ pub const ClassMember = struct {
     is_abstract: bool = false,
 };
 
-/// Relationship types between classes
 pub const ClassRelationType = enum {
     inheritance,
     composition,
@@ -946,7 +869,6 @@ pub const ClassRelationType = enum {
     }
 };
 
-/// A class in the diagram
 pub const Class = struct {
     name: []const u8,
     members: std.ArrayList(ClassMember),
@@ -972,7 +894,6 @@ pub const Class = struct {
         try self.members.append(self.allocator, member);
     }
 
-    /// Get attributes (non-method members)
     pub fn getAttributes(self: *const Class) []const ClassMember {
         var count: usize = 0;
         for (self.members.items) |m| {
@@ -981,13 +902,11 @@ pub const Class = struct {
         return self.members.items;
     }
 
-    /// Get methods
     pub fn getMethods(self: *const Class) []const ClassMember {
         return self.members.items;
     }
 };
 
-/// A relationship between two classes
 pub const ClassRelation = struct {
     from: []const u8,
     to: []const u8,
@@ -997,7 +916,6 @@ pub const ClassRelation = struct {
     to_cardinality: ?[]const u8 = null,
 };
 
-/// Complete class diagram structure
 pub const ClassDiagram = struct {
     allocator: Allocator,
     classes: std.StringHashMap(Class),
@@ -1044,7 +962,6 @@ pub const ClassDiagram = struct {
     }
 };
 
-/// Cardinality for ER relationships
 pub const Cardinality = enum {
     zero_or_one,
     exactly_one,
@@ -1072,7 +989,6 @@ pub const Cardinality = enum {
     }
 };
 
-/// An entity in the ER diagram
 pub const Entity = struct {
     name: []const u8,
     attributes: std.ArrayList(EntityAttribute),
@@ -1099,7 +1015,6 @@ pub const Entity = struct {
     }
 };
 
-/// An attribute of an entity
 pub const EntityAttribute = struct {
     name: []const u8,
     attr_type: []const u8,
@@ -1107,7 +1022,6 @@ pub const EntityAttribute = struct {
     is_foreign_key: bool = false,
 };
 
-/// A relationship between entities
 pub const ERRelation = struct {
     from: []const u8,
     to: []const u8,
@@ -1116,7 +1030,6 @@ pub const ERRelation = struct {
     label: ?[]const u8 = null,
 };
 
-/// Complete ER diagram structure
 pub const ERDiagram = struct {
     allocator: Allocator,
     entities: std.StringHashMap(Entity),
@@ -1163,7 +1076,6 @@ pub const ERDiagram = struct {
     }
 };
 
-/// Type of state in a state diagram
 pub const StateType = enum {
     start,
     end,
@@ -1178,7 +1090,6 @@ pub const StateType = enum {
     }
 };
 
-/// A state in a state diagram
 pub const State = struct {
     id: []const u8,
     label: ?[]const u8 = null,
@@ -1202,21 +1113,18 @@ pub const State = struct {
     }
 };
 
-/// A transition between states
 pub const StateTransition = struct {
     from: []const u8,
     to: []const u8,
     label: ?[]const u8 = null,
 };
 
-/// A note attached to a state
 pub const StateNote = struct {
     state_id: []const u8,
     text: []const u8,
     position: NotePosition = .right_of,
 };
 
-/// Complete state diagram structure
 pub const StateDiagram = struct {
     allocator: Allocator,
     states: std.StringHashMap(State),
@@ -1248,7 +1156,6 @@ pub const StateDiagram = struct {
         self.state_order.deinit(self.allocator);
     }
 
-    /// Track an allocated ID for cleanup
     pub fn trackAllocatedId(self: *StateDiagram, id: []const u8) !void {
         try self.allocated_ids.append(self.allocator, id);
     }
@@ -1287,7 +1194,6 @@ pub const StateDiagram = struct {
         return self.states.getPtr(id);
     }
 
-    /// Get all states in a composite state
     pub fn getChildStates(self: *const StateDiagram, allocator: Allocator, parent_id: []const u8, out: *std.ArrayList(*const State)) !void {
         for (self.state_order.items) |id| {
             if (self.states.getPtr(id)) |state| {
@@ -1300,7 +1206,6 @@ pub const StateDiagram = struct {
         }
     }
 
-    /// Get states at the top level (not inside any composite)
     pub fn getTopLevelStates(self: *const StateDiagram, allocator: Allocator, out: *std.ArrayList(*const State)) !void {
         for (self.state_order.items) |id| {
             if (self.states.getPtr(id)) |state| {
@@ -1311,7 +1216,6 @@ pub const StateDiagram = struct {
         }
     }
 
-    /// Find start states (states with [*] --> transitions pointing to them)
     pub fn findStartStates(self: *const StateDiagram, allocator: Allocator, parent_id: ?[]const u8, out: *std.ArrayList([]const u8)) !void {
         for (self.state_order.items) |id| {
             if (self.states.getPtr(id)) |state| {
@@ -1329,7 +1233,6 @@ pub const StateDiagram = struct {
         }
     }
 
-    /// Find end states
     pub fn findEndStates(self: *const StateDiagram, allocator: Allocator, parent_id: ?[]const u8, out: *std.ArrayList([]const u8)) !void {
         for (self.state_order.items) |id| {
             if (self.states.getPtr(id)) |state| {
@@ -1347,7 +1250,6 @@ pub const StateDiagram = struct {
         }
     }
 
-    /// Count the number of layers (for layout)
     pub fn getLayerCount(self: *const StateDiagram) u32 {
         var max_layer: u32 = 0;
         var it = self.states.valueIterator();

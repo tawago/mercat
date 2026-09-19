@@ -1,12 +1,3 @@
-//! Unit tests for the PORT-STROKE half of raster/edges_write.zig —
-//! `drawPortStroke`/`drawTargetPortStroke` and the shared `mergePortBit`
-//! tail: uniform four-face erasure, the invisible-edge refusal, the
-//! stroke_kind stamp, the corner refusal, the `.port` record's arm detail,
-//! the port-tee FACING rule, and the 1-cell gap probe. Split out of
-//! `edges_write_test.zig` for the 500-line cap; the cell-writer contract
-//! tests stay there, and the HEAD SLIDE that closes a decorated end's gap
-//! approach is pinned in `edges_slide_test.zig`.
-
 const std = @import("std");
 const sketch = @import("../sketch.zig");
 const lattice = @import("../lattice.zig");
@@ -16,9 +7,6 @@ const aux = @import("aux.zig");
 
 const testing = std.testing;
 
-/// A 1×2 lattice whose cell at (0, border_y) is a solid rect node_border with
-/// a horizontal {e,w} run (a box-bottom/box-top border). Callers drive
-/// `drawPortStroke` with a polyline that exits that cell vertically.
 fn sourceBorderLattice(a: std.mem.Allocator, border_y: u32) !lattice.Lattice {
     const cells = try a.alloc(lattice.Cell, 2);
     for (cells) |*c| c.* = lattice.Cell.empty;
@@ -31,9 +19,6 @@ fn sourceBorderLattice(a: std.mem.Allocator, border_y: u32) !lattice.Lattice {
     return .{ .width = 1, .height = 2, .cells = cells };
 }
 
-/// 3×3 lattice with a single node_border cell at (bx, by) carrying `mask`
-/// (solid rect). Everything else empty — hosts port-stroke geometry on any
-/// face.
 fn borderLattice3(a: std.mem.Allocator, bx: u32, by: u32, mask: lattice.Neighbours) !lattice.Lattice {
     const cells = try a.alloc(lattice.Cell, 9);
     for (cells) |*c| c.* = lattice.Cell.empty;
@@ -254,13 +239,6 @@ test "a decorated arrival whose head is DETACHED still tees the wall" {
 }
 
 test "a DECORATED gap arrival paints nothing: the slid head owns the gap" {
-    // The tip-side law. Painting the gap behind a head produced `├─◀` — run
-    // ink between the arrowhead's TIP and the border, which the arrowhead
-    // contract forbids (a head is terminal; only its BASE side may carry
-    // ink). The head is slid onto the gap by the caller instead, so here it
-    // arrives already facing the wall: the facing gate suppresses the tee
-    // and the paint is never reached. The gap belongs to the arrowhead,
-    // which `rasterizeEdges` stamps after this call.
     // @guarded-by: edges_slide_test.zig "a decorated gap arrival stamps its head against the wall, run ink behind it"
     const a = testing.allocator;
     var lat = try borderLattice3(a, 2, 1, .{ .n = true, .s = true });

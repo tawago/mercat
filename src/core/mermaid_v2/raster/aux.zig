@@ -1,51 +1,23 @@
-//! Builder for the lattice's position-keyed side table (`lattice.Aux`).
-//!
-//! Producers hand facts to a `Collector` while they write cells; `finish`
-//! sorts the accumulated records into the canonical (cell, kind, value)
-//! order and hands the slice to the `Lattice`. The collector is the ONLY
-//! writer of that bundle — no later pass edits records, which is what
-//! makes the anti-desync law in `lattice.zig` mechanically true.
-//!
-//! Every rasterization collects: the table is part of the raster IR, not
-//! an optional extra. A null `Sink` remains only for synthetic per-cell
-//! writers constructed outside a rasterization.
-//!
-//! Deliberately Sketch-blind (enforced by a `tools/lint/imports.zig` row):
-//! this file may reach `lattice.zig` and nothing else. A builder that
-//! could see the Sketch would be able to record what the layout INTENDED
-//! rather than what the raster DID, and the bundle would stop being
-//! evidence.
-
 const std = @import("std");
 const lattice = @import("../lattice.zig");
 
-/// Where a producer sends records. `null` means "this rasterization is
-/// not collecting" — the one mechanism for switching the bundle off, so
-/// enabled-ness is never represented twice.
 pub const Sink = ?*Collector;
 
-/// Accumulates records in producer order; `finish` sorts them.
 pub const Collector = struct {
     allocator: std.mem.Allocator,
     records: std.ArrayListUnmanaged(lattice.Aux) = .empty,
     state: lattice.AuxCollectionState = .complete,
-    /// Every `record` call made through this collector, including the append
-    /// that poisoned it and all later allocation-free attempts.
     attempted_records: u64 = 0,
 
     pub fn init(allocator: std.mem.Allocator) Collector {
         return .{ .allocator = allocator };
     }
 
-    /// Release retained scratch storage. Finished table slices borrow that
-    /// storage, so callers using a non-arena allocator must deinitialize only
-    /// after the table is no longer needed.
     pub fn deinit(self: *Collector) void {
         self.records.deinit(self.allocator);
         self.* = undefined;
     }
 
-    /// Value report attached to the lattice alongside `finish()`'s table.
     pub fn report(self: *const Collector) lattice.AuxCollectionReport {
         return .{
             .state = self.state,
@@ -53,11 +25,6 @@ pub const Collector = struct {
         };
     }
 
-    /// Sort into (cell, kind, value) order and return the complete table. A
-    /// poisoned collector returns an empty table, never its retained prefix.
-    /// `std.mem.sort` is stable, so records that tie on the key keep the
-    /// order their producers wrote them in — the table is deterministic
-    /// for a deterministic raster.
     pub fn finish(self: *Collector) []const lattice.Aux {
         if (self.state == .out_of_memory) {
             std.debug.assert(self.records.items.len == 0);
@@ -70,11 +37,6 @@ pub const Collector = struct {
     }
 };
 
-/// Record one fact at `cell` (a row-major linear index, see
-/// `Lattice.cellIndex`). A no-op on a null sink.
-///
-/// Callers must respect the anti-desync law: `kind`/`value`/`detail` may
-/// only describe something the Cell at `cell` cannot itself express.
 pub fn record(
     sink: Sink,
     cell: u32,
@@ -98,17 +60,6 @@ pub fn record(
     };
 }
 
-/// A `Sink` plus the grid width.
-///
-/// Most producers hold the whole `Lattice` and can key a record with
-/// `Lattice.cellIndex`. The per-cell writers do not: they are handed a
-/// `*Cell` and its (x, y) precisely so they cannot reach anything else on
-/// the grid. Bundling the width with the sink lets them key a record
-/// positionally without regaining that reach, and keeps the widening of
-/// their signatures to one parameter.
-///
-/// The default is inert (`sink = null`), so a synthetic caller writes
-/// `.{}` and files nothing.
 /// @guarded-by: aux_test.zig "a Recorder with no sink files nothing"
 pub const Recorder = struct {
     sink: Sink = null,
@@ -118,7 +69,6 @@ pub const Recorder = struct {
         return .{ .sink = sink, .width = lat.width };
     }
 
-    /// Record one fact at (x, y). A no-op on an inert recorder.
     pub fn at(
         self: Recorder,
         x: u32,
