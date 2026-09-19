@@ -1,11 +1,3 @@
-//! Intermediate (builder) types used during `parse.zig`'s single-pass
-//! construction of SemGraph nodes, clusters, and classes. Separate from
-//! the public sem_graph types so the parser can mutate them freely while
-//! the graph is under construction, then freeze them via `materializeNodes`
-//! / `materializeClusters`.
-//!
-//! Imports: only `std`, `../sem_graph.zig`.
-
 const std = @import("std");
 const sg = @import("../sem_graph.zig");
 
@@ -28,14 +20,6 @@ pub const ClusterBuilder = struct {
     direction: ?sg.Direction,
 };
 
-/// Drop clusters that ended the parse with no members and no surviving
-/// sub-clusters, remapping ids in `clusters` and `nodes` in place. Such
-/// clusters arise legally — e.g. `subgraph S` whose statements only
-/// re-reference nodes already owned by an earlier cluster (a node keeps
-/// its FIRST cluster), or a literally empty `subgraph S\nend` — and the
-/// layout pipeline rejects an empty child graph, so they must not reach
-/// the SemGraph. Descending-id order handles nesting in one pass: a
-/// sub-cluster is always created after (id greater than) its parent.
 pub fn pruneEmptyClusters(
     a: std.mem.Allocator,
     nodes: []NodeBuilder,
@@ -54,7 +38,10 @@ pub fn pruneEmptyClusters(
         if (c.members.items.len > 0) continue;
         var kept_sub = false;
         for (c.sub_clusters.items) |sc| {
-            if (!dropped[sc]) { kept_sub = true; break; }
+            if (!dropped[sc]) {
+                kept_sub = true;
+                break;
+            }
         }
         if (kept_sub) continue;
         dropped[cid] = true;
@@ -74,7 +61,7 @@ pub fn pruneEmptyClusters(
         if (dropped[i]) continue;
         var c = clusters.items[i];
         c.id = remap[i];
-        // A kept cluster's parent is always kept (it has a kept child). // guarded-by: parse_test.zig "nested subgraph: parent survives via kept child with no own members"
+        // guarded-by: parse_test.zig "nested subgraph: parent survives via kept child with no own members"
         if (c.parent) |p| c.parent = remap[p];
         var sw: usize = 0;
         for (c.sub_clusters.items) |sc| {
@@ -87,7 +74,7 @@ pub fn pruneEmptyClusters(
         w += 1;
     }
     clusters.shrinkRetainingCapacity(w);
-    // Dropped clusters have no members, so only remapping is needed here. // guarded-by: parse_test.zig "dropped empty cluster leaves no dangling node->cluster reference"
+    // guarded-by: parse_test.zig "dropped empty cluster leaves no dangling node->cluster reference"
     for (nodes) |*node| {
         if (node.cluster) |c| node.cluster = remap[c];
     }

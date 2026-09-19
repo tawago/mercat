@@ -1,18 +1,9 @@
-//! Lattice IR — the cell-grid intermediate representation between the
-//! rasterizer and the painter. A `Lattice` is a width × height grid of
-//! `Cell`s; each cell carries an `Occupant` tag (empty, node/cluster
-//! border or interior, edge segment, arrowhead, or label codepoint)
-//! and a `Neighbours` bitmask consumed by the painter's junction table.
-//!
-//! Pure data: must not import `sketch.zig`, `parse.zig`, or `paint.zig`
-//! (enforced by `zig build lint`). Imports: `std` and `prim` only.
+//! @guarded-by: raster/aux_test.zig "aux records survive the post-walk mutating passes"
 
 const std = @import("std");
 const prim = @import("prim");
+const ledger = @import("base/ledger.zig");
 
-/// Which border piece a cell on a node or cluster outline represents.
-/// Lets the painter (and validators) tell corners from edges without
-/// reinspecting the geometry.
 pub const BorderRole = enum {
     corner_nw,
     corner_ne,
@@ -24,31 +15,18 @@ pub const BorderRole = enum {
     edge_w,
 };
 
-/// Cardinal direction. Shared via `prim` — lattice does not import sketch.
 pub const Dir4 = prim.Dir4;
 
-/// Per-cell connectivity bitmask used by the junction table.
-///
-/// Bit layout (matches `paint/junction_glyphs.zig` indexing):
-///   bit 0 = north
-///   bit 1 = east
-///   bit 2 = south
-///   bit 3 = west
-///
-/// `@bitCast` between `Neighbours` and `u4` is well-defined because
-/// the struct is `packed` with backing integer `u4`.
 pub const Neighbours = packed struct(u4) {
     n: bool = false,
     e: bool = false,
     s: bool = false,
     w: bool = false,
 
-    /// Convert to the raw 4-bit mask. Bit ordering: N=0, E=1, S=2, W=3.
     pub fn toMask(self: Neighbours) u4 {
         return @bitCast(self);
     }
 
-    /// Inverse of `toMask`.
     pub fn fromMask(m: u4) Neighbours {
         return @bitCast(m);
     }
@@ -58,19 +36,14 @@ pub const NodeId = prim.NodeId;
 pub const EdgeId = prim.EdgeId;
 pub const ClusterId = prim.ClusterId;
 
-/// Stroke style of an edge segment. Shared with `sketch/` via `prim`.
 pub const EdgeKind = prim.EdgeKind;
 
-/// Routing-intent role of an edge-segment cell. Shared with `sketch/` via
-/// `prim`.
 pub const EdgeRole = prim.EdgeRole;
 
-/// Visual shape of the node a border cell belongs to. Shared with
-/// `sketch/` via `prim`.
 pub const Shape = prim.Shape;
 
-/// What a single cell holds. The `empty` variant is the default and
-/// represents background space.
+pub const ArrowKind = prim.ArrowKind;
+
 pub const Occupant = union(enum) {
     empty,
     node_interior: NodeId,
@@ -90,59 +63,159 @@ pub const Occupant = union(enum) {
     arrowhead: struct {
         dir: Dir4,
         edge: EdgeId,
+        /// @guarded-by: lattice.zig "Cell stays 16 bytes: the arrowhead style rides in existing padding"
+        arrow: ArrowKind = .filled,
     },
+    /// @guarded-by: labels_eaw_test.zig "a decomposed accent occupies one cell per grapheme and interns base plus mark"
     label_char: u21,
+    /// @guarded-by: labels_eaw_test.zig "wide node label writes char + continuation and paints two columns"
+    label_cont,
 };
 
-/// One grid cell.
-///
-/// `stroke_kind` records the stroke style for the painter's glyph
-/// pick. For `.edge_segment` cells it mirrors the segment's kind.
-/// For `.node_border` cells it stays `.solid` unless a non-solid
-/// edge merges connectivity into the border (e.g. a thick edge
-/// departing south sets the border cell's `stroke_kind = .thick`
-/// so the painter picks `╥` instead of `┬`).
+pub const InkState = enum(u8) {
+    none = 0,
+    node,
+    stroke,
+    rail_interior,
+    junction,
+    crossing,
+};
+
 pub const Cell = struct {
     occupant: Occupant,
     neighbours: Neighbours,
     stroke_kind: EdgeKind = .solid,
-    /// Visual shape of the node this cell belongs to, when relevant
-    /// (`.node_border` and `.node_interior` occupants). For all other
-    /// occupants this field is meaningless and stays `.rect`. The
-    /// painter uses it to pick shape-specific perimeter glyphs.
     shape: Shape = .rect,
+    state: InkState = .none,
 
-    /// Default cell value: empty background, no neighbours.
     pub const empty: Cell = .{
         .occupant = .empty,
         .neighbours = .{},
         .stroke_kind = .solid,
         .shape = .rect,
+        .state = .none,
     };
+
+    pub fn upgradeState(self: *Cell, s: InkState) void {
+        if (self.state == .junction) return;
+        if (self.state == .crossing and s != .junction) return;
+        self.state = s;
+    }
 };
 
-/// Width × height grid of cells, row-major.
-///
-/// `cells.len` must equal `width * height`. The lattice does not own
-/// `cells` — the rasterizer (the producer) is responsible for the
-/// allocation lifetime.
+pub const AuxKind = enum(u8) {
+    port,
+    carrier,
+    label_owner,
+    rail_member,
+    tap,
+    intrusion,
+};
+
+pub fn portArmDetail(arm: Dir4) u8 {
+    return 1 + @as(u8, @intFromEnum(arm));
+}
+
+/// @guarded-by: junction_licence_test.zig "junction licence: a three-way port share the pairwise flood missed is licensed on the raster; the render ships one lateral arm, a bridge-routed head stamped over a departure bend"
+pub const CarrierKind = enum(u8) {
+    merged_untested = 0,
+    suppressed = 1,
+    merged_foreign = 2,
+    merged_licensed = 3,
+};
+
+pub const LabelOwnerKind = enum(u8) {
+    node = 0,
+    cluster = 1,
+    edge = 2,
+};
+
+pub const RailPolarity = enum(u8) {
+    out = 0,
+    in = 1,
+};
+
+pub const IntrusionKind = enum(u8) {
+    bridge = 0,
+    fusion_refused = 1,
+};
+
+pub const Aux = struct {
+    cell: u32,
+    value: u32,
+    kind: AuxKind,
+    detail: u8 = 0,
+
+    pub fn lessThan(_: void, a: Aux, b: Aux) bool {
+        if (a.cell != b.cell) return a.cell < b.cell;
+        const ak = @intFromEnum(a.kind);
+        const bk = @intFromEnum(b.kind);
+        if (ak != bk) return ak < bk;
+        return a.value < b.value;
+    }
+};
+
+pub const AuxCollectionState = enum {
+    not_collected,
+    complete,
+    out_of_memory,
+};
+
+pub const AuxCollectionReport = struct {
+    state: AuxCollectionState = .not_collected,
+    attempted_records: u64 = 0,
+};
+
+pub const Glyph = struct {
+    bytes: []const u8,
+    width: u8,
+};
+
+pub const GLYPH_REF_BASE: u21 = 0x110000;
+
+pub const MAX_GLYPHS: usize = @as(usize, std.math.maxInt(u21)) - GLYPH_REF_BASE + 1;
+
+pub fn isGlyphRef(cp: u21) bool {
+    return cp >= GLYPH_REF_BASE;
+}
+
+pub fn glyphRef(index: usize) u21 {
+    std.debug.assert(index < MAX_GLYPHS);
+    return @intCast(GLYPH_REF_BASE + index);
+}
+
 pub const Lattice = struct {
     width: u32,
     height: u32,
     cells: []Cell,
+    glyphs: []const Glyph = &.{},
+    rail_claims: []const ledger.RailClaim = &.{},
+    aux: []const Aux = &.{},
+    aux_collection: AuxCollectionReport = .{},
 
-    /// Mutable cell access. Bounds are asserted in debug builds.
+    pub fn cellIndex(self: Lattice, x: u32, y: u32) u32 {
+        std.debug.assert(x < self.width);
+        std.debug.assert(y < self.height);
+        return y * self.width + x;
+    }
+
     pub fn at(self: Lattice, x: u32, y: u32) *Cell {
         std.debug.assert(x < self.width);
         std.debug.assert(y < self.height);
         return &self.cells[@as(usize, y) * @as(usize, self.width) + @as(usize, x)];
     }
 
-    /// Const cell access.
     pub fn atConst(self: Lattice, x: u32, y: u32) *const Cell {
         std.debug.assert(x < self.width);
         std.debug.assert(y < self.height);
         return &self.cells[@as(usize, y) * @as(usize, self.width) + @as(usize, x)];
+    }
+
+    pub fn glyphOf(self: Lattice, cp: u21) ?Glyph {
+        if (!isGlyphRef(cp)) return null;
+        const index: usize = cp - GLYPH_REF_BASE;
+        if (index >= self.glyphs.len) return null;
+        return self.glyphs[index];
     }
 };
 
@@ -153,7 +226,6 @@ test "Neighbours bitmask round-trip across all 16 values" {
         const n = Neighbours.fromMask(mask);
         try std.testing.expectEqual(mask, n.toMask());
 
-        // Spot-check individual bits agree with the documented layout.
         try std.testing.expectEqual((mask & 0b0001) != 0, n.n);
         try std.testing.expectEqual((mask & 0b0010) != 0, n.e);
         try std.testing.expectEqual((mask & 0b0100) != 0, n.s);
@@ -179,7 +251,6 @@ test "Lattice index calculation: row-major, at() returns correct cell" {
 
     var lat = Lattice{ .width = 4, .height = 3, .cells = &buf };
 
-    // Tag each cell with a distinct label_char so we can verify ordering.
     var y: u32 = 0;
     while (y < lat.height) : (y += 1) {
         var x: u32 = 0;
@@ -188,7 +259,6 @@ test "Lattice index calculation: row-major, at() returns correct cell" {
         }
     }
 
-    // Verify row-major linearization: cells[y*w + x].
     for (buf, 0..) |c, i| {
         switch (c.occupant) {
             .label_char => |ch| try std.testing.expectEqual(@as(u21, @intCast(i)), ch),
@@ -196,7 +266,6 @@ test "Lattice index calculation: row-major, at() returns correct cell" {
         }
     }
 
-    // Spot-check via at() / atConst().
     try std.testing.expectEqual(@as(u21, 0), switch (lat.atConst(0, 0).occupant) {
         .label_char => |ch| ch,
         else => unreachable,
@@ -209,6 +278,53 @@ test "Lattice index calculation: row-major, at() returns correct cell" {
         .label_char => |ch| ch,
         else => unreachable,
     });
+}
+
+test "Cell stays 16 bytes: the arrowhead style rides in existing padding" {
+    try std.testing.expectEqual(@as(usize, 16), @sizeOf(Cell));
+    try std.testing.expectEqual(@as(usize, 12), @sizeOf(Occupant));
+}
+
+test "glyph references live above the scalar range and resolve through the table" {
+    try std.testing.expect(!isGlyphRef('A'));
+    try std.testing.expect(!isGlyphRef(0x10FFFF));
+    try std.testing.expect(isGlyphRef(glyphRef(0)));
+    try std.testing.expect(isGlyphRef(glyphRef(MAX_GLYPHS - 1)));
+    try std.testing.expectEqual(@as(u21, 0x110000), glyphRef(0));
+    try std.testing.expectEqual(@as(u21, std.math.maxInt(u21)), glyphRef(MAX_GLYPHS - 1));
+
+    var cells: [1]Cell = .{Cell.empty};
+    const table = [_]Glyph{ .{ .bytes = "e\u{0301}", .width = 1 }, .{ .bytes = "\u{1F468}\u{200D}\u{1F469}", .width = 2 } };
+    const lat = Lattice{ .width = 1, .height = 1, .cells = &cells, .glyphs = &table };
+    try std.testing.expectEqualStrings("e\u{0301}", lat.glyphOf(glyphRef(0)).?.bytes);
+    try std.testing.expectEqual(@as(u8, 2), lat.glyphOf(glyphRef(1)).?.width);
+    try std.testing.expectEqual(@as(?Glyph, null), lat.glyphOf('e'));
+    try std.testing.expectEqual(@as(?Glyph, null), lat.glyphOf(glyphRef(2)));
+}
+
+test "cellIndex agrees with at()'s row-major linearization" {
+    var buf: [12]Cell = undefined;
+    for (&buf) |*c| c.* = Cell.empty;
+    var lat = Lattice{ .width = 4, .height = 3, .cells = &buf };
+
+    try std.testing.expectEqual(@as(u32, 0), lat.cellIndex(0, 0));
+    try std.testing.expectEqual(@as(u32, 6), lat.cellIndex(2, 1));
+    try std.testing.expectEqual(@as(u32, 11), lat.cellIndex(3, 2));
+    try std.testing.expectEqual(&buf[lat.cellIndex(2, 1)], lat.at(2, 1));
+}
+
+test "upgradeState: junction is never demoted; crossing yields only to junction" {
+    var c = Cell.empty;
+    c.upgradeState(.stroke);
+    try std.testing.expectEqual(InkState.stroke, c.state);
+    c.upgradeState(.crossing);
+    try std.testing.expectEqual(InkState.crossing, c.state);
+    c.upgradeState(.rail_interior);
+    try std.testing.expectEqual(InkState.crossing, c.state);
+    c.upgradeState(.junction);
+    try std.testing.expectEqual(InkState.junction, c.state);
+    c.upgradeState(.crossing);
+    try std.testing.expectEqual(InkState.junction, c.state);
 }
 
 test "Cell.empty default matches struct literal" {

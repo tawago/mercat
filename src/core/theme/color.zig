@@ -1,25 +1,8 @@
-//! Color model — the union widening shared by every mercat backend.
-//!
-//! A color slot is one of four things:
-//!   - `default`  → the terminal's default fg/bg (SGR 39/49; no numbered color)
-//!   - `index`    → an xterm-256 palette index (SGR 38;5 / 48;5)
-//!   - `ansi16`   → a *named* 16-color slot; the terminal palette decides the hue
-//!                  (SGR 30-37/90-97 fg, 40-47/100-107 bg). Used by the `ansi` preset.
-//!   - `rgb`      → a truecolor triple (SGR 38;2 / 48;2), downgraded to the
-//!                  nearest xterm-256 index when the terminal lacks truecolor.
-//!
-//! The three backends consume this union through adapters here:
-//!   - CLI ANSI writer → SGR strings (`ansi.zig`)
-//!   - TUI vaxis       → `vaxis.Color` (`theme.vaxisStyle`)
-//!   - PNG export      → sRGB triples (`toSrgb`, via `export/layout.zig`)
-
 const std = @import("std");
 
 pub const Rgb = struct { r: u8, g: u8, b: u8 };
 pub const Srgb = struct { r: u8, g: u8, b: u8 };
 
-/// The 16 named ANSI colors. Order matches the SGR 30-37 / 90-97 layout so the
-/// enum's integer value doubles as the palette index (0-15).
 pub const Ansi16 = enum(u4) {
     black,
     red,
@@ -38,8 +21,6 @@ pub const Ansi16 = enum(u4) {
     bright_cyan,
     bright_white,
 
-    /// Parse a named ANSI color. Accepts both `bright_red` and `brightred`
-    /// spellings; returns null for anything unrecognized.
     pub fn parse(text: []const u8) ?Ansi16 {
         const table = [_]struct { name: []const u8, value: Ansi16 }{
             .{ .name = "black", .value = .black },
@@ -67,7 +48,6 @@ pub const Ansi16 = enum(u4) {
         return null;
     }
 
-    /// The xterm-256 index for this named color (0-15).
     pub fn index(self: Ansi16) u8 {
         return @intFromEnum(self);
     }
@@ -80,26 +60,16 @@ pub const Color = union(enum) {
     rgb: Rgb,
 };
 
-/// Terse constructor for palette literals: `idx(81)` == `Color{ .index = 81 }`.
 pub fn idx(n: u8) Color {
     return .{ .index = n };
 }
 
-/// Constructor for an rgb literal.
 pub fn rgb(r: u8, g: u8, b: u8) Color {
     return .{ .rgb = .{ .r = r, .g = g, .b = b } };
 }
 
 pub const ParseError = error{InvalidColor};
 
-/// Parse a color from theme-file / config text.
-///   "#rrggbb"        → rgb
-///   "#rgb"           → rgb (each nibble doubled)
-///   "default"        → terminal default
-///   ansi color name  → ansi16 (blue, bright_red, gray, ...)
-///   decimal 0-255    → xterm-256 index
-/// The empty string is *not* a color here — the caller decides that it means
-/// "clear the inherited value", so it is rejected as InvalidColor.
 pub fn parseColor(text: []const u8) ParseError!Color {
     if (text.len == 0) return error.InvalidColor;
     if (std.mem.eql(u8, text, "default")) return .default;
@@ -145,9 +115,6 @@ fn hexNibble(c: u8) ParseError!u8 {
 
 var truecolor_flag: bool = false;
 
-/// True when the terminal is believed to support 24-bit color. Set once at
-/// startup via `initTruecolor`; the ANSI writer reads it to decide whether to
-/// emit `38;2;r;g;b` or downgrade an rgb color to the nearest xterm-256 index.
 pub fn truecolorEnabled() bool {
     return truecolor_flag;
 }
@@ -156,13 +123,11 @@ pub fn setTruecolor(value: bool) void {
     truecolor_flag = value;
 }
 
-/// COLORTERM=truecolor or COLORTERM=24bit ⇒ truecolor. Owner-locked heuristic.
 pub fn detectTruecolorFromValue(colorterm: ?[]const u8) bool {
     const value = colorterm orelse return false;
     return std.mem.eql(u8, value, "truecolor") or std.mem.eql(u8, value, "24bit");
 }
 
-/// Read $COLORTERM from the process environment and set the package flag.
 pub fn initTruecolor(allocator: std.mem.Allocator) void {
     const value = std.process.getEnvVarOwned(allocator, "COLORTERM") catch {
         setTruecolor(false);
@@ -172,8 +137,6 @@ pub fn initTruecolor(allocator: std.mem.Allocator) void {
     setTruecolor(detectTruecolorFromValue(value));
 }
 
-/// sRGB triple for a color, or null for `default` (which has no numbered
-/// value — the caller supplies a fallback).
 pub fn toSrgb(c: Color) ?Srgb {
     return switch (c) {
         .default => null,
@@ -183,9 +146,6 @@ pub fn toSrgb(c: Color) ?Srgb {
     };
 }
 
-/// Downgrade a color to a single xterm-256 index (used when truecolor is off).
-/// rgb → nearest color of the 6×6×6 cube + grayscale ramp; ansi16 → its 0-15
-/// slot; index passes through; default has no index (returns null).
 pub fn to256(c: Color) ?u8 {
     return switch (c) {
         .default => null,
@@ -234,9 +194,6 @@ fn squaredError(a: Rgb, b: Srgb) u32 {
     return @intCast(dr * dr + dg * dg + db * db);
 }
 
-/// The one committed, deterministic xterm-256 → sRGB table. Indexes 0-15 are
-/// the standard system colors; 16-231 are the 6×6×6 cube; 232-255 are the
-/// 24-step grayscale ramp.
 pub fn xterm256ToSrgb(index: u8) Srgb {
     if (index < 16) return system_colors[index];
     if (index < 232) {

@@ -1,17 +1,3 @@
-//! Theme Module - Maps semantic styles to concrete colors
-//!
-//! This module bridges the gap between the semantic SpanStyle (heading, code, link)
-//! and the concrete terminal output. It provides:
-//!
-//!   - StyleMap: A set of StyleTokens for each semantic style
-//!   - token(): Maps SpanStyle → StyleToken for a given palette
-//!   - vaxisStyle(): Converts StyleToken → vaxis.Style for TUI rendering
-//!
-//! The CLI uses StyleToken directly with ansi.writeTokenStyled().
-//! The TUI uses vaxisStyle() to convert StyleToken to vaxis.Style.
-//!
-//! This separation allows the same Span data to render identically in both modes.
-
 const std = @import("std");
 const render_model = @import("markdown/render.zig");
 const vaxis = @import("vaxis");
@@ -22,13 +8,8 @@ const types = @import("markdown/render/types.zig");
 pub const color = @import("theme/color.zig");
 pub const Color = color.Color;
 
-/// Terse constructor re-export so palette literals stay readable: `idx(81)`.
 pub const idx = color.idx;
 
-/// Concrete style attributes for terminal output.
-/// Colors are a `Color` union (terminal-default / xterm-256 index / named
-/// ansi16 / rgb) so the same token drives the CLI ANSI writer, the TUI vaxis
-/// backend, and the PNG exporter.
 pub const StyleToken = struct {
     fg: Color,
     bold: bool = false,
@@ -81,16 +62,9 @@ pub const StyleMap = struct {
     code_fence_banner: StyleToken,
 };
 
-/// The neutral mechanism-level palettes. These are *derived at comptime* from
-/// the `dark`/`light` preset specs in `theme/presets.zig` — the single source of
-/// truth — so the slot colors live in exactly one place. They serve two roles:
-///   1. the default `StyleMap` used by the export/PNG paths + tests,
-///   2. the base palette that `resolve.bake` overlays sparse preset slots onto
-///      (unset slots of dracula/ansi/etc. fall back to these).
 pub const neutralDark: StyleMap = bakeSlots(presets.dark.slots);
 pub const neutralLight: StyleMap = bakeSlots(presets.light.slots);
 
-/// Overlay a sparse `SlotSpec` onto a concrete `StyleToken`.
 fn applySlotToken(tok: *StyleToken, s: spec.SlotSpec) void {
     if (s.fg) |c| tok.fg = c;
     if (s.bg) |c| tok.bg = c;
@@ -100,10 +74,6 @@ fn applySlotToken(tok: *StyleToken, s: spec.SlotSpec) void {
     if (s.strike) |v| tok.strikethrough = v;
 }
 
-/// The single bake primitive: overlay a sparse `SlotMap` onto an existing
-/// `StyleMap` base, then borrow structural defaults for any slot the overlay
-/// left unset. Shared by the neutral-palette bake and `resolve.bake`, so the
-/// overlay + borrow rules live in exactly one place.
 pub fn overlaySlots(base: StyleMap, slots: spec.SlotMap) StyleMap {
     var p = base;
     inline for (@typeInfo(types.SpanStyle).@"enum".fields) |f| {
@@ -115,10 +85,6 @@ pub fn overlaySlots(base: StyleMap, slots: spec.SlotMap) StyleMap {
     return p;
 }
 
-/// #17-parity: `list_item` and the four structural color slots borrow a sibling
-/// token (list_item/table_header → body; table_border/hr/code_fence_banner →
-/// muted) whenever `slots` leaves them unset, so the un-themed path stays
-/// byte-identical while a preset may still set them explicitly.
 fn borrowStructuralDefaults(p: *StyleMap, slots: spec.SlotMap) void {
     if (slots.get(.list_item) == null) p.list_item = p.body;
     if (slots.get(.table_border) == null) p.table_border = p.muted;
@@ -127,10 +93,6 @@ fn borrowStructuralDefaults(p: *StyleMap, slots: spec.SlotMap) void {
     if (slots.get(.code_fence_banner) == null) p.code_fence_banner = p.muted;
 }
 
-/// Bake a default `SlotMap` into a concrete `StyleMap`, starting from an
-/// all-terminal-default palette. The resolver (`resolve.zig`) is the single
-/// bake authority for the themed pipeline (including the `classic` syntax
-/// variant); this comptime arm only derives the two neutral base palettes.
 fn bakeSlots(base_slots: spec.SlotMap) StyleMap {
     @setEvalBranchQuota(200000);
     var p: StyleMap = undefined;
@@ -140,9 +102,6 @@ fn bakeSlots(base_slots: spec.SlotMap) StyleMap {
     return overlaySlots(p, base_slots);
 }
 
-/// Maps a semantic SpanStyle to its concrete StyleToken in the given StyleMap.
-/// Relies on the name-for-name SpanStyle↔StyleMap field mirror (the same
-/// invariant `overlaySlots` uses), so it needs no per-slot maintenance.
 pub fn token(style_map: StyleMap, style: render_model.SpanStyle) StyleToken {
     inline for (@typeInfo(render_model.SpanStyle).@"enum".fields) |f| {
         if (style == @field(render_model.SpanStyle, f.name)) return @field(style_map, f.name);
@@ -150,20 +109,12 @@ pub fn token(style_map: StyleMap, style: render_model.SpanStyle) StyleToken {
     unreachable;
 }
 
-/// Styling for the copy-confirmation toast / metadata overlay: a soft panel
-/// with a rounded border and readable text, derived from the resolved theme so
-/// every preset gets matching overlay colors.
 pub const ToastStyle = struct {
     fill: vaxis.Style,
     border: vaxis.Style,
     text: vaxis.Style,
 };
 
-/// Builds the toast/metadata panel style from a resolved theme's accent color
-/// and panel background (Correctness #1). Both overlays share the same soft
-/// panel; the caller decides whether the text is bold (toast) or not
-/// (metadata). Deriving from the ResolvedTheme means all seven presets — not
-/// just dark/light — get panel colors that match their palette.
 pub fn panelStyle(accent: Color, base_bg: Color, bold: bool) ToastStyle {
     const bg = toVaxisColor(base_bg);
     return .{
@@ -173,19 +124,14 @@ pub fn panelStyle(accent: Color, base_bg: Color, bold: bool) ToastStyle {
     };
 }
 
-/// Copy-confirmation toast: bold accent text on the theme panel background.
 pub fn toastStyle(accent: Color, base_bg: Color) ToastStyle {
     return panelStyle(accent, base_bg, true);
 }
 
-/// TUI metadata overlay (front matter panel toggled with `m`): same soft panel
-/// as the toast, non-bold so it reads as reference information.
 pub fn metadataPanelStyle(accent: Color, base_bg: Color) ToastStyle {
     return panelStyle(accent, base_bg, false);
 }
 
-/// Converts a StyleToken to vaxis.Style for TUI rendering.
-/// The CLI equivalent is ansi.writeTokenStyled() which emits ANSI escape codes.
 pub fn vaxisStyle(token_value: StyleToken) vaxis.Style {
     return .{
         .fg = toVaxisColor(token_value.fg),
@@ -197,10 +143,6 @@ pub fn vaxisStyle(token_value: StyleToken) vaxis.Style {
     };
 }
 
-/// Maps a Color union arm onto a vaxis color. The terminal decides the exact
-/// hue for `default` and `ansi16`. For `rgb` mercat — not the terminal — decides:
-/// the pinned vaxis never downgrades, so we mirror ansi.writeColorSgr() and fall
-/// back to the nearest xterm-256 index when `color.truecolorEnabled()` is false.
 pub fn toVaxisColor(c: Color) vaxis.Color {
     return switch (c) {
         .default => .default,

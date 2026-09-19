@@ -1,13 +1,3 @@
-//! Tests for `raster/clusters.zig`'s synthetic-frame invisibility invariant.
-//! Split out of the former misc grab-bag test file (since dissolved) into
-//! clusters.zig's own sibling, per the mermaid_v2/ test-file convention.
-//! Discovered via clusters.zig's top-level
-//! `test { _ = @import("clusters_test.zig"); }` block. (Note:
-//! `layout/clusters_test.zig` is a DIFFERENT file testing the unrelated
-//! layout/clusters.zig — same basename in a different folder.)
-//! clusters.zig's own corner/edge/nesting tests stay inline in clusters.zig
-//! itself.
-
 const std = @import("std");
 const sketch = @import("../sketch.zig");
 const lattice = @import("../lattice.zig");
@@ -33,11 +23,6 @@ fn makeClusterSketch(frames: []const sketch.ClusterFrame) sketch.Sketch {
     };
 }
 
-// ---------------------------------------------------------------------
-// clusters.zig: synthetic packing frames never rasterize, even if the
-// zero-pad invariant they depend on (stitch.zig) is violated and they
-// carry a nonzero rect (near line 46).
-// ---------------------------------------------------------------------
 test "rasterizeClusters: a synthetic frame with a nonzero rect still paints nothing" {
     const allocator = testing.allocator;
     var lat = try makeLattice(allocator, 10, 10);
@@ -46,7 +31,7 @@ test "rasterizeClusters: a synthetic frame with a nonzero rect still paints noth
     const frames = [_]sketch.ClusterFrame{
         .{
             .id = 1,
-            .rect = .{ .x = 1, .y = 1, .w = 6, .h = 6 }, // nonzero: violates the zero-pad invariant
+            .rect = .{ .x = 1, .y = 1, .w = 6, .h = 6 },
             .parent_id = null,
             .label = "",
             .depth = 0,

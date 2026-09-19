@@ -1,5 +1,3 @@
-//! Tests for render_model.zig (split out to keep the module under the
-//! line-count limit). Exercises the public renderDocument surface.
 const std = @import("std");
 const markdown = @import("parser.zig");
 const decor_mod = @import("render/decor.zig");
@@ -12,9 +10,6 @@ const Span = render_model.Span;
 
 const resolve = @import("../theme/resolve.zig");
 
-/// Resolve a built-in preset to its baked `Decor` for render-consumption tests.
-/// The returned `Decor`'s slice fields point at static preset literals, so it
-/// outlives the (deinit'd) registry.
 fn presetDecor(alloc: std.mem.Allocator, name: []const u8) !decor_mod.Decor {
     var reg = resolve.Registry.init(alloc);
     defer reg.deinit();
@@ -285,7 +280,6 @@ test "markview block code frame emits a language label chip" {
 const theme = @import("../theme.zig");
 const cidx = @import("../theme/color.zig").idx;
 
-/// The first non-whitespace-only span on a line (skips leading padding spans).
 fn firstMarkerSpan(line: Line) Span {
     for (line.spans) |span| {
         for (span.text) |ch| {

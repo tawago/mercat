@@ -39,7 +39,6 @@ pub const ParseError = error{
     OutOfMemory,
 };
 
-/// Parser for mermaid diagram syntax
 pub const Parser = struct {
     allocator: Allocator,
     source: []const u8,
@@ -53,7 +52,6 @@ pub const Parser = struct {
         };
     }
 
-    /// Parse the source into a Graph
     pub fn parse(allocator: Allocator, source: []const u8) !Graph {
         var parser = Parser.init(allocator, source);
         return parser.parseGraph();
@@ -301,8 +299,6 @@ pub const Parser = struct {
         style: EdgeStyle,
         arrow_start: ArrowHead,
         arrow_end: ArrowHead,
-        /// Label embedded inside the edge syntax, e.g. `--label-->`.
-        /// Distinct from the `|label|` syntax handled in parseStatement.
         embedded_label: ?[]const u8 = null,
     };
 
@@ -511,7 +507,6 @@ pub const Parser = struct {
         return stripQuotes(self.source[start..self.pos]);
     }
 
-    /// Strip surrounding quotes from a label
     fn stripQuotes(label: []const u8) []const u8 {
         if (label.len < 2) return label;
         const first = label[0];
@@ -634,7 +629,6 @@ pub const Parser = struct {
         return true;
     }
 
-    /// Parse a sequence diagram
     pub fn parseSequence(allocator: Allocator, source: []const u8) !SequenceDiagram {
         var parser = Parser.init(allocator, source);
         return parser.parseSequenceDiagram();
@@ -922,7 +916,6 @@ pub const Parser = struct {
         self.skipToNextLine();
     }
 
-    /// Parse a class diagram
     pub fn parseClassDiagram(allocator: Allocator, source: []const u8) !ClassDiagram {
         var parser = Parser.init(allocator, source);
         return parser.parseClassDiagramInternal();
@@ -1116,7 +1109,6 @@ pub const Parser = struct {
         }
     }
 
-    /// Parse an ER diagram
     pub fn parseERDiagram(allocator: Allocator, source: []const u8) !ERDiagram {
         var parser = Parser.init(allocator, source);
         return parser.parseERDiagramInternal();
@@ -1265,7 +1257,6 @@ pub const Parser = struct {
         }
     }
 
-    /// Parse a state diagram
     pub fn parseStateDiagram(allocator: Allocator, source: []const u8) !StateDiagram {
         var parser = Parser.init(allocator, source);
         return parser.parseStateDiagramImpl();

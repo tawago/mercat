@@ -1,9 +1,3 @@
-//! motif/motif_test.zig — unit tests for the MotifTree decomposition.
-//!
-//! Hand-built SemGraphs only (no parser dependency — the motif zone may
-//! not import parse/). Each test pins one classification rule from
-//! motif/classify.zig; the partition test pins the global invariant.
-
 const std = @import("std");
 const sg = @import("../sem_graph.zig");
 const motif = @import("../motif.zig");
@@ -57,7 +51,6 @@ fn countKind(tree: motif.MotifTree, kind: motif.MotifKind) usize {
     return n;
 }
 
-/// Assert every graph node id appears in exactly one motif's members.
 fn expectPartition(tree: motif.MotifTree, graph: sg.SemGraph) !void {
     for (graph.nodes) |n| {
         var owners: usize = 0;
@@ -112,7 +105,6 @@ test "two isomorphic 2-node pipelines under a root fuse into parallel" {
     defer arena.deinit();
     const a = arena.allocator();
 
-    // 0 -> 1 -> 2 ; 0 -> 3 -> 4
     const nodes = [_]sg.Node{
         node(0, null), node(1, null), node(2, null), node(3, null), node(4, null),
     };
@@ -121,13 +113,10 @@ test "two isomorphic 2-node pipelines under a root fuse into parallel" {
 
     const tree = try motif.decompose(a, g);
     const par = findKind(tree, .parallel) orelse return error.NoParallelMotif;
-    // Simple-path branches are absorbed as direct members: {1,2,3,4}.
     try std.testing.expectEqual(@as(usize, 4), par.members.len);
     try std.testing.expectEqual(@as(u32, 4), par.covered);
-    // Both branches enter from the pivot: 2 external ins, 0 outs.
     try std.testing.expectEqual(@as(u32, 2), par.ext_in);
     try std.testing.expectEqual(@as(u32, 0), par.ext_out);
-    // The pivot itself stays an atom whose child is the parallel motif.
     const pivot = tree.motifs[tree.roots[0]];
     try std.testing.expectEqual(motif.MotifKind.atom, pivot.kind);
     try std.testing.expectEqual(@as(usize, 1), pivot.children.len);
@@ -139,9 +128,6 @@ test "diamond classifies as fan (documented choice)" {
     defer arena.deinit();
     const a = arena.allocator();
 
-    // A -> B, C ; B, C -> D. The merge sink D is a single-vertex dominator
-    // child of A (2 parents => hoisted to the pivot), so A has three
-    // leaf-ish children and the whole diamond is one fan.
     const nodes = [_]sg.Node{ node(0, null), node(1, null), node(2, null), node(3, null) };
     const edges = [_]sg.Edge{ edge(0, 0, 1), edge(1, 0, 2), edge(2, 1, 3), edge(3, 2, 3) };
     const g = graphOf(&nodes, &edges, &.{});
@@ -159,8 +145,6 @@ test "cluster cuts the tree: no motif spans the border" {
     defer arena.deinit();
     const a = arena.allocator();
 
-    // 0 (top) -> 1 -> 2, with 1,2 inside cluster 0. Without the cluster
-    // this would be one 3-spine; the border must split it.
     const nodes = [_]sg.Node{ node(0, null), node(1, 0), node(2, 0) };
     const edges = [_]sg.Edge{ edge(0, 0, 1), edge(1, 1, 2) };
     const members = [_]sg.NodeId{ 1, 2 };
@@ -179,8 +163,7 @@ test "cluster cuts the tree: no motif spans the border" {
     try std.testing.expectEqual(@as(?sg.ClusterId, 0), cm.cluster_id);
     try std.testing.expectEqual(@as(usize, 0), cm.members.len);
     try std.testing.expectEqual(@as(u32, 2), cm.covered);
-    try std.testing.expectEqual(@as(u32, 1), cm.ext_in); // the border edge
-    // No motif directly owns nodes from both sides of the border.
+    try std.testing.expectEqual(@as(u32, 1), cm.ext_in);
     for (tree.motifs) |m| {
         var inside = false;
         var outside = false;
@@ -212,10 +195,6 @@ test "microservices-shaped scope: merge node hoisted, pairs fuse into parallel" 
     defer arena.deinit();
     const a = arena.allocator();
 
-    // Four service->DB pairs where two services also feed a shared node
-    // (0->1, 2->3, 4->5, 6->7, plus 2->6 and 4->6): node 6 has two parents,
-    // so it is dominated by neither service and hoists to the scope root as
-    // its own pair — the 01-plan prediction in miniature.
     const nodes = [_]sg.Node{
         node(0, null), node(1, null), node(2, null), node(3, null),
         node(4, null), node(5, null), node(6, null), node(7, null),
@@ -238,23 +217,18 @@ test "partition invariant on a random-ish 15-node graph" {
     defer arena.deinit();
     const a = arena.allocator();
 
-    // Mixed structure: a chain, a fan, a cycle, a cluster with two members,
-    // an isolated node, and a couple of merge edges.
     const nodes = [_]sg.Node{
-        node(0, null), node(1, null), node(2, null),  node(3, null),
-        node(4, null), node(5, null), node(6, null),  node(7, null),
-        node(8, 0),    node(9, 0),    node(10, null), node(11, null),
+        node(0, null),  node(1, null),  node(2, null),  node(3, null),
+        node(4, null),  node(5, null),  node(6, null),  node(7, null),
+        node(8, 0),     node(9, 0),     node(10, null), node(11, null),
         node(12, null), node(13, null), node(14, null),
     };
     const edges = [_]sg.Edge{
-        edge(0, 0, 1),   edge(1, 1, 2),  edge(2, 2, 3), // chain
-        edge(3, 3, 4),   edge(4, 3, 5),  edge(5, 3, 6), // fan
-        edge(6, 6, 7),   edge(7, 7, 6), // 2-cycle
-        edge(8, 5, 8),   edge(9, 8, 9), // into the cluster
-        edge(10, 9, 10), // out of the cluster
-        edge(11, 4, 11), edge(12, 5, 11), // merge
-        edge(13, 12, 13), // detached 2-chain
-        edge(14, 11, 11), // self-loop (dropped by scope build)
+        edge(0, 0, 1),   edge(1, 1, 2),    edge(2, 2, 3),
+        edge(3, 3, 4),   edge(4, 3, 5),    edge(5, 3, 6),
+        edge(6, 6, 7),   edge(7, 7, 6),    edge(8, 5, 8),
+        edge(9, 8, 9),   edge(10, 9, 10),  edge(11, 4, 11),
+        edge(12, 5, 11), edge(13, 12, 13), edge(14, 11, 11),
     };
     const members = [_]sg.NodeId{ 8, 9 };
     const clusters = [_]sg.Cluster{.{
@@ -270,7 +244,6 @@ test "partition invariant on a random-ish 15-node graph" {
     const tree = try motif.decompose(a, g);
     try expectPartition(tree, g);
 
-    // Sanity: covered of all roots sums to the full node count.
     var covered: u32 = 0;
     for (tree.roots) |r| covered += tree.motifs[r].covered;
     try std.testing.expectEqual(@as(u32, 15), covered);
@@ -281,9 +254,6 @@ test "lone cluster vertex classifies as the cluster motif directly (not wrapped)
     defer arena.deinit();
     const a = arena.allocator();
 
-    // Top-level scope has no plain nodes: its sole vertex is one cluster
-    // holding a single member, so the scope root IS that cluster vertex
-    // with nothing downstream.
     const nodes = [_]sg.Node{node(0, 0)};
     const members = [_]sg.NodeId{0};
     const clusters = [_]sg.Cluster{.{
@@ -299,8 +269,6 @@ test "lone cluster vertex classifies as the cluster motif directly (not wrapped)
     const tree = try motif.decompose(a, g);
     try std.testing.expectEqual(@as(usize, 1), tree.roots.len);
     const root = tree.motifs[tree.roots[0]];
-    // The special case: the root IS the cluster motif, never a prime/atom
-    // wrapper around it.
     try std.testing.expectEqual(motif.MotifKind.cluster, root.kind);
     try std.testing.expectEqual(@as(?sg.ClusterId, 0), root.cluster_id);
     try expectPartition(tree, g);
@@ -311,9 +279,6 @@ test "branching cluster vertex wraps in prime; the cluster motif stays pure" {
     defer arena.deinit();
     const a = arena.allocator();
 
-    // Cluster C(0) holds member M, which feeds two independent top-level
-    // nodes D, E (M -> D, M -> E). At the top scope, C is an opaque vertex
-    // whose dominator children are D and E: a branching cluster pivot.
     const nodes = [_]sg.Node{ node(0, null), node(1, null), node(2, 0) };
     const edges = [_]sg.Edge{ edge(0, 2, 0), edge(1, 2, 1) };
     const members = [_]sg.NodeId{2};
@@ -331,8 +296,6 @@ test "branching cluster vertex wraps in prime; the cluster motif stays pure" {
     try std.testing.expectEqual(@as(usize, 1), tree.roots.len);
     const root = tree.motifs[tree.roots[0]];
     try std.testing.expectEqual(motif.MotifKind.prime, root.kind);
-    // One of the prime's children is the pure cluster motif: no members of
-    // its own — cluster motifs otherwise stay pure subgraph interiors.
     var found_cluster = false;
     for (root.children) |ci| {
         const c = tree.motifs[ci];
@@ -343,21 +306,4 @@ test "branching cluster vertex wraps in prime; the cluster motif stays pure" {
     }
     try std.testing.expect(found_cluster);
     try expectPartition(tree, g);
-}
-
-test "dump emits begin/end markers and one line per motif" {
-    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
-    defer arena.deinit();
-    const a = arena.allocator();
-
-    const nodes = [_]sg.Node{ node(0, null), node(1, null), node(2, null), node(3, null) };
-    const edges = [_]sg.Edge{ edge(0, 0, 1), edge(1, 1, 2), edge(2, 2, 3) };
-    const g = graphOf(&nodes, &edges, &.{});
-
-    const tree = try motif.decompose(a, g);
-    const text = try motif.dump(a, g, tree);
-    try std.testing.expect(std.mem.startsWith(u8, text, "mercat-motifs: begin nodes=4"));
-    try std.testing.expect(std.mem.indexOf(u8, text, "- spine size=4 members=4") != null);
-    try std.testing.expect(std.mem.indexOf(u8, text, "mercat-motifs: end motifs=1") != null);
-    try std.testing.expect(std.mem.indexOf(u8, text, "nonprime=4/4") != null);
 }

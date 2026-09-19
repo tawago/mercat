@@ -1,21 +1,7 @@
-//! Per-shape glyph selection for node-border cells. Rect boxes use the
-//! base `junction_table` (`┌─┐│└┘` + tee/cross); non-rect shapes
-//! (round, stadium, subroutine, cylinder, circle, asymmetric, rhombus,
-//! hexagon, parallelogram, trapezoid) override a handful of perimeter
-//! cells with shape-specific glyphs.
-//!
-//! Dispatch uses `BorderRole` (corner/edge) + `Neighbours` mask, since
-//! same-mask cells can need distinct glyphs (e.g. stadium `(` vs `)`);
-//! unoverridden roles fall through to `jt.glyphFor`. Imports only
-//! `std`, `lattice.zig`, `junction_glyphs.zig`.
-
 const std = @import("std");
 const lattice = @import("../lattice.zig");
 const jt = @import("junction_glyphs.zig");
 
-/// Pick the glyph for a node-border cell with the given shape, role,
-/// and neighbour mask. Falls back to `jt.glyphFor` when the shape
-/// doesn't override that particular role.
 pub fn glyphFor(
     shape: lattice.Shape,
     role: lattice.BorderRole,
@@ -59,11 +45,6 @@ fn stadiumGlyph(role: lattice.BorderRole, n: lattice.Neighbours) u21 {
     };
 }
 
-// The inner "double wall" cells are emitted by the rasterizer as
-// separate node_border cells with synthesized neighbour masks; from
-// the painter's perspective they're standard junction cells, so the
-// outer perimeter here can stay rect-like.
-
 fn subroutineGlyph(role: lattice.BorderRole, n: lattice.Neighbours) u21 {
     _ = role;
     return jt.glyphFor(n);
@@ -75,10 +56,9 @@ fn cylinderGlyph(role: lattice.BorderRole, n: lattice.Neighbours) u21 {
         .corner_ne => '╮',
         .corner_se => '╯',
         .corner_sw => '╰',
-        // Top/bottom rail is double-line `═`; edges attaching N/S get
-        // the hybrid tee. guarded-by: shape_glyphs.zig "cylinder: top/bottom edges use double rail; tees use ╤/╧"
-        .edge_n => if (n.s) '╤' else '═',
-        .edge_s => if (n.n) '╧' else '═',
+        // @guarded-by: shape_glyphs.zig "cylinder: top/bottom edges use double rail; tees use ╤/╧"
+        .edge_n => if (n.s) '╤' else if (n.n) '╧' else '═',
+        .edge_s => if (n.n) '╧' else if (n.s) '╤' else '═',
         else => jt.glyphFor(n),
     };
 }
@@ -92,10 +72,6 @@ fn circleGlyph(role: lattice.BorderRole, n: lattice.Neighbours) u21 {
         else => jt.glyphFor(n),
     };
 }
-
-// Mermaid distinguishes `>` and `<` asymmetric variants. We map
-// `asymmetric_right` to the `> ... >` form (east side is open) and
-// `asymmetric_left` to the mirrored `< ... <` form.
 
 fn asymRightGlyph(role: lattice.BorderRole, n: lattice.Neighbours) u21 {
     return switch (role) {
@@ -117,8 +93,6 @@ fn asymLeftGlyph(role: lattice.BorderRole, n: lattice.Neighbours) u21 {
 
 fn rhombusGlyph(role: lattice.BorderRole, n: lattice.Neighbours) u21 {
     return switch (role) {
-        // `◇` is intentional: slash corners visually conflict with circle,
-        // hexagon, and other slanted-corner shapes.
         .corner_nw, .corner_ne, .corner_se, .corner_sw => '◇',
         else => jt.glyphFor(n),
     };
@@ -180,6 +154,8 @@ test "cylinder: top/bottom edges use double rail; tees use ╤/╧" {
     try testing.expectEqual(@as(u21, '╤'), glyphFor(.cylinder, .edge_n, ews));
     try testing.expectEqual(@as(u21, '═'), glyphFor(.cylinder, .edge_s, ew));
     try testing.expectEqual(@as(u21, '╧'), glyphFor(.cylinder, .edge_s, ewn));
+    try testing.expectEqual(@as(u21, '╧'), glyphFor(.cylinder, .edge_n, ewn));
+    try testing.expectEqual(@as(u21, '╤'), glyphFor(.cylinder, .edge_s, ews));
 }
 
 test "circle: diagonal slash corners" {

@@ -1,18 +1,6 @@
-//! Node rasterization — turns `NodePlacement` rects from a Sketch into
-//! `node_border` and `node_interior` cells in a Lattice.
-//!
-//! Import allowlist (enforced by `tools/lint_imports.zig`): `std`,
-//! `../sketch.zig`, `../lattice.zig` only — no `parse/` or `paint/`.
-//!
-//! All shapes rasterize as a rectangular border; round/circle/cylinder/
-//! asymmetric variants await refined glyphs in `paint/`.
-
 const std = @import("std");
 const sketch = @import("../sketch.zig");
 
-// Scoped logger: occupancy collisions during node rasterization are dev
-// diagnostics, not user-facing problems. Routed to .debug so they stay out
-// of normal stderr (CLI pipelines, TUI) unless explicitly enabled.
 const log = std.log.scoped(.@"mermaid_v2.raster.nodes");
 const lattice = @import("../lattice.zig");
 const node_shapes = @import("node_shapes.zig");
@@ -23,21 +11,12 @@ pub const RasterError = error{
     OccupiedCell,
 };
 
-/// Rasterize all `NodePlacement`s in `s` into `lat`. Returns the number
-/// of nodes that were successfully written to the lattice in full
-/// (nodes skipped due to out-of-bounds rects are not counted; nodes
-/// with per-cell conflicts ARE counted, since the warning + skip is a
-/// best-effort partial write).
-///
-/// The lattice must be pre-sized by the caller (typically to
-/// `s.bbox.w × s.bbox.h`). This function only mutates `*lat`; it owns
-/// no state.
 pub fn rasterizeNodes(
     allocator: std.mem.Allocator,
     lat: *lattice.Lattice,
     s: sketch.Sketch,
 ) RasterError!u32 {
-    _ = allocator; // currently unused: no auxiliary allocations.
+    _ = allocator;
     var written: u32 = 0;
     for (s.nodes) |np| {
         if (!rectFitsLattice(np.rect, lat.*)) {
@@ -47,12 +26,6 @@ pub fn rasterizeNodes(
             );
             continue;
         }
-        // Rasterize the rectangular perimeter + interior for every
-        // shape, then tag each border cell with the shape so the
-        // painter picks the matching glyph (rounded corners, slash
-        // diagonals, parenthesis caps, etc.). Subroutine additionally
-        // gets a pair of inner walls written into the interior when
-        // there's enough horizontal slack.
         rasterizeRect(lat, np);
         node_shapes.tagShape(lat, np);
         node_shapes.rasterizeSubroutineInner(lat, np);
@@ -60,8 +33,6 @@ pub fn rasterizeNodes(
     }
     return written;
 }
-
-// -- helpers -----------------------------------------------------------------
 
 fn rectFitsLattice(r: sketch.Rect, lat: lattice.Lattice) bool {
     if (r.w == 0 or r.h == 0) return false;
@@ -73,7 +44,6 @@ fn rectFitsLattice(r: sketch.Rect, lat: lattice.Lattice) bool {
     return true;
 }
 
-/// Write the perimeter + interior of a single rect-shaped node.
 fn rasterizeRect(lat: *lattice.Lattice, np: sketch.NodePlacement) void {
     const rx: u32 = @intCast(np.rect.x);
     const ry: u32 = @intCast(np.rect.y);
@@ -82,9 +52,6 @@ fn rasterizeRect(lat: *lattice.Lattice, np: sketch.NodePlacement) void {
     const x_last: u32 = rx + rw - 1;
     const y_last: u32 = ry + rh - 1;
 
-    // Degenerate cases: w==1 or h==1 collapse the border. We still want
-    // to mark the cells (otherwise the node would be invisible), but
-    // there are no interior cells and the corner/edge roles collapse.
     if (rw == 1 or rh == 1) {
         writeThinRect(lat, np, rx, ry, x_last, y_last);
         return;
@@ -116,8 +83,6 @@ fn rasterizeRect(lat: *lattice.Lattice, np: sketch.NodePlacement) void {
     }
 }
 
-/// Defensive shim for 1xN or Nx1 rects: lay down border cells along
-/// the run with horizontal-or-vertical neighbour bits. No interior.
 fn writeThinRect(
     lat: *lattice.Lattice,
     np: sketch.NodePlacement,
@@ -166,6 +131,7 @@ fn writeBorder(
     cell.* = .{
         .occupant = .{ .node_border = .{ .node = node, .role = role } },
         .neighbours = nbrs,
+        .state = .node,
     };
 }
 
@@ -264,19 +230,16 @@ test "single 3x3 rect produces 4 corners + 4 edges + 1 interior" {
     const n = try rasterizeNodes(a, &lat, s);
     try testing.expectEqual(@as(u32, 1), n);
 
-    // Corners.
     try expectBorder(lat, 0, 0, 7, .corner_nw, .{ .e = true, .s = true });
     try expectBorder(lat, 2, 0, 7, .corner_ne, .{ .w = true, .s = true });
     try expectBorder(lat, 2, 2, 7, .corner_se, .{ .w = true, .n = true });
     try expectBorder(lat, 0, 2, 7, .corner_sw, .{ .e = true, .n = true });
 
-    // Edges (one cell each side).
     try expectBorder(lat, 1, 0, 7, .edge_n, .{ .e = true, .w = true });
     try expectBorder(lat, 1, 2, 7, .edge_s, .{ .e = true, .w = true });
     try expectBorder(lat, 0, 1, 7, .edge_w, .{ .n = true, .s = true });
     try expectBorder(lat, 2, 1, 7, .edge_e, .{ .n = true, .s = true });
 
-    // Single interior cell.
     try expectInterior(lat, 1, 1, 7);
 }
 
@@ -298,24 +261,19 @@ test "wider 5x3 rect has 4 corners, 3+3 top/bottom edges, 3 interior" {
     const n = try rasterizeNodes(a, &lat, s);
     try testing.expectEqual(@as(u32, 1), n);
 
-    // Corners.
     try expectBorder(lat, 0, 0, 1, .corner_nw, .{ .e = true, .s = true });
     try expectBorder(lat, 4, 0, 1, .corner_ne, .{ .w = true, .s = true });
     try expectBorder(lat, 4, 2, 1, .corner_se, .{ .w = true, .n = true });
     try expectBorder(lat, 0, 2, 1, .corner_sw, .{ .e = true, .n = true });
 
-    // Three top edge cells, three bottom edge cells.
     var x: u32 = 1;
     while (x <= 3) : (x += 1) {
         try expectBorder(lat, x, 0, 1, .edge_n, .{ .e = true, .w = true });
         try expectBorder(lat, x, 2, 1, .edge_s, .{ .e = true, .w = true });
     }
-    // No side-edge cells (height 3 means only one middle row, occupied
-    // by edge_w/edge_e at the corners' column — let's confirm those).
     try expectBorder(lat, 0, 1, 1, .edge_w, .{ .n = true, .s = true });
     try expectBorder(lat, 4, 1, 1, .edge_e, .{ .n = true, .s = true });
 
-    // Three interior cells in the middle row.
     try expectInterior(lat, 1, 1, 1);
     try expectInterior(lat, 2, 1, 1);
     try expectInterior(lat, 3, 1, 1);
@@ -363,7 +321,6 @@ test "two non-overlapping rects both rasterize" {
     try expectBorder(lat, 8, 1, 2, .corner_ne, .{ .w = true, .s = true });
     try expectInterior(lat, 6, 2, 2);
 
-    // The gap between them should be empty.
     try expectEmpty(lat, 4, 0);
     try expectEmpty(lat, 4, 4);
 }
@@ -375,7 +332,6 @@ test "conflicting cell is skipped, leaving the prior occupant intact" {
 
     var lat = try makeLattice(a, 4, 4);
 
-    // Pre-fill the top-left corner cell with a fake label_char.
     lat.at(0, 0).* = .{
         .occupant = .{ .label_char = 'X' },
         .neighbours = .{},
@@ -391,16 +347,13 @@ test "conflicting cell is skipped, leaving the prior occupant intact" {
     }, &nodes_buf);
 
     const n = try rasterizeNodes(a, &lat, s);
-    // Node is still counted (best-effort partial write).
     try testing.expectEqual(@as(u32, 1), n);
 
-    // The pre-occupied cell is untouched.
     const c00 = lat.atConst(0, 0).*;
     switch (c00.occupant) {
         .label_char => |ch| try testing.expectEqual(@as(u21, 'X'), ch),
         else => return error.OverwroteOccupiedCell,
     }
-    // Other border cells were still written.
     try expectBorder(lat, 2, 0, 9, .corner_ne, .{ .w = true, .s = true });
     try expectInterior(lat, 1, 1, 9);
 }
@@ -414,7 +367,6 @@ test "out-of-bounds rect is skipped and not counted" {
     var nodes_buf: [2]sketch.NodePlacement = undefined;
     nodes_buf[0] = .{
         .id = 1,
-        // Extends to x=5 (right edge exclusive 6), past width 4.
         .rect = .{ .x = 2, .y = 0, .w = 4, .h = 3 },
         .shape = .rect,
         .lines = &.{},
@@ -438,7 +390,6 @@ test "out-of-bounds rect is skipped and not counted" {
     };
 
     const n = try rasterizeNodes(a, &lat, s);
-    // OOB node skipped; in-bounds node rasterized.
     try testing.expectEqual(@as(u32, 1), n);
 
     try expectBorder(lat, 0, 0, 2, .corner_nw, .{ .e = true, .s = true });

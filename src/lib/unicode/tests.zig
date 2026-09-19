@@ -314,8 +314,6 @@ test "public iterator starts spans at the requested slice boundary" {
 }
 
 test "compatibility width measures graphemes like compatibility clipping, so a clipped prefix fits" {
-    // Each input is rejected by the strict measure: a zero-width space, a
-    // soft hyphen, a C0 control, a C1 control, malformed bytes.
     const inputs = [_][]const u8{
         "e\u{0301}\u{200B}e\u{0301}e\u{0301}",
         "\u{00AD}e\u{0301}e\u{0301}e\u{0301}",
@@ -336,8 +334,6 @@ test "compatibility width measures graphemes like compatibility clipping, so a c
             try testing.expect(std.unicode.utf8ValidateSlice(cut));
         }
     }
-    // The combining mark rides its base under the compatibility measure
-    // too: three graphemes plus the one-cell control.
     try testing.expectEqual(@as(usize, 4), unicode.displayWidth("e\u{0301}\u{200B}e\u{0301}e\u{0301}"));
     try testing.expectEqual(@as(usize, 4), unicode.displayWidth("\u{00AD}e\u{0301}e\u{0301}e\u{0301}"));
     try testing.expectEqual(@as(usize, 4), unicode.displayWidth("e\u{0301}\x01e\u{0301}e\u{0301}"));
@@ -348,7 +344,6 @@ test "compatibility width charges every malformed byte one cell and resumes afte
     try testing.expectEqual(@as(usize, 2), unicode.displayWidth("\xe2\x82"));
     try testing.expectEqual(@as(usize, 3), unicode.displayWidth("a\xffb"));
     try testing.expectEqual(@as(usize, 4), unicode.displayWidth("日\x80\x80"));
-    // Graphemes after the malformed byte are measured whole, not per codepoint.
     try testing.expectEqual(@as(usize, 2), unicode.displayWidth("\x80e\u{0301}"));
     try testing.expectEqual(@as(usize, 4), unicode.displayWidth("\x80\u{1F468}\u{200D}\u{1F469}\u{200D}\u{1F467}\x80"));
     try testing.expectEqual(@as(usize, 4), unicode.displayWidth("e\u{0301}\xffe\u{0301}e\u{0301}"));

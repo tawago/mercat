@@ -6,12 +6,6 @@ const ansi = @import("../lib/ansi.zig");
 const mermaid_types = @import("../core/mermaid/types.zig");
 const Color = @import("../core/theme/color.zig").Color;
 
-/// Solid-background ("canvas") fill request for the terminal backend. When
-/// present, every line's background is painted with `bg` and padded with
-/// bg-styled spaces to `width`; spans that carry their own bg keep it. When
-/// `null`, serialization is byte-identical to the historical terminal output
-/// (the un-themed neutral palettes have no `base_bg`, so `main.zig` passes
-/// `null` and the coalescing path below is unchanged).
 pub const Canvas = struct {
     bg: Color,
     width: usize,
@@ -47,10 +41,6 @@ pub fn renderDocument(allocator: std.mem.Allocator, document: markdown.Document,
     return serialize(allocator, rendered, options.palette, null);
 }
 
-/// Serialize an already-rendered value to ANSI-styled terminal bytes. This is
-/// the terminal backend of the format dispatch: `main.zig` calls
-/// `render_model.renderDocument()` once and hands the owned `Rendered` here so
-/// the semantic layout is not recomputed per format.
 pub fn serialize(
     allocator: std.mem.Allocator,
     rendered: render_model.Rendered,
@@ -60,18 +50,8 @@ pub fn serialize(
     var buffer: std.ArrayList(u8) = .empty;
     errdefer buffer.deinit(allocator);
 
-    // Coalesce consecutive non-hyperlink spans that resolve to the same
-    // StyleToken into a single SGR run: emit the style prefix once when a run's
-    // first non-empty span arrives, append each matching span's text straight
-    // into `buffer`, and emit the reset when the token changes or the line ends.
-    // Distinct SpanStyle enums (e.g. body vs table_header) can map to an
-    // identical token under a given theme; emitting one SGR run for them keeps
-    // default-theme output byte-identical to the pre-Issue-17 renderer, where
-    // those slots shared a single enum. An empty-text span with a different
-    // token still closes the current run (matching the pre-refactor per-run
-    // flush); a same-token empty span leaves the run open.
     var run_token: ?theme.StyleToken = null;
-    var run_open = false; // prefix emitted for the current run, reset still pending
+    var run_open = false;
 
     const flushRun = struct {
         fn call(a: std.mem.Allocator, buf: *std.ArrayList(u8), tok: *?theme.StyleToken, open: *bool) !void {
@@ -86,11 +66,6 @@ pub fn serialize(
         if (line_index != 0) try buffer.append(allocator, '\n');
         for (line.spans) |span| {
             var token = theme.token(palette, span.style);
-            // Canvas: spans without their own bg inherit the base_bg so the row
-            // reads as a solid sheet; spans that carry a bg (code panels, tints)
-            // keep theirs. Setting the bg before the run-equality check keeps
-            // coalescing intact — two spans that were equal with bg==null are
-            // still equal once both inherit the same canvas bg.
             if (canvas) |c| {
                 if (token.bg == null) token.bg = c.bg;
             }
@@ -111,12 +86,6 @@ pub fn serialize(
                 }
             }
         }
-        // Canvas: pad the row with bg-styled spaces out to the full width so the
-        // background is solid to the right margin (and blank lines fill too).
-        // This is the one exception to trailing-space stripping. The fill span
-        // is emitted as its own reset-terminated run, so nothing bleeds past the
-        // line. Only runs when canvas is present, so the un-themed path is
-        // untouched.
         if (canvas) |c| {
             try flushRun(allocator, &buffer, &run_token, &run_open);
             const cur = line.displayWidth();
@@ -134,21 +103,10 @@ pub fn serialize(
     return try buffer.toOwnedSlice(allocator);
 }
 
-// --- Span-coalescing serializer unit tests (Issue 17) ------------------------
-//
-// These pin the lazy-prefix / coalesce-run / reset-on-change behavior of
-// serialize() and the ansi prefix/reset helpers it drives. Fixtures are built
-// directly as Rendered{ .lines = []Line{ .spans = []Span } } with string
-// literals so no fixture allocation/free is needed (serialize() never frees the
-// Rendered it consumes). Expected bytes are assembled from the same ansi
-// constants and helpers serialize() uses, so no escape bytes are hard-coded.
-
 test "coalesces distinct SpanStyles that map to one StyleToken into a single run" {
     const allocator = std.testing.allocator;
     const palette = theme.neutralDark;
 
-    // .body and .table_header are different SpanStyle enums but table_header is
-    // stamped equal to body in the palette, so they resolve to one StyleToken.
     try std.testing.expectEqual(theme.token(palette, .body), theme.token(palette, .table_header));
 
     var spans = [_]render_model.Span{
@@ -203,8 +161,6 @@ test "same-token empty span leaves the run open" {
     const allocator = std.testing.allocator;
     const palette = theme.neutralDark;
 
-    // Empty span between two body spans (via table_header, same token) must not
-    // close/reopen the run: the whole line is one prefix/reset pair.
     var spans = [_]render_model.Span{
         .{ .text = "foo", .style = .body },
         .{ .text = "", .style = .table_header },
@@ -230,10 +186,6 @@ test "different-token empty span closes the run without opening a new prefix" {
     const allocator = std.testing.allocator;
     const palette = theme.neutralDark;
 
-    // The empty emphasis span closes the open body run (emits a reset) but must
-    // NOT emit an emphasis prefix, because it carries no text. The next body
-    // span then re-opens a fresh body prefix. Net: two body runs, one reset each,
-    // and no emphasis SGR anywhere.
     var spans = [_]render_model.Span{
         .{ .text = "foo", .style = .body },
         .{ .text = "", .style = .emphasis },
@@ -256,7 +208,6 @@ test "different-token empty span closes the run without opening a new prefix" {
 
     try std.testing.expectEqualStrings(expected.items, out);
 
-    // No emphasis SGR was emitted for the empty span.
     var emph: std.ArrayList(u8) = .empty;
     defer emph.deinit(allocator);
     try ansi.writeTokenPrefix(allocator, &emph, theme.token(palette, .emphasis));
@@ -290,7 +241,6 @@ test "run resets at line end and newlines sit between lines with no leading newl
 
     try std.testing.expectEqualStrings(expected.items, out);
 
-    // First line carries no leading newline; reset precedes the separator.
     try std.testing.expect(!std.mem.startsWith(u8, out, "\n"));
 }
 
@@ -299,7 +249,7 @@ test "blank middle line emits its own newline without an SGR run" {
     const palette = theme.neutralDark;
 
     var spans0 = [_]render_model.Span{.{ .text = "a", .style = .body }};
-    var spans1 = [_]render_model.Span{}; // empty line
+    var spans1 = [_]render_model.Span{};
     var spans2 = [_]render_model.Span{.{ .text = "b", .style = .body }};
     var lines = [_]render_model.Line{
         .{ .spans = &spans0 },
@@ -343,13 +293,10 @@ test "hyperlink span flushes the run and neighbours re-open around it" {
 
     var expected: std.ArrayList(u8) = .empty;
     defer expected.deinit(allocator);
-    // Run before the hyperlink closes first.
     try ansi.writeTokenPrefix(allocator, &expected, theme.token(palette, .body));
     try expected.appendSlice(allocator, "foo");
     try expected.appendSlice(allocator, ansi.reset_sequence);
-    // The hyperlink is emitted by the OSC 8 helper, self-contained.
     try ansi.writeHyperlink(allocator, &expected, url, "link", theme.token(palette, .link));
-    // The trailing body span re-opens a fresh run.
     try ansi.writeTokenPrefix(allocator, &expected, theme.token(palette, .body));
     try expected.appendSlice(allocator, "bar");
     try expected.appendSlice(allocator, ansi.reset_sequence);

@@ -8,13 +8,7 @@ const SpanStyle = line_mod.SpanStyle;
 pub const Builder = struct {
     allocator: std.mem.Allocator,
     lines: std.ArrayList(Line),
-    /// Spans of the in-progress line that are already sealed. The most recent
-    /// span is *not* here — it lives in `tail` until its style/url changes.
     current: std.ArrayList(Span),
-    /// Text of the span still open for appends. Merging consecutive same-style
-    /// spans by appending into this growable buffer keeps a line's cost linear
-    /// in its length; concatenating each time would make it quadratic, which a
-    /// pathologically wide code line or table row can turn into a hang.
     tail: std.ArrayList(u8),
     tail_style: SpanStyle = .body,
     tail_url: ?[]const u8 = null,
@@ -42,14 +36,10 @@ pub const Builder = struct {
         self.lines.deinit(self.allocator);
     }
 
-    /// True when the current line has any content pending (sealed spans or an
-    /// open tail). Callers use it to decide whether a `newline` is needed.
     pub fn hasPending(self: *const Builder) bool {
         return self.current.items.len != 0 or self.tail_open;
     }
 
-    /// Seal the open tail into `current`, keeping the tail buffer's capacity so
-    /// the next span reuses it.
     fn flushTail(self: *Builder) !void {
         if (!self.tail_open) return;
         const text = try self.allocator.dupe(u8, self.tail.items);
@@ -64,9 +54,6 @@ pub const Builder = struct {
         try self.appendSpanWithUrl(style, text, null);
     }
 
-    /// Append `glyph` repeated `count` times. Builds the whole run once instead
-    /// of appending glyph-by-glyph, which matters for border rows and the code
-    /// panel's padding fill.
     pub fn appendRepeated(self: *Builder, style: SpanStyle, glyph: []const u8, count: usize) !void {
         if (count == 0 or glyph.len == 0) return;
         const run = try self.allocator.alloc(u8, count * glyph.len);

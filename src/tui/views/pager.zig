@@ -10,9 +10,6 @@ const SubgraphEdges = @import("prim").SubgraphEdges;
 const Viewport = @import("../widgets/viewport.zig").Viewport;
 const selection_mod = @import("../selection.zig");
 
-/// Maps a footnote number to the rendered line indices of its reference and
-/// definition.  Both fields are null until at least one line with the
-/// corresponding pseudo-URL is found.
 pub const FootnoteEntry = struct {
     ref_line: ?usize = null,
     def_line: ?usize = null,
@@ -22,26 +19,16 @@ pub const PagerView = struct {
     allocator: std.mem.Allocator,
     title: []const u8,
     document: *const markdown.Document,
-    /// Resolved theme (palette + decor) driving both the render model and the
-    /// per-cell vaxis styling. Borrowed; owned by `main` for the TUI lifetime.
     resolved: *const ResolvedTheme,
     show_heading_markers: bool = true,
     frontmatter_style: config.FrontmatterStyle = .panel,
-    /// While the metadata overlay shows the front matter, the inline block is
-    /// suppressed so the same data is not displayed twice. Overrides
-    /// `frontmatter_style` at reflow time; the configured style is untouched.
     suppress_frontmatter: bool = false,
     mermaid_layout: mermaid_types.ForceLayout = .auto,
-    /// Subgraph frame-border notation (config value; a later live toggle may
-    /// mutate it, mirroring `mermaid_layout`).
     mermaid_subgraph_edges: SubgraphEdges = .bridge,
     viewport: Viewport = .{},
     width: usize = 0,
     lines: []render_model.Line = &.{},
-    /// Footnote index: footnote number N maps to footnote_index[N-1].
-    /// Rebuilt whenever lines are re-rendered.
     footnote_index: []FootnoteEntry = &.{},
-    /// Active mouse text selection, in (document line, display column) space.
     selection: selection_mod.Selection = .{},
 
     pub fn init(allocator: std.mem.Allocator, title: []const u8, document: *const markdown.Document, resolved: *const ResolvedTheme, show_heading_markers: bool, mermaid_layout: mermaid_types.ForceLayout, subgraph_edges: SubgraphEdges) PagerView {
@@ -95,9 +82,6 @@ pub const PagerView = struct {
         self.viewport.toBottom();
     }
 
-    /// If any line currently visible in the viewport contains a footnote
-    /// navigation span (pseudo-URL `#fn:N` or `#fnref:N`), jump to the
-    /// corresponding target line.  Returns true if a jump occurred.
     pub fn followFootnoteLink(self: *PagerView) bool {
         const visible_start = self.viewport.top;
         const visible_end = self.viewport.visibleEnd();
@@ -130,12 +114,10 @@ pub const PagerView = struct {
         return false;
     }
 
-    /// Begin a text selection anchored at visible screen `row` and display `col`.
     pub fn beginSelectionAt(self: *PagerView, row: usize, col: usize) void {
         self.selection.begin(self.viewport.lineForRow(row), col);
     }
 
-    /// Extend the active selection to visible screen `row` and display `col`.
     pub fn extendSelectionAt(self: *PagerView, row: usize, col: usize) void {
         self.selection.extendTo(self.viewport.lineForRow(row), col);
     }
@@ -144,13 +126,10 @@ pub const PagerView = struct {
         self.selection.clear();
     }
 
-    /// Allocate and return the currently selected text (empty if none).
     pub fn selectedText(self: *PagerView, allocator: std.mem.Allocator) ![]u8 {
         return self.selection.extractText(allocator, self.lines);
     }
 
-    /// Display-column range to highlight on visible screen `row`, or null when
-    /// that row falls outside the content or the selection.
     pub fn selectionRangeForRow(self: *PagerView, row: usize) ?selection_mod.Range {
         const line_idx = self.viewport.top + row;
         if (line_idx >= self.lines.len) return null;

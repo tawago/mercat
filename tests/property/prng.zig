@@ -1,9 +1,3 @@
-//! Deterministic seedable PRNG wrapper for the property-test harness.
-//!
-//! Reads the seed from env var `MERCAT_PROPTEST_SEED` (hex `0x...` or decimal).
-//! Falls back to `default_seed` on any read/parse failure. Prints the
-//! resolved seed to stderr once on construction so failing seeds can be
-//! reproduced from CI logs.
 const std = @import("std");
 
 pub const default_seed: u64 = 0xC0FFEE;

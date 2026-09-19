@@ -1,7 +1,5 @@
 const std = @import("std");
 
-/// Inline content that preserves AST structure from markdown parsing.
-/// Replaces the previous approach of flattening to text with markers.
 pub const Inline = union(enum) {
     text: []const u8,
     emphasis: []Inline,
@@ -73,8 +71,6 @@ pub const Block = union(enum) {
     table: Table,
     blockquote: BlockQuote,
 
-    /// YAML front matter metadata block (always the document's first block
-    /// when present). `entries` slices point into `raw`.
     pub const FrontMatter = struct {
         raw: []const u8,
         entries: []Entry,

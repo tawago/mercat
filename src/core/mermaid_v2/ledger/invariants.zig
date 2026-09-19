@@ -1,267 +1,123 @@
-//! invariants.zig — the TSD §6.7 realized-plan output validator
-//! (P2v Step 4; D-JOIN-SELECT item 8), split out of realized.zig for the
-//! mermaid_v2 500-line cap. Pure function over (JoinPermits,
-//! RealizedJoins): every §6.7 bullet except component reachability
-//! (D-REACH; landed by reach_vector in Steps 6 and 8–9).
-//! Report-only — used by tests and by select.zig's debug path; it never
-//! affects candidate selection or output bytes.
-//!
-//! Allowed imports (tools/lint_imports.zig): std, prim, ledger,
-//! sketch, realized.zig.
-
 const std = @import("std");
 const pb = @import("../base/ledger.zig");
-const jp = @import("realized.zig");
+const sketch = @import("../sketch.zig");
 
-pub const Error = jp.Error;
-const containsEdge = jp.containsEdge;
-const edgeRank = jp.edgeRank;
-const groupIndexById = jp.groupIndexById;
-const meshUnionLegal = jp.meshUnionLegal;
-
-pub const ValidationTag = enum {
-    membership_set_mismatch,
-    disposition_missing,
-    disposition_unexpected,
-    disposition_group_mismatch,
-    disposition_join_mismatch,
-    selected_both_sides,
-    selected_join_group_missing,
-    selected_join_foreign_member,
-    selected_join_duplicate_member,
-    selected_join_proposal_missing,
-    selected_member_multiple_joins,
-    selected_joins_not_canonical,
-    conflict_missing,
-    conflict_unknown_group,
-    conflict_shared_edges_wrong,
-    conflicts_not_canonical,
-    rejected_proposal_unknown,
-    proposal_both_outcomes,
-    proposal_unaccounted,
-    terminal_edge_unknown,
-    terminal_ports_not_canonical,
-    mesh_union_illegal,
-};
-
-pub const Finding = struct {
-    tag: ValidationTag,
-    group: ?pb.JoinGroupId = null,
-    edge: ?pb.EdgeId = null,
-};
-
-pub const ValidationReport = struct {
-    findings: []const Finding,
-
-    pub fn valid(self: ValidationReport) bool {
-        return self.findings.len == 0;
-    }
-};
-
-/// TSD §6.7 output validation over (JoinPermits, RealizedJoins): every
-/// bullet except component reachability (D-REACH; Steps 6 and 8–9).
-/// `proposals` is the planner report's canonical list, needed for the
-/// referenced-proposal-exists bullet. Pure and report-only.
-pub fn validate(
-    allocator: std.mem.Allocator,
-    join_permits: pb.JoinPermits,
-    plan: pb.RealizedJoins,
-    proposals: []const pb.JoinProposal,
-) Error!ValidationReport {
-    var out: std.ArrayListUnmanaged(Finding) = .empty;
-    const groups = join_permits.groups;
-    const ms = join_permits.memberships;
-
-    // Bullets 1 + 7: exactly one realized membership per declared edge, in
-    // canonical membership order (one declared edge stays one record).
-    if (plan.memberships.len != ms.len) {
-        try add(&out, allocator, .membership_set_mismatch, null, null);
-    } else for (ms, plan.memberships) |bm, rm| {
-        if (bm.edge != rm.edge) {
-            try add(&out, allocator, .membership_set_mismatch, null, rm.edge);
+/// @guarded-by: ledger/invariants.zig "the gap invariant counts a spacing the ledger did not ask for and a row no claim stands on"
+pub fn gapRowsUnaccounted(gaps: []const pb.GapRows) u32 {
+    var bad: u32 = 0;
+    for (gaps) |g| {
+        const extra = pb.gapSpacingNeeded(g.rows_used, g.base_used) -| g.base;
+        if (g.reserved -| g.base != extra) {
+            bad += 1;
             continue;
         }
-        try checkDisposition(&out, allocator, plan, rm.edge, bm.source_group, rm.source);
-        try checkDisposition(&out, allocator, plan, rm.edge, bm.target_group, rm.target);
-        // Bullet 6: never-both (D-DUAL item 1).
-        const src_sel = rm.source != null and rm.source.? == .selected;
-        if (src_sel and rm.target != null and rm.target.? == .selected)
-            try add(&out, allocator, .selected_both_sides, null, rm.edge);
-    }
-
-    // Bullets 2–4: selected joins reference one existing group + proposal,
-    // contain only its members, every member's disposition at that
-    // endpoint is selected(this join) — an independent membership never
-    // appears — and no member holds two joins at one endpoint.
-    var prev_rank: ?usize = null;
-    for (plan.selected_joins) |join| {
-        const gi = groupIndexById(groups, join.permission_group) orelse {
-            try add(&out, allocator, .selected_join_group_missing, join.permission_group, null);
-            continue;
-        };
-        if (prev_rank != null and gi <= prev_rank.?)
-            try add(&out, allocator, .selected_joins_not_canonical, join.permission_group, null);
-        prev_rank = gi;
-        const found = blk: {
-            for (proposals) |p| {
-                if (p.id == join.proposal) break :blk p.permission_group == join.permission_group;
-            }
-            break :blk false;
-        };
-        if (!found) try add(&out, allocator, .selected_join_proposal_missing, join.permission_group, null);
-        for (join.members, 0..) |edge, k| {
-            if (!containsEdge(groups[gi].members, edge))
-                try add(&out, allocator, .selected_join_foreign_member, join.permission_group, edge);
-            for (join.members[0..k]) |prev| if (prev == edge)
-                try add(&out, allocator, .selected_join_duplicate_member, join.permission_group, edge);
-            const disp = dispositionAt(plan, edge, groups[gi].direction);
-            const links = disp != null and disp.? == .selected and disp.?.selected == join.id;
-            if (!links) try add(&out, allocator, .disposition_join_mismatch, join.permission_group, edge);
-        }
-        for (plan.selected_joins) |other| {
-            if (other.id == join.id) continue;
-            const oi = groupIndexById(groups, other.permission_group) orelse continue;
-            if (groups[oi].direction != groups[gi].direction) continue;
-            for (join.members) |edge| if (containsEdge(other.members, edge))
-                try add(&out, allocator, .selected_member_multiple_joins, join.permission_group, edge);
-        }
-    }
-
-    // §6.5 completeness (bullet 9's retained-permissions half): every
-    // overlapping group pair has ONE conflict retaining the full shared
-    // set, in canonical (group-rank pair) order.
-    var prev_pair: ?[2]usize = null;
-    for (plan.conflicts) |c| {
-        const ia = groupIndexById(groups, c.groups[0]) orelse {
-            try add(&out, allocator, .conflict_unknown_group, c.groups[0], null);
-            continue;
-        };
-        const ib = groupIndexById(groups, c.groups[1]) orelse {
-            try add(&out, allocator, .conflict_unknown_group, c.groups[1], null);
-            continue;
-        };
-        if (c.reason != .overlapping_permissions) continue;
-        if (prev_pair) |pp| {
-            if (ia < pp[0] or (ia == pp[0] and ib <= pp[1]))
-                try add(&out, allocator, .conflicts_not_canonical, c.groups[0], null);
-        }
-        prev_pair = .{ ia, ib };
-    }
-    for (groups, 0..) |ga, i| {
-        for (groups[i + 1 ..]) |gb| {
-            var shared_n: usize = 0;
-            var retained: usize = 0;
-            const conflict = conflictFor(plan.conflicts, ga.id, gb.id);
-            for (ga.members) |e| if (containsEdge(gb.members, e)) {
-                shared_n += 1;
-                if (conflict != null and containsEdge(conflict.?.shared_edges, e)) retained += 1;
-            };
-            if (shared_n == 0) continue;
-            if (conflict == null) {
-                try add(&out, allocator, .conflict_missing, ga.id, null);
-            } else if (retained != shared_n or conflict.?.shared_edges.len != shared_n) {
-                try add(&out, allocator, .conflict_shared_edges_wrong, ga.id, null);
+        var r: u32 = 0;
+        while (r < g.rows_used and r < 64) : (r += 1) {
+            if (g.claimed & (@as(u64, 1) << @intCast(r)) == 0) {
+                bad += 1;
+                break;
             }
         }
     }
+    return bad;
+}
 
-    // Rejections are not defects (item 9), but every proposal is accounted
-    // exactly once (selected XOR rejected) and rejected ids resolve.
-    for (plan.rejected_proposals) |pid| {
-        var known = false;
-        for (proposals) |p| {
-            if (p.id == pid) known = true;
+const Ink = union(enum) { edge: pb.EdgeId, rail: pb.RailKey };
+
+fn runClaimed(gaps: []const pb.GapRows, at: i32, ink: Ink) bool {
+    var covered = false;
+    for (gaps) |g| {
+        if (at < @min(g.near, g.far) or at > @max(g.near, g.far)) continue;
+        covered = true;
+        const toward_far: i32 = if (g.far >= g.near) 1 else -1;
+        const row = (at - g.near) * toward_far - 2;
+        for (g.claims) |c| {
+            if (row < c.row or row >= c.row + @as(i32, @intCast(c.height))) continue;
+            switch (ink) {
+                .edge => |id| if (std.mem.indexOfScalar(pb.EdgeId, c.edges, id) != null) return true,
+                .rail => |key| for (c.rails) |r| if (r.pivot == key.pivot and r.out == key.out) return true,
+            }
         }
-        if (!known) try add(&out, allocator, .rejected_proposal_unknown, null, null);
-        for (plan.selected_joins) |join| if (join.proposal == pid)
-            try add(&out, allocator, .proposal_both_outcomes, join.permission_group, null);
     }
-    for (proposals) |p| {
-        var accounted = containsProposal(plan.rejected_proposals, p.id);
-        for (plan.selected_joins) |join| {
-            if (join.proposal == p.id) accounted = true;
+    return !covered;
+}
+
+/// @guarded-by: ledger/invariants.zig "the painted-ink invariant counts a run on a row no claim of its edge stands on"
+pub fn gapRowsUnclaimedInk(direction: sketch.Direction, edges: []const sketch.EdgePath, rails: []const sketch.Rail, gaps: []const pb.GapRows) u32 {
+    const vertical = direction == .TD or direction == .BT;
+    var bad: u32 = 0;
+    for (edges) |e| {
+        var i: usize = 1;
+        while (i < e.polyline.len) : (i += 1) {
+            const p = e.polyline[i - 1];
+            const q = e.polyline[i];
+            const along = if (vertical) p.y == q.y else p.x == q.x;
+            const moves = if (vertical) p.x != q.x else p.y != q.y;
+            if (!along or !moves) continue;
+            if (!runClaimed(gaps, if (vertical) p.y else p.x, .{ .edge = e.id })) bad += 1;
         }
-        if (!accounted) try add(&out, allocator, .proposal_unaccounted, p.permission_group, null);
     }
-
-    // Terminal ports: known edges, canonical (edge rank, source-then-
-    // target) order, at most one tuple per endpoint.
-    var prev_key: ?usize = null;
-    for (plan.terminal_ports) |tp| {
-        const rank = edgeRank(ms, tp.edge) orelse {
-            try add(&out, allocator, .terminal_edge_unknown, null, tp.edge);
-            continue;
-        };
-        const key = rank * 2 + @intFromEnum(tp.endpoint_side);
-        if (prev_key != null and key <= prev_key.?)
-            try add(&out, allocator, .terminal_ports_not_canonical, null, tp.edge);
-        prev_key = key;
+    for (rails) |r| {
+        const p = r.crossbar[0];
+        const q = r.crossbar[1];
+        if (if (vertical) p.x == q.x else p.y == q.y) continue;
+        const key: pb.RailKey = .{ .pivot = r.pivot, .out = r.role != .fan_in_dropper };
+        if (!runClaimed(gaps, if (vertical) p.y else p.x, .{ .rail = key })) bad += 1;
     }
-
-    // D-IR item 16: every landed mesh-union element is legal (N*M == D).
-    for (plan.mesh_unions) |mu| {
-        if (!meshUnionLegal(join_permits, mu.members))
-            try add(&out, allocator, .mesh_union_illegal, null, null);
-    }
-
-    return .{ .findings = try out.toOwnedSlice(allocator) };
+    return bad;
 }
 
-fn dispositionAt(plan: pb.RealizedJoins, edge: pb.EdgeId, direction: pb.JoinDirection) ?pb.MembershipDisposition {
-    for (plan.memberships) |rm| {
-        if (rm.edge == edge) return if (direction == .out) rm.source else rm.target;
-    }
-    return null;
-}
-
-fn conflictFor(conflicts: []const pb.JoinConflict, a: pb.JoinGroupId, b: pb.JoinGroupId) ?pb.JoinConflict {
-    for (conflicts) |c| {
-        if (c.reason != .overlapping_permissions) continue;
-        if ((c.groups[0] == a and c.groups[1] == b) or (c.groups[0] == b and c.groups[1] == a)) return c;
-    }
-    return null;
-}
-
-fn checkDisposition(
-    out: *std.ArrayListUnmanaged(Finding),
-    allocator: std.mem.Allocator,
-    plan: pb.RealizedJoins,
-    edge: pb.EdgeId,
-    group_id: ?pb.JoinGroupId,
-    disp: ?pb.MembershipDisposition,
-) Error!void {
-    const id = group_id orelse {
-        if (disp != null) try add(out, allocator, .disposition_unexpected, null, edge);
-        return;
+test "the painted-ink invariant counts a run on a row no claim of its edge stands on" {
+    const claims = [_]pb.GapClaim{
+        .{ .row = 0, .height = 1, .edges = &.{1} },
+        .{ .row = -1, .height = 1, .edges = &.{2} },
     };
-    const d = disp orelse return add(out, allocator, .disposition_missing, id, edge);
-    switch (d) {
-        .independent => |ind| if (ind.permission_group != id)
-            try add(out, allocator, .disposition_group_mismatch, id, edge),
-        .selected => |jid| {
-            const ok = blk: {
-                for (plan.selected_joins) |join| {
-                    if (join.id == jid) break :blk join.permission_group == id and
-                        containsEdge(join.members, edge);
-                }
-                break :blk false;
-            };
-            if (!ok) try add(out, allocator, .disposition_join_mismatch, id, edge);
-        },
-    }
+    const gaps = [_]pb.GapRows{.{ .gap = 0, .base = 2, .reserved = 5, .free = 0, .rows_used = 1, .claimed = 0b1, .base_used = true, .near = 9, .far = 5, .claims = &claims }};
+    const port: sketch.Port = .{ .node = 0, .side = .south, .offset = 0 };
+    const on_row = [_]sketch.Point{ .{ .x = 0, .y = 4 }, .{ .x = 0, .y = 7 }, .{ .x = 6, .y = 7 }, .{ .x = 6, .y = 10 } };
+    const on_base = [_]sketch.Point{ .{ .x = 0, .y = 4 }, .{ .x = 0, .y = 8 }, .{ .x = 6, .y = 8 }, .{ .x = 6, .y = 10 } };
+    const foreign_row = [_]sketch.Point{ .{ .x = 0, .y = 4 }, .{ .x = 0, .y = 8 }, .{ .x = 6, .y = 8 }, .{ .x = 6, .y = 10 } };
+    const arrival = [_]sketch.Point{ .{ .x = 0, .y = 4 }, .{ .x = 0, .y = 9 }, .{ .x = 6, .y = 9 }, .{ .x = 6, .y = 10 } };
+    const outside = [_]sketch.Point{ .{ .x = 0, .y = 2 }, .{ .x = 6, .y = 2 } };
+    const edges = [_]sketch.EdgePath{
+        .{ .id = 1, .from = 0, .to = 1, .polyline = &on_row, .port_from = port, .port_to = port, .arrow_from = .none, .arrow_to = .none, .label = null, .kind = .solid },
+        .{ .id = 2, .from = 0, .to = 1, .polyline = &on_base, .port_from = port, .port_to = port, .arrow_from = .none, .arrow_to = .none, .label = null, .kind = .solid },
+        .{ .id = 1, .from = 0, .to = 1, .polyline = &foreign_row, .port_from = port, .port_to = port, .arrow_from = .none, .arrow_to = .none, .label = null, .kind = .solid },
+        .{ .id = 2, .from = 0, .to = 1, .polyline = &arrival, .port_from = port, .port_to = port, .arrow_from = .none, .arrow_to = .none, .label = null, .kind = .solid },
+        .{ .id = 3, .from = 0, .to = 1, .polyline = &outside, .port_from = port, .port_to = port, .arrow_from = .none, .arrow_to = .none, .label = null, .kind = .solid },
+    };
+    try std.testing.expectEqual(@as(u32, 0), gapRowsUnclaimedInk(.TD, edges[0..2], &.{}, &gaps));
+    try std.testing.expectEqual(@as(u32, 2), gapRowsUnclaimedInk(.TD, edges[2..4], &.{}, &gaps));
+    try std.testing.expectEqual(@as(u32, 0), gapRowsUnclaimedInk(.TD, edges[4..5], &.{}, &gaps));
 }
 
-fn containsProposal(ids: []const pb.JoinProposalId, id: pb.JoinProposalId) bool {
-    for (ids) |candidate| if (candidate == id) return true;
-    return false;
+test "the painted-ink invariant searches every record covering a line" {
+    const first = [_]pb.GapClaim{.{ .row = 0, .height = 1, .edges = &.{7} }};
+    const second = [_]pb.GapClaim{.{ .row = 0, .height = 1, .edges = &.{1} }};
+    const gaps = [_]pb.GapRows{
+        .{ .gap = 0, .base = 2, .reserved = 3, .free = 0, .rows_used = 1, .claimed = 0b1, .base_used = false, .near = 9, .far = 5, .claims = &first },
+        .{ .gap = 0, .base = 2, .reserved = 3, .free = 0, .rows_used = 1, .claimed = 0b1, .base_used = false, .near = 9, .far = 5, .claims = &second },
+    };
+    const port: sketch.Port = .{ .node = 0, .side = .south, .offset = 0 };
+    const on_row = [_]sketch.Point{ .{ .x = 0, .y = 4 }, .{ .x = 0, .y = 7 }, .{ .x = 6, .y = 7 }, .{ .x = 6, .y = 10 } };
+    const edges = [_]sketch.EdgePath{
+        .{ .id = 1, .from = 0, .to = 1, .polyline = &on_row, .port_from = port, .port_to = port, .arrow_from = .none, .arrow_to = .none, .label = null, .kind = .solid },
+    };
+    try std.testing.expectEqual(@as(u32, 0), gapRowsUnclaimedInk(.TD, &edges, &.{}, &gaps));
+    try std.testing.expectEqual(@as(u32, 1), gapRowsUnclaimedInk(.TD, &edges, &.{}, gaps[0..1]));
 }
 
-fn add(
-    out: *std.ArrayListUnmanaged(Finding),
-    allocator: std.mem.Allocator,
-    tag: ValidationTag,
-    group: ?pb.JoinGroupId,
-    edge: ?pb.EdgeId,
-) Error!void {
-    try out.append(allocator, .{ .tag = tag, .group = group, .edge = edge });
+test "the gap invariant counts a spacing the ledger did not ask for and a row no claim stands on" {
+    const sound = [_]pb.GapRows{
+        .{ .gap = 0, .base = 2, .reserved = 3, .free = 0, .rows_used = 1, .claimed = 0b1, .base_used = false },
+        .{ .gap = 1, .base = 4, .reserved = 5, .free = 2, .rows_used = 3, .claimed = 0b111, .base_used = false },
+        .{ .gap = 2, .base = 2, .reserved = 2, .free = 0, .rows_used = 0, .claimed = 0, .base_used = true },
+        .{ .gap = 3, .base = 1, .reserved = 3, .free = 0, .rows_used = 1, .claimed = 0b1, .base_used = false },
+        .{ .gap = 4, .base = 1, .reserved = 2, .free = 0, .rows_used = 0, .claimed = 0, .base_used = true },
+    };
+    try std.testing.expectEqual(@as(u32, 0), gapRowsUnaccounted(&sound));
+    const loose_add = [_]pb.GapRows{.{ .gap = 0, .base = 2, .reserved = 4, .free = 0, .rows_used = 1, .claimed = 0b1, .base_used = false }};
+    try std.testing.expectEqual(@as(u32, 1), gapRowsUnaccounted(&loose_add));
+    const hole = [_]pb.GapRows{.{ .gap = 0, .base = 2, .reserved = 4, .free = 0, .rows_used = 2, .claimed = 0b10, .base_used = false }};
+    try std.testing.expectEqual(@as(u32, 1), gapRowsUnaccounted(&hole));
 }
