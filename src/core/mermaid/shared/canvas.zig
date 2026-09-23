@@ -8,7 +8,6 @@ const BoxChars = types.BoxChars;
 const LineChars = types.LineChars;
 const Arrows = types.Arrows;
 
-/// Priority levels for cell drawing
 pub const Priority = enum(u8) {
     background = 0,
     subgraph = 1,
@@ -18,7 +17,6 @@ pub const Priority = enum(u8) {
     node_text = 5,
 };
 
-/// A single cell in the canvas
 pub const Cell = struct {
     char: u21 = ' ',
     priority: Priority = .background,
@@ -46,7 +44,6 @@ pub const Cell = struct {
     }
 };
 
-/// 2D character canvas for ASCII rendering
 pub const Canvas = struct {
     allocator: Allocator,
     cells: [][]Cell,
@@ -80,7 +77,6 @@ pub const Canvas = struct {
         self.allocator.free(self.cells);
     }
 
-    /// Get cell at position, or null if out of bounds
     pub fn getCell(self: *Canvas, x: i32, y: i32) ?*Cell {
         if (x < 0 or y < 0) return null;
         const ux: usize = @intCast(x);
@@ -89,14 +85,12 @@ pub const Canvas = struct {
         return &self.cells[uy][ux];
     }
 
-    /// Set character at position with priority
     pub fn setChar(self: *Canvas, x: i32, y: i32, char: u21, priority: Priority) void {
         if (self.getCell(x, y)) |cell| {
             cell.set(char, priority);
         }
     }
 
-    /// Draw a box with the given style
     pub fn drawBox(self: *Canvas, rect: Rect, style: BoxChars, priority: Priority) void {
         const x = rect.x;
         const y = rect.y;
@@ -121,13 +115,6 @@ pub const Canvas = struct {
         }
     }
 
-    /// Draw text at position when every grapheme is exactly one scalar.
-    ///
-    /// This legacy canvas stores one `u21` scalar per cell. It has no grapheme
-    /// storage or continuation-cell metadata, so combining and ZWJ sequences
-    /// cannot be represented honestly. Strict Unicode authority supplies
-    /// validation and width for accepted scalar graphemes; malformed input,
-    /// controls, tabs, and multi-scalar graphemes are declined atomically.
     pub fn drawText(self: *Canvas, x: i32, y: i32, text: []const u8, priority: Priority) void {
         if (legacyScalarTextWidth(text) == null) return;
 
@@ -140,7 +127,6 @@ pub const Canvas = struct {
         }
     }
 
-    /// Draw supported legacy scalar text centered using authority width.
     pub fn drawTextCentered(self: *Canvas, rect: Rect, text: []const u8, priority: Priority) void {
         const text_len: i32 = @intCast(legacyScalarTextWidth(text) orelse return);
         const box_width: i32 = @intCast(rect.width);
@@ -152,7 +138,6 @@ pub const Canvas = struct {
         self.drawText(x, y, text, priority);
     }
 
-    /// Draw a horizontal line
     pub fn drawHorizontalLine(self: *Canvas, y: i32, x1: i32, x2: i32, char: u21, priority: Priority) void {
         const start = @min(x1, x2);
         const end = @max(x1, x2);
@@ -162,7 +147,6 @@ pub const Canvas = struct {
         }
     }
 
-    /// Draw a vertical line
     pub fn drawVerticalLine(self: *Canvas, x: i32, y1: i32, y2: i32, char: u21, priority: Priority) void {
         const start = @min(y1, y2);
         const end = @max(y1, y2);
@@ -172,7 +156,6 @@ pub const Canvas = struct {
         }
     }
 
-    /// Draw an orthogonal path (sequence of connected segments)
     pub fn drawPath(self: *Canvas, points: []const Point, style: types.EdgeStyle, priority: Priority) void {
         if (points.len < 2) return;
 
@@ -229,7 +212,6 @@ pub const Canvas = struct {
         return null;
     }
 
-    /// Draw an arrow at the given point
     pub fn drawArrow(self: *Canvas, point: Point, direction: types.Direction, unicode_mode: bool, priority: Priority) void {
         const char: u21 = if (unicode_mode) switch (direction) {
             .LR => Arrows.right_thin,
@@ -245,7 +227,6 @@ pub const Canvas = struct {
         self.setChar(point.x, point.y, char, priority);
     }
 
-    /// Draw arrow pointing in direction from p1 to p2
     pub fn drawArrowBetween(self: *Canvas, from: Point, to: Point, unicode_mode: bool, priority: Priority) void {
         const dx = to.x - from.x;
         const dy = to.y - from.y;
@@ -259,7 +240,6 @@ pub const Canvas = struct {
         self.drawArrow(to, direction, unicode_mode, priority);
     }
 
-    /// Convert canvas to string
     pub fn toString(self: *Canvas, allocator: Allocator) ![]const u8 {
         var result: std.ArrayList(u8) = .empty;
         errdefer result.deinit(allocator);
@@ -287,7 +267,6 @@ pub const Canvas = struct {
         return result.toOwnedSlice(allocator);
     }
 
-    /// Fill a rectangle with spaces (clear area)
     pub fn clearRect(self: *Canvas, rect: Rect) void {
         var y = rect.y;
         while (y < rect.bottom()) : (y += 1) {

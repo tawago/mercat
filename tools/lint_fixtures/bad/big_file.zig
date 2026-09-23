@@ -1,4 +1,3 @@
-// 501 code lines: trips the 500-code-line cap (comment/blank lines are free).
 const pad_0: u32 = 0;
 const pad_1: u32 = 1;
 const pad_2: u32 = 2;

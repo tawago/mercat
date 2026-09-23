@@ -8,14 +8,12 @@ const Builder = builder_mod.Builder;
 const SpanStyle = line_mod.SpanStyle;
 const Decor = decor_mod.Decor;
 
-/// Fill one row with `glyph` repeated to `width` columns.
 pub fn renderUnderlineRow(builder: *Builder, width: usize, style: SpanStyle, glyph: []const u8) !void {
     if (width == 0 or glyph.len == 0) return;
     const glyph_width = @max(try geometry.displayWidth(glyph), 1);
     try builder.appendRepeated(style, glyph, width / glyph_width);
 }
 
-/// Render a horizontal rule per the decor's mode and glyph.
 pub fn renderHr(builder: *Builder, width: usize, decor: *const Decor) !void {
     const glyphs = decor.glyphs;
     const glyph = if (glyphs.hr_glyph.len == 0) "\u{2500}" else glyphs.hr_glyph;

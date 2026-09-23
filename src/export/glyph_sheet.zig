@@ -1,24 +1,3 @@
-//! Glyph-sheet fixture + export verification (including the in-process
-//! parts of the export determinism checks).
-//!
-//! The glyph sheet is a synthetic `Rendered` value that exercises every
-//! renderer-owned box/line/arrow/bullet/table/shape glyph, the full ASCII
-//! printable range, adjacent horizontal and vertical line runs, every junction
-//! glyph, leading/trailing spaces and blank rows, and underline/strikethrough
-//! samples. It is the enforcement point (§4.3) that the pinned JetBrains Mono
-//! release maps every glyph the renderer can emit, and that box-drawing joins
-//! tile without a raster gap at the production 20px height.
-//!
-//! The glyph inventory below is gathered by hand from:
-//!   * `src/core/mermaid_v2/paint/junction_glyphs.zig` (16-entry junction table),
-//!   * `src/core/mermaid_v2/paint/stroke_glyphs.zig` (dotted/thick/hybrid),
-//!   * `src/core/mermaid_v2/paint/shape_glyphs.zig` (node-shape perimeters),
-//!   * `src/export/font.zig` `required_shape_scalars` (arrow/diamond geometrics),
-//!   * `src/core/render/` + `src/cli/renderer.zig` (markdown rule/bullet/table/
-//!     blockquote/section/clip glyphs).
-//! When the renderer gains a new glyph, add it here so the coverage test guards
-//! it against a future font swap.
-
 const std = @import("std");
 
 const render_model = @import("../core/markdown/render/types.zig");
@@ -35,15 +14,11 @@ const Line = render_model.Line;
 const Rendered = render_model.Rendered;
 const SpanStyle = render_model.SpanStyle;
 
-/// The 16 junction-table box-drawing glyphs (`junction_glyphs.zig`). Index 0
-/// is the empty cell (space); the rest are the corner/tee/cross/stub set.
 pub const junction_glyphs = [_]u21{
     ' ',   '╵', '╶', '└', '╷', '│', '┌', '├',
     '╴', '┘', '─', '┴', '┐', '┤', '┬', '┼',
 };
 
-/// Non-solid stroke glyphs and the solid/double hybrid border glyphs
-/// (`stroke_glyphs.zig`).
 pub const stroke_glyphs = [_]u21{
     '┊', '╌',
     '║', '═',
@@ -56,9 +31,6 @@ pub const stroke_glyphs = [_]u21{
     '╡',
 };
 
-/// Node-shape perimeter glyphs (`shape_glyphs.zig`): rounded corners, stadium
-/// caps, cylinder rails/tees, circle/hexagon/parallelogram/trapezoid diagonals,
-/// asymmetric caps, rhombus diamond.
 pub const shape_glyphs = [_]u21{
     '╭', '╮', '╯', '╰',
     '(',   ')',   '╤', '╧',
@@ -66,9 +38,6 @@ pub const shape_glyphs = [_]u21{
     '◇', '/',   '\\',
 };
 
-/// Arrow / geometric marker glyphs the flowchart painter owns. These are the
-/// `required_shape_scalars` from `font.zig` (guarded there too) plus the
-/// markdown link arrow.
 pub const arrow_glyphs = [_]u21{
     0x25B2,
     0x25B6,
@@ -84,8 +53,6 @@ pub const arrow_glyphs = [_]u21{
     0x2715,
 };
 
-/// Heavy (bold) box-drawing set (`types.box_chars_heavy`), emitted by the
-/// legacy sequence/class/ER/state renderers via `Canvas.drawBox`.
 pub const heavy_box_glyphs = [_]u21{
     0x250F,
     0x2513,
@@ -95,20 +62,12 @@ pub const heavy_box_glyphs = [_]u21{
     0x2503,
 };
 
-/// Dashed/dotted stroke glyphs (`types.LineChars`) emitted by legacy edge
-/// routing and class relation lines. (`┊` U+250A is already in
-/// `stroke_glyphs`; these are the remaining three.)
 pub const legacy_stroke_glyphs = [_]u21{
     0x2504,
     0x2506,
     0x2508,
 };
 
-/// Marker / arrow geometrics emitted only by the legacy sequence/class/ER/state
-/// renderers (distinct scalars from the flowchart `arrow_glyphs` above).
-///   * state: `●` initial, `◎` final, `△` up-arrow (`state/render.zig`);
-///   * class relations: `►` `◄` pointers, `◁` inheritance/realization,
-///     `◆` composition (`types.zig` Arrows + RelationType markers).
 pub const legacy_marker_glyphs = [_]u21{
     0x25CF,
     0x25CE,
@@ -119,8 +78,6 @@ pub const legacy_marker_glyphs = [_]u21{
     0x25C6,
 };
 
-/// Markdown-renderer-owned non-box glyphs: bullet, blockquote bar, table
-/// separators, section sign, width-clip overflow marker.
 pub const misc_render_glyphs = [_]u21{
     0x2022,
     0x258E,
@@ -131,8 +88,6 @@ pub const misc_render_glyphs = [_]u21{
     0x00BB,
 };
 
-/// Every renderer-owned non-space scalar the coverage test asserts the font
-/// maps. Duplicates across categories are harmless (the test dedupes).
 pub fn allRendererOwned(buf: *std.ArrayList(u21), allocator: std.mem.Allocator) !void {
     for (junction_glyphs) |g| try buf.append(allocator, g);
     for (stroke_glyphs) |g| try buf.append(allocator, g);
@@ -144,9 +99,6 @@ pub fn allRendererOwned(buf: *std.ArrayList(u21), allocator: std.mem.Allocator) 
     for (misc_render_glyphs) |g| try buf.append(allocator, g);
 }
 
-/// Build the glyph-sheet `Rendered` value. Every line/span is allocated from
-/// `arena`; free the whole arena to release it. The returned `Rendered`
-/// borrows arena memory and must not outlive it.
 pub fn build(arena: std.mem.Allocator) !Rendered {
     var lines: std.ArrayList(Line) = .empty;
 
@@ -318,9 +270,6 @@ test "glyph sheet export dimensions follow the fixture and §7.4" {
     try testing.expectEqual(ch + doc.rows * ch + ch, try doc.pixelHeight());
 }
 
-/// SHA-256 of the monochrome glyph-sheet RGBA surface, recorded for the pinned
-/// dev target (aarch64 macOS). Hashes are target-qualified (§7.6): on other
-/// targets the equality check is skipped and only determinism is asserted.
 const expected_surface_sha256_aarch64_macos: [32]u8 = .{
     0x5b, 0x81, 0x15, 0x5b, 0xb1, 0x3f, 0x6c, 0xf4,
     0xc5, 0x9a, 0xa0, 0xca, 0x49, 0xf1, 0xb5, 0xbb,
@@ -376,16 +325,11 @@ test "glyph-sheet RGBA surface hash is deterministic and target-qualified" {
     }
 }
 
-/// A pixel is "inked" when it is materially darker than the white monochrome
-/// page (antialias grays above this threshold don't count as a stroke).
 fn inked(s: surface_mod.Surface, x: u32, y: u32) bool {
     const i = (@as(usize, y) * s.width + x) * 4;
     return s.pixels[i] < 128;
 }
 
-/// True when some x-column inside cell column `col` has ink on BOTH sides of the
-/// horizontal cell boundary at `seam_y` — i.e. a vertical stroke crosses the
-/// shared edge with no blank seam.
 fn verticalJoinContinuous(s: surface_mod.Surface, g: types.Geometry, col: u32, seam_y: u32) bool {
     const x0 = @as(u32, g.padding_left_px) + col * g.cell_width_px;
     var x = x0;
@@ -395,8 +339,6 @@ fn verticalJoinContinuous(s: surface_mod.Surface, g: types.Geometry, col: u32, s
     return false;
 }
 
-/// Mirror of the above for a vertical cell boundary at `seam_x` inside row
-/// `row` — a horizontal stroke crosses with no blank seam.
 fn horizontalJoinContinuous(s: surface_mod.Surface, g: types.Geometry, row: u32, seam_x: u32) bool {
     const y0 = @as(u32, g.padding_top_px) + row * g.cell_height_px;
     var y = y0;

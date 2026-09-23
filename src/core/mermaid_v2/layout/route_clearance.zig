@@ -1,41 +1,54 @@
-//! Cross-channel vector clearance for candidate edge routes.
-
 const std = @import("std");
 const pb = @import("../base/ledger.zig");
 const sg = @import("../sem_graph.zig");
 const sk = @import("../sketch.zig");
 
 const Cell = struct { x: i32, y: i32 };
+const Arms = struct {
+    north: bool = false,
+    south: bool = false,
+    east: bool = false,
+    west: bool = false,
+
+    fn toward(self: *Arms, from: Cell, to: Cell) void {
+        if (to.x > from.x) self.east = true;
+        if (to.x < from.x) self.west = true;
+        if (to.y > from.y) self.south = true;
+        if (to.y < from.y) self.north = true;
+    }
+};
+
 const Pass = struct {
     horizontal: bool = false,
     vertical: bool = false,
     bend: bool = false,
+    arms: Arms = .{},
 
     fn merge(self: *Pass, other: Pass) void {
         self.horizontal = self.horizontal or other.horizontal;
         self.vertical = self.vertical or other.vertical;
         self.bend = self.bend or other.bend;
+        self.arms.north = self.arms.north or other.arms.north;
+        self.arms.south = self.arms.south or other.arms.south;
+        self.arms.east = self.arms.east or other.arms.east;
+        self.arms.west = self.arms.west or other.arms.west;
     }
 };
 
 const CellMap = std.AutoArrayHashMapUnmanaged(Cell, Pass);
 
-/// True when `polyline` has a non-transversal cell contact with an existing
-/// edge from another ownership channel.
 pub fn conflicts(
     a: std.mem.Allocator,
     edge: pb.EdgeId,
-    kind: sk.EdgeKind,
     polyline: []const sk.Point,
     existing: []const sk.EdgePath,
-    joins: pb.RealizedJoins,
+    bundles: pb.RealizedBundles,
 ) error{OutOfMemory}!bool {
-    _ = kind;
     var candidate = try cells(a, polyline);
     defer candidate.deinit(a);
     for (existing) |other| {
         if (other.kind == .invisible) continue;
-        if (sameChannel(edge, other.id, joins)) continue;
+        if (sameBundle(edge, other.id, bundles)) continue;
         var occupied = try cells(a, other.polyline);
         defer occupied.deinit(a);
         for (candidate.keys()) |cell| {
@@ -47,28 +60,15 @@ pub fn conflicts(
     return false;
 }
 
-pub fn conflictsBusBars(a: std.mem.Allocator, polyline: []const sk.Point, busbars: []const sk.BusBar) error{OutOfMemory}!bool {
+pub fn conflictsRailArrows(a: std.mem.Allocator, polyline: []const sk.Point, rails: []const sk.Rail, from: pb.NodeId, to: pb.NodeId) error{OutOfMemory}!bool {
     var candidate = try cells(a, polyline);
     defer candidate.deinit(a);
-    for (busbars) |bb| {
-        if (try conflictsPolyline(a, candidate, bb.stem, bb.pivot_arrow != .none, false)) return true;
-        if (try conflictsPolyline(a, candidate, &bb.rail, false, false)) return true;
-        for (bb.taps) |tap| {
-            const segment = [_]sk.Point{ tap.at, tap.landing };
-            if (try conflictsPolyline(a, candidate, &segment, false, tap.arrow != .none)) return true;
-        }
-    }
-    return false;
-}
-
-pub fn conflictsBusBarArrows(a: std.mem.Allocator, polyline: []const sk.Point, busbars: []const sk.BusBar, from: pb.NodeId, to: pb.NodeId) error{OutOfMemory}!bool {
-    var candidate = try cells(a, polyline);
-    defer candidate.deinit(a);
-    for (busbars) |bb| {
+    for (rails) |rail| {
         for (candidate.keys()) |cell| {
-            if ((bb.pivot == from or bb.pivot == to) and bb.pivot_arrow != .none and arrowPoint(bb.stem, cell, true, false)) return true;
-            for (bb.taps) |tap| {
+            if ((rail.pivot == from or rail.pivot == to) and rail.pivot_arrow != .none and arrowPoint(rail.stem, cell, true, false)) return true;
+            for (rail.taps) |tap| {
                 if (tap.node != from and tap.node != to) continue;
+                if (tap.continues) continue;
                 const segment = [_]sk.Point{ tap.at, tap.landing };
                 if (tap.arrow != .none and arrowPoint(&segment, cell, false, true)) return true;
             }
@@ -77,35 +77,160 @@ pub fn conflictsBusBarArrows(a: std.mem.Allocator, polyline: []const sk.Point, b
     return false;
 }
 
-pub fn conflictsBusBarJunctions(a: std.mem.Allocator, polyline: []const sk.Point, busbars: []const sk.BusBar) error{OutOfMemory}!bool {
+/// @guarded-by: route_clearance_test.zig "a route may cross a rail's run but never lie along it"
+pub fn ridesRail(a: std.mem.Allocator, polyline: []const sk.Point, rails: []const sk.Rail) error{OutOfMemory}!bool {
+    var ink: CellMap = .empty;
+    defer ink.deinit(a);
+    for (rails) |rail| {
+        try cellsInto(a, &ink, rail.stem);
+        try cellsInto(a, &ink, &rail.crossbar);
+        for (rail.taps) |tap| try cellsInto(a, &ink, &[_]sk.Point{ tap.at, tap.landing });
+    }
+    if (ink.count() == 0) return false;
+    var i: usize = 0;
+    while (i + 1 < polyline.len) : (i += 1) {
+        var c = polyline[i];
+        const q = polyline[i + 1];
+        const dx = std.math.sign(q.x - c.x);
+        const dy = std.math.sign(q.y - c.y);
+        if (dx == 0 and dy == 0) continue;
+        var run: u32 = 0;
+        while (true) : (c = .{ .x = c.x + dx, .y = c.y + dy }) {
+            if (ink.contains(.{ .x = c.x, .y = c.y })) {
+                run += 1;
+                if (run >= 2) return true;
+            } else run = 0;
+            if (c.x == q.x and c.y == q.y) break;
+        }
+    }
+    return false;
+}
+
+pub fn conflictsRailJunctions(a: std.mem.Allocator, polyline: []const sk.Point, rails: []const sk.Rail) error{OutOfMemory}!bool {
     var candidate = try cells(a, polyline);
     defer candidate.deinit(a);
-    for (busbars) |bb| {
-        if (bb.stem.len != 0) {
-            const pivot = bb.stem[bb.stem.len - 1];
+    for (rails) |rail| {
+        if (rail.stem.len != 0) {
+            const pivot = rail.stem[rail.stem.len - 1];
             if (candidate.contains(.{ .x = pivot.x, .y = pivot.y })) return true;
         }
-        for (bb.taps) |tap| {
+        for (rail.taps) |tap| {
             if (candidate.contains(.{ .x = tap.at.x, .y = tap.at.y })) return true;
         }
     }
     return false;
 }
 
-pub fn conflictsReservedDepartures(a: std.mem.Allocator, edge: pb.EdgeId, polyline: []const sk.Point, placements: []const sk.NodePlacement, edge_ports: anytype, joins: pb.RealizedJoins) error{OutOfMemory}!bool {
+pub fn conflictsReservedTerminals(a: std.mem.Allocator, edge: pb.EdgeId, polyline: []const sk.Point, placements: []const sk.NodePlacement, edge_ports: anytype, bundles: pb.RealizedBundles) error{OutOfMemory}!bool {
     var candidate = try cells(a, polyline);
     defer candidate.deinit(a);
+    var own: ?[2]sk.Port = null;
+    for (edge_ports) |item| if (item.edge == edge) {
+        own = .{ item.source, item.target };
+    };
     for (edge_ports) |item| {
         if (item.edge == edge) continue;
-        // A selected trunk's members share one departure by design (attribution-only
-        // merged ink), so they must not reserve departures against each other.
-        // guarded-by: route_clearance_test.zig "reserved departures exempt same selected trunk"
-        if (sameChannel(edge, item.edge, joins)) continue;
-        const placement = placementById(placements, item.source.node) orelse continue;
-        const point = offNodePoint(placement, item.source);
-        if (candidate.contains(.{ .x = point.x, .y = point.y })) return true;
+        // @guarded-by: route_clearance_test.zig "reserved departures exempt same selected rail"
+        if (sameBundle(edge, item.edge, bundles)) continue;
+        // @guarded-by: route_clearance_test.zig "a discharged edge's port allocation reserves no departure"
+        if (contains(bundles.discharged, item.edge)) continue;
+        const ends = [2]struct { port: sk.Port, decorated: bool }{
+            .{ .port = item.source, .decorated = item.source_decorated },
+            .{ .port = item.target, .decorated = item.target_decorated },
+        };
+        for (ends) |end| {
+            if (own) |ports| if (samePort(ports[0], end.port) or samePort(ports[1], end.port)) continue;
+            const placement = placementById(placements, end.port.node) orelse continue;
+            if (reservedConflict(candidate, offNodePoint(placement, end.port), end.port.side, end.decorated)) return true;
+        }
     }
     return false;
+}
+
+/// @guarded-by: route_clearance_test.zig "a reserved departure blocks collinear occupancy and admits a perpendicular crossing"
+/// @guarded-by: route_clearance_test.zig "a decorated departure cell blocks even a perpendicular crossing"
+/// @guarded-by: route_clearance_test.zig "a decorated arrival cell blocks even a perpendicular crossing"
+/// @guarded-by: route_clearance_test.zig "a decorated terminal's lateral neighbours refuse a foreign arm toward the head, admit a parallel through-run and a bend turning away"
+fn reservedConflict(candidate: CellMap, reserved: sk.Point, side: sk.Dir4, decorated: bool) bool {
+    const vertical = side == .north or side == .south;
+    if (candidate.get(.{ .x = reserved.x, .y = reserved.y })) |theirs| {
+        if (decorated) return true;
+        const run: Pass = if (vertical) .{ .vertical = true } else .{ .horizontal = true };
+        if (!transversal(theirs, run)) return true;
+    }
+    if (!decorated) return false;
+    if (vertical) {
+        if (candidate.get(.{ .x = reserved.x - 1, .y = reserved.y })) |west| if (west.arms.east) return true;
+        if (candidate.get(.{ .x = reserved.x + 1, .y = reserved.y })) |east| if (east.arms.west) return true;
+    } else {
+        if (candidate.get(.{ .x = reserved.x, .y = reserved.y - 1 })) |north| if (north.arms.south) return true;
+        if (candidate.get(.{ .x = reserved.x, .y = reserved.y + 1 })) |south| if (south.arms.north) return true;
+    }
+    return false;
+}
+
+/// @guarded-by: route_clearance_test.zig "a rail honours a foreign decorated terminal's reservation and ignores its own members'"
+pub fn railConflictsReservedTerminals(a: std.mem.Allocator, rail: sk.Rail, placements: []const sk.NodePlacement, edge_ports: anytype, bundles: pb.RealizedBundles) error{OutOfMemory}!bool {
+    var candidate: CellMap = .empty;
+    defer candidate.deinit(a);
+    try cellsInto(a, &candidate, rail.stem);
+    try cellsInto(a, &candidate, &rail.crossbar);
+    for (rail.taps) |tap| try cellsInto(a, &candidate, &[_]sk.Point{ tap.at, tap.landing });
+    for (edge_ports) |item| {
+        if (railMember(rail, item.edge, bundles)) continue;
+        if (contains(bundles.discharged, item.edge)) continue;
+        const ends = [2]struct { port: sk.Port, decorated: bool }{
+            .{ .port = item.source, .decorated = item.source_decorated },
+            .{ .port = item.target, .decorated = item.target_decorated },
+        };
+        for (ends) |end| {
+            const placement = placementById(placements, end.port.node) orelse continue;
+            if (railLandsOn(rail, portPoint(placement, end.port))) continue;
+            if (reservedConflict(candidate, offNodePoint(placement, end.port), end.port.side, end.decorated)) return true;
+        }
+    }
+    return false;
+}
+
+/// @guarded-by: route_clearance_test.zig "decorated terminal pseudo-boxes cover the head cell and its laterals for foreign edges only"
+pub fn withDecoratedTerminalBoxes(a: std.mem.Allocator, edge: pb.EdgeId, placements: []const sk.NodePlacement, edge_ports: anytype, bundles: pb.RealizedBundles) error{OutOfMemory}![]const sk.NodePlacement {
+    var out: std.ArrayListUnmanaged(sk.NodePlacement) = .empty;
+    try out.appendSlice(a, placements);
+    var sentinel: pb.NodeId = std.math.maxInt(pb.NodeId);
+    for (edge_ports) |item| {
+        if (item.edge == edge or sameBundle(edge, item.edge, bundles) or contains(bundles.discharged, item.edge)) continue;
+        const ends = [2]struct { port: sk.Port, decorated: bool }{
+            .{ .port = item.source, .decorated = item.source_decorated },
+            .{ .port = item.target, .decorated = item.target_decorated },
+        };
+        for (ends) |end| {
+            if (!end.decorated) continue;
+            const placement = placementById(placements, end.port.node) orelse continue;
+            const cell = offNodePoint(placement, end.port);
+            const rect: sk.Rect = switch (end.port.side) {
+                .north, .south => .{ .x = cell.x - 1, .y = cell.y, .w = 3, .h = 1 },
+                .west, .east => .{ .x = cell.x, .y = cell.y - 1, .w = 1, .h = 3 },
+            };
+            try out.append(a, .{ .id = sentinel, .rect = rect, .shape = .rect, .lines = &.{}, .cluster_id = null });
+            sentinel -= 1;
+        }
+    }
+    return out.toOwnedSlice(a);
+}
+
+fn railLandsOn(rail: sk.Rail, point: sk.Point) bool {
+    if (rail.stem.len != 0 and rail.stem[0].x == point.x and rail.stem[0].y == point.y) return true;
+    for (rail.taps) |tap| if (tap.landing.x == point.x and tap.landing.y == point.y) return true;
+    return false;
+}
+
+fn railMember(rail: sk.Rail, edge: pb.EdgeId, bundles: pb.RealizedBundles) bool {
+    for (rail.taps) |tap| if (tap.edge == edge or sameBundle(tap.edge, edge, bundles)) return true;
+    return false;
+}
+
+fn samePort(x: sk.Port, y: sk.Port) bool {
+    return x.node == y.node and x.side == y.side and x.offset == y.offset;
 }
 
 fn placementById(placements: []const sk.NodePlacement, id: pb.NodeId) ?sk.NodePlacement {
@@ -123,36 +248,22 @@ fn offNodePoint(placement: sk.NodePlacement, port: sk.Port) sk.Point {
     };
 }
 
-fn conflictsPolyline(a: std.mem.Allocator, candidate: CellMap, points: []const sk.Point, arrow_from: bool, arrow_to: bool) error{OutOfMemory}!bool {
-    var occupied = try cells(a, points);
-    defer occupied.deinit(a);
-    for (candidate.keys()) |cell| {
-        const theirs = occupied.get(cell) orelse continue;
-        if ((arrow_from or arrow_to) and arrowPoint(points, cell, arrow_from, arrow_to)) return true;
-        if (!transversal(candidate.get(cell).?, theirs)) return true;
-    }
-    return false;
-}
-
-/// True when a candidate either shares a non-transversal cell with another
-/// ownership channel or touches a foreign node, including its border cells.
 pub fn blocked(
     a: std.mem.Allocator,
     edge: pb.EdgeId,
-    kind: sk.EdgeKind,
     polyline: []const sk.Point,
     existing: []const sk.EdgePath,
-    joins: pb.RealizedJoins,
+    bundles: pb.RealizedBundles,
     placements: []const sk.NodePlacement,
     from: pb.NodeId,
     to: pb.NodeId,
 ) error{OutOfMemory}!bool {
     if (touchesForeignNode(polyline, placements, from, to)) return true;
-    return conflicts(a, edge, kind, polyline, existing, joins);
+    return conflicts(a, edge, polyline, existing, bundles);
 }
 
-pub fn isIndependent(edge: pb.EdgeId, joins: pb.RealizedJoins) bool {
-    for (joins.memberships) |membership| {
+pub fn isIndependent(edge: pb.EdgeId, bundles: pb.RealizedBundles) bool {
+    for (bundles.memberships) |membership| {
         if (membership.edge != edge) continue;
         inline for ([2]?pb.MembershipDisposition{ membership.source, membership.target }) |disposition| {
             if (disposition) |value| if (value == .independent) return true;
@@ -162,180 +273,29 @@ pub fn isIndependent(edge: pb.EdgeId, joins: pb.RealizedJoins) bool {
     return false;
 }
 
-pub fn hasIndependent(joins: pb.RealizedJoins) bool {
-    for (joins.memberships) |membership| {
-        inline for ([2]?pb.MembershipDisposition{ membership.source, membership.target }) |disposition| {
-            if (disposition) |value| if (value == .independent) return true;
-        }
-    }
-    return false;
-}
-
-/// True iff `polyline` clears every gate the forward/fan lane loop uses to
-/// ACCEPT a route — the exact break condition inlined at those loops. Callers
-/// that MUTATE a polyline after routing (the base-approach GROW in
-/// routing_terminal.zig) use this to re-validate the mutated geometry against
-/// bus-bars and independent-join reservations, reverting to the ungrown route
-/// on failure. When there are no realized joins the gates do not apply, so it
-/// returns true (the plain non-CI path is unaffected).
-/// guarded-by: routing_terminal_test.zig "ensureBaseApproachLengthen grows a corner-fed len-2 final into a straight base approach"
+/// @guarded-by: routing_terminal_test.zig "satisfyApproach grows a corner-fed len-2 final into a straight base approach"
+/// @guarded-by: route_clearance_test.zig "polylineClears refuses every clearance violation regardless of membership disposition"
+/// @guarded-by: route_clearance_test.zig "reservations hold with no realized memberships"
 pub fn polylineClears(
     a: std.mem.Allocator,
     edge: pb.EdgeId,
-    kind: sk.EdgeKind,
     polyline: []const sk.Point,
     existing: []const sk.EdgePath,
-    busbars: []const sk.BusBar,
+    rails: []const sk.Rail,
     placements: []const sk.NodePlacement,
     edge_ports: anytype,
-    joins: pb.RealizedJoins,
+    bundles: pb.RealizedBundles,
     from: pb.NodeId,
     to: pb.NodeId,
 ) error{OutOfMemory}!bool {
-    if (joins.memberships.len == 0) return true;
-    const indep = hasIndependent(joins);
-    return (indep == false or !try blocked(a, edge, kind, polyline, existing, joins, placements, from, to)) and
-        (indep == false or !try conflictsBusBarJunctions(a, polyline, busbars)) and
-        (indep or !try conflictsBusBarArrows(a, polyline, busbars, from, to)) and
-        (indep or !try conflictsReservedDepartures(a, edge, polyline, placements, edge_ports, joins));
-}
-
-/// Route around the outside of the placed diagram when all local gap lanes
-/// are occupied. The first and last legs remain perpendicular to the ports.
-pub fn outsideDetour(
-    a: std.mem.Allocator,
-    direction: sg.Direction,
-    from: sk.NodePlacement,
-    to: sk.NodePlacement,
-    port_from: sk.Port,
-    port_to: sk.Port,
-    placements: []const sk.NodePlacement,
-    distance: u32,
-) error{OutOfMemory}![]sk.Point {
-    const start = portPoint(from, port_from);
-    const end = portPoint(to, port_to);
-    var min_x = @min(start.x, end.x);
-    var min_y = @min(start.y, end.y);
-    var max_x = @max(start.x, end.x);
-    var max_y = @max(start.y, end.y);
-    for (placements) |placement| {
-        min_x = @min(min_x, placement.rect.x);
-        min_y = @min(min_y, placement.rect.y);
-        max_x = @max(max_x, placement.rect.right() - 1);
-        max_y = @max(max_y, placement.rect.bottom() - 1);
-    }
-    const offset: i32 = @intCast(distance + 2);
-    const points = try a.alloc(sk.Point, 6);
-    if (direction == .TD or direction == .BT) {
-        const outside_x = if (distance % 2 == 0) min_x - offset else max_x + offset;
-        const source_want = start.y + (if (port_from.side == .south) @as(i32, 1) else -1);
-        const target_want = end.y + (if (port_to.side == .north) @as(i32, -1) else 1);
-        const source_y = sk.clearLine(true, source_want, @min(outside_x, start.x), @max(outside_x, start.x), placements, from.id, to.id, .{});
-        const target_y = sk.clearLine(true, target_want, @min(outside_x, end.x), @max(outside_x, end.x), placements, from.id, to.id, .{});
-        @memcpy(points, &[_]sk.Point{
-            start,
-            .{ .x = start.x, .y = source_y },
-            .{ .x = outside_x, .y = source_y },
-            .{ .x = outside_x, .y = target_y },
-            .{ .x = end.x, .y = target_y },
-            end,
-        });
-    } else {
-        const outside_y = if (distance % 2 == 0) min_y - offset else max_y + offset;
-        const source_want = start.x + (if (port_from.side == .east) @as(i32, 1) else -1);
-        const target_want = end.x + (if (port_to.side == .west) @as(i32, -1) else 1);
-        const source_x = sk.clearLine(false, source_want, @min(outside_y, start.y), @max(outside_y, start.y), placements, from.id, to.id, .{});
-        const target_x = sk.clearLine(false, target_want, @min(outside_y, end.y), @max(outside_y, end.y), placements, from.id, to.id, .{});
-        @memcpy(points, &[_]sk.Point{
-            start,
-            .{ .x = source_x, .y = start.y },
-            .{ .x = source_x, .y = outside_y },
-            .{ .x = target_x, .y = outside_y },
-            .{ .x = target_x, .y = end.y },
-            end,
-        });
-    }
-    return points;
-}
-
-pub fn dogleg(
-    a: std.mem.Allocator,
-    from: sk.NodePlacement,
-    to: sk.NodePlacement,
-    port_from: sk.Port,
-    port_to: sk.Port,
-    via: i32,
-    vertical_middle: bool,
-) error{OutOfMemory}![]sk.Point {
-    const start = portPoint(from, port_from);
-    const end = portPoint(to, port_to);
-    const points = try a.alloc(sk.Point, 4);
-    points[0] = start;
-    points[3] = end;
-    if (vertical_middle) {
-        points[1] = .{ .x = via, .y = start.y };
-        points[2] = .{ .x = via, .y = end.y };
-    } else {
-        points[1] = .{ .x = start.x, .y = via };
-        points[2] = .{ .x = end.x, .y = via };
-    }
-    return points;
-}
-
-pub fn shiftInteriorRun(a: std.mem.Allocator, polyline: []const sk.Point, direction: sg.Direction, distance: u32) error{OutOfMemory}![]sk.Point {
-    const shifted = try a.dupe(sk.Point, polyline);
-    if (shifted.len < 4) return shifted;
-    const delta: i32 = @intCast(distance);
-    for (1..shifted.len - 2) |i| {
-        const horizontal = shifted[i].y == shifted[i + 1].y;
-        if ((direction == .TD or direction == .BT) != horizontal) continue;
-        if (horizontal) {
-            const dy = if (direction == .TD) delta else -delta;
-            shifted[i].y += dy;
-            shifted[i + 1].y += dy;
-        } else {
-            const dx = if (direction == .LR) delta else -delta;
-            shifted[i].x += dx;
-            shifted[i + 1].x += dx;
-        }
-        break;
-    }
-    return shifted;
-}
-
-pub fn clearInvisiblePath(
-    a: std.mem.Allocator,
-    edge: pb.EdgeId,
-    kind: sk.EdgeKind,
-    from: sk.NodePlacement,
-    to: sk.NodePlacement,
-    port_from: sk.Port,
-    port_to: sk.Port,
-    placements: []const sk.NodePlacement,
-    existing: []const sk.EdgePath,
-    joins: pb.RealizedJoins,
-) error{OutOfMemory}![]sk.Point {
-    var min_x = placements[0].rect.x;
-    var max_x = placements[0].rect.right() - 1;
-    var min_y = placements[0].rect.y;
-    var max_y = placements[0].rect.bottom() - 1;
-    for (placements[1..]) |placement| {
-        min_x = @min(min_x, placement.rect.x);
-        max_x = @max(max_x, placement.rect.right() - 1);
-        min_y = @min(min_y, placement.rect.y);
-        max_y = @max(max_y, placement.rect.bottom() - 1);
-    }
-    var x = min_x;
-    while (x <= max_x) : (x += 1) {
-        const poly = try dogleg(a, from, to, port_from, port_to, x, true);
-        if (!try blocked(a, edge, kind, poly, existing, joins, placements, from.id, to.id)) return poly;
-    }
-    var y = min_y;
-    while (y <= max_y) : (y += 1) {
-        const poly = try dogleg(a, from, to, port_from, port_to, y, false);
-        if (!try blocked(a, edge, kind, poly, existing, joins, placements, from.id, to.id)) return poly;
-    }
-    return a.alloc(sk.Point, 0);
+    if (try conflictsReservedTerminals(a, edge, polyline, placements, edge_ports, bundles)) return false;
+    if (try ridesRail(a, polyline, rails)) return false;
+    // @guarded-by: route_clearance_test.zig "a route through a foreign box is refused with no realized memberships"
+    if (touchesForeignNode(polyline, placements, from, to)) return false;
+    if (bundles.memberships.len == 0) return true;
+    return !try blocked(a, edge, polyline, existing, bundles, placements, from, to) and
+        !try conflictsRailJunctions(a, polyline, rails) and
+        !try conflictsRailArrows(a, polyline, rails, from, to);
 }
 
 pub fn touchesForeignNode(polyline: []const sk.Point, placements: []const sk.NodePlacement, from: pb.NodeId, to: pb.NodeId) bool {
@@ -365,7 +325,7 @@ fn perpendicularEndpointLeg(endpoint: sk.Point, adjacent: sk.Point, rect: sk.Rec
     return false;
 }
 
-fn portPoint(placement: sk.NodePlacement, port: sk.Port) sk.Point {
+pub fn portPoint(placement: sk.NodePlacement, port: sk.Port) sk.Point {
     const offset: i32 = @intCast(port.offset);
     return switch (port.side) {
         .north => .{ .x = placement.rect.x + offset, .y = placement.rect.y },
@@ -375,12 +335,13 @@ fn portPoint(placement: sk.NodePlacement, port: sk.Port) sk.Point {
     };
 }
 
-fn sameChannel(a: pb.EdgeId, b: pb.EdgeId, joins: pb.RealizedJoins) bool {
-    for (joins.selected_joins) |join| {
-        if (contains(join.members, a) and contains(join.members, b)) return true;
+/// @guarded-by: route_clearance_test.zig "members of one fused union do not block each other"
+fn sameBundle(a: pb.EdgeId, b: pb.EdgeId, bundles: pb.RealizedBundles) bool {
+    for (bundles.selected_bundles) |sel| {
+        if (contains(sel.members, a) and contains(sel.members, b)) return true;
     }
-    for (joins.mesh_unions) |mesh| {
-        if (contains(mesh.members, a) and contains(mesh.members, b)) return true;
+    for (bundles.fused) |union_members| {
+        if (contains(union_members, a) and contains(union_members, b)) return true;
     }
     return false;
 }
@@ -392,7 +353,12 @@ fn contains(edges: []const pb.EdgeId, edge: pb.EdgeId) bool {
 
 fn cells(a: std.mem.Allocator, points: []const sk.Point) error{OutOfMemory}!CellMap {
     var out: CellMap = .empty;
-    if (points.len == 0) return out;
+    try cellsInto(a, &out, points);
+    return out;
+}
+
+fn cellsInto(a: std.mem.Allocator, out: *CellMap, points: []const sk.Point) error{OutOfMemory}!void {
+    if (points.len == 0) return;
     var path: std.ArrayListUnmanaged(Cell) = .empty;
     defer path.deinit(a);
     try path.append(a, .{ .x = points[0].x, .y = points[0].y });
@@ -409,8 +375,18 @@ fn cells(a: std.mem.Allocator, points: []const sk.Point) error{OutOfMemory}!Cell
     }
     for (path.items, 0..) |cell, i| {
         var pass: Pass = .{};
+        if (i > 0) pass.arms.toward(cell, path.items[i - 1]);
+        if (i + 1 < path.items.len) pass.arms.toward(cell, path.items[i + 1]);
         if (i == 0 or i + 1 == path.items.len) {
             pass.bend = true;
+            if (pass.arms.north or pass.arms.south) {
+                pass.arms.north = true;
+                pass.arms.south = true;
+            }
+            if (pass.arms.east or pass.arms.west) {
+                pass.arms.east = true;
+                pass.arms.west = true;
+            }
         } else {
             const prev = path.items[i - 1];
             const next = path.items[i + 1];
@@ -426,7 +402,6 @@ fn cells(a: std.mem.Allocator, points: []const sk.Point) error{OutOfMemory}!Cell
         if (!slot.found_existing) slot.value_ptr.* = .{};
         slot.value_ptr.merge(pass);
     }
-    return out;
 }
 
 fn transversal(a: Pass, b: Pass) bool {

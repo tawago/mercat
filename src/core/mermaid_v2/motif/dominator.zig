@@ -1,32 +1,13 @@
-//! motif/dominator.zig — cycle removal + dominator tree over a small
-//! integer digraph. Output feeds classify.zig's motif coarsening.
-//!
-//! Cycle removal: local DFS back-edge reversal, vertices seeded in index
-//! order — independent of `layout/sugiyama.zig`'s own removal (the motif
-//! zone may only import std/prim/sem_graph); any acyclic orientation yields
-//! a valid dominator coarsening, so disagreement between the two is fine.
-//!
-//! Dominators: iterative Cooper-Harvey-Kennedy over reverse post-order from
-//! a virtual super-root connected to every zero-in-degree vertex (and any
-//! vertex left otherwise unreachable).
-
 const std = @import("std");
 
-/// Sentinel: "immediately dominated by the virtual super-root".
 pub const ROOT: u32 = std.math.maxInt(u32);
 
 pub const DomTree = struct {
-    /// idom[v] = immediate dominator vertex, or ROOT for forest roots.
     idom: []const u32,
-    /// Dominator children per vertex, ascending vertex order.
     children: []const []const u32,
-    /// Vertices whose idom is the virtual super-root, ascending.
     roots: []const u32,
 };
 
-/// Compute the dominator tree of `edges` over vertices `0..n`. The input
-/// may contain cycles (they are broken by back-edge reversal first) but no
-/// self-loops (the scope builder drops those).
 pub fn compute(
     a: std.mem.Allocator,
     n: usize,
@@ -56,8 +37,6 @@ pub fn compute(
             try pred[v].append(a, r);
         }
     }
-    // Defensive: connect any vertex unreachable from the root (cannot
-    // happen in a DAG where every source is a root child, but cheap).
     {
         const seen = try a.alloc(bool, n + 1);
         var progress = true;
@@ -128,8 +107,6 @@ pub fn compute(
     };
 }
 
-/// CHK finger intersection: walk both idom chains toward the root, guided
-/// by reverse-post-order positions (smaller position = closer to root).
 fn intersect(idom: []const u32, rpo_pos: []const u32, x: u32, y: u32) u32 {
     var f1 = x;
     var f2 = y;
@@ -140,8 +117,6 @@ fn intersect(idom: []const u32, rpo_pos: []const u32, x: u32, y: u32) u32 {
     return f1;
 }
 
-/// Mark every edge whose target is on the current DFS stack (gray) as a
-/// back edge and reverse it in place, seeding vertices in index order.
 fn reverseBackEdges(
     a: std.mem.Allocator,
     n: usize,
@@ -151,7 +126,6 @@ fn reverseBackEdges(
     const color = try a.alloc(Color, n);
     @memset(color, .white);
 
-    // Out-edge indices per vertex, original orientation.
     var out = try a.alloc(std.ArrayListUnmanaged(u32), n);
     for (out) |*l| l.* = .empty;
     for (edges, 0..) |e, i| try out[e[0]].append(a, @intCast(i));
@@ -210,7 +184,6 @@ fn dfsMark(
     }
 }
 
-/// Reverse post-order over the rooted DAG (iterative, cursor-stack DFS).
 fn reversePostOrder(
     a: std.mem.Allocator,
     succ: []const std.ArrayListUnmanaged(u32),

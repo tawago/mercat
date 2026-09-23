@@ -1,160 +1,129 @@
-//! Crossing / transversal semantics for the mermaid_v2 raster (Amendment C,
-//! rulings C1/C2 — design/ascii-ambiguity-p1a-records/D-CROSS.md).
-//!
-//! This module owns the crossing EVENT vocabulary recorded by
-//! `raster/edges.zig` and the decision predicates that keep foreign ink from
-//! fabricating a junction:
-//!
-//!   * C1 — a crossing of two UNRELATED edges must read as a TRANSVERSAL: the
-//!     crossed run (first writer) keeps its straight stroke; the crossing edge
-//!     contributes NO bits to that cell (no `┬ ├ ┤ ┴` / `┼` on a foreign run).
-//!   * C2 — an edge must never bridge on/through an ARROWHEAD cell; foreign ink
-//!     landing on a foreign edge's arrowhead is refused and the arrowhead stays
-//!     pristine.
-//!
-//! No new glyph and no painter change: the transversal is produced by NOT
-//! OR-merging foreign perpendicular overlap at the raster layer.
-//!
-//! EXEMPTIONS (structural, never seed-keyed): same owner, and co-members of one
-//! realized selected join or one exempt mesh union — that ink sharing is legal
-//! join ink (D-JOIN clause 4). Determined from `Sketch.joins` (RealizedJoins),
-//! never from geometry or a fixture name.
-//!
-//! SCOPE: the rule is inert unless a realized-join plan exists (`active`). A
-//! clustered/subgraph render carries an empty plan (V-D-IR-07), so this module
-//! never alters clustered bytes.
-//!
-//! Report-only: counts flow raster → entry → diagnostics, never into
-//! score.RasterCounts, audit.zig, or candidate selection. No new DiagnosticTag.
-//!
-//! Allowed imports: `std`, `lattice.zig`, `base/ledger.zig`, the `prim`
-//! module (base/types.zig — universally importable; enforced by
-//! `tools/lint_imports.zig`).
-
 const std = @import("std");
+const sketch = @import("../sketch.zig");
 const lattice = @import("../lattice.zig");
 const ledger = @import("../base/ledger.zig");
 const prim = @import("prim");
 
 pub const EdgeId = ledger.EdgeId;
+pub const BundleCell = ledger.BundleCell;
 
-/// The three painted-crossing outcomes a foreign overlap can classify to.
+pub fn cellAt(x: u32, y: u32) ledger.BundleCell {
+    return .{ .x = @intCast(x), .y = @intCast(y) };
+}
+
 pub const CrossingClass = enum {
-    /// A strict orthogonal transversal between unrelated channels: the crossed
-    /// run keeps its straight stroke, the crossing edge resumes on the opposite
-    /// side. Legal (D-CROSS C1 reading requirement, D-REACH clause 7 vector half).
     legal_crossing,
-    /// A junction glyph would have attached crossing traffic to a foreign edge's
-    /// run (collinear overlap, cornering, or a T onto the foreign straight run).
-    /// C1 prohibition; first-writer bits kept, no tee fabricated.
     foreign_junction_violation,
-    /// Foreign ink met an arrowhead cell (a fabricated second arrival). C2
-    /// prohibition; the arrowhead stays pristine.
     arrowhead_transit_violation,
 };
 
-/// Report-only crossing tallies surfaced through the raster report.
 pub const CrossingCounts = struct {
     legal_crossing: u32 = 0,
     foreign_junction_violation: u32 = 0,
     arrowhead_transit_violation: u32 = 0,
-    /// Frame-solid border bridging (D-CROSS, owner ruling 2026-07-19): a
-    /// THROUGH-GOING edge segment that crossed a `.cluster_border` cell and
-    /// contributed NO bits — the frame glyph stays continuous and the edge
-    /// resumes on the far side. Fires only in `.bridge` mode (the default);
-    /// `.cross` mode welds instead. Report-only; no DiagnosticTag.
     b_frame_bridge: u32 = 0,
-    /// A corner arm that landed on a `.cluster_border` cell and was refused —
-    /// welding a tee (`┼ ├ ┤`) into the frame is forbidden (frame-solid). The
-    /// border stays pristine. Fires only in `.bridge` mode; report-only;
-    /// same-ruling companion counter.
     b_border_fusion_refused: u32 = 0,
+    arm_into_head: u32 = 0,
+
+    pub fn add(self: *CrossingCounts, other: CrossingCounts) void {
+        inline for (@typeInfo(CrossingCounts).@"struct".fields) |f| {
+            @field(self, f.name) += @field(other, f.name);
+        }
+    }
 };
 
-/// Per-raster crossing context threaded through the edge walk: the realized
-/// plan (for the exemption), whether the rule is `active`, the tally sink, and
-/// the subgraph-border notation mode.
-/// Copied by value; `counts` is a pointer so increments persist.
 pub const Ctx = struct {
-    joins: ledger.RealizedJoins = .{},
-    active: bool = false,
+    bundles: ledger.RealizedBundles = .{},
+    bundle_sets: []const ledger.Bundle = &.{},
+    stamp_state: sketch.BundleStampState = .unattempted,
     counts: *CrossingCounts,
-    /// Subgraph frame-border notation (owner ruling, tawago 2026-07-19).
-    /// `.bridge` (default): frame-solid, edges bridge the border. `.cross`:
-    /// the pre-Slice-1 junction-weld behavior — byte-identical to before.
     mode: prim.SubgraphEdges = .bridge,
 };
 
-/// The crossing rule is active only when a realized-join plan exists — which,
-/// on the production path, happens exactly for flat top-level graphs. Clustered
-/// and subgraph renders keep the plan empty, so the rule stays inert there and
-/// the clustered pipeline is byte-identical.
-pub fn active(joins: ledger.RealizedJoins) bool {
-    return joins.selected_joins.len > 0 or
-        joins.mesh_unions.len > 0 or
-        joins.memberships.len > 0;
+/// @guarded-by: crossings.zig "sameBundle: bundle membership answers what the plan answers"
+/// @guarded-by: crossings.zig "sameBundle: a cell-scoped bundle answers only on its own cells"
+pub fn sameBundle(
+    a: EdgeId,
+    b: EdgeId,
+    bundles: ledger.RealizedBundles,
+    bundle_sets: []const ledger.Bundle,
+    at: ledger.BundleCell,
+) bool {
+    return ledger.derivedSameBundle(bundles, bundle_sets, a, b, at);
 }
 
-/// Two edges share LEGAL join ink iff they are the same owner or co-members of
-/// one realized selected join or one exempt mesh union (D-JOIN clause 4). This
-/// is the structural exemption from the transversal rule — determined from the
-/// realized-join plan, never from geometry or a seed name.
-pub fn sameChannel(a: EdgeId, b: EdgeId, joins: ledger.RealizedJoins) bool {
-    if (a == b) return true;
-    for (joins.selected_joins) |j| {
-        if (contains(j.members, a) and contains(j.members, b)) return true;
-    }
-    for (joins.mesh_unions) |m| {
-        if (contains(m.members, a) and contains(m.members, b)) return true;
-    }
-    return false;
+/// @guarded-by: crossings_test.zig "carrierKindFor trusts identity only after a complete consistent stamp"
+/// @guarded-by: crossings_test.zig "carrierKind asks a rail's bundle by name, so a member of two bundles is licensed on both rails"
+pub fn carrierKind(
+    bundle_sets: []const ledger.Bundle,
+    stamp_state: sketch.BundleStampState,
+    held: EdgeId,
+    writer: EdgeId,
+    rail: ?ledger.BundleId,
+    at: ledger.BundleCell,
+) lattice.CarrierKind {
+    if (stamp_state != .complete or !ledger.bundleSetsNumbered(bundle_sets)) return .merged_untested;
+    if (held == writer) return .merged_licensed;
+    const licensed = if (rail) |id|
+        ledger.memberOfBundleAt(bundle_sets, id, held, at)
+    else
+        ledger.bundleMembersAt(bundle_sets, held, writer, at);
+    return if (licensed) .merged_licensed else .merged_foreign;
 }
 
-fn contains(edges: []const EdgeId, edge: EdgeId) bool {
-    for (edges) |e| if (e == edge) return true;
-    return false;
+pub fn carrierKindFor(
+    held: EdgeId,
+    incoming: EdgeId,
+    bundle_sets: []const ledger.Bundle,
+    stamp_state: sketch.BundleStampState,
+    at: ledger.BundleCell,
+) lattice.CarrierKind {
+    return carrierKind(bundle_sets, stamp_state, held, incoming, null, at);
 }
 
-/// A mask is a clean straight run iff exactly its two collinear arms are set.
+pub fn carrierKindOnto(
+    cell: *const lattice.Cell,
+    bundle_sets: []const ledger.Bundle,
+    stamp_state: sketch.BundleStampState,
+    writer: EdgeId,
+    rail: ?ledger.BundleId,
+    at: ledger.BundleCell,
+) lattice.CarrierKind {
+    const held: EdgeId = switch (cell.occupant) {
+        .edge_segment => |seg| seg.edge,
+        .arrowhead => |h| h.edge,
+        else => return .merged_untested,
+    };
+    return carrierKind(bundle_sets, stamp_state, held, writer, rail, at);
+}
+
 pub fn isStraightPair(m: lattice.Neighbours) bool {
     const h = m.e and m.w and !m.n and !m.s;
     const v = m.n and m.s and !m.e and !m.w;
     return h or v;
 }
 
-/// Classify a FOREIGN, non-exempt edge-segment overlap onto an existing
-/// edge-segment cell. `existing` is the first-writer's mask; `incoming` is the
-/// arriving straight-or-corner mask.
 pub fn classifySegment(existing: lattice.Neighbours, incoming: lattice.Neighbours) CrossingClass {
     if (isStraightPair(existing) and isStraightPair(incoming)) {
         const existing_h = existing.e and existing.w;
         const incoming_h = incoming.e and incoming.w;
-        // Perpendicular straight-through → a legal transversal; same axis →
-        // collinear overlap (never a legal junction with foreign ink).
         if (existing_h != incoming_h) return .legal_crossing;
         return .foreign_junction_violation;
     }
-    // The existing run is a corner/tee, or the incoming arm corners onto it:
-    // a junction glyph here would assert a branch off the foreign run.
     return .foreign_junction_violation;
 }
 
-/// Decide a foreign edge-segment overlap onto an existing edge-segment cell.
-/// Returns true when the caller must KEEP the first writer's cell untouched (no
-/// OR-merge, no role change) — the transversal / no-foreign-tee behavior — and
-/// records the classified event. Returns false to proceed with the pre-C
-/// merge (rule inert, same owner, or legal join ink).
 pub fn segmentOverlap(
     counts: *CrossingCounts,
-    joins: ledger.RealizedJoins,
-    active_rule: bool,
+    bundles: ledger.RealizedBundles,
+    bundle_sets: []const ledger.Bundle,
     existing_edge: EdgeId,
     existing_mask: lattice.Neighbours,
     incoming_edge: EdgeId,
     incoming_mask: lattice.Neighbours,
+    at: ledger.BundleCell,
 ) bool {
-    if (!active_rule) return false;
-    if (sameChannel(existing_edge, incoming_edge, joins)) return false;
+    if (sameBundle(existing_edge, incoming_edge, bundles, bundle_sets, at)) return false;
     switch (classifySegment(existing_mask, incoming_mask)) {
         .legal_crossing => counts.legal_crossing += 1,
         .foreign_junction_violation => counts.foreign_junction_violation += 1,
@@ -163,25 +132,44 @@ pub fn segmentOverlap(
     return true;
 }
 
-/// Decide a foreign edge meeting an arrowhead cell (either a foreign segment
-/// landing on an arrowhead, or an arrowhead being written over a foreign
-/// segment). Returns true when the caller must keep the arrowhead cell pristine
-/// (C2), recording the violation; false to proceed with the pre-C behavior (an
-/// edge's own terminal arrowhead, rule inert, or legal join ink).
 pub fn arrowheadTransit(
     counts: *CrossingCounts,
-    joins: ledger.RealizedJoins,
-    active_rule: bool,
+    bundles: ledger.RealizedBundles,
+    bundle_sets: []const ledger.Bundle,
     arrow_edge: EdgeId,
     incoming_edge: EdgeId,
+    at: ledger.BundleCell,
 ) bool {
-    if (!active_rule) return false;
-    if (sameChannel(arrow_edge, incoming_edge, joins)) return false;
+    if (sameBundle(arrow_edge, incoming_edge, bundles, bundle_sets, at)) return false;
     counts.arrowhead_transit_violation += 1;
     return true;
 }
 
-// -- Tests -------------------------------------------------------------------
+pub fn lateralArms(tip: lattice.Dir4, mask: lattice.Neighbours) lattice.Neighbours {
+    return switch (tip) {
+        .north, .south => .{ .e = mask.e, .w = mask.w },
+        .east, .west => .{ .n = mask.n, .s = mask.s },
+    };
+}
+
+/// @guarded-by: crossings.zig "headEntry: a lateral arm is refused for co-members too; an on-axis co-member rides"
+pub fn headEntry(
+    counts: *CrossingCounts,
+    bundles: ledger.RealizedBundles,
+    bundle_sets: []const ledger.Bundle,
+    arrow_edge: EdgeId,
+    tip: lattice.Dir4,
+    incoming_edge: EdgeId,
+    incoming_mask: lattice.Neighbours,
+    at: ledger.BundleCell,
+) bool {
+    const transit = arrowheadTransit(counts, bundles, bundle_sets, arrow_edge, incoming_edge, at);
+    const lateral: u32 = @popCount(lateralArms(tip, incoming_mask).toMask());
+    counts.arm_into_head += lateral;
+    return transit or lateral != 0;
+}
+
+const ANY: ledger.BundleCell = .{ .x = 0, .y = 0 };
 
 const H: lattice.Neighbours = .{ .e = true, .w = true };
 const V: lattice.Neighbours = .{ .n = true, .s = true };
@@ -189,9 +177,9 @@ const V: lattice.Neighbours = .{ .n = true, .s = true };
 test "isStraightPair recognizes only clean H/V runs" {
     try std.testing.expect(isStraightPair(H));
     try std.testing.expect(isStraightPair(V));
-    try std.testing.expect(!isStraightPair(.{ .n = true, .e = true })); // corner
-    try std.testing.expect(!isStraightPair(.{ .n = true, .e = true, .s = true })); // tee
-    try std.testing.expect(!isStraightPair(.{})); // empty
+    try std.testing.expect(!isStraightPair(.{ .n = true, .e = true }));
+    try std.testing.expect(!isStraightPair(.{ .n = true, .e = true, .s = true }));
+    try std.testing.expect(!isStraightPair(.{}));
 }
 
 test "classifySegment: perpendicular is legal, collinear/corner are violations" {
@@ -205,59 +193,125 @@ test "classifySegment: perpendicular is legal, collinear/corner are violations" 
     );
 }
 
-test "sameChannel: same owner, selected-join co-members, mesh co-members" {
+test "sameBundle: same owner and selected-bundle co-members" {
     var members = [_]EdgeId{ 10, 11, 12 };
-    var sel = [_]ledger.SelectedJoin{.{ .id = 0, .proposal = 0, .permission_group = 0, .members = &members }};
-    const joins: ledger.RealizedJoins = .{ .selected_joins = &sel };
+    var sel = [_]ledger.SelectedBundle{.{ .id = 0, .proposal = 0, .candidate_bundle = 0, .members = &members }};
+    const bundles: ledger.RealizedBundles = .{ .selected_bundles = &sel };
 
-    try std.testing.expect(sameChannel(5, 5, joins)); // same owner
-    try std.testing.expect(sameChannel(10, 12, joins)); // co-members
-    try std.testing.expect(!sameChannel(10, 99, joins)); // one foreign
-    try std.testing.expect(!sameChannel(98, 99, .{})); // empty plan, distinct
+    try std.testing.expect(sameBundle(5, 5, bundles, &.{}, ANY));
+    try std.testing.expect(sameBundle(10, 12, bundles, &.{}, ANY));
+    try std.testing.expect(!sameBundle(10, 99, bundles, &.{}, ANY));
+    try std.testing.expect(!sameBundle(98, 99, .{}, &.{}, ANY));
 }
 
-test "active reflects a non-empty realized plan" {
-    try std.testing.expect(!active(.{}));
-    var mesh = [_]EdgeId{ 1, 2 };
-    var mu = [_]ledger.MeshUnion{.{ .id = 0, .members = &mesh, .source_keys = &.{}, .target_keys = &.{} }};
-    try std.testing.expect(active(.{ .mesh_unions = &mu }));
+test "sameBundle: bundle membership answers what the plan answers" {
+    var members = [_]EdgeId{ 10, 11, 12 };
+    var others = [_]EdgeId{ 20, 21 };
+    var sel = [_]ledger.SelectedBundle{
+        .{ .id = 0, .proposal = 0, .candidate_bundle = 0, .members = &members },
+        .{ .id = 1, .proposal = 1, .candidate_bundle = 1, .members = &others },
+    };
+    const bundles: ledger.RealizedBundles = .{ .selected_bundles = &sel };
+
+    const derived = try ledger.bundlesFromPlan(std.testing.allocator, bundles);
+    defer std.testing.allocator.free(derived);
+
+    for ([_]EdgeId{ 10, 11, 12, 20, 21, 99 }) |a| {
+        for ([_]EdgeId{ 10, 11, 12, 20, 21, 99 }) |b| {
+            try std.testing.expectEqual(
+                sameBundle(a, b, bundles, &.{}, ANY),
+                sameBundle(a, b, .{}, derived, ANY),
+            );
+        }
+    }
+    var fan = [_]EdgeId{ 4, 5 };
+    const fan_sets = [_]ledger.Bundle{.{ .origin = .fan_rail, .members = &fan }};
+    try std.testing.expect(sameBundle(4, 5, .{}, &fan_sets, ANY));
+    try std.testing.expect(!sameBundle(4, 6, .{}, &fan_sets, ANY));
 }
 
-test "segmentOverlap: inert / exempt merge; foreign perpendicular keeps first writer" {
+test "segmentOverlap: exempt merges; foreign perpendicular keeps first writer" {
     var counts: CrossingCounts = .{};
-    // Rule inert → merge (false), no event.
-    try std.testing.expect(!segmentOverlap(&counts, .{}, false, 1, H, 2, V));
-    try std.testing.expectEqual(@as(u32, 0), counts.legal_crossing);
+    try std.testing.expect(segmentOverlap(&counts, .{}, &.{}, 1, H, 2, V, ANY));
+    try std.testing.expectEqual(@as(u32, 1), counts.legal_crossing);
+    counts = .{};
 
-    // Active, foreign, perpendicular → keep first writer (true), legal event.
     var members = [_]EdgeId{ 1, 3 };
-    var sel = [_]ledger.SelectedJoin{.{ .id = 0, .proposal = 0, .permission_group = 0, .members = &members }};
-    const joins: ledger.RealizedJoins = .{ .selected_joins = &sel };
-    try std.testing.expect(segmentOverlap(&counts, joins, true, 1, H, 2, V));
+    var sel = [_]ledger.SelectedBundle{.{ .id = 0, .proposal = 0, .candidate_bundle = 0, .members = &members }};
+    const bundles: ledger.RealizedBundles = .{ .selected_bundles = &sel };
+    try std.testing.expect(segmentOverlap(&counts, bundles, &.{}, 1, H, 2, V, ANY));
     try std.testing.expectEqual(@as(u32, 1), counts.legal_crossing);
 
-    // Active but co-members (1 & 3 share the selected join) → merge (false).
-    try std.testing.expect(!segmentOverlap(&counts, joins, true, 1, H, 3, V));
+    try std.testing.expect(!segmentOverlap(&counts, bundles, &.{}, 1, H, 3, V, ANY));
     try std.testing.expectEqual(@as(u32, 1), counts.legal_crossing);
 
-    // Active, foreign, collinear → keep first writer, junction violation.
-    try std.testing.expect(segmentOverlap(&counts, joins, true, 1, H, 2, H));
+    try std.testing.expect(segmentOverlap(&counts, bundles, &.{}, 1, H, 2, H, ANY));
     try std.testing.expectEqual(@as(u32, 1), counts.foreign_junction_violation);
+
+    var fan = [_]EdgeId{ 1, 2 };
+    const fan_sets = [_]ledger.Bundle{.{ .origin = .fan_rail, .members = &fan }};
+    try std.testing.expect(!segmentOverlap(&counts, .{}, &fan_sets, 1, H, 2, V, ANY));
+    try std.testing.expectEqual(@as(u32, 1), counts.legal_crossing);
 }
 
 test "arrowheadTransit: own terminal exempt, foreign refused" {
     var counts: CrossingCounts = .{};
-    // Same owner (own terminal) → not a violation.
-    try std.testing.expect(!arrowheadTransit(&counts, .{}, true, 7, 7));
+    try std.testing.expect(!arrowheadTransit(&counts, .{}, &.{}, 7, 7, ANY));
     try std.testing.expectEqual(@as(u32, 0), counts.arrowhead_transit_violation);
-    // Foreign edge over a foreign arrowhead → C2 violation, keep pristine.
-    try std.testing.expect(arrowheadTransit(&counts, .{}, true, 7, 8));
+    try std.testing.expect(arrowheadTransit(&counts, .{}, &.{}, 7, 8, ANY));
     try std.testing.expectEqual(@as(u32, 1), counts.arrowhead_transit_violation);
-    // Rule inert → no refusal.
-    try std.testing.expect(!arrowheadTransit(&counts, .{}, false, 7, 8));
+    var fan = [_]EdgeId{ 7, 8 };
+    const fan_sets = [_]ledger.Bundle{.{ .origin = .fan_rail, .members = &fan }};
+    try std.testing.expect(!arrowheadTransit(&counts, .{}, &fan_sets, 7, 8, ANY));
     try std.testing.expectEqual(@as(u32, 1), counts.arrowhead_transit_violation);
+}
+
+test "headEntry: a lateral arm is refused for co-members too; an on-axis co-member rides" {
+    var counts: CrossingCounts = .{};
+    var fan = [_]EdgeId{ 7, 8 };
+    const fan_sets = [_]ledger.Bundle{.{ .origin = .fan_rail, .members = &fan }};
+    try std.testing.expect(!headEntry(&counts, .{}, &fan_sets, 7, .south, 8, V, ANY));
+    try std.testing.expectEqual(@as(u32, 0), counts.arm_into_head);
+    try std.testing.expectEqual(@as(u32, 0), counts.arrowhead_transit_violation);
+
+    try std.testing.expect(headEntry(&counts, .{}, &fan_sets, 7, .south, 8, .{ .n = true, .e = true }, ANY));
+    try std.testing.expectEqual(@as(u32, 1), counts.arm_into_head);
+    try std.testing.expectEqual(@as(u32, 0), counts.arrowhead_transit_violation);
+
+    try std.testing.expect(headEntry(&counts, .{}, &.{}, 7, .east, 9, V, ANY));
+    try std.testing.expectEqual(@as(u32, 3), counts.arm_into_head);
+    try std.testing.expectEqual(@as(u32, 1), counts.arrowhead_transit_violation);
+
+    try std.testing.expect(headEntry(&counts, .{}, &.{}, 7, .east, 9, H, ANY));
+    try std.testing.expectEqual(@as(u32, 3), counts.arm_into_head);
+    try std.testing.expectEqual(@as(u32, 2), counts.arrowhead_transit_violation);
+}
+
+test "lateralArms keeps only the bits off the head's axis" {
+    const all: lattice.Neighbours = .{ .n = true, .e = true, .s = true, .w = true };
+    try std.testing.expectEqual(H.toMask(), lateralArms(.north, all).toMask());
+    try std.testing.expectEqual(V.toMask(), lateralArms(.west, all).toMask());
+    try std.testing.expectEqual(@as(u4, 0), lateralArms(.south, V).toMask());
+}
+
+test "CrossingCounts.add folds every field" {
+    var a: CrossingCounts = .{ .legal_crossing = 1, .arm_into_head = 2 };
+    a.add(.{ .arm_into_head = 3, .b_frame_bridge = 1 });
+    try std.testing.expectEqual(@as(u32, 1), a.legal_crossing);
+    try std.testing.expectEqual(@as(u32, 5), a.arm_into_head);
+    try std.testing.expectEqual(@as(u32, 1), a.b_frame_bridge);
 }
 
 test {
     _ = @import("crossings_test.zig");
+}
+
+test "sameBundle: a cell-scoped bundle answers only on its own cells" {
+    const licensed = [_]ledger.BundleCell{ .{ .x = 30, .y = 12 }, .{ .x = 30, .y = 13 } };
+    const sets = [_]ledger.Bundle{.{ .origin = .port_share, .members = &.{ 9, 11 }, .cells = &licensed }};
+    try std.testing.expect(sameBundle(9, 11, .{}, &sets, .{ .x = 30, .y = 12 }));
+    try std.testing.expect(sameBundle(9, 11, .{}, &sets, .{ .x = 30, .y = 13 }));
+    try std.testing.expect(!sameBundle(9, 11, .{}, &sets, .{ .x = 21, .y = 15 }));
+    const fan = [_]ledger.Bundle{.{ .origin = .fan_rail, .members = &.{ 9, 11 } }};
+    try std.testing.expect(sameBundle(9, 11, .{}, &fan, .{ .x = 21, .y = 15 }));
 }

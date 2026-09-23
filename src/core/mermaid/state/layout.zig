@@ -6,8 +6,6 @@ const RenderOptions = types.RenderOptions;
 const LayoutAlgorithm = types.LayoutAlgorithm;
 const StateDiagram = types.StateDiagram;
 
-/// Layout algorithm for state diagrams
-/// Key principle: Start states at top, end states at bottom, unless inside composite
 pub const StateLayout = struct {
     allocator: Allocator,
     diagram: *StateDiagram,

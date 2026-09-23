@@ -22,19 +22,15 @@ const CrossingReductionHeuristic = mermaid_types.CrossingReductionHeuristic;
 const ForceLayout = mermaid_types.ForceLayout;
 const SubgraphEdges = @import("prim").SubgraphEdges;
 
-/// A list bullet marker for `depth`, e.g. "• " — glyph from decor + one space.
-/// Caller owns the returned slice.
 fn bulletMarker(allocator: std.mem.Allocator, decor: *const Decor, depth: usize) ![]u8 {
     return std.mem.concat(allocator, u8, &.{ decor.glyphs.bulletAt(depth), " " });
 }
 
-/// A task-list marker, e.g. "[x] " — glyph from decor + one space.
 fn taskMarker(allocator: std.mem.Allocator, decor: *const Decor, checked: bool) ![]u8 {
     const g = if (checked) decor.glyphs.task_ticked else decor.glyphs.task_unticked;
     return std.mem.concat(allocator, u8, &.{ g, " " });
 }
 
-/// An ordered-list marker: the decor's leading pad + the parsed "N." marker.
 fn orderedMarker(allocator: std.mem.Allocator, decor: *const Decor, base: []const u8) ![]u8 {
     return std.mem.concat(allocator, u8, &.{ decor.glyphs.ordered_prefix, base });
 }
@@ -297,7 +293,6 @@ pub fn renderBlockQuote(allocator: std.mem.Allocator, builder: *Builder, bq: Blo
     }
 }
 
-/// Renders a blockquote with a custom base prefix (for blockquotes inside list items)
 pub fn renderBlockQuoteWithPrefix(allocator: std.mem.Allocator, builder: *Builder, bq: Block.BlockQuote, width: usize, base_prefix: []const u8, decor: *const Decor) anyerror!void {
     var prefix_buf: std.ArrayList(u8) = .empty;
     defer prefix_buf.deinit(allocator);
@@ -372,9 +367,6 @@ fn repeatSpaces(allocator: std.mem.Allocator, count: usize) ![]u8 {
     return buffer;
 }
 
-/// Append a blockquote bar prefix: `depth` copies of the decor quote-bar glyph
-/// (trailing space trimmed so stacking is clean) plus one trailing space; or,
-/// when the theme carries no bar, a flat `quote_indent` indent (dracula).
 fn appendQuotePrefix(allocator: std.mem.Allocator, buf: *std.ArrayList(u8), decor: *const Decor, depth: usize) !void {
     const bar = std.mem.trimRight(u8, decor.glyphs.quote_bar, " ");
     if (bar.len == 0) {

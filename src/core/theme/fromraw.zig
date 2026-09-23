@@ -1,18 +1,3 @@
-//! Stage S3 (split from `resolve.zig` for the 1000-line cap): the single typed
-//! `RawThemeTables → ThemeSpec` conversion path. This is the one place raw
-//! string tables (inline `[theme.*]` config, user theme files, and `extends=`
-//! targets) are interpreted into a typed sparse `ThemeSpec`.
-//!
-//! It parses everything `--dump-theme` can emit so a dumped preset round-trips
-//! byte-for-byte:
-//!   - top-level `extends` / `palette` / `name` / `canvas` / `base_bg`
-//!   - `[theme.<slot>]` color + attr + decor keys
-//!   - `[theme.glyphs]` / `[theme.code_frame]` / `[theme.tokens]` sections
-//!
-//! `[theme.glyphs] bullets` is the one array-valued key; it is decoded with
-//! `loadfile.parseInlineArray` and the dumper emits it, so custom bullet
-//! vocabularies round-trip like everything else.
-
 const std = @import("std");
 const spec = @import("spec.zig");
 const color = @import("color.zig");
@@ -26,14 +11,6 @@ const Slot = spec.Slot;
 const Diagnostics = resolve.Diagnostics;
 const RawThemeTables = loadfile.RawThemeTables;
 
-/// Convert raw string tables into a typed `ThemeSpec`. Unknown slot names and
-/// keys are reported (`unknown_key`) and skipped; bad colors are reported
-/// (`bad_color`) and dropped (inherit kept); user glyphs containing Nerd PUA
-/// codepoints are substituted and reported (`glyph_fallback`).
-///
-/// String values are referenced (not duped) from the builder behind `raw`,
-/// which must outlive the returned spec (the view itself only has to survive
-/// this call). `alloc` is used only for glyph-fallback substitution buffers.
 pub fn specFromRaw(alloc: std.mem.Allocator, raw: RawThemeTables, diag: *Diagnostics) ThemeSpec {
     var out = ThemeSpec{ .name = "" };
 
@@ -212,9 +189,6 @@ fn parseBool(v: []const u8) ?bool {
     return null;
 }
 
-/// If `s` contains a Nerd-font PUA codepoint, substitute a safe placeholder and
-/// report `glyph_fallback`; otherwise return `s` unchanged. This fires only on
-/// the user-file path (built-in presets are authored PUA-free).
 fn safeGlyph(alloc: std.mem.Allocator, s: []const u8, diag: *Diagnostics) []const u8 {
     if (!containsPua(s)) return s;
     diag.warnFmt(.glyph_fallback, "glyph '{s}' uses a private-use codepoint; substituting", .{s});

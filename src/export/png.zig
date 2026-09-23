@@ -1,30 +1,3 @@
-//! ExportDocument -> RGBA surface -> native PNG.
-//!
-//! This is the composition root of the PNG backend. It rasterizes a
-//! backend-neutral `types.ExportDocument` onto an RGBA `Surface` in the §7.5
-//! paint order, then hands the finished surface to the native `png_encode`
-//! encoder. No resampling, sharpening, or cropping happens after
-//! rasterization.
-//!
-//! Paint order (§7.5):
-//!   1. page background
-//!   2. span background rectangles
-//!   3. glyph coverage masks (alpha-blended in the run foreground)
-//!   4. underline geometry
-//!   5. strikethrough geometry
-//!
-//! The painter traverses each run with the Unicode authority. It advances once
-//! by each grapheme's recorded `CellWidth`; constituent scalars are drawn from
-//! the same pen and are never remeasured. Every rendered non-space constituent
-//! must resolve to a real glyph. A `.notdef` mapping is `error.MissingGlyph`
-//! (§7.3), reported with the offending code point and grapheme row/column, and
-//! no output file is written.
-//!
-//! `writeFile` performs the §5.2 atomic output: the surface is fully rasterized
-//! and every glyph validated *before* any file is created, then the bytes are
-//! written to a sibling temp file and atomically renamed over the target. A
-//! failed export leaves no partial target.
-
 const std = @import("std");
 
 const unicode = @import("unicode");
@@ -39,34 +12,21 @@ const Surface = surface_mod.Surface;
 const ExportDocument = types.ExportDocument;
 const Geometry = types.Geometry;
 
-/// `font.Error` (which includes `MissingGlyph`, reported per §7.3 with the
-/// offending code point and its row/column) plus the surface/encoder errors.
 pub const RenderError = layout.Error || png_encode.Error || font.Error;
 
 pub const WriteError = RenderError || std.fs.File.OpenError || std.fs.File.WriteError || std.posix.RenameError;
 
-/// Populated on a `MissingGlyph` failure so the caller can report the offending
-/// code point and its location (§20). Pass a pointer to `render`/`writeFile`;
-/// after an `error.MissingGlyph` its fields describe the first missing glyph.
 pub const Diagnostic = struct {
     missing_codepoint: u21 = 0,
     row: u32 = 0,
     column: u32 = 0,
 };
 
-/// The result of a PNG render: the encoded bytes plus the metadata §7.6
-/// requires the caller to be able to expose (dimensions, color mode, font hash,
-/// output SHA-256). Owns `encoded.bytes`.
 pub const RenderResult = struct {
     encoded: png_encode.Encoded,
     color_mode: layout.ColorMode,
     font_sha256: [32]u8,
 
-    /// §4.3/§9.3 manifest provenance. The asset SHA-256 is per-instance
-    /// (`font_sha256`); the font release/version and `stb_truetype` revision are
-    /// build-time pins re-exported here so the manifest producer has a single
-    /// `png.RenderResult` API surface for every required field and never has to
-    /// hand-copy from PIN.txt comments.
     pub const font_name = font.font_name;
     pub const font_release_version = font.font_release_version;
     pub const rasterizer_revision = font.stb_truetype_revision;
@@ -78,7 +38,6 @@ pub const RenderResult = struct {
     pub fn height(self: RenderResult) u32 {
         return self.encoded.height;
     }
-    /// SHA-256 of the encoded PNG file bytes.
     pub fn outputSha256(self: RenderResult) [32]u8 {
         return self.encoded.sha256;
     }
@@ -88,9 +47,6 @@ pub const RenderResult = struct {
     }
 };
 
-/// Rasterize `doc` to an RGBA surface and encode it as a PNG in memory. Glyph
-/// coverage is validated here; on any failure no bytes reach the filesystem
-/// because nothing is written by this function.
 pub fn render(
     allocator: std.mem.Allocator,
     doc: ExportDocument,
@@ -121,12 +77,6 @@ pub fn render(
     return .{ .encoded = encoded, .color_mode = color_mode, .font_sha256 = face.sha256 };
 }
 
-/// Paint the foreground of `doc` onto a surface whose page background and
-/// span-background rectangles are already filled: glyph masks (step 3), then
-/// underline (step 4), then strikethrough (step 5) in the §7.5 order. Shared by
-/// the glyph-sheet verification suite (`glyph_sheet.zig`) so it exercises the
-/// exact production painter rather than a copy. Propagates `error.MissingGlyph`
-/// (§7.3), recording the offending code point/row/column in `diag` when given.
 pub fn paintSheet(
     allocator: std.mem.Allocator,
     surface: *Surface,
@@ -145,11 +95,6 @@ pub fn paintSheet(
     }
 }
 
-/// Render `doc` and atomically write the PNG to `path` (§5.2). The full render
-/// (including glyph validation) completes before any file is created; the bytes
-/// are written to a sibling temp file which is then renamed over `path`. On any
-/// error the target is left untouched and the temp file is removed. Returns the
-/// render metadata; the caller owns and must `deinit` it.
 pub fn writeFile(
     allocator: std.mem.Allocator,
     doc: ExportDocument,
@@ -164,18 +109,14 @@ pub fn writeFile(
     return result;
 }
 
-/// Left pixel of a cell column.
 fn runLeftPx(g: Geometry, col: u32) i64 {
     return @as(i64, g.padding_left_px) + @as(i64, col) * @as(i64, g.cell_width_px);
 }
 
-/// Top pixel of a row.
 fn runTopPx(g: Geometry, row: u32) i64 {
     return @as(i64, g.padding_top_px) + @as(i64, row) * @as(i64, g.cell_height_px);
 }
 
-/// Page-relative baseline pixel of a row. `geometry.baseline_px` already folds
-/// in the top padding for row 0 (§7.1 step 9), so later rows add whole cells.
 fn baselinePx(g: Geometry, row: u32) i64 {
     return @as(i64, g.baseline_px) + @as(i64, row) * @as(i64, g.cell_height_px);
 }
@@ -232,9 +173,6 @@ fn drawGrapheme(
     }
 }
 
-/// Shaping constituents accepted by the Unicode authority but intentionally
-/// carrying no standalone ink. This is raster policy only; width and boundaries
-/// remain exclusively authority-owned.
 fn isNonRenderingConstituent(cp: u21) bool {
     return cp == 0x200c or cp == 0x200d or
         (cp >= 0x180b and cp <= 0x180d) or
@@ -279,8 +217,6 @@ fn drawGlyph(
     );
 }
 
-/// Stroke thickness for underline/strikethrough: fixed geometry scaled to the
-/// cell height, at least one pixel.
 fn strokeThickness(g: Geometry) u32 {
     return @max(1, g.cell_height_px / 16);
 }
@@ -301,9 +237,6 @@ fn drawStrikethrough(surface: *Surface, g: Geometry, run: types.PositionedRun) v
     surface.fillRect(left, y, width_px, t, run.foreground);
 }
 
-/// Write `bytes` to `path` atomically: a sibling temp file is written and
-/// closed, then renamed over `path`. On failure the temp file is removed and
-/// `path` is untouched.
 fn atomicWrite(allocator: std.mem.Allocator, path: []const u8, bytes: []const u8) WriteError!void {
     var suffix: [8]u8 = undefined;
     std.crypto.random.bytes(&suffix);
@@ -347,8 +280,6 @@ fn buildDoc(
     });
 }
 
-/// Minimal in-test PNG reader mirroring png_encode's, used to confirm the CLI
-/// path produced a decodable image at the expected size.
 fn decodeDims(bytes: []const u8) struct { w: u32, h: u32 } {
     const w = std.mem.readInt(u32, bytes[16..20], .big);
     const h = std.mem.readInt(u32, bytes[20..24], .big);

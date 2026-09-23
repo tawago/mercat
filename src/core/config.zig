@@ -4,28 +4,13 @@ pub const loadfile = @import("theme/loadfile.zig");
 pub const RawThemeBuilder = loadfile.RawThemeBuilder;
 
 pub const SyntaxTheme = enum { default, classic };
-/// How YAML front matter at the top of a document is displayed (issue #9):
-///   panel   — banded card with half-block caps (default)
-///   dim     — chrome-free muted key/value list
-///   compact — single status-bar-like line of key:value pairs
-///   raw     — verbatim YAML including the `---` fences
-///   hidden  — stripped entirely
 pub const FrontmatterStyle = enum { panel, dim, compact, raw, hidden };
-/// Subgraph frame-border notation (owner ruling 2026-07-19): `bridge`
-/// (default) draws the frame solid and bridges crossing edges; `cross`
-/// reproduces the legacy junction-weld render. The shared mermaid_v2
-/// vocabulary (`prim.SubgraphEdges`, itself std-only pure data) is stored
-/// directly here — no config-local twin — so it flows to the render options
-/// with no enum translation, matching how `ForceLayout` is handled.
 
 pub const Config = struct {
     general: General = .{},
     display: Display = .{},
     mermaid: Mermaid = .{},
     files: Files = .{},
-    /// Sparse, uninterpreted inline `[theme]` / `[theme.<slot>]` tables from
-    /// config.toml. Wired but inert in S1: nothing consumes it yet — S3 folds
-    /// it as the inline-override layer of the theme resolver.
     raw_theme: RawThemeBuilder = .{},
 
     pub fn deinit(self: *Config, allocator: std.mem.Allocator) void {
@@ -44,15 +29,7 @@ pub const Config = struct {
     };
 
     pub const Display = struct {
-        /// Theme *name*: a built-in preset (`dark`, `light`, `ansi`,
-        /// `dracula`, `tokyo-night`, `pink`, `markview`) or a user theme-file
-        /// name under `~/.config/mercat/themes/`. Validation is deferred to the
-        /// registry, which falls back to `dark` (with an `unknown_theme`
-        /// diagnostic) for names it cannot resolve. Owned; freed in `deinit`.
         theme: []const u8 = "dark",
-        /// Code-token syntax variant: `default` or `classic`. `classic` folds an
-        /// alternate code-block/inline-code recolor delta over the resolved theme
-        /// (see `theme/resolve.zig`); other elements are unaffected.
         syntax_theme: SyntaxTheme = .default,
         width: usize = 0,
         line_numbers: bool = false,
@@ -148,11 +125,6 @@ fn initDefaults(allocator: std.mem.Allocator) !Config {
 }
 
 pub fn applyTomlLike(allocator: std.mem.Allocator, cfg: *Config, source: []const u8) !void {
-    // Walk lines with the shared scanner (comments/blank lines/headers handled
-    // there). The section header is split on its first `.` into
-    // `(table, subtable)`: dotted `[theme.<slot>]` tables route into the sparse
-    // raw-theme builder; every other section keeps flat typed-field behavior,
-    // dispatched on the full section string.
     var scanner = loadfile.scanLines(source, "");
     while (scanner.next()) |event| {
         if (std.mem.eql(u8, event.table, "theme")) {
@@ -238,21 +210,14 @@ fn parseBool(value: []const u8) bool {
     return std.mem.eql(u8, value, "true");
 }
 
-/// Shared with the theme-file parser so quote handling stays identical.
 const stripQuotes = loadfile.stripQuotes;
 
 fn replaceString(allocator: std.mem.Allocator, target: *[]const u8, value: []const u8) !void {
-    // Decode into a fresh allocation first so an OOM leaves the prior value
-    // intact (no dangling pointer, no double-free): only free the old value once
-    // the new allocation has succeeded. `value` is the raw TOML value — quotes
-    // are stripped and escapes decoded here.
     const dup = try decodeQuotedString(allocator, value);
     allocator.free(target.*);
     target.* = dup;
 }
 
-/// Shared with the theme-file parser (and the dumper's `writeQuoted` inverse)
-/// so escape decoding stays identical across both TOML surfaces.
 const decodeQuotedString = loadfile.decodeQuotedString;
 
 fn applyEnvOverrides(allocator: std.mem.Allocator, cfg: *Config) !void {
@@ -265,7 +230,6 @@ fn applyEnvOverrides(allocator: std.mem.Allocator, cfg: *Config) !void {
     const theme = std.process.getEnvVarOwned(std.heap.page_allocator, "MERCAT_THEME") catch null;
     defer if (theme) |value| std.heap.page_allocator.free(value);
     if (theme) |value| {
-        // Free-form name; the registry validates it later.
         try replaceString(allocator, &cfg.display.theme, value);
     }
 
@@ -289,7 +253,6 @@ fn applyEnvOverrides(allocator: std.mem.Allocator, cfg: *Config) !void {
 }
 
 test {
-    // Pull loadfile's own unit tests into the `zig build test` run.
     _ = @import("theme/loadfile.zig");
     _ = @import("theme/color.zig");
     _ = @import("theme/spec.zig");

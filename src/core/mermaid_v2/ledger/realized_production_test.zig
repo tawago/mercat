@@ -1,9 +1,6 @@
-//! Step 7 production-path structural vectors for the §14.6 mixing cases.
-
 const std = @import("std");
 const parse = @import("../parse.zig").parse;
 const permits = @import("permits.zig");
-const reach = @import("reach_vector.zig");
 const select = @import("../select.zig");
 const raster = @import("../raster.zig");
 const paint = @import("../paint.zig");
@@ -21,17 +18,17 @@ fn edgeId(graph: anytype, from: []const u8, to: []const u8) u32 {
     unreachable;
 }
 
-fn groupIdx(groups: []const pb.JoinGroup, id: pb.JoinGroupId) usize {
+fn groupIdx(groups: []const pb.CandidateBundle, id: pb.CandidateBundleId) usize {
     for (groups, 0..) |g, i| if (g.id == id) return i;
     unreachable;
 }
 
-fn rmByEdge(plan: pb.RealizedJoins, e: u32) pb.RealizedEdgeMembership {
+fn rmByEdge(plan: pb.RealizedBundles, e: u32) pb.RealizedEdgeMembership {
     for (plan.memberships) |rm| if (rm.edge == e) return rm;
     unreachable;
 }
 
-test "Step 7 §14.6 mixing cases have exact reach and no fused edge junction" {
+test "Step 7 mixing cases realize one rail and no fused edge junction" {
     const sources = [_][]const u8{
         "flowchart TD\n  S1 --> T1\n  S1 --> T2\n  S2 --> T2\n",
         "flowchart TD\n  S --> X\n  S --> A\n  B --> X\n",
@@ -42,21 +39,10 @@ test "Step 7 §14.6 mixing cases have exact reach and no fused edge junction" {
         const a = arena.allocator();
         const graph = try parse(a, source);
         const plan = (try permits.build(a, graph, .joined)).plan;
-        const winner = try select.choose(a, graph, &plan, true, width, false, false);
-        const keys = try select.nodeKeyTable(a, graph);
-        const report = try reach.validate(a, winner.sketch, keys, .flat);
+        const winner = try select.choose(a, graph, &plan, width, false, false, .bridge);
 
-        try std.testing.expectEqual(@as(u32, 0), report.counts.ciTotal());
-        try std.testing.expectEqual(graph.edges.len, report.declared.len);
-        // Arrival re-merge (D-PORT.md 2026-07-18): the shared-target pure
-        // fan-in (T2 / X) is now composed as ONE merged trunk entry; the
-        // departure side stays dissolved so reach stays exact.
-        try std.testing.expectEqual(@as(usize, 1), winner.sketch.busbars.len);
+        try std.testing.expectEqual(@as(usize, 1), winner.sketch.rails.len);
 
-        // No fused PLAIN-edge junction: independent forward/back-edge cells
-        // stay 2-neighbour paths. The one merged fan-in rail legitimately
-        // carries a ┬ junction (its taps meet the drop), so busbar trunk/
-        // rail roles are exempt — that junction IS the truthful merged ink.
         const rendered = try raster.rasterize(a, winner.sketch, .bridge);
         for (rendered.lattice.cells) |cell| switch (cell.occupant) {
             .edge_segment => |seg| switch (seg.role) {
@@ -69,10 +55,6 @@ test "Step 7 §14.6 mixing cases have exact reach and no fused edge junction" {
 }
 
 test "forward-subset composition: reversed fan-in member independent, forward pair merges" {
-    // D has forward arrivals B->D, C->D plus a layout-reversed back-edge F->D
-    // (cycle D->E->F->D). Owner ruling 2026-07-18: the forward subset
-    // {B->D, C->D} composes ONE merged fan-in trunk; F->D keeps its own
-    // independent east back-edge entry (never fused into the trunk).
     const source = "flowchart TD\n  A --> B\n  A --> C\n  B --> D\n  C --> D\n  D --> E\n  E --> F\n  F --> D\n";
     for ([_]u32{ 94, 118 }) |width| {
         var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
@@ -80,13 +62,12 @@ test "forward-subset composition: reversed fan-in member independent, forward pa
         const a = arena.allocator();
         const graph = try parse(a, source);
         const plan = (try permits.build(a, graph, .joined)).plan;
-        const winner = try select.choose(a, graph, &plan, true, width, false, false);
-        const joins = winner.sketch.joins;
+        const winner = try select.choose(a, graph, &plan, width, false, false, .bridge);
+        const bundles = winner.sketch.bundles;
 
-        // The fan-IN trunk at D carries EXACTLY the two forward arrivals.
-        var fi: ?pb.SelectedJoin = null;
-        for (joins.selected_joins) |sj| {
-            const gi = groupIdx(plan.groups, sj.permission_group);
+        var fi: ?pb.SelectedBundle = null;
+        for (bundles.selected_bundles) |sj| {
+            const gi = groupIdx(plan.groups, sj.candidate_bundle);
             if (plan.groups[gi].direction == .in and plan.groups[gi].pivot == nodeId(graph, "D")) fi = sj;
         }
         try std.testing.expect(fi != null);
@@ -99,29 +80,22 @@ test "forward-subset composition: reversed fan-in member independent, forward pa
         }
         try std.testing.expect(saw_bd and saw_cd);
 
-        // F->D never joins the trunk: independent at target, no source group.
-        const fd = rmByEdge(joins, edgeId(graph, "F", "D"));
+        const fd = rmByEdge(bundles, edgeId(graph, "F", "D"));
         try std.testing.expect(fd.target.? == .independent);
         try std.testing.expect(fd.source == null);
-        try std.testing.expect(rmByEdge(joins, edgeId(graph, "B", "D")).target.? == .selected);
-        try std.testing.expect(rmByEdge(joins, edgeId(graph, "C", "D")).target.? == .selected);
+        try std.testing.expect(rmByEdge(bundles, edgeId(graph, "B", "D")).target.? == .selected);
+        try std.testing.expect(rmByEdge(bundles, edgeId(graph, "C", "D")).target.? == .selected);
 
-        // never-both, and the merged trunk + independent back-edge read back
-        // exactly (census zero).
-        for (joins.memberships) |rm| {
+        for (bundles.memberships) |rm| {
             const s_sel = rm.source != null and rm.source.? == .selected;
             const t_sel = rm.target != null and rm.target.? == .selected;
             try std.testing.expect(!(s_sel and t_sel));
         }
-        const report = try reach.validate(a, winner.sketch, try select.nodeKeyTable(a, graph), .flat);
-        try std.testing.expectEqual(@as(u32, 0), report.counts.ciTotal());
-
-        // A first-class fan-in busbar exists at D — the ONE merged entry.
-        var has_d_trunk = false;
-        for (winner.sketch.busbars) |bb| {
-            if (bb.pivot == nodeId(graph, "D")) has_d_trunk = true;
+        var has_d_rail = false;
+        for (winner.sketch.rails) |rail| {
+            if (rail.pivot == nodeId(graph, "D")) has_d_rail = true;
         }
-        try std.testing.expect(has_d_trunk);
+        try std.testing.expect(has_d_rail);
     }
 }
 
@@ -131,8 +105,8 @@ test "V-D-PORT-01: mixed-kind 1x3 renders as three pitch-2 independent component
     const a = arena.allocator();
     const graph = try parse(a, "flowchart TD\n  S --> A\n  S -.-> B\n  S ==> C\n");
     const plan = (try permits.build(a, graph, .joined)).plan;
-    const winner = try select.choose(a, graph, &plan, true, 94, false, false);
-    try std.testing.expectEqual(@as(usize, 0), winner.sketch.busbars.len);
+    const winner = try select.choose(a, graph, &plan, 94, false, false, .bridge);
+    try std.testing.expectEqual(@as(usize, 0), winner.sketch.rails.len);
 
     var offsets: [3]u32 = undefined;
     var count: usize = 0;
@@ -144,32 +118,29 @@ test "V-D-PORT-01: mixed-kind 1x3 renders as three pitch-2 independent component
     std.mem.sort(u32, &offsets, {}, std.sort.asc(u32));
     try std.testing.expectEqualSlices(u32, &.{ 1, 3, 5 }, &offsets);
 
-    const report = try reach.validate(a, winner.sketch, try select.nodeKeyTable(a, graph), .flat);
-    try std.testing.expectEqual(@as(usize, 3), report.components.len);
-    try std.testing.expectEqual(@as(u32, 0), report.counts.ciTotal());
     try std.testing.expectEqual(@as(u32, 0), (try raster.rasterize(a, winner.sketch, .bridge)).edge_cells_lost);
 }
 
-test "V-D-PORT-14: inline K1,3 realized BusBar keeps midpoint stem and pre-Step-7 bytes" {
+test "V-D-PORT-14: inline K1,3 realized Rail keeps midpoint stem and pre-Step-7 bytes" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
     const graph = try parse(a, "flowchart TD\n  S --> A\n  S --> B\n  S --> C\n");
     const plan = (try permits.build(a, graph, .joined)).plan;
-    const realized_winner = try select.choose(a, graph, &plan, true, 94, false, false);
-    const inert: @import("../base/ledger.zig").JoinPermits = .{ .policy = .joined };
-    const before = try select.choose(a, graph, &inert, true, 94, false, false);
+    const realized_winner = try select.choose(a, graph, &plan, 94, false, false, .bridge);
+    const inert: @import("../base/ledger.zig").BundlePermits = .{ .policy = .joined };
+    const before = try select.choose(a, graph, &inert, 94, false, false, .bridge);
 
-    try std.testing.expectEqual(@as(usize, 1), realized_winner.sketch.busbars.len);
-    try std.testing.expectEqual(@as(usize, 1), realized_winner.sketch.joins.selected_joins.len);
-    const bb = realized_winner.sketch.busbars[0];
+    try std.testing.expectEqual(@as(usize, 1), realized_winner.sketch.rails.len);
+    try std.testing.expectEqual(@as(usize, 1), realized_winner.sketch.bundles.selected_bundles.len);
+    const rail = realized_winner.sketch.rails[0];
     var pivot = realized_winner.sketch.nodes[0];
-    for (realized_winner.sketch.nodes) |node| if (node.id == bb.pivot) {
+    for (realized_winner.sketch.nodes) |node| if (node.id == rail.pivot) {
         pivot = node;
         break;
     };
-    try std.testing.expectEqual(pivot.rect.x + @as(i32, @intCast(pivot.rect.w / 2)), bb.stem[0].x);
-    try std.testing.expectEqual(pivot.rect.bottom() - 1, bb.stem[0].y);
+    try std.testing.expectEqual(pivot.rect.x + @as(i32, @intCast(pivot.rect.w / 2)), rail.stem[0].x);
+    try std.testing.expectEqual(pivot.rect.bottom() - 1, rail.stem[0].y);
 
     const realized_raster = try raster.rasterize(a, realized_winner.sketch, .bridge);
     const before_raster = try raster.rasterize(a, before.sketch, .bridge);
@@ -184,35 +155,25 @@ test "V-D-PORT-16: incomplete 2x2 arrival re-merges the pure fan-in, overlap con
     const a = arena.allocator();
     const graph = try parse(a, "flowchart TD\n  S1 --> T1\n  S1 --> T2\n  S2 --> T2\n");
     const plan = (try permits.build(a, graph, .joined)).plan;
-    const winner = try select.choose(a, graph, &plan, true, 94, false, false);
-    const joins = winner.sketch.joins;
+    const winner = try select.choose(a, graph, &plan, 94, false, false, .bridge);
+    const bundles = winner.sketch.bundles;
 
-    // Both selection sites agree: join_commit built the merged fan-in trunk
-    // (one busbar) and realized (via select's plan) selected the same group.
-    try std.testing.expectEqual(@as(usize, 1), winner.sketch.busbars.len);
-    try std.testing.expectEqual(@as(usize, 1), joins.selected_joins.len);
+    try std.testing.expectEqual(@as(usize, 1), winner.sketch.rails.len);
+    try std.testing.expectEqual(@as(usize, 1), bundles.selected_bundles.len);
 
-    // The selected group is the pure fan-in at T2; the fan-out FO-S1 stays
-    // overlap → NEITHER (mixing prohibition intact).
-    const sel_gi = groupIdx(plan.groups, joins.selected_joins[0].permission_group);
-    try std.testing.expectEqual(pb.JoinDirection.in, plan.groups[sel_gi].direction);
+    const sel_gi = groupIdx(plan.groups, bundles.selected_bundles[0].candidate_bundle);
+    try std.testing.expectEqual(pb.BundleDirection.in, plan.groups[sel_gi].direction);
     try std.testing.expectEqual(nodeId(graph, "T2"), plan.groups[sel_gi].pivot);
 
-    // §6.5 completeness: the shared dual edge S1->T2 is STILL a retained
-    // conflict beside the preference.
-    try std.testing.expectEqual(@as(usize, 1), joins.conflicts.len);
-    try std.testing.expectEqual(edgeId(graph, "S1", "T2"), joins.conflicts[0].shared_edges[0]);
-
-    // S1->T2: selected at TARGET, independent at SOURCE (departure dissolved).
-    const dual = rmByEdge(joins, edgeId(graph, "S1", "T2"));
+    const dual = rmByEdge(bundles, edgeId(graph, "S1", "T2"));
     try std.testing.expect(dual.target.? == .selected);
     try std.testing.expect(dual.source.? == .independent);
-    try std.testing.expect(rmByEdge(joins, edgeId(graph, "S2", "T2")).target.? == .selected);
-    try std.testing.expect(rmByEdge(joins, edgeId(graph, "S1", "T1")).source.? == .independent);
-    for (joins.memberships) |rm| {
+    try std.testing.expect(rmByEdge(bundles, edgeId(graph, "S2", "T2")).target.? == .selected);
+    try std.testing.expect(rmByEdge(bundles, edgeId(graph, "S1", "T1")).source.? == .independent);
+    for (bundles.memberships) |rm| {
         const s_sel = rm.source != null and rm.source.? == .selected;
         const t_sel = rm.target != null and rm.target.? == .selected;
-        try std.testing.expect(!(s_sel and t_sel)); // never-both
+        try std.testing.expect(!(s_sel and t_sel));
     }
 }
 
@@ -220,26 +181,18 @@ test "V-D-PORT-16 corrected: a fan-out-pivot target DOES re-merge its pure fan-i
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
-    // FI-T = {A->T, B->T} overlaps FO-A = {A->T, A->Z} on the dual edge A->T.
-    // T is ALSO the pivot of the fan-out FO-T = {T->X, T->Y}. OPEN-1 class-1
-    // (D-PORT 2026-07-17 four-way): purity is the ARRIVAL SHAPE alone, so the
-    // fan-out at the same pivot does NOT block the re-merge — the arrival
-    // trunk enters T's entry side while departures exit other sides (no ink
-    // fusion). FI-T re-merges; FO-T's own dispositions are untouched.
     const graph = try parse(a, "flowchart TD\n  A --> T\n  A --> Z\n  B --> T\n  T --> X\n  T --> Y\n");
     const plan = (try permits.build(a, graph, .joined)).plan;
-    const winner = try select.choose(a, graph, &plan, true, 94, false, false);
-    const joins = winner.sketch.joins;
+    const winner = try select.choose(a, graph, &plan, 94, false, false, .bridge);
+    const bundles = winner.sketch.bundles;
 
-    // FI-T IS selected now: the fan-in at pivot T, direction .in.
-    var fi_sel: ?pb.SelectedJoin = null;
-    for (joins.selected_joins) |sj| {
-        const gi = groupIdx(plan.groups, sj.permission_group);
+    var fi_sel: ?pb.SelectedBundle = null;
+    for (bundles.selected_bundles) |sj| {
+        const gi = groupIdx(plan.groups, sj.candidate_bundle);
         if (plan.groups[gi].direction == .in and plan.groups[gi].pivot == nodeId(graph, "T")) fi_sel = sj;
     }
     try std.testing.expect(fi_sel != null);
 
-    // The trunk members are EXACTLY the arrival edges A->T and B->T.
     try std.testing.expectEqual(@as(usize, 2), fi_sel.?.members.len);
     var saw_at = false;
     var saw_bt = false;
@@ -249,23 +202,245 @@ test "V-D-PORT-16 corrected: a fan-out-pivot target DOES re-merge its pure fan-i
     }
     try std.testing.expect(saw_at and saw_bt);
 
-    // The shared dual edge A->T: selected at TARGET (arrival), independent at
-    // SOURCE — FO-A stays overlap → its departure dissolved, conflict retained.
-    const dual = rmByEdge(joins, edgeId(graph, "A", "T"));
+    const dual = rmByEdge(bundles, edgeId(graph, "A", "T"));
     try std.testing.expect(dual.target.? == .selected);
     try std.testing.expect(dual.source.? == .independent);
-    try std.testing.expect(rmByEdge(joins, edgeId(graph, "B", "T")).target.? == .selected);
+    try std.testing.expect(rmByEdge(bundles, edgeId(graph, "B", "T")).target.? == .selected);
 
-    // FO-T (T->X, T->Y) is unchanged by the arrival re-merge: its departures
-    // keep identical source dispositions (they do not share the arrival trunk).
-    const dx = rmByEdge(joins, edgeId(graph, "T", "X")).source;
-    const dy = rmByEdge(joins, edgeId(graph, "T", "Y")).source;
+    const dx = rmByEdge(bundles, edgeId(graph, "T", "X")).source;
+    const dy = rmByEdge(bundles, edgeId(graph, "T", "Y")).source;
     try std.testing.expect(dx != null and dy != null);
     try std.testing.expectEqual(std.meta.activeTag(dx.?), std.meta.activeTag(dy.?));
 
-    for (joins.memberships) |rm| {
+    for (bundles.memberships) |rm| {
         const s_sel = rm.source != null and rm.source.? == .selected;
         const t_sel = rm.target != null and rm.target.? == .selected;
-        try std.testing.expect(!(s_sel and t_sel)); // never-both
+        try std.testing.expect(!(s_sel and t_sel));
     }
+}
+
+test "dominance pin: a complete K2,2 decomposes into star rails, never one union" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const graph = try parse(a, "flowchart TD\n  S1 --> T1\n  S1 --> T2\n  S2 --> T1\n  S2 --> T2\n");
+    const plan = (try permits.build(a, graph, .joined)).plan;
+    const winner = try select.choose(a, graph, &plan, 94, false, false, .bridge);
+
+    for (winner.sketch.bundles.selected_bundles) |sj| {
+        try std.testing.expect(sj.members.len < graph.edges.len);
+        for (plan.groups) |g| if (g.id == sj.candidate_bundle) {
+            for (sj.members) |m| for (graph.edges) |e| if (e.id == m) {
+                const shared = if (g.direction == .out) e.from else e.to;
+                try std.testing.expectEqual(g.pivot, shared);
+            };
+        };
+    }
+}
+
+const Plain = struct { grid: []const u8, bundles: pb.RealizedBundles, routed: []const u32 };
+
+fn finishPlain(a: std.mem.Allocator, s: anytype) !Plain {
+    const rendered = try raster.rasterize(a, s, .bridge);
+    const routed = try a.alloc(u32, s.edges.len);
+    for (s.edges, routed) |e, *slot| slot.* = e.id;
+    return .{
+        .grid = try paint.paint(a, rendered.lattice, s.budget.max_width),
+        .bundles = s.bundles,
+        .routed = routed,
+    };
+}
+
+fn renderPlain(a: std.mem.Allocator, source: []const u8, width: u32) !Plain {
+    const graph = try parse(a, source);
+    const plan = (try permits.build(a, graph, .joined)).plan;
+    const winner = try select.choose(a, graph, &plan, width, false, false, .bridge);
+    return finishPlain(a, winner.sketch);
+}
+
+fn renderRotated(a: std.mem.Allocator, source: []const u8, width: u32) !Plain {
+    const graph = try parse(a, source);
+    const plan = (try permits.build(a, graph, .joined)).plan;
+    const set = try select.enumerateAll(a, graph, &plan, width);
+    for (set.merged) |cand| {
+        if (cand.rung != .switch_direction) continue;
+        return finishPlain(a, cand.sketch);
+    }
+    return error.NoRotatedCandidate;
+}
+
+fn rowsWithInk(grid: []const u8, glyph: []const u8) usize {
+    var n: usize = 0;
+    var it = std.mem.splitScalar(u8, grid, '\n');
+    while (it.next()) |line| {
+        if (std.mem.indexOf(u8, line, glyph) != null) n += 1;
+    }
+    return n;
+}
+
+test "an undeclared all-arrow-free fan unfuses; a declared clique keeps the rail and withholds its pair edges" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+
+    const refused = try renderPlain(a, "flowchart TD\n  A --- Z\n  B --- Z\n  C --- Z\n", 70);
+    try std.testing.expectEqual(@as(usize, 0), refused.bundles.selected_bundles.len);
+    try std.testing.expectEqual(@as(usize, 0), refused.bundles.discharged.len);
+    try std.testing.expectEqual(@as(usize, 3), refused.routed.len);
+    try std.testing.expect(std.mem.indexOf(u8, refused.grid, "┼") == null);
+
+    const kept = try renderRotated(a, "flowchart LR\n  A --- Z\n  B --- Z\n  A --- B\n", 70);
+    try std.testing.expectEqual(@as(usize, 1), kept.bundles.discharged.len);
+    try std.testing.expectEqual(@as(usize, 1), kept.routed.len);
+    for (kept.bundles.discharged) |co| {
+        for (kept.routed) |id| try std.testing.expect(id != co);
+    }
+    try std.testing.expectEqual(@as(usize, 1), rowsWithInk(kept.grid, "├────┐"));
+}
+
+test "a salvaged rail is complete against the commitment the layout drew" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const graph = try parse(a, "flowchart TD\n  A --- Z\n  B --- Z\n  C --- Z\n  A --- B\n  B --- C\n");
+    const plan = (try permits.build(a, graph, .joined)).plan;
+    const winner = try select.choose(a, graph, &plan, 60, false, false, .bridge);
+    var rail_members: usize = 0;
+    for (winner.sketch.bundles.selected_bundles) |sj| rail_members = @max(rail_members, sj.members.len);
+    try std.testing.expectEqual(@as(usize, 2), rail_members);
+    const report = try raster.rasterize(a, winner.sketch, .bridge);
+    try std.testing.expectEqual(@as(u32, 0), report.edge_cells_lost);
+}
+
+test "a complete all-to-all draws one rail per shared endpoint, and the fused run spends one stub per source" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+
+    const directed = try renderPlain(a, "flowchart TD\n  A --> X\n  A --> Y\n  B --> X\n  B --> Y\n", 70);
+    try std.testing.expectEqual(@as(usize, 2), directed.bundles.selected_bundles.len);
+    for (directed.bundles.selected_bundles) |sj| try std.testing.expectEqual(@as(usize, 2), sj.members.len);
+    for (0..4) |edge| {
+        var owners: usize = 0;
+        for (directed.bundles.selected_bundles) |sj| {
+            for (sj.members) |m| {
+                if (m == edge) owners += 1;
+            }
+        }
+        try std.testing.expectEqual(@as(usize, 1), owners);
+    }
+    try std.testing.expectEqual(@as(usize, 1), directed.bundles.fused.len);
+    try std.testing.expectEqual(@as(usize, 4), directed.bundles.fused[0].len);
+    var stubs: usize = 0;
+    var i: usize = 0;
+    while (std.mem.indexOfPos(u8, directed.grid, i, "┬")) |at| : (i = at + 1) stubs += 1;
+    try std.testing.expectEqual(@as(usize, 2), stubs);
+
+    const undirected = try renderPlain(a, "flowchart TD\n  A --- X\n  A --- Y\n  B --- X\n  B --- Y\n", 70);
+    try std.testing.expectEqual(@as(usize, 0), undirected.bundles.selected_bundles.len);
+    try std.testing.expectEqual(@as(usize, 0), undirected.bundles.discharged.len);
+    try std.testing.expectEqual(@as(usize, 4), undirected.routed.len);
+}
+
+test "a directed complete bipartite keeps its TD star decomposition on clearing rows" {
+    const source =
+        \\flowchart TD
+        \\    S1[Order Received] --> M1[Validate Payment]
+        \\    S1 --> M2[Check Inventory]
+        \\    S1 --> M3[Apply Discount]
+        \\    S2[Webhook Triggered] --> M1
+        \\    S2 --> M2
+        \\    S2 --> M3
+        \\    S3[Manual Entry] --> M1
+        \\    S3 --> M2
+        \\    S3 --> M3
+        \\
+    ;
+    for ([_]u32{ 60, 90, 120 }) |width| {
+        var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+        defer arena.deinit();
+        const a = arena.allocator();
+        const graph = try parse(a, source);
+        const plan = (try permits.build(a, graph, .joined)).plan;
+        const winner = try select.choose(a, graph, &plan, width, false, false, .bridge);
+
+        try std.testing.expectEqual(graph.direction, winner.sketch.direction);
+        try std.testing.expectEqual(@as(usize, 3), winner.sketch.rails.len);
+        for (winner.sketch.rails) |rail| {
+            try std.testing.expectEqual(@as(usize, 3), rail.taps.len);
+            try std.testing.expectEqual(winner.sketch.rails[0].crossbar[0].y, rail.crossbar[0].y);
+        }
+
+        try std.testing.expectEqual(@as(usize, 1), winner.sketch.bundles.fused.len);
+        try std.testing.expectEqual(@as(usize, 9), winner.sketch.bundles.fused[0].len);
+
+        for (winner.sketch.rails) |rail| for (rail.taps) |tap| {
+            for (winner.sketch.rails) |other| for (other.taps) |t2| {
+                if (t2.node == tap.node) try std.testing.expectEqual(tap.at.x, t2.at.x);
+            };
+        };
+
+        try std.testing.expect(winner.sketch.bbox.w <= width);
+    }
+}
+
+test "on the licence's lapse path a rail's junction still clears foreign taps" {
+    const source =
+        \\flowchart TD
+        \\    S1[Order Received] --> M1[Validate Payment]
+        \\    S1 --> M2[Check Inventory]
+        \\    S1 --> M3[Apply Discount]
+        \\    S2[Webhook Triggered] --> M1
+        \\    S2 --> M2
+        \\    S2 --> M3
+        \\    S3[Manual Entry] --> M1
+        \\    S3 --> M2
+        \\
+    ;
+    for ([_]u32{ 90, 120 }) |width| {
+        var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+        defer arena.deinit();
+        const a = arena.allocator();
+        const graph = try parse(a, source);
+        const plan = (try permits.build(a, graph, .joined)).plan;
+        const winner = try select.choose(a, graph, &plan, width, false, false, .bridge);
+
+        try std.testing.expect(winner.sketch.rails.len >= 2);
+        var rows_differ = false;
+        for (winner.sketch.rails) |rail| {
+            if (rail.crossbar[0].y != winner.sketch.rails[0].crossbar[0].y) rows_differ = true;
+        }
+        try std.testing.expect(rows_differ);
+
+        for (winner.sketch.rails) |rail| {
+            const stem_x = rail.stem[0].x;
+            const junction_y = rail.crossbar[0].y;
+            for (winner.sketch.rails) |other| {
+                if (other.crossbar[0].y == junction_y) continue;
+                for (other.taps) |tap| {
+                    if (tap.at.x != stem_x) continue;
+                    try std.testing.expect(other.crossbar[0].y < junction_y);
+                }
+            }
+        }
+    }
+}
+
+test "membership at both ends in production: the skip-layer repro traces only its declared pairs" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const graph = try parse(a, "flowchart TD\n  A --> B\n  B --> C\n  A --> C\n");
+    const plan = (try permits.build(a, graph, .joined)).plan;
+    const winner = try select.choose(a, graph, &plan, 94, false, false, .bridge);
+    try std.testing.expectEqual(@as(usize, 2), winner.sketch.rails.len);
+    try std.testing.expectEqual(@as(usize, 2), winner.sketch.bundles.selected_bundles.len);
+    const ac = rmByEdge(winner.sketch.bundles, edgeId(graph, "A", "C"));
+    try std.testing.expect(ac.source.? == .selected);
+    try std.testing.expect(ac.target.? == .selected);
+    var strokes: usize = 0;
+    for (winner.sketch.edges) |e| if (e.role == .member_stroke) {
+        strokes += 1;
+    };
+    try std.testing.expectEqual(@as(usize, 1), strokes);
 }

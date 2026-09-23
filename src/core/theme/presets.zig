@@ -1,30 +1,3 @@
-//! Stage S4: the seven built-in theme presets, encoded as `ThemeSpec` data.
-//!
-//! Source of truth is the `#presetsData` JSON in the design preview; each
-//! preset here mirrors its entry. Two intentional adaptations:
-//!
-//!   - `ansi` stores *named* ANSI colors (`.ansi16`) rather than the JSON's
-//!     rendered hex, so the terminal's own palette decides the hues (SGR
-//!     30-37/90-97). The JSON hex are just one terminal's rendering of them.
-//!   - `markview` replaces every Nerd-font private-use glyph with a widely
-//!     supported Unicode equivalent (owner-locked ◉/◈/◇ heading family, ✓/○
-//!     tasks, ▋ quote bar, → / ⧉ link/image icons, rounded table borders) so
-//!     the preset is authored PUA-free and never triggers `glyph_fallback`.
-//!
-//! `dark`/`light` are encoded as FULL data specs (every one of the 35 slots +
-//! the `classic` syntax-variant delta), so `presets.zig` is the single source
-//! of truth for them exactly like `dracula`. `theme.zig` derives its neutral
-//! fallback palettes from these specs at comptime (`theme.neutralDark`/
-//! `neutralLight`), so the slot colors live in exactly one place. A byte-identity
-//! unit test (`resolve.zig`) guards `resolve("dark"/"light") == the historical
-//! palette literals`.
-//!
-//! Schema-gap notes (not representable in the S3 slot/glyph schema, so
-//! deliberately dropped here):
-//!   - horizontal-rule *color* (no hr color slot; hr keeps the muted default),
-//!   - a link/image label color distinct from the URL color (JSON `text`),
-//!   - `pink`'s bold-link-text and `markview`'s heading `sign` gutter marks.
-
 const std = @import("std");
 const spec = @import("spec.zig");
 const color = @import("color.zig");
@@ -46,8 +19,6 @@ fn ix(n: u8) Color {
     return color.idx(n);
 }
 
-/// The `# ` heading markers the historical renderer drew, folded onto the six
-/// heading slots (color/attrs supplied by the caller's base spec).
 fn withHeadingPrefixes(m: *SlotMap) void {
     inline for (.{ "# ", "## ", "### ", "#### ", "##### ", "###### " }, 0..) |p, i| {
         const slot: spec.Slot = @enumFromInt(@intFromEnum(spec.Slot.heading1) + i);
@@ -57,7 +28,6 @@ fn withHeadingPrefixes(m: *SlotMap) void {
     }
 }
 
-/// `▎` quote bar (U+258E) that the historical renderer drew.
 const legacy_glyphs = GlyphSet{ .quote_bar = "\u{258E}" };
 
 fn darkSlots() SlotMap {
@@ -102,7 +72,6 @@ fn darkSlots() SlotMap {
     return m;
 }
 
-/// classic syntax variant delta for dark: recolored code tokens.
 fn darkClassic() SlotMap {
     var m = SlotMap{};
     m.set(.code_block, .{ .fg = ix(114), .bg = ix(236) });
@@ -417,8 +386,6 @@ pub const markview = ThemeSpec{
     },
 };
 
-/// Copy `base` and set its prefix (comptime helper for the repeated heading
-/// rows that share color/attrs but differ only in prefix depth).
 fn mergePrefix(base: SlotSpec, prefix: []const u8) SlotSpec {
     var s = base;
     s.prefix = prefix;

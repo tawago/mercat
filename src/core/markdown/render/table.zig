@@ -23,8 +23,6 @@ pub fn renderTable(allocator: std.mem.Allocator, builder: *Builder, table: Block
     defer allocator.free(widths);
     @memset(widths, 0);
 
-    // Natural widths first, column by column: each column's text position
-    // depends on the widths already settled to its left.
     const boxed = decor.glyphs.table_style == .rounded;
     for (0..max_columns) |index| {
         const text_column = cellTextColumn(builder.left_padding, widths, index, boxed);
@@ -42,11 +40,6 @@ pub fn renderTable(allocator: std.mem.Allocator, builder: *Builder, table: Block
     }
 }
 
-/// The concrete (horizontal, vertical, cross) box-drawing triple for a widened
-/// `TableStyle`. Restores #17's four border weights so `heavy`/`double`/`ascii`
-/// render again; every glyph is display-width 1, so column math is unchanged.
-/// `rounded` draws its own bordered box (see `renderRounded`) and falls back to
-/// the light triple here for any interior rule math.
 const Triple = struct { h: []const u8, v: []const u8, cross: []const u8 };
 
 fn tableTriple(style: TableStyle) Triple {
@@ -58,10 +51,6 @@ fn tableTriple(style: TableStyle) Triple {
     };
 }
 
-/// The historical grid table: a header, a `─`/`┼` rule, then rows separated by
-/// `│`. With the light triple this is byte-identical to the pre-theme renderer;
-/// the header row is styled `.table_header`, borders `.table_border` (both
-/// default to their historical borrowed tokens so parity holds).
 fn renderGrid(allocator: std.mem.Allocator, builder: *Builder, table: Block.Table, widths: []const usize, triple: Triple) !void {
     for (table.rows, 0..) |row, index| {
         if (index != 0) try builder.newline();
@@ -88,8 +77,6 @@ const RoundedGlyphs = struct {
     v: []const u8 = "\u{2502}",
 };
 
-/// Rounded box table (markview): full top/bottom/side borders with rounded
-/// corners and a header separator.
 fn renderRounded(allocator: std.mem.Allocator, builder: *Builder, table: Block.Table, widths: []const usize) !void {
     const g = RoundedGlyphs{};
     try appendRoundedBorder(builder, widths, g, g.tl, g.tj, g.tr);
@@ -119,10 +106,6 @@ fn appendRoundedRow(allocator: std.mem.Allocator, builder: *Builder, row: Block.
     try appendRowCells(allocator, builder, row, widths, alignments, g.v, true, cell_style);
 }
 
-/// Shared table-cell emitter for both grid and rounded rows. Wraps each cell,
-/// aligns/pads it, and separates columns with `vbar`. When `boxed`, `vbar` also
-/// frames the row's outer edges (rounded style); otherwise it appears only
-/// between columns (grid style).
 fn appendRowCells(allocator: std.mem.Allocator, builder: *Builder, row: Block.TableRow, widths: []const usize, alignments: []const Block.Table.Alignment, vbar: []const u8, boxed: bool, cell_style: SpanStyle) !void {
     var wrapped_cells = try allocator.alloc([][]const u8, widths.len);
     defer allocator.free(wrapped_cells);
@@ -197,9 +180,6 @@ pub fn appendSpaces(builder: *Builder, count: usize, style: SpanStyle) !void {
     try builder.appendRepeated(style, " ", count);
 }
 
-/// Strict source-preserving wrapping for a table cell. Long words are split at
-/// extended-grapheme boundaries; tabs retain their source byte here and are
-/// expanded later when the complete output row is prepared.
 fn wrapCell(allocator: std.mem.Allocator, text: []const u8, width: usize, initial_column: usize) ![][]const u8 {
     var output: std.ArrayList([]const u8) = .empty;
     errdefer {
@@ -247,8 +227,6 @@ fn alignmentPadding(text: []const u8, width: usize, base_column: usize, alignmen
     const text_width = try geometry.displayWidthFrom(text, base_column);
     if (alignment == .left or alignment == .none) return .{ 0, width -| text_width };
 
-    // Only a tab makes the text's width depend on where it starts; any other
-    // cell aligns arithmetically from the one measurement above.
     if (std.mem.indexOfScalar(u8, text, '\t') == null) {
         const remaining = width -| text_width;
         const left = if (alignment == .right) remaining else remaining / 2;
@@ -296,9 +274,6 @@ test "tableTriple maps each weighted variant to its box-drawing glyphs" {
     try testing.expectEqualStrings("\u{2500}", tableTriple(.rounded).h);
 }
 
-/// Render a 2x2 table under `style` and return the concatenated span text (one
-/// newline per rendered row). Fixtures are stack literals — `renderTable` never
-/// frees the table it consumes.
 fn renderTableWith(allocator: std.mem.Allocator, style: TableStyle) ![]u8 {
     var cell_a = [_]Inline{.{ .text = "A" }};
     var cell_b = [_]Inline{.{ .text = "B" }};

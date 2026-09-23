@@ -1,11 +1,3 @@
-//! motif/classify.zig — coarsen one scope's dominator forest into typed
-//! motifs (full kind vocabulary documented on `types.MotifKind`).
-//!
-//! Classification precedence: chain walk → fan → parallel → atom/prime.
-//! Each rule's exact conditions are documented as a doc comment on the
-//! function that implements it (coarsenSubtree for chain walk, pivotMotif
-//! for fan/atom, groupSiblings/parallelMotif for sibling fusion).
-
 const std = @import("std");
 const sg = @import("../sem_graph.zig");
 const types = @import("types.zig");
@@ -17,19 +9,12 @@ const Ctx = struct {
     sc: scope_mod.Scope,
     dom: dom_mod.DomTree,
     out: *std.ArrayListUnmanaged(types.Motif),
-    /// Dominator-subtree vertex counts, indexed by scope vertex.
     size: []u32,
-    /// Dominator-shape signatures, indexed by scope vertex.
     sig: []u64,
 };
 
 const Error = error{OutOfMemory};
 
-/// Coarsen the scope's dominator forest, appending motifs to `out`
-/// (children always appended before their parent, except cluster interiors
-/// which the driver fills in later). Returns the scope-root motif indices.
-/// Cluster motifs are emitted as placeholders with empty children; the
-/// driver (motif.zig) recurses into each cluster's own scope.
 pub fn coarsenScope(
     a: std.mem.Allocator,
     sc: scope_mod.Scope,
@@ -49,9 +34,6 @@ pub fn coarsenScope(
     return groupSiblings(&ctx, dom.roots);
 }
 
-/// Post-order subtree size + shape signature. Signature hashes the vertex
-/// kind tag and the SORTED child signatures, so two subtrees compare equal
-/// iff their dominator trees are isomorphic (modulo hash collision).
 fn computeMeta(ctx: *Ctx, v: u32) void {
     var size: u32 = 1;
     var child_sigs: [64]u64 = undefined;
@@ -63,7 +45,7 @@ fn computeMeta(ctx: *Ctx, v: u32) void {
     }
     const m = @min(kids.len, child_sigs.len);
     std.mem.sort(u64, child_sigs[0..m], {}, std.sort.asc(u64));
-    var h = std.hash.Wyhash.init(0x6d6f7469); // "moti"
+    var h = std.hash.Wyhash.init(0x6d6f7469);
     const tag: u8 = switch (ctx.sc.verts[v]) {
         .node => 1,
         .cluster => 2,
@@ -74,9 +56,6 @@ fn computeMeta(ctx: *Ctx, v: u32) void {
     ctx.sig[v] = h.final();
 }
 
-/// Group a sibling set: subtrees sharing a signature (size >= 2) fuse into
-/// one `parallel` motif; the rest coarsen individually. First-occurrence
-/// order is preserved.
 fn groupSiblings(ctx: *Ctx, kids: []const u32) Error![]const usize {
     var result: std.ArrayListUnmanaged(usize) = .empty;
     const used = try ctx.a.alloc(bool, kids.len);
@@ -104,9 +83,6 @@ fn groupSiblings(ctx: *Ctx, kids: []const u32) Error![]const usize {
     return result.toOwnedSlice(ctx.a);
 }
 
-/// Fuse >= 2 isomorphic-ish sibling subtrees into one `parallel` motif.
-/// Simple-path branches (all plain nodes, linear) are absorbed as direct
-/// members; anything richer keeps per-branch child motifs.
 fn parallelMotif(ctx: *Ctx, branches: []const u32) Error!usize {
     var all_simple = true;
     for (branches) |b| {
@@ -116,7 +92,7 @@ fn parallelMotif(ctx: *Ctx, branches: []const u32) Error!usize {
         }
     }
     if (all_simple) {
-        // Record per-branch spans while flattening. // guarded-by: pack.zig "parallel TD graph: one synthetic cluster per branch, members reassigned"
+        // guarded-by: pack.zig "parallel TD graph: one synthetic cluster per branch, members reassigned"
         var members: std.ArrayListUnmanaged(sg.NodeId) = .empty;
         var spans: std.ArrayListUnmanaged([2]usize) = .empty;
         for (branches) |b| {
@@ -159,8 +135,6 @@ fn parallelMotif(ctx: *Ctx, branches: []const u32) Error!usize {
     });
 }
 
-/// A subtree is a simple path when every vertex is a plain node with at
-/// most one dominator child.
 fn isSimplePath(ctx: *Ctx, v: u32) bool {
     var cur = v;
     while (true) {
@@ -175,8 +149,6 @@ fn isSimplePath(ctx: *Ctx, v: u32) bool {
     }
 }
 
-/// Coarsen the whole dominator subtree rooted at `v` into one motif
-/// (recursively), returning its index.
 fn coarsenSubtree(ctx: *Ctx, v: u32) Error!usize {
     var chain: std.ArrayListUnmanaged(u32) = .empty;
     var tail: ?u32 = null;
@@ -196,7 +168,7 @@ fn coarsenSubtree(ctx: *Ctx, v: u32) Error!usize {
         break;
     }
     const pm: ?usize = if (tail) |t| try pivotMotif(ctx, t) else null;
-    if (chain.items.len == 0) return pm.?; // v itself branches
+    if (chain.items.len == 0) return pm.?;
 
     var members: std.ArrayListUnmanaged(sg.NodeId) = .empty;
     var children: std.ArrayListUnmanaged(usize) = .empty;
@@ -208,7 +180,7 @@ fn coarsenSubtree(ctx: *Ctx, v: u32) Error!usize {
     }
     if (pm) |p| try children.append(ctx.a, p);
 
-    // A lone cluster vertex with nothing downstream IS its cluster motif. // guarded-by: motif_test.zig "lone cluster vertex classifies as the cluster motif directly (not wrapped)"
+    // guarded-by: motif_test.zig "lone cluster vertex classifies as the cluster motif directly (not wrapped)"
     if (chain.items.len == 1 and members.items.len == 0 and pm == null)
         return children.items[0];
 
@@ -217,7 +189,7 @@ fn coarsenSubtree(ctx: *Ctx, v: u32) Error!usize {
     else if (chain.items.len == 1 and members.items.len == 1)
         .atom
     else
-        .prime; // 2-chains and node→cluster stubs: below the spine minimum
+        .prime;
     const entry: ?sg.NodeId = switch (ctx.sc.verts[chain.items[0]]) {
         .node => |nid| nid,
         .cluster => null,
@@ -234,7 +206,6 @@ fn coarsenSubtree(ctx: *Ctx, v: u32) Error!usize {
     });
 }
 
-/// Classify a branching pivot (>= 2 dominator children).
 fn pivotMotif(ctx: *Ctx, p: u32) Error!usize {
     const kids = ctx.dom.children[p];
     const p_node: ?sg.NodeId = switch (ctx.sc.verts[p]) {
@@ -289,7 +260,7 @@ fn pivotMotif(ctx: *Ctx, p: u32) Error!usize {
             .children = grouped,
         });
     }
-    // Branching cluster vertex: wrap in a prime so cluster motifs stay pure. // guarded-by: motif_test.zig "branching cluster vertex wraps in prime; the cluster motif stays pure"
+    // guarded-by: motif_test.zig "branching cluster vertex wraps in prime; the cluster motif stays pure"
     var children: std.ArrayListUnmanaged(usize) = .empty;
     try children.append(ctx.a, try clusterMotif(ctx, ctx.sc.verts[p].cluster));
     for (grouped) |mi| try children.append(ctx.a, mi);
@@ -305,8 +276,6 @@ fn pivotMotif(ctx: *Ctx, p: u32) Error!usize {
     });
 }
 
-/// Placeholder cluster motif; the driver fills `children` by recursing
-/// into the cluster's own scope.
 fn clusterMotif(ctx: *Ctx, cid: sg.ClusterId) Error!usize {
     return appendMotif(ctx, .{
         .kind = .cluster,

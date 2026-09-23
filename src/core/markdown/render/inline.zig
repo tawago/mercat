@@ -29,10 +29,6 @@ pub fn inlinesToTokens(allocator: std.mem.Allocator, inlines: []const Inline, de
     return try tokens.toOwnedSlice(allocator);
 }
 
-/// Process a slice of inlines, consuming HTML tag sequences as style spans.
-/// When we encounter an opening HTML tag for a known semantic element, we
-/// consume subsequent inlines until the matching closing tag and apply the
-/// appropriate style to all content in between.
 fn appendInlineSliceTokens(allocator: std.mem.Allocator, tokens: *std.ArrayList(InlineToken), inlines: []const Inline, parent_style: SpanStyle, decor: *const Decor) anyerror!void {
     var i: usize = 0;
     while (i < inlines.len) {
@@ -133,7 +129,6 @@ const known_html_tags = [_]HtmlTagEntry{
     .{ .open = "<mark>", .close = "</mark>", .style = .highlight },
 };
 
-/// If `tag` is a known opening HTML tag, return the associated SpanStyle.
 fn htmlOpenTagStyle(tag: []const u8) ?SpanStyle {
     for (known_html_tags) |entry| {
         if (std.mem.eql(u8, tag, entry.open)) return entry.style;
@@ -141,8 +136,6 @@ fn htmlOpenTagStyle(tag: []const u8) ?SpanStyle {
     return null;
 }
 
-/// Return the closing tag string for a known opening tag.
-/// Caller must have verified tag is a known opener first.
 fn htmlCloseTagFor(open_tag: []const u8) []const u8 {
     for (known_html_tags) |entry| {
         if (std.mem.eql(u8, open_tag, entry.open)) return entry.close;
@@ -150,8 +143,6 @@ fn htmlCloseTagFor(open_tag: []const u8) []const u8 {
     return "";
 }
 
-/// Parse `id="N"` attribute from a custom HTML tag like `<fnref id="3">`.
-/// Returns the numeric id string slice (pointing into `tag`), or null.
 fn parseHtmlIdAttr(tag: []const u8) ?[]const u8 {
     const marker = "id=\"";
     const id_start_idx = std.mem.indexOf(u8, tag, marker) orelse return null;
@@ -160,9 +151,6 @@ fn parseHtmlIdAttr(tag: []const u8) ?[]const u8 {
     return tag[val_start..val_end];
 }
 
-/// If `tag` is a `<fnref id="N">` or `<fndef id="N">` opening tag, return
-/// a heap-allocated pseudo-URL `#fn:N` or `#fnref:N` respectively.
-/// Caller owns the returned slice.
 fn footnoteNavUrl(allocator: std.mem.Allocator, tag: []const u8) !?[]u8 {
     if (std.mem.startsWith(u8, tag, "<fnref ")) {
         const id = parseHtmlIdAttr(tag) orelse return null;
@@ -175,7 +163,6 @@ fn footnoteNavUrl(allocator: std.mem.Allocator, tag: []const u8) !?[]u8 {
     return null;
 }
 
-/// Return the closing tag string for `<fnref ...>` or `<fndef ...>` openers.
 fn footnoteNavCloseTag(tag: []const u8) ?[]const u8 {
     if (std.mem.startsWith(u8, tag, "<fnref ")) return "</fnref>";
     if (std.mem.startsWith(u8, tag, "<fndef ")) return "</fndef>";

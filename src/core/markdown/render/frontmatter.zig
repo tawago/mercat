@@ -10,13 +10,8 @@ const Block = markdown.Block;
 const Builder = builder_mod.Builder;
 const SpanStyle = types.SpanStyle;
 
-/// Leading glyph of the compact one-line style.
 const compact_marker = "\u{25C8}";
 
-/// True when this style/front-matter combination renders no output: hidden
-/// always, and empty entries for every style except raw (whose verbatim
-/// contract still reproduces the fenced lines). render_model consults this before
-/// block spacing so a skipped block leaves no blank lines.
 pub fn rendersNothing(fm: Block.FrontMatter, style: config.FrontmatterStyle) bool {
     return style == .hidden or (fm.entries.len == 0 and style != .raw);
 }
@@ -35,17 +30,11 @@ pub fn render(allocator: std.mem.Allocator, builder: *Builder, fm: Block.FrontMa
 
 const KeyValueLook = enum { panel, dim };
 
-/// A display row of the key/value layouts: an optional key cell followed by
-/// one wrapped value line. Rows past the first line of a wrapped value (and
-/// raw non-`key: value` lines) have an empty key.
 const Row = struct {
     key: []const u8,
     value: []const u8,
 };
 
-/// Shared layout of the `panel` and `dim` styles: an aligned key column and
-/// wrapped values. `panel` adds the code-block-tinted background and the
-/// half-block top/bottom caps; `dim` is the same grid with no chrome.
 fn renderKeyValues(allocator: std.mem.Allocator, builder: *Builder, fm: Block.FrontMatter, width: usize, look: KeyValueLook) !void {
     const inner_width = width -| 2;
 
@@ -108,9 +97,6 @@ fn renderKeyValues(allocator: std.mem.Allocator, builder: *Builder, fm: Block.Fr
     }
 }
 
-/// Append `value` as display rows, wrapping onto continuation rows with an
-/// empty key cell. `a` must be an arena: wrapped lines are allocated from it
-/// and never individually freed.
 fn appendWrapped(a: std.mem.Allocator, rows: *std.ArrayList(Row), key: []const u8, value: []const u8, value_width: usize, value_start: usize) !void {
     if (try geometry.displayWidthFrom(value, value_start) <= value_width) {
         try rows.append(a, .{ .key = key, .value = value });
@@ -122,13 +108,9 @@ fn appendWrapped(a: std.mem.Allocator, rows: *std.ArrayList(Row), key: []const u
     }
 }
 
-/// Wrap `text` into lines no wider than `width` display cells. Prefers
-/// breaking at spaces; a single token wider than `width` is hard-split at
-/// grapheme boundaries so the width is always respected. `width` must be at
-/// least 1. `a` must be an arena: partial allocations on an error path are
-/// reclaimed by the arena, not freed here.
 fn wrapValue(a: std.mem.Allocator, text: []const u8, width: usize, initial_column: usize) ![][]const u8 {
     std.debug.assert(width >= 1);
+    _ = try geometry.displayWidth(text);
 
     var lines: std.ArrayList([]const u8) = .empty;
     var current: std.ArrayList(u8) = .empty;
@@ -167,23 +149,14 @@ fn wrapValue(a: std.mem.Allocator, text: []const u8, width: usize, initial_colum
     return lines.toOwnedSlice(a);
 }
 
-/// Byte length of the longest prefix of `text` that fits within `width`
-/// display cells. Always advances by at least one grapheme so callers make
-/// progress even when a single wide glyph exceeds `width`.
 fn takeWidth(text: []const u8, width: usize, initial_column: usize) !usize {
     const clipped = try geometry.takeWidth(text, width, initial_column);
     if (clipped == 0 and text.len != 0) return geometry.firstGraphemeLength(text, initial_column);
     return clipped;
 }
 
-/// The single-cell ellipsis appended to a truncated key.
 const ellipsis = "\u{2026}";
 
-/// Constrain `text` to at most `max` display cells. If `text` already fits it
-/// is returned as-is (the source outlives the render call); otherwise an arena
-/// copy is cut at a grapheme boundary with a trailing ellipsis so the result
-/// never exceeds `max`. Used to keep keys from overflowing the width cap the
-/// same way values are wrapped.
 fn truncateToWidth(a: std.mem.Allocator, text: []const u8, max: usize, initial_column: usize) ![]const u8 {
     const text_width = try geometry.displayWidthFrom(text, initial_column);
     if (text_width <= max) return text;
@@ -235,8 +208,6 @@ fn renderCompact(allocator: std.mem.Allocator, builder: *Builder, fm: Block.Fron
     }
 }
 
-/// Emit `value` in the `.body` style starting at column `used.*`, wrapping onto
-/// one-space-indented continuation lines whenever it would exceed `avail`.
 fn emitValue(builder: *Builder, value: []const u8, avail: usize, content_origin: usize, used: *usize) !void {
     if (value.len == 0) return;
     var remaining = value;
@@ -281,8 +252,6 @@ test {
     _ = @import("frontmatter_test2.zig");
 }
 
-/// Append a cap line built by repeating `glyph` `count` times as one span.
-/// `a` must be an arena; the builder copies the text.
 fn appendCap(a: std.mem.Allocator, builder: *Builder, glyph: []const u8, count: usize) !void {
     if (count == 0) return;
     const row = try a.alloc(u8, glyph.len * count);

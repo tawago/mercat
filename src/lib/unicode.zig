@@ -1,7 +1,3 @@
-//! Unicode 17.0 authority for terminal grapheme segmentation and cell geometry.
-//! Input is never normalized. Strict APIs reject malformed UTF-8 and controls;
-//! `PreparedLine` additionally expands tabs to four-column stops.
-
 const std = @import("std");
 const segmentation = @import("unicode/segmentation.zig");
 const tables = @import("unicode/tables.zig");
@@ -44,8 +40,6 @@ pub const Entry = struct {
     }
 };
 
-/// Stateful whole-string extended-grapheme iterator. The current display
-/// column is part of the state because a tab's width depends on its position.
 pub const Iterator = struct {
     text: []const u8,
     index: usize = 0,
@@ -56,9 +50,6 @@ pub const Iterator = struct {
         return .{ .text = text };
     }
 
-    /// `text` must begin on an extended-grapheme boundary. Use this to supply
-    /// a nonzero terminal column for tab expansion, not to segment a suffix
-    /// cut from the middle of a grapheme.
     pub fn initAt(text: []const u8, initial_column: usize) Iterator {
         return .{ .text = text, .column = initial_column };
     }
@@ -161,7 +152,6 @@ pub const PreparedLine = struct {
         return .{ .line = self };
     }
 
-    /// Longest prefix whose graphemes fit wholly in `width` columns.
     pub fn prefixToWidth(self: PreparedLine, width: usize) []const u8 {
         var byte_end: usize = 0;
         for (self.entries) |entry| {
@@ -188,7 +178,6 @@ pub fn rawDisplayWidth(text: []const u8) MeasureError!usize {
     return rawDisplayWidthFrom(text, 0);
 }
 
-/// Return the ending column when measurement begins at `initial_column`.
 pub fn rawDisplayWidthFrom(text: []const u8, initial_column: usize) MeasureError!usize {
     try validateInput(text);
     var iter = Iterator.initValidated(text, initial_column);
@@ -287,11 +276,6 @@ fn validateGrapheme(bytes: []const u8) MeasureError!void {
 
 pub const Glyph = struct { bytes: []const u8, width: usize };
 
-/// Stateless compatibility lookup. It assumes `index` is a grapheme boundary.
-/// A tab is measured from column zero; use `LegacyCursor` when its real column
-/// matters or when walking more than one grapheme. Malformed UTF-8 after a
-/// valid grapheme does not affect that grapheme. At malformed input this returns
-/// an empty, width-zero slice anchored at `index`; it never returns invalid UTF-8.
 pub fn nextGlyph(text: []const u8, index: usize) Glyph {
     if (index >= text.len) return .{ .bytes = text[text.len..], .width = 0 };
     var operations: usize = 0;
@@ -301,9 +285,6 @@ pub fn nextGlyph(text: []const u8, index: usize) Glyph {
     return result.glyph;
 }
 
-/// Linear compatibility iterator. It returns complete valid graphemes up to
-/// the first malformed byte, then permanently returns null. Malformed bytes are
-/// neither returned nor skipped, so every returned `Glyph.bytes` is valid UTF-8.
 pub const LegacyCursor = struct {
     text: []const u8,
     index: usize = 0,
@@ -337,20 +318,10 @@ fn legacyGlyphAt(text: []const u8, index: usize, column: usize, operations: *usi
     return .{ .glyph = .{ .bytes = bytes, .width = width }, .end = end };
 }
 
-/// Terminal columns of `text`. Text the strict measure accepts is measured
-/// by extended graphemes; text it rejects (malformed UTF-8, a control, a
-/// disallowed format character) falls back to the compatibility measure,
-/// which walks the same graphemes with `LegacyCursor` and counts every
-/// malformed byte as one cell — so `displayWidth(clipToWidth(t, w)) <= w`
-/// holds for every input.
 pub fn displayWidth(text: []const u8) usize {
     return rawDisplayWidth(text) catch legacyDisplayWidth(text);
 }
 
-/// Return the longest complete-grapheme prefix within `width`. When strict
-/// validation rejects malformed UTF-8, clipping stops before its first byte;
-/// the returned prefix is always valid UTF-8. Valid but disallowed controls use
-/// the compatibility width policy. No malformed byte is replaced or skipped.
 pub fn clipToWidth(text: []const u8, width: usize) []const u8 {
     return rawPrefixToWidth(text, width) catch legacyClipToWidth(text, width);
 }
@@ -364,12 +335,6 @@ pub fn codepointWidth(codepoint: u21) usize {
     return 1;
 }
 
-/// Compatibility measure: the graphemes `LegacyCursor` yields, at the
-/// widths it assigns them, plus one cell for every malformed byte — the
-/// cursor stops at such a byte, the byte is charged, and a fresh cursor
-/// resumes at the next one. The same walk `legacyClipToWidth` cuts on, so
-/// a clipped prefix never measures wider than the width it was cut to.
-/// Unlike slice-returning APIs, no source bytes escape.
 fn legacyDisplayWidth(text: []const u8) usize {
     var width: usize = 0;
     var rest = text;

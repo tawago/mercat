@@ -1,27 +1,13 @@
-//! Property tests for the Sketch IR. Generates small SemGraphs by hand
-//! (the `gen.semGraph` helper is still a panicking stub at week 3), runs
-//! `coords.layout`, and asserts `validate.validate` returns `.ok`.
-//!
-//! Each property uses the property runner's per-iteration arena to hold
-//! the generated SemGraph storage. The property body creates its own
-//! transient arena for layout+validate output, kept rooted at
-//! `std.testing.allocator` so it lives independently of the runner arena.
-
 const std = @import("std");
 const v2 = @import("mermaid_v2");
 const gen = @import("gen.zig");
 const runner = @import("runner.zig");
 
-// ----- Helpers --------------------------------------------------------------
-
-/// Manually-built SemGraph plus borrowed slices, all allocated in the
-/// iteration arena passed to the generator.
 const BuiltGraph = struct {
     graph: v2.sem_graph.SemGraph,
 };
 
 fn ascii(allocator: std.mem.Allocator, i: u32) ![]const u8 {
-    // Produce a short distinct identifier: "N0", "N1", ...
     return std.fmt.allocPrint(allocator, "N{d}", .{i});
 }
 
@@ -53,13 +39,6 @@ fn buildEdge(id: v2.EdgeId, from: v2.NodeId, to: v2.NodeId) v2.sem_graph.Edge {
     };
 }
 
-/// Run layout+validate on a freshly built SemGraph and expect .ok. Uses
-/// std.testing.allocator for the layout arena; we tear it down with the
-/// reusable trick of catching the (typically arena-internal) leak via
-/// the layout function allocating its own `ArenaAllocator` on this
-/// allocator. The `coords.layout` implementation creates an arena and
-/// never returns it, so we must wrap in our own outer arena to recover
-/// memory.
 fn layoutAndExpectOk(graph: v2.sem_graph.SemGraph) !void {
     var outer = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer outer.deinit();
@@ -95,8 +74,6 @@ fn layoutAndExpectOk(graph: v2.sem_graph.SemGraph) !void {
     }
 }
 
-// ----- Generators -----------------------------------------------------------
-
 fn genLinearChain(allocator: std.mem.Allocator, rng: std.Random, _: u32) !BuiltGraph {
     const n = gen.intRange(rng, u32, 2, 8);
     const nodes = try allocator.alloc(v2.sem_graph.Node, n);
@@ -123,12 +100,10 @@ fn genLinearChain(allocator: std.mem.Allocator, rng: std.Random, _: u32) !BuiltG
 }
 
 fn genDiamond(allocator: std.mem.Allocator, rng: std.Random, _: u32) !BuiltGraph {
-    // A -> {B0, B1, ..., Bk} -> C
     const k = gen.intRange(rng, u32, 2, 4);
     const total: u32 = 2 + k;
     const nodes = try allocator.alloc(v2.sem_graph.Node, total);
 
-    // 0 = A (source), 1..k = middles, k+1 = C (sink)
     nodes[0] = try buildNode(allocator, 0, try ascii(allocator, 0), .rect);
     var i: u32 = 1;
     while (i <= k) : (i += 1) {
@@ -165,24 +140,19 @@ fn genSmallDag(allocator: std.mem.Allocator, rng: std.Random, _: u32) !BuiltGrap
     while (i < n) : (i += 1) {
         nodes[i] = try buildNode(allocator, i, try ascii(allocator, i), .rect);
     }
-    // Build a DAG by only adding edges (u -> v) with u < v. Cap edges
-    // around 1.5x node count.
     const max_edges = (n * 3) / 2 + 1;
     var edges_buf: std.ArrayList(v2.sem_graph.Edge) = .empty;
     defer edges_buf.deinit(allocator);
 
-    // Ensure connectivity: chain 0->1->...->n-1.
     var k: u32 = 0;
     while (k + 1 < n) : (k += 1) {
         try edges_buf.append(allocator, buildEdge(@intCast(edges_buf.items.len), k, k + 1));
     }
-    // Add extra forward edges sparsely.
     var attempts: u32 = 0;
     while (attempts < max_edges and edges_buf.items.len < max_edges) : (attempts += 1) {
         const u = gen.intRange(rng, u32, 0, n - 1);
         const v = gen.intRange(rng, u32, 0, n - 1);
         if (u >= v) continue;
-        // skip if duplicate of chain
         if (v == u + 1) continue;
         try edges_buf.append(allocator, buildEdge(@intCast(edges_buf.items.len), u, v));
     }
@@ -199,13 +169,9 @@ fn genSmallDag(allocator: std.mem.Allocator, rng: std.Random, _: u32) !BuiltGrap
     };
 }
 
-// ----- Property bodies ------------------------------------------------------
-
 fn propValid(bg: BuiltGraph) anyerror!void {
     try layoutAndExpectOk(bg.graph);
 }
-
-// ----- Tests ----------------------------------------------------------------
 
 test "property: linear chains lay out without validator violations" {
     try runner.forAll(BuiltGraph, genLinearChain, propValid, .{ .count = 64 });

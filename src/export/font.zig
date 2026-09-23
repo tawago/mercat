@@ -1,37 +1,11 @@
-//! Font service for the native PNG/PDF exporter.
-//!
-//! Wraps the vendored `stb_truetype` single-header library (implemented once in
-//! `src/export/font_stb.c`; see `vendor/stb/PIN.txt`) around the JetBrains Mono
-//! Regular TTF, which is embedded into the binary at build time via the
-//! `jetbrains_mono_ttf` anonymous import declared in `build.zig`.
-//!
-//! Responsibilities:
-//!   * SHA-256 the embedded font bytes at init and verify them against the
-//!     pinned digest (guards against a corrupted embed).
-//!   * Initialize `stbtt_fontinfo` at font index 0 and derive the fixed-cell
-//!     metrics per §7.1 (scale, ascent/descent/line-gap, monospace advance,
-//!     integer cell width/height, in-cell baseline).
-//!   * Resolve glyph indices, failing with `error.MissingGlyph` for any
-//!     non-space scalar that maps to `.notdef` (§7.3) — no fallback font, no
-//!     replacement character.
-//!   * Rasterize glyph coverage masks for the surface/PNG stage.
-//!
-//! Runtime font lookup/fallback is forbidden: this module owns exactly one face.
-
 const std = @import("std");
 
 const c = @cImport({
     @cInclude("stb_truetype.h");
 });
 
-/// The embedded JetBrains Mono Regular TTF bytes (build-time asset, not a
-/// runtime file read). The import name is declared in `build.zig` on every
-/// module that compiles this file.
 pub const ttf_bytes: []const u8 = @embedFile("jetbrains_mono_ttf");
 
-/// SHA-256 of the pinned `assets/fonts/JetBrainsMono-Regular.ttf` (v2.304).
-/// See `assets/fonts/PIN.txt`. Init fails with `error.FontHashMismatch` if the
-/// embedded bytes ever diverge from this digest.
 pub const expected_sha256: [32]u8 = .{
     0xa0, 0xbf, 0x60, 0xef, 0x0f, 0x83, 0xc5, 0xed,
     0x4d, 0x7a, 0x75, 0xd4, 0x58, 0x38, 0x54, 0x8b,
@@ -39,26 +13,14 @@ pub const expected_sha256: [32]u8 = .{
     0x71, 0x80, 0x44, 0x91, 0x89, 0x8d, 0x13, 0x8f,
 };
 
-/// Human-readable font family name of the pinned asset. Surfaced to the §9.3
-/// manifest `font.name` field.
 pub const font_name = "JetBrains Mono Regular";
 
-/// Font release/version of the pinned asset ("the font
-/// release/version [...] MUST be available to the PNG metadata/manifest API").
-/// Kept in lockstep with `assets/fonts/PIN.txt`.
 pub const font_release_version = "v2.304";
 
-/// Vendored `stb_truetype.h` pinned commit (the manifest's
-/// `rasterizer_revision`). Kept in lockstep with `vendor/stb/PIN.txt`. No
-/// value here may drift from that pin without a matching PIN.txt update.
 pub const stb_truetype_revision = "6e9f34d5429cf16790ec43c9bac3f1ee4ad1f760";
 
-/// `stb_truetype.h` library version banner of the pinned commit.
 pub const stb_truetype_version = "v1.26";
 
-/// The five renderer-owned geometric shape scalars that a valid pin MUST
-/// cover. The glyph-sheet test asserts each resolves to a non-`.notdef`
-/// glyph.
 pub const required_shape_scalars = [_]u21{
     0x25B2,
     0x25B6,
@@ -74,53 +36,31 @@ pub const required_shape_scalars = [_]u21{
 };
 
 pub const Error = error{
-    /// `stbtt_InitFont` rejected the embedded bytes / offset table.
     InvalidFontData,
-    /// The embedded bytes do not match the pinned SHA-256.
     FontHashMismatch,
-    /// A metric was zero/degenerate, or the U+0020 and U+004D advances disagree
-    /// by a fixed-point unit or more — the face is not the expected monospace.
     InconsistentMetrics,
-    /// A non-space scalar mapped to glyph index 0 (`.notdef`). No fallback.
     MissingGlyph,
 };
 
-/// Sub-pixel tolerance for the monospace advance-agreement check (§7.1 step 6).
-/// TrueType fixed-point is 1/64 px; two scaled advances must differ by strictly
-/// less than one such unit.
 const fixed_point_unit: f32 = 1.0 / 64.0;
 
 pub const Font = struct {
-    /// stb face handle. Holds raw pointers into `ttf_bytes` (a static embedded
-    /// slice that outlives every `Font`), so copying this struct by value is
-    /// safe.
     info: c.stbtt_fontinfo,
 
-    /// SHA-256 of the embedded font bytes (equals `expected_sha256` after a
-    /// successful init). Surfaced to the PNG metadata/manifest API.
     sha256: [32]u8,
 
-    /// `stbtt_ScaleForPixelHeight(font_pixel_height)`.
     scale: f32,
 
-    /// Requested pixel height passed to `init`.
     pixel_height: u16,
 
     ascent_units: i32,
     descent_units: i32,
     line_gap_units: i32,
 
-    /// Integer advance width of every cell (rounded common monospace advance).
     cell_width_px: u16,
-    /// Row height: `ceil((ascent - descent + line_gap) * scale)`.
     cell_height_px: u16,
-    /// Baseline offset from the TOP of a glyph cell: `ceil(ascent * scale)`.
-    /// The layout stage adds the document's top padding to obtain the final
-    /// `Geometry.baseline_px`.
     baseline_px: i16,
 
-    /// Initialize the exporter font face. Fatal on any degenerate/inconsistent
-    /// metric (§7.1: "Zero or inconsistent metrics are fatal export errors").
     pub fn init(pixel_height: u16) Error!Font {
         if (pixel_height == 0) return Error.InconsistentMetrics;
 
@@ -175,40 +115,25 @@ pub const Font = struct {
         };
     }
 
-    /// Raw glyph index for a scalar (`0` == `.notdef`/uncovered). Does not error;
-    /// use `requireGlyph` for the exporter's fail-closed policy.
     pub fn glyphIndex(self: *const Font, codepoint: u21) i32 {
         return c.stbtt_FindGlyphIndex(&self.info, @intCast(codepoint));
     }
 
-    /// True when the scalar maps to a real (non-`.notdef`) glyph.
     pub fn hasGlyph(self: *const Font, codepoint: u21) bool {
         return self.glyphIndex(codepoint) != 0;
     }
 
-    /// Resolve a scalar to a non-zero glyph index. A non-space scalar mapping to
-    /// glyph 0 is `error.MissingGlyph` (§7.3). Space (U+0020) is allowed to use
-    /// whatever glyph the font assigns, including 0. The caller supplies the
-    /// row/column diagnostic context; the code point is the argument.
     pub fn requireGlyph(self: *const Font, codepoint: u21) Error!i32 {
         const gi = self.glyphIndex(codepoint);
         if (gi == 0 and codepoint != ' ') return Error.MissingGlyph;
         return gi;
     }
 
-    /// Integer scaled advance for a scalar (all covered scalars share the
-    /// monospace `cell_width_px`; exposed mainly for assertions).
     pub fn advancePx(self: *const Font, codepoint: u21) i32 {
         const adv = advanceUnits(&self.info, codepoint);
         return @intFromFloat(@round(@as(f32, @floatFromInt(adv)) * self.scale));
     }
 
-    /// A rasterized glyph coverage mask. `coverage` is `width*height` bytes of
-    /// 0..255 alpha in row-major order, allocated by the caller's allocator.
-    /// `left`/`top` are the pixel offsets from the pen origin (baseline, x=pen)
-    /// to the top-left of the bitmap; `top` is typically negative (above the
-    /// baseline). An empty glyph (e.g. space) yields a zero-size, non-owning
-    /// bitmap.
     pub const GlyphBitmap = struct {
         coverage: []u8,
         width: i32,
@@ -221,10 +146,6 @@ pub const Font = struct {
         }
     };
 
-    /// Rasterize `glyph_index` into a caller-owned coverage mask at this font's
-    /// scale. Uses `stbtt_MakeGlyphBitmap` into a Zig-allocated buffer so no C
-    /// `malloc` ownership crosses the boundary. Empty glyphs return a zero-size
-    /// bitmap.
     pub fn rasterizeGlyphIndex(
         self: *const Font,
         allocator: std.mem.Allocator,
@@ -266,7 +187,6 @@ pub const Font = struct {
     }
 };
 
-/// Unscaled horizontal advance (design units) for a scalar.
 fn advanceUnits(info: *const c.stbtt_fontinfo, codepoint: u21) i32 {
     var advance: c_int = 0;
     var lsb: c_int = 0;

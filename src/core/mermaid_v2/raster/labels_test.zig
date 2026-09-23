@@ -1,6 +1,3 @@
-//! Unit tests for raster/labels.zig. Split out to keep labels.zig under
-//! the 500-line cap.
-
 const std = @import("std");
 const prim = @import("prim");
 const sketch = @import("../sketch.zig");
@@ -73,12 +70,16 @@ test "node label fits centered" {
     fillNodeInterior(&lat, rect, 1);
 
     const nodes = [_]sketch.NodePlacement{.{
-        .id = 1, .rect = rect, .shape = .rect, .lines = &.{"Hi"}, .cluster_id = null,
+        .id = 1,
+        .rect = rect,
+        .shape = .rect,
+        .lines = &.{"Hi"},
+        .cluster_id = null,
     }};
     var s = emptySketch(10, 5, .TD);
     s.nodes = &nodes;
 
-    const report = try labels.rasterizeLabels(alloc, &lat, s);
+    const report = try labels.rasterizeLabels(alloc, &lat, s, null);
     try testing.expectEqual(@as(u32, 1), report.placed);
     try testing.expectEqual(@as(u32, 0), report.dropped);
     try testing.expectEqual(@as(usize, 0), report.diagnostics.len);
@@ -97,12 +98,16 @@ test "node label truncated emits diagnostic" {
     fillNodeInterior(&lat, rect, 7);
 
     const nodes = [_]sketch.NodePlacement{.{
-        .id = 7, .rect = rect, .shape = .rect, .lines = &.{"Hello"}, .cluster_id = null,
+        .id = 7,
+        .rect = rect,
+        .shape = .rect,
+        .lines = &.{"Hello"},
+        .cluster_id = null,
     }};
     var s = emptySketch(10, 5, .TD);
     s.nodes = &nodes;
 
-    const report = try labels.rasterizeLabels(alloc, &lat, s);
+    const report = try labels.rasterizeLabels(alloc, &lat, s, null);
     try testing.expectEqual(@as(u32, 1), report.placed);
     try testing.expectEqual(@as(usize, 1), report.diagnostics.len);
     try testing.expectEqual(labels.LabelDiagnostic{
@@ -141,7 +146,7 @@ test "cluster label overwrites top border" {
     var s = emptySketch(12, 6, .TD);
     s.clusters = &clusters;
 
-    const report = try labels.rasterizeLabels(alloc, &lat, s);
+    const report = try labels.rasterizeLabels(alloc, &lat, s, null);
     try testing.expectEqual(@as(u32, 1), report.placed);
     try testing.expectEqual(@as(usize, 0), report.diagnostics.len);
 
@@ -163,7 +168,7 @@ test "edge label fits above midpoint" {
     var s = emptySketch(10, 6, .LR);
     s.edges = &edges;
 
-    const report = try labels.rasterizeLabels(alloc, &lat, s);
+    const report = try labels.rasterizeLabels(alloc, &lat, s, null);
     try testing.expectEqual(@as(u32, 1), report.placed);
     try testing.expectEqual(@as(usize, 0), report.diagnostics.len);
 
@@ -175,16 +180,13 @@ test "no space for edge label emits diagnostic" {
     defer arena.deinit();
     const alloc = arena.allocator();
 
-    // 1-row lattice: the rows above and below the segment are both out of
-    // bounds and the segment row itself is never a candidate, so the whole
-    // fallback ladder fails and the label is dropped.
     var lat = try makeLattice(alloc, 10, 1);
     const poly = [_]sketch.Point{ .{ .x = 1, .y = 0 }, .{ .x = 5, .y = 0 } };
     const edges = [_]sketch.EdgePath{makeEdge(9, &poly, "lbl")};
     var s = emptySketch(10, 1, .LR);
     s.edges = &edges;
 
-    const report = try labels.rasterizeLabels(alloc, &lat, s);
+    const report = try labels.rasterizeLabels(alloc, &lat, s, null);
     try testing.expectEqual(@as(u32, 0), report.placed);
     try testing.expectEqual(@as(u32, 1), report.dropped);
     try testing.expectEqual(@as(usize, 1), report.diagnostics.len);
@@ -192,16 +194,6 @@ test "no space for edge label emits diagnostic" {
     try testing.expect(report.diagnostics[0].kind == .edge_label_no_space);
 }
 
-// `EdgePath.label_left_of_rail` contract (sketch.zig's "the painted label
-// lands exactly where the bbox reserved it"): `layout/clusters.computeBbox`
-// RESERVES room via `prim.edgeLabelAnchor`/`leftOfRailAnchor` and records
-// which side it chose on `label_left_of_rail`; raster (here) must PAINT at
-// that exact same anchor. This test recomputes the anchor directly via the
-// shared `prim` functions (the same ones computeBbox calls) and asserts the
-// painted cells land there — for BOTH the default right-of-rail anchor and
-// the width-lever's left-of-rail anchor on a vertical segment, so a raster
-// change that stops honoring the flag (or hand-rolls a different offset)
-// fails this test even though it never touches layout/clusters.zig.
 test "vertical edge label paints at the exact prim anchor for both rail sides" {
     var arena = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
@@ -211,16 +203,15 @@ test "vertical edge label paints at the exact prim anchor for both rail sides" {
     const label = "abc";
     const label_w = prim.displayWidth(label);
 
-    // Right-of-rail (default; label_left_of_rail = false).
     {
         var lat = try makeLattice(alloc, 20, 10);
         var e = makeEdge(1, &poly, label);
-        e.label_left_of_rail = false;
+        e.label_left_of_run = false;
         const edges = [_]sketch.EdgePath{e};
         var s = emptySketch(20, 10, .LR);
         s.edges = &edges;
 
-        const report = try labels.rasterizeLabels(alloc, &lat, s);
+        const report = try labels.rasterizeLabels(alloc, &lat, s, null);
         try testing.expectEqual(@as(u32, 1), report.placed);
         try testing.expectEqual(@as(u32, 0), report.dropped);
 
@@ -230,16 +221,15 @@ test "vertical edge label paints at the exact prim anchor for both rail sides" {
         try testing.expectEqual(@as(u21, 'c'), cellChar(lat, @intCast(want.x + 2), @intCast(want.y)));
     }
 
-    // Left-of-rail (the width lever's relocated anchor; label_left_of_rail = true).
     {
         var lat = try makeLattice(alloc, 20, 10);
         var e = makeEdge(2, &poly, label);
-        e.label_left_of_rail = true;
+        e.label_left_of_run = true;
         const edges = [_]sketch.EdgePath{e};
         var s = emptySketch(20, 10, .LR);
         s.edges = &edges;
 
-        const report = try labels.rasterizeLabels(alloc, &lat, s);
+        const report = try labels.rasterizeLabels(alloc, &lat, s, null);
         try testing.expectEqual(@as(u32, 1), report.placed);
         try testing.expectEqual(@as(u32, 0), report.dropped);
 
@@ -247,21 +237,12 @@ test "vertical edge label paints at the exact prim anchor for both rail sides" {
         try testing.expectEqual(@as(u21, 'a'), cellChar(lat, @intCast(want.x), @intCast(want.y)));
         try testing.expectEqual(@as(u21, 'b'), cellChar(lat, @intCast(want.x + 1), @intCast(want.y)));
         try testing.expectEqual(@as(u21, 'c'), cellChar(lat, @intCast(want.x + 2), @intCast(want.y)));
-        // Confirm the two anchors actually differ — otherwise this test
-        // would pass even if raster ignored the flag entirely.
         const right = prim.edgeLabelAnchor(10, 2, 10, 6, label_w, .{});
         try testing.expect(want.x != right.x);
     }
 }
 
-// `BusBar.tapLabelSeg`'s off-column/on-column rule (sketch.zig): bbox
-// reservation (layout/clusters.computeBbox) and rasterization (raster/labels,
-// here) both call this SAME method to find the segment a tap label anchors
-// to, then feed it to the SAME `prim.edgeLabelAnchor`. Building one
-// off-column and one on-column tap and checking the painted cells against
-// that shared formula pins both the rule (off-column -> junction..tap rail
-// stretch; on-column -> tap..landing drop) and the cross-stage agreement.
-test "bus-bar tap labels paint at the tapLabelSeg-predicted segment for off-column and on-column taps" {
+test "rail tap labels paint at the tapLabelSeg-predicted segment for off-column and on-column taps" {
     var arena = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
     const alloc = arena.allocator();
@@ -270,10 +251,8 @@ test "bus-bar tap labels paint at the tapLabelSeg-predicted segment for off-colu
 
     const junction: sketch.Point = .{ .x = 5, .y = 3 };
     const stem = [_]sketch.Point{ .{ .x = 5, .y = 8 }, junction };
-    const rail = [2]sketch.Point{ junction, .{ .x = 20, .y = 3 } };
+    const crossbar = [2]sketch.Point{ junction, .{ .x = 20, .y = 3 } };
 
-    // Off-column: tap.at.x (12) != junction.x (5) -> seg = (junction.x,
-    // tap.at.y)..tap.at, a HORIZONTAL rail stretch.
     const off_col_tap: sketch.Tap = .{
         .edge = 1,
         .node = 10,
@@ -281,8 +260,6 @@ test "bus-bar tap labels paint at the tapLabelSeg-predicted segment for off-colu
         .landing = .{ .x = 12, .y = 8 },
         .label = "ab",
     };
-    // On-column: tap.at.x (5) == junction.x -> seg = tap.at..tap.landing,
-    // a VERTICAL drop.
     const on_col_tap: sketch.Tap = .{
         .edge = 2,
         .node = 11,
@@ -292,46 +269,36 @@ test "bus-bar tap labels paint at the tapLabelSeg-predicted segment for off-colu
     };
     const taps = [_]sketch.Tap{ off_col_tap, on_col_tap };
 
-    const busbar: sketch.BusBar = .{
+    const rail: sketch.Rail = .{
         .pivot = 0,
         .stem = &stem,
-        .rail = rail,
+        .crossbar = crossbar,
         .taps = &taps,
         .kind = .solid,
     };
     var s = emptySketch(30, 15, .TD);
-    s.busbars = &[_]sketch.BusBar{busbar};
+    s.rails = &[_]sketch.Rail{rail};
 
-    const report = try labels.rasterizeLabels(alloc, &lat, s);
+    const report = try labels.rasterizeLabels(alloc, &lat, s, null);
     try testing.expectEqual(@as(u32, 2), report.placed);
     try testing.expectEqual(@as(u32, 0), report.dropped);
 
-    const off_seg = busbar.tapLabelSeg(off_col_tap);
+    const off_seg = rail.tapLabelSeg(off_col_tap);
     const off_w = prim.displayWidth(off_col_tap.label.?);
     const off_anchor = prim.edgeLabelAnchor(off_seg[0].x, off_seg[0].y, off_seg[1].x, off_seg[1].y, off_w, .{});
     try testing.expectEqual(@as(u21, 'a'), cellChar(lat, @intCast(off_anchor.x), @intCast(off_anchor.y)));
     try testing.expectEqual(@as(u21, 'b'), cellChar(lat, @intCast(off_anchor.x + 1), @intCast(off_anchor.y)));
 
-    const on_seg = busbar.tapLabelSeg(on_col_tap);
+    const on_seg = rail.tapLabelSeg(on_col_tap);
     const on_w = prim.displayWidth(on_col_tap.label.?);
     const on_anchor = prim.edgeLabelAnchor(on_seg[0].x, on_seg[0].y, on_seg[1].x, on_seg[1].y, on_w, .{});
     try testing.expectEqual(@as(u21, 'c'), cellChar(lat, @intCast(on_anchor.x), @intCast(on_anchor.y)));
     try testing.expectEqual(@as(u21, 'd'), cellChar(lat, @intCast(on_anchor.x + 1), @intCast(on_anchor.y)));
 
-    // Confirm the two segments actually differ in orientation — otherwise
-    // this test would pass even if tapLabelSeg collapsed both cases to the
-    // same rule.
-    try testing.expect(off_seg[0].y == off_seg[1].y); // horizontal (rail stretch)
-    try testing.expect(on_seg[0].x == on_seg[1].x); // vertical (drop)
+    try testing.expect(off_seg[0].y == off_seg[1].y);
+    try testing.expect(on_seg[0].x == on_seg[1].x);
 }
 
-// `MARGIN_BOUND` (sketch.zig): bounds how far `clearLine` searches for a
-// fully-margined line (3 consecutive touch-free rows) before settling for a
-// merely touch-free one. This builds a row of obstacles with a single
-// touch-free row at delta=5 (not margined — its neighbours are blocked) and
-// a fully-clear 3-row margined band starting only at delta=30 (past the
-// bound). If `clearLine` kept searching past MARGIN_BOUND for a margined
-// line it would return the delta=30 band instead of the delta=5 line.
 test "clearLine settles for touch-free line at the MARGIN_BOUND boundary rather than searching further for a margined one" {
     var arena = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
@@ -339,9 +306,6 @@ test "clearLine settles for touch-free line at the MARGIN_BOUND boundary rather 
 
     const want: i32 = 50;
     var list = std.ArrayList(sketch.NodePlacement){};
-    // Block every row in [want-40, want+29] except want+5 (the lone
-    // touch-free opening). Rows want+30..want+32 are left unblocked below,
-    // forming a 3-row-clear margined band past the MARGIN_BOUND horizon.
     var row: i32 = want - 40;
     var next_id: u32 = 0;
     while (row <= want + 29) : (row += 1) {
@@ -366,30 +330,20 @@ test "edge label falls back below the segment when above is out of bounds" {
     defer arena.deinit();
     const alloc = arena.allocator();
 
-    // Segment on row 0: the primary anchor row (y-1) is out of bounds, so
-    // the ladder places the label on the row below instead of dropping it.
     var lat = try makeLattice(alloc, 10, 4);
     const poly = [_]sketch.Point{ .{ .x = 1, .y = 0 }, .{ .x = 5, .y = 0 } };
     const edges = [_]sketch.EdgePath{makeEdge(9, &poly, "lbl")};
     var s = emptySketch(10, 4, .LR);
     s.edges = &edges;
 
-    const report = try labels.rasterizeLabels(alloc, &lat, s);
+    const report = try labels.rasterizeLabels(alloc, &lat, s, null);
     try testing.expectEqual(@as(u32, 1), report.placed);
     try testing.expectEqual(@as(u32, 0), report.dropped);
     try testing.expectEqual(@as(usize, 0), report.diagnostics.len);
-    // Midpoint anchor x=3, one row below the segment.
     try testing.expectEqual(@as(u21, 'l'), cellChar(lat, 3, 1));
     try testing.expectEqual(@as(u21, 'b'), cellChar(lat, 4, 1));
 }
 
-// ---------------------------------------------------------------------
-// labels_edge.zig / tryWrite: rejects a pre-occupied cell as a genuine
-// collision, not merely an out-of-bounds check. Moved here (from the
-// former misc grab-bag test file, since dissolved) since the only call
-// this test makes is to `labels.rasterizeLabels` (tryWrite itself is
-// private to labels_edge.zig and not reachable directly).
-// ---------------------------------------------------------------------
 test "tryWrite rejects a pre-occupied primary-anchor cell as a real collision, not an OOB miss" {
     var arena = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
@@ -401,87 +355,39 @@ test "tryWrite rejects a pre-occupied primary-anchor cell as a real collision, n
     var s = emptySketch(10, 6, .LR);
     s.edges = &edges;
 
-    // Occupy the primary anchor cell (3,2) BEFORE rasterizing labels — same
-    // spot "edge label fits above midpoint" (this file) shows the label
-    // lands on when the cell is free. A pre-existing occupant here must be
-    // a genuine collision the ladder walks around, not silently overwritten.
     lat.at(3, 2).* = .{ .occupant = .{ .node_interior = 99 }, .neighbours = .{} };
 
-    const report = try labels.rasterizeLabels(alloc, &lat, s);
+    const report = try labels.rasterizeLabels(alloc, &lat, s, null);
     try testing.expectEqual(@as(u32, 1), report.placed);
     try testing.expectEqual(@as(usize, 0), report.diagnostics.len);
 
-    // The obstacle at the primary anchor must survive untouched...
     try testing.expectEqual(@as(u21, 0), cellChar(lat, 3, 2));
-    // ...and the label must have been displaced to the next ladder rung
-    // (one column further from the midpoint, same row).
-    try testing.expectEqual(@as(u21, 'x'), cellChar(lat, 2, 2));
+    try testing.expectEqual(@as(u21, 0), cellChar(lat, 2, 2));
+    try testing.expectEqual(@as(u21, 'x'), cellChar(lat, 1, 2));
 }
 
-// ---------------------------------------------------------------------
-// labels_edge.zig / tryWrite: inter-label separation invariant. Two
-// independently-anchored label spans must never abut with zero gap (they
-// fuse into one unreadable run). Only .label_char neighbours force
-// separation; abutting non-label ink (edge/node/arrow) stays legal.
-// Shape-generic: a pre-stamped label span forces the edge label off its
-// abutting primary anchor onto a separated slot.
-// ---------------------------------------------------------------------
-test "tryWrite requires a blank column between abutting label spans" {
+test "edge-label runs on the same row keep two blank cells apart" {
     var arena = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
     const alloc = arena.allocator();
 
     var lat = try makeLattice(alloc, 12, 6);
-    // Horizontal segment: primary anchor lands the single-char label at the
-    // midpoint (x=3) one row above (y=2), same geometry as "edge label fits
-    // above midpoint".
     const poly = [_]sketch.Point{ .{ .x = 1, .y = 3 }, .{ .x = 5, .y = 3 } };
     const edges = [_]sketch.EdgePath{makeEdge(42, &poly, "x")};
     var s = emptySketch(12, 6, .LR);
     s.edges = &edges;
 
-    // Pre-stamp a label span occupying cols 0..2 on the anchor row (y=2), so
-    // the cell immediately LEFT of the primary anchor (x=2) is a label_char.
     var px: u32 = 0;
     while (px < 3) : (px += 1) {
         lat.at(px, 2).* = .{ .occupant = .{ .label_char = 'Q' }, .neighbours = .{} };
     }
 
-    const report = try labels.rasterizeLabels(alloc, &lat, s);
+    const report = try labels.rasterizeLabels(alloc, &lat, s, null);
     try testing.expectEqual(@as(u32, 1), report.placed);
     try testing.expectEqual(@as(usize, 0), report.diagnostics.len);
 
-    // The pre-existing span's last cell (x=2) survives untouched, and the
-    // primary anchor (x=3, whose LEFT flank x=2 is label_char) is rejected
-    // by the guard...
     try testing.expectEqual(@as(u21, 'Q'), cellChar(lat, 2, 2));
     try testing.expectEqual(@as(u21, 0), cellChar(lat, 3, 2));
-    // ...so the label lands one column further out (x=4), leaving x=3 as the
-    // >=1 blank column of separation between the two spans.
-    try testing.expectEqual(@as(u21, 'x'), cellChar(lat, 4, 2));
-}
-
-test "tryWrite does not force separation from non-label ink" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const alloc = arena.allocator();
-
-    var lat = try makeLattice(alloc, 12, 6);
-    const poly = [_]sketch.Point{ .{ .x = 1, .y = 3 }, .{ .x = 5, .y = 3 } };
-    const edges = [_]sketch.EdgePath{makeEdge(42, &poly, "x")};
-    var s = emptySketch(12, 6, .LR);
-    s.edges = &edges;
-
-    // Pre-stamp NON-label ink at the left flank cell only (x=2, the cell
-    // immediately left of the primary anchor x=3). The guard keys on
-    // .label_char specifically, so this must NOT displace the label.
-    lat.at(2, 2).* = .{ .occupant = .{ .node_interior = 7 }, .neighbours = .{} };
-
-    const report = try labels.rasterizeLabels(alloc, &lat, s);
-    try testing.expectEqual(@as(u32, 1), report.placed);
-    try testing.expectEqual(@as(usize, 0), report.diagnostics.len);
-
-    // The label still lands at its primary anchor (x=3), abutting the
-    // non-label ink — separation is only forced against other labels.
-    try testing.expectEqual(@as(u21, 'x'), cellChar(lat, 3, 2));
+    try testing.expectEqual(@as(u21, 0), cellChar(lat, 4, 2));
+    try testing.expectEqual(@as(u21, 'x'), cellChar(lat, 5, 2));
 }

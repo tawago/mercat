@@ -52,8 +52,6 @@ pub const Span = struct {
 
 pub const Line = struct {
     spans: []Span,
-    /// Set by the Markdown builder after preparing the complete rendered line.
-    /// Null remains available for hand-built Lines used by downstream tests.
     display_columns: ?usize = null,
 
     pub fn displayWidth(self: Line) usize {
@@ -63,16 +61,10 @@ pub const Line = struct {
         return column;
     }
 
-    /// Prepare one owned line as a whole, then project each original source
-    /// span boundary into the prepared bytes. This keeps style and URL
-    /// provenance byte-exact even when one grapheme crosses span boundaries.
     pub fn prepareOwned(self: *Line, allocator: std.mem.Allocator) !void {
         const source = try self.joinedText(allocator);
         defer allocator.free(source);
 
-        // Only a tab changes the bytes, and only an empty span vanishes in the
-        // remap below. Otherwise the prepared line is the source line and every
-        // span boundary already maps onto itself: measure it and keep the spans.
         const needs_remap = std.mem.indexOfScalar(u8, source, '\t') != null or blk: {
             for (self.spans) |span| if (span.text.len == 0) break :blk true;
             break :blk false;
@@ -142,8 +134,6 @@ pub const Line = struct {
         self.display_columns = prepared.total_columns;
     }
 
-    /// Every span's bytes concatenated: the rendered line as one slice.
-    /// Caller owns the result.
     pub fn joinedText(self: Line, allocator: std.mem.Allocator) ![]u8 {
         var total: usize = 0;
         for (self.spans) |span| total += span.text.len;

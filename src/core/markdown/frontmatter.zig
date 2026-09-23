@@ -1,16 +1,7 @@
 const std = @import("std");
 
-/// YAML front matter detection and lightweight key/value extraction.
-///
-/// A front matter block is only recognized at byte offset 0: an opening
-/// `---` line, then anything up to the next line that is exactly `---`.
-/// A `---` later in the document is a thematic break and is never touched.
 pub const Split = struct {
-    /// Text between the fences, excluding both `---` lines. Null when the
-    /// source has no front matter block.
     yaml: ?[]const u8,
-    /// Remaining document after the closing fence (the whole source when
-    /// there is no front matter).
     body: []const u8,
 };
 
@@ -32,8 +23,6 @@ pub fn split(source: []const u8) Split {
     return no_match;
 }
 
-/// Length of the opening `---` line including its newline, or null when the
-/// source does not open with a front matter fence.
 fn fenceLineLength(source: []const u8) ?usize {
     if (!std.mem.startsWith(u8, source, "---")) return null;
     var index: usize = 3;
@@ -43,16 +32,10 @@ fn fenceLineLength(source: []const u8) ?usize {
 }
 
 pub const Entry = struct {
-    /// Empty for lines that are not a simple `key: value` pair (nested YAML,
-    /// list items, continuations); `value` then holds the raw line.
     key: []const u8,
     value: []const u8,
 };
 
-/// Split the YAML text into display entries. Slices point into `yaml`; no
-/// allocation is done for the text itself, only for the entry list.
-/// This is deliberately not a YAML parser: top-level `key: value` lines are
-/// split, everything else is kept verbatim so no information is lost.
 pub fn parseEntries(allocator: std.mem.Allocator, yaml: []const u8) ![]Entry {
     var entries: std.ArrayList(Entry) = .empty;
     errdefer entries.deinit(allocator);
@@ -74,10 +57,6 @@ pub fn parseEntries(allocator: std.mem.Allocator, yaml: []const u8) ![]Entry {
     return entries.toOwnedSlice(allocator);
 }
 
-/// Byte length of a top-level YAML key on `line` (the text before the mapping
-/// colon), or null when the line is indented, a list item, or has no colon in
-/// key position. A quoted key (`"a:b": value`) keeps its quotes so a colon
-/// inside the quotes is not mistaken for the separator.
 fn topLevelKeyLength(line: []const u8) ?usize {
     if (line.len == 0 or line[0] == ' ' or line[0] == '\t' or line[0] == '-' or line[0] == '#') return null;
 
@@ -94,9 +73,6 @@ fn topLevelKeyLength(line: []const u8) ?usize {
     return colon;
 }
 
-/// Index of the closing quote of the quoted scalar that begins at `line[0]`,
-/// or null when the quote is never closed. Handles `\"` escapes in double
-/// quotes and `''` doubling in single quotes.
 fn quotedScalarEnd(line: []const u8, quote: u8) ?usize {
     var i: usize = 1;
     while (i < line.len) : (i += 1) {

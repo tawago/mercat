@@ -1,5 +1,3 @@
-//! Tests for config.zig (split out to keep the module under the
-//! line-count limit).
 const std = @import("std");
 const prim = @import("prim");
 const config = @import("config.zig");
@@ -24,7 +22,6 @@ test "parses default config" {
     try std.testing.expect(cfg.mermaid.enabled);
     try std.testing.expect(cfg.display.heading_markers);
     try std.testing.expectEqual(FrontmatterStyle.panel, cfg.display.frontmatter);
-    // Frame-solid bridging is the default notation (owner ruling 2026-07-19).
     try std.testing.expectEqual(prim.SubgraphEdges.bridge, cfg.mermaid.subgraph_edges);
 }
 
@@ -64,8 +61,6 @@ test "theme is a free-form name (preset names pass through unvalidated)" {
     );
     try std.testing.expectEqualStrings("pink", cfg.display.theme);
 
-    // A name with no matching preset/user file is still accepted here; the
-    // registry defers validation and falls back to dark with a diagnostic.
     try applyTomlLike(std.testing.allocator, &cfg,
         \\[display]
         \\theme = "not-a-real-theme"
@@ -79,15 +74,10 @@ test "frontmatter style parses every notation; invalid errors" {
     try std.testing.expectEqual(FrontmatterStyle.compact, try parseFrontmatterStyle("compact"));
     try std.testing.expectEqual(FrontmatterStyle.raw, try parseFrontmatterStyle("raw"));
     try std.testing.expectEqual(FrontmatterStyle.hidden, try parseFrontmatterStyle("hidden"));
-    // The env-override path (`catch <old>`) keeps the prior value on typos.
     try std.testing.expectError(error.InvalidFrontmatterStyle, parseFrontmatterStyle("fancy"));
 }
 
 test "frontmatter: file value is stripped of quotes before enum parse, quoted and bare both apply" {
-    // The TOML-like parser hands the raw right-hand side to assignValue: a
-    // double-quoted scalar keeps its quotes (`"compact"`), a bare word does not
-    // (`raw`). Both must reach the same enum tag, proving stripQuotes runs
-    // ahead of parseFrontmatterStyle on the file path.
     var quoted = try parseTomlLike(std.testing.allocator, default_config_text);
     defer quoted.deinit(std.testing.allocator);
     try applyTomlLike(std.testing.allocator, &quoted,
@@ -106,9 +96,6 @@ test "frontmatter: file value is stripped of quotes before enum parse, quoted an
 }
 
 test "frontmatter: invalid value in a config file surfaces the error instead of defaulting" {
-    // Unlike the env-override path (`catch <old>`), the file path propagates a
-    // bad value as error.InvalidFrontmatterStyle rather than silently keeping
-    // the default. The style must stay untouched when the error is returned.
     var cfg = try parseTomlLike(std.testing.allocator, default_config_text);
     defer cfg.deinit(std.testing.allocator);
 
@@ -118,7 +105,6 @@ test "frontmatter: invalid value in a config file surfaces the error instead of 
     ));
     try std.testing.expectEqual(FrontmatterStyle.panel, cfg.display.frontmatter);
 }
-
 
 test "inline [theme.heading1] collects raw KVs under the slot" {
     var cfg = try parseTomlLike(std.testing.allocator, default_config_text);
@@ -135,7 +121,6 @@ test "inline [theme.heading1] collects raw KVs under the slot" {
     try std.testing.expectEqualStrings("heading1", cfg.raw_theme.slots.items[0].name);
     try std.testing.expectEqual(@as(usize, 3), cfg.raw_theme.slots.items[0].kvs.items.len);
     try std.testing.expectEqualStrings("#ff0000", cfg.raw_theme.slots.items[0].kvs.items[0].value);
-    // Quotes are stripped so the two-char prefix survives intact.
     try std.testing.expectEqualStrings("> ", cfg.raw_theme.slots.items[0].kvs.items[2].value);
 }
 
@@ -150,7 +135,6 @@ test "top-level [theme] extends lands in raw_theme.top; [display] still routes f
         \\theme = "light"
     );
 
-    // Dotted-vs-undotted split: [display] regression path still applies.
     try std.testing.expectEqualStrings("light", cfg.display.theme);
     try std.testing.expectEqual(@as(usize, 1), cfg.raw_theme.top.items.len);
     try std.testing.expectEqualStrings("extends", cfg.raw_theme.top.items[0].key);
@@ -182,15 +166,10 @@ test "default config produces an empty raw_theme" {
 }
 
 test "subgraph_edges parses both notations; bridge round-trips; invalid errors" {
-    // `bridge` and `cross` map to the two enum tags.
     try std.testing.expectEqual(prim.SubgraphEdges.bridge, try parseSubgraphEdges("bridge"));
     try std.testing.expectEqual(prim.SubgraphEdges.cross, try parseSubgraphEdges("cross"));
-    // An unrecognized value errors — the env-override path
-    // (MERCAT_SUBGRAPH_EDGES, `parseSubgraphEdges(value) catch <old>`) therefore
-    // keeps the prior value rather than corrupting it.
     try std.testing.expectError(error.InvalidSubgraphEdges, parseSubgraphEdges("weld"));
 
-    // File parse of the explicit default value round-trips to `.bridge`.
     var cfg = try parseTomlLike(std.testing.allocator, default_config_text);
     defer cfg.deinit(std.testing.allocator);
     try applyTomlLike(std.testing.allocator, &cfg,

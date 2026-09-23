@@ -1,5 +1,3 @@
-//! Tests for loadfile.zig (split out to keep the module under the
-//! line-count limit).
 const std = @import("std");
 const loadfile = @import("loadfile.zig");
 

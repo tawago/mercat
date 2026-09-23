@@ -1,33 +1,12 @@
-//! Canonical plain UTF-8 serialization of a `Rendered` value.
-//!
-//! This is the byte-exact text artifact consumed by external tooling,
-//! so it must be free of all presentation escapes. The rules are:
-//!
-//! - concatenate each line's span text before grapheme segmentation;
-//! - place one LF between adjacent `Line` values;
-//! - include one final LF when at least one line exists;
-//! - expand tabs to spaces at four-column stops;
-//! - reject controls under the Unicode authority's strict policy. Line
-//!   boundaries are structural, so no line-break scalar belongs in span text;
-//! - preserve every other grapheme's exact UTF-8 bytes, including leading and
-//!   trailing spaces and normalization form;
-//! - reject invalid UTF-8;
-//! - do not trim blank lines.
-
 const std = @import("std");
 const render_model = @import("../core/markdown/render/types.zig");
 const unicode = @import("unicode");
 
 pub const Error = std.mem.Allocator.Error || error{
-    /// A span carried a control scalar the plain artifact must never contain.
-    /// Tabs are the one exception and expand to spaces at four-column stops.
     InvalidPlainByte,
-    /// A span carried bytes that are not valid UTF-8.
     InvalidUtf8,
 };
 
-/// Serialize `rendered` into the canonical plain byte sequence. Caller owns
-/// the returned slice.
 pub fn serialize(allocator: std.mem.Allocator, rendered: render_model.Rendered) Error![]u8 {
     var buffer: std.ArrayList(u8) = .empty;
     errdefer buffer.deinit(allocator);

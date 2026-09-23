@@ -11,9 +11,6 @@ pub fn displayWidthFrom(text: []const u8, initial_column: usize) Error!usize {
     return end - initial_column;
 }
 
-/// Return a source-byte prefix that fits at `initial_column`. The returned
-/// boundary is always an extended-grapheme boundary. Validation covers the
-/// complete input before any prefix is returned.
 pub fn takeWidth(text: []const u8, width: usize, initial_column: usize) Error!usize {
     var iterator = unicode.Iterator.initAt(text, initial_column);
     var byte_end: usize = 0;

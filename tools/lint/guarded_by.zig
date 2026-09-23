@@ -1,27 +1,11 @@
-//! Check 4: `guarded-by: <file> "<test>"` pointer resolution — the anchor
-//! for the comment-promotion convention (a why-claim in a comment must name
-//! the test that guards it, and a renamed or deleted test must break the
-//! build rather than silently orphan the claim).
-//!
-//! The needle is `guarded-by: `, so it matches both the bare spelling and the
-//! preferred `@guarded-by: ` sigil form (CONTRIBUTING.md, "Guarded Claims").
-//!
-//! Split out of the tools/lint_imports.zig root; both violation message
-//! strings are unchanged by the split.
-
 const std = @import("std");
 
-/// A `test "..."` declaration, keyed by the file basename it lives in.
 pub const TestDecl = struct { file: []const u8, name: []const u8 };
 
-/// A `guarded-by: <file> "<name>"` pointer plus the file it was found in.
 pub const GbRef = struct { src: []const u8, file: []const u8, name: []const u8 };
 
-/// guarded-by targets that live outside the scanned tree (their existence is
-/// checked elsewhere): a pointer at a lint rule itself, not at a test.
 const gb_external = [_][]const u8{"lint_imports.zig"};
 
-/// Record every container-scope `test "..."` name in `contents` under `file_base`.
 pub fn collectTests(
     a: std.mem.Allocator,
     list: *std.ArrayList(TestDecl),
@@ -32,20 +16,16 @@ pub fn collectTests(
     var i: usize = 0;
     while (std.mem.indexOfPos(u8, contents, i, needle)) |start| {
         i = start + needle.len;
-        // Require `test "` to be the first token on its line (indent allowed),
-        // so `// test "x"` in a comment or `foo test "` in prose is not counted.
         var p = start;
         while (p > 0 and (contents[p - 1] == ' ' or contents[p - 1] == '\t')) p -= 1;
         if (p != 0 and contents[p - 1] != '\n') continue;
-        const name_start = start + needle.len; // just past the opening quote
+        const name_start = start + needle.len;
         const q_close = std.mem.indexOfScalarPos(u8, contents, name_start, '"') orelse break;
         try list.append(a, .{ .file = file_base, .name = contents[name_start..q_close] });
         i = q_close + 1;
     }
 }
 
-/// Record every `guarded-by: <file> "<name>"` pointer in `contents`. The file
-/// is reduced to its basename, so a ref may spell a zone-relative path.
 pub fn collectGuardedBy(
     a: std.mem.Allocator,
     list: *std.ArrayList(GbRef),
@@ -68,9 +48,6 @@ pub fn collectGuardedBy(
     }
 }
 
-/// Flag guarded-by pointers whose target file or test name cannot be found.
-/// Test matching is by basename, so the two `clusters_test.zig` siblings both
-/// satisfy a ref that names either — good enough to catch renames/deletions.
 pub fn verifyGuardedBy(
     a: std.mem.Allocator,
     violations: *std.ArrayList([]const u8),

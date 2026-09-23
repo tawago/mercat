@@ -1,10 +1,3 @@
-//! `forAll` runner for the property-test harness.
-//!
-//! Allocator policy: each iteration uses an `ArenaAllocator` parented to
-//! `std.testing.allocator`. The generator and property both run against the
-//! arena, and the entire arena is reset between iterations so per-iteration
-//! allocations are freed automatically — generators do not need to track
-//! ownership of intermediate buffers.
 const std = @import("std");
 const prng_mod = @import("prng.zig");
 
@@ -18,10 +11,6 @@ pub const RunOptions = struct {
     shrink: ShrinkOptions = .{},
 };
 
-/// Run `prop` against `count` generated `Param` values. The first failure is
-/// logged with the seed and iteration index, an optional shrink pass is
-/// attempted (currently a cheap re-run of the failing generator), and the
-/// original error is propagated.
 pub fn forAll(
     comptime Param: type,
     gen: *const fn (std.mem.Allocator, std.Random, u32) anyerror!Param,
@@ -69,15 +58,12 @@ fn shrink(
         defer arena.deinit();
         const aa = arena.allocator();
 
-        // Replay the stream up to idx so we get the same value the original
-        // run would have produced at that iteration.
         var j: u32 = 0;
         while (j < idx) : (j += 1) {
             _ = gen(aa, r, j) catch break;
         }
         const param = gen(aa, r, idx) catch continue;
         if (prop(param)) |_| {
-            // Did not reproduce at this index; try a smaller one.
             continue;
         } else |err| {
             std.debug.print(

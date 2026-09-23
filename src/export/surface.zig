@@ -1,12 +1,3 @@
-//! 8-bit RGBA row-major raster surface with rectangle fills and alpha-blended
-//! glyph-mask compositing.
-//!
-//! The surface is treated as fully opaque: every pixel keeps alpha 255. Fills
-//! overwrite; glyph masks and decoration strokes are alpha-blended over the
-//! existing pixels using the source color's coverage. All coordinates are
-//! integers and every write is clipped to the surface bounds, so callers may
-//! pass masks that hang off any edge without a bounds check of their own.
-
 const std = @import("std");
 const types = @import("types.zig");
 
@@ -15,7 +6,6 @@ const Color = types.Color;
 pub const Surface = struct {
     width: u32,
     height: u32,
-    /// `width * height * 4` bytes, row-major RGBA.
     pixels: []u8,
 
     pub fn init(allocator: std.mem.Allocator, width: u32, height: u32) std.mem.Allocator.Error!Surface {
@@ -29,7 +19,6 @@ pub const Surface = struct {
         allocator.free(self.pixels);
     }
 
-    /// Overwrite the entire surface with an opaque color.
     pub fn fill(self: *Surface, color: Color) void {
         var i: usize = 0;
         while (i < self.pixels.len) : (i += 4) {
@@ -40,9 +29,6 @@ pub const Surface = struct {
         }
     }
 
-    /// Overwrite an axis-aligned rectangle with an opaque color, clipped to the
-    /// surface. `x`/`y` are signed so a caller can pass a partially off-screen
-    /// rectangle.
     pub fn fillRect(self: *Surface, x: i64, y: i64, w: u32, h: u32, color: Color) void {
         const x0 = clampLow(x);
         const y0 = clampLow(y);
@@ -62,10 +48,6 @@ pub const Surface = struct {
         }
     }
 
-    /// Alpha-blend a coverage mask (`mask_w * mask_h` bytes of 0..255 in
-    /// row-major order) onto the surface at integer pixel `(dst_x, dst_y)` using
-    /// `color`. The effective per-pixel alpha is `coverage * color.a / 255`.
-    /// Fully clipped; a zero-size mask is a no-op.
     pub fn blendMask(
         self: *Surface,
         mask: []const u8,
@@ -116,7 +98,6 @@ pub const Surface = struct {
     }
 };
 
-/// `src * alpha + dst * (255 - alpha)`, rounded, over 0..255.
 fn blend(src: u8, dst: u8, alpha: u8) u8 {
     const a: u32 = alpha;
     const s: u32 = src;
@@ -124,7 +105,6 @@ fn blend(src: u8, dst: u8, alpha: u8) u8 {
     return @intCast((s * a + d * (255 - a) + 127) / 255);
 }
 
-/// `a * b / 255`, rounded.
 fn scale255(a: u8, b: u8) u8 {
     return @intCast((@as(u32, a) * @as(u32, b) + 127) / 255);
 }

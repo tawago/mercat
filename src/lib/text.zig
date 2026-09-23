@@ -1,17 +1,11 @@
-//! Domain-free byte-level text primitives: BOM stripping and line iteration.
-//! Shared by the cli input classifier and core/mermaid's source scanning.
-
 const std = @import("std");
 
-/// UTF-8 byte-order mark, emitted by several Windows editors.
 const bom = "\xEF\xBB\xBF";
 
-/// Strip a leading UTF-8 BOM, if present.
 pub fn stripBom(content: []const u8) []const u8 {
     return if (std.mem.startsWith(u8, content, bom)) content[bom.len..] else content;
 }
 
-/// Line iterator that accepts LF, CRLF and CR-only line endings.
 pub const LineIter = struct {
     rest: []const u8,
     done: bool = false,
@@ -34,8 +28,6 @@ pub const LineIter = struct {
     }
 };
 
-/// First line that is neither blank nor opens with `comment_prefix`, fully
-/// trimmed. Returns "" when there is no such line.
 pub fn firstMeaningfulLine(source: []const u8, comment_prefix: []const u8) []const u8 {
     var lines = LineIter.init(stripBom(source));
     while (lines.next()) |raw| {

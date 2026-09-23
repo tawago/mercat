@@ -20,7 +20,6 @@ const clipboard = @import("../platform/clipboard.zig");
 const unicode = @import("unicode");
 const selection_mod = @import("selection.zig");
 
-/// How long a copy confirmation toast stays visible.
 const toast_duration_ms: i64 = 1400;
 
 const ViewMode = enum {
@@ -185,9 +184,6 @@ pub const App = struct {
         try self.loop.init();
     }
 
-    /// Block for the next event. While a toast is showing, poll instead so the
-    /// loop can wake to dismiss it; returns null when the toast's deadline
-    /// passes with no event.
     fn waitEvent(self: *App) ?Event {
         if (self.toast_message == null) return self.loop.nextEvent();
         while (true) {
@@ -298,7 +294,6 @@ pub const App = struct {
         }
     }
 
-    /// Overpaint reverse-video on the selected cells of the just-drawn `row`.
     fn highlightRow(self: *App, root: vaxis.Window, row: usize) !void {
         const line_idx = self.pager.viewport.top + row;
         if (line_idx >= self.pager.lines.len) return;
@@ -344,7 +339,6 @@ pub const App = struct {
         try self.showCopyToast(text);
     }
 
-    /// Show a top-right toast previewing the copied text, e.g. `Copied "hi …"`.
     fn showCopyToast(self: *App, text: []const u8) !void {
         const message = selection_mod.formatCopyPreview(self.allocator, text) catch |err| switch (err) {
             error.InvalidUtf8, error.DisallowedControl, error.Overflow => |e| {
@@ -365,7 +359,6 @@ pub const App = struct {
         }
     }
 
-    /// Draw the copy toast as a soft, themed panel in the top-right corner.
     fn drawToast(self: *App, root: vaxis.Window) !void {
         const message = self.toast_message orelse return;
         const message_width = unicode.rawDisplayWidth(message) catch |err| {
@@ -396,7 +389,6 @@ pub const App = struct {
         });
     }
 
-    /// The document's front matter block, if any (always the first block).
     fn frontMatter(self: *App) ?markdown.Block.FrontMatter {
         for (self.current_document.blocks) |block| {
             if (block == .frontmatter) return block.frontmatter;
@@ -423,9 +415,6 @@ pub const App = struct {
         self.needs_redraw = true;
     }
 
-    /// Show or hide the metadata overlay, keeping the document canvas in sync:
-    /// while the overlay presents the front matter, the inline block is
-    /// suppressed so the same data is not shown twice.
     fn setMetadataVisible(self: *App, visible: bool) !void {
         if (self.metadata.visible == visible) return;
         self.metadata.visible = visible;
@@ -518,7 +507,6 @@ pub const App = struct {
         self.status_message = if (owned) message else try self.allocator.dupe(u8, message);
     }
 
-    /// Explain a text-measurement failure in the status bar: "Cannot <action>: <reason>."
     fn reportMeasureError(self: *App, action: []const u8, err: unicode.MeasureError) !void {
         const reason: []const u8 = switch (err) {
             error.InvalidUtf8 => "invalid UTF-8",
@@ -583,7 +571,6 @@ pub const App = struct {
     }
 };
 
-/// Entry point for TUI mode - creates and runs the App
 pub fn run(allocator: std.mem.Allocator, title: []const u8, input_source: args.Input, initial_content: []const u8, editor_command: []const u8, resolved: *const ResolvedTheme, theme_warning: ?[]const u8, show_heading_markers: bool, frontmatter_style: config.FrontmatterStyle, initial_layout: mermaid_types.ForceLayout, initial_subgraph_edges: SubgraphEdges) !void {
     var app: App = undefined;
     try app.init(allocator, title, input_source, initial_content, editor_command, resolved, theme_warning, show_heading_markers, frontmatter_style, initial_layout, initial_subgraph_edges);

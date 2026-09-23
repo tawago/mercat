@@ -22,6 +22,8 @@ pub fn build(b: *std.Build) void {
     if (onlyStepRequested(b, "unicode-check")) return;
 
     const options = b.addOptions();
+    const calibration_inputs = b.option([]const u8, "calibration-inputs", "Directory containing optional score-calibration inputs");
+    options.addOption(?[]const u8, "calibration_inputs", calibration_inputs);
     const maybe_koino_dep = b.lazyDependency("koino", .{ .target = target, .optimize = optimize });
     const maybe_vaxis_dep = b.lazyDependency("vaxis", .{ .target = target, .optimize = optimize });
     if (maybe_koino_dep == null or maybe_vaxis_dep == null) return;
@@ -46,6 +48,7 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     });
+    prim_mod.addImport("unicode", unicode_mod);
 
     const mermaid_v2_mod = b.createModule(.{
         .root_source_file = b.path("src/core/mermaid_v2/entry.zig"),
@@ -53,10 +56,8 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
     mermaid_v2_mod.addImport("prim", prim_mod);
+    mermaid_v2_mod.addImport("unicode", unicode_mod);
 
-    // =====================================================
-    // Main Executable
-    // =====================================================
     const root_module = b.createModule(.{
         .root_source_file = b.path("src/main.zig"),
         .target = target,
@@ -68,8 +69,6 @@ pub fn build(b: *std.Build) void {
     root_module.addImport("prim", prim_mod);
     root_module.addImport("text", text_mod);
     root_module.addImport("unicode", unicode_mod);
-    // Native export font service (src/export/font.zig): embedded JetBrains Mono
-    // + vendored stb_truetype. See linkExportFont below.
     linkExportFont(b, root_module);
 
     const exe = b.addExecutable(.{
@@ -78,10 +77,6 @@ pub fn build(b: *std.Build) void {
     });
     b.installArtifact(exe);
 
-    // Absolute path to the installed mercat binary, exposed to the test graph so
-    // the export verification suite (src/export/export_test.zig) can spawn it in
-    // separate processes (§8.2 determinism, §8.3 CLI). `zig build test` is made
-    // to depend on the install step below so the binary exists when tests run.
     options.addOption([]const u8, "mercat_exe_path", b.getInstallPath(.bin, "mercat"));
 
     const run_cmd = b.addRunArtifact(exe);
@@ -91,9 +86,6 @@ pub fn build(b: *std.Build) void {
     const run_step = b.step("run", "Run mercat");
     run_step.dependOn(&run_cmd.step);
 
-    // =====================================================
-    // Unit Tests (existing)
-    // =====================================================
     const test_module = b.createModule(.{
         .root_source_file = b.path("src/main.zig"),
         .target = target,
@@ -112,15 +104,10 @@ pub fn build(b: *std.Build) void {
     });
 
     const test_run = b.addRunArtifact(unit_tests);
-    // The export verification suite spawns the installed mercat binary, so build +
-    // install it before running the unit tests.
     test_run.step.dependOn(b.getInstallStep());
     const test_step = b.step("test", "Run unit tests");
     test_step.dependOn(&test_run.step);
 
-    // =====================================================
-    // Legacy Mermaid Tests (standalone root at src/core/mermaid/legacy_test.zig)
-    // =====================================================
     const legacy_mermaid_test_module = b.createModule(.{
         .root_source_file = b.path("src/core/mermaid/legacy_test.zig"),
         .target = target,
@@ -135,13 +122,6 @@ pub fn build(b: *std.Build) void {
     legacy_mermaid_test_step.dependOn(&legacy_mermaid_test_run.step);
     test_step.dependOn(&legacy_mermaid_test_run.step);
 
-    // =====================================================
-    // Export Font Tests (standalone root at src/export/font.zig)
-    // =====================================================
-    // font.zig is not reachable from the main.zig import graph yet (the PNG
-    // backend is wired in a later stage), so its unit tests get their own test
-    // root. This is also the reference "standalone export test executable"
-    // carrying the stb_truetype C integration.
     const font_test_module = b.createModule(.{
         .root_source_file = b.path("src/export/font.zig"),
         .target = target,
@@ -155,9 +135,6 @@ pub fn build(b: *std.Build) void {
     font_test_step.dependOn(&font_test_run.step);
     test_step.dependOn(&font_test_run.step);
 
-    // =====================================================
-    // Property Tests
-    // =====================================================
     const sem_graph_mod = b.createModule(.{
         .root_source_file = b.path("src/core/mermaid_v2/sem_graph.zig"),
         .target = target,
@@ -189,17 +166,16 @@ pub fn build(b: *std.Build) void {
     const prop_test_step = b.step("test-property", "Run property-based tests");
     prop_test_step.dependOn(&prop_test_run.step);
 
-    // Existing `test` step also runs property tests.
     test_step.dependOn(&prop_test_run.step);
 
-    // mermaid_v2 layout/sketch tests — rooted at entry.zig so the file
-    // tree's relative imports resolve.
     const v2_test_module = b.createModule(.{
         .root_source_file = b.path("src/core/mermaid_v2/entry.zig"),
         .target = target,
         .optimize = optimize,
     });
+    v2_test_module.addOptions("build_options", options);
     v2_test_module.addImport("prim", prim_mod);
+    v2_test_module.addImport("unicode", unicode_mod);
     const v2_tests = b.addTest(.{ .root_module = v2_test_module });
     const v2_test_run = b.addRunArtifact(v2_tests);
     const v2_test_step = b.step("test-mermaid-v2", "Run mermaid_v2 unit tests");
@@ -246,9 +222,6 @@ pub fn build(b: *std.Build) void {
     unicode_test_step.dependOn(&unicode_test_run.step);
     test_step.dependOn(&unicode_test_run.step);
 
-    // =====================================================
-    // Visual Samples Harness (mermaid_v2)
-    // =====================================================
     const visual_samples_module = b.createModule(.{
         .root_source_file = b.path("tools/visual_samples.zig"),
         .target = target,
@@ -268,19 +241,6 @@ pub fn build(b: *std.Build) void {
     const visual_samples_step = b.step("visual-samples", "Render curated mermaid samples to docs/visual-samples.html");
     visual_samples_step.dependOn(&visual_samples_cmd.step);
 
-    // =====================================================
-    // Private eval scorer (out-of-tree `eval/`, gitignored)
-    // =====================================================
-    // Private maintainer evaluation tooling lives under the gitignored
-    // top-level `eval/` directory so public clones build clean without it. Everything
-    // below is wired ONLY when `eval/` exists on disk (an existence check, so a
-    // clone lacking `eval/` still builds and `zig build test` still passes).
-    //
-    // The scorer reaches renderer internals (SemGraph, parse, mermaid types)
-    // through exactly ONE facade module — `internals`, rooted at
-    // `src/core/internals_api.zig`. It MUST be a single module so `sem_graph`
-    // and `parse` compile once and share type identity; two separate modules
-    // would compile two copies of `SemGraph` and break type identity.
     const has_eval = blk: {
         std.fs.cwd().access("eval", .{}) catch break :blk false;
         break :blk true;
@@ -293,6 +253,8 @@ pub fn build(b: *std.Build) void {
             .optimize = optimize,
         });
         internals_mod.addImport("prim", prim_mod);
+        internals_mod.addImport("text", text_mod);
+        internals_mod.addImport("unicode", unicode_mod);
 
         const reconstruction_mod = b.createModule(.{
             .root_source_file = b.path("eval/reconstruction_api.zig"),
@@ -301,7 +263,6 @@ pub fn build(b: *std.Build) void {
         });
         reconstruction_mod.addImport("internals", internals_mod);
 
-        // --- decoder-score tool ---
         const decoder_score_module = b.createModule(.{
             .root_source_file = b.path("eval/decoder_score.zig"),
             .target = target,
@@ -314,9 +275,6 @@ pub fn build(b: *std.Build) void {
             .root_module = decoder_score_module,
         });
 
-        // Install the freshly built tool so `zig-out/bin/decoder-score` always
-        // reflects current source and no stale binary lingers behind the named
-        // run step.
         const decoder_score_install = b.addInstallArtifact(decoder_score_exe, .{});
 
         const decoder_score_cmd = b.addRunArtifact(decoder_score_exe);
@@ -328,10 +286,6 @@ pub fn build(b: *std.Build) void {
         decoder_score_step.dependOn(&decoder_score_install.step);
         decoder_score_step.dependOn(&decoder_score_cmd.step);
 
-        // --- eval test step (NOT folded into `zig build test`) ---
-        // Reconstruction suite (matcher soundness, GED bounds, score records,
-        // JSON, fixtures) rooted at the eval facade, plus the decoder-score
-        // tool's own unit tests.
         const reconstruction_tests = b.addTest(.{ .root_module = reconstruction_mod });
         const reconstruction_test_run = b.addRunArtifact(reconstruction_tests);
 
@@ -408,11 +362,6 @@ fn buildOptionTakesValue(arg: []const u8) bool {
     return false;
 }
 
-/// Wire the native-export font integration into a module that compiles
-/// `src/export/font.zig`: the vendored stb_truetype
-/// implementation translation unit, its include directory, libc, and the
-/// embedded JetBrains Mono TTF asset. The module already carries the root's
-/// optimize mode, satisfying "same optimization mode as the root artifact".
 fn linkExportFont(b: *std.Build, module: *std.Build.Module) void {
     module.addIncludePath(b.path("vendor/stb"));
     module.addCSourceFile(.{

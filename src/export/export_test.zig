@@ -1,16 +1,3 @@
-//! Export verification suite that must observe real process behavior:
-//! separate-process PNG determinism and end-to-end CLI behavior
-//! (§8.3). These tests spawn the installed `mercat` binary rather than calling
-//! library functions, so they cover argument dispatch, width resolution, input
-//! selection, atomic file replacement, and the no-pager-for-file-output rule
-//! exactly as a user would hit them.
-//!
-//! The absolute path to the freshly installed binary is injected by `build.zig`
-//! as `build_options.mercat_exe_path`; `zig build test` depends on the install step
-//! so the binary exists when these run. When the binary is absent (e.g. a
-//! module compiled outside the normal build graph) every test skips rather than
-//! failing.
-
 const std = @import("std");
 const build_options = @import("build_options");
 
@@ -18,7 +5,6 @@ const testing = std.testing;
 
 const mercat_exe_path = build_options.mercat_exe_path;
 
-/// Result of one `mercat` invocation.
 const Run = struct {
     exited_zero: bool,
     exit_code: u8,
@@ -31,13 +17,10 @@ const Run = struct {
     }
 };
 
-/// Skip the whole test when the built binary is not present.
 fn requireBinary() !void {
     std.fs.cwd().access(mercat_exe_path, .{}) catch return error.SkipZigTest;
 }
 
-/// Run `mercat <extra_args...>` with no stdin. Returns captured stdout/stderr and
-/// the exit status. `argv0` is prepended automatically.
 fn runMercat(allocator: std.mem.Allocator, extra_args: []const []const u8) !Run {
     return runMercatWithEnv(allocator, extra_args, &.{});
 }
@@ -69,7 +52,6 @@ fn childEnv(allocator: std.mem.Allocator, config_home: []const u8, overrides: []
     return env;
 }
 
-/// A child environment rooted in a fresh temporary config home.
 const ChildEnv = struct {
     tmp: testing.TmpDir,
     env: std.process.EnvMap,
@@ -111,7 +93,6 @@ fn runMercatWithEnv(allocator: std.mem.Allocator, extra_args: []const []const u8
     };
 }
 
-/// Run `mercat <extra_args...>` feeding `stdin_bytes` on stdin (for the `-` path).
 fn runMercatStdin(allocator: std.mem.Allocator, extra_args: []const []const u8, stdin_bytes: []const u8) !Run {
     var argv: std.ArrayList([]const u8) = .empty;
     defer argv.deinit(allocator);
@@ -145,7 +126,6 @@ fn runMercatStdin(allocator: std.mem.Allocator, extra_args: []const []const u8, 
     };
 }
 
-/// Absolute path inside a tmp dir.
 fn tmpPath(allocator: std.mem.Allocator, tmp: *std.testing.TmpDir, name: []const u8) ![]u8 {
     const dir = try tmp.dir.realpathAlloc(allocator, ".");
     defer allocator.free(dir);
@@ -158,7 +138,6 @@ fn writeTmpFile(tmp: *std.testing.TmpDir, name: []const u8, bytes: []const u8) !
     try f.writeAll(bytes);
 }
 
-/// Widest line by byte length (fixtures here are ASCII, so bytes == columns).
 fn maxLineBytes(text: []const u8) usize {
     var it = std.mem.splitScalar(u8, text, '\n');
     var m: usize = 0;

@@ -1,21 +1,6 @@
-//! Backend-neutral positioned export document.
-//!
-//! This is the shared input for every pixel/vector backend (the native PNG
-//! writer today, a future PDF writer tomorrow). It carries fixed-cell geometry
-//! and per-run semantic/color/decoration facts — but NO backend-specific pixel
-//! buffers or encoder options. Keeping those out of this type is the §6.3
-//! "PDF-ready boundary" invariant.
-//!
-//! `canonicalSha256` produces a stable content hash of the document using an
-//! explicit byte encoding (never raw Zig memory): the same logical document
-//! hashes identically across builds, targets, and struct-layout changes.
-
 const std = @import("std");
 const render_model = @import("../core/markdown/render.zig");
 
-/// Bumped whenever the canonical-hash byte encoding changes. It is the first
-/// value fed into `canonicalSha256`, so a recipe change necessarily changes
-/// every document hash.
 pub const canonical_hash_version: u16 = 3;
 
 pub const Color = struct {
@@ -30,12 +15,6 @@ pub const Decoration = packed struct {
     strikethrough: bool = false,
 };
 
-/// One positioned run of styled text. A run spans one contiguous stretch of a
-/// single rendered `Span` on one row; `text` holds its exact UTF-8 bytes and
-/// `columns` is the sum of the display widths of its scalars (never the byte
-/// length). Wide (width-2) and combining (width-0) scalars are re-traversed by
-/// the painter using the same width policy; the run only records where it
-/// starts and how many cells it occupies.
 pub const PositionedRun = struct {
     text: []const u8,
     row: u32,
@@ -51,8 +30,6 @@ pub const PositionedRun = struct {
 pub const Geometry = struct {
     cell_width_px: u16,
     cell_height_px: u16,
-    /// Baseline distance from the top of the page (top padding already added),
-    /// i.e. `padding_top_px + font.baseline_px` per §7.1 step 9.
     baseline_px: i16,
     padding_left_px: u16,
     padding_right_px: u16,
@@ -61,8 +38,6 @@ pub const Geometry = struct {
 
     pub const PixelError = error{PixelOverflow};
 
-    /// Total surface width in pixels for a document of `columns` columns
-    /// (§7.4). Overflow-checked.
     pub fn pixelWidth(self: Geometry, columns: u32) PixelError!u32 {
         return addPad(
             try mul(columns, self.cell_width_px),
@@ -71,9 +46,6 @@ pub const Geometry = struct {
         );
     }
 
-    /// Total surface height in pixels for a document of `rows` rows (§7.4).
-    /// Overflow-checked. Callers pass the already-floored row count (a
-    /// zero-row document is laid out as one padded background row).
     pub fn pixelHeight(self: Geometry, rows: u32) PixelError!u32 {
         return addPad(
             try mul(rows, self.cell_height_px),
@@ -100,9 +72,6 @@ pub const ExportDocument = struct {
     runs: []PositionedRun,
     font_sha256: [32]u8,
 
-    /// Frees the runs slice and the owned text/url bytes of each run. The
-    /// document owns copies of every string so its lifetime is independent of
-    /// the `Rendered` value it was built from.
     pub fn deinit(self: ExportDocument, allocator: std.mem.Allocator) void {
         for (self.runs) |run| {
             allocator.free(run.text);
@@ -111,24 +80,14 @@ pub const ExportDocument = struct {
         allocator.free(self.runs);
     }
 
-    /// Surface width in pixels (§7.4), overflow-checked.
     pub fn pixelWidth(self: ExportDocument) Geometry.PixelError!u32 {
         return self.geometry.pixelWidth(self.columns);
     }
 
-    /// Surface height in pixels (§7.4), overflow-checked.
     pub fn pixelHeight(self: ExportDocument) Geometry.PixelError!u32 {
         return self.geometry.pixelHeight(self.rows);
     }
 
-    /// Canonical content hash (§6.3). Encodes, in order: version, rows,
-    /// columns, every geometry field, page background, font hash, the run
-    /// count, then each run (row, start col, column count, foreground,
-    /// optional background, decoration bits, stable semantic-style tag,
-    /// optional URL, text). Unsigned big-endian integers; UTF-8 strings carry a
-    /// big-endian u32 byte-length prefix; optionals carry one presence byte.
-    /// Pointers, slice addresses, padding, and native endianness never enter
-    /// the hash.
     pub fn canonicalSha256(self: ExportDocument) [32]u8 {
         var h = std.crypto.hash.sha2.Sha256.init(.{});
         var w = Writer{ .hasher = &h };
@@ -159,7 +118,6 @@ pub const ExportDocument = struct {
     }
 };
 
-/// Two-bit decoration encoding: bit 0 = underline, bit 1 = strikethrough.
 fn decorationBits(d: Decoration) u8 {
     var bits: u8 = 0;
     if (d.underline) bits |= 0b01;
@@ -167,9 +125,6 @@ fn decorationBits(d: Decoration) u8 {
     return bits;
 }
 
-/// Stable numeric tag for a semantic span style. These values are frozen: they
-/// are part of the canonical-hash encoding and MUST NOT be reordered or reused.
-/// Adding a style appends a new number and bumps `canonical_hash_version`.
 pub fn semanticStyleTag(style: render_model.SpanStyle) u16 {
     return switch (style) {
         .heading1 => 1,
@@ -215,8 +170,6 @@ pub fn semanticStyleTag(style: render_model.SpanStyle) u16 {
     };
 }
 
-/// Big-endian primitive encoder that feeds a running SHA-256. Only logical
-/// values reach the hasher; no struct memory is ever hashed directly.
 const Writer = struct {
     hasher: *std.crypto.hash.sha2.Sha256,
 
@@ -236,7 +189,6 @@ const Writer = struct {
         self.hasher.update(&buf);
     }
 
-    /// Signed 16-bit as its two's-complement bit pattern, big-endian.
     fn putI16(self: *Writer, value: i16) void {
         self.putU16(@bitCast(value));
     }

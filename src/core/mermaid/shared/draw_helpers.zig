@@ -1,4 +1,3 @@
-/// Shared canvas drawing helpers used by multiple diagram renderers.
 const std = @import("std");
 const types = @import("../types.zig");
 const canvas_mod = @import("canvas.zig");
@@ -8,7 +7,6 @@ const Rect = types.Rect;
 
 const Canvas = canvas_mod.Canvas;
 
-/// Process label to handle HTML entities like <br/>
 pub fn processLabel(label: []const u8, buf: []u8) []const u8 {
     var out_idx: usize = 0;
     var i: usize = 0;

@@ -1,15 +1,3 @@
-//! Mouse text selection for the TUI pager.
-//!
-//! A selection is a linear span of rendered text expressed in
-//! (document line, display column) coordinates.  It is deliberately decoupled
-//! from vaxis: highlighting reads `rangeForLine`, and copy reads `extractText`,
-//! both operating on the already-rendered lines that the pager owns. Columns
-//! are 0-based display columns. Selection bounds are half-open;
-//! copying includes every displayed grapheme that overlaps `[start, end)`.
-//! Copied text preserves the render model's original bytes. Tabs therefore
-//! remain tabs on the clipboard, but their selection geometry uses the actual
-//! four-column stop of the full displayed line.
-
 const std = @import("std");
 const unicode = @import("unicode");
 const line_mod = @import("../core/markdown/render/line.zig");
@@ -49,7 +37,6 @@ pub const Selection = struct {
         self.active = false;
     }
 
-    /// Normalize anchor/cursor so start precedes (or equals) end.
     fn ordered(self: Selection) struct { start: Point, end: Point } {
         if (self.cursor.lessThan(self.anchor)) {
             return .{ .start = self.cursor, .end = self.anchor };
@@ -57,9 +44,6 @@ pub const Selection = struct {
         return .{ .start = self.anchor, .end = self.cursor };
     }
 
-    /// Half-open display-column range `[start, end)` selected on `line_idx`,
-    /// clamped to `content_width`, or null if this line contributes nothing
-    /// visible (outside the selection, or a zero-width range).
     pub fn rangeForLine(self: Selection, line_idx: usize, content_width: usize) ?Range {
         if (!self.active) return null;
         const bounds = self.columnBounds(line_idx, content_width) orelse return null;
@@ -67,7 +51,6 @@ pub const Selection = struct {
         return bounds;
     }
 
-    /// Grapheme-aligned highlight range for a complete rendered line.
     pub fn rangeForRenderedLine(
         self: Selection,
         allocator: std.mem.Allocator,
@@ -88,9 +71,6 @@ pub const Selection = struct {
         return line_idx >= ord.start.line and line_idx <= ord.end.line;
     }
 
-    /// Raw column bounds for a line, clamped to `width`.  Unlike `rangeForLine`
-    /// this keeps empty ranges (start == end) so that extraction can still emit
-    /// a blank line for a fully-selected empty middle line.
     fn columnBounds(self: Selection, line_idx: usize, width: usize) ?Range {
         if (!self.coversLine(line_idx)) return null;
         const ord = self.ordered();
@@ -111,9 +91,6 @@ pub const Selection = struct {
         return .{ .start = @min(c0, width), .end = @min(c1, width) };
     }
 
-    /// Concatenate the selected text across lines, joined with '\n'.  Each
-    /// line's slice is right-trimmed of trailing spaces (rendered padding).
-    /// Caller owns the returned slice.
     pub fn extractText(self: Selection, allocator: std.mem.Allocator, lines: []const Line) ![]u8 {
         var out: std.ArrayList(u8) = .empty;
         errdefer out.deinit(allocator);
@@ -122,8 +99,6 @@ pub const Selection = struct {
         const ord = self.ordered();
         var line_idx = ord.start.line;
         while (line_idx <= ord.end.line and line_idx < lines.len) : (line_idx += 1) {
-            // Styled spans are only presentation boundaries: segment the joined
-            // bytes so a grapheme may cross a style boundary without splitting.
             const source = try lines[line_idx].joinedText(allocator);
             defer allocator.free(source);
             const bounds = self.columnBounds(line_idx, try unicode.rawDisplayWidth(source)) orelse continue;
@@ -143,8 +118,6 @@ pub const Selection = struct {
     }
 };
 
-/// The byte and column extent of the complete graphemes overlapping a
-/// half-open column range.
 const Overlap = struct {
     byte_start: usize,
     byte_end: usize,
@@ -152,10 +125,6 @@ const Overlap = struct {
     column_end: usize,
 };
 
-/// Locate the complete source graphemes whose cell ranges overlap `[start, end)`.
-/// The start is inclusive and the end is exclusive. A bound inside a two-cell
-/// grapheme expands outward to include that grapheme in full. Null when no
-/// grapheme overlaps.
 fn overlappingGraphemes(source: []const u8, start: usize, end: usize) !?Overlap {
     if (start >= end) return null;
     var overlap: ?Overlap = null;
@@ -175,8 +144,6 @@ fn overlappingGraphemes(source: []const u8, start: usize, end: usize) !?Overlap 
     return overlap;
 }
 
-/// Build the copy-toast label. ASCII whitespace collapses to one space and the
-/// displayed preview clips inward at a complete grapheme boundary.
 pub fn formatCopyPreview(allocator: std.mem.Allocator, text: []const u8) ![]u8 {
     var collapsed: std.ArrayList(u8) = .empty;
     defer collapsed.deinit(allocator);
