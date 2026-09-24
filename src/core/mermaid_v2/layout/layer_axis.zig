@@ -49,12 +49,3 @@ pub fn growSubGaps(lg: sugiyama.LayeredGraph, geom: []NodeGeom, layer_h: []u32, 
         layer_h[sgp.layer] += extra;
     }
 }
-
-pub fn layerTops(a: std.mem.Allocator, geom: []const NodeGeom, layers: [][]u32) error{OutOfMemory}![]const i32 {
-    const tops = try a.alloc(i32, layers.len);
-    for (layers, tops) |row, *top| {
-        top.* = std.math.maxInt(i32);
-        for (row) |idx| top.* = @min(top.*, geom[idx].y);
-    }
-    return tops;
-}
