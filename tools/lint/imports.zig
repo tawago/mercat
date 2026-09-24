@@ -76,11 +76,6 @@ pub const file_allowlists = [_]struct {
         .reason = "realized_production_test may only import std, prim, base/ledger, parse, permits, select, raster, or paint",
     },
     .{
-        .name = "ledger/invariants.zig",
-        .allowed = &.{.sketch},
-        .reason = "invariants may only import std, prim, base/ledger, or sketch",
-    },
-    .{
         .name = "budget.zig",
         .allowed = &.{ .sem_graph, .sketch, .layout_zone, .parse_zone, .cluster_zone, .recurse, .{ .exact = "budget_test.zig" } },
         .reason = "budget may only import std, prim, sem_graph, sketch, layout, parse, recurse, cluster, or budget_test",

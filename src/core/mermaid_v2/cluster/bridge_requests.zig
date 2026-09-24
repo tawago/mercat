@@ -48,7 +48,6 @@ pub fn assignJogs(
     pends: []Pending,
     clusters: []const sketch.ClusterFrame,
     obstacles: tracks.Obstacles,
-    expired: ?*u32,
 ) error{OutOfMemory}!void {
     const done = try arena.alloc(bool, pends.len);
     @memset(done, false);
@@ -94,7 +93,7 @@ pub fn assignJogs(
             }
         }
 
-        const coords = try tracks.resolve(arena, reqs.items, p0.sides.entry, clusters, obstacles, expired);
+        const coords = try tracks.resolve(arena, reqs.items, p0.sides.entry, clusters, obstacles);
         for (members.items, req_of) |mi, ri| pends[mi].jog = coords[ri];
     }
 }

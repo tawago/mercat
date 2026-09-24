@@ -23,10 +23,6 @@ pub const Kind = enum {
     pub fn topAnchored(self: Kind) bool {
         return self == .detour_source or self == .bridge_return;
     }
-
-    pub fn bridge(self: Kind) bool {
-        return self == .bridge_jog or self == .bridge_return;
-    }
 };
 pub const End = enum { entry, exit };
 pub const FanKey = struct { pivot_idx: u32, direction: fan_mod.Direction };
@@ -105,35 +101,7 @@ pub const Ledger = struct {
         const row = self.rowOfEdge(edge, end) orelse -1;
         return @intCast(@max(row + 1, 0));
     }
-
-    pub fn records(self: Ledger, a: std.mem.Allocator, reserved: []const u32, walls: []const GapWalls, node_of: []const u32) error{OutOfMemory}![]const pb.GapRows {
-        const out = try a.alloc(pb.GapRows, self.gaps.len);
-        for (self.gaps, out, 0..) |g, *r, gi| {
-            var claims: std.ArrayListUnmanaged(pb.GapClaim) = .empty;
-            for (self.claims) |c| {
-                if (c.gap != gi) continue;
-                const rails = try a.alloc(pb.RailKey, c.fans.len);
-                for (c.fans, rails) |k, *key| key.* = .{ .pivot = node_of[k.pivot_idx], .out = k.direction == .out };
-                try claims.append(a, .{ .row = c.row, .height = c.height, .edges = c.edges, .rails = rails, .bridge = c.kind.bridge() });
-            }
-            r.* = .{
-                .gap = @intCast(gi),
-                .base = g.base,
-                .reserved = if (gi < reserved.len) reserved[gi] else g.base + self.extraRows(gi),
-                .free = g.free,
-                .rows_used = g.rows_used,
-                .claimed = g.claimed,
-                .base_used = g.base_used,
-                .near = if (gi < walls.len) walls[gi].near else 0,
-                .far = if (gi < walls.len) walls[gi].far else 0,
-                .claims = try claims.toOwnedSlice(a),
-            };
-        }
-        return out;
-    }
 };
-
-pub const GapWalls = struct { far: i32, near: i32 };
 
 fn conflicts(x: Claim, y: Claim) bool {
     return !(x.hi + 1 < y.lo or y.hi + 1 < x.lo);

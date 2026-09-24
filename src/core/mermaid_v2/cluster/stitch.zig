@@ -11,7 +11,6 @@ const entry_inset = @import("entry_inset.zig");
 const stitch_bundle_sets = @import("stitch_bundle_sets.zig");
 const stitch_bundles = @import("stitch_bundles.zig");
 const stitch_rails = @import("stitch_rails.zig");
-const stitch_gaps = @import("stitch_gaps.zig");
 
 pub const SplitResult = split_mod.SplitResult;
 pub const EntryInset = entry_inset.EntryInset;
@@ -58,28 +57,6 @@ pub const Clustered = struct {
     input_of: []const sketch.NodeId,
 };
 
-fn withTrackExpiry(
-    arena: std.mem.Allocator,
-    base: []const sketch.Diagnostic,
-    expired: u32,
-) error{OutOfMemory}![]const sketch.Diagnostic {
-    if (expired == 0) return base;
-    const out = try arena.alloc(sketch.Diagnostic, base.len + 1);
-    @memcpy(out[0..base.len], base);
-    out[base.len] = .{ .track_clearance_expired = expired };
-    return out;
-}
-
-fn closureSum(outer: sketch.Sketch, children: []const Clustered) ledger.ClosureCounts {
-    var out = outer.closure;
-    for (children) |child| {
-        inline for (@typeInfo(ledger.ClosureCounts).@"struct".fields) |f| {
-            @field(out, f.name) += @field(child.sketch.closure, f.name);
-        }
-    }
-    return out;
-}
-
 pub fn stitch(
     arena: std.mem.Allocator,
     split_result: SplitResult,
@@ -96,7 +73,6 @@ pub fn stitch(
     var edges: std.ArrayListUnmanaged(sketch.EdgePath) = .empty;
     var rails: std.ArrayListUnmanaged(sketch.Rail) = .empty;
     var bundle_sets: std.ArrayListUnmanaged(ledger.Bundle) = .empty;
-    var gap_records: std.ArrayListUnmanaged(ledger.GapRows) = .empty;
     var piece_joins: std.ArrayListUnmanaged(stitch_bundles.PieceBundles) = .empty;
     const claim_sources = try arena.alloc(stitch_rails.ChildSource, split_result.supers.len);
 
@@ -208,24 +184,11 @@ pub fn stitch(
         for (child.sketch.bundle_sets) |cs| {
             if (cs.origin != .port_share) try bundle_sets.append(arena, try stitch_bundle_sets.shiftSet(arena, cs, base, dx, dy));
         }
-        for (child.sketch.gap_rows) |g| try gap_records.append(arena, try stitch_gaps.translateGap(arena, g, global_of[super.child_piece], dx, dy, base, child.sketch.direction, &.{}));
     }
 
     const outer_base = id_base;
     id_base += idSpan(outer);
     const bridge_base = id_base;
-    var proxy_span: usize = 0;
-    for (split_result.crossings) |c| if (c.proxy != sg.SENTINEL) {
-        proxy_span = @max(proxy_span, @as(usize, c.proxy) + 1);
-    };
-    const bridges_of = try arena.alloc([]const sketch.EdgeId, proxy_span);
-    {
-        var lists = try arena.alloc(std.ArrayListUnmanaged(sketch.EdgeId), bridges_of.len);
-        @memset(lists, .empty);
-        for (split_result.crossings) |c| if (c.proxy != sg.SENTINEL and c.proxy < lists.len) try lists[c.proxy].append(arena, c.id + bridge_base);
-        for (lists, bridges_of) |*l, *b| b.* = try l.toOwnedSlice(arena);
-    }
-    for (outer.gap_rows) |g| try gap_records.append(arena, try stitch_gaps.translateGap(arena, g, global_of[0], 0, 0, outer_base, outer.direction, bridges_of));
     try piece_joins.append(arena, .{ .bundles = outer.bundles, .edge_base = outer_base, .node_map = global_of[0] });
     for (outer.edges) |oe| {
         if (superFor(split_result, oe.from) != null or superFor(split_result, oe.to) != null) continue;
@@ -261,14 +224,12 @@ pub fn stitch(
     const node_slice = try nodes.toOwnedSlice(arena);
     const cluster_slice = try clusters.toOwnedSlice(arena);
     const bridge_start = edges.items.len;
-    var track_expired: u32 = 0;
-    const bridge_edges = try bridges.route(arena, split_result.crossings, node_slice, cluster_slice, rails.items, edges.items, outer.direction, orig_to_merged, &track_expired, bridge_build);
+    const bridge_edges = try bridges.route(arena, split_result.crossings, node_slice, cluster_slice, rails.items, edges.items, outer.direction, orig_to_merged, bridge_build);
     for (bridge_edges) |be| {
         var b = be;
         b.id = be.id + bridge_base;
         try edges.append(arena, b);
     }
-    try stitch_gaps.adoptBridgeInk(arena, gap_records.items, edges.items[bridge_start..], outer.direction);
 
     // @guarded-by: recurse_test2.zig "two bridges into one port declare a port-share bundle"
     const edge_slice = try edges.toOwnedSlice(arena);
@@ -304,10 +265,7 @@ pub fn stitch(
         .rail_claims = authority.claims,
         .bundle_sets = authority.sets,
         .bundles = if (merge_joins) try stitch_bundles.merge(arena, piece_joins.items, bridge_joins) else .{},
-        // @guarded-by: recurse_test2.zig "the merged sketch sums its pieces' closure counts"
-        .closure = closureSum(outer, children),
-        .gap_rows = try gap_records.toOwnedSlice(arena),
-        .diagnostics = try withTrackExpiry(arena, outer.diagnostics, track_expired),
+        .diagnostics = outer.diagnostics,
         .budget = outer.budget,
     };
     // @guarded-by: sketch_bundles_test.zig "merged bundle sets name every bundle once"

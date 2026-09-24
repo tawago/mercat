@@ -29,7 +29,6 @@ pub fn route(
     edge_paths: []const sketch.EdgePath,
     dir: sketch.Direction,
     orig_to_merged: []const sketch.NodeId,
-    expired: ?*u32,
     build: prim.BridgeBuild,
 ) error{OutOfMemory}![]sketch.EdgePath {
     const obstacles = try sceneObstacles(arena, rails, edge_paths);
@@ -69,7 +68,7 @@ pub fn route(
 
     // @guarded-by: bridges_test.zig "a re-routed corridor raises no crossing demand on the frame it leaves"
     for (pends.items) |*p| p.pref = jogPref(p.start, p.end, p.sides.exit, p.to_box);
-    try requests.assignJogs(arena, pends.items, clusters, obstacles, null);
+    try requests.assignJogs(arena, pends.items, clusters, obstacles);
 
     const pairs = try arena.alloc(corridors.Pair, pends.items.len);
     for (pends.items, pairs) |p, *q| {
@@ -104,19 +103,14 @@ pub fn route(
         }
     }
 
-    var jog_expired: u32 = 0;
-    try requests.assignJogs(arena, pends.items, clusters, obstacles, &jog_expired);
+    try requests.assignJogs(arena, pends.items, clusters, obstacles);
 
     if (build == .railed) {
         const full = try bridge_rails.withStaticRuns(arena, obstacles, edge_paths);
         _ = try bridge_rails.overrideJogs(arena, pends.items, placements, clusters, full);
     }
-    const built = try buildPaths(arena, pends.items, placements, clusters, obstacles, build == .dodged);
-    if (expired) |e| e.* += jog_expired + built.expired;
-    return built.paths;
+    return buildPaths(arena, pends.items, placements, clusters, obstacles, build == .dodged);
 }
-
-const Built = struct { paths: []sketch.EdgePath, expired: u32 };
 
 fn buildPaths(
     arena: std.mem.Allocator,
@@ -125,14 +119,13 @@ fn buildPaths(
     clusters: []const sketch.ClusterFrame,
     obstacles: tracks.Obstacles,
     enable_dodge: bool,
-) error{OutOfMemory}!Built {
+) error{OutOfMemory}![]sketch.EdgePath {
     const pends = try arena.dupe(Pending, pends_src);
     var dyn_heads: std.ArrayListUnmanaged(Pt) = .empty;
     var dyn_runs: std.ArrayListUnmanaged([2]Pt) = .empty;
     try dyn_heads.appendSlice(arena, obstacles.heads);
     try dyn_runs.appendSlice(arena, obstacles.runs);
     var out: std.ArrayListUnmanaged(sketch.EdgePath) = .empty;
-    var expired: u32 = 0;
     for (pends, 0..) |*p, pi| {
         const dyn = tracks.Obstacles{ .heads = dyn_heads.items, .runs = dyn_runs.items };
         const reroute = try rerouted(arena, p.*, placements);
@@ -145,7 +138,7 @@ fn buildPaths(
         }
         var poly = try buildElbow(arena, p.*);
         if (reroute) {
-            poly = try verticalCorridor(arena, p.start, p.end, p.to_box, p.sides.exit, placements, p.gf, p.gt, clusters, if (enable_dodge) dyn else obstacles, &expired);
+            poly = try verticalCorridor(arena, p.start, p.end, p.to_box, p.sides.exit, placements, p.gf, p.gt, clusters, if (enable_dodge) dyn else obstacles);
         }
         try commitScene(arena, &dyn_heads, &dyn_runs, poly, p.cross);
 
@@ -163,7 +156,7 @@ fn buildPaths(
             .role = .forward,
         });
     }
-    return .{ .paths = try out.toOwnedSlice(arena), .expired = expired };
+    return out.toOwnedSlice(arena);
 }
 
 fn dodgeJog(

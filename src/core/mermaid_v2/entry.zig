@@ -17,7 +17,6 @@ const ladder_pkg = @import("budget.zig");
 const select_mod = @import("select.zig");
 const ledger = @import("base/ledger.zig");
 const permits_mod = @import("ledger/permits.zig");
-const invariants_mod = @import("ledger/invariants.zig");
 const prim = @import("prim");
 
 pub const layoutFlowchart = coords_mod.layout;
@@ -130,9 +129,6 @@ fn renderWith(
         integrity,
         raster_report,
         graph.skipped_lines,
-        sketch_val.closure,
-        invariants_mod.gapRowsUnaccounted(sketch_val.gap_rows),
-        invariants_mod.gapRowsUnclaimedInk(sketch_val.direction, sketch_val.edges, sketch_val.rails, sketch_val.gap_rows),
     );
 
     const budget = sketch_val.budget.max_width;
@@ -174,12 +170,9 @@ fn emitIntegrityLine(
     v: validate_mod.Counts,
     raster_report: rasterize_mod.RasterReport,
     skipped_lines: u32,
-    closure: ledger.ClosureCounts,
-    gap_rows_unaccounted: u32,
-    gap_rows_unclaimed_ink: u32,
 ) void {
     std.debug.print(
-        "mercat-integrity: v_path_through_interior={d} v_bbox={d} r_edge_cells_lost={d} r_labels_dropped={d} r_labels_displaced={d} r_phantom_arms={d} x_legal_crossing={d} x_foreign_junction={d} x_arrowhead_transit={d} b_frame_bridge={d} b_border_fusion_refused={d} a_arrowhead_base={d} skipped_lines={d} rail_deco_mixed={d} rail_member_style_mixed={d} rail_star_violation={d} rail_closure_undeclared={d} co_undeclared={d} co_double_discharge={d} tip_not_port={d} arm_into_head={d} v_edge_unrouted={d} gap_rows_unaccounted={d} gap_rows_unclaimed_ink={d}\n",
+        "mercat-integrity: v_path_through_interior={d} v_bbox={d} r_edge_cells_lost={d} r_labels_dropped={d} r_labels_displaced={d} r_phantom_arms={d} x_legal_crossing={d} x_foreign_junction={d} x_arrowhead_transit={d} b_frame_bridge={d} b_border_fusion_refused={d} a_arrowhead_base={d} skipped_lines={d} tip_not_port={d} arm_into_head={d} v_edge_unrouted={d}\n",
         .{
             v.path_through_interior,
             v.bbox_overflow,
@@ -194,17 +187,9 @@ fn emitIntegrityLine(
             raster_report.crossings.b_border_fusion_refused,
             raster_report.arrow_base.violations,
             skipped_lines,
-            closure.rail_deco_mixed,
-            closure.rail_member_style_mixed,
-            closure.rail_star_violation,
-            closure.rail_closure_undeclared,
-            closure.co_undeclared,
-            closure.co_double_discharge,
             raster_report.arrow_base.tip_not_port,
             raster_report.armIntoHead(),
             v.edge_unrouted,
-            gap_rows_unaccounted,
-            gap_rows_unclaimed_ink,
         },
     );
 }
@@ -458,7 +443,6 @@ test {
     _ = @import("layout/fan_rail_licence.zig");
     _ = @import("ledger/permits.zig");
     _ = @import("ledger/permits_test.zig");
-    _ = @import("ledger/invariants.zig");
     _ = @import("ledger/realized_production_test.zig");
     _ = @import("layout/ports.zig");
     _ = @import("layout/ports_test.zig");

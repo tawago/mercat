@@ -249,7 +249,6 @@ pub fn verticalCorridor(
     to_id: sketch.NodeId,
     clusters: []const sketch.ClusterFrame,
     obstacles: tracks.Obstacles,
-    expired: ?*u32,
 ) error{OutOfMemory}![]sketch.Point {
     const descending = (exit == .south);
     // @guarded-by: bridges_test.zig "verticalCorridor: the source-side jog row (one past the source) is collision-free above the pierced child"
@@ -262,7 +261,6 @@ pub fn verticalCorridor(
         @max(start.x, end.x),
         clusters,
         obstacles,
-        expired,
     );
     const tgt_jog_y = if (descending)
         clampBetween(start.y, end.y, tgt_want)

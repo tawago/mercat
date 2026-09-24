@@ -134,15 +134,9 @@ pub const Diagnostic = union(enum) {
         excess: u32,
         in_cluster: ?ClusterId,
     },
-    label_truncated: struct {
-        node: NodeId,
-        original_len: u32,
-    },
     forced_label_wrap: struct {
         node: NodeId,
     },
-    crossing_count: u32,
-    track_clearance_expired: u32,
 };
 
 pub const BundleStampState = enum { unattempted, complete, out_of_memory, rail_invariant };
@@ -157,8 +151,6 @@ pub const Sketch = struct {
     rail_claims: []const ledger.RailClaim = &.{},
     /// @guarded-by: entry.zig "V-D-IR-07: a clustered graph's bundles ride piece plans; the root plan stays skipped"
     bundles: ledger.RealizedBundles = .{},
-    closure: ledger.ClosureCounts = .{},
-    gap_rows: []const ledger.GapRows = &.{},
     bundle_sets: []const ledger.Bundle = &.{},
     bundle_stamp_state: BundleStampState = .unattempted,
     diagnostics: []const Diagnostic,

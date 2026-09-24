@@ -118,11 +118,6 @@ test "a sub-gap grows by the rows its packed claims need beyond the grid's" {
     const l = try pack_mod.packSub(a, &claims, &.{}, &bases, &subs);
     try testing.expectEqual(@as(u32, 2), l.gaps[1].rows_used);
     try testing.expectEqual(@as(u32, 1), l.extraRows(1));
-    const walls = [_]gap_rows.GapWalls{ .{ .far = 3, .near = 5 }, .{ .far = 3, .near = 6 } };
-    const reserved = [_]u32{2};
-    const node_of = [_]u32{};
-    const records = try l.records(a, &reserved, &walls, &node_of);
-    try testing.expectEqual(@as(u32, 4), records[1].reserved);
 }
 
 test "a run arriving down a column another run departs from sits nearer the target" {

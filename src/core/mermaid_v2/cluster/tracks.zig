@@ -84,17 +84,13 @@ pub fn clearOfBorders(
     hi: i32,
     clusters: []const sketch.ClusterFrame,
     obstacles: Obstacles,
-    expired: ?*u32,
 ) i32 {
     const sign = outwardSign(entry);
     const row = isRowJog(entry);
     var c = coord;
     var guard: u32 = 0;
     while (onFrameBorder(row, c, lo, hi, clusters) or obstacles.blocks(row, c, lo, hi)) {
-        if (guard == 4096) {
-            if (expired) |e| e.* += 1;
-            break;
-        }
+        if (guard == 4096) break;
         guard += 1;
         c += sign;
     }
@@ -116,7 +112,6 @@ pub fn resolve(
     entry: sketch.Dir4,
     clusters: []const sketch.ClusterFrame,
     obstacles: Obstacles,
-    expired: ?*u32,
 ) error{OutOfMemory}![]i32 {
     const out = try arena.alloc(i32, reqs.len);
     const sign = outwardSign(entry);
@@ -135,7 +130,7 @@ pub fn resolve(
 
     // @guarded-by: bridges_test.zig "vertical bridge jogs when x-misaligned, final segment vertical"
     for (reqs, 0..) |r, i| {
-        if (!part[i]) out[i] = clearOfBorders(entry, r.pref, r.span_lo, r.span_hi, clusters, obstacles, expired);
+        if (!part[i]) out[i] = clearOfBorders(entry, r.pref, r.span_lo, r.span_hi, clusters, obstacles);
     }
 
     var order: std.ArrayListUnmanaged(usize) = .empty;
@@ -174,10 +169,7 @@ pub fn resolve(
         if (prev != std.math.minInt(i32) and v <= prev) v = prev + 1;
         var guard: u32 = 0;
         while (onFrameBorder(row, sign * v, lane_lo[li], lane_hi[li], clusters) or obstacles.blocks(row, sign * v, lane_lo[li], lane_hi[li])) {
-            if (guard == 4096) {
-                if (expired) |e| e.* += 1;
-                break;
-            }
+            if (guard == 4096) break;
             guard += 1;
             v += 1;
         }

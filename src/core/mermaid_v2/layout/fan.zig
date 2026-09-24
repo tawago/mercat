@@ -37,12 +37,7 @@ pub const Fan = struct {
     /// @guarded-by: gap_rows_test.zig "a labeled fan claims its rail row and one label band; an unlabeled fan claims one row"
     /// @guarded-by: gap_rows_test.zig "a fan-OUT with three labeled members claims the same rows as one with a single labeled member"
     labeled: bool = false,
-    construction_deco_mixed: bool = false,
-    construction_style_mixed: bool = false,
-    construction_star_violation: bool = false,
 };
-
-const PreparedPeers = struct { peers: []FanEdge, deco_mixed: bool = false, style_mixed: bool = false, star_violation: bool = false };
 
 pub fn effectiveLane(f: Fan, peer_lane: u32) u32 {
     return @max(f.lane, peer_lane);
@@ -72,17 +67,14 @@ pub fn detect(
             .virtual => continue,
         };
         const p_layer = node_layer[pivot];
-        if (try collectFanOut(a, graph, lg, node_layer, pivot, pivot_id, p_layer)) |prepared| {
+        if (try collectFanOut(a, graph, lg, node_layer, pivot, pivot_id, p_layer)) |peers| {
             const found: Fan = .{
                 .direction = .out,
                 .pivot = pivot_id,
                 .pivot_idx = pivot,
                 .source_layer = p_layer,
-                .peers = prepared.peers,
-                .labeled = anyPeerLabeled(graph, prepared.peers),
-                .construction_deco_mixed = prepared.deco_mixed,
-                .construction_style_mixed = prepared.style_mixed,
-                .construction_star_violation = prepared.star_violation,
+                .peers = peers,
+                .labeled = anyPeerLabeled(graph, peers),
             };
             assertPivotConsistency(found, lg);
             try fans.append(a, found);
@@ -96,17 +88,14 @@ pub fn detect(
         };
         const p_layer = node_layer[pivot];
         if (p_layer == 0) continue;
-        if (try collectFanIn(a, graph, lg, node_layer, pivot, pivot_id, p_layer - 1)) |prepared| {
+        if (try collectFanIn(a, graph, lg, node_layer, pivot, pivot_id, p_layer - 1)) |peers| {
             const found: Fan = .{
                 .direction = .in,
                 .pivot = pivot_id,
                 .pivot_idx = pivot,
                 .source_layer = p_layer - 1,
-                .peers = prepared.peers,
-                .labeled = anyPeerLabeled(graph, prepared.peers),
-                .construction_deco_mixed = prepared.deco_mixed,
-                .construction_style_mixed = prepared.style_mixed,
-                .construction_star_violation = prepared.star_violation,
+                .peers = peers,
+                .labeled = anyPeerLabeled(graph, peers),
             };
             assertPivotConsistency(found, lg);
             try fans.append(a, found);
@@ -204,7 +193,7 @@ fn collectFanOut(
     src_idx: u32,
     pivot: sg.NodeId,
     src_layer: u32,
-) error{OutOfMemory}!?PreparedPeers {
+) error{OutOfMemory}!?[]FanEdge {
     var candidates: std.ArrayListUnmanaged(FanEdge) = .empty;
     defer candidates.deinit(a);
 
@@ -235,7 +224,7 @@ fn collectFanIn(
     tgt_idx: u32,
     pivot: sg.NodeId,
     want_src_layer: u32,
-) error{OutOfMemory}!?PreparedPeers {
+) error{OutOfMemory}!?[]FanEdge {
     var candidates: std.ArrayListUnmanaged(FanEdge) = .empty;
     defer candidates.deinit(a);
 
@@ -257,10 +246,10 @@ fn collectFanIn(
     return preparePeers(a, graph, .in, pivot, candidates.items);
 }
 
-fn preparePeers(a: std.mem.Allocator, graph: sg.SemGraph, direction: ledger.BundleDirection, pivot: sg.NodeId, candidates: []const FanEdge) error{OutOfMemory}!?PreparedPeers {
+fn preparePeers(a: std.mem.Allocator, graph: sg.SemGraph, direction: ledger.BundleDirection, pivot: sg.NodeId, candidates: []const FanEdge) error{OutOfMemory}!?[]FanEdge {
     if (candidates.len < 2) return null;
     const out = try a.dupe(FanEdge, candidates);
-    if (graph.edges.len == 0) return .{ .peers = out };
+    if (graph.edges.len == 0) return out;
     const ids = try a.alloc(ledger.EdgeId, candidates.len);
     for (candidates, ids) |candidate, *id| id.* = candidate.edge_id;
     const prepared = try permits.prepareRailMembers(a, graph, direction, pivot, ids);
@@ -269,7 +258,7 @@ fn preparePeers(a: std.mem.Allocator, graph: sg.SemGraph, direction: ledger.Bund
         candidate.label_width = if (!candidate.long) (if (peerLabel(graph, candidate.edge_id)) |label| prim.displayWidth(label) else 0) else 0;
         candidate.shared = containsEdge(shared_ids, candidate.edge_id);
     }
-    return .{ .peers = out, .deco_mixed = prepared.deco_mixed, .style_mixed = prepared.style_mixed, .star_violation = prepared.star_violation };
+    return out;
 }
 
 fn containsEdge(edges: []const ledger.EdgeId, edge: ledger.EdgeId) bool {

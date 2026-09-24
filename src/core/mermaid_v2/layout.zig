@@ -91,12 +91,9 @@ fn buildSketch(
 
     const is_td = graph.direction == .TD;
     const fans_detected: []fan_mod.Fan = if (is_td) try fan_mod.detect(a, graph, lg) else &.{};
-    // @guarded-by: layout_test2.zig "a production render carries the closure licence's counts on its Sketch"
-    var closure: ledger.ClosureCounts = .{};
-    addConstructionDiagnostics(&closure, fans_detected);
     const effective_plan: ?ledger.BundlePermits = try bundle_commit.effectivePlan(a, graph, opts.bundle_permits);
     const plan_ref: ?*const ledger.BundlePermits = if (effective_plan) |*p| p else null;
-    var candidate_bundles = try bundle_commit.buildReported(a, graph, plan_ref, lg.reversed_edges, try longEdges(a, lg), &closure);
+    var candidate_bundles = try bundle_commit.buildReported(a, graph, plan_ref, lg.reversed_edges, try longEdges(a, lg), null);
     // @guarded-by: layout/port_plan_test.zig "a fan with a long peer the plan did not select degrades to private routing"
     const fans = try fan_gate.keepRealizableLong(a, fans_detected, candidate_bundles);
     const construction_private = hasPrivatePeers(fans);
@@ -140,7 +137,7 @@ fn buildSketch(
 
     // @guarded-by: layout/fan_lanes_test.zig "incomplete overlapping fans get separate lanes"
     if (fans.len > 0) fan_mod.gateFanInSharedLabels(NodeGeom, fans, geom);
-    if (fans.len > 0) try fan_lanes.assignLanes(NodeGeom, a, graph, lg, geom, fans, candidate_bundles, &closure);
+    if (fans.len > 0) try fan_lanes.assignLanes(NodeGeom, a, graph, lg, geom, fans, candidate_bundles, null);
 
     if (fans.len > 0) fan_mod.refreshLabelWidths(graph, fans);
 
@@ -189,24 +186,6 @@ fn buildSketch(
     for (v_sp_per_gap, 0..) |*g, i| g.* += rows.extraRows(i);
     layer_axis.growSubGaps(lg, geom, layer_h, rows);
     layer_axis.assignY(geom, lg.layers, layer_h, v_sp_per_gap);
-    const layer_top = try layer_axis.layerTops(a, geom, lg.layers);
-    // @guarded-by: ledger/invariants.zig "the painted-ink invariant counts a run on a row no claim of its edge stands on"
-    const walls = try a.alloc(gap_rows.GapWalls, rows.gaps.len);
-    for (walls[0..v_sp_per_gap.len], 0..) |*w, g| {
-        var below: i32 = std.math.minInt(i32);
-        var above: i32 = std.math.maxInt(i32);
-        if (g + 1 < lg.layers.len) {
-            for (lg.layers[g]) |idx| below = @max(below, geom[idx].y + @as(i32, @intCast(geom[idx].h)));
-            for (lg.layers[g + 1]) |idx| above = @min(above, geom[idx].y - 1);
-        }
-        w.* = if (graph.direction == .RL) .{ .far = above, .near = below } else .{ .far = below, .near = above };
-    }
-    for (rows.sub_gaps) |sgp| walls[sgp.gap] = .{ .far = layer_top[sgp.layer] + sgp.far, .near = layer_top[sgp.layer] + sgp.top - 1 };
-    const node_of = try a.alloc(u32, lg.nodes.len);
-    for (lg.nodes, node_of) |ln, *id| id.* = switch (ln) {
-        .real => |nid| nid,
-        .virtual => sg.SENTINEL,
-    };
 
     mirror.applyDirection(NodeGeom, geom, graph.direction);
 
@@ -248,10 +227,6 @@ fn buildSketch(
     const rails_out = try a.alloc(sketch.Rail, edges_result.rails.len);
     for (edges_result.rails, rails_out) |b, *out| out.* = b.rail;
 
-    const routed = try a.alloc(ledger.EdgeId, edges_out.len);
-    for (edges_out, routed) |e, *slot| slot.* = e.id;
-    closure.co_double_discharge = ledger.doubleDischarged(candidate_bundles.discharged, routed);
-
     const plan_realized = if (plan_ref) |p|
         p.scope == .flat or (p.scope == .piece and candidate_bundles.selected_bundles.len != 0)
     else
@@ -269,9 +244,6 @@ fn buildSketch(
         .rails = rails_out,
         .rail_claims = edges_result.rail_claims,
         .bundles = candidate_bundles,
-        .closure = closure,
-        // @guarded-by: ledger/invariants.zig "the gap invariant counts a spacing the ledger did not ask for and a row no claim stands on"
-        .gap_rows = try rows.records(a, v_sp_per_gap, walls, node_of),
         // @guarded-by: sketch_ports_test.zig "shared departure port groups its edges"
         .bundle_sets = sketch_ports.appendPortShares(a, base_sets, edges_out) catch base_sets,
         .diagnostics = try diagnostics.toOwnedSlice(a),
@@ -298,14 +270,6 @@ fn hasPortWork(bundles: ledger.RealizedBundles) bool {
         }
     }
     return false;
-}
-
-fn addConstructionDiagnostics(report: *ledger.ClosureCounts, fans: []const fan_mod.Fan) void {
-    for (fans) |fan| {
-        if (fan.construction_deco_mixed) report.rail_deco_mixed += 1;
-        if (fan.construction_style_mixed) report.rail_member_style_mixed += 1;
-        if (fan.construction_star_violation) report.rail_star_violation += 1;
-    }
 }
 
 fn hasPrivatePeers(fans: []const fan_mod.Fan) bool {
@@ -367,18 +331,4 @@ const buildPlacements = sizing.buildPlacements;
 
 test {
     _ = @import("layout/layout_test.zig");
-    _ = @import("layout/layout_test2.zig");
-}
-
-test "construction diagnostics do not alias decoration and style" {
-    const fans = [_]fan_mod.Fan{
-        .{ .direction = .out, .pivot_idx = 0, .source_layer = 0, .peers = &.{}, .construction_style_mixed = true },
-        .{ .direction = .out, .pivot_idx = 0, .source_layer = 0, .peers = &.{}, .construction_deco_mixed = true },
-        .{ .direction = .out, .pivot_idx = 0, .source_layer = 0, .peers = &.{}, .construction_deco_mixed = true, .construction_style_mixed = true },
-        .{ .direction = .out, .pivot_idx = 0, .source_layer = 0, .peers = &.{} },
-    };
-    var report: ledger.ClosureCounts = .{};
-    addConstructionDiagnostics(&report, &fans);
-    try std.testing.expectEqual(@as(u32, 2), report.rail_deco_mixed);
-    try std.testing.expectEqual(@as(u32, 2), report.rail_member_style_mixed);
 }

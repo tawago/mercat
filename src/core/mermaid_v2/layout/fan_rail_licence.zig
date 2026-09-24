@@ -29,7 +29,6 @@ pub fn refuseUndeclared(
         claim.verdict = .{ .outcome = .untouched };
         claim.claiming = false;
     }
-    // @guarded-by: layout_test2.zig "a production render carries the closure licence's counts on its Sketch"
     const order = try a.alloc(usize, claims.len);
     defer a.free(order);
     for (order, 0..) |*slot, i| slot.* = i;

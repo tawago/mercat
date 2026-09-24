@@ -120,29 +120,6 @@ pub const ClosureCounts = struct {
     co_double_discharge: u32 = 0,
 };
 
-pub const GapRows = struct {
-    gap: u32,
-    base: u32,
-    reserved: u32,
-    free: u32,
-    rows_used: u32,
-    claimed: u64,
-    base_used: bool,
-    near: i32 = 0,
-    far: i32 = 0,
-    claims: []const GapClaim = &.{},
-};
-
-pub const RailKey = struct { pivot: NodeId, out: bool };
-
-pub const GapClaim = struct {
-    row: i32,
-    height: u32,
-    edges: []const EdgeId = &.{},
-    rails: []const RailKey = &.{},
-    bridge: bool = false,
-};
-
 pub fn gapSpacingNeeded(rows_used: u32, base_used: bool) u32 {
     if (rows_used > 0) return rows_used + 2;
     return if (base_used) 2 else 0;

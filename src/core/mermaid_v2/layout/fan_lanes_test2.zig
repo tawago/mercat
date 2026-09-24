@@ -213,7 +213,6 @@ test "a two-sided group of double-headed members loses the star licence outright
     const graph: sg.SemGraph = .{ .direction = .TD, .nodes = &.{}, .edges = es, .clusters = &.{}, .classes = &.{}, .arena = null };
     const fans = try fan.detect(aa, graph, lg);
     for (fans) |f| {
-        try testing.expect(f.construction_star_violation);
         for (f.peers) |p| try testing.expect(!p.shared);
     }
     try fan_lanes.assignLanes(Geom, aa, graph, lg, &geom, fans, .{}, null);

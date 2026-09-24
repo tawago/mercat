@@ -18,7 +18,7 @@ test "vertical stacked bridge routes straight when x-aligned" {
     const crossings = [_]Crossing{
         .{ .id = 0, .from = 0, .to = 1, .kind = .solid, .arrow_from = .none, .arrow_to = .filled, .label = null },
     };
-    const edges = try bridges.route(a, &crossings, &placements, &.{}, &.{}, &.{}, .TD, &orig_to_merged, null, .plain);
+    const edges = try bridges.route(a, &crossings, &placements, &.{}, &.{}, &.{}, .TD, &orig_to_merged, .plain);
     try std.testing.expectEqual(@as(usize, 1), edges.len);
     try std.testing.expectEqual(@as(usize, 2), edges[0].polyline.len);
     try std.testing.expectEqual(@as(i32, 13), edges[0].polyline[0].x);
@@ -40,7 +40,7 @@ test "vertical bridge jogs when x-misaligned, final segment vertical" {
     const crossings = [_]Crossing{
         .{ .id = 0, .from = 0, .to = 1, .kind = .solid, .arrow_from = .none, .arrow_to = .filled, .label = null },
     };
-    const edges = try bridges.route(a, &crossings, &placements, &.{}, &.{}, &.{}, .TD, &orig_to_merged, null, .plain);
+    const edges = try bridges.route(a, &crossings, &placements, &.{}, &.{}, &.{}, .TD, &orig_to_merged, .plain);
     const poly = edges[0].polyline;
     try std.testing.expectEqual(@as(usize, 4), poly.len);
     try std.testing.expectEqual(@as(i32, 18), poly[1].y);
@@ -66,7 +66,7 @@ test "jog landing on a drawn frame border row is displaced outside it" {
     const crossings = [_]Crossing{
         .{ .id = 0, .from = 0, .to = 1, .kind = .solid, .arrow_from = .none, .arrow_to = .filled, .label = null },
     };
-    const edges = try bridges.route(a, &crossings, &placements, &clusters, &.{}, &.{}, .TD, &orig_to_merged, null, .plain);
+    const edges = try bridges.route(a, &crossings, &placements, &clusters, &.{}, &.{}, .TD, &orig_to_merged, .plain);
     const poly = edges[0].polyline;
     try std.testing.expectEqual(@as(usize, 4), poly.len);
     try std.testing.expectEqual(@as(i32, 5), poly[1].y);
@@ -93,7 +93,7 @@ test "two same-side bridges with overlapping spans get distinct tracks" {
         .{ .id = 0, .from = 0, .to = 3, .kind = .solid, .arrow_from = .none, .arrow_to = .filled, .label = null },
         .{ .id = 1, .from = 1, .to = 2, .kind = .solid, .arrow_from = .none, .arrow_to = .filled, .label = null },
     };
-    const edges = try bridges.route(a, &crossings, &placements, &clusters, &.{}, &.{}, .TD, &orig_to_merged, null, .plain);
+    const edges = try bridges.route(a, &crossings, &placements, &clusters, &.{}, &.{}, .TD, &orig_to_merged, .plain);
     try std.testing.expectEqual(@as(usize, 2), edges.len);
     const jog0 = edges[0].polyline[1].y;
     const jog1 = edges[1].polyline[1].y;
@@ -120,7 +120,7 @@ test "bridges sharing one source port share a single rail track" {
         .{ .id = 0, .from = 0, .to = 1, .kind = .solid, .arrow_from = .none, .arrow_to = .filled, .label = null },
         .{ .id = 1, .from = 0, .to = 2, .kind = .solid, .arrow_from = .none, .arrow_to = .filled, .label = null },
     };
-    const edges = try bridges.route(a, &crossings, &placements, &clusters, &.{}, &.{}, .TD, &orig_to_merged, null, .plain);
+    const edges = try bridges.route(a, &crossings, &placements, &clusters, &.{}, &.{}, .TD, &orig_to_merged, .plain);
     try std.testing.expectEqual(@as(usize, 2), edges.len);
     try std.testing.expectEqual(edges[0].polyline[1].y, edges[1].polyline[1].y);
 }
@@ -145,7 +145,7 @@ test "bridges sharing one target port share a single rail track" {
         .{ .id = 1, .from = 1, .to = 3, .kind = .solid, .arrow_from = .none, .arrow_to = .filled, .label = null },
         .{ .id = 2, .from = 2, .to = 3, .kind = .solid, .arrow_from = .none, .arrow_to = .filled, .label = null },
     };
-    const edges = try bridges.route(a, &crossings, &placements, &clusters, &.{}, &.{}, .TD, &orig_to_merged, null, .plain);
+    const edges = try bridges.route(a, &crossings, &placements, &clusters, &.{}, &.{}, .TD, &orig_to_merged, .plain);
     try std.testing.expectEqual(@as(usize, 3), edges.len);
     try std.testing.expectEqual(@as(usize, 4), edges[0].polyline.len);
     try std.testing.expectEqual(@as(usize, 2), edges[1].polyline.len);
@@ -175,7 +175,7 @@ test "a bridge sharing a start with one peer and an end with another keys its re
         .{ .id = 1, .from = 1, .to = 2, .kind = .solid, .arrow_from = .none, .arrow_to = .filled, .label = null },
         .{ .id = 2, .from = 1, .to = 3, .kind = .solid, .arrow_from = .none, .arrow_to = .filled, .label = null },
     };
-    const edges = try bridges.route(a, &crossings, &placements, &clusters, &.{}, &.{}, .TD, &orig_to_merged, null, .plain);
+    const edges = try bridges.route(a, &crossings, &placements, &clusters, &.{}, &.{}, .TD, &orig_to_merged, .plain);
     try std.testing.expectEqual(@as(usize, 3), edges.len);
     try std.testing.expectEqual(edges[1].polyline[1].y, edges[2].polyline[1].y);
     try std.testing.expect(edges[0].polyline[1].y != edges[1].polyline[1].y);
@@ -214,7 +214,7 @@ test "assignJogs: shared-request merge across different cluster depths picks the
         .{ .id = 0, .from = 0, .to = 1, .kind = .solid, .arrow_from = .none, .arrow_to = .filled, .label = null },
         .{ .id = 1, .from = 0, .to = 2, .kind = .solid, .arrow_from = .none, .arrow_to = .filled, .label = null },
     };
-    const edges = try bridges.route(a, &crossings, &placements, &clusters, &.{}, &.{}, .TD, &orig_to_merged, null, .plain);
+    const edges = try bridges.route(a, &crossings, &placements, &clusters, &.{}, &.{}, .TD, &orig_to_merged, .plain);
     try std.testing.expectEqual(@as(usize, 2), edges.len);
     try std.testing.expectEqual(@as(i32, 21), edges[0].polyline[1].y);
     try std.testing.expectEqual(@as(i32, 21), edges[1].polyline[1].y);
@@ -234,7 +234,7 @@ test "verticalCorridor: the source-side jog row (one past the source) is collisi
     const crossings = [_]Crossing{
         .{ .id = 0, .from = 0, .to = 1, .kind = .solid, .arrow_from = .none, .arrow_to = .filled, .label = null },
     };
-    const edges = try bridges.route(a, &crossings, &placements, &.{}, &.{}, &.{}, .TD, &orig_to_merged, null, .plain);
+    const edges = try bridges.route(a, &crossings, &placements, &.{}, &.{}, &.{}, .TD, &orig_to_merged, .plain);
     const poly = edges[0].polyline;
 
     try std.testing.expectEqual(@as(usize, 5), poly.len);
@@ -261,7 +261,7 @@ test "a vertical corridor's descent column never lands on a drawn frame border" 
     const crossings = [_]Crossing{
         .{ .id = 0, .from = 0, .to = 1, .kind = .solid, .arrow_from = .none, .arrow_to = .filled, .label = null },
     };
-    const edges = try bridges.route(a, &crossings, &placements, &frames, &.{}, &.{}, .TD, &orig_to_merged, null, .plain);
+    const edges = try bridges.route(a, &crossings, &placements, &frames, &.{}, &.{}, .TD, &orig_to_merged, .plain);
     const poly = edges[0].polyline;
     try std.testing.expectEqual(@as(usize, 6), poly.len);
 
@@ -293,7 +293,7 @@ test "a re-routed corridor raises no crossing demand on the frame it leaves" {
         .{ .id = 0, .from = 0, .to = 2, .kind = .solid, .arrow_from = .none, .arrow_to = .filled, .label = null },
         .{ .id = 1, .from = 1, .to = 3, .kind = .solid, .arrow_from = .none, .arrow_to = .filled, .label = null },
     };
-    const edges = try bridges.route(a, &crossings, &placements, &frames, &.{}, &.{}, .TD, &orig_to_merged, null, .plain);
+    const edges = try bridges.route(a, &crossings, &placements, &frames, &.{}, &.{}, .TD, &orig_to_merged, .plain);
     try std.testing.expectEqual(@as(usize, 2), edges.len);
 
     try std.testing.expect(edges[0].polyline.len > 4);
@@ -369,7 +369,7 @@ test "a licensed shared-source fan moves its whole rail off a static run the sce
         .kind = .solid,
     }};
 
-    const edges = try bridges.route(a, &crossings, &placements, &.{}, &.{}, &statics, .TD, &orig_to_merged, null, .railed);
+    const edges = try bridges.route(a, &crossings, &placements, &.{}, &.{}, &statics, .TD, &orig_to_merged, .railed);
     try std.testing.expectEqual(@as(usize, 2), edges.len);
     try std.testing.expectEqual(edges[0].polyline[0].x, edges[1].polyline[0].x);
     try std.testing.expectEqual(@as(usize, 4), edges[0].polyline.len);
@@ -407,11 +407,11 @@ test "a licensed shared-target fan moves its whole rail off a static run the sce
         .kind = .solid,
     }};
 
-    const plain = try bridges.route(a, &crossings, &placements, &.{}, &.{}, &statics, .TD, &orig_to_merged, null, .plain);
+    const plain = try bridges.route(a, &crossings, &placements, &.{}, &.{}, &statics, .TD, &orig_to_merged, .plain);
     try std.testing.expectEqual(@as(i32, 18), plain[0].polyline[1].y);
     try std.testing.expectEqual(@as(i32, 18), plain[1].polyline[1].y);
 
-    const edges = try bridges.route(a, &crossings, &placements, &.{}, &.{}, &statics, .TD, &orig_to_merged, null, .railed);
+    const edges = try bridges.route(a, &crossings, &placements, &.{}, &.{}, &statics, .TD, &orig_to_merged, .railed);
     try std.testing.expectEqual(@as(usize, 2), edges.len);
     try std.testing.expectEqual(@as(usize, 4), edges[0].polyline.len);
     try std.testing.expectEqual(edges[0].polyline[3].x, edges[1].polyline[3].x);
@@ -419,7 +419,7 @@ test "a licensed shared-target fan moves its whole rail off a static run the sce
     try std.testing.expect(edges[0].polyline[1].y != 18);
 }
 
-test "clearOfBorders expiry surrenders the coordinate and counts it; a cleared search counts nothing" {
+test "clearOfBorders surrenders the coordinate after its search bound" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
@@ -429,32 +429,6 @@ test "clearOfBorders expiry surrenders the coordinate and counts it; a cleared s
         const y: i32 = 10 - @as(i32, @intCast(i));
         r.* = .{ .{ .x = 0, .y = y }, .{ .x = 20, .y = y } };
     }
-    var expired: u32 = 0;
-    const c = tracks.clearOfBorders(.north, 10, 0, 20, &.{}, .{ .runs = runs }, &expired);
-    try std.testing.expectEqual(@as(u32, 1), expired);
-    try std.testing.expectEqual(@as(i32, 10 - 4096), c);
-
-    var cleared: u32 = 0;
-    const c2 = tracks.clearOfBorders(.north, 10, 0, 20, &.{}, .{ .runs = runs[0..1] }, &cleared);
-    try std.testing.expectEqual(@as(u32, 0), cleared);
-    try std.testing.expectEqual(@as(i32, 9), c2);
-}
-
-test "resolve threads the expiry counter through the lane cascade" {
-    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
-    defer arena.deinit();
-    const a = arena.allocator();
-
-    const runs = try a.alloc([2]sketch.Point, 4200);
-    for (runs, 0..) |*r, i| {
-        const y: i32 = 10 - @as(i32, @intCast(i));
-        r.* = .{ .{ .x = 0, .y = y }, .{ .x = 20, .y = y } };
-    }
-    const reqs = [_]tracks.Req{
-        .{ .span_lo = 0, .span_hi = 20, .pref = 10 },
-        .{ .span_lo = 5, .span_hi = 15, .pref = 9 },
-    };
-    var expired: u32 = 0;
-    _ = try tracks.resolve(a, &reqs, .north, &.{}, .{ .runs = runs }, &expired);
-    try std.testing.expect(expired > 0);
+    try std.testing.expectEqual(@as(i32, 10 - 4096), tracks.clearOfBorders(.north, 10, 0, 20, &.{}, .{ .runs = runs }));
+    try std.testing.expectEqual(@as(i32, 9), tracks.clearOfBorders(.north, 10, 0, 20, &.{}, .{ .runs = runs[0..1] }));
 }
