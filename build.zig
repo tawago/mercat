@@ -168,6 +168,26 @@ pub fn build(b: *std.Build) void {
 
     test_step.dependOn(&prop_test_run.step);
 
+    const check_mod = b.createModule(.{
+        .root_source_file = b.path("src/core/mermaid/check.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    check_mod.addImport("unicode", unicode_mod);
+
+    const mermaid_props_module = b.createModule(.{
+        .root_source_file = b.path("tests/mermaid/all_test.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    mermaid_props_module.addImport("check", check_mod);
+    mermaid_props_module.addImport("mermaid_v2", mermaid_v2_mod);
+    const mermaid_props = b.addTest(.{ .root_module = mermaid_props_module });
+    const mermaid_props_run = b.addRunArtifact(mermaid_props);
+    const mermaid_props_step = b.step("test-mermaid-props", "Run readback and property tests on generated flowcharts");
+    mermaid_props_step.dependOn(&mermaid_props_run.step);
+    test_step.dependOn(&mermaid_props_run.step);
+
     const v2_test_module = b.createModule(.{
         .root_source_file = b.path("src/core/mermaid_v2/entry.zig"),
         .target = target,
