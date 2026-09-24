@@ -4,28 +4,20 @@ const sketch_ports = @import("../sketch_ports.zig");
 const ledger = @import("../base/ledger.zig");
 const split_mod = @import("split.zig");
 const bridge_bundle_sets = @import("bridge_bundle_sets.zig");
-const bridge_claims = @import("bridge_claims.zig");
-const stitch_rails = @import("stitch_rails.zig");
 
-pub const Authority = struct {
-    sets: []const ledger.Bundle,
-    claims: []const ledger.RailClaim,
-};
-
-pub fn finalizeAuthority(
+/// The stitched sketch's bundle sets: each piece's structural sets, the outer sets rebuilt
+/// over the final edge ids, and the port shares the final paths form.
+pub fn finalSets(
     arena: std.mem.Allocator,
     sr: split_mod.SplitResult,
     outer: sketch.Sketch,
-    claim_sources: []const stitch_rails.ChildSource,
-    outer_node_map: []const sketch.NodeId,
     outer_base: sketch.EdgeId,
     bridge_base: sketch.EdgeId,
     paths: []const sketch.EdgePath,
     bridges: []const sketch.EdgePath,
     rails_buf: []const sketch.Rail,
-    placements: []const sketch.NodePlacement,
     inherited_structural: []const ledger.Bundle,
-) error{OutOfMemory}!Authority {
+) error{OutOfMemory}![]const ledger.Bundle {
     const outer_sets = try bridge_bundle_sets.rebuildOuterSets(
         arena,
         sr,
@@ -37,22 +29,7 @@ pub fn finalizeAuthority(
         rails_buf,
     );
     const structural = try ledger.concatBundles(arena, inherited_structural, outer_sets);
-    const transported = try stitch_rails.transport(arena, sr, claim_sources, outer, outer_node_map, outer_base);
-    return .{
-        .sets = try sketch_ports.rebuildFinalPortShares(arena, structural, paths, rails_buf),
-        .claims = try bridge_claims.rebuild(
-            arena,
-            sr,
-            outer,
-            transported,
-            outer_base,
-            bridge_base,
-            paths,
-            bridges,
-            rails_buf,
-            placements,
-        ),
-    };
+    return sketch_ports.rebuildFinalPortShares(arena, structural, paths, rails_buf);
 }
 
 /// @guarded-by: stitch_bundle_sets.zig "shiftSet carries a port-share set's cell scope and pairwise table across the id shift"

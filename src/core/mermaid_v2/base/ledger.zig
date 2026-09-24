@@ -163,7 +163,6 @@ fn holds(edges: []const EdgeId, edge: EdgeId) bool {
     return false;
 }
 
-/// @guarded-by: select_test.zig "a clustered render's rail bundles come from its piece plan and survive the stitch"
 pub fn bundlesFromPlan(
     allocator: std.mem.Allocator,
     bundles: RealizedBundles,

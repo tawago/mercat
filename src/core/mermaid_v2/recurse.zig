@@ -8,7 +8,6 @@ const cluster_stitch = @import("cluster/stitch.zig");
 
 pub const RecurseError = coords.CoordsError || cluster_stitch.StitchError;
 
-/// @guarded-by: entry.zig "V-D-IR-07: a clustered graph's bundles ride piece plans; the root plan stays skipped"
 pub fn layoutPieces(
     arena: std.mem.Allocator,
     graph: sem_graph.SemGraph,
@@ -76,8 +75,7 @@ pub fn stitchOuter(
     outer_opts.fixed_sizes = fixed;
     const outer = try coords.layout(arena, sr.pieces[0].graph, outer_opts);
     children[0] = .{ .sketch = outer, .input_of = &.{} };
-    const authored_cluster_run = if (opts.bundle_permits) |p| !p.isFlat() else false;
-    return cluster_stitch.stitch(arena, sr, outer, children, opts.spacing_scale, authored_cluster_run, opts.bridge_build);
+    return cluster_stitch.stitch(arena, sr, outer, children, opts.spacing_scale, opts.bridge_build);
 }
 
 pub fn pieceFrameOverheadX(sr: cluster_split.SplitResult, piece_idx: usize, scale: u32) u32 {

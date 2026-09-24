@@ -294,7 +294,7 @@ test "stitch re-clamps a surviving rail's crossbar past a dropped super-node tap
     }
     try std.testing.expect(dropped_x != null);
 
-    const merged = try cluster_stitch.stitch(a, sr, outer, children, opts.spacing_scale, false, .plain);
+    const merged = try cluster_stitch.stitch(a, sr, outer, children, opts.spacing_scale, .plain);
 
     try std.testing.expectEqual(@as(usize, 1), merged.sketch.rails.len);
     try std.testing.expectEqual(@as(usize, 2), merged.sketch.rails[0].taps.len);

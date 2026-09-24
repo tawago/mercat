@@ -149,7 +149,6 @@ pub const Sketch = struct {
     edges: []const EdgePath,
     rails: []const Rail = &.{},
     rail_claims: []const ledger.RailClaim = &.{},
-    /// @guarded-by: entry.zig "V-D-IR-07: a clustered graph's bundles ride piece plans; the root plan stays skipped"
     bundles: ledger.RealizedBundles = .{},
     bundle_sets: []const ledger.Bundle = &.{},
     bundle_stamp_state: BundleStampState = .unattempted,

@@ -76,41 +76,6 @@ test "choose returns a laid-out candidate" {
     try std.testing.expect(result.sketch.bbox.w > 0);
 }
 
-test "a clustered render's rail bundles come from its piece plan and survive the stitch" {
-    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
-    defer arena.deinit();
-    const a = arena.allocator();
-
-    const g = try parse(a,
-        \\flowchart TD
-        \\  subgraph S
-        \\    A --> B
-        \\    A --> C
-        \\    A --> D
-        \\  end
-        \\  B --> Z
-        \\
-    );
-    const permits = (try permits_mod.build(a, g, .joined)).plan;
-    const winner = try select.choose(a, g, &permits, 120, .bridge);
-
-    try std.testing.expectEqual(@as(usize, 1), winner.sketch.bundles.selected_bundles.len);
-    const rail = winner.sketch.bundles.selected_bundles[0];
-    try std.testing.expectEqual(@as(usize, 3), rail.members.len);
-    try std.testing.expect(winner.sketch.bundle_sets.len > 0);
-    for (winner.sketch.bundle_sets) |set| {
-        try std.testing.expect(set.origin == .selected_bundle or set.origin == .port_share);
-        try std.testing.expect(set.members.len >= 2);
-    }
-    var plan_sets: usize = 0;
-    for (winner.sketch.bundle_sets) |set| {
-        if (set.origin != .selected_bundle) continue;
-        plan_sets += 1;
-        try std.testing.expectEqualSlices(ledger.EdgeId, rail.members, set.members);
-    }
-    try std.testing.expectEqual(@as(usize, 1), plan_sets);
-}
-
 fn permitsFor(a: std.mem.Allocator, g: sem_graph.SemGraph) !ledger.BundlePermits {
     var plan = (try permits_mod.build(a, g, .joined)).plan;
     plan.scope = .skipped_clustered;
