@@ -18,7 +18,7 @@ fn rawOf(graph: anytype, id: u32) []const u8 {
 fn railKeysAtD(a: std.mem.Allocator, source: []const u8) ![]const []const u8 {
     const graph = try parse(a, source);
     const plan = (try permits.build(a, graph, .joined)).plan;
-    const winner = try select.choose(a, graph, &plan, 94, .{}, .bridge);
+    const winner = try select.choose(a, graph, &plan, 94, .bridge);
     for (winner.sketch.bundles.selected_bundles) |sj| {
         for (plan.groups) |g| if (g.id == sj.candidate_bundle and g.direction == .in and g.pivot == nodeId(graph, "D")) {
             const out = try a.alloc([]const u8, sj.members.len);
@@ -44,7 +44,7 @@ test "N6 reversed: every candidate commits the forward-subset fan-in rail" {
     const plan = (try permits.build(a, graph, .joined)).plan;
     const set = try select.enumerateAll(a, graph, &plan, 94);
     var saw_fanin = false;
-    for (set.merged) |candidate| {
+    for (set) |candidate| {
         for (candidate.sketch.bundles.selected_bundles) |sj| {
             for (plan.groups) |g| if (g.id == sj.candidate_bundle and g.direction == .in and g.pivot == nodeId(graph, "D")) {
                 saw_fanin = true;
@@ -63,7 +63,7 @@ test "N6 floor: a single-forward-member reversed fan-in commits no rail" {
     const graph = try parse(a, source);
     const plan = (try permits.build(a, graph, .joined)).plan;
     const set = try select.enumerateAll(a, graph, &plan, 94);
-    for (set.merged) |candidate| {
+    for (set) |candidate| {
         for (candidate.sketch.bundles.selected_bundles) |sj| {
             for (plan.groups) |g| if (g.id == sj.candidate_bundle)
                 try std.testing.expect(!(g.direction == .in and g.pivot == nodeId(graph, "H")));

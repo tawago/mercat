@@ -4,8 +4,8 @@ const sketch = @import("sketch.zig");
 const raster = @import("raster.zig");
 const score = @import("score.zig");
 
-pub fn collect(allocator: std.mem.Allocator, s: sketch.Sketch, subgraph_edges: prim.SubgraphEdges) ?score.RasterCounts {
-    const report = raster.rasterize(allocator, s, subgraph_edges) catch return null;
+pub fn collect(allocator: std.mem.Allocator, s: sketch.Sketch, subgraph_edges: prim.SubgraphEdges) !score.RasterCounts {
+    const report = try raster.rasterize(allocator, s, subgraph_edges);
     return .{
         .labels_dropped = report.labels_dropped,
         .labels_displaced = report.labels_displaced,
@@ -49,7 +49,7 @@ test "collect returns zero counts for a clean two-node sketch" {
         .budget = .{ .max_width = 80, .rung = 0 },
     };
 
-    const counts = collect(a, s, .bridge) orelse return error.RasterFailed;
+    const counts = try collect(a, s, .bridge);
     try std.testing.expectEqual(@as(u32, 0), counts.labels_dropped);
     try std.testing.expectEqual(@as(u32, 0), counts.edge_cells_lost);
 }

@@ -19,30 +19,23 @@ fn testBundlePermits() *const ledger.BundlePermits {
     return &test_bundle_permits;
 }
 
-test "truncate rung is ineligible when natural fits cleanly" {
+test "truncate cannot win while natural fits cleanly" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
 
     const g = try parse(a, "flowchart TD\n  A --> B\n  B --> C\n");
-    const enumerated = try ladder.enumerate(a, g, testBundlePermits(), 80);
-    const sel = select.scoreCandidates(a, enumerated.candidates, enumerated.incumbent.final_rung, g.direction, .bridge) orelse
-        return error.ScoringFailed;
-
-    var natural_idx: ?usize = null;
-    var truncate_idx: ?usize = null;
-    for (enumerated.candidates, 0..) |cand, i| {
-        if (cand.rung == .natural) natural_idx = i;
-        if (cand.rung == .truncate) truncate_idx = i;
-    }
-    const ns = sel.scores[natural_idx.?];
-    const ts = sel.scores[truncate_idx.?];
-
+    const candidates = try ladder.enumerate(a, g, testBundlePermits(), 80);
+    const natural = candidates[@intFromEnum(ladder.Rung.natural)];
+    const truncate = candidates[@intFromEnum(ladder.Rung.truncate)];
+    const ns = try score_mod.eval(a, natural.sketch, g.direction, 0, try audit.collect(a, natural.sketch, .bridge));
+    const ts = try score_mod.eval(a, truncate.sketch, g.direction, 4, try audit.collect(a, truncate.sketch, .bridge));
     try std.testing.expectEqual(@as(u32, 0), ns.t0_fit);
     try std.testing.expectEqual(@as(u32, 0), ns.t1_integrity);
     try std.testing.expect(ts.lessThan(ns));
 
-    try std.testing.expect(enumerated.candidates[sel.argmin_idx].rung != .truncate);
+    const winner = candidates[try select.argmin(a, candidates, g.direction, .bridge)];
+    try std.testing.expect(winner.rung != .truncate);
 }
 
 test "packed candidates: TD parallel graph yields motif_pack candidates at capped rungs" {
@@ -61,7 +54,6 @@ test "packed candidates: TD parallel graph yields motif_pack candidates at cappe
     for (packed_cands, PACK_RUNGS) |cand, rung| {
         try std.testing.expectEqual(ladder.Transform.motif_pack, cand.transform);
         try std.testing.expectEqual(rung, cand.rung);
-        try std.testing.expect(!cand.accepted);
         try std.testing.expect(cand.sketch.clusters.len != 0);
     }
 
@@ -69,7 +61,7 @@ test "packed candidates: TD parallel graph yields motif_pack candidates at cappe
     try std.testing.expectEqual(@as(usize, 0), (try select.packedCandidates(a, g_lr, testBundlePermits(), 80)).len);
 }
 
-test "choose: merged selection anchors to raw natural and never fails the render" {
+test "choose returns a laid-out candidate" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
@@ -80,12 +72,8 @@ test "choose: merged selection anchors to raw natural and never fails the render
         \\  A --> B2 --> C2
         \\
     );
-    const result = try select.choose(a, g, testBundlePermits(), 120, .{}, .bridge);
+    const result = try select.choose(a, g, testBundlePermits(), 120, .bridge);
     try std.testing.expect(result.sketch.bbox.w > 0);
-
-    const incumbent = (try ladder.enumerate(a, g, testBundlePermits(), 120)).incumbent;
-    const off = try select.choose(a, g, testBundlePermits(), 120, .{ .score_off = true }, .bridge);
-    try std.testing.expectEqual(incumbent.final_rung, off.final_rung);
 }
 
 test "a clustered render's rail bundles come from its piece plan and survive the stitch" {
@@ -104,7 +92,7 @@ test "a clustered render's rail bundles come from its piece plan and survive the
         \\
     );
     const permits = (try permits_mod.build(a, g, .joined)).plan;
-    const winner = try select.choose(a, g, &permits, 120, .{}, .bridge);
+    const winner = try select.choose(a, g, &permits, 120, .bridge);
 
     try std.testing.expectEqual(@as(usize, 1), winner.sketch.bundles.selected_bundles.len);
     const rail = winner.sketch.bundles.selected_bundles[0];
@@ -147,16 +135,16 @@ test "the audit prices the raster that ships: mode reaches collect and changes t
         \\
     );
     const permits = try permitsFor(a, g);
-    const winner = try select.choose(a, g, &permits, 90, .{}, .cross);
+    const winner = try select.choose(a, g, &permits, 90, .cross);
 
     const shipped = try raster.rasterize(a, winner.sketch, .cross);
-    const priced = audit.collect(a, winner.sketch, .cross) orelse return error.RasterFailed;
+    const priced = try audit.collect(a, winner.sketch, .cross);
     try std.testing.expectEqual(shipped.arrow_base.violations, priced.arrow_base);
     try std.testing.expectEqual(shipped.crossings.foreign_junction_violation, priced.foreign_junction);
     try std.testing.expectEqual(shipped.crossings.arrowhead_transit_violation, priced.arrowhead_transit);
     try std.testing.expectEqual(shipped.edge_cells_lost, priced.edge_cells_lost);
 
-    const counterfactual = audit.collect(a, winner.sketch, .bridge) orelse return error.RasterFailed;
+    const counterfactual = try audit.collect(a, winner.sketch, .bridge);
     try std.testing.expect(counterfactual.arrow_base != priced.arrow_base);
 }
 
@@ -220,24 +208,22 @@ test "bridge variants: the real-raster score decides, and flips when the counts 
     var edges_bad: [2]sketch_mod.EdgePath = undefined;
     const bad = bridgePinSketch(7, &polys_bad, &nodes_bad, &edges_bad);
 
-    const c_clean = audit.collect(a, clean, .bridge) orelse return error.RasterFailed;
-    const c_bad = audit.collect(a, bad, .bridge) orelse return error.RasterFailed;
+    const c_clean = try audit.collect(a, clean, .bridge);
+    const c_bad = try audit.collect(a, bad, .bridge);
     try std.testing.expectEqual(@as(u32, 0), c_clean.arrowhead_transit);
     try std.testing.expect(c_bad.arrowhead_transit > 0);
 
     const cands_a = [_]ladder.Candidate{
-        .{ .rung = .natural, .sketch = clean, .accepted = true, .transform = .raw },
-        .{ .rung = .natural, .sketch = bad, .accepted = false, .transform = .bridge_dodged },
+        .{ .rung = .natural, .sketch = clean, .transform = .raw },
+        .{ .rung = .natural, .sketch = bad, .transform = .bridge_dodged },
     };
-    const sel_a = select.scoreCandidates(a, &cands_a, .natural, .TD, .bridge) orelse return error.ScoreFailed;
-    try std.testing.expectEqual(@as(usize, 0), sel_a.argmin_idx);
+    try std.testing.expectEqual(@as(usize, 0), try select.argmin(a, &cands_a, .TD, .bridge));
 
     const cands_b = [_]ladder.Candidate{
-        .{ .rung = .natural, .sketch = bad, .accepted = true, .transform = .raw },
-        .{ .rung = .natural, .sketch = clean, .accepted = false, .transform = .bridge_dodged },
+        .{ .rung = .natural, .sketch = bad, .transform = .raw },
+        .{ .rung = .natural, .sketch = clean, .transform = .bridge_dodged },
     };
-    const sel_b = select.scoreCandidates(a, &cands_b, .natural, .TD, .bridge) orelse return error.ScoreFailed;
-    try std.testing.expectEqual(@as(usize, 1), sel_b.argmin_idx);
+    try std.testing.expectEqual(@as(usize, 1), try select.argmin(a, &cands_b, .TD, .bridge));
     _ = score_mod.W_ARROWHEAD_TRANSIT;
 }
 
@@ -249,7 +235,7 @@ test "bridge variants: a clustered graph enumerates dodged/railed twins behind t
     const flat = try parse(a, "flowchart TD\n  A --> B\n  A --> C\n");
     const flat_permits = try permitsFor(a, flat);
     const flat_set = try select.enumerateAll(a, flat, &flat_permits, 120);
-    for (flat_set.merged) |c| {
+    for (flat_set) |c| {
         try std.testing.expect(c.transform != .bridge_dodged and c.transform != .bridge_railed);
     }
 
@@ -268,13 +254,13 @@ test "bridge variants: a clustered graph enumerates dodged/railed twins behind t
     const permits = try permitsFor(a, clustered);
     const set = try select.enumerateAll(a, clustered, &permits, 120);
     var last_raw: usize = 0;
-    var first_bridge: usize = set.merged.len;
-    for (set.merged, 0..) |c, i| {
+    var first_bridge: usize = set.len;
+    for (set, 0..) |c, i| {
         switch (c.transform) {
             .raw => last_raw = i,
             .bridge_dodged, .bridge_railed => {
                 first_bridge = @min(first_bridge, i);
-                for (set.merged) |base| {
+                for (set) |base| {
                     if (base.transform != .raw or base.rung != c.rung) continue;
                     var same = base.sketch.edges.len == c.sketch.edges.len;
                     if (same) for (base.sketch.edges, c.sketch.edges) |ea, eb| {
@@ -303,16 +289,16 @@ test "a candidate with an unrouted visible edge is filtered out before scoring" 
     const a = arena.allocator();
     const g = try parse(a, "flowchart TD\n  A --> B\n  B --> C\n");
     const set = try select.enumerateAll(a, g, testBundlePermits(), 120);
-    try std.testing.expect(set.merged.len >= 2);
-    for (set.merged) |cand| try std.testing.expectEqual(@as(u32, 0), select_filter.unroutedEdges(cand.sketch));
-    try std.testing.expectEqual(set.merged.len, select_filter.ciFilter(a, set.merged).len);
+    try std.testing.expect(set.len >= 2);
+    for (set) |cand| try std.testing.expectEqual(@as(u32, 0), select_filter.unroutedEdges(cand.sketch));
+    try std.testing.expectEqual(set.len, (try select_filter.ciFilter(a, set)).len);
 
-    const forged = try a.dupe(ladder.Candidate, set.merged);
+    const forged = try a.dupe(ladder.Candidate, set);
     const edges = try a.dupe(@TypeOf(forged[1].sketch.edges[0]), forged[1].sketch.edges);
     edges[0].polyline = &.{};
     forged[1].sketch.edges = edges;
     try std.testing.expectEqual(@as(u32, 1), select_filter.unroutedEdges(forged[1].sketch));
-    const survivors = select_filter.ciFilter(a, forged);
+    const survivors = try select_filter.ciFilter(a, forged);
     try std.testing.expectEqual(forged.len - 1, survivors.len);
     try std.testing.expectEqual(forged[0].rung, survivors[0].rung);
     for (survivors) |cand| try std.testing.expect(cand.rung != forged[1].rung);

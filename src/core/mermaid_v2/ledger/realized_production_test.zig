@@ -39,7 +39,7 @@ test "Step 7 mixing cases realize one rail and no fused edge junction" {
         const a = arena.allocator();
         const graph = try parse(a, source);
         const plan = (try permits.build(a, graph, .joined)).plan;
-        const winner = try select.choose(a, graph, &plan, width, .{}, .bridge);
+        const winner = try select.choose(a, graph, &plan, width, .bridge);
 
         try std.testing.expectEqual(@as(usize, 1), winner.sketch.rails.len);
 
@@ -62,7 +62,7 @@ test "forward-subset composition: reversed fan-in member independent, forward pa
         const a = arena.allocator();
         const graph = try parse(a, source);
         const plan = (try permits.build(a, graph, .joined)).plan;
-        const winner = try select.choose(a, graph, &plan, width, .{}, .bridge);
+        const winner = try select.choose(a, graph, &plan, width, .bridge);
         const bundles = winner.sketch.bundles;
 
         var fi: ?pb.SelectedBundle = null;
@@ -105,7 +105,7 @@ test "V-D-PORT-01: mixed-kind 1x3 renders as three pitch-2 independent component
     const a = arena.allocator();
     const graph = try parse(a, "flowchart TD\n  S --> A\n  S -.-> B\n  S ==> C\n");
     const plan = (try permits.build(a, graph, .joined)).plan;
-    const winner = try select.choose(a, graph, &plan, 94, .{}, .bridge);
+    const winner = try select.choose(a, graph, &plan, 94, .bridge);
     try std.testing.expectEqual(@as(usize, 0), winner.sketch.rails.len);
 
     var offsets: [3]u32 = undefined;
@@ -127,9 +127,9 @@ test "V-D-PORT-14: inline K1,3 realized Rail keeps midpoint stem and pre-Step-7 
     const a = arena.allocator();
     const graph = try parse(a, "flowchart TD\n  S --> A\n  S --> B\n  S --> C\n");
     const plan = (try permits.build(a, graph, .joined)).plan;
-    const realized_winner = try select.choose(a, graph, &plan, 94, .{}, .bridge);
+    const realized_winner = try select.choose(a, graph, &plan, 94, .bridge);
     const inert: @import("../base/ledger.zig").BundlePermits = .{ .policy = .joined };
-    const before = try select.choose(a, graph, &inert, 94, .{}, .bridge);
+    const before = try select.choose(a, graph, &inert, 94, .bridge);
 
     try std.testing.expectEqual(@as(usize, 1), realized_winner.sketch.rails.len);
     try std.testing.expectEqual(@as(usize, 1), realized_winner.sketch.bundles.selected_bundles.len);
@@ -155,7 +155,7 @@ test "V-D-PORT-16: incomplete 2x2 arrival re-merges the pure fan-in, overlap con
     const a = arena.allocator();
     const graph = try parse(a, "flowchart TD\n  S1 --> T1\n  S1 --> T2\n  S2 --> T2\n");
     const plan = (try permits.build(a, graph, .joined)).plan;
-    const winner = try select.choose(a, graph, &plan, 94, .{}, .bridge);
+    const winner = try select.choose(a, graph, &plan, 94, .bridge);
     const bundles = winner.sketch.bundles;
 
     try std.testing.expectEqual(@as(usize, 1), winner.sketch.rails.len);
@@ -183,7 +183,7 @@ test "V-D-PORT-16 corrected: a fan-out-pivot target DOES re-merge its pure fan-i
     const a = arena.allocator();
     const graph = try parse(a, "flowchart TD\n  A --> T\n  A --> Z\n  B --> T\n  T --> X\n  T --> Y\n");
     const plan = (try permits.build(a, graph, .joined)).plan;
-    const winner = try select.choose(a, graph, &plan, 94, .{}, .bridge);
+    const winner = try select.choose(a, graph, &plan, 94, .bridge);
     const bundles = winner.sketch.bundles;
 
     var fi_sel: ?pb.SelectedBundle = null;
@@ -225,7 +225,7 @@ test "dominance pin: a complete K2,2 decomposes into star rails, never one union
     const a = arena.allocator();
     const graph = try parse(a, "flowchart TD\n  S1 --> T1\n  S1 --> T2\n  S2 --> T1\n  S2 --> T2\n");
     const plan = (try permits.build(a, graph, .joined)).plan;
-    const winner = try select.choose(a, graph, &plan, 94, .{}, .bridge);
+    const winner = try select.choose(a, graph, &plan, 94, .bridge);
 
     for (winner.sketch.bundles.selected_bundles) |sj| {
         try std.testing.expect(sj.members.len < graph.edges.len);
@@ -254,7 +254,7 @@ fn finishPlain(a: std.mem.Allocator, s: anytype) !Plain {
 fn renderPlain(a: std.mem.Allocator, source: []const u8, width: u32) !Plain {
     const graph = try parse(a, source);
     const plan = (try permits.build(a, graph, .joined)).plan;
-    const winner = try select.choose(a, graph, &plan, width, .{}, .bridge);
+    const winner = try select.choose(a, graph, &plan, width, .bridge);
     return finishPlain(a, winner.sketch);
 }
 
@@ -262,7 +262,7 @@ fn renderRotated(a: std.mem.Allocator, source: []const u8, width: u32) !Plain {
     const graph = try parse(a, source);
     const plan = (try permits.build(a, graph, .joined)).plan;
     const set = try select.enumerateAll(a, graph, &plan, width);
-    for (set.merged) |cand| {
+    for (set) |cand| {
         if (cand.rung != .switch_direction) continue;
         return finishPlain(a, cand.sketch);
     }
@@ -304,7 +304,7 @@ test "a salvaged rail is complete against the commitment the layout drew" {
     const a = arena.allocator();
     const graph = try parse(a, "flowchart TD\n  A --- Z\n  B --- Z\n  C --- Z\n  A --- B\n  B --- C\n");
     const plan = (try permits.build(a, graph, .joined)).plan;
-    const winner = try select.choose(a, graph, &plan, 60, .{}, .bridge);
+    const winner = try select.choose(a, graph, &plan, 60, .bridge);
     var rail_members: usize = 0;
     for (winner.sketch.bundles.selected_bundles) |sj| rail_members = @max(rail_members, sj.members.len);
     try std.testing.expectEqual(@as(usize, 2), rail_members);
@@ -362,7 +362,7 @@ test "a directed complete bipartite keeps its TD star decomposition on clearing 
         const a = arena.allocator();
         const graph = try parse(a, source);
         const plan = (try permits.build(a, graph, .joined)).plan;
-        const winner = try select.choose(a, graph, &plan, width, .{}, .bridge);
+        const winner = try select.choose(a, graph, &plan, width, .bridge);
 
         try std.testing.expectEqual(graph.direction, winner.sketch.direction);
         try std.testing.expectEqual(@as(usize, 3), winner.sketch.rails.len);
@@ -403,7 +403,7 @@ test "on the licence's lapse path a rail's junction still clears foreign taps" {
         const a = arena.allocator();
         const graph = try parse(a, source);
         const plan = (try permits.build(a, graph, .joined)).plan;
-        const winner = try select.choose(a, graph, &plan, width, .{}, .bridge);
+        const winner = try select.choose(a, graph, &plan, width, .bridge);
 
         try std.testing.expect(winner.sketch.rails.len >= 2);
         var rows_differ = false;
@@ -432,7 +432,7 @@ test "membership at both ends in production: the skip-layer repro traces only it
     const a = arena.allocator();
     const graph = try parse(a, "flowchart TD\n  A --> B\n  B --> C\n  A --> C\n");
     const plan = (try permits.build(a, graph, .joined)).plan;
-    const winner = try select.choose(a, graph, &plan, 94, .{}, .bridge);
+    const winner = try select.choose(a, graph, &plan, 94, .bridge);
     try std.testing.expectEqual(@as(usize, 2), winner.sketch.rails.len);
     try std.testing.expectEqual(@as(usize, 2), winner.sketch.bundles.selected_bundles.len);
     const ac = rmByEdge(winner.sketch.bundles, edgeId(graph, "A", "C"));

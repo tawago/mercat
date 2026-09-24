@@ -9,7 +9,6 @@ const select = @import("select.zig");
 const audit = @import("audit.zig");
 
 const Rung = budget.Rung;
-const run = budget.run;
 const hasWidthOverflow = budget.hasWidthOverflow;
 
 const test_bundle_permits: ledger.BundlePermits = .{ .policy = .joined };
@@ -18,204 +17,147 @@ fn testBundlePermits() *const ledger.BundlePermits {
     return &test_bundle_permits;
 }
 
-test "rung 0 wins on trivial graph" {
+fn firstFit(a: std.mem.Allocator, src: []const u8, width: u32) !budget.Candidate {
+    const g = try parse_mod.parse(a, src);
+    return budget.firstFit(try budget.enumerate(a, g, testBundlePermits(), width));
+}
+
+test "natural fits a trivial graph" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
-    const a = arena.allocator();
-
-    var g = try parse_mod.parse(a, "graph TD\nA-->B\n");
-    _ = &g;
-
-    const result = try run(a, g, testBundlePermits(), 120);
-    try std.testing.expectEqual(Rung.natural, result.final_rung);
-    try std.testing.expectEqual(@as(u8, 1), result.attempts);
+    const result = try firstFit(arena.allocator(), "graph TD\nA-->B\n", 120);
+    try std.testing.expectEqual(Rung.natural, result.rung);
     try std.testing.expect(!hasWidthOverflow(result.sketch.diagnostics));
 }
 
-test "truncate rung always returns even under impossible budget" {
+test "truncate is the first fit under an impossible budget" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
-    const a = arena.allocator();
-
-    var g = try parse_mod.parse(a, "graph TD\nA-->B\nB-->C\nA-->C\n");
-    _ = &g;
-
-    const result = try run(a, g, testBundlePermits(), 1);
-    try std.testing.expectEqual(Rung.truncate, result.final_rung);
-    try std.testing.expectEqual(@as(u8, 5), result.attempts);
+    const result = try firstFit(arena.allocator(), "graph TD\nA-->B\nB-->C\nA-->C\n", 1);
+    try std.testing.expectEqual(Rung.truncate, result.rung);
 }
 
-test "switch_direction is rejected when rotation also overflows; declared dir kept" {
+test "switch_direction does not fit when rotation also overflows; declared direction kept" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
-    const a = arena.allocator();
-
-    var g = try parse_mod.parse(
-        a,
-        "graph LR\nA[aaaaaa]-->B[bbbbbb]-->C[cccccc]-->D[dddddd]-->E[eeeeee]\n",
-    );
-    _ = &g;
-
-    const result = try run(a, g, testBundlePermits(), 4);
-    try std.testing.expectEqual(Rung.truncate, result.final_rung);
+    const result = try firstFit(arena.allocator(), "graph LR\nA[aaaaaa]-->B[bbbbbb]-->C[cccccc]-->D[dddddd]-->E[eeeeee]\n", 4);
+    try std.testing.expectEqual(Rung.truncate, result.rung);
     try std.testing.expectEqual(sem_graph.Direction.LR, result.sketch.direction);
 }
 
-test "a deep LR chain resolves to switch_direction when rotation fits" {
+test "a deep LR chain first fits at switch_direction" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
-    const a = arena.allocator();
-
-    var g = try parse_mod.parse(
-        a,
+    const result = try firstFit(
+        arena.allocator(),
         "graph LR\nA[Alpha]-->B[Bravo]-->C[Charlie]-->D[Delta]-->E[Echo]" ++
             "-->F[Foxtrot]-->G[Golf]-->H[Hotel]\n",
+        40,
     );
-    _ = &g;
-
-    const result = try run(a, g, testBundlePermits(), 40);
-    try std.testing.expectEqual(Rung.switch_direction, result.final_rung);
+    try std.testing.expectEqual(Rung.switch_direction, result.rung);
     try std.testing.expect(!hasWidthOverflow(result.sketch.diagnostics));
 }
 
-test "enumerate picks the same incumbent as run and keeps every rung" {
+test "enumerate lays out every rung in rung order" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
-
-    var g = try parse_mod.parse(a, "graph TD\nA-->B\nB-->C\nA-->C\n");
-    _ = &g;
-
-    const ladder = try run(a, g, testBundlePermits(), 120);
-    const enumd = try budget.enumerate(a, g, testBundlePermits(), 120);
-    try std.testing.expectEqual(ladder.final_rung, enumd.incumbent.final_rung);
-    try std.testing.expectEqual(Rung.natural, enumd.incumbent.final_rung);
-    try std.testing.expectEqual(@as(usize, 5), enumd.candidates.len);
-    for (enumd.candidates, 0..) |cand, i| {
-        try std.testing.expectEqual(@as(Rung, @enumFromInt(@as(u8, @intCast(i)))), cand.rung);
-        try std.testing.expectEqual(cand.rung == enumd.incumbent.final_rung, cand.accepted);
+    const g = try parse_mod.parse(a, "graph TD\nA-->B\nB-->C\nA-->C\n");
+    for ([_]u32{ 1, 120 }) |w| {
+        const candidates = try budget.enumerate(a, g, testBundlePermits(), w);
+        try std.testing.expectEqual(@as(usize, 5), candidates.len);
+        for (candidates, 0..) |cand, i| {
+            try std.testing.expectEqual(@as(Rung, @enumFromInt(@as(u8, @intCast(i)))), cand.rung);
+            try std.testing.expectEqual(budget.Transform.raw, cand.transform);
+        }
     }
-    try std.testing.expectEqual(
-        enumd.candidates[0].sketch.bbox,
-        enumd.incumbent.sketch.bbox,
-    );
 }
 
-test "enumerate matches run on a truncate-terminal graph" {
+test "runForced returns exactly the requested rung, fitting or not" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
 
-    var g = try parse_mod.parse(a, "graph TD\nA-->B\nB-->C\nA-->C\n");
-    _ = &g;
-
-    const ladder = try run(a, g, testBundlePermits(), 1);
-    const enumd = try budget.enumerate(a, g, testBundlePermits(), 1);
-    try std.testing.expectEqual(Rung.truncate, ladder.final_rung);
-    try std.testing.expectEqual(Rung.truncate, enumd.incumbent.final_rung);
-    try std.testing.expectEqual(@as(usize, 5), enumd.candidates.len);
-}
-
-test "runForced returns exactly the requested rung, bypassing acceptance" {
-    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
-    defer arena.deinit();
-    const a = arena.allocator();
-
-    var g = try parse_mod.parse(
+    const g = try parse_mod.parse(
         a,
         "graph LR\nA[Alpha]-->B[Bravo]-->C[Charlie]-->D[Delta]-->E[Echo]" ++
             "-->F[Foxtrot]-->G[Golf]-->H[Hotel]\n",
     );
-    _ = &g;
-
     const forced = try budget.runForced(a, g, testBundlePermits(), 40, .natural);
-    try std.testing.expectEqual(Rung.natural, forced.final_rung);
+    try std.testing.expectEqual(Rung.natural, forced.rung);
     try std.testing.expectEqual(sem_graph.Direction.LR, forced.sketch.direction);
     try std.testing.expect(hasWidthOverflow(forced.sketch.diagnostics));
 
-    var g2 = try parse_mod.parse(a, "graph TD\nA-->B\n");
-    _ = &g2;
+    const g2 = try parse_mod.parse(a, "graph TD\nA-->B\n");
     const rotated = try budget.runForced(a, g2, testBundlePermits(), 120, .switch_direction);
-    try std.testing.expectEqual(Rung.switch_direction, rotated.final_rung);
+    try std.testing.expectEqual(Rung.switch_direction, rotated.rung);
     try std.testing.expectEqual(sem_graph.Direction.LR, rotated.sketch.direction);
 }
 
-test "enumerate/run always resolve an incumbent across degenerate graphs and widths" {
+test "every degenerate graph has a first fit at every width" {
     const graphs = [_][]const u8{
         "graph TD\nA\n",
         "graph TD\nA\nB\n",
         "graph LR\nA-->B\n",
         "graph TD\nA-->B\nC-->D\n",
     };
-    const widths = [_]u32{ 1, 4, 40, 120 };
-
     for (graphs) |src| {
-        for (widths) |w| {
+        for ([_]u32{ 1, 4, 40, 120 }) |w| {
             var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
             defer arena.deinit();
-            const a = arena.allocator();
-            var g = try parse_mod.parse(a, src);
-            _ = &g;
-
-            const ladder = try run(a, g, testBundlePermits(), w);
-            try std.testing.expect(@intFromEnum(ladder.final_rung) <= @intFromEnum(Rung.truncate));
-
-            const enumd = try budget.enumerate(a, g, testBundlePermits(), w);
-            try std.testing.expect(@intFromEnum(enumd.incumbent.final_rung) <= @intFromEnum(Rung.truncate));
-            try std.testing.expectEqual(@as(usize, 5), enumd.candidates.len);
+            _ = try firstFit(arena.allocator(), src, w);
         }
     }
 }
 
-const RefLabel = enum { incumbent, argmin, tie };
+const RefLabel = enum { first_fit, argmin, tie };
 
 const LabeledPair = struct {
     seed: []const u8,
     width: u32,
-    incumbent: Rung,
+    first_fit: Rung,
     argmin: Rung,
-    incumbent_transform: budget.Transform = .raw,
     argmin_transform: budget.Transform = .raw,
     label: RefLabel,
 };
 
 const labeled_pairs = [_]LabeledPair{
-    .{ .seed = "flowchart_alternating_direction_nest_td_9", .width = 60, .incumbent = .natural, .argmin = .truncate, .label = .tie },
-    .{ .seed = "flowchart_ampersand_fanout_td_6", .width = 60, .incumbent = .natural, .argmin = .truncate, .label = .incumbent },
-    .{ .seed = "flowchart_arrow_ends_td_6", .width = 60, .incumbent = .tight, .argmin = .truncate, .label = .incumbent },
-    .{ .seed = "flowchart_chained_bidir_lr_8", .width = 90, .incumbent = .switch_direction, .argmin = .truncate, .label = .incumbent },
-    .{ .seed = "flowchart_classdef_styled_td_7", .width = 120, .incumbent = .natural, .argmin = .truncate, .label = .incumbent },
-    .{ .seed = "flowchart_complete_bipartite_k33_td_9", .width = 90, .incumbent = .natural, .argmin = .truncate, .label = .incumbent },
-    .{ .seed = "flowchart_cycle_bt_6", .width = 90, .incumbent = .natural, .argmin = .truncate, .label = .incumbent },
-    .{ .seed = "flowchart_cycle_lr_4", .width = 60, .incumbent = .natural, .argmin = .switch_direction, .label = .incumbent },
-    .{ .seed = "flowchart_cycle_with_side_exit_td_6", .width = 60, .incumbent = .natural, .argmin = .truncate, .label = .incumbent },
-    .{ .seed = "flowchart_decision_yes_no_td_6", .width = 120, .incumbent = .natural, .argmin = .switch_direction, .label = .incumbent },
-    .{ .seed = "flowchart_decision_yes_no_td_6", .width = 60, .incumbent = .natural, .argmin = .truncate, .label = .tie },
-    .{ .seed = "flowchart_dense_multi_cycle_td_8", .width = 120, .incumbent = .natural, .argmin = .switch_direction, .label = .incumbent },
-    .{ .seed = "flowchart_dense_multi_cycle_td_8", .width = 60, .incumbent = .natural, .argmin = .tight, .label = .incumbent },
-    .{ .seed = "flowchart_fanin_td_5", .width = 90, .incumbent = .tight, .argmin = .truncate, .label = .tie },
-    .{ .seed = "flowchart_fanout_td_6", .width = 90, .incumbent = .natural, .argmin = .tight, .label = .incumbent },
-    .{ .seed = "flowchart_k8s_pod_lifecycle_td_8", .width = 60, .incumbent = .tight, .argmin = .truncate, .label = .incumbent },
-    .{ .seed = "flowchart_mermaid_frenzy_td_31", .width = 60, .incumbent = .truncate, .argmin = .switch_direction, .label = .incumbent },
-    .{ .seed = "flowchart_mermaid_frenzy_td_31", .width = 90, .incumbent = .truncate, .argmin = .switch_direction, .label = .incumbent },
-    .{ .seed = "flowchart_microservices_layers_td_16", .width = 90, .incumbent = .natural, .argmin = .truncate, .label = .argmin },
-    .{ .seed = "flowchart_order_state_machine_lr_9", .width = 120, .incumbent = .natural, .argmin = .switch_direction, .label = .incumbent },
-    .{ .seed = "flowchart_td_with_lr_subgraph_7", .width = 60, .incumbent = .natural, .argmin = .tight, .label = .argmin },
-    .{ .seed = "flowchart_ampersand_fanout_td_6", .width = 60, .incumbent = .natural, .argmin = .tight, .label = .tie },
-    .{ .seed = "flowchart_complete_bipartite_k33_td_9", .width = 90, .incumbent = .natural, .argmin = .tight, .label = .incumbent },
-    .{ .seed = "flowchart_fanout_into_subgraphs_td_9", .width = 90, .incumbent = .natural, .argmin = .tight, .label = .tie },
-    .{ .seed = "flowchart_microservices_layers_td_16", .width = 90, .incumbent = .natural, .argmin = .tight, .label = .argmin },
-    .{ .seed = "flowchart_nested_3deep_td_10", .width = 60, .incumbent = .natural, .argmin = .tight, .label = .tie },
-    .{ .seed = "flowchart_self_loop_in_subgraph_td_6", .width = 60, .incumbent = .natural, .argmin = .tight, .label = .incumbent },
-    .{ .seed = "flowchart_shape_zoo_td_8", .width = 60, .incumbent = .natural, .argmin = .tight, .label = .incumbent },
-    .{ .seed = "flowchart_subgraph_with_cycle_td_7", .width = 60, .incumbent = .natural, .argmin = .tight, .label = .incumbent },
-    .{ .seed = "flowchart_fanin_rl_6", .width = 120, .incumbent = .natural, .argmin = .switch_direction, .label = .argmin },
-    .{ .seed = "flowchart_lr_with_td_subgraph_7", .width = 120, .incumbent = .natural, .argmin = .switch_direction, .label = .tie },
-    .{ .seed = "flowchart_subgraph_rl_8", .width = 120, .incumbent = .natural, .argmin = .switch_direction, .label = .argmin },
-    .{ .seed = "flowchart_subgraph_to_subgraph_td_6", .width = 60, .incumbent = .natural, .argmin = .switch_direction, .label = .incumbent },
-    .{ .seed = "flowchart_shape_zoo_td_8", .width = 60, .incumbent = .natural, .argmin = .natural, .argmin_transform = .motif_pack, .label = .incumbent },
-    .{ .seed = "flowchart_shape_zoo_td_8", .width = 90, .incumbent = .natural, .argmin = .natural, .argmin_transform = .motif_pack, .label = .incumbent },
-    .{ .seed = "flowchart_shape_zoo_td_8", .width = 120, .incumbent = .natural, .argmin = .natural, .argmin_transform = .motif_pack, .label = .argmin },
+    .{ .seed = "flowchart_alternating_direction_nest_td_9", .width = 60, .first_fit = .natural, .argmin = .truncate, .label = .tie },
+    .{ .seed = "flowchart_ampersand_fanout_td_6", .width = 60, .first_fit = .natural, .argmin = .truncate, .label = .first_fit },
+    .{ .seed = "flowchart_arrow_ends_td_6", .width = 60, .first_fit = .tight, .argmin = .truncate, .label = .first_fit },
+    .{ .seed = "flowchart_chained_bidir_lr_8", .width = 90, .first_fit = .switch_direction, .argmin = .truncate, .label = .first_fit },
+    .{ .seed = "flowchart_classdef_styled_td_7", .width = 120, .first_fit = .natural, .argmin = .truncate, .label = .first_fit },
+    .{ .seed = "flowchart_complete_bipartite_k33_td_9", .width = 90, .first_fit = .natural, .argmin = .truncate, .label = .first_fit },
+    .{ .seed = "flowchart_cycle_bt_6", .width = 90, .first_fit = .natural, .argmin = .truncate, .label = .first_fit },
+    .{ .seed = "flowchart_cycle_lr_4", .width = 60, .first_fit = .natural, .argmin = .switch_direction, .label = .first_fit },
+    .{ .seed = "flowchart_cycle_with_side_exit_td_6", .width = 60, .first_fit = .natural, .argmin = .truncate, .label = .first_fit },
+    .{ .seed = "flowchart_decision_yes_no_td_6", .width = 120, .first_fit = .natural, .argmin = .switch_direction, .label = .first_fit },
+    .{ .seed = "flowchart_decision_yes_no_td_6", .width = 60, .first_fit = .natural, .argmin = .truncate, .label = .tie },
+    .{ .seed = "flowchart_dense_multi_cycle_td_8", .width = 120, .first_fit = .natural, .argmin = .switch_direction, .label = .first_fit },
+    .{ .seed = "flowchart_dense_multi_cycle_td_8", .width = 60, .first_fit = .natural, .argmin = .tight, .label = .first_fit },
+    .{ .seed = "flowchart_fanin_td_5", .width = 90, .first_fit = .tight, .argmin = .truncate, .label = .tie },
+    .{ .seed = "flowchart_fanout_td_6", .width = 90, .first_fit = .natural, .argmin = .tight, .label = .first_fit },
+    .{ .seed = "flowchart_k8s_pod_lifecycle_td_8", .width = 60, .first_fit = .tight, .argmin = .truncate, .label = .first_fit },
+    .{ .seed = "flowchart_mermaid_frenzy_td_31", .width = 60, .first_fit = .truncate, .argmin = .switch_direction, .label = .first_fit },
+    .{ .seed = "flowchart_mermaid_frenzy_td_31", .width = 90, .first_fit = .truncate, .argmin = .switch_direction, .label = .first_fit },
+    .{ .seed = "flowchart_microservices_layers_td_16", .width = 90, .first_fit = .natural, .argmin = .truncate, .label = .argmin },
+    .{ .seed = "flowchart_order_state_machine_lr_9", .width = 120, .first_fit = .natural, .argmin = .switch_direction, .label = .first_fit },
+    .{ .seed = "flowchart_td_with_lr_subgraph_7", .width = 60, .first_fit = .natural, .argmin = .tight, .label = .argmin },
+    .{ .seed = "flowchart_ampersand_fanout_td_6", .width = 60, .first_fit = .natural, .argmin = .tight, .label = .tie },
+    .{ .seed = "flowchart_complete_bipartite_k33_td_9", .width = 90, .first_fit = .natural, .argmin = .tight, .label = .first_fit },
+    .{ .seed = "flowchart_fanout_into_subgraphs_td_9", .width = 90, .first_fit = .natural, .argmin = .tight, .label = .tie },
+    .{ .seed = "flowchart_microservices_layers_td_16", .width = 90, .first_fit = .natural, .argmin = .tight, .label = .argmin },
+    .{ .seed = "flowchart_nested_3deep_td_10", .width = 60, .first_fit = .natural, .argmin = .tight, .label = .tie },
+    .{ .seed = "flowchart_self_loop_in_subgraph_td_6", .width = 60, .first_fit = .natural, .argmin = .tight, .label = .first_fit },
+    .{ .seed = "flowchart_shape_zoo_td_8", .width = 60, .first_fit = .natural, .argmin = .tight, .label = .first_fit },
+    .{ .seed = "flowchart_subgraph_with_cycle_td_7", .width = 60, .first_fit = .natural, .argmin = .tight, .label = .first_fit },
+    .{ .seed = "flowchart_fanin_rl_6", .width = 120, .first_fit = .natural, .argmin = .switch_direction, .label = .argmin },
+    .{ .seed = "flowchart_lr_with_td_subgraph_7", .width = 120, .first_fit = .natural, .argmin = .switch_direction, .label = .tie },
+    .{ .seed = "flowchart_subgraph_rl_8", .width = 120, .first_fit = .natural, .argmin = .switch_direction, .label = .argmin },
+    .{ .seed = "flowchart_subgraph_to_subgraph_td_6", .width = 60, .first_fit = .natural, .argmin = .switch_direction, .label = .first_fit },
+    .{ .seed = "flowchart_shape_zoo_td_8", .width = 60, .first_fit = .natural, .argmin = .natural, .argmin_transform = .motif_pack, .label = .first_fit },
+    .{ .seed = "flowchart_shape_zoo_td_8", .width = 90, .first_fit = .natural, .argmin = .natural, .argmin_transform = .motif_pack, .label = .first_fit },
+    .{ .seed = "flowchart_shape_zoo_td_8", .width = 120, .first_fit = .natural, .argmin = .natural, .argmin_transform = .motif_pack, .label = .argmin },
 };
 
 test "score calibration: >=80% agreement with the labeled reference set" {
@@ -226,7 +168,7 @@ test "score calibration: >=80% agreement with the labeled reference set" {
     var agree: u32 = 0;
     std.debug.print(
         "\nscore-calibration ({d} labeled pairs; budget = width - 2):\n" ++
-            "  pair | inc(t0,t1,t2,h,C,rl,rc) | arg(t0,t1,t2,h,C,rl,rc) | score/label\n",
+            "  pair | fit(t0,t1,t2,h,C) | arg(t0,t1,t2,h,C) | score/label\n",
         .{labeled_pairs.len},
     );
     for (labeled_pairs) |pair| {
@@ -238,46 +180,45 @@ test "score calibration: >=80% agreement with the labeled reference set" {
         const src = try inputs_dir.readFileAlloc(a, path, 1 << 20);
         const g = try parse_mod.parse(a, src);
         const set = try select.enumerateAll(a, g, testBundlePermits(), pair.width - 2);
-        if (set.incumbent.final_rung != pair.incumbent and pair.incumbent_transform == .raw) {
+        const fit = budget.firstFit(set).rung;
+        if (fit != pair.first_fit) {
             std.debug.print(
-                "  NOTE {s} w{d}: ladder incumbent drifted to {s} (labeled {s})\n",
-                .{ pair.seed, pair.width, @tagName(set.incumbent.final_rung), @tagName(pair.incumbent) },
+                "  NOTE {s} w{d}: first fit drifted to {s} (labeled {s})\n",
+                .{ pair.seed, pair.width, @tagName(fit), @tagName(pair.first_fit) },
             );
         }
 
-        var s_inc: ?score.Score = null;
+        var s_fit: ?score.Score = null;
         var s_arg: ?score.Score = null;
-        for (set.merged, 0..) |cand, i| {
-            const is_inc = cand.rung == pair.incumbent and cand.transform == pair.incumbent_transform;
+        for (set, 0..) |cand, i| {
+            const is_fit = cand.rung == pair.first_fit and cand.transform == .raw;
             const is_arg = cand.rung == pair.argmin and cand.transform == pair.argmin_transform;
-            if (!is_inc and !is_arg) continue;
-            const counts = audit.collect(a, cand.sketch, .bridge);
+            if (!is_fit and !is_arg) continue;
+            const counts = try audit.collect(a, cand.sketch, .bridge);
             const sc = try score.eval(a, cand.sketch, g.direction, @intCast(i), counts);
-            if (is_inc) s_inc = sc;
+            if (is_fit) s_fit = sc;
             if (is_arg) s_arg = sc;
         }
-        const si = s_inc.?;
+        const si = s_fit.?;
         const sa = s_arg.?;
-        const picks_incumbent = si.lessThan(sa);
+        const picks_first_fit = si.lessThan(sa);
         const ok = switch (pair.label) {
             .tie => true,
-            .incumbent => picks_incumbent,
-            .argmin => !picks_incumbent,
+            .first_fit => picks_first_fit,
+            .argmin => !picks_first_fit,
         };
         if (ok) agree += 1;
         std.debug.print(
-            "  {s} w{d} {s}-vs-{s}: ({d},{d},{d},{d},{d},{d},{d}) | ({d},{d},{d},{d},{d},{d},{d}) | {s}/{s} {s}\n",
+            "  {s} w{d} {s}-vs-{s}: ({d},{d},{d},{d},{d}) | ({d},{d},{d},{d},{d}) | {s}/{s} {s}\n",
             .{
                 pair.seed,                                      pair.width,
-                @tagName(pair.incumbent),                       @tagName(pair.argmin),
+                @tagName(pair.first_fit),                       @tagName(pair.argmin),
                 si.t0_fit,                                      si.t1_integrity,
                 si.t2_legibility,                               si.t3_height,
-                si.t12_composite,                               si.r_labels_dropped,
-                si.r_edge_cells_lost,                           sa.t0_fit,
+                si.t12_composite,                               sa.t0_fit,
                 sa.t1_integrity,                                sa.t2_legibility,
                 sa.t3_height,                                   sa.t12_composite,
-                sa.r_labels_dropped,                            sa.r_edge_cells_lost,
-                if (picks_incumbent) "incumbent" else "argmin", @tagName(pair.label),
+                if (picks_first_fit) "first_fit" else "argmin", @tagName(pair.label),
                 if (ok) "OK" else "MISS",
             },
         );

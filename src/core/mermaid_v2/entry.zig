@@ -28,7 +28,6 @@ pub const rasterize = rasterize_mod.rasterize;
 pub const paint = paint_mod.paint;
 
 pub const Rung = ladder_pkg.Rung;
-pub const LadderResult = ladder_pkg.LadderResult;
 
 pub const RenderResult = struct {
     output: []const u8,
@@ -48,8 +47,6 @@ pub const RenderOptions = struct {
 /// Selection and diagnostic overrides reachable only from tests; production renders use the defaults.
 pub const TestOptions = struct {
     force_rung: ?ladder_pkg.Rung = null,
-    score_off: bool = false,
-    score_shadow: bool = false,
     integrity: bool = false,
 };
 
@@ -91,26 +88,19 @@ fn renderWith(
     };
     const bundle_permits = branch_result.plan;
 
-    const ladder_result: ladder_pkg.LadderResult = blk: {
+    const chosen = blk: {
         if (overrides.force_rung) |rung| {
             break :blk ladder_pkg.runForced(aa, graph, &bundle_permits, options.max_width, rung) catch |err| {
                 std.log.warn("mermaid_v2/entry: forced-rung layout failed: {s}", .{@errorName(err)});
                 return fallback(source, "v2 ladder error");
             };
         }
-        if (overrides.score_off and !overrides.score_shadow) {
-            break :blk ladder_pkg.run(aa, graph, &bundle_permits, options.max_width) catch |err| {
-                std.log.warn("mermaid_v2/entry: ladder failed: {s}", .{@errorName(err)});
-                return fallback(source, "v2 ladder error");
-            };
-        }
-        // @guarded-by: select_test.zig "choose: merged selection anchors to raw natural and never fails the render"
-        break :blk select_mod.choose(aa, graph, &bundle_permits, options.max_width, .{ .score_off = overrides.score_off, .score_shadow = overrides.score_shadow }, options.subgraph_edges) catch |err| {
+        break :blk select_mod.choose(aa, graph, &bundle_permits, options.max_width, options.subgraph_edges) catch |err| {
             std.log.warn("mermaid_v2/entry: ladder failed: {s}", .{@errorName(err)});
             return fallback(source, "v2 ladder error");
         };
     };
-    const sketch_val = ladder_result.sketch;
+    const sketch_val = chosen.sketch;
 
     const integrity: validate_mod.Counts = blk: {
         const result = validate_mod.validate(aa, sketch_val) catch break :blk .{};
@@ -278,7 +268,7 @@ test "V-D-IR-07: a clustered graph's bundles ride piece plans; the root plan sta
     try std.testing.expectEqual(ledger.BundlePolicy.joined, result.plan.policy);
     try std.testing.expect(result.report.bundle_permits_skipped_clustered);
     try std.testing.expect(result.report.edgeid_scope_clustered_skipped);
-    const laid_out = try ladder_pkg.run(a, graph, &result.plan, 120);
+    const laid_out = try ladder_pkg.runForced(a, graph, &result.plan, 120, .natural);
     try std.testing.expectEqual(@as(usize, 0), laid_out.sketch.bundles.selected_bundles.len);
     try std.testing.expectEqual(@as(usize, 2), laid_out.sketch.bundles.memberships.len);
     const bridge_row = laid_out.sketch.bundles.memberships[1];
@@ -299,7 +289,7 @@ test "cluster unification: a subgraph-internal fan-in realizes a rail and ships 
     );
 
     const result = try resolveBundlePermits(a, graph);
-    const laid_out = try ladder_pkg.run(a, graph, &result.plan, 80);
+    const laid_out = try ladder_pkg.runForced(a, graph, &result.plan, 80, .natural);
     try std.testing.expectEqual(@as(usize, 1), laid_out.sketch.bundles.selected_bundles.len);
     try std.testing.expectEqual(@as(usize, 2), laid_out.sketch.bundles.selected_bundles[0].members.len);
 
@@ -342,7 +332,7 @@ test "cluster unification: two subgraph rails keep their own members through non
     );
 
     const result = try resolveBundlePermits(a, graph);
-    const laid_out = try ladder_pkg.run(a, graph, &result.plan, 80);
+    const laid_out = try ladder_pkg.runForced(a, graph, &result.plan, 80, .natural);
     const bundles = laid_out.sketch.bundles.selected_bundles;
     try std.testing.expectEqual(@as(usize, 2), bundles.len);
     try std.testing.expectEqual(@as(usize, 2), laid_out.sketch.rails.len);
@@ -382,7 +372,7 @@ test "cluster unification: a bridge never transits a stitched rail's arrowhead" 
         \\
     );
     const result = try resolveBundlePermits(a, graph);
-    const laid_out = try ladder_pkg.run(a, graph, &result.plan, 120);
+    const laid_out = try ladder_pkg.runForced(a, graph, &result.plan, 120, .natural);
     const report = try rasterize(a, laid_out.sketch, .bridge);
     try std.testing.expectEqual(@as(u32, 0), report.crossings.arrowhead_transit_violation);
     try std.testing.expectEqual(@as(u32, 0), report.crossings.foreign_junction_violation);
@@ -428,7 +418,7 @@ test "cluster unification: bridges route around each other, not through" {
         \\
     );
     const result = try resolveBundlePermits(a, graph);
-    const winner = try select_mod.choose(a, graph, &result.plan, 120, .{}, .bridge);
+    const winner = try select_mod.choose(a, graph, &result.plan, 120, .bridge);
     const report = try rasterize(a, winner.sketch, .bridge);
     try std.testing.expectEqual(@as(u32, 0), report.crossings.foreign_junction_violation);
     try std.testing.expectEqual(@as(u32, 0), report.crossings.arrowhead_transit_violation);

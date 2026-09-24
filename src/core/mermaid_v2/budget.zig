@@ -5,7 +5,6 @@ const sketch = @import("sketch.zig");
 const sem_graph = @import("sem_graph.zig");
 const coords = @import("layout.zig");
 const recurse = @import("recurse.zig");
-const types = @import("budget_types.zig");
 
 pub const Rung = enum(u8) {
     natural = 0,
@@ -15,104 +14,55 @@ pub const Rung = enum(u8) {
     truncate = 4,
 };
 
-pub const LadderResult = struct {
+/// One laid-out option: the rung whose options produced it, and the transform applied to the graph first.
+pub const Candidate = struct {
+    rung: Rung,
     sketch: sketch.Sketch,
-    final_rung: Rung,
-    attempts: u8,
+    transform: Transform = .raw,
 };
 
-pub fn run(
-    arena: std.mem.Allocator,
-    graph: sem_graph.SemGraph,
-    bundle_permits: *const ledger.BundlePermits,
-    max_width: u32,
-) !LadderResult {
-    var attempts: u8 = 0;
-    var rung_idx: u8 = 0;
-    while (rung_idx <= @intFromEnum(Rung.truncate)) : (rung_idx += 1) {
-        const rung: Rung = @enumFromInt(rung_idx);
-        const attempt = try tryRung(arena, graph, bundle_permits, max_width, rung);
-        attempts += 1;
+pub const Transform = enum {
+    raw,
+    motif_pack,
+    bridge_dodged,
+    bridge_railed,
 
-        if (attempt.accepted) {
-            return LadderResult{
-                .sketch = attempt.sketch,
-                .final_rung = rung,
-                .attempts = attempts,
-            };
-        }
+    pub fn appliesTo(t: Transform, d: sem_graph.Direction) bool {
+        return switch (t) {
+            .raw, .bridge_dodged, .bridge_railed => true,
+            .motif_pack => d == .TD or d == .BT,
+        };
     }
-    unreachable;
-}
 
-fn layoutRung(
-    arena: std.mem.Allocator,
-    graph: sem_graph.SemGraph,
-    bundle_permits: *const ledger.BundlePermits,
-    max_width: u32,
-    rung: Rung,
-) !sketch.Sketch {
-    var opts = optionsFor(rung, max_width);
-    opts.bundle_permits = bundle_permits;
-    return recurse.layoutPieces(arena, rotateForRung(graph, rung), opts);
-}
-
-const RungAttempt = struct { sketch: sketch.Sketch, accepted: bool };
-
-fn tryRung(
-    arena: std.mem.Allocator,
-    graph: sem_graph.SemGraph,
-    bundle_permits: *const ledger.BundlePermits,
-    max_width: u32,
-    rung: Rung,
-) !RungAttempt {
-    const result = try layoutRung(arena, graph, bundle_permits, max_width, rung);
-    return .{
-        .sketch = result,
-        .accepted = ladderAccepts(rung, result),
-    };
-}
-
-fn ladderAccepts(rung: Rung, result: sketch.Sketch) bool {
-    if (rung == .switch_direction) {
-        return !hasWidthOverflow(result.diagnostics);
+    pub fn rungs(t: Transform) []const Rung {
+        return switch (t) {
+            .raw => std.enums.values(Rung),
+            .motif_pack => &.{ .natural, .tight, .truncate },
+            .bridge_dodged, .bridge_railed => &.{},
+        };
     }
-    return rung == .truncate or !hasWidthOverflow(result.diagnostics);
-}
+};
 
-pub const Candidate = types.Candidate;
-pub const Transform = types.Transform;
-pub const EnumerateResult = types.EnumerateResult;
-
+/// Lays the graph out once per rung, in rung order.
 pub fn enumerate(
     arena: std.mem.Allocator,
     graph: sem_graph.SemGraph,
     bundle_permits: *const ledger.BundlePermits,
     max_width: u32,
-) !EnumerateResult {
-    var candidates: std.ArrayList(Candidate) = .empty;
-    var incumbent: ?LadderResult = null;
-    var attempts: u8 = 0;
-    var rung_idx: u8 = 0;
-    while (rung_idx <= @intFromEnum(Rung.truncate)) : (rung_idx += 1) {
-        const rung: Rung = @enumFromInt(rung_idx);
-        if (incumbent == null) {
-            const attempt = try tryRung(arena, graph, bundle_permits, max_width, rung);
-            attempts += 1;
-            try candidates.append(arena, .{ .rung = rung, .sketch = attempt.sketch, .accepted = attempt.accepted });
-            if (attempt.accepted) {
-                incumbent = .{ .sketch = attempt.sketch, .final_rung = rung, .attempts = attempts };
-            }
-        } else {
-            const result = layoutRung(arena, graph, bundle_permits, max_width, rung) catch continue;
-            try candidates.append(arena, .{ .rung = rung, .sketch = result, .accepted = false });
-        }
+) ![]const Candidate {
+    const rungs = Transform.raw.rungs();
+    const out = try arena.alloc(Candidate, rungs.len);
+    for (rungs, out) |rung, *c| c.* = try runForced(arena, graph, bundle_permits, max_width, rung);
+    return out;
+}
+
+/// The first raw candidate, in rung order, that fits the width; truncate is accepted as it is.
+pub fn firstFit(candidates: []const Candidate) Candidate {
+    for (candidates) |c| {
+        if (c.transform != .raw) continue;
+        if (c.rung == .truncate or !hasWidthOverflow(c.sketch.diagnostics)) return c;
     }
-    return .{
-        // @guarded-by: budget_test.zig "enumerate/run always resolve an incumbent across degenerate graphs and widths"
-        .incumbent = incumbent.?,
-        .candidates = try candidates.toOwnedSlice(arena),
-    };
+    unreachable;
 }
 
 pub fn runForced(
@@ -121,12 +71,12 @@ pub fn runForced(
     bundle_permits: *const ledger.BundlePermits,
     max_width: u32,
     rung: Rung,
-) !LadderResult {
-    const result = try layoutRung(arena, graph, bundle_permits, max_width, rung);
-    return .{ .sketch = result, .final_rung = rung, .attempts = 1 };
+) !Candidate {
+    var opts = optionsFor(rung, max_width);
+    opts.bundle_permits = bundle_permits;
+    return .{ .rung = rung, .sketch = try recurse.layoutPieces(arena, rotateForRung(graph, rung), opts) };
 }
 
-/// @guarded-by: select_test.zig "bridge variants: the real-raster score decides, and flips when the counts flip"
 pub fn runBridgeVariant(
     arena: std.mem.Allocator,
     graph: sem_graph.SemGraph,
@@ -134,11 +84,11 @@ pub fn runBridgeVariant(
     max_width: u32,
     rung: Rung,
     build: prim.BridgeBuild,
-) !LadderResult {
+) !sketch.Sketch {
     var opts = optionsFor(rung, max_width);
     opts.bundle_permits = bundle_permits;
     opts.bridge_build = build;
-    return .{ .sketch = try recurse.layoutPieces(arena, rotateForRung(graph, rung), opts), .final_rung = rung, .attempts = 1 };
+    return recurse.layoutPieces(arena, rotateForRung(graph, rung), opts);
 }
 
 fn optionsFor(rung: Rung, max_width: u32) coords.LayoutOptions {

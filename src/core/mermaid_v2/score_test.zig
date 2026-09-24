@@ -51,7 +51,6 @@ test "tier ordering: t0 severity, then composite, then height, then index" {
     var bad_clip = base;
     bad_clip.t0_fit = 100;
     try t.expect(mild_clip.lessThan(bad_clip));
-    try t.expectEqualStrings("t0", Score.decidingTier(mild_clip, bad_clip));
     var fitting_but_ugly = base;
     fitting_but_ugly.t12_composite = 999_999_999;
     try t.expect(fitting_but_ugly.lessThan(mild_clip));
@@ -59,16 +58,12 @@ test "tier ordering: t0 severity, then composite, then height, then index" {
     worse.t12_composite = 10;
     worse.t1_integrity = 7;
     try t.expect(base.lessThan(worse));
-    try t.expectEqualStrings("t12", Score.decidingTier(base, worse));
     var taller = base;
     taller.t3_height = 2;
     try t.expect(base.lessThan(taller));
-    try t.expectEqualStrings("t3", Score.decidingTier(base, taller));
     var later = base;
     later.t4_index = 3;
     try t.expect(base.lessThan(later));
-    try t.expectEqualStrings("t4", Score.decidingTier(base, later));
-    try t.expectEqualStrings("tie", Score.decidingTier(base, base));
 }
 
 test "natural-preference margin: sliver composite wins do not displace natural" {

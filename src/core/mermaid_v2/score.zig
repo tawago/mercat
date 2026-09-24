@@ -62,22 +62,12 @@ pub const Score = struct {
     t3_height: u32,
     t4_index: u32,
     t12_composite: u64,
-    r_labels_dropped: u32 = 0,
-    r_edge_cells_lost: u32 = 0,
 
     pub fn lessThan(a: Score, b: Score) bool {
         if (a.t0_fit != b.t0_fit) return a.t0_fit < b.t0_fit;
         if (a.t12_composite != b.t12_composite) return a.t12_composite < b.t12_composite;
         if (a.t3_height != b.t3_height) return a.t3_height < b.t3_height;
         return a.t4_index < b.t4_index;
-    }
-
-    pub fn decidingTier(a: Score, b: Score) []const u8 {
-        if (a.t0_fit != b.t0_fit) return "t0";
-        if (a.t12_composite != b.t12_composite) return "t12";
-        if (a.t3_height != b.t3_height) return "t3";
-        if (a.t4_index != b.t4_index) return "t4";
-        return "tie";
     }
 };
 
@@ -119,8 +109,6 @@ pub fn eval(
             W_ARROWHEAD_TRANSIT * @as(u64, raster.arrowhead_transit) +
             W_ARROW_BASE * @as(u64, raster.arrow_base) +
             W_ARM_INTO_HEAD * @as(u64, raster.arm_into_head),
-        .r_labels_dropped = raster.labels_dropped,
-        .r_edge_cells_lost = raster.edge_cells_lost,
     };
 }
 

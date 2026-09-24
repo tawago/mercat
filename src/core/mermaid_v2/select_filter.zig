@@ -10,19 +10,11 @@ pub fn unroutedEdges(s: sketch_mod.Sketch) u32 {
     return n;
 }
 
-/// @guarded-by: select_test.zig "a candidate with an unrouted visible edge is filtered out before scoring"
-pub fn ciFilter(aa: std.mem.Allocator, candidates: []const ladder.Candidate) []const ladder.Candidate {
-    var any = false;
-    for (candidates) |cand| if (unroutedEdges(cand.sketch) != 0) {
-        any = true;
-        break;
-    };
-    if (!any) return candidates;
-
+/// The candidates that route every visible edge.
+pub fn ciFilter(aa: std.mem.Allocator, candidates: []const ladder.Candidate) ![]const ladder.Candidate {
     var survivors: std.ArrayListUnmanaged(ladder.Candidate) = .empty;
     for (candidates) |cand| {
-        if (unroutedEdges(cand.sketch) != 0) continue;
-        survivors.append(aa, cand) catch return candidates;
+        if (unroutedEdges(cand.sketch) == 0) try survivors.append(aa, cand);
     }
-    return survivors.toOwnedSlice(aa) catch candidates;
+    return survivors.toOwnedSlice(aa);
 }

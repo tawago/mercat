@@ -234,7 +234,7 @@ test "a production render reaches the raster with its bundle sets numbered" {
     const source = "flowchart TD\n  A --> B\n  A --> C\n  A --> D\n";
     const graph = try parse.parse(a, source);
     const plan = (try permits.build(a, graph, .joined)).plan;
-    const chosen = try select.choose(a, graph, &plan, 80, .{}, .bridge);
+    const chosen = try select.choose(a, graph, &plan, 80, .bridge);
 
     try testing.expectEqual(sketch.BundleStampState.complete, chosen.sketch.bundle_stamp_state);
     try testing.expect(ledger.bundleSetsNumbered(chosen.sketch.bundle_sets));

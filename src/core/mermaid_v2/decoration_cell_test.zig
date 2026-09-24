@@ -27,7 +27,7 @@ test "flowchart_arrow_ends_td_6 at w90 draws every head into its port with no la
     );
     const built = try permits.build(a, graph, .joined);
     const plan = built.plan;
-    const winner = try select.choose(a, graph, &plan, 90, .{}, .bridge);
+    const winner = try select.choose(a, graph, &plan, 90, .bridge);
     try std.testing.expectEqual(graph.direction, winner.sketch.direction);
     const report = try raster.rasterize(a, winner.sketch, .bridge);
     try std.testing.expectEqual(@as(u32, 0), report.arrow_base.tip_not_port);

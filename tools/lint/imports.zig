@@ -82,8 +82,8 @@ pub const file_allowlists = [_]struct {
     },
     .{
         .name = "budget.zig",
-        .allowed = &.{ .sem_graph, .sketch, .layout_zone, .parse_zone, .cluster_zone, .recurse, .{ .exact = "budget_test.zig" }, .{ .exact = "budget_types.zig" } },
-        .reason = "budget may only import std, prim, sem_graph, sketch, layout, parse, recurse, cluster, budget_test, or budget_types",
+        .allowed = &.{ .sem_graph, .sketch, .layout_zone, .parse_zone, .cluster_zone, .recurse, .{ .exact = "budget_test.zig" } },
+        .reason = "budget may only import std, prim, sem_graph, sketch, layout, parse, recurse, cluster, or budget_test",
     },
     .{
         .name = "recurse.zig",
@@ -134,11 +134,6 @@ pub const file_allowlists = [_]struct {
         .name = "sketch_bundles_test.zig",
         .allowed = &.{ .sketch, .parse_zone, .{ .exact = "select.zig" }, .{ .exact = "ledger/permits.zig" } },
         .reason = "sketch_bundles_test may only import std, prim, base/ledger, sketch, sketch_bundles, parse, select, or ledger/permits",
-    },
-    .{
-        .name = "budget_types.zig",
-        .allowed = &.{ .sem_graph, .sketch, .budget },
-        .reason = "budget_types may only import std, prim, sem_graph, sketch, or budget",
     },
     .{
         .name = "select.zig",
