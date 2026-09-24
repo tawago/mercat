@@ -15,13 +15,18 @@ const MAX_CANDIDATES = 16;
 
 const MAX_BRIDGE = 4;
 
+/// Test-only selection overrides: return the incumbent unscored, or print the score comparison.
+pub const TestOptions = struct {
+    score_off: bool = false,
+    score_shadow: bool = false,
+};
+
 pub fn choose(
     aa: std.mem.Allocator,
     graph: sem_graph.SemGraph,
     bundle_permits: *const ledger.BundlePermits,
     max_width: u32,
-    score_off: bool,
-    shadow: bool,
+    overrides: TestOptions,
     subgraph_edges: prim.SubgraphEdges,
 ) !ladder.LadderResult {
     const set = try enumerateAll(aa, graph, bundle_permits, max_width);
@@ -29,10 +34,10 @@ pub fn choose(
 
     const survivors = select_filter.ciFilter(aa, set.merged);
     const selection = scoreCandidates(aa, survivors, incumbent.final_rung, graph.direction, subgraph_edges);
-    if (shadow) {
+    if (overrides.score_shadow) {
         if (selection) |sel| emitScoreShadowLine(survivors, sel, max_width);
     }
-    if (score_off) return incumbent;
+    if (overrides.score_off) return incumbent;
     const sel = selection orelse return incumbent;
     const winner = survivors[sel.argmin_idx];
     return .{ .sketch = winner.sketch, .final_rung = winner.rung, .attempts = @intCast(set.merged.len) };

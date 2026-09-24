@@ -60,7 +60,7 @@ test "flowchart_multilayer_dag_td_12 ships no one-owner junction and no run that
         const graph = try parse(a, multilayer);
         const built = try permits.build(a, graph, .joined);
         const plan = built.plan;
-        const winner = try select.choose(a, graph, &plan, width, false, false, .bridge);
+        const winner = try select.choose(a, graph, &plan, width, .{}, .bridge);
         const report = try raster.rasterize(a, winner.sketch, .bridge);
         try std.testing.expectEqual(@as(u32, 0), stubCells(&report.lattice));
         try std.testing.expectEqual(@as(u32, 0), report.edge_cells_lost);

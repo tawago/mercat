@@ -45,38 +45,37 @@ pub const RenderOptions = struct {
     subgraph_edges: prim.SubgraphEdges = .bridge,
 };
 
-const EnvOptions = struct {
-    force_rung: ?ladder_pkg.Rung,
-    score_off: bool,
-    shadow_telemetry: bool,
-    integrity: bool,
-    fn read() EnvOptions {
-        return .{
-            .force_rung = blk: {
-                const env = std.posix.getenv("MERCAT_FORCE_RUNG") orelse break :blk null;
-                break :blk std.meta.stringToEnum(ladder_pkg.Rung, env);
-            },
-            .score_off = envIsOne("MERCAT_SCORE_OFF"),
-            .shadow_telemetry = envIsOne("MERCAT_SCORE_SHADOW"),
-            .integrity = envIsOne("MERCAT_INTEGRITY"),
-        };
-    }
+/// Selection and diagnostic overrides reachable only from tests; production renders use the defaults.
+pub const TestOptions = struct {
+    force_rung: ?ladder_pkg.Rung = null,
+    score_off: bool = false,
+    score_shadow: bool = false,
+    integrity: bool = false,
 };
 
 pub fn render(allocator: std.mem.Allocator, source: []const u8, options: RenderOptions) !RenderResult {
     return renderFlowchart(allocator, source, options);
 }
 
-pub fn renderFlowchart(
+pub fn renderFlowchart(allocator: std.mem.Allocator, source: []const u8, options: RenderOptions) !RenderResult {
+    return renderWith(allocator, source, options, .{});
+}
+
+/// Renders with test overrides; a compile error outside test builds.
+pub fn renderForTest(allocator: std.mem.Allocator, source: []const u8, options: RenderOptions, overrides: TestOptions) !RenderResult {
+    if (!builtin.is_test) @compileError("renderForTest is test-only");
+    return renderWith(allocator, source, options, overrides);
+}
+
+fn renderWith(
     allocator: std.mem.Allocator,
     source: []const u8,
     options: RenderOptions,
+    overrides: TestOptions,
 ) !RenderResult {
     var arena = std.heap.ArenaAllocator.init(allocator);
     defer arena.deinit();
     const aa = arena.allocator();
-
-    const env = EnvOptions.read();
 
     const graph = parse(aa, source) catch |err| {
         std.log.warn("mermaid_v2 parse failed: {s}", .{@errorName(err)});
@@ -93,20 +92,20 @@ pub fn renderFlowchart(
     const bundle_permits = branch_result.plan;
 
     const ladder_result: ladder_pkg.LadderResult = blk: {
-        if (env.force_rung) |rung| {
+        if (overrides.force_rung) |rung| {
             break :blk ladder_pkg.runForced(aa, graph, &bundle_permits, options.max_width, rung) catch |err| {
                 std.log.warn("mermaid_v2/entry: forced-rung layout failed: {s}", .{@errorName(err)});
                 return fallback(source, "v2 ladder error");
             };
         }
-        if (env.score_off and !env.shadow_telemetry) {
+        if (overrides.score_off and !overrides.score_shadow) {
             break :blk ladder_pkg.run(aa, graph, &bundle_permits, options.max_width) catch |err| {
                 std.log.warn("mermaid_v2/entry: ladder failed: {s}", .{@errorName(err)});
                 return fallback(source, "v2 ladder error");
             };
         }
         // @guarded-by: select_test.zig "choose: merged selection anchors to raw natural and never fails the render"
-        break :blk select_mod.choose(aa, graph, &bundle_permits, options.max_width, env.score_off, env.shadow_telemetry, options.subgraph_edges) catch |err| {
+        break :blk select_mod.choose(aa, graph, &bundle_permits, options.max_width, .{ .score_off = overrides.score_off, .score_shadow = overrides.score_shadow }, options.subgraph_edges) catch |err| {
             std.log.warn("mermaid_v2/entry: ladder failed: {s}", .{@errorName(err)});
             return fallback(source, "v2 ladder error");
         };
@@ -137,7 +136,7 @@ pub fn renderFlowchart(
         return fallback(source, "v2 raster error");
     };
 
-    if (env.integrity) emitIntegrityLine(
+    if (overrides.integrity) emitIntegrityLine(
         integrity,
         raster_report,
         graph.skipped_lines,
@@ -219,11 +218,6 @@ fn emitIntegrityLine(
         },
     );
 }
-fn envIsOne(name: [:0]const u8) bool {
-    const env = std.posix.getenv(name) orelse return false;
-    return std.mem.eql(u8, env, "1");
-}
-
 fn fallback(source: []const u8, reason: []const u8) RenderResult {
     return .{
         .output = source,
@@ -248,7 +242,7 @@ test "V-D-POLICY-02: production resolver originates joined for a flat graph" {
 
 test "V-D-POLICY-03: policy has no config CLI or environment surface" {
     try std.testing.expect(!@hasField(RenderOptions, "policy"));
-    try std.testing.expect(!@hasField(EnvOptions, "policy"));
+    try std.testing.expect(!@hasField(TestOptions, "policy"));
 
     const source = "flowchart TD\nA --> B\n";
     const left = try renderFlowchart(std.testing.allocator, source, .{});
@@ -256,6 +250,15 @@ test "V-D-POLICY-03: policy has no config CLI or environment surface" {
     const right = try renderFlowchart(std.testing.allocator, source, .{});
     defer std.testing.allocator.free(right.output);
     try std.testing.expectEqualStrings(left.output, right.output);
+}
+
+test "default test overrides render what production renders" {
+    const source = "flowchart TD\nA --> B\nA --> C\n";
+    const production = try renderFlowchart(std.testing.allocator, source, .{});
+    defer std.testing.allocator.free(production.output);
+    const overridden = try renderForTest(std.testing.allocator, source, .{}, .{});
+    defer std.testing.allocator.free(overridden.output);
+    try std.testing.expectEqualStrings(production.output, overridden.output);
 }
 
 test "V-D-IR-07: a clustered graph's bundles ride piece plans; the root plan stays skipped" {
@@ -425,7 +428,7 @@ test "cluster unification: bridges route around each other, not through" {
         \\
     );
     const result = try resolveBundlePermits(a, graph);
-    const winner = try select_mod.choose(a, graph, &result.plan, 120, false, false, .bridge);
+    const winner = try select_mod.choose(a, graph, &result.plan, 120, .{}, .bridge);
     const report = try rasterize(a, winner.sketch, .bridge);
     try std.testing.expectEqual(@as(u32, 0), report.crossings.foreign_junction_violation);
     try std.testing.expectEqual(@as(u32, 0), report.crossings.arrowhead_transit_violation);

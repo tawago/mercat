@@ -32,8 +32,7 @@ pub const table = [_]Row{
     },
     .{
         .token = "getenv",
-        .why = "entry.zig is the sole env-knob reader in mermaid_v2 (see its header); thread values down as plain parameters",
-        .allow = &.{"entry.zig"},
+        .why = "the environment never changes a render; options come from the CLI and config, test overrides from entry.TestOptions",
     },
     .{
         .token = "lanes.Demand",
@@ -369,16 +368,13 @@ test "banned token: a reverted diagnostic-tag spelling fires" {
     try testing.expect(std.mem.indexOf(u8, got.list.items[0], "rail_pivot_side_arrow") != null);
 }
 
-test "banned token: an env read outside entry.zig fires, and entry.zig is exempt" {
+test "banned token: an env read fires in every file, entry.zig included" {
     const a = testing.allocator;
-    var hit = try collect(a, "layout/thing.zig", "const v = std.posix.getenv(\"MERCAT_X\");\n", &table);
-    defer hit.deinit(a);
-    try testing.expectEqual(@as(usize, 1), hit.list.items.len);
-    try testing.expect(std.mem.indexOf(u8, hit.list.items[0], "entry.zig is the sole env-knob reader") != null);
-
-    var exempt = try collect(a, "entry.zig", "const v = std.posix.getenv(\"MERCAT_X\");\n", &table);
-    defer exempt.deinit(a);
-    try testing.expectEqual(@as(usize, 0), exempt.list.items.len);
+    for ([_][]const u8{ "layout/thing.zig", "entry.zig" }) |path| {
+        var hit = try collect(a, path, "const v = std.posix.getenv(\"MERCAT_X\");\n", &table);
+        defer hit.deinit(a);
+        try testing.expectEqual(@as(usize, 1), hit.list.items.len);
+    }
 }
 
 test "banned token: a third codepointWidth table fires, the two authorities are exempt" {

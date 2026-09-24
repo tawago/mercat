@@ -204,7 +204,7 @@ test "fan provenance: plan selection preserves the winning claims" {
     const permits: ledger.BundlePermits = .{ .policy = .joined, .groups = &groups, .memberships = &memberships };
     var arena = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
-    const winner = try select.choose(arena.allocator(), graph(.TD, &nodes, &edges, &.{}), &permits, 120, false, false, .bridge);
+    const winner = try select.choose(arena.allocator(), graph(.TD, &nodes, &edges, &.{}), &permits, 120, .{}, .bridge);
 
     try testing.expectEqual(@as(usize, 1), winner.sketch.rail_claims.len);
     try testing.expectEqual(@as(rail_star.RailClaimId, 1), winner.sketch.rail_claims[0].id);

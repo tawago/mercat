@@ -80,11 +80,11 @@ test "choose: merged selection anchors to raw natural and never fails the render
         \\  A --> B2 --> C2
         \\
     );
-    const result = try select.choose(a, g, testBundlePermits(), 120, false, false, .bridge);
+    const result = try select.choose(a, g, testBundlePermits(), 120, .{}, .bridge);
     try std.testing.expect(result.sketch.bbox.w > 0);
 
     const incumbent = (try ladder.enumerate(a, g, testBundlePermits(), 120)).incumbent;
-    const off = try select.choose(a, g, testBundlePermits(), 120, true, false, .bridge);
+    const off = try select.choose(a, g, testBundlePermits(), 120, .{ .score_off = true }, .bridge);
     try std.testing.expectEqual(incumbent.final_rung, off.final_rung);
 }
 
@@ -104,7 +104,7 @@ test "a clustered render's rail bundles come from its piece plan and survive the
         \\
     );
     const permits = (try permits_mod.build(a, g, .joined)).plan;
-    const winner = try select.choose(a, g, &permits, 120, false, false, .bridge);
+    const winner = try select.choose(a, g, &permits, 120, .{}, .bridge);
 
     try std.testing.expectEqual(@as(usize, 1), winner.sketch.bundles.selected_bundles.len);
     const rail = winner.sketch.bundles.selected_bundles[0];
@@ -147,7 +147,7 @@ test "the audit prices the raster that ships: mode reaches collect and changes t
         \\
     );
     const permits = try permitsFor(a, g);
-    const winner = try select.choose(a, g, &permits, 90, false, false, .cross);
+    const winner = try select.choose(a, g, &permits, 90, .{}, .cross);
 
     const shipped = try raster.rasterize(a, winner.sketch, .cross);
     const priced = audit.collect(a, winner.sketch, .cross) orelse return error.RasterFailed;
