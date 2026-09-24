@@ -6,8 +6,11 @@ const sg = @import("../sem_graph.zig");
 const ledger = @import("../base/ledger.zig");
 const split_mod = @import("split.zig");
 const bridges = @import("bridges.zig");
+const bridge_plan = @import("bridge_plan.zig");
 const entry_inset = @import("entry_inset.zig");
 const stitch_bundle_sets = @import("stitch_bundle_sets.zig");
+const stitch_bundles = @import("stitch_bundles.zig");
+const stitch_rails = @import("stitch_rails.zig");
 
 pub const SplitResult = split_mod.SplitResult;
 pub const EntryInset = entry_inset.EntryInset;
@@ -60,6 +63,7 @@ pub fn stitch(
     outer: sketch.Sketch,
     children: []const Clustered,
     scale: u32,
+    merge_joins: bool,
     bridge_build: prim.BridgeBuild,
 ) StitchError!Clustered {
     if (children.len != split_result.pieces.len) return error.PieceSketchMismatch;
@@ -69,6 +73,8 @@ pub fn stitch(
     var edges: std.ArrayListUnmanaged(sketch.EdgePath) = .empty;
     var rails: std.ArrayListUnmanaged(sketch.Rail) = .empty;
     var bundle_sets: std.ArrayListUnmanaged(ledger.Bundle) = .empty;
+    var piece_joins: std.ArrayListUnmanaged(stitch_bundles.PieceBundles) = .empty;
+    const claim_sources = try arena.alloc(stitch_rails.ChildSource, split_result.supers.len);
 
     // @guarded-by: recurse_test.zig "stitched sibling clusters share one edge-id space"
     var id_base: sketch.EdgeId = 0;
@@ -165,6 +171,8 @@ pub fn stitch(
         const dy = sp.rect.y + @as(i32, @intCast(pad.y)) + ei.dyExtra();
         const base = id_base;
         id_base += idSpan(child.sketch);
+        claim_sources[si] = .{ .sketch = child.sketch, .node_map = global_of[super.child_piece], .edge_base = base };
+        try piece_joins.append(arena, .{ .bundles = child.sketch.bundles, .edge_base = base, .node_map = global_of[super.child_piece] });
         for (child.sketch.edges) |ce| {
             try edges.append(arena, try translateEdge(arena, ce, global_of[super.child_piece], dx, dy, base));
         }
@@ -181,6 +189,7 @@ pub fn stitch(
     const outer_base = id_base;
     id_base += idSpan(outer);
     const bridge_base = id_base;
+    try piece_joins.append(arena, .{ .bundles = outer.bundles, .edge_base = outer_base, .node_map = global_of[0] });
     for (outer.edges) |oe| {
         if (superFor(split_result, oe.from) != null or superFor(split_result, oe.to) != null) continue;
         try edges.append(arena, try translateEdge(arena, oe, global_of[0], 0, 0, outer_base));
@@ -222,17 +231,27 @@ pub fn stitch(
         try edges.append(arena, b);
     }
 
+    // @guarded-by: recurse_test2.zig "two bridges into one port declare a port-share bundle"
     const edge_slice = try edges.toOwnedSlice(arena);
+    const final_bridges = edge_slice[bridge_start..];
+    const bridge_joins = if (merge_joins)
+        try bridge_plan.plan(arena, split_result.crossings, final_bridges, bridge_base)
+    else
+        ledger.RealizedBundles{};
+    for (try ledger.bundlesFromPlan(arena, bridge_joins)) |cs| try bundle_sets.append(arena, cs);
     const bar_slice = try rails.toOwnedSlice(arena);
-    const sets = try stitch_bundle_sets.finalSets(
+    const authority = try stitch_bundle_sets.finalizeAuthority(
         arena,
         split_result,
         outer,
+        claim_sources,
+        global_of[0],
         outer_base,
         bridge_base,
         edge_slice,
-        edge_slice[bridge_start..],
+        final_bridges,
         bar_slice,
+        node_slice,
         try bundle_sets.toOwnedSlice(arena),
     );
 
@@ -243,7 +262,9 @@ pub fn stitch(
         .clusters = cluster_slice,
         .edges = edge_slice,
         .rails = bar_slice,
-        .bundle_sets = sets,
+        .rail_claims = authority.claims,
+        .bundle_sets = authority.sets,
+        .bundles = if (merge_joins) try stitch_bundles.merge(arena, piece_joins.items, bridge_joins) else .{},
         .diagnostics = outer.diagnostics,
         .budget = outer.budget,
     };

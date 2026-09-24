@@ -2,12 +2,59 @@ const std = @import("std");
 const sketch = @import("sketch.zig");
 const sem_graph = @import("sem_graph.zig");
 const ledger = @import("base/ledger.zig");
+const rail_star = @import("base/rail_star.zig");
 const lattice = @import("lattice.zig");
 const recurse = @import("recurse.zig");
 const raster = @import("raster.zig");
 const rt = @import("recurse_test.zig");
 const assertUniqueEdgeIds = rt.assertUniqueEdgeIds;
 const clusterOf = rt.clusterOf;
+
+test "a nested clustered fan-in loses no RailClaim during either stitch" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+
+    const nodes = [_]sem_graph.Node{
+        .{ .id = 0, .raw_id = "A", .label = "A", .shape = .rect, .classes = &.{}, .cluster = 200 },
+        .{ .id = 1, .raw_id = "B", .label = "B", .shape = .rect, .classes = &.{}, .cluster = 200 },
+        .{ .id = 2, .raw_id = "P", .label = "P", .shape = .rect, .classes = &.{}, .cluster = 200 },
+    };
+    const edges = [_]sem_graph.Edge{
+        .{ .id = 0, .from = 0, .to = 2, .kind = .solid, .arrow_from = .none, .arrow_to = .filled, .label = null },
+        .{ .id = 1, .from = 1, .to = 2, .kind = .solid, .arrow_from = .none, .arrow_to = .filled, .label = null },
+    };
+    const members = [_]sem_graph.NodeId{ 0, 1, 2 };
+    const subs = [_]sem_graph.ClusterId{200};
+    const clusters = [_]sem_graph.Cluster{
+        .{ .id = 100, .raw_id = "outer", .label = "outer", .parent = null, .members = &.{}, .sub_clusters = &subs },
+        .{ .id = 200, .raw_id = "inner", .label = "inner", .parent = 100, .members = &members, .sub_clusters = &.{} },
+    };
+    const graph: sem_graph.SemGraph = .{
+        .direction = .TD,
+        .nodes = &nodes,
+        .edges = &edges,
+        .clusters = &clusters,
+        .classes = &.{},
+        .arena = null,
+    };
+
+    const s = try recurse.layoutPieces(a, graph, .{ .max_width = 120 });
+    try std.testing.expectEqual(@as(usize, 1), s.rail_claims.len);
+    const claim = s.rail_claims[0];
+    try std.testing.expectEqual(@as(rail_star.RailClaimId, 1), claim.id);
+    try std.testing.expectEqual(ledger.RailPolarity.in, claim.polarity);
+    try std.testing.expectEqual(@as(usize, 2), claim.members.len);
+    try std.testing.expect(ledger.checkRailClaim(claim).isValid());
+    for (claim.members) |member| {
+        var carrier = false;
+        for (s.edges) |edge| carrier = carrier or edge.id == member.edge;
+        for (s.rails) |rail| for (rail.taps) |tap| {
+            carrier = carrier or tap.edge == member.edge;
+        };
+        try std.testing.expect(carrier);
+    }
+}
 
 fn placementNamed(s: sketch.Sketch, name: []const u8) ?sketch.NodePlacement {
     for (s.nodes) |p| {
@@ -88,6 +135,18 @@ test "an outer fan into sibling subgraphs names its bridges, not the dropped pla
         if (found) break;
     }
     try std.testing.expect(found);
+
+    var claimed = false;
+    for (s.rail_claims) |claim| {
+        if (claim.polarity != .out or claim.members.len < 2) continue;
+        const checked = ledger.checkRailClaim(claim);
+        if (checked.derived_pivot != top.id or !checked.isValid()) continue;
+        for (claim.members) |member| {
+            if (member.node(.source) != top.id) break;
+            if (edgeById(s, member.edge) == null) break;
+        } else claimed = true;
+    }
+    try std.testing.expect(claimed);
 }
 
 fn frameOf(s: sketch.Sketch, id: sem_graph.ClusterId) ?sketch.ClusterFrame {
@@ -137,6 +196,35 @@ test "a labeled fan into sibling subgraphs reserves no on-run rows" {
         if (try clusterOf(sl, e.to) != null) crossings += 1;
     }
     try std.testing.expectEqual(@as(usize, 2), crossings);
+}
+
+test "two bridges into one port are one selected bundle at the target end" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+
+    var nodes_buf: [4]sem_graph.Node = undefined;
+    var edges_buf: [3]sem_graph.Edge = undefined;
+    var members: [2]sem_graph.NodeId = undefined;
+    var clusters_buf: [1]sem_graph.Cluster = undefined;
+    const graph = twoBridgesIntoOnePortGraph(&nodes_buf, &edges_buf, &members, &clusters_buf);
+
+    const permits = ledger.BundlePermits{ .policy = .joined, .scope = .skipped_clustered };
+    const s = try recurse.layoutPieces(a, graph, .{ .max_width = 120, .bundle_permits = &permits });
+    const c = placementNamed(s, "C") orelse return error.TargetNotPlaced;
+
+    var bundle: ?ledger.SelectedBundleId = null;
+    var arrivals: usize = 0;
+    for (s.bundles.memberships) |m| {
+        const e = edgeById(s, m.edge) orelse continue;
+        if (e.to != c.id) continue;
+        arrivals += 1;
+        const disp = m.target orelse return error.ArrivalUndecided;
+        try std.testing.expect(disp == .selected);
+        if (bundle) |b| try std.testing.expectEqual(b, disp.selected) else bundle = disp.selected;
+    }
+    try std.testing.expectEqual(@as(usize, 2), arrivals);
+    try std.testing.expectEqual(@as(usize, 2), s.bundles.selected_bundles[bundle.?].members.len);
 }
 
 fn twoBridgesIntoOnePortGraph(

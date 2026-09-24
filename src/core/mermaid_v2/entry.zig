@@ -196,7 +196,48 @@ test "default test overrides render what production renders" {
     try std.testing.expectEqualStrings(production.output, overridden.output);
 }
 
-test "a subgraph-internal fan-in renders as one rail" {
+test "V-D-IR-07: a clustered graph's bundles ride piece plans; the root plan stays skipped" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const graph = try parse(a,
+        \\flowchart TD
+        \\subgraph S
+        \\  A --> B
+        \\end
+        \\B --> C
+        \\
+    );
+
+    const result = try resolveBundlePermits(a, graph);
+    try std.testing.expectEqual(ledger.BundlePolicy.joined, result.plan.policy);
+    try std.testing.expect(result.report.bundle_permits_skipped_clustered);
+    try std.testing.expect(result.report.edgeid_scope_clustered_skipped);
+    const laid_out = try ladder_pkg.runForced(a, graph, &result.plan, 120, .natural);
+    try std.testing.expectEqual(@as(usize, 0), laid_out.sketch.bundles.selected_bundles.len);
+    try std.testing.expectEqual(@as(usize, 2), laid_out.sketch.bundles.memberships.len);
+    const bridge_row = laid_out.sketch.bundles.memberships[1];
+    try std.testing.expect(bridge_row.source == null and bridge_row.target == null);
+}
+
+test "cluster unification: a subgraph-internal fan-in realizes a rail and ships it" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const graph = try parse(a,
+        \\flowchart TD
+        \\subgraph S
+        \\  A --> C
+        \\  B --> C
+        \\end
+        \\
+    );
+
+    const result = try resolveBundlePermits(a, graph);
+    const laid_out = try ladder_pkg.runForced(a, graph, &result.plan, 80, .natural);
+    try std.testing.expectEqual(@as(usize, 1), laid_out.sketch.bundles.selected_bundles.len);
+    try std.testing.expectEqual(@as(usize, 2), laid_out.sketch.bundles.selected_bundles[0].members.len);
+
     const rendered = try renderFlowchart(std.testing.allocator, "flowchart TD\nsubgraph S\n  A --> C\n  B --> C\nend\n", .{ .max_width = 80 });
     defer std.testing.allocator.free(rendered.output);
     try std.testing.expect(!rendered.is_fallback);
@@ -216,6 +257,43 @@ test "a subgraph-internal fan-in renders as one rail" {
         \\└────────────────────┘
     ;
     try std.testing.expectEqualStrings(expected, std.mem.trimRight(u8, rendered.output, "\n"));
+}
+
+test "cluster unification: two subgraph rails keep their own members through nonzero stitch bases" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const graph = try parse(a,
+        \\flowchart TD
+        \\subgraph S
+        \\  A --> C
+        \\  B --> C
+        \\end
+        \\subgraph T
+        \\  D --> F
+        \\  E --> F
+        \\end
+        \\
+    );
+
+    const result = try resolveBundlePermits(a, graph);
+    const laid_out = try ladder_pkg.runForced(a, graph, &result.plan, 80, .natural);
+    const bundles = laid_out.sketch.bundles.selected_bundles;
+    try std.testing.expectEqual(@as(usize, 2), bundles.len);
+    try std.testing.expectEqual(@as(usize, 2), laid_out.sketch.rails.len);
+    for (bundles) |j| {
+        try std.testing.expectEqual(@as(usize, 2), j.members.len);
+        var matched = false;
+        for (laid_out.sketch.rails) |rail| {
+            if (rail.taps.len != 2) continue;
+            const fwd = (rail.taps[0].edge == j.members[0] and rail.taps[1].edge == j.members[1]);
+            const rev = (rail.taps[0].edge == j.members[1] and rail.taps[1].edge == j.members[0]);
+            if (fwd or rev) matched = true;
+        }
+        try std.testing.expect(matched);
+    }
+    try std.testing.expect(bundles[0].members[0] != bundles[1].members[0]);
+    try std.testing.expect(bundles[0].members[1] != bundles[1].members[1]);
 }
 
 test "cluster unification: a bridge never transits a stitched rail's arrowhead" {
@@ -311,6 +389,7 @@ test {
     _ = @import("cluster/stitch.zig");
     _ = @import("cluster/stitch_bundle_sets.zig");
     _ = @import("cluster/bridges.zig");
+    _ = @import("cluster/bridge_plan.zig");
     _ = @import("cluster/bridge_rails.zig");
     _ = @import("cluster/bridge_bundle_sets.zig");
     _ = @import("base/ledger.zig");
