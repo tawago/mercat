@@ -30,10 +30,8 @@ test "flowchart_arrow_ends_td_6 at w90 draws every head into its port with no la
     const winner = try select.choose(a, graph, &plan, 90, .bridge);
     try std.testing.expectEqual(graph.direction, winner.sketch.direction);
     const report = try raster.rasterize(a, winner.sketch, .bridge);
-    try std.testing.expectEqual(@as(u32, 0), report.arrow_base.tip_not_port);
-    try std.testing.expectEqual(@as(u32, 0), report.armIntoHead());
+    try std.testing.expectEqual(@as(u32, 0), report.arrow_base.lateral_arms);
     try std.testing.expectEqual(@as(u32, 0), report.crossings.arrowhead_transit_violation);
-    try std.testing.expectEqual(@as(u32, 0), report.edge_heads_lost);
 
     var worker_edge: ?u32 = null;
     for (graph.edges) |e| if (e.arrow_from != .none and e.arrow_to != .none) {

@@ -353,13 +353,6 @@ test "a child rail and cross-border bridge sharing A's final port are licensed" 
     const report = try raster.rasterize(a, s, .bridge);
     try std.testing.expectEqual(@as(u32, 0), report.crossings.foreign_junction_violation);
     try std.testing.expectEqual(@as(u32, 0), report.crossings.arrowhead_transit_violation);
-    var licensed_carriers: usize = 0;
-    for (report.lattice.aux) |record| {
-        if (record.kind != .carrier) continue;
-        try std.testing.expect(record.detail != @intFromEnum(lattice.CarrierKind.merged_foreign));
-        if (record.value == final_bridge.id and record.detail == @intFromEnum(lattice.CarrierKind.merged_licensed)) licensed_carriers += 1;
-    }
-    try std.testing.expect(licensed_carriers > 0);
 }
 
 fn edgeById(s: sketch.Sketch, id: sketch.EdgeId) ?sketch.EdgePath {

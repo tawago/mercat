@@ -66,7 +66,7 @@ test "own-edge ink beside the anchor does not displace the label" {
     var x: u32 = 1;
     while (x <= 5) : (x += 1) stampEdgeCell(&lat, x, 3, 42);
 
-    const report = try labels.rasterizeLabels(alloc, &lat, s, null);
+    const report = try labels.rasterizeLabels(alloc, &lat, s);
     try testing.expectEqual(@as(u32, 1), report.placed);
     try testing.expectEqual(@as(u32, 0), report.displaced);
     try testing.expectEqual(@as(usize, 0), report.diagnostics.len);
@@ -93,7 +93,7 @@ test "isolation rejects a foreign-ink neighbour in every one of the 8 directions
 
         stampEdgeCell(&lat, @intCast(7 + d[0]), @intCast(3 + d[1]), 9);
 
-        const report = try labels.rasterizeLabels(alloc, &lat, s, null);
+        const report = try labels.rasterizeLabels(alloc, &lat, s);
         try testing.expectEqual(@as(u32, 1), report.placed);
         try testing.expectEqual(@as(u32, 1), report.displaced);
         try testing.expectEqual(@as(u21, 0), cellChar(lat, 7, 3));
@@ -113,7 +113,7 @@ test "the own_adjacent pass beats the primary anchor: the label relocates to sit
 
     stampEdgeCell(&lat, 9, 3, 42);
 
-    const report = try labels.rasterizeLabels(alloc, &lat, s, null);
+    const report = try labels.rasterizeLabels(alloc, &lat, s);
     try testing.expectEqual(@as(u32, 1), report.placed);
     try testing.expectEqual(@as(u32, 1), report.displaced);
 
@@ -136,7 +136,7 @@ test "the own_nearest pass walks the label toward its own edge's ink when own_ad
     lat.at(12, 1).* = .{ .occupant = .{ .node_border = .{ .node = 1, .role = .edge_s } }, .neighbours = .{} };
     lat.at(13, 1).* = .{ .occupant = .{ .node_border = .{ .node = 1, .role = .edge_s } }, .neighbours = .{} };
 
-    const report = try labels.rasterizeLabels(alloc, &lat, s, null);
+    const report = try labels.rasterizeLabels(alloc, &lat, s);
     try testing.expectEqual(@as(u32, 1), report.placed);
     try testing.expectEqual(@as(u32, 1), report.displaced);
 
@@ -160,7 +160,7 @@ test "allow_solid waives only the node/cluster margin, never the foreign-edge ma
         lat.at(x, 0).* = .{ .occupant = .{ .node_border = .{ .node = 1, .role = .edge_s } }, .neighbours = .{} };
         lat.at(x, 4).* = .{ .occupant = .{ .node_border = .{ .node = 2, .role = .edge_n } }, .neighbours = .{} };
     }
-    const solid_report = try labels.rasterizeLabels(alloc, &lat, s, null);
+    const solid_report = try labels.rasterizeLabels(alloc, &lat, s);
     try testing.expectEqual(@as(u32, 1), solid_report.placed);
     try testing.expectEqual(@as(u21, 'x'), cellChar(lat, 5, 1));
 
@@ -170,7 +170,7 @@ test "allow_solid waives only the node/cluster margin, never the foreign-edge ma
         stampEdgeCell(&lat2, x, 0, 9);
         stampEdgeCell(&lat2, x, 4, 9);
     }
-    const edge_report = try labels.rasterizeLabels(alloc, &lat2, s, null);
+    const edge_report = try labels.rasterizeLabels(alloc, &lat2, s);
     try testing.expectEqual(@as(u32, 0), edge_report.placed);
     try testing.expectEqual(@as(u32, 1), edge_report.dropped);
 }
@@ -189,7 +189,7 @@ test "edge-label placement is deterministic: identical lattices place identicall
     for (&grids) |*g| {
         g.* = try makeLattice(alloc, 14, 6);
         stampEdgeCell(g, 9, 3, 42);
-        _ = try labels.rasterizeLabels(alloc, g, s, null);
+        _ = try labels.rasterizeLabels(alloc, g, s);
     }
     for (grids[0].cells, grids[1].cells) |c0, c1| {
         try testing.expect(std.meta.eql(c0.occupant, c1.occupant));

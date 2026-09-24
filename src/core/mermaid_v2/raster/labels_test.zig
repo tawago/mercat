@@ -79,7 +79,7 @@ test "node label fits centered" {
     var s = emptySketch(10, 5, .TD);
     s.nodes = &nodes;
 
-    const report = try labels.rasterizeLabels(alloc, &lat, s, null);
+    const report = try labels.rasterizeLabels(alloc, &lat, s);
     try testing.expectEqual(@as(u32, 1), report.placed);
     try testing.expectEqual(@as(u32, 0), report.dropped);
     try testing.expectEqual(@as(usize, 0), report.diagnostics.len);
@@ -107,7 +107,7 @@ test "node label truncated emits diagnostic" {
     var s = emptySketch(10, 5, .TD);
     s.nodes = &nodes;
 
-    const report = try labels.rasterizeLabels(alloc, &lat, s, null);
+    const report = try labels.rasterizeLabels(alloc, &lat, s);
     try testing.expectEqual(@as(u32, 1), report.placed);
     try testing.expectEqual(@as(usize, 1), report.diagnostics.len);
     try testing.expectEqual(labels.LabelDiagnostic{
@@ -146,7 +146,7 @@ test "cluster label overwrites top border" {
     var s = emptySketch(12, 6, .TD);
     s.clusters = &clusters;
 
-    const report = try labels.rasterizeLabels(alloc, &lat, s, null);
+    const report = try labels.rasterizeLabels(alloc, &lat, s);
     try testing.expectEqual(@as(u32, 1), report.placed);
     try testing.expectEqual(@as(usize, 0), report.diagnostics.len);
 
@@ -168,7 +168,7 @@ test "edge label fits above midpoint" {
     var s = emptySketch(10, 6, .LR);
     s.edges = &edges;
 
-    const report = try labels.rasterizeLabels(alloc, &lat, s, null);
+    const report = try labels.rasterizeLabels(alloc, &lat, s);
     try testing.expectEqual(@as(u32, 1), report.placed);
     try testing.expectEqual(@as(usize, 0), report.diagnostics.len);
 
@@ -186,7 +186,7 @@ test "no space for edge label emits diagnostic" {
     var s = emptySketch(10, 1, .LR);
     s.edges = &edges;
 
-    const report = try labels.rasterizeLabels(alloc, &lat, s, null);
+    const report = try labels.rasterizeLabels(alloc, &lat, s);
     try testing.expectEqual(@as(u32, 0), report.placed);
     try testing.expectEqual(@as(u32, 1), report.dropped);
     try testing.expectEqual(@as(usize, 1), report.diagnostics.len);
@@ -211,7 +211,7 @@ test "vertical edge label paints at the exact prim anchor for both rail sides" {
         var s = emptySketch(20, 10, .LR);
         s.edges = &edges;
 
-        const report = try labels.rasterizeLabels(alloc, &lat, s, null);
+        const report = try labels.rasterizeLabels(alloc, &lat, s);
         try testing.expectEqual(@as(u32, 1), report.placed);
         try testing.expectEqual(@as(u32, 0), report.dropped);
 
@@ -229,7 +229,7 @@ test "vertical edge label paints at the exact prim anchor for both rail sides" {
         var s = emptySketch(20, 10, .LR);
         s.edges = &edges;
 
-        const report = try labels.rasterizeLabels(alloc, &lat, s, null);
+        const report = try labels.rasterizeLabels(alloc, &lat, s);
         try testing.expectEqual(@as(u32, 1), report.placed);
         try testing.expectEqual(@as(u32, 0), report.dropped);
 
@@ -279,7 +279,7 @@ test "rail tap labels paint at the tapLabelSeg-predicted segment for off-column 
     var s = emptySketch(30, 15, .TD);
     s.rails = &[_]sketch.Rail{rail};
 
-    const report = try labels.rasterizeLabels(alloc, &lat, s, null);
+    const report = try labels.rasterizeLabels(alloc, &lat, s);
     try testing.expectEqual(@as(u32, 2), report.placed);
     try testing.expectEqual(@as(u32, 0), report.dropped);
 
@@ -336,7 +336,7 @@ test "edge label falls back below the segment when above is out of bounds" {
     var s = emptySketch(10, 4, .LR);
     s.edges = &edges;
 
-    const report = try labels.rasterizeLabels(alloc, &lat, s, null);
+    const report = try labels.rasterizeLabels(alloc, &lat, s);
     try testing.expectEqual(@as(u32, 1), report.placed);
     try testing.expectEqual(@as(u32, 0), report.dropped);
     try testing.expectEqual(@as(usize, 0), report.diagnostics.len);
@@ -357,7 +357,7 @@ test "tryWrite rejects a pre-occupied primary-anchor cell as a real collision, n
 
     lat.at(3, 2).* = .{ .occupant = .{ .node_interior = 99 }, .neighbours = .{} };
 
-    const report = try labels.rasterizeLabels(alloc, &lat, s, null);
+    const report = try labels.rasterizeLabels(alloc, &lat, s);
     try testing.expectEqual(@as(u32, 1), report.placed);
     try testing.expectEqual(@as(usize, 0), report.diagnostics.len);
 
@@ -382,7 +382,7 @@ test "edge-label runs on the same row keep two blank cells apart" {
         lat.at(px, 2).* = .{ .occupant = .{ .label_char = 'Q' }, .neighbours = .{} };
     }
 
-    const report = try labels.rasterizeLabels(alloc, &lat, s, null);
+    const report = try labels.rasterizeLabels(alloc, &lat, s);
     try testing.expectEqual(@as(u32, 1), report.placed);
     try testing.expectEqual(@as(usize, 0), report.diagnostics.len);
 

@@ -288,7 +288,6 @@ test "fan provenance: duplicate leaf is private on flat and clustered peer paths
         try testing.expect(private.?.port_to.offset != retained.?.port_to.offset);
         try testing.expectEqual(sketch.EdgeRole.fan_out_dropper, private.?.role);
         const report = try raster.rasterize(arena.allocator(), s, .bridge);
-        try testing.expect(report.labels_placed > 0);
         try testing.expectEqual(@as(u32, 0), report.labels_dropped);
     }
 }

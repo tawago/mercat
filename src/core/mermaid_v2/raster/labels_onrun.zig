@@ -2,7 +2,6 @@ const std = @import("std");
 const sketch = @import("../sketch.zig");
 const lattice = @import("../lattice.zig");
 const lw = @import("labels_write.zig");
-const aux = @import("aux.zig");
 const ink = @import("labels_ink.zig");
 const onrun_h = @import("labels_onrun_h.zig");
 
@@ -12,17 +11,16 @@ pub fn tryOnRunEdge(
     s: sketch.Sketch,
     ep: sketch.EdgePath,
     run: lw.Run,
-    sink: aux.Sink,
 ) bool {
     if (ep.polyline.len < 2) return false;
     const h_len = onrun_h.longestHorizontalInterior(ep.polyline);
     const v_len = longestVerticalInterior(ep.polyline);
     if (h_len > v_len) {
-        if (onrun_h.tryOnRunEdgeH(lat, s, ep, run, sink)) return true;
-        return tryVerticalEdge(lat, s, ep, run, sink);
+        if (onrun_h.tryOnRunEdgeH(lat, s, ep, run)) return true;
+        return tryVerticalEdge(lat, s, ep, run);
     }
-    if (tryVerticalEdge(lat, s, ep, run, sink)) return true;
-    return onrun_h.tryOnRunEdgeH(lat, s, ep, run, sink);
+    if (tryVerticalEdge(lat, s, ep, run)) return true;
+    return onrun_h.tryOnRunEdgeH(lat, s, ep, run);
 }
 
 fn longestVerticalInterior(polyline: []const sketch.Point) u32 {
@@ -42,13 +40,12 @@ fn tryVerticalEdge(
     s: sketch.Sketch,
     ep: sketch.EdgePath,
     run: lw.Run,
-    sink: aux.Sink,
 ) bool {
     for (ep.polyline[0 .. ep.polyline.len - 1], 0..) |p, i| {
         const q = ep.polyline[i + 1];
         if (p.x != q.x or p.y == q.y) continue;
         const owner: ink.Owner = .{ .edge_id = ep.id, .polyline = ep.polyline, .seg_a = p, .seg_b = q };
-        if (tryRun(lat, s, ep.id, p.x, @min(p.y, q.y) + 1, @max(p.y, q.y) - 1, run, owner, sink)) return true;
+        if (tryRun(lat, s, ep.id, p.x, @min(p.y, q.y) + 1, @max(p.y, q.y) - 1, run, owner)) return true;
     }
     return false;
 }
@@ -58,11 +55,10 @@ pub fn tryOnRunTap(
     s: sketch.Sketch,
     tap: sketch.Tap,
     run: lw.Run,
-    sink: aux.Sink,
 ) bool {
     if (tap.at.x != tap.landing.x or tap.at.y == tap.landing.y) return false;
     const owner: ink.Owner = .{ .edge_id = tap.edge, .polyline = &.{}, .seg_a = tap.at, .seg_b = tap.landing };
-    return tryRun(lat, s, tap.edge, tap.at.x, @min(tap.at.y, tap.landing.y) + 1, @max(tap.at.y, tap.landing.y) - 1, run, owner, sink);
+    return tryRun(lat, s, tap.edge, tap.at.x, @min(tap.at.y, tap.landing.y) + 1, @max(tap.at.y, tap.landing.y) - 1, run, owner);
 }
 
 fn tryRun(
@@ -74,15 +70,14 @@ fn tryRun(
     y_hi: i32,
     run: lw.Run,
     owner: ink.Owner,
-    sink: aux.Sink,
 ) bool {
     if (y_lo > y_hi) return false;
     if (run.cell_count == 0) return false;
     const mid: i32 = @divTrunc(y_lo + y_hi, 2);
     var d: i32 = 0;
     while (mid - d >= y_lo or mid + d <= y_hi) : (d += 1) {
-        if (mid - d >= y_lo and tryAt(lat, s, edge_id, x, mid - d, run, owner, sink)) return true;
-        if (d > 0 and mid + d <= y_hi and tryAt(lat, s, edge_id, x, mid + d, run, owner, sink)) return true;
+        if (mid - d >= y_lo and tryAt(lat, s, edge_id, x, mid - d, run, owner)) return true;
+        if (d > 0 and mid + d <= y_hi and tryAt(lat, s, edge_id, x, mid + d, run, owner)) return true;
     }
     return false;
 }
@@ -95,7 +90,6 @@ fn tryAt(
     row: i32,
     run: lw.Run,
     owner: ink.Owner,
-    sink: aux.Sink,
 ) bool {
     const cell_count = run.cell_count;
     // @guarded-by: labels_onrun_test.zig "OWN-INK RULE: a rail/crossbar cell is never interrupted"
@@ -129,7 +123,7 @@ fn tryAt(
 
     std.debug.assert(privateDropperCell(lat, edge_id, x, row));
 
-    lw.writeRun(lat, sx, urow, run, .{ .kind = .edge, .id = edge_id }, sink);
+    lw.writeRun(lat, sx, urow, run);
 
     return true;
 }

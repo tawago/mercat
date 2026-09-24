@@ -2,8 +2,6 @@ const std = @import("std");
 const sketch = @import("../sketch.zig");
 const lattice = @import("../lattice.zig");
 const ew = @import("edges_write.zig");
-const aux = @import("aux.zig");
-const crossings = @import("crossings.zig");
 
 const Move = ew.Move;
 const step = ew.step;
@@ -28,14 +26,12 @@ pub const PortEnd = struct {
 
 /// @guarded-by: edges_port_test.zig "a decorated source end whose head faces the wall leaves it pristine"
 /// @guarded-by: edges_port_test.zig "drawPortStroke: an invisible edge leaves the source node border untouched"
-/// @guarded-by: aux_test.zig "drawPortStroke files a port record only for a stroke it actually draws"
 pub fn drawPortStroke(
     lat: *lattice.Lattice,
     pts: []const sketch.Point,
     kind: lattice.EdgeKind,
     edge_id: u32,
     end: PortEnd,
-    sink: aux.Sink,
 ) void {
     if (kind == .invisible) return;
     var first_dir_opt: ?Move = null;
@@ -47,7 +43,7 @@ pub fn drawPortStroke(
         }
     }
     const fd = first_dir_opt orelse return;
-    mergePortBit(lat, pts[0], fd, kind, edge_id, end, sink);
+    mergePortBit(lat, pts[0], fd, kind, edge_id, end);
 }
 
 /// @guarded-by: edges_port_test.zig "drawTargetPortStroke: arrival arms merge on all four faces"
@@ -59,7 +55,6 @@ pub fn drawTargetPortStroke(
     kind: lattice.EdgeKind,
     edge_id: u32,
     end: PortEnd,
-    sink: aux.Sink,
 ) void {
     if (kind == .invisible) return;
     var last_dir_opt: ?Move = null;
@@ -68,7 +63,7 @@ pub fn drawTargetPortStroke(
         if (segmentDir(pts[i], pts[i + 1])) |d| last_dir_opt = d;
     }
     const ld = last_dir_opt orelse return;
-    mergePortBit(lat, pts[pts.len - 1], reverse(ld), kind, edge_id, end, sink);
+    mergePortBit(lat, pts[pts.len - 1], reverse(ld), kind, edge_id, end);
 }
 
 fn samePoint(a: sketch.Point, b: sketch.Point) bool {
@@ -120,10 +115,9 @@ fn mergePortBit(
     kind: lattice.EdgeKind,
     edge_id: u32,
     end: PortEnd,
-    sink: aux.Sink,
 ) void {
     // @guarded-by: edges_port_test.zig "a gap arrival merges its port bit across the 1-cell reprieve"
-    // @guarded-by: edges_port_test.zig "a corner landing is refused: no merge, no record"
+    // @guarded-by: edges_port_test.zig "a corner landing is refused: no merge"
     const at = attachment(lat, p, reverse(arm)) orelse return;
     const gap = at.gap;
     if (end.head) |h| {
@@ -135,13 +129,11 @@ fn mergePortBit(
     if (kind != .solid and cell.stroke_kind == .solid) {
         cell.stroke_kind = kind;
     }
-    aux.record(sink, lat.cellIndex(c.x, c.y), .port, edge_id, lattice.portArmDetail(arm));
 
     if (gap) |g| {
         const gc = toCoord(g);
         // @guarded-by: edges_port_test.zig "painting the gap cell costs no lost cells"
         var lost: u32 = 0;
-        var counts: crossings.CrossingCounts = .{};
         writeEdgeCell(
             lat.at(gc.x, gc.y),
             edge_id,
@@ -151,9 +143,6 @@ fn mergePortBit(
             gc.x,
             gc.y,
             &lost,
-            &counts,
-            .merged_untested,
-            aux.Recorder.init(sink, lat),
         );
         std.debug.assert(lost == 0);
     }

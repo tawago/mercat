@@ -11,7 +11,6 @@ const labels_r = @import("raster/labels.zig");
 const reconcile = @import("raster/reconcile.zig");
 const crossings_r = @import("raster/crossings.zig");
 const arrow_base_r = @import("raster/arrow_base.zig");
-const aux_r = @import("raster/aux.zig");
 
 pub const RasterizeError = error{
     OutOfMemory,
@@ -22,23 +21,11 @@ pub const RasterizeError = error{
 
 pub const RasterReport = struct {
     lattice: lattice.Lattice,
-    nodes_written: u32,
-    clusters_written: u32,
-    edges_written: u32,
-    labels_placed: u32,
-    label_diagnostics: []const labels_r.LabelDiagnostic,
-    edge_cells_lost: u32,
-    edge_heads_lost: u32 = 0,
-    labels_dropped: u32,
-    labels_displaced: u32,
-    labels_on_run: u32 = 0,
-    phantom_arms_cleared: u32,
+    edge_cells_lost: u32 = 0,
+    labels_dropped: u32 = 0,
+    labels_displaced: u32 = 0,
     crossings: crossings_r.CrossingCounts = .{},
     arrow_base: arrow_base_r.ArrowBaseCounts = .{},
-
-    pub fn armIntoHead(self: RasterReport) u32 {
-        return self.crossings.arm_into_head + self.arrow_base.lateral_arms;
-    }
 };
 
 pub fn rasterize(
@@ -50,26 +37,7 @@ pub fn rasterize(
     const h = s.bbox.h;
 
     if (w == 0 or h == 0) {
-        return .{
-            .lattice = .{
-                .width = 0,
-                .height = 0,
-                .cells = &[_]lattice.Cell{},
-                .rail_claims = s.rail_claims,
-                .aux_collection = .{ .state = .complete },
-            },
-            .nodes_written = 0,
-            .clusters_written = 0,
-            .edges_written = 0,
-            .labels_placed = 0,
-            .label_diagnostics = &.{},
-            .edge_cells_lost = 0,
-            .edge_heads_lost = 0,
-            .labels_dropped = 0,
-            .labels_displaced = 0,
-            .phantom_arms_cleared = 0,
-            .crossings = .{},
-        };
+        return .{ .lattice = .{ .width = 0, .height = 0, .cells = &[_]lattice.Cell{}, .rail_claims = s.rail_claims } };
     }
 
     const cells = allocator.alloc(lattice.Cell, @as(usize, w) * @as(usize, h)) catch {
@@ -84,59 +52,40 @@ pub fn rasterize(
         .rail_claims = s.rail_claims,
     };
 
-    var aux_collector = aux_r.Collector.init(allocator);
-    errdefer aux_collector.deinit();
-    const sink: aux_r.Sink = &aux_collector;
-
-    const clusters_n = clusters_r.rasterizeClusters(allocator, &lat, s) catch |err| switch (err) {
+    _ = clusters_r.rasterizeClusters(allocator, &lat, s) catch |err| switch (err) {
         error.OutOfMemory => return error.OutOfMemory,
         error.OutOfBounds => return error.OutOfBounds,
     };
 
-    const nodes_n = nodes_r.rasterizeNodes(allocator, &lat, s) catch |err| switch (err) {
+    _ = nodes_r.rasterizeNodes(allocator, &lat, s) catch |err| switch (err) {
         error.OutOfMemory => return error.OutOfMemory,
         error.OutOfBounds => return error.OutOfBounds,
         error.OccupiedCell => return error.OutOfBounds,
     };
 
     // @guarded-by: raster.zig "a rail rasterizes before edges: its cell keeps rail kind/role, foreign bits refused"
-    const rail_report = rails_r.rasterizeRails(&lat, s, sink);
+    const rail_cells_lost = rails_r.rasterizeRails(&lat, s);
 
-    const edge_report = edges_r.rasterizeEdges(allocator, &lat, s, subgraph_edges, sink) catch |err| switch (err) {
+    const edge_report = edges_r.rasterizeEdges(allocator, &lat, s, subgraph_edges) catch |err| switch (err) {
         error.OutOfMemory => return error.OutOfMemory,
         error.OutOfBounds => return error.OutOfBounds,
         error.MalformedPolyline => return error.MalformedPolyline,
     };
 
     // @guarded-by: raster/reconcile.zig "reconcile is NOT order-independent w.r.t. labels: swapping the pipeline position changes the result"
-    const phantom_arms = reconcile.reconcileNeighbours(&lat);
+    _ = reconcile.reconcileNeighbours(&lat);
 
-    const label_report = labels_r.rasterizeLabels(allocator, &lat, s, sink) catch |err| switch (err) {
+    const label_report = labels_r.rasterizeLabels(allocator, &lat, s) catch |err| switch (err) {
         error.OutOfMemory => return error.OutOfMemory,
     };
 
-    const arrow_base = arrow_base_r.validate(&lat);
-    var crossings = edge_report.crossings;
-    crossings.add(rail_report.crossings);
-
-    lat.aux = aux_collector.finish();
-    lat.aux_collection = aux_collector.report();
-
     return .{
         .lattice = lat,
-        .nodes_written = nodes_n,
-        .clusters_written = clusters_n,
-        .edges_written = edge_report.edges_written + rail_report.taps_written,
-        .labels_placed = label_report.placed,
-        .label_diagnostics = label_report.diagnostics,
-        .edge_cells_lost = edge_report.cells_lost + rail_report.cells_lost,
-        .edge_heads_lost = edge_report.heads_lost + rail_report.heads_lost,
+        .edge_cells_lost = edge_report.cells_lost + rail_cells_lost,
         .labels_dropped = label_report.dropped,
         .labels_displaced = label_report.displaced,
-        .labels_on_run = label_report.on_run,
-        .phantom_arms_cleared = phantom_arms,
-        .crossings = crossings,
-        .arrow_base = arrow_base,
+        .crossings = edge_report.crossings,
+        .arrow_base = arrow_base_r.validate(&lat),
     };
 }
 
@@ -162,15 +111,7 @@ test "zero-sized bbox returns empty report and borrows final rail claims" {
     const r = try rasterize(a, s, .bridge);
     try testing.expectEqual(@as(u32, 0), r.lattice.width);
     try testing.expectEqual(@as(u32, 0), r.lattice.height);
-    try testing.expectEqual(@as(u32, 0), r.nodes_written);
-    try testing.expectEqual(@as(u32, 0), r.clusters_written);
-    try testing.expectEqual(@as(u32, 0), r.edges_written);
-    try testing.expectEqual(@as(u32, 0), r.labels_placed);
-    try testing.expectEqual(@as(usize, 0), r.label_diagnostics.len);
     try testing.expectEqualSlices(ledger.RailClaim, &claims, r.lattice.rail_claims);
-    try testing.expectEqual(lattice.AuxCollectionState.complete, r.lattice.aux_collection.state);
-    try testing.expectEqual(@as(u64, 0), r.lattice.aux_collection.attempted_records);
-    try testing.expectEqual(@as(usize, 0), r.lattice.aux.len);
 }
 
 test "two nodes + one edge: borders, interiors, and an edge cell" {
@@ -223,10 +164,6 @@ test "two nodes + one edge: borders, interiors, and an edge cell" {
     };
 
     const r = try rasterize(a, s, .bridge);
-    try testing.expectEqual(@as(u32, 2), r.nodes_written);
-    try testing.expectEqual(@as(u32, 0), r.clusters_written);
-    try testing.expect(r.edges_written >= 1);
-
     switch (r.lattice.atConst(0, 0).occupant) {
         .node_border => |b| try testing.expectEqual(@as(u32, 1), b.node),
         else => return error.MissingNode1NW,
@@ -288,9 +225,6 @@ test "single cluster around one node" {
     };
 
     const r = try rasterize(a, s, .bridge);
-    try testing.expectEqual(@as(u32, 1), r.clusters_written);
-    try testing.expectEqual(@as(u32, 1), r.nodes_written);
-
     switch (r.lattice.atConst(0, 0).occupant) {
         .cluster_border => |c| try testing.expectEqual(@as(u32, 0), c.cluster),
         else => return error.MissingClusterNW,

@@ -2,7 +2,6 @@ const std = @import("std");
 const sketch = @import("../sketch.zig");
 const lattice = @import("../lattice.zig");
 const lw = @import("labels_write.zig");
-const aux = @import("aux.zig");
 const ink = @import("labels_ink.zig");
 const onrun = @import("labels_onrun.zig");
 
@@ -28,7 +27,6 @@ pub fn tryOnRunEdgeH(
     s: sketch.Sketch,
     ep: sketch.EdgePath,
     run: lw.Run,
-    sink: aux.Sink,
 ) bool {
     if (ep.polyline.len < 2) return false;
     if (run.cell_count == 0) return false;
@@ -57,7 +55,7 @@ pub fn tryOnRunEdgeH(
         const p = ep.polyline[idx];
         const q = ep.polyline[idx + 1];
         const owner: ink.Owner = .{ .edge_id = ep.id, .polyline = ep.polyline, .seg_a = p, .seg_b = q };
-        if (tryRunH(lat, s, ep.id, p.y, @min(p.x, q.x) + 1, @max(p.x, q.x) - 1, run, owner, sink)) return true;
+        if (tryRunH(lat, s, ep.id, p.y, @min(p.x, q.x) + 1, @max(p.x, q.x) - 1, run, owner)) return true;
     }
     return false;
 }
@@ -71,7 +69,6 @@ fn tryRunH(
     x_hi: i32,
     run: lw.Run,
     owner: ink.Owner,
-    sink: aux.Sink,
 ) bool {
     const cc: i32 = @intCast(run.cell_count);
     // @guarded-by: labels_onrun_h_test.zig "a too-short horizontal run falls through to the ordinary ladder"
@@ -81,8 +78,8 @@ fn tryRunH(
     const mid: i32 = @divTrunc(start_lo + start_hi, 2);
     var d: i32 = 0;
     while (mid - d >= start_lo or mid + d <= start_hi) : (d += 1) {
-        if (mid - d >= start_lo and tryAtH(lat, s, edge_id, mid - d, row, run, owner, sink)) return true;
-        if (d > 0 and mid + d <= start_hi and tryAtH(lat, s, edge_id, mid + d, row, run, owner, sink)) return true;
+        if (mid - d >= start_lo and tryAtH(lat, s, edge_id, mid - d, row, run, owner)) return true;
+        if (d > 0 and mid + d <= start_hi and tryAtH(lat, s, edge_id, mid + d, row, run, owner)) return true;
     }
     return false;
 }
@@ -95,7 +92,6 @@ fn tryAtH(
     row: i32,
     run: lw.Run,
     owner: ink.Owner,
-    sink: aux.Sink,
 ) bool {
     const cell_count = run.cell_count;
     const cc: i32 = @intCast(cell_count);
@@ -129,7 +125,7 @@ fn tryAtH(
     var j: i32 = 0;
     while (j < cc) : (j += 1) std.debug.assert(privateRunCellH(lat, edge_id, start_x + j, row));
 
-    lw.writeRun(lat, sx, urow, run, .{ .kind = .edge, .id = edge_id }, sink);
+    lw.writeRun(lat, sx, urow, run);
     return true;
 }
 

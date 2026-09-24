@@ -101,7 +101,6 @@ fn tryWrite(
             cell.* = .{
                 .occupant = .{ .cluster_border = .{ .cluster = cluster_id, .role = role } },
                 .neighbours = nb,
-                .state = .node,
             };
         },
         .cluster_border => {
@@ -109,7 +108,6 @@ fn tryWrite(
             cell.* = .{
                 .occupant = .{ .cluster_border = .{ .cluster = cluster_id, .role = role } },
                 .neighbours = nb,
-                .state = .node,
             };
         },
         .node_border, .node_interior => {

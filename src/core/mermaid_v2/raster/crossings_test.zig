@@ -61,7 +61,7 @@ test "V-D-CROSS-01: two independent perpendicular edges cross as a transversal" 
         .{ .edge = 0, .source = null, .target = null },
         .{ .edge = 1, .source = null, .target = null },
     };
-    const r = try edges.rasterizeEdges(a, &lat, sketchWith(&es, independentPlan(&mems)), .bridge, null);
+    const r = try edges.rasterizeEdges(a, &lat, sketchWith(&es, independentPlan(&mems)), .bridge);
 
     const cross = lat.atConst(5, 5).*;
     try testing.expectEqual(mask_hw, cross.neighbours.toMask());
@@ -69,7 +69,6 @@ test "V-D-CROSS-01: two independent perpendicular edges cross as a transversal" 
         .edge_segment => |seg| try testing.expectEqual(@as(u32, 0), seg.edge),
         else => return error.NotEdgeSegment,
     }
-    try testing.expectEqual(@as(u32, 1), r.crossings.legal_crossing);
     try testing.expectEqual(@as(u32, 0), r.crossings.foreign_junction_violation);
     try testing.expectEqual(@as(u32, 0), r.crossings.arrowhead_transit_violation);
 
@@ -87,10 +86,9 @@ test "V-D-CROSS-01 companion: same-group perpendicular crossing keeps the ┼ (n
     const es = [_]sketch.EdgePath{ edge(0, &h, .none), edge(1, &v, .none) };
     var members = [_]ledger.EdgeId{ 0, 1 };
     var sel = [_]ledger.SelectedBundle{.{ .id = 0, .proposal = 0, .candidate_bundle = 0, .members = &members }};
-    const r = try edges.rasterizeEdges(a, &lat, sketchWith(&es, .{ .selected_bundles = &sel }), .bridge, null);
+    const r = try edges.rasterizeEdges(a, &lat, sketchWith(&es, .{ .selected_bundles = &sel }), .bridge);
 
     try testing.expectEqual(mask_cross, lat.atConst(5, 5).neighbours.toMask());
-    try testing.expectEqual(@as(u32, 0), r.crossings.legal_crossing);
     try testing.expectEqual(@as(u32, 0), r.crossings.foreign_junction_violation);
 }
 
@@ -106,7 +104,7 @@ test "V-D-CROSS-02: a foreign run through an arrowhead cell is refused (arrowhea
         .{ .edge = 0, .source = null, .target = null },
         .{ .edge = 1, .source = null, .target = null },
     };
-    const r = try edges.rasterizeEdges(a, &lat, sketchWith(&es, independentPlan(&mems)), .bridge, null);
+    const r = try edges.rasterizeEdges(a, &lat, sketchWith(&es, independentPlan(&mems)), .bridge);
 
     const cell = lat.atConst(5, 5).*;
     switch (cell.occupant) {
@@ -128,7 +126,7 @@ test "transversal-violation shape: a foreign collinear/corner overlap keeps firs
         .{ .edge = 0, .source = null, .target = null },
         .{ .edge = 1, .source = null, .target = null },
     };
-    const r = try edges.rasterizeEdges(a, &lat, sketchWith(&es, independentPlan(&mems)), .bridge, null);
+    const r = try edges.rasterizeEdges(a, &lat, sketchWith(&es, independentPlan(&mems)), .bridge);
 
     const corner = lat.atConst(7, 5).*;
     try testing.expectEqual(mask_hw, corner.neighbours.toMask());
@@ -137,7 +135,6 @@ test "transversal-violation shape: a foreign collinear/corner overlap keeps firs
         else => return error.NotEdgeSegment,
     }
     try testing.expect(r.crossings.foreign_junction_violation >= 1);
-    try testing.expectEqual(@as(u32, 0), r.crossings.legal_crossing);
 }
 
 test "determinism: crossing outcome is deterministic under edge-array permutation (first-writer)" {
@@ -154,81 +151,16 @@ test "determinism: crossing outcome is deterministic under edge-array permutatio
         var lat = try makeLattice(a, 11, 11);
         defer a.free(lat.cells);
         const es = [_]sketch.EdgePath{ edge(0, &h, .none), edge(1, &v, .none) };
-        const r = try edges.rasterizeEdges(a, &lat, sketchWith(&es, independentPlan(&mems)), .bridge, null);
+        _ = try edges.rasterizeEdges(a, &lat, sketchWith(&es, independentPlan(&mems)), .bridge);
         try testing.expectEqual(mask_hw, lat.atConst(5, 5).neighbours.toMask());
-        try testing.expectEqual(@as(u32, 1), r.crossings.legal_crossing);
     }
     {
         var lat = try makeLattice(a, 11, 11);
         defer a.free(lat.cells);
         const es = [_]sketch.EdgePath{ edge(1, &v, .none), edge(0, &h, .none) };
-        const r = try edges.rasterizeEdges(a, &lat, sketchWith(&es, independentPlan(&mems)), .bridge, null);
+        _ = try edges.rasterizeEdges(a, &lat, sketchWith(&es, independentPlan(&mems)), .bridge);
         try testing.expectEqual(mask_ns, lat.atConst(5, 5).neighbours.toMask());
-        try testing.expectEqual(@as(u32, 1), r.crossings.legal_crossing);
     }
-}
-
-test "carrierKindFor trusts identity only after a complete consistent stamp" {
-    var members = [_]u32{ 0, 1 };
-    const unstamped = [_]ledger.Bundle{.{ .origin = .fan_rail, .members = &members }};
-    const at: ledger.BundleCell = .{ .x = 0, .y = 0 };
-    const stamped = try ledger.numberBundles(testing.allocator, &unstamped);
-    defer testing.allocator.free(stamped);
-
-    for ([_]sketch.BundleStampState{ .unattempted, .out_of_memory, .rail_invariant }) |state| {
-        try testing.expectEqual(
-            lattice.CarrierKind.merged_untested,
-            crossings.carrierKindFor(0, 1, stamped, state, at),
-        );
-    }
-
-    try testing.expectEqual(
-        lattice.CarrierKind.merged_untested,
-        crossings.carrierKindFor(0, 1, &unstamped, .complete, at),
-    );
-
-    try testing.expectEqual(
-        lattice.CarrierKind.merged_licensed,
-        crossings.carrierKindFor(0, 1, stamped, .complete, at),
-    );
-    try testing.expectEqual(
-        lattice.CarrierKind.merged_foreign,
-        crossings.carrierKindFor(0, 2, stamped, .complete, at),
-    );
-}
-
-test "carrierKind asks a rail's bundle by name, so a member of two bundles is licensed on both rails" {
-    var fan_out = [_]u32{ 0, 1 };
-    var fan_in = [_]u32{ 1, 2 };
-    const raw = [_]ledger.Bundle{
-        .{ .origin = .fan_rail, .members = &fan_out },
-        .{ .origin = .fan_rail, .members = &fan_in },
-    };
-    const sets = try ledger.numberBundles(testing.allocator, &raw);
-    defer testing.allocator.free(sets);
-    const at: ledger.BundleCell = .{ .x = 4, .y = 4 };
-
-    try testing.expectEqual(lattice.CarrierKind.merged_licensed, crossings.carrierKind(sets, .complete, 1, 2, 2, at));
-    try testing.expectEqual(lattice.CarrierKind.merged_licensed, crossings.carrierKind(sets, .complete, 2, 1, 2, at));
-    try testing.expectEqual(lattice.CarrierKind.merged_licensed, crossings.carrierKind(sets, .complete, 1, 0, 1, at));
-    try testing.expectEqual(lattice.CarrierKind.merged_foreign, crossings.carrierKind(sets, .complete, 2, 0, 1, at));
-    try testing.expectEqual(lattice.CarrierKind.merged_foreign, crossings.carrierKind(sets, .complete, 1, 2, 3, at));
-    try testing.expectEqual(lattice.CarrierKind.merged_licensed, crossings.carrierKind(sets, .complete, 1, 2, null, at));
-    try testing.expectEqual(lattice.CarrierKind.merged_licensed, crossings.carrierKindFor(2, 1, sets, .complete, at));
-    try testing.expectEqual(lattice.CarrierKind.merged_foreign, crossings.carrierKind(sets, .complete, 0, 2, null, at));
-    try testing.expectEqual(lattice.CarrierKind.merged_licensed, crossings.carrierKind(sets, .complete, 1, 1, 3, at));
-
-    var run = lattice.Cell.empty;
-    run.occupant = .{ .edge_segment = .{ .edge = 1, .kind = .solid, .role = .forward } };
-    try testing.expectEqual(lattice.CarrierKind.merged_licensed, crossings.carrierKindOnto(&run, sets, .complete, 2, 2, at));
-    var stranger = lattice.Cell.empty;
-    stranger.occupant = .{ .edge_segment = .{ .edge = 0, .kind = .solid, .role = .forward } };
-    try testing.expectEqual(lattice.CarrierKind.merged_foreign, crossings.carrierKindOnto(&stranger, sets, .complete, 1, 2, at));
-    var head = lattice.Cell.empty;
-    head.occupant = .{ .arrowhead = .{ .dir = .south, .edge = 2, .arrow = .filled } };
-    try testing.expectEqual(lattice.CarrierKind.merged_licensed, crossings.carrierKindOnto(&head, sets, .complete, 1, null, at));
-    const nobody = lattice.Cell.empty;
-    try testing.expectEqual(lattice.CarrierKind.merged_untested, crossings.carrierKindOnto(&nobody, sets, .complete, 1, 2, at));
 }
 
 test "stamp state and BundleId never change derived crossing ink" {
@@ -252,7 +184,7 @@ test "stamp state and BundleId never change derived crossing ink" {
             s.bundle_sets = &bundle_sets;
             s.bundle_stamp_state = state;
 
-            const r = try edges.rasterizeEdges(a, &lat, s, .bridge, null);
+            const r = try edges.rasterizeEdges(a, &lat, s, .bridge);
             try testing.expectEqual(mask_cross, lat.atConst(5, 5).neighbours.toMask());
             try testing.expectEqual(crossings.CrossingCounts{}, r.crossings);
 

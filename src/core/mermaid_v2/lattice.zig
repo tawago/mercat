@@ -1,5 +1,3 @@
-//! @guarded-by: raster/aux_test.zig "aux records survive the post-walk mutating passes"
-
 const std = @import("std");
 const prim = @import("prim");
 const ledger = @import("base/ledger.zig");
@@ -72,98 +70,18 @@ pub const Occupant = union(enum) {
     label_cont,
 };
 
-pub const InkState = enum(u8) {
-    none = 0,
-    node,
-    stroke,
-    rail_interior,
-    junction,
-    crossing,
-};
-
 pub const Cell = struct {
     occupant: Occupant,
     neighbours: Neighbours,
     stroke_kind: EdgeKind = .solid,
     shape: Shape = .rect,
-    state: InkState = .none,
 
     pub const empty: Cell = .{
         .occupant = .empty,
         .neighbours = .{},
         .stroke_kind = .solid,
         .shape = .rect,
-        .state = .none,
     };
-
-    pub fn upgradeState(self: *Cell, s: InkState) void {
-        if (self.state == .junction) return;
-        if (self.state == .crossing and s != .junction) return;
-        self.state = s;
-    }
-};
-
-pub const AuxKind = enum(u8) {
-    port,
-    carrier,
-    label_owner,
-    rail_member,
-    tap,
-    intrusion,
-};
-
-pub fn portArmDetail(arm: Dir4) u8 {
-    return 1 + @as(u8, @intFromEnum(arm));
-}
-
-/// @guarded-by: junction_licence_test.zig "junction licence: a three-way port share the pairwise flood missed is licensed on the raster; the render ships one lateral arm, a bridge-routed head stamped over a departure bend"
-pub const CarrierKind = enum(u8) {
-    merged_untested = 0,
-    suppressed = 1,
-    merged_foreign = 2,
-    merged_licensed = 3,
-};
-
-pub const LabelOwnerKind = enum(u8) {
-    node = 0,
-    cluster = 1,
-    edge = 2,
-};
-
-pub const RailPolarity = enum(u8) {
-    out = 0,
-    in = 1,
-};
-
-pub const IntrusionKind = enum(u8) {
-    bridge = 0,
-    fusion_refused = 1,
-};
-
-pub const Aux = struct {
-    cell: u32,
-    value: u32,
-    kind: AuxKind,
-    detail: u8 = 0,
-
-    pub fn lessThan(_: void, a: Aux, b: Aux) bool {
-        if (a.cell != b.cell) return a.cell < b.cell;
-        const ak = @intFromEnum(a.kind);
-        const bk = @intFromEnum(b.kind);
-        if (ak != bk) return ak < bk;
-        return a.value < b.value;
-    }
-};
-
-pub const AuxCollectionState = enum {
-    not_collected,
-    complete,
-    out_of_memory,
-};
-
-pub const AuxCollectionReport = struct {
-    state: AuxCollectionState = .not_collected,
-    attempted_records: u64 = 0,
 };
 
 pub const Glyph = struct {
@@ -190,8 +108,6 @@ pub const Lattice = struct {
     cells: []Cell,
     glyphs: []const Glyph = &.{},
     rail_claims: []const ledger.RailClaim = &.{},
-    aux: []const Aux = &.{},
-    aux_collection: AuxCollectionReport = .{},
 
     pub fn cellIndex(self: Lattice, x: u32, y: u32) u32 {
         std.debug.assert(x < self.width);
@@ -311,20 +227,6 @@ test "cellIndex agrees with at()'s row-major linearization" {
     try std.testing.expectEqual(@as(u32, 6), lat.cellIndex(2, 1));
     try std.testing.expectEqual(@as(u32, 11), lat.cellIndex(3, 2));
     try std.testing.expectEqual(&buf[lat.cellIndex(2, 1)], lat.at(2, 1));
-}
-
-test "upgradeState: junction is never demoted; crossing yields only to junction" {
-    var c = Cell.empty;
-    c.upgradeState(.stroke);
-    try std.testing.expectEqual(InkState.stroke, c.state);
-    c.upgradeState(.crossing);
-    try std.testing.expectEqual(InkState.crossing, c.state);
-    c.upgradeState(.rail_interior);
-    try std.testing.expectEqual(InkState.crossing, c.state);
-    c.upgradeState(.junction);
-    try std.testing.expectEqual(InkState.junction, c.state);
-    c.upgradeState(.crossing);
-    try std.testing.expectEqual(InkState.junction, c.state);
 }
 
 test "Cell.empty default matches struct literal" {

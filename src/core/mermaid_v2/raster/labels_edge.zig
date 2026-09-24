@@ -4,7 +4,6 @@ const sketch = @import("../sketch.zig");
 const lattice = @import("../lattice.zig");
 const labels = @import("labels.zig");
 const lw = @import("labels_write.zig");
-const aux = @import("aux.zig");
 const ink = @import("labels_ink.zig");
 
 const log = std.log.scoped(.@"mermaid_v2.raster.labels");
@@ -43,12 +42,11 @@ pub fn placeEdgeLabel(
     lat: *lattice.Lattice,
     ep: sketch.EdgePath,
     run: lw.Run,
-    sink: aux.Sink,
 ) labels.RasterError!Placement {
     if (ep.polyline.len < 2) return .dropped;
 
     const seg_pair = pickMidSegment(ep.polyline) orelse return .dropped;
-    return placeLabelAtSeg(allocator, diags, lat, ep.id, run, seg_pair.a, seg_pair.b, ep.label_left_of_run, ep.polyline, sink);
+    return placeLabelAtSeg(allocator, diags, lat, ep.id, run, seg_pair.a, seg_pair.b, ep.label_left_of_run, ep.polyline);
 }
 
 pub fn placeLabelAtSeg(
@@ -61,7 +59,6 @@ pub fn placeLabelAtSeg(
     b: sketch.Point,
     left_of_run: bool,
     polyline: []const sketch.Point,
-    sink: aux.Sink,
 ) labels.RasterError!Placement {
     // @guarded-by: labels_eaw_test.zig "edge-label probe reserves display cells: a wide label no longer overwrites the ink beside it"
     const owner: ink.Owner = .{ .edge_id = edge_id, .polyline = polyline, .seg_a = a, .seg_b = b };
@@ -70,16 +67,16 @@ pub fn placeLabelAtSeg(
     const anchor = anchorFor(a, b, left_of_run, run.width);
     for (passes) |pass| {
         // @guarded-by: labels_test.zig "edge label fits above midpoint"
-        if (tryWrite(lat, run, anchor.x, anchor.y, owner, pass, sink)) return .at_anchor;
+        if (tryWrite(lat, run, anchor.x, anchor.y, owner, pass)) return .at_anchor;
 
-        if (trySegment(lat, run, a, b, left_of_run, owner, pass, sink)) return .displaced;
+        if (trySegment(lat, run, a, b, left_of_run, owner, pass)) return .displaced;
 
         if (polyline.len >= 2) {
             for (polyline[0 .. polyline.len - 1], 0..) |p, i| {
                 const q = polyline[i + 1];
                 if (p.x == q.x and p.y == q.y) continue;
                 if (p.x == a.x and p.y == a.y and q.x == b.x and q.y == b.y) continue;
-                if (trySegment(lat, run, p, q, left_of_run, owner, pass, sink)) return .displaced;
+                if (trySegment(lat, run, p, q, left_of_run, owner, pass)) return .displaced;
             }
         }
     }
@@ -103,7 +100,6 @@ fn trySegment(
     left_of_run: bool,
     owner: ink.Owner,
     pass: Pass,
-    sink: aux.Sink,
 ) bool {
     const orig_len: u32 = run.width;
 
@@ -116,8 +112,8 @@ fn trySegment(
         for (rows) |row| {
             var d: i32 = 0;
             while (mid_x - d >= min_x or mid_x + d <= max_x) : (d += 1) {
-                if (mid_x - d >= min_x and tryWrite(lat, run, mid_x - d, row, owner, pass, sink)) return true;
-                if (d > 0 and mid_x + d <= max_x and tryWrite(lat, run, mid_x + d, row, owner, pass, sink)) return true;
+                if (mid_x - d >= min_x and tryWrite(lat, run, mid_x - d, row, owner, pass)) return true;
+                if (d > 0 and mid_x + d <= max_x and tryWrite(lat, run, mid_x + d, row, owner, pass)) return true;
             }
         }
         return false;
@@ -133,8 +129,8 @@ fn trySegment(
     for (sides) |x| {
         var d: i32 = 0;
         while (mid_y - d >= min_y or mid_y + d <= max_y) : (d += 1) {
-            if (mid_y - d >= min_y and tryWrite(lat, run, x, mid_y - d, owner, pass, sink)) return true;
-            if (d > 0 and mid_y + d <= max_y and tryWrite(lat, run, x, mid_y + d, owner, pass, sink)) return true;
+            if (mid_y - d >= min_y and tryWrite(lat, run, x, mid_y - d, owner, pass)) return true;
+            if (d > 0 and mid_y + d <= max_y and tryWrite(lat, run, x, mid_y + d, owner, pass)) return true;
         }
     }
     return false;
@@ -167,7 +163,6 @@ fn tryWrite(
     ly: i32,
     owner: ink.Owner,
     pass: Pass,
-    sink: aux.Sink,
 ) bool {
     if (ly < 0 or @as(i64, ly) >= lat.height) return false;
     if (lx < 0) return false;
@@ -192,7 +187,7 @@ fn tryWrite(
 
     if (!passAllows(lat, owner, pass, lx, ly, cell_count)) return false;
 
-    lw.writeRun(lat, start_x, row, run, .{ .kind = .edge, .id = owner.edge_id }, sink);
+    lw.writeRun(lat, start_x, row, run);
     return true;
 }
 

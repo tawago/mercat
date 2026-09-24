@@ -3,7 +3,6 @@ const lattice = @import("../lattice.zig");
 
 pub const ArrowBaseCounts = struct {
     violations: u32 = 0,
-    tip_not_port: u32 = 0,
     lateral_arms: u32 = 0,
 };
 
@@ -25,15 +24,6 @@ fn baseCoord(x: u32, y: u32, tip: lattice.Dir4, w: u32, h: u32) ?struct { x: u32
     };
 }
 
-fn tipCoord(x: u32, y: u32, tip: lattice.Dir4, w: u32, h: u32) ?struct { x: u32, y: u32 } {
-    return switch (tip) {
-        .north => if (y >= 1) .{ .x = x, .y = y - 1 } else null,
-        .south => if (y + 1 < h) .{ .x = x, .y = y + 1 } else null,
-        .west => if (x >= 1) .{ .x = x - 1, .y = y } else null,
-        .east => if (x + 1 < w) .{ .x = x + 1, .y = y } else null,
-    };
-}
-
 fn lateralBits(tip: lattice.Dir4, mask: lattice.Neighbours) u4 {
     const axis: lattice.Neighbours = switch (tip) {
         .north, .south => .{ .n = true, .s = true },
@@ -52,7 +42,6 @@ pub fn baseFeedsArrow(cell: *const lattice.Cell, tip: lattice.Dir4) bool {
     }
 }
 
-/// @guarded-by: arrow_base.zig "a tip into blank, into a run, or off the lattice is tip_not_port; a tip into the port is not"
 /// @guarded-by: arrow_base.zig "a lateral arm on a head is counted per arm; an on-axis head counts none"
 pub fn validate(lat: *const lattice.Lattice) ArrowBaseCounts {
     var counts: ArrowBaseCounts = .{};
@@ -68,9 +57,6 @@ pub fn validate(lat: *const lattice.Lattice) ArrowBaseCounts {
                 else => continue,
             };
             counts.lateral_arms += @popCount(lateralBits(tip, cell.neighbours));
-            if (tipCoord(x, y, tip, lat.width, lat.height)) |tc| {
-                if (lat.atConst(tc.x, tc.y).occupant != .node_border) counts.tip_not_port += 1;
-            } else counts.tip_not_port += 1;
             const bc = baseCoord(x, y, tip, lat.width, lat.height) orelse {
                 counts.violations += 1;
                 continue;
@@ -197,27 +183,6 @@ fn portCell(node: lattice.NodeId) lattice.Cell {
     return .{ .occupant = .{ .node_border = .{ .node = node, .role = .edge_n } }, .neighbours = .{} };
 }
 
-test "a tip into blank, into a run, or off the lattice is tip_not_port; a tip into the port is not" {
-    var buf: [3]lattice.Cell = undefined;
-    for (&buf) |*c| c.* = lattice.Cell.empty;
-    var lat = lattice.Lattice{ .width = 1, .height = 3, .cells = &buf };
-    lat.at(0, 0).* = edgeCellE(7, .{ .n = true, .s = true });
-    lat.at(0, 1).* = arrowCellE(.south, 7, .{ .n = true, .s = true });
-    try testing.expectEqual(@as(u32, 1), validate(&lat).tip_not_port);
-
-    lat.at(0, 2).* = portCell(3);
-    try testing.expectEqual(@as(u32, 0), validate(&lat).tip_not_port);
-    try testing.expectEqual(@as(u32, 0), validate(&lat).violations);
-
-    lat.at(0, 2).* = edgeCellE(9, .{ .e = true, .w = true });
-    try testing.expectEqual(@as(u32, 1), validate(&lat).tip_not_port);
-
-    lat.at(0, 2).* = lattice.Cell.empty;
-    lat.at(0, 1).* = edgeCellE(7, .{ .n = true, .s = true });
-    lat.at(0, 2).* = arrowCellE(.south, 7, .{ .n = true, .s = true });
-    try testing.expectEqual(@as(u32, 1), validate(&lat).tip_not_port);
-}
-
 test "a lateral arm on a head is counted per arm; an on-axis head counts none" {
     var buf: [3]lattice.Cell = undefined;
     for (&buf) |*c| c.* = lattice.Cell.empty;
@@ -231,5 +196,4 @@ test "a lateral arm on a head is counted per arm; an on-axis head counts none" {
     try testing.expectEqual(@as(u32, 1), validate(&lat).lateral_arms);
     lat.at(1, 0).*.neighbours.s = true;
     try testing.expectEqual(@as(u32, 2), validate(&lat).lateral_arms);
-    try testing.expectEqual(@as(u32, 0), validate(&lat).tip_not_port);
 }

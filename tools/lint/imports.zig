@@ -171,31 +171,9 @@ pub const file_allowlists = [_]struct {
         .reason = "fan_provenance_test may import layout inputs plus select, raster, and paint for preservation and byte-neutrality pins",
     },
     .{
-        .name = "raster/aux.zig",
-        .allowed = &.{ .{ .exact = "../lattice.zig" }, .{ .exact = "aux_test.zig" } },
-        .reason = "raster/aux may only import std, prim, lattice, or its own test sibling: the side-table builder must stay Sketch-blind, or a record could describe what layout INTENDED instead of what the raster DID",
-    },
-    .{
-        .name = "raster/aux_test.zig",
-        .allowed = &.{
-            .sketch,                        .raster_zone,
-            .{ .exact = "../lattice.zig" }, .{ .exact = "aux.zig" },
-            .{ .exact = "edges.zig" },      .{ .exact = "edges_write.zig" },
-            .{ .exact = "edges_port.zig" }, .{ .exact = "fan_roles.zig" },
-            .{ .exact = "reconcile.zig" },  .{ .exact = "arrow_base.zig" },
-            .{ .exact = "crossings.zig" },
-        },
-        .reason = "aux_test may only import std, prim, sketch, lattice, raster, or the raster siblings whose edge walk, post-walk passes and refusal decisions it pins",
-    },
-    .{
         .name = "raster/rails_test.zig",
-        .allowed = &.{ .sketch, .{ .exact = "../lattice.zig" }, .{ .exact = "rails.zig" }, .{ .exact = "nodes.zig" }, .{ .exact = "../raster.zig" }, .{ .exact = "rails_test2.zig" } },
-        .reason = "rails_test may only import std, prim, sketch, lattice, raster siblings, raster, or rails_test2",
-    },
-    .{
-        .name = "raster/rails_test2.zig",
-        .allowed = &.{ .sketch, .{ .exact = "../lattice.zig" }, .{ .exact = "../raster.zig" }, .{ .exact = "rails_test.zig" } },
-        .reason = "rails_test2 may only import std, prim, sketch, lattice, raster, or rails_test",
+        .allowed = &.{ .sketch, .{ .exact = "../lattice.zig" }, .{ .exact = "rails.zig" }, .{ .exact = "nodes.zig" }, .{ .exact = "../raster.zig" } },
+        .reason = "rails_test may only import std, prim, sketch, lattice, raster siblings, or raster",
     },
     .{
         .name = "onrun_paint_test.zig",
@@ -216,16 +194,6 @@ pub const file_allowlists = [_]struct {
             .{ .exact = "ledger/permits.zig" },
         },
         .reason = "junction_licence_test may only import std, prim, base/*, sem_graph, sketch, parse, raster, lattice, select, or ledger/permits",
-    },
-    .{
-        .name = "cluster_corridor_test.zig",
-        .allowed = &.{
-            .sketch,                               .parse_zone,
-            .raster_zone,                          .{ .exact = "lattice.zig" },
-            .{ .exact = "select.zig" },            .{ .exact = "ledger/permits.zig" },
-            .{ .exact = "cluster/corridors.zig" },
-        },
-        .reason = "cluster_corridor_test may only import std, prim, base/*, sketch, parse, raster, lattice, select, ledger/permits, or cluster/corridors",
     },
     .{
         .name = "decoration_cell_test.zig",

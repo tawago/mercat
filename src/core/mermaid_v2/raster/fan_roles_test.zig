@@ -87,25 +87,25 @@ fn memberEdge(role: lattice.EdgeRole) [1]sketch.EdgePath {
 test "a second rider stamps the family rail role; a lone rider leaves the dropper" {
     var cell = fanCell(7, .fan_out_dropper, all4);
 
-    fan_roles.markShared(.{}, &cell, 1, 1, 7, .fan_out_dropper);
+    fan_roles.markShared(&cell, 7, .fan_out_dropper);
     try testing.expectEqual(lattice.EdgeRole.fan_out_dropper, cell.occupant.edge_segment.role);
 
-    fan_roles.markShared(.{}, &cell, 1, 1, 8, .fan_out_dropper);
+    fan_roles.markShared(&cell, 8, .fan_out_dropper);
     try testing.expectEqual(lattice.EdgeRole.fan_out_rail, cell.occupant.edge_segment.role);
     try testing.expectEqual(@as(u32, 7), cell.occupant.edge_segment.edge);
 }
 
 test "a rider of another family, or of no fan at all, stamps nothing" {
     var mixed = fanCell(7, .fan_out_dropper, all4);
-    fan_roles.markShared(.{}, &mixed, 1, 1, 8, .fan_in_dropper);
+    fan_roles.markShared(&mixed, 8, .fan_in_dropper);
     try testing.expectEqual(lattice.EdgeRole.fan_out_dropper, mixed.occupant.edge_segment.role);
 
     var plain = fanCell(7, .fan_out_dropper, all4);
-    fan_roles.markShared(.{}, &plain, 1, 1, 8, .forward);
+    fan_roles.markShared(&plain, 8, .forward);
     try testing.expectEqual(lattice.EdgeRole.fan_out_dropper, plain.occupant.edge_segment.role);
 
     var head = arrowSouth(7);
-    fan_roles.markShared(.{}, &head, 1, 1, 8, .fan_out_dropper);
+    fan_roles.markShared(&head, 8, .fan_out_dropper);
     try testing.expectEqual(std.meta.Tag(lattice.Occupant).arrowhead, std.meta.activeTag(head.occupant));
 }
 

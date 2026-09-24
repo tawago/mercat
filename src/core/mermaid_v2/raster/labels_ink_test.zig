@@ -43,19 +43,6 @@ test "classifyAt: cell edge ids resolve own vs foreign; solids and labels classi
     try testing.expectEqual(ink.InkClass.none, ink.classifyAt(&lat, idOwner(42), -1, 2));
 }
 
-test "classifyAt: an aux record never confers ink ownership (placement is aux-blind)" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    var lat = try makeLattice(arena.allocator(), 8, 4);
-
-    stampEdge(&lat, 4, 2, 7);
-    const records = [_]lattice.Aux{
-        .{ .cell = lat.cellIndex(4, 2), .value = 42, .kind = .carrier, .detail = @intFromEnum(lattice.CarrierKind.suppressed) },
-    };
-    lat.aux = &records;
-    try testing.expectEqual(ink.InkClass.foreign_edge, ink.classifyAt(&lat, idOwner(42), 4, 2));
-}
-
 test "spanIsolated: foreign ink inside the margin rejects, own ink is exempt" {
     var arena = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena.deinit();

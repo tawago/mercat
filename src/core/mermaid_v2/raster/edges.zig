@@ -6,7 +6,6 @@ const fan_roles = @import("fan_roles.zig");
 const crossings = @import("crossings.zig");
 const ew = @import("edges_write.zig");
 const ep = @import("edges_port.zig");
-const aux = @import("aux.zig");
 const prim = @import("prim");
 
 const log = std.log.scoped(.@"mermaid_v2.raster.edges");
@@ -30,9 +29,7 @@ pub const Head = ep.Head;
 pub const PortEnd = ep.PortEnd;
 
 pub const EdgeRasterReport = struct {
-    edges_written: u32 = 0,
     cells_lost: u32 = 0,
-    heads_lost: u32 = 0,
     crossings: crossings.CrossingCounts = .{},
 };
 
@@ -46,11 +43,7 @@ const EdgeWalkResult = struct {
     target_head: ?ep.Head = null,
 };
 
-fn carrierKindOnto(cell: *const lattice.Cell, edge: u32, c: ew.Coord, ctx: crossings.Ctx) lattice.CarrierKind {
-    return crossings.carrierKindOnto(cell, ctx.bundle_sets, ctx.stamp_state, edge, null, crossings.cellAt(c.x, c.y));
-}
-
-/// @guarded-by: edges_test.zig "a co-member's corner arm into a head is refused, counted against the corner's edge, and the head keeps its state"
+/// @guarded-by: edges_test.zig "a co-member's corner arm into a head is refused"
 fn crossingKeepsFirstWriter(
     cell: *const lattice.Cell,
     incoming_edge: u32,
@@ -83,10 +76,6 @@ fn crossingKeepsFirstWriter(
     };
 }
 
-fn markSuppressed(cell: *lattice.Cell) void {
-    if (cell.occupant != .arrowhead) cell.upgradeState(.crossing);
-}
-
 fn claimCornerCell(
     cell: *lattice.Cell,
     edge_id: u32,
@@ -97,7 +86,6 @@ fn claimCornerCell(
     cell.occupant = .{ .edge_segment = .{ .edge = edge_id, .kind = kind, .role = role } };
     cell.neighbours = corner_mask;
     cell.stroke_kind = kind;
-    cell.state = ew.roleState(role);
 }
 
 /// @guarded-by: edges_corner_test.zig
@@ -122,8 +110,6 @@ fn walkPolyline(
     ends: RailEnds,
     cells_lost: *u32,
     ctx: crossings.Ctx,
-    sink: aux.Sink,
-    rec: aux.Recorder,
 ) RasterError!EdgeWalkResult {
     const pts = edge.polyline;
     if (pts.len < 2) {
@@ -175,7 +161,7 @@ fn walkPolyline(
                 const corner_mask = orMask(bitMask(reverse(prev)), bitMask(dir));
                 switch (cell.occupant) {
                     .edge_segment => |seg| {
-                        if (seg.edge != edge.id and crossings.segmentOverlap(
+                        const refused = seg.edge != edge.id and crossings.segmentOverlap(
                             ctx.counts,
                             ctx.bundles,
                             ctx.bundle_sets,
@@ -184,47 +170,24 @@ fn walkPolyline(
                             edge.id,
                             corner_mask,
                             crossings.cellAt(c.x, c.y),
-                        )) {
-                            cell.upgradeState(.crossing);
-                            ew.recordCarrier(rec, c.x, c.y, edge.id, .suppressed);
-                        } else {
-                            const own = seg.edge == edge.id;
+                        );
+                        if (!refused) {
                             // @guarded-by: edges_corner_test.zig "a route that doubles back keeps both visits' arms at the cell it re-enters"
-                            if (!own) {
-                                const grows = (cell.neighbours.toMask() | corner_mask.toMask()) != cell.neighbours.toMask();
-                                cell.upgradeState(if (grows) .junction else .rail_interior);
-                            }
                             cell.neighbours = orMask(cell.neighbours, corner_mask);
                             cell.occupant = .{ .edge_segment = .{
                                 .edge = seg.edge,
                                 .kind = seg.kind,
                                 .role = roles.mergeRole(seg.role, erole),
                             } };
-                            // @guarded-by: aux_test.zig "a corner arm merged onto a foreign run files a merged carrier; onto its own ink, nothing"
-                            if (!own) ew.recordCarrier(rec, c.x, c.y, edge.id, crossings.carrierKindFor(seg.edge, edge.id, ctx.bundle_sets, ctx.stamp_state, crossings.cellAt(c.x, c.y)));
-                            fan_roles.markShared(rec, cell, c.x, c.y, edge.id, erole);
+                            fan_roles.markShared(cell, edge.id, erole);
                         }
                     },
-                    .empty => {
-                        claimCornerCell(cell, edge.id, ek, erole, corner_mask);
-                    },
-                    .cluster_border => {
-                        if (ctx.mode == .bridge) {
-                            // @guarded-by: edges_test.zig "corner arm onto a subgraph frame border is refused"
-                            ctx.counts.b_border_fusion_refused += 1;
-                            ew.recordIntrusion(rec, c.x, c.y, edge.id, .fusion_refused);
-                        } else {
-                            claimCornerCell(cell, edge.id, ek, erole, corner_mask);
-                        }
-                    },
-                    else => {
-                        if (crossingKeepsFirstWriter(cell, edge.id, corner_mask, crossings.cellAt(c.x, c.y), ctx)) {
-                            markSuppressed(cell);
-                            ew.recordCarrier(rec, c.x, c.y, edge.id, .suppressed);
-                        } else {
-                            writeEdgeCell(cell, edge.id, ek, erole, corner_mask, c.x, c.y, cells_lost, ctx.counts, carrierKindOnto(cell, edge.id, c, ctx), rec);
-                            fan_roles.markShared(rec, cell, c.x, c.y, edge.id, erole);
-                        }
+                    .empty => claimCornerCell(cell, edge.id, ek, erole, corner_mask),
+                    // @guarded-by: edges_test.zig "corner arm onto a subgraph frame border is refused"
+                    .cluster_border => if (ctx.mode != .bridge) claimCornerCell(cell, edge.id, ek, erole, corner_mask),
+                    else => if (!crossingKeepsFirstWriter(cell, edge.id, corner_mask, crossings.cellAt(c.x, c.y), ctx)) {
+                        writeEdgeCell(cell, edge.id, ek, erole, corner_mask, c.x, c.y, cells_lost);
+                        fan_roles.markShared(cell, edge.id, erole);
                     },
                 }
                 if (result.first_cell == null) {
@@ -250,15 +213,10 @@ fn walkPolyline(
                 // @guarded-by: edges_test.zig "cross mode: through-crossing welds the frame border (pre-slice-1)"
                 const nxt = step(cursor, dir);
                 const terminal_here = is_last and nxt.x == b.x and nxt.y == b.y;
-                if (ctx.mode == .bridge and cell.occupant == .cluster_border and !terminal_here) {
-                    ctx.counts.b_frame_bridge += 1;
-                    ew.recordIntrusion(rec, c.x, c.y, edge.id, .bridge);
-                } else if (crossingKeepsFirstWriter(cell, edge.id, straightMask(dir), crossings.cellAt(c.x, c.y), ctx)) {
-                    markSuppressed(cell);
-                    ew.recordCarrier(rec, c.x, c.y, edge.id, .suppressed);
-                } else {
-                    writeEdgeCell(cell, edge.id, ek, erole, straightMask(dir), c.x, c.y, cells_lost, ctx.counts, carrierKindOnto(cell, edge.id, c, ctx), rec);
-                    fan_roles.markShared(rec, cell, c.x, c.y, edge.id, erole);
+                const bridged = ctx.mode == .bridge and cell.occupant == .cluster_border and !terminal_here;
+                if (!bridged and !crossingKeepsFirstWriter(cell, edge.id, straightMask(dir), crossings.cellAt(c.x, c.y), ctx)) {
+                    writeEdgeCell(cell, edge.id, ek, erole, straightMask(dir), c.x, c.y, cells_lost);
+                    fan_roles.markShared(cell, edge.id, erole);
                 }
                 if (result.first_cell == null) {
                     result.first_cell = cursor;
@@ -283,8 +241,8 @@ fn walkPolyline(
     if (!ends.target and edge.arrow_to != .none) if (result.last_cell) |lc| if (result.last_dir) |ld| {
         result.target_head = ep.slideHead(lat, pts[pts.len - 1], .{ .cell = lc, .dir = ld });
     };
-    if (!ends.source) drawPortStroke(lat, pts, ek, edge.id, .{ .head = result.source_head, .role = erole }, sink);
-    if (!ends.target) drawTargetPortStroke(lat, pts, ek, edge.id, .{ .head = result.target_head, .role = erole }, sink);
+    if (!ends.source) drawPortStroke(lat, pts, ek, edge.id, .{ .head = result.source_head, .role = erole });
+    if (!ends.target) drawTargetPortStroke(lat, pts, ek, edge.id, .{ .head = result.target_head, .role = erole });
 
     return result;
 }
@@ -294,44 +252,37 @@ pub fn rasterizeEdges(
     lat: *lattice.Lattice,
     s: sketch.Sketch,
     subgraph_edges: prim.SubgraphEdges,
-    sink: aux.Sink,
 ) RasterError!EdgeRasterReport {
     _ = allocator;
-    var written: u32 = 0;
     var cells_lost: u32 = 0;
-    var heads_lost: u32 = 0;
     var cross_counts: crossings.CrossingCounts = .{};
-    const rec = aux.Recorder.init(sink, lat);
     const ctx: crossings.Ctx = .{
         .bundles = s.bundles,
         .bundle_sets = s.bundle_sets,
-        .stamp_state = s.bundle_stamp_state,
         .counts = &cross_counts,
         .mode = subgraph_edges,
     };
 
     for (s.edges) |edge| {
-        const r = try walkPolyline(lat, edge, railEnds(s, edge), &cells_lost, ctx, sink, rec);
+        const r = try walkPolyline(lat, edge, railEnds(s, edge), &cells_lost, ctx);
 
         if (r.target_head) |h| {
             if (pointInBounds(h.cell, lat)) {
                 const c = toCoord(h.cell);
-                ew.writeArrowGuarded(lat.at(c.x, c.y), edge.id, edge.kind, edge.arrow_to, h.dir, straightMask(h.dir), c.x, c.y, &cells_lost, &heads_lost, ctx, rec);
+                ew.writeArrowGuarded(lat.at(c.x, c.y), edge.id, edge.kind, edge.arrow_to, h.dir, straightMask(h.dir), c.x, c.y, &cells_lost, ctx);
             }
         }
         if (r.source_head) |h| {
             if (pointInBounds(h.cell, lat)) {
                 const c = toCoord(h.cell);
-                ew.writeArrowGuarded(lat.at(c.x, c.y), edge.id, edge.kind, edge.arrow_from, h.dir, straightMask(h.dir), c.x, c.y, &cells_lost, &heads_lost, ctx, rec);
+                ew.writeArrowGuarded(lat.at(c.x, c.y), edge.id, edge.kind, edge.arrow_from, h.dir, straightMask(h.dir), c.x, c.y, &cells_lost, ctx);
             }
         }
-
-        if (r.first_cell != null) written += 1;
     }
 
     fan_roles.resolveMasks(lat, s);
 
-    return .{ .edges_written = written, .cells_lost = cells_lost, .heads_lost = heads_lost, .crossings = cross_counts };
+    return .{ .cells_lost = cells_lost, .crossings = cross_counts };
 }
 
 test {

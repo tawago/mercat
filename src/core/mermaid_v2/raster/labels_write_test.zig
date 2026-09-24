@@ -1,7 +1,6 @@
 const std = @import("std");
 const lattice = @import("../lattice.zig");
 const lw = @import("labels_write.zig");
-const aux = @import("aux.zig");
 
 const testing = std.testing;
 
@@ -13,8 +12,6 @@ fn dirtyCell() lattice.Cell {
         .shape = .cylinder,
     };
 }
-
-const node_owner: lw.Owner = .{ .kind = .node, .id = 1 };
 
 fn dirtyLattice(buf: []lattice.Cell) lattice.Lattice {
     for (buf) |*c| c.* = dirtyCell();
@@ -31,7 +28,7 @@ test "a glyph write resets every field of the cell it covers" {
     var buf: [1]lattice.Cell = undefined;
     var lat = dirtyLattice(&buf);
 
-    lw.writeGlyph(&lat, 0, 0, 'A', node_owner, null);
+    lw.writeGlyph(&lat, 0, 0, 'A');
 
     const c = lat.atConst(0, 0).*;
     switch (c.occupant) {
@@ -56,7 +53,7 @@ test "a span write claims head plus continuations and resets both" {
     var buf: [3]lattice.Cell = undefined;
     var lat = dirtyLattice(&buf);
 
-    lw.writeSpan(&lat, 0, 0, '日', 2, node_owner, null);
+    lw.writeSpan(&lat, 0, 0, '日', 2);
 
     switch (lat.atConst(0, 0).occupant) {
         .label_char => |cp| try testing.expectEqual(@as(u21, '日'), cp),
@@ -80,7 +77,7 @@ test "a span of 1 writes no continuation" {
     var buf: [2]lattice.Cell = undefined;
     var lat = dirtyLattice(&buf);
 
-    lw.writeSpan(&lat, 0, 0, 'x', 1, node_owner, null);
+    lw.writeSpan(&lat, 0, 0, 'x', 1);
 
     try testing.expectEqual(
         lattice.Occupant.label_char,
@@ -90,41 +87,6 @@ test "a span of 1 writes no continuation" {
         lattice.Occupant.edge_segment,
         std.meta.activeTag(lat.atConst(1, 0).occupant),
     );
-}
-
-test "a glyph write files one owner record; a continuation files none" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-
-    var buf: [3]lattice.Cell = undefined;
-    var lat = dirtyLattice(&buf);
-    var c = aux.Collector.init(arena.allocator());
-
-    lw.writeSpan(&lat, 0, 0, '\u{65e5}', 2, .{ .kind = .cluster, .id = 4 }, &c);
-
-    const table = c.finish();
-    try testing.expectEqual(@as(usize, 1), table.len);
-    try testing.expectEqual(lat.cellIndex(0, 0), table[0].cell);
-    try testing.expectEqual(lattice.AuxKind.label_owner, table[0].kind);
-    try testing.expectEqual(@as(u32, 4), table[0].value);
-    try testing.expectEqual(@intFromEnum(lattice.LabelOwnerKind.cluster), table[0].detail);
-}
-
-test "a null sink writes the same cells and files nothing" {
-    var with_buf: [2]lattice.Cell = undefined;
-    var without_buf: [2]lattice.Cell = undefined;
-    var with = dirtyLattice(&with_buf);
-    var without = dirtyLattice(&without_buf);
-
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    var c = aux.Collector.init(arena.allocator());
-
-    lw.writeSpan(&with, 0, 0, '\u{65e5}', 2, node_owner, &c);
-    lw.writeSpan(&without, 0, 0, '\u{65e5}', 2, node_owner, null);
-
-    try testing.expectEqualSlices(lattice.Cell, with.cells, without.cells);
-    try testing.expectEqual(@as(usize, 1), c.finish().len);
 }
 
 test "prepare resolves one cell per grapheme head, interning multi-codepoint graphemes once" {
@@ -200,7 +162,7 @@ test "a span write with an interned reference stores the reference, not a scalar
     var buf: [2]lattice.Cell = undefined;
     var lat = dirtyLattice(&buf);
     const ref = lattice.glyphRef(3);
-    lw.writeSpan(&lat, 0, 0, ref, 2, node_owner, null);
+    lw.writeSpan(&lat, 0, 0, ref, 2);
     switch (lat.atConst(0, 0).occupant) {
         .label_char => |cp| try testing.expectEqual(ref, cp),
         else => return error.NotALabelChar,
@@ -214,7 +176,7 @@ test "a run write lays every cell out in order and claims exactly cell_count cel
     const cells = [_]lw.LabelCell{ .{ .value = 'a', .span = 1 }, .{ .value = '日', .span = 2 }, .{ .value = lattice.glyphRef(0), .span = 1 } };
     const run: lw.Run = .{ .cells = &cells, .cell_count = 4, .width = 4 };
 
-    lw.writeRun(&lat, 0, 0, run, node_owner, null);
+    lw.writeRun(&lat, 0, 0, run);
 
     const expectHead = struct {
         fn f(l: lattice.Lattice, x: u32, want: u21) !void {

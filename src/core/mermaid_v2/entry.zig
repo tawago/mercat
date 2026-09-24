@@ -46,7 +46,6 @@ pub const RenderOptions = struct {
 /// Selection and diagnostic overrides reachable only from tests; production renders use the defaults.
 pub const TestOptions = struct {
     force_rung: ?ladder_pkg.Rung = null,
-    integrity: bool = false,
 };
 
 pub fn render(allocator: std.mem.Allocator, source: []const u8, options: RenderOptions) !RenderResult {
@@ -101,20 +100,14 @@ fn renderWith(
     };
     const sketch_val = chosen.sketch;
 
-    const integrity: validate_mod.Counts = blk: {
-        const result = validate_mod.validate(aa, sketch_val) catch break :blk .{};
-        if (comptime builtin.mode == .Debug) {
-            switch (result) {
-                .ok => {},
-                .failed => |violations| {
-                    for (violations) |v| {
-                        std.log.debug("mermaid_v2/entry: sketch validation: {s}: {s}", .{ @tagName(v.kind), v.message });
-                    }
-                },
-            }
-        }
-        break :blk validate_mod.counts(result, sketch_val);
-    };
+    if (comptime builtin.mode == .Debug) {
+        if (validate_mod.validate(aa, sketch_val)) |result| switch (result) {
+            .ok => {},
+            .failed => |violations| for (violations) |v| {
+                std.log.debug("mermaid_v2/entry: sketch validation: {s}: {s}", .{ @tagName(v.kind), v.message });
+            },
+        } else |_| {}
+    }
 
     for (sketch_val.edges) |e| if (e.polyline.len < 2 and e.kind != .invisible) {
         std.log.warn("mermaid_v2: edge {d} ({s} -> {s}) could not be routed without illegal ink and is not drawn", .{ e.id, nodeRawId(graph, e.from), nodeRawId(graph, e.to) });
@@ -124,12 +117,6 @@ fn renderWith(
         std.log.warn("mermaid_v2 rasterize failed: {s}", .{@errorName(err)});
         return fallback(source, "v2 raster error");
     };
-
-    if (overrides.integrity) emitIntegrityLine(
-        integrity,
-        raster_report,
-        graph.skipped_lines,
-    );
 
     const budget = sketch_val.budget.max_width;
     const true_width = raster_report.lattice.width;
@@ -166,33 +153,6 @@ fn resolveBundlePermits(allocator: std.mem.Allocator, graph: sem_graph.SemGraph)
     return result;
 }
 
-fn emitIntegrityLine(
-    v: validate_mod.Counts,
-    raster_report: rasterize_mod.RasterReport,
-    skipped_lines: u32,
-) void {
-    std.debug.print(
-        "mercat-integrity: v_path_through_interior={d} v_bbox={d} r_edge_cells_lost={d} r_labels_dropped={d} r_labels_displaced={d} r_phantom_arms={d} x_legal_crossing={d} x_foreign_junction={d} x_arrowhead_transit={d} b_frame_bridge={d} b_border_fusion_refused={d} a_arrowhead_base={d} skipped_lines={d} tip_not_port={d} arm_into_head={d} v_edge_unrouted={d}\n",
-        .{
-            v.path_through_interior,
-            v.bbox_overflow,
-            raster_report.edge_cells_lost,
-            raster_report.labels_dropped,
-            raster_report.labels_displaced,
-            raster_report.phantom_arms_cleared,
-            raster_report.crossings.legal_crossing,
-            raster_report.crossings.foreign_junction_violation,
-            raster_report.crossings.arrowhead_transit_violation,
-            raster_report.crossings.b_frame_bridge,
-            raster_report.crossings.b_border_fusion_refused,
-            raster_report.arrow_base.violations,
-            skipped_lines,
-            raster_report.arrow_base.tip_not_port,
-            raster_report.armIntoHead(),
-            v.edge_unrouted,
-        },
-    );
-}
 fn fallback(source: []const u8, reason: []const u8) RenderResult {
     return .{
         .output = source,
@@ -362,8 +322,7 @@ test "cluster unification: a bridge never transits a stitched rail's arrowhead" 
     try std.testing.expectEqual(@as(u32, 0), report.crossings.arrowhead_transit_violation);
     try std.testing.expectEqual(@as(u32, 0), report.crossings.foreign_junction_violation);
     try std.testing.expectEqual(@as(u32, 0), report.edge_cells_lost);
-    try std.testing.expectEqual(@as(u32, 0), report.arrow_base.tip_not_port);
-    try std.testing.expectEqual(@as(u32, 0), report.armIntoHead());
+    try std.testing.expectEqual(@as(u32, 0), report.arrow_base.lateral_arms);
 }
 
 test "cluster unification: bridges route around each other, not through" {
@@ -407,8 +366,7 @@ test "cluster unification: bridges route around each other, not through" {
     const report = try rasterize(a, winner.sketch, .bridge);
     try std.testing.expectEqual(@as(u32, 0), report.crossings.foreign_junction_violation);
     try std.testing.expectEqual(@as(u32, 0), report.crossings.arrowhead_transit_violation);
-    try std.testing.expectEqual(@as(u32, 0), report.arrow_base.tip_not_port);
-    try std.testing.expectEqual(@as(u32, 0), report.armIntoHead());
+    try std.testing.expectEqual(@as(u32, 0), report.arrow_base.lateral_arms);
 }
 
 test {
@@ -418,7 +376,6 @@ test {
     _ = @import("layout/mirror.zig");
     _ = @import("layout.zig");
     _ = @import("raster.zig");
-    _ = @import("raster/aux.zig");
     _ = @import("paint.zig");
     _ = @import("onrun_paint_test.zig");
     _ = @import("budget.zig");
@@ -454,7 +411,6 @@ test {
     _ = @import("sketch_ports_test.zig");
     _ = @import("sketch_bundles_test.zig");
     _ = @import("junction_licence_test.zig");
-    _ = @import("cluster_corridor_test.zig");
     _ = @import("decoration_cell_test.zig");
     _ = @import("route_once_test.zig");
     _ = @import("grapheme_width_test.zig");

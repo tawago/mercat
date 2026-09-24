@@ -120,7 +120,7 @@ test "wide node label writes char + continuation and paints two columns" {
     var s = emptySketch(12, 5, .TD);
     s.nodes = &nodes;
 
-    const report = try labels.rasterizeLabels(alloc, &lat, s, null);
+    const report = try labels.rasterizeLabels(alloc, &lat, s);
     try testing.expectEqual(@as(u32, 1), report.placed);
     try testing.expectEqual(@as(usize, 0), report.diagnostics.len);
 
@@ -152,7 +152,7 @@ test "a wide node glyph whose second cell is not this node's interior is refused
     var s = emptySketch(12, 5, .TD);
     s.nodes = &nodes;
 
-    _ = try labels.rasterizeLabels(alloc, &lat, s, null);
+    _ = try labels.rasterizeLabels(alloc, &lat, s);
 
     try testing.expectEqual(@as(u21, 0), cellChar(lat, 1, 1));
     try testing.expect(!isCont(lat, 1, 1));
@@ -184,7 +184,7 @@ test "wide cluster title advances by span and still closes the band" {
     var s = emptySketch(14, 6, .TD);
     s.clusters = &clusters;
 
-    const report = try labels.rasterizeLabels(alloc, &lat, s, null);
+    const report = try labels.rasterizeLabels(alloc, &lat, s);
     try testing.expectEqual(@as(u32, 1), report.placed);
 
     try testing.expectEqual(@as(u21, ' '), cellChar(lat, 2, 0));
@@ -211,7 +211,7 @@ test "edge-label probe reserves display cells: a wide label no longer overwrites
     var s = emptySketch(8, 4, .LR);
     s.edges = &edges;
 
-    const report = try labels.rasterizeLabels(alloc, &lat, s, null);
+    const report = try labels.rasterizeLabels(alloc, &lat, s);
     try testing.expectEqual(@as(u32, 0), report.placed);
     try testing.expectEqual(@as(u32, 1), report.dropped);
 
@@ -232,7 +232,7 @@ test "edge label writes head + continuation when the reserved span fits" {
     var s = emptySketch(12, 6, .LR);
     s.edges = &edges;
 
-    const report = try labels.rasterizeLabels(alloc, &lat, s, null);
+    const report = try labels.rasterizeLabels(alloc, &lat, s);
     try testing.expectEqual(@as(u32, 1), report.placed);
 
     var found = false;
@@ -260,14 +260,14 @@ test "blank-flank rule treats a continuation as a label neighbour" {
     lat.at(2, 2).* = .{ .occupant = .{ .label_char = '日' }, .neighbours = .{} };
     lat.at(3, 2).* = .{ .occupant = .label_cont, .neighbours = .{} };
 
-    const report = try labels.rasterizeLabels(alloc, &lat, s, null);
+    const report = try labels.rasterizeLabels(alloc, &lat, s);
     try testing.expectEqual(@as(u32, 0), report.placed);
     try testing.expectEqual(@as(u32, 1), report.dropped);
 
     var free_lat = try makeLattice(alloc, 8, 4);
     free_lat.at(2, 2).* = .{ .occupant = .{ .label_char = '日' }, .neighbours = .{} };
 
-    const free_report = try labels.rasterizeLabels(alloc, &free_lat, s, null);
+    const free_report = try labels.rasterizeLabels(alloc, &free_lat, s);
     try testing.expectEqual(@as(u32, 1), free_report.placed);
 }
 
@@ -311,7 +311,7 @@ test "emoji node label writes head + continuation and is charged two columns" {
     var s = emptySketch(12, 5, .TD);
     s.nodes = &fixture.nodes;
 
-    const report = try labels.rasterizeLabels(alloc, &lat, s, null);
+    const report = try labels.rasterizeLabels(alloc, &lat, s);
     try testing.expectEqual(@as(u32, 1), report.placed);
     try testing.expectEqual(@as(usize, 0), report.diagnostics.len);
 
@@ -336,7 +336,7 @@ test "a decomposed accent occupies one cell per grapheme and interns base plus m
     var s = emptySketch(8, 3, .TD);
     s.nodes = &fixture.nodes;
 
-    const report = try labels.rasterizeLabels(alloc, &lat, s, null);
+    const report = try labels.rasterizeLabels(alloc, &lat, s);
     try testing.expectEqual(@as(u32, 1), report.placed);
 
     try testing.expectEqual(@as(u21, 'c'), cellChar(lat, 1, 1));
@@ -362,7 +362,7 @@ test "a ZWJ family occupies two cells: head reference plus continuation, every b
     var s = emptySketch(10, 3, .TD);
     s.nodes = &fixture.nodes;
 
-    const report = try labels.rasterizeLabels(alloc, &lat, s, null);
+    const report = try labels.rasterizeLabels(alloc, &lat, s);
     try testing.expectEqual(@as(u32, 1), report.placed);
 
     try testing.expect(lattice.isGlyphRef(cellChar(lat, 1, 1)));
@@ -385,7 +385,7 @@ test "an edge label with a flag reserves two cells for it and paints the pair" {
     var s = emptySketch(12, 6, .LR);
     s.edges = &edges;
 
-    const report = try labels.rasterizeLabels(alloc, &lat, s, null);
+    const report = try labels.rasterizeLabels(alloc, &lat, s);
     try testing.expectEqual(@as(u32, 1), report.placed);
 
     var found = false;
@@ -417,7 +417,7 @@ test "the interned table copies grapheme bytes: the label string may die before 
     const fixture = nodeSketch(rect, &.{label});
     var s = emptySketch(8, 3, .TD);
     s.nodes = &fixture.nodes;
-    _ = try labels.rasterizeLabels(alloc, &lat, s, null);
+    _ = try labels.rasterizeLabels(alloc, &lat, s);
 
     @memset(&label_buf, '?');
     const glyph = glyphAt(lat, 1, 1).?;
@@ -441,7 +441,7 @@ test "an edge label with a decomposed accent and a line break claims the same ce
         const edges = [_]sketch.EdgePath{makeEdge(42, &poly, label)};
         var s = emptySketch(12, 6, .LR);
         s.edges = &edges;
-        const report = try labels.rasterizeLabels(alloc, &lats[i], s, null);
+        const report = try labels.rasterizeLabels(alloc, &lats[i], s);
         try testing.expectEqual(@as(u32, 1), report.placed);
     }
     try testing.expectEqualSlices(lattice.Cell, lats[1].cells, lats[0].cells);

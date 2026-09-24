@@ -5,7 +5,6 @@ const lattice = @import("../lattice.zig");
 const labels_edge = @import("labels_edge.zig");
 const labels_onrun = @import("labels_onrun.zig");
 const lw = @import("labels_write.zig");
-const aux = @import("aux.zig");
 
 const log = std.log.scoped(.@"mermaid_v2.raster.labels");
 
@@ -36,7 +35,6 @@ pub fn rasterizeLabels(
     allocator: std.mem.Allocator,
     lat: *lattice.Lattice,
     s: sketch.Sketch,
-    sink: aux.Sink,
 ) RasterError!Report {
     var diags = std.ArrayList(LabelDiagnostic){};
     defer diags.deinit(allocator);
@@ -53,7 +51,7 @@ pub fn rasterizeLabels(
     for (s.nodes) |np| {
         if (np.lines.len == 0) continue;
         attempted += 1;
-        if (try placeNodeLabel(allocator, &diags, lat, np, &glyphs, sink)) placed += 1;
+        if (try placeNodeLabel(allocator, &diags, lat, np, &glyphs)) placed += 1;
     }
 
     for (s.edges) |ep| {
@@ -62,12 +60,12 @@ pub fn rasterizeLabels(
         attempted += 1;
         const run = try lw.prepare(allocator, &glyphs, lbl);
         // @guarded-by: labels_onrun_test.zig "happy path: the label interrupts its own dropper for one row, sandwiched by run flanks"
-        if (labels_onrun.tryOnRunEdge(lat, s, ep, run, sink)) {
+        if (labels_onrun.tryOnRunEdge(lat, s, ep, run)) {
             placed += 1;
             on_run += 1;
             continue;
         }
-        switch (try labels_edge.placeEdgeLabel(allocator, &diags, lat, ep, run, sink)) {
+        switch (try labels_edge.placeEdgeLabel(allocator, &diags, lat, ep, run)) {
             .at_anchor => placed += 1,
             .displaced => {
                 placed += 1;
@@ -83,13 +81,13 @@ pub fn rasterizeLabels(
             if (lbl.len == 0) continue;
             attempted += 1;
             const run = try lw.prepare(allocator, &glyphs, lbl);
-            if (labels_onrun.tryOnRunTap(lat, s, tap, run, sink)) {
+            if (labels_onrun.tryOnRunTap(lat, s, tap, run)) {
                 placed += 1;
                 on_run += 1;
                 continue;
             }
             const seg = rail.tapLabelSeg(tap);
-            switch (try labels_edge.placeLabelAtSeg(allocator, &diags, lat, tap.edge, run, seg[0], seg[1], false, &.{}, sink)) {
+            switch (try labels_edge.placeLabelAtSeg(allocator, &diags, lat, tap.edge, run, seg[0], seg[1], false, &.{})) {
                 .at_anchor => placed += 1,
                 .displaced => {
                     placed += 1;
@@ -103,7 +101,7 @@ pub fn rasterizeLabels(
     for (s.clusters) |cf| {
         if (cf.label.len == 0) continue;
         attempted += 1;
-        if (try placeClusterLabel(allocator, &diags, lat, cf, &glyphs, sink)) placed += 1;
+        if (try placeClusterLabel(allocator, &diags, lat, cf, &glyphs)) placed += 1;
     }
 
     lat.glyphs = try glyphs.finish();
@@ -127,7 +125,6 @@ fn writeNodeSpan(
     row: u32,
     cp: u21,
     span: u32,
-    sink: aux.Sink,
 ) bool {
     var i: u32 = 0;
     while (i < span) : (i += 1) {
@@ -150,7 +147,7 @@ fn writeNodeSpan(
             },
         }
     }
-    lw.writeSpan(lat, x, row, cp, span, .{ .kind = .node, .id = np.id }, sink);
+    lw.writeSpan(lat, x, row, cp, span);
     return true;
 }
 
@@ -160,7 +157,6 @@ fn placeNodeLabel(
     lat: *lattice.Lattice,
     np: sketch.NodePlacement,
     glyphs: *lw.GlyphTable,
-    sink: aux.Sink,
 ) RasterError!bool {
     if (np.rect.w < 3 or np.rect.h < 3) return false;
 
@@ -195,11 +191,11 @@ fn placeNodeLabel(
         const run = try lw.prepare(allocator, glyphs, text);
         for (run.cells) |cell| {
             if (x + cell.span > lat.width) break;
-            if (writeNodeSpan(lat, np, x, row, cell.value, cell.span, sink)) wrote += 1;
+            if (writeNodeSpan(lat, np, x, row, cell.value, cell.span)) wrote += 1;
             x += cell.span;
         }
         if (truncated and x + cellSpan(ELLIPSIS) <= lat.width) {
-            if (writeNodeSpan(lat, np, x, row, ELLIPSIS, cellSpan(ELLIPSIS), sink)) wrote += 1;
+            if (writeNodeSpan(lat, np, x, row, ELLIPSIS, cellSpan(ELLIPSIS))) wrote += 1;
         }
     }
 
@@ -215,8 +211,8 @@ fn placeNodeLabel(
     return wrote > 0;
 }
 
-fn stampTitleCell(lat: *lattice.Lattice, x: u32, row: u32, cp: u21, cf: sketch.ClusterFrame, sink: aux.Sink) void {
-    lw.writeGlyph(lat, x, row, cp, .{ .kind = .cluster, .id = cf.id }, sink);
+fn stampTitleCell(lat: *lattice.Lattice, x: u32, row: u32, cp: u21) void {
+    lw.writeGlyph(lat, x, row, cp);
 }
 
 fn placeClusterLabel(
@@ -225,7 +221,6 @@ fn placeClusterLabel(
     lat: *lattice.Lattice,
     cf: sketch.ClusterFrame,
     glyphs: *lw.GlyphTable,
-    sink: aux.Sink,
 ) RasterError!bool {
     if (cf.rect.w < 6 or cf.rect.h < 2) return false;
 
@@ -252,7 +247,7 @@ fn placeClusterLabel(
     var wrote: u32 = 0;
 
     if (lead < lat.width) {
-        stampTitleCell(lat, lead, row, @as(u21, ' '), cf, sink);
+        stampTitleCell(lat, lead, row, @as(u21, ' '));
         wrote += 1;
     }
 
@@ -262,20 +257,20 @@ fn placeClusterLabel(
     for (run.cells) |cell| {
         // @guarded-by: labels_eaw_test.zig "wide cluster title advances by span and still closes the band"
         if (x + cell.span > lat.width) break;
-        stampTitleCell(lat, x, row, cell.value, cf, sink);
+        stampTitleCell(lat, x, row, cell.value);
         var i: u32 = 1;
         while (i < cell.span) : (i += 1) lw.writeCont(lat, x + i, row);
         wrote += 1;
         x += cell.span;
     }
     if (truncated and x + cellSpan(ELLIPSIS) <= lat.width) {
-        stampTitleCell(lat, x, row, ELLIPSIS, cf, sink);
+        stampTitleCell(lat, x, row, ELLIPSIS);
         wrote += 1;
         x += cellSpan(ELLIPSIS);
     }
 
     if (x < lat.width) {
-        stampTitleCell(lat, x, row, @as(u21, ' '), cf, sink);
+        stampTitleCell(lat, x, row, @as(u21, ' '));
         wrote += 1;
     }
 

@@ -97,7 +97,7 @@ fn paintedColumn(a: std.mem.Allocator, kind: lattice.EdgeKind) ![]u21 {
     var s2 = s;
     s2.rails = &rails;
 
-    try testing.expect(onrun.tryOnRunTap(&lat, s2, taps[0], asciiRun("ok"), null));
+    try testing.expect(onrun.tryOnRunTap(&lat, s2, taps[0], asciiRun("ok")));
 
     const painted = try paint.paint(a, lat, 0);
     return columnOf(a, painted, 5);

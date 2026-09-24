@@ -2,42 +2,16 @@ const ledger = @import("../base/ledger.zig");
 const sketch = @import("../sketch.zig");
 const lattice = @import("../lattice.zig");
 const ew = @import("edges_write.zig");
-const aux = @import("aux.zig");
-
-fn railRole(p: lattice.RailPolarity) lattice.EdgeRole {
-    return switch (p) {
-        .out => .fan_out_rail,
-        .in => .fan_in_rail,
-    };
-}
 
 /// @guarded-by: fan_roles_test.zig "a second rider stamps the family rail role; a lone rider leaves the dropper"
-pub fn markShared(
-    rec: aux.Recorder,
-    cell: *lattice.Cell,
-    x: u32,
-    y: u32,
-    edge_id: u32,
-    role: lattice.EdgeRole,
-) void {
-    const polarity = ew.railPolarity(role) orelse return;
-    const named: u32 = switch (cell.occupant) {
-        .edge_segment => |seg| seg.edge,
-        .arrowhead => |head| head.edge,
-        else => return,
-    };
-    if (named == edge_id) return;
-    ew.recordRailMember(rec, x, y, edge_id, polarity);
+pub fn markShared(cell: *lattice.Cell, edge_id: u32, role: lattice.EdgeRole) void {
+    const rail = ew.railRole(role) orelse return;
     const seg = switch (cell.occupant) {
         .edge_segment => |s| s,
         else => return,
     };
-    if (ew.railPolarity(seg.role) != polarity) return;
-    cell.occupant = .{ .edge_segment = .{
-        .edge = seg.edge,
-        .kind = seg.kind,
-        .role = railRole(polarity),
-    } };
+    if (seg.edge == edge_id or ew.railRole(seg.role) != rail) return;
+    cell.occupant = .{ .edge_segment = .{ .edge = seg.edge, .kind = seg.kind, .role = rail } };
 }
 
 /// @guarded-by: fan_roles_test.zig "a shared run below its pivot keeps N and drops the child's descent"
@@ -101,7 +75,7 @@ fn continuesColumn(lat: *const lattice.Lattice, x: u32, y: u32) bool {
             .edge_segment => |q| q,
             else => continue,
         };
-        if (ew.railPolarity(seg.role) == null) continue;
+        if (ew.railRole(seg.role) == null) continue;
         if (!(c.neighbours.e or c.neighbours.w)) continue;
         return true;
     }
@@ -130,7 +104,7 @@ fn armIsAnswered(lat: *const lattice.Lattice, x: u32, y: u32, d: lattice.Dir4) b
     };
 }
 
-fn pivotRect(s: sketch.Sketch, claims: []const ledger.RailClaim, edge_id: u32, p: lattice.RailPolarity) ?sketch.Rect {
+fn pivotRect(s: sketch.Sketch, claims: []const ledger.RailClaim, edge_id: u32, p: ledger.RailPolarity) ?sketch.Rect {
     const pivot = pivotOf(claims, edge_id, p) orelse return null;
     for (s.nodes) |np| {
         if (np.id == pivot) return np.rect;
@@ -138,7 +112,7 @@ fn pivotRect(s: sketch.Sketch, claims: []const ledger.RailClaim, edge_id: u32, p
     return null;
 }
 
-fn pivotOf(claims: []const ledger.RailClaim, edge_id: u32, p: lattice.RailPolarity) ?ledger.NodeId {
+fn pivotOf(claims: []const ledger.RailClaim, edge_id: u32, p: ledger.RailPolarity) ?ledger.NodeId {
     var found: ?ledger.NodeId = null;
     for (claims) |claim| {
         const same_polarity = switch (p) {

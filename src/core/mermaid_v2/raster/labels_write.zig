@@ -2,25 +2,15 @@ const std = @import("std");
 const prim = @import("prim");
 const unicode = @import("unicode");
 const lattice = @import("../lattice.zig");
-const aux = @import("aux.zig");
-
-pub const Owner = struct {
-    kind: lattice.LabelOwnerKind,
-    id: u32,
-};
 
 /// @guarded-by: labels_write_test.zig "a glyph write resets every field of the cell it covers"
-/// @guarded-by: labels_write_test.zig "a glyph write files one owner record; a continuation files none"
 pub fn writeGlyph(
     lat: *lattice.Lattice,
     x: u32,
     y: u32,
     cp: u21,
-    owner: Owner,
-    sink: aux.Sink,
 ) void {
     lat.at(x, y).* = .{ .occupant = .{ .label_char = cp }, .neighbours = .{} };
-    aux.record(sink, lat.cellIndex(x, y), .label_owner, owner.id, @intFromEnum(owner.kind));
 }
 
 /// @guarded-by: labels_write_test.zig "a continuation write resets every field, exactly as a glyph write does"
@@ -35,10 +25,8 @@ pub fn writeSpan(
     y: u32,
     cp: u21,
     span: u32,
-    owner: Owner,
-    sink: aux.Sink,
 ) void {
-    writeGlyph(lat, x, y, cp, owner, sink);
+    writeGlyph(lat, x, y, cp);
     var i: u32 = 1;
     while (i < span) : (i += 1) writeCont(lat, x + i, y);
 }
@@ -49,12 +37,10 @@ pub fn writeRun(
     x: u32,
     y: u32,
     run: Run,
-    owner: Owner,
-    sink: aux.Sink,
 ) void {
     var cx: u32 = x;
     for (run.cells) |cell| {
-        writeSpan(lat, cx, y, cell.value, cell.span, owner, sink);
+        writeSpan(lat, cx, y, cell.value, cell.span);
         cx += cell.span;
     }
     std.debug.assert(cx == x + run.cell_count);
