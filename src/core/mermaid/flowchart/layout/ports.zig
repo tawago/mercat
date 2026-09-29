@@ -70,7 +70,7 @@ pub const DeriveError = error{ OutOfMemory, InvalidSemGraph };
 
 pub fn edgeAttachmentKey(graph: sg.SemGraph, edge: sg.Edge, endpoint_side: pb.EndpointSide) error{InvalidSemGraph}!pb.AttachmentKey {
     const opposite_id = if (endpoint_side == .source_exit) edge.to else edge.from;
-    const opposite = nodeById(graph, opposite_id) orelse return error.InvalidSemGraph;
+    const opposite = graph.nodeById(opposite_id) orelse return error.InvalidSemGraph;
     return .{
         .opposite = opposite.raw_id,
         .endpoint_side = endpoint_side,
@@ -103,7 +103,7 @@ pub fn derive(
             continue;
         }
         const membership = membershipOf(bundles, edge.id);
-        const reversed = containsEdge(reversed_edges, edge.id);
+        const reversed = pb.containsEdge(reversed_edges, edge.id);
         if (!reversed and (membership == null or (membership.?.source == null and membership.?.target == null))) {
             // @guarded-by: ports_step7_test.zig "a plain forward arrival co-located with a self-loop terminal joins the side allocation"
             inline for ([2]pb.EndpointSide{ .source_exit, .target_entry }) |es| {
@@ -146,7 +146,7 @@ pub fn derive(
         var best: ?pb.AttachmentKey = null;
         var best_edge: pb.EdgeId = 0;
         for (sel.members) |member| {
-            const edge = edgeById(graph, member) orelse return error.InvalidSemGraph;
+            const edge = graph.edgeById(member) orelse return error.InvalidSemGraph;
             const key = try edgeAttachmentKey(graph, edge, es);
             if (best == null or pb.attachmentKeyOrder(key, best.?) == .lt) {
                 best = key;
@@ -172,7 +172,7 @@ pub fn derive(
         var members: std.ArrayListUnmanaged(pb.EdgeId) = .empty;
         for (fused_leaves.items[i..]) |leaf| {
             if (leaf.u != head.u or leaf.node != head.node or leaf.side != head.side) continue;
-            const edge = edgeById(graph, leaf.edge) orelse return error.InvalidSemGraph;
+            const edge = graph.edgeById(leaf.edge) orelse return error.InvalidSemGraph;
             const key = try edgeAttachmentKey(graph, edge, leaf.es);
             if (best == null or pb.attachmentKeyOrder(key, best.?) == .lt) {
                 best = key;
@@ -202,7 +202,7 @@ fn seenLeaf(prior: []const FusedLeaf, head: FusedLeaf) bool {
 }
 
 fn fusedUnionIndex(fused: []const []const pb.EdgeId, edge: pb.EdgeId) ?usize {
-    for (fused, 0..) |u, i| if (containsEdge(u, edge)) return i;
+    for (fused, 0..) |u, i| if (pb.containsEdge(u, edge)) return i;
     return null;
 }
 
@@ -333,21 +333,6 @@ fn capacityPayload(a: std.mem.Allocator, candidate: CandidateRef, node: pb.NodeI
         .edges = try edges.toOwnedSlice(a),
         .groups = try groups.toOwnedSlice(a),
     };
-}
-
-fn nodeById(graph: sg.SemGraph, id: sg.NodeId) ?sg.Node {
-    for (graph.nodes) |node| if (node.id == id) return node;
-    return null;
-}
-
-fn edgeById(graph: sg.SemGraph, id: sg.EdgeId) ?sg.Edge {
-    for (graph.edges) |edge| if (edge.id == id) return edge;
-    return null;
-}
-
-fn containsEdge(edges: []const pb.EdgeId, edge: pb.EdgeId) bool {
-    for (edges) |candidate| if (candidate == edge) return true;
-    return false;
 }
 
 fn hasSelfLoopSide(graph: sg.SemGraph, dir: sg.Direction, node: pb.NodeId, side: sk.Dir4) bool {

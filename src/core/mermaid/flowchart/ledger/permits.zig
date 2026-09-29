@@ -25,12 +25,12 @@ pub fn prepareRailMembers(a: std.mem.Allocator, graph: sg.SemGraph, direction: p
     var star_violation = false;
     var canonical: std.ArrayListUnmanaged(pb.EdgeId) = .empty;
     for (source) |id| {
-        const edge = edgeById(graph, id) orelse {
+        const edge = graph.edgeById(id) orelse {
             star_violation = true;
             continue;
         };
         if (edge.kind == .invisible) continue;
-        if (containsEdge(canonical.items, id)) {
+        if (pb.containsEdge(canonical.items, id)) {
             star_violation = true;
             continue;
         }
@@ -86,7 +86,7 @@ pub fn prepareRailMembers(a: std.mem.Allocator, graph: sg.SemGraph, direction: p
 fn railCandidate(graph: sg.SemGraph, direction: pb.BundleDirection, pivot: sg.NodeId, source: []const pb.EdgeId, index: usize) ?RailCandidate {
     const id = source[index];
     for (source[0..index]) |prior| if (prior == id) return null;
-    const candidate = edgeById(graph, id) orelse return null;
+    const candidate = graph.edgeById(id) orelse return null;
     if (candidate.from == candidate.to) return null;
     const member_pivot = if (direction == .out) candidate.from else candidate.to;
     const leaf = if (direction == .out) candidate.to else candidate.from;
@@ -117,7 +117,7 @@ fn prospectiveRailCheck(a: std.mem.Allocator, graph: sg.SemGraph, direction: pb.
     const members = try a.alloc(pb.RailLicenceMember, ids.len);
     const pivot_end: pb.Endpoint = if (direction == .out) .source else .target;
     for (ids, members) |id, *member| {
-        const candidate = edgeById(graph, id).?;
+        const candidate = graph.edgeById(id).?;
         member.* = .{
             .edge = id,
             .endpoints = .{ candidate.from, candidate.to },
@@ -256,8 +256,8 @@ const GroupSort = struct {
         const ad: u1 = if (a.direction == .out) 0 else 1;
         const bd: u1 = if (b.direction == .out) 0 else 1;
         if (ad != bd) return ad < bd;
-        const ak = nodeById(self.graph, a.pivot).?.raw_id;
-        const bk = nodeById(self.graph, b.pivot).?.raw_id;
+        const ak = self.graph.nodeById(a.pivot).?.raw_id;
+        const bk = self.graph.nodeById(b.pivot).?.raw_id;
         return pb.nodeKeyOrder(ak, bk) == .lt;
     }
 };
@@ -274,10 +274,10 @@ const EdgeSort = struct {
     }
 
     fn orderIds(self: @This(), a: pb.EdgeId, b: pb.EdgeId) std.math.Order {
-        const a_edge = edgeById(self.graph, a) orelse return std.math.order(a, b);
-        const b_edge = edgeById(self.graph, b) orelse return std.math.order(a, b);
-        if (nodeById(self.graph, a_edge.from) == null or nodeById(self.graph, a_edge.to) == null or
-            nodeById(self.graph, b_edge.from) == null or nodeById(self.graph, b_edge.to) == null)
+        const a_edge = self.graph.edgeById(a) orelse return std.math.order(a, b);
+        const b_edge = self.graph.edgeById(b) orelse return std.math.order(a, b);
+        if (self.graph.nodeById(a_edge.from) == null or self.graph.nodeById(a_edge.to) == null or
+            self.graph.nodeById(b_edge.from) == null or self.graph.nodeById(b_edge.to) == null)
             return std.math.order(a, b);
         const order = pb.edgeKeyOrder(
             edgeKey(self.graph, a_edge),
@@ -290,8 +290,8 @@ const EdgeSort = struct {
 
 fn edgeKey(graph: sg.SemGraph, edge: sg.Edge) pb.EdgeKey {
     return .{
-        .from = nodeById(graph, edge.from).?.raw_id,
-        .to = nodeById(graph, edge.to).?.raw_id,
+        .from = graph.nodeById(edge.from).?.raw_id,
+        .to = graph.nodeById(edge.to).?.raw_id,
         .kind = pb.edgeKindOrdinal(edge.kind),
         .arrow_from = pb.arrowEndOrdinal(edge.arrow_from),
         .arrow_to = pb.arrowEndOrdinal(edge.arrow_to),
@@ -303,39 +303,24 @@ fn edgeOrder(graph: sg.SemGraph, a: sg.Edge, b: sg.Edge) std.math.Order {
     return pb.edgeKeyOrder(edgeKey(graph, a), edgeKey(graph, b));
 }
 
-fn nodeById(graph: sg.SemGraph, id: sg.NodeId) ?sg.Node {
-    for (graph.nodes) |node| if (node.id == id) return node;
-    return null;
-}
-
 fn nodeIndex(graph: sg.SemGraph, id: sg.NodeId) ?usize {
     for (graph.nodes, 0..) |node, i| if (node.id == id) return i;
     return null;
 }
 
-fn edgeById(graph: sg.SemGraph, id: sg.EdgeId) ?sg.Edge {
-    for (graph.edges) |edge| if (edge.id == id) return edge;
-    return null;
-}
-
 fn membershipGroup(groups: []const pb.CandidateBundle, edge: pb.EdgeId, direction: pb.BundleDirection) ?pb.CandidateBundleId {
     for (groups) |group| {
-        if (group.direction == direction and containsEdge(group.members, edge)) return group.id;
+        if (group.direction == direction and pb.containsEdge(group.members, edge)) return group.id;
     }
     return null;
-}
-
-fn containsEdge(edges: []const pb.EdgeId, edge: pb.EdgeId) bool {
-    for (edges) |candidate| if (candidate == edge) return true;
-    return false;
 }
 
 fn countDuplicateCanonicalKeys(graph: sg.SemGraph, memberships: []const pb.BundleMembership) u32 {
     if (memberships.len < 2) return 0;
     var count: u32 = 0;
     for (memberships[1..], 1..) |membership, i| {
-        const a = edgeById(graph, memberships[i - 1].edge).?;
-        const b = edgeById(graph, membership.edge).?;
+        const a = graph.edgeById(memberships[i - 1].edge).?;
+        const b = graph.edgeById(membership.edge).?;
         if (edgeOrder(graph, a, b) == .eq) count += 1;
     }
     return count;
@@ -385,9 +370,9 @@ pub fn validate(allocator: std.mem.Allocator, graph: sg.SemGraph, plan: pb.Bundl
         if (i > 0 and !GroupSort.lessThan(.{ .graph = graph }, plan.groups[i - 1], group))
             try add(&out, allocator, .groups_not_canonical, group.id, null);
         if (group.members.len < 2) try add(&out, allocator, .group_too_small, group.id, null);
-        if (nodeById(graph, group.pivot) == null) try add(&out, allocator, .pivot_missing, group.id, null);
+        if (graph.nodeById(group.pivot) == null) try add(&out, allocator, .pivot_missing, group.id, null);
         for (group.members, 0..) |edge_id, j| {
-            const edge = edgeById(graph, edge_id) orelse {
+            const edge = graph.edgeById(edge_id) orelse {
                 try add(&out, allocator, .member_edge_missing, group.id, edge_id);
                 continue;
             };
@@ -407,11 +392,11 @@ pub fn validate(allocator: std.mem.Allocator, graph: sg.SemGraph, plan: pb.Bundl
     }
 
     for (plan.memberships, 0..) |membership, i| {
-        if (edgeById(graph, membership.edge) == null)
+        if (graph.edgeById(membership.edge) == null)
             try add(&out, allocator, .membership_edge_missing, null, membership.edge);
         for (plan.memberships[0..i]) |prior| if (prior.edge == membership.edge)
             try add(&out, allocator, .membership_duplicate_edge, null, membership.edge);
-        if (i > 0 and edgeById(graph, membership.edge) != null and edgeById(graph, plan.memberships[i - 1].edge) != null and
+        if (i > 0 and graph.edgeById(membership.edge) != null and graph.edgeById(plan.memberships[i - 1].edge) != null and
             EdgeSort.membershipLessThan(.{ .graph = graph }, membership, plan.memberships[i - 1]))
             try add(&out, allocator, .memberships_not_canonical, null, membership.edge);
         try validateLink(&out, allocator, graph, plan.groups, membership, .out, membership.source_group);
@@ -438,9 +423,9 @@ fn validateLink(
         return;
     };
     if (group.direction != direction) try add(out, allocator, .membership_wrong_direction, id, membership.edge);
-    if (!containsEdge(group.members, membership.edge))
+    if (!pb.containsEdge(group.members, membership.edge))
         try add(out, allocator, .membership_group_lacks_edge, id, membership.edge);
-    const edge = edgeById(graph, membership.edge) orelse return;
+    const edge = graph.edgeById(membership.edge) orelse return;
     const pivot_matches = if (direction == .out) edge.from == group.pivot else edge.to == group.pivot;
     if (!pivot_matches) try add(out, allocator, .member_pivot_mismatch, id, membership.edge);
 }

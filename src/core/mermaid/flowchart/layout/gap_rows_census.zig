@@ -15,11 +15,6 @@ pub fn centerOf(comptime G: type, geom: []const G, idx: u32) i32 {
     return g.x + @divTrunc(@as(i32, @intCast(g.w)), 2);
 }
 
-pub fn edgeById(graph: sg.SemGraph, id: sg.EdgeId) ?sg.Edge {
-    for (graph.edges) |e| if (e.id == id) return e;
-    return null;
-}
-
 pub fn predictPorts(
     comptime G: type,
     a: std.mem.Allocator,

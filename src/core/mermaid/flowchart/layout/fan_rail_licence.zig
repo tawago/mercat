@@ -129,7 +129,7 @@ fn membersOf(
     var out: std.ArrayListUnmanaged(rc.Member) = .empty;
     for (f.peers) |p| {
         if (invisible.contains(p.edge_id)) continue;
-        const edge = edgeById(graph, p.edge_id) orelse continue;
+        const edge = graph.edgeById(p.edge_id) orelse continue;
         const leaf = if (p.long) (if (f.direction == .out) edge.to else edge.from) else nodeId(lg, p.peer_idx);
         out.append(a, .{
             .edge = p.edge_id,
@@ -187,13 +187,6 @@ fn nodeId(lg: sugiyama.LayeredGraph, idx: u32) sg.NodeId {
         .real => |id| id,
         .virtual => 0,
     };
-}
-
-fn edgeById(graph: sg.SemGraph, id: sg.EdgeId) ?sg.Edge {
-    for (graph.edges) |edge| {
-        if (edge.id == id) return edge;
-    }
-    return null;
 }
 
 fn kindOrdinal(kind: sg.EdgeKind) u8 {

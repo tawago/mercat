@@ -19,11 +19,11 @@ pub fn transform(
         if (m.kind != .parallel or m.branches.len < 2) continue;
         for (m.branches) |run| {
             if (run.len < 2) continue;
-            const parent: ?sg.ClusterId = scope.clusterOf(graph, run[0]);
+            const parent: ?sg.ClusterId = graph.clusterOf(run[0]);
             // guarded-by: pack.zig "parallel branch straddling two clusters: transform skips it (defensive)"
             var consistent = true;
             for (run[1..]) |nid| {
-                if (!scope.eqOpt(scope.clusterOf(graph, nid), parent)) {
+                if (!scope.eqOpt(graph.clusterOf(nid), parent)) {
                     consistent = false;
                     break;
                 }

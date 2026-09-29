@@ -35,7 +35,7 @@ pub fn finalImages(
         if (outerReprOf(sr, crossing.from) != placement.from or
             outerReprOf(sr, crossing.to) != placement.to) continue;
         const id = bridge_base + crossing.id;
-        const path = pathById(final_bridges, id) orelse continue;
+        const path = sketch.pathById(final_bridges, id) orelse continue;
         if (!hasImage(out.items, id)) try out.append(arena, .{
             .edge = id,
             .from = path.from,
@@ -211,11 +211,6 @@ fn outerReprOf(sr: split_mod.SplitResult, original: sg.NodeId) sketch.NodeId {
     }
     for (sr.pieces[0].orig_ids, 0..) |id, i| if (id == original) return @intCast(i);
     return sg.SENTINEL;
-}
-
-fn pathById(paths: []const sketch.EdgePath, id: sketch.EdgeId) ?sketch.EdgePath {
-    for (paths) |path| if (path.id == id) return path;
-    return null;
 }
 
 fn seenEarlier(items: []const sketch.EdgeId, at: usize, id: sketch.EdgeId) bool {

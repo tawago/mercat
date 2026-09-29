@@ -72,7 +72,7 @@ pub fn buildReported(a: std.mem.Allocator, graph: sg.SemGraph, permits: ?*const 
         const verdict = maybe orelse continue;
         if (eff_of[gi] == null) continue;
         for (verdict.discharges) |d| {
-            if (containsEdge(drawn.items, d.backer)) continue;
+            if (pb.containsEdge(drawn.items, d.backer)) continue;
             try discharged.append(a, d.backer);
             try drawn.append(a, d.backer);
         }
@@ -153,10 +153,10 @@ fn leafSetEqual(graph: sg.SemGraph, dir: pb.BundleDirection, xs: []const pb.Edge
 
 fn leafSubset(graph: sg.SemGraph, dir: pb.BundleDirection, xs: []const pb.EdgeId, ys: []const pb.EdgeId) bool {
     for (xs) |xi| {
-        const x = edgeById(graph, xi) orelse return false;
+        const x = graph.edgeById(xi) orelse return false;
         const lx = if (dir == .in) x.from else x.to;
         const held = for (ys) |yi| {
-            const y = edgeById(graph, yi) orelse return false;
+            const y = graph.edgeById(yi) orelse return false;
             if ((if (dir == .in) y.from else y.to) == lx) break true;
         } else false;
         if (!held) return false;
@@ -173,7 +173,7 @@ fn unionComplete(a: std.mem.Allocator, graph: sg.SemGraph, members: []const pb.E
     defer pairs.deinit(a);
     var style: ?u48 = null;
     for (members) |id| {
-        const e = edgeById(graph, id) orelse return false;
+        const e = graph.edgeById(id) orelse return false;
         if (e.kind == .invisible or !sg.forwardOneWayHead(e)) return false;
         const key: u48 = (@as(u48, pb.edgeKindOrdinal(e.kind)) << 8) |
             (@as(u48, @intFromEnum(e.arrow_from)) << 4) | @intFromEnum(e.arrow_to);
@@ -324,12 +324,12 @@ fn keepOneNearRail(
     long_edges: []const pb.EdgeId,
 ) error{OutOfMemory}!void {
     for (graph.edges) |e| {
-        if (containsEdge(long_edges, e.id)) continue;
+        if (pb.containsEdge(long_edges, e.id)) continue;
         var gi_out: ?usize = null;
         var gi_in: ?usize = null;
         for (plan.groups, 0..) |g, gi| {
             const eff = eff_of[gi] orelse continue;
-            if (!containsEdge(eff, e.id)) continue;
+            if (!pb.containsEdge(eff, e.id)) continue;
             if (g.direction == .out) gi_out = gi else gi_in = gi;
         }
         const o = gi_out orelse continue;
@@ -361,7 +361,7 @@ fn closureVerdict(
 ) error{OutOfMemory}!rc.Verdict {
     const members = try a.alloc(rc.Member, eff.len);
     for (eff, members) |id, *m| {
-        const edge = edgeById(graph, id) orelse return .{ .outcome = .untouched, .members = eff };
+        const edge = graph.edgeById(id) orelse return .{ .outcome = .untouched, .members = eff };
         m.* = .{
             .edge = id,
             .leaf = if (group.direction == .out) edge.to else edge.from,
@@ -372,7 +372,7 @@ fn closureVerdict(
     }
     var backers: std.ArrayListUnmanaged(rc.Backer) = .empty;
     for (graph.edges) |edge| {
-        if (edge.from == edge.to or containsEdge(eff, edge.id)) continue;
+        if (edge.from == edge.to or pb.containsEdge(eff, edge.id)) continue;
         if (piece_scope and edge.origin == sg.SENTINEL) continue;
         try backers.append(a, .{
             .edge = edge.id,
@@ -388,11 +388,6 @@ fn closureVerdict(
 
 fn undecorated(edge: sg.Edge) bool {
     return sg.undecorated(edge);
-}
-
-fn containsEdge(edges: []const pb.EdgeId, edge: pb.EdgeId) bool {
-    for (edges) |e| if (e == edge) return true;
-    return false;
 }
 
 fn containsReversed(group: pb.CandidateBundle, reversed_edges: []const pb.EdgeId) bool {
@@ -433,7 +428,7 @@ fn disposition(graph: sg.SemGraph, groups: []const pb.CandidateBundle, selected_
 fn styleCompatible(graph: sg.SemGraph, group: pb.CandidateBundle) bool {
     var first: ?sg.Edge = null;
     for (group.members) |id| {
-        const edge = edgeById(graph, id) orelse return false;
+        const edge = graph.edgeById(id) orelse return false;
         if (edge.kind == .invisible) return false;
         if (first) |f| {
             if (edge.kind != f.kind) return false;
@@ -447,19 +442,14 @@ fn styleCompatible(graph: sg.SemGraph, group: pb.CandidateBundle) bool {
 
 fn hasDuplicateKey(graph: sg.SemGraph, group: pb.CandidateBundle) bool {
     for (group.members, 0..) |id, i| {
-        const edge = edgeById(graph, id) orelse return true;
+        const edge = graph.edgeById(id) orelse return true;
         for (group.members[0..i]) |prev_id| {
-            const prev = edgeById(graph, prev_id) orelse return true;
+            const prev = graph.edgeById(prev_id) orelse return true;
             if (edge.from == prev.from and edge.to == prev.to and edge.kind == prev.kind and
                 edge.arrow_from == prev.arrow_from and edge.arrow_to == prev.arrow_to and labelsEqual(edge.label, prev.label)) return true;
         }
     }
     return false;
-}
-
-fn edgeById(graph: sg.SemGraph, id: pb.EdgeId) ?sg.Edge {
-    for (graph.edges) |edge| if (edge.id == id) return edge;
-    return null;
 }
 
 fn labelsEqual(a: ?[]const u8, b: ?[]const u8) bool {

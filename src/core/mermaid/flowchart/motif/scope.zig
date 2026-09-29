@@ -59,7 +59,7 @@ fn repOf(
     parent: ?sg.ClusterId,
     id: sg.NodeId,
 ) ?u32 {
-    const nc = clusterOf(graph, id);
+    const nc = graph.clusterOf(id);
     if (eqOpt(nc, parent)) return vertOfNode(verts, id);
     var cur: sg.ClusterId = nc orelse return null;
     while (true) {
@@ -67,13 +67,6 @@ fn repOf(
         if (eqOpt(c.parent, parent)) return vertOfCluster(verts, cur);
         cur = c.parent orelse return null;
     }
-}
-
-pub fn clusterOf(graph: sg.SemGraph, id: sg.NodeId) ?sg.ClusterId {
-    for (graph.nodes) |n| {
-        if (n.id == id) return n.cluster;
-    }
-    return null;
 }
 
 fn clusterById(graph: sg.SemGraph, cid: sg.ClusterId) ?sg.Cluster {

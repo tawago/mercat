@@ -108,6 +108,20 @@ pub const SemGraph = struct {
     skipped_lines: u32 = 0,
     arena: ?*std.heap.ArenaAllocator,
 
+    pub fn nodeById(self: SemGraph, id: NodeId) ?Node {
+        for (self.nodes) |node| if (node.id == id) return node;
+        return null;
+    }
+
+    pub fn edgeById(self: SemGraph, id: EdgeId) ?Edge {
+        for (self.edges) |edge| if (edge.id == id) return edge;
+        return null;
+    }
+
+    pub fn clusterOf(self: SemGraph, id: NodeId) ?ClusterId {
+        return if (self.nodeById(id)) |node| node.cluster else null;
+    }
+
     pub fn deinit(self: *SemGraph, allocator: std.mem.Allocator) void {
         if (self.arena) |a| {
             a.deinit();

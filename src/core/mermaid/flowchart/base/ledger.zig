@@ -289,3 +289,7 @@ pub fn attachmentKeyOrder(a: AttachmentKey, b: AttachmentKey) std.math.Order {
     if (at != .eq) return at;
     return labelOrder(a.label, b.label);
 }
+
+pub fn containsEdge(edges: []const EdgeId, edge: EdgeId) bool {
+    return std.mem.indexOfScalar(EdgeId, edges, edge) != null;
+}

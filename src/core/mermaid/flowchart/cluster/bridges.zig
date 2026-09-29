@@ -37,8 +37,8 @@ pub fn route(
         const gf = orig_to_merged[c.from];
         const gt = orig_to_merged[c.to];
         if (gf == sg.SENTINEL or gt == sg.SENTINEL) continue;
-        const from_p = placementById(placements, gf) orelse continue;
-        const to_p = placementById(placements, gt) orelse continue;
+        const from_p = sketch.placementById(placements, gf) orelse continue;
+        const to_p = sketch.placementById(placements, gt) orelse continue;
 
         const from_box = boxOf(clusters, from_p) orelse from_p.rect;
         const to_box = boxOf(clusters, to_p) orelse to_p.rect;
@@ -415,13 +415,6 @@ fn portPoint(r: sketch.Rect, side: sketch.Dir4) Pt {
         .west => .{ .x = r.x, .y = r.y + off },
         .east => .{ .x = r.right() - 1, .y = r.y + off },
     };
-}
-
-fn placementById(placements: []const sketch.NodePlacement, id: sketch.NodeId) ?sketch.NodePlacement {
-    for (placements) |p| {
-        if (p.id == id) return p;
-    }
-    return null;
 }
 
 test {

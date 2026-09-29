@@ -254,6 +254,16 @@ pub fn hopPos(
     return null;
 }
 
+pub fn placementById(placements: []const NodePlacement, id: NodeId) ?NodePlacement {
+    for (placements) |placement| if (placement.id == id) return placement;
+    return null;
+}
+
+pub fn pathById(paths: []const EdgePath, id: EdgeId) ?EdgePath {
+    for (paths) |path| if (path.id == id) return path;
+    return null;
+}
+
 test "Rect overlaps and contains" {
     const a: Rect = .{ .x = 0, .y = 0, .w = 10, .h = 5 };
     const b: Rect = .{ .x = 5, .y = 2, .w = 10, .h = 5 };

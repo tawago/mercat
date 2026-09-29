@@ -140,7 +140,7 @@ pub fn conflictsReservedTerminals(a: std.mem.Allocator, edge: pb.EdgeId, polylin
         };
         for (ends) |end| {
             if (own) |ports| if (samePort(ports[0], end.port) or samePort(ports[1], end.port)) continue;
-            const placement = placementById(placements, end.port.node) orelse continue;
+            const placement = sk.placementById(placements, end.port.node) orelse continue;
             if (reservedConflict(candidate, offNodePoint(placement, end.port), end.port.side, end.decorated)) return true;
         }
     }
@@ -184,7 +184,7 @@ pub fn railConflictsReservedTerminals(a: std.mem.Allocator, rail: sk.Rail, place
             .{ .port = item.target, .decorated = item.target_decorated },
         };
         for (ends) |end| {
-            const placement = placementById(placements, end.port.node) orelse continue;
+            const placement = sk.placementById(placements, end.port.node) orelse continue;
             if (railLandsOn(rail, portPoint(placement, end.port))) continue;
             if (reservedConflict(candidate, offNodePoint(placement, end.port), end.port.side, end.decorated)) return true;
         }
@@ -205,7 +205,7 @@ pub fn withDecoratedTerminalBoxes(a: std.mem.Allocator, edge: pb.EdgeId, placeme
         };
         for (ends) |end| {
             if (!end.decorated) continue;
-            const placement = placementById(placements, end.port.node) orelse continue;
+            const placement = sk.placementById(placements, end.port.node) orelse continue;
             const cell = offNodePoint(placement, end.port);
             const rect: sk.Rect = switch (end.port.side) {
                 .north, .south => .{ .x = cell.x - 1, .y = cell.y, .w = 3, .h = 1 },
@@ -231,11 +231,6 @@ fn railMember(rail: sk.Rail, edge: pb.EdgeId, bundles: pb.RealizedBundles) bool 
 
 fn samePort(x: sk.Port, y: sk.Port) bool {
     return x.node == y.node and x.side == y.side and x.offset == y.offset;
-}
-
-fn placementById(placements: []const sk.NodePlacement, id: pb.NodeId) ?sk.NodePlacement {
-    for (placements) |placement| if (placement.id == id) return placement;
-    return null;
 }
 
 fn offNodePoint(placement: sk.NodePlacement, port: sk.Port) sk.Point {

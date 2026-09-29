@@ -80,13 +80,6 @@ fn cuttable(graph: sg.SemGraph) bool {
     return false;
 }
 
-fn clusterOf(graph: sg.SemGraph, id: sg.NodeId) ?sg.ClusterId {
-    for (graph.nodes) |n| {
-        if (n.id == id) return n.cluster;
-    }
-    return null;
-}
-
 fn parentOf(graph: sg.SemGraph, cid: sg.ClusterId) ?sg.ClusterId {
     for (graph.clusters) |c| {
         if (c.id == cid) return c.parent;
@@ -110,12 +103,12 @@ fn isDescendant(graph: sg.SemGraph, d: sg.ClusterId, anc: sg.ClusterId) bool {
 }
 
 fn inSubtree(graph: sg.SemGraph, id: sg.NodeId, c: sg.ClusterId) bool {
-    const nc = clusterOf(graph, id) orelse return false;
+    const nc = graph.clusterOf(id) orelse return false;
     return nc == c or isDescendant(graph, nc, c);
 }
 
 fn topClusterOf(graph: sg.SemGraph, id: sg.NodeId) ?sg.ClusterId {
-    const nc = clusterOf(graph, id) orelse return null;
+    const nc = graph.clusterOf(id) orelse return null;
     return topAncestor(graph, nc);
 }
 
@@ -175,7 +168,7 @@ fn buildChild(arena: std.mem.Allocator, graph: sg.SemGraph, c: sg.Cluster) error
     const nodes = try arena.alloc(sg.Node, k);
     const orig = try arena.alloc(sg.NodeId, k);
     for (ids.items, 0..) |oid, new_id| {
-        const src = nodeById(graph, oid);
+        const src = graph.nodeById(oid) orelse graph.nodes[0];
         orig[new_id] = oid;
         nodes[new_id] = .{
             .id = @intCast(new_id),
@@ -367,13 +360,6 @@ fn mapArrow(e: sg.ArrowEnd) @import("../sketch.zig").ArrowKind {
         .circle => .circle,
         .cross => .cross,
     };
-}
-
-fn nodeById(graph: sg.SemGraph, id: sg.NodeId) sg.Node {
-    for (graph.nodes) |n| {
-        if (n.id == id) return n;
-    }
-    return graph.nodes[0];
 }
 
 fn localId(orig: []const sg.NodeId, original: sg.NodeId) sg.NodeId {

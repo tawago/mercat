@@ -31,8 +31,8 @@ pub const Plan = struct {
 pub fn midpoint(a: std.mem.Allocator, graph: sg.SemGraph, placements: []const sk.NodePlacement) error{OutOfMemory}!Plan {
     const edges = try a.alloc(EdgePorts, graph.edges.len);
     for (graph.edges, edges) |edge, *out| {
-        const source_p = placementById(placements, edge.from) orelse placements[0];
-        const target_p = placementById(placements, edge.to) orelse placements[0];
+        const source_p = sk.placementById(placements, edge.from) orelse placements[0];
+        const target_p = sk.placementById(placements, edge.to) orelse placements[0];
         const source = midpointPort(graph.direction, source_p, edge, .source_exit);
         const target = midpointPort(graph.direction, target_p, edge, .target_entry);
         out.* = .{ .edge = edge.id, .source = source.port, .target = target.port, .source_ordinal = 0, .target_ordinal = 0, .source_decorated = edge.arrow_from != .none, .target_decorated = edge.arrow_to != .none };
@@ -48,7 +48,7 @@ pub fn deriveFanAttachments(a: std.mem.Allocator, graph: sg.SemGraph, direction:
             const node = if (endpoint == .source_exit) edge.from else edge.to;
             const side = if (edge.from == edge.to)
                 ports.selfLoopSide(direction, endpoint)
-            else if (containsEdge(reversed_edges, edge.id))
+            else if (pb.containsEdge(reversed_edges, edge.id))
                 ports.reversedSide(direction)
             else
                 ports.forwardSide(direction, endpoint);
@@ -83,7 +83,7 @@ fn fanAttachment(a: std.mem.Allocator, graph: sg.SemGraph, fan: fan_mod.Fan, end
     var members: std.ArrayListUnmanaged(pb.EdgeId) = .empty;
     for (fan.peers) |peer| {
         if (!peer.shared) continue;
-        const edge = edgeById(graph, peer.edge_id) orelse return error.InvalidSemGraph;
+        const edge = graph.edgeById(peer.edge_id) orelse return error.InvalidSemGraph;
         const key = try ports.edgeAttachmentKey(graph, edge, endpoint);
         if (best == null or pb.attachmentKeyOrder(key, best.?) == .lt) {
             best = key;
@@ -131,9 +131,9 @@ pub fn allocate(
 ) error{OutOfMemory}!Plan {
     const resolved = try a.dupe(ports.DerivedAttachment, derived);
     for (resolved) |*item| {
-        const edge = edgeById(graph, item.attachment.edge orelse continue) orelse continue;
+        const edge = graph.edgeById(item.attachment.edge orelse continue) orelse continue;
         const opposite_id = if (item.node == edge.from) edge.to else edge.from;
-        const opposite = placementById(placements, opposite_id) orelse continue;
+        const opposite = sk.placementById(placements, opposite_id) orelse continue;
         item.attachment.opposite_center = switch (item.side) {
             .north, .south => opposite.rect.x + @divTrunc(@as(i32, @intCast(opposite.rect.w)), 2),
             .east, .west => opposite.rect.y + @divTrunc(@as(i32, @intCast(opposite.rect.h)), 2),
@@ -258,11 +258,6 @@ fn portPoint(placement: sk.NodePlacement, port: sk.Port) sk.Point {
     };
 }
 
-fn containsEdge(edges: []const pb.EdgeId, edge: pb.EdgeId) bool {
-    for (edges) |candidate| if (candidate == edge) return true;
-    return false;
-}
-
 const ResolvedPort = struct { port: sk.Port, ordinal: u32 };
 
 fn resolvePort(
@@ -275,7 +270,7 @@ fn resolvePort(
     endpoint: pb.EndpointSide,
 ) ResolvedPort {
     const node = if (endpoint == .source_exit) edge.from else edge.to;
-    const placement = placementById(placements, node) orelse placements[0];
+    const placement = sk.placementById(placements, node) orelse placements[0];
     const selected_group = selectedGroup(bundles, edge.id, endpoint);
     for (faces) |face| {
         if (face.node != node) continue;
@@ -285,7 +280,7 @@ fn resolvePort(
             else
                 assignment.attachment.key.endpoint_side == endpoint and
                     ((assignment.attachment.class == .independent and assignment.attachment.edge == edge.id) or
-                        (assignment.attachment.class == .rail_pivot and containsEdge(assignment.attachment.members, edge.id)));
+                        (assignment.attachment.class == .rail_pivot and pb.containsEdge(assignment.attachment.members, edge.id)));
             if (matches) return .{
                 .port = .{ .node = node, .side = face.side, .offset = assignment.offset },
                 .ordinal = assignment.ordinal,
@@ -304,7 +299,7 @@ fn hasDemandedClaim(derived: []const ports.DerivedAttachment, bundles: pb.Realiz
         if (selected_group) |group| {
             if (item.attachment.class == .rail_pivot and item.attachment.group == group) return true;
         } else if ((item.attachment.class == .independent and item.attachment.edge == edge.id) or
-            (item.attachment.class == .rail_pivot and containsEdge(item.attachment.members, edge.id))) return true;
+            (item.attachment.class == .rail_pivot and pb.containsEdge(item.attachment.members, edge.id))) return true;
     }
     return false;
 }
@@ -346,15 +341,5 @@ fn selectedGroup(bundles: pb.RealizedBundles, edge: pb.EdgeId, endpoint: pb.Endp
         };
         for (bundles.selected_bundles) |sel| if (sel.id == jid) return sel.candidate_bundle;
     }
-    return null;
-}
-
-fn placementById(placements: []const sk.NodePlacement, id: pb.NodeId) ?sk.NodePlacement {
-    for (placements) |placement| if (placement.id == id) return placement;
-    return null;
-}
-
-fn edgeById(graph: sg.SemGraph, id: pb.EdgeId) ?sg.Edge {
-    for (graph.edges) |edge| if (edge.id == id) return edge;
     return null;
 }

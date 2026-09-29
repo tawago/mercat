@@ -13,7 +13,6 @@ const FanKey = pack_mod.FanKey;
 const Census = census_mod.Census;
 const Group = census_mod.Group;
 const centerOf = census_mod.centerOf;
-const edgeById = census_mod.edgeById;
 const edgeClaim = @import("gap_rows.zig").edgeClaim;
 
 pub const Detour = struct {
@@ -74,7 +73,7 @@ pub fn fanClaims(
         var groups: std.ArrayListUnmanaged(Group) = .empty;
         var dodges: std.ArrayListUnmanaged(Group) = .empty;
         for (f.peers) |p| {
-            const e = edgeById(c.graph, p.edge_id) orelse continue;
+            const e = c.graph.edgeById(p.edge_id) orelse continue;
             if (e.kind == .invisible or c.isPlacement(e) or rail_closure.contains(bundles.discharged, e.id)) continue;
             const tap_col = if (p.long) centerOf(G, geom, p.peer_idx) else c.portCol(G, geom, e, if (f.direction == .out) .target_entry else .source_exit);
             const blocked = f.direction == .out and !p.long and c.sub.stackedObstacle(G, geom, c.lg, f.pivot_idx, p.peer_idx, tap_col) != null;
@@ -190,7 +189,7 @@ pub fn strokeClaims(comptime G: type, a: std.mem.Allocator, c: Census, geom: []c
         if (!ok) continue;
         for (f.peers) |p| {
             if (!p.long or !p.shared or rail_closure.contains(bundles.discharged, p.edge_id)) continue;
-            const e = edgeById(c.graph, p.edge_id) orelse continue;
+            const e = c.graph.edgeById(p.edge_id) orelse continue;
             if (c.isPlacement(e)) continue;
             const other: fan_mod.Direction = if (f.direction == .out) .in else .out;
             if (drawnByEligible(fans, eligible, e.id, other, bundles.discharged)) continue;

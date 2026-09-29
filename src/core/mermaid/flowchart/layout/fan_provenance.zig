@@ -18,7 +18,7 @@ pub fn build(
         if (deferredToArrivals(bundles, f)) continue;
         for (f.peers, 0..) |seed, i| {
             if (!seed.shared) continue;
-            const seed_edge = edgeById(graph, seed.edge_id) orelse continue;
+            const seed_edge = graph.edgeById(seed.edge_id) orelse continue;
             if (!effective(bundles, seed_edge)) continue;
             const lane = fan_mod.effectiveLane(f, seed.lane);
             if (groupSeen(graph, f, bundles, f.peers[0..i], lane)) continue;
@@ -27,7 +27,7 @@ pub fn build(
             for (f.peers) |peer| {
                 if (!peer.shared) continue;
                 if (fan_mod.effectiveLane(f, peer.lane) != lane) continue;
-                const semantic = edgeById(graph, peer.edge_id) orelse continue;
+                const semantic = graph.edgeById(peer.edge_id) orelse continue;
                 if (!effective(bundles, semantic)) continue;
                 try members.append(a, memberFor(f, semantic, placements, paths, rails));
             }
@@ -57,7 +57,7 @@ fn memberFor(
     rails: []const sketch.Rail,
 ) ledger.RailClaimMember {
     if (railMember(f, semantic, placements, paths, rails)) |member| return member;
-    if (pathById(paths, semantic.id)) |path| {
+    if (sketch.pathById(paths, semantic.id)) |path| {
         var member = memberFromPath(f, path);
         member.stands_for = semantic.stands_for;
         return member;
@@ -99,7 +99,7 @@ fn railMember(
             const rail_in = rail.role == .fan_in_dropper or rail.role == .fan_in_rail;
             const artifact_source = if (rail_in) tap.node else rail.pivot;
             const artifact_target = if (rail_in) rail.pivot else tap.node;
-            const stroke = if (tap.continues) pathById(paths, semantic.id) else null;
+            const stroke = if (tap.continues) sketch.pathById(paths, semantic.id) else null;
             const source_site = if (artifact_source != semantic.from)
                 null
             else if (rail_in and stroke != null)
@@ -152,7 +152,7 @@ fn groupSeen(graph: sg.SemGraph, f: fan_mod.Fan, bundles: ledger.RealizedBundles
     for (peers) |peer| {
         if (!peer.shared) continue;
         if (fan_mod.effectiveLane(f, peer.lane) != lane) continue;
-        const prior = edgeById(graph, peer.edge_id) orelse continue;
+        const prior = graph.edgeById(peer.edge_id) orelse continue;
         if (effective(bundles, prior)) return true;
     }
     return false;
@@ -176,16 +176,6 @@ fn effective(bundles: ledger.RealizedBundles, edge: sg.Edge) bool {
     if (edge.kind == .invisible) return false;
     for (bundles.discharged) |spent| if (spent == edge.id) return false;
     return true;
-}
-
-fn pathById(paths: []const sketch.EdgePath, edge: sg.EdgeId) ?sketch.EdgePath {
-    for (paths) |path| if (path.id == edge) return path;
-    return null;
-}
-
-fn edgeById(graph: sg.SemGraph, edge: sg.EdgeId) ?sg.Edge {
-    for (graph.edges) |item| if (item.id == edge) return item;
-    return null;
 }
 
 fn roleMatches(direction: fan_mod.Direction, role: sketch.EdgeRole) bool {

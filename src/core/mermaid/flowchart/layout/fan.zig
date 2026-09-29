@@ -256,14 +256,9 @@ fn preparePeers(a: std.mem.Allocator, graph: sg.SemGraph, direction: ledger.Bund
     const shared_ids = prepared.members;
     for (out) |*candidate| {
         candidate.label_width = if (!candidate.long) (if (peerLabel(graph, candidate.edge_id)) |label| prim.displayWidth(label) else 0) else 0;
-        candidate.shared = containsEdge(shared_ids, candidate.edge_id);
+        candidate.shared = ledger.containsEdge(shared_ids, candidate.edge_id);
     }
     return out;
-}
-
-fn containsEdge(edges: []const ledger.EdgeId, edge: ledger.EdgeId) bool {
-    for (edges) |candidate| if (candidate == edge) return true;
-    return false;
 }
 
 pub fn wrapWideFanOut(comptime G: type, fans: []Fan, geom: []G, budget: u32, h: u32, v: u32) void {
