@@ -348,4 +348,3 @@ test "a corner landing is refused: no merge" {
     ew.drawTargetPortStroke(&lat, &pts, .solid, 0, .{});
     try testing.expect(!lat.atConst(1, 2).neighbours.n);
 }
-

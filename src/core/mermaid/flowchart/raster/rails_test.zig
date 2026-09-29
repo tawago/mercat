@@ -310,8 +310,7 @@ test "a pivot head facing the border leaves it pristine; a detached one tees" {
     }
 }
 
-test {
-}
+test {}
 
 test "a continuing tap claims its junction arm and paints neither port nor head" {
     var arena = std.heap.ArenaAllocator.init(testing.allocator);
