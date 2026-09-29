@@ -34,8 +34,6 @@ pub const ClassMember = struct {
     member_type: []const u8,
     visibility: Visibility = .none,
     is_method: bool = false,
-    is_static: bool = false,
-    is_abstract: bool = false,
 };
 
 pub const ClassRelationType = enum {

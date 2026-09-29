@@ -149,7 +149,7 @@ fn parseERRelation(s: *Scanner) ?ERRelationResult {
 fn ensureEntity(s: *Scanner, diagram: *ERDiagram, name: []const u8) !void {
     const result = try diagram.entities.getOrPut(name);
     if (!result.found_existing) {
-        result.value_ptr.* = Entity.init(s.allocator, name);
+        result.value_ptr.* = Entity.init(name);
         try diagram.entity_order.append(s.allocator, name);
     }
 }

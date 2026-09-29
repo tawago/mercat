@@ -5,7 +5,6 @@ const model = @import("model.zig");
 const Scanner = @import("../scan.zig").Scanner;
 const SequenceDiagram = model.SequenceDiagram;
 const SequenceArrowType = model.SequenceArrowType;
-const ParticipantType = model.ParticipantType;
 const Direction = types.Direction;
 
 pub fn parse(allocator: Allocator, source: []const u8) !SequenceDiagram {
@@ -32,12 +31,8 @@ fn parseSequenceDiagram(s: *Scanner) !SequenceDiagram {
         s.skipWhitespaceAndComments();
         if (s.isAtEnd()) break;
 
-        if (s.consumeKeyword("participant")) {
-            try parseParticipantDecl(s, &diagram, .participant);
-            continue;
-        }
-        if (s.consumeKeyword("actor")) {
-            try parseParticipantDecl(s, &diagram, .actor);
+        if (s.consumeKeyword("participant") or s.consumeKeyword("actor")) {
+            try parseParticipantDecl(s, &diagram);
             continue;
         }
         if (s.consumeKeyword("direction")) {
@@ -48,7 +43,6 @@ fn parseSequenceDiagram(s: *Scanner) !SequenceDiagram {
             continue;
         }
         if (s.consumeKeyword("autonumber")) {
-            diagram.auto_number = true;
             s.skipToNextLine();
             continue;
         }
@@ -87,7 +81,7 @@ fn parseSequenceDiagram(s: *Scanner) !SequenceDiagram {
     return diagram;
 }
 
-fn parseParticipantDecl(s: *Scanner, diagram: *SequenceDiagram, ptype: ParticipantType) !void {
+fn parseParticipantDecl(s: *Scanner, diagram: *SequenceDiagram) !void {
     s.skipWhitespace();
 
     const id_start = s.pos;
@@ -126,7 +120,6 @@ fn parseParticipantDecl(s: *Scanner, diagram: *SequenceDiagram, ptype: Participa
     try diagram.addParticipant(.{
         .id = id,
         .alias = alias,
-        .participant_type = ptype,
     });
 
     s.skipToNextLine();

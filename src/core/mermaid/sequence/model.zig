@@ -33,7 +33,6 @@ pub const SequenceArrowType = enum {
 pub const Participant = struct {
     id: []const u8,
     alias: ?[]const u8 = null,
-    participant_type: ParticipantType = .participant,
     x: ?i32 = null,
     y: ?i32 = null,
     box_width: u32 = 0,
@@ -41,11 +40,6 @@ pub const Participant = struct {
     pub fn displayName(self: *const Participant) []const u8 {
         return self.alias orelse self.id;
     }
-};
-
-pub const ParticipantType = enum {
-    participant,
-    actor,
 };
 
 pub const Message = struct {
@@ -82,7 +76,6 @@ pub const SequenceDiagram = struct {
     elements: std.ArrayList(SequenceElement),
     direction: Direction = .TB,
     direction_explicit: bool = false,
-    auto_number: bool = false,
 
     pub fn init(allocator: Allocator) SequenceDiagram {
         return .{
