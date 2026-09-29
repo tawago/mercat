@@ -1,64 +1,19 @@
-const types = @import("../types.zig");
+const Direction = @import("../types.zig").Direction;
 
-const RenderOptions = types.RenderOptions;
-const Direction = types.Direction;
-
-pub const CompactionLevel = enum {
-    default,
-    reduced,
-    tight,
-    direction_switch,
+/// One rung of the sequence fit ladder.
+pub const Spacing = struct {
+    participant: u32,
+    padding: u32,
+    direction: ?Direction = null,
 };
 
-pub const CompactionHints = struct {
-    level: CompactionLevel,
-    render_options: RenderOptions,
-    sequence_participant_spacing: u32 = 8,
-    sequence_padding: u32 = 2,
-    sequence_direction: ?Direction = null,
-};
-
-pub const sequence_levels = [_]CompactionLevel{
-    .default,
-    .reduced,
-    .tight,
-    .direction_switch,
-};
-
-pub const CompactionController = struct {
-    options: RenderOptions,
-
-    pub fn init(options: RenderOptions) CompactionController {
-        return .{ .options = options };
-    }
-
-    pub fn sequenceHints(self: CompactionController, level: CompactionLevel, base_direction: Direction, direction_explicit: bool) ?CompactionHints {
-        return switch (level) {
-            .default => self.makeHints(level, self.options.horizontal_spacing, self.options.vertical_spacing, 8),
-            .reduced => self.makeHints(level, self.options.horizontal_spacing, self.options.vertical_spacing, 4),
-            .tight => self.makeHints(level, self.options.horizontal_spacing, self.options.vertical_spacing, 2),
-            .direction_switch => if (!direction_explicit and base_direction == .TB)
-                CompactionHints{
-                    .level = level,
-                    .render_options = self.options,
-                    .sequence_participant_spacing = 2,
-                    .sequence_padding = 1,
-                    .sequence_direction = .LR,
-                }
-            else
-                null,
-        };
-    }
-
-    fn makeHints(self: CompactionController, level: CompactionLevel, horizontal_spacing: u32, vertical_spacing: u32, sequence_participant_spacing: u32) CompactionHints {
-        var render_options = self.options;
-        render_options.horizontal_spacing = horizontal_spacing;
-        render_options.vertical_spacing = vertical_spacing;
-        return .{
-            .level = level,
-            .render_options = render_options,
-            .sequence_participant_spacing = sequence_participant_spacing,
-            .sequence_padding = 2,
-        };
-    }
-};
+/// Rungs in the order they are tried until one fits the width: default, reduced and tight
+/// spacing, then, for a top-down diagram with no written direction, a tight left-to-right one.
+pub fn ladder(base_direction: Direction, direction_explicit: bool) [4]?Spacing {
+    return .{
+        .{ .participant = 8, .padding = 2 },
+        .{ .participant = 4, .padding = 2 },
+        .{ .participant = 2, .padding = 2 },
+        if (!direction_explicit and base_direction == .TB) .{ .participant = 2, .padding = 1, .direction = .LR } else null,
+    };
+}

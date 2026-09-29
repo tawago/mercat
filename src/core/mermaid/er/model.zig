@@ -7,8 +7,7 @@ pub const Cardinality = enum {
     zero_or_more,
     one_or_more,
 
-    pub fn toStringLeft(self: Cardinality, unicode_mode: bool) []const u8 {
-        _ = unicode_mode;
+    pub fn toStringLeft(self: Cardinality) []const u8 {
         return switch (self) {
             .zero_or_one => "o|",
             .exactly_one => "||",
@@ -17,8 +16,7 @@ pub const Cardinality = enum {
         };
     }
 
-    pub fn toStringRight(self: Cardinality, unicode_mode: bool) []const u8 {
-        _ = unicode_mode;
+    pub fn toStringRight(self: Cardinality) []const u8 {
         return switch (self) {
             .zero_or_one => "|o",
             .exactly_one => "||",

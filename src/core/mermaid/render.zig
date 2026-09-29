@@ -17,10 +17,10 @@ pub fn render(allocator: Allocator, source: []const u8, options: RenderOptions) 
 
     return switch (diagram_type) {
         .flowchart => renderFlowchart(allocator, source, options),
-        .sequence => render_sequence.renderSequence(allocator, source, options) catch |err| fallback(source, @errorName(err)),
-        .class_diagram => render_class.renderClassDiagram(allocator, source, options) catch |err| fallback(source, @errorName(err)),
-        .er => render_er.renderERDiagram(allocator, source, options) catch |err| fallback(source, @errorName(err)),
-        .state => render_state.renderStateDiagram(allocator, source, options) catch |err| fallback(source, @errorName(err)),
+        .sequence => render_sequence.renderSequence(allocator, source, options.max_width) catch |err| fallback(source, @errorName(err)),
+        .class_diagram => render_class.renderClassDiagram(allocator, source, options.max_width) catch |err| fallback(source, @errorName(err)),
+        .er => render_er.renderERDiagram(allocator, source, options.max_width) catch |err| fallback(source, @errorName(err)),
+        .state => render_state.renderStateDiagram(allocator, source, options.max_width) catch |err| fallback(source, @errorName(err)),
         .unsupported => fallback(source, "Unsupported diagram type"),
     };
 }

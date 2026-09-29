@@ -47,26 +47,11 @@ pub const ClassRelationType = enum {
     realization,
     link,
 
-    pub fn getArrowChars(self: ClassRelationType, unicode_mode: bool) struct { start: []const u8, end: []const u8, line: u21 } {
-        if (!unicode_mode) {
-            return switch (self) {
-                .inheritance => .{ .start = "", .end = "<|", .line = '-' },
-                .composition => .{ .start = "*", .end = "", .line = '-' },
-                .aggregation => .{ .start = "o", .end = "", .line = '-' },
-                .association => .{ .start = "", .end = ">", .line = '-' },
-                .dependency => .{ .start = "", .end = ">", .line = '.' },
-                .realization => .{ .start = "", .end = "|>", .line = '.' },
-                .link => .{ .start = "", .end = "", .line = '-' },
-            };
-        }
+    pub fn endMarker(self: ClassRelationType) []const u8 {
         return switch (self) {
-            .inheritance => .{ .start = "", .end = "◁", .line = 0x2500 },
-            .composition => .{ .start = "◆", .end = "", .line = 0x2500 },
-            .aggregation => .{ .start = "◇", .end = "", .line = 0x2500 },
-            .association => .{ .start = "", .end = "▶", .line = 0x2500 },
-            .dependency => .{ .start = "", .end = "▶", .line = 0x2504 },
-            .realization => .{ .start = "", .end = "◁", .line = 0x2504 },
-            .link => .{ .start = "", .end = "", .line = 0x2500 },
+            .inheritance, .realization => "◁",
+            .association, .dependency => "▶",
+            .composition, .aggregation, .link => "",
         };
     }
 };

@@ -17,7 +17,7 @@ test "state layout simple" {
     var diagram = try parse.parse(testing.allocator, source);
     defer diagram.deinit();
 
-    var layout_obj = StateLayout.init(testing.allocator, &diagram, .{});
+    var layout_obj = StateLayout.init(testing.allocator, &diagram);
     defer layout_obj.deinit();
 
     try layout_obj.run();

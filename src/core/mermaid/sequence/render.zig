@@ -7,28 +7,23 @@ const canvas_mod = @import("../shared/canvas.zig");
 const fit = @import("fit.zig");
 const draw_helpers = @import("../shared/draw_helpers.zig");
 
-const RenderOptions = types.RenderOptions;
 const RenderResult = types.RenderResult;
 const SequenceDiagram = model.SequenceDiagram;
-const CompactionHints = fit.CompactionHints;
 const Participant = model.Participant;
 const Message = model.Message;
-const SequenceArrowType = model.SequenceArrowType;
 const LineChars = types.LineChars;
 const Arrows = types.Arrows;
 const Rect = types.Rect;
 
 const Canvas = canvas_mod.Canvas;
-const CompactionController = fit.CompactionController;
 
 const processLabel = draw_helpers.processLabel;
 const processedLabelLen = draw_helpers.processedLabelLen;
 
-pub fn renderSequence(allocator: Allocator, source: []const u8, options: RenderOptions) !RenderResult {
+pub fn renderSequence(allocator: Allocator, source: []const u8, max_width: u32) !RenderResult {
     var diagram = try parse.parse(allocator, source);
     defer diagram.deinit();
 
-    const controller = CompactionController.init(options);
     var last_result = RenderResult{
         .output = source,
         .width = 0,
@@ -37,9 +32,12 @@ pub fn renderSequence(allocator: Allocator, source: []const u8, options: RenderO
         .fallback_reason = "Diagram too wide for terminal",
     };
 
-    for (fit.sequence_levels) |level| {
-        const hints = controller.sequenceHints(level, diagram.direction, diagram.direction_explicit) orelse continue;
-        const result = try renderSequenceWithHints(allocator, source, &diagram, hints);
+    for (fit.ladder(diagram.direction, diagram.direction_explicit)) |rung| {
+        const spacing = rung orelse continue;
+        const result = switch (spacing.direction orelse diagram.direction) {
+            .LR => try renderSequenceLR(allocator, source, &diagram, spacing, max_width),
+            else => try renderSequenceTB(allocator, source, &diagram, spacing, max_width),
+        };
         if (!result.is_fallback) return result;
         last_result = result;
     }
@@ -47,16 +45,7 @@ pub fn renderSequence(allocator: Allocator, source: []const u8, options: RenderO
     return last_result;
 }
 
-fn renderSequenceWithHints(allocator: Allocator, source: []const u8, diagram: *SequenceDiagram, hints: CompactionHints) !RenderResult {
-    const direction = hints.sequence_direction orelse diagram.direction;
-    return switch (direction) {
-        .LR => renderSequenceLR(allocator, source, diagram, hints),
-        else => renderSequenceTB(allocator, source, diagram, hints),
-    };
-}
-
-fn renderSequenceTB(allocator: Allocator, source: []const u8, diagram: *SequenceDiagram, hints: CompactionHints) !RenderResult {
-    const options = hints.render_options;
+fn renderSequenceTB(allocator: Allocator, source: []const u8, diagram: *SequenceDiagram, spacing: fit.Spacing, max_width: u32) !RenderResult {
     if (diagram.participants.items.len == 0) {
         return .{
             .output = "",
@@ -70,8 +59,8 @@ fn renderSequenceTB(allocator: Allocator, source: []const u8, diagram: *Sequence
     const participant_height: u32 = 3;
     const normal_row_height: u32 = 2;
     const self_msg_row_height: u32 = 4;
-    const min_participant_spacing: u32 = hints.sequence_participant_spacing;
-    const padding: u32 = hints.sequence_padding;
+    const min_participant_spacing: u32 = spacing.participant;
+    const padding: u32 = spacing.padding;
     const self_msg_loop_width: u32 = 4;
     const self_msg_text_offset: u32 = 2;
     const note_row_height: u32 = 3;
@@ -114,7 +103,7 @@ fn renderSequenceTB(allocator: Allocator, source: []const u8, diagram: *Sequence
     }
     total_width += max_note_width;
 
-    if (total_width > options.max_width) {
+    if (total_width > max_width) {
         return .{
             .output = source,
             .width = total_width,
@@ -130,14 +119,14 @@ fn renderSequenceTB(allocator: Allocator, source: []const u8, diagram: *Sequence
     defer canvas.deinit();
 
     for (diagram.participants.items) |*p| {
-        drawParticipantBox(&canvas, p, 0, options);
+        drawParticipantBox(&canvas, p, 0);
     }
 
     const lifeline_start: i32 = @intCast(participant_height);
     const lifeline_end: i32 = @intCast(total_height - 1);
     for (diagram.participants.items) |*p| {
         const center_x = (p.x orelse 0) + @as(i32, @intCast(p.box_width / 2));
-        drawLifeline(&canvas, center_x, lifeline_start, lifeline_end, options);
+        drawLifeline(&canvas, center_x, lifeline_start, lifeline_end);
     }
 
     const max_participants = 16;
@@ -147,7 +136,7 @@ fn renderSequenceTB(allocator: Allocator, source: []const u8, diagram: *Sequence
     for (diagram.elements.items) |element| {
         switch (element) {
             .message => |msg| {
-                drawSequenceMessage(&canvas, &msg, diagram, current_y, options);
+                drawSequenceMessage(&canvas, &msg, diagram, current_y);
                 if (msg.is_self_message) {
                     current_y += @intCast(self_msg_row_height);
                 } else {
@@ -155,7 +144,7 @@ fn renderSequenceTB(allocator: Allocator, source: []const u8, diagram: *Sequence
                 }
             },
             .note => |note| {
-                drawSequenceNote(&canvas, &note, diagram, current_y, options);
+                drawSequenceNote(&canvas, &note, diagram, current_y);
                 current_y += @intCast(note_row_height);
             },
             .activation => |act| {
@@ -167,7 +156,7 @@ fn renderSequenceTB(allocator: Allocator, source: []const u8, diagram: *Sequence
                             const start_y = activation_start_y[idx];
                             if (start_y >= 0) {
                                 if (diagram.getParticipant(act.participant)) |p| {
-                                    drawActivationBox(&canvas, p, start_y, current_y - 1, options);
+                                    drawActivationBox(&canvas, p, start_y, current_y - 1);
                                 }
                                 activation_start_y[idx] = -1;
                             }
@@ -189,8 +178,7 @@ fn renderSequenceTB(allocator: Allocator, source: []const u8, diagram: *Sequence
     };
 }
 
-fn renderSequenceLR(allocator: Allocator, source: []const u8, diagram: *SequenceDiagram, hints: CompactionHints) !RenderResult {
-    const options = hints.render_options;
+fn renderSequenceLR(allocator: Allocator, source: []const u8, diagram: *SequenceDiagram, spacing: fit.Spacing, max_width: u32) !RenderResult {
     if (diagram.participants.items.len == 0) {
         return .{
             .output = "",
@@ -202,10 +190,10 @@ fn renderSequenceLR(allocator: Allocator, source: []const u8, diagram: *Sequence
     }
 
     const participant_height: u32 = 3;
-    const participant_spacing: u32 = hints.sequence_participant_spacing;
-    const padding: u32 = hints.sequence_padding;
+    const participant_spacing: u32 = spacing.participant;
+    const padding: u32 = spacing.padding;
     const min_box_width: u32 = 8;
-    const min_column_width: u32 = @max(hints.sequence_participant_spacing + 4, 6);
+    const min_column_width: u32 = @max(spacing.participant + 4, 6);
 
     var max_box_width: u32 = min_box_width;
     for (diagram.participants.items) |*p| {
@@ -239,7 +227,7 @@ fn renderSequenceLR(allocator: Allocator, source: []const u8, diagram: *Sequence
     }
     total_width += padding;
 
-    if (total_width > options.max_width) {
+    if (total_width > max_width) {
         return .{
             .output = source,
             .width = total_width,
@@ -253,13 +241,13 @@ fn renderSequenceLR(allocator: Allocator, source: []const u8, diagram: *Sequence
     defer canvas.deinit();
 
     for (diagram.participants.items) |*p| {
-        drawParticipantBox(&canvas, p, p.y orelse 0, options);
+        drawParticipantBox(&canvas, p, p.y orelse 0);
     }
 
     const lifeline_start_x: i32 = @intCast(padding + max_box_width);
     const lifeline_end_x: i32 = @intCast(total_width - padding - 1);
     for (diagram.participants.items) |*p| {
-        drawLifelineHorizontal(&canvas, (p.y orelse 0) + 1, lifeline_start_x, lifeline_end_x, options);
+        drawLifelineHorizontal(&canvas, (p.y orelse 0) + 1, lifeline_start_x, lifeline_end_x);
     }
 
     const max_participants = 16;
@@ -269,10 +257,10 @@ fn renderSequenceLR(allocator: Allocator, source: []const u8, diagram: *Sequence
     for (diagram.elements.items) |element| {
         switch (element) {
             .message => |msg| {
-                current_x += drawSequenceMessageLR(&canvas, &msg, diagram, current_x, options);
+                current_x += drawSequenceMessageLR(&canvas, &msg, diagram, current_x);
             },
             .note => |note| {
-                current_x += drawSequenceNoteLR(&canvas, &note, diagram, current_x, options);
+                current_x += drawSequenceNoteLR(&canvas, &note, diagram, current_x);
             },
             .activation => |act| {
                 if (diagram.getParticipantIndex(act.participant)) |idx| {
@@ -283,7 +271,7 @@ fn renderSequenceLR(allocator: Allocator, source: []const u8, diagram: *Sequence
                             const start_x = activation_start_x[idx];
                             if (start_x >= 0) {
                                 if (diagram.getParticipant(act.participant)) |p| {
-                                    drawActivationBoxLR(&canvas, p, start_x, current_x - 1, options);
+                                    drawActivationBoxLR(&canvas, p, start_x, current_x - 1);
                                 }
                                 activation_start_x[idx] = -1;
                             }
@@ -305,7 +293,7 @@ fn renderSequenceLR(allocator: Allocator, source: []const u8, diagram: *Sequence
     };
 }
 
-fn drawParticipantBox(canvas: *Canvas, participant: *const Participant, y: i32, options: RenderOptions) void {
+fn drawParticipantBox(canvas: *Canvas, participant: *const Participant, y: i32) void {
     const x = participant.x orelse 0;
     const w = participant.box_width;
     const name = participant.displayName();
@@ -317,29 +305,29 @@ fn drawParticipantBox(canvas: *Canvas, participant: *const Participant, y: i32, 
         .height = 3,
     };
 
-    const box_style = if (options.unicode_mode) types.unicode_rounded else types.ascii_box;
+    const box_style = types.unicode_rounded;
     canvas.drawBox(rect, box_style, .node_border);
     canvas.drawTextCentered(rect, name, .node_text);
 }
 
-fn drawLifeline(canvas: *Canvas, x: i32, y_start: i32, y_end: i32, options: RenderOptions) void {
-    const char: u21 = if (options.unicode_mode) LineChars.vertical_dotted else '|';
+fn drawLifeline(canvas: *Canvas, x: i32, y_start: i32, y_end: i32) void {
+    const char: u21 = LineChars.vertical_dotted;
     canvas.drawVerticalLine(x, y_start, y_end, char, .edge);
 }
 
-fn drawLifelineHorizontal(canvas: *Canvas, y: i32, x_start: i32, x_end: i32, options: RenderOptions) void {
-    const char: u21 = if (options.unicode_mode) LineChars.horizontal_dotted else '-';
+fn drawLifelineHorizontal(canvas: *Canvas, y: i32, x_start: i32, x_end: i32) void {
+    const char: u21 = LineChars.horizontal_dotted;
     canvas.drawHorizontalLine(y, x_start, x_end, char, .edge);
 }
 
-fn drawActivationBox(canvas: *Canvas, participant: *const Participant, y_start: i32, y_end: i32, options: RenderOptions) void {
+fn drawActivationBox(canvas: *Canvas, participant: *const Participant, y_start: i32, y_end: i32) void {
     const center_x = (participant.x orelse 0) + @as(i32, @intCast(participant.box_width / 2));
     const box_half_width: i32 = 1;
 
     const left = center_x - box_half_width;
     const right = center_x + box_half_width;
 
-    const box_style = if (options.unicode_mode) types.unicode_square else types.ascii_box;
+    const box_style = types.unicode_square;
 
     canvas.setChar(left, y_start, box_style.top_left, .node_border);
     canvas.setChar(center_x, y_start, box_style.horizontal, .node_border);
@@ -356,11 +344,11 @@ fn drawActivationBox(canvas: *Canvas, participant: *const Participant, y_start: 
     }
 }
 
-fn drawActivationBoxLR(canvas: *Canvas, participant: *const Participant, x_start: i32, x_end: i32, options: RenderOptions) void {
+fn drawActivationBoxLR(canvas: *Canvas, participant: *const Participant, x_start: i32, x_end: i32) void {
     const center_y = (participant.y orelse 0) + 1;
     const top = center_y - 1;
     const bottom = center_y + 1;
-    const box_style = if (options.unicode_mode) types.unicode_square else types.ascii_box;
+    const box_style = types.unicode_square;
 
     canvas.setChar(x_start, top, box_style.top_left, .node_border);
     canvas.setChar(x_end, top, box_style.top_right, .node_border);
@@ -376,7 +364,7 @@ fn drawActivationBoxLR(canvas: *Canvas, participant: *const Participant, x_start
     canvas.setChar(x_end, center_y, box_style.vertical, .node_border);
 }
 
-fn drawSequenceMessage(canvas: *Canvas, msg: *const Message, diagram: *const SequenceDiagram, y: i32, options: RenderOptions) void {
+fn drawSequenceMessage(canvas: *Canvas, msg: *const Message, diagram: *const SequenceDiagram, y: i32) void {
     const from_idx = diagram.getParticipantIndex(msg.from) orelse return;
     const to_idx = diagram.getParticipantIndex(msg.to) orelse return;
 
@@ -390,7 +378,7 @@ fn drawSequenceMessage(canvas: *Canvas, msg: *const Message, diagram: *const Seq
     const text = processLabel(msg.text, &text_buf);
 
     if (msg.is_self_message) {
-        drawSelfMessage(canvas, from_x, y, text, options);
+        drawSelfMessage(canvas, from_x, y, text);
         return;
     }
 
@@ -406,10 +394,7 @@ fn drawSequenceMessage(canvas: *Canvas, msg: *const Message, diagram: *const Seq
     canvas.drawHorizontalLine(y, left_x + 1, right_x - 1, line_char, .edge);
 
     if (msg.arrow_type.hasArrowhead()) {
-        const arrow_char: u21 = if (options.unicode_mode)
-            (if (going_right) Arrows.right_thin else Arrows.left_thin)
-        else
-            (if (going_right) '>' else '<');
+        const arrow_char: u21 = if (going_right) Arrows.right_thin else Arrows.left_thin;
         canvas.setChar(to_x, y, arrow_char, .edge);
     }
 
@@ -420,7 +405,7 @@ fn drawSequenceMessage(canvas: *Canvas, msg: *const Message, diagram: *const Seq
     }
 }
 
-fn drawSequenceMessageLR(canvas: *Canvas, msg: *const Message, diagram: *const SequenceDiagram, x: i32, options: RenderOptions) i32 {
+fn drawSequenceMessageLR(canvas: *Canvas, msg: *const Message, diagram: *const SequenceDiagram, x: i32) i32 {
     const from_idx = diagram.getParticipantIndex(msg.from) orelse return 2;
     const to_idx = diagram.getParticipantIndex(msg.to) orelse return 2;
 
@@ -434,7 +419,7 @@ fn drawSequenceMessageLR(canvas: *Canvas, msg: *const Message, diagram: *const S
     const used_width: i32 = @intCast(@max(text.len + 6, 8));
 
     if (msg.is_self_message) {
-        drawSelfMessageLR(canvas, from_y, x, text, options);
+        drawSelfMessageLR(canvas, from_y, x, text);
         return @intCast(@max(text.len + 8, 8));
     }
 
@@ -448,10 +433,7 @@ fn drawSequenceMessageLR(canvas: *Canvas, msg: *const Message, diagram: *const S
     }
 
     if (msg.arrow_type.hasArrowhead()) {
-        const arrow_char: u21 = if (options.unicode_mode)
-            (if (going_down) Arrows.down_thin else Arrows.up_thin)
-        else
-            (if (going_down) 'v' else '^');
+        const arrow_char: u21 = if (going_down) Arrows.down_thin else Arrows.up_thin;
         canvas.setChar(x, to_y, arrow_char, .edge);
     }
 
@@ -462,24 +444,24 @@ fn drawSequenceMessageLR(canvas: *Canvas, msg: *const Message, diagram: *const S
     return used_width;
 }
 
-fn drawSelfMessage(canvas: *Canvas, x: i32, y: i32, text: []const u8, options: RenderOptions) void {
+fn drawSelfMessage(canvas: *Canvas, x: i32, y: i32, text: []const u8) void {
     const loop_width: i32 = 4;
 
-    const h_char: u21 = if (options.unicode_mode) LineChars.horizontal else '-';
+    const h_char: u21 = LineChars.horizontal;
     canvas.drawHorizontalLine(y - 1, x + 1, x + loop_width, h_char, .edge);
 
-    const corner_tr: u21 = if (options.unicode_mode) LineChars.corner_sw else '+';
+    const corner_tr: u21 = LineChars.corner_sw;
     canvas.setChar(x + loop_width, y - 1, corner_tr, .edge);
 
-    const v_char: u21 = if (options.unicode_mode) LineChars.vertical else '|';
+    const v_char: u21 = LineChars.vertical;
     canvas.setChar(x + loop_width, y, v_char, .edge);
 
-    const corner_br: u21 = if (options.unicode_mode) LineChars.corner_nw else '+';
+    const corner_br: u21 = LineChars.corner_nw;
     canvas.setChar(x + loop_width, y + 1, corner_br, .edge);
 
     canvas.drawHorizontalLine(y + 1, x + 1, x + loop_width - 1, h_char, .edge);
 
-    const arrow: u21 = if (options.unicode_mode) Arrows.left_thin else '<';
+    const arrow: u21 = Arrows.left_thin;
     canvas.setChar(x, y + 1, arrow, .edge);
 
     if (text.len > 0) {
@@ -487,24 +469,24 @@ fn drawSelfMessage(canvas: *Canvas, x: i32, y: i32, text: []const u8, options: R
     }
 }
 
-fn drawSelfMessageLR(canvas: *Canvas, y: i32, x: i32, text: []const u8, options: RenderOptions) void {
-    const v_char: u21 = if (options.unicode_mode) LineChars.vertical else '|';
-    const h_char: u21 = if (options.unicode_mode) LineChars.horizontal else '-';
-    const corner_bl: u21 = if (options.unicode_mode) LineChars.corner_ne else '+';
-    const corner_br: u21 = if (options.unicode_mode) LineChars.corner_nw else '+';
+fn drawSelfMessageLR(canvas: *Canvas, y: i32, x: i32, text: []const u8) void {
+    const v_char: u21 = LineChars.vertical;
+    const h_char: u21 = LineChars.horizontal;
+    const corner_bl: u21 = LineChars.corner_ne;
+    const corner_br: u21 = LineChars.corner_nw;
 
     canvas.drawVerticalLine(x, y + 1, y + 3, v_char, .edge);
     canvas.setChar(x, y + 3, corner_bl, .edge);
     canvas.drawHorizontalLine(y + 3, x + 1, x + 3, h_char, .edge);
     canvas.setChar(x + 3, y + 3, corner_br, .edge);
-    canvas.setChar(x + 3, y, if (options.unicode_mode) Arrows.up_thin else '^', .edge);
+    canvas.setChar(x + 3, y, Arrows.up_thin, .edge);
 
     if (text.len > 0) {
         canvas.drawText(x + 5, y + 1, text, .edge_label);
     }
 }
 
-fn drawSequenceNote(canvas: *Canvas, note: *const model.SequenceNote, diagram: *const SequenceDiagram, y: i32, options: RenderOptions) void {
+fn drawSequenceNote(canvas: *Canvas, note: *const model.SequenceNote, diagram: *const SequenceDiagram, y: i32) void {
     var text_buf: [256]u8 = undefined;
     const text = processLabel(note.text, &text_buf);
 
@@ -539,7 +521,7 @@ fn drawSequenceNote(canvas: *Canvas, note: *const model.SequenceNote, diagram: *
         },
     }
 
-    const box_style = if (options.unicode_mode) types.unicode_rounded else types.ascii_box;
+    const box_style = types.unicode_rounded;
     const rect = Rect{
         .x = box_x,
         .y = y,
@@ -550,7 +532,7 @@ fn drawSequenceNote(canvas: *Canvas, note: *const model.SequenceNote, diagram: *
     canvas.drawText(box_x + 2, y + 1, text, .edge_label);
 }
 
-fn drawSequenceNoteLR(canvas: *Canvas, note: *const model.SequenceNote, diagram: *const SequenceDiagram, x: i32, options: RenderOptions) i32 {
+fn drawSequenceNoteLR(canvas: *Canvas, note: *const model.SequenceNote, diagram: *const SequenceDiagram, x: i32) i32 {
     var text_buf: [256]u8 = undefined;
     const text = processLabel(note.text, &text_buf);
     const box_width: i32 = @intCast(text.len + 4);
@@ -572,7 +554,7 @@ fn drawSequenceNoteLR(canvas: *Canvas, note: *const model.SequenceNote, diagram:
         }
     }
 
-    const box_style = if (options.unicode_mode) types.unicode_rounded else types.ascii_box;
+    const box_style = types.unicode_rounded;
     const rect = Rect{ .x = x, .y = box_y, .width = @intCast(box_width), .height = 3 };
     canvas.drawBox(rect, box_style, .edge_label);
     canvas.drawText(x + 2, box_y + 1, text, .edge_label);

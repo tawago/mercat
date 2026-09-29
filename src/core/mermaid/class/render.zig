@@ -5,7 +5,6 @@ const parse = @import("parse.zig");
 const model = @import("model.zig");
 const canvas_mod = @import("../shared/canvas.zig");
 
-const RenderOptions = types.RenderOptions;
 const RenderResult = types.RenderResult;
 const ClassDiagram = model.ClassDiagram;
 const Class = model.Class;
@@ -14,7 +13,7 @@ const LineChars = types.LineChars;
 
 const Canvas = canvas_mod.Canvas;
 
-pub fn renderClassDiagram(allocator: Allocator, source: []const u8, options: RenderOptions) !RenderResult {
+pub fn renderClassDiagram(allocator: Allocator, source: []const u8, max_width: u32) !RenderResult {
     var diagram = try parse.parse(allocator, source);
     defer diagram.deinit();
 
@@ -35,7 +34,7 @@ pub fn renderClassDiagram(allocator: Allocator, source: []const u8, options: Ren
     const header_height: u32 = 3;
     const separator_height: u32 = 1;
 
-    var max_width: u32 = 0;
+    var widest_row: u32 = 0;
     var class_heights: std.ArrayList(u32) = .empty;
     defer class_heights.deinit(allocator);
     var class_widths: std.ArrayList(u32) = .empty;
@@ -89,7 +88,7 @@ pub fn renderClassDiagram(allocator: Allocator, source: []const u8, options: Ren
 
             if (col >= classes_per_row) {
                 const x_end: u32 = @intCast(current_x);
-                if (x_end > max_width) max_width = x_end;
+                if (x_end > widest_row) widest_row = x_end;
                 current_x = 1;
                 current_y += @intCast(row_height + vertical_spacing);
                 row_height = 0;
@@ -98,10 +97,10 @@ pub fn renderClassDiagram(allocator: Allocator, source: []const u8, options: Ren
         }
     }
 
-    const total_width: u32 = if (max_width > 0) max_width else @intCast(current_x);
+    const total_width: u32 = if (widest_row > 0) widest_row else @intCast(current_x);
     const total_height: u32 = @intCast(current_y + @as(i32, @intCast(row_height)) + 2);
 
-    if (total_width > options.max_width) {
+    if (total_width > max_width) {
         return .{
             .output = source,
             .width = total_width,
@@ -116,12 +115,12 @@ pub fn renderClassDiagram(allocator: Allocator, source: []const u8, options: Ren
 
     for (diagram.class_order.items) |class_name| {
         if (diagram.getClass(class_name)) |class| {
-            drawClassBox(&canvas, class, options);
+            drawClassBox(&canvas, class);
         }
     }
 
     for (diagram.relations.items) |*rel| {
-        drawClassRelation(&canvas, rel, &diagram, options);
+        drawClassRelation(&canvas, rel, &diagram);
     }
 
     const output = try canvas.toString(allocator);
@@ -135,13 +134,13 @@ pub fn renderClassDiagram(allocator: Allocator, source: []const u8, options: Ren
     };
 }
 
-fn drawClassBox(canvas: *Canvas, class: *const Class, options: RenderOptions) void {
+fn drawClassBox(canvas: *Canvas, class: *const Class) void {
     const x = class.x orelse return;
     const y = class.y orelse return;
     const w: i32 = @intCast(class.width);
     const h: i32 = @intCast(class.height);
 
-    const box_style = if (options.unicode_mode) types.unicode_square else types.ascii_box;
+    const box_style = types.unicode_square;
 
     canvas.drawBox(.{
         .x = x,
@@ -210,7 +209,7 @@ fn drawClassBox(canvas: *Canvas, class: *const Class, options: RenderOptions) vo
     }
 }
 
-fn drawClassRelation(canvas: *Canvas, rel: *const ClassRelation, diagram: *const ClassDiagram, options: RenderOptions) void {
+fn drawClassRelation(canvas: *Canvas, rel: *const ClassRelation, diagram: *const ClassDiagram) void {
     const from_class = diagram.getClass(rel.from) orelse return;
     const to_class = diagram.getClass(rel.to) orelse return;
 
@@ -266,8 +265,8 @@ fn drawClassRelation(canvas: *Canvas, rel: *const ClassRelation, diagram: *const
         canvas.drawVerticalLine(end_x, mid_y, end_y, v_char, .edge);
     }
 
-    const arrow_info = rel.relation_type.getArrowChars(options.unicode_mode);
-    if (arrow_info.end.len > 0) {
-        canvas.drawText(end_x, end_y - 1, arrow_info.end, .edge);
+    const marker = rel.relation_type.endMarker();
+    if (marker.len > 0) {
+        canvas.drawText(end_x, end_y - 1, marker, .edge);
     }
 }

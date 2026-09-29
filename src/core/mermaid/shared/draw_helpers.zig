@@ -2,7 +2,6 @@ const std = @import("std");
 const types = @import("../types.zig");
 const canvas_mod = @import("canvas.zig");
 
-const RenderOptions = types.RenderOptions;
 const Rect = types.Rect;
 
 const Canvas = canvas_mod.Canvas;
@@ -33,10 +32,10 @@ pub fn processedLabelLen(label: []const u8) usize {
     return processLabel(label, &buf).len;
 }
 
-pub fn drawWrappedTextCentered(canvas: *Canvas, rect: Rect, raw_label: []const u8, options: RenderOptions, top_inset: i32) void {
+pub fn drawWrappedTextCentered(canvas: *Canvas, rect: Rect, raw_label: []const u8, top_inset: i32) void {
     var storage: [8][128]u8 = undefined;
     var lines: [8][]const u8 = undefined;
-    const line_count = wrapLabelLines(raw_label, options.max_label_width, &storage, &lines);
+    const line_count = wrapLabelLines(raw_label, &storage, &lines);
     if (line_count == 0) return;
 
     const box_height: i32 = @intCast(rect.height);
@@ -50,10 +49,10 @@ pub fn drawWrappedTextCentered(canvas: *Canvas, rect: Rect, raw_label: []const u
     }
 }
 
-pub fn wrapLabelLines(raw_label: []const u8, max_label_width: ?u32, storage: *[8][128]u8, out_lines: *[8][]const u8) usize {
+pub fn wrapLabelLines(raw_label: []const u8, storage: *[8][128]u8, out_lines: *[8][]const u8) usize {
     var processed_buf: [256]u8 = undefined;
     const processed = processLabel(raw_label, &processed_buf);
-    const wrap_width: usize = if (max_label_width) |w| @intCast(@max(w, 1)) else processed.len;
+    const wrap_width: usize = processed.len;
 
     var line_count: usize = 0;
     var line_len: usize = 0;
@@ -111,7 +110,7 @@ pub fn wrapLabelLines(raw_label: []const u8, max_label_width: ?u32, storage: *[8
     return line_count;
 }
 
-pub fn drawDiamondNode(canvas: *Canvas, rect: Rect, label: []const u8, options: RenderOptions) void {
+pub fn drawDiamondNode(canvas: *Canvas, rect: Rect, label: []const u8) void {
     const x = rect.x;
     const y = rect.y;
     const w: i32 = @intCast(rect.width);
@@ -127,5 +126,5 @@ pub fn drawDiamondNode(canvas: *Canvas, rect: Rect, label: []const u8, options: 
         canvas.setChar(mid_x, y + h - 1, '_', .node_border);
     }
 
-    drawWrappedTextCentered(canvas, rect, label, options, 0);
+    drawWrappedTextCentered(canvas, rect, label, 0);
 }

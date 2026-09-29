@@ -5,7 +5,6 @@ const parse = @import("parse.zig");
 const model = @import("model.zig");
 const canvas_mod = @import("../shared/canvas.zig");
 
-const RenderOptions = types.RenderOptions;
 const RenderResult = types.RenderResult;
 const ERDiagram = model.ERDiagram;
 const Entity = model.Entity;
@@ -14,7 +13,7 @@ const LineChars = types.LineChars;
 
 const Canvas = canvas_mod.Canvas;
 
-pub fn renderERDiagram(allocator: Allocator, source: []const u8, options: RenderOptions) !RenderResult {
+pub fn renderERDiagram(allocator: Allocator, source: []const u8, max_width: u32) !RenderResult {
     var diagram = try parse.parse(allocator, source);
     defer diagram.deinit();
 
@@ -58,7 +57,7 @@ pub fn renderERDiagram(allocator: Allocator, source: []const u8, options: Render
     var total_height: u32 = entity_height + vertical_spacing + 2;
     total_height += @intCast(diagram.relations.items.len * 2);
 
-    if (total_width > options.max_width) {
+    if (total_width > max_width) {
         return .{
             .output = source,
             .width = total_width,
@@ -73,12 +72,12 @@ pub fn renderERDiagram(allocator: Allocator, source: []const u8, options: Render
 
     for (diagram.entity_order.items) |entity_name| {
         if (diagram.getEntity(entity_name)) |entity| {
-            drawEntityBox(&canvas, entity, options);
+            drawEntityBox(&canvas, entity);
         }
     }
 
     for (diagram.relations.items) |*rel| {
-        drawERRelation(&canvas, rel, &diagram, options);
+        drawERRelation(&canvas, rel, &diagram);
     }
 
     const output = try canvas.toString(allocator);
@@ -92,12 +91,12 @@ pub fn renderERDiagram(allocator: Allocator, source: []const u8, options: Render
     };
 }
 
-fn drawEntityBox(canvas: *Canvas, entity: *const Entity, options: RenderOptions) void {
+fn drawEntityBox(canvas: *Canvas, entity: *const Entity) void {
     const x = entity.x orelse return;
     const y = entity.y orelse return;
     const w: i32 = @intCast(entity.width);
 
-    const box_style = if (options.unicode_mode) types.unicode_square else types.ascii_box;
+    const box_style = types.unicode_square;
 
     canvas.drawBox(.{
         .x = x,
@@ -111,7 +110,7 @@ fn drawEntityBox(canvas: *Canvas, entity: *const Entity, options: RenderOptions)
     canvas.drawText(name_x, y + 1, entity.name, .node_text);
 }
 
-fn drawERRelation(canvas: *Canvas, rel: *const ERRelation, diagram: *const ERDiagram, options: RenderOptions) void {
+fn drawERRelation(canvas: *Canvas, rel: *const ERRelation, diagram: *const ERDiagram) void {
     const from_entity = diagram.getEntity(rel.from) orelse return;
     const to_entity = diagram.getEntity(rel.to) orelse return;
 
@@ -125,23 +124,23 @@ fn drawERRelation(canvas: *Canvas, rel: *const ERRelation, diagram: *const ERDia
     const end_x = to_x;
     const end_y = to_y + @as(i32, @intCast(to_entity.height / 2));
 
-    const line_char: u21 = if (options.unicode_mode) LineChars.horizontal else '-';
+    const line_char: u21 = LineChars.horizontal;
 
     if (start_y == end_y) {
         canvas.drawHorizontalLine(start_y, start_x, end_x, line_char, .edge);
     } else {
         const mid_x = @divFloor(start_x + end_x, 2);
-        const v_char: u21 = if (options.unicode_mode) LineChars.vertical else '|';
+        const v_char: u21 = LineChars.vertical;
 
         canvas.drawHorizontalLine(start_y, start_x, mid_x, line_char, .edge);
         canvas.drawVerticalLine(mid_x, @min(start_y, end_y), @max(start_y, end_y), v_char, .edge);
         canvas.drawHorizontalLine(end_y, mid_x, end_x, line_char, .edge);
     }
 
-    const left_card = rel.from_cardinality.toStringLeft(options.unicode_mode);
+    const left_card = rel.from_cardinality.toStringLeft();
     canvas.drawText(start_x + 1, start_y, left_card, .edge_label);
 
-    const right_card = rel.to_cardinality.toStringRight(options.unicode_mode);
+    const right_card = rel.to_cardinality.toStringRight();
     canvas.drawText(end_x - @as(i32, @intCast(right_card.len)) - 1, end_y, right_card, .edge_label);
 
     if (rel.label) |label| {

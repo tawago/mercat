@@ -59,15 +59,6 @@ pub const unicode_rounded: BoxChars = .{
     .vertical = 0x2502,
 };
 
-pub const ascii_box: BoxChars = .{
-    .top_left = '+',
-    .top_right = '+',
-    .bottom_left = '+',
-    .bottom_right = '+',
-    .horizontal = '-',
-    .vertical = '|',
-};
-
 pub const BoxDrawingStyle = enum {
     standard,
     rounded,
@@ -78,19 +69,12 @@ pub const BoxDrawingStyle = enum {
 
 pub const Arrows = struct {
     pub const right: u21 = 0x25B6;
-    pub const left: u21 = 0x25C0;
-    pub const up: u21 = 0x25B2;
     pub const down: u21 = 0x25BC;
 
     pub const right_thin: u21 = 0x25BA;
     pub const left_thin: u21 = 0x25C4;
     pub const up_thin: u21 = 0x25B2;
     pub const down_thin: u21 = 0x25BC;
-
-    pub const right_ascii: u21 = '>';
-    pub const left_ascii: u21 = '<';
-    pub const up_ascii: u21 = '^';
-    pub const down_ascii: u21 = 'v';
 };
 
 pub const LineChars = struct {
@@ -102,20 +86,11 @@ pub const LineChars = struct {
     pub const corner_sw: u21 = 0x2510;
     pub const tee_left: u21 = 0x2524;
     pub const tee_right: u21 = 0x251C;
-    pub const tee_up: u21 = 0x2534;
-    pub const tee_down: u21 = 0x252C;
-    pub const cross: u21 = 0x253C;
 
     pub const horizontal_dotted: u21 = 0x2504;
     pub const vertical_dotted: u21 = 0x2506;
 
-    pub const horizontal_dashed: u21 = 0x2508;
-    pub const vertical_dashed: u21 = 0x250A;
-
-    pub const tee_down_double: u21 = 0x2565;
-
     pub const horizontal_thick: u21 = 0x2501;
-    pub const vertical_thick: u21 = 0x2503;
 };
 
 pub const Point = struct {

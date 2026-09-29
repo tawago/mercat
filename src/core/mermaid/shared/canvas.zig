@@ -6,7 +6,6 @@ const Point = types.Point;
 const Rect = types.Rect;
 const BoxChars = types.BoxChars;
 const LineChars = types.LineChars;
-const Arrows = types.Arrows;
 
 pub const Priority = enum(u8) {
     background = 0,

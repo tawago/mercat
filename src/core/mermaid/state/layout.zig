@@ -1,23 +1,22 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
-const types = @import("../types.zig");
 const model = @import("model.zig");
 
-const RenderOptions = types.RenderOptions;
 const StateDiagram = model.StateDiagram;
+
+const horizontal_spacing: u32 = 8;
+const vertical_spacing: u32 = 3;
 
 pub const StateLayout = struct {
     allocator: Allocator,
     diagram: *StateDiagram,
-    options: RenderOptions,
 
     layers: std.ArrayList(std.ArrayList([]const u8)),
 
-    pub fn init(allocator: Allocator, diagram: *StateDiagram, options: RenderOptions) StateLayout {
+    pub fn init(allocator: Allocator, diagram: *StateDiagram) StateLayout {
         return .{
             .allocator = allocator,
             .diagram = diagram,
-            .options = options,
             .layers = .empty,
         };
     }
@@ -160,12 +159,12 @@ pub const StateLayout = struct {
                 if (self.diagram.getState(id)) |state| {
                     layer_width += state.width;
                     if (layer.items.len > 1) {
-                        layer_width += self.options.horizontal_spacing;
+                        layer_width += horizontal_spacing;
                     }
                 }
             }
-            if (layer.items.len > 1 and layer_width >= self.options.horizontal_spacing) {
-                layer_width -= self.options.horizontal_spacing;
+            if (layer.items.len > 1 and layer_width >= horizontal_spacing) {
+                layer_width -= horizontal_spacing;
             }
             layer_widths.append(self.allocator, layer_width) catch {};
             if (layer_width > max_layer_width) max_layer_width = layer_width;
@@ -202,14 +201,14 @@ pub const StateLayout = struct {
                 if (self.diagram.getStateMut(id)) |state| {
                     state.x = x;
                     state.y = y;
-                    x += @intCast(state.width + self.options.horizontal_spacing);
+                    x += @intCast(state.width + horizontal_spacing);
                     if (state.height > max_height) max_height = state.height;
                 }
             }
 
             const transition_count = if (layer_idx < layer_transition_counts.items.len) layer_transition_counts.items[layer_idx] else 1;
             const extra_spacing: u32 = if (transition_count > 1) (transition_count - 1) * 2 else 0;
-            const dynamic_spacing = self.options.vertical_spacing + extra_spacing;
+            const dynamic_spacing = vertical_spacing + extra_spacing;
             y += @intCast(max_height + dynamic_spacing);
         }
 
