@@ -43,5 +43,5 @@ fn decomposeScope(
 
 test {
     _ = @import("motif/motif_test.zig");
-    _ = @import("motif/pack.zig");
+    _ = @import("motif/pack_test.zig");
 }

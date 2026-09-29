@@ -92,7 +92,7 @@ fn parallelMotif(ctx: *Ctx, branches: []const u32) Error!usize {
         }
     }
     if (all_simple) {
-        // guarded-by: pack.zig "parallel TD graph: one synthetic cluster per branch, members reassigned"
+        // guarded-by: pack_test.zig "parallel TD graph: one synthetic cluster per branch, members reassigned"
         var members: std.ArrayListUnmanaged(sg.NodeId) = .empty;
         var spans: std.ArrayListUnmanaged([2]usize) = .empty;
         for (branches) |b| {
