@@ -66,10 +66,6 @@ pub const LineChars = struct {
 pub const Point = struct {
     x: i32,
     y: i32,
-
-    pub fn eql(self: Point, other: Point) bool {
-        return self.x == other.x and self.y == other.y;
-    }
 };
 
 pub const Rect = struct {
@@ -78,19 +74,8 @@ pub const Rect = struct {
     width: u32,
     height: u32,
 
-    pub fn contains(self: Rect, p: Point) bool {
-        return p.x >= self.x and
-            p.x < self.x + @as(i32, @intCast(self.width)) and
-            p.y >= self.y and
-            p.y < self.y + @as(i32, @intCast(self.height));
-    }
-
     pub fn right(self: Rect) i32 {
         return self.x + @as(i32, @intCast(self.width));
-    }
-
-    pub fn bottom(self: Rect) i32 {
-        return self.y + @as(i32, @intCast(self.height));
     }
 };
 

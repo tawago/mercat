@@ -129,7 +129,7 @@ fn drawState(canvas: *Canvas, state: *const State) void {
                 canvas.setChar(x + i, y, h_char, .node_border);
             }
         },
-        .regular, .composite => {
+        .regular => {
             const rect = Rect{
                 .x = x,
                 .y = y,

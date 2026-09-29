@@ -31,7 +31,6 @@ pub const Visibility = enum {
 
 pub const ClassMember = struct {
     name: []const u8,
-    member_type: []const u8,
     visibility: Visibility = .none,
     is_method: bool = false,
 };

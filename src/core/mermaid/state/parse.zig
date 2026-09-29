@@ -316,7 +316,6 @@ fn parseStateNote(s: *Scanner, diagram: *StateDiagram) !void {
     const text = std.mem.trimRight(u8, s.source[text_start..s.pos], " \t\r");
 
     try diagram.addNote(.{
-        .state_id = state_id,
         .text = text,
         .position = position,
     });

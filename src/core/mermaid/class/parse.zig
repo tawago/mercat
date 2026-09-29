@@ -172,19 +172,14 @@ fn parseClassMember(s: *Scanner, diagram: *ClassDiagram, class_name: []const u8)
 
     const is_method = std.mem.indexOf(u8, member_text, "(") != null;
 
-    var member_type: []const u8 = "";
     var name: []const u8 = member_text;
 
     if (std.mem.indexOf(u8, member_text, " ")) |space_idx| {
-        if (!is_method) {
-            member_type = member_text[0..space_idx];
-            name = member_text[space_idx + 1 ..];
-        }
+        if (!is_method) name = member_text[space_idx + 1 ..];
     }
 
     try class.addMember(.{
         .name = name,
-        .member_type = member_type,
         .visibility = visibility,
         .is_method = is_method,
     });

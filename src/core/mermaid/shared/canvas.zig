@@ -2,7 +2,6 @@ const std = @import("std");
 const Allocator = std.mem.Allocator;
 const unicode = @import("unicode");
 const types = @import("../types.zig");
-const Point = types.Point;
 const Rect = types.Rect;
 const BoxChars = types.BoxChars;
 const LineChars = types.LineChars;

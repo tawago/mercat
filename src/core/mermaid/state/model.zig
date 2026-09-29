@@ -12,7 +12,6 @@ pub const StateType = enum {
     choice,
     fork,
     join,
-    composite,
 };
 
 pub const State = struct {
@@ -26,12 +25,6 @@ pub const State = struct {
     width: u32 = 0,
     height: u32 = 0,
     layer: ?u32 = null,
-
-    pub fn displayName(self: *const State) []const u8 {
-        if (self.state_type == .start) return "[*]";
-        if (self.state_type == .end) return "[*]";
-        return self.label orelse self.id;
-    }
 };
 
 pub const StateTransition = struct {
@@ -41,7 +34,6 @@ pub const StateTransition = struct {
 };
 
 pub const StateNote = struct {
-    state_id: []const u8,
     text: []const u8,
     position: NotePosition = .right_of,
 };
