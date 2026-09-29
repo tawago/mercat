@@ -13,7 +13,7 @@ const FanKey = pack_mod.FanKey;
 const Census = census_mod.Census;
 const Group = census_mod.Group;
 const centerOf = census_mod.centerOf;
-const edgeClaim = @import("gap_rows.zig").edgeClaim;
+const edgeClaim = pack_mod.edgeClaim;
 
 pub const Detour = struct {
     gap: u32,

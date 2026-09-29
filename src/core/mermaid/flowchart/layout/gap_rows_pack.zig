@@ -271,6 +271,16 @@ fn packGap(a: std.mem.Allocator, claims: []Claim, posts: []const Post, gap: u32,
     return true;
 }
 
+pub fn edgeClaim(a: std.mem.Allocator, gap: u32, dep: i32, arr: i32, kind: Kind, end: End, base_ok: bool, decorated_source: bool, edge: sg.EdgeId) error{OutOfMemory}!Claim {
+    const edges = try a.alloc(sg.EdgeId, 1);
+    edges[0] = edge;
+    const stems = try a.alloc(i32, 1);
+    stems[0] = dep;
+    const taps = try a.alloc(i32, 1);
+    taps[0] = arr;
+    return .{ .gap = gap, .lo = @min(dep, arr), .hi = @max(dep, arr), .height = 1 + @as(u32, @intFromBool(decorated_source)), .kind = kind, .end = end, .base_ok = base_ok, .edges = edges, .stems = stems, .taps = taps };
+}
+
 pub fn pack(a: std.mem.Allocator, raw: []const Claim, posts: []const Post, bases: []const u32) error{OutOfMemory}!Ledger {
     return packSub(a, raw, posts, bases, &.{});
 }

@@ -21,19 +21,10 @@ pub const Ledger = pack_mod.Ledger;
 pub const Super = census_mod.Super;
 pub const predictPorts = census_mod.predictPorts;
 const packSub = pack_mod.packSub;
+const edgeClaim = pack_mod.edgeClaim;
 const Census = census_mod.Census;
 const centerOf = census_mod.centerOf;
 const drawnByEligible = fans_mod.drawnByEligible;
-
-pub fn edgeClaim(a: std.mem.Allocator, gap: u32, dep: i32, arr: i32, kind: Kind, end: End, base_ok: bool, decorated_source: bool, edge: sg.EdgeId) error{OutOfMemory}!Claim {
-    const edges = try a.alloc(sg.EdgeId, 1);
-    edges[0] = edge;
-    const stems = try a.alloc(i32, 1);
-    stems[0] = dep;
-    const taps = try a.alloc(i32, 1);
-    taps[0] = arr;
-    return .{ .gap = gap, .lo = @min(dep, arr), .hi = @max(dep, arr), .height = 1 + @as(u32, @intFromBool(decorated_source)), .kind = kind, .end = end, .base_ok = base_ok, .edges = edges, .stems = stems, .taps = taps };
-}
 
 fn edgeClaims(comptime G: type, a: std.mem.Allocator, c: Census, geom: []const G, fans: []const fan_mod.Fan, eligible: []const bool, bundles: pb.RealizedBundles, per_peer: std.AutoHashMapUnmanaged(sg.EdgeId, void), claims: *std.ArrayListUnmanaged(Claim), posts: *std.ArrayListUnmanaged(Post)) error{OutOfMemory}!void {
     for (c.graph.edges) |e| {
