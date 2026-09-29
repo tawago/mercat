@@ -1,6 +1,5 @@
 const std = @import("std");
 const sketch = @import("sketch.zig");
-const ledger = @import("base/ledger.zig");
 const bundle_mod = @import("base/bundle.zig");
 
 const EdgeId = sketch.EdgeId;

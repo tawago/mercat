@@ -234,12 +234,10 @@ fn walkPolyline(
 }
 
 pub fn rasterizeEdges(
-    allocator: std.mem.Allocator,
     lat: *lattice.Lattice,
     s: sketch.Sketch,
     subgraph_edges: prim.SubgraphEdges,
 ) RasterError!EdgeRasterReport {
-    _ = allocator;
     var cells_lost: u32 = 0;
     var cross_counts: crossings.CrossingCounts = .{};
     const ctx: crossings.Ctx = .{

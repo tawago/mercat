@@ -1,4 +1,3 @@
-const std = @import("std");
 const lattice = @import("../lattice.zig");
 
 pub fn mergeRole(existing: lattice.EdgeRole, incoming: lattice.EdgeRole) lattice.EdgeRole {

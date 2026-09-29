@@ -1,7 +1,6 @@
 const std = @import("std");
 const sketch = @import("sketch.zig");
 const sketch_ports = @import("sketch_ports.zig");
-const ledger = @import("base/ledger.zig");
 const bundle_mod = @import("base/bundle.zig");
 
 fn edge(id: sketch.EdgeId, poly: []const sketch.Point) sketch.EdgePath {

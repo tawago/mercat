@@ -3,7 +3,6 @@ const sg = @import("../sem_graph.zig");
 const sketch = @import("../sketch.zig");
 const sketch_clearance = @import("../sketch_clearance.zig");
 const coords = @import("../layout.zig");
-const sugiyama = @import("sugiyama.zig");
 const routing = @import("routing.zig");
 
 const testing = std.testing;

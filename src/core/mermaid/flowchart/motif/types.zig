@@ -1,4 +1,3 @@
-const std = @import("std");
 const sg = @import("../sem_graph.zig");
 
 pub const MotifKind = enum { atom, spine, fan, parallel, cluster, prime };

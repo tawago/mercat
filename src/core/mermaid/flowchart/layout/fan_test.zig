@@ -3,7 +3,6 @@ const prim = @import("prim");
 const fan = @import("fan.zig");
 const sg = @import("../sem_graph.zig");
 const sketch = @import("../sketch.zig");
-const ledger = @import("../base/ledger.zig");
 const bundle = @import("../base/bundle.zig");
 const sugiyama = @import("sugiyama.zig");
 

@@ -4,7 +4,6 @@ const sem_graph = @import("sem_graph.zig");
 const ledger = @import("base/ledger.zig");
 const bundle_mod = @import("base/bundle.zig");
 const rail_star = @import("base/rail_star.zig");
-const lattice = @import("lattice.zig");
 const recurse = @import("recurse.zig");
 const raster = @import("raster.zig");
 const rt = @import("recurse_test.zig");

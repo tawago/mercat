@@ -1,7 +1,6 @@
 const std = @import("std");
 const prim = @import("prim");
 const sg = @import("../sem_graph.zig");
-const sketch = @import("../sketch.zig");
 const ledger = @import("../base/ledger.zig");
 const bundle_mod = @import("../base/bundle.zig");
 const permits = @import("../ledger/permits.zig");

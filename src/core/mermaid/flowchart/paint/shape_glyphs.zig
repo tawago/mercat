@@ -11,7 +11,7 @@ pub fn glyphFor(
         .rect => jt.glyphFor(neighbours),
         .round => roundGlyph(role, neighbours),
         .stadium => stadiumGlyph(role, neighbours),
-        .subroutine => subroutineGlyph(role, neighbours),
+        .subroutine => subroutineGlyph(neighbours),
         .cylinder => cylinderGlyph(role, neighbours),
         .circle => circleGlyph(role, neighbours),
         .asymmetric_left => asymLeftGlyph(role, neighbours),
@@ -45,8 +45,7 @@ fn stadiumGlyph(role: lattice.BorderRole, n: lattice.Neighbours) u21 {
     };
 }
 
-fn subroutineGlyph(role: lattice.BorderRole, n: lattice.Neighbours) u21 {
-    _ = role;
+fn subroutineGlyph(n: lattice.Neighbours) u21 {
     return jt.glyphFor(n);
 }
 

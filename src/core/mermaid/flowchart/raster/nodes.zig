@@ -12,11 +12,9 @@ pub const RasterError = error{
 };
 
 pub fn rasterizeNodes(
-    allocator: std.mem.Allocator,
     lat: *lattice.Lattice,
     s: sketch.Sketch,
 ) RasterError!u32 {
-    _ = allocator;
     var written: u32 = 0;
     for (s.nodes) |np| {
         if (!rectFitsLattice(np.rect, lat.*)) {
@@ -226,7 +224,7 @@ test "single 3x3 rect produces 4 corners + 4 edges + 1 interior" {
         .cluster_id = null,
     }, &nodes_buf);
 
-    const n = try rasterizeNodes(a, &lat, s);
+    const n = try rasterizeNodes(&lat, s);
     try testing.expectEqual(@as(u32, 1), n);
 
     try expectBorder(lat, 0, 0, 7, .corner_nw, .{ .e = true, .s = true });
@@ -257,7 +255,7 @@ test "wider 5x3 rect has 4 corners, 3+3 top/bottom edges, 3 interior" {
         .cluster_id = null,
     }, &nodes_buf);
 
-    const n = try rasterizeNodes(a, &lat, s);
+    const n = try rasterizeNodes(&lat, s);
     try testing.expectEqual(@as(u32, 1), n);
 
     try expectBorder(lat, 0, 0, 1, .corner_nw, .{ .e = true, .s = true });
@@ -309,7 +307,7 @@ test "two non-overlapping rects both rasterize" {
         .budget = .{ .max_width = 80, .rung = 0 },
     };
 
-    const n = try rasterizeNodes(a, &lat, s);
+    const n = try rasterizeNodes(&lat, s);
     try testing.expectEqual(@as(u32, 2), n);
 
     try expectBorder(lat, 0, 0, 1, .corner_nw, .{ .e = true, .s = true });
@@ -345,7 +343,7 @@ test "conflicting cell is skipped, leaving the prior occupant intact" {
         .cluster_id = null,
     }, &nodes_buf);
 
-    const n = try rasterizeNodes(a, &lat, s);
+    const n = try rasterizeNodes(&lat, s);
     try testing.expectEqual(@as(u32, 1), n);
 
     const c00 = lat.atConst(0, 0).*;
@@ -388,7 +386,7 @@ test "out-of-bounds rect is skipped and not counted" {
         .budget = .{ .max_width = 80, .rung = 0 },
     };
 
-    const n = try rasterizeNodes(a, &lat, s);
+    const n = try rasterizeNodes(&lat, s);
     try testing.expectEqual(@as(u32, 1), n);
 
     try expectBorder(lat, 0, 0, 2, .corner_nw, .{ .e = true, .s = true });

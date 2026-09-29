@@ -8,7 +8,6 @@ const raster = @import("../raster.zig");
 const permits = @import("../ledger/permits.zig");
 const ports = @import("ports.zig");
 const port_plan = @import("port_plan.zig");
-const sugiyama = @import("sugiyama.zig");
 
 fn node(id: u32, raw: []const u8) sg.Node {
     return .{ .id = id, .raw_id = raw, .label = raw, .shape = .rect, .classes = &.{}, .cluster = null };

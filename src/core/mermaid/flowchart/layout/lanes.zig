@@ -1,4 +1,3 @@
-const std = @import("std");
 const sg = @import("../sem_graph.zig");
 const sketch = @import("../sketch.zig");
 const rp = @import("routing_polyline.zig");

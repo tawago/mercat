@@ -251,8 +251,6 @@ fn jogPref(start: Pt, end: Pt, exit: sketch.Dir4, to_box: sketch.Rect) ?i32 {
 }
 
 pub const sceneObstacles = scene.sceneObstacles;
-const stepDir = scene.stepDir;
-const stepPt = scene.stepPt;
 
 fn faceCoord(p: Pt, side: sketch.Dir4) i32 {
     return switch (side) {

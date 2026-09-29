@@ -1,15 +1,12 @@
 const std = @import("std");
 const sg = @import("../sem_graph.zig");
 const sketch = @import("../sketch.zig");
-const sugiyama = @import("sugiyama.zig");
 const rt = @import("routing_terminal.zig");
 const testing = std.testing;
 
 fn mkPlacement(id: sketch.NodeId, rect: sketch.Rect) sketch.NodePlacement {
     return .{ .id = id, .rect = rect, .shape = .rect, .lines = &.{}, .cluster_id = null };
 }
-
-const G = struct { x: i32, w: u32 };
 
 fn mkGraph(edges: []const sg.Edge) sg.SemGraph {
     return .{

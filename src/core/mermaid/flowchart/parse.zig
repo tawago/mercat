@@ -7,10 +7,7 @@ const bt = @import("parse/builder_types.zig");
 const sr = @import("parse/shape_reader.zig");
 
 const Lexer = lex.Lexer;
-const TokenKind = lex.TokenKind;
 const Direction = sg.Direction;
-const NodeShape = sg.NodeShape;
-const EdgeKind = sg.EdgeKind;
 const Node = sg.Node;
 const Edge = sg.Edge;
 const Cluster = sg.Cluster;

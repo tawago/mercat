@@ -108,11 +108,6 @@ pub const Census = struct {
         return if (sl > 0 and sl - 1 < self.ngaps) sl - 1 else null;
     }
 
-    pub fn layerDistance(self: Census, sl: u32, tl: u32) u32 {
-        _ = self;
-        return if (tl > sl) tl - sl else sl - tl;
-    }
-
     pub fn portCol(self: Census, comptime G: type, geom: []const G, e: sg.Edge, end: pb.EndpointSide) i32 {
         const node = if (end == .source_exit) e.from else e.to;
         const idx = self.idx_of.get(node) orelse return 0;

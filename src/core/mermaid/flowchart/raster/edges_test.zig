@@ -50,7 +50,7 @@ test "single horizontal segment writes interior cells with E+W bits" {
 
     const pts = [_]sketch.Point{ .{ .x = 2, .y = 2 }, .{ .x = 6, .y = 2 } };
     const es = [_]sketch.EdgePath{makeEdge(1, &pts, .none, .none)};
-    _ = try edges.rasterizeEdges(a, &lat, makeSketch(&es), .bridge);
+    _ = try edges.rasterizeEdges(&lat, makeSketch(&es), .bridge);
 
     try testing.expect(switch (lat.atConst(2, 2).occupant) {
         .empty => true,
@@ -82,7 +82,7 @@ test "arrowhead at end of polyline" {
 
     const pts = [_]sketch.Point{ .{ .x = 0, .y = 0 }, .{ .x = 5, .y = 0 } };
     const es = [_]sketch.EdgePath{makeEdge(42, &pts, .none, .filled)};
-    _ = try edges.rasterizeEdges(a, &lat, makeSketch(&es), .bridge);
+    _ = try edges.rasterizeEdges(&lat, makeSketch(&es), .bridge);
 
     const cell = lat.atConst(4, 0);
     try testing.expect(switch (cell.occupant) {
@@ -102,7 +102,7 @@ test "length-1 final segment after a corner points the terminal arrowhead into t
 
     const pts = [_]sketch.Point{ .{ .x = 0, .y = 0 }, .{ .x = 5, .y = 0 }, .{ .x = 5, .y = 1 } };
     const es = [_]sketch.EdgePath{makeEdge(11, &pts, .none, .filled)};
-    _ = try edges.rasterizeEdges(a, &lat, makeSketch(&es), .bridge);
+    _ = try edges.rasterizeEdges(&lat, makeSketch(&es), .bridge);
 
     const cell = lat.atConst(5, 0);
     try testing.expect(switch (cell.occupant) {
@@ -122,7 +122,7 @@ test "two foreign crossing edges read as a transversal, not a junction" {
         makeEdge(1, &pts_h, .none, .none),
         makeEdge(2, &pts_v, .none, .none),
     };
-    _ = try edges.rasterizeEdges(a, &lat, makeSketch(&es), .bridge);
+    _ = try edges.rasterizeEdges(&lat, makeSketch(&es), .bridge);
 
     const cell = lat.atConst(5, 5);
     try testing.expect(switch (cell.occupant) {
@@ -152,7 +152,7 @@ test "a co-member's corner arm into a head is refused" {
         };
         var s = makeSketch(&es);
         if (co_member) s.bundle_sets = &mates;
-        const report = try edges.rasterizeEdges(a, &lat, s, .bridge);
+        const report = try edges.rasterizeEdges(&lat, s, .bridge);
 
         const head = lat.atConst(5, 5);
         try testing.expectEqual(@as(u32, 1), head.occupant.arrowhead.edge);
@@ -170,7 +170,7 @@ test "degenerate polyline with < 2 points is skipped" {
 
     const pts = [_]sketch.Point{.{ .x = 1, .y = 1 }};
     const es = [_]sketch.EdgePath{makeEdge(99, &pts, .none, .none)};
-    _ = try edges.rasterizeEdges(a, &lat, makeSketch(&es), .bridge);
+    _ = try edges.rasterizeEdges(&lat, makeSketch(&es), .bridge);
     for (lat.cells) |c| try testing.expect(c.occupant == .empty);
 }
 
@@ -183,7 +183,7 @@ test "EdgeRole round-trips from EdgePath into Cell.edge_segment.role" {
     var e = makeEdge(11, &pts, .none, .none);
     e.role = .back_edge;
     const es = [_]sketch.EdgePath{e};
-    _ = try edges.rasterizeEdges(a, &lat, makeSketch(&es), .bridge);
+    _ = try edges.rasterizeEdges(&lat, makeSketch(&es), .bridge);
 
     var x: u32 = 2;
     while (x <= 6) : (x += 1) {
@@ -206,7 +206,7 @@ test "zero-length intermediate point is skipped" {
         .{ .x = 5, .y = 1 },
     };
     const es = [_]sketch.EdgePath{makeEdge(3, &pts, .none, .none)};
-    _ = try edges.rasterizeEdges(a, &lat, makeSketch(&es), .bridge);
+    _ = try edges.rasterizeEdges(&lat, makeSketch(&es), .bridge);
 
     var x: u32 = 2;
     while (x <= 4) : (x += 1) {
@@ -232,7 +232,7 @@ test "edge cells colliding with node-owned cells are counted as lost" {
 
     const pts = [_]sketch.Point{ .{ .x = 2, .y = 2 }, .{ .x = 8, .y = 2 } };
     const es = [_]sketch.EdgePath{makeEdge(1, &pts, .none, .none)};
-    const report = try edges.rasterizeEdges(a, &lat, makeSketch(&es), .bridge);
+    const report = try edges.rasterizeEdges(&lat, makeSketch(&es), .bridge);
 
     try testing.expectEqual(@as(u32, 3), report.cells_lost);
     try testing.expect(lat.atConst(4, 2).occupant == .node_interior);
@@ -245,7 +245,7 @@ test "collision-free edge reports zero cells lost" {
 
     const pts = [_]sketch.Point{ .{ .x = 2, .y = 2 }, .{ .x = 6, .y = 2 } };
     const es = [_]sketch.EdgePath{makeEdge(1, &pts, .none, .filled)};
-    const report = try edges.rasterizeEdges(a, &lat, makeSketch(&es), .bridge);
+    const report = try edges.rasterizeEdges(&lat, makeSketch(&es), .bridge);
     try testing.expectEqual(@as(u32, 0), report.cells_lost);
 }
 
@@ -264,7 +264,7 @@ test "through-crossing bridges a subgraph frame border" {
     stampBorder(&lat, 5, 5, .{ .e = true, .w = true });
     const pts = [_]sketch.Point{ .{ .x = 5, .y = 2 }, .{ .x = 5, .y = 8 } };
     const es = [_]sketch.EdgePath{makeEdge(1, &pts, .none, .none)};
-    _ = try edges.rasterizeEdges(a, &lat, makeSketch(&es), .bridge);
+    _ = try edges.rasterizeEdges(&lat, makeSketch(&es), .bridge);
 
     const border = lat.atConst(5, 5).*;
     try testing.expect(border.occupant == .cluster_border);
@@ -290,7 +290,7 @@ test "terminal segment cell on a frame border keeps today's merge" {
     stampBorder(&lat, 5, 6, .{ .e = true, .w = true });
     const pts = [_]sketch.Point{ .{ .x = 5, .y = 3 }, .{ .x = 5, .y = 7 } };
     const es = [_]sketch.EdgePath{makeEdge(9, &pts, .none, .none)};
-    _ = try edges.rasterizeEdges(a, &lat, makeSketch(&es), .bridge);
+    _ = try edges.rasterizeEdges(&lat, makeSketch(&es), .bridge);
 
     const cell = lat.atConst(5, 6).*;
     try testing.expect(switch (cell.occupant) {
@@ -311,7 +311,7 @@ test "an arrowhead terminating on a frame border is stamped (arrival AT the clus
     stampBorder(&lat, 5, 6, .{ .e = true, .w = true });
     const pts = [_]sketch.Point{ .{ .x = 5, .y = 3 }, .{ .x = 5, .y = 7 } };
     const es = [_]sketch.EdgePath{makeEdge(9, &pts, .none, .filled)};
-    _ = try edges.rasterizeEdges(a, &lat, makeSketch(&es), .bridge);
+    _ = try edges.rasterizeEdges(&lat, makeSketch(&es), .bridge);
 
     const cell = lat.atConst(5, 6).*;
     try testing.expect(switch (cell.occupant) {
@@ -328,7 +328,7 @@ test "corner arm onto a subgraph frame border is refused" {
     stampBorder(&lat, 6, 5, .{ .n = true, .s = true });
     const pts = [_]sketch.Point{ .{ .x = 2, .y = 5 }, .{ .x = 6, .y = 5 }, .{ .x = 6, .y = 9 } };
     const es = [_]sketch.EdgePath{makeEdge(3, &pts, .none, .none)};
-    _ = try edges.rasterizeEdges(a, &lat, makeSketch(&es), .bridge);
+    _ = try edges.rasterizeEdges(&lat, makeSketch(&es), .bridge);
 
     const border = lat.atConst(6, 5).*;
     try testing.expect(border.occupant == .cluster_border);
@@ -346,7 +346,7 @@ test "cross mode: through-crossing welds the frame border (pre-slice-1)" {
     stampBorder(&lat, 5, 5, .{ .e = true, .w = true });
     const pts = [_]sketch.Point{ .{ .x = 5, .y = 2 }, .{ .x = 5, .y = 8 } };
     const es = [_]sketch.EdgePath{makeEdge(1, &pts, .none, .none)};
-    _ = try edges.rasterizeEdges(a, &lat, makeSketch(&es), .cross);
+    _ = try edges.rasterizeEdges(&lat, makeSketch(&es), .cross);
 
     const border = lat.atConst(5, 5).*;
     try testing.expect(switch (border.occupant) {
@@ -367,7 +367,7 @@ test "cross mode: corner arm onto a subgraph frame border welds a tee (pre-slice
     stampBorder(&lat, 6, 5, .{ .n = true, .s = true });
     const pts = [_]sketch.Point{ .{ .x = 2, .y = 5 }, .{ .x = 6, .y = 5 }, .{ .x = 6, .y = 9 } };
     const es = [_]sketch.EdgePath{makeEdge(3, &pts, .none, .none)};
-    _ = try edges.rasterizeEdges(a, &lat, makeSketch(&es), .cross);
+    _ = try edges.rasterizeEdges(&lat, makeSketch(&es), .cross);
 
     const border = lat.atConst(6, 5).*;
     try testing.expect(switch (border.occupant) {
@@ -405,7 +405,7 @@ test "a member stroke paints neither port nor head at its rail end and both at a
         .neighbours = .{ .e = x < 10, .w = x > 6 },
     };
 
-    _ = try edges.rasterizeEdges(a, &lat, s, .bridge);
+    _ = try edges.rasterizeEdges(&lat, s, .bridge);
 
     try testing.expect(lat.atConst(8, 4).occupant == .empty);
     try testing.expect(lat.atConst(8, 5).occupant != .arrowhead);

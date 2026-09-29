@@ -1,6 +1,5 @@
 const std = @import("std");
 const prim = @import("prim");
-const ledger = @import("base/ledger.zig");
 const rail_star = @import("base/rail_star.zig");
 const sketch = @import("sketch.zig");
 const lattice = @import("lattice.zig");
@@ -58,7 +57,7 @@ pub fn rasterize(
         error.OutOfBounds => return error.OutOfBounds,
     };
 
-    _ = nodes_r.rasterizeNodes(allocator, &lat, s) catch |err| switch (err) {
+    _ = nodes_r.rasterizeNodes(&lat, s) catch |err| switch (err) {
         error.OutOfMemory => return error.OutOfMemory,
         error.OutOfBounds => return error.OutOfBounds,
         error.OccupiedCell => return error.OutOfBounds,
@@ -66,7 +65,7 @@ pub fn rasterize(
 
     const rail_cells_lost = rails_r.rasterizeRails(&lat, s);
 
-    const edge_report = edges_r.rasterizeEdges(allocator, &lat, s, subgraph_edges) catch |err| switch (err) {
+    const edge_report = edges_r.rasterizeEdges(&lat, s, subgraph_edges) catch |err| switch (err) {
         error.OutOfMemory => return error.OutOfMemory,
         error.OutOfBounds => return error.OutOfBounds,
         error.MalformedPolyline => return error.MalformedPolyline,

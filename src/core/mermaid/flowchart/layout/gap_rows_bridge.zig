@@ -27,7 +27,7 @@ pub fn jogClaims(comptime G: type, a: std.mem.Allocator, c: anytype, geom: []con
         const v_col = centerOf(G, geom, vi);
         const pin: i32 = if (c.isDrawnSuper(e.to)) -2 else -1;
         const arr: i32 = if (pin == -1) c.portCol(G, geom, e, .target_entry) else v_col;
-        if (c.layerDistance(sl, tl) > 1) {
+        if (@max(sl, tl) - @min(sl, tl) > 1) {
             const entry_gap = c.gapBelow(sl) orelse continue;
             try claims.append(a, try one(a, entry_gap, u_col, v_col, .bridge_return, e.id, null));
             try claims.append(a, try one(a, gap, u_col, v_col, .bridge_jog, e.id, pin));

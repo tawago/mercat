@@ -3,7 +3,6 @@ const sg = @import("../sem_graph.zig");
 const sketch = @import("../sketch.zig");
 const sketch_clearance = @import("../sketch_clearance.zig");
 const fan_mod = @import("fan.zig");
-const fan_polyline = @import("fan_polyline.zig");
 const node_geom = @import("node_geom.zig");
 const rt = @import("routing_terminal.zig");
 const pb = @import("../base/ledger.zig");

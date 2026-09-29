@@ -2,11 +2,7 @@ const std = @import("std");
 const prim = @import("prim");
 const sg = @import("../sem_graph.zig");
 const sketch = @import("../sketch.zig");
-const sugiyama = @import("sugiyama.zig");
-const routing = @import("routing.zig");
 const fan_rail = @import("fan_rail.zig");
-
-const NodeGeom = routing.NodeGeom;
 
 fn mapDir(d: ?sg.Direction) ?sketch.Direction {
     return switch (d orelse return null) {

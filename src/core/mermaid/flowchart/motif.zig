@@ -1,5 +1,4 @@
 const std = @import("std");
-const prim = @import("prim");
 const sg = @import("sem_graph.zig");
 const types = @import("motif/types.zig");
 const scope_mod = @import("motif/scope.zig");
