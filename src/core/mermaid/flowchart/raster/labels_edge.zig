@@ -2,7 +2,6 @@ const std = @import("std");
 const prim = @import("prim");
 const sketch = @import("../sketch.zig");
 const lattice = @import("../lattice.zig");
-const types = @import("labels_types.zig");
 const lw = @import("labels_write.zig");
 const ink = @import("labels_ink.zig");
 
@@ -37,21 +36,17 @@ pub fn pickMidSegment(poly: []const sketch.Point) ?SegPair {
 pub const Placement = enum { at_anchor, displaced, dropped };
 
 pub fn placeEdgeLabel(
-    allocator: std.mem.Allocator,
-    diags: *std.ArrayList(types.LabelDiagnostic),
     lat: *lattice.Lattice,
     ep: sketch.EdgePath,
     run: lw.Run,
-) types.RasterError!Placement {
+) Placement {
     if (ep.polyline.len < 2) return .dropped;
 
     const seg_pair = pickMidSegment(ep.polyline) orelse return .dropped;
-    return placeLabelAtSeg(allocator, diags, lat, ep.id, run, seg_pair.a, seg_pair.b, ep.label_left_of_run, ep.polyline);
+    return placeLabelAtSeg(lat, ep.id, run, seg_pair.a, seg_pair.b, ep.label_left_of_run, ep.polyline);
 }
 
 pub fn placeLabelAtSeg(
-    allocator: std.mem.Allocator,
-    diags: *std.ArrayList(types.LabelDiagnostic),
     lat: *lattice.Lattice,
     edge_id: u32,
     run: lw.Run,
@@ -59,7 +54,7 @@ pub fn placeLabelAtSeg(
     b: sketch.Point,
     left_of_run: bool,
     polyline: []const sketch.Point,
-) types.RasterError!Placement {
+) Placement {
     const owner: ink.Owner = .{ .edge_id = edge_id, .polyline = polyline, .seg_a = a, .seg_b = b };
 
     const anchor = anchorFor(a, b, left_of_run, run.width);
@@ -78,7 +73,10 @@ pub fn placeLabelAtSeg(
         }
     }
 
-    _ = try emitEdgeNoSpace(allocator, diags, edge_id, run.width);
+    log.debug(
+        "raster/labels: edge {d} has no space for label (len={d}); skipping",
+        .{ edge_id, run.width },
+    );
     return .dropped;
 }
 
@@ -181,23 +179,4 @@ fn tryWrite(
 
     lw.writeRun(lat, start_x, row, run);
     return true;
-}
-
-fn emitEdgeNoSpace(
-    allocator: std.mem.Allocator,
-    diags: *std.ArrayList(types.LabelDiagnostic),
-    edge_id: u32,
-    orig_len: u32,
-) types.RasterError!bool {
-    log.debug(
-        "raster/labels: edge {d} has no space for label (len={d}); skipping",
-        .{ edge_id, orig_len },
-    );
-    try diags.append(allocator, .{
-        .kind = .edge_label_no_space,
-        .node_or_edge_or_cluster_id = edge_id,
-        .original_len = orig_len,
-        .placed_len = 0,
-    });
-    return false;
 }

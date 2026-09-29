@@ -122,7 +122,6 @@ test "wide node label writes char + continuation and paints two columns" {
 
     const report = try labels.rasterizeLabels(alloc, &lat, s);
     try testing.expectEqual(@as(u32, 1), report.placed);
-    try testing.expectEqual(@as(usize, 0), report.diagnostics.len);
 
     try testing.expectEqual(@as(u21, '日'), cellChar(lat, 1, 1));
     try testing.expect(isCont(lat, 2, 1));
@@ -313,7 +312,6 @@ test "emoji node label writes head + continuation and is charged two columns" {
 
     const report = try labels.rasterizeLabels(alloc, &lat, s);
     try testing.expectEqual(@as(u32, 1), report.placed);
-    try testing.expectEqual(@as(usize, 0), report.diagnostics.len);
 
     try testing.expectEqual(@as(u21, 0x1F680), cellChar(lat, 1, 1));
     try testing.expect(isCont(lat, 2, 1));

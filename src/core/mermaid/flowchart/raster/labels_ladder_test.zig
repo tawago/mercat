@@ -69,7 +69,6 @@ test "own-edge ink beside the anchor does not displace the label" {
     const report = try labels.rasterizeLabels(alloc, &lat, s);
     try testing.expectEqual(@as(u32, 1), report.placed);
     try testing.expectEqual(@as(u32, 0), report.displaced);
-    try testing.expectEqual(@as(usize, 0), report.diagnostics.len);
 
     try testing.expectEqual(@as(u21, 'x'), cellChar(lat, 3, 2));
 }

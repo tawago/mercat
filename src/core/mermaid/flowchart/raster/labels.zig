@@ -10,7 +10,6 @@ const types = @import("labels_types.zig");
 const log = std.log.scoped(.@"mermaid_v2.raster.labels");
 
 pub const RasterError = types.RasterError;
-pub const LabelDiagnostic = types.LabelDiagnostic;
 pub const Report = types.Report;
 
 const ELLIPSIS: u21 = 0x2026;
@@ -20,9 +19,6 @@ pub fn rasterizeLabels(
     lat: *lattice.Lattice,
     s: sketch.Sketch,
 ) RasterError!Report {
-    var diags = std.ArrayList(LabelDiagnostic){};
-    defer diags.deinit(allocator);
-
     std.debug.assert(lat.glyphs.len == 0);
     var glyphs = lw.GlyphTable.init(allocator);
     errdefer glyphs.deinit();
@@ -34,7 +30,7 @@ pub fn rasterizeLabels(
     for (s.nodes) |np| {
         if (np.lines.len == 0) continue;
         attempted += 1;
-        if (try placeNodeLabel(allocator, &diags, lat, np, &glyphs)) placed += 1;
+        if (try placeNodeLabel(allocator, lat, np, &glyphs)) placed += 1;
     }
 
     for (s.edges) |ep| {
@@ -46,7 +42,7 @@ pub fn rasterizeLabels(
             placed += 1;
             continue;
         }
-        switch (try labels_edge.placeEdgeLabel(allocator, &diags, lat, ep, run)) {
+        switch (labels_edge.placeEdgeLabel(lat, ep, run)) {
             .at_anchor => placed += 1,
             .displaced => {
                 placed += 1;
@@ -67,7 +63,7 @@ pub fn rasterizeLabels(
                 continue;
             }
             const seg = rail.tapLabelSeg(tap);
-            switch (try labels_edge.placeLabelAtSeg(allocator, &diags, lat, tap.edge, run, seg[0], seg[1], false, &.{})) {
+            switch (labels_edge.placeLabelAtSeg(lat, tap.edge, run, seg[0], seg[1], false, &.{})) {
                 .at_anchor => placed += 1,
                 .displaced => {
                     placed += 1;
@@ -81,7 +77,7 @@ pub fn rasterizeLabels(
     for (s.clusters) |cf| {
         if (cf.label.len == 0) continue;
         attempted += 1;
-        if (try placeClusterLabel(allocator, &diags, lat, cf, &glyphs)) placed += 1;
+        if (try placeClusterLabel(allocator, lat, cf, &glyphs)) placed += 1;
     }
 
     lat.glyphs = try glyphs.finish();
@@ -90,7 +86,6 @@ pub fn rasterizeLabels(
         .placed = placed,
         .dropped = attempted - placed,
         .displaced = displaced,
-        .diagnostics = try diags.toOwnedSlice(allocator),
     };
 }
 
@@ -131,7 +126,6 @@ fn writeNodeSpan(
 
 fn placeNodeLabel(
     allocator: std.mem.Allocator,
-    diags: *std.ArrayList(LabelDiagnostic),
     lat: *lattice.Lattice,
     np: sketch.NodePlacement,
     glyphs: *lw.GlyphTable,
@@ -140,8 +134,6 @@ fn placeNodeLabel(
 
     const inner_w: u32 = np.rect.w - 2;
     var wrote: u32 = 0;
-    var any_truncated = false;
-    var max_orig: u32 = 0;
     for (np.lines, 0..) |line, k| {
         const row_i: i32 = np.rect.y + 1 + @as(i32, @intCast(k));
         if (row_i >= np.rect.y + @as(i32, @intCast(np.rect.h)) - 1) break;
@@ -149,9 +141,7 @@ fn placeNodeLabel(
         const row: u32 = @intCast(row_i);
 
         const orig_len: u32 = prim.displayWidth(line);
-        if (orig_len > max_orig) max_orig = orig_len;
         const truncated = orig_len > inner_w;
-        if (truncated) any_truncated = true;
         const text: []const u8 = if (truncated)
             prim.truncateToWidth(line, inner_w - 1)
         else
@@ -176,15 +166,6 @@ fn placeNodeLabel(
         }
     }
 
-    if (any_truncated) {
-        try diags.append(allocator, .{
-            .kind = .node_label_truncated,
-            .node_or_edge_or_cluster_id = np.id,
-            .original_len = max_orig,
-            .placed_len = inner_w,
-        });
-    }
-
     return wrote > 0;
 }
 
@@ -194,7 +175,6 @@ fn stampTitleCell(lat: *lattice.Lattice, x: u32, row: u32, cp: u21) void {
 
 fn placeClusterLabel(
     allocator: std.mem.Allocator,
-    diags: *std.ArrayList(LabelDiagnostic),
     lat: *lattice.Lattice,
     cf: sketch.ClusterFrame,
     glyphs: *lw.GlyphTable,
@@ -208,10 +188,6 @@ fn placeClusterLabel(
         prim.truncateToWidth(cf.label, inner_w - 1)
     else
         cf.label;
-    const placed_len: u32 = if (truncated)
-        prim.displayWidth(text) + 1
-    else
-        orig_len;
 
     const row_i: i32 = cf.rect.y;
     if (row_i < 0 or @as(i64, row_i) >= lat.height) return false;
@@ -248,15 +224,6 @@ fn placeClusterLabel(
     if (x < lat.width) {
         stampTitleCell(lat, x, row, @as(u21, ' '));
         wrote += 1;
-    }
-
-    if (truncated) {
-        try diags.append(allocator, .{
-            .kind = .cluster_label_truncated,
-            .node_or_edge_or_cluster_id = cf.id,
-            .original_len = orig_len,
-            .placed_len = placed_len,
-        });
     }
 
     return wrote > 0;

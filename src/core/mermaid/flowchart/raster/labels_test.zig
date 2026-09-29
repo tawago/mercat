@@ -83,13 +83,12 @@ test "node label fits centered" {
     const report = try labels.rasterizeLabels(alloc, &lat, s);
     try testing.expectEqual(@as(u32, 1), report.placed);
     try testing.expectEqual(@as(u32, 0), report.dropped);
-    try testing.expectEqual(@as(usize, 0), report.diagnostics.len);
 
     try testing.expectEqual(@as(u21, 'H'), cellChar(lat, 2, 1));
     try testing.expectEqual(@as(u21, 'i'), cellChar(lat, 3, 1));
 }
 
-test "node label truncated emits diagnostic" {
+test "node label truncated ends in an ellipsis" {
     var arena = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
     const alloc = arena.allocator();
@@ -110,13 +109,6 @@ test "node label truncated emits diagnostic" {
 
     const report = try labels.rasterizeLabels(alloc, &lat, s);
     try testing.expectEqual(@as(u32, 1), report.placed);
-    try testing.expectEqual(@as(usize, 1), report.diagnostics.len);
-    try testing.expectEqual(labels.LabelDiagnostic{
-        .kind = .node_label_truncated,
-        .node_or_edge_or_cluster_id = 7,
-        .original_len = 5,
-        .placed_len = 3,
-    }, report.diagnostics[0]);
 
     try testing.expectEqual(@as(u21, 'H'), cellChar(lat, 1, 1));
     try testing.expectEqual(@as(u21, 'e'), cellChar(lat, 2, 1));
@@ -149,7 +141,6 @@ test "cluster label overwrites top border" {
 
     const report = try labels.rasterizeLabels(alloc, &lat, s);
     try testing.expectEqual(@as(u32, 1), report.placed);
-    try testing.expectEqual(@as(usize, 0), report.diagnostics.len);
 
     try testing.expectEqual(@as(u21, ' '), cellChar(lat, 2, 0));
     try testing.expectEqual(@as(u21, 'S'), cellChar(lat, 3, 0));
@@ -171,12 +162,11 @@ test "edge label fits above midpoint" {
 
     const report = try labels.rasterizeLabels(alloc, &lat, s);
     try testing.expectEqual(@as(u32, 1), report.placed);
-    try testing.expectEqual(@as(usize, 0), report.diagnostics.len);
 
     try testing.expectEqual(@as(u21, 'x'), cellChar(lat, 3, 2));
 }
 
-test "no space for edge label emits diagnostic" {
+test "an edge label with no free cell is dropped" {
     var arena = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
     const alloc = arena.allocator();
@@ -190,9 +180,6 @@ test "no space for edge label emits diagnostic" {
     const report = try labels.rasterizeLabels(alloc, &lat, s);
     try testing.expectEqual(@as(u32, 0), report.placed);
     try testing.expectEqual(@as(u32, 1), report.dropped);
-    try testing.expectEqual(@as(usize, 1), report.diagnostics.len);
-    try testing.expectEqual(@as(u32, 9), report.diagnostics[0].node_or_edge_or_cluster_id);
-    try testing.expect(report.diagnostics[0].kind == .edge_label_no_space);
 }
 
 test "vertical edge label paints at the exact prim anchor for both rail sides" {
@@ -340,7 +327,6 @@ test "edge label falls back below the segment when above is out of bounds" {
     const report = try labels.rasterizeLabels(alloc, &lat, s);
     try testing.expectEqual(@as(u32, 1), report.placed);
     try testing.expectEqual(@as(u32, 0), report.dropped);
-    try testing.expectEqual(@as(usize, 0), report.diagnostics.len);
     try testing.expectEqual(@as(u21, 'l'), cellChar(lat, 3, 1));
     try testing.expectEqual(@as(u21, 'b'), cellChar(lat, 4, 1));
 }
@@ -360,7 +346,6 @@ test "tryWrite rejects a pre-occupied primary-anchor cell as a real collision, n
 
     const report = try labels.rasterizeLabels(alloc, &lat, s);
     try testing.expectEqual(@as(u32, 1), report.placed);
-    try testing.expectEqual(@as(usize, 0), report.diagnostics.len);
 
     try testing.expectEqual(@as(u21, 0), cellChar(lat, 3, 2));
     try testing.expectEqual(@as(u21, 0), cellChar(lat, 2, 2));
@@ -385,7 +370,6 @@ test "edge-label runs on the same row keep two blank cells apart" {
 
     const report = try labels.rasterizeLabels(alloc, &lat, s);
     try testing.expectEqual(@as(u32, 1), report.placed);
-    try testing.expectEqual(@as(usize, 0), report.diagnostics.len);
 
     try testing.expectEqual(@as(u21, 'Q'), cellChar(lat, 2, 2));
     try testing.expectEqual(@as(u21, 0), cellChar(lat, 3, 2));
