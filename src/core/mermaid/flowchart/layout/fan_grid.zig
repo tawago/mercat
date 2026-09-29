@@ -1,9 +1,9 @@
 const std = @import("std");
-const fan_mod = @import("fan.zig");
+const fan_types = @import("fan_types.zig");
 
-const Fan = fan_mod.Fan;
-const FanEdge = fan_mod.FanEdge;
-const Direction = fan_mod.Direction;
+const Fan = fan_types.Fan;
+const FanEdge = fan_types.FanEdge;
+const Direction = fan_types.Direction;
 
 pub fn wrapWideFanOut(
     comptime G: type,

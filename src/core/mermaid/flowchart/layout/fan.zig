@@ -6,38 +6,12 @@ const ledger = @import("../base/ledger.zig");
 const permits = @import("../ledger/permits.zig");
 const sugiyama = @import("sugiyama.zig");
 const fan_grid = @import("fan_grid.zig");
+const types = @import("fan_types.zig");
 
-pub const Direction = enum { out, in };
-
-pub const ChildRole = enum {
-    leftmost,
-    rightmost,
-    middle,
-    center,
-};
-
-pub const FanEdge = struct {
-    edge_id: sg.EdgeId,
-    peer_idx: u32,
-    role: ChildRole,
-    lane: u32 = 0,
-    shared: bool = true,
-    label_width: u32 = 0,
-    long: bool = false,
-};
-
-pub const Fan = struct {
-    direction: Direction,
-    pivot: sg.NodeId = 0,
-    pivot_idx: u32,
-    source_layer: u32,
-    peers: []FanEdge,
-    rows: u32 = 1,
-    lane: u32 = 0,
-    /// @guarded-by: gap_rows_test.zig "a labeled fan claims its rail row and one label band; an unlabeled fan claims one row"
-    /// @guarded-by: gap_rows_test.zig "a fan-OUT with three labeled members claims the same rows as one with a single labeled member"
-    labeled: bool = false,
-};
+pub const Direction = types.Direction;
+pub const ChildRole = types.ChildRole;
+pub const FanEdge = types.FanEdge;
+pub const Fan = types.Fan;
 
 pub fn effectiveLane(f: Fan, peer_lane: u32) u32 {
     return @max(f.lane, peer_lane);
