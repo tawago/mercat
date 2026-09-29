@@ -5,31 +5,15 @@ const lattice = @import("../lattice.zig");
 const labels_edge = @import("labels_edge.zig");
 const labels_onrun = @import("labels_onrun.zig");
 const lw = @import("labels_write.zig");
+const types = @import("labels_types.zig");
 
 const log = std.log.scoped(.@"mermaid_v2.raster.labels");
 
-pub const RasterError = error{OutOfMemory};
+pub const RasterError = types.RasterError;
+pub const LabelDiagnostic = types.LabelDiagnostic;
+pub const Report = types.Report;
 
 const ELLIPSIS: u21 = 0x2026;
-
-pub const LabelDiagnostic = struct {
-    kind: enum {
-        node_label_truncated,
-        edge_label_no_space,
-        cluster_label_truncated,
-    },
-    node_or_edge_or_cluster_id: u32,
-    original_len: u32,
-    placed_len: u32,
-};
-
-pub const Report = struct {
-    placed: u32,
-    dropped: u32,
-    displaced: u32,
-    on_run: u32,
-    diagnostics: []const LabelDiagnostic,
-};
 
 pub fn rasterizeLabels(
     allocator: std.mem.Allocator,

@@ -2,7 +2,7 @@ const std = @import("std");
 const prim = @import("prim");
 const sketch = @import("../sketch.zig");
 const lattice = @import("../lattice.zig");
-const labels = @import("labels.zig");
+const types = @import("labels_types.zig");
 const lw = @import("labels_write.zig");
 const ink = @import("labels_ink.zig");
 
@@ -38,11 +38,11 @@ pub const Placement = enum { at_anchor, displaced, dropped };
 
 pub fn placeEdgeLabel(
     allocator: std.mem.Allocator,
-    diags: *std.ArrayList(labels.LabelDiagnostic),
+    diags: *std.ArrayList(types.LabelDiagnostic),
     lat: *lattice.Lattice,
     ep: sketch.EdgePath,
     run: lw.Run,
-) labels.RasterError!Placement {
+) types.RasterError!Placement {
     if (ep.polyline.len < 2) return .dropped;
 
     const seg_pair = pickMidSegment(ep.polyline) orelse return .dropped;
@@ -51,7 +51,7 @@ pub fn placeEdgeLabel(
 
 pub fn placeLabelAtSeg(
     allocator: std.mem.Allocator,
-    diags: *std.ArrayList(labels.LabelDiagnostic),
+    diags: *std.ArrayList(types.LabelDiagnostic),
     lat: *lattice.Lattice,
     edge_id: u32,
     run: lw.Run,
@@ -59,7 +59,7 @@ pub fn placeLabelAtSeg(
     b: sketch.Point,
     left_of_run: bool,
     polyline: []const sketch.Point,
-) labels.RasterError!Placement {
+) types.RasterError!Placement {
     // @guarded-by: labels_eaw_test.zig "edge-label probe reserves display cells: a wide label no longer overwrites the ink beside it"
     const owner: ink.Owner = .{ .edge_id = edge_id, .polyline = polyline, .seg_a = a, .seg_b = b };
 
@@ -193,10 +193,10 @@ fn tryWrite(
 
 fn emitEdgeNoSpace(
     allocator: std.mem.Allocator,
-    diags: *std.ArrayList(labels.LabelDiagnostic),
+    diags: *std.ArrayList(types.LabelDiagnostic),
     edge_id: u32,
     orig_len: u32,
-) labels.RasterError!bool {
+) types.RasterError!bool {
     log.debug(
         "raster/labels: edge {d} has no space for label (len={d}); skipping",
         .{ edge_id, orig_len },
