@@ -5,7 +5,6 @@ const render_model = @import("../../core/markdown/render.zig");
 const resolveMod = @import("../../core/theme/resolve.zig");
 const ResolvedTheme = resolveMod.ResolvedTheme;
 const theme_color = @import("../../core/theme/color.zig");
-const mermaid_types = @import("../../core/mermaid/types.zig");
 const SubgraphEdges = @import("prim").SubgraphEdges;
 const Viewport = @import("../widgets/viewport.zig").Viewport;
 const selection_mod = @import("../selection.zig");
@@ -23,7 +22,6 @@ pub const PagerView = struct {
     show_heading_markers: bool = true,
     frontmatter_style: config.FrontmatterStyle = .panel,
     suppress_frontmatter: bool = false,
-    mermaid_layout: mermaid_types.ForceLayout = .auto,
     mermaid_subgraph_edges: SubgraphEdges = .bridge,
     viewport: Viewport = .{},
     width: usize = 0,
@@ -31,14 +29,13 @@ pub const PagerView = struct {
     footnote_index: []FootnoteEntry = &.{},
     selection: selection_mod.Selection = .{},
 
-    pub fn init(allocator: std.mem.Allocator, title: []const u8, document: *const markdown.Document, resolved: *const ResolvedTheme, show_heading_markers: bool, mermaid_layout: mermaid_types.ForceLayout, subgraph_edges: SubgraphEdges) PagerView {
+    pub fn init(allocator: std.mem.Allocator, title: []const u8, document: *const markdown.Document, resolved: *const ResolvedTheme, show_heading_markers: bool, subgraph_edges: SubgraphEdges) PagerView {
         return .{
             .allocator = allocator,
             .title = title,
             .document = document,
             .resolved = resolved,
             .show_heading_markers = show_heading_markers,
-            .mermaid_layout = mermaid_layout,
             .mermaid_subgraph_edges = subgraph_edges,
         };
     }
@@ -151,7 +148,6 @@ pub const PagerView = struct {
             .show_heading_markers = self.show_heading_markers,
             .decor = &self.resolved.decor,
             .frontmatter_style = if (self.suppress_frontmatter) .hidden else self.frontmatter_style,
-            .mermaid_force_layout = self.mermaid_layout,
             .mermaid_subgraph_edges = self.mermaid_subgraph_edges,
         });
         self.lines = rendered.lines;
@@ -197,7 +193,7 @@ test "builds footnote index from rendered lines" {
     defer document.deinit(allocator);
 
     const rt = resolveMod.builtinResolved(allocator, "dark");
-    var pager = PagerView.init(allocator, "fixture", &document, &rt, true, .auto, .bridge);
+    var pager = PagerView.init(allocator, "fixture", &document, &rt, true, .bridge);
     defer pager.deinit();
     try pager.resize(80, 20);
 
@@ -228,7 +224,7 @@ test "followFootnoteLink jumps to definition" {
     defer document.deinit(allocator);
 
     const rt = resolveMod.builtinResolved(allocator, "dark");
-    var pager = PagerView.init(allocator, "fixture", &document, &rt, true, .auto, .bridge);
+    var pager = PagerView.init(allocator, "fixture", &document, &rt, true, .bridge);
     defer pager.deinit();
     try pager.resize(80, 3);
 
@@ -246,7 +242,7 @@ test "selection maps screen rows to document text" {
     defer document.deinit(allocator);
 
     const rt = resolveMod.builtinResolved(allocator, "dark");
-    var pager = PagerView.init(allocator, "fixture", &document, &rt, true, .auto, .bridge);
+    var pager = PagerView.init(allocator, "fixture", &document, &rt, true, .bridge);
     defer pager.deinit();
     try pager.resize(80, 10);
 
@@ -268,7 +264,7 @@ test "clearing selection stops highlighting and copying" {
     defer document.deinit(allocator);
 
     const rt = resolveMod.builtinResolved(allocator, "dark");
-    var pager = PagerView.init(allocator, "fixture", &document, &rt, true, .auto, .bridge);
+    var pager = PagerView.init(allocator, "fixture", &document, &rt, true, .bridge);
     defer pager.deinit();
     try pager.resize(80, 10);
 
@@ -288,7 +284,7 @@ test "selection is cleared when the document reflows" {
     defer document.deinit(allocator);
 
     const rt = resolveMod.builtinResolved(allocator, "dark");
-    var pager = PagerView.init(allocator, "fixture", &document, &rt, true, .auto, .bridge);
+    var pager = PagerView.init(allocator, "fixture", &document, &rt, true, .bridge);
     defer pager.deinit();
     try pager.resize(80, 10);
 
@@ -311,7 +307,7 @@ test "reflows rendered text into lines" {
     defer document.deinit(allocator);
 
     const rt = resolveMod.builtinResolved(allocator, "dark");
-    var pager = PagerView.init(allocator, "fixture", &document, &rt, true, .auto, .bridge);
+    var pager = PagerView.init(allocator, "fixture", &document, &rt, true, .bridge);
     defer pager.deinit();
     try pager.resize(20, 5);
 

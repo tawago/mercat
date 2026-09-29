@@ -5,7 +5,6 @@ const parse = @import("parse.zig");
 const model = @import("model.zig");
 const canvas_mod = @import("../shared/canvas.zig");
 
-const RenderResult = types.RenderResult;
 const ERDiagram = model.ERDiagram;
 const Entity = model.Entity;
 const ERRelation = model.ERRelation;
@@ -13,18 +12,12 @@ const LineChars = types.LineChars;
 
 const Canvas = canvas_mod.Canvas;
 
-pub fn renderERDiagram(allocator: Allocator, source: []const u8, max_width: u32) !RenderResult {
+pub fn render(allocator: Allocator, source: []const u8, max_width: u32) !?[]const u8 {
     var diagram = try parse.parse(allocator, source);
     defer diagram.deinit();
 
     if (diagram.entity_order.items.len == 0) {
-        return .{
-            .output = "",
-            .width = 0,
-            .height = 0,
-            .is_fallback = false,
-            .fallback_reason = null,
-        };
+        return "";
     }
 
     const entity_padding: u32 = 2;
@@ -58,13 +51,7 @@ pub fn renderERDiagram(allocator: Allocator, source: []const u8, max_width: u32)
     total_height += @intCast(diagram.relations.items.len * 2);
 
     if (total_width > max_width) {
-        return .{
-            .output = source,
-            .width = total_width,
-            .height = total_height,
-            .is_fallback = true,
-            .fallback_reason = "Diagram too wide for terminal",
-        };
+        return null;
     }
 
     var canvas = try Canvas.init(allocator, total_width, total_height);
@@ -82,13 +69,7 @@ pub fn renderERDiagram(allocator: Allocator, source: []const u8, max_width: u32)
 
     const output = try canvas.toString(allocator);
 
-    return .{
-        .output = output,
-        .width = total_width,
-        .height = total_height,
-        .is_fallback = false,
-        .fallback_reason = null,
-    };
+    return output;
 }
 
 fn drawEntityBox(canvas: *Canvas, entity: *const Entity) void {

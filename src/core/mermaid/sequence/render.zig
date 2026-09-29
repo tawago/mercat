@@ -7,7 +7,6 @@ const canvas_mod = @import("../shared/canvas.zig");
 const fit = @import("fit.zig");
 const draw_helpers = @import("../shared/draw_helpers.zig");
 
-const RenderResult = types.RenderResult;
 const SequenceDiagram = model.SequenceDiagram;
 const Participant = model.Participant;
 const Message = model.Message;
@@ -20,40 +19,24 @@ const Canvas = canvas_mod.Canvas;
 const processLabel = draw_helpers.processLabel;
 const processedLabelLen = draw_helpers.processedLabelLen;
 
-pub fn renderSequence(allocator: Allocator, source: []const u8, max_width: u32) !RenderResult {
+pub fn render(allocator: Allocator, source: []const u8, max_width: u32) !?[]const u8 {
     var diagram = try parse.parse(allocator, source);
     defer diagram.deinit();
 
-    var last_result = RenderResult{
-        .output = source,
-        .width = 0,
-        .height = 0,
-        .is_fallback = true,
-        .fallback_reason = "Diagram too wide for terminal",
-    };
-
     for (fit.ladder(diagram.direction, diagram.direction_explicit)) |rung| {
         const spacing = rung orelse continue;
-        const result = switch (spacing.direction orelse diagram.direction) {
-            .LR => try renderSequenceLR(allocator, source, &diagram, spacing, max_width),
-            else => try renderSequenceTB(allocator, source, &diagram, spacing, max_width),
+        const drawn = switch (spacing.direction orelse diagram.direction) {
+            .LR => try renderSequenceLR(allocator, &diagram, spacing, max_width),
+            else => try renderSequenceTB(allocator, &diagram, spacing, max_width),
         };
-        if (!result.is_fallback) return result;
-        last_result = result;
+        if (drawn) |text| return text;
     }
-
-    return last_result;
+    return null;
 }
 
-fn renderSequenceTB(allocator: Allocator, source: []const u8, diagram: *SequenceDiagram, spacing: fit.Spacing, max_width: u32) !RenderResult {
+fn renderSequenceTB(allocator: Allocator, diagram: *SequenceDiagram, spacing: fit.Spacing, max_width: u32) !?[]const u8 {
     if (diagram.participants.items.len == 0) {
-        return .{
-            .output = "",
-            .width = 0,
-            .height = 0,
-            .is_fallback = false,
-            .fallback_reason = null,
-        };
+        return "";
     }
 
     const participant_height: u32 = 3;
@@ -104,13 +87,7 @@ fn renderSequenceTB(allocator: Allocator, source: []const u8, diagram: *Sequence
     total_width += max_note_width;
 
     if (total_width > max_width) {
-        return .{
-            .output = source,
-            .width = total_width,
-            .height = 0,
-            .is_fallback = true,
-            .fallback_reason = "Diagram too wide for terminal",
-        };
+        return null;
     }
 
     const total_height: u32 = participant_height + total_message_height + 2;
@@ -169,24 +146,12 @@ fn renderSequenceTB(allocator: Allocator, source: []const u8, diagram: *Sequence
 
     const output = try canvas.toString(allocator);
 
-    return .{
-        .output = output,
-        .width = total_width,
-        .height = total_height,
-        .is_fallback = false,
-        .fallback_reason = null,
-    };
+    return output;
 }
 
-fn renderSequenceLR(allocator: Allocator, source: []const u8, diagram: *SequenceDiagram, spacing: fit.Spacing, max_width: u32) !RenderResult {
+fn renderSequenceLR(allocator: Allocator, diagram: *SequenceDiagram, spacing: fit.Spacing, max_width: u32) !?[]const u8 {
     if (diagram.participants.items.len == 0) {
-        return .{
-            .output = "",
-            .width = 0,
-            .height = 0,
-            .is_fallback = false,
-            .fallback_reason = null,
-        };
+        return "";
     }
 
     const participant_height: u32 = 3;
@@ -228,13 +193,7 @@ fn renderSequenceLR(allocator: Allocator, source: []const u8, diagram: *Sequence
     total_width += padding;
 
     if (total_width > max_width) {
-        return .{
-            .output = source,
-            .width = total_width,
-            .height = total_height,
-            .is_fallback = true,
-            .fallback_reason = "Diagram too wide for terminal",
-        };
+        return null;
     }
 
     var canvas = try Canvas.init(allocator, total_width, total_height);
@@ -284,13 +243,7 @@ fn renderSequenceLR(allocator: Allocator, source: []const u8, diagram: *Sequence
     }
 
     const output = try canvas.toString(allocator);
-    return .{
-        .output = output,
-        .width = total_width,
-        .height = total_height,
-        .is_fallback = false,
-        .fallback_reason = null,
-    };
+    return output;
 }
 
 fn drawParticipantBox(canvas: *Canvas, participant: *const Participant, y: i32) void {

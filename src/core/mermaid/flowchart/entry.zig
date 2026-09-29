@@ -39,7 +39,6 @@ pub const RenderResult = struct {
 
 pub const RenderOptions = struct {
     max_width: u32 = 120,
-    unicode_mode: bool = true,
     subgraph_edges: prim.SubgraphEdges = .bridge,
 };
 

@@ -1,8 +1,7 @@
 const std = @import("std");
 const markdown = @import("../parser.zig");
 const highlight = @import("../../highlight.zig");
-const mermaid = @import("../../mermaid/render.zig");
-const mermaid_types = @import("../../mermaid/types.zig");
+const mermaid = @import("../../mermaid/mermaid.zig");
 const line_mod = @import("line.zig");
 const builder_mod = @import("builder.zig");
 const geometry = @import("geometry.zig");
@@ -11,15 +10,11 @@ const decor_mod = @import("decor.zig");
 const Block = markdown.Block;
 const Builder = builder_mod.Builder;
 const SpanStyle = line_mod.SpanStyle;
-const BoxDrawingStyle = mermaid_types.BoxDrawingStyle;
-const CrossingReductionHeuristic = mermaid_types.CrossingReductionHeuristic;
-const ForceLayout = mermaid_types.ForceLayout;
-const SubgraphEdges = @import("prim").SubgraphEdges;
-const FitStage = mermaid_types.FitStage;
+const SubgraphEdges = mermaid.SubgraphEdges;
 
-pub fn render(allocator: std.mem.Allocator, builder: *Builder, code: Block.CodeBlock, content_width: usize, box_style: BoxDrawingStyle, crossing_heuristic: CrossingReductionHeuristic, force_layout: ForceLayout, aspect_ratio: f32, debug_mermaid: bool, subgraph_edges: SubgraphEdges, decor: *const decor_mod.Decor) !void {
+pub fn render(allocator: std.mem.Allocator, builder: *Builder, code: Block.CodeBlock, content_width: usize, debug_mermaid: bool, subgraph_edges: SubgraphEdges, decor: *const decor_mod.Decor) !void {
     if (std.mem.eql(u8, code.language, "mermaid")) {
-        try renderMermaid(allocator, builder, code.code, content_width, box_style, crossing_heuristic, force_layout, aspect_ratio, debug_mermaid, subgraph_edges);
+        try renderMermaid(allocator, builder, code.code, content_width, debug_mermaid, subgraph_edges);
         return;
     }
     const frame = decor.glyphs.code_frame;
@@ -100,39 +95,30 @@ fn renderFramedBlock(allocator: std.mem.Allocator, builder: *Builder, code: Bloc
     }
 }
 
-fn renderMermaid(allocator: std.mem.Allocator, builder: *Builder, source: []const u8, content_width: usize, box_style: BoxDrawingStyle, crossing_heuristic: CrossingReductionHeuristic, force_layout: ForceLayout, aspect_ratio: f32, debug_mermaid: bool, subgraph_edges: SubgraphEdges) !void {
-    const result = mermaid.render(allocator, source, .{
+fn renderMermaid(allocator: std.mem.Allocator, builder: *Builder, source: []const u8, content_width: usize, debug_mermaid: bool, subgraph_edges: SubgraphEdges) !void {
+    const output = switch (mermaid.render(allocator, source, .{
         .max_width = @intCast(content_width),
-        .unicode_mode = true,
-        .box_drawing_style = box_style,
-        .crossing_reduction_heuristic = crossing_heuristic,
-        .force_layout = force_layout,
-        .aspect_ratio_x = aspect_ratio,
-        .debug_mermaid = debug_mermaid,
         .subgraph_edges = subgraph_edges,
-    }) catch {
-        try renderFallback(allocator, builder, "mermaid", source);
-        return;
-    };
-    if (result.is_fallback) {
-        if (result.fallback_reason) |reason| {
-            if (std.mem.startsWith(u8, reason, "v2 ")) {
+    })) {
+        .drawn => |text| text,
+        .not_drawn => |failure| {
+            if (failure.banner) |reason| {
                 const banner = try std.fmt.allocPrint(allocator, "<PARSE ERROR: {s}>", .{reason});
                 defer allocator.free(banner);
                 try builder.appendSpan(.muted, banner);
                 try builder.newline();
             }
-        }
-        try renderFallback(allocator, builder, "mermaid", source);
-        return;
-    }
-    defer allocator.free(result.output);
+            try renderFallback(allocator, builder, "mermaid", source);
+            return;
+        },
+    };
+    defer allocator.free(output);
 
-    if (debug_mermaid) try appendMermaidDebug(allocator, builder, result);
+    if (debug_mermaid) try appendMermaidDebug(builder);
     const saved_padding = builder.left_padding;
     builder.left_padding = 0;
     defer builder.left_padding = saved_padding;
-    var diagram_lines = std.mem.splitScalar(u8, result.output, '\n');
+    var diagram_lines = std.mem.splitScalar(u8, output, '\n');
     var first = true;
     while (diagram_lines.next()) |line| {
         if (!first) try builder.newline();
@@ -141,47 +127,24 @@ fn renderMermaid(allocator: std.mem.Allocator, builder: *Builder, source: []cons
     }
 }
 
-fn appendMermaidDebug(allocator: std.mem.Allocator, builder: *Builder, result: mermaid.RenderResult) !void {
-    const algorithm: []const u8 = switch (result.algorithm_used) {
-        .sugiyama => "Sugiyama",
-        .reingold_tilford => "Reingold-Tilford",
-        .fruchterman_reingold => "Fruchterman-Reingold",
-        .kamada_kawai => "Kamada-Kawai",
-        .stress_majorization => "Stress Majorization",
-        .dominance_drawing => "Dominance Drawing",
-        .layered_bfs => "Layered BFS",
-        .unknown => "Unknown",
-    };
+/// The `--debug-mermaid` block. Its layout statistics have read the same values for every
+/// diagram since the flowchart engine rewrite; the flag keeps printing them.
+fn appendMermaidDebug(builder: *Builder) !void {
     try builder.appendSpan(.muted, "---debug-mermaid---");
-    try appendDebugLine(allocator, builder, "Algorithm: {s}", .{algorithm});
-    try appendDebugLine(allocator, builder, "Nodes: {d}", .{result.node_count});
-    try appendDebugLine(allocator, builder, "Edges: {d}", .{result.edge_count});
-    try appendDebugLine(allocator, builder, "Tree detected: {s}", .{yesNo(result.is_tree)});
-    try appendDebugLine(allocator, builder, "Cyclic: {s}", .{yesNo(result.is_cyclic)});
-    try appendDebugLine(allocator, builder, "Width constraint triggered: {s}", .{yesNo(result.width_constraint_triggered)});
-    if (result.fit_stage != FitStage.natural) {
-        try appendDebugLine(allocator, builder, "Fit stage: {s}", .{result.fit_stage.description()});
-    }
-    if (result.original_direction) |direction| {
-        try appendDebugLine(allocator, builder, "Original direction: {s} (switched for width)", .{@tagName(direction)});
-    }
-    if (result.crossing_reduction_iterations > 0) {
-        try appendDebugLine(allocator, builder, "Crossing reduction iterations: {d}", .{result.crossing_reduction_iterations});
+    for ([_][]const u8{
+        "Algorithm: Unknown",
+        "Nodes: 0",
+        "Edges: 0",
+        "Tree detected: no",
+        "Cyclic: no",
+        "Width constraint triggered: no",
+    }) |line| {
+        try builder.newline();
+        try builder.appendSpan(.muted, line);
     }
     try builder.newline();
     try builder.appendSpan(.muted, "---debug-mermaid---");
     try builder.newline();
-}
-
-fn appendDebugLine(allocator: std.mem.Allocator, builder: *Builder, comptime fmt: []const u8, args: anytype) !void {
-    try builder.newline();
-    const line = try std.fmt.allocPrint(allocator, fmt, args);
-    defer allocator.free(line);
-    try builder.appendSpan(.muted, line);
-}
-
-fn yesNo(value: bool) []const u8 {
-    return if (value) "yes" else "no";
 }
 
 fn renderFallback(allocator: std.mem.Allocator, builder: *Builder, language: []const u8, source: []const u8) !void {

@@ -1,6 +1,5 @@
 const std = @import("std");
 const markdown = @import("../parser.zig");
-const mermaid_types = @import("../../mermaid/types.zig");
 const types = @import("types.zig");
 const builder_mod = @import("builder.zig");
 const wrap = @import("wrap.zig");
@@ -17,9 +16,6 @@ const Inline = markdown.Inline;
 const Options = types.Options;
 const SpanStyle = types.SpanStyle;
 const Builder = builder_mod.Builder;
-const BoxDrawingStyle = mermaid_types.BoxDrawingStyle;
-const CrossingReductionHeuristic = mermaid_types.CrossingReductionHeuristic;
-const ForceLayout = mermaid_types.ForceLayout;
 const SubgraphEdges = @import("prim").SubgraphEdges;
 
 fn bulletMarker(allocator: std.mem.Allocator, decor: *const Decor, depth: usize) ![]u8 {
@@ -57,7 +53,7 @@ pub fn renderBlock(allocator: std.mem.Allocator, builder: *Builder, block: Block
             defer allocator.free(marker);
             try renderTaskItem(allocator, builder, item.content, content_width, marker, if (item.checked) .task_on else .task_off, decor);
         },
-        .fenced_code => |code| try code_mod.render(allocator, builder, code, content_width, options.mermaid_box_style, options.mermaid_crossing_heuristic, options.mermaid_force_layout, options.mermaid_aspect_ratio, options.mermaid_debug, options.mermaid_subgraph_edges, decor),
+        .fenced_code => |code| try code_mod.render(allocator, builder, code, content_width, options.mermaid_debug, options.mermaid_subgraph_edges, decor),
         .html_block => |html| try builder.appendSpan(.muted, html),
         .thematic_break => try rules.renderHr(builder, content_width, decor),
         .table => |table| try table_mod.renderTable(allocator, builder, table, content_width, decor),
@@ -244,7 +240,7 @@ pub fn renderBlockQuote(allocator: std.mem.Allocator, builder: *Builder, bq: Blo
                 defer allocator.free(marker);
                 try renderTaskItem(allocator, builder, item.content, content_width, marker, if (item.checked) .task_on else .task_off, decor);
             },
-            .fenced_code => |code| try code_mod.render(allocator, builder, code, content_width, .standard, .median, .auto, 1.0, false, .bridge, decor),
+            .fenced_code => |code| try code_mod.render(allocator, builder, code, content_width, false, .bridge, decor),
             .html_block => |html| try builder.appendSpan(.muted, html),
             .thematic_break => try rules.renderHr(builder, content_width, decor),
             .table => |table| try table_mod.renderTable(allocator, builder, table, content_width, decor),
@@ -329,7 +325,7 @@ pub fn renderBlockQuoteWithPrefix(allocator: std.mem.Allocator, builder: *Builde
                 defer allocator.free(marker);
                 try renderListItem(allocator, builder, item, content_width, marker, .ordered, 0, decor);
             },
-            .fenced_code => |code| try code_mod.render(allocator, builder, code, content_width, .standard, .median, .auto, 1.0, false, .bridge, decor),
+            .fenced_code => |code| try code_mod.render(allocator, builder, code, content_width, false, .bridge, decor),
             .html_block => |html| try builder.appendSpan(.muted, html),
             .thematic_break => try rules.renderHr(builder, content_width, decor),
             else => {},

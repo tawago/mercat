@@ -7,7 +7,6 @@ const canvas_mod = @import("../shared/canvas.zig");
 const state_layout_mod = @import("layout.zig");
 const draw_helpers = @import("../shared/draw_helpers.zig");
 
-const RenderResult = types.RenderResult;
 const StateDiagram = model.StateDiagram;
 const State = model.State;
 const StateTransition = model.StateTransition;
@@ -18,18 +17,12 @@ const Rect = types.Rect;
 const Canvas = canvas_mod.Canvas;
 const StateLayout = state_layout_mod.StateLayout;
 
-pub fn renderStateDiagram(allocator: Allocator, source: []const u8, max_width: u32) !RenderResult {
+pub fn render(allocator: Allocator, source: []const u8, max_width: u32) !?[]const u8 {
     var diagram = try parse.parse(allocator, source);
     defer diagram.deinit();
 
     if (diagram.state_order.items.len == 0) {
-        return .{
-            .output = "",
-            .width = 0,
-            .height = 0,
-            .is_fallback = false,
-            .fallback_reason = null,
-        };
+        return "";
     }
 
     var layout = StateLayout.init(allocator, &diagram);
@@ -83,13 +76,7 @@ pub fn renderStateDiagram(allocator: Allocator, source: []const u8, max_width: u
     const canvas_height = bounds.height + padding * 2;
 
     if (canvas_width > max_width) {
-        return .{
-            .output = source,
-            .width = canvas_width,
-            .height = canvas_height,
-            .is_fallback = true,
-            .fallback_reason = "Diagram too wide for terminal",
-        };
+        return null;
     }
 
     const left_offset = padding + skip_edge_width;
@@ -115,13 +102,7 @@ pub fn renderStateDiagram(allocator: Allocator, source: []const u8, max_width: u
 
     const output = try canvas.toString(allocator);
 
-    return .{
-        .output = output,
-        .width = canvas_width,
-        .height = canvas_height,
-        .is_fallback = false,
-        .fallback_reason = null,
-    };
+    return output;
 }
 
 fn drawState(canvas: *Canvas, state: *const State) void {

@@ -5,7 +5,6 @@ const parse = @import("parse.zig");
 const model = @import("model.zig");
 const canvas_mod = @import("../shared/canvas.zig");
 
-const RenderResult = types.RenderResult;
 const ClassDiagram = model.ClassDiagram;
 const Class = model.Class;
 const ClassRelation = model.ClassRelation;
@@ -13,18 +12,12 @@ const LineChars = types.LineChars;
 
 const Canvas = canvas_mod.Canvas;
 
-pub fn renderClassDiagram(allocator: Allocator, source: []const u8, max_width: u32) !RenderResult {
+pub fn render(allocator: Allocator, source: []const u8, max_width: u32) !?[]const u8 {
     var diagram = try parse.parse(allocator, source);
     defer diagram.deinit();
 
     if (diagram.class_order.items.len == 0) {
-        return .{
-            .output = "",
-            .width = 0,
-            .height = 0,
-            .is_fallback = false,
-            .fallback_reason = null,
-        };
+        return "";
     }
 
     const class_padding: u32 = 2;
@@ -101,13 +94,7 @@ pub fn renderClassDiagram(allocator: Allocator, source: []const u8, max_width: u
     const total_height: u32 = @intCast(current_y + @as(i32, @intCast(row_height)) + 2);
 
     if (total_width > max_width) {
-        return .{
-            .output = source,
-            .width = total_width,
-            .height = total_height,
-            .is_fallback = true,
-            .fallback_reason = "Diagram too wide for terminal",
-        };
+        return null;
     }
 
     var canvas = try Canvas.init(allocator, total_width, total_height);
@@ -125,13 +112,7 @@ pub fn renderClassDiagram(allocator: Allocator, source: []const u8, max_width: u
 
     const output = try canvas.toString(allocator);
 
-    return .{
-        .output = output,
-        .width = total_width,
-        .height = total_height,
-        .is_fallback = false,
-        .fallback_reason = null,
-    };
+    return output;
 }
 
 fn drawClassBox(canvas: *Canvas, class: *const Class) void {

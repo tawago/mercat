@@ -59,14 +59,6 @@ pub const unicode_rounded: BoxChars = .{
     .vertical = 0x2502,
 };
 
-pub const BoxDrawingStyle = enum {
-    standard,
-    rounded,
-    heavy,
-    double,
-    ascii,
-};
-
 pub const Arrows = struct {
     pub const right: u21 = 0x25B6;
     pub const down: u21 = 0x25BC;
@@ -122,100 +114,6 @@ pub const Rect = struct {
     pub fn bottom(self: Rect) i32 {
         return self.y + @as(i32, @intCast(self.height));
     }
-};
-
-pub const CrossingReductionHeuristic = enum {
-    median,
-    barycenter,
-};
-
-pub const ForceLayout = enum {
-    auto,
-    sugiyama,
-    tree,
-    force,
-
-    pub fn displayName(self: ForceLayout) []const u8 {
-        return switch (self) {
-            .auto => "auto",
-            .sugiyama => "sugiyama",
-            .tree => "tree",
-            .force => "force",
-        };
-    }
-
-    pub fn next(self: ForceLayout) ForceLayout {
-        return switch (self) {
-            .auto => .sugiyama,
-            .sugiyama => .tree,
-            .tree => .force,
-            .force => .auto,
-        };
-    }
-};
-
-pub const LayoutAlgorithm = enum {
-    sugiyama,
-    reingold_tilford,
-    fruchterman_reingold,
-    kamada_kawai,
-    stress_majorization,
-    dominance_drawing,
-    layered_bfs,
-    unknown,
-};
-
-pub const FitStage = enum {
-    natural,
-    label_wrap,
-    direction_switch,
-    spacing_compress,
-    label_truncate,
-    overflow,
-
-    pub fn description(self: FitStage) []const u8 {
-        return switch (self) {
-            .natural => "natural fit",
-            .label_wrap => "labels wrapped",
-            .direction_switch => "direction switched",
-            .spacing_compress => "spacing compressed",
-            .label_truncate => "labels truncated",
-            .overflow => "overflow (fallback)",
-        };
-    }
-};
-
-pub const RenderOptions = struct {
-    max_width: u32 = 120,
-    unicode_mode: bool = true,
-    node_padding: u32 = 1,
-    horizontal_spacing: u32 = 8,
-    vertical_spacing: u32 = 3,
-    max_label_width: ?u32 = null,
-    crossing_reduction_heuristic: CrossingReductionHeuristic = .median,
-    box_drawing_style: BoxDrawingStyle = .standard,
-    force_layout: ForceLayout = .auto,
-    subgraph_edges: @import("prim").SubgraphEdges = .bridge,
-    aspect_ratio_x: f32 = 1.0,
-    aspect_ratio_y: f32 = 1.0,
-    debug_mermaid: bool = false,
-};
-
-pub const RenderResult = struct {
-    output: []const u8,
-    width: u32,
-    height: u32,
-    is_fallback: bool = false,
-    fallback_reason: ?[]const u8 = null,
-    algorithm_used: LayoutAlgorithm = .unknown,
-    node_count: u32 = 0,
-    edge_count: u32 = 0,
-    is_tree: bool = false,
-    is_cyclic: bool = false,
-    width_constraint_triggered: bool = false,
-    crossing_reduction_iterations: u32 = 0,
-    fit_stage: FitStage = .natural,
-    original_direction: ?Direction = null,
 };
 
 pub const NotePosition = enum {

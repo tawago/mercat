@@ -3,7 +3,6 @@ const markdown = @import("../core/markdown/parser.zig");
 const render_model = @import("../core/markdown/render.zig");
 const theme = @import("../core/theme.zig");
 const ansi = @import("../lib/ansi.zig");
-const mermaid_types = @import("../core/mermaid/types.zig");
 const Color = @import("../core/theme/color.zig").Color;
 
 pub const Canvas = struct {
@@ -16,10 +15,6 @@ pub const Options = struct {
     palette: theme.StyleMap,
     show_heading_markers: bool = true,
     frontmatter_style: @import("../core/config.zig").FrontmatterStyle = .panel,
-    mermaid_box_style: mermaid_types.BoxDrawingStyle = .standard,
-    mermaid_crossing_heuristic: mermaid_types.CrossingReductionHeuristic = .median,
-    mermaid_force_layout: mermaid_types.ForceLayout = .auto,
-    mermaid_aspect_ratio: f32 = 1.0,
     mermaid_debug: bool = false,
     mermaid_subgraph_edges: @import("prim").SubgraphEdges = .bridge,
 };
@@ -29,10 +24,6 @@ pub fn renderDocument(allocator: std.mem.Allocator, document: markdown.Document,
         .width = options.width,
         .show_heading_markers = options.show_heading_markers,
         .frontmatter_style = options.frontmatter_style,
-        .mermaid_box_style = options.mermaid_box_style,
-        .mermaid_crossing_heuristic = options.mermaid_crossing_heuristic,
-        .mermaid_force_layout = options.mermaid_force_layout,
-        .mermaid_aspect_ratio = options.mermaid_aspect_ratio,
         .mermaid_debug = options.mermaid_debug,
         .mermaid_subgraph_edges = options.mermaid_subgraph_edges,
     });
