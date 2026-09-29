@@ -161,7 +161,7 @@ fn buildSketch(
     }
 
     if (td_pressure) {
-        if (try decascade.deCascade(a, graph, geom, lg)) |drop| v_sp_per_gap[drop.gap] += drop.rows;
+        if (try decascade.deCascade(a, geom, lg)) |drop| v_sp_per_gap[drop.gap] += drop.rows;
         normalizeX(geom);
     }
 
@@ -185,7 +185,7 @@ fn buildSketch(
     else
         try routing.buildEdges(a, graph, lg, geom, placements, fans, rows);
     const edges_out = edges_result.edges;
-    const clusters_out = try clusters.buildClusters(a, graph, placements, opts.node_padding);
+    const clusters_out = try clusters.buildClusters(a, graph, placements);
 
     const rail_lever = (opts.spacing_scale > 0) and
         (graph.direction == .TD) and !opts.is_direction_rotated;

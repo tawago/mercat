@@ -76,10 +76,9 @@ pub fn bitIsPhantom(lat: *const lattice.Lattice, x: u32, y: u32, d: lattice.Dir4
     return true;
 }
 
-pub fn reconcileNeighbours(lat: *lattice.Lattice) u32 {
-    if (lat.width == 0 or lat.height == 0) return 0;
+pub fn reconcileNeighbours(lat: *lattice.Lattice) void {
+    if (lat.width == 0 or lat.height == 0) return;
 
-    var cleared: u32 = 0;
     var y: u32 = 0;
     while (y < lat.height) : (y += 1) {
         var x: u32 = 0;
@@ -90,24 +89,19 @@ pub fn reconcileNeighbours(lat: *lattice.Lattice) u32 {
             var nb = cell.neighbours;
             if (nb.n and bitIsPhantom(lat, x, y, .north)) {
                 nb.n = false;
-                cleared += 1;
             }
             if (nb.e and bitIsPhantom(lat, x, y, .east)) {
                 nb.e = false;
-                cleared += 1;
             }
             if (nb.s and bitIsPhantom(lat, x, y, .south)) {
                 nb.s = false;
-                cleared += 1;
             }
             if (nb.w and bitIsPhantom(lat, x, y, .west)) {
                 nb.w = false;
-                cleared += 1;
             }
             cell.neighbours = nb;
         }
     }
-    return cleared;
 }
 
 const testing = std.testing;
@@ -129,7 +123,7 @@ test "┼ with an empty east neighbour reconciles to ┤" {
     lat.at(1, 2).* = edgeCell(.{ .n = true });
     lat.at(0, 1).* = edgeCell(.{ .e = true });
 
-    _ = reconcileNeighbours(&lat);
+    reconcileNeighbours(&lat);
 
     const got = lat.atConst(1, 1).neighbours;
     try testing.expectEqual(@as(u4, 0b1101), got.toMask());
@@ -147,7 +141,7 @@ test "┼ with all four neighbours occupied stays ┼" {
     lat.at(0, 1).* = edgeCell(.{ .e = true });
     lat.at(2, 1).* = edgeCell(.{ .w = true });
 
-    _ = reconcileNeighbours(&lat);
+    reconcileNeighbours(&lat);
 
     try testing.expectEqual(@as(u4, 0b1111), lat.atConst(1, 1).neighbours.toMask());
 }
@@ -161,7 +155,7 @@ test "node_border and arrowhead neighbours keep the bit" {
     lat.at(1, 0).* = .{ .occupant = .{ .node_border = .{ .node = 1, .role = .edge_s } }, .neighbours = .{} };
     lat.at(2, 1).* = .{ .occupant = .{ .arrowhead = .{ .dir = .west, .edge = 0 } }, .neighbours = .{} };
     lat.at(0, 1).* = .{ .occupant = .{ .cluster_border = .{ .cluster = 0, .role = .edge_e } }, .neighbours = .{} };
-    _ = reconcileNeighbours(&lat);
+    reconcileNeighbours(&lat);
 
     const got = lat.atConst(1, 1).neighbours;
     try testing.expect(got.n);
@@ -180,7 +174,7 @@ test "non-junction occupants are left untouched" {
         .neighbours = .{ .n = true, .e = true, .s = true, .w = true },
     };
 
-    _ = reconcileNeighbours(&lat);
+    reconcileNeighbours(&lat);
 
     try testing.expectEqual(@as(u4, 0b1111), lat.atConst(1, 1).neighbours.toMask());
 }
@@ -193,7 +187,7 @@ test "trailing ┬ on a rail past the last child loses into-empty arms" {
     lat.at(2, 1).* = edgeCell(.{ .e = true, .w = true });
     lat.at(3, 1).* = edgeCell(.{ .e = true, .s = true, .w = true });
 
-    _ = reconcileNeighbours(&lat);
+    reconcileNeighbours(&lat);
 
     const got = lat.atConst(3, 1).neighbours;
     try testing.expectEqual(@as(u4, 0b1000), got.toMask());
@@ -204,7 +198,7 @@ test "reconcile is NOT order-independent w.r.t. labels: swapping the pipeline po
     for (&buf_before) |*c| c.* = lattice.Cell.empty;
     var lat_before = lattice.Lattice{ .width = 3, .height = 3, .cells = &buf_before };
     lat_before.at(1, 1).* = edgeCell(.{ .s = true });
-    _ = reconcileNeighbours(&lat_before);
+    reconcileNeighbours(&lat_before);
     lat_before.at(1, 2).* = .{ .occupant = .{ .label_char = 'x' }, .neighbours = .{} };
     try testing.expect(!lat_before.atConst(1, 1).neighbours.s);
 
@@ -213,7 +207,7 @@ test "reconcile is NOT order-independent w.r.t. labels: swapping the pipeline po
     var lat_after = lattice.Lattice{ .width = 3, .height = 3, .cells = &buf_after };
     lat_after.at(1, 1).* = edgeCell(.{ .s = true });
     lat_after.at(1, 2).* = .{ .occupant = .{ .label_char = 'x' }, .neighbours = .{} };
-    _ = reconcileNeighbours(&lat_after);
+    reconcileNeighbours(&lat_after);
     try testing.expect(lat_after.atConst(1, 1).neighbours.s);
 }
 

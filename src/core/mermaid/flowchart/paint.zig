@@ -65,9 +65,8 @@ fn rowHasContentFrom(lat: lattice.Lattice, y: u32, from_x: u32) bool {
             .empty, .node_interior, .label_cont => {},
             .label_char => |cp| if (cp != ' ') return true,
             .edge_segment => |seg| if (seg.kind != .invisible) return true,
-            .node_border => |b| {
+            .node_border => {
                 if (cell.stroke_kind != .invisible) return true;
-                _ = b;
             },
             else => return true,
         }

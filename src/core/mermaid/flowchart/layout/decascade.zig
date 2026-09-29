@@ -1,5 +1,4 @@
 const std = @import("std");
-const sg = @import("../sem_graph.zig");
 const sugiyama = @import("sugiyama.zig");
 const routing = @import("routing.zig");
 
@@ -13,11 +12,9 @@ pub const CorridorDrop = struct { gap: u32, rows: u32 };
 
 pub fn deCascade(
     a: std.mem.Allocator,
-    graph: sg.SemGraph,
     geom: []NodeGeom,
     lg: sugiyama.LayeredGraph,
 ) error{OutOfMemory}!?CorridorDrop {
-    _ = graph;
     const nl = lg.layers.len;
     if (nl < 3) return null;
 

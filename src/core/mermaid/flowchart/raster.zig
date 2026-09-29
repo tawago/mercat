@@ -72,7 +72,7 @@ pub fn rasterize(
         error.MalformedPolyline => return error.MalformedPolyline,
     };
 
-    _ = reconcile.reconcileNeighbours(&lat);
+    reconcile.reconcileNeighbours(&lat);
 
     const label_report = labels_r.rasterizeLabels(allocator, &lat, s) catch |err| switch (err) {
         error.OutOfMemory => return error.OutOfMemory,

@@ -23,7 +23,7 @@ test "reconcileNeighbours: 1-cell port gap before a reciprocating node border ke
     lat.at(1, 1).* = edgeCell(.{ .s = true });
     lat.at(1, 3).* = .{ .occupant = .{ .node_border = .{ .node = 5, .role = .edge_n } }, .neighbours = .{ .n = true } };
 
-    _ = reconcile.reconcileNeighbours(&lat);
+    reconcile.reconcileNeighbours(&lat);
 
     try testing.expect(lat.atConst(1, 1).neighbours.s);
 }
@@ -35,7 +35,7 @@ test "reconcileNeighbours: 1-cell port gap before an arrowhead keeps the bit (te
     lat.at(1, 1).* = edgeCell(.{ .s = true });
     lat.at(1, 3).* = .{ .occupant = .{ .arrowhead = .{ .dir = .south, .edge = 0 } }, .neighbours = .{} };
 
-    _ = reconcile.reconcileNeighbours(&lat);
+    reconcile.reconcileNeighbours(&lat);
 
     try testing.expect(lat.atConst(1, 1).neighbours.s);
 }
@@ -50,7 +50,7 @@ test "reconcileNeighbours: reprieve denied for a perpendicular horizontal node_b
     lat.at(0, 1).* = edgeCell(.{ .e = true });
     lat.at(1, 3).* = .{ .occupant = .{ .node_border = .{ .node = 5, .role = .edge_n } }, .neighbours = .{ .e = true, .w = true } };
 
-    _ = reconcile.reconcileNeighbours(&lat);
+    reconcile.reconcileNeighbours(&lat);
 
     const got = lat.atConst(1, 1).neighbours;
     try testing.expect(!got.s);
@@ -67,7 +67,7 @@ test "reconcileNeighbours: reprieve denied for a perpendicular vertical cluster_
     lat.at(3, 2).* = edgeCell(.{ .n = true });
     lat.at(1, 1).* = .{ .occupant = .{ .cluster_border = .{ .cluster = 0, .role = .edge_w } }, .neighbours = .{ .n = true, .s = true } };
 
-    _ = reconcile.reconcileNeighbours(&lat);
+    reconcile.reconcileNeighbours(&lat);
 
     const got = lat.atConst(3, 1).neighbours;
     try testing.expect(!got.w);
@@ -84,7 +84,7 @@ test "reconcileNeighbours: frame-bridge approach arm facing a non-reciprocating 
 
     lat.at(1, 0).* = edgeCell(.{ .s = true });
 
-    _ = reconcile.reconcileNeighbours(&lat);
+    reconcile.reconcileNeighbours(&lat);
 
     try testing.expect(lat.atConst(1, 0).neighbours.s);
     try testing.expect(lat.atConst(1, 1).neighbours.e and lat.atConst(1, 1).neighbours.w);
@@ -97,7 +97,7 @@ test "reconcileNeighbours: a genuinely empty cell 2 steps out still clears (no r
 
     lat.at(1, 1).* = edgeCell(.{ .s = true });
 
-    _ = reconcile.reconcileNeighbours(&lat);
+    reconcile.reconcileNeighbours(&lat);
 
     try testing.expect(!lat.atConst(1, 1).neighbours.s);
 }

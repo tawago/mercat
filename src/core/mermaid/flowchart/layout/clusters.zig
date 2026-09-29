@@ -24,10 +24,7 @@ pub fn buildClusters(
     a: std.mem.Allocator,
     graph: sg.SemGraph,
     placements: []const sketch.NodePlacement,
-    pad: u32,
 ) error{OutOfMemory}![]sketch.ClusterFrame {
-    _ = pad;
-
     const order = try a.alloc(u32, graph.clusters.len);
     defer a.free(order);
     for (order, 0..) |*slot, i| slot.* = @intCast(i);
@@ -217,7 +214,7 @@ pub fn computeBbox(
     const dx: i32 = -min_x;
     const dy: i32 = -min_y;
     if (dx != 0 or dy != 0) {
-        shiftAll(placements, edges, clusters, polylines, rails, dx, dy);
+        shiftAll(placements, clusters, polylines, rails, dx, dy);
     }
 
     return .{
@@ -230,14 +227,12 @@ pub fn computeBbox(
 
 fn shiftAll(
     placements: []sketch.NodePlacement,
-    edges: []sketch.EdgePath,
     clusters: []sketch.ClusterFrame,
     polylines: [][]sketch.Point,
     rails: []fan_rail.Built,
     dx: i32,
     dy: i32,
 ) void {
-    _ = edges;
     for (placements) |*p| {
         p.rect.x += dx;
         p.rect.y += dy;

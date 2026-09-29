@@ -47,7 +47,7 @@ test "buildClusters: outer cluster bbox unions the already-expanded inner rect, 
         .{ .id = 0, .rect = .{ .x = 0, .y = 0, .w = 10, .h = 4 }, .shape = .rect, .lines = &.{}, .cluster_id = 0 },
     };
 
-    const out = try clusters.buildClusters(a, graph, &placements, 0);
+    const out = try clusters.buildClusters(a, graph, &placements);
     defer a.free(out);
 
     var inner: ?sketch.Rect = null;
@@ -88,7 +88,7 @@ test "buildClusters: emitted ClusterFrame order matches input graph.clusters ord
         .{ .id = 0, .rect = .{ .x = 0, .y = 0, .w = 10, .h = 4 }, .shape = .rect, .lines = &.{}, .cluster_id = 30 },
     };
 
-    const out = try clusters.buildClusters(a, graph, &placements, 0);
+    const out = try clusters.buildClusters(a, graph, &placements);
     defer a.free(out);
 
     try testing.expectEqual(@as(usize, 3), out.len);
