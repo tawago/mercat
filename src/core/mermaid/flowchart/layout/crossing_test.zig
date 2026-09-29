@@ -107,7 +107,7 @@ test "reduceCrossings parks a back-edge endpoint at the last within-layer index 
     try testing.expect(!crossing.isBackEndpoint(&lg, 2));
 
     const before = try crossing.countCrossings(testing.allocator, lg);
-    try crossing.reduceCrossings(testing.allocator, &lg, .{});
+    try crossing.reduceCrossings(testing.allocator, &lg);
     const after = try crossing.countCrossings(testing.allocator, lg);
     try testing.expect(after <= before);
 

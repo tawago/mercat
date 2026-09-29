@@ -1,5 +1,4 @@
 const std = @import("std");
-const builtin = @import("builtin");
 
 pub const parse = @import("parse.zig").parse;
 
@@ -41,31 +40,11 @@ pub const RenderOptions = struct {
     subgraph_edges: prim.SubgraphEdges = .bridge,
 };
 
-/// Selection and diagnostic overrides reachable only from tests; production renders use the defaults.
-pub const TestOptions = struct {
-    force_rung: ?ladder_pkg.Rung = null,
-};
-
 pub fn render(allocator: std.mem.Allocator, source: []const u8, options: RenderOptions) !RenderResult {
     return renderFlowchart(allocator, source, options);
 }
 
 pub fn renderFlowchart(allocator: std.mem.Allocator, source: []const u8, options: RenderOptions) !RenderResult {
-    return renderWith(allocator, source, options, .{});
-}
-
-/// Renders with test overrides; a compile error outside test builds.
-pub fn renderForTest(allocator: std.mem.Allocator, source: []const u8, options: RenderOptions, overrides: TestOptions) !RenderResult {
-    if (!builtin.is_test) @compileError("renderForTest is test-only");
-    return renderWith(allocator, source, options, overrides);
-}
-
-fn renderWith(
-    allocator: std.mem.Allocator,
-    source: []const u8,
-    options: RenderOptions,
-    overrides: TestOptions,
-) !RenderResult {
     var arena = std.heap.ArenaAllocator.init(allocator);
     defer arena.deinit();
     const aa = arena.allocator();
@@ -84,17 +63,9 @@ fn renderWith(
     };
     const bundle_permits = branch_result.plan;
 
-    const chosen = blk: {
-        if (overrides.force_rung) |rung| {
-            break :blk ladder_pkg.runForced(aa, graph, &bundle_permits, options.max_width, rung) catch |err| {
-                std.log.warn("mermaid_v2/entry: forced-rung layout failed: {s}", .{@errorName(err)});
-                return fallback(source, "v2 ladder error");
-            };
-        }
-        break :blk select_mod.choose(aa, graph, &bundle_permits, options.max_width, options.subgraph_edges) catch |err| {
-            std.log.warn("mermaid_v2/entry: ladder failed: {s}", .{@errorName(err)});
-            return fallback(source, "v2 ladder error");
-        };
+    const chosen = select_mod.choose(aa, graph, &bundle_permits, options.max_width, options.subgraph_edges) catch |err| {
+        std.log.warn("mermaid_v2/entry: ladder failed: {s}", .{@errorName(err)});
+        return fallback(source, "v2 ladder error");
     };
     const sketch_val = chosen.sketch;
 
@@ -164,7 +135,6 @@ test "V-D-POLICY-02: production resolver originates joined for a flat graph" {
 
 test "V-D-POLICY-03: policy has no config CLI or environment surface" {
     try std.testing.expect(!@hasField(RenderOptions, "policy"));
-    try std.testing.expect(!@hasField(TestOptions, "policy"));
 
     const source = "flowchart TD\nA --> B\n";
     const left = try renderFlowchart(std.testing.allocator, source, .{});
@@ -172,15 +142,6 @@ test "V-D-POLICY-03: policy has no config CLI or environment surface" {
     const right = try renderFlowchart(std.testing.allocator, source, .{});
     defer std.testing.allocator.free(right.output);
     try std.testing.expectEqualStrings(left.output, right.output);
-}
-
-test "default test overrides render what production renders" {
-    const source = "flowchart TD\nA --> B\nA --> C\n";
-    const production = try renderFlowchart(std.testing.allocator, source, .{});
-    defer std.testing.allocator.free(production.output);
-    const overridden = try renderForTest(std.testing.allocator, source, .{}, .{});
-    defer std.testing.allocator.free(overridden.output);
-    try std.testing.expectEqualStrings(production.output, overridden.output);
 }
 
 test "V-D-IR-07: a clustered graph's bundles ride piece plans; the root plan stays skipped" {

@@ -56,7 +56,7 @@ pub fn layout(
     };
     defer lg.deinit(allocator);
 
-    crossing.reduceCrossings(allocator, &lg, .{}) catch |err| switch (err) {
+    crossing.reduceCrossings(allocator, &lg) catch |err| switch (err) {
         error.OutOfMemory => return error.OutOfMemory,
     };
 

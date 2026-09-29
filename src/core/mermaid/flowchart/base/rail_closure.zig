@@ -225,11 +225,3 @@ pub fn contains(edges: []const EdgeId, edge: EdgeId) bool {
     }
     return false;
 }
-
-pub fn doubleDischarged(discharged: []const EdgeId, routed: []const EdgeId) u32 {
-    var n: u32 = 0;
-    for (discharged) |edge| {
-        if (contains(routed, edge)) n += 1;
-    }
-    return n;
-}

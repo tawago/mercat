@@ -3,19 +3,10 @@ const sg = @import("../sem_graph.zig");
 const sugiyama = @import("sugiyama.zig");
 const LayeredGraph = sugiyama.LayeredGraph;
 
-pub const Sweep = enum { alternating, down_only, up_only };
+const max_iterations: u8 = 24;
+const convergence_window: u8 = 3;
 
-pub const CrossingOptions = struct {
-    max_iterations: u8 = 24,
-    sweep: Sweep = .alternating,
-    convergence_window: u8 = 3,
-};
-
-pub fn reduceCrossings(
-    allocator: std.mem.Allocator,
-    lg: *LayeredGraph,
-    opts: CrossingOptions,
-) !void {
+pub fn reduceCrossings(allocator: std.mem.Allocator, lg: *LayeredGraph) !void {
     if (lg.layers.len < 2) return;
 
     var best = try cloneLayers(allocator, lg.layers);
@@ -26,15 +17,9 @@ pub fn reduceCrossings(
 
     var stagnation: u8 = 0;
     var iter: u8 = 0;
-    while (iter < opts.max_iterations) : (iter += 1) {
-        switch (opts.sweep) {
-            .alternating => {
-                try sweepDown(allocator, lg);
-                try sweepUp(allocator, lg);
-            },
-            .down_only => try sweepDown(allocator, lg),
-            .up_only => try sweepUp(allocator, lg),
-        }
+    while (iter < max_iterations) : (iter += 1) {
+        try sweepDown(allocator, lg);
+        try sweepUp(allocator, lg);
 
         const cur = try countCrossings(allocator, lg.*);
         const cur_rail = railCost(lg.*);
@@ -49,9 +34,7 @@ pub fn reduceCrossings(
         } else {
             restoreLayers(lg.layers, best);
             stagnation += 1;
-            if (opts.convergence_window != 0 and stagnation >= opts.convergence_window) {
-                break;
-            }
+            if (stagnation >= convergence_window) break;
         }
         if (best_crossings == 0) break;
     }
@@ -309,7 +292,7 @@ test "linear chain has zero crossings before and after" {
     const snap = try cloneLayers(testing.allocator, lg.layers);
     defer freeLayers(testing.allocator, snap);
 
-    try reduceCrossings(testing.allocator, &lg, .{});
+    try reduceCrossings(testing.allocator, &lg);
 
     const after = try countCrossings(testing.allocator, lg);
     try testing.expectEqual(@as(u32, 0), after);
@@ -352,7 +335,7 @@ test "two-layer X pattern reduces from 1 to 0" {
     const orig_lower = try testing.allocator.dupe(u32, lg.layers[1]);
     defer testing.allocator.free(orig_lower);
 
-    try reduceCrossings(testing.allocator, &lg, .{});
+    try reduceCrossings(testing.allocator, &lg);
 
     const after = try countCrossings(testing.allocator, lg);
     try testing.expectEqual(@as(u32, 0), after);
@@ -361,37 +344,6 @@ test "two-layer X pattern reduces from 1 to 0" {
     const lower_swapped =
         lg.layers[1][0] != orig_lower[0] or lg.layers[1][1] != orig_lower[1];
     try testing.expect(upper_swapped or lower_swapped);
-}
-
-test "convergence_window stops early when no improvement" {
-    const nodes = [_]sg.Node{
-        mkNode(0, "A"),
-        mkNode(1, "B"),
-        mkNode(2, "C"),
-        mkNode(3, "D"),
-    };
-    const edges = [_]sg.Edge{
-        mkEdge(0, 0, 1),
-        mkEdge(1, 2, 3),
-    };
-    const g = sg.SemGraph{
-        .direction = .TD,
-        .nodes = &nodes,
-        .edges = &edges,
-        .clusters = &.{},
-        .classes = &.{},
-        .arena = null,
-    };
-    var lg = try sugiyama.assignLayers(testing.allocator, g);
-    defer lg.deinit(testing.allocator);
-
-    const before = try countCrossings(testing.allocator, lg);
-    try testing.expectEqual(@as(u32, 0), before);
-
-    try reduceCrossings(testing.allocator, &lg, .{ .convergence_window = 1 });
-
-    const after = try countCrossings(testing.allocator, lg);
-    try testing.expectEqual(@as(u32, 0), after);
 }
 
 test "best-of rollback never increases crossings" {
@@ -423,7 +375,7 @@ test "best-of rollback never increases crossings" {
     defer lg.deinit(testing.allocator);
 
     const before = try countCrossings(testing.allocator, lg);
-    try reduceCrossings(testing.allocator, &lg, .{});
+    try reduceCrossings(testing.allocator, &lg);
     const after = try countCrossings(testing.allocator, lg);
     try testing.expect(after <= before);
 }

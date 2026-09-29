@@ -172,12 +172,6 @@ test "the verdict does not depend on the order declarations were listed" {
     try testing.expectEqual(x.discharges.len, y.discharges.len);
 }
 
-test "a discharged edge that still routes privately is a double discharge" {
-    try testing.expectEqual(@as(u32, 0), rc.doubleDischarged(&.{ 10, 11 }, &.{ 0, 1, 2 }));
-    try testing.expectEqual(@as(u32, 1), rc.doubleDischarged(&.{ 10, 11 }, &.{ 0, 10 }));
-    try testing.expectEqual(@as(u32, 2), rc.doubleDischarged(&.{ 10, 11 }, &.{ 11, 10 }));
-}
-
 test "a decorated star with undeclared pairs refuses instead of escaping the licence" {
     const members = [_]rc.Member{ decoratedMember(0, 1), decoratedMember(1, 2), decoratedMember(2, 3) };
     const v = try decide(&members, &.{});
