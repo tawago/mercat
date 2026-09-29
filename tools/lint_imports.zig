@@ -3,6 +3,7 @@ const std = @import("std");
 const imports = @import("lint/imports.zig");
 const gb = @import("lint/guarded_by.zig");
 const banned = @import("lint/vocabulary.zig");
+const cycles = @import("lint/cycles.zig");
 const TestDecl = gb.TestDecl;
 const GbRef = gb.GbRef;
 
@@ -27,6 +28,7 @@ pub fn lint(allocator: std.mem.Allocator, root: []const u8) !LintReport {
     var test_decls: std.ArrayList(TestDecl) = .empty;
     var gb_refs: std.ArrayList(GbRef) = .empty;
     var seen_files: std.ArrayList([]const u8) = .empty;
+    var production: std.ArrayList(cycles.Source) = .empty;
 
     var dir = std.fs.cwd().openDir(root, .{ .iterate = true }) catch |err| {
         const msg = try std.fmt.allocPrint(a, "error: cannot open root '{s}': {s}", .{ root, @errorName(err) });
@@ -56,6 +58,7 @@ pub fn lint(allocator: std.mem.Allocator, root: []const u8) !LintReport {
         const contents = try file.readToEndAlloc(a, 8 * 1024 * 1024);
 
         if (!isTestFile(entry.basename)) {
+            try production.append(a, .{ .path = try a.dupe(u8, entry.path), .contents = contents });
             const code_lines = codeLines(contents);
             if (code_lines > 500) {
                 const msg = try std.fmt.allocPrint(a, "{s}: {d} code lines exceeds the 500-code-line cap (blank and // lines are free)", .{ entry.path, code_lines });
@@ -74,6 +77,7 @@ pub fn lint(allocator: std.mem.Allocator, root: []const u8) !LintReport {
     }
 
     try gb.verifyGuardedBy(a, &violations, seen_files.items, test_decls.items, gb_refs.items);
+    try cycles.check(a, &violations, production.items);
 
     return LintReport{ .violations = try violations.toOwnedSlice(a), .arena = arena_ptr };
 }
@@ -131,15 +135,18 @@ test "lint flags bad fixtures" {
     var saw_big = false;
     var saw_fallback = false;
     var saw_banned = false;
+    var saw_cycle = false;
     for (report.violations) |v| {
         if (std.mem.indexOf(u8, v, "big_file.zig") != null) saw_big = true;
         if (std.mem.indexOf(u8, v, "dummy.zig") != null and std.mem.indexOf(u8, v, "fallback") != null) saw_fallback = true;
         if (std.mem.indexOf(u8, v, "banned.zig") != null and std.mem.indexOf(u8, v, "codepointWidth") != null) saw_banned = true;
+        if (std.mem.indexOf(u8, v, "import cycle among 2 files: cycle_a.zig, cycle_b.zig") != null) saw_cycle = true;
     }
     try std.testing.expect(report.violations.len >= 3);
     try std.testing.expect(saw_big);
     try std.testing.expect(saw_fallback);
     try std.testing.expect(saw_banned);
+    try std.testing.expect(saw_cycle);
 }
 
 test "code lines: blank and //-prefixed lines are free, indentation and CR are ignored" {
@@ -161,4 +168,5 @@ test {
     _ = imports;
     _ = gb;
     _ = banned;
+    _ = cycles;
 }
