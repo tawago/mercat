@@ -1,7 +1,7 @@
 //! The mermaid API: one call renders any diagram source mercat draws.
 
 const std = @import("std");
-const types = @import("types.zig");
+const detect = @import("detect.zig");
 const flowchart = @import("flowchart/entry.zig");
 const sequence = @import("sequence/render.zig");
 const class = @import("class/render.zig");
@@ -24,7 +24,7 @@ pub const Result = union(enum) {
 };
 
 pub fn render(allocator: std.mem.Allocator, source: []const u8, options: Options) Result {
-    const drawn = switch (types.DiagramType.fromSource(source)) {
+    const drawn = switch (detect.Kind.fromSource(source)) {
         .flowchart => return renderFlowchart(allocator, source, options),
         .sequence => sequence.render(allocator, source, options.max_width),
         .class_diagram => class.render(allocator, source, options.max_width),

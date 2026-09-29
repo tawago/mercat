@@ -1,28 +1,6 @@
 const std = @import("std");
-const text = @import("text");
 
-pub const DiagramType = enum {
-    flowchart,
-    sequence,
-    class_diagram,
-    state,
-    er,
-    unsupported,
-
-    pub fn fromSource(source: []const u8) DiagramType {
-        const trimmed = text.firstMeaningfulLine(source, "%%");
-        if (std.mem.startsWith(u8, trimmed, "graph") or
-            std.mem.startsWith(u8, trimmed, "flowchart"))
-        {
-            return .flowchart;
-        }
-        if (std.mem.startsWith(u8, trimmed, "sequenceDiagram")) return .sequence;
-        if (std.mem.startsWith(u8, trimmed, "classDiagram")) return .class_diagram;
-        if (std.mem.startsWith(u8, trimmed, "stateDiagram")) return .state;
-        if (std.mem.startsWith(u8, trimmed, "erDiagram")) return .er;
-        return .unsupported;
-    }
-};
+pub const DiagramType = @import("detect.zig").Kind;
 
 pub const Direction = enum {
     LR,
