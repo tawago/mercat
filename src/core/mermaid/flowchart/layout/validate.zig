@@ -7,7 +7,6 @@ pub const Violation = struct {
 
     pub const Kind = enum {
         path_through_interior,
-        bbox_overflow,
         edge_unrouted,
     };
 };
@@ -29,7 +28,6 @@ pub fn counts(vr: ValidationResult, s: sketch.Sketch) Counts {
         .ok => {},
         .failed => |violations| for (violations) |v| switch (v.kind) {
             .path_through_interior => c.path_through_interior += 1,
-            .bbox_overflow => c.bbox_overflow += 1,
             .edge_unrouted => c.edge_unrouted += 1,
         },
     }
@@ -47,7 +45,6 @@ pub fn validate(
     try checkUnrouted(allocator, s, &violations);
     try checkPathInteriors(allocator, s, &violations);
     try checkRails(allocator, s, &violations);
-    try checkBboxBudget(allocator, s, &violations);
 
     if (violations.items.len == 0) {
         violations.deinit(allocator);
@@ -130,19 +127,6 @@ pub fn checkRails(
                 }
             }
         }
-    }
-}
-
-pub fn checkBboxBudget(
-    allocator: std.mem.Allocator,
-    s: sketch.Sketch,
-    violations: *std.ArrayList(Violation),
-) !void {
-    _ = allocator;
-    _ = violations;
-    if (s.bbox.w > s.budget.max_width) {
-        const excess = s.bbox.w - s.budget.max_width;
-        std.log.debug("mermaid_v2/validate: bbox width {d} exceeds budget {d} by {d} (clipped at paint)", .{ s.bbox.w, s.budget.max_width, excess });
     }
 }
 

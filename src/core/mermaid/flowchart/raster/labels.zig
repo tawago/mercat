@@ -30,7 +30,6 @@ pub fn rasterizeLabels(
     var placed: u32 = 0;
     var attempted: u32 = 0;
     var displaced: u32 = 0;
-    var on_run: u32 = 0;
 
     for (s.nodes) |np| {
         if (np.lines.len == 0) continue;
@@ -45,7 +44,6 @@ pub fn rasterizeLabels(
         const run = try lw.prepare(allocator, &glyphs, lbl);
         if (labels_onrun.tryOnRunEdge(lat, s, ep, run)) {
             placed += 1;
-            on_run += 1;
             continue;
         }
         switch (try labels_edge.placeEdgeLabel(allocator, &diags, lat, ep, run)) {
@@ -66,7 +64,6 @@ pub fn rasterizeLabels(
             const run = try lw.prepare(allocator, &glyphs, lbl);
             if (labels_onrun.tryOnRunTap(lat, s, tap, run)) {
                 placed += 1;
-                on_run += 1;
                 continue;
             }
             const seg = rail.tapLabelSeg(tap);
@@ -93,7 +90,6 @@ pub fn rasterizeLabels(
         .placed = placed,
         .dropped = attempted - placed,
         .displaced = displaced,
-        .on_run = on_run,
         .diagnostics = try diags.toOwnedSlice(allocator),
     };
 }

@@ -15,6 +15,5 @@ pub const Report = struct {
     placed: u32,
     dropped: u32,
     displaced: u32,
-    on_run: u32,
     diagnostics: []const LabelDiagnostic,
 };

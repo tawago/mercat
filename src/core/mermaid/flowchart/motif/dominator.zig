@@ -3,7 +3,6 @@ const std = @import("std");
 pub const ROOT: u32 = std.math.maxInt(u32);
 
 pub const DomTree = struct {
-    idom: []const u32,
     children: []const []const u32,
     roots: []const u32,
 };
@@ -13,7 +12,7 @@ pub fn compute(
     n: usize,
     edges_in: []const [2]u32,
 ) error{OutOfMemory}!DomTree {
-    if (n == 0) return .{ .idom = &.{}, .children = &.{}, .roots = &.{} };
+    if (n == 0) return .{ .children = &.{}, .roots = &.{} };
 
     const edges = try a.dupe([2]u32, edges_in);
     try reverseBackEdges(a, n, edges);
@@ -101,7 +100,6 @@ pub fn compute(
     for (0..n) |v| children[v] = try kids[v].toOwnedSlice(a);
 
     return .{
-        .idom = out_idom,
         .children = children,
         .roots = try roots.toOwnedSlice(a),
     };
