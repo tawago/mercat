@@ -5,7 +5,7 @@
 # are not `//`, so doc comments and blank lines are free. The cap applies to
 # every Zig source under src/ except `*_test*.zig` files (tests are extracted
 # into sibling files to keep their module small; test length is not tracked).
-# The mermaid_v2 lint (tools/lint_imports.zig, `zig build lint`) applies the
+# The flowchart engine lint (tools/lint_imports.zig, `zig build lint`) applies the
 # same rule, counted the same way, to its tree.
 #
 # A module over the cap fails CI unless it is grandfathered below. The

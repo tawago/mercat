@@ -4,7 +4,7 @@
 
 const std = @import("std");
 const check = @import("check");
-const mermaid_v2 = @import("mermaid_v2");
+const flowchart = @import("flowchart");
 const gen = @import("gen.zig");
 const declared = @import("declared.zig").declared;
 
@@ -21,7 +21,7 @@ const known_renaming = [_]u64{ 0, 17, 18, 19, 38, 46 };
 
 fn render(arena: std.mem.Allocator, source: []const u8, width: u32) ![]const u8 {
     std.testing.log_level = .err;
-    const result = try mermaid_v2.render(arena, source, .{ .max_width = width });
+    const result = try flowchart.render(arena, source, .{ .max_width = width });
     return arena.dupe(u8, result.output);
 }
 
@@ -30,7 +30,7 @@ fn render(arena: std.mem.Allocator, source: []const u8, width: u32) ![]const u8 
 fn parsed(arena: std.mem.Allocator, source: []const u8) !?check.Declared {
     return declared(arena, source) catch {
         std.testing.log_level = .err;
-        const result = try mermaid_v2.render(arena, source, .{});
+        const result = try flowchart.render(arena, source, .{});
         try std.testing.expect(result.is_fallback);
         return null;
     };

@@ -102,7 +102,7 @@ pub fn main() !void {
     const args = try std.process.argsAlloc(allocator);
     defer std.process.argsFree(allocator, args);
 
-    const root: []const u8 = if (args.len >= 2) args[1] else "src/core/mermaid_v2";
+    const root: []const u8 = if (args.len >= 2) args[1] else "src/core/mermaid/flowchart";
 
     {
         var probe = std.fs.cwd().openDir(root, .{ .iterate = true }) catch |err| {
