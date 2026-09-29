@@ -155,26 +155,6 @@ pub const Canvas = struct {
         }
     }
 
-    fn getCornerChar(self: *Canvas, prev: Point, curr: Point, next: Point) ?u21 {
-        _ = self;
-        const from_left = prev.x < curr.x;
-        const from_right = prev.x > curr.x;
-        const from_above = prev.y < curr.y;
-        const from_below = prev.y > curr.y;
-
-        const to_left = next.x < curr.x;
-        const to_right = next.x > curr.x;
-        const to_above = next.y < curr.y;
-        const to_below = next.y > curr.y;
-
-        if ((from_right and to_below) or (from_below and to_right)) return LineChars.corner_se;
-        if ((from_left and to_below) or (from_below and to_left)) return LineChars.corner_sw;
-        if ((from_right and to_above) or (from_above and to_right)) return LineChars.corner_ne;
-        if ((from_left and to_above) or (from_above and to_left)) return LineChars.corner_nw;
-
-        return null;
-    }
-
     pub fn toString(self: *Canvas, allocator: Allocator) ![]const u8 {
         var result: std.ArrayList(u8) = .empty;
         errdefer result.deinit(allocator);
