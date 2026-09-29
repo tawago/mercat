@@ -1,10 +1,11 @@
 const std = @import("std");
 const sketch = @import("sketch.zig");
 const ledger = @import("base/ledger.zig");
+const bundle_mod = @import("base/bundle.zig");
 
 const EdgeId = sketch.EdgeId;
 const Point = sketch.Point;
-const BundleCell = ledger.BundleCell;
+const BundleCell = bundle_mod.BundleCell;
 
 pub const CarrierTrace = struct {
     id: EdgeId,
@@ -18,7 +19,7 @@ pub const CarrierTrace = struct {
 pub fn portShareBundles(
     arena: std.mem.Allocator,
     edges: []const sketch.EdgePath,
-) error{OutOfMemory}![]const ledger.Bundle {
+) error{OutOfMemory}![]const bundle_mod.Bundle {
     return portShareBundlesFromTraces(arena, try finalCarrierTraces(arena, edges, &.{}));
 }
 
@@ -74,7 +75,7 @@ pub fn finalCarrierTraces(
 fn portShareBundlesFromTraces(
     arena: std.mem.Allocator,
     traces: []const CarrierTrace,
-) error{OutOfMemory}![]const ledger.Bundle {
+) error{OutOfMemory}![]const bundle_mod.Bundle {
     var ports: std.ArrayListUnmanaged(BundleCell) = .empty;
     for (traces) |t| {
         for ([2]Point{ t.first, t.last }) |pt| {
@@ -84,7 +85,7 @@ fn portShareBundlesFromTraces(
     }
     std.mem.sort(BundleCell, ports.items, {}, portLess);
 
-    var out: std.ArrayListUnmanaged(ledger.Bundle) = .empty;
+    var out: std.ArrayListUnmanaged(bundle_mod.Bundle) = .empty;
     for (ports.items) |port| {
         var rail_source = false;
         var rail_target = false;
@@ -108,7 +109,7 @@ const TerminalFilter = enum { any, paths, source, target };
 
 fn appendPortSet(
     arena: std.mem.Allocator,
-    out: *std.ArrayListUnmanaged(ledger.Bundle),
+    out: *std.ArrayListUnmanaged(bundle_mod.Bundle),
     traces: []const CarrierTrace,
     port: BundleCell,
     filter: TerminalFilter,
@@ -120,7 +121,7 @@ fn appendPortSet(
     if (members.items.len < 2) return;
 
     var cells: std.ArrayListUnmanaged(BundleCell) = .empty;
-    var pairwise: std.ArrayListUnmanaged(ledger.PairCells) = .empty;
+    var pairwise: std.ArrayListUnmanaged(bundle_mod.PairCells) = .empty;
     for (traces, 0..) |a, i| {
         if (!terminalAt(a, port, filter)) continue;
         for (traces[i + 1 ..]) |b| {
@@ -228,29 +229,29 @@ fn has(cells: []const BundleCell, want: BundleCell) bool {
 /// @guarded-by: sketch_ports_test.zig "appendPortShares keeps the existing sets ahead of the derived ones"
 pub fn appendPortShares(
     arena: std.mem.Allocator,
-    existing: []const ledger.Bundle,
+    existing: []const bundle_mod.Bundle,
     edges: []const sketch.EdgePath,
-) error{OutOfMemory}![]const ledger.Bundle {
-    var structural: std.ArrayListUnmanaged(ledger.Bundle) = .empty;
+) error{OutOfMemory}![]const bundle_mod.Bundle {
+    var structural: std.ArrayListUnmanaged(bundle_mod.Bundle) = .empty;
     for (existing) |set| {
         if (set.origin != .port_share) try structural.append(arena, set);
     }
-    return ledger.concatBundles(arena, try structural.toOwnedSlice(arena), try portShareBundles(arena, edges));
+    return bundle_mod.concatBundles(arena, try structural.toOwnedSlice(arena), try portShareBundles(arena, edges));
 }
 
 pub fn rebuildFinalPortShares(
     arena: std.mem.Allocator,
-    existing: []const ledger.Bundle,
+    existing: []const bundle_mod.Bundle,
     edges: []const sketch.EdgePath,
     rails_buf: []const sketch.Rail,
-) error{OutOfMemory}![]const ledger.Bundle {
-    var structural: std.ArrayListUnmanaged(ledger.Bundle) = .empty;
+) error{OutOfMemory}![]const bundle_mod.Bundle {
+    var structural: std.ArrayListUnmanaged(bundle_mod.Bundle) = .empty;
     for (existing) |set| {
         if (set.origin != .port_share) try structural.append(arena, set);
     }
     const traces = try finalCarrierTraces(arena, edges, rails_buf);
-    var mixed: std.ArrayListUnmanaged(ledger.Bundle) = .empty;
-    var path_only: std.ArrayListUnmanaged(ledger.Bundle) = .empty;
+    var mixed: std.ArrayListUnmanaged(bundle_mod.Bundle) = .empty;
+    var path_only: std.ArrayListUnmanaged(bundle_mod.Bundle) = .empty;
     for (try portShareBundlesFromTraces(arena, traces)) |share| {
         var has_path = false;
         var has_rail = false;
@@ -263,10 +264,10 @@ pub fn rebuildFinalPortShares(
             try mixed.append(arena, share);
         } else if (has_path) try path_only.append(arena, share);
     }
-    const with_structural = try ledger.concatBundles(
+    const with_structural = try bundle_mod.concatBundles(
         arena,
         try mixed.toOwnedSlice(arena),
         try structural.toOwnedSlice(arena),
     );
-    return ledger.concatBundles(arena, with_structural, try path_only.toOwnedSlice(arena));
+    return bundle_mod.concatBundles(arena, with_structural, try path_only.toOwnedSlice(arena));
 }

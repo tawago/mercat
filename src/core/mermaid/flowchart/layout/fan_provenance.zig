@@ -1,5 +1,6 @@
 const std = @import("std");
 const ledger = @import("../base/ledger.zig");
+const rail_star = @import("../base/rail_star.zig");
 const sg = @import("../sem_graph.zig");
 const sketch = @import("../sketch.zig");
 const fan_mod = @import("fan.zig");
@@ -12,8 +13,8 @@ pub fn build(
     bundles: ledger.RealizedBundles,
     paths: []const sketch.EdgePath,
     rails: []const sketch.Rail,
-) error{OutOfMemory}![]const ledger.RailClaim {
-    var out: std.ArrayListUnmanaged(ledger.RailClaim) = .empty;
+) error{OutOfMemory}![]const rail_star.RailClaim {
+    var out: std.ArrayListUnmanaged(rail_star.RailClaim) = .empty;
     for (fans) |f| {
         if (deferredToArrivals(bundles, f)) continue;
         for (f.peers, 0..) |seed, i| {
@@ -23,7 +24,7 @@ pub fn build(
             const lane = fan_mod.effectiveLane(f, seed.lane);
             if (groupSeen(graph, f, bundles, f.peers[0..i], lane)) continue;
 
-            var members: std.ArrayListUnmanaged(ledger.RailClaimMember) = .empty;
+            var members: std.ArrayListUnmanaged(rail_star.RailClaimMember) = .empty;
             for (f.peers) |peer| {
                 if (!peer.shared) continue;
                 if (fan_mod.effectiveLane(f, peer.lane) != lane) continue;
@@ -37,12 +38,12 @@ pub fn build(
             }
 
             const owned = try members.toOwnedSlice(a);
-            const claim: ledger.RailClaim = .{
+            const claim: rail_star.RailClaim = .{
                 .id = @intCast(out.items.len + 1),
                 .polarity = if (f.direction == .out) .out else .in,
                 .members = owned,
             };
-            std.debug.assert(ledger.checkRailClaim(claim).derived_pivot == f.pivot);
+            std.debug.assert(rail_star.check(claim).derived_pivot == f.pivot);
             try out.append(a, claim);
         }
     }
@@ -55,7 +56,7 @@ fn memberFor(
     placements: []const sketch.NodePlacement,
     paths: []const sketch.EdgePath,
     rails: []const sketch.Rail,
-) ledger.RailClaimMember {
+) rail_star.RailClaimMember {
     if (railMember(f, semantic, placements, paths, rails)) |member| return member;
     if (sketch.pathById(paths, semantic.id)) |path| {
         var member = memberFromPath(f, path);
@@ -74,7 +75,7 @@ fn memberFor(
     };
 }
 
-fn memberFromPath(f: fan_mod.Fan, path: sketch.EdgePath) ledger.RailClaimMember {
+fn memberFromPath(f: fan_mod.Fan, path: sketch.EdgePath) rail_star.RailClaimMember {
     return .{
         .edge = path.id,
         .endpoints = .{ path.from, path.to },
@@ -91,7 +92,7 @@ fn railMember(
     placements: []const sketch.NodePlacement,
     paths: []const sketch.EdgePath,
     rails: []const sketch.Rail,
-) ?ledger.RailClaimMember {
+) ?rail_star.RailClaimMember {
     for (rails) |rail| {
         if (rail.pivot != f.pivot or !roleMatches(f.direction, rail.role) or rail.stem.len == 0) continue;
         for (rail.taps) |tap| {
@@ -126,12 +127,12 @@ fn railMember(
     return null;
 }
 
-fn siteFromPort(port: sketch.Port, node: sketch.NodeId) ?ledger.AttachmentSite {
+fn siteFromPort(port: sketch.Port, node: sketch.NodeId) ?rail_star.AttachmentSite {
     if (port.node != node) return null;
     return .{ .node = node, .side = port.side, .offset = port.offset };
 }
 
-fn siteFromPoint(placements: []const sketch.NodePlacement, node: sketch.NodeId, point: sketch.Point) ?ledger.AttachmentSite {
+fn siteFromPoint(placements: []const sketch.NodePlacement, node: sketch.NodeId, point: sketch.Point) ?rail_star.AttachmentSite {
     for (placements) |placement| {
         if (placement.id != node) continue;
         const rect = placement.rect;

@@ -2,6 +2,7 @@ const std = @import("std");
 const sketch = @import("../sketch.zig");
 const lattice = @import("../lattice.zig");
 const ledger = @import("../base/ledger.zig");
+const bundle_mod = @import("../base/bundle.zig");
 const edges = @import("edges.zig");
 const crossings = @import("crossings.zig");
 
@@ -171,8 +172,8 @@ test "stamp state and BundleId never change derived crossing ink" {
     var baseline: [121]lattice.Cell = undefined;
     var have_baseline = false;
 
-    for ([_]ledger.BundleId{ 1, 97 }) |bundle| {
-        const bundle_sets = [_]ledger.Bundle{.{
+    for ([_]bundle_mod.BundleId{ 1, 97 }) |bundle| {
+        const bundle_sets = [_]bundle_mod.Bundle{.{
             .origin = .fan_rail,
             .bundle = bundle,
             .members = &.{ 0, 1 },

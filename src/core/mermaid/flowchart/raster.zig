@@ -1,6 +1,7 @@
 const std = @import("std");
 const prim = @import("prim");
 const ledger = @import("base/ledger.zig");
+const rail_star = @import("base/rail_star.zig");
 const sketch = @import("sketch.zig");
 const lattice = @import("lattice.zig");
 const nodes_r = @import("raster/nodes.zig");
@@ -105,13 +106,13 @@ test "zero-sized bbox returns empty report and borrows final rail claims" {
         .diagnostics = &.{},
         .budget = .{ .max_width = 80, .rung = 0 },
     };
-    const claims = [_]ledger.RailClaim{.{ .id = 1, .polarity = .out, .members = &.{} }};
+    const claims = [_]rail_star.RailClaim{.{ .id = 1, .polarity = .out, .members = &.{} }};
     s.rail_claims = &claims;
 
     const r = try rasterize(a, s, .bridge);
     try testing.expectEqual(@as(u32, 0), r.lattice.width);
     try testing.expectEqual(@as(u32, 0), r.lattice.height);
-    try testing.expectEqualSlices(ledger.RailClaim, &claims, r.lattice.rail_claims);
+    try testing.expectEqualSlices(rail_star.RailClaim, &claims, r.lattice.rail_claims);
 }
 
 test "two nodes + one edge: borders, interiors, and an edge cell" {

@@ -4,6 +4,8 @@ const sketch = @import("../sketch.zig");
 const sketch_bundles = @import("../sketch_bundles.zig");
 const sg = @import("../sem_graph.zig");
 const ledger = @import("../base/ledger.zig");
+const bundle_mod = @import("../base/bundle.zig");
+const bundle_plan = @import("../base/bundle_plan.zig");
 const split_mod = @import("split.zig");
 const bridges = @import("bridges.zig");
 const bridge_plan = @import("bridge_plan.zig");
@@ -72,7 +74,7 @@ pub fn stitch(
     var clusters: std.ArrayListUnmanaged(sketch.ClusterFrame) = .empty;
     var edges: std.ArrayListUnmanaged(sketch.EdgePath) = .empty;
     var rails: std.ArrayListUnmanaged(sketch.Rail) = .empty;
-    var bundle_sets: std.ArrayListUnmanaged(ledger.Bundle) = .empty;
+    var bundle_sets: std.ArrayListUnmanaged(bundle_mod.Bundle) = .empty;
     var piece_joins: std.ArrayListUnmanaged(stitch_bundles.PieceBundles) = .empty;
     const claim_sources = try arena.alloc(stitch_rails.ChildSource, split_result.supers.len);
 
@@ -238,7 +240,7 @@ pub fn stitch(
         try bridge_plan.plan(arena, split_result.crossings, final_bridges, bridge_base)
     else
         ledger.RealizedBundles{};
-    for (try ledger.bundlesFromPlan(arena, bridge_joins)) |cs| try bundle_sets.append(arena, cs);
+    for (try bundle_plan.bundlesFromPlan(arena, bridge_joins)) |cs| try bundle_sets.append(arena, cs);
     const bar_slice = try rails.toOwnedSlice(arena);
     const authority = try stitch_bundle_sets.finalizeAuthority(
         arena,

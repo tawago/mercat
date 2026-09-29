@@ -1,5 +1,6 @@
 const std = @import("std");
 const pb = @import("../base/ledger.zig");
+const tie_break = @import("../base/tie_break.zig");
 const sg = @import("../sem_graph.zig");
 const sk = @import("../sketch.zig");
 
@@ -47,7 +48,7 @@ pub const AttachmentClass = enum { independent, rail_pivot };
 
 pub const Attachment = struct {
     class: AttachmentClass = .independent,
-    key: pb.AttachmentKey,
+    key: tie_break.AttachmentKey,
     edge: ?pb.EdgeId = null,
     group: ?pb.CandidateBundleId = null,
     members: []const pb.EdgeId = &.{},
@@ -57,7 +58,7 @@ pub const Attachment = struct {
 /// @guarded-by: ports_test.zig "clause-6 order: opposite center is primary, K breaks ties with no-label first and pinned ordinals"
 fn attachmentLess(_: void, x: Attachment, y: Attachment) bool {
     if (x.opposite_center != y.opposite_center) return x.opposite_center < y.opposite_center;
-    return pb.attachmentKeyOrder(x.key, y.key) == .lt;
+    return tie_break.attachmentKeyOrder(x.key, y.key) == .lt;
 }
 
 pub const DerivedAttachment = struct {
@@ -68,15 +69,15 @@ pub const DerivedAttachment = struct {
 
 pub const DeriveError = error{ OutOfMemory, InvalidSemGraph };
 
-pub fn edgeAttachmentKey(graph: sg.SemGraph, edge: sg.Edge, endpoint_side: pb.EndpointSide) error{InvalidSemGraph}!pb.AttachmentKey {
+pub fn edgeAttachmentKey(graph: sg.SemGraph, edge: sg.Edge, endpoint_side: pb.EndpointSide) error{InvalidSemGraph}!tie_break.AttachmentKey {
     const opposite_id = if (endpoint_side == .source_exit) edge.to else edge.from;
     const opposite = graph.nodeById(opposite_id) orelse return error.InvalidSemGraph;
     return .{
         .opposite = opposite.raw_id,
         .endpoint_side = endpoint_side,
-        .kind = pb.edgeKindOrdinal(edge.kind),
-        .arrow_from = pb.arrowEndOrdinal(edge.arrow_from),
-        .arrow_to = pb.arrowEndOrdinal(edge.arrow_to),
+        .kind = tie_break.edgeKindOrdinal(edge.kind),
+        .arrow_from = tie_break.arrowEndOrdinal(edge.arrow_from),
+        .arrow_to = tie_break.arrowEndOrdinal(edge.arrow_to),
         .label = edge.label,
     };
 }
@@ -143,12 +144,12 @@ pub fn derive(
         const gi = groupIndexById(plan.groups, sel.candidate_bundle) orelse return error.InvalidSemGraph;
         const group = plan.groups[gi];
         const es: pb.EndpointSide = if (group.direction == .out) .source_exit else .target_entry;
-        var best: ?pb.AttachmentKey = null;
+        var best: ?tie_break.AttachmentKey = null;
         var best_edge: pb.EdgeId = 0;
         for (sel.members) |member| {
             const edge = graph.edgeById(member) orelse return error.InvalidSemGraph;
             const key = try edgeAttachmentKey(graph, edge, es);
-            if (best == null or pb.attachmentKeyOrder(key, best.?) == .lt) {
+            if (best == null or tie_break.attachmentKeyOrder(key, best.?) == .lt) {
                 best = key;
                 best_edge = member;
             }
@@ -167,14 +168,14 @@ pub fn derive(
     }
     for (fused_leaves.items, 0..) |head, i| {
         if (seenLeaf(fused_leaves.items[0..i], head)) continue;
-        var best: ?pb.AttachmentKey = null;
+        var best: ?tie_break.AttachmentKey = null;
         var best_edge: pb.EdgeId = 0;
         var members: std.ArrayListUnmanaged(pb.EdgeId) = .empty;
         for (fused_leaves.items[i..]) |leaf| {
             if (leaf.u != head.u or leaf.node != head.node or leaf.side != head.side) continue;
             const edge = graph.edgeById(leaf.edge) orelse return error.InvalidSemGraph;
             const key = try edgeAttachmentKey(graph, edge, leaf.es);
-            if (best == null or pb.attachmentKeyOrder(key, best.?) == .lt) {
+            if (best == null or tie_break.attachmentKeyOrder(key, best.?) == .lt) {
                 best = key;
                 best_edge = leaf.edge;
             }
@@ -264,7 +265,7 @@ pub const CapacityExceeded = struct {
 pub const KeyCollision = struct {
     node: pb.NodeId,
     side: sk.Dir4,
-    key: pb.AttachmentKey,
+    key: tie_break.AttachmentKey,
     edges: []const pb.EdgeId,
     deferred_to: []const u8 = "D-DUPLICATE",
 };
@@ -293,17 +294,17 @@ pub fn allocate(a: std.mem.Allocator, candidate: CandidateRef, node: pb.NodeId, 
 }
 
 fn findCollision(a: std.mem.Allocator, node: pb.NodeId, side: sk.Dir4, attachments: []const Attachment) error{OutOfMemory}!?KeyCollision {
-    var dup: ?pb.AttachmentKey = null;
+    var dup: ?tie_break.AttachmentKey = null;
     for (attachments, 0..) |x, i| {
         for (attachments[0..i]) |y| {
-            if (pb.attachmentKeyOrder(x.key, y.key) != .eq) continue;
-            if (dup == null or pb.attachmentKeyOrder(x.key, dup.?) == .lt) dup = x.key;
+            if (tie_break.attachmentKeyOrder(x.key, y.key) != .eq) continue;
+            if (dup == null or tie_break.attachmentKeyOrder(x.key, dup.?) == .lt) dup = x.key;
         }
     }
     const key = dup orelse return null;
     var edges: std.ArrayListUnmanaged(pb.EdgeId) = .empty;
     for (attachments) |x| {
-        if (pb.attachmentKeyOrder(x.key, key) != .eq) continue;
+        if (tie_break.attachmentKeyOrder(x.key, key) != .eq) continue;
         if (x.edge) |e| try appendUnique(pb.EdgeId, a, &edges, e);
         for (x.members) |member| try appendUnique(pb.EdgeId, a, &edges, member);
     }

@@ -1,6 +1,8 @@
 const std = @import("std");
 const prim = @import("prim");
 const ledger = @import("base/ledger.zig");
+const rail_star = @import("base/rail_star.zig");
+const bundle_mod = @import("base/bundle.zig");
 
 pub const NodeId = prim.NodeId;
 
@@ -106,7 +108,7 @@ pub const Tap = struct {
 pub const Rail = struct {
     pivot: NodeId,
     /// @guarded-by: sketch_bundles_test.zig "a stamped sketch names its rail's bundle and its bundle sets alike"
-    bundle: ledger.BundleId = ledger.no_bundle,
+    bundle: bundle_mod.BundleId = bundle_mod.no_bundle,
     stem: []const Point,
     crossbar: [2]Point,
     taps: []const Tap,
@@ -145,10 +147,10 @@ pub const Sketch = struct {
     clusters: []const ClusterFrame,
     edges: []const EdgePath,
     rails: []const Rail = &.{},
-    rail_claims: []const ledger.RailClaim = &.{},
+    rail_claims: []const rail_star.RailClaim = &.{},
     /// @guarded-by: entry.zig "V-D-IR-07: a clustered graph's bundles ride piece plans; the root plan stays skipped"
     bundles: ledger.RealizedBundles = .{},
-    bundle_sets: []const ledger.Bundle = &.{},
+    bundle_sets: []const bundle_mod.Bundle = &.{},
     bundle_stamp_state: BundleStampState = .unattempted,
     diagnostics: []const Diagnostic,
     budget: WidthBudget,

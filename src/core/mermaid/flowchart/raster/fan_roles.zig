@@ -1,4 +1,5 @@
 const ledger = @import("../base/ledger.zig");
+const rail_star = @import("../base/rail_star.zig");
 const sketch = @import("../sketch.zig");
 const lattice = @import("../lattice.zig");
 const ew = @import("edges_write.zig");
@@ -104,7 +105,7 @@ fn armIsAnswered(lat: *const lattice.Lattice, x: u32, y: u32, d: lattice.Dir4) b
     };
 }
 
-fn pivotRect(s: sketch.Sketch, claims: []const ledger.RailClaim, edge_id: u32, p: ledger.RailPolarity) ?sketch.Rect {
+fn pivotRect(s: sketch.Sketch, claims: []const rail_star.RailClaim, edge_id: u32, p: rail_star.RailPolarity) ?sketch.Rect {
     const pivot = pivotOf(claims, edge_id, p) orelse return null;
     for (s.nodes) |np| {
         if (np.id == pivot) return np.rect;
@@ -112,7 +113,7 @@ fn pivotRect(s: sketch.Sketch, claims: []const ledger.RailClaim, edge_id: u32, p
     return null;
 }
 
-fn pivotOf(claims: []const ledger.RailClaim, edge_id: u32, p: ledger.RailPolarity) ?ledger.NodeId {
+fn pivotOf(claims: []const rail_star.RailClaim, edge_id: u32, p: rail_star.RailPolarity) ?ledger.NodeId {
     var found: ?ledger.NodeId = null;
     for (claims) |claim| {
         const same_polarity = switch (p) {
@@ -120,7 +121,7 @@ fn pivotOf(claims: []const ledger.RailClaim, edge_id: u32, p: ledger.RailPolarit
             .in => claim.polarity == .in,
         };
         if (!same_polarity or !claimHasEdge(claim, edge_id)) continue;
-        const checked = ledger.checkRailClaim(claim);
+        const checked = rail_star.check(claim);
         if (checked.star_law.wrong_polarity_end) return null;
         const pivot = checked.derived_pivot orelse return null;
         if (found) |prior| {
@@ -132,7 +133,7 @@ fn pivotOf(claims: []const ledger.RailClaim, edge_id: u32, p: ledger.RailPolarit
     return found;
 }
 
-fn claimHasEdge(claim: ledger.RailClaim, edge_id: u32) bool {
+fn claimHasEdge(claim: rail_star.RailClaim, edge_id: u32) bool {
     for (claim.members) |member| if (member.edge == edge_id) return true;
     return false;
 }

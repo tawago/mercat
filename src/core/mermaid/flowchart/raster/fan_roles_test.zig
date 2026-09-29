@@ -1,5 +1,6 @@
 const std = @import("std");
 const ledger = @import("../base/ledger.zig");
+const rail_star = @import("../base/rail_star.zig");
 const sketch = @import("../sketch.zig");
 const lattice = @import("../lattice.zig");
 const fan_roles = @import("fan_roles.zig");
@@ -8,16 +9,16 @@ const testing = std.testing;
 
 const all4: lattice.Neighbours = .{ .n = true, .e = true, .s = true, .w = true };
 
-const out_members = [_]ledger.RailClaimMember{
+const out_members = [_]rail_star.RailClaimMember{
     .{ .edge = 0, .endpoints = .{ 5, 6 }, .sites = .{ .{ .node = 5, .side = .south, .offset = 1 }, .{ .node = 6, .side = .north, .offset = 1 } }, .arrows = .{ .none, .filled }, .kind = .solid, .pivot_end = .source },
     .{ .edge = 1, .endpoints = .{ 5, 7 }, .sites = .{ .{ .node = 5, .side = .south, .offset = 1 }, .{ .node = 7, .side = .north, .offset = 1 } }, .arrows = .{ .none, .filled }, .kind = .solid, .pivot_end = .source },
 };
-const out_claims = [_]ledger.RailClaim{.{ .id = 1, .polarity = .out, .members = &out_members }};
-const in_members = [_]ledger.RailClaimMember{
+const out_claims = [_]rail_star.RailClaim{.{ .id = 1, .polarity = .out, .members = &out_members }};
+const in_members = [_]rail_star.RailClaimMember{
     .{ .edge = 0, .endpoints = .{ 6, 5 }, .sites = .{ .{ .node = 6, .side = .south, .offset = 1 }, .{ .node = 5, .side = .north, .offset = 1 } }, .arrows = .{ .none, .filled }, .kind = .solid, .pivot_end = .target },
     .{ .edge = 1, .endpoints = .{ 7, 5 }, .sites = .{ .{ .node = 7, .side = .south, .offset = 1 }, .{ .node = 5, .side = .north, .offset = 1 } }, .arrows = .{ .none, .filled }, .kind = .solid, .pivot_end = .target },
 };
-const in_claims = [_]ledger.RailClaim{.{ .id = 1, .polarity = .in, .members = &in_members }};
+const in_claims = [_]rail_star.RailClaim{.{ .id = 1, .polarity = .in, .members = &in_members }};
 
 fn fanCell(edge: u32, role: lattice.EdgeRole, nb: lattice.Neighbours) lattice.Cell {
     return .{

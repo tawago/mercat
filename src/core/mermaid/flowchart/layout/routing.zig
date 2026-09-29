@@ -14,6 +14,8 @@ const rp = @import("routing_polyline.zig");
 const rt = @import("routing_terminal.zig");
 const node_geom = @import("node_geom.zig");
 const ledger = @import("../base/ledger.zig");
+const rail_star = @import("../base/rail_star.zig");
+const bundle_mod = @import("../base/bundle.zig");
 const rail_closure = @import("../base/rail_closure.zig");
 const port_plan = @import("port_plan.zig");
 const route_clearance = @import("route_clearance.zig");
@@ -39,8 +41,8 @@ pub const EdgesResult = struct {
     edges: []sketch.EdgePath,
     polylines: [][]sketch.Point,
     rails: []fan_rail.Built,
-    bundle_sets: []const ledger.Bundle,
-    rail_claims: []const ledger.RailClaim,
+    bundle_sets: []const bundle_mod.Bundle,
+    rail_claims: []const rail_star.RailClaim,
 };
 
 pub fn buildEdgesWithPlan(

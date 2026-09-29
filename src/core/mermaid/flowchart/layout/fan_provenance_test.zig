@@ -28,11 +28,11 @@ fn graph(direction: sg.Direction, nodes: []const sg.Node, edges: []const sg.Edge
     return .{ .direction = direction, .nodes = nodes, .edges = edges, .clusters = clusters, .classes = &.{}, .arena = null };
 }
 
-fn expectAllValid(claims: []const ledger.RailClaim) !void {
-    for (claims) |claim| try testing.expect(ledger.checkRailClaim(claim).isValid());
+fn expectAllValid(claims: []const rail_star.RailClaim) !void {
+    for (claims) |claim| try testing.expect(rail_star.check(claim).isValid());
 }
 
-fn hasMember(claim: ledger.RailClaim, id: ledger.EdgeId) bool {
+fn hasMember(claim: rail_star.RailClaim, id: ledger.EdgeId) bool {
     for (claim.members) |member| if (member.edge == id) return true;
     return false;
 }
@@ -49,10 +49,10 @@ test "fan provenance: first-class fan-out claim is valid metadata and changes no
     try testing.expectEqual(@as(usize, 1), s.rail_claims.len);
     const claim = s.rail_claims[0];
     try testing.expectEqual(@as(rail_star.RailClaimId, 1), claim.id);
-    try testing.expectEqual(ledger.RailPolarity.out, claim.polarity);
-    try testing.expectEqual(@as(?ledger.NodeId, 0), ledger.checkRailClaim(claim).derived_pivot);
+    try testing.expectEqual(rail_star.RailPolarity.out, claim.polarity);
+    try testing.expectEqual(@as(?ledger.NodeId, 0), rail_star.check(claim).derived_pivot);
     try testing.expectEqual(@as(usize, 3), claim.members.len);
-    try testing.expect(ledger.checkRailClaim(claim).isValid());
+    try testing.expect(rail_star.check(claim).isValid());
 
     const with_report = try raster.rasterize(a, s, .bridge);
     const with_bytes = try painter.paint(a, with_report.lattice, s.budget.max_width);
@@ -81,8 +81,8 @@ test "fan provenance: realized fan-in Rail claims the pivot; feasible labeled fa
     try testing.expectEqual(@as(usize, 1), rail.rails.len);
     try testing.expectEqual(sketch.EdgeRole.fan_in_dropper, rail.rails[0].role);
     try testing.expectEqual(@as(usize, 1), rail.rail_claims.len);
-    try testing.expectEqual(ledger.RailPolarity.in, rail.rail_claims[0].polarity);
-    try testing.expectEqual(@as(?ledger.NodeId, 2), ledger.checkRailClaim(rail.rail_claims[0]).derived_pivot);
+    try testing.expectEqual(rail_star.RailPolarity.in, rail.rail_claims[0].polarity);
+    try testing.expectEqual(@as(?ledger.NodeId, 2), rail_star.check(rail.rail_claims[0]).derived_pivot);
     try expectAllValid(rail.rail_claims);
 
     const clustered_nodes = [_]sg.Node{ node(0, "A", null), node(1, "B", null), node(2, "T", 7) };
@@ -97,7 +97,7 @@ test "fan provenance: realized fan-in Rail claims the pivot; feasible labeled fa
     try testing.expectEqual(@as(usize, 0), peer.rails.len);
     try testing.expectEqual(@as(usize, 2), peer.edges.len);
     try testing.expectEqual(@as(usize, 1), peer.rail_claims.len);
-    try testing.expectEqual(ledger.RailPolarity.in, peer.rail_claims[0].polarity);
+    try testing.expectEqual(rail_star.RailPolarity.in, peer.rail_claims[0].polarity);
     try expectAllValid(peer.rail_claims);
     const report = try raster.rasterize(peer_arena.allocator(), peer, .bridge);
     try testing.expectEqual(@as(u32, 0), report.labels_dropped);
@@ -187,8 +187,8 @@ test "fan provenance: stable sequential local ids and BT mirrored sites" {
     defer bt_arena.deinit();
     const bt = try coords.layout(bt_arena.allocator(), graph(.BT, &bt_nodes, &bt_edges, &.{}), .{});
     try testing.expectEqual(@as(usize, 1), bt.rail_claims.len);
-    try testing.expectEqual(ledger.RailPolarity.out, bt.rail_claims[0].polarity);
-    try testing.expectEqual(sketch.Dir4.north, ledger.checkRailClaim(bt.rail_claims[0]).derived_pi.?.side);
+    try testing.expectEqual(rail_star.RailPolarity.out, bt.rail_claims[0].polarity);
+    try testing.expectEqual(sketch.Dir4.north, rail_star.check(bt.rail_claims[0]).derived_pi.?.side);
     for (bt.rail_claims[0].members) |member| try testing.expectEqual(sketch.Dir4.south, member.sites[1].?.side);
     try expectAllValid(bt.rail_claims);
 }
@@ -208,7 +208,7 @@ test "fan provenance: plan selection preserves the winning claims" {
 
     try testing.expectEqual(@as(usize, 1), winner.sketch.rail_claims.len);
     try testing.expectEqual(@as(rail_star.RailClaimId, 1), winner.sketch.rail_claims[0].id);
-    try testing.expect(ledger.checkRailClaim(winner.sketch.rail_claims[0]).isValid());
+    try testing.expect(rail_star.check(winner.sketch.rail_claims[0]).isValid());
 }
 
 test "fan provenance: missing artifact stays unresolved and a private singleton is omitted" {
@@ -245,7 +245,7 @@ test "fan provenance: missing artifact stays unresolved and a private singleton 
     try testing.expectEqual(@as(usize, 1), claims.len);
     try testing.expectEqual(@as(usize, 2), claims[0].members.len);
     try testing.expect(!hasMember(claims[0], 2));
-    const checked = ledger.checkRailClaim(claims[0]);
+    const checked = rail_star.check(claims[0]);
     try testing.expectEqual(@as(u32, 1), checked.derived_unresolved_members);
     try testing.expect(checked.record.unresolved);
 }
@@ -272,7 +272,7 @@ test "fan provenance: duplicate leaf is private on flat and clustered peer paths
         try testing.expect(hasMember(s.rail_claims[0], 10));
         try testing.expect(hasMember(s.rail_claims[0], 12));
         try testing.expect(!hasMember(s.rail_claims[0], 11));
-        try testing.expect(ledger.checkRailClaim(s.rail_claims[0]).isValid());
+        try testing.expect(rail_star.check(s.rail_claims[0]).isValid());
 
         var private: ?sketch.EdgePath = null;
         for (s.edges) |path| if (path.id == 11) {

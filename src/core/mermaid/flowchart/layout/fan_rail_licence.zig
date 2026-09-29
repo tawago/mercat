@@ -1,6 +1,7 @@
 const std = @import("std");
 const sg = @import("../sem_graph.zig");
 const pb = @import("../base/ledger.zig");
+const tie_break = @import("../base/tie_break.zig");
 const rc = @import("../base/rail_closure.zig");
 const fan_mod = @import("fan.zig");
 const sugiyama = @import("sugiyama.zig");
@@ -190,5 +191,5 @@ fn nodeId(lg: sugiyama.LayeredGraph, idx: u32) sg.NodeId {
 }
 
 fn kindOrdinal(kind: sg.EdgeKind) u8 {
-    return pb.edgeKindOrdinal(kind);
+    return tie_break.edgeKindOrdinal(kind);
 }

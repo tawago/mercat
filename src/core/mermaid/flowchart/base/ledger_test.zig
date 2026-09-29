@@ -1,6 +1,8 @@
 const std = @import("std");
 const prim = @import("prim");
 const pb = @import("ledger.zig");
+const bundle_plan = @import("bundle_plan.zig");
+const tie_break = @import("tie_break.zig");
 const bundle_mod = @import("bundle.zig");
 
 const expect = std.testing.expect;
@@ -40,16 +42,16 @@ test "empty RealizedBundles is default-constructible with all-empty fields" {
 test "co-membership needs both edges inside one set" {
     var left = [_]pb.EdgeId{ 1, 2 };
     var right = [_]pb.EdgeId{ 3, 4 };
-    const sets = [_]pb.Bundle{
+    const sets = [_]bundle_mod.Bundle{
         .{ .origin = .selected_bundle, .members = &left },
         .{ .origin = .fan_rail, .members = &right },
     };
 
-    try expect(pb.bundleMembersAt(&sets, 1, 2, null));
-    try expect(pb.bundleMembersAt(&sets, 4, 3, null));
-    try expect(!pb.bundleMembersAt(&sets, 2, 3, null));
-    try expect(!pb.bundleMembersAt(&sets, 1, 9, null));
-    try expect(!pb.bundleMembersAt(&.{}, 1, 2, null));
+    try expect(bundle_mod.bundleMembersAt(&sets, 1, 2, null));
+    try expect(bundle_mod.bundleMembersAt(&sets, 4, 3, null));
+    try expect(!bundle_mod.bundleMembersAt(&sets, 2, 3, null));
+    try expect(!bundle_mod.bundleMembersAt(&sets, 1, 9, null));
+    try expect(!bundle_mod.bundleMembersAt(&.{}, 1, 2, null));
 }
 
 test "bundles from a plan name one bundle per selected bundle" {
@@ -60,7 +62,7 @@ test "bundles from a plan name one bundle per selected bundle" {
         .{ .id = 1, .proposal = 1, .candidate_bundle = 1, .members = &other_members },
     };
 
-    const sets = try pb.bundlesFromPlan(std.testing.allocator, .{ .selected_bundles = &sel });
+    const sets = try bundle_plan.bundlesFromPlan(std.testing.allocator, .{ .selected_bundles = &sel });
     defer std.testing.allocator.free(sets);
 
     try expectEqual(@as(usize, 2), sets.len);
@@ -69,55 +71,55 @@ test "bundles from a plan name one bundle per selected bundle" {
     try expectEqual(bundle_mod.BundleOrigin.selected_bundle, sets[1].origin);
     try std.testing.expectEqualSlices(pb.EdgeId, &.{ 20, 21, 22 }, sets[1].members);
 
-    try expectEqual(@as(usize, 0), (try pb.bundlesFromPlan(std.testing.allocator, .{})).len);
+    try expectEqual(@as(usize, 0), (try bundle_plan.bundlesFromPlan(std.testing.allocator, .{})).len);
 }
 
 test "D-PORT clause 4: every EdgeKind name→ordinal pair is pinned" {
-    try expectEqual(@as(usize, 4), pb.edge_kind_ordinals.len);
-    try expectEqual(@as(?u8, 0), pb.ordinalByName(&pb.edge_kind_ordinals, "solid"));
-    try expectEqual(@as(?u8, 1), pb.ordinalByName(&pb.edge_kind_ordinals, "dotted"));
-    try expectEqual(@as(?u8, 2), pb.ordinalByName(&pb.edge_kind_ordinals, "thick"));
-    try expectEqual(@as(?u8, 3), pb.ordinalByName(&pb.edge_kind_ordinals, "invisible"));
-    try expectEqual(@as(u8, 0), pb.edgeKindOrdinal(prim.EdgeKind.solid));
-    try expectEqual(@as(u8, 1), pb.edgeKindOrdinal(prim.EdgeKind.dotted));
-    try expectEqual(@as(u8, 2), pb.edgeKindOrdinal(prim.EdgeKind.thick));
-    try expectEqual(@as(u8, 3), pb.edgeKindOrdinal(prim.EdgeKind.invisible));
+    try expectEqual(@as(usize, 4), tie_break.edge_kind_ordinals.len);
+    try expectEqual(@as(?u8, 0), tie_break.ordinalByName(&tie_break.edge_kind_ordinals, "solid"));
+    try expectEqual(@as(?u8, 1), tie_break.ordinalByName(&tie_break.edge_kind_ordinals, "dotted"));
+    try expectEqual(@as(?u8, 2), tie_break.ordinalByName(&tie_break.edge_kind_ordinals, "thick"));
+    try expectEqual(@as(?u8, 3), tie_break.ordinalByName(&tie_break.edge_kind_ordinals, "invisible"));
+    try expectEqual(@as(u8, 0), tie_break.edgeKindOrdinal(prim.EdgeKind.solid));
+    try expectEqual(@as(u8, 1), tie_break.edgeKindOrdinal(prim.EdgeKind.dotted));
+    try expectEqual(@as(u8, 2), tie_break.edgeKindOrdinal(prim.EdgeKind.thick));
+    try expectEqual(@as(u8, 3), tie_break.edgeKindOrdinal(prim.EdgeKind.invisible));
 }
 
 test "D-PORT clause 4: every ArrowEnd name→ordinal pair is pinned" {
-    try expectEqual(@as(usize, 5), pb.arrow_end_ordinals.len);
-    try expectEqual(@as(?u8, 0), pb.ordinalByName(&pb.arrow_end_ordinals, "none"));
-    try expectEqual(@as(?u8, 1), pb.ordinalByName(&pb.arrow_end_ordinals, "open"));
-    try expectEqual(@as(?u8, 2), pb.ordinalByName(&pb.arrow_end_ordinals, "filled"));
-    try expectEqual(@as(?u8, 3), pb.ordinalByName(&pb.arrow_end_ordinals, "circle"));
-    try expectEqual(@as(?u8, 4), pb.ordinalByName(&pb.arrow_end_ordinals, "cross"));
+    try expectEqual(@as(usize, 5), tie_break.arrow_end_ordinals.len);
+    try expectEqual(@as(?u8, 0), tie_break.ordinalByName(&tie_break.arrow_end_ordinals, "none"));
+    try expectEqual(@as(?u8, 1), tie_break.ordinalByName(&tie_break.arrow_end_ordinals, "open"));
+    try expectEqual(@as(?u8, 2), tie_break.ordinalByName(&tie_break.arrow_end_ordinals, "filled"));
+    try expectEqual(@as(?u8, 3), tie_break.ordinalByName(&tie_break.arrow_end_ordinals, "circle"));
+    try expectEqual(@as(?u8, 4), tie_break.ordinalByName(&tie_break.arrow_end_ordinals, "cross"));
     const ArrowEndMirror = enum { none, open, filled, circle, cross };
-    try expectEqual(@as(u8, 0), pb.arrowEndOrdinal(ArrowEndMirror.none));
-    try expectEqual(@as(u8, 1), pb.arrowEndOrdinal(ArrowEndMirror.open));
-    try expectEqual(@as(u8, 2), pb.arrowEndOrdinal(ArrowEndMirror.filled));
-    try expectEqual(@as(u8, 3), pb.arrowEndOrdinal(ArrowEndMirror.circle));
-    try expectEqual(@as(u8, 4), pb.arrowEndOrdinal(ArrowEndMirror.cross));
-    try expectEqual(@as(?u8, null), pb.ordinalByName(&pb.arrow_end_ordinals, "bidirectional"));
+    try expectEqual(@as(u8, 0), tie_break.arrowEndOrdinal(ArrowEndMirror.none));
+    try expectEqual(@as(u8, 1), tie_break.arrowEndOrdinal(ArrowEndMirror.open));
+    try expectEqual(@as(u8, 2), tie_break.arrowEndOrdinal(ArrowEndMirror.filled));
+    try expectEqual(@as(u8, 3), tie_break.arrowEndOrdinal(ArrowEndMirror.circle));
+    try expectEqual(@as(u8, 4), tie_break.arrowEndOrdinal(ArrowEndMirror.cross));
+    try expectEqual(@as(?u8, null), tie_break.ordinalByName(&tie_break.arrow_end_ordinals, "bidirectional"));
 }
 
 test "node key comparator is bytewise total order" {
-    try expectEqual(std.math.Order.eq, pb.nodeKeyOrder("Hub", "Hub"));
-    try expectEqual(std.math.Order.lt, pb.nodeKeyOrder("A", "B"));
-    try expectEqual(std.math.Order.gt, pb.nodeKeyOrder("B", "A"));
-    try expectEqual(std.math.Order.lt, pb.nodeKeyOrder("A", "AB"));
-    try expectEqual(std.math.Order.lt, pb.nodeKeyOrder("A10", "A9"));
+    try expectEqual(std.math.Order.eq, tie_break.nodeKeyOrder("Hub", "Hub"));
+    try expectEqual(std.math.Order.lt, tie_break.nodeKeyOrder("A", "B"));
+    try expectEqual(std.math.Order.gt, tie_break.nodeKeyOrder("B", "A"));
+    try expectEqual(std.math.Order.lt, tie_break.nodeKeyOrder("A", "AB"));
+    try expectEqual(std.math.Order.lt, tie_break.nodeKeyOrder("A10", "A9"));
 }
 
 test "label component orders no-label-first" {
-    try expectEqual(std.math.Order.eq, pb.labelOrder(null, null));
-    try expectEqual(std.math.Order.lt, pb.labelOrder(null, ""));
-    try expectEqual(std.math.Order.lt, pb.labelOrder(null, "x"));
-    try expectEqual(std.math.Order.gt, pb.labelOrder("x", null));
-    try expectEqual(std.math.Order.lt, pb.labelOrder("a", "b"));
-    try expectEqual(std.math.Order.eq, pb.labelOrder("a", "a"));
+    try expectEqual(std.math.Order.eq, tie_break.labelOrder(null, null));
+    try expectEqual(std.math.Order.lt, tie_break.labelOrder(null, ""));
+    try expectEqual(std.math.Order.lt, tie_break.labelOrder(null, "x"));
+    try expectEqual(std.math.Order.gt, tie_break.labelOrder("x", null));
+    try expectEqual(std.math.Order.lt, tie_break.labelOrder("a", "b"));
+    try expectEqual(std.math.Order.eq, tie_break.labelOrder("a", "a"));
 }
 
-const base_edge_key = pb.EdgeKey{
+const base_edge_key = tie_break.EdgeKey{
     .from = "S",
     .to = "T",
     .kind = 0,
@@ -127,34 +129,34 @@ const base_edge_key = pb.EdgeKey{
 };
 
 test "edge key comparator orders field-by-field with no-label-first" {
-    try expectEqual(std.math.Order.eq, pb.edgeKeyOrder(base_edge_key, base_edge_key));
+    try expectEqual(std.math.Order.eq, tie_break.edgeKeyOrder(base_edge_key, base_edge_key));
 
     var b = base_edge_key;
     b.from = "R";
     b.label = "zzz";
-    try expectEqual(std.math.Order.gt, pb.edgeKeyOrder(base_edge_key, b));
+    try expectEqual(std.math.Order.gt, tie_break.edgeKeyOrder(base_edge_key, b));
 
     b = base_edge_key;
     b.to = "U";
-    try expectEqual(std.math.Order.lt, pb.edgeKeyOrder(base_edge_key, b));
+    try expectEqual(std.math.Order.lt, tie_break.edgeKeyOrder(base_edge_key, b));
 
     b = base_edge_key;
     b.kind = 1;
-    try expectEqual(std.math.Order.lt, pb.edgeKeyOrder(base_edge_key, b));
+    try expectEqual(std.math.Order.lt, tie_break.edgeKeyOrder(base_edge_key, b));
 
     b = base_edge_key;
     b.arrow_from = 2;
-    try expectEqual(std.math.Order.lt, pb.edgeKeyOrder(base_edge_key, b));
+    try expectEqual(std.math.Order.lt, tie_break.edgeKeyOrder(base_edge_key, b));
     b = base_edge_key;
     b.arrow_to = 0;
-    try expectEqual(std.math.Order.gt, pb.edgeKeyOrder(base_edge_key, b));
+    try expectEqual(std.math.Order.gt, tie_break.edgeKeyOrder(base_edge_key, b));
 
     b = base_edge_key;
     b.label = "hit";
-    try expectEqual(std.math.Order.lt, pb.edgeKeyOrder(base_edge_key, b));
+    try expectEqual(std.math.Order.lt, tie_break.edgeKeyOrder(base_edge_key, b));
 }
 
-const base_attachment_key = pb.AttachmentKey{
+const base_attachment_key = tie_break.AttachmentKey{
     .opposite = "T",
     .endpoint_side = .source_exit,
     .kind = 0,
@@ -167,30 +169,30 @@ test "attachment key K orders field-by-field with pinned ordinals" {
     try expectEqual(@as(u1, 0), @intFromEnum(pb.EndpointSide.source_exit));
     try expectEqual(@as(u1, 1), @intFromEnum(pb.EndpointSide.target_entry));
 
-    try expectEqual(std.math.Order.eq, pb.attachmentKeyOrder(base_attachment_key, base_attachment_key));
+    try expectEqual(std.math.Order.eq, tie_break.attachmentKeyOrder(base_attachment_key, base_attachment_key));
 
     var b = base_attachment_key;
     b.opposite = "A";
-    try expectEqual(std.math.Order.gt, pb.attachmentKeyOrder(base_attachment_key, b));
+    try expectEqual(std.math.Order.gt, tie_break.attachmentKeyOrder(base_attachment_key, b));
 
     b = base_attachment_key;
     b.endpoint_side = .target_entry;
-    try expectEqual(std.math.Order.lt, pb.attachmentKeyOrder(base_attachment_key, b));
+    try expectEqual(std.math.Order.lt, tie_break.attachmentKeyOrder(base_attachment_key, b));
 
     b = base_attachment_key;
     b.kind = 3;
-    try expectEqual(std.math.Order.lt, pb.attachmentKeyOrder(base_attachment_key, b));
+    try expectEqual(std.math.Order.lt, tie_break.attachmentKeyOrder(base_attachment_key, b));
 
     b = base_attachment_key;
     b.arrow_from = 4;
-    try expectEqual(std.math.Order.lt, pb.attachmentKeyOrder(base_attachment_key, b));
+    try expectEqual(std.math.Order.lt, tie_break.attachmentKeyOrder(base_attachment_key, b));
     b = base_attachment_key;
     b.arrow_to = 1;
-    try expectEqual(std.math.Order.gt, pb.attachmentKeyOrder(base_attachment_key, b));
+    try expectEqual(std.math.Order.gt, tie_break.attachmentKeyOrder(base_attachment_key, b));
 
     b = base_attachment_key;
     b.label = "w";
-    try expectEqual(std.math.Order.lt, pb.attachmentKeyOrder(base_attachment_key, b));
+    try expectEqual(std.math.Order.lt, tie_break.attachmentKeyOrder(base_attachment_key, b));
 }
 
 fn expectSemanticFieldsOnly(comptime T: type) !void {
@@ -202,125 +204,125 @@ fn expectSemanticFieldsOnly(comptime T: type) !void {
 }
 
 test "comparator keys carry no numeric ids by construction" {
-    try expectSemanticFieldsOnly(pb.EdgeKey);
-    try expectSemanticFieldsOnly(pb.AttachmentKey);
+    try expectSemanticFieldsOnly(tie_break.EdgeKey);
+    try expectSemanticFieldsOnly(tie_break.AttachmentKey);
 }
 
 test "concatBundles joins two populations and keeps the head first" {
-    const shares = [_]pb.Bundle{
+    const shares = [_]bundle_mod.Bundle{
         .{ .origin = .port_share, .members = &.{ 2, 3 } },
         .{ .origin = .port_share, .members = &.{ 6, 7 } },
     };
-    const head = [_]pb.Bundle{.{ .origin = .selected_bundle, .members = &.{ 8, 9 } }};
-    const joined = try pb.concatBundles(std.testing.allocator, &head, &shares);
+    const head = [_]bundle_mod.Bundle{.{ .origin = .selected_bundle, .members = &.{ 8, 9 } }};
+    const joined = try bundle_mod.concatBundles(std.testing.allocator, &head, &shares);
     defer std.testing.allocator.free(joined);
     try expectEqual(@as(usize, 3), joined.len);
     try expectEqual(bundle_mod.BundleOrigin.selected_bundle, joined[0].origin);
-    try expect(pb.bundleMembersAt(joined, 8, 9, null));
-    try expect(pb.bundleMembersAt(joined, 2, 3, null));
-    try expect(pb.bundleMembersAt(joined, 6, 7, null));
+    try expect(bundle_mod.bundleMembersAt(joined, 8, 9, null));
+    try expect(bundle_mod.bundleMembersAt(joined, 2, 3, null));
+    try expect(bundle_mod.bundleMembersAt(joined, 6, 7, null));
 
-    try expectEqual(@as(usize, 1), (try pb.concatBundles(std.testing.allocator, &head, &.{})).len);
-    try expectEqual(@as(usize, 2), (try pb.concatBundles(std.testing.allocator, &.{}, &shares)).len);
+    try expectEqual(@as(usize, 1), (try bundle_mod.concatBundles(std.testing.allocator, &head, &.{})).len);
+    try expectEqual(@as(usize, 2), (try bundle_mod.concatBundles(std.testing.allocator, &.{}, &shares)).len);
 }
 
 test "a cell-scoped bundle answers only inside its licensed cells" {
-    const licensed = [_]pb.BundleCell{ .{ .x = 4, .y = 2 }, .{ .x = 4, .y = 3 } };
-    const sets = [_]pb.Bundle{.{ .origin = .port_share, .members = &.{ 1, 2 }, .cells = &licensed }};
-    try expect(pb.bundleMembersAt(&sets, 1, 2, .{ .x = 4, .y = 2 }));
-    try expect(!pb.bundleMembersAt(&sets, 1, 2, .{ .x = 9, .y = 9 }));
-    try expect(pb.bundleMembersAt(&sets, 1, 2, null));
-    try expect(pb.bundleMembersAt(&sets, 1, 2, null));
-    const wide = [_]pb.Bundle{.{ .origin = .fan_rail, .members = &.{ 1, 2 } }};
-    try expect(pb.bundleMembersAt(&wide, 1, 2, .{ .x = 9, .y = 9 }));
+    const licensed = [_]bundle_mod.BundleCell{ .{ .x = 4, .y = 2 }, .{ .x = 4, .y = 3 } };
+    const sets = [_]bundle_mod.Bundle{.{ .origin = .port_share, .members = &.{ 1, 2 }, .cells = &licensed }};
+    try expect(bundle_mod.bundleMembersAt(&sets, 1, 2, .{ .x = 4, .y = 2 }));
+    try expect(!bundle_mod.bundleMembersAt(&sets, 1, 2, .{ .x = 9, .y = 9 }));
+    try expect(bundle_mod.bundleMembersAt(&sets, 1, 2, null));
+    try expect(bundle_mod.bundleMembersAt(&sets, 1, 2, null));
+    const wide = [_]bundle_mod.Bundle{.{ .origin = .fan_rail, .members = &.{ 1, 2 } }};
+    try expect(bundle_mod.bundleMembersAt(&wide, 1, 2, .{ .x = 9, .y = 9 }));
 }
 
 test "a pairwise-scoped set licenses only a pair's own common approach, never a third member's" {
-    const stem = [_]pb.BundleCell{ .{ .x = 5, .y = 3 }, .{ .x = 5, .y = 8 } };
-    const port_only = [_]pb.BundleCell{.{ .x = 5, .y = 3 }};
-    const pairwise = [_]pb.PairCells{
+    const stem = [_]bundle_mod.BundleCell{ .{ .x = 5, .y = 3 }, .{ .x = 5, .y = 8 } };
+    const port_only = [_]bundle_mod.BundleCell{.{ .x = 5, .y = 3 }};
+    const pairwise = [_]bundle_mod.PairCells{
         .{ .a = 0, .b = 1, .cells = &stem },
         .{ .a = 0, .b = 2, .cells = &port_only },
         .{ .a = 1, .b = 2, .cells = &port_only },
     };
-    const union_cells = [_]pb.BundleCell{ .{ .x = 5, .y = 3 }, .{ .x = 5, .y = 8 } };
-    const unnumbered = [_]pb.Bundle{.{
+    const union_cells = [_]bundle_mod.BundleCell{ .{ .x = 5, .y = 3 }, .{ .x = 5, .y = 8 } };
+    const unnumbered = [_]bundle_mod.Bundle{.{
         .origin = .port_share,
         .members = &.{ 0, 1, 2 },
         .cells = &union_cells,
         .pairwise = &pairwise,
     }};
-    const sets = try pb.numberBundles(std.testing.allocator, &unnumbered);
+    const sets = try bundle_mod.numberBundles(std.testing.allocator, &unnumbered);
     defer std.testing.allocator.free(sets);
 
-    try expect(pb.bundleMembersAt(sets, 0, 1, null));
-    try expect(pb.bundleMembersAt(sets, 0, 2, null));
-    try expect(pb.bundleMembersAt(sets, 1, 2, null));
+    try expect(bundle_mod.bundleMembersAt(sets, 0, 1, null));
+    try expect(bundle_mod.bundleMembersAt(sets, 0, 2, null));
+    try expect(bundle_mod.bundleMembersAt(sets, 1, 2, null));
 
-    try expect(pb.bundleMembersAt(sets, 0, 1, .{ .x = 5, .y = 8 }));
-    try expect(!pb.bundleMembersAt(sets, 0, 2, .{ .x = 5, .y = 8 }));
-    try expect(!pb.bundleMembersAt(sets, 1, 2, .{ .x = 5, .y = 8 }));
-    try expect(pb.bundleMembersAt(sets, 0, 2, .{ .x = 5, .y = 3 }));
-    try expect(pb.bundleMembersAt(sets, 1, 2, .{ .x = 5, .y = 3 }));
+    try expect(bundle_mod.bundleMembersAt(sets, 0, 1, .{ .x = 5, .y = 8 }));
+    try expect(!bundle_mod.bundleMembersAt(sets, 0, 2, .{ .x = 5, .y = 8 }));
+    try expect(!bundle_mod.bundleMembersAt(sets, 1, 2, .{ .x = 5, .y = 8 }));
+    try expect(bundle_mod.bundleMembersAt(sets, 0, 2, .{ .x = 5, .y = 3 }));
+    try expect(bundle_mod.bundleMembersAt(sets, 1, 2, .{ .x = 5, .y = 3 }));
 
-    try expect(pb.memberOfBundleAt(sets, 1, 0, .{ .x = 5, .y = 8 }));
-    try expect(!pb.memberOfBundleAt(sets, 1, 2, .{ .x = 5, .y = 8 }));
+    try expect(bundle_mod.memberOfBundleAt(sets, 1, 0, .{ .x = 5, .y = 8 }));
+    try expect(!bundle_mod.memberOfBundleAt(sets, 1, 2, .{ .x = 5, .y = 8 }));
 }
 
 test "a numbered bundle set names every set exactly once" {
     const a = [_]pb.EdgeId{ 0, 1 };
     const b = [_]pb.EdgeId{ 2, 3 };
-    const raw = [_]pb.Bundle{
+    const raw = [_]bundle_mod.Bundle{
         .{ .origin = .fan_rail, .bundle = 1, .members = &a },
         .{ .origin = .fan_rail, .bundle = 1, .members = &b },
     };
-    try expect(!pb.bundleSetsNumbered(&[_]pb.Bundle{.{ .origin = .fan_rail, .members = &a }}));
+    try expect(!bundle_mod.bundleSetsNumbered(&[_]bundle_mod.Bundle{.{ .origin = .fan_rail, .members = &a }}));
 
-    const bundle_sets = try pb.numberBundles(std.testing.allocator, &raw);
+    const bundle_sets = try bundle_mod.numberBundles(std.testing.allocator, &raw);
     defer std.testing.allocator.free(bundle_sets);
-    try expect(pb.bundleSetsNumbered(bundle_sets));
-    try expectEqual(@as(pb.BundleId, 1), bundle_sets[0].bundle);
-    try expectEqual(@as(pb.BundleId, 2), bundle_sets[1].bundle);
+    try expect(bundle_mod.bundleSetsNumbered(bundle_sets));
+    try expectEqual(@as(bundle_mod.BundleId, 1), bundle_sets[0].bundle);
+    try expectEqual(@as(bundle_mod.BundleId, 2), bundle_sets[1].bundle);
 
-    try expect(pb.memberOfBundleAt(bundle_sets, 1, 0, null));
-    try expect(pb.memberOfBundleAt(bundle_sets, 1, 1, null));
-    try expect(pb.memberOfBundleAt(bundle_sets, 2, 3, null));
-    try expect(!pb.memberOfBundleAt(bundle_sets, 2, 0, null));
-    try expect(!pb.memberOfBundleAt(bundle_sets, 1, 2, null));
-    try expect(pb.bundleMembersAt(bundle_sets, 0, 1, null));
-    try expect(!pb.bundleMembersAt(bundle_sets, 1, 2, null));
+    try expect(bundle_mod.memberOfBundleAt(bundle_sets, 1, 0, null));
+    try expect(bundle_mod.memberOfBundleAt(bundle_sets, 1, 1, null));
+    try expect(bundle_mod.memberOfBundleAt(bundle_sets, 2, 3, null));
+    try expect(!bundle_mod.memberOfBundleAt(bundle_sets, 2, 0, null));
+    try expect(!bundle_mod.memberOfBundleAt(bundle_sets, 1, 2, null));
+    try expect(bundle_mod.bundleMembersAt(bundle_sets, 0, 1, null));
+    try expect(!bundle_mod.bundleMembersAt(bundle_sets, 1, 2, null));
 
-    try expect(!pb.memberOfBundleAt(bundle_sets, 1, 9, null));
-    try expect(!pb.memberOfBundleAt(bundle_sets, 2, 9, null));
-    try expect(!pb.bundleMembersAt(bundle_sets, 9, 8, null));
+    try expect(!bundle_mod.memberOfBundleAt(bundle_sets, 1, 9, null));
+    try expect(!bundle_mod.memberOfBundleAt(bundle_sets, 2, 9, null));
+    try expect(!bundle_mod.bundleMembersAt(bundle_sets, 9, 8, null));
 
-    const blank = [_]pb.Bundle{.{ .origin = .fan_rail, .members = &a }};
-    try expect(!pb.memberOfBundleAt(&blank, 1, 0, null));
-    try expect(!pb.memberOfBundleAt(&blank, pb.no_bundle, 0, null));
+    const blank = [_]bundle_mod.Bundle{.{ .origin = .fan_rail, .members = &a }};
+    try expect(!bundle_mod.memberOfBundleAt(&blank, 1, 0, null));
+    try expect(!bundle_mod.memberOfBundleAt(&blank, bundle_mod.no_bundle, 0, null));
 }
 
 test "structural set resolution is unique and excludes scoped provenance" {
-    const scoped = [_]pb.BundleCell{.{ .x = 3, .y = 4 }};
-    const sets = [_]pb.Bundle{
+    const scoped = [_]bundle_mod.BundleCell{.{ .x = 3, .y = 4 }};
+    const sets = [_]bundle_mod.Bundle{
         .{ .origin = .fan_rail, .members = &.{ 1, 2 } },
         .{ .origin = .selected_bundle, .members = &.{ 2, 3 } },
         .{ .origin = .port_share, .members = &.{4} },
         .{ .origin = .fan_rail, .members = &.{5}, .cells = &scoped },
     };
 
-    switch (pb.resolveStructuralBundle(&sets, 1)) {
+    switch (bundle_mod.resolveStructuralBundle(&sets, 1)) {
         .unique => |i| try expectEqual(@as(usize, 0), i),
         else => try expect(false),
     }
-    switch (pb.resolveStructuralBundle(&sets, 2)) {
+    switch (bundle_mod.resolveStructuralBundle(&sets, 2)) {
         .multiple => {},
         else => try expect(false),
     }
-    switch (pb.resolveStructuralBundle(&sets, 4)) {
+    switch (bundle_mod.resolveStructuralBundle(&sets, 4)) {
         .absent => {},
         else => try expect(false),
     }
-    switch (pb.resolveStructuralBundle(&sets, 5)) {
+    switch (bundle_mod.resolveStructuralBundle(&sets, 5)) {
         .absent => {},
         else => try expect(false),
     }
@@ -329,54 +331,54 @@ test "structural set resolution is unique and excludes scoped provenance" {
 test "a bundle asked by name holds its member on every cell, whichever set names the edge first" {
     const fan_out = [_]pb.EdgeId{ 0, 1 };
     const fan_in = [_]pb.EdgeId{ 1, 2 };
-    const raw = [_]pb.Bundle{
+    const raw = [_]bundle_mod.Bundle{
         .{ .origin = .fan_rail, .members = &fan_out },
         .{ .origin = .fan_rail, .members = &fan_in },
     };
-    const sets = try pb.numberBundles(std.testing.allocator, &raw);
+    const sets = try bundle_mod.numberBundles(std.testing.allocator, &raw);
     defer std.testing.allocator.free(sets);
-    const here: pb.BundleCell = .{ .x = 9, .y = 9 };
+    const here: bundle_mod.BundleCell = .{ .x = 9, .y = 9 };
 
-    try expect(pb.memberOfBundleAt(sets, 1, 1, here));
-    try expect(pb.memberOfBundleAt(sets, 2, 1, here));
-    try expect(pb.memberOfBundleAt(sets, 2, 2, here));
-    try expect(!pb.memberOfBundleAt(sets, 1, 2, here));
-    try expect(!pb.memberOfBundleAt(sets, 2, 0, here));
-    try expect(!pb.memberOfBundleAt(sets, 3, 1, here));
-    try expect(!pb.memberOfBundleAt(sets, pb.no_bundle, 1, here));
-    try expect(!pb.memberOfBundleAt(&raw, 1, 1, here));
+    try expect(bundle_mod.memberOfBundleAt(sets, 1, 1, here));
+    try expect(bundle_mod.memberOfBundleAt(sets, 2, 1, here));
+    try expect(bundle_mod.memberOfBundleAt(sets, 2, 2, here));
+    try expect(!bundle_mod.memberOfBundleAt(sets, 1, 2, here));
+    try expect(!bundle_mod.memberOfBundleAt(sets, 2, 0, here));
+    try expect(!bundle_mod.memberOfBundleAt(sets, 3, 1, here));
+    try expect(!bundle_mod.memberOfBundleAt(sets, bundle_mod.no_bundle, 1, here));
+    try expect(!bundle_mod.memberOfBundleAt(&raw, 1, 1, here));
 
-    const cells = [_]pb.BundleCell{.{ .x = 2, .y = 2 }};
-    const scoped_raw = [_]pb.Bundle{.{ .origin = .port_share, .members = &fan_out, .cells = &cells }};
-    const scoped = try pb.numberBundles(std.testing.allocator, &scoped_raw);
+    const cells = [_]bundle_mod.BundleCell{.{ .x = 2, .y = 2 }};
+    const scoped_raw = [_]bundle_mod.Bundle{.{ .origin = .port_share, .members = &fan_out, .cells = &cells }};
+    const scoped = try bundle_mod.numberBundles(std.testing.allocator, &scoped_raw);
     defer std.testing.allocator.free(scoped);
-    try expect(pb.memberOfBundleAt(scoped, 1, 0, .{ .x = 2, .y = 2 }));
-    try expect(!pb.memberOfBundleAt(scoped, 1, 0, .{ .x = 7, .y = 7 }));
-    try expect(pb.memberOfBundleAt(scoped, 1, 0, null));
+    try expect(bundle_mod.memberOfBundleAt(scoped, 1, 0, .{ .x = 2, .y = 2 }));
+    try expect(!bundle_mod.memberOfBundleAt(scoped, 1, 0, .{ .x = 7, .y = 7 }));
+    try expect(bundle_mod.memberOfBundleAt(scoped, 1, 0, null));
 }
 
 test "the derivation and the recorded identity answer alike on a declared bundle" {
     const members = [_]pb.EdgeId{ 4, 5 };
-    const raw = [_]pb.Bundle{.{ .origin = .fan_rail, .members = &members }};
-    const bundle_sets = try pb.numberBundles(std.testing.allocator, &raw);
+    const raw = [_]bundle_mod.Bundle{.{ .origin = .fan_rail, .members = &members }};
+    const bundle_sets = try bundle_mod.numberBundles(std.testing.allocator, &raw);
     defer std.testing.allocator.free(bundle_sets);
 
-    try expect(pb.derivedSameBundle(.{}, bundle_sets, 4, 5, null));
-    try expect(pb.memberOfBundleAt(bundle_sets, 1, 4, null));
-    try expect(pb.memberOfBundleAt(bundle_sets, 1, 5, null));
-    try expect(!pb.derivedSameBundle(.{}, bundle_sets, 4, 6, null));
-    try expect(!pb.memberOfBundleAt(bundle_sets, 1, 6, null));
+    try expect(bundle_plan.derivedSameBundle(.{}, bundle_sets, 4, 5, null));
+    try expect(bundle_mod.memberOfBundleAt(bundle_sets, 1, 4, null));
+    try expect(bundle_mod.memberOfBundleAt(bundle_sets, 1, 5, null));
+    try expect(!bundle_plan.derivedSameBundle(.{}, bundle_sets, 4, 6, null));
+    try expect(!bundle_mod.memberOfBundleAt(bundle_sets, 1, 6, null));
 
-    const here = [_]pb.BundleCell{.{ .x = 2, .y = 2 }};
-    const scoped_raw = [_]pb.Bundle{.{ .origin = .port_share, .members = &members, .cells = &here }};
-    const scoped = try pb.numberBundles(std.testing.allocator, &scoped_raw);
+    const here = [_]bundle_mod.BundleCell{.{ .x = 2, .y = 2 }};
+    const scoped_raw = [_]bundle_mod.Bundle{.{ .origin = .port_share, .members = &members, .cells = &here }};
+    const scoped = try bundle_mod.numberBundles(std.testing.allocator, &scoped_raw);
     defer std.testing.allocator.free(scoped);
-    try expect(pb.derivedSameBundle(.{}, scoped, 4, 5, .{ .x = 2, .y = 2 }));
-    try expect(pb.memberOfBundleAt(scoped, 1, 4, .{ .x = 2, .y = 2 }));
-    try expect(pb.memberOfBundleAt(scoped, 1, 5, .{ .x = 2, .y = 2 }));
-    try expect(!pb.derivedSameBundle(.{}, scoped, 4, 5, .{ .x = 7, .y = 7 }));
-    try expect(!pb.memberOfBundleAt(scoped, 1, 4, .{ .x = 7, .y = 7 }));
-    try expect(!pb.memberOfBundleAt(scoped, 1, 5, .{ .x = 7, .y = 7 }));
+    try expect(bundle_plan.derivedSameBundle(.{}, scoped, 4, 5, .{ .x = 2, .y = 2 }));
+    try expect(bundle_mod.memberOfBundleAt(scoped, 1, 4, .{ .x = 2, .y = 2 }));
+    try expect(bundle_mod.memberOfBundleAt(scoped, 1, 5, .{ .x = 2, .y = 2 }));
+    try expect(!bundle_plan.derivedSameBundle(.{}, scoped, 4, 5, .{ .x = 7, .y = 7 }));
+    try expect(!bundle_mod.memberOfBundleAt(scoped, 1, 4, .{ .x = 7, .y = 7 }));
+    try expect(!bundle_mod.memberOfBundleAt(scoped, 1, 5, .{ .x = 7, .y = 7 }));
 }
 
 test {

@@ -2,6 +2,7 @@ const std = @import("std");
 const sketch = @import("../sketch.zig");
 const sg = @import("../sem_graph.zig");
 const ledger = @import("../base/ledger.zig");
+const rail_star = @import("../base/rail_star.zig");
 const bridges = @import("bridges.zig");
 const rails = @import("bridge_rails.zig");
 
@@ -94,8 +95,8 @@ fn checkGroup(
     members: []const usize,
     direction: ledger.BundleDirection,
     pivot: sg.NodeId,
-) error{OutOfMemory}!ledger.RailLicenceCheck {
-    const rows = try arena.alloc(ledger.RailLicenceMember, members.len);
+) error{OutOfMemory}!rail_star.LicenceCheckResult {
+    const rows = try arena.alloc(rail_star.RailLicenceMember, members.len);
     for (members, rows) |mi, *row| {
         const c = crossings[mi];
         row.* = .{
@@ -107,7 +108,7 @@ fn checkGroup(
             .pivot_end = if (direction == .out) .source else .target,
         };
     }
-    return ledger.checkRailLicence(.{
+    return rail_star.checkLicence(.{
         .id = 1,
         .polarity = if (direction == .out) .out else .in,
         .pivot = pivot,

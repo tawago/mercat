@@ -2,6 +2,7 @@ const std = @import("std");
 const sketch = @import("../sketch.zig");
 const sg = @import("../sem_graph.zig");
 const ledger = @import("../base/ledger.zig");
+const rail_star = @import("../base/rail_star.zig");
 const types = @import("bridge_types.zig");
 const elbow = @import("bridge_elbow.zig");
 const requests = @import("bridge_requests.zig");
@@ -19,7 +20,7 @@ pub fn overrideJogs(
     obstacles: tracks.Obstacles,
 ) error{OutOfMemory}!bool {
     var changed = false;
-    for ([2]ledger.Endpoint{ .source, .target }) |end| {
+    for ([2]rail_star.Endpoint{ .source, .target }) |end| {
         const done = try arena.alloc(bool, pends.len);
         @memset(done, false);
         for (pends, 0..) |p0, i| {
@@ -42,11 +43,11 @@ pub fn overrideJogs(
     return changed;
 }
 
-fn pivotOf(p: types.Pending, end: ledger.Endpoint) sg.NodeId {
+fn pivotOf(p: types.Pending, end: rail_star.Endpoint) sg.NodeId {
     return if (end == .source) p.cross.from else p.cross.to;
 }
 
-fn railEnd(end: ledger.Endpoint) requests.RailEnd {
+fn railEnd(end: rail_star.Endpoint) requests.RailEnd {
     return if (end == .source) .start else .end;
 }
 
@@ -54,9 +55,9 @@ fn licensed(
     arena: std.mem.Allocator,
     pends: []const types.Pending,
     members: []const usize,
-    end: ledger.Endpoint,
+    end: rail_star.Endpoint,
 ) error{OutOfMemory}!bool {
-    const rows = try arena.alloc(ledger.RailLicenceMember, members.len);
+    const rows = try arena.alloc(rail_star.RailLicenceMember, members.len);
     for (members, rows) |mi, *row| {
         const c = pends[mi].cross;
         row.* = .{
@@ -68,7 +69,7 @@ fn licensed(
             .pivot_end = end,
         };
     }
-    return ledger.checkRailLicence(.{
+    return rail_star.checkLicence(.{
         .id = 1,
         .polarity = if (end == .source) .out else .in,
         .pivot = pivotOf(pends[members[0]], end),
@@ -81,7 +82,7 @@ fn railable(
     pends: []const types.Pending,
     members: []const usize,
     placements: []const sketch.NodePlacement,
-    end: ledger.Endpoint,
+    end: rail_star.Endpoint,
 ) error{OutOfMemory}!bool {
     const re = railEnd(end);
     const p0 = pends[members[0]];
@@ -103,7 +104,7 @@ fn chooseJog(
     placements: []const sketch.NodePlacement,
     clusters: []const sketch.ClusterFrame,
     obstacles: tracks.Obstacles,
-    end: ledger.Endpoint,
+    end: rail_star.Endpoint,
 ) error{OutOfMemory}!?i32 {
     const p0 = pends[members[0]];
     const vertical = (p0.sides.exit == .north or p0.sides.exit == .south);
@@ -208,7 +209,7 @@ fn inGroup(members: []const usize, i: usize) bool {
 pub fn realizedRail(
     arena: std.mem.Allocator,
     paths: []const sketch.EdgePath,
-    end: ledger.Endpoint,
+    end: rail_star.Endpoint,
 ) error{OutOfMemory}!bool {
     if (paths.len < 2) return false;
     const polys = try arena.alloc([]const Pt, paths.len);
@@ -237,7 +238,7 @@ fn cleanSplit(ca: []const Pt, cb: []const Pt) bool {
     return true;
 }
 
-fn cellsOf(arena: std.mem.Allocator, poly: []const Pt, end: ledger.Endpoint) error{OutOfMemory}![]const Pt {
+fn cellsOf(arena: std.mem.Allocator, poly: []const Pt, end: rail_star.Endpoint) error{OutOfMemory}![]const Pt {
     var out: std.ArrayListUnmanaged(Pt) = .empty;
     if (poly.len == 0) return &.{};
     try out.append(arena, poly[0]);

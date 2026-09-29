@@ -2,14 +2,16 @@ const std = @import("std");
 const sketch = @import("../sketch.zig");
 const sketch_ports = @import("../sketch_ports.zig");
 const ledger = @import("../base/ledger.zig");
+const rail_star = @import("../base/rail_star.zig");
+const bundle_mod = @import("../base/bundle.zig");
 const split_mod = @import("split.zig");
 const bridge_bundle_sets = @import("bridge_bundle_sets.zig");
 const bridge_claims = @import("bridge_claims.zig");
 const stitch_rails = @import("stitch_rails.zig");
 
 pub const Authority = struct {
-    sets: []const ledger.Bundle,
-    claims: []const ledger.RailClaim,
+    sets: []const bundle_mod.Bundle,
+    claims: []const rail_star.RailClaim,
 };
 
 pub fn finalizeAuthority(
@@ -24,7 +26,7 @@ pub fn finalizeAuthority(
     bridges: []const sketch.EdgePath,
     rails_buf: []const sketch.Rail,
     placements: []const sketch.NodePlacement,
-    inherited_structural: []const ledger.Bundle,
+    inherited_structural: []const bundle_mod.Bundle,
 ) error{OutOfMemory}!Authority {
     const outer_sets = try bridge_bundle_sets.rebuildOuterSets(
         arena,
@@ -36,7 +38,7 @@ pub fn finalizeAuthority(
         bridges,
         rails_buf,
     );
-    const structural = try ledger.concatBundles(arena, inherited_structural, outer_sets);
+    const structural = try bundle_mod.concatBundles(arena, inherited_structural, outer_sets);
     const transported = try stitch_rails.transport(arena, sr, claim_sources, outer, outer_node_map, outer_base);
     return .{
         .sets = try sketch_ports.rebuildFinalPortShares(arena, structural, paths, rails_buf),
@@ -58,18 +60,18 @@ pub fn finalizeAuthority(
 /// @guarded-by: stitch_bundle_sets.zig "shiftSet carries a port-share set's cell scope and pairwise table across the id shift"
 pub fn shiftSet(
     arena: std.mem.Allocator,
-    cs: ledger.Bundle,
+    cs: bundle_mod.Bundle,
     base: sketch.EdgeId,
     dx: i32,
     dy: i32,
-) error{OutOfMemory}!ledger.Bundle {
+) error{OutOfMemory}!bundle_mod.Bundle {
     const members = try arena.alloc(sketch.EdgeId, cs.members.len);
     for (cs.members, 0..) |m, i| members[i] = m + base;
-    var cells: ?[]const ledger.BundleCell = null;
+    var cells: ?[]const bundle_mod.BundleCell = null;
     if (cs.cells) |list| cells = try translateCells(arena, list, dx, dy);
-    var pairwise: ?[]const ledger.PairCells = null;
+    var pairwise: ?[]const bundle_mod.PairCells = null;
     if (cs.pairwise) |list| {
-        const shifted = try arena.alloc(ledger.PairCells, list.len);
+        const shifted = try arena.alloc(bundle_mod.PairCells, list.len);
         for (list, 0..) |p, i| shifted[i] = .{
             .a = p.a + base,
             .b = p.b + base,
@@ -82,11 +84,11 @@ pub fn shiftSet(
 
 fn translateCells(
     arena: std.mem.Allocator,
-    cells: []const ledger.BundleCell,
+    cells: []const bundle_mod.BundleCell,
     dx: i32,
     dy: i32,
-) error{OutOfMemory}![]const ledger.BundleCell {
-    const out = try arena.alloc(ledger.BundleCell, cells.len);
+) error{OutOfMemory}![]const bundle_mod.BundleCell {
+    const out = try arena.alloc(bundle_mod.BundleCell, cells.len);
     for (cells, 0..) |c, i| out[i] = .{ .x = c.x + dx, .y = c.y + dy };
     return out;
 }
@@ -96,13 +98,13 @@ test "shiftSet carries a port-share set's cell scope and pairwise table across t
     defer arena.deinit();
     const a = arena.allocator();
 
-    const stem = [_]ledger.BundleCell{ .{ .x = 5, .y = 3 }, .{ .x = 5, .y = 8 } };
-    const port_only = [_]ledger.BundleCell{.{ .x = 5, .y = 3 }};
-    const pairwise = [_]ledger.PairCells{
+    const stem = [_]bundle_mod.BundleCell{ .{ .x = 5, .y = 3 }, .{ .x = 5, .y = 8 } };
+    const port_only = [_]bundle_mod.BundleCell{.{ .x = 5, .y = 3 }};
+    const pairwise = [_]bundle_mod.PairCells{
         .{ .a = 0, .b = 1, .cells = &stem },
         .{ .a = 0, .b = 2, .cells = &port_only },
     };
-    const cs: ledger.Bundle = .{
+    const cs: bundle_mod.Bundle = .{
         .origin = .port_share,
         .members = &.{ 0, 1, 2 },
         .cells = &stem,
@@ -123,7 +125,7 @@ test "shiftSet carries a port-share set's cell scope and pairwise table across t
     try std.testing.expectEqual(@as(i32, 15), shifted.pairwise.?[1].cells[0].x);
     try std.testing.expectEqual(@as(i32, 23), shifted.pairwise.?[1].cells[0].y);
 
-    const wide: ledger.Bundle = .{ .origin = .fan_rail, .members = &.{ 5, 6 } };
+    const wide: bundle_mod.Bundle = .{ .origin = .fan_rail, .members = &.{ 5, 6 } };
     const shifted_wide = try shiftSet(a, wide, 0, 1, 1);
     try std.testing.expect(shifted_wide.cells == null);
     try std.testing.expect(shifted_wide.pairwise == null);

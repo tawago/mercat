@@ -1,5 +1,6 @@
 const std = @import("std");
 const ledger = @import("base/ledger.zig");
+const bundle_mod = @import("base/bundle.zig");
 const sketch = @import("sketch.zig");
 const sketch_bundles = @import("sketch_bundles.zig");
 const parse = @import("parse.zig");
@@ -26,7 +27,7 @@ fn railAt(taps: []const sketch.Tap, y: i32) sketch.Rail {
     };
 }
 
-fn sketchWith(sets: []const ledger.Bundle, rails_buf: []const sketch.Rail) sketch.Sketch {
+fn sketchWith(sets: []const bundle_mod.Bundle, rails_buf: []const sketch.Rail) sketch.Sketch {
     return .{
         .bbox = .{ .x = 0, .y = 0, .w = 8, .h = 8 },
         .direction = .TD,
@@ -42,7 +43,7 @@ fn sketchWith(sets: []const ledger.Bundle, rails_buf: []const sketch.Rail) sketc
 
 test "a stamped sketch names its rail's bundle and its bundle sets alike" {
     const members = [_]ledger.EdgeId{ 0, 1 };
-    const sets = [_]ledger.Bundle{.{ .origin = .fan_rail, .members = &members }};
+    const sets = [_]bundle_mod.Bundle{.{ .origin = .fan_rail, .members = &members }};
     const rails_buf = [_]sketch.Rail{railAt(&taps_a, 3)};
     var s = sketchWith(&sets, &rails_buf);
 
@@ -51,18 +52,18 @@ test "a stamped sketch names its rail's bundle and its bundle sets alike" {
     sketch_bundles.stamp(arena.allocator(), &s);
 
     try testing.expectEqual(sketch.BundleStampState.complete, s.bundle_stamp_state);
-    try testing.expect(ledger.bundleSetsNumbered(s.bundle_sets));
-    try testing.expectEqual(@as(ledger.BundleId, 1), s.bundle_sets[0].bundle);
-    try testing.expectEqual(@as(ledger.BundleId, 1), s.rails[0].bundle);
-    try testing.expect(ledger.memberOfBundleAt(s.bundle_sets, 1, 0, null));
-    try testing.expect(ledger.memberOfBundleAt(s.bundle_sets, 1, 1, null));
-    try testing.expect(ledger.bundleMembersAt(s.bundle_sets, 0, 1, null));
+    try testing.expect(bundle_mod.bundleSetsNumbered(s.bundle_sets));
+    try testing.expectEqual(@as(bundle_mod.BundleId, 1), s.bundle_sets[0].bundle);
+    try testing.expectEqual(@as(bundle_mod.BundleId, 1), s.rails[0].bundle);
+    try testing.expect(bundle_mod.memberOfBundleAt(s.bundle_sets, 1, 0, null));
+    try testing.expect(bundle_mod.memberOfBundleAt(s.bundle_sets, 1, 1, null));
+    try testing.expect(bundle_mod.bundleMembersAt(s.bundle_sets, 0, 1, null));
 }
 
 test "merged bundle sets name every bundle once" {
     const a = [_]ledger.EdgeId{ 0, 1 };
     const b = [_]ledger.EdgeId{ 2, 3 };
-    const sets = [_]ledger.Bundle{
+    const sets = [_]bundle_mod.Bundle{
         .{ .origin = .fan_rail, .bundle = 1, .members = &a },
         .{ .origin = .fan_rail, .bundle = 1, .members = &b },
     };
@@ -72,17 +73,17 @@ test "merged bundle sets name every bundle once" {
     defer arena.deinit();
     sketch_bundles.stamp(arena.allocator(), &s);
 
-    try testing.expectEqual(@as(ledger.BundleId, 1), s.bundle_sets[0].bundle);
-    try testing.expectEqual(@as(ledger.BundleId, 2), s.bundle_sets[1].bundle);
-    try testing.expect(ledger.memberOfBundleAt(s.bundle_sets, 1, 0, null));
-    try testing.expect(ledger.memberOfBundleAt(s.bundle_sets, 2, 2, null));
-    try testing.expect(!ledger.memberOfBundleAt(s.bundle_sets, 1, 2, null));
-    try testing.expect(!ledger.bundleMembersAt(s.bundle_sets, 0, 2, null));
+    try testing.expectEqual(@as(bundle_mod.BundleId, 1), s.bundle_sets[0].bundle);
+    try testing.expectEqual(@as(bundle_mod.BundleId, 2), s.bundle_sets[1].bundle);
+    try testing.expect(bundle_mod.memberOfBundleAt(s.bundle_sets, 1, 0, null));
+    try testing.expect(bundle_mod.memberOfBundleAt(s.bundle_sets, 2, 2, null));
+    try testing.expect(!bundle_mod.memberOfBundleAt(s.bundle_sets, 1, 2, null));
+    try testing.expect(!bundle_mod.bundleMembersAt(s.bundle_sets, 0, 2, null));
 }
 
 test "a rail in no bundle set is stamped a bundle none of its future merges can ever match" {
     const unrelated_members = [_]ledger.EdgeId{ 90, 91 };
-    const sets = [_]ledger.Bundle{.{ .origin = .fan_rail, .members = &unrelated_members }};
+    const sets = [_]bundle_mod.Bundle{.{ .origin = .fan_rail, .members = &unrelated_members }};
     const rails_buf = [_]sketch.Rail{railAt(&taps_a, 3)};
     var s = sketchWith(&sets, &rails_buf);
 
@@ -90,14 +91,14 @@ test "a rail in no bundle set is stamped a bundle none of its future merges can 
     defer arena.deinit();
     sketch_bundles.stamp(arena.allocator(), &s);
 
-    try testing.expectEqual(@as(ledger.BundleId, 1), s.bundle_sets[0].bundle);
-    try testing.expectEqual(@as(ledger.BundleId, 2), s.rails[0].bundle);
+    try testing.expectEqual(@as(bundle_mod.BundleId, 1), s.bundle_sets[0].bundle);
+    try testing.expectEqual(@as(bundle_mod.BundleId, 2), s.rails[0].bundle);
     try testing.expect(s.rails[0].bundle != s.bundle_sets[0].bundle);
 }
 
 test "a rail no set holds gets a name of its own, past the bundle sets" {
     const members = [_]ledger.EdgeId{ 0, 1 };
-    const sets = [_]ledger.Bundle{.{ .origin = .fan_rail, .members = &members }};
+    const sets = [_]bundle_mod.Bundle{.{ .origin = .fan_rail, .members = &members }};
     const rails_buf = [_]sketch.Rail{ railAt(&taps_a, 3), railAt(&taps_b, 5) };
     var s = sketchWith(&sets, &rails_buf);
 
@@ -105,15 +106,15 @@ test "a rail no set holds gets a name of its own, past the bundle sets" {
     defer arena.deinit();
     sketch_bundles.stamp(arena.allocator(), &s);
 
-    try testing.expectEqual(@as(ledger.BundleId, 1), s.rails[0].bundle);
-    try testing.expectEqual(@as(ledger.BundleId, 2), s.rails[1].bundle);
+    try testing.expectEqual(@as(bundle_mod.BundleId, 1), s.rails[0].bundle);
+    try testing.expectEqual(@as(bundle_mod.BundleId, 2), s.rails[1].bundle);
     try testing.expect(s.rails[1].bundle != s.rails[0].bundle);
 }
 
 test "a port share is too narrow to name a whole rail" {
     const members = [_]ledger.EdgeId{ 0, 1 };
-    const here = [_]ledger.BundleCell{.{ .x = 1, .y = 3 }};
-    const sets = [_]ledger.Bundle{.{ .origin = .port_share, .members = &members, .cells = &here }};
+    const here = [_]bundle_mod.BundleCell{.{ .x = 1, .y = 3 }};
+    const sets = [_]bundle_mod.Bundle{.{ .origin = .port_share, .members = &members, .cells = &here }};
     const rails_buf = [_]sketch.Rail{railAt(&taps_a, 3)};
     var s = sketchWith(&sets, &rails_buf);
 
@@ -121,13 +122,13 @@ test "a port share is too narrow to name a whole rail" {
     defer arena.deinit();
     sketch_bundles.stamp(arena.allocator(), &s);
 
-    try testing.expectEqual(@as(ledger.BundleId, 2), s.rails[0].bundle);
+    try testing.expectEqual(@as(bundle_mod.BundleId, 2), s.rails[0].bundle);
 }
 
 test "different structural bundles reject the whole stamp" {
     const set0_members = [_]ledger.EdgeId{taps_a[0].edge};
     const set1_members = [_]ledger.EdgeId{taps_a[1].edge};
-    const sets = [_]ledger.Bundle{
+    const sets = [_]bundle_mod.Bundle{
         .{ .origin = .fan_rail, .bundle = 41, .members = &set0_members },
         .{ .origin = .fan_rail, .bundle = 42, .members = &set1_members },
     };
@@ -150,7 +151,7 @@ test "different structural bundles reject the whole stamp" {
 }
 
 test "partial structural membership rejects the whole stamp" {
-    const sets = [_]ledger.Bundle{.{ .origin = .fan_rail, .members = &.{taps_a[0].edge} }};
+    const sets = [_]bundle_mod.Bundle{.{ .origin = .fan_rail, .members = &.{taps_a[0].edge} }};
     const rails_buf = [_]sketch.Rail{railAt(&taps_a, 3)};
     var s = sketchWith(&sets, &rails_buf);
 
@@ -161,12 +162,12 @@ test "partial structural membership rejects the whole stamp" {
     try testing.expectEqual(sketch.BundleStampState.rail_invariant, s.bundle_stamp_state);
     try testing.expect(s.bundle_sets.ptr == sets[0..].ptr);
     try testing.expect(s.rails.ptr == rails_buf[0..].ptr);
-    try testing.expectEqual(ledger.no_bundle, s.bundle_sets[0].bundle);
-    try testing.expectEqual(ledger.no_bundle, s.rails[0].bundle);
+    try testing.expectEqual(bundle_mod.no_bundle, s.bundle_sets[0].bundle);
+    try testing.expectEqual(bundle_mod.no_bundle, s.rails[0].bundle);
 }
 
 test "a tap in multiple structural sets rejects the whole stamp" {
-    const sets = [_]ledger.Bundle{
+    const sets = [_]bundle_mod.Bundle{
         .{ .origin = .fan_rail, .members = &.{ 0, 1 } },
         .{ .origin = .selected_bundle, .members = &.{ 0, 1 } },
     };
@@ -180,14 +181,14 @@ test "a tap in multiple structural sets rejects the whole stamp" {
     try testing.expectEqual(sketch.BundleStampState.rail_invariant, s.bundle_stamp_state);
     try testing.expect(s.bundle_sets.ptr == sets[0..].ptr);
     try testing.expect(s.rails.ptr == rails_buf[0..].ptr);
-    try testing.expectEqual(ledger.no_bundle, s.bundle_sets[0].bundle);
-    try testing.expectEqual(ledger.no_bundle, s.bundle_sets[1].bundle);
-    try testing.expectEqual(ledger.no_bundle, s.rails[0].bundle);
+    try testing.expectEqual(bundle_mod.no_bundle, s.bundle_sets[0].bundle);
+    try testing.expectEqual(bundle_mod.no_bundle, s.bundle_sets[1].bundle);
+    try testing.expectEqual(bundle_mod.no_bundle, s.rails[0].bundle);
 }
 
 test "stamp is transactional across both allocation failures and success" {
     const members = [_]ledger.EdgeId{ 0, 1 };
-    const sets = [_]ledger.Bundle{.{ .origin = .fan_rail, .bundle = 41, .members = &members }};
+    const sets = [_]bundle_mod.Bundle{.{ .origin = .fan_rail, .bundle = 41, .members = &members }};
     const original_rail = blk: {
         var rail = railAt(&taps_a, 3);
         rail.bundle = 73;
@@ -220,8 +221,8 @@ test "stamp is transactional across both allocation failures and success" {
             try testing.expectEqual(sketch.BundleStampState.complete, s.bundle_stamp_state);
             try testing.expect(s.bundle_sets.ptr != before_sets_ptr);
             try testing.expect(s.rails.ptr != before_rails_ptr);
-            try testing.expectEqual(@as(ledger.BundleId, 1), s.bundle_sets[0].bundle);
-            try testing.expectEqual(@as(ledger.BundleId, 1), s.rails[0].bundle);
+            try testing.expectEqual(@as(bundle_mod.BundleId, 1), s.bundle_sets[0].bundle);
+            try testing.expectEqual(@as(bundle_mod.BundleId, 1), s.rails[0].bundle);
         }
     }
 }
@@ -237,8 +238,8 @@ test "a production render reaches the raster with its bundle sets numbered" {
     const chosen = try select.choose(a, graph, &plan, 80, .bridge);
 
     try testing.expectEqual(sketch.BundleStampState.complete, chosen.sketch.bundle_stamp_state);
-    try testing.expect(ledger.bundleSetsNumbered(chosen.sketch.bundle_sets));
+    try testing.expect(bundle_mod.bundleSetsNumbered(chosen.sketch.bundle_sets));
     for (chosen.sketch.rails) |rail| {
-        try testing.expect(rail.bundle != ledger.no_bundle);
+        try testing.expect(rail.bundle != bundle_mod.no_bundle);
     }
 }

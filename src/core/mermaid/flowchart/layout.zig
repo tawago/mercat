@@ -1,6 +1,7 @@
 const std = @import("std");
 const prim = @import("prim");
 const ledger = @import("base/ledger.zig");
+const bundle_plan = @import("base/bundle_plan.zig");
 const sg = @import("sem_graph.zig");
 const sketch = @import("sketch.zig");
 const sketch_ports = @import("sketch_ports.zig");
@@ -229,7 +230,7 @@ fn buildSketch(
     else
         false;
     const base_sets = if (plan_realized)
-        ledger.bundlesFromPlan(a, candidate_bundles) catch edges_result.bundle_sets
+        bundle_plan.bundlesFromPlan(a, candidate_bundles) catch edges_result.bundle_sets
     else
         edges_result.bundle_sets;
     var out = sketch.Sketch{

@@ -8,7 +8,7 @@ const stitch_rails = @import("stitch_rails.zig");
 
 const testing = std.testing;
 
-fn member(edge: sketch.EdgeId, from: sketch.NodeId, to: sketch.NodeId, pivot_end: ledger.Endpoint) ledger.RailClaimMember {
+fn member(edge: sketch.EdgeId, from: sketch.NodeId, to: sketch.NodeId, pivot_end: rail_star.Endpoint) rail_star.RailClaimMember {
     return .{
         .edge = edge,
         .endpoints = .{ from, to },
@@ -22,7 +22,7 @@ fn member(edge: sketch.EdgeId, from: sketch.NodeId, to: sketch.NodeId, pivot_end
     };
 }
 
-fn claim(id: rail_star.RailClaimId, polarity: ledger.RailPolarity, members: []const ledger.RailClaimMember) ledger.RailClaim {
+fn claim(id: rail_star.RailClaimId, polarity: rail_star.RailPolarity, members: []const rail_star.RailClaimMember) rail_star.RailClaim {
     return .{ .id = id, .polarity = polarity, .members = members };
 }
 
@@ -62,11 +62,11 @@ test "stitch rails: child claims deep-remap first-class and peer-drawn carriers 
     defer arena.deinit();
     const a = arena.allocator();
 
-    const first_members = [_]ledger.RailClaimMember{
+    const first_members = [_]rail_star.RailClaimMember{
         member(0, 0, 1, .source),
         member(1, 0, 2, .source),
     };
-    const first_claims = [_]ledger.RailClaim{claim(1, .out, &first_members)};
+    const first_claims = [_]rail_star.RailClaim{claim(1, .out, &first_members)};
     const taps = [_]sketch.Tap{
         .{ .edge = 0, .node = 1, .at = .{ .x = 0, .y = 0 }, .landing = .{ .x = 0, .y = 1 } },
         .{ .edge = 1, .node = 2, .at = .{ .x = 1, .y = 0 }, .landing = .{ .x = 1, .y = 1 } },
@@ -81,11 +81,11 @@ test "stitch rails: child claims deep-remap first-class and peer-drawn carriers 
     }};
     first.rail_claims = &first_claims;
 
-    const peer_members = [_]ledger.RailClaimMember{
+    const peer_members = [_]rail_star.RailClaimMember{
         member(4, 2, 0, .target),
         member(5, 1, 0, .target),
     };
-    const peer_claims = [_]ledger.RailClaim{claim(1, .in, &peer_members)};
+    const peer_claims = [_]rail_star.RailClaim{claim(1, .in, &peer_members)};
     const peer_paths = [_]sketch.EdgePath{ path(4, 2, 0), path(5, 1, 0) };
     var peer = emptySketch();
     peer.edges = &peer_paths;
@@ -96,11 +96,11 @@ test "stitch rails: child claims deep-remap first-class and peer-drawn carriers 
         .{ .sketch = peer, .node_map = &.{ 30, 38, 35 }, .edge_base = 40 },
     };
     var outer = emptySketch();
-    const outer_members = [_]ledger.RailClaimMember{
+    const outer_members = [_]rail_star.RailClaimMember{
         member(8, 0, 1, .source),
         member(9, 0, 2, .source),
     };
-    const outer_claims = [_]ledger.RailClaim{claim(77, .out, &outer_members)};
+    const outer_claims = [_]rail_star.RailClaim{claim(77, .out, &outer_members)};
     outer.rail_claims = &outer_claims;
 
     const got = try stitch_rails.transport(a, emptySplit(&.{}), &sources, outer, &.{ 50, 51, 52 }, 60);
@@ -111,18 +111,18 @@ test "stitch rails: child claims deep-remap first-class and peer-drawn carriers 
     try testing.expect(got[0].members.ptr != first_members[0..].ptr);
 
     try testing.expectEqual(@as(sketch.EdgeId, 20), got[0].members[0].edge);
-    try testing.expectEqual(@as(?sketch.NodeId, 10), ledger.checkRailClaim(got[0]).derived_pivot);
+    try testing.expectEqual(@as(?sketch.NodeId, 10), rail_star.check(got[0]).derived_pivot);
     try testing.expectEqual(@as(?sketch.NodeId, 14), got[0].members[0].endpoints[1]);
     try testing.expectEqual(@as(sketch.NodeId, 14), got[0].members[0].sites[1].?.node);
     try testing.expectEqual(sketch.Dir4.north, got[0].members[0].sites[1].?.side);
     try testing.expectEqual(@as(u32, 2), got[0].members[0].sites[1].?.offset);
 
     try testing.expectEqual(@as(sketch.EdgeId, 44), got[1].members[0].edge);
-    try testing.expectEqual(@as(?sketch.NodeId, 30), ledger.checkRailClaim(got[1]).derived_pivot);
+    try testing.expectEqual(@as(?sketch.NodeId, 30), rail_star.check(got[1]).derived_pivot);
     try testing.expectEqual(@as(?sketch.NodeId, 35), got[1].members[0].endpoints[0]);
     try testing.expectEqual(@as(sketch.EdgeId, 68), got[2].members[0].edge);
-    try testing.expectEqual(@as(?sketch.NodeId, 50), ledger.checkRailClaim(got[2]).derived_pivot);
-    for (got) |transported| try testing.expect(ledger.checkRailClaim(transported).isValid());
+    try testing.expectEqual(@as(?sketch.NodeId, 50), rail_star.check(got[2]).derived_pivot);
+    for (got) |transported| try testing.expect(rail_star.check(transported).isValid());
 }
 
 test "stitch rails: surviving outer claim stays valid and a dropped placement member stays unresolved" {
@@ -136,15 +136,15 @@ test "stitch rails: surviving outer claim stays valid and a dropped placement me
         path(1, 0, 3),
         path(2, 0, 2),
     };
-    const live_members = [_]ledger.RailClaimMember{
+    const live_members = [_]rail_star.RailClaimMember{
         member(0, 0, 1, .source),
         member(1, 0, 3, .source),
     };
-    const pending_members = [_]ledger.RailClaimMember{
+    const pending_members = [_]rail_star.RailClaimMember{
         member(0, 0, 1, .source),
         member(2, 0, 2, .source),
     };
-    const claims = [_]ledger.RailClaim{
+    const claims = [_]rail_star.RailClaim{
         claim(5, .out, &live_members),
         claim(6, .out, &pending_members),
     };
@@ -154,7 +154,7 @@ test "stitch rails: surviving outer claim stays valid and a dropped placement me
 
     const got = try stitch_rails.transport(a, emptySplit(&supers), &.{}, outer, &.{ 30, 31, sg.SENTINEL, 33 }, 100);
     try testing.expectEqual(@as(usize, 2), got.len);
-    const first = ledger.checkRailClaim(got[0]);
+    const first = rail_star.check(got[0]);
     try testing.expect(first.isValid());
     try testing.expectEqual(@as(?sketch.NodeId, 30), first.derived_pivot);
     try testing.expectEqual(@as(sketch.NodeId, 30), first.derived_pi.?.node);
@@ -162,8 +162,8 @@ test "stitch rails: surviving outer claim stays valid and a dropped placement me
     const pending = got[1];
     try testing.expectEqual(@as(sketch.EdgeId, 102), pending.members[1].edge);
     try testing.expectEqual(@as(?sketch.NodeId, null), pending.members[1].endpoints[1]);
-    try testing.expectEqual(@as(?ledger.AttachmentSite, null), pending.members[1].sites[1]);
-    const checked = ledger.checkRailClaim(pending);
+    try testing.expectEqual(@as(?rail_star.AttachmentSite, null), pending.members[1].sites[1]);
+    const checked = rail_star.check(pending);
     try testing.expectEqual(@as(?sketch.NodeId, 30), checked.derived_pivot);
     try testing.expectEqual(@as(sketch.NodeId, 30), checked.derived_pi.?.node);
     try testing.expect(!checked.isValid());
@@ -178,20 +178,20 @@ test "stitch rails: a dropped super-node pivot derives to null after transport" 
 
     const supers = [_]split_mod.SuperNode{.{ .outer_node = 2, .cluster_id = 100, .child_piece = 1 }};
     const edges = [_]sketch.EdgePath{ path(0, 0, 2), path(1, 1, 2) };
-    const members = [_]ledger.RailClaimMember{
+    const members = [_]rail_star.RailClaimMember{
         member(0, 0, 2, .target),
         member(1, 1, 2, .target),
     };
-    const claims = [_]ledger.RailClaim{claim(1, .in, &members)};
+    const claims = [_]rail_star.RailClaim{claim(1, .in, &members)};
     var outer = emptySketch();
     outer.edges = &edges;
     outer.rail_claims = &claims;
 
     const got = try stitch_rails.transport(a, emptySplit(&supers), &.{}, outer, &.{ 40, 41, sg.SENTINEL }, 10);
     try testing.expectEqual(@as(usize, 1), got.len);
-    const checked = ledger.checkRailClaim(got[0]);
+    const checked = rail_star.check(got[0]);
     try testing.expectEqual(@as(?sketch.NodeId, null), checked.derived_pivot);
-    try testing.expectEqual(@as(?ledger.AttachmentSite, null), checked.derived_pi);
+    try testing.expectEqual(@as(?rail_star.AttachmentSite, null), checked.derived_pi);
     try testing.expectEqual(@as(u32, 2), checked.derived_unresolved_members);
     try testing.expect(checked.record.unresolved);
 }

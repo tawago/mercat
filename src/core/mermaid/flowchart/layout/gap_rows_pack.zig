@@ -56,6 +56,11 @@ pub const Post = struct { gap: u32, x: i32 };
 
 pub const GapAccount = struct { base: u32, free: u32, rows_used: u32, claimed: u64, base_used: bool };
 
+pub fn gapSpacingNeeded(rows_used: u32, base_used: bool) u32 {
+    if (rows_used > 0) return rows_used + 2;
+    return if (base_used) 2 else 0;
+}
+
 pub const Ledger = struct {
     claims: []const Claim = &.{},
     gaps: []const GapAccount = &.{},
@@ -65,7 +70,7 @@ pub const Ledger = struct {
     pub fn extraRows(self: Ledger, gap: usize) u32 {
         if (gap >= self.gaps.len) return 0;
         const g = self.gaps[gap];
-        return pb.gapSpacingNeeded(g.rows_used, g.base_used) -| g.base;
+        return gapSpacingNeeded(g.rows_used, g.base_used) -| g.base;
     }
 
     pub fn rowOfFan(self: Ledger, pivot_idx: u32, direction: fan_mod.Direction) ?i32 {

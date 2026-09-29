@@ -2,6 +2,7 @@ const std = @import("std");
 const sketch = @import("../sketch.zig");
 const sg = @import("../sem_graph.zig");
 const ledger = @import("../base/ledger.zig");
+const rail_star = @import("../base/rail_star.zig");
 const split_mod = @import("split.zig");
 
 pub const ChildSource = struct {
@@ -17,8 +18,8 @@ pub fn transport(
     outer: sketch.Sketch,
     outer_node_map: []const sketch.NodeId,
     outer_edge_base: sketch.EdgeId,
-) error{OutOfMemory}![]const ledger.RailClaim {
-    var out: std.ArrayListUnmanaged(ledger.RailClaim) = .empty;
+) error{OutOfMemory}![]const rail_star.RailClaim {
+    var out: std.ArrayListUnmanaged(rail_star.RailClaim) = .empty;
     for (children) |source| {
         for (source.sketch.rail_claims) |claim| {
             try appendClaim(arena, &out, claim, source.node_map, source.edge_base, null);
@@ -37,13 +38,13 @@ const OuterPending = struct {
 
 fn appendClaim(
     arena: std.mem.Allocator,
-    out: *std.ArrayListUnmanaged(ledger.RailClaim),
-    claim: ledger.RailClaim,
+    out: *std.ArrayListUnmanaged(rail_star.RailClaim),
+    claim: rail_star.RailClaim,
     node_map: []const sketch.NodeId,
     edge_base: sketch.EdgeId,
     pending: ?OuterPending,
 ) error{OutOfMemory}!void {
-    const members = try arena.alloc(ledger.RailClaimMember, claim.members.len);
+    const members = try arena.alloc(rail_star.RailClaimMember, claim.members.len);
     for (claim.members, members) |member, *copy| {
         const dropped = if (pending) |outer| droppedEnds(outer.sr, outer.outer, member.edge) else .{ false, false };
         copy.* = remapMember(member, node_map, edge_base, dropped);
@@ -57,14 +58,14 @@ fn appendClaim(
 }
 
 fn remapMember(
-    member: ledger.RailClaimMember,
+    member: rail_star.RailClaimMember,
     node_map: []const sketch.NodeId,
     edge_base: sketch.EdgeId,
     dropped: [2]bool,
-) ledger.RailClaimMember {
+) rail_star.RailClaimMember {
     var out = member;
     out.edge += edge_base;
-    inline for ([2]ledger.Endpoint{ .source, .target }) |end| {
+    inline for ([2]rail_star.Endpoint{ .source, .target }) |end| {
         const i = end.index();
         out.endpoints[i] = mapOptionalNode(node_map, member.endpoints[i]);
         out.sites[i] = mapSite(node_map, member.sites[i]);
@@ -85,7 +86,7 @@ fn mapNode(node_map: []const sketch.NodeId, node: sketch.NodeId) ?sketch.NodeId 
     return node_map[node];
 }
 
-fn mapSite(node_map: []const sketch.NodeId, site: ?ledger.AttachmentSite) ?ledger.AttachmentSite {
+fn mapSite(node_map: []const sketch.NodeId, site: ?rail_star.AttachmentSite) ?rail_star.AttachmentSite {
     const old = site orelse return null;
     const node = mapNode(node_map, old.node) orelse return null;
     return .{ .node = node, .side = old.side, .offset = old.offset };
@@ -119,8 +120,8 @@ pub fn finalMember(
     rails_buf: []const sketch.Rail,
     placements: []const sketch.NodePlacement,
     edge: sketch.EdgeId,
-    pivot_end: ledger.Endpoint,
-) ?ledger.RailClaimMember {
+    pivot_end: rail_star.Endpoint,
+) ?rail_star.RailClaimMember {
     for (paths) |path| {
         if (path.id != edge) continue;
         return .{
@@ -154,12 +155,12 @@ pub fn finalMember(
     return null;
 }
 
-fn siteFromPort(port: sketch.Port, node: sketch.NodeId) ?ledger.AttachmentSite {
+fn siteFromPort(port: sketch.Port, node: sketch.NodeId) ?rail_star.AttachmentSite {
     if (port.node != node) return null;
     return .{ .node = node, .side = port.side, .offset = port.offset };
 }
 
-fn siteFromPoint(placements: []const sketch.NodePlacement, node: sketch.NodeId, point: sketch.Point) ?ledger.AttachmentSite {
+fn siteFromPoint(placements: []const sketch.NodePlacement, node: sketch.NodeId, point: sketch.Point) ?rail_star.AttachmentSite {
     for (placements) |placement| {
         if (placement.id != node) continue;
         const rect = placement.rect;

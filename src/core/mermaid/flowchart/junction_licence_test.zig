@@ -1,5 +1,7 @@
 const std = @import("std");
 const ledger = @import("base/ledger.zig");
+const bundle_mod = @import("base/bundle.zig");
+const bundle_plan = @import("base/bundle_plan.zig");
 const parse = @import("parse.zig").parse;
 const permits = @import("ledger/permits.zig");
 const select = @import("select.zig");
@@ -86,7 +88,7 @@ fn expectReconstructedThreeWayPortShare() !void {
     const a = arena.allocator();
     const r = try render(a, three_way_port_share, 140);
 
-    var found: ?ledger.Bundle = null;
+    var found: ?bundle_mod.Bundle = null;
     for (r.sketch.bundle_sets) |set| {
         if (set.origin != .port_share) continue;
         if (!std.mem.eql(ledger.EdgeId, set.members, &.{ 14, 15, 16 })) continue;
@@ -124,11 +126,11 @@ fn expectReconstructedThreeWayPortShare() !void {
         }
     }
 
-    const only_share = [_]ledger.Bundle{share};
-    const long_pair_only: ledger.BundleCell = .{ .x = 24, .y = 19 };
-    try testing.expect(ledger.bundleMembersAt(&only_share, 15, 16, long_pair_only));
-    try testing.expect(!ledger.bundleMembersAt(&only_share, 14, 15, long_pair_only));
-    try testing.expect(!ledger.bundleMembersAt(&only_share, 14, 16, long_pair_only));
+    const only_share = [_]bundle_mod.Bundle{share};
+    const long_pair_only: bundle_mod.BundleCell = .{ .x = 24, .y = 19 };
+    try testing.expect(bundle_mod.bundleMembersAt(&only_share, 15, 16, long_pair_only));
+    try testing.expect(!bundle_mod.bundleMembersAt(&only_share, 14, 15, long_pair_only));
+    try testing.expect(!bundle_mod.bundleMembersAt(&only_share, 14, 16, long_pair_only));
 
     try testing.expectEqual(@as(u32, 0), r.report.crossings.foreign_junction_violation);
     try testing.expectEqual(@as(u32, 0), r.report.crossings.arrowhead_transit_violation);
@@ -195,11 +197,11 @@ const both_ends = "flowchart TD\n  A --> B\n  B --> C\n  A --> C\n";
 
 const both_ends_mirrored = "flowchart TD\n  A --> B\n  B --> C\n  A --> C\n  D --> B\n  A --> E\n";
 
-fn twoStructuralSets(sets: []const ledger.Bundle, edge: ledger.EdgeId) ![2]ledger.Bundle {
-    var out: [2]ledger.Bundle = undefined;
+fn twoStructuralSets(sets: []const bundle_mod.Bundle, edge: ledger.EdgeId) ![2]bundle_mod.Bundle {
+    var out: [2]bundle_mod.Bundle = undefined;
     var n: usize = 0;
     for (sets) |set| {
-        if (!ledger.structuralUnscoped(set)) continue;
+        if (!bundle_mod.structuralUnscoped(set)) continue;
         for (set.members) |m| if (m == edge) {
             if (n == 2) return error.ThirdStructuralSet;
             out[n] = set;
@@ -222,12 +224,12 @@ test "junction licence: rail membership at both ends — a cell of the fan-in ra
         try testing.expectEqual(sketch_mod.BundleStampState.complete, s.bundle_stamp_state);
 
         const sets = try twoStructuralSets(s.bundle_sets, ac);
-        try testing.expectEqual(@as(ledger.BundleId, 1), sets[0].bundle);
-        try testing.expectEqual(@as(ledger.BundleId, 2), sets[1].bundle);
+        try testing.expectEqual(@as(bundle_mod.BundleId, 1), sets[0].bundle);
+        try testing.expectEqual(@as(bundle_mod.BundleId, 2), sets[1].bundle);
         try testing.expect(std.mem.indexOfScalar(ledger.EdgeId, sets[1].members, bc) != null);
 
         const rail = fanInRailOf(s, ac);
-        try testing.expectEqual(@as(ledger.BundleId, 2), rail.bundle);
+        try testing.expectEqual(@as(bundle_mod.BundleId, 2), rail.bundle);
         try testing.expectEqual(@as(usize, 2), rail.taps.len);
         try testing.expectEqual(bc, rail.taps[0].edge);
         try testing.expectEqual(ac, rail.taps[1].edge);
@@ -241,10 +243,10 @@ test "junction licence: rail membership at both ends — a cell of the fan-in ra
         try testing.expectEqual(bc, ownerOf(cell).?);
         const here = crossings.cellAt(x, y);
 
-        try testing.expect(ledger.derivedSameBundle(s.bundles, s.bundle_sets, bc, ac, here));
-        try testing.expect(ledger.memberOfBundleAt(s.bundle_sets, 2, ac, here));
-        try testing.expect(ledger.memberOfBundleAt(s.bundle_sets, 1, ac, here));
-        try testing.expect(!ledger.memberOfBundleAt(s.bundle_sets, 1, bc, here));
+        try testing.expect(bundle_plan.derivedSameBundle(s.bundles, s.bundle_sets, bc, ac, here));
+        try testing.expect(bundle_mod.memberOfBundleAt(s.bundle_sets, 2, ac, here));
+        try testing.expect(bundle_mod.memberOfBundleAt(s.bundle_sets, 1, ac, here));
+        try testing.expect(!bundle_mod.memberOfBundleAt(s.bundle_sets, 1, bc, here));
         try expectNoRasterDefect(r.report);
     }
 }
@@ -262,13 +264,13 @@ test "junction licence: rail membership at both ends, mirrored — the both-ends
         try testing.expectEqual(sketch_mod.BundleStampState.complete, s.bundle_stamp_state);
 
         const sets = try twoStructuralSets(s.bundle_sets, ac);
-        try testing.expectEqual(@as(ledger.BundleId, 1), sets[0].bundle);
+        try testing.expectEqual(@as(bundle_mod.BundleId, 1), sets[0].bundle);
         try testing.expect(std.mem.indexOfScalar(ledger.EdgeId, sets[0].members, ae) != null);
-        try testing.expectEqual(@as(ledger.BundleId, 3), sets[1].bundle);
+        try testing.expectEqual(@as(bundle_mod.BundleId, 3), sets[1].bundle);
         try testing.expect(std.mem.indexOfScalar(ledger.EdgeId, sets[1].members, bc) != null);
 
         const rail = fanInRailOf(s, ac);
-        try testing.expectEqual(@as(ledger.BundleId, 3), rail.bundle);
+        try testing.expectEqual(@as(bundle_mod.BundleId, 3), rail.bundle);
         try testing.expectEqual(@as(usize, 2), rail.taps.len);
         try testing.expectEqual(ac, rail.taps[0].edge);
         try testing.expect(rail.taps[0].continues);
@@ -282,10 +284,10 @@ test "junction licence: rail membership at both ends, mirrored — the both-ends
         try testing.expectEqual(ac, ownerOf(cell).?);
         const here = crossings.cellAt(x, y);
 
-        try testing.expect(ledger.derivedSameBundle(s.bundles, s.bundle_sets, ac, bc, here));
-        try testing.expect(ledger.memberOfBundleAt(s.bundle_sets, 3, ac, here));
-        try testing.expect(ledger.memberOfBundleAt(s.bundle_sets, 1, ac, here));
-        try testing.expect(!ledger.memberOfBundleAt(s.bundle_sets, 1, bc, here));
+        try testing.expect(bundle_plan.derivedSameBundle(s.bundles, s.bundle_sets, ac, bc, here));
+        try testing.expect(bundle_mod.memberOfBundleAt(s.bundle_sets, 3, ac, here));
+        try testing.expect(bundle_mod.memberOfBundleAt(s.bundle_sets, 1, ac, here));
+        try testing.expect(!bundle_mod.memberOfBundleAt(s.bundle_sets, 1, bc, here));
 
         try expectNoRasterDefect(r.report);
     }

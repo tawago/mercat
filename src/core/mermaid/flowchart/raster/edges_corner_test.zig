@@ -3,6 +3,7 @@ const sketch = @import("../sketch.zig");
 const lattice = @import("../lattice.zig");
 const edges = @import("edges.zig");
 const ledger = @import("../base/ledger.zig");
+const bundle_mod = @import("../base/bundle.zig");
 
 const testing = std.testing;
 
@@ -108,7 +109,7 @@ test "shared rail corner: sibling drops bending at one cell yield ┴, not a pha
         makeEdge(3, &c_pts),
     };
     const members = [_]ledger.EdgeId{ 1, 2, 3 };
-    const bundle_sets = [_]ledger.Bundle{.{ .origin = .fan_rail, .members = &members }};
+    const bundle_sets = [_]bundle_mod.Bundle{.{ .origin = .fan_rail, .members = &members }};
     var s = makeSketch(&es);
     s.bundle_sets = &bundle_sets;
     _ = try edges.rasterizeEdges(a, &lat, s, .bridge);

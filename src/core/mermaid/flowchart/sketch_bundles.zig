@@ -1,20 +1,21 @@
 const std = @import("std");
 const ledger = @import("base/ledger.zig");
+const bundle_mod = @import("base/bundle.zig");
 const sketch = @import("sketch.zig");
 
 pub const RailBundleResolution = union(enum) {
-    set: ledger.BundleId,
+    set: bundle_mod.BundleId,
     no_set,
     invariant,
 };
 
-pub fn resolveRailBundle(sets: []const ledger.Bundle, rail: sketch.Rail) RailBundleResolution {
+pub fn resolveRailBundle(sets: []const bundle_mod.Bundle, rail: sketch.Rail) RailBundleResolution {
     var superset: ?usize = null;
     var supersets: usize = 0;
     var exact: ?usize = null;
     var exacts: usize = 0;
     for (sets, 0..) |set, i| {
-        if (!ledger.structuralUnscoped(set)) continue;
+        if (!bundle_mod.structuralUnscoped(set)) continue;
         if (!holdsAll(set.members, rail.taps)) continue;
         supersets += 1;
         superset = i;
@@ -26,14 +27,14 @@ pub fn resolveRailBundle(sets: []const ledger.Bundle, rail: sketch.Rail) RailBun
     const chosen: usize = if (exacts == 1) exact.? else if (exacts == 0 and supersets == 1) superset.? else {
         if (supersets != 0) return .invariant;
         var named: usize = 0;
-        for (rail.taps) |tap| switch (ledger.resolveStructuralBundle(sets, tap.edge)) {
+        for (rail.taps) |tap| switch (bundle_mod.resolveStructuralBundle(sets, tap.edge)) {
             .absent => {},
             .unique, .multiple => named += 1,
         };
         return if (named != 0) .invariant else .no_set;
     };
     const bundle = sets[chosen].bundle;
-    if (bundle == ledger.no_bundle) return .invariant;
+    if (bundle == bundle_mod.no_bundle) return .invariant;
     return .{ .set = bundle };
 }
 
@@ -49,7 +50,7 @@ fn holdsAll(members: []const ledger.EdgeId, taps: []const sketch.Tap) bool {
 }
 
 pub fn stamp(allocator: std.mem.Allocator, s: *sketch.Sketch) void {
-    const numbered = ledger.numberBundles(allocator, s.bundle_sets) catch {
+    const numbered = bundle_mod.numberBundles(allocator, s.bundle_sets) catch {
         s.bundle_stamp_state = .out_of_memory;
         return;
     };
@@ -60,7 +61,7 @@ pub fn stamp(allocator: std.mem.Allocator, s: *sketch.Sketch) void {
     };
     @memcpy(rails_buf, s.rails);
 
-    var next: ledger.BundleId = @intCast(numbered.len + 1);
+    var next: bundle_mod.BundleId = @intCast(numbered.len + 1);
     for (rails_buf) |*slot| {
         switch (resolveRailBundle(numbered, slot.*)) {
             .set => |bundle| slot.bundle = bundle,
@@ -82,6 +83,6 @@ pub fn stamp(allocator: std.mem.Allocator, s: *sketch.Sketch) void {
     s.bundle_stamp_state = .complete;
 }
 
-fn discardNumbered(allocator: std.mem.Allocator, original_len: usize, numbered: []const ledger.Bundle) void {
+fn discardNumbered(allocator: std.mem.Allocator, original_len: usize, numbered: []const bundle_mod.Bundle) void {
     if (original_len != 0) allocator.free(numbered);
 }

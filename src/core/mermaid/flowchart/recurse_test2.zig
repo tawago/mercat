@@ -2,6 +2,7 @@ const std = @import("std");
 const sketch = @import("sketch.zig");
 const sem_graph = @import("sem_graph.zig");
 const ledger = @import("base/ledger.zig");
+const bundle_mod = @import("base/bundle.zig");
 const rail_star = @import("base/rail_star.zig");
 const lattice = @import("lattice.zig");
 const recurse = @import("recurse.zig");
@@ -43,9 +44,9 @@ test "a nested clustered fan-in loses no RailClaim during either stitch" {
     try std.testing.expectEqual(@as(usize, 1), s.rail_claims.len);
     const claim = s.rail_claims[0];
     try std.testing.expectEqual(@as(rail_star.RailClaimId, 1), claim.id);
-    try std.testing.expectEqual(ledger.RailPolarity.in, claim.polarity);
+    try std.testing.expectEqual(rail_star.RailPolarity.in, claim.polarity);
     try std.testing.expectEqual(@as(usize, 2), claim.members.len);
-    try std.testing.expect(ledger.checkRailClaim(claim).isValid());
+    try std.testing.expect(rail_star.check(claim).isValid());
     for (claim.members) |member| {
         var carrier = false;
         for (s.edges) |edge| carrier = carrier or edge.id == member.edge;
@@ -139,7 +140,7 @@ test "an outer fan into sibling subgraphs names its bridges, not the dropped pla
     var claimed = false;
     for (s.rail_claims) |claim| {
         if (claim.polarity != .out or claim.members.len < 2) continue;
-        const checked = ledger.checkRailClaim(claim);
+        const checked = rail_star.check(claim);
         if (checked.derived_pivot != top.id or !checked.isValid()) continue;
         for (claim.members) |member| {
             if (member.node(.source) != top.id) break;
@@ -343,7 +344,7 @@ test "a child rail and cross-border bridge sharing A's final port are licensed" 
 
     var licensed = false;
     for (s.rails[0].taps) |tap| {
-        if (ledger.bundleMembersAt(s.bundle_sets, tap.edge, final_bridge.id, .{
+        if (bundle_mod.bundleMembersAt(s.bundle_sets, tap.edge, final_bridge.id, .{
             .x = final_bridge.polyline[0].x,
             .y = final_bridge.polyline[0].y + 1,
         })) licensed = true;

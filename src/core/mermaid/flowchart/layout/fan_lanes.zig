@@ -4,6 +4,7 @@ const fan_mod = @import("fan.zig");
 const sugiyama = @import("sugiyama.zig");
 const lanes = @import("../base/lanes.zig");
 const pb = @import("../base/ledger.zig");
+const tie_break = @import("../base/tie_break.zig");
 const rc = @import("../base/rail_closure.zig");
 const rail_licence = @import("fan_rail_licence.zig");
 
@@ -15,7 +16,7 @@ const Pair = struct { lo: sg.NodeId, hi: sg.NodeId };
 const forwardOneWayHead = sg.forwardOneWayHead;
 
 fn styleKey(e: sg.Edge) u16 {
-    return (@as(u16, pb.edgeKindOrdinal(e.kind)) << 8) |
+    return (@as(u16, tie_break.edgeKindOrdinal(e.kind)) << 8) |
         (@as(u16, @intFromEnum(e.arrow_from)) << 4) | @intFromEnum(e.arrow_to);
 }
 

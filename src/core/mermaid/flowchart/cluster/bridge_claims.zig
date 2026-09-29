@@ -2,6 +2,8 @@ const std = @import("std");
 const sketch = @import("../sketch.zig");
 const sketch_ports = @import("../sketch_ports.zig");
 const ledger = @import("../base/ledger.zig");
+const rail_star = @import("../base/rail_star.zig");
+const bundle_mod = @import("../base/bundle.zig");
 const split_mod = @import("split.zig");
 const bridge_bundle_sets = @import("bridge_bundle_sets.zig");
 const stitch_rails = @import("stitch_rails.zig");
@@ -10,15 +12,15 @@ pub fn rebuild(
     arena: std.mem.Allocator,
     sr: split_mod.SplitResult,
     outer: sketch.Sketch,
-    transported: []const ledger.RailClaim,
+    transported: []const rail_star.RailClaim,
     outer_base: sketch.EdgeId,
     bridge_base: sketch.EdgeId,
     paths: []const sketch.EdgePath,
     bridges: []const sketch.EdgePath,
     rails_buf: []const sketch.Rail,
     placements: []const sketch.NodePlacement,
-) error{OutOfMemory}![]const ledger.RailClaim {
-    var out: std.ArrayListUnmanaged(ledger.RailClaim) = .empty;
+) error{OutOfMemory}![]const rail_star.RailClaim {
+    var out: std.ArrayListUnmanaged(rail_star.RailClaim) = .empty;
     for (transported) |claim| {
         var groups: std.ArrayListUnmanaged(Group) = .empty;
         var pending: std.ArrayListUnmanaged(Pending) = .empty;
@@ -69,22 +71,22 @@ pub fn rebuild(
 
 const Group = struct {
     pivot: ?sketch.NodeId,
-    pi: ?ledger.AttachmentSite,
+    pi: ?rail_star.AttachmentSite,
     kind: sketch.EdgeKind,
     arrow: sketch.ArrowKind,
-    members: std.ArrayListUnmanaged(ledger.RailClaimMember) = .empty,
+    members: std.ArrayListUnmanaged(rail_star.RailClaimMember) = .empty,
     contributors: std.ArrayListUnmanaged(sketch.EdgeId) = .empty,
 };
 
 const Pending = struct {
-    member: ledger.RailClaimMember,
+    member: rail_star.RailClaimMember,
     contributor: sketch.EdgeId,
 };
 
 fn addCandidate(
     arena: std.mem.Allocator,
     groups: *std.ArrayListUnmanaged(Group),
-    member: ledger.RailClaimMember,
+    member: rail_star.RailClaimMember,
     contributor: sketch.EdgeId,
 ) error{OutOfMemory}!void {
     const pivot = member.node(member.pivot_end);
@@ -131,12 +133,12 @@ fn addPending(
 
 fn appendClaim(
     arena: std.mem.Allocator,
-    out: *std.ArrayListUnmanaged(ledger.RailClaim),
-    polarity: ledger.RailPolarity,
-    source: []const ledger.RailClaimMember,
+    out: *std.ArrayListUnmanaged(rail_star.RailClaim),
+    polarity: rail_star.RailPolarity,
+    source: []const rail_star.RailClaimMember,
 ) error{OutOfMemory}!void {
-    const members = try arena.dupe(ledger.RailClaimMember, source);
-    std.mem.sort(ledger.RailClaimMember, members, {}, memberLess);
+    const members = try arena.dupe(rail_star.RailClaimMember, source);
+    std.mem.sort(rail_star.RailClaimMember, members, {}, memberLess);
     if (sameClaimAlready(out.items, polarity, members)) return;
     try out.append(arena, .{
         .id = @intCast(out.items.len + 1),
@@ -146,19 +148,19 @@ fn appendClaim(
 }
 
 const NativeKey = struct {
-    polarity: ledger.RailPolarity,
+    polarity: rail_star.RailPolarity,
     pivot: sketch.NodeId,
-    site: ledger.AttachmentSite,
+    site: rail_star.AttachmentSite,
     kind: sketch.EdgeKind,
     arrow: sketch.ArrowKind,
-    port: ledger.BundleCell,
-    members: std.ArrayListUnmanaged(ledger.RailClaimMember) = .empty,
-    traces: std.ArrayListUnmanaged([]const ledger.BundleCell) = .empty,
+    port: bundle_mod.BundleCell,
+    members: std.ArrayListUnmanaged(rail_star.RailClaimMember) = .empty,
+    traces: std.ArrayListUnmanaged([]const bundle_mod.BundleCell) = .empty,
 };
 
 fn appendNative(
     arena: std.mem.Allocator,
-    out: *std.ArrayListUnmanaged(ledger.RailClaim),
+    out: *std.ArrayListUnmanaged(rail_star.RailClaim),
     bridges: []const sketch.EdgePath,
     paths: []const sketch.EdgePath,
     rails_buf: []const sketch.Rail,
@@ -167,12 +169,12 @@ fn appendNative(
     var groups: std.ArrayListUnmanaged(NativeKey) = .empty;
     const traces = try sketch_ports.finalCarrierTraces(arena, bridges, &.{});
     for (traces) |trace| {
-        for ([2]ledger.RailPolarity{ .out, .in }) |polarity| {
+        for ([2]rail_star.RailPolarity{ .out, .in }) |polarity| {
             const member = stitch_rails.finalMember(paths, rails_buf, placements, trace.id, polarity.pivotEnd()) orelse continue;
             const pivot_end = polarity.pivotEnd();
             const pivot = member.node(pivot_end) orelse continue;
             const site = member.site(pivot_end) orelse continue;
-            const port: ledger.BundleCell = if (polarity == .out)
+            const port: bundle_mod.BundleCell = if (polarity == .out)
                 .{ .x = trace.first.x, .y = trace.first.y }
             else
                 .{ .x = trace.last.x, .y = trace.last.y };
@@ -208,12 +210,12 @@ fn appendNative(
     std.mem.sort(NativeKey, groups.items, {}, nativeLess);
     for (groups.items) |*group| {
         if (group.members.items.len < 2) continue;
-        const candidate: ledger.RailClaim = .{
+        const candidate: rail_star.RailClaim = .{
             .id = 1,
             .polarity = group.polarity,
             .members = group.members.items,
         };
-        if (!ledger.checkRailClaim(candidate).isValid()) continue;
+        if (!rail_star.check(candidate).isValid()) continue;
         if (coveredByClaim(out.items, candidate)) continue;
         try appendClaim(arena, out, group.polarity, group.members.items);
     }
@@ -221,9 +223,9 @@ fn appendNative(
 
 fn sharesAll(
     arena: std.mem.Allocator,
-    existing: []const []const ledger.BundleCell,
-    candidate: []const ledger.BundleCell,
-    port: ledger.BundleCell,
+    existing: []const []const bundle_mod.BundleCell,
+    candidate: []const bundle_mod.BundleCell,
+    port: bundle_mod.BundleCell,
 ) error{OutOfMemory}!bool {
     for (existing) |trace| {
         if ((try sketch_ports.commonApproachCells(arena, trace, candidate, port)).len <= 1) return false;
@@ -231,7 +233,7 @@ fn sharesAll(
     return true;
 }
 
-fn sameClaimAlready(claims: []const ledger.RailClaim, polarity: ledger.RailPolarity, members: []const ledger.RailClaimMember) bool {
+fn sameClaimAlready(claims: []const rail_star.RailClaim, polarity: rail_star.RailPolarity, members: []const rail_star.RailClaimMember) bool {
     for (claims) |claim| {
         if (claim.polarity != polarity or claim.members.len != members.len) continue;
         var same = true;
@@ -243,10 +245,10 @@ fn sameClaimAlready(claims: []const ledger.RailClaim, polarity: ledger.RailPolar
     return false;
 }
 
-fn coveredByClaim(claims: []const ledger.RailClaim, candidate: ledger.RailClaim) bool {
-    const derived = ledger.checkRailClaim(candidate);
+fn coveredByClaim(claims: []const rail_star.RailClaim, candidate: rail_star.RailClaim) bool {
+    const derived = rail_star.check(candidate);
     for (claims) |claim| {
-        const prior = ledger.checkRailClaim(claim);
+        const prior = rail_star.check(claim);
         if (claim.polarity != candidate.polarity or prior.derived_pivot != derived.derived_pivot or
             !optionalSiteEqual(prior.derived_pi, derived.derived_pi)) continue;
         for (candidate.members) |member| {
@@ -256,7 +258,7 @@ fn coveredByClaim(claims: []const ledger.RailClaim, candidate: ledger.RailClaim)
     return false;
 }
 
-fn hasMember(members: []const ledger.RailClaimMember, edge: sketch.EdgeId) bool {
+fn hasMember(members: []const rail_star.RailClaimMember, edge: sketch.EdgeId) bool {
     for (members) |member| if (member.edge == edge) return true;
     return false;
 }
@@ -266,15 +268,15 @@ fn hasEdge(edges: []const sketch.EdgeId, edge: sketch.EdgeId) bool {
     return false;
 }
 
-fn siteEqual(a: ledger.AttachmentSite, b: ledger.AttachmentSite) bool {
+fn siteEqual(a: rail_star.AttachmentSite, b: rail_star.AttachmentSite) bool {
     return a.node == b.node and a.side == b.side and a.offset == b.offset;
 }
 
-fn cellEqual(a: ledger.BundleCell, b: ledger.BundleCell) bool {
+fn cellEqual(a: bundle_mod.BundleCell, b: bundle_mod.BundleCell) bool {
     return a.x == b.x and a.y == b.y;
 }
 
-fn optionalSiteEqual(a: ?ledger.AttachmentSite, b: ?ledger.AttachmentSite) bool {
+fn optionalSiteEqual(a: ?rail_star.AttachmentSite, b: ?rail_star.AttachmentSite) bool {
     if (a == null or b == null) return a == null and b == null;
     return siteEqual(a.?, b.?);
 }
@@ -300,7 +302,7 @@ fn nativeLess(_: void, a: NativeKey, b: NativeKey) bool {
     return @intFromEnum(a.arrow) < @intFromEnum(b.arrow);
 }
 
-fn memberLess(_: void, a: ledger.RailClaimMember, b: ledger.RailClaimMember) bool {
+fn memberLess(_: void, a: rail_star.RailClaimMember, b: rail_star.RailClaimMember) bool {
     return a.edge < b.edge;
 }
 

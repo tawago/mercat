@@ -1,6 +1,8 @@
 const std = @import("std");
 const prim = @import("prim");
 const pb = @import("../base/ledger.zig");
+const rail_star = @import("../base/rail_star.zig");
+const tie_break = @import("../base/tie_break.zig");
 const sg = @import("../sem_graph.zig");
 
 pub const BuildError = error{ OutOfMemory, InvalidSemGraph };
@@ -113,9 +115,9 @@ fn railEquivalentBefore(graph: sg.SemGraph, direction: pb.BundleDirection, pivot
     return false;
 }
 
-fn prospectiveRailCheck(a: std.mem.Allocator, graph: sg.SemGraph, direction: pb.BundleDirection, pivot: sg.NodeId, ids: []const pb.EdgeId) error{OutOfMemory}!pb.RailLicenceCheck {
-    const members = try a.alloc(pb.RailLicenceMember, ids.len);
-    const pivot_end: pb.Endpoint = if (direction == .out) .source else .target;
+fn prospectiveRailCheck(a: std.mem.Allocator, graph: sg.SemGraph, direction: pb.BundleDirection, pivot: sg.NodeId, ids: []const pb.EdgeId) error{OutOfMemory}!rail_star.LicenceCheckResult {
+    const members = try a.alloc(rail_star.RailLicenceMember, ids.len);
+    const pivot_end: rail_star.Endpoint = if (direction == .out) .source else .target;
     for (ids, members) |id, *member| {
         const candidate = graph.edgeById(id).?;
         member.* = .{
@@ -127,7 +129,7 @@ fn prospectiveRailCheck(a: std.mem.Allocator, graph: sg.SemGraph, direction: pb.
             .pivot_end = pivot_end,
         };
     }
-    return pb.checkRailLicence(.{
+    return rail_star.checkLicence(.{
         .id = 1,
         .polarity = if (direction == .out) .out else .in,
         .pivot = pivot,
@@ -258,7 +260,7 @@ const GroupSort = struct {
         if (ad != bd) return ad < bd;
         const ak = self.graph.nodeById(a.pivot).?.raw_id;
         const bk = self.graph.nodeById(b.pivot).?.raw_id;
-        return pb.nodeKeyOrder(ak, bk) == .lt;
+        return tie_break.nodeKeyOrder(ak, bk) == .lt;
     }
 };
 
@@ -279,7 +281,7 @@ const EdgeSort = struct {
         if (self.graph.nodeById(a_edge.from) == null or self.graph.nodeById(a_edge.to) == null or
             self.graph.nodeById(b_edge.from) == null or self.graph.nodeById(b_edge.to) == null)
             return std.math.order(a, b);
-        const order = pb.edgeKeyOrder(
+        const order = tie_break.edgeKeyOrder(
             edgeKey(self.graph, a_edge),
             edgeKey(self.graph, b_edge),
         );
@@ -288,19 +290,19 @@ const EdgeSort = struct {
     }
 };
 
-fn edgeKey(graph: sg.SemGraph, edge: sg.Edge) pb.EdgeKey {
+fn edgeKey(graph: sg.SemGraph, edge: sg.Edge) tie_break.EdgeKey {
     return .{
         .from = graph.nodeById(edge.from).?.raw_id,
         .to = graph.nodeById(edge.to).?.raw_id,
-        .kind = pb.edgeKindOrdinal(edge.kind),
-        .arrow_from = pb.arrowEndOrdinal(edge.arrow_from),
-        .arrow_to = pb.arrowEndOrdinal(edge.arrow_to),
+        .kind = tie_break.edgeKindOrdinal(edge.kind),
+        .arrow_from = tie_break.arrowEndOrdinal(edge.arrow_from),
+        .arrow_to = tie_break.arrowEndOrdinal(edge.arrow_to),
         .label = edge.label,
     };
 }
 
 fn edgeOrder(graph: sg.SemGraph, a: sg.Edge, b: sg.Edge) std.math.Order {
-    return pb.edgeKeyOrder(edgeKey(graph, a), edgeKey(graph, b));
+    return tie_break.edgeKeyOrder(edgeKey(graph, a), edgeKey(graph, b));
 }
 
 fn nodeIndex(graph: sg.SemGraph, id: sg.NodeId) ?usize {

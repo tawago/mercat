@@ -1,5 +1,6 @@
 const std = @import("std");
 const pb = @import("../base/ledger.zig");
+const tie_break = @import("../base/tie_break.zig");
 const rc = @import("../base/rail_closure.zig");
 const sg = @import("../sem_graph.zig");
 const permit_mod = @import("../ledger/permits.zig");
@@ -175,7 +176,7 @@ fn unionComplete(a: std.mem.Allocator, graph: sg.SemGraph, members: []const pb.E
     for (members) |id| {
         const e = graph.edgeById(id) orelse return false;
         if (e.kind == .invisible or !sg.forwardOneWayHead(e)) return false;
-        const key: u48 = (@as(u48, pb.edgeKindOrdinal(e.kind)) << 8) |
+        const key: u48 = (@as(u48, tie_break.edgeKindOrdinal(e.kind)) << 8) |
             (@as(u48, @intFromEnum(e.arrow_from)) << 4) | @intFromEnum(e.arrow_to);
         if (style) |st| {
             if (st != key) return false;
@@ -365,7 +366,7 @@ fn closureVerdict(
         m.* = .{
             .edge = id,
             .leaf = if (group.direction == .out) edge.to else edge.from,
-            .kind = pb.edgeKindOrdinal(edge.kind),
+            .kind = tie_break.edgeKindOrdinal(edge.kind),
             .arrow_free = sg.arrowFree(edge),
             .undecorated = undecorated(edge),
         };
@@ -378,7 +379,7 @@ fn closureVerdict(
             .edge = edge.id,
             .a = edge.from,
             .b = edge.to,
-            .kind = pb.edgeKindOrdinal(edge.kind),
+            .kind = tie_break.edgeKindOrdinal(edge.kind),
             .undecorated = undecorated(edge),
             .unlabeled = edge.label == null or edge.label.?.len == 0,
         });

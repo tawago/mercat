@@ -3,6 +3,7 @@ const prim = @import("prim");
 const sg = @import("../sem_graph.zig");
 const sketch = @import("../sketch.zig");
 const ledger = @import("../base/ledger.zig");
+const bundle_mod = @import("../base/bundle.zig");
 const permits = @import("../ledger/permits.zig");
 const sugiyama = @import("sugiyama.zig");
 const fan_grid = @import("fan_grid.zig");
@@ -304,8 +305,8 @@ pub fn lookup(fans: []const Fan, edge_id: sg.EdgeId) ?LookupHit {
 pub fn coSets(
     a: std.mem.Allocator,
     fans: []const Fan,
-) error{OutOfMemory}![]const ledger.Bundle {
-    var out: std.ArrayListUnmanaged(ledger.Bundle) = .empty;
+) error{OutOfMemory}![]const bundle_mod.Bundle {
+    var out: std.ArrayListUnmanaged(bundle_mod.Bundle) = .empty;
     var members: std.ArrayListUnmanaged(ledger.EdgeId) = .empty;
     defer members.deinit(a);
     for (fans) |f| {

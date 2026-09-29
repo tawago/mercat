@@ -1,5 +1,7 @@
 const std = @import("std");
 const ledger = @import("../base/ledger.zig");
+const rail_star = @import("../base/rail_star.zig");
+const bundle_mod = @import("../base/bundle.zig");
 const sg = @import("../sem_graph.zig");
 const sketch = @import("../sketch.zig");
 const sugiyama = @import("sugiyama.zig");
@@ -89,17 +91,17 @@ pub fn vertical(a: std.mem.Allocator, s: sketch.Sketch, direction: sketch.Direct
 fn mirrorRailClaims(
     a: std.mem.Allocator,
     nodes: []const sketch.NodePlacement,
-    claims: []const ledger.RailClaim,
-) error{OutOfMemory}![]const ledger.RailClaim {
+    claims: []const rail_star.RailClaim,
+) error{OutOfMemory}![]const rail_star.RailClaim {
     if (claims.len == 0) return claims;
-    const out = try a.alloc(ledger.RailClaim, claims.len);
+    const out = try a.alloc(rail_star.RailClaim, claims.len);
     var initialized: usize = 0;
     errdefer {
         for (out[0..initialized]) |claim| a.free(claim.members);
         a.free(out);
     }
     for (claims, out) |claim, *copy| {
-        const members = try a.alloc(ledger.RailClaimMember, claim.members.len);
+        const members = try a.alloc(rail_star.RailClaimMember, claim.members.len);
         for (claim.members, members) |member, *mirrored| {
             mirrored.* = member;
             for (&mirrored.sites) |*site| {
@@ -113,12 +115,12 @@ fn mirrorRailClaims(
     return out;
 }
 
-fn mirrorSite(nodes: []const sketch.NodePlacement, site: ledger.AttachmentSite) ledger.AttachmentSite {
+fn mirrorSite(nodes: []const sketch.NodePlacement, site: rail_star.AttachmentSite) rail_star.AttachmentSite {
     const port = mirrorPort(nodes, .{ .node = site.node, .side = site.side, .offset = site.offset });
     return .{ .node = port.node, .side = port.side, .offset = port.offset };
 }
 
-fn mirrorBundles(a: std.mem.Allocator, bbox: sketch.Rect, sets: []const ledger.Bundle) error{OutOfMemory}![]const ledger.Bundle {
+fn mirrorBundles(a: std.mem.Allocator, bbox: sketch.Rect, sets: []const bundle_mod.Bundle) error{OutOfMemory}![]const bundle_mod.Bundle {
     var has_cells = false;
     for (sets) |set| {
         if (set.cells) |cells| has_cells = has_cells or cells.len != 0;
@@ -128,7 +130,7 @@ fn mirrorBundles(a: std.mem.Allocator, bbox: sketch.Rect, sets: []const ledger.B
     }
     if (!has_cells) return sets;
 
-    const out = try a.alloc(ledger.Bundle, sets.len);
+    const out = try a.alloc(bundle_mod.Bundle, sets.len);
     var initialized: usize = 0;
     errdefer freeMirroredSets(a, out[0..initialized]);
     for (sets, out) |set, *slot| {
@@ -143,7 +145,7 @@ fn mirrorBundles(a: std.mem.Allocator, bbox: sketch.Rect, sets: []const ledger.B
                 slot.pairwise = pairs;
                 continue;
             }
-            const mirrored = try a.alloc(ledger.PairCells, pairs.len);
+            const mirrored = try a.alloc(bundle_mod.PairCells, pairs.len);
             for (mirrored) |*pair| pair.* = .{ .a = 0, .b = 0, .cells = &.{} };
             slot.pairwise = mirrored;
             for (pairs, mirrored) |pair, *copy| {
@@ -156,9 +158,9 @@ fn mirrorBundles(a: std.mem.Allocator, bbox: sketch.Rect, sets: []const ledger.B
     return out;
 }
 
-fn mirrorCells(a: std.mem.Allocator, bbox: sketch.Rect, cells: []const ledger.BundleCell) error{OutOfMemory}![]const ledger.BundleCell {
+fn mirrorCells(a: std.mem.Allocator, bbox: sketch.Rect, cells: []const bundle_mod.BundleCell) error{OutOfMemory}![]const bundle_mod.BundleCell {
     if (cells.len == 0) return cells;
-    const out = try a.alloc(ledger.BundleCell, cells.len);
+    const out = try a.alloc(bundle_mod.BundleCell, cells.len);
     for (cells, out) |cell, *copy| {
         const point = mirrorPoint(bbox, .{ .x = cell.x, .y = cell.y });
         copy.* = .{ .x = point.x, .y = point.y };
@@ -166,7 +168,7 @@ fn mirrorCells(a: std.mem.Allocator, bbox: sketch.Rect, cells: []const ledger.Bu
     return out;
 }
 
-fn freeMirroredSets(a: std.mem.Allocator, sets: []const ledger.Bundle) void {
+fn freeMirroredSets(a: std.mem.Allocator, sets: []const bundle_mod.Bundle) void {
     for (sets) |set| {
         if (set.cells) |cells| if (cells.len != 0) a.free(cells);
         if (set.pairwise) |pairs| if (pairs.len != 0) {

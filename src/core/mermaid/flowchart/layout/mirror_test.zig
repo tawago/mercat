@@ -1,5 +1,6 @@
 const std = @import("std");
 const ledger = @import("../base/ledger.zig");
+const bundle_mod = @import("../base/bundle.zig");
 const rail_star = @import("../base/rail_star.zig");
 const mirror = @import("mirror.zig");
 const routing = @import("routing.zig");
@@ -51,11 +52,11 @@ test "vertical mirror deeply mirrors RailClaim sites and preserves identity" {
         .{ .id = 20, .rect = .{ .x = 2, .y = 10, .w = 7, .h = 3 }, .shape = .rect, .lines = &.{}, .cluster_id = null },
         .{ .id = 21, .rect = .{ .x = 12, .y = 10, .w = 7, .h = 3 }, .shape = .rect, .lines = &.{}, .cluster_id = null },
     };
-    const members = [_]ledger.RailClaimMember{
+    const members = [_]rail_star.RailClaimMember{
         .{ .edge = 4, .endpoints = .{ 10, 20 }, .sites = .{ .{ .node = 10, .side = .east, .offset = 1 }, .{ .node = 20, .side = .north, .offset = 3 } }, .arrows = .{ .none, .filled }, .kind = .solid, .pivot_end = .source },
         .{ .edge = 5, .endpoints = .{ 10, 21 }, .sites = .{ .{ .node = 10, .side = .east, .offset = 1 }, .{ .node = 21, .side = .north, .offset = 3 } }, .arrows = .{ .none, .filled }, .kind = .solid, .pivot_end = .source },
     };
-    const claims = [_]ledger.RailClaim{.{
+    const claims = [_]rail_star.RailClaim{.{
         .id = 7,
         .polarity = .out,
         .members = &members,
@@ -77,8 +78,8 @@ test "vertical mirror deeply mirrors RailClaim sites and preserves identity" {
     const claim = out.rail_claims[0];
 
     try testing.expectEqual(@as(rail_star.RailClaimId, 7), claim.id);
-    try testing.expectEqual(ledger.RailPolarity.out, claim.polarity);
-    const checked = ledger.checkRailClaim(claim);
+    try testing.expectEqual(rail_star.RailPolarity.out, claim.polarity);
+    const checked = rail_star.check(claim);
     try testing.expectEqual(@as(?ledger.NodeId, 10), checked.derived_pivot);
     try testing.expect(claim.members.ptr != claims[0].members.ptr);
     try testing.expectEqual(@as(ledger.EdgeId, 4), claim.members[0].edge);
@@ -90,16 +91,16 @@ test "vertical mirror deeply mirrors RailClaim sites and preserves identity" {
 }
 
 test "vertical BT mirror remaps clustered bundle scopes without changing identity" {
-    const flat_cells = [_]ledger.BundleCell{ .{ .x = 4, .y = 12 }, .{ .x = 4, .y = 13 } };
-    const pair_12 = [_]ledger.BundleCell{.{ .x = 4, .y = 12 }};
-    const pair_13 = [_]ledger.BundleCell{ .{ .x = 5, .y = 13 }, .{ .x = 5, .y = 14 } };
-    const pairs = [_]ledger.PairCells{
+    const flat_cells = [_]bundle_mod.BundleCell{ .{ .x = 4, .y = 12 }, .{ .x = 4, .y = 13 } };
+    const pair_12 = [_]bundle_mod.BundleCell{.{ .x = 4, .y = 12 }};
+    const pair_13 = [_]bundle_mod.BundleCell{ .{ .x = 5, .y = 13 }, .{ .x = 5, .y = 14 } };
+    const pairs = [_]bundle_mod.PairCells{
         .{ .a = 1, .b = 2, .cells = &pair_12 },
         .{ .a = 1, .b = 3, .cells = &pair_13 },
     };
-    const empty_cells = [_]ledger.BundleCell{};
-    const empty_pairs = [_]ledger.PairCells{};
-    const sets = [_]ledger.Bundle{
+    const empty_cells = [_]bundle_mod.BundleCell{};
+    const empty_pairs = [_]bundle_mod.PairCells{};
+    const sets = [_]bundle_mod.Bundle{
         .{ .origin = .fan_rail, .bundle = 3, .members = &.{ 20, 21 } },
         .{ .origin = .port_share, .bundle = 9, .members = &.{ 1, 2, 3 }, .cells = &flat_cells, .pairwise = &pairs },
         .{ .origin = .port_share, .bundle = 10, .members = &.{ 4, 5 } },
@@ -155,16 +156,16 @@ test "vertical BT mirror remaps clustered bundle scopes without changing identit
     try testing.expectEqual(@as(i32, 18), scoped.pairwise.?[1].cells[0].y);
     try testing.expectEqual(@as(i32, 17), scoped.pairwise.?[1].cells[1].y);
 
-    try testing.expect(ledger.bundleMembersAt(s.bundle_sets, 1, 2, .{ .x = 4, .y = 12 }));
-    try testing.expect(!ledger.bundleMembersAt(out.bundle_sets, 1, 2, .{ .x = 4, .y = 12 }));
-    try testing.expect(ledger.bundleMembersAt(out.bundle_sets, 1, 2, .{ .x = 4, .y = 19 }));
+    try testing.expect(bundle_mod.bundleMembersAt(s.bundle_sets, 1, 2, .{ .x = 4, .y = 12 }));
+    try testing.expect(!bundle_mod.bundleMembersAt(out.bundle_sets, 1, 2, .{ .x = 4, .y = 12 }));
+    try testing.expect(bundle_mod.bundleMembersAt(out.bundle_sets, 1, 2, .{ .x = 4, .y = 19 }));
 }
 
 test "vertical mirror fails rather than exposing partially mirrored scopes" {
-    const flat = [_]ledger.BundleCell{.{ .x = 4, .y = 12 }};
-    const pair_cells = [_]ledger.BundleCell{.{ .x = 4, .y = 12 }};
-    const pairs = [_]ledger.PairCells{.{ .a = 1, .b = 2, .cells = &pair_cells }};
-    const sets = [_]ledger.Bundle{.{
+    const flat = [_]bundle_mod.BundleCell{.{ .x = 4, .y = 12 }};
+    const pair_cells = [_]bundle_mod.BundleCell{.{ .x = 4, .y = 12 }};
+    const pairs = [_]bundle_mod.PairCells{.{ .a = 1, .b = 2, .cells = &pair_cells }};
+    const sets = [_]bundle_mod.Bundle{.{
         .origin = .port_share,
         .bundle = 5,
         .members = &.{ 1, 2 },

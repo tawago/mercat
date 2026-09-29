@@ -1,5 +1,6 @@
 const std = @import("std");
 const pb = @import("../base/ledger.zig");
+const tie_break = @import("../base/tie_break.zig");
 const rail_closure = @import("../base/rail_closure.zig");
 const sg = @import("../sem_graph.zig");
 const sk = @import("../sketch.zig");
@@ -78,14 +79,14 @@ fn sharedFan(fans: []const fan_mod.Fan, edge: pb.EdgeId, endpoint: pb.EndpointSi
 }
 
 fn fanAttachment(a: std.mem.Allocator, graph: sg.SemGraph, fan: fan_mod.Fan, endpoint: pb.EndpointSide) ports.DeriveError!ports.Attachment {
-    var best: ?pb.AttachmentKey = null;
+    var best: ?tie_break.AttachmentKey = null;
     var best_edge: pb.EdgeId = 0;
     var members: std.ArrayListUnmanaged(pb.EdgeId) = .empty;
     for (fan.peers) |peer| {
         if (!peer.shared) continue;
         const edge = graph.edgeById(peer.edge_id) orelse return error.InvalidSemGraph;
         const key = try ports.edgeAttachmentKey(graph, edge, endpoint);
-        if (best == null or pb.attachmentKeyOrder(key, best.?) == .lt) {
+        if (best == null or tie_break.attachmentKeyOrder(key, best.?) == .lt) {
             best = key;
             best_edge = edge.id;
         }
@@ -201,7 +202,7 @@ fn allocateCollidingClaims(a: std.mem.Allocator, node: pb.NodeId, side: sk.Dir4,
 
 fn attachmentLess(_: void, x: ports.Attachment, y: ports.Attachment) bool {
     if (x.opposite_center != y.opposite_center) return x.opposite_center < y.opposite_center;
-    const key_order = pb.attachmentKeyOrder(x.key, y.key);
+    const key_order = tie_break.attachmentKeyOrder(x.key, y.key);
     if (key_order != .eq) return key_order == .lt;
     const x_edge = x.edge orelse std.math.maxInt(pb.EdgeId);
     const y_edge = y.edge orelse std.math.maxInt(pb.EdgeId);
@@ -311,7 +312,7 @@ fn hasDuplicatePrivateClaim(derived: []const ports.DerivedAttachment, bundles: p
             owner.attachment.class != .independent or owner.attachment.edge != edge.id) continue;
         for (derived) |other| {
             if (other.node == node and other.side == owner.side and other.attachment.class == .independent and
-                other.attachment.edge != edge.id and pb.attachmentKeyOrder(other.attachment.key, owner.attachment.key) == .eq) return true;
+                other.attachment.edge != edge.id and tie_break.attachmentKeyOrder(other.attachment.key, owner.attachment.key) == .eq) return true;
         }
         return false;
     }

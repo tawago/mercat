@@ -2,6 +2,8 @@ const std = @import("std");
 const sg = @import("../sem_graph.zig");
 const sketch = @import("../sketch.zig");
 const ledger = @import("../base/ledger.zig");
+const rail_star = @import("../base/rail_star.zig");
+const bundle_mod = @import("../base/bundle.zig");
 const split_mod = @import("split.zig");
 
 pub const Image = struct {
@@ -57,8 +59,8 @@ pub fn rebuildOuterSets(
     final_edges: []const sketch.EdgePath,
     final_bridges: []const sketch.EdgePath,
     final_bars: []const sketch.Rail,
-) error{OutOfMemory}![]const ledger.Bundle {
-    var out: std.ArrayListUnmanaged(ledger.Bundle) = .empty;
+) error{OutOfMemory}![]const bundle_mod.Bundle {
+    var out: std.ArrayListUnmanaged(bundle_mod.Bundle) = .empty;
     for (outer.bundle_sets) |set| {
         if (set.origin == .port_share) continue;
         const polarity = polarityOf(outer, set) orelse continue;
@@ -93,9 +95,9 @@ pub fn rebuildOuterSets(
         for (groups.items) |*group| {
             if (group.members.items.len < 2 or group.contributors.items.len < 2) continue;
             std.mem.sort(sketch.EdgeId, group.members.items, {}, edgeLess);
-            const rebuilt: ledger.Bundle = .{
+            const rebuilt: bundle_mod.Bundle = .{
                 .origin = set.origin,
-                .bundle = ledger.no_bundle,
+                .bundle = bundle_mod.no_bundle,
                 .members = try group.members.toOwnedSlice(arena),
             };
             if (!sameSetAlready(out.items, rebuilt)) try out.append(arena, rebuilt);
@@ -128,8 +130,8 @@ fn groupFor(
     return &groups.items[groups.items.len - 1];
 }
 
-fn polarityOf(outer: sketch.Sketch, set: ledger.Bundle) ?ledger.RailPolarity {
-    var claimed: ?ledger.RailPolarity = null;
+fn polarityOf(outer: sketch.Sketch, set: bundle_mod.Bundle) ?rail_star.RailPolarity {
+    var claimed: ?rail_star.RailPolarity = null;
     for (outer.rail_claims) |claim| {
         var overlap: usize = 0;
         for (set.members, 0..) |edge, i| {
@@ -228,7 +230,7 @@ fn hasImage(items: []const Image, id: sketch.EdgeId) bool {
     return false;
 }
 
-fn sameSetAlready(sets: []const ledger.Bundle, candidate: ledger.Bundle) bool {
+fn sameSetAlready(sets: []const bundle_mod.Bundle, candidate: bundle_mod.Bundle) bool {
     for (sets) |set| {
         if (set.origin != candidate.origin or set.members.len != candidate.members.len) continue;
         var same = true;
