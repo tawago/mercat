@@ -5,7 +5,7 @@ const render_model = @import("../../core/markdown/render.zig");
 const resolveMod = @import("../../core/theme/resolve.zig");
 const ResolvedTheme = resolveMod.ResolvedTheme;
 const theme_color = @import("../../core/theme/color.zig");
-const SubgraphEdges = @import("prim").SubgraphEdges;
+const SubgraphEdges = @import("../../core/mermaid/mermaid.zig").SubgraphEdges;
 const Viewport = @import("../widgets/viewport.zig").Viewport;
 const selection_mod = @import("../selection.zig");
 

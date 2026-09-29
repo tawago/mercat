@@ -16,7 +16,7 @@ const Inline = markdown.Inline;
 const Options = types.Options;
 const SpanStyle = types.SpanStyle;
 const Builder = builder_mod.Builder;
-const SubgraphEdges = @import("prim").SubgraphEdges;
+const SubgraphEdges = @import("../../mermaid/mermaid.zig").SubgraphEdges;
 
 fn bulletMarker(allocator: std.mem.Allocator, decor: *const Decor, depth: usize) ![]u8 {
     return std.mem.concat(allocator, u8, &.{ decor.glyphs.bulletAt(depth), " " });

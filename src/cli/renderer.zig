@@ -16,7 +16,7 @@ pub const Options = struct {
     show_heading_markers: bool = true,
     frontmatter_style: @import("../core/config.zig").FrontmatterStyle = .panel,
     mermaid_debug: bool = false,
-    mermaid_subgraph_edges: @import("prim").SubgraphEdges = .bridge,
+    mermaid_subgraph_edges: @import("../core/mermaid/mermaid.zig").SubgraphEdges = .bridge,
 };
 
 pub fn renderDocument(allocator: std.mem.Allocator, document: markdown.Document, options: Options) ![]u8 {

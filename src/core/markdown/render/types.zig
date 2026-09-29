@@ -9,7 +9,7 @@ pub const Options = struct {
     decor: *const decor_mod.Decor = &decor_mod.legacy,
     frontmatter_style: config.FrontmatterStyle = .panel,
     mermaid_debug: bool = false,
-    mermaid_subgraph_edges: @import("prim").SubgraphEdges = .bridge,
+    mermaid_subgraph_edges: @import("../../mermaid/mermaid.zig").SubgraphEdges = .bridge,
 };
 
 pub const SpanStyle = line.SpanStyle;
