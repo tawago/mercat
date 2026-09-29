@@ -8,10 +8,7 @@ const sg = @import("../sem_graph.zig");
 pub const BuildError = error{ OutOfMemory, InvalidSemGraph };
 
 pub const BuildReport = struct {
-    duplicate_canonical_edge_keys: u32 = 0,
-    bundle_select_duplicate_key_blocked: bool = false,
     bundle_permits_skipped_clustered: bool = false,
-    edgeid_scope_clustered_skipped: bool = false,
 };
 
 pub const BuildResult = struct {
@@ -152,10 +149,7 @@ pub fn build(
 ) BuildError!BuildResult {
     if (graph.clusters.len != 0) return .{
         .plan = .{ .policy = policy, .scope = .skipped_clustered },
-        .report = .{
-            .bundle_permits_skipped_clustered = true,
-            .edgeid_scope_clustered_skipped = true,
-        },
+        .report = .{ .bundle_permits_skipped_clustered = true },
     };
 
     try verifyNodes(graph);
@@ -193,18 +187,11 @@ pub fn build(
     };
     std.mem.sort(pb.BundleMembership, memberships, EdgeSort{ .graph = graph }, EdgeSort.membershipLessThan);
 
-    const duplicate_count = countDuplicateCanonicalKeys(graph, memberships);
-    return .{
-        .plan = .{
-            .policy = policy,
-            .groups = try groups.toOwnedSlice(allocator),
-            .memberships = memberships,
-        },
-        .report = .{
-            .duplicate_canonical_edge_keys = duplicate_count,
-            .bundle_select_duplicate_key_blocked = duplicate_count != 0,
-        },
-    };
+    return .{ .plan = .{
+        .policy = policy,
+        .groups = try groups.toOwnedSlice(allocator),
+        .memberships = memberships,
+    } };
 }
 
 pub fn buildPiece(allocator: std.mem.Allocator, graph: sg.SemGraph) BuildError!BuildResult {
@@ -298,10 +285,6 @@ fn edgeKey(graph: sg.SemGraph, edge: sg.Edge) tie_break.EdgeKey {
     };
 }
 
-fn edgeOrder(graph: sg.SemGraph, a: sg.Edge, b: sg.Edge) std.math.Order {
-    return tie_break.edgeKeyOrder(edgeKey(graph, a), edgeKey(graph, b));
-}
-
 fn nodeIndex(graph: sg.SemGraph, id: sg.NodeId) ?usize {
     for (graph.nodes, 0..) |node, i| if (node.id == id) return i;
     return null;
@@ -312,17 +295,6 @@ fn membershipGroup(groups: []const pb.CandidateBundle, edge: pb.EdgeId, directio
         if (group.direction == direction and pb.containsEdge(group.members, edge)) return group.id;
     }
     return null;
-}
-
-fn countDuplicateCanonicalKeys(graph: sg.SemGraph, memberships: []const pb.BundleMembership) u32 {
-    if (memberships.len < 2) return 0;
-    var count: u32 = 0;
-    for (memberships[1..], 1..) |membership, i| {
-        const a = graph.edgeById(memberships[i - 1].edge).?;
-        const b = graph.edgeById(membership.edge).?;
-        if (edgeOrder(graph, a, b) == .eq) count += 1;
-    }
-    return count;
 }
 
 pub const ValidationTag = enum {

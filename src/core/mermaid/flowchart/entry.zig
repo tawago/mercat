@@ -160,7 +160,6 @@ test "V-D-IR-07: a clustered graph's bundles ride piece plans; the root plan sta
     const result = try resolveBundlePermits(a, graph);
     try std.testing.expectEqual(ledger.BundlePolicy.joined, result.plan.policy);
     try std.testing.expect(result.report.bundle_permits_skipped_clustered);
-    try std.testing.expect(result.report.edgeid_scope_clustered_skipped);
     const laid_out = try ladder_pkg.runForced(a, graph, &result.plan, 120, .natural);
     try std.testing.expectEqual(@as(usize, 0), laid_out.sketch.bundles.selected_bundles.len);
     try std.testing.expectEqual(@as(usize, 2), laid_out.sketch.bundles.memberships.len);

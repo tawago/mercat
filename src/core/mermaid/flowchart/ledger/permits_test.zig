@@ -177,20 +177,18 @@ test "V-D-EDGE-ID-05: edge-array permutation preserves canonical plan bytes" {
     try expectClean(a, graph(&shuffled), right.plan);
 }
 
-test "duplicate canonical edge keys are counted and block later bundle selection" {
+test "edges with equal canonical keys stay two groups" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
     const edges = [_]sg.Edge{ edge(2, 0, 1), edge(7, 0, 1) };
 
     const result = try planner.build(a, graph(&edges), .joined);
-    try std.testing.expectEqual(@as(u32, 1), result.report.duplicate_canonical_edge_keys);
-    try std.testing.expect(result.report.bundle_select_duplicate_key_blocked);
     try std.testing.expectEqual(@as(usize, 2), result.plan.groups.len);
     try expectClean(a, graph(&edges), result.plan);
 }
 
-test "V-D-EDGE-ID-02: clustered graph returns empty plan and both skip markers" {
+test "V-D-EDGE-ID-02: clustered graph returns empty plan and the skip marker" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
@@ -210,7 +208,6 @@ test "V-D-EDGE-ID-02: clustered graph returns empty plan and both skip markers" 
     try std.testing.expectEqual(@as(usize, 0), result.plan.groups.len);
     try std.testing.expectEqual(@as(usize, 0), result.plan.memberships.len);
     try std.testing.expect(result.report.bundle_permits_skipped_clustered);
-    try std.testing.expect(result.report.edgeid_scope_clustered_skipped);
     try expectClean(a, clustered, result.plan);
 }
 
