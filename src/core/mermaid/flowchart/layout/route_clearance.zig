@@ -1,6 +1,5 @@
 const std = @import("std");
 const pb = @import("../base/ledger.zig");
-const sg = @import("../sem_graph.zig");
 const sk = @import("../sketch.zig");
 const sketch_clearance = @import("../sketch_clearance.zig");
 

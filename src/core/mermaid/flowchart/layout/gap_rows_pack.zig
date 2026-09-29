@@ -1,6 +1,5 @@
 const std = @import("std");
 const sg = @import("../sem_graph.zig");
-const pb = @import("../base/ledger.zig");
 const fan_mod = @import("fan.zig");
 const grid = @import("gap_rows_grid.zig");
 

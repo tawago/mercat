@@ -1,5 +1,4 @@
 const std = @import("std");
-const sg = @import("../sem_graph.zig");
 const ledger = @import("../base/ledger.zig");
 const fan_mod = @import("fan.zig");
 
