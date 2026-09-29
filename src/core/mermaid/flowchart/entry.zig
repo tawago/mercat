@@ -34,7 +34,6 @@ pub const RenderResult = struct {
     height: u32,
     is_fallback: bool,
     fallback_reason: ?[]const u8 = null,
-    width_overflow: ?struct { true_width: u32, budget: u32 } = null,
 };
 
 pub const RenderOptions = struct {
@@ -99,15 +98,6 @@ fn renderWith(
     };
     const sketch_val = chosen.sketch;
 
-    if (comptime builtin.mode == .Debug) {
-        if (validate_mod.validate(aa, sketch_val)) |result| switch (result) {
-            .ok => {},
-            .failed => |violations| for (violations) |v| {
-                std.log.debug("mermaid_v2/entry: sketch validation: {s}: {s}", .{ @tagName(v.kind), v.message });
-            },
-        } else |_| {}
-    }
-
     for (sketch_val.edges) |e| if (e.polyline.len < 2 and e.kind != .invisible) {
         std.log.warn("mermaid_v2: edge {d} ({s} -> {s}) could not be routed without illegal ink and is not drawn", .{ e.id, nodeRawId(graph, e.from), nodeRawId(graph, e.to) });
     };
@@ -124,8 +114,7 @@ fn renderWith(
         return fallback(source, "v2 paint error");
     };
 
-    const clipped = true_width > budget;
-    if (clipped) {
+    if (true_width > budget) {
         std.log.warn("mermaid_v2: diagram clipped: true width {d} > budget {d}", .{ true_width, budget });
     }
 
@@ -135,7 +124,6 @@ fn renderWith(
         .height = raster_report.lattice.height,
         .is_fallback = false,
         .fallback_reason = null,
-        .width_overflow = if (clipped) .{ .true_width = true_width, .budget = budget } else null,
     };
 }
 

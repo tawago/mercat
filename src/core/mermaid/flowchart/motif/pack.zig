@@ -202,13 +202,10 @@ test "parallel branch straddling two clusters: transform skips it (defensive)" {
         .members = &run,
         .entry = null,
         .cluster_id = null,
-        .ext_in = 0,
-        .ext_out = 0,
-        .covered = 0,
         .children = &.{},
         .branches = &branches,
     }};
-    const tree: types.MotifTree = .{ .motifs = &motifs, .roots = &[_]usize{0}, .node_count = 2 };
+    const tree: types.MotifTree = .{ .motifs = &motifs, .roots = &[_]usize{0} };
 
     try std.testing.expectEqual(@as(?sg.SemGraph, null), try transform(a, g, tree));
 }

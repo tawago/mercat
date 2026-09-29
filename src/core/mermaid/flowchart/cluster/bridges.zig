@@ -17,7 +17,6 @@ pub const Crossing = struct {
     arrow_to: sketch.ArrowKind,
     label: ?[]const u8,
     origin: sg.EdgeId = sg.SENTINEL,
-    proxy: sg.EdgeId = sg.SENTINEL,
 };
 
 pub fn route(

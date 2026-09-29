@@ -54,7 +54,6 @@ test "bracketed shape A[Hello]" {
     const open = lx.next();
     try t.expectEqual(TokenKind.shape_open, open.kind);
     try t.expectEqual(@as(u8, '['), open.bracket);
-    try t.expectEqual(@as(u8, 1), open.bracket_len);
     try t.expectEqualStrings("Hello", lx.next().text);
     const close = lx.next();
     try t.expectEqual(TokenKind.shape_close, close.kind);
@@ -152,7 +151,6 @@ test "leading '>' lexes as shape_open, not an edge/arrow char" {
     const open = lx.next();
     try t.expectEqual(TokenKind.shape_open, open.kind);
     try t.expectEqual(@as(u8, '>'), open.bracket);
-    try t.expectEqual(@as(u8, 1), open.bracket_len);
     try t.expectEqualStrings("Foo", lx.next().text);
     try t.expectEqual(TokenKind.shape_close, lx.next().kind);
 }

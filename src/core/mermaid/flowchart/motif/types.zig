@@ -9,9 +9,6 @@ pub const Motif = struct {
     members: []const sg.NodeId,
     entry: ?sg.NodeId,
     cluster_id: ?sg.ClusterId,
-    ext_in: u32,
-    ext_out: u32,
-    covered: u32,
     children: []const usize,
     branches: []const []const sg.NodeId = &.{},
 };
@@ -19,5 +16,4 @@ pub const Motif = struct {
 pub const MotifTree = struct {
     motifs: []const Motif,
     roots: []const usize,
-    node_count: usize,
 };

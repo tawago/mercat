@@ -205,10 +205,7 @@ fn buildSketch(
     const bbox = clusters.computeBbox(placements, edges_out, clusters_out, edges_result.polylines, edges_result.rails, rail_lever, opts.max_width);
     var diagnostics: std.ArrayListUnmanaged(sketch.Diagnostic) = .empty;
     if (bbox.w > opts.max_width) {
-        try diagnostics.append(a, .{ .width_overflow = .{
-            .excess = bbox.w - opts.max_width,
-            .in_cluster = null,
-        } });
+        try diagnostics.append(a, .width_overflow);
     }
     if (opts.max_label_width != null) {
         for (lg.nodes, 0..) |ln, i| {

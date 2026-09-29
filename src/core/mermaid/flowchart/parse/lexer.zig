@@ -35,7 +35,6 @@ pub const Token = struct {
     line: u32,
     col: u32,
     bracket: u8 = 0,
-    bracket_len: u8 = 0,
     edge_label: ?[]const u8 = null,
 };
 
@@ -87,14 +86,12 @@ pub const Lexer = struct {
             self.advanceRaw();
             var tok = self.makeTokenAt(.shape_open, start, self.pos, sl, sc);
             tok.bracket = c;
-            tok.bracket_len = 1;
             return tok;
         }
         if (c == ']' or c == ')' or c == '}') {
             self.advanceRaw();
             var tok = self.makeTokenAt(.shape_close, start, self.pos, sl, sc);
             tok.bracket = c;
-            tok.bracket_len = 1;
             return tok;
         }
 

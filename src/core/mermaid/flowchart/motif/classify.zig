@@ -114,9 +114,6 @@ fn parallelMotif(ctx: *Ctx, branches: []const u32) Error!usize {
             .members = owned,
             .entry = null,
             .cluster_id = null,
-            .ext_in = 0,
-            .ext_out = 0,
-            .covered = 0,
             .children = &.{},
             .branches = branch_runs,
         });
@@ -128,9 +125,6 @@ fn parallelMotif(ctx: *Ctx, branches: []const u32) Error!usize {
         .members = &.{},
         .entry = null,
         .cluster_id = null,
-        .ext_in = 0,
-        .ext_out = 0,
-        .covered = 0,
         .children = try children.toOwnedSlice(ctx.a),
     });
 }
@@ -199,9 +193,6 @@ fn coarsenSubtree(ctx: *Ctx, v: u32) Error!usize {
         .members = try members.toOwnedSlice(ctx.a),
         .entry = entry,
         .cluster_id = null,
-        .ext_in = 0,
-        .ext_out = 0,
-        .covered = 0,
         .children = try children.toOwnedSlice(ctx.a),
     });
 }
@@ -238,9 +229,6 @@ fn pivotMotif(ctx: *Ctx, p: u32) Error!usize {
             .members = try members.toOwnedSlice(ctx.a),
             .entry = p_node,
             .cluster_id = null,
-            .ext_in = 0,
-            .ext_out = 0,
-            .covered = 0,
             .children = try children.toOwnedSlice(ctx.a),
         });
     }
@@ -254,9 +242,6 @@ fn pivotMotif(ctx: *Ctx, p: u32) Error!usize {
             .members = members,
             .entry = nid,
             .cluster_id = null,
-            .ext_in = 0,
-            .ext_out = 0,
-            .covered = 0,
             .children = grouped,
         });
     }
@@ -269,9 +254,6 @@ fn pivotMotif(ctx: *Ctx, p: u32) Error!usize {
         .members = &.{},
         .entry = null,
         .cluster_id = null,
-        .ext_in = 0,
-        .ext_out = 0,
-        .covered = 0,
         .children = try children.toOwnedSlice(ctx.a),
     });
 }
@@ -282,9 +264,6 @@ fn clusterMotif(ctx: *Ctx, cid: sg.ClusterId) Error!usize {
         .members = &.{},
         .entry = null,
         .cluster_id = cid,
-        .ext_in = 0,
-        .ext_out = 0,
-        .covered = 0,
         .children = &.{},
     });
 }

@@ -78,7 +78,6 @@ test "pure chain of 4 decomposes to one spine" {
     try std.testing.expectEqual(motif.MotifKind.spine, m.kind);
     try std.testing.expectEqual(@as(usize, 4), m.members.len);
     try std.testing.expectEqual(@as(?sg.NodeId, 0), m.entry);
-    try std.testing.expectEqual(@as(u32, 4), m.covered);
     try expectPartition(tree, g);
 }
 
@@ -114,9 +113,6 @@ test "two isomorphic 2-node pipelines under a root fuse into parallel" {
     const tree = try motif.decompose(a, g);
     const par = findKind(tree, .parallel) orelse return error.NoParallelMotif;
     try std.testing.expectEqual(@as(usize, 4), par.members.len);
-    try std.testing.expectEqual(@as(u32, 4), par.covered);
-    try std.testing.expectEqual(@as(u32, 2), par.ext_in);
-    try std.testing.expectEqual(@as(u32, 0), par.ext_out);
     const pivot = tree.motifs[tree.roots[0]];
     try std.testing.expectEqual(motif.MotifKind.atom, pivot.kind);
     try std.testing.expectEqual(@as(usize, 1), pivot.children.len);
@@ -162,8 +158,6 @@ test "cluster cuts the tree: no motif spans the border" {
     const cm = findKind(tree, .cluster) orelse return error.NoClusterMotif;
     try std.testing.expectEqual(@as(?sg.ClusterId, 0), cm.cluster_id);
     try std.testing.expectEqual(@as(usize, 0), cm.members.len);
-    try std.testing.expectEqual(@as(u32, 2), cm.covered);
-    try std.testing.expectEqual(@as(u32, 1), cm.ext_in);
     for (tree.motifs) |m| {
         var inside = false;
         var outside = false;
@@ -243,10 +237,6 @@ test "partition invariant on a random-ish 15-node graph" {
 
     const tree = try motif.decompose(a, g);
     try expectPartition(tree, g);
-
-    var covered: u32 = 0;
-    for (tree.roots) |r| covered += tree.motifs[r].covered;
-    try std.testing.expectEqual(@as(u32, 15), covered);
 }
 
 test "lone cluster vertex classifies as the cluster motif directly (not wrapped)" {

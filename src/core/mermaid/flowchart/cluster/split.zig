@@ -302,10 +302,8 @@ fn buildOuter(arena: std.mem.Allocator, graph: sg.SemGraph, tops: []const usize,
                 edges.items[at].stands_for =
                     sg.mergeStandsFor(edges.items[at].stands_for, class);
                 edges.items[at].crossings += 1;
-                crossings.items[crossings.items.len - 1].proxy = at;
                 continue;
             }
-            crossings.items[crossings.items.len - 1].proxy = @intCast(edges.items.len);
             try seen.append(arena, .{ .from = rf, .to = rt, .edge = @intCast(edges.items.len) });
             try edges.append(arena, .{
                 .id = @intCast(edges.items.len),

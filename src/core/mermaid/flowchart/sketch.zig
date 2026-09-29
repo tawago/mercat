@@ -130,10 +130,7 @@ pub const WidthBudget = struct {
 };
 
 pub const Diagnostic = union(enum) {
-    width_overflow: struct {
-        excess: u32,
-        in_cluster: ?ClusterId,
-    },
+    width_overflow,
     forced_label_wrap: struct {
         node: NodeId,
     },
