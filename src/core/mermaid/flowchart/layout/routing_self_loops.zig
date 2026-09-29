@@ -1,6 +1,7 @@
 const std = @import("std");
 const sg = @import("../sem_graph.zig");
 const sketch = @import("../sketch.zig");
+const sketch_clearance = @import("../sketch_clearance.zig");
 
 pub const SelfLoop = struct {
     polyline: []sketch.Point,
@@ -108,10 +109,10 @@ fn topLoop(a: std.mem.Allocator, node_p: sketch.NodePlacement) error{OutOfMemory
 fn topLoopBlocked(node_p: sketch.NodePlacement, placements: []const sketch.NodePlacement) bool {
     const g = topLoopGeom(node_p.rect);
     const id = node_p.id;
-    if (sketch.rowTouchesAny(g.east_y, g.east_x + 1, g.loop_x, placements, id, id)) return true;
-    if (sketch.columnTouchesAny(g.loop_x, g.loop_y, g.east_y, placements, id, id)) return true;
-    if (sketch.rowTouchesAny(g.loop_y, g.north_x, g.loop_x, placements, id, id)) return true;
-    if (sketch.columnTouchesAny(g.north_x, g.loop_y, g.north_y - 1, placements, id, id)) return true;
+    if (sketch_clearance.rowTouchesAny(g.east_y, g.east_x + 1, g.loop_x, placements, id, id)) return true;
+    if (sketch_clearance.columnTouchesAny(g.loop_x, g.loop_y, g.east_y, placements, id, id)) return true;
+    if (sketch_clearance.rowTouchesAny(g.loop_y, g.north_x, g.loop_x, placements, id, id)) return true;
+    if (sketch_clearance.columnTouchesAny(g.north_x, g.loop_y, g.north_y - 1, placements, id, id)) return true;
     return false;
 }
 
@@ -133,13 +134,13 @@ fn belowEastLoop(
     var gap_y = south_y + 1;
     while (gap_y <= south_y + 3) : (gap_y += 1) {
         // @guarded-by: routing_self_loops_test.zig "belowEastLoop's south descent blocking is monotonic: an obstacle at the nearest candidate gap row sinks the whole fallback (no deeper gap_y recovers)"
-        if (sketch.columnTouchesAny(exit_x, south_y + 1, gap_y, placements, id, id)) return null;
+        if (sketch_clearance.columnTouchesAny(exit_x, south_y + 1, gap_y, placements, id, id)) return null;
         // @guarded-by: routing_self_loops_test.zig "belowEastLoop lands the east re-entry with a straight base cell (◀─┐)"
         var arm_x = east_x + 3;
         while (arm_x <= east_x + OFF_H + 3) : (arm_x += 1) {
-            if (sketch.rowTouchesAny(gap_y, exit_x, arm_x, placements, id, id)) continue;
-            if (sketch.columnTouchesAny(arm_x, east_y, gap_y, placements, id, id)) continue;
-            if (sketch.rowTouchesAny(east_y, east_x + 1, arm_x, placements, id, id)) continue;
+            if (sketch_clearance.rowTouchesAny(gap_y, exit_x, arm_x, placements, id, id)) continue;
+            if (sketch_clearance.columnTouchesAny(arm_x, east_y, gap_y, placements, id, id)) continue;
+            if (sketch_clearance.rowTouchesAny(east_y, east_x + 1, arm_x, placements, id, id)) continue;
 
             var poly: std.ArrayListUnmanaged(sketch.Point) = .empty;
             try poly.append(a, .{ .x = exit_x, .y = south_y });

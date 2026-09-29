@@ -36,7 +36,8 @@ pub const Rule = union(enum) {
             .sem_graph => std.mem.endsWith(u8, target, "sem_graph.zig"),
             .sketch => std.mem.endsWith(u8, target, "sketch.zig") or
                 std.mem.endsWith(u8, target, "sketch_ports.zig") or
-                std.mem.endsWith(u8, target, "sketch_bundles.zig"),
+                std.mem.endsWith(u8, target, "sketch_bundles.zig") or
+                std.mem.endsWith(u8, target, "sketch_clearance.zig"),
             .budget => std.mem.endsWith(u8, target, "budget.zig"),
             .recurse => std.mem.endsWith(u8, target, "recurse.zig"),
             .layout_zone => std.mem.endsWith(u8, target, "layout.zig") or
@@ -109,6 +110,16 @@ pub const file_allowlists = [_]struct {
         .name = "score_test.zig",
         .allowed = &.{ .sketch, .{ .exact = "score.zig" }, .{ .exact = "score_geom.zig" } },
         .reason = "score_test may only import std, prim, sketch, score, or score_geom",
+    },
+    .{
+        .name = "sketch_clearance.zig",
+        .allowed = &.{ .sketch, .{ .exact = "sketch_clearance_test.zig" } },
+        .reason = "sketch_clearance may only import std, prim, sketch, or sketch_clearance_test",
+    },
+    .{
+        .name = "sketch_clearance_test.zig",
+        .allowed = &.{ .sketch, .{ .exact = "sketch_clearance.zig" } },
+        .reason = "sketch_clearance_test may only import std, prim, sketch, or sketch_clearance",
     },
     .{
         .name = "sketch_ports.zig",

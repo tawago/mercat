@@ -3,6 +3,7 @@ const sg = @import("../sem_graph.zig");
 const fan = @import("fan.zig");
 const fan_polyline = @import("fan_polyline.zig");
 const sketch = @import("../sketch.zig");
+const sketch_clearance = @import("../sketch_clearance.zig");
 
 const testing = std.testing;
 
@@ -42,11 +43,11 @@ fn expectPolyAvoidsRect(poly: []const sketch.Point, rect: sketch.Rect) !void {
         if (p0.x == p1.x) {
             const y0 = @min(p0.y, p1.y);
             const y1 = @max(p0.y, p1.y);
-            try testing.expect(!sketch.lineTouchesRect(false, p0.x, y0, y1, rect));
+            try testing.expect(!sketch_clearance.lineTouchesRect(false, p0.x, y0, y1, rect));
         } else {
             const x0 = @min(p0.x, p1.x);
             const x1 = @max(p0.x, p1.x);
-            try testing.expect(!sketch.lineTouchesRect(true, p0.y, x0, x1, rect));
+            try testing.expect(!sketch_clearance.lineTouchesRect(true, p0.y, x0, x1, rect));
         }
     }
 }

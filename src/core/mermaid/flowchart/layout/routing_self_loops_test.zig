@@ -1,6 +1,7 @@
 const std = @import("std");
 const sg = @import("../sem_graph.zig");
 const sketch = @import("../sketch.zig");
+const sketch_clearance = @import("../sketch_clearance.zig");
 const self_loops = @import("routing_self_loops.zig");
 const testing = std.testing;
 
@@ -50,11 +51,11 @@ fn segmentTouchesInterior(p0: sketch.Point, p1: sketch.Point, interior: sketch.R
     if (p0.x == p1.x) {
         const lo = @min(p0.y, p1.y);
         const hi = @max(p0.y, p1.y);
-        return sketch.lineTouchesRect(false, p0.x, lo, hi, interior);
+        return sketch_clearance.lineTouchesRect(false, p0.x, lo, hi, interior);
     } else {
         const lo = @min(p0.x, p1.x);
         const hi = @max(p0.x, p1.x);
-        return sketch.lineTouchesRect(true, p0.y, lo, hi, interior);
+        return sketch_clearance.lineTouchesRect(true, p0.y, lo, hi, interior);
     }
 }
 

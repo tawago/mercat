@@ -1,6 +1,7 @@
 const std = @import("std");
 const sg = @import("../sem_graph.zig");
 const sketch = @import("../sketch.zig");
+const sketch_clearance = @import("../sketch_clearance.zig");
 const fan_mod = @import("fan.zig");
 const fan_polyline = @import("fan_polyline.zig");
 const node_geom = @import("node_geom.zig");
@@ -118,7 +119,7 @@ pub fn longColumn(centre: i32, direction: fan_mod.Direction, pivot: sketch.NodeP
     const top = if (direction == .out) pivot.rect.bottom() else leaf.rect.bottom();
     const bottom = (if (direction == .out) leaf.rect.y else pivot.rect.y) - 1;
     if (top > bottom) return centre;
-    return sketch.clearLine(false, centre, top, bottom, placements, pivot.id, leaf.id, .{});
+    return sketch_clearance.clearLine(false, centre, top, bottom, placements, pivot.id, leaf.id, .{});
 }
 
 pub fn build(
@@ -204,14 +205,14 @@ pub fn blocked(
     const fan_in = built.rail.role == .fan_in_dropper or built.rail.role == .fan_in_rail;
     const stem_lo = if (fan_in) @min(built.rail.stem[0].y, built.rail.stem[1].y) + 1 else built.rail.stem[0].y + 1;
     const stem_hi = if (fan_in) @max(built.rail.stem[0].y, built.rail.stem[1].y) - 1 else built.rail.stem[1].y;
-    if (stem_lo <= stem_hi and sketch.columnTouchesAny(stem_x, stem_lo, stem_hi, placements, pivot_id, pivot_id)) return true;
+    if (stem_lo <= stem_hi and sketch_clearance.columnTouchesAny(stem_x, stem_lo, stem_hi, placements, pivot_id, pivot_id)) return true;
     for (built.taps) |tap| {
         const lo = if (fan_in) @min(tap.at.y, tap.landing.y) + 1 else tap.at.y + 1;
         const hi = if (fan_in) @max(tap.at.y, tap.landing.y) - 1 else tap.landing.y - 1;
-        if (lo <= hi and sketch.columnTouchesAny(tap.at.x, lo, hi, placements, tap.node, pivot_id)) return true;
+        if (lo <= hi and sketch_clearance.columnTouchesAny(tap.at.x, lo, hi, placements, tap.node, pivot_id)) return true;
     }
     const crossbar = built.rail.crossbar;
-    if (sketch.rowTouchesAny(crossbar[0].y, crossbar[0].x, crossbar[1].x, placements, pivot_id, pivot_id)) return true;
+    if (sketch_clearance.rowTouchesAny(crossbar[0].y, crossbar[0].x, crossbar[1].x, placements, pivot_id, pivot_id)) return true;
     return false;
 }
 

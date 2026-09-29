@@ -1,6 +1,7 @@
 const std = @import("std");
 const prim = @import("prim");
 const sketch = @import("../sketch.zig");
+const sketch_clearance = @import("../sketch_clearance.zig");
 const lattice = @import("../lattice.zig");
 const labels = @import("labels.zig");
 
@@ -321,7 +322,7 @@ test "clearLine settles for touch-free line at the MARGIN_BOUND boundary rather 
     }
     const placements = try list.toOwnedSlice(alloc);
 
-    const got = sketch.clearLine(true, want, 0, 5, placements, 9999, 9998, .{ .margin = true });
+    const got = sketch_clearance.clearLine(true, want, 0, 5, placements, 9999, 9998, .{ .margin = true });
     try testing.expectEqual(want + 5, got);
 }
 

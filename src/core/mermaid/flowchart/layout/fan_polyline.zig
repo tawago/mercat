@@ -1,6 +1,7 @@
 const std = @import("std");
 const sg = @import("../sem_graph.zig");
 const sketch = @import("../sketch.zig");
+const sketch_clearance = @import("../sketch_clearance.zig");
 const fan_mod = @import("fan.zig");
 const Straight = @import("routing_polyline.zig").Straight;
 const Fan = fan_mod.Fan;
@@ -72,9 +73,9 @@ pub fn buildPolylineAt(
         var gpts: std.ArrayListUnmanaged(sketch.Point) = .empty;
         try gpts.append(a, .{ .x = sx, .y = src_bot });
         // @guarded-by: fan_polyline_test.zig "grid fan-OUT rail dodges a sibling box stacked in an earlier grid row"
-        if (sketch.columnTouchesAny(sx, src_bot + 1, rail, placements, source_p.id, target_p.id)) {
+        if (sketch_clearance.columnTouchesAny(sx, src_bot + 1, rail, placements, source_p.id, target_p.id)) {
             const jog_y = @max(dodge_y orelse src_bot + off_source, src_bot + off_source);
-            const corridor = sketch.clearLine(false, tx, jog_y, rail, placements, source_p.id, target_p.id, .{});
+            const corridor = sketch_clearance.clearLine(false, tx, jog_y, rail, placements, source_p.id, target_p.id, .{});
             try emitDodgedDescent(a, &gpts, sx, tx, jog_y, rail, corridor);
         } else {
             try gpts.append(a, .{ .x = sx, .y = rail });
@@ -92,9 +93,9 @@ pub fn buildPolylineAt(
         try gpts.append(a, .{ .x = sx, .y = source_bottom });
         try gpts.append(a, .{ .x = sx, .y = rail });
         // @guarded-by: fan_polyline_test.zig "grid fan-IN rail dodges a source stacked in a lower grid row at the shared target column"
-        if (sketch.columnTouchesAny(tx, rail, target_top - 1, placements, source_p.id, target_p.id)) {
+        if (sketch_clearance.columnTouchesAny(tx, rail, target_top - 1, placements, source_p.id, target_p.id)) {
             const land_y = target_top - 2;
-            const corridor = sketch.clearLine(false, tx, rail, land_y, placements, source_p.id, target_p.id, .{});
+            const corridor = sketch_clearance.clearLine(false, tx, rail, land_y, placements, source_p.id, target_p.id, .{});
             if (corridor != sx) try gpts.append(a, .{ .x = corridor, .y = rail });
             if (land_y != rail) try gpts.append(a, .{ .x = corridor, .y = land_y });
             if (tx != corridor) try gpts.append(a, .{ .x = tx, .y = land_y });
@@ -123,9 +124,9 @@ pub fn buildPolylineAt(
         .center => {},
         .leftmost, .rightmost, .middle => {
             // @guarded-by: fan_polyline_test.zig "single-row fan spanning 2+ layers dodges an intermediate box instead of slicing it"
-            if (sketch.columnTouchesAny(sx, s_peri + 1, rail_y, placements, source_p.id, target_p.id)) {
+            if (sketch_clearance.columnTouchesAny(sx, s_peri + 1, rail_y, placements, source_p.id, target_p.id)) {
                 const jog_y = @max(dodge_y orelse s_peri + off_source, s_peri + off_source);
-                const corridor = sketch.clearLine(false, sx, jog_y, rail_y, placements, source_p.id, target_p.id, .{ .margin = true });
+                const corridor = sketch_clearance.clearLine(false, sx, jog_y, rail_y, placements, source_p.id, target_p.id, .{ .margin = true });
                 try emitDodgedDescent(a, &pts, sx, tx, jog_y, rail_y, corridor);
             } else {
                 try pts.append(a, .{ .x = sx, .y = rail_y });
@@ -135,9 +136,9 @@ pub fn buildPolylineAt(
             }
             const land_y = t_peri - 2;
             if (land_y > rail_y and
-                sketch.columnTouchesAny(tx, rail_y + 1, t_peri - 1, placements, source_p.id, target_p.id))
+                sketch_clearance.columnTouchesAny(tx, rail_y + 1, t_peri - 1, placements, source_p.id, target_p.id))
             {
-                const corridor = sketch.clearLine(false, tx, rail_y, land_y, placements, source_p.id, target_p.id, .{ .margin = true });
+                const corridor = sketch_clearance.clearLine(false, tx, rail_y, land_y, placements, source_p.id, target_p.id, .{ .margin = true });
                 if (corridor != tx) {
                     // @guarded-by: fan_polyline_test.zig "the target-side corridor ends the rail run at the corridor column; the route visits each cell once"
                     try endRailRunAt(a, &pts, corridor, rail_y);

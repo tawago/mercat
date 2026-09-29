@@ -2,6 +2,7 @@ const std = @import("std");
 const pb = @import("../base/ledger.zig");
 const sg = @import("../sem_graph.zig");
 const sk = @import("../sketch.zig");
+const sketch_clearance = @import("../sketch_clearance.zig");
 const route_clearance = @import("route_clearance.zig");
 const Straight = @import("routing_polyline.zig").Straight;
 
@@ -17,7 +18,7 @@ pub fn detourLimit(routed: usize) u32 {
 /// @guarded-by: route_clearance_test.zig "a detour's port run never crosses the route's own box"
 fn offSideClearLine(horizontal: bool, want: i32, lo: i32, hi: i32, placements: []const sk.NodePlacement, outward: i32) i32 {
     const none = std.math.maxInt(pb.NodeId);
-    const found = sk.clearLine(horizontal, want, lo, hi, placements, none, none, .{});
+    const found = sketch_clearance.clearLine(horizontal, want, lo, hi, placements, none, none, .{});
     return if ((found - want) * outward >= 0) found else want;
 }
 
@@ -95,10 +96,10 @@ fn pushedRunClear(horizontal: bool, port: sk.Point, outward: i32, line: i32, out
     const none = std.math.maxInt(pb.NodeId);
     const along = if (horizontal) port.x else port.y;
     const cross = if (horizontal) port.y else port.x;
-    if (sk.lineTouchesAny(horizontal, line, @min(outside, along), @max(outside, along), placements, none, none)) return false;
+    if (sketch_clearance.lineTouchesAny(horizontal, line, @min(outside, along), @max(outside, along), placements, none, none)) return false;
     const leg_lo = @min(cross + outward, line);
     const leg_hi = @max(cross + outward, line);
-    return !sk.lineTouchesAny(!horizontal, along, leg_lo, leg_hi, placements, none, none);
+    return !sketch_clearance.lineTouchesAny(!horizontal, along, leg_lo, leg_hi, placements, none, none);
 }
 
 pub fn dogleg(

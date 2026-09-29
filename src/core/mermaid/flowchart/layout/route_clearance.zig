@@ -2,6 +2,7 @@ const std = @import("std");
 const pb = @import("../base/ledger.zig");
 const sg = @import("../sem_graph.zig");
 const sk = @import("../sketch.zig");
+const sketch_clearance = @import("../sketch_clearance.zig");
 
 const Cell = struct { x: i32, y: i32 };
 const Arms = struct {
@@ -304,7 +305,7 @@ pub fn touchesForeignNode(polyline: []const sk.Point, placements: []const sk.Nod
         const horizontal = prev.y == point.y;
         const lo = if (horizontal) @min(prev.x, point.x) else @min(prev.y, point.y);
         const hi = if (horizontal) @max(prev.x, point.x) else @max(prev.y, point.y);
-        if (sk.lineTouchesAny(horizontal, if (horizontal) prev.y else prev.x, lo, hi, placements, from, to)) return true;
+        if (sketch_clearance.lineTouchesAny(horizontal, if (horizontal) prev.y else prev.x, lo, hi, placements, from, to)) return true;
     }
     return false;
 }

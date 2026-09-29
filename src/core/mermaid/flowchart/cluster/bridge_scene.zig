@@ -1,5 +1,6 @@
 const std = @import("std");
 const sketch = @import("../sketch.zig");
+const sketch_clearance = @import("../sketch_clearance.zig");
 const tracks = @import("tracks.zig");
 const corridors = @import("corridors.zig");
 
@@ -269,7 +270,7 @@ pub fn verticalCorridor(
 
     const lo = @min(src_jog_y, tgt_jog_y);
     const hi = @max(src_jog_y, tgt_jog_y);
-    // @guarded-by: sketch.zig "clearLine prefers a margined line over a closer touch-free-only line"
+    // @guarded-by: sketch_clearance_test.zig "clearLine prefers a margined line over a closer touch-free-only line"
     const run_col = corridors.descentColumn(end.x, lo, hi, placements, from_id, to_id, clusters);
 
     var poly: std.ArrayListUnmanaged(sketch.Point) = .empty;
@@ -304,7 +305,7 @@ pub fn polyIntrudes(
         if (a.x == b.x) {
             const y0 = @min(a.y, b.y);
             const y1 = @max(a.y, b.y);
-            if (sketch.columnTouchesAny(a.x, y0, y1, placements, from_id, to_id)) return true;
+            if (sketch_clearance.columnTouchesAny(a.x, y0, y1, placements, from_id, to_id)) return true;
         }
     }
     return false;

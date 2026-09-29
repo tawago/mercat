@@ -1,5 +1,6 @@
 const std = @import("std");
 const sketch = @import("../sketch.zig");
+const sketch_clearance = @import("../sketch_clearance.zig");
 const tracks = @import("tracks.zig");
 
 pub const Endpoint = struct {
@@ -143,7 +144,7 @@ pub fn descentColumn(
     to_id: sketch.NodeId,
     clusters: []const sketch.ClusterFrame,
 ) i32 {
-    const first = sketch.clearLine(false, want, lo, hi, placements, from_id, to_id, .{ .margin = true });
+    const first = sketch_clearance.clearLine(false, want, lo, hi, placements, from_id, to_id, .{ .margin = true });
     if (!frameBlocked(first, lo, hi, placements, from_id, to_id, clusters)) return first;
 
     const dirn: i32 = if (want < first) -1 else 1;
@@ -152,7 +153,7 @@ pub fn descentColumn(
         for ([2]i32{ first + dirn * d, first - dirn * d }) |c| {
             if (c < 0) continue;
             if (frameBlocked(c, lo, hi, placements, from_id, to_id, clusters)) continue;
-            if (sketch.lineTouchesAny(false, c, lo, hi, placements, from_id, to_id)) continue;
+            if (sketch_clearance.lineTouchesAny(false, c, lo, hi, placements, from_id, to_id)) continue;
             return c;
         }
     }
@@ -285,7 +286,7 @@ fn search(rect: sketch.Rect, r: Req, claims: []const Claim, placements: []const 
 fn runClear(r: Req, coord: i32, placements: []const sketch.NodePlacement) bool {
     if (r.run_hi < r.run_lo) return true;
     const horizontal = (r.side == .east or r.side == .west);
-    return !sketch.lineTouchesAny(horizontal, coord, r.run_lo, r.run_hi, placements, r.skip_a, r.skip_b);
+    return !sketch_clearance.lineTouchesAny(horizontal, coord, r.run_lo, r.run_hi, placements, r.skip_a, r.skip_b);
 }
 
 fn legal(rect: sketch.Rect, r: Req, coord: i32, claims: []const Claim) bool {

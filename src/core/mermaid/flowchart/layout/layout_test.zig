@@ -1,6 +1,7 @@
 const std = @import("std");
 const sg = @import("../sem_graph.zig");
 const sketch = @import("../sketch.zig");
+const sketch_clearance = @import("../sketch_clearance.zig");
 const coords = @import("../layout.zig");
 const sugiyama = @import("sugiyama.zig");
 const routing = @import("routing.zig");
@@ -282,11 +283,11 @@ test "TD self-loop with a box stacked above loops below and re-enters east" {
         if (p0.x == p1.x) {
             const y0 = @min(p0.y, p1.y);
             const y1 = @max(p0.y, p1.y);
-            try testing.expect(!sketch.lineTouchesRect(false, p0.x, y0, y1, above.rect));
+            try testing.expect(!sketch_clearance.lineTouchesRect(false, p0.x, y0, y1, above.rect));
         } else {
             const x0 = @min(p0.x, p1.x);
             const x1 = @max(p0.x, p1.x);
-            try testing.expect(!sketch.lineTouchesRect(true, p0.y, x0, x1, above.rect));
+            try testing.expect(!sketch_clearance.lineTouchesRect(true, p0.y, x0, x1, above.rect));
         }
     }
     const last = sl.polyline[sl.polyline.len - 1];

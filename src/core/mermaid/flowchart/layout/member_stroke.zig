@@ -1,6 +1,7 @@
 const std = @import("std");
 const sg = @import("../sem_graph.zig");
 const sketch = @import("../sketch.zig");
+const sketch_clearance = @import("../sketch_clearance.zig");
 const pb = @import("../base/ledger.zig");
 const node_geom = @import("node_geom.zig");
 const rp = @import("routing_polyline.zig");
@@ -153,7 +154,7 @@ pub fn route(
         }
     }
     if (hi - lo >= 2) {
-        const corridor = sketch.clearLine(false, end.x, lo, hi, placements, orig.from, orig.to, .{ .margin = true });
+        const corridor = sketch_clearance.clearLine(false, end.x, lo, hi, placements, orig.from, orig.to, .{ .margin = true });
         if (corridor != start.x and corridor != end.x) {
             const poly = try a.alloc(sketch.Point, 6);
             poly[0] = start;

@@ -1,5 +1,6 @@
 const std = @import("std");
 const sketch = @import("../sketch.zig");
+const sketch_clearance = @import("../sketch_clearance.zig");
 const corridors = @import("corridors.zig");
 
 const testing = std.testing;
@@ -240,7 +241,7 @@ test "a descent escaping a frame wall leaves the frame instead of stepping insid
     const hi: i32 = 15;
     const want: i32 = 7;
 
-    const naive = sketch.clearLine(false, want, lo, hi, &placements, 0, 1, .{ .margin = true });
+    const naive = sketch_clearance.clearLine(false, want, lo, hi, &placements, 0, 1, .{ .margin = true });
     try testing.expectEqual(@as(i32, 11), naive);
 
     const col = corridors.descentColumn(want, lo, hi, &placements, 0, 1, &frames);

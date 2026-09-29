@@ -1,5 +1,6 @@
 const std = @import("std");
 const sketch = @import("../sketch.zig");
+const sketch_clearance = @import("../sketch_clearance.zig");
 const bridges = @import("bridges.zig");
 const tracks = @import("tracks.zig");
 
@@ -241,7 +242,7 @@ test "verticalCorridor: the source-side jog row (one past the source) is collisi
     try std.testing.expectEqual(@as(i32, 15), poly[1].x);
     try std.testing.expectEqual(@as(i32, 3), poly[1].y);
 
-    try std.testing.expect(!sketch.columnTouchesAny(poly[1].x, poly[0].y, poly[1].y, &placements, 0, 1));
+    try std.testing.expect(!sketch_clearance.columnTouchesAny(poly[1].x, poly[0].y, poly[1].y, &placements, 0, 1));
 }
 
 test "a vertical corridor's descent column never lands on a drawn frame border" {
@@ -265,13 +266,13 @@ test "a vertical corridor's descent column never lands on a drawn frame border" 
     const poly = edges[0].polyline;
     try std.testing.expectEqual(@as(usize, 6), poly.len);
 
-    const naive = sketch.clearLine(false, poly[5].x, poly[1].y, poly[3].y, &placements, 0, 1, .{ .margin = true });
+    const naive = sketch_clearance.clearLine(false, poly[5].x, poly[1].y, poly[3].y, &placements, 0, 1, .{ .margin = true });
     try std.testing.expect(tracks.onFrameBorder(false, naive, poly[1].y, poly[3].y, &frames));
 
     const run_col = poly[2].x;
     try std.testing.expectEqual(poly[3].x, run_col);
     try std.testing.expect(!tracks.onFrameBorder(false, run_col, poly[2].y, poly[3].y, &frames));
-    try std.testing.expect(!sketch.columnTouchesAny(run_col, poly[2].y, poly[3].y, &placements, 0, 1));
+    try std.testing.expect(!sketch_clearance.columnTouchesAny(run_col, poly[2].y, poly[3].y, &placements, 0, 1));
 }
 
 test "a re-routed corridor raises no crossing demand on the frame it leaves" {

@@ -1,6 +1,7 @@
 const std = @import("std");
 const sg = @import("../sem_graph.zig");
 const sketch = @import("../sketch.zig");
+const sketch_clearance = @import("../sketch_clearance.zig");
 const route_clearance = @import("route_clearance.zig");
 
 pub fn insetPort(pt: sketch.Point, side: sketch.Dir4, pad: i32) sketch.Point {
@@ -120,7 +121,7 @@ pub fn ensureBaseStub(
     const cross: i32 = if (descent_horizontal) np.y else np.x;
     const lo: i32 = if (descent_horizontal) @min(np.x, nb.x) else @min(np.y, nb.y);
     const hi: i32 = if (descent_horizontal) @max(np.x, nb.x) else @max(np.y, nb.y);
-    if (sketch.lineTouchesAny(descent_horizontal, cross, lo, hi, placements, from_id, to_id)) return false;
+    if (sketch_clearance.lineTouchesAny(descent_horizontal, cross, lo, hi, placements, from_id, to_id)) return false;
     poly[bi] = nb;
     poly[bi - 1] = np;
     return true;
@@ -232,7 +233,7 @@ fn corridorRoute(
         // @guarded-by: validate_test.zig "edge through node interior flagged";
         const run_top = @min(enter_gap_y, align_y);
         const run_bot = @max(enter_gap_y, align_y);
-        const corridor_x = sketch.clearLine(false, want, run_top, run_bot, placements, from_id, to_id, .{ .margin = true });
+        const corridor_x = sketch_clearance.clearLine(false, want, run_top, run_bot, placements, from_id, to_id, .{ .margin = true });
 
         if (enter_gap_y != start.y) try poly.append(a, .{ .x = start.x, .y = enter_gap_y });
         if (corridor_x != start.x) try poly.append(a, .{ .x = corridor_x, .y = enter_gap_y });
@@ -245,7 +246,7 @@ fn corridorRoute(
         const align_x = if (end.x - 2 - lane > enter_gap_x) end.x - 2 - lane else if (straight.to) @max(end.x - 2, enter_gap_x) else end.x - 1;
         const run_lo = @min(enter_gap_x, align_x);
         const run_hi = @max(enter_gap_x, align_x);
-        const corridor_y = sketch.clearLine(true, want, run_lo, run_hi, placements, from_id, to_id, .{ .margin = true });
+        const corridor_y = sketch_clearance.clearLine(true, want, run_lo, run_hi, placements, from_id, to_id, .{ .margin = true });
 
         if (enter_gap_x != start.x) try poly.append(a, .{ .x = enter_gap_x, .y = start.y });
         if (corridor_y != start.y) try poly.append(a, .{ .x = enter_gap_x, .y = corridor_y });

@@ -1,6 +1,7 @@
 const std = @import("std");
 const sg = @import("../sem_graph.zig");
 const sketch = @import("../sketch.zig");
+const sketch_clearance = @import("../sketch_clearance.zig");
 const sugiyama = @import("sugiyama.zig");
 const rp = @import("routing_polyline.zig");
 
@@ -149,7 +150,7 @@ pub fn satisfyApproach(
     const lo: i32 = if (run_horizontal) @min(np.x, nb.x) else @min(np.y, nb.y);
     const hi: i32 = if (run_horizontal) @max(np.x, nb.x) else @max(np.y, nb.y);
     for (placements) |pl| {
-        if (sketch.lineTouchesRect(run_horizontal, cross, lo, hi, pl.rect)) return poly;
+        if (sketch_clearance.lineTouchesRect(run_horizontal, cross, lo, hi, pl.rect)) return poly;
     }
     var grown: std.ArrayListUnmanaged(sketch.Point) = .empty;
     try grown.appendSlice(a, poly);

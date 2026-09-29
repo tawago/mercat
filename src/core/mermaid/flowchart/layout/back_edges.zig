@@ -1,6 +1,7 @@
 const std = @import("std");
 const sg = @import("../sem_graph.zig");
 const sketch = @import("../sketch.zig");
+const sketch_clearance = @import("../sketch_clearance.zig");
 const sugiyama = @import("sugiyama.zig");
 const node_geom = @import("node_geom.zig");
 const rt = @import("routing_terminal.zig");
@@ -160,10 +161,10 @@ pub fn backEdgePolylineAt(
     try poly.append(a, pt(rows, src_on, src_line));
 
     var rail_start_line = src_line;
-    if (sketch.lineTouchesAny(rows, src_line, src_out, rail_pos, placements, src_p.id, dst_p.id)) {
-        const esc = sketch.clearLine(rows, src_line, src_out, rail_pos, placements, src_p.id, dst_p.id, .{ .toward = dst_line });
+    if (sketch_clearance.lineTouchesAny(rows, src_line, src_out, rail_pos, placements, src_p.id, dst_p.id)) {
+        const esc = sketch_clearance.clearLine(rows, src_line, src_out, rail_pos, placements, src_p.id, dst_p.id, .{ .toward = dst_line });
         if (esc != src_line) {
-            if (sketch.hopPos(rows, src_line, src_out, @min(src_line, esc), @max(src_line, esc), placements, src_p.id, dst_p.id)) |hop| {
+            if (sketch_clearance.hopPos(rows, src_line, src_out, @min(src_line, esc), @max(src_line, esc), placements, src_p.id, dst_p.id)) |hop| {
                 try poly.append(a, pt(rows, hop, src_line));
                 try poly.append(a, pt(rows, hop, esc));
                 rail_start_line = esc;
@@ -172,10 +173,10 @@ pub fn backEdgePolylineAt(
     }
     try poly.append(a, pt(rows, rail_pos, rail_start_line));
 
-    if (sketch.lineTouchesAny(rows, dst_line, dst_out, rail_pos, placements, src_p.id, dst_p.id)) {
-        const ent = sketch.clearLine(rows, dst_line, dst_out, rail_pos, placements, src_p.id, dst_p.id, .{ .toward = src_line });
+    if (sketch_clearance.lineTouchesAny(rows, dst_line, dst_out, rail_pos, placements, src_p.id, dst_p.id)) {
+        const ent = sketch_clearance.clearLine(rows, dst_line, dst_out, rail_pos, placements, src_p.id, dst_p.id, .{ .toward = src_line });
         if (ent != dst_line) {
-            if (sketch.hopPos(rows, dst_line, dst_out, @min(dst_line, ent), @max(dst_line, ent), placements, src_p.id, dst_p.id)) |hop| {
+            if (sketch_clearance.hopPos(rows, dst_line, dst_out, @min(dst_line, ent), @max(dst_line, ent), placements, src_p.id, dst_p.id)) |hop| {
                 try poly.append(a, pt(rows, rail_pos, ent));
                 try poly.append(a, pt(rows, hop, ent));
                 try poly.append(a, pt(rows, hop, dst_line));
