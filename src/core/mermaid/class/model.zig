@@ -1,0 +1,145 @@
+const std = @import("std");
+const Allocator = std.mem.Allocator;
+
+pub const Visibility = enum {
+    public,
+    private,
+    protected,
+    package,
+    none,
+
+    pub fn toChar(self: Visibility) ?u8 {
+        return switch (self) {
+            .public => '+',
+            .private => '-',
+            .protected => '#',
+            .package => '~',
+            .none => null,
+        };
+    }
+
+    pub fn fromChar(c: u8) Visibility {
+        return switch (c) {
+            '+' => .public,
+            '-' => .private,
+            '#' => .protected,
+            '~' => .package,
+            else => .none,
+        };
+    }
+};
+
+pub const ClassMember = struct {
+    name: []const u8,
+    member_type: []const u8,
+    visibility: Visibility = .none,
+    is_method: bool = false,
+    is_static: bool = false,
+    is_abstract: bool = false,
+};
+
+pub const ClassRelationType = enum {
+    inheritance,
+    composition,
+    aggregation,
+    association,
+    dependency,
+    realization,
+    link,
+
+    pub fn getArrowChars(self: ClassRelationType, unicode_mode: bool) struct { start: []const u8, end: []const u8, line: u21 } {
+        if (!unicode_mode) {
+            return switch (self) {
+                .inheritance => .{ .start = "", .end = "<|", .line = '-' },
+                .composition => .{ .start = "*", .end = "", .line = '-' },
+                .aggregation => .{ .start = "o", .end = "", .line = '-' },
+                .association => .{ .start = "", .end = ">", .line = '-' },
+                .dependency => .{ .start = "", .end = ">", .line = '.' },
+                .realization => .{ .start = "", .end = "|>", .line = '.' },
+                .link => .{ .start = "", .end = "", .line = '-' },
+            };
+        }
+        return switch (self) {
+            .inheritance => .{ .start = "", .end = "◁", .line = 0x2500 },
+            .composition => .{ .start = "◆", .end = "", .line = 0x2500 },
+            .aggregation => .{ .start = "◇", .end = "", .line = 0x2500 },
+            .association => .{ .start = "", .end = "▶", .line = 0x2500 },
+            .dependency => .{ .start = "", .end = "▶", .line = 0x2504 },
+            .realization => .{ .start = "", .end = "◁", .line = 0x2504 },
+            .link => .{ .start = "", .end = "", .line = 0x2500 },
+        };
+    }
+};
+
+pub const Class = struct {
+    name: []const u8,
+    members: std.ArrayList(ClassMember),
+    allocator: Allocator,
+    x: ?i32 = null,
+    y: ?i32 = null,
+    width: u32 = 0,
+    height: u32 = 0,
+
+    pub fn init(allocator: Allocator, name: []const u8) Class {
+        return .{
+            .name = name,
+            .members = .empty,
+            .allocator = allocator,
+        };
+    }
+
+    pub fn deinit(self: *Class) void {
+        self.members.deinit(self.allocator);
+    }
+
+    pub fn addMember(self: *Class, member: ClassMember) !void {
+        try self.members.append(self.allocator, member);
+    }
+};
+
+pub const ClassRelation = struct {
+    from: []const u8,
+    to: []const u8,
+    relation_type: ClassRelationType = .association,
+    label: ?[]const u8 = null,
+    from_cardinality: ?[]const u8 = null,
+    to_cardinality: ?[]const u8 = null,
+};
+
+pub const ClassDiagram = struct {
+    allocator: Allocator,
+    classes: std.StringHashMap(Class),
+    relations: std.ArrayList(ClassRelation),
+    class_order: std.ArrayList([]const u8),
+
+    pub fn init(allocator: Allocator) ClassDiagram {
+        return .{
+            .allocator = allocator,
+            .classes = std.StringHashMap(Class).init(allocator),
+            .relations = .empty,
+            .class_order = .empty,
+        };
+    }
+
+    pub fn deinit(self: *ClassDiagram) void {
+        var it = self.classes.valueIterator();
+        while (it.next()) |class| {
+            @constCast(class).deinit();
+        }
+        self.classes.deinit();
+        self.relations.deinit(self.allocator);
+        self.class_order.deinit(self.allocator);
+    }
+
+    pub fn getClass(self: *const ClassDiagram, name: []const u8) ?*const Class {
+        return self.classes.getPtr(name);
+    }
+
+    pub fn getClassMut(self: *ClassDiagram, name: []const u8) ?*Class {
+        return self.classes.getPtr(name);
+    }
+
+    pub fn addRelation(self: *ClassDiagram, relation: ClassRelation) !void {
+        try self.relations.append(self.allocator, relation);
+    }
+};

@@ -1,9 +1,22 @@
-const types = @import("types.zig");
+const types = @import("../types.zig");
 
 const RenderOptions = types.RenderOptions;
-const CompactionLevel = types.CompactionLevel;
-const CompactionHints = types.CompactionHints;
 const Direction = types.Direction;
+
+pub const CompactionLevel = enum {
+    default,
+    reduced,
+    tight,
+    direction_switch,
+};
+
+pub const CompactionHints = struct {
+    level: CompactionLevel,
+    render_options: RenderOptions,
+    sequence_participant_spacing: u32 = 8,
+    sequence_padding: u32 = 2,
+    sequence_direction: ?Direction = null,
+};
 
 pub const sequence_levels = [_]CompactionLevel{
     .default,

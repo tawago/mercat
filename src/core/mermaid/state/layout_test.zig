@@ -5,7 +5,7 @@ const StateLayout = state_layout.StateLayout;
 
 test "state layout simple" {
     const testing = std.testing;
-    const parser = @import("../parser.zig");
+    const parse = @import("parse.zig");
 
     const source =
         \\stateDiagram-v2
@@ -14,7 +14,7 @@ test "state layout simple" {
         \\    s2 --> [*]
     ;
 
-    var diagram = try parser.Parser.parseStateDiagram(testing.allocator, source);
+    var diagram = try parse.parse(testing.allocator, source);
     defer diagram.deinit();
 
     var layout_obj = StateLayout.init(testing.allocator, &diagram, .{});

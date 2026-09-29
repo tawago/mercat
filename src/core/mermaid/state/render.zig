@@ -1,27 +1,27 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 const types = @import("../types.zig");
-const parser = @import("../parser.zig");
+const parse = @import("parse.zig");
+const model = @import("model.zig");
 const canvas_mod = @import("../shared/canvas.zig");
 const state_layout_mod = @import("layout.zig");
 const draw_helpers = @import("../shared/draw_helpers.zig");
 
 const RenderOptions = types.RenderOptions;
 const RenderResult = types.RenderResult;
-const StateDiagram = types.StateDiagram;
-const State = types.State;
-const StateType = types.StateType;
-const StateTransition = types.StateTransition;
+const StateDiagram = model.StateDiagram;
+const State = model.State;
+const StateType = model.StateType;
+const StateTransition = model.StateTransition;
 const LineChars = types.LineChars;
 const Arrows = types.Arrows;
 const Rect = types.Rect;
 
 const Canvas = canvas_mod.Canvas;
-const Parser = parser.Parser;
 const StateLayout = state_layout_mod.StateLayout;
 
 pub fn renderStateDiagram(allocator: Allocator, source: []const u8, options: RenderOptions) !RenderResult {
-    var diagram = try Parser.parseStateDiagram(allocator, source);
+    var diagram = try parse.parse(allocator, source);
     defer diagram.deinit();
 
     if (diagram.state_order.items.len == 0) {

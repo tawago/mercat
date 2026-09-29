@@ -17,13 +17,10 @@ set -euo pipefail
 limit=500
 
 grandfathered=(
-  src/core/mermaid/parser.zig
-  src/core/mermaid/types.zig
   src/core/markdown/parser.zig
   src/core/markdown/render/blocks.zig
   src/core/markdown/render/frontmatter.zig
   src/core/markdown/preprocess.zig
-  src/core/mermaid/sequence/render.zig
   src/export/png_encode.zig
   src/export/png.zig
   src/export/glyph_sheet.zig

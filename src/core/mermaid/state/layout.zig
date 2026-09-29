@@ -1,9 +1,10 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 const types = @import("../types.zig");
+const model = @import("model.zig");
 
 const RenderOptions = types.RenderOptions;
-const StateDiagram = types.StateDiagram;
+const StateDiagram = model.StateDiagram;
 
 pub const StateLayout = struct {
     allocator: Allocator,

@@ -1,31 +1,31 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 const types = @import("../types.zig");
-const parser = @import("../parser.zig");
+const parse = @import("parse.zig");
+const model = @import("model.zig");
 const canvas_mod = @import("../shared/canvas.zig");
-const flowchart_compaction_mod = @import("../compaction.zig");
+const fit = @import("fit.zig");
 const draw_helpers = @import("../shared/draw_helpers.zig");
 
 const RenderOptions = types.RenderOptions;
 const RenderResult = types.RenderResult;
-const SequenceDiagram = types.SequenceDiagram;
-const CompactionHints = types.CompactionHints;
-const Participant = types.Participant;
-const Message = types.Message;
-const SequenceArrowType = types.SequenceArrowType;
+const SequenceDiagram = model.SequenceDiagram;
+const CompactionHints = fit.CompactionHints;
+const Participant = model.Participant;
+const Message = model.Message;
+const SequenceArrowType = model.SequenceArrowType;
 const LineChars = types.LineChars;
 const Arrows = types.Arrows;
 const Rect = types.Rect;
 
 const Canvas = canvas_mod.Canvas;
-const CompactionController = flowchart_compaction_mod.CompactionController;
-const Parser = parser.Parser;
+const CompactionController = fit.CompactionController;
 
 const processLabel = draw_helpers.processLabel;
 const processedLabelLen = draw_helpers.processedLabelLen;
 
 pub fn renderSequence(allocator: Allocator, source: []const u8, options: RenderOptions) !RenderResult {
-    var diagram = try Parser.parseSequence(allocator, source);
+    var diagram = try parse.parse(allocator, source);
     defer diagram.deinit();
 
     const controller = CompactionController.init(options);
@@ -37,7 +37,7 @@ pub fn renderSequence(allocator: Allocator, source: []const u8, options: RenderO
         .fallback_reason = "Diagram too wide for terminal",
     };
 
-    for (flowchart_compaction_mod.sequence_levels) |level| {
+    for (fit.sequence_levels) |level| {
         const hints = controller.sequenceHints(level, diagram.direction, diagram.direction_explicit) orelse continue;
         const result = try renderSequenceWithHints(allocator, source, &diagram, hints);
         if (!result.is_fallback) return result;
@@ -504,7 +504,7 @@ fn drawSelfMessageLR(canvas: *Canvas, y: i32, x: i32, text: []const u8, options:
     }
 }
 
-fn drawSequenceNote(canvas: *Canvas, note: *const types.SequenceNote, diagram: *const SequenceDiagram, y: i32, options: RenderOptions) void {
+fn drawSequenceNote(canvas: *Canvas, note: *const model.SequenceNote, diagram: *const SequenceDiagram, y: i32, options: RenderOptions) void {
     var text_buf: [256]u8 = undefined;
     const text = processLabel(note.text, &text_buf);
 
@@ -550,7 +550,7 @@ fn drawSequenceNote(canvas: *Canvas, note: *const types.SequenceNote, diagram: *
     canvas.drawText(box_x + 2, y + 1, text, .edge_label);
 }
 
-fn drawSequenceNoteLR(canvas: *Canvas, note: *const types.SequenceNote, diagram: *const SequenceDiagram, x: i32, options: RenderOptions) i32 {
+fn drawSequenceNoteLR(canvas: *Canvas, note: *const model.SequenceNote, diagram: *const SequenceDiagram, x: i32, options: RenderOptions) i32 {
     var text_buf: [256]u8 = undefined;
     const text = processLabel(note.text, &text_buf);
     const box_width: i32 = @intCast(text.len + 4);

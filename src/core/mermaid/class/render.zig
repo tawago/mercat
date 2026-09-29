@@ -1,21 +1,21 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 const types = @import("../types.zig");
-const parser = @import("../parser.zig");
+const parse = @import("parse.zig");
+const model = @import("model.zig");
 const canvas_mod = @import("../shared/canvas.zig");
 
 const RenderOptions = types.RenderOptions;
 const RenderResult = types.RenderResult;
-const ClassDiagram = types.ClassDiagram;
-const Class = types.Class;
-const ClassRelation = types.ClassRelation;
+const ClassDiagram = model.ClassDiagram;
+const Class = model.Class;
+const ClassRelation = model.ClassRelation;
 const LineChars = types.LineChars;
 
 const Canvas = canvas_mod.Canvas;
-const Parser = parser.Parser;
 
 pub fn renderClassDiagram(allocator: Allocator, source: []const u8, options: RenderOptions) !RenderResult {
-    var diagram = try Parser.parseClassDiagram(allocator, source);
+    var diagram = try parse.parse(allocator, source);
     defer diagram.deinit();
 
     if (diagram.class_order.items.len == 0) {

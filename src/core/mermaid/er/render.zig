@@ -1,21 +1,21 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 const types = @import("../types.zig");
-const parser = @import("../parser.zig");
+const parse = @import("parse.zig");
+const model = @import("model.zig");
 const canvas_mod = @import("../shared/canvas.zig");
 
 const RenderOptions = types.RenderOptions;
 const RenderResult = types.RenderResult;
-const ERDiagram = types.ERDiagram;
-const Entity = types.Entity;
-const ERRelation = types.ERRelation;
+const ERDiagram = model.ERDiagram;
+const Entity = model.Entity;
+const ERRelation = model.ERRelation;
 const LineChars = types.LineChars;
 
 const Canvas = canvas_mod.Canvas;
-const Parser = parser.Parser;
 
 pub fn renderERDiagram(allocator: Allocator, source: []const u8, options: RenderOptions) !RenderResult {
-    var diagram = try Parser.parseERDiagram(allocator, source);
+    var diagram = try parse.parse(allocator, source);
     defer diagram.deinit();
 
     if (diagram.entity_order.items.len == 0) {
