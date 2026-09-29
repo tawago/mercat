@@ -12,6 +12,7 @@ const gap_rows = @import("gap_rows.zig");
 const self_loops = @import("routing_self_loops.zig");
 const rp = @import("routing_polyline.zig");
 const rt = @import("routing_terminal.zig");
+const node_geom = @import("node_geom.zig");
 const ledger = @import("../base/ledger.zig");
 const rail_closure = @import("../base/rail_closure.zig");
 const port_plan = @import("port_plan.zig");
@@ -32,13 +33,7 @@ pub const mapArrow = rt.mapArrow;
 const fanRailLift = rt.fanRailLift;
 const collectVirtuals = rt.collectVirtuals;
 
-pub const NodeGeom = struct {
-    x: i32,
-    y: i32,
-    w: u32,
-    h: u32,
-    layer: u32,
-};
+pub const NodeGeom = node_geom.NodeGeom;
 
 pub const EdgesResult = struct {
     edges: []sketch.EdgePath,

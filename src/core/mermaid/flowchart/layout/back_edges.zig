@@ -2,7 +2,8 @@ const std = @import("std");
 const sg = @import("../sem_graph.zig");
 const sketch = @import("../sketch.zig");
 const sugiyama = @import("sugiyama.zig");
-const routing = @import("routing.zig");
+const node_geom = @import("node_geom.zig");
+const rt = @import("routing_terminal.zig");
 const lanes = @import("lanes.zig");
 
 pub const BackEdgeRail = struct {
@@ -38,7 +39,7 @@ pub fn allocateBackEdgeRails(
     a: std.mem.Allocator,
     graph: sg.SemGraph,
     lg: sugiyama.LayeredGraph,
-    geom: []const routing.NodeGeom,
+    geom: []const node_geom.NodeGeom,
     placements: []const sketch.NodePlacement,
 ) error{OutOfMemory}![]const BackEdgeRail {
     var items: std.ArrayListUnmanaged(Item) = .empty;
@@ -48,7 +49,7 @@ pub fn allocateBackEdgeRails(
 
     for (graph.edges) |orig| {
         if (orig.from == orig.to) continue;
-        if (!routing.isReversed(lg, orig.id)) continue;
+        if (!rt.isReversed(lg, orig.id)) continue;
 
         const src_geom_idx = nodeGeomIndex(lg, orig.from) orelse continue;
         const dst_geom_idx = nodeGeomIndex(lg, orig.to) orelse continue;

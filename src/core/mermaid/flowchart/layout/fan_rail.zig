@@ -3,7 +3,8 @@ const sg = @import("../sem_graph.zig");
 const sketch = @import("../sketch.zig");
 const fan_mod = @import("fan.zig");
 const fan_polyline = @import("fan_polyline.zig");
-const routing = @import("routing.zig");
+const node_geom = @import("node_geom.zig");
+const rt = @import("routing_terminal.zig");
 const pb = @import("../base/ledger.zig");
 const rail_closure = @import("../base/rail_closure.zig");
 const port_plan = @import("port_plan.zig");
@@ -54,7 +55,7 @@ pub fn eligible(fan: fan_mod.Fan, graph: sg.SemGraph, bundles: pb.RealizedBundle
     for (fan.peers) |p| {
         if (!p.shared or rail_closure.contains(bundles.discharged, p.edge_id)) continue;
         shared_len += 1;
-        const e = routing.findGraphEdge(graph, p.edge_id) orelse return false;
+        const e = rt.findGraphEdge(graph, p.edge_id) orelse return false;
         if (kind) |k| {
             if (e.kind != k) return false;
         } else kind = e.kind;
@@ -75,7 +76,7 @@ pub fn resolve(
     fan: fan_mod.Fan,
     graph: sg.SemGraph,
     placements: []const sketch.NodePlacement,
-    geom: []const routing.NodeGeom,
+    geom: []const node_geom.NodeGeom,
     bundles: pb.RealizedBundles,
     allocated_ports: port_plan.Plan,
 ) error{OutOfMemory}!?Resolved {
@@ -90,14 +91,14 @@ pub fn resolve(
         if (!p.shared or rail_closure.contains(bundles.discharged, p.edge_id)) continue;
         const out = &peers[peer_i];
         peer_i += 1;
-        const e = routing.findGraphEdge(graph, p.edge_id) orelse return null;
+        const e = rt.findGraphEdge(graph, p.edge_id) orelse return null;
         const ep = allocated_ports.forEdge(e.id) orelse return null;
-        const placement = routing.findPlacement(placements, if (fan.direction == .out) e.to else e.from);
+        const placement = rt.findPlacement(placements, if (fan.direction == .out) e.to else e.from);
         const port: ?sketch.Port = if (fan.direction == .out) ep.target else ep.source;
         out.* = nearPeer(e, placement, port, fan.direction);
         if (p.long) {
             const g = geom[p.peer_idx];
-            const pivot = routing.findPlacement(placements, if (fan.direction == .out) e.from else e.to);
+            const pivot = rt.findPlacement(placements, if (fan.direction == .out) e.from else e.to);
             out.long = true;
             out.column = longColumn(g.x + @divTrunc(@as(i32, @intCast(g.w)), 2), fan.direction, pivot, placement, placements);
             out.line = if (fan.direction == .out) g.y else g.y + @as(i32, @intCast(g.h)) - 1;
@@ -105,7 +106,7 @@ pub fn resolve(
     }
     const first_ep = allocated_ports.forEdge(peers[0].edge.id) orelse return null;
     return .{
-        .pivot = routing.findPlacement(placements, if (fan.direction == .out) peers[0].edge.from else peers[0].edge.to),
+        .pivot = rt.findPlacement(placements, if (fan.direction == .out) peers[0].edge.from else peers[0].edge.to),
         .pivot_port = if (fan.direction == .out) first_ep.source else first_ep.target,
         .direction = fan.direction,
         .peers = peers,
@@ -172,7 +173,7 @@ pub fn build(
             .at = .{ .x = tx, .y = rail_y },
             .landing = .{ .x = tx, .y = landing_y },
             .label = if (p.long) null else p.edge.label,
-            .arrow = routing.mapArrow(if (fan_in) p.edge.arrow_from else p.edge.arrow_to),
+            .arrow = rt.mapArrow(if (fan_in) p.edge.arrow_from else p.edge.arrow_to),
             .continues = p.long,
         };
         min_x = @min(min_x, tx);
@@ -187,7 +188,7 @@ pub fn build(
             .taps = taps,
             .kind = resolved.peers[0].edge.kind,
             .role = if (fan_in) .fan_in_dropper else .fan_out_dropper,
-            .pivot_arrow = routing.mapArrow(if (fan_in) resolved.peers[0].edge.arrow_to else resolved.peers[0].edge.arrow_from),
+            .pivot_arrow = rt.mapArrow(if (fan_in) resolved.peers[0].edge.arrow_to else resolved.peers[0].edge.arrow_from),
         },
         .stem = stem,
         .taps = taps,

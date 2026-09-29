@@ -2,7 +2,7 @@ const std = @import("std");
 const sg = @import("../sem_graph.zig");
 const sketch = @import("../sketch.zig");
 const pb = @import("../base/ledger.zig");
-const routing = @import("routing.zig");
+const node_geom = @import("node_geom.zig");
 const rp = @import("routing_polyline.zig");
 const rt = @import("routing_terminal.zig");
 const route_clearance = @import("route_clearance.zig");
@@ -32,7 +32,7 @@ pub fn buildAll(
     a: std.mem.Allocator,
     graph: sg.SemGraph,
     lg: sugiyama.LayeredGraph,
-    geom: []const routing.NodeGeom,
+    geom: []const node_geom.NodeGeom,
     placements: []const sketch.NodePlacement,
     rails: []const fan_rail.Built,
     bar_views: []const sketch.Rail,
@@ -50,10 +50,10 @@ pub fn buildAll(
             if (!tap.continues) continue;
             if (rail_closure.contains(bundles.discharged, tap.edge)) continue;
             if (fan_in and farTap(rails, tap.edge, false) != null) continue;
-            const orig = routing.findGraphEdge(graph, tap.edge) orelse continue;
+            const orig = rt.findGraphEdge(graph, tap.edge) orelse continue;
             const ep = allocated_ports.forEdge(orig.id) orelse continue;
-            const src_p = routing.findPlacement(placements, orig.from);
-            const dst_p = routing.findPlacement(placements, orig.to);
+            const src_p = rt.findPlacement(placements, orig.from);
+            const dst_p = rt.findPlacement(placements, orig.to);
 
             var start: sketch.Point = undefined;
             var end: sketch.Point = undefined;
@@ -102,8 +102,8 @@ pub fn buildAll(
                 .polyline = poly,
                 .port_from = ep.source,
                 .port_to = port_to,
-                .arrow_from = routing.mapArrow(orig.arrow_from),
-                .arrow_to = routing.mapArrow(orig.arrow_to),
+                .arrow_from = rt.mapArrow(orig.arrow_from),
+                .arrow_to = rt.mapArrow(orig.arrow_to),
                 .label = orig.label,
                 .kind = orig.kind,
                 .role = .member_stroke,
