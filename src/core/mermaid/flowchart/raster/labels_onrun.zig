@@ -3,6 +3,7 @@ const sketch = @import("../sketch.zig");
 const lattice = @import("../lattice.zig");
 const lw = @import("labels_write.zig");
 const ink = @import("labels_ink.zig");
+const cover = @import("labels_cover.zig");
 const onrun_h = @import("labels_onrun_h.zig");
 
 /// @guarded-by: labels_onrun_h_test.zig "tie order: the longer qualifying stretch is tried first, ties go vertical"
@@ -95,7 +96,7 @@ fn tryAt(
     // @guarded-by: labels_onrun_test.zig "OWN-INK RULE: a rail/crossbar cell is never interrupted"
     if (!privateDropperCell(lat, edge_id, x, row)) return false;
     // @guarded-by: labels_onrun_test.zig "OWN-INK RULE: a cell another tap's drop covers is refused"
-    if (coveredByOther(s, edge_id, x, row)) return false;
+    if (cover.coveredByOther(s, edge_id, x, row)) return false;
     // @guarded-by: labels_onrun_test.zig "FLANKED-RESUMPTION RULE: an arrowhead is not a flank, so the head-adjacent row is refused"
     if (!runFlankCell(lat, edge_id, x, row - 1)) return false;
     if (!runFlankCell(lat, edge_id, x, row + 1)) return false;
@@ -166,33 +167,6 @@ fn runFlankCell(lat: *const lattice.Lattice, edge_id: u32, x: i32, y: i32) bool 
     }
     const n = cell.neighbours;
     return n.n and n.s and !n.e and !n.w;
-}
-
-pub fn coveredByOther(s: sketch.Sketch, edge_id: u32, x: i32, y: i32) bool {
-    for (s.edges) |other| {
-        if (other.id == edge_id) continue;
-        if (other.polyline.len < 2) continue;
-        for (other.polyline[0 .. other.polyline.len - 1], 0..) |p, i| {
-            if (onSeg(p, other.polyline[i + 1], x, y)) return true;
-        }
-    }
-    for (s.rails) |rail| {
-        for (rail.stem[0 .. rail.stem.len - 1], 0..) |p, i| {
-            if (onSeg(p, rail.stem[i + 1], x, y)) return true;
-        }
-        if (onSeg(rail.crossbar[0], rail.crossbar[1], x, y)) return true;
-        for (rail.taps) |tap| {
-            if (tap.edge == edge_id) continue;
-            if (onSeg(tap.at, tap.landing, x, y)) return true;
-        }
-    }
-    return false;
-}
-
-fn onSeg(a: sketch.Point, b: sketch.Point, x: i32, y: i32) bool {
-    if (a.x != b.x and a.y != b.y) return false;
-    return x >= @min(a.x, b.x) and x <= @max(a.x, b.x) and
-        y >= @min(a.y, b.y) and y <= @max(a.y, b.y);
 }
 
 test {

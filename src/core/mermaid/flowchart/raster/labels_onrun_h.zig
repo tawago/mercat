@@ -3,7 +3,7 @@ const sketch = @import("../sketch.zig");
 const lattice = @import("../lattice.zig");
 const lw = @import("labels_write.zig");
 const ink = @import("labels_ink.zig");
-const onrun = @import("labels_onrun.zig");
+const cover = @import("labels_cover.zig");
 
 const MAX_SEGS: usize = 32;
 
@@ -107,14 +107,14 @@ fn tryAtH(
     while (i < cc) : (i += 1) {
         const cx = start_x + i;
         if (!privateRunCellH(lat, edge_id, cx, row)) return false;
-        if (onrun.coveredByOther(s, edge_id, cx, row)) return false;
+        if (cover.coveredByOther(s, edge_id, cx, row)) return false;
     }
 
     // @guarded-by: labels_onrun_h_test.zig "FLANKED-RESUMPTION RULE: a corner or an arrowhead in the flank cell refuses the candidate"
     if (!runFlankCellH(lat, edge_id, start_x - 1, row)) return false;
     if (!runFlankCellH(lat, edge_id, start_x + cc, row)) return false;
-    if (onrun.coveredByOther(s, edge_id, start_x - 1, row)) return false;
-    if (onrun.coveredByOther(s, edge_id, start_x + cc, row)) return false;
+    if (cover.coveredByOther(s, edge_id, start_x - 1, row)) return false;
+    if (cover.coveredByOther(s, edge_id, start_x + cc, row)) return false;
 
     // @guarded-by: labels_onrun_h_test.zig "OWN-INK RULE: a private prefix of a collinear shared run is refused"
     if (!visualRunIsPrivate(lat, s, edge_id, start_x, row, cc)) return false;
@@ -167,7 +167,7 @@ fn visualRunIsPrivate(
                 else => break,
             };
             if (owner != edge_id) return false;
-            if (onrun.coveredByOther(s, edge_id, x, row)) return false;
+            if (cover.coveredByOther(s, edge_id, x, row)) return false;
         }
     }
     return true;
