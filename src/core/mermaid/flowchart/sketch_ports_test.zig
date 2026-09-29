@@ -1,7 +1,6 @@
 const std = @import("std");
 const sketch = @import("sketch.zig");
 const sketch_ports = @import("sketch_ports.zig");
-const sketch_bundles = @import("sketch_bundles.zig");
 const ledger = @import("base/ledger.zig");
 const bundle_mod = @import("base/bundle.zig");
 
@@ -140,15 +139,14 @@ test "appendPortShares replaces stale port-share origins instead of creating fir
     const two = [_]sketch.Point{ p(5, 3), p(9, 8) };
     const edges = [_]sketch.EdgePath{ edge(20, &one), edge(21, &two) };
     const stale = [_]bundle_mod.Bundle{
-        .{ .origin = .port_share, .bundle = 77, .members = &.{ 0, 1 }, .cells = &.{.{ .x = 99, .y = 99 }} },
-        .{ .origin = .fan_rail, .bundle = 88, .members = &.{ 7, 8 } },
+        .{ .origin = .port_share, .members = &.{ 0, 1 }, .cells = &.{.{ .x = 99, .y = 99 }} },
+        .{ .origin = .fan_rail, .members = &.{ 7, 8 } },
     };
 
     const sets = try sketch_ports.appendPortShares(a, &stale, &edges);
     try std.testing.expectEqual(@as(usize, 2), sets.len);
     try std.testing.expectEqual(bundle_mod.BundleOrigin.fan_rail, sets[0].origin);
     try std.testing.expectEqual(bundle_mod.BundleOrigin.port_share, sets[1].origin);
-    try std.testing.expectEqual(bundle_mod.no_bundle, sets[1].bundle);
     try std.testing.expectEqualSlices(sketch.EdgeId, &.{ 20, 21 }, sets[1].members);
     try std.testing.expect(!bundle_mod.bundleMembersAt(sets, 0, 1, null));
 }
@@ -163,14 +161,13 @@ test "final geometry alone defines shifted pair ids, cells, and bundle agreement
     const edges = [_]sketch.EdgePath{ edge(100, &first), edge(101, &second) };
     const old = [_]bundle_mod.Bundle{.{
         .origin = .port_share,
-        .bundle = 9,
         .members = &.{ 0, 1 },
         .cells = &.{.{ .x = 99, .y = 99 }},
         .pairwise = &.{.{ .a = 0, .b = 1, .cells = &.{.{ .x = 99, .y = 99 }} }},
     }};
 
     const raw = try sketch_ports.appendPortShares(a, &old, &edges);
-    var final: sketch.Sketch = .{
+    const final: sketch.Sketch = .{
         .bbox = .{ .x = 0, .y = 0, .w = 20, .h = 30 },
         .direction = .TD,
         .nodes = &.{},
@@ -180,8 +177,6 @@ test "final geometry alone defines shifted pair ids, cells, and bundle agreement
         .diagnostics = &.{},
         .budget = .{ .max_width = 80, .rung = 0 },
     };
-    sketch_bundles.stamp(a, &final);
-    try std.testing.expectEqual(sketch.BundleStampState.complete, final.bundle_stamp_state);
     try std.testing.expectEqual(@as(usize, 1), final.bundle_sets.len);
     try std.testing.expectEqualSlices(sketch.EdgeId, &.{ 100, 101 }, final.bundle_sets[0].members);
     try std.testing.expectEqual(@as(sketch.EdgeId, 100), final.bundle_sets[0].pairwise.?[0].a);
@@ -303,7 +298,7 @@ test "a rail member and path at one port with no common run license no merge" {
     try std.testing.expectEqual(@as(usize, 0), sets.len);
 
     const structural = [_]bundle_mod.Bundle{.{ .origin = .fan_rail, .members = &.{20} }};
-    var final: sketch.Sketch = .{
+    const final: sketch.Sketch = .{
         .bbox = .{ .x = 0, .y = 0, .w = 20, .h = 12 },
         .direction = .TD,
         .nodes = &.{},
@@ -314,7 +309,5 @@ test "a rail member and path at one port with no common run license no merge" {
         .diagnostics = &.{},
         .budget = .{ .max_width = 80, .rung = 0 },
     };
-    sketch_bundles.stamp(a, &final);
-    try std.testing.expectEqual(sketch.BundleStampState.complete, final.bundle_stamp_state);
     try std.testing.expect(!bundle_mod.bundleMembersAt(final.bundle_sets, 20, 30, .{ .x = 5, .y = 1 }));
 }

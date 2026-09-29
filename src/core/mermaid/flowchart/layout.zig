@@ -5,7 +5,6 @@ const bundle_plan = @import("base/bundle_plan.zig");
 const sg = @import("sem_graph.zig");
 const sketch = @import("sketch.zig");
 const sketch_ports = @import("sketch_ports.zig");
-const sketch_bundles = @import("sketch_bundles.zig");
 const sugiyama = @import("layout/sugiyama.zig");
 const crossing = @import("layout/crossing.zig");
 const routing = @import("layout/routing.zig");
@@ -220,7 +219,7 @@ fn buildSketch(
         bundle_plan.bundlesFromPlan(a, candidate_bundles) catch edges_result.bundle_sets
     else
         edges_result.bundle_sets;
-    var out = sketch.Sketch{
+    return .{
         .bbox = bbox,
         .direction = graph.direction,
         .nodes = placements,
@@ -233,8 +232,6 @@ fn buildSketch(
         .diagnostics = try diagnostics.toOwnedSlice(a),
         .budget = .{ .max_width = opts.max_width, .rung = opts.rung },
     };
-    sketch_bundles.stamp(a, &out);
-    return out;
 }
 
 fn longEdges(a: std.mem.Allocator, lg: sugiyama.LayeredGraph) error{OutOfMemory}![]const ledger.EdgeId {

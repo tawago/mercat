@@ -125,7 +125,7 @@ test "bridge members contribute no structural authority; the licence tier owns t
     };
     const sr = twoTargetSplit(&crossings);
     const outer_edges = [_]sketch.EdgePath{ outerPath(5, 0, 1), outerPath(6, 0, 2) };
-    const sets = [_]bundle_mod.Bundle{.{ .origin = .fan_rail, .bundle = 42, .members = &.{ 5, 6 } }};
+    const sets = [_]bundle_mod.Bundle{.{ .origin = .fan_rail, .members = &.{ 5, 6 } }};
     const outer = outerSketch(&outer_edges, &sets);
     const bridges = [_]sketch.EdgePath{
         path(100, 10, 20, .{ .x = 1, .y = 1 }, .{ .x = 1, .y = 8 }),

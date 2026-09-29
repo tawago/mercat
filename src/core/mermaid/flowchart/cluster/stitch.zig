@@ -1,7 +1,6 @@
 const std = @import("std");
 const prim = @import("prim");
 const sketch = @import("../sketch.zig");
-const sketch_bundles = @import("../sketch_bundles.zig");
 const sg = @import("../sem_graph.zig");
 const ledger = @import("../base/ledger.zig");
 const bundle_mod = @import("../base/bundle.zig");
@@ -252,7 +251,7 @@ pub fn stitch(
         try bundle_sets.toOwnedSlice(arena),
     );
 
-    var merged: sketch.Sketch = .{
+    const merged: sketch.Sketch = .{
         .bbox = outer.bbox,
         .direction = outer.direction,
         .nodes = node_slice,
@@ -265,7 +264,6 @@ pub fn stitch(
         .diagnostics = outer.diagnostics,
         .budget = outer.budget,
     };
-    sketch_bundles.stamp(arena, &merged);
     return .{
         .sketch = merged,
         .input_of = try input_of.toOwnedSlice(arena),

@@ -25,27 +25,6 @@ test "mirror.applyDirection swaps x/y/w/h but leaves NodeGeom.layer untouched" {
     try testing.expectEqual(@as(u32, 0), geom[1].layer);
 }
 
-test "vertical mirror preserves the bundle stamp state" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const a = arena.allocator();
-
-    const s: sketch.Sketch = .{
-        .bbox = .{ .x = 0, .y = 0, .w = 20, .h = 10 },
-        .direction = .TD,
-        .nodes = &.{},
-        .clusters = &.{},
-        .edges = &.{},
-        .rails = &.{},
-        .diagnostics = &.{},
-        .budget = .{ .max_width = 20, .rung = 0 },
-        .bundle_stamp_state = .rail_invariant,
-    };
-    const m = try mirror.vertical(a, s, .BT);
-    try testing.expectEqual(sketch.Direction.BT, m.direction);
-    try testing.expectEqual(sketch.BundleStampState.rail_invariant, m.bundle_stamp_state);
-}
-
 test "vertical mirror deeply mirrors RailClaim sites and preserves identity" {
     const nodes = [_]sketch.NodePlacement{
         .{ .id = 10, .rect = .{ .x = 2, .y = 1, .w = 7, .h = 5 }, .shape = .rect, .lines = &.{}, .cluster_id = null },
@@ -101,10 +80,10 @@ test "vertical BT mirror remaps clustered bundle scopes without changing identit
     const empty_cells = [_]bundle_mod.BundleCell{};
     const empty_pairs = [_]bundle_mod.PairCells{};
     const sets = [_]bundle_mod.Bundle{
-        .{ .origin = .fan_rail, .bundle = 3, .members = &.{ 20, 21 } },
-        .{ .origin = .port_share, .bundle = 9, .members = &.{ 1, 2, 3 }, .cells = &flat_cells, .pairwise = &pairs },
-        .{ .origin = .port_share, .bundle = 10, .members = &.{ 4, 5 } },
-        .{ .origin = .port_share, .bundle = 11, .members = &.{ 6, 7 }, .cells = &empty_cells, .pairwise = &empty_pairs },
+        .{ .origin = .fan_rail, .members = &.{ 20, 21 } },
+        .{ .origin = .port_share, .members = &.{ 1, 2, 3 }, .cells = &flat_cells, .pairwise = &pairs },
+        .{ .origin = .port_share, .members = &.{ 4, 5 } },
+        .{ .origin = .port_share, .members = &.{ 6, 7 }, .cells = &empty_cells, .pairwise = &empty_pairs },
     };
     const clusters = [_]sketch.ClusterFrame{.{
         .id = 7,
@@ -120,7 +99,6 @@ test "vertical BT mirror remaps clustered bundle scopes without changing identit
         .clusters = &clusters,
         .edges = &.{},
         .bundle_sets = &sets,
-        .bundle_stamp_state = .complete,
         .diagnostics = &.{},
         .budget = .{ .max_width = 40, .rung = 0 },
     };
@@ -130,12 +108,10 @@ test "vertical BT mirror remaps clustered bundle scopes without changing identit
     const out = try mirror.vertical(arena.allocator(), s, .BT);
 
     try testing.expectEqual(sketch.Direction.BT, out.direction);
-    try testing.expectEqual(sketch.BundleStampState.complete, out.bundle_stamp_state);
     try testing.expectEqual(@as(i32, 16), out.clusters[0].rect.y);
     try testing.expectEqual(@as(usize, 4), out.bundle_sets.len);
     for (sets, out.bundle_sets) |before, after| {
         try testing.expectEqual(before.origin, after.origin);
-        try testing.expectEqual(before.bundle, after.bundle);
         try testing.expect(before.members.ptr == after.members.ptr);
     }
 
@@ -167,7 +143,6 @@ test "vertical mirror fails rather than exposing partially mirrored scopes" {
     const pairs = [_]bundle_mod.PairCells{.{ .a = 1, .b = 2, .cells = &pair_cells }};
     const sets = [_]bundle_mod.Bundle{.{
         .origin = .port_share,
-        .bundle = 5,
         .members = &.{ 1, 2 },
         .cells = &flat,
         .pairwise = &pairs,
@@ -179,7 +154,6 @@ test "vertical mirror fails rather than exposing partially mirrored scopes" {
         .clusters = &.{},
         .edges = &.{},
         .bundle_sets = &sets,
-        .bundle_stamp_state = .complete,
         .diagnostics = &.{},
         .budget = .{ .max_width = 20, .rung = 0 },
     };
@@ -191,7 +165,6 @@ test "vertical mirror fails rather than exposing partially mirrored scopes" {
         const a = failing.allocator();
         if (mirror.vertical(a, s, .BT)) |out| {
             try testing.expect(!failing.has_induced_failure);
-            try testing.expectEqual(sketch.BundleStampState.complete, out.bundle_stamp_state);
             try testing.expectEqual(@as(i32, 19), out.bundle_sets[0].cells.?[0].y);
             a.free(out.bundle_sets[0].pairwise.?[0].cells);
             a.free(out.bundle_sets[0].pairwise.?);
@@ -204,7 +177,6 @@ test "vertical mirror fails rather than exposing partially mirrored scopes" {
             try testing.expectEqual(error.OutOfMemory, err);
             try testing.expect(failing.has_induced_failure);
             try testing.expectEqual(failing.allocations, failing.deallocations);
-            try testing.expectEqual(sketch.BundleStampState.complete, s.bundle_stamp_state);
             try testing.expectEqual(@as(i32, 12), s.bundle_sets[0].cells.?[0].y);
         }
     }

@@ -2,7 +2,6 @@ const std = @import("std");
 const sketch = @import("../sketch.zig");
 const lattice = @import("../lattice.zig");
 const ledger = @import("../base/ledger.zig");
-const bundle_mod = @import("../base/bundle.zig");
 const edges = @import("edges.zig");
 const crossings = @import("crossings.zig");
 
@@ -161,40 +160,5 @@ test "determinism: crossing outcome is deterministic under edge-array permutatio
         const es = [_]sketch.EdgePath{ edge(1, &v, .none), edge(0, &h, .none) };
         _ = try edges.rasterizeEdges(a, &lat, sketchWith(&es, independentPlan(&mems)), .bridge);
         try testing.expectEqual(mask_ns, lat.atConst(5, 5).neighbours.toMask());
-    }
-}
-
-test "stamp state and BundleId never change derived crossing ink" {
-    const a = testing.allocator;
-    const h = [_]sketch.Point{ .{ .x = 0, .y = 5 }, .{ .x = 10, .y = 5 } };
-    const v = [_]sketch.Point{ .{ .x = 5, .y = 0 }, .{ .x = 5, .y = 10 } };
-    const es = [_]sketch.EdgePath{ edge(0, &h, .none), edge(1, &v, .none) };
-    var baseline: [121]lattice.Cell = undefined;
-    var have_baseline = false;
-
-    for ([_]bundle_mod.BundleId{ 1, 97 }) |bundle| {
-        const bundle_sets = [_]bundle_mod.Bundle{.{
-            .origin = .fan_rail,
-            .bundle = bundle,
-            .members = &.{ 0, 1 },
-        }};
-        for ([_]sketch.BundleStampState{ .unattempted, .complete, .out_of_memory, .rail_invariant }) |state| {
-            var lat = try makeLattice(a, 11, 11);
-            defer a.free(lat.cells);
-            var s = sketchWith(&es, .{});
-            s.bundle_sets = &bundle_sets;
-            s.bundle_stamp_state = state;
-
-            const r = try edges.rasterizeEdges(a, &lat, s, .bridge);
-            try testing.expectEqual(mask_cross, lat.atConst(5, 5).neighbours.toMask());
-            try testing.expectEqual(crossings.CrossingCounts{}, r.crossings);
-
-            if (have_baseline) {
-                try testing.expectEqualSlices(lattice.Cell, &baseline, lat.cells);
-            } else {
-                @memcpy(&baseline, lat.cells);
-                have_baseline = true;
-            }
-        }
     }
 }

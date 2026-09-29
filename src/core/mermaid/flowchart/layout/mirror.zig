@@ -81,7 +81,6 @@ pub fn vertical(a: std.mem.Allocator, s: sketch.Sketch, direction: sketch.Direct
         .rail_claims = rail_claims,
         .bundles = s.bundles,
         .bundle_sets = bundle_sets,
-        .bundle_stamp_state = s.bundle_stamp_state,
         .diagnostics = s.diagnostics,
         .budget = s.budget,
     };

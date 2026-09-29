@@ -97,7 +97,6 @@ pub fn rebuildOuterSets(
             std.mem.sort(sketch.EdgeId, group.members.items, {}, edgeLess);
             const rebuilt: bundle_mod.Bundle = .{
                 .origin = set.origin,
-                .bundle = bundle_mod.no_bundle,
                 .members = try group.members.toOwnedSlice(arena),
             };
             if (!sameSetAlready(out.items, rebuilt)) try out.append(arena, rebuilt);

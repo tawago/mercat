@@ -246,139 +246,34 @@ test "a pairwise-scoped set licenses only a pair's own common approach, never a 
         .{ .a = 1, .b = 2, .cells = &port_only },
     };
     const union_cells = [_]bundle_mod.BundleCell{ .{ .x = 5, .y = 3 }, .{ .x = 5, .y = 8 } };
-    const unnumbered = [_]bundle_mod.Bundle{.{
+    const sets = [_]bundle_mod.Bundle{.{
         .origin = .port_share,
         .members = &.{ 0, 1, 2 },
         .cells = &union_cells,
         .pairwise = &pairwise,
     }};
-    const sets = try bundle_mod.numberBundles(std.testing.allocator, &unnumbered);
-    defer std.testing.allocator.free(sets);
 
-    try expect(bundle_mod.bundleMembersAt(sets, 0, 1, null));
-    try expect(bundle_mod.bundleMembersAt(sets, 0, 2, null));
-    try expect(bundle_mod.bundleMembersAt(sets, 1, 2, null));
+    try expect(bundle_mod.bundleMembersAt(&sets, 0, 1, null));
+    try expect(bundle_mod.bundleMembersAt(&sets, 0, 2, null));
+    try expect(bundle_mod.bundleMembersAt(&sets, 1, 2, null));
 
-    try expect(bundle_mod.bundleMembersAt(sets, 0, 1, .{ .x = 5, .y = 8 }));
-    try expect(!bundle_mod.bundleMembersAt(sets, 0, 2, .{ .x = 5, .y = 8 }));
-    try expect(!bundle_mod.bundleMembersAt(sets, 1, 2, .{ .x = 5, .y = 8 }));
-    try expect(bundle_mod.bundleMembersAt(sets, 0, 2, .{ .x = 5, .y = 3 }));
-    try expect(bundle_mod.bundleMembersAt(sets, 1, 2, .{ .x = 5, .y = 3 }));
-
-    try expect(bundle_mod.memberOfBundleAt(sets, 1, 0, .{ .x = 5, .y = 8 }));
-    try expect(!bundle_mod.memberOfBundleAt(sets, 1, 2, .{ .x = 5, .y = 8 }));
+    try expect(bundle_mod.bundleMembersAt(&sets, 0, 1, .{ .x = 5, .y = 8 }));
+    try expect(!bundle_mod.bundleMembersAt(&sets, 0, 2, .{ .x = 5, .y = 8 }));
+    try expect(!bundle_mod.bundleMembersAt(&sets, 1, 2, .{ .x = 5, .y = 8 }));
+    try expect(bundle_mod.bundleMembersAt(&sets, 0, 2, .{ .x = 5, .y = 3 }));
+    try expect(bundle_mod.bundleMembersAt(&sets, 1, 2, .{ .x = 5, .y = 3 }));
 }
 
-test "a numbered bundle set names every set exactly once" {
-    const a = [_]pb.EdgeId{ 0, 1 };
-    const b = [_]pb.EdgeId{ 2, 3 };
-    const raw = [_]bundle_mod.Bundle{
-        .{ .origin = .fan_rail, .bundle = 1, .members = &a },
-        .{ .origin = .fan_rail, .bundle = 1, .members = &b },
-    };
-    try expect(!bundle_mod.bundleSetsNumbered(&[_]bundle_mod.Bundle{.{ .origin = .fan_rail, .members = &a }}));
-
-    const bundle_sets = try bundle_mod.numberBundles(std.testing.allocator, &raw);
-    defer std.testing.allocator.free(bundle_sets);
-    try expect(bundle_mod.bundleSetsNumbered(bundle_sets));
-    try expectEqual(@as(bundle_mod.BundleId, 1), bundle_sets[0].bundle);
-    try expectEqual(@as(bundle_mod.BundleId, 2), bundle_sets[1].bundle);
-
-    try expect(bundle_mod.memberOfBundleAt(bundle_sets, 1, 0, null));
-    try expect(bundle_mod.memberOfBundleAt(bundle_sets, 1, 1, null));
-    try expect(bundle_mod.memberOfBundleAt(bundle_sets, 2, 3, null));
-    try expect(!bundle_mod.memberOfBundleAt(bundle_sets, 2, 0, null));
-    try expect(!bundle_mod.memberOfBundleAt(bundle_sets, 1, 2, null));
-    try expect(bundle_mod.bundleMembersAt(bundle_sets, 0, 1, null));
-    try expect(!bundle_mod.bundleMembersAt(bundle_sets, 1, 2, null));
-
-    try expect(!bundle_mod.memberOfBundleAt(bundle_sets, 1, 9, null));
-    try expect(!bundle_mod.memberOfBundleAt(bundle_sets, 2, 9, null));
-    try expect(!bundle_mod.bundleMembersAt(bundle_sets, 9, 8, null));
-
-    const blank = [_]bundle_mod.Bundle{.{ .origin = .fan_rail, .members = &a }};
-    try expect(!bundle_mod.memberOfBundleAt(&blank, 1, 0, null));
-    try expect(!bundle_mod.memberOfBundleAt(&blank, bundle_mod.no_bundle, 0, null));
-}
-
-test "structural set resolution is unique and excludes scoped provenance" {
-    const scoped = [_]bundle_mod.BundleCell{.{ .x = 3, .y = 4 }};
-    const sets = [_]bundle_mod.Bundle{
-        .{ .origin = .fan_rail, .members = &.{ 1, 2 } },
-        .{ .origin = .selected_bundle, .members = &.{ 2, 3 } },
-        .{ .origin = .port_share, .members = &.{4} },
-        .{ .origin = .fan_rail, .members = &.{5}, .cells = &scoped },
-    };
-
-    switch (bundle_mod.resolveStructuralBundle(&sets, 1)) {
-        .unique => |i| try expectEqual(@as(usize, 0), i),
-        else => try expect(false),
-    }
-    switch (bundle_mod.resolveStructuralBundle(&sets, 2)) {
-        .multiple => {},
-        else => try expect(false),
-    }
-    switch (bundle_mod.resolveStructuralBundle(&sets, 4)) {
-        .absent => {},
-        else => try expect(false),
-    }
-    switch (bundle_mod.resolveStructuralBundle(&sets, 5)) {
-        .absent => {},
-        else => try expect(false),
-    }
-}
-
-test "a bundle asked by name holds its member on every cell, whichever set names the edge first" {
-    const fan_out = [_]pb.EdgeId{ 0, 1 };
-    const fan_in = [_]pb.EdgeId{ 1, 2 };
-    const raw = [_]bundle_mod.Bundle{
-        .{ .origin = .fan_rail, .members = &fan_out },
-        .{ .origin = .fan_rail, .members = &fan_in },
-    };
-    const sets = try bundle_mod.numberBundles(std.testing.allocator, &raw);
-    defer std.testing.allocator.free(sets);
-    const here: bundle_mod.BundleCell = .{ .x = 9, .y = 9 };
-
-    try expect(bundle_mod.memberOfBundleAt(sets, 1, 1, here));
-    try expect(bundle_mod.memberOfBundleAt(sets, 2, 1, here));
-    try expect(bundle_mod.memberOfBundleAt(sets, 2, 2, here));
-    try expect(!bundle_mod.memberOfBundleAt(sets, 1, 2, here));
-    try expect(!bundle_mod.memberOfBundleAt(sets, 2, 0, here));
-    try expect(!bundle_mod.memberOfBundleAt(sets, 3, 1, here));
-    try expect(!bundle_mod.memberOfBundleAt(sets, bundle_mod.no_bundle, 1, here));
-    try expect(!bundle_mod.memberOfBundleAt(&raw, 1, 1, here));
-
-    const cells = [_]bundle_mod.BundleCell{.{ .x = 2, .y = 2 }};
-    const scoped_raw = [_]bundle_mod.Bundle{.{ .origin = .port_share, .members = &fan_out, .cells = &cells }};
-    const scoped = try bundle_mod.numberBundles(std.testing.allocator, &scoped_raw);
-    defer std.testing.allocator.free(scoped);
-    try expect(bundle_mod.memberOfBundleAt(scoped, 1, 0, .{ .x = 2, .y = 2 }));
-    try expect(!bundle_mod.memberOfBundleAt(scoped, 1, 0, .{ .x = 7, .y = 7 }));
-    try expect(bundle_mod.memberOfBundleAt(scoped, 1, 0, null));
-}
-
-test "the derivation and the recorded identity answer alike on a declared bundle" {
+test "derived sameness follows declared membership and licensed cells" {
     const members = [_]pb.EdgeId{ 4, 5 };
-    const raw = [_]bundle_mod.Bundle{.{ .origin = .fan_rail, .members = &members }};
-    const bundle_sets = try bundle_mod.numberBundles(std.testing.allocator, &raw);
-    defer std.testing.allocator.free(bundle_sets);
-
-    try expect(bundle_plan.derivedSameBundle(.{}, bundle_sets, 4, 5, null));
-    try expect(bundle_mod.memberOfBundleAt(bundle_sets, 1, 4, null));
-    try expect(bundle_mod.memberOfBundleAt(bundle_sets, 1, 5, null));
-    try expect(!bundle_plan.derivedSameBundle(.{}, bundle_sets, 4, 6, null));
-    try expect(!bundle_mod.memberOfBundleAt(bundle_sets, 1, 6, null));
+    const declared = [_]bundle_mod.Bundle{.{ .origin = .fan_rail, .members = &members }};
+    try expect(bundle_plan.derivedSameBundle(.{}, &declared, 4, 5, null));
+    try expect(!bundle_plan.derivedSameBundle(.{}, &declared, 4, 6, null));
 
     const here = [_]bundle_mod.BundleCell{.{ .x = 2, .y = 2 }};
-    const scoped_raw = [_]bundle_mod.Bundle{.{ .origin = .port_share, .members = &members, .cells = &here }};
-    const scoped = try bundle_mod.numberBundles(std.testing.allocator, &scoped_raw);
-    defer std.testing.allocator.free(scoped);
-    try expect(bundle_plan.derivedSameBundle(.{}, scoped, 4, 5, .{ .x = 2, .y = 2 }));
-    try expect(bundle_mod.memberOfBundleAt(scoped, 1, 4, .{ .x = 2, .y = 2 }));
-    try expect(bundle_mod.memberOfBundleAt(scoped, 1, 5, .{ .x = 2, .y = 2 }));
-    try expect(!bundle_plan.derivedSameBundle(.{}, scoped, 4, 5, .{ .x = 7, .y = 7 }));
-    try expect(!bundle_mod.memberOfBundleAt(scoped, 1, 4, .{ .x = 7, .y = 7 }));
-    try expect(!bundle_mod.memberOfBundleAt(scoped, 1, 5, .{ .x = 7, .y = 7 }));
+    const scoped = [_]bundle_mod.Bundle{.{ .origin = .port_share, .members = &members, .cells = &here }};
+    try expect(bundle_plan.derivedSameBundle(.{}, &scoped, 4, 5, .{ .x = 2, .y = 2 }));
+    try expect(!bundle_plan.derivedSameBundle(.{}, &scoped, 4, 5, .{ .x = 7, .y = 7 }));
 }
 
 test {

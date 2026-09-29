@@ -396,7 +396,6 @@ test {
     _ = @import("layout/route_clearance_test.zig");
     _ = @import("select_test.zig");
     _ = @import("sketch_ports_test.zig");
-    _ = @import("sketch_bundles_test.zig");
     _ = @import("sketch_clearance_test.zig");
     _ = @import("junction_licence_test.zig");
     _ = @import("decoration_cell_test.zig");

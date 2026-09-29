@@ -14,7 +14,6 @@ pub const no_bundle: BundleId = 0;
 
 pub const Bundle = struct {
     origin: BundleOrigin,
-    bundle: BundleId = no_bundle,
     members: []const EdgeId,
     cells: ?[]const BundleCell = null,
     pairwise: ?[]const PairCells = null,
@@ -59,15 +58,6 @@ pub fn bundleMembersAt(sets: []const Bundle, first: EdgeId, second: EdgeId, at: 
     return false;
 }
 
-pub fn memberOfBundleAt(sets: []const Bundle, bundle: BundleId, edge: EdgeId, at: ?BundleCell) bool {
-    if (bundle == no_bundle) return false;
-    for (sets) |set| {
-        if (set.bundle != bundle) continue;
-        if (hasMember(set.members, edge) and licensesMember(set, edge, at)) return true;
-    }
-    return false;
-}
-
 fn licenses(set: Bundle, at: ?BundleCell) bool {
     const cells = set.cells orelse return true;
     const here = at orelse return true;
@@ -93,67 +83,4 @@ fn licensesPair(set: Bundle, first: EdgeId, second: EdgeId, at: ?BundleCell) boo
         if (c.x == here.x and c.y == here.y) return true;
     }
     return false;
-}
-
-fn licensesMember(set: Bundle, edge: EdgeId, at: ?BundleCell) bool {
-    const list = set.pairwise orelse return licenses(set, at);
-    const here = at orelse return true;
-    for (list) |p| {
-        if (p.a != edge and p.b != edge) continue;
-        for (p.cells) |c| {
-            if (c.x == here.x and c.y == here.y) return true;
-        }
-    }
-    return false;
-}
-
-pub const StructuralBundleResolution = union(enum) {
-    absent,
-    unique: usize,
-    multiple,
-};
-
-pub fn resolveStructuralBundle(sets: []const Bundle, edge: EdgeId) StructuralBundleResolution {
-    var found: ?usize = null;
-    for (sets, 0..) |set, i| {
-        if (!structuralUnscoped(set) or !hasMember(set.members, edge)) continue;
-        if (found != null) return .multiple;
-        found = i;
-    }
-    return if (found) |i| .{ .unique = i } else .absent;
-}
-
-pub fn structuralUnscoped(set: Bundle) bool {
-    if (set.cells != null or set.pairwise != null) return false;
-    return switch (set.origin) {
-        .selected_bundle, .fan_rail => true,
-        .port_share => false,
-    };
-}
-
-fn hasMember(members: []const EdgeId, edge: EdgeId) bool {
-    for (members) |member| {
-        if (member == edge) return true;
-    }
-    return false;
-}
-
-pub fn numberBundles(
-    allocator: std.mem.Allocator,
-    sets: []const Bundle,
-) error{OutOfMemory}![]const Bundle {
-    if (sets.len == 0) return sets;
-    const out = try allocator.alloc(Bundle, sets.len);
-    for (sets, out, 1..) |set, *slot, i| {
-        slot.* = set;
-        slot.bundle = @intCast(i);
-    }
-    return out;
-}
-
-pub fn bundleSetsNumbered(sets: []const Bundle) bool {
-    for (sets) |set| {
-        if (set.bundle == no_bundle) return false;
-    }
-    return true;
 }
