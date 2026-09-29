@@ -25,16 +25,6 @@ pub fn render(allocator: Allocator, source: []const u8, options: RenderOptions) 
     };
 }
 
-pub fn renderOrFallback(allocator: Allocator, source: []const u8, options: RenderOptions) RenderResult {
-    return render(allocator, source, options) catch {
-        return fallback(source, "Render failed");
-    };
-}
-
-pub fn isMermaidBlock(source: []const u8) bool {
-    return DiagramType.fromSource(source) != .unsupported;
-}
-
 fn renderFlowchart(allocator: Allocator, source: []const u8, options: RenderOptions) RenderResult {
     const flowchart_options = flowchart.RenderOptions{
         .max_width = options.max_width,

@@ -31,221 +31,6 @@ pub const Direction = enum {
     TD,
     TB,
     BT,
-
-    pub fn isHorizontal(self: Direction) bool {
-        return self == .LR or self == .RL;
-    }
-
-    pub fn isReversed(self: Direction) bool {
-        return self == .RL or self == .BT;
-    }
-};
-
-pub const NodeShape = enum {
-    rectangle,
-    rounded,
-    stadium,
-    diamond,
-    hexagon,
-    parallelogram,
-    parallelogram_alt,
-    trapezoid,
-    trapezoid_alt,
-    cylinder,
-    circle,
-    asymmetric,
-    subroutine,
-
-    pub fn getBoxChars(self: NodeShape, unicode_mode: bool) BoxChars {
-        if (!unicode_mode) return ascii_box;
-
-        return switch (self) {
-            .rectangle => unicode_square,
-            .rounded => unicode_rounded,
-            .stadium => unicode_stadium,
-            .cylinder => unicode_cylinder,
-            .circle => unicode_circle,
-            .diamond => unicode_diamond,
-            .hexagon => unicode_hexagon,
-            .subroutine => unicode_subroutine,
-            .asymmetric => unicode_asymmetric,
-            .parallelogram, .parallelogram_alt, .trapezoid, .trapezoid_alt => unicode_square,
-        };
-    }
-
-    pub fn needsSpecialRendering(self: NodeShape) bool {
-        return switch (self) {
-            .diamond, .circle, .cylinder, .hexagon, .parallelogram, .parallelogram_alt, .trapezoid, .trapezoid_alt, .stadium, .subroutine, .asymmetric => true,
-            else => false,
-        };
-    }
-};
-
-pub const EdgeStyle = enum {
-    solid,
-    dotted,
-    thick,
-    dashed,
-};
-
-pub const ArrowHead = enum {
-    arrow,
-    open_arrow,
-    circle,
-    cross,
-    none,
-};
-
-pub const Node = struct {
-    id: []const u8,
-    label: []const u8,
-    shape: NodeShape = .rectangle,
-    layer: ?u32 = null,
-    order: ?u32 = null,
-    x: ?i32 = null,
-    y: ?i32 = null,
-    width: u32 = 0,
-    height: u32 = 0,
-    subgraph_id: ?[]const u8 = null,
-    is_dummy: bool = false,
-};
-
-pub const Edge = struct {
-    from: []const u8,
-    to: []const u8,
-    label: ?[]const u8 = null,
-    style: EdgeStyle = .solid,
-    arrow_start: ArrowHead = .none,
-    arrow_end: ArrowHead = .arrow,
-    reversed: bool = false,
-    dummy_nodes: ?[][]const u8 = null,
-    from_is_subgraph: bool = false,
-    to_is_subgraph: bool = false,
-};
-
-pub const Subgraph = struct {
-    id: []const u8,
-    label: ?[]const u8,
-    parent_id: ?[]const u8 = null,
-    node_ids: std.ArrayList([]const u8),
-    allocator: Allocator,
-    x: ?i32 = null,
-    y: ?i32 = null,
-    width: ?u32 = null,
-    height: ?u32 = null,
-
-    pub fn init(allocator: Allocator, id: []const u8, label: ?[]const u8, parent_id: ?[]const u8) Subgraph {
-        return .{
-            .id = id,
-            .label = label,
-            .parent_id = parent_id,
-            .node_ids = .empty,
-            .allocator = allocator,
-        };
-    }
-
-    pub fn deinit(self: *Subgraph) void {
-        self.node_ids.deinit(self.allocator);
-    }
-
-    pub fn addNode(self: *Subgraph, node_id: []const u8) !void {
-        try self.node_ids.append(self.allocator, node_id);
-    }
-};
-
-pub const Graph = struct {
-    allocator: Allocator,
-    diagram_type: DiagramType,
-    direction: Direction,
-    nodes: std.StringHashMap(Node),
-    edges: std.ArrayList(Edge),
-    subgraphs: std.ArrayList(Subgraph),
-    node_order: std.ArrayList([]const u8),
-
-    pub fn init(allocator: Allocator) Graph {
-        return .{
-            .allocator = allocator,
-            .diagram_type = .flowchart,
-            .direction = .TD,
-            .nodes = std.StringHashMap(Node).init(allocator),
-            .edges = .empty,
-            .subgraphs = .empty,
-            .node_order = .empty,
-        };
-    }
-
-    pub fn deinit(self: *Graph) void {
-        self.nodes.deinit();
-        self.edges.deinit(self.allocator);
-        for (self.subgraphs.items) |*sg| {
-            sg.deinit();
-        }
-        self.subgraphs.deinit(self.allocator);
-        self.node_order.deinit(self.allocator);
-    }
-
-    pub fn addNode(self: *Graph, node: Node) !void {
-        const result = try self.nodes.getOrPut(node.id);
-        if (!result.found_existing) {
-            result.value_ptr.* = node;
-            try self.node_order.append(self.allocator, node.id);
-        }
-    }
-
-    pub fn addEdge(self: *Graph, edge: Edge) !void {
-        try self.edges.append(self.allocator, edge);
-    }
-
-    pub fn getNode(self: *const Graph, id: []const u8) ?*const Node {
-        return self.nodes.getPtr(id);
-    }
-
-    pub fn getNodeMut(self: *Graph, id: []const u8) ?*Node {
-        return self.nodes.getPtr(id);
-    }
-
-    pub fn addSubgraph(self: *Graph, subgraph: Subgraph) !void {
-        try self.subgraphs.append(self.allocator, subgraph);
-    }
-
-    pub fn getNodesInLayer(self: *const Graph, allocator: Allocator, layer: u32, out: *std.ArrayList(*const Node)) !void {
-        for (self.node_order.items) |id| {
-            if (self.nodes.getPtr(id)) |node| {
-                if (node.layer == layer) {
-                    try out.append(allocator, node);
-                }
-            }
-        }
-    }
-
-    pub fn getLayerCount(self: *const Graph) u32 {
-        var max_layer: u32 = 0;
-        var it = self.nodes.valueIterator();
-        while (it.next()) |node| {
-            if (node.layer) |l| {
-                if (l > max_layer) max_layer = l;
-            }
-        }
-        return max_layer + 1;
-    }
-
-    pub fn getOutgoingEdges(self: *const Graph, allocator: Allocator, node_id: []const u8, out: *std.ArrayList(*const Edge)) !void {
-        for (self.edges.items) |*edge| {
-            const from = if (edge.reversed) edge.to else edge.from;
-            if (std.mem.eql(u8, from, node_id)) {
-                try out.append(allocator, edge);
-            }
-        }
-    }
-
-    pub fn getIncomingEdges(self: *const Graph, allocator: Allocator, node_id: []const u8, out: *std.ArrayList(*const Edge)) !void {
-        for (self.edges.items) |*edge| {
-            const to = if (edge.reversed) edge.from else edge.to;
-            if (std.mem.eql(u8, to, node_id)) {
-                try out.append(allocator, edge);
-            }
-        }
-    }
 };
 
 pub const BoxChars = struct {
@@ -275,69 +60,6 @@ pub const unicode_rounded: BoxChars = .{
     .vertical = 0x2502,
 };
 
-pub const unicode_diamond: BoxChars = .{
-    .top_left = 0x25C7,
-    .top_right = 0x25C7,
-    .bottom_left = 0x25C7,
-    .bottom_right = 0x25C7,
-    .horizontal = 0x2500,
-    .vertical = 0x2502,
-};
-
-pub const unicode_stadium: BoxChars = .{
-    .top_left = 0x256D,
-    .top_right = 0x256E,
-    .bottom_left = 0x2570,
-    .bottom_right = 0x256F,
-    .horizontal = 0x2500,
-    .vertical = 0x2502,
-};
-
-pub const unicode_circle: BoxChars = .{
-    .top_left = 0x2571,
-    .top_right = 0x2572,
-    .bottom_left = 0x2572,
-    .bottom_right = 0x2571,
-    .horizontal = 0x2500,
-    .vertical = 0x2502,
-};
-
-pub const unicode_hexagon: BoxChars = .{
-    .top_left = 0x2571,
-    .top_right = 0x2572,
-    .bottom_left = 0x2572,
-    .bottom_right = 0x2571,
-    .horizontal = 0x2500,
-    .vertical = 0x2502,
-};
-
-pub const unicode_cylinder: BoxChars = .{
-    .top_left = 0x256D,
-    .top_right = 0x256E,
-    .bottom_left = 0x2570,
-    .bottom_right = 0x256F,
-    .horizontal = 0x2550,
-    .vertical = 0x2502,
-};
-
-pub const unicode_subroutine: BoxChars = .{
-    .top_left = 0x250C,
-    .top_right = 0x2510,
-    .bottom_left = 0x2514,
-    .bottom_right = 0x2518,
-    .horizontal = 0x2500,
-    .vertical = 0x2502,
-};
-
-pub const unicode_asymmetric: BoxChars = .{
-    .top_left = 0x250C,
-    .top_right = '>',
-    .bottom_left = 0x2514,
-    .bottom_right = '>',
-    .horizontal = 0x2500,
-    .vertical = 0x2502,
-};
-
 pub const ascii_box: BoxChars = .{
     .top_left = '+',
     .top_right = '+',
@@ -353,34 +75,6 @@ pub const BoxDrawingStyle = enum {
     heavy,
     double,
     ascii,
-
-    pub fn getBoxChars(self: BoxDrawingStyle) BoxChars {
-        return switch (self) {
-            .standard => unicode_square,
-            .rounded => unicode_rounded,
-            .heavy => box_chars_heavy,
-            .double => box_chars_double,
-            .ascii => ascii_box,
-        };
-    }
-};
-
-pub const box_chars_heavy: BoxChars = .{
-    .top_left = 0x250F,
-    .top_right = 0x2513,
-    .bottom_left = 0x2517,
-    .bottom_right = 0x251B,
-    .horizontal = 0x2501,
-    .vertical = 0x2503,
-};
-
-pub const box_chars_double: BoxChars = .{
-    .top_left = 0x2554,
-    .top_right = 0x2557,
-    .bottom_left = 0x255A,
-    .bottom_right = 0x255D,
-    .horizontal = 0x2550,
-    .vertical = 0x2551,
 };
 
 pub const Arrows = struct {
@@ -398,13 +92,6 @@ pub const Arrows = struct {
     pub const left_ascii: u21 = '<';
     pub const up_ascii: u21 = '^';
     pub const down_ascii: u21 = 'v';
-};
-
-pub const Junctions = struct {
-    pub const tee_up: u21 = 0x2534;
-    pub const tee_down: u21 = 0x252C;
-    pub const tee_left: u21 = 0x2524;
-    pub const tee_right: u21 = 0x251C;
 };
 
 pub const LineChars = struct {
@@ -502,13 +189,6 @@ pub const LayoutAlgorithm = enum {
     dominance_drawing,
     layered_bfs,
     unknown,
-
-    pub fn isLayered(self: LayoutAlgorithm) bool {
-        return switch (self) {
-            .sugiyama, .reingold_tilford, .layered_bfs => true,
-            .fruchterman_reingold, .kamada_kawai, .stress_majorization, .dominance_drawing, .unknown => false,
-        };
-    }
 };
 
 pub const FitStage = enum {
@@ -528,72 +208,6 @@ pub const FitStage = enum {
             .label_truncate => "labels truncated",
             .overflow => "overflow (fallback)",
         };
-    }
-};
-
-pub const LayoutNode = struct {
-    id: []const u8,
-    x: i32,
-    y: i32,
-    width: u32,
-    height: u32,
-    layer: ?u32 = null,
-    order: ?u32 = null,
-};
-
-pub const LayoutResult = struct {
-    allocator: Allocator,
-
-    nodes: std.ArrayList(LayoutNode),
-
-    layers: ?[][]usize = null,
-
-    back_edges: std.ArrayList(usize),
-
-    algorithm_used: LayoutAlgorithm = .unknown,
-    is_tree: bool = false,
-    is_cyclic: bool = false,
-    crossing_reduction_iterations: u32 = 0,
-
-    fit_stage: FitStage = .natural,
-    original_direction: ?Direction = null,
-    natural_width: u32 = 0,
-    final_width: u32 = 0,
-
-    pub fn init(allocator: Allocator) LayoutResult {
-        return .{
-            .allocator = allocator,
-            .nodes = .empty,
-            .back_edges = .empty,
-        };
-    }
-
-    pub fn deinit(self: *LayoutResult) void {
-        self.nodes.deinit(self.allocator);
-        self.back_edges.deinit(self.allocator);
-        if (self.layers) |layers| {
-            for (layers) |layer| {
-                self.allocator.free(layer);
-            }
-            self.allocator.free(layers);
-        }
-    }
-
-    pub fn addNode(self: *LayoutResult, node: LayoutNode) !void {
-        try self.nodes.append(self.allocator, node);
-    }
-
-    pub fn addBackEdge(self: *LayoutResult, edge_index: usize) !void {
-        try self.back_edges.append(self.allocator, edge_index);
-    }
-
-    pub fn getNode(self: *const LayoutResult, id: []const u8) ?*const LayoutNode {
-        for (self.nodes.items) |*node| {
-            if (std.mem.eql(u8, node.id, id)) {
-                return node;
-            }
-        }
-        return null;
     }
 };
 
@@ -618,7 +232,6 @@ pub const CompactionLevel = enum {
     reduced,
     tight,
     direction_switch,
-    multiline,
 };
 
 pub const CompactionHints = struct {
@@ -780,15 +393,6 @@ pub const SequenceDiagram = struct {
         return null;
     }
 
-    pub fn getParticipantMut(self: *SequenceDiagram, id: []const u8) ?*Participant {
-        for (self.participants.items) |*p| {
-            if (std.mem.eql(u8, p.id, id)) {
-                return p;
-            }
-        }
-        return null;
-    }
-
     pub fn getParticipantIndex(self: *const SequenceDiagram, id: []const u8) ?usize {
         for (self.participants.items, 0..) |p, i| {
             if (std.mem.eql(u8, p.id, id)) {
@@ -893,18 +497,6 @@ pub const Class = struct {
     pub fn addMember(self: *Class, member: ClassMember) !void {
         try self.members.append(self.allocator, member);
     }
-
-    pub fn getAttributes(self: *const Class) []const ClassMember {
-        var count: usize = 0;
-        for (self.members.items) |m| {
-            if (!m.is_method) count += 1;
-        }
-        return self.members.items;
-    }
-
-    pub fn getMethods(self: *const Class) []const ClassMember {
-        return self.members.items;
-    }
 };
 
 pub const ClassRelation = struct {
@@ -939,14 +531,6 @@ pub const ClassDiagram = struct {
         self.classes.deinit();
         self.relations.deinit(self.allocator);
         self.class_order.deinit(self.allocator);
-    }
-
-    pub fn addClass(self: *ClassDiagram, class: Class) !void {
-        const result = try self.classes.getOrPut(class.name);
-        if (!result.found_existing) {
-            result.value_ptr.* = class;
-            try self.class_order.append(self.allocator, class.name);
-        }
     }
 
     pub fn getClass(self: *const ClassDiagram, name: []const u8) ?*const Class {
@@ -1009,10 +593,6 @@ pub const Entity = struct {
     pub fn deinit(self: *Entity) void {
         self.attributes.deinit(self.allocator);
     }
-
-    pub fn addAttribute(self: *Entity, attr: EntityAttribute) !void {
-        try self.attributes.append(self.allocator, attr);
-    }
 };
 
 pub const EntityAttribute = struct {
@@ -1055,14 +635,6 @@ pub const ERDiagram = struct {
         self.entity_order.deinit(self.allocator);
     }
 
-    pub fn addEntity(self: *ERDiagram, entity: Entity) !void {
-        const result = try self.entities.getOrPut(entity.name);
-        if (!result.found_existing) {
-            result.value_ptr.* = entity;
-            try self.entity_order.append(self.allocator, entity.name);
-        }
-    }
-
     pub fn getEntity(self: *const ERDiagram, name: []const u8) ?*const Entity {
         return self.entities.getPtr(name);
     }
@@ -1084,10 +656,6 @@ pub const StateType = enum {
     fork,
     join,
     composite,
-
-    pub fn isSpecial(self: StateType) bool {
-        return self == .start or self == .end or self == .choice or self == .fork or self == .join;
-    }
 };
 
 pub const State = struct {
@@ -1106,10 +674,6 @@ pub const State = struct {
         if (self.state_type == .start) return "[*]";
         if (self.state_type == .end) return "[*]";
         return self.label orelse self.id;
-    }
-
-    pub fn isStartOrEnd(self: *const State) bool {
-        return self.state_type == .start or self.state_type == .end;
     }
 };
 
@@ -1194,62 +758,6 @@ pub const StateDiagram = struct {
         return self.states.getPtr(id);
     }
 
-    pub fn getChildStates(self: *const StateDiagram, allocator: Allocator, parent_id: []const u8, out: *std.ArrayList(*const State)) !void {
-        for (self.state_order.items) |id| {
-            if (self.states.getPtr(id)) |state| {
-                if (state.parent_id) |pid| {
-                    if (std.mem.eql(u8, pid, parent_id)) {
-                        try out.append(allocator, state);
-                    }
-                }
-            }
-        }
-    }
-
-    pub fn getTopLevelStates(self: *const StateDiagram, allocator: Allocator, out: *std.ArrayList(*const State)) !void {
-        for (self.state_order.items) |id| {
-            if (self.states.getPtr(id)) |state| {
-                if (state.parent_id == null) {
-                    try out.append(allocator, state);
-                }
-            }
-        }
-    }
-
-    pub fn findStartStates(self: *const StateDiagram, allocator: Allocator, parent_id: ?[]const u8, out: *std.ArrayList([]const u8)) !void {
-        for (self.state_order.items) |id| {
-            if (self.states.getPtr(id)) |state| {
-                if (state.state_type == .start) {
-                    const in_scope = if (parent_id) |pid|
-                        (state.parent_id != null and std.mem.eql(u8, state.parent_id.?, pid))
-                    else
-                        state.parent_id == null;
-
-                    if (in_scope) {
-                        try out.append(allocator, id);
-                    }
-                }
-            }
-        }
-    }
-
-    pub fn findEndStates(self: *const StateDiagram, allocator: Allocator, parent_id: ?[]const u8, out: *std.ArrayList([]const u8)) !void {
-        for (self.state_order.items) |id| {
-            if (self.states.getPtr(id)) |state| {
-                if (state.state_type == .end) {
-                    const in_scope = if (parent_id) |pid|
-                        (state.parent_id != null and std.mem.eql(u8, state.parent_id.?, pid))
-                    else
-                        state.parent_id == null;
-
-                    if (in_scope) {
-                        try out.append(allocator, id);
-                    }
-                }
-            }
-        }
-    }
-
     pub fn getLayerCount(self: *const StateDiagram) u32 {
         var max_layer: u32 = 0;
         var it = self.states.valueIterator();
@@ -1296,19 +804,4 @@ test "StateDiagram basic operations" {
     try testing.expect(diagram.getState("s3") == null);
     try testing.expectEqual(@as(usize, 3), diagram.transitions.items.len);
     try testing.expectEqual(@as(usize, 4), diagram.state_order.items.len);
-}
-
-test "Graph basic operations" {
-    const testing = std.testing;
-    var graph = Graph.init(testing.allocator);
-    defer graph.deinit();
-
-    try graph.addNode(.{ .id = "A", .label = "Start" });
-    try graph.addNode(.{ .id = "B", .label = "End" });
-    try graph.addEdge(.{ .from = "A", .to = "B" });
-
-    try testing.expect(graph.getNode("A") != null);
-    try testing.expect(graph.getNode("B") != null);
-    try testing.expect(graph.getNode("C") == null);
-    try testing.expectEqual(@as(usize, 1), graph.edges.items.len);
 }

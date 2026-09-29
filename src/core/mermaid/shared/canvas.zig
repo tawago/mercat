@@ -156,42 +156,6 @@ pub const Canvas = struct {
         }
     }
 
-    pub fn drawPath(self: *Canvas, points: []const Point, style: types.EdgeStyle, priority: Priority) void {
-        if (points.len < 2) return;
-
-        const h_char: u21 = switch (style) {
-            .solid => LineChars.horizontal,
-            .dotted => LineChars.horizontal_dotted,
-            .thick => LineChars.horizontal_thick,
-            .dashed => LineChars.horizontal_dashed,
-        };
-        const v_char: u21 = switch (style) {
-            .solid => LineChars.vertical,
-            .dotted => LineChars.vertical_dotted,
-            .thick => LineChars.vertical_thick,
-            .dashed => LineChars.vertical_dashed,
-        };
-
-        for (points[0 .. points.len - 1], points[1..]) |p1, p2| {
-            if (p1.y == p2.y) {
-                self.drawHorizontalLine(p1.y, p1.x, p2.x, h_char, priority);
-            } else if (p1.x == p2.x) {
-                self.drawVerticalLine(p1.x, p1.y, p2.y, v_char, priority);
-            }
-        }
-
-        for (1..points.len - 1) |i| {
-            const prev = points[i - 1];
-            const curr = points[i];
-            const next = points[i + 1];
-
-            const corner = self.getCornerChar(prev, curr, next);
-            if (corner) |c| {
-                self.setChar(curr.x, curr.y, c, priority);
-            }
-        }
-    }
-
     fn getCornerChar(self: *Canvas, prev: Point, curr: Point, next: Point) ?u21 {
         _ = self;
         const from_left = prev.x < curr.x;
@@ -210,34 +174,6 @@ pub const Canvas = struct {
         if ((from_left and to_above) or (from_above and to_left)) return LineChars.corner_nw;
 
         return null;
-    }
-
-    pub fn drawArrow(self: *Canvas, point: Point, direction: types.Direction, unicode_mode: bool, priority: Priority) void {
-        const char: u21 = if (unicode_mode) switch (direction) {
-            .LR => Arrows.right_thin,
-            .RL => Arrows.left_thin,
-            .TD, .TB => Arrows.down_thin,
-            .BT => Arrows.up_thin,
-        } else switch (direction) {
-            .LR => Arrows.right_ascii,
-            .RL => Arrows.left_ascii,
-            .TD, .TB => Arrows.down_ascii,
-            .BT => Arrows.up_ascii,
-        };
-        self.setChar(point.x, point.y, char, priority);
-    }
-
-    pub fn drawArrowBetween(self: *Canvas, from: Point, to: Point, unicode_mode: bool, priority: Priority) void {
-        const dx = to.x - from.x;
-        const dy = to.y - from.y;
-
-        const direction: types.Direction = if (@abs(dx) > @abs(dy)) blk: {
-            break :blk if (dx > 0) .LR else .RL;
-        } else blk: {
-            break :blk if (dy > 0) .TD else .BT;
-        };
-
-        self.drawArrow(to, direction, unicode_mode, priority);
     }
 
     pub fn toString(self: *Canvas, allocator: Allocator) ![]const u8 {
@@ -265,18 +201,6 @@ pub const Canvas = struct {
         }
 
         return result.toOwnedSlice(allocator);
-    }
-
-    pub fn clearRect(self: *Canvas, rect: Rect) void {
-        var y = rect.y;
-        while (y < rect.bottom()) : (y += 1) {
-            var x = rect.x;
-            while (x < rect.right()) : (x += 1) {
-                if (self.getCell(x, y)) |cell| {
-                    cell.* = Cell{};
-                }
-            }
-        }
     }
 };
 

@@ -3,7 +3,6 @@ const Allocator = std.mem.Allocator;
 const types = @import("../types.zig");
 
 const RenderOptions = types.RenderOptions;
-const LayoutAlgorithm = types.LayoutAlgorithm;
 const StateDiagram = types.StateDiagram;
 
 pub const StateLayout = struct {
@@ -12,7 +11,6 @@ pub const StateLayout = struct {
     options: RenderOptions,
 
     layers: std.ArrayList(std.ArrayList([]const u8)),
-    algorithm_used: LayoutAlgorithm = .layered_bfs,
 
     pub fn init(allocator: Allocator, diagram: *StateDiagram, options: RenderOptions) StateLayout {
         return .{
