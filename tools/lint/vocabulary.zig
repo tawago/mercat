@@ -83,7 +83,7 @@ pub const table = [_]Row{
     },
     .{
         .token = "fan_busbar",
-        .why = "the fan rail builder is layout/fan_rail.zig (+ fan_rail_test.zig); the old module basename is retired, including in guarded-by pointers and import strings",
+        .why = "the fan rail builder is layout/fan_rail.zig (+ fan_rail_test.zig); the old module basename is retired, including in import strings",
     },
     .{
         .token = "trunk_member_style_mixed",
@@ -179,7 +179,7 @@ pub const table = [_]Row{
     },
     .{
         .token = "sketch_channels",
-        .why = "the stamp module is sketch_bundles.zig (P8); the old basename is retired, including in guarded-by pointers and import strings",
+        .why = "the stamp module is sketch_bundles.zig (P8); the old basename is retired, including in import strings",
     },
     .{
         .token = "co_channel",

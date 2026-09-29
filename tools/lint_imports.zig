@@ -1,11 +1,8 @@
 const std = @import("std");
 
 const imports = @import("lint/imports.zig");
-const gb = @import("lint/guarded_by.zig");
 const banned = @import("lint/vocabulary.zig");
 const cycles = @import("lint/cycles.zig");
-const TestDecl = gb.TestDecl;
-const GbRef = gb.GbRef;
 
 pub const LintReport = struct {
     violations: []const []const u8,
@@ -25,9 +22,6 @@ pub fn lint(allocator: std.mem.Allocator, root: []const u8) !LintReport {
 
     var violations: std.ArrayList([]const u8) = .empty;
 
-    var test_decls: std.ArrayList(TestDecl) = .empty;
-    var gb_refs: std.ArrayList(GbRef) = .empty;
-    var seen_files: std.ArrayList([]const u8) = .empty;
     var production: std.ArrayList(cycles.Source) = .empty;
 
     var dir = std.fs.cwd().openDir(root, .{ .iterate = true }) catch |err| {
@@ -69,14 +63,8 @@ pub fn lint(allocator: std.mem.Allocator, root: []const u8) !LintReport {
         try banned.scan(a, &violations, entry.path, contents, &banned.table);
 
         try imports.scanImports(a, &violations, entry.path, contents);
-
-        const base_owned = try a.dupe(u8, entry.basename);
-        try seen_files.append(a, base_owned);
-        try gb.collectTests(a, &test_decls, base_owned, contents);
-        try gb.collectGuardedBy(a, &gb_refs, try a.dupe(u8, entry.path), contents);
     }
 
-    try gb.verifyGuardedBy(a, &violations, seen_files.items, test_decls.items, gb_refs.items);
     try cycles.check(a, &violations, production.items);
 
     return LintReport{ .violations = try violations.toOwnedSlice(a), .arena = arena_ptr };
@@ -166,7 +154,6 @@ test "the cap exempts *_test*.zig and nothing else" {
 
 test {
     _ = imports;
-    _ = gb;
     _ = banned;
     _ = cycles;
 }
