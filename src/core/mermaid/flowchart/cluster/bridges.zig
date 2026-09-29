@@ -7,17 +7,15 @@ const scene = @import("bridge_scene.zig");
 const corridors = @import("corridors.zig");
 const requests = @import("bridge_requests.zig");
 const bridge_rails = @import("bridge_rails.zig");
+const types = @import("bridge_types.zig");
+const elbow = @import("bridge_elbow.zig");
 
-pub const Crossing = struct {
-    id: sketch.EdgeId,
-    from: sg.NodeId,
-    to: sg.NodeId,
-    kind: sketch.EdgeKind,
-    arrow_from: sketch.ArrowKind,
-    arrow_to: sketch.ArrowKind,
-    label: ?[]const u8,
-    origin: sg.EdgeId = sg.SENTINEL,
-};
+pub const Crossing = types.Crossing;
+const Pending = types.Pending;
+const Anchor = types.Anchor;
+const Sides = types.Sides;
+const buildElbow = elbow.buildElbow;
+const rerouted = elbow.rerouted;
 
 pub fn route(
     arena: std.mem.Allocator,
@@ -225,37 +223,6 @@ fn commitScene(
     try scene.commitPoly(arena, heads, runs, poly, cross.arrow_from != .none, cross.arrow_to != .none);
 }
 
-pub fn rerouted(
-    arena: std.mem.Allocator,
-    p: Pending,
-    placements: []const sketch.NodePlacement,
-) error{OutOfMemory}!bool {
-    if (p.sides.exit != .north and p.sides.exit != .south) return false;
-    return polyIntrudes(try buildElbow(arena, p), placements, p.gf, p.gt);
-}
-
-pub const Pending = struct {
-    cross: Crossing,
-    gf: sketch.NodeId,
-    gt: sketch.NodeId,
-    from_rect: sketch.Rect,
-    to_rect: sketch.Rect,
-    to_box: sketch.Rect,
-    sides: Sides,
-    start: Pt,
-    end: Pt,
-    off_from: u32,
-    off_to: u32,
-    from_frame: ?sketch.ClusterId,
-    to_frame: ?sketch.ClusterId,
-    pref: ?i32,
-    anchor: Anchor,
-    jog: ?i32 = null,
-    rail_end: requests.RailEnd = .start,
-};
-
-const Anchor = struct { frame: bool, id: u32 };
-
 fn anchorOf(clusters: []const sketch.ClusterFrame, p: sketch.NodePlacement, merged_id: sketch.NodeId) Anchor {
     var cid = p.cluster_id;
     var guard: u32 = 0;
@@ -349,8 +316,6 @@ fn boxOf(clusters: []const sketch.ClusterFrame, p: sketch.NodePlacement) ?sketch
     return null;
 }
 
-const Sides = struct { exit: sketch.Dir4, entry: sketch.Dir4 };
-
 fn relSides(f: sketch.Rect, t: sketch.Rect, dir: sketch.Direction) Sides {
     const x_overlap = f.x < t.right() and t.x < f.right();
     const y_overlap = f.y < t.bottom() and t.y < f.bottom();
@@ -371,31 +336,7 @@ fn relSides(f: sketch.Rect, t: sketch.Rect, dir: sketch.Direction) Sides {
     return if (dx >= 0) .{ .exit = .east, .entry = .west } else .{ .exit = .west, .entry = .east };
 }
 
-fn buildElbow(arena: std.mem.Allocator, p: Pending) error{OutOfMemory}![]sketch.Point {
-    var poly: std.ArrayListUnmanaged(sketch.Point) = .empty;
-    try poly.append(arena, p.start);
-    if (p.jog) |j| {
-        const jc = switch (p.sides.exit) {
-            .south => clampBetween(p.start.y, p.end.y, j),
-            .north => clampBetween(p.end.y, p.start.y, j),
-            .east => clampBetween(p.start.x, p.end.x, j),
-            .west => clampBetween(p.end.x, p.start.x, j),
-        };
-        const vertical = (p.sides.exit == .north or p.sides.exit == .south);
-        if (vertical) {
-            try poly.append(arena, .{ .x = p.start.x, .y = jc });
-            try poly.append(arena, .{ .x = p.end.x, .y = jc });
-        } else {
-            try poly.append(arena, .{ .x = jc, .y = p.start.y });
-            try poly.append(arena, .{ .x = jc, .y = p.end.y });
-        }
-    }
-    try poly.append(arena, p.end);
-    return try poly.toOwnedSlice(arena);
-}
-
 const verticalCorridor = scene.verticalCorridor;
-const polyIntrudes = scene.polyIntrudes;
 const clampBetween = scene.clampBetween;
 
 const Pt = sketch.Point;

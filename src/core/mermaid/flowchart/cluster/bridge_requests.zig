@@ -1,12 +1,12 @@
 const std = @import("std");
 const sketch = @import("../sketch.zig");
-const bridges = @import("bridges.zig");
+const types = @import("bridge_types.zig");
 const tracks = @import("tracks.zig");
 
 const Pt = sketch.Point;
-const Pending = bridges.Pending;
+const Pending = types.Pending;
 
-pub const RailEnd = enum { start, end };
+pub const RailEnd = types.RailEnd;
 
 pub fn railPort(p: Pending, end: RailEnd) Pt {
     return switch (end) {

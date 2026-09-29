@@ -2,7 +2,8 @@ const std = @import("std");
 const sketch = @import("../sketch.zig");
 const sg = @import("../sem_graph.zig");
 const ledger = @import("../base/ledger.zig");
-const bridges = @import("bridges.zig");
+const types = @import("bridge_types.zig");
+const elbow = @import("bridge_elbow.zig");
 const requests = @import("bridge_requests.zig");
 const scene = @import("bridge_scene.zig");
 const tracks = @import("tracks.zig");
@@ -12,7 +13,7 @@ const Pt = sketch.Point;
 /// @guarded-by: bridges_test.zig "a licensed shared-target fan moves its whole rail off a static run the scene models as no obstacle"
 pub fn overrideJogs(
     arena: std.mem.Allocator,
-    pends: []bridges.Pending,
+    pends: []types.Pending,
     placements: []const sketch.NodePlacement,
     clusters: []const sketch.ClusterFrame,
     obstacles: tracks.Obstacles,
@@ -41,7 +42,7 @@ pub fn overrideJogs(
     return changed;
 }
 
-fn pivotOf(p: bridges.Pending, end: ledger.Endpoint) sg.NodeId {
+fn pivotOf(p: types.Pending, end: ledger.Endpoint) sg.NodeId {
     return if (end == .source) p.cross.from else p.cross.to;
 }
 
@@ -51,7 +52,7 @@ fn railEnd(end: ledger.Endpoint) requests.RailEnd {
 
 fn licensed(
     arena: std.mem.Allocator,
-    pends: []const bridges.Pending,
+    pends: []const types.Pending,
     members: []const usize,
     end: ledger.Endpoint,
 ) error{OutOfMemory}!bool {
@@ -77,7 +78,7 @@ fn licensed(
 
 fn railable(
     arena: std.mem.Allocator,
-    pends: []const bridges.Pending,
+    pends: []const types.Pending,
     members: []const usize,
     placements: []const sketch.NodePlacement,
     end: ledger.Endpoint,
@@ -89,7 +90,7 @@ fn railable(
         if (m.jog == null) return false;
         if (requests.railSide(m, re) != requests.railSide(p0, re)) return false;
         if (!requests.samePt(requests.railPort(m, re), requests.railPort(p0, re))) return false;
-        if (try bridges.rerouted(arena, m, placements)) return false;
+        if (try elbow.rerouted(arena, m, placements)) return false;
         if (requests.railedAtOtherEnd(pends, mi, re)) return false;
     }
     return true;
@@ -97,7 +98,7 @@ fn railable(
 
 fn chooseJog(
     arena: std.mem.Allocator,
-    pends: []const bridges.Pending,
+    pends: []const types.Pending,
     members: []const usize,
     placements: []const sketch.NodePlacement,
     clusters: []const sketch.ClusterFrame,
@@ -151,7 +152,7 @@ fn chooseJog(
 }
 
 fn groupScore(
-    pends: []const bridges.Pending,
+    pends: []const types.Pending,
     members: []const usize,
     c: i32,
     vertical: bool,
@@ -172,7 +173,7 @@ fn groupScore(
     return sum;
 }
 
-fn boundsOf(p: bridges.Pending) [2]i32 {
+fn boundsOf(p: types.Pending) [2]i32 {
     return switch (p.sides.exit) {
         .south => .{ p.start.y, p.end.y },
         .north => .{ p.end.y, p.start.y },
