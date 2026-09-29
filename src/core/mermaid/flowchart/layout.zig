@@ -93,7 +93,7 @@ fn buildSketch(
     const fans_detected: []fan_mod.Fan = if (is_td) try fan_mod.detect(a, graph, lg) else &.{};
     const effective_plan: ?ledger.BundlePermits = try bundle_commit.effectivePlan(a, graph, opts.bundle_permits);
     const plan_ref: ?*const ledger.BundlePermits = if (effective_plan) |*p| p else null;
-    var candidate_bundles = try bundle_commit.buildReported(a, graph, plan_ref, lg.reversed_edges, try longEdges(a, lg), null);
+    const candidate_bundles = try bundle_commit.buildReported(a, graph, plan_ref, lg.reversed_edges, try longEdges(a, lg), null);
     const fans = try fan_gate.keepRealizableLong(a, fans_detected, candidate_bundles);
     const construction_private = hasPrivatePeers(fans);
     const port_active = hasPortWork(candidate_bundles) or construction_private;
@@ -180,7 +180,6 @@ fn buildSketch(
 
     const placements = try buildPlacements(a, graph, lg, geom, node_lines);
     const allocated_ports = try port_plan.allocate(a, graph, placements, derived, candidate_bundles, opts.rung);
-    candidate_bundles.terminal_ports = allocated_ports.terminals;
     const edges_result = if (port_active)
         try routing.buildEdgesWithPlan(a, graph, lg, geom, placements, fans, candidate_bundles, allocated_ports, rows)
     else

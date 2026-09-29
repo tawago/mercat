@@ -21,7 +21,6 @@ pub const EdgePorts = struct {
 
 pub const Plan = struct {
     edges: []const EdgePorts = &.{},
-    terminals: []const pb.TerminalPort = &.{},
 
     pub fn forEdge(self: Plan, edge: pb.EdgeId) ?EdgePorts {
         for (self.edges) |item| if (item.edge == edge) return item;
@@ -153,7 +152,6 @@ pub fn allocate(
     };
 
     const edge_ports = try a.alloc(EdgePorts, graph.edges.len);
-    var terminals: std.ArrayListUnmanaged(pb.TerminalPort) = .empty;
     for (graph.edges, edge_ports) |edge, *out| {
         const source = resolvePort(graph, placements, faces.items, resolved, bundles, edge, .source_exit);
         const target = resolvePort(graph, placements, faces.items, resolved, bundles, edge, .target_entry);
@@ -168,10 +166,8 @@ pub fn allocate(
             .target_duplicate = hasDuplicatePrivateClaim(resolved, bundles, edge.to, edge, .target_entry),
             .target_decorated = edge.arrow_to != .none,
         };
-        try terminals.append(a, .{ .node = edge.from, .edge = edge.id, .endpoint_side = .source_exit, .port = source.ordinal });
-        try terminals.append(a, .{ .node = edge.to, .edge = edge.id, .endpoint_side = .target_entry, .port = target.ordinal });
     }
-    return .{ .edges = edge_ports, .terminals = try terminals.toOwnedSlice(a) };
+    return .{ .edges = edge_ports };
 }
 
 fn allocateFace(a: std.mem.Allocator, node: pb.NodeId, side: sk.Dir4, side_len: u32, attachments: []const ports.Attachment, rung: u8) error{OutOfMemory}![]const ports.Assignment {

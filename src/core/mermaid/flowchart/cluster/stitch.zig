@@ -170,7 +170,7 @@ pub fn stitch(
         const base = id_base;
         id_base += idSpan(child.sketch);
         claim_sources[si] = .{ .sketch = child.sketch, .node_map = global_of[super.child_piece], .edge_base = base };
-        try piece_joins.append(arena, .{ .bundles = child.sketch.bundles, .edge_base = base, .node_map = global_of[super.child_piece] });
+        try piece_joins.append(arena, .{ .bundles = child.sketch.bundles, .edge_base = base });
         for (child.sketch.edges) |ce| {
             try edges.append(arena, try translateEdge(arena, ce, global_of[super.child_piece], dx, dy, base));
         }
@@ -187,7 +187,7 @@ pub fn stitch(
     const outer_base = id_base;
     id_base += idSpan(outer);
     const bridge_base = id_base;
-    try piece_joins.append(arena, .{ .bundles = outer.bundles, .edge_base = outer_base, .node_map = global_of[0] });
+    try piece_joins.append(arena, .{ .bundles = outer.bundles, .edge_base = outer_base });
     for (outer.edges) |oe| {
         if (superFor(split_result, oe.from) != null or superFor(split_result, oe.to) != null) continue;
         try edges.append(arena, try translateEdge(arena, oe, global_of[0], 0, 0, outer_base));
