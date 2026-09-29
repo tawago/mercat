@@ -56,7 +56,6 @@ fn cylinderGlyph(role: lattice.BorderRole, n: lattice.Neighbours) u21 {
         .corner_ne => '╮',
         .corner_se => '╯',
         .corner_sw => '╰',
-        // @guarded-by: shape_glyphs.zig "cylinder: top/bottom edges use double rail; tees use ╤/╧"
         .edge_n => if (n.s) '╤' else if (n.n) '╧' else '═',
         .edge_s => if (n.n) '╧' else if (n.s) '╤' else '═',
         else => jt.glyphFor(n),

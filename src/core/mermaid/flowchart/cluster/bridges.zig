@@ -63,7 +63,6 @@ pub fn route(
         });
     }
 
-    // @guarded-by: bridges_test.zig "a re-routed corridor raises no crossing demand on the frame it leaves"
     for (pends.items) |*p| p.pref = jogPref(p.start, p.end, p.sides.exit, p.to_box);
     try requests.assignJogs(arena, pends.items, clusters, obstacles);
 

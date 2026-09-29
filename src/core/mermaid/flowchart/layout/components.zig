@@ -40,7 +40,6 @@ pub fn packComponents(
         }
     }
 
-    // guarded-by: components.zig "packComponents: virtual-node geometry cannot widen a component's span"
     var roots: std.ArrayListUnmanaged(u32) = .empty;
     const min_x = try a.alloc(i32, n);
     defer a.free(min_x);
@@ -64,10 +63,8 @@ pub fn packComponents(
 
     if (roots.items.len < 2) return;
 
-    // guarded-by: components.zig "packComponents: equal-min_x components tiebreak by ascending root index"
     std.sort.pdq(u32, roots.items, SortCtx{ .min_x = min_x }, SortCtx.less);
 
-    // guarded-by: components.zig "packComponents: packed components are contiguous with exactly COMPONENT_GAP between them"
     const delta = try a.alloc(i32, n);
     defer a.free(delta);
     for (delta) |*d| d.* = 0;
@@ -118,7 +115,6 @@ fn unite(parent: []u32, a_idx: u32, b_idx: u32) void {
     const ra = find(parent, a_idx);
     const rb = find(parent, b_idx);
     if (ra == rb) return;
-    // guarded-by: components.zig "unite: lower-index root always wins, regardless of call order"
     if (ra < rb) parent[rb] = ra else parent[ra] = rb;
 }
 

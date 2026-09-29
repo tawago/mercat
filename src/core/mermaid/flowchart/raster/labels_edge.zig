@@ -60,13 +60,10 @@ pub fn placeLabelAtSeg(
     left_of_run: bool,
     polyline: []const sketch.Point,
 ) types.RasterError!Placement {
-    // @guarded-by: labels_eaw_test.zig "edge-label probe reserves display cells: a wide label no longer overwrites the ink beside it"
     const owner: ink.Owner = .{ .edge_id = edge_id, .polyline = polyline, .seg_a = a, .seg_b = b };
 
-    // @guarded-by: labels_ladder_test.zig "the own_adjacent pass beats the primary anchor: the label relocates to sit by its own edge's ink"
     const anchor = anchorFor(a, b, left_of_run, run.width);
     for (passes) |pass| {
-        // @guarded-by: labels_test.zig "edge label fits above midpoint"
         if (tryWrite(lat, run, anchor.x, anchor.y, owner, pass)) return .at_anchor;
 
         if (trySegment(lat, run, a, b, left_of_run, owner, pass)) return .displaced;
@@ -104,7 +101,6 @@ fn trySegment(
     const orig_len: u32 = run.width;
 
     if (a.y == b.y) {
-        // @guarded-by: labels_test.zig "edge label falls back below the segment when above is out of bounds"
         const mid_x: i32 = @divTrunc(a.x + b.x, 2);
         const min_x = @min(a.x, b.x);
         const max_x = @max(a.x, b.x);
@@ -136,7 +132,6 @@ fn trySegment(
     return false;
 }
 
-/// @guarded-by: labels_ladder_test.zig "the own_nearest pass walks the label toward its own edge's ink when own_adjacent positions are blocked"
 fn passAllows(
     lat: *const lattice.Lattice,
     owner: ink.Owner,
@@ -171,11 +166,8 @@ fn tryWrite(
     const row: u32 = @intCast(ly);
     if (start_x + cell_count > lat.width) return false;
 
-    // @guarded-by: labels_test.zig "edge-label runs on the same row keep two blank cells apart"
-    // @guarded-by: labels_eaw_test.zig "blank-flank rule treats a continuation as a label neighbour"
     if (!ink.spanIsolated(lat, owner, lx, ly, cell_count, pass == .any_solid)) return false;
 
-    // @guarded-by: labels_test.zig "tryWrite rejects a pre-occupied primary-anchor cell as a real collision, not an OOB miss"
     var i: u32 = 0;
     while (i < cell_count) : (i += 1) {
         const cell = lat.atConst(start_x + i, row);

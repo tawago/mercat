@@ -144,7 +144,6 @@ pub fn fanClaims(
         });
         for (groups.items) |*g| {
             if (g.lo == g.hi and !g.labeled) continue;
-            // @guarded-by: junction_licence_test.zig "fan labels: feasible mixed, in-out, star-law-refused, clustered and BT renders lose none"
             const keys = try a.alloc(FanKey, 1);
             keys[0] = .{ .pivot_idx = f.pivot_idx, .direction = f.direction };
             const base: u32 = if (!g.labeled or g.comb) 1 else if (f.direction == .in) 1 + fan_mod.LABEL_RUN_EXTRA_ROWS else fan_mod.LABEL_RUN_EXTRA_ROWS + @intFromBool(labelsCollide(g.taps.items, g.label_widths.items));

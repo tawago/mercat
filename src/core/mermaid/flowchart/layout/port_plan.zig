@@ -100,8 +100,6 @@ fn fanAttachment(a: std.mem.Allocator, graph: sg.SemGraph, fan: fan_mod.Fan, end
     };
 }
 
-/// @guarded-by: port_plan_test.zig "a discharged edge claims no attachment"
-/// @guarded-by: gap_rows_test.zig "a discharged edge claims no gap row"
 pub fn withoutDischarged(
     a: std.mem.Allocator,
     derived: []const ports.DerivedAttachment,

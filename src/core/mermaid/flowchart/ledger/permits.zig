@@ -150,7 +150,6 @@ pub fn build(
     graph: sg.SemGraph,
     policy: pb.BundlePolicy,
 ) BuildError!BuildResult {
-    // @guarded-by: permits_test.zig "V-D-EDGE-ID-02: clustered graph returns empty plan and both skip markers"
     if (graph.clusters.len != 0) return .{
         .plan = .{ .policy = policy, .scope = .skipped_clustered },
         .report = .{
@@ -169,12 +168,10 @@ pub fn build(
     const incidence = try allocator.alloc(Incidence, graph.nodes.len);
     for (graph.nodes, incidence) |node, *item| item.* = .{ .pivot = node.id };
 
-    // @guarded-by: permits_test.zig "V-D-EDGE-ID-05: edge-array permutation preserves canonical plan bytes"
     for (graph.edges, 0..) |edge, i| {
         const from = nodeIndex(graph, edge.from) orelse return error.InvalidSemGraph;
         const to = nodeIndex(graph, edge.to) orelse return error.InvalidSemGraph;
         for (graph.edges[0..i]) |prior| if (prior.id == edge.id) return error.InvalidSemGraph;
-        // @guarded-by: permits_test.zig "V-D-JOIN-SELECT-14: self-loop excluded from fan-in group leaves residual member independent"
         if (edge.from == edge.to) continue;
         try incidence[from].outgoing.append(allocator, edge.id);
         try incidence[to].incoming.append(allocator, edge.id);

@@ -4,7 +4,6 @@ const tie_break = @import("../base/tie_break.zig");
 const sg = @import("../sem_graph.zig");
 const sk = @import("../sketch.zig");
 
-/// @guarded-by: ports_test.zig "side conventions are frozen per direction for forward, reversed, and self-loop attachments"
 pub fn forwardSide(direction: sg.Direction, endpoint_side: pb.EndpointSide) sk.Dir4 {
     const out = endpoint_side == .source_exit;
     return switch (direction) {
@@ -22,7 +21,6 @@ pub fn reversedSide(direction: sg.Direction) sk.Dir4 {
     };
 }
 
-/// @guarded-by: ports_test.zig "V-D-PORT-12: a TD self-loop derives two typed terminals (east exit, north entry)"
 pub fn selfLoopSide(direction: sg.Direction, endpoint_side: pb.EndpointSide) sk.Dir4 {
     return switch (direction) {
         .TD, .BT => if (endpoint_side == .source_exit) sk.Dir4.east else .north,
@@ -30,7 +28,6 @@ pub fn selfLoopSide(direction: sg.Direction, endpoint_side: pb.EndpointSide) sk.
     };
 }
 
-/// @guarded-by: ports_test.zig "V-D-PORT-04: a singleton port is exactly today's midpoint floor(L/2)"
 pub fn midpoint(side_len: u32) u32 {
     return side_len / 2;
 }
@@ -39,7 +36,6 @@ pub fn satisfiable(side_len: u32, demand: u32) bool {
     return side_len >= 2 * demand + 1;
 }
 
-/// @guarded-by: ports_test.zig "V-D-PORT-03: offsets follow o_i = m-(p-1)+2i with pitch 2 and corners excluded on odd and even faces"
 pub fn offsetAt(side_len: u32, demand: u32, i: u32) u32 {
     return midpoint(side_len) + 1 - demand + 2 * i;
 }
@@ -55,7 +51,6 @@ pub const Attachment = struct {
     opposite_center: i32 = 0,
 };
 
-/// @guarded-by: ports_test.zig "clause-6 order: opposite center is primary, K breaks ties with no-label first and pinned ordinals"
 fn attachmentLess(_: void, x: Attachment, y: Attachment) bool {
     if (x.opposite_center != y.opposite_center) return x.opposite_center < y.opposite_center;
     return tie_break.attachmentKeyOrder(x.key, y.key) == .lt;
@@ -106,7 +101,6 @@ pub fn derive(
         const membership = membershipOf(bundles, edge.id);
         const reversed = pb.containsEdge(reversed_edges, edge.id);
         if (!reversed and (membership == null or (membership.?.source == null and membership.?.target == null))) {
-            // @guarded-by: ports_step7_test.zig "a plain forward arrival co-located with a self-loop terminal joins the side allocation"
             inline for ([2]pb.EndpointSide{ .source_exit, .target_entry }) |es| {
                 const n = if (es == .source_exit) edge.from else edge.to;
                 const sd = forwardSide(direction, es);
@@ -117,7 +111,6 @@ pub fn derive(
         }
         inline for ([2]pb.EndpointSide{ .source_exit, .target_entry }) |es| {
             const disp = if (membership) |m| (if (es == .source_exit) m.source else m.target) else null;
-            // @guarded-by: ports_test.zig "a fused union's leaf node exits through one shared attachment"
             if (!isSelected(disp)) {
                 const n = if (es == .source_exit) edge.from else edge.to;
                 const sd = if (reversed) reversedSide(direction) else forwardSide(direction, es);
@@ -139,7 +132,6 @@ pub fn derive(
             }
         }
     }
-    // @guarded-by: ports_test.zig "derivation: a committed group consumes one rail pivot attachment keyed by its smallest member K"
     for (bundles.selected_bundles) |sel| {
         const gi = groupIndexById(plan.groups, sel.candidate_bundle) orelse return error.InvalidSemGraph;
         const group = plan.groups[gi];
@@ -233,7 +225,6 @@ pub fn sideDemand(derived: []const DerivedAttachment, node: pb.NodeId) SideDeman
 
 pub const MinDims = struct { w_min: u32, h_min: u32 };
 
-/// @guarded-by: ports_test.zig "demandDims computes 2*max+1 per axis"
 pub fn demandDims(d: SideDemand) MinDims {
     return .{ .w_min = 2 * @max(d.north, d.south) + 1, .h_min = 2 * @max(d.east, d.west) + 1 };
 }
@@ -274,8 +265,6 @@ pub const Failure = union(enum) { capacity_exceeded: CapacityExceeded, key_colli
 
 pub const Allocation = union(enum) { assigned: []const Assignment, failed: Failure };
 
-/// @guarded-by: ports_test.zig "V-D-PORT-02: attachment input permutation yields byte-identical assignments"
-/// @guarded-by: ports_test.zig "V-D-PORT-10: clamped L=3 with p=2 emits port_capacity_exceeded with the full clause-12 payload and no allocation"
 pub fn allocate(a: std.mem.Allocator, candidate: CandidateRef, node: pb.NodeId, side: sk.Dir4, side_len: u32, attachments: []const Attachment) error{OutOfMemory}!Allocation {
     if (try findCollision(a, node, side, attachments)) |kc|
         return .{ .failed = .{ .key_collision = kc } };

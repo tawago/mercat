@@ -9,7 +9,6 @@ const rp = @import("routing_polyline.zig");
 const rt = @import("routing_terminal.zig");
 const self_loops = @import("routing_self_loops.zig");
 
-/// @guarded-by: routing_test.zig "the lane ladder climbs from the planned lane, then descends to lane 0, then ends"
 pub const LaneLadder = struct {
     planned: u32,
     lane: u32,
@@ -47,7 +46,6 @@ pub fn accepts(
         try route_clearance.polylineClears(a, edge.id, poly, existing, bar_views, placements, edge_ports, bundles, edge.from, edge.to);
 }
 
-/// @guarded-by: routing_test.zig "the detour ladder pushes a port run past a foreign jog row, and is null when every row is taken"
 pub fn detour(
     a: std.mem.Allocator,
     direction: sg.Direction,
@@ -78,7 +76,6 @@ pub fn detour(
     return null;
 }
 
-/// @guarded-by: routing_test.zig "a self loop lifts past foreign ink instead of lying along it"
 pub fn selfLoop(
     a: std.mem.Allocator,
     direction: sg.Direction,
@@ -100,12 +97,10 @@ pub fn selfLoop(
     return .{ .polyline = try unrouted(a), .port_from = ep.source, .port_to = ep.target };
 }
 
-/// @guarded-by: validate_test.zig "an edge with no polyline counts as unrouted"
 pub fn unrouted(a: std.mem.Allocator) error{OutOfMemory}![]sketch.Point {
     return a.alloc(sketch.Point, 0);
 }
 
-/// @guarded-by: routing_test.zig "the base-approach grow is reverted when it would bend a decorated departure cell"
 pub fn growBaseApproach(
     a: std.mem.Allocator,
     poly: []sketch.Point,

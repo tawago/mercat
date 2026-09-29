@@ -5,7 +5,6 @@ const EndpointSide = ledger.EndpointSide;
 
 pub const OrdinalEntry = struct { name: []const u8, ordinal: u8 };
 
-/// @guarded-by: ledger_test.zig "D-PORT clause 4: every EdgeKind name→ordinal pair is pinned"
 pub const edge_kind_ordinals = [_]OrdinalEntry{
     .{ .name = "solid", .ordinal = 0 },
     .{ .name = "dotted", .ordinal = 1 },
@@ -13,7 +12,6 @@ pub const edge_kind_ordinals = [_]OrdinalEntry{
     .{ .name = "invisible", .ordinal = 3 },
 };
 
-/// @guarded-by: ledger_test.zig "D-PORT clause 4: every ArrowEnd name→ordinal pair is pinned"
 pub const arrow_end_ordinals = [_]OrdinalEntry{
     .{ .name = "none", .ordinal = 0 },
     .{ .name = "open", .ordinal = 1 },
@@ -44,8 +42,6 @@ fn enumOrdinal(comptime table: []const OrdinalEntry, value: anytype) u8 {
     };
 }
 
-// @guarded-by: ledger_test.zig "comparator keys carry no numeric ids by construction"
-
 pub fn nodeKeyOrder(a: []const u8, b: []const u8) std.math.Order {
     return std.mem.order(u8, a, b);
 }
@@ -56,7 +52,6 @@ pub fn labelOrder(a: ?[]const u8, b: ?[]const u8) std.math.Order {
     return std.mem.order(u8, av, bv);
 }
 
-/// @guarded-by: ledger_test.zig "edge key comparator orders field-by-field with no-label-first"
 pub const EdgeKey = struct {
     from: []const u8,
     to: []const u8,
@@ -80,7 +75,6 @@ pub fn edgeKeyOrder(a: EdgeKey, b: EdgeKey) std.math.Order {
     return labelOrder(a.label, b.label);
 }
 
-/// @guarded-by: ledger_test.zig "attachment key K orders field-by-field with pinned ordinals"
 pub const AttachmentKey = struct {
     opposite: []const u8,
     endpoint_side: EndpointSide,

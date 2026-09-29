@@ -1,6 +1,5 @@
 const std = @import("std");
 
-/// @guarded-by: ledger_test.zig "identity handles match prim's"
 const EdgeId = u32;
 
 pub const BundleOrigin = enum {
@@ -15,12 +14,9 @@ pub const no_bundle: BundleId = 0;
 
 pub const Bundle = struct {
     origin: BundleOrigin,
-    /// @guarded-by: ledger_test.zig "a numbered bundle set names every set exactly once"
     bundle: BundleId = no_bundle,
     members: []const EdgeId,
-    /// @guarded-by: sketch_ports_test.zig "a port share licenses only its shared approach"
     cells: ?[]const BundleCell = null,
-    /// @guarded-by: ledger_test.zig "a pairwise-scoped set licenses only a pair's own common approach, never a third member's"
     pairwise: ?[]const PairCells = null,
 };
 
@@ -35,7 +31,6 @@ pub const BundleCell = struct {
     y: i32,
 };
 
-/// @guarded-by: ledger_test.zig "concatBundles joins two populations and keeps the head first"
 pub fn concatBundles(
     allocator: std.mem.Allocator,
     head: []const Bundle,
@@ -49,8 +44,6 @@ pub fn concatBundles(
     return out;
 }
 
-/// @guarded-by: ledger_test.zig "co-membership needs both edges inside one set"
-/// @guarded-by: ledger_test.zig "a cell-scoped bundle answers only inside its licensed cells"
 pub fn bundleMembersAt(sets: []const Bundle, first: EdgeId, second: EdgeId, at: ?BundleCell) bool {
     for (sets) |set| {
         var saw_first = false;
@@ -66,7 +59,6 @@ pub fn bundleMembersAt(sets: []const Bundle, first: EdgeId, second: EdgeId, at: 
     return false;
 }
 
-/// @guarded-by: ledger_test.zig "a bundle asked by name holds its member on every cell, whichever set names the edge first"
 pub fn memberOfBundleAt(sets: []const Bundle, bundle: BundleId, edge: EdgeId, at: ?BundleCell) bool {
     if (bundle == no_bundle) return false;
     for (sets) |set| {
@@ -146,7 +138,6 @@ fn hasMember(members: []const EdgeId, edge: EdgeId) bool {
     return false;
 }
 
-/// @guarded-by: ledger_test.zig "a numbered bundle set names every set exactly once"
 pub fn numberBundles(
     allocator: std.mem.Allocator,
     sets: []const Bundle,
@@ -160,7 +151,6 @@ pub fn numberBundles(
     return out;
 }
 
-/// @guarded-by: ledger_test.zig "a numbered bundle set names every set exactly once"
 pub fn bundleSetsNumbered(sets: []const Bundle) bool {
     for (sets) |set| {
         if (set.bundle == no_bundle) return false;

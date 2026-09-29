@@ -68,14 +68,12 @@ pub fn buildEdgesWithPlan(
     var pending: std.ArrayListUnmanaged(Pending) = .empty;
     for (fans) |f| {
         const resolved = (try fan_rail.resolve(a, graph.direction, f, graph, placements, geom, bundles, allocated_ports)) orelse continue;
-        // @guarded-by: routing_test.zig "rail pre-pass and forced per-peer path lift the same fan-OUT geometry to the same rail row"
         var lift: u32 = 0;
         for (resolved.peers) |p| {
             lift = @max(lift, fanRailLift(graph, p.edge.from, p.edge.to));
         }
         try pending.append(a, .{ .fan = f, .resolved = resolved, .lift = lift });
     }
-    // @guarded-by: port_plan_test.zig "a member long at both ends runs straight between its two taps"
     for (pending.items) |p| {
         if (p.resolved.direction != .out) continue;
         for (p.resolved.peers) |peer| {
@@ -88,7 +86,6 @@ pub fn buildEdgesWithPlan(
             }
         }
     }
-    // @guarded-by: port_plan_test.zig "a long fan-in member the plan selected gets a continuing tap and a member stroke"
     var bar_views: []sketch.Rail = &.{};
     var attempt: usize = 0;
     while (true) : (attempt += 1) {
@@ -101,9 +98,7 @@ pub fn buildEdgesWithPlan(
             if (p.resolved.peers.len < 2) continue;
             const row = rows.rowOfFan(p.fan.pivot_idx, p.fan.direction) orelse 0;
             const built = try fan_rail.build(a, p.resolved, p.lift, @intCast(@max(row, 0)));
-            // @guarded-by: fan_rail_test.zig "fan_rail.blocked rejects a built rail whose tap drop touches a foreign node's box"
             if (fan_rail.blocked(built, p.resolved.pivot.id, placements)) continue;
-            // @guarded-by: route_clearance_test.zig "a rail honours a foreign decorated terminal's reservation and ignores its own members'"
             if (try route_clearance.railConflictsReservedTerminals(a, built.rail, placements, allocated_ports.edges, bundles)) continue;
             try rails.append(a, built);
             try rail_pending.append(a, pi);
@@ -128,7 +123,6 @@ pub fn buildEdgesWithPlan(
         }
     }
 
-    // @guarded-by: routing_test.zig "a placement edge routes last and uncontested"
     var routing_edges: std.ArrayListUnmanaged(sg.Edge) = .empty;
     if (bundles.memberships.len == 0) {
         for (graph.edges) |edge| if (!rows.isProxy(edge.id)) try routing_edges.append(a, edge);
@@ -140,7 +134,6 @@ pub fn buildEdgesWithPlan(
     for (graph.edges) |edge| if (rows.isProxy(edge.id)) try routing_edges.append(a, edge);
     for (routing_edges.items) |orig| {
         const proxy = rows.isProxy(orig.id);
-        // @guarded-by: routing_test.zig "a discharged edge is withheld from routing entirely"
         if (rail_closure.contains(bundles.discharged, orig.id)) continue;
         if (std.mem.indexOfScalar(sg.EdgeId, claimed.items, orig.id) != null) continue;
         if (orig.from != orig.to) {
@@ -150,12 +143,10 @@ pub fn buildEdgesWithPlan(
                 const dst_p = findPlacement(placements, orig.to);
                 const pivot_p = if (hit.fan.direction == .out) src_p else dst_p;
                 const peer_p = if (hit.fan.direction == .out) dst_p else src_p;
-                // @guarded-by: routing_test.zig "fan-OUT per-peer rail lifts exactly one row for the peer crossing into a cluster its source is not part of"
                 const rail_lift: u32 = if (hit.fan.direction == .out)
                     fanRailLift(graph, orig.from, orig.to)
                 else
                     0;
-                // @guarded-by: routing_test.zig "the lane ladder climbs from the planned lane, then descends to lane 0, then ends"
                 const planned = rows.laneOfEdge(orig.id, .exit);
                 var ladder = LaneLadder{ .planned = planned, .lane = planned };
                 const dodge_y: ?i32 = if (hit.fan.direction == .out) dodgeRow(rows, lg, geom, orig) else null;
@@ -231,7 +222,6 @@ pub fn buildEdgesWithPlan(
             const src_p = findPlacement(placements, orig.from);
             const dst_p = findPlacement(placements, orig.to);
             const ep = allocated_ports.forEdge(orig.id) orelse unreachable;
-            // @guarded-by: routing_test.zig "a back edge's stub hop keeps off a foreign decorated arrival cell"
             const guarded = try route_clearance.withDecoratedTerminalBoxes(a, orig.id, placements, allocated_ports.edges, bundles);
             const poly = if (bundles.memberships.len == 0)
                 try back_edges.backEdgePolyline(a, graph.direction, src_p, dst_p, rail, guarded)

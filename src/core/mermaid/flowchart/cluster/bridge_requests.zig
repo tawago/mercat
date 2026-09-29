@@ -30,7 +30,6 @@ pub fn sharesPort(a: Pending, b: Pending) bool {
     return samePt(a.start, b.start) or samePt(a.end, b.end);
 }
 
-/// @guarded-by: bridges_test.zig "a bridge sharing a start with one peer and an end with another keys its request at the start"
 pub fn railedAtOtherEnd(pends: []const Pending, i: usize, end: RailEnd) bool {
     const p = pends[i];
     if (p.rail_end == end) return false;
@@ -41,8 +40,6 @@ pub fn railedAtOtherEnd(pends: []const Pending, i: usize, end: RailEnd) bool {
     return false;
 }
 
-/// @guarded-by: bridges_test.zig "bridges sharing one source port share a single rail track"
-/// @guarded-by: bridges_test.zig "bridges sharing one target port share a single rail track"
 pub fn assignJogs(
     arena: std.mem.Allocator,
     pends: []Pending,
@@ -83,7 +80,6 @@ pub fn assignJogs(
                 const r = &reqs.items[si];
                 r.span_lo = @min(r.span_lo, lo);
                 r.span_hi = @max(r.span_hi, hi);
-                // @guarded-by: bridges_test.zig "assignJogs: shared-request merge across different cluster depths picks the closest-to-target preference"
                 if (sign * m.pref.? < sign * r.pref) r.pref = m.pref.?;
                 ri.* = si;
             } else {

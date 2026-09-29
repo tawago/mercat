@@ -54,7 +54,6 @@ pub fn buildPolylineAt(
     placements: []const sketch.NodePlacement,
     straight: Straight,
 ) error{OutOfMemory}![]sketch.Point {
-    // @guarded-by: fan_polyline_test.zig "a decorated source's lane clamp and dodge jog stay out of the departure cell"
     const off_source: i32 = if (straight.from) 2 else 1;
     const source_p = if (fan.direction == .out) pivot_p else peer_p;
     const target_p = if (fan.direction == .out) peer_p else pivot_p;
@@ -68,11 +67,9 @@ pub fn buildPolylineAt(
     if (fan.direction == .out and fan.rows > 1 and south_flow) {
         const child_top = peer_p.rect.y;
         const src_bot = source_point.y;
-        // @guarded-by: fan_polyline_test.zig "grid fan-OUT rail sits exactly 2 rows above the child top (clean descent, not a corner-collision)"
         const rail = @max(child_top - 2 - lane, src_bot + off_source);
         var gpts: std.ArrayListUnmanaged(sketch.Point) = .empty;
         try gpts.append(a, .{ .x = sx, .y = src_bot });
-        // @guarded-by: fan_polyline_test.zig "grid fan-OUT rail dodges a sibling box stacked in an earlier grid row"
         if (sketch_clearance.columnTouchesAny(sx, src_bot + 1, rail, placements, source_p.id, target_p.id)) {
             const jog_y = @max(dodge_y orelse src_bot + off_source, src_bot + off_source);
             const corridor = sketch_clearance.clearLine(false, tx, jog_y, rail, placements, source_p.id, target_p.id, .{});
@@ -92,7 +89,6 @@ pub fn buildPolylineAt(
         var gpts: std.ArrayListUnmanaged(sketch.Point) = .empty;
         try gpts.append(a, .{ .x = sx, .y = source_bottom });
         try gpts.append(a, .{ .x = sx, .y = rail });
-        // @guarded-by: fan_polyline_test.zig "grid fan-IN rail dodges a source stacked in a lower grid row at the shared target column"
         if (sketch_clearance.columnTouchesAny(tx, rail, target_top - 1, placements, source_p.id, target_p.id)) {
             const land_y = target_top - 2;
             const corridor = sketch_clearance.clearLine(false, tx, rail, land_y, placements, source_p.id, target_p.id, .{});
@@ -107,12 +103,9 @@ pub fn buildPolylineAt(
     }
     const s_peri = source_point.y;
     const t_peri = target_point.y;
-    // @guarded-by: fan_polyline_test.zig "rail_lift moves the single-row rail away from the cluster frame-border row instead of fusing with it"
     const lift: i32 = @intCast(rail_lift);
     var rail_y: i32 = if (south_flow) t_peri - 2 - lift - lane else t_peri + 2 + lift + lane;
-    // @guarded-by: fan_polyline_test.zig "a lane past the gap's capacity clamps to the innermost in-gap row instead of climbing over the source"
     rail_y = if (south_flow) @max(rail_y, s_peri + off_source) else @min(rail_y, s_peri - off_source);
-    // @guarded-by: fan_polyline_test.zig "labeled fan-OUT rail rises to the rail's labeled row for a 4-cell private descent; unlabeled stays put"
     if (fan.direction == .out and fan.labeled and south_flow) {
         const raised = rail_y - @as(i32, @intCast(fan_mod.LABEL_RUN_EXTRA_ROWS - 1));
         if (raised > s_peri) rail_y = raised;
@@ -123,7 +116,6 @@ pub fn buildPolylineAt(
     switch (role) {
         .center => {},
         .leftmost, .rightmost, .middle => {
-            // @guarded-by: fan_polyline_test.zig "single-row fan spanning 2+ layers dodges an intermediate box instead of slicing it"
             if (sketch_clearance.columnTouchesAny(sx, s_peri + 1, rail_y, placements, source_p.id, target_p.id)) {
                 const jog_y = @max(dodge_y orelse s_peri + off_source, s_peri + off_source);
                 const corridor = sketch_clearance.clearLine(false, sx, jog_y, rail_y, placements, source_p.id, target_p.id, .{ .margin = true });
@@ -140,7 +132,6 @@ pub fn buildPolylineAt(
             {
                 const corridor = sketch_clearance.clearLine(false, tx, rail_y, land_y, placements, source_p.id, target_p.id, .{ .margin = true });
                 if (corridor != tx) {
-                    // @guarded-by: fan_polyline_test.zig "the target-side corridor ends the rail run at the corridor column; the route visits each cell once"
                     try endRailRunAt(a, &pts, corridor, rail_y);
                     try pts.append(a, .{ .x = corridor, .y = land_y });
                     try pts.append(a, .{ .x = tx, .y = land_y });

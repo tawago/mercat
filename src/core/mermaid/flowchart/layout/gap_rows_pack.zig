@@ -182,7 +182,6 @@ fn anyStrictlyInside(cols: []const i32, lo: i32, hi: i32) bool {
     return false;
 }
 
-/// @guarded-by: gap_rows_test2.zig "a fan-OUT run whose span holds another fan-OUT's taps sits nearer the source"
 fn crossesAbove(upper: Claim, lower: Claim) bool {
     return anyStrictlyInside(upper.arrivals(), lower.lo, lower.hi) or anyStrictlyInside(lower.departures(), upper.lo, upper.hi);
 }

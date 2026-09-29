@@ -1,5 +1,3 @@
-//! @guarded-by: arrow_glyphs.zig "arrow table never contains the tofu crosses U+2716/U+2A2F"
-
 const std = @import("std");
 const prim = @import("prim");
 const lattice = @import("../lattice.zig");

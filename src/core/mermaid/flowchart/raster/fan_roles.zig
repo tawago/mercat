@@ -4,7 +4,6 @@ const sketch = @import("../sketch.zig");
 const lattice = @import("../lattice.zig");
 const ew = @import("edges_write.zig");
 
-/// @guarded-by: fan_roles_test.zig "a second rider stamps the family rail role; a lone rider leaves the dropper"
 pub fn markShared(cell: *lattice.Cell, edge_id: u32, role: lattice.EdgeRole) void {
     const rail = ew.railRole(role) orelse return;
     const seg = switch (cell.occupant) {
@@ -15,10 +14,6 @@ pub fn markShared(cell: *lattice.Cell, edge_id: u32, role: lattice.EdgeRole) voi
     cell.occupant = .{ .edge_segment = .{ .edge = seg.edge, .kind = seg.kind, .role = rail } };
 }
 
-/// @guarded-by: fan_roles_test.zig "a shared run below its pivot keeps N and drops the child's descent"
-/// @guarded-by: fan_roles_test.zig "the arm an arrowhead stands on is never the spurious one"
-/// @guarded-by: fan_roles_test.zig "an arm a stroke answers back is left for nobody to strip"
-/// @guarded-by: fan_roles_test.zig "under LR/RL the vertical is the rail itself, so nothing is stripped"
 pub fn resolveMasks(lat: *lattice.Lattice, s: sketch.Sketch) void {
     if (lat.width == 0 or lat.height == 0) return;
     switch (s.direction) {
@@ -65,8 +60,6 @@ fn pivotSide(rect: sketch.Rect, y: u32) ?enum { north, south } {
     return null;
 }
 
-/// @guarded-by: fan_roles_test.zig "a grid rail keeps the rail-to-rail vertical (┼ over ┼)"
-/// @guarded-by: fan_roles_test.zig "a fan-IN rail row one cell away reprieves the fan-OUT junction too"
 fn continuesColumn(lat: *const lattice.Lattice, x: u32, y: u32) bool {
     for ([_]i64{ -1, 1 }) |dy| {
         const yi: i64 = @as(i64, y) + dy;
@@ -83,8 +76,6 @@ fn continuesColumn(lat: *const lattice.Lattice, x: u32, y: u32) bool {
     return false;
 }
 
-/// @guarded-by: fan_roles_test.zig "the arm an arrowhead stands on is never the spurious one"
-/// @guarded-by: fan_roles_test.zig "an arm a stroke answers back is left for nobody to strip"
 fn armIsAnswered(lat: *const lattice.Lattice, x: u32, y: u32, d: lattice.Dir4) bool {
     const dy: i64 = switch (d) {
         .north => -1,

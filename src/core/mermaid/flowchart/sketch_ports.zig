@@ -15,7 +15,6 @@ pub const CarrierTrace = struct {
     rail: bool,
 };
 
-/// @guarded-by: sketch_ports_test.zig "shared departure port groups its edges"
 pub fn portShareBundles(
     arena: std.mem.Allocator,
     edges: []const sketch.EdgePath,
@@ -226,7 +225,6 @@ fn has(cells: []const BundleCell, want: BundleCell) bool {
     return false;
 }
 
-/// @guarded-by: sketch_ports_test.zig "appendPortShares keeps the existing sets ahead of the derived ones"
 pub fn appendPortShares(
     arena: std.mem.Allocator,
     existing: []const bundle_mod.Bundle,

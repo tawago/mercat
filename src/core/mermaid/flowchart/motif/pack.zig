@@ -20,7 +20,6 @@ pub fn transform(
         for (m.branches) |run| {
             if (run.len < 2) continue;
             const parent: ?sg.ClusterId = graph.clusterOf(run[0]);
-            // guarded-by: pack_test.zig "parallel branch straddling two clusters: transform skips it (defensive)"
             var consistent = true;
             for (run[1..]) |nid| {
                 if (!scope.eqOpt(graph.clusterOf(nid), parent)) {

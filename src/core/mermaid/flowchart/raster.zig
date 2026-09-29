@@ -64,7 +64,6 @@ pub fn rasterize(
         error.OccupiedCell => return error.OutOfBounds,
     };
 
-    // @guarded-by: raster.zig "a rail rasterizes before edges: its cell keeps rail kind/role, foreign bits refused"
     const rail_cells_lost = rails_r.rasterizeRails(&lat, s);
 
     const edge_report = edges_r.rasterizeEdges(allocator, &lat, s, subgraph_edges) catch |err| switch (err) {
@@ -73,7 +72,6 @@ pub fn rasterize(
         error.MalformedPolyline => return error.MalformedPolyline,
     };
 
-    // @guarded-by: raster/reconcile.zig "reconcile is NOT order-independent w.r.t. labels: swapping the pipeline position changes the result"
     _ = reconcile.reconcileNeighbours(&lat);
 
     const label_report = labels_r.rasterizeLabels(allocator, &lat, s) catch |err| switch (err) {

@@ -3,7 +3,6 @@ const prim = @import("prim");
 const unicode = @import("unicode");
 const lattice = @import("../lattice.zig");
 
-/// @guarded-by: labels_write_test.zig "a glyph write resets every field of the cell it covers"
 pub fn writeGlyph(
     lat: *lattice.Lattice,
     x: u32,
@@ -13,12 +12,10 @@ pub fn writeGlyph(
     lat.at(x, y).* = .{ .occupant = .{ .label_char = cp }, .neighbours = .{} };
 }
 
-/// @guarded-by: labels_write_test.zig "a continuation write resets every field, exactly as a glyph write does"
 pub fn writeCont(lat: *lattice.Lattice, x: u32, y: u32) void {
     lat.at(x, y).* = .{ .occupant = .label_cont, .neighbours = .{} };
 }
 
-/// @guarded-by: labels_write_test.zig "a span write claims head plus continuations and resets both"
 pub fn writeSpan(
     lat: *lattice.Lattice,
     x: u32,
@@ -31,7 +28,6 @@ pub fn writeSpan(
     while (i < span) : (i += 1) writeCont(lat, x + i, y);
 }
 
-/// @guarded-by: labels_write_test.zig "a run write lays every cell out in order and claims exactly cell_count cells"
 pub fn writeRun(
     lat: *lattice.Lattice,
     x: u32,
@@ -50,7 +46,6 @@ pub fn sentinelToSpace(cp: u21) u21 {
     return if (cp == prim.LINE_BREAK) @as(u21, ' ') else cp;
 }
 
-/// @guarded-by: labels_eaw_test.zig "cellSpan is 1 for every ASCII codepoint including tab"
 pub fn cellSpan(cp: u21) u32 {
     return if (prim.codepointWidth(cp) == 2) 2 else 1;
 }
@@ -66,7 +61,6 @@ pub const Run = struct {
     width: u32,
 };
 
-/// @guarded-by: labels_eaw_test.zig "a ZWJ family occupies two cells: head reference plus continuation, every byte interned"
 pub fn prepare(allocator: std.mem.Allocator, table: *GlyphTable, text: []const u8) error{OutOfMemory}!Run {
     var cells: std.ArrayListUnmanaged(LabelCell) = .empty;
     errdefer cells.deinit(allocator);

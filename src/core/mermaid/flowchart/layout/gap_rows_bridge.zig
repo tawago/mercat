@@ -41,7 +41,6 @@ pub fn jogClaims(comptime G: type, a: std.mem.Allocator, c: anytype, geom: []con
         };
         var lo = @min(u_col, arr);
         var hi = @max(u_col, arr);
-        // @guarded-by: gap_rows_test2.zig "a placement edge that stands for two crossings into a plain node claims the base row across its frame"
         const bundled = pin == -1 and e.crossings > 1 and c.isSuper(e.from);
         if (bundled) {
             lo = @min(lo, geom[ui].x);
@@ -50,7 +49,6 @@ pub fn jogClaims(comptime G: type, a: std.mem.Allocator, c: anytype, geom: []con
         try g.reqs.append(a, .{ .lo = lo, .hi = hi, .dep = u_col, .arr = arr, .edge = e.id, .bundled = bundled });
     }
     for (groups.items) |*g| {
-        // @guarded-by: gap_rows_test2.zig "a skip edge into a plain node joins the bridge band that ends on its port"
         if (g.pin == -1) try adoptSamePortExits(a, g, claims);
         var lo: i32 = std.math.maxInt(i32);
         var hi: i32 = std.math.minInt(i32);

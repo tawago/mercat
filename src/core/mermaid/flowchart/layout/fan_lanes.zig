@@ -72,11 +72,9 @@ pub fn assignLanes(
         try style_of.put(a, e.id, styleKey(e));
     }
 
-    // @guarded-by: fan_lanes_test2.zig "a discharged edge never shrinks a group into looking complete"
     var pruned_gaps: std.AutoHashMapUnmanaged(u32, void) = .empty;
     defer pruned_gaps.deinit(a);
 
-    // @guarded-by: fan_lanes_test.zig "a gap whose departures all defer lane-separates the arrival rails that draw its rails"
     var fanout_edges: std.AutoHashMapUnmanaged(sg.EdgeId, void) = .empty;
     defer fanout_edges.deinit(a);
     for (fans) |f| {
@@ -125,7 +123,6 @@ pub fn assignLanes(
                 }
                 if (fanout_edges.contains(p.edge_id)) continue;
                 const cx = centerX(G, geom[p.peer_idx]);
-                // @guarded-by: fan_lanes_test2.zig "a peer on its pivot's own column never shrinks a group into looking complete"
                 if (cx != pivot_cx) has_run = true;
                 lo = @min(lo, cx);
                 hi = @max(hi, cx);
@@ -169,7 +166,6 @@ pub fn assignLanes(
         return;
     }
 
-    // @guarded-by: fan_lanes_test.zig "a salvaged fan's excluded members never land on the kept rail's lane"
     for (fans) |*fan| {
         if (fanSelected(fan.*, bundles)) continue;
         if (fan.direction == .out and allPeersJoinArrivals(fan.*, bundles)) continue;

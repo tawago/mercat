@@ -50,7 +50,6 @@ fn oppositeSide(side: sketch.Dir4) sketch.Dir4 {
     };
 }
 
-/// @guarded-by: routing_polyline_test.zig "final approach reconciles a below-approach opposite-side port to the entry-side terminal"
 pub fn reconcileTerminalSide(
     poly: []sketch.Point,
     to_p: sketch.NodePlacement,
@@ -101,7 +100,6 @@ pub fn detectCornerFedTerminal(poly: []const sketch.Point) ?CornerFed {
     return .{ .bi = bi, .b = b, .p = p, .lx = lx, .ly = ly };
 }
 
-/// @guarded-by: routing_polyline_test.zig "ensureBaseStub shifts a turn-at-tip descent back one cell"
 pub fn ensureBaseStub(
     poly: []sketch.Point,
     placements: []const sketch.NodePlacement,
@@ -127,8 +125,6 @@ pub fn ensureBaseStub(
     return true;
 }
 
-// @guarded-by: validate_test.zig "edge through node interior flagged"
-
 pub fn columnIntrudesRect(x: i32, y_top: i32, y_bot: i32, r: sketch.Rect) bool {
     if (r.w < 3 or r.h < 3) return false;
     const left = r.x;
@@ -149,7 +145,6 @@ pub fn rowIntrudesRect(y: i32, x_left: i32, x_right: i32, r: sketch.Rect) bool {
     return x_left < right_inc and x_right > left;
 }
 
-/// @guarded-by: routing_polyline_test.zig "a one-layer route runs the corridor beside a box in its way instead of through it"
 pub fn routePolyline(
     a: std.mem.Allocator,
     dir: sg.Direction,
@@ -172,8 +167,6 @@ pub fn routePolyline(
     const horizontal = (dir == .LR or dir == .RL);
     const route_lane = lanes.exit;
 
-    // @guarded-by: validate_test.zig "edge through node interior flagged"
-    // @guarded-by: raster/edges_test.zig "edge cells colliding with node-owned cells are counted as lost"
     if (virtuals.len > 0) {
         const first = geom[virtuals[0]];
         if (!horizontal) {
@@ -223,14 +216,10 @@ fn corridorRoute(
     const lane: i32 = @intCast(lanes.exit);
     const entry: i32 = @intCast(lanes.entry);
     if (!horizontal) {
-        // @guarded-by: routing_polyline_test.zig "the skip corridor enters on its entry lane above the intermediate layer and climbs with it"
         const enter_floor = start.y + (if (straight.from) @as(i32, 2) else 1);
         const enter_gap_y = @max(top - 2 - entry, enter_floor);
-        // @guarded-by: routing_polyline_test.zig "TD skip-corridor final descent is a clean vertical approach (guards ▼)"
-        // @guarded-by: routing_polyline_test.zig "a skip corridor past its lane budget keeps a decorated arrival straight"
         const align_y = if (end.y - 2 - lane > enter_gap_y) end.y - 2 - lane else if (straight.to) @max(end.y - 2, enter_gap_y) else end.y - 1;
 
-        // @guarded-by: validate_test.zig "edge through node interior flagged";
         const run_top = @min(enter_gap_y, align_y);
         const run_bot = @max(enter_gap_y, align_y);
         const corridor_x = sketch_clearance.clearLine(false, want, run_top, run_bot, placements, from_id, to_id, .{ .margin = true });
@@ -242,7 +231,6 @@ fn corridorRoute(
     } else {
         const enter_floor = start.x + (if (straight.from) @as(i32, 2) else 1);
         const enter_gap_x = @max(top - 2 - entry, enter_floor);
-        // @guarded-by: routing_polyline_test.zig "LR skip-corridor final approach is a clean horizontal approach (guards ▶)"
         const align_x = if (end.x - 2 - lane > enter_gap_x) end.x - 2 - lane else if (straight.to) @max(end.x - 2, enter_gap_x) else end.x - 1;
         const run_lo = @min(enter_gap_x, align_x);
         const run_hi = @max(enter_gap_x, align_x);
@@ -286,12 +274,9 @@ fn plainRoute(
         prev = .{ .x = cx, .y = cy };
     }
 
-    // @guarded-by: validate_test.zig "edge through node interior flagged"
     if (virtuals.len == 0) {
         if (horizontal) {
-            // @guarded-by: routing_polyline_test.zig "west/east port jog pad is never zero, near or far (guards clean </>)"
             if (end.y != prev.y) {
-                // @guarded-by: routing_polyline_test.zig "the jog never lands on the source wall (span-2 gap and lane escalation clamp)"
                 const span_x = absDiff(end.x, prev.x);
                 const want_x_pad: i32 = (if (span_x >= 2) @as(i32, 2) else 1) + @as(i32, @intCast(route_lane));
                 const pad = jogPad(want_x_pad, span_x, straight);
@@ -300,9 +285,7 @@ fn plainRoute(
                 try poly.append(a, .{ .x = jog.x, .y = end.y });
             }
         } else {
-            // @guarded-by: routing_polyline_test.zig "north/south port jog pad is never zero, near or far (guards clean ^/v)"
             if (end.x != prev.x) {
-                // @guarded-by: routing_polyline_test.zig "the jog never lands on the source wall (span-2 gap and lane escalation clamp)"
                 const span_y = absDiff(end.y, prev.y);
                 const want_y_pad: i32 = (if (span_y >= 2) @as(i32, 2) else 1) + @as(i32, @intCast(route_lane));
                 const pad = jogPad(want_y_pad, span_y, straight);
@@ -321,7 +304,6 @@ fn plainRoute(
     return try poly.toOwnedSlice(a);
 }
 
-/// @guarded-by: routing_polyline_test.zig "the jog never lands inside a decorated terminal cell"
 pub fn jogPad(want: i32, span: i32, straight: Straight) i32 {
     const lo: i32 = if (straight.to) 2 else 1;
     const hi: i32 = span - (if (straight.from) @as(i32, 2) else 1);

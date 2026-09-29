@@ -24,8 +24,6 @@ pub const PortEnd = struct {
     role: lattice.EdgeRole = .forward,
 };
 
-/// @guarded-by: edges_port_test.zig "a decorated source end whose head faces the wall leaves it pristine"
-/// @guarded-by: edges_port_test.zig "drawPortStroke: an invisible edge leaves the source node border untouched"
 pub fn drawPortStroke(
     lat: *lattice.Lattice,
     pts: []const sketch.Point,
@@ -46,9 +44,6 @@ pub fn drawPortStroke(
     mergePortBit(lat, pts[0], fd, kind, edge_id, end);
 }
 
-/// @guarded-by: edges_port_test.zig "drawTargetPortStroke: arrival arms merge on all four faces"
-/// @guarded-by: edges_port_test.zig "a decorated arrival whose head faces the wall leaves it pristine"
-/// @guarded-by: edges_port_test.zig "a head adjacent to the wall but pointing ALONG the route still tees it"
 pub fn drawTargetPortStroke(
     lat: *lattice.Lattice,
     pts: []const sketch.Point,
@@ -70,7 +65,6 @@ fn samePoint(a: sketch.Point, b: sketch.Point) bool {
     return a.x == b.x and a.y == b.y;
 }
 
-/// @guarded-by: edges_port_test.zig "a head adjacent to the wall but pointing ALONG the route still tees it"
 fn tipFaces(h: Head, q: sketch.Point) bool {
     return samePoint(step(h.cell, h.dir), q);
 }
@@ -96,8 +90,6 @@ fn attachment(lat: *const lattice.Lattice, p: sketch.Point, travel: Move) ?Attac
     return .{ .border = q, .gap = gap };
 }
 
-/// @guarded-by: edges_slide_test.zig "a decorated gap arrival slides its head onto the border-adjacent cell"
-/// @guarded-by: edges_slide_test.zig "an occupied gap cell leaves the head where it is"
 pub fn slideHead(lat: *const lattice.Lattice, endpoint: sketch.Point, head: Head) Head {
     const at = attachment(lat, endpoint, head.dir) orelse return head;
     const g = at.gap orelse return head;
@@ -105,9 +97,6 @@ pub fn slideHead(lat: *const lattice.Lattice, endpoint: sketch.Point, head: Head
     return .{ .cell = g, .dir = head.dir };
 }
 
-/// @guarded-by: edges_port_test.zig "a head adjacent to the wall but pointing ALONG the route still tees it"
-/// @guarded-by: edges_port_test.zig "an UNDECORATED gap arrival also gets tee, painted gap and run"
-/// @guarded-by: edges_slide_test.zig "a decorated gap arrival slides its head onto the border-adjacent cell"
 fn mergePortBit(
     lat: *lattice.Lattice,
     p: sketch.Point,
@@ -116,8 +105,6 @@ fn mergePortBit(
     edge_id: u32,
     end: PortEnd,
 ) void {
-    // @guarded-by: edges_port_test.zig "a gap arrival merges its port bit across the 1-cell reprieve"
-    // @guarded-by: edges_port_test.zig "a corner landing is refused: no merge"
     const at = attachment(lat, p, reverse(arm)) orelse return;
     const gap = at.gap;
     if (end.head) |h| {
@@ -132,7 +119,6 @@ fn mergePortBit(
 
     if (gap) |g| {
         const gc = toCoord(g);
-        // @guarded-by: edges_port_test.zig "painting the gap cell costs no lost cells"
         var lost: u32 = 0;
         writeEdgeCell(
             lat.at(gc.x, gc.y),

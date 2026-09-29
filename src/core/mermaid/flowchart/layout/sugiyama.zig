@@ -64,7 +64,6 @@ pub fn assignLayers(allocator: std.mem.Allocator, graph: sg.SemGraph) LayoutErro
     }
     const a = arena.allocator();
 
-    // @guarded-by: sugiyama_test.zig "self-loop excluded from LayeredGraph but still drawn by routing.zig from graph.edges"
     var work_edges_list = std.ArrayListUnmanaged(WorkEdge).empty;
     {
         var valid = std.AutoHashMapUnmanaged(sg.NodeId, void).empty;
@@ -96,7 +95,6 @@ pub fn assignLayers(allocator: std.mem.Allocator, graph: sg.SemGraph) LayoutErro
 
     var reversed_list = std.ArrayListUnmanaged(sg.EdgeId).empty;
 
-    // @guarded-by: sugiyama_test.zig "iterative cycle-removal DFS handles a very deep chain without stack overflow"
     var stack = std.ArrayListUnmanaged(struct { node: sg.NodeId, cursor: u32 }).empty;
     for (graph.nodes) |seed| {
         const c = color.get(seed.id).?;

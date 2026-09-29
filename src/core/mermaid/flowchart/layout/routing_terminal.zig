@@ -45,12 +45,10 @@ fn clusterAncestorOrSelf(graph: sg.SemGraph, anc: sg.ClusterId, desc: sg.Cluster
     return false;
 }
 
-/// @guarded-by: routing_test.zig "rail pre-pass and forced per-peer path lift the same fan-OUT geometry to the same rail row"
 pub fn fanRailLift(graph: sg.SemGraph, from: sg.NodeId, to: sg.NodeId) u32 {
     return if (crossesIntoCluster(graph, from, to)) 1 else 0;
 }
 
-/// @guarded-by: routing_test.zig "fan-OUT per-peer rail does not lift when the source is a member of (or ancestor of) the target's cluster"
 fn crossesIntoCluster(graph: sg.SemGraph, from: sg.NodeId, to: sg.NodeId) bool {
     const dst_cluster = nodeCluster(graph, to) orelse return false;
     const src_cluster = nodeCluster(graph, from);
@@ -109,7 +107,6 @@ pub fn mapArrow(e: sg.ArrowEnd) sketch.ArrowKind {
     };
 }
 
-/// @guarded-by: routing_terminal_test.zig "satisfyApproach grows a corner-fed len-2 final into a straight base approach"
 pub fn satisfyApproach(
     a: std.mem.Allocator,
     poly: []sketch.Point,
@@ -159,7 +156,6 @@ pub fn satisfyApproach(
     return try grown.toOwnedSlice(a);
 }
 
-/// @guarded-by: routing_terminal_test.zig "terminalsStraight refuses a turn inside a decorated terminal cell at either end and admits one two cells out"
 pub fn terminalsStraight(poly: []const sketch.Point, rule: rp.Straight) bool {
     if (rule.from and distanceToFirstTurn(poly, false) < 2) return false;
     if (rule.to and distanceToFirstTurn(poly, true) < 2) return false;

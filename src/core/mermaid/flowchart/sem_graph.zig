@@ -49,7 +49,6 @@ pub const Edge = struct {
     arrow_from: ArrowEnd,
     arrow_to: ArrowEnd,
     label: ?[]const u8,
-    /// @guarded-by: cluster/split_test.zig "a placement edge records the directedness of the crossings it stands for"
     stands_for: StandsFor = .arrow_free,
     crossings: u32 = 0,
     origin: EdgeId = SENTINEL,
@@ -76,7 +75,6 @@ pub fn undecorated(e: Edge) bool {
     return e.arrow_from == .none and e.arrow_to == .none and e.stands_for == .arrow_free;
 }
 
-/// @guarded-by: fan_lanes_test2.zig "a two-sided group whose heads are direction-invariant still separates"
 pub fn forwardOneWayHead(e: Edge) bool {
     if (e.stands_for != .arrow_free) return e.stands_for == .forward_one_way;
     return prim.directional(e.arrow_to) and !prim.directional(e.arrow_from);

@@ -95,7 +95,6 @@ fn buildSketch(
     const effective_plan: ?ledger.BundlePermits = try bundle_commit.effectivePlan(a, graph, opts.bundle_permits);
     const plan_ref: ?*const ledger.BundlePermits = if (effective_plan) |*p| p else null;
     var candidate_bundles = try bundle_commit.buildReported(a, graph, plan_ref, lg.reversed_edges, try longEdges(a, lg), null);
-    // @guarded-by: layout/port_plan_test.zig "a fan with a long peer the plan did not select degrades to private routing"
     const fans = try fan_gate.keepRealizableLong(a, fans_detected, candidate_bundles);
     const construction_private = hasPrivatePeers(fans);
     const port_active = hasPortWork(candidate_bundles) or construction_private;
@@ -114,7 +113,6 @@ fn buildSketch(
     sizing.applyPortDemand(graph, lg, geom, derived);
     const layer_count: u32 = @intCast(lg.layers.len);
     const layer_h = try computeLayerHeights(a, lg, geom, layer_count);
-    // @guarded-by: layout/layout_test.zig "inter-layer gap is 2 rows for TD but 4 columns for LR (same graph, default v_spacing)"
     const v_base: u32 = switch (graph.direction) {
         .TD => opts.v_spacing,
         .BT => unreachable,
@@ -122,7 +120,6 @@ fn buildSketch(
     };
     const v_sp_per_gap = try computeLayerSpacings(a, graph, lg, v_base);
 
-    // @guarded-by: layout/layout_test.zig "drift compaction fires on natural TD but is suppressed by is_direction_rotated, and never fires for LR"
     const compact_x = (graph.direction == .TD) and !opts.is_direction_rotated;
 
     assignInitialX(graph, geom, lg.nodes, lg.layers, opts.h_spacing, opts.spacing_scale);
@@ -131,12 +128,10 @@ fn buildSketch(
 
     normalizeX(geom);
 
-    // @guarded-by: layout/fan_test.zig "5-source fan-IN sink recenters onto the exact mean of its sources"
     try centerByBarycenter(a, graph, geom, lg, opts.h_spacing, .down, compact_x, opts.spacing_scale);
 
     normalizeX(geom);
 
-    // @guarded-by: layout/fan_lanes_test.zig "incomplete overlapping fans get separate lanes"
     if (fans.len > 0) fan_mod.gateFanInSharedLabels(NodeGeom, fans, geom);
     if (fans.len > 0) try fan_lanes.assignLanes(NodeGeom, a, graph, lg, geom, fans, candidate_bundles, null);
 
@@ -144,14 +139,12 @@ fn buildSketch(
 
     layer_axis.assignY(geom, lg.layers, layer_h, v_sp_per_gap);
 
-    // @guarded-by: layout/x_assign_test.zig "flushLeftRows never widens the bounding box"
     const td_pressure = opts.justify == .flush_left and compact_x;
     if (td_pressure) {
         flushLeftRows(graph, geom, lg);
         normalizeX(geom);
     }
 
-    // @guarded-by: layout/components_test.zig "packComponents leaves node geometry unchanged for a single connected component"
     if (td_pressure) {
         try components.packComponents(a, graph, geom, lg);
         normalizeX(geom);
@@ -163,7 +156,6 @@ fn buildSketch(
         normalizeX(geom);
     }
 
-    // @guarded-by: layout/rank_grid_test.zig "rank-grid leaves a wrapped fan-OUT layer as one row but still grids an over-wide multi-pivot sibling layer"
     if (td_pressure) {
         rank_grid.reflowWideRanks(NodeGeom, lg, geom, opts.max_width, opts.h_spacing, opts.v_spacing);
         normalizeX(geom);
@@ -177,9 +169,6 @@ fn buildSketch(
     if (fans.len > 0) fan_mod.assignRoles(fans, try centersX(a, geom));
     layer_axis.foldLayerOffsets(lg, geom, layer_h);
 
-    // @guarded-by: layout/gap_rows_test.zig "four disjoint realized rails share one row and the gap is rail, run, head"
-    // @guarded-by: layout/gap_rows_test.zig "a skip edge claims one row in the gap above its target layer, a plain chain claims none"
-    // @guarded-by: layout/gap_rows_test.zig "an offset decorated terminal claims one row; a column-aligned or undecorated one claims none"
     const predicted_ports = try gap_rows.predictPorts(NodeGeom, a, graph, lg, geom, derived, candidate_bundles, port_active, opts.rung);
     const supers = try a.alloc(gap_rows.Super, opts.fixed_sizes.len);
     for (opts.fixed_sizes, supers) |fixed, *sup| sup.* = .{ .node = fixed.node, .drawn = !fixed.synthetic };
@@ -200,7 +189,6 @@ fn buildSketch(
     const edges_out = edges_result.edges;
     const clusters_out = try clusters.buildClusters(a, graph, placements, opts.node_padding);
 
-    // @guarded-by: layout/clusters_test.zig "the back-edge rail label lever fires for authored TD but not for a rotated TD"
     const rail_lever = (opts.spacing_scale > 0) and
         (graph.direction == .TD) and !opts.is_direction_rotated;
     const bbox = clusters.computeBbox(placements, edges_out, clusters_out, edges_result.polylines, edges_result.rails, rail_lever, opts.max_width);
@@ -221,7 +209,6 @@ fn buildSketch(
         }
     }
 
-    // @guarded-by: layout/fan_rail_test.zig "rail taps stay in sync with their target node's post-shift position"
     const rails_out = try a.alloc(sketch.Rail, edges_result.rails.len);
     for (edges_result.rails, rails_out) |b, *out| out.* = b.rail;
 
@@ -242,7 +229,6 @@ fn buildSketch(
         .rails = rails_out,
         .rail_claims = edges_result.rail_claims,
         .bundles = candidate_bundles,
-        // @guarded-by: sketch_ports_test.zig "shared departure port groups its edges"
         .bundle_sets = sketch_ports.appendPortShares(a, base_sets, edges_out) catch base_sets,
         .diagnostics = try diagnostics.toOwnedSlice(a),
         .budget = .{ .max_width = opts.max_width, .rung = opts.rung },

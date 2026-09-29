@@ -6,7 +6,6 @@ const corridors = @import("corridors.zig");
 
 const Pt = sketch.Point;
 
-// @guarded-by: bridges_test.zig "sceneObstacles derives the pivot and tap head cells the raster stamps"
 pub fn sceneObstacles(
     arena: std.mem.Allocator,
     rails: []const sketch.Rail,
@@ -252,7 +251,6 @@ pub fn verticalCorridor(
     obstacles: tracks.Obstacles,
 ) error{OutOfMemory}![]sketch.Point {
     const descending = (exit == .south);
-    // @guarded-by: bridges_test.zig "verticalCorridor: the source-side jog row (one past the source) is collision-free above the pierced child"
     const src_jog_y = if (descending) start.y + 1 else start.y - 1;
     const entry: sketch.Dir4 = if (descending) .north else .south;
     const tgt_want = tracks.clearOfBorders(
@@ -270,7 +268,6 @@ pub fn verticalCorridor(
 
     const lo = @min(src_jog_y, tgt_jog_y);
     const hi = @max(src_jog_y, tgt_jog_y);
-    // @guarded-by: sketch_clearance_test.zig "clearLine prefers a margined line over a closer touch-free-only line"
     const run_col = corridors.descentColumn(end.x, lo, hi, placements, from_id, to_id, clusters);
 
     var poly: std.ArrayListUnmanaged(sketch.Point) = .empty;

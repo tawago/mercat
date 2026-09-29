@@ -9,13 +9,11 @@ const Straight = @import("routing_polyline.zig").Straight;
 const portPoint = route_clearance.portPoint;
 const blocked = route_clearance.blocked;
 
-/// @guarded-by: route_clearance_test.zig "the detour search widens once per already-routed path, never past the ceiling"
 pub fn detourLimit(routed: usize) u32 {
     const want = 2 * @as(u64, routed) + 2;
     return @intCast(@min(want, 64));
 }
 
-/// @guarded-by: route_clearance_test.zig "a detour's port run never crosses the route's own box"
 fn offSideClearLine(horizontal: bool, want: i32, lo: i32, hi: i32, placements: []const sk.NodePlacement, outward: i32) i32 {
     const none = std.math.maxInt(pb.NodeId);
     const found = sketch_clearance.clearLine(horizontal, want, lo, hi, placements, none, none, .{});
@@ -26,8 +24,6 @@ pub const ROW_REACH: u32 = 2;
 
 pub const Rows = struct { source_extra: u32 = 0, target_extra: u32 = 0 };
 
-/// @guarded-by: route_clearance_test.zig "an outside detour bends two cells out from a decorated end and one from a plain end"
-/// @guarded-by: route_clearance_test.zig "a pushed detour run takes the next gap row and is null where the push meets a box"
 pub fn outsideDetour(
     a: std.mem.Allocator,
     direction: sg.Direction,

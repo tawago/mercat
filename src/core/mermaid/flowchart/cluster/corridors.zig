@@ -38,7 +38,6 @@ pub fn slide(p: *sketch.Point, side: sketch.Dir4, coord: i32) void {
     }
 }
 
-/// @guarded-by: corridors_test.zig "two bridges entering one frame at one column: the later port slides along its face"
 pub fn discipline(
     arena: std.mem.Allocator,
     pairs: []const Pair,
@@ -134,7 +133,6 @@ pub const Span = struct { lo: i32, hi: i32 };
 
 const DESCENT_REACH: i32 = 512;
 
-/// @guarded-by: corridors_test.zig "a descent escaping a frame wall leaves the frame instead of stepping inside it"
 pub fn descentColumn(
     want: i32,
     lo: i32,
@@ -245,7 +243,6 @@ pub fn resolve(
     for (reqs, 0..) |r, i| {
         const rect = rectOf(clusters, r.frame) orelse continue;
 
-        // @guarded-by: corridors_test.zig "two edges into one port are one corridor and keep one column"
         if (findGroup(groups.items, r)) |c| {
             out[i] = c;
             continue;
@@ -269,7 +266,6 @@ fn findGroup(groups: []const Grp, r: Req) ?i32 {
     return null;
 }
 
-/// @guarded-by: corridors_test.zig "a slide that would drive the approach run through a node box is refused"
 fn search(rect: sketch.Rect, r: Req, claims: []const Claim, placements: []const sketch.NodePlacement) ?i32 {
     if (r.hi < r.lo) return null;
     const reach: i32 = @max(r.want - r.lo, r.hi - r.want);

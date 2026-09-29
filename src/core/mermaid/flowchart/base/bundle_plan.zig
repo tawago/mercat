@@ -8,7 +8,6 @@ const Bundle = bundle_mod.Bundle;
 const BundleCell = bundle_mod.BundleCell;
 const bundleMembersAt = bundle_mod.bundleMembersAt;
 
-/// @guarded-by: ledger_test.zig "the derivation and the recorded identity answer alike on a declared bundle"
 pub fn derivedSameBundle(
     bundles: RealizedBundles,
     sets: []const Bundle,
@@ -31,7 +30,6 @@ fn holds(edges: []const EdgeId, edge: EdgeId) bool {
     return false;
 }
 
-/// @guarded-by: select_test.zig "a clustered render's rail bundles come from its piece plan and survive the stitch"
 pub fn bundlesFromPlan(
     allocator: std.mem.Allocator,
     bundles: RealizedBundles,

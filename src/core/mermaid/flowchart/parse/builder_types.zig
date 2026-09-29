@@ -61,7 +61,6 @@ pub fn pruneEmptyClusters(
         if (dropped[i]) continue;
         var c = clusters.items[i];
         c.id = remap[i];
-        // guarded-by: parse_test.zig "nested subgraph: parent survives via kept child with no own members"
         if (c.parent) |p| c.parent = remap[p];
         var sw: usize = 0;
         for (c.sub_clusters.items) |sc| {
@@ -74,7 +73,6 @@ pub fn pruneEmptyClusters(
         w += 1;
     }
     clusters.shrinkRetainingCapacity(w);
-    // guarded-by: parse_test.zig "dropped empty cluster leaves no dangling node->cluster reference"
     for (nodes) |*node| {
         if (node.cluster) |c| node.cluster = remap[c];
     }

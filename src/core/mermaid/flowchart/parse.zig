@@ -341,7 +341,6 @@ const Parser = struct {
     }
 
     fn parseStatement(self: *Parser) ParseError!void {
-        // guarded-by: parse/parse_test.zig "ampersand both sides: cross-product with shapes and edge label"
         var sources: std.ArrayList(NodeId) = .empty;
         defer sources.deinit(self.aa);
         var targets: std.ArrayList(NodeId) = .empty;

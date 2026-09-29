@@ -78,7 +78,6 @@ pub fn conflictsRailArrows(a: std.mem.Allocator, polyline: []const sk.Point, rai
     return false;
 }
 
-/// @guarded-by: route_clearance_test.zig "a route may cross a rail's run but never lie along it"
 pub fn ridesRail(a: std.mem.Allocator, polyline: []const sk.Point, rails: []const sk.Rail) error{OutOfMemory}!bool {
     var ink: CellMap = .empty;
     defer ink.deinit(a);
@@ -131,9 +130,7 @@ pub fn conflictsReservedTerminals(a: std.mem.Allocator, edge: pb.EdgeId, polylin
     };
     for (edge_ports) |item| {
         if (item.edge == edge) continue;
-        // @guarded-by: route_clearance_test.zig "reserved departures exempt same selected rail"
         if (sameBundle(edge, item.edge, bundles)) continue;
-        // @guarded-by: route_clearance_test.zig "a discharged edge's port allocation reserves no departure"
         if (contains(bundles.discharged, item.edge)) continue;
         const ends = [2]struct { port: sk.Port, decorated: bool }{
             .{ .port = item.source, .decorated = item.source_decorated },
@@ -148,10 +145,6 @@ pub fn conflictsReservedTerminals(a: std.mem.Allocator, edge: pb.EdgeId, polylin
     return false;
 }
 
-/// @guarded-by: route_clearance_test.zig "a reserved departure blocks collinear occupancy and admits a perpendicular crossing"
-/// @guarded-by: route_clearance_test.zig "a decorated departure cell blocks even a perpendicular crossing"
-/// @guarded-by: route_clearance_test.zig "a decorated arrival cell blocks even a perpendicular crossing"
-/// @guarded-by: route_clearance_test.zig "a decorated terminal's lateral neighbours refuse a foreign arm toward the head, admit a parallel through-run and a bend turning away"
 fn reservedConflict(candidate: CellMap, reserved: sk.Point, side: sk.Dir4, decorated: bool) bool {
     const vertical = side == .north or side == .south;
     if (candidate.get(.{ .x = reserved.x, .y = reserved.y })) |theirs| {
@@ -170,7 +163,6 @@ fn reservedConflict(candidate: CellMap, reserved: sk.Point, side: sk.Dir4, decor
     return false;
 }
 
-/// @guarded-by: route_clearance_test.zig "a rail honours a foreign decorated terminal's reservation and ignores its own members'"
 pub fn railConflictsReservedTerminals(a: std.mem.Allocator, rail: sk.Rail, placements: []const sk.NodePlacement, edge_ports: anytype, bundles: pb.RealizedBundles) error{OutOfMemory}!bool {
     var candidate: CellMap = .empty;
     defer candidate.deinit(a);
@@ -193,7 +185,6 @@ pub fn railConflictsReservedTerminals(a: std.mem.Allocator, rail: sk.Rail, place
     return false;
 }
 
-/// @guarded-by: route_clearance_test.zig "decorated terminal pseudo-boxes cover the head cell and its laterals for foreign edges only"
 pub fn withDecoratedTerminalBoxes(a: std.mem.Allocator, edge: pb.EdgeId, placements: []const sk.NodePlacement, edge_ports: anytype, bundles: pb.RealizedBundles) error{OutOfMemory}![]const sk.NodePlacement {
     var out: std.ArrayListUnmanaged(sk.NodePlacement) = .empty;
     try out.appendSlice(a, placements);
@@ -269,9 +260,6 @@ pub fn isIndependent(edge: pb.EdgeId, bundles: pb.RealizedBundles) bool {
     return false;
 }
 
-/// @guarded-by: routing_terminal_test.zig "satisfyApproach grows a corner-fed len-2 final into a straight base approach"
-/// @guarded-by: route_clearance_test.zig "polylineClears refuses every clearance violation regardless of membership disposition"
-/// @guarded-by: route_clearance_test.zig "reservations hold with no realized memberships"
 pub fn polylineClears(
     a: std.mem.Allocator,
     edge: pb.EdgeId,
@@ -286,7 +274,6 @@ pub fn polylineClears(
 ) error{OutOfMemory}!bool {
     if (try conflictsReservedTerminals(a, edge, polyline, placements, edge_ports, bundles)) return false;
     if (try ridesRail(a, polyline, rails)) return false;
-    // @guarded-by: route_clearance_test.zig "a route through a foreign box is refused with no realized memberships"
     if (touchesForeignNode(polyline, placements, from, to)) return false;
     if (bundles.memberships.len == 0) return true;
     return !try blocked(a, edge, polyline, existing, bundles, placements, from, to) and
@@ -331,7 +318,6 @@ pub fn portPoint(placement: sk.NodePlacement, port: sk.Port) sk.Point {
     };
 }
 
-/// @guarded-by: route_clearance_test.zig "members of one fused union do not block each other"
 fn sameBundle(a: pb.EdgeId, b: pb.EdgeId, bundles: pb.RealizedBundles) bool {
     for (bundles.selected_bundles) |sel| {
         if (contains(sel.members, a) and contains(sel.members, b)) return true;

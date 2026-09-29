@@ -27,7 +27,6 @@ pub fn deCascade(
     }
     if (margin == std.math.maxInt(i32)) return null;
 
-    // @guarded-by: decascade_test.zig "deCascade anchors on the most-drifted rail, not the first-drifted one"
     var seed_idx: ?u32 = null;
     var best_drift: i32 = MIN_DRIFT;
     {
@@ -43,7 +42,6 @@ pub fn deCascade(
     }
     const seed = seed_idx orelse return null;
 
-    // @guarded-by: decascade_test.zig "deCascade head climb stops exactly at a multi-node fork layer"
     var head = seed;
     while (true) {
         const p = soleForwardParent(lg, head) orelse break;
@@ -52,7 +50,6 @@ pub fn deCascade(
         if (soleForwardChild(lg, p) == null) break;
         head = p;
     }
-    // @guarded-by: decascade_test.zig "deCascade no-ops when the drifted rail head is a true source (no forward parent)"
     if (soleForwardParent(lg, head) == null) return null;
     const lo: usize = geom[head].layer;
 
@@ -60,14 +57,12 @@ pub fn deCascade(
     var cur = head;
     while (true) {
         const next = soleForwardChild(lg, cur) orelse break;
-        // @guarded-by: decascade_test.zig "deCascade rail walk stops at a branch instead of treating it as rail-straight"
         if (soleRealNode(lg, geom[next].layer) == null) break;
         if (geom[next].layer != geom[cur].layer + 1) break;
         hi = geom[next].layer;
         cur = next;
     }
 
-    // @guarded-by: decascade_test.zig "deCascade does not fire for a lone drifted single-node layer (hi==lo)"
     if (hi <= lo) return null;
 
     const n = lg.nodes.len;
@@ -91,7 +86,6 @@ pub fn deCascade(
             c = next;
         }
     }
-    // @guarded-by: decascade_test.zig "deCascade flood-forward never pulls a node above the run into the unit"
     while (stack.pop()) |node| {
         for (lg.edges) |e| {
             if (e.from != node) continue;
@@ -113,7 +107,6 @@ pub fn deCascade(
     var delta = margin - unit_min;
     if (delta >= 0) return null;
 
-    // @guarded-by: decascade_test.zig "deCascade collision floor clamps the slide short of a fixed sibling's right edge"
     var floor: i32 = std.math.minInt(i32);
     for (lg.nodes, 0..) |ln, i| {
         if (ln != .real or !in_unit[i]) continue;
@@ -150,7 +143,6 @@ pub fn deCascade(
             if (h > fork_layer_h) fork_layer_h = h;
         }
     }
-    // @guarded-by: decascade_test.zig "deCascade entry-corridor drop uses the tallest fork-layer sibling, not just the overlapping one"
     if (needs_corridor and fork_layer_h > 0) return .{ .gap = @intCast(lo - 1), .rows = @intCast(fork_layer_h) };
     return null;
 }

@@ -91,7 +91,6 @@ fn manhattan(a: sketch.Point, b: sketch.Point) u64 {
 pub fn bends(s: sketch.Sketch) u64 {
     var total: u64 = 0;
     for (s.edges) |e| total += polylineBends(e.polyline);
-    // @guarded-by: score_test.zig "rail bends: rail junction counted once, one turn per off-column tap"
     for (s.rails) |rail| {
         total += polylineBends(rail.stem);
         const junction = rail.stem[rail.stem.len - 1];
@@ -127,7 +126,6 @@ pub fn countCrossings(s: sketch.Sketch) u64 {
             total += crossingsBetween(ea.polyline, eb.polyline);
         }
     }
-    // @guarded-by: score_test.zig "rail crossings: shared rail registers once, never crosses itself"
     for (s.rails, 0..) |ba, bi| {
         for (s.edges) |e| total += railEdgeCrossings(ba, e.polyline);
         for (s.rails[bi + 1 ..]) |rail| total += railRailCrossings(ba, rail);

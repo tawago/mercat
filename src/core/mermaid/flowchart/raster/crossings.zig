@@ -34,8 +34,6 @@ pub const Ctx = struct {
     mode: prim.SubgraphEdges = .bridge,
 };
 
-/// @guarded-by: crossings.zig "sameBundle: bundle membership answers what the plan answers"
-/// @guarded-by: crossings.zig "sameBundle: a cell-scoped bundle answers only on its own cells"
 pub fn sameBundle(
     a: EdgeId,
     b: EdgeId,
@@ -97,7 +95,6 @@ pub fn lateralArms(tip: lattice.Dir4, mask: lattice.Neighbours) lattice.Neighbou
     };
 }
 
-/// @guarded-by: crossings.zig "headEntry: a lateral arm is refused for co-members too; an on-axis co-member rides"
 pub fn headEntry(
     counts: *CrossingCounts,
     bundles: ledger.RealizedBundles,

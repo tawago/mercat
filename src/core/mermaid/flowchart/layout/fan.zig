@@ -34,7 +34,6 @@ pub fn detect(
 
     var fans: std.ArrayListUnmanaged(Fan) = .empty;
 
-    // @guarded-by: fan_test.zig "detect distinguishes fan-OUT and fan-IN in the same graph"
     var pivot: u32 = 0;
     while (pivot < lg.nodes.len) : (pivot += 1) {
         const pivot_id = switch (lg.nodes[pivot]) {
@@ -137,7 +136,6 @@ pub fn gateFanInSharedLabels(comptime G: type, fans: []Fan, geom: []const G) voi
                     if (!(right + 3 <= q_left or q_right + 3 <= left)) infeasible = true;
                 } else if (left - 2 < qx and qx < right + 2) infeasible = true;
             }
-            // @guarded-by: fan_test.zig "a fan-in tap label crowded by a neighbouring fan's drop unshares"
             for (fans) |g| {
                 if (g.source_layer != f.source_layer or g.pivot_idx == f.pivot_idx) continue;
                 if (left - 2 < centerX(G, geom, g.pivot_idx) and centerX(G, geom, g.pivot_idx) < right + 2) infeasible = true;
@@ -176,7 +174,6 @@ fn collectFanOut(
         if (le.from != src_idx) continue;
         if (le.reversed) continue;
         if (node_layer[le.to] != src_layer + 1) continue;
-        // @guarded-by: fan_test.zig "detect keeps a long member as a fan-out peer, labeled or not"
         const long = switch (lg.nodes[le.to]) {
             .real => false,
             .virtual => true,
@@ -301,7 +298,6 @@ pub fn lookup(fans: []const Fan, edge_id: sg.EdgeId) ?LookupHit {
     return null;
 }
 
-/// @guarded-by: fan_test.zig "bundles group a fan's peers by rail lane"
 pub fn coSets(
     a: std.mem.Allocator,
     fans: []const Fan,

@@ -8,7 +8,6 @@ const cluster_stitch = @import("cluster/stitch.zig");
 
 pub const RecurseError = coords.CoordsError || cluster_stitch.StitchError;
 
-/// @guarded-by: entry.zig "V-D-IR-07: a clustered graph's bundles ride piece plans; the root plan stays skipped"
 pub fn layoutPieces(
     arena: std.mem.Allocator,
     graph: sem_graph.SemGraph,
@@ -17,7 +16,6 @@ pub fn layoutPieces(
     return (try layoutClustered(arena, graph, opts, .{})).sketch;
 }
 
-/// @guarded-by: recurse_test.zig "an arrival inherited through every nesting level clears the innermost frame"
 pub fn layoutClustered(
     arena: std.mem.Allocator,
     graph: sem_graph.SemGraph,
@@ -35,7 +33,6 @@ pub fn layoutClustered(
     var outer_opts = opts;
     outer_opts.departures = try departingNodes(arena, inherited.departures, sr.pieces[0].orig_ids);
 
-    // @guarded-by: recurse_test.zig "nested cluster: width sub-budget shrinks once per nesting level (saturating)"
     const choices = try arena.alloc(ChildChoice, sr.pieces.len);
     var any_flip = false;
     for (sr.pieces[1..], 1..) |piece, i| {
@@ -45,7 +42,6 @@ pub fn layoutClustered(
         if (choices[i].flipped != null) any_flip = true;
     }
 
-    // @guarded-by: recurse_test.zig "declared baseline is always computed and never exceeded when a child flips"
     const declared_children = try arena.alloc(cluster_stitch.Clustered, sr.pieces.len);
     for (choices[1..], 1..) |c, i| declared_children[i] = c.declared;
     const declared_out = try stitchOuter(arena, sr, outer_opts, declared_children);
@@ -109,7 +105,6 @@ pub fn layoutChild(
     rotated_graph.direction = prim.rotatedDirection(graph.direction);
     const rotated = try layoutClustered(arena, rotated_graph, child_opts, inherited);
 
-    // @guarded-by: recurse_test.zig "rotation that reduces but does not eliminate overflow is rejected (validator cross-check)"
     if (rotated.sketch.bbox.w < declared.sketch.bbox.w and
         rotated.sketch.bbox.w <= child_opts.max_width)
     {

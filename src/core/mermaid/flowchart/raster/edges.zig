@@ -38,12 +38,10 @@ const EdgeWalkResult = struct {
     last_cell: ?sketch.Point = null,
     first_dir: ?Move = null,
     last_dir: ?Move = null,
-    /// @guarded-by: edges_slide_test.zig "a decorated gap arrival stamps its head against the wall, run ink behind it"
     source_head: ?ep.Head = null,
     target_head: ?ep.Head = null,
 };
 
-/// @guarded-by: edges_test.zig "a co-member's corner arm into a head is refused"
 fn crossingKeepsFirstWriter(
     cell: *const lattice.Cell,
     incoming_edge: u32,
@@ -88,7 +86,6 @@ fn claimCornerCell(
     cell.stroke_kind = kind;
 }
 
-/// @guarded-by: edges_corner_test.zig
 pub const RailEnds = struct { source: bool = false, target: bool = false };
 
 fn railEnds(s: sketch.Sketch, edge: sketch.EdgePath) RailEnds {
@@ -120,7 +117,6 @@ fn walkPolyline(
         return .{};
     }
 
-    // @guarded-by: edges_test.zig "edge cells colliding with node-owned cells are counted as lost"
     var nontrivial: usize = 0;
     {
         var i: usize = 0;
@@ -153,7 +149,6 @@ fn walkPolyline(
         const is_last = seg_index == nontrivial - 1;
         seg_index += 1;
 
-        // @guarded-by: edges_corner_test.zig "shared rail corner: sibling drops bending at one cell yield ┴, not a phantom ┼"
         if (prev_dir) |prev| {
             if (pointInBounds(a, lat)) {
                 const c = toCoord(a);
@@ -172,7 +167,6 @@ fn walkPolyline(
                             crossings.cellAt(c.x, c.y),
                         );
                         if (!refused) {
-                            // @guarded-by: edges_corner_test.zig "a route that doubles back keeps both visits' arms at the cell it re-enters"
                             cell.neighbours = orMask(cell.neighbours, corner_mask);
                             cell.occupant = .{ .edge_segment = .{
                                 .edge = seg.edge,
@@ -183,7 +177,6 @@ fn walkPolyline(
                         }
                     },
                     .empty => claimCornerCell(cell, edge.id, ek, erole, corner_mask),
-                    // @guarded-by: edges_test.zig "corner arm onto a subgraph frame border is refused"
                     .cluster_border => if (ctx.mode != .bridge) claimCornerCell(cell, edge.id, ek, erole, corner_mask),
                     else => if (!crossingKeepsFirstWriter(cell, edge.id, corner_mask, crossings.cellAt(c.x, c.y), ctx)) {
                         writeEdgeCell(cell, edge.id, ek, erole, corner_mask, c.x, c.y, cells_lost);
@@ -195,12 +188,10 @@ fn walkPolyline(
                     result.first_dir = dir;
                 }
                 result.last_cell = a;
-                // @guarded-by: edges_test.zig "length-1 final segment after a corner points the terminal arrowhead into the port"
                 result.last_dir = if (is_last) dir else prev;
             }
         }
 
-        // @guarded-by: edges_test.zig "edge cells colliding with node-owned cells are counted as lost"
         var cursor = step(a, dir);
         while (true) {
             const at_b = cursor.x == b.x and cursor.y == b.y;
@@ -209,8 +200,6 @@ fn walkPolyline(
             if (pointInBounds(cursor, lat)) {
                 const c = toCoord(cursor);
                 const cell = lat.at(c.x, c.y);
-                // @guarded-by: edges_test.zig "through-crossing bridges a subgraph frame border"
-                // @guarded-by: edges_test.zig "cross mode: through-crossing welds the frame border (pre-slice-1)"
                 const nxt = step(cursor, dir);
                 const terminal_here = is_last and nxt.x == b.x and nxt.y == b.y;
                 const bridged = ctx.mode == .bridge and cell.occupant == .cluster_border and !terminal_here;
@@ -232,9 +221,6 @@ fn walkPolyline(
         prev_dir = dir;
     }
 
-    // @guarded-by: edges_port_test.zig "a head adjacent to the wall but pointing ALONG the route still tees it"
-    // @guarded-by: edges_slide_test.zig "a decorated gap arrival stamps its head against the wall, run ink behind it"
-    // @guarded-by: edges_test.zig "a member stroke paints neither port nor head at its rail end and both at a private end"
     if (!ends.source and edge.arrow_from != .none) if (result.first_cell) |fc| if (result.first_dir) |fd| {
         result.source_head = ep.slideHead(lat, pts[0], .{ .cell = fc, .dir = reverse(fd) });
     };

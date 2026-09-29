@@ -25,10 +25,8 @@ pub fn paint(allocator: std.mem.Allocator, lat: lattice.Lattice, max_width: u32)
     while (y < lat.height) : (y += 1) {
         row.clearRetainingCapacity();
 
-        // @guarded-by: paint.zig "paint: blank content beyond max_width budget earns no overflow marker"
         var col: u32 = 0;
         var cut_real_content = false;
-        // @guarded-by: paint.zig "paint: marker stamping — an interned grapheme at the boundary is popped whole"
         var last_glyph_start: usize = 0;
         var x: u32 = 0;
         while (x < lat.width) : (x += 1) {
@@ -45,7 +43,6 @@ pub fn paint(allocator: std.mem.Allocator, lat: lattice.Lattice, max_width: u32)
         }
 
         if (cut_real_content) {
-            // @guarded-by: paint.zig "paint: marker stamping — width-1-exact-fill overwrites the last glyph" / "paint: marker stamping — width-2-at-boundary fills the leftover gap"
             if (col >= max_width) row.items.len = last_glyph_start;
             try appendCp(allocator, &row, OVERFLOW_MARKER);
         }
@@ -58,7 +55,6 @@ pub fn paint(allocator: std.mem.Allocator, lat: lattice.Lattice, max_width: u32)
     return out.toOwnedSlice(allocator);
 }
 
-/// @guarded-by: paint.zig "paint: a dangling glyph reference paints U+FFFD at one column"
 const dangling_glyph: lattice.Glyph = .{ .bytes = "\u{FFFD}", .width = 1 };
 
 fn rowHasContentFrom(lat: lattice.Lattice, y: u32, from_x: u32) bool {
@@ -79,8 +75,6 @@ fn rowHasContentFrom(lat: lattice.Lattice, y: u32, from_x: u32) bool {
     return false;
 }
 
-/// @guarded-by: paint.zig "paint: a wide label glyph plus its continuation paints two columns from two cells"
-/// @guarded-by: paint.zig "paint: an interned grapheme paints its bytes verbatim at its table width"
 fn appendCell(
     allocator: std.mem.Allocator,
     row: *std.ArrayList(u8),
@@ -110,7 +104,6 @@ fn appendCell(
             try appendCp(allocator, row, glyph);
         },
         .node_border => |b| {
-            // @guarded-by: paint.zig "paint: non-solid stroke wins over shape glyph on node_border"
             const glyph: u21 = switch (cell.stroke_kind) {
                 .solid => sg.glyphFor(cell.shape, b.role, cell.neighbours),
                 .dotted => st.dottedBorderGlyph(cell.neighbours),

@@ -108,7 +108,6 @@ pub const ScoredNode = struct {
     idx: u32,
     bary: f64,
     cur: u32,
-    /// guarded-by: layout/crossing_test.zig "cmpScored places back-edge
     back: u8 = 0,
 };
 
@@ -200,7 +199,6 @@ fn reorderLayer(
         };
     }
 
-    // guarded-by: layout/crossing_test.zig "cmpScored breaks barycenter ties by original position, independent of input order"
     std.mem.sort(ScoredNode, scored, {}, cmpScored);
 
     for (scored, 0..) |s, k| row[k] = s.idx;
@@ -240,7 +238,6 @@ pub fn isBackEndpoint(lg: *const LayeredGraph, idx: u32) bool {
     return false;
 }
 
-/// guarded-by: layout/crossing_test.zig "reduceCrossings parks a back-edge
 pub fn railCost(lg: LayeredGraph) u64 {
     var total: u64 = 0;
     for (lg.layers) |row| {

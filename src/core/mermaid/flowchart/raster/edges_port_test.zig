@@ -222,7 +222,6 @@ test "a decorated arrival whose head is DETACHED still tees the wall" {
 }
 
 test "a DECORATED gap arrival paints nothing: the slid head owns the gap" {
-    // @guarded-by: edges_slide_test.zig "a decorated gap arrival stamps its head against the wall, run ink behind it"
     const a = testing.allocator;
     var lat = try borderLattice3(a, 2, 1, .{ .n = true, .s = true });
     defer a.free(lat.cells);

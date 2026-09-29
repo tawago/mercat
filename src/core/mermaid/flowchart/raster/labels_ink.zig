@@ -61,9 +61,6 @@ fn isLabelCell(lat: *const lattice.Lattice, x: i32, y: i32) bool {
     };
 }
 
-/// @guarded-by: labels_ladder_test.zig "isolation rejects a foreign-ink neighbour in every one of the 8 directions"
-/// @guarded-by: labels_ladder_test.zig "own-edge ink beside the anchor does not displace the label"
-/// @guarded-by: labels_ladder_test.zig "allow_solid waives only the node/cluster margin, never the foreign-edge margin"
 pub fn spanIsolated(
     lat: *const lattice.Lattice,
     owner: Owner,
@@ -85,7 +82,6 @@ pub fn spanIsolated(
             }
         }
     }
-    // @guarded-by: labels_test.zig "edge-label runs on the same row keep two blank cells apart"
     if (isLabelCell(lat, start_x - 1, row) or isLabelCell(lat, start_x - 2, row)) return false;
     if (isLabelCell(lat, start_x + cc, row) or isLabelCell(lat, start_x + cc + 1, row)) return false;
     return true;

@@ -27,7 +27,6 @@ pub fn superSize(child_bbox: sketch.Rect, scale: u32, synthetic: bool) struct { 
     return .{ .w = child_bbox.w + 2 * pad.x, .h = child_bbox.h + 2 * pad.y };
 }
 
-/// @guarded-by: entry_inset.zig "entryArrivalInset"
 pub fn entryInsetFor(
     sr: SplitResult,
     children: []const Clustered,
@@ -78,7 +77,6 @@ pub fn stitch(
     var piece_joins: std.ArrayListUnmanaged(stitch_bundles.PieceBundles) = .empty;
     const claim_sources = try arena.alloc(stitch_rails.ChildSource, split_result.supers.len);
 
-    // @guarded-by: recurse_test.zig "stitched sibling clusters share one edge-id space"
     var id_base: sketch.EdgeId = 0;
 
     var global_of = try arena.alloc([]sketch.NodeId, split_result.pieces.len);
@@ -105,7 +103,6 @@ pub fn stitch(
             const child = children[super.child_piece];
             const piece = split_result.pieces[super.child_piece];
             const pad = superPad(scale, super.synthetic);
-            // @guarded-by: entry_inset.zig "entryArrivalInset"
             const ei = insets[si];
             const dx = p.rect.x + @as(i32, @intCast(pad.x)) + ei.dxExtra();
             const dy = p.rect.y + @as(i32, @intCast(pad.y)) + ei.dyExtra();
@@ -206,7 +203,6 @@ pub fn stitch(
         if (kept.items.len == 0) continue;
         var filtered = ob;
         filtered.taps = try kept.toOwnedSlice(arena);
-        // @guarded-by: recurse_test.zig "stitch re-clamps a surviving rail's crossbar past a dropped super-node tap"
         const junction = ob.stem[ob.stem.len - 1];
         var min_x: i32 = junction.x;
         var max_x: i32 = junction.x;
@@ -233,7 +229,6 @@ pub fn stitch(
         try edges.append(arena, b);
     }
 
-    // @guarded-by: recurse_test2.zig "two bridges into one port declare a port-share bundle"
     const edge_slice = try edges.toOwnedSlice(arena);
     const final_bridges = edge_slice[bridge_start..];
     const bridge_joins = if (merge_joins)
@@ -270,7 +265,6 @@ pub fn stitch(
         .diagnostics = outer.diagnostics,
         .budget = outer.budget,
     };
-    // @guarded-by: sketch_bundles_test.zig "merged bundle sets name every bundle once"
     sketch_bundles.stamp(arena, &merged);
     return .{
         .sketch = merged,

@@ -6,7 +6,6 @@ const ink = @import("labels_ink.zig");
 const cover = @import("labels_cover.zig");
 const onrun_h = @import("labels_onrun_h.zig");
 
-/// @guarded-by: labels_onrun_h_test.zig "tie order: the longer qualifying stretch is tried first, ties go vertical"
 pub fn tryOnRunEdge(
     lat: *lattice.Lattice,
     s: sketch.Sketch,
@@ -93,11 +92,8 @@ fn tryAt(
     owner: ink.Owner,
 ) bool {
     const cell_count = run.cell_count;
-    // @guarded-by: labels_onrun_test.zig "OWN-INK RULE: a rail/crossbar cell is never interrupted"
     if (!privateDropperCell(lat, edge_id, x, row)) return false;
-    // @guarded-by: labels_onrun_test.zig "OWN-INK RULE: a cell another tap's drop covers is refused"
     if (cover.coveredByOther(s, edge_id, x, row)) return false;
-    // @guarded-by: labels_onrun_test.zig "FLANKED-RESUMPTION RULE: an arrowhead is not a flank, so the head-adjacent row is refused"
     if (!runFlankCell(lat, edge_id, x, row - 1)) return false;
     if (!runFlankCell(lat, edge_id, x, row + 1)) return false;
 
@@ -119,7 +115,6 @@ fn tryAt(
         }
     }
 
-    // @guarded-by: labels_onrun_test.zig "foreign ink beside the span still refuses the on-run candidate"
     if (!ink.spanIsolated(lat, owner, start_x, row, cell_count, false)) return false;
 
     std.debug.assert(privateDropperCell(lat, edge_id, x, row));

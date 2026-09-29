@@ -28,7 +28,6 @@ pub fn labelLines(
     if (max_label_width) |cap| {
         return prim.wrapToWidth(a, label, cap);
     }
-    // @guarded-by: sizing_test.zig "labelLines hard-break-only path matches wrapToWidth at an effectively infinite cap"
     var lines: std.ArrayListUnmanaged([]const u8) = .empty;
     var it = std.mem.splitScalar(u8, label, prim.LINE_BREAK);
     while (it.next()) |seg| try lines.append(a, seg);
@@ -74,7 +73,6 @@ pub fn sizeNodes(
     max_label_width: ?u32,
     node_lines: [][]const []const u8,
 ) error{OutOfMemory}!void {
-    // @guarded-by: sizing_test.zig "sizeNodes pre-swaps an LR multi-line label so post-applyDirection dims match the visual box"
     const swap = (graph.direction == .LR or graph.direction == .RL);
     for (lg.nodes, 0..) |n, i| {
         switch (n) {

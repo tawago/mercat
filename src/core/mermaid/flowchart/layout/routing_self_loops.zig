@@ -9,7 +9,6 @@ pub const SelfLoop = struct {
     port_to: sketch.Port,
 };
 
-// @guarded-by: routing_self_loops_test.zig "self-loop detour offsets match OFF_H=4 (east overshoot) / OFF_V=3 (vertical rise/drop) across TD/BT/LR/RL"
 const OFF_H: i32 = 4;
 const OFF_V: i32 = 3;
 
@@ -32,7 +31,6 @@ pub fn selfLoop(
 const LIFT_REACH: i32 = 4;
 const OVERSHOOT_REACH: i32 = OFF_H + 2;
 
-/// @guarded-by: routing_test.zig "a self loop lifts past foreign ink instead of lying along it"
 pub fn loopCandidate(
     a: std.mem.Allocator,
     dir: sg.Direction,
@@ -133,9 +131,7 @@ fn belowEastLoop(
 
     var gap_y = south_y + 1;
     while (gap_y <= south_y + 3) : (gap_y += 1) {
-        // @guarded-by: routing_self_loops_test.zig "belowEastLoop's south descent blocking is monotonic: an obstacle at the nearest candidate gap row sinks the whole fallback (no deeper gap_y recovers)"
         if (sketch_clearance.columnTouchesAny(exit_x, south_y + 1, gap_y, placements, id, id)) return null;
-        // @guarded-by: routing_self_loops_test.zig "belowEastLoop lands the east re-entry with a straight base cell (◀─┐)"
         var arm_x = east_x + 3;
         while (arm_x <= east_x + OFF_H + 3) : (arm_x += 1) {
             if (sketch_clearance.rowTouchesAny(gap_y, exit_x, arm_x, placements, id, id)) continue;
@@ -158,7 +154,6 @@ fn belowEastLoop(
     return null;
 }
 
-/// @guarded-by: routing_self_loops_test.zig "self-loop detour never crosses back into the source node's own interior, across sizes and directions"
 fn southLoop(a: std.mem.Allocator, node_p: sketch.NodePlacement) error{OutOfMemory}!SelfLoop {
     const r = node_p.rect;
     const w_i: i32 = @intCast(r.w);
@@ -171,7 +166,6 @@ fn southLoop(a: std.mem.Allocator, node_p: sketch.NodePlacement) error{OutOfMemo
     try poly.append(a, .{ .x = exit_x, .y = south_y });
     try poly.append(a, .{ .x = exit_x, .y = loop_y });
     try poly.append(a, .{ .x = enter_x, .y = loop_y });
-    // @guarded-by: routing_self_loops_test.zig "southLoop's final segment rises north (dy<0), the geometry paint.zig's arrowGlyph maps to the up-arrow ▲"
     try poly.append(a, .{ .x = enter_x, .y = south_y });
     return .{
         .polyline = try poly.toOwnedSlice(a),
@@ -183,7 +177,6 @@ fn southLoop(a: std.mem.Allocator, node_p: sketch.NodePlacement) error{OutOfMemo
 pub fn selfLoopHalfGap(w: u32) i32 {
     const w_i: i32 = @intCast(w);
     const half = @divTrunc(w_i, 2);
-    // @guarded-by: routing_self_loops_test.zig "selfLoopHalfGap keeps both south ports strictly inside [1, w-2] for every non-degenerate width"
     const max_k = @min(half - 1, w_i - 2 - half);
     if (max_k < 1) return 1;
     const want = @divTrunc(w_i, 4);

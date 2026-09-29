@@ -40,7 +40,6 @@ pub fn buildClusters(
     };
     std.mem.sort(u32, order, Ctx{ .graph = graph }, Ctx.lessThan);
 
-    // @guarded-by: layout/clusters_test.zig "buildClusters: outer cluster bbox unions the already-expanded inner rect, not the raw inner member bbox"
     var rects = try a.alloc(?sketch.Rect, graph.clusters.len);
     defer a.free(rects);
     for (rects) |*r| r.* = null;
@@ -50,7 +49,6 @@ pub fn buildClusters(
         rects[idx] = clusterBbox(graph, c, placements, rects);
     }
 
-    // @guarded-by: layout/clusters_test.zig "buildClusters: emitted ClusterFrame order matches input graph.clusters order, not the depth-sorted processing order"
     var out: std.ArrayListUnmanaged(sketch.ClusterFrame) = .empty;
     for (graph.clusters, 0..) |c, i| {
         const r = rects[i] orelse continue;
@@ -169,10 +167,8 @@ pub fn computeBbox(
         if (c.rect.right() > max_x) max_x = c.rect.right();
         if (c.rect.bottom() > max_y) max_y = c.rect.bottom();
     }
-    // @guarded-by: layout/clusters_test.zig "computeBbox: back-edge rail label relocation depends on the diagram's full right extent, not just its own edge"
     for (edges) |e| {
         for (e.polyline) |pt| {
-            // @guarded-by: layout/clusters_test.zig "computeBbox: a self-loop detour point at the diagram's extreme corner extends the exclusive bbox by exactly +1"
             if (pt.x < min_x) min_x = pt.x;
             if (pt.y < min_y) min_y = pt.y;
             if (pt.x + 1 > max_x) max_x = pt.x + 1;
@@ -187,7 +183,6 @@ pub fn computeBbox(
             if (fp.ly + 1 > max_y) max_y = fp.ly + 1;
         }
     }
-    // @guarded-by: layout/clusters_test.zig "computeBbox: rail tap label reservation matches Rail.tapLabelSeg + prim.edgeLabelAnchor"
     for (rails) |b| {
         const rail = b.rail;
         for (rail.stem) |pt| extendPoint(&min_x, &min_y, &max_x, &max_y, pt);
@@ -208,7 +203,6 @@ pub fn computeBbox(
         }
     }
 
-    // @guarded-by: layout/clusters_test.zig "computeBbox: back-edge rail lever leaves the label right when the right placement already fits the budget"
     for (edges) |*e| {
         if (!(pressure and e.role == .back_edge)) continue;
         if (labelFootprint(e.*, true, max_width, max_x)) |fp| {
@@ -258,7 +252,6 @@ fn shiftAll(
             pt.y += dy;
         }
     }
-    // @guarded-by: layout/clusters_test.zig "computeBbox: the shift pass updates both the Built.taps view and the aliased Rail.taps slice"
     for (rails) |*b| {
         for (&b.rail.crossbar) |*pt| {
             pt.x += dx;
@@ -308,7 +301,6 @@ fn labelFootprint(
         .lx = anchor.x,
         .ly = anchor.y,
         .lend_x = anchor.x + @as(i32, @intCast(lbl_w)),
-        // @guarded-by: layout/clusters_test.zig "computeBbox: label_left_of_run is false exactly at prim.edgeLabelAnchor's default mid_x+2 offset"
         .left_of_run = anchor.x < mid_x + 2,
     };
 }

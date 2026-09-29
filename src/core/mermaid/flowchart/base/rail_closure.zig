@@ -41,7 +41,6 @@ pub const Verdict = struct {
 
 pub const max_salvage_members: usize = 16;
 
-/// @guarded-by: rail_closure_test.zig "an undeclared leaf pair refuses the rail"
 pub fn decide(
     allocator: std.mem.Allocator,
     members: []const Member,
@@ -59,7 +58,6 @@ pub fn decide(
     const undeclared = countUndeclared(members, backers);
     if (members.len > max_salvage_members) return .{ .outcome = .refuse, .undeclared_pairs = undeclared };
 
-    // @guarded-by: rail_closure_test.zig "a wide rail with nothing declared refuses without searching every subset"
     const compatible = pairMatrix(members, backers);
     var widest: usize = 0;
     for (0..members.len) |i| widest = @max(widest, @popCount(compatible[i]));
@@ -84,7 +82,6 @@ pub fn decide(
     return .{ .outcome = .refuse, .undeclared_pairs = undeclared };
 }
 
-/// @guarded-by: rail_closure_test.zig "a run whose welded pairs are undeclared is not closed"
 pub fn nodesClosed(
     allocator: std.mem.Allocator,
     nodes: []const NodeId,
@@ -229,7 +226,6 @@ pub fn contains(edges: []const EdgeId, edge: EdgeId) bool {
     return false;
 }
 
-/// @guarded-by: rail_closure_test.zig "a discharged edge that still routes privately is a double discharge"
 pub fn doubleDischarged(discharged: []const EdgeId, routed: []const EdgeId) u32 {
     var n: u32 = 0;
     for (discharged) |edge| {

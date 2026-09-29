@@ -44,7 +44,6 @@ pub const Resolved = struct {
 
 pub fn eligible(fan: fan_mod.Fan, graph: sg.SemGraph, bundles: pb.RealizedBundles) bool {
     if (bundles.memberships.len == 0 and fan.direction != .out) return false;
-    // @guarded-by: fan_rail_test.zig "a fan whose peers were lifted onto separate lanes builds no rail"
     for (fan.peers) |p| {
         if (p.lane != fan.peers[0].lane) return false;
     }
@@ -114,7 +113,6 @@ pub fn resolve(
     };
 }
 
-/// @guarded-by: fan_rail_test.zig "a long member's tap column slides off an intermediate box"
 pub fn longColumn(centre: i32, direction: fan_mod.Direction, pivot: sketch.NodePlacement, leaf: sketch.NodePlacement, placements: []const sketch.NodePlacement) i32 {
     const top = if (direction == .out) pivot.rect.bottom() else leaf.rect.bottom();
     const bottom = (if (direction == .out) leaf.rect.y else pivot.rect.y) - 1;
@@ -139,10 +137,8 @@ pub fn build(
         peer_line = if (fan_in) @max(peer_line, p.line) else @min(peer_line, p.line);
     }
     const delta: i32 = @intCast(rail_lift + lane);
-    // @guarded-by: fan_rail_test.zig "formal base approach: rail lifts one row when the gap admits it, holds at a gap of 2"
     const anchor: i32 = if (fan_in) pivot_p.rect.y else peer_line;
     const obstacle: i32 = if (fan_in) peer_line else pivot_p.rect.bottom() - 1;
-    // @guarded-by: fan_rail_test.zig "labeled fan-OUT rail lifts the crossbar for a 4-cell dropper when the gap admits it"
     var labeled = false;
     for (resolved.peers) |p| {
         if (p.edge.label) |lbl| {
@@ -164,7 +160,6 @@ pub fn build(
     var max_x: i32 = sx;
     for (resolved.peers, taps) |p, *tap| {
         const tx = p.column;
-        // @guarded-by: fan_rail_test.zig "a long member gets a one-cell drop whose tap continues"
         const landing_y: i32 = if (p.long)
             (if (fan_in) rail_y - 1 else rail_y + 1)
         else if (fan_in) p.placement.rect.bottom() - 1 else p.placement.rect.y;

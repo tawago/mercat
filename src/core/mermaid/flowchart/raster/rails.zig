@@ -16,7 +16,6 @@ fn drawRail(lat: *lattice.Lattice, rail: sketch.Rail, lost: *u32) void {
     const crossbar_role: lattice.EdgeRole = if (fan_in) .fan_in_rail else .fan_out_rail;
     const dropper_role: lattice.EdgeRole = if (fan_in) .fan_in_dropper else .fan_out_dropper;
 
-    // @guarded-by: rails_test.zig "rail junction bits are explicit: corner, tee, cross"
     const x0 = rail.crossbar[0].x;
     const x1 = rail.crossbar[1].x;
     const rail_y = rail.crossbar[0].y;
@@ -26,7 +25,6 @@ fn drawRail(lat: *lattice.Lattice, rail: sketch.Rail, lost: *u32) void {
         claim(lat, .{ .x = x, .y = rail_y }, crossbar_edge, rail.kind, crossbar_role, mask, lost);
     }
 
-    // @guarded-by: rails_test.zig "a pivot head facing the border leaves it pristine; a detached one tees"
     const pivot_head = pivotHead(rail);
     const pivot_end: edges_r.PortEnd = .{ .head = pivot_head, .role = crossbar_role };
     if (!fan_in) edges_r.drawPortStroke(lat, rail.stem, rail.kind, crossbar_edge, pivot_end);
@@ -62,8 +60,6 @@ fn drawRail(lat: *lattice.Lattice, rail: sketch.Rail, lost: *u32) void {
     }
 
     for (rail.taps) |tap| {
-        // @guarded-by: rails_test.zig "a tap head facing the landing leaves the member border pristine; an undecorated tap tees it"
-        // @guarded-by: rails_test.zig "a continuing tap claims its junction arm and paints neither port nor head"
         const tap_head = if (tap.continues) null else tapHead(tap, fan_in);
         const tap_end: edges_r.PortEnd = .{ .head = tap_head, .role = dropper_role };
         if (tap.continues) {} else if (fan_in) {
@@ -115,7 +111,6 @@ fn tapHead(tap: sketch.Tap, fan_in: bool) ?edges_r.Head {
     };
 }
 
-/// @guarded-by: rails_test.zig "a rail arm into a foreign head is refused and counted against the rail"
 fn claim(
     lat: *lattice.Lattice,
     p: sketch.Point,

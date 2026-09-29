@@ -2,8 +2,6 @@ const std = @import("std");
 const sketch = @import("../sketch.zig");
 const lattice = @import("../lattice.zig");
 
-// @guarded-by: node_shapes.zig "shape identity: sketch.Shape and lattice.Shape are the same type"
-
 pub fn tagShape(lat: *lattice.Lattice, np: sketch.NodePlacement) void {
     if (np.shape == .rect) return;
     if (!rectFitsLattice(np.rect, lat.*)) return;
@@ -30,7 +28,6 @@ pub fn tagShape(lat: *lattice.Lattice, np: sketch.NodePlacement) void {
     }
 }
 
-/// @guarded-by: node_shapes_test.zig "rasterizeSubroutineInner: width 4 draws no inner wall, width 5 does"
 pub fn rasterizeSubroutineInner(lat: *lattice.Lattice, np: sketch.NodePlacement) void {
     if (np.shape != .subroutine) return;
     if (!rectFitsLattice(np.rect, lat.*)) return;

@@ -68,7 +68,6 @@ fn emit(
     try violations.append(allocator, .{ .kind = kind, .message = msg });
 }
 
-/// @guarded-by: validate_test.zig "an edge with no polyline counts as unrouted"
 pub fn checkUnrouted(
     allocator: std.mem.Allocator,
     s: sketch.Sketch,
@@ -94,7 +93,6 @@ pub fn checkPathInteriors(
             const b = edge.polyline[seg_idx + 1];
 
             for (s.nodes) |node| {
-                // @guarded-by: validate_test.zig "checkPathInteriors exempts a segment adjacent to its own edge's endpoint but flags a genuine cross by an unrelated edge"
                 const is_first_seg = seg_idx == 0;
                 const is_last_seg = seg_idx + 2 == edge.polyline.len;
                 if (is_first_seg and node.id == edge.from) continue;
@@ -135,7 +133,6 @@ pub fn checkRails(
     }
 }
 
-/// @guarded-by: validate_test.zig "bbox overflow is informational, not a validation failure"
 pub fn checkBboxBudget(
     allocator: std.mem.Allocator,
     s: sketch.Sketch,
@@ -173,7 +170,6 @@ fn segmentCrossesInterior(a: sketch.Point, b: sketch.Point, r: sketch.Rect) bool
         return x0 < right_inc and x1 > left;
     }
 
-    // @guarded-by: validate_test.zig "checkPathInteriors' diagonal fallback is a conservative bbox-overlap test, not a precise line-rect intersection"
     const sx0 = @min(a.x, b.x);
     const sx1 = @max(a.x, b.x);
     const sy0 = @min(a.y, b.y);

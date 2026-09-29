@@ -79,7 +79,6 @@ pub fn toCoord(p: sketch.Point) Coord {
     return .{ .x = @intCast(p.x), .y = @intCast(p.y) };
 }
 
-/// @guarded-by: edges_write_test.zig "a foreign lateral arm into a head is refused and counted against the writer"
 pub fn writeEdgeCell(
     cell: *lattice.Cell,
     edge_id: u32,

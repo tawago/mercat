@@ -43,7 +43,6 @@ pub fn rasterizeLabels(
         if (lbl.len == 0) continue;
         attempted += 1;
         const run = try lw.prepare(allocator, &glyphs, lbl);
-        // @guarded-by: labels_onrun_test.zig "happy path: the label interrupts its own dropper for one row, sandwiched by run flanks"
         if (labels_onrun.tryOnRunEdge(lat, s, ep, run)) {
             placed += 1;
             on_run += 1;
@@ -101,7 +100,6 @@ pub fn rasterizeLabels(
 
 pub const cellSpan = lw.cellSpan;
 
-/// @guarded-by: labels_eaw_test.zig "a wide node glyph whose second cell is not this node's interior is refused whole"
 fn writeNodeSpan(
     lat: *lattice.Lattice,
     np: sketch.NodePlacement,
@@ -145,7 +143,6 @@ fn placeNodeLabel(
     if (np.rect.w < 3 or np.rect.h < 3) return false;
 
     const inner_w: u32 = np.rect.w - 2;
-    // @guarded-by: raster/labels_test.zig "node label fits centered"
     var wrote: u32 = 0;
     var any_truncated = false;
     var max_orig: u32 = 0;
@@ -239,7 +236,6 @@ fn placeClusterLabel(
     var x: u32 = start;
     const run = try lw.prepare(allocator, glyphs, text);
     for (run.cells) |cell| {
-        // @guarded-by: labels_eaw_test.zig "wide cluster title advances by span and still closes the band"
         if (x + cell.span > lat.width) break;
         stampTitleCell(lat, x, row, cell.value);
         var i: u32 = 1;

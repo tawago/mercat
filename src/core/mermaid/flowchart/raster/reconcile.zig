@@ -2,7 +2,6 @@ const std = @import("std");
 const lattice = @import("../lattice.zig");
 const ew = @import("edges_write.zig");
 
-/// @guarded-by: reconcile_test.zig "reconcileNeighbours: frame-bridge approach arm facing a non-reciprocating cluster_border is kept"
 pub fn isRealConnection(occ: lattice.Occupant) bool {
     return switch (occ) {
         .empty => false,
@@ -28,7 +27,6 @@ fn bitSet(nb: lattice.Neighbours, d: lattice.Dir4) bool {
     return nb.toMask() & ew.bitMask(d).toMask() != 0;
 }
 
-/// @guarded-by: reconcile_test.zig "reconcileNeighbours: 1-cell port gap before a reciprocating node border keeps the bit (duplicate-point reprieve)"
 fn reprieveReciprocates(cell: *const lattice.Cell, d: lattice.Dir4) bool {
     return switch (cell.occupant) {
         .empty => false,
@@ -37,7 +35,6 @@ fn reprieveReciprocates(cell: *const lattice.Cell, d: lattice.Dir4) bool {
     };
 }
 
-/// @guarded-by: reconcile_test.zig "reconcileNeighbours: 1-cell port gap before a reciprocating node border keeps the bit (duplicate-point reprieve)"
 pub fn bitIsPhantom(lat: *const lattice.Lattice, x: u32, y: u32, d: lattice.Dir4) bool {
     const Pair = struct { ax: ?u32, ay: ?u32, bx: ?u32, by: ?u32 };
     const p: Pair = switch (d) {

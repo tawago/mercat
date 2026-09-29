@@ -21,7 +21,6 @@ pub fn longestHorizontalInterior(polyline: []const sketch.Point) u32 {
     return best;
 }
 
-/// @guarded-by: labels_onrun_h_test.zig "happy path: the label sits inline in its own horizontal run, flanked both sides"
 pub fn tryOnRunEdgeH(
     lat: *lattice.Lattice,
     s: sketch.Sketch,
@@ -71,7 +70,6 @@ fn tryRunH(
     owner: ink.Owner,
 ) bool {
     const cc: i32 = @intCast(run.cell_count);
-    // @guarded-by: labels_onrun_h_test.zig "a too-short horizontal run falls through to the ordinary ladder"
     if (x_hi - x_lo + 1 < cc + 2) return false;
     const start_lo: i32 = x_lo + 1;
     const start_hi: i32 = x_hi - cc;
@@ -101,8 +99,6 @@ fn tryAtH(
     const urow: u32 = @intCast(row);
     if (sx + cell_count >= lat.width) return false;
 
-    // @guarded-by: labels_onrun_h_test.zig "OWN-INK RULE: a shared crossbar cell inside the stretch refuses the inline label"
-    // @guarded-by: labels_onrun_h_test.zig "OWN-INK RULE: a foreign-crossed stretch is refused by the geometry sweep"
     var i: i32 = 0;
     while (i < cc) : (i += 1) {
         const cx = start_x + i;
@@ -110,16 +106,13 @@ fn tryAtH(
         if (cover.coveredByOther(s, edge_id, cx, row)) return false;
     }
 
-    // @guarded-by: labels_onrun_h_test.zig "FLANKED-RESUMPTION RULE: a corner or an arrowhead in the flank cell refuses the candidate"
     if (!runFlankCellH(lat, edge_id, start_x - 1, row)) return false;
     if (!runFlankCellH(lat, edge_id, start_x + cc, row)) return false;
     if (cover.coveredByOther(s, edge_id, start_x - 1, row)) return false;
     if (cover.coveredByOther(s, edge_id, start_x + cc, row)) return false;
 
-    // @guarded-by: labels_onrun_h_test.zig "OWN-INK RULE: a private prefix of a collinear shared run is refused"
     if (!visualRunIsPrivate(lat, s, edge_id, start_x, row, cc)) return false;
 
-    // @guarded-by: labels_onrun_h_test.zig "foreign ink above the inline span refuses the candidate"
     if (!ink.spanIsolated(lat, owner, start_x, row, cell_count, false)) return false;
 
     var j: i32 = 0;

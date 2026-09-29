@@ -14,7 +14,6 @@ const Claim = struct {
     claiming: bool,
 };
 
-/// @guarded-by: fan_lanes_test.zig "a clustered undirected fan with no declared leaf pairs unfuses onto separate lanes"
 pub fn refuseUndeclared(
     a: std.mem.Allocator,
     graph: sg.SemGraph,
@@ -74,7 +73,6 @@ pub fn refuseUndeclared(
     }
 }
 
-/// @guarded-by: fan_lanes_test.zig "two clustered rails implying one declared leaf pair both refuse"
 fn reserve(a: std.mem.Allocator, claims: []Claim, report: ?*pb.ClosureCounts) error{OutOfMemory}![]bool {
     const order = try a.alloc(usize, claims.len);
     defer a.free(order);

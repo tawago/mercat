@@ -3,7 +3,6 @@ const prim = @import("prim");
 const sg = @import("../sem_graph.zig");
 const sugiyama = @import("sugiyama.zig");
 
-/// @guarded-by: spacing_test.zig "clusterHPad forwards prim.framePadX exactly, at every scale"
 pub fn clusterHPad(scale: u8) u32 {
     return prim.framePadX(scale);
 }
@@ -78,14 +77,12 @@ pub fn intraLayerExtra(
     if (ca == null and cb == null) return 0;
     if (ca != null and cb != null and clustersEnclosed(graph, ca.?, cb.?)) return 0;
 
-    // @guarded-by: spacing.zig "intraLayerExtra: sibling clusters → 2*pad + base - h_spacing"
     if (ca != null and cb != null) {
         const need: u32 = 2 * clusterHPad(scale) + scaledGap(SIBLING_GAP_BASE, scale);
         if (need > BASE_H_SPACING) return need - BASE_H_SPACING;
         return 0;
     }
 
-    // @guarded-by: spacing.zig "intraLayerExtra: cluster vs ungrouped → pad + node_gap - h_spacing"
     const need: u32 = clusterHPad(scale) + scaledGap(CLUSTER_NODE_GAP, scale);
     if (need > BASE_H_SPACING) return need - BASE_H_SPACING;
     return 0;
@@ -198,7 +195,6 @@ pub fn interLayerSpacing(
     to_layer: u32,
     base: u32,
 ) u32 {
-    // @guarded-by: spacing_test.zig "interLayerSpacing: interior intra-cluster edge floors a base=2 gap to 3"
     const INTRA_INTERIOR_MIN: u32 = 3;
     var spacing: u32 = base;
     const interior = @max(base, INTRA_INTERIOR_MIN);

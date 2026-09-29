@@ -57,7 +57,6 @@ pub fn finalizeAuthority(
     };
 }
 
-/// @guarded-by: stitch_bundle_sets.zig "shiftSet carries a port-share set's cell scope and pairwise table across the id shift"
 pub fn shiftSet(
     arena: std.mem.Allocator,
     cs: bundle_mod.Bundle,

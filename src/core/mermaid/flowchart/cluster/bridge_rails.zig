@@ -11,7 +11,6 @@ const tracks = @import("tracks.zig");
 
 const Pt = sketch.Point;
 
-/// @guarded-by: bridges_test.zig "a licensed shared-target fan moves its whole rail off a static run the scene models as no obstacle"
 pub fn overrideJogs(
     arena: std.mem.Allocator,
     pends: []types.Pending,

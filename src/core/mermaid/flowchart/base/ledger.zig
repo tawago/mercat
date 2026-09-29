@@ -1,14 +1,11 @@
 const std = @import("std");
 
-// @guarded-by: ledger_test.zig "identity handles match prim's"
-
 pub const NodeId = u32;
 pub const EdgeId = u32;
 pub const CandidateBundleId = u32;
 pub const BundleProposalId = u32;
 pub const SelectedBundleId = u32;
 
-/// @guarded-by: ledger_test.zig "V-D-POLICY-01: BundlePolicy has exactly one variant, named joined"
 pub const BundlePolicy = enum { joined };
 
 pub const BundleDirection = enum { out, in };
@@ -83,15 +80,12 @@ pub const TerminalPort = struct {
     port: u32,
 };
 
-/// @guarded-by: ledger_test.zig "empty RealizedBundles is default-constructible with all-empty fields"
 pub const RealizedBundles = struct {
     selected_bundles: []const SelectedBundle = &.{},
     rejected_proposals: []const BundleProposalId = &.{},
     memberships: []const RealizedEdgeMembership = &.{},
     terminal_ports: []const TerminalPort = &.{},
-    /// @guarded-by: rail_closure_test.zig "a fully declared clique keeps the rail and discharges every pair edge"
     discharged: []const EdgeId = &.{},
-    /// @guarded-by: bundle_commit_test.zig "a complete bipartite of selected arrivals licenses one fused union"
     fused: []const []const EdgeId = &.{},
 };
 

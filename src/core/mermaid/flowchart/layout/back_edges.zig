@@ -54,7 +54,6 @@ pub fn allocateBackEdgeRails(
 
         const src_geom_idx = nodeGeomIndex(lg, orig.from) orelse continue;
         const dst_geom_idx = nodeGeomIndex(lg, orig.to) orelse continue;
-        // @guarded-by: mirror_test.zig "mirror.applyDirection swaps x/y/w/h but leaves NodeGeom.layer untouched"
         const sl = geom[src_geom_idx].layer;
         const dl = geom[dst_geom_idx].layer;
         const lo = if (sl < dl) sl else dl;
@@ -70,7 +69,6 @@ pub fn allocateBackEdgeRails(
         }
         const fallback_base = max_extent + RAIL_PAD;
 
-        // @guarded-by: lanes_test.zig "clearRunBase: vertical run parks just past endpoints when unobstructed"
         const base = lanes.clearRunBase(
             horizontal,
             placements,
@@ -90,7 +88,6 @@ pub fn allocateBackEdgeRails(
         });
     }
 
-    // @guarded-by: back_edges_test.zig "allocateBackEdgeRails: span-ascending sort shares the innermost rail between disjoint short loops"
     const SortCtx = struct {
         pub fn lt(_: @This(), x: Item, y: Item) bool {
             return x.span < y.span;
@@ -98,7 +95,6 @@ pub fn allocateBackEdgeRails(
     };
     std.mem.sort(Item, items.items, SortCtx{}, SortCtx.lt);
 
-    // @guarded-by: lanes_test.zig "assign: greedy 4-claim hand example with a tie"
     var demands = try a.alloc(lanes.LaneClaim, items.items.len);
     defer a.free(demands);
     for (items.items, 0..) |it, i| {

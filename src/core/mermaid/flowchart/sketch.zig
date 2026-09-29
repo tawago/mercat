@@ -91,7 +91,6 @@ pub const EdgePath = struct {
     label: ?[]const u8,
     kind: EdgeKind,
     role: EdgeRole = .forward,
-    /// @guarded-by: raster/labels_test.zig "vertical edge label paints at the exact prim anchor for both rail sides"
     label_left_of_run: bool = false,
 };
 
@@ -107,7 +106,6 @@ pub const Tap = struct {
 
 pub const Rail = struct {
     pivot: NodeId,
-    /// @guarded-by: sketch_bundles_test.zig "a stamped sketch names its rail's bundle and its bundle sets alike"
     bundle: bundle_mod.BundleId = bundle_mod.no_bundle,
     stem: []const Point,
     crossbar: [2]Point,
@@ -116,7 +114,6 @@ pub const Rail = struct {
     role: EdgeRole = .fan_out_dropper,
     pivot_arrow: ArrowKind = .none,
 
-    /// @guarded-by: raster/labels_test.zig "rail tap labels paint at the tapLabelSeg-predicted segment for off-column and on-column taps"
     pub fn tapLabelSeg(self: Rail, tap: Tap) [2]Point {
         const junction = self.stem[self.stem.len - 1];
         if (tap.at.x != junction.x) {
@@ -148,7 +145,6 @@ pub const Sketch = struct {
     edges: []const EdgePath,
     rails: []const Rail = &.{},
     rail_claims: []const rail_star.RailClaim = &.{},
-    /// @guarded-by: entry.zig "V-D-IR-07: a clustered graph's bundles ride piece plans; the root plan stays skipped"
     bundles: ledger.RealizedBundles = .{},
     bundle_sets: []const bundle_mod.Bundle = &.{},
     bundle_stamp_state: BundleStampState = .unattempted,

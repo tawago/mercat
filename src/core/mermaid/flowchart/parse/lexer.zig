@@ -81,7 +81,6 @@ pub const Lexer = struct {
             return self.makeTokenAt(k, start, self.pos, sl, sc);
         }
 
-        // @guarded-by: lexer_test.zig "leading '>' lexes as shape_open, not an edge/arrow char"
         if (c == '[' or c == '(' or c == '{' or c == '>') {
             self.advanceRaw();
             var tok = self.makeTokenAt(.shape_open, start, self.pos, sl, sc);
@@ -99,7 +98,6 @@ pub const Lexer = struct {
             if (self.tryEdge(start, sl, sc)) |tok| return tok;
         }
 
-        // @guarded-by: lexer_test.zig "leading o/x is an edge marker only when glued to a connector"
         if (c == 'o' or c == 'x') {
             if (self.tryEdge(start, sl, sc)) |tok| return tok;
         }
@@ -153,7 +151,6 @@ pub const Lexer = struct {
             self.line += 1;
             self.col = 1;
         } else if (ch == '\r') {
-            // @guarded-by: lexer_test.zig "solo CR (old Mac line ending) emits a newline token but does not bump the line counter"
             self.col = 1;
         } else {
             self.col += 1;
@@ -199,7 +196,6 @@ pub const Lexer = struct {
         const saved_line = self.line;
         const saved_col = self.col;
 
-        // @guarded-by: lexer_test.zig "leading '<' on an edge requires -/=/~ or tryEdge bails"
         const m0 = self.source[self.pos];
         if (m0 == '<' or m0 == 'o' or m0 == 'x') {
             const n = self.peekAt(1);
@@ -235,10 +231,8 @@ pub const Lexer = struct {
                 } else break;
             }
             if (!saw_dash) return self.restore(saved_pos, saved_line, saved_col);
-            // @guarded-by: lexer_test.zig "tight inline label on a dotted edge"
             const run_complete = last_run_char == '-' and self.pos - run_start >= 2;
             const had_arrow = self.resolveTail(run_complete);
-            // @guarded-by: parse_test.zig "inline-label edge keeps bare links intact"
             if (!had_arrow and self.pos - start < 3) {
                 if (!self.atInlineLabel()) return self.restore(saved_pos, saved_line, saved_col);
                 inline_label = self.scanInlineLabel('-', &saw_dot) orelse
@@ -266,7 +260,6 @@ pub const Lexer = struct {
         return tok;
     }
 
-    /// @guarded-by: lexer_test.zig "tight inline label on a dotted edge"
     fn atInlineLabel(self: *Lexer) bool {
         if (self.pos >= self.source.len) return false;
         const c = self.source[self.pos];
@@ -278,7 +271,6 @@ pub const Lexer = struct {
             (self.source[self.pos] == ' ' or self.source[self.pos] == '\t')) self.advanceRaw();
         const label_start = self.pos;
         var label_end = self.pos;
-        // @guarded-by: lexer_test.zig "inline edge label keeps an embedded dash intact"
         while (self.pos < self.source.len) {
             const c = self.source[self.pos];
             if (c == '\n' or c == '\r') return null;
@@ -306,7 +298,6 @@ pub const Lexer = struct {
         return std.mem.trim(u8, self.source[label_start..label_end], " \t");
     }
 
-    /// @guarded-by: lexer_test.zig "glued o/x on a complete run is an arrow end whatever follows"
     fn resolveTail(self: *Lexer, run_complete: bool) bool {
         const tail = if (self.pos < self.source.len) self.source[self.pos] else 0;
         if (tail == '>') return self.consumeArrowTail();

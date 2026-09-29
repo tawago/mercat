@@ -62,12 +62,9 @@ pub const Occupant = union(enum) {
     arrowhead: struct {
         dir: Dir4,
         edge: EdgeId,
-        /// @guarded-by: lattice.zig "Cell stays 16 bytes: the arrowhead style rides in existing padding"
         arrow: ArrowKind = .filled,
     },
-    /// @guarded-by: labels_eaw_test.zig "a decomposed accent occupies one cell per grapheme and interns base plus mark"
     label_char: u21,
-    /// @guarded-by: labels_eaw_test.zig "wide node label writes char + continuation and paints two columns"
     label_cont,
 };
 

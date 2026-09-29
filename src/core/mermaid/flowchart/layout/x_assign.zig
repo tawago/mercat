@@ -73,7 +73,6 @@ fn centerLayer(
     defer a.free(desired);
 
     for (row, 0..) |idx, k| {
-        // guarded-by: layout/x_assign_test.zig "centerLayer's fan-IN override centers on the real-source centroid, excluding a reversed back-edge source"
         if (fan_mod.fanInCentroid(NodeGeom, geom, lg, idx)) |cx| {
             desired[k] = cx;
             continue;
@@ -101,7 +100,6 @@ fn centerLayer(
         }
     }
 
-    // guarded-by: layout/x_assign_test.zig "monotonic packing's min_cursor floor drifts a shared-barycenter run right of its target, and compact=true corrects it"
     var cursor: i32 = std.math.minInt(i32) / 2;
     var prev_idx: ?u32 = null;
     for (row, 0..) |idx, k| {
@@ -118,10 +116,8 @@ fn centerLayer(
         prev_idx = idx;
     }
 
-    // guarded-by: layout/layout_test.zig "drift compaction fires on natural TD but is suppressed by is_direction_rotated, and never fires for LR"
     if (!compact) return;
 
-    // guarded-by: layout/x_assign_test.zig "centerLayer skips re-centering a row that is both clustered and a labeled fork"
     if (!rowHasClusteredNode(graph, lg, row) and
         !rowHasLabeledIncomingEdge(graph, geom, lg, row))
     {
@@ -166,7 +162,6 @@ fn edgeHasLabel(graph: sg.SemGraph, edge_id: sg.EdgeId) bool {
     return false;
 }
 
-/// guarded-by: layout/x_assign_test.zig "centerRunOnDesired re-centers using only real nodes, keeping the real node's rail straight"
 fn centerRunOnDesired(geom: []NodeGeom, lg: sugiyama.LayeredGraph, row: []const u32, desired: []const i32) void {
     var sum_actual: i64 = 0;
     var sum_desired: i64 = 0;
@@ -185,7 +180,6 @@ fn centerRunOnDesired(geom: []NodeGeom, lg: sugiyama.LayeredGraph, row: []const 
     var delta: i32 = @intCast(@divTrunc(sum_desired - sum_actual, n));
     if (delta == 0) return;
 
-    // guarded-by: layout/x_assign_test.zig "centerRunOnDesired's width clamp keeps a recentered row from crossing x=0"
     var min_x: i32 = std.math.maxInt(i32);
     for (row) |idx| {
         if (geom[idx].x < min_x) min_x = geom[idx].x;
@@ -230,7 +224,6 @@ pub fn flushLeftRows(graph: sg.SemGraph, geom: []NodeGeom, lg: sugiyama.LayeredG
         var delta = margin - row_min;
         if (delta >= 0) continue;
 
-        // guarded-by: layout/x_assign_test.zig "flushLeftRows' connector-stretch floor stops short of the margin instead of stretching a connector"
         var floor_x: i32 = std.math.minInt(i32);
         for (row) |idx| {
             const nb = leftmostNeighbourX(geom, lg, idx) orelse continue;

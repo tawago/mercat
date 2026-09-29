@@ -50,9 +50,7 @@ fn wrapGrid(
         };
         std.mem.sort(FanEdge, f.peers, Ctx{ .g = geom }, Ctx.lt);
 
-        // @guarded-by: fan_grid_test.zig "wrapWideFanIn wrap decision uses the minimal 1-cell fit gap, not h_spacing"
         const fit_gap: u32 = if (want == .in) 1 else h_spacing;
-        // @guarded-by: fan_grid_test.zig "wrapWideFanIn floors the placement gap at 3 when h_spacing halves to 2"
         const place_gap: u32 = if (want == .in) @max(h_spacing, 3) else h_spacing;
         var single_row_w: u32 = 0;
         var max_child_w: u32 = 0;
@@ -68,7 +66,6 @@ fn wrapGrid(
 
         const n: u32 = @intCast(f.peers.len);
 
-        // @guarded-by: fan_grid_test.zig "wrapWideFanOut legacy grid centres EACH row independently under the pivot"
         const slot_w = max_child_w + place_gap;
         const legacy_cols: u32 = blk: {
             var lc: u32 = if (slot_w == 0) 1 else (budget + place_gap) / slot_w;
@@ -80,7 +77,6 @@ fn wrapGrid(
             continue;
         }
 
-        // @guarded-by: fan_grid_test.zig "wrapWideFanOut P5 pack finds a 2-column layout the old widest-slot math missed (29/25/25 @ budget 58)"
         const fit_budget: u32 = budget;
         var col_of_buf: [256]u8 = undefined;
         var cols: u32 = 1;
@@ -94,13 +90,11 @@ fn wrapGrid(
                 }
             }
         }
-        // @guarded-by: fan_grid_test.zig "wrapWideFanOut falls back to a single column matching the legacy per-box centering"
         if (cols < 2) {
             cols = 1;
             for (col_of_buf[0..n]) |*c| c.* = 0;
         }
 
-        // @guarded-by: fan_grid_test.zig "wrapWideFanOut falls back to a single column matching the legacy per-box centering"
         const rows: u32 = blk: {
             var max_row: u32 = 0;
             var r: u32 = 0;
@@ -125,7 +119,6 @@ fn wrapGrid(
             if (g.y > base_y) g.y += added_h;
         }
 
-        // @guarded-by: fan_grid_test.zig "wrapWideFanOut variable per-column widths avoid re-overflow from 2 narrow columns"
         var col_w_buf: [256]u32 = undefined;
         const col_w = col_w_buf[0..cols];
         for (col_w) |*w| w.* = 0;
@@ -152,7 +145,6 @@ fn wrapGrid(
             }
         }
 
-        // @guarded-by: fan_grid_test.zig "wrapWideFanIn centres a narrow box on its column's centre, not flush to a wide neighbour"
         var row_fill_buf: [256]u32 = undefined;
         const row_fill = row_fill_buf[0..cols];
         for (row_fill) |*r| r.* = 0;
@@ -170,7 +162,6 @@ fn wrapGrid(
     }
 }
 
-/// @guarded-by: fan_grid_test.zig "a gridded fan keeps three gap rows between its rows at halved spacing"
 pub const GRID_GAP_ROWS: i32 = 3;
 
 pub fn rowStep(max_child_h: u32, v_spacing: u32) i32 {

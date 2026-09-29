@@ -42,7 +42,6 @@ pub fn baseFeedsArrow(cell: *const lattice.Cell, tip: lattice.Dir4) bool {
     }
 }
 
-/// @guarded-by: arrow_base.zig "a lateral arm on a head is counted per arm; an on-axis head counts none"
 pub fn validate(lat: *const lattice.Lattice) ArrowBaseCounts {
     var counts: ArrowBaseCounts = .{};
     if (lat.width == 0 or lat.height == 0) return counts;

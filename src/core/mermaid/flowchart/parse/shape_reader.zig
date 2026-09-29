@@ -111,7 +111,6 @@ pub fn readRawUntilCloseChar(lx: *Lexer, close: u8) []const u8 {
     const start = lx.pos;
     while (lx.pos < lx.source.len) {
         const c = lx.source[lx.pos];
-        // guarded-by: parse_test.zig "quoted label with brackets and operators is opaque"
         if (c == '"') {
             skipQuotedSpan(lx);
             continue;

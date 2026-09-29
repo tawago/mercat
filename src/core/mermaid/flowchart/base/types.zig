@@ -114,8 +114,6 @@ pub const Shape = enum {
     trapezoid,
 };
 
-// @guarded-by: recurse_test.zig "nested cluster: outer super-node pad tracks framePadX(scale) across two recursion levels"
-
 pub const frame_inset_x: u32 = 3;
 pub const frame_inset_y: u32 = 1;
 
@@ -140,8 +138,6 @@ pub fn rotatedDirection(d: Direction) Direction {
         .RL => .BT,
     };
 }
-
-// @guarded-by: raster/labels_test.zig "vertical edge label paints at the exact prim anchor for both rail sides"
 
 pub const LabelAnchor = struct { x: i32, y: i32 };
 
@@ -180,8 +176,6 @@ pub fn leftOfRailAnchor(ax: i32, ay: i32, bx: i32, by: i32, label_w: u32) LabelA
     const lw: i32 = @intCast(label_w);
     return .{ .x = mid_x - 1 - lw, .y = mid_y };
 }
-
-// @guarded-by: tools/lint_imports.zig "base/ files may import only std and base/ siblings; types.zig alone may import unicode"
 
 pub fn codepointWidth(codepoint: u21) u32 {
     return @intCast(unicode.codepointWidth(codepoint));

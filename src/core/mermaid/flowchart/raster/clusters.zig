@@ -28,7 +28,6 @@ pub fn rasterizeClusters(
     var written: u32 = 0;
     for (order) |idx| {
         const frame = s.clusters[idx];
-        // @guarded-by: clusters_test.zig "rasterizeClusters: a synthetic frame with a nonzero rect still paints nothing"
         if (frame.synthetic) continue;
         if (rasterizeOne(lat, frame)) {
             written += 1;
@@ -104,7 +103,6 @@ fn tryWrite(
             };
         },
         .cluster_border => {
-            // @guarded-by: clusters.zig "nested clusters: inner overwrites outer at coincident cells"
             cell.* = .{
                 .occupant = .{ .cluster_border = .{ .cluster = cluster_id, .role = role } },
                 .neighbours = nb,

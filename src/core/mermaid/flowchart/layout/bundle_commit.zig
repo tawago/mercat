@@ -63,7 +63,6 @@ pub fn buildReported(a: std.mem.Allocator, graph: sg.SemGraph, permits: ?*const 
     try keepOneNearRail(a, graph, plan, eff_of, verdicts, closure_refused, long_edges);
     try reserve(a, graph, plan, eff_of, verdicts, closure_refused, report);
 
-    // @guarded-by: bundle_commit_test.zig "a clique whose pair edges are other rails' members keeps a rail"
     var discharged: std.ArrayListUnmanaged(pb.EdgeId) = .empty;
     var drawn: std.ArrayListUnmanaged(pb.EdgeId) = .empty;
     for (eff_of) |maybe| {
@@ -111,7 +110,6 @@ pub fn buildReported(a: std.mem.Allocator, graph: sg.SemGraph, permits: ?*const 
     };
 }
 
-/// @guarded-by: bundle_commit_test.zig "a complete bipartite of selected arrivals licenses one fused union"
 fn fusionLicence(a: std.mem.Allocator, graph: sg.SemGraph, groups: []const pb.CandidateBundle, selected: []const pb.SelectedBundle) error{OutOfMemory}![]const []const pb.EdgeId {
     const n = selected.len;
     if (n < 2) return &.{};
@@ -210,7 +208,6 @@ fn uniteBundles(parent: []usize, i: usize, j: usize) void {
     if (ri != rj) parent[@max(ri, rj)] = @min(ri, rj);
 }
 
-/// @guarded-by: bundle_commit_test.zig "two rails asserting one declared pair both refuse"
 fn reserve(
     a: std.mem.Allocator,
     graph: sg.SemGraph,
@@ -267,7 +264,6 @@ fn reserve(
         if (!hit) continue;
         eff_of[gi] = null;
         closure_refused[gi] = true;
-        // @guarded-by: bundle_commit_test.zig "a salvaged rail that then loses its pair is one refusal, not two"
         const counted = if (verdicts[gi]) |v| v.outcome == .salvage else false;
         if (!counted) {
             if (report) |r| r.rail_closure_undeclared += 1;
@@ -314,7 +310,6 @@ fn dropMember(
     } else eff_of[gi] = rest;
 }
 
-/// @guarded-by: bundle_commit_test.zig "a near member selected at both ends keeps its arrival rail, a long member keeps both"
 fn keepOneNearRail(
     a: std.mem.Allocator,
     graph: sg.SemGraph,
@@ -419,7 +414,6 @@ fn disposition(graph: sg.SemGraph, groups: []const pb.CandidateBundle, selected_
             };
             return .{ .independent = .{ .candidate_bundle = gid, .reason = .not_selected } };
         }
-        // @guarded-by: bundle_commit_test.zig "a reversed member does not hide a closure refusal behind a null disposition"
         if (!closure_refused[i] and containsReversed(g, reversed_edges) and styleCompatible(graph, g) and !hasDuplicateKey(graph, g)) return null;
         return .{ .independent = .{ .candidate_bundle = gid, .reason = .not_selected } };
     };

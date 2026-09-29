@@ -10,7 +10,6 @@ pub fn reflowWideRanks(
     h_spacing: u32,
     v_spacing: u32,
 ) void {
-    // @guarded-by: layout/rank_grid_test.zig "reflowWideRanks: a second wide layer's base_y reflects the first wide layer's shift, and a leaf further down cascades through both"
     for (lg.layers) |layer| {
         reflowOneLayer(G, lg, geom, budget, h_spacing, v_spacing, layer);
     }
@@ -25,7 +24,6 @@ fn reflowOneLayer(
     v_spacing: u32,
     layer: []const u32,
 ) void {
-    // @guarded-by: layout/rank_grid_test.zig "reflowWideRanks: a same-layer virtual node's (oversized) width never enters the column/packing math and its position is untouched"
     var reals_buf: [256]u32 = undefined;
     var n_reals: usize = 0;
     for (layer) |idx| {
@@ -45,7 +43,6 @@ fn reflowOneLayer(
 
     sortByX(G, reals, geom);
 
-    // @guarded-by: layout/rank_grid_test.zig "reflowWideRanks: nodes drifted far apart by centering are compacted even though their tight packed width already fits the budget"
     var span_min: i32 = std.math.maxInt(i32);
     var span_max: i32 = std.math.minInt(i32);
     var single_row_w: u32 = 0;
@@ -66,24 +63,20 @@ fn reflowOneLayer(
 
     const n: u32 = @intCast(reals.len);
 
-    // @guarded-by: layout/rank_grid_test.zig "reflowWideRanks: a row exactly at the compact_floor boundary compacts to one row; one unit past it stacks into a grid"
     const compact_floor: u32 = budget - budget / 8;
     if (single_row_w <= compact_floor) {
         compactSingleRow(G, reals, geom, h_spacing);
         return;
     }
 
-    // @guarded-by: layout/rank_grid_test.zig "reflowWideRanks: the widest-node column formula still forces >=2 rows even when the naive per-node-count formula would leave one"
     const slot_w = max_w + h_spacing;
     var cols: u32 = if (slot_w == 0) 1 else (budget + h_spacing) / slot_w;
     if (cols == 0) cols = 1;
     if (cols >= n) cols = n - 1;
     const rows: u32 = (n + cols - 1) / cols;
 
-    // @guarded-by: layout/rank_grid_test.zig "reflowWideRanks: row_step (max_h + the grid gap) keeps a tall sub-row three rows clear of the row below it"
     const row_step = fan_grid.rowStep(max_h, v_spacing);
 
-    // @guarded-by: layout/rank_grid_test.zig "rank-grid pushes only strictly-below nodes by added_h; same-layer and above nodes are untouched"
     var base_y: i32 = std.math.maxInt(i32);
     for (reals) |idx| base_y = @min(base_y, geom[idx].y);
     const added_h: i32 = @as(i32, @intCast(rows - 1)) * row_step;
@@ -122,9 +115,7 @@ fn layerWrappedByFan(
     lg: sugiyama.LayeredGraph,
     reals: []const u32,
 ) bool {
-    // @guarded-by: layout/rank_grid_test.zig "reflowWideRanks: two edge-free sibling nodes (all-roots AND all-leaves) are left untouched"
     if (allRoots(lg, reals) and allLeaves(lg, reals)) return true;
-    // @guarded-by: layout/rank_grid_test.zig "reflowWideRanks: a rank fed from above that ALSO converges to one child is not exempted as pure fan-IN — it still grids"
     if (allRoots(lg, reals) and sharedCommonNeighbour(lg, reals, .child)) return true;
     if (allLeaves(lg, reals) and sharedCommonNeighbour(lg, reals, .parent)) return true;
     return false;

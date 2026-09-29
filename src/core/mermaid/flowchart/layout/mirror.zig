@@ -63,7 +63,6 @@ pub fn vertical(a: std.mem.Allocator, s: sketch.Sketch, direction: sketch.Direct
         rails[i] = rail;
         rails[i].stem = stem;
         rails[i].taps = taps;
-        // @guarded-by: mirror.zig "vertical mirror preserves rail tap x-order; only the rail row shifts"
         rails[i].crossbar = .{ mirrorPoint(s.bbox, rail.crossbar[0]), mirrorPoint(s.bbox, rail.crossbar[1]) };
         rails_done += 1;
     }
@@ -194,7 +193,6 @@ pub fn applyDirection(comptime G: type, geom: []G, dir: sketch.Direction) void {
                 g.w = oh;
                 g.h = ow;
             }
-            // @guarded-by: mirror.zig "RL: sugiyama's own layer reversal plus applyDirection's axis swap alone yields correct right-to-left order"
         },
     }
 }

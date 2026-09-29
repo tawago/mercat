@@ -4,8 +4,6 @@ const Rect = sketch.Rect;
 const NodePlacement = sketch.NodePlacement;
 const NodeId = sketch.NodeId;
 
-// @guarded-by: layout/validate_test.zig "edge through node interior flagged").
-
 pub fn lineTouchesRect(horizontal: bool, c: i32, lo: i32, hi: i32, r: Rect) bool {
     if (horizontal) {
         if (c < r.y or c >= r.bottom()) return false;
@@ -39,7 +37,6 @@ pub fn rowTouchesAny(y: i32, x_left: i32, x_right: i32, placements: []const Node
     return lineTouchesAny(true, y, x_left, x_right, placements, skip_a, skip_b);
 }
 
-/// @guarded-by: raster/labels_test.zig "clearLine settles for touch-free line at the MARGIN_BOUND boundary rather than searching further for a margined one"
 const MARGIN_BOUND: i32 = 24;
 
 pub const ClearLineOpts = struct {

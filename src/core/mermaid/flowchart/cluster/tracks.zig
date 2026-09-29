@@ -128,7 +128,6 @@ pub fn resolve(
         }
     }
 
-    // @guarded-by: bridges_test.zig "vertical bridge jogs when x-misaligned, final segment vertical"
     for (reqs, 0..) |r, i| {
         if (!part[i]) out[i] = clearOfBorders(entry, r.pref, r.span_lo, r.span_hi, clusters, obstacles);
     }
@@ -162,7 +161,6 @@ pub fn resolve(
         lane_hi[li] = @max(lane_hi[li], reqs[ri].span_hi);
     }
 
-    // @guarded-by: bridges_test.zig "two same-side bridges with overlapping spans get distinct tracks"
     var prev: i32 = std.math.minInt(i32);
     for (asg.lane_pos, 0..) |*pos, li| {
         var v = pos.*;

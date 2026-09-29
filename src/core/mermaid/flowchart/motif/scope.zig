@@ -18,7 +18,6 @@ pub fn build(
 ) error{OutOfMemory}!Scope {
     var verts: std.ArrayListUnmanaged(Vert) = .empty;
 
-    // guarded-by: scope.zig "vertex order: direct members then child clusters, both in graph order"
     for (graph.nodes) |n| {
         if (eqOpt(n.cluster, parent)) try verts.append(a, .{ .node = n.id });
     }

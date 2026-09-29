@@ -82,7 +82,6 @@ pub fn buildAll(
                 else
                     geom[virtuals[0]].y - 1;
             }
-            // @guarded-by: port_plan_test.zig "a decorated long fan-in member's stroke leaves its departure cell straight"
             const lo = if (fan_in and orig.arrow_from == .none) start.y + 1 else start.y + 2;
             const hi = end.y - 2;
             const poly = (try route(a, orig, start, end, jog, lo, hi, out.items, bar_views, placements, allocated_ports, bundles, reserved_columns)) orelse {
@@ -115,7 +114,6 @@ pub fn buildAll(
     return refused.toOwnedSlice(a);
 }
 
-/// @guarded-by: member_stroke_test.zig "a long member whose stroke clears nowhere leaves its rail instead of shipping a refused stroke"
 pub fn route(
     a: std.mem.Allocator,
     orig: sg.Edge,
