@@ -212,6 +212,26 @@ pub const file_allowlists = [_]struct {
         .reason = "route_once_test may only import std, prim, base/*, parse, raster, select, or ledger/permits",
     },
     .{
+        .name = "candidates.zig",
+        .allowed = &.{
+            .sem_graph,
+            .budget,
+            .raster_zone,
+            .{ .exact = "select.zig" },
+            .{ .exact = "select_filter.zig" },
+            .{ .exact = "audit.zig" },
+            .{ .exact = "score.zig" },
+            .{ .exact = "paint.zig" },
+            .{ .exact = "ledger/permits.zig" },
+        },
+        .reason = "candidates may only import std, prim, base/*, sem_graph, budget, select, select_filter, audit, score, raster, paint, or ledger/permits",
+    },
+    .{
+        .name = "candidates_test.zig",
+        .allowed = &.{ .parse_zone, .{ .exact = "entry.zig" }, .{ .exact = "candidates.zig" } },
+        .reason = "candidates_test may only import std, prim, parse, entry, or candidates",
+    },
+    .{
         .name = "grapheme_width_test.zig",
         .allowed = &.{.{ .exact = "entry.zig" }},
         .reason = "grapheme_width_test may only import std, unicode, base/*, or entry",
