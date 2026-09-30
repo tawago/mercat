@@ -18,19 +18,13 @@ pub const Cell = struct {
     char: u21 = ' ',
     priority: Priority = .background,
 
+    /// Write `char` unless something of higher priority is there. An edge never overwrites an
+    /// edge of the crossing orientation, so the first line drawn keeps the crossing.
     pub fn set(self: *Cell, char: u21, priority: Priority) void {
         if (priority == .edge and self.priority == .edge) {
-            const existing = self.char;
-            const h = LineChars.horizontal;
-            const v = LineChars.vertical;
-            const is_existing_h = existing == h or existing == '-';
-            const is_existing_v = existing == v or existing == '|';
-            const is_new_h = char == h or char == '-';
-            const is_new_v = char == v or char == '|';
-            if (is_existing_h and is_new_v) {
-                return;
-            }
-            if (is_existing_v and is_new_h) {
+            if ((isHorizontal(self.char) and isVertical(char)) or
+                (isVertical(self.char) and isHorizontal(char)))
+            {
                 return;
             }
         }
@@ -40,6 +34,14 @@ pub const Cell = struct {
         }
     }
 };
+
+fn isHorizontal(char: u21) bool {
+    return char == LineChars.horizontal or char == '-';
+}
+
+fn isVertical(char: u21) bool {
+    return char == LineChars.vertical or char == '|';
+}
 
 pub const Canvas = struct {
     allocator: Allocator,
@@ -113,7 +115,7 @@ pub const Canvas = struct {
     }
 
     pub fn drawText(self: *Canvas, x: i32, y: i32, text: []const u8, priority: Priority) void {
-        if (legacyScalarTextWidth(text) == null) return;
+        if (scalarTextWidth(text) == null) return;
 
         var col = x;
         var it = unicode.Iterator.init(text);
@@ -125,7 +127,7 @@ pub const Canvas = struct {
     }
 
     pub fn drawTextCentered(self: *Canvas, rect: Rect, text: []const u8, priority: Priority) void {
-        const text_len: i32 = @intCast(legacyScalarTextWidth(text) orelse return);
+        const text_len: i32 = @intCast(scalarTextWidth(text) orelse return);
         const box_width: i32 = @intCast(rect.width);
         const box_height: i32 = @intCast(rect.height);
 
@@ -181,7 +183,9 @@ pub const Canvas = struct {
     }
 };
 
-fn legacyScalarTextWidth(text: []const u8) ?usize {
+/// The display width of `text` when every grapheme is one scalar and none is a tab, else null:
+/// text the canvas cannot place one scalar to a cell is left out whole.
+fn scalarTextWidth(text: []const u8) ?usize {
     var width: usize = 0;
     var it = unicode.Iterator.init(text);
     while (it.next() catch return null) |grapheme| {

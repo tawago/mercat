@@ -107,3 +107,16 @@ test "looksLikeBareMermaid is stricter than fromSource" {
     try std.testing.expect(!looksLikeBareMermaid("graphviz LR"));
     try std.testing.expect(!looksLikeBareMermaid("graph LR\n```mermaid\n```"));
 }
+
+test "fromSource names every diagram kind by its keyword" {
+    try std.testing.expectEqual(Kind.flowchart, Kind.fromSource("graph LR"));
+    try std.testing.expectEqual(Kind.flowchart, Kind.fromSource("flowchart TD"));
+    try std.testing.expectEqual(Kind.flowchart, Kind.fromSource("  graph LR\n  A --> B"));
+    try std.testing.expectEqual(Kind.sequence, Kind.fromSource("sequenceDiagram"));
+    try std.testing.expectEqual(Kind.class_diagram, Kind.fromSource("classDiagram"));
+    try std.testing.expectEqual(Kind.state, Kind.fromSource("stateDiagram"));
+    try std.testing.expectEqual(Kind.state, Kind.fromSource("stateDiagram-v2"));
+    try std.testing.expectEqual(Kind.er, Kind.fromSource("erDiagram"));
+    try std.testing.expectEqual(Kind.unsupported, Kind.fromSource("pie"));
+    try std.testing.expectEqual(Kind.unsupported, Kind.fromSource("gantt"));
+}

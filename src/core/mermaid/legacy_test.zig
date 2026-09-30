@@ -1,4 +1,5 @@
 test {
+    _ = @import("detect.zig");
     _ = @import("scan.zig");
     _ = @import("sequence/parse.zig");
     _ = @import("sequence/render.zig");

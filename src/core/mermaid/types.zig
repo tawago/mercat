@@ -63,20 +63,11 @@ pub const LineChars = struct {
     pub const horizontal_thick: u21 = 0x2501;
 };
 
-pub const Point = struct {
-    x: i32,
-    y: i32,
-};
-
 pub const Rect = struct {
     x: i32,
     y: i32,
     width: u32,
     height: u32,
-
-    pub fn right(self: Rect) i32 {
-        return self.x + @as(i32, @intCast(self.width));
-    }
 };
 
 pub const NotePosition = enum {
@@ -84,18 +75,3 @@ pub const NotePosition = enum {
     right_of,
     over,
 };
-
-test "DiagramType detection" {
-    const testing = std.testing;
-
-    try testing.expectEqual(DiagramType.flowchart, DiagramType.fromSource("graph LR"));
-    try testing.expectEqual(DiagramType.flowchart, DiagramType.fromSource("flowchart TD"));
-    try testing.expectEqual(DiagramType.flowchart, DiagramType.fromSource("  graph LR\n  A --> B"));
-    try testing.expectEqual(DiagramType.sequence, DiagramType.fromSource("sequenceDiagram"));
-    try testing.expectEqual(DiagramType.class_diagram, DiagramType.fromSource("classDiagram"));
-    try testing.expectEqual(DiagramType.state, DiagramType.fromSource("stateDiagram"));
-    try testing.expectEqual(DiagramType.state, DiagramType.fromSource("stateDiagram-v2"));
-    try testing.expectEqual(DiagramType.er, DiagramType.fromSource("erDiagram"));
-    try testing.expectEqual(DiagramType.unsupported, DiagramType.fromSource("pie"));
-    try testing.expectEqual(DiagramType.unsupported, DiagramType.fromSource("gantt"));
-}
