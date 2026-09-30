@@ -8,18 +8,12 @@ const permits = @import("ledger/permits.zig");
 const sem_graph = @import("sem_graph.zig");
 const ladder = @import("budget.zig");
 const select = @import("select.zig");
-const audit = @import("audit.zig");
-const score = @import("score.zig");
 const raster = @import("raster.zig");
 const paint = @import("paint.zig");
 
 pub const Candidate = ladder.Candidate;
 
-/// What the audit counts and the score says about one candidate.
-pub const Evaluation = struct {
-    counts: score.RasterCounts,
-    score: score.Score,
-};
+pub const Evaluation = select.Evaluation;
 
 /// One candidate rasterized and painted.
 pub const Drawn = struct {
@@ -65,12 +59,7 @@ pub fn evaluate(
     index: usize,
     subgraph_edges: prim.SubgraphEdges,
 ) !Evaluation {
-    const sketch = candidates[index].sketch;
-    const counts = try audit.collect(aa, sketch, subgraph_edges);
-    return .{
-        .counts = counts,
-        .score = try score.eval(aa, sketch, graph.direction, @intCast(index), counts),
-    };
+    return select.evaluate(aa, candidates[index].sketch, graph.direction, @intCast(index), subgraph_edges);
 }
 
 /// The candidate rasterized and painted as the render does it.

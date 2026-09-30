@@ -6,7 +6,6 @@ const sem_graph = @import("sem_graph.zig");
 const parse_mod = @import("parse.zig");
 const score = @import("score.zig");
 const select = @import("select.zig");
-const audit = @import("audit.zig");
 
 const Rung = budget.Rung;
 const hasWidthOverflow = budget.hasWidthOverflow;
@@ -194,7 +193,7 @@ test "score calibration: >=80% agreement with the labeled reference set" {
             const is_fit = cand.rung == pair.first_fit and cand.transform == .raw;
             const is_arg = cand.rung == pair.argmin and cand.transform == pair.argmin_transform;
             if (!is_fit and !is_arg) continue;
-            const counts = try audit.collect(a, cand.sketch, .bridge);
+            const counts = try select.audit(a, cand.sketch, .bridge);
             const sc = try score.eval(a, cand.sketch, g.direction, @intCast(i), counts);
             if (is_fit) s_fit = sc;
             if (is_arg) s_arg = sc;

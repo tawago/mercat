@@ -5,7 +5,6 @@ const sketch_mod = @import("sketch.zig");
 const ladder = @import("budget.zig");
 const select = @import("select.zig");
 const permits_mod = @import("ledger/permits.zig");
-const audit = @import("audit.zig");
 const raster = @import("raster.zig");
 const score_mod = @import("score.zig");
 const parse = @import("parse.zig").parse;
@@ -27,8 +26,8 @@ test "truncate cannot win while natural fits cleanly" {
     const candidates = try ladder.enumerate(a, g, testBundlePermits(), 80);
     const natural = candidates[@intFromEnum(ladder.Rung.natural)];
     const truncate = candidates[@intFromEnum(ladder.Rung.truncate)];
-    const ns = try score_mod.eval(a, natural.sketch, g.direction, 0, try audit.collect(a, natural.sketch, .bridge));
-    const ts = try score_mod.eval(a, truncate.sketch, g.direction, 4, try audit.collect(a, truncate.sketch, .bridge));
+    const ns = try score_mod.eval(a, natural.sketch, g.direction, 0, try select.audit(a, natural.sketch, .bridge));
+    const ts = try score_mod.eval(a, truncate.sketch, g.direction, 4, try select.audit(a, truncate.sketch, .bridge));
     try std.testing.expectEqual(@as(u32, 0), ns.t0_fit);
     try std.testing.expectEqual(@as(u32, 0), ns.t1_integrity);
     try std.testing.expect(ts.lessThan(ns));
@@ -137,13 +136,13 @@ test "the audit prices the raster that ships: mode reaches collect and changes t
     const winner = try select.choose(a, g, &permits, 90, .cross);
 
     const shipped = try raster.rasterize(a, winner.sketch, .cross);
-    const priced = try audit.collect(a, winner.sketch, .cross);
+    const priced = try select.audit(a, winner.sketch, .cross);
     try std.testing.expectEqual(shipped.arrow_base.violations, priced.arrow_base);
     try std.testing.expectEqual(shipped.crossings.foreign_junction_violation, priced.foreign_junction);
     try std.testing.expectEqual(shipped.crossings.arrowhead_transit_violation, priced.arrowhead_transit);
     try std.testing.expectEqual(shipped.edge_cells_lost, priced.edge_cells_lost);
 
-    const counterfactual = try audit.collect(a, winner.sketch, .bridge);
+    const counterfactual = try select.audit(a, winner.sketch, .bridge);
     try std.testing.expect(counterfactual.arrow_base != priced.arrow_base);
 }
 
@@ -207,8 +206,8 @@ test "bridge variants: the real-raster score decides, and flips when the counts 
     var edges_bad: [2]sketch_mod.EdgePath = undefined;
     const bad = bridgePinSketch(7, &polys_bad, &nodes_bad, &edges_bad);
 
-    const c_clean = try audit.collect(a, clean, .bridge);
-    const c_bad = try audit.collect(a, bad, .bridge);
+    const c_clean = try select.audit(a, clean, .bridge);
+    const c_bad = try select.audit(a, bad, .bridge);
     try std.testing.expectEqual(@as(u32, 0), c_clean.arrowhead_transit);
     try std.testing.expect(c_bad.arrowhead_transit > 0);
 
@@ -317,4 +316,41 @@ test "when no candidate routes, the choice is the first raw rung that fits" {
     try std.testing.expectEqual(@as(usize, 0), (try select.routedPositions(a, set)).len);
     try std.testing.expectEqual(ladder.firstFitIndex(set), try select.chooseIndex(a, set, g.direction, .bridge));
     try std.testing.expectEqual(@as(usize, 0), try select.chooseIndex(a, set, g.direction, .bridge));
+}
+
+test "the audit counts nothing for a clean two-node sketch" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+
+    var nodes_buf = [_]sketch_mod.NodePlacement{
+        .{ .id = 1, .rect = .{ .x = 0, .y = 0, .w = 5, .h = 3 }, .shape = .rect, .lines = &.{}, .cluster_id = null },
+        .{ .id = 2, .rect = .{ .x = 8, .y = 0, .w = 5, .h = 3 }, .shape = .rect, .lines = &.{}, .cluster_id = null },
+    };
+    var poly = [_]sketch_mod.Point{ .{ .x = 4, .y = 1 }, .{ .x = 8, .y = 1 } };
+    var edges_buf = [_]sketch_mod.EdgePath{.{
+        .id = 0,
+        .from = 1,
+        .to = 2,
+        .polyline = poly[0..],
+        .port_from = .{ .node = 1, .side = .east, .offset = 1 },
+        .port_to = .{ .node = 2, .side = .west, .offset = 1 },
+        .arrow_from = .none,
+        .arrow_to = .filled,
+        .label = null,
+        .kind = .solid,
+    }};
+    const s = sketch_mod.Sketch{
+        .bbox = .{ .x = 0, .y = 0, .w = 13, .h = 3 },
+        .direction = .LR,
+        .nodes = nodes_buf[0..],
+        .clusters = &.{},
+        .edges = edges_buf[0..],
+        .diagnostics = &.{},
+        .budget = .{ .max_width = 80, .rung = 0 },
+    };
+
+    const counts = try select.audit(a, s, .bridge);
+    try std.testing.expectEqual(@as(u32, 0), counts.labels_dropped);
+    try std.testing.expectEqual(@as(u32, 0), counts.edge_cells_lost);
 }

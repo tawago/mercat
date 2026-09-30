@@ -5,7 +5,7 @@ const sem_graph = @import("sem_graph.zig");
 const sketch_mod = @import("sketch.zig");
 const ladder = @import("budget.zig");
 const score_mod = @import("score.zig");
-const audit_mod = @import("audit.zig");
+const raster = @import("raster.zig");
 const motif_mod = @import("motif.zig");
 
 const Candidate = ladder.Candidate;
@@ -56,6 +56,37 @@ pub fn routedPositions(aa: std.mem.Allocator, candidates: []const Candidate) ![]
         if (unroutedEdges(cand.sketch) == 0) try kept.append(aa, i);
     }
     return kept.toOwnedSlice(aa);
+}
+
+/// What the sketch's raster shows of it: the counts the score prices.
+pub fn audit(aa: std.mem.Allocator, s: sketch_mod.Sketch, subgraph_edges: prim.SubgraphEdges) !score_mod.RasterCounts {
+    const report = try raster.rasterize(aa, s, subgraph_edges);
+    return .{
+        .labels_dropped = report.labels_dropped,
+        .labels_displaced = report.labels_displaced,
+        .edge_cells_lost = report.edge_cells_lost,
+        .foreign_junction = report.crossings.foreign_junction_violation,
+        .arrowhead_transit = report.crossings.arrowhead_transit_violation,
+        .arrow_base = report.arrow_base.violations,
+        .arm_into_head = report.arrow_base.lateral_arms,
+    };
+}
+
+pub const Evaluation = struct {
+    counts: score_mod.RasterCounts,
+    score: score_mod.Score,
+};
+
+/// The audit counts and the score of a sketch; `index` is its tie-break place.
+pub fn evaluate(
+    aa: std.mem.Allocator,
+    s: sketch_mod.Sketch,
+    source_direction: sem_graph.Direction,
+    index: u32,
+    subgraph_edges: prim.SubgraphEdges,
+) !Evaluation {
+    const counts = try audit(aa, s, subgraph_edges);
+    return .{ .counts = counts, .score = try score_mod.eval(aa, s, source_direction, index, counts) };
 }
 
 /// Raw rungs in rung order, then motif-packed rungs, then bridge variants.
@@ -137,8 +168,7 @@ pub fn argmin(
     if (candidates.len == 1) return 0;
     const scores = try aa.alloc(score_mod.Score, candidates.len);
     for (candidates, scores, 0..) |cand, *s, i| {
-        const raster = try audit_mod.collect(aa, cand.sketch, subgraph_edges);
-        s.* = try score_mod.eval(aa, cand.sketch, source_direction, @intCast(i), raster);
+        s.* = (try evaluate(aa, cand.sketch, source_direction, @intCast(i), subgraph_edges)).score;
     }
     const natural: ?usize = for (candidates, 0..) |c, i| {
         if (c.rung == .natural and c.transform == .raw) break i;

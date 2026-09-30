@@ -327,7 +327,6 @@ test {
     _ = @import("budget.zig");
     _ = @import("score.zig");
     _ = @import("select.zig");
-    _ = @import("audit.zig");
     _ = @import("motif.zig");
     _ = @import("recurse.zig");
     _ = @import("cluster/split.zig");

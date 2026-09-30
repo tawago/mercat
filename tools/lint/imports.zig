@@ -143,23 +143,18 @@ pub const file_allowlists = [_]struct {
     },
     .{
         .name = "select.zig",
-        .allowed = &.{ .sem_graph, .sketch, .budget, .parse_zone, .{ .exact = "score.zig" }, .{ .exact = "motif.zig" }, .{ .exact = "audit.zig" } },
-        .reason = "select may only import std, prim, base/ledger, sem_graph, sketch, budget, score, motif, audit, or parse",
+        .allowed = &.{ .sem_graph, .sketch, .budget, .parse_zone, .raster_zone, .{ .exact = "score.zig" }, .{ .exact = "motif.zig" } },
+        .reason = "select may only import std, prim, base/ledger, sem_graph, sketch, budget, score, motif, raster, or parse",
     },
     .{
         .name = "select_test.zig",
-        .allowed = &.{ .sem_graph, .sketch, .budget, .parse_zone, .{ .exact = "select.zig" }, .{ .exact = "ledger/permits.zig" }, .{ .exact = "audit.zig" }, .{ .exact = "raster.zig" }, .{ .exact = "score.zig" } },
-        .reason = "select_test may only import std, prim, base/ledger, sem_graph, sketch, budget, parse, select, ledger/permits, audit, raster, or score",
-    },
-    .{
-        .name = "audit.zig",
-        .allowed = &.{ .sketch, .raster_zone, .{ .exact = "score.zig" } },
-        .reason = "audit may only import std, prim, sketch, raster, or score",
+        .allowed = &.{ .sem_graph, .sketch, .budget, .parse_zone, .{ .exact = "select.zig" }, .{ .exact = "ledger/permits.zig" }, .{ .exact = "raster.zig" }, .{ .exact = "score.zig" } },
+        .reason = "select_test may only import std, prim, base/ledger, sem_graph, sketch, budget, parse, select, ledger/permits, raster, or score",
     },
     .{
         .name = "budget_test.zig",
-        .allowed = &.{ .budget, .sem_graph, .sketch, .parse_zone, .{ .exact = "build_options" }, .{ .exact = "score.zig" }, .{ .exact = "select.zig" }, .{ .exact = "audit.zig" } },
-        .reason = "budget_test may only import std, prim, build_options, budget, sem_graph, sketch, parse, score, select, or audit",
+        .allowed = &.{ .budget, .sem_graph, .sketch, .parse_zone, .{ .exact = "build_options" }, .{ .exact = "score.zig" }, .{ .exact = "select.zig" } },
+        .reason = "budget_test may only import std, prim, build_options, budget, sem_graph, sketch, parse, score, or select",
     },
     .{
         .name = "layout/bundle_commit_test.zig",
@@ -209,12 +204,10 @@ pub const file_allowlists = [_]struct {
             .budget,
             .raster_zone,
             .{ .exact = "select.zig" },
-            .{ .exact = "audit.zig" },
-            .{ .exact = "score.zig" },
             .{ .exact = "paint.zig" },
             .{ .exact = "ledger/permits.zig" },
         },
-        .reason = "candidates may only import std, prim, base/*, sem_graph, budget, select, audit, score, raster, paint, or ledger/permits",
+        .reason = "candidates may only import std, prim, base/*, sem_graph, budget, select, raster, paint, or ledger/permits",
     },
     .{
         .name = "candidates_test.zig",
