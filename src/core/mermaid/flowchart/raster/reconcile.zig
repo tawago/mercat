@@ -36,44 +36,12 @@ fn reprieveReciprocates(cell: *const lattice.Cell, d: lattice.Dir4) bool {
 }
 
 pub fn bitIsPhantom(lat: *const lattice.Lattice, x: u32, y: u32, d: lattice.Dir4) bool {
-    const Pair = struct { ax: ?u32, ay: ?u32, bx: ?u32, by: ?u32 };
-    const p: Pair = switch (d) {
-        .north => .{
-            .ax = x,
-            .ay = if (y >= 1) y - 1 else null,
-            .bx = x,
-            .by = if (y >= 2) y - 2 else null,
-        },
-        .east => .{
-            .ax = if (x + 1 < lat.width) x + 1 else null,
-            .ay = y,
-            .bx = if (x + 2 < lat.width) x + 2 else null,
-            .by = y,
-        },
-        .south => .{
-            .ax = x,
-            .ay = if (y + 1 < lat.height) y + 1 else null,
-            .bx = x,
-            .by = if (y + 2 < lat.height) y + 2 else null,
-        },
-        .west => .{
-            .ax = if (x >= 1) x - 1 else null,
-            .ay = y,
-            .bx = if (x >= 2) x - 2 else null,
-            .by = y,
-        },
-    };
-
-    const ax = p.ax orelse return true;
-    const ay = p.ay orelse return true;
-
-    if (isRealConnection(lat.atConst(ax, ay).occupant)) return false;
-
-    const bx = p.bx orelse return true;
-    const by = p.by orelse return true;
-    if (reprieveReciprocates(lat.atConst(bx, by), d)) return false;
-
-    return true;
+    const near = geo.step(.{ .x = @intCast(x), .y = @intCast(y) }, d);
+    const near_cell = geo.cellAt(lat, near.x, near.y) orelse return true;
+    if (isRealConnection(near_cell.occupant)) return false;
+    const far = geo.step(near, d);
+    const far_cell = geo.cellAt(lat, far.x, far.y) orelse return true;
+    return !reprieveReciprocates(far_cell, d);
 }
 
 pub fn reconcileNeighbours(lat: *lattice.Lattice) void {

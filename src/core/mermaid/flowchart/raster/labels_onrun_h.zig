@@ -4,6 +4,7 @@ const lattice = @import("../lattice.zig");
 const lw = @import("labels_write.zig");
 const ink = @import("labels_ink.zig");
 const cover = @import("labels_cover.zig");
+const geo = @import("geometry.zig");
 
 const MAX_SEGS: usize = 32;
 
@@ -152,8 +153,7 @@ fn visualRunIsPrivate(
 ) bool {
     for ([2]i32{ -1, 1 }) |dir| {
         var x: i32 = if (dir < 0) start_x - 1 else start_x + cc;
-        while (x >= 0 and x < @as(i32, @intCast(lat.width))) : (x += dir) {
-            const cell = lat.atConst(@intCast(x), @intCast(row));
+        while (geo.cellAt(lat, x, row)) |cell| : (x += dir) {
             const owner: u32 = switch (cell.occupant) {
                 .edge_segment => |seg| seg.edge,
                 .arrowhead => |ah| ah.edge,

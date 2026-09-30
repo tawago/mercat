@@ -26,11 +26,8 @@ pub const Owner = struct {
 };
 
 pub fn classifyAt(lat: *const lattice.Lattice, owner: Owner, x: i32, y: i32) InkClass {
-    if (x < 0 or y < 0) return .none;
-    const ux: u32 = @intCast(x);
-    const uy: u32 = @intCast(y);
-    if (ux >= lat.width or uy >= lat.height) return .none;
-    return switch (lat.atConst(ux, uy).occupant) {
+    const cell = geo.cellAt(lat, x, y) orelse return .none;
+    return switch (cell.occupant) {
         .empty, .label_char, .label_cont => .none,
         .edge_segment => |seg| edgeInk(owner, seg.edge, x, y),
         .arrowhead => |ah| edgeInk(owner, ah.edge, x, y),
@@ -45,11 +42,8 @@ fn edgeInk(owner: Owner, cell_edge: u32, x: i32, y: i32) InkClass {
 }
 
 fn isLabelCell(lat: *const lattice.Lattice, x: i32, y: i32) bool {
-    if (x < 0 or y < 0) return false;
-    const ux: u32 = @intCast(x);
-    const uy: u32 = @intCast(y);
-    if (ux >= lat.width or uy >= lat.height) return false;
-    return switch (lat.atConst(ux, uy).occupant) {
+    const cell = geo.cellAt(lat, x, y) orelse return false;
+    return switch (cell.occupant) {
         .label_char, .label_cont => true,
         else => false,
     };

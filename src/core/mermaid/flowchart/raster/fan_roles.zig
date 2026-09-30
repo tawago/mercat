@@ -70,10 +70,8 @@ fn pivotSide(rect: sketch.Rect, y: u32) ?enum { north, south } {
 }
 
 fn continuesColumn(lat: *const lattice.Lattice, x: u32, y: u32) bool {
-    for ([_]i64{ -1, 1 }) |dy| {
-        const yi: i64 = @as(i64, y) + dy;
-        if (yi < 0 or yi >= @as(i64, @intCast(lat.height))) continue;
-        const c = lat.atConst(x, @intCast(yi));
+    for ([_]i32{ -1, 1 }) |dy| {
+        const c = geo.cellAt(lat, @intCast(x), @as(i32, @intCast(y)) + dy) orelse continue;
         const seg = switch (c.occupant) {
             .edge_segment => |q| q,
             else => continue,
@@ -86,14 +84,12 @@ fn continuesColumn(lat: *const lattice.Lattice, x: u32, y: u32) bool {
 }
 
 fn armIsAnswered(lat: *const lattice.Lattice, x: u32, y: u32, d: lattice.Dir4) bool {
-    const dy: i64 = switch (d) {
+    const dy: i32 = switch (d) {
         .north => -1,
         .south => 1,
         .east, .west => return false,
     };
-    const yi: i64 = @as(i64, y) + dy;
-    if (yi < 0 or yi >= @as(i64, @intCast(lat.height))) return false;
-    const c = lat.atConst(x, @intCast(yi));
+    const c = geo.cellAt(lat, @intCast(x), @as(i32, @intCast(y)) + dy) orelse return false;
     return switch (c.occupant) {
         .arrowhead => |head| head.dir == d,
         .edge_segment => switch (d) {

@@ -12,7 +12,6 @@ const orMask = geo.orMask;
 const straightMask = geo.straightMask;
 const segmentDir = geo.segmentDir;
 const toCoord = geo.toCoord;
-const pointInBounds = geo.pointInBounds;
 const writeEdgeCell = ew.writeEdgeCell;
 
 pub const Head = struct {
@@ -73,16 +72,14 @@ fn tipFaces(h: Head, q: sketch.Point) bool {
 const Attach = struct { border: sketch.Point, gap: ?sketch.Point };
 
 fn attachment(lat: *const lattice.Lattice, p: sketch.Point, travel: Move) ?Attach {
-    if (!pointInBounds(p, lat)) return null;
     var q = p;
     var gap: ?sketch.Point = null;
-    if (lat.atConst(toCoord(q).x, toCoord(q).y).occupant == .empty) {
+    var cell = geo.cellAt(lat, q.x, q.y) orelse return null;
+    if (cell.occupant == .empty) {
         gap = q;
         q = step(q, travel);
-        if (!pointInBounds(q, lat)) return null;
+        cell = geo.cellAt(lat, q.x, q.y) orelse return null;
     }
-    const c = toCoord(q);
-    const cell = lat.atConst(c.x, c.y);
     if (cell.occupant != .node_border) return null;
     switch (cell.occupant.node_border.role) {
         .corner_nw, .corner_ne, .corner_se, .corner_sw => return null,

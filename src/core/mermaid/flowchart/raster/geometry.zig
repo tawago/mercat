@@ -72,6 +72,14 @@ pub fn onSegment(a: sketch.Point, b: sketch.Point, x: i32, y: i32) bool {
         y >= @min(a.y, b.y) and y <= @max(a.y, b.y);
 }
 
+pub fn cellAt(lat: *const lattice.Lattice, x: i32, y: i32) ?*const lattice.Cell {
+    if (x < 0 or y < 0) return null;
+    const ux: u32 = @intCast(x);
+    const uy: u32 = @intCast(y);
+    if (ux >= lat.width or uy >= lat.height) return null;
+    return lat.atConst(ux, uy);
+}
+
 pub fn rectFitsLattice(r: sketch.Rect, lat: *const lattice.Lattice) bool {
     if (r.w == 0 or r.h == 0) return false;
     if (r.x < 0 or r.y < 0) return false;
