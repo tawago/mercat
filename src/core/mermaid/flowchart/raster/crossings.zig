@@ -32,6 +32,37 @@ pub const Ctx = struct {
     bundle_sets: []const bundle_mod.Bundle = &.{},
     counts: *CrossingCounts,
     mode: prim.SubgraphEdges = .bridge,
+
+    pub fn segmentOverlap(
+        self: Ctx,
+        existing_edge: EdgeId,
+        existing_mask: lattice.Neighbours,
+        incoming_edge: EdgeId,
+        incoming_mask: lattice.Neighbours,
+        at: bundle_mod.BundleCell,
+    ) bool {
+        if (sameBundle(existing_edge, incoming_edge, self.bundles, self.bundle_sets, at)) return false;
+        if (classifySegment(existing_mask, incoming_mask) == .foreign_junction_violation) self.counts.foreign_junction_violation += 1;
+        return true;
+    }
+
+    pub fn arrowheadTransit(self: Ctx, arrow_edge: EdgeId, incoming_edge: EdgeId, at: bundle_mod.BundleCell) bool {
+        if (sameBundle(arrow_edge, incoming_edge, self.bundles, self.bundle_sets, at)) return false;
+        self.counts.arrowhead_transit_violation += 1;
+        return true;
+    }
+
+    pub fn headEntry(
+        self: Ctx,
+        arrow_edge: EdgeId,
+        tip: lattice.Dir4,
+        incoming_edge: EdgeId,
+        incoming_mask: lattice.Neighbours,
+        at: bundle_mod.BundleCell,
+    ) bool {
+        const transit = self.arrowheadTransit(arrow_edge, incoming_edge, at);
+        return transit or lateralArms(tip, incoming_mask).toMask() != 0;
+    }
 };
 
 pub fn sameBundle(
@@ -60,34 +91,6 @@ pub fn classifySegment(existing: lattice.Neighbours, incoming: lattice.Neighbour
     return .foreign_junction_violation;
 }
 
-pub fn segmentOverlap(
-    counts: *CrossingCounts,
-    bundles: ledger.RealizedBundles,
-    bundle_sets: []const bundle_mod.Bundle,
-    existing_edge: EdgeId,
-    existing_mask: lattice.Neighbours,
-    incoming_edge: EdgeId,
-    incoming_mask: lattice.Neighbours,
-    at: bundle_mod.BundleCell,
-) bool {
-    if (sameBundle(existing_edge, incoming_edge, bundles, bundle_sets, at)) return false;
-    if (classifySegment(existing_mask, incoming_mask) == .foreign_junction_violation) counts.foreign_junction_violation += 1;
-    return true;
-}
-
-pub fn arrowheadTransit(
-    counts: *CrossingCounts,
-    bundles: ledger.RealizedBundles,
-    bundle_sets: []const bundle_mod.Bundle,
-    arrow_edge: EdgeId,
-    incoming_edge: EdgeId,
-    at: bundle_mod.BundleCell,
-) bool {
-    if (sameBundle(arrow_edge, incoming_edge, bundles, bundle_sets, at)) return false;
-    counts.arrowhead_transit_violation += 1;
-    return true;
-}
-
 pub fn lateralArms(tip: lattice.Dir4, mask: lattice.Neighbours) lattice.Neighbours {
     return switch (tip) {
         .north, .south => .{ .e = mask.e, .w = mask.w },
@@ -95,21 +98,11 @@ pub fn lateralArms(tip: lattice.Dir4, mask: lattice.Neighbours) lattice.Neighbou
     };
 }
 
-pub fn headEntry(
-    counts: *CrossingCounts,
-    bundles: ledger.RealizedBundles,
-    bundle_sets: []const bundle_mod.Bundle,
-    arrow_edge: EdgeId,
-    tip: lattice.Dir4,
-    incoming_edge: EdgeId,
-    incoming_mask: lattice.Neighbours,
-    at: bundle_mod.BundleCell,
-) bool {
-    const transit = arrowheadTransit(counts, bundles, bundle_sets, arrow_edge, incoming_edge, at);
-    return transit or lateralArms(tip, incoming_mask).toMask() != 0;
-}
-
 const ANY: bundle_mod.BundleCell = .{ .x = 0, .y = 0 };
+
+fn ctxOf(counts: *CrossingCounts, bundles: ledger.RealizedBundles, sets: []const bundle_mod.Bundle) Ctx {
+    return .{ .bundles = bundles, .bundle_sets = sets, .counts = counts };
+}
 
 const H: lattice.Neighbours = .{ .e = true, .w = true };
 const V: lattice.Neighbours = .{ .n = true, .s = true };
@@ -172,34 +165,34 @@ test "sameBundle: bundle membership answers what the plan answers" {
 
 test "segmentOverlap: exempt merges; foreign perpendicular keeps first writer" {
     var counts: CrossingCounts = .{};
-    try std.testing.expect(segmentOverlap(&counts, .{}, &.{}, 1, H, 2, V, ANY));
+    try std.testing.expect(ctxOf(&counts, .{}, &.{}).segmentOverlap(1, H, 2, V, ANY));
     try std.testing.expectEqual(@as(u32, 0), counts.foreign_junction_violation);
 
     var members = [_]EdgeId{ 1, 3 };
     var sel = [_]ledger.SelectedBundle{.{ .id = 0, .proposal = 0, .candidate_bundle = 0, .members = &members }};
     const bundles: ledger.RealizedBundles = .{ .selected_bundles = &sel };
-    try std.testing.expect(segmentOverlap(&counts, bundles, &.{}, 1, H, 2, V, ANY));
-    try std.testing.expect(!segmentOverlap(&counts, bundles, &.{}, 1, H, 3, V, ANY));
+    try std.testing.expect(ctxOf(&counts, bundles, &.{}).segmentOverlap(1, H, 2, V, ANY));
+    try std.testing.expect(!ctxOf(&counts, bundles, &.{}).segmentOverlap(1, H, 3, V, ANY));
     try std.testing.expectEqual(@as(u32, 0), counts.foreign_junction_violation);
 
-    try std.testing.expect(segmentOverlap(&counts, bundles, &.{}, 1, H, 2, H, ANY));
+    try std.testing.expect(ctxOf(&counts, bundles, &.{}).segmentOverlap(1, H, 2, H, ANY));
     try std.testing.expectEqual(@as(u32, 1), counts.foreign_junction_violation);
 
     var fan = [_]EdgeId{ 1, 2 };
     const fan_sets = [_]bundle_mod.Bundle{.{ .origin = .fan_rail, .members = &fan }};
-    try std.testing.expect(!segmentOverlap(&counts, .{}, &fan_sets, 1, H, 2, H, ANY));
+    try std.testing.expect(!ctxOf(&counts, .{}, &fan_sets).segmentOverlap(1, H, 2, H, ANY));
     try std.testing.expectEqual(@as(u32, 1), counts.foreign_junction_violation);
 }
 
 test "arrowheadTransit: own terminal exempt, foreign refused" {
     var counts: CrossingCounts = .{};
-    try std.testing.expect(!arrowheadTransit(&counts, .{}, &.{}, 7, 7, ANY));
+    try std.testing.expect(!ctxOf(&counts, .{}, &.{}).arrowheadTransit(7, 7, ANY));
     try std.testing.expectEqual(@as(u32, 0), counts.arrowhead_transit_violation);
-    try std.testing.expect(arrowheadTransit(&counts, .{}, &.{}, 7, 8, ANY));
+    try std.testing.expect(ctxOf(&counts, .{}, &.{}).arrowheadTransit(7, 8, ANY));
     try std.testing.expectEqual(@as(u32, 1), counts.arrowhead_transit_violation);
     var fan = [_]EdgeId{ 7, 8 };
     const fan_sets = [_]bundle_mod.Bundle{.{ .origin = .fan_rail, .members = &fan }};
-    try std.testing.expect(!arrowheadTransit(&counts, .{}, &fan_sets, 7, 8, ANY));
+    try std.testing.expect(!ctxOf(&counts, .{}, &fan_sets).arrowheadTransit(7, 8, ANY));
     try std.testing.expectEqual(@as(u32, 1), counts.arrowhead_transit_violation);
 }
 
@@ -207,16 +200,16 @@ test "headEntry: a lateral arm is refused for co-members too; an on-axis co-memb
     var counts: CrossingCounts = .{};
     var fan = [_]EdgeId{ 7, 8 };
     const fan_sets = [_]bundle_mod.Bundle{.{ .origin = .fan_rail, .members = &fan }};
-    try std.testing.expect(!headEntry(&counts, .{}, &fan_sets, 7, .south, 8, V, ANY));
+    try std.testing.expect(!ctxOf(&counts, .{}, &fan_sets).headEntry(7, .south, 8, V, ANY));
     try std.testing.expectEqual(@as(u32, 0), counts.arrowhead_transit_violation);
 
-    try std.testing.expect(headEntry(&counts, .{}, &fan_sets, 7, .south, 8, .{ .n = true, .e = true }, ANY));
+    try std.testing.expect(ctxOf(&counts, .{}, &fan_sets).headEntry(7, .south, 8, .{ .n = true, .e = true }, ANY));
     try std.testing.expectEqual(@as(u32, 0), counts.arrowhead_transit_violation);
 
-    try std.testing.expect(headEntry(&counts, .{}, &.{}, 7, .east, 9, V, ANY));
+    try std.testing.expect(ctxOf(&counts, .{}, &.{}).headEntry(7, .east, 9, V, ANY));
     try std.testing.expectEqual(@as(u32, 1), counts.arrowhead_transit_violation);
 
-    try std.testing.expect(headEntry(&counts, .{}, &.{}, 7, .east, 9, H, ANY));
+    try std.testing.expect(ctxOf(&counts, .{}, &.{}).headEntry(7, .east, 9, H, ANY));
     try std.testing.expectEqual(@as(u32, 2), counts.arrowhead_transit_violation);
 }
 

@@ -45,26 +45,8 @@ fn crossingKeepsFirstWriter(
     ctx: crossings.Ctx,
 ) bool {
     return switch (cell.occupant) {
-        .edge_segment => |seg| crossings.segmentOverlap(
-            ctx.counts,
-            ctx.bundles,
-            ctx.bundle_sets,
-            seg.edge,
-            cell.neighbours,
-            incoming_edge,
-            incoming_mask,
-            at,
-        ),
-        .arrowhead => |a| crossings.headEntry(
-            ctx.counts,
-            ctx.bundles,
-            ctx.bundle_sets,
-            a.edge,
-            a.dir,
-            incoming_edge,
-            incoming_mask,
-            at,
-        ),
+        .edge_segment => |seg| ctx.segmentOverlap(seg.edge, cell.neighbours, incoming_edge, incoming_mask, at),
+        .arrowhead => |a| ctx.headEntry(a.edge, a.dir, incoming_edge, incoming_mask, at),
         else => false,
     };
 }
@@ -151,16 +133,8 @@ fn walkPolyline(
                 const corner_mask = orMask(bitMask(reverse(prev)), bitMask(dir));
                 switch (cell.occupant) {
                     .edge_segment => |seg| {
-                        const refused = seg.edge != edge.id and crossings.segmentOverlap(
-                            ctx.counts,
-                            ctx.bundles,
-                            ctx.bundle_sets,
-                            seg.edge,
-                            cell.neighbours,
-                            edge.id,
-                            corner_mask,
-                            crossings.cellAt(c.x, c.y),
-                        );
+                        const refused = seg.edge != edge.id and
+                            ctx.segmentOverlap(seg.edge, cell.neighbours, edge.id, corner_mask, crossings.cellAt(c.x, c.y));
                         if (!refused) {
                             cell.neighbours = orMask(cell.neighbours, corner_mask);
                             cell.occupant = .{ .edge_segment = .{

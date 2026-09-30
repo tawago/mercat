@@ -109,7 +109,7 @@ pub fn writeArrowGuarded(
 ) void {
     if (cell.occupant == .edge_segment) {
         const seg = cell.occupant.edge_segment;
-        if (crossings.arrowheadTransit(ctx.counts, ctx.bundles, ctx.bundle_sets, seg.edge, edge_id, crossings.cellAt(x, y))) {
+        if (ctx.arrowheadTransit(seg.edge, edge_id, crossings.cellAt(x, y))) {
             cell.occupant = .{ .arrowhead = .{ .dir = dir, .edge = edge_id, .arrow = arrow } };
             cell.neighbours = along;
             cell.stroke_kind = kind;
