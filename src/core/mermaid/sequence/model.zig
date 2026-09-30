@@ -33,12 +33,21 @@ pub const SequenceArrowType = enum {
 pub const Participant = struct {
     id: []const u8,
     alias: ?[]const u8 = null,
-    x: ?i32 = null,
-    y: ?i32 = null,
+    x: i32 = 0,
+    y: i32 = 0,
     box_width: u32 = 0,
 
     pub fn displayName(self: *const Participant) []const u8 {
         return self.alias orelse self.id;
+    }
+
+    /// The box width that fits the name: four columns wider than it, and at least eight.
+    pub fn naturalWidth(self: *const Participant) u32 {
+        return @max(@as(u32, @intCast(self.displayName().len + 4)), 8);
+    }
+
+    pub fn centerX(self: *const Participant) i32 {
+        return self.x + @as(i32, @intCast(self.box_width / 2));
     }
 };
 
@@ -71,8 +80,6 @@ pub const SequenceElement = union(enum) {
 pub const SequenceDiagram = struct {
     allocator: Allocator,
     participants: std.ArrayList(Participant),
-    messages: std.ArrayList(Message),
-    notes: std.ArrayList(SequenceNote),
     elements: std.ArrayList(SequenceElement),
     direction: Direction = .TB,
     direction_explicit: bool = false,
@@ -81,16 +88,12 @@ pub const SequenceDiagram = struct {
         return .{
             .allocator = allocator,
             .participants = .empty,
-            .messages = .empty,
-            .notes = .empty,
             .elements = .empty,
         };
     }
 
     pub fn deinit(self: *SequenceDiagram) void {
         self.participants.deinit(self.allocator);
-        self.messages.deinit(self.allocator);
-        self.notes.deinit(self.allocator);
         self.elements.deinit(self.allocator);
     }
 
@@ -104,12 +107,10 @@ pub const SequenceDiagram = struct {
     }
 
     pub fn addMessage(self: *SequenceDiagram, message: Message) !void {
-        try self.messages.append(self.allocator, message);
         try self.elements.append(self.allocator, .{ .message = message });
     }
 
     pub fn addNote(self: *SequenceDiagram, note: SequenceNote) !void {
-        try self.notes.append(self.allocator, note);
         try self.elements.append(self.allocator, .{ .note = note });
     }
 

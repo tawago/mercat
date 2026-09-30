@@ -244,6 +244,26 @@ fn parseActivation(s: *Scanner, diagram: *SequenceDiagram, is_activate: bool) !v
     s.skipToNextLine();
 }
 
+const Element = std.meta.Tag(model.SequenceElement);
+
+fn count(diagram: *const SequenceDiagram, comptime kind: Element) usize {
+    var n: usize = 0;
+    for (diagram.elements.items) |element| {
+        if (element == kind) n += 1;
+    }
+    return n;
+}
+
+fn nth(diagram: *const SequenceDiagram, comptime kind: Element, index: usize) std.meta.TagPayload(model.SequenceElement, kind) {
+    var seen: usize = 0;
+    for (diagram.elements.items) |element| {
+        if (element != kind) continue;
+        if (seen == index) return @field(element, @tagName(kind));
+        seen += 1;
+    }
+    unreachable;
+}
+
 test "parse simple sequence diagram" {
     const testing = std.testing;
 
@@ -257,17 +277,18 @@ test "parse simple sequence diagram" {
     defer diagram.deinit();
 
     try testing.expectEqual(@as(usize, 2), diagram.participants.items.len);
-    try testing.expectEqual(@as(usize, 2), diagram.messages.items.len);
+    try testing.expectEqual(@as(usize, 2), count(&diagram, .message));
 
     try testing.expectEqualStrings("Alice", diagram.participants.items[0].id);
     try testing.expectEqualStrings("Bob", diagram.participants.items[1].id);
 
-    try testing.expectEqualStrings("Alice", diagram.messages.items[0].from);
-    try testing.expectEqualStrings("Bob", diagram.messages.items[0].to);
-    try testing.expectEqualStrings("Hello Bob", diagram.messages.items[0].text);
-    try testing.expectEqual(SequenceArrowType.solid_arrow, diagram.messages.items[0].arrow_type);
+    const first = nth(&diagram, .message, 0);
+    try testing.expectEqualStrings("Alice", first.from);
+    try testing.expectEqualStrings("Bob", first.to);
+    try testing.expectEqualStrings("Hello Bob", first.text);
+    try testing.expectEqual(SequenceArrowType.solid_arrow, first.arrow_type);
 
-    try testing.expectEqual(SequenceArrowType.dashed_arrow, diagram.messages.items[1].arrow_type);
+    try testing.expectEqual(SequenceArrowType.dashed_arrow, nth(&diagram, .message, 1).arrow_type);
 }
 
 test "parse sequence with explicit participants" {
@@ -306,13 +327,13 @@ test "parse sequence arrow types" {
     var diagram = try parse(testing.allocator, source);
     defer diagram.deinit();
 
-    try testing.expectEqual(@as(usize, 6), diagram.messages.items.len);
-    try testing.expectEqual(SequenceArrowType.solid_arrow, diagram.messages.items[0].arrow_type);
-    try testing.expectEqual(SequenceArrowType.dashed_arrow, diagram.messages.items[1].arrow_type);
-    try testing.expectEqual(SequenceArrowType.solid_line, diagram.messages.items[2].arrow_type);
-    try testing.expectEqual(SequenceArrowType.dashed_line, diagram.messages.items[3].arrow_type);
-    try testing.expectEqual(SequenceArrowType.solid_cross, diagram.messages.items[4].arrow_type);
-    try testing.expectEqual(SequenceArrowType.dashed_cross, diagram.messages.items[5].arrow_type);
+    try testing.expectEqual(@as(usize, 6), count(&diagram, .message));
+    try testing.expectEqual(SequenceArrowType.solid_arrow, nth(&diagram, .message, 0).arrow_type);
+    try testing.expectEqual(SequenceArrowType.dashed_arrow, nth(&diagram, .message, 1).arrow_type);
+    try testing.expectEqual(SequenceArrowType.solid_line, nth(&diagram, .message, 2).arrow_type);
+    try testing.expectEqual(SequenceArrowType.dashed_line, nth(&diagram, .message, 3).arrow_type);
+    try testing.expectEqual(SequenceArrowType.solid_cross, nth(&diagram, .message, 4).arrow_type);
+    try testing.expectEqual(SequenceArrowType.dashed_cross, nth(&diagram, .message, 5).arrow_type);
 }
 
 test "parse self message" {
@@ -326,8 +347,8 @@ test "parse self message" {
     var diagram = try parse(testing.allocator, source);
     defer diagram.deinit();
 
-    try testing.expectEqual(@as(usize, 1), diagram.messages.items.len);
-    try testing.expect(diagram.messages.items[0].is_self_message);
+    try testing.expectEqual(@as(usize, 1), count(&diagram, .message));
+    try testing.expect(nth(&diagram, .message, 0).is_self_message);
 }
 
 test "parse sequence diagram with notes" {
@@ -345,17 +366,19 @@ test "parse sequence diagram with notes" {
     defer diagram.deinit();
 
     try testing.expectEqual(@as(usize, 2), diagram.participants.items.len);
-    try testing.expectEqual(@as(usize, 2), diagram.messages.items.len);
-    try testing.expectEqual(@as(usize, 2), diagram.notes.items.len);
+    try testing.expectEqual(@as(usize, 2), count(&diagram, .message));
+    try testing.expectEqual(@as(usize, 2), count(&diagram, .note));
 
-    try testing.expectEqual(types.NotePosition.right_of, diagram.notes.items[0].position);
-    try testing.expectEqualStrings("Bob", diagram.notes.items[0].participant1);
-    try testing.expectEqualStrings("Bob thinks", diagram.notes.items[0].text);
+    const first = nth(&diagram, .note, 0);
+    try testing.expectEqual(types.NotePosition.right_of, first.position);
+    try testing.expectEqualStrings("Bob", first.participant1);
+    try testing.expectEqualStrings("Bob thinks", first.text);
 
-    try testing.expectEqual(types.NotePosition.over, diagram.notes.items[1].position);
-    try testing.expectEqualStrings("Alice", diagram.notes.items[1].participant1);
-    try testing.expectEqualStrings("Bob", diagram.notes.items[1].participant2.?);
-    try testing.expectEqualStrings("They greet", diagram.notes.items[1].text);
+    const second = nth(&diagram, .note, 1);
+    try testing.expectEqual(types.NotePosition.over, second.position);
+    try testing.expectEqualStrings("Alice", second.participant1);
+    try testing.expectEqualStrings("Bob", second.participant2.?);
+    try testing.expectEqualStrings("They greet", second.text);
 }
 
 test "parse sequence diagram direction" {
