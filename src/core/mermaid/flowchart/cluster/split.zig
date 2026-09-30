@@ -4,13 +4,33 @@ const sketch = @import("../sketch.zig");
 const bridges = @import("bridges.zig");
 
 pub const Crossing = bridges.Crossing;
-const inherited_mod = @import("inherited.zig");
 
-pub const Arrival = inherited_mod.Arrival;
-pub const Departure = inherited_mod.Departure;
-pub const Inherited = inherited_mod.Inherited;
-pub const entrySide = inherited_mod.entrySide;
-pub const exitSide = inherited_mod.exitSide;
+pub const Arrival = struct { to: sg.NodeId, side: sketch.Dir4 };
+
+pub const Departure = struct { from: sg.NodeId, side: sketch.Dir4 };
+
+pub const Inherited = struct {
+    arrivals: []const Arrival = &.{},
+    departures: []const Departure = &.{},
+};
+
+pub fn exitSide(dir: sg.Direction) sketch.Dir4 {
+    return switch (dir) {
+        .TD => .south,
+        .BT => .north,
+        .LR => .east,
+        .RL => .west,
+    };
+}
+
+pub fn entrySide(dir: sg.Direction) sketch.Dir4 {
+    return switch (dir) {
+        .TD => .north,
+        .BT => .south,
+        .LR => .west,
+        .RL => .east,
+    };
+}
 
 pub const Piece = struct {
     graph: sg.SemGraph,
