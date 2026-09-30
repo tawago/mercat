@@ -1,6 +1,5 @@
 const std = @import("std");
 const prim = @import("prim");
-const ledger = @import("base/ledger.zig");
 const bundle_plan = @import("base/bundle_plan.zig");
 const sg = @import("sem_graph.zig");
 const sketch = @import("sketch.zig");
@@ -11,7 +10,6 @@ const routing = @import("layout/routing.zig");
 const node_geom = @import("layout/node_geom.zig");
 const clusters = @import("layout/clusters.zig");
 const fan_mod = @import("layout/fan.zig");
-const fan_gate = @import("layout/fan_gate.zig");
 const fan_lanes = @import("layout/fan_lanes.zig");
 const gap_rows = @import("layout/gap_rows.zig");
 const mirror = @import("layout/mirror.zig");
@@ -20,9 +18,8 @@ const sizing = @import("layout/sizing.zig");
 const components = @import("layout/components.zig");
 const rank_grid = @import("layout/rank_grid.zig");
 const decascade = @import("layout/decascade.zig");
-const bundle_commit = @import("layout/bundle_commit.zig");
+const bundle_decision = @import("layout/bundle_decision.zig");
 const layer_axis = @import("layout/layer_axis.zig");
-const ports = @import("layout/ports.zig");
 const port_plan = @import("layout/port_plan.zig");
 const options = @import("layout/options.zig");
 
@@ -90,26 +87,10 @@ fn buildSketch(
     const node_lines = try a.alloc([]const []const u8, total);
 
     const is_td = graph.direction == .TD;
-    const fans_detected: []fan_mod.Fan = if (is_td) try fan_mod.detect(a, graph, lg) else &.{};
-    const effective_plan: ?ledger.BundlePermits = try bundle_commit.effectivePlan(a, graph, opts.bundle_permits);
-    const plan_ref: ?*const ledger.BundlePermits = if (effective_plan) |*p| p else null;
-    const candidate_bundles = try bundle_commit.buildReported(a, graph, plan_ref, lg.reversed_edges, try longEdges(a, lg), null);
-    const fans = try fan_gate.keepRealizableLong(a, fans_detected, candidate_bundles);
-    const construction_private = hasPrivatePeers(fans);
-    const port_active = hasPortWork(candidate_bundles) or construction_private;
-    const derived = if (plan_ref) |plan| blk: {
-        if (port_active) {
-            const all = ports.derive(a, graph, plan.*, candidate_bundles, graph.direction, lg.reversed_edges) catch &.{};
-            break :blk port_plan.withoutDischarged(a, all, candidate_bundles) catch all;
-        }
-        if (construction_private) break :blk port_plan.deriveFanAttachments(a, graph, graph.direction, lg.reversed_edges, fans) catch &.{};
-        break :blk &.{};
-    } else if (construction_private)
-        port_plan.deriveFanAttachments(a, graph, graph.direction, lg.reversed_edges, fans) catch &.{}
-    else
-        &.{};
+    const decision = try bundle_decision.decide(a, graph, lg, opts.bundle_permits);
+    const fans = try ownFans(a, decision.fans);
     try sizeNodes(a, graph, lg, geom, opts.node_padding, opts.fixed_sizes, opts.max_label_width, node_lines);
-    sizing.applyPortDemand(graph, lg, geom, derived);
+    sizing.applyPortDemand(graph, lg, geom, decision.attachments);
     const layer_count: u32 = @intCast(lg.layers.len);
     const layer_h = try computeLayerHeights(a, lg, geom, layer_count);
     const v_base: u32 = switch (graph.direction) {
@@ -132,7 +113,7 @@ fn buildSketch(
     normalizeX(geom);
 
     if (fans.len > 0) fan_mod.gateFanInSharedLabels(NodeGeom, fans, geom);
-    if (fans.len > 0) try fan_lanes.assignLanes(NodeGeom, a, graph, lg, geom, fans, candidate_bundles, null);
+    if (fans.len > 0) try fan_lanes.assignLanes(NodeGeom, a, graph, lg, geom, fans, decision.bundles, null);
 
     if (fans.len > 0) fan_mod.refreshLabelWidths(graph, fans);
 
@@ -168,10 +149,10 @@ fn buildSketch(
     if (fans.len > 0) fan_mod.assignRoles(fans, try centersX(a, geom));
     layer_axis.foldLayerOffsets(lg, geom, layer_h);
 
-    const predicted_ports = try gap_rows.predictPorts(NodeGeom, a, graph, lg, geom, derived, candidate_bundles, port_active, opts.rung);
+    const predicted_ports = try gap_rows.predictPorts(NodeGeom, a, graph, lg, geom, decision.attachments, decision.bundles, decision.port_active, opts.rung);
     const supers = try a.alloc(gap_rows.Super, opts.fixed_sizes.len);
     for (opts.fixed_sizes, supers) |fixed, *sup| sup.* = .{ .node = fixed.node, .drawn = !fixed.synthetic };
-    const rows = try gap_rows.buildPiece(NodeGeom, a, graph, lg, geom, fans, candidate_bundles, predicted_ports, v_sp_per_gap, supers, opts.departures);
+    const rows = try gap_rows.buildPiece(NodeGeom, a, graph, lg, geom, fans, decision.bundles, predicted_ports, v_sp_per_gap, supers, opts.departures);
     for (v_sp_per_gap, 0..) |*g, i| g.* += rows.extraRows(i);
     layer_axis.growSubGaps(lg, geom, layer_h, rows);
     layer_axis.assignY(geom, lg.layers, layer_h, v_sp_per_gap);
@@ -179,9 +160,9 @@ fn buildSketch(
     mirror.applyDirection(NodeGeom, geom, graph.direction);
 
     const placements = try buildPlacements(a, graph, lg, geom, node_lines);
-    const allocated_ports = try port_plan.allocate(a, graph, placements, derived, candidate_bundles, opts.rung);
-    const edges_result = if (port_active)
-        try routing.buildEdgesWithPlan(a, graph, lg, geom, placements, fans, candidate_bundles, allocated_ports, rows)
+    const allocated_ports = try port_plan.allocate(a, graph, placements, decision.attachments, decision.bundles, opts.rung);
+    const edges_result = if (decision.port_active)
+        try routing.buildEdgesWithPlan(a, graph, lg, geom, placements, fans, decision.bundles, allocated_ports, rows)
     else
         try routing.buildEdges(a, graph, lg, geom, placements, fans, rows);
     const edges_out = edges_result.edges;
@@ -209,12 +190,8 @@ fn buildSketch(
     const rails_out = try a.alloc(sketch.Rail, edges_result.rails.len);
     for (edges_result.rails, rails_out) |b, *out| out.* = b.rail;
 
-    const plan_realized = if (plan_ref) |p|
-        p.scope == .flat or (p.scope == .piece and candidate_bundles.selected_bundles.len != 0)
-    else
-        false;
-    const base_sets = if (plan_realized)
-        bundle_plan.bundlesFromPlan(a, candidate_bundles) catch edges_result.bundle_sets
+    const base_sets = if (decision.plan_realized)
+        bundle_plan.bundlesFromPlan(a, decision.bundles) catch edges_result.bundle_sets
     else
         edges_result.bundle_sets;
     return .{
@@ -225,39 +202,21 @@ fn buildSketch(
         .edges = edges_out,
         .rails = rails_out,
         .rail_claims = edges_result.rail_claims,
-        .bundles = candidate_bundles,
+        .bundles = decision.bundles,
         .bundle_sets = sketch_ports.appendPortShares(a, base_sets, edges_out) catch base_sets,
         .diagnostics = try diagnostics.toOwnedSlice(a),
         .budget = .{ .max_width = opts.max_width, .rung = opts.rung },
     };
 }
 
-fn longEdges(a: std.mem.Allocator, lg: sugiyama.LayeredGraph) error{OutOfMemory}![]const ledger.EdgeId {
-    var out: std.ArrayListUnmanaged(ledger.EdgeId) = .empty;
-    for (lg.nodes) |n| switch (n) {
-        .virtual => |v| if (v.index == 0) try out.append(a, v.edge),
-        .real => {},
-    };
-    return out.toOwnedSlice(a);
-}
-
-fn hasPortWork(bundles: ledger.RealizedBundles) bool {
-    if (bundles.selected_bundles.len != 0) return true;
-    for (bundles.memberships) |membership| {
-        inline for ([2]?ledger.MembershipDisposition{ membership.source, membership.target }) |disposition| {
-            if (disposition) |value| if (value == .independent) return true;
-        }
-    }
-    return false;
-}
-
-fn hasPrivatePeers(fans: []const fan_mod.Fan) bool {
-    for (fans) |f| for (f.peers) |peer| if (!peer.shared) return true;
-    return false;
-}
-
 const sizeNodes = sizing.sizeNodes;
 const realNode = sizing.realNode;
+
+fn ownFans(a: std.mem.Allocator, fans: []const fan_mod.Fan) error{OutOfMemory}![]fan_mod.Fan {
+    const out = try a.dupe(fan_mod.Fan, fans);
+    for (out) |*f| f.peers = try a.dupe(fan_mod.FanEdge, f.peers);
+    return out;
+}
 
 fn hardSegmentCount(label: []const u8) usize {
     var n: usize = 1;
