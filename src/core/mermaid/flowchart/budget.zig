@@ -93,55 +93,25 @@ pub fn runBridgeVariant(
 
 fn optionsFor(rung: Rung, max_width: u32) coords.LayoutOptions {
     const defaults: coords.LayoutOptions = .{};
-    return switch (rung) {
-        .natural => .{
-            .max_width = max_width,
-            .h_spacing = defaults.h_spacing,
-            .v_spacing = defaults.v_spacing,
-            .node_padding = defaults.node_padding,
-            .rung = @intFromEnum(rung),
-            .justify = .center,
-            .spacing_scale = 0,
-        },
-        .tight => .{
-            .max_width = max_width,
-            .h_spacing = halveAtLeastOne(defaults.h_spacing),
-            .v_spacing = halveAtLeastOne(defaults.v_spacing),
-            .node_padding = defaults.node_padding,
-            .rung = @intFromEnum(rung),
-            .justify = .flush_left,
-            .spacing_scale = 1,
-        },
-        .wrap_labels => .{
-            .max_width = max_width,
-            .h_spacing = halveAtLeastOne(defaults.h_spacing),
-            .v_spacing = halveAtLeastOne(defaults.v_spacing),
-            .node_padding = defaults.node_padding,
-            .rung = @intFromEnum(rung),
-            .max_label_width = max_width -| (2 + 2 * defaults.node_padding),
-            .justify = .flush_left,
-            .spacing_scale = 1,
-        },
-        .switch_direction => .{
-            .max_width = max_width,
-            .h_spacing = halveAtLeastOne(defaults.h_spacing),
-            .v_spacing = halveAtLeastOne(defaults.v_spacing),
-            .node_padding = defaults.node_padding,
-            .rung = @intFromEnum(rung),
-            .is_direction_rotated = true,
-            .justify = .flush_left,
-            .spacing_scale = 1,
-        },
-        .truncate => .{
-            .max_width = max_width,
-            .h_spacing = halveAtLeastOne(defaults.h_spacing),
-            .v_spacing = halveAtLeastOne(defaults.v_spacing),
-            .node_padding = if (defaults.node_padding == 0) 0 else defaults.node_padding - 1,
-            .rung = @intFromEnum(rung),
-            .justify = .flush_left,
-            .spacing_scale = 1,
-        },
+    var opts: coords.LayoutOptions = .{
+        .max_width = max_width,
+        .rung = @intFromEnum(rung),
+        .justify = .center,
+        .spacing_scale = 0,
     };
+    if (rung == .natural) return opts;
+
+    opts.h_spacing = halveAtLeastOne(defaults.h_spacing);
+    opts.v_spacing = halveAtLeastOne(defaults.v_spacing);
+    opts.justify = .flush_left;
+    opts.spacing_scale = 1;
+    switch (rung) {
+        .natural, .tight => {},
+        .wrap_labels => opts.max_label_width = max_width -| (2 + 2 * defaults.node_padding),
+        .switch_direction => opts.is_direction_rotated = true,
+        .truncate => opts.node_padding = if (defaults.node_padding == 0) 0 else defaults.node_padding - 1,
+    }
+    return opts;
 }
 
 fn halveAtLeastOne(v: u32) u32 {
@@ -193,4 +163,27 @@ test "rotateForRung only fires on switch_direction" {
     var g2 = g;
     g2.direction = .BT;
     try std.testing.expectEqual(sem_graph.Direction.RL, rotateForRung(g2, .switch_direction).direction);
+}
+
+test "each rung sets its own spacing, padding, justification and label width" {
+    const Expect = struct { h: u32, v: u32, pad: u32, justify: coords.Justify, scale: u8, label: ?u32 = null, rotated: bool = false };
+    const want = [_]Expect{
+        .{ .h = 4, .v = 2, .pad = 1, .justify = .center, .scale = 0 },
+        .{ .h = 2, .v = 1, .pad = 1, .justify = .flush_left, .scale = 1 },
+        .{ .h = 2, .v = 1, .pad = 1, .justify = .flush_left, .scale = 1, .label = 36 },
+        .{ .h = 2, .v = 1, .pad = 1, .justify = .flush_left, .scale = 1, .rotated = true },
+        .{ .h = 2, .v = 1, .pad = 0, .justify = .flush_left, .scale = 1 },
+    };
+    for (std.enums.values(Rung), want) |rung, w| {
+        const o = optionsFor(rung, 40);
+        try std.testing.expectEqual(@as(u32, 40), o.max_width);
+        try std.testing.expectEqual(@intFromEnum(rung), o.rung);
+        try std.testing.expectEqual(w.h, o.h_spacing);
+        try std.testing.expectEqual(w.v, o.v_spacing);
+        try std.testing.expectEqual(w.pad, o.node_padding);
+        try std.testing.expectEqual(w.justify, o.justify);
+        try std.testing.expectEqual(w.scale, o.spacing_scale);
+        try std.testing.expectEqual(w.label, o.max_label_width);
+        try std.testing.expectEqual(w.rotated, o.is_direction_rotated);
+    }
 }
