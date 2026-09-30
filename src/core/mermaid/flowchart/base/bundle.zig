@@ -8,10 +8,6 @@ pub const BundleOrigin = enum {
     port_share,
 };
 
-pub const BundleId = u32;
-
-pub const no_bundle: BundleId = 0;
-
 pub const Bundle = struct {
     origin: BundleOrigin,
     members: []const EdgeId,

@@ -106,7 +106,6 @@ pub const Tap = struct {
 
 pub const Rail = struct {
     pivot: NodeId,
-    bundle: bundle_mod.BundleId = bundle_mod.no_bundle,
     stem: []const Point,
     crossbar: [2]Point,
     taps: []const Tap,
@@ -135,8 +134,6 @@ pub const Diagnostic = union(enum) {
     },
 };
 
-pub const BundleStampState = enum { unattempted, complete, out_of_memory, rail_invariant };
-
 pub const Sketch = struct {
     bbox: Rect,
     direction: Direction,
@@ -147,7 +144,6 @@ pub const Sketch = struct {
     rail_claims: []const rail_star.RailClaim = &.{},
     bundles: ledger.RealizedBundles = .{},
     bundle_sets: []const bundle_mod.Bundle = &.{},
-    bundle_stamp_state: BundleStampState = .unattempted,
     diagnostics: []const Diagnostic,
     budget: WidthBudget,
 };
