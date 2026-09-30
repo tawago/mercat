@@ -68,18 +68,10 @@ fn appendBridgeVariants(
     const rungs: []const ladder.Rung = if (fit == .natural) &.{.natural} else &.{ .natural, fit };
     for (rungs) |rung| {
         const base = rawAt(list.items, rung);
-        for ([2]prim.BridgeBuild{ .dodged, .railed }) |build| {
-            const variant = try ladder.runBridgeVariant(aa, graph, bundle_permits, max_width, rung, build);
-            if (sameEdgeGeometry(base, variant)) continue;
-            try list.append(aa, .{
-                .rung = rung,
-                .sketch = variant,
-                .transform = switch (build) {
-                    .dodged => .bridge_dodged,
-                    .railed => .bridge_railed,
-                    .plain => unreachable,
-                },
-            });
+        for ([2]ladder.Transform{ .bridge_dodged, .bridge_railed }) |transform| {
+            const variant = try ladder.run(aa, graph, bundle_permits, max_width, rung, transform);
+            if (sameEdgeGeometry(base, variant.sketch)) continue;
+            try list.append(aa, variant);
         }
     }
 }
@@ -113,10 +105,7 @@ pub fn packedCandidates(
 
     const rungs = ladder.Transform.motif_pack.rungs();
     const out = try aa.alloc(Candidate, rungs.len);
-    for (rungs, out) |rung, *c| {
-        c.* = try ladder.runForced(aa, packed_graph, bundle_permits, max_width, rung);
-        c.transform = .motif_pack;
-    }
+    for (rungs, out) |rung, *c| c.* = try ladder.run(aa, packed_graph, bundle_permits, max_width, rung, .motif_pack);
     return out;
 }
 

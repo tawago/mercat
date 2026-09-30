@@ -41,6 +41,14 @@ pub const Transform = enum {
             .bridge_dodged, .bridge_railed => &.{},
         };
     }
+
+    pub fn bridgeBuild(t: Transform) prim.BridgeBuild {
+        return switch (t) {
+            .raw, .motif_pack => .plain,
+            .bridge_dodged => .dodged,
+            .bridge_railed => .railed,
+        };
+    }
 };
 
 /// Lays the graph out once per rung, in rung order.
@@ -65,6 +73,25 @@ pub fn firstFit(candidates: []const Candidate) Candidate {
     unreachable;
 }
 
+/// `graph` laid out at `rung` and recorded under `transform`.
+pub fn run(
+    arena: std.mem.Allocator,
+    graph: sem_graph.SemGraph,
+    bundle_permits: *const ledger.BundlePermits,
+    max_width: u32,
+    rung: Rung,
+    transform: Transform,
+) !Candidate {
+    var opts = optionsFor(rung, max_width);
+    opts.bundle_permits = bundle_permits;
+    opts.bridge_build = transform.bridgeBuild();
+    return .{
+        .rung = rung,
+        .sketch = try recurse.layoutPieces(arena, rotateForRung(graph, rung), opts),
+        .transform = transform,
+    };
+}
+
 pub fn runForced(
     arena: std.mem.Allocator,
     graph: sem_graph.SemGraph,
@@ -72,23 +99,7 @@ pub fn runForced(
     max_width: u32,
     rung: Rung,
 ) !Candidate {
-    var opts = optionsFor(rung, max_width);
-    opts.bundle_permits = bundle_permits;
-    return .{ .rung = rung, .sketch = try recurse.layoutPieces(arena, rotateForRung(graph, rung), opts) };
-}
-
-pub fn runBridgeVariant(
-    arena: std.mem.Allocator,
-    graph: sem_graph.SemGraph,
-    bundle_permits: *const ledger.BundlePermits,
-    max_width: u32,
-    rung: Rung,
-    build: prim.BridgeBuild,
-) !sketch.Sketch {
-    var opts = optionsFor(rung, max_width);
-    opts.bundle_permits = bundle_permits;
-    opts.bridge_build = build;
-    return recurse.layoutPieces(arena, rotateForRung(graph, rung), opts);
+    return run(arena, graph, bundle_permits, max_width, rung, .raw);
 }
 
 fn optionsFor(rung: Rung, max_width: u32) coords.LayoutOptions {
