@@ -10,7 +10,6 @@ const reverse = geo.reverse;
 const bitMask = geo.bitMask;
 const orMask = geo.orMask;
 const straightMask = geo.straightMask;
-const segmentDir = geo.segmentDir;
 const toCoord = geo.toCoord;
 const samePoint = geo.samePoint;
 const writeEdgeCell = ew.writeEdgeCell;
@@ -33,15 +32,7 @@ pub fn drawPortStroke(
     end: PortEnd,
 ) void {
     if (kind == .invisible) return;
-    var first_dir_opt: ?Move = null;
-    var fi: usize = 0;
-    while (fi + 1 < pts.len) : (fi += 1) {
-        if (segmentDir(pts[fi], pts[fi + 1])) |fd| {
-            first_dir_opt = fd;
-            break;
-        }
-    }
-    const fd = first_dir_opt orelse return;
+    const fd = geo.firstDir(pts) orelse return;
     mergePortBit(lat, pts[0], fd, kind, edge_id, end);
 }
 
@@ -53,12 +44,7 @@ pub fn drawTargetPortStroke(
     end: PortEnd,
 ) void {
     if (kind == .invisible) return;
-    var last_dir_opt: ?Move = null;
-    var i: usize = 0;
-    while (i + 1 < pts.len) : (i += 1) {
-        if (segmentDir(pts[i], pts[i + 1])) |d| last_dir_opt = d;
-    }
-    const ld = last_dir_opt orelse return;
+    const ld = geo.lastDir(pts) orelse return;
     mergePortBit(lat, pts[pts.len - 1], reverse(ld), kind, edge_id, end);
 }
 

@@ -106,16 +106,9 @@ fn drawRail(lat: *lattice.Lattice, rail: sketch.Rail, lost: *u32) void {
     for (rail.taps) |t| draw.tap(t);
 }
 
-fn pivotStemDir(rail: sketch.Rail) ?geo.Move {
-    for (rail.stem[0 .. rail.stem.len - 1], rail.stem[1..]) |a, b| {
-        if (geo.segmentDir(a, b)) |d| return d;
-    }
-    return null;
-}
-
 fn pivotHead(rail: sketch.Rail) ?ep.Head {
     if (rail.pivot_arrow == .none) return null;
-    const dir = pivotStemDir(rail) orelse return null;
+    const dir = geo.firstDir(rail.stem) orelse return null;
     return .{ .cell = geo.step(rail.stem[0], dir), .dir = geo.reverse(dir) };
 }
 

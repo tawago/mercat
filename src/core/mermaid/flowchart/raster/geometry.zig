@@ -44,6 +44,23 @@ pub fn segmentDir(a: sketch.Point, b: sketch.Point) ?Move {
     return .north;
 }
 
+pub fn firstDir(pts: []const sketch.Point) ?Move {
+    if (pts.len < 2) return null;
+    for (pts[0 .. pts.len - 1], pts[1..]) |a, b| {
+        if (segmentDir(a, b)) |d| return d;
+    }
+    return null;
+}
+
+pub fn lastDir(pts: []const sketch.Point) ?Move {
+    if (pts.len < 2) return null;
+    var last: ?Move = null;
+    for (pts[0 .. pts.len - 1], pts[1..]) |a, b| {
+        if (segmentDir(a, b)) |d| last = d;
+    }
+    return last;
+}
+
 pub fn step(p: sketch.Point, dir: Move) sketch.Point {
     return switch (dir) {
         .north => .{ .x = p.x, .y = p.y - 1 },
@@ -122,4 +139,13 @@ test "lateralArms keeps only the bits off the head's axis" {
     try std.testing.expectEqual((lattice.Neighbours{ .e = true, .w = true }).toMask(), lateralArms(.north, all).toMask());
     try std.testing.expectEqual((lattice.Neighbours{ .n = true, .s = true }).toMask(), lateralArms(.west, all).toMask());
     try std.testing.expectEqual(@as(u4, 0), lateralArms(.south, .{ .n = true, .s = true }).toMask());
+}
+
+test "firstDir and lastDir skip zero-length segments and need two points" {
+    const pts = [_]sketch.Point{ .{ .x = 2, .y = 2 }, .{ .x = 2, .y = 2 }, .{ .x = 5, .y = 2 }, .{ .x = 5, .y = 0 } };
+    try testing.expectEqual(Move.east, firstDir(&pts).?);
+    try testing.expectEqual(Move.north, lastDir(&pts).?);
+    try testing.expectEqual(@as(?Move, null), firstDir(pts[0..2]));
+    try testing.expectEqual(@as(?Move, null), lastDir(pts[0..1]));
+    try testing.expectEqual(@as(?Move, null), firstDir(&.{}));
 }
