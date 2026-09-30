@@ -8,7 +8,6 @@ const LineChars = types.LineChars;
 
 pub const Priority = enum(u8) {
     background = 0,
-    subgraph = 1,
     edge = 2,
     edge_label = 3,
     node_border = 4,
@@ -304,7 +303,7 @@ test "Canvas priority" {
     canvas.setChar(2, 2, 'B', .edge);
     try testing.expectEqual(@as(u21, 'B'), canvas.getCell(2, 2).?.char);
 
-    canvas.setChar(2, 2, 'C', .subgraph);
+    canvas.setChar(2, 2, 'C', .background);
     try testing.expectEqual(@as(u21, 'B'), canvas.getCell(2, 2).?.char);
 
     canvas.setChar(2, 2, 'D', .node_text);
