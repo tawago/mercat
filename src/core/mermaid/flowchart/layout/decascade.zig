@@ -1,8 +1,8 @@
 const std = @import("std");
 const sugiyama = @import("sugiyama.zig");
-const routing = @import("routing.zig");
+const node_geom = @import("node_geom.zig");
 
-pub const NodeGeom = routing.NodeGeom;
+const NodeGeom = node_geom.NodeGeom;
 
 const MIN_DRIFT: i32 = 4;
 

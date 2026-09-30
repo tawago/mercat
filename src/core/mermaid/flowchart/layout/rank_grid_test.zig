@@ -1,11 +1,11 @@
 const std = @import("std");
 const sg = @import("../sem_graph.zig");
 const sugiyama = @import("sugiyama.zig");
-const components = @import("components.zig");
+const node_geom = @import("node_geom.zig");
 const rank_grid = @import("rank_grid.zig");
 
 const testing = std.testing;
-const NodeGeom = components.NodeGeom;
+const NodeGeom = node_geom.NodeGeom;
 
 fn mkGraph(nodes: []sugiyama.LayerNode, layers: [][]u32, edges: []sugiyama.LayerEdge) sugiyama.LayeredGraph {
     return .{

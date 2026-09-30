@@ -1,9 +1,9 @@
 const std = @import("std");
 const sugiyama = @import("sugiyama.zig");
-const routing = @import("routing.zig");
+const node_geom = @import("node_geom.zig");
 const gap_rows = @import("gap_rows.zig");
 
-const NodeGeom = routing.NodeGeom;
+const NodeGeom = node_geom.NodeGeom;
 
 pub fn assignY(geom: []NodeGeom, layers: [][]u32, layer_h: []const u32, v_sp_per_gap: []const u32) void {
     var cursor: i32 = 0;

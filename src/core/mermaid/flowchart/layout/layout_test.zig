@@ -3,7 +3,7 @@ const sg = @import("../sem_graph.zig");
 const sketch = @import("../sketch.zig");
 const sketch_clearance = @import("../sketch_clearance.zig");
 const coords = @import("../layout.zig");
-const routing = @import("routing.zig");
+const node_geom = @import("node_geom.zig");
 
 const testing = std.testing;
 
@@ -30,7 +30,7 @@ pub fn mkEdge(id: sg.EdgeId, from: sg.NodeId, to: sg.NodeId) sg.Edge {
     };
 }
 
-fn mkGeom(x: i32, w: u32) routing.NodeGeom {
+fn mkGeom(x: i32, w: u32) node_geom.NodeGeom {
     return .{ .x = x, .y = 0, .w = w, .h = 3, .layer = 0 };
 }
 

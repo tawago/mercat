@@ -3,11 +3,11 @@ const ledger = @import("../base/ledger.zig");
 const bundle_mod = @import("../base/bundle.zig");
 const rail_star = @import("../base/rail_star.zig");
 const mirror = @import("mirror.zig");
-const routing = @import("routing.zig");
+const node_geom = @import("node_geom.zig");
 const sketch = @import("../sketch.zig");
 
 const testing = std.testing;
-const NodeGeom = routing.NodeGeom;
+const NodeGeom = node_geom.NodeGeom;
 
 test "mirror.applyDirection swaps x/y/w/h but leaves NodeGeom.layer untouched" {
     var geom = [_]NodeGeom{

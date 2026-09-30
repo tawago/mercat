@@ -2,6 +2,7 @@ const std = @import("std");
 const sg = @import("../sem_graph.zig");
 const sugiyama = @import("sugiyama.zig");
 const cx_mod = @import("x_assign.zig");
+const NodeGeom = @import("node_geom.zig").NodeGeom;
 
 const testing = std.testing;
 
@@ -33,7 +34,7 @@ test "centerLayer's fan-IN override centers on the real-source centroid, excludi
         .real_index = std.AutoHashMapUnmanaged(sg.NodeId, u32).empty,
         .arena = null,
     };
-    var geom = [_]cx_mod.NodeGeom{
+    var geom = [_]NodeGeom{
         .{ .x = 0, .y = 0, .w = 10, .h = 3, .layer = 0 },
         .{ .x = 20, .y = 0, .w = 10, .h = 3, .layer = 0 },
         .{ .x = 100, .y = 0, .w = 10, .h = 3, .layer = 0 },
@@ -67,7 +68,7 @@ test "monotonic packing's min_cursor floor drifts a shared-barycenter run right 
         .real_index = std.AutoHashMapUnmanaged(sg.NodeId, u32).empty,
         .arena = null,
     };
-    const initial = [_]cx_mod.NodeGeom{
+    const initial = [_]NodeGeom{
         .{ .x = 50, .y = 0, .w = 10, .h = 3, .layer = 0 },
         .{ .x = 0, .y = 5, .w = 10, .h = 3, .layer = 1 },
         .{ .x = 0, .y = 5, .w = 10, .h = 3, .layer = 1 },
@@ -128,7 +129,7 @@ test "centerLayer skips re-centering a row that is both clustered and a labeled 
         .real_index = std.AutoHashMapUnmanaged(sg.NodeId, u32).empty,
         .arena = null,
     };
-    const geom = [_]cx_mod.NodeGeom{
+    const geom = [_]NodeGeom{
         .{ .x = 0, .y = 0, .w = 10, .h = 3, .layer = 0 },
         .{ .x = 0, .y = 5, .w = 10, .h = 3, .layer = 1 },
         .{ .x = 0, .y = 5, .w = 10, .h = 3, .layer = 1 },
@@ -171,7 +172,7 @@ test "flushLeftRows' connector-stretch floor stops short of the margin instead o
         .real_index = std.AutoHashMapUnmanaged(sg.NodeId, u32).empty,
         .arena = null,
     };
-    var geom = [_]cx_mod.NodeGeom{
+    var geom = [_]NodeGeom{
         .{ .x = 0, .y = 0, .w = 10, .h = 3, .layer = 0 },
         .{ .x = 30, .y = 5, .w = 10, .h = 3, .layer = 1 },
         .{ .x = 50, .y = 5, .w = 10, .h = 3, .layer = 1 },
@@ -189,7 +190,7 @@ test "flushLeftRows' connector-stretch floor stops short of the margin instead o
     try testing.expectEqual(@as(i32, 25), geom[2].x);
 }
 
-fn bboxOf(geom: []const cx_mod.NodeGeom) i64 {
+fn bboxOf(geom: []const NodeGeom) i64 {
     var min_x: i32 = std.math.maxInt(i32);
     var max_r: i32 = std.math.minInt(i32);
     for (geom) |g| {
@@ -220,7 +221,7 @@ test "flushLeftRows never widens the bounding box" {
             .real_index = std.AutoHashMapUnmanaged(sg.NodeId, u32).empty,
             .arena = null,
         };
-        var geom = [_]cx_mod.NodeGeom{
+        var geom = [_]NodeGeom{
             .{ .x = 0, .y = 0, .w = 10, .h = 3, .layer = 0 },
             .{ .x = 30, .y = 5, .w = 10, .h = 3, .layer = 1 },
             .{ .x = 45, .y = 5, .w = 10, .h = 3, .layer = 1 },
@@ -248,7 +249,7 @@ test "flushLeftRows never widens the bounding box" {
             .real_index = std.AutoHashMapUnmanaged(sg.NodeId, u32).empty,
             .arena = null,
         };
-        var geom = [_]cx_mod.NodeGeom{
+        var geom = [_]NodeGeom{
             .{ .x = 0, .y = 0, .w = 10, .h = 3, .layer = 0 },
             .{ .x = 50, .y = 5, .w = 10, .h = 3, .layer = 1 },
         };
@@ -282,7 +283,7 @@ test "centerRunOnDesired re-centers using only real nodes, keeping the real node
         .real_index = std.AutoHashMapUnmanaged(sg.NodeId, u32).empty,
         .arena = null,
     };
-    const initial = [_]cx_mod.NodeGeom{
+    const initial = [_]NodeGeom{
         .{ .x = 50, .y = 0, .w = 6, .h = 3, .layer = 0 },
         .{ .x = 0, .y = 5, .w = 0, .h = 0, .layer = 1 },
         .{ .x = 0, .y = 5, .w = 10, .h = 3, .layer = 1 },
@@ -328,7 +329,7 @@ test "centerRunOnDesired's width clamp keeps a recentered row from crossing x=0"
         .real_index = std.AutoHashMapUnmanaged(sg.NodeId, u32).empty,
         .arena = null,
     };
-    const initial = [_]cx_mod.NodeGeom{
+    const initial = [_]NodeGeom{
         .{ .x = 0, .y = 0, .w = 6, .h = 3, .layer = 0 },
         .{ .x = 0, .y = 5, .w = 0, .h = 0, .layer = 1 },
         .{ .x = 0, .y = 5, .w = 10, .h = 3, .layer = 1 },

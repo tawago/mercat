@@ -2,9 +2,9 @@ const std = @import("std");
 const sg = @import("../sem_graph.zig");
 const sugiyama = @import("sugiyama.zig");
 const fan_mod = @import("fan.zig");
-const routing = @import("routing.zig");
+const node_geom = @import("node_geom.zig");
 
-pub const NodeGeom = routing.NodeGeom;
+const NodeGeom = node_geom.NodeGeom;
 
 pub fn assignInitialX(geom: []NodeGeom, layers: [][]u32, h_spacing: u32) void {
     for (layers) |row| {

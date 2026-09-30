@@ -8,6 +8,7 @@ const sketch_ports = @import("sketch_ports.zig");
 const sugiyama = @import("layout/sugiyama.zig");
 const crossing = @import("layout/crossing.zig");
 const routing = @import("layout/routing.zig");
+const node_geom = @import("layout/node_geom.zig");
 const clusters = @import("layout/clusters.zig");
 const fan_mod = @import("layout/fan.zig");
 const fan_gate = @import("layout/fan_gate.zig");
@@ -49,7 +50,7 @@ pub const CoordsError = error{
     EmptyGraph,
 };
 
-pub const NodeGeom = routing.NodeGeom;
+const NodeGeom = node_geom.NodeGeom;
 
 pub fn layout(
     allocator: std.mem.Allocator,

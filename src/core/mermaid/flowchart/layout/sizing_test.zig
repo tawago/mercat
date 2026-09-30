@@ -4,10 +4,10 @@ const sg = @import("../sem_graph.zig");
 const sugiyama = @import("sugiyama.zig");
 const sizing = @import("sizing.zig");
 const mirror = @import("mirror.zig");
-const routing = @import("routing.zig");
+const node_geom = @import("node_geom.zig");
 
 const testing = std.testing;
-const NodeGeom = routing.NodeGeom;
+const NodeGeom = node_geom.NodeGeom;
 
 test "labelLines hard-break-only path matches wrapToWidth at an effectively infinite cap" {
     const a = testing.allocator;

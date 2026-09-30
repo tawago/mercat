@@ -1,10 +1,10 @@
 const std = @import("std");
 const sugiyama = @import("sugiyama.zig");
-const routing = @import("routing.zig");
+const node_geom = @import("node_geom.zig");
 const decascade = @import("decascade.zig");
 
 const testing = std.testing;
-const NodeGeom = routing.NodeGeom;
+const NodeGeom = node_geom.NodeGeom;
 
 fn geomAt(x: i32, y: i32, w: u32, h: u32, layer: u32) NodeGeom {
     return .{ .x = x, .y = y, .w = w, .h = h, .layer = layer };

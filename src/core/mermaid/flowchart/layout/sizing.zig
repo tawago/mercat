@@ -3,10 +3,10 @@ const prim = @import("prim");
 const sg = @import("../sem_graph.zig");
 const sketch = @import("../sketch.zig");
 const sugiyama = @import("sugiyama.zig");
-const routing = @import("routing.zig");
+const node_geom = @import("node_geom.zig");
 const ports = @import("ports.zig");
 
-pub const NodeGeom = routing.NodeGeom;
+const NodeGeom = node_geom.NodeGeom;
 
 pub const FixedSize = struct { node: sg.NodeId, w: u32, h: u32, synthetic: bool = false };
 

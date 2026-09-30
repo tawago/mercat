@@ -2,6 +2,7 @@ const std = @import("std");
 const sg = @import("../sem_graph.zig");
 const sugiyama = @import("sugiyama.zig");
 const components = @import("components.zig");
+const node_geom = @import("node_geom.zig");
 
 const testing = std.testing;
 
@@ -43,15 +44,15 @@ test "packComponents leaves node geometry unchanged for a single connected compo
     var lg = try sugiyama.assignLayers(testing.allocator, g);
     defer lg.deinit(testing.allocator);
 
-    const geom = try testing.allocator.alloc(components.NodeGeom, lg.nodes.len);
+    const geom = try testing.allocator.alloc(node_geom.NodeGeom, lg.nodes.len);
     defer testing.allocator.free(geom);
     for (geom, 0..) |*gm, i| {
         gm.* = .{ .x = @intCast(i * 10 + 3), .y = @intCast(i * 5 + 1), .w = 6, .h = 3, .layer = 0 };
     }
-    const before = try testing.allocator.dupe(components.NodeGeom, geom);
+    const before = try testing.allocator.dupe(node_geom.NodeGeom, geom);
     defer testing.allocator.free(before);
 
     try components.packComponents(testing.allocator, g, geom, lg);
 
-    try testing.expectEqualSlices(components.NodeGeom, before, geom);
+    try testing.expectEqualSlices(node_geom.NodeGeom, before, geom);
 }
