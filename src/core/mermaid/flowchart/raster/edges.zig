@@ -9,8 +9,6 @@ const prim = @import("prim");
 
 const log = std.log.scoped(.@"mermaid_v2.raster.edges");
 
-pub const RasterError = error{ OutOfMemory, OutOfBounds, MalformedPolyline };
-
 pub const Move = ew.Move;
 pub const straightMask = ew.straightMask;
 pub const bitMask = ew.bitMask;
@@ -106,7 +104,7 @@ fn walkPolyline(
     ends: RailEnds,
     cells_lost: *u32,
     ctx: crossings.Ctx,
-) RasterError!EdgeWalkResult {
+) EdgeWalkResult {
     const pts = edge.polyline;
     if (pts.len < 2) {
         log.debug(
@@ -236,7 +234,7 @@ pub fn rasterizeEdges(
     lat: *lattice.Lattice,
     s: sketch.Sketch,
     subgraph_edges: prim.SubgraphEdges,
-) RasterError!EdgeRasterReport {
+) EdgeRasterReport {
     var cells_lost: u32 = 0;
     var cross_counts: crossings.CrossingCounts = .{};
     const ctx: crossings.Ctx = .{
@@ -247,7 +245,7 @@ pub fn rasterizeEdges(
     };
 
     for (s.edges) |edge| {
-        const r = try walkPolyline(lat, edge, railEnds(s, edge), &cells_lost, ctx);
+        const r = walkPolyline(lat, edge, railEnds(s, edge), &cells_lost, ctx);
 
         if (r.target_head) |h| {
             if (pointInBounds(h.cell, lat)) {

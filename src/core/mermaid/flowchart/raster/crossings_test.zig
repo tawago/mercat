@@ -60,7 +60,7 @@ test "V-D-CROSS-01: two independent perpendicular edges cross as a transversal" 
         .{ .edge = 0, .source = null, .target = null },
         .{ .edge = 1, .source = null, .target = null },
     };
-    const r = try edges.rasterizeEdges(&lat, sketchWith(&es, independentPlan(&mems)), .bridge);
+    const r = edges.rasterizeEdges(&lat, sketchWith(&es, independentPlan(&mems)), .bridge);
 
     const cross = lat.atConst(5, 5).*;
     try testing.expectEqual(mask_hw, cross.neighbours.toMask());
@@ -85,7 +85,7 @@ test "V-D-CROSS-01 companion: same-group perpendicular crossing keeps the ┼ (n
     const es = [_]sketch.EdgePath{ edge(0, &h, .none), edge(1, &v, .none) };
     var members = [_]ledger.EdgeId{ 0, 1 };
     var sel = [_]ledger.SelectedBundle{.{ .id = 0, .proposal = 0, .candidate_bundle = 0, .members = &members }};
-    const r = try edges.rasterizeEdges(&lat, sketchWith(&es, .{ .selected_bundles = &sel }), .bridge);
+    const r = edges.rasterizeEdges(&lat, sketchWith(&es, .{ .selected_bundles = &sel }), .bridge);
 
     try testing.expectEqual(mask_cross, lat.atConst(5, 5).neighbours.toMask());
     try testing.expectEqual(@as(u32, 0), r.crossings.foreign_junction_violation);
@@ -103,7 +103,7 @@ test "V-D-CROSS-02: a foreign run through an arrowhead cell is refused (arrowhea
         .{ .edge = 0, .source = null, .target = null },
         .{ .edge = 1, .source = null, .target = null },
     };
-    const r = try edges.rasterizeEdges(&lat, sketchWith(&es, independentPlan(&mems)), .bridge);
+    const r = edges.rasterizeEdges(&lat, sketchWith(&es, independentPlan(&mems)), .bridge);
 
     const cell = lat.atConst(5, 5).*;
     switch (cell.occupant) {
@@ -125,7 +125,7 @@ test "transversal-violation shape: a foreign collinear/corner overlap keeps firs
         .{ .edge = 0, .source = null, .target = null },
         .{ .edge = 1, .source = null, .target = null },
     };
-    const r = try edges.rasterizeEdges(&lat, sketchWith(&es, independentPlan(&mems)), .bridge);
+    const r = edges.rasterizeEdges(&lat, sketchWith(&es, independentPlan(&mems)), .bridge);
 
     const corner = lat.atConst(7, 5).*;
     try testing.expectEqual(mask_hw, corner.neighbours.toMask());
@@ -150,14 +150,14 @@ test "determinism: crossing outcome is deterministic under edge-array permutatio
         var lat = try makeLattice(a, 11, 11);
         defer a.free(lat.cells);
         const es = [_]sketch.EdgePath{ edge(0, &h, .none), edge(1, &v, .none) };
-        _ = try edges.rasterizeEdges(&lat, sketchWith(&es, independentPlan(&mems)), .bridge);
+        _ = edges.rasterizeEdges(&lat, sketchWith(&es, independentPlan(&mems)), .bridge);
         try testing.expectEqual(mask_hw, lat.atConst(5, 5).neighbours.toMask());
     }
     {
         var lat = try makeLattice(a, 11, 11);
         defer a.free(lat.cells);
         const es = [_]sketch.EdgePath{ edge(1, &v, .none), edge(0, &h, .none) };
-        _ = try edges.rasterizeEdges(&lat, sketchWith(&es, independentPlan(&mems)), .bridge);
+        _ = edges.rasterizeEdges(&lat, sketchWith(&es, independentPlan(&mems)), .bridge);
         try testing.expectEqual(mask_ns, lat.atConst(5, 5).neighbours.toMask());
     }
 }

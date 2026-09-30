@@ -14,8 +14,6 @@ const arrow_base_r = @import("raster/arrow_base.zig");
 
 pub const RasterizeError = error{
     OutOfMemory,
-    OutOfBounds,
-    MalformedPolyline,
     LatticeAllocFailed,
 };
 
@@ -52,30 +50,12 @@ pub fn rasterize(
         .rail_claims = s.rail_claims,
     };
 
-    _ = clusters_r.rasterizeClusters(allocator, &lat, s) catch |err| switch (err) {
-        error.OutOfMemory => return error.OutOfMemory,
-        error.OutOfBounds => return error.OutOfBounds,
-    };
-
-    _ = nodes_r.rasterizeNodes(&lat, s) catch |err| switch (err) {
-        error.OutOfMemory => return error.OutOfMemory,
-        error.OutOfBounds => return error.OutOfBounds,
-        error.OccupiedCell => return error.OutOfBounds,
-    };
-
+    _ = try clusters_r.rasterizeClusters(allocator, &lat, s);
+    _ = nodes_r.rasterizeNodes(&lat, s);
     const rail_cells_lost = rails_r.rasterizeRails(&lat, s);
-
-    const edge_report = edges_r.rasterizeEdges(&lat, s, subgraph_edges) catch |err| switch (err) {
-        error.OutOfMemory => return error.OutOfMemory,
-        error.OutOfBounds => return error.OutOfBounds,
-        error.MalformedPolyline => return error.MalformedPolyline,
-    };
-
+    const edge_report = edges_r.rasterizeEdges(&lat, s, subgraph_edges);
     reconcile.reconcileNeighbours(&lat);
-
-    const label_report = labels_r.rasterizeLabels(allocator, &lat, s) catch |err| switch (err) {
-        error.OutOfMemory => return error.OutOfMemory,
-    };
+    const label_report = try labels_r.rasterizeLabels(allocator, &lat, s);
 
     return .{
         .lattice = lat,

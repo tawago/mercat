@@ -2,15 +2,13 @@ const std = @import("std");
 const sketch = @import("../sketch.zig");
 const lattice = @import("../lattice.zig");
 
-pub const RasterError = error{ OutOfMemory, OutOfBounds };
-
 const log = std.log.scoped(.mermaid_v2_raster_clusters);
 
 pub fn rasterizeClusters(
     allocator: std.mem.Allocator,
     lat: *lattice.Lattice,
     s: sketch.Sketch,
-) RasterError!u32 {
+) error{OutOfMemory}!u32 {
     if (s.clusters.len == 0) return 0;
 
     const order = try allocator.alloc(u32, s.clusters.len);

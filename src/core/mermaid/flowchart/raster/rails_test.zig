@@ -11,7 +11,7 @@ fn rasterizeForTest(a: std.mem.Allocator, s: sketch.Sketch) !Raster {
     const cells = try a.alloc(lattice.Cell, @as(usize, s.bbox.w) * @as(usize, s.bbox.h));
     for (cells) |*c| c.* = lattice.Cell.empty;
     var lat: lattice.Lattice = .{ .width = s.bbox.w, .height = s.bbox.h, .cells = cells };
-    _ = try nodes_r.rasterizeNodes(&lat, s);
+    _ = nodes_r.rasterizeNodes(&lat, s);
     return .{ .lattice = lat, .cells_lost = rails_r.rasterizeRails(&lat, s) };
 }
 
@@ -347,7 +347,7 @@ test "a rail arm into a foreign head is refused and counted against the rail" {
     const cells = try a.alloc(lattice.Cell, @as(usize, s.bbox.w) * @as(usize, s.bbox.h));
     for (cells) |*c| c.* = lattice.Cell.empty;
     var lat: lattice.Lattice = .{ .width = s.bbox.w, .height = s.bbox.h, .cells = cells };
-    _ = try nodes_r.rasterizeNodes(&lat, s);
+    _ = nodes_r.rasterizeNodes(&lat, s);
     lat.at(7, 5).* = .{
         .occupant = .{ .arrowhead = .{ .dir = .south, .edge = 9 } },
         .neighbours = .{ .n = true, .s = true },

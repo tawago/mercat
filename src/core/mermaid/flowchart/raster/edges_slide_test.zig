@@ -144,7 +144,7 @@ test "a decorated gap arrival stamps its head against the wall, run ink behind i
         putBorder(&lat, @intCast(wall.x), @intCast(wall.y), f.role, f.mask);
         const pts = [_]sketch.Point{ start, gap };
         const es = [_]sketch.EdgePath{gapEdge(&pts, .filled)};
-        _ = try edges.rasterizeEdges(&lat, makeSketch(&es), .bridge);
+        _ = edges.rasterizeEdges(&lat, makeSketch(&es), .bridge);
 
         const head = lat.atConst(@intCast(gap.x), @intCast(gap.y));
         try testing.expectEqual(lattice.Occupant.arrowhead, std.meta.activeTag(head.occupant));
@@ -163,7 +163,7 @@ test "an UNDECORATED gap arrival keeps the painted gap and tees the wall" {
     putBorder(&lat, 7, 4, .edge_w, .{ .n = true, .s = true });
     const pts = [_]sketch.Point{ .{ .x = 4, .y = 4 }, .{ .x = 6, .y = 4 } };
     const es = [_]sketch.EdgePath{gapEdge(&pts, .none)};
-    _ = try edges.rasterizeEdges(&lat, makeSketch(&es), .bridge);
+    _ = edges.rasterizeEdges(&lat, makeSketch(&es), .bridge);
     try testing.expectEqual(
         lattice.Occupant.edge_segment,
         std.meta.activeTag(lat.atConst(6, 4).occupant),

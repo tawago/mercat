@@ -51,7 +51,7 @@ test "L-shaped corner has reverse-incoming + outgoing bits" {
         .{ .x = 6, .y = 6 },
     };
     const es = [_]sketch.EdgePath{makeEdge(7, &pts)};
-    _ = try edges.rasterizeEdges(&lat, makeSketch(&es), .bridge);
+    _ = edges.rasterizeEdges(&lat, makeSketch(&es), .bridge);
 
     const corner = lat.atConst(2, 6);
     try testing.expect(switch (corner.occupant) {
@@ -82,7 +82,7 @@ test "a route that doubles back keeps both visits' arms at the cell it re-enters
         .{ .x = 8, .y = 5 }, .{ .x = 2, .y = 5 }, .{ .x = 2, .y = 3 },
     };
     const es = [_]sketch.EdgePath{makeEdge(2, &pts)};
-    _ = try edges.rasterizeEdges(&lat, makeSketch(&es), .bridge);
+    _ = edges.rasterizeEdges(&lat, makeSketch(&es), .bridge);
 
     try testing.expectEqual(
         (lattice.Neighbours{ .n = true, .e = true, .s = true }).toMask(),
@@ -112,7 +112,7 @@ test "shared rail corner: sibling drops bending at one cell yield ┴, not a pha
     const bundle_sets = [_]bundle_mod.Bundle{.{ .origin = .fan_rail, .members = &members }};
     var s = makeSketch(&es);
     s.bundle_sets = &bundle_sets;
-    _ = try edges.rasterizeEdges(&lat, s, .bridge);
+    _ = edges.rasterizeEdges(&lat, s, .bridge);
 
     const rail = lat.atConst(5, 5).neighbours;
     try testing.expect(rail.n and rail.e and rail.w);
