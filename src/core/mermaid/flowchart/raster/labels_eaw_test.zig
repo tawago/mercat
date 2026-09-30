@@ -78,10 +78,10 @@ fn makeEdge(id: u32, poly: []const sketch.Point, label: ?[]const u8) sketch.Edge
 test "cellSpan is 1 for every ASCII codepoint including tab" {
     var cp: u21 = 0;
     while (cp < 0x80) : (cp += 1) {
-        try testing.expectEqual(@as(u32, 1), labels.cellSpan(cp));
+        try testing.expectEqual(@as(u32, 1), lw.cellSpan(cp));
     }
-    try testing.expectEqual(@as(u32, 1), labels.cellSpan(prim.LINE_BREAK));
-    try testing.expectEqual(@as(u32, 2), labels.cellSpan('日'));
+    try testing.expectEqual(@as(u32, 1), lw.cellSpan(prim.LINE_BREAK));
+    try testing.expectEqual(@as(u32, 2), lw.cellSpan('日'));
 }
 
 test "a prepared label's cell count equals prim.displayWidth for tab- and control-free text" {
