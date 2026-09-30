@@ -51,7 +51,7 @@ test "a byte outside the word set is one other token" {
 test "raw spans keep quoted text opaque" {
     var sc = Scanner.init("\"a]b\"] rest");
     try t.expectEqualStrings("a]b", sc.rawUntil(']'));
-    try t.expectEqualStrings("rest", sc.restOfLine());
+    try t.expectEqualStrings(" rest", sc.src[sc.pos..]);
 }
 
 test "a raw span stops at the end of the line and leaves it" {
@@ -63,7 +63,7 @@ test "a raw span stops at the end of the line and leaves it" {
 test "a raw span with a string terminator skips the terminator" {
     var sc = Scanner.init("a]b]]c");
     try t.expectEqualStrings("a]b", sc.rawUntilStr("]]"));
-    try t.expectEqualStrings("c", sc.restOfLine());
+    try t.expectEqualStrings("c", sc.src[sc.pos..]);
 }
 
 test "an unterminated string terminator span skips past the line end" {
@@ -72,10 +72,21 @@ test "an unterminated string terminator span skips past the line end" {
     try t.expectEqual(@as(usize, 4), sc.pos);
 }
 
-test "the rest of a line stops before a semicolon" {
-    var sc = Scanner.init("  fill:#f ; next");
-    try t.expectEqualStrings("fill:#f", sc.restOfLine());
+test "skipping the rest of a line stops at a semicolon, quoted or not, and at a newline" {
+    var sc = Scanner.init("fill:#f \"a;b\"; next\nmore");
+    sc.skipRest();
+    try t.expectEqual(@as(u8, 'a'), sc.src[sc.pos - 1]);
     try t.expectEqual(@as(u8, ';'), sc.at(0));
+    sc.skip(1);
+    sc.skipRest();
+    try t.expectEqual(@as(u8, '"'), sc.src[sc.pos - 1]);
+    try t.expectEqual(@as(u8, ';'), sc.at(0));
+    sc.skip(1);
+    sc.skipRest();
+    try t.expectEqual(@as(u8, '\n'), sc.at(0));
+    sc.skip(1);
+    sc.skipRest();
+    try t.expect(sc.done());
 }
 
 test "unquote trims blanks and one matching pair of quotes" {

@@ -131,12 +131,9 @@ pub const Scanner = struct {
         }
     }
 
-    /// The rest of the line up to `\n` or `;`, trimmed; the terminator is not consumed.
-    pub fn restOfLine(sc: *Scanner) []const u8 {
-        while (sc.at(0) == ' ' or sc.at(0) == '\t') sc.skip(1);
-        const start = sc.pos;
+    /// Skips to the next `\n` or `;`, which it leaves.
+    pub fn skipRest(sc: *Scanner) void {
         while (!sc.done() and sc.at(0) != '\n' and sc.at(0) != ';') sc.skip(1);
-        return std.mem.trimRight(u8, sc.src[start..sc.pos], " \t\r");
     }
 };
 

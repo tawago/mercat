@@ -97,18 +97,38 @@ test "double-ended circle/cross edge builds one edge, no phantom node" {
     try t.expectEqual(ArrowEnd.cross, gx.edges[0].arrow_to);
 }
 
-test "classDef and class assignment" {
-    var g = try parse(t.allocator, "flowchart TD\nclassDef red fill:#f00,stroke:#000\nA --> B\nclass A,B red\n");
+test "a style definition names no node and a class line declares the nodes it lists" {
+    var g = try parse(t.allocator, "flowchart TD\nclassDef red fill:#f00,stroke:#000\nA --> B\nclass A,C red\n");
     defer g.deinit(t.allocator);
-    try t.expectEqual(@as(usize, 1), g.classes.len);
-    try t.expectEqualStrings("red", g.classes[0].name);
-    try t.expectEqual(@as(usize, 1), g.nodes[0].classes.len);
+    try t.expectEqual(@as(usize, 3), g.nodes.len);
+    try t.expectEqual(@as(?NodeId, null), findNode(g, "red"));
+    try t.expect(findNode(g, "C") != null);
+    try t.expectEqual(@as(usize, 1), g.edges.len);
+    try t.expectEqual(@as(u32, 0), g.skipped_lines);
 }
 
-test "inline class via :::" {
-    var g = try parse(t.allocator, "flowchart TD\nA:::warn --> B\n");
+test "a class line without a class name declares nothing" {
+    var g = try parse(t.allocator, "flowchart TD\nclass A,B\nclass C\nA --> D\n");
     defer g.deinit(t.allocator);
-    try t.expectEqual(@as(usize, 1), g.nodes[0].classes.len);
+    try t.expectEqual(@as(usize, 2), g.nodes.len);
+    try t.expectEqual(@as(?NodeId, null), findNode(g, "C"));
+    try t.expectEqual(@as(u32, 0), g.skipped_lines);
+}
+
+test "a style definition reads to the semicolon and no further" {
+    var g = try parse(t.allocator, "flowchart TD\nclassDef red fill:#f00; A --> B\n");
+    defer g.deinit(t.allocator);
+    try t.expectEqual(@as(usize, 2), g.nodes.len);
+    try t.expectEqual(@as(usize, 1), g.edges.len);
+}
+
+test "a class suffix after a node is read past" {
+    var g = try parse(t.allocator, "flowchart TD\nA:::warn --> B[Bee]:::ok\n");
+    defer g.deinit(t.allocator);
+    try t.expectEqual(@as(usize, 2), g.nodes.len);
+    try t.expectEqual(@as(usize, 1), g.edges.len);
+    try t.expectEqualStrings("Bee", g.nodes[1].label);
+    try t.expectEqual(@as(u32, 0), g.skipped_lines);
 }
 
 test "chained edges" {
@@ -368,4 +388,120 @@ test "cluster id node declarations still create ordinary nodes" {
     try t.expectEqual(@as(usize, 2), g.nodes.len);
     try t.expectEqualStrings("Standalone", g.nodes[sid].label);
     try t.expectEqual(@as(?ClusterId, null), g.nodes[sid].cluster);
+}
+
+test "a subgraph endpoint is read against the edges of its own line" {
+    var g = try parse(t.allocator,
+        \\graph TD
+        \\subgraph S
+        \\a
+        \\b
+        \\end
+        \\b --> a --> S
+        \\
+    );
+    defer g.deinit(t.allocator);
+    try t.expectEqual(@as(usize, 2), g.edges.len);
+    try t.expectEqual(findNode(g, "a").?, g.edges[1].from);
+    try t.expectEqual(findNode(g, "b").?, g.edges[1].to);
+}
+
+test "a skipped line leaves no link behind for a later subgraph endpoint" {
+    var g = try parse(t.allocator,
+        \\graph TD
+        \\subgraph S
+        \\a
+        \\b
+        \\b[x;style] --> a c
+        \\end
+        \\z --> S
+        \\
+    );
+    defer g.deinit(t.allocator);
+    try t.expectEqual(@as(u32, 1), g.skipped_lines);
+    try t.expectEqual(@as(usize, 1), g.edges.len);
+    try t.expectEqual(findNode(g, "a").?, g.edges[0].to);
+}
+
+test "a subgraph endpoint stands for a member of a subgraph nested in it" {
+    var g = try parse(t.allocator,
+        \\graph TD
+        \\subgraph Outer
+        \\subgraph Inner
+        \\x
+        \\end
+        \\end
+        \\Outer --> y
+        \\
+    );
+    defer g.deinit(t.allocator);
+    try t.expectEqual(@as(usize, 1), g.edges.len);
+    try t.expectEqual(findNode(g, "x").?, g.edges[0].from);
+}
+
+test "a subgraph with no node yet is not an endpoint" {
+    try t.expectError(error.InvalidNode, parse(t.allocator, "graph TD\nsubgraph S\nend\nS --> a\n"));
+    var g = try parse(t.allocator, "graph TD\nsubgraph S\nend\nS & a\nb --> c\n");
+    defer g.deinit(t.allocator);
+    try t.expectEqual(@as(u32, 1), g.skipped_lines);
+    try t.expectEqual(@as(usize, 1), g.edges.len);
+}
+
+test "a failing line with a link operator fails the parse" {
+    try t.expectError(error.UnexpectedToken, parse(t.allocator, "graph TD\nA --> B C\n"));
+}
+
+test "an unterminated subgraph and a bad direction are errors" {
+    try t.expectError(error.UnterminatedSubgraph, parse(t.allocator, "graph TD\nsubgraph S\nA --> B\n"));
+    try t.expectError(error.InvalidDirection, parse(t.allocator, "graph XY\nA --> B\n"));
+}
+
+test "a stray end outside any subgraph is ignored" {
+    var g = try parse(t.allocator, "graph TD\nend\nA --> B\n");
+    defer g.deinit(t.allocator);
+    try t.expectEqual(@as(usize, 1), g.edges.len);
+}
+
+test "a direction line sets the direction of the open subgraph only" {
+    var g = try parse(t.allocator, "graph TD\ndirection LR\nsubgraph S\ndirection BT\nA --> B\nend\n");
+    defer g.deinit(t.allocator);
+    try t.expectEqual(Direction.TD, g.direction);
+    try t.expectEqual(@as(?Direction, .BT), g.clusters[0].direction);
+}
+
+test "line breaks in labels become label line breaks" {
+    var g = try parse(t.allocator, "graph TD\nA[one<br>two] -->|x<br/>y| B\nsubgraph S [top\\nbottom]\nC\nend\n");
+    defer g.deinit(t.allocator);
+    try t.expectEqualStrings("one\ntwo", g.nodes[0].label);
+    try t.expectEqualStrings("x\ny", g.edges[0].label.?);
+    try t.expectEqualStrings("top\nbottom", g.clusters[0].label);
+}
+
+test "an empty pipe label is an empty label, not none" {
+    var g = try parse(t.allocator, "graph TD\nA -->|| B\n");
+    defer g.deinit(t.allocator);
+    try t.expectEqualStrings("", g.edges[0].label.?);
+}
+
+test "nesting depth is bounded only by memory" {
+    var arena = std.heap.ArenaAllocator.init(t.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const depth = 100_000;
+    var src: std.ArrayList(u8) = .empty;
+    try src.appendSlice(a, "graph TD\n");
+    for (0..depth) |_| try src.appendSlice(a, "subgraph s\n");
+    try src.appendSlice(a, "a --> b\n");
+    for (0..depth) |_| try src.appendSlice(a, "end\n");
+    var g = try parse(t.allocator, src.items);
+    defer g.deinit(t.allocator);
+    try t.expectEqual(@as(usize, depth), g.clusters.len);
+    try t.expectEqual(@as(?ClusterId, depth - 1), g.nodes[1].cluster);
+}
+
+test "a repeated subgraph id is the endpoint of the latest subgraph" {
+    var g = try parse(t.allocator, "graph TD\nsubgraph S\na\nend\nsubgraph S\nb\nend\nS --> x\n");
+    defer g.deinit(t.allocator);
+    try t.expectEqual(@as(usize, 1), g.edges.len);
+    try t.expectEqual(findNode(g, "b").?, g.edges[0].from);
 }
