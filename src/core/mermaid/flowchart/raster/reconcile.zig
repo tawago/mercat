@@ -2,7 +2,7 @@ const std = @import("std");
 const lattice = @import("../lattice.zig");
 const geo = @import("geometry.zig");
 
-pub fn isRealConnection(occ: lattice.Occupant) bool {
+fn isRealConnection(occ: lattice.Occupant) bool {
     return switch (occ) {
         .empty => false,
         .node_interior,
@@ -35,7 +35,7 @@ fn reprieveReciprocates(cell: *const lattice.Cell, d: lattice.Dir4) bool {
     };
 }
 
-pub fn bitIsPhantom(lat: *const lattice.Lattice, x: u32, y: u32, d: lattice.Dir4) bool {
+fn bitIsPhantom(lat: *const lattice.Lattice, x: u32, y: u32, d: lattice.Dir4) bool {
     const near = geo.step(.{ .x = @intCast(x), .y = @intCast(y) }, d);
     const near_cell = geo.cellAt(lat, near.x, near.y) orelse return true;
     if (isRealConnection(near_cell.occupant)) return false;
@@ -43,6 +43,8 @@ pub fn bitIsPhantom(lat: *const lattice.Lattice, x: u32, y: u32, d: lattice.Dir4
     const far_cell = geo.cellAt(lat, far.x, far.y) orelse return true;
     return !reprieveReciprocates(far_cell, d);
 }
+
+const directions = [_]lattice.Dir4{ .north, .east, .south, .west };
 
 pub fn reconcileNeighbours(lat: *lattice.Lattice) void {
     if (lat.width == 0 or lat.height == 0) return;
@@ -54,20 +56,12 @@ pub fn reconcileNeighbours(lat: *lattice.Lattice) void {
             const cell = lat.at(x, y);
             if (!isJunctionBearing(cell.occupant)) continue;
 
-            var nb = cell.neighbours;
-            if (nb.n and bitIsPhantom(lat, x, y, .north)) {
-                nb.n = false;
+            var keep = cell.neighbours.toMask();
+            for (directions) |d| {
+                const bit = geo.bitMask(d).toMask();
+                if (keep & bit != 0 and bitIsPhantom(lat, x, y, d)) keep &= ~bit;
             }
-            if (nb.e and bitIsPhantom(lat, x, y, .east)) {
-                nb.e = false;
-            }
-            if (nb.s and bitIsPhantom(lat, x, y, .south)) {
-                nb.s = false;
-            }
-            if (nb.w and bitIsPhantom(lat, x, y, .west)) {
-                nb.w = false;
-            }
-            cell.neighbours = nb;
+            cell.neighbours = lattice.Neighbours.fromMask(keep);
         }
     }
 }
