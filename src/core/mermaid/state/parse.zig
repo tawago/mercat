@@ -7,6 +7,12 @@ const StateDiagram = model.StateDiagram;
 const StateType = model.StateType;
 const Direction = types.Direction;
 
+/// How many `[*]` pseudo states of each kind were named so far; their ids are numbered.
+const PseudoCounts = struct {
+    start: u32 = 0,
+    end: u32 = 0,
+};
+
 pub fn parse(allocator: Allocator, source: []const u8) !StateDiagram {
     var s = Scanner.init(allocator, source);
     return parseStateDiagramImpl(&s);
@@ -27,10 +33,8 @@ fn parseStateDiagramImpl(s: *Scanner) !StateDiagram {
     }
     s.skipToNextLine();
 
-    var start_count: u32 = 0;
-    var end_count: u32 = 0;
-
-    try parseStateDiagramBody(s, &diagram, null, &start_count, &end_count);
+    var counts: PseudoCounts = .{};
+    try parseStateDiagramBody(s, &diagram, null, &counts);
 
     return diagram;
 }
@@ -39,8 +43,7 @@ fn parseStateDiagramBody(
     s: *Scanner,
     diagram: *StateDiagram,
     parent_id: ?[]const u8,
-    start_count: *u32,
-    end_count: *u32,
+    counts: *PseudoCounts,
 ) Allocator.Error!void {
     while (!s.isAtEnd()) {
         s.skipWhitespaceAndComments();
@@ -58,16 +61,16 @@ fn parseStateDiagramBody(
         }
 
         if (s.consumeKeyword("state")) {
-            try parseStateDeclaration(s, diagram, parent_id, start_count, end_count);
+            try parseStateDeclaration(s, diagram, parent_id, counts);
             continue;
         }
 
         if (s.consumeKeyword("note") or s.consumeKeyword("Note")) {
-            try parseStateNote(s, diagram);
+            s.skipToNextLine();
             continue;
         }
 
-        try parseStateStatement(s, diagram, parent_id, start_count, end_count);
+        try parseStateStatement(s, diagram, parent_id, counts);
     }
 }
 
@@ -75,12 +78,11 @@ fn parseStateDeclaration(
     s: *Scanner,
     diagram: *StateDiagram,
     parent_id: ?[]const u8,
-    start_count: *u32,
-    end_count: *u32,
+    counts: *PseudoCounts,
 ) Allocator.Error!void {
     s.skipWhitespace();
 
-    const id = parseStateId(s);
+    const id = s.identifier();
     if (id.len == 0) {
         s.skipToNextLine();
         return;
@@ -88,26 +90,14 @@ fn parseStateDeclaration(
 
     s.skipWhitespace();
 
-    var state_type: StateType = .regular;
-    if (s.matchString("<<choice>>")) {
-        state_type = .choice;
-    } else if (s.matchString("<<fork>>")) {
-        state_type = .fork;
-    } else if (s.matchString("<<join>>")) {
-        state_type = .join;
-    }
+    const state_type = parseStereotype(s);
 
     s.skipWhitespace();
 
     var label: ?[]const u8 = null;
     if (s.matchChar(':')) {
         s.skipWhitespace();
-        const label_start = s.pos;
-        while (!s.isAtEnd() and s.current() != '\n' and s.current() != '{') {
-            s.advance();
-        }
-        label = std.mem.trimRight(u8, s.source[label_start..s.pos], " \t\r");
-        if (label.?.len == 0) label = null;
+        label = nonEmpty(s.textUntil("\n{"));
     }
 
     s.skipWhitespace();
@@ -124,7 +114,7 @@ fn parseStateDeclaration(
 
     if (is_composite) {
         s.skipToNextLine();
-        try parseStateDiagramBody(s, diagram, id, start_count, end_count);
+        try parseStateDiagramBody(s, diagram, id, counts);
         s.skipWhitespaceAndComments();
         _ = s.matchChar('}') or s.consumeKeyword("end");
     }
@@ -132,20 +122,26 @@ fn parseStateDeclaration(
     s.skipToNextLine();
 }
 
+fn parseStereotype(s: *Scanner) StateType {
+    if (s.matchString("<<choice>>")) return .choice;
+    if (s.matchString("<<fork>>")) return .fork;
+    if (s.matchString("<<join>>")) return .join;
+    return .regular;
+}
+
 fn parseStateStatement(
     s: *Scanner,
     diagram: *StateDiagram,
     parent_id: ?[]const u8,
-    start_count: *u32,
-    end_count: *u32,
+    counts: *PseudoCounts,
 ) Allocator.Error!void {
     s.skipWhitespace();
-    if (s.isAtEnd() or s.current() == '\n') {
+    if (s.isLineEnd()) {
         s.skipToNextLine();
         return;
     }
 
-    const first_state = try parseStateReference(s, diagram, parent_id, start_count, end_count, true);
+    const first_state = try parseStateReference(s, diagram, parent_id, counts, true);
     if (first_state.len == 0) {
         s.skipToNextLine();
         return;
@@ -156,37 +152,20 @@ fn parseStateStatement(
     if (s.matchString("-->")) {
         s.skipWhitespace();
 
-        var label: ?[]const u8 = null;
-
-        const second_state = try parseStateReference(s, diagram, parent_id, start_count, end_count, false);
+        const second_state = try parseStateReference(s, diagram, parent_id, counts, false);
 
         s.skipWhitespace();
-        if (s.matchChar(':')) {
-            s.skipWhitespace();
-            const label_start = s.pos;
-            while (!s.isAtEnd() and s.current() != '\n') {
-                s.advance();
-            }
-            label = std.mem.trimRight(u8, s.source[label_start..s.pos], " \t\r");
-            if (label.?.len == 0) label = null;
-        }
+        const label = if (s.labelAfterColon()) |text| nonEmpty(text) else null;
 
         try diagram.addTransition(.{
             .from = first_state,
             .to = second_state,
             .label = label,
         });
-    } else if (s.matchChar(':')) {
-        s.skipWhitespace();
-        const label_start = s.pos;
-        while (!s.isAtEnd() and s.current() != '\n') {
-            s.advance();
-        }
-        const label = std.mem.trimRight(u8, s.source[label_start..s.pos], " \t\r");
-
+    } else if (s.labelAfterColon()) |text| {
         if (diagram.getStateMut(first_state)) |state| {
-            if (state.label == null and label.len > 0) {
-                state.label = label;
+            if (state.label == null and text.len > 0) {
+                state.label = text;
             }
         }
     }
@@ -198,129 +177,61 @@ fn parseStateReference(
     s: *Scanner,
     diagram: *StateDiagram,
     parent_id: ?[]const u8,
-    start_count: *u32,
-    end_count: *u32,
+    counts: *PseudoCounts,
     is_source: bool,
 ) Allocator.Error![]const u8 {
     s.skipWhitespace();
 
     if (s.matchString("[*]")) {
         if (is_source) {
-            const id = try makeStartId(s, start_count);
-            try diagram.trackAllocatedId(id);
-            try diagram.addState(.{
-                .id = id,
-                .state_type = .start,
-                .parent_id = parent_id,
-            });
-            return id;
-        } else {
-            for (diagram.state_order.items) |existing_id| {
-                if (diagram.getState(existing_id)) |existing_state| {
-                    if (existing_state.state_type == .end) {
-                        const existing_parent = existing_state.parent_id;
-                        const parents_match = if (parent_id) |p|
-                            (existing_parent != null and std.mem.eql(u8, existing_parent.?, p))
-                        else
-                            (existing_parent == null);
-                        if (parents_match) {
-                            return existing_id;
-                        }
-                    }
-                }
-            }
-            const id = try makeEndId(s, end_count);
-            try diagram.trackAllocatedId(id);
-            try diagram.addState(.{
-                .id = id,
-                .state_type = .end,
-                .parent_id = parent_id,
-            });
-            return id;
+            return pseudoState(s, diagram, parent_id, .start, &counts.start);
         }
+        return findEnd(diagram, parent_id) orelse
+            try pseudoState(s, diagram, parent_id, .end, &counts.end);
     }
 
-    const id = parseStateId(s);
+    const id = s.identifier();
     if (id.len > 0) {
-        const result = try diagram.states.getOrPut(id);
-        if (!result.found_existing) {
-            result.value_ptr.* = .{
-                .id = id,
-                .parent_id = parent_id,
-            };
-            try diagram.state_order.append(s.allocator, id);
-        }
+        try diagram.ensureState(id, parent_id);
     }
     return id;
 }
 
-fn parseStateId(s: *Scanner) []const u8 {
-    const start = s.pos;
-    while (!s.isAtEnd()) {
-        const c = s.current();
-        if (s.isIdChar(c)) {
-            s.advance();
-        } else {
-            break;
-        }
+/// The end pseudo state already named in this scope, which every `--> [*]` there shares.
+fn findEnd(diagram: *const StateDiagram, parent_id: ?[]const u8) ?[]const u8 {
+    for (diagram.state_order.items) |id| {
+        const state = diagram.getState(id) orelse continue;
+        if (state.state_type == .end and sameParent(state.parent_id, parent_id)) return id;
     }
-    return s.source[start..s.pos];
+    return null;
 }
 
-fn makeStartId(s: *Scanner, count: *u32) Allocator.Error![]const u8 {
-    const id = try std.fmt.allocPrint(s.allocator, "[*]_start_{d}", .{count.*});
+fn sameParent(a: ?[]const u8, b: ?[]const u8) bool {
+    const left = a orelse return b == null;
+    const right = b orelse return false;
+    return std.mem.eql(u8, left, right);
+}
+
+fn pseudoState(
+    s: *Scanner,
+    diagram: *StateDiagram,
+    parent_id: ?[]const u8,
+    comptime state_type: StateType,
+    count: *u32,
+) Allocator.Error![]const u8 {
+    const id = try std.fmt.allocPrint(s.allocator, "[*]_" ++ @tagName(state_type) ++ "_{d}", .{count.*});
     count.* += 1;
-    return id;
-}
-
-fn makeEndId(s: *Scanner, count: *u32) Allocator.Error![]const u8 {
-    const id = try std.fmt.allocPrint(s.allocator, "[*]_end_{d}", .{count.*});
-    count.* += 1;
-    return id;
-}
-
-fn parseStateNote(s: *Scanner, diagram: *StateDiagram) !void {
-    s.skipWhitespace();
-
-    var position: types.NotePosition = .right_of;
-    if (s.consumeKeyword("left")) {
-        s.skipWhitespace();
-        _ = s.consumeKeyword("of");
-        position = .left_of;
-    } else if (s.consumeKeyword("right")) {
-        s.skipWhitespace();
-        _ = s.consumeKeyword("of");
-        position = .right_of;
-    }
-
-    s.skipWhitespace();
-
-    const state_id = parseStateId(s);
-    if (state_id.len == 0) {
-        s.skipToNextLine();
-        return;
-    }
-
-    s.skipWhitespace();
-
-    if (!s.matchChar(':')) {
-        s.skipToNextLine();
-        return;
-    }
-
-    s.skipWhitespace();
-    const text_start = s.pos;
-    while (!s.isAtEnd() and s.current() != '\n') {
-        s.advance();
-    }
-    const text = std.mem.trimRight(u8, s.source[text_start..s.pos], " \t\r");
-
-    try diagram.addNote(.{
-        .text = text,
-        .position = position,
+    try diagram.trackAllocatedId(id);
+    try diagram.addState(.{
+        .id = id,
+        .state_type = state_type,
+        .parent_id = parent_id,
     });
+    return id;
+}
 
-    s.skipToNextLine();
+fn nonEmpty(text: []const u8) ?[]const u8 {
+    return if (text.len == 0) null else text;
 }
 
 test "parse simple state diagram" {

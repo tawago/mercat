@@ -75,6 +75,15 @@ pub const ERDiagram = struct {
         return self.entities.getPtr(name);
     }
 
+    /// Register an entity by name, leaving an existing one untouched.
+    pub fn ensureEntity(self: *ERDiagram, name: []const u8) !void {
+        const result = try self.entities.getOrPut(name);
+        if (!result.found_existing) {
+            result.value_ptr.* = Entity.init(name);
+            try self.entity_order.append(self.allocator, name);
+        }
+    }
+
     pub fn addRelation(self: *ERDiagram, relation: ERRelation) !void {
         try self.relations.append(self.allocator, relation);
     }

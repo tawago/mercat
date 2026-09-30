@@ -3,10 +3,25 @@ const Allocator = std.mem.Allocator;
 const model = @import("model.zig");
 const Scanner = @import("../scan.zig").Scanner;
 const ERDiagram = model.ERDiagram;
-const Entity = model.Entity;
 const Cardinality = model.Cardinality;
 
-const ERRelationResult = struct {
+const Notation = struct { []const u8, Cardinality };
+
+const left_notations = [_]Notation{
+    .{ "||", .exactly_one },
+    .{ "|o", .zero_or_one },
+    .{ "}|", .one_or_more },
+    .{ "}o", .zero_or_more },
+};
+
+const right_notations = [_]Notation{
+    .{ "||", .exactly_one },
+    .{ "o|", .zero_or_one },
+    .{ "|{", .one_or_more },
+    .{ "o{", .zero_or_more },
+};
+
+const Ends = struct {
     left: Cardinality,
     right: Cardinality,
 };
@@ -29,8 +44,7 @@ fn parseERDiagramInternal(s: *Scanner) !ERDiagram {
         s.skipWhitespaceAndComments();
         if (s.isAtEnd()) break;
 
-        const parsed = try parseERStatement(s, &diagram);
-        if (!parsed) {
+        if (!try parseERStatement(s, &diagram)) {
             s.skipToNextLine();
         }
     }
@@ -41,7 +55,7 @@ fn parseERDiagramInternal(s: *Scanner) !ERDiagram {
 fn parseERStatement(s: *Scanner, diagram: *ERDiagram) !bool {
     const start_pos = s.pos;
 
-    const first_name = parseEntityName(s);
+    const first_name = s.name();
     if (first_name.len == 0) {
         s.pos = start_pos;
         return false;
@@ -49,29 +63,20 @@ fn parseERStatement(s: *Scanner, diagram: *ERDiagram) !bool {
 
     s.skipWhitespace();
 
-    const rel = parseERRelation(s);
-    if (rel) |relation| {
+    if (parseERRelation(s)) |relation| {
         s.skipWhitespace();
 
-        const second_name = parseEntityName(s);
+        const second_name = s.name();
         if (second_name.len == 0) {
             s.pos = start_pos;
             return false;
         }
 
         s.skipWhitespace();
-        var label: ?[]const u8 = null;
-        if (s.matchChar(':')) {
-            s.skipWhitespace();
-            const label_start = s.pos;
-            while (!s.isAtEnd() and s.current() != '\n') {
-                s.advance();
-            }
-            label = std.mem.trimRight(u8, s.source[label_start..s.pos], " \t\r");
-        }
+        const label = s.labelAfterColon();
 
-        try ensureEntity(s, diagram, first_name);
-        try ensureEntity(s, diagram, second_name);
+        try diagram.ensureEntity(first_name);
+        try diagram.ensureEntity(second_name);
 
         try diagram.addRelation(.{
             .from = first_name,
@@ -80,65 +85,22 @@ fn parseERStatement(s: *Scanner, diagram: *ERDiagram) !bool {
             .to_cardinality = relation.right,
             .label = label,
         });
-
-        s.skipToNextLine();
-        return true;
-    }
-
-    if (first_name.len > 0) {
-        try ensureEntity(s, diagram, first_name);
-        s.skipToNextLine();
-        return true;
-    }
-
-    s.pos = start_pos;
-    return false;
-}
-
-fn parseEntityName(s: *Scanner) []const u8 {
-    const start = s.pos;
-    while (!s.isAtEnd()) {
-        const c = s.current();
-        if (s.isIdChar(c) or c == '-') {
-            s.advance();
-        } else {
-            break;
-        }
-    }
-    return s.source[start..s.pos];
-}
-
-fn parseERRelation(s: *Scanner) ?ERRelationResult {
-    var left: Cardinality = .exactly_one;
-    var right: Cardinality = .exactly_one;
-
-    if (s.matchString("||")) {
-        left = .exactly_one;
-    } else if (s.matchString("|o")) {
-        left = .zero_or_one;
-    } else if (s.matchString("}|")) {
-        left = .one_or_more;
-    } else if (s.matchString("}o")) {
-        left = .zero_or_more;
     } else {
-        return null;
+        try diagram.ensureEntity(first_name);
     }
+
+    s.skipToNextLine();
+    return true;
+}
+
+fn parseERRelation(s: *Scanner) ?Ends {
+    const left = matchNotation(s, &left_notations) orelse return null;
 
     if (!s.matchString("--") and !s.matchString("..")) {
         return null;
     }
 
-    if (s.matchString("||")) {
-        right = .exactly_one;
-    } else if (s.matchString("o|")) {
-        right = .zero_or_one;
-    } else if (s.matchString("|{")) {
-        right = .one_or_more;
-    } else if (s.matchString("o{")) {
-        right = .zero_or_more;
-    } else {
-        return null;
-    }
+    const right = matchNotation(s, &right_notations) orelse return null;
 
     return .{
         .left = left,
@@ -146,12 +108,11 @@ fn parseERRelation(s: *Scanner) ?ERRelationResult {
     };
 }
 
-fn ensureEntity(s: *Scanner, diagram: *ERDiagram, name: []const u8) !void {
-    const result = try diagram.entities.getOrPut(name);
-    if (!result.found_existing) {
-        result.value_ptr.* = Entity.init(name);
-        try diagram.entity_order.append(s.allocator, name);
+fn matchNotation(s: *Scanner, notations: []const Notation) ?Cardinality {
+    for (notations) |notation| {
+        if (s.matchString(notation[0])) return notation[1];
     }
+    return null;
 }
 
 test "parse simple ER diagram" {

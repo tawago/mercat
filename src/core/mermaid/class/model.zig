@@ -83,9 +83,6 @@ pub const ClassRelation = struct {
     from: []const u8,
     to: []const u8,
     relation_type: ClassRelationType = .association,
-    label: ?[]const u8 = null,
-    from_cardinality: ?[]const u8 = null,
-    to_cardinality: ?[]const u8 = null,
 };
 
 pub const ClassDiagram = struct {
@@ -119,6 +116,15 @@ pub const ClassDiagram = struct {
 
     pub fn getClassMut(self: *ClassDiagram, name: []const u8) ?*Class {
         return self.classes.getPtr(name);
+    }
+
+    /// Register a class by name, leaving an existing one untouched.
+    pub fn ensureClass(self: *ClassDiagram, name: []const u8) !void {
+        const result = try self.classes.getOrPut(name);
+        if (!result.found_existing) {
+            result.value_ptr.* = Class.init(self.allocator, name);
+            try self.class_order.append(self.allocator, name);
+        }
     }
 
     pub fn addRelation(self: *ClassDiagram, relation: ClassRelation) !void {

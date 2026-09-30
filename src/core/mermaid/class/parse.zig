@@ -3,7 +3,6 @@ const Allocator = std.mem.Allocator;
 const model = @import("model.zig");
 const Scanner = @import("../scan.zig").Scanner;
 const ClassDiagram = model.ClassDiagram;
-const Class = model.Class;
 const ClassRelationType = model.ClassRelationType;
 const Visibility = model.Visibility;
 
@@ -37,24 +36,15 @@ fn parseClassDiagramInternal(s: *Scanner) !ClassDiagram {
 
         if (s.consumeKeyword("class")) {
             s.skipWhitespace();
-            const name_start = s.pos;
-            while (!s.isAtEnd() and s.isIdChar(s.current())) {
-                s.advance();
-            }
-            const class_name = s.source[name_start..s.pos];
+            const class_name = s.identifier();
             if (class_name.len > 0) {
-                const result = try diagram.classes.getOrPut(class_name);
-                if (!result.found_existing) {
-                    result.value_ptr.* = Class.init(s.allocator, class_name);
-                    try diagram.class_order.append(s.allocator, class_name);
-                }
+                try diagram.ensureClass(class_name);
             }
             s.skipToNextLine();
             continue;
         }
 
-        const parsed = try parseClassStatement(s, &diagram);
-        if (!parsed) {
+        if (!try parseClassStatement(s, &diagram)) {
             s.skipToNextLine();
         }
     }
@@ -65,7 +55,7 @@ fn parseClassDiagramInternal(s: *Scanner) !ClassDiagram {
 fn parseClassStatement(s: *Scanner, diagram: *ClassDiagram) !bool {
     const start_pos = s.pos;
 
-    const first_name = parseClassName(s);
+    const first_name = s.name();
     if (first_name.len == 0) {
         s.pos = start_pos;
         return false;
@@ -79,35 +69,22 @@ fn parseClassStatement(s: *Scanner, diagram: *ClassDiagram) !bool {
         return true;
     }
 
-    const rel_type = parseClassRelation(s);
-    if (rel_type) |relation_type| {
+    if (parseClassRelation(s)) |relation_type| {
         s.skipWhitespace();
 
-        const second_name = parseClassName(s);
+        const second_name = s.name();
         if (second_name.len == 0) {
             s.pos = start_pos;
             return false;
         }
 
-        s.skipWhitespace();
-        var label: ?[]const u8 = null;
-        if (s.matchChar(':')) {
-            s.skipWhitespace();
-            const label_start = s.pos;
-            while (!s.isAtEnd() and s.current() != '\n') {
-                s.advance();
-            }
-            label = std.mem.trimRight(u8, s.source[label_start..s.pos], " \t\r");
-        }
-
-        try ensureClass(s, diagram, first_name);
-        try ensureClass(s, diagram, second_name);
+        try diagram.ensureClass(first_name);
+        try diagram.ensureClass(second_name);
 
         try diagram.addRelation(.{
             .from = first_name,
             .to = second_name,
             .relation_type = relation_type,
-            .label = label,
         });
 
         s.skipToNextLine();
@@ -116,19 +93,6 @@ fn parseClassStatement(s: *Scanner, diagram: *ClassDiagram) !bool {
 
     s.pos = start_pos;
     return false;
-}
-
-fn parseClassName(s: *Scanner) []const u8 {
-    const start = s.pos;
-    while (!s.isAtEnd()) {
-        const c = s.current();
-        if (s.isIdChar(c) or c == '-') {
-            s.advance();
-        } else {
-            break;
-        }
-    }
-    return s.source[start..s.pos];
 }
 
 fn parseClassRelation(s: *Scanner) ?ClassRelationType {
@@ -151,30 +115,21 @@ fn parseClassRelation(s: *Scanner) ?ClassRelationType {
 }
 
 fn parseClassMember(s: *Scanner, diagram: *ClassDiagram, class_name: []const u8) !void {
-    try ensureClass(s, diagram, class_name);
+    try diagram.ensureClass(class_name);
 
     const class = diagram.getClassMut(class_name) orelse return;
 
-    var visibility: Visibility = .none;
-    const first_char = s.current();
-    if (first_char == '+' or first_char == '-' or first_char == '#' or first_char == '~') {
-        visibility = Visibility.fromChar(first_char);
-        s.advance();
-    }
+    const visibility = Visibility.fromChar(s.current());
+    if (visibility != .none) s.advance();
 
-    const member_start = s.pos;
-    while (!s.isAtEnd() and s.current() != '\n') {
-        s.advance();
-    }
-    const member_text = std.mem.trimRight(u8, s.source[member_start..s.pos], " \t\r");
-
+    const member_text = s.restOfLine();
     if (member_text.len == 0) return;
 
-    const is_method = std.mem.indexOf(u8, member_text, "(") != null;
+    const is_method = std.mem.indexOfScalar(u8, member_text, '(') != null;
 
     var name: []const u8 = member_text;
 
-    if (std.mem.indexOf(u8, member_text, " ")) |space_idx| {
+    if (std.mem.indexOfScalar(u8, member_text, ' ')) |space_idx| {
         if (!is_method) name = member_text[space_idx + 1 ..];
     }
 
@@ -185,14 +140,6 @@ fn parseClassMember(s: *Scanner, diagram: *ClassDiagram, class_name: []const u8)
     });
 
     s.skipToNextLine();
-}
-
-fn ensureClass(s: *Scanner, diagram: *ClassDiagram, name: []const u8) !void {
-    const result = try diagram.classes.getOrPut(name);
-    if (!result.found_existing) {
-        result.value_ptr.* = Class.init(s.allocator, name);
-        try diagram.class_order.append(s.allocator, name);
-    }
 }
 
 test "parse simple class diagram" {

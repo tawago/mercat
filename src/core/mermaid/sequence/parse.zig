@@ -2,7 +2,8 @@ const std = @import("std");
 const Allocator = std.mem.Allocator;
 const types = @import("../types.zig");
 const model = @import("model.zig");
-const Scanner = @import("../scan.zig").Scanner;
+const scan = @import("../scan.zig");
+const Scanner = scan.Scanner;
 const SequenceDiagram = model.SequenceDiagram;
 const SequenceArrowType = model.SequenceArrowType;
 const Direction = types.Direction;
@@ -58,22 +59,12 @@ fn parseSequenceDiagram(s: *Scanner) !SequenceDiagram {
             try parseActivation(s, &diagram, false);
             continue;
         }
-        if (s.consumeKeyword("loop") or
-            s.consumeKeyword("alt") or
-            s.consumeKeyword("else") or
-            s.consumeKeyword("opt") or
-            s.consumeKeyword("par") or
-            s.consumeKeyword("critical") or
-            s.consumeKeyword("break") or
-            s.consumeKeyword("rect") or
-            s.consumeKeyword("end"))
-        {
+        if (skipBlockKeyword(s)) {
             s.skipToNextLine();
             continue;
         }
 
-        const msg_result = try parseSequenceMessage(s, &diagram);
-        if (!msg_result) {
+        if (!try parseSequenceMessage(s, &diagram)) {
             s.skipToNextLine();
         }
     }
@@ -81,15 +72,18 @@ fn parseSequenceDiagram(s: *Scanner) !SequenceDiagram {
     return diagram;
 }
 
+fn skipBlockKeyword(s: *Scanner) bool {
+    const keywords = [_][]const u8{ "loop", "alt", "else", "opt", "par", "critical", "break", "rect", "end" };
+    for (keywords) |keyword| {
+        if (s.consumeKeyword(keyword)) return true;
+    }
+    return false;
+}
+
 fn parseParticipantDecl(s: *Scanner, diagram: *SequenceDiagram) !void {
     s.skipWhitespace();
 
-    const id_start = s.pos;
-    while (!s.isAtEnd() and (s.isIdChar(s.current()) or s.current() == '_')) {
-        s.advance();
-    }
-    const id = s.source[id_start..s.pos];
-
+    const id = s.identifier();
     if (id.len == 0) {
         s.skipToNextLine();
         return;
@@ -99,22 +93,7 @@ fn parseParticipantDecl(s: *Scanner, diagram: *SequenceDiagram) !void {
     var alias: ?[]const u8 = null;
     if (s.consumeKeyword("as")) {
         s.skipWhitespace();
-        if (s.current() == '"' or s.current() == '\'') {
-            const quote = s.current();
-            s.advance();
-            const alias_start = s.pos;
-            while (!s.isAtEnd() and s.current() != quote) {
-                s.advance();
-            }
-            alias = s.source[alias_start..s.pos];
-            if (!s.isAtEnd()) s.advance();
-        } else {
-            const alias_start = s.pos;
-            while (!s.isAtEnd() and !s.isLineEnd() and !s.isWhitespace(s.current())) {
-                s.advance();
-            }
-            alias = s.source[alias_start..s.pos];
-        }
+        alias = parseAlias(s);
     }
 
     try diagram.addParticipant(.{
@@ -125,15 +104,29 @@ fn parseParticipantDecl(s: *Scanner, diagram: *SequenceDiagram) !void {
     s.skipToNextLine();
 }
 
+fn parseAlias(s: *Scanner) []const u8 {
+    if (s.current() == '"' or s.current() == '\'') {
+        const quote = s.current();
+        s.advance();
+        const start = s.pos;
+        while (!s.isAtEnd() and s.current() != quote) {
+            s.advance();
+        }
+        const alias = s.source[start..s.pos];
+        if (!s.isAtEnd()) s.advance();
+        return alias;
+    }
+    const start = s.pos;
+    while (!s.isLineEnd() and !scan.isWhitespace(s.current())) {
+        s.advance();
+    }
+    return s.source[start..s.pos];
+}
+
 fn parseSequenceMessage(s: *Scanner, diagram: *SequenceDiagram) !bool {
     const start_pos = s.pos;
 
-    const from_start = s.pos;
-    while (!s.isAtEnd() and s.isIdChar(s.current())) {
-        s.advance();
-    }
-    const from = s.source[from_start..s.pos];
-
+    const from = s.identifier();
     if (from.len == 0) {
         s.pos = start_pos;
         return false;
@@ -148,27 +141,14 @@ fn parseSequenceMessage(s: *Scanner, diagram: *SequenceDiagram) !bool {
 
     s.skipWhitespace();
 
-    const to_start = s.pos;
-    while (!s.isAtEnd() and s.isIdChar(s.current())) {
-        s.advance();
-    }
-    const to = s.source[to_start..s.pos];
-
+    const to = s.identifier();
     if (to.len == 0) {
         s.pos = start_pos;
         return false;
     }
 
     s.skipWhitespace();
-    var text: []const u8 = "";
-    if (s.matchChar(':')) {
-        s.skipWhitespace();
-        const text_start = s.pos;
-        while (!s.isAtEnd() and s.current() != '\n') {
-            s.advance();
-        }
-        text = std.mem.trimRight(u8, s.source[text_start..s.pos], " \t\r");
-    }
+    const text = s.labelAfterColon() orelse "";
 
     try diagram.addParticipant(.{ .id = from });
     try diagram.addParticipant(.{ .id = to });
@@ -202,8 +182,6 @@ fn parseSequenceNote(s: *Scanner, diagram: *SequenceDiagram) !void {
     s.skipWhitespace();
 
     var position: types.NotePosition = .over;
-    var participant1: ?[]const u8 = null;
-    var participant2: ?[]const u8 = null;
 
     if (s.consumeKeyword("right")) {
         s.skipWhitespace();
@@ -219,49 +197,32 @@ fn parseSequenceNote(s: *Scanner, diagram: *SequenceDiagram) !void {
 
     s.skipWhitespace();
 
-    const p1_start = s.pos;
-    while (!s.isAtEnd() and s.isIdChar(s.current())) {
-        s.advance();
-    }
-    participant1 = s.source[p1_start..s.pos];
+    const participant1 = s.identifier();
 
+    var participant2: ?[]const u8 = null;
     s.skipWhitespace();
     if (s.matchChar(',')) {
         s.skipWhitespace();
-        const p2_start = s.pos;
-        while (!s.isAtEnd() and s.isIdChar(s.current())) {
-            s.advance();
-        }
-        participant2 = s.source[p2_start..s.pos];
+        participant2 = s.identifier();
     }
 
     s.skipWhitespace();
-    var text: []const u8 = "";
-    if (s.matchChar(':')) {
-        s.skipWhitespace();
-        const text_start = s.pos;
-        while (!s.isAtEnd() and s.current() != '\n') {
-            s.advance();
-        }
-        text = std.mem.trimRight(u8, s.source[text_start..s.pos], " \t\r");
-    }
+    const text = s.labelAfterColon() orelse "";
 
-    if (participant1) |p1| {
-        if (p1.len > 0) {
-            try diagram.addParticipant(.{ .id = p1 });
-            if (participant2) |p2| {
-                if (p2.len > 0) {
-                    try diagram.addParticipant(.{ .id = p2 });
-                }
+    if (participant1.len > 0) {
+        try diagram.addParticipant(.{ .id = participant1 });
+        if (participant2) |p2| {
+            if (p2.len > 0) {
+                try diagram.addParticipant(.{ .id = p2 });
             }
-
-            try diagram.addNote(.{
-                .position = position,
-                .participant1 = p1,
-                .participant2 = participant2,
-                .text = text,
-            });
         }
+
+        try diagram.addNote(.{
+            .position = position,
+            .participant1 = participant1,
+            .participant2 = participant2,
+            .text = text,
+        });
     }
 
     s.skipToNextLine();
@@ -270,12 +231,7 @@ fn parseSequenceNote(s: *Scanner, diagram: *SequenceDiagram) !void {
 fn parseActivation(s: *Scanner, diagram: *SequenceDiagram, is_activate: bool) !void {
     s.skipWhitespace();
 
-    const id_start = s.pos;
-    while (!s.isAtEnd() and (s.isIdChar(s.current()) or s.current() == '_')) {
-        s.advance();
-    }
-    const participant_id = s.source[id_start..s.pos];
-
+    const participant_id = s.identifier();
     if (participant_id.len > 0) {
         try diagram.addParticipant(.{ .id = participant_id });
 

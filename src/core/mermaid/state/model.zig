@@ -3,7 +3,6 @@ const Allocator = std.mem.Allocator;
 const types = @import("../types.zig");
 
 const Direction = types.Direction;
-const NotePosition = types.NotePosition;
 
 pub const StateType = enum {
     start,
@@ -33,16 +32,10 @@ pub const StateTransition = struct {
     label: ?[]const u8 = null,
 };
 
-pub const StateNote = struct {
-    text: []const u8,
-    position: NotePosition = .right_of,
-};
-
 pub const StateDiagram = struct {
     allocator: Allocator,
     states: std.StringHashMap(State),
     transitions: std.ArrayList(StateTransition),
-    notes: std.ArrayList(StateNote),
     state_order: std.ArrayList([]const u8),
     allocated_ids: std.ArrayList([]const u8),
     direction: Direction = .TD,
@@ -52,7 +45,6 @@ pub const StateDiagram = struct {
             .allocator = allocator,
             .states = std.StringHashMap(State).init(allocator),
             .transitions = .empty,
-            .notes = .empty,
             .state_order = .empty,
             .allocated_ids = .empty,
         };
@@ -65,7 +57,6 @@ pub const StateDiagram = struct {
         self.allocated_ids.deinit(self.allocator);
         self.states.deinit();
         self.transitions.deinit(self.allocator);
-        self.notes.deinit(self.allocator);
         self.state_order.deinit(self.allocator);
     }
 
@@ -91,12 +82,17 @@ pub const StateDiagram = struct {
         }
     }
 
-    pub fn addTransition(self: *StateDiagram, transition: StateTransition) !void {
-        try self.transitions.append(self.allocator, transition);
+    /// Register a state by id, leaving an existing one untouched.
+    pub fn ensureState(self: *StateDiagram, id: []const u8, parent_id: ?[]const u8) !void {
+        const result = try self.states.getOrPut(id);
+        if (!result.found_existing) {
+            result.value_ptr.* = .{ .id = id, .parent_id = parent_id };
+            try self.state_order.append(self.allocator, id);
+        }
     }
 
-    pub fn addNote(self: *StateDiagram, note: StateNote) !void {
-        try self.notes.append(self.allocator, note);
+    pub fn addTransition(self: *StateDiagram, transition: StateTransition) !void {
+        try self.transitions.append(self.allocator, transition);
     }
 
     pub fn getState(self: *const StateDiagram, id: []const u8) ?*const State {
