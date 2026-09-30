@@ -210,9 +210,7 @@ pub const StateLayout = struct {
             const state = self.diagram.getStateMut(id) orelse continue;
             const neighbour_id = self.firstNeighbour(id, state.state_type) orelse continue;
             const neighbour = self.diagram.getState(neighbour_id) orelse continue;
-            const neighbour_x = neighbour.x orelse continue;
-            const neighbour_center = neighbour_x + @as(i32, @intCast(neighbour.width / 2));
-            state.x = neighbour_center - @as(i32, @intCast(state.width / 2));
+            state.x = neighbour.centerX() - @as(i32, @intCast(state.width / 2));
         }
     }
 
@@ -233,8 +231,8 @@ pub const StateLayout = struct {
 
         for (self.diagram.state_order.items) |id| {
             if (self.diagram.getState(id)) |state| {
-                const right = (state.x orelse 0) + @as(i32, @intCast(state.width));
-                const bottom = (state.y orelse 0) + @as(i32, @intCast(state.height));
+                const right = state.x + @as(i32, @intCast(state.width));
+                const bottom = state.y + @as(i32, @intCast(state.height));
                 if (right > max_x) max_x = right;
                 if (bottom > max_y) max_y = bottom;
             }

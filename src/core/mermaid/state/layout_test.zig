@@ -1,4 +1,5 @@
 const std = @import("std");
+const model = @import("model.zig");
 const state_layout = @import("layout.zig");
 
 const StateLayout = state_layout.StateLayout;
@@ -22,26 +23,19 @@ test "state layout simple" {
 
     try layout_obj.run();
 
-    var start_layer: ?u32 = null;
-    var end_layer: ?u32 = null;
+    var start: ?model.State = null;
+    var end: ?model.State = null;
 
     for (diagram.state_order.items) |id| {
         if (diagram.getState(id)) |state| {
             if (state.state_type == .start) {
-                start_layer = state.layer;
+                start = state.*;
             } else if (state.state_type == .end) {
-                end_layer = state.layer;
+                end = state.*;
             }
         }
     }
 
-    try testing.expect(start_layer != null);
-    try testing.expect(end_layer != null);
-    try testing.expect(start_layer.? < end_layer.?);
-
-    for (diagram.state_order.items) |id| {
-        const state = diagram.getState(id).?;
-        try testing.expect(state.x != null);
-        try testing.expect(state.y != null);
-    }
+    try testing.expect(start.?.layer.? < end.?.layer.?);
+    try testing.expect(start.?.y < end.?.y);
 }

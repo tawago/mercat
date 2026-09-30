@@ -19,11 +19,23 @@ pub const State = struct {
     state_type: StateType = .regular,
     is_composite: bool = false,
     parent_id: ?[]const u8 = null,
-    x: ?i32 = null,
-    y: ?i32 = null,
+    x: i32 = 0,
+    y: i32 = 0,
     width: u32 = 0,
     height: u32 = 0,
     layer: ?u32 = null,
+
+    pub fn centerX(self: *const State) i32 {
+        return self.x + @as(i32, @intCast(self.width / 2));
+    }
+
+    pub fn bottom(self: *const State) i32 {
+        return self.y + @as(i32, @intCast(self.height));
+    }
+
+    pub fn midY(self: *const State) i32 {
+        return self.y + @as(i32, @intCast(self.height / 2));
+    }
 };
 
 pub const StateTransition = struct {
