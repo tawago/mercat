@@ -201,3 +201,41 @@ test "directional primitives round-trip (straightMask/bitMask/reverse)" {
         ew.bitMask(.west).toMask(),
     );
 }
+
+test "mergeRole: a rail outranks a dropper, which outranks routing roles" {
+    try testing.expectEqual(
+        lattice.EdgeRole.fan_out_rail,
+        ew.mergeRole(.fan_out_rail, .fan_out_dropper),
+    );
+    try testing.expectEqual(
+        lattice.EdgeRole.fan_in_rail,
+        ew.mergeRole(.fan_in_dropper, .fan_in_rail),
+    );
+    try testing.expectEqual(
+        lattice.EdgeRole.fan_out_dropper,
+        ew.mergeRole(.back_edge, .fan_out_dropper),
+    );
+    try testing.expectEqual(
+        lattice.EdgeRole.fan_in_dropper,
+        ew.mergeRole(.fan_in_dropper, .cluster_internal),
+    );
+    try testing.expectEqual(
+        lattice.EdgeRole.fan_out_dropper,
+        ew.mergeRole(.forward, .fan_out_dropper),
+    );
+}
+
+test "mergeRole: a same-tier arrival never displaces the first writer" {
+    try testing.expectEqual(
+        lattice.EdgeRole.fan_out_rail,
+        ew.mergeRole(.fan_out_rail, .fan_in_rail),
+    );
+    try testing.expectEqual(
+        lattice.EdgeRole.back_edge,
+        ew.mergeRole(.back_edge, .self_loop),
+    );
+    try testing.expectEqual(
+        lattice.EdgeRole.forward,
+        ew.mergeRole(.forward, .forward),
+    );
+}

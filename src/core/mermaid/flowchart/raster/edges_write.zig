@@ -1,7 +1,6 @@
 const std = @import("std");
 const sketch = @import("../sketch.zig");
 const lattice = @import("../lattice.zig");
-const roles = @import("edge_roles.zig");
 const crossings = @import("crossings.zig");
 
 const log = std.log.scoped(.@"mermaid_v2.raster.edges");
@@ -104,7 +103,7 @@ pub fn writeEdgeCell(
             cell.occupant = .{ .edge_segment = .{
                 .edge = existing.edge,
                 .kind = existing.kind,
-                .role = roles.mergeRole(existing.role, role),
+                .role = mergeRole(existing.role, role),
             } };
             cell.neighbours = orMask(cell.neighbours, extra);
         },
@@ -191,6 +190,20 @@ pub fn writeArrowGuarded(
         }
     }
     writeArrowCell(cell, edge_id, kind, arrow, dir, along, x, y, cells_lost);
+}
+
+pub fn mergeRole(existing: lattice.EdgeRole, incoming: lattice.EdgeRole) lattice.EdgeRole {
+    if (priority(incoming) > priority(existing)) return incoming;
+    return existing;
+}
+
+fn priority(r: lattice.EdgeRole) u8 {
+    return switch (r) {
+        .fan_out_rail, .fan_in_rail => 3,
+        .fan_out_dropper, .fan_in_dropper => 2,
+        .back_edge, .self_loop, .cluster_internal => 1,
+        .forward, .member_stroke => 0,
+    };
 }
 
 test {

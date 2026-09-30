@@ -1,7 +1,6 @@
 const std = @import("std");
 const sketch = @import("../sketch.zig");
 const lattice = @import("../lattice.zig");
-const roles = @import("edge_roles.zig");
 const fan_roles = @import("fan_roles.zig");
 const crossings = @import("crossings.zig");
 const ew = @import("edges_write.zig");
@@ -171,7 +170,7 @@ fn walkPolyline(
                             cell.occupant = .{ .edge_segment = .{
                                 .edge = seg.edge,
                                 .kind = seg.kind,
-                                .role = roles.mergeRole(seg.role, erole),
+                                .role = ew.mergeRole(seg.role, erole),
                             } };
                             fan_roles.markShared(cell, edge.id, erole);
                         }
