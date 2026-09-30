@@ -72,8 +72,8 @@ pub const file_allowlists = [_]struct {
         .reason = "permits_test may only import std, prim, base/ledger, sem_graph, parse, or permits",
     },
     .{
-        .name = "ledger/realized_production_test.zig",
-        .allowed = &.{ .parse_zone, .{ .exact = "permits.zig" }, .{ .exact = "../select.zig" }, .{ .exact = "../raster.zig" }, .{ .exact = "../paint.zig" } },
+        .name = "realized_production_test.zig",
+        .allowed = &.{ .parse_zone, .{ .exact = "ledger/permits.zig" }, .{ .exact = "select.zig" }, .{ .exact = "raster.zig" }, .{ .exact = "paint.zig" } },
         .reason = "realized_production_test may only import std, prim, base/ledger, parse, permits, select, raster, or paint",
     },
     .{
@@ -168,8 +168,8 @@ pub const file_allowlists = [_]struct {
     },
     .{
         .name = "layout/bundle_commit_test.zig",
-        .allowed = &.{ .parse_zone, .{ .exact = "../ledger/permits.zig" }, .{ .exact = "../select.zig" }, .{ .exact = "bundle_commit.zig" } },
-        .reason = "bundle_commit_test may only import std, prim, base/ledger, parse, permits, select, or bundle_commit",
+        .allowed = &.{ .parse_zone, .{ .exact = "../ledger/permits.zig" }, .{ .exact = "bundle_commit.zig" } },
+        .reason = "bundle_commit_test may only import std, prim, base/ledger, parse, permits, or bundle_commit",
     },
     .{
         .name = "layout/port_plan_test.zig",
