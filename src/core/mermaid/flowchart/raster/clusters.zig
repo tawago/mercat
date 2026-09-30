@@ -93,38 +93,22 @@ fn tryWrite(
     nb: lattice.Neighbours,
 ) void {
     const cell = lat.at(x, y);
-    switch (cell.occupant) {
-        .empty => {
+    const occupant: []const u8 = switch (cell.occupant) {
+        .empty, .cluster_border => {
             cell.* = .{
                 .occupant = .{ .cluster_border = .{ .cluster = cluster_id, .role = role } },
                 .neighbours = nb,
             };
+            return;
         },
-        .cluster_border => {
-            cell.* = .{
-                .occupant = .{ .cluster_border = .{ .cluster = cluster_id, .role = role } },
-                .neighbours = nb,
-            };
-        },
-        .node_border, .node_interior => {
-            log.warn(
-                "cluster {d} border at ({d},{d}) conflicts with node cell, skipped",
-                .{ cluster_id, x, y },
-            );
-        },
-        .edge_segment, .arrowhead => {
-            log.warn(
-                "cluster {d} border at ({d},{d}) conflicts with edge cell, skipped",
-                .{ cluster_id, x, y },
-            );
-        },
-        .label_char, .label_cont => {
-            log.warn(
-                "cluster {d} border at ({d},{d}) conflicts with label cell, skipped",
-                .{ cluster_id, x, y },
-            );
-        },
-    }
+        .node_border, .node_interior => "node",
+        .edge_segment, .arrowhead => "edge",
+        .label_char, .label_cont => "label",
+    };
+    log.warn(
+        "cluster {d} border at ({d},{d}) conflicts with {s} cell, skipped",
+        .{ cluster_id, x, y, occupant },
+    );
 }
 
 const testing = std.testing;
@@ -323,4 +307,29 @@ test "OOB cluster is skipped" {
 
 test {
     _ = @import("clusters_test.zig");
+}
+
+test "a border cell held by anything but a cluster border is left as it was; a cluster border is overwritten" {
+    const allocator = testing.allocator;
+    var lat = try makeLattice(allocator, 5, 3);
+    defer allocator.free(lat.cells);
+    lat.at(0, 0).occupant = .{ .node_border = .{ .node = 1, .role = .corner_nw } };
+    lat.at(4, 0).occupant = .{ .edge_segment = .{ .edge = 1, .kind = .solid } };
+    lat.at(4, 2).occupant = .{ .label_char = 'x' };
+    lat.at(0, 2).occupant = .{ .arrowhead = .{ .dir = .south, .edge = 1 } };
+    lat.at(2, 0).occupant = .{ .node_interior = 3 };
+    lat.at(1, 0).occupant = .label_cont;
+    lat.at(3, 2).occupant = .{ .cluster_border = .{ .cluster = 9, .role = .edge_s } };
+    const frames = [_]sketch.ClusterFrame{.{ .id = 7, .rect = .{ .x = 0, .y = 0, .w = 5, .h = 3 }, .parent_id = null, .label = "", .depth = 0 }};
+
+    _ = try rasterizeClusters(allocator, &lat, makeSketch(&frames));
+
+    try testing.expect(lat.atConst(0, 0).occupant == .node_border);
+    try testing.expect(lat.atConst(4, 0).occupant == .edge_segment);
+    try testing.expect(lat.atConst(4, 2).occupant == .label_char);
+    try testing.expect(lat.atConst(0, 2).occupant == .arrowhead);
+    try testing.expect(lat.atConst(2, 0).occupant == .node_interior);
+    try testing.expect(lat.atConst(1, 0).occupant == .label_cont);
+    try expectClusterBorder(lat, 3, 2, 7, .edge_s);
+    try expectClusterBorder(lat, 0, 1, 7, .edge_w);
 }
