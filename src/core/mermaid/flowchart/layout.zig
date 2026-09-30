@@ -20,14 +20,29 @@ const components = @import("layout/components.zig");
 const rank_grid = @import("layout/rank_grid.zig");
 const decascade = @import("layout/decascade.zig");
 const bundle_commit = @import("layout/bundle_commit.zig");
-const options = @import("layout/options.zig");
 const layer_axis = @import("layout/layer_axis.zig");
 const ports = @import("layout/ports.zig");
 const port_plan = @import("layout/port_plan.zig");
 
 pub const FixedSize = sizing.FixedSize;
 
-pub const LayoutOptions = options.LayoutOptions;
+pub const LayoutOptions = struct {
+    bundle_permits: ?*const ledger.BundlePermits = null,
+    max_width: u32 = 120,
+    h_spacing: u32 = 4,
+    v_spacing: u32 = 2,
+    node_padding: u32 = 1,
+    rung: u8 = 0,
+    fixed_sizes: []const FixedSize = &.{},
+    departures: []const ledger.NodeId = &.{},
+    max_label_width: ?u32 = null,
+    is_direction_rotated: bool = false,
+    justify: Justify = .center,
+    spacing_scale: u8 = 0,
+    bridge_build: prim.BridgeBuild = .plain,
+};
+
+pub const Justify = enum { center, flush_left };
 
 pub const CoordsError = error{
     OutOfMemory,
