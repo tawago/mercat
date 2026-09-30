@@ -8,7 +8,6 @@ const permits = @import("ledger/permits.zig");
 const sem_graph = @import("sem_graph.zig");
 const ladder = @import("budget.zig");
 const select = @import("select.zig");
-const select_filter = @import("select_filter.zig");
 const audit = @import("audit.zig");
 const score = @import("score.zig");
 const raster = @import("raster.zig");
@@ -44,7 +43,7 @@ pub fn list(aa: std.mem.Allocator, graph: sem_graph.SemGraph, max_width: u32) ![
 
 /// Whether every visible edge of the candidate is routed; only such candidates are scored.
 pub fn routes(c: Candidate) bool {
-    return select_filter.unroutedEdges(c.sketch) == 0;
+    return select.unroutedEdges(c.sketch) == 0;
 }
 
 /// The index the selection picks: the lowest-scored routed candidate, or the first raw
@@ -55,7 +54,7 @@ pub fn choose(
     candidates: []const Candidate,
     subgraph_edges: prim.SubgraphEdges,
 ) !usize {
-    const routed = try select_filter.ciFilter(aa, candidates);
+    const routed = try select.ciFilter(aa, candidates);
     const kept = try aa.alloc(usize, routed.len);
     var n: usize = 0;
     for (candidates, 0..) |c, i| if (routes(c)) {

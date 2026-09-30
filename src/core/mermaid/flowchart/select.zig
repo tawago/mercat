@@ -7,7 +7,6 @@ const ladder = @import("budget.zig");
 const score_mod = @import("score.zig");
 const audit_mod = @import("audit.zig");
 const motif_mod = @import("motif.zig");
-const select_filter = @import("select_filter.zig");
 
 const Candidate = ladder.Candidate;
 
@@ -21,9 +20,26 @@ pub fn choose(
     subgraph_edges: prim.SubgraphEdges,
 ) !Candidate {
     const candidates = try enumerateAll(aa, graph, bundle_permits, max_width);
-    const routed = try select_filter.ciFilter(aa, candidates);
+    const routed = try ciFilter(aa, candidates);
     if (routed.len == 0) return ladder.firstFit(candidates);
     return routed[try argmin(aa, routed, graph.direction, subgraph_edges)];
+}
+
+pub fn unroutedEdges(s: sketch_mod.Sketch) u32 {
+    var n: u32 = 0;
+    for (s.edges) |e| if (e.polyline.len < 2 and e.kind != .invisible) {
+        n += 1;
+    };
+    return n;
+}
+
+/// The candidates that route every visible edge.
+pub fn ciFilter(aa: std.mem.Allocator, candidates: []const ladder.Candidate) ![]const ladder.Candidate {
+    var survivors: std.ArrayListUnmanaged(ladder.Candidate) = .empty;
+    for (candidates) |cand| {
+        if (unroutedEdges(cand.sketch) == 0) try survivors.append(aa, cand);
+    }
+    return survivors.toOwnedSlice(aa);
 }
 
 /// Raw rungs in rung order, then motif-packed rungs, then bridge variants.

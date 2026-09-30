@@ -4,7 +4,6 @@ const sem_graph = @import("sem_graph.zig");
 const sketch_mod = @import("sketch.zig");
 const ladder = @import("budget.zig");
 const select = @import("select.zig");
-const select_filter = @import("select_filter.zig");
 const permits_mod = @import("ledger/permits.zig");
 const audit = @import("audit.zig");
 const raster = @import("raster.zig");
@@ -290,15 +289,15 @@ test "a candidate with an unrouted visible edge is filtered out before scoring" 
     const g = try parse(a, "flowchart TD\n  A --> B\n  B --> C\n");
     const set = try select.enumerateAll(a, g, testBundlePermits(), 120);
     try std.testing.expect(set.len >= 2);
-    for (set) |cand| try std.testing.expectEqual(@as(u32, 0), select_filter.unroutedEdges(cand.sketch));
-    try std.testing.expectEqual(set.len, (try select_filter.ciFilter(a, set)).len);
+    for (set) |cand| try std.testing.expectEqual(@as(u32, 0), select.unroutedEdges(cand.sketch));
+    try std.testing.expectEqual(set.len, (try select.ciFilter(a, set)).len);
 
     const forged = try a.dupe(ladder.Candidate, set);
     const edges = try a.dupe(@TypeOf(forged[1].sketch.edges[0]), forged[1].sketch.edges);
     edges[0].polyline = &.{};
     forged[1].sketch.edges = edges;
-    try std.testing.expectEqual(@as(u32, 1), select_filter.unroutedEdges(forged[1].sketch));
-    const survivors = try select_filter.ciFilter(a, forged);
+    try std.testing.expectEqual(@as(u32, 1), select.unroutedEdges(forged[1].sketch));
+    const survivors = try select.ciFilter(a, forged);
     try std.testing.expectEqual(forged.len - 1, survivors.len);
     try std.testing.expectEqual(forged[0].rung, survivors[0].rung);
     for (survivors) |cand| try std.testing.expect(cand.rung != forged[1].rung);
