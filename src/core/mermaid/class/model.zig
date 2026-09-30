@@ -57,8 +57,8 @@ pub const Class = struct {
     name: []const u8,
     members: std.ArrayList(ClassMember),
     allocator: Allocator,
-    x: ?i32 = null,
-    y: ?i32 = null,
+    x: i32 = 0,
+    y: i32 = 0,
     width: u32 = 0,
     height: u32 = 0,
 
@@ -76,6 +76,14 @@ pub const Class = struct {
 
     pub fn addMember(self: *Class, member: ClassMember) !void {
         try self.members.append(self.allocator, member);
+    }
+
+    pub fn centerX(self: *const Class) i32 {
+        return self.x + @as(i32, @intCast(self.width / 2));
+    }
+
+    pub fn centerY(self: *const Class) i32 {
+        return self.y + @as(i32, @intCast(self.height / 2));
     }
 };
 
