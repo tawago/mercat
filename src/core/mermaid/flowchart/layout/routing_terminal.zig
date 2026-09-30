@@ -22,42 +22,6 @@ pub fn findPlacement(
     return placements[0];
 }
 
-fn nodeCluster(graph: sg.SemGraph, nid: sg.NodeId) ?sg.ClusterId {
-    for (graph.nodes) |n| {
-        if (n.id == nid) return n.cluster;
-    }
-    return null;
-}
-
-fn clusterAncestorOrSelf(graph: sg.SemGraph, anc: sg.ClusterId, desc: sg.ClusterId) bool {
-    var cur: ?sg.ClusterId = desc;
-    while (cur) |id| {
-        if (id == anc) return true;
-        var found: ?sg.Cluster = null;
-        for (graph.clusters) |c| {
-            if (c.id == id) {
-                found = c;
-                break;
-            }
-        }
-        cur = if (found) |c| c.parent else null;
-    }
-    return false;
-}
-
-pub fn fanRailLift(graph: sg.SemGraph, from: sg.NodeId, to: sg.NodeId) u32 {
-    return if (crossesIntoCluster(graph, from, to)) 1 else 0;
-}
-
-fn crossesIntoCluster(graph: sg.SemGraph, from: sg.NodeId, to: sg.NodeId) bool {
-    const dst_cluster = nodeCluster(graph, to) orelse return false;
-    const src_cluster = nodeCluster(graph, from);
-    if (src_cluster) |sc| {
-        if (clusterAncestorOrSelf(graph, dst_cluster, sc)) return false;
-    }
-    return true;
-}
-
 pub fn isReversed(lg: sugiyama.LayeredGraph, eid: sg.EdgeId) bool {
     for (lg.reversed_edges) |r| {
         if (r == eid) return true;

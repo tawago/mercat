@@ -77,7 +77,7 @@ test "fan_rail.blocked rejects a built rail whose tap drop touches a foreign nod
 
     var arena = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
-    const built = try fan_rail.build(arena.allocator(), resolved, 0, 0);
+    const built = try fan_rail.build(arena.allocator(), resolved, 0);
 
     try testing.expect(fan_rail.blocked(built, p.id, &placements));
 
@@ -103,7 +103,7 @@ test "formal base approach: rail lifts one row when the gap admits it, holds at 
             fan_rail.nearPeer(mkEdge2(1, 0, 2), r, null, .out),
         };
         const resolved = fan_rail.Resolved{ .pivot = pivot, .direction = .out, .peers = &peers };
-        const built = try fan_rail.build(a, resolved, 0, 0);
+        const built = try fan_rail.build(a, resolved, 0);
         try testing.expectEqual(@as(i32, 3), built.rail.crossbar[0].y);
         for (built.taps) |tap| {
             try testing.expect(built.rail.crossbar[0].y <= tap.landing.y - 3);
@@ -120,7 +120,7 @@ test "formal base approach: rail lifts one row when the gap admits it, holds at 
             fan_rail.nearPeer(mkEdge2(1, 0, 2), r, null, .out),
         };
         const resolved = fan_rail.Resolved{ .pivot = pivot, .direction = .out, .peers = &peers };
-        const built = try fan_rail.build(a, resolved, 0, 0);
+        const built = try fan_rail.build(a, resolved, 0);
         try testing.expectEqual(@as(i32, 3), built.rail.crossbar[0].y);
         try testing.expect(built.rail.crossbar[0].y > pivot.rect.bottom() - 1);
     }
@@ -134,7 +134,7 @@ test "formal base approach: rail lifts one row when the gap admits it, holds at 
             fan_rail.nearPeer(mkEdge2(1, 0, 2), r, null, .out),
         };
         const resolved = fan_rail.Resolved{ .pivot = pivot, .direction = .out, .peers = &peers };
-        const built = try fan_rail.build(a, resolved, 0, 0);
+        const built = try fan_rail.build(a, resolved, 0);
         try testing.expectEqual(@as(i32, 2), built.rail.crossbar[0].y);
     }
 
@@ -147,7 +147,7 @@ test "formal base approach: rail lifts one row when the gap admits it, holds at 
             fan_rail.nearPeer(mkEdge2(1, 2, 0), s2, null, .out),
         };
         const resolved = fan_rail.Resolved{ .pivot = sink, .direction = .in, .peers = &peers };
-        const built = try fan_rail.build(a, resolved, 0, 0);
+        const built = try fan_rail.build(a, resolved, 0);
         try testing.expectEqual(@as(i32, 7), built.rail.crossbar[0].y);
         try testing.expect(built.rail.crossbar[0].y <= sink.rect.y - 3);
         try testing.expect(built.rail.crossbar[0].y < sink.rect.y);
@@ -163,7 +163,7 @@ test "formal base approach: rail lifts one row when the gap admits it, holds at 
             fan_rail.nearPeer(mkEdge2(1, 2, 0), s2, null, .out),
         };
         const resolved = fan_rail.Resolved{ .pivot = sink, .direction = .in, .peers = &peers };
-        const built = try fan_rail.build(a, resolved, 0, 0);
+        const built = try fan_rail.build(a, resolved, 0);
         try testing.expectEqual(@as(i32, 3), built.rail.crossbar[0].y);
         for (peers) |pr| try testing.expect(built.rail.crossbar[0].y > pr.placement.rect.bottom() - 1);
     }
@@ -188,7 +188,7 @@ test "labeled fan-OUT rail lifts the crossbar for a 4-cell dropper when the gap 
             fan_rail.nearPeer(lbl_edge_b, r, null, .out),
         };
         const resolved = fan_rail.Resolved{ .pivot = pivot, .direction = .out, .peers = &peers };
-        const built = try fan_rail.build(a, resolved, 0, 0);
+        const built = try fan_rail.build(a, resolved, 0);
         try testing.expectEqual(@as(i32, 3), built.rail.crossbar[0].y);
         for (built.taps) |tap| {
             try testing.expectEqual(@as(i32, 4), tap.landing.y - tap.at.y - 1);
@@ -204,7 +204,7 @@ test "labeled fan-OUT rail lifts the crossbar for a 4-cell dropper when the gap 
             fan_rail.nearPeer(lbl_edge_b, r, null, .out),
         };
         const resolved = fan_rail.Resolved{ .pivot = pivot, .direction = .out, .peers = &peers };
-        const built = try fan_rail.build(a, resolved, 0, 0);
+        const built = try fan_rail.build(a, resolved, 0);
         try testing.expectEqual(@as(i32, 3), built.rail.crossbar[0].y);
     }
 }
@@ -263,7 +263,7 @@ test "a long member gets a one-cell drop whose tap continues" {
     peers[1].column = 33;
     peers[1].line = 6;
     const resolved = fan_rail.Resolved{ .pivot = pivot, .direction = .out, .peers = &peers };
-    const built = try fan_rail.build(a, resolved, 0, 0);
+    const built = try fan_rail.build(a, resolved, 0);
     try testing.expectEqual(@as(i32, 3), built.rail.crossbar[0].y);
     try testing.expect(!built.taps[0].continues);
     try testing.expectEqual(@as(i32, 6), built.taps[0].landing.y);

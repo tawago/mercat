@@ -4,7 +4,6 @@ const pb = @import("../base/ledger.zig");
 const rail_closure = @import("../base/rail_closure.zig");
 const sugiyama = @import("sugiyama.zig");
 const fan_mod = @import("fan.zig");
-const rt = @import("routing_terminal.zig");
 const pack_mod = @import("gap_rows_pack.zig");
 const census_mod = @import("gap_rows_census.zig");
 
@@ -125,7 +124,6 @@ pub fn fanClaims(
             g.hi = @max(g.hi, @max(run_lo, tap));
             if (p.label_width != 0) g.labeled = true;
             if (e.arrow_from != .none) g.decorated_source = true;
-            if (f.direction == .out) g.lift = @max(g.lift, rt.fanRailLift(c.graph, e.from, e.to));
             if (!p.long) try g.edges.append(a, e.id);
             try g.stems.append(a, run_lo);
             try g.taps.append(a, tap);
@@ -151,7 +149,7 @@ pub fn fanClaims(
                 .gap = g.gap,
                 .lo = g.lo,
                 .hi = g.hi,
-                .height = if (g.comb) 1 else base + g.lift + @intFromBool(g.decorated_source),
+                .height = if (g.comb) 1 else base + @intFromBool(g.decorated_source),
                 .kind = if (g.comb) .grid_comb else if (f.direction == .in) .fan_in else .fan_out,
                 .edges = try g.edges.toOwnedSlice(a),
                 .fans = if (g.private) &.{} else keys,

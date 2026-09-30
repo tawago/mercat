@@ -32,7 +32,6 @@ pub const findGraphEdge = rt.findGraphEdge;
 pub const findPlacement = rt.findPlacement;
 pub const isReversed = rt.isReversed;
 pub const mapArrow = rt.mapArrow;
-const fanRailLift = rt.fanRailLift;
 const collectVirtuals = rt.collectVirtuals;
 
 pub const NodeGeom = node_geom.NodeGeom;
@@ -64,15 +63,11 @@ pub fn buildEdgesWithPlan(
 
     var rails: std.ArrayListUnmanaged(fan_rail.Built) = .empty;
     var claimed: std.ArrayListUnmanaged(sg.EdgeId) = .empty;
-    const Pending = struct { fan: fan_mod.Fan, resolved: fan_rail.Resolved, lift: u32 };
+    const Pending = struct { fan: fan_mod.Fan, resolved: fan_rail.Resolved };
     var pending: std.ArrayListUnmanaged(Pending) = .empty;
     for (fans) |f| {
         const resolved = (try fan_rail.resolve(a, graph.direction, f, graph, placements, geom, bundles, allocated_ports)) orelse continue;
-        var lift: u32 = 0;
-        for (resolved.peers) |p| {
-            lift = @max(lift, fanRailLift(graph, p.edge.from, p.edge.to));
-        }
-        try pending.append(a, .{ .fan = f, .resolved = resolved, .lift = lift });
+        try pending.append(a, .{ .fan = f, .resolved = resolved });
     }
     for (pending.items) |p| {
         if (p.resolved.direction != .out) continue;
@@ -97,7 +92,7 @@ pub fn buildEdgesWithPlan(
         for (pending.items, 0..) |p, pi| {
             if (p.resolved.peers.len < 2) continue;
             const row = rows.rowOfFan(p.fan.pivot_idx, p.fan.direction) orelse 0;
-            const built = try fan_rail.build(a, p.resolved, p.lift, @intCast(@max(row, 0)));
+            const built = try fan_rail.build(a, p.resolved, @intCast(@max(row, 0)));
             if (fan_rail.blocked(built, p.resolved.pivot.id, placements)) continue;
             if (try route_clearance.railConflictsReservedTerminals(a, built.rail, placements, allocated_ports.edges, bundles)) continue;
             try rails.append(a, built);
@@ -143,10 +138,6 @@ pub fn buildEdgesWithPlan(
                 const dst_p = findPlacement(placements, orig.to);
                 const pivot_p = if (hit.fan.direction == .out) src_p else dst_p;
                 const peer_p = if (hit.fan.direction == .out) dst_p else src_p;
-                const rail_lift: u32 = if (hit.fan.direction == .out)
-                    fanRailLift(graph, orig.from, orig.to)
-                else
-                    0;
                 const planned = rows.laneOfEdge(orig.id, .exit);
                 var ladder = LaneLadder{ .planned = planned, .lane = planned };
                 const dodge_y: ?i32 = if (hit.fan.direction == .out) dodgeRow(rows, lg, geom, orig) else null;
@@ -162,7 +153,7 @@ pub fn buildEdgesWithPlan(
                     poly = if (lane == planned and orig.label == null and (ep.source_duplicate or ep.target_duplicate))
                         try port_plan.duplicateDetour(a, graph.direction, src_p, dst_p, ep, placements)
                     else
-                        try fan_polyline.buildPolylineAt(a, graph.direction, routed_fan, pivot_p, peer_p, ep.source, ep.target, routed_role, lane, rail_lift, dodge_y, placements, straight);
+                        try fan_polyline.buildPolylineAt(a, graph.direction, routed_fan, pivot_p, peer_p, ep.source, ep.target, routed_role, lane, dodge_y, placements, straight);
                     if (proxy or try accepts(a, orig, poly, straight, out.items, bar_views, placements, allocated_ports.edges, bundles)) break;
                     if (ladder.next()) continue;
                     poly = if (orig.kind == .invisible)

@@ -129,7 +129,6 @@ pub const Group = struct {
     hi: i32,
     labeled: bool = false,
     decorated_source: bool = false,
-    lift: u32 = 0,
     edges: std.ArrayListUnmanaged(sg.EdgeId) = .empty,
     stems: std.ArrayListUnmanaged(i32) = .empty,
     taps: std.ArrayListUnmanaged(i32) = .empty,

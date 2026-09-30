@@ -122,7 +122,6 @@ pub fn longColumn(centre: i32, direction: fan_mod.Direction, pivot: sketch.NodeP
 pub fn build(
     a: std.mem.Allocator,
     resolved: Resolved,
-    rail_lift: u32,
     lane: u32,
 ) error{OutOfMemory}!Built {
     const pivot_p = resolved.pivot;
@@ -135,7 +134,7 @@ pub fn build(
     for (resolved.peers) |p| {
         peer_line = if (fan_in) @max(peer_line, p.line) else @min(peer_line, p.line);
     }
-    const delta: i32 = @intCast(rail_lift + lane);
+    const delta: i32 = @intCast(lane);
     const anchor: i32 = if (fan_in) pivot_p.rect.y else peer_line;
     const obstacle: i32 = if (fan_in) peer_line else pivot_p.rect.bottom() - 1;
     var labeled = false;

@@ -49,7 +49,6 @@ pub fn buildPolylineAt(
     target_port: sketch.Port,
     role: ChildRole,
     member_lane: u32,
-    rail_lift: u32,
     dodge_y: ?i32,
     placements: []const sketch.NodePlacement,
     straight: Straight,
@@ -103,8 +102,7 @@ pub fn buildPolylineAt(
     }
     const s_peri = source_point.y;
     const t_peri = target_point.y;
-    const lift: i32 = @intCast(rail_lift);
-    var rail_y: i32 = if (south_flow) t_peri - 2 - lift - lane else t_peri + 2 + lift + lane;
+    var rail_y: i32 = if (south_flow) t_peri - 2 - lane else t_peri + 2 + lane;
     rail_y = if (south_flow) @max(rail_y, s_peri + off_source) else @min(rail_y, s_peri - off_source);
     if (fan.direction == .out and fan.labeled and south_flow) {
         const raised = rail_y - @as(i32, @intCast(fan_mod.LABEL_RUN_EXTRA_ROWS - 1));
