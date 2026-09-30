@@ -54,20 +54,7 @@ pub fn choose(
     candidates: []const Candidate,
     subgraph_edges: prim.SubgraphEdges,
 ) !usize {
-    const routed = try select.ciFilter(aa, candidates);
-    const kept = try aa.alloc(usize, routed.len);
-    var n: usize = 0;
-    for (candidates, 0..) |c, i| if (routes(c)) {
-        kept[n] = i;
-        n += 1;
-    };
-    std.debug.assert(n == routed.len);
-    if (routed.len == 0) {
-        const fit = ladder.firstFit(candidates);
-        for (candidates, 0..) |c, i| if (c.rung == fit.rung and c.transform == fit.transform) return i;
-        unreachable;
-    }
-    return kept[try select.argmin(aa, routed, graph.direction, subgraph_edges)];
+    return select.chooseIndex(aa, candidates, graph.direction, subgraph_edges);
 }
 
 /// The audit counts and the score of `candidates[index]`; its tie-break index is its place in the full list.

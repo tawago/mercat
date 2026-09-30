@@ -290,15 +290,31 @@ test "a candidate with an unrouted visible edge is filtered out before scoring" 
     const set = try select.enumerateAll(a, g, testBundlePermits(), 120);
     try std.testing.expect(set.len >= 2);
     for (set) |cand| try std.testing.expectEqual(@as(u32, 0), select.unroutedEdges(cand.sketch));
-    try std.testing.expectEqual(set.len, (try select.ciFilter(a, set)).len);
+    try std.testing.expectEqual(set.len, (try select.routedPositions(a, set)).len);
 
     const forged = try a.dupe(ladder.Candidate, set);
     const edges = try a.dupe(@TypeOf(forged[1].sketch.edges[0]), forged[1].sketch.edges);
     edges[0].polyline = &.{};
     forged[1].sketch.edges = edges;
     try std.testing.expectEqual(@as(u32, 1), select.unroutedEdges(forged[1].sketch));
-    const survivors = try select.ciFilter(a, forged);
+    const survivors = try select.routedPositions(a, forged);
     try std.testing.expectEqual(forged.len - 1, survivors.len);
-    try std.testing.expectEqual(forged[0].rung, survivors[0].rung);
-    for (survivors) |cand| try std.testing.expect(cand.rung != forged[1].rung);
+    try std.testing.expectEqual(@as(usize, 0), survivors[0]);
+    for (survivors) |position| try std.testing.expect(position != 1);
+}
+
+test "when no candidate routes, the choice is the first raw rung that fits" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const g = try parse(a, "flowchart TD\n  A --> B\n  B --> C\n");
+    const set = try a.dupe(ladder.Candidate, try select.enumerateAll(a, g, testBundlePermits(), 120));
+    for (set) |*cand| {
+        const edges = try a.dupe(@TypeOf(cand.sketch.edges[0]), cand.sketch.edges);
+        for (edges) |*e| e.polyline = &.{};
+        cand.sketch.edges = edges;
+    }
+    try std.testing.expectEqual(@as(usize, 0), (try select.routedPositions(a, set)).len);
+    try std.testing.expectEqual(ladder.firstFitIndex(set), try select.chooseIndex(a, set, g.direction, .bridge));
+    try std.testing.expectEqual(@as(usize, 0), try select.chooseIndex(a, set, g.direction, .bridge));
 }

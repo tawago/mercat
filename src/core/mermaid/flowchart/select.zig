@@ -20,26 +20,42 @@ pub fn choose(
     subgraph_edges: prim.SubgraphEdges,
 ) !Candidate {
     const candidates = try enumerateAll(aa, graph, bundle_permits, max_width);
-    const routed = try ciFilter(aa, candidates);
-    if (routed.len == 0) return ladder.firstFit(candidates);
-    return routed[try argmin(aa, routed, graph.direction, subgraph_edges)];
+    return candidates[try chooseIndex(aa, candidates, graph.direction, subgraph_edges)];
+}
+
+/// Where `choose` finds its candidate in the list.
+pub fn chooseIndex(
+    aa: std.mem.Allocator,
+    candidates: []const Candidate,
+    source_direction: sem_graph.Direction,
+    subgraph_edges: prim.SubgraphEdges,
+) !usize {
+    const positions = try routedPositions(aa, candidates);
+    if (positions.len == 0) return ladder.firstFitIndex(candidates);
+    const routed = try aa.alloc(Candidate, positions.len);
+    for (positions, routed) |p, *r| r.* = candidates[p];
+    return positions[try argmin(aa, routed, source_direction, subgraph_edges)];
+}
+
+pub fn isUnrouted(e: sketch_mod.EdgePath) bool {
+    return e.polyline.len < 2 and e.kind != .invisible;
 }
 
 pub fn unroutedEdges(s: sketch_mod.Sketch) u32 {
     var n: u32 = 0;
-    for (s.edges) |e| if (e.polyline.len < 2 and e.kind != .invisible) {
-        n += 1;
-    };
+    for (s.edges) |e| {
+        if (isUnrouted(e)) n += 1;
+    }
     return n;
 }
 
-/// The candidates that route every visible edge.
-pub fn ciFilter(aa: std.mem.Allocator, candidates: []const ladder.Candidate) ![]const ladder.Candidate {
-    var survivors: std.ArrayListUnmanaged(ladder.Candidate) = .empty;
-    for (candidates) |cand| {
-        if (unroutedEdges(cand.sketch) == 0) try survivors.append(aa, cand);
+/// Positions, in list order, of the candidates that route every visible edge.
+pub fn routedPositions(aa: std.mem.Allocator, candidates: []const Candidate) ![]const usize {
+    var kept: std.ArrayListUnmanaged(usize) = .empty;
+    for (candidates, 0..) |cand, i| {
+        if (unroutedEdges(cand.sketch) == 0) try kept.append(aa, i);
     }
-    return survivors.toOwnedSlice(aa);
+    return kept.toOwnedSlice(aa);
 }
 
 /// Raw rungs in rung order, then motif-packed rungs, then bridge variants.

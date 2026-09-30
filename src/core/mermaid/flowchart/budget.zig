@@ -66,9 +66,13 @@ pub fn enumerate(
 
 /// The first raw candidate, in rung order, that fits the width; truncate is accepted as it is.
 pub fn firstFit(candidates: []const Candidate) Candidate {
-    for (candidates) |c| {
+    return candidates[firstFitIndex(candidates)];
+}
+
+pub fn firstFitIndex(candidates: []const Candidate) usize {
+    for (candidates, 0..) |c, i| {
         if (c.transform != .raw) continue;
-        if (c.rung == .truncate or !hasWidthOverflow(c.sketch.diagnostics)) return c;
+        if (c.rung == .truncate or !hasWidthOverflow(c.sketch.diagnostics)) return i;
     }
     unreachable;
 }
