@@ -350,7 +350,6 @@ test {
     _ = @import("render_evidence_test.zig");
     _ = @import("layout/ports.zig");
     _ = @import("layout/ports_test.zig");
-    _ = @import("layout/ports_step7_test.zig");
     _ = @import("layout/port_plan_test.zig");
     _ = @import("layout/bundle_commit_test.zig");
     _ = @import("layout/route_clearance_test.zig");

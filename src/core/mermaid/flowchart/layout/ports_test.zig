@@ -413,3 +413,72 @@ test "demandDims computes 2*max+1 per axis" {
     try t.expectEqual(@as(u32, 7), dims.w_min);
     try t.expectEqual(@as(u32, 3), dims.h_min);
 }
+
+test "a plain forward arrival co-located with a self-loop terminal joins the side allocation" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const nodes = [_]sg.Node{ mkNode(0, "D"), mkNode(1, "Z") };
+    const edges = [_]sg.Edge{ mkEdge(0, 0, 1), mkEdge(1, 1, 1) };
+    const graph: sg.SemGraph = .{ .direction = .TD, .nodes = &nodes, .edges = &edges, .clusters = &.{}, .classes = &.{}, .arena = null };
+    const derived = try ports.derive(a, graph, .{ .policy = .joined }, .{}, .TD, &.{});
+    try std.testing.expectEqual(@as(u32, 2), ports.sideDemand(derived, 1).north);
+    const north = try ports.forSide(a, derived, 1, .north);
+    var saw_arrival = false;
+    var saw_self = false;
+    for (north) |attachment| {
+        if (attachment.edge == 0) saw_arrival = true;
+        if (attachment.edge == 1) saw_self = true;
+    }
+    try std.testing.expect(saw_arrival and saw_self);
+    const out = switch (try ports.allocate(a, .{}, 1, .north, 7, north)) {
+        .assigned => |items| items,
+        .failed => return error.UnexpectedAllocationFailure,
+    };
+    try std.testing.expect(out[0].offset != out[1].offset);
+    try std.testing.expectEqual(@as(u32, 0), ports.sideDemand(derived, 0).south);
+    const plain_edges = [_]sg.Edge{mkEdge(0, 0, 1)};
+    const plain: sg.SemGraph = .{ .direction = .TD, .nodes = &nodes, .edges = &plain_edges, .clusters = &.{}, .classes = &.{}, .arena = null };
+    const plain_derived = try ports.derive(a, plain, .{ .policy = .joined }, .{}, .TD, &.{});
+    try std.testing.expectEqual(@as(usize, 0), plain_derived.len);
+}
+
+test "V-D-PORT-06: realized Km1 fan-IN derives one north pivot attachment and keeps the merged terminal" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const nodes = [_]sg.Node{ mkNode(0, "A"), mkNode(1, "B"), mkNode(2, "T") };
+    const edges = [_]sg.Edge{ mkEdge(0, 0, 2), mkEdge(1, 1, 2) };
+    const graph: sg.SemGraph = .{ .direction = .TD, .nodes = &nodes, .edges = &edges, .clusters = &.{}, .classes = &.{}, .arena = null };
+    const groups = [_]pb.CandidateBundle{.{ .id = 0, .direction = .in, .pivot = 2, .members = &.{ 0, 1 } }};
+    const permit_memberships = [_]pb.BundleMembership{
+        .{ .edge = 0, .source_group = null, .target_group = 0 }, .{ .edge = 1, .source_group = null, .target_group = 0 },
+    };
+    const permit: pb.BundlePermits = .{ .policy = .joined, .groups = &groups, .memberships = &permit_memberships };
+    const memberships = [_]pb.RealizedEdgeMembership{
+        .{ .edge = 0, .source = null, .target = .{ .selected = 0 } }, .{ .edge = 1, .source = null, .target = .{ .selected = 0 } },
+    };
+    const bundles: pb.RealizedBundles = .{
+        .selected_bundles = &.{.{ .id = 0, .proposal = 0, .candidate_bundle = 0, .members = &.{ 0, 1 } }},
+        .memberships = &memberships,
+    };
+    const derived = try ports.derive(a, graph, permit, bundles, .TD, &.{});
+    const target = try ports.forSide(a, derived, 2, .north);
+    try std.testing.expectEqual(@as(usize, 1), target.len);
+    try std.testing.expectEqual(ports.AttachmentClass.rail_pivot, target[0].class);
+    try std.testing.expectEqual(pb.EndpointSide.target_entry, target[0].key.endpoint_side);
+    try std.testing.expectEqual(@as(usize, 2), target[0].members.len);
+    const allocated = switch (try ports.allocate(a, .{}, 2, .north, 7, target)) {
+        .assigned => |items| items,
+        .failed => return error.UnexpectedAllocationFailure,
+    };
+    try std.testing.expectEqual(@as(usize, 1), allocated.len);
+    try std.testing.expectEqual(@as(u32, 3), allocated[0].offset);
+
+    for ([_]u32{ 0, 1 }) |src| {
+        const exits = try ports.forSide(a, derived, src, .south);
+        try std.testing.expectEqual(@as(usize, 1), exits.len);
+        try std.testing.expectEqual(ports.AttachmentClass.independent, exits[0].class);
+        try std.testing.expectEqual(pb.EndpointSide.source_exit, exits[0].key.endpoint_side);
+    }
+}
