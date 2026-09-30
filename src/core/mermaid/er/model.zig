@@ -28,8 +28,8 @@ pub const Cardinality = enum {
 
 pub const Entity = struct {
     name: []const u8,
-    x: ?i32 = null,
-    y: ?i32 = null,
+    x: i32 = 0,
+    y: i32 = 0,
     width: u32 = 0,
     height: u32 = 0,
 

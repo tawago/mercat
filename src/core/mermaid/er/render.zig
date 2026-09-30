@@ -3,14 +3,20 @@ const Allocator = std.mem.Allocator;
 const types = @import("../types.zig");
 const parse = @import("parse.zig");
 const model = @import("model.zig");
-const canvas_mod = @import("../shared/canvas.zig");
+const Canvas = @import("../shared/canvas.zig").Canvas;
 
 const ERDiagram = model.ERDiagram;
 const Entity = model.Entity;
 const ERRelation = model.ERRelation;
 const LineChars = types.LineChars;
 
-const Canvas = canvas_mod.Canvas;
+const entity_padding: u32 = 2;
+const min_entity_width: u32 = 12;
+const entity_height: u32 = 3;
+const horizontal_spacing: u32 = 8;
+const vertical_spacing: u32 = 3;
+
+const Size = struct { width: u32, height: u32 };
 
 pub fn render(allocator: Allocator, source: []const u8, max_width: u32) !?[]const u8 {
     var diagram = try parse.parse(allocator, source);
@@ -20,41 +26,12 @@ pub fn render(allocator: Allocator, source: []const u8, max_width: u32) !?[]cons
         return "";
     }
 
-    const entity_padding: u32 = 2;
-    const min_entity_width: u32 = 12;
-    const entity_height: u32 = 3;
-    const horizontal_spacing: u32 = 8;
-    const vertical_spacing: u32 = 3;
-
-    for (diagram.entity_order.items) |entity_name| {
-        if (diagram.getEntityMut(entity_name)) |entity| {
-            var width: u32 = @intCast(entity_name.len + entity_padding * 2);
-            if (width < min_entity_width) width = min_entity_width;
-            entity.width = width;
-            entity.height = entity_height;
-        }
-    }
-
-    var current_x: i32 = 1;
-    const y: i32 = 1;
-
-    for (diagram.entity_order.items) |entity_name| {
-        if (diagram.getEntityMut(entity_name)) |entity| {
-            entity.x = current_x;
-            entity.y = y;
-            current_x += @intCast(entity.width + horizontal_spacing);
-        }
-    }
-
-    const total_width: u32 = @intCast(@max(current_x, 1));
-    var total_height: u32 = entity_height + vertical_spacing + 2;
-    total_height += @intCast(diagram.relations.items.len * 2);
-
-    if (total_width > max_width) {
+    const size = place(&diagram);
+    if (size.width > max_width) {
         return null;
     }
 
-    var canvas = try Canvas.init(allocator, total_width, total_height);
+    var canvas = try Canvas.init(allocator, size.width, size.height);
     defer canvas.deinit();
 
     for (diagram.entity_order.items) |entity_name| {
@@ -67,43 +44,52 @@ pub fn render(allocator: Allocator, source: []const u8, max_width: u32) !?[]cons
         drawERRelation(&canvas, rel, &diagram);
     }
 
-    const output = try canvas.toString(allocator);
+    return try canvas.toString(allocator);
+}
 
-    return output;
+/// Size the entity boxes and set them in one row, in declaration order; the canvas is tall
+/// enough for two rows of crossing line per relation.
+fn place(diagram: *ERDiagram) Size {
+    var current_x: i32 = 1;
+
+    for (diagram.entity_order.items) |entity_name| {
+        if (diagram.getEntityMut(entity_name)) |entity| {
+            entity.width = @max(@as(u32, @intCast(entity_name.len)) + entity_padding * 2, min_entity_width);
+            entity.height = entity_height;
+            entity.x = current_x;
+            entity.y = 1;
+            current_x += @intCast(entity.width + horizontal_spacing);
+        }
+    }
+
+    const width: u32 = @intCast(@max(current_x, 1));
+    const height: u32 = entity_height + vertical_spacing + 2 + @as(u32, @intCast(diagram.relations.items.len * 2));
+    return .{ .width = width, .height = height };
 }
 
 fn drawEntityBox(canvas: *Canvas, entity: *const Entity) void {
-    const x = entity.x orelse return;
-    const y = entity.y orelse return;
     const w: i32 = @intCast(entity.width);
 
-    const box_style = types.unicode_square;
-
     canvas.drawBox(.{
-        .x = x,
-        .y = y,
+        .x = entity.x,
+        .y = entity.y,
         .width = entity.width,
         .height = entity.height,
-    }, box_style, .node_border);
+    }, types.unicode_square, .node_border);
 
     const name_len: i32 = @intCast(entity.name.len);
-    const name_x = x + @divFloor(w - name_len, 2);
-    canvas.drawText(name_x, y + 1, entity.name, .node_text);
+    const name_x = entity.x + @divFloor(w - name_len, 2);
+    canvas.drawText(name_x, entity.y + 1, entity.name, .node_text);
 }
 
 fn drawERRelation(canvas: *Canvas, rel: *const ERRelation, diagram: *const ERDiagram) void {
     const from_entity = diagram.getEntity(rel.from) orelse return;
     const to_entity = diagram.getEntity(rel.to) orelse return;
 
-    const from_x = from_entity.x orelse return;
-    const from_y = from_entity.y orelse return;
-    const to_x = to_entity.x orelse return;
-    const to_y = to_entity.y orelse return;
-
-    const start_x = from_x + @as(i32, @intCast(from_entity.width));
-    const start_y = from_y + @as(i32, @intCast(from_entity.height / 2));
-    const end_x = to_x;
-    const end_y = to_y + @as(i32, @intCast(to_entity.height / 2));
+    const start_x = from_entity.x + @as(i32, @intCast(from_entity.width));
+    const start_y = from_entity.y + @as(i32, @intCast(from_entity.height / 2));
+    const end_x = to_entity.x;
+    const end_y = to_entity.y + @as(i32, @intCast(to_entity.height / 2));
 
     const line_char: u21 = LineChars.horizontal;
 
@@ -111,10 +97,9 @@ fn drawERRelation(canvas: *Canvas, rel: *const ERRelation, diagram: *const ERDia
         canvas.drawHorizontalLine(start_y, start_x, end_x, line_char, .edge);
     } else {
         const mid_x = @divFloor(start_x + end_x, 2);
-        const v_char: u21 = LineChars.vertical;
 
         canvas.drawHorizontalLine(start_y, start_x, mid_x, line_char, .edge);
-        canvas.drawVerticalLine(mid_x, @min(start_y, end_y), @max(start_y, end_y), v_char, .edge);
+        canvas.drawVerticalLine(mid_x, @min(start_y, end_y), @max(start_y, end_y), LineChars.vertical, .edge);
         canvas.drawHorizontalLine(end_y, mid_x, end_x, line_char, .edge);
     }
 
