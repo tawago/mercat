@@ -15,7 +15,6 @@ const paint_mod = @import("paint.zig");
 const ladder_pkg = @import("budget.zig");
 const select_mod = @import("select.zig");
 const ledger = @import("base/ledger.zig");
-const permits_mod = @import("ledger/permits.zig");
 const prim = @import("prim");
 
 pub const layoutFlowchart = coords_mod.layout;
@@ -57,7 +56,7 @@ pub fn renderFlowchart(allocator: std.mem.Allocator, source: []const u8, options
         std.log.warn("mermaid_v2 parse: skipped {d} unparseable non-edge line(s); rendering the rest", .{graph.skipped_lines});
     }
 
-    const branch_result = resolveBundlePermits(aa, graph) catch |err| {
+    const branch_result = select_mod.resolvePermits(aa, graph) catch |err| {
         std.log.warn("mermaid_v2 branch plan failed: {s}", .{@errorName(err)});
         return fallback(source, "v2 pipeline error: branch plan");
     };
@@ -103,14 +102,6 @@ fn nodeRawId(graph: sem_graph.SemGraph, id: sem_graph.NodeId) []const u8 {
     return "?";
 }
 
-fn resolveBundlePermits(allocator: std.mem.Allocator, graph: sem_graph.SemGraph) !permits_mod.BuildResult {
-    const result = try permits_mod.build(allocator, graph, .joined);
-    if (result.report.bundle_permits_skipped_clustered) return result;
-    const validation = try permits_mod.validate(allocator, graph, result.plan);
-    if (!validation.valid()) return error.InvalidBundlePermits;
-    return result;
-}
-
 fn fallback(source: []const u8, reason: []const u8) RenderResult {
     return .{
         .output = source,
@@ -127,7 +118,7 @@ test "V-D-POLICY-02: production resolver originates joined for a flat graph" {
     const a = arena.allocator();
     const graph = try parse(a, "flowchart TD\nA --> B\nA --> C\n");
 
-    const result = try resolveBundlePermits(a, graph);
+    const result = try select_mod.resolvePermits(a, graph);
     try std.testing.expectEqual(ledger.BundlePolicy.joined, result.plan.policy);
     try std.testing.expect(!result.report.bundle_permits_skipped_clustered);
     try std.testing.expectEqual(@as(usize, 1), result.plan.groups.len);
@@ -157,7 +148,7 @@ test "V-D-IR-07: a clustered graph's bundles ride piece plans; the root plan sta
         \\
     );
 
-    const result = try resolveBundlePermits(a, graph);
+    const result = try select_mod.resolvePermits(a, graph);
     try std.testing.expectEqual(ledger.BundlePolicy.joined, result.plan.policy);
     try std.testing.expect(result.report.bundle_permits_skipped_clustered);
     const laid_out = try ladder_pkg.runForced(a, graph, &result.plan, 120, .natural);
@@ -180,7 +171,7 @@ test "cluster unification: a subgraph-internal fan-in realizes a rail and ships 
         \\
     );
 
-    const result = try resolveBundlePermits(a, graph);
+    const result = try select_mod.resolvePermits(a, graph);
     const laid_out = try ladder_pkg.runForced(a, graph, &result.plan, 80, .natural);
     try std.testing.expectEqual(@as(usize, 1), laid_out.sketch.bundles.selected_bundles.len);
     try std.testing.expectEqual(@as(usize, 2), laid_out.sketch.bundles.selected_bundles[0].members.len);
@@ -223,7 +214,7 @@ test "cluster unification: two subgraph rails keep their own members through non
         \\
     );
 
-    const result = try resolveBundlePermits(a, graph);
+    const result = try select_mod.resolvePermits(a, graph);
     const laid_out = try ladder_pkg.runForced(a, graph, &result.plan, 80, .natural);
     const bundles = laid_out.sketch.bundles.selected_bundles;
     try std.testing.expectEqual(@as(usize, 2), bundles.len);
@@ -263,7 +254,7 @@ test "cluster unification: a bridge never transits a stitched rail's arrowhead" 
         \\C --> H
         \\
     );
-    const result = try resolveBundlePermits(a, graph);
+    const result = try select_mod.resolvePermits(a, graph);
     const laid_out = try ladder_pkg.runForced(a, graph, &result.plan, 120, .natural);
     const report = try rasterize(a, laid_out.sketch, .bridge);
     try std.testing.expectEqual(@as(u32, 0), report.crossings.arrowhead_transit_violation);
@@ -308,7 +299,7 @@ test "cluster unification: bridges route around each other, not through" {
         \\    VALID -.->|fetch JWKS| PROV
         \\
     );
-    const result = try resolveBundlePermits(a, graph);
+    const result = try select_mod.resolvePermits(a, graph);
     const winner = try select_mod.choose(a, graph, &result.plan, 120, .bridge);
     const report = try rasterize(a, winner.sketch, .bridge);
     try std.testing.expectEqual(@as(u32, 0), report.crossings.foreign_junction_violation);

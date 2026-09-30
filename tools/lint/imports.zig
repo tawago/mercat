@@ -143,8 +143,8 @@ pub const file_allowlists = [_]struct {
     },
     .{
         .name = "select.zig",
-        .allowed = &.{ .sem_graph, .sketch, .budget, .parse_zone, .raster_zone, .{ .exact = "score.zig" }, .{ .exact = "motif.zig" } },
-        .reason = "select may only import std, prim, base/ledger, sem_graph, sketch, budget, score, motif, raster, or parse",
+        .allowed = &.{ .sem_graph, .sketch, .budget, .parse_zone, .raster_zone, .{ .exact = "score.zig" }, .{ .exact = "motif.zig" }, .{ .exact = "ledger/permits.zig" } },
+        .reason = "select may only import std, prim, base/ledger, sem_graph, sketch, budget, score, motif, raster, ledger/permits, or parse",
     },
     .{
         .name = "select_test.zig",
@@ -205,9 +205,8 @@ pub const file_allowlists = [_]struct {
             .raster_zone,
             .{ .exact = "select.zig" },
             .{ .exact = "paint.zig" },
-            .{ .exact = "ledger/permits.zig" },
         },
-        .reason = "candidates may only import std, prim, base/*, sem_graph, budget, select, raster, paint, or ledger/permits",
+        .reason = "candidates may only import std, prim, base/*, sem_graph, budget, select, raster, or paint",
     },
     .{
         .name = "candidates_test.zig",

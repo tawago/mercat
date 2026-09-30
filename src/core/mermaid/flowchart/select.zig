@@ -1,6 +1,7 @@
 const std = @import("std");
 const prim = @import("prim");
 const ledger = @import("base/ledger.zig");
+const permits_mod = @import("ledger/permits.zig");
 const sem_graph = @import("sem_graph.zig");
 const sketch_mod = @import("sketch.zig");
 const ladder = @import("budget.zig");
@@ -9,6 +10,15 @@ const raster = @import("raster.zig");
 const motif_mod = @import("motif.zig");
 
 const Candidate = ladder.Candidate;
+
+/// The graph's bundle permits, checked unless the graph is clustered.
+pub fn resolvePermits(aa: std.mem.Allocator, graph: sem_graph.SemGraph) !permits_mod.BuildResult {
+    const result = try permits_mod.build(aa, graph, .joined);
+    if (result.report.bundle_permits_skipped_clustered) return result;
+    const validation = try permits_mod.validate(aa, graph, result.plan);
+    if (!validation.valid()) return error.InvalidBundlePermits;
+    return result;
+}
 
 /// The lowest-scored candidate among those that route every visible edge,
 /// or the first raw rung that fits when none does.

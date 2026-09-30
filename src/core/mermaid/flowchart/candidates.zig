@@ -4,7 +4,6 @@
 const std = @import("std");
 const prim = @import("prim");
 const ledger = @import("base/ledger.zig");
-const permits = @import("ledger/permits.zig");
 const sem_graph = @import("sem_graph.zig");
 const ladder = @import("budget.zig");
 const select = @import("select.zig");
@@ -25,13 +24,8 @@ pub const Drawn = struct {
 
 /// Every layout the selection weighs for this graph and width, in the order it weighs them.
 pub fn list(aa: std.mem.Allocator, graph: sem_graph.SemGraph, max_width: u32) ![]const Candidate {
-    const built = try permits.build(aa, graph, .joined);
-    if (!built.report.bundle_permits_skipped_clustered) {
-        const validation = try permits.validate(aa, graph, built.plan);
-        if (!validation.valid()) return error.InvalidBundlePermits;
-    }
     const plan = try aa.create(ledger.BundlePermits);
-    plan.* = built.plan;
+    plan.* = (try select.resolvePermits(aa, graph)).plan;
     return select.enumerateAll(aa, graph, plan, max_width);
 }
 
