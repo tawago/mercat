@@ -73,6 +73,10 @@ pub fn lateralArms(tip: lattice.Dir4, mask: lattice.Neighbours) lattice.Neighbou
     };
 }
 
+pub fn samePoint(a: sketch.Point, b: sketch.Point) bool {
+    return a.x == b.x and a.y == b.y;
+}
+
 pub fn onSegment(a: sketch.Point, b: sketch.Point, x: i32, y: i32) bool {
     if (a.x != b.x and a.y != b.y) return false;
     return x >= @min(a.x, b.x) and x <= @max(a.x, b.x) and

@@ -12,6 +12,7 @@ const orMask = geo.orMask;
 const straightMask = geo.straightMask;
 const segmentDir = geo.segmentDir;
 const toCoord = geo.toCoord;
+const samePoint = geo.samePoint;
 const writeEdgeCell = ew.writeEdgeCell;
 
 pub const Head = struct {
@@ -59,10 +60,6 @@ pub fn drawTargetPortStroke(
     }
     const ld = last_dir_opt orelse return;
     mergePortBit(lat, pts[pts.len - 1], reverse(ld), kind, edge_id, end);
-}
-
-fn samePoint(a: sketch.Point, b: sketch.Point) bool {
-    return a.x == b.x and a.y == b.y;
 }
 
 fn tipFaces(h: Head, q: sketch.Point) bool {

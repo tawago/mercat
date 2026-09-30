@@ -18,6 +18,7 @@ const orMask = geo.orMask;
 const segmentDir = geo.segmentDir;
 const step = geo.step;
 const pointInBounds = geo.pointInBounds;
+const samePoint = geo.samePoint;
 const toCoord = geo.toCoord;
 const writeEdgeCell = ew.writeEdgeCell;
 const drawPortStroke = ep.drawPortStroke;
@@ -29,12 +30,15 @@ pub const EdgeRasterReport = struct {
 };
 
 const EdgeWalkResult = struct {
-    first_cell: ?sketch.Point = null,
-    last_cell: ?sketch.Point = null,
-    first_dir: ?Move = null,
-    last_dir: ?Move = null,
+    first: ?ep.Head = null,
+    last: ?ep.Head = null,
     source_head: ?ep.Head = null,
     target_head: ?ep.Head = null,
+
+    fn note(self: *EdgeWalkResult, at: sketch.Point, first_dir: Move, last_dir: Move) void {
+        if (self.first == null) self.first = .{ .cell = at, .dir = first_dir };
+        self.last = .{ .cell = at, .dir = last_dir };
+    }
 };
 
 fn crossingKeepsFirstWriter(
@@ -78,6 +82,57 @@ fn railEnds(s: sketch.Sketch, edge: sketch.EdgePath) RailEnds {
     return ends;
 }
 
+const EdgeWalk = struct {
+    lat: *lattice.Lattice,
+    edge: sketch.EdgePath,
+    cells_lost: *u32,
+    ctx: crossings.Ctx,
+    result: EdgeWalkResult = .{},
+
+    fn corner(self: *EdgeWalk, at: sketch.Point, prev: Move, dir: Move, is_last: bool) void {
+        if (!pointInBounds(at, self.lat)) return;
+        const edge = self.edge;
+        const c = toCoord(at);
+        const cell = self.lat.at(c.x, c.y);
+        const corner_mask = orMask(bitMask(reverse(prev)), bitMask(dir));
+        switch (cell.occupant) {
+            .edge_segment => |seg| {
+                const refused = seg.edge != edge.id and
+                    self.ctx.segmentOverlap(seg.edge, cell.neighbours, edge.id, corner_mask, crossings.bundleCellAt(c.x, c.y));
+                if (!refused) {
+                    cell.neighbours = orMask(cell.neighbours, corner_mask);
+                    cell.occupant = .{ .edge_segment = .{
+                        .edge = seg.edge,
+                        .kind = seg.kind,
+                        .role = ew.mergeRole(seg.role, edge.role),
+                    } };
+                    fan_roles.markShared(cell, edge.id, edge.role);
+                }
+            },
+            .empty => claimCornerCell(cell, edge.id, edge.kind, edge.role, corner_mask),
+            .cluster_border => if (self.ctx.mode != .bridge) claimCornerCell(cell, edge.id, edge.kind, edge.role, corner_mask),
+            else => if (!crossingKeepsFirstWriter(cell, edge.id, corner_mask, crossings.bundleCellAt(c.x, c.y), self.ctx)) {
+                writeEdgeCell(cell, edge.id, edge.kind, edge.role, corner_mask, c.x, c.y, self.cells_lost);
+                fan_roles.markShared(cell, edge.id, edge.role);
+            },
+        }
+        self.result.note(at, dir, if (is_last) dir else prev);
+    }
+
+    fn straight(self: *EdgeWalk, at: sketch.Point, dir: Move, terminal: bool) void {
+        if (!pointInBounds(at, self.lat)) return;
+        const edge = self.edge;
+        const c = toCoord(at);
+        const cell = self.lat.at(c.x, c.y);
+        const bridged = self.ctx.mode == .bridge and cell.occupant == .cluster_border and !terminal;
+        if (!bridged and !crossingKeepsFirstWriter(cell, edge.id, straightMask(dir), crossings.bundleCellAt(c.x, c.y), self.ctx)) {
+            writeEdgeCell(cell, edge.id, edge.kind, edge.role, straightMask(dir), c.x, c.y, self.cells_lost);
+            fan_roles.markShared(cell, edge.id, edge.role);
+        }
+        self.result.note(at, dir, dir);
+    }
+};
+
 fn walkPolyline(
     lat: *lattice.Lattice,
     edge: sketch.EdgePath,
@@ -95,11 +150,8 @@ fn walkPolyline(
     }
 
     var nontrivial: usize = 0;
-    {
-        var i: usize = 0;
-        while (i + 1 < pts.len) : (i += 1) {
-            if (segmentDir(pts[i], pts[i + 1])) |_| nontrivial += 1;
-        }
+    for (pts[0 .. pts.len - 1], pts[1..]) |a, b| {
+        if (segmentDir(a, b) != null) nontrivial += 1;
     }
     if (nontrivial == 0) {
         log.debug(
@@ -109,97 +161,49 @@ fn walkPolyline(
         return .{};
     }
 
-    var result: EdgeWalkResult = .{};
+    var walk: EdgeWalk = .{ .lat = lat, .edge = edge, .cells_lost = cells_lost, .ctx = ctx };
     var prev_dir: ?Move = null;
     var seg_index: usize = 0;
-    const ek = edge.kind;
-    const erole = edge.role;
-
-    var i: usize = 0;
-    while (i + 1 < pts.len) : (i += 1) {
-        const a = pts[i];
-        const b = pts[i + 1];
-        const dir_opt = segmentDir(a, b);
-        if (dir_opt == null) continue;
-        const dir = dir_opt.?;
-
+    for (pts[0 .. pts.len - 1], pts[1..]) |a, b| {
+        const dir = segmentDir(a, b) orelse continue;
         const is_last = seg_index == nontrivial - 1;
         seg_index += 1;
 
-        if (prev_dir) |prev| {
-            if (pointInBounds(a, lat)) {
-                const c = toCoord(a);
-                const cell = lat.at(c.x, c.y);
-                const corner_mask = orMask(bitMask(reverse(prev)), bitMask(dir));
-                switch (cell.occupant) {
-                    .edge_segment => |seg| {
-                        const refused = seg.edge != edge.id and
-                            ctx.segmentOverlap(seg.edge, cell.neighbours, edge.id, corner_mask, crossings.bundleCellAt(c.x, c.y));
-                        if (!refused) {
-                            cell.neighbours = orMask(cell.neighbours, corner_mask);
-                            cell.occupant = .{ .edge_segment = .{
-                                .edge = seg.edge,
-                                .kind = seg.kind,
-                                .role = ew.mergeRole(seg.role, erole),
-                            } };
-                            fan_roles.markShared(cell, edge.id, erole);
-                        }
-                    },
-                    .empty => claimCornerCell(cell, edge.id, ek, erole, corner_mask),
-                    .cluster_border => if (ctx.mode != .bridge) claimCornerCell(cell, edge.id, ek, erole, corner_mask),
-                    else => if (!crossingKeepsFirstWriter(cell, edge.id, corner_mask, crossings.bundleCellAt(c.x, c.y), ctx)) {
-                        writeEdgeCell(cell, edge.id, ek, erole, corner_mask, c.x, c.y, cells_lost);
-                        fan_roles.markShared(cell, edge.id, erole);
-                    },
-                }
-                if (result.first_cell == null) {
-                    result.first_cell = a;
-                    result.first_dir = dir;
-                }
-                result.last_cell = a;
-                result.last_dir = if (is_last) dir else prev;
-            }
-        }
+        if (prev_dir) |prev| walk.corner(a, prev, dir, is_last);
 
         var cursor = step(a, dir);
-        while (true) {
-            const at_b = cursor.x == b.x and cursor.y == b.y;
-            if (at_b) break;
-
-            if (pointInBounds(cursor, lat)) {
-                const c = toCoord(cursor);
-                const cell = lat.at(c.x, c.y);
-                const nxt = step(cursor, dir);
-                const terminal_here = is_last and nxt.x == b.x and nxt.y == b.y;
-                const bridged = ctx.mode == .bridge and cell.occupant == .cluster_border and !terminal_here;
-                if (!bridged and !crossingKeepsFirstWriter(cell, edge.id, straightMask(dir), crossings.bundleCellAt(c.x, c.y), ctx)) {
-                    writeEdgeCell(cell, edge.id, ek, erole, straightMask(dir), c.x, c.y, cells_lost);
-                    fan_roles.markShared(cell, edge.id, erole);
-                }
-                if (result.first_cell == null) {
-                    result.first_cell = cursor;
-                    result.first_dir = dir;
-                }
-                result.last_cell = cursor;
-                result.last_dir = dir;
-            }
-
-            cursor = step(cursor, dir);
+        while (!samePoint(cursor, b)) : (cursor = step(cursor, dir)) {
+            walk.straight(cursor, dir, is_last and samePoint(step(cursor, dir), b));
         }
 
         prev_dir = dir;
     }
 
-    if (!ends.source and edge.arrow_from != .none) if (result.first_cell) |fc| if (result.first_dir) |fd| {
-        result.source_head = ep.slideHead(lat, pts[0], .{ .cell = fc, .dir = reverse(fd) });
+    var result = walk.result;
+    if (!ends.source and edge.arrow_from != .none) if (result.first) |f| {
+        result.source_head = ep.slideHead(lat, pts[0], .{ .cell = f.cell, .dir = reverse(f.dir) });
     };
-    if (!ends.target and edge.arrow_to != .none) if (result.last_cell) |lc| if (result.last_dir) |ld| {
-        result.target_head = ep.slideHead(lat, pts[pts.len - 1], .{ .cell = lc, .dir = ld });
+    if (!ends.target and edge.arrow_to != .none) if (result.last) |l| {
+        result.target_head = ep.slideHead(lat, pts[pts.len - 1], l);
     };
-    if (!ends.source) drawPortStroke(lat, pts, ek, edge.id, .{ .head = result.source_head, .role = erole });
-    if (!ends.target) drawTargetPortStroke(lat, pts, ek, edge.id, .{ .head = result.target_head, .role = erole });
+    if (!ends.source) drawPortStroke(lat, pts, edge.kind, edge.id, .{ .head = result.source_head, .role = edge.role });
+    if (!ends.target) drawTargetPortStroke(lat, pts, edge.kind, edge.id, .{ .head = result.target_head, .role = edge.role });
 
     return result;
+}
+
+fn writeHead(
+    lat: *lattice.Lattice,
+    edge: sketch.EdgePath,
+    arrow: lattice.ArrowKind,
+    head: ?ep.Head,
+    cells_lost: *u32,
+    ctx: crossings.Ctx,
+) void {
+    const h = head orelse return;
+    if (!pointInBounds(h.cell, lat)) return;
+    const c = toCoord(h.cell);
+    ew.writeArrowGuarded(lat.at(c.x, c.y), edge.id, edge.kind, arrow, h.dir, straightMask(h.dir), c.x, c.y, cells_lost, ctx);
 }
 
 pub fn rasterizeEdges(
@@ -218,19 +222,8 @@ pub fn rasterizeEdges(
 
     for (s.edges) |edge| {
         const r = walkPolyline(lat, edge, railEnds(s, edge), &cells_lost, ctx);
-
-        if (r.target_head) |h| {
-            if (pointInBounds(h.cell, lat)) {
-                const c = toCoord(h.cell);
-                ew.writeArrowGuarded(lat.at(c.x, c.y), edge.id, edge.kind, edge.arrow_to, h.dir, straightMask(h.dir), c.x, c.y, &cells_lost, ctx);
-            }
-        }
-        if (r.source_head) |h| {
-            if (pointInBounds(h.cell, lat)) {
-                const c = toCoord(h.cell);
-                ew.writeArrowGuarded(lat.at(c.x, c.y), edge.id, edge.kind, edge.arrow_from, h.dir, straightMask(h.dir), c.x, c.y, &cells_lost, ctx);
-            }
-        }
+        writeHead(lat, edge, edge.arrow_to, r.target_head, &cells_lost, ctx);
+        writeHead(lat, edge, edge.arrow_from, r.source_head, &cells_lost, ctx);
     }
 
     fan_roles.resolveMasks(lat, s);
