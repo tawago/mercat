@@ -1,6 +1,6 @@
 const std = @import("std");
 const lattice = @import("../lattice.zig");
-const ew = @import("edges_write.zig");
+const geo = @import("geometry.zig");
 
 pub fn isRealConnection(occ: lattice.Occupant) bool {
     return switch (occ) {
@@ -24,14 +24,14 @@ fn isJunctionBearing(occ: lattice.Occupant) bool {
 }
 
 fn bitSet(nb: lattice.Neighbours, d: lattice.Dir4) bool {
-    return nb.toMask() & ew.bitMask(d).toMask() != 0;
+    return nb.toMask() & geo.bitMask(d).toMask() != 0;
 }
 
 fn reprieveReciprocates(cell: *const lattice.Cell, d: lattice.Dir4) bool {
     return switch (cell.occupant) {
         .empty => false,
         .arrowhead => true,
-        else => bitSet(cell.neighbours, ew.reverse(d)),
+        else => bitSet(cell.neighbours, geo.reverse(d)),
     };
 }
 

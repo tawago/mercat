@@ -2,16 +2,17 @@ const std = @import("std");
 const sketch = @import("../sketch.zig");
 const lattice = @import("../lattice.zig");
 const ew = @import("edges_write.zig");
+const geo = @import("geometry.zig");
 
-const Move = ew.Move;
-const step = ew.step;
-const reverse = ew.reverse;
-const bitMask = ew.bitMask;
-const orMask = ew.orMask;
-const straightMask = ew.straightMask;
-const segmentDir = ew.segmentDir;
-const toCoord = ew.toCoord;
-const pointInBounds = ew.pointInBounds;
+const Move = geo.Move;
+const step = geo.step;
+const reverse = geo.reverse;
+const bitMask = geo.bitMask;
+const orMask = geo.orMask;
+const straightMask = geo.straightMask;
+const segmentDir = geo.segmentDir;
+const toCoord = geo.toCoord;
+const pointInBounds = geo.pointInBounds;
 const writeEdgeCell = ew.writeEdgeCell;
 
 pub const Head = struct {

@@ -186,22 +186,6 @@ test "a foreign head pointing another way is refused; one pointing the same way 
     try testing.expectEqual(@as(u32, 2), lost);
 }
 
-test "directional primitives round-trip (straightMask/bitMask/reverse)" {
-    try testing.expectEqual(
-        (lattice.Neighbours{ .n = true, .s = true }).toMask(),
-        ew.straightMask(.north).toMask(),
-    );
-    try testing.expectEqual(
-        (lattice.Neighbours{ .e = true, .w = true }).toMask(),
-        ew.straightMask(.east).toMask(),
-    );
-    try testing.expectEqual(ew.Move.south, ew.reverse(.north));
-    try testing.expectEqual(
-        (lattice.Neighbours{ .w = true }).toMask(),
-        ew.bitMask(.west).toMask(),
-    );
-}
-
 test "mergeRole: a rail outranks a dropper, which outranks routing roles" {
     try testing.expectEqual(
         lattice.EdgeRole.fan_out_rail,

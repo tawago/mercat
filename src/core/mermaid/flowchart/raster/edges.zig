@@ -5,25 +5,23 @@ const fan_roles = @import("fan_roles.zig");
 const crossings = @import("crossings.zig");
 const ew = @import("edges_write.zig");
 const ep = @import("edges_port.zig");
+const geo = @import("geometry.zig");
 const prim = @import("prim");
 
 const log = std.log.scoped(.@"mermaid_v2.raster.edges");
 
-pub const Move = ew.Move;
-pub const straightMask = ew.straightMask;
-pub const bitMask = ew.bitMask;
-pub const reverse = ew.reverse;
-pub const orMask = ew.orMask;
-pub const segmentDir = ew.segmentDir;
-pub const step = ew.step;
-pub const pointInBounds = ew.pointInBounds;
-pub const toCoord = ew.toCoord;
-pub const writeEdgeCell = ew.writeEdgeCell;
-pub const writeArrowCell = ew.writeArrowCell;
-pub const drawPortStroke = ep.drawPortStroke;
-pub const drawTargetPortStroke = ep.drawTargetPortStroke;
-pub const Head = ep.Head;
-pub const PortEnd = ep.PortEnd;
+const Move = geo.Move;
+const straightMask = geo.straightMask;
+const bitMask = geo.bitMask;
+const reverse = geo.reverse;
+const orMask = geo.orMask;
+const segmentDir = geo.segmentDir;
+const step = geo.step;
+const pointInBounds = geo.pointInBounds;
+const toCoord = geo.toCoord;
+const writeEdgeCell = ew.writeEdgeCell;
+const drawPortStroke = ep.drawPortStroke;
+const drawTargetPortStroke = ep.drawTargetPortStroke;
 
 pub const EdgeRasterReport = struct {
     cells_lost: u32 = 0,
@@ -83,7 +81,7 @@ fn claimCornerCell(
     cell.stroke_kind = kind;
 }
 
-pub const RailEnds = struct { source: bool = false, target: bool = false };
+const RailEnds = struct { source: bool = false, target: bool = false };
 
 fn railEnds(s: sketch.Sketch, edge: sketch.EdgePath) RailEnds {
     var ends: RailEnds = .{};

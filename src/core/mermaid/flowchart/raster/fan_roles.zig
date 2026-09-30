@@ -2,15 +2,23 @@ const ledger = @import("../base/ledger.zig");
 const rail_star = @import("../base/rail_star.zig");
 const sketch = @import("../sketch.zig");
 const lattice = @import("../lattice.zig");
-const ew = @import("edges_write.zig");
+
+/// The shared-run role a fan stroke of `role` belongs to, or null outside a fan.
+fn railRole(role: lattice.EdgeRole) ?lattice.EdgeRole {
+    return switch (role) {
+        .fan_out_rail, .fan_out_dropper => .fan_out_rail,
+        .fan_in_rail, .fan_in_dropper => .fan_in_rail,
+        else => null,
+    };
+}
 
 pub fn markShared(cell: *lattice.Cell, edge_id: u32, role: lattice.EdgeRole) void {
-    const rail = ew.railRole(role) orelse return;
+    const rail = railRole(role) orelse return;
     const seg = switch (cell.occupant) {
         .edge_segment => |s| s,
         else => return,
     };
-    if (seg.edge == edge_id or ew.railRole(seg.role) != rail) return;
+    if (seg.edge == edge_id or railRole(seg.role) != rail) return;
     cell.occupant = .{ .edge_segment = .{ .edge = seg.edge, .kind = seg.kind, .role = rail } };
 }
 
@@ -69,7 +77,7 @@ fn continuesColumn(lat: *const lattice.Lattice, x: u32, y: u32) bool {
             .edge_segment => |q| q,
             else => continue,
         };
-        if (ew.railRole(seg.role) == null) continue;
+        if (railRole(seg.role) == null) continue;
         if (!(c.neighbours.e or c.neighbours.w)) continue;
         return true;
     }

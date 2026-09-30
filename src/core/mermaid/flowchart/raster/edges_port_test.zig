@@ -2,7 +2,7 @@ const std = @import("std");
 const sketch = @import("../sketch.zig");
 const lattice = @import("../lattice.zig");
 const ew = @import("edges_port.zig");
-const prims = @import("edges_write.zig");
+const prims = @import("geometry.zig");
 
 const testing = std.testing;
 
