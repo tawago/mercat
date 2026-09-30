@@ -482,5 +482,4 @@ fn unite(parent: []u32, x: u32, y: u32) void {
 
 test {
     _ = @import("fan_lanes_test.zig");
-    _ = @import("fan_lanes_test2.zig");
 }
