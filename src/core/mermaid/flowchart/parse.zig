@@ -1,12 +1,13 @@
 const std = @import("std");
-const lex = @import("parse/lexer.zig");
 const sg = @import("sem_graph.zig");
 const cep = @import("parse/cluster_endpoints.zig");
-const th = @import("parse/token_helpers.zig");
 const bt = @import("parse/builder_types.zig");
-const sr = @import("parse/shape_reader.zig");
+const scanner = @import("parse/scanner.zig");
+const shape_reader = @import("parse/shape.zig");
+const token = @import("parse/token.zig");
 
-const Lexer = lex.Lexer;
+const Scanner = scanner.Scanner;
+const Token = token.Token;
 const Direction = sg.Direction;
 const Node = sg.Node;
 const Edge = sg.Edge;
@@ -58,7 +59,7 @@ pub fn parse(allocator: std.mem.Allocator, source: []const u8) !SemGraph {
 const Parser = struct {
     aa: std.mem.Allocator,
     source: []const u8,
-    lexer: Lexer,
+    lexer: Scanner,
 
     direction: Direction = .TD,
     skipped_lines: u32 = 0,
@@ -75,7 +76,7 @@ const Parser = struct {
         return .{
             .aa = aa,
             .source = source,
-            .lexer = Lexer.init(source),
+            .lexer = Scanner.init(source),
             .node_index = std.StringHashMap(NodeId).init(aa),
             .class_index = std.StringHashMap(ClassId).init(aa),
             .cluster_index = std.StringHashMap(ClusterId).init(aa),
@@ -87,60 +88,57 @@ const Parser = struct {
         };
     }
 
+    fn peek(self: *Parser) Token {
+        return token.peek(self.lexer);
+    }
+
+    fn take(self: *Parser) Token {
+        return token.next(&self.lexer);
+    }
+
     fn currentCluster(self: *Parser) ?ClusterId {
         const n = self.cluster_stack.items.len;
         return if (n == 0) null else self.cluster_stack.items[n - 1];
     }
 
     fn parseHeader(self: *Parser) !void {
-        while (self.lexer.peek().kind == .newline) _ = self.lexer.next();
-        if (self.lexer.peek().kind != .kw_flowchart) return;
-        _ = self.lexer.next();
-        switch (self.lexer.peek().kind) {
-            .dir_td => {
-                self.direction = .TD;
-                _ = self.lexer.next();
-            },
-            .dir_bt => {
-                self.direction = .BT;
-                _ = self.lexer.next();
-            },
-            .dir_lr => {
-                self.direction = .LR;
-                _ = self.lexer.next();
-            },
-            .dir_rl => {
-                self.direction = .RL;
-                _ = self.lexer.next();
+        while (self.peek().kind == .newline) _ = self.take();
+        if (self.peek().kind != .header) return;
+        _ = self.take();
+        const t = self.peek();
+        switch (t.kind) {
+            .dir => {
+                self.direction = token.direction(t.text);
+                _ = self.take();
             },
             .newline, .eof, .semicolon => {},
             else => return ParseError.InvalidDirection,
         }
-        const sep = self.lexer.peek().kind;
-        if (sep == .newline or sep == .semicolon) _ = self.lexer.next();
+        const sep = self.peek().kind;
+        if (sep == .newline or sep == .semicolon) _ = self.take();
     }
 
     fn parseBody(self: *Parser) !void {
         while (true) {
-            const tok = self.lexer.peek();
+            const tok = self.peek();
             switch (tok.kind) {
                 .eof => return,
-                .newline, .semicolon, .kw_end => {
-                    _ = self.lexer.next();
+                .newline, .semicolon, .end => {
+                    _ = self.take();
                 },
-                .kw_subgraph => {
-                    _ = self.lexer.next();
+                .subgraph => {
+                    _ = self.take();
                     try self.parseSubgraph();
                 },
-                .kw_classdef => {
-                    _ = self.lexer.next();
+                .class_def => {
+                    _ = self.take();
                     try self.parseClassDef();
                 },
-                .kw_class => {
-                    _ = self.lexer.next();
+                .class => {
+                    _ = self.take();
                     try self.parseClassAssignment();
                 },
-                .kw_direction => self.skipLine(),
+                .direction => self.skipLine(),
                 else => try self.parseStatementRecovering(),
             }
         }
@@ -149,19 +147,19 @@ const Parser = struct {
     fn parseSubgraph(self: *Parser) !void {
         var raw_id: []const u8 = "";
         var label: []const u8 = "";
-        const id_tok = self.lexer.peek();
+        const id_tok = self.peek();
         switch (id_tok.kind) {
-            .identifier, .dir_td, .dir_bt, .dir_lr, .dir_rl, .string => {
-                _ = self.lexer.next();
+            .id, .dir, .string => {
+                _ = self.take();
                 raw_id = id_tok.text;
                 label = id_tok.text;
             },
             .newline, .eof => {},
             else => return ParseError.UnexpectedToken,
         }
-        if (self.lexer.peek().kind == .shape_open and self.lexer.peek().bracket == '[') {
-            _ = self.lexer.next();
-            label = try th.normalizeLineBreaks(self.aa, sr.readRawUntilCloseChar(&self.lexer, ']'));
+        if (self.peek().kind == .open and self.peek().bracket == '[') {
+            _ = self.take();
+            label = try scanner.breaks(self.aa, self.lexer.rawUntil(']'));
         }
         self.skipLine();
 
@@ -182,31 +180,31 @@ const Parser = struct {
         defer _ = self.cluster_stack.pop();
 
         while (true) {
-            const tok = self.lexer.peek();
+            const tok = self.peek();
             switch (tok.kind) {
                 .eof => return ParseError.UnterminatedSubgraph,
                 .newline, .semicolon => {
-                    _ = self.lexer.next();
+                    _ = self.take();
                 },
-                .kw_end => {
-                    _ = self.lexer.next();
+                .end => {
+                    _ = self.take();
                     self.skipLine();
                     return;
                 },
-                .kw_subgraph => {
-                    _ = self.lexer.next();
+                .subgraph => {
+                    _ = self.take();
                     try self.parseSubgraph();
                 },
-                .kw_direction => {
-                    _ = self.lexer.next();
+                .direction => {
+                    _ = self.take();
                     self.captureSubgraphDirection(cid);
                 },
-                .kw_classdef => {
-                    _ = self.lexer.next();
+                .class_def => {
+                    _ = self.take();
                     try self.parseClassDef();
                 },
-                .kw_class => {
-                    _ = self.lexer.next();
+                .class => {
+                    _ = self.take();
                     try self.parseClassAssignment();
                 },
                 else => try self.parseStatementRecovering(),
@@ -215,26 +213,20 @@ const Parser = struct {
     }
 
     fn captureSubgraphDirection(self: *Parser, cid: ClusterId) void {
-        const tok = self.lexer.peek();
-        const dir: ?Direction = switch (tok.kind) {
-            .dir_td => .TD,
-            .dir_bt => .BT,
-            .dir_lr => .LR,
-            .dir_rl => .RL,
-            else => null,
-        };
+        const tok = self.peek();
+        const dir: ?Direction = if (tok.kind == .dir) token.direction(tok.text) else null;
         if (dir) |d| self.clusters_list.items[cid].direction = d;
         self.skipLine();
     }
 
     fn parseClassDef(self: *Parser) !void {
-        const name_tok = self.lexer.peek();
-        if (name_tok.kind != .identifier) {
+        const name_tok = self.peek();
+        if (name_tok.kind != .id) {
             self.skipLine();
             return;
         }
-        _ = self.lexer.next();
-        const style = sr.readRestOfLine(&self.lexer);
+        _ = self.take();
+        const style = self.lexer.restOfLine();
         const id: ClassId = @intCast(self.classes_list.items.len);
         try self.classes_list.append(self.aa, .{ .id = id, .name = name_tok.text, .style = style });
         try self.class_index.put(name_tok.text, id);
@@ -244,22 +236,22 @@ const Parser = struct {
         var ids: std.ArrayList([]const u8) = .empty;
         defer ids.deinit(self.aa);
         while (true) {
-            const tok = self.lexer.peek();
-            if (tok.kind != .identifier) break;
-            _ = self.lexer.next();
+            const tok = self.peek();
+            if (tok.kind != .id) break;
+            _ = self.take();
             try ids.append(self.aa, tok.text);
-            if (self.lexer.peek().kind == .comma) {
-                _ = self.lexer.next();
+            if (self.peek().kind == .comma) {
+                _ = self.take();
                 continue;
             }
             break;
         }
-        const cn = self.lexer.peek();
-        if (cn.kind != .identifier) {
+        const cn = self.peek();
+        if (cn.kind != .id) {
             self.skipLine();
             return;
         }
-        _ = self.lexer.next();
+        _ = self.take();
         const class_id = try self.ensureClass(cn.text);
         for (ids.items) |raw| {
             const nid = try self.ensureNode(raw);
@@ -277,7 +269,7 @@ const Parser = struct {
     }
 
     const Mark = struct {
-        lexer: Lexer,
+        lexer: Scanner,
         nodes_len: usize,
         edges_len: usize,
         classes_len: usize,
@@ -309,8 +301,8 @@ const Parser = struct {
     }
 
     fn parseStatementRecovering(self: *Parser) ParseError!void {
-        const tok = self.lexer.peek();
-        if (tok.kind == .identifier and th.isSkippableDirective(tok.text)) {
+        const tok = self.peek();
+        if (tok.kind == .id and isSkippableDirective(tok.text)) {
             self.skipLine();
             return;
         }
@@ -326,13 +318,13 @@ const Parser = struct {
         };
     }
 
-    fn lineHasEdgeOperator(from: Lexer) bool {
+    fn lineHasEdgeOperator(from: Scanner) bool {
         var probe = from;
         while (true) {
-            const tk = probe.next();
-            switch (tk.kind) {
+            switch (token.next(&probe).kind) {
                 .newline, .semicolon, .eof => return false,
-                else => if (edgeKind(tk.kind) != null) return true,
+                .link => return true,
+                else => {},
             }
         }
     }
@@ -344,25 +336,24 @@ const Parser = struct {
         defer targets.deinit(self.aa);
 
         try sources.append(self.aa, try self.parseStatementStartRef());
-        while (self.lexer.peek().kind == .ampersand) {
-            _ = self.lexer.next();
+        while (self.peek().kind == .amp) {
+            _ = self.take();
             try sources.append(self.aa, try self.parseTargetNodeRef());
         }
         while (true) {
-            const tok = self.lexer.peek();
-            const ek = edgeKind(tok.kind) orelse break;
-            const arrow = decodeArrows(tok.text);
-            _ = self.lexer.next();
-            var elabel: ?[]const u8 = tok.edge_label;
-            if (self.lexer.peek().kind == .pipe) {
-                _ = self.lexer.next();
-                elabel = sr.readRawUntilCloseChar(&self.lexer, '|');
+            const tok = self.peek();
+            const l = tok.link orelse break;
+            _ = self.take();
+            var elabel: ?[]const u8 = l.label;
+            if (self.peek().kind == .pipe) {
+                _ = self.take();
+                elabel = self.lexer.rawUntil('|');
             }
-            if (elabel) |el| elabel = try th.normalizeLineBreaks(self.aa, el);
+            if (elabel) |el| elabel = try scanner.breaks(self.aa, el);
             targets.clearRetainingCapacity();
             try targets.append(self.aa, try self.parseTargetNodeRef());
-            while (self.lexer.peek().kind == .ampersand) {
-                _ = self.lexer.next();
+            while (self.peek().kind == .amp) {
+                _ = self.take();
                 try targets.append(self.aa, try self.parseTargetNodeRef());
             }
             for (sources.items) |from_id| for (targets.items) |to_id| {
@@ -371,27 +362,27 @@ const Parser = struct {
                     .id = eid,
                     .from = from_id,
                     .to = to_id,
-                    .kind = ek,
-                    .arrow_from = arrow.from,
-                    .arrow_to = arrow.to,
+                    .kind = l.kind,
+                    .arrow_from = l.from,
+                    .arrow_to = l.to,
                     .label = elabel,
                 });
             };
             std.mem.swap(std.ArrayList(NodeId), &sources, &targets);
         }
-        switch (self.lexer.peek().kind) {
-            .newline, .semicolon => _ = self.lexer.next(),
-            .eof, .kw_end => {},
+        switch (self.peek().kind) {
+            .newline, .semicolon => _ = self.take(),
+            .eof, .end => {},
             else => return ParseError.UnexpectedToken,
         }
     }
 
     fn parseStatementStartRef(self: *Parser) !NodeId {
-        const id_tok = self.lexer.peek();
-        if (id_tok.kind != .identifier and !isDirectionKw(id_tok.kind)) return ParseError.InvalidNode;
-        _ = self.lexer.next();
-        const next = self.lexer.peek().kind;
-        if (!isNodeDeclarationTail(next) and (edgeKind(next) != null or next == .ampersand)) {
+        const id_tok = self.peek();
+        if (id_tok.kind != .id and id_tok.kind != .dir) return ParseError.InvalidNode;
+        _ = self.take();
+        const next = self.peek().kind;
+        if (!isNodeDeclarationTail(next) and (next == .link or next == .amp)) {
             if (self.cluster_index.get(id_tok.text)) |cid|
                 return cep.clusterRepresentative(self.nodes_list.items, self.clusters_list.items, self.edges_list.items, cid, .source) catch ParseError.InvalidNode;
         }
@@ -399,10 +390,10 @@ const Parser = struct {
     }
 
     fn parseTargetNodeRef(self: *Parser) !NodeId {
-        const id_tok = self.lexer.peek();
-        if (id_tok.kind != .identifier and !isDirectionKw(id_tok.kind)) return ParseError.InvalidNode;
-        _ = self.lexer.next();
-        if (!isNodeDeclarationTail(self.lexer.peek().kind)) {
+        const id_tok = self.peek();
+        if (id_tok.kind != .id and id_tok.kind != .dir) return ParseError.InvalidNode;
+        _ = self.take();
+        if (!isNodeDeclarationTail(self.peek().kind)) {
             if (self.cluster_index.get(id_tok.text)) |cid|
                 return cep.clusterRepresentative(self.nodes_list.items, self.clusters_list.items, self.edges_list.items, cid, .target) catch ParseError.InvalidNode;
         }
@@ -411,44 +402,44 @@ const Parser = struct {
 
     fn finishNodeRef(self: *Parser, raw_id: []const u8) !NodeId {
         const nid = try self.ensureNode(raw_id);
-        if (self.lexer.peek().kind == .shape_open) {
-            const si = try sr.parseShape(&self.lexer);
+        if (self.peek().kind == .open) {
+            const si = shape_reader.read(&self.lexer);
             self.nodes_list.items[nid].shape = si.shape;
-            if (si.label.len > 0) self.nodes_list.items[nid].label = try th.normalizeLineBreaks(self.aa, si.label);
+            if (si.label.len > 0) self.nodes_list.items[nid].label = try scanner.breaks(self.aa, si.label);
         }
         try self.maybeInlineClass(nid);
         return nid;
     }
 
     fn maybeInlineClass(self: *Parser, nid: NodeId) !void {
-        if (self.lexer.peek().kind != .colon) return;
+        if (self.peek().kind != .colon) return;
         const saved = self.lexer;
-        _ = self.lexer.next();
-        if (self.lexer.peek().kind != .colon) {
+        _ = self.take();
+        if (self.peek().kind != .colon) {
             self.lexer = saved;
             return;
         }
-        _ = self.lexer.next();
-        if (self.lexer.peek().kind != .colon) {
+        _ = self.take();
+        if (self.peek().kind != .colon) {
             self.lexer = saved;
             return;
         }
-        _ = self.lexer.next();
-        const cn = self.lexer.peek();
-        if (cn.kind != .identifier) return;
-        _ = self.lexer.next();
+        _ = self.take();
+        const cn = self.peek();
+        if (cn.kind != .id) return;
+        _ = self.take();
         const class_id = try self.ensureClass(cn.text);
         try self.nodes_list.items[nid].classes.append(self.aa, class_id);
     }
 
     fn skipLine(self: *Parser) void {
-        while (true) switch (self.lexer.peek().kind) {
+        while (true) switch (self.peek().kind) {
             .newline, .semicolon => {
-                _ = self.lexer.next();
+                _ = self.take();
                 return;
             },
             .eof => return,
-            else => _ = self.lexer.next(),
+            else => _ = self.take(),
         };
     }
 
@@ -496,10 +487,18 @@ const Parser = struct {
     }
 };
 
-const decodeArrows = th.decodeArrows;
-const isDirectionKw = th.isDirectionKw;
-const isNodeDeclarationTail = th.isNodeDeclarationTail;
-const edgeKind = th.edgeKind;
+fn isNodeDeclarationTail(k: token.Kind) bool {
+    return k == .open or k == .colon;
+}
+
+fn isSkippableDirective(text: []const u8) bool {
+    const names = [_][]const u8{ "click", "style", "linkStyle", "call" };
+    for (names) |n| if (std.mem.eql(u8, text, n)) return true;
+    return false;
+}
+
 test {
+    _ = @import("parse/scanner_test.zig");
+    _ = @import("parse/token_test.zig");
     _ = @import("parse/parse_test.zig");
 }
