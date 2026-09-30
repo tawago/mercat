@@ -5,12 +5,16 @@ const lattice = @import("../lattice.zig");
 const labels_edge = @import("labels_edge.zig");
 const labels_onrun = @import("labels_onrun.zig");
 const lw = @import("labels_write.zig");
-const types = @import("labels_types.zig");
 
 const log = std.log.scoped(.@"mermaid_v2.raster.labels");
 
-pub const RasterError = types.RasterError;
-pub const Report = types.Report;
+pub const RasterError = error{OutOfMemory};
+
+pub const Report = struct {
+    placed: u32,
+    dropped: u32,
+    displaced: u32,
+};
 
 const ELLIPSIS: u21 = 0x2026;
 
