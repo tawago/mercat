@@ -107,12 +107,6 @@ pub const Lattice = struct {
     glyphs: []const Glyph = &.{},
     rail_claims: []const rail_star.RailClaim = &.{},
 
-    pub fn cellIndex(self: Lattice, x: u32, y: u32) u32 {
-        std.debug.assert(x < self.width);
-        std.debug.assert(y < self.height);
-        return y * self.width + x;
-    }
-
     pub fn at(self: Lattice, x: u32, y: u32) *Cell {
         std.debug.assert(x < self.width);
         std.debug.assert(y < self.height);
@@ -214,17 +208,6 @@ test "glyph references live above the scalar range and resolve through the table
     try std.testing.expectEqual(@as(u8, 2), lat.glyphOf(glyphRef(1)).?.width);
     try std.testing.expectEqual(@as(?Glyph, null), lat.glyphOf('e'));
     try std.testing.expectEqual(@as(?Glyph, null), lat.glyphOf(glyphRef(2)));
-}
-
-test "cellIndex agrees with at()'s row-major linearization" {
-    var buf: [12]Cell = undefined;
-    for (&buf) |*c| c.* = Cell.empty;
-    var lat = Lattice{ .width = 4, .height = 3, .cells = &buf };
-
-    try std.testing.expectEqual(@as(u32, 0), lat.cellIndex(0, 0));
-    try std.testing.expectEqual(@as(u32, 6), lat.cellIndex(2, 1));
-    try std.testing.expectEqual(@as(u32, 11), lat.cellIndex(3, 2));
-    try std.testing.expectEqual(&buf[lat.cellIndex(2, 1)], lat.at(2, 1));
 }
 
 test "Cell.empty default matches struct literal" {
