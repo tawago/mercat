@@ -77,6 +77,11 @@ pub const file_allowlists = [_]struct {
         .reason = "realized_production_test may only import std, prim, base/ledger, parse, permits, select, raster, or paint",
     },
     .{
+        .name = "render_evidence_test.zig",
+        .allowed = &.{ .sem_graph, .sketch, .layout_zone, .raster_zone, .{ .exact = "ledger/permits.zig" }, .{ .exact = "paint.zig" }, .{ .exact = "select.zig" } },
+        .reason = "render_evidence_test may only import std, prim, base/*, sem_graph, sketch, layout, permits, raster, paint, or select",
+    },
+    .{
         .name = "budget.zig",
         .allowed = &.{ .sem_graph, .sketch, .layout_zone, .parse_zone, .cluster_zone, .recurse, .{ .exact = "budget_test.zig" } },
         .reason = "budget may only import std, prim, sem_graph, sketch, layout, parse, recurse, cluster, or budget_test",
@@ -173,13 +178,8 @@ pub const file_allowlists = [_]struct {
     },
     .{
         .name = "layout/port_plan_test.zig",
-        .allowed = &.{ .sem_graph, .sketch, .layout_zone, .raster_zone, .{ .exact = "../paint.zig" }, .{ .exact = "../ledger/permits.zig" }, .{ .exact = "ports.zig" }, .{ .exact = "port_plan.zig" }, .{ .exact = "sugiyama.zig" } },
-        .reason = "port_plan_test may import the focused layout, raster, paint, and permit surfaces",
-    },
-    .{
-        .name = "layout/fan_provenance_test.zig",
-        .allowed = &.{ .sem_graph, .sketch, .layout_zone, .raster_zone, .{ .exact = "../paint.zig" }, .{ .exact = "../select.zig" }, .{ .exact = "fan.zig" }, .{ .exact = "fan_provenance.zig" } },
-        .reason = "fan_provenance_test may import layout inputs plus select, raster, and paint for preservation and byte-neutrality pins",
+        .allowed = &.{ .sem_graph, .sketch, .layout_zone, .{ .exact = "../ledger/permits.zig" }, .{ .exact = "ports.zig" }, .{ .exact = "port_plan.zig" } },
+        .reason = "port_plan_test may import the focused layout and permit surfaces",
     },
     .{
         .name = "raster/rails_test.zig",

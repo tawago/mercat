@@ -4,9 +4,6 @@ const rail_star = @import("../base/rail_star.zig");
 const sg = @import("../sem_graph.zig");
 const sketch = @import("../sketch.zig");
 const coords = @import("../layout.zig");
-const raster = @import("../raster.zig");
-const painter = @import("../paint.zig");
-const select = @import("../select.zig");
 const fan = @import("fan.zig");
 const provenance = @import("fan_provenance.zig");
 
@@ -37,7 +34,7 @@ fn hasMember(claim: rail_star.RailClaim, id: ledger.EdgeId) bool {
     return false;
 }
 
-test "fan provenance: first-class fan-out claim is valid metadata and changes no painted byte" {
+test "fan provenance: first-class fan-out claim is valid metadata" {
     const nodes = [_]sg.Node{ node(0, "P", null), node(1, "A", null), node(2, "B", null), node(3, "C", null) };
     const edges = [_]sg.Edge{ edge(10, 0, 1), edge(11, 0, 2), edge(12, 0, 3) };
     var arena = std.heap.ArenaAllocator.init(testing.allocator);
@@ -53,14 +50,6 @@ test "fan provenance: first-class fan-out claim is valid metadata and changes no
     try testing.expectEqual(@as(?ledger.NodeId, 0), rail_star.check(claim).derived_pivot);
     try testing.expectEqual(@as(usize, 3), claim.members.len);
     try testing.expect(rail_star.check(claim).isValid());
-
-    const with_report = try raster.rasterize(a, s, .bridge);
-    const with_bytes = try painter.paint(a, with_report.lattice, s.budget.max_width);
-    var without = s;
-    without.rail_claims = &.{};
-    const without_report = try raster.rasterize(a, without, .bridge);
-    const without_bytes = try painter.paint(a, without_report.lattice, without.budget.max_width);
-    try testing.expectEqualStrings(with_bytes, without_bytes);
 }
 
 test "fan provenance: realized fan-in Rail claims the pivot; feasible labeled fan-in shares and claims too" {
@@ -99,8 +88,6 @@ test "fan provenance: realized fan-in Rail claims the pivot; feasible labeled fa
     try testing.expectEqual(@as(usize, 1), peer.rail_claims.len);
     try testing.expectEqual(rail_star.RailPolarity.in, peer.rail_claims[0].polarity);
     try expectAllValid(peer.rail_claims);
-    const report = try raster.rasterize(peer_arena.allocator(), peer, .bridge);
-    try testing.expectEqual(@as(u32, 0), report.labels_dropped);
 }
 
 test "fan provenance: forced peer drawing, wrapping, and arrow-style partition" {
@@ -193,24 +180,6 @@ test "fan provenance: stable sequential local ids and BT mirrored sites" {
     try expectAllValid(bt.rail_claims);
 }
 
-test "fan provenance: plan selection preserves the winning claims" {
-    const nodes = [_]sg.Node{ node(0, "P", null), node(1, "A", null), node(2, "B", null) };
-    const edges = [_]sg.Edge{ edge(0, 0, 1), edge(1, 0, 2) };
-    const groups = [_]ledger.CandidateBundle{.{ .id = 0, .direction = .out, .pivot = 0, .members = &.{ 0, 1 } }};
-    const memberships = [_]ledger.BundleMembership{
-        .{ .edge = 0, .source_group = 0, .target_group = null },
-        .{ .edge = 1, .source_group = 0, .target_group = null },
-    };
-    const permits: ledger.BundlePermits = .{ .policy = .joined, .groups = &groups, .memberships = &memberships };
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const winner = try select.choose(arena.allocator(), graph(.TD, &nodes, &edges, &.{}), &permits, 120, .bridge);
-
-    try testing.expectEqual(@as(usize, 1), winner.sketch.rail_claims.len);
-    try testing.expectEqual(@as(rail_star.RailClaimId, 1), winner.sketch.rail_claims[0].id);
-    try testing.expect(rail_star.check(winner.sketch.rail_claims[0]).isValid());
-}
-
 test "fan provenance: missing artifact stays unresolved and a private singleton is omitted" {
     const nodes = [_]sg.Node{ node(0, "P", null), node(1, "A", null), node(2, "B", null), node(3, "C", null) };
     const edges = [_]sg.Edge{ edge(0, 0, 1), edge(1, 0, 2), edge(2, 0, 3) };
@@ -287,8 +256,6 @@ test "fan provenance: duplicate leaf is private on flat and clustered peer paths
         try testing.expect(private.?.port_from.offset != retained.?.port_from.offset);
         try testing.expect(private.?.port_to.offset != retained.?.port_to.offset);
         try testing.expectEqual(sketch.EdgeRole.fan_out_dropper, private.?.role);
-        const report = try raster.rasterize(arena.allocator(), s, .bridge);
-        try testing.expectEqual(@as(u32, 0), report.labels_dropped);
     }
 }
 

@@ -348,6 +348,7 @@ test {
     _ = @import("ledger/permits.zig");
     _ = @import("ledger/permits_test.zig");
     _ = @import("realized_production_test.zig");
+    _ = @import("render_evidence_test.zig");
     _ = @import("layout/ports.zig");
     _ = @import("layout/ports_test.zig");
     _ = @import("layout/ports_step7_test.zig");

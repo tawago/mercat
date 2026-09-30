@@ -3,8 +3,6 @@ const pb = @import("../base/ledger.zig");
 const sg = @import("../sem_graph.zig");
 const sk = @import("../sketch.zig");
 const coords = @import("../layout.zig");
-const paint = @import("../paint.zig");
-const raster = @import("../raster.zig");
 const permits = @import("../ledger/permits.zig");
 const ports = @import("ports.zig");
 const port_plan = @import("port_plan.zig");
@@ -46,22 +44,6 @@ fn expectPrivatePorts(s: sk.Sketch, ids: []const pb.EdgeId) !void {
 
 fn samePort(a: sk.Port, b: sk.Port) bool {
     return a.node == b.node and a.side == b.side and a.offset == b.offset;
-}
-
-fn declaredGeometry(s: sk.Sketch) usize {
-    var n = s.edges.len;
-    for (s.rails) |rail| n += rail.taps.len;
-    return n;
-}
-
-fn expectTerminalEvidence(a: std.mem.Allocator, g: sg.SemGraph, s: sk.Sketch, arrows: usize) !void {
-    const report = try raster.rasterize(a, s, .bridge);
-    try std.testing.expectEqual(g.edges.len, declaredGeometry(s));
-    try std.testing.expectEqual(@as(u32, 0), report.edge_cells_lost);
-    try std.testing.expectEqual(@as(u32, 0), report.crossings.foreign_junction_violation);
-    try std.testing.expectEqual(@as(u32, 0), report.crossings.arrowhead_transit_violation);
-    const output = try paint.paint(a, report.lattice, 200);
-    try std.testing.expectEqual(arrows, std.mem.count(u8, output, "▼"));
 }
 
 test "V-D-PORT-01: port_plan gives an unrealized mixed-kind 1x3 fan three pitch-2 ports" {
@@ -185,7 +167,7 @@ test "duplicate private claims receive stable distinct source and target slots" 
     try std.testing.expectEqual(offsets[0], offsets[1]);
 }
 
-test "two and three identical arrows survive layout raster and paint with face growth" {
+test "two and three identical arrows get private ports and face growth" {
     inline for (.{ 2, 3 }) |n| {
         var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
         defer arena.deinit();
@@ -200,7 +182,6 @@ test "two and three identical arrows survive layout raster and paint with face g
         for (&ids, 0..) |*id, i| id.* = @intCast(i);
         try expectPrivatePorts(s, &ids);
         for (s.nodes) |placed| try std.testing.expect(placed.rect.w >= 2 * n + 1);
-        try expectTerminalEvidence(a, g, s, n);
     }
 }
 
@@ -218,7 +199,6 @@ test "labelled duplicate plus distinct leaf keeps the duplicate private and rail
     try expectPrivatePorts(s, &.{ 0, 1 });
     try expectPrivatePorts(s, &.{ 1, 2 });
     try std.testing.expect(samePort(pathById(s, 0).port_from, pathById(s, 2).port_from));
-    try expectTerminalEvidence(a, g, s, 3);
 }
 
 test "rail exclusion keeps the duplicate leaf private" {
@@ -232,7 +212,6 @@ test "rail exclusion keeps the duplicate leaf private" {
     const private = pathById(s, 1);
     try std.testing.expect(!samePort(private.port_from, pathById(s, 0).port_from));
     try std.testing.expect(!samePort(pathById(s, 0).port_to, pathById(s, 1).port_to));
-    try expectTerminalEvidence(a, g, s, 3);
 }
 
 test "bidirectional duplicate and self-loop keep independent endpoint identity" {
