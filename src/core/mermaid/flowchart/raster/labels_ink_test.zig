@@ -101,3 +101,40 @@ test "ink on the owner's own routed geometry counts as own even when the cell na
     stampEdge(&lat, 1, 4, 7);
     try testing.expectEqual(ink.InkClass.foreign_edge, ink.classifyAt(&lat, owner, 1, 4));
 }
+
+test "plainRunCell: only the edge's own straight run off a rail qualifies, along its axis" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    var lat = try makeLattice(arena.allocator(), 6, 3);
+
+    lat.at(1, 1).* = .{
+        .occupant = .{ .edge_segment = .{ .edge = 9, .kind = .solid } },
+        .neighbours = .{ .n = true, .s = true },
+    };
+    lat.at(2, 1).* = .{
+        .occupant = .{ .edge_segment = .{ .edge = 9, .kind = .solid, .role = .fan_out_rail } },
+        .neighbours = .{ .n = true, .s = true },
+    };
+    lat.at(3, 1).* = .{
+        .occupant = .{ .edge_segment = .{ .edge = 9, .kind = .solid, .role = .fan_out_dropper } },
+        .neighbours = .{ .n = true, .s = true },
+    };
+    lat.at(4, 1).* = .{
+        .occupant = .{ .edge_segment = .{ .edge = 9, .kind = .solid } },
+        .neighbours = .{ .n = true, .s = true, .e = true },
+    };
+    lat.at(5, 1).* = .{
+        .occupant = .{ .edge_segment = .{ .edge = 8, .kind = .solid } },
+        .neighbours = .{ .n = true, .s = true },
+    };
+
+    try testing.expect(ink.plainRunCell(&lat, 9, 1, 1, .vertical));
+    try testing.expect(!ink.plainRunCell(&lat, 9, 1, 1, .horizontal));
+    try testing.expect(!ink.plainRunCell(&lat, 9, 2, 1, .vertical));
+    try testing.expect(ink.plainRunCell(&lat, 9, 3, 1, .vertical));
+    try testing.expectEqual(lattice.EdgeRole.fan_out_dropper, ink.straightRunRole(&lat, 9, 3, 1, .vertical).?);
+    try testing.expect(!ink.plainRunCell(&lat, 9, 4, 1, .vertical));
+    try testing.expect(!ink.plainRunCell(&lat, 9, 5, 1, .vertical));
+    try testing.expect(!ink.plainRunCell(&lat, 9, 0, 1, .vertical));
+    try testing.expect(!ink.plainRunCell(&lat, 9, -1, 1, .vertical));
+}

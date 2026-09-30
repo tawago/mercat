@@ -94,8 +94,8 @@ fn tryAt(
     const cell_count = run.cell_count;
     if (!privateDropperCell(lat, edge_id, x, row)) return false;
     if (cover.coveredByOther(s, edge_id, x, row)) return false;
-    if (!runFlankCell(lat, edge_id, x, row - 1)) return false;
-    if (!runFlankCell(lat, edge_id, x, row + 1)) return false;
+    if (!ink.plainRunCell(lat, edge_id, x, row - 1, .vertical)) return false;
+    if (!ink.plainRunCell(lat, edge_id, x, row + 1, .vertical)) return false;
 
     const cc: i32 = @intCast(cell_count);
     const start_x: i32 = x - @divTrunc(cc - 1, 2);
@@ -125,43 +125,8 @@ fn tryAt(
 }
 
 fn privateDropperCell(lat: *const lattice.Lattice, edge_id: u32, x: i32, y: i32) bool {
-    if (x < 0 or y < 0) return false;
-    const ux: u32 = @intCast(x);
-    const uy: u32 = @intCast(y);
-    if (ux >= lat.width or uy >= lat.height) return false;
-    const cell = lat.atConst(ux, uy);
-    switch (cell.occupant) {
-        .edge_segment => |seg| {
-            if (seg.edge != edge_id) return false;
-            switch (seg.role) {
-                .fan_out_dropper, .fan_in_dropper => {},
-                else => return false,
-            }
-        },
-        else => return false,
-    }
-    const n = cell.neighbours;
-    return n.n and n.s and !n.e and !n.w;
-}
-
-fn runFlankCell(lat: *const lattice.Lattice, edge_id: u32, x: i32, y: i32) bool {
-    if (x < 0 or y < 0) return false;
-    const ux: u32 = @intCast(x);
-    const uy: u32 = @intCast(y);
-    if (ux >= lat.width or uy >= lat.height) return false;
-    const cell = lat.atConst(ux, uy);
-    switch (cell.occupant) {
-        .edge_segment => |seg| {
-            if (seg.edge != edge_id) return false;
-            switch (seg.role) {
-                .fan_out_rail, .fan_in_rail => return false,
-                else => {},
-            }
-        },
-        else => return false,
-    }
-    const n = cell.neighbours;
-    return n.n and n.s and !n.e and !n.w;
+    const role = ink.straightRunRole(lat, edge_id, x, y, .vertical) orelse return false;
+    return role == .fan_out_dropper or role == .fan_in_dropper;
 }
 
 test {

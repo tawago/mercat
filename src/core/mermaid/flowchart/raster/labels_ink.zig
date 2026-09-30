@@ -49,6 +49,28 @@ fn isLabelCell(lat: *const lattice.Lattice, x: i32, y: i32) bool {
     };
 }
 
+pub const Axis = enum { vertical, horizontal };
+
+pub fn straightRunRole(lat: *const lattice.Lattice, edge_id: u32, x: i32, y: i32, axis: Axis) ?lattice.EdgeRole {
+    const cell = geo.cellAt(lat, x, y) orelse return null;
+    const seg = switch (cell.occupant) {
+        .edge_segment => |s| s,
+        else => return null,
+    };
+    if (seg.edge != edge_id) return null;
+    const n = cell.neighbours;
+    const straight = switch (axis) {
+        .vertical => n.n and n.s and !n.e and !n.w,
+        .horizontal => n.e and n.w and !n.n and !n.s,
+    };
+    return if (straight) seg.role else null;
+}
+
+pub fn plainRunCell(lat: *const lattice.Lattice, edge_id: u32, x: i32, y: i32, axis: Axis) bool {
+    const role = straightRunRole(lat, edge_id, x, y, axis) orelse return false;
+    return role != .fan_out_rail and role != .fan_in_rail;
+}
+
 pub fn spanIsolated(
     lat: *const lattice.Lattice,
     owner: Owner,

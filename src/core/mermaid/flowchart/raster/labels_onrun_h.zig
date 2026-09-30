@@ -103,12 +103,12 @@ fn tryAtH(
     var i: i32 = 0;
     while (i < cc) : (i += 1) {
         const cx = start_x + i;
-        if (!privateRunCellH(lat, edge_id, cx, row)) return false;
+        if (!ink.plainRunCell(lat, edge_id, cx, row, .horizontal)) return false;
         if (cover.coveredByOther(s, edge_id, cx, row)) return false;
     }
 
-    if (!runFlankCellH(lat, edge_id, start_x - 1, row)) return false;
-    if (!runFlankCellH(lat, edge_id, start_x + cc, row)) return false;
+    if (!ink.plainRunCell(lat, edge_id, start_x - 1, row, .horizontal)) return false;
+    if (!ink.plainRunCell(lat, edge_id, start_x + cc, row, .horizontal)) return false;
     if (cover.coveredByOther(s, edge_id, start_x - 1, row)) return false;
     if (cover.coveredByOther(s, edge_id, start_x + cc, row)) return false;
 
@@ -117,30 +117,10 @@ fn tryAtH(
     if (!ink.spanIsolated(lat, owner, start_x, row, cell_count, false)) return false;
 
     var j: i32 = 0;
-    while (j < cc) : (j += 1) std.debug.assert(privateRunCellH(lat, edge_id, start_x + j, row));
+    while (j < cc) : (j += 1) std.debug.assert(ink.plainRunCell(lat, edge_id, start_x + j, row, .horizontal));
 
     lw.writeRun(lat, sx, urow, run);
     return true;
-}
-
-fn privateRunCellH(lat: *const lattice.Lattice, edge_id: u32, x: i32, y: i32) bool {
-    if (x < 0 or y < 0) return false;
-    const ux: u32 = @intCast(x);
-    const uy: u32 = @intCast(y);
-    if (ux >= lat.width or uy >= lat.height) return false;
-    const cell = lat.atConst(ux, uy);
-    switch (cell.occupant) {
-        .edge_segment => |seg| {
-            if (seg.edge != edge_id) return false;
-            switch (seg.role) {
-                .fan_out_rail, .fan_in_rail => return false,
-                else => {},
-            }
-        },
-        else => return false,
-    }
-    const n = cell.neighbours;
-    return n.e and n.w and !n.n and !n.s;
 }
 
 fn visualRunIsPrivate(
@@ -164,10 +144,6 @@ fn visualRunIsPrivate(
         }
     }
     return true;
-}
-
-fn runFlankCellH(lat: *const lattice.Lattice, edge_id: u32, x: i32, y: i32) bool {
-    return privateRunCellH(lat, edge_id, x, y);
 }
 
 test {
