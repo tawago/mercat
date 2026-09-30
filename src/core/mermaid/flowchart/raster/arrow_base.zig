@@ -1,19 +1,11 @@
 const std = @import("std");
 const lattice = @import("../lattice.zig");
+const geo = @import("geometry.zig");
 
 pub const ArrowBaseCounts = struct {
     violations: u32 = 0,
     lateral_arms: u32 = 0,
 };
-
-fn intoArrowBit(tip: lattice.Dir4) lattice.Neighbours {
-    return switch (tip) {
-        .north => .{ .n = true },
-        .east => .{ .e = true },
-        .south => .{ .s = true },
-        .west => .{ .w = true },
-    };
-}
 
 fn baseCoord(x: u32, y: u32, tip: lattice.Dir4, w: u32, h: u32) ?struct { x: u32, y: u32 } {
     return switch (tip) {
@@ -36,7 +28,7 @@ pub fn baseFeedsArrow(cell: *const lattice.Cell, tip: lattice.Dir4) bool {
     switch (cell.occupant) {
         .label_char, .label_cont => return true,
         else => {
-            const need = intoArrowBit(tip).toMask();
+            const need = geo.bitMask(tip).toMask();
             return (cell.neighbours.toMask() & need) == need;
         },
     }

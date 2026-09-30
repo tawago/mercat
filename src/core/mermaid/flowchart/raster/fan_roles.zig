@@ -2,6 +2,7 @@ const ledger = @import("../base/ledger.zig");
 const rail_star = @import("../base/rail_star.zig");
 const sketch = @import("../sketch.zig");
 const lattice = @import("../lattice.zig");
+const geo = @import("geometry.zig");
 
 /// The shared-run role a fan stroke of `role` belongs to, or null outside a fan.
 fn railRole(role: lattice.EdgeRole) ?lattice.EdgeRole {
@@ -144,15 +145,9 @@ fn onRail(s: sketch.Sketch, x: u32, y: u32) bool {
         if (py == rail.crossbar[0].y and px >= rail.crossbar[0].x and px <= rail.crossbar[1].x) return true;
         var i: usize = 0;
         while (i + 1 < rail.stem.len) : (i += 1) {
-            if (onSegment(rail.stem[i], rail.stem[i + 1], px, py)) return true;
+            if (geo.onSegment(rail.stem[i], rail.stem[i + 1], px, py)) return true;
         }
     }
-    return false;
-}
-
-fn onSegment(a: sketch.Point, b: sketch.Point, x: i32, y: i32) bool {
-    if (a.x == b.x and a.x == x) return y >= @min(a.y, b.y) and y <= @max(a.y, b.y);
-    if (a.y == b.y and a.y == y) return x >= @min(a.x, b.x) and x <= @max(a.x, b.x);
     return false;
 }
 

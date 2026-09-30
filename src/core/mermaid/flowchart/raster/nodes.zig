@@ -1,9 +1,10 @@
 const std = @import("std");
 const sketch = @import("../sketch.zig");
+const lattice = @import("../lattice.zig");
+const geo = @import("geometry.zig");
+const node_shapes = @import("node_shapes.zig");
 
 const log = std.log.scoped(.@"mermaid_v2.raster.nodes");
-const lattice = @import("../lattice.zig");
-const node_shapes = @import("node_shapes.zig");
 
 pub fn rasterizeNodes(
     lat: *lattice.Lattice,
@@ -11,7 +12,7 @@ pub fn rasterizeNodes(
 ) u32 {
     var written: u32 = 0;
     for (s.nodes) |np| {
-        if (!rectFitsLattice(np.rect, lat.*)) {
+        if (!geo.rectFitsLattice(np.rect, lat)) {
             log.debug(
                 "raster/nodes: node {d} rect ({d},{d},{d}x{d}) out of bounds for lattice {d}x{d}; skipping",
                 .{ np.id, np.rect.x, np.rect.y, np.rect.w, np.rect.h, lat.width, lat.height },
@@ -24,16 +25,6 @@ pub fn rasterizeNodes(
         written += 1;
     }
     return written;
-}
-
-fn rectFitsLattice(r: sketch.Rect, lat: lattice.Lattice) bool {
-    if (r.w == 0 or r.h == 0) return false;
-    if (r.x < 0 or r.y < 0) return false;
-    const right = r.right();
-    const bottom = r.bottom();
-    if (right > @as(i32, @intCast(lat.width))) return false;
-    if (bottom > @as(i32, @intCast(lat.height))) return false;
-    return true;
 }
 
 fn rasterizeRect(lat: *lattice.Lattice, np: sketch.NodePlacement) void {

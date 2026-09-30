@@ -1,10 +1,11 @@
 const std = @import("std");
 const sketch = @import("../sketch.zig");
 const lattice = @import("../lattice.zig");
+const geo = @import("geometry.zig");
 
 pub fn tagShape(lat: *lattice.Lattice, np: sketch.NodePlacement) void {
     if (np.shape == .rect) return;
-    if (!rectFitsLattice(np.rect, lat.*)) return;
+    if (!geo.rectFitsLattice(np.rect, lat)) return;
     const shape = np.shape;
     const x0: u32 = @intCast(np.rect.x);
     const y0: u32 = @intCast(np.rect.y);
@@ -30,7 +31,7 @@ pub fn tagShape(lat: *lattice.Lattice, np: sketch.NodePlacement) void {
 
 pub fn rasterizeSubroutineInner(lat: *lattice.Lattice, np: sketch.NodePlacement) void {
     if (np.shape != .subroutine) return;
-    if (!rectFitsLattice(np.rect, lat.*)) return;
+    if (!geo.rectFitsLattice(np.rect, lat)) return;
     if (np.rect.w < 5 or np.rect.h < 3) return;
     const x0: u32 = @intCast(np.rect.x);
     const y0: u32 = @intCast(np.rect.y);
@@ -87,14 +88,6 @@ fn writeInnerWall(
         },
         else => {},
     }
-}
-
-fn rectFitsLattice(r: sketch.Rect, lat: lattice.Lattice) bool {
-    if (r.w == 0 or r.h == 0) return false;
-    if (r.x < 0 or r.y < 0) return false;
-    if (r.right() > @as(i32, @intCast(lat.width))) return false;
-    if (r.bottom() > @as(i32, @intCast(lat.height))) return false;
-    return true;
 }
 
 const testing = std.testing;

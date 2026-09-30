@@ -66,6 +66,20 @@ pub fn toCoord(p: sketch.Point) Coord {
     return .{ .x = @intCast(p.x), .y = @intCast(p.y) };
 }
 
+pub fn onSegment(a: sketch.Point, b: sketch.Point, x: i32, y: i32) bool {
+    if (a.x != b.x and a.y != b.y) return false;
+    return x >= @min(a.x, b.x) and x <= @max(a.x, b.x) and
+        y >= @min(a.y, b.y) and y <= @max(a.y, b.y);
+}
+
+pub fn rectFitsLattice(r: sketch.Rect, lat: *const lattice.Lattice) bool {
+    if (r.w == 0 or r.h == 0) return false;
+    if (r.x < 0 or r.y < 0) return false;
+    if (r.right() > @as(i32, @intCast(lat.width))) return false;
+    if (r.bottom() > @as(i32, @intCast(lat.height))) return false;
+    return true;
+}
+
 const testing = std.testing;
 
 test "directional primitives round-trip (straightMask/bitMask/reverse)" {

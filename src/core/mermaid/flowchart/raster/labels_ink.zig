@@ -1,5 +1,6 @@
 const sketch = @import("../sketch.zig");
 const lattice = @import("../lattice.zig");
+const geo = @import("geometry.zig");
 
 pub const InkClass = enum { none, own, foreign_edge, foreign_solid };
 
@@ -15,20 +16,14 @@ pub const Owner = struct {
     seg_b: sketch.Point,
 
     fn onOwnPath(self: Owner, x: i32, y: i32) bool {
-        if (onSegment(self.seg_a, self.seg_b, x, y)) return true;
+        if (geo.onSegment(self.seg_a, self.seg_b, x, y)) return true;
         if (self.polyline.len < 2) return false;
         for (self.polyline[0 .. self.polyline.len - 1], 0..) |p, i| {
-            if (onSegment(p, self.polyline[i + 1], x, y)) return true;
+            if (geo.onSegment(p, self.polyline[i + 1], x, y)) return true;
         }
         return false;
     }
 };
-
-fn onSegment(a: sketch.Point, b: sketch.Point, x: i32, y: i32) bool {
-    if (a.x != b.x and a.y != b.y) return false;
-    return x >= @min(a.x, b.x) and x <= @max(a.x, b.x) and
-        y >= @min(a.y, b.y) and y <= @max(a.y, b.y);
-}
 
 pub fn classifyAt(lat: *const lattice.Lattice, owner: Owner, x: i32, y: i32) InkClass {
     if (x < 0 or y < 0) return .none;
