@@ -56,7 +56,7 @@ pub fn writeEdgeCell(
 }
 
 fn refuseLateral(cells_lost: *u32, tip: geo.Move, mask: lattice.Neighbours) bool {
-    if (crossings.lateralArms(tip, mask).toMask() == 0) return false;
+    if (geo.lateralArms(tip, mask).toMask() == 0) return false;
     cells_lost.* += 1;
     return true;
 }
@@ -109,7 +109,7 @@ pub fn writeArrowGuarded(
 ) void {
     if (cell.occupant == .edge_segment) {
         const seg = cell.occupant.edge_segment;
-        if (ctx.arrowheadTransit(seg.edge, edge_id, crossings.cellAt(x, y))) {
+        if (ctx.arrowheadTransit(seg.edge, edge_id, crossings.bundleCellAt(x, y))) {
             cell.occupant = .{ .arrowhead = .{ .dir = dir, .edge = edge_id, .arrow = arrow } };
             cell.neighbours = along;
             cell.stroke_kind = kind;

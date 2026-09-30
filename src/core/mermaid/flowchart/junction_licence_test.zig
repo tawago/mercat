@@ -237,7 +237,7 @@ test "junction licence: rail membership at both ends — a cell of the fan-in ra
         const y: u32 = @intCast(at.y);
         const cell = lat.atConst(x, y);
         try testing.expectEqual(bc, ownerOf(cell).?);
-        const here = crossings.cellAt(x, y);
+        const here = crossings.bundleCellAt(x, y);
 
         try testing.expect(bundle_plan.derivedSameBundle(s.bundles, s.bundle_sets, bc, ac, here));
         try expectNoRasterDefect(r.report);
@@ -271,7 +271,7 @@ test "junction licence: rail membership at both ends, mirrored — the both-ends
         const y: u32 = @intCast(at.y);
         const cell = lat.atConst(x, y);
         try testing.expectEqual(ac, ownerOf(cell).?);
-        const here = crossings.cellAt(x, y);
+        const here = crossings.bundleCellAt(x, y);
 
         try testing.expect(bundle_plan.derivedSameBundle(s.bundles, s.bundle_sets, ac, bc, here));
 

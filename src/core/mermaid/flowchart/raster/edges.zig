@@ -134,7 +134,7 @@ fn walkPolyline(
                 switch (cell.occupant) {
                     .edge_segment => |seg| {
                         const refused = seg.edge != edge.id and
-                            ctx.segmentOverlap(seg.edge, cell.neighbours, edge.id, corner_mask, crossings.cellAt(c.x, c.y));
+                            ctx.segmentOverlap(seg.edge, cell.neighbours, edge.id, corner_mask, crossings.bundleCellAt(c.x, c.y));
                         if (!refused) {
                             cell.neighbours = orMask(cell.neighbours, corner_mask);
                             cell.occupant = .{ .edge_segment = .{
@@ -147,7 +147,7 @@ fn walkPolyline(
                     },
                     .empty => claimCornerCell(cell, edge.id, ek, erole, corner_mask),
                     .cluster_border => if (ctx.mode != .bridge) claimCornerCell(cell, edge.id, ek, erole, corner_mask),
-                    else => if (!crossingKeepsFirstWriter(cell, edge.id, corner_mask, crossings.cellAt(c.x, c.y), ctx)) {
+                    else => if (!crossingKeepsFirstWriter(cell, edge.id, corner_mask, crossings.bundleCellAt(c.x, c.y), ctx)) {
                         writeEdgeCell(cell, edge.id, ek, erole, corner_mask, c.x, c.y, cells_lost);
                         fan_roles.markShared(cell, edge.id, erole);
                     },
@@ -172,7 +172,7 @@ fn walkPolyline(
                 const nxt = step(cursor, dir);
                 const terminal_here = is_last and nxt.x == b.x and nxt.y == b.y;
                 const bridged = ctx.mode == .bridge and cell.occupant == .cluster_border and !terminal_here;
-                if (!bridged and !crossingKeepsFirstWriter(cell, edge.id, straightMask(dir), crossings.cellAt(c.x, c.y), ctx)) {
+                if (!bridged and !crossingKeepsFirstWriter(cell, edge.id, straightMask(dir), crossings.bundleCellAt(c.x, c.y), ctx)) {
                     writeEdgeCell(cell, edge.id, ek, erole, straightMask(dir), c.x, c.y, cells_lost);
                     fan_roles.markShared(cell, edge.id, erole);
                 }

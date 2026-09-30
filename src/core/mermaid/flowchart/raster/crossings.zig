@@ -1,5 +1,6 @@
 const std = @import("std");
 const lattice = @import("../lattice.zig");
+const geo = @import("geometry.zig");
 const ledger = @import("../base/ledger.zig");
 const bundle_mod = @import("../base/bundle.zig");
 const bundle_plan = @import("../base/bundle_plan.zig");
@@ -8,23 +9,13 @@ const prim = @import("prim");
 pub const EdgeId = ledger.EdgeId;
 pub const BundleCell = bundle_mod.BundleCell;
 
-pub fn cellAt(x: u32, y: u32) bundle_mod.BundleCell {
+pub fn bundleCellAt(x: u32, y: u32) bundle_mod.BundleCell {
     return .{ .x = @intCast(x), .y = @intCast(y) };
 }
-
-pub const CrossingClass = enum {
-    legal_crossing,
-    foreign_junction_violation,
-};
 
 pub const CrossingCounts = struct {
     foreign_junction_violation: u32 = 0,
     arrowhead_transit_violation: u32 = 0,
-
-    pub fn add(self: *CrossingCounts, other: CrossingCounts) void {
-        self.foreign_junction_violation += other.foreign_junction_violation;
-        self.arrowhead_transit_violation += other.arrowhead_transit_violation;
-    }
 };
 
 pub const Ctx = struct {
@@ -42,7 +33,7 @@ pub const Ctx = struct {
         at: bundle_mod.BundleCell,
     ) bool {
         if (sameBundle(existing_edge, incoming_edge, self.bundles, self.bundle_sets, at)) return false;
-        if (classifySegment(existing_mask, incoming_mask) == .foreign_junction_violation) self.counts.foreign_junction_violation += 1;
+        if (!isLegalCrossing(existing_mask, incoming_mask)) self.counts.foreign_junction_violation += 1;
         return true;
     }
 
@@ -61,7 +52,7 @@ pub const Ctx = struct {
         at: bundle_mod.BundleCell,
     ) bool {
         const transit = self.arrowheadTransit(arrow_edge, incoming_edge, at);
-        return transit or lateralArms(tip, incoming_mask).toMask() != 0;
+        return transit or geo.lateralArms(tip, incoming_mask).toMask() != 0;
     }
 };
 
@@ -81,21 +72,8 @@ pub fn isStraightPair(m: lattice.Neighbours) bool {
     return h or v;
 }
 
-pub fn classifySegment(existing: lattice.Neighbours, incoming: lattice.Neighbours) CrossingClass {
-    if (isStraightPair(existing) and isStraightPair(incoming)) {
-        const existing_h = existing.e and existing.w;
-        const incoming_h = incoming.e and incoming.w;
-        if (existing_h != incoming_h) return .legal_crossing;
-        return .foreign_junction_violation;
-    }
-    return .foreign_junction_violation;
-}
-
-pub fn lateralArms(tip: lattice.Dir4, mask: lattice.Neighbours) lattice.Neighbours {
-    return switch (tip) {
-        .north, .south => .{ .e = mask.e, .w = mask.w },
-        .east, .west => .{ .n = mask.n, .s = mask.s },
-    };
+pub fn isLegalCrossing(existing: lattice.Neighbours, incoming: lattice.Neighbours) bool {
+    return isStraightPair(existing) and isStraightPair(incoming) and existing.e != incoming.e;
 }
 
 const ANY: bundle_mod.BundleCell = .{ .x = 0, .y = 0 };
@@ -115,15 +93,12 @@ test "isStraightPair recognizes only clean H/V runs" {
     try std.testing.expect(!isStraightPair(.{}));
 }
 
-test "classifySegment: perpendicular is legal, collinear/corner are violations" {
-    try std.testing.expectEqual(CrossingClass.legal_crossing, classifySegment(H, V));
-    try std.testing.expectEqual(CrossingClass.legal_crossing, classifySegment(V, H));
-    try std.testing.expectEqual(CrossingClass.foreign_junction_violation, classifySegment(H, H));
-    try std.testing.expectEqual(CrossingClass.foreign_junction_violation, classifySegment(V, V));
-    try std.testing.expectEqual(
-        CrossingClass.foreign_junction_violation,
-        classifySegment(.{ .n = true, .e = true }, V),
-    );
+test "isLegalCrossing: perpendicular is legal, collinear/corner are violations" {
+    try std.testing.expect(isLegalCrossing(H, V));
+    try std.testing.expect(isLegalCrossing(V, H));
+    try std.testing.expect(!isLegalCrossing(H, H));
+    try std.testing.expect(!isLegalCrossing(V, V));
+    try std.testing.expect(!isLegalCrossing(.{ .n = true, .e = true }, V));
 }
 
 test "sameBundle: same owner and selected-bundle co-members" {
@@ -211,20 +186,6 @@ test "headEntry: a lateral arm is refused for co-members too; an on-axis co-memb
 
     try std.testing.expect(ctxOf(&counts, .{}, &.{}).headEntry(7, .east, 9, H, ANY));
     try std.testing.expectEqual(@as(u32, 2), counts.arrowhead_transit_violation);
-}
-
-test "lateralArms keeps only the bits off the head's axis" {
-    const all: lattice.Neighbours = .{ .n = true, .e = true, .s = true, .w = true };
-    try std.testing.expectEqual(H.toMask(), lateralArms(.north, all).toMask());
-    try std.testing.expectEqual(V.toMask(), lateralArms(.west, all).toMask());
-    try std.testing.expectEqual(@as(u4, 0), lateralArms(.south, V).toMask());
-}
-
-test "CrossingCounts.add folds every field" {
-    var a: CrossingCounts = .{ .foreign_junction_violation = 1, .arrowhead_transit_violation = 2 };
-    a.add(.{ .foreign_junction_violation = 3, .arrowhead_transit_violation = 1 });
-    try std.testing.expectEqual(@as(u32, 4), a.foreign_junction_violation);
-    try std.testing.expectEqual(@as(u32, 3), a.arrowhead_transit_violation);
 }
 
 test {

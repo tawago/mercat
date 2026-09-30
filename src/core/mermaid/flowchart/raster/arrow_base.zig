@@ -16,14 +16,6 @@ fn baseCoord(x: u32, y: u32, tip: lattice.Dir4, w: u32, h: u32) ?struct { x: u32
     };
 }
 
-fn lateralBits(tip: lattice.Dir4, mask: lattice.Neighbours) u4 {
-    const axis: lattice.Neighbours = switch (tip) {
-        .north, .south => .{ .n = true, .s = true },
-        .east, .west => .{ .e = true, .w = true },
-    };
-    return mask.toMask() & ~axis.toMask();
-}
-
 pub fn baseFeedsArrow(cell: *const lattice.Cell, tip: lattice.Dir4) bool {
     switch (cell.occupant) {
         .label_char, .label_cont => return true,
@@ -47,7 +39,7 @@ pub fn validate(lat: *const lattice.Lattice) ArrowBaseCounts {
                 .arrowhead => |a| a.dir,
                 else => continue,
             };
-            counts.lateral_arms += @popCount(lateralBits(tip, cell.neighbours));
+            counts.lateral_arms += @popCount(geo.lateralArms(tip, cell.neighbours).toMask());
             const bc = baseCoord(x, y, tip, lat.width, lat.height) orelse {
                 counts.violations += 1;
                 continue;

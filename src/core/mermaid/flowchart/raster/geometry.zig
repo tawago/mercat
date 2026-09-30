@@ -66,6 +66,13 @@ pub fn toCoord(p: sketch.Point) Coord {
     return .{ .x = @intCast(p.x), .y = @intCast(p.y) };
 }
 
+pub fn lateralArms(tip: lattice.Dir4, mask: lattice.Neighbours) lattice.Neighbours {
+    return switch (tip) {
+        .north, .south => .{ .e = mask.e, .w = mask.w },
+        .east, .west => .{ .n = mask.n, .s = mask.s },
+    };
+}
+
 pub fn onSegment(a: sketch.Point, b: sketch.Point, x: i32, y: i32) bool {
     if (a.x != b.x and a.y != b.y) return false;
     return x >= @min(a.x, b.x) and x <= @max(a.x, b.x) and
@@ -104,4 +111,11 @@ test "directional primitives round-trip (straightMask/bitMask/reverse)" {
         (lattice.Neighbours{ .w = true }).toMask(),
         bitMask(.west).toMask(),
     );
+}
+
+test "lateralArms keeps only the bits off the head's axis" {
+    const all: lattice.Neighbours = .{ .n = true, .e = true, .s = true, .w = true };
+    try std.testing.expectEqual((lattice.Neighbours{ .e = true, .w = true }).toMask(), lateralArms(.north, all).toMask());
+    try std.testing.expectEqual((lattice.Neighbours{ .n = true, .s = true }).toMask(), lateralArms(.west, all).toMask());
+    try std.testing.expectEqual(@as(u4, 0), lateralArms(.south, .{ .n = true, .s = true }).toMask());
 }
