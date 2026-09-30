@@ -11,87 +11,104 @@ pub fn rasterizeRails(lat: *lattice.Lattice, s: sketch.Sketch) u32 {
     return lost;
 }
 
+const RailDraw = struct {
+    lat: *lattice.Lattice,
+    rail: sketch.Rail,
+    lost: *u32,
+    fan_in: bool,
+    edge: u32,
+    crossbar_role: lattice.EdgeRole,
+    dropper_role: lattice.EdgeRole,
+
+    fn claim(self: RailDraw, p: sketch.Point, edge_id: u32, role: lattice.EdgeRole, mask: lattice.Neighbours) void {
+        if (!geo.pointInBounds(p, self.lat)) return;
+        const c = geo.toCoord(p);
+        ew.writeEdgeCell(self.lat.at(c.x, c.y), edge_id, self.rail.kind, role, mask, c.x, c.y, self.lost);
+    }
+
+    fn claimHead(self: RailDraw, h: ep.Head, edge_id: u32, arrow: lattice.ArrowKind) void {
+        if (!geo.pointInBounds(h.cell, self.lat)) return;
+        const c = geo.toCoord(h.cell);
+        ew.writeArrowCell(self.lat.at(c.x, c.y), edge_id, self.rail.kind, arrow, h.dir, geo.straightMask(h.dir), c.x, c.y, self.lost);
+    }
+
+    fn crossbar(self: RailDraw) void {
+        const x0 = self.rail.crossbar[0].x;
+        const x1 = self.rail.crossbar[1].x;
+        const y = self.rail.crossbar[0].y;
+        var x = x0;
+        while (x <= x1) : (x += 1) {
+            self.claim(.{ .x = x, .y = y }, self.edge, self.crossbar_role, .{ .e = x < x1, .w = x > x0 });
+        }
+    }
+
+    fn stem(self: RailDraw) void {
+        const pts = self.rail.stem;
+        const junction = pts[pts.len - 1];
+        const head = pivotHead(self.rail);
+        const end: ep.PortEnd = .{ .head = head, .role = self.crossbar_role };
+        if (!self.fan_in) ep.drawPortStroke(self.lat, pts, self.rail.kind, self.edge, end);
+        if (self.fan_in and pts.len >= 2) {
+            const stub = [_]sketch.Point{ pts[1], pts[0] };
+            ep.drawTargetPortStroke(self.lat, &stub, self.rail.kind, self.edge, end);
+        }
+        var last_dir: ?geo.Move = null;
+        for (pts[0 .. pts.len - 1], pts[1..]) |a, b| {
+            const dir = geo.segmentDir(a, b) orelse continue;
+            if (last_dir) |prev| {
+                self.claim(a, self.edge, self.crossbar_role, geo.orMask(geo.bitMask(geo.reverse(prev)), geo.bitMask(dir)));
+            }
+            var cursor = geo.step(a, dir);
+            while (!geo.samePoint(cursor, b)) : (cursor = geo.step(cursor, dir)) {
+                self.claim(cursor, self.edge, self.crossbar_role, geo.straightMask(dir));
+            }
+            last_dir = dir;
+        }
+        if (last_dir) |dir| self.claim(junction, self.edge, self.crossbar_role, geo.bitMask(geo.reverse(dir)));
+        if (head) |h| self.claimHead(h, self.edge, self.rail.pivot_arrow);
+    }
+
+    fn tap(self: RailDraw, t: sketch.Tap) void {
+        const head = if (t.continues) null else tapHead(t, self.fan_in);
+        const end: ep.PortEnd = .{ .head = head, .role = self.dropper_role };
+        if (!t.continues) {
+            if (self.fan_in) {
+                const stub = [_]sketch.Point{ t.landing, t.at };
+                ep.drawPortStroke(self.lat, &stub, self.rail.kind, t.edge, end);
+            } else {
+                const stub = [_]sketch.Point{ t.at, t.landing };
+                ep.drawTargetPortStroke(self.lat, &stub, self.rail.kind, t.edge, end);
+            }
+        }
+        const dir = geo.segmentDir(t.at, t.landing) orelse return;
+        self.claim(t.at, t.edge, self.crossbar_role, geo.bitMask(dir));
+        var cursor = geo.step(t.at, dir);
+        while (!geo.samePoint(cursor, t.landing)) : (cursor = geo.step(cursor, dir)) {
+            self.claim(cursor, t.edge, self.dropper_role, geo.straightMask(dir));
+        }
+        if (head) |h| self.claimHead(h, t.edge, t.arrow);
+    }
+};
+
 fn drawRail(lat: *lattice.Lattice, rail: sketch.Rail, lost: *u32) void {
-    const crossbar_edge = rail.taps[0].edge;
-    const junction = rail.stem[rail.stem.len - 1];
     const fan_in = rail.role == .fan_in_dropper or rail.role == .fan_in_rail;
-    const crossbar_role: lattice.EdgeRole = if (fan_in) .fan_in_rail else .fan_out_rail;
-    const dropper_role: lattice.EdgeRole = if (fan_in) .fan_in_dropper else .fan_out_dropper;
-
-    const x0 = rail.crossbar[0].x;
-    const x1 = rail.crossbar[1].x;
-    const rail_y = rail.crossbar[0].y;
-    var x = x0;
-    while (x <= x1) : (x += 1) {
-        const mask: lattice.Neighbours = .{ .e = x < x1, .w = x > x0 };
-        claim(lat, .{ .x = x, .y = rail_y }, crossbar_edge, rail.kind, crossbar_role, mask, lost);
-    }
-
-    const pivot_head = pivotHead(rail);
-    const pivot_end: ep.PortEnd = .{ .head = pivot_head, .role = crossbar_role };
-    if (!fan_in) ep.drawPortStroke(lat, rail.stem, rail.kind, crossbar_edge, pivot_end);
-    if (fan_in and rail.stem.len >= 2) {
-        const pivot_stub = [_]sketch.Point{ rail.stem[1], rail.stem[0] };
-        ep.drawTargetPortStroke(lat, &pivot_stub, rail.kind, crossbar_edge, pivot_end);
-    }
-    var i: usize = 0;
-    var last_dir: ?geo.Move = null;
-    while (i + 1 < rail.stem.len) : (i += 1) {
-        const a = rail.stem[i];
-        const b = rail.stem[i + 1];
-        const dir = geo.segmentDir(a, b) orelse continue;
-        if (last_dir) |prev| {
-            claim(lat, a, crossbar_edge, rail.kind, crossbar_role, geo.orMask(geo.bitMask(geo.reverse(prev)), geo.bitMask(dir)), lost);
-        }
-        var cursor = geo.step(a, dir);
-        while (cursor.x != b.x or cursor.y != b.y) : (cursor = geo.step(cursor, dir)) {
-            claim(lat, cursor, crossbar_edge, rail.kind, crossbar_role, geo.straightMask(dir), lost);
-        }
-        last_dir = dir;
-    }
-    if (last_dir) |dir| {
-        claim(lat, junction, crossbar_edge, rail.kind, crossbar_role, geo.bitMask(geo.reverse(dir)), lost);
-    }
-    if (pivot_head) |h| {
-        if (pivotStemDir(rail)) |dir| {
-            if (geo.pointInBounds(h.cell, lat)) {
-                const c = geo.toCoord(h.cell);
-                ew.writeArrowCell(lat.at(c.x, c.y), crossbar_edge, rail.kind, rail.pivot_arrow, h.dir, geo.straightMask(dir), c.x, c.y, lost);
-            }
-        }
-    }
-
-    for (rail.taps) |tap| {
-        const tap_head = if (tap.continues) null else tapHead(tap, fan_in);
-        const tap_end: ep.PortEnd = .{ .head = tap_head, .role = dropper_role };
-        if (tap.continues) {} else if (fan_in) {
-            const source_stub = [_]sketch.Point{ tap.landing, tap.at };
-            ep.drawPortStroke(lat, &source_stub, rail.kind, tap.edge, tap_end);
-        } else {
-            const target_stub = [_]sketch.Point{ tap.at, tap.landing };
-            ep.drawTargetPortStroke(lat, &target_stub, rail.kind, tap.edge, tap_end);
-        }
-        const dir = geo.segmentDir(tap.at, tap.landing) orelse continue;
-        claim(lat, tap.at, tap.edge, rail.kind, crossbar_role, geo.bitMask(dir), lost);
-        var cursor = geo.step(tap.at, dir);
-        while (cursor.x != tap.landing.x or cursor.y != tap.landing.y) : (cursor = geo.step(cursor, dir)) {
-            claim(lat, cursor, tap.edge, rail.kind, dropper_role, geo.straightMask(dir), lost);
-        }
-        if (tap.arrow != .none and !tap.continues) {
-            if (tap_head) |h| {
-                if (geo.pointInBounds(h.cell, lat)) {
-                    const c = geo.toCoord(h.cell);
-                    ew.writeArrowCell(lat.at(c.x, c.y), tap.edge, rail.kind, tap.arrow, h.dir, geo.straightMask(dir), c.x, c.y, lost);
-                }
-            }
-        }
-    }
+    const draw: RailDraw = .{
+        .lat = lat,
+        .rail = rail,
+        .lost = lost,
+        .fan_in = fan_in,
+        .edge = rail.taps[0].edge,
+        .crossbar_role = if (fan_in) .fan_in_rail else .fan_out_rail,
+        .dropper_role = if (fan_in) .fan_in_dropper else .fan_out_dropper,
+    };
+    draw.crossbar();
+    draw.stem();
+    for (rail.taps) |t| draw.tap(t);
 }
 
 fn pivotStemDir(rail: sketch.Rail) ?geo.Move {
-    var si: usize = 0;
-    while (si + 1 < rail.stem.len) : (si += 1) {
-        if (geo.segmentDir(rail.stem[si], rail.stem[si + 1])) |d| return d;
+    for (rail.stem[0 .. rail.stem.len - 1], rail.stem[1..]) |a, b| {
+        if (geo.segmentDir(a, b)) |d| return d;
     }
     return null;
 }
@@ -106,25 +123,11 @@ fn tapHead(tap: sketch.Tap, fan_in: bool) ?ep.Head {
     if (tap.arrow == .none) return null;
     const dir = geo.segmentDir(tap.at, tap.landing) orelse return null;
     const first = geo.step(tap.at, dir);
-    if (first.x == tap.landing.x and first.y == tap.landing.y) return null;
+    if (geo.samePoint(first, tap.landing)) return null;
     return .{
         .cell = geo.step(tap.landing, geo.reverse(dir)),
         .dir = if (fan_in) geo.reverse(dir) else dir,
     };
-}
-
-fn claim(
-    lat: *lattice.Lattice,
-    p: sketch.Point,
-    edge_id: u32,
-    kind: lattice.EdgeKind,
-    role: lattice.EdgeRole,
-    mask: lattice.Neighbours,
-    lost: *u32,
-) void {
-    if (!geo.pointInBounds(p, lat)) return;
-    const c = geo.toCoord(p);
-    ew.writeEdgeCell(lat.at(c.x, c.y), edge_id, kind, role, mask, c.x, c.y, lost);
 }
 
 test {
