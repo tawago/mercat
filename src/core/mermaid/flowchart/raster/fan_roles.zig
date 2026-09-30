@@ -44,28 +44,18 @@ pub fn resolveMasks(lat: *lattice.Lattice, s: sketch.Sketch) void {
             if (!(nb.e or nb.w)) continue;
             if (onRail(s, x, y)) continue;
             if (continuesColumn(lat, x, y)) continue;
-            const rect = pivotRect(s, lat.rail_claims, seg.edge, .out) orelse continue;
-            const side = pivotSide(rect, y) orelse continue;
-            const drop: lattice.Dir4 = switch (side) {
-                .north => .south,
-                .south => .north,
-            };
+            const rect = pivotRect(s, lat.rail_claims, seg.edge) orelse continue;
+            const drop = armAwayFromPivot(rect, y) orelse continue;
             if (armIsAnswered(lat, x, y, drop)) continue;
-            var m = nb;
-            switch (drop) {
-                .south => m.s = false,
-                .north => m.n = false,
-                else => unreachable,
-            }
-            cell.neighbours = m;
+            cell.neighbours = lattice.Neighbours.fromMask(nb.toMask() & ~geo.bitMask(drop).toMask());
         }
     }
 }
 
-fn pivotSide(rect: sketch.Rect, y: u32) ?enum { north, south } {
+fn armAwayFromPivot(rect: sketch.Rect, y: u32) ?lattice.Dir4 {
     const row: i32 = @intCast(y);
-    if (rect.bottom() <= row) return .north;
-    if (rect.y > row) return .south;
+    if (rect.bottom() <= row) return .south;
+    if (rect.y > row) return .north;
     return null;
 }
 
@@ -101,22 +91,18 @@ fn armIsAnswered(lat: *const lattice.Lattice, x: u32, y: u32, d: lattice.Dir4) b
     };
 }
 
-fn pivotRect(s: sketch.Sketch, claims: []const rail_star.RailClaim, edge_id: u32, p: rail_star.RailPolarity) ?sketch.Rect {
-    const pivot = pivotOf(claims, edge_id, p) orelse return null;
+fn pivotRect(s: sketch.Sketch, claims: []const rail_star.RailClaim, edge_id: u32) ?sketch.Rect {
+    const pivot = pivotOf(claims, edge_id) orelse return null;
     for (s.nodes) |np| {
         if (np.id == pivot) return np.rect;
     }
     return null;
 }
 
-fn pivotOf(claims: []const rail_star.RailClaim, edge_id: u32, p: rail_star.RailPolarity) ?ledger.NodeId {
+fn pivotOf(claims: []const rail_star.RailClaim, edge_id: u32) ?ledger.NodeId {
     var found: ?ledger.NodeId = null;
     for (claims) |claim| {
-        const same_polarity = switch (p) {
-            .out => claim.polarity == .out,
-            .in => claim.polarity == .in,
-        };
-        if (!same_polarity or !claimHasEdge(claim, edge_id)) continue;
+        if (claim.polarity != .out or !claimHasEdge(claim, edge_id)) continue;
         const checked = rail_star.check(claim);
         if (checked.star_law.wrong_polarity_end) return null;
         const pivot = checked.derived_pivot orelse return null;
