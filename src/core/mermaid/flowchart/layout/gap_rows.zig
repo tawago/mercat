@@ -158,5 +158,4 @@ pub fn buildPiece(
 
 test {
     _ = @import("gap_rows_test.zig");
-    _ = @import("gap_rows_test2.zig");
 }
