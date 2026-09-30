@@ -1,141 +1,10 @@
-const std = @import("std");
 const prim = @import("prim");
-const sg = @import("../sem_graph.zig");
 const sketch = @import("../sketch.zig");
 const fan_rail = @import("fan_rail.zig");
-
-fn mapDir(d: ?sg.Direction) ?sketch.Direction {
-    return switch (d orelse return null) {
-        .TD => .TD,
-        .BT => .BT,
-        .LR => .LR,
-        .RL => .RL,
-    };
-}
-
-const H_INSET: u32 = 3;
-const V_INSET: u32 = 1;
-
-pub fn buildClusters(
-    a: std.mem.Allocator,
-    graph: sg.SemGraph,
-    placements: []const sketch.NodePlacement,
-) error{OutOfMemory}![]sketch.ClusterFrame {
-    const order = try a.alloc(u32, graph.clusters.len);
-    defer a.free(order);
-    for (order, 0..) |*slot, i| slot.* = @intCast(i);
-    const Ctx = struct {
-        graph: sg.SemGraph,
-        fn lessThan(self: @This(), x: u32, y: u32) bool {
-            return clusterDepth(self.graph, self.graph.clusters[x]) >
-                clusterDepth(self.graph, self.graph.clusters[y]);
-        }
-    };
-    std.mem.sort(u32, order, Ctx{ .graph = graph }, Ctx.lessThan);
-
-    var rects = try a.alloc(?sketch.Rect, graph.clusters.len);
-    defer a.free(rects);
-    for (rects) |*r| r.* = null;
-
-    for (order) |idx| {
-        const c = graph.clusters[idx];
-        rects[idx] = clusterBbox(graph, c, placements, rects);
-    }
-
-    var out: std.ArrayListUnmanaged(sketch.ClusterFrame) = .empty;
-    for (graph.clusters, 0..) |c, i| {
-        const r = rects[i] orelse continue;
-        try out.append(a, .{
-            .id = c.id,
-            .rect = r,
-            .parent_id = c.parent,
-            .label = c.label,
-            .depth = clusterDepth(graph, c),
-            .direction = mapDir(c.direction),
-        });
-    }
-    return try out.toOwnedSlice(a);
-}
-
-fn findPlacement(
-    placements: []const sketch.NodePlacement,
-    id: sg.NodeId,
-) sketch.NodePlacement {
-    for (placements) |p| {
-        if (p.id == id) return p;
-    }
-    return placements[0];
-}
-
-fn indexOfCluster(graph: sg.SemGraph, id: sg.ClusterId) ?usize {
-    for (graph.clusters, 0..) |c, i| {
-        if (c.id == id) return i;
-    }
-    return null;
-}
-
-fn clusterBbox(
-    graph: sg.SemGraph,
-    c: sg.Cluster,
-    placements: []const sketch.NodePlacement,
-    rects: []const ?sketch.Rect,
-) ?sketch.Rect {
-    var min_x: i32 = std.math.maxInt(i32);
-    var min_y: i32 = std.math.maxInt(i32);
-    var max_x: i32 = std.math.minInt(i32);
-    var max_y: i32 = std.math.minInt(i32);
-    var seen = false;
-
-    for (c.members) |nid| {
-        const p = findPlacement(placements, nid);
-        if (p.rect.x < min_x) min_x = p.rect.x;
-        if (p.rect.y < min_y) min_y = p.rect.y;
-        if (p.rect.right() > max_x) max_x = p.rect.right();
-        if (p.rect.bottom() > max_y) max_y = p.rect.bottom();
-        seen = true;
-    }
-    for (c.sub_clusters) |sid| {
-        const sub_idx = indexOfCluster(graph, sid) orelse continue;
-        const sb = rects[sub_idx] orelse continue;
-        if (sb.x < min_x) min_x = sb.x;
-        if (sb.y < min_y) min_y = sb.y;
-        if (sb.right() > max_x) max_x = sb.right();
-        if (sb.bottom() > max_y) max_y = sb.bottom();
-        seen = true;
-    }
-    if (!seen) return null;
-
-    const dx: i32 = @intCast(H_INSET + 1);
-    const dy: i32 = @intCast(V_INSET + 1);
-    return .{
-        .x = min_x - dx,
-        .y = min_y - dy,
-        .w = @intCast(max_x - min_x + 2 * dx),
-        .h = @intCast(max_y - min_y + 2 * dy),
-    };
-}
-
-fn findCluster(graph: sg.SemGraph, id: sg.ClusterId) ?sg.Cluster {
-    for (graph.clusters) |c| {
-        if (c.id == id) return c;
-    }
-    return null;
-}
-
-fn clusterDepth(graph: sg.SemGraph, c: sg.Cluster) u8 {
-    var depth: u8 = 0;
-    var cur = c.parent;
-    while (cur) |pid| : (depth += 1) {
-        const parent = findCluster(graph, pid) orelse break;
-        cur = parent.parent;
-    }
-    return depth;
-}
 
 pub fn computeBbox(
     placements: []sketch.NodePlacement,
     edges: []sketch.EdgePath,
-    clusters: []sketch.ClusterFrame,
     polylines: [][]sketch.Point,
     rails: []fan_rail.Built,
     pressure: bool,
@@ -153,12 +22,6 @@ pub fn computeBbox(
         if (p.rect.y < min_y) min_y = p.rect.y;
         if (p.rect.right() > max_x) max_x = p.rect.right();
         if (p.rect.bottom() > max_y) max_y = p.rect.bottom();
-    }
-    for (clusters) |c| {
-        if (c.rect.x < min_x) min_x = c.rect.x;
-        if (c.rect.y < min_y) min_y = c.rect.y;
-        if (c.rect.right() > max_x) max_x = c.rect.right();
-        if (c.rect.bottom() > max_y) max_y = c.rect.bottom();
     }
     for (edges) |e| {
         for (e.polyline) |pt| {
@@ -210,7 +73,7 @@ pub fn computeBbox(
     const dx: i32 = -min_x;
     const dy: i32 = -min_y;
     if (dx != 0 or dy != 0) {
-        shiftAll(placements, clusters, polylines, rails, dx, dy);
+        shiftAll(placements, polylines, rails, dx, dy);
     }
 
     return .{
@@ -223,7 +86,6 @@ pub fn computeBbox(
 
 fn shiftAll(
     placements: []sketch.NodePlacement,
-    clusters: []sketch.ClusterFrame,
     polylines: [][]sketch.Point,
     rails: []fan_rail.Built,
     dx: i32,
@@ -232,10 +94,6 @@ fn shiftAll(
     for (placements) |*p| {
         p.rect.x += dx;
         p.rect.y += dy;
-    }
-    for (clusters) |*c| {
-        c.rect.x += dx;
-        c.rect.y += dy;
     }
     for (polylines) |pts| {
         for (pts) |*pt| {

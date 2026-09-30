@@ -8,10 +8,6 @@ const coords = @import("../layout.zig");
 
 const testing = std.testing;
 
-fn mkNode(id: sg.NodeId, cluster: ?sg.ClusterId) sg.Node {
-    return .{ .id = id, .raw_id = "n", .label = "n", .shape = .rect, .classes = &.{}, .cluster = cluster };
-}
-
 fn mkEdge(id: sg.EdgeId, from: sg.NodeId, to: sg.NodeId, label: ?[]const u8, role: sketch.EdgeRole, poly: []const sketch.Point) sketch.EdgePath {
     return .{
         .id = id,
@@ -28,75 +24,6 @@ fn mkEdge(id: sg.EdgeId, from: sg.NodeId, to: sg.NodeId, label: ?[]const u8, rol
     };
 }
 
-test "buildClusters: outer cluster bbox unions the already-expanded inner rect, not the raw inner member bbox" {
-    const a = testing.allocator;
-
-    const clusters_arr = [_]sg.Cluster{
-        .{ .id = 0, .raw_id = "inner", .label = "", .parent = 1, .members = &[_]sg.NodeId{0}, .sub_clusters = &.{} },
-        .{ .id = 1, .raw_id = "outer", .label = "", .parent = null, .members = &.{}, .sub_clusters = &[_]sg.ClusterId{0} },
-    };
-    const graph = sg.SemGraph{
-        .direction = .TD,
-        .nodes = &[_]sg.Node{mkNode(0, 0)},
-        .edges = &.{},
-        .clusters = &clusters_arr,
-        .classes = &.{},
-        .arena = null,
-    };
-    const placements = [_]sketch.NodePlacement{
-        .{ .id = 0, .rect = .{ .x = 0, .y = 0, .w = 10, .h = 4 }, .shape = .rect, .lines = &.{}, .cluster_id = 0 },
-    };
-
-    const out = try clusters.buildClusters(a, graph, &placements);
-    defer a.free(out);
-
-    var inner: ?sketch.Rect = null;
-    var outer: ?sketch.Rect = null;
-    for (out) |cf| {
-        if (cf.id == 0) inner = cf.rect;
-        if (cf.id == 1) outer = cf.rect;
-    }
-    try testing.expect(inner != null);
-    try testing.expect(outer != null);
-
-    try testing.expectEqual(sketch.Rect{ .x = -4, .y = -2, .w = 18, .h = 8 }, inner.?);
-
-    try testing.expectEqual(sketch.Rect{ .x = -8, .y = -4, .w = 26, .h = 12 }, outer.?);
-    try testing.expect(outer.?.x < inner.?.x);
-    try testing.expect(outer.?.y < inner.?.y);
-    try testing.expect(outer.?.right() > inner.?.right());
-    try testing.expect(outer.?.bottom() > inner.?.bottom());
-}
-
-test "buildClusters: emitted ClusterFrame order matches input graph.clusters order, not the depth-sorted processing order" {
-    const a = testing.allocator;
-
-    const clusters_arr = [_]sg.Cluster{
-        .{ .id = 10, .raw_id = "outer", .label = "", .parent = null, .members = &.{}, .sub_clusters = &[_]sg.ClusterId{20} },
-        .{ .id = 20, .raw_id = "middle", .label = "", .parent = 10, .members = &.{}, .sub_clusters = &[_]sg.ClusterId{30} },
-        .{ .id = 30, .raw_id = "inner", .label = "", .parent = 20, .members = &[_]sg.NodeId{0}, .sub_clusters = &.{} },
-    };
-    const graph = sg.SemGraph{
-        .direction = .TD,
-        .nodes = &[_]sg.Node{mkNode(0, 30)},
-        .edges = &.{},
-        .clusters = &clusters_arr,
-        .classes = &.{},
-        .arena = null,
-    };
-    const placements = [_]sketch.NodePlacement{
-        .{ .id = 0, .rect = .{ .x = 0, .y = 0, .w = 10, .h = 4 }, .shape = .rect, .lines = &.{}, .cluster_id = 30 },
-    };
-
-    const out = try clusters.buildClusters(a, graph, &placements);
-    defer a.free(out);
-
-    try testing.expectEqual(@as(usize, 3), out.len);
-    try testing.expectEqual(@as(sg.ClusterId, 10), out[0].id);
-    try testing.expectEqual(@as(sg.ClusterId, 20), out[1].id);
-    try testing.expectEqual(@as(sg.ClusterId, 30), out[2].id);
-}
-
 test "computeBbox: a self-loop detour point at the diagram's extreme corner extends the exclusive bbox by exactly +1" {
     var placements = [_]sketch.NodePlacement{
         .{ .id = 0, .rect = .{ .x = 0, .y = 0, .w = 5, .h = 3 }, .shape = .rect, .lines = &.{}, .cluster_id = null },
@@ -104,10 +31,9 @@ test "computeBbox: a self-loop detour point at the diagram's extreme corner exte
     var poly = [_]sketch.Point{ .{ .x = 0, .y = 0 }, .{ .x = 20, .y = 10 } };
     var edges = [_]sketch.EdgePath{mkEdge(0, 0, 0, null, .forward, &poly)};
     var polylines = [_][]sketch.Point{&poly};
-    var clusters_arr = [_]sketch.ClusterFrame{};
     var rails = [_]fan_rail.Built{};
 
-    const bbox = clusters.computeBbox(&placements, &edges, &clusters_arr, &polylines, &rails, false, 200);
+    const bbox = clusters.computeBbox(&placements, &edges, &polylines, &rails, false, 200);
 
     try testing.expectEqual(@as(u32, 21), bbox.w);
     try testing.expectEqual(@as(u32, 11), bbox.h);
@@ -129,10 +55,9 @@ test "computeBbox: back-edge rail label relocation depends on the diagram's full
         var poly_a = poly;
         var edges = [_]sketch.EdgePath{mkEdge(0, 0, 0, label, .back_edge, &poly_a)};
         var polylines = [_][]sketch.Point{&poly_a};
-        var clusters_arr = [_]sketch.ClusterFrame{};
         var rails = [_]fan_rail.Built{};
 
-        _ = clusters.computeBbox(&placements, &edges, &clusters_arr, &polylines, &rails, true, max_width);
+        _ = clusters.computeBbox(&placements, &edges, &polylines, &rails, true, max_width);
         try testing.expect(edges[0].label_left_of_run);
     }
 
@@ -143,10 +68,9 @@ test "computeBbox: back-edge rail label relocation depends on the diagram's full
         var poly_b = poly;
         var edges = [_]sketch.EdgePath{mkEdge(0, 0, 0, label, .back_edge, &poly_b)};
         var polylines = [_][]sketch.Point{&poly_b};
-        var clusters_arr = [_]sketch.ClusterFrame{};
         var rails = [_]fan_rail.Built{};
 
-        _ = clusters.computeBbox(&placements, &edges, &clusters_arr, &polylines, &rails, true, max_width);
+        _ = clusters.computeBbox(&placements, &edges, &polylines, &rails, true, max_width);
         try testing.expect(!edges[0].label_left_of_run);
     }
 }
@@ -158,10 +82,9 @@ test "computeBbox: back-edge rail lever leaves the label right when the right pl
     var poly = [_]sketch.Point{ .{ .x = 10, .y = 0 }, .{ .x = 10, .y = 20 } };
     var edges = [_]sketch.EdgePath{mkEdge(0, 0, 0, "ok", .back_edge, &poly)};
     var polylines = [_][]sketch.Point{&poly};
-    var clusters_arr = [_]sketch.ClusterFrame{};
     var rails = [_]fan_rail.Built{};
 
-    _ = clusters.computeBbox(&placements, &edges, &clusters_arr, &polylines, &rails, true, 200);
+    _ = clusters.computeBbox(&placements, &edges, &polylines, &rails, true, 200);
     try testing.expect(!edges[0].label_left_of_run);
 }
 
@@ -172,7 +95,6 @@ test "computeBbox: rail tap label reservation matches Rail.tapLabelSeg + prim.ed
     };
     var edges = [_]sketch.EdgePath{};
     var polylines = [_][]sketch.Point{};
-    var clusters_arr = [_]sketch.ClusterFrame{};
 
     var stem = [_]sketch.Point{ .{ .x = 5, .y = 8 }, .{ .x = 5, .y = 3 } };
     var taps = [_]sketch.Tap{
@@ -190,7 +112,7 @@ test "computeBbox: rail tap label reservation matches Rail.tapLabelSeg + prim.ed
         .taps = &taps,
     }};
 
-    const bbox = clusters.computeBbox(&placements, &edges, &clusters_arr, &polylines, &rails, false, 200);
+    const bbox = clusters.computeBbox(&placements, &edges, &polylines, &rails, false, 200);
 
     const rail = rails[0].rail;
     const seg = rail.tapLabelSeg(taps[0]);
@@ -207,7 +129,6 @@ test "computeBbox: the shift pass updates both the Built.taps view and the alias
     };
     var edges = [_]sketch.EdgePath{};
     var polylines = [_][]sketch.Point{};
-    var clusters_arr = [_]sketch.ClusterFrame{};
 
     var stem = [_]sketch.Point{ .{ .x = -5, .y = 0 }, .{ .x = -5, .y = -2 } };
     var taps = [_]sketch.Tap{
@@ -226,7 +147,7 @@ test "computeBbox: the shift pass updates both the Built.taps view and the alias
     }};
 
     const pre_shift_tap_x = rails[0].rail.taps[0].at.x;
-    _ = clusters.computeBbox(&placements, &edges, &clusters_arr, &polylines, &rails, false, 200);
+    _ = clusters.computeBbox(&placements, &edges, &polylines, &rails, false, 200);
 
     try testing.expect(rails[0].rail.taps[0].at.x != pre_shift_tap_x);
     try testing.expectEqual(rails[0].taps[0].at.x, rails[0].rail.taps[0].at.x);
@@ -240,10 +161,9 @@ test "computeBbox: label_left_of_run is false exactly at prim.edgeLabelAnchor's 
     var poly = [_]sketch.Point{ .{ .x = 10, .y = 0 }, .{ .x = 10, .y = 20 } };
     var edges = [_]sketch.EdgePath{mkEdge(0, 0, 0, "x", .back_edge, &poly)};
     var polylines = [_][]sketch.Point{&poly};
-    var clusters_arr = [_]sketch.ClusterFrame{};
     var rails = [_]fan_rail.Built{};
 
-    _ = clusters.computeBbox(&placements, &edges, &clusters_arr, &polylines, &rails, true, 200);
+    _ = clusters.computeBbox(&placements, &edges, &polylines, &rails, true, 200);
 
     const mid_x: i32 = @divTrunc(poly[0].x + poly[1].x, 2);
     const anchor = prim.edgeLabelAnchor(poly[0].x, poly[0].y, poly[1].x, poly[1].y, prim.displayWidth("x"), .{});

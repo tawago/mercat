@@ -39,7 +39,7 @@ test "centerLayer's fan-IN override centers on the real-source centroid, excludi
         .{ .x = 100, .y = 0, .w = 10, .h = 3, .layer = 0 },
         .{ .x = 0, .y = 5, .w = 10, .h = 3, .layer = 1 },
     };
-    try cx_mod.centerByBarycenter(testing.allocator, empty_g, &geom, lg, 2, .down, true, 0);
+    try cx_mod.centerByBarycenter(testing.allocator, empty_g, &geom, lg, 2, .down, true);
     const f_cx = geom[3].x + @as(i32, @intCast(geom[3].w / 2));
     try testing.expectEqual(@as(i32, 15), f_cx);
     try testing.expect(f_cx != 45);
@@ -74,7 +74,7 @@ test "monotonic packing's min_cursor floor drifts a shared-barycenter run right 
     };
 
     var packed_only = initial;
-    try cx_mod.centerByBarycenter(testing.allocator, empty_g, &packed_only, lg, 2, .down, false, 0);
+    try cx_mod.centerByBarycenter(testing.allocator, empty_g, &packed_only, lg, 2, .down, false);
     const a_cx = packed_only[0].x + @as(i32, @intCast(packed_only[0].w / 2));
     {
         const b_cx = packed_only[1].x + @as(i32, @intCast(packed_only[1].w / 2));
@@ -84,7 +84,7 @@ test "monotonic packing's min_cursor floor drifts a shared-barycenter run right 
     }
 
     var corrected = initial;
-    try cx_mod.centerByBarycenter(testing.allocator, empty_g, &corrected, lg, 2, .down, true, 0);
+    try cx_mod.centerByBarycenter(testing.allocator, empty_g, &corrected, lg, 2, .down, true);
     const b_cx2 = corrected[1].x + @as(i32, @intCast(corrected[1].w / 2));
     const c_cx2 = corrected[2].x + @as(i32, @intCast(corrected[2].w / 2));
     const mean_bc2 = @divTrunc(b_cx2 + c_cx2, 2);
@@ -134,9 +134,9 @@ test "centerLayer skips re-centering a row that is both clustered and a labeled 
         .{ .x = 0, .y = 5, .w = 10, .h = 3, .layer = 1 },
     };
     var packed_only = geom;
-    try cx_mod.centerByBarycenter(testing.allocator, g, &packed_only, lg, 2, .down, false, 0);
+    try cx_mod.centerByBarycenter(testing.allocator, g, &packed_only, lg, 2, .down, false);
     var corrected = geom;
-    try cx_mod.centerByBarycenter(testing.allocator, g, &corrected, lg, 2, .down, true, 0);
+    try cx_mod.centerByBarycenter(testing.allocator, g, &corrected, lg, 2, .down, true);
 
     try testing.expectEqual(packed_only[1].x, corrected[1].x);
     try testing.expectEqual(packed_only[2].x, corrected[2].x);
@@ -289,10 +289,10 @@ test "centerRunOnDesired re-centers using only real nodes, keeping the real node
     };
 
     var packed_only = initial;
-    try cx_mod.centerByBarycenter(testing.allocator, empty_g, &packed_only, lg, 2, .down, false, 0);
+    try cx_mod.centerByBarycenter(testing.allocator, empty_g, &packed_only, lg, 2, .down, false);
 
     var real = initial;
-    try cx_mod.centerByBarycenter(testing.allocator, empty_g, &real, lg, 2, .down, true, 0);
+    try cx_mod.centerByBarycenter(testing.allocator, empty_g, &real, lg, 2, .down, true);
     const a_cx = real[0].x + @as(i32, @intCast(real[0].w / 2));
     const r_cx = real[2].x + @as(i32, @intCast(real[2].w / 2));
     try testing.expectEqual(a_cx, r_cx);
@@ -335,7 +335,7 @@ test "centerRunOnDesired's width clamp keeps a recentered row from crossing x=0"
     };
 
     var packed_only = initial;
-    try cx_mod.centerByBarycenter(testing.allocator, empty_g, &packed_only, lg, 2, .down, false, 0);
+    try cx_mod.centerByBarycenter(testing.allocator, empty_g, &packed_only, lg, 2, .down, false);
     const a_cx = packed_only[0].x + @as(i32, @intCast(packed_only[0].w / 2));
     const r_actual = packed_only[2].x + @as(i32, @intCast(packed_only[2].w / 2));
     const unclamped_delta = a_cx - r_actual;
@@ -343,7 +343,7 @@ test "centerRunOnDesired's width clamp keeps a recentered row from crossing x=0"
     try testing.expect(row_min_before + unclamped_delta < 0);
 
     var real = initial;
-    try cx_mod.centerByBarycenter(testing.allocator, empty_g, &real, lg, 2, .down, true, 0);
+    try cx_mod.centerByBarycenter(testing.allocator, empty_g, &real, lg, 2, .down, true);
     try testing.expect(real[1].x >= 0);
     try testing.expect(real[2].x >= 0);
 }

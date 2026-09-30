@@ -13,13 +13,6 @@ pub fn vertical(a: std.mem.Allocator, s: sketch.Sketch, direction: sketch.Direct
         nodes[i].rect = mirrorRect(s.bbox, n.rect);
     }
 
-    const clusters = try a.alloc(sketch.ClusterFrame, s.clusters.len);
-    errdefer a.free(clusters);
-    for (s.clusters, 0..) |c, i| {
-        clusters[i] = c;
-        clusters[i].rect = mirrorRect(s.bbox, c.rect);
-    }
-
     const edges = try a.alloc(sketch.EdgePath, s.edges.len);
     var edges_done: usize = 0;
     errdefer {
@@ -74,7 +67,7 @@ pub fn vertical(a: std.mem.Allocator, s: sketch.Sketch, direction: sketch.Direct
         .bbox = s.bbox,
         .direction = direction,
         .nodes = nodes,
-        .clusters = clusters,
+        .clusters = s.clusters,
         .edges = edges,
         .rails = rails,
         .rail_claims = rail_claims,
@@ -233,9 +226,6 @@ test "vertical mirror flips y geometry and ports" {
         .{ .id = 1, .rect = .{ .x = 2, .y = 1, .w = 5, .h = 3 }, .shape = .rect, .lines = &.{"A"}, .cluster_id = null },
         .{ .id = 2, .rect = .{ .x = 2, .y = 6, .w = 5, .h = 3 }, .shape = .rect, .lines = &.{"B"}, .cluster_id = null },
     };
-    const clusters = [_]sketch.ClusterFrame{
-        .{ .id = 1, .rect = .{ .x = 0, .y = 0, .w = 9, .h = 10 }, .parent_id = null, .label = "C", .depth = 0 },
-    };
     const poly = [_]sketch.Point{ .{ .x = 4, .y = 3 }, .{ .x = 4, .y = 5 } };
     const edges = [_]sketch.EdgePath{
         .{
@@ -255,7 +245,7 @@ test "vertical mirror flips y geometry and ports" {
         .bbox = .{ .x = 0, .y = 0, .w = 9, .h = 10 },
         .direction = .TD,
         .nodes = &nodes,
-        .clusters = &clusters,
+        .clusters = &.{},
         .edges = &edges,
         .diagnostics = &.{},
         .budget = .{ .max_width = 80, .rung = 0 },

@@ -9,7 +9,6 @@ const sugiyama = @import("layout/sugiyama.zig");
 const crossing = @import("layout/crossing.zig");
 const routing = @import("layout/routing.zig");
 const clusters = @import("layout/clusters.zig");
-const spacing = @import("layout/spacing.zig");
 const fan_mod = @import("layout/fan.zig");
 const fan_gate = @import("layout/fan_gate.zig");
 const fan_lanes = @import("layout/fan_lanes.zig");
@@ -117,17 +116,17 @@ fn buildSketch(
         .BT => unreachable,
         .LR, .RL => 4,
     };
-    const v_sp_per_gap = try computeLayerSpacings(a, graph, lg, v_base);
+    const v_sp_per_gap = try computeLayerSpacings(a, lg, v_base);
 
     const compact_x = (graph.direction == .TD) and !opts.is_direction_rotated;
 
-    assignInitialX(graph, geom, lg.nodes, lg.layers, opts.h_spacing, opts.spacing_scale);
-    try centerByBarycenter(a, graph, geom, lg, opts.h_spacing, .down, compact_x, opts.spacing_scale);
-    try centerByBarycenter(a, graph, geom, lg, opts.h_spacing, .up, compact_x, opts.spacing_scale);
+    assignInitialX(geom, lg.layers, opts.h_spacing);
+    try centerByBarycenter(a, graph, geom, lg, opts.h_spacing, .down, compact_x);
+    try centerByBarycenter(a, graph, geom, lg, opts.h_spacing, .up, compact_x);
 
     normalizeX(geom);
 
-    try centerByBarycenter(a, graph, geom, lg, opts.h_spacing, .down, compact_x, opts.spacing_scale);
+    try centerByBarycenter(a, graph, geom, lg, opts.h_spacing, .down, compact_x);
 
     normalizeX(geom);
 
@@ -185,11 +184,10 @@ fn buildSketch(
     else
         try routing.buildEdges(a, graph, lg, geom, placements, fans, rows);
     const edges_out = edges_result.edges;
-    const clusters_out = try clusters.buildClusters(a, graph, placements);
 
     const rail_lever = (opts.spacing_scale > 0) and
         (graph.direction == .TD) and !opts.is_direction_rotated;
-    const bbox = clusters.computeBbox(placements, edges_out, clusters_out, edges_result.polylines, edges_result.rails, rail_lever, opts.max_width);
+    const bbox = clusters.computeBbox(placements, edges_out, edges_result.polylines, edges_result.rails, rail_lever, opts.max_width);
     var diagnostics: std.ArrayListUnmanaged(sketch.Diagnostic) = .empty;
     if (bbox.w > opts.max_width) {
         try diagnostics.append(a, .width_overflow);
@@ -222,7 +220,7 @@ fn buildSketch(
         .bbox = bbox,
         .direction = graph.direction,
         .nodes = placements,
-        .clusters = clusters_out,
+        .clusters = &.{},
         .edges = edges_out,
         .rails = rails_out,
         .rail_claims = edges_result.rail_claims,
@@ -286,18 +284,10 @@ fn computeLayerHeights(
     return layer_h;
 }
 
-fn computeLayerSpacings(
-    a: std.mem.Allocator,
-    graph: sg.SemGraph,
-    lg: sugiyama.LayeredGraph,
-    base: u32,
-) error{OutOfMemory}![]u32 {
+fn computeLayerSpacings(a: std.mem.Allocator, lg: sugiyama.LayeredGraph, base: u32) error{OutOfMemory}![]u32 {
     if (lg.layers.len == 0) return try a.alloc(u32, 0);
     const gaps = try a.alloc(u32, lg.layers.len - 1);
-    var li: usize = 0;
-    while (li + 1 < lg.layers.len) : (li += 1) {
-        gaps[li] = spacing.interLayerSpacing(graph, lg, @intCast(li), @intCast(li + 1), base);
-    }
+    @memset(gaps, base);
     return gaps;
 }
 

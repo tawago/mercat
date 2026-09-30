@@ -85,18 +85,11 @@ test "vertical BT mirror remaps clustered bundle scopes without changing identit
         .{ .origin = .port_share, .members = &.{ 4, 5 } },
         .{ .origin = .port_share, .members = &.{ 6, 7 }, .cells = &empty_cells, .pairwise = &empty_pairs },
     };
-    const clusters = [_]sketch.ClusterFrame{.{
-        .id = 7,
-        .rect = .{ .x = 2, .y = 11, .w = 12, .h = 5 },
-        .parent_id = null,
-        .label = "cluster",
-        .depth = 0,
-    }};
     const s: sketch.Sketch = .{
         .bbox = .{ .x = 2, .y = 10, .w = 20, .h = 12 },
         .direction = .TD,
         .nodes = &.{},
-        .clusters = &clusters,
+        .clusters = &.{},
         .edges = &.{},
         .bundle_sets = &sets,
         .diagnostics = &.{},
@@ -108,7 +101,6 @@ test "vertical BT mirror remaps clustered bundle scopes without changing identit
     const out = try mirror.vertical(arena.allocator(), s, .BT);
 
     try testing.expectEqual(sketch.Direction.BT, out.direction);
-    try testing.expectEqual(@as(i32, 16), out.clusters[0].rect.y);
     try testing.expectEqual(@as(usize, 4), out.bundle_sets.len);
     for (sets, out.bundle_sets) |before, after| {
         try testing.expectEqual(before.origin, after.origin);

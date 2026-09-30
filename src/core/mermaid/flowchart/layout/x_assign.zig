@@ -1,31 +1,17 @@
 const std = @import("std");
 const sg = @import("../sem_graph.zig");
 const sugiyama = @import("sugiyama.zig");
-const spacing = @import("spacing.zig");
 const fan_mod = @import("fan.zig");
 const routing = @import("routing.zig");
 
 pub const NodeGeom = routing.NodeGeom;
 
-pub fn assignInitialX(
-    graph: sg.SemGraph,
-    geom: []NodeGeom,
-    nodes: []const sugiyama.LayerNode,
-    layers: [][]u32,
-    h_spacing: u32,
-    spacing_scale: u8,
-) void {
+pub fn assignInitialX(geom: []NodeGeom, layers: [][]u32, h_spacing: u32) void {
     for (layers) |row| {
         var cursor: i32 = 0;
-        var prev: ?u32 = null;
         for (row) |idx| {
-            if (prev) |p| {
-                const extra = spacing.intraLayerExtra(graph, nodes[p], nodes[idx], spacing_scale);
-                cursor += @as(i32, @intCast(extra));
-            }
             geom[idx].x = cursor;
             cursor += @as(i32, @intCast(geom[idx].w)) + @as(i32, @intCast(h_spacing));
-            prev = idx;
         }
     }
 }
@@ -40,19 +26,18 @@ pub fn centerByBarycenter(
     h_spacing: u32,
     dir: SweepDir,
     compact: bool,
-    spacing_scale: u8,
 ) error{OutOfMemory}!void {
     if (lg.layers.len < 2) return;
     if (dir == .down) {
         var li: usize = 0;
         while (li < lg.layers.len) : (li += 1) {
-            try centerLayer(a, graph, geom, lg, lg.layers[li], h_spacing, dir, compact, spacing_scale);
+            try centerLayer(a, graph, geom, lg, lg.layers[li], h_spacing, dir, compact);
         }
     } else {
         var li: usize = lg.layers.len;
         while (li > 0) {
             li -= 1;
-            try centerLayer(a, graph, geom, lg, lg.layers[li], h_spacing, dir, compact, spacing_scale);
+            try centerLayer(a, graph, geom, lg, lg.layers[li], h_spacing, dir, compact);
         }
     }
 }
@@ -66,7 +51,6 @@ fn centerLayer(
     h_spacing: u32,
     dir: SweepDir,
     compact: bool,
-    spacing_scale: u8,
 ) error{OutOfMemory}!void {
     if (row.len == 0) return;
     const desired = try a.alloc(i32, row.len);
@@ -101,42 +85,19 @@ fn centerLayer(
     }
 
     var cursor: i32 = std.math.minInt(i32) / 2;
-    var prev_idx: ?u32 = null;
     for (row, 0..) |idx, k| {
         const w_i: i32 = @intCast(geom[idx].w);
-        const extra: u32 = if (prev_idx) |p|
-            spacing.intraLayerExtra(graph, lg.nodes[p], lg.nodes[idx], spacing_scale)
-        else
-            0;
-        const min_cursor = cursor + @as(i32, @intCast(extra));
         const want_left = desired[k] - @divTrunc(w_i, 2);
-        const left = if (want_left > min_cursor) want_left else min_cursor;
+        const left = if (want_left > cursor) want_left else cursor;
         geom[idx].x = left;
         cursor = left + w_i + @as(i32, @intCast(h_spacing));
-        prev_idx = idx;
     }
 
     if (!compact) return;
 
-    if (!rowHasClusteredNode(graph, lg, row) and
-        !rowHasLabeledIncomingEdge(graph, geom, lg, row))
-    {
+    if (!rowHasLabeledIncomingEdge(graph, geom, lg, row)) {
         centerRunOnDesired(geom, lg, row, desired);
     }
-}
-
-fn rowHasClusteredNode(graph: sg.SemGraph, lg: sugiyama.LayeredGraph, row: []const u32) bool {
-    for (row) |idx| {
-        switch (lg.nodes[idx]) {
-            .real => |nid| {
-                for (graph.nodes) |n| {
-                    if (n.id == nid and n.cluster != null) return true;
-                }
-            },
-            .virtual => {},
-        }
-    }
-    return false;
 }
 
 fn rowHasLabeledIncomingEdge(graph: sg.SemGraph, geom: []const NodeGeom, lg: sugiyama.LayeredGraph, row: []const u32) bool {
@@ -218,7 +179,6 @@ pub fn flushLeftRows(graph: sg.SemGraph, geom: []NodeGeom, lg: sugiyama.LayeredG
             }
         }
         if (real_count < 2) continue;
-        if (rowHasClusteredNode(graph, lg, row)) continue;
         if (rowHasLabeledIncomingEdge(graph, geom, lg, row)) continue;
 
         var delta = margin - row_min;
