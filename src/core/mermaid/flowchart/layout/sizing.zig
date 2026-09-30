@@ -126,7 +126,7 @@ pub fn buildPlacements(
                     .rect = .{ .x = g.x, .y = g.y, .w = g.w, .h = g.h },
                     .shape = mapShape(node.shape),
                     .lines = node_lines[i],
-                    .cluster_id = node.cluster,
+                    .cluster_id = null,
                 });
             },
             .virtual => {},
