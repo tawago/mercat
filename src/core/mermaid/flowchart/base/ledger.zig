@@ -46,18 +46,6 @@ pub const MembershipDisposition = union(enum) {
     },
 };
 
-pub const CandidateGeometryRef = union(enum) {
-    rail: u32,
-    edge_path: u32,
-};
-
-pub const BundleProposal = struct {
-    id: BundleProposalId,
-    candidate_bundle: CandidateBundleId,
-    members: []const EdgeId,
-    candidate_geometry: CandidateGeometryRef,
-};
-
 pub const SelectedBundle = struct {
     id: SelectedBundleId,
     proposal: BundleProposalId,
