@@ -217,7 +217,7 @@ test "mergeRole: a rail outranks a dropper, which outranks routing roles" {
     );
     try testing.expectEqual(
         lattice.EdgeRole.fan_in_dropper,
-        ew.mergeRole(.fan_in_dropper, .cluster_internal),
+        ew.mergeRole(.fan_in_dropper, .self_loop),
     );
     try testing.expectEqual(
         lattice.EdgeRole.fan_out_dropper,

@@ -96,7 +96,6 @@ pub const EdgeRole = enum {
     fan_in_dropper,
     member_stroke,
     self_loop,
-    cluster_internal,
 };
 
 pub const Shape = enum {

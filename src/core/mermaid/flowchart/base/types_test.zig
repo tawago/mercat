@@ -42,11 +42,11 @@ test "prim: EdgeKind variants" {
 
 test "prim: EdgeRole variants exist" {
     const roles = [_]EdgeRole{
-        .forward,         .back_edge,        .fan_out_rail,
-        .fan_out_dropper, .fan_in_rail,      .fan_in_dropper,
-        .self_loop,       .cluster_internal,
+        .forward,         .back_edge,   .fan_out_rail,
+        .fan_out_dropper, .fan_in_rail, .fan_in_dropper,
+        .self_loop,
     };
-    try std.testing.expectEqual(@as(usize, 8), roles.len);
+    try std.testing.expectEqual(@as(usize, 7), roles.len);
 }
 
 test "prim: Shape variants" {
