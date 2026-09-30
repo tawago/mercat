@@ -1,10 +1,7 @@
 const std = @import("std");
 const lattice = @import("lattice.zig");
 const prim = @import("prim");
-const jt = @import("paint/junction_glyphs.zig");
-const st = @import("paint/stroke_glyphs.zig");
-const sg = @import("paint/shape_glyphs.zig");
-const ag = @import("paint/arrow_glyphs.zig");
+const glyphs = @import("paint/glyphs.zig");
 
 const OVERFLOW_MARKER: u21 = '\u{00BB}';
 
@@ -92,34 +89,7 @@ fn appendCell(
             try appendCp(allocator, row, cp);
             return prim.codepointWidth(cp);
         },
-        .arrowhead => |a| try appendCp(allocator, row, ag.glyphFor(a.arrow, a.dir)),
-        .edge_segment => |seg| {
-            const glyph: u21 = switch (seg.kind) {
-                .solid => jt.glyphFor(cell.neighbours),
-                .dotted => st.dottedGlyph(cell.neighbours),
-                .thick => st.thickGlyph(cell.neighbours),
-                .invisible => ' ',
-            };
-            try appendCp(allocator, row, glyph);
-        },
-        .node_border => |b| {
-            const glyph: u21 = switch (cell.stroke_kind) {
-                .solid => sg.glyphFor(cell.shape, b.role, cell.neighbours),
-                .dotted => st.dottedBorderGlyph(cell.neighbours),
-                .thick => st.thickBorderGlyph(cell.neighbours),
-                .invisible => sg.glyphFor(cell.shape, b.role, cell.neighbours),
-            };
-            try appendCp(allocator, row, glyph);
-        },
-        .cluster_border => {
-            const glyph: u21 = switch (cell.stroke_kind) {
-                .solid => jt.glyphFor(cell.neighbours),
-                .dotted => st.dottedBorderGlyph(cell.neighbours),
-                .thick => st.thickBorderGlyph(cell.neighbours),
-                .invisible => jt.glyphFor(cell.neighbours),
-            };
-            try appendCp(allocator, row, glyph);
-        },
+        .edge_segment, .arrowhead, .node_border, .cluster_border => try appendCp(allocator, row, glyphs.ink(cell).?),
     }
     return 1;
 }
