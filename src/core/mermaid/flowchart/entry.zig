@@ -324,7 +324,6 @@ test {
     _ = @import("layout.zig");
     _ = @import("raster.zig");
     _ = @import("paint.zig");
-    _ = @import("onrun_paint_test.zig");
     _ = @import("budget.zig");
     _ = @import("score.zig");
     _ = @import("select.zig");

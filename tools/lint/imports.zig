@@ -187,16 +187,6 @@ pub const file_allowlists = [_]struct {
         .reason = "rails_test may only import std, prim, sketch, lattice, raster siblings, or raster",
     },
     .{
-        .name = "onrun_paint_test.zig",
-        .allowed = &.{
-            .sketch,
-            .raster_zone,
-            .{ .exact = "lattice.zig" },
-            .{ .exact = "paint.zig" },
-        },
-        .reason = "onrun_paint_test may only import std, prim, base/*, sketch, raster, lattice, or paint",
-    },
-    .{
         .name = "junction_licence_test.zig",
         .allowed = &.{
             .sem_graph,                         .sketch,

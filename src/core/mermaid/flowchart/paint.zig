@@ -468,3 +468,58 @@ test "paint: arrowhead glyphs for all four directions" {
         try testing.expectEqualStrings(c.want, got);
     }
 }
+
+fn onRunLabelLattice(cells: *[81]lattice.Cell, kind: lattice.EdgeKind) lattice.Lattice {
+    for (cells) |*c| c.* = lattice.Cell.empty;
+    var lat = lattice.Lattice{ .width = 9, .height = 9, .cells = cells };
+    for (1..6) |y| {
+        lat.at(5, @intCast(y)).* = .{
+            .occupant = .{ .edge_segment = .{
+                .edge = 7,
+                .kind = kind,
+                .role = if (y == 1) .fan_out_rail else .fan_out_dropper,
+            } },
+            .neighbours = .{ .n = true, .s = true },
+            .stroke_kind = kind,
+        };
+    }
+    lat.at(5, 4).* = .{ .occupant = .{ .label_char = 'o' }, .neighbours = .{} };
+    lat.at(6, 4).* = .{ .occupant = .{ .label_char = 'k' }, .neighbours = .{} };
+    lat.at(5, 6).* = .{ .occupant = .{ .arrowhead = .{ .dir = .south, .edge = 7 } }, .neighbours = .{ .n = true } };
+    return lat;
+}
+
+fn glyphAt(painted: []const u8, x: usize, row: usize) u21 {
+    var lines = std.mem.splitScalar(u8, painted, '\n');
+    var r: usize = 0;
+    while (lines.next()) |line| : (r += 1) {
+        if (r != row) continue;
+        var it = std.unicode.Utf8View.initUnchecked(line).iterator();
+        var col: usize = 0;
+        while (it.nextCodepoint()) |cp| : (col += 1) {
+            if (col == x) return cp;
+        }
+    }
+    return ' ';
+}
+
+test "paint: a decorated on-run label reads │ label │ ▼ down its own column" {
+    var cells: [81]lattice.Cell = undefined;
+    const got = try paint(testing.allocator, onRunLabelLattice(&cells, .solid), 0);
+    defer testing.allocator.free(got);
+    const want = [_]u21{ '│', '│', 'o', '│', '▼' };
+    for (want, 2..) |cp, row| try testing.expectEqual(cp, glyphAt(got, 5, row));
+}
+
+test "paint: a dotted or thick run keeps its own stroke on BOTH sides of the label" {
+    const cases = [_]struct { kind: lattice.EdgeKind, stroke: u21 }{
+        .{ .kind = .dotted, .stroke = '┊' },
+        .{ .kind = .thick, .stroke = '║' },
+    };
+    for (cases) |c| {
+        var cells: [81]lattice.Cell = undefined;
+        const got = try paint(testing.allocator, onRunLabelLattice(&cells, c.kind), 0);
+        defer testing.allocator.free(got);
+        for ([_]usize{ 2, 3, 5 }) |row| try testing.expectEqual(c.stroke, glyphAt(got, 5, row));
+    }
+}
