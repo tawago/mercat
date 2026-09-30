@@ -9,7 +9,6 @@ pub const Report = pb.ClosureCounts;
 
 pub fn effectivePlan(a: std.mem.Allocator, graph: sg.SemGraph, root: ?*const pb.BundlePermits) error{OutOfMemory}!?pb.BundlePermits {
     const rp = root orelse return null;
-    if (graph.clusters.len != 0) return null;
     if (rp.isFlat()) return rp.*;
     const piece = permit_mod.buildPiece(a, graph) catch |err| switch (err) {
         error.OutOfMemory => return error.OutOfMemory,
@@ -20,8 +19,6 @@ pub fn effectivePlan(a: std.mem.Allocator, graph: sg.SemGraph, root: ?*const pb.
 
 pub fn buildReported(a: std.mem.Allocator, graph: sg.SemGraph, permits: ?*const pb.BundlePermits, reversed_edges: []const pb.EdgeId, long_edges: []const pb.EdgeId, report: ?*Report) error{OutOfMemory}!pb.RealizedBundles {
     const plan_ptr = permits orelse return .{};
-    if (graph.clusters.len != 0) return .{};
-    if (plan_ptr.scope == .skipped_clustered) return .{};
     const plan = plan_ptr.*;
     const eff_of = try a.alloc(?[]const pb.EdgeId, plan.groups.len);
     for (plan.groups, 0..) |group, gi| {

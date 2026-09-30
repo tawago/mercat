@@ -17,8 +17,8 @@ fn edge(id: u32, to: u32, kind: sg.EdgeKind) sg.Edge {
     return .{ .id = id, .from = 0, .to = to, .kind = kind, .arrow_from = .none, .arrow_to = .filled, .label = null };
 }
 
-fn testGraph(nodes: []const sg.Node, edges: []const sg.Edge, clusters: []const sg.Cluster) sg.SemGraph {
-    return .{ .direction = .TD, .nodes = nodes, .edges = edges, .clusters = clusters, .classes = &.{}, .arena = null };
+fn testGraph(nodes: []const sg.Node, edges: []const sg.Edge) sg.SemGraph {
+    return .{ .direction = .TD, .nodes = nodes, .edges = edges, .clusters = &.{}, .classes = &.{}, .arena = null };
 }
 
 fn productionLayout(a: std.mem.Allocator, g: sg.SemGraph) !sk.Sketch {
@@ -153,7 +153,7 @@ test "duplicate private claims receive stable distinct source and target slots" 
     const reversed = [_]sg.Edge{ forward[1], forward[0] };
     var offsets: [2][4]u32 = undefined;
     for ([2][]const sg.Edge{ &forward, &reversed }, 0..) |edges, run| {
-        const g = testGraph(&nodes, edges, &.{});
+        const g = testGraph(&nodes, edges);
         const memberships = [_]pb.RealizedEdgeMembership{
             .{ .edge = 4, .source = .{ .independent = .{ .candidate_bundle = 0, .reason = .not_selected } }, .target = .{ .independent = .{ .candidate_bundle = 1, .reason = .not_selected } } },
             .{ .edge = 9, .source = .{ .independent = .{ .candidate_bundle = 0, .reason = .not_selected } }, .target = .{ .independent = .{ .candidate_bundle = 1, .reason = .not_selected } } },
@@ -193,7 +193,7 @@ test "two and three identical arrows survive layout raster and paint with face g
         const nodes = [_]sg.Node{ node(0, "S"), node(1, "A") };
         var edges: [n]sg.Edge = undefined;
         for (&edges, 0..) |*item, i| item.* = edge(@intCast(i), 1, .solid);
-        const g = testGraph(&nodes, &edges, &.{});
+        const g = testGraph(&nodes, &edges);
         const s = try productionLayout(a, g);
         try std.testing.expectEqual(@as(usize, n), s.edges.len);
         var ids: [n]pb.EdgeId = undefined;
@@ -212,7 +212,7 @@ test "labelled duplicate plus distinct leaf keeps the duplicate private and rail
     var edges = [_]sg.Edge{ edge(0, 1, .solid), edge(1, 1, .solid), edge(2, 2, .solid) };
     edges[0].label = "dup";
     edges[1].label = "dup";
-    const g = testGraph(&nodes, &edges, &.{});
+    const g = testGraph(&nodes, &edges);
     const s = try productionLayout(a, g);
     try std.testing.expectEqual(@as(usize, 1), s.bundles.selected_bundles.len);
     try expectPrivatePorts(s, &.{ 0, 1 });
@@ -221,21 +221,18 @@ test "labelled duplicate plus distinct leaf keeps the duplicate private and rail
     try expectTerminalEvidence(a, g, s, 3);
 }
 
-test "flat and clustered rail exclusion keep the duplicate leaf private" {
+test "rail exclusion keeps the duplicate leaf private" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
     const nodes = [_]sg.Node{ node(0, "S"), node(1, "A"), node(2, "B") };
     const edges = [_]sg.Edge{ edge(0, 1, .solid), edge(1, 1, .solid), edge(2, 2, .solid) };
-    const clusters = [_]sg.Cluster{.{ .id = 7, .raw_id = "G", .label = "G", .parent = null, .members = &.{2}, .sub_clusters = &.{} }};
-    for ([_][]const sg.Cluster{ &.{}, &clusters }) |scope| {
-        const g = testGraph(&nodes, &edges, scope);
-        const s = try productionLayout(a, g);
-        const private = pathById(s, 1);
-        try std.testing.expect(!samePort(private.port_from, pathById(s, 0).port_from));
-        try std.testing.expect(!samePort(pathById(s, 0).port_to, pathById(s, 1).port_to));
-        try expectTerminalEvidence(a, g, s, 3);
-    }
+    const g = testGraph(&nodes, &edges);
+    const s = try productionLayout(a, g);
+    const private = pathById(s, 1);
+    try std.testing.expect(!samePort(private.port_from, pathById(s, 0).port_from));
+    try std.testing.expect(!samePort(pathById(s, 0).port_to, pathById(s, 1).port_to));
+    try expectTerminalEvidence(a, g, s, 3);
 }
 
 test "bidirectional duplicate and self-loop keep independent endpoint identity" {
@@ -247,7 +244,7 @@ test "bidirectional duplicate and self-loop keep independent endpoint identity" 
     edges[0].arrow_from = .filled;
     edges[1].arrow_from = .filled;
     edges[2].from = 0;
-    const g = testGraph(&nodes, &edges, &.{});
+    const g = testGraph(&nodes, &edges);
     const s = try productionLayout(a, g);
     try expectPrivatePorts(s, &.{ 0, 1 });
     const loop = pathById(s, 2);
@@ -264,7 +261,7 @@ test "a fan with a long peer the plan did not select degrades to private routing
         .{ .id = 1, .from = 1, .to = 2, .kind = .solid, .arrow_from = .none, .arrow_to = .filled, .label = null },
         edge(2, 2, .thick),
     };
-    const s = try productionLayout(a, testGraph(&nodes, &edges, &.{}));
+    const s = try productionLayout(a, testGraph(&nodes, &edges));
     for (s.rails) |rail| try std.testing.expect(rail.pivot != 0);
     for (s.edges) |path| try std.testing.expect(path.role != .member_stroke);
     try std.testing.expectEqual(sk.EdgeRole.forward, pathById(s, 2).role);
@@ -280,7 +277,7 @@ test "a long fan-in member the plan selected gets a continuing tap and a member 
         .{ .id = 1, .from = 1, .to = 2, .kind = .solid, .arrow_from = .none, .arrow_to = .filled, .label = null },
         edge(2, 2, .solid),
     };
-    const s = try productionLayout(a, testGraph(&nodes, &edges, &.{}));
+    const s = try productionLayout(a, testGraph(&nodes, &edges));
     var fan_in: ?sk.Rail = null;
     for (s.rails) |rail| if (rail.pivot == 2) {
         fan_in = rail;
@@ -310,7 +307,7 @@ test "a decorated long fan-in member's stroke leaves its departure cell straight
         .{ .id = 1, .from = 1, .to = 2, .kind = .solid, .arrow_from = .filled, .arrow_to = .none, .label = null },
         .{ .id = 2, .from = 0, .to = 2, .kind = .solid, .arrow_from = .filled, .arrow_to = .none, .label = null },
     };
-    const s = try productionLayout(a, testGraph(&nodes, &edges, &.{}));
+    const s = try productionLayout(a, testGraph(&nodes, &edges));
     const stroke = pathById(s, 2);
     try std.testing.expectEqual(sk.EdgeRole.member_stroke, stroke.role);
     try std.testing.expect(stroke.polyline.len >= 2);
@@ -327,7 +324,7 @@ test "a long fan-out member gets a rail tap and a member stroke to its far port"
         .{ .id = 1, .from = 1, .to = 2, .kind = .solid, .arrow_from = .none, .arrow_to = .filled, .label = null },
         edge(2, 2, .solid),
     };
-    const s = try productionLayout(a, testGraph(&nodes, &edges, &.{}));
+    const s = try productionLayout(a, testGraph(&nodes, &edges));
     try std.testing.expectEqual(@as(usize, 2), s.rails.len);
     var out_tap: ?sk.Tap = null;
     var in_tap: ?sk.Tap = null;
@@ -358,7 +355,7 @@ test "a member long at both ends runs straight between its two taps" {
         .{ .id = 1, .from = 1, .to = 2, .kind = .solid, .arrow_from = .none, .arrow_to = .filled, .label = null },
         edge(2, 2, .solid),
     };
-    const s = try productionLayout(a, testGraph(&nodes, &edges, &.{}));
+    const s = try productionLayout(a, testGraph(&nodes, &edges));
     const stroke = pathById(s, 2);
     try std.testing.expectEqual(sk.EdgeRole.member_stroke, stroke.role);
     try std.testing.expectEqual(@as(usize, 2), stroke.polyline.len);
