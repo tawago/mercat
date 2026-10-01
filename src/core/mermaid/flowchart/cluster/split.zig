@@ -1,9 +1,9 @@
 const std = @import("std");
 const sg = @import("../sem_graph.zig");
 const sketch = @import("../sketch.zig");
-const bridges = @import("bridges.zig");
+const bridge_types = @import("bridge_types.zig");
 
-pub const Crossing = bridges.Crossing;
+pub const Crossing = bridge_types.Crossing;
 
 pub const Arrival = struct { to: sg.NodeId, side: sketch.Dir4 };
 
@@ -201,14 +201,7 @@ fn buildChild(arena: std.mem.Allocator, graph: sg.SemGraph, c: sg.Cluster) error
     for (ids.items, 0..) |oid, new_id| {
         const src = graph.nodeById(oid) orelse graph.nodes[0];
         orig[new_id] = oid;
-        nodes[new_id] = .{
-            .id = @intCast(new_id),
-            .raw_id = src.raw_id,
-            .label = src.label,
-            .shape = src.shape,
-            .classes = src.classes,
-            .cluster = if (src.cluster) |sc| (if (sc == c.id) null else sc) else null,
-        };
+        nodes[new_id] = pieceNode(src, @intCast(new_id), withoutRoot(src.cluster, c.id));
     }
 
     var child_clusters: std.ArrayListUnmanaged(sg.Cluster) = .empty;
@@ -220,7 +213,7 @@ fn buildChild(arena: std.mem.Allocator, graph: sg.SemGraph, c: sg.Cluster) error
             .id = d.id,
             .raw_id = d.raw_id,
             .label = d.label,
-            .parent = if (d.parent) |p| (if (p == c.id) null else p) else null,
+            .parent = withoutRoot(d.parent, c.id),
             .members = new_members,
             .sub_clusters = d.sub_clusters,
             .direction = d.direction,
@@ -231,17 +224,7 @@ fn buildChild(arena: std.mem.Allocator, graph: sg.SemGraph, c: sg.Cluster) error
     var edges: std.ArrayListUnmanaged(sg.Edge) = .empty;
     for (graph.edges) |e| {
         if (inSubtree(graph, e.from, c.id) and inSubtree(graph, e.to, c.id)) {
-            try edges.append(arena, .{
-                .id = @intCast(edges.items.len),
-                .from = localId(orig, e.from),
-                .to = localId(orig, e.to),
-                .kind = e.kind,
-                .arrow_from = e.arrow_from,
-                .arrow_to = e.arrow_to,
-                .label = e.label,
-                .stands_for = e.stands_for,
-                .origin = originOf(e),
-            });
+            try edges.append(arena, pieceEdge(e, @intCast(edges.items.len), localId(orig, e.from), localId(orig, e.to)));
         }
     }
 
@@ -263,14 +246,7 @@ fn buildOuter(arena: std.mem.Allocator, graph: sg.SemGraph, tops: []const usize,
     for (graph.nodes) |n| {
         if (n.cluster != null) continue;
         try orig.append(arena, n.id);
-        try nodes.append(arena, .{
-            .id = @intCast(nodes.items.len),
-            .raw_id = n.raw_id,
-            .label = n.label,
-            .shape = n.shape,
-            .classes = n.classes,
-            .cluster = null,
-        });
+        try nodes.append(arena, pieceNode(n, @intCast(nodes.items.len), null));
     }
 
     for (tops, 0..) |ci, k| {
@@ -296,25 +272,15 @@ fn buildOuter(arena: std.mem.Allocator, graph: sg.SemGraph, tops: []const usize,
         const fa = topClusterOf(graph, e.from);
         const ta = topClusterOf(graph, e.to);
         if (fa == null and ta == null) {
-            try edges.append(arena, .{
-                .id = @intCast(edges.items.len),
-                .from = localIdList(orig.items, e.from),
-                .to = localIdList(orig.items, e.to),
-                .kind = e.kind,
-                .arrow_from = e.arrow_from,
-                .arrow_to = e.arrow_to,
-                .label = e.label,
-                .stands_for = e.stands_for,
-                .origin = originOf(e),
-            });
+            try edges.append(arena, pieceEdge(e, @intCast(edges.items.len), localId(orig.items, e.from), localId(orig.items, e.to)));
         } else if (sameCluster(fa, ta)) {} else {
             try crossings.append(arena, .{
                 .id = @intCast(crossings.items.len),
                 .from = e.from,
                 .to = e.to,
                 .kind = e.kind,
-                .arrow_from = mapArrow(e.arrow_from),
-                .arrow_to = mapArrow(e.arrow_to),
+                .arrow_from = e.arrow_from,
+                .arrow_to = e.arrow_to,
                 .label = e.label,
                 .origin = originOf(e),
             });
@@ -365,6 +331,28 @@ fn originOf(e: sg.Edge) sg.EdgeId {
     return if (e.origin == sg.SENTINEL) e.id else e.origin;
 }
 
+fn withoutRoot(cluster: ?sg.ClusterId, root: sg.ClusterId) ?sg.ClusterId {
+    return if (cluster == root) null else cluster;
+}
+
+fn pieceNode(src: sg.Node, id: sg.NodeId, cluster: ?sg.ClusterId) sg.Node {
+    return .{ .id = id, .raw_id = src.raw_id, .label = src.label, .shape = src.shape, .classes = src.classes, .cluster = cluster };
+}
+
+fn pieceEdge(e: sg.Edge, id: sg.EdgeId, from: sg.NodeId, to: sg.NodeId) sg.Edge {
+    return .{
+        .id = id,
+        .from = from,
+        .to = to,
+        .kind = e.kind,
+        .arrow_from = e.arrow_from,
+        .arrow_to = e.arrow_to,
+        .label = e.label,
+        .stands_for = e.stands_for,
+        .origin = originOf(e),
+    };
+}
+
 const SeenPair = struct { from: sg.NodeId, to: sg.NodeId, edge: u32 };
 
 fn seenIndex(seen: []const SeenPair, f: sg.NodeId, t: sg.NodeId) ?u32 {
@@ -380,17 +368,7 @@ fn outerRepr(graph: sg.SemGraph, supers: []const SuperNode, orig: []const sg.Nod
             if (s.cluster_id == cid) return s.outer_node;
         }
     }
-    return localIdList(orig, id);
-}
-
-fn mapArrow(e: sg.ArrowEnd) @import("../sketch.zig").ArrowKind {
-    return switch (e) {
-        .none => .none,
-        .open => .open,
-        .filled => .filled,
-        .circle => .circle,
-        .cross => .cross,
-    };
+    return localId(orig, id);
 }
 
 fn localId(orig: []const sg.NodeId, original: sg.NodeId) sg.NodeId {
@@ -398,10 +376,6 @@ fn localId(orig: []const sg.NodeId, original: sg.NodeId) sg.NodeId {
         if (o == original) return @intCast(i);
     }
     return 0;
-}
-
-fn localIdList(orig: []const sg.NodeId, original: sg.NodeId) sg.NodeId {
-    return localId(orig, original);
 }
 
 pub fn pieceId(piece_orig_ids: []const sg.NodeId, child_input_of: []const sketch.NodeId, sketch_id: sketch.NodeId) sketch.NodeId {
