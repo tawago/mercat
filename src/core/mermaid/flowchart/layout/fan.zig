@@ -223,8 +223,7 @@ fn preparePeers(a: std.mem.Allocator, graph: sg.SemGraph, direction: ledger.Bund
     if (graph.edges.len == 0) return out;
     const ids = try a.alloc(ledger.EdgeId, candidates.len);
     for (candidates, ids) |candidate, *id| id.* = candidate.edge_id;
-    const prepared = try permits.prepareRailMembers(a, graph, direction, pivot, ids);
-    const shared_ids = prepared.members;
+    const shared_ids = try permits.prepareRailMembers(a, graph, direction, pivot, ids);
     for (out) |*candidate| {
         candidate.label_width = if (!candidate.long) (if (peerLabel(graph, candidate.edge_id)) |label| prim.displayWidth(label) else 0) else 0;
         candidate.shared = ledger.containsEdge(shared_ids, candidate.edge_id);

@@ -1,7 +1,6 @@
 const std = @import("std");
 const prim = @import("prim");
 const pb = @import("../base/ledger.zig");
-const rail_star = @import("../base/rail_star.zig");
 const tie_break = @import("../base/tie_break.zig");
 const sg = @import("../sem_graph.zig");
 
@@ -16,130 +15,68 @@ pub const BuildResult = struct {
     report: BuildReport = .{},
 };
 
-pub const RailPreparation = struct { members: []const pb.EdgeId, deco_mixed: bool = false, style_mixed: bool = false, star_violation: bool = false };
-
-const RailCandidate = struct { edge: sg.Edge, leaf: sg.NodeId };
-
-pub fn prepareRailMembers(a: std.mem.Allocator, graph: sg.SemGraph, direction: pb.BundleDirection, pivot: sg.NodeId, source: []const pb.EdgeId) error{OutOfMemory}!RailPreparation {
-    var star_violation = false;
-    var canonical: std.ArrayListUnmanaged(pb.EdgeId) = .empty;
+/// The star licence's rail among `source`, all meeting `pivot` at the end `direction` names: the
+/// most common decoration at the pivot, then the most common kind, one member per divergent node
+/// (the first in canonical order). It stands only when every member blocks or none has a
+/// directional end; empty when fewer than two members remain.
+pub fn prepareRailMembers(a: std.mem.Allocator, graph: sg.SemGraph, direction: pb.BundleDirection, pivot: sg.NodeId, source: []const pb.EdgeId) error{OutOfMemory}![]const pb.EdgeId {
+    var pool: std.ArrayListUnmanaged(pb.EdgeId) = .empty;
     for (source) |id| {
-        const edge = graph.edgeById(id) orelse {
-            star_violation = true;
-            continue;
-        };
-        if (edge.kind == .invisible) continue;
-        if (pb.containsEdge(canonical.items, id)) {
-            star_violation = true;
-            continue;
-        }
-        try canonical.append(a, id);
+        const edge = graph.edgeById(id) orelse continue;
+        if (edge.kind == .invisible or edge.from == edge.to or pivotOf(direction, edge) != pivot) continue;
+        if (!pb.containsEdge(pool.items, id)) try pool.append(a, id);
     }
-    std.mem.sort(pb.EdgeId, canonical.items, EdgeSort{ .graph = graph }, EdgeSort.idLessThan);
+    std.mem.sort(pb.EdgeId, pool.items, EdgeSort{ .graph = graph }, EdgeSort.idLessThan);
 
-    const source_check = if (canonical.items.len == 0) null else try prospectiveRailCheck(a, graph, direction, pivot, canonical.items);
-    const deco_mixed = source_check != null and !source_check.?.decoration.isValid();
-    const style_mixed = source_check != null and !source_check.?.style.isValid();
-    if (source_check) |checked| star_violation = star_violation or !checked.star_law.isValid();
-
-    var best_deco: ?sg.ArrowEnd = null;
-    var best_deco_n: usize = 0;
-    for (canonical.items, 0..) |_, i| {
-        const candidate = railCandidate(graph, direction, pivot, canonical.items, i) orelse continue;
-        const deco = pivotArrow(direction, candidate.edge);
-        const n = railClassCount(graph, direction, pivot, canonical.items, deco, null);
-        if (n > best_deco_n) {
-            best_deco = deco;
-            best_deco_n = n;
+    var deco: ?sg.ArrowEnd = null;
+    var widest: usize = 0;
+    for (pool.items) |id| {
+        const end = pivotArrow(direction, graph.edgeById(id).?);
+        const width = (try firstPerLeaf(a, graph, direction, pool.items, end, null)).len;
+        if (width > widest) {
+            deco = end;
+            widest = width;
         }
     }
-    const deco = best_deco orelse return .{ .deco_mixed = deco_mixed, .style_mixed = style_mixed, .star_violation = star_violation, .members = &.{} };
-
-    var best_kind: ?sg.EdgeKind = null;
-    var best_kind_n: usize = 0;
-    for (canonical.items, 0..) |_, i| {
-        const candidate = railCandidate(graph, direction, pivot, canonical.items, i) orelse continue;
-        if (pivotArrow(direction, candidate.edge) != deco) continue;
-        const n = railClassCount(graph, direction, pivot, canonical.items, deco, candidate.edge.kind);
-        if (n > best_kind_n) {
-            best_kind = candidate.edge.kind;
-            best_kind_n = n;
-        }
+    var rail: []const pb.EdgeId = &.{};
+    for (pool.items) |id| {
+        const edge = graph.edgeById(id).?;
+        if (pivotArrow(direction, edge) != deco) continue;
+        const kept = try firstPerLeaf(a, graph, direction, pool.items, deco, edge.kind);
+        if (kept.len > rail.len) rail = kept;
     }
-    const kind = best_kind orelse return .{ .deco_mixed = deco_mixed, .style_mixed = style_mixed, .star_violation = star_violation, .members = &.{} };
-    if (best_kind_n < 2) return .{ .deco_mixed = deco_mixed, .style_mixed = style_mixed, .star_violation = star_violation, .members = &.{} };
-
-    var kept: std.ArrayListUnmanaged(pb.EdgeId) = .empty;
-    for (canonical.items, 0..) |id, i| {
-        const candidate = railCandidate(graph, direction, pivot, canonical.items, i) orelse continue;
-        if (candidate.edge.kind != kind or pivotArrow(direction, candidate.edge) != deco) continue;
-        if (railEquivalentBefore(graph, direction, pivot, canonical.items, i, deco, kind, candidate)) continue;
-        try kept.append(a, id);
+    if (rail.len < 2) return &.{};
+    var all_free = true;
+    var all_block = true;
+    for (rail) |id| {
+        const edge = graph.edgeById(id).?;
+        all_free = all_free and sg.arrowFree(edge);
+        all_block = all_block and prim.memberBlocks(edge.arrow_from, edge.arrow_to, edge.stands_for);
     }
-    if (kept.items.len < 2) return .{ .deco_mixed = deco_mixed, .style_mixed = style_mixed, .star_violation = star_violation, .members = &.{} };
-    const members = try kept.toOwnedSlice(a);
-    if (!(try prospectiveRailCheck(a, graph, direction, pivot, members)).isValid()) return .{ .members = &.{}, .deco_mixed = deco_mixed, .style_mixed = style_mixed, .star_violation = true };
-    return .{ .members = members, .deco_mixed = deco_mixed, .style_mixed = style_mixed, .star_violation = star_violation };
+    return if (all_free or all_block) rail else &.{};
 }
 
-fn railCandidate(graph: sg.SemGraph, direction: pb.BundleDirection, pivot: sg.NodeId, source: []const pb.EdgeId, index: usize) ?RailCandidate {
-    const id = source[index];
-    for (source[0..index]) |prior| if (prior == id) return null;
-    const candidate = graph.edgeById(id) orelse return null;
-    if (candidate.from == candidate.to) return null;
-    const member_pivot = if (direction == .out) candidate.from else candidate.to;
-    const leaf = if (direction == .out) candidate.to else candidate.from;
-    if (member_pivot != pivot or leaf == pivot) return null;
-    return .{ .edge = candidate, .leaf = leaf };
-}
-
-fn railClassCount(graph: sg.SemGraph, direction: pb.BundleDirection, pivot: sg.NodeId, source: []const pb.EdgeId, deco: sg.ArrowEnd, kind: ?sg.EdgeKind) usize {
-    var count: usize = 0;
-    for (source, 0..) |_, i| {
-        const candidate = railCandidate(graph, direction, pivot, source, i) orelse continue;
-        if (pivotArrow(direction, candidate.edge) != deco or (kind != null and candidate.edge.kind != kind.?)) continue;
-        if (!railEquivalentBefore(graph, direction, pivot, source, i, deco, kind, candidate)) count += 1;
+fn firstPerLeaf(a: std.mem.Allocator, graph: sg.SemGraph, direction: pb.BundleDirection, pool: []const pb.EdgeId, deco: ?sg.ArrowEnd, kind: ?sg.EdgeKind) error{OutOfMemory}![]const pb.EdgeId {
+    var out: std.ArrayListUnmanaged(pb.EdgeId) = .empty;
+    var leaves: std.ArrayListUnmanaged(sg.NodeId) = .empty;
+    defer leaves.deinit(a);
+    for (pool) |id| {
+        const edge = graph.edgeById(id).?;
+        if (pivotArrow(direction, edge) != deco or (kind != null and edge.kind != kind.?)) continue;
+        const leaf = if (direction == .out) edge.to else edge.from;
+        if (std.mem.indexOfScalar(sg.NodeId, leaves.items, leaf) != null) continue;
+        try leaves.append(a, leaf);
+        try out.append(a, id);
     }
-    return count;
+    return out.toOwnedSlice(a);
 }
 
-fn railEquivalentBefore(graph: sg.SemGraph, direction: pb.BundleDirection, pivot: sg.NodeId, source: []const pb.EdgeId, index: usize, deco: sg.ArrowEnd, kind: ?sg.EdgeKind, candidate: RailCandidate) bool {
-    for (source[0..index], 0..) |_, i| {
-        const prior = railCandidate(graph, direction, pivot, source, i) orelse continue;
-        if (pivotArrow(direction, prior.edge) != deco or (kind != null and prior.edge.kind != kind.?)) continue;
-        if (prior.edge.id == candidate.edge.id or prior.leaf == candidate.leaf) return true;
-    }
-    return false;
+fn pivotOf(direction: pb.BundleDirection, edge: sg.Edge) sg.NodeId {
+    return if (direction == .out) edge.from else edge.to;
 }
 
-fn prospectiveRailCheck(a: std.mem.Allocator, graph: sg.SemGraph, direction: pb.BundleDirection, pivot: sg.NodeId, ids: []const pb.EdgeId) error{OutOfMemory}!rail_star.LicenceCheckResult {
-    const members = try a.alloc(rail_star.RailLicenceMember, ids.len);
-    const pivot_end: rail_star.Endpoint = if (direction == .out) .source else .target;
-    for (ids, members) |id, *member| {
-        const candidate = graph.edgeById(id).?;
-        member.* = .{
-            .edge = id,
-            .endpoints = .{ candidate.from, candidate.to },
-            .arrows = .{ mapArrow(candidate.arrow_from), mapArrow(candidate.arrow_to) },
-            .stands_for = candidate.stands_for,
-            .kind = candidate.kind,
-            .pivot_end = pivot_end,
-        };
-    }
-    return rail_star.checkLicence(.{
-        .id = 1,
-        .polarity = if (direction == .out) .out else .in,
-        .pivot = pivot,
-        .members = members,
-    });
-}
-
-fn pivotArrow(direction: pb.BundleDirection, candidate: sg.Edge) sg.ArrowEnd {
-    return if (direction == .out) candidate.arrow_from else candidate.arrow_to;
-}
-
-fn mapArrow(arrow: sg.ArrowEnd) prim.ArrowKind {
-    return @enumFromInt(@intFromEnum(arrow));
+fn pivotArrow(direction: pb.BundleDirection, edge: sg.Edge) sg.ArrowEnd {
+    return if (direction == .out) edge.arrow_from else edge.arrow_to;
 }
 
 pub fn build(

@@ -27,7 +27,7 @@ pub fn buildReported(a: std.mem.Allocator, graph: sg.SemGraph, permits: ?*const 
             try forwardSubset(a, group.members, reversed_edges)
         else
             group.members;
-        const eff = (try permit_mod.prepareRailMembers(a, graph, group.direction, group.pivot, forward)).members;
+        const eff = try permit_mod.prepareRailMembers(a, graph, group.direction, group.pivot, forward);
         const eff_group: pb.CandidateBundle = .{ .id = group.id, .direction = group.direction, .pivot = group.pivot, .members = eff };
         const blocked = !styleCompatible(graph, eff_group) or hasDuplicateKey(graph, eff_group) or
             containsReversed(eff_group, reversed_edges) or eff.len < 2;

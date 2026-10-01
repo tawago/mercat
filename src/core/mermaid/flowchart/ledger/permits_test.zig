@@ -328,21 +328,21 @@ test "rail preparation salvages distinct leaves and rejects antiparallel or self
         edge(13, 1, 0), edge(14, 0, 0),
     };
     const prepared = try planner.prepareRailMembers(a, graph(&edges), .out, 0, &.{ 10, 11, 12, 13, 14 });
-    try std.testing.expectEqualSlices(pb.EdgeId, &.{ 10, 12 }, prepared.members);
+    try std.testing.expectEqualSlices(pb.EdgeId, &.{ 10, 12 }, prepared);
 
     const anti = try planner.prepareRailMembers(a, graph(&edges), .out, 0, &.{ 10, 13 });
-    try std.testing.expectEqual(@as(usize, 0), anti.members.len);
+    try std.testing.expectEqual(@as(usize, 0), anti.len);
     const loop = try planner.prepareRailMembers(a, graph(&edges), .out, 0, &.{ 10, 14 });
-    try std.testing.expectEqual(@as(usize, 0), loop.members.len);
+    try std.testing.expectEqual(@as(usize, 0), loop.len);
     const repeated = try planner.prepareRailMembers(a, graph(&edges), .out, 0, &.{ 10, 10, 12 });
-    try std.testing.expectEqualSlices(pb.EdgeId, &.{ 10, 12 }, repeated.members);
+    try std.testing.expectEqualSlices(pb.EdgeId, &.{ 10, 12 }, repeated);
 
     var foreign_edges = [_]sg.Edge{ edge(20, 0, 1), edge(21, 2, 3) };
     const mixed_pivot = try planner.prepareRailMembers(a, graph(&foreign_edges), .out, 0, &.{ 20, 21 });
-    try std.testing.expectEqual(@as(usize, 0), mixed_pivot.members.len);
+    try std.testing.expectEqual(@as(usize, 0), mixed_pivot.len);
 }
 
-test "rail preparation attributes style and pivot decoration independently" {
+test "rail preparation takes the pivot decoration with the most leaves, then the kind" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
@@ -352,40 +352,29 @@ test "rail preparation attributes style and pivot decoration independently" {
     g.nodes = &local_nodes;
 
     var prepared = try planner.prepareRailMembers(a, g, .out, 0, &.{ 10, 11, 12, 13 });
-    try std.testing.expectEqualSlices(pb.EdgeId, &.{ 10, 11, 12, 13 }, prepared.members);
-    try std.testing.expect(!prepared.deco_mixed);
-    try std.testing.expect(!prepared.style_mixed);
+    try std.testing.expectEqualSlices(pb.EdgeId, &.{ 10, 11, 12, 13 }, prepared);
 
     edges[2].kind = .dotted;
     edges[3].kind = .dotted;
     prepared = try planner.prepareRailMembers(a, g, .out, 0, &.{ 10, 11, 12, 13 });
-    try std.testing.expectEqualSlices(pb.EdgeId, &.{ 10, 11 }, prepared.members);
-    try std.testing.expect(!prepared.deco_mixed);
-    try std.testing.expect(prepared.style_mixed);
+    try std.testing.expectEqualSlices(pb.EdgeId, &.{ 10, 11 }, prepared);
 
     edges[2].kind = .solid;
     edges[3].kind = .solid;
     edges[2].arrow_from = .circle;
     edges[3].arrow_from = .circle;
     prepared = try planner.prepareRailMembers(a, g, .out, 0, &.{ 10, 11, 12, 13 });
-    try std.testing.expectEqualSlices(pb.EdgeId, &.{ 10, 11 }, prepared.members);
-    try std.testing.expect(prepared.deco_mixed);
-    try std.testing.expect(!prepared.style_mixed);
+    try std.testing.expectEqualSlices(pb.EdgeId, &.{ 10, 11 }, prepared);
 
     edges[3].kind = .dotted;
     prepared = try planner.prepareRailMembers(a, g, .out, 0, &.{ 10, 11, 12, 13 });
-    try std.testing.expectEqualSlices(pb.EdgeId, &.{ 10, 11 }, prepared.members);
-    try std.testing.expect(prepared.deco_mixed);
-    try std.testing.expect(prepared.style_mixed);
-    try std.testing.expect(!prepared.star_violation);
+    try std.testing.expectEqualSlices(pb.EdgeId, &.{ 10, 11 }, prepared);
 
     edges[3].kind = .solid;
     edges[4].arrow_from = .circle;
     edges[4].kind = .dotted;
     prepared = try planner.prepareRailMembers(a, g, .out, 0, &.{ 10, 11, 12, 13, 14 });
-    try std.testing.expectEqualSlices(pb.EdgeId, &.{ 12, 13 }, prepared.members);
-    try std.testing.expect(prepared.deco_mixed);
-    try std.testing.expect(prepared.style_mixed);
+    try std.testing.expectEqualSlices(pb.EdgeId, &.{ 12, 13 }, prepared);
 }
 
 test "rail preparation evidence and salvage are permutation invariant" {
@@ -400,13 +389,8 @@ test "rail preparation evidence and salvage are permutation invariant" {
 
     const ordered = try planner.prepareRailMembers(a, g, .out, 0, &.{ 10, 11, 12, 13 });
     const shuffled = try planner.prepareRailMembers(a, g, .out, 0, &.{ 13, 11, 12, 10 });
-    try std.testing.expectEqualSlices(pb.EdgeId, ordered.members, shuffled.members);
-    try std.testing.expectEqualSlices(pb.EdgeId, &.{ 10, 11 }, ordered.members);
-    try std.testing.expect(ordered.deco_mixed);
-    try std.testing.expect(ordered.style_mixed);
-    try std.testing.expectEqual(ordered.deco_mixed, shuffled.deco_mixed);
-    try std.testing.expectEqual(ordered.style_mixed, shuffled.style_mixed);
-    try std.testing.expectEqual(ordered.star_violation, shuffled.star_violation);
+    try std.testing.expectEqualSlices(pb.EdgeId, ordered, shuffled);
+    try std.testing.expectEqualSlices(pb.EdgeId, &.{ 10, 11 }, ordered);
 }
 
 test "rail preparation ignores an invisible plurality" {
@@ -422,9 +406,7 @@ test "rail preparation ignores an invisible plurality" {
     edges[4].arrow_from = .open;
 
     const prepared = try planner.prepareRailMembers(a, graph(&edges), .out, 0, &.{ 14, 13, 12, 11, 10 });
-    try std.testing.expectEqualSlices(pb.EdgeId, &.{ 10, 11 }, prepared.members);
-    try std.testing.expect(!prepared.deco_mixed);
-    try std.testing.expect(!prepared.style_mixed);
+    try std.testing.expectEqualSlices(pb.EdgeId, &.{ 10, 11 }, prepared);
 }
 
 test "piece plan licenses a fan in piece-local ids; synthetic edges take no part" {
