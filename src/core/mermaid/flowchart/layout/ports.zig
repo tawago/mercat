@@ -53,9 +53,17 @@ pub const Attachment = struct {
     opposite_center: i32 = 0,
 };
 
-fn attachmentLess(_: void, x: Attachment, y: Attachment) bool {
+pub fn attachmentLess(_: void, x: Attachment, y: Attachment) bool {
     if (x.opposite_center != y.opposite_center) return x.opposite_center < y.opposite_center;
-    return tie_break.attachmentKeyOrder(x.key, y.key) == .lt;
+    const key_order = tie_break.attachmentKeyOrder(x.key, y.key);
+    if (key_order != .eq) return key_order == .lt;
+    const x_edge = x.edge orelse std.math.maxInt(pb.EdgeId);
+    const y_edge = y.edge orelse std.math.maxInt(pb.EdgeId);
+    if (x_edge != y_edge) return x_edge < y_edge;
+    if (x.class != y.class) return @intFromEnum(x.class) < @intFromEnum(y.class);
+    const x_group = x.group orelse std.math.maxInt(pb.CandidateBundleId);
+    const y_group = y.group orelse std.math.maxInt(pb.CandidateBundleId);
+    return x_group < y_group;
 }
 
 pub const DerivedAttachment = struct {

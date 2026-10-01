@@ -146,7 +146,7 @@ fn allocateCollidingClaims(a: std.mem.Allocator, node: pb.NodeId, side: sk.Dir4,
     if (!ports.satisfiable(side_len, @intCast(attachments.len)))
         portCapacityInvariant(node, side, side_len, attachments.len);
     const sorted = try a.dupe(ports.Attachment, attachments);
-    std.mem.sort(ports.Attachment, sorted, {}, attachmentLess);
+    std.mem.sort(ports.Attachment, sorted, {}, ports.attachmentLess);
     const out = try a.alloc(ports.Assignment, sorted.len);
     for (sorted, out, 0..) |attachment, *assignment, i| assignment.* = .{
         .attachment = attachment,
@@ -154,19 +154,6 @@ fn allocateCollidingClaims(a: std.mem.Allocator, node: pb.NodeId, side: sk.Dir4,
         .offset = ports.offsetAt(side_len, @intCast(sorted.len), @intCast(i)),
     };
     return out;
-}
-
-fn attachmentLess(_: void, x: ports.Attachment, y: ports.Attachment) bool {
-    if (x.opposite_center != y.opposite_center) return x.opposite_center < y.opposite_center;
-    const key_order = tie_break.attachmentKeyOrder(x.key, y.key);
-    if (key_order != .eq) return key_order == .lt;
-    const x_edge = x.edge orelse std.math.maxInt(pb.EdgeId);
-    const y_edge = y.edge orelse std.math.maxInt(pb.EdgeId);
-    if (x_edge != y_edge) return x_edge < y_edge;
-    if (x.class != y.class) return @intFromEnum(x.class) < @intFromEnum(y.class);
-    const x_group = x.group orelse std.math.maxInt(pb.CandidateBundleId);
-    const y_group = y.group orelse std.math.maxInt(pb.CandidateBundleId);
-    return x_group < y_group;
 }
 
 fn portCapacityInvariant(node: pb.NodeId, side: sk.Dir4, side_len: u32, demand: usize) noreturn {
