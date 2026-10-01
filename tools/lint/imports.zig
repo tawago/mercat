@@ -163,7 +163,7 @@ pub const file_allowlists = [_]struct {
     },
     .{
         .name = "layout/port_plan_test.zig",
-        .allowed = &.{ .sem_graph, .sketch, .layout_zone, .{ .exact = "../ledger/permits.zig" }, .{ .exact = "ports.zig" }, .{ .exact = "port_plan.zig" } },
+        .allowed = &.{ .sem_graph, .sketch, .layout_zone, .{ .exact = "../ledger/permits.zig" }, .{ .exact = "ports.zig" }, .{ .exact = "port_plan.zig" }, .{ .exact = "sugiyama.zig" }, .{ .exact = "node_geom.zig" }, .{ .exact = "fan_lanes_test.zig" } },
         .reason = "port_plan_test may import the focused layout and permit surfaces",
     },
     .{

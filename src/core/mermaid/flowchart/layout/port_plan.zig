@@ -4,6 +4,8 @@ const tie_break = @import("../base/tie_break.zig");
 const rail_closure = @import("../base/rail_closure.zig");
 const sg = @import("../sem_graph.zig");
 const sk = @import("../sketch.zig");
+const sugiyama = @import("sugiyama.zig");
+const NodeGeom = @import("node_geom.zig").NodeGeom;
 const fan_mod = @import("fan.zig");
 const ports = @import("ports.zig");
 
@@ -38,6 +40,49 @@ pub fn midpoint(a: std.mem.Allocator, graph: sg.SemGraph, placements: []const sk
         out.* = .{ .edge = edge.id, .source = source.port, .target = target.port, .source_ordinal = 0, .target_ordinal = 0, .source_decorated = edge.arrow_from != .none, .target_decorated = edge.arrow_to != .none };
     }
     return .{ .edges = edges };
+}
+
+pub fn predict(
+    a: std.mem.Allocator,
+    graph: sg.SemGraph,
+    lg: sugiyama.LayeredGraph,
+    geom: []const NodeGeom,
+    derived: []const ports.DerivedAttachment,
+    bundles: pb.RealizedBundles,
+    active: bool,
+    rung: u8,
+) error{OutOfMemory}!Plan {
+    const top_of = try a.alloc(i32, lg.nodes.len);
+    @memset(top_of, 0);
+    var top: i32 = 0;
+    for (lg.layers) |row| {
+        var tallest: u32 = 0;
+        for (row) |idx| {
+            top_of[idx] = top;
+            tallest = @max(tallest, geom[idx].h);
+        }
+        top += @as(i32, @intCast(tallest)) + 1;
+    }
+    const transposed = graph.direction == .LR or graph.direction == .RL;
+    var placements: std.ArrayListUnmanaged(sk.NodePlacement) = .empty;
+    for (lg.nodes, 0..) |ln, i| switch (ln) {
+        .real => |nid| try placements.append(a, .{
+            .id = nid,
+            .rect = if (transposed)
+                .{ .x = top_of[i], .y = geom[i].x, .w = geom[i].h, .h = geom[i].w }
+            else
+                .{ .x = geom[i].x, .y = top_of[i], .w = geom[i].w, .h = geom[i].h },
+            .shape = .rect,
+            .lines = &.{},
+            .cluster_id = null,
+        }),
+        .virtual => {},
+    };
+    if (placements.items.len == 0) return .{};
+    return if (active)
+        allocate(a, graph, placements.items, derived, bundles, rung)
+    else
+        midpoint(a, graph, placements.items);
 }
 
 pub fn deriveFanAttachments(a: std.mem.Allocator, graph: sg.SemGraph, direction: sg.Direction, reversed_edges: []const pb.EdgeId, fans: []const fan_mod.Fan) ports.DeriveError![]const ports.DerivedAttachment {

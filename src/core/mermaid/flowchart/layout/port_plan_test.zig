@@ -2,6 +2,9 @@ const std = @import("std");
 const pb = @import("../base/ledger.zig");
 const sg = @import("../sem_graph.zig");
 const sk = @import("../sketch.zig");
+const sugiyama = @import("sugiyama.zig");
+const NodeGeom = @import("node_geom.zig").NodeGeom;
+const flt = @import("fan_lanes_test.zig");
 const coords = @import("../layout.zig");
 const permits = @import("../ledger/permits.zig");
 const ports = @import("ports.zig");
@@ -339,4 +342,29 @@ test "a member long at both ends runs straight between its two taps" {
     try std.testing.expectEqual(sk.EdgeRole.member_stroke, stroke.role);
     try std.testing.expectEqual(@as(usize, 2), stroke.polyline.len);
     try std.testing.expectEqual(stroke.polyline[0].x, stroke.polyline[1].x);
+}
+
+test "predicted ports give a side face its real length: three back edges on a TD node's east face allocate" {
+    const a = std.testing.allocator;
+    var arena = std.heap.ArenaAllocator.init(a);
+    defer arena.deinit();
+    const aa = arena.allocator();
+    var nodes = [_]sugiyama.LayerNode{ .{ .real = 0 }, .{ .real = 1 } };
+    var row0 = [_]u32{0};
+    var row1 = [_]u32{1};
+    var layers = [_][]u32{ &row0, &row1 };
+    var edges = [_]sugiyama.LayerEdge{};
+    var reversed = [_]sg.EdgeId{};
+    const lg = flt.mkLg(&nodes, &layers, &edges, &reversed);
+    const geom = [_]NodeGeom{ .{ .x = 0, .y = 0, .w = 5, .h = 7, .layer = 0 }, .{ .x = 0, .y = 0, .w = 5, .h = 3, .layer = 1 } };
+    const graph: sg.SemGraph = .{ .direction = .TD, .nodes = &.{}, .edges = &.{}, .clusters = &.{}, .classes = &.{}, .arena = null };
+    const opposites = [_][]const u8{ "b", "c", "d" };
+    var derived: [3]ports.DerivedAttachment = undefined;
+    for (&derived, opposites) |*d, opp| d.* = .{
+        .node = 0,
+        .side = .east,
+        .attachment = .{ .key = .{ .opposite = opp, .endpoint_side = .target_entry, .kind = 0, .arrow_from = 0, .arrow_to = 1, .label = null } },
+    };
+    const plan = try port_plan.predict(aa, graph, lg, &geom, &derived, .{}, true, 0);
+    try std.testing.expectEqual(@as(usize, 0), plan.edges.len);
 }

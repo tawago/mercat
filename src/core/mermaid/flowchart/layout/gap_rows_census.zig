@@ -1,58 +1,13 @@
 const std = @import("std");
 const sg = @import("../sem_graph.zig");
-const sketch = @import("../sketch.zig");
 const pb = @import("../base/ledger.zig");
 const sugiyama = @import("sugiyama.zig");
 const port_plan = @import("port_plan.zig");
-const ports = @import("ports.zig");
 const rt = @import("routing_terminal.zig");
 const grid = @import("gap_rows_grid.zig");
 const NodeGeom = @import("node_geom.zig").NodeGeom;
 
 pub const Super = struct { node: sg.NodeId, drawn: bool = true };
-
-pub fn predictPorts(
-    a: std.mem.Allocator,
-    graph: sg.SemGraph,
-    lg: sugiyama.LayeredGraph,
-    geom: []const NodeGeom,
-    derived: []const ports.DerivedAttachment,
-    bundles: pb.RealizedBundles,
-    active: bool,
-    rung: u8,
-) error{OutOfMemory}!port_plan.Plan {
-    const top_of = try a.alloc(i32, lg.nodes.len);
-    @memset(top_of, 0);
-    var top: i32 = 0;
-    for (lg.layers) |row| {
-        var tallest: u32 = 0;
-        for (row) |idx| {
-            top_of[idx] = top;
-            tallest = @max(tallest, geom[idx].h);
-        }
-        top += @as(i32, @intCast(tallest)) + 1;
-    }
-    const transposed = graph.direction == .LR or graph.direction == .RL;
-    var placements: std.ArrayListUnmanaged(sketch.NodePlacement) = .empty;
-    for (lg.nodes, 0..) |ln, i| switch (ln) {
-        .real => |nid| try placements.append(a, .{
-            .id = nid,
-            .rect = if (transposed)
-                .{ .x = top_of[i], .y = geom[i].x, .w = geom[i].h, .h = geom[i].w }
-            else
-                .{ .x = geom[i].x, .y = top_of[i], .w = geom[i].w, .h = geom[i].h },
-            .shape = .rect,
-            .lines = &.{},
-            .cluster_id = null,
-        }),
-        .virtual => {},
-    };
-    if (placements.items.len == 0) return .{};
-    return if (active)
-        port_plan.allocate(a, graph, placements.items, derived, bundles, rung)
-    else
-        port_plan.midpoint(a, graph, placements.items);
-}
 
 pub const Census = struct {
     graph: sg.SemGraph,
