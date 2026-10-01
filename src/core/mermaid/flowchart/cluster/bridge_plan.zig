@@ -1,9 +1,9 @@
 const std = @import("std");
 const sketch = @import("../sketch.zig");
-const sg = @import("../sem_graph.zig");
 const ledger = @import("../base/ledger.zig");
 const rail_star = @import("../base/rail_star.zig");
 const bridges = @import("bridges.zig");
+const bridge_fans = @import("bridge_fans.zig");
 const rails = @import("bridge_rails.zig");
 
 pub fn plan(
@@ -18,35 +18,21 @@ pub fn plan(
     var group_id: ledger.CandidateBundleId = 0;
     var next_bundle: ledger.SelectedBundleId = 0;
     var selected: std.ArrayListUnmanaged(ledger.SelectedBundle) = .empty;
-    for ([2]ledger.BundleDirection{ .out, .in }) |direction| {
-        const di: usize = if (direction == .out) 0 else 1;
-        const grouped = try arena.alloc(bool, crossings.len);
-        @memset(grouped, false);
-        for (crossings, 0..) |c0, i| {
-            if (grouped[i] or c0.from == c0.to or c0.kind == .invisible) continue;
-            const pivot = pivotOf(c0, direction);
-            var members: std.ArrayListUnmanaged(usize) = .empty;
-            for (crossings, 0..) |c, j| {
-                if (c.from == c.to or c.kind == .invisible) continue;
-                if (pivotOf(c, direction) != pivot) continue;
-                grouped[j] = true;
-                try members.append(arena, j);
-            }
-            if (members.items.len < 2) continue;
-
-            const licensed = (try checkGroup(arena, crossings, members.items, direction, pivot)).isValid();
-            if (licensed and try realized(arena, crossings, members.items, routed, bridge_base, direction)) {
-                const medges = try arena.alloc(ledger.EdgeId, members.items.len);
-                for (members.items, medges) |mi, *e| e.* = crossings[mi].id + bridge_base;
+    for ([2]rail_star.Endpoint{ .source, .target }) |end| {
+        for (try bridge_fans.groups(arena, crossings, end)) |members| {
+            const licensed = try bridge_fans.licensed(arena, crossings, members, end);
+            if (licensed and try realized(arena, crossings, members, routed, bridge_base, end)) {
+                const medges = try arena.alloc(ledger.EdgeId, members.len);
+                for (members, medges) |mi, *e| e.* = crossings[mi].id + bridge_base;
                 try selected.append(arena, .{
                     .id = next_bundle,
                     .proposal = 0,
                     .candidate_bundle = group_id,
                     .members = medges,
                 });
-                for (members.items) |mi| side_of[mi][di] = .{ .selected = next_bundle };
+                for (members) |mi| side_of[mi][end.index()] = .{ .selected = next_bundle };
                 next_bundle += 1;
-            } else for (members.items) |mi| side_of[mi][di] = .{ .independent = .{
+            } else for (members) |mi| side_of[mi][end.index()] = .{ .independent = .{
                 .candidate_bundle = group_id,
                 .reason = if (licensed) .not_selected else .licence_refused,
             } };
@@ -76,44 +62,13 @@ fn realized(
     members: []const usize,
     routed: []const sketch.EdgePath,
     bridge_base: sketch.EdgeId,
-    direction: ledger.BundleDirection,
+    end: rail_star.Endpoint,
 ) error{OutOfMemory}!bool {
     const paths = try arena.alloc(sketch.EdgePath, members.len);
     for (members, paths) |mi, *p| {
         p.* = routedPath(routed, bridge_base, crossings[mi].id) orelse return false;
     }
-    return rails.realizedRail(arena, paths, if (direction == .out) .source else .target);
-}
-
-fn pivotOf(c: bridges.Crossing, direction: ledger.BundleDirection) sg.NodeId {
-    return if (direction == .out) c.from else c.to;
-}
-
-fn checkGroup(
-    arena: std.mem.Allocator,
-    crossings: []const bridges.Crossing,
-    members: []const usize,
-    direction: ledger.BundleDirection,
-    pivot: sg.NodeId,
-) error{OutOfMemory}!rail_star.LicenceCheckResult {
-    const rows = try arena.alloc(rail_star.RailLicenceMember, members.len);
-    for (members, rows) |mi, *row| {
-        const c = crossings[mi];
-        row.* = .{
-            .edge = if (c.origin == sg.SENTINEL) c.id else c.origin,
-            .endpoints = .{ c.from, c.to },
-            .arrows = .{ c.arrow_from, c.arrow_to },
-            .stands_for = .arrow_free,
-            .kind = c.kind,
-            .pivot_end = if (direction == .out) .source else .target,
-        };
-    }
-    return rail_star.checkLicence(.{
-        .id = 1,
-        .polarity = if (direction == .out) .out else .in,
-        .pivot = pivot,
-        .members = rows,
-    });
+    return rails.realizedRail(arena, paths, end);
 }
 
 fn routedPath(

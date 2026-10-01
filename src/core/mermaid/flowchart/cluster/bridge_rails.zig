@@ -1,7 +1,7 @@
 const std = @import("std");
 const sketch = @import("../sketch.zig");
-const sg = @import("../sem_graph.zig");
 const rail_star = @import("../base/rail_star.zig");
+const bridge_fans = @import("bridge_fans.zig");
 const types = @import("bridge_types.zig");
 const elbow = @import("bridge_elbow.zig");
 const requests = @import("bridge_requests.zig");
@@ -16,63 +16,22 @@ pub fn overrideJogs(
     placements: []const sketch.NodePlacement,
     clusters: []const sketch.ClusterFrame,
     obstacles: tracks.Obstacles,
-) error{OutOfMemory}!bool {
-    var changed = false;
+) error{OutOfMemory}!void {
+    const crossings = try arena.alloc(types.Crossing, pends.len);
+    for (pends, crossings) |p, *c| c.* = p.cross;
     for ([2]rail_star.Endpoint{ .source, .target }) |end| {
-        const done = try arena.alloc(bool, pends.len);
-        @memset(done, false);
-        for (pends, 0..) |p0, i| {
-            if (done[i] or p0.cross.from == p0.cross.to or p0.cross.kind == .invisible) continue;
-            var members: std.ArrayListUnmanaged(usize) = .empty;
-            for (pends[i..], i..) |q, j| {
-                if (pivotOf(q, end) != pivotOf(p0, end) or q.cross.from == q.cross.to or q.cross.kind == .invisible) continue;
-                done[j] = true;
-                try members.append(arena, j);
-            }
-            if (members.items.len < 2) continue;
-            if (!try licensed(arena, pends, members.items, end)) continue;
-            if (!try railable(arena, pends, members.items, placements, end)) continue;
-            if (try chooseJog(arena, pends, members.items, placements, clusters, obstacles, end)) |c| {
-                for (members.items) |mi| pends[mi].jog = c;
-                changed = true;
+        for (try bridge_fans.groups(arena, crossings, end)) |members| {
+            if (!try bridge_fans.licensed(arena, crossings, members, end)) continue;
+            if (!try railable(arena, pends, members, placements, end)) continue;
+            if (try chooseJog(arena, pends, members, placements, clusters, obstacles, end)) |c| {
+                for (members) |mi| pends[mi].jog = c;
             }
         }
     }
-    return changed;
-}
-
-fn pivotOf(p: types.Pending, end: rail_star.Endpoint) sg.NodeId {
-    return if (end == .source) p.cross.from else p.cross.to;
 }
 
 fn railEnd(end: rail_star.Endpoint) requests.RailEnd {
     return if (end == .source) .start else .end;
-}
-
-fn licensed(
-    arena: std.mem.Allocator,
-    pends: []const types.Pending,
-    members: []const usize,
-    end: rail_star.Endpoint,
-) error{OutOfMemory}!bool {
-    const rows = try arena.alloc(rail_star.RailLicenceMember, members.len);
-    for (members, rows) |mi, *row| {
-        const c = pends[mi].cross;
-        row.* = .{
-            .edge = if (c.origin == sg.SENTINEL) c.id else c.origin,
-            .endpoints = .{ c.from, c.to },
-            .arrows = .{ c.arrow_from, c.arrow_to },
-            .stands_for = .arrow_free,
-            .kind = c.kind,
-            .pivot_end = end,
-        };
-    }
-    return rail_star.checkLicence(.{
-        .id = 1,
-        .polarity = if (end == .source) .out else .in,
-        .pivot = pivotOf(pends[members[0]], end),
-        .members = rows,
-    }).isValid();
 }
 
 fn railable(

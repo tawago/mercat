@@ -103,7 +103,7 @@ pub fn route(
 
     if (build == .railed) {
         const full = try bridge_rails.withStaticRuns(arena, obstacles, edge_paths);
-        _ = try bridge_rails.overrideJogs(arena, pends.items, placements, clusters, full);
+        try bridge_rails.overrideJogs(arena, pends.items, placements, clusters, full);
     }
     return buildPaths(arena, pends.items, placements, clusters, obstacles, build == .dodged);
 }
