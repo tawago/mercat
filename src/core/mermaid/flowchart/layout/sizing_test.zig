@@ -45,7 +45,7 @@ test "sizeNodes pre-swaps an LR multi-line label so post-applyDirection dims mat
     try sizing.sizeNodes(a, graph, lg, &geom, 0, &.{}, null, &node_lines);
     defer a.free(node_lines[0]);
 
-    mirror.applyDirection(NodeGeom, &geom, .LR);
+    mirror.applyDirection(&geom, .LR);
     try testing.expectEqual(@as(u32, 6), geom[0].w);
     try testing.expectEqual(@as(u32, 4), geom[0].h);
 }

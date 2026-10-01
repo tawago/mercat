@@ -1,24 +1,25 @@
 const std = @import("std");
 const sugiyama = @import("sugiyama.zig");
 const fan_grid = @import("fan_grid.zig");
+const node_geom = @import("node_geom.zig");
+
+const NodeGeom = node_geom.NodeGeom;
 
 pub fn reflowWideRanks(
-    comptime G: type,
     lg: sugiyama.LayeredGraph,
-    geom: []G,
+    geom: []NodeGeom,
     budget: u32,
     h_spacing: u32,
     v_spacing: u32,
 ) void {
     for (lg.layers) |layer| {
-        reflowOneLayer(G, lg, geom, budget, h_spacing, v_spacing, layer);
+        reflowOneLayer(lg, geom, budget, h_spacing, v_spacing, layer);
     }
 }
 
 fn reflowOneLayer(
-    comptime G: type,
     lg: sugiyama.LayeredGraph,
-    geom: []G,
+    geom: []NodeGeom,
     budget: u32,
     h_spacing: u32,
     v_spacing: u32,
@@ -41,7 +42,7 @@ fn reflowOneLayer(
     const reals = reals_buf[0..n_reals];
     if (layerWrappedByFan(lg, reals)) return;
 
-    sortByX(G, reals, geom);
+    sortByX(reals, geom);
 
     var span_min: i32 = std.math.maxInt(i32);
     var span_max: i32 = std.math.minInt(i32);
@@ -65,7 +66,7 @@ fn reflowOneLayer(
 
     const compact_floor: u32 = budget - budget / 8;
     if (single_row_w <= compact_floor) {
-        compactSingleRow(G, reals, geom, h_spacing);
+        compactSingleRow(reals, geom, h_spacing);
         return;
     }
 
@@ -84,7 +85,7 @@ fn reflowOneLayer(
         if (g.y > base_y) g.y += added_h;
     }
 
-    const block_cx = layerCenterX(G, reals, geom);
+    const block_cx = layerCenterX(reals, geom);
 
     var i: u32 = 0;
     while (i < n) : (i += 1) {
@@ -169,13 +170,13 @@ fn soleForwardNeighbour(lg: sugiyama.LayeredGraph, idx: u32, side: Side) ?u32 {
     return found;
 }
 
-fn compactSingleRow(comptime G: type, reals: []const u32, geom: []G, h_spacing: u32) void {
+fn compactSingleRow(reals: []const u32, geom: []NodeGeom, h_spacing: u32) void {
     var rw: u32 = 0;
     for (reals, 0..) |idx, i| {
         rw += geom[idx].w;
         if (i + 1 < reals.len) rw += h_spacing;
     }
-    const block_cx = layerCenterX(G, reals, geom);
+    const block_cx = layerCenterX(reals, geom);
     var cursor: i32 = block_cx - @divTrunc(@as(i32, @intCast(rw)), 2);
     for (reals) |idx| {
         geom[idx].x = cursor;
@@ -183,9 +184,9 @@ fn compactSingleRow(comptime G: type, reals: []const u32, geom: []G, h_spacing: 
     }
 }
 
-fn sortByX(comptime G: type, idxs: []u32, geom: []const G) void {
+fn sortByX(idxs: []u32, geom: []const NodeGeom) void {
     const Ctx = struct {
-        g: []const G,
+        g: []const NodeGeom,
         fn lt(c: @This(), a: u32, b: u32) bool {
             if (c.g[a].x != c.g[b].x) return c.g[a].x < c.g[b].x;
             return a < b;
@@ -194,7 +195,7 @@ fn sortByX(comptime G: type, idxs: []u32, geom: []const G) void {
     std.mem.sort(u32, idxs, Ctx{ .g = geom }, Ctx.lt);
 }
 
-fn layerCenterX(comptime G: type, reals: []const u32, geom: []const G) i32 {
+fn layerCenterX(reals: []const u32, geom: []const NodeGeom) i32 {
     var min_x: i32 = std.math.maxInt(i32);
     var max_x: i32 = std.math.minInt(i32);
     for (reals) |idx| {

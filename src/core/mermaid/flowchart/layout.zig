@@ -137,7 +137,7 @@ fn buildSketch(
     }
 
     if (td_pressure) {
-        rank_grid.reflowWideRanks(NodeGeom, lg, geom, opts.max_width, opts.h_spacing, opts.v_spacing);
+        rank_grid.reflowWideRanks(lg, geom, opts.max_width, opts.h_spacing, opts.v_spacing);
         normalizeX(geom);
     }
 
@@ -157,7 +157,7 @@ fn buildSketch(
     layer_axis.growSubGaps(lg, geom, layer_h, rows);
     layer_axis.assignY(geom, lg.layers, layer_h, v_sp_per_gap);
 
-    mirror.applyDirection(NodeGeom, geom, graph.direction);
+    mirror.applyDirection(geom, graph.direction);
 
     const placements = try buildPlacements(a, graph, lg, geom, node_lines);
     const allocated_ports = try port_plan.allocate(a, graph, placements, decision.attachments, decision.bundles, opts.rung);

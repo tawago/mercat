@@ -52,7 +52,7 @@ test "reflowWideRanks: a second wide layer's base_y reflects the first wide laye
         .{ .x = 0, .y = 200, .w = 6, .h = 3, .layer = 2 },
     };
 
-    rank_grid.reflowWideRanks(NodeGeom, lg, &geom, 20, 2, 1);
+    rank_grid.reflowWideRanks(lg, &geom, 20, 2, 1);
 
     try testing.expectEqual(@as(i32, 106), geom[4].y);
 
@@ -88,7 +88,7 @@ test "reflowWideRanks: a same-layer virtual node's (oversized) width never enter
         .{ .x = 30, .y = 100, .w = 6, .h = 3, .layer = 1 },
     };
 
-    rank_grid.reflowWideRanks(NodeGeom, lg, &geom, 20, 2, 1);
+    rank_grid.reflowWideRanks(lg, &geom, 20, 2, 1);
 
     var rows = std.AutoHashMapUnmanaged(i32, void).empty;
     defer rows.deinit(testing.allocator);
@@ -123,7 +123,7 @@ test "reflowWideRanks: nodes drifted far apart by centering are compacted even t
         .{ .x = 12, .y = 100, .w = 4, .h = 3, .layer = 1 },
     };
 
-    rank_grid.reflowWideRanks(NodeGeom, lg, &geom, 20, 2, 1);
+    rank_grid.reflowWideRanks(lg, &geom, 20, 2, 1);
 
     var xs = [_]i32{ geom[0].x, geom[1].x, geom[2].x };
     std.mem.sort(i32, &xs, {}, std.sort.asc(i32));
@@ -155,7 +155,7 @@ test "reflowWideRanks: a row exactly at the compact_floor boundary compacts to o
             .{ .x = 30, .y = 100, .w = 6, .h = 3, .layer = 1 },
             .{ .x = 60, .y = 100, .w = 6, .h = 3, .layer = 1 },
         };
-        rank_grid.reflowWideRanks(NodeGeom, lg, &geom, 80, 2, 1);
+        rank_grid.reflowWideRanks(lg, &geom, 80, 2, 1);
         try testing.expectEqual(geom[0].y, geom[1].y);
         try testing.expectEqual(geom[0].y, geom[2].y);
     }
@@ -169,7 +169,7 @@ test "reflowWideRanks: a row exactly at the compact_floor boundary compacts to o
             .{ .x = 30, .y = 100, .w = 6, .h = 3, .layer = 1 },
             .{ .x = 60, .y = 100, .w = 6, .h = 3, .layer = 1 },
         };
-        rank_grid.reflowWideRanks(NodeGeom, lg, &geom, 80, 2, 1);
+        rank_grid.reflowWideRanks(lg, &geom, 80, 2, 1);
         var rows = std.AutoHashMapUnmanaged(i32, void).empty;
         defer rows.deinit(testing.allocator);
         for (0..3) |i| try rows.put(testing.allocator, geom[i].y, {});
@@ -201,7 +201,7 @@ test "reflowWideRanks: the widest-node column formula still forces >=2 rows even
         .{ .x = 80, .y = 200, .w = 6, .h = 3, .layer = 1 },
     };
 
-    rank_grid.reflowWideRanks(NodeGeom, lg, &geom, 100, 2, 1);
+    rank_grid.reflowWideRanks(lg, &geom, 100, 2, 1);
 
     var rows = std.AutoHashMapUnmanaged(i32, void).empty;
     defer rows.deinit(testing.allocator);
@@ -245,7 +245,7 @@ test "reflowWideRanks: row_step (max_h + the grid gap) keeps a tall sub-row thre
         .{ .x = 90, .y = 100, .w = 6, .h = 3, .layer = 1 },
     };
 
-    rank_grid.reflowWideRanks(NodeGeom, lg, &geom, 20, 2, 1);
+    rank_grid.reflowWideRanks(lg, &geom, 20, 2, 1);
 
     const row0_y = geom[0].y;
     const row1_y = geom[2].y;
@@ -267,7 +267,7 @@ test "reflowWideRanks: two edge-free sibling nodes (all-roots AND all-leaves) ar
     };
     const before = geom;
 
-    rank_grid.reflowWideRanks(NodeGeom, lg, &geom, 20, 2, 1);
+    rank_grid.reflowWideRanks(lg, &geom, 20, 2, 1);
 
     try testing.expectEqualSlices(NodeGeom, &before, &geom);
 }
@@ -298,7 +298,7 @@ test "reflowWideRanks: a rank fed from above that ALSO converges to one child is
         .{ .x = 0, .y = 200, .w = 6, .h = 3, .layer = 2 },
     };
 
-    rank_grid.reflowWideRanks(NodeGeom, lg, &geom, 20, 2, 1);
+    rank_grid.reflowWideRanks(lg, &geom, 20, 2, 1);
 
     try testing.expect(geom[2].y != geom[3].y);
 }
@@ -346,7 +346,7 @@ test "rank-grid pushes only strictly-below nodes by added_h; same-layer and abov
     };
 
     const base_y = geom[1].y;
-    rank_grid.reflowWideRanks(NodeGeom, lg, &geom, 20, 2, 1);
+    rank_grid.reflowWideRanks(lg, &geom, 20, 2, 1);
 
     const added_h = geom[7].y - 150;
     try testing.expect(added_h > 0);
@@ -405,7 +405,7 @@ test "rank-grid leaves a wrapped fan-OUT layer as one row but still grids an ove
         .{ .x = 40, .y = 60, .w = 6, .h = 3, .layer = 3 },
         .{ .x = 60, .y = 60, .w = 6, .h = 3, .layer = 3 },
     };
-    rank_grid.reflowWideRanks(NodeGeom, lg, &geom, 20, 2, 1);
+    rank_grid.reflowWideRanks(lg, &geom, 20, 2, 1);
 
     const c_y = geom[1].y;
     for (1..5) |i| try testing.expectEqual(c_y, geom[i].y);

@@ -14,7 +14,7 @@ test "mirror.applyDirection swaps x/y/w/h but leaves NodeGeom.layer untouched" {
         .{ .x = 2, .y = 5, .w = 7, .h = 3, .layer = 4 },
         .{ .x = 10, .y = 1, .w = 4, .h = 9, .layer = 0 },
     };
-    mirror.applyDirection(NodeGeom, &geom, .LR);
+    mirror.applyDirection(&geom, .LR);
 
     try testing.expectEqual(@as(i32, 5), geom[0].x);
     try testing.expectEqual(@as(i32, 2), geom[0].y);

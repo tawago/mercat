@@ -4,6 +4,9 @@ const bundle_mod = @import("../base/bundle.zig");
 const sg = @import("../sem_graph.zig");
 const sketch = @import("../sketch.zig");
 const sugiyama = @import("sugiyama.zig");
+const node_geom = @import("node_geom.zig");
+
+const NodeGeom = node_geom.NodeGeom;
 
 pub fn vertical(a: std.mem.Allocator, s: sketch.Sketch, direction: sketch.Direction) error{OutOfMemory}!sketch.Sketch {
     const nodes = try a.alloc(sketch.NodePlacement, s.nodes.len);
@@ -169,7 +172,7 @@ fn freeMirroredSets(a: std.mem.Allocator, sets: []const bundle_mod.Bundle) void 
     a.free(sets);
 }
 
-pub fn applyDirection(comptime G: type, geom: []G, dir: sketch.Direction) void {
+pub fn applyDirection(geom: []NodeGeom, dir: sketch.Direction) void {
     switch (dir) {
         .TD => {},
         .BT => unreachable,
@@ -325,14 +328,13 @@ test "RL: sugiyama's own layer reversal plus applyDirection's axis swap alone yi
     var lg = try sugiyama.assignLayers(std.testing.allocator, g);
     defer lg.deinit(std.testing.allocator);
 
-    const TGeom = struct { x: i32, y: i32, w: u32, h: u32 };
-    var geom = try std.testing.allocator.alloc(TGeom, lg.nodes.len);
+    var geom = try std.testing.allocator.alloc(NodeGeom, lg.nodes.len);
     defer std.testing.allocator.free(geom);
     for (lg.layers, 0..) |row, li| {
-        for (row) |idx| geom[idx] = .{ .x = 0, .y = @as(i32, @intCast(li)) * 10, .w = 6, .h = 3 };
+        for (row) |idx| geom[idx] = .{ .x = 0, .y = @as(i32, @intCast(li)) * 10, .w = 6, .h = 3, .layer = @intCast(li) };
     }
 
-    applyDirection(TGeom, geom, .RL);
+    applyDirection(geom, .RL);
 
     const idx_a = lg.real_index.get(0).?;
     const idx_c = lg.real_index.get(2).?;
