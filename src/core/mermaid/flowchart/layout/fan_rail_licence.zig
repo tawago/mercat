@@ -38,9 +38,7 @@ pub fn refuseUndeclared(
             var subordinated = false;
             for (order[0..rank]) |pi| {
                 if (!claims[pi].claiming) continue;
-                for (claims[pi].verdict.discharges) |d| if (d.backer == m.edge) {
-                    subordinated = true;
-                };
+                if (rc.backs(claims[pi].verdict.discharges, m.edge)) subordinated = true;
             }
             if (!subordinated) try kept.append(a, m);
         }
@@ -78,7 +76,7 @@ fn reserve(a: std.mem.Allocator, claims: []Claim) error{OutOfMemory}![]bool {
     for (order, 0..) |x, rank| {
         if (!claims[x].claiming) continue;
         for (order[rank + 1 ..]) |y| {
-            if (!claims[y].claiming or !sharesPair(claims[x].verdict, claims[y].verdict)) continue;
+            if (!claims[y].claiming or !rc.sharesPair(claims[x].verdict.discharges, claims[y].verdict.discharges)) continue;
             refused[x] = true;
             refused[y] = true;
         }
@@ -96,15 +94,6 @@ fn widestFirst(claims: []const Claim, x: usize, y: usize) bool {
     const nx = claims[x].verdict.members.len;
     const ny = claims[y].verdict.members.len;
     return if (nx == ny) x < y else nx > ny;
-}
-
-fn sharesPair(x: rc.Verdict, y: rc.Verdict) bool {
-    for (x.discharges) |dx| {
-        for (y.discharges) |dy| {
-            if (dx.pair[0] == dy.pair[0] and dx.pair[1] == dy.pair[1]) return true;
-        }
-    }
-    return false;
 }
 
 fn membersOf(

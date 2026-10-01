@@ -193,3 +193,19 @@ test "a mixed decorated and bare star salvages only the bare declared subset" {
     try testing.expectEqualSlices(u32, &.{ 1, 2 }, v.members);
     try testing.expectEqual(@as(usize, 1), v.discharges.len);
 }
+
+test "a pair edge is backed by the rail that discharges it" {
+    const ds = [_]rc.Discharge{ .{ .pair = .{ 1, 2 }, .backer = 10 }, .{ .pair = .{ 1, 3 }, .backer = 11 } };
+    try testing.expect(rc.backs(&ds, 11));
+    try testing.expect(!rc.backs(&ds, 12));
+    try testing.expect(!rc.backs(&.{}, 10));
+}
+
+test "two rails share a pair when each discharges an edge for it" {
+    const x = [_]rc.Discharge{ .{ .pair = .{ 1, 2 }, .backer = 10 }, .{ .pair = .{ 1, 3 }, .backer = 11 } };
+    const y = [_]rc.Discharge{.{ .pair = .{ 1, 3 }, .backer = 12 }};
+    const z = [_]rc.Discharge{.{ .pair = .{ 2, 3 }, .backer = 13 }};
+    try testing.expect(rc.sharesPair(&x, &y));
+    try testing.expect(!rc.sharesPair(&x, &z));
+    try testing.expect(!rc.sharesPair(&x, &.{}));
+}

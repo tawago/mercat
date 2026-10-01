@@ -79,6 +79,20 @@ pub fn decide(
     return .{ .outcome = .refuse };
 }
 
+/// True when `edge` is one of the pair edges `discharges` takes over.
+pub fn backs(discharges: []const Discharge, edge: EdgeId) bool {
+    for (discharges) |d| if (d.backer == edge) return true;
+    return false;
+}
+
+/// True when two rails each discharge an edge for one pair of divergent nodes.
+pub fn sharesPair(xs: []const Discharge, ys: []const Discharge) bool {
+    for (xs) |x| for (ys) |y| {
+        if (x.pair[0] == y.pair[0] and x.pair[1] == y.pair[1]) return true;
+    };
+    return false;
+}
+
 pub fn nodesClosed(
     allocator: std.mem.Allocator,
     nodes: []const NodeId,

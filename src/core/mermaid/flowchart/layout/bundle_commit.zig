@@ -132,7 +132,7 @@ fn settle(c: Ctx, slots: []Slot) error{OutOfMemory}!void {
                 else => continue,
             };
             var kept: std.ArrayListUnmanaged(pb.EdgeId) = .empty;
-            for (rail.members) |member| if (!backs(keeper.discharges, member)) try kept.append(c.a, member);
+            for (rail.members) |member| if (!rc.backs(keeper.discharges, member)) try kept.append(c.a, member);
             if (kept.items.len == rail.members.len) continue;
             slots[gi] = if (kept.items.len < 2) .refused else try closureLicence(c, c.plan.groups[gi], kept.items);
         }
@@ -143,7 +143,7 @@ fn settle(c: Ctx, slots: []Slot) error{OutOfMemory}!void {
     for (order.items, 0..) |x, rank| {
         for (order.items[rank + 1 ..]) |y| {
             if (slots[x] != .rail or slots[y] != .rail) continue;
-            if (!sharesPair(slots[x].rail.discharges, slots[y].rail.discharges)) continue;
+            if (!rc.sharesPair(slots[x].rail.discharges, slots[y].rail.discharges)) continue;
             clash[x] = true;
             clash[y] = true;
         }
@@ -157,18 +157,6 @@ fn widestFirst(slots: []const Slot, x: usize, y: usize) bool {
     const nx = slots[x].rail.members.len;
     const ny = slots[y].rail.members.len;
     return if (nx == ny) x < y else nx > ny;
-}
-
-fn backs(discharges: []const rc.Discharge, edge: pb.EdgeId) bool {
-    for (discharges) |d| if (d.backer == edge) return true;
-    return false;
-}
-
-fn sharesPair(xs: []const rc.Discharge, ys: []const rc.Discharge) bool {
-    for (xs) |x| for (ys) |y| {
-        if (x.pair[0] == y.pair[0] and x.pair[1] == y.pair[1]) return true;
-    };
-    return false;
 }
 
 fn realized(c: Ctx, slots: []const Slot) error{OutOfMemory}!pb.RealizedBundles {
