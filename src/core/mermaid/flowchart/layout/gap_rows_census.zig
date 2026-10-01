@@ -16,8 +16,6 @@ pub const Census = struct {
     lg: sugiyama.LayeredGraph,
     geom: []const NodeGeom,
     plan: port_plan.Plan,
-    node_layer: []const u32,
-    idx_of: std.AutoHashMapUnmanaged(sg.NodeId, u32),
     sub_gaps: []pack_mod.SubGap,
     supers: []const Super,
     departures: []const sg.NodeId,
@@ -34,23 +32,11 @@ pub const Census = struct {
         departures: []const sg.NodeId,
         ngaps: usize,
     ) error{OutOfMemory}!Census {
-        const node_layer = try a.alloc(u32, lg.nodes.len);
-        @memset(node_layer, 0);
-        for (lg.layers, 0..) |row, li| for (row) |idx| {
-            node_layer[idx] = @intCast(li);
-        };
-        var idx_of: std.AutoHashMapUnmanaged(sg.NodeId, u32) = .empty;
-        for (lg.nodes, 0..) |ln, i| switch (ln) {
-            .real => |id| try idx_of.put(a, id, @intCast(i)),
-            .virtual => {},
-        };
         return .{
             .graph = graph,
             .lg = lg,
             .geom = geom,
             .plan = plan,
-            .node_layer = node_layer,
-            .idx_of = idx_of,
             .sub_gaps = try stackedGaps(a, lg, geom, @intCast(ngaps)),
             .supers = supers,
             .departures = departures,
@@ -60,8 +46,8 @@ pub const Census = struct {
     }
 
     pub fn layerOfNode(self: Census, id: sg.NodeId) ?u32 {
-        const idx = self.idx_of.get(id) orelse return null;
-        return self.node_layer[idx];
+        const idx = self.lg.real_index.get(id) orelse return null;
+        return self.geom[idx].layer;
     }
 
     pub fn isSuper(self: Census, id: sg.NodeId) bool {
@@ -98,7 +84,7 @@ pub const Census = struct {
 
     pub fn portCol(self: Census, e: sg.Edge, end: pb.EndpointSide) i32 {
         const node = if (end == .source_exit) e.from else e.to;
-        const idx = self.idx_of.get(node) orelse return 0;
+        const idx = self.lg.real_index.get(node) orelse return 0;
         const g = self.geom[idx];
         const offset: i32 = if (self.plan.forEdge(e.id)) |ep|
             @intCast(if (end == .source_exit) ep.source.offset else ep.target.offset)
@@ -108,7 +94,7 @@ pub const Census = struct {
     }
 
     pub fn gapAbove(self: Census, idx: u32) ?u32 {
-        const layer = self.node_layer[idx];
+        const layer = self.geom[idx].layer;
         if (self.geom[idx].y == 0) return if (layer == 0) null else layer - 1;
         for (self.sub_gaps) |s| if (s.layer == layer and s.top == self.geom[idx].y) return s.gap;
         return null;
@@ -117,13 +103,13 @@ pub const Census = struct {
     pub fn stackedObstacle(self: Census, from: u32, to: u32, col: i32) ?u32 {
         const geom = self.geom;
         var best: ?u32 = null;
-        for (self.lg.layers[self.node_layer[from]]) |idx| {
+        for (self.lg.layers[self.geom[from].layer]) |idx| {
             if (idx == from or self.lg.nodes[idx] != .real or geom[idx].y <= geom[from].y) continue;
             if (!coversColumn(geom[idx], col)) continue;
             if (best == null or geom[idx].y < geom[best.?].y) best = idx;
         }
         if (best != null) return best;
-        for (self.lg.layers[self.node_layer[to]]) |idx| {
+        for (self.lg.layers[self.geom[to].layer]) |idx| {
             if (idx == to or self.lg.nodes[idx] != .real or geom[idx].y >= geom[to].y) continue;
             if (!coversColumn(geom[idx], col)) continue;
             if (best == null or geom[idx].y < geom[best.?].y) best = idx;
@@ -149,11 +135,11 @@ pub const Census = struct {
 
     fn columnFree(self: Census, from: u32, to: u32, col: i32) bool {
         const geom = self.geom;
-        for (self.lg.layers[self.node_layer[from]]) |idx| {
+        for (self.lg.layers[self.geom[from].layer]) |idx| {
             if (idx == from or self.lg.nodes[idx] != .real or geom[idx].y <= geom[from].y) continue;
             if (coversColumn(geom[idx], col)) return false;
         }
-        for (self.lg.layers[self.node_layer[to]]) |idx| {
+        for (self.lg.layers[self.geom[to].layer]) |idx| {
             if (idx == to or self.lg.nodes[idx] != .real or geom[idx].y >= geom[to].y) continue;
             if (coversColumn(geom[idx], col)) return false;
         }

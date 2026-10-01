@@ -41,8 +41,8 @@ fn edgeClaims(a: std.mem.Allocator, c: Census, fans: []const fan_mod.Fan, eligib
         const tcol = c.portCol(e, .target_entry);
         const virtuals = try rt.collectVirtuals(a, c.lg, e.id);
         if (virtuals.len == 0) {
-            const si = c.idx_of.get(e.from) orelse continue;
-            const ti = c.idx_of.get(e.to) orelse continue;
+            const si = c.lg.real_index.get(e.from) orelse continue;
+            const ti = c.lg.real_index.get(e.to) orelse continue;
             const exit_gap = if (c.flow_down) c.gapAbove(ti) orelse continue else target_gap;
             var from_col = scol;
             if (c.flow_down) if (c.stackedObstacle(si, ti, scol)) |ob| {
@@ -69,8 +69,8 @@ fn returnClaims(a: std.mem.Allocator, c: Census, claims: *std.ArrayListUnmanaged
         if (!c.isPlacement(e) or e.from == e.to or !c.isReversed(e.id)) continue;
         const upper = c.layerOfNode(e.to) orelse continue;
         const gap = c.gapBelow(upper) orelse continue;
-        const ui = c.idx_of.get(e.to) orelse continue;
-        const li = c.idx_of.get(e.from) orelse continue;
+        const ui = c.lg.real_index.get(e.to) orelse continue;
+        const li = c.lg.real_index.get(e.from) orelse continue;
         const port = c.geom[ui].centerX();
         const corridor = c.geom[li].centerX();
         const edges = try a.alloc(sg.EdgeId, 1);
@@ -88,14 +88,14 @@ fn departureClaims(a: std.mem.Allocator, c: Census, claims: *std.ArrayListUnmana
     };
     for (c.departures, 0..) |node, di| {
         if (std.mem.indexOfScalar(sg.NodeId, c.departures[0..di], node) != null) continue;
-        const mi = c.idx_of.get(node) orelse continue;
-        const layer = c.node_layer[mi];
+        const mi = c.lg.real_index.get(node) orelse continue;
+        const layer = c.geom[mi].layer;
         const gap = c.gapBelow(layer) orelse continue;
         const col = c.geom[mi].centerX();
         var pierced = false;
         for (c.lg.nodes, 0..) |ln, i| {
             if (ln != .real or i == mi) continue;
-            const below = if (c.node_layer[i] == layer) c.geom[i].y > c.geom[mi].y else if (c.flow_down) c.node_layer[i] > layer else c.node_layer[i] < layer;
+            const below = if (c.geom[i].layer == layer) c.geom[i].y > c.geom[mi].y else if (c.flow_down) c.geom[i].layer > layer else c.geom[i].layer < layer;
             if (below and c.geom[i].x <= col and col < c.geom[i].right()) pierced = true;
         }
         if (!pierced) continue;

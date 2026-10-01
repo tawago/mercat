@@ -25,7 +25,16 @@ pub fn buildPiece(
 ) !gap_rows.Ledger {
     const placed = try a.alloc(NodeGeom, geom.len);
     for (geom, placed) |g, *out| out.* = .{ .x = g.x, .y = g.y, .w = g.w, .h = g.h, .layer = 0 };
-    return gap_rows.buildPiece(a, graph, lg, placed, fans, bundles, plan, bases, supers, departures);
+    for (lg.layers, 0..) |row, layer| for (row) |idx| {
+        placed[idx].layer = @intCast(layer);
+    };
+    var indexed = lg;
+    indexed.real_index = .empty;
+    for (lg.nodes, 0..) |node, idx| switch (node) {
+        .real => |id| try indexed.real_index.put(a, id, @intCast(idx)),
+        .virtual => {},
+    };
+    return gap_rows.buildPiece(a, graph, indexed, placed, fans, bundles, plan, bases, supers, departures);
 }
 
 pub fn mkLg(

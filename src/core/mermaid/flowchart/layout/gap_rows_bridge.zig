@@ -22,8 +22,8 @@ pub fn jogClaims(a: std.mem.Allocator, c: Census, claims: *std.ArrayListUnmanage
         const sl = c.layerOfNode(e.from) orelse continue;
         const tl = c.layerOfNode(e.to) orelse continue;
         const gap = c.gapOf(sl, tl) orelse continue;
-        const ui = c.idx_of.get(e.from) orelse continue;
-        const vi = c.idx_of.get(e.to) orelse continue;
+        const ui = c.lg.real_index.get(e.from) orelse continue;
+        const vi = c.lg.real_index.get(e.to) orelse continue;
         const u_col = c.geom[ui].centerX();
         const v_col = c.geom[vi].centerX();
         const pin: i32 = if (c.isDrawnSuper(e.to)) -2 else -1;
