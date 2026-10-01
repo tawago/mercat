@@ -6,6 +6,22 @@ const node_geom = @import("node_geom.zig");
 
 const NodeGeom = node_geom.NodeGeom;
 
+pub fn spread(
+    a: std.mem.Allocator,
+    graph: sg.SemGraph,
+    geom: []NodeGeom,
+    lg: sugiyama.LayeredGraph,
+    h_spacing: u32,
+    compact: bool,
+) error{OutOfMemory}!void {
+    assignInitialX(geom, lg.layers, h_spacing);
+    try centerByBarycenter(a, graph, geom, lg, h_spacing, .down, compact);
+    try centerByBarycenter(a, graph, geom, lg, h_spacing, .up, compact);
+    normalizeX(geom);
+    try centerByBarycenter(a, graph, geom, lg, h_spacing, .down, compact);
+    normalizeX(geom);
+}
+
 pub fn assignInitialX(geom: []NodeGeom, layers: [][]u32, h_spacing: u32) void {
     for (layers) |row| {
         var cursor: i32 = 0;
@@ -115,12 +131,8 @@ fn rowHasLabeledIncomingEdge(graph: sg.SemGraph, geom: []const NodeGeom, lg: sug
 }
 
 fn edgeHasLabel(graph: sg.SemGraph, edge_id: sg.EdgeId) bool {
-    for (graph.edges) |ge| {
-        if (ge.id != edge_id) continue;
-        if (ge.label) |l| return l.len > 0;
-        return false;
-    }
-    return false;
+    const edge = graph.edgeById(edge_id) orelse return false;
+    return if (edge.label) |label| label.len > 0 else false;
 }
 
 fn centerRunOnDesired(geom: []NodeGeom, lg: sugiyama.LayeredGraph, row: []const u32, desired: []const i32) void {

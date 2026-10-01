@@ -12,7 +12,7 @@ const fan_mod = @import("layout/fan.zig");
 const fan_lanes = @import("layout/fan_lanes.zig");
 const gap_rows = @import("layout/gap_rows.zig");
 const mirror = @import("layout/mirror.zig");
-const cx_mod = @import("layout/x_assign.zig");
+const x_assign = @import("layout/x_assign.zig");
 const sizing = @import("layout/sizing.zig");
 const components = @import("layout/components.zig");
 const rank_grid = @import("layout/rank_grid.zig");
@@ -95,15 +95,7 @@ fn buildSketch(
 
     const compact_x = (graph.direction == .TD) and !opts.is_direction_rotated;
 
-    assignInitialX(geom, lg.layers, opts.h_spacing);
-    try centerByBarycenter(a, graph, geom, lg, opts.h_spacing, .down, compact_x);
-    try centerByBarycenter(a, graph, geom, lg, opts.h_spacing, .up, compact_x);
-
-    normalizeX(geom);
-
-    try centerByBarycenter(a, graph, geom, lg, opts.h_spacing, .down, compact_x);
-
-    normalizeX(geom);
+    try x_assign.spread(a, graph, geom, lg, opts.h_spacing, compact_x);
 
     if (fans.len > 0) fan_mod.gateFanInSharedLabels(NodeGeom, fans, geom);
     if (fans.len > 0) try fan_lanes.assignLanes(NodeGeom, a, graph, lg, geom, fans, decision.bundles);
@@ -199,11 +191,9 @@ fn ownFans(a: std.mem.Allocator, fans: []const fan_mod.Fan) error{OutOfMemory}![
     return out;
 }
 
-const assignInitialX = cx_mod.assignInitialX;
-const centerByBarycenter = cx_mod.centerByBarycenter;
-const normalizeX = cx_mod.normalizeX;
-const centersX = cx_mod.centersX;
-const flushLeftRows = cx_mod.flushLeftRows;
+const normalizeX = x_assign.normalizeX;
+const centersX = x_assign.centersX;
+const flushLeftRows = x_assign.flushLeftRows;
 
 test {
     _ = @import("layout/layout_test.zig");

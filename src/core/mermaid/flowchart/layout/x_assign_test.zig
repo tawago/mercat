@@ -348,3 +348,33 @@ test "centerRunOnDesired's width clamp keeps a recentered row from crossing x=0"
     try testing.expect(real[1].x >= 0);
     try testing.expect(real[2].x >= 0);
 }
+
+test "spread centres a parent over its two children and leaves the leftmost node at x=0" {
+    const empty_g = sg.SemGraph{ .direction = .TD, .nodes = &.{}, .edges = &.{}, .clusters = &.{}, .classes = &.{}, .arena = null };
+    var nodes = [_]sugiyama.LayerNode{ .{ .real = 100 }, .{ .real = 101 }, .{ .real = 102 } };
+    var layer0 = [_]u32{0};
+    var layer1 = [_]u32{ 1, 2 };
+    var layers = [_][]u32{ &layer0, &layer1 };
+    var edges = [_]sugiyama.LayerEdge{
+        .{ .from = 0, .to = 1, .edge = 5, .reversed = false },
+        .{ .from = 0, .to = 2, .edge = 6, .reversed = false },
+    };
+    const lg = sugiyama.LayeredGraph{
+        .nodes = &nodes,
+        .layers = &layers,
+        .edges = &edges,
+        .reversed_edges = &.{},
+        .real_index = std.AutoHashMapUnmanaged(sg.NodeId, u32).empty,
+        .arena = null,
+    };
+    var geom = [_]NodeGeom{
+        .{ .x = 0, .y = 0, .w = 5, .h = 3, .layer = 0 },
+        .{ .x = 0, .y = 0, .w = 5, .h = 3, .layer = 1 },
+        .{ .x = 0, .y = 0, .w = 5, .h = 3, .layer = 1 },
+    };
+    try cx_mod.spread(testing.allocator, empty_g, &geom, lg, 2, true);
+
+    try testing.expectEqual(@as(i32, 0), @min(geom[0].x, @min(geom[1].x, geom[2].x)));
+    try testing.expectEqual(@as(i32, 7), geom[2].x - geom[1].x);
+    try testing.expectEqual(@divTrunc(geom[1].centerX() + geom[2].centerX(), 2), geom[0].centerX());
+}
