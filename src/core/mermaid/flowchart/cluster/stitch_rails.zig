@@ -94,24 +94,19 @@ fn mapSite(node_map: []const sketch.NodeId, site: ?rail_star.AttachmentSite) ?ra
 fn droppedEnds(sr: split_mod.SplitResult, outer: sketch.Sketch, edge: sketch.EdgeId) [2]bool {
     for (outer.edges) |path| {
         if (path.id != edge) continue;
-        return .{ isSuper(sr, path.from), isSuper(sr, path.to) };
+        return .{ sr.isSuper(path.from), sr.isSuper(path.to) };
     }
     for (outer.rails) |rail| {
         for (rail.taps) |tap| {
             if (tap.edge != edge) continue;
             const fan_in = rail.role == .fan_in_dropper or rail.role == .fan_in_rail;
             return if (fan_in)
-                .{ isSuper(sr, tap.node), isSuper(sr, rail.pivot) }
+                .{ sr.isSuper(tap.node), sr.isSuper(rail.pivot) }
             else
-                .{ isSuper(sr, rail.pivot), isSuper(sr, tap.node) };
+                .{ sr.isSuper(rail.pivot), sr.isSuper(tap.node) };
         }
     }
     return .{ false, false };
-}
-
-fn isSuper(sr: split_mod.SplitResult, node: sketch.NodeId) bool {
-    for (sr.supers) |super| if (super.outer_node == node) return true;
-    return false;
 }
 
 pub fn finalMember(

@@ -80,6 +80,17 @@ pub const SplitResult = struct {
     pub fn isFlat(self: SplitResult) bool {
         return self.pieces.len == 1 and self.supers.len == 0;
     }
+
+    pub fn superIndex(self: SplitResult, outer_node: sg.NodeId) ?usize {
+        for (self.supers, 0..) |s, i| {
+            if (s.outer_node == outer_node) return i;
+        }
+        return null;
+    }
+
+    pub fn isSuper(self: SplitResult, outer_node: sg.NodeId) bool {
+        return self.superIndex(outer_node) != null;
+    }
 };
 
 pub fn split(arena: std.mem.Allocator, graph: sg.SemGraph, inherited: Inherited) error{OutOfMemory}!SplitResult {

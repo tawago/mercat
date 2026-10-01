@@ -97,7 +97,7 @@ pub fn stitch(
     }
 
     for (outer.nodes) |p| {
-        if (superIndexFor(split_result, p.id)) |si| {
+        if (split_result.superIndex(p.id)) |si| {
             const super = split_result.supers[si];
             const child = children[super.child_piece];
             const piece = split_result.pieces[super.child_piece];
@@ -189,14 +189,14 @@ pub fn stitch(
     const bridge_base = id_base;
     try piece_joins.append(arena, .{ .bundles = outer.bundles, .edge_base = outer_base });
     for (outer.edges) |oe| {
-        if (superFor(split_result, oe.from) != null or superFor(split_result, oe.to) != null) continue;
+        if (split_result.isSuper(oe.from) or split_result.isSuper(oe.to)) continue;
         try edges.append(arena, try translateEdge(arena, oe, global_of[0], 0, 0, outer_base));
     }
     for (outer.rails) |ob| {
-        if (superFor(split_result, ob.pivot) != null) continue;
+        if (split_result.isSuper(ob.pivot)) continue;
         var kept: std.ArrayListUnmanaged(sketch.Tap) = .empty;
         for (ob.taps) |tap| {
-            if (superFor(split_result, tap.node) != null) continue;
+            if (split_result.isSuper(tap.node)) continue;
             try kept.append(arena, tap);
         }
         if (kept.items.len == 0) continue;
@@ -273,20 +273,6 @@ pub fn stitch(
 fn setAt(arena: std.mem.Allocator, list: *std.ArrayListUnmanaged(sketch.NodeId), i: sketch.NodeId, val: sketch.NodeId) error{OutOfMemory}!void {
     while (list.items.len <= i) try list.append(arena, sg.SENTINEL);
     list.items[i] = val;
-}
-
-fn superFor(sr: SplitResult, outer_node_id: sketch.NodeId) ?split_mod.SuperNode {
-    for (sr.supers) |s| {
-        if (s.outer_node == outer_node_id) return s;
-    }
-    return null;
-}
-
-fn superIndexFor(sr: SplitResult, outer_node_id: sketch.NodeId) ?usize {
-    for (sr.supers, 0..) |s, i| {
-        if (s.outer_node == outer_node_id) return i;
-    }
-    return null;
 }
 
 fn placementOf(placements: []const sketch.NodePlacement, id: sketch.NodeId) sketch.NodePlacement {

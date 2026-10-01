@@ -25,7 +25,7 @@ pub fn finalImages(
     final_bars: []const sketch.Rail,
 ) error{OutOfMemory}![]const Image {
     const placement = endpointsOf(outer, old_edge) orelse return &.{};
-    if (!isSuper(sr, placement.from) and !isSuper(sr, placement.to)) {
+    if (!sr.isSuper(placement.from) and !sr.isSuper(placement.to)) {
         const id = outer_base + old_edge;
         const image = finalImage(final_edges, final_bars, id) orelse return &.{};
         return arena.dupe(Image, &.{image});
@@ -68,7 +68,7 @@ pub fn rebuildOuterSets(
         for (set.members, 0..) |old_edge, contributor| {
             if (seenEarlier(set.members, contributor, old_edge)) continue;
             if (endpointsOf(outer, old_edge)) |ep| {
-                if (isSuper(sr, ep.from) or isSuper(sr, ep.to)) continue;
+                if (sr.isSuper(ep.from) or sr.isSuper(ep.to)) continue;
             }
             const images = try finalImages(
                 arena,
@@ -198,11 +198,6 @@ fn finalImage(edges: []const sketch.EdgePath, rails_buf: []const sketch.Rail, id
         }
     }
     return null;
-}
-
-fn isSuper(sr: split_mod.SplitResult, node: sketch.NodeId) bool {
-    for (sr.supers) |super| if (super.outer_node == node) return true;
-    return false;
 }
 
 fn outerReprOf(sr: split_mod.SplitResult, original: sg.NodeId) sketch.NodeId {
