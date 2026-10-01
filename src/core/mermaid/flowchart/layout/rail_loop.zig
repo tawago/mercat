@@ -253,3 +253,7 @@ fn farTap(rails: []const fan_rail.Built, edge: sg.EdgeId, want_in: bool) ?sketch
     }
     return null;
 }
+
+test {
+    _ = @import("rail_loop_test.zig");
+}

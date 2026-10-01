@@ -167,6 +167,11 @@ pub const file_allowlists = [_]struct {
         .reason = "port_plan_test may import the focused layout and permit surfaces",
     },
     .{
+        .name = "layout/rail_loop_test.zig",
+        .allowed = &.{ .sem_graph, .sketch, .layout_zone, .parse_zone, .{ .exact = "../ledger/permits.zig" } },
+        .reason = "rail_loop_test may import the layout, parse and permit surfaces",
+    },
+    .{
         .name = "raster/rails_test.zig",
         .allowed = &.{ .sketch, .{ .exact = "../lattice.zig" }, .{ .exact = "rails.zig" }, .{ .exact = "nodes.zig" }, .{ .exact = "../raster.zig" } },
         .reason = "rails_test may only import std, prim, sketch, lattice, raster siblings, or raster",
