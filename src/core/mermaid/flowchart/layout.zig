@@ -7,7 +7,7 @@ const sugiyama = @import("layout/sugiyama.zig");
 const crossing = @import("layout/crossing.zig");
 const routing = @import("layout/routing.zig");
 const node_geom = @import("layout/node_geom.zig");
-const clusters = @import("layout/clusters.zig");
+const bounds = @import("layout/bbox.zig");
 const fan_mod = @import("layout/fan.zig");
 const fan_lanes = @import("layout/fan_lanes.zig");
 const gap_rows = @import("layout/gap_rows.zig");
@@ -126,7 +126,7 @@ fn buildSketch(
 
     const rail_lever = (opts.spacing_scale > 0) and
         (graph.direction == .TD) and !opts.is_direction_rotated;
-    const bbox = clusters.computeBbox(placements, edges_out, edges_result.polylines, edges_result.rails, rail_lever, opts.max_width);
+    const bbox = bounds.computeBbox(placements, edges_out, edges_result.polylines, edges_result.rails, rail_lever, opts.max_width);
     var diagnostics: std.ArrayListUnmanaged(sketch.Diagnostic) = .empty;
     if (bbox.w > opts.max_width) {
         try diagnostics.append(a, .width_overflow);

@@ -175,5 +175,5 @@ fn pickMidSegmentBbox(poly: []const sketch.Point) ?SegPair {
 }
 
 test {
-    _ = @import("clusters_test.zig");
+    _ = @import("bbox_test.zig");
 }

@@ -3,7 +3,7 @@ const sg = @import("../sem_graph.zig");
 const sketch = @import("../sketch.zig");
 const prim = @import("prim");
 const fan_rail = @import("fan_rail.zig");
-const clusters = @import("clusters.zig");
+const bounds = @import("bbox.zig");
 const coords = @import("../layout.zig");
 
 const testing = std.testing;
@@ -33,7 +33,7 @@ test "computeBbox: a self-loop detour point at the diagram's extreme corner exte
     var polylines = [_][]sketch.Point{&poly};
     var rails = [_]fan_rail.Built{};
 
-    const bbox = clusters.computeBbox(&placements, &edges, &polylines, &rails, false, 200);
+    const bbox = bounds.computeBbox(&placements, &edges, &polylines, &rails, false, 200);
 
     try testing.expectEqual(@as(u32, 21), bbox.w);
     try testing.expectEqual(@as(u32, 11), bbox.h);
@@ -57,7 +57,7 @@ test "computeBbox: back-edge rail label relocation depends on the diagram's full
         var polylines = [_][]sketch.Point{&poly_a};
         var rails = [_]fan_rail.Built{};
 
-        _ = clusters.computeBbox(&placements, &edges, &polylines, &rails, true, max_width);
+        _ = bounds.computeBbox(&placements, &edges, &polylines, &rails, true, max_width);
         try testing.expect(edges[0].label_left_of_run);
     }
 
@@ -70,7 +70,7 @@ test "computeBbox: back-edge rail label relocation depends on the diagram's full
         var polylines = [_][]sketch.Point{&poly_b};
         var rails = [_]fan_rail.Built{};
 
-        _ = clusters.computeBbox(&placements, &edges, &polylines, &rails, true, max_width);
+        _ = bounds.computeBbox(&placements, &edges, &polylines, &rails, true, max_width);
         try testing.expect(!edges[0].label_left_of_run);
     }
 }
@@ -84,7 +84,7 @@ test "computeBbox: back-edge rail lever leaves the label right when the right pl
     var polylines = [_][]sketch.Point{&poly};
     var rails = [_]fan_rail.Built{};
 
-    _ = clusters.computeBbox(&placements, &edges, &polylines, &rails, true, 200);
+    _ = bounds.computeBbox(&placements, &edges, &polylines, &rails, true, 200);
     try testing.expect(!edges[0].label_left_of_run);
 }
 
@@ -112,7 +112,7 @@ test "computeBbox: rail tap label reservation matches Rail.tapLabelSeg + prim.ed
         .taps = &taps,
     }};
 
-    const bbox = clusters.computeBbox(&placements, &edges, &polylines, &rails, false, 200);
+    const bbox = bounds.computeBbox(&placements, &edges, &polylines, &rails, false, 200);
 
     const rail = rails[0].rail;
     const seg = rail.tapLabelSeg(taps[0]);
@@ -147,7 +147,7 @@ test "computeBbox: the shift pass updates both the Built.taps view and the alias
     }};
 
     const pre_shift_tap_x = rails[0].rail.taps[0].at.x;
-    _ = clusters.computeBbox(&placements, &edges, &polylines, &rails, false, 200);
+    _ = bounds.computeBbox(&placements, &edges, &polylines, &rails, false, 200);
 
     try testing.expect(rails[0].rail.taps[0].at.x != pre_shift_tap_x);
     try testing.expectEqual(rails[0].taps[0].at.x, rails[0].rail.taps[0].at.x);
@@ -163,7 +163,7 @@ test "computeBbox: label_left_of_run is false exactly at prim.edgeLabelAnchor's 
     var polylines = [_][]sketch.Point{&poly};
     var rails = [_]fan_rail.Built{};
 
-    _ = clusters.computeBbox(&placements, &edges, &polylines, &rails, true, 200);
+    _ = bounds.computeBbox(&placements, &edges, &polylines, &rails, true, 200);
 
     const mid_x: i32 = @divTrunc(poly[0].x + poly[1].x, 2);
     const anchor = prim.edgeLabelAnchor(poly[0].x, poly[0].y, poly[1].x, poly[1].y, prim.displayWidth("x"), .{});
