@@ -12,6 +12,10 @@ const flt = @import("fan_lanes_test.zig");
 const Geom = flt.Geom;
 const Claim = gap_rows.Claim;
 
+fn pack(a: std.mem.Allocator, raw: []const Claim, posts: []const gap_rows.Post, bases: []const u32) !gap_rows.Ledger {
+    return pack_mod.pack(a, raw, posts, bases, &.{});
+}
+
 fn claim(gap: u32, lo: i32, hi: i32, kind: gap_rows.Kind) Claim {
     return .{ .gap = gap, .lo = lo, .hi = hi, .kind = kind };
 }
@@ -28,12 +32,12 @@ test "spans separated by one blank cell share a row; abutting spans do not" {
     const bases = [_]u32{2};
 
     const apart = [_]Claim{ claim(0, 7, 13, .fan_in), claim(0, 15, 36, .fan_in) };
-    const l1 = try pack_mod.pack(a, &apart, &.{}, &bases);
+    const l1 = try pack(a, &apart, &.{}, &bases);
     try testing.expectEqual(@as(u32, 1), l1.gaps[0].rows_used);
     try testing.expectEqual(rowOf(l1, 7), rowOf(l1, 15));
 
     const abutting = [_]Claim{ claim(0, 7, 14, .fan_in), claim(0, 15, 36, .fan_in) };
-    const l2 = try pack_mod.pack(a, &abutting, &.{}, &bases);
+    const l2 = try pack(a, &abutting, &.{}, &bases);
     try testing.expectEqual(@as(u32, 2), l2.gaps[0].rows_used);
     try testing.expect(rowOf(l2, 7) != rowOf(l2, 15));
 }
@@ -44,7 +48,7 @@ test "an arrival rail stacks nearer the target than the departure rail it confli
     const a = arena.allocator();
     const bases = [_]u32{2};
     const claims = [_]Claim{ claim(0, 0, 20, .fan_out), claim(0, 5, 25, .fan_in) };
-    const l = try pack_mod.pack(a, &claims, &.{}, &bases);
+    const l = try pack(a, &claims, &.{}, &bases);
     try testing.expectEqual(@as(i32, 0), rowOf(l, 5));
     try testing.expectEqual(@as(i32, 1), rowOf(l, 0));
     try testing.expectEqual(@as(u32, 2), l.extraRows(0));
@@ -63,14 +67,14 @@ test "a rail whose stem column is a foreign tap's column sits where that tap end
         .{ .gap = 0, .lo = 0, .hi = 10, .kind = .fan_in, .stems = &x_stem, .taps = &x_taps },
         .{ .gap = 0, .lo = 10, .hi = 30, .kind = .fan_in, .stems = &y_stem, .taps = &y_taps },
     };
-    const li = try pack_mod.pack(a, &arrivals, &.{}, &bases);
+    const li = try pack(a, &arrivals, &.{}, &bases);
     try testing.expectEqual(@as(i32, 0), rowOf(li, 0));
     try testing.expectEqual(@as(i32, 1), rowOf(li, 10));
     const departures = [_]Claim{
         .{ .gap = 0, .lo = 0, .hi = 10, .kind = .fan_out, .stems = &x_stem, .taps = &x_taps },
         .{ .gap = 0, .lo = 10, .hi = 30, .kind = .fan_out, .stems = &y_stem, .taps = &y_taps },
     };
-    const lo = try pack_mod.pack(a, &departures, &.{}, &bases);
+    const lo = try pack(a, &departures, &.{}, &bases);
     try testing.expectEqual(@as(i32, 1), rowOf(lo, 0));
     try testing.expectEqual(@as(i32, 0), rowOf(lo, 10));
 }
@@ -88,7 +92,7 @@ test "a precedence cycle falls back to left-endpoint order" {
         .{ .gap = 0, .lo = 0, .hi = 20, .kind = .fan_in, .stems = &x_stem, .taps = &x_taps },
         .{ .gap = 0, .lo = 0, .hi = 20, .kind = .fan_in, .stems = &y_stem, .taps = &y_taps },
     };
-    const l = try pack_mod.pack(a, &claims, &.{}, &bases);
+    const l = try pack(a, &claims, &.{}, &bases);
     try testing.expectEqual(@as(u32, 2), l.gaps[0].rows_used);
 }
 
@@ -99,18 +103,18 @@ test "a run with no decorated end keeps the base row only when no claim or post 
     const bases = [_]u32{2};
     var alone = [_]Claim{claim(0, 0, 10, .run)};
     alone[0].base_ok = true;
-    const l1 = try pack_mod.pack(a, &alone, &.{}, &bases);
+    const l1 = try pack(a, &alone, &.{}, &bases);
     try testing.expectEqual(@as(i32, -1), rowOf(l1, 0));
     try testing.expectEqual(@as(u32, 0), l1.extraRows(0));
 
     const posts = [_]gap_rows.Post{.{ .gap = 0, .x = 5 }};
-    const l2 = try pack_mod.pack(a, &alone, &posts, &bases);
+    const l2 = try pack(a, &alone, &posts, &bases);
     try testing.expectEqual(@as(i32, 0), rowOf(l2, 0));
     try testing.expectEqual(@as(u32, 1), l2.extraRows(0));
 
     var crowded = [_]Claim{ claim(0, 0, 10, .run), claim(0, 8, 30, .fan_in) };
     crowded[0].base_ok = true;
-    const l3 = try pack_mod.pack(a, &crowded, &.{}, &bases);
+    const l3 = try pack(a, &crowded, &.{}, &bases);
     try testing.expect(rowOf(l3, 0) >= 0);
 }
 
@@ -120,7 +124,7 @@ test "rows the base spacing already holds cost nothing" {
     const a = arena.allocator();
     const bases = [_]u32{4};
     const claims = [_]Claim{ claim(0, 0, 10, .run), claim(0, 5, 15, .run), claim(0, 8, 20, .run) };
-    const l = try pack_mod.pack(a, &claims, &.{}, &bases);
+    const l = try pack(a, &claims, &.{}, &bases);
     try testing.expectEqual(@as(u32, 3), l.gaps[0].rows_used);
     try testing.expectEqual(@as(u32, 1), l.extraRows(0));
 }
@@ -133,14 +137,14 @@ test "fans of one class sharing a column fuse into one claim; other classes stay
     var fused = [_]Claim{ claim(0, 0, 20, .fan_in), claim(0, 0, 20, .fan_in) };
     fused[0].fuse = 0;
     fused[1].fuse = 0;
-    const l1 = try pack_mod.pack(a, &fused, &.{}, &bases);
+    const l1 = try pack(a, &fused, &.{}, &bases);
     try testing.expectEqual(@as(usize, 1), l1.claims.len);
     try testing.expectEqual(@as(u32, 1), l1.gaps[0].rows_used);
 
     var apart = [_]Claim{ claim(0, 0, 20, .fan_in), claim(0, 0, 20, .fan_in) };
     apart[0].fuse = 0;
     apart[1].fuse = 1;
-    const l2 = try pack_mod.pack(a, &apart, &.{}, &bases);
+    const l2 = try pack(a, &apart, &.{}, &bases);
     try testing.expectEqual(@as(usize, 2), l2.claims.len);
     try testing.expectEqual(@as(u32, 2), l2.gaps[0].rows_used);
 }
@@ -538,7 +542,7 @@ test "a sub-gap grows by the rows its packed claims need beyond the grid's" {
     const bases = [_]u32{ 2, 3 };
     var subs = [_]pack_mod.SubGap{.{ .gap = 1, .layer = 0, .top = 6, .far = 3, .base = 3 }};
     const claims = [_]Claim{ claim(1, 0, 10, .run), claim(1, 5, 20, .corridor_entry) };
-    const l = try pack_mod.packSub(a, &claims, &.{}, &bases, &subs);
+    const l = try pack_mod.pack(a, &claims, &.{}, &bases, &subs);
     try testing.expectEqual(@as(u32, 2), l.gaps[1].rows_used);
     try testing.expectEqual(@as(u32, 1), l.extraRows(1));
 }
@@ -556,7 +560,7 @@ test "a run arriving down a column another run departs from sits nearer the targ
         .{ .gap = 0, .lo = 30, .hi = 59, .kind = .corridor_entry, .end = .entry, .stems = &x_stem, .taps = &x_tap },
         .{ .gap = 0, .lo = 51, .hi = 71, .kind = .fan_out, .stems = &y_stem, .taps = &y_tap },
     };
-    const l = try pack_mod.pack(a, &claims, &.{}, &bases);
+    const l = try pack(a, &claims, &.{}, &bases);
     try testing.expectEqual(@as(i32, 0), rowOf(l, 51));
     try testing.expectEqual(@as(i32, 1), rowOf(l, 30));
 }
@@ -657,7 +661,7 @@ test "a fan-OUT run whose span holds another fan-OUT's taps sits nearer the sour
         .{ .gap = 0, .lo = 28, .hi = 70, .kind = .fan_out, .stems = &dotted_stems, .taps = &dotted_taps },
         .{ .gap = 0, .lo = 52, .hi = 92, .kind = .fan_out, .stems = &right_stem, .taps = &right_tap },
     };
-    const ledger = try pack_mod.pack(a, &claims, &.{}, &bases);
+    const ledger = try pack(a, &claims, &.{}, &bases);
     try testing.expectEqual(@as(i32, 0), rowOf(ledger, 28));
     try testing.expectEqual(@as(i32, 1), rowOf(ledger, 8));
     try testing.expectEqual(@as(i32, 1), rowOf(ledger, 52));
@@ -670,7 +674,7 @@ test "a fan-OUT run whose span holds another fan-OUT's taps sits nearer the sour
         .{ .gap = 0, .lo = 8, .hi = 92, .kind = .fan_in, .stems = &outer_stem, .taps = &outer_taps },
         .{ .gap = 0, .lo = 28, .hi = 70, .kind = .fan_in, .stems = &inner_stem, .taps = &inner_taps },
     };
-    const li = try pack_mod.pack(a, &arrivals, &.{}, &bases);
+    const li = try pack(a, &arrivals, &.{}, &bases);
     try testing.expectEqual(@as(i32, 0), rowOf(li, 8));
     try testing.expectEqual(@as(i32, 1), rowOf(li, 28));
 }

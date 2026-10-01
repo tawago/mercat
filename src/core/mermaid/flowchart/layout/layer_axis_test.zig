@@ -89,9 +89,9 @@ test "restack: the ledger's extra rows widen the gaps, push the nodes under a su
     var layer_h = [_]u32{ 13, 3 };
     var v_sp_per_gap = [_]u32{2};
     const accounts = [_]pack_mod.GapAccount{
-        .{ .base = 2, .free = 0, .rows_used = 1, .claimed = 1, .base_used = false },
-        .{ .base = 2, .free = 0, .rows_used = 2, .claimed = 3, .base_used = false },
-        .{ .base = 2, .free = 0, .rows_used = 0, .claimed = 0, .base_used = false },
+        .{ .base = 2, .rows_used = 1, .base_used = false },
+        .{ .base = 2, .rows_used = 2, .base_used = false },
+        .{ .base = 2, .rows_used = 0, .base_used = false },
     };
     var sub_gaps = [_]pack_mod.SubGap{
         .{ .gap = 1, .layer = 0, .top = 5, .far = 3, .base = 2 },

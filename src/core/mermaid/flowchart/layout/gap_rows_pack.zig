@@ -60,7 +60,7 @@ pub const SubGap = struct {
     base: u32,
 };
 
-pub const GapAccount = struct { base: u32, free: u32, rows_used: u32, claimed: u64, base_used: bool };
+pub const GapAccount = struct { base: u32, rows_used: u32, base_used: bool };
 
 pub fn gapSpacingNeeded(rows_used: u32, base_used: bool) u32 {
     if (rows_used > 0) return rows_used + 2;
@@ -291,11 +291,7 @@ pub fn edgeClaim(a: std.mem.Allocator, gap: u32, dep: i32, arr: i32, kind: Kind,
     return .{ .gap = gap, .lo = @min(dep, arr), .hi = @max(dep, arr), .height = 1 + @as(u32, @intFromBool(decorated_source)), .kind = kind, .end = end, .base_ok = base_ok, .edges = edges, .stems = stems, .taps = taps };
 }
 
-pub fn pack(a: std.mem.Allocator, raw: []const Claim, posts: []const Post, bases: []const u32) error{OutOfMemory}!Ledger {
-    return packSub(a, raw, posts, bases, &.{});
-}
-
-pub fn packSub(a: std.mem.Allocator, raw: []const Claim, posts: []const Post, bases: []const u32, sub_gaps: []SubGap) error{OutOfMemory}!Ledger {
+pub fn pack(a: std.mem.Allocator, raw: []const Claim, posts: []const Post, bases: []const u32, sub_gaps: []SubGap) error{OutOfMemory}!Ledger {
     const claims = try fuse(a, raw);
     const gaps = try a.alloc(GapAccount, bases.len);
     for (gaps, bases, 0..) |*g, base, gi| {
@@ -304,21 +300,14 @@ pub fn packSub(a: std.mem.Allocator, raw: []const Claim, posts: []const Post, ba
             if (!try packGap(a, claims, posts, gap, false)) unreachable;
         }
         var rows_used: u32 = 0;
-        var claimed: u64 = 0;
         var base_used = false;
         for (claims) |c| {
             if (c.gap != gap) continue;
-            const top_i = c.row + @as(i32, @intCast(c.height));
-            if (c.row <= -1 and top_i >= 0) base_used = true;
-            if (top_i <= 0) continue;
-            const top: u32 = @intCast(top_i);
-            rows_used = @max(rows_used, top);
-            var r: u32 = @intCast(@max(c.row, 0));
-            while (r < top) : (r += 1) {
-                if (r < 64) claimed |= @as(u64, 1) << @intCast(r);
-            }
+            const top = c.row + @as(i32, @intCast(c.height));
+            if (c.row <= -1 and top >= 0) base_used = true;
+            if (top > 0) rows_used = @max(rows_used, @as(u32, @intCast(top)));
         }
-        g.* = .{ .base = base, .free = base -| 2, .rows_used = rows_used, .claimed = claimed, .base_used = base_used };
+        g.* = .{ .base = base, .rows_used = rows_used, .base_used = base_used };
     }
     return .{ .claims = claims, .gaps = gaps, .sub_gaps = sub_gaps };
 }

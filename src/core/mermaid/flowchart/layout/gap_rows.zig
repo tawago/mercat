@@ -19,7 +19,6 @@ pub const Claim = pack_mod.Claim;
 pub const Post = pack_mod.Post;
 pub const Ledger = pack_mod.Ledger;
 pub const Super = census_mod.Super;
-const packSub = pack_mod.packSub;
 const edgeClaim = pack_mod.edgeClaim;
 const Census = census_mod.Census;
 const drawnByEligible = fans_mod.drawnByEligible;
@@ -138,7 +137,7 @@ pub fn buildPiece(
     try returnClaims(a, c, &claims);
     try bridge.jogClaims(a, c, &claims);
     try departureClaims(a, c, &claims);
-    var out = try packSub(a, claims.items, posts.items, all_bases, c.sub_gaps);
+    var out = try pack_mod.pack(a, claims.items, posts.items, all_bases, c.sub_gaps);
     out.proxies = try proxies.toOwnedSlice(a);
     return out;
 }
