@@ -110,9 +110,7 @@ fn buildSketch(
     const supers = try a.alloc(gap_rows.Super, opts.fixed_sizes.len);
     for (opts.fixed_sizes, supers) |fixed, *sup| sup.* = .{ .node = fixed.node, .drawn = !fixed.synthetic };
     const rows = try gap_rows.buildPiece(a, graph, lg, geom, fans, decision.bundles, predicted_ports, v_sp_per_gap, supers, opts.departures);
-    for (v_sp_per_gap, 0..) |*g, i| g.* += rows.extraRows(i);
-    layer_axis.growSubGaps(lg, geom, layer_h, rows);
-    layer_axis.assignY(geom, lg.layers, layer_h, v_sp_per_gap);
+    layer_axis.restack(lg, geom, layer_h, v_sp_per_gap, rows);
 
     mirror.applyDirection(geom, graph.direction);
 

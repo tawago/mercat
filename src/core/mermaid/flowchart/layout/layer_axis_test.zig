@@ -2,6 +2,7 @@ const std = @import("std");
 const sg = @import("../sem_graph.zig");
 const sugiyama = @import("sugiyama.zig");
 const layer_axis = @import("layer_axis.zig");
+const pack_mod = @import("gap_rows_pack.zig");
 const NodeGeom = @import("node_geom.zig").NodeGeom;
 
 const testing = std.testing;
@@ -72,4 +73,42 @@ test "assignY adds to the y a node already has, so a second pass stacks on the f
     layer_axis.assignY(&geom, &layers, &layer_h, &gaps);
     try testing.expectEqual(@as(i32, 0), geom[0].y);
     try testing.expectEqual(@as(i32, 10), geom[1].y);
+}
+
+test "restack: the ledger's extra rows widen the gaps, push the nodes under a sub-gap down, and move the later sub-gaps with them" {
+    var nodes = [_]sugiyama.LayerNode{ .{ .real = 10 }, .{ .real = 11 }, .{ .real = 12 }, .{ .real = 13 } };
+    var layer0 = [_]u32{ 0, 1, 2 };
+    var layer1 = [_]u32{3};
+    var layers = [_][]u32{ &layer0, &layer1 };
+    var geom = [_]NodeGeom{
+        .{ .x = 0, .y = 0, .w = 3, .h = 3, .layer = 0 },
+        .{ .x = 0, .y = 5, .w = 3, .h = 3, .layer = 0 },
+        .{ .x = 0, .y = 10, .w = 3, .h = 3, .layer = 0 },
+        .{ .x = 0, .y = 0, .w = 3, .h = 3, .layer = 1 },
+    };
+    var layer_h = [_]u32{ 13, 3 };
+    var v_sp_per_gap = [_]u32{2};
+    const accounts = [_]pack_mod.GapAccount{
+        .{ .base = 2, .free = 0, .rows_used = 1, .claimed = 1, .base_used = false },
+        .{ .base = 2, .free = 0, .rows_used = 2, .claimed = 3, .base_used = false },
+        .{ .base = 2, .free = 0, .rows_used = 0, .claimed = 0, .base_used = false },
+    };
+    var sub_gaps = [_]pack_mod.SubGap{
+        .{ .gap = 1, .layer = 0, .top = 5, .far = 3, .base = 2 },
+        .{ .gap = 2, .layer = 0, .top = 10, .far = 8, .base = 2 },
+    };
+    const rows: pack_mod.Ledger = .{ .gaps = &accounts, .sub_gaps = &sub_gaps };
+
+    layer_axis.restack(layered(&nodes, &layers), &geom, &layer_h, &v_sp_per_gap, rows);
+
+    try testing.expectEqualSlices(u32, &.{3}, &v_sp_per_gap);
+    try testing.expectEqualSlices(u32, &.{ 15, 3 }, &layer_h);
+    try testing.expectEqual(@as(i32, 0), geom[0].y);
+    try testing.expectEqual(@as(i32, 7), geom[1].y);
+    try testing.expectEqual(@as(i32, 12), geom[2].y);
+    try testing.expectEqual(@as(i32, 18), geom[3].y);
+    try testing.expectEqual(@as(i32, 7), sub_gaps[0].top);
+    try testing.expectEqual(@as(i32, 3), sub_gaps[0].far);
+    try testing.expectEqual(@as(i32, 12), sub_gaps[1].top);
+    try testing.expectEqual(@as(i32, 10), sub_gaps[1].far);
 }

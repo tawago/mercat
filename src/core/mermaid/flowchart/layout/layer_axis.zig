@@ -54,7 +54,7 @@ pub fn foldLayerOffsets(lg: sugiyama.LayeredGraph, geom: []NodeGeom, layer_h: []
     }
 }
 
-pub fn growSubGaps(lg: sugiyama.LayeredGraph, geom: []NodeGeom, layer_h: []u32, rows: gap_rows.Ledger) void {
+fn growSubGaps(lg: sugiyama.LayeredGraph, geom: []NodeGeom, layer_h: []u32, rows: gap_rows.Ledger) void {
     var i: usize = 0;
     while (i < rows.sub_gaps.len) : (i += 1) {
         const sgp = &rows.sub_gaps[i];
@@ -70,6 +70,12 @@ pub fn growSubGaps(lg: sugiyama.LayeredGraph, geom: []NodeGeom, layer_h: []u32, 
         };
         layer_h[sgp.layer] += extra;
     }
+}
+
+pub fn restack(lg: sugiyama.LayeredGraph, geom: []NodeGeom, layer_h: []u32, v_sp_per_gap: []u32, rows: gap_rows.Ledger) void {
+    for (v_sp_per_gap, 0..) |*gap, i| gap.* += rows.extraRows(i);
+    growSubGaps(lg, geom, layer_h, rows);
+    assignY(geom, lg.layers, layer_h, v_sp_per_gap);
 }
 
 test {
