@@ -1,9 +1,31 @@
 const std = @import("std");
+const sg = @import("../sem_graph.zig");
 const sugiyama = @import("sugiyama.zig");
 const node_geom = @import("node_geom.zig");
 const gap_rows = @import("gap_rows.zig");
 
 const NodeGeom = node_geom.NodeGeom;
+
+pub fn heights(a: std.mem.Allocator, lg: sugiyama.LayeredGraph, geom: []const NodeGeom) error{OutOfMemory}![]u32 {
+    const layer_h = try a.alloc(u32, lg.layers.len);
+    @memset(layer_h, 0);
+    for (lg.layers, layer_h) |row, *tallest| {
+        for (row) |idx| tallest.* = @max(tallest.*, geom[idx].h);
+    }
+    return layer_h;
+}
+
+pub fn gaps(a: std.mem.Allocator, direction: sg.Direction, lg: sugiyama.LayeredGraph, v_spacing: u32) error{OutOfMemory}![]u32 {
+    const base: u32 = switch (direction) {
+        .TD => v_spacing,
+        .BT => unreachable,
+        .LR, .RL => 4,
+    };
+    if (lg.layers.len == 0) return try a.alloc(u32, 0);
+    const out = try a.alloc(u32, lg.layers.len - 1);
+    @memset(out, base);
+    return out;
+}
 
 pub fn assignY(geom: []NodeGeom, layers: [][]u32, layer_h: []const u32, v_sp_per_gap: []const u32) void {
     var cursor: i32 = 0;
@@ -48,4 +70,8 @@ pub fn growSubGaps(lg: sugiyama.LayeredGraph, geom: []NodeGeom, layer_h: []u32, 
         };
         layer_h[sgp.layer] += extra;
     }
+}
+
+test {
+    _ = @import("layer_axis_test.zig");
 }

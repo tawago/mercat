@@ -91,14 +91,8 @@ fn buildSketch(
     const fans = try ownFans(a, decision.fans);
     try sizeNodes(a, graph, lg, geom, opts.node_padding, opts.fixed_sizes, opts.max_label_width, node_lines);
     sizing.applyPortDemand(graph, lg, geom, decision.attachments);
-    const layer_count: u32 = @intCast(lg.layers.len);
-    const layer_h = try computeLayerHeights(a, lg, geom, layer_count);
-    const v_base: u32 = switch (graph.direction) {
-        .TD => opts.v_spacing,
-        .BT => unreachable,
-        .LR, .RL => 4,
-    };
-    const v_sp_per_gap = try computeLayerSpacings(a, lg, v_base);
+    const layer_h = try layer_axis.heights(a, lg, geom);
+    const v_sp_per_gap = try layer_axis.gaps(a, graph.direction, lg, opts.v_spacing);
 
     const compact_x = (graph.direction == .TD) and !opts.is_direction_rotated;
 
@@ -224,31 +218,6 @@ fn hardSegmentCount(label: []const u8) usize {
         if (c == prim.LINE_BREAK) n += 1;
     }
     return n;
-}
-
-fn computeLayerHeights(
-    a: std.mem.Allocator,
-    lg: sugiyama.LayeredGraph,
-    geom: []NodeGeom,
-    layer_count: u32,
-) error{OutOfMemory}![]u32 {
-    const layer_h = try a.alloc(u32, layer_count);
-    @memset(layer_h, 0);
-    for (lg.layers, 0..) |row, li| {
-        const lu: u32 = @intCast(li);
-        for (row) |idx| {
-            geom[idx].layer = lu;
-            if (geom[idx].h > layer_h[lu]) layer_h[lu] = geom[idx].h;
-        }
-    }
-    return layer_h;
-}
-
-fn computeLayerSpacings(a: std.mem.Allocator, lg: sugiyama.LayeredGraph, base: u32) error{OutOfMemory}![]u32 {
-    if (lg.layers.len == 0) return try a.alloc(u32, 0);
-    const gaps = try a.alloc(u32, lg.layers.len - 1);
-    @memset(gaps, base);
-    return gaps;
 }
 
 const assignInitialX = cx_mod.assignInitialX;

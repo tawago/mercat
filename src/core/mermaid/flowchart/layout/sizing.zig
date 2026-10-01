@@ -92,6 +92,9 @@ pub fn sizeNodes(
             },
         }
     }
+    for (lg.layers, 0..) |row, layer| {
+        for (row) |idx| geom[idx].layer = @intCast(layer);
+    }
 }
 
 pub fn applyPortDemand(graph: sg.SemGraph, lg: sugiyama.LayeredGraph, geom: []NodeGeom, derived: []const ports.DerivedAttachment) void {
