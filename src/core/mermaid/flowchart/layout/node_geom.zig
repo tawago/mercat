@@ -13,3 +13,7 @@ pub const NodeGeom = struct {
         return self.x + @divTrunc(@as(i32, @intCast(self.w)), 2);
     }
 };
+
+test {
+    _ = @import("node_geom_test.zig");
+}
