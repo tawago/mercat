@@ -285,3 +285,61 @@ test "a labeled long member keeps both its departure and its arrival bundle" {
         try std.testing.expect(rm.target.? == .selected);
     };
 }
+
+fn sourceOf(bundles: anytype, edge: u32) ?@TypeOf(bundles.memberships[0].source) {
+    for (bundles.memberships) |m| if (m.edge == edge) return m.source;
+    return null;
+}
+
+test "a reversed member bars an out-rail and leaves the ends to the strokes" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const graph = try parse(a, "flowchart TD\n  Z --> A\n  Z --> B\n  Z --> C\n");
+    const plan = (try permits.build(a, graph, .joined)).plan;
+
+    const free = try bundle_commit.realize(a, graph, &plan, &.{}, &.{});
+    try std.testing.expectEqual(@as(usize, 1), free.selected_bundles.len);
+
+    const reversed = [_]u32{edgeIdOf(graph, "Z", "C")};
+    const barred = try bundle_commit.realize(a, graph, &plan, &reversed, &.{});
+    try std.testing.expectEqual(@as(usize, 0), barred.selected_bundles.len);
+    for ([_][]const u8{ "A", "B", "C" }) |leaf| {
+        try std.testing.expect(sourceOf(barred, edgeIdOf(graph, "Z", leaf)).? == null);
+    }
+}
+
+test "an in-rail forms without its reversed members" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const graph = try parse(a, "flowchart TD\n  A --> Z\n  B --> Z\n  C --> Z\n");
+    const plan = (try permits.build(a, graph, .joined)).plan;
+    const reversed = [_]u32{edgeIdOf(graph, "C", "Z")};
+    const bundles = try bundle_commit.realize(a, graph, &plan, &reversed, &.{});
+
+    try std.testing.expectEqual(@as(usize, 1), bundles.selected_bundles.len);
+    try std.testing.expectEqualSlices(u32, &.{ edgeIdOf(graph, "A", "Z"), edgeIdOf(graph, "B", "Z") }, bundles.selected_bundles[0].members);
+    try std.testing.expect(targetOf(bundles, edgeIdOf(graph, "C", "Z")).?.? == .independent);
+}
+
+test "a stand-in edge backs no pair of a piece's rail" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const graph = try parse(a, "flowchart TD\n  A --- Z\n  B --- Z\n  A --- B\n");
+    const pair = edgeIdOf(graph, "A", "B");
+    const edges = try a.dupe(@TypeOf(graph.edges[0]), graph.edges);
+    for (edges) |*e| e.origin = if (e.id == pair) std.math.maxInt(u32) else e.id;
+    var piece = graph;
+    piece.edges = edges;
+
+    const flat = (try permits.build(a, piece, .joined)).plan;
+    const backed = try bundle_commit.realize(a, piece, &flat, &.{}, &.{});
+    try std.testing.expectEqualSlices(u32, &.{pair}, backed.discharged);
+
+    const own = (try permits.buildPiece(a, piece)).plan;
+    const refused = try bundle_commit.realize(a, piece, &own, &.{}, &.{});
+    try std.testing.expectEqual(@as(usize, 0), refused.selected_bundles.len);
+    try std.testing.expectEqual(@as(usize, 0), refused.discharged.len);
+}
