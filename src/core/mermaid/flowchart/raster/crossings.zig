@@ -3,7 +3,7 @@ const lattice = @import("../lattice.zig");
 const geo = @import("geometry.zig");
 const ledger = @import("../base/ledger.zig");
 const bundle_mod = @import("../base/bundle.zig");
-const bundle_plan = @import("../base/bundle_plan.zig");
+const sharing_mod = @import("../base/sharing.zig");
 const prim = @import("prim");
 
 pub const EdgeId = ledger.EdgeId;
@@ -19,8 +19,7 @@ pub const CrossingCounts = struct {
 };
 
 pub const Ctx = struct {
-    bundles: ledger.RealizedBundles = .{},
-    bundle_sets: []const bundle_mod.Bundle = &.{},
+    sharing: sharing_mod.Sharing = .{},
     counts: *CrossingCounts,
     mode: prim.SubgraphEdges = .bridge,
 
@@ -32,13 +31,13 @@ pub const Ctx = struct {
         incoming_mask: lattice.Neighbours,
         at: bundle_mod.BundleCell,
     ) bool {
-        if (sameBundle(existing_edge, incoming_edge, self.bundles, self.bundle_sets, at)) return false;
+        if (self.sharing.sameBundle(existing_edge, incoming_edge, at)) return false;
         if (!isLegalCrossing(existing_mask, incoming_mask)) self.counts.foreign_junction_violation += 1;
         return true;
     }
 
     pub fn arrowheadTransit(self: Ctx, arrow_edge: EdgeId, incoming_edge: EdgeId, at: bundle_mod.BundleCell) bool {
-        if (sameBundle(arrow_edge, incoming_edge, self.bundles, self.bundle_sets, at)) return false;
+        if (self.sharing.sameBundle(arrow_edge, incoming_edge, at)) return false;
         self.counts.arrowhead_transit_violation += 1;
         return true;
     }
@@ -56,16 +55,6 @@ pub const Ctx = struct {
     }
 };
 
-pub fn sameBundle(
-    a: EdgeId,
-    b: EdgeId,
-    bundles: ledger.RealizedBundles,
-    bundle_sets: []const bundle_mod.Bundle,
-    at: bundle_mod.BundleCell,
-) bool {
-    return bundle_plan.derivedSameBundle(bundles, bundle_sets, a, b, at);
-}
-
 pub fn isStraightPair(m: lattice.Neighbours) bool {
     const h = m.e and m.w and !m.n and !m.s;
     const v = m.n and m.s and !m.e and !m.w;
@@ -79,7 +68,7 @@ pub fn isLegalCrossing(existing: lattice.Neighbours, incoming: lattice.Neighbour
 const ANY: bundle_mod.BundleCell = .{ .x = 0, .y = 0 };
 
 fn ctxOf(counts: *CrossingCounts, bundles: ledger.RealizedBundles, sets: []const bundle_mod.Bundle) Ctx {
-    return .{ .bundles = bundles, .bundle_sets = sets, .counts = counts };
+    return .{ .sharing = .{ .realized = bundles, .bundles = sets }, .counts = counts };
 }
 
 const H: lattice.Neighbours = .{ .e = true, .w = true };
@@ -99,43 +88,6 @@ test "isLegalCrossing: perpendicular is legal, collinear/corner are violations" 
     try std.testing.expect(!isLegalCrossing(H, H));
     try std.testing.expect(!isLegalCrossing(V, V));
     try std.testing.expect(!isLegalCrossing(.{ .n = true, .e = true }, V));
-}
-
-test "sameBundle: same owner and selected-bundle co-members" {
-    var members = [_]EdgeId{ 10, 11, 12 };
-    var sel = [_]ledger.SelectedBundle{.{ .id = 0, .proposal = 0, .candidate_bundle = 0, .members = &members }};
-    const bundles: ledger.RealizedBundles = .{ .selected_bundles = &sel };
-
-    try std.testing.expect(sameBundle(5, 5, bundles, &.{}, ANY));
-    try std.testing.expect(sameBundle(10, 12, bundles, &.{}, ANY));
-    try std.testing.expect(!sameBundle(10, 99, bundles, &.{}, ANY));
-    try std.testing.expect(!sameBundle(98, 99, .{}, &.{}, ANY));
-}
-
-test "sameBundle: bundle membership answers what the plan answers" {
-    var members = [_]EdgeId{ 10, 11, 12 };
-    var others = [_]EdgeId{ 20, 21 };
-    var sel = [_]ledger.SelectedBundle{
-        .{ .id = 0, .proposal = 0, .candidate_bundle = 0, .members = &members },
-        .{ .id = 1, .proposal = 1, .candidate_bundle = 1, .members = &others },
-    };
-    const bundles: ledger.RealizedBundles = .{ .selected_bundles = &sel };
-
-    const derived = try bundle_plan.bundlesFromPlan(std.testing.allocator, bundles);
-    defer std.testing.allocator.free(derived);
-
-    for ([_]EdgeId{ 10, 11, 12, 20, 21, 99 }) |a| {
-        for ([_]EdgeId{ 10, 11, 12, 20, 21, 99 }) |b| {
-            try std.testing.expectEqual(
-                sameBundle(a, b, bundles, &.{}, ANY),
-                sameBundle(a, b, .{}, derived, ANY),
-            );
-        }
-    }
-    var fan = [_]EdgeId{ 4, 5 };
-    const fan_sets = [_]bundle_mod.Bundle{.{ .origin = .fan_rail, .members = &fan }};
-    try std.testing.expect(sameBundle(4, 5, .{}, &fan_sets, ANY));
-    try std.testing.expect(!sameBundle(4, 6, .{}, &fan_sets, ANY));
 }
 
 test "segmentOverlap: exempt merges; foreign perpendicular keeps first writer" {
@@ -190,14 +142,4 @@ test "headEntry: a lateral arm is refused for co-members too; an on-axis co-memb
 
 test {
     _ = @import("crossings_test.zig");
-}
-
-test "sameBundle: a cell-scoped bundle answers only on its own cells" {
-    const licensed = [_]bundle_mod.BundleCell{ .{ .x = 30, .y = 12 }, .{ .x = 30, .y = 13 } };
-    const sets = [_]bundle_mod.Bundle{.{ .origin = .port_share, .members = &.{ 9, 11 }, .cells = &licensed }};
-    try std.testing.expect(sameBundle(9, 11, .{}, &sets, .{ .x = 30, .y = 12 }));
-    try std.testing.expect(sameBundle(9, 11, .{}, &sets, .{ .x = 30, .y = 13 }));
-    try std.testing.expect(!sameBundle(9, 11, .{}, &sets, .{ .x = 21, .y = 15 }));
-    const fan = [_]bundle_mod.Bundle{.{ .origin = .fan_rail, .members = &.{ 9, 11 } }};
-    try std.testing.expect(sameBundle(9, 11, .{}, &fan, .{ .x = 21, .y = 15 }));
 }

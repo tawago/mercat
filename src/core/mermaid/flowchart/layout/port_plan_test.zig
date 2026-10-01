@@ -198,7 +198,7 @@ test "labelled duplicate plus distinct leaf keeps the duplicate private and rail
     edges[1].label = "dup";
     const g = testGraph(&nodes, &edges);
     const s = try productionLayout(a, g);
-    try std.testing.expectEqual(@as(usize, 1), s.bundles.selected_bundles.len);
+    try std.testing.expectEqual(@as(usize, 1), s.sharing.realized.selected_bundles.len);
     try expectPrivatePorts(s, &.{ 0, 1 });
     try expectPrivatePorts(s, &.{ 1, 2 });
     try std.testing.expect(samePort(pathById(s, 0).port_from, pathById(s, 2).port_from));

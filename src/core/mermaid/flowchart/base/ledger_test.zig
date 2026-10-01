@@ -262,18 +262,6 @@ test "a pairwise-scoped set licenses only a pair's own common approach, never a 
     try expect(bundle_mod.bundleMembersAt(&sets, 1, 2, .{ .x = 5, .y = 3 }));
 }
 
-test "derived sameness follows declared membership and licensed cells" {
-    const members = [_]pb.EdgeId{ 4, 5 };
-    const declared = [_]bundle_mod.Bundle{.{ .origin = .fan_rail, .members = &members }};
-    try expect(bundle_plan.derivedSameBundle(.{}, &declared, 4, 5, null));
-    try expect(!bundle_plan.derivedSameBundle(.{}, &declared, 4, 6, null));
-
-    const here = [_]bundle_mod.BundleCell{.{ .x = 2, .y = 2 }};
-    const scoped = [_]bundle_mod.Bundle{.{ .origin = .port_share, .members = &members, .cells = &here }};
-    try expect(bundle_plan.derivedSameBundle(.{}, &scoped, 4, 5, .{ .x = 2, .y = 2 }));
-    try expect(!bundle_plan.derivedSameBundle(.{}, &scoped, 4, 5, .{ .x = 7, .y = 7 }));
-}
-
 test {
     _ = @import("rail_star_test.zig");
 }

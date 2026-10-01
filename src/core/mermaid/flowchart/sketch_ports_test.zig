@@ -172,16 +172,16 @@ test "final geometry alone defines shifted pair ids, cells, and bundle agreement
         .nodes = &.{},
         .clusters = &.{},
         .edges = &edges,
-        .bundle_sets = raw,
+        .sharing = .{ .bundles = raw },
         .diagnostics = &.{},
         .budget = .{ .max_width = 80, .rung = 0 },
     };
-    try std.testing.expectEqual(@as(usize, 1), final.bundle_sets.len);
-    try std.testing.expectEqualSlices(sketch.EdgeId, &.{ 100, 101 }, final.bundle_sets[0].members);
-    try std.testing.expectEqual(@as(sketch.EdgeId, 100), final.bundle_sets[0].pairwise.?[0].a);
-    try std.testing.expectEqual(@as(sketch.EdgeId, 101), final.bundle_sets[0].pairwise.?[0].b);
-    try std.testing.expect(bundle_mod.bundleMembersAt(final.bundle_sets, 100, 101, .{ .x = 15, .y = 25 }));
-    try std.testing.expect(!bundle_mod.bundleMembersAt(final.bundle_sets, 100, 101, .{ .x = 99, .y = 99 }));
+    try std.testing.expectEqual(@as(usize, 1), final.sharing.bundles.len);
+    try std.testing.expectEqualSlices(sketch.EdgeId, &.{ 100, 101 }, final.sharing.bundles[0].members);
+    try std.testing.expectEqual(@as(sketch.EdgeId, 100), final.sharing.bundles[0].pairwise.?[0].a);
+    try std.testing.expectEqual(@as(sketch.EdgeId, 101), final.sharing.bundles[0].pairwise.?[0].b);
+    try std.testing.expect(bundle_mod.bundleMembersAt(final.sharing.bundles, 100, 101, .{ .x = 15, .y = 25 }));
+    try std.testing.expect(!bundle_mod.bundleMembersAt(final.sharing.bundles, 100, 101, .{ .x = 99, .y = 99 }));
 }
 
 test "no edges, no sets" {
@@ -304,9 +304,9 @@ test "a rail member and path at one port with no common run license no merge" {
         .clusters = &.{},
         .edges = &edges,
         .rails = &rails_buf,
-        .bundle_sets = try sketch_ports.rebuildFinalPortShares(a, &structural, &edges, &rails_buf),
+        .sharing = .{ .bundles = try sketch_ports.rebuildFinalPortShares(a, &structural, &edges, &rails_buf) },
         .diagnostics = &.{},
         .budget = .{ .max_width = 80, .rung = 0 },
     };
-    try std.testing.expect(!bundle_mod.bundleMembersAt(final.bundle_sets, 20, 30, .{ .x = 5, .y = 1 }));
+    try std.testing.expect(!bundle_mod.bundleMembersAt(final.sharing.bundles, 20, 30, .{ .x = 5, .y = 1 }));
 }

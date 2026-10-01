@@ -1,7 +1,6 @@
 const std = @import("std");
 const ledger = @import("base/ledger.zig");
 const bundle_mod = @import("base/bundle.zig");
-const bundle_plan = @import("base/bundle_plan.zig");
 const parse = @import("parse.zig").parse;
 const permits = @import("ledger/permits.zig");
 const select = @import("select.zig");
@@ -89,7 +88,7 @@ fn expectReconstructedThreeWayPortShare() !void {
     const r = try render(a, three_way_port_share, 140);
 
     var found: ?bundle_mod.Bundle = null;
-    for (r.sketch.bundle_sets) |set| {
+    for (r.sketch.sharing.bundles) |set| {
         if (set.origin != .port_share) continue;
         if (!std.mem.eql(ledger.EdgeId, set.members, &.{ 14, 15, 16 })) continue;
         found = set;
@@ -222,7 +221,7 @@ test "junction licence: rail membership at both ends — a cell of the fan-in ra
         const bc = edgeId(r.graph, "B", "C");
         const ac = edgeId(r.graph, "A", "C");
 
-        const sets = try twoStructuralSets(s.bundle_sets, ac);
+        const sets = try twoStructuralSets(s.sharing.bundles, ac);
         try testing.expect(std.mem.indexOfScalar(ledger.EdgeId, sets[1].members, bc) != null);
 
         const rail = fanInRailOf(s, ac);
@@ -239,7 +238,7 @@ test "junction licence: rail membership at both ends — a cell of the fan-in ra
         try testing.expectEqual(bc, ownerOf(cell).?);
         const here = crossings.bundleCellAt(x, y);
 
-        try testing.expect(bundle_plan.derivedSameBundle(s.bundles, s.bundle_sets, bc, ac, here));
+        try testing.expect(s.sharing.sameBundle(bc, ac, here));
         try expectNoRasterDefect(r.report);
     }
 }
@@ -255,7 +254,7 @@ test "junction licence: rail membership at both ends, mirrored — the both-ends
         const ac = edgeId(r.graph, "A", "C");
         const ae = edgeId(r.graph, "A", "E");
 
-        const sets = try twoStructuralSets(s.bundle_sets, ac);
+        const sets = try twoStructuralSets(s.sharing.bundles, ac);
         try testing.expect(std.mem.indexOfScalar(ledger.EdgeId, sets[0].members, ae) != null);
         try testing.expect(std.mem.indexOfScalar(ledger.EdgeId, sets[1].members, bc) != null);
 
@@ -273,7 +272,7 @@ test "junction licence: rail membership at both ends, mirrored — the both-ends
         try testing.expectEqual(ac, ownerOf(cell).?);
         const here = crossings.bundleCellAt(x, y);
 
-        try testing.expect(bundle_plan.derivedSameBundle(s.bundles, s.bundle_sets, ac, bc, here));
+        try testing.expect(s.sharing.sameBundle(ac, bc, here));
 
         try expectNoRasterDefect(r.report);
     }

@@ -93,12 +93,12 @@ test "fan provenance: the claim record changes no painted byte" {
     defer arena.deinit();
     const a = arena.allocator();
     const s = try coords.layout(a, graph(.TD, &nodes, &edges, &.{}), .{});
-    try testing.expectEqual(@as(usize, 1), s.rail_claims.len);
+    try testing.expectEqual(@as(usize, 1), s.sharing.claims.len);
 
     const with_report = try raster.rasterize(a, s, .bridge);
     const with_bytes = try painter.paint(a, with_report.lattice, s.budget.max_width);
     var without = s;
-    without.rail_claims = &.{};
+    without.sharing.claims = &.{};
     const without_report = try raster.rasterize(a, without, .bridge);
     const without_bytes = try painter.paint(a, without_report.lattice, without.budget.max_width);
     try testing.expectEqualStrings(with_bytes, without_bytes);
@@ -114,7 +114,7 @@ test "fan provenance: a labeled fan-in into a cluster drops no label" {
     var peer_arena = std.heap.ArenaAllocator.init(testing.allocator);
     defer peer_arena.deinit();
     const peer = try coords.layout(peer_arena.allocator(), graph(.TD, &clustered_nodes, &clustered_edges, &clusters), .{});
-    try testing.expectEqual(@as(usize, 1), peer.rail_claims.len);
+    try testing.expectEqual(@as(usize, 1), peer.sharing.claims.len);
     const report = try raster.rasterize(peer_arena.allocator(), peer, .bridge);
     try testing.expectEqual(@as(u32, 0), report.labels_dropped);
 }
@@ -133,7 +133,7 @@ test "fan provenance: a duplicate leaf drops no label on flat and clustered peer
         var arena = std.heap.ArenaAllocator.init(testing.allocator);
         defer arena.deinit();
         const s = try coords.layout(arena.allocator(), g, .{});
-        try testing.expectEqual(@as(usize, 1), s.rail_claims.len);
+        try testing.expectEqual(@as(usize, 1), s.sharing.claims.len);
         const report = try raster.rasterize(arena.allocator(), s, .bridge);
         try testing.expectEqual(@as(u32, 0), report.labels_dropped);
     }
@@ -152,7 +152,7 @@ test "fan provenance: plan selection preserves the winning claims" {
     defer arena.deinit();
     const winner = try select.choose(arena.allocator(), graph(.TD, &nodes, &edges, &.{}), &permits, 120, .bridge);
 
-    try testing.expectEqual(@as(usize, 1), winner.sketch.rail_claims.len);
-    try testing.expectEqual(@as(rail_star.RailClaimId, 1), winner.sketch.rail_claims[0].id);
-    try testing.expect(rail_star.check(winner.sketch.rail_claims[0]).isValid());
+    try testing.expectEqual(@as(usize, 1), winner.sketch.sharing.claims.len);
+    try testing.expectEqual(@as(rail_star.RailClaimId, 1), winner.sketch.sharing.claims[0].id);
+    try testing.expect(rail_star.check(winner.sketch.sharing.claims[0]).isValid());
 }

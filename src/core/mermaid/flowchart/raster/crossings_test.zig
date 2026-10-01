@@ -34,7 +34,7 @@ fn sketchWith(es: []const sketch.EdgePath, bundles: ledger.RealizedBundles) sket
         .nodes = &.{},
         .clusters = &.{},
         .edges = es,
-        .bundles = bundles,
+        .sharing = .{ .realized = bundles },
         .diagnostics = &.{},
         .budget = .{ .max_width = 80, .rung = 0 },
     };

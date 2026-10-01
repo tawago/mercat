@@ -194,12 +194,12 @@ const Stitcher = struct {
             const at: Place = .{ .gmap = self.global_of[super.child_piece], .off = off, .base = id_base };
             id_base += idSpan(child.sketch);
             claims.* = .{ .sketch = child.sketch, .node_map = at.gmap, .edge_base = at.base };
-            try self.piece_joins.append(arena, .{ .bundles = child.sketch.bundles, .edge_base = at.base });
+            try self.piece_joins.append(arena, .{ .bundles = child.sketch.sharing.realized, .edge_base = at.base });
             for (child.sketch.edges) |ce| try self.edges.append(arena, try translateEdge(arena, ce, at));
             for (child.sketch.rails) |cr| {
                 if (try translateRail(arena, cr, at)) |tr| try self.rails.append(arena, tr);
             }
-            for (child.sketch.bundle_sets) |cs| {
+            for (child.sketch.sharing.bundles) |cs| {
                 if (cs.origin != .port_share) try self.bundle_sets.append(arena, try stitch_bundle_sets.shiftSet(arena, cs, at.base, off.dx, off.dy));
             }
         }
@@ -210,7 +210,7 @@ const Stitcher = struct {
     fn copyOuter(self: *Stitcher) error{OutOfMemory}!void {
         const arena = self.arena;
         const at: Place = .{ .gmap = self.global_of[0], .base = self.outer_base };
-        try self.piece_joins.append(arena, .{ .bundles = self.outer.bundles, .edge_base = at.base });
+        try self.piece_joins.append(arena, .{ .bundles = self.outer.sharing.realized, .edge_base = at.base });
         for (self.outer.edges) |oe| {
             if (self.sr.isSuper(oe.from) or self.sr.isSuper(oe.to)) continue;
             try self.edges.append(arena, try translateEdge(arena, oe, at));
@@ -284,9 +284,11 @@ const Stitcher = struct {
             .clusters = cluster_slice,
             .edges = edge_slice,
             .rails = bar_slice,
-            .rail_claims = authority.claims,
-            .bundle_sets = authority.sets,
-            .bundles = if (merge_joins) try stitch_bundles.merge(arena, self.piece_joins.items) else .{},
+            .sharing = .{
+                .realized = if (merge_joins) try stitch_bundles.merge(arena, self.piece_joins.items) else .{},
+                .bundles = authority.sets,
+                .claims = authority.claims,
+            },
             .diagnostics = self.outer.diagnostics,
             .budget = self.outer.budget,
         };
@@ -330,8 +332,8 @@ fn idSpan(s: sketch.Sketch) sketch.EdgeId {
     }.f;
     for (s.edges) |e| bump(&max_id, e.id);
     for (s.rails) |b| for (b.taps) |t| bump(&max_id, t.edge);
-    for (s.bundle_sets) |cs| for (cs.members) |m| bump(&max_id, m);
-    for (s.rail_claims) |claim| for (claim.members) |m| bump(&max_id, m.edge);
+    for (s.sharing.bundles) |cs| for (cs.members) |m| bump(&max_id, m);
+    for (s.sharing.claims) |claim| for (claim.members) |m| bump(&max_id, m.edge);
     return if (max_id) |m| m + 1 else 0;
 }
 

@@ -1,8 +1,6 @@
 const std = @import("std");
 const prim = @import("prim");
-const ledger = @import("base/ledger.zig");
-const rail_star = @import("base/rail_star.zig");
-const bundle_mod = @import("base/bundle.zig");
+const sharing_mod = @import("base/sharing.zig");
 
 pub const NodeId = prim.NodeId;
 
@@ -141,9 +139,7 @@ pub const Sketch = struct {
     clusters: []const ClusterFrame,
     edges: []const EdgePath,
     rails: []const Rail = &.{},
-    rail_claims: []const rail_star.RailClaim = &.{},
-    bundles: ledger.RealizedBundles = .{},
-    bundle_sets: []const bundle_mod.Bundle = &.{},
+    sharing: sharing_mod.Sharing = .{},
     diagnostics: []const Diagnostic,
     budget: WidthBudget,
 };

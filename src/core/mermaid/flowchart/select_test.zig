@@ -92,16 +92,16 @@ test "a clustered render's rail bundles come from its piece plan and survive the
     const permits = (try permits_mod.build(a, g, .joined)).plan;
     const winner = try select.choose(a, g, &permits, 120, .bridge);
 
-    try std.testing.expectEqual(@as(usize, 1), winner.sketch.bundles.selected_bundles.len);
-    const rail = winner.sketch.bundles.selected_bundles[0];
+    try std.testing.expectEqual(@as(usize, 1), winner.sketch.sharing.realized.selected_bundles.len);
+    const rail = winner.sketch.sharing.realized.selected_bundles[0];
     try std.testing.expectEqual(@as(usize, 3), rail.members.len);
-    try std.testing.expect(winner.sketch.bundle_sets.len > 0);
-    for (winner.sketch.bundle_sets) |set| {
+    try std.testing.expect(winner.sketch.sharing.bundles.len > 0);
+    for (winner.sketch.sharing.bundles) |set| {
         try std.testing.expect(set.origin == .selected_bundle or set.origin == .port_share);
         try std.testing.expect(set.members.len >= 2);
     }
     var plan_sets: usize = 0;
-    for (winner.sketch.bundle_sets) |set| {
+    for (winner.sketch.sharing.bundles) |set| {
         if (set.origin != .selected_bundle) continue;
         plan_sets += 1;
         try std.testing.expectEqualSlices(ledger.EdgeId, rail.members, set.members);

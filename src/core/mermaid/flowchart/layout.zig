@@ -147,9 +147,11 @@ fn buildSketch(
         .clusters = &.{},
         .edges = edges_out,
         .rails = rails_out,
-        .rail_claims = edges_result.rail_claims,
-        .bundles = decision.bundles,
-        .bundle_sets = sketch_ports.appendPortShares(a, base_sets, edges_out) catch base_sets,
+        .sharing = .{
+            .realized = decision.bundles,
+            .bundles = sketch_ports.appendPortShares(a, base_sets, edges_out) catch base_sets,
+            .claims = edges_result.rail_claims,
+        },
         .diagnostics = try diagnostics.toOwnedSlice(a),
         .budget = .{ .max_width = opts.max_width, .rung = opts.rung },
     };

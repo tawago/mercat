@@ -51,7 +51,7 @@ fn fanSketch(
         .clusters = &.{},
         .edges = edges,
         .rails = rails,
-        .rail_claims = &out_claims,
+        .sharing = .{ .claims = &out_claims },
         .diagnostics = &.{},
         .budget = .{ .max_width = 80, .rung = 0 },
     };
@@ -239,7 +239,7 @@ test "fan-IN shared runs keep all four arms" {
     var edges = memberEdge(.fan_in_dropper);
     edges[0].to = 5;
     var s = fanSketch(&nodes, &edges, &.{});
-    s.rail_claims = &in_claims;
+    s.sharing.claims = &in_claims;
     fan_roles.resolveMasks(&lat, s);
 
     try testing.expectEqual(@as(u4, 0b1111), lat.atConst(1, 2).neighbours.toMask());
@@ -273,7 +273,7 @@ test "an unplaceable pivot leaves the mask exactly as the walk wrote it" {
     no_edge.at(1, 2).* = fanCell(0, .fan_out_rail, all4);
     const nodes = pivotAt(0, 2);
     var unclaimed = fanSketch(&nodes, &.{}, &.{});
-    unclaimed.rail_claims = &.{};
+    unclaimed.sharing.claims = &.{};
     fan_roles.resolveMasks(&no_edge, unclaimed);
     try testing.expectEqual(@as(u4, 0b1111), no_edge.atConst(1, 2).neighbours.toMask());
 

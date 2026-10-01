@@ -386,7 +386,7 @@ test "stitched sibling clusters share one edge-id space" {
     var owners = try assertUniqueEdgeIds(a, s);
     defer owners.deinit();
 
-    for (s.bundle_sets) |set| {
+    for (s.sharing.bundles) |set| {
         if (set.origin == .port_share) {
             for (set.members) |m| {
                 const owner = owners.get(m) orelse continue;
@@ -451,8 +451,8 @@ test "a nested clustered fan-in loses no RailClaim during either stitch" {
     };
 
     const s = try recurse.layoutPieces(a, graph, .{ .max_width = 120 });
-    try std.testing.expectEqual(@as(usize, 1), s.rail_claims.len);
-    const claim = s.rail_claims[0];
+    try std.testing.expectEqual(@as(usize, 1), s.sharing.claims.len);
+    const claim = s.sharing.claims[0];
     try std.testing.expectEqual(@as(rail_star.RailClaimId, 1), claim.id);
     try std.testing.expectEqual(rail_star.RailPolarity.in, claim.polarity);
     try std.testing.expectEqual(@as(usize, 2), claim.members.len);
@@ -531,7 +531,7 @@ test "an outer fan into sibling subgraphs names its bridges, not the dropped pla
     defer owners.deinit();
 
     var found = false;
-    for (s.bundle_sets) |set| {
+    for (s.sharing.bundles) |set| {
         var live: usize = 0;
         var into_clusters: usize = 0;
         for (set.members) |m| {
@@ -548,7 +548,7 @@ test "an outer fan into sibling subgraphs names its bridges, not the dropped pla
     try std.testing.expect(found);
 
     var claimed = false;
-    for (s.rail_claims) |claim| {
+    for (s.sharing.claims) |claim| {
         if (claim.polarity != .out or claim.members.len < 2) continue;
         const checked = rail_star.check(claim);
         if (checked.derived_pivot != top.id or !checked.isValid()) continue;
@@ -626,7 +626,7 @@ test "two bridges into one port are one selected bundle at the target end" {
 
     var bundle: ?ledger.SelectedBundleId = null;
     var arrivals: usize = 0;
-    for (s.bundles.memberships) |m| {
+    for (s.sharing.realized.memberships) |m| {
         const e = edgeById(s, m.edge) orelse continue;
         if (e.to != c.id) continue;
         arrivals += 1;
@@ -635,7 +635,7 @@ test "two bridges into one port are one selected bundle at the target end" {
         if (bundle) |b| try std.testing.expectEqual(b, disp.selected) else bundle = disp.selected;
     }
     try std.testing.expectEqual(@as(usize, 2), arrivals);
-    try std.testing.expectEqual(@as(usize, 2), s.bundles.selected_bundles[bundle.?].members.len);
+    try std.testing.expectEqual(@as(usize, 2), s.sharing.realized.selected_bundles[bundle.?].members.len);
 }
 
 fn twoBridgesIntoOnePortGraph(
@@ -701,7 +701,7 @@ test "two bridges into one port declare a port-share bundle" {
         if (fe.x != se.x or fe.y != se.y) continue;
         checked = true;
         var named = false;
-        for (s.bundle_sets) |set| {
+        for (s.sharing.bundles) |set| {
             if (set.origin != .port_share) continue;
             var saw_first = false;
             var saw_second = false;
@@ -754,7 +754,7 @@ test "a child rail and cross-border bridge sharing A's final port are licensed" 
 
     var licensed = false;
     for (s.rails[0].taps) |tap| {
-        if (bundle_mod.bundleMembersAt(s.bundle_sets, tap.edge, final_bridge.id, .{
+        if (bundle_mod.bundleMembersAt(s.sharing.bundles, tap.edge, final_bridge.id, .{
             .x = final_bridge.polyline[0].x,
             .y = final_bridge.polyline[0].y + 1,
         })) licensed = true;

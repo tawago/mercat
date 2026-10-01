@@ -30,7 +30,7 @@ pub fn finalImages(arena: std.mem.Allocator, fin: Final, old_edge: sketch.EdgeId
 pub fn rebuildOuterSets(arena: std.mem.Allocator, fin: Final) error{OutOfMemory}![]const bundle_mod.Bundle {
     const outer = fin.outer;
     var out: std.ArrayListUnmanaged(bundle_mod.Bundle) = .empty;
-    for (outer.bundle_sets) |set| {
+    for (outer.sharing.bundles) |set| {
         if (set.origin == .port_share) continue;
         const polarity = polarityOf(outer, set) orelse continue;
         var groups: std.ArrayListUnmanaged(Group) = .empty;
@@ -87,7 +87,7 @@ fn groupFor(
 
 fn polarityOf(outer: sketch.Sketch, set: bundle_mod.Bundle) ?rail_star.RailPolarity {
     var claimed: ?rail_star.RailPolarity = null;
-    for (outer.rail_claims) |claim| {
+    for (outer.sharing.claims) |claim| {
         var overlap: usize = 0;
         for (set.members, 0..) |edge, i| {
             if (contains(set.members[0..i], edge)) continue;

@@ -60,9 +60,9 @@ pub fn vertical(a: std.mem.Allocator, s: sketch.Sketch, direction: sketch.Direct
         rails_done += 1;
     }
 
-    const bundle_sets = try mirrorBundles(a, s.bbox, s.bundle_sets);
-    errdefer if (bundle_sets.ptr != s.bundle_sets.ptr) freeMirroredSets(a, @constCast(bundle_sets));
-    const rail_claims = try mirrorRailClaims(a, s.nodes, s.rail_claims);
+    const bundles = try mirrorBundles(a, s.bbox, s.sharing.bundles);
+    errdefer if (bundles.ptr != s.sharing.bundles.ptr) freeMirroredSets(a, @constCast(bundles));
+    const claims = try mirrorRailClaims(a, s.nodes, s.sharing.claims);
 
     return .{
         .bbox = s.bbox,
@@ -71,9 +71,7 @@ pub fn vertical(a: std.mem.Allocator, s: sketch.Sketch, direction: sketch.Direct
         .clusters = s.clusters,
         .edges = edges,
         .rails = rails,
-        .rail_claims = rail_claims,
-        .bundles = s.bundles,
-        .bundle_sets = bundle_sets,
+        .sharing = .{ .realized = s.sharing.realized, .bundles = bundles, .claims = claims },
         .diagnostics = s.diagnostics,
         .budget = s.budget,
     };

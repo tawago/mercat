@@ -43,8 +43,8 @@ test "fan provenance: first-class fan-out claim is valid metadata" {
     const s = try coords.layout(a, graph(.TD, &nodes, &edges, &.{}), .{});
 
     try testing.expectEqual(@as(usize, 1), s.rails.len);
-    try testing.expectEqual(@as(usize, 1), s.rail_claims.len);
-    const claim = s.rail_claims[0];
+    try testing.expectEqual(@as(usize, 1), s.sharing.claims.len);
+    const claim = s.sharing.claims[0];
     try testing.expectEqual(@as(rail_star.RailClaimId, 1), claim.id);
     try testing.expectEqual(rail_star.RailPolarity.out, claim.polarity);
     try testing.expectEqual(@as(?ledger.NodeId, 0), rail_star.check(claim).derived_pivot);
@@ -69,10 +69,10 @@ test "fan provenance: realized fan-in Rail claims the pivot; feasible labeled fa
     });
     try testing.expectEqual(@as(usize, 1), rail.rails.len);
     try testing.expectEqual(sketch.EdgeRole.fan_in_dropper, rail.rails[0].role);
-    try testing.expectEqual(@as(usize, 1), rail.rail_claims.len);
-    try testing.expectEqual(rail_star.RailPolarity.in, rail.rail_claims[0].polarity);
-    try testing.expectEqual(@as(?ledger.NodeId, 2), rail_star.check(rail.rail_claims[0]).derived_pivot);
-    try expectAllValid(rail.rail_claims);
+    try testing.expectEqual(@as(usize, 1), rail.sharing.claims.len);
+    try testing.expectEqual(rail_star.RailPolarity.in, rail.sharing.claims[0].polarity);
+    try testing.expectEqual(@as(?ledger.NodeId, 2), rail_star.check(rail.sharing.claims[0]).derived_pivot);
+    try expectAllValid(rail.sharing.claims);
 
     const clustered_nodes = [_]sg.Node{ node(0, "A", null), node(1, "B", null), node(2, "T", 7) };
     const clustered_edges = [_]sg.Edge{
@@ -85,9 +85,9 @@ test "fan provenance: realized fan-in Rail claims the pivot; feasible labeled fa
     const peer = try coords.layout(peer_arena.allocator(), graph(.TD, &clustered_nodes, &clustered_edges, &clusters), .{});
     try testing.expectEqual(@as(usize, 0), peer.rails.len);
     try testing.expectEqual(@as(usize, 2), peer.edges.len);
-    try testing.expectEqual(@as(usize, 1), peer.rail_claims.len);
-    try testing.expectEqual(rail_star.RailPolarity.in, peer.rail_claims[0].polarity);
-    try expectAllValid(peer.rail_claims);
+    try testing.expectEqual(@as(usize, 1), peer.sharing.claims.len);
+    try testing.expectEqual(rail_star.RailPolarity.in, peer.sharing.claims[0].polarity);
+    try expectAllValid(peer.sharing.claims);
 }
 
 test "fan provenance: forced peer drawing, wrapping, and arrow-style partition" {
@@ -100,9 +100,9 @@ test "fan provenance: forced peer drawing, wrapping, and arrow-style partition" 
     defer forced_arena.deinit();
     const forced = try coords.layout(forced_arena.allocator(), graph(.TD, &forced_nodes, &forced_edges, &.{}), .{});
     try testing.expectEqual(@as(usize, 0), forced.rails.len);
-    try testing.expectEqual(@as(usize, 1), forced.rail_claims.len);
-    try testing.expectEqual(sketch.ArrowKind.filled, forced.rail_claims[0].members[0].arrows[0]);
-    try expectAllValid(forced.rail_claims);
+    try testing.expectEqual(@as(usize, 1), forced.sharing.claims.len);
+    try testing.expectEqual(sketch.ArrowKind.filled, forced.sharing.claims[0].members[0].arrows[0]);
+    try expectAllValid(forced.sharing.claims);
 
     const wide_nodes = [_]sg.Node{
         node(0, "Pivot", null),  node(1, "Peer-A", null), node(2, "Peer-B", null), node(3, "Peer-C", null),
@@ -114,9 +114,9 @@ test "fan provenance: forced peer drawing, wrapping, and arrow-style partition" 
     const wide = try coords.layout(wide_arena.allocator(), graph(.TD, &wide_nodes, &wide_edges, &.{}), .{ .max_width = 18 });
     try testing.expectEqual(@as(usize, 0), wide.rails.len);
     try testing.expectEqual(@as(usize, 6), wide.edges.len);
-    try testing.expectEqual(@as(usize, 1), wide.rail_claims.len);
-    try testing.expectEqual(@as(usize, 6), wide.rail_claims[0].members.len);
-    try expectAllValid(wide.rail_claims);
+    try testing.expectEqual(@as(usize, 1), wide.sharing.claims.len);
+    try testing.expectEqual(@as(usize, 6), wide.sharing.claims[0].members.len);
+    try expectAllValid(wide.sharing.claims);
 
     const mixed_nodes = [_]sg.Node{
         node(0, "P", null), node(1, "A", null), node(2, "B", null),
@@ -133,11 +133,11 @@ test "fan provenance: forced peer drawing, wrapping, and arrow-style partition" 
     defer mixed_arena.deinit();
     const mixed = try coords.layout(mixed_arena.allocator(), graph(.TD, &mixed_nodes, &mixed_edges, &.{}), .{});
     try testing.expectEqual(@as(usize, 0), mixed.rails.len);
-    try testing.expectEqual(@as(usize, 1), mixed.rail_claims.len);
-    try testing.expectEqual(@as(usize, 2), mixed.rail_claims[0].members.len);
-    try testing.expect(hasMember(mixed.rail_claims[0], 40));
-    try testing.expect(hasMember(mixed.rail_claims[0], 41));
-    for (mixed.rail_claims) |claim| {
+    try testing.expectEqual(@as(usize, 1), mixed.sharing.claims.len);
+    try testing.expectEqual(@as(usize, 2), mixed.sharing.claims[0].members.len);
+    try testing.expect(hasMember(mixed.sharing.claims[0], 40));
+    try testing.expect(hasMember(mixed.sharing.claims[0], 41));
+    for (mixed.sharing.claims) |claim| {
         try testing.expect(!hasMember(claim, 42));
         try testing.expect(!hasMember(claim, 43));
         try testing.expect(!hasMember(claim, 44));
@@ -149,7 +149,7 @@ test "fan provenance: forced peer drawing, wrapping, and arrow-style partition" 
         }
         try testing.expect(private);
     }
-    try expectAllValid(mixed.rail_claims);
+    try expectAllValid(mixed.sharing.claims);
 }
 
 test "fan provenance: stable sequential local ids and BT mirrored sites" {
@@ -163,21 +163,21 @@ test "fan provenance: stable sequential local ids and BT mirrored sites" {
     var arena = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
     const s = try coords.layout(arena.allocator(), graph(.TD, &nodes, &edges, &.{}), .{});
-    try testing.expectEqual(@as(usize, 2), s.rail_claims.len);
-    try testing.expectEqual(@as(rail_star.RailClaimId, 1), s.rail_claims[0].id);
-    try testing.expectEqual(@as(rail_star.RailClaimId, 2), s.rail_claims[1].id);
-    try expectAllValid(s.rail_claims);
+    try testing.expectEqual(@as(usize, 2), s.sharing.claims.len);
+    try testing.expectEqual(@as(rail_star.RailClaimId, 1), s.sharing.claims[0].id);
+    try testing.expectEqual(@as(rail_star.RailClaimId, 2), s.sharing.claims[1].id);
+    try expectAllValid(s.sharing.claims);
 
     const bt_nodes = [_]sg.Node{ node(0, "P", null), node(1, "A", null), node(2, "B", null) };
     const bt_edges = [_]sg.Edge{ edge(10, 0, 1), edge(11, 0, 2) };
     var bt_arena = std.heap.ArenaAllocator.init(testing.allocator);
     defer bt_arena.deinit();
     const bt = try coords.layout(bt_arena.allocator(), graph(.BT, &bt_nodes, &bt_edges, &.{}), .{});
-    try testing.expectEqual(@as(usize, 1), bt.rail_claims.len);
-    try testing.expectEqual(rail_star.RailPolarity.out, bt.rail_claims[0].polarity);
-    try testing.expectEqual(sketch.Dir4.north, rail_star.check(bt.rail_claims[0]).derived_pi.?.side);
-    for (bt.rail_claims[0].members) |member| try testing.expectEqual(sketch.Dir4.south, member.sites[1].?.side);
-    try expectAllValid(bt.rail_claims);
+    try testing.expectEqual(@as(usize, 1), bt.sharing.claims.len);
+    try testing.expectEqual(rail_star.RailPolarity.out, bt.sharing.claims[0].polarity);
+    try testing.expectEqual(sketch.Dir4.north, rail_star.check(bt.sharing.claims[0]).derived_pi.?.side);
+    for (bt.sharing.claims[0].members) |member| try testing.expectEqual(sketch.Dir4.south, member.sites[1].?.side);
+    try expectAllValid(bt.sharing.claims);
 }
 
 test "fan provenance: missing artifact stays unresolved and a private singleton is omitted" {
@@ -236,12 +236,12 @@ test "fan provenance: duplicate leaf is private on flat and clustered peer paths
 
         try testing.expectEqual(@as(usize, 0), s.rails.len);
         try testing.expectEqual(@as(usize, 3), s.edges.len);
-        try testing.expectEqual(@as(usize, 1), s.rail_claims.len);
-        try testing.expectEqual(@as(usize, 2), s.rail_claims[0].members.len);
-        try testing.expect(hasMember(s.rail_claims[0], 10));
-        try testing.expect(hasMember(s.rail_claims[0], 12));
-        try testing.expect(!hasMember(s.rail_claims[0], 11));
-        try testing.expect(rail_star.check(s.rail_claims[0]).isValid());
+        try testing.expectEqual(@as(usize, 1), s.sharing.claims.len);
+        try testing.expectEqual(@as(usize, 2), s.sharing.claims[0].members.len);
+        try testing.expect(hasMember(s.sharing.claims[0], 10));
+        try testing.expect(hasMember(s.sharing.claims[0], 12));
+        try testing.expect(!hasMember(s.sharing.claims[0], 11));
+        try testing.expect(rail_star.check(s.sharing.claims[0]).isValid());
 
         var private: ?sketch.EdgePath = null;
         for (s.edges) |path| if (path.id == 11) {

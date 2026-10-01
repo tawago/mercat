@@ -63,7 +63,7 @@ test "forward-subset composition: reversed fan-in member independent, forward pa
         const graph = try parse(a, source);
         const plan = (try permits.build(a, graph, .joined)).plan;
         const winner = try select.choose(a, graph, &plan, width, .bridge);
-        const bundles = winner.sketch.bundles;
+        const bundles = winner.sketch.sharing.realized;
 
         var fi: ?pb.SelectedBundle = null;
         for (bundles.selected_bundles) |sj| {
@@ -132,7 +132,7 @@ test "V-D-PORT-14: inline K1,3 realized Rail keeps midpoint stem and pre-Step-7 
     const before = try select.choose(a, graph, &inert, 94, .bridge);
 
     try std.testing.expectEqual(@as(usize, 1), realized_winner.sketch.rails.len);
-    try std.testing.expectEqual(@as(usize, 1), realized_winner.sketch.bundles.selected_bundles.len);
+    try std.testing.expectEqual(@as(usize, 1), realized_winner.sketch.sharing.realized.selected_bundles.len);
     const rail = realized_winner.sketch.rails[0];
     var pivot = realized_winner.sketch.nodes[0];
     for (realized_winner.sketch.nodes) |node| if (node.id == rail.pivot) {
@@ -156,7 +156,7 @@ test "V-D-PORT-16: incomplete 2x2 arrival re-merges the pure fan-in, overlap con
     const graph = try parse(a, "flowchart TD\n  S1 --> T1\n  S1 --> T2\n  S2 --> T2\n");
     const plan = (try permits.build(a, graph, .joined)).plan;
     const winner = try select.choose(a, graph, &plan, 94, .bridge);
-    const bundles = winner.sketch.bundles;
+    const bundles = winner.sketch.sharing.realized;
 
     try std.testing.expectEqual(@as(usize, 1), winner.sketch.rails.len);
     try std.testing.expectEqual(@as(usize, 1), bundles.selected_bundles.len);
@@ -184,7 +184,7 @@ test "V-D-PORT-16 corrected: a fan-out-pivot target DOES re-merge its pure fan-i
     const graph = try parse(a, "flowchart TD\n  A --> T\n  A --> Z\n  B --> T\n  T --> X\n  T --> Y\n");
     const plan = (try permits.build(a, graph, .joined)).plan;
     const winner = try select.choose(a, graph, &plan, 94, .bridge);
-    const bundles = winner.sketch.bundles;
+    const bundles = winner.sketch.sharing.realized;
 
     var fi_sel: ?pb.SelectedBundle = null;
     for (bundles.selected_bundles) |sj| {
@@ -227,7 +227,7 @@ test "dominance pin: a complete K2,2 decomposes into star rails, never one union
     const plan = (try permits.build(a, graph, .joined)).plan;
     const winner = try select.choose(a, graph, &plan, 94, .bridge);
 
-    for (winner.sketch.bundles.selected_bundles) |sj| {
+    for (winner.sketch.sharing.realized.selected_bundles) |sj| {
         try std.testing.expect(sj.members.len < graph.edges.len);
         for (plan.groups) |g| if (g.id == sj.candidate_bundle) {
             for (sj.members) |m| for (graph.edges) |e| if (e.id == m) {
@@ -246,7 +246,7 @@ fn finishPlain(a: std.mem.Allocator, s: anytype) !Plain {
     for (s.edges, routed) |e, *slot| slot.* = e.id;
     return .{
         .grid = try paint.paint(a, rendered.lattice, s.budget.max_width),
-        .bundles = s.bundles,
+        .bundles = s.sharing.realized,
         .routed = routed,
     };
 }
@@ -306,7 +306,7 @@ test "a salvaged rail is complete against the commitment the layout drew" {
     const plan = (try permits.build(a, graph, .joined)).plan;
     const winner = try select.choose(a, graph, &plan, 60, .bridge);
     var rail_members: usize = 0;
-    for (winner.sketch.bundles.selected_bundles) |sj| rail_members = @max(rail_members, sj.members.len);
+    for (winner.sketch.sharing.realized.selected_bundles) |sj| rail_members = @max(rail_members, sj.members.len);
     try std.testing.expectEqual(@as(usize, 2), rail_members);
     const report = try raster.rasterize(a, winner.sketch, .bridge);
     try std.testing.expectEqual(@as(u32, 0), report.edge_cells_lost);
@@ -371,8 +371,8 @@ test "a directed complete bipartite keeps its TD star decomposition on clearing 
             try std.testing.expectEqual(winner.sketch.rails[0].crossbar[0].y, rail.crossbar[0].y);
         }
 
-        try std.testing.expectEqual(@as(usize, 1), winner.sketch.bundles.fused.len);
-        try std.testing.expectEqual(@as(usize, 9), winner.sketch.bundles.fused[0].len);
+        try std.testing.expectEqual(@as(usize, 1), winner.sketch.sharing.realized.fused.len);
+        try std.testing.expectEqual(@as(usize, 9), winner.sketch.sharing.realized.fused[0].len);
 
         for (winner.sketch.rails) |rail| for (rail.taps) |tap| {
             for (winner.sketch.rails) |other| for (other.taps) |t2| {
@@ -434,8 +434,8 @@ test "membership at both ends in production: the skip-layer repro traces only it
     const plan = (try permits.build(a, graph, .joined)).plan;
     const winner = try select.choose(a, graph, &plan, 94, .bridge);
     try std.testing.expectEqual(@as(usize, 2), winner.sketch.rails.len);
-    try std.testing.expectEqual(@as(usize, 2), winner.sketch.bundles.selected_bundles.len);
-    const ac = rmByEdge(winner.sketch.bundles, edgeId(graph, "A", "C"));
+    try std.testing.expectEqual(@as(usize, 2), winner.sketch.sharing.realized.selected_bundles.len);
+    const ac = rmByEdge(winner.sketch.sharing.realized, edgeId(graph, "A", "C"));
     try std.testing.expect(ac.source.? == .selected);
     try std.testing.expect(ac.target.? == .selected);
     var strokes: usize = 0;
@@ -454,7 +454,7 @@ fn railKeysAtD(a: std.mem.Allocator, source: []const u8) ![]const []const u8 {
     const graph = try parse(a, source);
     const plan = (try permits.build(a, graph, .joined)).plan;
     const winner = try select.choose(a, graph, &plan, 94, .bridge);
-    for (winner.sketch.bundles.selected_bundles) |sj| {
+    for (winner.sketch.sharing.realized.selected_bundles) |sj| {
         for (plan.groups) |g| if (g.id == sj.candidate_bundle and g.direction == .in and g.pivot == nodeId(graph, "D")) {
             const out = try a.alloc([]const u8, sj.members.len);
             for (sj.members, out) |m, *slot| {
@@ -480,7 +480,7 @@ test "N6 reversed: every candidate commits the forward-subset fan-in rail" {
     const set = try select.enumerateAll(a, graph, &plan, 94);
     var saw_fanin = false;
     for (set) |candidate| {
-        for (candidate.sketch.bundles.selected_bundles) |sj| {
+        for (candidate.sketch.sharing.realized.selected_bundles) |sj| {
             for (plan.groups) |g| if (g.id == sj.candidate_bundle and g.direction == .in and g.pivot == nodeId(graph, "D")) {
                 saw_fanin = true;
                 try std.testing.expectEqual(@as(usize, 2), sj.members.len);
@@ -499,7 +499,7 @@ test "N6 floor: a single-forward-member reversed fan-in commits no rail" {
     const plan = (try permits.build(a, graph, .joined)).plan;
     const set = try select.enumerateAll(a, graph, &plan, 94);
     for (set) |candidate| {
-        for (candidate.sketch.bundles.selected_bundles) |sj| {
+        for (candidate.sketch.sharing.realized.selected_bundles) |sj| {
             for (plan.groups) |g| if (g.id == sj.candidate_bundle)
                 try std.testing.expect(!(g.direction == .in and g.pivot == nodeId(graph, "H")));
         }

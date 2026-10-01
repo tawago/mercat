@@ -138,7 +138,7 @@ test "two foreign crossing edges read as a transversal, not a junction" {
 test "a co-member's corner arm into a head is refused" {
     const a = testing.allocator;
     const members = [_]u32{ 1, 2 };
-    const Bundle = @typeInfo(@TypeOf((makeSketch(&.{})).bundle_sets)).pointer.child;
+    const Bundle = @typeInfo(@TypeOf((makeSketch(&.{})).sharing.bundles)).pointer.child;
     const mates = [_]Bundle{.{ .origin = .fan_rail, .members = &members }};
 
     for ([2]bool{ true, false }) |co_member| {
@@ -151,7 +151,7 @@ test "a co-member's corner arm into a head is refused" {
             makeEdge(2, &pts_turn, .none, .none),
         };
         var s = makeSketch(&es);
-        if (co_member) s.bundle_sets = &mates;
+        if (co_member) s.sharing.bundles = &mates;
         const report = edges.rasterizeEdges(&lat, s, .bridge);
 
         const head = lat.atConst(5, 5);

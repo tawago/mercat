@@ -22,11 +22,11 @@ pub fn transport(
 ) error{OutOfMemory}![]const rail_star.RailClaim {
     var out: std.ArrayListUnmanaged(rail_star.RailClaim) = .empty;
     for (children) |source| {
-        for (source.sketch.rail_claims) |claim| {
+        for (source.sketch.sharing.claims) |claim| {
             try appendClaim(arena, &out, claim, source.node_map, source.edge_base, null);
         }
     }
-    for (outer.rail_claims) |claim| {
+    for (outer.sharing.claims) |claim| {
         try appendClaim(arena, &out, claim, outer_node_map, outer_edge_base, .{ .sr = sr, .outer = outer });
     }
     return out.toOwnedSlice(arena);

@@ -44,7 +44,7 @@ pub fn resolveMasks(lat: *lattice.Lattice, s: sketch.Sketch) void {
             if (!(nb.e or nb.w)) continue;
             if (onRail(s, x, y)) continue;
             if (continuesColumn(lat, x, y)) continue;
-            const rect = pivotRect(s, s.rail_claims, seg.edge) orelse continue;
+            const rect = pivotRect(s, s.sharing.claims, seg.edge) orelse continue;
             const drop = armAwayFromPivot(rect, y) orelse continue;
             if (armIsAnswered(lat, x, y, drop)) continue;
             cell.neighbours = lattice.Neighbours.fromMask(nb.toMask() & ~geo.bitMask(drop).toMask());

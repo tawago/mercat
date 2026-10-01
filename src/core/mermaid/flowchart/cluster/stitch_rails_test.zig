@@ -78,7 +78,7 @@ test "stitch rails: child claims deep-remap first-class and peer-drawn carriers 
         .taps = &taps,
         .kind = .solid,
     }};
-    first.rail_claims = &first_claims;
+    first.sharing.claims = &first_claims;
 
     const peer_members = [_]rail_star.RailClaimMember{
         member(4, 2, 0, .target),
@@ -88,7 +88,7 @@ test "stitch rails: child claims deep-remap first-class and peer-drawn carriers 
     const peer_paths = [_]sketch.EdgePath{ path(4, 2, 0), path(5, 1, 0) };
     var peer = emptySketch();
     peer.edges = &peer_paths;
-    peer.rail_claims = &peer_claims;
+    peer.sharing.claims = &peer_claims;
 
     const sources = [_]stitch_rails.ChildSource{
         .{ .sketch = first, .node_map = &.{ 10, 14, 12 }, .edge_base = 20 },
@@ -100,7 +100,7 @@ test "stitch rails: child claims deep-remap first-class and peer-drawn carriers 
         member(9, 0, 2, .source),
     };
     const outer_claims = [_]rail_star.RailClaim{claim(77, .out, &outer_members)};
-    outer.rail_claims = &outer_claims;
+    outer.sharing.claims = &outer_claims;
 
     const got = try stitch_rails.transport(a, emptySplit(&.{}), &sources, outer, &.{ 50, 51, 52 }, 60);
     try testing.expectEqual(@as(usize, 3), got.len);
@@ -149,7 +149,7 @@ test "stitch rails: surviving outer claim stays valid and a dropped placement me
     };
     var outer = emptySketch();
     outer.edges = &edges;
-    outer.rail_claims = &claims;
+    outer.sharing.claims = &claims;
 
     const got = try stitch_rails.transport(a, emptySplit(&supers), &.{}, outer, &.{ 30, 31, sg.SENTINEL, 33 }, 100);
     try testing.expectEqual(@as(usize, 2), got.len);
@@ -184,7 +184,7 @@ test "stitch rails: a dropped super-node pivot derives to null after transport" 
     const claims = [_]rail_star.RailClaim{claim(1, .in, &members)};
     var outer = emptySketch();
     outer.edges = &edges;
-    outer.rail_claims = &claims;
+    outer.sharing.claims = &claims;
 
     const got = try stitch_rails.transport(a, emptySplit(&supers), &.{}, outer, &.{ 40, 41, sg.SENTINEL }, 10);
     try testing.expectEqual(@as(usize, 1), got.len);

@@ -125,6 +125,7 @@ test {
     _ = @import("base/ledger.zig");
     _ = @import("base/ledger_test.zig");
     _ = @import("base/bundle.zig");
+    _ = @import("base/sharing_test.zig");
     _ = @import("base/rail_closure.zig");
     _ = @import("base/rail_closure_test.zig");
     _ = @import("layout/fan_rail_licence.zig");

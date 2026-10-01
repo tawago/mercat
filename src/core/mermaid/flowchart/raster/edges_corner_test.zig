@@ -111,7 +111,7 @@ test "shared rail corner: sibling drops bending at one cell yield ┴, not a pha
     const members = [_]ledger.EdgeId{ 1, 2, 3 };
     const bundle_sets = [_]bundle_mod.Bundle{.{ .origin = .fan_rail, .members = &members }};
     var s = makeSketch(&es);
-    s.bundle_sets = &bundle_sets;
+    s.sharing.bundles = &bundle_sets;
     _ = edges.rasterizeEdges(&lat, s, .bridge);
 
     const rail = lat.atConst(5, 5).neighbours;

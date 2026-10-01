@@ -214,8 +214,7 @@ pub fn rasterizeEdges(
     var cells_lost: u32 = 0;
     var cross_counts: crossings.CrossingCounts = .{};
     const ctx: crossings.Ctx = .{
-        .bundles = s.bundles,
-        .bundle_sets = s.bundle_sets,
+        .sharing = s.sharing,
         .counts = &cross_counts,
         .mode = subgraph_edges,
     };

@@ -82,7 +82,7 @@ fn outerSketch(edges: []const sketch.EdgePath, sets: []const bundle_mod.Bundle) 
         .nodes = &.{},
         .clusters = &.{},
         .edges = edges,
-        .bundle_sets = sets,
+        .sharing = .{ .bundles = sets },
         .diagnostics = &.{},
         .budget = .{ .max_width = 80, .rung = 0 },
     };
@@ -257,7 +257,7 @@ test "missing routed bridge leaves the proven claim member unresolved" {
 
     const sets = [_]bundle_mod.Bundle{.{ .origin = .fan_rail, .members = &.{ 5, 6 } }};
     var structural_outer = outer;
-    structural_outer.bundle_sets = &sets;
+    structural_outer.sharing.bundles = &sets;
     try testing.expectEqual(
         @as(usize, 0),
         (try bridge_bundle_sets.rebuildOuterSets(a, scene(sr, structural_outer, &routed, &routed, &.{}, &.{}))).len,
