@@ -93,7 +93,7 @@ fn addCandidate(
     const arrow = member.arrow(member.pivot_end);
     var group: *Group = undefined;
     for (groups.items) |*item| {
-        if (item.pivot == pivot and optionalSiteEqual(item.pi, pi) and
+        if (item.pivot == pivot and std.meta.eql(item.pi, pi) and
             item.kind == member.kind and item.arrow == arrow)
         {
             group = item;
@@ -182,8 +182,8 @@ fn appendNative(
             var group: *NativeKey = undefined;
             for (groups.items) |*item| {
                 if (item.polarity == polarity and item.pivot == pivot and
-                    siteEqual(item.site, site) and item.kind == kind and item.arrow == arrow and
-                    cellEqual(item.port, port) and try sharesAll(arena, item.traces.items, trace.cells, port))
+                    std.meta.eql(item.site, site) and item.kind == kind and item.arrow == arrow and
+                    std.meta.eql(item.port, port) and try sharesAll(arena, item.traces.items, trace.cells, port))
                 {
                     group = item;
                     break;
@@ -249,7 +249,7 @@ fn coveredByClaim(claims: []const rail_star.RailClaim, candidate: rail_star.Rail
     for (claims) |claim| {
         const prior = rail_star.check(claim);
         if (claim.polarity != candidate.polarity or prior.derived_pivot != derived.derived_pivot or
-            !optionalSiteEqual(prior.derived_pi, derived.derived_pi)) continue;
+            !std.meta.eql(prior.derived_pi, derived.derived_pi)) continue;
         for (candidate.members) |member| {
             if (!hasMember(claim.members, member.edge)) break;
         } else return true;
@@ -265,19 +265,6 @@ fn hasMember(members: []const rail_star.RailClaimMember, edge: sketch.EdgeId) bo
 fn hasEdge(edges: []const sketch.EdgeId, edge: sketch.EdgeId) bool {
     for (edges) |item| if (item == edge) return true;
     return false;
-}
-
-fn siteEqual(a: rail_star.AttachmentSite, b: rail_star.AttachmentSite) bool {
-    return a.node == b.node and a.side == b.side and a.offset == b.offset;
-}
-
-fn cellEqual(a: bundle_mod.BundleCell, b: bundle_mod.BundleCell) bool {
-    return a.x == b.x and a.y == b.y;
-}
-
-fn optionalSiteEqual(a: ?rail_star.AttachmentSite, b: ?rail_star.AttachmentSite) bool {
-    if (a == null or b == null) return a == null and b == null;
-    return siteEqual(a.?, b.?);
 }
 
 fn groupLess(_: void, a: Group, b: Group) bool {

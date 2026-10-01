@@ -53,7 +53,7 @@ pub fn rebuildOuterSets(
         var groups: std.ArrayListUnmanaged(Group) = .empty;
 
         for (set.members, 0..) |old_edge, contributor| {
-            if (seenEarlier(set.members, contributor, old_edge)) continue;
+            if (contains(set.members[0..contributor], old_edge)) continue;
             if (edge_ends.find(outer.edges, outer.rails, old_edge)) |ep| {
                 if (sr.isSuper(ep.from) or sr.isSuper(ep.to)) continue;
             }
@@ -80,7 +80,7 @@ pub fn rebuildOuterSets(
         std.mem.sort(Group, groups.items, {}, groupLess);
         for (groups.items) |*group| {
             if (group.members.items.len < 2 or group.contributors.items.len < 2) continue;
-            std.mem.sort(sketch.EdgeId, group.members.items, {}, edgeLess);
+            std.mem.sort(sketch.EdgeId, group.members.items, {}, std.sort.asc(sketch.EdgeId));
             const rebuilt: bundle_mod.Bundle = .{
                 .origin = set.origin,
                 .members = try group.members.toOwnedSlice(arena),
@@ -118,7 +118,7 @@ fn polarityOf(outer: sketch.Sketch, set: bundle_mod.Bundle) ?rail_star.RailPolar
     for (outer.rail_claims) |claim| {
         var overlap: usize = 0;
         for (set.members, 0..) |edge, i| {
-            if (seenEarlier(set.members, i, edge)) continue;
+            if (contains(set.members[0..i], edge)) continue;
             for (claim.members) |member| {
                 if (member.edge == edge and member.pivot_end == claim.polarity.pivotEnd()) {
                     overlap += 1;
@@ -137,7 +137,7 @@ fn polarityOf(outer: sketch.Sketch, set: bundle_mod.Bundle) ?rail_star.RailPolar
     var common_target = true;
     var contributors: usize = 0;
     for (set.members, 0..) |edge, i| {
-        if (seenEarlier(set.members, i, edge)) continue;
+        if (contains(set.members[0..i], edge)) continue;
         const endpoints = edge_ends.find(outer.edges, outer.rails, edge) orelse continue;
         contributors += 1;
         if (first) |expected| {
@@ -157,14 +157,8 @@ fn outerReprOf(sr: split_mod.SplitResult, original: sg.NodeId) sketch.NodeId {
     return sg.SENTINEL;
 }
 
-fn seenEarlier(items: []const sketch.EdgeId, at: usize, id: sketch.EdgeId) bool {
-    for (items[0..at]) |prior| if (prior == id) return true;
-    return false;
-}
-
 fn contains(items: []const sketch.EdgeId, id: sketch.EdgeId) bool {
-    for (items) |item| if (item == id) return true;
-    return false;
+    return std.mem.indexOfScalar(sketch.EdgeId, items, id) != null;
 }
 
 fn hasImage(items: []const edge_ends.Ends, id: sketch.EdgeId) bool {
@@ -192,8 +186,4 @@ fn groupLess(_: void, a: Group, b: Group) bool {
     if (a.pivot != b.pivot) return a.pivot < b.pivot;
     if (a.kind != b.kind) return @intFromEnum(a.kind) < @intFromEnum(b.kind);
     return @intFromEnum(a.arrow) < @intFromEnum(b.arrow);
-}
-
-fn edgeLess(_: void, a: sketch.EdgeId, b: sketch.EdgeId) bool {
-    return a < b;
 }

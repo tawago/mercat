@@ -79,7 +79,7 @@ fn chooseJog(
     try runs.appendSlice(arena, obstacles.runs);
     const port = requests.railPort(p0, railEnd(end));
     for (pends, 0..) |q, qi| {
-        if (inGroup(members, qi)) continue;
+        if (std.mem.indexOfScalar(usize, members, qi) != null) continue;
         if (requests.samePt(requests.railPort(q, railEnd(end)), port)) continue;
         try scene.tentInk(arena, &heads, &runs, q);
     }
@@ -135,13 +135,6 @@ pub fn withStaticRuns(
     try runs.appendSlice(arena, base.runs);
     for (edge_paths) |e| try scene.appendRuns(arena, &runs, e.polyline);
     return .{ .heads = base.heads, .runs = try runs.toOwnedSlice(arena) };
-}
-
-fn inGroup(members: []const usize, i: usize) bool {
-    for (members) |m| {
-        if (m == i) return true;
-    }
-    return false;
 }
 
 pub fn realizedRail(
