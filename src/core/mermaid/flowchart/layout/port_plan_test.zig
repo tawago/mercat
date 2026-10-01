@@ -124,7 +124,7 @@ test "a discharged edge claims no attachment" {
     const discharged: pb.RealizedBundles = .{ .memberships = &memberships, .discharged = &.{2} };
 
     const all = try ports.derive(a, graph, permit, with_ink, .TD, &.{});
-    const kept = try port_plan.withoutDischarged(a, all, discharged);
+    const kept = try ports.withoutDischarged(a, all, discharged);
     try std.testing.expect(kept.len < all.len);
     for (kept) |item| try std.testing.expect((item.attachment.edge orelse 99) != 2);
 }

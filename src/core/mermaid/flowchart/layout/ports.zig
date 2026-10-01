@@ -3,6 +3,8 @@ const pb = @import("../base/ledger.zig");
 const tie_break = @import("../base/tie_break.zig");
 const sg = @import("../sem_graph.zig");
 const sk = @import("../sketch.zig");
+const rail_closure = @import("../base/rail_closure.zig");
+const fan_types = @import("fan_types.zig");
 
 pub fn forwardSide(direction: sg.Direction, endpoint_side: pb.EndpointSide) sk.Dir4 {
     const out = endpoint_side == .source_exit;
@@ -197,6 +199,83 @@ fn seenLeaf(prior: []const FusedLeaf, head: FusedLeaf) bool {
 fn fusedUnionIndex(fused: []const []const pb.EdgeId, edge: pb.EdgeId) ?usize {
     for (fused, 0..) |u, i| if (pb.containsEdge(u, edge)) return i;
     return null;
+}
+
+pub fn deriveFanAttachments(a: std.mem.Allocator, graph: sg.SemGraph, direction: sg.Direction, reversed_edges: []const pb.EdgeId, fans: []const fan_types.Fan) DeriveError![]const DerivedAttachment {
+    var out: std.ArrayListUnmanaged(DerivedAttachment) = .empty;
+    for (graph.edges) |edge| {
+        if (edge.kind == .invisible) continue;
+        for ([2]pb.EndpointSide{ .source_exit, .target_entry }) |endpoint| {
+            const node = if (endpoint == .source_exit) edge.from else edge.to;
+            const side = if (edge.from == edge.to)
+                selfLoopSide(direction, endpoint)
+            else if (pb.containsEdge(reversed_edges, edge.id))
+                reversedSide(direction)
+            else
+                forwardSide(direction, endpoint);
+            if (sharedFan(fans, edge.id, endpoint)) |fan| {
+                const rail = try fanAttachment(a, graph, fan, endpoint);
+                if (rail.edge != edge.id) continue;
+                try out.append(a, .{ .node = node, .side = side, .attachment = rail });
+                continue;
+            }
+            try out.append(a, .{
+                .node = node,
+                .side = side,
+                .attachment = .{ .key = try edgeAttachmentKey(graph, edge, endpoint), .edge = edge.id },
+            });
+        }
+    }
+    return try out.toOwnedSlice(a);
+}
+
+fn sharedFan(fans: []const fan_types.Fan, edge: pb.EdgeId, endpoint: pb.EndpointSide) ?fan_types.Fan {
+    for (fans) |fan| {
+        const pivot_endpoint = if (fan.direction == .out) pb.EndpointSide.source_exit else .target_entry;
+        if (endpoint != pivot_endpoint) continue;
+        for (fan.peers) |peer| if (peer.shared and peer.edge_id == edge) return fan;
+    }
+    return null;
+}
+
+fn fanAttachment(a: std.mem.Allocator, graph: sg.SemGraph, fan: fan_types.Fan, endpoint: pb.EndpointSide) DeriveError!Attachment {
+    var best: ?tie_break.AttachmentKey = null;
+    var best_edge: pb.EdgeId = 0;
+    var members: std.ArrayListUnmanaged(pb.EdgeId) = .empty;
+    for (fan.peers) |peer| {
+        if (!peer.shared) continue;
+        const edge = graph.edgeById(peer.edge_id) orelse return error.InvalidSemGraph;
+        const key = try edgeAttachmentKey(graph, edge, endpoint);
+        if (best == null or tie_break.attachmentKeyOrder(key, best.?) == .lt) {
+            best = key;
+            best_edge = edge.id;
+        }
+        try members.append(a, edge.id);
+    }
+    return .{
+        .class = .rail_pivot,
+        .key = best orelse return error.InvalidSemGraph,
+        .edge = best_edge,
+        .members = try members.toOwnedSlice(a),
+    };
+}
+
+pub fn withoutDischarged(
+    a: std.mem.Allocator,
+    derived: []const DerivedAttachment,
+    bundles: pb.RealizedBundles,
+) error{OutOfMemory}![]const DerivedAttachment {
+    if (bundles.discharged.len == 0) return derived;
+    var out: std.ArrayListUnmanaged(DerivedAttachment) = .empty;
+    for (derived) |item| {
+        const edge = item.attachment.edge orelse {
+            try out.append(a, item);
+            continue;
+        };
+        if (rail_closure.contains(bundles.discharged, edge)) continue;
+        try out.append(a, item);
+    }
+    return out.toOwnedSlice(a);
 }
 
 pub fn forSide(a: std.mem.Allocator, derived: []const DerivedAttachment, node: pb.NodeId, side: sk.Dir4) error{OutOfMemory}![]const Attachment {

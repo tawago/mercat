@@ -6,7 +6,6 @@ const fan_mod = @import("fan.zig");
 const fan_gate = @import("fan_gate.zig");
 const bundle_commit = @import("bundle_commit.zig");
 const ports = @import("ports.zig");
-const port_plan = @import("port_plan.zig");
 
 pub const BundleDecision = struct {
     fans: []const fan_mod.Fan,
@@ -53,9 +52,9 @@ fn attachmentsFor(
 ) []const ports.DerivedAttachment {
     if (plan) |p| if (port_active) {
         const all = ports.derive(a, graph, p.*, bundles, graph.direction, lg.reversed_edges) catch &.{};
-        return port_plan.withoutDischarged(a, all, bundles) catch all;
+        return ports.withoutDischarged(a, all, bundles) catch all;
     };
-    if (private_peers) return port_plan.deriveFanAttachments(a, graph, graph.direction, lg.reversed_edges, fans) catch &.{};
+    if (private_peers) return ports.deriveFanAttachments(a, graph, graph.direction, lg.reversed_edges, fans) catch &.{};
     return &.{};
 }
 

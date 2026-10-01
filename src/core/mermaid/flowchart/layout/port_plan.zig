@@ -1,12 +1,10 @@
 const std = @import("std");
 const pb = @import("../base/ledger.zig");
 const tie_break = @import("../base/tie_break.zig");
-const rail_closure = @import("../base/rail_closure.zig");
 const sg = @import("../sem_graph.zig");
 const sk = @import("../sketch.zig");
 const sugiyama = @import("sugiyama.zig");
 const NodeGeom = @import("node_geom.zig").NodeGeom;
-const fan_mod = @import("fan.zig");
 const ports = @import("ports.zig");
 
 pub const EdgePorts = struct {
@@ -82,83 +80,6 @@ pub fn predict(
         allocate(a, graph, placements.items, derived, bundles)
     else
         midpoint(a, graph, placements.items);
-}
-
-pub fn deriveFanAttachments(a: std.mem.Allocator, graph: sg.SemGraph, direction: sg.Direction, reversed_edges: []const pb.EdgeId, fans: []const fan_mod.Fan) ports.DeriveError![]const ports.DerivedAttachment {
-    var out: std.ArrayListUnmanaged(ports.DerivedAttachment) = .empty;
-    for (graph.edges) |edge| {
-        if (edge.kind == .invisible) continue;
-        for ([2]pb.EndpointSide{ .source_exit, .target_entry }) |endpoint| {
-            const node = if (endpoint == .source_exit) edge.from else edge.to;
-            const side = if (edge.from == edge.to)
-                ports.selfLoopSide(direction, endpoint)
-            else if (pb.containsEdge(reversed_edges, edge.id))
-                ports.reversedSide(direction)
-            else
-                ports.forwardSide(direction, endpoint);
-            if (sharedFan(fans, edge.id, endpoint)) |fan| {
-                const rail = try fanAttachment(a, graph, fan, endpoint);
-                if (rail.edge != edge.id) continue;
-                try out.append(a, .{ .node = node, .side = side, .attachment = rail });
-                continue;
-            }
-            try out.append(a, .{
-                .node = node,
-                .side = side,
-                .attachment = .{ .key = try ports.edgeAttachmentKey(graph, edge, endpoint), .edge = edge.id },
-            });
-        }
-    }
-    return try out.toOwnedSlice(a);
-}
-
-fn sharedFan(fans: []const fan_mod.Fan, edge: pb.EdgeId, endpoint: pb.EndpointSide) ?fan_mod.Fan {
-    for (fans) |fan| {
-        const pivot_endpoint = if (fan.direction == .out) pb.EndpointSide.source_exit else .target_entry;
-        if (endpoint != pivot_endpoint) continue;
-        for (fan.peers) |peer| if (peer.shared and peer.edge_id == edge) return fan;
-    }
-    return null;
-}
-
-fn fanAttachment(a: std.mem.Allocator, graph: sg.SemGraph, fan: fan_mod.Fan, endpoint: pb.EndpointSide) ports.DeriveError!ports.Attachment {
-    var best: ?tie_break.AttachmentKey = null;
-    var best_edge: pb.EdgeId = 0;
-    var members: std.ArrayListUnmanaged(pb.EdgeId) = .empty;
-    for (fan.peers) |peer| {
-        if (!peer.shared) continue;
-        const edge = graph.edgeById(peer.edge_id) orelse return error.InvalidSemGraph;
-        const key = try ports.edgeAttachmentKey(graph, edge, endpoint);
-        if (best == null or tie_break.attachmentKeyOrder(key, best.?) == .lt) {
-            best = key;
-            best_edge = edge.id;
-        }
-        try members.append(a, edge.id);
-    }
-    return .{
-        .class = .rail_pivot,
-        .key = best orelse return error.InvalidSemGraph,
-        .edge = best_edge,
-        .members = try members.toOwnedSlice(a),
-    };
-}
-
-pub fn withoutDischarged(
-    a: std.mem.Allocator,
-    derived: []const ports.DerivedAttachment,
-    bundles: pb.RealizedBundles,
-) error{OutOfMemory}![]const ports.DerivedAttachment {
-    if (bundles.discharged.len == 0) return derived;
-    var out: std.ArrayListUnmanaged(ports.DerivedAttachment) = .empty;
-    for (derived) |item| {
-        const edge = item.attachment.edge orelse {
-            try out.append(a, item);
-            continue;
-        };
-        if (rail_closure.contains(bundles.discharged, edge)) continue;
-        try out.append(a, item);
-    }
-    return out.toOwnedSlice(a);
 }
 
 const FaceAssignments = struct { node: pb.NodeId, side: sk.Dir4, items: []const ports.Assignment };
