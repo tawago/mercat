@@ -138,52 +138,22 @@ pub fn derive(
         const gi = groupIndexById(plan.groups, sel.candidate_bundle) orelse return error.InvalidSemGraph;
         const group = plan.groups[gi];
         const es: pb.EndpointSide = if (group.direction == .out) .source_exit else .target_entry;
-        var best: ?tie_break.AttachmentKey = null;
-        var best_edge: pb.EdgeId = 0;
-        for (sel.members) |member| {
-            const edge = graph.edgeById(member) orelse return error.InvalidSemGraph;
-            const key = try edgeAttachmentKey(graph, edge, es);
-            if (best == null or tie_break.attachmentKeyOrder(key, best.?) == .lt) {
-                best = key;
-                best_edge = member;
-            }
-        }
         try out.append(a, .{
             .node = group.pivot,
             .side = forwardSide(direction, es),
-            .attachment = .{
-                .class = .rail_pivot,
-                .key = best orelse return error.InvalidSemGraph,
-                .edge = best_edge,
-                .group = sel.candidate_bundle,
-                .members = sel.members,
-            },
+            .attachment = try railPivot(graph, es, sel.members, sel.candidate_bundle),
         });
     }
     for (fused_leaves.items, 0..) |head, i| {
         if (seenLeaf(fused_leaves.items[0..i], head)) continue;
-        var best: ?tie_break.AttachmentKey = null;
-        var best_edge: pb.EdgeId = 0;
         var members: std.ArrayListUnmanaged(pb.EdgeId) = .empty;
         for (fused_leaves.items[i..]) |leaf| {
-            if (leaf.u != head.u or leaf.node != head.node or leaf.side != head.side) continue;
-            const edge = graph.edgeById(leaf.edge) orelse return error.InvalidSemGraph;
-            const key = try edgeAttachmentKey(graph, edge, leaf.es);
-            if (best == null or tie_break.attachmentKeyOrder(key, best.?) == .lt) {
-                best = key;
-                best_edge = leaf.edge;
-            }
-            try members.append(a, leaf.edge);
+            if (leaf.u == head.u and leaf.node == head.node and leaf.side == head.side) try members.append(a, leaf.edge);
         }
         try out.append(a, .{
             .node = head.node,
             .side = head.side,
-            .attachment = .{
-                .class = .rail_pivot,
-                .key = best orelse return error.InvalidSemGraph,
-                .edge = best_edge,
-                .members = try members.toOwnedSlice(a),
-            },
+            .attachment = try railPivot(graph, head.es, try members.toOwnedSlice(a), null),
         });
     }
     return try out.toOwnedSlice(a);
@@ -239,24 +209,30 @@ fn sharedFan(fans: []const fan_types.Fan, edge: pb.EdgeId, endpoint: pb.Endpoint
 }
 
 fn fanAttachment(a: std.mem.Allocator, graph: sg.SemGraph, fan: fan_types.Fan, endpoint: pb.EndpointSide) DeriveError!Attachment {
-    var best: ?tie_break.AttachmentKey = null;
-    var best_edge: pb.EdgeId = 0;
     var members: std.ArrayListUnmanaged(pb.EdgeId) = .empty;
     for (fan.peers) |peer| {
-        if (!peer.shared) continue;
-        const edge = graph.edgeById(peer.edge_id) orelse return error.InvalidSemGraph;
+        if (peer.shared) try members.append(a, peer.edge_id);
+    }
+    return railPivot(graph, endpoint, try members.toOwnedSlice(a), null);
+}
+
+fn railPivot(graph: sg.SemGraph, endpoint: pb.EndpointSide, members: []const pb.EdgeId, group: ?pb.CandidateBundleId) DeriveError!Attachment {
+    var best: ?tie_break.AttachmentKey = null;
+    var best_edge: pb.EdgeId = 0;
+    for (members) |member| {
+        const edge = graph.edgeById(member) orelse return error.InvalidSemGraph;
         const key = try edgeAttachmentKey(graph, edge, endpoint);
         if (best == null or tie_break.attachmentKeyOrder(key, best.?) == .lt) {
             best = key;
-            best_edge = edge.id;
+            best_edge = member;
         }
-        try members.append(a, edge.id);
     }
     return .{
         .class = .rail_pivot,
         .key = best orelse return error.InvalidSemGraph,
         .edge = best_edge,
-        .members = try members.toOwnedSlice(a),
+        .group = group,
+        .members = members,
     };
 }
 
