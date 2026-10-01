@@ -772,3 +772,117 @@ fn edgeById(s: sketch.Sketch, id: sketch.EdgeId) ?sketch.EdgePath {
     }
     return null;
 }
+
+fn innerClusterDirection(s: sketch.Sketch) ?sem_graph.Direction {
+    for (s.clusters) |cf| {
+        if (cf.parent_id == null) return cf.direction;
+    }
+    return null;
+}
+
+test "inner-flip scenario: inner LR-in-TD subgraph flips to TD at narrow width, stays LR at wide; outer stays TD" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+
+    const NS = sem_graph.NodeShape;
+    const nodes = [_]sem_graph.Node{
+        .{ .id = 0, .raw_id = "Top", .label = "Top", .shape = NS.rect, .classes = &.{}, .cluster = null },
+        .{ .id = 1, .raw_id = "a", .label = "alphaalpha", .shape = NS.rect, .classes = &.{}, .cluster = 100 },
+        .{ .id = 2, .raw_id = "b", .label = "bravobravo", .shape = NS.rect, .classes = &.{}, .cluster = 100 },
+        .{ .id = 3, .raw_id = "c", .label = "charliecharlie", .shape = NS.rect, .classes = &.{}, .cluster = 100 },
+        .{ .id = 4, .raw_id = "d", .label = "deltadelta", .shape = NS.rect, .classes = &.{}, .cluster = 100 },
+    };
+    const edges = [_]sem_graph.Edge{
+        .{ .id = 0, .from = 0, .to = 1, .kind = .solid, .arrow_from = .none, .arrow_to = .filled, .label = null },
+        .{ .id = 1, .from = 1, .to = 2, .kind = .solid, .arrow_from = .none, .arrow_to = .filled, .label = null },
+        .{ .id = 2, .from = 2, .to = 3, .kind = .solid, .arrow_from = .none, .arrow_to = .filled, .label = null },
+        .{ .id = 3, .from = 3, .to = 4, .kind = .solid, .arrow_from = .none, .arrow_to = .filled, .label = null },
+    };
+    const members = [_]sem_graph.NodeId{ 1, 2, 3, 4 };
+    const clusters = [_]sem_graph.Cluster{
+        .{ .id = 100, .raw_id = "S", .label = "S", .parent = null, .members = &members, .sub_clusters = &.{}, .direction = .LR },
+    };
+    const graph: sem_graph.SemGraph = .{
+        .direction = .TD,
+        .nodes = &nodes,
+        .edges = &edges,
+        .clusters = &clusters,
+        .classes = &.{},
+        .arena = null,
+    };
+
+    const narrow = try recurse.layoutPieces(a, graph, .{ .max_width = 40 });
+    try std.testing.expectEqual(sem_graph.Direction.TD, narrow.direction);
+    try std.testing.expectEqual(sem_graph.Direction.TD, innerClusterDirection(narrow).?);
+
+    const wide = try recurse.layoutPieces(a, graph, .{ .max_width = 400 });
+    try std.testing.expectEqual(sem_graph.Direction.TD, wide.direction);
+    try std.testing.expectEqual(sem_graph.Direction.LR, innerClusterDirection(wide).?);
+}
+
+test "layoutChild never widens: rotation rejected when it does not reduce width" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+
+    const NS = sem_graph.NodeShape;
+    const nodes = [_]sem_graph.Node{
+        .{ .id = 0, .raw_id = "Top", .label = "Top", .shape = NS.rect, .classes = &.{}, .cluster = null },
+        .{ .id = 1, .raw_id = "x", .label = "wwwwwwwwwwwwwwww", .shape = NS.rect, .classes = &.{}, .cluster = 100 },
+    };
+    const edges = [_]sem_graph.Edge{
+        .{ .id = 0, .from = 0, .to = 1, .kind = .solid, .arrow_from = .none, .arrow_to = .filled, .label = null },
+    };
+    const members = [_]sem_graph.NodeId{1};
+    const clusters = [_]sem_graph.Cluster{
+        .{ .id = 100, .raw_id = "S", .label = "S", .parent = null, .members = &members, .sub_clusters = &.{}, .direction = .LR },
+    };
+    const graph: sem_graph.SemGraph = .{
+        .direction = .TD,
+        .nodes = &nodes,
+        .edges = &edges,
+        .clusters = &clusters,
+        .classes = &.{},
+        .arena = null,
+    };
+
+    const s = try recurse.layoutPieces(a, graph, .{ .max_width = 8 });
+    try std.testing.expectEqual(sem_graph.Direction.LR, innerClusterDirection(s).?);
+}
+
+test "fitting child keeps declared direction (overall never widened by a needless flip)" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+
+    const NS = sem_graph.NodeShape;
+    const nodes = [_]sem_graph.Node{
+        .{ .id = 0, .raw_id = "Top", .label = "Top", .shape = NS.rect, .classes = &.{}, .cluster = null },
+        .{ .id = 1, .raw_id = "a", .label = "A", .shape = NS.rect, .classes = &.{}, .cluster = 100 },
+        .{ .id = 2, .raw_id = "b", .label = "B", .shape = NS.rect, .classes = &.{}, .cluster = 100 },
+        .{ .id = 3, .raw_id = "Bot", .label = "Bot", .shape = NS.rect, .classes = &.{}, .cluster = null },
+    };
+    const edges = [_]sem_graph.Edge{
+        .{ .id = 0, .from = 0, .to = 1, .kind = .solid, .arrow_from = .none, .arrow_to = .filled, .label = null },
+        .{ .id = 1, .from = 1, .to = 2, .kind = .solid, .arrow_from = .none, .arrow_to = .filled, .label = null },
+        .{ .id = 2, .from = 2, .to = 3, .kind = .solid, .arrow_from = .none, .arrow_to = .filled, .label = null },
+    };
+    const members = [_]sem_graph.NodeId{ 1, 2 };
+    const clusters = [_]sem_graph.Cluster{
+        .{ .id = 100, .raw_id = "S", .label = "S", .parent = null, .members = &members, .sub_clusters = &.{}, .direction = .LR },
+    };
+    const graph: sem_graph.SemGraph = .{
+        .direction = .TD,
+        .nodes = &nodes,
+        .edges = &edges,
+        .clusters = &clusters,
+        .classes = &.{},
+        .arena = null,
+    };
+
+    const budget: u32 = 200;
+    const s = try recurse.layoutPieces(a, graph, .{ .max_width = budget });
+    try std.testing.expectEqual(sem_graph.Direction.LR, innerClusterDirection(s).?);
+    try std.testing.expect(s.bbox.w <= budget);
+}

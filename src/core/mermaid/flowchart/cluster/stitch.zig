@@ -379,21 +379,3 @@ fn translateRail(arena: std.mem.Allocator, rail: sketch.Rail, at: Place) error{O
     out.crossbar = .{ at.off.point(rail.crossbar[0]), at.off.point(rail.crossbar[1]) };
     return out;
 }
-
-test "superSize wraps child bbox with frame padding (scale 0 = full inset)" {
-    const sz = superSize(.{ .x = 0, .y = 0, .w = 20, .h = 8 }, 0, false);
-    try std.testing.expectEqual(@as(u32, 28), sz.w);
-    try std.testing.expectEqual(@as(u32, 12), sz.h);
-}
-
-test "superSize shrinks x inset under pressure (scale > 0), y unchanged" {
-    const sz = superSize(.{ .x = 0, .y = 0, .w = 20, .h = 8 }, 1, false);
-    try std.testing.expectEqual(@as(u32, 24), sz.w);
-    try std.testing.expectEqual(@as(u32, 12), sz.h);
-}
-
-test "superSize for a synthetic packing cluster is exactly the child bbox" {
-    const sz = superSize(.{ .x = 0, .y = 0, .w = 20, .h = 8 }, 0, true);
-    try std.testing.expectEqual(@as(u32, 20), sz.w);
-    try std.testing.expectEqual(@as(u32, 8), sz.h);
-}

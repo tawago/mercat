@@ -116,11 +116,11 @@ test {
     _ = @import("recurse.zig");
     _ = @import("cluster/split.zig");
     _ = @import("cluster/split_test.zig");
-    _ = @import("cluster/stitch.zig");
-    _ = @import("cluster/stitch_bundle_sets.zig");
+    _ = @import("cluster/stitch_test.zig");
     _ = @import("cluster/bridges.zig");
-    _ = @import("cluster/bridge_plan.zig");
-    _ = @import("cluster/bridge_rails.zig");
+    _ = @import("cluster/bridge_plan_test.zig");
+    _ = @import("cluster/bridge_rails_test.zig");
+    _ = @import("cluster/entry_inset_test.zig");
     _ = @import("cluster/bridge_bundle_sets.zig");
     _ = @import("base/ledger.zig");
     _ = @import("base/ledger_test.zig");

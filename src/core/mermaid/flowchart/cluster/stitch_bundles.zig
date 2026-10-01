@@ -49,39 +49,3 @@ fn shiftDisposition(d: ?ledger.MembershipDisposition, jid_base: ledger.SelectedB
         .independent => disp,
     };
 }
-
-test "merge renumbers bundles per piece and shifts every edge id" {
-    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
-    defer arena.deinit();
-    const a = arena.allocator();
-
-    const m0 = [_]ledger.EdgeId{ 0, 1 };
-    const m1 = [_]ledger.EdgeId{ 2, 3 };
-    const piece_a: ledger.RealizedBundles = .{
-        .selected_bundles = &.{.{ .id = 0, .proposal = 0, .candidate_bundle = 0, .members = &m0 }},
-        .memberships = &.{
-            .{ .edge = 0, .source = .{ .selected = 0 }, .target = null },
-            .{ .edge = 1, .source = .{ .selected = 0 }, .target = null },
-        },
-        .discharged = &.{1},
-    };
-    const piece_b: ledger.RealizedBundles = .{
-        .selected_bundles = &.{.{ .id = 0, .proposal = 1, .candidate_bundle = 2, .members = &m1 }},
-        .memberships = &.{
-            .{ .edge = 2, .source = null, .target = .{ .selected = 0 } },
-        },
-    };
-    const merged = try merge(a, &.{
-        .{ .bundles = piece_a, .edge_base = 0 },
-        .{ .bundles = piece_b, .edge_base = 10 },
-    });
-
-    try std.testing.expectEqual(@as(usize, 2), merged.selected_bundles.len);
-    try std.testing.expectEqual(@as(ledger.SelectedBundleId, 0), merged.selected_bundles[0].id);
-    try std.testing.expectEqual(@as(ledger.SelectedBundleId, 1), merged.selected_bundles[1].id);
-    try std.testing.expectEqualSlices(ledger.EdgeId, &.{ 0, 1 }, merged.selected_bundles[0].members);
-    try std.testing.expectEqualSlices(ledger.EdgeId, &.{ 12, 13 }, merged.selected_bundles[1].members);
-    try std.testing.expectEqual(@as(ledger.EdgeId, 12), merged.memberships[2].edge);
-    try std.testing.expectEqual(ledger.MembershipDisposition{ .selected = 1 }, merged.memberships[2].target.?);
-    try std.testing.expectEqualSlices(ledger.EdgeId, &.{1}, merged.discharged);
-}
