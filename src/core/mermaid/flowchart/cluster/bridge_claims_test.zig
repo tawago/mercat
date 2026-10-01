@@ -6,8 +6,20 @@ const rail_star = @import("../base/rail_star.zig");
 const bridge_bundle_sets = @import("bridge_bundle_sets.zig");
 const bridge_claims = @import("bridge_claims.zig");
 const split_mod = @import("split.zig");
+const Final = @import("final_scene.zig").Final;
 
 const testing = std.testing;
+
+fn scene(
+    sr: split_mod.SplitResult,
+    outer: sketch.Sketch,
+    paths: []const sketch.EdgePath,
+    bridges: []const sketch.EdgePath,
+    rails: []const sketch.Rail,
+    placements: []const sketch.NodePlacement,
+) Final {
+    return .{ .sr = sr, .outer = outer, .outer_base = 50, .bridge_base = 100, .paths = paths, .bridges = bridges, .rails = rails, .placements = placements };
+}
 
 fn emptyGraph() sg.SemGraph {
     return .{
@@ -108,9 +120,9 @@ test "many routed crossings behind one placement do not make a structural fan" {
         path(101, 10, 21, .{ .x = 1, .y = 1 }, .{ .x = 2, .y = 8 }),
     };
 
-    const images = try bridge_bundle_sets.finalImages(a, sr, outer, 5, 50, 100, &bridges, &bridges, &.{});
+    const images = try bridge_bundle_sets.finalImages(a, scene(sr, outer, &bridges, &bridges, &.{}, &.{}), 5);
     try testing.expectEqualSlices(sketch.EdgeId, &.{ 100, 101 }, &.{ images[0].edge, images[1].edge });
-    try testing.expectEqual(@as(usize, 0), (try bridge_bundle_sets.rebuildOuterSets(a, sr, outer, 50, 100, &bridges, &bridges, &.{})).len);
+    try testing.expectEqual(@as(usize, 0), (try bridge_bundle_sets.rebuildOuterSets(a, scene(sr, outer, &bridges, &bridges, &.{}, &.{}))).len);
 }
 
 test "bridge members contribute no structural authority; the licence tier owns their fusion verdict" {
@@ -131,12 +143,12 @@ test "bridge members contribute no structural authority; the licence tier owns t
         path(101, 10, 21, .{ .x = 1, .y = 1 }, .{ .x = 2, .y = 8 }),
     };
 
-    const got = try bridge_bundle_sets.rebuildOuterSets(a, sr, outer, 50, 100, &bridges, &bridges, &.{});
+    const got = try bridge_bundle_sets.rebuildOuterSets(a, scene(sr, outer, &bridges, &bridges, &.{}, &.{}));
     try testing.expectEqual(@as(usize, 0), got.len);
 
     const members = [_]rail_star.RailClaimMember{ pending(55, 10, null), pending(56, 10, null) };
     const claims = [_]rail_star.RailClaim{.{ .id = 8, .polarity = .out, .members = &members }};
-    const rebuilt_claims = try bridge_claims.rebuild(a, sr, outer, &claims, 50, 100, &bridges, &bridges, &.{}, &.{});
+    const rebuilt_claims = try bridge_claims.rebuild(a, scene(sr, outer, &bridges, &bridges, &.{}, &.{}), &claims);
     try testing.expectEqual(@as(usize, 1), rebuilt_claims.len);
     try testing.expectEqualSlices(sketch.EdgeId, &.{ 100, 101 }, &.{ rebuilt_claims[0].members[0].edge, rebuilt_claims[0].members[1].edge });
     try testing.expect(rail_star.check(rebuilt_claims[0]).isValid());
@@ -173,12 +185,12 @@ test "super-splitting contributors rebuild no sets; per-pivot claims still expan
         path(103, 11, 21, .{ .x = 4, .y = 1 }, .{ .x = 2, .y = 8 }),
     };
 
-    const rebuilt_sets = try bridge_bundle_sets.rebuildOuterSets(a, sr, outer, 50, 100, &routed, &routed, &.{});
+    const rebuilt_sets = try bridge_bundle_sets.rebuildOuterSets(a, scene(sr, outer, &routed, &routed, &.{}, &.{}));
     try testing.expectEqual(@as(usize, 0), rebuilt_sets.len);
 
     const members = [_]rail_star.RailClaimMember{ pending(55, null, 20), pending(56, null, 21) };
     const claims = [_]rail_star.RailClaim{.{ .id = 7, .polarity = .out, .members = &members }};
-    const rebuilt_claims = try bridge_claims.rebuild(a, sr, outer, &claims, 50, 100, &routed, &routed, &.{}, &.{});
+    const rebuilt_claims = try bridge_claims.rebuild(a, scene(sr, outer, &routed, &routed, &.{}, &.{}), &claims);
     var out_claims: usize = 0;
     for (rebuilt_claims) |claim| {
         try testing.expect(rail_star.check(claim).isValid());
@@ -213,7 +225,7 @@ test "a mixed survivor-and-bridge set rebuilds nothing once the bridge member is
         path(100, 10, 20, .{ .x = 3, .y = 1 }, .{ .x = 2, .y = 8 }),
     };
 
-    const got = try bridge_bundle_sets.rebuildOuterSets(a, sr, outer, 50, 100, &final, final[1..], &.{});
+    const got = try bridge_bundle_sets.rebuildOuterSets(a, scene(sr, outer, &final, final[1..], &.{}, &.{}));
     try testing.expectEqual(@as(usize, 0), got.len);
 }
 
@@ -233,7 +245,7 @@ test "missing routed bridge leaves the proven claim member unresolved" {
     const members = [_]rail_star.RailClaimMember{ pending(55, 10, null), pending(56, 10, null) };
     const claims = [_]rail_star.RailClaim{.{ .id = 9, .polarity = .out, .members = &members }};
 
-    const got = try bridge_claims.rebuild(a, sr, outer, &claims, 50, 100, &routed, &routed, &.{}, &.{});
+    const got = try bridge_claims.rebuild(a, scene(sr, outer, &routed, &routed, &.{}, &.{}), &claims);
     try testing.expectEqual(@as(usize, 1), got.len);
     try testing.expectEqual(@as(rail_star.RailClaimId, 1), got[0].id);
     try testing.expectEqual(@as(usize, 2), got[0].members.len);
@@ -248,7 +260,7 @@ test "missing routed bridge leaves the proven claim member unresolved" {
     structural_outer.bundle_sets = &sets;
     try testing.expectEqual(
         @as(usize, 0),
-        (try bridge_bundle_sets.rebuildOuterSets(a, sr, structural_outer, 50, 100, &routed, &routed, &.{})).len,
+        (try bridge_bundle_sets.rebuildOuterSets(a, scene(sr, structural_outer, &routed, &routed, &.{}, &.{}))).len,
     );
 }
 
@@ -268,7 +280,7 @@ test "bridge-native claim uses exact final endpoint and site" {
     const second = [_]sketch.Point{ .{ .x = 3, .y = 1 }, .{ .x = 3, .y = 5 }, .{ .x = 2, .y = 8 } };
     const routed = [_]sketch.EdgePath{ routedPath(100, 10, 20, &first), routedPath(101, 10, 21, &second) };
 
-    const got = try bridge_claims.rebuild(a, sr, outer, &.{}, 50, 100, &routed, &routed, &.{}, &.{});
+    const got = try bridge_claims.rebuild(a, scene(sr, outer, &routed, &routed, &.{}, &.{}), &.{});
     try testing.expectEqual(@as(usize, 1), got.len);
     try testing.expectEqual(@as(rail_star.RailClaimId, 1), got[0].id);
     try testing.expectEqualSlices(sketch.EdgeId, &.{ 100, 101 }, &.{ got[0].members[0].edge, got[0].members[1].edge });
@@ -296,12 +308,12 @@ test "bridge-native claims reject empty paths and immediate divergence" {
         path(100, 10, 20, .{ .x = 3, .y = 1 }, .{ .x = 1, .y = 8 }),
         path(101, 10, 21, .{ .x = 3, .y = 1 }, .{ .x = 2, .y = 8 }),
     };
-    try testing.expectEqual(@as(usize, 0), (try bridge_claims.rebuild(a, sr, outer, &.{}, 50, 100, &empty, &empty, &.{}, &.{})).len);
+    try testing.expectEqual(@as(usize, 0), (try bridge_claims.rebuild(a, scene(sr, outer, &empty, &empty, &.{}, &.{}), &.{})).len);
 
     const left = [_]sketch.Point{ .{ .x = 3, .y = 1 }, .{ .x = 2, .y = 1 }, .{ .x = 1, .y = 8 } };
     const right = [_]sketch.Point{ .{ .x = 3, .y = 1 }, .{ .x = 4, .y = 1 }, .{ .x = 5, .y = 8 } };
     const divergent = [_]sketch.EdgePath{ routedPath(100, 10, 20, &left), routedPath(101, 10, 21, &right) };
-    try testing.expectEqual(@as(usize, 0), (try bridge_claims.rebuild(a, sr, outer, &.{}, 50, 100, &divergent, &divergent, &.{}, &.{})).len);
+    try testing.expectEqual(@as(usize, 0), (try bridge_claims.rebuild(a, scene(sr, outer, &divergent, &divergent, &.{}, &.{}), &.{})).len);
 }
 
 test "bridge-native fan-in requires a genuine shared suffix" {
@@ -319,7 +331,7 @@ test "bridge-native fan-in requires a genuine shared suffix" {
     const first = [_]sketch.Point{ .{ .x = 1, .y = 1 }, .{ .x = 3, .y = 5 }, .{ .x = 3, .y = 8 } };
     const second = [_]sketch.Point{ .{ .x = 5, .y = 1 }, .{ .x = 3, .y = 5 }, .{ .x = 3, .y = 8 } };
     const routed = [_]sketch.EdgePath{ routedPath(100, 20, 10, &first), routedPath(101, 21, 10, &second) };
-    const got = try bridge_claims.rebuild(a, sr, outer, &.{}, 50, 100, &routed, &routed, &.{}, &.{});
+    const got = try bridge_claims.rebuild(a, scene(sr, outer, &routed, &routed, &.{}, &.{}), &.{});
     try testing.expectEqual(@as(usize, 1), got.len);
     try testing.expectEqual(rail_star.RailPolarity.in, got[0].polarity);
     try testing.expect(rail_star.check(got[0]).isValid());

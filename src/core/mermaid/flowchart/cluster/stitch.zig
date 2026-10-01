@@ -12,9 +12,7 @@ const entry_inset = @import("entry_inset.zig");
 const stitch_bundle_sets = @import("stitch_bundle_sets.zig");
 const stitch_bundles = @import("stitch_bundles.zig");
 const stitch_rails = @import("stitch_rails.zig");
-
-pub const SplitResult = split_mod.SplitResult;
-pub const EntryInset = entry_inset.EntryInset;
+const Final = @import("final_scene.zig").Final;
 
 fn superPad(scale: u32, synthetic: bool) struct { x: u32, y: u32 } {
     if (synthetic) return .{ .x = 0, .y = 0 };
@@ -27,10 +25,10 @@ pub fn superSize(child_bbox: sketch.Rect, scale: u32, synthetic: bool) struct { 
 }
 
 pub fn entryInsetFor(
-    sr: SplitResult,
+    sr: split_mod.SplitResult,
     children: []const Clustered,
     super: split_mod.SuperNode,
-) EntryInset {
+) entry_inset.EntryInset {
     const child = children[super.child_piece];
     return entry_inset.entryArrivalInset(
         sr.arrivals,
@@ -78,7 +76,7 @@ const Place = struct {
 
 const Stitcher = struct {
     arena: std.mem.Allocator,
-    sr: SplitResult,
+    sr: split_mod.SplitResult,
     outer: sketch.Sketch,
     children: []const Clustered,
     offsets: []Offset,
@@ -97,7 +95,7 @@ const Stitcher = struct {
 
     fn init(
         arena: std.mem.Allocator,
-        sr: SplitResult,
+        sr: split_mod.SplitResult,
         outer: sketch.Sketch,
         children: []const Clustered,
         scale: u32,
@@ -267,20 +265,17 @@ const Stitcher = struct {
         if (merge_joins) try self.piece_joins.append(arena, .{ .bundles = bridge_joins, .edge_base = 0 });
         for (try bundle_plan.bundlesFromPlan(arena, bridge_joins)) |cs| try self.bundle_sets.append(arena, cs);
         const bar_slice = try self.rails.toOwnedSlice(arena);
-        const authority = try stitch_bundle_sets.finalizeAuthority(
-            arena,
-            self.sr,
-            self.outer,
-            self.claim_sources,
-            self.global_of[0],
-            self.outer_base,
-            self.bridge_base,
-            edge_slice,
-            final_bridges,
-            bar_slice,
-            node_slice,
-            try self.bundle_sets.toOwnedSlice(arena),
-        );
+        const fin: Final = .{
+            .sr = self.sr,
+            .outer = self.outer,
+            .outer_base = self.outer_base,
+            .bridge_base = self.bridge_base,
+            .paths = edge_slice,
+            .bridges = final_bridges,
+            .rails = bar_slice,
+            .placements = node_slice,
+        };
+        const authority = try stitch_bundle_sets.finalizeAuthority(arena, fin, self.claim_sources, self.global_of[0], try self.bundle_sets.toOwnedSlice(arena));
 
         const merged: sketch.Sketch = .{
             .bbox = self.outer.bbox,
@@ -304,7 +299,7 @@ const Stitcher = struct {
 
 pub fn stitch(
     arena: std.mem.Allocator,
-    split_result: SplitResult,
+    split_result: split_mod.SplitResult,
     outer: sketch.Sketch,
     children: []const Clustered,
     scale: u32,

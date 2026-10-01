@@ -3,10 +3,10 @@ const sketch = @import("../sketch.zig");
 const sketch_ports = @import("../sketch_ports.zig");
 const rail_star = @import("../base/rail_star.zig");
 const bundle_mod = @import("../base/bundle.zig");
-const split_mod = @import("split.zig");
 const bridge_bundle_sets = @import("bridge_bundle_sets.zig");
 const bridge_claims = @import("bridge_claims.zig");
 const stitch_rails = @import("stitch_rails.zig");
+const Final = @import("final_scene.zig").Final;
 
 pub const Authority = struct {
     sets: []const bundle_mod.Bundle,
@@ -15,44 +15,17 @@ pub const Authority = struct {
 
 pub fn finalizeAuthority(
     arena: std.mem.Allocator,
-    sr: split_mod.SplitResult,
-    outer: sketch.Sketch,
+    fin: Final,
     claim_sources: []const stitch_rails.ChildSource,
     outer_node_map: []const sketch.NodeId,
-    outer_base: sketch.EdgeId,
-    bridge_base: sketch.EdgeId,
-    paths: []const sketch.EdgePath,
-    bridges: []const sketch.EdgePath,
-    rails_buf: []const sketch.Rail,
-    placements: []const sketch.NodePlacement,
     inherited_structural: []const bundle_mod.Bundle,
 ) error{OutOfMemory}!Authority {
-    const outer_sets = try bridge_bundle_sets.rebuildOuterSets(
-        arena,
-        sr,
-        outer,
-        outer_base,
-        bridge_base,
-        paths,
-        bridges,
-        rails_buf,
-    );
+    const outer_sets = try bridge_bundle_sets.rebuildOuterSets(arena, fin);
     const structural = try bundle_mod.concatBundles(arena, inherited_structural, outer_sets);
-    const transported = try stitch_rails.transport(arena, sr, claim_sources, outer, outer_node_map, outer_base);
+    const transported = try stitch_rails.transport(arena, fin.sr, claim_sources, fin.outer, outer_node_map, fin.outer_base);
     return .{
-        .sets = try sketch_ports.rebuildFinalPortShares(arena, structural, paths, rails_buf),
-        .claims = try bridge_claims.rebuild(
-            arena,
-            sr,
-            outer,
-            transported,
-            outer_base,
-            bridge_base,
-            paths,
-            bridges,
-            rails_buf,
-            placements,
-        ),
+        .sets = try sketch_ports.rebuildFinalPortShares(arena, structural, fin.paths, fin.rails),
+        .claims = try bridge_claims.rebuild(arena, fin, transported),
     };
 }
 

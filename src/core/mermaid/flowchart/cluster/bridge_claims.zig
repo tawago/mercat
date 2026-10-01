@@ -3,40 +3,23 @@ const sketch = @import("../sketch.zig");
 const sketch_ports = @import("../sketch_ports.zig");
 const rail_star = @import("../base/rail_star.zig");
 const bundle_mod = @import("../base/bundle.zig");
-const split_mod = @import("split.zig");
 const bridge_bundle_sets = @import("bridge_bundle_sets.zig");
 const stitch_rails = @import("stitch_rails.zig");
+const Final = @import("final_scene.zig").Final;
 
 pub fn rebuild(
     arena: std.mem.Allocator,
-    sr: split_mod.SplitResult,
-    outer: sketch.Sketch,
+    fin: Final,
     transported: []const rail_star.RailClaim,
-    outer_base: sketch.EdgeId,
-    bridge_base: sketch.EdgeId,
-    paths: []const sketch.EdgePath,
-    bridges: []const sketch.EdgePath,
-    rails_buf: []const sketch.Rail,
-    placements: []const sketch.NodePlacement,
 ) error{OutOfMemory}![]const rail_star.RailClaim {
     var out: std.ArrayListUnmanaged(rail_star.RailClaim) = .empty;
     for (transported) |claim| {
         var groups: std.ArrayListUnmanaged(Group) = .empty;
         var pending: std.ArrayListUnmanaged(Pending) = .empty;
         for (claim.members) |source| {
-            if (source.edge >= outer_base and source.edge < bridge_base) {
-                const old_edge = source.edge - outer_base;
-                const images = try bridge_bundle_sets.finalImages(
-                    arena,
-                    sr,
-                    outer,
-                    old_edge,
-                    outer_base,
-                    bridge_base,
-                    paths,
-                    bridges,
-                    rails_buf,
-                );
+            if (source.edge >= fin.outer_base and source.edge < fin.bridge_base) {
+                const old_edge = source.edge - fin.outer_base;
+                const images = try bridge_bundle_sets.finalImages(arena, fin, old_edge);
                 if (images.len == 0) {
                     var unresolved = source;
                     unresolved.pivot_end = claim.polarity.pivotEnd();
@@ -45,11 +28,11 @@ pub fn rebuild(
                     continue;
                 }
                 for (images) |image| {
-                    const member = stitch_rails.finalMember(paths, rails_buf, placements, image.edge, claim.polarity.pivotEnd()) orelse continue;
+                    const member = stitch_rails.finalMember(fin, image.edge, claim.polarity.pivotEnd()) orelse continue;
                     try addCandidate(arena, &groups, member, old_edge);
                 }
             } else {
-                const member = stitch_rails.finalMember(paths, rails_buf, placements, source.edge, claim.polarity.pivotEnd()) orelse source;
+                const member = stitch_rails.finalMember(fin, source.edge, claim.polarity.pivotEnd()) orelse source;
                 try addCandidate(arena, &groups, member, source.edge);
             }
         }
@@ -63,7 +46,7 @@ pub fn rebuild(
         }
     }
 
-    try appendNative(arena, &out, bridges, paths, rails_buf, placements);
+    try appendNative(arena, &out, fin);
     for (out.items, 1..) |*claim, id| claim.id = @intCast(id);
     return out.toOwnedSlice(arena);
 }
@@ -160,16 +143,13 @@ const NativeKey = struct {
 fn appendNative(
     arena: std.mem.Allocator,
     out: *std.ArrayListUnmanaged(rail_star.RailClaim),
-    bridges: []const sketch.EdgePath,
-    paths: []const sketch.EdgePath,
-    rails_buf: []const sketch.Rail,
-    placements: []const sketch.NodePlacement,
+    fin: Final,
 ) error{OutOfMemory}!void {
     var groups: std.ArrayListUnmanaged(NativeKey) = .empty;
-    const traces = try sketch_ports.finalCarrierTraces(arena, bridges, &.{});
+    const traces = try sketch_ports.finalCarrierTraces(arena, fin.bridges, &.{});
     for (traces) |trace| {
         for ([2]rail_star.RailPolarity{ .out, .in }) |polarity| {
-            const member = stitch_rails.finalMember(paths, rails_buf, placements, trace.id, polarity.pivotEnd()) orelse continue;
+            const member = stitch_rails.finalMember(fin, trace.id, polarity.pivotEnd()) orelse continue;
             const pivot_end = polarity.pivotEnd();
             const pivot = member.node(pivot_end) orelse continue;
             const site = member.site(pivot_end) orelse continue;

@@ -5,47 +5,30 @@ const rail_star = @import("../base/rail_star.zig");
 const bundle_mod = @import("../base/bundle.zig");
 const split_mod = @import("split.zig");
 const edge_ends = @import("edge_ends.zig");
+const Final = @import("final_scene.zig").Final;
 
-pub fn finalImages(
-    arena: std.mem.Allocator,
-    sr: split_mod.SplitResult,
-    outer: sketch.Sketch,
-    old_edge: sketch.EdgeId,
-    outer_base: sketch.EdgeId,
-    bridge_base: sketch.EdgeId,
-    final_edges: []const sketch.EdgePath,
-    final_bridges: []const sketch.EdgePath,
-    final_bars: []const sketch.Rail,
-) error{OutOfMemory}![]const edge_ends.Ends {
-    const placement = edge_ends.find(outer.edges, outer.rails, old_edge) orelse return &.{};
-    if (!sr.isSuper(placement.from) and !sr.isSuper(placement.to)) {
-        const id = outer_base + old_edge;
-        const image = edge_ends.find(final_edges, final_bars, id) orelse return &.{};
+pub fn finalImages(arena: std.mem.Allocator, fin: Final, old_edge: sketch.EdgeId) error{OutOfMemory}![]const edge_ends.Ends {
+    const placement = edge_ends.find(fin.outer.edges, fin.outer.rails, old_edge) orelse return &.{};
+    if (!fin.sr.isSuper(placement.from) and !fin.sr.isSuper(placement.to)) {
+        const id = fin.outer_base + old_edge;
+        const image = edge_ends.find(fin.paths, fin.rails, id) orelse return &.{};
         return arena.dupe(edge_ends.Ends, &.{image});
     }
 
     var out: std.ArrayListUnmanaged(edge_ends.Ends) = .empty;
-    for (sr.crossings) |crossing| {
-        if (outerReprOf(sr, crossing.from) != placement.from or
-            outerReprOf(sr, crossing.to) != placement.to) continue;
-        const id = bridge_base + crossing.id;
-        const path = sketch.pathById(final_bridges, id) orelse continue;
+    for (fin.sr.crossings) |crossing| {
+        if (outerReprOf(fin.sr, crossing.from) != placement.from or
+            outerReprOf(fin.sr, crossing.to) != placement.to) continue;
+        const id = fin.bridge_base + crossing.id;
+        const path = sketch.pathById(fin.bridges, id) orelse continue;
         if (!hasImage(out.items, id)) try out.append(arena, edge_ends.ofPath(path));
     }
     std.mem.sort(edge_ends.Ends, out.items, {}, imageLess);
     return out.toOwnedSlice(arena);
 }
 
-pub fn rebuildOuterSets(
-    arena: std.mem.Allocator,
-    sr: split_mod.SplitResult,
-    outer: sketch.Sketch,
-    outer_base: sketch.EdgeId,
-    bridge_base: sketch.EdgeId,
-    final_edges: []const sketch.EdgePath,
-    final_bridges: []const sketch.EdgePath,
-    final_bars: []const sketch.Rail,
-) error{OutOfMemory}![]const bundle_mod.Bundle {
+pub fn rebuildOuterSets(arena: std.mem.Allocator, fin: Final) error{OutOfMemory}![]const bundle_mod.Bundle {
+    const outer = fin.outer;
     var out: std.ArrayListUnmanaged(bundle_mod.Bundle) = .empty;
     for (outer.bundle_sets) |set| {
         if (set.origin == .port_share) continue;
@@ -55,20 +38,9 @@ pub fn rebuildOuterSets(
         for (set.members, 0..) |old_edge, contributor| {
             if (contains(set.members[0..contributor], old_edge)) continue;
             if (edge_ends.find(outer.edges, outer.rails, old_edge)) |ep| {
-                if (sr.isSuper(ep.from) or sr.isSuper(ep.to)) continue;
+                if (fin.sr.isSuper(ep.from) or fin.sr.isSuper(ep.to)) continue;
             }
-            const images = try finalImages(
-                arena,
-                sr,
-                outer,
-                old_edge,
-                outer_base,
-                bridge_base,
-                final_edges,
-                final_bridges,
-                final_bars,
-            );
-            for (images) |image| {
+            for (try finalImages(arena, fin, old_edge)) |image| {
                 const pivot = if (polarity == .out) image.from else image.to;
                 const pivot_end = polarity.pivotEnd();
                 const group = try groupFor(arena, &groups, pivot, image.kind, image.arrows[pivot_end.index()]);

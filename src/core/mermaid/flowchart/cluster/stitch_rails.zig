@@ -4,6 +4,7 @@ const sg = @import("../sem_graph.zig");
 const rail_star = @import("../base/rail_star.zig");
 const split_mod = @import("split.zig");
 const edge_ends = @import("edge_ends.zig");
+const Final = @import("final_scene.zig").Final;
 
 pub const ChildSource = struct {
     sketch: sketch.Sketch,
@@ -97,14 +98,8 @@ fn droppedEnds(sr: split_mod.SplitResult, outer: sketch.Sketch, edge: sketch.Edg
     return .{ sr.isSuper(ends.from), sr.isSuper(ends.to) };
 }
 
-pub fn finalMember(
-    paths: []const sketch.EdgePath,
-    rails_buf: []const sketch.Rail,
-    placements: []const sketch.NodePlacement,
-    edge: sketch.EdgeId,
-    pivot_end: rail_star.Endpoint,
-) ?rail_star.RailClaimMember {
-    for (paths) |path| {
+pub fn finalMember(fin: Final, edge: sketch.EdgeId, pivot_end: rail_star.Endpoint) ?rail_star.RailClaimMember {
+    for (fin.paths) |path| {
         if (path.id != edge) continue;
         const ends = edge_ends.ofPath(path);
         return .{
@@ -116,7 +111,7 @@ pub fn finalMember(
             .pivot_end = pivot_end,
         };
     }
-    for (rails_buf) |rail| {
+    for (fin.rails) |rail| {
         for (rail.taps) |tap| {
             if (tap.edge != edge or rail.stem.len == 0) continue;
             const ends = edge_ends.ofTap(rail, tap);
@@ -125,8 +120,8 @@ pub fn finalMember(
                 .edge = edge,
                 .endpoints = .{ ends.from, ends.to },
                 .sites = .{
-                    siteFromPoint(placements, ends.from, if (fan_in) tap.landing else rail.stem[0]),
-                    siteFromPoint(placements, ends.to, if (fan_in) rail.stem[0] else tap.landing),
+                    siteFromPoint(fin.placements, ends.from, if (fan_in) tap.landing else rail.stem[0]),
+                    siteFromPoint(fin.placements, ends.to, if (fan_in) rail.stem[0] else tap.landing),
                 },
                 .arrows = ends.arrows,
                 .kind = ends.kind,
