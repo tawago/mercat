@@ -293,7 +293,7 @@ fn legal(rect: sketch.Rect, r: Req, coord: i32, claims: []const Claim) bool {
     return true;
 }
 
-fn rectOf(clusters: []const sketch.ClusterFrame, id: sketch.ClusterId) ?sketch.Rect {
+pub fn rectOf(clusters: []const sketch.ClusterFrame, id: sketch.ClusterId) ?sketch.Rect {
     for (clusters) |c| {
         if (c.id == id) return c.rect;
     }

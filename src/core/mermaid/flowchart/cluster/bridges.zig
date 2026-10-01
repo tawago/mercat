@@ -8,14 +8,10 @@ const corridors = @import("corridors.zig");
 const requests = @import("bridge_requests.zig");
 const bridge_rails = @import("bridge_rails.zig");
 const types = @import("bridge_types.zig");
-const elbow = @import("bridge_elbow.zig");
 
 pub const Crossing = types.Crossing;
 const Pending = types.Pending;
-const Anchor = types.Anchor;
 const Sides = types.Sides;
-const buildElbow = elbow.buildElbow;
-const rerouted = elbow.rerouted;
 
 pub fn route(
     arena: std.mem.Allocator,
@@ -54,21 +50,20 @@ pub fn route(
             .sides = sides,
             .start = start,
             .end = end,
-            .off_from = sideOffset(from_p.rect, sides.exit),
-            .off_to = sideOffset(to_p.rect, sides.entry),
+            .off_from = corridors.sideOffset(from_p.rect, sides.exit),
+            .off_to = corridors.sideOffset(to_p.rect, sides.entry),
             .from_frame = corridors.drawnFrame(clusters, from_p),
             .to_frame = corridors.drawnFrame(clusters, to_p),
             .pref = null,
-            .anchor = anchorOf(clusters, to_p, gt),
         });
     }
 
-    for (pends.items) |*p| p.pref = jogPref(p.start, p.end, p.sides.exit, p.to_box);
+    for (pends.items) |*p| p.resetJog();
     try requests.assignJogs(arena, pends.items, clusters, obstacles);
 
     const pairs = try arena.alloc(corridors.Pair, pends.items.len);
     for (pends.items, pairs) |p, *q| {
-        const exit_frame: ?sketch.ClusterId = if (try rerouted(arena, p, placements)) null else p.from_frame;
+        const exit_frame: ?sketch.ClusterId = if (scene.rerouted(p, placements)) null else p.from_frame;
         q.* = .{
             .from = .{ .node = p.gf, .rect = p.from_rect, .side = p.sides.exit, .frame = exit_frame },
             .to = .{ .node = p.gt, .rect = p.to_rect, .side = p.sides.entry, .frame = p.to_frame },
@@ -79,22 +74,19 @@ pub fn route(
         corridors.slide(&p.end, p.sides.entry, r.to_coord);
         p.off_from = r.from_off;
         p.off_to = r.to_off;
-        p.pref = jogPref(p.start, p.end, p.sides.exit, p.to_box);
-        p.jog = null;
+        p.resetJog();
     }
 
     for (pends.items, 0..) |*p, pi| {
         const shared_start = p.start;
         if (slideOffHeads(&p.start, p.sides.exit, p.gf, p.from_rect, obstacles, pends.items, pi)) {
             p.off_from = corridors.portOffset(p.from_rect, p.sides.exit, faceCoord(p.start, p.sides.exit));
-            p.pref = jogPref(p.start, p.end, p.sides.exit, p.to_box);
-            p.jog = null;
+            p.resetJog();
             for (pends.items[pi + 1 ..]) |*q| {
                 if (q.start.x != shared_start.x or q.start.y != shared_start.y) continue;
                 q.start = p.start;
                 q.off_from = p.off_from;
-                q.pref = jogPref(q.start, q.end, q.sides.exit, q.to_box);
-                q.jog = null;
+                q.resetJog();
             }
         }
     }
@@ -124,7 +116,7 @@ fn buildPaths(
     var out: std.ArrayListUnmanaged(sketch.EdgePath) = .empty;
     for (pends, 0..) |*p, pi| {
         const dyn = tracks.Obstacles{ .heads = dyn_heads.items, .runs = dyn_runs.items };
-        const reroute = try rerouted(arena, p.*, placements);
+        const reroute = scene.rerouted(p.*, placements);
         if (enable_dodge) {
             if (requests.leaderJog(pends[0..pi], p.*)) |j| {
                 p.jog = j;
@@ -132,11 +124,11 @@ fn buildPaths(
                 p.jog = try dodgeJog(arena, p.*, pi, pends, placements, clusters, dyn);
             }
         }
-        var poly = try buildElbow(arena, p.*);
-        if (reroute) {
-            poly = try verticalCorridor(arena, p.start, p.end, p.to_box, p.sides.exit, placements, p.gf, p.gt, clusters, if (enable_dodge) dyn else obstacles);
-        }
-        try commitScene(arena, &dyn_heads, &dyn_runs, poly, p.cross);
+        const poly = if (reroute)
+            try scene.verticalCorridor(arena, p.start, p.end, p.to_box, p.sides.exit, placements, p.gf, p.gt, clusters, if (enable_dodge) dyn else obstacles)
+        else
+            try p.elbow().dupe(arena);
+        try scene.commitPoly(arena, &dyn_heads, &dyn_runs, poly, p.cross.arrow_from != .none, p.cross.arrow_to != .none);
 
         try out.append(arena, .{
             .id = p.cross.id,
@@ -165,14 +157,9 @@ fn dodgeJog(
     dyn: tracks.Obstacles,
 ) error{OutOfMemory}!?i32 {
     const j = p.jog orelse return null;
-    const vertical = (p.sides.exit == .north or p.sides.exit == .south);
-    const bound_lo: i32, const bound_hi: i32 = switch (p.sides.exit) {
-        .south => .{ p.start.y, p.end.y },
-        .north => .{ p.end.y, p.start.y },
-        .east => .{ p.start.x, p.end.x },
-        .west => .{ p.end.x, p.start.x },
-    };
-    const jc = clampBetween(bound_lo, bound_hi, j);
+    const vertical = p.vertical();
+    const bound_lo, const bound_hi = p.bounds();
+    const jc = types.clampBetween(bound_lo, bound_hi, j);
 
     var heads: std.ArrayListUnmanaged(Pt) = .empty;
     var runs: std.ArrayListUnmanaged([2]Pt) = .empty;
@@ -180,14 +167,7 @@ fn dodgeJog(
     try runs.appendSlice(arena, dyn.runs);
     for (pends[pi + 1 ..]) |q| {
         if (requests.sharesPort(q, p)) continue;
-        const qv = (q.sides.exit == .north or q.sides.exit == .south);
-        const qj: ?i32 = if (q.jog) |qq| switch (q.sides.exit) {
-            .south => clampBetween(q.start.y, q.end.y, qq),
-            .north => clampBetween(q.end.y, q.start.y, qq),
-            .east => clampBetween(q.start.x, q.end.x, qq),
-            .west => clampBetween(q.end.x, q.start.x, qq),
-        } else null;
-        try scene.tentInk(arena, &heads, &runs, q.start, q.end, qv, qj, q.cross.arrow_from != .none, q.cross.arrow_to != .none);
+        try scene.tentInk(arena, &heads, &runs, q);
     }
     const aug = tracks.Obstacles{ .heads = heads.items, .runs = runs.items };
 
@@ -210,44 +190,6 @@ fn dodgeJog(
         }
     }
     return best orelse j;
-}
-
-fn commitScene(
-    arena: std.mem.Allocator,
-    heads: *std.ArrayListUnmanaged(Pt),
-    runs: *std.ArrayListUnmanaged([2]Pt),
-    poly: []const sketch.Point,
-    cross: Crossing,
-) error{OutOfMemory}!void {
-    try scene.commitPoly(arena, heads, runs, poly, cross.arrow_from != .none, cross.arrow_to != .none);
-}
-
-fn anchorOf(clusters: []const sketch.ClusterFrame, p: sketch.NodePlacement, merged_id: sketch.NodeId) Anchor {
-    var cid = p.cluster_id;
-    var guard: u32 = 0;
-    while (cid) |id| : (guard += 1) {
-        if (guard > 64) break;
-        const f = frameById(clusters, id) orelse break;
-        if (!f.synthetic) return .{ .frame = true, .id = id };
-        cid = f.parent_id;
-    }
-    return .{ .frame = false, .id = merged_id };
-}
-
-fn frameById(clusters: []const sketch.ClusterFrame, id: sketch.ClusterId) ?sketch.ClusterFrame {
-    for (clusters) |c| {
-        if (c.id == id) return c;
-    }
-    return null;
-}
-
-fn jogPref(start: Pt, end: Pt, exit: sketch.Dir4, to_box: sketch.Rect) ?i32 {
-    return switch (exit) {
-        .south => if (start.x == end.x) null else @min(to_box.y - 1, end.y - 2),
-        .north => if (start.x == end.x) null else @max(to_box.bottom(), end.y + 2),
-        .east => if (start.y == end.y) null else @min(to_box.x - 1, end.x - 2),
-        .west => if (start.y == end.y) null else @max(to_box.right(), end.x + 2),
-    };
 }
 
 pub const sceneObstacles = scene.sceneObstacles;
@@ -306,11 +248,7 @@ fn faceTaken(pends: []const Pending, self: usize, node: sketch.NodeId, side: ske
 }
 
 fn boxOf(clusters: []const sketch.ClusterFrame, p: sketch.NodePlacement) ?sketch.Rect {
-    const cid = p.cluster_id orelse return null;
-    for (clusters) |c| {
-        if (c.id == cid) return c.rect;
-    }
-    return null;
+    return corridors.rectOf(clusters, p.cluster_id orelse return null);
 }
 
 fn relSides(f: sketch.Rect, t: sketch.Rect, dir: sketch.Direction) Sides {
@@ -333,20 +271,13 @@ fn relSides(f: sketch.Rect, t: sketch.Rect, dir: sketch.Direction) Sides {
     return if (dx >= 0) .{ .exit = .east, .entry = .west } else .{ .exit = .west, .entry = .east };
 }
 
-const verticalCorridor = scene.verticalCorridor;
-const clampBetween = scene.clampBetween;
-
 const Pt = sketch.Point;
 fn center(r: sketch.Rect) Pt {
     return .{ .x = r.x + @divTrunc(@as(i32, @intCast(r.w)), 2), .y = r.y + @divTrunc(@as(i32, @intCast(r.h)), 2) };
 }
 
-fn sideOffset(r: sketch.Rect, side: sketch.Dir4) u32 {
-    return corridors.sideOffset(r, side);
-}
-
 fn portPoint(r: sketch.Rect, side: sketch.Dir4) Pt {
-    const off: i32 = @intCast(sideOffset(r, side));
+    const off: i32 = @intCast(corridors.sideOffset(r, side));
     return switch (side) {
         .north => .{ .x = r.x + off, .y = r.y },
         .south => .{ .x = r.x + off, .y = r.bottom() - 1 },

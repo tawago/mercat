@@ -3,7 +3,6 @@ const sketch = @import("../sketch.zig");
 const rail_star = @import("../base/rail_star.zig");
 const bridge_fans = @import("bridge_fans.zig");
 const types = @import("bridge_types.zig");
-const elbow = @import("bridge_elbow.zig");
 const requests = @import("bridge_requests.zig");
 const scene = @import("bridge_scene.zig");
 const tracks = @import("tracks.zig");
@@ -22,7 +21,7 @@ pub fn overrideJogs(
     for ([2]rail_star.Endpoint{ .source, .target }) |end| {
         for (try bridge_fans.groups(arena, crossings, end)) |members| {
             if (!try bridge_fans.licensed(arena, crossings, members, end)) continue;
-            if (!try railable(arena, pends, members, placements, end)) continue;
+            if (!railable(pends, members, placements, end)) continue;
             if (try chooseJog(arena, pends, members, placements, clusters, obstacles, end)) |c| {
                 for (members) |mi| pends[mi].jog = c;
             }
@@ -35,12 +34,11 @@ fn railEnd(end: rail_star.Endpoint) requests.RailEnd {
 }
 
 fn railable(
-    arena: std.mem.Allocator,
     pends: []const types.Pending,
     members: []const usize,
     placements: []const sketch.NodePlacement,
     end: rail_star.Endpoint,
-) error{OutOfMemory}!bool {
+) bool {
     const re = railEnd(end);
     const p0 = pends[members[0]];
     for (members) |mi| {
@@ -48,7 +46,7 @@ fn railable(
         if (m.jog == null) return false;
         if (requests.railSide(m, re) != requests.railSide(p0, re)) return false;
         if (!requests.samePt(requests.railPort(m, re), requests.railPort(p0, re))) return false;
-        if (try elbow.rerouted(arena, m, placements)) return false;
+        if (scene.rerouted(m, placements)) return false;
         if (requests.railedAtOtherEnd(pends, mi, re)) return false;
     }
     return true;
@@ -64,16 +62,16 @@ fn chooseJog(
     end: rail_star.Endpoint,
 ) error{OutOfMemory}!?i32 {
     const p0 = pends[members[0]];
-    const vertical = (p0.sides.exit == .north or p0.sides.exit == .south);
+    const vertical = p0.vertical();
     var lo: i32 = std.math.minInt(i32);
     var hi: i32 = std.math.maxInt(i32);
     for (members) |mi| {
-        const b = boundsOf(pends[mi]);
+        const b = pends[mi].bounds();
         lo = @max(lo, b[0]);
         hi = @min(hi, b[1]);
     }
     if (hi - lo < 2) return null;
-    const jc = scene.clampBetween(lo, hi, p0.jog.?);
+    const jc = types.clampBetween(lo, hi, p0.jog.?);
 
     var heads: std.ArrayListUnmanaged(Pt) = .empty;
     var runs: std.ArrayListUnmanaged([2]Pt) = .empty;
@@ -83,10 +81,7 @@ fn chooseJog(
     for (pends, 0..) |q, qi| {
         if (inGroup(members, qi)) continue;
         if (requests.samePt(requests.railPort(q, railEnd(end)), port)) continue;
-        const qv = (q.sides.exit == .north or q.sides.exit == .south);
-        const qb = boundsOf(q);
-        const qj: ?i32 = if (q.jog) |qq| scene.clampBetween(qb[0], qb[1], qq) else null;
-        try scene.tentInk(arena, &heads, &runs, q.start, q.end, qv, qj, q.cross.arrow_from != .none, q.cross.arrow_to != .none);
+        try scene.tentInk(arena, &heads, &runs, q);
     }
     const aug = tracks.Obstacles{ .heads = heads.items, .runs = runs.items };
 
@@ -129,15 +124,6 @@ fn groupScore(
         sum += scene.polyScore(&poly, aug) + scene.boxScore(&poly, m.gf, m.gt, placements, clusters);
     }
     return sum;
-}
-
-fn boundsOf(p: types.Pending) [2]i32 {
-    return switch (p.sides.exit) {
-        .south => .{ p.start.y, p.end.y },
-        .north => .{ p.end.y, p.start.y },
-        .east => .{ p.start.x, p.end.x },
-        .west => .{ p.end.x, p.start.x },
-    };
 }
 
 pub fn withStaticRuns(

@@ -60,7 +60,7 @@ pub fn assignJogs(
             if (done[j] or pends[j].pref == null) continue;
             const m = pends[j];
             if (m.sides.entry != p0.sides.entry) continue;
-            if (m.anchor.frame != p0.anchor.frame or m.anchor.id != p0.anchor.id) continue;
+            if (!m.sameAnchor(p0)) continue;
             done[j] = true;
             try members.append(arena, j);
         }

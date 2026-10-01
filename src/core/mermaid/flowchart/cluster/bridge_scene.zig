@@ -3,6 +3,7 @@ const sketch = @import("../sketch.zig");
 const sketch_clearance = @import("../sketch_clearance.zig");
 const tracks = @import("tracks.zig");
 const corridors = @import("corridors.zig");
+const types = @import("bridge_types.zig");
 
 const Pt = sketch.Point;
 
@@ -77,32 +78,11 @@ pub fn tentInk(
     arena: std.mem.Allocator,
     heads: *std.ArrayListUnmanaged(Pt),
     runs: *std.ArrayListUnmanaged([2]Pt),
-    start: Pt,
-    end: Pt,
-    vertical: bool,
-    jog: ?i32,
-    arrow_from: bool,
-    arrow_to: bool,
+    p: types.Pending,
 ) error{OutOfMemory}!void {
-    var buf: [4]Pt = undefined;
-    var n: usize = 0;
-    buf[n] = start;
-    n += 1;
-    if (jog) |c| {
-        if (vertical) {
-            buf[n] = .{ .x = start.x, .y = c };
-            buf[n + 1] = .{ .x = end.x, .y = c };
-        } else {
-            buf[n] = .{ .x = c, .y = start.y };
-            buf[n + 1] = .{ .x = c, .y = end.y };
-        }
-        n += 2;
-    } else if (if (vertical) start.x != end.x else start.y != end.y) {
-        return;
-    }
-    buf[n] = end;
-    n += 1;
-    try commitPoly(arena, heads, runs, buf[0..n], arrow_from, arrow_to);
+    if (p.jog == null and (if (p.vertical()) p.start.x != p.end.x else p.start.y != p.end.y)) return;
+    const e = p.elbow();
+    try commitPoly(arena, heads, runs, e.slice(), p.cross.arrow_from != .none, p.cross.arrow_to != .none);
 }
 
 pub fn jogScore(
@@ -262,9 +242,9 @@ pub fn verticalCorridor(
         obstacles,
     );
     const tgt_jog_y = if (descending)
-        clampBetween(start.y, end.y, tgt_want)
+        types.clampBetween(start.y, end.y, tgt_want)
     else
-        clampBetween(end.y, start.y, tgt_want);
+        types.clampBetween(end.y, start.y, tgt_want);
 
     const lo = @min(src_jog_y, tgt_jog_y);
     const hi = @max(src_jog_y, tgt_jog_y);
@@ -308,9 +288,8 @@ pub fn polyIntrudes(
     return false;
 }
 
-pub fn clampBetween(lo: i32, hi: i32, want: i32) i32 {
-    if (hi - lo < 2) return lo + 1;
-    if (want <= lo) return lo + 1;
-    if (want >= hi) return hi - 1;
-    return want;
+pub fn rerouted(p: types.Pending, placements: []const sketch.NodePlacement) bool {
+    if (!p.vertical()) return false;
+    const e = p.elbow();
+    return polyIntrudes(e.slice(), placements, p.gf, p.gt);
 }
