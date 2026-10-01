@@ -7,7 +7,7 @@ pub const PieceBundles = struct {
     edge_base: sketch.EdgeId,
 };
 
-pub fn merge(a: std.mem.Allocator, pieces: []const PieceBundles, bridge: ledger.RealizedBundles) error{OutOfMemory}!ledger.RealizedBundles {
+pub fn merge(a: std.mem.Allocator, pieces: []const PieceBundles) error{OutOfMemory}!ledger.RealizedBundles {
     var selected: std.ArrayListUnmanaged(ledger.SelectedBundle) = .empty;
     var memberships: std.ArrayListUnmanaged(ledger.RealizedEdgeMembership) = .empty;
     var discharged: std.ArrayListUnmanaged(ledger.EdgeId) = .empty;
@@ -33,23 +33,6 @@ pub fn merge(a: std.mem.Allocator, pieces: []const PieceBundles, bridge: ledger.
             });
         }
         for (j.discharged) |e| try discharged.append(a, e + piece.edge_base);
-    }
-
-    const bridge_jid_base: ledger.SelectedBundleId = @intCast(selected.items.len);
-    for (bridge.selected_bundles) |sel| {
-        try selected.append(a, .{
-            .id = sel.id + bridge_jid_base,
-            .proposal = sel.proposal,
-            .candidate_bundle = sel.candidate_bundle,
-            .members = sel.members,
-        });
-    }
-    for (bridge.memberships) |m| {
-        try memberships.append(a, .{
-            .edge = m.edge,
-            .source = shiftDisposition(m.source, bridge_jid_base),
-            .target = shiftDisposition(m.target, bridge_jid_base),
-        });
     }
 
     return .{
@@ -91,7 +74,7 @@ test "merge renumbers bundles per piece and shifts every edge id" {
     const merged = try merge(a, &.{
         .{ .bundles = piece_a, .edge_base = 0 },
         .{ .bundles = piece_b, .edge_base = 10 },
-    }, .{});
+    });
 
     try std.testing.expectEqual(@as(usize, 2), merged.selected_bundles.len);
     try std.testing.expectEqual(@as(ledger.SelectedBundleId, 0), merged.selected_bundles[0].id);

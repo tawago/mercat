@@ -264,6 +264,7 @@ const Stitcher = struct {
             try bridge_plan.plan(arena, self.sr.crossings, final_bridges, self.bridge_base)
         else
             ledger.RealizedBundles{};
+        if (merge_joins) try self.piece_joins.append(arena, .{ .bundles = bridge_joins, .edge_base = 0 });
         for (try bundle_plan.bundlesFromPlan(arena, bridge_joins)) |cs| try self.bundle_sets.append(arena, cs);
         const bar_slice = try self.rails.toOwnedSlice(arena);
         const authority = try stitch_bundle_sets.finalizeAuthority(
@@ -290,7 +291,7 @@ const Stitcher = struct {
             .rails = bar_slice,
             .rail_claims = authority.claims,
             .bundle_sets = authority.sets,
-            .bundles = if (merge_joins) try stitch_bundles.merge(arena, self.piece_joins.items, bridge_joins) else .{},
+            .bundles = if (merge_joins) try stitch_bundles.merge(arena, self.piece_joins.items) else .{},
             .diagnostics = self.outer.diagnostics,
             .budget = self.outer.budget,
         };
