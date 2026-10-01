@@ -14,27 +14,13 @@ pub fn sceneObstacles(
 ) error{OutOfMemory}!tracks.Obstacles {
     var heads: std.ArrayListUnmanaged(Pt) = .empty;
     var runs: std.ArrayListUnmanaged([2]Pt) = .empty;
-    for (edge_paths) |e| {
-        const n = e.polyline.len;
-        if (n >= 2) {
-            if (e.arrow_to != .none) {
-                if (stepDir(e.polyline[n - 1], e.polyline[n - 2])) |d| try heads.append(arena, stepPt(e.polyline[n - 1], d));
-            }
-            if (e.arrow_from != .none) {
-                if (stepDir(e.polyline[0], e.polyline[1])) |d| try heads.append(arena, stepPt(e.polyline[0], d));
-            }
-        }
-    }
+    for (edge_paths) |e| try appendHeads(arena, &heads, e.polyline, e.arrow_from != .none, e.arrow_to != .none);
     for (rails) |r| {
         try runs.append(arena, r.crossbar);
-        var si: usize = 0;
-        while (si + 1 < r.stem.len) : (si += 1) {
-            try runs.append(arena, .{ r.stem[si], r.stem[si + 1] });
-        }
+        try appendRuns(arena, &runs, r.stem);
         if (r.pivot_arrow != .none and r.stem.len >= 2) {
-            si = 0;
-            while (si + 1 < r.stem.len) : (si += 1) {
-                if (stepDir(r.stem[si], r.stem[si + 1])) |d| {
+            for (r.stem[0 .. r.stem.len - 1], r.stem[1..]) |a, b| {
+                if (stepDir(a, b)) |d| {
                     try heads.append(arena, stepPt(r.stem[0], d));
                     break;
                 }
@@ -52,6 +38,28 @@ pub fn sceneObstacles(
     return .{ .heads = try heads.toOwnedSlice(arena), .runs = try runs.toOwnedSlice(arena) };
 }
 
+pub fn appendRuns(arena: std.mem.Allocator, runs: *std.ArrayListUnmanaged([2]Pt), poly: []const Pt) error{OutOfMemory}!void {
+    if (poly.len < 2) return;
+    for (poly[0 .. poly.len - 1], poly[1..]) |a, b| try runs.append(arena, .{ a, b });
+}
+
+fn appendHeads(
+    arena: std.mem.Allocator,
+    heads: *std.ArrayListUnmanaged(Pt),
+    poly: []const Pt,
+    arrow_from: bool,
+    arrow_to: bool,
+) error{OutOfMemory}!void {
+    const n = poly.len;
+    if (n < 2) return;
+    if (arrow_to) {
+        if (stepDir(poly[n - 1], poly[n - 2])) |d| try heads.append(arena, stepPt(poly[n - 1], d));
+    }
+    if (arrow_from) {
+        if (stepDir(poly[0], poly[1])) |d| try heads.append(arena, stepPt(poly[0], d));
+    }
+}
+
 pub fn commitPoly(
     arena: std.mem.Allocator,
     heads: *std.ArrayListUnmanaged(Pt),
@@ -60,18 +68,8 @@ pub fn commitPoly(
     arrow_from: bool,
     arrow_to: bool,
 ) error{OutOfMemory}!void {
-    const n = poly.len;
-    if (n < 2) return;
-    var i: usize = 0;
-    while (i + 1 < n) : (i += 1) {
-        try runs.append(arena, .{ poly[i], poly[i + 1] });
-    }
-    if (arrow_to) {
-        if (stepDir(poly[n - 1], poly[n - 2])) |d| try heads.append(arena, stepPt(poly[n - 1], d));
-    }
-    if (arrow_from) {
-        if (stepDir(poly[0], poly[1])) |d| try heads.append(arena, stepPt(poly[0], d));
-    }
+    try appendRuns(arena, runs, poly);
+    try appendHeads(arena, heads, poly, arrow_from, arrow_to);
 }
 
 pub fn tentInk(

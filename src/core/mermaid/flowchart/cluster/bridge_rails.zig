@@ -133,12 +133,7 @@ pub fn withStaticRuns(
 ) error{OutOfMemory}!tracks.Obstacles {
     var runs: std.ArrayListUnmanaged([2]Pt) = .empty;
     try runs.appendSlice(arena, base.runs);
-    for (edge_paths) |e| {
-        if (e.polyline.len < 2) continue;
-        for (e.polyline[0 .. e.polyline.len - 1], e.polyline[1..]) |a, b| {
-            try runs.append(arena, .{ a, b });
-        }
-    }
+    for (edge_paths) |e| try scene.appendRuns(arena, &runs, e.polyline);
     return .{ .heads = base.heads, .runs = try runs.toOwnedSlice(arena) };
 }
 
