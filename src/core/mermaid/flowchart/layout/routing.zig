@@ -5,7 +5,7 @@ const sugiyama = @import("sugiyama.zig");
 const back_edges = @import("back_edges.zig");
 const fan_mod = @import("fan.zig");
 const fan_provenance = @import("fan_provenance.zig");
-const member_stroke = @import("member_stroke.zig");
+const rail_loop = @import("rail_loop.zig");
 const fan_polyline = @import("fan_polyline.zig");
 const fan_rail = @import("fan_rail.zig");
 const gap_rows = @import("gap_rows.zig");
@@ -55,68 +55,15 @@ pub fn buildEdgesWithPlan(
     allocated_ports: port_plan.Plan,
     rows: gap_rows.Ledger,
 ) error{OutOfMemory}!EdgesResult {
-    var out: std.ArrayListUnmanaged(sketch.EdgePath) = .empty;
-    var polys: std.ArrayListUnmanaged([]sketch.Point) = .empty;
-
     const rail_alloc = try back_edges.allocateBackEdgeRails(a, graph, lg, geom, placements);
     defer a.free(rail_alloc);
 
-    var rails: std.ArrayListUnmanaged(fan_rail.Built) = .empty;
-    var claimed: std.ArrayListUnmanaged(sg.EdgeId) = .empty;
-    const Pending = struct { fan: fan_mod.Fan, resolved: fan_rail.Resolved };
-    var pending: std.ArrayListUnmanaged(Pending) = .empty;
-    for (fans) |f| {
-        const resolved = (try fan_rail.resolve(a, graph.direction, f, graph, placements, geom, bundles, allocated_ports)) orelse continue;
-        try pending.append(a, .{ .fan = f, .resolved = resolved });
-    }
-    for (pending.items) |p| {
-        if (p.resolved.direction != .out) continue;
-        for (p.resolved.peers) |peer| {
-            if (!peer.long) continue;
-            for (pending.items) |q| {
-                if (q.resolved.direction != .in) continue;
-                for (q.resolved.peers) |*other| if (other.long and other.edge.id == peer.edge.id) {
-                    other.column = peer.column;
-                };
-            }
-        }
-    }
-    var bar_views: []sketch.Rail = &.{};
-    var attempt: usize = 0;
-    while (true) : (attempt += 1) {
-        rails.clearRetainingCapacity();
-        claimed.clearRetainingCapacity();
-        out.clearRetainingCapacity();
-        polys.clearRetainingCapacity();
-        var rail_pending: std.ArrayListUnmanaged(usize) = .empty;
-        for (pending.items, 0..) |p, pi| {
-            if (p.resolved.peers.len < 2) continue;
-            const row = rows.rowOfFan(p.fan.pivot_idx, p.fan.direction) orelse 0;
-            const built = try fan_rail.build(a, p.resolved, @intCast(@max(row, 0)));
-            if (fan_rail.blocked(built, p.resolved.pivot.id, placements)) continue;
-            if (try route_clearance.railConflictsReservedTerminals(a, built.rail, placements, allocated_ports.edges, bundles)) continue;
-            try rails.append(a, built);
-            try rail_pending.append(a, pi);
-        }
-        bar_views = try a.alloc(sketch.Rail, rails.items.len);
-        for (rails.items, bar_views) |rail, *view| view.* = rail.rail;
-        const reserved = try a.alloc(i32, rail_alloc.len);
-        for (rail_alloc, reserved) |r, *x| x.* = r.rail_pos;
-        const refused = try member_stroke.buildAll(a, graph, lg, geom, placements, rails.items, bar_views, bundles, allocated_ports, reserved, rows, &out, &polys);
-        if (refused.len == 0 or attempt >= 8) {
-            for (rails.items) |built| {
-                try polys.append(a, built.stem);
-                for (built.rail.taps) |tap| try claimed.append(a, tap.edge);
-            }
-            break;
-        }
-        for (refused) |r| {
-            const p = &pending.items[rail_pending.items[r.rail]];
-            var kept: std.ArrayListUnmanaged(fan_rail.Peer) = .empty;
-            for (p.resolved.peers) |peer| if (peer.edge.id != r.edge) try kept.append(a, peer);
-            p.resolved.peers = try kept.toOwnedSlice(a);
-        }
-    }
+    const reserved = try a.alloc(i32, rail_alloc.len);
+    for (rail_alloc, reserved) |r, *x| x.* = r.rail_pos;
+    const drawn = try rail_loop.run(a, graph, lg, geom, placements, fans, bundles, allocated_ports, rows, reserved);
+    var out = drawn.edges;
+    var polys = drawn.polylines;
+    const bar_views = drawn.views;
 
     var routing_edges: std.ArrayListUnmanaged(sg.Edge) = .empty;
     if (bundles.memberships.len == 0) {
@@ -130,7 +77,7 @@ pub fn buildEdgesWithPlan(
     for (routing_edges.items) |orig| {
         const proxy = rows.isProxy(orig.id);
         if (rail_closure.contains(bundles.discharged, orig.id)) continue;
-        if (std.mem.indexOfScalar(sg.EdgeId, claimed.items, orig.id) != null) continue;
+        if (std.mem.indexOfScalar(sg.EdgeId, drawn.claimed, orig.id) != null) continue;
         if (orig.from != orig.to) {
             if (fan_mod.lookup(fans, orig.id)) |hit| if (!hit.peer.long) {
                 const ep = allocated_ports.forEdge(orig.id) orelse unreachable;
@@ -299,7 +246,7 @@ pub fn buildEdgesWithPlan(
     return .{
         .edges = try out.toOwnedSlice(a),
         .polylines = try polys.toOwnedSlice(a),
-        .rails = try rails.toOwnedSlice(a),
+        .rails = drawn.rails,
         .bundle_sets = try fan_mod.coSets(a, fans),
         .rail_claims = rail_claims,
     };
