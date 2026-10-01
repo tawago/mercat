@@ -14,9 +14,7 @@ const gap_rows = @import("layout/gap_rows.zig");
 const mirror = @import("layout/mirror.zig");
 const x_assign = @import("layout/x_assign.zig");
 const sizing = @import("layout/sizing.zig");
-const components = @import("layout/components.zig");
-const rank_grid = @import("layout/rank_grid.zig");
-const decascade = @import("layout/decascade.zig");
+const pressure = @import("layout/pressure.zig");
 const bundle_decision = @import("layout/bundle_decision.zig");
 const layer_axis = @import("layout/layer_axis.zig");
 const port_plan = @import("layout/port_plan.zig");
@@ -85,7 +83,6 @@ fn buildSketch(
     const geom = try a.alloc(NodeGeom, total);
     const node_lines = try a.alloc([]const []const u8, total);
 
-    const is_td = graph.direction == .TD;
     const decision = try bundle_decision.decide(a, graph, lg, opts.bundle_permits);
     const fans = try ownFans(a, decision.fans);
     try sizing.sizeNodes(a, graph, lg, geom, opts.node_padding, opts.fixed_sizes, opts.max_label_width, node_lines);
@@ -104,34 +101,9 @@ fn buildSketch(
 
     layer_axis.assignY(geom, lg.layers, layer_h, v_sp_per_gap);
 
-    const td_pressure = opts.justify == .flush_left and compact_x;
-    if (td_pressure) {
-        flushLeftRows(graph, geom, lg);
-        normalizeX(geom);
-    }
+    try pressure.run(a, graph, lg, geom, fans, v_sp_per_gap, opts, compact_x);
 
-    if (td_pressure) {
-        try components.packComponents(a, graph, geom, lg);
-        normalizeX(geom);
-    }
-
-    if (is_td and fans.len > 0) {
-        fan_mod.wrapWideFanOut(NodeGeom, fans, geom, opts.max_width, opts.h_spacing, opts.v_spacing);
-        if (td_pressure) fan_mod.wrapWideFanIn(NodeGeom, fans, geom, opts.max_width, opts.h_spacing, opts.v_spacing);
-        normalizeX(geom);
-    }
-
-    if (td_pressure) {
-        rank_grid.reflowWideRanks(lg, geom, opts.max_width, opts.h_spacing, opts.v_spacing);
-        normalizeX(geom);
-    }
-
-    if (td_pressure) {
-        if (try decascade.deCascade(a, geom, lg)) |drop| v_sp_per_gap[drop.gap] += drop.rows;
-        normalizeX(geom);
-    }
-
-    if (fans.len > 0) fan_mod.assignRoles(fans, try centersX(a, geom));
+    if (fans.len > 0) fan_mod.assignRoles(fans, try x_assign.centersX(a, geom));
     layer_axis.foldLayerOffsets(lg, geom, layer_h);
 
     const predicted_ports = try gap_rows.predictPorts(NodeGeom, a, graph, lg, geom, decision.attachments, decision.bundles, decision.port_active, opts.rung);
@@ -190,10 +162,6 @@ fn ownFans(a: std.mem.Allocator, fans: []const fan_mod.Fan) error{OutOfMemory}![
     for (out) |*f| f.peers = try a.dupe(fan_mod.FanEdge, f.peers);
     return out;
 }
-
-const normalizeX = x_assign.normalizeX;
-const centersX = x_assign.centersX;
-const flushLeftRows = x_assign.flushLeftRows;
 
 test {
     _ = @import("layout/layout_test.zig");
