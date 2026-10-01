@@ -56,7 +56,7 @@ fn reflowOneLayer(
         if (g.w > max_w) max_w = g.w;
         if (g.h > max_h) max_h = g.h;
         if (g.x < span_min) span_min = g.x;
-        const right = g.x + @as(i32, @intCast(g.w));
+        const right = g.right();
         if (right > span_max) span_max = right;
     }
     const span: u32 = @intCast(@max(0, span_max - span_min));
@@ -201,7 +201,7 @@ fn layerCenterX(reals: []const u32, geom: []const NodeGeom) i32 {
     for (reals) |idx| {
         const g = geom[idx];
         if (g.x < min_x) min_x = g.x;
-        const right = g.x + @as(i32, @intCast(g.w));
+        const right = g.right();
         if (right > max_x) max_x = right;
     }
     return @divTrunc(min_x + max_x, 2);

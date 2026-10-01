@@ -67,18 +67,18 @@ fn centerLayer(
             const want_above = dir == .down;
             if (want_above) {
                 if (e.to == idx and geom[e.from].layer + 1 == geom[idx].layer) {
-                    sum += centerX(geom[e.from]);
+                    sum += geom[e.from].centerX();
                     n += 1;
                 }
             } else {
                 if (e.from == idx and geom[e.to].layer == geom[idx].layer + 1) {
-                    sum += centerX(geom[e.to]);
+                    sum += geom[e.to].centerX();
                     n += 1;
                 }
             }
         }
         if (n == 0) {
-            desired[k] = centerX(geom[idx]);
+            desired[k] = geom[idx].centerX();
         } else {
             desired[k] = @intCast(@divTrunc(sum, @as(i64, @intCast(n))));
         }
@@ -130,7 +130,7 @@ fn centerRunOnDesired(geom: []NodeGeom, lg: sugiyama.LayeredGraph, row: []const 
     for (row, 0..) |idx, k| {
         switch (lg.nodes[idx]) {
             .real => {
-                sum_actual += centerX(geom[idx]);
+                sum_actual += geom[idx].centerX();
                 sum_desired += desired[k];
                 n += 1;
             },
@@ -148,10 +148,6 @@ fn centerRunOnDesired(geom: []NodeGeom, lg: sugiyama.LayeredGraph, row: []const 
     if (min_x + delta < 0) delta = -min_x;
     if (delta == 0) return;
     for (row) |idx| geom[idx].x += delta;
-}
-
-pub fn centerX(g: NodeGeom) i32 {
-    return g.x + @divTrunc(@as(i32, @intCast(g.w)), 2);
 }
 
 pub fn flushLeftRows(graph: sg.SemGraph, geom: []NodeGeom, lg: sugiyama.LayeredGraph) void {
@@ -202,7 +198,7 @@ fn leftmostNeighbourX(geom: []const NodeGeom, lg: sugiyama.LayeredGraph, idx: u3
     for (lg.edges) |e| {
         const other: ?u32 = if (e.from == idx) e.to else if (e.to == idx) e.from else null;
         if (other) |o| {
-            const cx = centerX(geom[o]);
+            const cx = geom[o].centerX();
             if (cx < min_cx) min_cx = cx;
             found = true;
         }
@@ -222,7 +218,7 @@ pub fn normalizeX(geom: []NodeGeom) void {
 
 pub fn centersX(a: std.mem.Allocator, geom: []const NodeGeom) error{OutOfMemory}![]i32 {
     const cx = try a.alloc(i32, geom.len);
-    for (geom, 0..) |g, i| cx[i] = centerX(g);
+    for (geom, 0..) |g, i| cx[i] = g.centerX();
     return cx;
 }
 

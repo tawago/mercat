@@ -52,7 +52,7 @@ pub fn packComponents(
         if (ln != .real) continue;
         const r = find(parent, @intCast(i));
         const left = geom[i].x;
-        const right = geom[i].x + @as(i32, @intCast(geom[i].w));
+        const right = geom[i].right();
         if (min_x[r] == std.math.maxInt(i32)) {
             try roots.append(a, r);
         }

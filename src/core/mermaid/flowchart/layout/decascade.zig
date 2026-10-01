@@ -112,7 +112,7 @@ pub fn deCascade(
         for (lg.layers[layer]) |j| {
             if (lg.nodes[j] != .real or in_unit[j]) continue;
             if (geom[j].x >= geom[i].x) continue;
-            const r = geom[j].x + @as(i32, @intCast(geom[j].w));
+            const r = geom[j].right();
             if (r > rail) rail = r;
         }
         if (rail == std.math.minInt(i32)) continue;
@@ -126,13 +126,13 @@ pub fn deCascade(
         if (in_unit[i]) geom[i].x += delta;
     }
 
-    const head_port = geom[head].x + @divTrunc(@as(i32, @intCast(geom[head].w)), 2);
+    const head_port = geom[head].centerX();
     var needs_corridor = false;
     var fork_layer_h: i32 = 0;
     if (lo > 0) {
         for (lg.layers[lo - 1]) |idx| {
             if (lg.nodes[idx] != .real or in_unit[idx]) continue;
-            const r = geom[idx].x + @as(i32, @intCast(geom[idx].w));
+            const r = geom[idx].right();
             if (geom[idx].x <= head_port and head_port <= r) {
                 needs_corridor = true;
             }
