@@ -30,8 +30,10 @@ pub fn jogClaims(a: std.mem.Allocator, c: Census, claims: *std.ArrayListUnmanage
         const arr: i32 = if (pin == -1) c.portCol(e, .target_entry) else v_col;
         if (@max(sl, tl) - @min(sl, tl) > 1) {
             const entry_gap = c.gapBelow(sl) orelse continue;
-            try claims.append(a, try one(a, entry_gap, u_col, v_col, .bridge_return, e.id, null));
-            try claims.append(a, try one(a, gap, u_col, v_col, .bridge_jog, e.id, pin));
+            try claims.append(a, try pack_mod.edgeClaim(a, entry_gap, u_col, v_col, .bridge_return, .entry, false, false, e.id));
+            var jog = try pack_mod.edgeClaim(a, gap, u_col, v_col, .bridge_jog, .exit, false, false, e.id);
+            jog.pin = pin;
+            try claims.append(a, jog);
             continue;
         }
         const g: *Group = for (groups.items) |*existing| {
@@ -100,14 +102,4 @@ fn adoptSamePortExits(a: std.mem.Allocator, g: *Group, claims: *std.ArrayListUnm
         c.pin = -1;
         try g.reqs.append(a, .{ .lo = c.lo, .hi = c.hi, .dep = c.lo, .arr = c.hi, .edge = sg.SENTINEL });
     }
-}
-
-fn one(a: std.mem.Allocator, gap: u32, x: i32, y: i32, kind: pack_mod.Kind, edge: sg.EdgeId, pin: ?i32) error{OutOfMemory}!Claim {
-    const edges = try a.alloc(sg.EdgeId, 1);
-    edges[0] = edge;
-    const stems = try a.alloc(i32, 1);
-    stems[0] = x;
-    const taps = try a.alloc(i32, 1);
-    taps[0] = y;
-    return .{ .gap = gap, .lo = @min(x, y), .hi = @max(x, y), .kind = kind, .end = if (pin == null) .entry else .exit, .edges = edges, .stems = stems, .taps = taps, .pin = pin };
 }

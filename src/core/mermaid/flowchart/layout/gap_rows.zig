@@ -29,11 +29,7 @@ fn edgeClaims(a: std.mem.Allocator, c: Census, fans: []const fan_mod.Fan, eligib
         if (e.kind == .invisible or e.from == e.to or c.isReversed(e.id) or c.isPlacement(e)) continue;
         if (rail_closure.contains(bundles.discharged, e.id) or per_peer.contains(e.id)) continue;
         if (drawnByEligible(fans, eligible, e.id, .out, bundles.discharged) or drawnByEligible(fans, eligible, e.id, .in, bundles.discharged)) continue;
-        var fused = false;
-        for (bundles.fused) |u| if (std.mem.indexOfScalar(pb.EdgeId, u, e.id) != null) {
-            fused = true;
-        };
-        if (fused) continue;
+        if (fusedAnywhere(bundles, e.id)) continue;
         const sl = c.layerOfNode(e.from) orelse continue;
         const tl = c.layerOfNode(e.to) orelse continue;
         const target_gap = c.gapOf(sl, tl) orelse continue;
@@ -62,6 +58,11 @@ fn edgeClaims(a: std.mem.Allocator, c: Census, fans: []const fan_mod.Fan, eligib
             try claims.append(a, try edgeClaim(a, target_gap, corridor, tcol, .corridor_exit, .exit, e.arrow_to == .none, false, e.id));
         } else if (e.arrow_to != .none) try posts.append(a, .{ .gap = target_gap, .x = tcol });
     }
+}
+
+fn fusedAnywhere(bundles: pb.RealizedBundles, edge: sg.EdgeId) bool {
+    for (bundles.fused) |union_edges| if (pb.containsEdge(union_edges, edge)) return true;
+    return false;
 }
 
 fn returnClaims(a: std.mem.Allocator, c: Census, claims: *std.ArrayListUnmanaged(Claim)) error{OutOfMemory}!void {
