@@ -5,8 +5,7 @@ const rc = @import("../base/rail_closure.zig");
 const sg = @import("../sem_graph.zig");
 const permit_mod = @import("../ledger/permits.zig");
 
-pub const Report = pb.ClosureCounts;
-
+/// The plan a layout realizes: a flat render's plan as it stands, a cluster piece's own.
 pub fn effectivePlan(a: std.mem.Allocator, graph: sg.SemGraph, root: ?*const pb.BundlePermits) error{OutOfMemory}!?pb.BundlePermits {
     const rp = root orelse return null;
     if (rp.isFlat()) return rp.*;
@@ -17,434 +16,320 @@ pub fn effectivePlan(a: std.mem.Allocator, graph: sg.SemGraph, root: ?*const pb.
     return piece.plan;
 }
 
-pub fn buildReported(a: std.mem.Allocator, graph: sg.SemGraph, permits: ?*const pb.BundlePermits, reversed_edges: []const pb.EdgeId, long_edges: []const pb.EdgeId, report: ?*Report) error{OutOfMemory}!pb.RealizedBundles {
-    const plan_ptr = permits orelse return .{};
-    const plan = plan_ptr.*;
-    const eff_of = try a.alloc(?[]const pb.EdgeId, plan.groups.len);
-    for (plan.groups, 0..) |group, gi| {
-        const reversed = containsReversed(group, reversed_edges);
-        const forward = if (reversed and group.direction == .in)
-            try forwardSubset(a, group.members, reversed_edges)
-        else
-            group.members;
-        const eff = try permit_mod.prepareRailMembers(a, graph, group.direction, group.pivot, forward);
-        const eff_group: pb.CandidateBundle = .{ .id = group.id, .direction = group.direction, .pivot = group.pivot, .members = eff };
-        const blocked = !styleCompatible(graph, eff_group) or hasDuplicateKey(graph, eff_group) or
-            containsReversed(eff_group, reversed_edges) or eff.len < 2;
-        eff_of[gi] = if (blocked) null else eff;
-    }
+/// Where one candidate bundle stands while the phases run.
+const Slot = union(enum) {
+    /// No rail: fewer than two members stand, or a member is reversed.
+    none,
+    /// The closure licence or the discharge settlement refused it.
+    refused,
+    rail: Rail,
+};
 
-    const closure_refused = try a.alloc(bool, plan.groups.len);
-    @memset(closure_refused, false);
-    const verdicts = try a.alloc(?rc.Verdict, plan.groups.len);
-    @memset(verdicts, null);
-    for (plan.groups, 0..) |group, gi| {
-        const eff = eff_of[gi] orelse continue;
-        const verdict = try closureVerdict(a, graph, group, eff, plan.scope == .piece);
-        if (report) |r| {
-            if (verdict.outcome == .refuse or verdict.outcome == .salvage) r.rail_closure_undeclared += 1;
-            r.co_undeclared += verdict.undeclared_pairs;
-        }
-        switch (verdict.outcome) {
-            .untouched => continue,
-            .keep => {},
-            .salvage => eff_of[gi] = verdict.members,
-            .refuse => {
-                eff_of[gi] = null;
-                closure_refused[gi] = true;
-                continue;
-            },
-        }
-        verdicts[gi] = verdict;
-    }
-    try keepOneNearRail(a, graph, plan, eff_of, verdicts, closure_refused, long_edges);
-    try reserve(a, graph, plan, eff_of, verdicts, closure_refused, report);
+const Rail = struct {
+    members: []const pb.EdgeId,
+    /// The pair edges the rail draws, one per pair of divergent nodes; empty unless every member is arrow-free.
+    discharges: []const rc.Discharge = &.{},
+};
 
-    var discharged: std.ArrayListUnmanaged(pb.EdgeId) = .empty;
-    var drawn: std.ArrayListUnmanaged(pb.EdgeId) = .empty;
-    for (eff_of) |maybe| {
-        if (maybe) |eff| try drawn.appendSlice(a, eff);
-    }
-    for (verdicts, 0..) |maybe, gi| {
-        const verdict = maybe orelse continue;
-        if (eff_of[gi] == null) continue;
-        for (verdict.discharges) |d| {
-            if (pb.containsEdge(drawn.items, d.backer)) continue;
-            try discharged.append(a, d.backer);
-            try drawn.append(a, d.backer);
-        }
-    }
+const Ctx = struct {
+    a: std.mem.Allocator,
+    graph: sg.SemGraph,
+    plan: pb.BundlePermits,
+    reversed: []const pb.EdgeId,
+};
 
-    const selected_group = try a.alloc(?pb.SelectedBundleId, plan.groups.len);
-    @memset(selected_group, null);
-    var selected: std.ArrayListUnmanaged(pb.SelectedBundle) = .empty;
-    for (plan.groups, 0..) |group, gi| {
-        const eff = eff_of[gi] orelse continue;
-        const jid: pb.SelectedBundleId = @intCast(selected.items.len);
-        selected_group[gi] = jid;
-        try selected.append(a, .{
-            .id = jid,
-            .proposal = @intCast(gi),
-            .candidate_bundle = group.id,
-            .members = try a.dupe(pb.EdgeId, eff),
-        });
-    }
+/// Which candidate bundles of `permits` are drawn as rails, which pair edges those rails discharge
+/// and which rails fuse. Reads the graph, the plan and the layering's reversed and long edges,
+/// never a coordinate. Phases: star licence, closure licence, near rule, discharge settlement,
+/// then the fusion licence over the rails that stand.
+pub fn realize(
+    a: std.mem.Allocator,
+    graph: sg.SemGraph,
+    permits: ?*const pb.BundlePermits,
+    reversed: []const pb.EdgeId,
+    long: []const pb.EdgeId,
+) error{OutOfMemory}!pb.RealizedBundles {
+    const plan = (permits orelse return .{}).*;
+    const c: Ctx = .{ .a = a, .graph = graph, .plan = plan, .reversed = reversed };
+    const slots = try a.alloc(Slot, plan.groups.len);
+    for (plan.groups, slots) |group, *slot| slot.* = try starLicence(c, group);
+    try nearRule(c, slots, long);
+    try settle(c, slots);
+    return realized(c, slots);
+}
 
-    const memberships = try a.alloc(pb.RealizedEdgeMembership, plan.memberships.len);
-    for (plan.memberships, memberships) |m, *out| {
-        out.* = .{
-            .edge = m.edge,
-            .source = disposition(graph, plan.groups, selected_group, closure_refused, selected.items, m.source_group, reversed_edges, m.edge),
-            .target = disposition(graph, plan.groups, selected_group, closure_refused, selected.items, m.target_group, reversed_edges, m.edge),
+/// A reversed member bars an out-rail; an in-rail is formed without its reversed members.
+fn starLicence(c: Ctx, group: pb.CandidateBundle) error{OutOfMemory}!Slot {
+    const pool = if (group.direction == .in) try without(c.a, group.members, c.reversed) else group.members;
+    const members = try permit_mod.prepareRailMembers(c.a, c.graph, group.direction, group.pivot, pool);
+    if (members.len < 2 or anyIn(members, c.reversed)) return .none;
+    return closureLicence(c, group, members);
+}
+
+fn closureLicence(c: Ctx, group: pb.CandidateBundle, rail: []const pb.EdgeId) error{OutOfMemory}!Slot {
+    const members = try c.a.alloc(rc.Member, rail.len);
+    for (rail, members) |id, *m| {
+        const edge = c.graph.edgeById(id) orelse return .{ .rail = .{ .members = rail } };
+        m.* = .{
+            .edge = id,
+            .leaf = divergentOf(group.direction, edge),
+            .kind = tie_break.edgeKindOrdinal(edge.kind),
+            .arrow_free = sg.arrowFree(edge),
+            .undecorated = sg.undecorated(edge),
         };
     }
-    const selected_slice = try selected.toOwnedSlice(a);
-    return .{
-        .selected_bundles = selected_slice,
-        .memberships = memberships,
-        .discharged = try discharged.toOwnedSlice(a),
-        .fused = try fusionLicence(a, graph, plan.groups, selected_slice),
+    var backers: std.ArrayListUnmanaged(rc.Backer) = .empty;
+    for (c.graph.edges) |edge| {
+        if (edge.from == edge.to or pb.containsEdge(rail, edge.id)) continue;
+        if (c.plan.scope == .piece and edge.origin == sg.SENTINEL) continue;
+        try backers.append(c.a, .{
+            .edge = edge.id,
+            .a = edge.from,
+            .b = edge.to,
+            .kind = tie_break.edgeKindOrdinal(edge.kind),
+            .undecorated = sg.undecorated(edge),
+            .unlabeled = edge.label == null or edge.label.?.len == 0,
+        });
+    }
+    const verdict = try rc.decide(c.a, members, backers.items);
+    if (verdict.outcome == .refuse) return .refused;
+    return .{ .rail = .{ .members = verdict.members, .discharges = verdict.discharges } };
+}
+
+/// An edge that is a member of an out-rail and an in-rail keeps only the in-rail, unless it spans
+/// more than one layer. A rail that loses a member is judged again before the next edge.
+fn nearRule(c: Ctx, slots: []Slot, long: []const pb.EdgeId) error{OutOfMemory}!void {
+    for (c.graph.edges) |edge| {
+        if (pb.containsEdge(long, edge.id)) continue;
+        var out: ?usize = null;
+        var in: ?usize = null;
+        for (c.plan.groups, slots, 0..) |group, slot, gi| {
+            if (slot != .rail or !pb.containsEdge(slot.rail.members, edge.id)) continue;
+            if (group.direction == .out) out = gi else in = gi;
+        }
+        const gi = out orelse continue;
+        if (in == null) continue;
+        const rest = try without(c.a, slots[gi].rail.members, &.{edge.id});
+        slots[gi] = if (rest.len < 2) .none else try closureLicence(c, c.plan.groups[gi], rest);
+    }
+}
+
+/// A pair edge is discharged by at most one rail: the wider rail keeps it and the other loses the
+/// member that edge is; two rails still asserting one pair both refuse.
+fn settle(c: Ctx, slots: []Slot) error{OutOfMemory}!void {
+    var order: std.ArrayListUnmanaged(usize) = .empty;
+    for (slots, 0..) |slot, gi| if (slot == .rail) try order.append(c.a, gi);
+    std.mem.sort(usize, order.items, @as([]const Slot, slots), widestFirst);
+
+    for (order.items, 0..) |ki, rank| {
+        const keeper = switch (slots[ki]) {
+            .rail => |rail| rail,
+            else => continue,
+        };
+        for (order.items[rank + 1 ..]) |gi| {
+            const rail = switch (slots[gi]) {
+                .rail => |r| r,
+                else => continue,
+            };
+            var kept: std.ArrayListUnmanaged(pb.EdgeId) = .empty;
+            for (rail.members) |member| if (!backs(keeper.discharges, member)) try kept.append(c.a, member);
+            if (kept.items.len == rail.members.len) continue;
+            slots[gi] = if (kept.items.len < 2) .refused else try closureLicence(c, c.plan.groups[gi], kept.items);
+        }
+    }
+
+    const clash = try c.a.alloc(bool, slots.len);
+    @memset(clash, false);
+    for (order.items, 0..) |x, rank| {
+        for (order.items[rank + 1 ..]) |y| {
+            if (slots[x] != .rail or slots[y] != .rail) continue;
+            if (!sharesPair(slots[x].rail.discharges, slots[y].rail.discharges)) continue;
+            clash[x] = true;
+            clash[y] = true;
+        }
+    }
+    for (clash, slots) |hit, *slot| if (hit) {
+        slot.* = .refused;
     };
 }
 
-fn fusionLicence(a: std.mem.Allocator, graph: sg.SemGraph, groups: []const pb.CandidateBundle, selected: []const pb.SelectedBundle) error{OutOfMemory}![]const []const pb.EdgeId {
-    const n = selected.len;
-    if (n < 2) return &.{};
-    const parent = try a.alloc(usize, n);
-    for (parent, 0..) |*p, i| p.* = i;
-    for (selected, 0..) |x, i| {
-        const dx = directionOf(groups, x.candidate_bundle) orelse continue;
-        for (selected[i + 1 ..], i + 1..) |y, j| {
-            if (directionOf(groups, y.candidate_bundle) != dx) continue;
-            if (leafSetEqual(graph, dx, x.members, y.members)) uniteBundles(parent, i, j);
-        }
-    }
-    var out: std.ArrayListUnmanaged([]const pb.EdgeId) = .empty;
-    for (0..n) |root| {
-        if (findBundle(parent, root) != root) continue;
-        var member_joins: u32 = 0;
-        var edges: std.ArrayListUnmanaged(pb.EdgeId) = .empty;
-        for (selected, 0..) |j, ji| {
-            if (findBundle(parent, ji) != root) continue;
-            member_joins += 1;
-            try edges.appendSlice(a, j.members);
-        }
-        if (member_joins < 2) continue;
-        if (try unionComplete(a, graph, edges.items)) {
-            std.mem.sort(pb.EdgeId, edges.items, {}, std.sort.asc(pb.EdgeId));
-            try out.append(a, try edges.toOwnedSlice(a));
-        } else edges.deinit(a);
-    }
-    return out.toOwnedSlice(a);
+fn widestFirst(slots: []const Slot, x: usize, y: usize) bool {
+    const nx = slots[x].rail.members.len;
+    const ny = slots[y].rail.members.len;
+    return if (nx == ny) x < y else nx > ny;
 }
 
-fn directionOf(groups: []const pb.CandidateBundle, id: pb.CandidateBundleId) ?pb.BundleDirection {
-    for (groups) |g| if (g.id == id) return g.direction;
+fn backs(discharges: []const rc.Discharge, edge: pb.EdgeId) bool {
+    for (discharges) |d| if (d.backer == edge) return true;
+    return false;
+}
+
+fn sharesPair(xs: []const rc.Discharge, ys: []const rc.Discharge) bool {
+    for (xs) |x| for (ys) |y| {
+        if (x.pair[0] == y.pair[0] and x.pair[1] == y.pair[1]) return true;
+    };
+    return false;
+}
+
+fn realized(c: Ctx, slots: []const Slot) error{OutOfMemory}!pb.RealizedBundles {
+    const selected_id = try c.a.alloc(?pb.SelectedBundleId, slots.len);
+    @memset(selected_id, null);
+    var selected: std.ArrayListUnmanaged(pb.SelectedBundle) = .empty;
+    var drawn: std.ArrayListUnmanaged(pb.EdgeId) = .empty;
+    for (c.plan.groups, slots, selected_id, 0..) |group, slot, *id, gi| {
+        if (slot != .rail) continue;
+        const jid: pb.SelectedBundleId = @intCast(selected.items.len);
+        id.* = jid;
+        try selected.append(c.a, .{ .id = jid, .proposal = @intCast(gi), .candidate_bundle = group.id, .members = slot.rail.members });
+        try drawn.appendSlice(c.a, slot.rail.members);
+    }
+
+    var discharged: std.ArrayListUnmanaged(pb.EdgeId) = .empty;
+    for (slots) |slot| {
+        if (slot != .rail) continue;
+        for (slot.rail.discharges) |d| {
+            if (pb.containsEdge(drawn.items, d.backer)) continue;
+            try discharged.append(c.a, d.backer);
+            try drawn.append(c.a, d.backer);
+        }
+    }
+
+    const memberships = try c.a.alloc(pb.RealizedEdgeMembership, c.plan.memberships.len);
+    for (c.plan.memberships, memberships) |m, *out| out.* = .{
+        .edge = m.edge,
+        .source = disposition(c, slots, selected_id, m.source_group, m.edge),
+        .target = disposition(c, slots, selected_id, m.target_group, m.edge),
+    };
+    return .{
+        .selected_bundles = selected.items,
+        .memberships = memberships,
+        .discharged = discharged.items,
+        .fused = try fusion(c, selected.items),
+    };
+}
+
+/// How the end of `edge` at candidate bundle `want` is drawn. None when the bundle failed only
+/// because a member is reversed: that end is not the bundle's to draw.
+fn disposition(c: Ctx, slots: []const Slot, selected_id: []const ?pb.SelectedBundleId, want: ?pb.CandidateBundleId, edge: pb.EdgeId) ?pb.MembershipDisposition {
+    const id = want orelse return null;
+    const not_selected: pb.MembershipDisposition = .{ .independent = .{ .candidate_bundle = id, .reason = .not_selected } };
+    for (c.plan.groups, slots, selected_id) |group, slot, selected| {
+        if (group.id != id) continue;
+        return switch (slot) {
+            .rail => |rail| if (pb.containsEdge(rail.members, edge)) .{ .selected = selected.? } else not_selected,
+            .refused => not_selected,
+            .none => if (reversalOnly(c, group)) null else not_selected,
+        };
+    }
     return null;
 }
 
-fn leafSetEqual(graph: sg.SemGraph, dir: pb.BundleDirection, xs: []const pb.EdgeId, ys: []const pb.EdgeId) bool {
-    return leafSubset(graph, dir, xs, ys) and leafSubset(graph, dir, ys, xs);
+/// The group holds a reversed member and nothing else would bar it: its members are visible, of
+/// one kind and one pivot decoration, with no two alike.
+fn reversalOnly(c: Ctx, group: pb.CandidateBundle) bool {
+    if (!anyIn(group.members, c.reversed)) return false;
+    var first: ?sg.Edge = null;
+    for (group.members, 0..) |id, i| {
+        const edge = c.graph.edgeById(id) orelse return false;
+        if (edge.kind == .invisible) return false;
+        if (first) |f| {
+            if (edge.kind != f.kind or pivotArrow(group.direction, edge) != pivotArrow(group.direction, f)) return false;
+        } else first = edge;
+        for (group.members[0..i]) |prior| if (sameKey(edge, c.graph.edgeById(prior).?)) return false;
+    }
+    return first != null;
 }
 
-fn leafSubset(graph: sg.SemGraph, dir: pb.BundleDirection, xs: []const pb.EdgeId, ys: []const pb.EdgeId) bool {
+fn sameKey(x: sg.Edge, y: sg.Edge) bool {
+    if (x.from != y.from or x.to != y.to or x.kind != y.kind or x.arrow_from != y.arrow_from or x.arrow_to != y.arrow_to) return false;
+    return tie_break.labelOrder(x.label, y.label) == .eq;
+}
+
+/// The fusion licence: rails of one direction whose divergent nodes are one set unite when
+/// together they declare exactly every pair of sources and targets, each with a forward head.
+fn fusion(c: Ctx, selected: []const pb.SelectedBundle) error{OutOfMemory}![]const []const pb.EdgeId {
+    var out: std.ArrayListUnmanaged([]const pb.EdgeId) = .empty;
+    const united = try c.a.alloc(bool, selected.len);
+    @memset(united, false);
+    for (selected, 0..) |first, i| {
+        if (united[i]) continue;
+        var edges: std.ArrayListUnmanaged(pb.EdgeId) = .empty;
+        var rails: u32 = 0;
+        for (selected[i..], i..) |other, j| {
+            if (united[j] or !sameDivergent(c, first, other)) continue;
+            united[j] = true;
+            rails += 1;
+            try edges.appendSlice(c.a, other.members);
+        }
+        if (rails < 2 or !try complete(c, edges.items)) continue;
+        std.mem.sort(pb.EdgeId, edges.items, {}, std.sort.asc(pb.EdgeId));
+        try out.append(c.a, edges.items);
+    }
+    return out.toOwnedSlice(c.a);
+}
+
+fn sameDivergent(c: Ctx, x: pb.SelectedBundle, y: pb.SelectedBundle) bool {
+    const dir = directionOf(c, x) orelse return false;
+    if (directionOf(c, y) != dir) return false;
+    return divergentIn(c, dir, x.members, y.members) and divergentIn(c, dir, y.members, x.members);
+}
+
+fn directionOf(c: Ctx, bundle: pb.SelectedBundle) ?pb.BundleDirection {
+    for (c.plan.groups) |g| if (g.id == bundle.candidate_bundle) return g.direction;
+    return null;
+}
+
+fn divergentIn(c: Ctx, dir: pb.BundleDirection, xs: []const pb.EdgeId, ys: []const pb.EdgeId) bool {
     for (xs) |xi| {
-        const x = graph.edgeById(xi) orelse return false;
-        const lx = if (dir == .in) x.from else x.to;
+        const x = c.graph.edgeById(xi) orelse return false;
         const held = for (ys) |yi| {
-            const y = graph.edgeById(yi) orelse return false;
-            if ((if (dir == .in) y.from else y.to) == lx) break true;
+            const y = c.graph.edgeById(yi) orelse return false;
+            if (divergentOf(dir, y) == divergentOf(dir, x)) break true;
         } else false;
         if (!held) return false;
     }
     return true;
 }
 
-fn unionComplete(a: std.mem.Allocator, graph: sg.SemGraph, members: []const pb.EdgeId) error{OutOfMemory}!bool {
-    var srcs: std.ArrayListUnmanaged(pb.NodeId) = .empty;
-    defer srcs.deinit(a);
-    var tgts: std.ArrayListUnmanaged(pb.NodeId) = .empty;
-    defer tgts.deinit(a);
-    var pairs: std.ArrayListUnmanaged([2]pb.NodeId) = .empty;
-    defer pairs.deinit(a);
+fn complete(c: Ctx, members: []const pb.EdgeId) error{OutOfMemory}!bool {
+    var sources: std.ArrayListUnmanaged(sg.NodeId) = .empty;
+    var targets: std.ArrayListUnmanaged(sg.NodeId) = .empty;
+    var pairs: std.ArrayListUnmanaged([2]sg.NodeId) = .empty;
     var style: ?u48 = null;
     for (members) |id| {
-        const e = graph.edgeById(id) orelse return false;
-        if (e.kind == .invisible or !sg.forwardOneWayHead(e)) return false;
-        const key: u48 = (@as(u48, tie_break.edgeKindOrdinal(e.kind)) << 8) |
-            (@as(u48, @intFromEnum(e.arrow_from)) << 4) | @intFromEnum(e.arrow_to);
-        if (style) |st| {
-            if (st != key) return false;
+        const edge = c.graph.edgeById(id) orelse return false;
+        if (edge.kind == .invisible or !sg.forwardOneWayHead(edge)) return false;
+        const key: u48 = (@as(u48, tie_break.edgeKindOrdinal(edge.kind)) << 8) |
+            (@as(u48, @intFromEnum(edge.arrow_from)) << 4) | @intFromEnum(edge.arrow_to);
+        if (style) |s| {
+            if (s != key) return false;
         } else style = key;
-        try addUniqueNode(a, &srcs, e.from);
-        try addUniqueNode(a, &tgts, e.to);
-        var seen = false;
-        for (pairs.items) |p| if (p[0] == e.from and p[1] == e.to) {
-            seen = true;
-        };
-        if (!seen) try pairs.append(a, .{ e.from, e.to });
+        if (std.mem.indexOfScalar(sg.NodeId, sources.items, edge.from) == null) try sources.append(c.a, edge.from);
+        if (std.mem.indexOfScalar(sg.NodeId, targets.items, edge.to) == null) try targets.append(c.a, edge.to);
+        const seen = for (pairs.items) |p| {
+            if (p[0] == edge.from and p[1] == edge.to) break true;
+        } else false;
+        if (!seen) try pairs.append(c.a, .{ edge.from, edge.to });
     }
-    if (srcs.items.len <= 1 or tgts.items.len <= 1) return false;
-    return pairs.items.len == srcs.items.len * tgts.items.len;
+    if (sources.items.len <= 1 or targets.items.len <= 1) return false;
+    return pairs.items.len == sources.items.len * targets.items.len;
 }
 
-fn addUniqueNode(a: std.mem.Allocator, list: *std.ArrayListUnmanaged(pb.NodeId), v: pb.NodeId) error{OutOfMemory}!void {
-    for (list.items) |x| if (x == v) return;
-    try list.append(a, v);
+fn divergentOf(dir: pb.BundleDirection, edge: sg.Edge) sg.NodeId {
+    return if (dir == .in) edge.from else edge.to;
 }
 
-fn findBundle(parent: []usize, i: usize) usize {
-    var r = i;
-    while (parent[r] != r) r = parent[r];
-    return r;
+fn pivotArrow(dir: pb.BundleDirection, edge: sg.Edge) sg.ArrowEnd {
+    return if (dir == .out) edge.arrow_from else edge.arrow_to;
 }
 
-fn uniteBundles(parent: []usize, i: usize, j: usize) void {
-    const ri = findBundle(parent, i);
-    const rj = findBundle(parent, j);
-    if (ri != rj) parent[@max(ri, rj)] = @min(ri, rj);
-}
-
-fn reserve(
-    a: std.mem.Allocator,
-    graph: sg.SemGraph,
-    plan: pb.BundlePermits,
-    eff_of: []?[]const pb.EdgeId,
-    verdicts: []?rc.Verdict,
-    closure_refused: []bool,
-    report: ?*Report,
-) error{OutOfMemory}!void {
-    var order: std.ArrayListUnmanaged(usize) = .empty;
-    for (verdicts, 0..) |verdict, gi| {
-        if (verdict != null and eff_of[gi] != null) try order.append(a, gi);
-    }
-    std.mem.sort(usize, order.items, eff_of, widestFirst);
-
-    for (order.items, 0..) |ri, rank| {
-        if (eff_of[ri] == null) continue;
-        for (order.items[rank + 1 ..]) |gi| {
-            const eff = eff_of[gi] orelse continue;
-            var kept: std.ArrayListUnmanaged(pb.EdgeId) = .empty;
-            for (eff) |member| if (!dischargedBy(verdicts[ri].?, member)) try kept.append(a, member);
-            if (kept.items.len == eff.len) continue;
-            if (kept.items.len < 2) {
-                eff_of[gi] = null;
-                closure_refused[gi] = true;
-                continue;
-            }
-            const rest = try kept.toOwnedSlice(a);
-            const again = try closureVerdict(a, graph, plan.groups[gi], rest, plan.scope == .piece);
-            switch (again.outcome) {
-                .untouched, .keep => eff_of[gi] = rest,
-                .salvage => eff_of[gi] = again.members,
-                .refuse => {
-                    eff_of[gi] = null;
-                    closure_refused[gi] = true;
-                    continue;
-                },
-            }
-            verdicts[gi] = again;
-        }
-    }
-
-    const conflicted = try a.alloc(bool, eff_of.len);
-    @memset(conflicted, false);
-    for (order.items, 0..) |x, rank| {
-        if (eff_of[x] == null) continue;
-        for (order.items[rank + 1 ..]) |y| {
-            if (eff_of[y] == null or !sharesPair(verdicts[x].?, verdicts[y].?)) continue;
-            conflicted[x] = true;
-            conflicted[y] = true;
-        }
-    }
-    for (conflicted, 0..) |hit, gi| {
-        if (!hit) continue;
-        eff_of[gi] = null;
-        closure_refused[gi] = true;
-        const counted = if (verdicts[gi]) |v| v.outcome == .salvage else false;
-        if (!counted) {
-            if (report) |r| r.rail_closure_undeclared += 1;
-        }
-    }
-}
-
-fn widestFirst(eff_of: []?[]const pb.EdgeId, x: usize, y: usize) bool {
-    const nx = (eff_of[x] orelse &.{}).len;
-    const ny = (eff_of[y] orelse &.{}).len;
-    return if (nx == ny) x < y else nx > ny;
-}
-
-fn dropMember(
-    a: std.mem.Allocator,
-    graph: sg.SemGraph,
-    plan: pb.BundlePermits,
-    eff_of: []?[]const pb.EdgeId,
-    verdicts: []?rc.Verdict,
-    closure_refused: []bool,
-    gi: usize,
-    member: pb.EdgeId,
-    group: pb.CandidateBundle,
-) error{OutOfMemory}!void {
-    var kept: std.ArrayListUnmanaged(pb.EdgeId) = .empty;
-    for (eff_of[gi].?) |m| if (m != member) try kept.append(a, m);
-    if (kept.items.len < 2) {
-        eff_of[gi] = null;
-        return;
-    }
-    const rest = try kept.toOwnedSlice(a);
-    if (verdicts[gi] != null) {
-        const again = try closureVerdict(a, graph, group, rest, plan.scope == .piece);
-        switch (again.outcome) {
-            .untouched, .keep => eff_of[gi] = rest,
-            .salvage => eff_of[gi] = again.members,
-            .refuse => {
-                eff_of[gi] = null;
-                closure_refused[gi] = true;
-                return;
-            },
-        }
-        verdicts[gi] = again;
-    } else eff_of[gi] = rest;
-}
-
-fn keepOneNearRail(
-    a: std.mem.Allocator,
-    graph: sg.SemGraph,
-    plan: pb.BundlePermits,
-    eff_of: []?[]const pb.EdgeId,
-    verdicts: []?rc.Verdict,
-    closure_refused: []bool,
-    long_edges: []const pb.EdgeId,
-) error{OutOfMemory}!void {
-    for (graph.edges) |e| {
-        if (pb.containsEdge(long_edges, e.id)) continue;
-        var gi_out: ?usize = null;
-        var gi_in: ?usize = null;
-        for (plan.groups, 0..) |g, gi| {
-            const eff = eff_of[gi] orelse continue;
-            if (!pb.containsEdge(eff, e.id)) continue;
-            if (g.direction == .out) gi_out = gi else gi_in = gi;
-        }
-        const o = gi_out orelse continue;
-        if (gi_in == null) continue;
-        try dropMember(a, graph, plan, eff_of, verdicts, closure_refused, o, e.id, plan.groups[o]);
-    }
-}
-
-fn dischargedBy(verdict: rc.Verdict, member: pb.EdgeId) bool {
-    for (verdict.discharges) |d| if (d.backer == member) return true;
-    return false;
-}
-
-fn sharesPair(x: rc.Verdict, y: rc.Verdict) bool {
-    for (x.discharges) |dx| {
-        for (y.discharges) |dy| {
-            if (dx.pair[0] == dy.pair[0] and dx.pair[1] == dy.pair[1]) return true;
-        }
-    }
-    return false;
-}
-
-fn closureVerdict(
-    a: std.mem.Allocator,
-    graph: sg.SemGraph,
-    group: pb.CandidateBundle,
-    eff: []const pb.EdgeId,
-    piece_scope: bool,
-) error{OutOfMemory}!rc.Verdict {
-    const members = try a.alloc(rc.Member, eff.len);
-    for (eff, members) |id, *m| {
-        const edge = graph.edgeById(id) orelse return .{ .outcome = .untouched, .members = eff };
-        m.* = .{
-            .edge = id,
-            .leaf = if (group.direction == .out) edge.to else edge.from,
-            .kind = tie_break.edgeKindOrdinal(edge.kind),
-            .arrow_free = sg.arrowFree(edge),
-            .undecorated = undecorated(edge),
-        };
-    }
-    var backers: std.ArrayListUnmanaged(rc.Backer) = .empty;
-    for (graph.edges) |edge| {
-        if (edge.from == edge.to or pb.containsEdge(eff, edge.id)) continue;
-        if (piece_scope and edge.origin == sg.SENTINEL) continue;
-        try backers.append(a, .{
-            .edge = edge.id,
-            .a = edge.from,
-            .b = edge.to,
-            .kind = tie_break.edgeKindOrdinal(edge.kind),
-            .undecorated = undecorated(edge),
-            .unlabeled = edge.label == null or edge.label.?.len == 0,
-        });
-    }
-    return rc.decide(a, members, backers.items);
-}
-
-fn undecorated(edge: sg.Edge) bool {
-    return sg.undecorated(edge);
-}
-
-fn containsReversed(group: pb.CandidateBundle, reversed_edges: []const pb.EdgeId) bool {
-    for (group.members) |member| for (reversed_edges) |reversed| {
-        if (member == reversed) return true;
-    };
-    return false;
-}
-
-fn forwardSubset(a: std.mem.Allocator, members: []const pb.EdgeId, reversed_edges: []const pb.EdgeId) error{OutOfMemory}![]const pb.EdgeId {
+fn without(a: std.mem.Allocator, members: []const pb.EdgeId, drop: []const pb.EdgeId) error{OutOfMemory}![]const pb.EdgeId {
     var out: std.ArrayListUnmanaged(pb.EdgeId) = .empty;
-    for (members) |m| {
-        var rev = false;
-        for (reversed_edges) |r| if (r == m) {
-            rev = true;
-        };
-        if (!rev) try out.append(a, m);
-    }
+    for (members) |m| if (!pb.containsEdge(drop, m)) try out.append(a, m);
     return out.toOwnedSlice(a);
 }
 
-fn disposition(graph: sg.SemGraph, groups: []const pb.CandidateBundle, selected_group: []const ?pb.SelectedBundleId, closure_refused: []const bool, selected_bundles: []const pb.SelectedBundle, id: ?pb.CandidateBundleId, reversed_edges: []const pb.EdgeId, edge: pb.EdgeId) ?pb.MembershipDisposition {
-    const gid = id orelse return null;
-    for (groups, 0..) |g, i| if (g.id == gid) {
-        if (selected_group[i]) |jid| {
-            for (selected_bundles) |sj| if (sj.id == jid) {
-                for (sj.members) |mem| if (mem == edge) return .{ .selected = jid };
-            };
-            return .{ .independent = .{ .candidate_bundle = gid, .reason = .not_selected } };
-        }
-        if (!closure_refused[i] and containsReversed(g, reversed_edges) and styleCompatible(graph, g) and !hasDuplicateKey(graph, g)) return null;
-        return .{ .independent = .{ .candidate_bundle = gid, .reason = .not_selected } };
-    };
-    return null;
-}
-
-fn styleCompatible(graph: sg.SemGraph, group: pb.CandidateBundle) bool {
-    var first: ?sg.Edge = null;
-    for (group.members) |id| {
-        const edge = graph.edgeById(id) orelse return false;
-        if (edge.kind == .invisible) return false;
-        if (first) |f| {
-            if (edge.kind != f.kind) return false;
-            const arrow = if (group.direction == .out) edge.arrow_from else edge.arrow_to;
-            const first_arrow = if (group.direction == .out) f.arrow_from else f.arrow_to;
-            if (arrow != first_arrow) return false;
-        } else first = edge;
-    }
-    return first != null;
-}
-
-fn hasDuplicateKey(graph: sg.SemGraph, group: pb.CandidateBundle) bool {
-    for (group.members, 0..) |id, i| {
-        const edge = graph.edgeById(id) orelse return true;
-        for (group.members[0..i]) |prev_id| {
-            const prev = graph.edgeById(prev_id) orelse return true;
-            if (edge.from == prev.from and edge.to == prev.to and edge.kind == prev.kind and
-                edge.arrow_from == prev.arrow_from and edge.arrow_to == prev.arrow_to and labelsEqual(edge.label, prev.label)) return true;
-        }
-    }
+fn anyIn(members: []const pb.EdgeId, edges: []const pb.EdgeId) bool {
+    for (members) |m| if (pb.containsEdge(edges, m)) return true;
     return false;
-}
-
-fn labelsEqual(a: ?[]const u8, b: ?[]const u8) bool {
-    const av = a orelse return b == null;
-    return b != null and std.mem.eql(u8, av, b.?);
 }

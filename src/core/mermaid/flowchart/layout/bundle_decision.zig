@@ -25,7 +25,7 @@ pub fn decide(
     const detected: []fan_mod.Fan = if (graph.direction == .TD) try fan_mod.detect(a, graph, lg) else &.{};
     const effective = try bundle_commit.effectivePlan(a, graph, permits);
     const plan: ?*const ledger.BundlePermits = if (effective) |*p| p else null;
-    const bundles = try bundle_commit.buildReported(a, graph, plan, lg.reversed_edges, try longEdges(a, lg), null);
+    const bundles = try bundle_commit.realize(a, graph, plan, lg.reversed_edges, try longEdges(a, lg));
     const fans = try fan_gate.keepRealizableLong(a, detected, bundles);
     const private_peers = hasPrivatePeers(fans);
     const port_active = hasPortWork(bundles) or private_peers;
