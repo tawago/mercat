@@ -44,14 +44,20 @@ pub const LayoutError = error{
     InconsistentEdge,
 };
 
-const WorkEdge = struct {
+const Link = struct {
     id: sg.EdgeId,
-    from: sg.NodeId,
-    to: sg.NodeId,
-    reversed: bool,
-};
+    from: u32,
+    to: u32,
+    reversed: bool = false,
 
-const Color = enum(u2) { white, gray, black };
+    fn tail(l: Link) u32 {
+        return if (l.reversed) l.to else l.from;
+    }
+
+    fn head(l: Link) u32 {
+        return if (l.reversed) l.from else l.to;
+    }
+};
 
 pub fn assignLayers(allocator: std.mem.Allocator, graph: sg.SemGraph) LayoutError!LayeredGraph {
     if (graph.nodes.len == 0) return error.EmptyGraph;
@@ -64,257 +70,145 @@ pub fn assignLayers(allocator: std.mem.Allocator, graph: sg.SemGraph) LayoutErro
     }
     const a = arena.allocator();
 
-    var work_edges_list = std.ArrayListUnmanaged(WorkEdge).empty;
-    {
-        var valid = std.AutoHashMapUnmanaged(sg.NodeId, void).empty;
-        for (graph.nodes) |n| try valid.put(a, n.id, {});
-        for (graph.edges) |e| {
-            if (!valid.contains(e.from) or !valid.contains(e.to)) {
-                return error.InconsistentEdge;
-            }
-            if (e.from == e.to) continue;
-            try work_edges_list.append(a, .{
-                .id = e.id,
-                .from = e.from,
-                .to = e.to,
-                .reversed = false,
-            });
+    const n: u32 = @intCast(graph.nodes.len);
+    var index: std.AutoHashMapUnmanaged(sg.NodeId, u32) = .empty;
+    for (graph.nodes, 0..) |node, i| try index.put(a, node.id, @intCast(i));
+
+    var links: std.ArrayListUnmanaged(Link) = .empty;
+    for (graph.edges) |e| {
+        const from = index.get(e.from) orelse return error.InconsistentEdge;
+        const to = index.get(e.to) orelse return error.InconsistentEdge;
+        if (from != to) try links.append(a, .{ .id = e.id, .from = from, .to = to });
+    }
+
+    const reversed = try breakCycles(a, n, links.items);
+    const layer_of = try longestPaths(a, n, links.items);
+
+    var depth: u32 = 0;
+    for (layer_of) |l| depth = @max(depth, l + 1);
+    const rows = try a.alloc(std.ArrayListUnmanaged(u32), depth);
+    for (rows) |*row| row.* = .empty;
+    for (layer_of, 0..) |l, v| try rows[l].append(a, @intCast(v));
+
+    var nodes: std.ArrayListUnmanaged(LayerNode) = .empty;
+    var node_layer: std.ArrayListUnmanaged(u32) = .empty;
+    const flat = try a.alloc(u32, n);
+    for (rows, 0..) |row, l| for (row.items) |*v| {
+        const idx: u32 = @intCast(nodes.items.len);
+        try nodes.append(a, .{ .real = graph.nodes[v.*].id });
+        try node_layer.append(a, @intCast(l));
+        flat[v.*] = idx;
+        v.* = idx;
+    };
+    for (graph.nodes, flat) |node, idx| index.putAssumeCapacity(node.id, idx);
+
+    var edges: std.ArrayListUnmanaged(LayerEdge) = .empty;
+    for (links.items) |link| {
+        const last = layer_of[link.head()];
+        var prev = flat[link.tail()];
+        var layer = layer_of[link.tail()] + 1;
+        var step: u16 = 0;
+        while (layer < last) : ({
+            layer += 1;
+            step += 1;
+        }) {
+            const v: u32 = @intCast(nodes.items.len);
+            try nodes.append(a, .{ .virtual = .{ .edge = link.id, .index = step } });
+            try node_layer.append(a, layer);
+            try rows[layer].append(a, v);
+            try edges.append(a, .{ .from = prev, .to = v, .edge = link.id, .reversed = link.reversed });
+            prev = v;
         }
+        try edges.append(a, .{ .from = prev, .to = flat[link.head()], .edge = link.id, .reversed = link.reversed });
     }
-    const work_edges = work_edges_list.items;
+    std.mem.sort(LayerEdge, edges.items, node_layer.items, fromLayerFirst);
 
-    var color = std.AutoHashMapUnmanaged(sg.NodeId, Color).empty;
-    for (graph.nodes) |n| try color.put(a, n.id, .white);
+    const layers = try a.alloc([]u32, depth);
+    for (rows, layers) |row, *out| out.* = row.items;
+    if (graph.direction == .BT or graph.direction == .RL) std.mem.reverse([]u32, layers);
 
-    var out_idx = std.AutoHashMapUnmanaged(sg.NodeId, std.ArrayListUnmanaged(u32)).empty;
-    for (work_edges, 0..) |we, i| {
-        const gop = try out_idx.getOrPut(a, we.from);
-        if (!gop.found_existing) gop.value_ptr.* = .empty;
-        try gop.value_ptr.append(a, @intCast(i));
-    }
+    return .{
+        .nodes = nodes.items,
+        .layers = layers,
+        .edges = edges.items,
+        .reversed_edges = reversed,
+        .real_index = index,
+        .arena = arena,
+    };
+}
 
-    var reversed_list = std.ArrayListUnmanaged(sg.EdgeId).empty;
+fn fromLayerFirst(layer_of: []const u32, x: LayerEdge, y: LayerEdge) bool {
+    return layer_of[x.from] < layer_of[y.from];
+}
 
-    var stack = std.ArrayListUnmanaged(struct { node: sg.NodeId, cursor: u32 }).empty;
-    for (graph.nodes) |seed| {
-        const c = color.get(seed.id).?;
-        if (c != .white) continue;
+fn outLists(a: std.mem.Allocator, n: u32, links: []const Link) ![]const []const u32 {
+    const lists = try a.alloc(std.ArrayListUnmanaged(u32), n);
+    for (lists) |*list| list.* = .empty;
+    for (links, 0..) |link, i| try lists[link.tail()].append(a, @intCast(i));
+    const out = try a.alloc([]const u32, n);
+    for (lists, out) |list, *o| o.* = list.items;
+    return out;
+}
 
-        try color.put(a, seed.id, .gray);
-        stack.clearRetainingCapacity();
-        try stack.append(a, .{ .node = seed.id, .cursor = 0 });
+fn breakCycles(a: std.mem.Allocator, n: u32, links: []Link) ![]sg.EdgeId {
+    const out = try outLists(a, n, links);
+    const State = enum { new, open, done };
+    const state = try a.alloc(State, n);
+    @memset(state, .new);
 
+    const Frame = struct { node: u32, next: u32 = 0 };
+    var stack: std.ArrayListUnmanaged(Frame) = .empty;
+    var reversed: std.ArrayListUnmanaged(sg.EdgeId) = .empty;
+    for (0..n) |root| {
+        if (state[root] != .new) continue;
+        state[root] = .open;
+        try stack.append(a, .{ .node = @intCast(root) });
         while (stack.items.len > 0) {
             const top = &stack.items[stack.items.len - 1];
-            const edges_for_node: []const u32 = if (out_idx.get(top.node)) |list|
-                list.items
-            else
-                &[_]u32{};
-
-            if (top.cursor >= edges_for_node.len) {
-                try color.put(a, top.node, .black);
+            if (top.next == out[top.node].len) {
+                state[top.node] = .done;
                 _ = stack.pop();
                 continue;
             }
-
-            const edge_index = edges_for_node[top.cursor];
-            top.cursor += 1;
-            const we = &work_edges[edge_index];
-            if (we.reversed) continue;
-
-            const target = we.to;
-            const tc = color.get(target).?;
-            switch (tc) {
-                .gray => {
-                    we.reversed = true;
-                    try reversed_list.append(a, we.id);
+            const link = &links[out[top.node][top.next]];
+            top.next += 1;
+            switch (state[link.to]) {
+                .open => {
+                    link.reversed = true;
+                    try reversed.append(a, link.id);
                 },
-                .white => {
-                    try color.put(a, target, .gray);
-                    try stack.append(a, .{ .node = target, .cursor = 0 });
+                .new => {
+                    state[link.to] = .open;
+                    try stack.append(a, .{ .node = link.to });
                 },
-                .black => {},
+                .done => {},
             }
         }
     }
+    return reversed.items;
+}
 
-    var in_degree = std.AutoHashMapUnmanaged(sg.NodeId, u32).empty;
-    for (graph.nodes) |n| try in_degree.put(a, n.id, 0);
+fn longestPaths(a: std.mem.Allocator, n: u32, links: []const Link) ![]u32 {
+    const out = try outLists(a, n, links);
+    const indegree = try a.alloc(u32, n);
+    @memset(indegree, 0);
+    for (links) |link| indegree[link.head()] += 1;
 
-    const EffEdge = struct {
-        fn from(we: WorkEdge) sg.NodeId {
-            return if (we.reversed) we.to else we.from;
-        }
-        fn to(we: WorkEdge) sg.NodeId {
-            return if (we.reversed) we.from else we.to;
-        }
-    };
-
-    for (work_edges) |we| {
-        const t = EffEdge.to(we);
-        const ptr = in_degree.getPtr(t).?;
-        ptr.* += 1;
-    }
-
-    var layer_of = std.AutoHashMapUnmanaged(sg.NodeId, u32).empty;
-    for (graph.nodes) |n| try layer_of.put(a, n.id, 0);
-
-    var queue = std.ArrayListUnmanaged(sg.NodeId).empty;
-    for (graph.nodes) |n| {
-        if (in_degree.get(n.id).? == 0) {
-            try queue.append(a, n.id);
+    const layer = try a.alloc(u32, n);
+    @memset(layer, 0);
+    var queue: std.ArrayListUnmanaged(u32) = .empty;
+    for (indegree, 0..) |d, v| if (d == 0) try queue.append(a, @intCast(v));
+    var i: usize = 0;
+    while (i < queue.items.len) : (i += 1) {
+        const v = queue.items[i];
+        for (out[v]) |li| {
+            const t = links[li].head();
+            layer[t] = @max(layer[t], layer[v] + 1);
+            indegree[t] -= 1;
+            if (indegree[t] == 0) try queue.append(a, t);
         }
     }
-
-    var out_eff = std.AutoHashMapUnmanaged(sg.NodeId, std.ArrayListUnmanaged(u32)).empty;
-    for (work_edges, 0..) |we, i| {
-        const s = EffEdge.from(we);
-        const gop = try out_eff.getOrPut(a, s);
-        if (!gop.found_existing) gop.value_ptr.* = .empty;
-        try gop.value_ptr.append(a, @intCast(i));
-    }
-
-    var head: usize = 0;
-    while (head < queue.items.len) : (head += 1) {
-        const cur = queue.items[head];
-        const cur_layer = layer_of.get(cur).?;
-        const outs: []const u32 = if (out_eff.get(cur)) |l| l.items else &[_]u32{};
-        for (outs) |ei| {
-            const we = work_edges[ei];
-            const tgt = EffEdge.to(we);
-            const new_layer = cur_layer + 1;
-            const lp = layer_of.getPtr(tgt).?;
-            if (lp.* < new_layer) lp.* = new_layer;
-
-            const dp = in_degree.getPtr(tgt).?;
-            if (dp.* > 0) {
-                dp.* -= 1;
-                if (dp.* == 0) try queue.append(a, tgt);
-            }
-        }
-    }
-
-    var max_layer: u32 = 0;
-    for (graph.nodes) |n| {
-        const l = layer_of.get(n.id).?;
-        if (l > max_layer) max_layer = l;
-    }
-    const layer_count: u32 = max_layer + 1;
-
-    var flat_nodes = std.ArrayListUnmanaged(LayerNode).empty;
-    var real_index_map = std.AutoHashMapUnmanaged(sg.NodeId, u32).empty;
-
-    const buckets = try a.alloc(std.ArrayListUnmanaged(sg.NodeId), layer_count);
-    for (buckets) |*b| b.* = .empty;
-    for (graph.nodes) |n| {
-        const l = layer_of.get(n.id).?;
-        try buckets[l].append(a, n.id);
-    }
-
-    var layers_out = try a.alloc([]u32, layer_count);
-    for (buckets, 0..) |bucket, li| {
-        var row = try a.alloc(u32, bucket.items.len);
-        for (bucket.items, 0..) |nid, k| {
-            const idx: u32 = @intCast(flat_nodes.items.len);
-            try flat_nodes.append(a, .{ .real = nid });
-            try real_index_map.put(a, nid, idx);
-            row[k] = idx;
-        }
-        layers_out[li] = row;
-    }
-
-    var grow_layers = try a.alloc(std.ArrayListUnmanaged(u32), layer_count);
-    for (grow_layers, 0..) |*gl, i| {
-        gl.* = .empty;
-        try gl.appendSlice(a, layers_out[i]);
-    }
-
-    var edges_out = std.ArrayListUnmanaged(LayerEdge).empty;
-
-    for (work_edges) |we| {
-        const src = EffEdge.from(we);
-        const dst = EffEdge.to(we);
-        const ls = layer_of.get(src).?;
-        const ld = layer_of.get(dst).?;
-        const lo = if (ls < ld) ls else ld;
-        const hi = if (ls < ld) ld else ls;
-        const span = hi - lo;
-
-        const src_idx = real_index_map.get(src).?;
-        const dst_idx = real_index_map.get(dst).?;
-
-        if (span <= 1) {
-            try edges_out.append(a, .{
-                .from = if (ls < ld) src_idx else dst_idx,
-                .to = if (ls < ld) dst_idx else src_idx,
-                .edge = we.id,
-                .reversed = we.reversed,
-            });
-            continue;
-        }
-
-        var prev_idx: u32 = if (ls < ld) src_idx else dst_idx;
-        const end_idx: u32 = if (ls < ld) dst_idx else src_idx;
-        var vi: u16 = 0;
-        var layer_cursor: u32 = lo + 1;
-        while (layer_cursor < hi) : (layer_cursor += 1) {
-            const new_idx: u32 = @intCast(flat_nodes.items.len);
-            try flat_nodes.append(a, .{ .virtual = .{ .edge = we.id, .index = vi } });
-            try grow_layers[layer_cursor].append(a, new_idx);
-            try edges_out.append(a, .{
-                .from = prev_idx,
-                .to = new_idx,
-                .edge = we.id,
-                .reversed = we.reversed,
-            });
-            prev_idx = new_idx;
-            vi += 1;
-        }
-        try edges_out.append(a, .{
-            .from = prev_idx,
-            .to = end_idx,
-            .edge = we.id,
-            .reversed = we.reversed,
-        });
-    }
-
-    for (grow_layers, 0..) |gl, i| {
-        layers_out[i] = try a.dupe(u32, gl.items);
-    }
-
-    const node_layer = try a.alloc(u32, flat_nodes.items.len);
-    for (layers_out, 0..) |row, li| {
-        for (row) |idx| node_layer[idx] = @intCast(li);
-    }
-    const SortCtx = struct {
-        layers: []const u32,
-        pub fn lessThan(ctx: @This(), x: LayerEdge, y: LayerEdge) bool {
-            return ctx.layers[x.from] < ctx.layers[y.from];
-        }
-    };
-    std.mem.sort(LayerEdge, edges_out.items, SortCtx{ .layers = node_layer }, SortCtx.lessThan);
-
-    switch (graph.direction) {
-        .BT, .RL => {
-            const n = layers_out.len;
-            var i: usize = 0;
-            while (i < n / 2) : (i += 1) {
-                const tmp = layers_out[i];
-                layers_out[i] = layers_out[n - 1 - i];
-                layers_out[n - 1 - i] = tmp;
-            }
-        },
-        .TD, .LR => {},
-    }
-
-    return LayeredGraph{
-        .nodes = try a.dupe(LayerNode, flat_nodes.items),
-        .layers = layers_out,
-        .edges = try a.dupe(LayerEdge, edges_out.items),
-        .reversed_edges = try a.dupe(sg.EdgeId, reversed_list.items),
-        .real_index = real_index_map,
-        .arena = arena,
-    };
+    return layer;
 }
 
 test {
