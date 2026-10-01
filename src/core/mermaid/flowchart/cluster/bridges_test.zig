@@ -433,3 +433,19 @@ test "clearOfBorders surrenders the coordinate after its search bound" {
     try std.testing.expectEqual(@as(i32, 10 - 4096), tracks.clearOfBorders(.north, 10, 0, 20, &.{}, .{ .runs = runs }));
     try std.testing.expectEqual(@as(i32, 9), tracks.clearOfBorders(.north, 10, 0, 20, &.{}, .{ .runs = runs[0..1] }));
 }
+
+test "Outward visits the origin's two neighbours at each distance, the signed side first, up to its reach" {
+    var up: tracks.Outward = .{ .from = 10, .reach = 2 };
+    var seen: [4]i32 = undefined;
+    for (&seen) |*v| v.* = up.next().?;
+    try std.testing.expectEqualSlices(i32, &.{ 11, 9, 12, 8 }, &seen);
+    try std.testing.expectEqual(@as(?i32, null), up.next());
+
+    var down: tracks.Outward = .{ .from = 10, .sign = -1, .reach = 1 };
+    try std.testing.expectEqual(@as(?i32, 9), down.next());
+    try std.testing.expectEqual(@as(?i32, 11), down.next());
+    try std.testing.expectEqual(@as(?i32, null), down.next());
+
+    var none: tracks.Outward = .{ .from = 10, .reach = 0 };
+    try std.testing.expectEqual(@as(?i32, null), none.next());
+}

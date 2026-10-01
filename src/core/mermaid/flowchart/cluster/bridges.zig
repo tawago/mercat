@@ -191,19 +191,16 @@ fn dodgeJog(
     const cur = scene.jogScore(p.start, p.end, jc, vertical, placements, p.gf, p.gt, clusters, aug);
     if (cur == 0) return j;
     const sign = tracks.outwardSign(p.sides.entry);
-    const width = bound_hi - bound_lo;
     var best: ?i32 = null;
     var best_score = cur;
-    var d: i32 = 1;
-    while (d <= width) : (d += 1) {
-        for ([2]i32{ jc + sign * d, jc - sign * d }) |c| {
-            if (c <= bound_lo or c >= bound_hi) continue;
-            const s = scene.jogScore(p.start, p.end, c, vertical, placements, p.gf, p.gt, clusters, aug);
-            if (s == 0) return c;
-            if (s < best_score) {
-                best_score = s;
-                best = c;
-            }
+    var track: tracks.Outward = .{ .from = jc, .sign = sign, .reach = bound_hi - bound_lo };
+    while (track.next()) |c| {
+        if (c <= bound_lo or c >= bound_hi) continue;
+        const s = scene.jogScore(p.start, p.end, c, vertical, placements, p.gf, p.gt, clusters, aug);
+        if (s == 0) return c;
+        if (s < best_score) {
+            best_score = s;
+            best = c;
         }
     }
     return best orelse j;
@@ -242,15 +239,13 @@ fn slideOffHeads(
     const c0 = faceCoord(port.*, side);
     if (!cellIn(obstacles.heads, outwardCell(rect, side, c0))) return false;
     const rng = corridors.faceRange(rect, side);
-    var d: i32 = 1;
-    while (d <= rng.hi - rng.lo) : (d += 1) {
-        for ([2]i32{ c0 + d, c0 - d }) |c| {
-            if (c < rng.lo or c > rng.hi) continue;
-            if (obstacles.covers(outwardCell(rect, side, c))) continue;
-            if (faceTaken(pends, self, node, side, c)) continue;
-            corridors.slide(port, side, c);
-            return true;
-        }
+    var track: tracks.Outward = .{ .from = c0, .reach = rng.hi - rng.lo };
+    while (track.next()) |c| {
+        if (c < rng.lo or c > rng.hi) continue;
+        if (obstacles.covers(outwardCell(rect, side, c))) continue;
+        if (faceTaken(pends, self, node, side, c)) continue;
+        corridors.slide(port, side, c);
+        return true;
     }
     return false;
 }

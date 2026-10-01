@@ -8,6 +8,26 @@ pub const Req = struct {
     pref: i32,
 };
 
+pub const Outward = struct {
+    from: i32,
+    sign: i32 = 1,
+    reach: i32,
+    d: i32 = 1,
+    second: bool = false,
+
+    pub fn next(self: *Outward) ?i32 {
+        if (self.d > self.reach) return null;
+        const step = self.sign * self.d;
+        if (self.second) {
+            self.second = false;
+            self.d += 1;
+            return self.from - step;
+        }
+        self.second = true;
+        return self.from + step;
+    }
+};
+
 pub fn outwardSign(entry: sketch.Dir4) i32 {
     return switch (entry) {
         .north, .west => -1,

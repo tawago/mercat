@@ -145,15 +145,12 @@ pub fn descentColumn(
     const first = sketch_clearance.clearLine(false, want, lo, hi, placements, from_id, to_id, .{ .margin = true });
     if (!frameBlocked(first, lo, hi, placements, from_id, to_id, clusters)) return first;
 
-    const dirn: i32 = if (want < first) -1 else 1;
-    var d: i32 = 1;
-    while (d <= DESCENT_REACH) : (d += 1) {
-        for ([2]i32{ first + dirn * d, first - dirn * d }) |c| {
-            if (c < 0) continue;
-            if (frameBlocked(c, lo, hi, placements, from_id, to_id, clusters)) continue;
-            if (sketch_clearance.lineTouchesAny(false, c, lo, hi, placements, from_id, to_id)) continue;
-            return c;
-        }
+    var column: tracks.Outward = .{ .from = first, .sign = if (want < first) -1 else 1, .reach = DESCENT_REACH };
+    while (column.next()) |c| {
+        if (c < 0) continue;
+        if (frameBlocked(c, lo, hi, placements, from_id, to_id, clusters)) continue;
+        if (sketch_clearance.lineTouchesAny(false, c, lo, hi, placements, from_id, to_id)) continue;
+        return c;
     }
     return first;
 }
@@ -268,13 +265,10 @@ fn findGroup(groups: []const Grp, r: Req) ?i32 {
 
 fn search(rect: sketch.Rect, r: Req, claims: []const Claim, placements: []const sketch.NodePlacement) ?i32 {
     if (r.hi < r.lo) return null;
-    const reach: i32 = @max(r.want - r.lo, r.hi - r.want);
-    var d: i32 = 1;
-    while (d <= reach) : (d += 1) {
-        for ([2]i32{ r.want + d, r.want - d }) |c| {
-            if (c < r.lo or c > r.hi) continue;
-            if (legal(rect, r, c, claims) and runClear(r, c, placements)) return c;
-        }
+    var column: tracks.Outward = .{ .from = r.want, .reach = @max(r.want - r.lo, r.hi - r.want) };
+    while (column.next()) |c| {
+        if (c < r.lo or c > r.hi) continue;
+        if (legal(rect, r, c, claims) and runClear(r, c, placements)) return c;
     }
     return null;
 }

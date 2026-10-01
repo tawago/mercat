@@ -89,16 +89,14 @@ fn chooseJog(
     if (cur == 0) return null;
     var best: ?i32 = null;
     var best_score = cur;
-    var d: i32 = 1;
-    while (d <= hi - lo) : (d += 1) {
-        for ([2]i32{ jc + d, jc - d }) |c| {
-            if (c <= lo or c >= hi) continue;
-            const s = groupScore(pends, members, c, vertical, placements, clusters, aug);
-            if (s < best_score) {
-                best_score = s;
-                best = c;
-                if (s == 0) return best;
-            }
+    var track: tracks.Outward = .{ .from = jc, .reach = hi - lo };
+    while (track.next()) |c| {
+        if (c <= lo or c >= hi) continue;
+        const s = groupScore(pends, members, c, vertical, placements, clusters, aug);
+        if (s < best_score) {
+            best_score = s;
+            best = c;
+            if (s == 0) return best;
         }
     }
     return best;
