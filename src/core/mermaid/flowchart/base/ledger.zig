@@ -77,15 +77,6 @@ pub const RealizedBundles = struct {
     fused: []const []const EdgeId = &.{},
 };
 
-pub const ClosureCounts = struct {
-    rail_deco_mixed: u32 = 0,
-    rail_member_style_mixed: u32 = 0,
-    rail_star_violation: u32 = 0,
-    rail_closure_undeclared: u32 = 0,
-    co_undeclared: u32 = 0,
-    co_double_discharge: u32 = 0,
-};
-
 pub fn containsEdge(edges: []const EdgeId, edge: EdgeId) bool {
     return std.mem.indexOfScalar(EdgeId, edges, edge) != null;
 }

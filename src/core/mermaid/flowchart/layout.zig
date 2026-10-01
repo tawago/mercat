@@ -113,7 +113,7 @@ fn buildSketch(
     normalizeX(geom);
 
     if (fans.len > 0) fan_mod.gateFanInSharedLabels(NodeGeom, fans, geom);
-    if (fans.len > 0) try fan_lanes.assignLanes(NodeGeom, a, graph, lg, geom, fans, decision.bundles, null);
+    if (fans.len > 0) try fan_lanes.assignLanes(NodeGeom, a, graph, lg, geom, fans, decision.bundles);
 
     if (fans.len > 0) fan_mod.refreshLabelWidths(graph, fans);
 

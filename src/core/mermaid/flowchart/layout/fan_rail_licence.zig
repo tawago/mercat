@@ -1,6 +1,5 @@
 const std = @import("std");
 const sg = @import("../sem_graph.zig");
-const pb = @import("../base/ledger.zig");
 const tie_break = @import("../base/tie_break.zig");
 const rc = @import("../base/rail_closure.zig");
 const fan_mod = @import("fan.zig");
@@ -20,7 +19,6 @@ pub fn refuseUndeclared(
     lg: sugiyama.LayeredGraph,
     fans: []Fan,
     invisible: std.AutoHashMapUnmanaged(sg.EdgeId, void),
-    report: ?*pb.ClosureCounts,
 ) error{OutOfMemory}!void {
     const claims = try a.alloc(Claim, fans.len);
     defer a.free(claims);
@@ -51,13 +49,9 @@ pub fn refuseUndeclared(
         if (claim.members.len < 2) continue;
         claim.verdict = try rc.decide(a, claim.members, try backersOf(a, graph, claim.members));
         claim.claiming = claim.verdict.outcome == .keep or claim.verdict.outcome == .salvage;
-        if (report) |r| {
-            if (claim.verdict.outcome == .refuse or claim.verdict.outcome == .salvage) r.rail_closure_undeclared += 1;
-            r.co_undeclared += claim.verdict.undeclared_pairs;
-        }
     }
 
-    const refused = try reserve(a, claims, report);
+    const refused = try reserve(a, claims);
     defer a.free(refused);
 
     for (fans, claims, refused) |*f, claim, lost_pair| {
@@ -73,7 +67,7 @@ pub fn refuseUndeclared(
     }
 }
 
-fn reserve(a: std.mem.Allocator, claims: []Claim, report: ?*pb.ClosureCounts) error{OutOfMemory}![]bool {
+fn reserve(a: std.mem.Allocator, claims: []Claim) error{OutOfMemory}![]bool {
     const order = try a.alloc(usize, claims.len);
     defer a.free(order);
     for (order, 0..) |*slot, i| slot.* = i;
@@ -87,11 +81,6 @@ fn reserve(a: std.mem.Allocator, claims: []Claim, report: ?*pb.ClosureCounts) er
             if (!claims[y].claiming or !sharesPair(claims[x].verdict, claims[y].verdict)) continue;
             refused[x] = true;
             refused[y] = true;
-        }
-    }
-    for (refused, claims) |hit, claim| {
-        if (hit and claim.verdict.outcome != .salvage) {
-            if (report) |r| r.rail_closure_undeclared += 1;
         }
     }
     return refused;

@@ -55,7 +55,6 @@ pub fn assignLanes(
     geom: []const G,
     fans: []Fan,
     bundles: pb.RealizedBundles,
-    report: ?*pb.ClosureCounts,
 ) error{OutOfMemory}!void {
     if (fans.len == 0 or lg.layers.len < 2) return;
     const ngaps: u32 = @intCast(lg.layers.len - 1);
@@ -161,7 +160,7 @@ pub fn assignLanes(
     }
 
     if (bundles.memberships.len == 0) {
-        try refuseSharedOnly(a, graph, lg, fans, invisible, report);
+        try refuseSharedOnly(a, graph, lg, fans, invisible);
         separatePrivatePeers(fans);
         return;
     }
@@ -180,14 +179,14 @@ pub fn assignLanes(
     separatePrivatePeers(fans);
 }
 
-fn refuseSharedOnly(a: std.mem.Allocator, graph: sg.SemGraph, lg: sugiyama.LayeredGraph, fans: []Fan, invisible: std.AutoHashMapUnmanaged(sg.EdgeId, void), report: ?*pb.ClosureCounts) error{OutOfMemory}!void {
+fn refuseSharedOnly(a: std.mem.Allocator, graph: sg.SemGraph, lg: sugiyama.LayeredGraph, fans: []Fan, invisible: std.AutoHashMapUnmanaged(sg.EdgeId, void)) error{OutOfMemory}!void {
     const gated = try a.dupe(Fan, fans);
     for (fans, gated) |source, *target| {
         var peers: std.ArrayListUnmanaged(fan_mod.FanEdge) = .empty;
         for (source.peers) |peer| if (peer.shared) try peers.append(a, peer);
         target.peers = try peers.toOwnedSlice(a);
     }
-    try rail_licence.refuseUndeclared(a, graph, lg, gated, invisible, report);
+    try rail_licence.refuseUndeclared(a, graph, lg, gated, invisible);
     for (gated, fans) |source, *target| {
         target.lane = source.lane;
         for (source.peers) |peer| for (target.peers) |*out| if (out.edge_id == peer.edge_id) {

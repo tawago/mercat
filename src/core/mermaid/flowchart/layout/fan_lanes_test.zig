@@ -75,7 +75,7 @@ test "incomplete overlapping fans get separate lanes" {
     const aa = arena.allocator();
     const graph = try mkGraph(aa, &edges);
     const fans = try fan.detect(aa, graph, lg);
-    try fan_lanes.assignLanes(Geom, aa, graph, lg, &geom, fans, .{}, null);
+    try fan_lanes.assignLanes(Geom, aa, graph, lg, &geom, fans, .{});
 
     const lane_a = laneOfPivot(fans, .out, 0);
     const lane_c = laneOfPivot(fans, .out, 2);
@@ -115,7 +115,7 @@ test "lane-separated rails take distinct ledger rows and the gap reserves exactl
     const aa = arena.allocator();
     const graph = try mkGraph(aa, &edges);
     const fans = try fan.detect(aa, graph, lg);
-    try fan_lanes.assignLanes(Geom, aa, graph, lg, &geom, fans, .{}, null);
+    try fan_lanes.assignLanes(Geom, aa, graph, lg, &geom, fans, .{});
     const ledger = try gap_rows.buildPiece(Geom, aa, graph, lg, &geom, fans, .{}, .{}, &.{2}, &.{}, &.{});
     const row_a = ledger.rowOfFan(0, .out) orelse return error.MissingRail;
     const row_c = ledger.rowOfFan(2, .out) orelse return error.MissingRail;
@@ -173,7 +173,7 @@ test "a clustered undirected fan with no declared leaf pairs unfuses onto separa
     {
         const graph = try mkBareGraph(aa, &edges, &.{});
         const fans = try fan.detect(aa, graph, lg);
-        try fan_lanes.assignLanes(Geom, aa, graph, lg, &geom, fans, .{}, null);
+        try fan_lanes.assignLanes(Geom, aa, graph, lg, &geom, fans, .{});
         var lanes = [_]u32{ 0, 0, 0 };
         peerLanes(fans, .in, 3, &lanes);
         try testing.expect(lanes[0] != lanes[1]);
@@ -189,7 +189,7 @@ test "a clustered undirected fan with no declared leaf pairs unfuses onto separa
         };
         const graph = try mkBareGraph(aa, &edges, &clique);
         const fans = try fan.detect(aa, graph, lg);
-        try fan_lanes.assignLanes(Geom, aa, graph, lg, &geom, fans, .{}, null);
+        try fan_lanes.assignLanes(Geom, aa, graph, lg, &geom, fans, .{});
         var lanes = [_]u32{ 9, 9, 9 };
         peerLanes(fans, .in, 3, &lanes);
         for (lanes) |l| try testing.expectEqual(@as(u32, 0), l);
@@ -217,7 +217,7 @@ test "a clustered DIRECTED fan is untouched by the closure licence" {
     const aa = arena.allocator();
     const graph = try mkGraph(aa, &edges);
     const fans = try fan.detect(aa, graph, lg);
-    try fan_lanes.assignLanes(Geom, aa, graph, lg, &geom, fans, .{}, null);
+    try fan_lanes.assignLanes(Geom, aa, graph, lg, &geom, fans, .{});
     var lanes = [_]u32{ 9, 9, 9 };
     peerLanes(fans, .in, 3, &lanes);
     for (lanes) |l| try testing.expectEqual(@as(u32, 0), l);
@@ -247,7 +247,7 @@ test "a fan of placement proxies for directed crossings is untouched by the clos
     for (@constCast(graph.edges)) |*e| e.stands_for = .forward_one_way;
 
     const fans = try fan.detect(aa, graph, lg);
-    try fan_lanes.assignLanes(Geom, aa, graph, lg, &geom, fans, .{}, null);
+    try fan_lanes.assignLanes(Geom, aa, graph, lg, &geom, fans, .{});
     var lanes = [_]u32{ 9, 9, 9 };
     peerLanes(fans, .in, 3, &lanes);
     for (lanes) |l| try testing.expectEqual(@as(u32, 0), l);
@@ -284,7 +284,7 @@ test "a salvaged fan's excluded members never land on the kept rail's lane" {
             .{ .edge = 12, .source = null, .target = .{ .independent = .{ .candidate_bundle = 0, .reason = .not_selected } } },
         },
     };
-    try fan_lanes.assignLanes(Geom, aa, graph, lg, &geom, fans, bundles, null);
+    try fan_lanes.assignLanes(Geom, aa, graph, lg, &geom, fans, bundles);
     var lanes = [_]u32{ 9, 9, 9 };
     peerLanes(fans, .in, 3, &lanes);
     try testing.expectEqual(@as(u32, 0), lanes[0]);
@@ -334,7 +334,7 @@ test "a gap whose departures all defer lane-separates the arrival rails that dra
     const aa = arena.allocator();
     const graph = try mkGraph(aa, &edges);
     const fans = try fan.detect(aa, graph, lg);
-    try fan_lanes.assignLanes(Geom, aa, graph, lg, &geom, fans, bundles, null);
+    try fan_lanes.assignLanes(Geom, aa, graph, lg, &geom, fans, bundles);
     try testing.expect(laneOfPivot(fans, .in, 3) != 0);
     try testing.expect(laneOfPivot(fans, .in, 3) != laneOfPivot(fans, .in, 4));
 }
@@ -368,8 +368,7 @@ test "two clustered rails implying one declared leaf pair both refuse" {
         const lg = mkLg(&nodes, &layers, &edges, &reversed);
         const graph = try mkBareGraph(aa, &edges, &declared_pair);
         const fans = try fan.detect(aa, graph, lg);
-        var report: pb.ClosureCounts = .{};
-        try fan_lanes.assignLanes(Geom, aa, graph, lg, &geom, fans, .{}, &report);
+        try fan_lanes.assignLanes(Geom, aa, graph, lg, &geom, fans, .{});
 
         var z_lanes = [_]u32{ 0, 0 };
         peerLanes(fans, .in, 2, &z_lanes);
@@ -388,7 +387,7 @@ test "two clustered rails implying one declared leaf pair both refuse" {
         const lg = mkLg(&nodes, &layers, &edges, &reversed);
         const graph = try mkBareGraph(aa, &edges, &declared_pair);
         const fans = try fan.detect(aa, graph, lg);
-        try fan_lanes.assignLanes(Geom, aa, graph, lg, &geom, fans, .{}, null);
+        try fan_lanes.assignLanes(Geom, aa, graph, lg, &geom, fans, .{});
 
         var z_lanes = [_]u32{ 9, 9 };
         peerLanes(fans, .in, 2, &z_lanes);
@@ -423,7 +422,7 @@ test "an arrow-free group whose declared set is complete still separates" {
     const aa = arena.allocator();
     const graph = try mkBareGraph(aa, &fixture.edges, &.{});
     const fans = try fan.detect(aa, graph, lg);
-    try fan_lanes.assignLanes(Geom, aa, graph, lg, &geom, fans, .{}, null);
+    try fan_lanes.assignLanes(Geom, aa, graph, lg, &geom, fans, .{});
     try testing.expect(laneOfPivot(fans, .out, 0) != laneOfPivot(fans, .out, 1));
 }
 
@@ -442,7 +441,7 @@ test "a directed group whose declared set is complete keeps one shared row" {
     const aa = arena.allocator();
     const graph = try mkGraph(aa, &fixture.edges);
     const fans = try fan.detect(aa, graph, lg);
-    try fan_lanes.assignLanes(Geom, aa, graph, lg, &geom, fans, .{}, null);
+    try fan_lanes.assignLanes(Geom, aa, graph, lg, &geom, fans, .{});
     for (fans) |f| try testing.expectEqual(@as(u32, 0), f.lane);
 }
 
@@ -491,7 +490,7 @@ test "a directed group whose declared set is short of complete still separates" 
     const aa = arena.allocator();
     const graph = try mkGraph(aa, &edges);
     const fans = try fan.detect(aa, graph, lg);
-    try fan_lanes.assignLanes(Geom, aa, graph, lg, &geom, fans, bundles, null);
+    try fan_lanes.assignLanes(Geom, aa, graph, lg, &geom, fans, bundles);
     try testing.expect(laneOfPivot(fans, .out, 0) != laneOfPivot(fans, .out, 1));
 }
 
@@ -525,7 +524,7 @@ fn runFiveOfSix(cx_c: i32, bundles: pb.RealizedBundles) !bool {
     const aa = arena.allocator();
     const graph = try mkGraph(aa, &fixture.edges);
     const fans = try fan.detect(aa, graph, lg);
-    try fan_lanes.assignLanes(Geom, aa, graph, lg, &geom, fans, bundles, null);
+    try fan_lanes.assignLanes(Geom, aa, graph, lg, &geom, fans, bundles);
     return laneOfPivot(fans, .out, 0) != laneOfPivot(fans, .out, 1);
 }
 
@@ -567,7 +566,7 @@ test "a two-sided group whose heads are direction-invariant still separates" {
         };
         const graph: sg.SemGraph = .{ .direction = .TD, .nodes = &.{}, .edges = es, .clusters = &.{}, .classes = &.{}, .arena = null };
         const fans = try fan.detect(aa, graph, lg);
-        try fan_lanes.assignLanes(Geom, aa, graph, lg, &geom, fans, .{}, null);
+        try fan_lanes.assignLanes(Geom, aa, graph, lg, &geom, fans, .{});
         try testing.expect(laneOfPivot(fans, .out, 0) != laneOfPivot(fans, .out, 1));
     }
 }
@@ -599,5 +598,5 @@ test "a two-sided group of double-headed members loses the star licence outright
     for (fans) |f| {
         for (f.peers) |p| try testing.expect(!p.shared);
     }
-    try fan_lanes.assignLanes(Geom, aa, graph, lg, &geom, fans, .{}, null);
+    try fan_lanes.assignLanes(Geom, aa, graph, lg, &geom, fans, .{});
 }

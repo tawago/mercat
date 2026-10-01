@@ -36,7 +36,6 @@ test "an undeclared leaf pair refuses the rail" {
     defer free(v);
     try testing.expectEqual(rc.Outcome.refuse, v.outcome);
     try testing.expectEqual(@as(usize, 0), v.members.len);
-    try testing.expectEqual(@as(u32, 3), v.undeclared_pairs);
 }
 
 test "a fully declared clique keeps the rail and discharges every pair edge" {
@@ -47,7 +46,6 @@ test "a fully declared clique keeps the rail and discharges every pair edge" {
     try testing.expectEqual(rc.Outcome.keep, v.outcome);
     try testing.expectEqualSlices(u32, &.{ 0, 1, 2 }, v.members);
     try testing.expectEqual(@as(usize, 3), v.discharges.len);
-    try testing.expectEqual(@as(u32, 0), v.undeclared_pairs);
     var seen = [_]bool{ false, false, false };
     for (v.discharges) |d| seen[d.backer - 10] = true;
     for (seen) |s| try testing.expect(s);
@@ -75,7 +73,6 @@ test "a decorated, labeled or wrong-stroke declaration backs nothing" {
         const v = try decide(&members, &[_]rc.Backer{b});
         defer free(v);
         try testing.expectEqual(rc.Outcome.refuse, v.outcome);
-        try testing.expectEqual(@as(u32, 1), v.undeclared_pairs);
     }
 }
 
@@ -87,7 +84,6 @@ test "one declaration cannot back two pairs of the same rail" {
     try testing.expectEqual(rc.Outcome.salvage, v.outcome);
     try testing.expectEqualSlices(u32, &.{ 0, 1 }, v.members);
     try testing.expectEqual(@as(usize, 1), v.discharges.len);
-    try testing.expectEqual(@as(u32, 2), v.undeclared_pairs);
 }
 
 test "a declared pair names the one declaration the rail's crossbar takes over" {
@@ -107,7 +103,6 @@ test "a wide rail with nothing declared refuses without searching every subset" 
     const v = try decide(&members, &.{});
     defer free(v);
     try testing.expectEqual(rc.Outcome.refuse, v.outcome);
-    try testing.expectEqual(@as(u32, 120), v.undeclared_pairs);
     try testing.expect(timer.read() < 200 * std.time.ns_per_ms);
 }
 
@@ -178,7 +173,6 @@ test "a decorated star with undeclared pairs refuses instead of escaping the lic
     defer free(v);
     try testing.expectEqual(rc.Outcome.refuse, v.outcome);
     try testing.expectEqual(@as(usize, 0), v.members.len);
-    try testing.expectEqual(@as(u32, 3), v.undeclared_pairs);
 }
 
 test "a decorated star with every pair declared is still refused for discharge" {

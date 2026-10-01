@@ -36,7 +36,6 @@ pub const Verdict = struct {
     outcome: Outcome,
     members: []const EdgeId = &.{},
     discharges: []const Discharge = &.{},
-    undeclared_pairs: u32 = 0,
 };
 
 pub const max_salvage_members: usize = 16;
@@ -55,13 +54,12 @@ pub fn decide(
         .discharges = d,
     };
 
-    const undeclared = countUndeclared(members, backers);
-    if (members.len > max_salvage_members) return .{ .outcome = .refuse, .undeclared_pairs = undeclared };
+    if (members.len > max_salvage_members) return .{ .outcome = .refuse };
 
     const compatible = pairMatrix(members, backers);
     var widest: usize = 0;
     for (0..members.len) |i| widest = @max(widest, @popCount(compatible[i]));
-    if (widest < 1) return .{ .outcome = .refuse, .undeclared_pairs = undeclared };
+    if (widest < 1) return .{ .outcome = .refuse };
     var size: usize = @min(members.len - 1, widest + 1);
     while (size >= 2) : (size -= 1) {
         var mask: u32 = 0;
@@ -75,11 +73,10 @@ pub fn decide(
                 .outcome = .salvage,
                 .members = try edgeIds(allocator, subset),
                 .discharges = d,
-                .undeclared_pairs = undeclared,
             };
         }
     }
-    return .{ .outcome = .refuse, .undeclared_pairs = undeclared };
+    return .{ .outcome = .refuse };
 }
 
 pub fn nodesClosed(
@@ -145,30 +142,6 @@ fn maskCompatible(rows: [max_salvage_members]u32, mask: u32) bool {
         if (others & ~rows[bit] != 0) return false;
     }
     return true;
-}
-
-fn countUndeclared(members: []const Member, backers: []const Backer) u32 {
-    var used_buf: [max_salvage_members * max_salvage_members]EdgeId = undefined;
-    var used_n: usize = 0;
-    var missing: u32 = 0;
-    for (members, 0..) |m, i| {
-        for (members[0..i]) |n| {
-            if (m.leaf == n.leaf) continue;
-            if (m.kind != n.kind or !m.undecorated or !n.undecorated) {
-                missing += 1;
-                continue;
-            }
-            const backer = findBacker(backers, m.kind, m.leaf, n.leaf, used_buf[0..used_n]) orelse {
-                missing += 1;
-                continue;
-            };
-            if (used_n < used_buf.len) {
-                used_buf[used_n] = backer.edge;
-                used_n += 1;
-            }
-        }
-    }
-    return missing;
 }
 
 fn findBacker(
