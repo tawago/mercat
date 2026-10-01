@@ -9,8 +9,7 @@ const split_mod = @import("split.zig");
 const bridges = @import("bridges.zig");
 const bridge_plan = @import("bridge_plan.zig");
 const entry_inset = @import("entry_inset.zig");
-const stitch_bundle_sets = @import("stitch_bundle_sets.zig");
-const stitch_bundles = @import("stitch_bundles.zig");
+const stitch_sharing = @import("stitch_sharing.zig");
 const stitch_rails = @import("stitch_rails.zig");
 const Final = @import("final_scene.zig").Final;
 
@@ -88,7 +87,7 @@ const Stitcher = struct {
     edges: std.ArrayListUnmanaged(sketch.EdgePath) = .empty,
     rails: std.ArrayListUnmanaged(sketch.Rail) = .empty,
     bundle_sets: std.ArrayListUnmanaged(bundle_mod.Bundle) = .empty,
-    piece_joins: std.ArrayListUnmanaged(stitch_bundles.PieceBundles) = .empty,
+    piece_joins: std.ArrayListUnmanaged(stitch_sharing.PieceBundles) = .empty,
     claim_sources: []stitch_rails.ChildSource,
     outer_base: sketch.EdgeId = 0,
     bridge_base: sketch.EdgeId = 0,
@@ -200,7 +199,7 @@ const Stitcher = struct {
                 if (try translateRail(arena, cr, at)) |tr| try self.rails.append(arena, tr);
             }
             for (child.sketch.sharing.bundles) |cs| {
-                if (cs.origin != .port_share) try self.bundle_sets.append(arena, try stitch_bundle_sets.shiftSet(arena, cs, at.base, off.dx, off.dy));
+                if (cs.origin != .port_share) try self.bundle_sets.append(arena, try stitch_sharing.shiftSet(arena, cs, at.base, off.dx, off.dy));
             }
         }
         self.outer_base = id_base;
@@ -275,7 +274,8 @@ const Stitcher = struct {
             .rails = bar_slice,
             .placements = node_slice,
         };
-        const authority = try stitch_bundle_sets.finalizeAuthority(arena, fin, self.claim_sources, self.global_of[0], try self.bundle_sets.toOwnedSlice(arena));
+        const realized = if (merge_joins) try stitch_sharing.merge(arena, self.piece_joins.items) else ledger.RealizedBundles{};
+        const sharing = try stitch_sharing.finalize(arena, fin, self.claim_sources, self.global_of[0], try self.bundle_sets.toOwnedSlice(arena), realized);
 
         const merged: sketch.Sketch = .{
             .bbox = self.outer.bbox,
@@ -284,11 +284,7 @@ const Stitcher = struct {
             .clusters = cluster_slice,
             .edges = edge_slice,
             .rails = bar_slice,
-            .sharing = .{
-                .realized = if (merge_joins) try stitch_bundles.merge(arena, self.piece_joins.items) else .{},
-                .bundles = authority.sets,
-                .claims = authority.claims,
-            },
+            .sharing = sharing,
             .diagnostics = self.outer.diagnostics,
             .budget = self.outer.budget,
         };
@@ -324,17 +320,18 @@ fn placementOf(placements: []const sketch.NodePlacement, id: sketch.NodeId) sket
 }
 
 fn idSpan(s: sketch.Sketch) sketch.EdgeId {
-    var max_id: ?sketch.EdgeId = null;
-    const bump = struct {
-        fn f(cur: *?sketch.EdgeId, id: sketch.EdgeId) void {
-            if (cur.* == null or id > cur.*.?) cur.* = id;
-        }
-    }.f;
-    for (s.edges) |e| bump(&max_id, e.id);
-    for (s.rails) |b| for (b.taps) |t| bump(&max_id, t.edge);
-    for (s.sharing.bundles) |cs| for (cs.members) |m| bump(&max_id, m);
-    for (s.sharing.claims) |claim| for (claim.members) |m| bump(&max_id, m.edge);
-    return if (max_id) |m| m + 1 else 0;
+    var span: sketch.EdgeId = 0;
+    for (s.edges) |e| span = @max(span, e.id + 1);
+    for (s.rails) |rail| {
+        for (rail.taps) |tap| span = @max(span, tap.edge + 1);
+    }
+    for (s.sharing.bundles) |bundle| {
+        for (bundle.members) |m| span = @max(span, m + 1);
+    }
+    for (s.sharing.claims) |claim| {
+        for (claim.members) |m| span = @max(span, m.edge + 1);
+    }
+    return span;
 }
 
 fn translateEdge(arena: std.mem.Allocator, e: sketch.EdgePath, at: Place) error{OutOfMemory}!sketch.EdgePath {

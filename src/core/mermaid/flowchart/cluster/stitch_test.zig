@@ -3,8 +3,7 @@ const sketch = @import("../sketch.zig");
 const ledger = @import("../base/ledger.zig");
 const bundle_mod = @import("../base/bundle.zig");
 const stitch = @import("stitch.zig");
-const stitch_bundle_sets = @import("stitch_bundle_sets.zig");
-const stitch_bundles = @import("stitch_bundles.zig");
+const stitch_sharing = @import("stitch_sharing.zig");
 
 test "superSize wraps child bbox with frame padding (scale 0 = full inset)" {
     const sz = stitch.superSize(.{ .x = 0, .y = 0, .w = 20, .h = 8 }, 0, false);
@@ -42,7 +41,7 @@ test "shiftSet carries a port-share set's cell scope and pairwise table across t
         .pairwise = &pairwise,
     };
 
-    const shifted = try stitch_bundle_sets.shiftSet(a, cs, 100, 10, 20);
+    const shifted = try stitch_sharing.shiftSet(a, cs, 100, 10, 20);
     try std.testing.expectEqualSlices(sketch.EdgeId, &.{ 100, 101, 102 }, shifted.members);
     try std.testing.expect(shifted.cells != null);
     try std.testing.expectEqual(@as(i32, 15), shifted.cells.?[0].x);
@@ -57,7 +56,7 @@ test "shiftSet carries a port-share set's cell scope and pairwise table across t
     try std.testing.expectEqual(@as(i32, 23), shifted.pairwise.?[1].cells[0].y);
 
     const wide: bundle_mod.Bundle = .{ .origin = .fan_rail, .members = &.{ 5, 6 } };
-    const shifted_wide = try stitch_bundle_sets.shiftSet(a, wide, 0, 1, 1);
+    const shifted_wide = try stitch_sharing.shiftSet(a, wide, 0, 1, 1);
     try std.testing.expect(shifted_wide.cells == null);
     try std.testing.expect(shifted_wide.pairwise == null);
 }
@@ -83,7 +82,7 @@ test "merge renumbers bundles per piece and shifts every edge id" {
             .{ .edge = 2, .source = null, .target = .{ .selected = 0 } },
         },
     };
-    const merged = try stitch_bundles.merge(a, &.{
+    const merged = try stitch_sharing.merge(a, &.{
         .{ .bundles = piece_a, .edge_base = 0 },
         .{ .bundles = piece_b, .edge_base = 10 },
     });
