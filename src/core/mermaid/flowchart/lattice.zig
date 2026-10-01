@@ -1,7 +1,6 @@
 const std = @import("std");
 const prim = @import("prim");
 const ledger = @import("base/ledger.zig");
-const rail_star = @import("base/rail_star.zig");
 
 pub const BorderRole = enum {
     corner_nw,
@@ -105,7 +104,6 @@ pub const Lattice = struct {
     height: u32,
     cells: []Cell,
     glyphs: []const Glyph = &.{},
-    rail_claims: []const rail_star.RailClaim = &.{},
 
     pub fn at(self: Lattice, x: u32, y: u32) *Cell {
         std.debug.assert(x < self.width);

@@ -36,7 +36,7 @@ fn arrowNorth(edge: u32) lattice.Cell {
 
 fn blank(buf: []lattice.Cell) lattice.Lattice {
     for (buf) |*c| c.* = lattice.Cell.empty;
-    return .{ .width = 3, .height = 5, .cells = buf, .rail_claims = &out_claims };
+    return .{ .width = 3, .height = 5, .cells = buf };
 }
 
 fn fanSketch(
@@ -51,6 +51,7 @@ fn fanSketch(
         .clusters = &.{},
         .edges = edges,
         .rails = rails,
+        .rail_claims = &out_claims,
         .diagnostics = &.{},
         .budget = .{ .max_width = 80, .rung = 0 },
     };
@@ -232,13 +233,14 @@ test "a fan-IN rail row one cell away reprieves the fan-OUT junction too" {
 test "fan-IN shared runs keep all four arms" {
     var buf: [15]lattice.Cell = undefined;
     var lat = blank(&buf);
-    lat.rail_claims = &in_claims;
     lat.at(1, 2).* = fanCell(0, .fan_in_rail, all4);
 
     const nodes = pivotAt(0, 2);
     var edges = memberEdge(.fan_in_dropper);
     edges[0].to = 5;
-    fan_roles.resolveMasks(&lat, fanSketch(&nodes, &edges, &.{}));
+    var s = fanSketch(&nodes, &edges, &.{});
+    s.rail_claims = &in_claims;
+    fan_roles.resolveMasks(&lat, s);
 
     try testing.expectEqual(@as(u4, 0b1111), lat.atConst(1, 2).neighbours.toMask());
 }
@@ -268,10 +270,11 @@ test "an unplaceable pivot leaves the mask exactly as the walk wrote it" {
     var buf: [15]lattice.Cell = undefined;
 
     var no_edge = blank(&buf);
-    no_edge.rail_claims = &.{};
     no_edge.at(1, 2).* = fanCell(0, .fan_out_rail, all4);
     const nodes = pivotAt(0, 2);
-    fan_roles.resolveMasks(&no_edge, fanSketch(&nodes, &.{}, &.{}));
+    var unclaimed = fanSketch(&nodes, &.{}, &.{});
+    unclaimed.rail_claims = &.{};
+    fan_roles.resolveMasks(&no_edge, unclaimed);
     try testing.expectEqual(@as(u4, 0b1111), no_edge.atConst(1, 2).neighbours.toMask());
 
     var buf2: [15]lattice.Cell = undefined;

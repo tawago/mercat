@@ -1,6 +1,5 @@
 const std = @import("std");
 const prim = @import("prim");
-const rail_star = @import("base/rail_star.zig");
 const sketch = @import("sketch.zig");
 const lattice = @import("lattice.zig");
 const nodes_r = @import("raster/nodes.zig");
@@ -35,7 +34,7 @@ pub fn rasterize(
     const h = s.bbox.h;
 
     if (w == 0 or h == 0) {
-        return .{ .lattice = .{ .width = 0, .height = 0, .cells = &[_]lattice.Cell{}, .rail_claims = s.rail_claims } };
+        return .{ .lattice = .{ .width = 0, .height = 0, .cells = &[_]lattice.Cell{} } };
     }
 
     const cells = allocator.alloc(lattice.Cell, @as(usize, w) * @as(usize, h)) catch {
@@ -47,7 +46,6 @@ pub fn rasterize(
         .width = w,
         .height = h,
         .cells = cells,
-        .rail_claims = s.rail_claims,
     };
 
     _ = try clusters_r.rasterizeClusters(allocator, &lat, s);
@@ -69,12 +67,12 @@ pub fn rasterize(
 
 const testing = std.testing;
 
-test "zero-sized bbox returns empty report and borrows final rail claims" {
+test "zero-sized bbox returns empty report" {
     var arena = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
 
-    var s = sketch.Sketch{
+    const s = sketch.Sketch{
         .bbox = .{ .x = 0, .y = 0, .w = 0, .h = 0 },
         .direction = .TD,
         .nodes = &.{},
@@ -83,13 +81,10 @@ test "zero-sized bbox returns empty report and borrows final rail claims" {
         .diagnostics = &.{},
         .budget = .{ .max_width = 80, .rung = 0 },
     };
-    const claims = [_]rail_star.RailClaim{.{ .id = 1, .polarity = .out, .members = &.{} }};
-    s.rail_claims = &claims;
 
     const r = try rasterize(a, s, .bridge);
     try testing.expectEqual(@as(u32, 0), r.lattice.width);
     try testing.expectEqual(@as(u32, 0), r.lattice.height);
-    try testing.expectEqualSlices(rail_star.RailClaim, &claims, r.lattice.rail_claims);
 }
 
 test "two nodes + one edge: borders, interiors, and an edge cell" {

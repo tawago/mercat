@@ -61,18 +61,9 @@ pub const RealizedEdgeMembership = struct {
 
 pub const EndpointSide = enum(u1) { source_exit = 0, target_entry = 1 };
 
-pub const TerminalPort = struct {
-    node: NodeId,
-    edge: EdgeId,
-    endpoint_side: EndpointSide,
-    port: u32,
-};
-
 pub const RealizedBundles = struct {
     selected_bundles: []const SelectedBundle = &.{},
-    rejected_proposals: []const BundleProposalId = &.{},
     memberships: []const RealizedEdgeMembership = &.{},
-    terminal_ports: []const TerminalPort = &.{},
     discharged: []const EdgeId = &.{},
     fused: []const []const EdgeId = &.{},
 };

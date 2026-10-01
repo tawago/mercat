@@ -34,9 +34,7 @@ test "identity handles match prim's" {
 test "empty RealizedBundles is default-constructible with all-empty fields" {
     const plan: pb.RealizedBundles = .{};
     try expectEqual(@as(usize, 0), plan.selected_bundles.len);
-    try expectEqual(@as(usize, 0), plan.rejected_proposals.len);
     try expectEqual(@as(usize, 0), plan.memberships.len);
-    try expectEqual(@as(usize, 0), plan.terminal_ports.len);
 }
 
 test "co-membership needs both edges inside one set" {
