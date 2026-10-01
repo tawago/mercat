@@ -115,7 +115,7 @@ fn permitsFor(a: std.mem.Allocator, g: sem_graph.SemGraph) !ledger.BundlePermits
     return plan;
 }
 
-test "the audit prices the raster that ships: mode reaches collect and changes the counts" {
+test "the audit prices the raster that ships: the subgraph-edge mode changes the counts" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
