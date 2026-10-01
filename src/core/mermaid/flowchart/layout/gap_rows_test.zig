@@ -6,7 +6,6 @@ const sugiyama = @import("sugiyama.zig");
 const fan = @import("fan.zig");
 const gap_rows = @import("gap_rows.zig");
 const pack_mod = @import("gap_rows_pack.zig");
-const grid = @import("gap_rows_grid.zig");
 const port_plan = @import("port_plan.zig");
 const flt = @import("fan_lanes_test.zig");
 
@@ -537,7 +536,7 @@ test "a sub-gap grows by the rows its packed claims need beyond the grid's" {
     defer arena.deinit();
     const a = arena.allocator();
     const bases = [_]u32{ 2, 3 };
-    var subs = [_]grid.SubGap{.{ .gap = 1, .layer = 0, .top = 6, .far = 3, .base = 3 }};
+    var subs = [_]pack_mod.SubGap{.{ .gap = 1, .layer = 0, .top = 6, .far = 3, .base = 3 }};
     const claims = [_]Claim{ claim(1, 0, 10, .run), claim(1, 5, 20, .corridor_entry) };
     const l = try pack_mod.packSub(a, &claims, &.{}, &bases, &subs);
     try testing.expectEqual(@as(u32, 2), l.gaps[1].rows_used);

@@ -1,7 +1,6 @@
 const std = @import("std");
 const sg = @import("../sem_graph.zig");
 const fan_mod = @import("fan.zig");
-const grid = @import("gap_rows_grid.zig");
 
 pub const Kind = enum {
     fan_in,
@@ -53,6 +52,14 @@ pub const Claim = struct {
 
 pub const Post = struct { gap: u32, x: i32 };
 
+pub const SubGap = struct {
+    gap: u32,
+    layer: u32,
+    top: i32,
+    far: i32,
+    base: u32,
+};
+
 pub const GapAccount = struct { base: u32, free: u32, rows_used: u32, claimed: u64, base_used: bool };
 
 pub fn gapSpacingNeeded(rows_used: u32, base_used: bool) u32 {
@@ -63,7 +70,7 @@ pub fn gapSpacingNeeded(rows_used: u32, base_used: bool) u32 {
 pub const Ledger = struct {
     claims: []const Claim = &.{},
     gaps: []const GapAccount = &.{},
-    sub_gaps: []grid.SubGap = &.{},
+    sub_gaps: []SubGap = &.{},
     proxies: []const sg.EdgeId = &.{},
 
     pub fn extraRows(self: Ledger, gap: usize) u32 {
@@ -288,7 +295,7 @@ pub fn pack(a: std.mem.Allocator, raw: []const Claim, posts: []const Post, bases
     return packSub(a, raw, posts, bases, &.{});
 }
 
-pub fn packSub(a: std.mem.Allocator, raw: []const Claim, posts: []const Post, bases: []const u32, sub_gaps: []grid.SubGap) error{OutOfMemory}!Ledger {
+pub fn packSub(a: std.mem.Allocator, raw: []const Claim, posts: []const Post, bases: []const u32, sub_gaps: []SubGap) error{OutOfMemory}!Ledger {
     const claims = try fuse(a, raw);
     const gaps = try a.alloc(GapAccount, bases.len);
     for (gaps, bases, 0..) |*g, base, gi| {

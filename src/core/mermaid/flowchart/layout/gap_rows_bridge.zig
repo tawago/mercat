@@ -2,7 +2,7 @@ const std = @import("std");
 const sg = @import("../sem_graph.zig");
 const lanes = @import("../base/lanes.zig");
 const pack_mod = @import("gap_rows_pack.zig");
-const NodeGeom = @import("node_geom.zig").NodeGeom;
+const Census = @import("gap_rows_census.zig").Census;
 
 const Claim = pack_mod.Claim;
 
@@ -15,7 +15,7 @@ const Group = struct {
     reqs: std.ArrayListUnmanaged(Request) = .empty,
 };
 
-pub fn jogClaims(a: std.mem.Allocator, c: anytype, geom: []const NodeGeom, claims: *std.ArrayListUnmanaged(Claim)) error{OutOfMemory}!void {
+pub fn jogClaims(a: std.mem.Allocator, c: Census, claims: *std.ArrayListUnmanaged(Claim)) error{OutOfMemory}!void {
     var groups: std.ArrayListUnmanaged(Group) = .empty;
     for (c.graph.edges) |e| {
         if (!c.isPlacement(e) or e.from == e.to or c.isReversed(e.id)) continue;
@@ -24,10 +24,10 @@ pub fn jogClaims(a: std.mem.Allocator, c: anytype, geom: []const NodeGeom, claim
         const gap = c.gapOf(sl, tl) orelse continue;
         const ui = c.idx_of.get(e.from) orelse continue;
         const vi = c.idx_of.get(e.to) orelse continue;
-        const u_col = geom[ui].centerX();
-        const v_col = geom[vi].centerX();
+        const u_col = c.geom[ui].centerX();
+        const v_col = c.geom[vi].centerX();
         const pin: i32 = if (c.isDrawnSuper(e.to)) -2 else -1;
-        const arr: i32 = if (pin == -1) c.portCol(geom, e, .target_entry) else v_col;
+        const arr: i32 = if (pin == -1) c.portCol(e, .target_entry) else v_col;
         if (@max(sl, tl) - @min(sl, tl) > 1) {
             const entry_gap = c.gapBelow(sl) orelse continue;
             try claims.append(a, try one(a, entry_gap, u_col, v_col, .bridge_return, e.id, null));
@@ -44,8 +44,8 @@ pub fn jogClaims(a: std.mem.Allocator, c: anytype, geom: []const NodeGeom, claim
         var hi = @max(u_col, arr);
         const bundled = pin == -1 and e.crossings > 1 and c.isSuper(e.from);
         if (bundled) {
-            lo = @min(lo, geom[ui].x);
-            hi = @max(hi, geom[ui].right() - 1);
+            lo = @min(lo, c.geom[ui].x);
+            hi = @max(hi, c.geom[ui].right() - 1);
         }
         try g.reqs.append(a, .{ .lo = lo, .hi = hi, .dep = u_col, .arr = arr, .edge = e.id, .bundled = bundled });
     }
