@@ -2,6 +2,8 @@ const std = @import("std");
 const ledger = @import("../base/ledger.zig");
 const bundle_mod = @import("../base/bundle.zig");
 const rail_star = @import("../base/rail_star.zig");
+const sg = @import("../sem_graph.zig");
+const sugiyama = @import("sugiyama.zig");
 const mirror = @import("mirror.zig");
 const node_geom = @import("node_geom.zig");
 const sketch = @import("../sketch.zig");
@@ -173,4 +175,121 @@ test "vertical mirror fails rather than exposing partially mirrored scopes" {
         }
     }
     try testing.expect(saw_success);
+}
+
+test "vertical mirror flips y geometry and ports" {
+    const nodes = [_]sketch.NodePlacement{
+        .{ .id = 1, .rect = .{ .x = 2, .y = 1, .w = 5, .h = 3 }, .shape = .rect, .lines = &.{"A"}, .cluster_id = null },
+        .{ .id = 2, .rect = .{ .x = 2, .y = 6, .w = 5, .h = 3 }, .shape = .rect, .lines = &.{"B"}, .cluster_id = null },
+    };
+    const poly = [_]sketch.Point{ .{ .x = 4, .y = 3 }, .{ .x = 4, .y = 5 } };
+    const edges = [_]sketch.EdgePath{
+        .{
+            .id = 1,
+            .from = 1,
+            .to = 2,
+            .polyline = &poly,
+            .port_from = .{ .node = 1, .side = .south, .offset = 2 },
+            .port_to = .{ .node = 2, .side = .west, .offset = 0 },
+            .arrow_from = .none,
+            .arrow_to = .filled,
+            .label = null,
+            .kind = .solid,
+        },
+    };
+    const s = sketch.Sketch{
+        .bbox = .{ .x = 0, .y = 0, .w = 9, .h = 10 },
+        .direction = .TD,
+        .nodes = &nodes,
+        .clusters = &.{},
+        .edges = &edges,
+        .diagnostics = &.{},
+        .budget = .{ .max_width = 80, .rung = 0 },
+    };
+
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const out = try mirror.vertical(arena.allocator(), s, .BT);
+
+    try std.testing.expectEqual(sketch.Direction.BT, out.direction);
+    try std.testing.expectEqual(@as(i32, 6), out.nodes[0].rect.y);
+    try std.testing.expectEqual(@as(i32, 1), out.nodes[1].rect.y);
+    try std.testing.expectEqual(@as(i32, 6), out.edges[0].polyline[0].y);
+    try std.testing.expectEqual(@as(i32, 4), out.edges[0].polyline[1].y);
+    try std.testing.expectEqual(sketch.Dir4.north, out.edges[0].port_from.side);
+    try std.testing.expectEqual(sketch.Dir4.west, out.edges[0].port_to.side);
+    try std.testing.expectEqual(@as(u32, 2), out.edges[0].port_to.offset);
+}
+
+test "vertical mirror preserves rail tap x-order; only the rail row shifts" {
+    const nodes = [_]sketch.NodePlacement{
+        .{ .id = 1, .rect = .{ .x = 0, .y = 0, .w = 5, .h = 3 }, .shape = .rect, .lines = &.{"P"}, .cluster_id = null },
+        .{ .id = 2, .rect = .{ .x = 0, .y = 8, .w = 5, .h = 3 }, .shape = .rect, .lines = &.{"L"}, .cluster_id = null },
+        .{ .id = 3, .rect = .{ .x = 20, .y = 8, .w = 5, .h = 3 }, .shape = .rect, .lines = &.{"R"}, .cluster_id = null },
+    };
+    const stem = [_]sketch.Point{ .{ .x = 2, .y = 3 }, .{ .x = 2, .y = 5 } };
+    const taps = [_]sketch.Tap{
+        .{ .edge = 1, .node = 2, .at = .{ .x = 2, .y = 5 }, .landing = .{ .x = 2, .y = 8 } },
+        .{ .edge = 2, .node = 3, .at = .{ .x = 22, .y = 5 }, .landing = .{ .x = 22, .y = 8 } },
+    };
+    const rails = [_]sketch.Rail{
+        .{ .pivot = 1, .stem = &stem, .crossbar = .{ .{ .x = 2, .y = 5 }, .{ .x = 22, .y = 5 } }, .taps = &taps, .kind = .solid },
+    };
+    const s = sketch.Sketch{
+        .bbox = .{ .x = 0, .y = 0, .w = 25, .h = 12 },
+        .direction = .TD,
+        .nodes = &nodes,
+        .clusters = &.{},
+        .edges = &.{},
+        .rails = &rails,
+        .diagnostics = &.{},
+        .budget = .{ .max_width = 80, .rung = 0 },
+    };
+
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const out = try mirror.vertical(arena.allocator(), s, .BT);
+
+    try std.testing.expectEqual(taps[0].at.x, out.rails[0].taps[0].at.x);
+    try std.testing.expectEqual(taps[1].at.x, out.rails[0].taps[1].at.x);
+    try std.testing.expectEqual(taps[0].landing.x, out.rails[0].taps[0].landing.x);
+    try std.testing.expectEqual(taps[1].landing.x, out.rails[0].taps[1].landing.x);
+
+    try std.testing.expect(out.rails[0].crossbar[0].x <= out.rails[0].crossbar[1].x);
+    try std.testing.expectEqual(out.rails[0].crossbar[0].y, out.rails[0].crossbar[1].y);
+    try std.testing.expect(out.rails[0].crossbar[0].y != rails[0].crossbar[0].y);
+}
+
+test "RL: sugiyama's own layer reversal plus applyDirection's axis swap alone yields correct right-to-left order" {
+    const nodes = [_]sg.Node{
+        .{ .id = 0, .raw_id = "A", .label = "A", .shape = .rect, .classes = &.{}, .cluster = null },
+        .{ .id = 1, .raw_id = "B", .label = "B", .shape = .rect, .classes = &.{}, .cluster = null },
+        .{ .id = 2, .raw_id = "C", .label = "C", .shape = .rect, .classes = &.{}, .cluster = null },
+    };
+    const edges = [_]sg.Edge{
+        .{ .id = 0, .from = 0, .to = 1, .kind = .solid, .arrow_from = .none, .arrow_to = .filled, .label = null },
+        .{ .id = 1, .from = 1, .to = 2, .kind = .solid, .arrow_from = .none, .arrow_to = .filled, .label = null },
+    };
+    const g = sg.SemGraph{
+        .direction = .RL,
+        .nodes = &nodes,
+        .edges = &edges,
+        .clusters = &.{},
+        .classes = &.{},
+        .arena = null,
+    };
+    var lg = try sugiyama.assignLayers(std.testing.allocator, g);
+    defer lg.deinit(std.testing.allocator);
+
+    var geom = try std.testing.allocator.alloc(NodeGeom, lg.nodes.len);
+    defer std.testing.allocator.free(geom);
+    for (lg.layers, 0..) |row, li| {
+        for (row) |idx| geom[idx] = .{ .x = 0, .y = @as(i32, @intCast(li)) * 10, .w = 6, .h = 3, .layer = @intCast(li) };
+    }
+
+    mirror.applyDirection(geom, .RL);
+
+    const idx_a = lg.real_index.get(0).?;
+    const idx_c = lg.real_index.get(2).?;
+    try std.testing.expect(geom[idx_a].x > geom[idx_c].x);
 }
