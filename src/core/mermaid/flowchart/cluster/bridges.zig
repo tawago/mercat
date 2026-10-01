@@ -25,6 +25,28 @@ pub fn route(
     build: prim.BridgeBuild,
 ) error{OutOfMemory}![]sketch.EdgePath {
     const obstacles = try sceneObstacles(arena, rails, edge_paths);
+    const pends = try collect(arena, crossings, placements, clusters, dir, orig_to_merged);
+    for (pends) |*p| p.resetJog();
+    try requests.assignJogs(arena, pends, clusters, obstacles);
+    try disciplineFaces(arena, pends, placements, clusters);
+    slideOffArrowheads(pends, obstacles);
+    try requests.assignJogs(arena, pends, clusters, obstacles);
+
+    if (build == .railed) {
+        const full = try bridge_rails.withStaticRuns(arena, obstacles, edge_paths);
+        try bridge_rails.overrideJogs(arena, pends, placements, clusters, full);
+    }
+    return buildPaths(arena, pends, placements, clusters, obstacles, build == .dodged);
+}
+
+fn collect(
+    arena: std.mem.Allocator,
+    crossings: []const Crossing,
+    placements: []const sketch.NodePlacement,
+    clusters: []const sketch.ClusterFrame,
+    dir: sketch.Direction,
+    orig_to_merged: []const sketch.NodeId,
+) error{OutOfMemory}![]Pending {
     var pends: std.ArrayListUnmanaged(Pending) = .empty;
     for (crossings) |c| {
         if (c.from >= orig_to_merged.len or c.to >= orig_to_merged.len) continue;
@@ -37,9 +59,6 @@ pub fn route(
         const from_box = boxOf(clusters, from_p) orelse from_p.rect;
         const to_box = boxOf(clusters, to_p) orelse to_p.rect;
         const sides = relSides(from_box, to_box, dir);
-        const start = portPoint(from_p.rect, sides.exit);
-        const end = portPoint(to_p.rect, sides.entry);
-
         try pends.append(arena, .{
             .cross = c,
             .gf = gf,
@@ -48,8 +67,8 @@ pub fn route(
             .to_rect = to_p.rect,
             .to_box = to_box,
             .sides = sides,
-            .start = start,
-            .end = end,
+            .start = portPoint(from_p.rect, sides.exit),
+            .end = portPoint(to_p.rect, sides.entry),
             .off_from = corridors.sideOffset(from_p.rect, sides.exit),
             .off_to = corridors.sideOffset(to_p.rect, sides.entry),
             .from_frame = corridors.drawnFrame(clusters, from_p),
@@ -57,47 +76,45 @@ pub fn route(
             .pref = null,
         });
     }
+    return pends.toOwnedSlice(arena);
+}
 
-    for (pends.items) |*p| p.resetJog();
-    try requests.assignJogs(arena, pends.items, clusters, obstacles);
-
-    const pairs = try arena.alloc(corridors.Pair, pends.items.len);
-    for (pends.items, pairs) |p, *q| {
+fn disciplineFaces(
+    arena: std.mem.Allocator,
+    pends: []Pending,
+    placements: []const sketch.NodePlacement,
+    clusters: []const sketch.ClusterFrame,
+) error{OutOfMemory}!void {
+    const pairs = try arena.alloc(corridors.Pair, pends.len);
+    for (pends, pairs) |p, *q| {
         const exit_frame: ?sketch.ClusterId = if (scene.rerouted(p, placements)) null else p.from_frame;
         q.* = .{
             .from = .{ .node = p.gf, .rect = p.from_rect, .side = p.sides.exit, .frame = exit_frame },
             .to = .{ .node = p.gt, .rect = p.to_rect, .side = p.sides.entry, .frame = p.to_frame },
         };
     }
-    for (pends.items, try corridors.discipline(arena, pairs, clusters, placements)) |*p, r| {
+    for (pends, try corridors.discipline(arena, pairs, clusters, placements)) |*p, r| {
         corridors.slide(&p.start, p.sides.exit, r.from_coord);
         corridors.slide(&p.end, p.sides.entry, r.to_coord);
         p.off_from = r.from_off;
         p.off_to = r.to_off;
         p.resetJog();
     }
+}
 
-    for (pends.items, 0..) |*p, pi| {
+fn slideOffArrowheads(pends: []Pending, obstacles: tracks.Obstacles) void {
+    for (pends, 0..) |*p, pi| {
         const shared_start = p.start;
-        if (slideOffHeads(&p.start, p.sides.exit, p.gf, p.from_rect, obstacles, pends.items, pi)) {
-            p.off_from = corridors.portOffset(p.from_rect, p.sides.exit, faceCoord(p.start, p.sides.exit));
-            p.resetJog();
-            for (pends.items[pi + 1 ..]) |*q| {
-                if (q.start.x != shared_start.x or q.start.y != shared_start.y) continue;
-                q.start = p.start;
-                q.off_from = p.off_from;
-                q.resetJog();
-            }
+        if (!slideOffHeads(&p.start, p.sides.exit, p.gf, p.from_rect, obstacles, pends, pi)) continue;
+        p.off_from = corridors.portOffset(p.from_rect, p.sides.exit, faceCoord(p.start, p.sides.exit));
+        p.resetJog();
+        for (pends[pi + 1 ..]) |*q| {
+            if (q.start.x != shared_start.x or q.start.y != shared_start.y) continue;
+            q.start = p.start;
+            q.off_from = p.off_from;
+            q.resetJog();
         }
     }
-
-    try requests.assignJogs(arena, pends.items, clusters, obstacles);
-
-    if (build == .railed) {
-        const full = try bridge_rails.withStaticRuns(arena, obstacles, edge_paths);
-        try bridge_rails.overrideJogs(arena, pends.items, placements, clusters, full);
-    }
-    return buildPaths(arena, pends.items, placements, clusters, obstacles, build == .dodged);
 }
 
 fn buildPaths(
