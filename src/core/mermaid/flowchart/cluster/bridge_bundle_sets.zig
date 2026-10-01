@@ -4,14 +4,7 @@ const sketch = @import("../sketch.zig");
 const rail_star = @import("../base/rail_star.zig");
 const bundle_mod = @import("../base/bundle.zig");
 const split_mod = @import("split.zig");
-
-pub const Image = struct {
-    edge: sketch.EdgeId,
-    from: sketch.NodeId,
-    to: sketch.NodeId,
-    kind: sketch.EdgeKind,
-    arrows: [2]sketch.ArrowKind,
-};
+const edge_ends = @import("edge_ends.zig");
 
 pub fn finalImages(
     arena: std.mem.Allocator,
@@ -23,29 +16,23 @@ pub fn finalImages(
     final_edges: []const sketch.EdgePath,
     final_bridges: []const sketch.EdgePath,
     final_bars: []const sketch.Rail,
-) error{OutOfMemory}![]const Image {
-    const placement = endpointsOf(outer, old_edge) orelse return &.{};
+) error{OutOfMemory}![]const edge_ends.Ends {
+    const placement = edge_ends.find(outer.edges, outer.rails, old_edge) orelse return &.{};
     if (!sr.isSuper(placement.from) and !sr.isSuper(placement.to)) {
         const id = outer_base + old_edge;
-        const image = finalImage(final_edges, final_bars, id) orelse return &.{};
-        return arena.dupe(Image, &.{image});
+        const image = edge_ends.find(final_edges, final_bars, id) orelse return &.{};
+        return arena.dupe(edge_ends.Ends, &.{image});
     }
 
-    var out: std.ArrayListUnmanaged(Image) = .empty;
+    var out: std.ArrayListUnmanaged(edge_ends.Ends) = .empty;
     for (sr.crossings) |crossing| {
         if (outerReprOf(sr, crossing.from) != placement.from or
             outerReprOf(sr, crossing.to) != placement.to) continue;
         const id = bridge_base + crossing.id;
         const path = sketch.pathById(final_bridges, id) orelse continue;
-        if (!hasImage(out.items, id)) try out.append(arena, .{
-            .edge = id,
-            .from = path.from,
-            .to = path.to,
-            .kind = path.kind,
-            .arrows = .{ path.arrow_from, path.arrow_to },
-        });
+        if (!hasImage(out.items, id)) try out.append(arena, edge_ends.ofPath(path));
     }
-    std.mem.sort(Image, out.items, {}, imageLess);
+    std.mem.sort(edge_ends.Ends, out.items, {}, imageLess);
     return out.toOwnedSlice(arena);
 }
 
@@ -67,7 +54,7 @@ pub fn rebuildOuterSets(
 
         for (set.members, 0..) |old_edge, contributor| {
             if (seenEarlier(set.members, contributor, old_edge)) continue;
-            if (endpointsOf(outer, old_edge)) |ep| {
+            if (edge_ends.find(outer.edges, outer.rails, old_edge)) |ep| {
                 if (sr.isSuper(ep.from) or sr.isSuper(ep.to)) continue;
             }
             const images = try finalImages(
@@ -103,8 +90,6 @@ pub fn rebuildOuterSets(
     }
     return out.toOwnedSlice(arena);
 }
-
-const Endpoints = struct { from: sketch.NodeId, to: sketch.NodeId };
 
 const Group = struct {
     pivot: sketch.NodeId,
@@ -147,13 +132,13 @@ fn polarityOf(outer: sketch.Sketch, set: bundle_mod.Bundle) ?rail_star.RailPolar
     }
     if (claimed) |polarity| return polarity;
 
-    var first: ?Endpoints = null;
+    var first: ?edge_ends.Ends = null;
     var common_source = true;
     var common_target = true;
     var contributors: usize = 0;
     for (set.members, 0..) |edge, i| {
         if (seenEarlier(set.members, i, edge)) continue;
-        const endpoints = endpointsOf(outer, edge) orelse continue;
+        const endpoints = edge_ends.find(outer.edges, outer.rails, edge) orelse continue;
         contributors += 1;
         if (first) |expected| {
             common_source = common_source and endpoints.from == expected.from;
@@ -162,42 +147,6 @@ fn polarityOf(outer: sketch.Sketch, set: bundle_mod.Bundle) ?rail_star.RailPolar
     }
     if (contributors < 2 or common_source == common_target) return null;
     return if (common_source) .out else .in;
-}
-
-fn endpointsOf(s: sketch.Sketch, id: sketch.EdgeId) ?Endpoints {
-    for (s.edges) |edge| if (edge.id == id) return .{ .from = edge.from, .to = edge.to };
-    for (s.rails) |rail| {
-        const fan_in = rail.role == .fan_in_dropper or rail.role == .fan_in_rail;
-        for (rail.taps) |tap| {
-            if (tap.edge != id) continue;
-            return if (fan_in)
-                .{ .from = tap.node, .to = rail.pivot }
-            else
-                .{ .from = rail.pivot, .to = tap.node };
-        }
-    }
-    return null;
-}
-
-fn finalImage(edges: []const sketch.EdgePath, rails_buf: []const sketch.Rail, id: sketch.EdgeId) ?Image {
-    for (edges) |edge| if (edge.id == id) return .{
-        .edge = id,
-        .from = edge.from,
-        .to = edge.to,
-        .kind = edge.kind,
-        .arrows = .{ edge.arrow_from, edge.arrow_to },
-    };
-    for (rails_buf) |rail| {
-        const fan_in = rail.role == .fan_in_dropper or rail.role == .fan_in_rail;
-        for (rail.taps) |tap| {
-            if (tap.edge != id) continue;
-            return if (fan_in)
-                .{ .edge = id, .from = tap.node, .to = rail.pivot, .kind = rail.kind, .arrows = .{ tap.arrow, rail.pivot_arrow } }
-            else
-                .{ .edge = id, .from = rail.pivot, .to = tap.node, .kind = rail.kind, .arrows = .{ rail.pivot_arrow, tap.arrow } };
-        }
-    }
-    return null;
 }
 
 fn outerReprOf(sr: split_mod.SplitResult, original: sg.NodeId) sketch.NodeId {
@@ -218,7 +167,7 @@ fn contains(items: []const sketch.EdgeId, id: sketch.EdgeId) bool {
     return false;
 }
 
-fn hasImage(items: []const Image, id: sketch.EdgeId) bool {
+fn hasImage(items: []const edge_ends.Ends, id: sketch.EdgeId) bool {
     for (items) |item| if (item.edge == id) return true;
     return false;
 }
@@ -235,7 +184,7 @@ fn sameSetAlready(sets: []const bundle_mod.Bundle, candidate: bundle_mod.Bundle)
     return false;
 }
 
-fn imageLess(_: void, a: Image, b: Image) bool {
+fn imageLess(_: void, a: edge_ends.Ends, b: edge_ends.Ends) bool {
     return a.edge < b.edge;
 }
 

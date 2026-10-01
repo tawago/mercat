@@ -3,6 +3,7 @@ const sketch = @import("../sketch.zig");
 const sg = @import("../sem_graph.zig");
 const rail_star = @import("../base/rail_star.zig");
 const split_mod = @import("split.zig");
+const edge_ends = @import("edge_ends.zig");
 
 pub const ChildSource = struct {
     sketch: sketch.Sketch,
@@ -92,21 +93,8 @@ fn mapSite(node_map: []const sketch.NodeId, site: ?rail_star.AttachmentSite) ?ra
 }
 
 fn droppedEnds(sr: split_mod.SplitResult, outer: sketch.Sketch, edge: sketch.EdgeId) [2]bool {
-    for (outer.edges) |path| {
-        if (path.id != edge) continue;
-        return .{ sr.isSuper(path.from), sr.isSuper(path.to) };
-    }
-    for (outer.rails) |rail| {
-        for (rail.taps) |tap| {
-            if (tap.edge != edge) continue;
-            const fan_in = rail.role == .fan_in_dropper or rail.role == .fan_in_rail;
-            return if (fan_in)
-                .{ sr.isSuper(tap.node), sr.isSuper(rail.pivot) }
-            else
-                .{ sr.isSuper(rail.pivot), sr.isSuper(tap.node) };
-        }
-    }
-    return .{ false, false };
+    const ends = edge_ends.find(outer.edges, outer.rails, edge) orelse return .{ false, false };
+    return .{ sr.isSuper(ends.from), sr.isSuper(ends.to) };
 }
 
 pub fn finalMember(
@@ -118,30 +106,30 @@ pub fn finalMember(
 ) ?rail_star.RailClaimMember {
     for (paths) |path| {
         if (path.id != edge) continue;
+        const ends = edge_ends.ofPath(path);
         return .{
             .edge = edge,
-            .endpoints = .{ path.from, path.to },
+            .endpoints = .{ ends.from, ends.to },
             .sites = .{ siteFromPort(path.port_from, path.from), siteFromPort(path.port_to, path.to) },
-            .arrows = .{ path.arrow_from, path.arrow_to },
-            .kind = path.kind,
+            .arrows = ends.arrows,
+            .kind = ends.kind,
             .pivot_end = pivot_end,
         };
     }
     for (rails_buf) |rail| {
-        const fan_in = rail.role == .fan_in_dropper or rail.role == .fan_in_rail;
         for (rail.taps) |tap| {
             if (tap.edge != edge or rail.stem.len == 0) continue;
-            const source = if (fan_in) tap.node else rail.pivot;
-            const target = if (fan_in) rail.pivot else tap.node;
+            const ends = edge_ends.ofTap(rail, tap);
+            const fan_in = edge_ends.isFanIn(rail);
             return .{
                 .edge = edge,
-                .endpoints = .{ source, target },
-                .sites = if (fan_in)
-                    .{ siteFromPoint(placements, source, tap.landing), siteFromPoint(placements, target, rail.stem[0]) }
-                else
-                    .{ siteFromPoint(placements, source, rail.stem[0]), siteFromPoint(placements, target, tap.landing) },
-                .arrows = if (fan_in) .{ tap.arrow, rail.pivot_arrow } else .{ rail.pivot_arrow, tap.arrow },
-                .kind = rail.kind,
+                .endpoints = .{ ends.from, ends.to },
+                .sites = .{
+                    siteFromPoint(placements, ends.from, if (fan_in) tap.landing else rail.stem[0]),
+                    siteFromPoint(placements, ends.to, if (fan_in) rail.stem[0] else tap.landing),
+                },
+                .arrows = ends.arrows,
+                .kind = ends.kind,
                 .pivot_end = pivot_end,
             };
         }
