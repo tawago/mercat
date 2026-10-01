@@ -27,7 +27,6 @@ pub fn merge(a: std.mem.Allocator, pieces: []const PieceBundles) error{OutOfMemo
             for (sel.members, members) |m, *out| out.* = m + piece.edge_base;
             try selected.append(a, .{
                 .id = sel.id + jid_base,
-                .proposal = sel.proposal,
                 .candidate_bundle = sel.candidate_bundle,
                 .members = members,
             });

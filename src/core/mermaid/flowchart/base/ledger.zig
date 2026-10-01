@@ -3,7 +3,6 @@ const std = @import("std");
 pub const NodeId = u32;
 pub const EdgeId = u32;
 pub const CandidateBundleId = u32;
-pub const BundleProposalId = u32;
 pub const SelectedBundleId = u32;
 
 pub const BundlePolicy = enum { joined };
@@ -48,7 +47,6 @@ pub const MembershipDisposition = union(enum) {
 
 pub const SelectedBundle = struct {
     id: SelectedBundleId,
-    proposal: BundleProposalId,
     candidate_bundle: CandidateBundleId,
     members: []const EdgeId,
 };

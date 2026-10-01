@@ -265,7 +265,7 @@ test "derivation: a committed group consumes one rail pivot attachment keyed by 
         },
     };
     const bundles: pb.RealizedBundles = .{
-        .selected_bundles = &.{.{ .id = 0, .proposal = 0, .candidate_bundle = 0, .members = &.{ 0, 1 } }},
+        .selected_bundles = &.{.{ .id = 0, .candidate_bundle = 0, .members = &.{ 0, 1 } }},
         .memberships = &.{
             .{ .edge = 0, .source = .{ .selected = 0 }, .target = null },
             .{ .edge = 1, .source = .{ .selected = 0 }, .target = null },
@@ -304,8 +304,8 @@ test "a fused union's leaf node exits through one shared attachment" {
     } };
     const bundles: pb.RealizedBundles = .{
         .selected_bundles = &.{
-            .{ .id = 0, .proposal = 0, .candidate_bundle = 0, .members = &.{ 0, 2 } },
-            .{ .id = 1, .proposal = 1, .candidate_bundle = 1, .members = &.{ 1, 3 } },
+            .{ .id = 0, .candidate_bundle = 0, .members = &.{ 0, 2 } },
+            .{ .id = 1, .candidate_bundle = 1, .members = &.{ 1, 3 } },
         },
         .memberships = &.{
             .{ .edge = 0, .source = null, .target = .{ .selected = 0 } },
@@ -427,7 +427,7 @@ test "V-D-PORT-06: realized Km1 fan-IN derives one north pivot attachment and ke
         .{ .edge = 0, .source = null, .target = .{ .selected = 0 } }, .{ .edge = 1, .source = null, .target = .{ .selected = 0 } },
     };
     const bundles: pb.RealizedBundles = .{
-        .selected_bundles = &.{.{ .id = 0, .proposal = 0, .candidate_bundle = 0, .members = &.{ 0, 1 } }},
+        .selected_bundles = &.{.{ .id = 0, .candidate_bundle = 0, .members = &.{ 0, 1 } }},
         .memberships = &memberships,
     };
     const derived = try ports.derive(a, graph, permit, bundles, .TD, &.{});

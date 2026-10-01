@@ -96,7 +96,7 @@ test "segmentOverlap: exempt merges; foreign perpendicular keeps first writer" {
     try std.testing.expectEqual(@as(u32, 0), counts.foreign_junction_violation);
 
     var members = [_]EdgeId{ 1, 3 };
-    var sel = [_]ledger.SelectedBundle{.{ .id = 0, .proposal = 0, .candidate_bundle = 0, .members = &members }};
+    var sel = [_]ledger.SelectedBundle{.{ .id = 0, .candidate_bundle = 0, .members = &members }};
     const bundles: ledger.RealizedBundles = .{ .selected_bundles = &sel };
     try std.testing.expect(ctxOf(&counts, bundles, &.{}).segmentOverlap(1, H, 2, V, ANY));
     try std.testing.expect(!ctxOf(&counts, bundles, &.{}).segmentOverlap(1, H, 3, V, ANY));

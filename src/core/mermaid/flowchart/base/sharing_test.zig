@@ -13,7 +13,7 @@ fn sharingOf(bundles: ledger.RealizedBundles, sets: []const bundle_mod.Bundle) s
 
 test "sameBundle: same owner and selected-bundle co-members" {
     var members = [_]EdgeId{ 10, 11, 12 };
-    var sel = [_]ledger.SelectedBundle{.{ .id = 0, .proposal = 0, .candidate_bundle = 0, .members = &members }};
+    var sel = [_]ledger.SelectedBundle{.{ .id = 0, .candidate_bundle = 0, .members = &members }};
     const bundles: ledger.RealizedBundles = .{ .selected_bundles = &sel };
 
     try std.testing.expect(sharingOf(bundles, &.{}).sameBundle(5, 5, ANY));
@@ -26,8 +26,8 @@ test "sameBundle: bundle membership answers what the plan answers" {
     var members = [_]EdgeId{ 10, 11, 12 };
     var others = [_]EdgeId{ 20, 21 };
     var sel = [_]ledger.SelectedBundle{
-        .{ .id = 0, .proposal = 0, .candidate_bundle = 0, .members = &members },
-        .{ .id = 1, .proposal = 1, .candidate_bundle = 1, .members = &others },
+        .{ .id = 0, .candidate_bundle = 0, .members = &members },
+        .{ .id = 1, .candidate_bundle = 1, .members = &others },
     };
     const bundles: ledger.RealizedBundles = .{ .selected_bundles = &sel };
 

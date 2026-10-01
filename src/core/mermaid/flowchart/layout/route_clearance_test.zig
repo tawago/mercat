@@ -66,7 +66,7 @@ test "reserved departures exempt same selected rail" {
     ));
 
     const members = [_]pb.EdgeId{ 0, 1 };
-    const selected = [_]pb.SelectedBundle{.{ .id = 0, .proposal = 0, .candidate_bundle = 0, .members = &members }};
+    const selected = [_]pb.SelectedBundle{.{ .id = 0, .candidate_bundle = 0, .members = &members }};
     try std.testing.expect(!try clearance.conflictsReservedTerminals(
         arena.allocator(),
         1,

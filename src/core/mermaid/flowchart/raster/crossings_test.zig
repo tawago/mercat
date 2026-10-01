@@ -84,7 +84,7 @@ test "V-D-CROSS-01 companion: same-group perpendicular crossing keeps the ┼ (n
     const v = [_]sketch.Point{ .{ .x = 5, .y = 0 }, .{ .x = 5, .y = 10 } };
     const es = [_]sketch.EdgePath{ edge(0, &h, .none), edge(1, &v, .none) };
     var members = [_]ledger.EdgeId{ 0, 1 };
-    var sel = [_]ledger.SelectedBundle{.{ .id = 0, .proposal = 0, .candidate_bundle = 0, .members = &members }};
+    var sel = [_]ledger.SelectedBundle{.{ .id = 0, .candidate_bundle = 0, .members = &members }};
     const r = edges.rasterizeEdges(&lat, sketchWith(&es, .{ .selected_bundles = &sel }), .bridge);
 
     try testing.expectEqual(mask_cross, lat.atConst(5, 5).neighbours.toMask());

@@ -56,8 +56,8 @@ test "bundles from a plan name one bundle per selected bundle" {
     var bundle_members = [_]pb.EdgeId{ 7, 8 };
     var other_members = [_]pb.EdgeId{ 20, 21, 22 };
     var sel = [_]pb.SelectedBundle{
-        .{ .id = 0, .proposal = 0, .candidate_bundle = 0, .members = &bundle_members },
-        .{ .id = 1, .proposal = 1, .candidate_bundle = 1, .members = &other_members },
+        .{ .id = 0, .candidate_bundle = 0, .members = &bundle_members },
+        .{ .id = 1, .candidate_bundle = 1, .members = &other_members },
     };
 
     const sets = try bundle_plan.bundlesFromPlan(std.testing.allocator, .{ .selected_bundles = &sel });

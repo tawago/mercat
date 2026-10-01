@@ -181,8 +181,8 @@ test "four disjoint realized rails share one row and the gap is rail, run, head"
     var ad_members = [_]pb.EdgeId{ 1, 2 };
     var rs_members = [_]pb.EdgeId{ 3, 4 };
     var selected = [_]pb.SelectedBundle{
-        .{ .id = 0, .proposal = 0, .candidate_bundle = 0, .members = &ad_members },
-        .{ .id = 1, .proposal = 1, .candidate_bundle = 1, .members = &rs_members },
+        .{ .id = 0, .candidate_bundle = 0, .members = &ad_members },
+        .{ .id = 1, .candidate_bundle = 1, .members = &rs_members },
     };
     const ind: pb.MembershipDisposition = .{ .independent = .{ .candidate_bundle = 9, .reason = .not_selected } };
     var memberships = [_]pb.RealizedEdgeMembership{

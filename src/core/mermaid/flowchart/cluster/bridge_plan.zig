@@ -26,7 +26,6 @@ pub fn plan(
                 for (members, medges) |mi, *e| e.* = crossings[mi].id + bridge_base;
                 try selected.append(arena, .{
                     .id = next_bundle,
-                    .proposal = 0,
                     .candidate_bundle = group_id,
                     .members = medges,
                 });

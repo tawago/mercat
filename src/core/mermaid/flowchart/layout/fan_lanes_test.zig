@@ -305,7 +305,7 @@ test "a salvaged fan's excluded members never land on the kept rail's lane" {
     const selected = [_]sg.EdgeId{ 10, 11 };
     _ = selected;
     const bundles: @import("../base/ledger.zig").RealizedBundles = .{
-        .selected_bundles = &.{.{ .id = 0, .proposal = 0, .candidate_bundle = 0, .members = &rail }},
+        .selected_bundles = &.{.{ .id = 0, .candidate_bundle = 0, .members = &rail }},
         .memberships = &.{
             .{ .edge = 10, .source = null, .target = .{ .selected = 0 } },
             .{ .edge = 11, .source = null, .target = .{ .selected = 0 } },
@@ -346,8 +346,8 @@ test "a gap whose departures all defer lane-separates the arrival rails that dra
     var x_members = [_]pb.EdgeId{ 0, 2 };
     var y_members = [_]pb.EdgeId{ 1, 3, 4 };
     var selected = [_]pb.SelectedBundle{
-        .{ .id = 0, .proposal = 0, .candidate_bundle = 0, .members = &x_members },
-        .{ .id = 1, .proposal = 1, .candidate_bundle = 1, .members = &y_members },
+        .{ .id = 0, .candidate_bundle = 0, .members = &x_members },
+        .{ .id = 1, .candidate_bundle = 1, .members = &y_members },
     };
     var memberships: [5]pb.RealizedEdgeMembership = undefined;
     for (&memberships, 0..) |*m, i| m.* = .{
@@ -501,8 +501,8 @@ test "a directed group whose declared set is short of complete still separates" 
     var x_members = [_]pb.EdgeId{3};
     var y_members = [_]pb.EdgeId{4};
     var selected = [_]pb.SelectedBundle{
-        .{ .id = 0, .proposal = 0, .candidate_bundle = 0, .members = &x_members },
-        .{ .id = 1, .proposal = 1, .candidate_bundle = 1, .members = &y_members },
+        .{ .id = 0, .candidate_bundle = 0, .members = &x_members },
+        .{ .id = 1, .candidate_bundle = 1, .members = &y_members },
     };
     var memberships = [_]pb.RealizedEdgeMembership{
         .{ .edge = 0, .source = .{ .independent = .{ .candidate_bundle = 2, .reason = .not_selected } }, .target = null },

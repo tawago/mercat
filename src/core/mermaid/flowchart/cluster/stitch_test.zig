@@ -69,7 +69,7 @@ test "merge renumbers bundles per piece and shifts every edge id" {
     const m0 = [_]ledger.EdgeId{ 0, 1 };
     const m1 = [_]ledger.EdgeId{ 2, 3 };
     const piece_a: ledger.RealizedBundles = .{
-        .selected_bundles = &.{.{ .id = 0, .proposal = 0, .candidate_bundle = 0, .members = &m0 }},
+        .selected_bundles = &.{.{ .id = 0, .candidate_bundle = 0, .members = &m0 }},
         .memberships = &.{
             .{ .edge = 0, .source = .{ .selected = 0 }, .target = null },
             .{ .edge = 1, .source = .{ .selected = 0 }, .target = null },
@@ -77,7 +77,7 @@ test "merge renumbers bundles per piece and shifts every edge id" {
         .discharged = &.{1},
     };
     const piece_b: ledger.RealizedBundles = .{
-        .selected_bundles = &.{.{ .id = 0, .proposal = 1, .candidate_bundle = 2, .members = &m1 }},
+        .selected_bundles = &.{.{ .id = 0, .candidate_bundle = 2, .members = &m1 }},
         .memberships = &.{
             .{ .edge = 2, .source = null, .target = .{ .selected = 0 } },
         },

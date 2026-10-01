@@ -164,11 +164,11 @@ fn realized(c: Ctx, slots: []const Slot) error{OutOfMemory}!pb.RealizedBundles {
     @memset(selected_id, null);
     var selected: std.ArrayListUnmanaged(pb.SelectedBundle) = .empty;
     var drawn: std.ArrayListUnmanaged(pb.EdgeId) = .empty;
-    for (c.plan.groups, slots, selected_id, 0..) |group, slot, *id, gi| {
+    for (c.plan.groups, slots, selected_id) |group, slot, *id| {
         if (slot != .rail) continue;
         const jid: pb.SelectedBundleId = @intCast(selected.items.len);
         id.* = jid;
-        try selected.append(c.a, .{ .id = jid, .proposal = @intCast(gi), .candidate_bundle = group.id, .members = slot.rail.members });
+        try selected.append(c.a, .{ .id = jid, .candidate_bundle = group.id, .members = slot.rail.members });
         try drawn.appendSlice(c.a, slot.rail.members);
     }
 
