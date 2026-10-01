@@ -6,8 +6,27 @@ const fan = @import("fan.zig");
 const fan_lanes = @import("fan_lanes.zig");
 const pb = @import("../base/ledger.zig");
 const gap_rows = @import("gap_rows.zig");
+const port_plan = @import("port_plan.zig");
+const NodeGeom = @import("node_geom.zig").NodeGeom;
 
 pub const Geom = struct { x: i32, w: u32, y: i32 = 0, h: u32 = 1 };
+
+pub fn buildPiece(
+    a: std.mem.Allocator,
+    graph: sg.SemGraph,
+    lg: sugiyama.LayeredGraph,
+    geom: []const Geom,
+    fans: []const fan.Fan,
+    bundles: pb.RealizedBundles,
+    plan: port_plan.Plan,
+    bases: []const u32,
+    supers: []const gap_rows.Super,
+    departures: []const sg.NodeId,
+) !gap_rows.Ledger {
+    const placed = try a.alloc(NodeGeom, geom.len);
+    for (geom, placed) |g, *out| out.* = .{ .x = g.x, .y = g.y, .w = g.w, .h = g.h, .layer = 0 };
+    return gap_rows.buildPiece(a, graph, lg, placed, fans, bundles, plan, bases, supers, departures);
+}
 
 pub fn mkLg(
     nodes: []sugiyama.LayerNode,
@@ -82,7 +101,7 @@ test "incomplete overlapping fans get separate lanes" {
     try testing.expect(lane_a != lane_c);
     try testing.expectEqual(@as(u32, 0), laneOfPivot(fans, .in, 4));
 
-    const ledger = try gap_rows.buildPiece(Geom, aa, graph, lg, &geom, fans, .{}, .{}, &.{2}, &.{}, &.{});
+    const ledger = try buildPiece(aa, graph, lg, &geom, fans, .{}, .{}, &.{2}, &.{}, &.{});
     try testing.expectEqual(@as(u32, 2), ledger.gaps[0].rows_used);
     try testing.expectEqual(@as(u32, 2), ledger.extraRows(0));
     try testing.expectEqual(@as(?i32, null), ledger.rowOfFan(4, .in));
@@ -116,7 +135,7 @@ test "lane-separated rails take distinct ledger rows and the gap reserves exactl
     const graph = try mkGraph(aa, &edges);
     const fans = try fan.detect(aa, graph, lg);
     try fan_lanes.assignLanes(Geom, aa, graph, lg, &geom, fans, .{});
-    const ledger = try gap_rows.buildPiece(Geom, aa, graph, lg, &geom, fans, .{}, .{}, &.{2}, &.{}, &.{});
+    const ledger = try buildPiece(aa, graph, lg, &geom, fans, .{}, .{}, &.{2}, &.{}, &.{});
     const row_a = ledger.rowOfFan(0, .out) orelse return error.MissingRail;
     const row_c = ledger.rowOfFan(2, .out) orelse return error.MissingRail;
     try testing.expect(row_a != row_c);

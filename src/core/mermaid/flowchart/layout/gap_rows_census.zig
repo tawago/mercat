@@ -7,20 +7,15 @@ const port_plan = @import("port_plan.zig");
 const ports = @import("ports.zig");
 const rt = @import("routing_terminal.zig");
 const grid = @import("gap_rows_grid.zig");
+const NodeGeom = @import("node_geom.zig").NodeGeom;
 
 pub const Super = struct { node: sg.NodeId, drawn: bool = true };
 
-pub fn centerOf(comptime G: type, geom: []const G, idx: u32) i32 {
-    const g = geom[idx];
-    return g.x + @divTrunc(@as(i32, @intCast(g.w)), 2);
-}
-
 pub fn predictPorts(
-    comptime G: type,
     a: std.mem.Allocator,
     graph: sg.SemGraph,
     lg: sugiyama.LayeredGraph,
-    geom: []const G,
+    geom: []const NodeGeom,
     derived: []const ports.DerivedAttachment,
     bundles: pb.RealizedBundles,
     active: bool,
@@ -108,7 +103,7 @@ pub const Census = struct {
         return if (sl > 0 and sl - 1 < self.ngaps) sl - 1 else null;
     }
 
-    pub fn portCol(self: Census, comptime G: type, geom: []const G, e: sg.Edge, end: pb.EndpointSide) i32 {
+    pub fn portCol(self: Census, geom: []const NodeGeom, e: sg.Edge, end: pb.EndpointSide) i32 {
         const node = if (end == .source_exit) e.from else e.to;
         const idx = self.idx_of.get(node) orelse return 0;
         const g = geom[idx];

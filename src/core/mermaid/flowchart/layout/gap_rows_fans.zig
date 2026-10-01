@@ -6,12 +6,12 @@ const sugiyama = @import("sugiyama.zig");
 const fan_mod = @import("fan.zig");
 const pack_mod = @import("gap_rows_pack.zig");
 const census_mod = @import("gap_rows_census.zig");
+const NodeGeom = @import("node_geom.zig").NodeGeom;
 
 const Claim = pack_mod.Claim;
 const FanKey = pack_mod.FanKey;
 const Census = census_mod.Census;
 const Group = census_mod.Group;
-const centerOf = census_mod.centerOf;
 const edgeClaim = pack_mod.edgeClaim;
 
 pub const Detour = struct {
@@ -33,7 +33,7 @@ fn noteDetour(a: std.mem.Allocator, detours: *std.ArrayListUnmanaged(Detour), ga
     try d.edges.append(a, edge);
 }
 
-pub fn detourClaims(comptime G: type, a: std.mem.Allocator, lg: sugiyama.LayeredGraph, geom: []const G, detours: []Detour, claims: *std.ArrayListUnmanaged(Claim)) error{OutOfMemory}!void {
+pub fn detourClaims(a: std.mem.Allocator, lg: sugiyama.LayeredGraph, geom: []const NodeGeom, detours: []Detour, claims: *std.ArrayListUnmanaged(Claim)) error{OutOfMemory}!void {
     var min_x: i32 = std.math.maxInt(i32);
     for (lg.nodes, 0..) |ln, i| if (ln == .real) {
         min_x = @min(min_x, geom[i].x);
@@ -56,10 +56,9 @@ pub fn drawnByEligible(fans: []const fan_mod.Fan, eligible: []const bool, edge: 
 }
 
 pub fn fanClaims(
-    comptime G: type,
     a: std.mem.Allocator,
     c: Census,
-    geom: []const G,
+    geom: []const NodeGeom,
     fans: []const fan_mod.Fan,
     eligible: []const bool,
     bundles: pb.RealizedBundles,
@@ -74,8 +73,8 @@ pub fn fanClaims(
         for (f.peers) |p| {
             const e = c.graph.edgeById(p.edge_id) orelse continue;
             if (e.kind == .invisible or c.isPlacement(e) or rail_closure.contains(bundles.discharged, e.id)) continue;
-            const tap_col = if (p.long) centerOf(G, geom, p.peer_idx) else c.portCol(G, geom, e, if (f.direction == .out) .target_entry else .source_exit);
-            const blocked = f.direction == .out and !p.long and c.sub.stackedObstacle(G, geom, c.lg, f.pivot_idx, p.peer_idx, tap_col) != null;
+            const tap_col = if (p.long) geom[p.peer_idx].centerX() else c.portCol(geom, e, if (f.direction == .out) .target_entry else .source_exit);
+            const blocked = f.direction == .out and !p.long and c.sub.stackedObstacle(geom, c.lg, f.pivot_idx, p.peer_idx, tap_col) != null;
             const by_rail = ok and p.shared and !blocked;
             const drawn_here = by_rail or blk: {
                 if (p.long) break :blk false;
@@ -88,18 +87,18 @@ pub fn fanClaims(
             if (!by_rail) try per_peer.put(a, e.id, {});
             const key = fan_mod.effectiveLane(f, p.lane);
             const pivot_end: pb.EndpointSide = if (f.direction == .out) .source_exit else .target_entry;
-            const stem = c.portCol(G, geom, e, pivot_end);
+            const stem = c.portCol(geom, e, pivot_end);
             const tap = tap_col;
             if (!by_rail and e.label == null) if (c.plan.forEdge(e.id)) |ep| if (ep.source_duplicate or ep.target_duplicate) {
                 try noteDetour(a, detours, f.source_layer, @max(stem, tap), @max(ep.source_ordinal, ep.target_ordinal) + 2, e.id);
                 continue;
             };
             const far_end = if (f.direction == .out) p.peer_idx else f.pivot_idx;
-            const gap = if (by_rail) f.source_layer else c.sub.gapAbove(G, geom, far_end) orelse continue;
+            const gap = if (by_rail) f.source_layer else c.sub.gapAbove(geom, far_end) orelse continue;
             var run_lo = stem;
-            if (!by_rail and f.direction == .out) if (c.sub.stackedObstacle(G, geom, c.lg, f.pivot_idx, p.peer_idx, stem)) |ob| {
-                const corridor = c.sub.corridorColumn(G, geom, c.lg, f.pivot_idx, p.peer_idx, if (f.rows > 1) tap else stem, f.rows == 1);
-                const dodge_gap = c.sub.gapAbove(G, geom, ob) orelse continue;
+            if (!by_rail and f.direction == .out) if (c.sub.stackedObstacle(geom, c.lg, f.pivot_idx, p.peer_idx, stem)) |ob| {
+                const corridor = c.sub.corridorColumn(geom, c.lg, f.pivot_idx, p.peer_idx, if (f.rows > 1) tap else stem, f.rows == 1);
+                const dodge_gap = c.sub.gapAbove(geom, ob) orelse continue;
                 const d: *Group = for (dodges.items) |*existing| {
                     if (existing.gap == dodge_gap) break existing;
                 } else blk: {
@@ -181,7 +180,7 @@ fn labelsCollide(taps: []const i32, widths: []const u32) bool {
     return false;
 }
 
-pub fn strokeClaims(comptime G: type, a: std.mem.Allocator, c: Census, geom: []const G, fans: []const fan_mod.Fan, eligible: []const bool, bundles: pb.RealizedBundles, claims: *std.ArrayListUnmanaged(Claim)) error{OutOfMemory}!void {
+pub fn strokeClaims(a: std.mem.Allocator, c: Census, geom: []const NodeGeom, fans: []const fan_mod.Fan, eligible: []const bool, bundles: pb.RealizedBundles, claims: *std.ArrayListUnmanaged(Claim)) error{OutOfMemory}!void {
     for (fans, eligible) |f, ok| {
         if (!ok) continue;
         for (f.peers) |p| {
@@ -190,15 +189,15 @@ pub fn strokeClaims(comptime G: type, a: std.mem.Allocator, c: Census, geom: []c
             if (c.isPlacement(e)) continue;
             const other: fan_mod.Direction = if (f.direction == .out) .in else .out;
             if (drawnByEligible(fans, eligible, e.id, other, bundles.discharged)) continue;
-            const corridor = centerOf(G, geom, p.peer_idx);
+            const corridor = geom[p.peer_idx].centerX();
             if (f.direction == .out) {
                 const tl = c.layerOfNode(e.to) orelse continue;
-                const col = c.portCol(G, geom, e, .target_entry);
+                const col = c.portCol(geom, e, .target_entry);
                 if (tl == 0 or tl - 1 >= c.ngaps or col == corridor) continue;
                 try claims.append(a, try edgeClaim(a, tl - 1, corridor, col, .stroke_exit, .exit, e.arrow_to == .none, false, e.id));
             } else {
                 const sl = c.layerOfNode(e.from) orelse continue;
-                const col = c.portCol(G, geom, e, .source_exit);
+                const col = c.portCol(geom, e, .source_exit);
                 if (sl >= c.ngaps or col == corridor) continue;
                 try claims.append(a, try edgeClaim(a, sl, col, corridor, .stroke_entry, .entry, e.arrow_from == .none, e.arrow_from != .none, e.id));
             }

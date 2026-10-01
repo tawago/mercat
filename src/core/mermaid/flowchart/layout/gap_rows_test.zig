@@ -10,6 +10,7 @@ const grid = @import("gap_rows_grid.zig");
 const port_plan = @import("port_plan.zig");
 const ports = @import("ports.zig");
 const flt = @import("fan_lanes_test.zig");
+const NodeGeom = @import("node_geom.zig").NodeGeom;
 
 const Geom = flt.Geom;
 const Claim = gap_rows.Claim;
@@ -208,7 +209,7 @@ test "four disjoint realized rails share one row and the gap is rail, run, head"
     const graph = try flt.mkGraph(aa, &edges);
     const fans = try fan.detect(aa, graph, lg);
     const bases = [_]u32{2};
-    const ledger = try gap_rows.buildPiece(Geom, aa, graph, lg, &geom, fans, bundles, plan, &bases, &.{}, &.{});
+    const ledger = try flt.buildPiece(aa, graph, lg, &geom, fans, bundles, plan, &bases, &.{}, &.{});
 
     try testing.expectEqual(@as(usize, 4), ledger.claims.len);
     for (ledger.claims) |c| try testing.expectEqual(@as(i32, 0), c.row);
@@ -249,7 +250,7 @@ test "a skip edge claims one row in the gap above its target layer, a plain chai
     };
     const graph: sg.SemGraph = .{ .direction = .TD, .nodes = &.{}, .edges = &graph_edges, .clusters = &.{}, .classes = &.{}, .arena = null };
     const bases = [_]u32{ 2, 2 };
-    const ledger = try gap_rows.buildPiece(Geom, aa, graph, lg, &geom, &.{}, .{}, .{}, &bases, &.{}, &.{});
+    const ledger = try flt.buildPiece(aa, graph, lg, &geom, &.{}, .{}, .{}, &bases, &.{}, &.{});
     try testing.expectEqual(@as(u32, 0), ledger.extraRows(0));
     try testing.expectEqual(@as(u32, 1), ledger.extraRows(1));
     try testing.expectEqual(@as(?i32, 0), ledger.rowOfEdge(2, .exit));
@@ -261,7 +262,7 @@ test "a skip edge claims one row in the gap above its target layer, a plain chai
     var plain_layers = [_][]u32{ &plain_row0, &plain_row1, &row2 };
     const plain_lg = flt.mkLg(nodes[0..3], &plain_layers, &plain_edges, &reversed);
     const plain_graph: sg.SemGraph = .{ .direction = .TD, .nodes = &.{}, .edges = graph_edges[0..2], .clusters = &.{}, .classes = &.{}, .arena = null };
-    const plain = try gap_rows.buildPiece(Geom, aa, plain_graph, plain_lg, geom[0..3], &.{}, .{}, .{}, &bases, &.{}, &.{});
+    const plain = try flt.buildPiece(aa, plain_graph, plain_lg, geom[0..3], &.{}, .{}, .{}, &bases, &.{}, &.{});
     try testing.expectEqual(@as(u32, 0), plain.extraRows(0));
     try testing.expectEqual(@as(u32, 0), plain.extraRows(1));
 }
@@ -282,18 +283,18 @@ test "an offset decorated terminal claims one row; a column-aligned or undecorat
 
     const offset_geom = [_]Geom{ .{ .x = 0, .w = 10 }, .{ .x = 20, .w = 10 } };
     const decorated = try flt.mkGraph(aa, &edges);
-    const l1 = try gap_rows.buildPiece(Geom, aa, decorated, lg, &offset_geom, &.{}, .{}, .{}, &bases, &.{}, &.{});
+    const l1 = try flt.buildPiece(aa, decorated, lg, &offset_geom, &.{}, .{}, .{}, &bases, &.{}, &.{});
     try testing.expectEqual(@as(u32, 1), l1.extraRows(0));
     try testing.expectEqual(@as(u32, 1), l1.laneOfEdge(0, .exit));
 
     const aligned_geom = [_]Geom{ .{ .x = 0, .w = 10 }, .{ .x = 0, .w = 10 } };
-    const l2 = try gap_rows.buildPiece(Geom, aa, decorated, lg, &aligned_geom, &.{}, .{}, .{}, &bases, &.{}, &.{});
+    const l2 = try flt.buildPiece(aa, decorated, lg, &aligned_geom, &.{}, .{}, .{}, &bases, &.{}, &.{});
     try testing.expectEqual(@as(u32, 0), l2.extraRows(0));
     try testing.expectEqual(@as(u32, 0), l2.laneOfEdge(0, .exit));
 
     var bare = try flt.mkGraph(aa, &edges);
     @constCast(bare.edges)[0].arrow_to = .none;
-    const l3 = try gap_rows.buildPiece(Geom, aa, bare, lg, &offset_geom, &.{}, .{}, .{}, &bases, &.{}, &.{});
+    const l3 = try flt.buildPiece(aa, bare, lg, &offset_geom, &.{}, .{}, .{}, &bases, &.{}, &.{});
     try testing.expectEqual(@as(u32, 0), l3.extraRows(0));
     try testing.expectEqual(@as(?i32, -1), l3.rowOfEdge(0, .exit));
     _ = &bare;
@@ -322,12 +323,12 @@ test "a labeled fan claims its rail row and one label band; an unlabeled fan cla
         .{ .edge_id = 1, .peer_idx = 2, .role = .rightmost },
     };
     const unlabeled = [_]fan.Fan{.{ .direction = .out, .pivot_idx = 0, .source_layer = 0, .peers = &peers }};
-    const lu = try gap_rows.buildPiece(Geom, aa, graph, lg, &geom, &unlabeled, .{}, .{}, &bases, &.{}, &.{});
+    const lu = try flt.buildPiece(aa, graph, lg, &geom, &unlabeled, .{}, .{}, &bases, &.{}, &.{});
     try testing.expectEqual(@as(u32, 1), lu.gaps[0].rows_used);
 
     peers[0].label_width = 3;
     const labeled = [_]fan.Fan{.{ .direction = .out, .pivot_idx = 0, .source_layer = 0, .peers = &peers, .labeled = true }};
-    const ll = try gap_rows.buildPiece(Geom, aa, graph, lg, &geom, &labeled, .{}, .{}, &bases, &.{}, &.{});
+    const ll = try flt.buildPiece(aa, graph, lg, &geom, &labeled, .{}, .{}, &bases, &.{}, &.{});
     try testing.expectEqual(fan.LABEL_RUN_EXTRA_ROWS, ll.gaps[0].rows_used);
 }
 
@@ -356,13 +357,13 @@ test "a fan-OUT with three labeled members claims the same rows as one with a si
         .{ .edge_id = 2, .peer_idx = 3, .role = .rightmost },
     };
     const one = [_]fan.Fan{.{ .direction = .out, .pivot_idx = 0, .source_layer = 0, .peers = &peers, .labeled = true }};
-    const l_one = try gap_rows.buildPiece(Geom, aa, graph, lg, &geom, &one, .{}, .{}, &bases, &.{}, &.{});
+    const l_one = try flt.buildPiece(aa, graph, lg, &geom, &one, .{}, .{}, &bases, &.{}, &.{});
     try testing.expectEqual(fan.LABEL_RUN_EXTRA_ROWS, l_one.gaps[0].rows_used);
 
     peers[1].label_width = 3;
     peers[2].label_width = 3;
     const three = [_]fan.Fan{.{ .direction = .out, .pivot_idx = 0, .source_layer = 0, .peers = &peers, .labeled = true }};
-    const l_three = try gap_rows.buildPiece(Geom, aa, graph, lg, &geom, &three, .{}, .{}, &bases, &.{}, &.{});
+    const l_three = try flt.buildPiece(aa, graph, lg, &geom, &three, .{}, .{}, &bases, &.{}, &.{});
     try testing.expectEqual(l_one.gaps[0].rows_used, l_three.gaps[0].rows_used);
 }
 
@@ -371,7 +372,6 @@ test "predicted ports give a side face its real length: three back edges on a TD
     var arena = std.heap.ArenaAllocator.init(a);
     defer arena.deinit();
     const aa = arena.allocator();
-    const Tall = struct { x: i32, w: u32, h: u32 };
     var nodes = [_]sugiyama.LayerNode{ .{ .real = 0 }, .{ .real = 1 } };
     var row0 = [_]u32{0};
     var row1 = [_]u32{1};
@@ -379,7 +379,7 @@ test "predicted ports give a side face its real length: three back edges on a TD
     var edges = [_]sugiyama.LayerEdge{};
     var reversed = [_]sg.EdgeId{};
     const lg = flt.mkLg(&nodes, &layers, &edges, &reversed);
-    const geom = [_]Tall{ .{ .x = 0, .w = 5, .h = 7 }, .{ .x = 0, .w = 5, .h = 3 } };
+    const geom = [_]NodeGeom{ .{ .x = 0, .y = 0, .w = 5, .h = 7, .layer = 0 }, .{ .x = 0, .y = 0, .w = 5, .h = 3, .layer = 1 } };
     const graph: sg.SemGraph = .{ .direction = .TD, .nodes = &.{}, .edges = &.{}, .clusters = &.{}, .classes = &.{}, .arena = null };
     const opposites = [_][]const u8{ "b", "c", "d" };
     var derived: [3]ports.DerivedAttachment = undefined;
@@ -388,7 +388,7 @@ test "predicted ports give a side face its real length: three back edges on a TD
         .side = .east,
         .attachment = .{ .key = .{ .opposite = opp, .endpoint_side = .target_entry, .kind = 0, .arrow_from = 0, .arrow_to = 1, .label = null } },
     };
-    const plan = try gap_rows.predictPorts(Tall, aa, graph, lg, &geom, &derived, .{}, true, 0);
+    const plan = try gap_rows.predictPorts(aa, graph, lg, &geom, &derived, .{}, true, 0);
     try testing.expectEqual(@as(usize, 0), plan.edges.len);
 }
 
@@ -420,7 +420,7 @@ test "two unlabeled duplicate arrows claim the detour bands and the gap reaches 
     };
     const plan: port_plan.Plan = .{ .edges = &plan_edges };
     const bases = [_]u32{2};
-    const ledger = try gap_rows.buildPiece(Geom, aa, graph, lg, &geom, &fans, .{}, plan, &bases, &.{}, &.{});
+    const ledger = try flt.buildPiece(aa, graph, lg, &geom, &fans, .{}, plan, &bases, &.{}, &.{});
 
     try testing.expectEqual(@as(usize, 2), ledger.claims.len);
     try testing.expectEqual(@as(u32, 4), ledger.gaps[0].rows_used);
@@ -466,7 +466,7 @@ test "a discharged edge claims no gap row" {
         .{ .edge = 1, .source = ind, .target = null },
     };
     const discharged: pb.RealizedBundles = .{ .memberships = &memberships, .discharged = &.{1} };
-    const rows = try gap_rows.buildPiece(Geom, aa, graph, lg, &geom, &.{}, discharged, .{}, &.{2}, &.{}, &.{});
+    const rows = try flt.buildPiece(aa, graph, lg, &geom, &.{}, discharged, .{}, &.{2}, &.{}, &.{});
     try testing.expectEqual(@as(usize, 1), rows.claims.len);
     for (rows.claims) |c| try testing.expect(std.mem.indexOfScalar(pb.EdgeId, c.edges, 1) == null);
 }
@@ -486,7 +486,7 @@ test "a route past a box stacked under its source claims its entry in the sub-ga
     const geom = [_]Geom{ .{ .x = 20, .w = 21, .y = 0, .h = 3 }, .{ .x = 25, .w = 11, .y = 6, .h = 3 }, .{ .x = 0, .w = 11, .y = 0, .h = 3 } };
     const graph = try flt.mkGraph(aa, &edges);
     const bases = [_]u32{2};
-    const ledger = try gap_rows.buildPiece(Geom, aa, graph, lg, &geom, &.{}, .{}, .{}, &bases, &.{}, &.{});
+    const ledger = try flt.buildPiece(aa, graph, lg, &geom, &.{}, .{}, .{}, &bases, &.{}, &.{});
     try testing.expectEqual(@as(usize, 1), ledger.sub_gaps.len);
     try testing.expectEqual(@as(u32, 1), ledger.sub_gaps[0].gap);
     try testing.expectEqual(@as(u32, 3), ledger.sub_gaps[0].base);
@@ -500,7 +500,7 @@ test "a route past a box stacked under its source claims its entry in the sub-ga
     try testing.expectEqual(@as(u32, 0), ledger.extraRows(1));
 
     const departures = [_]sg.NodeId{0};
-    const with = try gap_rows.buildPiece(Geom, aa, graph, lg, &geom, &.{}, .{}, .{}, &bases, &.{}, &departures);
+    const with = try flt.buildPiece(aa, graph, lg, &geom, &.{}, .{}, .{}, &bases, &.{}, &departures);
     try testing.expectEqual(@as(u32, 1), with.extraRows(0));
     var found = false;
     for (with.claims) |c| if (c.kind == .bridge_return and c.gap == 0) {
@@ -525,7 +525,7 @@ test "an RL piece claims its offset jogs in the gap beside the target" {
     var graph = try flt.mkGraph(aa, &edges);
     graph.direction = .RL;
     const bases = [_]u32{4};
-    const ledger = try gap_rows.buildPiece(Geom, aa, graph, lg, &geom, &.{}, .{}, .{}, &bases, &.{}, &.{});
+    const ledger = try flt.buildPiece(aa, graph, lg, &geom, &.{}, .{}, .{}, &bases, &.{}, &.{});
     try testing.expectEqual(@as(?i32, 0), ledger.rowOfEdge(0, .exit));
     try testing.expectEqual(@as(u32, 1), ledger.gaps[0].rows_used);
     try testing.expectEqual(@as(u32, 0), ledger.extraRows(0));
@@ -550,7 +550,7 @@ test "a bridge into a drawn stand-in claims the arrival row, into a packing stan
     const graph = try flt.mkGraph(aa, &edges);
     const bases = [_]u32{2};
     const supers = [_]gap_rows.Super{ .{ .node = 1, .drawn = true }, .{ .node = 2, .drawn = false } };
-    const ledger = try gap_rows.buildPiece(Geom, aa, graph, lg, &geom, &.{}, .{}, .{}, &bases, &supers, &.{});
+    const ledger = try flt.buildPiece(aa, graph, lg, &geom, &.{}, .{}, .{}, &bases, &supers, &.{});
     try testing.expectEqual(@as(?i32, -2), ledger.rowOfEdge(0, .exit));
     try testing.expectEqual(@as(?i32, -1), ledger.rowOfEdge(1, .exit));
     try testing.expectEqual(@as(u32, 0), ledger.laneOfEdge(0, .exit));
@@ -622,7 +622,7 @@ test "a skip edge into a plain node joins the bridge band that ends on its port"
     const graph: sg.SemGraph = .{ .direction = .TD, .nodes = &.{}, .edges = &graph_edges, .clusters = &.{}, .classes = &.{}, .arena = null };
     const bases = [_]u32{ 2, 2 };
     const supers = [_]gap_rows.Super{ .{ .node = 1, .drawn = true }, .{ .node = 2, .drawn = true } };
-    const ledger = try gap_rows.buildPiece(Geom, aa, graph, lg, &geom, &.{}, .{}, .{}, &bases, &supers, &.{});
+    const ledger = try flt.buildPiece(aa, graph, lg, &geom, &.{}, .{}, .{}, &bases, &supers, &.{});
     try testing.expectEqual(@as(?i32, -1), ledger.rowOfEdge(4, .exit));
     try testing.expectEqual(@as(u32, 0), ledger.extraRows(1));
     const exit = ledger.claimOfEdge(4, .exit).?;
@@ -654,7 +654,7 @@ test "a placement edge that stands for two crossings into a plain node claims th
             .{ .id = 0, .from = 0, .to = 1, .kind = .solid, .arrow_from = .none, .arrow_to = .none, .label = null, .stands_for = .forward_one_way, .crossings = crossings },
         };
         const graph: sg.SemGraph = .{ .direction = .TD, .nodes = &.{}, .edges = &graph_edges, .clusters = &.{}, .classes = &.{}, .arena = null };
-        const ledger = try gap_rows.buildPiece(Geom, aa, graph, lg, &geom, &.{}, .{}, .{}, &bases, &supers, &.{});
+        const ledger = try flt.buildPiece(aa, graph, lg, &geom, &.{}, .{}, .{}, &bases, &supers, &.{});
         try testing.expectEqual(@as(u32, 0), ledger.extraRows(0));
         if (crossings == 1) {
             try testing.expectEqual(@as(?Claim, null), ledger.claimOfEdge(0, .exit));

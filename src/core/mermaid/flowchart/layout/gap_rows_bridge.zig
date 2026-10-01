@@ -2,6 +2,7 @@ const std = @import("std");
 const sg = @import("../sem_graph.zig");
 const lanes = @import("../base/lanes.zig");
 const pack_mod = @import("gap_rows_pack.zig");
+const NodeGeom = @import("node_geom.zig").NodeGeom;
 
 const Claim = pack_mod.Claim;
 
@@ -14,7 +15,7 @@ const Group = struct {
     reqs: std.ArrayListUnmanaged(Request) = .empty,
 };
 
-pub fn jogClaims(comptime G: type, a: std.mem.Allocator, c: anytype, geom: []const G, claims: *std.ArrayListUnmanaged(Claim)) error{OutOfMemory}!void {
+pub fn jogClaims(a: std.mem.Allocator, c: anytype, geom: []const NodeGeom, claims: *std.ArrayListUnmanaged(Claim)) error{OutOfMemory}!void {
     var groups: std.ArrayListUnmanaged(Group) = .empty;
     for (c.graph.edges) |e| {
         if (!c.isPlacement(e) or e.from == e.to or c.isReversed(e.id)) continue;
@@ -23,10 +24,10 @@ pub fn jogClaims(comptime G: type, a: std.mem.Allocator, c: anytype, geom: []con
         const gap = c.gapOf(sl, tl) orelse continue;
         const ui = c.idx_of.get(e.from) orelse continue;
         const vi = c.idx_of.get(e.to) orelse continue;
-        const u_col = centerOf(G, geom, ui);
-        const v_col = centerOf(G, geom, vi);
+        const u_col = geom[ui].centerX();
+        const v_col = geom[vi].centerX();
         const pin: i32 = if (c.isDrawnSuper(e.to)) -2 else -1;
-        const arr: i32 = if (pin == -1) c.portCol(G, geom, e, .target_entry) else v_col;
+        const arr: i32 = if (pin == -1) c.portCol(geom, e, .target_entry) else v_col;
         if (@max(sl, tl) - @min(sl, tl) > 1) {
             const entry_gap = c.gapBelow(sl) orelse continue;
             try claims.append(a, try one(a, entry_gap, u_col, v_col, .bridge_return, e.id, null));
@@ -44,7 +45,7 @@ pub fn jogClaims(comptime G: type, a: std.mem.Allocator, c: anytype, geom: []con
         const bundled = pin == -1 and e.crossings > 1 and c.isSuper(e.from);
         if (bundled) {
             lo = @min(lo, geom[ui].x);
-            hi = @max(hi, geom[ui].x + @as(i32, @intCast(geom[ui].w)) - 1);
+            hi = @max(hi, geom[ui].right() - 1);
         }
         try g.reqs.append(a, .{ .lo = lo, .hi = hi, .dep = u_col, .arr = arr, .edge = e.id, .bundled = bundled });
     }
@@ -109,9 +110,4 @@ fn one(a: std.mem.Allocator, gap: u32, x: i32, y: i32, kind: pack_mod.Kind, edge
     const taps = try a.alloc(i32, 1);
     taps[0] = y;
     return .{ .gap = gap, .lo = @min(x, y), .hi = @max(x, y), .kind = kind, .end = if (pin == null) .entry else .exit, .edges = edges, .stems = stems, .taps = taps, .pin = pin };
-}
-
-fn centerOf(comptime G: type, geom: []const G, idx: u32) i32 {
-    const g = geom[idx];
-    return g.x + @divTrunc(@as(i32, @intCast(g.w)), 2);
 }
