@@ -155,7 +155,7 @@ pub const table = [_]Row{
     },
     .{
         .token = "RealizedJoins",
-        .why = "the candidate-local realization envelope is ledger.RealizedBundles (P8), riding Sketch.bundles",
+        .why = "the candidate-local realization envelope is ledger.RealizedBundles (P8), riding Sketch.sharing.realized",
     },
     .{
         .token = "intentional_joins",

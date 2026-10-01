@@ -56,7 +56,7 @@ fn emptySplit(supers: []const split_mod.SuperNode) split_mod.SplitResult {
     return .{ .pieces = &.{}, .supers = supers, .crossings = &.{}, .arrivals = &.{}, .departures = &.{}, .orig_node_count = 0 };
 }
 
-test "stitch rails: child claims deep-remap first-class and peer-drawn carriers in deterministic order" {
+test "stitch rails: child claims deep-remap in deterministic order" {
     var arena = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
@@ -66,33 +66,16 @@ test "stitch rails: child claims deep-remap first-class and peer-drawn carriers 
         member(1, 0, 2, .source),
     };
     const first_claims = [_]rail_star.RailClaim{claim(1, .out, &first_members)};
-    const taps = [_]sketch.Tap{
-        .{ .edge = 0, .node = 1, .at = .{ .x = 0, .y = 0 }, .landing = .{ .x = 0, .y = 1 } },
-        .{ .edge = 1, .node = 2, .at = .{ .x = 1, .y = 0 }, .landing = .{ .x = 1, .y = 1 } },
-    };
-    var first = emptySketch();
-    first.rails = &.{.{
-        .pivot = 0,
-        .stem = &.{ .{ .x = 0, .y = 0 }, .{ .x = 0, .y = 1 } },
-        .crossbar = .{ .{ .x = 0, .y = 1 }, .{ .x = 1, .y = 1 } },
-        .taps = &taps,
-        .kind = .solid,
-    }};
-    first.sharing.claims = &first_claims;
 
     const peer_members = [_]rail_star.RailClaimMember{
         member(4, 2, 0, .target),
         member(5, 1, 0, .target),
     };
     const peer_claims = [_]rail_star.RailClaim{claim(1, .in, &peer_members)};
-    const peer_paths = [_]sketch.EdgePath{ path(4, 2, 0), path(5, 1, 0) };
-    var peer = emptySketch();
-    peer.edges = &peer_paths;
-    peer.sharing.claims = &peer_claims;
 
     const sources = [_]stitch_rails.ChildSource{
-        .{ .sketch = first, .node_map = &.{ 10, 14, 12 }, .edge_base = 20 },
-        .{ .sketch = peer, .node_map = &.{ 30, 38, 35 }, .edge_base = 40 },
+        .{ .claims = &first_claims, .node_map = &.{ 10, 14, 12 }, .edge_base = 20 },
+        .{ .claims = &peer_claims, .node_map = &.{ 30, 38, 35 }, .edge_base = 40 },
     };
     var outer = emptySketch();
     const outer_members = [_]rail_star.RailClaimMember{

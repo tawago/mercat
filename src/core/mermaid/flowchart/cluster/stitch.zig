@@ -192,7 +192,7 @@ const Stitcher = struct {
             const child = self.children[super.child_piece];
             const at: Place = .{ .gmap = self.global_of[super.child_piece], .off = off, .base = id_base };
             id_base += idSpan(child.sketch);
-            claims.* = .{ .sketch = child.sketch, .node_map = at.gmap, .edge_base = at.base };
+            claims.* = .{ .claims = child.sketch.sharing.claims, .node_map = at.gmap, .edge_base = at.base };
             try self.piece_joins.append(arena, .{ .bundles = child.sketch.sharing.realized, .edge_base = at.base });
             for (child.sketch.edges) |ce| try self.edges.append(arena, try translateEdge(arena, ce, at));
             for (child.sketch.rails) |cr| {

@@ -7,7 +7,7 @@ const edge_ends = @import("edge_ends.zig");
 const Final = @import("final_scene.zig").Final;
 
 pub const ChildSource = struct {
-    sketch: sketch.Sketch,
+    claims: []const rail_star.RailClaim,
     node_map: []const sketch.NodeId,
     edge_base: sketch.EdgeId,
 };
@@ -22,7 +22,7 @@ pub fn transport(
 ) error{OutOfMemory}![]const rail_star.RailClaim {
     var out: std.ArrayListUnmanaged(rail_star.RailClaim) = .empty;
     for (children) |source| {
-        for (source.sketch.sharing.claims) |claim| {
+        for (source.claims) |claim| {
             try appendClaim(arena, &out, claim, source.node_map, source.edge_base, null);
         }
     }
