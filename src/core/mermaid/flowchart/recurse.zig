@@ -42,18 +42,24 @@ pub fn layoutClustered(
         if (choices[i].flipped != null) any_flip = true;
     }
 
-    const declared_children = try arena.alloc(cluster_stitch.Clustered, sr.pieces.len);
-    for (choices[1..], 1..) |c, i| declared_children[i] = c.declared;
-    const declared_out = try stitchOuter(arena, sr, outer_opts, declared_children);
-
+    const declared_out = try stitchChoices(arena, sr, outer_opts, choices, false);
     if (!any_flip) return declared_out;
 
-    const greedy_children = try arena.alloc(cluster_stitch.Clustered, sr.pieces.len);
-    for (choices[1..], 1..) |c, i| greedy_children[i] = c.flipped orelse c.declared;
-    const greedy_out = try stitchOuter(arena, sr, outer_opts, greedy_children);
-
+    const greedy_out = try stitchChoices(arena, sr, outer_opts, choices, true);
     if (greedy_out.sketch.bbox.w < declared_out.sketch.bbox.w) return greedy_out;
     return declared_out;
+}
+
+fn stitchChoices(
+    arena: std.mem.Allocator,
+    sr: cluster_split.SplitResult,
+    opts: coords.LayoutOptions,
+    choices: []const ChildChoice,
+    flipped: bool,
+) RecurseError!cluster_stitch.Clustered {
+    const children = try arena.alloc(cluster_stitch.Clustered, sr.pieces.len);
+    for (choices[1..], 1..) |c, i| children[i] = if (flipped) c.flipped orelse c.declared else c.declared;
+    return stitchOuter(arena, sr, opts, children);
 }
 
 pub fn stitchOuter(
