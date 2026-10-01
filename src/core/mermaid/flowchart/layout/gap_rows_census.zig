@@ -151,7 +151,7 @@ fn coversColumn(g: NodeGeom, col: i32) bool {
     return g.x <= col and col < g.right();
 }
 
-pub fn stackedGaps(a: std.mem.Allocator, lg: sugiyama.LayeredGraph, geom: []const NodeGeom, real: u32) error{OutOfMemory}![]pack_mod.SubGap {
+fn stackedGaps(a: std.mem.Allocator, lg: sugiyama.LayeredGraph, geom: []const NodeGeom, real: u32) error{OutOfMemory}![]pack_mod.SubGap {
     var gaps: std.ArrayListUnmanaged(pack_mod.SubGap) = .empty;
     for (lg.layers, 0..) |row, li| {
         var tops: std.ArrayListUnmanaged(i32) = .empty;
