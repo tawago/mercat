@@ -106,7 +106,7 @@ fn buildSketch(
     if (fans.len > 0) fan_mod.assignRoles(fans, try x_assign.centersX(a, geom));
     layer_axis.foldLayerOffsets(lg, geom, layer_h);
 
-    const predicted_ports = try port_plan.predict(a, graph, lg, geom, decision.attachments, decision.bundles, decision.port_active, opts.rung);
+    const predicted_ports = try port_plan.predict(a, graph, lg, geom, decision.attachments, decision.bundles, decision.port_active);
     const supers = try a.alloc(gap_rows.Super, opts.fixed_sizes.len);
     for (opts.fixed_sizes, supers) |fixed, *sup| sup.* = .{ .node = fixed.node, .drawn = !fixed.synthetic };
     const rows = try gap_rows.buildPiece(a, graph, lg, geom, fans, decision.bundles, predicted_ports, v_sp_per_gap, supers, opts.departures);
@@ -115,7 +115,7 @@ fn buildSketch(
     mirror.applyDirection(geom, graph.direction);
 
     const placements = try sizing.buildPlacements(a, graph, lg, geom, node_lines);
-    const allocated_ports = try port_plan.allocate(a, graph, placements, decision.attachments, decision.bundles, opts.rung);
+    const allocated_ports = try port_plan.allocate(a, graph, placements, decision.attachments, decision.bundles);
     const edges_result = if (decision.port_active)
         try routing.buildEdgesWithPlan(a, graph, lg, geom, placements, fans, decision.bundles, allocated_ports, rows)
     else

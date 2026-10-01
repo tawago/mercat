@@ -74,7 +74,7 @@ test "V-D-PORT-01: port_plan gives an unrealized mixed-kind 1x3 fan three pitch-
         .{ .id = 2, .rect = .{ .x = 10, .y = 7, .w = 5, .h = 3 }, .shape = .rect, .lines = &.{}, .cluster_id = null },
         .{ .id = 3, .rect = .{ .x = 20, .y = 7, .w = 5, .h = 3 }, .shape = .rect, .lines = &.{}, .cluster_id = null },
     };
-    const plan = try port_plan.allocate(a, graph, &placements, derived, bundles, 0);
+    const plan = try port_plan.allocate(a, graph, &placements, derived, bundles);
     try std.testing.expectEqual(@as(u32, 1), plan.forEdge(0).?.source.offset);
     try std.testing.expectEqual(@as(u32, 3), plan.forEdge(1).?.source.offset);
     try std.testing.expectEqual(@as(u32, 5), plan.forEdge(2).?.source.offset);
@@ -157,7 +157,7 @@ test "duplicate private claims receive stable distinct source and target slots" 
             .{ .id = 0, .rect = .{ .x = 0, .y = 0, .w = 5, .h = 3 }, .shape = .rect, .lines = &.{}, .cluster_id = null },
             .{ .id = 1, .rect = .{ .x = 0, .y = 7, .w = 5, .h = 3 }, .shape = .rect, .lines = &.{}, .cluster_id = null },
         };
-        const plan = try port_plan.allocate(a, g, &placements, derived, bundles, 0);
+        const plan = try port_plan.allocate(a, g, &placements, derived, bundles);
         offsets[run] = .{
             plan.forEdge(4).?.source.offset,
             plan.forEdge(9).?.source.offset,
@@ -365,6 +365,6 @@ test "predicted ports give a side face its real length: three back edges on a TD
         .side = .east,
         .attachment = .{ .key = .{ .opposite = opp, .endpoint_side = .target_entry, .kind = 0, .arrow_from = 0, .arrow_to = 1, .label = null } },
     };
-    const plan = try port_plan.predict(aa, graph, lg, &geom, &derived, .{}, true, 0);
+    const plan = try port_plan.predict(aa, graph, lg, &geom, &derived, .{}, true);
     try std.testing.expectEqual(@as(usize, 0), plan.edges.len);
 }

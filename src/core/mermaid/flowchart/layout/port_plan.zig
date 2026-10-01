@@ -50,7 +50,6 @@ pub fn predict(
     derived: []const ports.DerivedAttachment,
     bundles: pb.RealizedBundles,
     active: bool,
-    rung: u8,
 ) error{OutOfMemory}!Plan {
     const top_of = try a.alloc(i32, lg.nodes.len);
     @memset(top_of, 0);
@@ -80,7 +79,7 @@ pub fn predict(
     };
     if (placements.items.len == 0) return .{};
     return if (active)
-        allocate(a, graph, placements.items, derived, bundles, rung)
+        allocate(a, graph, placements.items, derived, bundles)
     else
         midpoint(a, graph, placements.items);
 }
@@ -170,7 +169,6 @@ pub fn allocate(
     placements: []const sk.NodePlacement,
     derived: []const ports.DerivedAttachment,
     bundles: pb.RealizedBundles,
-    rung: u8,
 ) error{OutOfMemory}!Plan {
     const resolved = try a.dupe(ports.DerivedAttachment, derived);
     for (resolved) |*item| {
@@ -192,7 +190,7 @@ pub fn allocate(
             .north, .south => placement.rect.w,
             .east, .west => placement.rect.h,
         };
-        const items = try allocateFace(a, placement.id, side, len, attachments, rung);
+        const items = try allocateFace(a, placement.id, side, len, attachments);
         try faces.append(a, .{ .node = placement.id, .side = side, .items = items });
     };
 
@@ -215,13 +213,11 @@ pub fn allocate(
     return .{ .edges = edge_ports };
 }
 
-fn allocateFace(a: std.mem.Allocator, node: pb.NodeId, side: sk.Dir4, side_len: u32, attachments: []const ports.Attachment, rung: u8) error{OutOfMemory}![]const ports.Assignment {
-    return switch (try ports.allocate(a, .{ .rung = rung }, node, side, side_len, attachments)) {
+fn allocateFace(a: std.mem.Allocator, node: pb.NodeId, side: sk.Dir4, side_len: u32, attachments: []const ports.Attachment) error{OutOfMemory}![]const ports.Assignment {
+    return switch (try ports.allocate(a, side_len, attachments)) {
         .assigned => |items| items,
-        .failed => |failure| switch (failure) {
-            .key_collision => allocateCollidingClaims(a, node, side, side_len, attachments),
-            .capacity_exceeded => portCapacityInvariant(node, side, side_len, attachments.len),
-        },
+        .key_collision => allocateCollidingClaims(a, node, side, side_len, attachments),
+        .capacity_exceeded => portCapacityInvariant(node, side, side_len, attachments.len),
     };
 }
 

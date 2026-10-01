@@ -27,18 +27,10 @@ fn att(opposite: []const u8, es: pb.EndpointSide, edge_id: u32, center: i32) por
 fn assigned(result: ports.Allocation) ![]const ports.Assignment {
     return switch (result) {
         .assigned => |s| s,
-        .failed => error.TestUnexpectedResult,
+        .key_collision, .capacity_exceeded => error.TestUnexpectedResult,
     };
 }
 
-fn failed(result: ports.Allocation) !ports.Failure {
-    return switch (result) {
-        .assigned => error.TestUnexpectedResult,
-        .failed => |f| f,
-    };
-}
-
-const no_candidate: ports.CandidateRef = .{};
 const names = [_][]const u8{ "a", "b", "c", "d", "e", "f" };
 
 test "V-D-PORT-03: offsets follow o_i = m-(p-1)+2i with pitch 2 and corners excluded on odd and even faces" {
@@ -53,7 +45,7 @@ test "V-D-PORT-03: offsets follow o_i = m-(p-1)+2i with pitch 2 and corners excl
             var atts: std.ArrayListUnmanaged(ports.Attachment) = .empty;
             for (names[0..p], 0..) |name, i|
                 try atts.append(a, att(name, .source_exit, @intCast(i), 0));
-            const out = try assigned(try ports.allocate(a, no_candidate, 0, .south, side_len, atts.items));
+            const out = try assigned(try ports.allocate(a, side_len, atts.items));
             try std.testing.expectEqual(@as(usize, p), out.len);
             var sum: u32 = 0;
             for (out, 0..) |assignment, i| {
@@ -83,7 +75,7 @@ test "V-D-PORT-03: p=3 on a w=5 node demands w_min=7 and allocates offsets 1,3,5
         att("B", .source_exit, 1, 0),
         att("C", .source_exit, 2, 0),
     };
-    const out = try assigned(try ports.allocate(a, no_candidate, 0, .south, dims.w_min, &atts));
+    const out = try assigned(try ports.allocate(a, dims.w_min, &atts));
     try std.testing.expectEqual(@as(u32, 3), ports.midpoint(7));
     try std.testing.expectEqual(@as(u32, 1), out[0].offset);
     try std.testing.expectEqual(@as(u32, 3), out[1].offset);
@@ -96,7 +88,7 @@ test "V-D-PORT-04: a singleton port is exactly today's midpoint floor(L/2)" {
     const a = arena.allocator();
     for ([_]u32{ 3, 5, 7, 10 }) |side_len| {
         const atts = [_]ports.Attachment{att("B", .source_exit, 0, 0)};
-        const out = try assigned(try ports.allocate(a, no_candidate, 0, .south, side_len, &atts));
+        const out = try assigned(try ports.allocate(a, side_len, &atts));
         try std.testing.expectEqual(side_len / 2, out[0].offset);
     }
 }
@@ -110,14 +102,13 @@ test "V-D-PORT-04: capacity boundary L=2p+1 allocates and L=2p fails typed" {
         var atts: std.ArrayListUnmanaged(ports.Attachment) = .empty;
         for (names[0..p], 0..) |name, i|
             try atts.append(a, att(name, .source_exit, @intCast(i), 0));
-        const ok = try assigned(try ports.allocate(a, no_candidate, 0, .south, 2 * p + 1, atts.items));
+        const ok = try assigned(try ports.allocate(a, 2 * p + 1, atts.items));
         try std.testing.expectEqual(@as(usize, p), ok.len);
-        const fail = try failed(try ports.allocate(a, no_candidate, 0, .south, 2 * p, atts.items));
-        try std.testing.expect(fail == .capacity_exceeded);
+        try std.testing.expect(try ports.allocate(a, 2 * p, atts.items) == .capacity_exceeded);
     }
 }
 
-test "V-D-PORT-10: clamped L=3 with p=2 emits port_capacity_exceeded with the full clause-12 payload and no allocation" {
+test "a face clamped to length 3 cannot hold two attachments and allocates none" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
@@ -131,37 +122,17 @@ test "V-D-PORT-10: clamped L=3 with p=2 emits port_capacity_exceeded with the fu
         .members = &.{ 8, 9 },
         .opposite_center = 4,
     };
-    const candidate: ports.CandidateRef = .{ .candidate = 2, .rung = 1 };
-    const fail = try failed(try ports.allocate(a, candidate, 1, .south, 3, &.{ independent, rail }));
-    const payload = fail.capacity_exceeded;
-    try std.testing.expectEqual(@as(u32, 2), payload.candidate.candidate);
-    try std.testing.expectEqual(@as(u8, 1), payload.candidate.rung);
-    try std.testing.expectEqual(@as(pb.NodeId, 1), payload.node);
-    try std.testing.expectEqual(sk.Dir4.south, payload.side);
-    try std.testing.expectEqual(@as(u32, 2), payload.demand);
-    try std.testing.expectEqual(@as(u32, 3), payload.available);
-    try std.testing.expectEqualSlices(ports.AttachmentClass, &.{ .independent, .rail_pivot }, payload.classes);
-    try std.testing.expectEqualSlices(pb.EdgeId, &.{ 7, 8, 9 }, payload.edges);
-    try std.testing.expectEqualSlices(pb.CandidateBundleId, &.{ 3, 5 }, payload.groups);
-    try std.testing.expectEqualStrings(ports.decision_row_clause_12, payload.decision_row);
-    try std.testing.expect(payload.reason.len > 0);
-    try std.testing.expect(payload.expected_action.len > 0);
+    try std.testing.expect(try ports.allocate(a, 3, &.{ independent, rail }) == .capacity_exceeded);
 }
 
-test "V-D-PORT-11: byte-identical K fails with port_key_collision naming D-DUPLICATE and freezing no order" {
+test "attachments whose keys are byte-identical collide whatever order they arrive in" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
     const twin_a = att("B", .source_exit, 9, 0);
     const twin_b = att("B", .source_exit, 4, 0);
-    const first = try failed(try ports.allocate(a, no_candidate, 0, .south, 9, &.{ twin_a, twin_b }));
-    const second = try failed(try ports.allocate(a, no_candidate, 0, .south, 9, &.{ twin_b, twin_a }));
-    for ([_]ports.Failure{ first, second }) |fail| {
-        const payload = fail.key_collision;
-        try std.testing.expectEqualStrings("B", payload.key.opposite);
-        try std.testing.expectEqualSlices(pb.EdgeId, &.{ 4, 9 }, payload.edges);
-        try std.testing.expectEqualStrings("D-DUPLICATE", payload.deferred_to);
-    }
+    try std.testing.expect(try ports.allocate(a, 9, &.{ twin_a, twin_b }) == .key_collision);
+    try std.testing.expect(try ports.allocate(a, 9, &.{ twin_b, twin_a }) == .key_collision);
 }
 
 test "V-D-PORT-02: attachment input permutation yields byte-identical assignments" {
@@ -179,11 +150,11 @@ test "V-D-PORT-02: attachment input permutation yields byte-identical assignment
         .{ 3, 2, 1, 0 },
         .{ 2, 0, 3, 1 },
     };
-    const reference = try assigned(try ports.allocate(a, no_candidate, 0, .south, 9, &base));
+    const reference = try assigned(try ports.allocate(a, 9, &base));
     for (perms) |perm| {
         var shuffled: [4]ports.Attachment = undefined;
         for (perm, 0..) |src, i| shuffled[i] = base[src];
-        const out = try assigned(try ports.allocate(a, no_candidate, 0, .south, 9, &shuffled));
+        const out = try assigned(try ports.allocate(a, 9, &shuffled));
         try std.testing.expectEqual(reference.len, out.len);
         for (reference, out) |want, got| {
             try std.testing.expectEqual(want.attachment.edge, got.attachment.edge);
@@ -201,7 +172,7 @@ test "equal NodeId never coalesces: S1->T and S2->T get distinct entry ports" {
         att("S2", .target_entry, 1, 5),
         att("S1", .target_entry, 0, 5),
     };
-    const out = try assigned(try ports.allocate(a, no_candidate, 2, .north, 7, &atts));
+    const out = try assigned(try ports.allocate(a, 7, &atts));
     try std.testing.expectEqual(@as(usize, 2), out.len);
     try std.testing.expectEqualStrings("S1", out[0].attachment.key.opposite);
     try std.testing.expectEqualStrings("S2", out[1].attachment.key.opposite);
@@ -223,7 +194,7 @@ test "clause-6 order: opposite center is primary, K breaks ties with no-label fi
     const far_entry = att("n", .target_entry, 4, 10);
 
     const atts = [_]ports.Attachment{ far_labeled, near_dotted, far_plain, far_thick, far_entry };
-    const out = try assigned(try ports.allocate(a, no_candidate, 0, .south, 11, &atts));
+    const out = try assigned(try ports.allocate(a, 11, &atts));
     const want_edges = [_]pb.EdgeId{ 1, 2, 0, 3, 4 };
     for (want_edges, out) |edge, assignment|
         try std.testing.expectEqual(@as(?pb.EdgeId, edge), assignment.attachment.edge);
@@ -269,7 +240,7 @@ test "V-D-PORT-09: reversed exit and entry both derive to east in TD and get dis
     try std.testing.expectEqual(@as(u32, 2), demand.east);
     try std.testing.expectEqual(@as(u32, 5), ports.demandDims(demand).h_min);
     const east = try ports.forSide(a, derived, 0, .east);
-    const out = try assigned(try ports.allocate(a, no_candidate, 0, .east, 5, east));
+    const out = try assigned(try ports.allocate(a, 5, east));
     try std.testing.expectEqual(@as(usize, 2), out.len);
     try std.testing.expectEqual(pb.EndpointSide.source_exit, out[0].attachment.key.endpoint_side);
     try std.testing.expectEqual(pb.EndpointSide.target_entry, out[1].attachment.key.endpoint_side);
@@ -310,7 +281,7 @@ test "derivation: a committed group consumes one rail pivot attachment keyed by 
     try std.testing.expectEqual(@as(usize, 2), south[0].members.len);
     try std.testing.expectEqual(@as(u32, 1), ports.sideDemand(derived, 1).north);
     try std.testing.expectEqual(@as(u32, 1), ports.sideDemand(derived, 2).north);
-    const out = try assigned(try ports.allocate(a, no_candidate, 0, .south, 7, south));
+    const out = try assigned(try ports.allocate(a, 7, south));
     try std.testing.expectEqual(@as(u32, 3), out[0].offset);
 }
 
@@ -371,7 +342,7 @@ test "graph edge-array permutation leaves derived allocation identical" {
         const graph = mkGraph(.TD, &nodes, edges);
         const derived = try ports.derive(a, graph, .{ .policy = .joined }, .{}, .TD, &.{});
         const south = try ports.forSide(a, derived, 0, .south);
-        outs[i] = try assigned(try ports.allocate(a, no_candidate, 0, .south, 7, south));
+        outs[i] = try assigned(try ports.allocate(a, 7, south));
     }
     try std.testing.expectEqual(outs[0].len, outs[1].len);
     for (outs[0], outs[1]) |want, got| {
@@ -431,10 +402,7 @@ test "a plain forward arrival co-located with a self-loop terminal joins the sid
         if (attachment.edge == 1) saw_self = true;
     }
     try std.testing.expect(saw_arrival and saw_self);
-    const out = switch (try ports.allocate(a, .{}, 1, .north, 7, north)) {
-        .assigned => |items| items,
-        .failed => return error.UnexpectedAllocationFailure,
-    };
+    const out = try assigned(try ports.allocate(a, 7, north));
     try std.testing.expect(out[0].offset != out[1].offset);
     try std.testing.expectEqual(@as(u32, 0), ports.sideDemand(derived, 0).south);
     const plain_edges = [_]sg.Edge{mkEdge(0, 0, 1)};
@@ -468,10 +436,7 @@ test "V-D-PORT-06: realized Km1 fan-IN derives one north pivot attachment and ke
     try std.testing.expectEqual(ports.AttachmentClass.rail_pivot, target[0].class);
     try std.testing.expectEqual(pb.EndpointSide.target_entry, target[0].key.endpoint_side);
     try std.testing.expectEqual(@as(usize, 2), target[0].members.len);
-    const allocated = switch (try ports.allocate(a, .{}, 2, .north, 7, target)) {
-        .assigned => |items| items,
-        .failed => return error.UnexpectedAllocationFailure,
-    };
+    const allocated = try assigned(try ports.allocate(a, 7, target));
     try std.testing.expectEqual(@as(usize, 1), allocated.len);
     try std.testing.expectEqual(@as(u32, 3), allocated[0].offset);
 

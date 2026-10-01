@@ -229,48 +229,14 @@ pub fn demandDims(d: SideDemand) MinDims {
     return .{ .w_min = 2 * @max(d.north, d.south) + 1, .h_min = 2 * @max(d.east, d.west) + 1 };
 }
 
-pub const CandidateRef = struct { candidate: u32 = 0, rung: u8 = 0 };
-
 pub const Assignment = struct { attachment: Attachment, ordinal: u32, offset: u32 };
 
-pub const decision_row_clause_12 = "D-PORT clause 12";
-pub const capacity_reason =
-    "demanded side cannot reach 2p+1 under an external clamp; MUST NOT share a cell, " ++
-    "drop an attachment, or fall back to the shared midpoint";
-pub const capacity_action = "reject candidate and report, per D-DISPOSITION";
+pub const Allocation = union(enum) { assigned: []const Assignment, key_collision, capacity_exceeded };
 
-pub const CapacityExceeded = struct {
-    candidate: CandidateRef,
-    node: pb.NodeId,
-    side: sk.Dir4,
-    demand: u32,
-    available: u32,
-    classes: []const AttachmentClass,
-    edges: []const pb.EdgeId,
-    groups: []const pb.CandidateBundleId,
-    decision_row: []const u8 = decision_row_clause_12,
-    reason: []const u8 = capacity_reason,
-    expected_action: []const u8 = capacity_action,
-};
-
-pub const KeyCollision = struct {
-    node: pb.NodeId,
-    side: sk.Dir4,
-    key: tie_break.AttachmentKey,
-    edges: []const pb.EdgeId,
-    deferred_to: []const u8 = "D-DUPLICATE",
-};
-
-pub const Failure = union(enum) { capacity_exceeded: CapacityExceeded, key_collision: KeyCollision };
-
-pub const Allocation = union(enum) { assigned: []const Assignment, failed: Failure };
-
-pub fn allocate(a: std.mem.Allocator, candidate: CandidateRef, node: pb.NodeId, side: sk.Dir4, side_len: u32, attachments: []const Attachment) error{OutOfMemory}!Allocation {
-    if (try findCollision(a, node, side, attachments)) |kc|
-        return .{ .failed = .{ .key_collision = kc } };
+pub fn allocate(a: std.mem.Allocator, side_len: u32, attachments: []const Attachment) error{OutOfMemory}!Allocation {
+    if (hasKeyCollision(attachments)) return .key_collision;
     const demand: u32 = @intCast(attachments.len);
-    if (!satisfiable(side_len, demand))
-        return .{ .failed = .{ .capacity_exceeded = try capacityPayload(a, candidate, node, side, side_len, attachments) } };
+    if (!satisfiable(side_len, demand)) return .capacity_exceeded;
     const sorted = try a.dupe(Attachment, attachments);
     std.mem.sort(Attachment, sorted, {}, attachmentLess);
     const out = try a.alloc(Assignment, sorted.len);
@@ -282,47 +248,13 @@ pub fn allocate(a: std.mem.Allocator, candidate: CandidateRef, node: pb.NodeId, 
     return .{ .assigned = out };
 }
 
-fn findCollision(a: std.mem.Allocator, node: pb.NodeId, side: sk.Dir4, attachments: []const Attachment) error{OutOfMemory}!?KeyCollision {
-    var dup: ?tie_break.AttachmentKey = null;
+fn hasKeyCollision(attachments: []const Attachment) bool {
     for (attachments, 0..) |x, i| {
         for (attachments[0..i]) |y| {
-            if (tie_break.attachmentKeyOrder(x.key, y.key) != .eq) continue;
-            if (dup == null or tie_break.attachmentKeyOrder(x.key, dup.?) == .lt) dup = x.key;
+            if (tie_break.attachmentKeyOrder(x.key, y.key) == .eq) return true;
         }
     }
-    const key = dup orelse return null;
-    var edges: std.ArrayListUnmanaged(pb.EdgeId) = .empty;
-    for (attachments) |x| {
-        if (tie_break.attachmentKeyOrder(x.key, key) != .eq) continue;
-        if (x.edge) |e| try appendUnique(pb.EdgeId, a, &edges, e);
-        for (x.members) |member| try appendUnique(pb.EdgeId, a, &edges, member);
-    }
-    std.mem.sort(pb.EdgeId, edges.items, {}, std.sort.asc(pb.EdgeId));
-    return .{ .node = node, .side = side, .key = key, .edges = try edges.toOwnedSlice(a) };
-}
-
-fn capacityPayload(a: std.mem.Allocator, candidate: CandidateRef, node: pb.NodeId, side: sk.Dir4, side_len: u32, attachments: []const Attachment) error{OutOfMemory}!CapacityExceeded {
-    const sorted = try a.dupe(Attachment, attachments);
-    std.mem.sort(Attachment, sorted, {}, attachmentLess);
-    const classes = try a.alloc(AttachmentClass, sorted.len);
-    var edges: std.ArrayListUnmanaged(pb.EdgeId) = .empty;
-    var groups: std.ArrayListUnmanaged(pb.CandidateBundleId) = .empty;
-    for (sorted, classes) |att, *class| {
-        class.* = att.class;
-        if (att.edge) |e| try appendUnique(pb.EdgeId, a, &edges, e);
-        for (att.members) |member| try appendUnique(pb.EdgeId, a, &edges, member);
-        if (att.group) |g| try appendUnique(pb.CandidateBundleId, a, &groups, g);
-    }
-    return .{
-        .candidate = candidate,
-        .node = node,
-        .side = side,
-        .demand = @intCast(sorted.len),
-        .available = side_len,
-        .classes = classes,
-        .edges = try edges.toOwnedSlice(a),
-        .groups = try groups.toOwnedSlice(a),
-    };
+    return false;
 }
 
 fn hasSelfLoopSide(graph: sg.SemGraph, dir: sg.Direction, node: pb.NodeId, side: sk.Dir4) bool {
@@ -353,9 +285,4 @@ fn independentGroup(disp: ?pb.MembershipDisposition) ?pb.CandidateBundleId {
         .selected => null,
         .independent => |ind| ind.candidate_bundle,
     };
-}
-
-fn appendUnique(comptime T: type, a: std.mem.Allocator, list: *std.ArrayListUnmanaged(T), value: T) error{OutOfMemory}!void {
-    for (list.items) |x| if (x == value) return;
-    try list.append(a, value);
 }
