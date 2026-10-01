@@ -224,16 +224,20 @@ fn has(cells: []const BundleCell, want: BundleCell) bool {
     return false;
 }
 
+fn withoutPortShares(arena: std.mem.Allocator, existing: []const bundle_mod.Bundle) error{OutOfMemory}![]const bundle_mod.Bundle {
+    var kept: std.ArrayListUnmanaged(bundle_mod.Bundle) = .empty;
+    for (existing) |set| {
+        if (set.origin != .port_share) try kept.append(arena, set);
+    }
+    return kept.toOwnedSlice(arena);
+}
+
 pub fn appendPortShares(
     arena: std.mem.Allocator,
     existing: []const bundle_mod.Bundle,
     edges: []const sketch.EdgePath,
 ) error{OutOfMemory}![]const bundle_mod.Bundle {
-    var structural: std.ArrayListUnmanaged(bundle_mod.Bundle) = .empty;
-    for (existing) |set| {
-        if (set.origin != .port_share) try structural.append(arena, set);
-    }
-    return bundle_mod.concatBundles(arena, try structural.toOwnedSlice(arena), try portShareBundles(arena, edges));
+    return bundle_mod.concatBundles(arena, try withoutPortShares(arena, existing), try portShareBundles(arena, edges));
 }
 
 pub fn rebuildFinalPortShares(
@@ -242,10 +246,7 @@ pub fn rebuildFinalPortShares(
     edges: []const sketch.EdgePath,
     rails_buf: []const sketch.Rail,
 ) error{OutOfMemory}![]const bundle_mod.Bundle {
-    var structural: std.ArrayListUnmanaged(bundle_mod.Bundle) = .empty;
-    for (existing) |set| {
-        if (set.origin != .port_share) try structural.append(arena, set);
-    }
+    const structural = try withoutPortShares(arena, existing);
     const traces = try finalCarrierTraces(arena, edges, rails_buf);
     var mixed: std.ArrayListUnmanaged(bundle_mod.Bundle) = .empty;
     var path_only: std.ArrayListUnmanaged(bundle_mod.Bundle) = .empty;
@@ -261,10 +262,6 @@ pub fn rebuildFinalPortShares(
             try mixed.append(arena, share);
         } else if (has_path) try path_only.append(arena, share);
     }
-    const with_structural = try bundle_mod.concatBundles(
-        arena,
-        try mixed.toOwnedSlice(arena),
-        try structural.toOwnedSlice(arena),
-    );
+    const with_structural = try bundle_mod.concatBundles(arena, try mixed.toOwnedSlice(arena), structural);
     return bundle_mod.concatBundles(arena, with_structural, try path_only.toOwnedSlice(arena));
 }
