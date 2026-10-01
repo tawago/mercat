@@ -97,6 +97,33 @@ pub fn sizeNodes(
     }
 }
 
+pub fn forcedWraps(
+    a: std.mem.Allocator,
+    graph: sg.SemGraph,
+    lg: sugiyama.LayeredGraph,
+    node_lines: []const []const []const u8,
+) error{OutOfMemory}![]const sketch.Diagnostic {
+    var out: std.ArrayListUnmanaged(sketch.Diagnostic) = .empty;
+    for (lg.nodes, node_lines) |ln, lines| {
+        const nid = switch (ln) {
+            .real => |id| id,
+            .virtual => continue,
+        };
+        if (lines.len > hardSegmentCount(realNode(graph, nid).label)) {
+            try out.append(a, .{ .forced_label_wrap = .{ .node = nid } });
+        }
+    }
+    return try out.toOwnedSlice(a);
+}
+
+fn hardSegmentCount(label: []const u8) usize {
+    var n: usize = 1;
+    for (label) |c| {
+        if (c == prim.LINE_BREAK) n += 1;
+    }
+    return n;
+}
+
 pub fn applyPortDemand(graph: sg.SemGraph, lg: sugiyama.LayeredGraph, geom: []NodeGeom, derived: []const ports.DerivedAttachment) void {
     const swap = graph.direction == .LR or graph.direction == .RL;
     for (lg.nodes, 0..) |node, i| switch (node) {

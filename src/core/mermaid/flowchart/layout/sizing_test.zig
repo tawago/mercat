@@ -49,3 +49,32 @@ test "sizeNodes pre-swaps an LR multi-line label so post-applyDirection dims mat
     try testing.expectEqual(@as(u32, 6), geom[0].w);
     try testing.expectEqual(@as(u32, 4), geom[0].h);
 }
+
+test "forcedWraps names each node whose label wrapped beyond its authored line breaks" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const nodes = [_]sg.Node{
+        .{ .id = 1, .raw_id = "A", .label = "AAAA BBBB CCCC", .shape = .rect, .classes = &.{}, .cluster = null },
+        .{ .id = 2, .raw_id = "B", .label = "AB" ++ [_]u8{prim.LINE_BREAK} ++ "CD", .shape = .rect, .classes = &.{}, .cluster = null },
+        .{ .id = 3, .raw_id = "C", .label = "OK", .shape = .rect, .classes = &.{}, .cluster = null },
+    };
+    const graph: sg.SemGraph = .{
+        .direction = .TD,
+        .nodes = &nodes,
+        .edges = &.{},
+        .clusters = &.{},
+        .classes = &.{},
+        .arena = null,
+    };
+    var lg = try sugiyama.assignLayers(a, graph);
+    defer lg.deinit(a);
+
+    var geom: [3]NodeGeom = undefined;
+    var node_lines: [3][]const []const u8 = undefined;
+    try sizing.sizeNodes(a, graph, lg, &geom, 0, &.{}, 4, &node_lines);
+
+    const wraps = try sizing.forcedWraps(a, graph, lg, &node_lines);
+    try testing.expectEqual(@as(usize, 1), wraps.len);
+    try testing.expectEqual(@as(sg.NodeId, 1), wraps[0].forced_label_wrap.node);
+}

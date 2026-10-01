@@ -1,5 +1,4 @@
 const std = @import("std");
-const prim = @import("prim");
 const bundle_plan = @import("base/bundle_plan.zig");
 const sg = @import("sem_graph.zig");
 const sketch = @import("sketch.zig");
@@ -89,7 +88,7 @@ fn buildSketch(
     const is_td = graph.direction == .TD;
     const decision = try bundle_decision.decide(a, graph, lg, opts.bundle_permits);
     const fans = try ownFans(a, decision.fans);
-    try sizeNodes(a, graph, lg, geom, opts.node_padding, opts.fixed_sizes, opts.max_label_width, node_lines);
+    try sizing.sizeNodes(a, graph, lg, geom, opts.node_padding, opts.fixed_sizes, opts.max_label_width, node_lines);
     sizing.applyPortDemand(graph, lg, geom, decision.attachments);
     const layer_h = try layer_axis.heights(a, lg, geom);
     const v_sp_per_gap = try layer_axis.gaps(a, graph.direction, lg, opts.v_spacing);
@@ -153,7 +152,7 @@ fn buildSketch(
 
     mirror.applyDirection(geom, graph.direction);
 
-    const placements = try buildPlacements(a, graph, lg, geom, node_lines);
+    const placements = try sizing.buildPlacements(a, graph, lg, geom, node_lines);
     const allocated_ports = try port_plan.allocate(a, graph, placements, decision.attachments, decision.bundles, opts.rung);
     const edges_result = if (decision.port_active)
         try routing.buildEdgesWithPlan(a, graph, lg, geom, placements, fans, decision.bundles, allocated_ports, rows)
@@ -169,16 +168,7 @@ fn buildSketch(
         try diagnostics.append(a, .width_overflow);
     }
     if (opts.max_label_width != null) {
-        for (lg.nodes, 0..) |ln, i| {
-            const nid = switch (ln) {
-                .real => |id| id,
-                .virtual => continue,
-            };
-            const hard_segments = hardSegmentCount(realNode(graph, nid).label);
-            if (node_lines[i].len > hard_segments) {
-                try diagnostics.append(a, .{ .forced_label_wrap = .{ .node = nid } });
-            }
-        }
+        try diagnostics.appendSlice(a, try sizing.forcedWraps(a, graph, lg, node_lines));
     }
 
     const rails_out = try a.alloc(sketch.Rail, edges_result.rails.len);
@@ -203,21 +193,10 @@ fn buildSketch(
     };
 }
 
-const sizeNodes = sizing.sizeNodes;
-const realNode = sizing.realNode;
-
 fn ownFans(a: std.mem.Allocator, fans: []const fan_mod.Fan) error{OutOfMemory}![]fan_mod.Fan {
     const out = try a.dupe(fan_mod.Fan, fans);
     for (out) |*f| f.peers = try a.dupe(fan_mod.FanEdge, f.peers);
     return out;
-}
-
-fn hardSegmentCount(label: []const u8) usize {
-    var n: usize = 1;
-    for (label) |c| {
-        if (c == prim.LINE_BREAK) n += 1;
-    }
-    return n;
 }
 
 const assignInitialX = cx_mod.assignInitialX;
@@ -225,8 +204,6 @@ const centerByBarycenter = cx_mod.centerByBarycenter;
 const normalizeX = cx_mod.normalizeX;
 const centersX = cx_mod.centersX;
 const flushLeftRows = cx_mod.flushLeftRows;
-
-const buildPlacements = sizing.buildPlacements;
 
 test {
     _ = @import("layout/layout_test.zig");
