@@ -1,381 +1,154 @@
 const std = @import("std");
-const sg = @import("../sem_graph.zig");
 const sugiyama = @import("sugiyama.zig");
 const LayeredGraph = sugiyama.LayeredGraph;
 
-const max_iterations: u8 = 24;
-const convergence_window: u8 = 3;
+const max_iterations = 24;
+const convergence_window = 3;
 
-pub fn reduceCrossings(allocator: std.mem.Allocator, lg: *LayeredGraph) !void {
+pub fn reduceCrossings(allocator: std.mem.Allocator, lg: *LayeredGraph) error{OutOfMemory}!void {
     if (lg.layers.len < 2) return;
 
-    var best = try cloneLayers(allocator, lg.layers);
-    defer freeLayers(allocator, best);
+    var scratch = std.heap.ArenaAllocator.init(allocator);
+    defer scratch.deinit();
+    const a = scratch.allocator();
+    const order = try Order.init(a, lg.*);
 
-    var best_crossings: u32 = try countCrossings(allocator, lg.*);
-    var best_rail: u64 = railCost(lg.*);
+    const best = try a.alloc([]u32, lg.layers.len);
+    for (lg.layers, best) |row, *kept| kept.* = try a.dupe(u32, row);
+    var best_crossings = order.crossings(lg.layers);
+    var best_rail = order.railCost(lg.layers);
 
     var stagnation: u8 = 0;
-    var iter: u8 = 0;
-    while (iter < max_iterations) : (iter += 1) {
-        try sweepDown(allocator, lg);
-        try sweepUp(allocator, lg);
+    for (0..max_iterations) |_| {
+        for (1..lg.layers.len) |i| order.reorder(lg.layers, i, i - 1);
+        var i = lg.layers.len - 1;
+        while (i > 0) : (i -= 1) order.reorder(lg.layers, i - 1, i);
 
-        const cur = try countCrossings(allocator, lg.*);
-        const cur_rail = railCost(lg.*);
-        if (cur < best_crossings or
-            (cur == best_crossings and cur_rail < best_rail))
-        {
-            best_crossings = cur;
-            best_rail = cur_rail;
-            freeLayers(allocator, best);
-            best = try cloneLayers(allocator, lg.layers);
+        const crossings = order.crossings(lg.layers);
+        const rail = order.railCost(lg.layers);
+        if (crossings < best_crossings or (crossings == best_crossings and rail < best_rail)) {
+            best_crossings = crossings;
+            best_rail = rail;
+            copyLayers(best, lg.layers);
             stagnation = 0;
         } else {
-            restoreLayers(lg.layers, best);
+            copyLayers(lg.layers, best);
             stagnation += 1;
             if (stagnation >= convergence_window) break;
         }
         if (best_crossings == 0) break;
     }
 
-    restoreLayers(lg.layers, best);
+    copyLayers(lg.layers, best);
 }
 
-pub fn countCrossings(allocator: std.mem.Allocator, lg: LayeredGraph) !u32 {
-    if (lg.layers.len < 2) return 0;
+/// One vertex in a barycenter sort: the exact fraction `sum / count` decides,
+/// then a vertex off the back edges goes first, then the position it held.
+pub const Key = struct {
+    v: u32,
+    sum: u64,
+    count: u64,
+    back: bool,
+    prev: u32,
 
-    var pos = try allocator.alloc(u32, lg.nodes.len);
-    defer allocator.free(pos);
-    @memset(pos, 0);
-
-    var total: u32 = 0;
-    var li: usize = 0;
-    while (li + 1 < lg.layers.len) : (li += 1) {
-        const upper = lg.layers[li];
-        const lower = lg.layers[li + 1];
-        for (upper, 0..) |idx, p| pos[idx] = @intCast(p);
-        for (lower, 0..) |idx, p| pos[idx] = @intCast(p);
-
-        var pair_edges: std.ArrayListUnmanaged(PairEdge) = .empty;
-        defer pair_edges.deinit(allocator);
-        for (lg.edges) |e| {
-            if (containsIdx(upper, e.from) and containsIdx(lower, e.to)) {
-                try pair_edges.append(allocator, .{
-                    .u = pos[e.from],
-                    .v = pos[e.to],
-                });
-            }
-        }
-
-        var i: usize = 0;
-        while (i < pair_edges.items.len) : (i += 1) {
-            const a = pair_edges.items[i];
-            var j: usize = i + 1;
-            while (j < pair_edges.items.len) : (j += 1) {
-                const b = pair_edges.items[j];
-                if ((a.u < b.u and a.v > b.v) or
-                    (a.u > b.u and a.v < b.v))
-                {
-                    total += 1;
-                }
-            }
-        }
+    pub fn less(_: void, a: Key, b: Key) bool {
+        const left = a.sum * b.count;
+        const right = b.sum * a.count;
+        if (left != right) return left < right;
+        if (a.back != b.back) return !a.back;
+        return a.prev < b.prev;
     }
-    return total;
-}
-
-const PairEdge = struct { u: u32, v: u32 };
-
-pub const ScoredNode = struct {
-    idx: u32,
-    bary: f64,
-    cur: u32,
-    back: u8 = 0,
 };
 
-pub fn cmpScored(_: void, a: ScoredNode, b: ScoredNode) bool {
-    if (a.bary != b.bary) return a.bary < b.bary;
-    if (a.back != b.back) return a.back < b.back;
-    return a.cur < b.cur;
+pub const Order = struct {
+    edges: []const sugiyama.LayerEdge,
+    back: []bool,
+    forward_leaf: []bool,
+    layer: []u32,
+    pos: []u32,
+    keys: []Key,
+
+    pub fn init(a: std.mem.Allocator, lg: LayeredGraph) error{OutOfMemory}!Order {
+        var widest: usize = 0;
+        for (lg.layers) |row| widest = @max(widest, row.len);
+        const order: Order = .{
+            .edges = lg.edges,
+            .back = try a.alloc(bool, lg.nodes.len),
+            .forward_leaf = try a.alloc(bool, lg.nodes.len),
+            .layer = try a.alloc(u32, lg.nodes.len),
+            .pos = try a.alloc(u32, lg.nodes.len),
+            .keys = try a.alloc(Key, widest),
+        };
+        @memset(order.back, false);
+        @memset(order.forward_leaf, true);
+        for (lg.layers, 0..) |row, li| for (row) |v| {
+            order.layer[v] = @intCast(li);
+        };
+        for (lg.edges) |e| {
+            if (e.reversed) {
+                order.back[e.from] = true;
+                order.back[e.to] = true;
+            } else order.forward_leaf[e.from] = false;
+        }
+        return order;
+    }
+
+    pub fn crossings(order: Order, layers: []const []u32) u64 {
+        for (layers) |row| for (row, 0..) |v, p| {
+            order.pos[v] = @intCast(p);
+        };
+        var total: u64 = 0;
+        for (order.edges, 0..) |a, k| {
+            if (order.layer[a.to] != order.layer[a.from] + 1) continue;
+            for (order.edges[k + 1 ..]) |b| {
+                if (order.layer[b.from] != order.layer[a.from] or order.layer[b.to] != order.layer[a.to]) continue;
+                const upper = std.math.order(order.pos[a.from], order.pos[b.from]);
+                const lower = std.math.order(order.pos[a.to], order.pos[b.to]);
+                if (upper != .eq and lower != .eq and upper != lower) total += 1;
+            }
+        }
+        return total;
+    }
+
+    pub fn railCost(order: Order, layers: []const []u32) u64 {
+        var total: u64 = 0;
+        for (layers) |row| {
+            if (row.len <= 1) continue;
+            for (row, 0..) |v, p| {
+                if (order.back[v] and order.forward_leaf[v]) total += row.len - 1 - p;
+            }
+        }
+        return total;
+    }
+
+    fn reorder(order: Order, layers: []const []u32, li: usize, from: usize) void {
+        const row = layers[li];
+        if (row.len <= 1) return;
+        for (layers[from], 0..) |v, p| order.pos[v] = @intCast(p);
+
+        const keys = order.keys[0..row.len];
+        for (row, keys, 0..) |v, *key, p| {
+            key.* = .{ .v = v, .sum = 0, .count = 0, .back = order.back[v], .prev = @intCast(p) };
+            for (order.edges) |e| {
+                const other = if (from < li) (if (e.to == v) e.from else continue) else (if (e.from == v) e.to else continue);
+                if (order.layer[other] != from) continue;
+                key.sum += order.pos[other];
+                key.count += 1;
+            }
+            if (key.count == 0) {
+                key.sum = p;
+                key.count = 1;
+            }
+        }
+        std.mem.sort(Key, keys, {}, Key.less);
+        for (row, keys) |*v, key| v.* = key.v;
+    }
+};
+
+fn copyLayers(dst: []const []u32, src: []const []u32) void {
+    for (dst, src) |to, from| @memcpy(to, from);
 }
 
 test {
     _ = @import("crossing_test.zig");
-}
-
-fn sweepDown(allocator: std.mem.Allocator, lg: *LayeredGraph) !void {
-    if (lg.layers.len < 2) return;
-    var i: usize = 1;
-    while (i < lg.layers.len) : (i += 1) {
-        try reorderLayer(allocator, lg, i, .from_above);
-    }
-}
-
-fn sweepUp(allocator: std.mem.Allocator, lg: *LayeredGraph) !void {
-    if (lg.layers.len < 2) return;
-    var i: usize = lg.layers.len - 1;
-    while (i > 0) : (i -= 1) {
-        try reorderLayer(allocator, lg, i - 1, .from_below);
-    }
-}
-
-const Side = enum { from_above, from_below };
-
-fn reorderLayer(
-    allocator: std.mem.Allocator,
-    lg: *LayeredGraph,
-    layer_idx: usize,
-    side: Side,
-) !void {
-    const row = lg.layers[layer_idx];
-    if (row.len <= 1) return;
-
-    const neighbour_layer = switch (side) {
-        .from_above => lg.layers[layer_idx - 1],
-        .from_below => lg.layers[layer_idx + 1],
-    };
-
-    var npos = try allocator.alloc(i64, lg.nodes.len);
-    defer allocator.free(npos);
-    @memset(npos, -1);
-    for (neighbour_layer, 0..) |idx, p| npos[idx] = @intCast(p);
-
-    const scored = try allocator.alloc(ScoredNode, row.len);
-    defer allocator.free(scored);
-
-    for (row, 0..) |idx, cur_pos| {
-        var sum: f64 = 0;
-        var n: u32 = 0;
-        for (lg.edges) |e| {
-            switch (side) {
-                .from_above => {
-                    if (e.to == idx) {
-                        const p = npos[e.from];
-                        if (p >= 0) {
-                            sum += @floatFromInt(p);
-                            n += 1;
-                        }
-                    }
-                },
-                .from_below => {
-                    if (e.from == idx) {
-                        const p = npos[e.to];
-                        if (p >= 0) {
-                            sum += @floatFromInt(p);
-                            n += 1;
-                        }
-                    }
-                },
-            }
-        }
-        const bary: f64 = if (n == 0)
-            @floatFromInt(cur_pos)
-        else
-            sum / @as(f64, @floatFromInt(n));
-
-        scored[cur_pos] = .{
-            .idx = idx,
-            .bary = bary,
-            .cur = @intCast(cur_pos),
-            .back = if (isBackEndpoint(lg, idx)) 1 else 0,
-        };
-    }
-
-    std.mem.sort(ScoredNode, scored, {}, cmpScored);
-
-    for (scored, 0..) |s, k| row[k] = s.idx;
-}
-
-fn cloneLayers(allocator: std.mem.Allocator, layers: [][]u32) ![][]u32 {
-    const out = try allocator.alloc([]u32, layers.len);
-    var i: usize = 0;
-    errdefer {
-        var k: usize = 0;
-        while (k < i) : (k += 1) allocator.free(out[k]);
-        allocator.free(out);
-    }
-    while (i < layers.len) : (i += 1) {
-        out[i] = try allocator.dupe(u32, layers[i]);
-    }
-    return out;
-}
-
-fn freeLayers(allocator: std.mem.Allocator, layers: [][]u32) void {
-    for (layers) |row| allocator.free(row);
-    allocator.free(layers);
-}
-
-fn restoreLayers(dst: [][]u32, src: [][]u32) void {
-    std.debug.assert(dst.len == src.len);
-    for (dst, src) |d, s| {
-        std.debug.assert(d.len == s.len);
-        @memcpy(d, s);
-    }
-}
-
-pub fn isBackEndpoint(lg: *const LayeredGraph, idx: u32) bool {
-    for (lg.edges) |e| {
-        if (e.reversed and (e.from == idx or e.to == idx)) return true;
-    }
-    return false;
-}
-
-pub fn railCost(lg: LayeredGraph) u64 {
-    var total: u64 = 0;
-    for (lg.layers) |row| {
-        if (row.len <= 1) continue;
-        for (row, 0..) |idx, pos| {
-            if (isBackEndpoint(&lg, idx) and isForwardLeaf(&lg, idx))
-                total += @intCast(row.len - 1 - pos);
-        }
-    }
-    return total;
-}
-
-fn isForwardLeaf(lg: *const LayeredGraph, idx: u32) bool {
-    for (lg.edges) |e| {
-        if (!e.reversed and e.from == idx) return false;
-    }
-    return true;
-}
-
-fn containsIdx(row: []const u32, idx: u32) bool {
-    for (row) |x| {
-        if (x == idx) return true;
-    }
-    return false;
-}
-
-const testing = std.testing;
-
-fn mkNode(id: sg.NodeId, raw: []const u8) sg.Node {
-    return .{
-        .id = id,
-        .raw_id = raw,
-        .label = raw,
-        .shape = .rect,
-        .classes = &.{},
-        .cluster = null,
-    };
-}
-
-fn mkEdge(id: sg.EdgeId, from: sg.NodeId, to: sg.NodeId) sg.Edge {
-    return .{
-        .id = id,
-        .from = from,
-        .to = to,
-        .kind = .solid,
-        .arrow_from = .none,
-        .arrow_to = .filled,
-        .label = null,
-    };
-}
-
-test "linear chain has zero crossings before and after" {
-    const nodes = [_]sg.Node{ mkNode(0, "A"), mkNode(1, "B"), mkNode(2, "C") };
-    const edges = [_]sg.Edge{ mkEdge(0, 0, 1), mkEdge(1, 1, 2) };
-    const g = sg.SemGraph{
-        .direction = .TD,
-        .nodes = &nodes,
-        .edges = &edges,
-        .clusters = &.{},
-        .classes = &.{},
-        .arena = null,
-    };
-    var lg = try sugiyama.assignLayers(testing.allocator, g);
-    defer lg.deinit(testing.allocator);
-
-    const before = try countCrossings(testing.allocator, lg);
-    try testing.expectEqual(@as(u32, 0), before);
-
-    const snap = try cloneLayers(testing.allocator, lg.layers);
-    defer freeLayers(testing.allocator, snap);
-
-    try reduceCrossings(testing.allocator, &lg);
-
-    const after = try countCrossings(testing.allocator, lg);
-    try testing.expectEqual(@as(u32, 0), after);
-
-    try testing.expectEqual(snap.len, lg.layers.len);
-    for (snap, lg.layers) |s, r| {
-        try testing.expectEqualSlices(u32, s, r);
-    }
-}
-
-test "two-layer X pattern reduces from 1 to 0" {
-    const nodes = [_]sg.Node{
-        mkNode(0, "A"),
-        mkNode(1, "B"),
-        mkNode(2, "C"),
-        mkNode(3, "D"),
-    };
-    const edges = [_]sg.Edge{
-        mkEdge(0, 0, 3),
-        mkEdge(1, 1, 2),
-    };
-    const g = sg.SemGraph{
-        .direction = .TD,
-        .nodes = &nodes,
-        .edges = &edges,
-        .clusters = &.{},
-        .classes = &.{},
-        .arena = null,
-    };
-    var lg = try sugiyama.assignLayers(testing.allocator, g);
-    defer lg.deinit(testing.allocator);
-
-    try testing.expectEqual(@as(usize, 2), lg.layers.len);
-    try testing.expectEqual(@as(usize, 2), lg.layers[0].len);
-    try testing.expectEqual(@as(usize, 2), lg.layers[1].len);
-
-    const before = try countCrossings(testing.allocator, lg);
-    try testing.expectEqual(@as(u32, 1), before);
-
-    const orig_lower = try testing.allocator.dupe(u32, lg.layers[1]);
-    defer testing.allocator.free(orig_lower);
-
-    try reduceCrossings(testing.allocator, &lg);
-
-    const after = try countCrossings(testing.allocator, lg);
-    try testing.expectEqual(@as(u32, 0), after);
-
-    const upper_swapped = lg.layers[0][0] != 0 or lg.layers[0][1] != 1;
-    const lower_swapped =
-        lg.layers[1][0] != orig_lower[0] or lg.layers[1][1] != orig_lower[1];
-    try testing.expect(upper_swapped or lower_swapped);
-}
-
-test "best-of rollback never increases crossings" {
-    const nodes = [_]sg.Node{
-        mkNode(0, "A"),
-        mkNode(1, "B"),
-        mkNode(2, "C"),
-        mkNode(3, "D"),
-        mkNode(4, "E"),
-        mkNode(5, "F"),
-    };
-    const edges = [_]sg.Edge{
-        mkEdge(0, 0, 4),
-        mkEdge(1, 0, 5),
-        mkEdge(2, 1, 3),
-        mkEdge(3, 1, 5),
-        mkEdge(4, 2, 3),
-        mkEdge(5, 2, 4),
-    };
-    const g = sg.SemGraph{
-        .direction = .TD,
-        .nodes = &nodes,
-        .edges = &edges,
-        .clusters = &.{},
-        .classes = &.{},
-        .arena = null,
-    };
-    var lg = try sugiyama.assignLayers(testing.allocator, g);
-    defer lg.deinit(testing.allocator);
-
-    const before = try countCrossings(testing.allocator, lg);
-    try reduceCrossings(testing.allocator, &lg);
-    const after = try countCrossings(testing.allocator, lg);
-    try testing.expect(after <= before);
 }
