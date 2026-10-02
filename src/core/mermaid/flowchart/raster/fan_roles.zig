@@ -44,7 +44,7 @@ pub fn resolveMasks(lat: *lattice.Lattice, s: sketch.Sketch) void {
             if (!(nb.e or nb.w)) continue;
             if (onRail(s, x, y)) continue;
             if (continuesColumn(lat, x, y)) continue;
-            const rect = pivotRect(s, s.sharing.claims, seg.edge) orelse continue;
+            const rect = pivotRect(s, seg.edge) orelse continue;
             const drop = armAwayFromPivot(rect, y) orelse continue;
             if (armIsAnswered(lat, x, y, drop)) continue;
             cell.neighbours = lattice.Neighbours.fromMask(nb.toMask() & ~geo.bitMask(drop).toMask());
@@ -91,8 +91,8 @@ fn armIsAnswered(lat: *const lattice.Lattice, x: u32, y: u32, d: lattice.Dir4) b
     };
 }
 
-fn pivotRect(s: sketch.Sketch, claims: []const rail_star.RailClaim, edge_id: u32) ?sketch.Rect {
-    const pivot = pivotOf(claims, edge_id) orelse return null;
+fn pivotRect(s: sketch.Sketch, edge_id: u32) ?sketch.Rect {
+    const pivot = pivotOf(s.sharing.claims, edge_id) orelse return null;
     for (s.nodes) |np| {
         if (np.id == pivot) return np.rect;
     }

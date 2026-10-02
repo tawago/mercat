@@ -40,8 +40,8 @@ pub const EdgesResult = struct {
     edges: []sketch.EdgePath,
     polylines: [][]sketch.Point,
     rails: []fan_rail.Built,
-    bundle_sets: []const bundle_mod.Bundle,
-    rail_claims: []const rail_star.RailClaim,
+    bundles: []const bundle_mod.Bundle,
+    claims: []const rail_star.RailClaim,
 };
 
 pub fn buildEdgesWithPlan(
@@ -247,8 +247,8 @@ pub fn buildEdgesWithPlan(
         .edges = try out.toOwnedSlice(a),
         .polylines = try polys.toOwnedSlice(a),
         .rails = drawn.rails,
-        .bundle_sets = try fan_mod.coSets(a, fans),
-        .rail_claims = rail_claims,
+        .bundles = try fan_mod.coSets(a, fans),
+        .claims = rail_claims,
     };
 }
 

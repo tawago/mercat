@@ -86,7 +86,7 @@ const Stitcher = struct {
     clusters: std.ArrayListUnmanaged(sketch.ClusterFrame) = .empty,
     edges: std.ArrayListUnmanaged(sketch.EdgePath) = .empty,
     rails: std.ArrayListUnmanaged(sketch.Rail) = .empty,
-    bundle_sets: std.ArrayListUnmanaged(bundle_mod.Bundle) = .empty,
+    bundles: std.ArrayListUnmanaged(bundle_mod.Bundle) = .empty,
     piece_joins: std.ArrayListUnmanaged(stitch_sharing.PieceBundles) = .empty,
     claim_sources: []stitch_rails.ChildSource,
     outer_base: sketch.EdgeId = 0,
@@ -199,7 +199,7 @@ const Stitcher = struct {
                 if (try translateRail(arena, cr, at)) |tr| try self.rails.append(arena, tr);
             }
             for (child.sketch.sharing.bundles) |cs| {
-                if (cs.origin != .port_share) try self.bundle_sets.append(arena, try stitch_sharing.shiftSet(arena, cs, at.base, off.dx, off.dy));
+                if (cs.origin != .port_share) try self.bundles.append(arena, try stitch_sharing.shiftSet(arena, cs, at.base, off.dx, off.dy));
             }
         }
         self.outer_base = id_base;
@@ -262,7 +262,7 @@ const Stitcher = struct {
         else
             ledger.RealizedBundles{};
         if (merge_joins) try self.piece_joins.append(arena, .{ .bundles = bridge_joins, .edge_base = 0 });
-        for (try bundle_plan.bundlesFromPlan(arena, bridge_joins)) |cs| try self.bundle_sets.append(arena, cs);
+        for (try bundle_plan.bundlesFromPlan(arena, bridge_joins)) |cs| try self.bundles.append(arena, cs);
         const bar_slice = try self.rails.toOwnedSlice(arena);
         const fin: Final = .{
             .sr = self.sr,
@@ -275,7 +275,7 @@ const Stitcher = struct {
             .placements = node_slice,
         };
         const realized = if (merge_joins) try stitch_sharing.merge(arena, self.piece_joins.items) else ledger.RealizedBundles{};
-        const sharing = try stitch_sharing.finalize(arena, fin, self.claim_sources, self.global_of[0], try self.bundle_sets.toOwnedSlice(arena), realized);
+        const sharing = try stitch_sharing.finalize(arena, fin, self.claim_sources, self.global_of[0], try self.bundles.toOwnedSlice(arena), realized);
 
         const merged: sketch.Sketch = .{
             .bbox = self.outer.bbox,

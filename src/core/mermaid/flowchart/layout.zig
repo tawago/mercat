@@ -137,9 +137,9 @@ fn buildSketch(
     for (edges_result.rails, rails_out) |b, *out| out.* = b.rail;
 
     const base_sets = if (decision.plan_realized)
-        bundle_plan.bundlesFromPlan(a, decision.bundles) catch edges_result.bundle_sets
+        bundle_plan.bundlesFromPlan(a, decision.bundles) catch edges_result.bundles
     else
-        edges_result.bundle_sets;
+        edges_result.bundles;
     return .{
         .bbox = bbox,
         .direction = graph.direction,
@@ -150,7 +150,7 @@ fn buildSketch(
         .sharing = .{
             .realized = decision.bundles,
             .bundles = sketch_ports.appendPortShares(a, base_sets, edges_out) catch base_sets,
-            .claims = edges_result.rail_claims,
+            .claims = edges_result.claims,
         },
         .diagnostics = try diagnostics.toOwnedSlice(a),
         .budget = .{ .max_width = opts.max_width, .rung = opts.rung },
