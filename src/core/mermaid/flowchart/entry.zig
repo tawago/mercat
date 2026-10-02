@@ -38,43 +38,43 @@ pub fn renderFlowchart(allocator: std.mem.Allocator, source: []const u8, options
     const aa = arena.allocator();
 
     const graph = parse(aa, source) catch |err| {
-        std.log.warn("mermaid_v2 parse failed: {s}", .{@errorName(err)});
+        std.log.warn("mermaid parse failed: {s}", .{@errorName(err)});
         return fallback(source, "v2 pipeline error: parse");
     };
     if (graph.skipped_lines > 0) {
-        std.log.warn("mermaid_v2 parse: skipped {d} unparseable non-edge line(s); rendering the rest", .{graph.skipped_lines});
+        std.log.warn("mermaid parse: skipped {d} unparseable non-edge line(s); rendering the rest", .{graph.skipped_lines});
     }
 
     const branch_result = select.resolvePermits(aa, graph) catch |err| {
-        std.log.warn("mermaid_v2 branch plan failed: {s}", .{@errorName(err)});
+        std.log.warn("mermaid branch plan failed: {s}", .{@errorName(err)});
         return fallback(source, "v2 pipeline error: branch plan");
     };
     const bundle_permits = branch_result.plan;
 
     const chosen = select.choose(aa, graph, &bundle_permits, options.max_width, options.subgraph_edges) catch |err| {
-        std.log.warn("mermaid_v2/entry: ladder failed: {s}", .{@errorName(err)});
+        std.log.warn("mermaid/entry: ladder failed: {s}", .{@errorName(err)});
         return fallback(source, "v2 ladder error");
     };
     const sketch_val = chosen.sketch;
 
     for (sketch_val.edges) |e| if (select.isUnrouted(e)) {
-        std.log.warn("mermaid_v2: edge {d} ({s} -> {s}) could not be routed without illegal ink and is not drawn", .{ e.id, nodeRawId(graph, e.from), nodeRawId(graph, e.to) });
+        std.log.warn("mermaid: edge {d} ({s} -> {s}) could not be routed without illegal ink and is not drawn", .{ e.id, nodeRawId(graph, e.from), nodeRawId(graph, e.to) });
     };
 
     const raster_report = raster.rasterize(aa, sketch_val, options.subgraph_edges) catch |err| {
-        std.log.warn("mermaid_v2 rasterize failed: {s}", .{@errorName(err)});
+        std.log.warn("mermaid rasterize failed: {s}", .{@errorName(err)});
         return fallback(source, "v2 raster error");
     };
 
     const budget = sketch_val.budget.max_width;
     const true_width = raster_report.lattice.width;
     const painted = paint.paint(allocator, raster_report.lattice, budget) catch |err| {
-        std.log.warn("mermaid_v2 paint failed: {s}", .{@errorName(err)});
+        std.log.warn("mermaid paint failed: {s}", .{@errorName(err)});
         return fallback(source, "v2 paint error");
     };
 
     if (true_width > budget) {
-        std.log.warn("mermaid_v2: diagram clipped: true width {d} > budget {d}", .{ true_width, budget });
+        std.log.warn("mermaid: diagram clipped: true width {d} > budget {d}", .{ true_width, budget });
     }
 
     return .{

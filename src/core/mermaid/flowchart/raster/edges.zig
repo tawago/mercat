@@ -6,7 +6,7 @@ const crossings = @import("crossings.zig");
 const geo = @import("geometry.zig");
 const prim = @import("prim");
 
-const log = std.log.scoped(.@"mermaid_v2.raster.edges");
+const log = std.log.scoped(.@"mermaid.raster.edges");
 
 const Move = geo.Move;
 const straightMask = geo.straightMask;
@@ -60,14 +60,14 @@ pub fn writeEdgeCell(
         .node_interior, .node_border => {
             cells_lost.* += 1;
             log.debug(
-                "mermaid_v2/raster/edges: edge {d} at ({d},{d}) collides with node-owned cell; skipping",
+                "mermaid/raster/edges: edge {d} at ({d},{d}) collides with node-owned cell; skipping",
                 .{ edge_id, x, y },
             );
         },
         .label_char, .label_cont => {
             cells_lost.* += 1;
             log.debug(
-                "mermaid_v2/raster/edges: edge {d} at ({d},{d}) collides with label_char; skipping",
+                "mermaid/raster/edges: edge {d} at ({d},{d}) collides with label_char; skipping",
                 .{ edge_id, x, y },
             );
         },
@@ -107,7 +107,7 @@ pub fn writeArrowCell(
         .node_interior, .node_border, .label_char, .label_cont => {
             cells_lost.* += 1;
             log.debug(
-                "mermaid_v2/raster/edges: arrowhead for edge {d} at ({d},{d}) collides; skipping",
+                "mermaid/raster/edges: arrowhead for edge {d} at ({d},{d}) collides; skipping",
                 .{ edge_id, x, y },
             );
         },
@@ -367,7 +367,7 @@ fn walkPolyline(
     const pts = edge.polyline;
     if (pts.len < 2) {
         log.debug(
-            "mermaid_v2/raster/edges: edge {d} polyline has {d} points; skipping",
+            "mermaid/raster/edges: edge {d} polyline has {d} points; skipping",
             .{ edge.id, pts.len },
         );
         return .{};
@@ -379,7 +379,7 @@ fn walkPolyline(
     }
     if (nontrivial == 0) {
         log.debug(
-            "mermaid_v2/raster/edges: edge {d} polyline is degenerate; skipping",
+            "mermaid/raster/edges: edge {d} polyline is degenerate; skipping",
             .{edge.id},
         );
         return .{};

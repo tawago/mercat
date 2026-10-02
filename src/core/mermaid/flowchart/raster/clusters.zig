@@ -2,7 +2,7 @@ const std = @import("std");
 const sketch = @import("../sketch.zig");
 const lattice = @import("../lattice.zig");
 
-const log = std.log.scoped(.mermaid_v2_raster_clusters);
+const log = std.log.scoped(.mermaid_raster_clusters);
 
 pub fn rasterizeClusters(
     allocator: std.mem.Allocator,

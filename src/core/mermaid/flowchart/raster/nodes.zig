@@ -4,7 +4,7 @@ const lattice = @import("../lattice.zig");
 const geo = @import("geometry.zig");
 const node_shapes = @import("node_shapes.zig");
 
-const log = std.log.scoped(.@"mermaid_v2.raster.nodes");
+const log = std.log.scoped(.@"mermaid.raster.nodes");
 
 pub fn rasterizeNodes(
     lat: *lattice.Lattice,

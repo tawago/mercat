@@ -5,7 +5,7 @@ const lattice = @import("../lattice.zig");
 const lw = @import("labels_write.zig");
 const ink = @import("labels_ink.zig");
 
-const log = std.log.scoped(.@"mermaid_v2.raster.labels");
+const log = std.log.scoped(.@"mermaid.raster.labels");
 
 const Pass = enum { own_adjacent, own_nearest, any, any_solid };
 const passes = [4]Pass{ .own_adjacent, .own_nearest, .any, .any_solid };

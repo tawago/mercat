@@ -6,7 +6,7 @@ const labels_edge = @import("labels_edge.zig");
 const labels_onrun = @import("labels_onrun.zig");
 const lw = @import("labels_write.zig");
 
-const log = std.log.scoped(.@"mermaid_v2.raster.labels");
+const log = std.log.scoped(.@"mermaid.raster.labels");
 
 pub const RasterError = error{OutOfMemory};
 
