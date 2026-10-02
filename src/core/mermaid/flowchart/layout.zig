@@ -50,9 +50,7 @@ pub fn layout(
     };
     defer lg.deinit(allocator);
 
-    crossing.reduceCrossings(allocator, &lg) catch |err| switch (err) {
-        error.OutOfMemory => return error.OutOfMemory,
-    };
+    try crossing.reduceCrossings(allocator, &lg);
 
     const arena = try allocator.create(std.heap.ArenaAllocator);
     arena.* = std.heap.ArenaAllocator.init(allocator);
@@ -62,14 +60,8 @@ pub fn layout(
     }
     const a = arena.allocator();
 
-    var result = buildSketch(a, layout_graph, lg, opts) catch |err| switch (err) {
-        error.OutOfMemory => return error.OutOfMemory,
-    };
-    if (use_bt_mirror) {
-        result = mirror.vertical(a, result, .BT) catch |err| switch (err) {
-            error.OutOfMemory => return error.OutOfMemory,
-        };
-    }
+    var result = try buildSketch(a, layout_graph, lg, opts);
+    if (use_bt_mirror) result = try mirror.vertical(a, result, .BT);
     return result;
 }
 
