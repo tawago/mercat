@@ -33,7 +33,6 @@ const outlines = std.EnumArray(lattice.Shape, Outline).init(.{
     .stadium = .{ .corners = rounded, .west = '(', .east = ')' },
     .cylinder = .{ .corners = rounded, .lids = true },
     .circle = .{ .corners = slashed },
-    .asymmetric_left = .{ .corners = .{ '<', null, null, '<' }, .west = '<' },
     .asymmetric_right = .{ .corners = .{ null, '>', '>', null }, .east = '>' },
     .rhombus = .{ .corners = .{'◇'} ** 4 },
     .hexagon = .{ .corners = slashed, .west = '<', .east = '>' },
@@ -241,7 +240,6 @@ test "shape outlines: rounded, stadium, circle, rhombus, parallelogram, trapezoi
         .{ .shape = .rhombus, .want = .{ '◇', '◇', '◇', '◇' } },
         .{ .shape = .parallelogram, .want = .{ '╱', '╱', '╱', '╱' } },
         .{ .shape = .trapezoid, .want = .{ '/', '\\', '\\', '/' } },
-        .{ .shape = .asymmetric_left, .want = .{ '<', '┐', '┘', '<' } },
         .{ .shape = .asymmetric_right, .want = .{ '┌', '>', '>', '└' } },
     };
     const arms = [4]u4{ nb(.{ .e = true, .s = true }), nb(.{ .w = true, .s = true }), nb(.{ .w = true, .n = true }), nb(.{ .e = true, .n = true }) };
@@ -256,8 +254,6 @@ test "shape outlines: side caps" {
     try testing.expectEqual(@as(u21, ')'), borderOf(.stadium, .edge_e, ns, .solid));
     try testing.expectEqual(@as(u21, '<'), borderOf(.hexagon, .edge_w, ns, .solid));
     try testing.expectEqual(@as(u21, '>'), borderOf(.hexagon, .edge_e, ns, .solid));
-    try testing.expectEqual(@as(u21, '<'), borderOf(.asymmetric_left, .edge_w, ns, .solid));
-    try testing.expectEqual(@as(u21, '│'), borderOf(.asymmetric_left, .edge_e, ns, .solid));
     try testing.expectEqual(@as(u21, '>'), borderOf(.asymmetric_right, .edge_e, ns, .solid));
     try testing.expectEqual(@as(u21, '│'), borderOf(.asymmetric_right, .edge_w, ns, .solid));
 }

@@ -105,7 +105,6 @@ pub const Shape = enum {
     subroutine,
     cylinder,
     circle,
-    asymmetric_left,
     asymmetric_right,
     rhombus,
     hexagon,

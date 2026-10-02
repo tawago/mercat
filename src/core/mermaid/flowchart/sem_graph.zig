@@ -18,7 +18,6 @@ pub const NodeShape = enum {
     cylinder,
     circle,
     double_circle,
-    asymmetric_left,
     asymmetric_right,
     rhombus,
     hexagon,

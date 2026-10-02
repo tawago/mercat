@@ -51,11 +51,11 @@ test "prim: EdgeRole variants exist" {
 
 test "prim: Shape variants" {
     const shapes = [_]Shape{
-        .rect,     .round,   .stadium,         .subroutine,
-        .cylinder, .circle,  .asymmetric_left, .asymmetric_right,
-        .rhombus,  .hexagon, .parallelogram,   .trapezoid,
+        .rect,     .round,         .stadium,          .subroutine,
+        .cylinder, .circle,        .asymmetric_right, .rhombus,
+        .hexagon,  .parallelogram, .trapezoid,
     };
-    try std.testing.expectEqual(@as(usize, 12), shapes.len);
+    try std.testing.expectEqual(@as(usize, 11), shapes.len);
 }
 
 test "prim: displayWidth pure ASCII" {

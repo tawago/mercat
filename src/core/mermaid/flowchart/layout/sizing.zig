@@ -173,7 +173,6 @@ fn mapShape(s: sg.NodeShape) sketch.Shape {
         .subroutine => .subroutine,
         .cylinder => .cylinder,
         .circle, .double_circle => .circle,
-        .asymmetric_left => .asymmetric_left,
         .asymmetric_right => .asymmetric_right,
         .rhombus => .rhombus,
         .hexagon => .hexagon,
