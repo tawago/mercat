@@ -8,7 +8,6 @@ const port_plan = @import("port_plan.zig");
 const ledger = @import("../base/ledger.zig");
 const back_edges = @import("back_edges.zig");
 const route_clearance = @import("route_clearance.zig");
-const route_search = @import("route_search.zig");
 
 const testing = std.testing;
 
@@ -209,11 +208,11 @@ test "a self loop lifts past foreign ink instead of lying along it" {
     const ports = [_]port_plan.EdgePorts{ep};
     const memberships = [_]ledger.RealizedEdgeMembership{.{ .edge = 9, .source = null, .target = null }};
     const bundles: ledger.RealizedBundles = .{ .memberships = &memberships };
-    const clear = try route_search.selfLoop(a, .TD, edge, node_p, ep, &.{}, &.{}, &placements, &ports, bundles);
+    const clear = try routing.selfLoop(a, .TD, edge, node_p, ep, &.{}, &.{}, &placements, &ports, bundles);
     try testing.expectEqual(@as(i32, 7), clear.polyline[2].y);
     var r7: [2]sketch.Point = undefined;
     const along = [_]sketch.EdgePath{inkRun(7, .{ .x = 0, .y = 7 }, .{ .x = 40, .y = 7 }, &r7)};
-    const lifted = try route_search.selfLoop(a, .TD, edge, node_p, ep, &along, &.{}, &placements, &ports, bundles);
+    const lifted = try routing.selfLoop(a, .TD, edge, node_p, ep, &along, &.{}, &placements, &ports, bundles);
     try testing.expectEqual(@as(usize, 5), lifted.polyline.len);
     try testing.expectEqual(@as(i32, 6), lifted.polyline[2].y);
     try testing.expectEqual(@as(i32, 6), lifted.polyline[3].y);
