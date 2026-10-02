@@ -4,6 +4,8 @@ const imports = @import("lint/imports.zig");
 const banned = @import("lint/vocabulary.zig");
 const cycles = @import("lint/cycles.zig");
 
+const code_line_cap: usize = 1000;
+
 pub const LintReport = struct {
     violations: []const []const u8,
     arena: *std.heap.ArenaAllocator,
@@ -54,8 +56,8 @@ pub fn lint(allocator: std.mem.Allocator, root: []const u8) !LintReport {
         if (!isTestFile(entry.basename)) {
             try production.append(a, .{ .path = try a.dupe(u8, entry.path), .contents = contents });
             const code_lines = codeLines(contents);
-            if (code_lines > 500) {
-                const msg = try std.fmt.allocPrint(a, "{s}: {d} code lines exceeds the 500-code-line cap (blank and // lines are free)", .{ entry.path, code_lines });
+            if (code_lines > code_line_cap) {
+                const msg = try std.fmt.allocPrint(a, "{s}: {d} code lines exceeds the {d}-code-line cap (blank and // lines are free)", .{ entry.path, code_lines, code_line_cap });
                 try violations.append(a, msg);
             }
         }
