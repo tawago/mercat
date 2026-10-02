@@ -147,7 +147,7 @@ pub const table = [_]Row{
     },
     .{
         .token = "JoinProposal",
-        .why = "the candidate-local proposal record is ledger.BundleProposal (P8)",
+        .why = "the candidate-local proposal record no longer exists",
     },
     .{
         .token = "SelectedJoin",
@@ -171,7 +171,7 @@ pub const table = [_]Row{
     },
     .{
         .token = "ChannelId",
-        .why = "the sharing identity a rail's ink carries is the bundle's: ledger.BundleId (P8); no_channel/privateChannel/channelOf/channelsAgree became no_bundle/privateBundle/bundleOf/bundlesAgree",
+        .why = "the channel id and its helpers are gone",
     },
     .{
         .token = "co_realized",
@@ -179,7 +179,7 @@ pub const table = [_]Row{
     },
     .{
         .token = "sketch_channels",
-        .why = "the stamp module is sketch_bundles.zig (P8); the old basename is retired, including in import strings",
+        .why = "the bundle stamp module was removed; the old basename is retired, including in import strings",
     },
     .{
         .token = "co_channel",

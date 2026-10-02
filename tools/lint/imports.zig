@@ -36,7 +36,6 @@ pub const Rule = union(enum) {
             .sem_graph => std.mem.endsWith(u8, target, "sem_graph.zig"),
             .sketch => std.mem.endsWith(u8, target, "sketch.zig") or
                 std.mem.endsWith(u8, target, "sketch_ports.zig") or
-                std.mem.endsWith(u8, target, "sketch_bundles.zig") or
                 std.mem.endsWith(u8, target, "sketch_clearance.zig"),
             .budget => std.mem.endsWith(u8, target, "budget.zig"),
             .recurse => std.mem.endsWith(u8, target, "recurse.zig"),
@@ -128,18 +127,8 @@ pub const file_allowlists = [_]struct {
     },
     .{
         .name = "sketch_ports_test.zig",
-        .allowed = &.{ .sketch, .{ .exact = "sketch_bundles.zig" } },
-        .reason = "sketch_ports_test may only import std, prim, base/ledger, sketch, sketch_ports, or sketch_bundles",
-    },
-    .{
-        .name = "sketch_bundles.zig",
-        .allowed = &.{ .sketch, .{ .exact = "sketch_bundles_test.zig" } },
-        .reason = "sketch_bundles may only import std, prim, base/ledger, sketch, or sketch_bundles_test",
-    },
-    .{
-        .name = "sketch_bundles_test.zig",
-        .allowed = &.{ .sketch, .parse_zone, .{ .exact = "select.zig" }, .{ .exact = "ledger/permits.zig" } },
-        .reason = "sketch_bundles_test may only import std, prim, base/ledger, sketch, sketch_bundles, parse, select, or ledger/permits",
+        .allowed = &.{.sketch},
+        .reason = "sketch_ports_test may only import std, prim, base/ledger, sketch, or sketch_ports",
     },
     .{
         .name = "select.zig",
