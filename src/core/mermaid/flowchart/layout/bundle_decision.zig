@@ -3,7 +3,6 @@ const ledger = @import("../base/ledger.zig");
 const sg = @import("../sem_graph.zig");
 const sugiyama = @import("sugiyama.zig");
 const fan_mod = @import("fan.zig");
-const fan_gate = @import("fan_gate.zig");
 const bundle_commit = @import("bundle_commit.zig");
 const ports = @import("ports.zig");
 
@@ -25,7 +24,7 @@ pub fn decide(
     const effective = try bundle_commit.effectivePlan(a, graph, permits);
     const plan: ?*const ledger.BundlePermits = if (effective) |*p| p else null;
     const bundles = try bundle_commit.realize(a, graph, plan, lg.reversed_edges, try longEdges(a, lg));
-    const fans = try fan_gate.keepRealizableLong(a, detected, bundles);
+    const fans = try keepRealizableLong(a, detected, bundles);
     const private_peers = hasPrivatePeers(fans);
     const port_active = hasPortWork(bundles) or private_peers;
     return .{
@@ -79,5 +78,35 @@ fn hasPortWork(bundles: ledger.RealizedBundles) bool {
 
 fn hasPrivatePeers(fans: []const fan_mod.Fan) bool {
     for (fans) |f| for (f.peers) |peer| if (!peer.shared) return true;
+    return false;
+}
+
+fn keepRealizableLong(a: std.mem.Allocator, fans: []fan_mod.Fan, bundles: ledger.RealizedBundles) error{OutOfMemory}![]fan_mod.Fan {
+    var out: std.ArrayListUnmanaged(fan_mod.Fan) = .empty;
+    for (fans) |f| {
+        var has_long = false;
+        for (f.peers) |p| if (p.long) {
+            has_long = true;
+        };
+        if (!has_long or selectedAsOne(f, bundles)) try out.append(a, f);
+    }
+    return out.toOwnedSlice(a);
+}
+
+fn selectedAsOne(f: fan_mod.Fan, bundles: ledger.RealizedBundles) bool {
+    if (bundles.memberships.len == 0) return false;
+    var shared_len: usize = 0;
+    for (f.peers) |p| if (p.shared) {
+        shared_len += 1;
+    };
+    for (bundles.selected_bundles) |sel| {
+        if (sel.members.len != shared_len) continue;
+        var all = true;
+        for (f.peers) |p| {
+            if (!p.shared) continue;
+            if (std.mem.indexOfScalar(ledger.EdgeId, sel.members, p.edge_id) == null) all = false;
+        }
+        if (all) return true;
+    }
     return false;
 }
