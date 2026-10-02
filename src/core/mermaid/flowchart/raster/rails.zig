@@ -1,7 +1,6 @@
 const sketch = @import("../sketch.zig");
 const lattice = @import("../lattice.zig");
-const ew = @import("edges_write.zig");
-const ep = @import("edges_port.zig");
+const edges = @import("edges.zig");
 const geo = @import("geometry.zig");
 
 /// Cells the rails could not draw.
@@ -23,13 +22,13 @@ const RailDraw = struct {
     fn claim(self: RailDraw, p: sketch.Point, edge_id: u32, role: lattice.EdgeRole, mask: lattice.Neighbours) void {
         if (!geo.pointInBounds(p, self.lat)) return;
         const c = geo.toCoord(p);
-        ew.writeEdgeCell(self.lat.at(c.x, c.y), edge_id, self.rail.kind, role, mask, c.x, c.y, self.lost);
+        edges.writeEdgeCell(self.lat.at(c.x, c.y), edge_id, self.rail.kind, role, mask, c.x, c.y, self.lost);
     }
 
-    fn claimHead(self: RailDraw, h: ep.Head, edge_id: u32, arrow: lattice.ArrowKind) void {
+    fn claimHead(self: RailDraw, h: edges.Head, edge_id: u32, arrow: lattice.ArrowKind) void {
         if (!geo.pointInBounds(h.cell, self.lat)) return;
         const c = geo.toCoord(h.cell);
-        ew.writeArrowCell(self.lat.at(c.x, c.y), edge_id, self.rail.kind, arrow, h.dir, geo.straightMask(h.dir), c.x, c.y, self.lost);
+        edges.writeArrowCell(self.lat.at(c.x, c.y), edge_id, self.rail.kind, arrow, h.dir, geo.straightMask(h.dir), c.x, c.y, self.lost);
     }
 
     fn crossbar(self: RailDraw) void {
@@ -46,11 +45,11 @@ const RailDraw = struct {
         const pts = self.rail.stem;
         const junction = pts[pts.len - 1];
         const head = pivotHead(self.rail);
-        const end: ep.PortEnd = .{ .head = head, .role = self.crossbar_role };
-        if (!self.fan_in) ep.drawPortStroke(self.lat, pts, self.rail.kind, self.edge, end);
+        const end: edges.PortEnd = .{ .head = head, .role = self.crossbar_role };
+        if (!self.fan_in) edges.drawPortStroke(self.lat, pts, self.rail.kind, self.edge, end);
         if (self.fan_in and pts.len >= 2) {
             const stub = [_]sketch.Point{ pts[1], pts[0] };
-            ep.drawTargetPortStroke(self.lat, &stub, self.rail.kind, self.edge, end);
+            edges.drawTargetPortStroke(self.lat, &stub, self.rail.kind, self.edge, end);
         }
         var last_dir: ?geo.Move = null;
         for (pts[0 .. pts.len - 1], pts[1..]) |a, b| {
@@ -70,14 +69,14 @@ const RailDraw = struct {
 
     fn tap(self: RailDraw, t: sketch.Tap) void {
         const head = if (t.continues) null else tapHead(t, self.fan_in);
-        const end: ep.PortEnd = .{ .head = head, .role = self.dropper_role };
+        const end: edges.PortEnd = .{ .head = head, .role = self.dropper_role };
         if (!t.continues) {
             if (self.fan_in) {
                 const stub = [_]sketch.Point{ t.landing, t.at };
-                ep.drawPortStroke(self.lat, &stub, self.rail.kind, t.edge, end);
+                edges.drawPortStroke(self.lat, &stub, self.rail.kind, t.edge, end);
             } else {
                 const stub = [_]sketch.Point{ t.at, t.landing };
-                ep.drawTargetPortStroke(self.lat, &stub, self.rail.kind, t.edge, end);
+                edges.drawTargetPortStroke(self.lat, &stub, self.rail.kind, t.edge, end);
             }
         }
         const dir = geo.segmentDir(t.at, t.landing) orelse return;
@@ -106,13 +105,13 @@ fn drawRail(lat: *lattice.Lattice, rail: sketch.Rail, lost: *u32) void {
     for (rail.taps) |t| draw.tap(t);
 }
 
-fn pivotHead(rail: sketch.Rail) ?ep.Head {
+fn pivotHead(rail: sketch.Rail) ?edges.Head {
     if (rail.pivot_arrow == .none) return null;
     const dir = geo.firstDir(rail.stem) orelse return null;
     return .{ .cell = geo.step(rail.stem[0], dir), .dir = geo.reverse(dir) };
 }
 
-fn tapHead(tap: sketch.Tap, fan_in: bool) ?ep.Head {
+fn tapHead(tap: sketch.Tap, fan_in: bool) ?edges.Head {
     if (tap.arrow == .none) return null;
     const dir = geo.segmentDir(tap.at, tap.landing) orelse return null;
     const first = geo.step(tap.at, dir);

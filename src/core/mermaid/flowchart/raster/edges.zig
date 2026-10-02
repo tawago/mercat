@@ -3,8 +3,6 @@ const sketch = @import("../sketch.zig");
 const lattice = @import("../lattice.zig");
 const fan_roles = @import("fan_roles.zig");
 const crossings = @import("crossings.zig");
-const ew = @import("edges_write.zig");
-const ep = @import("edges_port.zig");
 const geo = @import("geometry.zig");
 const prim = @import("prim");
 
@@ -20,20 +18,246 @@ const step = geo.step;
 const pointInBounds = geo.pointInBounds;
 const samePoint = geo.samePoint;
 const toCoord = geo.toCoord;
-const writeEdgeCell = ew.writeEdgeCell;
-const drawPortStroke = ep.drawPortStroke;
-const drawTargetPortStroke = ep.drawTargetPortStroke;
 
 pub const EdgeRasterReport = struct {
     cells_lost: u32 = 0,
     crossings: crossings.CrossingCounts = .{},
 };
 
+pub fn writeEdgeCell(
+    cell: *lattice.Cell,
+    edge_id: u32,
+    kind: lattice.EdgeKind,
+    role: lattice.EdgeRole,
+    extra: lattice.Neighbours,
+    x: u32,
+    y: u32,
+    cells_lost: *u32,
+) void {
+    switch (cell.occupant) {
+        .empty => {
+            cell.occupant = .{ .edge_segment = .{ .edge = edge_id, .kind = kind, .role = role } };
+            cell.neighbours = extra;
+            cell.stroke_kind = kind;
+        },
+        .cluster_border => {
+            cell.occupant = .{ .edge_segment = .{ .edge = edge_id, .kind = kind, .role = role } };
+            cell.neighbours = geo.orMask(cell.neighbours, extra);
+            cell.stroke_kind = kind;
+        },
+        .edge_segment => |existing| {
+            cell.occupant = .{ .edge_segment = .{
+                .edge = existing.edge,
+                .kind = existing.kind,
+                .role = mergeRole(existing.role, role),
+            } };
+            cell.neighbours = geo.orMask(cell.neighbours, extra);
+        },
+        .arrowhead => |head| {
+            if (head.edge != edge_id and refuseLateral(cells_lost, head.dir, extra)) return;
+            cell.neighbours = geo.orMask(cell.neighbours, extra);
+        },
+        .node_interior, .node_border => {
+            cells_lost.* += 1;
+            log.debug(
+                "mermaid_v2/raster/edges: edge {d} at ({d},{d}) collides with node-owned cell; skipping",
+                .{ edge_id, x, y },
+            );
+        },
+        .label_char, .label_cont => {
+            cells_lost.* += 1;
+            log.debug(
+                "mermaid_v2/raster/edges: edge {d} at ({d},{d}) collides with label_char; skipping",
+                .{ edge_id, x, y },
+            );
+        },
+    }
+}
+
+fn refuseLateral(cells_lost: *u32, tip: geo.Move, mask: lattice.Neighbours) bool {
+    if (geo.lateralArms(tip, mask).toMask() == 0) return false;
+    cells_lost.* += 1;
+    return true;
+}
+
+pub fn writeArrowCell(
+    cell: *lattice.Cell,
+    edge_id: u32,
+    kind: lattice.EdgeKind,
+    arrow: lattice.ArrowKind,
+    dir: geo.Move,
+    along: lattice.Neighbours,
+    x: u32,
+    y: u32,
+    cells_lost: *u32,
+) void {
+    switch (cell.occupant) {
+        .empty, .edge_segment, .cluster_border => {
+            cell.occupant = .{ .arrowhead = .{ .dir = dir, .edge = edge_id, .arrow = arrow } };
+            cell.neighbours = geo.orMask(cell.neighbours, along);
+            cell.stroke_kind = kind;
+        },
+        .arrowhead => |head| {
+            if (head.edge != edge_id and head.dir != dir) {
+                cells_lost.* += 1;
+                return;
+            }
+            cell.neighbours = geo.orMask(cell.neighbours, along);
+        },
+        .node_interior, .node_border, .label_char, .label_cont => {
+            cells_lost.* += 1;
+            log.debug(
+                "mermaid_v2/raster/edges: arrowhead for edge {d} at ({d},{d}) collides; skipping",
+                .{ edge_id, x, y },
+            );
+        },
+    }
+}
+
+pub fn writeArrowGuarded(
+    cell: *lattice.Cell,
+    edge_id: u32,
+    kind: lattice.EdgeKind,
+    arrow: lattice.ArrowKind,
+    dir: geo.Move,
+    along: lattice.Neighbours,
+    x: u32,
+    y: u32,
+    cells_lost: *u32,
+    ctx: crossings.Ctx,
+) void {
+    if (cell.occupant == .edge_segment) {
+        const seg = cell.occupant.edge_segment;
+        if (ctx.arrowheadTransit(seg.edge, edge_id, crossings.bundleCellAt(x, y))) {
+            cell.occupant = .{ .arrowhead = .{ .dir = dir, .edge = edge_id, .arrow = arrow } };
+            cell.neighbours = along;
+            cell.stroke_kind = kind;
+            return;
+        }
+    }
+    writeArrowCell(cell, edge_id, kind, arrow, dir, along, x, y, cells_lost);
+}
+
+pub fn mergeRole(existing: lattice.EdgeRole, incoming: lattice.EdgeRole) lattice.EdgeRole {
+    if (priority(incoming) > priority(existing)) return incoming;
+    return existing;
+}
+
+fn priority(r: lattice.EdgeRole) u8 {
+    return switch (r) {
+        .fan_out_rail, .fan_in_rail => 3,
+        .fan_out_dropper, .fan_in_dropper => 2,
+        .back_edge, .self_loop => 1,
+        .forward, .member_stroke => 0,
+    };
+}
+
+pub const Head = struct {
+    cell: sketch.Point,
+    dir: Move,
+};
+
+pub const PortEnd = struct {
+    head: ?Head = null,
+    role: lattice.EdgeRole = .forward,
+};
+
+pub fn drawPortStroke(
+    lat: *lattice.Lattice,
+    pts: []const sketch.Point,
+    kind: lattice.EdgeKind,
+    edge_id: u32,
+    end: PortEnd,
+) void {
+    if (kind == .invisible) return;
+    const fd = geo.firstDir(pts) orelse return;
+    mergePortBit(lat, pts[0], fd, kind, edge_id, end);
+}
+
+pub fn drawTargetPortStroke(
+    lat: *lattice.Lattice,
+    pts: []const sketch.Point,
+    kind: lattice.EdgeKind,
+    edge_id: u32,
+    end: PortEnd,
+) void {
+    if (kind == .invisible) return;
+    const ld = geo.lastDir(pts) orelse return;
+    mergePortBit(lat, pts[pts.len - 1], reverse(ld), kind, edge_id, end);
+}
+
+fn tipFaces(h: Head, q: sketch.Point) bool {
+    return samePoint(step(h.cell, h.dir), q);
+}
+
+const Attach = struct { border: sketch.Point, gap: ?sketch.Point };
+
+fn attachment(lat: *const lattice.Lattice, p: sketch.Point, travel: Move) ?Attach {
+    var q = p;
+    var gap: ?sketch.Point = null;
+    var cell = geo.cellAt(lat, q.x, q.y) orelse return null;
+    if (cell.occupant == .empty) {
+        gap = q;
+        q = step(q, travel);
+        cell = geo.cellAt(lat, q.x, q.y) orelse return null;
+    }
+    if (cell.occupant != .node_border) return null;
+    switch (cell.occupant.node_border.role) {
+        .corner_nw, .corner_ne, .corner_se, .corner_sw => return null,
+        else => {},
+    }
+    return .{ .border = q, .gap = gap };
+}
+
+pub fn slideHead(lat: *const lattice.Lattice, endpoint: sketch.Point, head: Head) Head {
+    const at = attachment(lat, endpoint, head.dir) orelse return head;
+    const g = at.gap orelse return head;
+    if (!samePoint(step(head.cell, head.dir), g)) return head;
+    return .{ .cell = g, .dir = head.dir };
+}
+
+fn mergePortBit(
+    lat: *lattice.Lattice,
+    p: sketch.Point,
+    arm: Move,
+    kind: lattice.EdgeKind,
+    edge_id: u32,
+    end: PortEnd,
+) void {
+    const at = attachment(lat, p, reverse(arm)) orelse return;
+    const gap = at.gap;
+    if (end.head) |h| {
+        if (tipFaces(h, at.border)) return;
+    }
+    const c = toCoord(at.border);
+    const cell = lat.at(c.x, c.y);
+    cell.neighbours = orMask(cell.neighbours, bitMask(arm));
+    if (kind != .solid and cell.stroke_kind == .solid) {
+        cell.stroke_kind = kind;
+    }
+
+    if (gap) |g| {
+        const gc = toCoord(g);
+        var lost: u32 = 0;
+        writeEdgeCell(
+            lat.at(gc.x, gc.y),
+            edge_id,
+            kind,
+            end.role,
+            straightMask(arm),
+            gc.x,
+            gc.y,
+            &lost,
+        );
+        std.debug.assert(lost == 0);
+    }
+}
+
 const EdgeWalkResult = struct {
-    first: ?ep.Head = null,
-    last: ?ep.Head = null,
-    source_head: ?ep.Head = null,
-    target_head: ?ep.Head = null,
+    first: ?Head = null,
+    last: ?Head = null,
+    source_head: ?Head = null,
+    target_head: ?Head = null,
 
     fn note(self: *EdgeWalkResult, at: sketch.Point, first_dir: Move, last_dir: Move) void {
         if (self.first == null) self.first = .{ .cell = at, .dir = first_dir };
@@ -104,7 +328,7 @@ const EdgeWalk = struct {
                     cell.occupant = .{ .edge_segment = .{
                         .edge = seg.edge,
                         .kind = seg.kind,
-                        .role = ew.mergeRole(seg.role, edge.role),
+                        .role = mergeRole(seg.role, edge.role),
                     } };
                     fan_roles.markShared(cell, edge.id, edge.role);
                 }
@@ -181,10 +405,10 @@ fn walkPolyline(
 
     var result = walk.result;
     if (!ends.source and edge.arrow_from != .none) if (result.first) |f| {
-        result.source_head = ep.slideHead(lat, pts[0], .{ .cell = f.cell, .dir = reverse(f.dir) });
+        result.source_head = slideHead(lat, pts[0], .{ .cell = f.cell, .dir = reverse(f.dir) });
     };
     if (!ends.target and edge.arrow_to != .none) if (result.last) |l| {
-        result.target_head = ep.slideHead(lat, pts[pts.len - 1], l);
+        result.target_head = slideHead(lat, pts[pts.len - 1], l);
     };
     if (!ends.source) drawPortStroke(lat, pts, edge.kind, edge.id, .{ .head = result.source_head, .role = edge.role });
     if (!ends.target) drawTargetPortStroke(lat, pts, edge.kind, edge.id, .{ .head = result.target_head, .role = edge.role });
@@ -196,14 +420,14 @@ fn writeHead(
     lat: *lattice.Lattice,
     edge: sketch.EdgePath,
     arrow: lattice.ArrowKind,
-    head: ?ep.Head,
+    head: ?Head,
     cells_lost: *u32,
     ctx: crossings.Ctx,
 ) void {
     const h = head orelse return;
     if (!pointInBounds(h.cell, lat)) return;
     const c = toCoord(h.cell);
-    ew.writeArrowGuarded(lat.at(c.x, c.y), edge.id, edge.kind, arrow, h.dir, straightMask(h.dir), c.x, c.y, cells_lost, ctx);
+    writeArrowGuarded(lat.at(c.x, c.y), edge.id, edge.kind, arrow, h.dir, straightMask(h.dir), c.x, c.y, cells_lost, ctx);
 }
 
 pub fn rasterizeEdges(
@@ -233,4 +457,7 @@ pub fn rasterizeEdges(
 test {
     _ = @import("edges_test.zig");
     _ = @import("edges_corner_test.zig");
+    _ = @import("edges_write_test.zig");
+    _ = @import("edges_port_test.zig");
+    _ = @import("edges_slide_test.zig");
 }

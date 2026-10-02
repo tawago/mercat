@@ -2,7 +2,6 @@ const std = @import("std");
 const sketch = @import("../sketch.zig");
 const lattice = @import("../lattice.zig");
 const edges = @import("edges.zig");
-const ep = @import("edges_port.zig");
 
 const testing = std.testing;
 
@@ -52,8 +51,8 @@ test "a decorated gap arrival slides its head onto the border-adjacent cell" {
         const gap = walk(start.x, start.y, f.dir, 2);
         const wall = walk(start.x, start.y, f.dir, 3);
         putBorder(&lat, @intCast(wall.x), @intCast(wall.y), f.role, f.mask);
-        const raw_head: ep.Head = .{ .cell = walk(start.x, start.y, f.dir, 1), .dir = f.dir };
-        const slid = ep.slideHead(&lat, gap, raw_head);
+        const raw_head: edges.Head = .{ .cell = walk(start.x, start.y, f.dir, 1), .dir = f.dir };
+        const slid = edges.slideHead(&lat, gap, raw_head);
         try testing.expectEqual(gap.x, slid.cell.x);
         try testing.expectEqual(gap.y, slid.cell.y);
         try testing.expectEqual(f.dir, slid.dir);
@@ -65,8 +64,8 @@ test "a head already abutting the wall does not slide" {
     var lat = try blank(a, 9, 9);
     defer a.free(lat.cells);
     putBorder(&lat, 6, 4, .edge_w, .{ .n = true, .s = true });
-    const head: ep.Head = .{ .cell = .{ .x = 5, .y = 4 }, .dir = .east };
-    const slid = ep.slideHead(&lat, .{ .x = 6, .y = 4 }, head);
+    const head: edges.Head = .{ .cell = .{ .x = 5, .y = 4 }, .dir = .east };
+    const slid = edges.slideHead(&lat, .{ .x = 6, .y = 4 }, head);
     try testing.expectEqual(@as(i32, 5), slid.cell.x);
 }
 
@@ -76,8 +75,8 @@ test "an occupied gap cell leaves the head where it is" {
     defer a.free(lat.cells);
     putBorder(&lat, 6, 4, .edge_w, .{ .n = true, .s = true });
     lat.at(5, 4).* = .{ .occupant = .{ .label_char = 'x' }, .neighbours = .{} };
-    const head: ep.Head = .{ .cell = .{ .x = 4, .y = 4 }, .dir = .east };
-    const slid = ep.slideHead(&lat, .{ .x = 5, .y = 4 }, head);
+    const head: edges.Head = .{ .cell = .{ .x = 4, .y = 4 }, .dir = .east };
+    const slid = edges.slideHead(&lat, .{ .x = 5, .y = 4 }, head);
     try testing.expectEqual(@as(i32, 4), slid.cell.x);
     try testing.expectEqual(
         lattice.Occupant.label_char,
@@ -90,8 +89,8 @@ test "a gap before a CORNER does not slide: the landing is refused, not attached
     var lat = try blank(a, 9, 9);
     defer a.free(lat.cells);
     putBorder(&lat, 6, 4, .corner_nw, .{ .e = true, .s = true });
-    const head: ep.Head = .{ .cell = .{ .x = 4, .y = 4 }, .dir = .east };
-    const slid = ep.slideHead(&lat, .{ .x = 5, .y = 4 }, head);
+    const head: edges.Head = .{ .cell = .{ .x = 4, .y = 4 }, .dir = .east };
+    const slid = edges.slideHead(&lat, .{ .x = 5, .y = 4 }, head);
     try testing.expectEqual(@as(i32, 4), slid.cell.x);
 }
 
@@ -100,8 +99,8 @@ test "a head two or more cells behind the gap does not slide" {
     var lat = try blank(a, 9, 9);
     defer a.free(lat.cells);
     putBorder(&lat, 6, 4, .edge_w, .{ .n = true, .s = true });
-    const head: ep.Head = .{ .cell = .{ .x = 3, .y = 4 }, .dir = .east };
-    const slid = ep.slideHead(&lat, .{ .x = 5, .y = 4 }, head);
+    const head: edges.Head = .{ .cell = .{ .x = 3, .y = 4 }, .dir = .east };
+    const slid = edges.slideHead(&lat, .{ .x = 5, .y = 4 }, head);
     try testing.expectEqual(@as(i32, 3), slid.cell.x);
 }
 
