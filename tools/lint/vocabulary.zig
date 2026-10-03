@@ -32,7 +32,7 @@ pub const table = [_]Row{
     },
     .{
         .token = "getenv",
-        .why = "the environment never changes a render; options come from the CLI and config, test overrides from entry.TestOptions",
+        .why = "the environment never changes a render; options come from the CLI and config",
     },
     .{
         .token = "lanes.Demand",
