@@ -1,5 +1,5 @@
 const std = @import("std");
-const v2 = @import("mermaid_v2");
+const v2 = @import("flowchart");
 const gen = @import("gen.zig");
 const runner = @import("runner.zig");
 

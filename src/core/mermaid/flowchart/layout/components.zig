@@ -1,0 +1,368 @@
+const std = @import("std");
+const sg = @import("../sem_graph.zig");
+const sugiyama = @import("sugiyama.zig");
+const node_geom = @import("node_geom.zig");
+
+const NodeGeom = node_geom.NodeGeom;
+
+const COMPONENT_GAP: i32 = 4;
+
+pub fn packComponents(
+    a: std.mem.Allocator,
+    graph: sg.SemGraph,
+    geom: []NodeGeom,
+    lg: sugiyama.LayeredGraph,
+) error{OutOfMemory}!void {
+    const n = lg.nodes.len;
+    if (n == 0) return;
+
+    const parent = try a.alloc(u32, n);
+    defer a.free(parent);
+    for (parent, 0..) |*p, i| p.* = @intCast(i);
+
+    for (graph.edges) |e| {
+        const fi = lg.real_index.get(e.from) orelse continue;
+        const ti = lg.real_index.get(e.to) orelse continue;
+        unite(parent, fi, ti);
+    }
+
+    for (lg.nodes, 0..) |ln, i| {
+        switch (ln) {
+            .virtual => |v| {
+                for (graph.edges) |e| {
+                    if (e.id != v.edge) continue;
+                    const fi = lg.real_index.get(e.from) orelse break;
+                    unite(parent, @intCast(i), fi);
+                    break;
+                }
+            },
+            .real => {},
+        }
+    }
+
+    var roots: std.ArrayListUnmanaged(u32) = .empty;
+    const min_x = try a.alloc(i32, n);
+    defer a.free(min_x);
+    const max_x = try a.alloc(i32, n);
+    defer a.free(max_x);
+    for (min_x) |*m| m.* = std.math.maxInt(i32);
+    for (max_x) |*m| m.* = std.math.minInt(i32);
+
+    for (lg.nodes, 0..) |ln, i| {
+        if (ln != .real) continue;
+        const r = find(parent, @intCast(i));
+        const left = geom[i].x;
+        const right = geom[i].right();
+        if (min_x[r] == std.math.maxInt(i32)) {
+            try roots.append(a, r);
+        }
+        if (left < min_x[r]) min_x[r] = left;
+        if (right > max_x[r]) max_x[r] = right;
+    }
+    defer roots.deinit(a);
+
+    if (roots.items.len < 2) return;
+
+    std.sort.pdq(u32, roots.items, SortCtx{ .min_x = min_x }, SortCtx.less);
+
+    const delta = try a.alloc(i32, n);
+    defer a.free(delta);
+    for (delta) |*d| d.* = 0;
+    var has_delta = false;
+
+    var cursor: i32 = min_x[roots.items[0]];
+    for (roots.items) |r| {
+        const d = cursor - min_x[r];
+        if (d != 0) {
+            delta[r] = d;
+            has_delta = true;
+        }
+        const width = max_x[r] - min_x[r];
+        cursor += width + COMPONENT_GAP;
+    }
+
+    if (!has_delta) return;
+
+    for (lg.nodes, 0..) |_, i| {
+        const r = find(parent, @intCast(i));
+        geom[i].x += delta[r];
+    }
+}
+
+const SortCtx = struct {
+    min_x: []const i32,
+    fn less(ctx: SortCtx, lhs: u32, rhs: u32) bool {
+        const lx = ctx.min_x[lhs];
+        const rx = ctx.min_x[rhs];
+        if (lx != rx) return lx < rx;
+        return lhs < rhs;
+    }
+};
+
+fn find(parent: []u32, x: u32) u32 {
+    var root = x;
+    while (parent[root] != root) root = parent[root];
+    var cur = x;
+    while (parent[cur] != root) {
+        const next = parent[cur];
+        parent[cur] = root;
+        cur = next;
+    }
+    return root;
+}
+
+fn unite(parent: []u32, a_idx: u32, b_idx: u32) void {
+    const ra = find(parent, a_idx);
+    const rb = find(parent, b_idx);
+    if (ra == rb) return;
+    if (ra < rb) parent[rb] = ra else parent[ra] = rb;
+}
+
+const testing = std.testing;
+
+fn mkNode(id: sg.NodeId, raw: []const u8) sg.Node {
+    return .{ .id = id, .raw_id = raw, .label = raw, .shape = .rect, .classes = &.{}, .cluster = null };
+}
+fn mkEdge(id: sg.EdgeId, from: sg.NodeId, to: sg.NodeId) sg.Edge {
+    return .{ .id = id, .from = from, .to = to, .kind = .solid, .arrow_from = .none, .arrow_to = .filled, .label = null };
+}
+
+test "unite: lower-index root always wins, regardless of call order" {
+    {
+        var parent = [_]u32{ 0, 1, 2, 3 };
+        unite(&parent, 3, 1);
+        try testing.expectEqual(@as(u32, 1), find(&parent, 3));
+        try testing.expectEqual(@as(u32, 1), find(&parent, 1));
+    }
+    {
+        var parent = [_]u32{ 0, 1, 2, 3 };
+        unite(&parent, 1, 3);
+        try testing.expectEqual(@as(u32, 1), find(&parent, 3));
+        try testing.expectEqual(@as(u32, 1), find(&parent, 1));
+    }
+}
+
+test "packComponents: virtual-node geometry cannot widen a component's span" {
+    const nodes = [_]sg.Node{
+        mkNode(20, "PA"),
+        mkNode(21, "PB"),
+        mkNode(10, "QA"),
+        mkNode(11, "QB"),
+    };
+    const edges = [_]sg.Edge{
+        mkEdge(100, 20, 21),
+    };
+    const graph = sg.SemGraph{
+        .direction = .TD,
+        .nodes = &nodes,
+        .edges = &edges,
+        .clusters = &.{},
+        .classes = &.{},
+        .arena = null,
+    };
+
+    var real_index: std.AutoHashMapUnmanaged(sg.NodeId, u32) = .empty;
+    defer real_index.deinit(testing.allocator);
+    try real_index.put(testing.allocator, 20, 0);
+    try real_index.put(testing.allocator, 21, 1);
+    try real_index.put(testing.allocator, 10, 2);
+    try real_index.put(testing.allocator, 11, 3);
+
+    var lg_nodes = [_]sugiyama.LayerNode{
+        .{ .real = 20 },
+        .{ .real = 21 },
+        .{ .virtual = .{ .edge = 100, .index = 0 } },
+        .{ .real = 10 },
+        .{ .real = 11 },
+    };
+    const lg = sugiyama.LayeredGraph{
+        .nodes = &lg_nodes,
+        .layers = &.{},
+        .edges = &.{},
+        .reversed_edges = &.{},
+        .real_index = real_index,
+        .arena = null,
+    };
+
+    var geom = [_]NodeGeom{
+        .{ .x = 0, .y = 0, .w = 10, .h = 1, .layer = 0 },
+        .{ .x = 5, .y = 0, .w = 5, .h = 1, .layer = 0 },
+        .{ .x = 1000, .y = 0, .w = 900, .h = 1, .layer = 0 },
+        .{ .x = 20, .y = 0, .w = 5, .h = 1, .layer = 0 },
+        .{ .x = 25, .y = 0, .w = 5, .h = 1, .layer = 0 },
+    };
+
+    try packComponents(testing.allocator, graph, &geom, lg);
+
+    try testing.expectEqual(@as(i32, 0), geom[0].x);
+    try testing.expectEqual(@as(i32, 14), geom[3].x);
+    try testing.expectEqual(@as(i32, 1000), geom[2].x);
+}
+
+test "packComponents: equal-min_x components tiebreak by ascending root index" {
+    const nodes = [_]sg.Node{
+        mkNode(10, "QA"),
+        mkNode(11, "QB"),
+        mkNode(20, "PA"),
+        mkNode(21, "PB"),
+    };
+    const edges = [_]sg.Edge{
+        mkEdge(200, 10, 11),
+        mkEdge(100, 20, 21),
+    };
+    const graph = sg.SemGraph{
+        .direction = .TD,
+        .nodes = &nodes,
+        .edges = &edges,
+        .clusters = &.{},
+        .classes = &.{},
+        .arena = null,
+    };
+
+    var real_index: std.AutoHashMapUnmanaged(sg.NodeId, u32) = .empty;
+    defer real_index.deinit(testing.allocator);
+    try real_index.put(testing.allocator, 10, 1);
+    try real_index.put(testing.allocator, 11, 2);
+    try real_index.put(testing.allocator, 20, 3);
+    try real_index.put(testing.allocator, 21, 4);
+
+    var lg_nodes = [_]sugiyama.LayerNode{
+        .{ .virtual = .{ .edge = 100, .index = 0 } },
+        .{ .real = 10 },
+        .{ .real = 11 },
+        .{ .real = 20 },
+        .{ .real = 21 },
+    };
+    const lg = sugiyama.LayeredGraph{
+        .nodes = &lg_nodes,
+        .layers = &.{},
+        .edges = &.{},
+        .reversed_edges = &.{},
+        .real_index = real_index,
+        .arena = null,
+    };
+
+    var geom = [_]NodeGeom{
+        .{ .x = 0, .y = 0, .w = 1, .h = 1, .layer = 0 },
+        .{ .x = 0, .y = 0, .w = 6, .h = 1, .layer = 0 },
+        .{ .x = 3, .y = 0, .w = 3, .h = 1, .layer = 0 },
+        .{ .x = 0, .y = 0, .w = 4, .h = 1, .layer = 0 },
+        .{ .x = 2, .y = 0, .w = 2, .h = 1, .layer = 0 },
+    };
+
+    try packComponents(testing.allocator, graph, &geom, lg);
+
+    try testing.expectEqual(@as(i32, 0), geom[3].x);
+    try testing.expectEqual(@as(i32, 8), geom[1].x);
+}
+
+test "packComponents: packed components are contiguous with exactly COMPONENT_GAP between them" {
+    const nodes = [_]sg.Node{
+        mkNode(0, "A"),
+        mkNode(1, "B"),
+        mkNode(2, "C"),
+    };
+    const graph = sg.SemGraph{
+        .direction = .TD,
+        .nodes = &nodes,
+        .edges = &.{},
+        .clusters = &.{},
+        .classes = &.{},
+        .arena = null,
+    };
+
+    var real_index: std.AutoHashMapUnmanaged(sg.NodeId, u32) = .empty;
+    defer real_index.deinit(testing.allocator);
+    try real_index.put(testing.allocator, 0, 0);
+    try real_index.put(testing.allocator, 1, 1);
+    try real_index.put(testing.allocator, 2, 2);
+
+    var lg_nodes = [_]sugiyama.LayerNode{
+        .{ .real = 0 },
+        .{ .real = 1 },
+        .{ .real = 2 },
+    };
+    const lg = sugiyama.LayeredGraph{
+        .nodes = &lg_nodes,
+        .layers = &.{},
+        .edges = &.{},
+        .reversed_edges = &.{},
+        .real_index = real_index,
+        .arena = null,
+    };
+
+    var geom = [_]NodeGeom{
+        .{ .x = 0, .y = 0, .w = 6, .h = 1, .layer = 0 },
+        .{ .x = 50, .y = 0, .w = 8, .h = 1, .layer = 0 },
+        .{ .x = 200, .y = 0, .w = 4, .h = 1, .layer = 0 },
+    };
+
+    try packComponents(testing.allocator, graph, &geom, lg);
+
+    const Span = struct { left: i32, right: i32 };
+    var spans: [3]Span = undefined;
+    for (geom, 0..) |g, i| spans[i] = .{ .left = g.x, .right = g.x + @as(i32, @intCast(g.w)) };
+    std.sort.pdq(Span, &spans, {}, struct {
+        fn less(_: void, l: Span, r: Span) bool {
+            return l.left < r.left;
+        }
+    }.less);
+
+    try testing.expectEqual(spans[0].right + COMPONENT_GAP, spans[1].left);
+    try testing.expectEqual(spans[1].right + COMPONENT_GAP, spans[2].left);
+}
+
+test "packComponents: idempotent across repeated calls on equivalent input" {
+    const nodes = [_]sg.Node{
+        mkNode(0, "A"),
+        mkNode(1, "B"),
+        mkNode(2, "C"),
+    };
+    const graph = sg.SemGraph{
+        .direction = .TD,
+        .nodes = &nodes,
+        .edges = &.{},
+        .clusters = &.{},
+        .classes = &.{},
+        .arena = null,
+    };
+
+    var real_index: std.AutoHashMapUnmanaged(sg.NodeId, u32) = .empty;
+    defer real_index.deinit(testing.allocator);
+    try real_index.put(testing.allocator, 0, 0);
+    try real_index.put(testing.allocator, 1, 1);
+    try real_index.put(testing.allocator, 2, 2);
+
+    var lg_nodes = [_]sugiyama.LayerNode{
+        .{ .real = 0 },
+        .{ .real = 1 },
+        .{ .real = 2 },
+    };
+    const lg = sugiyama.LayeredGraph{
+        .nodes = &lg_nodes,
+        .layers = &.{},
+        .edges = &.{},
+        .reversed_edges = &.{},
+        .real_index = real_index,
+        .arena = null,
+    };
+
+    const original = [_]NodeGeom{
+        .{ .x = 0, .y = 0, .w = 6, .h = 1, .layer = 0 },
+        .{ .x = 50, .y = 0, .w = 8, .h = 1, .layer = 0 },
+        .{ .x = 200, .y = 0, .w = 4, .h = 1, .layer = 0 },
+    };
+
+    var geom1 = original;
+    var geom2 = original;
+    try packComponents(testing.allocator, graph, &geom1, lg);
+    try packComponents(testing.allocator, graph, &geom2, lg);
+
+    for (geom1, geom2) |a1, a2| {
+        try testing.expectEqual(a1.x, a2.x);
+    }
+}
+
+test {
+    _ = @import("components_test.zig");
+}

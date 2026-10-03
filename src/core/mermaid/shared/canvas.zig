@@ -2,15 +2,12 @@ const std = @import("std");
 const Allocator = std.mem.Allocator;
 const unicode = @import("unicode");
 const types = @import("../types.zig");
-const Point = types.Point;
 const Rect = types.Rect;
 const BoxChars = types.BoxChars;
 const LineChars = types.LineChars;
-const Arrows = types.Arrows;
 
 pub const Priority = enum(u8) {
     background = 0,
-    subgraph = 1,
     edge = 2,
     edge_label = 3,
     node_border = 4,
@@ -21,19 +18,13 @@ pub const Cell = struct {
     char: u21 = ' ',
     priority: Priority = .background,
 
+    /// Write `char` unless something of higher priority is there. An edge never overwrites an
+    /// edge of the crossing orientation, so the first line drawn keeps the crossing.
     pub fn set(self: *Cell, char: u21, priority: Priority) void {
         if (priority == .edge and self.priority == .edge) {
-            const existing = self.char;
-            const h = LineChars.horizontal;
-            const v = LineChars.vertical;
-            const is_existing_h = existing == h or existing == '-';
-            const is_existing_v = existing == v or existing == '|';
-            const is_new_h = char == h or char == '-';
-            const is_new_v = char == v or char == '|';
-            if (is_existing_h and is_new_v) {
-                return;
-            }
-            if (is_existing_v and is_new_h) {
+            if ((isHorizontal(self.char) and isVertical(char)) or
+                (isVertical(self.char) and isHorizontal(char)))
+            {
                 return;
             }
         }
@@ -43,6 +34,14 @@ pub const Cell = struct {
         }
     }
 };
+
+fn isHorizontal(char: u21) bool {
+    return char == LineChars.horizontal or char == '-';
+}
+
+fn isVertical(char: u21) bool {
+    return char == LineChars.vertical or char == '|';
+}
 
 pub const Canvas = struct {
     allocator: Allocator,
@@ -116,7 +115,7 @@ pub const Canvas = struct {
     }
 
     pub fn drawText(self: *Canvas, x: i32, y: i32, text: []const u8, priority: Priority) void {
-        if (legacyScalarTextWidth(text) == null) return;
+        if (scalarTextWidth(text) == null) return;
 
         var col = x;
         var it = unicode.Iterator.init(text);
@@ -128,7 +127,7 @@ pub const Canvas = struct {
     }
 
     pub fn drawTextCentered(self: *Canvas, rect: Rect, text: []const u8, priority: Priority) void {
-        const text_len: i32 = @intCast(legacyScalarTextWidth(text) orelse return);
+        const text_len: i32 = @intCast(scalarTextWidth(text) orelse return);
         const box_width: i32 = @intCast(rect.width);
         const box_height: i32 = @intCast(rect.height);
 
@@ -154,90 +153,6 @@ pub const Canvas = struct {
         while (y <= end) : (y += 1) {
             self.setChar(x, y, char, priority);
         }
-    }
-
-    pub fn drawPath(self: *Canvas, points: []const Point, style: types.EdgeStyle, priority: Priority) void {
-        if (points.len < 2) return;
-
-        const h_char: u21 = switch (style) {
-            .solid => LineChars.horizontal,
-            .dotted => LineChars.horizontal_dotted,
-            .thick => LineChars.horizontal_thick,
-            .dashed => LineChars.horizontal_dashed,
-        };
-        const v_char: u21 = switch (style) {
-            .solid => LineChars.vertical,
-            .dotted => LineChars.vertical_dotted,
-            .thick => LineChars.vertical_thick,
-            .dashed => LineChars.vertical_dashed,
-        };
-
-        for (points[0 .. points.len - 1], points[1..]) |p1, p2| {
-            if (p1.y == p2.y) {
-                self.drawHorizontalLine(p1.y, p1.x, p2.x, h_char, priority);
-            } else if (p1.x == p2.x) {
-                self.drawVerticalLine(p1.x, p1.y, p2.y, v_char, priority);
-            }
-        }
-
-        for (1..points.len - 1) |i| {
-            const prev = points[i - 1];
-            const curr = points[i];
-            const next = points[i + 1];
-
-            const corner = self.getCornerChar(prev, curr, next);
-            if (corner) |c| {
-                self.setChar(curr.x, curr.y, c, priority);
-            }
-        }
-    }
-
-    fn getCornerChar(self: *Canvas, prev: Point, curr: Point, next: Point) ?u21 {
-        _ = self;
-        const from_left = prev.x < curr.x;
-        const from_right = prev.x > curr.x;
-        const from_above = prev.y < curr.y;
-        const from_below = prev.y > curr.y;
-
-        const to_left = next.x < curr.x;
-        const to_right = next.x > curr.x;
-        const to_above = next.y < curr.y;
-        const to_below = next.y > curr.y;
-
-        if ((from_right and to_below) or (from_below and to_right)) return LineChars.corner_se;
-        if ((from_left and to_below) or (from_below and to_left)) return LineChars.corner_sw;
-        if ((from_right and to_above) or (from_above and to_right)) return LineChars.corner_ne;
-        if ((from_left and to_above) or (from_above and to_left)) return LineChars.corner_nw;
-
-        return null;
-    }
-
-    pub fn drawArrow(self: *Canvas, point: Point, direction: types.Direction, unicode_mode: bool, priority: Priority) void {
-        const char: u21 = if (unicode_mode) switch (direction) {
-            .LR => Arrows.right_thin,
-            .RL => Arrows.left_thin,
-            .TD, .TB => Arrows.down_thin,
-            .BT => Arrows.up_thin,
-        } else switch (direction) {
-            .LR => Arrows.right_ascii,
-            .RL => Arrows.left_ascii,
-            .TD, .TB => Arrows.down_ascii,
-            .BT => Arrows.up_ascii,
-        };
-        self.setChar(point.x, point.y, char, priority);
-    }
-
-    pub fn drawArrowBetween(self: *Canvas, from: Point, to: Point, unicode_mode: bool, priority: Priority) void {
-        const dx = to.x - from.x;
-        const dy = to.y - from.y;
-
-        const direction: types.Direction = if (@abs(dx) > @abs(dy)) blk: {
-            break :blk if (dx > 0) .LR else .RL;
-        } else blk: {
-            break :blk if (dy > 0) .TD else .BT;
-        };
-
-        self.drawArrow(to, direction, unicode_mode, priority);
     }
 
     pub fn toString(self: *Canvas, allocator: Allocator) ![]const u8 {
@@ -266,21 +181,11 @@ pub const Canvas = struct {
 
         return result.toOwnedSlice(allocator);
     }
-
-    pub fn clearRect(self: *Canvas, rect: Rect) void {
-        var y = rect.y;
-        while (y < rect.bottom()) : (y += 1) {
-            var x = rect.x;
-            while (x < rect.right()) : (x += 1) {
-                if (self.getCell(x, y)) |cell| {
-                    cell.* = Cell{};
-                }
-            }
-        }
-    }
 };
 
-fn legacyScalarTextWidth(text: []const u8) ?usize {
+/// The display width of `text` when every grapheme is one scalar and none is a tab, else null:
+/// text the canvas cannot place one scalar to a cell is left out whole.
+fn scalarTextWidth(text: []const u8) ?usize {
     var width: usize = 0;
     var it = unicode.Iterator.init(text);
     while (it.next() catch return null) |grapheme| {
@@ -402,7 +307,7 @@ test "Canvas priority" {
     canvas.setChar(2, 2, 'B', .edge);
     try testing.expectEqual(@as(u21, 'B'), canvas.getCell(2, 2).?.char);
 
-    canvas.setChar(2, 2, 'C', .subgraph);
+    canvas.setChar(2, 2, 'C', .background);
     try testing.expectEqual(@as(u21, 'B'), canvas.getCell(2, 2).?.char);
 
     canvas.setChar(2, 2, 'D', .node_text);

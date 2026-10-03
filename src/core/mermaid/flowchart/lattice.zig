@@ -1,0 +1,218 @@
+const std = @import("std");
+const prim = @import("prim");
+const ledger = @import("base/ledger.zig");
+
+pub const BorderRole = enum {
+    corner_nw,
+    corner_ne,
+    corner_se,
+    corner_sw,
+    edge_n,
+    edge_e,
+    edge_s,
+    edge_w,
+};
+
+pub const Dir4 = prim.Dir4;
+
+pub const Neighbours = packed struct(u4) {
+    n: bool = false,
+    e: bool = false,
+    s: bool = false,
+    w: bool = false,
+
+    pub fn toMask(self: Neighbours) u4 {
+        return @bitCast(self);
+    }
+
+    pub fn fromMask(m: u4) Neighbours {
+        return @bitCast(m);
+    }
+};
+
+pub const NodeId = prim.NodeId;
+pub const EdgeId = prim.EdgeId;
+pub const ClusterId = prim.ClusterId;
+
+pub const EdgeKind = prim.EdgeKind;
+
+pub const EdgeRole = prim.EdgeRole;
+
+pub const Shape = prim.Shape;
+
+pub const ArrowKind = prim.ArrowKind;
+
+pub const Occupant = union(enum) {
+    empty,
+    node_interior: NodeId,
+    node_border: struct {
+        node: NodeId,
+        role: BorderRole,
+    },
+    cluster_border: struct {
+        cluster: ClusterId,
+        role: BorderRole,
+    },
+    edge_segment: struct {
+        edge: EdgeId,
+        kind: EdgeKind,
+        role: EdgeRole = .forward,
+    },
+    arrowhead: struct {
+        dir: Dir4,
+        edge: EdgeId,
+        arrow: ArrowKind = .filled,
+    },
+    label_char: u21,
+    label_cont,
+};
+
+pub const Cell = struct {
+    occupant: Occupant,
+    neighbours: Neighbours,
+    stroke_kind: EdgeKind = .solid,
+    shape: Shape = .rect,
+
+    pub const empty: Cell = .{
+        .occupant = .empty,
+        .neighbours = .{},
+        .stroke_kind = .solid,
+        .shape = .rect,
+    };
+};
+
+pub const Glyph = struct {
+    bytes: []const u8,
+    width: u8,
+};
+
+pub const GLYPH_REF_BASE: u21 = 0x110000;
+
+pub const MAX_GLYPHS: usize = @as(usize, std.math.maxInt(u21)) - GLYPH_REF_BASE + 1;
+
+pub fn isGlyphRef(cp: u21) bool {
+    return cp >= GLYPH_REF_BASE;
+}
+
+pub fn glyphRef(index: usize) u21 {
+    std.debug.assert(index < MAX_GLYPHS);
+    return @intCast(GLYPH_REF_BASE + index);
+}
+
+pub const Lattice = struct {
+    width: u32,
+    height: u32,
+    cells: []Cell,
+    glyphs: []const Glyph = &.{},
+
+    pub fn at(self: Lattice, x: u32, y: u32) *Cell {
+        std.debug.assert(x < self.width);
+        std.debug.assert(y < self.height);
+        return &self.cells[@as(usize, y) * @as(usize, self.width) + @as(usize, x)];
+    }
+
+    pub fn atConst(self: Lattice, x: u32, y: u32) *const Cell {
+        std.debug.assert(x < self.width);
+        std.debug.assert(y < self.height);
+        return &self.cells[@as(usize, y) * @as(usize, self.width) + @as(usize, x)];
+    }
+
+    pub fn glyphOf(self: Lattice, cp: u21) ?Glyph {
+        if (!isGlyphRef(cp)) return null;
+        const index: usize = cp - GLYPH_REF_BASE;
+        if (index >= self.glyphs.len) return null;
+        return self.glyphs[index];
+    }
+};
+
+test "Neighbours bitmask round-trip across all 16 values" {
+    var m: u5 = 0;
+    while (m < 16) : (m += 1) {
+        const mask: u4 = @intCast(m);
+        const n = Neighbours.fromMask(mask);
+        try std.testing.expectEqual(mask, n.toMask());
+
+        try std.testing.expectEqual((mask & 0b0001) != 0, n.n);
+        try std.testing.expectEqual((mask & 0b0010) != 0, n.e);
+        try std.testing.expectEqual((mask & 0b0100) != 0, n.s);
+        try std.testing.expectEqual((mask & 0b1000) != 0, n.w);
+    }
+}
+
+test "Neighbours default is all-false / mask 0" {
+    const n: Neighbours = .{};
+    try std.testing.expectEqual(@as(u4, 0), n.toMask());
+}
+
+test "Neighbours single-bit constructors" {
+    try std.testing.expectEqual(@as(u4, 0b0001), (Neighbours{ .n = true }).toMask());
+    try std.testing.expectEqual(@as(u4, 0b0010), (Neighbours{ .e = true }).toMask());
+    try std.testing.expectEqual(@as(u4, 0b0100), (Neighbours{ .s = true }).toMask());
+    try std.testing.expectEqual(@as(u4, 0b1000), (Neighbours{ .w = true }).toMask());
+}
+
+test "Lattice index calculation: row-major, at() returns correct cell" {
+    var buf: [12]Cell = undefined;
+    for (&buf) |*c| c.* = Cell.empty;
+
+    var lat = Lattice{ .width = 4, .height = 3, .cells = &buf };
+
+    var y: u32 = 0;
+    while (y < lat.height) : (y += 1) {
+        var x: u32 = 0;
+        while (x < lat.width) : (x += 1) {
+            lat.at(x, y).*.occupant = .{ .label_char = @intCast(y * lat.width + x) };
+        }
+    }
+
+    for (buf, 0..) |c, i| {
+        switch (c.occupant) {
+            .label_char => |ch| try std.testing.expectEqual(@as(u21, @intCast(i)), ch),
+            else => return error.UnexpectedOccupant,
+        }
+    }
+
+    try std.testing.expectEqual(@as(u21, 0), switch (lat.atConst(0, 0).occupant) {
+        .label_char => |ch| ch,
+        else => unreachable,
+    });
+    try std.testing.expectEqual(@as(u21, 6), switch (lat.atConst(2, 1).occupant) {
+        .label_char => |ch| ch,
+        else => unreachable,
+    });
+    try std.testing.expectEqual(@as(u21, 11), switch (lat.atConst(3, 2).occupant) {
+        .label_char => |ch| ch,
+        else => unreachable,
+    });
+}
+
+test "Cell stays 16 bytes: the arrowhead style rides in existing padding" {
+    try std.testing.expectEqual(@as(usize, 16), @sizeOf(Cell));
+    try std.testing.expectEqual(@as(usize, 12), @sizeOf(Occupant));
+}
+
+test "glyph references live above the scalar range and resolve through the table" {
+    try std.testing.expect(!isGlyphRef('A'));
+    try std.testing.expect(!isGlyphRef(0x10FFFF));
+    try std.testing.expect(isGlyphRef(glyphRef(0)));
+    try std.testing.expect(isGlyphRef(glyphRef(MAX_GLYPHS - 1)));
+    try std.testing.expectEqual(@as(u21, 0x110000), glyphRef(0));
+    try std.testing.expectEqual(@as(u21, std.math.maxInt(u21)), glyphRef(MAX_GLYPHS - 1));
+
+    var cells: [1]Cell = .{Cell.empty};
+    const table = [_]Glyph{ .{ .bytes = "e\u{0301}", .width = 1 }, .{ .bytes = "\u{1F468}\u{200D}\u{1F469}", .width = 2 } };
+    const lat = Lattice{ .width = 1, .height = 1, .cells = &cells, .glyphs = &table };
+    try std.testing.expectEqualStrings("e\u{0301}", lat.glyphOf(glyphRef(0)).?.bytes);
+    try std.testing.expectEqual(@as(u8, 2), lat.glyphOf(glyphRef(1)).?.width);
+    try std.testing.expectEqual(@as(?Glyph, null), lat.glyphOf('e'));
+    try std.testing.expectEqual(@as(?Glyph, null), lat.glyphOf(glyphRef(2)));
+}
+
+test "Cell.empty default matches struct literal" {
+    const a = Cell.empty;
+    try std.testing.expectEqual(@as(u4, 0), a.neighbours.toMask());
+    switch (a.occupant) {
+        .empty => {},
+        else => return error.NotEmpty,
+    }
+}

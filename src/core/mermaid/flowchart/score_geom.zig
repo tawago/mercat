@@ -1,0 +1,216 @@
+const std = @import("std");
+const sketch = @import("sketch.zig");
+
+pub fn deadSpace(allocator: std.mem.Allocator, s: sketch.Sketch) !u64 {
+    const w: u64 = s.bbox.w;
+    const h: u64 = s.bbox.h;
+    const area = w * h;
+    if (area == 0) return 0;
+
+    var covered = try std.DynamicBitSet.initEmpty(allocator, area);
+    defer covered.deinit();
+
+    for (s.clusters) |c| markRect(&covered, s.bbox, c.rect);
+    for (s.nodes) |n| markRect(&covered, s.bbox, n.rect);
+    for (s.edges) |e| {
+        if (e.polyline.len < 2) continue;
+        var i: usize = 0;
+        while (i + 1 < e.polyline.len) : (i += 1) {
+            markSegment(&covered, s.bbox, e.polyline[i], e.polyline[i + 1]);
+        }
+    }
+    for (s.rails) |rail| {
+        var i: usize = 0;
+        while (i + 1 < rail.stem.len) : (i += 1) {
+            markSegment(&covered, s.bbox, rail.stem[i], rail.stem[i + 1]);
+        }
+        markSegment(&covered, s.bbox, rail.crossbar[0], rail.crossbar[1]);
+        for (rail.taps) |tap| markSegment(&covered, s.bbox, tap.at, tap.landing);
+    }
+    return area - covered.count();
+}
+
+fn markRect(covered: *std.DynamicBitSet, bbox: sketch.Rect, r: sketch.Rect) void {
+    if (r.w == 0 or r.h == 0) return;
+    const x0 = @max(r.x, bbox.x);
+    const y0 = @max(r.y, bbox.y);
+    const x1 = @min(r.right(), bbox.right());
+    const y1 = @min(r.bottom(), bbox.bottom());
+    var y = y0;
+    while (y < y1) : (y += 1) {
+        var x = x0;
+        while (x < x1) : (x += 1) markCell(covered, bbox, x, y);
+    }
+}
+
+fn markSegment(covered: *std.DynamicBitSet, bbox: sketch.Rect, a: sketch.Point, b: sketch.Point) void {
+    var x = a.x;
+    var y = a.y;
+    while (true) {
+        markCell(covered, bbox, x, y);
+        if (x == b.x and y == b.y) break;
+        if (x != b.x) x += if (b.x > x) @as(i32, 1) else -1;
+        if (y != b.y) y += if (b.y > y) @as(i32, 1) else -1;
+    }
+}
+
+fn markCell(covered: *std.DynamicBitSet, bbox: sketch.Rect, x: i32, y: i32) void {
+    if (x < bbox.x or y < bbox.y or x >= bbox.right() or y >= bbox.bottom()) return;
+    const col: u64 = @intCast(x - bbox.x);
+    const row: u64 = @intCast(y - bbox.y);
+    covered.set(row * @as(u64, bbox.w) + col);
+}
+
+pub fn edgeStretch(s: sketch.Sketch) u64 {
+    var total: u64 = 0;
+    for (s.edges) |e| {
+        if (e.polyline.len < 2) continue;
+        var walked: u64 = 0;
+        var i: usize = 0;
+        while (i + 1 < e.polyline.len) : (i += 1) {
+            walked += manhattan(e.polyline[i], e.polyline[i + 1]);
+        }
+        const direct = manhattan(e.polyline[0], e.polyline[e.polyline.len - 1]);
+        total += walked -| direct;
+    }
+    for (s.rails) |rail| {
+        var walked: u64 = 0;
+        var i: usize = 0;
+        while (i + 1 < rail.stem.len) : (i += 1) {
+            walked += manhattan(rail.stem[i], rail.stem[i + 1]);
+        }
+        total += walked -| manhattan(rail.stem[0], rail.stem[rail.stem.len - 1]);
+    }
+    return total;
+}
+
+fn manhattan(a: sketch.Point, b: sketch.Point) u64 {
+    return @abs(a.x - b.x) + @abs(a.y - b.y);
+}
+
+pub fn bends(s: sketch.Sketch) u64 {
+    var total: u64 = 0;
+    for (s.edges) |e| total += polylineBends(e.polyline);
+    for (s.rails) |rail| {
+        total += polylineBends(rail.stem);
+        const junction = rail.stem[rail.stem.len - 1];
+        if (rail.crossbar[0].x != rail.crossbar[1].x) total += 1;
+        for (rail.taps) |tap| {
+            if (tap.at.x != junction.x) total += 1;
+        }
+    }
+    return total;
+}
+
+fn polylineBends(poly: []const sketch.Point) u64 {
+    var total: u64 = 0;
+    var prev_vertical: ?bool = null;
+    var i: usize = 0;
+    while (i + 1 < poly.len) : (i += 1) {
+        const a = poly[i];
+        const b = poly[i + 1];
+        if (a.x == b.x and a.y == b.y) continue;
+        const vertical = a.x == b.x;
+        if (prev_vertical) |pv| {
+            if (pv != vertical) total += 1;
+        }
+        prev_vertical = vertical;
+    }
+    return total;
+}
+
+pub fn countCrossings(s: sketch.Sketch) u64 {
+    var total: u64 = 0;
+    for (s.edges, 0..) |ea, ai| {
+        for (s.edges[ai + 1 ..]) |eb| {
+            total += crossingsBetween(ea.polyline, eb.polyline);
+        }
+    }
+    for (s.rails, 0..) |ba, bi| {
+        for (s.edges) |e| total += railEdgeCrossings(ba, e.polyline);
+        for (s.rails[bi + 1 ..]) |rail| total += railRailCrossings(ba, rail);
+    }
+    return total;
+}
+
+fn railSegCount(rail: sketch.Rail) usize {
+    return (rail.stem.len - 1) + 1 + rail.taps.len;
+}
+
+fn railSeg(rail: sketch.Rail, i: usize) [2]sketch.Point {
+    const stem_segs = rail.stem.len - 1;
+    if (i < stem_segs) return .{ rail.stem[i], rail.stem[i + 1] };
+    if (i == stem_segs) return .{ rail.crossbar[0], rail.crossbar[1] };
+    const tap = rail.taps[i - stem_segs - 1];
+    return .{ tap.at, tap.landing };
+}
+
+fn railEdgeCrossings(rail: sketch.Rail, poly: []const sketch.Point) u64 {
+    var total: u64 = 0;
+    var i: usize = 0;
+    while (i < railSegCount(rail)) : (i += 1) {
+        const sa = railSeg(rail, i);
+        var j: usize = 0;
+        while (j + 1 < poly.len) : (j += 1) {
+            if (segmentsCross(sa[0], sa[1], poly[j], poly[j + 1])) total += 1;
+        }
+    }
+    return total;
+}
+
+fn railRailCrossings(ba: sketch.Rail, rail: sketch.Rail) u64 {
+    var total: u64 = 0;
+    var i: usize = 0;
+    while (i < railSegCount(ba)) : (i += 1) {
+        const sa = railSeg(ba, i);
+        var j: usize = 0;
+        while (j < railSegCount(rail)) : (j += 1) {
+            const sb = railSeg(rail, j);
+            if (segmentsCross(sa[0], sa[1], sb[0], sb[1])) total += 1;
+        }
+    }
+    return total;
+}
+
+fn crossingsBetween(pa: []const sketch.Point, pb: []const sketch.Point) u64 {
+    var total: u64 = 0;
+    var i: usize = 0;
+    while (i + 1 < pa.len) : (i += 1) {
+        var j: usize = 0;
+        while (j + 1 < pb.len) : (j += 1) {
+            if (segmentsCross(pa[i], pa[i + 1], pb[j], pb[j + 1])) total += 1;
+        }
+    }
+    return total;
+}
+
+fn segmentsCross(a0: sketch.Point, a1: sketch.Point, b0: sketch.Point, b1: sketch.Point) bool {
+    const a_vert = a0.x == a1.x;
+    const a_horiz = a0.y == a1.y;
+    const b_vert = b0.x == b1.x;
+    const b_horiz = b0.y == b1.y;
+    if (a_horiz and !a_vert and b_vert and !b_horiz) {
+        return strictCross(a0, a1, b0, b1);
+    }
+    if (a_vert and !a_horiz and b_horiz and !b_vert) {
+        return strictCross(b0, b1, a0, a1);
+    }
+    return false;
+}
+
+fn strictCross(h0: sketch.Point, h1: sketch.Point, v0: sketch.Point, v1: sketch.Point) bool {
+    const hx0 = @min(h0.x, h1.x);
+    const hx1 = @max(h0.x, h1.x);
+    const vy0 = @min(v0.y, v1.y);
+    const vy1 = @max(v0.y, v1.y);
+    return v0.x > hx0 and v0.x < hx1 and h0.y > vy0 and h0.y < vy1;
+}
+
+pub fn labelWraps(s: sketch.Sketch) u64 {
+    var n: u64 = 0;
+    for (s.diagnostics) |d| switch (d) {
+        .forced_label_wrap => n += 1,
+        else => {},
+    };
+    return n;
+}

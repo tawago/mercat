@@ -44,19 +44,19 @@ pub fn build(b: *std.Build) void {
     });
 
     const prim_mod = b.createModule(.{
-        .root_source_file = b.path("src/core/mermaid_v2/base/types.zig"),
+        .root_source_file = b.path("src/core/mermaid/flowchart/base/types.zig"),
         .target = target,
         .optimize = optimize,
     });
     prim_mod.addImport("unicode", unicode_mod);
 
-    const mermaid_v2_mod = b.createModule(.{
-        .root_source_file = b.path("src/core/mermaid_v2/entry.zig"),
+    const flowchart_mod = b.createModule(.{
+        .root_source_file = b.path("src/core/mermaid/flowchart/entry.zig"),
         .target = target,
         .optimize = optimize,
     });
-    mermaid_v2_mod.addImport("prim", prim_mod);
-    mermaid_v2_mod.addImport("unicode", unicode_mod);
+    flowchart_mod.addImport("prim", prim_mod);
+    flowchart_mod.addImport("unicode", unicode_mod);
 
     const root_module = b.createModule(.{
         .root_source_file = b.path("src/main.zig"),
@@ -136,14 +136,14 @@ pub fn build(b: *std.Build) void {
     test_step.dependOn(&font_test_run.step);
 
     const sem_graph_mod = b.createModule(.{
-        .root_source_file = b.path("src/core/mermaid_v2/sem_graph.zig"),
+        .root_source_file = b.path("src/core/mermaid/flowchart/sem_graph.zig"),
         .target = target,
         .optimize = optimize,
     });
     sem_graph_mod.addImport("prim", prim_mod);
 
     const parser_mod = b.createModule(.{
-        .root_source_file = b.path("src/core/mermaid_v2/parse.zig"),
+        .root_source_file = b.path("src/core/mermaid/flowchart/parse.zig"),
         .target = target,
         .optimize = optimize,
     });
@@ -156,7 +156,7 @@ pub fn build(b: *std.Build) void {
     });
     prop_test_module.addImport("sem_graph", sem_graph_mod);
     prop_test_module.addImport("parser", parser_mod);
-    prop_test_module.addImport("mermaid_v2", mermaid_v2_mod);
+    prop_test_module.addImport("flowchart", flowchart_mod);
 
     const prop_tests = b.addTest(.{
         .root_module = prop_test_module,
@@ -168,19 +168,39 @@ pub fn build(b: *std.Build) void {
 
     test_step.dependOn(&prop_test_run.step);
 
-    const v2_test_module = b.createModule(.{
-        .root_source_file = b.path("src/core/mermaid_v2/entry.zig"),
+    const check_mod = b.createModule(.{
+        .root_source_file = b.path("src/core/mermaid/check.zig"),
         .target = target,
         .optimize = optimize,
     });
-    v2_test_module.addOptions("build_options", options);
-    v2_test_module.addImport("prim", prim_mod);
-    v2_test_module.addImport("unicode", unicode_mod);
-    const v2_tests = b.addTest(.{ .root_module = v2_test_module });
-    const v2_test_run = b.addRunArtifact(v2_tests);
-    const v2_test_step = b.step("test-mermaid-v2", "Run mermaid_v2 unit tests");
-    v2_test_step.dependOn(&v2_test_run.step);
-    test_step.dependOn(&v2_test_run.step);
+    check_mod.addImport("unicode", unicode_mod);
+
+    const mermaid_props_module = b.createModule(.{
+        .root_source_file = b.path("tests/mermaid/all_test.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    mermaid_props_module.addImport("check", check_mod);
+    mermaid_props_module.addImport("flowchart", flowchart_mod);
+    const mermaid_props = b.addTest(.{ .root_module = mermaid_props_module });
+    const mermaid_props_run = b.addRunArtifact(mermaid_props);
+    const mermaid_props_step = b.step("test-mermaid-props", "Run readback and property tests on generated flowcharts");
+    mermaid_props_step.dependOn(&mermaid_props_run.step);
+    test_step.dependOn(&mermaid_props_run.step);
+
+    const flowchart_test_module = b.createModule(.{
+        .root_source_file = b.path("src/core/mermaid/flowchart/entry.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    flowchart_test_module.addOptions("build_options", options);
+    flowchart_test_module.addImport("prim", prim_mod);
+    flowchart_test_module.addImport("unicode", unicode_mod);
+    const flowchart_tests = b.addTest(.{ .root_module = flowchart_test_module });
+    const flowchart_test_run = b.addRunArtifact(flowchart_tests);
+    const flowchart_test_step = b.step("test-flowchart", "Run flowchart engine unit tests");
+    flowchart_test_step.dependOn(&flowchart_test_run.step);
+    test_step.dependOn(&flowchart_test_run.step);
 
     const lint_module = b.createModule(.{
         .root_source_file = b.path("tools/lint_imports.zig"),
@@ -196,7 +216,7 @@ pub fn build(b: *std.Build) void {
     const lint_cmd = b.addRunArtifact(lint_exe);
     lint_cmd.setCwd(b.path("."));
 
-    const lint_step = b.step("lint", "Run mermaid_v2 import boundary lint");
+    const lint_step = b.step("lint", "Run flowchart engine import boundary lint");
     lint_step.dependOn(&lint_cmd.step);
     test_step.dependOn(&lint_cmd.step);
 
@@ -227,7 +247,7 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     });
-    visual_samples_module.addImport("mermaid_v2", mermaid_v2_mod);
+    visual_samples_module.addImport("flowchart", flowchart_mod);
 
     const visual_samples_exe = b.addExecutable(.{
         .name = "visual-samples",

@@ -7,8 +7,7 @@ const render_model = @import("../core/markdown/render.zig");
 const theme = @import("../core/theme.zig");
 const theme_resolve = @import("../core/theme/resolve.zig");
 const ResolvedTheme = theme_resolve.ResolvedTheme;
-const mermaid_types = @import("../core/mermaid/types.zig");
-const SubgraphEdges = @import("prim").SubgraphEdges;
+const SubgraphEdges = @import("../core/mermaid/mermaid.zig").SubgraphEdges;
 const editor = @import("../platform/editor.zig");
 const PagerView = @import("views/pager.zig").PagerView;
 const HelpView = @import("views/help.zig").HelpView;
@@ -65,7 +64,7 @@ pub const App = struct {
     status_message: ?[]const u8,
     needs_redraw: bool,
 
-    mermaid_layout: mermaid_types.ForceLayout,
+    mermaid_layout: args.ForceLayout,
 
     mermaid_subgraph_edges: SubgraphEdges,
 
@@ -85,7 +84,7 @@ pub const App = struct {
         theme_warning: ?[]const u8,
         show_heading_markers: bool,
         frontmatter_style: config.FrontmatterStyle,
-        initial_layout: mermaid_types.ForceLayout,
+        initial_layout: args.ForceLayout,
         initial_subgraph_edges: SubgraphEdges,
     ) !void {
         self.allocator = allocator;
@@ -110,7 +109,7 @@ pub const App = struct {
 
         self.mermaid_layout = initial_layout;
         self.mermaid_subgraph_edges = initial_subgraph_edges;
-        self.pager = PagerView.init(allocator, title, &self.current_document, resolved, show_heading_markers, initial_layout, initial_subgraph_edges);
+        self.pager = PagerView.init(allocator, title, &self.current_document, resolved, show_heading_markers, initial_subgraph_edges);
         self.pager.frontmatter_style = frontmatter_style;
 
         self.view_mode = .pager;
@@ -470,7 +469,6 @@ pub const App = struct {
     }
 
     fn handleLayoutChange(self: *App) !void {
-        self.pager.mermaid_layout = self.mermaid_layout;
         try self.pager.reload();
         try self.setStatusMessage(try std.fmt.allocPrint(self.allocator, "Layout: {s}", .{self.mermaid_layout.displayName()}), true);
         self.needs_redraw = true;
@@ -571,7 +569,7 @@ pub const App = struct {
     }
 };
 
-pub fn run(allocator: std.mem.Allocator, title: []const u8, input_source: args.Input, initial_content: []const u8, editor_command: []const u8, resolved: *const ResolvedTheme, theme_warning: ?[]const u8, show_heading_markers: bool, frontmatter_style: config.FrontmatterStyle, initial_layout: mermaid_types.ForceLayout, initial_subgraph_edges: SubgraphEdges) !void {
+pub fn run(allocator: std.mem.Allocator, title: []const u8, input_source: args.Input, initial_content: []const u8, editor_command: []const u8, resolved: *const ResolvedTheme, theme_warning: ?[]const u8, show_heading_markers: bool, frontmatter_style: config.FrontmatterStyle, initial_layout: args.ForceLayout, initial_subgraph_edges: SubgraphEdges) !void {
     var app: App = undefined;
     try app.init(allocator, title, input_source, initial_content, editor_command, resolved, theme_warning, show_heading_markers, frontmatter_style, initial_layout, initial_subgraph_edges);
     defer app.deinit();
@@ -709,7 +707,7 @@ test "syncPagerSize reflows when draw detects width change" {
     defer document.deinit(allocator);
 
     const rt = theme_resolve.builtinResolved(allocator, "dark");
-    var pager = PagerView.init(allocator, "fixture", &document, &rt, true, .auto, .bridge);
+    var pager = PagerView.init(allocator, "fixture", &document, &rt, true, .bridge);
     defer pager.deinit();
 
     try pager.resize(60, 5);

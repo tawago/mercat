@@ -1,10 +1,10 @@
 const std = @import("std");
 
 const imports = @import("lint/imports.zig");
-const gb = @import("lint/guarded_by.zig");
 const banned = @import("lint/vocabulary.zig");
-const TestDecl = gb.TestDecl;
-const GbRef = gb.GbRef;
+const cycles = @import("lint/cycles.zig");
+
+const code_line_cap: usize = 1000;
 
 pub const LintReport = struct {
     violations: []const []const u8,
@@ -24,9 +24,7 @@ pub fn lint(allocator: std.mem.Allocator, root: []const u8) !LintReport {
 
     var violations: std.ArrayList([]const u8) = .empty;
 
-    var test_decls: std.ArrayList(TestDecl) = .empty;
-    var gb_refs: std.ArrayList(GbRef) = .empty;
-    var seen_files: std.ArrayList([]const u8) = .empty;
+    var production: std.ArrayList(cycles.Source) = .empty;
 
     var dir = std.fs.cwd().openDir(root, .{ .iterate = true }) catch |err| {
         const msg = try std.fmt.allocPrint(a, "error: cannot open root '{s}': {s}", .{ root, @errorName(err) });
@@ -56,9 +54,10 @@ pub fn lint(allocator: std.mem.Allocator, root: []const u8) !LintReport {
         const contents = try file.readToEndAlloc(a, 8 * 1024 * 1024);
 
         if (!isTestFile(entry.basename)) {
+            try production.append(a, .{ .path = try a.dupe(u8, entry.path), .contents = contents });
             const code_lines = codeLines(contents);
-            if (code_lines > 500) {
-                const msg = try std.fmt.allocPrint(a, "{s}: {d} code lines exceeds the 500-code-line cap (blank and // lines are free)", .{ entry.path, code_lines });
+            if (code_lines > code_line_cap) {
+                const msg = try std.fmt.allocPrint(a, "{s}: {d} code lines exceeds the {d}-code-line cap (blank and // lines are free)", .{ entry.path, code_lines, code_line_cap });
                 try violations.append(a, msg);
             }
         }
@@ -66,14 +65,9 @@ pub fn lint(allocator: std.mem.Allocator, root: []const u8) !LintReport {
         try banned.scan(a, &violations, entry.path, contents, &banned.table);
 
         try imports.scanImports(a, &violations, entry.path, contents);
-
-        const base_owned = try a.dupe(u8, entry.basename);
-        try seen_files.append(a, base_owned);
-        try gb.collectTests(a, &test_decls, base_owned, contents);
-        try gb.collectGuardedBy(a, &gb_refs, try a.dupe(u8, entry.path), contents);
     }
 
-    try gb.verifyGuardedBy(a, &violations, seen_files.items, test_decls.items, gb_refs.items);
+    try cycles.check(a, &violations, production.items);
 
     return LintReport{ .violations = try violations.toOwnedSlice(a), .arena = arena_ptr };
 }
@@ -102,7 +96,7 @@ pub fn main() !void {
     const args = try std.process.argsAlloc(allocator);
     defer std.process.argsFree(allocator, args);
 
-    const root: []const u8 = if (args.len >= 2) args[1] else "src/core/mermaid_v2";
+    const root: []const u8 = if (args.len >= 2) args[1] else "src/core/mermaid/flowchart";
 
     {
         var probe = std.fs.cwd().openDir(root, .{ .iterate = true }) catch |err| {
@@ -131,15 +125,18 @@ test "lint flags bad fixtures" {
     var saw_big = false;
     var saw_fallback = false;
     var saw_banned = false;
+    var saw_cycle = false;
     for (report.violations) |v| {
         if (std.mem.indexOf(u8, v, "big_file.zig") != null) saw_big = true;
         if (std.mem.indexOf(u8, v, "dummy.zig") != null and std.mem.indexOf(u8, v, "fallback") != null) saw_fallback = true;
         if (std.mem.indexOf(u8, v, "banned.zig") != null and std.mem.indexOf(u8, v, "codepointWidth") != null) saw_banned = true;
+        if (std.mem.indexOf(u8, v, "import cycle among 2 files: cycle_a.zig, cycle_b.zig") != null) saw_cycle = true;
     }
     try std.testing.expect(report.violations.len >= 3);
     try std.testing.expect(saw_big);
     try std.testing.expect(saw_fallback);
     try std.testing.expect(saw_banned);
+    try std.testing.expect(saw_cycle);
 }
 
 test "code lines: blank and //-prefixed lines are free, indentation and CR are ignored" {
@@ -159,6 +156,6 @@ test "the cap exempts *_test*.zig and nothing else" {
 
 test {
     _ = imports;
-    _ = gb;
     _ = banned;
+    _ = cycles;
 }

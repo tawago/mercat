@@ -1,8 +1,8 @@
 const std = @import("std");
 const viewport = @import("viewport.zig");
-const mermaid_types = @import("../../core/mermaid/types.zig");
+const ForceLayout = @import("../../cli/args.zig").ForceLayout;
 
-pub fn format(allocator: std.mem.Allocator, title: []const u8, width: usize, view: viewport.Viewport, in_help: bool, status_message: ?[]const u8, layout: mermaid_types.ForceLayout) ![]u8 {
+pub fn format(allocator: std.mem.Allocator, title: []const u8, width: usize, view: viewport.Viewport, in_help: bool, status_message: ?[]const u8, layout: ForceLayout) ![]u8 {
     const short_title = baseName(title);
     const layout_str = layout.displayName();
     const meta = try std.fmt.allocPrint(

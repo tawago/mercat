@@ -157,10 +157,6 @@ fn runCli(
         .show_heading_markers = display.show_heading_markers,
         .decor = &resolved.decor,
         .frontmatter_style = display.frontmatter_style,
-        .mermaid_box_style = parsed.box_style orelse .standard,
-        .mermaid_crossing_heuristic = parsed.crossing_heuristic orelse .median,
-        .mermaid_force_layout = parsed.force_layout orelse .auto,
-        .mermaid_aspect_ratio = parsed.aspect_ratio orelse 1.0,
         .mermaid_debug = parsed.debug_mermaid,
         .mermaid_subgraph_edges = loaded_config.mermaid.subgraph_edges,
     });

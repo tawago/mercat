@@ -32,8 +32,7 @@ pub const table = [_]Row{
     },
     .{
         .token = "getenv",
-        .why = "entry.zig is the sole env-knob reader in mermaid_v2 (see its header); thread values down as plain parameters",
-        .allow = &.{"entry.zig"},
+        .why = "the environment never changes a render; options come from the CLI and config",
     },
     .{
         .token = "lanes.Demand",
@@ -84,7 +83,7 @@ pub const table = [_]Row{
     },
     .{
         .token = "fan_busbar",
-        .why = "the fan rail builder is layout/fan_rail.zig (+ fan_rail_test.zig); the old module basename is retired, including in guarded-by pointers and import strings",
+        .why = "the fan rail builder is layout/fan_rail.zig (+ fan_rail_test.zig); the old module basename is retired, including in import strings",
     },
     .{
         .token = "trunk_member_style_mixed",
@@ -148,7 +147,7 @@ pub const table = [_]Row{
     },
     .{
         .token = "JoinProposal",
-        .why = "the candidate-local proposal record is ledger.BundleProposal (P8)",
+        .why = "the candidate-local proposal record no longer exists",
     },
     .{
         .token = "SelectedJoin",
@@ -156,7 +155,7 @@ pub const table = [_]Row{
     },
     .{
         .token = "RealizedJoins",
-        .why = "the candidate-local realization envelope is ledger.RealizedBundles (P8), riding Sketch.bundles",
+        .why = "the candidate-local realization envelope is ledger.RealizedBundles (P8), riding Sketch.sharing.realized",
     },
     .{
         .token = "intentional_joins",
@@ -172,7 +171,7 @@ pub const table = [_]Row{
     },
     .{
         .token = "ChannelId",
-        .why = "the sharing identity a rail's ink carries is the bundle's: ledger.BundleId (P8); no_channel/privateChannel/channelOf/channelsAgree became no_bundle/privateBundle/bundleOf/bundlesAgree",
+        .why = "the channel id and its helpers are gone",
     },
     .{
         .token = "co_realized",
@@ -180,7 +179,7 @@ pub const table = [_]Row{
     },
     .{
         .token = "sketch_channels",
-        .why = "the stamp module is sketch_bundles.zig (P8); the old basename is retired, including in guarded-by pointers and import strings",
+        .why = "the bundle stamp module was removed; the old basename is retired, including in import strings",
     },
     .{
         .token = "co_channel",
@@ -369,16 +368,13 @@ test "banned token: a reverted diagnostic-tag spelling fires" {
     try testing.expect(std.mem.indexOf(u8, got.list.items[0], "rail_pivot_side_arrow") != null);
 }
 
-test "banned token: an env read outside entry.zig fires, and entry.zig is exempt" {
+test "banned token: an env read fires in every file, entry.zig included" {
     const a = testing.allocator;
-    var hit = try collect(a, "layout/thing.zig", "const v = std.posix.getenv(\"MERCAT_X\");\n", &table);
-    defer hit.deinit(a);
-    try testing.expectEqual(@as(usize, 1), hit.list.items.len);
-    try testing.expect(std.mem.indexOf(u8, hit.list.items[0], "entry.zig is the sole env-knob reader") != null);
-
-    var exempt = try collect(a, "entry.zig", "const v = std.posix.getenv(\"MERCAT_X\");\n", &table);
-    defer exempt.deinit(a);
-    try testing.expectEqual(@as(usize, 0), exempt.list.items.len);
+    for ([_][]const u8{ "layout/thing.zig", "entry.zig" }) |path| {
+        var hit = try collect(a, path, "const v = std.posix.getenv(\"MERCAT_X\");\n", &table);
+        defer hit.deinit(a);
+        try testing.expectEqual(@as(usize, 1), hit.list.items.len);
+    }
 }
 
 test "banned token: a third codepointWidth table fires, the two authorities are exempt" {

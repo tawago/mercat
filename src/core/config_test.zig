@@ -1,5 +1,5 @@
 const std = @import("std");
-const prim = @import("prim");
+const SubgraphEdges = @import("mermaid/mermaid.zig").SubgraphEdges;
 const config = @import("config.zig");
 const loadfile = @import("theme/loadfile.zig");
 
@@ -22,7 +22,7 @@ test "parses default config" {
     try std.testing.expect(cfg.mermaid.enabled);
     try std.testing.expect(cfg.display.heading_markers);
     try std.testing.expectEqual(FrontmatterStyle.panel, cfg.display.frontmatter);
-    try std.testing.expectEqual(prim.SubgraphEdges.bridge, cfg.mermaid.subgraph_edges);
+    try std.testing.expectEqual(SubgraphEdges.bridge, cfg.mermaid.subgraph_edges);
 }
 
 test "overrides config values from file content" {
@@ -48,7 +48,7 @@ test "overrides config values from file content" {
     try std.testing.expectEqual(SyntaxTheme.classic, cfg.display.syntax_theme);
     try std.testing.expectEqual(@as(usize, 88), cfg.display.width);
     try std.testing.expectEqualStrings("nvim", cfg.general.editor);
-    try std.testing.expectEqual(prim.SubgraphEdges.cross, cfg.mermaid.subgraph_edges);
+    try std.testing.expectEqual(SubgraphEdges.cross, cfg.mermaid.subgraph_edges);
     try std.testing.expectEqual(FrontmatterStyle.dim, cfg.display.frontmatter);
 }
 
@@ -166,8 +166,8 @@ test "default config produces an empty raw_theme" {
 }
 
 test "subgraph_edges parses both notations; bridge round-trips; invalid errors" {
-    try std.testing.expectEqual(prim.SubgraphEdges.bridge, try parseSubgraphEdges("bridge"));
-    try std.testing.expectEqual(prim.SubgraphEdges.cross, try parseSubgraphEdges("cross"));
+    try std.testing.expectEqual(SubgraphEdges.bridge, try parseSubgraphEdges("bridge"));
+    try std.testing.expectEqual(SubgraphEdges.cross, try parseSubgraphEdges("cross"));
     try std.testing.expectError(error.InvalidSubgraphEdges, parseSubgraphEdges("weld"));
 
     var cfg = try parseTomlLike(std.testing.allocator, default_config_text);
@@ -176,7 +176,7 @@ test "subgraph_edges parses both notations; bridge round-trips; invalid errors" 
         \\[mermaid]
         \\subgraph_edges = "bridge"
     );
-    try std.testing.expectEqual(prim.SubgraphEdges.bridge, cfg.mermaid.subgraph_edges);
+    try std.testing.expectEqual(SubgraphEdges.bridge, cfg.mermaid.subgraph_edges);
 }
 
 test "inline comments are stripped from config values" {

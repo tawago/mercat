@@ -1,0 +1,105 @@
+const std = @import("std");
+const sg = @import("../sem_graph.zig");
+const lanes = @import("../base/lanes.zig");
+const pack_mod = @import("gap_rows_pack.zig");
+const Census = @import("gap_rows_census.zig").Census;
+
+const Claim = pack_mod.Claim;
+
+const Request = struct { lo: i32, hi: i32, dep: i32, arr: i32, edge: sg.EdgeId, bundled: bool = false };
+
+const Group = struct {
+    target: sg.NodeId,
+    gap: u32,
+    pin: i32,
+    reqs: std.ArrayListUnmanaged(Request) = .empty,
+};
+
+pub fn jogClaims(a: std.mem.Allocator, c: Census, claims: *std.ArrayListUnmanaged(Claim)) error{OutOfMemory}!void {
+    var groups: std.ArrayListUnmanaged(Group) = .empty;
+    for (c.graph.edges) |e| {
+        if (!c.isPlacement(e) or e.from == e.to or c.isReversed(e.id)) continue;
+        const sl = c.layerOfNode(e.from) orelse continue;
+        const tl = c.layerOfNode(e.to) orelse continue;
+        const gap = c.gapOf(sl, tl) orelse continue;
+        const ui = c.lg.real_index.get(e.from) orelse continue;
+        const vi = c.lg.real_index.get(e.to) orelse continue;
+        const u_col = c.geom[ui].centerX();
+        const v_col = c.geom[vi].centerX();
+        const pin: i32 = if (c.isDrawnSuper(e.to)) -2 else -1;
+        const arr: i32 = if (pin == -1) c.portCol(e, .target_entry) else v_col;
+        if (@max(sl, tl) - @min(sl, tl) > 1) {
+            const entry_gap = c.gapBelow(sl) orelse continue;
+            try claims.append(a, try pack_mod.edgeClaim(a, entry_gap, u_col, v_col, .bridge_return, .entry, false, false, e.id));
+            var jog = try pack_mod.edgeClaim(a, gap, u_col, v_col, .bridge_jog, .exit, false, false, e.id);
+            jog.pin = pin;
+            try claims.append(a, jog);
+            continue;
+        }
+        const g: *Group = for (groups.items) |*existing| {
+            if (existing.target == e.to) break existing;
+        } else blk: {
+            try groups.append(a, .{ .target = e.to, .gap = gap, .pin = pin });
+            break :blk &groups.items[groups.items.len - 1];
+        };
+        var lo = @min(u_col, arr);
+        var hi = @max(u_col, arr);
+        const bundled = pin == -1 and e.crossings > 1 and c.isSuper(e.from);
+        if (bundled) {
+            lo = @min(lo, c.geom[ui].x);
+            hi = @max(hi, c.geom[ui].right() - 1);
+        }
+        try g.reqs.append(a, .{ .lo = lo, .hi = hi, .dep = u_col, .arr = arr, .edge = e.id, .bundled = bundled });
+    }
+    for (groups.items) |*g| {
+        if (g.pin == -1) try adoptSamePortExits(a, g, claims);
+        var lo: i32 = std.math.maxInt(i32);
+        var hi: i32 = std.math.minInt(i32);
+        var own: usize = 0;
+        for (g.reqs.items) |r| own += @intFromBool(r.edge != sg.SENTINEL);
+        const edges = try a.alloc(sg.EdgeId, own);
+        const stems = try a.alloc(i32, own);
+        const taps = try a.alloc(i32, own);
+        var k: usize = 0;
+        for (g.reqs.items) |r| {
+            lo = @min(lo, r.lo);
+            hi = @max(hi, r.hi);
+            if (r.edge == sg.SENTINEL) continue;
+            edges[k] = r.edge;
+            stems[k] = r.dep;
+            taps[k] = r.arr;
+            k += 1;
+        }
+        if (lo == hi and g.reqs.items.len == 1 and !g.reqs.items[0].bundled) continue;
+        var tracks: u32 = 1;
+        if (g.pin == -2) {
+            var demands: std.ArrayListUnmanaged(lanes.LaneClaim) = .empty;
+            for (g.reqs.items) |r| {
+                const lo_d = if (r.dep < r.arr) r.dep else r.arr + 1;
+                const hi_d = if (r.dep < r.arr) r.arr - 1 else r.dep;
+                if (lo_d > hi_d) continue;
+                try demands.append(a, .{ .lo = @intCast(@max(0, lo_d)), .hi = @intCast(@max(0, hi_d)), .base = 0 });
+            }
+            if (demands.items.len > 1) {
+                var asg = try lanes.assign(a, demands.items, 1);
+                tracks = @intCast(@max(asg.lane_pos.len, 1));
+                asg.deinit(a);
+            }
+        }
+        try claims.append(a, .{ .gap = g.gap, .lo = lo, .hi = hi, .height = tracks, .kind = .bridge_jog, .end = .exit, .edges = edges, .stems = stems, .taps = taps, .pin = g.pin });
+    }
+}
+
+fn adoptSamePortExits(a: std.mem.Allocator, g: *Group, claims: *std.ArrayListUnmanaged(Claim)) error{OutOfMemory}!void {
+    for (claims.items) |*c| {
+        if (c.gap != g.gap or c.end != .exit or c.fans.len != 0 or c.height != 1 or c.pin != null) continue;
+        if (c.kind != .corridor_exit and c.kind != .run and c.kind != .stroke_exit) continue;
+        const joins = blk: {
+            for (c.taps) |t| for (g.reqs.items) |r| if (t == r.arr) break :blk true;
+            break :blk false;
+        };
+        if (!joins) continue;
+        c.pin = -1;
+        try g.reqs.append(a, .{ .lo = c.lo, .hi = c.hi, .dep = c.lo, .arr = c.hi, .edge = sg.SENTINEL });
+    }
+}

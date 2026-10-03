@@ -1,5 +1,5 @@
 const std = @import("std");
-const prim = @import("prim");
+const SubgraphEdges = @import("mermaid/mermaid.zig").SubgraphEdges;
 pub const loadfile = @import("theme/loadfile.zig");
 pub const RawThemeBuilder = loadfile.RawThemeBuilder;
 
@@ -40,7 +40,7 @@ pub const Config = struct {
     pub const Mermaid = struct {
         enabled: bool = true,
         style: []const u8 = "",
-        subgraph_edges: prim.SubgraphEdges = .bridge,
+        subgraph_edges: SubgraphEdges = .bridge,
     };
 
     pub const Files = struct {
@@ -196,7 +196,7 @@ fn parseSyntaxTheme(value: []const u8) !SyntaxTheme {
     return error.InvalidSyntaxTheme;
 }
 
-pub fn parseSubgraphEdges(value: []const u8) !prim.SubgraphEdges {
+pub fn parseSubgraphEdges(value: []const u8) !SubgraphEdges {
     if (std.mem.eql(u8, value, "bridge")) return .bridge;
     if (std.mem.eql(u8, value, "cross")) return .cross;
     return error.InvalidSubgraphEdges;

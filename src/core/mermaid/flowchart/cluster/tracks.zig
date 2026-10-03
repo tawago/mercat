@@ -1,0 +1,200 @@
+const std = @import("std");
+const sketch = @import("../sketch.zig");
+const lanes = @import("../base/lanes.zig");
+
+pub const Req = struct {
+    span_lo: i32,
+    span_hi: i32,
+    pref: i32,
+};
+
+pub const Outward = struct {
+    from: i32,
+    sign: i32 = 1,
+    reach: i32,
+    d: i32 = 1,
+    second: bool = false,
+
+    pub fn next(self: *Outward) ?i32 {
+        if (self.d > self.reach) return null;
+        const step = self.sign * self.d;
+        if (self.second) {
+            self.second = false;
+            self.d += 1;
+            return self.from - step;
+        }
+        self.second = true;
+        return self.from + step;
+    }
+};
+
+pub fn outwardSign(entry: sketch.Dir4) i32 {
+    return switch (entry) {
+        .north, .west => -1,
+        .south, .east => 1,
+    };
+}
+
+fn isRowJog(entry: sketch.Dir4) bool {
+    return entry == .north or entry == .south;
+}
+
+pub fn onFrameBorder(
+    row_jog: bool,
+    coord: i32,
+    lo: i32,
+    hi: i32,
+    clusters: []const sketch.ClusterFrame,
+) bool {
+    for (clusters) |c| {
+        if (c.synthetic) continue;
+        if (c.rect.w == 0 or c.rect.h == 0) continue;
+        if (row_jog) {
+            const top = c.rect.y;
+            const bot = c.rect.bottom() - 1;
+            if ((coord == top or coord == bot) and lo < c.rect.right() and hi >= c.rect.x) return true;
+        } else {
+            const left = c.rect.x;
+            const rgt = c.rect.right() - 1;
+            if ((coord == left or coord == rgt) and lo < c.rect.bottom() and hi >= c.rect.y) return true;
+        }
+    }
+    return false;
+}
+
+pub const Obstacles = struct {
+    heads: []const sketch.Point = &.{},
+    runs: []const [2]sketch.Point = &.{},
+
+    pub fn blocks(o: Obstacles, row_jog: bool, coord: i32, lo: i32, hi: i32) bool {
+        for (o.heads) |h| {
+            if (row_jog) {
+                if (h.y == coord and h.x >= lo and h.x <= hi) return true;
+            } else {
+                if (h.x == coord and h.y >= lo and h.y <= hi) return true;
+            }
+        }
+        for (o.runs) |s| {
+            const horizontal = s[0].y == s[1].y;
+            if (row_jog and horizontal) {
+                if (s[0].y == coord and @min(s[0].x, s[1].x) <= hi and @max(s[0].x, s[1].x) >= lo) return true;
+            } else if (!row_jog and !horizontal) {
+                if (s[0].x == coord and @min(s[0].y, s[1].y) <= hi and @max(s[0].y, s[1].y) >= lo) return true;
+            }
+        }
+        return false;
+    }
+
+    pub fn covers(o: Obstacles, p: sketch.Point) bool {
+        for (o.heads) |h| {
+            if (h.x == p.x and h.y == p.y) return true;
+        }
+        for (o.runs) |s| {
+            if (@min(s[0].x, s[1].x) <= p.x and p.x <= @max(s[0].x, s[1].x) and
+                @min(s[0].y, s[1].y) <= p.y and p.y <= @max(s[0].y, s[1].y)) return true;
+        }
+        return false;
+    }
+};
+
+pub fn clearOfBorders(
+    entry: sketch.Dir4,
+    coord: i32,
+    lo: i32,
+    hi: i32,
+    clusters: []const sketch.ClusterFrame,
+    obstacles: Obstacles,
+) i32 {
+    const sign = outwardSign(entry);
+    const row = isRowJog(entry);
+    var c = coord;
+    var guard: u32 = 0;
+    while (onFrameBorder(row, c, lo, hi, clusters) or obstacles.blocks(row, c, lo, hi)) {
+        if (guard == 4096) break;
+        guard += 1;
+        c += sign;
+    }
+    return c;
+}
+
+const SortCtx = struct {
+    reqs: []const Req,
+    sign: i32,
+
+    fn lessThan(ctx: @This(), a: usize, b: usize) bool {
+        return ctx.sign * ctx.reqs[a].pref < ctx.sign * ctx.reqs[b].pref;
+    }
+};
+
+pub fn resolve(
+    arena: std.mem.Allocator,
+    reqs: []const Req,
+    entry: sketch.Dir4,
+    clusters: []const sketch.ClusterFrame,
+    obstacles: Obstacles,
+) error{OutOfMemory}![]i32 {
+    const out = try arena.alloc(i32, reqs.len);
+    const sign = outwardSign(entry);
+    const row = isRowJog(entry);
+
+    const part = try arena.alloc(bool, reqs.len);
+    @memset(part, false);
+    for (reqs, 0..) |ra, i| {
+        for (reqs[i + 1 ..], i + 1..) |rb, j| {
+            if (ra.span_lo <= rb.span_hi and rb.span_lo <= ra.span_hi) {
+                part[i] = true;
+                part[j] = true;
+            }
+        }
+    }
+
+    for (reqs, 0..) |r, i| {
+        if (!part[i]) out[i] = clearOfBorders(entry, r.pref, r.span_lo, r.span_hi, clusters, obstacles);
+    }
+
+    var order: std.ArrayListUnmanaged(usize) = .empty;
+    for (part, 0..) |p, i| {
+        if (p) try order.append(arena, i);
+    }
+    if (order.items.len == 0) return out;
+    std.mem.sort(usize, order.items, SortCtx{ .reqs = reqs, .sign = sign }, SortCtx.lessThan);
+
+    const demands = try arena.alloc(lanes.LaneClaim, order.items.len);
+    for (order.items, 0..) |ri, k| {
+        const r = reqs[ri];
+        demands[k] = .{
+            .lo = @intCast(@max(0, r.span_lo)),
+            .hi = @intCast(@max(0, r.span_hi)),
+            .base = sign * r.pref,
+        };
+    }
+    const asg = try lanes.assign(arena, demands, 1);
+
+    const nlanes = asg.lane_pos.len;
+    const lane_lo = try arena.alloc(i32, nlanes);
+    const lane_hi = try arena.alloc(i32, nlanes);
+    @memset(lane_lo, std.math.maxInt(i32));
+    @memset(lane_hi, std.math.minInt(i32));
+    for (order.items, 0..) |ri, k| {
+        const li = asg.lane_of[k];
+        lane_lo[li] = @min(lane_lo[li], reqs[ri].span_lo);
+        lane_hi[li] = @max(lane_hi[li], reqs[ri].span_hi);
+    }
+
+    var prev: i32 = std.math.minInt(i32);
+    for (asg.lane_pos, 0..) |*pos, li| {
+        var v = pos.*;
+        if (prev != std.math.minInt(i32) and v <= prev) v = prev + 1;
+        var guard: u32 = 0;
+        while (onFrameBorder(row, sign * v, lane_lo[li], lane_hi[li], clusters) or obstacles.blocks(row, sign * v, lane_lo[li], lane_hi[li])) {
+            if (guard == 4096) break;
+            guard += 1;
+            v += 1;
+        }
+        pos.* = v;
+        prev = v;
+    }
+
+    for (order.items, 0..) |ri, k| out[ri] = sign * asg.lane_pos[asg.lane_of[k]];
+    return out;
+}

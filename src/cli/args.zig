@@ -1,9 +1,33 @@
 const std = @import("std");
 const config = @import("../core/config.zig");
-const mermaid_types = @import("../core/mermaid/types.zig");
-pub const BoxDrawingStyle = mermaid_types.BoxDrawingStyle;
-pub const CrossingReductionHeuristic = mermaid_types.CrossingReductionHeuristic;
-pub const ForceLayout = mermaid_types.ForceLayout;
+
+/// Accepted and validated for compatibility; no longer changes a render.
+pub const BoxDrawingStyle = enum { standard, rounded, heavy, double, ascii };
+
+/// Accepted and validated for compatibility; no longer changes a render.
+pub const CrossingReductionHeuristic = enum { median, barycenter };
+
+/// Accepted and validated for compatibility; the TUI still shows and cycles it (`l`), but it no
+/// longer changes a render.
+pub const ForceLayout = enum {
+    auto,
+    sugiyama,
+    tree,
+    force,
+
+    pub fn displayName(self: ForceLayout) []const u8 {
+        return @tagName(self);
+    }
+
+    pub fn next(self: ForceLayout) ForceLayout {
+        return switch (self) {
+            .auto => .sugiyama,
+            .sugiyama => .tree,
+            .tree => .force,
+            .force => .auto,
+        };
+    }
+};
 
 pub const usage_text =
     \\mercat - Mermaid & Markdown Viewer on Terminal.

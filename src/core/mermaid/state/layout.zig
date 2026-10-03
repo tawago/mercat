@@ -1,24 +1,23 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
-const types = @import("../types.zig");
+const model = @import("model.zig");
 
-const RenderOptions = types.RenderOptions;
-const LayoutAlgorithm = types.LayoutAlgorithm;
-const StateDiagram = types.StateDiagram;
+const StateDiagram = model.StateDiagram;
+const StateType = model.StateType;
+
+const horizontal_spacing: u32 = 8;
+const vertical_spacing: u32 = 3;
 
 pub const StateLayout = struct {
     allocator: Allocator,
     diagram: *StateDiagram,
-    options: RenderOptions,
 
     layers: std.ArrayList(std.ArrayList([]const u8)),
-    algorithm_used: LayoutAlgorithm = .layered_bfs,
 
-    pub fn init(allocator: Allocator, diagram: *StateDiagram, options: RenderOptions) StateLayout {
+    pub fn init(allocator: Allocator, diagram: *StateDiagram) StateLayout {
         return .{
             .allocator = allocator,
             .diagram = diagram,
-            .options = options,
             .layers = .empty,
         };
     }
@@ -32,31 +31,29 @@ pub const StateLayout = struct {
 
     pub fn run(self: *StateLayout) !void {
         try self.assignLayers();
-        try self.assignOrder();
-        try self.assignCoordinates();
+        self.assignCoordinates();
     }
 
+    /// Layer 0 holds the top-level start states, each other state sits one layer below the
+    /// first state that reaches it, states nothing reaches sit in layer 1, and a top-level end
+    /// state sits below the deepest state that leads to it.
     fn assignLayers(self: *StateLayout) !void {
-        var assigned = std.StringHashMap(void).init(self.allocator);
-        defer assigned.deinit();
+        try self.spreadFromStarts();
+        self.placeUnreached();
+        self.lowerEndStates();
+        try self.bucketByLayer();
+    }
 
-        var max_layer: u32 = 0;
+    fn spreadFromStarts(self: *StateLayout) !void {
+        var queue: std.ArrayList([]const u8) = .empty;
+        defer queue.deinit(self.allocator);
 
         for (self.diagram.state_order.items) |id| {
             if (self.diagram.getStateMut(id)) |state| {
                 if (state.state_type == .start and state.parent_id == null) {
                     state.layer = 0;
-                    try assigned.put(id, {});
+                    try queue.append(self.allocator, id);
                 }
-            }
-        }
-
-        var queue: std.ArrayList([]const u8) = .empty;
-        defer queue.deinit(self.allocator);
-
-        for (self.diagram.state_order.items) |id| {
-            if (assigned.contains(id)) {
-                try queue.append(self.allocator, id);
             }
         }
 
@@ -69,44 +66,40 @@ pub const StateLayout = struct {
 
                 const target_id = transition.to;
                 if (self.diagram.getStateMut(target_id)) |target_state| {
-                    if (!assigned.contains(target_id)) {
-                        const new_layer = current_layer + 1;
-                        target_state.layer = new_layer;
-                        if (new_layer > max_layer) max_layer = new_layer;
-                        try assigned.put(target_id, {});
+                    if (target_state.layer == null) {
+                        target_state.layer = current_layer + 1;
                         try queue.append(self.allocator, target_id);
                     }
                 }
             }
         }
+    }
 
-        for (self.diagram.state_order.items) |id| {
-            if (!assigned.contains(id)) {
-                if (self.diagram.getStateMut(id)) |state| {
-                    state.layer = 1;
-                    try assigned.put(id, {});
-                }
-            }
-        }
-
+    fn placeUnreached(self: *StateLayout) void {
         for (self.diagram.state_order.items) |id| {
             if (self.diagram.getStateMut(id)) |state| {
-                if (state.state_type == .end and state.parent_id == null) {
-                    var max_predecessor_layer: u32 = 0;
-                    for (self.diagram.transitions.items) |t| {
-                        if (std.mem.eql(u8, t.to, id)) {
-                            if (self.diagram.getState(t.from)) |from_state| {
-                                if (from_state.layer) |l| {
-                                    if (l > max_predecessor_layer) max_predecessor_layer = l;
-                                }
-                            }
-                        }
-                    }
-                    state.layer = max_predecessor_layer + 1;
-                }
+                if (state.layer == null) state.layer = 1;
             }
         }
+    }
 
+    fn lowerEndStates(self: *StateLayout) void {
+        for (self.diagram.state_order.items) |id| {
+            const state = self.diagram.getStateMut(id) orelse continue;
+            if (state.state_type != .end or state.parent_id != null) continue;
+
+            var max_predecessor_layer: u32 = 0;
+            for (self.diagram.transitions.items) |t| {
+                if (!std.mem.eql(u8, t.to, id)) continue;
+                const from_state = self.diagram.getState(t.from) orelse continue;
+                const from_layer = from_state.layer orelse continue;
+                if (from_layer > max_predecessor_layer) max_predecessor_layer = from_layer;
+            }
+            state.layer = max_predecessor_layer + 1;
+        }
+    }
+
+    fn bucketByLayer(self: *StateLayout) !void {
         const total_layers = self.diagram.getLayerCount();
         for (0..total_layers) |_| {
             try self.layers.append(self.allocator, .empty);
@@ -123,130 +116,113 @@ pub const StateLayout = struct {
         }
     }
 
-    fn assignOrder(self: *StateLayout) !void {
-        for (self.layers.items) |layer| {
-            for (layer.items, 0..) |id, order| {
-                if (self.diagram.getStateMut(id)) |state| {
-                    state.x = @intCast(order);
-                }
-            }
-        }
-    }
-
-    fn assignCoordinates(self: *StateLayout) !void {
-        for (self.diagram.state_order.items) |id| {
-            if (self.diagram.getStateMut(id)) |state| {
-                if (state.state_type == .start or state.state_type == .end) {
-                    state.width = 3;
-                    state.height = 1;
-                } else if (state.state_type == .choice) {
-                    const label_len = if (state.label) |l| l.len else state.id.len;
-                    state.width = @intCast(@max(label_len + 4, 7));
-                    state.height = 3;
-                } else {
-                    const label_len = if (state.label) |l| l.len else state.id.len;
-                    state.width = @intCast(label_len + 4);
-                    state.height = 3;
-                }
-            }
-        }
-
-        var layer_widths: std.ArrayList(u32) = .empty;
-        defer layer_widths.deinit(self.allocator);
+    fn assignCoordinates(self: *StateLayout) void {
+        self.sizeStates();
 
         var max_layer_width: u32 = 0;
         for (self.layers.items) |layer| {
-            var layer_width: u32 = 0;
-            for (layer.items) |id| {
-                if (self.diagram.getState(id)) |state| {
-                    layer_width += state.width;
-                    if (layer.items.len > 1) {
-                        layer_width += self.options.horizontal_spacing;
-                    }
-                }
-            }
-            if (layer.items.len > 1 and layer_width >= self.options.horizontal_spacing) {
-                layer_width -= self.options.horizontal_spacing;
-            }
-            layer_widths.append(self.allocator, layer_width) catch {};
-            if (layer_width > max_layer_width) max_layer_width = layer_width;
-        }
-
-        var layer_transition_counts: std.ArrayList(u32) = .empty;
-        defer layer_transition_counts.deinit(self.allocator);
-
-        for (self.layers.items, 0..) |layer, layer_idx| {
-            if (layer_idx + 1 >= self.layers.items.len) break;
-            const next_layer = self.layers.items[layer_idx + 1];
-
-            var max_transitions: u32 = 0;
-            for (layer.items) |from_id| {
-                for (next_layer.items) |to_id| {
-                    var count: u32 = 0;
-                    for (self.diagram.transitions.items) |t| {
-                        if (std.mem.eql(u8, t.from, from_id) and std.mem.eql(u8, t.to, to_id)) count += 1;
-                        if (std.mem.eql(u8, t.from, to_id) and std.mem.eql(u8, t.to, from_id)) count += 1;
-                    }
-                    if (count > max_transitions) max_transitions = count;
-                }
-            }
-            layer_transition_counts.append(self.allocator, max_transitions) catch {};
+            max_layer_width = @max(max_layer_width, self.layerWidth(layer));
         }
 
         var y: i32 = 0;
         for (self.layers.items, 0..) |layer, layer_idx| {
-            const layer_width = if (layer_idx < layer_widths.items.len) layer_widths.items[layer_idx] else 0;
-            var x: i32 = @intCast((max_layer_width - layer_width) / 2);
+            var x: i32 = @intCast((max_layer_width - self.layerWidth(layer)) / 2);
             var max_height: u32 = 0;
 
             for (layer.items) |id| {
                 if (self.diagram.getStateMut(id)) |state| {
                     state.x = x;
                     state.y = y;
-                    x += @intCast(state.width + self.options.horizontal_spacing);
+                    x += @intCast(state.width + horizontal_spacing);
                     if (state.height > max_height) max_height = state.height;
                 }
             }
 
-            const transition_count = if (layer_idx < layer_transition_counts.items.len) layer_transition_counts.items[layer_idx] else 1;
-            const extra_spacing: u32 = if (transition_count > 1) (transition_count - 1) * 2 else 0;
-            const dynamic_spacing = self.options.vertical_spacing + extra_spacing;
-            y += @intCast(max_height + dynamic_spacing);
+            y += @intCast(max_height + vertical_spacing + self.extraSpacing(layer_idx));
         }
 
         self.centerStartEndStates();
     }
 
-    fn centerStartEndStates(self: *StateLayout) void {
+    fn sizeStates(self: *StateLayout) void {
         for (self.diagram.state_order.items) |id| {
             if (self.diagram.getStateMut(id)) |state| {
-                if (state.state_type == .start) {
-                    for (self.diagram.transitions.items) |t| {
-                        if (std.mem.eql(u8, t.from, id)) {
-                            if (self.diagram.getState(t.to)) |target| {
-                                if (target.x) |target_x| {
-                                    const target_center = target_x + @as(i32, @intCast(target.width / 2));
-                                    state.x = target_center - @as(i32, @intCast(state.width / 2));
-                                }
-                            }
-                            break;
-                        }
-                    }
-                } else if (state.state_type == .end) {
-                    for (self.diagram.transitions.items) |t| {
-                        if (std.mem.eql(u8, t.to, id)) {
-                            if (self.diagram.getState(t.from)) |source| {
-                                if (source.x) |source_x| {
-                                    const source_center = source_x + @as(i32, @intCast(source.width / 2));
-                                    state.x = source_center - @as(i32, @intCast(state.width / 2));
-                                }
-                            }
-                            break;
-                        }
-                    }
+                const label_len = if (state.label) |l| l.len else state.id.len;
+                switch (state.state_type) {
+                    .start, .end => {
+                        state.width = 3;
+                        state.height = 1;
+                    },
+                    .choice => {
+                        state.width = @intCast(@max(label_len + 4, 7));
+                        state.height = 3;
+                    },
+                    else => {
+                        state.width = @intCast(label_len + 4);
+                        state.height = 3;
+                    },
                 }
             }
         }
+    }
+
+    fn layerWidth(self: *const StateLayout, layer: std.ArrayList([]const u8)) u32 {
+        var width: u32 = 0;
+        for (layer.items) |id| {
+            if (self.diagram.getState(id)) |state| {
+                width += state.width;
+                if (layer.items.len > 1) {
+                    width += horizontal_spacing;
+                }
+            }
+        }
+        if (layer.items.len > 1 and width >= horizontal_spacing) {
+            width -= horizontal_spacing;
+        }
+        return width;
+    }
+
+    /// Extra rows under a layer for the parallel transitions between it and the next: two for
+    /// each one beyond the first, counting both directions of a pair.
+    fn extraSpacing(self: *const StateLayout, layer_idx: usize) u32 {
+        if (layer_idx + 1 >= self.layers.items.len) return 0;
+        const layer = self.layers.items[layer_idx];
+        const next_layer = self.layers.items[layer_idx + 1];
+
+        var max_transitions: u32 = 0;
+        for (layer.items) |from_id| {
+            for (next_layer.items) |to_id| {
+                var count: u32 = 0;
+                for (self.diagram.transitions.items) |t| {
+                    if (std.mem.eql(u8, t.from, from_id) and std.mem.eql(u8, t.to, to_id)) count += 1;
+                    if (std.mem.eql(u8, t.from, to_id) and std.mem.eql(u8, t.to, from_id)) count += 1;
+                }
+                if (count > max_transitions) max_transitions = count;
+            }
+        }
+        return if (max_transitions > 1) (max_transitions - 1) * 2 else 0;
+    }
+
+    /// A start state sits above the target of its first transition, an end state below the
+    /// source of the first transition into it.
+    fn centerStartEndStates(self: *StateLayout) void {
+        for (self.diagram.state_order.items) |id| {
+            const state = self.diagram.getStateMut(id) orelse continue;
+            const neighbour_id = self.firstNeighbour(id, state.state_type) orelse continue;
+            const neighbour = self.diagram.getState(neighbour_id) orelse continue;
+            state.x = neighbour.centerX() - @as(i32, @intCast(state.width / 2));
+        }
+    }
+
+    fn firstNeighbour(self: *const StateLayout, id: []const u8, state_type: StateType) ?[]const u8 {
+        for (self.diagram.transitions.items) |t| {
+            switch (state_type) {
+                .start => if (std.mem.eql(u8, t.from, id)) return t.to,
+                .end => if (std.mem.eql(u8, t.to, id)) return t.from,
+                else => return null,
+            }
+        }
+        return null;
     }
 
     pub fn getBounds(self: *const StateLayout) struct { width: u32, height: u32 } {
@@ -255,8 +231,8 @@ pub const StateLayout = struct {
 
         for (self.diagram.state_order.items) |id| {
             if (self.diagram.getState(id)) |state| {
-                const right = (state.x orelse 0) + @as(i32, @intCast(state.width));
-                const bottom = (state.y orelse 0) + @as(i32, @intCast(state.height));
+                const right = state.x + @as(i32, @intCast(state.width));
+                const bottom = state.y + @as(i32, @intCast(state.height));
                 if (right > max_x) max_x = right;
                 if (bottom > max_y) max_y = bottom;
             }

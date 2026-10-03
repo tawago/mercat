@@ -1,104 +1,54 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 const types = @import("../types.zig");
-const parser = @import("../parser.zig");
-const canvas_mod = @import("../shared/canvas.zig");
+const parse = @import("parse.zig");
+const model = @import("model.zig");
 const state_layout_mod = @import("layout.zig");
+const Canvas = @import("../shared/canvas.zig").Canvas;
 const draw_helpers = @import("../shared/draw_helpers.zig");
 
-const RenderOptions = types.RenderOptions;
-const RenderResult = types.RenderResult;
-const StateDiagram = types.StateDiagram;
-const State = types.State;
-const StateType = types.StateType;
-const StateTransition = types.StateTransition;
+const StateDiagram = model.StateDiagram;
+const State = model.State;
+const StateTransition = model.StateTransition;
 const LineChars = types.LineChars;
 const Arrows = types.Arrows;
 const Rect = types.Rect;
 
-const Canvas = canvas_mod.Canvas;
-const Parser = parser.Parser;
 const StateLayout = state_layout_mod.StateLayout;
 
-pub fn renderStateDiagram(allocator: Allocator, source: []const u8, options: RenderOptions) !RenderResult {
-    var diagram = try Parser.parseStateDiagram(allocator, source);
+const start_glyph: u21 = 0x25CF;
+const end_glyph: u21 = 0x25CE;
+const back_edge_arrow: u21 = 0x25B3;
+
+pub fn render(allocator: Allocator, source: []const u8, max_width: u32) !?[]const u8 {
+    var diagram = try parse.parse(allocator, source);
     defer diagram.deinit();
 
     if (diagram.state_order.items.len == 0) {
-        return .{
-            .output = "",
-            .width = 0,
-            .height = 0,
-            .is_fallback = false,
-            .fallback_reason = null,
-        };
+        return "";
     }
 
-    var layout = StateLayout.init(allocator, &diagram, options);
+    var layout = StateLayout.init(allocator, &diagram);
     defer layout.deinit();
     try layout.run();
 
     const bounds = layout.getBounds();
     const padding: u32 = 2;
 
-    var has_back_edge = false;
-    var max_back_edge_label_len: usize = 0;
-    for (diagram.transitions.items) |transition| {
-        const from_state = diagram.getState(transition.from) orelse continue;
-        const to_state = diagram.getState(transition.to) orelse continue;
-        const from_y = from_state.y orelse continue;
-        const to_y = to_state.y orelse continue;
-        if (to_y < from_y) {
-            has_back_edge = true;
-            if (transition.label) |label| {
-                if (label.len > max_back_edge_label_len) {
-                    max_back_edge_label_len = label.len;
-                }
-            }
-        }
-    }
-
-    var has_skip_edge = false;
-    var max_skip_edge_label_len: usize = 0;
-    for (diagram.transitions.items) |transition| {
-        const from_state = diagram.getState(transition.from) orelse continue;
-        const to_state = diagram.getState(transition.to) orelse continue;
-        const from_layer = from_state.layer orelse continue;
-        const to_layer = to_state.layer orelse continue;
-        const from_x = from_state.x orelse continue;
-        const to_x = to_state.x orelse continue;
-        const from_center = from_x + @as(i32, @intCast(from_state.width / 2));
-        const to_center = to_x + @as(i32, @intCast(to_state.width / 2));
-        if (to_layer > from_layer + 1 and from_center == to_center) {
-            has_skip_edge = true;
-            if (transition.label) |label| {
-                if (label.len > max_skip_edge_label_len) {
-                    max_skip_edge_label_len = label.len;
-                }
-            }
-        }
-    }
-
-    const back_edge_width: u32 = if (has_back_edge) 4 + @as(u32, @intCast(max_back_edge_label_len)) else 0;
-    const skip_edge_width: u32 = if (has_skip_edge) 5 + @as(u32, @intCast(max_skip_edge_label_len)) else 0;
+    const back_edge_width = backEdgeWidth(&diagram);
+    const skip_edge_width = skipEdgeWidth(&diagram);
     const canvas_width = bounds.width + padding * 2 + back_edge_width + skip_edge_width;
     const canvas_height = bounds.height + padding * 2;
 
-    if (canvas_width > options.max_width) {
-        return .{
-            .output = source,
-            .width = canvas_width,
-            .height = canvas_height,
-            .is_fallback = true,
-            .fallback_reason = "Diagram too wide for terminal",
-        };
+    if (canvas_width > max_width) {
+        return null;
     }
 
     const left_offset = padding + skip_edge_width;
     for (diagram.state_order.items) |id| {
         if (diagram.getStateMut(id)) |state| {
-            if (state.x) |*x| x.* += @intCast(left_offset);
-            if (state.y) |*y| y.* += @intCast(padding);
+            state.x += @intCast(left_offset);
+            state.y += @intCast(padding);
         }
     }
 
@@ -106,49 +56,66 @@ pub fn renderStateDiagram(allocator: Allocator, source: []const u8, options: Ren
     defer canvas.deinit();
 
     for (diagram.transitions.items, 0..) |*transition, idx| {
-        drawStateTransition(&canvas, transition, &diagram, options, idx);
+        drawStateTransition(&canvas, transition, &diagram, idx);
     }
 
     for (diagram.state_order.items) |id| {
         if (diagram.getState(id)) |state| {
-            drawState(&canvas, state, options);
+            drawState(&canvas, state);
         }
     }
 
-    const output = try canvas.toString(allocator);
-
-    return .{
-        .output = output,
-        .width = canvas_width,
-        .height = canvas_height,
-        .is_fallback = false,
-        .fallback_reason = null,
-    };
+    return try canvas.toString(allocator);
 }
 
-fn drawState(canvas: *Canvas, state: *const State, options: RenderOptions) void {
-    const x = state.x orelse return;
-    const y = state.y orelse return;
+fn isBackEdge(diagram: *const StateDiagram, transition: StateTransition) ?bool {
+    const from_state = diagram.getState(transition.from) orelse return null;
+    const to_state = diagram.getState(transition.to) orelse return null;
+    return to_state.y < from_state.y;
+}
+
+/// Columns to the right of the drawing for the lane of the edges that climb back up, and
+/// their labels; none when no edge climbs.
+fn backEdgeWidth(diagram: *const StateDiagram) u32 {
+    var has_back_edge = false;
+    var max_label_len: usize = 0;
+    for (diagram.transitions.items) |transition| {
+        if (isBackEdge(diagram, transition) != true) continue;
+        has_back_edge = true;
+        if (transition.label) |label| {
+            max_label_len = @max(max_label_len, label.len);
+        }
+    }
+    return if (has_back_edge) 4 + @as(u32, @intCast(max_label_len)) else 0;
+}
+
+/// Columns to the left for the lane of the edges that skip a layer straight down past the
+/// states between, and their labels; none when no edge does.
+fn skipEdgeWidth(diagram: *const StateDiagram) u32 {
+    var has_skip_edge = false;
+    var max_label_len: usize = 0;
+    for (diagram.transitions.items) |transition| {
+        const from_state = diagram.getState(transition.from) orelse continue;
+        const to_state = diagram.getState(transition.to) orelse continue;
+        const from_layer = from_state.layer orelse continue;
+        const to_layer = to_state.layer orelse continue;
+        if (to_layer > from_layer + 1 and from_state.centerX() == to_state.centerX()) {
+            has_skip_edge = true;
+            if (transition.label) |label| {
+                max_label_len = @max(max_label_len, label.len);
+            }
+        }
+    }
+    return if (has_skip_edge) 5 + @as(u32, @intCast(max_label_len)) else 0;
+}
+
+fn drawState(canvas: *Canvas, state: *const State) void {
+    const x = state.x;
+    const y = state.y;
 
     switch (state.state_type) {
-        .start => {
-            if (options.unicode_mode) {
-                canvas.setChar(x + 1, y, 0x25CF, .node_text);
-            } else {
-                canvas.setChar(x, y, '(', .node_border);
-                canvas.setChar(x + 1, y, '*', .node_text);
-                canvas.setChar(x + 2, y, ')', .node_border);
-            }
-        },
-        .end => {
-            if (options.unicode_mode) {
-                canvas.setChar(x + 1, y, 0x25CE, .node_text);
-            } else {
-                canvas.setChar(x, y, '(', .node_border);
-                canvas.setChar(x + 1, y, 'o', .node_text);
-                canvas.setChar(x + 2, y, ')', .node_border);
-            }
-        },
+        .start => canvas.setChar(x + 1, y, start_glyph, .node_text),
+        .end => canvas.setChar(x + 1, y, end_glyph, .node_text),
         .choice => {
             const rect = Rect{
                 .x = x,
@@ -157,16 +124,12 @@ fn drawState(canvas: *Canvas, state: *const State, options: RenderOptions) void 
                 .height = state.height,
             };
             const label = state.label orelse state.id;
-            draw_helpers.drawDiamondNode(canvas, rect, label, options);
+            draw_helpers.drawDiamondNode(canvas, rect, label);
         },
         .fork, .join => {
-            const h_char: u21 = if (options.unicode_mode) LineChars.horizontal_thick else '=';
-            var i: i32 = 0;
-            while (i < @as(i32, @intCast(state.width))) : (i += 1) {
-                canvas.setChar(x + i, y, h_char, .node_border);
-            }
+            canvas.drawHorizontalLine(y, x, x + @as(i32, @intCast(state.width)) - 1, LineChars.horizontal_thick, .node_border);
         },
-        .regular, .composite => {
+        .regular => {
             const rect = Rect{
                 .x = x,
                 .y = y,
@@ -174,210 +137,197 @@ fn drawState(canvas: *Canvas, state: *const State, options: RenderOptions) void 
                 .height = state.height,
             };
             const label = state.label orelse state.id;
-            const box_style = if (options.unicode_mode) types.unicode_rounded else types.ascii_box;
-            canvas.drawBox(rect, box_style, .node_border);
+            canvas.drawBox(rect, types.unicode_rounded, .node_border);
             canvas.drawTextCentered(rect, label, .node_text);
         },
     }
 }
 
-fn drawStateTransition(canvas: *Canvas, transition: *const StateTransition, diagram: *const StateDiagram, options: RenderOptions, transition_idx: usize) void {
-    const from_state = diagram.getState(transition.from) orelse return;
-    const to_state = diagram.getState(transition.to) orelse return;
+/// Where a transition sits among those that join the same two states in the same drawn
+/// direction, which offsets the labels of parallel edges.
+const Slot = struct { count: u32, index: u32 };
 
-    const from_x = from_state.x orelse return;
-    const from_y = from_state.y orelse return;
-    const to_x = to_state.x orelse return;
-    const to_y = to_state.y orelse return;
+fn parallelSlot(diagram: *const StateDiagram, transition_idx: usize) Slot {
+    const transition = diagram.transitions.items[transition_idx];
+    const is_back = isBackEdge(diagram, transition) orelse false;
+    const state_a = if (is_back) transition.to else transition.from;
+    const state_b = if (is_back) transition.from else transition.to;
 
-    const h_char: u21 = if (options.unicode_mode) LineChars.horizontal else '-';
-    const v_char: u21 = if (options.unicode_mode) LineChars.vertical else '|';
-    const arrow_down: u21 = if (options.unicode_mode) Arrows.down else 'v';
-    _ = if (options.unicode_mode) Arrows.up else '^';
-
-    const from_center_x = from_x + @as(i32, @intCast(from_state.width / 2));
-    const from_bottom = from_y + @as(i32, @intCast(from_state.height));
-    const to_center_x = to_x + @as(i32, @intCast(to_state.width / 2));
-    const to_bottom = to_y + @as(i32, @intCast(to_state.height));
-
-    const is_back_edge = to_y < from_y;
-
-    var transition_count: u32 = 0;
-    var my_index: u32 = 0;
-    const state_a = if (is_back_edge) transition.to else transition.from;
-    const state_b = if (is_back_edge) transition.from else transition.to;
+    var slot: Slot = .{ .count = 0, .index = 0 };
     for (diagram.transitions.items, 0..) |t, idx| {
-        const t_is_back = blk: {
-            const t_from = diagram.getState(t.from) orelse continue;
-            const t_to = diagram.getState(t.to) orelse continue;
-            const t_from_y = t_from.y orelse continue;
-            const t_to_y = t_to.y orelse continue;
-            break :blk t_to_y < t_from_y;
-        };
+        const t_is_back = isBackEdge(diagram, t) orelse continue;
         const t_state_a = if (t_is_back) t.to else t.from;
         const t_state_b = if (t_is_back) t.from else t.to;
 
         if (std.mem.eql(u8, t_state_a, state_a) and std.mem.eql(u8, t_state_b, state_b)) {
             if (idx == transition_idx) {
-                my_index = transition_count;
+                slot.index = slot.count;
             }
-            transition_count += 1;
+            slot.count += 1;
+        }
+    }
+    return slot;
+}
+
+/// Label text goes down one cell per byte, as it is.
+fn drawLabel(canvas: *Canvas, x: i32, y: i32, label: []const u8) void {
+    for (label, 0..) |byte, i| {
+        canvas.setChar(x + @as(i32, @intCast(i)), y, byte, .edge_label);
+    }
+}
+
+fn drawStateTransition(canvas: *Canvas, transition: *const StateTransition, diagram: *const StateDiagram, transition_idx: usize) void {
+    const from_state = diagram.getState(transition.from) orelse return;
+    const to_state = diagram.getState(transition.to) orelse return;
+
+    const slot = parallelSlot(diagram, transition_idx);
+
+    if (to_state.y < from_state.y) {
+        drawBackEdge(canvas, transition, from_state, to_state, slot);
+    } else if (from_state.centerX() == to_state.centerX()) {
+        const from_layer = from_state.layer orelse 0;
+        const to_layer = to_state.layer orelse 0;
+        if (to_layer > from_layer + 1) {
+            drawSkipEdge(canvas, transition, diagram, from_state, to_state);
+        } else {
+            drawStraightEdge(canvas, transition, from_state, to_state, slot);
+        }
+    } else {
+        drawElbowEdge(canvas, transition, from_state, to_state);
+    }
+}
+
+/// An edge up to an earlier layer: a dashless line beside the two boxes, rising to an arrow
+/// under the target.
+fn drawBackEdge(canvas: *Canvas, transition: *const StateTransition, from_state: *const State, to_state: *const State, slot: Slot) void {
+    const wider_width = @max(from_state.width, to_state.width);
+    const center_x = @max(from_state.centerX(), to_state.centerX());
+    const edge_x = center_x + @as(i32, @intCast(wider_width / 4));
+
+    const from_top = from_state.y;
+    const arrow_y = to_state.bottom();
+
+    const line_middle = @divTrunc(to_state.bottom() + from_top, 2);
+    const label_offset = @as(i32, @intCast(slot.index)) - @as(i32, @intCast(slot.count / 2));
+    const label_y = line_middle + label_offset;
+
+    var y = to_state.bottom();
+    while (y < from_top) : (y += 1) {
+        if (y == arrow_y) {
+            canvas.setChar(edge_x, y, back_edge_arrow, .edge);
+        } else {
+            canvas.setChar(edge_x, y, LineChars.vertical, .edge);
         }
     }
 
-    if (is_back_edge) {
-        const wider_width = @max(from_state.width, to_state.width);
-        const center_x = @max(from_center_x, to_center_x);
-        const edge_x = center_x + @as(i32, @intCast(wider_width / 4));
+    if (transition.label) |label| {
+        drawLabel(canvas, edge_x + 1, label_y, label);
+    }
+}
 
-        const from_top = from_y;
-        const arrow_y = to_bottom;
-
-        const line_middle = @divTrunc(to_bottom + from_top, 2);
-        const label_offset = @as(i32, @intCast(my_index)) - @as(i32, @intCast(transition_count / 2));
-        const label_y = line_middle + label_offset;
-
-        var y = to_bottom;
-        while (y < from_top) : (y += 1) {
-            if (y == arrow_y) {
-                const arrow_up: u21 = if (options.unicode_mode) 0x25B3 else '^';
-                canvas.setChar(edge_x, y, arrow_up, .edge);
-            } else {
-                canvas.setChar(edge_x, y, v_char, .edge);
-            }
+/// An edge down past intermediate layers, routed around the left of every state.
+fn drawSkipEdge(canvas: *Canvas, transition: *const StateTransition, diagram: *const StateDiagram, from_state: *const State, to_state: *const State) void {
+    var min_x: i32 = from_state.x;
+    for (diagram.state_order.items) |id| {
+        if (diagram.getState(id)) |state| {
+            min_x = @min(min_x, state.x);
         }
+    }
 
-        if (transition.label) |label| {
-            var i: usize = 0;
-            while (i < label.len) : (i += 1) {
-                canvas.setChar(edge_x + 1 + @as(i32, @intCast(i)), label_y, label[i], .edge_label);
-            }
-        }
-    } else if (from_center_x == to_center_x) {
-        const from_layer = from_state.layer orelse 0;
-        const to_layer = to_state.layer orelse 0;
-        const is_skip_edge = to_layer > from_layer + 1;
+    const route_x = min_x - 3;
 
-        if (is_skip_edge) {
-            var min_x: i32 = from_x;
-            for (diagram.state_order.items) |id| {
-                if (diagram.getState(id)) |state| {
-                    if (state.x) |sx| {
-                        if (sx < min_x) min_x = sx;
-                    }
-                }
-            }
+    const exit_y = from_state.midY();
+    const enter_y = to_state.midY();
 
-            const route_x = min_x - 3;
-            const corner_se: u21 = if (options.unicode_mode) LineChars.corner_se else '+';
-            const corner_ne: u21 = if (options.unicode_mode) LineChars.corner_ne else '+';
-
-            const exit_y = from_y + @as(i32, @intCast(from_state.height / 2));
-            const enter_y = to_y + @as(i32, @intCast(to_state.height / 2));
-
-            var hx = route_x;
-            while (hx < from_x) : (hx += 1) {
-                if (hx == route_x) {
-                    canvas.setChar(hx, exit_y, corner_se, .edge);
-                } else {
-                    canvas.setChar(hx, exit_y, h_char, .edge);
-                }
-            }
-
-            var vy = exit_y + 1;
-            while (vy < enter_y) : (vy += 1) {
-                canvas.setChar(route_x, vy, v_char, .edge);
-            }
-
-            canvas.setChar(route_x, enter_y, corner_ne, .edge);
-
-            hx = route_x + 1;
-            const target_entry_x = to_x;
-            while (hx < target_entry_x) : (hx += 1) {
-                if (hx == target_entry_x - 1) {
-                    const arrow_right: u21 = if (options.unicode_mode) Arrows.right else '>';
-                    canvas.setChar(hx, enter_y, arrow_right, .edge);
-                } else {
-                    canvas.setChar(hx, enter_y, h_char, .edge);
-                }
-            }
-
-            if (transition.label) |label| {
-                const label_y = @divTrunc(exit_y + enter_y, 2);
-                var i: usize = 0;
-                while (i < label.len) : (i += 1) {
-                    canvas.setChar(route_x + 1 + @as(i32, @intCast(i)), label_y, label[i], .edge_label);
-                }
-            }
+    var hx = route_x;
+    while (hx < from_state.x) : (hx += 1) {
+        if (hx == route_x) {
+            canvas.setChar(hx, exit_y, LineChars.corner_se, .edge);
         } else {
-            const arrow_y = to_y - 1;
-
-            const line_middle = @divTrunc(from_bottom + to_y, 2);
-            const label_offset = @as(i32, @intCast(my_index)) - @as(i32, @intCast(transition_count / 2));
-            const label_y = line_middle + label_offset;
-
-            var y = from_bottom;
-            while (y < to_y) : (y += 1) {
-                if (y == arrow_y) {
-                    canvas.setChar(from_center_x, y, arrow_down, .edge);
-                } else {
-                    canvas.setChar(from_center_x, y, v_char, .edge);
-                }
-            }
-
-            if (transition.label) |label| {
-                var label_x = from_center_x - @as(i32, @intCast(label.len)) - 1;
-                if (label_x < 0) {
-                    label_x = 0;
-                }
-                var i: usize = 0;
-                while (i < label.len) : (i += 1) {
-                    canvas.setChar(label_x + @as(i32, @intCast(i)), label_y, label[i], .edge_label);
-                }
-            }
+            canvas.setChar(hx, exit_y, LineChars.horizontal, .edge);
         }
-    } else {
-        const mid_y = from_bottom + 1;
+    }
 
-        canvas.setChar(from_center_x, from_bottom, v_char, .edge);
+    var vy = exit_y + 1;
+    while (vy < enter_y) : (vy += 1) {
+        canvas.setChar(route_x, vy, LineChars.vertical, .edge);
+    }
 
-        const min_x = @min(from_center_x, to_center_x);
-        const max_x = @max(from_center_x, to_center_x);
-        var hx = min_x;
-        while (hx <= max_x) : (hx += 1) {
-            if (hx == from_center_x) {
-                const corner: u21 = if (to_center_x > from_center_x)
-                    (if (options.unicode_mode) 0x2514 else '+')
-                else
-                    (if (options.unicode_mode) 0x2518 else '+');
-                canvas.setChar(hx, mid_y, corner, .edge);
-            } else if (hx == to_center_x) {
-                const corner: u21 = if (to_center_x > from_center_x)
-                    (if (options.unicode_mode) 0x2510 else '+')
-                else
-                    (if (options.unicode_mode) 0x250C else '+');
-                canvas.setChar(hx, mid_y, corner, .edge);
-            } else {
-                canvas.setChar(hx, mid_y, h_char, .edge);
-            }
+    canvas.setChar(route_x, enter_y, LineChars.corner_ne, .edge);
+
+    hx = route_x + 1;
+    while (hx < to_state.x) : (hx += 1) {
+        if (hx == to_state.x - 1) {
+            canvas.setChar(hx, enter_y, Arrows.right, .edge);
+        } else {
+            canvas.setChar(hx, enter_y, LineChars.horizontal, .edge);
         }
+    }
 
-        var y = mid_y + 1;
-        while (y < to_y) : (y += 1) {
-            if (y == to_y - 1) {
-                canvas.setChar(to_center_x, y, arrow_down, .edge);
-            } else {
-                canvas.setChar(to_center_x, y, v_char, .edge);
-            }
-        }
+    if (transition.label) |label| {
+        drawLabel(canvas, route_x + 1, @divTrunc(exit_y + enter_y, 2), label);
+    }
+}
 
-        if (transition.label) |label| {
-            const label_x = @divTrunc(from_center_x + to_center_x, 2) - @as(i32, @intCast(label.len / 2));
-            const label_y = mid_y;
-            var i: usize = 0;
-            while (i < label.len) : (i += 1) {
-                canvas.setChar(label_x + @as(i32, @intCast(i)), label_y, label[i], .edge_label);
-            }
+/// An edge straight down to the next layer, its label to the left.
+fn drawStraightEdge(canvas: *Canvas, transition: *const StateTransition, from_state: *const State, to_state: *const State, slot: Slot) void {
+    const center_x = from_state.centerX();
+    const from_bottom = from_state.bottom();
+    const arrow_y = to_state.y - 1;
+
+    const line_middle = @divTrunc(from_bottom + to_state.y, 2);
+    const label_offset = @as(i32, @intCast(slot.index)) - @as(i32, @intCast(slot.count / 2));
+    const label_y = line_middle + label_offset;
+
+    var y = from_bottom;
+    while (y < to_state.y) : (y += 1) {
+        if (y == arrow_y) {
+            canvas.setChar(center_x, y, Arrows.down, .edge);
+        } else {
+            canvas.setChar(center_x, y, LineChars.vertical, .edge);
         }
+    }
+
+    if (transition.label) |label| {
+        const label_x = @max(center_x - @as(i32, @intCast(label.len)) - 1, 0);
+        drawLabel(canvas, label_x, label_y, label);
+    }
+}
+
+/// An edge down and across: out of the source, along the row under it, then down into the target.
+fn drawElbowEdge(canvas: *Canvas, transition: *const StateTransition, from_state: *const State, to_state: *const State) void {
+    const from_center_x = from_state.centerX();
+    const to_center_x = to_state.centerX();
+    const from_bottom = from_state.bottom();
+    const mid_y = from_bottom + 1;
+    const going_right = to_center_x > from_center_x;
+
+    canvas.setChar(from_center_x, from_bottom, LineChars.vertical, .edge);
+
+    const min_x = @min(from_center_x, to_center_x);
+    const max_x = @max(from_center_x, to_center_x);
+    var hx = min_x;
+    while (hx <= max_x) : (hx += 1) {
+        if (hx == from_center_x) {
+            canvas.setChar(hx, mid_y, if (going_right) LineChars.corner_ne else LineChars.corner_nw, .edge);
+        } else if (hx == to_center_x) {
+            canvas.setChar(hx, mid_y, if (going_right) LineChars.corner_sw else LineChars.corner_se, .edge);
+        } else {
+            canvas.setChar(hx, mid_y, LineChars.horizontal, .edge);
+        }
+    }
+
+    var y = mid_y + 1;
+    while (y < to_state.y) : (y += 1) {
+        if (y == to_state.y - 1) {
+            canvas.setChar(to_center_x, y, Arrows.down, .edge);
+        } else {
+            canvas.setChar(to_center_x, y, LineChars.vertical, .edge);
+        }
+    }
+
+    if (transition.label) |label| {
+        const label_x = @divTrunc(from_center_x + to_center_x, 2) - @as(i32, @intCast(label.len / 2));
+        drawLabel(canvas, label_x, mid_y, label);
     }
 }
