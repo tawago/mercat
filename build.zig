@@ -29,7 +29,7 @@ pub fn build(b: *std.Build) void {
     if (maybe_koino_dep == null or maybe_vaxis_dep == null) return;
     const koino_dep = maybe_koino_dep.?;
     const vaxis_dep = maybe_vaxis_dep.?;
-    options.addOption([]const u8, "version", "0.2.1");
+    options.addOption([]const u8, "version", "0.3.0");
 
     const text_mod = b.createModule(.{
         .root_source_file = b.path("src/lib/text.zig"),

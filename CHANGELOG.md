@@ -4,6 +4,41 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.3.0]
+
+### Flowcharts
+
+- **New flowchart renderer.** Fans share one rail instead of a tangle of parallel
+  strokes, edges that cross subgraph borders route around existing ink, and
+  arrowheads always sit on a straight run into their node.
+- **Edge labels stay on their own edge** and keep clear of other edges' ink.
+- **Shorter diagrams.** Gaps between ranks hold only the rows their ink needs,
+  so tall empty gaps are gone.
+- Emoji, CJK, combining marks and other wide or zero-width characters in labels
+  are measured by display width, so boxes and rows no longer skew.
+
+### Text and Unicode
+
+- **Unicode 17.0.0** is now the width and grapheme authority for markdown,
+  export, the TUI and diagrams.
+- Malformed UTF-8 is rejected with `error: InvalidUtf8` instead of being passed
+  through byte by byte.
+- Documents containing invisible control characters (soft hyphen, zero-width
+  space, LRM/RLM, word joiner) are rejected with `error: DisallowedControl`.
+- Table cells collapse runs of spaces; links and images with multibyte URLs are
+  measured in columns, so such tables come out narrower.
+- Tabs in front matter expand to four-column stops in every style.
+- Sequence, class, ER and state diagrams drop a label whose characters are not
+  all single code points (emoji with variation selector, flags, ZWJ sequences,
+  combining marks, tabs).
+
+### CLI
+
+- `mercat --version` prints the built version and returns at once; it no
+  longer contacts GitHub.
+- Input is capped at 256 MB.
+- Mermaid warnings on stderr are prefixed `mermaid` (was `mermaid_v2`).
+
 ## [0.2.1]
 
 ### Themes
