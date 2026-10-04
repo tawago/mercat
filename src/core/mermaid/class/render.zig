@@ -4,6 +4,7 @@ const types = @import("../types.zig");
 const parse = @import("parse.zig");
 const model = @import("model.zig");
 const Canvas = @import("../shared/canvas.zig").Canvas;
+const ladder = @import("../shared/ladder.zig");
 
 const ClassDiagram = model.ClassDiagram;
 const Class = model.Class;
@@ -21,34 +22,46 @@ const classes_per_row: u32 = 3;
 
 const Size = struct { width: u32, height: u32 };
 
-pub fn render(allocator: Allocator, source: []const u8, max_width: u32) !?[]const u8 {
+pub fn render(allocator: Allocator, source: []const u8, max_width: u32) !ladder.Fit {
     var diagram = try parse.parse(allocator, source);
     defer diagram.deinit();
 
     if (diagram.class_order.items.len == 0) {
-        return "";
+        return .{ .drawn = "" };
     }
 
-    const size = place(&diagram);
-    if (size.width > max_width) {
-        return null;
-    }
-
-    var canvas = try Canvas.init(allocator, size.width, size.height);
-    defer canvas.deinit();
-
-    for (diagram.class_order.items) |class_name| {
-        if (diagram.getClass(class_name)) |class| {
-            drawClassBox(&canvas, class);
-        }
-    }
-
-    for (diagram.relations.items) |*rel| {
-        drawClassRelation(&canvas, rel, &diagram);
-    }
-
-    return try canvas.toString(allocator);
+    return ladder.firstFit(&rungs, Painter{ .allocator = allocator, .diagram = &diagram }, max_width);
 }
+
+const Rung = struct {};
+const rungs = [_]Rung{.{}};
+
+const Painter = struct {
+    allocator: Allocator,
+    diagram: *ClassDiagram,
+
+    pub fn draw(self: Painter, _: Rung, max_width: u32) !ladder.Fit {
+        const size = place(self.diagram);
+        if (size.width > max_width) {
+            return .{ .too_wide = size.width };
+        }
+
+        var canvas = try Canvas.init(self.allocator, size.width, size.height);
+        defer canvas.deinit();
+
+        for (self.diagram.class_order.items) |class_name| {
+            if (self.diagram.getClass(class_name)) |class| {
+                drawClassBox(&canvas, class);
+            }
+        }
+
+        for (self.diagram.relations.items) |*rel| {
+            drawClassRelation(&canvas, rel, self.diagram);
+        }
+
+        return .{ .drawn = try canvas.toString(self.allocator) };
+    }
+};
 
 /// Size every class box and lay the boxes out three to a row. The canvas width is the widest
 /// full row; a last row of fewer than three counts only when no row is full.
@@ -219,4 +232,19 @@ fn drawClassRelation(canvas: *Canvas, rel: *const ClassRelation, diagram: *const
     if (marker.len > 0) {
         canvas.drawText(end_x, end_y - 1, marker, .edge);
     }
+}
+
+test "over the budget: its measured width; at that width it draws" {
+    const allocator = std.testing.allocator;
+    const source = "classDiagram\n    class Animal\n    class Duck\n    class Fish\n    class Zebra\n    Animal <|-- Duck\n    Animal <|-- Fish\n    Animal <|-- Zebra\n";
+    const width = (try render(allocator, source, 0)).too_wide;
+    try std.testing.expect(width > 0);
+    try std.testing.expectEqual(ladder.Fit{ .too_wide = width }, try render(allocator, source, width - 1));
+    const fitted = try render(allocator, source, width);
+    defer allocator.free(fitted.drawn);
+    try std.testing.expect(fitted.drawn.len > 0);
+}
+
+test "an empty diagram draws nothing" {
+    try std.testing.expectEqualStrings("", (try render(std.testing.allocator, "classDiagram\n", 0)).drawn);
 }

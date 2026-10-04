@@ -5,6 +5,7 @@ const parse = @import("parse.zig");
 const model = @import("model.zig");
 const state_layout_mod = @import("layout.zig");
 const Canvas = @import("../shared/canvas.zig").Canvas;
+const ladder = @import("../shared/ladder.zig");
 const draw_helpers = @import("../shared/draw_helpers.zig");
 
 const StateDiagram = model.StateDiagram;
@@ -20,53 +21,65 @@ const start_glyph: u21 = 0x25CF;
 const end_glyph: u21 = 0x25CE;
 const back_edge_arrow: u21 = 0x25B3;
 
-pub fn render(allocator: Allocator, source: []const u8, max_width: u32) !?[]const u8 {
+pub fn render(allocator: Allocator, source: []const u8, max_width: u32) !ladder.Fit {
     var diagram = try parse.parse(allocator, source);
     defer diagram.deinit();
 
     if (diagram.state_order.items.len == 0) {
-        return "";
+        return .{ .drawn = "" };
     }
 
-    var layout = StateLayout.init(allocator, &diagram);
-    defer layout.deinit();
-    try layout.run();
-
-    const bounds = layout.getBounds();
-    const padding: u32 = 2;
-
-    const back_edge_width = backEdgeWidth(&diagram);
-    const skip_edge_width = skipEdgeWidth(&diagram);
-    const canvas_width = bounds.width + padding * 2 + back_edge_width + skip_edge_width;
-    const canvas_height = bounds.height + padding * 2;
-
-    if (canvas_width > max_width) {
-        return null;
-    }
-
-    const left_offset = padding + skip_edge_width;
-    for (diagram.state_order.items) |id| {
-        if (diagram.getStateMut(id)) |state| {
-            state.x += @intCast(left_offset);
-            state.y += @intCast(padding);
-        }
-    }
-
-    var canvas = try Canvas.init(allocator, canvas_width, canvas_height);
-    defer canvas.deinit();
-
-    for (diagram.transitions.items, 0..) |*transition, idx| {
-        drawStateTransition(&canvas, transition, &diagram, idx);
-    }
-
-    for (diagram.state_order.items) |id| {
-        if (diagram.getState(id)) |state| {
-            drawState(&canvas, state);
-        }
-    }
-
-    return try canvas.toString(allocator);
+    return ladder.firstFit(&rungs, Painter{ .allocator = allocator, .diagram = &diagram }, max_width);
 }
+
+const Rung = struct {};
+const rungs = [_]Rung{.{}};
+
+const Painter = struct {
+    allocator: Allocator,
+    diagram: *StateDiagram,
+
+    pub fn draw(self: Painter, _: Rung, max_width: u32) !ladder.Fit {
+        var layout = StateLayout.init(self.allocator, self.diagram);
+        defer layout.deinit();
+        try layout.run();
+
+        const bounds = layout.getBounds();
+        const padding: u32 = 2;
+
+        const back_edge_width = backEdgeWidth(self.diagram);
+        const skip_edge_width = skipEdgeWidth(self.diagram);
+        const canvas_width = bounds.width + padding * 2 + back_edge_width + skip_edge_width;
+        const canvas_height = bounds.height + padding * 2;
+
+        if (canvas_width > max_width) {
+            return .{ .too_wide = canvas_width };
+        }
+
+        const left_offset = padding + skip_edge_width;
+        for (self.diagram.state_order.items) |id| {
+            if (self.diagram.getStateMut(id)) |state| {
+                state.x += @intCast(left_offset);
+                state.y += @intCast(padding);
+            }
+        }
+
+        var canvas = try Canvas.init(self.allocator, canvas_width, canvas_height);
+        defer canvas.deinit();
+
+        for (self.diagram.transitions.items, 0..) |*transition, idx| {
+            drawStateTransition(&canvas, transition, self.diagram, idx);
+        }
+
+        for (self.diagram.state_order.items) |id| {
+            if (self.diagram.getState(id)) |state| {
+                drawState(&canvas, state);
+            }
+        }
+
+        return .{ .drawn = try canvas.toString(self.allocator) };
+    }
+};
 
 fn isBackEdge(diagram: *const StateDiagram, transition: StateTransition) ?bool {
     const from_state = diagram.getState(transition.from) orelse return null;
@@ -330,4 +343,19 @@ fn drawElbowEdge(canvas: *Canvas, transition: *const StateTransition, from_state
         const label_x = @divTrunc(from_center_x + to_center_x, 2) - @as(i32, @intCast(label.len / 2));
         drawLabel(canvas, label_x, mid_y, label);
     }
+}
+
+test "over the budget: its measured width; at that width it draws" {
+    const allocator = std.testing.allocator;
+    const source = "stateDiagram-v2\n    [*] --> Idle\n    Idle --> Running : start\n    Running --> Idle : stop\n    Running --> [*]\n";
+    const width = (try render(allocator, source, 0)).too_wide;
+    try std.testing.expect(width > 0);
+    try std.testing.expectEqual(ladder.Fit{ .too_wide = width }, try render(allocator, source, width - 1));
+    const fitted = try render(allocator, source, width);
+    defer allocator.free(fitted.drawn);
+    try std.testing.expect(fitted.drawn.len > 0);
+}
+
+test "an empty diagram draws nothing" {
+    try std.testing.expectEqualStrings("", (try render(std.testing.allocator, "stateDiagram-v2\n", 0)).drawn);
 }

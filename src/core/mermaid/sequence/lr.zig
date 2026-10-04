@@ -6,6 +6,7 @@ const Allocator = std.mem.Allocator;
 const types = @import("../types.zig");
 const model = @import("model.zig");
 const fit = @import("fit.zig");
+const ladder = @import("../shared/ladder.zig");
 const common = @import("common.zig");
 const Canvas = @import("../shared/canvas.zig").Canvas;
 const draw_helpers = @import("../shared/draw_helpers.zig");
@@ -24,15 +25,15 @@ const min_box_width: u32 = 8;
 
 const Size = struct { width: u32, height: u32 };
 
-pub fn render(allocator: Allocator, diagram: *SequenceDiagram, spacing: fit.Spacing, max_width: u32) !?[]const u8 {
+pub fn render(allocator: Allocator, diagram: *SequenceDiagram, spacing: fit.Spacing, max_width: u32) !ladder.Fit {
     if (diagram.participants.items.len == 0) {
-        return "";
+        return .{ .drawn = "" };
     }
 
     const box_width = stackParticipants(diagram, spacing);
     const size = measure(diagram, spacing, box_width);
     if (size.width > max_width) {
-        return null;
+        return .{ .too_wide = size.width };
     }
 
     var canvas = try Canvas.init(allocator, size.width, size.height);
@@ -68,7 +69,7 @@ pub fn render(allocator: Allocator, diagram: *SequenceDiagram, spacing: fit.Spac
         }
     }
 
-    return try canvas.toString(allocator);
+    return .{ .drawn = try canvas.toString(allocator) };
 }
 
 /// Give every participant the widest box and one row band, top to bottom; returns the box

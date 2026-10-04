@@ -4,6 +4,7 @@ const types = @import("../types.zig");
 const parse = @import("parse.zig");
 const model = @import("model.zig");
 const Canvas = @import("../shared/canvas.zig").Canvas;
+const ladder = @import("../shared/ladder.zig");
 
 const ERDiagram = model.ERDiagram;
 const Entity = model.Entity;
@@ -18,34 +19,46 @@ const vertical_spacing: u32 = 3;
 
 const Size = struct { width: u32, height: u32 };
 
-pub fn render(allocator: Allocator, source: []const u8, max_width: u32) !?[]const u8 {
+pub fn render(allocator: Allocator, source: []const u8, max_width: u32) !ladder.Fit {
     var diagram = try parse.parse(allocator, source);
     defer diagram.deinit();
 
     if (diagram.entity_order.items.len == 0) {
-        return "";
+        return .{ .drawn = "" };
     }
 
-    const size = place(&diagram);
-    if (size.width > max_width) {
-        return null;
-    }
-
-    var canvas = try Canvas.init(allocator, size.width, size.height);
-    defer canvas.deinit();
-
-    for (diagram.entity_order.items) |entity_name| {
-        if (diagram.getEntity(entity_name)) |entity| {
-            drawEntityBox(&canvas, entity);
-        }
-    }
-
-    for (diagram.relations.items) |*rel| {
-        drawERRelation(&canvas, rel, &diagram);
-    }
-
-    return try canvas.toString(allocator);
+    return ladder.firstFit(&rungs, Painter{ .allocator = allocator, .diagram = &diagram }, max_width);
 }
+
+const Rung = struct {};
+const rungs = [_]Rung{.{}};
+
+const Painter = struct {
+    allocator: Allocator,
+    diagram: *ERDiagram,
+
+    pub fn draw(self: Painter, _: Rung, max_width: u32) !ladder.Fit {
+        const size = place(self.diagram);
+        if (size.width > max_width) {
+            return .{ .too_wide = size.width };
+        }
+
+        var canvas = try Canvas.init(self.allocator, size.width, size.height);
+        defer canvas.deinit();
+
+        for (self.diagram.entity_order.items) |entity_name| {
+            if (self.diagram.getEntity(entity_name)) |entity| {
+                drawEntityBox(&canvas, entity);
+            }
+        }
+
+        for (self.diagram.relations.items) |*rel| {
+            drawERRelation(&canvas, rel, self.diagram);
+        }
+
+        return .{ .drawn = try canvas.toString(self.allocator) };
+    }
+};
 
 /// Size the entity boxes and set them in one row, in declaration order; the canvas is tall
 /// enough for two rows of crossing line per relation.
@@ -114,4 +127,19 @@ fn drawERRelation(canvas: *Canvas, rel: *const ERRelation, diagram: *const ERDia
         const label_len: i32 = @intCast(label.len);
         canvas.drawText(mid_x - @divFloor(label_len, 2), start_y + 1, label, .edge_label);
     }
+}
+
+test "over the budget: its measured width; at that width it draws" {
+    const allocator = std.testing.allocator;
+    const source = "erDiagram\n    CUSTOMER ||--o{ ORDER : places\n    ORDER ||--|{ LINE_ITEM : contains\n";
+    const width = (try render(allocator, source, 0)).too_wide;
+    try std.testing.expect(width > 0);
+    try std.testing.expectEqual(ladder.Fit{ .too_wide = width }, try render(allocator, source, width - 1));
+    const fitted = try render(allocator, source, width);
+    defer allocator.free(fitted.drawn);
+    try std.testing.expect(fitted.drawn.len > 0);
+}
+
+test "an empty diagram draws nothing" {
+    try std.testing.expectEqualStrings("", (try render(std.testing.allocator, "erDiagram\n", 0)).drawn);
 }
