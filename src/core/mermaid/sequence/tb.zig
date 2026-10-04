@@ -18,12 +18,12 @@ const Rect = types.Rect;
 
 const processLabel = draw_helpers.processLabel;
 
-const participant_height: u32 = 3;
-const normal_row_height: u32 = 2;
-const self_msg_row_height: u32 = 4;
-const self_msg_loop_width: u32 = 4;
-const self_msg_text_offset: u32 = 2;
-const note_row_height: u32 = 3;
+pub const participant_height: u32 = 3;
+pub const normal_row_height: u32 = 2;
+pub const self_msg_row_height: u32 = 4;
+pub const self_msg_loop_width: u32 = 4;
+pub const self_msg_text_offset: u32 = 2;
+pub const note_row_height: u32 = 3;
 
 const Size = struct { width: u32, height: u32 };
 
@@ -115,7 +115,7 @@ fn measure(diagram: *SequenceDiagram, spacing: fit.Spacing) Size {
     return .{ .width = width, .height = participant_height + message_height + 2 };
 }
 
-fn drawActivationBox(canvas: *Canvas, bar: common.Bar) void {
+pub fn drawActivationBox(canvas: *Canvas, bar: common.Bar) void {
     const center_x = bar.participant.centerX();
     const left = center_x - 1;
     const right = center_x + 1;
@@ -175,7 +175,7 @@ fn drawMessage(canvas: *Canvas, msg: *const Message, diagram: *const SequenceDia
     }
 }
 
-fn drawSelfMessage(canvas: *Canvas, x: i32, y: i32, text: []const u8) void {
+pub fn drawSelfMessage(canvas: *Canvas, x: i32, y: i32, text: []const u8) void {
     const loop_width: i32 = 4;
 
     canvas.drawHorizontalLine(y - 1, x + 1, x + loop_width, LineChars.horizontal, .edge);

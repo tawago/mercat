@@ -43,6 +43,8 @@ fn isVertical(char: u21) bool {
     return char == LineChars.vertical or char == '|';
 }
 
+const continuation: u21 = 0;
+
 pub const Canvas = struct {
     allocator: Allocator,
     cells: [][]Cell,
@@ -126,6 +128,21 @@ pub const Canvas = struct {
         }
     }
 
+    /// Like drawText, but the second column of a wide grapheme becomes a continuation cell that
+    /// prints nothing, so the row keeps one terminal column per cell; a grapheme of several
+    /// scalars is left blank instead of dropping the whole text.
+    pub fn drawTextSpanning(self: *Canvas, x: i32, y: i32, text: []const u8, priority: Priority) void {
+        var col = x;
+        var it = unicode.Iterator.init(text);
+        while (it.next() catch return) |grapheme| {
+            const cp = singleScalar(grapheme.bytes);
+            self.setChar(col, y, cp orelse ' ', priority);
+            var rest: i32 = 1;
+            while (rest < grapheme.width) : (rest += 1) self.setChar(col + rest, y, if (cp == null) ' ' else continuation, priority);
+            col += @intCast(grapheme.width);
+        }
+    }
+
     pub fn drawTextCentered(self: *Canvas, rect: Rect, text: []const u8, priority: Priority) void {
         const text_len: i32 = @intCast(scalarTextWidth(text) orelse return);
         const box_width: i32 = @intCast(rect.width);
@@ -170,6 +187,7 @@ pub const Canvas = struct {
             }
 
             for (row[0..last_non_space]) |cell| {
+                if (cell.char == continuation) continue;
                 const len = std.unicode.utf8Encode(cell.char, &encode_buf) catch 1;
                 try result.appendSlice(allocator, encode_buf[0..len]);
             }
@@ -275,6 +293,25 @@ test "drawText uses authority width for ASCII and CJK scalars" {
 
     canvas.drawTextCentered(.{ .x = 4, .y = 0, .width = 7, .height = 1 }, "日", .node_text);
     try testing.expectEqual(@as(u21, 0x65E5), canvas.getCell(6, 0).?.char);
+}
+
+test "drawTextSpanning keeps one terminal column per cell after a wide grapheme" {
+    const testing = std.testing;
+    var canvas = try Canvas.init(testing.allocator, 6, 1);
+    defer canvas.deinit();
+
+    canvas.drawTextSpanning(0, 0, "A日B", .node_text);
+    canvas.setChar(5, 0, '|', .edge);
+    const str = try canvas.toString(testing.allocator);
+    defer testing.allocator.free(str);
+    try testing.expectEqualStrings("A日B |\n", str);
+
+    var other = try Canvas.init(testing.allocator, 8, 1);
+    defer other.deinit();
+    other.drawTextSpanning(0, 0, "a 👩‍💻 b", .node_text);
+    const blanked = try other.toString(testing.allocator);
+    defer testing.allocator.free(blanked);
+    try testing.expectEqualStrings("a    b\n", blanked);
 }
 
 test "drawText declines invalid UTF-8 controls and tabs atomically" {
