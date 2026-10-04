@@ -1,5 +1,6 @@
 //! The top-down sequence diagram for the wrap rungs: message labels wrapped to the lifelines
-//! they span, self-message text wrapped to the width left of the budget.
+//! they span, self-message text wrapped to the width left of the budget. Text never lies under
+//! an activation bar: labels take the widest gap between bars, self text stops short of one.
 
 const std = @import("std");
 const Allocator = std.mem.Allocator;
@@ -16,13 +17,15 @@ const draw_helpers = @import("../shared/draw_helpers.zig");
 
 const SequenceDiagram = model.SequenceDiagram;
 const Message = model.Message;
-const LineChars = types.LineChars;
-const Arrows = types.Arrows;
 
 const self_text_floor: u32 = 10;
 const unlimited = std.math.maxInt(u32);
 
-const Row = struct { lines: []const wrap.Line = &.{}, height: u32 };
+/// Participants (by index, the tracked ones) whose drawn activation bar crosses an element.
+const Barred = std.bit_set.IntegerBitSet(common.Activations.tracked);
+
+/// The wrapped text lines start at `left`; message lines centre within `room` columns.
+const Row = struct { lines: []const wrap.Line = &.{}, left: i32 = 0, room: u32 = 0, height: u32 };
 
 pub fn render(allocator: Allocator, diagram: *SequenceDiagram, spacing: fit.Spacing, max_width: u32) !ladder.Fit {
     if (diagram.participants.items.len == 0) return .{ .drawn = "" };
@@ -31,17 +34,22 @@ pub fn render(allocator: Allocator, diagram: *SequenceDiagram, spacing: fit.Spac
     defer arena.deinit();
     const scratch = arena.allocator();
 
-    var width = placeParticipants(diagram, spacing);
+    var width = tb.placeParticipants(diagram, spacing, 0);
+    const overhang = try noteOverhang(diagram);
+    if (overhang > 0) width = tb.placeParticipants(diagram, spacing, overhang);
+
+    const barred = try barredElements(scratch, diagram);
     const rows = try scratch.alloc(Row, diagram.elements.items.len);
     var height: u32 = tb.participant_height + 2;
-    for (diagram.elements.items, rows) |element, *row| {
+    for (diagram.elements.items, rows, barred) |element, *row, bars| {
         row.* = switch (element) {
             .message => |msg| if (msg.is_self_message)
-                try selfRow(scratch, &msg, diagram, spacing, max_width, &width)
+                try selfRow(scratch, &msg, diagram, bars, spacing, max_width, &width) orelse
+                    return .{ .too_wide = @max(width, max_width + 1) }
             else
-                try messageRow(scratch, &msg, diagram),
+                try messageRow(scratch, &msg, diagram, bars),
             .note => |note| blk: {
-                width = @max(width, try noteEnd(&note, diagram) + spacing.padding);
+                if (try noteRect(&note, diagram)) |rect| width = @max(width, @as(u32, @intCast(rect.x)) + rect.width + spacing.padding);
                 break :blk .{ .height = tb.note_row_height };
             },
             .activation => .{ .height = 0 },
@@ -51,10 +59,8 @@ pub fn render(allocator: Allocator, diagram: *SequenceDiagram, spacing: fit.Spac
     if (width > max_width) return .{ .too_wide = width };
 
     var canvas = try Canvas.init(scratch, width, height);
-    for (diagram.participants.items) |*p| try drawParticipant(&canvas, p);
-    for (diagram.participants.items) |*p| {
-        canvas.drawVerticalLine(p.centerX(), @intCast(tb.participant_height), @intCast(height - 1), LineChars.vertical_dotted, .edge);
-    }
+    for (diagram.participants.items) |*p| common.drawParticipantBox(&canvas, p, 0, .spanning);
+    common.drawLifelines(&canvas, diagram, @intCast(tb.participant_height), @intCast(height - 1));
 
     var activations: common.Activations = .{};
     var top: i32 = @intCast(tb.participant_height);
@@ -73,16 +79,47 @@ pub fn render(allocator: Allocator, diagram: *SequenceDiagram, spacing: fit.Spac
     return .{ .drawn = try canvas.toString(allocator) };
 }
 
-/// Lay the participants out as tb.zig does at this spacing; the width up to the last box's
-/// right edge plus padding.
-fn placeParticipants(diagram: *SequenceDiagram, spacing: fit.Spacing) u32 {
-    var x: u32 = spacing.padding;
-    for (diagram.participants.items) |*p| {
-        p.box_width = p.naturalWidth();
-        p.x = @intCast(x);
-        x += p.box_width + spacing.participant;
+/// For each element, the participants whose bar is drawn across its rows, paired as
+/// common.Activations pairs them. A bar's bottom lands on the first row after its deactivate.
+fn barredElements(scratch: Allocator, diagram: *const SequenceDiagram) ![]Barred {
+    const elements = diagram.elements.items;
+    const barred = try scratch.alloc(Barred, elements.len);
+    @memset(barred, Barred.initEmpty());
+    var opened: [common.Activations.tracked]?usize = .{null} ** common.Activations.tracked;
+    for (elements, 0..) |element, i| {
+        const act = switch (element) {
+            .activation => |act| act,
+            else => continue,
+        };
+        const idx = diagram.getParticipantIndex(act.participant) orelse continue;
+        if (idx >= common.Activations.tracked) continue;
+        if (act.is_activate) {
+            opened[idx] = i;
+            continue;
+        }
+        const start = opened[idx] orelse continue;
+        opened[idx] = null;
+        var k = start + 1;
+        while (k < elements.len) : (k += 1) {
+            barred[k].set(idx);
+            if (k > i and elements[k] != .activation) break;
+        }
     }
-    return x - spacing.participant + spacing.padding;
+    return barred;
+}
+
+/// How far the leftmost note box would reach past the left edge.
+fn noteOverhang(diagram: *const SequenceDiagram) !u32 {
+    var overhang: u32 = 0;
+    for (diagram.elements.items) |element| {
+        const note = switch (element) {
+            .note => |note| note,
+            else => continue,
+        };
+        const rect = try noteRect(&note, diagram) orelse continue;
+        if (rect.x < 0) overhang = @max(overhang, @as(u32, @intCast(-rect.x)));
+    }
+    return overhang;
 }
 
 const Span = struct { left: i32, right: i32 };
@@ -93,33 +130,58 @@ fn messageSpan(msg: *const Message, diagram: *const SequenceDiagram) ?Span {
     return .{ .left = @min(from.centerX(), to.centerX()), .right = @max(from.centerX(), to.centerX()) };
 }
 
-/// Label columns between the two lifelines, one clear column beside each so an activation bar
-/// never covers a glyph.
-fn labelRoom(span: Span) u32 {
-    return @intCast(@max(span.right - span.left - 3, 1));
+const Gap = struct { left: i32, width: u32 };
+
+/// The widest run of label columns between the two lifelines, one clear column beside each
+/// lifeline and each crossed bar.
+fn labelGap(span: Span, diagram: *const SequenceDiagram, bars: Barred) Gap {
+    var best = Gap{ .left = span.left + 2, .width = 1 };
+    var left = span.left + 2;
+    for (diagram.participants.items, 0..) |*p, idx| {
+        const center = p.centerX();
+        if (center <= span.left or center >= span.right) continue;
+        if (idx >= common.Activations.tracked or !bars.isSet(idx)) continue;
+        widen(&best, left, center - 2);
+        left = center + 2;
+    }
+    widen(&best, left, span.right - 2);
+    return best;
 }
 
-fn messageRow(scratch: Allocator, msg: *const Message, diagram: *const SequenceDiagram) !Row {
+fn widen(best: *Gap, left: i32, right: i32) void {
+    if (right - left + 1 > best.width) best.* = .{ .left = left, .width = @intCast(right - left + 1) };
+}
+
+fn messageRow(scratch: Allocator, msg: *const Message, diagram: *const SequenceDiagram, bars: Barred) !Row {
     const span = messageSpan(msg, diagram) orelse return .{ .height = tb.normal_row_height };
-    const lines = try wrap.wrap(scratch, msg.text, labelRoom(span));
-    return .{ .lines = lines, .height = @as(u32, @intCast(@max(lines.len, 1))) + 1 };
+    const gap = labelGap(span, diagram, bars);
+    const lines = try wrap.wrap(scratch, msg.text, gap.width);
+    return .{ .lines = lines, .left = gap.left, .room = gap.width, .height = @as(u32, @intCast(@max(lines.len, 1))) + 1 };
 }
 
-fn selfTextColumn(msg: *const Message, diagram: *const SequenceDiagram) ?i32 {
-    const p = diagram.getParticipant(msg.from) orelse return null;
+fn selfTextColumn(p: *const model.Participant) i32 {
     return p.centerX() + @as(i32, @intCast(tb.self_msg_loop_width + tb.self_msg_text_offset));
 }
 
-fn selfRow(scratch: Allocator, msg: *const Message, diagram: *const SequenceDiagram, spacing: fit.Spacing, max_width: u32, width: *u32) !Row {
-    const column = selfTextColumn(msg, diagram) orelse return .{ .height = tb.self_msg_row_height };
-    const left = @as(i64, max_width) - spacing.padding - column;
-    const room: u32 = @intCast(std.math.clamp(left, 0, unlimited));
+/// Null when an activation bar right of the loop leaves the text less than its floor.
+fn selfRow(scratch: Allocator, msg: *const Message, diagram: *const SequenceDiagram, bars: Barred, spacing: fit.Spacing, max_width: u32, width: *u32) !?Row {
+    const p = diagram.getParticipant(msg.from) orelse return .{ .height = tb.self_msg_row_height };
+    const column = selfTextColumn(p);
+    var room: u32 = @intCast(std.math.clamp(@as(i64, max_width) - spacing.padding - column, 0, unlimited));
+    var bar_room: u32 = unlimited;
+    for (diagram.participants.items, 0..) |*other, idx| {
+        if (idx >= common.Activations.tracked or !bars.isSet(idx) or other.centerX() + 1 < column) continue;
+        bar_room = @min(bar_room, @as(u32, @intCast(@max(other.centerX() - 1 - column, 0))));
+    }
+    room = @min(room, bar_room);
     var lines = try wrap.wrap(scratch, msg.text, unlimited);
     if (widest(lines) > room) {
-        lines = try wrap.wrap(scratch, msg.text, @max(room, @min(try wrap.longestWord(msg.text), self_text_floor)));
+        const floor = @min(try wrap.longestWord(msg.text), self_text_floor);
+        if (bar_room < floor) return null;
+        lines = try wrap.wrap(scratch, msg.text, @max(room, floor));
     }
     if (lines.len > 0) width.* = @max(width.*, @as(u32, @intCast(column)) + widest(lines) + spacing.padding);
-    return .{ .lines = lines, .height = @max(tb.self_msg_row_height, @as(u32, @intCast(lines.len)) + 2) };
+    return .{ .lines = lines, .left = column, .height = @max(tb.self_msg_row_height, @as(u32, @intCast(lines.len)) + 2) };
 }
 
 fn widest(lines: []const wrap.Line) u32 {
@@ -129,24 +191,10 @@ fn widest(lines: []const wrap.Line) u32 {
 }
 
 fn noteRect(note: *const model.SequenceNote, diagram: *const SequenceDiagram) !?types.Rect {
-    const p1 = diagram.getParticipant(note.participant1) orelse return null;
     var text_buf: [256]u8 = undefined;
     const box_width: i32 = @intCast(try unicode.rawDisplayWidth(draw_helpers.processLabel(note.text, &text_buf)) + 4);
-    const x = switch (note.position) {
-        .right_of => p1.centerX() + 2,
-        .left_of => p1.centerX() - box_width - 2,
-        .over => blk: {
-            const p2 = if (note.participant2) |id| diagram.getParticipant(id) else null;
-            const mid = if (p2) |other| @divFloor(p1.centerX() + other.centerX(), 2) else p1.centerX();
-            break :blk mid - @divFloor(box_width, 2);
-        },
-    };
-    return .{ .x = @max(x, 0), .y = 0, .width = @intCast(box_width), .height = tb.note_row_height };
-}
-
-fn noteEnd(note: *const model.SequenceNote, diagram: *const SequenceDiagram) !u32 {
-    const rect = try noteRect(note, diagram) orelse return 0;
-    return @intCast(@max(rect.x + @as(i32, @intCast(rect.width)), 0));
+    const x = tb.noteBoxX(note, diagram, box_width) orelse return null;
+    return .{ .x = x, .y = 0, .width = @intCast(box_width), .height = tb.note_row_height };
 }
 
 fn drawNote(canvas: *Canvas, note: *const model.SequenceNote, diagram: *const SequenceDiagram, top: i32) !void {
@@ -157,36 +205,20 @@ fn drawNote(canvas: *Canvas, note: *const model.SequenceNote, diagram: *const Se
     canvas.drawTextSpanning(rect.x + 2, top + 1, draw_helpers.processLabel(note.text, &text_buf), .edge_label);
 }
 
-fn drawParticipant(canvas: *Canvas, p: *const model.Participant) !void {
-    const rect = types.Rect{ .x = p.x, .y = 0, .width = p.box_width, .height = tb.participant_height };
-    canvas.drawBox(rect, types.unicode_rounded, .node_border);
-    const name = p.displayName();
-    const name_width: i32 = @intCast(try unicode.rawDisplayWidth(name));
-    canvas.drawTextSpanning(rect.x + @divFloor(@as(i32, @intCast(rect.width)) - name_width, 2), 1, name, .node_text);
-}
-
 fn drawMessage(canvas: *Canvas, msg: *const Message, diagram: *const SequenceDiagram, row: Row, top: i32) void {
-    const span = messageSpan(msg, diagram) orelse return;
-    const arrow_y = top + @as(i32, @intCast(row.height)) - 1;
-    const line_char: u21 = if (msg.arrow_type.isDashed()) LineChars.horizontal_dotted else LineChars.horizontal;
-    canvas.drawHorizontalLine(arrow_y, span.left + 1, span.right - 1, line_char, .edge);
-    if (msg.arrow_type.hasArrowhead()) {
-        const to_x = diagram.getParticipant(msg.to).?.centerX();
-        canvas.setChar(to_x, arrow_y, if (to_x == span.right) Arrows.right_thin else Arrows.left_thin, .edge);
-    }
-
-    const room: i32 = @intCast(labelRoom(span));
+    const from = diagram.getParticipant(msg.from) orelse return;
+    const to = diagram.getParticipant(msg.to) orelse return;
+    tb.drawMessageLine(canvas, msg, from.centerX(), to.centerX(), top + @as(i32, @intCast(row.height)) - 1);
     for (row.lines, 0..) |line, i| {
-        const x = span.left + 2 + @divFloor(room - @as(i32, @intCast(line.width)), 2);
-        canvas.drawTextSpanning(x, top + @as(i32, @intCast(i)), line.bytes, .edge_label);
+        const indent = @divFloor(@as(i32, @intCast(row.room)) - @as(i32, @intCast(line.width)), 2);
+        canvas.drawTextSpanning(row.left + indent, top + @as(i32, @intCast(i)), line.bytes, .edge_label);
     }
 }
 
 fn drawSelfMessage(canvas: *Canvas, msg: *const Message, diagram: *const SequenceDiagram, row: Row, top: i32) void {
     const p = diagram.getParticipant(msg.from) orelse return;
     tb.drawSelfMessage(canvas, p.centerX(), top + 1, "");
-    const column = selfTextColumn(msg, diagram).?;
     for (row.lines, 0..) |line, i| {
-        canvas.drawTextSpanning(column, top + 1 + @as(i32, @intCast(i)), line.bytes, .edge_label);
+        canvas.drawTextSpanning(row.left, top + 1 + @as(i32, @intCast(i)), line.bytes, .edge_label);
     }
 }

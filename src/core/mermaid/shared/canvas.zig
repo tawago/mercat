@@ -20,18 +20,18 @@ pub const Cell = struct {
 
     /// Write `char` unless something of higher priority is there. An edge never overwrites an
     /// edge of the crossing orientation, so the first line drawn keeps the crossing.
-    pub fn set(self: *Cell, char: u21, priority: Priority) void {
+    pub fn set(self: *Cell, char: u21, priority: Priority) bool {
         if (priority == .edge and self.priority == .edge) {
             if ((isHorizontal(self.char) and isVertical(char)) or
                 (isVertical(self.char) and isHorizontal(char)))
             {
-                return;
+                return false;
             }
         }
-        if (@intFromEnum(priority) >= @intFromEnum(self.priority)) {
-            self.char = char;
-            self.priority = priority;
-        }
+        if (@intFromEnum(priority) < @intFromEnum(self.priority)) return false;
+        self.char = char;
+        self.priority = priority;
+        return true;
     }
 };
 
@@ -86,9 +86,18 @@ pub const Canvas = struct {
         return &self.cells[uy][ux];
     }
 
+    /// Overwriting either half of a wide grapheme blanks the other half, so the row keeps one
+    /// terminal column per cell.
     pub fn setChar(self: *Canvas, x: i32, y: i32, char: u21, priority: Priority) void {
-        if (self.getCell(x, y)) |cell| {
-            cell.set(char, priority);
+        const cell = self.getCell(x, y) orelse return;
+        const was = cell.char;
+        if (!cell.set(char, priority)) return;
+        if (char == continuation) return;
+        if (was == continuation) {
+            if (self.getCell(x - 1, y)) |lead| lead.char = ' ';
+        }
+        if (self.getCell(x + 1, y)) |next| {
+            if (next.char == continuation) next.char = ' ';
         }
     }
 
@@ -152,6 +161,12 @@ pub const Canvas = struct {
         const y = rect.y + @divFloor(box_height, 2);
 
         self.drawText(x, y, text, priority);
+    }
+
+    pub fn drawTextCenteredSpanning(self: *Canvas, rect: Rect, text: []const u8, priority: Priority) void {
+        const text_width: i32 = @intCast(unicode.rawDisplayWidth(text) catch return);
+        const x = rect.x + @divFloor(@as(i32, @intCast(rect.width)) - text_width, 2);
+        self.drawTextSpanning(x, rect.y + @divFloor(@as(i32, @intCast(rect.height)), 2), text, priority);
     }
 
     pub fn drawHorizontalLine(self: *Canvas, y: i32, x1: i32, x2: i32, char: u21, priority: Priority) void {
@@ -312,6 +327,22 @@ test "drawTextSpanning keeps one terminal column per cell after a wide grapheme"
     const blanked = try other.toString(testing.allocator);
     defer testing.allocator.free(blanked);
     try testing.expectEqualStrings("a    b\n", blanked);
+}
+
+test "overwriting either half of a wide grapheme blanks its partner" {
+    const testing = std.testing;
+    for ([_]i32{ 1, 2 }) |hit| {
+        var canvas = try Canvas.init(testing.allocator, 6, 1);
+        defer canvas.deinit();
+        canvas.drawTextSpanning(0, 0, "a日本", .edge_label);
+        canvas.setChar(hit, 0, '|', .node_border);
+        canvas.setChar(5, 0, '#', .edge);
+        const str = try canvas.toString(testing.allocator);
+        defer testing.allocator.free(str);
+        try testing.expectEqual(@as(usize, 6), try unicode.rawDisplayWidth(str[0 .. str.len - 1]));
+        try testing.expect(std.mem.indexOf(u8, str, "本") != null);
+        try testing.expect(std.mem.indexOf(u8, str, "日") == null);
+    }
 }
 
 test "drawText declines invalid UTF-8 controls and tabs atomically" {

@@ -41,14 +41,10 @@ pub fn render(allocator: Allocator, diagram: *SequenceDiagram, spacing: fit.Spac
     defer canvas.deinit();
 
     for (diagram.participants.items) |*p| {
-        common.drawParticipantBox(&canvas, p, 0);
+        common.drawParticipantBox(&canvas, p, 0, .scalar);
     }
 
-    const lifeline_start: i32 = @intCast(participant_height);
-    const lifeline_end: i32 = @intCast(size.height - 1);
-    for (diagram.participants.items) |*p| {
-        canvas.drawVerticalLine(p.centerX(), lifeline_start, lifeline_end, LineChars.vertical_dotted, .edge);
-    }
+    common.drawLifelines(&canvas, diagram, @intCast(participant_height), @intCast(size.height - 1));
 
     var activations: common.Activations = .{};
     var current_y: i32 = @intCast(participant_height + 1);
@@ -99,13 +95,7 @@ fn measure(diagram: *SequenceDiagram, spacing: fit.Spacing) Size {
         }
     }
 
-    var width: u32 = spacing.padding;
-    for (diagram.participants.items) |*p| {
-        p.box_width = p.naturalWidth();
-        p.x = @intCast(width);
-        width += p.box_width + spacing.participant;
-    }
-    width = width - spacing.participant + spacing.padding;
+    var width = placeParticipants(diagram, spacing, 0);
 
     if (max_self_msg_text_len > 0) {
         width += self_msg_loop_width + self_msg_text_offset + max_self_msg_text_len;
@@ -113,6 +103,18 @@ fn measure(diagram: *SequenceDiagram, spacing: fit.Spacing) Size {
     width += max_note_width;
 
     return .{ .width = width, .height = participant_height + message_height + 2 };
+}
+
+/// Place the participants left to right from `shift` past the padding; the width up to the last
+/// box's right edge plus padding.
+pub fn placeParticipants(diagram: *SequenceDiagram, spacing: fit.Spacing, shift: u32) u32 {
+    var width: u32 = spacing.padding + shift;
+    for (diagram.participants.items) |*p| {
+        p.box_width = p.naturalWidth();
+        p.x = @intCast(width);
+        width += p.box_width + spacing.participant;
+    }
+    return width - spacing.participant + spacing.padding;
 }
 
 pub fn drawActivationBox(canvas: *Canvas, bar: common.Bar) void {
@@ -154,24 +156,26 @@ fn drawMessage(canvas: *Canvas, msg: *const Message, diagram: *const SequenceDia
 
     const left_x = @min(from_x, to_x);
     const right_x = @max(from_x, to_x);
-    const going_right = to_x > from_x;
-
-    const line_char: u21 = if (msg.arrow_type.isDashed())
-        LineChars.horizontal_dotted
-    else
-        LineChars.horizontal;
-
-    canvas.drawHorizontalLine(y, left_x + 1, right_x - 1, line_char, .edge);
-
-    if (msg.arrow_type.hasArrowhead()) {
-        const arrow_char: u21 = if (going_right) Arrows.right_thin else Arrows.left_thin;
-        canvas.setChar(to_x, y, arrow_char, .edge);
-    }
+    drawMessageLine(canvas, msg, from_x, to_x, y);
 
     const text_len: i32 = @intCast(text.len);
     const mid_x = left_x + @divFloor(right_x - left_x - text_len, 2);
     if (text_len > 0 and mid_x >= 0) {
         canvas.drawText(mid_x, y - 1, text, .edge_label);
+    }
+}
+
+pub fn drawMessageLine(canvas: *Canvas, msg: *const Message, from_x: i32, to_x: i32, y: i32) void {
+    const line_char: u21 = if (msg.arrow_type.isDashed())
+        LineChars.horizontal_dotted
+    else
+        LineChars.horizontal;
+
+    canvas.drawHorizontalLine(y, @min(from_x, to_x) + 1, @max(from_x, to_x) - 1, line_char, .edge);
+
+    if (msg.arrow_type.hasArrowhead()) {
+        const arrow_char: u21 = if (to_x > from_x) Arrows.right_thin else Arrows.left_thin;
+        canvas.setChar(to_x, y, arrow_char, .edge);
     }
 }
 
@@ -194,20 +198,9 @@ fn drawNote(canvas: *Canvas, note: *const model.SequenceNote, diagram: *const Se
     var text_buf: [256]u8 = undefined;
     const text = processLabel(note.text, &text_buf);
 
-    const p1 = diagram.getParticipant(note.participant1) orelse return;
-    const p1_center = p1.centerX();
-
     const text_len: i32 = @intCast(text.len);
     const box_width: i32 = text_len + 4;
-    const box_x: i32 = switch (note.position) {
-        .right_of => p1_center + 2,
-        .left_of => p1_center - box_width - 2,
-        .over => blk: {
-            const p2 = if (note.participant2) |id| diagram.getParticipant(id) else null;
-            const mid = if (p2) |other| @divFloor(p1_center + other.centerX(), 2) else p1_center;
-            break :blk mid - @divFloor(box_width, 2);
-        },
-    };
+    const box_x = noteBoxX(note, diagram, box_width) orelse return;
 
     const rect = Rect{
         .x = box_x,
@@ -217,4 +210,19 @@ fn drawNote(canvas: *Canvas, note: *const model.SequenceNote, diagram: *const Se
     };
     canvas.drawBox(rect, types.unicode_rounded, .edge_label);
     canvas.drawText(box_x + 2, y + 1, text, .edge_label);
+}
+
+/// The left column of a note box `box_width` wide, placed by its position against its participants.
+pub fn noteBoxX(note: *const model.SequenceNote, diagram: *const SequenceDiagram, box_width: i32) ?i32 {
+    const p1 = diagram.getParticipant(note.participant1) orelse return null;
+    const p1_center = p1.centerX();
+    return switch (note.position) {
+        .right_of => p1_center + 2,
+        .left_of => p1_center - box_width - 2,
+        .over => blk: {
+            const p2 = if (note.participant2) |id| diagram.getParticipant(id) else null;
+            const mid = if (p2) |other| @divFloor(p1_center + other.centerX(), 2) else p1_center;
+            break :blk mid - @divFloor(box_width, 2);
+        },
+    };
 }

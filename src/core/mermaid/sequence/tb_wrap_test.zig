@@ -138,3 +138,116 @@ test "participant names are not wrapped: a pair wider than the budget stays undr
     const fitted = try render.render(testing.allocator, "sequenceDiagram\nAlice->>Bob: a very long message text here", 18);
     try testing.expectEqual(ladder.Fit{ .too_wide = 23 }, fitted);
 }
+
+/// Every lifeline cell and arrowhead sits on a lifeline column read off the last row.
+fn expectLifelinesAligned(text: []const u8) !void {
+    var rows: std.ArrayList([]const u8) = .empty;
+    defer rows.deinit(testing.allocator);
+    var it = std.mem.splitScalar(u8, std.mem.trimRight(u8, text, "\n"), '\n');
+    while (it.next()) |row| try rows.append(testing.allocator, row);
+    var columns = std.StaticBitSet(512).initEmpty();
+    try markColumns(rows.items[rows.items.len - 1], &columns, true);
+    for (rows.items) |row| try markColumns(row, &columns, false);
+}
+
+fn markColumns(row: []const u8, columns: *std.StaticBitSet(512), record: bool) !void {
+    var graphemes = unicode.Iterator.init(row);
+    while (try graphemes.next()) |g| {
+        const lifeline = std.mem.eql(u8, g.bytes, "┆") or std.mem.eql(u8, g.bytes, "►") or std.mem.eql(u8, g.bytes, "◄");
+        if (!lifeline) continue;
+        if (record) columns.set(g.column_end - 1) else try testing.expect(columns.isSet(g.column_end - 1));
+    }
+}
+
+fn expectWords(text: []const u8, label: []const u8) !void {
+    var words = std.mem.tokenizeScalar(u8, label, ' ');
+    while (words.next()) |word| try testing.expect(std.mem.indexOf(u8, text, word) != null);
+}
+
+test "a label crossing another participant's bar takes a gap beside it, words whole" {
+    const source =
+        \\sequenceDiagram
+        \\    participant A
+        \\    participant B
+        \\    participant C
+        \\    A->>A: a self message long enough to force the wrap rung here
+        \\    activate B
+        \\    B->>C: x
+        \\    deactivate B
+        \\    A->>C: alpha bravo charlie delta echo foxtrot golf
+    ;
+    const text = try drawn(source, 38);
+    defer testing.allocator.free(text);
+    try expectWithin(text, 38);
+    try expectWords(text, "alpha bravo charlie delta echo foxtrot golf");
+    try expectWords(text, "a self message long enough to force the wrap rung here");
+    try expectLifelinesAligned(text);
+}
+
+test "a wide-character label crossed by a bar keeps every row aligned" {
+    const source =
+        \\sequenceDiagram
+        \\    participant A as Alpha
+        \\    participant B as Bravo
+        \\    participant C as Charlie
+        \\    A->>B: start
+        \\    activate B
+        \\    A->>C: 日本語のラベル日本語の
+        \\    B->>A: done
+        \\    deactivate B
+        \\    C->>C: a very long self message that will not fit in the budget at all here
+    ;
+    const text = try drawn(source, 58);
+    defer testing.allocator.free(text);
+    try expectWithin(text, 58);
+    try testing.expect(std.mem.indexOf(u8, text, "日本語のラベル") != null);
+    try expectLifelinesAligned(text);
+}
+
+test "self text stops short of a bar to its right" {
+    const source =
+        \\sequenceDiagram
+        \\    participant A
+        \\    participant B as Bravo
+        \\    A->>B: go
+        \\    activate B
+        \\    A->>A: some words that run on toward the active bar beside
+        \\    B->>A: back
+        \\    deactivate B
+    ;
+    const allocator = testing.allocator;
+    var diagram = try parse.parse(allocator, source);
+    defer diagram.deinit();
+    const refused = try tb_wrap.render(allocator, &diagram, .{ .participant = 2, .padding = 2, .wrap = true }, 60);
+    try testing.expect(refused.too_wide > 60);
+    const text = (try tb_wrap.render(allocator, &diagram, .{ .participant = 8, .padding = 2, .wrap = true }, 60)).drawn;
+    defer allocator.free(text);
+    try expectWords(text, "some words that run on toward the active bar beside");
+    try expectLifelinesAligned(text);
+    var rows = std.mem.splitScalar(u8, text, '\n');
+    while (rows.next()) |row| {
+        const bar = std.mem.indexOf(u8, row, "│┆│") orelse continue;
+        try testing.expect(std.mem.indexOfAny(u8, row[bar..], "abcdefghijklmnopqrstuvwxyz") == null);
+    }
+}
+
+test "a note left of the first participant shifts the drawing instead of covering its lifeline" {
+    const source =
+        \\sequenceDiagram
+        \\    participant A as Alpha
+        \\    participant B as Beta
+        \\    Note left of A: a long note text here
+        \\    A->>B: a very long message that needs to wrap somewhere along the way
+    ;
+    const text = try drawn(source, 58);
+    defer testing.allocator.free(text);
+    try expectWithin(text, 58);
+    try expectLifelinesAligned(text);
+    var rows = std.mem.splitScalar(u8, text, '\n');
+    while (rows.next()) |row| {
+        const open = std.mem.indexOf(u8, row, "│ a long") orelse continue;
+        const close = std.mem.lastIndexOf(u8, row, "│").?;
+        try testing.expect(std.mem.indexOf(u8, row[open..close], "┆") == null);
+        try testing.expect(std.mem.indexOf(u8, row[close..], "┆") != null);
+    }
+}
