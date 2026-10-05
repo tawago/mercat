@@ -144,7 +144,7 @@ pub const Canvas = struct {
         var col = x;
         var it = unicode.Iterator.init(text);
         while (it.next() catch return) |grapheme| {
-            const cp = singleScalar(grapheme.bytes);
+            const cp = if (std.mem.eql(u8, grapheme.bytes, "\t")) null else singleScalar(grapheme.bytes);
             self.setChar(col, y, cp orelse ' ', priority);
             var rest: i32 = 1;
             while (rest < grapheme.width) : (rest += 1) self.setChar(col + rest, y, if (cp == null) ' ' else continuation, priority);
@@ -327,6 +327,14 @@ test "drawTextSpanning keeps one terminal column per cell after a wide grapheme"
     const blanked = try other.toString(testing.allocator);
     defer testing.allocator.free(blanked);
     try testing.expectEqualStrings("a    b\n", blanked);
+
+    var tabbed = try Canvas.init(testing.allocator, 8, 1);
+    defer tabbed.deinit();
+    tabbed.drawTextSpanning(0, 0, "ab\tc", .node_text);
+    tabbed.setChar(7, 0, '|', .edge);
+    const spaced = try tabbed.toString(testing.allocator);
+    defer testing.allocator.free(spaced);
+    try testing.expectEqualStrings("ab  c  |\n", spaced);
 }
 
 test "overwriting either half of a wide grapheme blanks its partner" {

@@ -318,3 +318,17 @@ test "an emoji sequence wider than the gap refuses the wrap rung whole" {
     const refused = try tb_wrap.render(allocator, &diagram, .{ .participant = 2, .padding = 2, .wrap = true }, 200);
     try testing.expect(refused.too_wide > 200);
 }
+
+test "a tab in a label draws as blanks the width it was measured, lifelines aligned" {
+    const source = "sequenceDiagram\n    participant A\n    participant B\n    participant C\n" ++
+        "    A->>C: x ab\tcd ef\n    B->>B: z\ty\n";
+    const allocator = testing.allocator;
+    var diagram = try parse.parse(allocator, source);
+    defer diagram.deinit();
+    const text = (try tb_wrap.render(allocator, &diagram, .{ .participant = 2, .padding = 2, .wrap = true }, 200)).drawn;
+    defer allocator.free(text);
+    try testing.expect(std.mem.indexOfScalar(u8, text, '\t') == null);
+    try testing.expect(std.mem.indexOf(u8, text, "x ab    cd ef") != null);
+    try testing.expect(std.mem.indexOf(u8, text, "z   y") != null);
+    try expectLifelinesAligned(text);
+}

@@ -73,13 +73,14 @@ const Unit = struct { start: usize, end: usize, width: u32 };
 /// The unbreakable units of a segment, in order: space-delimited words, cut between two
 /// adjacent East Asian wide graphemes.
 const Units = struct {
+    segment: []const u8,
     words: std.mem.TokenIterator(u8, .scalar),
     word_start: usize = 0,
     graphemes: unicode.Iterator = unicode.Iterator.init(""),
     pending: ?unicode.GraphemeSlice = null,
 
     fn init(segment: []const u8) Units {
-        return .{ .words = std.mem.tokenizeScalar(u8, segment, ' ') };
+        return .{ .segment = segment, .words = std.mem.tokenizeScalar(u8, segment, ' ') };
     }
 
     fn next(self: *Units) !?Unit {
@@ -91,16 +92,16 @@ const Units = struct {
         };
         self.pending = null;
         var last = first;
-        var width: u32 = first.width;
         while (try self.graphemes.next()) |grapheme| {
             if (eastAsianWide(last.bytes) and eastAsianWide(grapheme.bytes)) {
                 self.pending = grapheme;
                 break;
             }
-            width += grapheme.width;
             last = grapheme;
         }
-        return .{ .start = self.word_start + first.byte_start, .end = self.word_start + last.byte_end, .width = width };
+        const start = self.word_start + first.byte_start;
+        const end = self.word_start + last.byte_end;
+        return .{ .start = start, .end = end, .width = try displayWidth(self.segment[start..end]) };
     }
 };
 
@@ -117,11 +118,13 @@ fn packSegment(allocator: Allocator, lines: *std.ArrayList(Line), segment: []con
     var used: u32 = 0;
     var units = Units.init(segment);
     while (try units.next()) |unit| {
-        const gap: u32 = @intCast(unit.start - end);
-        if (start != null and used + gap + unit.width <= limit) {
-            end = unit.end;
-            used += gap + unit.width;
-            continue;
+        if (start) |s| {
+            const joined = try displayWidth(segment[s..unit.end]);
+            if (joined <= limit) {
+                end = unit.end;
+                used = joined;
+                continue;
+            }
         }
         if (start) |s| try lines.append(allocator, .{ .bytes = segment[s..end], .width = used });
         start = unit.start;
@@ -171,6 +174,13 @@ test "an emoji grapheme is never split" {
     try expectLines(&.{ "a", family ++ family, "b" }, "a " ++ family ++ family ++ " b", 3);
     try std.testing.expectEqual(@as(u32, 4), try longestWord(family ++ family));
     try expectLines(&.{ "\u{1F600}\u{1F600}" }, "\u{1F600}\u{1F600}", 2);
+}
+
+test "a tab is measured from the start of the line it lands on" {
+    try expectLines(&.{"x ab\tcd"}, "x ab\tcd", 10);
+    try expectLines(&.{ "x", "ab\tcd" }, "x ab\tcd", 9);
+    try expectLines(&.{ "日本", "語\tx" }, "日本語\tx", 5);
+    try std.testing.expectEqual(@as(u32, 6), try longestWord("ab\tcd"));
 }
 
 test "br tags force a break" {
