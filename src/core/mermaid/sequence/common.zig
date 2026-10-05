@@ -12,7 +12,7 @@ const SequenceDiagram = model.SequenceDiagram;
 /// to a cell, `spanning` keeps one terminal column per cell.
 pub const NameText = enum { scalar, spanning };
 
-pub fn drawParticipantBox(canvas: *Canvas, participant: *const Participant, y: i32, name_text: NameText) void {
+pub fn drawParticipantBox(canvas: *Canvas, participant: *const Participant, y: i32, name_text: NameText) !void {
     const rect = types.Rect{
         .x = participant.x,
         .y = y,
@@ -22,7 +22,7 @@ pub fn drawParticipantBox(canvas: *Canvas, participant: *const Participant, y: i
     canvas.drawBox(rect, types.unicode_rounded, .node_border);
     switch (name_text) {
         .scalar => canvas.drawTextCentered(rect, participant.displayName(), .node_text),
-        .spanning => canvas.drawTextCenteredSpanning(rect, participant.displayName(), .node_text),
+        .spanning => try canvas.drawTextCenteredSpanning(rect, participant.displayName(), .node_text),
     }
 }
 

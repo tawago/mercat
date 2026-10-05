@@ -326,6 +326,15 @@ pub fn clipToWidth(text: []const u8, width: usize) []const u8 {
     return rawPrefixToWidth(text, width) catch legacyClipToWidth(text, width);
 }
 
+/// A grapheme that opens on a combining mark or joiner has no base of its own: a terminal
+/// paints it onto whatever cell precedes it.
+pub fn lacksBase(grapheme: []const u8) bool {
+    const first = segmentation.decodeAt(grapheme, 0) catch return false;
+    if (tables.emoji_modifier.contains(first.codepoint)) return false;
+    const kind = segmentation.graphemeBreak(first.codepoint);
+    return kind == .extend or kind == .zwj;
+}
+
 /// East Asian wide or fullwidth and not pictographic: a scalar a line may break beside.
 pub fn isEastAsianWide(codepoint: u21) bool {
     return tables.wide.contains(codepoint) and !tables.extended_pictographic.contains(codepoint);

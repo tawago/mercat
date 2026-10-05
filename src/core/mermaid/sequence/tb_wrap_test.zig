@@ -332,3 +332,18 @@ test "a tab in a label draws as blanks the width it was measured, lifelines alig
     try testing.expect(std.mem.indexOf(u8, text, "z   y") != null);
     try expectLifelinesAligned(text);
 }
+
+test "graphemes of several scalars and a lone mark after a break draw whole, lifelines aligned" {
+    const label = "cafe\u{0301} \u{304B}\u{3099} \u{2764}\u{FE0F} 🇯🇵 👩‍💻 ok";
+    const source = "sequenceDiagram\n    participant A as Cafe\u{0301}\n    participant B\n    participant C\n" ++
+        "    A->>A: " ++ label ++ "\n    A->>C: " ++ label ++ "\n    B->>C: hi<br>\u{0301}x\n";
+    const allocator = testing.allocator;
+    var diagram = try parse.parse(allocator, source);
+    defer diagram.deinit();
+    const text = (try tb_wrap.render(allocator, &diagram, .{ .participant = 2, .padding = 2, .wrap = true }, 200)).drawn;
+    defer allocator.free(text);
+    try testing.expect(count(text, "Cafe\u{0301}") == 1);
+    try expectWords(text, label);
+    try testing.expect(count(text, " \u{0301}x") == 1);
+    try expectLifelinesAligned(text);
+}

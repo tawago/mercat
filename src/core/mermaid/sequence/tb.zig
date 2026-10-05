@@ -41,7 +41,7 @@ pub fn render(allocator: Allocator, diagram: *SequenceDiagram, spacing: fit.Spac
     defer canvas.deinit();
 
     for (diagram.participants.items) |*p| {
-        common.drawParticipantBox(&canvas, p, 0, .scalar);
+        try common.drawParticipantBox(&canvas, p, 0, .scalar);
     }
 
     common.drawLifelines(&canvas, diagram, @intCast(participant_height), @intCast(size.height - 1));

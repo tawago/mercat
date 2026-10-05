@@ -60,7 +60,7 @@ pub fn render(allocator: Allocator, diagram: *SequenceDiagram, spacing: fit.Spac
     if (width > max_width) return .{ .too_wide = width };
 
     var canvas = try Canvas.init(scratch, width, height);
-    for (diagram.participants.items) |*p| common.drawParticipantBox(&canvas, p, 0, .spanning);
+    for (diagram.participants.items) |*p| try common.drawParticipantBox(&canvas, p, 0, .spanning);
     common.drawLifelines(&canvas, diagram, @intCast(tb.participant_height), @intCast(height - 1));
 
     var activations: common.Activations = .{};
@@ -68,9 +68,9 @@ pub fn render(allocator: Allocator, diagram: *SequenceDiagram, spacing: fit.Spac
     for (diagram.elements.items, rows) |element, row| {
         switch (element) {
             .message => |msg| if (msg.is_self_message)
-                drawSelfMessage(&canvas, &msg, diagram, row, top)
+                try drawSelfMessage(&canvas, &msg, diagram, row, top)
             else
-                drawMessage(&canvas, &msg, diagram, row, top),
+                try drawMessage(&canvas, &msg, diagram, row, top),
             .note => |note| try drawNote(&canvas, &note, diagram, top),
             .activation => |act| if (activations.apply(diagram, act, top + 1)) |bar| tb.drawActivationBox(&canvas, bar),
         }
@@ -207,23 +207,23 @@ fn drawNote(canvas: *Canvas, note: *const model.SequenceNote, diagram: *const Se
     rect.y = top;
     var text_buf: [256]u8 = undefined;
     canvas.drawBox(rect, types.unicode_rounded, .edge_label);
-    canvas.drawTextSpanning(rect.x + 2, top + 1, draw_helpers.processLabel(note.text, &text_buf), .edge_label);
+    try canvas.drawTextSpanning(rect.x + 2, top + 1, draw_helpers.processLabel(note.text, &text_buf), .edge_label);
 }
 
-fn drawMessage(canvas: *Canvas, msg: *const Message, diagram: *const SequenceDiagram, row: Row, top: i32) void {
+fn drawMessage(canvas: *Canvas, msg: *const Message, diagram: *const SequenceDiagram, row: Row, top: i32) !void {
     const from = diagram.getParticipant(msg.from) orelse return;
     const to = diagram.getParticipant(msg.to) orelse return;
     tb.drawMessageLine(canvas, msg, from.centerX(), to.centerX(), top + @as(i32, @intCast(row.height)) - 1);
     for (row.lines, 0..) |line, i| {
         const indent = @divFloor(@as(i32, @intCast(row.room)) - @as(i32, @intCast(line.width)), 2);
-        canvas.drawTextSpanning(row.left + indent, top + @as(i32, @intCast(i)), line.bytes, .edge_label);
+        try canvas.drawTextSpanning(row.left + indent, top + @as(i32, @intCast(i)), line.bytes, .edge_label);
     }
 }
 
-fn drawSelfMessage(canvas: *Canvas, msg: *const Message, diagram: *const SequenceDiagram, row: Row, top: i32) void {
+fn drawSelfMessage(canvas: *Canvas, msg: *const Message, diagram: *const SequenceDiagram, row: Row, top: i32) !void {
     const p = diagram.getParticipant(msg.from) orelse return;
     tb.drawSelfMessage(canvas, p.centerX(), top + 1, "");
     for (row.lines, 0..) |line, i| {
-        canvas.drawTextSpanning(row.left, top + 1 + @as(i32, @intCast(i)), line.bytes, .edge_label);
+        try canvas.drawTextSpanning(row.left, top + 1 + @as(i32, @intCast(i)), line.bytes, .edge_label);
     }
 }
