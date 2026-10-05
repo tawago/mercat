@@ -6,8 +6,9 @@ pub const Line = struct { bytes: []const u8, width: u32 };
 
 const breaks = [_][]const u8{ "<br/>", "<br>" };
 
-/// Word wrap to `width` display columns. `<br>` and `<br/>` force a break; a word wider than
-/// `width` is split at grapheme boundaries. Lines borrow from `text`.
+/// Word wrap to `width` display columns. A line breaks only at a space or between two East
+/// Asian wide characters; `<br>` and `<br/>` force a break. A word wider than `width` is never
+/// split: it takes a line of its own, wider than `width`. Lines borrow from `text`.
 pub fn wrap(allocator: Allocator, text: []const u8, width: u32) ![]Line {
     const limit = @max(width, 1);
     var lines: std.ArrayList(Line) = .empty;
@@ -23,8 +24,22 @@ pub fn wrap(allocator: Allocator, text: []const u8, width: u32) ![]Line {
     return lines.toOwnedSlice(allocator);
 }
 
-/// The display width of the widest word, breaks and spaces separating words.
+/// The display width of the widest word `wrap` never splits.
 pub fn longestWord(text: []const u8) !u32 {
+    var widest: u32 = 0;
+    var rest = text;
+    while (true) {
+        const cut = nextBreak(rest);
+        var units = Units.init(rest[0..cut.start]);
+        while (try units.next()) |unit| widest = @max(widest, unit.width);
+        if (cut.start == rest.len) break;
+        rest = rest[cut.end..];
+    }
+    return widest;
+}
+
+/// The display width of the widest run between spaces and breaks.
+pub fn longestToken(text: []const u8) !u32 {
     var widest: u32 = 0;
     var rest = text;
     while (true) {
@@ -53,49 +68,67 @@ fn displayWidth(text: []const u8) !u32 {
     return @intCast(try unicode.rawDisplayWidth(text));
 }
 
+const Unit = struct { start: usize, end: usize, width: u32 };
+
+/// The unbreakable units of a segment, in order: space-delimited words, cut between two
+/// adjacent East Asian wide graphemes.
+const Units = struct {
+    words: std.mem.TokenIterator(u8, .scalar),
+    word_start: usize = 0,
+    graphemes: unicode.Iterator = unicode.Iterator.init(""),
+    pending: ?unicode.GraphemeSlice = null,
+
+    fn init(segment: []const u8) Units {
+        return .{ .words = std.mem.tokenizeScalar(u8, segment, ' ') };
+    }
+
+    fn next(self: *Units) !?Unit {
+        const first = self.pending orelse try self.graphemes.next() orelse blk: {
+            const word = self.words.next() orelse return null;
+            self.word_start = self.words.index - word.len;
+            self.graphemes = unicode.Iterator.init(word);
+            break :blk (try self.graphemes.next()).?;
+        };
+        self.pending = null;
+        var last = first;
+        var width: u32 = first.width;
+        while (try self.graphemes.next()) |grapheme| {
+            if (eastAsianWide(last.bytes) and eastAsianWide(grapheme.bytes)) {
+                self.pending = grapheme;
+                break;
+            }
+            width += grapheme.width;
+            last = grapheme;
+        }
+        return .{ .start = self.word_start + first.byte_start, .end = self.word_start + last.byte_end, .width = width };
+    }
+};
+
+fn eastAsianWide(grapheme: []const u8) bool {
+    const len = std.unicode.utf8ByteSequenceLength(grapheme[0]) catch return false;
+    if (len > grapheme.len) return false;
+    const cp = std.unicode.utf8Decode(grapheme[0..len]) catch return false;
+    return unicode.isEastAsianWide(cp);
+}
+
 fn packSegment(allocator: Allocator, lines: *std.ArrayList(Line), segment: []const u8, limit: u32) !void {
     var start: ?usize = null;
     var end: usize = 0;
     var used: u32 = 0;
-    var words = std.mem.tokenizeScalar(u8, segment, ' ');
-    while (words.next()) |whole| {
-        var word = whole;
-        var word_start = words.index - word.len;
-        var word_width = try displayWidth(word);
-        const gap: u32 = @intCast(word_start - end);
-        if (start != null and used + gap + word_width <= limit) {
-            end = word_start + word.len;
-            used += gap + word_width;
+    var units = Units.init(segment);
+    while (try units.next()) |unit| {
+        const gap: u32 = @intCast(unit.start - end);
+        if (start != null and used + gap + unit.width <= limit) {
+            end = unit.end;
+            used += gap + unit.width;
             continue;
         }
         if (start) |s| try lines.append(allocator, .{ .bytes = segment[s..end], .width = used });
-        while (word_width > limit) {
-            const piece = try splitPrefix(word, limit);
-            const piece_width = try displayWidth(piece);
-            try lines.append(allocator, .{ .bytes = piece, .width = piece_width });
-            word = word[piece.len..];
-            word_start += piece.len;
-            word_width -= piece_width;
-        }
-        if (word.len == 0) {
-            start = null;
-            continue;
-        }
-        start = word_start;
-        end = word_start + word.len;
-        used = word_width;
+        start = unit.start;
+        end = unit.end;
+        used = unit.width;
     }
-    if (start) |s| {
-        if (end > s) try lines.append(allocator, .{ .bytes = segment[s..end], .width = used });
-    }
-}
-
-/// The longest prefix of `word` within `limit` columns, at least one grapheme.
-fn splitPrefix(word: []const u8, limit: u32) ![]const u8 {
-    const prefix = try unicode.rawPrefixToWidth(word, limit);
-    if (prefix.len > 0) return prefix;
-    var it = unicode.Iterator.init(word);
-    return (try it.next()).?.bytes;
+    if (start) |s| try lines.append(allocator, .{ .bytes = segment[s..end], .width = used });
 }
 
 fn expectLines(expected: []const []const u8, text: []const u8, width: u32) !void {
@@ -105,7 +138,6 @@ fn expectLines(expected: []const []const u8, text: []const u8, width: u32) !void
     for (expected, lines) |want, line| {
         try std.testing.expectEqualStrings(want, line.bytes);
         try std.testing.expectEqual(try displayWidth(want), line.width);
-        try std.testing.expect(line.width <= width);
     }
 }
 
@@ -116,14 +148,29 @@ test "words pack greedily up to the width" {
     try expectLines(&.{ "a", "b", "c" }, "a  b   c", 3);
 }
 
-test "wide characters count two columns" {
-    try std.testing.expectEqual(@as(u32, 6), try longestWord("日本語"));
-    try expectLines(&.{ "日本", "語" }, "日本語", 5);
-    try expectLines(&.{ "日", "本", "語" }, "日本語", 2);
+test "a word wider than the width takes its own line whole" {
+    try expectLines(&.{ "abcdefghij", "k" }, "abcdefghij k", 4);
+    try expectLines(&.{ "Transaction:", "dedupe" }, "Transaction: dedupe", 9);
+    try expectLines(&.{ "a", "Acknowledge", "b" }, "a Acknowledge b", 9);
+    try std.testing.expectEqual(@as(u32, 12), try longestWord("Transaction: dedupe"));
 }
 
-test "a word wider than the width splits at graphemes" {
-    try expectLines(&.{ "abcd", "efgh", "ij k" }, "abcdefghij k", 4);
+test "East Asian wide characters break between each other" {
+    try std.testing.expectEqual(@as(u32, 2), try longestWord("日本語"));
+    try std.testing.expectEqual(@as(u32, 6), try longestToken("日本語"));
+    try expectLines(&.{ "日本", "語" }, "日本語", 5);
+    try expectLines(&.{ "日", "本", "語" }, "日本語", 2);
+    try expectLines(&.{ "日本語の", "ラベル" }, "日本語のラベル", 8);
+    try expectLines(&.{ "日本", "語abc" }, "日本語abc", 5);
+    try std.testing.expectEqual(@as(u32, 5), try longestWord("日本語abc"));
+}
+
+test "an emoji grapheme is never split" {
+    const family = "\u{1F468}\u{200D}\u{1F469}\u{200D}\u{1F467}";
+    try expectLines(&.{family}, family, 1);
+    try expectLines(&.{ "a", family ++ family, "b" }, "a " ++ family ++ family ++ " b", 3);
+    try std.testing.expectEqual(@as(u32, 4), try longestWord(family ++ family));
+    try expectLines(&.{ "\u{1F600}\u{1F600}" }, "\u{1F600}\u{1F600}", 2);
 }
 
 test "br tags force a break" {
@@ -137,15 +184,23 @@ test "empty text has no lines" {
     try std.testing.expectEqual(@as(u32, 0), try longestWord(""));
 }
 
-test "no line is wider than the width" {
+test "no line is wider than the width or the longest word, and no word is split" {
     const text = "Fetch authoritative current value when needed 日本語のラベル supercalifragilistic";
+    const longest = try longestWord(text);
     var width: u32 = 1;
     while (width <= 30) : (width += 1) {
         const lines = try wrap(std.testing.allocator, text, width);
         defer std.testing.allocator.free(lines);
         for (lines) |line| {
-            try std.testing.expect(line.width <= @max(width, 2));
+            try std.testing.expect(line.width <= @max(width, longest));
             try std.testing.expectEqual(try displayWidth(line.bytes), line.width);
+        }
+        var words = std.mem.tokenizeScalar(u8, text, ' ');
+        while (words.next()) |word| {
+            if (eastAsianWide(word)) continue;
+            var whole = false;
+            for (lines) |line| whole = whole or std.mem.indexOf(u8, line.bytes, word) != null;
+            try std.testing.expect(whole);
         }
     }
 }

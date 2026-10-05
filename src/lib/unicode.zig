@@ -326,6 +326,11 @@ pub fn clipToWidth(text: []const u8, width: usize) []const u8 {
     return rawPrefixToWidth(text, width) catch legacyClipToWidth(text, width);
 }
 
+/// East Asian wide or fullwidth and not pictographic: a scalar a line may break beside.
+pub fn isEastAsianWide(codepoint: u21) bool {
+    return tables.wide.contains(codepoint) and !tables.extended_pictographic.contains(codepoint);
+}
+
 pub fn codepointWidth(codepoint: u21) usize {
     if (codepoint == '\t') return 4;
     if (codepoint < 0x20 or (codepoint >= 0x7f and codepoint <= 0x9f)) return 0;

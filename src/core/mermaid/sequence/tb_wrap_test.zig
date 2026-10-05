@@ -251,3 +251,70 @@ test "a note left of the first participant shifts the drawing instead of coverin
         try testing.expect(std.mem.indexOf(u8, row[close..], "┆") != null);
     }
 }
+
+test "a wrapped label never breaks inside a word" {
+    const allocator = testing.allocator;
+    var diagram = try parse.parse(allocator, wide_self_message);
+    defer diagram.deinit();
+    var max_width: u32 = 40;
+    while (max_width < 100) : (max_width += 1) {
+        const text = switch (try render.render(allocator, wide_self_message, max_width)) {
+            .drawn => |text| text,
+            .too_wide => |need| {
+                try testing.expect(need > max_width);
+                continue;
+            },
+        };
+        defer allocator.free(text);
+        for (diagram.elements.items) |element| {
+            var words = std.mem.tokenizeScalar(u8, element.message.text, ' ');
+            while (words.next()) |word| {
+                var rows = std.mem.splitScalar(u8, text, '\n');
+                var whole = false;
+                while (rows.next()) |row| whole = whole or std.mem.indexOf(u8, row, word) != null;
+                try testing.expect(whole);
+            }
+        }
+    }
+}
+
+test "a word wider than the gap refuses the wrap rung" {
+    const source =
+        \\sequenceDiagram
+        \\    participant A as Alpha
+        \\    participant B as Bravo
+        \\    A->>B: an extraordinarily-hyphenated-identifier here
+    ;
+    const allocator = testing.allocator;
+    var diagram = try parse.parse(allocator, source);
+    defer diagram.deinit();
+    const refused = try tb_wrap.render(allocator, &diagram, .{ .participant = 2, .padding = 2, .wrap = true }, 200);
+    try testing.expect(refused.too_wide > 200);
+}
+
+test "a wide-character label wraps between characters where a word of its width would not" {
+    const source =
+        \\sequenceDiagram
+        \\    participant A as Alpha
+        \\    participant B as Bravo
+        \\    A->>B: 日本語のラベルです
+    ;
+    const allocator = testing.allocator;
+    var diagram = try parse.parse(allocator, source);
+    defer diagram.deinit();
+    const text = (try tb_wrap.render(allocator, &diagram, .{ .participant = 2, .padding = 2, .wrap = true }, 200)).drawn;
+    defer allocator.free(text);
+    try testing.expect(std.mem.indexOf(u8, text, "日本語のラベルです") == null);
+    try testing.expect(std.mem.indexOf(u8, text, "日本語") != null);
+    try expectLifelinesAligned(text);
+}
+
+test "an emoji sequence wider than the gap refuses the wrap rung whole" {
+    const family = "\u{1F468}\u{200D}\u{1F469}\u{200D}\u{1F467}";
+    const source = "sequenceDiagram\n    participant A\n    participant B\n    A->>B: " ++ family ** 4 ++ " ok\n";
+    const allocator = testing.allocator;
+    var diagram = try parse.parse(allocator, source);
+    defer diagram.deinit();
+    const refused = try tb_wrap.render(allocator, &diagram, .{ .participant = 2, .padding = 2, .wrap = true }, 200);
+    try testing.expect(refused.too_wide > 200);
+}

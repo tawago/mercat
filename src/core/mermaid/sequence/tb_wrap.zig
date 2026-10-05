@@ -45,9 +45,10 @@ pub fn render(allocator: Allocator, diagram: *SequenceDiagram, spacing: fit.Spac
         row.* = switch (element) {
             .message => |msg| if (msg.is_self_message)
                 try selfRow(scratch, &msg, diagram, bars, spacing, max_width, &width) orelse
-                    return .{ .too_wide = @max(width, max_width + 1) }
+                    return .{ .too_wide = unlimited }
             else
-                try messageRow(scratch, &msg, diagram, bars),
+                try messageRow(scratch, &msg, diagram, bars) orelse
+                    return .{ .too_wide = unlimited },
             .note => |note| blk: {
                 if (try noteRect(&note, diagram)) |rect| width = @max(width, @as(u32, @intCast(rect.x)) + rect.width + spacing.padding);
                 break :blk .{ .height = tb.note_row_height };
@@ -152,9 +153,11 @@ fn widen(best: *Gap, left: i32, right: i32) void {
     if (right - left + 1 > best.width) best.* = .{ .left = left, .width = @intCast(right - left + 1) };
 }
 
-fn messageRow(scratch: Allocator, msg: *const Message, diagram: *const SequenceDiagram, bars: Barred) !Row {
+/// Null when a word of the label is wider than the gap: no width widens a gap this rung fixes.
+fn messageRow(scratch: Allocator, msg: *const Message, diagram: *const SequenceDiagram, bars: Barred) !?Row {
     const span = messageSpan(msg, diagram) orelse return .{ .height = tb.normal_row_height };
     const gap = labelGap(span, diagram, bars);
+    if (try wrap.longestWord(msg.text) > gap.width) return null;
     const lines = try wrap.wrap(scratch, msg.text, gap.width);
     return .{ .lines = lines, .left = gap.left, .room = gap.width, .height = @as(u32, @intCast(@max(lines.len, 1))) + 1 };
 }
@@ -163,7 +166,8 @@ fn selfTextColumn(p: *const model.Participant) i32 {
     return p.centerX() + @as(i32, @intCast(tb.self_msg_loop_width + tb.self_msg_text_offset));
 }
 
-/// Null when an activation bar right of the loop leaves the text less than its floor.
+/// Null when an activation bar right of the loop leaves the text less than its floor or its
+/// longest word: no width moves a bar this rung fixes.
 fn selfRow(scratch: Allocator, msg: *const Message, diagram: *const SequenceDiagram, bars: Barred, spacing: fit.Spacing, max_width: u32, width: *u32) !?Row {
     const p = diagram.getParticipant(msg.from) orelse return .{ .height = tb.self_msg_row_height };
     const column = selfTextColumn(p);
@@ -176,9 +180,10 @@ fn selfRow(scratch: Allocator, msg: *const Message, diagram: *const SequenceDiag
     room = @min(room, bar_room);
     var lines = try wrap.wrap(scratch, msg.text, unlimited);
     if (widest(lines) > room) {
-        const floor = @min(try wrap.longestWord(msg.text), self_text_floor);
+        const floor = @min(try wrap.longestToken(msg.text), self_text_floor);
         if (bar_room < floor) return null;
         lines = try wrap.wrap(scratch, msg.text, @max(room, floor));
+        if (widest(lines) > bar_room) return null;
     }
     if (lines.len > 0) width.* = @max(width.*, @as(u32, @intCast(column)) + widest(lines) + spacing.padding);
     return .{ .lines = lines, .left = column, .height = @max(tb.self_msg_row_height, @as(u32, @intCast(lines.len)) + 2) };
