@@ -8,6 +8,7 @@ const theme_color = @import("../../core/theme/color.zig");
 const SubgraphEdges = @import("../../core/mermaid/mermaid.zig").SubgraphEdges;
 const Viewport = @import("../widgets/viewport.zig").Viewport;
 const selection_mod = @import("../selection.zig");
+const search_mod = @import("../search.zig");
 
 pub const FootnoteEntry = struct {
     ref_line: ?usize = null,
@@ -28,6 +29,7 @@ pub const PagerView = struct {
     lines: []render_model.Line = &.{},
     footnote_index: []FootnoteEntry = &.{},
     selection: selection_mod.Selection = .{},
+    search: search_mod.Search,
 
     pub fn init(allocator: std.mem.Allocator, title: []const u8, document: *const markdown.Document, resolved: *const ResolvedTheme, show_heading_markers: bool, subgraph_edges: SubgraphEdges) PagerView {
         return .{
@@ -37,6 +39,7 @@ pub const PagerView = struct {
             .resolved = resolved,
             .show_heading_markers = show_heading_markers,
             .mermaid_subgraph_edges = subgraph_edges,
+            .search = search_mod.Search.init(allocator),
         };
     }
 
@@ -44,6 +47,7 @@ pub const PagerView = struct {
         self.freeLines();
         self.allocator.free(self.footnote_index);
         self.footnote_index = &.{};
+        self.search.deinit();
     }
 
     pub fn resize(self: *PagerView, width: usize, height: usize) !void {
@@ -174,6 +178,11 @@ pub const PagerView = struct {
             }
         }
         self.footnote_index = try index.toOwnedSlice(self.allocator);
+
+        // Matches are positions in the rendered lines, so every reflow (resize,
+        // reload, layout toggle) recomputes them against the new text.
+        try self.search.recompute(self.lines);
+        if (self.search.hasPattern()) _ = self.search.selectFrom(self.viewport.top, .forward);
     }
 
     fn freeLines(self: *PagerView) void {

@@ -51,7 +51,7 @@ zig build -Doptimize=ReleaseFast
 
 - **CLI mode**: Render markdown with syntax highlighting to stdout
 - **TUI mode**: Interactive pager with vim-style navigation
-- **Editor integration**: Press `e` to edit in $EDITOR, auto-reloads on return
+- **Editor integration**: Press `e` to edit in `$VISUAL`/`$EDITOR` (or the configured editor), auto-reloads on return
 - **Themes**: Seven built-in presets (`dark`, `light`, `ansi`, `dracula`, `tokyo-night`, `pink`, `markview`) plus user theme files with per-slot color and glyph control
 - **Pager support**: Pipe through $PAGER or `less -R`
 - **Stdin support**: `cat file.md | mercat` (implicit; `-` still works)
@@ -118,13 +118,21 @@ a closed pipe (`mercat big.md | head -1`) exits 0 silently.
 
 | Key | Action |
 |-----|--------|
-| `j` / `k` | Scroll down / up |
-| `g` / `G` | Go to top / bottom |
-| `Space` / `b` | Page down / up |
-| `e` | Open in $EDITOR |
+| `j` / `k`, `↓` / `↑` | Scroll down / up |
+| `Space` / `PgDn` | Page down |
+| `Ctrl-B` / `PgUp` | Page up |
+| `g` / `Home`, `G` / `End` | Go to top / bottom |
+| `/` | Search (incremental, smart-case; `Enter` confirms, `Esc` cancels) |
+| `n` / `N` | Next / previous match (wraps around) |
+| `e` | Edit the file (`[general] editor`, else `$VISUAL`, `$EDITOR`, or the first of nvim/vim/vi/nano), then reload |
 | `r` | Reload file |
+| `f` / `Enter` | Follow footnote link |
+| `m` | Toggle front-matter metadata panel |
+| `b` | Toggle subgraph edges (bridge/cross) |
+| mouse drag | Select and copy text (`Esc` clears) |
+| `Ctrl-Z` | Suspend (`fg` to resume) |
 | `?` or `h` | Toggle help |
-| `q` | Quit |
+| `q` / `Ctrl-C` | Quit |
 
 ## Configuration
 
@@ -137,7 +145,8 @@ did-you-mean when one is close) and keeps the default.
 
 ```toml
 [general]
-editor = "vim"       # editor command for the TUI's `e` key
+editor = ""          # empty: $VISUAL, then $EDITOR, then nvim/vim/vi/nano;
+                     # arguments allowed, e.g. "code --wait"
 pager = "less -R"    # used by -p when $PAGER is unset
 
 [display]

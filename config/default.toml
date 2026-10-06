@@ -1,5 +1,7 @@
 [general]
-editor = "vim"
+# Empty: use $VISUAL, then $EDITOR, then the first of nvim/vim/vi/nano on PATH.
+# May include arguments, e.g. "code --wait".
+editor = ""
 pager = "less -R"
 
 [display]

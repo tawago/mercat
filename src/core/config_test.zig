@@ -18,7 +18,7 @@ test "parses default config" {
 
     try std.testing.expectEqualStrings("dark", cfg.display.theme);
     try std.testing.expectEqual(SyntaxTheme.default, cfg.display.syntax_theme);
-    try std.testing.expectEqualStrings("vim", cfg.general.editor);
+    try std.testing.expectEqualStrings("", cfg.general.editor);
     try std.testing.expect(cfg.mermaid.enabled);
     try std.testing.expect(cfg.display.heading_markers);
     try std.testing.expectEqual(FrontmatterStyle.panel, cfg.display.frontmatter);

@@ -22,6 +22,7 @@ const export_glyph_sheet = @import("export/glyph_sheet.zig");
 const export_test = @import("export/export_test.zig");
 const terminal = @import("platform/terminal.zig");
 const tui = @import("tui/app.zig");
+const term_guard = @import("tui/term_guard.zig");
 const theme_color = @import("core/theme/color.zig");
 const theme_resolve = @import("core/theme/resolve.zig");
 const theme_dump = @import("core/theme/dump.zig");
@@ -32,6 +33,10 @@ pub const std_options: std.Options = .{
     .log_level = .warn,
     .logFn = logFn,
 };
+
+/// Restores the terminal before reporting a crash, so a panic inside the TUI
+/// never leaves the shell in the alternate screen with the mouse captured.
+pub const panic = std.debug.FullPanic(term_guard.panicHandler);
 
 var tui_active = std.atomic.Value(bool).init(false);
 

@@ -6,7 +6,7 @@ pub const HelpView = struct {
             "mercat help",
             "",
             "q / Ctrl-C  quit",
-            "e           edit current file",
+            "e           edit file ($VISUAL/$EDITOR)",
             "r           reload current file",
             "l           cycle mermaid layout",
             "b           toggle subgraph edges (bridge/cross)",
@@ -17,10 +17,13 @@ pub const HelpView = struct {
             "Ctrl-B/PgUp page up",
             "g / Home    top",
             "G / End     bottom",
+            "/           search (Enter confirm, Esc cancel)",
+            "n / N       next / previous match",
             "f / Enter   follow footnote link",
             "drag mouse  select & copy text",
             "Esc         clear selection",
             "? / h       toggle help",
+            "Ctrl-Z      suspend (fg to resume)",
         };
     }
 

@@ -80,6 +80,8 @@ pub const help_text =
     \\  TERM                 "dumb" disables color in auto mode
     \\  COLORTERM            "truecolor"/"24bit" enables 24-bit color
     \\  PAGER                Pager command for -p (before the config pager)
+    \\  VISUAL, EDITOR       Editor for the TUI's e key when [general] editor
+    \\                       is empty (fallback: nvim, vim, vi, nano)
     \\  COLUMNS              Terminal width fallback when it cannot be queried
     \\  XDG_CONFIG_HOME, HOME
     \\                       Locate config.toml and the themes/ directory
