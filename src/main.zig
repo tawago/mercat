@@ -9,6 +9,7 @@ const cli_themes = @import("cli/themes.zig");
 const tui_entry = @import("cli/tui_entry.zig");
 const config = @import("core/config.zig");
 const markdown = @import("core/markdown/parser.zig");
+const encoding = @import("core/encoding.zig");
 
 const cli_input_test = @import("cli/input_test.zig");
 const render_model = @import("core/markdown/render.zig");
@@ -115,7 +116,14 @@ fn run(allocator: std.mem.Allocator) !void {
 
     const raw_content = try readInput(allocator, input);
     defer allocator.free(raw_content);
-    const content = cli_input.stripBom(raw_content);
+    // Decode before anything parses: invalid UTF-8 becomes U+FFFD with one
+    // warning, so every block still renders as markdown.
+    const decoded = try encoding.decode(allocator, raw_content);
+    defer decoded.deinit(allocator);
+    const encoding_warning = try encodingWarning(allocator, inputTitle(input), decoded);
+    defer if (encoding_warning) |w| allocator.free(w);
+    if (encoding_warning) |w| diag.warn("{s}", .{w});
+    const content = decoded.text;
 
     // Empty input renders to nothing: no stray newline on stdout, and an
     // empty file for `--format plain -o`.
@@ -137,7 +145,9 @@ fn run(allocator: std.mem.Allocator) !void {
         }
         const theme_warning = try themeWarning(allocator, &diag_list);
         defer if (theme_warning) |w| allocator.free(w);
-        try tui.run(allocator, inputTitle(input), input, content, loaded_config.general.editor, &resolved, theme_warning, show_heading_markers, frontmatter_style, parsed.force_layout orelse .auto, loaded_config.mermaid.subgraph_edges);
+        const startup_warning = try joinWarnings(allocator, encoding_warning, theme_warning);
+        defer if (startup_warning) |w| allocator.free(w);
+        try tui.run(allocator, inputTitle(input), input, content, loaded_config.general.editor, &resolved, startup_warning, show_heading_markers, frontmatter_style, parsed.force_layout orelse .auto, loaded_config.mermaid.subgraph_edges);
         return;
     }
 
@@ -254,7 +264,7 @@ fn runCli(
     display: CliDisplay,
 ) !void {
     var document = if (cli_input.isMermaidSource(parsed.input.filePath(), content))
-        try createMermaidDocument(allocator, content)
+        try markdown.parseMermaid(allocator, content)
     else
         try markdown.parse(allocator, content);
     defer document.deinit(allocator);
@@ -346,6 +356,13 @@ fn themeWarning(allocator: std.mem.Allocator, diag_list: *const theme_resolve.Di
         try std.fmt.allocPrint(allocator, "theme: {s} (+{d} more)", .{ first, n - 1 });
 }
 
+/// The TUI status bar shows one startup message: both warnings, joined.
+fn joinWarnings(allocator: std.mem.Allocator, first: ?[]const u8, second: ?[]const u8) !?[]u8 {
+    if (first != null and second != null) return try std.fmt.allocPrint(allocator, "{s}; {s}", .{ first.?, second.? });
+    const only = first orelse second orelse return null;
+    return try allocator.dupe(u8, only);
+}
+
 fn emitThemeDiagnostics(diag_list: *const theme_resolve.Diagnostics) void {
     for (diag_list.list.items) |d| diag.warn("theme: {s}", .{d.detail});
 }
@@ -406,6 +423,13 @@ fn writePlainOutput(output: []const u8, output_path: ?[]const u8) void {
     file.writeAll(output) catch |err| diag.failPath(path, err);
 }
 
+/// The one-line warning for input that was not valid UTF-8, or null.
+pub fn encodingWarning(allocator: std.mem.Allocator, name: []const u8, decoded: encoding.Decoded) !?[]u8 {
+    const issue = decoded.issue orelse return null;
+    var buf: [512]u8 = undefined;
+    return try allocator.dupe(u8, encoding.describeIssue(&buf, name, decoded.encoding, issue));
+}
+
 fn inputTitle(input: args.Input) []const u8 {
     return switch (input) {
         .file => |path| path,
@@ -444,16 +468,23 @@ fn readStdin(allocator: std.mem.Allocator) ![]u8 {
     };
 }
 
-fn createMermaidDocument(allocator: std.mem.Allocator, content: []const u8) !markdown.Document {
-    const language = try allocator.dupe(u8, "mermaid");
-    errdefer allocator.free(language);
-    const code = try allocator.dupe(u8, content);
-    errdefer allocator.free(code);
+test "encoding warning and TUI startup message" {
+    const allocator = std.testing.allocator;
+    const decoded = try encoding.decode(allocator, "a\nb\xff\n");
+    defer decoded.deinit(allocator);
+    const warning = (try encodingWarning(allocator, "x.md", decoded)).?;
+    defer allocator.free(warning);
+    try std.testing.expectEqualStrings("x.md: invalid UTF-8 at line 2, column 2 (1 byte replaced with U+FFFD)", warning);
+    const clean = try encoding.decode(allocator, "ok");
+    try std.testing.expect(try encodingWarning(allocator, "x.md", clean) == null);
 
-    const blocks = try allocator.alloc(markdown.Block, 1);
-    blocks[0] = .{ .fenced_code = .{ .language = language, .code = code } };
-
-    return .{ .blocks = blocks };
+    const both = (try joinWarnings(allocator, "enc", "theme: t")).?;
+    defer allocator.free(both);
+    try std.testing.expectEqualStrings("enc; theme: t", both);
+    const one = (try joinWarnings(allocator, null, "theme: t")).?;
+    defer allocator.free(one);
+    try std.testing.expectEqualStrings("theme: t", one);
+    try std.testing.expect(try joinWarnings(allocator, null, null) == null);
 }
 
 test {
@@ -466,4 +497,5 @@ test {
     _ = cli_themes;
     _ = tui_entry;
     _ = @import("cli/help.zig");
+    _ = encoding;
 }

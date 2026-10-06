@@ -18,10 +18,23 @@ All notable changes to this project will be documented in this file.
   of printing the literal `**`. The fix is a patch to the bundled koino parser,
   now vendored in `vendor/koino` (see `vendor/koino/PIN.md`).
 - **One bad block no longer fails the document.** A block that cannot be
-  rendered (for example invalid UTF-8) is shown as dimmed raw source, with bad
+  rendered (an unexpected internal error) is shown as dimmed raw source, with bad
   bytes replaced by `�` (or as a placeholder when no source is available), and
   mercat prints one warning and exits 0. Previously
   the whole run failed with `error: InvalidUtf8` or `error: DisallowedControl`.
+- **Invalid UTF-8 is decoded, not fatal.** Input is decoded before parsing:
+  each invalid sequence becomes `�` (U+FFFD, one per maximal subpart), so the
+  document renders as normal markdown (headings stay headings, table rows stay
+  in their table), with one warning such as
+  `mercat: warning: notes.md: invalid UTF-8 at line 3, column 7 (2 bytes
+  replaced with U+FFFD)`. The `pcre_exec: -10` noise is gone. Files that start
+  with a UTF-16 byte order mark are transcoded to UTF-8.
+- **Invisible and control characters no longer hide text.** A soft hyphen,
+  zero-width space, bidi control or other invisible format character is
+  dropped; C0/C1 controls such as BEL and ESC are shown as `�`. Before, a
+  paragraph containing one rendered as `[block could not be rendered]`.
+  Escape sequences in text, code, link URLs, tables, front matter or character
+  references (`&#27;`) never reach the terminal.
 - Block quotes have one space after the bar in every theme (was three before
   plain text), and the extra blank line after each quote is gone.
 

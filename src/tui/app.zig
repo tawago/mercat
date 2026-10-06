@@ -1,6 +1,7 @@
 const std = @import("std");
 const vaxis = @import("vaxis");
 const markdown = @import("../core/markdown/parser.zig");
+const encoding = @import("../core/encoding.zig");
 const cli_input = @import("../cli/input.zig");
 const config = @import("../core/config.zig");
 const render_model = @import("../core/markdown/render.zig");
@@ -39,15 +40,7 @@ const Event = union(enum) {
 };
 
 fn parseContent(allocator: std.mem.Allocator, content: []const u8, input_source: args.Input) !markdown.Document {
-    if (cli_input.isMermaidSource(input_source.filePath(), content)) {
-        const language = try allocator.dupe(u8, "mermaid");
-        errdefer allocator.free(language);
-        const code = try allocator.dupe(u8, content);
-        errdefer allocator.free(code);
-        const blocks = try allocator.alloc(markdown.Block, 1);
-        blocks[0] = .{ .fenced_code = .{ .language = language, .code = code } };
-        return .{ .blocks = blocks };
-    }
+    if (cli_input.isMermaidSource(input_source.filePath(), content)) return markdown.parseMermaid(allocator, content);
     return markdown.parse(allocator, content);
 }
 
@@ -537,13 +530,17 @@ pub const App = struct {
     /// Reloads `path`; on failure keeps the current document and explains why
     /// in the status line instead of exiting. Returns whether it reloaded.
     fn reloadOrReport(self: *App, path: []const u8) !bool {
-        self.reloadDocument(path) catch |err| switch (err) {
+        const warning = self.reloadDocument(path) catch |err| switch (err) {
             error.OutOfMemory => return error.OutOfMemory,
             else => {
                 try self.setStatusMessage(try reloadFailureMessage(self.allocator, path, err), true);
                 return false;
             },
         };
+        if (warning) |message| {
+            try self.setStatusMessage(message, true);
+            return true;
+        }
         try self.setStatusMessage(try std.fmt.allocPrint(self.allocator, "Reloaded {s}", .{std.fs.path.basename(path)}), true);
         return true;
     }
@@ -628,8 +625,12 @@ pub const App = struct {
         self.needs_redraw = true;
     }
 
-    fn reloadDocument(self: *App, path: []const u8) !void {
-        const reloaded = try std.fs.cwd().readFileAlloc(self.allocator, path, std.math.maxInt(usize));
+    /// Reloads `path`. Returns the warning for invalid input (owned), if any.
+    fn reloadDocument(self: *App, path: []const u8) !?[]u8 {
+        const raw = try std.fs.cwd().readFileAlloc(self.allocator, path, std.math.maxInt(usize));
+        defer self.allocator.free(raw);
+        const decoded = try encoding.decode(self.allocator, raw);
+        const reloaded = if (decoded.owned) @constCast(decoded.text) else try self.allocator.dupe(u8, decoded.text);
         // Parse before swapping so a failure keeps the current document.
         const document = parseContent(self.allocator, reloaded, self.input_source) catch |err| {
             self.allocator.free(reloaded);
@@ -643,6 +644,9 @@ pub const App = struct {
         self.pager.width = self.vx.window().width;
         self.pager.viewport.setMetrics(self.vx.window().height -| 1, self.pager.viewport.total);
         try self.pager.reload();
+        const issue = decoded.issue orelse return null;
+        var buf: [512]u8 = undefined;
+        return try self.allocator.dupe(u8, encoding.describeIssue(&buf, path, decoded.encoding, issue));
     }
 
     fn clearStatusMessage(self: *App) void {

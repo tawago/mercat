@@ -198,5 +198,40 @@ printf 'word %.0s' $(seq 1 80) > long.md
 first=$(m -w 0 --format plain long.md | head -1)
 check width0-plain [ "${#first}" -gt 100 -a "${#first}" -le 120 ]
 
+lacks() { ! grep -q "$@"; }
+
+# --- invalid UTF-8: decoded with exactly one warning, every block rendered ---
+repro="$script_dir/../repro/invalid-utf8"
+for f in "$repro"/[0-9]*.md; do
+  name=$(basename "$f")
+  cp "$f" "$name"
+  err=$(m --format plain -w 60 "$name" 2>&1 >"$work/utf8.out" </dev/null)
+  rc=$?
+  check "utf8-$name-rc" [ "$rc" = 0 ]
+  check "utf8-$name-rendered" [ -s "$work/utf8.out" ]
+  check "utf8-$name-no-fallback" lacks 'could not be rendered' "$work/utf8.out"
+  case $name in
+    14-*) check "utf8-$name-utf16-silent" [ -z "$err" ] ;;
+    *) check "utf8-$name-one-warning" [ "$(printf '%s\n' "$err" | grep -c '')" = 1 ]
+       check "utf8-$name-warning-text" has "^mercat: warning: $name: invalid UTF-8 at line [0-9]*, column [0-9]* ([0-9]* bytes\{0,1\} replaced with U+FFFD)$" <<<"$err" ;;
+  esac
+done
+cp "$repro/10-in-table-cell.md" table.md
+out=$(m --format plain table.md 2>/dev/null)
+check utf8-table-row-stays has "� │ ok" <<<"$out"
+err=$(printf 'ok \377 bye\n' | m --format plain 2>&1 >/dev/null)
+check utf8-stdin-warning [ "$err" = "mercat: warning: stdin: invalid UTF-8 at line 1, column 4 (1 byte replaced with U+FFFD)" ]
+
+# --- invisible and control characters: text kept, no escape reaches stdout ---
+out=$(printf 'a\302\255b\n' | m --format plain 2>&1)
+check soft-hyphen-dropped [ "$out" = "  ab" ]
+printf 'esc \033[2J text\n\n```\ncode \033[2J\n```\n\n[l](http://x/\033[2J)\n\n| a | b |\n|---|---|\n| \033[2J | &#27;[2J |\n' > inject.md
+for col in never always; do
+  m --color "$col" inject.md >"$work/inject.out" 2>"$work/inject.err"
+  check "inject-$col-no-clear" lacks "${esc}\[2J" "$work/inject.out"
+  check "inject-$col-quiet" [ ! -s "$work/inject.err" ]
+  if [ "$col" = never ]; then check inject-never-no-esc lacks "$esc" "$work/inject.out"; fi
+done
+
 printf 'cli: %d passed, %d failed\n' "$pass" "$fail"
 [ "$fail" = 0 ]

@@ -363,3 +363,45 @@ test "compatibility width charges every malformed byte one cell and resumes afte
     try testing.expectEqual(@as(usize, 4), unicode.displayWidth("\x80\u{1F468}\u{200D}\u{1F469}\u{200D}\u{1F467}\x80"));
     try testing.expectEqual(@as(usize, 4), unicode.displayWidth("e\u{0301}\xffe\u{0301}e\u{0301}"));
 }
+
+fn expectSanitized(input: []const u8, want: []const u8) !void {
+    const got = try unicode.sanitize(testing.allocator, input);
+    defer testing.allocator.free(got);
+    try testing.expectEqualStrings(want, got);
+    var lines = std.mem.splitScalar(u8, got, '\n');
+    while (lines.next()) |line| _ = try unicode.rawDisplayWidth(std.mem.trimRight(u8, line, "\r"));
+}
+
+test "sanitize drops invisible format characters and keeps the text" {
+    try expectSanitized("a\u{00ad}b", "ab");
+    try expectSanitized("zero\u{200b}width", "zerowidth");
+    try expectSanitized("\u{feff}bom \u{2060}wj \u{061c}alm", "bom wj alm");
+    try expectSanitized("bidi \u{202e}cba\u{202c} \u{2066}x\u{2069} \u{200e}\u{200f}", "bidi cba x ");
+    try expectSanitized("tag \u{e0001}x", "tag x");
+}
+
+test "sanitize makes controls visible as U+FFFD" {
+    try expectSanitized("bel\x07 esc\x1b[2J del\x7f", "bel\u{FFFD} esc\u{FFFD}[2J del\u{FFFD}");
+    try expectSanitized("c1 \u{0085}\u{009b}31m", "c1 \u{FFFD}\u{FFFD}31m");
+    try expectSanitized("nul\x00 bs\x08 vt\x0b ff\x0c", "nul\u{FFFD} bs\u{FFFD} vt\u{FFFD} ff\u{FFFD}");
+    try expectSanitized("anno\u{fff9}x", "anno\u{FFFD}x");
+}
+
+test "sanitize keeps layout, joiners and valid sequences" {
+    try expectSanitized("a\tb\nc\r\nd", "a\tb\nc\r\nd");
+    try expectSanitized("line\u{2028}sep\u{2029}x", "line sep x");
+    const kept = [_][]const u8{
+        "caf\u{e9} \u{65e5}\u{672c}",
+        "\u{1F468}\u{200D}\u{1F469}\u{200D}\u{1F467}",
+        "a\u{200c}b",
+        "\u{2764}\u{fe0f}",
+        "\u{1F3F4}\u{e0067}\u{e0062}\u{e0065}\u{e006e}\u{e0067}\u{e007f}",
+    };
+    for (kept) |text| try expectSanitized(text, text);
+}
+
+test "sanitize strips stray emoji tags and replaces ill-formed UTF-8" {
+    try expectSanitized("\u{1F3F4}\u{e0061}\u{e007f}", "\u{1F3F4}");
+    try expectSanitized("x\u{e0061}y", "xy");
+    try expectSanitized("bad\xff\xc0end", "bad\u{FFFD}\u{FFFD}end");
+}

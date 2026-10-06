@@ -1,9 +1,10 @@
 # Invalid UTF-8 input: reproduction files
 
-Open issue: mercat does not decode invalid UTF-8 input. These files reproduce
-it. Each one is a small markdown file with invalid bytes in a different place.
-They are not wired into `zig build test`; they hold the inputs for the fix and
-its regression tests.
+Status: **fixed** (see "Current behavior" below). Each file is a small
+markdown file with invalid bytes in a different place. Their bytes are
+covered by unit tests in `src/core/encoding_test.zig` and
+`src/core/markdown/render_input_test.zig`, and `tests/cli/run.sh` renders
+every file here with the built binary and checks the single warning.
 
 Reproduce:
 
@@ -35,7 +36,7 @@ printf 'ok \xff bye\n' | ./zig-out/bin/mercat --format plain   # stdin
 | 14-utf16le-bom-file.md | `FF FE` + NULs | whole file is UTF-16LE |
 | 15-many-bad-lines.md | `FF` x5 | five paragraphs |
 
-## Behavior
+## Behavior before the fix
 
 Up to v0.3.1, every file except 13 printed nothing and exited 1. For example:
 
@@ -64,12 +65,22 @@ renders and exits 0, but the problems below remain:
 - 14 (UTF-16) is shown as a mess of U+FFFD. Nothing detects the BOM or reports
   that the file is not UTF-8.
 
-## Expected
+## Current behavior
 
-- Decode lossily before parsing: replace each invalid sequence with U+FFFD
-  (WHATWG "maximal subpart" rule), so every block renders as normal markdown.
-- Print one warning per input, with the file path or `stdin`:
-  `mercat: warning: <name>: invalid UTF-8 at line L, column C (replaced with U+FFFD)`.
-- No `pcre_exec` noise, because koino only ever sees valid UTF-8.
-- Optional: detect a UTF-16 BOM and either transcode or report
-  `mercat: <name>: UTF-16 input is not supported`.
+Input is decoded before parsing (`src/core/encoding.zig`):
+
+- Each invalid sequence becomes one U+FFFD per maximal subpart (Unicode
+  §3.9, the WHATWG decoder's rule): `C0 AF` gives two, `ED A0 80` three,
+  a truncated `E2 82` one. Every block then renders as normal markdown; in
+  10 the row stays in its table, in 07 the heading is a heading.
+- One warning per input names the file (or `stdin`) and the first position,
+  in characters of the decoded line, and counts the replaced bytes:
+  `mercat: warning: 01-lone-ff-byte.md: invalid UTF-8 at line 1, column 4 (1 byte replaced with U+FFFD)`.
+- koino only sees valid UTF-8, so `pcre_exec: -10` never appears.
+- 13 (mermaid) goes through the same decoder and shows `St�art`.
+- 14: input starting with a UTF-16 byte order mark (`FF FE` or `FE FF`) is
+  transcoded to UTF-8 without a warning, since it is valid text in a known
+  encoding. Unpaired surrogates or a dangling odd byte become U+FFFD with
+  `invalid UTF-16 at line L, column C (N code units replaced with U+FFFD)`.
+- In the TUI, the same message is shown in the status bar at startup and
+  after a reload.

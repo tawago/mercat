@@ -357,4 +357,5 @@ test "list_item falls back to a theme's own body when unset (dracula)" {
 test {
     _ = @import("render_test2.zig");
     _ = @import("render_blocks_test.zig");
+    _ = @import("render_input_test.zig");
 }
