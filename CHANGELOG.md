@@ -4,6 +4,26 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### TUI
+
+- **Search.** `/` opens an incremental, smart-case search prompt in the status
+  line (`Enter` confirms, `Esc` cancels); `n` / `N` step through matches with
+  wraparound. All matches are highlighted and the current one uses the theme
+  accent; the status line shows `[3/17] /mermaid` or `Pattern not found: foo`.
+  Matches are recomputed on resize and reload.
+- **Editor resolution.** `e` uses `[general] editor` when set, else `$VISUAL`,
+  `$EDITOR`, or the first of nvim/vim/vi/nano on `PATH`. Editor commands may
+  carry arguments (`code --wait`). The default config no longer hard-codes
+  `vim`.
+- **No more crashes on edit/reload failures.** A missing editor or a deleted
+  file used to exit with `error: FileNotFound`; the TUI now keeps the current
+  document and says what went wrong in the status line.
+- **Terminal restore.** SIGTERM, SIGHUP, SIGINT and SIGQUIT, panics and fatal
+  signals (SIGSEGV/SIGBUS/SIGILL/SIGFPE) restore the terminal (alt screen,
+  mouse, cursor, tty mode) before exiting; crashes print where to report them.
+  `Ctrl-Z` (and `kill -TSTP`) suspends cleanly and redraws on `fg`.
+- The help overlay no longer starts with a blank row and clips its last entry.
+
 ## [0.3.1]
 
 ### Diagrams

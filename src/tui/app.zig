@@ -18,6 +18,9 @@ const args = @import("../cli/args.zig");
 const clipboard = @import("../platform/clipboard.zig");
 const unicode = @import("unicode");
 const selection_mod = @import("selection.zig");
+const search_mod = @import("search.zig");
+const term_guard = @import("term_guard.zig");
+const ctlseqs = vaxis.ctlseqs;
 
 const toast_duration_ms: i64 = 1400;
 
@@ -31,6 +34,8 @@ const Event = union(enum) {
     winsize: vaxis.Winsize,
     focus_in,
     mouse: vaxis.Mouse,
+    /// Posted by the terminal guard after the process continues from SIGTSTP.
+    resumed,
 };
 
 fn parseContent(allocator: std.mem.Allocator, content: []const u8, input_source: args.Input) !markdown.Document {
@@ -72,6 +77,8 @@ pub const App = struct {
     toast_deadline_ms: i64,
 
     metadata: MetadataOverlay,
+
+    search_prompt: search_mod.Prompt,
 
     pub fn init(
         self: *App,
@@ -118,17 +125,20 @@ pub const App = struct {
         self.toast_message = null;
         self.toast_deadline_ms = 0;
         self.metadata = .{};
+        self.search_prompt = search_mod.Prompt.init(allocator);
     }
 
     pub fn deinit(self: *App) void {
         self.clearStatusMessage();
         self.clearToast();
+        self.search_prompt.deinit();
         self.pager.deinit();
         self.current_document.deinit(self.allocator);
         self.allocator.free(self.current_content);
         self.loop.stop();
         const writer = self.tty.writer();
         self.vx.deinit(self.allocator, writer);
+        term_guard.uninstall();
         self.tty.deinit();
     }
 
@@ -147,6 +157,9 @@ pub const App = struct {
 
         try self.vx.queryTerminal(writer, 1 * std.time.ns_per_s);
         try self.vx.setMouseMode(writer, true);
+        if (cookedTermios(&self.tty)) |cooked| {
+            try term_guard.install(self.tty.fd, cooked, .{ .context = self, .on_resume = onResume });
+        }
 
         try self.pager.resize(self.vx.window().width, self.vx.window().height -| 1);
 
@@ -171,6 +184,7 @@ pub const App = struct {
                     self.needs_redraw = true;
                 },
                 .mouse => |mouse| try self.handleMouse(mouse),
+                .resumed => try self.reenterScreen(),
             }
         }
 
@@ -192,9 +206,26 @@ pub const App = struct {
         }
     }
 
-    fn handleKeyPress(self: *App, key: vaxis.Key) !bool {
+    pub fn handleKeyPress(self: *App, key: vaxis.Key) !bool {
+        if (self.search_prompt.active) return self.handlePromptKey(key);
         switch (input.mapKey(key)) {
             .quit => return true,
+            .search_start => {
+                self.view_mode = .pager;
+                try self.search_prompt.begin(&self.pager.search, self.pager.viewport);
+                self.clearStatusMessage();
+                self.needs_redraw = true;
+                return false;
+            },
+            .search_next, .search_prev => {
+                try self.stepSearch(if (input.mapKey(key) == .search_next) .forward else .backward);
+                return false;
+            },
+            .suspend_app => {
+                term_guard.suspendSelf();
+                try self.reenterScreen();
+                return false;
+            },
             .toggle_help => {
                 self.view_mode = if (self.view_mode == .help) .pager else .help;
                 if (self.view_mode == .help) try self.setMetadataVisible(false);
@@ -319,6 +350,34 @@ pub const App = struct {
         }
     }
 
+    /// Marks search matches on a drawn row: every match reversed, the current
+    /// one in the theme accent so it stands out.
+    fn highlightMatches(self: *App, root: vaxis.Window, row: usize) void {
+        const search = &self.pager.search;
+        if (!search.hasPattern()) return;
+        const line_idx = self.pager.viewport.top + row;
+        const current_style = searchCurrentStyle(self.pager.resolved);
+        for (search.matchesOnLine(line_idx)) |match| {
+            const is_current = search.isCurrent(match);
+            var col = match.col_start;
+            while (col < match.col_end and col < root.width) : (col += 1) {
+                const cx: u16 = @intCast(col);
+                const cy: u16 = @intCast(row);
+                var cell = root.readCell(cx, cy) orelse continue;
+                if (is_current) {
+                    cell.style.fg = current_style.fg;
+                    cell.style.bg = current_style.bg;
+                    cell.style.bold = true;
+                    cell.style.reverse = current_style.reverse;
+                    cell.style.ul_style = .single;
+                } else {
+                    cell.style.reverse = true;
+                }
+                root.writeCell(cx, cy, cell);
+            }
+        }
+    }
+
     fn copySelection(self: *App) !void {
         const text = self.pager.selectedText(self.allocator) catch |err| switch (err) {
             error.InvalidUtf8, error.DisallowedControl, error.Overflow => |e| {
@@ -430,42 +489,130 @@ pub const App = struct {
     }
 
     fn handleEdit(self: *App) !void {
-        switch (self.input_source) {
-            .file => |path| {
-                self.clearStatusMessage();
-                const writer = self.tty.writer();
-                self.loop.stop();
-                try self.vx.setMouseMode(writer, false);
-                try self.vx.exitAltScreen(writer);
-                try editor.openFile(self.allocator, self.editor_command, path);
-                try self.loop.start();
-                try self.vx.enterAltScreen(writer);
-                try self.vx.queryTerminal(writer, 1 * std.time.ns_per_s);
-                try self.vx.setMouseMode(writer, true);
-
-                try self.reloadDocument(path);
-                try self.setStatusMessage(try std.fmt.allocPrint(self.allocator, "Reloaded {s}", .{std.fs.path.basename(path)}), true);
-                self.needs_redraw = true;
-            },
-            else => {
-                try self.setStatusMessage("Edit mode is only available for file inputs.", false);
-                self.needs_redraw = true;
-            },
+        self.needs_redraw = true;
+        const path = switch (self.input_source) {
+            .file => |file_path| file_path,
+            else => return self.setStatusMessage("Edit mode is only available for file inputs.", false),
+        };
+        const resolved = try editor.resolve(self.allocator, self.editor_command, editor.Env.fromProcess()) orelse
+            return self.setStatusMessage("No editor found — set $EDITOR or [general] editor", false);
+        defer resolved.deinit(self.allocator);
+        const program = try editor.programName(self.allocator, resolved.command);
+        defer self.allocator.free(program);
+        if (!editor.programExists(std.posix.getenv("PATH"), program)) {
+            return self.setStatusMessage(try editorNotFoundMessage(self.allocator, program), true);
         }
+
+        const loop_was_running = try self.suspendForChild();
+        term_guard.setChildRunning(true);
+        const result = editor.openFile(self.allocator, resolved.command, path);
+        term_guard.setChildRunning(false);
+        try self.resumeFromChild(loop_was_running);
+        result catch |err| switch (err) {
+            error.OutOfMemory => return error.OutOfMemory,
+            error.EditorNotFound => return self.setStatusMessage(try editorNotFoundMessage(self.allocator, program), true),
+            error.InvalidEditorCommand => return self.setStatusMessage(
+                try std.fmt.allocPrint(self.allocator, "Invalid editor command: {s}", .{resolved.command}),
+                true,
+            ),
+            error.EditorFailed => {
+                if (!try self.reloadOrReport(path)) return;
+                return self.setStatusMessage(
+                    try std.fmt.allocPrint(self.allocator, "Editor '{s}' exited with an error; reloaded {s}", .{ program, std.fs.path.basename(path) }),
+                    true,
+                );
+            },
+        };
+        _ = try self.reloadOrReport(path);
     }
 
     fn handleReload(self: *App) !void {
+        self.needs_redraw = true;
         switch (self.input_source) {
-            .file => |path| {
-                try self.reloadDocument(path);
-                try self.setStatusMessage(try std.fmt.allocPrint(self.allocator, "Reloaded {s}", .{std.fs.path.basename(path)}), true);
-                self.needs_redraw = true;
-            },
-            else => {
-                try self.setStatusMessage("Reload is only available for file inputs.", false);
-                self.needs_redraw = true;
-            },
+            .file => |path| _ = try self.reloadOrReport(path),
+            else => try self.setStatusMessage("Reload is only available for file inputs.", false),
         }
+    }
+
+    /// Reloads `path`; on failure keeps the current document and explains why
+    /// in the status line instead of exiting. Returns whether it reloaded.
+    fn reloadOrReport(self: *App, path: []const u8) !bool {
+        self.reloadDocument(path) catch |err| switch (err) {
+            error.OutOfMemory => return error.OutOfMemory,
+            else => {
+                try self.setStatusMessage(try reloadFailureMessage(self.allocator, path, err), true);
+                return false;
+            },
+        };
+        try self.setStatusMessage(try std.fmt.allocPrint(self.allocator, "Reloaded {s}", .{std.fs.path.basename(path)}), true);
+        return true;
+    }
+
+    /// Leaves the TUI so a child (the editor) owns the terminal. Returns
+    /// whether the input loop was running (and so must be restarted).
+    fn suspendForChild(self: *App) !bool {
+        const writer = self.tty.writer();
+        const loop_was_running = self.loop.thread != null;
+        self.loop.stop();
+        try self.vx.resetState(writer);
+        try writer.flush();
+        term_guard.enterCookedMode();
+        return loop_was_running;
+    }
+
+    fn resumeFromChild(self: *App, restart_loop: bool) !void {
+        term_guard.reenterRawMode();
+        if (restart_loop) try self.loop.start();
+        try self.reenterScreen();
+    }
+
+    /// Re-enables the alt screen, input modes and mouse after the terminal was
+    /// reset (editor, Ctrl-Z, SIGTSTP) and forces a full repaint.
+    fn reenterScreen(self: *App) !void {
+        const writer = self.tty.writer();
+        try self.vx.enterAltScreen(writer);
+        self.vx.state.kitty_keyboard = false;
+        try self.vx.enableDetectedFeatures(writer);
+        if (self.vx.state.in_band_resize) try writer.writeAll(ctlseqs.in_band_resize_set);
+        try self.vx.setMouseMode(writer, true);
+        self.vx.queueRefresh();
+        self.needs_redraw = true;
+    }
+
+    fn onResume(context: *anyopaque) void {
+        const self: *App = @ptrCast(@alignCast(context));
+        _ = self.loop.tryPostEvent(.resumed);
+    }
+
+    fn handlePromptKey(self: *App, key: vaxis.Key) !bool {
+        const prompt = &self.search_prompt;
+        const search = &self.pager.search;
+        const view = &self.pager.viewport;
+        const lines = self.pager.lines;
+        self.needs_redraw = true;
+        switch (input.mapPromptKey(key)) {
+            .quit => return true,
+            .cancel => try prompt.cancel(search, view, lines),
+            .commit => {
+                try prompt.commit(search, view, lines);
+                if (search.hasPattern()) try self.setStatusMessage(try search.statusText(self.allocator), true);
+            },
+            .backspace => _ = try prompt.backspace(search, view, lines),
+            .clear => try prompt.clearQuery(search, view, lines),
+            .insert => |text| try prompt.insert(text, search, view, lines),
+            .ignore => self.needs_redraw = false,
+        }
+        return false;
+    }
+
+    fn stepSearch(self: *App, direction: search_mod.Direction) !void {
+        self.needs_redraw = true;
+        const search = &self.pager.search;
+        if (!search.hasPattern()) return self.setStatusMessage("No previous search — press / to search", false);
+        if (search.step(direction, self.pager.viewport)) |match| {
+            search_mod.reveal(&self.pager.viewport, match.line);
+        }
+        try self.setStatusMessage(try search.statusText(self.allocator), true);
     }
 
     fn handleLayoutChange(self: *App) !void {
@@ -483,10 +630,15 @@ pub const App = struct {
 
     fn reloadDocument(self: *App, path: []const u8) !void {
         const reloaded = try std.fs.cwd().readFileAlloc(self.allocator, path, std.math.maxInt(usize));
+        // Parse before swapping so a failure keeps the current document.
+        const document = parseContent(self.allocator, reloaded, self.input_source) catch |err| {
+            self.allocator.free(reloaded);
+            return err;
+        };
         self.allocator.free(self.current_content);
         self.current_content = reloaded;
         self.current_document.deinit(self.allocator);
-        self.current_document = try parseContent(self.allocator, self.current_content, self.input_source);
+        self.current_document = document;
         self.pager.document = &self.current_document;
         self.pager.width = self.vx.window().width;
         self.pager.viewport.setMetrics(self.vx.window().height -| 1, self.pager.viewport.total);
@@ -536,11 +688,17 @@ pub const App = struct {
                     .col_offset = 0,
                     .wrap = .none,
                 });
+                self.highlightMatches(root, row);
                 try self.highlightRow(root, row);
             }
         }
 
-        const status_text = try statusbar.format(self.allocator, self.pager.title, root.width, self.pager.viewport, self.view_mode == .help, self.status_message, self.mermaid_layout);
+        const prompt_text = if (self.search_prompt.active)
+            try std.fmt.allocPrint(self.allocator, "/{s}", .{self.search_prompt.query.items})
+        else
+            null;
+        defer if (prompt_text) |text| self.allocator.free(text);
+        const status_text = try statusbar.format(self.allocator, self.pager.title, root.width, self.pager.viewport, self.view_mode == .help, prompt_text orelse self.status_message, self.mermaid_layout);
         defer self.allocator.free(status_text);
         const status_style: vaxis.Style = .{ .reverse = true };
         _ = root.print(&.{.{ .text = status_text, .style = status_style }}, .{
@@ -548,6 +706,12 @@ pub const App = struct {
             .col_offset = 0,
             .wrap = .none,
         });
+        if (prompt_text) |text| {
+            const col = @min(1 + unicode.displayWidth(text), root.width -| 1);
+            root.showCursor(@intCast(col), root.height -| 1);
+        } else {
+            root.hideCursor();
+        }
 
         if (self.view_mode == .help) {
             drawHelp(root);
@@ -595,6 +759,33 @@ fn toVaxisSegments(allocator: std.mem.Allocator, line: render_model.Line, resolv
     return segments;
 }
 
+/// The current search match: accent background with the canvas (or black)
+/// foreground; falls back to reverse video when the accent is the default.
+fn searchCurrentStyle(resolved: *const ResolvedTheme) vaxis.Style {
+    if (resolved.accent == .default) return .{ .reverse = true, .bold = true, .ul_style = .single };
+    const fg: vaxis.Color = if (resolved.base_bg == .default) .{ .index = 0 } else theme.toVaxisColor(resolved.base_bg);
+    return .{ .fg = fg, .bg = theme.toVaxisColor(resolved.accent), .bold = true, .ul_style = .single };
+}
+
+fn cookedTermios(tty: *vaxis.Tty) ?std.posix.termios {
+    if (@hasField(vaxis.Tty, "termios")) return tty.termios;
+    return null;
+}
+
+fn editorNotFoundMessage(allocator: std.mem.Allocator, program: []const u8) ![]u8 {
+    return std.fmt.allocPrint(allocator, "Editor '{s}' not found — set $EDITOR or [general] editor", .{program});
+}
+
+fn reloadFailureMessage(allocator: std.mem.Allocator, path: []const u8, err: anyerror) ![]u8 {
+    const name = std.fs.path.basename(path);
+    return switch (err) {
+        error.FileNotFound => std.fmt.allocPrint(allocator, "Reload failed: {s} no longer exists", .{name}),
+        error.AccessDenied, error.PermissionDenied => std.fmt.allocPrint(allocator, "Reload failed: permission denied reading {s}", .{name}),
+        error.IsDir => std.fmt.allocPrint(allocator, "Reload failed: {s} is a directory", .{name}),
+        else => std.fmt.allocPrint(allocator, "Reload failed: {s}: {s}", .{ name, @errorName(err) }),
+    };
+}
+
 fn syncPagerSize(pager: *PagerView, width: usize, height: usize) !bool {
     if (pager.width == width and pager.viewport.height == height) return false;
     try pager.resize(width, height);
@@ -614,10 +805,11 @@ fn drawHelp(root: vaxis.Window) void {
         .height = height,
         .border = .{ .where = .all, .style = .{ .reverse = true } },
     });
+    // `box` is the bordered child's interior, so its rows start at 0.
     var row: usize = 0;
-    while (row < help_lines.len and row + 1 < height) : (row += 1) {
+    while (row < help_lines.len and row < box.height) : (row += 1) {
         _ = box.print(&.{.{ .text = help_lines[row], .style = .{ .reverse = true } }}, .{
-            .row_offset = @intCast(row + 1),
+            .row_offset = @intCast(row),
             .col_offset = 1,
             .wrap = .none,
         });
@@ -778,4 +970,8 @@ test "toggle metadata is refused when the document has no front matter" {
     try std.testing.expect(!app.metadata.visible);
     try std.testing.expect(app.status_message != null);
     try std.testing.expectEqualStrings("No front matter metadata in this document.", app.status_message.?);
+}
+
+test {
+    _ = @import("app_test.zig");
 }
