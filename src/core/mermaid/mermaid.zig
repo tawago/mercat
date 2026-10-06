@@ -24,7 +24,8 @@ pub const Result = union(enum) {
 };
 
 pub fn render(allocator: std.mem.Allocator, source: []const u8, options: Options) Result {
-    const drawn = switch (detect.Kind.fromSource(source)) {
+    const kind = detect.Kind.fromSource(source);
+    const fit = switch (kind) {
         .flowchart => return renderFlowchart(allocator, source, options),
         .sequence => sequence.render(allocator, source, options.max_width),
         .class_diagram => class.render(allocator, source, options.max_width),
@@ -32,7 +33,23 @@ pub fn render(allocator: std.mem.Allocator, source: []const u8, options: Options
         .state => state.render(allocator, source, options.max_width),
         .unsupported => return .{ .not_drawn = .{} },
     } catch return .{ .not_drawn = .{} };
-    return if (drawn) |text| .{ .drawn = text } else .{ .not_drawn = .{} };
+    return switch (fit) {
+        .drawn => |text| .{ .drawn = text },
+        .too_wide => |width| blk: {
+            std.log.warn("mermaid: {s} diagram not drawn: width {d} > budget {d}", .{ kindName(kind), width, options.max_width });
+            break :blk .{ .not_drawn = .{} };
+        },
+    };
+}
+
+fn kindName(kind: detect.Kind) []const u8 {
+    return switch (kind) {
+        .sequence => "sequence",
+        .class_diagram => "class",
+        .er => "er",
+        .state => "state",
+        .flowchart, .unsupported => unreachable,
+    };
 }
 
 fn renderFlowchart(allocator: std.mem.Allocator, source: []const u8, options: Options) Result {

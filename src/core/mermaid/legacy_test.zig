@@ -12,4 +12,6 @@ test {
     _ = @import("state/layout_test.zig");
     _ = @import("state/render.zig");
     _ = @import("shared/canvas.zig");
+    _ = @import("shared/ladder.zig");
+    _ = @import("sequence/fit.zig");
 }
