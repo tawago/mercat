@@ -411,9 +411,9 @@ test "valid format/output combinations succeed end-to-end" {
         try testing.expect(r.exited_zero);
     }
     {
+        // --monochrome only applies to PNG; elsewhere it is a usage error.
         const r = try runMercat(allocator, &.{ "--monochrome", in_path });
         defer r.deinit(allocator);
-        try testing.expect(r.exited_zero);
-        try testing.expect(r.stdout.len > 0);
+        try testing.expect(!r.exited_zero);
     }
 }

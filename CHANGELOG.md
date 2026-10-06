@@ -52,6 +52,23 @@ All notable changes to this project will be documented in this file.
   longer causes the document to be printed twice.
 - `--help` gains Environment and Exit status sections and shows the config
   file path.
+- Did-you-mean prefers a unique prefix (`--out` suggests `--output`), and a
+  single-dash long option (`-width 80`) is reported as such with a
+  `did you mean '--width'?` note instead of a misleading `-w` error. Unknown
+  themes suggest the closest name (`drakula` → `dracula`); every enum error
+  reads `expected one of: …`.
+- Diagnostics follow stderr's own terminal, `NO_COLOR` and `TERM` state;
+  `--color=never` and `[display] color = "never"` apply to usage errors too,
+  and `--color=always` forces color on stdout only.
+- Output write failures read `cannot write to stdout: …` or
+  `cannot write '<path>': …`; a closed stdout is `bad file descriptor`. An
+  empty `-o` value and `--monochrome` without `--format png` are usage errors.
+- Config lines mercat cannot parse (`[section` without `]`, no `=`, an
+  unterminated string) warn `path:N: cannot parse line` and no longer shift
+  later keys into the previous section; string keys given a non-string value
+  (`pager = 5`) warn and are ignored.
+- `-t` with a piped stdin says so (`stdin is a pipe; run without the pipe or
+  drop -t`), whether or not a file is given.
 
 ### TUI
 

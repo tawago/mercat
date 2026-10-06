@@ -18,11 +18,26 @@ test "stdout not a terminal is refused before anything is read" {
     try expectRefusal(.none, term, .{}, .stdout_not_tty, "--tui needs an interactive terminal; drop -t to render to stdout");
 }
 
-test "piped stdin without a file is refused (does not hang reading the pipe)" {
+const pipe_msg = "--tui reads keys from the terminal, but stdin is a pipe; run without the pipe or drop -t";
+
+test "piped stdin is refused with or without a file (does not hang reading the pipe)" {
     var term = tty;
     term.stdin_tty = false;
-    try expectRefusal(.none, term, .{}, .stdin_pipe, "--tui needs a file argument when stdin is a pipe");
-    try expectRefusal(.stdin, tty, .{}, .stdin_pipe, "--tui needs a file argument when stdin is a pipe");
+    term.stdin_pipe = true;
+    try expectRefusal(.none, term, .{}, .stdin_pipe, pipe_msg);
+    try expectRefusal(.none, term, .{ .readme_exists = true }, .stdin_pipe, pipe_msg);
+    try expectRefusal(.{ .file = "doc.md" }, term, .{}, .stdin_pipe, pipe_msg);
+    try expectRefusal(.stdin, term, .{}, .stdin_pipe, pipe_msg);
+}
+
+test "'-t -' with a terminal on stdin says the document cannot come from stdin" {
+    try expectRefusal(.stdin, tty, .{}, .stdin_input, "--tui cannot read the document from stdin; pass a file, e.g. mercat -t README.md");
+}
+
+test "no controlling terminal is refused" {
+    var term = tty;
+    term.has_controlling_tty = false;
+    try expectRefusal(.{ .file = "doc.md" }, term, .{}, .no_terminal, "--tui needs an interactive terminal (no controlling terminal)");
 }
 
 test "a directory is refused with a pointer to a file" {
@@ -43,5 +58,5 @@ test "a file with a terminal opens" {
 test "a file with stdin redirected from a non-terminal is refused" {
     var term = tty;
     term.stdin_tty = false;
-    try expectRefusal(.{ .file = "doc.md" }, term, .{}, .no_terminal, "--tui needs an interactive terminal (stdin is not a terminal)");
+    try expectRefusal(.{ .file = "doc.md" }, term, .{}, .stdin_redirected, "--tui reads keys from the terminal, but stdin is redirected; run without the redirect or drop -t");
 }

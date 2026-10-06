@@ -52,6 +52,18 @@ pub fn resolve(flag: ?Mode, config_mode: Mode, env: Env, is_tty: bool) bool {
     return autoDecision(env, is_tty);
 }
 
+/// Whether diagnostics on stderr carry a colored level label. stderr follows
+/// its own state: on only when it is a terminal and neither `NO_COLOR` nor
+/// `TERM=dumb` is set. `never` (flag, or config without a flag) turns it off;
+/// `always` and `CLICOLOR_FORCE`/`FORCE_COLOR` force stdout color only, so
+/// `mercat --color=always x.md 2>log` keeps the log free of escapes.
+pub fn resolveStderr(flag: ?Mode, config_mode: Mode, env: Env, stderr_is_tty: bool) bool {
+    const mode = flag orelse config_mode;
+    if (mode == .never) return false;
+    if (env.no_color) |v| if (v.len != 0) return false;
+    return autoDecision(env, stderr_is_tty);
+}
+
 fn autoDecision(env: Env, is_tty: bool) bool {
     if (env.term) |t| if (std.mem.eql(u8, t, "dumb")) return false;
     return is_tty;

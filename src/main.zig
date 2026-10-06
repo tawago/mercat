@@ -74,28 +74,32 @@ fn run(allocator: std.mem.Allocator) !void {
     const argv = try std.process.argsAlloc(allocator);
     defer std.process.argsFree(allocator, argv);
 
-    const env = cli_color.Env.fromProcess();
-    diag.setColor(cli_color.resolve(null, .auto, env, std.fs.File.stderr().isTty()));
-
-    var arg_diag: args.Diagnostic = .{};
-    const parsed = args.parseDiag(allocator, argv, &arg_diag) catch |err| switch (err) {
-        error.ShowHelp => return showHelp(allocator),
-        error.ShowVersion => return pager.writeStdout("mercat " ++ VERSION ++ "\n"),
-        error.OutOfMemory => return error.OutOfMemory,
-        else => reportUsageError(err, &arg_diag),
-    };
-    defer parsed.deinit(allocator);
-
-    theme_color.initTruecolor(allocator);
-
+    // Config loads first so a usage error can honor `[display] color`; its
+    // warnings are printed only once the command line parses.
     var warnings = config.Warnings.init(allocator);
     defer warnings.deinit();
     var loaded_config = try config.load(allocator, &warnings);
     defer loaded_config.deinit(allocator);
 
+    const env = cli_color.Env.fromProcess();
+    const stderr_tty = std.fs.File.stderr().isTty();
+    var arg_diag: args.Diagnostic = .{};
+    const parsed = args.parseDiag(allocator, argv, &arg_diag) catch |err| switch (err) {
+        error.ShowHelp => return showHelp(allocator),
+        error.ShowVersion => return writeStdoutOrFail("mercat " ++ VERSION ++ "\n"),
+        error.OutOfMemory => return error.OutOfMemory,
+        else => {
+            diag.setColor(cli_color.resolveStderr(args.prescanColor(argv), loaded_config.display.color, env, stderr_tty));
+            reportUsageError(err, &arg_diag);
+        },
+    };
+    defer parsed.deinit(allocator);
+
+    theme_color.initTruecolor(allocator);
+
     const stdout_tty = std.fs.File.stdout().isTty();
     const color_on = cli_color.resolve(parsed.color, loaded_config.display.color, env, stdout_tty);
-    diag.setColor(cli_color.resolve(parsed.color, loaded_config.display.color, env, std.fs.File.stderr().isTty()));
+    diag.setColor(cli_color.resolveStderr(parsed.color, loaded_config.display.color, env, stderr_tty));
     for (warnings.items()) |msg| diag.warn("{s}", .{msg});
 
     if (parsed.list_themes) return listThemes(allocator);
@@ -158,18 +162,26 @@ fn run(allocator: std.mem.Allocator) !void {
 }
 
 fn showHelp(allocator: std.mem.Allocator) !void {
-    try pager.writeStdout(args.help_text);
     const path = try config.resolveConfigPath(allocator);
     defer allocator.free(path);
     const state = if (std.fs.cwd().access(path, .{})) |_| "" else |_| " (not present; defaults apply)";
     const line = try std.fmt.allocPrint(allocator, "Config: {s}{s}\n  TOML; command-line flags win over environment, environment over config.\n", .{ path, state });
     defer allocator.free(line);
-    try pager.writeStdout(line);
+    writeStdoutOrFail(args.help_text);
+    writeStdoutOrFail(line);
+}
+
+/// Writes informational output (help, version, theme lists). A closed pipe
+/// exits 0; any other failure is "cannot write to stdout: …", exit 1.
+fn writeStdoutOrFail(bytes: []const u8) void {
+    pager.writeStdout(bytes) catch |err| diag.failStdout(err);
 }
 
 fn reportUsageError(err: args.ParseError, d: *const args.Diagnostic) noreturn {
     var buf: [512]u8 = undefined;
     diag.err("{s}", .{args.describe(&buf, err, d)});
+    var note_buf: [256]u8 = undefined;
+    if (args.describeNote(&note_buf, err, d)) |text| diag.note("{s}", .{text});
     // `mercat -weird.md` parses as `-w eird.md`; point at `--` when the token is a real file.
     if (d.token.len > 1 and d.token[0] == '-') {
         if (std.fs.cwd().access(d.token, .{})) |_| {
@@ -195,11 +207,21 @@ fn checkThemeName(
     var names = try cli_themes.collect(allocator);
     defer names.deinit();
     if (parsed.style != null) {
-        diag.usage("unknown theme '{s}' (available: {s})", .{ name, names.joined() });
+        diag.err("unknown theme '{s}' (expected one of: {s})", .{ name, names.joined() });
+        usageExit(names.suggest(name));
     }
     const origin = if (cfg.theme_origin.len != 0) cfg.theme_origin else "config";
-    diag.warn("{s}: unknown theme '{s}'; using dark (available: {s})", .{ origin, name, names.joined() });
+    diag.warn("{s}: unknown theme '{s}'; using dark (expected one of: {s})", .{ origin, name, names.joined() });
+    if (names.suggest(name)) |s| diag.note("did you mean '{s}'?", .{s});
     return "dark";
+}
+
+/// Ends a usage error already reported: an optional did-you-mean note, the
+/// --help pointer, exit 2.
+fn usageExit(suggestion: ?[]const u8) noreturn {
+    if (suggestion) |s| diag.note("did you mean '{s}'?", .{s});
+    diag.writeRaw(diag.help_hint);
+    std.process.exit(diag.exit_usage);
 }
 
 fn checkTuiEntry(input: args.Input) !args.Input {
@@ -210,6 +232,7 @@ fn checkTuiEntry(input: args.Input) !args.Input {
         .stdin_tty = terminal.stdinIsTty(),
         .stdout_tty = terminal.stdoutIsTty(),
         .has_controlling_tty = terminal.hasControllingTty(),
+        .stdin_pipe = terminal.stdinIsPipe(),
     }, .{ .input_is_dir = is_dir, .readme_exists = readme });
     switch (outcome) {
         .open => |file| return if (path == null) .{ .file = file } else input,
@@ -234,7 +257,7 @@ fn listThemes(allocator: std.mem.Allocator) !void {
         try out.appendSlice(allocator, name);
         try out.append(allocator, '\n');
     }
-    try pager.writeStdout(out.items);
+    writeStdoutOrFail(out.items);
 }
 
 const CliDisplay = struct {
@@ -284,7 +307,7 @@ fn runCli(
             defer allocator.free(output);
             pager.writeOutput(allocator, output, loaded_config.general.pager, parsed.pager) catch |err| switch (err) {
                 error.OutOfMemory => return error.OutOfMemory,
-                else => diag.fail("cannot write to stdout: {s}", .{diag.describeError(err)}),
+                else => diag.failStdout(err),
             };
         },
         .plain => {
@@ -309,7 +332,7 @@ fn runCli(
                     var buf: [192]u8 = undefined;
                     diag.fail("PNG export failed: {s}", .{exportDetail(&buf, err, png_diag)});
                 }
-                diag.fail("cannot write '{s}': {s}", .{ output_path, diag.describeError(err) });
+                diag.failWrite(output_path, err);
             };
         },
     }
@@ -326,14 +349,15 @@ fn runDumpTheme(allocator: std.mem.Allocator, name: []const u8) !void {
         emitThemeDiagnostics(&diag_list);
         var names = try cli_themes.collect(allocator);
         defer names.deinit();
-        diag.usage("unknown theme '{s}' for '--dump-theme' (available: {s})", .{ name, names.joined() });
+        diag.err("unknown theme '{s}' for '--dump-theme' (expected one of: {s})", .{ name, names.joined() });
+        usageExit(names.suggest(name));
     }
     const folded = registry.mergedSpec(name, &diag_list).?;
     var buf = std.ArrayList(u8).empty;
     defer buf.deinit(allocator);
     try theme_dump.write(buf.writer(allocator), name, &folded);
     emitThemeDiagnostics(&diag_list);
-    try pager.writeStdout(buf.items);
+    writeStdoutOrFail(buf.items);
 }
 
 fn themeWarning(allocator: std.mem.Allocator, diag_list: *const theme_resolve.Diagnostics) !?[]u8 {
@@ -397,13 +421,10 @@ fn exportPng(
 }
 
 fn writePlainOutput(output: []const u8, output_path: ?[]const u8) void {
-    const path = output_path orelse {
-        pager.writeStdout(output) catch |err| diag.fail("cannot write to stdout: {s}", .{diag.describeError(err)});
-        return;
-    };
-    const file = std.fs.cwd().createFile(path, .{}) catch |err| diag.failPath(path, err);
+    const path = output_path orelse return writeStdoutOrFail(output);
+    const file = std.fs.cwd().createFile(path, .{}) catch |err| diag.failWrite(path, err);
     defer file.close();
-    file.writeAll(output) catch |err| diag.failPath(path, err);
+    file.writeAll(output) catch |err| diag.failWrite(path, err);
 }
 
 fn inputTitle(input: args.Input) []const u8 {

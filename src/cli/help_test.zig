@@ -24,6 +24,14 @@ test "help no longer claims colors are emitted when piped" {
     try std.testing.expect(std.mem.indexOf(u8, help.help_text, "-t <path>") == null);
 }
 
+test "help ties OSC 8 to a terminal and documents stderr color" {
+    const text = help.help_text;
+    try std.testing.expect(std.mem.indexOf(u8, text, "Color and OSC 8 hyperlinks follow --color") == null);
+    try std.testing.expect(std.mem.indexOf(u8, text, "OSC 8 hyperlinks also need stdout to be a terminal") != null);
+    try std.testing.expect(std.mem.indexOf(u8, text, "--color=always forces color on stdout only") != null);
+    try std.testing.expect(std.mem.indexOf(u8, text, "(requires --format png)") != null);
+}
+
 test "help lines fit in 80 columns and have no trailing spaces" {
     var lines = std.mem.splitScalar(u8, help.help_text, '\n');
     while (lines.next()) |line| {
