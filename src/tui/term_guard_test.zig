@@ -1,0 +1,100 @@
+const std = @import("std");
+const vaxis = @import("vaxis");
+const guard = @import("term_guard.zig");
+const ctlseqs = vaxis.ctlseqs;
+
+fn contains(haystack: []const u8, needle: []const u8) bool {
+    return std.mem.indexOf(u8, haystack, needle) != null;
+}
+
+test "restore sequence leaves the alt screen, disables mouse and shows the cursor" {
+    const seq = guard.restore_sequence;
+    try std.testing.expect(contains(seq, ctlseqs.rmcup));
+    try std.testing.expect(contains(seq, ctlseqs.mouse_reset));
+    try std.testing.expect(contains(seq, ctlseqs.show_cursor));
+    try std.testing.expect(contains(seq, ctlseqs.sgr_reset));
+    try std.testing.expect(contains(seq, ctlseqs.csi_u_pop));
+    try std.testing.expect(contains(seq, ctlseqs.bp_reset));
+    // Leaving the alt screen comes last so the resets apply to it first.
+    try std.testing.expect(std.mem.endsWith(u8, seq, ctlseqs.rmcup));
+}
+
+test "exit signals cover terminate, hangup, interrupt and quit" {
+    const sigs = guard.exit_signals;
+    inline for (.{ std.posix.SIG.TERM, std.posix.SIG.HUP, std.posix.SIG.INT, std.posix.SIG.QUIT }) |sig| {
+        try std.testing.expect(std.mem.indexOfScalar(u8, &sigs, sig) != null);
+    }
+}
+
+test "restoreTerminal writes the restore sequence only while installed" {
+    const fds = try std.posix.pipe2(.{ .NONBLOCK = true });
+    defer std.posix.close(fds[0]);
+    defer std.posix.close(fds[1]);
+
+    var buf: [256]u8 = undefined;
+    guard.restoreTerminal();
+    try std.testing.expectError(error.WouldBlock, std.posix.read(fds[0], &buf));
+
+    try guard.install(fds[1], std.mem.zeroes(std.posix.termios), null);
+    try std.testing.expect(guard.isActive());
+    guard.restoreTerminal();
+    const n = try std.posix.read(fds[0], &buf);
+    try std.testing.expectEqualStrings(guard.restore_sequence, buf[0..n]);
+
+    guard.uninstall();
+    try std.testing.expect(!guard.isActive());
+    guard.restoreTerminal();
+    try std.testing.expectError(error.WouldBlock, std.posix.read(fds[0], &buf));
+}
+
+test "install and uninstall can be repeated" {
+    const fds = try std.posix.pipe2(.{ .NONBLOCK = true });
+    defer std.posix.close(fds[0]);
+    defer std.posix.close(fds[1]);
+    var i: usize = 0;
+    while (i < 3) : (i += 1) {
+        try guard.install(fds[1], std.mem.zeroes(std.posix.termios), null);
+        guard.uninstall();
+    }
+    try std.testing.expect(!guard.isActive());
+}
+
+test "fatal signal messages name the signal and where to report" {
+    const msg = guard.fatalSignalMessage(std.posix.SIG.SEGV);
+    try std.testing.expect(std.mem.startsWith(u8, msg, "mercat crashed: segmentation fault (SIGSEGV)\n"));
+    try std.testing.expect(std.mem.endsWith(u8, msg, "Please report this at https://github.com/tawago/mercat/issues\n"));
+    for (guard.fatal_signals) |sig| {
+        try std.testing.expect(std.mem.startsWith(u8, guard.fatalSignalMessage(sig), "mercat crashed: "));
+    }
+}
+
+test "uninstall restores the fatal-signal handlers that were there before" {
+    const fds = try std.posix.pipe2(.{ .NONBLOCK = true });
+    defer std.posix.close(fds[0]);
+    defer std.posix.close(fds[1]);
+    var before: std.posix.Sigaction = undefined;
+    std.posix.sigaction(std.posix.SIG.SEGV, null, &before);
+
+    try guard.install(fds[1], std.mem.zeroes(std.posix.termios), null);
+    var during: std.posix.Sigaction = undefined;
+    std.posix.sigaction(std.posix.SIG.SEGV, null, &during);
+    try std.testing.expect(during.handler.sigaction != before.handler.sigaction);
+    guard.uninstall();
+
+    var after: std.posix.Sigaction = undefined;
+    std.posix.sigaction(std.posix.SIG.SEGV, null, &after);
+    try std.testing.expectEqual(before.handler.sigaction, after.handler.sigaction);
+}
+
+test "signals typed into a running editor do not kill or repaint mercat" {
+    const SIG = std.posix.SIG;
+    try std.testing.expectEqual(guard.Response.ignore, guard.respond(SIG.INT, true));
+    try std.testing.expectEqual(guard.Response.ignore, guard.respond(SIG.QUIT, true));
+    try std.testing.expectEqual(guard.Response.stop_only, guard.respond(SIG.TSTP, true));
+    try std.testing.expectEqual(guard.Response.restore_and_exit, guard.respond(SIG.TERM, true));
+    try std.testing.expectEqual(guard.Response.restore_and_exit, guard.respond(SIG.HUP, true));
+
+    try std.testing.expectEqual(guard.Response.restore_and_exit, guard.respond(SIG.INT, false));
+    try std.testing.expectEqual(guard.Response.restore_and_exit, guard.respond(SIG.QUIT, false));
+    try std.testing.expectEqual(guard.Response.suspend_and_resume, guard.respond(SIG.TSTP, false));
+}
