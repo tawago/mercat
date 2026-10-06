@@ -5,13 +5,9 @@ pager = "less -R"
 [display]
 theme = "dark"
 width = 0
-line_numbers = false
 heading_markers = true
+color = "auto"
+frontmatter = "panel"
 
 [mermaid]
-enabled = true
-style = "rounded"
-
-[files]
-show_hidden = false
-extensions = ["md", "markdown", "mdown", "mkd"]
+subgraph_edges = "bridge"
