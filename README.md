@@ -128,21 +128,38 @@ a closed pipe (`mercat big.md | head -1`) exits 0 silently.
 
 | Key | Action |
 |-----|--------|
-| `j` / `k`, `↓` / `↑` | Scroll down / up |
-| `Space` / `PgDn` | Page down |
-| `Ctrl-B` / `PgUp` | Page up |
-| `g` / `Home`, `G` / `End` | Go to top / bottom |
-| `/` | Search (incremental, smart-case; `Enter` confirms, `Esc` cancels) |
+| `j` / `↓` / `Ctrl-E` / `Ctrl-N` | Line down |
+| `k` / `↑` / `Ctrl-Y` / `Ctrl-P` | Line up |
+| `Space` / `f` / `PgDn` / `Ctrl-F` | Page down |
+| `b` / `PgUp` / `Ctrl-B` | Page up |
+| `d` / `Ctrl-D`, `u` / `Ctrl-U` | Half page down / up |
+| `g` / `Home` / `<` | Go to top |
+| `G` / `End` / `>` | Go to bottom |
+| `Enter` | Follow footnote link |
+| `/` | Search (incremental, smart-case; `Enter` confirms, `Esc` or `Ctrl-C` cancels; an empty search clears the highlights) |
 | `n` / `N` | Next / previous match (wraps around) |
+| `Esc` | Clear the selection, then the search highlights |
 | `e` | Edit the file (`[general] editor`, else `$VISUAL`, `$EDITOR`, or the first of nvim/vim/vi/nano), then reload |
 | `r` | Reload file |
-| `f` / `Enter` | Follow footnote link |
 | `m` | Toggle front-matter metadata panel |
-| `b` | Toggle subgraph edges (bridge/cross) |
-| mouse drag | Select and copy text (`Esc` clears) |
+| `B` | Toggle subgraph edges (bridge/cross) |
+| mouse drag | Select and copy text (see below) |
+| `?` / `F1` | Toggle help (`j`/`k`/`PgUp`/`PgDn` scroll it; `Esc`, `q`, `?` or `F1` close it) |
 | `Ctrl-Z` | Suspend (`fg` to resume) |
-| `?` or `h` | Toggle help |
 | `q` / `Ctrl-C` | Quit |
+
+The status line shows the file name on the left and the position on the
+right (`L 30-58/897 41%`, or `Top` / `Bot` / `All`); messages such as
+`Reloaded` or search counts appear next to the file name for about two
+seconds.
+
+**Copying.** Releasing a mouse selection copies it with the platform
+clipboard tool (`pbcopy`, or `wl-copy`, `xclip` or `xsel`) and with OSC 52
+through the terminal. `Copied "…"` appears only when one of them worked;
+otherwise the status line says why, for example when the selection is too
+large for OSC 52 and no clipboard tool is installed. Inside tmux, OSC 52
+from applications needs `set -s set-clipboard on`; mercat checks the setting
+and says so when it is off.
 
 ## Configuration
 
@@ -227,7 +244,7 @@ theme name mercat can find.
 
 **In Progress**: Mermaid ASCII diagram rendering.
 
-**Planned**: more TUI features, in-document search, file watching.
+**Planned**: more TUI features, file watching.
 
 ## Development
 

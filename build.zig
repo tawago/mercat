@@ -101,6 +101,10 @@ pub fn build(b: *std.Build) void {
     test_module.addAnonymousImport("kitchen_sink_md", .{
         .root_source_file = b.path("tests/fixtures/kitchen-sink.md"),
     });
+    // The TUI key-table test checks that README.md documents every binding.
+    test_module.addAnonymousImport("readme_md", .{
+        .root_source_file = b.path("README.md"),
+    });
 
     const unit_tests = b.addTest(.{
         .root_module = test_module,

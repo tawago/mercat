@@ -87,11 +87,43 @@ All notable changes to this project will be documented in this file.
 
 ### TUI
 
+- **Key bindings follow less and vim.** `Ctrl-E` / `Ctrl-N` and `Ctrl-Y` /
+  `Ctrl-P` move a line; `f` / `Ctrl-F` page down and `b` page up; `d` / `u`
+  and `Ctrl-D` / `Ctrl-U` move half a page; `<` / `>` jump to the top and
+  bottom; `F1` opens help. One key table drives key handling, the help overlay
+  and the README table, so they cannot drift apart.
+- **Changed keys.** The subgraph-edge toggle moved from `b` to `B` (`b` now
+  pages up, as in less). `f` pages down; `Enter` still follows footnote links.
+  The `l` layout key is gone: it changed nothing on screen (#83). `h` no
+  longer opens help.
+- **Home / End work in tmux, GNU screen and the Linux console**, which send
+  `ESC [1~` / `ESC [4~`; these keys were ignored before.
+- **Help overlay.** A bordered card titled `mercat <version> — keys`, grouped
+  into Move, Search, File, View and Other, drawn over the dimmed document. It
+  fits at 80x24 in two columns; on smaller screens it scrolls with
+  `j`/`k`/`PgUp`/`PgDn` and shows `↓ more`. `Esc`, `q`, `?` or `F1` closes it.
+  Before, it silently cut off its last entries on a 24-row terminal.
+- **Status line.** It spans the full width: the file name and any message on
+  the left, the position on the right (`L 30-58/897 41%`, or `Top` / `Bot` /
+  `All`). Messages disappear after about two seconds and never hide the
+  position. Text is clipped by display width at character boundaries, so
+  wide (CJK) names no longer misalign the bar. A long search query shows its
+  end (`…tail`) with the cursor right after it.
 - **Search.** `/` opens an incremental, smart-case search prompt in the status
-  line (`Enter` confirms, `Esc` cancels); `n` / `N` step through matches with
-  wraparound. All matches are highlighted and the current one uses the theme
-  accent; the status line shows `[3/17] /mermaid` or `Pattern not found: foo`.
-  Matches are recomputed on resize and reload.
+  line (`Enter` confirms, `Esc` or `Ctrl-C` cancels); `n` / `N` step through
+  matches with wraparound. All matches are highlighted and the current one
+  uses the theme accent; the status line shows `[3/17] /mermaid` or
+  `Pattern not found: foo`. Matches are recomputed on resize and reload.
+  `Esc` clears the selection first, then the search highlights; an empty
+  search (`/` then `Enter`) clears them too. `Ctrl-C` in the prompt cancels
+  instead of quitting, and `Ctrl-Z` cancels the prompt and suspends.
+- **Honest copy messages.** `Copied "…"` appears only when the clipboard tool
+  or OSC 52 delivered the text; otherwise the status line says
+  `Copy failed: …` with the fix (selection too large for OSC 52, no
+  `wl-copy` / `xclip` / `xsel`, or `tmux set -s set-clipboard on`). Under tmux
+  mercat sends plain OSC 52 instead of a passthrough wrapper that tmux drops
+  by default; GNU screen gets a screen-style passthrough (the old wrapper was
+  tmux-only).
 - **Editor resolution.** `e` uses `[general] editor` when set, else `$VISUAL`,
   `$EDITOR`, or the first of nvim/vim/vi/nano on `PATH`. Editor commands may
   carry arguments (`code --wait`). The default config no longer hard-codes
@@ -103,7 +135,6 @@ All notable changes to this project will be documented in this file.
   signals (SIGSEGV/SIGBUS/SIGILL/SIGFPE) restore the terminal (alt screen,
   mouse, cursor, tty mode) before exiting; crashes print where to report them.
   `Ctrl-Z` (and `kill -TSTP`) suspends cleanly and redraws on `fg`.
-- The help overlay no longer starts with a blank row and clips its last entry.
 
 ### Diagrams
 

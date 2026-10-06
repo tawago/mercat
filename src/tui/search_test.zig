@@ -183,7 +183,7 @@ test "prompt searches incrementally, Esc restores, Enter commits" {
     try std.testing.expectEqual(@as(usize, 30), search.currentMatch().?.line);
 }
 
-test "empty Enter repeats the previous pattern; backspace on empty cancels" {
+test "empty Enter clears the search; backspace on empty cancels" {
     const allocator = std.testing.allocator;
     var spans: [3][1]Span = undefined;
     const lines = lines3(&spans, "a", "foo", "c");
@@ -195,14 +195,17 @@ test "empty Enter repeats the previous pattern; backspace on empty cancels" {
     var view = Viewport{ .top = 0, .height = 3, .total = 3 };
 
     try prompt.begin(&search, view);
-    try prompt.commit(&search, &view, &lines);
+    try std.testing.expect(!(try prompt.backspace(&search, &view, &lines)));
+    try std.testing.expect(!prompt.active);
     try std.testing.expectEqualStrings("foo", search.pattern.items);
     try std.testing.expectEqual(@as(usize, 1), search.currentMatch().?.line);
 
     try prompt.begin(&search, view);
-    try std.testing.expect(!(try prompt.backspace(&search, &view, &lines)));
+    try prompt.commit(&search, &view, &lines);
     try std.testing.expect(!prompt.active);
-    try std.testing.expectEqualStrings("foo", search.pattern.items);
+    try std.testing.expect(!search.hasPattern());
+    try std.testing.expectEqual(@as(usize, 0), search.matches.items.len);
+    try std.testing.expect(search.currentMatch() == null);
 }
 
 test "backspace removes a whole UTF-8 character" {

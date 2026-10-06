@@ -185,7 +185,7 @@ test "smart case: an uppercase query matches exactly" {
     try std.testing.expectEqualStrings("[1/1] /MERMAID", fx.status());
 }
 
-test "search prompt: q is text, Esc cancels, Ctrl-C quits, misses are reported" {
+test "search prompt: q is text, Esc cancels, Ctrl-C cancels, misses are reported" {
     const allocator = std.testing.allocator;
     const fx = try Fixture.init(allocator, sample, "vim");
     defer fx.deinit(allocator);
@@ -203,7 +203,161 @@ test "search prompt: q is text, Esc cancels, Ctrl-C quits, misses are reported" 
     try std.testing.expectEqualStrings("Pattern not found: zzz", fx.status());
 
     _ = try fx.app.handleKeyPress(key("/"));
+    try typeText(&fx.app, "mer");
+    try std.testing.expect(!try fx.app.handleKeyPress(ctrl('c')));
+    try std.testing.expect(!fx.app.search_prompt.active);
+    try std.testing.expectEqualStrings("zzz", fx.app.pager.search.pattern.items);
+    // Outside the prompt Ctrl-C quits.
     try std.testing.expect(try fx.app.handleKeyPress(ctrl('c')));
+}
+
+test "Ctrl-Z in the prompt cancels it before suspending" {
+    const allocator = std.testing.allocator;
+    const fx = try Fixture.init(allocator, sample, "vim");
+    defer fx.deinit(allocator);
+    _ = try fx.app.handleKeyPress(key("/"));
+    try typeText(&fx.app, "mermaid");
+    try std.testing.expect(fx.app.pager.search.hasPattern());
+    try std.testing.expect(!try fx.app.handleKeyPress(ctrl('z')));
+    try std.testing.expect(!fx.app.search_prompt.active);
+    try std.testing.expect(!fx.app.pager.search.hasPattern());
+}
+
+test "empty / Enter clears the search instead of repeating it" {
+    const allocator = std.testing.allocator;
+    const fx = try Fixture.init(allocator, sample, "vim");
+    defer fx.deinit(allocator);
+    _ = try fx.app.handleKeyPress(key("/"));
+    try typeText(&fx.app, "mermaid");
+    _ = try fx.app.handleKeyPress(special(vaxis.Key.enter));
+    try std.testing.expectEqual(@as(usize, 4), fx.app.pager.search.matches.items.len);
+
+    _ = try fx.app.handleKeyPress(key("/"));
+    _ = try fx.app.handleKeyPress(special(vaxis.Key.enter));
+    try std.testing.expect(!fx.app.pager.search.hasPattern());
+    try std.testing.expectEqual(@as(usize, 0), fx.app.pager.search.matches.items.len);
+}
+
+test "Esc clears the selection first, then the search highlights" {
+    const allocator = std.testing.allocator;
+    const fx = try Fixture.init(allocator, sample, "vim");
+    defer fx.deinit(allocator);
+    _ = try fx.app.handleKeyPress(key("/"));
+    try typeText(&fx.app, "mermaid");
+    _ = try fx.app.handleKeyPress(special(vaxis.Key.enter));
+    fx.app.pager.beginSelectionAt(0, 0);
+    fx.app.pager.extendSelectionAt(0, 5);
+
+    _ = try fx.app.handleKeyPress(special(vaxis.Key.escape));
+    try std.testing.expect(!fx.app.pager.selection.active);
+    try std.testing.expect(fx.app.pager.search.hasPattern());
+
+    _ = try fx.app.handleKeyPress(special(vaxis.Key.escape));
+    try std.testing.expect(!fx.app.pager.search.hasPattern());
+    try std.testing.expectEqual(@as(usize, 0), fx.app.pager.search.matches.items.len);
+}
+
+test "help: ? and F1 open it, q and Esc close it without quitting, Ctrl-C quits" {
+    const allocator = std.testing.allocator;
+    const fx = try Fixture.init(allocator, sample, "vim");
+    defer fx.deinit(allocator);
+
+    _ = try fx.app.handleKeyPress(key("?"));
+    try std.testing.expect(fx.app.view_mode == .help);
+    try std.testing.expect(!try fx.app.handleKeyPress(key("q")));
+    try std.testing.expect(fx.app.view_mode == .pager);
+
+    _ = try fx.app.handleKeyPress(special(vaxis.Key.f1));
+    try std.testing.expect(fx.app.view_mode == .help);
+    // Movement scrolls the card, not the document.
+    fx.app.help.max_scroll = 5;
+    fx.app.help.page_rows = 3;
+    _ = try fx.app.handleKeyPress(key("j"));
+    _ = try fx.app.handleKeyPress(special(vaxis.Key.page_down));
+    try std.testing.expectEqual(@as(usize, 4), fx.app.help.scroll);
+    _ = try fx.app.handleKeyPress(.{ .codepoint = 'G', .text = "G" });
+    try std.testing.expectEqual(@as(usize, 5), fx.app.help.scroll);
+    try std.testing.expectEqual(@as(usize, 0), fx.app.pager.viewport.top);
+    // Keys outside the overlay's set do nothing while it is open.
+    _ = try fx.app.handleKeyPress(key("e"));
+    try std.testing.expect(fx.app.view_mode == .help);
+    _ = try fx.app.handleKeyPress(special(vaxis.Key.escape));
+    try std.testing.expect(fx.app.view_mode == .pager);
+
+    _ = try fx.app.handleKeyPress(key("?"));
+    try std.testing.expectEqual(@as(usize, 0), fx.app.help.scroll);
+    try std.testing.expect(try fx.app.handleKeyPress(ctrl('c')));
+}
+
+test "B toggles subgraph edges; b pages up; h and l are unbound" {
+    const allocator = std.testing.allocator;
+    const fx = try Fixture.init(allocator, sample, "vim");
+    defer fx.deinit(allocator);
+
+    _ = try fx.app.handleKeyPress(.{ .codepoint = 'B', .text = "B" });
+    try std.testing.expectEqualStrings("Subgraph edges: cross", fx.status());
+    try std.testing.expect(fx.app.mermaid_subgraph_edges == .cross);
+    _ = try fx.app.handleKeyPress(key("b"));
+    try std.testing.expect(fx.app.mermaid_subgraph_edges == .cross);
+
+    _ = try fx.app.handleKeyPress(key("h"));
+    try std.testing.expect(fx.app.view_mode == .pager);
+    _ = try fx.app.handleKeyPress(key("l"));
+    try std.testing.expectEqualStrings("Subgraph edges: cross", fx.status());
+}
+
+test "half-page and less-style movement keys scroll the document" {
+    const allocator = std.testing.allocator;
+    var long: std.ArrayList(u8) = .empty;
+    defer long.deinit(allocator);
+    for (0..100) |i| {
+        const line = try std.fmt.allocPrint(allocator, "Line {d}\n\n", .{i});
+        defer allocator.free(line);
+        try long.appendSlice(allocator, line);
+    }
+    const fx = try Fixture.init(allocator, long.items, "vim");
+    defer fx.deinit(allocator);
+    const view = &fx.app.pager.viewport;
+
+    _ = try fx.app.handleKeyPress(key("d"));
+    try std.testing.expectEqual(@as(usize, 5), view.top);
+    _ = try fx.app.handleKeyPress(ctrl('e'));
+    try std.testing.expectEqual(@as(usize, 6), view.top);
+    _ = try fx.app.handleKeyPress(key("f"));
+    try std.testing.expectEqual(@as(usize, 16), view.top);
+    _ = try fx.app.handleKeyPress(ctrl('u'));
+    try std.testing.expectEqual(@as(usize, 11), view.top);
+    _ = try fx.app.handleKeyPress(key(">"));
+    try std.testing.expectEqual(view.total - view.height, view.top);
+    _ = try fx.app.handleKeyPress(key("<"));
+    try std.testing.expectEqual(@as(usize, 0), view.top);
+}
+
+test "status messages are transient and outlive scrolling" {
+    const allocator = std.testing.allocator;
+    const fx = try Fixture.init(allocator, sample, "vim");
+    defer fx.deinit(allocator);
+    _ = try fx.app.handleKeyPress(key("r"));
+    const shown_at = std.time.milliTimestamp();
+    try std.testing.expectEqualStrings("Reloaded doc.md", fx.status());
+    _ = try fx.app.handleKeyPress(key("j"));
+    fx.app.expireTransient(shown_at - 100);
+    try std.testing.expectEqualStrings("Reloaded doc.md", fx.status());
+    fx.app.expireTransient(shown_at + app_mod.message_duration_ms + 1000);
+    try std.testing.expect(fx.app.status_message == null);
+}
+
+test "copy reports success only when the clipboard took it" {
+    const allocator = std.testing.allocator;
+    const fx = try Fixture.init(allocator, sample, "vim");
+    defer fx.deinit(allocator);
+
+    try fx.app.reportCopy("hello", .{ .failed = .too_large });
+    try std.testing.expect(fx.app.toast_message == null);
+    try std.testing.expect(std.mem.startsWith(u8, fx.status(), "Copy failed: too large for OSC 52"));
+
+    try fx.app.reportCopy("hello", .{ .copied = .osc52 });
+    try std.testing.expectEqualStrings("Copied \"hello\"", fx.app.toast_message.?);
 }
 
 test "n without a previous search explains how to start one" {
