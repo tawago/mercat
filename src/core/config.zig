@@ -202,6 +202,11 @@ pub fn applySource(
     var ctx = Context{ .origin = origin, .warnings = warnings };
     var scanner = loadfile.scanLines(source, "");
     while (scanner.next()) |event| {
+        if (event.malformed) |kind| {
+            ctx.line = event.line;
+            ctx.warn("cannot parse line ({s})", .{kind.reason()});
+            continue;
+        }
         if (std.mem.eql(u8, event.table, "theme")) {
             try loadfile.assignThemeValue(allocator, &cfg.raw_theme, event.subtable, event.key, event.value);
             continue;
@@ -295,21 +300,21 @@ fn assignValue(
         },
         .general => {
             if (eql(u8, key, "editor")) {
-                try replaceString(allocator, &cfg.general.editor, value);
+                _ = try setString(allocator, &cfg.general.editor, ctx, "general", key, value);
             } else if (eql(u8, key, "pager")) {
-                try replaceString(allocator, &cfg.general.pager, value);
+                _ = try setString(allocator, &cfg.general.pager, ctx, "general", key, value);
             } else ctx.unknownKey("general", key, &general_keys);
         },
         .display => {
             if (eql(u8, key, "theme")) {
-                try replaceString(allocator, &cfg.display.theme, value);
+                if (!try setString(allocator, &cfg.display.theme, ctx, "display", key, value)) return;
                 if (ctx.warnings != null) {
                     const origin = try std.fmt.allocPrint(allocator, "{s}:{d}", .{ ctx.origin, ctx.line });
                     allocator.free(cfg.theme_origin);
                     cfg.theme_origin = origin;
                 }
             } else if (eql(u8, key, "syntax_theme")) {
-                setEnum(SyntaxTheme, &cfg.display.syntax_theme, ctx, "display", key, value, "\"default\" or \"classic\"");
+                setEnum(SyntaxTheme, &cfg.display.syntax_theme, ctx, "display", key, value, "one of: default, classic");
             } else if (eql(u8, key, "width")) {
                 if (parseWidthValue(value)) |w| {
                     cfg.display.width = w;
@@ -328,9 +333,9 @@ fn assignValue(
             if (eql(u8, key, "enabled")) {
                 setBool(&cfg.mermaid.enabled, ctx, "mermaid", key, value);
             } else if (eql(u8, key, "style")) {
-                try replaceString(allocator, &cfg.mermaid.style, value);
+                _ = try setString(allocator, &cfg.mermaid.style, ctx, "mermaid", key, value);
             } else if (eql(u8, key, "subgraph_edges")) {
-                setEnum(SubgraphEdges, &cfg.mermaid.subgraph_edges, ctx, "mermaid", key, value, "\"bridge\" or \"cross\"");
+                setEnum(SubgraphEdges, &cfg.mermaid.subgraph_edges, ctx, "mermaid", key, value, "one of: bridge, cross");
             } else ctx.unknownKey("mermaid", key, &mermaid_keys);
         },
         .files => {
@@ -418,8 +423,35 @@ pub fn parseFrontmatterStyle(value: []const u8) !FrontmatterStyle {
 
 const stripQuotes = loadfile.stripQuotes;
 
+/// Sets a string key from a quoted value (`"basic"` or `'literal'`). Any
+/// other value (`pager = 5`, `theme = dark`) warns and keeps the old value.
+/// Returns whether the value was applied.
+fn setString(
+    allocator: std.mem.Allocator,
+    target: *[]const u8,
+    ctx: *const Context,
+    section: []const u8,
+    key: []const u8,
+    value: []const u8,
+) !bool {
+    if (!isQuoted(value)) {
+        ctx.invalid(section, key, value, "a quoted string");
+        return false;
+    }
+    try replaceString(allocator, target, value);
+    return true;
+}
+
+fn isQuoted(value: []const u8) bool {
+    if (value.len < 2) return false;
+    const q = value[0];
+    return (q == '"' or q == '\'') and value[value.len - 1] == q;
+}
+
 fn replaceString(allocator: std.mem.Allocator, target: *[]const u8, value: []const u8) !void {
-    const dup = try decodeQuotedString(allocator, value);
+    // TOML literal strings take their contents verbatim (no escapes).
+    const literal = value.len >= 2 and value[0] == '\'' and value[value.len - 1] == '\'';
+    const dup = if (literal) try allocator.dupe(u8, value[1 .. value.len - 1]) else try decodeQuotedString(allocator, value);
     allocator.free(target.*);
     target.* = dup;
 }
@@ -455,7 +487,7 @@ pub fn applyEnv(allocator: std.mem.Allocator, cfg: *Config, warnings: *Warnings,
     if (nonEmpty(env("MERCAT_SYNTAX_THEME"))) |value| {
         if (std.meta.stringToEnum(SyntaxTheme, value)) |v| {
             cfg.display.syntax_theme = v;
-        } else warnings.add("ignoring MERCAT_SYNTAX_THEME='{s}' (expected default or classic)", .{value});
+        } else warnings.add("ignoring MERCAT_SYNTAX_THEME='{s}' (expected one of: default, classic)", .{value});
     }
 
     if (nonEmpty(env("MERCAT_FRONTMATTER"))) |value| {
@@ -467,7 +499,7 @@ pub fn applyEnv(allocator: std.mem.Allocator, cfg: *Config, warnings: *Warnings,
     if (nonEmpty(env("MERCAT_SUBGRAPH_EDGES"))) |value| {
         if (parseSubgraphEdges(value)) |v| {
             cfg.mermaid.subgraph_edges = v;
-        } else |_| warnings.add("ignoring MERCAT_SUBGRAPH_EDGES='{s}' (expected bridge or cross)", .{value});
+        } else |_| warnings.add("ignoring MERCAT_SUBGRAPH_EDGES='{s}' (expected one of: bridge, cross)", .{value});
     }
 }
 

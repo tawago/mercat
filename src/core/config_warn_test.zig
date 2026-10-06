@@ -86,7 +86,7 @@ test "invalid enum values warn and list the valid ones" {
     , &.{
         "/home/u/.config/mercat/config.toml:2: invalid value \"fancy\" for 'frontmatter' in [display] (expected one of: panel, dim, compact, raw, hidden); keeping the default",
         "/home/u/.config/mercat/config.toml:3: invalid value \"sometimes\" for 'color' in [display] (expected one of: auto, always, never); keeping the default",
-        "/home/u/.config/mercat/config.toml:5: invalid value \"weld\" for 'subgraph_edges' in [mermaid] (expected \"bridge\" or \"cross\"); keeping the default",
+        "/home/u/.config/mercat/config.toml:5: invalid value \"weld\" for 'subgraph_edges' in [mermaid] (expected one of: bridge, cross); keeping the default",
     });
     defer cfg.deinit(std.testing.allocator);
     try std.testing.expectEqual(config.FrontmatterStyle.panel, cfg.display.frontmatter);
@@ -106,6 +106,67 @@ test "valid keys after a bad one still apply" {
     try std.testing.expectEqualStrings("light", cfg.display.theme);
     try std.testing.expectEqual(config.ColorMode.never, cfg.display.color);
     try std.testing.expectEqualStrings("/home/u/.config/mercat/config.toml:3", cfg.theme_origin);
+}
+
+test "an unterminated section header warns and its keys do not leak into the previous section" {
+    var cfg = try expectWarnings(
+        \\[general]
+        \\pager = "more"
+        \\[display
+        \\theme = "light"
+        \\editor = "ed"
+        \\[mermaid]
+        \\subgraph_edges = "cross"
+    , &.{"/home/u/.config/mercat/config.toml:3: cannot parse line (missing ']'; keys up to the next section are ignored)"});
+    defer cfg.deinit(std.testing.allocator);
+    try std.testing.expectEqualStrings("more", cfg.general.pager);
+    try std.testing.expectEqualStrings("", cfg.general.editor);
+    try std.testing.expectEqualStrings("dark", cfg.display.theme);
+    try std.testing.expectEqualStrings("cross", @tagName(cfg.mermaid.subgraph_edges));
+}
+
+test "a line without '=' and an unterminated string warn; later keys still apply" {
+    var cfg = try expectWarnings(
+        \\[display]
+        \\width 80
+        \\theme = "light
+        \\color = "never"
+        \\frontmatter =
+    , &.{
+        "/home/u/.config/mercat/config.toml:2: cannot parse line (expected key = value)",
+        "/home/u/.config/mercat/config.toml:3: cannot parse line (unterminated string)",
+        "/home/u/.config/mercat/config.toml:5: cannot parse line (missing value after '=')",
+    });
+    defer cfg.deinit(std.testing.allocator);
+    try std.testing.expectEqualStrings("dark", cfg.display.theme);
+    try std.testing.expectEqual(config.ColorMode.never, cfg.display.color);
+}
+
+test "a header with a trailing comment is still a header" {
+    var cfg = try expectWarnings(
+        \\[display]  # look and feel
+        \\theme = "light"
+    , &.{});
+    defer cfg.deinit(std.testing.allocator);
+    try std.testing.expectEqualStrings("light", cfg.display.theme);
+}
+
+test "string keys reject non-string values" {
+    var cfg = try expectWarnings(
+        \\[general]
+        \\pager = 5
+        \\editor = 'code --wait'
+        \\[display]
+        \\theme = light
+    , &.{
+        "/home/u/.config/mercat/config.toml:2: invalid value 5 for 'pager' in [general] (expected a quoted string); keeping the default",
+        "/home/u/.config/mercat/config.toml:5: invalid value light for 'theme' in [display] (expected a quoted string); keeping the default",
+    });
+    defer cfg.deinit(std.testing.allocator);
+    try std.testing.expectEqualStrings("less -R", cfg.general.pager);
+    try std.testing.expectEqualStrings("code --wait", cfg.general.editor);
+    try std.testing.expectEqualStrings("dark", cfg.display.theme);
+    try std.testing.expectEqualStrings("", cfg.theme_origin);
 }
 
 test "legacy keys still load silently" {
