@@ -108,6 +108,16 @@ pub fn build(b: *std.Build) void {
     const test_step = b.step("test", "Run unit tests");
     test_step.dependOn(&test_run.step);
 
+    // CLI contract tests: run the installed binary and check messages and exit codes.
+    const cli_test_run = b.addSystemCommand(&.{ "bash", "tests/cli/run.sh" });
+    cli_test_run.setCwd(b.path("."));
+    cli_test_run.addArtifactArg(exe);
+    cli_test_run.expectExitCode(0);
+    cli_test_run.has_side_effects = true;
+    const cli_test_step = b.step("test-cli", "Run CLI message/exit-code tests against the built binary");
+    cli_test_step.dependOn(&cli_test_run.step);
+    test_step.dependOn(&cli_test_run.step);
+
     const legacy_mermaid_test_module = b.createModule(.{
         .root_source_file = b.path("src/core/mermaid/legacy_test.zig"),
         .target = target,
