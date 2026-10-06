@@ -109,7 +109,7 @@ fn initDefaults(allocator: std.mem.Allocator) !Config {
 
     return .{
         .general = .{
-            .editor = try allocator.dupe(u8, "vim"),
+            .editor = try allocator.dupe(u8, ""),
             .pager = try allocator.dupe(u8, "less -R"),
         },
         .display = .{ .theme = try allocator.dupe(u8, "dark") },
