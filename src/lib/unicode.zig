@@ -274,6 +274,102 @@ fn validateGrapheme(bytes: []const u8) MeasureError!void {
     }
 }
 
+/// Rewrites `text` so that each of its lines passes the strict display
+/// checks (`Iterator`, `rawDisplayWidth`): nothing is lost except characters
+/// that have no visible form of their own, and nothing that would act on a
+/// terminal survives.
+///
+/// - Tab, LF and CR are kept (they are layout, handled by the caller).
+/// - Other C0 and C1 controls and DEL (ESC included) become U+FFFD.
+/// - U+2028 and U+2029 become a space.
+/// - Invisible format characters (default-ignorable code points such as the
+///   soft hyphen, zero-width space, word joiner, BOM, bidi marks, embeddings
+///   and isolates) are dropped; joiners and variation selectors that shape
+///   the text around them (ZWJ, ZWNJ, VS1-VS256) are kept.
+/// - Other format controls (e.g. U+FFF9) and ill-formed UTF-8 become U+FFFD.
+/// - Emoji tag characters outside a valid RGI tag sequence are dropped.
+///
+/// Returns an owned copy; the result is always valid UTF-8.
+pub fn sanitize(allocator: std.mem.Allocator, text: []const u8) error{OutOfMemory}![]u8 {
+    var scalars: std.ArrayList(u8) = .empty;
+    defer scalars.deinit(allocator);
+    try scalars.ensureTotalCapacity(allocator, text.len);
+    var index: usize = 0;
+    while (index < text.len) {
+        const decoded = segmentation.decodeAt(text, index) catch {
+            try scalars.appendSlice(allocator, replacement_character);
+            index += 1;
+            continue;
+        };
+        switch (scalarAction(decoded.codepoint)) {
+            .keep => try scalars.appendSlice(allocator, text[index..decoded.end]),
+            .replace => try scalars.appendSlice(allocator, replacement_character),
+            .space => try scalars.append(allocator, ' '),
+            .drop => {},
+        }
+        index = decoded.end;
+    }
+
+    // Per-scalar rules leave only grapheme-level failures (stray emoji tags).
+    var out: std.ArrayList(u8) = .empty;
+    errdefer out.deinit(allocator);
+    try out.ensureTotalCapacity(allocator, scalars.items.len);
+    const clean = scalars.items;
+    index = 0;
+    while (index < clean.len) {
+        const end = segmentation.nextBoundary(clean, index) catch unreachable;
+        const grapheme = clean[index..end];
+        index = end;
+        if (isLineBreak(grapheme)) {
+            try out.appendSlice(allocator, grapheme);
+            continue;
+        }
+        validateGrapheme(grapheme) catch {
+            const start = out.items.len;
+            var cursor: usize = 0;
+            while (cursor < grapheme.len) {
+                const decoded = segmentation.decodeAt(grapheme, cursor) catch unreachable;
+                if (!isTagCharacter(decoded.codepoint)) try out.appendSlice(allocator, grapheme[cursor..decoded.end]);
+                cursor = decoded.end;
+            }
+            if (rawDisplayWidth(out.items[start..])) |_| {} else |_| {
+                out.shrinkRetainingCapacity(start);
+                try out.appendSlice(allocator, replacement_character);
+            }
+            continue;
+        };
+        try out.appendSlice(allocator, grapheme);
+    }
+    return out.toOwnedSlice(allocator);
+}
+
+pub const replacement_character = "\u{FFFD}";
+
+const ScalarAction = enum { keep, replace, space, drop };
+
+fn scalarAction(cp: u21) ScalarAction {
+    if (cp == '\t' or cp == '\n' or cp == '\r') return .keep;
+    if (cp <= 0x1f or (cp >= 0x7f and cp <= 0x9f)) return .replace;
+    if (cp == 0x2028 or cp == 0x2029) return .space;
+    const gcb = segmentation.graphemeBreak(cp);
+    if (tables.default_ignorable.contains(cp)) {
+        return switch (gcb) {
+            .extend, .zwj, .spacing_mark => .keep,
+            else => .drop,
+        };
+    }
+    if (gcb == .control) return .replace;
+    return .keep;
+}
+
+fn isTagCharacter(cp: u21) bool {
+    return cp == 0xe0001 or (cp >= 0xe0020 and cp <= 0xe007f);
+}
+
+fn isLineBreak(grapheme: []const u8) bool {
+    return std.mem.eql(u8, grapheme, "\n") or std.mem.eql(u8, grapheme, "\r") or std.mem.eql(u8, grapheme, "\r\n");
+}
+
 pub const Glyph = struct { bytes: []const u8, width: usize };
 
 pub fn nextGlyph(text: []const u8, index: usize) Glyph {

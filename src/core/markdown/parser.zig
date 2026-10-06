@@ -3,6 +3,8 @@ const koino = @import("koino");
 const preprocess = @import("preprocess.zig");
 const frontmatter = @import("frontmatter.zig");
 const SourceMap = @import("source_map.zig").SourceMap;
+const unicode = @import("unicode");
+const encoding = @import("../encoding.zig");
 pub const document = @import("document.zig");
 
 pub const Inline = document.Inline;
@@ -10,7 +12,16 @@ pub const Block = document.Block;
 pub const BlockTag = document.BlockTag;
 pub const Document = document.Document;
 
+/// Parses `source` into blocks. Every string in the result is display-safe
+/// text (see `clean`); `source` itself may hold anything, since invalid
+/// UTF-8 is decoded lossily first (callers that warn about it decode before
+/// calling, so this is only a safety net).
 pub fn parse(allocator: std.mem.Allocator, source: []const u8) !Document {
+    if (!std.unicode.utf8ValidateSlice(source)) {
+        const valid = try encoding.toValidUtf8(allocator, source);
+        defer allocator.free(valid);
+        return parse(allocator, valid);
+    }
     const front = frontmatter.split(source);
 
     const preprocessed = try preprocess.preprocess(allocator, front.body);
@@ -49,6 +60,21 @@ pub fn parse(allocator: std.mem.Allocator, source: []const u8) !Document {
     };
 }
 
+/// A document holding one mermaid diagram: a bare `.mmd` file or stdin that
+/// looks like mermaid. The source gets the same cleanup as markdown text.
+pub fn parseMermaid(allocator: std.mem.Allocator, source: []const u8) !Document {
+    const language = try allocator.dupe(u8, "mermaid");
+    errdefer allocator.free(language);
+    const valid = try encoding.toValidUtf8(allocator, source);
+    defer allocator.free(valid);
+    const code = try clean(allocator, valid);
+    errdefer allocator.free(code);
+
+    const blocks = try allocator.alloc(Block, 1);
+    blocks[0] = .{ .fenced_code = .{ .language = language, .code = code } };
+    return .{ .blocks = blocks };
+}
+
 /// Records, for every top-level block, the raw markdown it was parsed from.
 const SourceRecorder = struct {
     map: SourceMap,
@@ -67,7 +93,7 @@ const SourceRecorder = struct {
 };
 
 fn appendFrontMatterBlock(allocator: std.mem.Allocator, blocks: *std.ArrayList(Block), yaml: []const u8) !void {
-    const raw = try allocator.dupe(u8, yaml);
+    const raw = try clean(allocator, yaml);
     errdefer allocator.free(raw);
     const entries = try frontmatter.parseEntries(allocator, raw);
     errdefer allocator.free(entries);
@@ -173,15 +199,15 @@ fn appendParagraphBlock(allocator: std.mem.Allocator, blocks: *std.ArrayList(Blo
 
 fn appendCodeBlock(allocator: std.mem.Allocator, blocks: *std.ArrayList(Block), code: koino.nodes.NodeCodeBlock) !void {
     const info = if (code.info) |value| std.mem.trim(u8, value, " \t") else "";
-    const language = try allocator.dupe(u8, info);
+    const language = try clean(allocator, info);
     errdefer allocator.free(language);
-    const code_text = try allocator.dupe(u8, code.literal.items);
+    const code_text = try clean(allocator, code.literal.items);
     errdefer allocator.free(code_text);
     try blocks.append(allocator, .{ .fenced_code = .{ .language = language, .code = code_text } });
 }
 
 fn appendHtmlBlock(allocator: std.mem.Allocator, blocks: *std.ArrayList(Block), html: koino.nodes.NodeHtmlBlock) !void {
-    const text = try allocator.dupe(u8, std.mem.trimRight(u8, html.literal.items, "\n"));
+    const text = try clean(allocator, std.mem.trimRight(u8, html.literal.items, "\n"));
     errdefer allocator.free(text);
     try blocks.append(allocator, .{ .html_block = text });
 }
@@ -463,14 +489,14 @@ fn appendInlineNode(allocator: std.mem.Allocator, result: *std.ArrayList(Inline)
         .Link => |link| {
             const children = try collectChildInlines(allocator, node);
             errdefer freeInlines(allocator, children);
-            const url = try allocator.dupe(u8, link.url);
+            const url = try clean(allocator, link.url);
             errdefer allocator.free(url);
             try result.append(allocator, .{ .link = .{ .text = children, .url = url } });
         },
         .Image => |image| {
             const children = try collectChildInlines(allocator, node);
             errdefer freeInlines(allocator, children);
-            const url = try allocator.dupe(u8, image.url);
+            const url = try clean(allocator, image.url);
             errdefer allocator.free(url);
             try result.append(allocator, .{ .image = .{ .alt = children, .url = url } });
         },
@@ -504,13 +530,21 @@ fn collectChildInlines(allocator: std.mem.Allocator, node: *koino.nodes.AstNode)
 
 fn leafInline(allocator: std.mem.Allocator, value: koino.nodes.NodeValue) !?Inline {
     return switch (value) {
-        .Text => |text| .{ .text = try allocator.dupe(u8, text) },
-        .Code => |text| .{ .code = try allocator.dupe(u8, text) },
-        .HtmlInline => |text| .{ .html = try allocator.dupe(u8, text) },
+        .Text => |text| .{ .text = try clean(allocator, text) },
+        .Code => |text| .{ .code = try clean(allocator, text) },
+        .HtmlInline => |text| .{ .html = try clean(allocator, text) },
         .SoftBreak => .soft_break,
         .LineBreak => .line_break,
         else => null,
     };
+}
+
+/// Copies document text so it can reach a terminal safely: controls (ESC
+/// included) become U+FFFD and invisible format characters such as the soft
+/// hyphen or bidi overrides are dropped, whether they came from the raw
+/// source or from a character reference like `&#27;` (`unicode.sanitize`).
+fn clean(allocator: std.mem.Allocator, text: []const u8) ![]u8 {
+    return unicode.sanitize(allocator, text);
 }
 
 fn freeInlines(allocator: std.mem.Allocator, inlines: []Inline) void {

@@ -154,8 +154,14 @@ test "emphasis directly before a link renders styled, without markers" {
 
 test "a block that cannot be rendered falls back to its raw source" {
     const allocator = testing.allocator;
-    var document = try markdown.parse(allocator, "# Title\n\nbad \x01 *text*\n\nafter\n");
+    // The parser never produces such text (it sanitizes), so plant a control
+    // byte in the parsed paragraph and in its recorded source.
+    var document = try markdown.parse(allocator, "# Title\n\nbad X *text*\n\nafter\n");
     defer document.deinit(allocator);
+    const buffer: []u8 = @constCast(document.source_buffer.?);
+    buffer[std.mem.indexOfScalar(u8, buffer, 'X').?] = 0x01;
+    const first: []u8 = @constCast(document.blocks[1].paragraph.content[0].text);
+    first[std.mem.indexOfScalar(u8, first, 'X').?] = 0x01;
     var fallbacks: usize = 0;
     const rendered = try render_model.renderDocument(allocator, document, .{ .width = 40, .fallback_count = &fallbacks });
     defer rendered.deinit(allocator);
