@@ -631,6 +631,7 @@ pub const App = struct {
         };
         if (warning) |message| {
             try self.setStatusMessage(message, true);
+            self.status_deadline_ms = std.time.milliTimestamp() + warning_duration_ms;
             return true;
         }
         try self.setStatusMessage(try std.fmt.allocPrint(self.allocator, "Reloaded {s}", .{std.fs.path.basename(path)}), true);

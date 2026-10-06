@@ -106,6 +106,13 @@ stdout is a terminal, so piped output is plain text. `never` keeps the layout
 but emits no escape sequences. OSC 8 hyperlinks are emitted only when color is
 on and stdout is a terminal.
 
+**Encoding.** Input is read as UTF-8. Invalid bytes are replaced with `�`
+(U+FFFD) and reported in one warning with the line and column of the first
+one; files that start with a UTF-16 byte order mark are converted. Control
+characters (such as `ESC` or `BEL`) are shown as `�` and invisible format
+characters (soft hyphen, zero-width space, bidi controls) are dropped, so a
+document cannot send escape sequences to the terminal.
+
 **TUI mode** reads keys from the terminal, so `-t` needs both stdin and stdout
 to be a terminal. It refuses to start when stdout is not a terminal, when stdin
 is a pipe or a redirect (whether or not a file is given:
@@ -149,9 +156,15 @@ a closed pipe (`mercat big.md | head -1`) exits 0 silently.
 | `q` / `Ctrl-C` | Quit |
 
 The status line shows the file name on the left and the position on the
-right (`L 30-58/897 41%`, or `Top` / `Bot` / `All`); messages such as
-`Reloaded` or search counts appear next to the file name for about two
-seconds.
+right (`L 30-58/897 6%`, or `Top` / `Bot` / `All`); messages such as
+`Reloaded` or search counts appear next to the file name for 2.5 seconds,
+warnings (an invalid-UTF-8 or theme warning at startup or reload, a failed
+copy) for 5 seconds.
+
+Known issue: in a terminal that never answers the device-status query
+(`ESC [5n`), quitting or pressing `e` can hang
+([#87](https://github.com/tawago/mercat/issues/87); repro in
+`tests/repro/tui/dsr-hang/`).
 
 **Copying.** Releasing a mouse selection copies it with the platform
 clipboard tool (`pbcopy`, or `wl-copy`, `xclip` or `xsel`) and with OSC 52

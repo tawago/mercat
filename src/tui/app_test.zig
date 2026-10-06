@@ -100,6 +100,23 @@ test "reload picks up changes on disk" {
     try std.testing.expectEqualStrings("# Changed\n", fx.app.current_content);
 }
 
+test "reload of invalid UTF-8 warns and keeps the warning as long as a startup warning" {
+    const allocator = std.testing.allocator;
+    const fx = try Fixture.init(allocator, sample, "vim");
+    defer fx.deinit(allocator);
+
+    try fx.tmp.dir.writeFile(.{ .sub_path = "doc.md", .data = "# Bad \xff byte\n" });
+    try std.testing.expect(!try fx.app.handleKeyPress(key("r")));
+    try std.testing.expect(std.mem.indexOf(u8, fx.status(), "invalid UTF-8") != null);
+    try std.testing.expectEqualStrings("# Bad \u{FFFD} byte\n", fx.app.current_content);
+
+    const now = std.time.milliTimestamp();
+    fx.app.expireTransient(now + 3000);
+    try std.testing.expect(fx.app.status_message != null);
+    fx.app.expireTransient(now + 6000);
+    try std.testing.expect(fx.app.status_message == null);
+}
+
 test "edit with a missing editor reports it and keeps running" {
     const allocator = std.testing.allocator;
     const fx = try Fixture.init(allocator, sample, "/nonexistent-dir/nosuchedit --wait");

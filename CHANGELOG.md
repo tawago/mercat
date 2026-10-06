@@ -55,13 +55,18 @@ All notable changes to this project will be documented in this file.
   alias. **`--list-themes`** prints built-in and user themes, one per line.
 - **`--color auto|always|never`** and `[display] color`. Piped output has no
   escape codes by default; `NO_COLOR`, `CLICOLOR_FORCE`, `FORCE_COLOR` and
-  `TERM=dumb` are honored.
+  `TERM=dumb` are honored. `--color=always`, `CLICOLOR_FORCE` and
+  `FORCE_COLOR` force color on stdout only: diagnostics follow stderr's own
+  terminal, `NO_COLOR` and `TERM` state, and `--color=never` or
+  `[display] color = "never"` applies to usage errors too.
 - **A bad config never stops a run.** Unknown keys and sections and invalid
   values are reported as `config.toml:LINE: …` warnings with a suggestion, and
   the default is kept. Invalid `MERCAT_*` environment values warn the same way.
 - `--width` accepts 0 (auto) or 20..1000.
 - `-t` checks its input before reading stdin: a piped stdin or stdout, or a
-  directory, is a usage error instead of a hang. Bare `-t` opens `./README.md`.
+  directory, is a usage error instead of a hang, and the message names the
+  cause (`stdin is a pipe; run without the pipe or drop -t`). Bare `-t` opens
+  `./README.md`.
 - Empty input produces empty output. A pager that cannot start is reported
   once and the output is written directly; a pager that exits non-zero no
   longer causes the document to be printed twice.
@@ -72,9 +77,6 @@ All notable changes to this project will be documented in this file.
   `did you mean '--width'?` note instead of a misleading `-w` error. Unknown
   themes suggest the closest name (`drakula` → `dracula`); every enum error
   reads `expected one of: …`.
-- Diagnostics follow stderr's own terminal, `NO_COLOR` and `TERM` state;
-  `--color=never` and `[display] color = "never"` apply to usage errors too,
-  and `--color=always` forces color on stdout only.
 - Output write failures read `cannot write to stdout: …` or
   `cannot write '<path>': …`; a closed stdout is `bad file descriptor`. An
   empty `-o` value and `--monochrome` without `--format png` are usage errors.
@@ -82,8 +84,6 @@ All notable changes to this project will be documented in this file.
   unterminated string) warn `path:N: cannot parse line` and no longer shift
   later keys into the previous section; string keys given a non-string value
   (`pager = 5`) warn and are ignored.
-- `-t` with a piped stdin says so (`stdin is a pipe; run without the pipe or
-  drop -t`), whether or not a file is given.
 
 ### TUI
 
@@ -104,9 +104,10 @@ All notable changes to this project will be documented in this file.
   `j`/`k`/`PgUp`/`PgDn` and shows `↓ more`. `Esc`, `q`, `?` or `F1` closes it.
   Before, it silently cut off its last entries on a 24-row terminal.
 - **Status line.** It spans the full width: the file name and any message on
-  the left, the position on the right (`L 30-58/897 41%`, or `Top` / `Bot` /
-  `All`). Messages disappear after about two seconds and never hide the
-  position. Text is clipped by display width at character boundaries, so
+  the left, the position on the right (`L 30-58/897 6%`, or `Top` / `Bot` /
+  `All`). Messages disappear after 2.5 seconds (5 seconds for
+  warnings such as invalid UTF-8 at startup or reload, and copy failures) and
+  never hide the position. Text is clipped by display width at character boundaries, so
   wide (CJK) names no longer misalign the bar. A long search query shows its
   end (`…tail`) with the cursor right after it.
 - **Search.** `/` opens an incremental, smart-case search prompt in the status
@@ -140,6 +141,12 @@ All notable changes to this project will be documented in this file.
 
 - Minimal reproduction files for the open Mermaid issues (#57-#85, tracked in
   #86) live in `tests/repro/mermaid/`.
+
+### Known issues
+
+- The TUI can hang on quit (`q`, `Ctrl-C`) or when starting the editor (`e`)
+  if the terminal never answers the startup device-status query (#87). A
+  reproduction lives in `tests/repro/tui/dsr-hang/`.
 
 ## [0.3.1]
 
