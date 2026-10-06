@@ -4,6 +4,55 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Markdown
+
+- **Blocks inside list items render.** Code blocks, quotes, tables, extra
+  paragraphs and HTML inside a list or task item now render in order, indented
+  under the item's text. A fenced block under `1. Install:` used to fail with
+  `error: DisallowedControl` and print nothing.
+- **HTML blocks.** Comments are hidden; `<p>`, `<div>`, `<details>` and
+  `<center>` wrappers are dropped but their text is kept; `<summary>X</summary>`
+  shows as `▸ X`; `<br>` breaks the line; `<img>` and `<a href>` render like
+  markdown images and links. Multi-line HTML blocks no longer crash.
+- **Emphasis before a link.** `**bold** [link](url)` keeps its bold text instead
+  of printing the literal `**`. The fix is a patch to the bundled koino parser,
+  now vendored in `vendor/koino` (see `vendor/koino/PIN.md`).
+- **One bad block no longer fails the document.** A block that cannot be
+  rendered (for example invalid UTF-8) is shown as dimmed raw source, with bad
+  bytes replaced by `�` (or as a placeholder when no source is available), and
+  mercat prints one warning and exits 0. Previously
+  the whole run failed with `error: InvalidUtf8` or `error: DisallowedControl`.
+- Block quotes have one space after the bar in every theme (was three before
+  plain text), and the extra blank line after each quote is gone.
+
+### CLI
+
+- **Clear errors and exit codes.** Every message on stderr reads
+  `mercat: error|warning|note: …`, with file names and plain-language reasons
+  instead of Zig error names. Unknown options suggest the closest match
+  (`unknown option '--colr' (did you mean '--color'?)`), and invalid values list
+  the valid ones. Exit status is 0 on success, 1 on a runtime or I/O failure,
+  and 2 on a usage error (including running with no input on a terminal).
+- **Broken pipes are quiet.** `mercat big.md | head -1` exits 0 with no error.
+- **Argument syntax.** `--opt=value`, `-w80`, bundled short flags (`-pw 40`) and
+  `--` all work.
+- **`--theme`** is the main name for theme selection; `--style` remains as an
+  alias. **`--list-themes`** prints built-in and user themes, one per line.
+- **`--color auto|always|never`** and `[display] color`. Piped output has no
+  escape codes by default; `NO_COLOR`, `CLICOLOR_FORCE`, `FORCE_COLOR` and
+  `TERM=dumb` are honored.
+- **A bad config never stops a run.** Unknown keys and sections and invalid
+  values are reported as `config.toml:LINE: …` warnings with a suggestion, and
+  the default is kept. Invalid `MERCAT_*` environment values warn the same way.
+- `--width` accepts 0 (auto) or 20..1000.
+- `-t` checks its input before reading stdin: a piped stdin or stdout, or a
+  directory, is a usage error instead of a hang. Bare `-t` opens `./README.md`.
+- Empty input produces empty output. A pager that cannot start is reported
+  once and the output is written directly; a pager that exits non-zero no
+  longer causes the document to be printed twice.
+- `--help` gains Environment and Exit status sections and shows the config
+  file path.
+
 ### TUI
 
 - **Search.** `/` opens an incremental, smart-case search prompt in the status
@@ -23,6 +72,11 @@ All notable changes to this project will be documented in this file.
   mouse, cursor, tty mode) before exiting; crashes print where to report them.
   `Ctrl-Z` (and `kill -TSTP`) suspends cleanly and redraws on `fg`.
 - The help overlay no longer starts with a blank row and clips its last entry.
+
+### Diagrams
+
+- Minimal reproduction files for the open Mermaid issues (#57-#85, tracked in
+  #86) live in `tests/repro/mermaid/`.
 
 ## [0.3.1]
 
