@@ -97,6 +97,8 @@ pub const Block = union(enum) {
     pub const TaskItem = struct {
         checked: bool,
         content: []Inline,
+        /// Blocks after the item's first paragraph, in source order.
+        nested: []Block = &.{},
     };
 
     pub const CodeBlock = struct {
@@ -140,6 +142,8 @@ pub const Block = union(enum) {
             },
             .task_list_item => |item| {
                 freeInlines(allocator, item.content);
+                for (item.nested) |nested| nested.deinit(allocator);
+                allocator.free(item.nested);
             },
             .fenced_code => |code| {
                 allocator.free(code.language);
@@ -183,10 +187,25 @@ pub const Block = union(enum) {
 
 pub const Document = struct {
     blocks: []Block,
+    /// Raw markdown of each block, parallel to `blocks`, slicing
+    /// `source_buffer` (or a block's own text). Empty when unknown.
+    sources: []const []const u8 = &.{},
+    /// Owned text the `sources` slices point into, when the parser kept it.
+    source_buffer: ?[]const u8 = null,
+
+    /// The raw markdown block `index` came from, or null when unknown.
+    pub fn blockSource(self: Document, index: usize) ?[]const u8 {
+        if (index >= self.sources.len) return null;
+        return self.sources[index];
+    }
 
     pub fn deinit(self: Document, allocator: std.mem.Allocator) void {
         for (self.blocks) |block| block.deinit(allocator);
         allocator.free(self.blocks);
+        if (self.source_buffer) |buffer| {
+            allocator.free(self.sources);
+            allocator.free(buffer);
+        }
     }
 };
 
