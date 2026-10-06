@@ -56,7 +56,8 @@ pub fn setMuted(value: bool) void {
 /// Overlong text is truncated rather than dropped.
 pub fn formatLine(buf: []u8, color: bool, level: Level, text: []const u8) []const u8 {
     var w: std.Io.Writer = .fixed(buf);
-    writeLine(&w, color, level, text) catch {};
+    // Library log calls sometimes end their format with "\n"; one line each.
+    writeLine(&w, color, level, std.mem.trimRight(u8, text, "\r\n")) catch {};
     const out = w.buffered();
     if (out.len == 0 or out[out.len - 1] != '\n') {
         if (out.len == buf.len) {

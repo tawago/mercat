@@ -60,3 +60,11 @@ test "exit codes follow the convention" {
     try std.testing.expectEqual(@as(u8, 1), diag.exit_failure);
     try std.testing.expectEqual(@as(u8, 2), diag.exit_usage);
 }
+
+test "formatLine: a trailing newline in the message does not add a blank line" {
+    var buf: [128]u8 = undefined;
+    try std.testing.expectEqualStrings(
+        "mercat: warning: pcre_exec: -10\n",
+        diag.formatLine(&buf, false, .warning, "pcre_exec: -10\n"),
+    );
+}
