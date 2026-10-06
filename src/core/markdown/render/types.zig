@@ -10,6 +10,9 @@ pub const Options = struct {
     frontmatter_style: config.FrontmatterStyle = .panel,
     mermaid_debug: bool = false,
     mermaid_subgraph_edges: @import("../../mermaid/mermaid.zig").SubgraphEdges = .bridge,
+    /// When set, receives the number of blocks that failed to render and
+    /// were shown as raw source instead.
+    fallback_count: ?*usize = null,
 };
 
 pub const SpanStyle = line.SpanStyle;

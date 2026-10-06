@@ -2,6 +2,7 @@ const std = @import("std");
 const koino = @import("koino");
 const preprocess = @import("preprocess.zig");
 const frontmatter = @import("frontmatter.zig");
+const SourceMap = @import("source_map.zig").SourceMap;
 pub const document = @import("document.zig");
 
 pub const Inline = document.Inline;
@@ -13,7 +14,7 @@ pub fn parse(allocator: std.mem.Allocator, source: []const u8) !Document {
     const front = frontmatter.split(source);
 
     const preprocessed = try preprocess.preprocess(allocator, front.body);
-    defer allocator.free(preprocessed);
+    errdefer allocator.free(preprocessed);
 
     const root = try koino.parse(allocator, preprocessed, .{
         .extensions = .{
@@ -29,11 +30,41 @@ pub fn parse(allocator: std.mem.Allocator, source: []const u8) !Document {
         for (blocks.items) |block| block.deinit(allocator);
         blocks.deinit(allocator);
     }
+    var recorder: SourceRecorder = .{ .map = try SourceMap.init(allocator, preprocessed) };
+    defer recorder.deinit(allocator);
 
-    if (front.yaml) |yaml| try appendFrontMatterBlock(allocator, &blocks, yaml);
-    try collectBlocksWithSource(allocator, &blocks, root, preprocessed);
-    return .{ .blocks = try blocks.toOwnedSlice(allocator) };
+    if (front.yaml) |yaml| {
+        try appendFrontMatterBlock(allocator, &blocks, yaml);
+        try recorder.sources.append(allocator, std.mem.trimRight(u8, blocks.items[0].frontmatter.raw, "\r\n"));
+    }
+    try collectBlocksWithSource(allocator, &blocks, root, &recorder);
+    std.debug.assert(recorder.sources.items.len == blocks.items.len);
+
+    const sources = try recorder.sources.toOwnedSlice(allocator);
+    errdefer allocator.free(sources);
+    return .{
+        .blocks = try blocks.toOwnedSlice(allocator),
+        .sources = sources,
+        .source_buffer = preprocessed,
+    };
 }
+
+/// Records, for every top-level block, the raw markdown it was parsed from.
+const SourceRecorder = struct {
+    map: SourceMap,
+    sources: std.ArrayList([]const u8) = .empty,
+
+    fn deinit(self: *SourceRecorder, allocator: std.mem.Allocator) void {
+        self.map.deinit(allocator);
+        self.sources.deinit(allocator);
+    }
+
+    /// Attributes every block appended since the last call to `node`.
+    fn record(self: *SourceRecorder, allocator: std.mem.Allocator, block_count: usize, node: *koino.nodes.AstNode) !void {
+        const raw = self.map.nodeSource(node);
+        while (self.sources.items.len < block_count) try self.sources.append(allocator, raw);
+    }
+};
 
 fn appendFrontMatterBlock(allocator: std.mem.Allocator, blocks: *std.ArrayList(Block), yaml: []const u8) !void {
     const raw = try allocator.dupe(u8, yaml);
@@ -43,7 +74,8 @@ fn appendFrontMatterBlock(allocator: std.mem.Allocator, blocks: *std.ArrayList(B
     try blocks.append(allocator, .{ .frontmatter = .{ .raw = raw, .entries = entries } });
 }
 
-fn collectBlocksWithSource(allocator: std.mem.Allocator, blocks: *std.ArrayList(Block), node: *koino.nodes.AstNode, source: []const u8) !void {
+fn collectBlocksWithSource(allocator: std.mem.Allocator, blocks: *std.ArrayList(Block), node: *koino.nodes.AstNode, recorder: *SourceRecorder) !void {
+    const source = recorder.map.text;
     var child = node.first_child;
     while (child) |current| : (child = current.next) {
         switch (current.data.value) {
@@ -54,26 +86,19 @@ fn collectBlocksWithSource(allocator: std.mem.Allocator, blocks: *std.ArrayList(
             .ThematicBreak => try blocks.append(allocator, .thematic_break),
             .BlockQuote => try appendBlockQuote(allocator, blocks, current),
             .Table => try appendTable(allocator, blocks, current),
-            .List => |list| try appendList(allocator, blocks, current, list),
-            else => if (current.first_child != null) try collectBlocksWithSource(allocator, blocks, current, source),
+            .List => |list| {
+                var item = current.first_child;
+                var index: usize = list.start;
+                while (item) |list_item| : (item = list_item.next) {
+                    if (list_item.data.value != .Item) continue;
+                    try appendListItem(allocator, blocks, list_item, list.list_type, index);
+                    try recorder.record(allocator, blocks.items.len, list_item);
+                    index += 1;
+                }
+            },
+            else => if (current.first_child != null) try collectBlocksWithSource(allocator, blocks, current, recorder),
         }
-    }
-}
-
-fn collectBlocks(allocator: std.mem.Allocator, blocks: *std.ArrayList(Block), node: *koino.nodes.AstNode) !void {
-    var child = node.first_child;
-    while (child) |current| : (child = current.next) {
-        switch (current.data.value) {
-            .Heading => |heading| try appendHeadingBlock(allocator, blocks, current, heading),
-            .Paragraph => try appendParagraphBlock(allocator, blocks, current),
-            .CodeBlock => |code| try appendCodeBlock(allocator, blocks, code),
-            .HtmlBlock => |html| try appendHtmlBlock(allocator, blocks, html),
-            .ThematicBreak => try blocks.append(allocator, .thematic_break),
-            .BlockQuote => try appendBlockQuote(allocator, blocks, current),
-            .Table => try appendTable(allocator, blocks, current),
-            .List => |list| try appendList(allocator, blocks, current, list),
-            else => if (current.first_child != null) try collectBlocks(allocator, blocks, current),
-        }
+        try recorder.record(allocator, blocks.items.len, current);
     }
 }
 
@@ -174,12 +199,7 @@ fn appendBlockQuote(allocator: std.mem.Allocator, blocks: *std.ArrayList(Block),
     try blocks.append(allocator, .{ .blockquote = result });
 }
 
-const BlockQuoteBlocksResult = struct {
-    blocks: []Block,
-    depth: u8,
-};
-
-fn collectBlockQuoteBlocks(allocator: std.mem.Allocator, node: *koino.nodes.AstNode, depth: u8) !Block.BlockQuote {
+fn collectBlockQuoteBlocks(allocator: std.mem.Allocator, node: *koino.nodes.AstNode, depth: u8) anyerror!Block.BlockQuote {
     var result: std.ArrayList(Block) = .empty;
     errdefer {
         for (result.items) |block| block.deinit(allocator);
@@ -188,34 +208,7 @@ fn collectBlockQuoteBlocks(allocator: std.mem.Allocator, node: *koino.nodes.AstN
 
     var child = node.first_child;
     while (child) |current| : (child = current.next) {
-        switch (current.data.value) {
-            .Heading => |heading| {
-                try appendHeadingBlock(allocator, &result, current, heading);
-            },
-            .Paragraph => {
-                try appendParagraphBlock(allocator, &result, current);
-            },
-            .CodeBlock => |code| {
-                try appendCodeBlock(allocator, &result, code);
-            },
-            .HtmlBlock => |html| {
-                try appendHtmlBlock(allocator, &result, html);
-            },
-            .ThematicBreak => {
-                try result.append(allocator, .thematic_break);
-            },
-            .BlockQuote => {
-                const nested = try collectBlockQuoteBlocks(allocator, current, depth + 1);
-                try result.append(allocator, .{ .blockquote = nested });
-            },
-            .Table => {
-                try appendTable(allocator, &result, current);
-            },
-            .List => |list| {
-                try appendList(allocator, &result, current, list);
-            },
-            else => {},
-        }
+        try appendChildBlock(allocator, &result, current, depth + 1);
     }
 
     return .{
@@ -224,190 +217,96 @@ fn collectBlockQuoteBlocks(allocator: std.mem.Allocator, node: *koino.nodes.AstN
     };
 }
 
-fn collectBlockQuoteInlines(allocator: std.mem.Allocator, node: *koino.nodes.AstNode) ![]Inline {
-    var result: std.ArrayList(Inline) = .empty;
-    errdefer {
-        for (result.items) |item| item.deinit(allocator);
-        result.deinit(allocator);
+/// Appends the block(s) for one container child (a block quote's or a list
+/// item's). Nested quotes take `quote_depth`; everything else keeps its own
+/// structure so the renderer can lay it out (code stays a code block, etc.).
+fn appendChildBlock(allocator: std.mem.Allocator, blocks: *std.ArrayList(Block), node: *koino.nodes.AstNode, quote_depth: u8) anyerror!void {
+    switch (node.data.value) {
+        .Heading => |heading| try appendHeadingBlock(allocator, blocks, node, heading),
+        .Paragraph => try appendParagraphBlock(allocator, blocks, node),
+        .CodeBlock => |code| try appendCodeBlock(allocator, blocks, code),
+        .HtmlBlock => |html| try appendHtmlBlock(allocator, blocks, html),
+        .ThematicBreak => try blocks.append(allocator, .thematic_break),
+        .BlockQuote => {
+            const nested = try collectBlockQuoteBlocks(allocator, node, quote_depth);
+            errdefer (Block{ .blockquote = nested }).deinit(allocator);
+            try blocks.append(allocator, .{ .blockquote = nested });
+        },
+        .Table => try appendTable(allocator, blocks, node),
+        .List => |list| try appendList(allocator, blocks, node, list),
+        else => {
+            var child = node.first_child;
+            while (child) |current| : (child = current.next) {
+                try appendChildBlock(allocator, blocks, current, quote_depth);
+            }
+        },
     }
-
-    var child = node.first_child;
-    var first = true;
-    while (child) |current| : (child = current.next) {
-        switch (current.data.value) {
-            .Paragraph, .Heading, .TableCell => {
-                if (!first) try result.append(allocator, .soft_break);
-                first = false;
-                const inlines = try collectInlines(allocator, current);
-                defer allocator.free(inlines);
-                for (inlines) |inline_| try result.append(allocator, inline_);
-            },
-            .CodeBlock => |code| {
-                if (!first) try result.append(allocator, .soft_break);
-                first = false;
-                try result.append(allocator, .{ .code = try allocator.dupe(u8, code.literal.items) });
-            },
-            .List => |list| {
-                const list_inlines = try collectListInlines(allocator, current, list, 0);
-                defer allocator.free(list_inlines);
-                for (list_inlines) |inline_| {
-                    if (!first or result.items.len > 0) {
-                        if (result.items.len > 0) try result.append(allocator, .soft_break);
-                    }
-                    first = false;
-                    try result.append(allocator, inline_);
-                }
-            },
-            .BlockQuote => {
-                const nested = try collectBlockQuoteInlines(allocator, current);
-                defer allocator.free(nested);
-                for (nested) |inline_| {
-                    if (!first) try result.append(allocator, .soft_break);
-                    first = false;
-                    try result.append(allocator, inline_);
-                }
-            },
-            else => {
-                const nested = try collectBlockInlines(allocator, current);
-                defer allocator.free(nested);
-                for (nested) |inline_| {
-                    if (!first) try result.append(allocator, .soft_break);
-                    first = false;
-                    try result.append(allocator, inline_);
-                }
-            },
-        }
-    }
-
-    return try result.toOwnedSlice(allocator);
 }
 
-fn collectListInlines(allocator: std.mem.Allocator, list_node: *koino.nodes.AstNode, list: koino.nodes.NodeList, depth: usize) anyerror![]Inline {
-    var result: std.ArrayList(Inline) = .empty;
-    errdefer {
-        for (result.items) |item| item.deinit(allocator);
-        result.deinit(allocator);
-    }
-
+fn appendList(allocator: std.mem.Allocator, blocks: *std.ArrayList(Block), list_node: *koino.nodes.AstNode, list: koino.nodes.NodeList) anyerror!void {
     var item = list_node.first_child;
     var index: usize = list.start;
     while (item) |list_item| : (item = list_item.next) {
         if (list_item.data.value != .Item) continue;
-
-        const indent = try allocator.alloc(u8, depth * 2);
-        @memset(indent, ' ');
-        defer allocator.free(indent);
-
-        const marker = switch (list.list_type) {
-            .Bullet => try std.fmt.allocPrint(allocator, "{s}- ", .{indent}),
-            .Ordered => blk: {
-                const m = try std.fmt.allocPrint(allocator, "{s}{d}. ", .{ indent, index });
-                index += 1;
-                break :blk m;
-            },
-        };
-        defer allocator.free(marker);
-
-        const item_inlines = try collectListItemInlines(allocator, list_item, depth);
-        defer allocator.free(item_inlines);
-
-        try result.append(allocator, .{ .text = try allocator.dupe(u8, marker) });
-        for (item_inlines) |inline_| try result.append(allocator, inline_);
+        try appendListItem(allocator, blocks, list_item, list.list_type, index);
+        index += 1;
     }
-
-    return try result.toOwnedSlice(allocator);
 }
 
-fn collectListItemInlines(allocator: std.mem.Allocator, item_node: *koino.nodes.AstNode, depth: usize) anyerror![]Inline {
-    var result: std.ArrayList(Inline) = .empty;
-    errdefer {
-        for (result.items) |item| item.deinit(allocator);
-        result.deinit(allocator);
-    }
-
+/// Appends one list item. Its first paragraph (or heading) becomes the item's
+/// text; every later child (paragraphs, code, quotes, tables, HTML, nested
+/// lists) is kept in source order as a block rendered under the text column.
+fn appendListItem(allocator: std.mem.Allocator, blocks: *std.ArrayList(Block), item_node: *koino.nodes.AstNode, list_type: koino.nodes.ListType, index: usize) anyerror!void {
     var child = item_node.first_child;
-    var first = true;
-    while (child) |current| : (child = current.next) {
-        switch (current.data.value) {
-            .Paragraph, .Heading, .TableCell => {
-                if (!first) try result.append(allocator, .soft_break);
-                first = false;
-                const inlines = try collectInlines(allocator, current);
-                defer allocator.free(inlines);
-                for (inlines) |inline_| try result.append(allocator, inline_);
+    const inlines: []Inline = blk: {
+        if (child) |first| switch (first.data.value) {
+            .Paragraph, .Heading => {
+                child = first.next;
+                break :blk try collectInlines(allocator, first);
             },
-            .CodeBlock => |code| {
-                if (!first) try result.append(allocator, .soft_break);
-                first = false;
-                try result.append(allocator, .{ .text = try allocator.dupe(u8, code.literal.items) });
-            },
-            .List => |nested_list| {
-                if (!first) try result.append(allocator, .soft_break);
-                first = false;
-                const nested = try collectListInlines(allocator, current, nested_list, depth + 1);
-                defer allocator.free(nested);
-                for (nested) |inline_| try result.append(allocator, inline_);
-            },
-            else => {
-                const nested = try collectBlockInlines(allocator, current);
-                defer allocator.free(nested);
-                for (nested) |inline_| {
-                    if (!first) try result.append(allocator, .soft_break);
-                    first = false;
-                    try result.append(allocator, inline_);
-                }
-            },
-        }
-    }
+            else => {},
+        };
+        break :blk try allocator.alloc(Inline, 0);
+    };
+    var content = inlines;
+    errdefer freeInlines(allocator, content);
 
-    return try result.toOwnedSlice(allocator);
-}
-
-fn collectBlockInlines(allocator: std.mem.Allocator, node: *koino.nodes.AstNode) ![]Inline {
-    if (node.first_child == null) {
-        var result: std.ArrayList(Inline) = .empty;
-        const leaf = try leafInline(allocator, node.data.value);
-        if (leaf) |inline_| {
-            try result.append(allocator, inline_);
-        }
-        return try result.toOwnedSlice(allocator);
-    }
-
-    var result: std.ArrayList(Inline) = .empty;
+    var nested: std.ArrayList(Block) = .empty;
     errdefer {
-        for (result.items) |item| item.deinit(allocator);
-        result.deinit(allocator);
+        for (nested.items) |block| block.deinit(allocator);
+        nested.deinit(allocator);
     }
-
-    var child = node.first_child;
-    var first = true;
     while (child) |current| : (child = current.next) {
-        switch (current.data.value) {
-            .Paragraph, .Heading, .TableCell => {
-                if (!first) try result.append(allocator, .soft_break);
-                first = false;
-                const inlines = try collectInlines(allocator, current);
-                defer allocator.free(inlines);
-                for (inlines) |inline_| try result.append(allocator, inline_);
-            },
-            .CodeBlock => |code| {
-                if (!first) try result.append(allocator, .soft_break);
-                first = false;
-                try result.append(allocator, .{ .text = try allocator.dupe(u8, code.literal.items) });
-            },
-            else => {
-                const nested = try collectBlockInlines(allocator, current);
-                defer allocator.free(nested);
-                for (nested) |inline_| {
-                    if (!first) try result.append(allocator, .soft_break);
-                    first = false;
-                    try result.append(allocator, inline_);
-                }
-            },
-        }
+        try appendChildBlock(allocator, &nested, current, 1);
+    }
+    const owned_nested = try nested.toOwnedSlice(allocator);
+    errdefer {
+        for (owned_nested) |block| block.deinit(allocator);
+        allocator.free(owned_nested);
     }
 
-    return try result.toOwnedSlice(allocator);
+    if (isTaskItem(content)) |checked| {
+        const task_content = try skipTaskMarker(allocator, content);
+        freeInlines(allocator, content);
+        content = task_content;
+        try blocks.append(allocator, .{ .task_list_item = .{
+            .checked = checked,
+            .content = content,
+            .nested = owned_nested,
+        } });
+        return;
+    }
+
+    const marker = switch (list_type) {
+        .Bullet => try allocator.dupe(u8, "- "),
+        .Ordered => try std.fmt.allocPrint(allocator, "{d}. ", .{index}),
+    };
+    errdefer allocator.free(marker);
+    const list_item: Block.ListItem = .{ .marker = marker, .content = content, .nested = owned_nested };
+    try blocks.append(allocator, switch (list_type) {
+        .Bullet => .{ .unordered_list_item = list_item },
+        .Ordered => .{ .ordered_list_item = list_item },
+    });
 }
 
 fn appendTable(allocator: std.mem.Allocator, blocks: *std.ArrayList(Block), table: *koino.nodes.AstNode) !void {
@@ -464,139 +363,6 @@ fn appendTable(allocator: std.mem.Allocator, blocks: *std.ArrayList(Block), tabl
         .rows = try rows.toOwnedSlice(allocator),
         .alignments = try alignments.toOwnedSlice(allocator),
     } });
-}
-
-fn appendList(allocator: std.mem.Allocator, blocks: *std.ArrayList(Block), list_node: *koino.nodes.AstNode, list: koino.nodes.NodeList) !void {
-    var item = list_node.first_child;
-    var index: usize = list.start;
-    while (item) |list_item| : (item = list_item.next) {
-        if (list_item.data.value != .Item) continue;
-
-        const content = try collectListItemContent(allocator, list_item);
-        errdefer freeInlines(allocator, content.inlines);
-        errdefer {
-            for (content.nested) |nested| nested.deinit(allocator);
-            allocator.free(content.nested);
-        }
-
-        if (isTaskItem(content.inlines)) |checked| {
-            const task_content = try skipTaskMarker(allocator, content.inlines);
-            freeInlines(allocator, content.inlines);
-            try blocks.append(allocator, .{ .task_list_item = .{ .checked = checked, .content = task_content } });
-            for (content.nested) |nested| nested.deinit(allocator);
-            allocator.free(content.nested);
-        } else switch (list.list_type) {
-            .Bullet => {
-                try blocks.append(allocator, .{ .unordered_list_item = .{
-                    .marker = try allocator.dupe(u8, "- "),
-                    .content = content.inlines,
-                    .nested = content.nested,
-                } });
-            },
-            .Ordered => {
-                const marker = try std.fmt.allocPrint(allocator, "{d}. ", .{index});
-                try blocks.append(allocator, .{ .ordered_list_item = .{
-                    .marker = marker,
-                    .content = content.inlines,
-                    .nested = content.nested,
-                } });
-                index += 1;
-            },
-        }
-    }
-}
-
-const ListItemContent = struct {
-    inlines: []Inline,
-    nested: []Block,
-};
-
-fn collectListItemContent(allocator: std.mem.Allocator, item_node: *koino.nodes.AstNode) anyerror!ListItemContent {
-    var inlines: std.ArrayList(Inline) = .empty;
-    errdefer {
-        for (inlines.items) |item| item.deinit(allocator);
-        inlines.deinit(allocator);
-    }
-
-    var nested: std.ArrayList(Block) = .empty;
-    errdefer {
-        for (nested.items) |block| block.deinit(allocator);
-        nested.deinit(allocator);
-    }
-
-    var child = item_node.first_child;
-    var first = true;
-    while (child) |current| : (child = current.next) {
-        switch (current.data.value) {
-            .Paragraph, .Heading, .TableCell => {
-                if (!first) try inlines.append(allocator, .soft_break);
-                first = false;
-                const collected = try collectInlines(allocator, current);
-                defer allocator.free(collected);
-                for (collected) |inline_| try inlines.append(allocator, inline_);
-            },
-            .CodeBlock => |code| {
-                if (!first) try inlines.append(allocator, .soft_break);
-                first = false;
-                try inlines.append(allocator, .{ .text = try allocator.dupe(u8, code.literal.items) });
-            },
-            .List => |nested_list| {
-                try appendNestedList(allocator, &nested, current, nested_list);
-            },
-            .BlockQuote => {
-                const bq = try collectBlockQuoteBlocks(allocator, current, 1);
-                try nested.append(allocator, .{ .blockquote = bq });
-            },
-            else => {
-                const collected = try collectBlockInlines(allocator, current);
-                defer allocator.free(collected);
-                for (collected) |inline_| {
-                    if (!first) try inlines.append(allocator, .soft_break);
-                    first = false;
-                    try inlines.append(allocator, inline_);
-                }
-            },
-        }
-    }
-
-    return .{
-        .inlines = try inlines.toOwnedSlice(allocator),
-        .nested = try nested.toOwnedSlice(allocator),
-    };
-}
-
-fn appendNestedList(allocator: std.mem.Allocator, nested: *std.ArrayList(Block), list_node: *koino.nodes.AstNode, list: koino.nodes.NodeList) anyerror!void {
-    var item = list_node.first_child;
-    var index: usize = list.start;
-    while (item) |list_item| : (item = list_item.next) {
-        if (list_item.data.value != .Item) continue;
-
-        const content = try collectListItemContent(allocator, list_item);
-        errdefer freeInlines(allocator, content.inlines);
-        errdefer {
-            for (content.nested) |n| n.deinit(allocator);
-            allocator.free(content.nested);
-        }
-
-        switch (list.list_type) {
-            .Bullet => {
-                try nested.append(allocator, .{ .unordered_list_item = .{
-                    .marker = try allocator.dupe(u8, "- "),
-                    .content = content.inlines,
-                    .nested = content.nested,
-                } });
-            },
-            .Ordered => {
-                const marker = try std.fmt.allocPrint(allocator, "{d}. ", .{index});
-                try nested.append(allocator, .{ .ordered_list_item = .{
-                    .marker = marker,
-                    .content = content.inlines,
-                    .nested = content.nested,
-                } });
-                index += 1;
-            },
-        }
-    }
 }
 
 fn isTaskItem(inlines: []const Inline) ?bool {
@@ -912,4 +678,5 @@ test "strikethrough preprocessing converts to unicode" {
 test {
     _ = frontmatter;
     _ = @import("parser_test.zig");
+    _ = @import("source_map.zig");
 }

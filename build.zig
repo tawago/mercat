@@ -98,6 +98,9 @@ pub fn build(b: *std.Build) void {
     test_module.addImport("text", text_mod);
     test_module.addImport("unicode", unicode_mod);
     linkExportFont(b, test_module);
+    test_module.addAnonymousImport("kitchen_sink_md", .{
+        .root_source_file = b.path("tests/fixtures/kitchen-sink.md"),
+    });
 
     const unit_tests = b.addTest(.{
         .root_module = test_module,

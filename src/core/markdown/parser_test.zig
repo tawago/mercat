@@ -56,3 +56,51 @@ test "emphasis around and inside links" {
     try expectParagraphShape("*a* [**b**](u) *c*", "E(a) L(S(b)) E(c)");
     try expectParagraphShape("**open [l](u) close**", "S(open L(l) close)");
 }
+
+test "list item block children are kept as blocks, in source order" {
+    const allocator = testing.allocator;
+    var doc = try parser.parse(allocator, "1. Install:\n\n   ```sh\n   make\n   ```\n\n   then\n\n   > q\n2. b\n");
+    defer doc.deinit(allocator);
+    try testing.expectEqual(@as(usize, 2), doc.blocks.len);
+    const item = doc.blocks[0].ordered_list_item;
+    try testing.expectEqual(@as(usize, 1), item.content.len);
+    try testing.expectEqualStrings("Install:", item.content[0].text);
+    try testing.expectEqual(@as(usize, 3), item.nested.len);
+    try testing.expectEqualStrings("sh", item.nested[0].fenced_code.language);
+    try testing.expectEqualStrings("make\n", item.nested[0].fenced_code.code);
+    try testing.expect(item.nested[1] == .paragraph);
+    try testing.expect(item.nested[2] == .blockquote);
+    try testing.expectEqualStrings("2. ", doc.blocks[1].ordered_list_item.marker);
+}
+
+test "task items keep nested blocks; nested task items are detected" {
+    const allocator = testing.allocator;
+    var doc = try parser.parse(allocator, "- [x] done\n\n  ```\n  code\n  ```\n- parent\n  - [ ] child\n");
+    defer doc.deinit(allocator);
+    const task = doc.blocks[0].task_list_item;
+    try testing.expect(task.checked);
+    try testing.expectEqual(@as(usize, 1), task.nested.len);
+    try testing.expect(task.nested[0] == .fenced_code);
+    const parent = doc.blocks[1].unordered_list_item;
+    try testing.expect(parent.nested[0] == .task_list_item);
+    try testing.expect(!parent.nested[0].task_list_item.checked);
+}
+
+test "list item starting with a code block has empty text and a code child" {
+    const allocator = testing.allocator;
+    var doc = try parser.parse(allocator, "- ```\n  x\n  ```\n");
+    defer doc.deinit(allocator);
+    const item = doc.blocks[0].unordered_list_item;
+    try testing.expectEqual(@as(usize, 0), item.content.len);
+    try testing.expect(item.nested[0] == .fenced_code);
+}
+
+test "every block records its raw source" {
+    const allocator = testing.allocator;
+    var doc = try parser.parse(allocator, "---\nk: v\n---\n# H\n\n- a\n- b\n\n  para\n\n<div>\nx\n</div>\n\nlast  \n");
+    defer doc.deinit(allocator);
+    const expected = [_][]const u8{ "k: v", "# H", "- a", "- b\n\n  para", "<div>\nx\n</div>", "last" };
+    try testing.expectEqual(expected.len, doc.blocks.len);
+    for (expected, 0..) |want, index| try testing.expectEqualStrings(want, doc.blockSource(index).?);
+    try testing.expect(doc.blockSource(expected.len) == null);
+}
