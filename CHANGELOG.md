@@ -4,6 +4,20 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.3.1]
+
+### Diagrams
+
+- **One fit ladder.** Sequence, class, ER and state diagrams now share one
+  in-order fit ladder. When a diagram does not fit the width, mercat prints
+  `warning: mermaid: <kind> diagram not drawn: width N > budget M` on stderr
+  instead of silently showing the source.
+- **Sequence diagrams wrap long message labels** to fit narrower terminals.
+  Lines break only at spaces or between CJK characters, never inside a word; a
+  diagram that needed 102 columns now draws at 61.
+- Wrapped sequence text draws accents, combining marks, flags and emoji
+  (including ZWJ sequences) whole.
+
 ## [0.3.0]
 
 ### Flowcharts
