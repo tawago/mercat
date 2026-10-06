@@ -100,6 +100,16 @@ pub const OpenError = error{
 /// Runs `editor_command` (which may carry arguments, e.g. "code --wait") with
 /// `file_path` appended, inheriting the terminal, and waits for it to exit.
 pub fn openFile(allocator: std.mem.Allocator, editor_command: []const u8, file_path: []const u8) OpenError!void {
+    return openFileNotify(allocator, editor_command, file_path, null);
+}
+
+/// Like `openFile`, but calls `on_spawn` with the editor's pid once it runs.
+pub fn openFileNotify(
+    allocator: std.mem.Allocator,
+    editor_command: []const u8,
+    file_path: []const u8,
+    on_spawn: ?*const fn (std.process.Child.Id) void,
+) OpenError!void {
     var command = process.splitCommand(allocator, editor_command) catch |err| switch (err) {
         error.OutOfMemory => return error.OutOfMemory,
         else => return error.InvalidEditorCommand,
@@ -117,9 +127,17 @@ pub fn openFile(allocator: std.mem.Allocator, editor_command: []const u8, file_p
     child.stdout_behavior = .Inherit;
     child.stderr_behavior = .Inherit;
 
-    const term = child.spawnAndWait() catch |err| switch (err) {
+    child.spawn() catch |err| switch (err) {
         error.OutOfMemory => return error.OutOfMemory,
         else => return error.EditorNotFound,
+    };
+    if (on_spawn) |notify| notify(child.id);
+    // An exec failure (missing program, no permission) is only reported by
+    // wait(), through the child's error pipe.
+    const term = child.wait() catch |err| switch (err) {
+        error.OutOfMemory => return error.OutOfMemory,
+        error.FileNotFound, error.AccessDenied, error.InvalidExe, error.NotDir, error.IsDir => return error.EditorNotFound,
+        else => return error.EditorFailed,
     };
     switch (term) {
         .Exited => |code| if (code != 0) return error.EditorFailed,

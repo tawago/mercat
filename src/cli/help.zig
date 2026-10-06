@@ -55,20 +55,17 @@ pub const help_text =
     \\                       less -R (only when stdout is a terminal)
     \\  -t, --tui            Open the file in the TUI viewer (needs an
     \\                       interactive terminal; defaults to ./README.md)
-    \\      --box-style <s>  Mermaid box glyphs: standard, rounded, heavy, double,
-    \\                       ascii
-    \\      --layout <a>     Mermaid layout: auto (default), sugiyama, tree, force
-    \\      --crossing-heuristic <h>
-    \\                       Mermaid crossing reduction: median (default),
-    \\                       barycenter
-    \\      --aspect-ratio <n>
-    \\                       Mermaid horizontal cell multiplier (default 1.0; try
-    \\                       2.0 on 2:1 terminals)
-    \\      --debug-mermaid  Print layout debug info for each Mermaid diagram
     \\  --                   End of options; later arguments are file names
     \\
     \\  Options taking a value accept "--opt value", "--opt=value", and for
     \\  short options "-w80".
+    \\
+    \\Compatibility options (accepted and validated, but currently no effect):
+    \\  --box-style <standard|rounded|heavy|double|ascii>
+    \\  --layout <auto|sugiyama|tree|force>
+    \\  --crossing-heuristic <median|barycenter>
+    \\  --aspect-ratio <n>
+    \\  --debug-mermaid    Prints a fixed marker block, not real layout stats
     \\
     \\Environment:
     \\  MERCAT_THEME, MERCAT_WIDTH, MERCAT_FRONTMATTER, MERCAT_SUBGRAPH_EDGES

@@ -91,10 +91,37 @@ test "signals typed into a running editor do not kill or repaint mercat" {
     try std.testing.expectEqual(guard.Response.ignore, guard.respond(SIG.INT, true));
     try std.testing.expectEqual(guard.Response.ignore, guard.respond(SIG.QUIT, true));
     try std.testing.expectEqual(guard.Response.stop_only, guard.respond(SIG.TSTP, true));
-    try std.testing.expectEqual(guard.Response.restore_and_exit, guard.respond(SIG.TERM, true));
-    try std.testing.expectEqual(guard.Response.restore_and_exit, guard.respond(SIG.HUP, true));
+    try std.testing.expectEqual(guard.Response.defer_until_child_exits, guard.respond(SIG.TERM, true));
+    try std.testing.expectEqual(guard.Response.defer_until_child_exits, guard.respond(SIG.HUP, true));
 
     try std.testing.expectEqual(guard.Response.restore_and_exit, guard.respond(SIG.INT, false));
     try std.testing.expectEqual(guard.Response.restore_and_exit, guard.respond(SIG.QUIT, false));
     try std.testing.expectEqual(guard.Response.suspend_and_resume, guard.respond(SIG.TSTP, false));
+}
+
+test "Ctrl-C that also kills the editor is dropped when it arrives, not when handled" {
+    const SIG = std.posix.SIG;
+    guard.setChildRunning(true);
+    // The handler decides while the child flag is still set...
+    try std.testing.expect(!guard.wouldForward(SIG.INT));
+    try std.testing.expect(!guard.wouldForward(SIG.QUIT));
+    // ...so the editor exiting (and clearing the flag) cannot turn it into an exit.
+    guard.setChildRunning(false);
+    try std.testing.expectEqual(@as(?u8, null), guard.pendingExitSignal());
+    try std.testing.expect(guard.wouldForward(SIG.INT));
+}
+
+test "SIGTERM while the editor runs waits for the editor instead of resetting its screen" {
+    const SIG = std.posix.SIG;
+    guard.setChildRunning(true);
+    try std.testing.expect(!guard.wouldForward(SIG.TERM));
+    try std.testing.expectEqual(@as(?u8, SIG.TERM), guard.pendingExitSignal());
+    try std.testing.expect(!guard.wouldForward(SIG.HUP));
+    try std.testing.expectEqual(@as(?u8, SIG.HUP), guard.pendingExitSignal());
+    // The guard is not installed here, so clearing the flag only drops the
+    // pending signal instead of exiting the test runner.
+    guard.setChildRunning(false);
+    try std.testing.expectEqual(@as(?u8, null), guard.pendingExitSignal());
+    try std.testing.expect(guard.wouldForward(SIG.TERM));
+    try std.testing.expect(guard.wouldForward(SIG.TSTP));
 }

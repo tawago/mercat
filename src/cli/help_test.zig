@@ -31,3 +31,13 @@ test "help lines fit in 80 columns and have no trailing spaces" {
         if (line.len != 0) try std.testing.expect(line[line.len - 1] != ' ');
     }
 }
+
+test "help does not present the no-op Mermaid flags as working controls" {
+    const text = help.help_text;
+    const section = std.mem.indexOf(u8, text, "Compatibility options (accepted and validated, but currently no effect):").?;
+    for ([_][]const u8{ "--box-style", "--layout", "--crossing-heuristic", "--aspect-ratio", "--debug-mermaid" }) |flag| {
+        const at = std.mem.indexOf(u8, text, flag).?;
+        try std.testing.expect(at > section);
+    }
+    try std.testing.expect(std.mem.indexOf(u8, text, "try 2.0") == null);
+}

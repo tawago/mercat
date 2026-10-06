@@ -505,7 +505,7 @@ pub const App = struct {
 
         const loop_was_running = try self.suspendForChild();
         term_guard.setChildRunning(true);
-        const result = editor.openFile(self.allocator, resolved.command, path);
+        const result = editor.openFileNotify(self.allocator, resolved.command, path, term_guard.setChildPid);
         term_guard.setChildRunning(false);
         try self.resumeFromChild(loop_was_running);
         result catch |err| switch (err) {

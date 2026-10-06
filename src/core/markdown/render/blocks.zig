@@ -42,23 +42,23 @@ pub fn renderBlock(allocator: std.mem.Allocator, builder: *Builder, block: Block
         .unordered_list_item => |item| {
             const marker = try bulletMarker(allocator, decor, 0);
             defer allocator.free(marker);
-            try renderListItem(allocator, builder, item, content_width, marker, .bullet, 0, decor);
+            try renderListItem(allocator, builder, item, content_width, marker, .bullet, 0, &options);
         },
         .ordered_list_item => |item| {
             const marker = try orderedMarker(allocator, decor, item.marker);
             defer allocator.free(marker);
-            try renderListItem(allocator, builder, item, content_width, marker, .ordered, 0, decor);
+            try renderListItem(allocator, builder, item, content_width, marker, .ordered, 0, &options);
         },
         .task_list_item => |item| {
             const marker = try taskMarker(allocator, decor, item.checked);
             defer allocator.free(marker);
-            try renderTaskItem(allocator, builder, item, content_width, marker, decor);
+            try renderTaskItem(allocator, builder, item, content_width, marker, &options);
         },
         .fenced_code => |code| try code_mod.render(allocator, builder, code, content_width, options.mermaid_debug, options.mermaid_subgraph_edges, decor),
         .html_block => |html| try html_mod.render(allocator, builder, html, content_width, decor),
         .thematic_break => try rules.renderHr(builder, content_width, decor),
         .table => |table| try table_mod.renderTable(allocator, builder, table, content_width, decor),
-        .blockquote => |bq| try renderBlockQuote(allocator, builder, bq, content_width, options.left_padding, decor),
+        .blockquote => |bq| try renderBlockQuote(allocator, builder, bq, content_width, options.left_padding, &options),
     }
 }
 
@@ -117,7 +117,8 @@ pub fn renderParagraph(allocator: std.mem.Allocator, builder: *Builder, inlines:
     }
 }
 
-pub fn renderListItem(allocator: std.mem.Allocator, builder: *Builder, item: Block.ListItem, width: usize, display_marker: []const u8, marker_style: SpanStyle, depth: u8, decor: *const Decor) anyerror!void {
+pub fn renderListItem(allocator: std.mem.Allocator, builder: *Builder, item: Block.ListItem, width: usize, display_marker: []const u8, marker_style: SpanStyle, depth: u8, options: *const Options) anyerror!void {
+    const decor = options.decor;
     const indent_count = @as(usize, depth) * 2;
     const indent = try repeatSpaces(allocator, indent_count);
     defer allocator.free(indent);
@@ -161,16 +162,16 @@ pub fn renderListItem(allocator: std.mem.Allocator, builder: *Builder, item: Blo
             .unordered_list_item => |n| {
                 const nested_bullet = try bulletMarker(allocator, decor, depth + 1);
                 defer allocator.free(nested_bullet);
-                try renderListItem(allocator, builder, n, width, nested_bullet, .bullet, depth + 1, decor);
+                try renderListItem(allocator, builder, n, width, nested_bullet, .bullet, depth + 1, options);
             },
             .ordered_list_item => |n| {
                 const nested_marker = try orderedMarker(allocator, decor, n.marker);
                 defer allocator.free(nested_marker);
-                try renderListItem(allocator, builder, n, width, nested_marker, .ordered, depth + 1, decor);
+                try renderListItem(allocator, builder, n, width, nested_marker, .ordered, depth + 1, options);
             },
             // Sibling lists step in by depth; task items match them.
-            .task_list_item => try renderIndentedBlock(allocator, builder, nested, width, indent_count + 2, decor),
-            else => try renderIndentedBlock(allocator, builder, nested, width, try geometry.displayWidth(continuation), decor),
+            .task_list_item => try renderIndentedBlock(allocator, builder, nested, width, indent_count + 2, options),
+            else => try renderIndentedBlock(allocator, builder, nested, width, try geometry.displayWidth(continuation), options),
         }
     }
 }
@@ -181,23 +182,25 @@ pub fn renderListItem(allocator: std.mem.Allocator, builder: *Builder, item: Blo
 /// column, so width and tab math see the real origin, then moved over
 /// verbatim, its last line left pending. The builder must be at the start of
 /// a line.
-fn renderIndentedBlock(allocator: std.mem.Allocator, builder: *Builder, block: Block, width: usize, indent: usize, decor: *const Decor) anyerror!void {
+fn renderIndentedBlock(allocator: std.mem.Allocator, builder: *Builder, block: Block, width: usize, indent: usize, options: *const Options) anyerror!void {
     var scratch = Builder.init(allocator);
     defer scratch.deinit();
     const origin = builder.left_padding + indent;
     scratch.left_padding = origin;
-    try renderBlock(allocator, &scratch, block, .{
-        .width = origin + (width -| indent),
-        .left_padding = origin,
-        .decor = decor,
-    });
+    // Everything but the geometry (mermaid settings, front matter style,
+    // decor) carries over from the caller.
+    var nested = options.*;
+    nested.width = origin + (width -| indent);
+    nested.left_padding = origin;
+    try renderBlock(allocator, &scratch, block, nested);
     // Keep the last line open even when the block closed it (block quotes
     // do), so the item's next child follows without a stray blank line.
     _ = try scratch.seal();
     try builder.absorb(&scratch, true);
 }
 
-pub fn renderTaskItem(allocator: std.mem.Allocator, builder: *Builder, item: Block.TaskItem, width: usize, marker: []const u8, decor: *const Decor) anyerror!void {
+pub fn renderTaskItem(allocator: std.mem.Allocator, builder: *Builder, item: Block.TaskItem, width: usize, marker: []const u8, options: *const Options) anyerror!void {
+    const decor = options.decor;
     const content = item.content;
     const marker_style: SpanStyle = if (item.checked) .task_on else .task_off;
     const continuation = try repeatSpaces(allocator, try geometry.displayWidth(marker));
@@ -229,11 +232,12 @@ pub fn renderTaskItem(allocator: std.mem.Allocator, builder: *Builder, item: Blo
     for (item.nested) |nested| {
         if (try rendersNothing(allocator, nested)) continue;
         try builder.newline();
-        try renderIndentedBlock(allocator, builder, nested, width, continuation.len, decor);
+        try renderIndentedBlock(allocator, builder, nested, width, continuation.len, options);
     }
 }
 
-pub fn renderBlockQuote(allocator: std.mem.Allocator, builder: *Builder, bq: Block.BlockQuote, width: usize, left_padding: usize, decor: *const Decor) anyerror!void {
+pub fn renderBlockQuote(allocator: std.mem.Allocator, builder: *Builder, bq: Block.BlockQuote, width: usize, left_padding: usize, options: *const Options) anyerror!void {
+    const decor = options.decor;
     var prefix_buf: std.ArrayList(u8) = .empty;
     defer prefix_buf.deinit(allocator);
     try prefix_buf.appendNTimes(allocator, ' ', left_padding);
@@ -251,7 +255,7 @@ pub fn renderBlockQuote(allocator: std.mem.Allocator, builder: *Builder, bq: Blo
 
         if (block == .blockquote) {
             const nested_bq = block.blockquote;
-            try renderBlockQuote(allocator, builder, nested_bq, width, left_padding, decor);
+            try renderBlockQuote(allocator, builder, nested_bq, width, left_padding, options);
             continue;
         }
 
@@ -263,19 +267,19 @@ pub fn renderBlockQuote(allocator: std.mem.Allocator, builder: *Builder, bq: Blo
             .unordered_list_item => |item| {
                 const marker = try bulletMarker(allocator, decor, 0);
                 defer allocator.free(marker);
-                try renderListItem(allocator, builder, item, content_width, marker, .bullet, 0, decor);
+                try renderListItem(allocator, builder, item, content_width, marker, .bullet, 0, options);
             },
             .ordered_list_item => |item| {
                 const marker = try orderedMarker(allocator, decor, item.marker);
                 defer allocator.free(marker);
-                try renderListItem(allocator, builder, item, content_width, marker, .ordered, 0, decor);
+                try renderListItem(allocator, builder, item, content_width, marker, .ordered, 0, options);
             },
             .task_list_item => |item| {
                 const marker = try taskMarker(allocator, decor, item.checked);
                 defer allocator.free(marker);
-                try renderTaskItem(allocator, builder, item, content_width, marker, decor);
+                try renderTaskItem(allocator, builder, item, content_width, marker, options);
             },
-            .fenced_code => |code| try code_mod.render(allocator, builder, code, content_width, false, .bridge, decor),
+            .fenced_code => |code| try code_mod.render(allocator, builder, code, content_width, options.mermaid_debug, options.mermaid_subgraph_edges, decor),
             .html_block => |html| try html_mod.render(allocator, builder, html, content_width, decor),
             .thematic_break => try rules.renderHr(builder, content_width, decor),
             .table => |table| try table_mod.renderTable(allocator, builder, table, content_width, decor),
