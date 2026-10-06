@@ -109,6 +109,10 @@ pub const LineScanner = struct {
     section: []const u8,
     table: []const u8,
     subtable: []const u8,
+    /// 1-based number of the line most recently read.
+    line: usize = 0,
+    /// Line of the most recent `[section]` header (0 before any header).
+    section_line: usize = 0,
 
     pub const Event = struct {
         section: []const u8,
@@ -116,10 +120,13 @@ pub const LineScanner = struct {
         subtable: []const u8,
         key: []const u8,
         value: []const u8,
+        line: usize = 0,
+        section_line: usize = 0,
     };
 
     pub fn next(self: *LineScanner) ?Event {
         while (self.lines.next()) |raw_line| {
+            self.line += 1;
             const trimmed = std.mem.trim(u8, raw_line, " \t\r");
             if (trimmed.len == 0 or trimmed[0] == '#') continue;
 
@@ -128,6 +135,7 @@ pub const LineScanner = struct {
                 const split = splitSection(self.section);
                 self.table = split.table;
                 self.subtable = split.subtable;
+                self.section_line = self.line;
                 continue;
             }
 
@@ -140,6 +148,8 @@ pub const LineScanner = struct {
                 .subtable = self.subtable,
                 .key = key,
                 .value = value,
+                .line = self.line,
+                .section_line = self.section_line,
             };
         }
         return null;

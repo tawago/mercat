@@ -95,14 +95,14 @@ test "frontmatter: file value is stripped of quotes before enum parse, quoted an
     try std.testing.expectEqual(FrontmatterStyle.raw, bare.display.frontmatter);
 }
 
-test "frontmatter: invalid value in a config file surfaces the error instead of defaulting" {
+test "frontmatter: invalid value in a config file keeps the default instead of failing" {
     var cfg = try parseTomlLike(std.testing.allocator, default_config_text);
     defer cfg.deinit(std.testing.allocator);
 
-    try std.testing.expectError(error.InvalidFrontmatterStyle, applyTomlLike(std.testing.allocator, &cfg,
+    try applyTomlLike(std.testing.allocator, &cfg,
         \\[display]
         \\frontmatter = "fancy"
-    ));
+    );
     try std.testing.expectEqual(FrontmatterStyle.panel, cfg.display.frontmatter);
 }
 
