@@ -96,15 +96,20 @@ pub fn appendInlineTokens(allocator: std.mem.Allocator, tokens: *std.ArrayList(I
             try appendInlineSliceTokens(allocator, tokens, children, .strikethrough, decor);
         },
         .link => |link| {
+            // `[]()` and `<a href=""></a>` show nothing; an empty URL shows no `<>`.
+            if (link.url.len == 0 and isBlank(link.text)) return;
             const ld = decor.slot(.link);
             const start = tokens.items.len;
             if (ld.icon.len != 0) try tokens.append(allocator, .{ .text = try allocator.dupe(u8, ld.icon), .style = .link });
             try appendInlineSliceTokens(allocator, tokens, link.text, .link, decor);
-            for (tokens.items[start..]) |*tok| {
-                tok.url = try allocator.dupe(u8, link.url);
+            if (link.url.len != 0) {
+                for (tokens.items[start..]) |*tok| {
+                    tok.url = try allocator.dupe(u8, link.url);
+                }
+                const gap: []const u8 = if (isBlank(link.text)) "" else " ";
+                const url_text = try std.fmt.allocPrint(allocator, "{s}<{s}>", .{ gap, link.url });
+                try tokens.append(allocator, .{ .text = url_text, .style = .link, .url = try allocator.dupe(u8, link.url) });
             }
-            const url_text = try std.fmt.allocPrint(allocator, " <{s}>", .{link.url});
-            try tokens.append(allocator, .{ .text = url_text, .style = .link, .url = try allocator.dupe(u8, link.url) });
             if (ld.suffix.len != 0) try tokens.append(allocator, .{ .text = try allocator.dupe(u8, ld.suffix), .style = .link });
         },
         .image => |image| {
@@ -199,10 +204,14 @@ fn appendInlineMeasurementText(allocator: std.mem.Allocator, buffer: *std.ArrayL
             for (children) |child| try appendInlineMeasurementText(allocator, buffer, child);
         },
         .link => |link| {
+            if (link.url.len == 0 and isBlank(link.text)) return;
             for (link.text) |child| try appendInlineMeasurementText(allocator, buffer, child);
-            try buffer.appendSlice(allocator, " <");
-            try buffer.appendSlice(allocator, link.url);
-            try buffer.append(allocator, '>');
+            if (link.url.len != 0) {
+                if (!isBlank(link.text)) try buffer.append(allocator, ' ');
+                try buffer.append(allocator, '<');
+                try buffer.appendSlice(allocator, link.url);
+                try buffer.append(allocator, '>');
+            }
         },
         .image => |image| {
             try buffer.appendSlice(allocator, "[Image: ");
@@ -211,6 +220,18 @@ fn appendInlineMeasurementText(allocator: std.mem.Allocator, buffer: *std.ArrayL
         },
         .soft_break, .line_break => try buffer.append(allocator, ' '),
     }
+}
+
+/// True when `inlines` has no visible text (only whitespace or nothing).
+fn isBlank(inlines: []const Inline) bool {
+    for (inlines) |inline_| switch (inline_) {
+        .text, .code, .html => |text| if (std.mem.trim(u8, text, " \t").len != 0) return false,
+        .emphasis, .strong, .strikethrough => |children| if (!isBlank(children)) return false,
+        .link => |link| if (link.url.len != 0 or !isBlank(link.text)) return false,
+        .image => return false,
+        .soft_break, .line_break => {},
+    };
+    return true;
 }
 
 pub fn inlinesToText(allocator: std.mem.Allocator, inlines: []const Inline) ![]u8 {

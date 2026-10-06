@@ -211,6 +211,9 @@ const Converter = struct {
     preformatted: bool = false,
     link_start: ?usize = null,
     link_url: []const u8 = "",
+    /// A space was pending when the open link began; it goes before the
+    /// link only if the link shows something.
+    link_space: bool = false,
 
     fn deinit(self: *Converter) void {
         for (self.out.items) |item| item.deinit(self.allocator);
@@ -256,12 +259,24 @@ const Converter = struct {
         const start = self.link_start orelse return;
         self.link_start = null;
         try self.flushText();
-        const children = try self.allocator.dupe(Inline, self.out.items[start..]);
+        if (self.out.items.len == start and self.link_url.len == 0) {
+            // `<a href=""></a>`: nothing to show, and no doubled space.
+            self.pending_space = self.pending_space or self.link_space;
+            return;
+        }
+        var link_at = start;
+        if (self.link_space) {
+            const space = try self.allocator.dupe(u8, " ");
+            errdefer self.allocator.free(space);
+            try self.out.insert(self.allocator, start, .{ .text = space });
+            link_at += 1;
+        }
+        const children = try self.allocator.dupe(Inline, self.out.items[link_at..]);
         errdefer self.allocator.free(children);
         const url = try self.allocator.dupe(u8, self.link_url);
         errdefer self.allocator.free(url);
         try self.out.ensureUnusedCapacity(self.allocator, 1);
-        self.out.shrinkRetainingCapacity(start);
+        self.out.shrinkRetainingCapacity(link_at);
         self.out.appendAssumeCapacity(.{ .link = .{ .text = children, .url = url } });
     }
 
@@ -285,8 +300,9 @@ const Converter = struct {
             .anchor => if (t.closing) try self.closeLink() else {
                 try self.closeLink();
                 const href = attrValue(t.text, "href") orelse return;
-                try self.beginContent();
                 try self.flushText();
+                self.link_space = self.pending_space and self.line_started;
+                self.pending_space = false;
                 self.link_start = self.out.items.len;
                 self.link_url = href;
             },

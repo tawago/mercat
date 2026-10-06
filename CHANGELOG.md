@@ -35,6 +35,8 @@ All notable changes to this project will be documented in this file.
   paragraph containing one rendered as `[block could not be rendered]`.
   Escape sequences in text, code, link URLs, tables, front matter or character
   references (`&#27;`) never reach the terminal.
+- Links with an empty URL (`[text]()`, `<a href="">text</a>`) no longer show a
+  stray `<>`; an empty `<a href=""></a>` shows nothing.
 - Block quotes have one space after the bar in every theme (was three before
   plain text), and the extra blank line after each quote is gone.
 

@@ -69,6 +69,15 @@ test "anchors become links; inline formatting tags keep their text" {
     try expectConverted("<a name=\"top\"></a>", "");
 }
 
+test "anchors with an empty href or no content add no stray link or space" {
+    try expectConverted("<a href=\"\">x</a>", "{link x -> }");
+    try expectConverted("<p>a <a href=\"\"></a> b</p>", "a b");
+    try expectConverted("<p>a <a href=\"\"> </a> b</p>", "a b");
+    try expectConverted("<p><a href=\"\"></a>b</p>", "b");
+    try expectConverted("<p>a <a href=\"u\"></a> b</p>", "a {link  -> u} b");
+    try expectConverted("<p>a <a href=\"u\">t</a></p>", "a {link t -> u}");
+}
+
 test "unknown and styling tags are kept; entities decode; stray < stays text" {
     try expectConverted("<aside>raw html</aside>", "raw html");
     try expectConverted("<sup>2</sup>", "{html <sup>}2{html </sup>}");

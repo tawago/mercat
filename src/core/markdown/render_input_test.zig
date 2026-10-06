@@ -180,3 +180,24 @@ test "hostile input renders in every built-in theme at narrow widths" {
         }
     }
 }
+
+test "links with an empty URL show no angle brackets" {
+    const cases = [_]struct { input: []const u8, want: []const u8 }{
+        .{ .input = "a [x]() b\n", .want = "a x b\n" },
+        .{ .input = "a []() b\n", .want = "a  b\n" },
+        .{ .input = "a [](u) b\n", .want = "a <u> b\n" },
+        .{ .input = "<div>\n<a href=\"\">x</a> and <a href=\"\"></a> and <a href=\"u\">y</a> end\n</div>\n", .want = "x and and y <u> end\n" },
+        .{ .input = "<div>\na <a href=\"u\"></a> b\n</div>\n", .want = "a <u> b\n" },
+        .{ .input = "<div>\n<a href=\"\"></a>\n</div>\n\nafter\n", .want = "after\n" },
+    };
+    for (cases) |case| {
+        const out = try renderClean(case.input);
+        defer out.deinit();
+        const trimmed = std.mem.trimLeft(u8, out.text, " \n");
+        testing.expectEqualStrings(case.want, trimmed) catch |err| {
+            std.debug.print("input: {s}\n", .{case.input});
+            return err;
+        };
+        try testing.expect(!out.has("<>"));
+    }
+}
