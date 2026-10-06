@@ -62,25 +62,32 @@ zig build -Doptimize=ReleaseFast
 
 ```bash
 # TUI mode
-mercat -t README.md           # View file in TUI
-mercat -t .                   # Browse directory (WIP)
+mercat -t README.md           # View a file in the TUI
+mercat -t                     # Same, opening ./README.md
 
 # CLI mode
 mercat README.md              # Render to stdout
-mercat -p README.md           # Pipe through pager
-mercat -w 80 README.md        # Fixed width
-mercat --style dracula README.md   # Pick a built-in preset or user theme
+mercat -p README.md           # Pipe through a pager ($PAGER, config pager, or less -R)
+mercat -w 80 README.md        # Fixed width (0 = terminal width, else 20..1000)
+mercat --theme dracula README.md   # Pick a built-in preset or user theme (alias: --style)
+mercat --list-themes          # Built-in and user themes, one per line
 mercat --dump-theme dark      # Print a theme as editable TOML
+mercat --format plain README.md > README.txt   # Plain text, no escapes
+mercat --color=always README.md | less -R      # Keep color through a pipe
 cat file.md | mercat          # Read from stdin (no `-` needed)
 cat file.md | mercat -        # Explicit stdin
+mercat -- -notes.md           # `--` ends options
 
 # Mermaid
 mercat diagram.mmd            # .mmd / .mermaid files render as one diagram
 printf 'flowchart LR\n  A-->B\n' | mercat   # bare diagram source, no fence
 ```
 
+Options that take a value accept `--opt value`, `--opt=value`, and for short
+options `-w80`. Run `mercat --help` for the full list.
+
 With no file argument, mercat reads stdin whenever it is a pipe or redirect;
-when stdin is an interactive terminal it prints the usage text and exits 1.
+when stdin is an interactive terminal it prints the usage text and exits 2.
 
 Piped input is sniffed: if it carries no ```` ```mermaid ```` fence and its
 first non-blank, non-`%%` line begins at column 0 with a diagram keyword
@@ -88,6 +95,24 @@ first non-blank, non-`%%` line begins at column 0 with a diagram keyword
 `flowchart`/`graph` followed by a direction such as `TD`/`LR`), the whole
 input is rendered as a single Mermaid diagram. An indented first line stays
 markdown, since indentation there means "code block".
+
+**Color.** `--color auto|always|never` (default `auto`). Without the flag,
+`NO_COLOR` (non-empty) turns color off, `CLICOLOR_FORCE` / `FORCE_COLOR`
+(non-empty, not `0`) turn it on, then the `[display] color` config key
+applies, `TERM=dumb` turns it off, and otherwise color is used only when
+stdout is a terminal, so piped output is plain text. `never` keeps the layout
+but emits no escape sequences. OSC 8 hyperlinks are emitted only when color is
+on and stdout is a terminal.
+
+**TUI mode** needs an interactive terminal and a file: `-t` refuses to start
+when stdout is not a terminal, when stdin is a pipe and no file is given, or
+when given a directory (directory browsing is not available yet).
+
+**Diagnostics and exit status.** Errors and warnings go to stderr as
+`mercat: error: …` / `mercat: warning: …`. Exit status is `0` on success, `1`
+on a runtime failure (unreadable input, write error, export failure) and `2`
+on a usage error (unknown option, bad value, conflicting options). Writing to
+a closed pipe (`mercat big.md | head -1`) exits 0 silently.
 
 ## TUI Key Bindings
 
@@ -103,29 +128,36 @@ markdown, since indentation there means "code block".
 
 ## Configuration
 
-Config file: `~/.config/mercat/config.toml`
+Config file: `$XDG_CONFIG_HOME/mercat/config.toml`, else
+`~/.config/mercat/config.toml` (`mercat --help` prints the resolved path).
+Every key is optional. Command-line flags win over environment variables,
+which win over the config file. A bad value, unknown key or unknown section
+never stops a run: mercat prints a warning with `path:line` (with a
+did-you-mean when one is close) and keeps the default.
 
 ```toml
 [general]
-editor = "vim"
-pager = "less -R"
+editor = "vim"       # editor command for the TUI's `e` key
+pager = "less -R"    # used by -p when $PAGER is unset
 
 [display]
 theme = "dark"       # dark, light, ansi, dracula,
                      # tokyo-night, pink, markview, or a user theme name
-width = 0            # 0 = terminal width
+width = 0            # 0 = terminal width, else 20..1000
 heading_markers = true
+color = "auto"       # auto, always, never (see Color above)
 # YAML front matter display: panel (default), dim, compact, raw, hidden
 frontmatter = "panel"
 
-[files]
-extensions = ["md", "markdown", "mdown", "mkd"]
+[mermaid]
+# How an edge crossing a subgraph border is drawn: bridge (default), cross
+subgraph_edges = "bridge"
 ```
 
 ### Theming
 
 mercat resolves colors and glyphs through a single theme system. Pick a theme
-with `theme = "<name>"` in `[display]`, the `--style <name>` flag, or the
+with `theme = "<name>"` in `[display]`, the `--theme <name>` flag, or the
 `MERCAT_THEME` environment variable. Built-in names are `dark`, `light`,
 `ansi`, `dracula`, `tokyo-night`, `pink`, and `markview`.
 
@@ -151,7 +183,7 @@ table_style = "grid"             # grid, heavy, double, ascii, rounded
 
 The full slot list (40 slots) and per-element documentation live in
 [`theme-guide.md`](theme-guide.md); open it under different styles to see each
-element change, e.g. `mercat --style dracula theme-guide.md`.
+element change, e.g. `mercat --theme dracula theme-guide.md`.
 
 **User theme files.** Drop `<name>.toml` in `~/.config/mercat/themes/`
 (or `$XDG_CONFIG_HOME/mercat/themes/`) and select it by its filename stem. A
@@ -160,11 +192,13 @@ slots it wants. Generate an editable starting point with:
 
 ```bash
 mercat --dump-theme dark > ~/.config/mercat/themes/mine.toml
-mercat --style mine README.md
+mercat --theme mine README.md
 ```
 
-Environment overrides: `MERCAT_THEME`, `MERCAT_WIDTH`, `MERCAT_SYNTAX_THEME`,
-`MERCAT_FRONTMATTER`.
+Environment overrides: `MERCAT_THEME`, `MERCAT_WIDTH`, `MERCAT_FRONTMATTER`,
+`MERCAT_SUBGRAPH_EDGES` (and the deprecated `MERCAT_SYNTAX_THEME`). An invalid
+value is reported as a warning and ignored. `mercat --list-themes` shows every
+theme name mercat can find.
 
 ## Status
 

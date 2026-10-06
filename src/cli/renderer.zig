@@ -38,6 +38,25 @@ pub fn serialize(
     palette: theme.StyleMap,
     canvas: ?Canvas,
 ) ![]u8 {
+    return serializeWith(allocator, rendered, palette, canvas, .{});
+}
+
+/// What the serializer may emit. With `color` off the output has the same
+/// text and line breaks but no SGR, no canvas padding and no OSC 8.
+pub const Emit = struct {
+    color: bool = true,
+    hyperlinks: bool = true,
+};
+
+pub fn serializeWith(
+    allocator: std.mem.Allocator,
+    rendered: render_model.Rendered,
+    palette: theme.StyleMap,
+    canvas_opt: ?Canvas,
+    emit: Emit,
+) ![]u8 {
+    if (!emit.color) return serializeBare(allocator, rendered);
+    const canvas = canvas_opt;
     var buffer: std.ArrayList(u8) = .empty;
     errdefer buffer.deinit(allocator);
 
@@ -62,7 +81,11 @@ pub fn serialize(
             }
             if (span.url) |url| {
                 try flushRun(allocator, &buffer, &run_token, &run_open);
-                try ansi.writeHyperlink(allocator, &buffer, url, span.text, token);
+                if (emit.hyperlinks) {
+                    try ansi.writeHyperlink(allocator, &buffer, url, span.text, token);
+                } else {
+                    try ansi.writeTokenStyled(allocator, &buffer, token, span.text);
+                }
             } else {
                 if (run_token != null and !std.meta.eql(run_token.?, token)) {
                     try flushRun(allocator, &buffer, &run_token, &run_open);
@@ -91,6 +114,16 @@ pub fn serialize(
     }
     try flushRun(allocator, &buffer, &run_token, &run_open);
 
+    return try buffer.toOwnedSlice(allocator);
+}
+
+fn serializeBare(allocator: std.mem.Allocator, rendered: render_model.Rendered) ![]u8 {
+    var buffer: std.ArrayList(u8) = .empty;
+    errdefer buffer.deinit(allocator);
+    for (rendered.lines, 0..) |line, line_index| {
+        if (line_index != 0) try buffer.append(allocator, '\n');
+        for (line.spans) |span| try buffer.appendSlice(allocator, span.text);
+    }
     return try buffer.toOwnedSlice(allocator);
 }
 
@@ -379,4 +412,8 @@ test "can hide heading markers" {
 
     try std.testing.expect(std.mem.indexOf(u8, rendered, "###") == null);
     try std.testing.expect(std.mem.indexOf(u8, rendered, "Title") != null);
+}
+
+test {
+    _ = @import("renderer_emit_test.zig");
 }
